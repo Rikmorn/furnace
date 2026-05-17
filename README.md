@@ -1,15 +1,28 @@
 # furnace
 
-To install dependencies:
+A WebGPU exploration project. Currently bootstrapped to render a single triangle to (a) a browser tab and (b) a native desktop window, sharing the same TS/HTML/WGSL code in both contexts. Inspired by [Shallot](https://github.com/dylanebert/shallot); see `.docs/shallot-and-game-engine-architecture.md` for the broader architectural vision.
+
+## Requirements
+
+- [Bun](https://bun.com) 1.3+
+- macOS Tahoe 26+ for the native target (Windows is supported in principle but unverified pending bundling — see `.docs/BACKLOG.md`)
+- Rust toolchain (cargo) for the native target
+
+## Run
 
 ```bash
-bun install
+bun install                  # install workspace deps
+bun run dev:web              # browser path; open the URL it prints
+bun run dev:native           # native window path (mac/windows only)
+bun run check                # biome lint + format
+bun run typecheck            # tsc --noEmit
+bun test                     # smoke tests
 ```
 
-To run:
+## Layout
 
-```bash
-bun run index.ts
-```
-
-This project was created using `bun init` in bun v1.3.14. [Bun](https://bun.com) is a fast all-in-one JavaScript runtime.
+- `packages/core/` — engine code and the triangle demo (HTML + TS + WGSL).
+- `packages/core/native/` — Rust crate (`winit` + `wry`) that opens a native window hosting the same web app.
+- `.docs/` — architecture notes, BACKLOG, and other planning context.
+- `docs/superpowers/specs/`, `docs/superpowers/plans/` — design specs and implementation plans.
+- `.claude/CLAUDE.md`, `AGENTS.md` — agent guidance.
