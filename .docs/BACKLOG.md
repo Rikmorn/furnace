@@ -86,9 +86,10 @@ Group by category. Add categories as needed; don't pre-create empty ones.
 
 ## Editor & tooling
 
-### Svelte-based editor / scene inspector
-**Context:** Architecture doc §10 — Shallot uses Svelte for fine-grained reactivity + no virtual-DOM overhead, which coexists nicely with a WebGPU render loop. Worth considering when we need any UI to inspect engine state.
-**Trigger to revisit:** When we need any in-app UI, remote inspector, or scene-tree visualization.
+### UI framework + in-app surfaces (Svelte leaning)
+**Context:** No UI yet — just the WebGPU canvas. As soon as we need any DOM surface (debug overlay, FPS counter, controls panel, scene inspector, settings menu, editor) we'll have to pick a framework and decide how it coexists with the render loop. **Leaning toward Svelte**, same reasons as Shallot (architecture doc §10): compiles to direct DOM updates, no virtual-DOM reconciler stealing main-thread time per frame, runes/signals model maps cleanly to ECS-style state subscription. Anticipated surfaces in rough order of likely need: (1) debug overlay (FPS, draw call count, GPU memory), (2) inline controls for tweaking shader/scene values during dev, (3) scene/entity inspector, (4) full editor. The first two are small and could land before committing to a framework; (3) and (4) force the commitment.
+**Trigger to revisit:** First time we want any DOM element beyond the canvas (FPS counter is the likely first), OR when ECS lands and we need state subscriptions for an inspector.
+**Reference:** Architecture doc §10. Shallot uses Svelte 5 with the runes/signals model.
 
 ### Hot-reload for WGSL shaders
 **Context:** `bun --hot` reloads TS/HTML, but a WGSL text-import change requires recreating the WebGPU pipeline. Currently you need a full page reload to pick up shader edits.
