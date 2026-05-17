@@ -1,6 +1,10 @@
 // Bun's dev server (Bun.serve static-routes) doesn't inline `with { type: "text" }`
 // imports — it exposes them as asset URLs. `bun build` does inline. Fetching the URL
 // at runtime works in both modes (and matches the WebGPU sample convention).
+
+import { mountFpsOverlay } from "./overlay/mount.ts";
+import { overlayState } from "./overlay/state.svelte.ts";
+import { initStats } from "./stats.ts";
 import shaderUrl from "./triangle.wgsl";
 
 export async function main(): Promise<void> {
@@ -57,7 +61,21 @@ export async function main(): Promise<void> {
     return;
   }
 
+  const uiRoot = document.querySelector<HTMLElement>("#ui-root");
+  if (uiRoot) {
+    mountFpsOverlay(uiRoot);
+  } else {
+    console.warn("#ui-root not found; skipping FPS overlay mount.");
+  }
+
+  const stats = initStats({
+    onTick: (fps) => {
+      overlayState.fps = fps;
+    },
+  });
+
   const draw = (): void => {
+    stats.frame();
     const view = context.getCurrentTexture().createView();
     const encoder = device.createCommandEncoder();
     const pass = encoder.beginRenderPass({

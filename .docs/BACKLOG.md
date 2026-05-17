@@ -42,6 +42,11 @@ Group by category. Add categories as needed; don't pre-create empty ones.
 **Context:** The native binary uses a best-effort `Drop` impl to kill the Bun child when the window closes. If Rust panics mid-frame or the OS kills the parent with SIGKILL, the child may leak. Also: spawning `bun` directly (not via `bun run`) gives us clean kill semantics, but signal handling is still incomplete.
 **Trigger to revisit:** First time we see a leaked Bun process during dev.
 
+### Native window: focus/activation triggers server respawn
+**Context:** When the native `wry` window loses or regains focus (e.g., clicking outside the window and back in), the native binary attempts to bind a new dev server or spawn another Bun child, conflicting with the existing one. Observed during the UI foundation milestone's Phase 1 manual verification (2026-05-17). Prevents reliably testing native HMR end-to-end (full page reload remains a documented fallback per spec risk #3).
+**Trigger to revisit:** Next time work touches the native runtime (`packages/core/native/`), or when reliable native HMR testing becomes a blocker.
+**Reference:** Manual verification step of `docs/superpowers/specs/2026-05-17-ui-foundation-design.md`.
+
 ### Native binary bundling
 **Context:** Currently the native binary requires the source tree (it references `packages/core` via `CARGO_MANIFEST_DIR`). For distribution we need to bundle the web assets into the binary (or ship the dev server alongside). Mirror Shallot's approach if/when revisited.
 **Trigger to revisit:** First Windows verification (which requires shipping a binary to that machine), or any user-facing release.
@@ -66,6 +71,10 @@ Group by category. Add categories as needed; don't pre-create empty ones.
 **Context:** Audio is a separate workstream entirely. Architecture doc §13 covers the AudioWorklet thread model.
 **Trigger to revisit:** When audio is on the roadmap.
 
+### Camera + projection matrices for in-scene primitives
+**Context:** Both the triangle and the WGSL UI plane currently render in NDC space — no view, no projection. Once we need to position content in world space (which is approximately when ECS lands and entities have transforms), we need a camera with view/projection matrices and a uniform buffer pattern shared across pipelines.
+**Trigger to revisit:** First surface needing world-space positioning, typically aligned with ECS arrival.
+
 ---
 
 ## Testing & quality
@@ -82,18 +91,36 @@ Group by category. Add categories as needed; don't pre-create empty ones.
 **Context:** Reference-image comparison for the rendered output. Closely tied to the Playwright setup above.
 **Trigger to revisit:** Same as Playwright entry.
 
+### Svelte formatting (Prettier or biome upgrade)
+**Context:** Biome 2.x has partial `.svelte` support; the ecosystem standard is Prettier + the Svelte plugin. Currently `.svelte` files are not in biome's `files.includes` list, so they go unformatted. Acceptable for one ~25-line component; not at scale.
+**Trigger to revisit:** `.svelte` content grows past ~3 components or ~200 lines total.
+
 ---
 
 ## Editor & tooling
 
-### UI framework + in-app surfaces (Svelte leaning)
-**Context:** No UI yet — just the WebGPU canvas. As soon as we need any DOM surface (debug overlay, FPS counter, controls panel, scene inspector, settings menu, editor) we'll have to pick a framework and decide how it coexists with the render loop. **Leaning toward Svelte**, same reasons as Shallot (architecture doc §10): compiles to direct DOM updates, no virtual-DOM reconciler stealing main-thread time per frame, runes/signals model maps cleanly to ECS-style state subscription. Anticipated surfaces in rough order of likely need: (1) debug overlay (FPS, draw call count, GPU memory), (2) inline controls for tweaking shader/scene values during dev, (3) scene/entity inspector, (4) full editor. The first two are small and could land before committing to a framework; (3) and (4) force the commitment.
-**Trigger to revisit:** First time we want any DOM element beyond the canvas (FPS counter is the likely first), OR when ECS lands and we need state subscriptions for an inspector.
+### Svelte editor / inspector surfaces
+**Context:** Svelte 5 is now the committed framework for screen-space DOM UI (see `docs/superpowers/specs/2026-05-17-ui-foundation-design.md`). The remaining work is editor and inspector surfaces that need to subscribe to engine state — particularly ECS components and entities once those exist.
+**Trigger to revisit:** When ECS lands and we need fine-grained state subscription for an entity inspector, OR when the first interactive control panel (shader uniform tweaks, scene parameters) is needed.
 **Reference:** Architecture doc §10. Shallot uses Svelte 5 with the runes/signals model.
 
 ### Hot-reload for WGSL shaders
 **Context:** `bun --hot` reloads TS/HTML, but a WGSL text-import change requires recreating the WebGPU pipeline. Currently you need a full page reload to pick up shader edits.
 **Trigger to revisit:** When iterating heavily on a shader and the friction shows.
+
+### In-scene UI primitive evaluation (γ/δ/ε)
+**Context:** Screen-space Svelte covers overlays; world-tracked DOM via CSS3D is constrained by lack of depth-buffer participation. For live, interactive, depth-occluded in-scene UI, the documented options are: γ WGSL-native SDF text + vector primitives (max integration, ~1–2 weeks for SDF text alone), δ static SVG-rasterized texture asset pipeline (cheapest, no live updates), ε `resvg` in wasm → texture (live but throttled <10Hz).
+**Trigger to revisit:** First concrete in-game UI requirement — signage, character labels, an interactive panel a character can occlude.
+**Reference:** `docs/superpowers/specs/2026-05-17-ui-foundation-design.md`, "Research write-up" section.
+
+### Emerging-tech watch: WICG HTML-in-Canvas / Vello browser readiness
+**Context:** The WICG "HTML in Canvas" proposal would let HTML elements live inside a canvas with native rasterization, depth participation, and accessibility object model integration. Linebender's Vello is a GPU vector graphics renderer in Rust+wgpu, but per Linebender's own docs the web is not currently a primary target. Either landing in production would collapse the in-scene UI design space.
+**Trigger to revisit:** WICG proposal reaches Stage 2+, or Vello announces production web support.
+**Reference:** `docs/superpowers/specs/2026-05-17-ui-foundation-design.md`, "Research write-up" section.
+
+### SDF font atlas + glyph rendering
+**Context:** The UI foundation milestone's in-scene plane uses `OffscreenCanvas.fillText` → texture (CPU 2D-canvas rasterization, suitable for 1Hz updates). Sharp text at varying scales or live per-frame text updates need a real SDF font atlas approach. Estimated ~1 week to ship well (atlas generation, glyph layout, distance-field shader).
+**Trigger to revisit:** First in-scene surface needing sharp text at varying scales, or live per-frame text updates.
 
 ---
 

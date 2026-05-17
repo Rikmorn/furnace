@@ -11,5 +11,9 @@
     "build:native": "cargo build --release --manifest-path native/Cargo.toml && mkdir -p ../../dist/native && cp -f ../../target/release/furnace-window ../../dist/native/furnace-window",
     "test": "bun test",
     "typecheck": "bunx tsc --noEmit"
+  },
+  "devDependencies": {
+    "bun-plugin-svelte": "^0.0.6",
+    "svelte": "^5.55.7"
   }
 }

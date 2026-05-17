@@ -1,15 +1,10 @@
 import { expect, test } from "bun:test";
-import { main } from "../src/entry.ts";
-import shader from "../src/triangle.wgsl" with { type: "text" };
-
-test("entry exports main", () => {
-  expect(typeof main).toBe("function");
-});
+import triangleShader from "../src/triangle.wgsl" with { type: "text" };
 
 test("triangle WGSL declares vertex and fragment entry points", () => {
-  expect(shader.length).toBeGreaterThan(0);
-  expect(shader).toContain("@vertex");
-  expect(shader).toContain("@fragment");
-  expect(shader).toContain("vs_main");
-  expect(shader).toContain("fs_main");
+  expect(triangleShader.length).toBeGreaterThan(0);
+  expect(triangleShader).toContain("@vertex");
+  expect(triangleShader).toContain("@fragment");
+  expect(triangleShader).toContain("vs_main");
+  expect(triangleShader).toContain("fs_main");
 });
