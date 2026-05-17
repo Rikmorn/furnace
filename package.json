@@ -5,6 +5,14 @@
   "workspaces": [
     "packages/*"
   ],
+  "scripts": {
+    "dev:web": "bun run --cwd packages/core dev",
+    "dev:native": "bun run --cwd packages/core dev:native",
+    "build:native": "bun run --cwd packages/core build:native",
+    "typecheck": "bun run --cwd packages/core typecheck",
+    "test": "bun test",
+    "check": "biome check"
+  },
   "devDependencies": {
     "@biomejs/biome": "^2.4.15",
     "@types/bun": "^1.3.14",
