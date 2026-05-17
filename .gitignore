@@ -27,6 +27,11 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 .cache
 *.tsbuildinfo
 
+# Rust build artifacts
+target
+*.rs.bk
+Cargo.lock.bak
+
 # IntelliJ based IDEs
 .idea
 

@@ -1,6 +1,5 @@
 {
   "name": "furnace",
-  "module": "index.ts",
   "type": "module",
   "private": true,
   "workspaces": [

@@ -95,10 +95,11 @@ Expected: one line, the message above.
 **Files:**
 - Delete: `index.ts`
 - Delete: `.claude/rules/bun.md`
-- Delete: `.claude/rules/` (after the file is gone)
 - Modify: `package.json` (remove `module` field)
 - Modify: `biome.json` (remove broken extends, broaden includes)
 - Modify: `.gitignore` (add `target/`)
+
+**Note on `.claude/rules/`:** When this plan was first written the directory contained only `bun.md` (duplicate of CLAUDE.md). The user has since added `clean-code.md` and `working-standards.md` to that directory. Those are kept; only the duplicate `bun.md` is removed.
 
 - [ ] **Step 1: Delete `index.ts`**
 
@@ -106,14 +107,23 @@ Expected: one line, the message above.
 rm /Users/roberto.sousa/Documents/Projects/furnace/index.ts
 ```
 
-- [ ] **Step 2: Delete `.claude/rules/bun.md` and the now-empty `rules/` dir**
+- [ ] **Step 2: Delete the duplicate `.claude/rules/bun.md`**
+
+Before deleting, confirm it's still a byte-identical duplicate of `.claude/CLAUDE.md`:
+
+```bash
+diff /Users/roberto.sousa/Documents/Projects/furnace/.claude/CLAUDE.md /Users/roberto.sousa/Documents/Projects/furnace/.claude/rules/bun.md && echo "IDENTICAL — safe to delete"
+```
+
+Expected: `IDENTICAL — safe to delete`. If diff shows any difference, stop and escalate.
+
+Then delete:
 
 ```bash
 rm /Users/roberto.sousa/Documents/Projects/furnace/.claude/rules/bun.md
-rmdir /Users/roberto.sousa/Documents/Projects/furnace/.claude/rules
 ```
 
-Expected: both commands succeed silently. `rmdir` fails if the directory has other contents — at the time of writing it does not.
+Do **not** `rmdir` the `rules/` directory — it now contains `clean-code.md` and `working-standards.md` (user-added).
 
 - [ ] **Step 3: Update root `package.json` — remove `module`, keep workspaces, no scripts yet**
 

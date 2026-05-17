@@ -1,6 +1,5 @@
 {
   "$schema": "https://biomejs.dev/schemas/2.4.15/schema.json",
-  "extends": ["./biome.test.json"],
   "vcs": {
     "enabled": true,
     "clientKind": "git",
@@ -8,7 +7,18 @@
   },
   "files": {
     "ignoreUnknown": true,
-    "includes": ["*.ts", "!package.json"]
+    "includes": [
+      "**/*.ts",
+      "**/*.json",
+      "**/*.html",
+      "**/*.css",
+      "!**/node_modules",
+      "!**/target",
+      "!**/dist",
+      "!**/out",
+      "!package.json",
+      "!bun.lock"
+    ]
   },
   "formatter": {
     "enabled": true,

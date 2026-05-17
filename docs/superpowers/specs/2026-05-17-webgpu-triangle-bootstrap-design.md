@@ -313,8 +313,9 @@ Everything listed in "Non-goals" above and every BACKLOG seed entry. The point o
 
 **Files deleted:**
 - `.claude/rules/bun.md` (duplicate of `.claude/CLAUDE.md`)
-- `.claude/rules/` directory if empty after the delete
 - `index.ts` (the original `bun init` hello-world — not needed, root stays clean after bootstrap)
+
+Note: `.claude/rules/` is **not** deleted — it now contains `clean-code.md` and `working-standards.md` (user-added after this spec was first drafted). Only the duplicate `bun.md` is removed.
 
 **Files untouched:**
 - `tsconfig.json`
