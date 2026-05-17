@@ -23,12 +23,6 @@
   </head>
   <body>
     <canvas id="gpu"></canvas>
-    <script type="module">
-      import { main } from "./src/entry.ts";
-
-      main().catch((e) => {
-        document.body.innerText = `Error: ${e?.message ?? e}`;
-      });
-    </script>
+    <script type="module" src="./src/bootstrap.ts"></script>
   </body>
 </html>
