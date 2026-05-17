@@ -1,0 +1,23 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(bun install)",
+      "Bash(bun install:*)",
+      "Bash(bun add:*)",
+      "Bash(bun remove:*)",
+      "Bash(bun update:*)",
+      "Bash(bun run:*)",
+      "Bash(bun test)",
+      "Bash(bun test:*)",
+      "Bash(bun --hot:*)",
+      "Bash(bun build:*)",
+      "Bash(bun pm ls)",
+      "Bash(bun pm ls:*)",
+      "Bash(bun pm:*)",
+      "Bash(bunx tsc:*)",
+      "Bash(bunx --bun:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
