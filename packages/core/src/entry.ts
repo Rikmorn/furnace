@@ -4,12 +4,8 @@
 
 import { mountFpsOverlay } from "./overlay/mount.ts";
 import { overlayState } from "./overlay/state.svelte.ts";
-import { createUiPlane } from "./scene/plane.ts";
-import { createTextCanvas } from "./scene/text-canvas.ts";
 import { initStats } from "./stats.ts";
 import shaderUrl from "./triangle.wgsl";
-
-const DEPTH_FORMAT: GPUTextureFormat = "depth24plus";
 
 export async function main(): Promise<void> {
   const canvas = document.querySelector<HTMLCanvasElement>("#gpu");
@@ -47,13 +43,6 @@ export async function main(): Promise<void> {
   const format = navigator.gpu.getPreferredCanvasFormat();
   context.configure({ device, format, alphaMode: "premultiplied" });
 
-  const depthTexture = device.createTexture({
-    size: [canvas.width, canvas.height, 1],
-    format: DEPTH_FORMAT,
-    usage: GPUTextureUsage.RENDER_ATTACHMENT,
-  });
-  const depthView = depthTexture.createView();
-
   device.pushErrorScope("validation");
   const shaderModule = device.createShaderModule({ code: shaderSource });
   const pipeline = device.createRenderPipeline({
@@ -65,32 +54,12 @@ export async function main(): Promise<void> {
       targets: [{ format }],
     },
     primitive: { topology: "triangle-list" },
-    depthStencil: {
-      format: DEPTH_FORMAT,
-      depthWriteEnabled: true,
-      depthCompare: "less",
-    },
   });
   const validationError = await device.popErrorScope();
   if (validationError) {
     document.body.innerText = `Pipeline error: ${validationError.message}`;
     return;
   }
-
-  const textCanvas = createTextCanvas(device);
-  const sampler = device.createSampler({
-    magFilter: "linear",
-    minFilter: "linear",
-    addressModeU: "clamp-to-edge",
-    addressModeV: "clamp-to-edge",
-  });
-  const uiPlane = await createUiPlane({
-    device,
-    format,
-    depthFormat: DEPTH_FORMAT,
-    texture: textCanvas.texture,
-    sampler,
-  });
 
   const uiRoot = document.querySelector<HTMLElement>("#ui-root");
   if (uiRoot) {
@@ -102,7 +71,6 @@ export async function main(): Promise<void> {
   const stats = initStats({
     onTick: (fps) => {
       overlayState.fps = fps;
-      textCanvas.update(fps);
     },
   });
 
@@ -119,16 +87,9 @@ export async function main(): Promise<void> {
           storeOp: "store",
         },
       ],
-      depthStencilAttachment: {
-        view: depthView,
-        depthLoadOp: "clear",
-        depthClearValue: 1.0,
-        depthStoreOp: "store",
-      },
     });
     pass.setPipeline(pipeline);
     pass.draw(3);
-    uiPlane.draw(pass);
     pass.end();
     device.queue.submit([encoder.finish()]);
     requestAnimationFrame(draw);
