@@ -1,4 +1,7 @@
-import shader from "./triangle.wgsl" with { type: "text" };
+// Bun's dev server (Bun.serve static-routes) doesn't inline `with { type: "text" }`
+// imports — it exposes them as asset URLs. `bun build` does inline. Fetching the URL
+// at runtime works in both modes (and matches the WebGPU sample convention).
+import shaderUrl from "./triangle.wgsl";
 
 export async function main(): Promise<void> {
   const canvas = document.querySelector<HTMLCanvasElement>("#gpu");
@@ -11,6 +14,13 @@ export async function main(): Promise<void> {
       "WebGPU unavailable. Need a recent Chrome/Safari/Firefox, or macOS Tahoe 26+ inside the native webview.";
     return;
   }
+
+  const shaderResponse = await fetch(shaderUrl);
+  if (!shaderResponse.ok) {
+    document.body.innerText = `Couldn't load shader (HTTP ${shaderResponse.status}): ${shaderUrl}`;
+    return;
+  }
+  const shaderSource = await shaderResponse.text();
 
   const adapter = await navigator.gpu.requestAdapter();
   if (!adapter) {
@@ -30,7 +40,7 @@ export async function main(): Promise<void> {
   context.configure({ device, format, alphaMode: "premultiplied" });
 
   device.pushErrorScope("validation");
-  const shaderModule = device.createShaderModule({ code: shader });
+  const shaderModule = device.createShaderModule({ code: shaderSource });
   const pipeline = device.createRenderPipeline({
     layout: "auto",
     vertex: { module: shaderModule, entryPoint: "vs_main" },
