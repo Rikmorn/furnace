@@ -52,3 +52,15 @@ test("hello world", () => {
 ```
 
 For more, see the Bun API docs in `node_modules/bun-types/docs/**.mdx`.
+
+## Deferred work — `.docs/BACKLOG.md`
+
+The repo uses `.docs/BACKLOG.md` to track deferred work and ideas across sessions. This is durable, multi-session storage — distinct from `TaskCreate` (within-session only) and from architecture docs (decisions, not tasks).
+
+**When working in this repo:**
+- **Defer something mid-session?** Add an entry to `.docs/BACKLOG.md` before moving on. Use the entry shape documented in that file (title, Context, Trigger to revisit, Reference).
+- **Starting new work?** Scan `.docs/BACKLOG.md` first for items that just became actionable. Promote them out by removing the entry and tracking the work in the current session.
+- **Don't put bugs there** — fix urgent bugs; use GitHub Issues for non-urgent ones once the repo is on GitHub.
+- **Don't put decisions there** — decisions go in `.docs/` notes or ADRs.
+
+When the BACKLOG file grows past ~100 entries or one category exceeds ~20, prune by promoting actionable items out and consolidating context-decayed items.
