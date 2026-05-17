@@ -74,13 +74,17 @@ Shallot's `packages/shallot/rust/window/Cargo.toml` uses `winit = "0.30"` + `wry
 
 - **`index.html`** (~20 lines) — doctype, viewport meta, full-viewport `<canvas id="gpu">`, `<script type="module" src="./src/entry.ts">`, inline CSS to remove scrollbars and stretch canvas to 100%.
 
-- **`src/entry.ts`** (~100 lines) — `async function main()` that:
+- **`src/entry.ts`** (~70 lines) — `async function main()` that:
   1. Gets canvas, checks `navigator.gpu`, requests adapter + device.
   2. Configures `canvas.getContext("webgpu")` with device + `navigator.gpu.getPreferredCanvasFormat()`.
   3. Wraps `createShaderModule` + `createRenderPipeline` in `device.pushErrorScope("validation")` / `popErrorScope()` so WGSL errors surface visibly.
   4. Runs a `requestAnimationFrame` loop that encodes one pass: `loadOp: "clear"`, `setPipeline`, `draw(3)`, `endPass`, `queue.submit`.
 
-  Exports `main` and calls it on module load. Failures are written to `document.body.innerText` so they're visible without devtools open.
+  Exports `main` but does **not** call it on module load. (Original draft said "calls it on module load"; that was changed during implementation so the smoke test can `import` the module without triggering DOM access in Bun's test runtime. The call now lives in `bootstrap.ts` — see below.)
+
+- **`src/bootstrap.ts`** (~6 lines) — added during implementation. Imports `main` from `entry.ts` and calls it, with the error handler writing failures to `document.body.innerText`. Exists because Bun's HTML bundler bundles `<script src="...">` references but leaves inline `<script type="module">` imports alone, so the HTML must point at a real .ts file via `src=`. Keeping the call out of `entry.ts` itself preserves test-friendly purity.
+
+- **`src/wgsl.d.ts`** (4 lines) — ambient module declaration `declare module "*.wgsl" { const source: string; export default source; }`. Required for TypeScript to resolve `import shader from "./triangle.wgsl" with { type: "text" }`.
 
 - **`src/triangle.wgsl`** (~15 lines) — `@vertex fn vs_main(@builtin(vertex_index) i: u32) -> @builtin(position) vec4f` reads from a `var<private>` array of three positions; `@fragment fn fs_main() -> @location(0) vec4f` returns a fixed RGB color. Imported as text: `import shader from "./triangle.wgsl" with { type: "text" };`
 
@@ -299,17 +303,23 @@ Everything listed in "Non-goals" above and every BACKLOG seed entry. The point o
 - `packages/core/index.html`
 - `packages/core/serve.ts`
 - `packages/core/src/entry.ts`
+- `packages/core/src/bootstrap.ts` (added during implementation — see Components section above)
 - `packages/core/src/triangle.wgsl`
+- `packages/core/src/wgsl.d.ts` (ambient declaration for text-imported WGSL — added during implementation)
 - `packages/core/tests/entry.test.ts`
 - `packages/core/native/Cargo.toml`
+- `packages/core/native/Cargo.lock` (binary crate; lockfile committed per Cargo convention)
 - `packages/core/native/src/main.rs`
 - `packages/core/native/.gitignore` (ignore `target/`)
 
 **Files modified:**
-- `package.json` (add scripts, remove vestigial `module` field)
-- `biome.json` (remove broken `extends`)
+- `package.json` (add scripts, remove vestigial `module` field, add `@webgpu/types` devDep)
+- `biome.json` (remove broken `extends`, broaden `files.includes`, register `Bun` as a known global)
+- `tsconfig.json` (add `"DOM"` to `lib`, add `"@webgpu/types"` to `types`)
 - `README.md` (replace bun-init default with terse, dev-focused content)
-- `.claude/CLAUDE.md` (add BACKLOG workflow guidance, slight reword of the duplicated content)
+- `.claude/CLAUDE.md` (add BACKLOG workflow guidance)
+- `.gitignore` (add Rust `target/`, `*.rs.bk`, `Cargo.lock.bak`)
+- `bun.lock` (workspace + `@webgpu/types` resolution)
 
 **Files deleted:**
 - `.claude/rules/bun.md` (duplicate of `.claude/CLAUDE.md`)
