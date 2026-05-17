@@ -1,0 +1,9 @@
+# Redirect Cargo's target directory to the workspace root so build artifacts
+# don't bury themselves inside packages/. Cargo discovers this file by walking
+# up from the cwd, so `cargo build` from packages/core/native/ or anywhere
+# else in the tree honors this redirect.
+#
+# Paths in .cargo/config.toml are relative to the file's parent dir — so
+# "target" resolves to <repo-root>/target.
+[build]
+target-dir = "target"
