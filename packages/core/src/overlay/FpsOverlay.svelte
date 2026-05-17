@@ -7,8 +7,8 @@
 <style>
   .fps-overlay {
     position: fixed;
-    top: 80px;
-    left: 80px;
+    top: 8px;
+    left: 8px;
     color: #fff;
     background: rgba(0, 0, 0, 0.5);
     padding: 4px 8px;
