@@ -5,7 +5,7 @@ Cross-tool AI agent guidance for the `furnace` repo. Canonical agent context liv
 ## TL;DR
 
 - **Runtime is Bun.** Use `bun <file>`, `bun test`, `bun build`, `bun install`. Do **not** use Node, npm, jest, vitest, webpack, esbuild, or ts-node.
-- **APIs:** prefer `Bun.serve`, `bun:sqlite`, `Bun.redis`, `Bun.sql`, `Bun.file`, ``Bun.$`...` `` over their Node equivalents.
+- **APIs:** prefer `Bun.serve`, `bun:sqlite`, `Bun.redis`, `Bun.sql`, `Bun.file`, `` Bun.$`...` `` over their Node equivalents.
 - **Workspace:** monorepo via Bun workspaces — packages live in `packages/*`. Run package scripts via `bun run --cwd packages/<name> <script>`.
 - **Before commit:** run `bun run check` (biome) and `bun run typecheck`. Fix anything flagged.
 - **Deferred work:** new items go in `.docs/BACKLOG.md` (see the convention in `.claude/CLAUDE.md`).
