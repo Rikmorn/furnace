@@ -117,3 +117,8 @@ Group by category. Add categories as needed; don't pre-create empty ones.
 ### Per-package CLAUDE.md
 **Context:** When `packages/core` has real engine code (multiple modules, established patterns), it needs its own CLAUDE.md describing local conventions. Root CLAUDE.md handles cross-cutting concerns.
 **Trigger to revisit:** When `packages/core` has more than ~5 files of engine code.
+
+### Build system revisit
+**Context:** Current setup is minimal: `bun build` → `dist/web/`, `cargo build` → `target/` then `cp` to `dist/native/`, all orchestrated via `package.json` scripts. Works for one workspace package + one Rust crate, but several known weak points will likely force a rework: (1) the `cp` from `target/release/` to `dist/native/` is a stable-Rust workaround for the unstable `cargo build --out-dir`; (2) no dev/prod variants for the web build — always minified; (3) no watch mode for a prod-build dev loop; (4) `bun build` (production) and `Bun.serve` static-routes (dev) are two separate code paths that share the same HTML entry but could drift; (5) `package.json` scripts will get hard to read once we add wasm-pack steps or a second Rust crate (Shallot moved to a `scripts/build.ts` Bun.$ orchestrator for this exact reason — see architecture doc §1).
+**Trigger to revisit:** First of these to happen — adding a wasm-pack crate (`transforms`/`audio` style); needing an unminified web build for bundle inspection; `cargo --out-dir` stabilizing; CI landing and exposing parallelism / caching needs; package.json scripts crossing ~10 entries.
+**Reference:** Shallot's `packages/shallot/scripts/build.ts` is the canonical pattern when this revisit happens. Architecture doc §1 ("How Shallot is set up") covers the high-level orchestration.
