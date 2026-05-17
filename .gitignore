@@ -28,7 +28,7 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 *.tsbuildinfo
 
 # Rust build artifacts
-target
+target/
 *.rs.bk
 Cargo.lock.bak
 
