@@ -5,8 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "bun --hot serve.ts",
-    "dev:native": "bun run --cwd ../tools build:native && ../../dist/native/furnace-window",
+    "dev:native": "bun run --cwd ../tools build:native && bunx furnace native",
     "build:web": "bun build index.html --outdir ../../dist/web --minify --sourcemap=external",
+    "build:web:dev": "bun build index.html --outdir ../../dist/web/dev --sourcemap=inline",
     "test": "bun test",
     "typecheck": "bunx tsc --noEmit"
   },
@@ -14,6 +15,7 @@
     "@furnace/core": "workspace:*"
   },
   "devDependencies": {
+    "@furnace/tools": "workspace:*",
     "bun-plugin-svelte": "^0.0.6",
     "svelte": "^5.55.7"
   }
