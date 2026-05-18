@@ -4,7 +4,7 @@
 
 import { mountFpsOverlay } from "./overlay/mount.ts";
 import { overlayState } from "./overlay/state.svelte.ts";
-import { initStats } from "./stats.ts";
+import { createFpsSystem } from "./lib/stats/fps.ts";
 import shaderUrl from "./triangle.wgsl";
 
 export async function main(): Promise<void> {
@@ -72,10 +72,9 @@ export async function main(): Promise<void> {
     console.warn("#ui-root not found; skipping FPS overlay mount.");
   }
 
-  const stats = initStats({
-    onTick: (fps) => {
-      overlayState.fps = fps;
-    },
+  const stats = createFpsSystem();
+  stats.subscribe((fps) => {
+    overlayState.fps = fps;
   });
 
   const draw = (): void => {

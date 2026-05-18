@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { computeFps } from "../src/stats.ts";
+import { computeFps, createFpsSystem } from "../../../src/lib/stats/fps.ts";
 
 test("computeFps: zero elapsed time returns 0", () => {
   expect(computeFps(60, 0)).toBe(0);
@@ -19,8 +19,6 @@ test("computeFps: zero frames over a positive interval returns 0", () => {
   expect(computeFps(0, 1)).toBe(0);
 });
 
-import { createFpsSystem } from "../src/stats.ts";
-
 test("createFpsSystem: exposes the FpsSystem API surface with current=0 initially", () => {
   const system = createFpsSystem();
   expect(typeof system.frame).toBe("function");
@@ -34,7 +32,7 @@ test("createFpsSystem: subscribe returns an unsubscribe function", () => {
   const system = createFpsSystem();
   const unsubscribe = system.subscribe(() => {});
   expect(typeof unsubscribe).toBe("function");
-  unsubscribe(); // does not throw
+  unsubscribe();
   system.dispose();
 });
 
@@ -49,7 +47,7 @@ test("createFpsSystem: supports multiple subscribers independently", () => {
   system.dispose();
 });
 
-test("createFpsSystem: dispose stops the interval (no throws on double dispose)", () => {
+test("createFpsSystem: dispose is idempotent", () => {
   const system = createFpsSystem();
   system.dispose();
   expect(() => system.dispose()).not.toThrow();
