@@ -18,7 +18,7 @@ export function resolveCliCommand(argv: string[]): CliCommand {
 
   return {
     kind: "error",
-    message: `unknown subcommand '${sub}'. Try: furnace native [--rebuild]`,
+    message: `unknown subcommand '${sub}'`,
   };
 }
 
@@ -45,8 +45,15 @@ async function runNative(rebuild: boolean): Promise<number> {
         `furnace: binary not found at ${BINARY_RELATIVE_PATH}, building first...`,
       );
     }
+    // src/public/cli.ts → packages/tools/ — mirror BINARY_RELATIVE_PATH's depth.
     const toolsRoot = resolve(import.meta.dir, "../..");
-    await $`bun run build:native`.cwd(toolsRoot);
+    try {
+      await $`bun run build:native`.cwd(toolsRoot);
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err);
+      console.error(`furnace: native build failed — ${detail}`);
+      return 1;
+    }
   }
   const result = await $`${BINARY_RELATIVE_PATH}`.nothrow();
   return result.exitCode;
