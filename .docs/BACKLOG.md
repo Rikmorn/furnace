@@ -52,9 +52,35 @@ Group by category. Add categories as needed; don't pre-create empty ones.
 **Trigger to revisit:** First Windows verification (which requires shipping a binary to that machine), or any user-facing release.
 
 ### Native dev: macOS opens Terminal.app to host the launcher binary
-**Context:** During the 2026-05-18 build-tooling work, the stdio-leakage fix in `packages/tools/native/src/main.rs` (commits `d780d58` + `2c7d754`) pipes Bun's stderr to null and gates the launcher's diagnostic `eprintln!` behind `FURNACE_VERBOSE=1`. Verified post-shipping that a Terminal window still appears when `bun run dev:native` is run. That means the original symptom was not (only) stdio bleed — it's almost certainly macOS launching `Terminal.app` to host the unbundled Mach-O binary (no `.app` wrapper, no `Info.plist`, no `LSUIElement`). Fix is `.app` bundling: a minimal app bundle with `LSUIElement=true` (or `LSBackgroundOnly`) so macOS doesn't pop a hosting terminal.
+**Context:** During the 2026-05-18 build-tooling work, the stdio-leakage fix in `packages/tools/native/src/main.rs` (commits `d780d58` + `2c7d754`) pipes Bun's stderr to null and gates the launcher's diagnostic `eprintln!` behind `FURNACE_VERBOSE=1`. Verified post-shipping that a Terminal window still appears when `bun run dev:native` is run. The original symptom was not (only) stdio bleed — macOS hosts the unbundled Mach-O binary in `Terminal.app` because it lacks a proper `.app` wrapper.
+
+**Concrete recipe (cribbed from Shallot's `packages/shallot/bin/native.ts` `bundleNativeMac` function):**
+
+1. Build the cargo binary as usual for `aarch64-apple-darwin`.
+2. Create the `.app` directory tree:
+   ```
+   {name}.app/
+   ├── Contents/
+   │   ├── Info.plist
+   │   ├── MacOS/
+   │   │   └── {name}              ← cargo binary, chmod 0o755
+   │   └── Resources/
+   │       ├── app.icns            ← optional; built from PNG via sips + iconutil
+   │       └── payload.bin         ← release only: zstd-compressed `dist/` tar
+   ```
+3. Write a minimal `Info.plist` — Shallot's plist has only `CFBundleExecutable`, `CFBundleIdentifier`, `CFBundleName`, `CFBundleVersion`, `CFBundlePackageType=APPL`, `CFBundleIconFile`, `NSHighResolutionCapable=true`. **No `LSUIElement` needed** — the `.app` structure alone is enough; macOS treats the binary as a GUI app and skips the Terminal host.
+4. Run `codesign --force --sign - "${appDir}"` (ad-hoc local signing) to avoid Gatekeeper warnings during local execution.
+
+**Additional fixes worth doing alongside:**
+
+- **Windows console suppression** — Shallot's `main.rs` has `#![cfg_attr(windows, windows_subsystem = "windows")]` at the very top. One-line fix; tells the linker to mark the binary as a GUI subsystem so no console pops up on Windows. Add to `packages/tools/native/src/main.rs` regardless of when the macOS bundling lands.
+- **Release-profile tightening** — Shallot's `Cargo.toml` has `[profile.release]` with `opt-level=3`, `lto=true`, `codegen-units=1`, `panic="abort"`, `strip=true`. Smaller, faster binary with no debug info. Not directly related to the terminal symptom but worth borrowing in the same session.
+
+**Runtime side already aligned:** Shallot's `main.rs` finds bundled assets via `exe.parent()?.parent()?.join("Resources").join("payload.bin")` — i.e. `MyApp.app/Contents/Resources/payload.bin`. Furnace's runtime today spawns a Bun child rather than reading a bundled payload, so the in-bundle payload mechanism is a *separate* concern from the `.app` wrapping. The terminal-window fix only needs the `.app` shell; the payload-extraction story can stay as a future "bundling for distribution" item (see also "Native binary bundling" entry above).
+
 **Trigger to revisit:** Next session that touches the native runtime, OR before the first user-facing release where the stray terminal would be embarrassing.
-**Reference:** `docs/superpowers/specs/2026-05-18-build-tooling-design.md` "Native dev UX fix" — the spec acknowledged this branch ("If the symptom turns out to be a separate Terminal.app window appearing, the fix involves making the binary a proper macOS `.app` bundle"). Investigation also wants: confirm whether `dev:native` via VS Code's integrated terminal exhibits the same behaviour as a standalone terminal, and whether `bun run dev:native` (parent process spawning the binary) vs double-clicking the binary in Finder produce the same Terminal pop-up.
+
+**Reference:** `docs/superpowers/specs/2026-05-18-build-tooling-design.md` "Native dev UX fix" anticipated this branch. The Shallot recipe lives at `https://github.com/dylanebert/shallot/blob/main/packages/shallot/bin/native.ts` (`bundleNativeMac`). Investigation might still want to confirm: whether `dev:native` via VS Code's integrated terminal exhibits the same behaviour vs a standalone terminal, and whether `bun run dev:native` vs double-clicking the binary in Finder produce the same Terminal pop-up.
 
 ---
 
