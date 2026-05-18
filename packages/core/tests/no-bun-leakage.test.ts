@@ -1,7 +1,11 @@
 import { expect, test } from "bun:test";
 import { Glob } from "bun";
+import { resolve } from "node:path";
 
 test("core's public surface has no Bun coupling", async () => {
+  // Anchor the scan to the core package root so the test works regardless of
+  // the cwd `bun test` is invoked from (workspace root, package dir, etc).
+  const packageRoot = resolve(import.meta.dir, "..");
   const scanPatterns = ["src/index.ts", "src/lib/**/*.ts"];
   const offenders: { file: string; line: number; snippet: string }[] = [];
   // Flags any of:
@@ -13,8 +17,8 @@ test("core's public surface has no Bun coupling", async () => {
 
   for (const pattern of scanPatterns) {
     const glob = new Glob(pattern);
-    for await (const file of glob.scan(".")) {
-      const text = await Bun.file(file).text();
+    for await (const file of glob.scan({ cwd: packageRoot })) {
+      const text = await Bun.file(resolve(packageRoot, file)).text();
       text.split("\n").forEach((line, i) => {
         if (leakagePattern.test(line)) {
           offenders.push({ file, line: i + 1, snippet: line.trim() });
