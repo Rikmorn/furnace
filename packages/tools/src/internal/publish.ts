@@ -39,6 +39,10 @@ export interface EmitDeclarationsOptions {
   srcDir: string;
   outDir: string;
   baseConfig: string;
+  /** Extra ambient declaration files (absolute paths) to include in the
+   *  ephemeral tsconfig so ambient types resolve even from a temp directory.
+   *  Use when the base config references types that won't resolve from tmp. */
+  extraDeclarationFiles?: string[];
 }
 
 export async function emitDeclarations(
@@ -75,16 +79,19 @@ export async function emitDeclarations(
           declaration: true,
           emitDeclarationOnly: true,
           noEmit: false,
-          // allowImportingTsExtensions requires noEmit:true, so disable it for
-          // the emit pass. Declaration files don't import .ts extensions.
-          allowImportingTsExtensions: false,
+          // allowImportingTsExtensions is compatible with emitDeclarationOnly.
+          // Re-enable it so source files using .ts import extensions compile.
+          allowImportingTsExtensions: true,
           // types in the base config (bun, @webgpu/types) resolve relative to
           // the workspace root, not a temp dir — clear them for the emit pass.
           types: [],
           outDir,
           rootDir: srcDir,
         },
-        include: [join(srcDir, "**/*.ts")],
+        include: [
+          join(srcDir, "**/*.ts"),
+          ...(opts.extraDeclarationFiles ?? []),
+        ],
       }),
     );
     await $`bunx tsc --project ${tempTsconfig}`;
