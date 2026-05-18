@@ -4,15 +4,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project state
 
-A Bun workspace (`workspaces: ["packages/*"]`, Bun v1.3.14) experimenting with WebGPU-based engine architecture.
+A Bun workspace (`workspaces: ["packages/*"]`, Bun v1.3.14) experimenting with WebGPU-based engine architecture, split into a headless engine library and a consumer demo.
 
-**Current contents (single workspace package):**
-- `packages/core/` (`@furnace/core`, private) — WebGPU triangle render pipeline, Svelte 5 FPS overlay, Bun dev server (`serve.ts`), and a Rust `winit + wry` native window crate (`native/`) that hosts the same dev server in a webview. The browser and native targets share 100% of the TS/HTML/WGSL.
-- Two runtime targets: `bun run dev:web` (browser tab) and `bun run dev:native` (desktop window — macOS Tahoe 26+ / Windows; Linux deferred per `.docs/BACKLOG.md`).
-- Build outputs: `dist/web/` (Bun bundler) and `dist/native/` (cargo).
+**Current contents (two workspace packages):**
+- `packages/core/` (`@furnace/core`, private) — the engine library. Exports `requestWebGpu`, `runFrameLoop`, `createFpsSystem`, `computeFps`, plus their types. Consumer-portable: no framework deps, no Bun coupling in the public surface (enforced by `tests/no-bun-leakage.test.ts`). Also hosts the Rust `winit + wry` native window crate at `native/` — currently hardcoded to launch the hello-world example.
+- `packages/hello-world/` (`@furnace/hello-world`, private) — the first consumer. Renders the WebGPU triangle with the Svelte 5 FPS overlay. Owns its own `index.html`, `bunfig.toml`, `serve.ts`, and dev-server choice. Imports core via `@furnace/core` (workspace symlink).
+- Two runtime targets, shared TS/HTML/WGSL between them: `bun run dev:web` (browser tab) and `bun run dev:native` (desktop window — macOS Tahoe 26+ / Windows; Linux deferred per `.docs/BACKLOG.md`).
+- Build outputs: `dist/web/` (Bun bundler, hello-world) and `dist/native/` (cargo, core).
 - Tooling: Biome for lint, `bun:test` for tests, TypeScript strict mode (noEmit — typechecking only).
-
-**Active architecture work:** `docs/superpowers/specs/2026-05-18-hello-world-package-split-design.md` splits `core` into `@furnace/core` (engine, headless, consumer-portable) + `@furnace/hello-world` (the first consumer — owns the triangle, the dev server, and the Svelte overlay). Read it before structural changes to `packages/core/`.
 
 For deeper context: `.docs/shallot-and-game-engine-architecture.md` (engine architecture notes), `.docs/BACKLOG.md` (deferred work register), `docs/superpowers/specs/` (design specs for major changes).
 
