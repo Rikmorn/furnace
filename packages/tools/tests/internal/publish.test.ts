@@ -30,3 +30,12 @@ test("stageTypeScript: copies .ts files preserving directory structure", async (
     await rm(tmp, { recursive: true, force: true });
   }
 });
+
+test("stageTypeScript: throws a helpful error when source directory does not exist", async () => {
+  await expect(
+    stageTypeScript({
+      from: join(tmpdir(), "furnace-stage-ts-does-not-exist-xyz"),
+      to: join(tmpdir(), "furnace-stage-ts-out-xyz"),
+    }),
+  ).rejects.toThrow(/source directory not found/i);
+});

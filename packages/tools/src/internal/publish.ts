@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { copyFile, mkdir } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { Glob } from "bun";
@@ -12,6 +13,9 @@ export async function stageTypeScript(
 ): Promise<void> {
   const from = resolve(opts.from);
   const to = resolve(opts.to);
+  if (!existsSync(from)) {
+    throw new Error(`stageTypeScript: source directory not found at ${from}`);
+  }
   const glob = new Glob("**/*.ts");
 
   for await (const relative of glob.scan({ cwd: from })) {
