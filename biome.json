@@ -46,6 +46,9 @@
         "noEmptyBlockStatements": "error",
         "useAwait": "warn",
         "useIterableCallbackReturn": "off"
+      },
+      "complexity": {
+        "useLiteralKeys": "off"
       }
     }
   },

@@ -1,6 +1,6 @@
-import { expect, test } from "bun:test";
-import { Glob } from "bun";
+import { test } from "bun:test";
 import { resolve } from "node:path";
+import { Glob } from "bun";
 
 test("core's public surface has no Bun coupling", async () => {
   // Anchor the scan to the core package root so the test works regardless of
@@ -31,8 +31,6 @@ test("core's public surface has no Bun coupling", async () => {
     const report = offenders
       .map((o) => `  ${o.file}:${o.line} → ${o.snippet}`)
       .join("\n");
-    throw new Error(
-      `core's public surface must not use Bun APIs:\n${report}`,
-    );
+    throw new Error(`core's public surface must not use Bun APIs:\n${report}`);
   }
 });

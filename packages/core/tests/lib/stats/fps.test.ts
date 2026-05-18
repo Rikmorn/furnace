@@ -30,7 +30,7 @@ test("createFpsSystem: exposes the FpsSystem API surface with current=0 initiall
 
 test("createFpsSystem: subscribe returns an unsubscribe function", () => {
   const system = createFpsSystem();
-  const unsubscribe = system.subscribe(() => {});
+  const unsubscribe = system.subscribe(() => undefined);
   expect(typeof unsubscribe).toBe("function");
   unsubscribe();
   system.dispose();
@@ -38,8 +38,8 @@ test("createFpsSystem: subscribe returns an unsubscribe function", () => {
 
 test("createFpsSystem: supports multiple subscribers independently", () => {
   const system = createFpsSystem();
-  const a = system.subscribe(() => {});
-  const b = system.subscribe(() => {});
+  const a = system.subscribe(() => undefined);
+  const b = system.subscribe(() => undefined);
   expect(typeof a).toBe("function");
   expect(typeof b).toBe("function");
   a();
