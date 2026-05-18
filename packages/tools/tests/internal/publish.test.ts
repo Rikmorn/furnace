@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   emitDeclarations,
+  stageAssets,
   stageTypeScript,
   synthesisePackageJson,
 } from "../../src/internal/publish.ts";
@@ -77,6 +78,31 @@ test("emitDeclarations: emits .d.ts files for a small TS project", async () => {
     const dts = await Bun.file(join(outDir, "index.d.ts")).text();
     expect(dts).toContain("greet");
     expect(dts).toContain("string");
+  } finally {
+    await rm(tmp, { recursive: true, force: true });
+  }
+});
+
+test("stageAssets: copies listed files; skips missing ones with a warning return", async () => {
+  const tmp = await mkdtemp(join(tmpdir(), "furnace-assets-"));
+  try {
+    const from = join(tmp, "src");
+    const to = join(tmp, "out");
+    await mkdir(from, { recursive: true });
+    await writeFile(join(from, "README.md"), "# Hello\n");
+    await writeFile(join(from, "LICENSE"), "MIT\n");
+
+    const result = await stageAssets({
+      from,
+      to,
+      files: ["README.md", "LICENSE", "CHANGELOG.md"],
+    });
+
+    expect(await Bun.file(join(to, "README.md")).text()).toBe("# Hello\n");
+    expect(await Bun.file(join(to, "LICENSE")).text()).toBe("MIT\n");
+    expect(await Bun.file(join(to, "CHANGELOG.md")).exists()).toBe(false);
+    expect(result.copied).toEqual(["README.md", "LICENSE"]);
+    expect(result.missing).toEqual(["CHANGELOG.md"]);
   } finally {
     await rm(tmp, { recursive: true, force: true });
   }

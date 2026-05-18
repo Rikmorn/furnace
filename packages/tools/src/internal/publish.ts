@@ -87,6 +87,47 @@ export async function emitDeclarations(
   }
 }
 
+export interface StageAssetsOptions {
+  from: string;
+  to: string;
+  files: string[];
+}
+
+export interface StageAssetsResult {
+  copied: string[];
+  missing: string[];
+}
+
+export async function stageAssets(
+  opts: StageAssetsOptions,
+): Promise<StageAssetsResult> {
+  const from = resolve(opts.from);
+  const to = resolve(opts.to);
+
+  if (!existsSync(from)) {
+    throw new Error(`stageAssets: source directory not found at ${from}`);
+  }
+
+  await mkdir(to, { recursive: true });
+
+  const copied: string[] = [];
+  const missing: string[] = [];
+
+  for (const file of opts.files) {
+    const src = join(from, file);
+    if (!(await Bun.file(src).exists())) {
+      missing.push(file);
+      continue;
+    }
+    const dst = join(to, file);
+    await mkdir(dirname(dst), { recursive: true });
+    await copyFile(src, dst);
+    copied.push(file);
+  }
+
+  return { copied, missing };
+}
+
 export interface SynthesisePackageJsonOptions {
   workspaceManifest: string;
   outPath: string;
