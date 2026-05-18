@@ -47,11 +47,13 @@ Group by category. Add categories as needed; don't pre-create empty ones.
 **Trigger to revisit:** Next time work touches the native runtime (`packages/tools/native/`), or when reliable native HMR testing becomes a blocker.
 **Reference:** Manual verification step of `docs/superpowers/specs/2026-05-17-ui-foundation-design.md`.
 
-### Native binary bundling
-**Context:** Currently the native binary requires the source tree (it references `packages/core` via `CARGO_MANIFEST_DIR`). For distribution we need to bundle the web assets into the binary (or ship the dev server alongside). Mirror Shallot's approach if/when revisited.
-**Trigger to revisit:** First Windows verification (which requires shipping a binary to that machine), or any user-facing release.
+### Native packaging — `.app` wrapping + asset bundling (PAIRED)
 
-### Native dev: macOS opens Terminal.app to host the launcher binary
+> **The two entries below should be tackled in a single session.** They share the same build-time machinery (a packager that produces `MyApp.app/Contents/{Info.plist, MacOS, Resources}`), the same reference (Shallot's `packages/shallot/bin/native.ts`), and the same trigger. Splitting them in implementation would mean writing the same `.app` builder twice.
+
+#### a) Native dev: macOS opens Terminal.app to host the launcher binary
+**Paired with:** the "Native binary bundling" entry directly below.
+
 **Context:** During the 2026-05-18 build-tooling work, the stdio-leakage fix in `packages/tools/native/src/main.rs` (commits `d780d58` + `2c7d754`) pipes Bun's stderr to null and gates the launcher's diagnostic `eprintln!` behind `FURNACE_VERBOSE=1`. Verified post-shipping that a Terminal window still appears when `bun run dev:native` is run. The original symptom was not (only) stdio bleed — macOS hosts the unbundled Mach-O binary in `Terminal.app` because it lacks a proper `.app` wrapper.
 
 **Concrete recipe (cribbed from Shallot's `packages/shallot/bin/native.ts` `bundleNativeMac` function):**
@@ -66,21 +68,48 @@ Group by category. Add categories as needed; don't pre-create empty ones.
    │   │   └── {name}              ← cargo binary, chmod 0o755
    │   └── Resources/
    │       ├── app.icns            ← optional; built from PNG via sips + iconutil
-   │       └── payload.bin         ← release only: zstd-compressed `dist/` tar
+   │       └── payload.bin         ← release only — see (b) below for what goes inside
    ```
 3. Write a minimal `Info.plist` — Shallot's plist has only `CFBundleExecutable`, `CFBundleIdentifier`, `CFBundleName`, `CFBundleVersion`, `CFBundlePackageType=APPL`, `CFBundleIconFile`, `NSHighResolutionCapable=true`. **No `LSUIElement` needed** — the `.app` structure alone is enough; macOS treats the binary as a GUI app and skips the Terminal host.
 4. Run `codesign --force --sign - "${appDir}"` (ad-hoc local signing) to avoid Gatekeeper warnings during local execution.
 
-**Additional fixes worth doing alongside:**
+**Additional fixes worth doing in the same session:**
 
-- **Windows console suppression** — Shallot's `main.rs` has `#![cfg_attr(windows, windows_subsystem = "windows")]` at the very top. One-line fix; tells the linker to mark the binary as a GUI subsystem so no console pops up on Windows. Add to `packages/tools/native/src/main.rs` regardless of when the macOS bundling lands.
-- **Release-profile tightening** — Shallot's `Cargo.toml` has `[profile.release]` with `opt-level=3`, `lto=true`, `codegen-units=1`, `panic="abort"`, `strip=true`. Smaller, faster binary with no debug info. Not directly related to the terminal symptom but worth borrowing in the same session.
-
-**Runtime side already aligned:** Shallot's `main.rs` finds bundled assets via `exe.parent()?.parent()?.join("Resources").join("payload.bin")` — i.e. `MyApp.app/Contents/Resources/payload.bin`. Furnace's runtime today spawns a Bun child rather than reading a bundled payload, so the in-bundle payload mechanism is a *separate* concern from the `.app` wrapping. The terminal-window fix only needs the `.app` shell; the payload-extraction story can stay as a future "bundling for distribution" item (see also "Native binary bundling" entry above).
+- **Windows console suppression** — Shallot's `main.rs` has `#![cfg_attr(windows, windows_subsystem = "windows")]` at the very top. One-line fix; tells the linker to mark the binary as a GUI subsystem so no console pops up on Windows. Add to `packages/tools/native/src/main.rs`.
+- **Release-profile tightening** — Shallot's `Cargo.toml` has `[profile.release]` with `opt-level=3`, `lto=true`, `codegen-units=1`, `panic="abort"`, `strip=true`. Smaller, faster binary with no debug info.
 
 **Trigger to revisit:** Next session that touches the native runtime, OR before the first user-facing release where the stray terminal would be embarrassing.
 
 **Reference:** `docs/superpowers/specs/2026-05-18-build-tooling-design.md` "Native dev UX fix" anticipated this branch. The Shallot recipe lives at `https://github.com/dylanebert/shallot/blob/main/packages/shallot/bin/native.ts` (`bundleNativeMac`). Investigation might still want to confirm: whether `dev:native` via VS Code's integrated terminal exhibits the same behaviour vs a standalone terminal, and whether `bun run dev:native` vs double-clicking the binary in Finder produce the same Terminal pop-up.
+
+#### b) Native binary bundling
+**Paired with:** the "Native dev" entry directly above — they share the `.app` builder and should land together.
+
+**Context:** Furnace's launcher binary today spawns a `bun` child pointed at `packages/hello-world/serve.ts`, then loads the served URL into a `wry` window. That's fine for dev, but for distribution the binary needs to be self-contained: the consumer's machine won't have the source tree, won't have Bun, and shouldn't need them.
+
+Two halves of the work:
+
+1. **Build-time:** the same `.app` builder from entry (a) writes `payload.bin` into `Contents/Resources/`. Shallot's recipe: tar the production `dist/web/` output (or equivalent), zstd-compress it (`Bun.zstdCompressSync(tar, { level: 19 })`), write to `Resources/payload.bin`. On Windows/Linux they instead append the payload to the exe with a magic-number footer (`0x544C4853 = "SHLT"`); macOS uses the bundle path because `.app`-resident files are the idiomatic carrier.
+2. **Runtime:** the binary needs to detect "am I bundled?" at startup and, if so, decompress `payload.bin` to a cache dir (`~/Library/Application Support/furnace/<exe-name>/` on macOS) and point the embedded server at that cache instead of spawning Bun. Shallot's `extract_bundle_payload` in `packages/shallot/rust/window/src/main.rs` is the canonical implementation:
+   ```rust
+   #[cfg(all(not(debug_assertions), target_os = "macos"))]
+   pub(crate) fn extract_bundle_payload(exe: &std::path::Path) -> Option<PathBuf> {
+       let payload_path = exe.parent()?.parent()?.join("Resources").join("payload.bin");
+       let data = std::fs::read(&payload_path).ok()?;
+       let name = exe.file_stem()?.to_str()?;
+       unpack_to_cache(&data, name, data.len() as u64)
+   }
+   ```
+   The `unpack_to_cache` helper uses a marker file with the payload size as a content hash to skip redundant extractions across runs.
+
+**Furnace-specific deltas from Shallot's recipe:**
+
+- Furnace's binary currently *spawns* Bun rather than reading served assets directly. Decision needed: keep spawning Bun (and have Bun serve the unpacked `payload.bin` cache dir) or switch to serving in-process from Rust. Shallot does the latter (their `wry_backend.rs` registers a custom protocol handler against the unpacked dir).
+- Furnace's launcher uses `EXAMPLE_DIR = "../../hello-world"` hardcoded. Bundling forces this to become "wherever `dist/` was packed from" — either an env var or a build-time constant.
+
+**Trigger to revisit:** Same as entry (a) — next native-runtime session OR pre-release. Don't split.
+
+**Reference:** Same Shallot files as (a). Also see `packages/shallot/rust/window/src/main.rs` (`unpack_to_cache`, `cache_dir`, `extract_bundle_payload`).
 
 ---
 
