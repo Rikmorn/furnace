@@ -64,10 +64,22 @@ fn spawn_bun_dev() -> Child {
     // Note: no `--hot`. Hot reload + `port: 0` could pick a different port on each
     // re-execution, leaving the webview pointing at a dead address. The browser
     // path uses `--hot` directly; the native window simply restarts when needed.
+    //
+    // stdout is piped so we can read the PORT=<n> handshake line.
+    // stderr is dropped (Stdio::null) so Bun warnings/diagnostics don't leak
+    // into the parent terminal. Set FURNACE_VERBOSE=1 to inherit stderr for
+    // debugging.
+    let stderr = if std::env::var("FURNACE_VERBOSE").is_ok() {
+        Stdio::inherit()
+    } else {
+        Stdio::null()
+    };
+
     Command::new("bun")
         .current_dir(EXAMPLE_DIR)
         .args(["serve.ts"])
         .stdout(Stdio::piped())
+        .stderr(stderr)
         .spawn()
         .expect("failed to spawn `bun serve.ts`. Is bun installed and on PATH?")
 }
@@ -114,7 +126,9 @@ fn main() {
             std::process::exit(1);
         }
     };
-    println!("furnace-window: connected to bun on port {port}");
+    if std::env::var("FURNACE_VERBOSE").is_ok() {
+        eprintln!("furnace-window: connected to bun on port {port}");
+    }
 
     let url = format!("http://127.0.0.1:{port}");
     let _guard = ChildGuard(child);
