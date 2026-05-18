@@ -51,6 +51,11 @@ Group by category. Add categories as needed; don't pre-create empty ones.
 **Context:** Currently the native binary requires the source tree (it references `packages/core` via `CARGO_MANIFEST_DIR`). For distribution we need to bundle the web assets into the binary (or ship the dev server alongside). Mirror Shallot's approach if/when revisited.
 **Trigger to revisit:** First Windows verification (which requires shipping a binary to that machine), or any user-facing release.
 
+### Native dev: macOS opens Terminal.app to host the launcher binary
+**Context:** During the 2026-05-18 build-tooling work, the stdio-leakage fix in `packages/tools/native/src/main.rs` (commits `d780d58` + `2c7d754`) pipes Bun's stderr to null and gates the launcher's diagnostic `eprintln!` behind `FURNACE_VERBOSE=1`. Verified post-shipping that a Terminal window still appears when `bun run dev:native` is run. That means the original symptom was not (only) stdio bleed — it's almost certainly macOS launching `Terminal.app` to host the unbundled Mach-O binary (no `.app` wrapper, no `Info.plist`, no `LSUIElement`). Fix is `.app` bundling: a minimal app bundle with `LSUIElement=true` (or `LSBackgroundOnly`) so macOS doesn't pop a hosting terminal.
+**Trigger to revisit:** Next session that touches the native runtime, OR before the first user-facing release where the stray terminal would be embarrassing.
+**Reference:** `docs/superpowers/specs/2026-05-18-build-tooling-design.md` "Native dev UX fix" — the spec acknowledged this branch ("If the symptom turns out to be a separate Terminal.app window appearing, the fix involves making the binary a proper macOS `.app` bundle"). Investigation also wants: confirm whether `dev:native` via VS Code's integrated terminal exhibits the same behaviour as a standalone terminal, and whether `bun run dev:native` (parent process spawning the binary) vs double-clicking the binary in Finder produce the same Terminal pop-up.
+
 ---
 
 ## Engine architecture
