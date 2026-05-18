@@ -6,6 +6,7 @@ import { mountFpsOverlay } from "./overlay/mount.ts";
 import { overlayState } from "./overlay/state.svelte.ts";
 import { createFpsSystem } from "./lib/stats/fps.ts";
 import { requestWebGpu } from "./lib/gpu/requestWebGpu.ts";
+import { runFrameLoop } from "./lib/gpu/runFrameLoop.ts";
 import shaderUrl from "./triangle.wgsl";
 
 export async function main(): Promise<void> {
@@ -60,7 +61,7 @@ export async function main(): Promise<void> {
     overlayState.fps = fps;
   });
 
-  const draw = (): void => {
+  runFrameLoop(() => {
     stats.frame();
     const view = context.getCurrentTexture().createView();
     const encoder = device.createCommandEncoder();
@@ -78,7 +79,5 @@ export async function main(): Promise<void> {
     pass.draw(3);
     pass.end();
     device.queue.submit([encoder.finish()]);
-    requestAnimationFrame(draw);
-  };
-  requestAnimationFrame(draw);
+  });
 }
