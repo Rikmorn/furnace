@@ -24,7 +24,7 @@ export async function compileNativeCrate(
   await $`cargo build ${profileFlag} --manifest-path ${manifestPath}`;
 
   const crateDir = dirname(manifestPath);
-  const targetDir = resolve(crateDir, "../../target", opts.profile);
+  const targetDir = resolve(crateDir, "../../../target", opts.profile);
   const exeSuffix = process.platform === "win32" ? ".exe" : "";
   const sourceBinary = join(targetDir, `${opts.binaryName}${exeSuffix}`);
 

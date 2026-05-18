@@ -10,7 +10,8 @@
     "furnace": "./src/public/cli.ts"
   },
   "scripts": {
-    "build:native": "cargo build --release --manifest-path native/Cargo.toml && mkdir -p ../../dist/native && cp -f ../../target/release/furnace-window ../../dist/native/furnace-window",
+    "build": "bun scripts/build.ts",
+    "build:native": "bun scripts/build.ts --native-only",
     "test": "bun test",
     "typecheck": "bunx tsc --noEmit"
   }

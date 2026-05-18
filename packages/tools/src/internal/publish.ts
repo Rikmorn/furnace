@@ -75,6 +75,12 @@ export async function emitDeclarations(
           declaration: true,
           emitDeclarationOnly: true,
           noEmit: false,
+          // allowImportingTsExtensions requires noEmit:true, so disable it for
+          // the emit pass. Declaration files don't import .ts extensions.
+          allowImportingTsExtensions: false,
+          // types in the base config (bun, @webgpu/types) resolve relative to
+          // the workspace root, not a temp dir — clear them for the emit pass.
+          types: [],
           outDir,
           rootDir: srcDir,
         },
