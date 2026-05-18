@@ -2,7 +2,10 @@ import { expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { stageTypeScript } from "../../src/internal/publish.ts";
+import {
+  emitDeclarations,
+  stageTypeScript,
+} from "../../src/internal/publish.ts";
 
 test("stageTypeScript: copies .ts files preserving directory structure", async () => {
   const tmp = await mkdtemp(join(tmpdir(), "furnace-stage-ts-"));
@@ -38,4 +41,42 @@ test("stageTypeScript: throws a helpful error when source directory does not exi
       to: join(tmpdir(), "furnace-stage-ts-out-xyz"),
     }),
   ).rejects.toThrow(/source directory not found/i);
+});
+
+test("emitDeclarations: emits .d.ts files for a small TS project", async () => {
+  const tmp = await mkdtemp(join(tmpdir(), "furnace-emit-dts-"));
+  try {
+    const srcDir = join(tmp, "src");
+    await mkdir(srcDir, { recursive: true });
+    await writeFile(
+      join(srcDir, "index.ts"),
+      // biome-ignore lint/suspicious/noTemplateCurlyInString: intentional fixture content
+      "export const greet = (n: string): string => `hi ${n}`;\n",
+    );
+
+    const baseConfig = join(tmp, "base-tsconfig.json");
+    await writeFile(
+      baseConfig,
+      JSON.stringify({
+        compilerOptions: {
+          strict: true,
+          target: "ESNext",
+          module: "Preserve",
+          moduleResolution: "bundler",
+          allowImportingTsExtensions: true,
+          verbatimModuleSyntax: true,
+          skipLibCheck: true,
+        },
+      }),
+    );
+
+    const outDir = join(tmp, "types");
+    await emitDeclarations({ srcDir, outDir, baseConfig });
+
+    const dts = await Bun.file(join(outDir, "index.d.ts")).text();
+    expect(dts).toContain("greet");
+    expect(dts).toContain("string");
+  } finally {
+    await rm(tmp, { recursive: true, force: true });
+  }
 });
