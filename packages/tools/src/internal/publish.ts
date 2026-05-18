@@ -1,5 +1,12 @@
 import { existsSync } from "node:fs";
-import { copyFile, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import {
+  copyFile,
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { $, Glob } from "bun";
@@ -78,4 +85,41 @@ export async function emitDeclarations(
   } finally {
     await rm(tmp, { recursive: true, force: true });
   }
+}
+
+export interface SynthesisePackageJsonOptions {
+  workspaceManifest: string;
+  outPath: string;
+  overrides?: Record<string, unknown>;
+}
+
+const DROPPED_KEYS = ["private", "scripts", "devDependencies"] as const;
+
+export async function synthesisePackageJson(
+  opts: SynthesisePackageJsonOptions,
+): Promise<void> {
+  const workspaceManifest = resolve(opts.workspaceManifest);
+  const outPath = resolve(opts.outPath);
+
+  if (!existsSync(workspaceManifest)) {
+    throw new Error(
+      `synthesisePackageJson: workspace manifest not found at ${workspaceManifest}`,
+    );
+  }
+
+  const raw = await readFile(workspaceManifest, "utf8");
+  const manifest = JSON.parse(raw) as Record<string, unknown>;
+
+  for (const key of DROPPED_KEYS) {
+    delete manifest[key];
+  }
+
+  if (opts.overrides) {
+    for (const [key, value] of Object.entries(opts.overrides)) {
+      manifest[key] = value;
+    }
+  }
+
+  await mkdir(dirname(outPath), { recursive: true });
+  await writeFile(outPath, `${JSON.stringify(manifest, null, 2)}\n`);
 }

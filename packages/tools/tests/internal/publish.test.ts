@@ -80,3 +80,48 @@ test("emitDeclarations: emits .d.ts files for a small TS project", async () => {
     await rm(tmp, { recursive: true, force: true });
   }
 });
+
+import { synthesisePackageJson } from "../../src/internal/publish.ts";
+
+test("synthesisePackageJson: drops private, scripts, devDependencies; applies overrides", async () => {
+  const tmp = await mkdtemp(join(tmpdir(), "furnace-pkgjson-"));
+  try {
+    const inputPath = join(tmp, "package.json");
+    const outputPath = join(tmp, "out", "package.json");
+    await writeFile(
+      inputPath,
+      JSON.stringify({
+        name: "@furnace/core",
+        version: "0.0.0",
+        private: true,
+        type: "module",
+        exports: { ".": "./src/index.ts" },
+        scripts: { build: "bun scripts/build.ts" },
+        devDependencies: { "@furnace/tools": "workspace:*" },
+      }),
+    );
+
+    await synthesisePackageJson({
+      workspaceManifest: inputPath,
+      outPath: outputPath,
+      overrides: {
+        exports: {
+          ".": { types: "./types/index.d.ts", default: "./src/index.ts" },
+        },
+        files: ["src/**", "types/**"],
+      },
+    });
+
+    const result = JSON.parse(await Bun.file(outputPath).text());
+    expect(result.name).toBe("@furnace/core");
+    expect(result.version).toBe("0.0.0");
+    expect(result.type).toBe("module");
+    expect(result.private).toBeUndefined();
+    expect(result.scripts).toBeUndefined();
+    expect(result.devDependencies).toBeUndefined();
+    expect(result.exports["."].types).toBe("./types/index.d.ts");
+    expect(result.files).toEqual(["src/**", "types/**"]);
+  } finally {
+    await rm(tmp, { recursive: true, force: true });
+  }
+});
