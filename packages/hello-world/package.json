@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "bun --hot serve.ts",
-    "dev:native": "bun run --cwd ../core build:native && ../../dist/native/furnace-window",
+    "dev:native": "bun run --cwd ../tools build:native && ../../dist/native/furnace-window",
     "build:web": "bun build index.html --outdir ../../dist/web --minify --sourcemap=external",
     "test": "bun test",
     "typecheck": "bunx tsc --noEmit"

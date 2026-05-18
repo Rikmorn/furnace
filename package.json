@@ -10,7 +10,7 @@
     "dev:native": "bun run --cwd packages/hello-world dev:native",
     "build": "bun run build:web && bun run build:native",
     "build:web": "bun run --cwd packages/hello-world build:web",
-    "build:native": "bun run --cwd packages/core build:native",
+    "build:native": "bun run --cwd packages/tools build:native",
     "typecheck": "bun run --cwd packages/core typecheck && bun run --cwd packages/hello-world typecheck",
     "test": "bun test",
     "check": "biome check",
