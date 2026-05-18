@@ -83,6 +83,16 @@ test("emitDeclarations: emits .d.ts files for a small TS project", async () => {
   }
 });
 
+test("stageAssets: throws a helpful error when source directory does not exist", async () => {
+  await expect(
+    stageAssets({
+      from: join(tmpdir(), "furnace-assets-does-not-exist-xyz"),
+      to: join(tmpdir(), "furnace-assets-out-xyz"),
+      files: ["README.md"],
+    }),
+  ).rejects.toThrow(/source directory not found/i);
+});
+
 test("stageAssets: copies listed files; skips missing ones with a warning return", async () => {
   const tmp = await mkdtemp(join(tmpdir(), "furnace-assets-"));
   try {

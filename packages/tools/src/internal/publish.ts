@@ -115,7 +115,7 @@ export async function stageAssets(
 
   for (const file of opts.files) {
     const src = join(from, file);
-    if (!(await Bun.file(src).exists())) {
+    if (!existsSync(src)) {
       missing.push(file);
       continue;
     }
