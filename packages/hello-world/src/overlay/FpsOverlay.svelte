@@ -1,8 +1,8 @@
 <script lang="ts">
-  import { overlayState } from "./state.svelte.ts";
+  import { fps } from "./state.svelte.ts";
 </script>
 
-<div class="fps-overlay">{overlayState.fps} fps</div>
+<div class="fps-overlay">{fps.value} fps</div>
 
 <style>
   .fps-overlay {

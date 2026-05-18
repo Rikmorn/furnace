@@ -1,28 +1,13 @@
-// Bun's dev server (Bun.serve static-routes) doesn't inline `with { type: "text" }`
-// imports — it exposes them as asset URLs. `bun build` does inline. Fetching the URL
-// at runtime works in both modes (and matches the WebGPU sample convention).
-
+import { requestWebGpu, runFrameLoop } from "@furnace/core";
 import { mountFpsOverlay } from "./overlay/mount.ts";
-import { overlayState } from "./overlay/state.svelte.ts";
-import { createFpsSystem } from "./lib/stats/fps.ts";
-import { requestWebGpu } from "./lib/gpu/requestWebGpu.ts";
-import { runFrameLoop } from "./lib/gpu/runFrameLoop.ts";
+import { fpsSystem } from "./overlay/state.svelte.ts";
 import shaderUrl from "./triangle.wgsl";
 
-export async function main(): Promise<void> {
+async function main(): Promise<void> {
   const canvas = document.querySelector<HTMLCanvasElement>("#gpu");
-  if (!canvas) {
-    throw new Error("canvas#gpu not found");
-  }
-
-  let webgpu: import("./lib/gpu/requestWebGpu.ts").WebGpuContext;
-  try {
-    webgpu = await requestWebGpu(canvas);
-  } catch (e) {
-    document.body.innerText = e instanceof Error ? e.message : String(e);
-    return;
-  }
-  const { device, context, format } = webgpu;
+  const uiRoot = document.querySelector<HTMLElement>("#ui-root");
+  if (!canvas) throw new Error("canvas#gpu not found");
+  if (!uiRoot) throw new Error("#ui-root not found");
 
   const shaderResponse = await fetch(shaderUrl);
   if (!shaderResponse.ok) {
@@ -30,6 +15,16 @@ export async function main(): Promise<void> {
     return;
   }
   const shaderSource = await shaderResponse.text();
+
+  let device: GPUDevice;
+  let context: GPUCanvasContext;
+  let format: GPUTextureFormat;
+  try {
+    ({ device, context, format } = await requestWebGpu(canvas));
+  } catch (e) {
+    document.body.innerText = e instanceof Error ? e.message : String(e);
+    return;
+  }
 
   device.pushErrorScope("validation");
   const shaderModule = device.createShaderModule({ code: shaderSource });
@@ -49,20 +44,10 @@ export async function main(): Promise<void> {
     return;
   }
 
-  const uiRoot = document.querySelector<HTMLElement>("#ui-root");
-  if (uiRoot) {
-    mountFpsOverlay(uiRoot);
-  } else {
-    console.warn("#ui-root not found; skipping FPS overlay mount.");
-  }
-
-  const stats = createFpsSystem();
-  stats.subscribe((fps) => {
-    overlayState.fps = fps;
-  });
+  mountFpsOverlay(uiRoot);
 
   runFrameLoop(() => {
-    stats.frame();
+    fpsSystem.frame();
     const view = context.getCurrentTexture().createView();
     const encoder = device.createCommandEncoder();
     const pass = encoder.beginRenderPass({
@@ -81,3 +66,7 @@ export async function main(): Promise<void> {
     device.queue.submit([encoder.finish()]);
   });
 }
+
+main().catch((e: unknown) => {
+  document.body.innerText = `Error: ${e instanceof Error ? e.message : String(e)}`;
+});
