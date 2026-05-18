@@ -65,10 +65,8 @@ fn spawn_bun_dev() -> Child {
     // re-execution, leaving the webview pointing at a dead address. The browser
     // path uses `--hot` directly; the native window simply restarts when needed.
     //
-    // stdout is piped so we can read the PORT=<n> handshake line.
-    // stderr is dropped (Stdio::null) so Bun warnings/diagnostics don't leak
-    // into the parent terminal. Set FURNACE_VERBOSE=1 to inherit stderr for
-    // debugging.
+    // Bun's startup writes diagnostic lines to stderr that clutter the native
+    // dev terminal; drop them by default and let FURNACE_VERBOSE=1 surface them.
     let stderr = if std::env::var("FURNACE_VERBOSE").is_ok() {
         Stdio::inherit()
     } else {
