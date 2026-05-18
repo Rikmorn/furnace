@@ -83,6 +83,54 @@ test("emitDeclarations: emits .d.ts files for a small TS project", async () => {
   }
 });
 
+test("emitDeclarations: extraDeclarationFiles makes ambient types from outside src visible", async () => {
+  const tmp = await mkdtemp(join(tmpdir(), "furnace-emit-ambient-"));
+  try {
+    const srcDir = join(tmp, "src");
+    const ambientDir = join(tmp, "ambient");
+    await mkdir(srcDir, { recursive: true });
+    await mkdir(ambientDir, { recursive: true });
+
+    await writeFile(
+      join(ambientDir, "fake-globals.d.ts"),
+      "declare const FAKE_GLOBAL: { id: number };\n",
+    );
+    await writeFile(
+      join(srcDir, "index.ts"),
+      "export const x = FAKE_GLOBAL.id;\n",
+    );
+
+    const baseConfig = join(tmp, "base-tsconfig.json");
+    await writeFile(
+      baseConfig,
+      JSON.stringify({
+        compilerOptions: {
+          strict: true,
+          target: "ESNext",
+          module: "Preserve",
+          moduleResolution: "bundler",
+          allowImportingTsExtensions: true,
+          verbatimModuleSyntax: true,
+          skipLibCheck: true,
+        },
+      }),
+    );
+
+    const outDir = join(tmp, "types");
+    await emitDeclarations({
+      srcDir,
+      outDir,
+      baseConfig,
+      extraDeclarationFiles: [join(ambientDir, "fake-globals.d.ts")],
+    });
+
+    const dts = await Bun.file(join(outDir, "index.d.ts")).text();
+    expect(dts).toContain("export declare const x: number");
+  } finally {
+    await rm(tmp, { recursive: true, force: true });
+  }
+});
+
 test("stageAssets: throws a helpful error when source directory does not exist", async () => {
   await expect(
     stageAssets({
