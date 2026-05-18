@@ -4,7 +4,17 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project state
 
-Fresh `bun init` scaffold (Bun v1.3.14). `index.ts` is a one-line hello-world; `package.json` has no scripts and no runtime dependencies. No app code, tests, or framework yet — don't assume hidden structure.
+A Bun workspace (`workspaces: ["packages/*"]`, Bun v1.3.14) experimenting with WebGPU-based engine architecture.
+
+**Current contents (single workspace package):**
+- `packages/core/` (`@furnace/core`, private) — WebGPU triangle render pipeline, Svelte 5 FPS overlay, Bun dev server (`serve.ts`), and a Rust `winit + wry` native window crate (`native/`) that hosts the same dev server in a webview. The browser and native targets share 100% of the TS/HTML/WGSL.
+- Two runtime targets: `bun run dev:web` (browser tab) and `bun run dev:native` (desktop window — macOS Tahoe 26+ / Windows; Linux deferred per `.docs/BACKLOG.md`).
+- Build outputs: `dist/web/` (Bun bundler) and `dist/native/` (cargo).
+- Tooling: Biome for lint, `bun:test` for tests, TypeScript strict mode (noEmit — typechecking only).
+
+**Active architecture work:** `docs/superpowers/specs/2026-05-18-hello-world-package-split-design.md` splits `core` into `@furnace/core` (engine, headless, consumer-portable) + `@furnace/hello-world` (the first consumer — owns the triangle, the dev server, and the Svelte overlay). Read it before structural changes to `packages/core/`.
+
+For deeper context: `.docs/shallot-and-game-engine-architecture.md` (engine architecture notes), `.docs/BACKLOG.md` (deferred work register), `docs/superpowers/specs/` (design specs for major changes).
 
 ## Commands
 
@@ -16,9 +26,9 @@ Fresh `bun init` scaffold (Bun v1.3.14). `index.ts` is a one-line hello-world; `
 - `bun test -t "name"` — run tests matching a name pattern
 - `bunx tsc --noEmit` — typecheck (tsconfig has `noEmit: true`, strict, `noUncheckedIndexedAccess`, `noPropertyAccessFromIndexSignature`)
 
-## Runtime rule: use Bun, not Node
+## Toolchain: Bun is the workspace default
 
-Default to Bun instead of Node.js. This is the project's primary constraint.
+Bun is the workspace runtime for the dev loop, the `@furnace/core` package's build, tests, and internal scripts. In those contexts:
 
 - Use `bun <file>` instead of `node <file>` or `ts-node <file>`
 - Use `bun test` instead of `jest` or `vitest`
@@ -27,6 +37,8 @@ Default to Bun instead of Node.js. This is the project's primary constraint.
 - Use `bun run <script>` instead of `npm run` / `yarn run` / `pnpm run`
 - Use `bunx <package> <command>` instead of `npx`
 - Bun auto-loads `.env` — don't add `dotenv`.
+
+**Consumer/example packages choose their own toolchain.** `@furnace/core` is designed to be runtime-agnostic — its public surface uses only web-platform APIs (no `Bun.*` globals, no `bun:*` imports). The `no-bun-leakage` test in `packages/core/tests/` enforces this. A consumer (including in-repo examples like `packages/hello-world`) is free to use Vite, Webpack, Bun's own bundler, or any other tool that ships ESM + TS. The bullets above apply to workspace internals, not to consumers.
 
 ## APIs to prefer
 
