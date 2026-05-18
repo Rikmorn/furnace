@@ -8,10 +8,12 @@
   "scripts": {
     "dev:web": "bun run --cwd packages/hello-world dev",
     "dev:native": "bun run --cwd packages/hello-world dev:native",
-    "build": "bun run build:web && bun run build:native",
+    "build": "bun run build:core && bun run build:tools && bun run build:web",
+    "build:core": "bun run --cwd packages/core build",
+    "build:tools": "bun run --cwd packages/tools build",
     "build:web": "bun run --cwd packages/hello-world build:web",
-    "build:native": "bun run --cwd packages/tools build:native",
-    "typecheck": "bun run --cwd packages/core typecheck && bun run --cwd packages/hello-world typecheck",
+    "build:web:dev": "bun run --cwd packages/hello-world build:web:dev",
+    "typecheck": "bun run --cwd packages/core typecheck && bun run --cwd packages/tools typecheck && bun run --cwd packages/hello-world typecheck",
     "test": "bun test",
     "check": "biome check",
     "clean": "rm -rf dist target"
