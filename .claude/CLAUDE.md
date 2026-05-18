@@ -4,16 +4,19 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project state
 
-A Bun workspace (`workspaces: ["packages/*"]`, Bun v1.3.14) experimenting with WebGPU-based engine architecture, split into a headless engine library and a consumer demo.
+A Bun workspace (`workspaces: ["packages/*"]`, Bun v1.3.14) experimenting with WebGPU-based engine architecture, split into a headless engine library, a tooling/launcher package, and a consumer demo.
 
-**Current contents (two workspace packages):**
-- `packages/core/` (`@furnace/core`, private) — the engine library. Exports `requestWebGpu`, `runFrameLoop`, `createFpsSystem`, `computeFps`, plus their types. Consumer-portable: no framework deps, no Bun coupling in the public surface (enforced by `tests/no-bun-leakage.test.ts`). Also hosts the Rust `winit + wry` native window crate at `native/` — currently hardcoded to launch the hello-world example.
-- `packages/hello-world/` (`@furnace/hello-world`, private) — the first consumer. Renders the WebGPU triangle with the Svelte 5 FPS overlay. Owns its own `index.html`, `bunfig.toml`, `serve.ts`, and dev-server choice. Imports core via `@furnace/core` (workspace symlink).
+**Foundational rule:** Only `@furnace/tools` produces binaries. Everything else is TypeScript or wasm. See `.docs/packaging-and-distribution.md` for the engine/harness principle.
+
+**Current contents (three workspace packages):**
+- `packages/core/` (`@furnace/core`, private) — the engine library. Exports `requestWebGpu`, `runFrameLoop`, `createFpsSystem`, `computeFps`, plus their types. Consumer-portable: no framework deps, no Bun coupling in the public surface (enforced by `tests/no-bun-leakage.test.ts`). Future wasm hot-path crates (transforms, audio) will live here. Contains no native binaries.
+- `packages/tools/` (`@furnace/tools`, private) — the harness. Owns the Rust `winit + wry` native launcher (`native/`), internal build helpers (`src/internal/`), and the public `furnace` CLI (`src/public/cli.ts`). The only package in the workspace that produces a binary.
+- `packages/hello-world/` (`@furnace/hello-world`, private) — the reference consumer. Renders the WebGPU triangle with the Svelte 5 FPS overlay. Owns its own `index.html`, `bunfig.toml`, `serve.ts`, and dev-server choice. Imports core via `@furnace/core` (workspace symlink). Uses `bunx furnace native` for native dev — dogfooding the consumer experience.
 - Two runtime targets, shared TS/HTML/WGSL between them: `bun run dev:web` (browser tab) and `bun run dev:native` (desktop window — macOS Tahoe 26+ / Windows; Linux deferred per `.docs/BACKLOG.md`).
-- Build outputs: `dist/web/` (Bun bundler, hello-world) and `dist/native/` (cargo, core).
-- Tooling: Biome for lint, `bun:test` for tests, TypeScript strict mode (noEmit — typechecking only).
+- Build outputs: `dist/core/` (core publish layout), `dist/tools/` (tools publish layout), `dist/native/` (host-platform binary), `dist/web/` (bundled hello-world demo, with optional `dist/web/dev/` from `build:web:dev` for unminified inspection).
+- Tooling: Biome for lint, `bun:test` for tests, TypeScript strict mode. Per-package `tsconfig.json` in core and tools scopes typecheck; root tsconfig excludes `dist`/`target`.
 
-For deeper context: `.docs/shallot-and-game-engine-architecture.md` (engine architecture notes), `.docs/BACKLOG.md` (deferred work register), `docs/superpowers/specs/` (design specs for major changes).
+For deeper context: `.docs/packaging-and-distribution.md` (publish model, engine/harness principle), `.docs/shallot-and-game-engine-architecture.md` (engine architecture notes), `.docs/BACKLOG.md` (deferred work register), `docs/superpowers/specs/` (design specs for major changes).
 
 ## Commands
 

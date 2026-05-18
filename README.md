@@ -21,8 +21,9 @@ bun test                     # smoke tests
 
 ## Layout
 
-- `packages/core/` — engine code and the triangle demo (HTML + TS + WGSL).
-- `packages/core/native/` — Rust crate (`winit` + `wry`) that opens a native window hosting the same web app.
-- `.docs/` — architecture notes, BACKLOG, and other planning context.
+- `packages/core/` — engine library (`@furnace/core`). Pure TypeScript; consumer-portable.
+- `packages/tools/` — tooling and the native launcher (`@furnace/tools`). Owns the Rust crate (`winit` + `wry`) and the `furnace` CLI. Only package that produces a binary.
+- `packages/hello-world/` — reference consumer (`@furnace/hello-world`). Renders the triangle in the browser or in the native window via `bunx furnace native`.
+- `.docs/` — architecture notes (`packaging-and-distribution.md`, `shallot-and-game-engine-architecture.md`), BACKLOG, and other planning context.
 - `docs/superpowers/specs/`, `docs/superpowers/plans/` — design specs and implementation plans.
 - `.claude/CLAUDE.md`, `AGENTS.md` — agent guidance.
