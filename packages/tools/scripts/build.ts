@@ -41,7 +41,10 @@ await synthesisePackageJson({
   outPath: resolve(DIST_TOOLS, "package.json"),
   overrides: {
     exports: {
-      "./public/cli": "./src/public/cli.ts",
+      "./public/cli": {
+        types: "./types/cli.d.ts",
+        default: "./src/public/cli.ts",
+      },
     },
     files: ["src/public/**", "types/**"],
   },

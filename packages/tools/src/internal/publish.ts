@@ -62,6 +62,13 @@ export async function emitDeclarations(
       `emitDeclarations: base tsconfig not found at ${baseConfig}`,
     );
   }
+  for (const file of opts.extraDeclarationFiles ?? []) {
+    if (!existsSync(file)) {
+      throw new Error(
+        `emitDeclarations: ambient declaration file not found at ${file}`,
+      );
+    }
+  }
 
   await mkdir(outDir, { recursive: true });
 
