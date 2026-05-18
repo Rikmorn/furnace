@@ -107,7 +107,7 @@ fn main() {
         Some(p) => p,
         None => {
             eprintln!(
-                "Bun dev server failed to print PORT=<n> within {PORT_DEADLINE_SECS}s. Check `bun run --cwd packages/core dev` works standalone."
+                "Bun dev server failed to print PORT=<n> within {PORT_DEADLINE_SECS}s. Check `bun run --cwd packages/hello-world dev` works standalone."
             );
             let _ = child.kill();
             let _ = child.wait();
