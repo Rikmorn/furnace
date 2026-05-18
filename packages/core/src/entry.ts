@@ -5,6 +5,7 @@
 import { mountFpsOverlay } from "./overlay/mount.ts";
 import { overlayState } from "./overlay/state.svelte.ts";
 import { createFpsSystem } from "./lib/stats/fps.ts";
+import { requestWebGpu } from "./lib/gpu/requestWebGpu.ts";
 import shaderUrl from "./triangle.wgsl";
 
 export async function main(): Promise<void> {
@@ -13,11 +14,14 @@ export async function main(): Promise<void> {
     throw new Error("canvas#gpu not found");
   }
 
-  if (!navigator.gpu) {
-    document.body.innerText =
-      "WebGPU unavailable. Need a recent Chrome/Safari/Firefox, or macOS Tahoe 26+ inside the native webview.";
+  let webgpu: import("./lib/gpu/requestWebGpu.ts").WebGpuContext;
+  try {
+    webgpu = await requestWebGpu(canvas);
+  } catch (e) {
+    document.body.innerText = e instanceof Error ? e.message : String(e);
     return;
   }
+  const { device, context, format } = webgpu;
 
   const shaderResponse = await fetch(shaderUrl);
   if (!shaderResponse.ok) {
@@ -25,27 +29,6 @@ export async function main(): Promise<void> {
     return;
   }
   const shaderSource = await shaderResponse.text();
-
-  const adapter = await navigator.gpu.requestAdapter();
-  if (!adapter) {
-    document.body.innerText =
-      "WebGPU adapter not available. GPU may not be supported.";
-    return;
-  }
-
-  const device = await adapter.requestDevice();
-  const context = canvas.getContext("webgpu");
-  if (!context) {
-    document.body.innerText = "Couldn't get WebGPU canvas context.";
-    return;
-  }
-
-  const dpr = window.devicePixelRatio || 1;
-  canvas.width = Math.floor(canvas.clientWidth * dpr);
-  canvas.height = Math.floor(canvas.clientHeight * dpr);
-
-  const format = navigator.gpu.getPreferredCanvasFormat();
-  context.configure({ device, format, alphaMode: "premultiplied" });
 
   device.pushErrorScope("validation");
   const shaderModule = device.createShaderModule({ code: shaderSource });
