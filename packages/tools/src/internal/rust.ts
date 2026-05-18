@@ -24,6 +24,9 @@ export async function compileNativeCrate(
   await $`cargo build ${profileFlag} --manifest-path ${manifestPath}`;
 
   const crateDir = dirname(manifestPath);
+  // .cargo/config.toml at the workspace root sets target-dir = "target", so
+  // cargo writes binaries to <workspace-root>/target/<profile>/ regardless of
+  // which crate is built. crateDir at packages/<pkg>/native/ is 3 levels deep.
   const targetDir = resolve(crateDir, "../../../target", opts.profile);
   const exeSuffix = process.platform === "win32" ? ".exe" : "";
   const sourceBinary = join(targetDir, `${opts.binaryName}${exeSuffix}`);
