@@ -17,7 +17,7 @@ use winit::{
 };
 use wry::{WebView, WebViewBuilder};
 
-const CORE_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/..");
+const EXAMPLE_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../hello-world");
 const PORT_DEADLINE_SECS: u64 = 5;
 
 struct ChildGuard(Child);
@@ -65,7 +65,7 @@ fn spawn_bun_dev() -> Child {
     // re-execution, leaving the webview pointing at a dead address. The browser
     // path uses `--hot` directly; the native window simply restarts when needed.
     Command::new("bun")
-        .current_dir(CORE_DIR)
+        .current_dir(EXAMPLE_DIR)
         .args(["serve.ts"])
         .stdout(Stdio::piped())
         .spawn()
