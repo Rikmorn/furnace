@@ -5,6 +5,7 @@ import { join } from "node:path";
 import {
   emitDeclarations,
   stageTypeScript,
+  synthesisePackageJson,
 } from "../../src/internal/publish.ts";
 
 test("stageTypeScript: copies .ts files preserving directory structure", async () => {
@@ -80,8 +81,6 @@ test("emitDeclarations: emits .d.ts files for a small TS project", async () => {
     await rm(tmp, { recursive: true, force: true });
   }
 });
-
-import { synthesisePackageJson } from "../../src/internal/publish.ts";
 
 test("synthesisePackageJson: drops private, scripts, devDependencies; applies overrides", async () => {
   const tmp = await mkdtemp(join(tmpdir(), "furnace-pkgjson-"));

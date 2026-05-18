@@ -108,7 +108,15 @@ export async function synthesisePackageJson(
   }
 
   const raw = await readFile(workspaceManifest, "utf8");
-  const manifest = JSON.parse(raw) as Record<string, unknown>;
+  let manifest: Record<string, unknown>;
+  try {
+    manifest = JSON.parse(raw) as Record<string, unknown>;
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
+    throw new Error(
+      `synthesisePackageJson: manifest at ${workspaceManifest} is not valid JSON — ${detail}`,
+    );
+  }
 
   for (const key of DROPPED_KEYS) {
     delete manifest[key];
