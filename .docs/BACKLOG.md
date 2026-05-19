@@ -47,6 +47,11 @@ Group by category. Add categories as needed; don't pre-create empty ones.
 **Trigger to revisit:** Next time work touches the native runtime (`packages/tools/native/`), or when reliable native HMR testing becomes a blocker.
 **Reference:** Manual verification step of `docs/superpowers/specs/2026-05-17-ui-foundation-design.md`.
 
+### Runtime Contract Spec
+**Context:** The native-shell distribution design (Section 5) introduces the Runtime Contract as the abstraction boundary between the JS engine / wasm plugin layer and any compliant native shell implementation. The spec establishes the contract exists, what it covers (filesystem, dialogs, window control, lifecycle, IPC, asset access), and its versioning principles — but the *exhaustive method list, signatures, IPC protocol, error semantics, and async behaviour* are deliberately deferred to a separate spec. This is one of the larger design surfaces in the project; it warrants its own session.
+**Trigger to revisit:** When implementation of milestone 1 (end-to-end macOS) needs more contract methods than the bare minimum, OR when a second alternative runtime implementation is considered.
+**Reference:** Section 5 of `docs/superpowers/specs/2026-05-19-native-shell-distribution-design.md`.
+
 ### Native packaging — `.app` wrapping + asset bundling (PAIRED)
 
 > **The two entries below should be tackled in a single session.** They share the same build-time machinery (a packager that produces `MyApp.app/Contents/{Info.plist, MacOS, Resources}`), the same reference (Shallot's `packages/shallot/bin/native.ts`), and the same trigger. Splitting them in implementation would mean writing the same `.app` builder twice.
@@ -80,7 +85,7 @@ Group by category. Add categories as needed; don't pre-create empty ones.
 
 **Trigger to revisit:** Next session that touches the native runtime, OR before the first user-facing release where the stray terminal would be embarrassing.
 
-**Reference:** `docs/superpowers/specs/2026-05-18-build-tooling-design.md` "Native dev UX fix" anticipated this branch. The Shallot recipe lives at `https://github.com/dylanebert/shallot/blob/main/packages/shallot/bin/native.ts` (`bundleNativeMac`). Investigation might still want to confirm: whether `dev:native` via VS Code's integrated terminal exhibits the same behaviour vs a standalone terminal, and whether `bun run dev:native` vs double-clicking the binary in Finder produce the same Terminal pop-up.
+**Reference:** `docs/superpowers/specs/2026-05-18-build-tooling-design.md` "Native dev UX fix" anticipated this branch. The Shallot recipe lives at `https://github.com/dylanebert/shallot/blob/main/packages/shallot/bin/native.ts` (`bundleNativeMac`). Now also the implementation starting point for Milestone 1 of `docs/superpowers/specs/2026-05-19-native-shell-distribution-design.md` — when that milestone begins, this entry gets promoted out of backlog. Investigation might still want to confirm: whether `dev:native` via VS Code's integrated terminal exhibits the same behaviour vs a standalone terminal, and whether `bun run dev:native` vs double-clicking the binary in Finder produce the same Terminal pop-up.
 
 #### b) Native binary bundling
 **Paired with:** the "Native dev" entry directly above — they share the `.app` builder and should land together.
@@ -109,7 +114,12 @@ Two halves of the work:
 
 **Trigger to revisit:** Same as entry (a) — next native-runtime session OR pre-release. Don't split.
 
-**Reference:** Same Shallot files as (a). Also see `packages/shallot/rust/window/src/main.rs` (`unpack_to_cache`, `cache_dir`, `extract_bundle_payload`).
+**Reference:** Same Shallot files as (a). Also see `packages/shallot/rust/window/src/main.rs` (`unpack_to_cache`, `cache_dir`, `extract_bundle_payload`). Now also the implementation starting point for Milestone 1 of `docs/superpowers/specs/2026-05-19-native-shell-distribution-design.md` — when that milestone begins, this entry gets promoted out of backlog.
+
+### Per-platform binary packages — biome-style migration
+**Context:** Today's plan ships `@furnace/tools` as a single npm package containing the host-platform CLI binary inline. When furnace gains a second platform target (likely Windows after macOS is proven), the right move is to migrate to the biome distribution pattern: thin `@furnace/tools` shim package + `@furnace/tools-<os>-<arch>` per-platform packages as `optionalDependencies`. Verified to work in Bun workspaces during the 2026-05-19 brainstorming (test in `/tmp/bun-optdeps-test/`). Migration is mechanical — the JS shim changes ~5 lines.
+**Trigger to revisit:** Second platform binary (Windows almost certainly first) needs to ship.
+**Reference:** Section 2 "Artifact model" of `docs/superpowers/specs/2026-05-19-native-shell-distribution-design.md`; biome's `@biomejs/biome` npm package layout as the precedent.
 
 ---
 
@@ -126,6 +136,16 @@ Two halves of the work:
 ### Rust transforms wasm crate
 **Context:** Shallot's hot scene-graph matrix loop runs in wasm via `wasm-pack`. Not relevant until we have a scene graph at all.
 **Trigger to revisit:** When transforms become a hot path.
+
+### Plugin API Spec
+**Context:** The native-shell distribution design (Plugin Model section) establishes that plugins are Rust crates compiled to wasm running inside the JS layer (chosen over the Tauri-style Rust-in-runtime model to preserve cross-platform reach). The plugin *mechanism* is decided; the full `Plugin` trait shape, payload schemas, async patterns, lifecycle hooks, and JS-side IPC contract are deliberately deferred. Tauri's `command!` macro is a strong precedent to crib from.
+**Trigger to revisit:** First plugin authored in earnest (likely after filesystem or audio is needed as a furnace-first-party plugin), OR when a third-party wants to publish a `furnace-plugin-*` crate.
+**Reference:** Plugin Model section of `docs/superpowers/specs/2026-05-19-native-shell-distribution-design.md`.
+
+### `@furnace/native` JS package — separate contract-mediated APIs from pure browser surface
+**Context:** The native-shell design (Section 5) introduces a runtime contract — a set of OS-bridge APIs (filesystem, dialogs, native window control, lifecycle) the runtime exposes to the JS layer. Putting these in `@furnace/core` would break its "pure browser-only, runs without any runtime" guarantee — anyone using core in a plain browser would import APIs that throw at runtime. Splitting them into a sibling `@furnace/native` npm package keeps core honest as a portable library; consumers opt in by importing `@furnace/native` only when they're inside a compliant runtime.
+**Trigger to revisit:** First time a contract-mediated API gets implemented (likely `fs.readFile`). Decide whether to land it in core, `@furnace/native`, or somewhere else before more APIs follow the same pattern.
+**Reference:** Section 5 of the native-shell distribution design (the runtime contract concept). The doc lives at `docs/superpowers/specs/2026-05-19-native-shell-distribution-design.md` once written.
 
 ### AudioWorklet + audio DSP
 **Context:** Audio is a separate workstream entirely. Architecture doc §13 covers the AudioWorklet thread model.
@@ -163,6 +183,11 @@ Two halves of the work:
 ---
 
 ## Editor & tooling
+
+### `furnace.config.json` schema
+**Context:** The native-shell distribution design uses `furnace.config.json` as the L1 declarative customisation surface — covering app identity, window defaults, plugin registration, signing config, and source/output paths. Sample structure is sketched in the spec but the full schema (field-by-field definitions, validation rules, schema versioning, platform-specific override semantics) is deferred until the first implementation milestone forces the choices.
+**Trigger to revisit:** Start of milestone 1 implementation (end-to-end macOS). The schema design happens BEFORE writing the Rust struct that deserialises it, so the choices are explicit rather than implicit.
+**Reference:** Customization Layers Section 4 of `docs/superpowers/specs/2026-05-19-native-shell-distribution-design.md`.
 
 ### Svelte editor / inspector surfaces
 **Context:** Svelte 5 is now the committed framework for screen-space DOM UI (see `docs/superpowers/specs/2026-05-17-ui-foundation-design.md`). The remaining work is editor and inspector surfaces that need to subscribe to engine state — particularly ECS components and entities once those exist.
