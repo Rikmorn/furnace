@@ -26,9 +26,7 @@ enum Command {
         platform: String,
     },
     /// Compile a Rust crate to wasm.
-    Wasm {
-        crate_path: std::path::PathBuf,
-    },
+    Wasm { crate_path: std::path::PathBuf },
     /// Scaffold a new project (or add a platform to an existing one).
     Init {
         name: String,
@@ -46,6 +44,8 @@ fn main() -> Result<()> {
         Command::Dev { .. } => bail!("furnace dev is not yet implemented (Phase 3)"),
         Command::Wasm { .. } => bail!("furnace wasm is not yet implemented (Phase 4)"),
         Command::Init { .. } => bail!("furnace init is not yet implemented (Phase 5)"),
-        Command::UpgradeRuntime => bail!("furnace upgrade-runtime is not yet implemented (Phase 5)"),
+        Command::UpgradeRuntime => {
+            bail!("furnace upgrade-runtime is not yet implemented (Phase 5)")
+        }
     }
 }
