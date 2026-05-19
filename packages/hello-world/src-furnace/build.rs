@@ -16,6 +16,9 @@ fn main() {
     // If FURNACE_WEB_DIR is set (CLI-driven build), copy its contents into OUT_DIR/web/ first.
     if let Ok(furnace_web) = env::var("FURNACE_WEB_DIR") {
         let src = PathBuf::from(furnace_web);
+        // Clear stale files from a prior build before copying. OUT_DIR/web/ persists
+        // across cargo builds; without this, files removed upstream remain bundled.
+        std::fs::remove_dir_all(&web_dir).ok();
         copy_dir_recursive(&src, &web_dir).expect("copy FURNACE_WEB_DIR into OUT_DIR/web/");
         println!("cargo:rerun-if-env-changed=FURNACE_WEB_DIR");
     }
