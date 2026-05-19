@@ -6,7 +6,7 @@ test("core's public surface has no Bun coupling", async () => {
   // Anchor the scan to the core package root so the test works regardless of
   // the cwd `bun test` is invoked from (workspace root, package dir, etc).
   const packageRoot = resolve(import.meta.dir, "..");
-  const scanPatterns = ["src/index.ts", "src/lib/**/*.ts"];
+  const scanPatterns = ["src/**/*.ts"];
   const offenders: { file: string; line: number; snippet: string }[] = [];
   // Flags any of:
   //   - `Bun.` (global usage)
