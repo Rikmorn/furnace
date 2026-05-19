@@ -9,8 +9,8 @@ A Bun workspace (`workspaces: ["packages/*"]`, Bun v1.3.14) experimenting with W
 **Foundational rule:** Only `@furnace/tools` produces binaries. Everything else is TypeScript or wasm. See `.docs/packaging-and-distribution.md` for the engine/harness principle.
 
 **Current contents (three workspace packages):**
-- `packages/core/` (`@furnace/core`, private) — the engine library. Exports `requestWebGpu`, `runFrameLoop`, `createFpsSystem`, `computeFps`, plus their types. Consumer-portable: no framework deps, no Bun coupling in the public surface (enforced by `tests/no-bun-leakage.test.ts`). Future wasm hot-path crates (transforms, audio) will live here. Contains no native binaries.
-- `packages/tools/` (`@furnace/tools`, private) — the harness. Owns the Rust `winit + wry` native launcher (`native/`), internal build helpers (`src/internal/`), and the public `furnace` CLI (`src/public/cli.ts`). The only package in the workspace that produces a binary.
+- `packages/core/` (`@furnace/core`, private) — the engine library. Exports `requestWebGpu`, `runFrameLoop`, `createFpsSystem`, `computeFps`, plus their types. **Browser-only**: no framework deps, no Bun coupling in core's source. The `tests/no-bun-leakage.test.ts` static scan is one guardrail; the full contract lives in "What we ship to consumers" below. Future wasm hot-path crates (transforms, audio) will live here. Contains no native binaries.
+- `packages/tools/` (`@furnace/tools`, private) — the harness. Internally a Rust workspace (`crates/furnace-cli/` for the CLI binary, `crates/furnace-runtime/` for the shell consumers vendor) plus scaffold templates and a tiny plain-Node JS shim that wraps the binary for npm distribution (biome's pattern). The only package in the workspace that produces a binary. See `docs/superpowers/specs/2026-05-19-native-shell-distribution-design.md` for the architecture.
 - `packages/hello-world/` (`@furnace/hello-world`, private) — the reference consumer. Renders the WebGPU triangle with the Svelte 5 FPS overlay. Owns its own `index.html`, `bunfig.toml`, `serve.ts`, and dev-server choice. Imports core via `@furnace/core` (workspace symlink). Uses `bunx furnace native` for native dev — dogfooding the consumer experience.
 - Two runtime targets, shared TS/HTML/WGSL between them: `bun run dev:web` (browser tab) and `bun run dev:native` (desktop window — macOS Tahoe 26+ / Windows; Linux deferred per `.docs/BACKLOG.md`).
 - Build outputs: `dist/core/` (core publish layout), `dist/tools/` (tools publish layout), `dist/native/` (host-platform binary), `dist/web/` (bundled hello-world demo, with optional `dist/web/dev/` from `build:web:dev` for unminified inspection).
@@ -28,9 +28,21 @@ For deeper context: `.docs/packaging-and-distribution.md` (publish model, engine
 - `bun test -t "name"` — run tests matching a name pattern
 - `bunx tsc --noEmit` — typecheck (tsconfig has `noEmit: true`, strict, `noUncheckedIndexedAccess`, `noPropertyAccessFromIndexSignature`)
 
-## Toolchain: Bun is the workspace default
+## What we ship to consumers
 
-Bun is the workspace runtime for the dev loop, the `@furnace/core` package's build, tests, and internal scripts. In those contexts:
+The published artifacts must work outside the furnace workspace, without our internal toolchain.
+
+- **`@furnace/core`** — plain ESM JavaScript + `.d.ts` declarations. **Browser-only.** No Bun APIs (`Bun.*`, `bun:*`), no Node APIs (`node:*`, `process.*`), no platform-aware code. Any TS-capable bundler (Vite, webpack, esbuild, Bun, Rollup) must be able to consume it. Compiled from TypeScript at publish time.
+- **`@furnace/tools`** — a Rust CLI binary (`furnace`) distributed via npm using a biome-style pattern: tiny plain-Node JS shim + the binary as a sibling file (today, single package) or per-platform `optionalDependencies` (future, when furnace ships a second platform). The shim must run on **plain Node ≥20**. The CLI binary has its own per-OS/arch builds. Internal source is mostly Rust (Cargo workspace); the JS shim has no Bun APIs and no runtime dependencies. Consumers invoke via `npx furnace …` or `bunx furnace …`.
+- **Native shell binary** — does NOT ship from furnace. The shell is `furnace-runtime` source vendored into the consumer's repo by `furnace init`; it compiles into the consumer's final native artifact (`.app`, `.ipa`, etc.) at *their* build time, not ours. See `.docs/packaging-and-distribution.md` §6.
+
+These rules apply to *shipped artifacts*. They do not apply to in-repo scripts, tests, or internal helpers — those can use any Bun API freely.
+
+`packages/core/tests/no-bun-leakage.test.ts` regex-scans core's `src/` for Bun-API imports as a static guardrail. It is one check among several — it does not by itself prove the full contract above.
+
+## How we build internally
+
+Bun is the runtime for everything that does NOT ship: the dev loop, build scripts, internal helpers, tests, workspace orchestration. In those contexts:
 
 - Use `bun <file>` instead of `node <file>` or `ts-node <file>`
 - Use `bun test` instead of `jest` or `vitest`
@@ -40,9 +52,11 @@ Bun is the workspace runtime for the dev loop, the `@furnace/core` package's bui
 - Use `bunx <package> <command>` instead of `npx`
 - Bun auto-loads `.env` — don't add `dotenv`.
 
-**Consumer/example packages choose their own toolchain.** `@furnace/core` is designed to be runtime-agnostic — its public surface uses only web-platform APIs (no `Bun.*` globals, no `bun:*` imports). The `no-bun-leakage` test in `packages/core/tests/` enforces this. A consumer (including in-repo examples like `packages/hello-world`) is free to use Vite, Webpack, Bun's own bundler, or any other tool that ships ESM + TS. The bullets above apply to workspace internals, not to consumers.
+Consumer/example packages choose their own toolchain. `packages/hello-world` is the reference consumer — it imports `@furnace/core` via the workspace symlink and uses its own build tools.
 
-## APIs to prefer
+## Internal-only Bun APIs
+
+For in-repo scripts, tests, and internal tooling that does not ship, prefer Bun's built-ins over equivalent npm packages:
 
 - `Bun.serve()` for HTTP/WebSockets/HTTPS/routes — don't use `express`
 - `bun:sqlite` for SQLite — don't use `better-sqlite3`
@@ -51,6 +65,8 @@ Bun is the workspace runtime for the dev loop, the `@furnace/core` package's bui
 - Built-in `WebSocket` — don't use `ws`
 - `Bun.file` over `node:fs` `readFile`/`writeFile`
 - `` Bun.$`ls` `` over `execa`
+
+These APIs do not exist on plain Node. They cannot appear in any file that ends up inside a package's published `files`/`exports`. The boundary is the publish manifest, not the source directory.
 
 ## Testing
 

@@ -18,6 +18,6 @@ For a working end-to-end example, see the `@furnace/hello-world` package in this
 
 ## Consumer portability
 
-`@furnace/core` ships TypeScript source and `.d.ts` declarations. Use any bundler that consumes ESM + TS (Vite, webpack, esbuild, Bun's own bundler, etc.). The public surface uses only web-platform APIs; the `no-bun-leakage` test enforces this.
+`@furnace/core` ships compiled ESM JavaScript and `.d.ts` declarations. Use any modern bundler (Vite, webpack, esbuild, Bun, Rollup) — its public surface uses only web-platform APIs (no Bun APIs, no Node APIs, no `process.*` reads), targeting the browser. The `no-bun-leakage` test is one static guardrail; the full consumer contract lives in `.claude/CLAUDE.md` "What we ship to consumers."
 
 The desktop runtime is provided by a separate package, `@furnace/tools`. Install it if you need the native launcher.
