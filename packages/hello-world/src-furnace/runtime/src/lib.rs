@@ -129,16 +129,20 @@ fn serve_asset(
     } else {
         assets_dir.join(path)
     };
-    eprintln!(
-        "[furnace] protocol request: uri={} -> path={} -> file={}",
-        uri,
-        path,
-        file_path.display()
-    );
+    let verbose = std::env::var("FURNACE_VERBOSE").is_ok();
+    if verbose {
+        eprintln!(
+            "[furnace] protocol request: uri={} -> file={}",
+            uri,
+            file_path.display()
+        );
+    }
     match std::fs::read(&file_path) {
         Ok(bytes) => {
             let mime = mime_for(&file_path);
-            eprintln!("[furnace]   OK: {} bytes, mime={}", bytes.len(), mime);
+            if verbose {
+                eprintln!("[furnace]   OK: {} bytes, mime={}", bytes.len(), mime);
+            }
             Response::builder()
                 .status(StatusCode::OK)
                 .header("Content-Type", mime)
@@ -147,7 +151,9 @@ fn serve_asset(
                 .unwrap()
         }
         Err(e) => {
-            eprintln!("[furnace]   NOT FOUND: {}", e);
+            if verbose {
+                eprintln!("[furnace]   NOT FOUND: {}", e);
+            }
             Response::builder()
                 .status(StatusCode::NOT_FOUND)
                 .body(Cow::Borrowed(&b"not found"[..]))
