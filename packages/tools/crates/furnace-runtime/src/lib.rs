@@ -18,6 +18,32 @@ use winit::{
 };
 use wry::{WebView, WebViewBuilder};
 
+const ERROR_CAPTURE_SCRIPT: &str = r#"
+(function() {
+  function showError(label, detail) {
+    try {
+      if (document.body) {
+        document.body.style.color = '#f88';
+        document.body.style.background = '#0d0d12';
+        document.body.style.fontFamily = 'ui-monospace, monospace';
+        document.body.style.padding = '20px';
+        document.body.style.whiteSpace = 'pre-wrap';
+        document.body.innerText = '[furnace JS error] ' + label + '\n' + detail;
+      }
+    } catch (_) {}
+    console.error('[furnace JS error]', label, detail);
+  }
+  window.addEventListener('error', function(e) {
+    var src = e.filename || '(unknown source)';
+    showError('uncaught error: ' + e.message, src + ':' + e.lineno + ':' + e.colno);
+  });
+  window.addEventListener('unhandledrejection', function(e) {
+    var reason = e.reason && (e.reason.stack || e.reason.message || String(e.reason));
+    showError('unhandled promise rejection', reason || String(e.reason));
+  });
+})();
+"#;
+
 pub struct AppConfig {
     pub title: String,
     pub width: f64,
@@ -62,7 +88,9 @@ impl ApplicationHandler for AppState {
             .create_window(attrs)
             .expect("failed to create window");
 
-        let mut builder = WebViewBuilder::new().with_devtools(true);
+        let mut builder = WebViewBuilder::new()
+            .with_devtools(true)
+            .with_initialization_script(ERROR_CAPTURE_SCRIPT);
 
         if let Some(assets_dir) = self.config.assets_dir.clone() {
             builder = builder
@@ -93,26 +121,38 @@ fn serve_asset(
     use std::borrow::Cow;
     use wry::http::{Response, StatusCode};
 
+    let uri = request.uri();
     // URL shape: furnace://localhost/path/to/file
-    let path = request.uri().path().trim_start_matches('/');
+    let path = uri.path().trim_start_matches('/');
     let file_path = if path.is_empty() {
         assets_dir.join("index.html")
     } else {
         assets_dir.join(path)
     };
+    eprintln!(
+        "[furnace] protocol request: uri={} -> path={} -> file={}",
+        uri,
+        path,
+        file_path.display()
+    );
     match std::fs::read(&file_path) {
         Ok(bytes) => {
             let mime = mime_for(&file_path);
+            eprintln!("[furnace]   OK: {} bytes, mime={}", bytes.len(), mime);
             Response::builder()
                 .status(StatusCode::OK)
                 .header("Content-Type", mime)
+                .header("Access-Control-Allow-Origin", "*")
                 .body(Cow::Owned(bytes))
                 .unwrap()
         }
-        Err(_) => Response::builder()
-            .status(StatusCode::NOT_FOUND)
-            .body(Cow::Borrowed(&b"not found"[..]))
-            .unwrap(),
+        Err(e) => {
+            eprintln!("[furnace]   NOT FOUND: {}", e);
+            Response::builder()
+                .status(StatusCode::NOT_FOUND)
+                .body(Cow::Borrowed(&b"not found"[..]))
+                .unwrap()
+        }
     }
 }
 
