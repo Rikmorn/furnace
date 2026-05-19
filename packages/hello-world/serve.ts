@@ -1,4 +1,4 @@
-import indexHtml from "./index.html";
+import indexHtml from "./src/index.html";
 
 const PORT = Number(Bun.env["FURNACE_PORT"] ?? 8765);
 const server = Bun.serve({

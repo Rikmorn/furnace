@@ -6,8 +6,9 @@
   "scripts": {
     "dev": "bun --hot serve.ts",
     "dev:native": "bunx furnace native --rebuild",
-    "build:web": "bun build index.html --outdir ../../dist/web --minify --sourcemap=external",
-    "build:web:dev": "bun build index.html --outdir ../../dist/web/dev --sourcemap=inline",
+    "build:web": "bun build src/index.html --outdir ../../dist/web --minify --sourcemap=external",
+    "build:web:dev": "bun build src/index.html --outdir ../../dist/web/dev --sourcemap=inline",
+    "build:macos": "bunx furnace build --platform=macos",
     "test": "bun test",
     "typecheck": "bunx tsc --noEmit"
   },
