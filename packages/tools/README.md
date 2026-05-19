@@ -13,7 +13,7 @@ A Rust workspace shipped via npm:
 
 ## Consumer surface
 
-- `furnace` (bin) — public CLI. Today supports the legacy `furnace native [--rebuild]` (used by hello-world's `dev:native`); the design spec lays out the eventual full command surface (`init`, `build`, `dev`, `wasm`, `upgrade-runtime`).
+- `furnace` (bin) — public CLI (Rust binary via `shim.js`). Commands defined: `build`, `dev`, `wasm`, `init`, `upgrade-runtime`. Only the hidden `native` bridge is implemented today; the others return "not yet implemented" with the phase they land in. See `docs/superpowers/plans/2026-05-19-native-shell-milestone-1.md` for the active implementation plan.
 
 This is the only package in the workspace that produces a binary.
 
