@@ -1296,6 +1296,28 @@ Expected: build emits a clickable .app that renders the WebGPU triangle from a c
 
 ---
 
+## Phase 2 deviations (errata)
+
+Phase 2 shipped with several substantive deviations from the plan body. Phases 3+ must respect them. Phase 1 and Phase 2 task bodies are left as written for historical context; the shipped state lives in the git history.
+
+1. **macOS-native asset layout, not `payload.bin` tar.** The plan's Task 2.1 used `include_bytes!(payload.bin)` + a `build.rs` that tarred the staged bundle, with extraction to `~/Library/Caches/<name>/payload/` at first launch. Shipped state: web assets live at `Contents/Resources/web/` inside the `.app`. The consumer's `main.rs` resolves them via `current_exe().parent().parent().join("Resources/web")`. `build.rs` is deleted; `dirs` and `tar` deps are removed; `FURNACE_WEB_DIR` is no longer passed to cargo. The `MacosBuilder` copies the staged web bundle into the `.app` after the cargo build step.
+
+2. **`furnace://` custom protocol is how assets reach the WebView.** `file://` is blocked by WKWebView from fetching sibling files; wry 0.48 doesn't expose `allowFileAccessFromFileURLs`. The runtime's `AppConfig.assets_dir: Option<PathBuf>` triggers registration of a `furnace://` custom protocol via `with_custom_protocol`; the URL loaded becomes `furnace://localhost/index.html`. The `open_url` example still works (it doesn't set `assets_dir`).
+
+3. **JS bundling is via `Bun.build()` programmatic script, not the `bun build` CLI.** `bunfig.toml`'s `[serve.static].plugins` config only applies to `bun serve`; without programmatic invocation, `bun-plugin-svelte` doesn't run and `.svelte.ts` files leak `$state` runes into runtime JS. See `packages/tools/crates/furnace-cli/src/jsbundle.rs` for the generated `bundle.mjs` pattern and `Bun.resolveSync("bun-plugin-svelte", projectRoot)` discovery. `BundleMode::Dev` passes `development: true` to `SveltePlugin`; `BundleMode::Prod` passes `false`.
+
+4. **`FURNACE_VERBOSE` env gates protocol-request logging** in the runtime's custom protocol handler (legacy convention).
+
+5. **Error-capture JS is permanently injected** via `with_initialization_script` in the runtime. It replaces `document.body.innerText` on uncaught errors / unhandled rejections with a red overlay so silent JS failures become visible. Keep this in all future runtime changes.
+
+6. **`tsconfig.json` excludes are `["**/dist", "**/target"]`.** The consumer's cargo target lives nested under `packages/hello-world/src-furnace/target/` and the `.app` builds to `packages/hello-world/dist/`; un-nested patterns don't match.
+
+7. **Vendored runtime sync:** every change to `packages/tools/crates/furnace-runtime/src/lib.rs` must be mirrored to `packages/hello-world/src-furnace/runtime/src/lib.rs` (byte-identical `lib.rs`; their Cargo.toml diverges — canonical uses `*.workspace = true`, vendored uses literal versions). Sync via `cp` and verify with `diff`. Phase 5 will replace the vendored copy under hello-world with a fresh copy under `packages/tools/templates/shared/src-furnace/runtime/`.
+
+**Phase 3 consumer-side dev integration:** the plan's `FURNACE_DEV_CACHE_DIR` env is still the right approach, but with the new asset layout it integrates differently — see Task 3.2's "Edit `src-furnace/main.rs` to honour that env" section below (rewritten).
+
+---
+
 ## Phase 3 — Dev mode (`furnace dev`) + retire legacy
 
 **Goal:** `furnace dev --platform=macos` runs a watch loop with HMR over WebSocket; the legacy `packages/tools/native/furnace-window` crate and the `Command::Native` bridge are removed.
@@ -1370,31 +1392,48 @@ cargo build --manifest-path packages/tools/crates/Cargo.toml
 - Modify: `packages/tools/crates/furnace-cli/Cargo.toml` (add `notify = "6"`, `tungstenite = "0.24"`, `tokio = { version = "1", features = ["full"] }` OR keep it sync with std threads — preferred for milestone 1)
 
 **Implementation overview:**
-1. `furnace dev --platform=macos` runs the same JS bundle pipeline (BundleMode::Dev) into a persistent tmp dir.
+1. `furnace dev --platform=macos` bundles into a persistent dev cache dir (e.g., `<consumer>/target/furnace-dev/`) via `BundleMode::Dev`.
 2. Spawn a WebSocket server on `localhost:0`, capture the chosen port.
-3. Run `cargo build` (debug, not release) on `src-furnace/`, passing `FURNACE_WEB_DIR` and a new `FURNACE_HMR_WS=ws://127.0.0.1:<port>` env so the consumer's `main.rs` reads it and passes it into `AppConfig::hmr_ws_url`.
-4. Spawn the resulting binary as a child.
-5. Watch `paths.source_dir` with `notify`. On change: re-run `bun build` into the staging dir, re-tar payload.bin if needed (or skip — for full-reload Phase 3, just bump the WebSocket and let the runtime call `location.reload()` which re-reads `payload.bin` content via the extracted cache dir, which we re-populate). Send a text frame on the WebSocket.
+3. Run `cargo build` (debug, not release) on `src-furnace/`. **Do not pass `FURNACE_WEB_DIR`** (no `build.rs` reads it anymore — see Phase 2 deviation #1).
+4. Spawn the resulting bare debug binary (NOT a `.app`) with two envs: `FURNACE_DEV_CACHE_DIR=<dev cache dir>` and `FURNACE_HMR_WS=ws://127.0.0.1:<port>`.
+5. Watch `paths.source_dir` with `notify`. On change: re-bundle into the dev cache dir; broadcast `"reload"` on the WebSocket; runtime calls `location.reload()` which re-reads via the `furnace://` custom protocol from the dev cache dir.
 6. On Ctrl+C, terminate the child.
 
-> **Simplification for Phase 3:** the watcher rebuilds the payload by re-running `bun build` into a known location and rsync-ing it into the cache extraction dir directly (skipping a full cargo rebuild). The runtime calls `location.reload()`, which re-reads the index.html from the cache dir. This bypasses the include_bytes-as-tar round-trip during dev. Add a `FURNACE_DEV_CACHE_DIR=<path>` env so the consumer's `main.rs` knows to read from there instead of unpacking PAYLOAD in dev mode.
+> **Why the bare binary, not a `.app`:** dev mode iterates faster without re-packaging the `.app` on every change. The consumer's `resolve_assets_dir()` falls through to the dev path when `FURNACE_DEV_CACHE_DIR` is set, so the runtime points the custom protocol at the watched dir rather than the `.app`'s `Contents/Resources/web/`.
 
-Edit `src-furnace/main.rs` to honour that env:
+Edit `src-furnace/main.rs` `resolve_assets_dir()` to honour the dev env (current shape: it resolves from `current_exe()`):
 
 ```rust
-fn extract_payload() -> Result<PathBuf> {
+fn resolve_assets_dir() -> Result<PathBuf> {
     if let Ok(dev_dir) = std::env::var("FURNACE_DEV_CACHE_DIR") {
-        return Ok(PathBuf::from(dev_dir).join("index.html"));
+        return Ok(PathBuf::from(dev_dir));
     }
-    // ... existing prod path ...
+    // Prod (macOS .app) path:
+    let exe = std::env::current_exe()?;
+    let assets = exe
+        .parent()
+        .context("exe has no parent")?
+        .parent()
+        .context("MacOS dir has no parent")?
+        .join("Resources/web");
+    if !assets.is_dir() {
+        anyhow::bail!(
+            "assets dir not found at {} — was the .app constructed correctly?",
+            assets.display()
+        );
+    }
+    Ok(assets)
 }
 ```
 
-And the consumer's `main.rs` reads `FURNACE_HMR_WS`:
+And the consumer's `main()` reads `FURNACE_HMR_WS` into the AppConfig:
 
 ```rust
-let mut config = AppConfig::new(url);
+let mut config = AppConfig::new("furnace://localhost/index.html");
+config.title = "furnace".into();
+config.assets_dir = Some(assets_dir);
 config.hmr_ws_url = std::env::var("FURNACE_HMR_WS").ok();
+run(config)
 ```
 
 - [ ] **Step 1: Write `dev/server.rs` — a synchronous WebSocket server.**
@@ -1512,14 +1551,15 @@ pub fn run_dev(platform: &str) -> Result<()> {
     let server = server::HmrServer::start()?;
     let ws_url = format!("ws://127.0.0.1:{}", server.port);
 
-    // cargo build (debug) with envs the consumer's main.rs + build.rs read.
+    // cargo build (debug). No FURNACE_WEB_DIR — build.rs was removed in Phase 2's
+    // macOS-native refactor; assets are wired in via the runtime's custom protocol
+    // reading FURNACE_DEV_CACHE_DIR at startup.
     let target = MacosBuilder.target_triple();
     let target_dir = paths.src_furnace.join("target");
     let status = Command::new("cargo")
         .args(["build", "--target", target, "--manifest-path"])
         .arg(paths.src_furnace.join("Cargo.toml"))
         .env("CARGO_TARGET_DIR", &target_dir)
-        .env("FURNACE_WEB_DIR", &dev_cache)
         .status()
         .context("cargo build (debug) failed")?;
     if !status.success() {
@@ -1904,7 +1944,6 @@ bun run check
 - Create: `packages/tools/templates/shared/package.json.tmpl`
 - Create: `packages/tools/templates/shared/src-furnace/main.rs.tmpl`
 - Create: `packages/tools/templates/shared/src-furnace/Cargo.toml.tmpl`
-- Create: `packages/tools/templates/shared/src-furnace/build.rs.tmpl`
 - Create: `packages/tools/templates/shared/src/index.html.tmpl`
 - Create: `packages/tools/templates/shared/src/main.ts.tmpl`
 - Create: `packages/tools/templates/shared/.gitignore.tmpl`
@@ -1912,6 +1951,8 @@ bun run check
 - Create: `packages/tools/templates/macos/entitlements.plist.tmpl`
 
 Each `.tmpl` file uses `${VAR}` substitution placeholders (same syntax as Phase 2's Info.plist substitution). Variables: `${NAME}`, `${BUNDLE_ID}`, `${VERSION}`.
+
+> **Source of truth:** derive every template from hello-world's **current committed state**, not from this plan's example snippets — Phase 2 refactored hello-world's `src-furnace/` (no `build.rs`, no `dirs`/`tar` deps, `main.rs` uses `resolve_assets_dir()` with the `FURNACE_DEV_CACHE_DIR` branch from Phase 3, etc.). The plan body predates those changes; the templates must match the shipped layout. See the Phase 2 deviations errata for context.
 
 - [ ] **Step 1: Copy hello-world's manually-seeded files into templates with placeholders substituted back.**
 
