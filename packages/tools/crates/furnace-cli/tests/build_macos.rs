@@ -29,4 +29,8 @@ fn build_macos_produces_app() {
     assert!(app.exists(), "{} missing", app.display());
     assert!(app.join("Contents/Info.plist").exists());
     assert!(app.join("Contents/MacOS/hello-world").exists());
+    assert!(
+        app.join("Contents/Resources/web/index.html").exists(),
+        "web bundle missing from Contents/Resources/web/"
+    );
 }

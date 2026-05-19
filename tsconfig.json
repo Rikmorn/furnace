@@ -26,5 +26,5 @@
     "noUnusedParameters": false,
     "noPropertyAccessFromIndexSignature": true
   },
-  "exclude": ["dist", "target", "**/target"]
+  "exclude": ["**/dist", "**/target"]
 }

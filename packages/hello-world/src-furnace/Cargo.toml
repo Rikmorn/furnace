@@ -10,9 +10,4 @@ path = "main.rs"
 
 [dependencies]
 anyhow = "1"
-dirs = "5"
 furnace-runtime = { path = "runtime" }
-tar = "0.4"
-
-[build-dependencies]
-tar = "0.4"

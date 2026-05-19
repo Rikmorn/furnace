@@ -54,6 +54,9 @@ impl PlatformBuilder for MacosBuilder {
             .replace("${IDENTITY_VERSION}", &ctx.config.identity.version);
         fs::write(contents.join("Info.plist"), plist)?;
 
+        copy_dir_recursive(&ctx.web_staging_dir, &resources.join("web"))
+            .context("copy web bundle into Contents/Resources/web")?;
+
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
@@ -67,6 +70,20 @@ impl PlatformBuilder for MacosBuilder {
     }
 }
 
+fn copy_dir_recursive(src: &std::path::Path, dst: &std::path::Path) -> std::io::Result<()> {
+    fs::create_dir_all(dst)?;
+    for entry in fs::read_dir(src)? {
+        let entry = entry?;
+        let dst_entry = dst.join(entry.file_name());
+        if entry.file_type()?.is_dir() {
+            copy_dir_recursive(&entry.path(), &dst_entry)?;
+        } else {
+            fs::copy(entry.path(), &dst_entry)?;
+        }
+    }
+    Ok(())
+}
+
 pub fn cargo_build_release(ctx: &BuildContext) -> Result<PathBuf> {
     let target = MacosBuilder.target_triple();
     let manifest = ctx.paths.src_furnace.join("Cargo.toml");
@@ -77,7 +94,6 @@ pub fn cargo_build_release(ctx: &BuildContext) -> Result<PathBuf> {
         .args(["build", "--release", "--target", target, "--manifest-path"])
         .arg(&manifest)
         .env("CARGO_TARGET_DIR", &target_dir)
-        .env("FURNACE_WEB_DIR", &ctx.web_staging_dir)
         .status()
         .context("cargo build failed to start")?;
     if !status.success() {
