@@ -1,0 +1,16 @@
+{
+  "identity": {
+    "name": "hello-world",
+    "bundleId": "com.furnace.hello-world",
+    "version": "0.0.0"
+  },
+  "source": "src/",
+  "entry": "index.html",
+  "window": {
+    "title": "furnace",
+    "width": 1280,
+    "height": 720,
+    "fullscreen": false
+  },
+  "plugins": []
+}
