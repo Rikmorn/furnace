@@ -1,9 +1,14 @@
 //! furnace-runtime — the native shell that consumers vendor into their apps.
 //!
-//! Phase 1 surface: open a wry window pointing at a URL. Subsequent phases
-//! add the Runtime Contract methods (filesystem, IPC, HMR channel).
+//! Phase 1 surface: open a wry window pointing at a URL.
+//! Phase 2 addition: optional assets_dir — when set, the runtime registers a
+//! `furnace://` custom protocol that serves bundled assets from disk. Loading
+//! via file:// is blocked from fetching sibling files in WKWebView; custom
+//! protocols are the Tauri-style fix and align with the Runtime Contract's
+//! asset-access category.
 
 use anyhow::{Context, Result};
+use std::path::PathBuf;
 use winit::{
     application::ApplicationHandler,
     dpi::LogicalSize,
@@ -17,7 +22,14 @@ pub struct AppConfig {
     pub title: String,
     pub width: f64,
     pub height: f64,
+    /// If `assets_dir` is None, this URL is loaded directly (e.g., for examples).
+    /// If `assets_dir` is Some, this is ignored — the runtime loads
+    /// `furnace://localhost/index.html`.
     pub url: String,
+    /// When set, the runtime registers a `furnace://` custom protocol that
+    /// serves files from this directory. Use this for bundled-asset apps where
+    /// file:// would be blocked by WKWebView's sibling-fetch restrictions.
+    pub assets_dir: Option<PathBuf>,
 }
 
 impl AppConfig {
@@ -27,6 +39,7 @@ impl AppConfig {
             width: 1280.0,
             height: 720.0,
             url: url.into(),
+            assets_dir: None,
         }
     }
 }
@@ -48,10 +61,20 @@ impl ApplicationHandler for AppState {
         let window = event_loop
             .create_window(attrs)
             .expect("failed to create window");
-        let webview = WebViewBuilder::new()
-            .with_url(&self.config.url)
-            .build(&window)
-            .expect("failed to create webview");
+
+        let mut builder = WebViewBuilder::new().with_devtools(true);
+
+        if let Some(assets_dir) = self.config.assets_dir.clone() {
+            builder = builder
+                .with_custom_protocol("furnace".into(), move |_webview_id, request| {
+                    serve_asset(&assets_dir, request)
+                })
+                .with_url("furnace://localhost/index.html");
+        } else {
+            builder = builder.with_url(&self.config.url);
+        }
+
+        let webview = builder.build(&window).expect("failed to create webview");
         self.window = Some(window);
         self._webview = Some(webview);
     }
@@ -60,6 +83,54 @@ impl ApplicationHandler for AppState {
         if matches!(event, WindowEvent::CloseRequested) {
             event_loop.exit();
         }
+    }
+}
+
+fn serve_asset(
+    assets_dir: &std::path::Path,
+    request: wry::http::Request<Vec<u8>>,
+) -> wry::http::Response<std::borrow::Cow<'static, [u8]>> {
+    use std::borrow::Cow;
+    use wry::http::{Response, StatusCode};
+
+    // URL shape: furnace://localhost/path/to/file
+    let path = request.uri().path().trim_start_matches('/');
+    let file_path = if path.is_empty() {
+        assets_dir.join("index.html")
+    } else {
+        assets_dir.join(path)
+    };
+    match std::fs::read(&file_path) {
+        Ok(bytes) => {
+            let mime = mime_for(&file_path);
+            Response::builder()
+                .status(StatusCode::OK)
+                .header("Content-Type", mime)
+                .body(Cow::Owned(bytes))
+                .unwrap()
+        }
+        Err(_) => Response::builder()
+            .status(StatusCode::NOT_FOUND)
+            .body(Cow::Borrowed(&b"not found"[..]))
+            .unwrap(),
+    }
+}
+
+fn mime_for(path: &std::path::Path) -> &'static str {
+    match path.extension().and_then(|s| s.to_str()) {
+        Some("html") => "text/html; charset=utf-8",
+        Some("js") | Some("mjs") => "text/javascript; charset=utf-8",
+        Some("css") => "text/css; charset=utf-8",
+        Some("json") | Some("map") => "application/json; charset=utf-8",
+        Some("wgsl") => "text/plain; charset=utf-8",
+        Some("wasm") => "application/wasm",
+        Some("svg") => "image/svg+xml",
+        Some("png") => "image/png",
+        Some("jpg") | Some("jpeg") => "image/jpeg",
+        Some("ico") => "image/x-icon",
+        Some("woff2") => "font/woff2",
+        Some("woff") => "font/woff",
+        _ => "application/octet-stream",
     }
 }
 
