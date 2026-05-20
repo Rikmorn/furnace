@@ -1,0 +1,20 @@
+{
+  "identity": {
+    "name": "${NAME}",
+    "bundleId": "${BUNDLE_ID}",
+    "version": "${VERSION}"
+  },
+  "source": "src/",
+  "entry": "index.html",
+  "window": {
+    "title": "${NAME}",
+    "width": 1280,
+    "height": 720,
+    "fullscreen": false
+  },
+  "plugins": [],
+  "dev": {
+    "serveCmd": "bun --hot serve.ts",
+    "port": 8765
+  }
+}
