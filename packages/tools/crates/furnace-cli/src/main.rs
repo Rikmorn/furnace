@@ -5,6 +5,7 @@
 
 mod build;
 mod config;
+mod dev;
 mod jsbundle;
 
 use anyhow::{bail, Result};
@@ -51,7 +52,7 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
     match cli.command {
         Command::Build { platform } => run_build(&platform),
-        Command::Dev { .. } => bail!("furnace dev is not yet implemented (Phase 3)"),
+        Command::Dev { platform } => dev::run_dev(&platform),
         Command::Wasm { .. } => bail!("furnace wasm is not yet implemented (Phase 4)"),
         Command::Init { .. } => bail!("furnace init is not yet implemented (Phase 5)"),
         Command::UpgradeRuntime => {

@@ -84,6 +84,31 @@ fn copy_dir_recursive(src: &std::path::Path, dst: &std::path::Path) -> std::io::
     Ok(())
 }
 
+pub fn cargo_build_debug(ctx: &BuildContext) -> Result<PathBuf> {
+    let target = MacosBuilder.target_triple();
+    let manifest = ctx.paths.src_furnace.join("Cargo.toml");
+    // Pin the target dir explicitly so the build is predictable regardless of
+    // any ambient .cargo/config.toml that might redirect target-dir.
+    let target_dir = ctx.paths.src_furnace.join("target");
+    let status = Command::new("cargo")
+        .args(["build", "--target", target, "--manifest-path"])
+        .arg(&manifest)
+        .env("CARGO_TARGET_DIR", &target_dir)
+        .status()
+        .context("cargo build (debug) failed to start")?;
+    if !status.success() {
+        bail!("cargo build (debug) failed");
+    }
+    let binary = target_dir
+        .join(target)
+        .join("debug")
+        .join(&ctx.config.identity.name);
+    if !binary.exists() {
+        bail!("expected debug binary at {} after build", binary.display());
+    }
+    Ok(binary)
+}
+
 pub fn cargo_build_release(ctx: &BuildContext) -> Result<PathBuf> {
     let target = MacosBuilder.target_triple();
     let manifest = ctx.paths.src_furnace.join("Cargo.toml");

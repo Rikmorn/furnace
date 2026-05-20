@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "bun --hot serve.ts",
-    "dev:native": "bunx furnace native --rebuild",
+    "dev:native": "bunx furnace dev --platform=macos",
     "build:web": "bun build src/index.html --outdir ../../dist/web --minify --sourcemap=external",
     "build:web:dev": "bun build src/index.html --outdir ../../dist/web/dev --sourcemap=inline",
     "build:macos": "bunx furnace build --platform=macos",
