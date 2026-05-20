@@ -9,6 +9,11 @@
   "bin": {
     "furnace": "./shim.js"
   },
+  "files": [
+    "shim.js",
+    "templates/",
+    "README.md"
+  ],
   "scripts": {
     "build": "bun scripts/build.ts",
     "test": "bun test",
