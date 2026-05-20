@@ -69,9 +69,9 @@ npm install @furnace/core
 They additionally get:
 
 - The `furnace` CLI — a Rust binary distributed via npm using a biome-style JS shim. Invoked via `npx furnace …` or `bunx furnace …`.
-- The vendored `furnace-runtime` Rust source, copied into their repo at `src-furnace/runtime/` on `furnace init`. Consumer's `Cargo.toml` depends on it via a `path` reference.
-- Platform scaffolds at `platforms/<platform>/` (Info.plist, icons, entitlements for macOS; Xcode project for iOS later; Gradle project for Android later). Consumer-committed and editable.
-- A scaffolded `src-furnace/main.rs` (~20 lines) — the Rust entrypoint the consumer can extend.
+- The vendored `furnace-runtime` Rust source, copied into their repo at `.furnace/shell/runtime/` on `furnace init`. Consumer's `Cargo.toml` depends on it via a `path` reference.
+- Platform scaffolds at `.furnace/platforms/<platform>/` (Info.plist, icons, entitlements for macOS; Xcode project for iOS later; Gradle project for Android later). Consumer-committed and editable.
+- A scaffolded `.furnace/shell/main.rs` (~20 lines) — the Rust entrypoint the consumer can extend.
 
 The CLI orchestrates the build: bundle the consumer's JS source for native targets, cross-compile Rust to the chosen target triple, run platform packaging (`cargo-packager` / `tauri-bundler` / xcodebuild / Gradle), emit a shippable artifact in `dist/<platform>/`. No prebuilt native shell binary ships from furnace; the consumer's final `.app` / `.ipa` / `.apk` is compiled from their own machine (or CI) with the vendored runtime as a build input.
 
@@ -128,7 +128,7 @@ $ furnace build --platform=macos
 [6/6] Sign + emit: dist/macos/MyGame.app
 ```
 
-The CLI orchestrates the full pipeline. No prebuilt binary from furnace ships to the consumer's `.app`; the consumer's machine (or CI) compiles the runtime as part of building their app. This trades install simplicity for consumer flexibility: the consumer owns the platform metadata (`platforms/macos/`), the Rust entrypoint (`src-furnace/main.rs`), and optionally the runtime source itself (`src-furnace/runtime/`) — see §4 of `docs/superpowers/specs/2026-05-19-native-shell-distribution-design.md` for the four customisation layers.
+The CLI orchestrates the full pipeline. No prebuilt binary from furnace ships to the consumer's `.app`; the consumer's machine (or CI) compiles the runtime as part of building their app. This trades install simplicity for consumer flexibility: the consumer owns the platform metadata (`.furnace/platforms/macos/`), the Rust entrypoint (`.furnace/shell/main.rs`), and optionally the runtime source itself (`.furnace/shell/runtime/`) — see §4 of `docs/superpowers/specs/2026-05-19-native-shell-distribution-design.md` for the four customisation layers.
 
 ### What's deliberately rejected
 
@@ -174,7 +174,7 @@ packages/tools/
 ├── shim.js                      # ~3-line plain Node JS shim that resolves + execs the binary
 ├── furnace                      # the built CLI binary (cargo output)
 ├── templates/                   # scaffold files for `furnace init`
-│   ├── shared/                  # furnace.config.json.tmpl, Cargo.toml.tmpl, src-furnace/main.rs.tmpl
+│   ├── shared/                  # furnace.config.json.tmpl, .furnace/shell/Cargo.toml.tmpl, .furnace/shell/main.rs.tmpl
 │   └── macos/                   # Info.plist.tmpl, Assets.xcassets/, entitlements.plist
 └── crates/                      # Cargo workspace
     ├── Cargo.toml               # workspace root
@@ -190,7 +190,7 @@ The placement constraint — "a published package must not pull internal tooling
 
 - `@furnace/core` does not depend on `@furnace/tools`. A web-only consumer never installs tools.
 - `@furnace/tools`'s shipped npm package contains only what consumers need: the CLI binary, the JS shim, the vendored runtime source (as data files), the scaffold templates, plus `package.json`. Internal build helpers, tests, and Cargo intermediate output are excluded from the published `files` array.
-- The vendored runtime source is copied by `furnace init` into the consumer's `src-furnace/runtime/`. The consumer's `Cargo.toml` references it by `path`; the original source in `node_modules/@furnace/tools/runtime/` is read-only data files.
+- The vendored runtime source is copied by `furnace init` into the consumer's `.furnace/shell/runtime/`. The consumer's `Cargo.toml` references it by `path`; the original source in `node_modules/@furnace/tools/runtime/` is read-only data files.
 
 **Follow-up specs needed** (tracked in `.docs/BACKLOG.md`): the Runtime Contract Spec, the Plugin API Spec, the `furnace.config.json` schema, and the per-platform binary packages migration (biome's pattern at platform #2). All are deferred from the design spec; each warrants its own session.
 

@@ -83,7 +83,7 @@ packages/
 │   │   ├── shared/
 │   │   │   ├── furnace.config.json.tmpl
 │   │   │   ├── Cargo.toml.tmpl
-│   │   │   └── src-furnace/main.rs.tmpl
+│   │   │   └── .furnace/shell/main.rs.tmpl
 │   │   └── macos/
 │   │       ├── Info.plist.tmpl
 │   │       ├── Assets.xcassets/
@@ -113,27 +113,27 @@ my-game/
 ├── furnace.config.json                # declarative: app id, name, window, plugins
 ├── src/                               # game code (TS, WGSL, assets) — consumer owned
 │   └── index.ts                       # entry using @furnace/core
-├── Cargo.toml                         # furnace-runtime = { path = "src-furnace/runtime" }
-├── src-furnace/
+├── Cargo.toml                         # furnace-runtime = { path = ".furnace/shell/runtime" }
+├── .furnace/shell/
 │   ├── main.rs                        # ~20 lines — boots furnace-runtime, registers plugins
 │   └── runtime/                       # vendored — copy of packages/tools/crates/furnace-runtime/
 │       ├── Cargo.toml
 │       └── src/lib.rs
-└── platforms/
+└── .furnace/platforms/
     └── macos/                         # scaffolded — committed and edited freely
         ├── Info.plist
         ├── Assets.xcassets/
         └── entitlements.plist
 ```
 
-Adding `furnace init --platform=android` later creates `platforms/android/` (Gradle project) alongside `platforms/macos/`. The vendored runtime at `src-furnace/runtime/` is platform-agnostic.
+Adding `furnace init --platform=android` later creates `.furnace/platforms/android/` (Gradle project) alongside `.furnace/platforms/macos/`. The vendored runtime at `.furnace/shell/runtime/` is platform-agnostic.
 
 ### Versioning
 
 - `@furnace/core` — semver on npm, independent cadence.
 - `@furnace/tools` — semver on npm.
 - `furnace-runtime` (vendored) — implicitly versioned by which `@furnace/tools` version copied it. Upgrades via `furnace upgrade-runtime` re-vendor from the new CLI's bundled source.
-- Consumer-edited files (`platforms/`, `src-furnace/main.rs`, `furnace.config.json`) are never touched by upgrades. Conflicts at L4 (modified runtime) surface as a diff/warning, not auto-merge.
+- Consumer-edited files (`.furnace/platforms/`, `.furnace/shell/main.rs`, `furnace.config.json`) are never touched by upgrades. Conflicts at L4 (modified runtime) surface as a diff/warning, not auto-merge.
 
 ## Build pipeline
 
@@ -160,10 +160,10 @@ The consumer's relationship with `@furnace/core` is identical to their relations
 
 ### Phases of `furnace build` (production)
 
-1. **Pre-flight.** Validate `furnace.config.json`, verify `platforms/<platform>/` exists, verify source path, check Rust toolchain, check platform-specific tools.
+1. **Pre-flight.** Validate `furnace.config.json`, verify `.furnace/platforms/<platform>/` exists, verify source path, check Rust toolchain, check platform-specific tools.
 2. **wasm compile.** Compile all plugin crates under `plugins/` (or wherever the config declares) to wasm. Output goes into the tmp build dir.
 3. **JS stage + bundle (prod mode).** Copy consumer JS source to `/tmp/furnace-build-<hash>/`. Run furnace's bundler: minify, no HMR, sourcemaps as side-artifacts. The wasm files from phase 2 are pulled into the bundle.
-4. **Rust compile (release).** `cargo build --release --target=<triple>` against the consumer's Cargo.toml (which depends on `src-furnace/runtime/`).
+4. **Rust compile (release).** `cargo build --release --target=<triple>` against the consumer's Cargo.toml (which depends on `.furnace/shell/runtime/`).
 5. **Platform packaging.** Delegate to a Rust-side packaging tool (`cargo-packager` or `tauri-bundler`, decision deferred). Wraps the Rust binary + bundled JS + platform metadata into the native format.
 6. **Sign** (optional). Code-signing using identity from `furnace.config.json` or env vars.
 7. **Emit.** Write final artifact to `dist/<platform>/`.
@@ -248,7 +248,7 @@ Declarative configuration. The schema is what most consumers see.
 
 Covers app identity, window defaults, the dev-server command + port that `furnace dev` spawns, plugin registration, signing config, source/output paths. `dev.port` is a fixed number the dev server is expected to bind (no stdout parsing — too brittle). Consumers swapping to Vite or another HMR-capable server change `serveCmd` and `port`; `furnace dev`'s orchestration is unchanged. Full schema is deferred to implementation.
 
-### Layer 2 — `platforms/<platform>/` (anyone shipping)
+### Layer 2 — `.furnace/platforms/<platform>/` (anyone shipping)
 
 Platform-native files that can't be expressed declaratively. Consumer-committed, edited freely.
 
@@ -256,7 +256,7 @@ macOS today: `Info.plist`, `Assets.xcassets/`, `entitlements.plist`, `exportOpti
 
 Furnace's CLI does template substitution at build time — e.g., injects `identity.bundleId` from config into `Info.plist`. Consumers can override fields manually; manual edit wins.
 
-### Layer 3 — `src-furnace/main.rs` (Rust-comfortable consumers)
+### Layer 3 — `.furnace/shell/main.rs` (Rust-comfortable consumers)
 
 The Rust entrypoint, scaffolded by `furnace init` as ~20 lines.
 
@@ -276,7 +276,7 @@ fn main() {
 
 Reach for it when you need: custom startup logic, programmatic plugin configuration, native lifecycle hooks, custom IPC/protocol handlers — anything declarative config can't express.
 
-### Layer 4 — `src-furnace/runtime/` (forkers)
+### Layer 4 — `.furnace/shell/runtime/` (forkers)
 
 The vendored shell runtime. Reach for it when L3 can't reach far enough — replacing the WebView, adding unique platform behaviour, implementing unsupported OS capabilities.
 

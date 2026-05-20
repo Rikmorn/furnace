@@ -9,11 +9,11 @@ A Rust workspace shipped via npm:
 - `crates/furnace-cli/` — the `furnace` command-line tool (init, build, dev, wasm, upgrade-runtime).
 - `crates/furnace-runtime/` — the Rust shell that consumers vendor into their apps on `furnace init`. Wraps `wry` + `winit`, implements the Runtime Contract that the JS engine layer talks to.
 - `templates/` — scaffold files for `furnace init`.
-- `shim.js` — tiny plain-Node JS that resolves and execs the right per-platform binary (biome's distribution pattern). Lets consumers invoke via `npx furnace` / `bunx furnace`.
+- `shim.js` — tiny plain-Node JS that finds and execs the furnace binary. Single fat-package model today; per-platform biome-style packages deferred to a future milestone (see BACKLOG "Per-platform binary packages — biome-style migration").
 
 ## Consumer surface
 
-- `furnace` (bin) — public CLI (Rust binary via `shim.js`). Commands defined: `build`, `dev`, `wasm`, `init`, `upgrade-runtime`. Only the hidden `native` bridge is implemented today; the others return "not yet implemented" with the phase they land in. See `docs/superpowers/plans/2026-05-19-native-shell-milestone-1.md` for the active implementation plan.
+- `furnace` (bin) — public CLI (Rust binary via `shim.js`). Commands: `init`, `build`, `dev`, `wasm`. `upgrade-runtime` is stubbed pending a use-case. See `docs/superpowers/specs/2026-05-19-native-shell-distribution-design.md` for the architecture and `.docs/packaging-and-distribution.md` §6 for the distribution model.
 
 This is the only package in the workspace that produces a binary.
 
