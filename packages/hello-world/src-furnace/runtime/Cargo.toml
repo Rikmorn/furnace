@@ -11,4 +11,4 @@ crate-type = ["lib"]
 [dependencies]
 anyhow = "1"
 winit = "0.30"
-wry = "0.48"
+wry = "0.55"
