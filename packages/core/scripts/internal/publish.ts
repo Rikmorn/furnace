@@ -95,10 +95,8 @@ export async function emitDeclarations(
           outDir,
           rootDir: srcDir,
         },
-        include: [
-          join(srcDir, "**/*.ts"),
-          ...(opts.extraDeclarationFiles ?? []),
-        ],
+        include: [join(srcDir, "**/*.ts")],
+        files: opts.extraDeclarationFiles ?? [],
       }),
     );
     await $`bunx tsc --project ${tempTsconfig}`;

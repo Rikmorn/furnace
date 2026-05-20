@@ -14,12 +14,6 @@ pub struct BundleRequest<'a> {
     pub project_root: &'a Path,
     pub entry_html: &'a Path,
     pub out_dir: &'a Path,
-    pub mode: BundleMode,
-}
-
-pub enum BundleMode {
-    Prod,
-    Dev,
 }
 
 pub fn bundle(req: BundleRequest<'_>) -> Result<()> {
@@ -28,15 +22,11 @@ pub fn bundle(req: BundleRequest<'_>) -> Result<()> {
     let script_dir = tempfile::tempdir().context("create tmp script dir")?;
     let script_path = script_dir.path().join("bundle.mjs");
 
-    let development = matches!(req.mode, BundleMode::Dev);
-    let minify = matches!(req.mode, BundleMode::Prod);
-    let sourcemap = if minify { "external" } else { "inline" };
-
     let config = serde_json::json!({
         "entrypoints": [req.entry_html.to_string_lossy()],
         "outdir": req.out_dir.to_string_lossy(),
-        "minify": minify,
-        "sourcemap": sourcemap,
+        "minify": true,
+        "sourcemap": "external",
     });
     let config_json = serde_json::to_string(&config).context("serialize bundle config")?;
 
@@ -47,7 +37,7 @@ const plugins = [];
 try {{
     const pluginPath = Bun.resolveSync("bun-plugin-svelte", projectRoot);
     const mod = await import(pluginPath);
-    plugins.push(mod.SveltePlugin({{ development: {development} }}));
+    plugins.push(mod.SveltePlugin({{ development: false }}));
 }} catch (e) {{
     const msg = String(e);
     if (!msg.includes("Cannot find") && !msg.includes("ModuleNotFound")) {{

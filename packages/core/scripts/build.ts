@@ -4,7 +4,7 @@ import {
   stageAssets,
   stageTypeScript,
   synthesisePackageJson,
-} from "@furnace/tools/internal";
+} from "./internal/index.ts";
 
 const PKG_ROOT = resolve(import.meta.dir, "..");
 const WORKSPACE_ROOT = resolve(PKG_ROOT, "../..");

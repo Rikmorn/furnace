@@ -14,7 +14,7 @@ use winit::{
     dpi::LogicalSize,
     event::WindowEvent,
     event_loop::{ActiveEventLoop, EventLoop},
-    window::{Window, WindowId},
+    window::{Fullscreen, Window, WindowId},
 };
 use wry::{
     dpi::{LogicalPosition, PhysicalSize, Position, Size},
@@ -51,6 +51,7 @@ pub struct AppConfig {
     pub title: String,
     pub width: f64,
     pub height: f64,
+    pub fullscreen: bool,
     /// If `assets_dir` is None, this URL is loaded directly (e.g., for examples).
     /// If `assets_dir` is Some, this is ignored — the runtime loads
     /// `furnace://localhost/index.html`.
@@ -67,6 +68,7 @@ impl AppConfig {
             title: "furnace".into(),
             width: 1280.0,
             height: 720.0,
+            fullscreen: false,
             url: url.into(),
             assets_dir: None,
         }
@@ -84,9 +86,12 @@ impl ApplicationHandler for AppState {
         if self.window.is_some() {
             return;
         }
-        let attrs = Window::default_attributes()
+        let mut attrs = Window::default_attributes()
             .with_title(&self.config.title)
             .with_inner_size(LogicalSize::new(self.config.width, self.config.height));
+        if self.config.fullscreen {
+            attrs = attrs.with_fullscreen(Some(Fullscreen::Borderless(None)));
+        }
         let window = event_loop
             .create_window(attrs)
             .expect("failed to create window");

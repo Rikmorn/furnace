@@ -11,7 +11,7 @@
     "test": "bun test",
     "typecheck": "bunx tsc --noEmit"
   },
-  "devDependencies": {
-    "@furnace/tools": "workspace:*"
+  "peerDependencies": {
+    "@webgpu/types": "^0.1.70"
   }
 }

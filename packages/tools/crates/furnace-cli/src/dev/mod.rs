@@ -29,6 +29,7 @@ pub fn run_dev(platform: &str) -> Result<()> {
     let config = FurnaceConfig::load_from(&project_root)?;
     build::check_prereqs(&config)?;
     let paths = ProjectPaths::resolve(&project_root, &config);
+    crate::codegen::emit_shell_config(&paths.shell_dir, &config)?;
     let port = config.dev.port;
 
     for plugin_rel in &config.plugins {

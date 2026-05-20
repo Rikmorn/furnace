@@ -143,6 +143,11 @@ Group by category. Add categories as needed; don't pre-create empty ones.
 **Trigger to revisit:** Start of milestone 1 implementation (end-to-end macOS). The schema design happens BEFORE writing the Rust struct that deserialises it, so the choices are explicit rather than implicit.
 **Reference:** Customization Layers Section 4 of `docs/superpowers/specs/2026-05-19-native-shell-distribution-design.md`.
 
+### `@furnace/tools` publish staging
+**Context:** `bun run build:tools` now just runs `cargo build --release` and leaves the binary at `packages/tools/crates/target/release/furnace`. There is no `dist/tools/` staging step that produces a publish-ready npm layout — shim.js + binary + templates + README + LICENSE + per-platform `optionalDependencies` package.json. The existing TS staging helpers in `packages/core/scripts/internal/publish.ts` (used by core's publish staging) are TS-library-specific (stage source, emit `.d.ts`); tools ships a binary + assets and won't reuse them. Pattern to copy: biome's release tooling.
+**Trigger to revisit:** First real npm publish attempt, OR when adding a second platform binary (which makes the biome-style per-platform optionalDependencies pattern load-bearing — see "Windows native implementation" entry).
+**Reference:** `.docs/packaging-and-distribution.md` §6 (distribution model). Biome's release tooling at `github.com/biomejs/biome/tree/main/packages/@biomejs/biome`.
+
 ### Svelte editor / inspector surfaces
 **Context:** Svelte 5 is now the committed framework for screen-space DOM UI (see `docs/superpowers/specs/2026-05-17-ui-foundation-design.md`). The remaining work is editor and inspector surfaces that need to subscribe to engine state — particularly ECS components and entities once those exist.
 **Trigger to revisit:** When ECS lands and we need fine-grained state subscription for an entity inspector, OR when the first interactive control panel (shader uniform tweaks, scene parameters) is needed.
@@ -151,13 +156,6 @@ Group by category. Add categories as needed; don't pre-create empty ones.
 ### Hot-reload for WGSL shaders
 **Context:** `bun --hot` reloads TS/HTML, but a WGSL text-import change requires recreating the WebGPU pipeline. Currently you need a full page reload to pick up shader edits.
 **Trigger to revisit:** When iterating heavily on a shader and the friction shows.
-
-### CLI binary target-dir mismatch when iterating with `cargo build` directly
-**Context:** The repo's `.cargo/config.toml` redirects cargo's `target-dir` so that builds from anywhere in the workspace write to `dist/rust/<profile>/`. Running `cargo build --manifest-path packages/tools/crates/Cargo.toml` from a shell whose CWD is outside that ambient-config path bypasses the redirect and writes to `target/debug/` instead. Meanwhile `packages/tools/shim.js` only looks in `dist/rust/{debug,release}/`. Net: someone iterating on the CLI directly can end up with the shim resolving a stale binary (or none at all) while a fresh one sits unused under `target/`. The full build pipeline (`bun run --cwd packages/hello-world build:macos`) handles this correctly because `build/macos.rs` sets `CARGO_TARGET_DIR` explicitly; the friction only hits during direct iteration.
-
-**Concrete fix options:** (a) Extend `shim.js`'s candidate list to also check `target/{debug,release}/furnace`; (b) document the `CARGO_TARGET_DIR=dist/rust` requirement in `packages/tools/README.md` for direct iteration; (c) move the target-dir redirect from `.cargo/config.toml` into a `packages/tools/crates/.cargo/config.toml` scoped to the CLI workspace so it always applies regardless of invoking CWD.
-**Trigger to revisit:** Next time someone iterates on the CLI directly and trips over a stale binary, OR before publishing where the dist/-only resolution becomes consumer-facing.
-**Reference:** Surfaced during Phase 5.2.5 implementation, 2026-05-20.
 
 ### Bun ↔ wasm-bindgen generator — maintenance surface
 **Context:** Bun's bundler treats `import * as wasm from "./*.wasm"` as an asset import — the namespace resolves to `{default: "url-string"}` at runtime, not an instantiated WebAssembly.Instance. wasm-bindgen's `--target bundler` (and `--target web` in current versions) split-files glue assumes the bundler performs webpack-style instantiation that Bun doesn't. The CLI sidesteps this by rewriting `pkg/<crate>.js` and `pkg/<crate>.d.ts` after `wasm-pack` runs — see `rewrite_wrapper` in `packages/tools/crates/furnace-cli/src/wasm.rs`. Consumers import the typed exports + a `ready` promise; the manual `WebAssembly.instantiateStreaming` dance lives in the generated wrapper.

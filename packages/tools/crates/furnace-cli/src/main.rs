@@ -4,6 +4,7 @@
 //! return `Err(unimplemented)` for now; later phases fill them in.
 
 mod build;
+mod codegen;
 mod config;
 mod dev;
 mod init;
@@ -63,13 +64,14 @@ fn main() -> Result<()> {
 fn run_build(platform: &str) -> Result<()> {
     use crate::build::context::{BuildContext, BuiltArtifacts};
     use crate::config::{FurnaceConfig, ProjectPaths};
-    use crate::jsbundle::{bundle, BundleMode, BundleRequest};
+    use crate::jsbundle::{bundle, BundleRequest};
     use anyhow::Context;
 
     let project_root = std::env::current_dir()?;
     let config = FurnaceConfig::load_from(&project_root)?;
     build::check_prereqs(&config)?;
     let paths = ProjectPaths::resolve(&project_root, &config);
+    codegen::emit_shell_config(&paths.shell_dir, &config)?;
 
     for plugin_rel in &config.plugins {
         let crate_path = paths.root.join(plugin_rel);
@@ -88,10 +90,8 @@ fn run_build(platform: &str) -> Result<()> {
         project_root: &paths.root,
         entry_html: &paths.source_dir.join(&config.entry),
         out_dir: &web_staging,
-        mode: BundleMode::Prod,
     })?;
 
-    let platforms_dir = paths.platforms_dir.join(platform);
     let ctx = BuildContext {
         config,
         paths,
@@ -100,10 +100,7 @@ fn run_build(platform: &str) -> Result<()> {
     builder.pre_flight(&ctx)?;
 
     let binary = build::macos::cargo_build_release(&ctx)?;
-    let artifacts = BuiltArtifacts {
-        binary,
-        app_metadata_dir: platforms_dir,
-    };
+    let artifacts = BuiltArtifacts { binary };
 
     let app = builder.package(&ctx, &artifacts)?;
     println!("✓ {}", app.display());

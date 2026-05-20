@@ -10,5 +10,4 @@ pub struct BuildContext {
 
 pub struct BuiltArtifacts {
     pub binary: PathBuf,
-    pub app_metadata_dir: PathBuf,
 }

@@ -57,12 +57,11 @@ fn templates_root() -> Result<PathBuf> {
     let parent = exe.parent().context("exe has no parent")?;
     // Try a sequence of candidate paths:
     //  1. Shipped layout: <pkg>/furnace + <pkg>/templates  (sibling)
-    //  2. In-repo dev (debug or release): walk up from dist/rust/{debug,release}/furnace
+    //  2. In-repo dev: walk up from packages/tools/crates/target/{debug,release}/furnace
     //     to packages/tools/templates
     let candidates = [
         parent.join("templates"),
-        parent.join("../../../packages/tools/templates"),
-        parent.join("../../../../packages/tools/templates"),
+        parent.join("../../../templates"),
     ];
     for c in &candidates {
         if c.exists() {

@@ -1,23 +1,30 @@
 //! Consumer entrypoint scaffolded by `furnace init` (manual in Phase 2).
 //!
 //! Boots furnace-runtime and points it at the web assets the CLI copied into
-//! the .app bundle's `Contents/Resources/web/` during build.
+//! the .app bundle's `Contents/Resources/web/` during build. Window options
+//! come from `furnace_config.rs`, which the CLI generates from
+//! `furnace.config.json` each build/dev run.
+
+mod furnace_config;
 
 use anyhow::{Context, Result};
 use furnace_runtime::{run, AppConfig};
 use std::path::PathBuf;
 
 fn main() -> Result<()> {
-    if let Ok(dev_url) = std::env::var("FURNACE_DEV_URL") {
-        let mut config = AppConfig::new(dev_url);
-        config.title = "furnace".into();
-        return run(config);
-    }
-
-    let assets_dir = resolve_assets_dir().context("failed to resolve assets dir")?;
-    let mut config = AppConfig::new("furnace://localhost/index.html");
-    config.title = "furnace".into();
-    config.assets_dir = Some(assets_dir);
+    let mut config = match std::env::var("FURNACE_DEV_URL") {
+        Ok(dev_url) => AppConfig::new(dev_url),
+        Err(_) => {
+            let assets_dir = resolve_assets_dir().context("failed to resolve assets dir")?;
+            let mut c = AppConfig::new("furnace://localhost/index.html");
+            c.assets_dir = Some(assets_dir);
+            c
+        }
+    };
+    config.title = furnace_config::WINDOW_TITLE.into();
+    config.width = furnace_config::WINDOW_WIDTH;
+    config.height = furnace_config::WINDOW_HEIGHT;
+    config.fullscreen = furnace_config::WINDOW_FULLSCREEN;
     run(config)
 }
 

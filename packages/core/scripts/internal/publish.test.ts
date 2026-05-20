@@ -7,7 +7,7 @@ import {
   stageAssets,
   stageTypeScript,
   synthesisePackageJson,
-} from "../../src/internal/publish.ts";
+} from "./publish.ts";
 
 test("stageTypeScript: copies .ts files preserving directory structure", async () => {
   const tmp = await mkdtemp(join(tmpdir(), "furnace-stage-ts-"));

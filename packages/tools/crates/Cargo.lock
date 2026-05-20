@@ -749,7 +749,6 @@ version = "0.0.0"
 dependencies = [
  "anyhow",
  "clap",
- "furnace-runtime",
  "serde",
  "serde_json",
  "tempfile",
