@@ -19,3 +19,9 @@ Behavioural baseline for all contributors working in this repository.
 - Compounding errors are the biggest risk. Prioritise factual accuracy over agreeableness.
 - Do what was asked. If you think the scope should be larger, say so — don't silently expand it.
 - Before claiming work is done, verify it — at minimum a type check, ideally run the relevant tests. Match the verification to the scope of the change.
+
+## Debugging
+- **Public API before internals.** When debugging a library integration, grep the library's exported functions first. Most "we need to fork" intuitions are wrong — the function you want usually exists in the public surface (e.g. `build_as_child` vs `build` in wry).
+- **Reference implementations before reverse engineering.** For any widely-used library combination, search for an open-source project using both together. Half an hour of pattern-matching against working code saves days of reverse-engineering from internals.
+- **Fix the broken invariant, not the symptom.** When a symptom has a clear mechanism (e.g. an unsafe cast reading wrong-class memory because someone replaced the expected view), the fix is to restore the invariant the mechanism assumes. Don't paper over downstream effects (timing, focus, lifecycle); make the original assumption true again.
+- **Stop after two failed fixes on the same symptom, not three.** Without new evidence, the third attempt is the same intuition with more conviction — not a better hypothesis. Verify the model against disconfirming evidence before trying again.
