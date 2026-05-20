@@ -1314,335 +1314,343 @@ Phase 2 shipped with several substantive deviations from the plan body. Phases 3
 
 7. **Vendored runtime sync:** every change to `packages/tools/crates/furnace-runtime/src/lib.rs` must be mirrored to `packages/hello-world/src-furnace/runtime/src/lib.rs` (byte-identical `lib.rs`; their Cargo.toml diverges — canonical uses `*.workspace = true`, vendored uses literal versions). Sync via `cp` and verify with `diff`. Phase 5 will replace the vendored copy under hello-world with a fresh copy under `packages/tools/templates/shared/src-furnace/runtime/`.
 
-**Phase 3 consumer-side dev integration:** the plan's `FURNACE_DEV_CACHE_DIR` env is still the right approach, but with the new asset layout it integrates differently — see Task 3.2's "Edit `src-furnace/main.rs` to honour that env" section below (rewritten).
+**Phase 3 consumer-side dev integration:** superseded — Phase 3 was redesigned mid-execution to reuse the consumer's dev server's HMR instead of building a custom WebSocket channel. The dev-mode env is now `FURNACE_DEV_URL` (a full URL like `http://localhost:8765`), not `FURNACE_DEV_CACHE_DIR`. See the "Design change vs original plan body" note at the top of Phase 3 below.
 
 ---
 
 ## Phase 3 — Dev mode (`furnace dev`) + retire legacy
 
-**Goal:** `furnace dev --platform=macos` runs a watch loop with HMR over WebSocket; the legacy `packages/tools/native/furnace-window` crate and the `Command::Native` bridge are removed.
+**Goal:** `furnace dev --platform=macos` orchestrates the consumer's configured dev server (HMR-capable; default Bun) and a debug-built native binary that loads from it, giving module-level HMR inside the native shell. The legacy `packages/tools/native/furnace-window` crate and the `Command::Native` bridge are removed.
+
+**Design change vs original plan body:** Tasks 3.1 and 3.2 originally built a custom WebSocket HMR channel inside `furnace-runtime` plus a Rust file watcher and broadcast server in `furnace-cli`. After verifying via spike that Bun's `bun --hot serve.ts` already serves a full module-level HMR client (WebSocket at `/_bun/hmr`, applies updates in ~1ms inside WKWebView), the design switched to **reusing the consumer's dev server's HMR**. The runtime stays unchanged; furnace-cli becomes a thin orchestrator that spawns the dev server, polls for readiness, builds the debug binary, points it at the server via `FURNACE_DEV_URL`, and supervises both children. The web-tab dev flow (`bun run dev`) and the native dev flow (`bun run dev:native`) now share one bundling+HMR path. See `docs/superpowers/specs/2026-05-19-native-shell-distribution-design.md` (Build pipeline → Phases of `furnace dev`) for the architecture.
 
 **End-state:**
 - `bun run --cwd packages/hello-world dev:native` invokes `bunx furnace dev --platform=macos`.
-- Editing a `.ts` or `.wgsl` file in hello-world's `src/` triggers a re-bundle and the WebView reloads (full reload in Phase 3 — granular module HMR is deferred).
+- Editing a `.ts` or `.wgsl` file in hello-world's `src/` triggers Bun's HMR; module updates land in the WebView via the dev server's WebSocket. Full reload is the fallback when a module doesn't self-accept.
 - `packages/tools/native/` is removed. The `Command::Native` bridge is removed from `furnace-cli`.
+- **No new runtime crate dependencies** (no `tungstenite`). **No new CLI crate dependencies** (no `notify`). All work uses `std::net`, `std::process`, `std::thread`.
 
-### Task 3.1: HMR channel in furnace-runtime
+### Task 3.1: Consumer-side dev URL awareness + `dev` config field
 
 **Files:**
-- Modify: `packages/tools/crates/furnace-runtime/src/lib.rs` (extend AppConfig with optional HMR URL; spawn a thread that connects to a WebSocket and calls `webview.evaluate_script("location.reload()")` on reload messages)
-- Modify: `packages/tools/crates/furnace-runtime/Cargo.toml` (add `tungstenite = "0.21"` for WebSocket; gate behind a `hmr` feature)
+- Modify: `packages/tools/crates/furnace-cli/src/config.rs` (add `Dev` field to `FurnaceConfig` with defaults)
+- Modify: `packages/hello-world/furnace.config.json` (add explicit `dev` block — values match defaults, included for documentation)
+- Modify: `packages/hello-world/src-furnace/main.rs` (branch on `FURNACE_DEV_URL` at the top of `main`)
 
-- [ ] **Step 1: Add the WebSocket reload listener.**
+**Why no runtime changes:** `AppConfig.url` already accepts any URL. When the consumer's `main.rs` sees `FURNACE_DEV_URL`, it builds `AppConfig::new(dev_url)` with no `assets_dir`. The runtime then skips registering the `furnace://` custom protocol (see Phase 2 errata #2) and loads `http://localhost:<port>` directly. WKWebView loads http://localhost cleanly — verified end-to-end via spike before this revision (the WebKit Networking XPC opened both an HTTP connection and the HMR WebSocket to bun's port; editing `src/entry.ts` produced `Reloaded in 1ms` via the WebSocket).
 
-In `lib.rs`, extend `AppConfig`:
+- [ ] **Step 1: Extend `FurnaceConfig` with a `dev` block.**
+
+`packages/tools/crates/furnace-cli/src/config.rs`:
 
 ```rust
-pub struct AppConfig {
-    pub title: String,
-    pub width: f64,
-    pub height: f64,
-    pub url: String,
-    pub hmr_ws_url: Option<String>,
+#[derive(Deserialize, Debug)]
+pub struct FurnaceConfig {
+    // ... existing fields ...
+    #[serde(default)]
+    pub dev: DevConfig,
+}
+
+#[derive(Deserialize, Debug)]
+pub struct DevConfig {
+    #[serde(rename = "serveCmd", default = "default_serve_cmd")]
+    pub serve_cmd: String,
+    #[serde(default = "default_port")]
+    pub port: u16,
+}
+
+impl Default for DevConfig {
+    fn default() -> Self {
+        Self { serve_cmd: default_serve_cmd(), port: default_port() }
+    }
+}
+
+fn default_serve_cmd() -> String { "bun --hot serve.ts".into() }
+fn default_port() -> u16 { 8765 }
+```
+
+`#[serde(default)]` on the outer field plus the explicit `Default` impl means the `dev` block is fully optional in the JSON. Consumers using bun on port 8765 don't need to specify anything; consumers swapping to Vite or another port override only the fields they care about.
+
+- [ ] **Step 2: Update hello-world's `furnace.config.json`.**
+
+Add a `dev` block (values match the defaults — included for documentation / discoverability):
+
+```jsonc
+{
+  // ... existing fields ...
+  "dev": {
+    "serveCmd": "bun --hot serve.ts",
+    "port": 8765
+  }
 }
 ```
 
-Update `new` accordingly. In `resumed`, after building the webview, spawn a thread if `hmr_ws_url` is Some:
+- [ ] **Step 3: Edit `packages/hello-world/src-furnace/main.rs` to honour `FURNACE_DEV_URL`.**
 
 ```rust
-        if let Some(ws_url) = self.config.hmr_ws_url.clone() {
-            let proxy = event_loop.create_proxy();  // need a custom UserEvent for cross-thread reload
-            std::thread::spawn(move || {
-                use tungstenite::connect;
-                let Ok((mut socket, _)) = connect(&ws_url) else { return };
-                while let Ok(msg) = socket.read() {
-                    if msg.is_text() {
-                        let _ = proxy.send_event(());  // reload signal
-                    }
-                }
-            });
-        }
+fn main() -> Result<()> {
+    if let Ok(dev_url) = std::env::var("FURNACE_DEV_URL") {
+        let mut config = AppConfig::new(dev_url);
+        config.title = "furnace".into();
+        return run(config);
+    }
+
+    let assets_dir = resolve_assets_dir().context("failed to resolve assets dir")?;
+    let mut config = AppConfig::new("furnace://localhost/index.html");
+    config.title = "furnace".into();
+    config.assets_dir = Some(assets_dir);
+    run(config)
+}
 ```
 
-The event-loop type signature has to be updated to use `EventLoop::<()>::with_user_event()`. Adjust `run` accordingly and handle the user event in `ApplicationHandler::user_event` by calling `webview.evaluate_script("location.reload()")`.
+The dev branch leaves `assets_dir = None` deliberately — that's what tells the runtime to skip the `furnace://` custom protocol and use the URL directly.
 
-> **If wry's webview-from-different-thread story bites, an alternative:** the WebSocket listener thread writes a sentinel file path; the runtime polls it on a timer in a winit timer event. Slower but simpler.
-
-- [ ] **Step 2: Add the `tungstenite` dependency.**
-
-```toml
-[dependencies]
-# ... existing ...
-tungstenite = "0.24"
-```
-
-- [ ] **Step 3: Confirm runtime still builds with the new feature.**
+- [ ] **Step 4: Verify both crates build.**
 
 ```bash
+cargo fmt --manifest-path packages/tools/crates/Cargo.toml --all
+cargo fmt --manifest-path packages/hello-world/src-furnace/Cargo.toml --all
 cargo build --manifest-path packages/tools/crates/Cargo.toml
+cargo build --manifest-path packages/hello-world/src-furnace/Cargo.toml
 ```
 
-### Task 3.2: HMR server in furnace-cli
+- [ ] **Step 5: Commit.**
+
+```bash
+git add packages/tools/crates/furnace-cli/src/config.rs packages/hello-world/furnace.config.json packages/hello-world/src-furnace/main.rs
+git commit -m "$(cat <<'EOF'
+feat(tools+hello-world): consumer-side dev URL awareness
+
+Phase 3.1 of native-shell milestone-1. Adds an optional [dev] block to
+FurnaceConfig (serveCmd + port, both with sensible defaults) and teaches
+hello-world's main.rs to prefer FURNACE_DEV_URL over the prod furnace://
+asset path.
+
+The runtime is unchanged — AppConfig already accepts any URL. The dev-mode
+switch is entirely in the consumer's entrypoint: leaving assets_dir = None
+suppresses the custom-protocol registration so the WebView loads
+http://localhost:<port> directly.
+
+The custom WebSocket HMR design from the original plan body is replaced by
+reusing the consumer's dev server (default: Bun's HTML-route serve), which
+ships module-level HMR. See design doc §Build pipeline.
+EOF
+)"
+```
+
+### Task 3.2: `furnace dev --platform=macos` orchestrator
 
 **Files:**
-- Create: `packages/tools/crates/furnace-cli/src/dev/mod.rs`
-- Create: `packages/tools/crates/furnace-cli/src/dev/server.rs` (WebSocket server bound to localhost:0)
-- Create: `packages/tools/crates/furnace-cli/src/dev/watch.rs` (notify-based file watcher → rebundle → broadcast)
-- Modify: `packages/tools/crates/furnace-cli/src/main.rs` (wire `Command::Dev`)
-- Modify: `packages/tools/crates/furnace-cli/Cargo.toml` (add `notify = "6"`, `tungstenite = "0.24"`, `tokio = { version = "1", features = ["full"] }` OR keep it sync with std threads — preferred for milestone 1)
+- Create: `packages/tools/crates/furnace-cli/src/dev/mod.rs` (orchestrator — ~90 lines, plain sync std)
+- Modify: `packages/tools/crates/furnace-cli/src/build/macos.rs` (add a `cargo_build_debug` helper next to `cargo_build_release`)
+- Modify: `packages/tools/crates/furnace-cli/src/main.rs` (declare `mod dev;`, route `Command::Dev`)
+- Modify: `packages/hello-world/package.json` (rewire `dev:native` to `bunx furnace dev --platform=macos`)
+
+**No new dependencies.** Readiness uses `std::net::TcpStream::connect_timeout`. Child cleanup relies on Unix process-group signal inheritance — Ctrl+C in the terminal delivers SIGINT to all children in the foreground group, so both die naturally. If macOS testing surfaces an orphan-child issue, the supervise loop's `kill()` calls catch it on the binary side; we can revisit with `ctrlc` later if needed.
 
 **Implementation overview:**
-1. `furnace dev --platform=macos` bundles into a persistent dev cache dir (e.g., `<consumer>/target/furnace-dev/`) via `BundleMode::Dev`.
-2. Spawn a WebSocket server on `localhost:0`, capture the chosen port.
-3. Run `cargo build` (debug, not release) on `src-furnace/`. **Do not pass `FURNACE_WEB_DIR`** (no `build.rs` reads it anymore — see Phase 2 deviation #1).
-4. Spawn the resulting bare debug binary (NOT a `.app`) with two envs: `FURNACE_DEV_CACHE_DIR=<dev cache dir>` and `FURNACE_HMR_WS=ws://127.0.0.1:<port>`.
-5. Watch `paths.source_dir` with `notify`. On change: re-bundle into the dev cache dir; broadcast `"reload"` on the WebSocket; runtime calls `location.reload()` which re-reads via the `furnace://` custom protocol from the dev cache dir.
-6. On Ctrl+C, terminate the child.
+1. Load `FurnaceConfig`; require `--platform=macos` (only target in milestone 1).
+2. Spawn `config.dev.serve_cmd` via `sh -c` from the consumer's project root. Inherit stdio so the user sees the dev server's output in the same terminal.
+3. Poll `TcpStream::connect_timeout(127.0.0.1:<port>, 200ms)` every 100ms until success or a 15s deadline. Bail if the dev server doesn't bind.
+4. `cargo build --target <triple> --manifest-path src-furnace/Cargo.toml` (debug; reuses the `CARGO_TARGET_DIR` pattern from `cargo_build_release` so the build is predictable regardless of the workspace's `.cargo/config.toml` target-dir redirect).
+5. Spawn the resulting binary with `FURNACE_DEV_URL=http://localhost:<port>`, inheriting stdio.
+6. Supervise: poll both children with `try_wait` every 200ms. When the native binary exits (user closed the window), kill the dev server and return success. When the dev server exits unexpectedly, kill the native binary and return non-zero.
 
-> **Why the bare binary, not a `.app`:** dev mode iterates faster without re-packaging the `.app` on every change. The consumer's `resolve_assets_dir()` falls through to the dev path when `FURNACE_DEV_CACHE_DIR` is set, so the runtime points the custom protocol at the watched dir rather than the `.app`'s `Contents/Resources/web/`.
+> **What this task does NOT add:** No `tungstenite` (no WebSocket server in the CLI). No `notify` (no file watcher in the CLI). No `BundleMode::Dev` calls (the dev server bundles). The CLI is purely a process supervisor in dev mode; bundling/watching/HMR all belong to the dev server.
 
-Edit `src-furnace/main.rs` `resolve_assets_dir()` to honour the dev env (current shape: it resolves from `current_exe()`):
+- [ ] **Step 1: Add a `cargo_build_debug` helper.**
+
+`packages/tools/crates/furnace-cli/src/build/macos.rs`, alongside `cargo_build_release`:
 
 ```rust
-fn resolve_assets_dir() -> Result<PathBuf> {
-    if let Ok(dev_dir) = std::env::var("FURNACE_DEV_CACHE_DIR") {
-        return Ok(PathBuf::from(dev_dir));
+pub fn cargo_build_debug(ctx: &BuildContext) -> Result<PathBuf> {
+    let target = MacosBuilder.target_triple();
+    let manifest = ctx.paths.src_furnace.join("Cargo.toml");
+    let target_dir = ctx.paths.src_furnace.join("target");
+    let status = Command::new("cargo")
+        .args(["build", "--target", target, "--manifest-path"])
+        .arg(&manifest)
+        .env("CARGO_TARGET_DIR", &target_dir)
+        .status()
+        .context("cargo build (debug) failed to start")?;
+    if !status.success() {
+        bail!("cargo build (debug) failed");
     }
-    // Prod (macOS .app) path:
-    let exe = std::env::current_exe()?;
-    let assets = exe
-        .parent()
-        .context("exe has no parent")?
-        .parent()
-        .context("MacOS dir has no parent")?
-        .join("Resources/web");
-    if !assets.is_dir() {
-        anyhow::bail!(
-            "assets dir not found at {} — was the .app constructed correctly?",
-            assets.display()
-        );
+    let binary = target_dir
+        .join(target)
+        .join("debug")
+        .join(&ctx.config.identity.name);
+    if !binary.exists() {
+        bail!("expected debug binary at {} after build", binary.display());
     }
-    Ok(assets)
+    Ok(binary)
 }
 ```
 
-And the consumer's `main()` reads `FURNACE_HMR_WS` into the AppConfig:
+(Per Clean Code "tolerate duplication until the third occurrence" — release + debug is two callers. If a third profile shows up, factor.)
+
+- [ ] **Step 2: Write `packages/tools/crates/furnace-cli/src/dev/mod.rs`.**
 
 ```rust
-let mut config = AppConfig::new("furnace://localhost/index.html");
-config.title = "furnace".into();
-config.assets_dir = Some(assets_dir);
-config.hmr_ws_url = std::env::var("FURNACE_HMR_WS").ok();
-run(config)
-```
+//! `furnace dev --platform=<platform>` orchestrator.
+//!
+//! Spawns the consumer's configured dev server (HMR is the dev server's
+//! concern — default config uses Bun's HTML-route serve, which ships full
+//! module-level HMR), builds the consumer's debug native binary, and points
+//! it at the dev server via FURNACE_DEV_URL. See design doc §Build pipeline.
 
-- [ ] **Step 1: Write `dev/server.rs` — a synchronous WebSocket server.**
-
-```rust
-use anyhow::{Context, Result};
-use std::net::TcpListener;
-use std::sync::{Arc, Mutex};
-use std::thread;
-use tungstenite::accept;
-use tungstenite::protocol::WebSocket;
-use tungstenite::Message;
-
-pub struct HmrServer {
-    pub port: u16,
-    clients: Arc<Mutex<Vec<WebSocket<std::net::TcpStream>>>>,
-}
-
-impl HmrServer {
-    pub fn start() -> Result<Self> {
-        let listener = TcpListener::bind("127.0.0.1:0").context("bind")?;
-        let port = listener.local_addr()?.port();
-        let clients: Arc<Mutex<Vec<WebSocket<std::net::TcpStream>>>> = Arc::default();
-        let clients_for_thread = clients.clone();
-        thread::spawn(move || {
-            for stream in listener.incoming().flatten() {
-                if let Ok(ws) = accept(stream) {
-                    if let Ok(mut guard) = clients_for_thread.lock() {
-                        guard.push(ws);
-                    }
-                }
-            }
-        });
-        Ok(Self { port, clients })
-    }
-
-    pub fn broadcast(&self, text: &str) {
-        let Ok(mut guard) = self.clients.lock() else { return };
-        guard.retain_mut(|ws| ws.send(Message::text(text)).is_ok());
-    }
-}
-```
-
-- [ ] **Step 2: Write `dev/watch.rs` — debounced file watcher.**
-
-```rust
-use anyhow::Result;
-use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher};
-use std::path::Path;
-use std::sync::mpsc::{channel, Receiver};
-use std::time::Duration;
-
-pub fn watch(paths: &[&Path]) -> Result<(RecommendedWatcher, Receiver<Event>)> {
-    let (tx, rx) = channel();
-    let mut watcher = notify::recommended_watcher(move |res: notify::Result<Event>| {
-        if let Ok(ev) = res {
-            let _ = tx.send(ev);
-        }
-    })?;
-    for p in paths {
-        watcher.watch(p, RecursiveMode::Recursive)?;
-    }
-    Ok((watcher, rx))
-}
-
-pub fn debounce<T>(rx: &Receiver<T>, window: Duration) -> Option<T> {
-    let first = rx.recv().ok()?;
-    // Drain any events arriving within the debounce window; return the first.
-    let deadline = std::time::Instant::now() + window;
-    while let Some(remaining) = deadline.checked_duration_since(std::time::Instant::now()) {
-        match rx.recv_timeout(remaining) {
-            Ok(_) => continue,
-            Err(_) => break,
-        }
-    }
-    Some(first)
-}
-```
-
-- [ ] **Step 3: Write `dev/mod.rs` — orchestrates the dev loop.**
-
-```rust
-pub mod server;
-pub mod watch;
-
-use crate::build::macos::MacosBuilder;
-use crate::build::PlatformBuilder;
+use crate::build::context::BuildContext;
+use crate::build::macos::cargo_build_debug;
 use crate::config::{FurnaceConfig, ProjectPaths};
-use crate::jsbundle::{bundle, BundleMode, BundleRequest};
 use anyhow::{bail, Context, Result};
-use std::process::{Child, Command};
-use std::time::Duration;
+use std::net::{SocketAddr, TcpStream};
+use std::path::Path;
+use std::process::{Child, Command, Stdio};
+use std::thread;
+use std::time::{Duration, Instant};
+
+const READINESS_TIMEOUT: Duration = Duration::from_secs(15);
+const READINESS_POLL: Duration = Duration::from_millis(100);
+const READINESS_CONNECT_TIMEOUT: Duration = Duration::from_millis(200);
+const SUPERVISE_POLL: Duration = Duration::from_millis(200);
 
 pub fn run_dev(platform: &str) -> Result<()> {
     if platform != "macos" {
-        bail!("dev mode only supports --platform=macos in milestone 1");
+        bail!("furnace dev only supports --platform=macos in milestone 1");
     }
     let project_root = std::env::current_dir()?;
     let config = FurnaceConfig::load_from(&project_root)?;
     let paths = ProjectPaths::resolve(&project_root, &config);
+    let port = config.dev.port;
 
-    // Persistent dev cache dir (the runtime reads index.html from here).
-    let dev_cache = paths.root.join("target").join("furnace-dev");
-    std::fs::create_dir_all(&dev_cache)?;
-
-    // Initial bundle.
-    bundle(BundleRequest {
-        project_root: &paths.root,
-        entry_html: &paths.source_dir.join(&config.entry),
-        out_dir: &dev_cache,
-        mode: BundleMode::Dev,
-    })?;
-
-    // HMR server.
-    let server = server::HmrServer::start()?;
-    let ws_url = format!("ws://127.0.0.1:{}", server.port);
-
-    // cargo build (debug). No FURNACE_WEB_DIR — build.rs was removed in Phase 2's
-    // macOS-native refactor; assets are wired in via the runtime's custom protocol
-    // reading FURNACE_DEV_CACHE_DIR at startup.
-    let target = MacosBuilder.target_triple();
-    let target_dir = paths.src_furnace.join("target");
-    let status = Command::new("cargo")
-        .args(["build", "--target", target, "--manifest-path"])
-        .arg(paths.src_furnace.join("Cargo.toml"))
-        .env("CARGO_TARGET_DIR", &target_dir)
-        .status()
-        .context("cargo build (debug) failed")?;
-    if !status.success() {
-        bail!("cargo build (debug) failed");
+    let mut server = spawn_dev_server(&config.dev.serve_cmd, &paths.root)?;
+    if let Err(e) = wait_for_port(port, READINESS_TIMEOUT) {
+        let _ = server.kill();
+        return Err(e);
     }
-    let binary = target_dir.join(target).join("debug").join(&config.identity.name);
 
-    // Spawn the binary with HMR + dev-cache env.
-    let mut child: Child = Command::new(&binary)
-        .env("FURNACE_HMR_WS", &ws_url)
-        .env("FURNACE_DEV_CACHE_DIR", &dev_cache)
+    let ctx = BuildContext {
+        config,
+        paths,
+        web_staging_dir: std::path::PathBuf::new(), // unused in dev
+    };
+    let binary = match cargo_build_debug(&ctx) {
+        Ok(b) => b,
+        Err(e) => {
+            let _ = server.kill();
+            return Err(e);
+        }
+    };
+
+    let dev_url = format!("http://localhost:{port}");
+    let mut native = Command::new(&binary)
+        .env("FURNACE_DEV_URL", &dev_url)
         .spawn()
-        .context("failed to spawn runtime binary")?;
-    println!("furnace dev: pid {} listening on {ws_url}", child.id());
+        .context("failed to spawn native binary")?;
+    println!(
+        "furnace dev: native pid {}, dev server pid {} → {dev_url}",
+        native.id(),
+        server.id()
+    );
 
-    // Watch the source tree for changes.
-    let source_dir = paths.source_dir.clone();
-    let (_watcher, rx) = watch::watch(&[&source_dir])?;
-    loop {
-        // Exit if the runtime died.
-        if let Ok(Some(_)) = child.try_wait() {
-            break;
+    supervise(&mut server, &mut native)
+}
+
+fn spawn_dev_server(serve_cmd: &str, cwd: &Path) -> Result<Child> {
+    Command::new("sh")
+        .args(["-c", serve_cmd])
+        .current_dir(cwd)
+        .stdin(Stdio::null())
+        .spawn()
+        .with_context(|| format!("failed to spawn dev server: {serve_cmd}"))
+}
+
+fn wait_for_port(port: u16, timeout: Duration) -> Result<()> {
+    let addr: SocketAddr = format!("127.0.0.1:{port}").parse()?;
+    let deadline = Instant::now() + timeout;
+    while Instant::now() < deadline {
+        if TcpStream::connect_timeout(&addr, READINESS_CONNECT_TIMEOUT).is_ok() {
+            return Ok(());
         }
-        if watch::debounce(&rx, Duration::from_millis(150)).is_none() {
-            continue;
-        }
-        // Re-bundle into the dev cache.
-        if let Err(e) = bundle(BundleRequest {
-            project_root: &paths.root,
-            entry_html: &paths.source_dir.join(&config.entry),
-            out_dir: &dev_cache,
-            mode: BundleMode::Dev,
-        }) {
-            eprintln!("furnace dev: bundle failed — {e}");
-            continue;
-        }
-        server.broadcast("reload");
+        thread::sleep(READINESS_POLL);
     }
+    bail!("dev server didn't bind to 127.0.0.1:{port} within {timeout:?}")
+}
 
-    let _ = child.kill();
-    Ok(())
+fn supervise(server: &mut Child, native: &mut Child) -> Result<()> {
+    loop {
+        if let Some(status) = native.try_wait()? {
+            let _ = server.kill();
+            if !status.success() {
+                bail!("native binary exited with {status}");
+            }
+            return Ok(());
+        }
+        if let Some(status) = server.try_wait()? {
+            let _ = native.kill();
+            bail!("dev server exited unexpectedly with {status}");
+        }
+        thread::sleep(SUPERVISE_POLL);
+    }
 }
 ```
 
-The `try_wait` polling above will tight-loop when waiting; the actual implementation should also support an Ctrl+C handler via `ctrlc = "3"` or `tokio::signal` (if going async). For Phase 3 the simple synchronous version above is acceptable — the `debounce` blocks on `recv`, so it only spins when events arrive.
+> **Note on `BuildContext`:** reusing the build-time context for the debug build is convenient but slightly off-shape — its `web_staging_dir` field is unused in dev mode (we pass an empty `PathBuf`). If a third caller surfaces or the type grows, factor `cargo_build_debug` to take just the paths and config it actually uses. Acceptable for milestone 1.
 
-- [ ] **Step 2: Update consumer `main.rs` and `build.rs` for dev mode awareness** (per the snippets above).
+- [ ] **Step 3: Wire `Command::Dev` in `furnace-cli/src/main.rs`.**
 
-- [ ] **Step 3: Update hello-world's `dev:native` script.**
+Add the module declaration alongside the others:
 
-Edit `packages/hello-world/package.json`:
+```rust
+mod build;
+mod config;
+mod dev;
+mod jsbundle;
+```
+
+Replace the `Command::Dev { .. }` arm:
+
+```rust
+        Command::Dev { platform } => dev::run_dev(&platform),
+```
+
+- [ ] **Step 4: Update hello-world's `dev:native` script.**
+
+`packages/hello-world/package.json`:
 
 ```jsonc
     "dev:native": "bunx furnace dev --platform=macos",
 ```
 
-- [ ] **Step 4: Smoke-test dev mode.**
+- [ ] **Step 5: Smoke-test dev mode.**
 
 ```bash
+cargo fmt --manifest-path packages/tools/crates/Cargo.toml --all
 cargo build --manifest-path packages/tools/crates/Cargo.toml
 bun run --cwd packages/hello-world dev:native
 ```
 
-Expected: a window opens, hello-world renders. Edit `packages/hello-world/src/entry.ts` (e.g., change a string), save → the window reloads automatically within ~1s.
+Expected: bun's serve starts on 8765 (its stdout interleaved with cargo's), the debug binary builds, the native window opens and renders the WebGPU triangle loading from `http://localhost:8765`. Edit `packages/hello-world/src/entry.ts` (real content change — `touch` alone doesn't trigger Bun's HMR) → bun logs `Reloaded in <Nms>: src/entry.ts` and the WebView reflects the change. Closing the window terminates `furnace dev` cleanly (supervise loop kills the bun child).
 
-- [ ] **Step 5: Commit.**
+- [ ] **Step 6: Commit.**
 
 ```bash
-git add packages/tools/crates/furnace-cli/src/dev/ packages/tools/crates/furnace-cli/src/main.rs packages/tools/crates/furnace-cli/Cargo.toml packages/tools/crates/furnace-runtime/ packages/hello-world/src-furnace/main.rs packages/hello-world/src-furnace/build.rs packages/hello-world/package.json
+git add packages/tools/crates/furnace-cli/src/dev/ packages/tools/crates/furnace-cli/src/main.rs packages/tools/crates/furnace-cli/src/build/macos.rs packages/hello-world/package.json
 git commit -m "$(cat <<'EOF'
-feat(tools): furnace dev --platform=macos with WebSocket-driven full-reload HMR
+feat(tools): furnace dev --platform=macos via dev-server reuse
 
-Phase 3 of native-shell milestone-1. The CLI:
-- Bundles the consumer's source in dev mode (sourcemap=inline, no minify)
-- Stands up a WebSocket server on localhost:0 and watches the source tree
-- Spawns the runtime with FURNACE_HMR_WS and FURNACE_DEV_CACHE_DIR env
-- On source change: re-bundles + broadcasts reload; runtime calls
-  location.reload() in the WebView
+Phase 3.2 of native-shell milestone-1. furnace dev:
+- Spawns the configured dev.serveCmd (default: bun --hot serve.ts) from
+  the consumer's project root with inherited stdio
+- Polls 127.0.0.1:<dev.port> until ready (no stdout parsing — too brittle)
+- cargo build the consumer's src-furnace in debug profile
+- Spawns the binary with FURNACE_DEV_URL=http://localhost:<port>
+- Supervises both children; closes both when either exits
 
-Phase 3 is full-reload HMR; granular module HMR is intentionally deferred.
-
-The hello-world dev:native script now routes through \`bunx furnace dev\`,
-matching the design's intended consumer experience.
+HMR is the dev server's concern — Bun's HTML-route serve injects a full
+module-level HMR client into the served HTML and pushes updates over its
+own WebSocket. No tungstenite or notify dependency was added in this
+phase. See design doc §Build pipeline.
 EOF
 )"
 ```
@@ -1952,7 +1960,7 @@ bun run check
 
 Each `.tmpl` file uses `${VAR}` substitution placeholders (same syntax as Phase 2's Info.plist substitution). Variables: `${NAME}`, `${BUNDLE_ID}`, `${VERSION}`.
 
-> **Source of truth:** derive every template from hello-world's **current committed state**, not from this plan's example snippets — Phase 2 refactored hello-world's `src-furnace/` (no `build.rs`, no `dirs`/`tar` deps, `main.rs` uses `resolve_assets_dir()` with the `FURNACE_DEV_CACHE_DIR` branch from Phase 3, etc.). The plan body predates those changes; the templates must match the shipped layout. See the Phase 2 deviations errata for context.
+> **Source of truth:** derive every template from hello-world's **current committed state**, not from this plan's example snippets — Phase 2 refactored hello-world's `src-furnace/` (no `build.rs`, no `dirs`/`tar` deps, `main.rs` resolves assets from the `.app` layout via `current_exe()`) and Phase 3 added the `FURNACE_DEV_URL` branch at the top of `main()`. The plan body predates those changes; the templates must match the shipped layout. See the Phase 2 deviations errata + Phase 3 design-change note for context.
 
 - [ ] **Step 1: Copy hello-world's manually-seeded files into templates with placeholders substituted back.**
 
@@ -2191,19 +2199,7 @@ EOF
 
 In `.docs/BACKLOG.md`, find the "Native packaging — `.app` wrapping + asset bundling (PAIRED)" section with entries (a) and (b). Delete the entire section (the heading and both sub-entries).
 
-- [ ] **Step 2: Add a new BACKLOG entry for granular HMR** (Phase 3 used full-reload; granular HMR was deferred).
-
-Under `## Native runtime`, add:
-
-```markdown
-### Granular module HMR
-**Context:** Phase 3 of milestone 1 shipped full-reload HMR — any source change triggers `location.reload()` in the WebView. Granular HMR (Vite-style — only the changed module re-evaluates, app state persists) is meaningfully better DX but a substantially larger implementation. Requires a JS-side runtime that subscribes to module-update messages, an ESM module graph the dev bundler tracks, and a protocol over the existing WebSocket channel. Vite's HMR API or Bun's `--hot` graph are precedents to crib from.
-**Trigger to revisit:** Full-reload HMR becomes painful enough that consumers ask for it, OR furnace's own first-party plugins need hot-swappable state. Estimated trigger: 3-6 months of dogfooding milestone 1.
-**Reference:** Vite's HMR API documentation; Bun's `--hot` reload graph; `furnace dev` source at `packages/tools/crates/furnace-cli/src/dev/`.
-
-```
-
-- [ ] **Step 3: Update `packages/tools/README.md`** to reflect Phase 5 end-state.
+- [ ] **Step 2: Update `packages/tools/README.md`** to reflect Phase 5 end-state.
 
 Replace the Consumer surface bullet:
 
@@ -2217,7 +2213,9 @@ Replace with:
 - `furnace` (bin) — public CLI (Rust binary via `shim.js`). Commands: `init`, `build`, `dev`, `wasm`. `upgrade-runtime` is stubbed pending a use-case. See `docs/superpowers/specs/2026-05-19-native-shell-distribution-design.md` for the architecture and `.docs/packaging-and-distribution.md` §6 for the distribution model.
 ```
 
-- [ ] **Step 4: Commit.**
+> **Note:** The original plan added a "Granular module HMR" backlog entry here. It's removed — Phase 3 now ships module-level HMR via Bun's dev server (the WebView loads `http://localhost:<port>` and bun's served HTML pushes module updates over its own WebSocket). No deferred HMR work to track.
+
+- [ ] **Step 3: Commit.**
 
 ```bash
 git add .docs/BACKLOG.md packages/tools/README.md
@@ -2225,7 +2223,6 @@ git commit -m "$(cat <<'EOF'
 docs: BACKLOG and tools README updates for milestone-1 completion
 
 - Removes the .app wrapping (a)+(b) backlog entries — absorbed by milestone 1.
-- Adds a granular-module-HMR backlog entry for the deferred richer dev DX.
 - Updates packages/tools/README.md Consumer surface to reflect the now-shipping
   CLI surface (init, build, dev, wasm).
 EOF
@@ -2275,7 +2272,7 @@ When this plan completes:
 - `bunx furnace` works in-repo via the JS shim resolving to the cargo build output.
 - Templates exist for scaffolding fresh projects.
 - A demo wasm plugin in hello-world proves the plugin pipeline works end-to-end.
-- BACKLOG cleanup: `.app` wrapping (a)+(b) entries removed (absorbed); granular HMR added (newly deferred).
+- BACKLOG cleanup: `.app` wrapping (a)+(b) entries removed (absorbed by milestone 1).
 
 **Subsequent work (separate plans / sessions):**
 - The Runtime Contract Spec (per BACKLOG, deferred from the design spec).
@@ -2283,5 +2280,4 @@ When this plan completes:
 - `furnace.config.json` schema spec (same).
 - Per-platform milestones: Windows, then iOS/Android once WebGPU-in-WebView matures.
 - Per-platform CLI binary packages (biome pattern migration) at platform #2.
-- Granular module HMR (per the new BACKLOG entry).
 - npm publish flow + CI matrix (eventual-publishing concerns from the design spec).

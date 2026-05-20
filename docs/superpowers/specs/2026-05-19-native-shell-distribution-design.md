@@ -142,8 +142,9 @@ Adding `furnace init --platform=android` later creates `platforms/android/` (Gra
 | Domain | Owner |
 |---|---|
 | Web bundling (consumer's web site), web dev server, web HMR | Consumer's bundler — Vite, Bun, esbuild, whatever |
-| Native JS bundling (game code packaged into the native shell) | **Furnace's CLI** — owns the pipeline; operates on copies in tmp; never mutates consumer source |
-| Native dev shell + HMR (the live-reload loop when running `furnace dev`) | **Furnace's CLI + runtime** — the shell understands furnace's HMR protocol |
+| Native JS bundling (game code packaged into the native shell, production builds only) | **Furnace's CLI** — owns the pipeline; operates on copies in tmp; never mutates consumer source |
+| Native dev bundling, file watching, HMR | **Consumer's dev server** (default: Bun's HTML-route serve — already what most consumers run for web dev) — owns bundling, watching, and HMR over its own WebSocket. Furnace's runtime is unaware. |
+| Native dev orchestration (the live-reload loop when running `furnace dev`) | **Furnace's CLI** — spawns the configured dev server + the cargo-built native binary, points the runtime at `http://localhost:<port>` via the `FURNACE_DEV_URL` env var, supervises both children |
 | Rust→wasm plugin compilation | **Furnace's CLI** — same pipeline whether for furnace's own hot-paths or consumer plugins |
 | Rust compile, platform packaging, signing | **Furnace's CLI** |
 
@@ -170,11 +171,13 @@ The consumer's relationship with `@furnace/core` is identical to their relations
 ### Phases of `furnace dev` (development)
 
 1. **Pre-flight** (same).
-2. **wasm compile** (initial, then watched).
-3. **JS stage + bundle (dev mode).** Copy → bundler with HMR injection + sourcemaps + debug instrumentation. Output served from tmp.
-4. **Rust compile (debug).** `cargo build` (no `--release`). Faster compile, debug symbols retained.
-5. **Native shell launch.** Spawn the binary; it connects to furnace's HMR channel.
-6. **Watch loop.** Source changes → re-bundle/re-compile-plugin incrementally → push HMR update through channel → WebView in the shell hot-reloads modules.
+2. **wasm compile** (initial; subsequent recompiles are the dev server's concern via its file watcher).
+3. **Spawn dev server.** Run the consumer's configured `dev.serveCmd` (default: `bun --hot serve.ts`) as a child process. Wait until `127.0.0.1:<dev.port>` accepts a TCP connection — proves the server is up. No log parsing.
+4. **Rust compile (debug).** `cargo build` (no `--release`).
+5. **Native shell launch.** Spawn the cargo-built binary with `FURNACE_DEV_URL=http://localhost:<dev.port>`. The runtime loads that URL directly — no `furnace://` custom protocol in dev. The HMR client script the dev server injects into its served HTML opens a WebSocket back to the dev server and applies module updates inside the WebView.
+6. **Supervise.** Furnace's CLI doesn't own a file watcher in dev; that's the dev server's concern. The CLI watches its two children and tears both down on Ctrl+C (Unix signal-group inheritance handles most of this).
+
+**Why reuse the dev server instead of building HMR into furnace-runtime:** Bun's HTML-route serve ships full module-level HMR (verified end-to-end this milestone — the served HTML embeds an HMR client; the client opens a WebSocket at `/_bun/hmr`; module updates apply in ~1ms or fall back to `location.reload()`). Furnace's own HMR would be re-implementing that, and would top out at full-reload (worse fidelity). The architecture stays self-contained at the *contract* layer (the WebView loading `http://localhost:<port>` is identical to it loading `furnace://...` from the contract's POV) while letting the consumer's existing dev toolchain own the bundling+HMR concern. Consumers using Vite, esbuild, or any other HMR-capable server swap `dev.serveCmd` and `dev.port`; the orchestration is unchanged.
 
 ### Per-platform organisation in the CLI
 
@@ -232,6 +235,10 @@ Declarative configuration. The schema is what most consumers see.
     "height": 720,
     "fullscreen": false
   },
+  "dev": {
+    "serveCmd": "bun --hot serve.ts",
+    "port": 8765
+  },
   "plugins": ["fs", "audio"],
   "signing": {
     "macos": { "identity": "${CODESIGN_IDENTITY}" }
@@ -239,7 +246,7 @@ Declarative configuration. The schema is what most consumers see.
 }
 ```
 
-Covers app identity, window defaults, plugin registration, signing config, source/output paths. Full schema is deferred to implementation.
+Covers app identity, window defaults, the dev-server command + port that `furnace dev` spawns, plugin registration, signing config, source/output paths. `dev.port` is a fixed number the dev server is expected to bind (no stdout parsing — too brittle). Consumers swapping to Vite or another HMR-capable server change `serveCmd` and `port`; `furnace dev`'s orchestration is unchanged. Full schema is deferred to implementation.
 
 ### Layer 2 — `platforms/<platform>/` (anyone shipping)
 
@@ -419,11 +426,10 @@ These are decided during implementation, not in this design:
 
 | Decision | Candidates |
 |---|---|
-| JS bundler for native builds | `swc`, `esbuild`, `oxc`, `rollup` |
+| JS bundler for native production builds | `swc`, `esbuild`, `oxc`, `rollup` (dev bundling is the dev server's concern, see Build pipeline) |
 | Rust-side platform packaging tool | `cargo-packager`, `tauri-bundler` |
 | Rust→wasm pipeline | `wasm-pack`, `wasm-bindgen-cli` directly, or thin wrapper |
-| HMR protocol between dev session and shell | Probably WebSocket via wry's invoke; exact protocol TBD |
-| Default scaffold dependencies for the consumer's web bundling | `bun build`, `vite`, `esbuild`, or "none — pick yourself" |
+| Default scaffold dependencies for the consumer's web bundling + dev server | `bun build` + `bun --hot serve.ts` is the milestone-1 default; consumers can swap in Vite/esbuild via `furnace.config.json`'s `dev.serveCmd` |
 
 ## Deferred specs
 
