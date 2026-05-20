@@ -16,3 +16,4 @@ furnace-runtime = { path = "../furnace-runtime" }
 serde.workspace = true
 serde_json.workspace = true
 tempfile = "3"
+walkdir = "2"

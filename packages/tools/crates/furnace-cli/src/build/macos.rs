@@ -19,15 +19,17 @@ impl PlatformBuilder for MacosBuilder {
     fn pre_flight(&self, ctx: &BuildContext) -> Result<()> {
         if !ctx
             .paths
-            .platforms
+            .platforms_dir
             .join("macos")
             .join("Info.plist")
             .exists()
         {
-            bail!("platforms/macos/Info.plist missing — run `furnace init --platform=macos`");
+            bail!(
+                ".furnace/platforms/macos/Info.plist missing — run `furnace init --platform=macos`"
+            );
         }
-        if !ctx.paths.src_furnace.join("Cargo.toml").exists() {
-            bail!("src-furnace/Cargo.toml missing");
+        if !ctx.paths.shell_dir.join("Cargo.toml").exists() {
+            bail!(".furnace/shell/Cargo.toml missing — run `furnace init --platform=macos`");
         }
         Ok(())
     }
@@ -47,7 +49,7 @@ impl PlatformBuilder for MacosBuilder {
         let exe_name = &ctx.config.identity.name;
         fs::copy(&artifacts.binary, macos_dir.join(exe_name))?;
 
-        let plist_template = fs::read_to_string(ctx.paths.platforms.join("macos/Info.plist"))?;
+        let plist_template = fs::read_to_string(ctx.paths.platforms_dir.join("macos/Info.plist"))?;
         let plist = plist_template
             .replace("${IDENTITY_NAME}", &ctx.config.identity.name)
             .replace("${IDENTITY_BUNDLE_ID}", &ctx.config.identity.bundle_id)
@@ -86,10 +88,10 @@ fn copy_dir_recursive(src: &std::path::Path, dst: &std::path::Path) -> std::io::
 
 pub fn cargo_build_debug(ctx: &BuildContext) -> Result<PathBuf> {
     let target = MacosBuilder.target_triple();
-    let manifest = ctx.paths.src_furnace.join("Cargo.toml");
+    let manifest = ctx.paths.shell_dir.join("Cargo.toml");
     // Pin the target dir explicitly so the build is predictable regardless of
     // any ambient .cargo/config.toml that might redirect target-dir.
-    let target_dir = ctx.paths.src_furnace.join("target");
+    let target_dir = ctx.paths.shell_dir.join("target");
     let status = Command::new("cargo")
         .args(["build", "--target", target, "--manifest-path"])
         .arg(&manifest)
@@ -111,10 +113,10 @@ pub fn cargo_build_debug(ctx: &BuildContext) -> Result<PathBuf> {
 
 pub fn cargo_build_release(ctx: &BuildContext) -> Result<PathBuf> {
     let target = MacosBuilder.target_triple();
-    let manifest = ctx.paths.src_furnace.join("Cargo.toml");
+    let manifest = ctx.paths.shell_dir.join("Cargo.toml");
     // Pin the target dir explicitly so the build is predictable regardless of
     // any ambient .cargo/config.toml that might redirect target-dir.
-    let target_dir = ctx.paths.src_furnace.join("target");
+    let target_dir = ctx.paths.shell_dir.join("target");
     let status = Command::new("cargo")
         .args(["build", "--release", "--target", target, "--manifest-path"])
         .arg(&manifest)

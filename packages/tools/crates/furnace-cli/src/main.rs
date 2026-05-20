@@ -6,6 +6,7 @@
 mod build;
 mod config;
 mod dev;
+mod init;
 mod jsbundle;
 mod wasm;
 
@@ -33,9 +34,8 @@ enum Command {
     },
     /// Compile a Rust crate to wasm.
     Wasm { crate_path: std::path::PathBuf },
-    /// Scaffold a new project (or add a platform to an existing one).
+    /// Scaffold the native-shell bits into the current directory.
     Init {
-        name: String,
         #[arg(long, value_parser = ["macos"])]
         platform: String,
     },
@@ -53,7 +53,7 @@ fn main() -> Result<()> {
             out_dir: &crate_path.join("pkg"),
             release: false,
         }),
-        Command::Init { .. } => bail!("furnace init is not yet implemented (Phase 5)"),
+        Command::Init { platform } => init::run_init(&platform, &std::env::current_dir()?),
         Command::UpgradeRuntime => {
             bail!("furnace upgrade-runtime is not yet implemented (Phase 5)")
         }
@@ -91,7 +91,7 @@ fn run_build(platform: &str) -> Result<()> {
         mode: BundleMode::Prod,
     })?;
 
-    let platforms_dir = paths.platforms.join(platform);
+    let platforms_dir = paths.platforms_dir.join(platform);
     let ctx = BuildContext {
         config,
         paths,

@@ -75,18 +75,19 @@ impl FurnaceConfig {
 pub struct ProjectPaths {
     pub root: PathBuf,
     pub source_dir: PathBuf,
-    pub src_furnace: PathBuf,
-    pub platforms: PathBuf,
+    pub shell_dir: PathBuf,
+    pub platforms_dir: PathBuf,
     pub dist: PathBuf,
 }
 
 impl ProjectPaths {
     pub fn resolve(root: &Path, config: &FurnaceConfig) -> Self {
         let root = root.to_path_buf();
+        let furnace = root.join(".furnace");
         Self {
             source_dir: root.join(&config.source),
-            src_furnace: root.join("src-furnace"),
-            platforms: root.join("platforms"),
+            shell_dir: furnace.join("shell"),
+            platforms_dir: furnace.join("platforms"),
             dist: root.join("dist"),
             root,
         }

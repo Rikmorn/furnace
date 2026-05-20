@@ -6,7 +6,7 @@
   <key>CFBundleIdentifier</key><string>${IDENTITY_BUNDLE_ID}</string>
   <key>CFBundleVersion</key><string>${IDENTITY_VERSION}</string>
   <key>CFBundleShortVersionString</key><string>${IDENTITY_VERSION}</string>
-  <key>CFBundleExecutable</key><string>hello-world</string>
+  <key>CFBundleExecutable</key><string>${IDENTITY_NAME}</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>LSMinimumSystemVersion</key><string>13.0</string>
   <key>NSHighResolutionCapable</key><true/>

@@ -5,10 +5,10 @@
   "type": "module",
   "scripts": {
     "dev": "bun --hot serve.ts",
-    "dev:native": "bunx furnace dev --platform=macos",
+    "dev:native": "furnace dev --platform=macos",
     "build:web": "bun build src/index.html --outdir ../../dist/web --minify --sourcemap=external",
     "build:web:dev": "bun build src/index.html --outdir ../../dist/web/dev --sourcemap=inline",
-    "build:macos": "bunx furnace build --platform=macos",
+    "build:macos": "furnace build --platform=macos",
     "test": "bun test",
     "typecheck": "bunx tsc --noEmit"
   },
