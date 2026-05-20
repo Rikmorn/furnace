@@ -31,6 +31,15 @@ pub fn run_dev(platform: &str) -> Result<()> {
     let paths = ProjectPaths::resolve(&project_root, &config);
     let port = config.dev.port;
 
+    for plugin_rel in &config.plugins {
+        let crate_path = paths.root.join(plugin_rel);
+        crate::wasm::compile(crate::wasm::WasmRequest {
+            crate_path: &crate_path,
+            out_dir: &crate_path.join("pkg"),
+            release: false,
+        })?;
+    }
+
     let mut server = spawn_dev_server(&config.dev.serve_cmd, &paths.root)?;
     if let Err(e) = wait_for_port(port, READINESS_TIMEOUT) {
         let _ = server.kill();

@@ -71,6 +71,15 @@ fn run_build(platform: &str) -> Result<()> {
     build::check_prereqs(&config)?;
     let paths = ProjectPaths::resolve(&project_root, &config);
 
+    for plugin_rel in &config.plugins {
+        let crate_path = paths.root.join(plugin_rel);
+        wasm::compile(wasm::WasmRequest {
+            crate_path: &crate_path,
+            out_dir: &crate_path.join("pkg"),
+            release: true,
+        })?;
+    }
+
     let builder = build::dispatch(platform)?;
 
     let staging = tempfile::tempdir().context("create tmp dir")?;
