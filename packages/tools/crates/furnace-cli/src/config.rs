@@ -13,6 +13,33 @@ pub struct FurnaceConfig {
     pub window: Window,
     #[serde(default)]
     pub plugins: Vec<String>,
+    #[serde(default)]
+    pub dev: DevConfig,
+}
+
+#[derive(Deserialize, Debug)]
+pub struct DevConfig {
+    #[serde(rename = "serveCmd", default = "default_serve_cmd")]
+    pub serve_cmd: String,
+    #[serde(default = "default_port")]
+    pub port: u16,
+}
+
+impl Default for DevConfig {
+    fn default() -> Self {
+        Self {
+            serve_cmd: default_serve_cmd(),
+            port: default_port(),
+        }
+    }
+}
+
+fn default_serve_cmd() -> String {
+    "bun --hot serve.ts".into()
+}
+
+fn default_port() -> u16 {
+    8765
 }
 
 #[derive(Deserialize, Debug)]

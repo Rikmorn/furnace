@@ -12,5 +12,9 @@
     "height": 720,
     "fullscreen": false
   },
-  "plugins": []
+  "plugins": [],
+  "dev": {
+    "serveCmd": "bun --hot serve.ts",
+    "port": 8765
+  }
 }

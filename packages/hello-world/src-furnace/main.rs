@@ -8,6 +8,12 @@ use furnace_runtime::{run, AppConfig};
 use std::path::PathBuf;
 
 fn main() -> Result<()> {
+    if let Ok(dev_url) = std::env::var("FURNACE_DEV_URL") {
+        let mut config = AppConfig::new(dev_url);
+        config.title = "furnace".into();
+        return run(config);
+    }
+
     let assets_dir = resolve_assets_dir().context("failed to resolve assets dir")?;
     let mut config = AppConfig::new("furnace://localhost/index.html");
     config.title = "furnace".into();
