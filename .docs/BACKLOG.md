@@ -26,9 +26,19 @@ Group by category. Add categories as needed; don't pre-create empty ones.
 ## Native runtime
 
 ### Linux / cef support
-**Context:** Native host is currently macOS + Windows only. Linux deferred because `cef` (Chromium Embedded Framework) pulls a heavy Chromium runtime as a build dependency. Shallot uses `cef = 145` on Linux because GTK WebKit's WebGPU support is weak.
+**Context:** Native host is currently macOS-only (milestone 1 shipped macOS; Windows is its own backlog entry below). Linux deferred because `cef` (Chromium Embedded Framework) pulls a heavy Chromium runtime as a build dependency. Shallot uses `cef = 145` on Linux because GTK WebKit's WebGPU support is weak.
 **Trigger to revisit:** A Linux user wants to run the native target, or a contributor offers to wire it up.
 **Reference:** `packages/shallot/rust/window/Cargo.toml` in dylanebert/shallot — `[target.'cfg(target_os = "linux")'.dependencies]` block.
+
+### Windows native implementation
+**Context:** Milestone 1 of `docs/superpowers/specs/2026-05-19-native-shell-distribution-design.md` shipped macOS only; Windows was explicitly deferred. The runtime crate (`furnace-runtime`) is wry-based and should mostly cross-compile (wry uses WebView2 on Windows), but the build pipeline only knows `--platform=macos`. Concrete work: extend `Command::Build`/`Dev`/`Init` clap value_parser to accept `windows`, add a `WindowsBuilder` next to `MacosBuilder` (`packaging/<platform>/...` and corresponding `MSIX` or `.exe + manifest` equivalent of Info.plist), add `templates/windows/` mirroring `templates/macos/`, add `#![cfg_attr(windows, windows_subsystem = "windows")]` to the consumer `main.rs` template so the binary doesn't pop a console window on launch. Once shipping, the biome-pattern per-platform package migration (separate BACKLOG entry below) becomes load-bearing.
+**Trigger to revisit:** First user/consumer ask for Windows, OR before public release.
+**Reference:** Section on per-platform support in `docs/superpowers/specs/2026-05-19-native-shell-distribution-design.md`. wry's `webview2-com` backend docs for any Win-specific gotchas.
+
+### iOS / Android native implementation
+**Context:** Spec lists iOS and Android as long-term targets but explicitly gates them on WebGPU-in-WebView maturity. iOS Safari WebGPU support is partial and behind a feature flag in current shipping releases; Android WebView (Chromium-based) is further along but still needs validation. Each platform also needs its own runtime backend (UIView/UIViewController orchestration on iOS; native View + Activity lifecycle on Android), which is more invasive than the cross-platform-wry pattern macOS/Windows share.
+**Trigger to revisit:** WebGPU-in-WebView ships GA on at least one of the two platforms, OR a consumer with mobile reach as a hard requirement.
+**Reference:** Caniuse WebGPU status tracker; Section on platform targets in the native-shell distribution design spec.
 
 ### Window resize → swap chain recreation
 **Context:** Triangle is squished on window resize because the WebGPU canvas swap chain isn't recreated. Acceptable for one static triangle, embarrassing the moment we render anything else.
@@ -193,6 +203,11 @@ Group by category. Add categories as needed; don't pre-create empty ones.
 ### GitHub Actions CI
 **Context:** Pipeline running `bun run check`, `bun run typecheck`, `bun test` on PR. No CI configured yet.
 **Trigger to revisit:** First external contribution, or before public release.
+
+### npm publish flow for @furnace/tools and @furnace/core
+**Context:** Both packages are `"private": true` today; nothing publishes. Before consumers can `bun add @furnace/tools` or `bun add @furnace/core` outside the workspace, we need: versioning strategy (single-version monorepo vs per-package; SemVer cadence vs lockstep), a release script that builds the binary + bundles core's TS → ESM + populates `packages/tools/templates/` correctly + flips `private: false`, npm token/scope setup (`@furnace` is taken on npm — need to claim or rename), changelog generation. The `files` allowlist in `packages/tools/package.json` (added in `18e3c9a`) is the first step. When a second platform target ships, this work folds into the biome-pattern migration (separate BACKLOG entry).
+**Trigger to revisit:** First external consumer wants to use furnace outside the workspace, OR before public release.
+**Reference:** biome's release tooling at <https://github.com/biomejs/biome> as a precedent. The native-shell distribution design spec §2 ("Artifact model") covers what shipping looks like.
 
 ### Per-package CLAUDE.md
 **Context:** When `packages/core` has real engine code (multiple modules, established patterns), it needs its own CLAUDE.md describing local conventions. Root CLAUDE.md handles cross-cutting concerns.
