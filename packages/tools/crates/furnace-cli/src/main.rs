@@ -7,6 +7,7 @@ mod build;
 mod config;
 mod dev;
 mod jsbundle;
+mod wasm;
 
 use anyhow::{bail, Result};
 use clap::{Parser, Subcommand};
@@ -47,7 +48,11 @@ fn main() -> Result<()> {
     match cli.command {
         Command::Build { platform } => run_build(&platform),
         Command::Dev { platform } => dev::run_dev(&platform),
-        Command::Wasm { .. } => bail!("furnace wasm is not yet implemented (Phase 4)"),
+        Command::Wasm { crate_path } => wasm::compile(wasm::WasmRequest {
+            crate_path: &crate_path,
+            out_dir: &crate_path.join("pkg"),
+            release: false,
+        }),
         Command::Init { .. } => bail!("furnace init is not yet implemented (Phase 5)"),
         Command::UpgradeRuntime => {
             bail!("furnace upgrade-runtime is not yet implemented (Phase 5)")
@@ -63,6 +68,7 @@ fn run_build(platform: &str) -> Result<()> {
 
     let project_root = std::env::current_dir()?;
     let config = FurnaceConfig::load_from(&project_root)?;
+    build::check_prereqs(&config)?;
     let paths = ProjectPaths::resolve(&project_root, &config);
 
     let builder = build::dispatch(platform)?;

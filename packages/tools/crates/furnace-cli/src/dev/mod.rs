@@ -5,6 +5,7 @@
 //! module-level HMR), builds the consumer's debug native binary, and points
 //! it at the dev server via FURNACE_DEV_URL. See design doc §Build pipeline.
 
+use crate::build;
 use crate::build::context::BuildContext;
 use crate::build::macos::cargo_build_debug;
 use crate::config::{FurnaceConfig, ProjectPaths};
@@ -26,6 +27,7 @@ pub fn run_dev(platform: &str) -> Result<()> {
     }
     let project_root = std::env::current_dir()?;
     let config = FurnaceConfig::load_from(&project_root)?;
+    build::check_prereqs(&config)?;
     let paths = ProjectPaths::resolve(&project_root, &config);
     let port = config.dev.port;
 
