@@ -42,6 +42,14 @@ Group by category. Add categories as needed; don't pre-create empty ones.
 **Context:** The native binary uses a best-effort `Drop` impl to kill the Bun child when the window closes. If Rust panics mid-frame or the OS kills the parent with SIGKILL, the child may leak. Also: spawning `bun` directly (not via `bun run`) gives us clean kill semantics, but signal handling is still incomplete.
 **Trigger to revisit:** First time we see a leaked Bun process during dev.
 
+### WebView `console.log` bridge to host stdout
+**Context:** Today `console.log`/`warn`/`error` calls from JS running inside the WKWebView don't reach the host process's stdout. The runtime enables `with_devtools(true)` and has an error-capture init script that turns *uncaught* errors into a red body overlay, but ordinary `console.log` is invisible unless you attach Safari Web Inspector (Develop menu → [machine] → app entry). Every plugin/feature verification step (e.g. confirming the Phase 4 wasm log line "demo-wasm: 2 + 3 = 5") currently requires Safari to be open. The plan's instruction to "check Console.app for the wasm log" was misleading — Console.app catches WKWebView errors/warnings via unified logging, not arbitrary `console.log` calls.
+
+**Concrete shape:** Inject a JS init script (sibling of `ERROR_CAPTURE_SCRIPT` in `packages/tools/crates/furnace-runtime/src/lib.rs`) that wraps `console.{log,warn,error,info,debug}` to also call `window.ipc.postMessage(JSON.stringify({level, args}))`. Install an IPC handler in `WebViewBuilder::with_ipc_handler` (wry 0.55) that parses the message and `println!`s it as `[js {level}] {args}`. Keep the original `console.*` behaviour intact so Safari Web Inspector still works for richer inspection.
+
+**Trigger to revisit:** Next time native-runtime work is in scope, OR when manual-verification friction during a phase becomes annoying enough to fix. Roughly 30 lines of Rust + JS; small follow-up.
+**Reference:** Surfaced during Phase 4 (wasm plugin) manual verification, 2026-05-20. Wry's IPC handler docs: <https://docs.rs/wry/0.55/wry/struct.WebViewBuilder.html#method.with_ipc_handler>.
+
 ### Native window: focus/activation triggers server respawn
 **Context:** When the native `wry` window loses or regains focus (e.g., clicking outside the window and back in), the native binary attempts to bind a new dev server or spawn another Bun child, conflicting with the existing one. Observed during the UI foundation milestone's Phase 1 manual verification (2026-05-17). Prevents reliably testing native HMR end-to-end (full page reload remains a documented fallback per spec risk #3).
 **Trigger to revisit:** Next time work touches the native runtime (`packages/tools/native/`), or when reliable native HMR testing becomes a blocker.
