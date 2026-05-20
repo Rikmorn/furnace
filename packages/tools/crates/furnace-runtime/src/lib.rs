@@ -16,7 +16,10 @@ use winit::{
     event_loop::{ActiveEventLoop, EventLoop},
     window::{Window, WindowId},
 };
-use wry::{WebView, WebViewBuilder};
+use wry::{
+    dpi::{LogicalPosition, PhysicalSize, Position, Size},
+    Rect, WebView, WebViewBuilder,
+};
 
 const ERROR_CAPTURE_SCRIPT: &str = r#"
 (function() {
@@ -73,7 +76,7 @@ impl AppConfig {
 struct AppState {
     config: AppConfig,
     window: Option<Window>,
-    _webview: Option<WebView>,
+    webview: Option<WebView>,
 }
 
 impl ApplicationHandler for AppState {
@@ -102,14 +105,37 @@ impl ApplicationHandler for AppState {
             builder = builder.with_url(&self.config.url);
         }
 
-        let webview = builder.build(&window).expect("failed to create webview");
+        // `build_as_child` adds the WKWebView as a subview of winit's content
+        // view instead of replacing it via setContentView. Critical on macOS:
+        // winit's WindowDelegate::view() unsafely casts whatever content view
+        // is set back to WinitView, so wry's setContentView swap (the default
+        // `build()` path) leaves the delegate holding a wrong-class view that
+        // aborts on resign-key. Pattern lifted from Shallot's window backend.
+        let size = window.inner_size();
+        let webview = builder
+            .with_bounds(Rect {
+                position: Position::Logical(LogicalPosition::new(0.0, 0.0)),
+                size: Size::Physical(PhysicalSize::new(size.width.max(1), size.height.max(1))),
+            })
+            .build_as_child(&window)
+            .expect("failed to create webview");
+
         self.window = Some(window);
-        self._webview = Some(webview);
+        self.webview = Some(webview);
     }
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
-        if matches!(event, WindowEvent::CloseRequested) {
-            event_loop.exit();
+        match event {
+            WindowEvent::Resized(size) => {
+                if let Some(webview) = &self.webview {
+                    let _ = webview.set_bounds(Rect {
+                        position: Position::Logical(LogicalPosition::new(0.0, 0.0)),
+                        size: Size::Physical(PhysicalSize::new(size.width, size.height)),
+                    });
+                }
+            }
+            WindowEvent::CloseRequested => event_loop.exit(),
+            _ => {}
         }
     }
 }
@@ -181,11 +207,23 @@ fn mime_for(path: &std::path::Path) -> &'static str {
 }
 
 pub fn run(config: AppConfig) -> Result<()> {
-    let event_loop = EventLoop::new().context("failed to create event loop")?;
+    let mut builder = EventLoop::builder();
+    // Force `Regular` activation policy on macOS. Without it, a binary launched
+    // outside an `.app` bundle (e.g. directly via `furnace dev`) is treated as
+    // an agent process by AppKit; the resign-key delegation then hits an
+    // uninitialized stub view inside winit and aborts. A bundled `.app` (the
+    // prod path) sets this via Info.plist; calling it here is a no-op for the
+    // bundled case and the fix for the raw-binary case.
+    #[cfg(target_os = "macos")]
+    {
+        use winit::platform::macos::{ActivationPolicy, EventLoopBuilderExtMacOS};
+        builder.with_activation_policy(ActivationPolicy::Regular);
+    }
+    let event_loop = builder.build().context("failed to create event loop")?;
     let mut state = AppState {
         config,
         window: None,
-        _webview: None,
+        webview: None,
     };
     event_loop
         .run_app(&mut state)
