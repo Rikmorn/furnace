@@ -11,7 +11,7 @@ pub struct WasmRequest<'a> {
 pub fn compile(req: WasmRequest<'_>) -> Result<()> {
     std::fs::create_dir_all(req.out_dir)?;
     let mut cmd = Command::new("wasm-pack");
-    cmd.args(["build", "--target", "web", "--out-dir"])
+    cmd.args(["build", "--target", "bundler", "--out-dir"])
         .arg(req.out_dir)
         .arg(req.crate_path);
     if !req.release {

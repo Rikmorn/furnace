@@ -16,6 +16,7 @@
       "!**/target",
       "!**/dist",
       "!**/out",
+      "!**/plugins/*/pkg",
       "!package.json",
       "!bun.lock"
     ]

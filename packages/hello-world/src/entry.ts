@@ -1,9 +1,17 @@
 import { requestWebGpu, runFrameLoop } from "@furnace/core";
+import init, { add } from "../plugins/demo-wasm/pkg/demo_wasm";
+// Explicit .wasm import: Bun's bundler emits this as an asset file and resolves
+// the import to its hashed URL — something it does NOT do for the `new URL(...,
+// import.meta.url)` reference inside the wasm-pack glue. Passing the URL to
+// init() bypasses that glue's own URL construction.
+import wasmUrl from "../plugins/demo-wasm/pkg/demo_wasm_bg.wasm";
 import { mountFpsOverlay } from "./overlay/mount.ts";
 import { fpsSystem } from "./overlay/state.svelte.ts";
 import shaderUrl from "./triangle.wgsl";
 
 async function main(): Promise<void> {
+  await init(wasmUrl);
+  console.log("demo-wasm: 2 + 3 =", add(2, 3));
   const canvas = document.querySelector<HTMLCanvasElement>("#gpu");
   const uiRoot = document.querySelector<HTMLElement>("#ui-root");
   if (!canvas) throw new Error("canvas#gpu not found");

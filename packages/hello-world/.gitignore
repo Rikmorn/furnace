@@ -1,2 +1,3 @@
 dist/macos/
 src-furnace/target/
+plugins/*/pkg/
