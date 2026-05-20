@@ -1,6 +1,5 @@
 import { resolve } from "node:path";
 import {
-  compileNativeCrate,
   emitDeclarations,
   stageAssets,
   stageTypeScript,
@@ -10,20 +9,6 @@ import {
 const PKG_ROOT = resolve(import.meta.dir, "..");
 const WORKSPACE_ROOT = resolve(PKG_ROOT, "../..");
 const DIST_TOOLS = resolve(WORKSPACE_ROOT, "dist/tools");
-const DIST_NATIVE = resolve(WORKSPACE_ROOT, "dist/native");
-
-const nativeOnly = process.argv.includes("--native-only");
-
-await compileNativeCrate({
-  manifestPath: resolve(PKG_ROOT, "native/Cargo.toml"),
-  profile: "release",
-  outBinaryDir: DIST_NATIVE,
-  binaryName: "furnace-window",
-});
-
-if (nativeOnly) {
-  process.exit(0);
-}
 
 await stageTypeScript({
   from: resolve(PKG_ROOT, "src/public"),

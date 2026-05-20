@@ -40,12 +40,6 @@ enum Command {
     },
     /// Re-vendor the runtime source from the installed @furnace/tools.
     UpgradeRuntime,
-    /// (Legacy bridge — retired in Phase 3.) Launch the old furnace-window crate.
-    #[command(hide = true)]
-    Native {
-        #[arg(long)]
-        rebuild: bool,
-    },
 }
 
 fn main() -> Result<()> {
@@ -58,7 +52,6 @@ fn main() -> Result<()> {
         Command::UpgradeRuntime => {
             bail!("furnace upgrade-runtime is not yet implemented (Phase 5)")
         }
-        Command::Native { rebuild } => legacy_native(rebuild),
     }
 }
 
@@ -100,33 +93,4 @@ fn run_build(platform: &str) -> Result<()> {
     let app = builder.package(&ctx, &artifacts)?;
     println!("✓ {}", app.display());
     Ok(())
-}
-
-fn legacy_native(rebuild: bool) -> Result<()> {
-    use anyhow::Context;
-    use std::process::Command as Proc;
-    let manifest_dir = env!("CARGO_MANIFEST_DIR");
-    let legacy_manifest = std::path::Path::new(manifest_dir)
-        .join("../../native/Cargo.toml")
-        .canonicalize()
-        .context("failed to resolve legacy native crate path")?;
-    let binary_path =
-        std::path::Path::new(manifest_dir).join("../../../../dist/rust/release/furnace-window");
-    if rebuild || !binary_path.exists() {
-        let status = Proc::new("cargo")
-            .args(["build", "--release", "--manifest-path"])
-            .arg(&legacy_manifest)
-            .status()
-            .context("failed to invoke cargo for legacy native crate")?;
-        if !status.success() {
-            bail!("legacy native crate failed to build");
-        }
-    }
-    let binary = binary_path
-        .canonicalize()
-        .context("legacy binary not found after build")?;
-    let status = Proc::new(binary)
-        .status()
-        .context("legacy binary failed to launch")?;
-    std::process::exit(status.code().unwrap_or(1));
 }
