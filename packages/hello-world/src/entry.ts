@@ -1,12 +1,14 @@
 import { requestWebGpu, runFrameLoop } from "@furnace/core";
-// wasm-bindgen ≥ 0.2.x (split-files / no-modules target) auto-initialises on
-// import via __wbindgen_start; there is no default init() export.
-import { add } from "../plugins/demo-wasm/pkg/demo_wasm";
+import {
+  add,
+  ready as demoWasmReady,
+} from "../plugins/demo-wasm/pkg/demo_wasm";
 import { mountFpsOverlay } from "./overlay/mount.ts";
 import { fpsSystem } from "./overlay/state.svelte.ts";
 import shaderUrl from "./triangle.wgsl";
 
 async function main(): Promise<void> {
+  await demoWasmReady;
   console.log("demo-wasm: 2 + 3 =", add(2, 3));
   const canvas = document.querySelector<HTMLCanvasElement>("#gpu");
   const uiRoot = document.querySelector<HTMLElement>("#ui-root");
