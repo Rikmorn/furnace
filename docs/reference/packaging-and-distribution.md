@@ -31,7 +31,7 @@ Mapping that to packages:
 - **`@furnace/tools` — harness.** Internally a Rust workspace containing the `furnace-cli` binary (the user-facing `furnace` command) and the `furnace-runtime` crate (the shell that consumers vendor into their apps). Externally an npm package distributing the CLI binary via a biome-style JS shim. Owns the `furnace init / build / dev / wasm / upgrade-runtime` command surface, the scaffold templates, and the per-platform build dispatch. Anything that *launches* or *packages* furnace rather than running *inside* it lives here.
 - **`@furnace/hello-world` — reference consumer.** Demonstrates the third-party consumer experience. Uses `@furnace/tools`'s CLI for native dev, just as an external consumer would.
 
-The rule is what keeps `@furnace/core` honest: web-only consumers never download a binary, never pay for Rust tooling, never see Bun-coupled code. `packages/core/tests/no-bun-leakage.test.ts` is one static guardrail — a regex-scan against Bun-API imports in core's source. It does not by itself prove the full consumer contract; see `.claude/CLAUDE.md` "What we ship to consumers" for the complete set of constraints.
+The rule is what keeps `@furnace/core` honest: web-only consumers never download a binary, never pay for Rust tooling, never see Bun-coupled code. `packages/core/tests/no-bun-leakage.test.ts` is one static guardrail — a regex-scan against Bun-API imports in core's source. It does not by itself prove the full consumer contract; see `AGENTS.md` "What we ship to consumers" for the complete set of constraints.
 
 ## 3. What gets published vs not
 
@@ -111,7 +111,7 @@ Future (triggered by platform #2): migrate to biome's distribution pattern:
 | macOS Apple Silicon | `@furnace/tools-darwin-arm64` | Primary target — milestone 1 |
 | macOS Intel | `@furnace/tools-darwin-x64` | If/when Intel Macs are needed |
 | Windows x64 | `@furnace/tools-win32-x64` | Planned, next after macOS |
-| Linux x64 | `@furnace/tools-linux-x64` | Deferred — see BACKLOG.md "Linux / cef support" |
+| Linux x64 | `@furnace/tools-linux-x64` | Deferred — see `docs/backlog/native-runtime/linux-cef-support.md` |
 
 In the biome pattern, `@furnace/tools` (the umbrella) lists per-platform subpackages as `optionalDependencies`; npm resolves only the matching one. A ~3-line JS shim in `@furnace/tools/index.js` resolves the right binary via `require.resolve` and execs it. Verified to work in Bun workspaces during the 2026-05-19 brainstorming.
 
@@ -128,17 +128,104 @@ $ furnace build --platform=macos
 [6/6] Sign + emit: dist/macos/MyGame.app
 ```
 
-The CLI orchestrates the full pipeline. No prebuilt binary from furnace ships to the consumer's `.app`; the consumer's machine (or CI) compiles the runtime as part of building their app. This trades install simplicity for consumer flexibility: the consumer owns the platform metadata (`.furnace/platforms/macos/`), the Rust entrypoint (`.furnace/shell/main.rs`), and optionally the runtime source itself (`.furnace/shell/runtime/`) — see §4 of `docs/superpowers/specs/2026-05-19-native-shell-distribution-design.md` for the four customisation layers.
+The CLI orchestrates the full pipeline. No prebuilt binary from furnace ships to the consumer's `.app`; the consumer's machine (or CI) compiles the runtime as part of building their app. This trades install simplicity for consumer flexibility: the consumer owns the platform metadata (`.furnace/platforms/macos/`), the Rust entrypoint (`.furnace/shell/main.rs`), and optionally the runtime source itself (`.furnace/shell/runtime/`) — see "Customization layers" below.
+
+### Dev flow
+
+`furnace dev --platform=<platform>` is a debug-mode variant of the build flow:
+
+1. Pre-flight (same as build).
+2. wasm compile (initial only; subsequent recompiles are the dev server's concern via its file watcher).
+3. **Spawn dev server.** Run the consumer's configured `dev.serveCmd` (default `bun --hot serve.ts`) as a child process. Wait until `127.0.0.1:<dev.port>` accepts a TCP connection — proves the server is up. No log parsing.
+4. **Rust compile (debug).** `cargo build` against `.furnace/shell/`, no `--release`.
+5. **Native shell launch.** Spawn the cargo-built binary with `FURNACE_DEV_URL=http://localhost:<dev.port>` in its environment. The runtime loads that URL directly — no `furnace://` custom protocol in dev. The HMR client that the dev server injects into its served HTML opens a WebSocket back to the dev server and applies module updates inside the WebView.
+6. **Supervise.** The CLI doesn't run its own file watcher in dev; the dev server owns bundling, watching, and HMR. The CLI watches its two children and tears both down on Ctrl+C (Unix signal-group inheritance handles most of this).
+
+The architecture stays self-contained at the contract layer (loading `http://localhost:<port>` is identical to loading bundled assets from the contract's POV) while letting the consumer's existing dev toolchain own bundling + HMR. Consumers using Vite, esbuild, or another HMR-capable server swap `dev.serveCmd` and `dev.port`; orchestration is unchanged.
+
+### Customization layers
+
+Consumers can customise the native shell at four explicit layers, increasing power and decreasing accessibility. You reach for the next layer down when the current one can't express what you need.
+
+**Layer 1 — `furnace.config.json` (every consumer).** Declarative configuration: app identity (name, bundle ID, version), source/output paths, window defaults (title, dimensions, fullscreen), the `dev.serveCmd` + `dev.port` that `furnace dev` spawns, plugin registration, signing config. `dev.port` is a fixed number the dev server is expected to bind — no stdout parsing, too brittle. Per-platform overrides live under a `signing.<platform>` key. Full schema is deferred until implementation.
+
+**Layer 2 — `.furnace/platforms/<platform>/` (anyone shipping).** Platform-native files that can't be expressed declaratively. Consumer-committed, edited freely. macOS today: `Info.plist`, `Assets.xcassets/`, `entitlements.plist`, `exportOptions.plist`. iOS later would be a full Xcode project; Android later a Gradle project. Each platform holds whatever its toolchain demands; furnace doesn't try to normalise across them. The CLI does template substitution at build time (e.g., injects `identity.bundleId` into `Info.plist`); manual edits win.
+
+**Layer 3 — `.furnace/shell/main.rs` (Rust-comfortable consumers).** The Rust entrypoint, scaffolded by `furnace init` as ~20 lines wired to `furnace-runtime`. Reach for it when you need custom startup logic, programmatic plugin configuration, native lifecycle hooks, or custom IPC/protocol handlers — anything declarative config can't express. The scaffold typically looks like:
+
+```rust
+use furnace_runtime::App;
+// plugin imports …
+
+fn main() {
+    App::from_config("furnace.config.json")
+        .register_plugin(/* … */)
+        .on_startup(|ctx| { /* consumer's custom startup */ })
+        .run();
+}
+```
+
+**Layer 4 — `.furnace/shell/runtime/` (forkers).** The vendored shell runtime source. Reach for it when L3 can't reach far enough — replacing the WebView, adding unique platform behaviour, implementing unsupported OS capabilities. The mental model is "implement the Runtime Contract however you want", not "modify our source". `furnace-runtime` is one compliant implementation among potentially many; see "Runtime contract" below. Upgrade behaviour: `furnace upgrade-runtime` overwrites local modifications. The CLI surfaces a diff and a warning, but does not auto-merge. Accepted tradeoff.
+
+Plugins are not a fifth layer — they're an orthogonal dimension. Plugins are Rust crates compiled to wasm, executing inside the JS engine layer (not the native Rust process). They cover computation that wants native speed without leaving the JS sandbox (image filters, physics, audio DSP, AI inference). OS-level integration is not what plugins are for — that lives behind the Runtime Contract.
+
+### Runtime contract
+
+The **Runtime Contract** is the documented interface between the JS/wasm layer above and whatever native shell sits below. `furnace-runtime` (Rust, wry + winit) is the default implementation; alternatives — a fork of `furnace-runtime`, a from-scratch Rust replacement, or an entirely different language — are legitimate as long as the contract is satisfied.
+
+**What the contract covers.** Categories the JS/wasm layer can ask of any compliant runtime:
+
+| Category | Examples |
+|---|---|
+| Filesystem | `read_file`, `write_file`, `list_dir`, `watch`, app-data path resolution |
+| Native dialogs | File/folder picker, message box, save-as |
+| Window control | Show, hide, resize, fullscreen, focus, decorations |
+| Lifecycle hooks | Background/foreground transitions, low-memory warnings, graceful shutdown |
+| IPC channel | Message bus carrying invoke calls between JS and Rust; wasm plugin loading |
+| Asset access | Reading game files baked into the shipped bundle |
+| Optional later | Clipboard, OS notifications, deep links, native sensors |
+
+**What the contract excludes.** Anything platform-specific that doesn't generalise (macOS-only / Android-only features go behind optional contract extensions like `RuntimeContract.macOS`, not the core); pluggable computation (that's wasm plugins); implementation-specific quirks (wry version, winit config — internal to `furnace-runtime`, not contract surface).
+
+**Env vars and load behaviour.** In `furnace dev`, the runtime reads `FURNACE_DEV_URL` and loads that URL directly in the WebView — no custom protocol in dev. In production builds, the runtime loads bundled assets out of the consumer's `.app` (or equivalent). Bundle extraction at startup follows the `payload.bin` pattern (`extract_bundle_payload`) inherited from Shallot.
+
+**Versioning.** The contract is versioned. `@furnace/core` declares which version it requires. Adding capabilities is non-breaking — older runtimes don't implement them; `@furnace/core` handles "not implemented" via a `featureSupported(name)` check. Changing existing signatures is breaking — major contract bump. The CLI's `runtime_check` module verifies compatibility at build time and fails pre-flight on a mismatch that would prevent the build.
+
+**Scope of this section.** What the contract is, what it covers, how versioning works. The exhaustive method list, signatures, IPC protocol, error semantics, and async behaviour are deferred to the Runtime Contract Spec (tracked in `docs/backlog/`).
+
+### Consumer repo layout after `furnace init`
+
+After `furnace init my-game --platform=macos`, the consumer's repo looks like:
+
+```
+my-game/
+├── package.json                       # deps: @furnace/core, @furnace/tools
+├── furnace.config.json                # L1: declarative — identity, window, plugins, dev/signing
+├── src/                               # game code (TS, WGSL, assets) — consumer owned
+│   └── index.ts                       # entry using @furnace/core
+├── Cargo.toml                         # furnace-runtime = { path = ".furnace/shell/runtime" }
+├── .furnace/shell/
+│   ├── main.rs                        # L3: ~20 lines — boots furnace-runtime, registers plugins
+│   └── runtime/                       # L4: vendored copy of furnace-runtime
+│       ├── Cargo.toml
+│       └── src/lib.rs
+└── .furnace/platforms/
+    └── macos/                         # L2: scaffolded, committed, edited freely
+        ├── Info.plist
+        ├── Assets.xcassets/
+        └── entitlements.plist
+```
+
+Adding `furnace init --platform=android` later creates `.furnace/platforms/android/` alongside `.furnace/platforms/macos/`. The vendored runtime at `.furnace/shell/runtime/` is platform-agnostic.
+
+The vendored runtime is implicitly versioned by which `@furnace/tools` version copied it. `furnace upgrade-runtime` re-vendors from the new CLI's bundled source. Consumer-edited files (`.furnace/platforms/`, `.furnace/shell/main.rs`, `furnace.config.json`) are never touched by upgrades; modifications to `.furnace/shell/runtime/` surface as a diff/warning, not auto-merge.
 
 ### What's deliberately rejected
 
 - **Pre-built native runtime binary per platform.** The runtime compiles INTO the consumer's app; shipping a prebuilt binary doesn't fit.
 - **Compile-at-install via `postinstall` hook.** Requires the consumer to have Rust/Xcode/etc. at `npm install` time; slow; fragile on Windows. Compilation happens explicitly at `furnace build` time, not implicitly at install.
 - **Plugin marketplace / registry.** Plugins are wasm crates; Cargo + npm handle discovery. Furnace stays out of curation.
-
-### Full design
-
-This section is a reference summary. The architectural decisions, alternatives considered, and rationale live in `docs/superpowers/specs/2026-05-19-native-shell-distribution-design.md`.
+- **Automatic three-way merge for L4 forkers.** Forking the runtime accepts upgrade pain; that's the tradeoff being chosen.
 
 ## 7. Cross-compilation reality
 
@@ -192,12 +279,12 @@ The placement constraint — "a published package must not pull internal tooling
 - `@furnace/tools`'s shipped npm package contains only what consumers need: the CLI binary, the JS shim, the vendored runtime source (as data files), the scaffold templates, plus `package.json`. Internal build helpers, tests, and Cargo intermediate output are excluded from the published `files` array.
 - The vendored runtime source is copied by `furnace init` into the consumer's `.furnace/shell/runtime/`. The consumer's `Cargo.toml` references it by `path`; the original source in `node_modules/@furnace/tools/runtime/` is read-only data files.
 
-**Follow-up specs needed** (tracked in `.docs/BACKLOG.md`): the Runtime Contract Spec, the Plugin API Spec, the `furnace.config.json` schema, and the per-platform binary packages migration (biome's pattern at platform #2). All are deferred from the design spec; each warrants its own session.
+**Follow-up specs needed** (tracked in `docs/backlog/`): the Runtime Contract Spec, the Plugin API Spec, the `furnace.config.json` schema, and the per-platform binary packages migration (biome's pattern at platform #2). Each warrants its own session.
 
 ---
 
 **See also:**
 
-- `.docs/shallot-and-game-engine-architecture.md` — engine architecture notes (Shallot reference, ECS, WebGPU, wasm strategy)
-- `.docs/BACKLOG.md` — deferred work register, including the "Build system revisit" entry that triggered this conversation
-- `packages/core/tests/no-bun-leakage.test.ts` — static guardrail against Bun-API imports in core's source (one check among the full consumer contract; see `.claude/CLAUDE.md`)
+- `docs/reference/engine-architecture.md` — engine architecture notes (Shallot reference, ECS, WebGPU, wasm strategy)
+- `docs/backlog/` — deferred work register, including the follow-up spec items called out above
+- `packages/core/tests/no-bun-leakage.test.ts` — static guardrail against Bun-API imports in core's source (one check among the full consumer contract; see `AGENTS.md`)

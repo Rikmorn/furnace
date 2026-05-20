@@ -9,14 +9,14 @@ A Rust workspace shipped via npm:
 - `crates/furnace-cli/` — the `furnace` command-line tool (init, build, dev, wasm, upgrade-runtime).
 - `crates/furnace-runtime/` — the Rust shell that consumers vendor into their apps on `furnace init`. Wraps `wry` + `winit`, implements the Runtime Contract that the JS engine layer talks to.
 - `templates/` — scaffold files for `furnace init`.
-- `shim.js` — tiny plain-Node JS that finds and execs the furnace binary. Single fat-package model today; per-platform biome-style packages deferred to a future milestone (see BACKLOG "Per-platform binary packages — biome-style migration").
+- `shim.js` — tiny plain-Node JS that finds and execs the furnace binary. Single fat-package model today; per-platform biome-style packages deferred to a future milestone (see `docs/backlog/native-runtime/per-platform-binary-packages-biome-style-migration.md`).
 
 ## Consumer surface
 
-- `furnace` (bin) — public CLI (Rust binary via `shim.js`). Commands: `init`, `build`, `dev`, `wasm`. `upgrade-runtime` is stubbed pending a use-case. See `docs/superpowers/specs/2026-05-19-native-shell-distribution-design.md` for the architecture and `.docs/packaging-and-distribution.md` §6 for the distribution model.
+- `furnace` (bin) — public CLI (Rust binary via `shim.js`). Commands: `init`, `build`, `dev`, `wasm`. `upgrade-runtime` is stubbed pending a use-case. See `docs/reference/packaging-and-distribution.md` (especially §6) for the architecture and distribution model.
 
 This is the only package in the workspace that produces a binary.
 
 ## Design
 
-See `docs/superpowers/specs/2026-05-19-native-shell-distribution-design.md` for the architecture (Tauri 2-style shell, wasm plugins, runtime contract). See `.docs/packaging-and-distribution.md` §6 for the distribution model summary.
+See `docs/reference/packaging-and-distribution.md` for the architecture (Tauri 2-style shell, wasm plugins, runtime contract) and §6 for the distribution model summary.

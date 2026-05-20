@@ -1,0 +1,7 @@
+# Bun ↔ wasm-bindgen generator — maintenance surface
+
+Bun's bundler treats `import * as wasm from "./*.wasm"` as an asset import — the namespace resolves to `{default: "url-string"}` at runtime, not an instantiated WebAssembly.Instance. wasm-bindgen's `--target bundler` (and `--target web` in current versions) split-files glue assumes the bundler performs webpack-style instantiation that Bun doesn't. The CLI sidesteps this by rewriting `pkg/<crate>.js` and `pkg/<crate>.d.ts` after `wasm-pack` runs — see `rewrite_wrapper` in `packages/tools/crates/furnace-cli/src/wasm.rs`. Consumers import the typed exports + a `ready` promise; the manual `WebAssembly.instantiateStreaming` dance lives in the generated wrapper.
+
+**Trigger to revisit:** wasm-pack/wasm-bindgen output shape changes break the generator template, OR a second bundler is integrated (vite/webpack handle wasm-bindgen natively, so the generator should branch and emit nothing for them), OR the typed-export shape proves insufficient and consumers want richer control. Alternatives if the generator approach falls down: a standalone Bun build plugin handling wasm-bindgen output (reusable beyond furnace), upstream Bun support for the split-files convention (out of our hands), or switching bundler for wasm-plugin projects (loses Bun's speed).
+
+**Reference:** Generator landed in commit `f133341`. The hand-written workaround that preceded it (and explains the diagnosis) lives in commit `92061f7`.

@@ -1,11 +1,11 @@
 # furnace
 
-A WebGPU exploration project. Currently bootstrapped to render a single triangle to (a) a browser tab and (b) a native desktop window, sharing the same TS/HTML/WGSL code in both contexts. Inspired by [Shallot](https://github.com/dylanebert/shallot); see `.docs/shallot-and-game-engine-architecture.md` for the broader architectural vision.
+A WebGPU exploration project. Currently bootstrapped to render a single triangle to (a) a browser tab and (b) a native desktop window, sharing the same TS/HTML/WGSL code in both contexts. Inspired by [Shallot](https://github.com/dylanebert/shallot); see `docs/reference/engine-architecture.md` for the broader architectural vision.
 
 ## Requirements
 
 - [Bun](https://bun.com) 1.3+
-- macOS Tahoe 26+ for the native target (Windows is supported in principle but unverified pending bundling — see `.docs/BACKLOG.md`)
+- macOS Tahoe 26+ for the native target (Windows is supported in principle but unverified pending bundling — see `docs/backlog/`)
 - Rust toolchain (cargo) for the native target
 
 ## Run
@@ -22,8 +22,10 @@ bun test                     # smoke tests
 ## Layout
 
 - `packages/core/` — engine library (`@furnace/core`). Pure TypeScript; consumer-portable.
-- `packages/tools/` — tooling, the `furnace` CLI, and the shell runtime (`@furnace/tools`). Internally a Rust workspace (CLI binary + runtime crate that consumers vendor into their apps) plus scaffold templates and a JS shim. Only package that produces a binary. See `docs/superpowers/specs/2026-05-19-native-shell-distribution-design.md`.
+- `packages/tools/` — tooling, the `furnace` CLI, and the shell runtime (`@furnace/tools`). Internally a Rust workspace (CLI binary + runtime crate that consumers vendor into their apps) plus scaffold templates and a JS shim. Only package that produces a binary. See `docs/reference/packaging-and-distribution.md`.
 - `packages/hello-world/` — reference consumer (`@furnace/hello-world`). Renders the triangle in the browser (`bun run dev:web`) or in a native window (`bun run dev:native` — wraps `furnace dev --platform=macos`).
-- `.docs/` — architecture notes (`packaging-and-distribution.md`, `shallot-and-game-engine-architecture.md`), BACKLOG, and other planning context.
-- `docs/superpowers/specs/`, `docs/superpowers/plans/` — design specs and implementation plans.
-- `.claude/CLAUDE.md`, `AGENTS.md` — agent guidance.
+- `docs/reference/` — canonical "how the project is" docs (packaging & distribution, engine architecture, UI foundation).
+- `docs/backlog/` — deferred work register, one file per entry, grouped by topic.
+- `docs/learnings/` — post-mortems and "what we tried" notes.
+- `docs/research/` — pre-decision research that fed canonical docs.
+- `AGENTS.md` — canonical agent guidance (`.claude/CLAUDE.md` is a thin pointer to it).
