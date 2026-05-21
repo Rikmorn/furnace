@@ -19,7 +19,6 @@ pub fn emit_shell_config(shell_dir: &Path, config: &FurnaceConfig) -> Result<()>
         height = config.window.height,
         fullscreen = config.window.fullscreen,
     );
-    std::fs::write(&path, content)
-        .with_context(|| format!("writing {}", path.display()))?;
+    std::fs::write(&path, content).with_context(|| format!("writing {}", path.display()))?;
     Ok(())
 }

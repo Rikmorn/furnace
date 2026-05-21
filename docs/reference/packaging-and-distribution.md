@@ -27,7 +27,7 @@ This is the foundational rule that governs everything else:
 
 Mapping that to packages:
 
-- **`@furnace/core` — engine.** TS source. Future Rust crates that compile to **wasm** (transforms, audio — Shallot pattern §3) live here, because their output is imported by the engine code itself. No native binaries, no platform-aware code, no `process.platform` reads. Pure consumer-portable runtime.
+- **`@furnace/core` — engine.** TS source. Future Rust crates that compile to **wasm** (transforms, audio) live here, because their output is imported by the engine code itself. No native binaries, no platform-aware code, no `process.platform` reads. Pure consumer-portable runtime.
 - **`@furnace/tools` — harness.** Internally a Rust workspace containing the `furnace-cli` binary (the user-facing `furnace` command) and the `furnace-runtime` crate (the shell that consumers vendor into their apps). Externally an npm package distributing the CLI binary via a biome-style JS shim. Owns the `furnace init / build / dev / wasm / upgrade-runtime` command surface, the scaffold templates, and the per-platform build dispatch. Anything that *launches* or *packages* furnace rather than running *inside* it lives here.
 - **`@furnace/hello-world` — reference consumer.** Demonstrates the third-party consumer experience. Uses `@furnace/tools`'s CLI for native dev, just as an external consumer would.
 
@@ -187,7 +187,7 @@ The **Runtime Contract** is the documented interface between the JS/wasm layer a
 
 **What the contract excludes.** Anything platform-specific that doesn't generalise (macOS-only / Android-only features go behind optional contract extensions like `RuntimeContract.macOS`, not the core); pluggable computation (that's wasm plugins); implementation-specific quirks (wry version, winit config — internal to `furnace-runtime`, not contract surface).
 
-**Env vars and load behaviour.** In `furnace dev`, the runtime reads `FURNACE_DEV_URL` and loads that URL directly in the WebView — no custom protocol in dev. In production builds, the runtime loads bundled assets out of the consumer's `.app` (or equivalent). Bundle extraction at startup follows the `payload.bin` pattern (`extract_bundle_payload`) inherited from Shallot.
+**Env vars and load behaviour.** In `furnace dev`, the runtime reads `FURNACE_DEV_URL` and loads that URL directly in the WebView — no custom protocol in dev. In production builds, the runtime loads bundled assets out of the consumer's `.app` (or equivalent). Bundle extraction at startup uses a `payload.bin` pattern (`extract_bundle_payload`).
 
 **Versioning.** The contract is versioned. `@furnace/core` declares which version it requires. Adding capabilities is non-breaking — older runtimes don't implement them; `@furnace/core` handles "not implemented" via a `featureSupported(name)` check. Changing existing signatures is breaking — major contract bump. The CLI's `runtime_check` module verifies compatibility at build time and fails pre-flight on a mismatch that would prevent the build.
 
@@ -285,6 +285,7 @@ The placement constraint — "a published package must not pull internal tooling
 
 **See also:**
 
-- `docs/reference/engine-architecture.md` — engine architecture notes (Shallot reference, ECS, WebGPU, wasm strategy)
+- `docs/reference/engine-architecture.md` — engine architecture notes (ECS, WebGPU, wasm strategy)
+- `docs/research/shallot.md` — consolidated reference notes on Shallot, the project that informed several of these patterns
 - `docs/backlog/` — deferred work register, including the follow-up spec items called out above
 - `packages/core/tests/no-bun-leakage.test.ts` — static guardrail against Bun-API imports in core's source (one check among the full consumer contract; see `AGENTS.md`)

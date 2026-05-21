@@ -59,10 +59,7 @@ fn templates_root() -> Result<PathBuf> {
     //  1. Shipped layout: <pkg>/furnace + <pkg>/templates  (sibling)
     //  2. In-repo dev: walk up from packages/tools/crates/target/{debug,release}/furnace
     //     to packages/tools/templates
-    let candidates = [
-        parent.join("templates"),
-        parent.join("../../../templates"),
-    ];
+    let candidates = [parent.join("templates"), parent.join("../../../templates")];
     for c in &candidates {
         if c.exists() {
             return c.canonicalize().context("canonicalize templates path");

@@ -4,7 +4,7 @@ Furnace uses **Svelte 5** for all DOM-based UI, paired with **screen-space proje
 
 ## Framework
 
-Furnace is committed to Svelte 5 with the runes/signals reactivity model (Shallot's pattern). State lives in `.svelte.ts` modules using `$state`; components read those values directly and re-render reactively. Engine code mutates the state objects — no stores, no event buses for UI plumbing.
+Furnace is committed to Svelte 5 with the runes/signals reactivity model. State lives in `.svelte.ts` modules using `$state`; components read those values directly and re-render reactively. Engine code mutates the state objects — no stores, no event buses for UI plumbing.
 
 Constraints baked into this choice:
 

@@ -1,6 +1,6 @@
 # furnace
 
-A WebGPU exploration project. Currently bootstrapped to render a single triangle to (a) a browser tab and (b) a native desktop window, sharing the same TS/HTML/WGSL code in both contexts. Inspired by [Shallot](https://github.com/dylanebert/shallot); see `docs/reference/engine-architecture.md` for the broader architectural vision.
+A WebGPU exploration project. Currently bootstrapped to render a single triangle to (a) a browser tab and (b) a native desktop window, sharing the same TS/HTML/WGSL code in both contexts. See `docs/reference/engine-architecture.md` for the broader architectural vision.
 
 ## Requirements
 

@@ -1,141 +1,94 @@
 # Modern Game Engine Architecture — Exploration Notes
 
-*Conversation captured 2026-05-14. Starting point: investigating the [Shallot](https://github.com/dylanebert/shallot) repo by Dylan Ebert and how Rust/Bun/WebGPU fit together. Conversation expanded into ECS, event-loop architecture, GPU vs CPU work, game AI, and LLM-as-planner agent architectures.*
+*Conversation captured 2026-05-14. Architectural thinking that informed furnace's engine direction — covering ECS, event-loop architecture, GPU vs CPU work, game AI, and LLM-as-planner agent architectures. The specific reference implementation we studied while shaping these notes is consolidated separately at `docs/research/shallot.md`.*
 
-**A note on confidence**: assertions about Shallot's repo are verified from reading the source. Comparisons to Babylon, Unity, Unreal, and discussion of broader research directions are mostly general/training knowledge — flagged inline where relevant. The GPU physics landscape and ML/game-AI research areas move fast; expect some staleness.
+**A note on confidence**: comparisons to Babylon, Unity, Unreal, and discussion of broader research directions are mostly general/training knowledge — flagged inline where relevant. The GPU physics landscape and ML/game-AI research areas move fast; expect some staleness.
 
 ---
 
 ## Table of contents
 
-1. [How Shallot is set up — Bun + Rust mix](#1-how-shallot-is-set-up--bun--rust-mix)
-2. [Concrete proof: where TS imports the Rust-built wasm](#2-concrete-proof-where-ts-imports-the-rust-built-wasm)
-3. [What wasm-pack actually emits, and what's *not* in wasm](#3-what-wasm-pack-actually-emits-and-whats-not-in-wasm)
-4. [WebGPU as a cross-platform native abstraction](#4-webgpu-as-a-cross-platform-native-abstraction)
-5. [Shallot vs Babylon.js](#5-shallot-vs-babylonjs)
-6. [Shallot's physics — fully hand-rolled](#6-shallots-physics--fully-hand-rolled)
-7. [Is there really no GPU physics engine out there?](#7-is-there-really-no-gpu-physics-engine-out-there)
-8. [Vision matters — hobby vs niche-finder vs big-engine competitor](#8-vision-matters--hobby-vs-niche-finder-vs-big-engine-competitor)
-9. [OSS adoption realism](#9-oss-adoption-realism)
-10. [Pattern summary — web-tech first, Rust where needed](#10-pattern-summary--web-tech-first-rust-where-needed)
-11. [ECS refresher — what changed since 2000](#11-ecs-refresher--what-changed-since-2000)
-12. [The event loop and how it doesn't bottleneck the engine](#12-the-event-loop-and-how-it-doesnt-bottleneck-the-engine)
-13. [Job systems and synchronization](#13-job-systems-and-synchronization)
-14. [AI in games — classical vs ML, GPU vs CPU](#14-ai-in-games--classical-vs-ml-gpu-vs-cpu)
-15. [Could a tiny LLM replace state machines / pathfinding?](#15-could-a-tiny-llm-replace-state-machines--pathfinding)
-16. [LLM-as-planner — the actual architecture that works](#16-llm-as-planner--the-actual-architecture-that-works)
+1. [The web-tech-first + Rust hot loops pattern](#1-the-web-tech-first--rust-hot-loops-pattern)
+2. [What wasm-pack emits, and what's *not* in wasm](#2-what-wasm-pack-emits-and-whats-not-in-wasm)
+3. [WebGPU as a cross-platform native abstraction](#3-webgpu-as-a-cross-platform-native-abstraction)
+4. [GPU-resident physics — the architectural tradeoff](#4-gpu-resident-physics--the-architectural-tradeoff)
+5. [Is there really no GPU physics engine out there?](#5-is-there-really-no-gpu-physics-engine-out-there)
+6. [Vision matters — hobby vs niche-finder vs big-engine competitor](#6-vision-matters--hobby-vs-niche-finder-vs-big-engine-competitor)
+7. [OSS adoption realism](#7-oss-adoption-realism)
+8. [Pattern summary — web-tech first, Rust where needed](#8-pattern-summary--web-tech-first-rust-where-needed)
+9. [ECS refresher — what changed since 2000](#9-ecs-refresher--what-changed-since-2000)
+10. [The event loop and how it doesn't bottleneck the engine](#10-the-event-loop-and-how-it-doesnt-bottleneck-the-engine)
+11. [Job systems and synchronization](#11-job-systems-and-synchronization)
+12. [AI in games — classical vs ML, GPU vs CPU](#12-ai-in-games--classical-vs-ml-gpu-vs-cpu)
+13. [Could a tiny LLM replace state machines / pathfinding?](#13-could-a-tiny-llm-replace-state-machines--pathfinding)
+14. [LLM-as-planner — the actual architecture that works](#14-llm-as-planner--the-actual-architecture-that-works)
 
 ---
 
-## 1. How Shallot is set up — Bun + Rust mix
+## 1. The web-tech-first + Rust hot loops pattern
 
-**Core answer:** It's a **Bun/TypeScript app at its core**, with Rust used selectively for hot-path or platform-specific pieces.
+**Core idea:** A Bun/TypeScript engine at its core, with Rust used selectively for hot-path or platform-specific pieces. Two places Rust enters:
 
-### Layout
-- **Top-level**: Bun workspace (`workspaces: ["packages/*", "examples/*"]`), TypeScript-first, Biome for lint/format, Playwright for tests.
-- **`packages/shallot/`** is the actual engine. Its `package.json` declares `main: ./src/index.ts` — i.e. the shipped public API is TypeScript. Subpath exports cover ECS core, render, physics, audio, transforms, raytracing, etc.
-- **`packages/shallot/rust/`** holds **three separate Rust crates**, each compiled differently:
-  1. `transforms/` → **wasm-pack** (`--target web --release`) → emits a `pkg/` JS+wasm bundle that's imported from TS.
-  2. `audio/` → raw `cargo build --target wasm32-unknown-unknown --release`, then `wasm-opt -O3` (with a fallback that just copies the unoptimised `.wasm` if `wasm-opt` is missing). The build script generates the JS + `.d.ts` loader by hand instead of using wasm-bindgen/wasm-pack.
-  3. `window/` → `cargo build --release` (no wasm target) — a **native binary**. CLAUDE.md called it a "native window host," so this is a desktop runner, not browser-shipped.
+- **wasm hot loops** — Rust crates compiled via `wasm-pack` (or raw `cargo build --target wasm32-unknown-unknown --release` + `wasm-opt`) and imported by the engine like any other JS module. Workloads: scene-graph matrix math, audio DSP — tight CPU-bound loops where SIMD-style throughput matters and the GPU isn't a fit.
+- **Native shell** — a separate `cargo build --release` binary providing the OS-level window + WebGPU surface for desktop targets. Same TS engine code runs inside it as runs in a browser tab.
 
-### How the two halves connect
-`scripts/build.ts` (run via `bun run build`) is the orchestrator. It shells out to `cargo` / `wasm-pack` / `wasm-opt`, fixes up the generated `pkg/` (removes the `.gitignore`, sets `sideEffects: false`, runs Biome on it), and then the TS source imports the produced wasm packages like any other JS module. There's no FFI, no NAPI native node addon, no build.rs glue — it's: **Rust → wasm → JS module → `import` from TS**.
+**How the two halves connect:** an orchestrator script (Bun) shells out to `cargo` / `wasm-pack` / `wasm-opt`, fixes up the generated `pkg/` (sets `sideEffects: false`, lints the output), and then the TS source imports the produced wasm packages like any other JS module. No FFI, no NAPI native node addon, no `build.rs` glue — just **Rust → wasm → JS module → `import` from TS**.
 
----
+For a concrete worked example of this layout — file paths, build orchestration, what the actual `wasm-pack` import looks like in TS — see `docs/research/shallot.md` § "Engine library + wasm hot loops".
 
-## 2. Concrete proof: where TS imports the Rust-built wasm
-
-File: `packages/shallot/src/standard/transforms/wasm.ts`
-
-```ts
-import wasmInit, {
-    get_pos_x_ptr, get_pos_y_ptr, get_pos_z_ptr,
-    get_quat_x_ptr, ..., get_scale_z_ptr,
-    get_matrices_ptr, get_indices_ptr, get_parents_ptr,
-    get_capacity, get_no_parent, init_data,
-    ensure_capacity as wasmEnsureCapacity,
-    compute_transforms,
-} from "../../../rust/transforms/pkg/shallot_transforms.js";
-```
-
-That `pkg/shallot_transforms.js` path is exactly the wasm-pack output dir inside `packages/shallot/rust/transforms/pkg/` — produced by `wasm-pack build --target web --release` in `scripts/build.ts`. The relationship is concrete:
-
-- Rust crate at `packages/shallot/rust/transforms/`
-- Built by `bun run build` → `wasm-pack` → emits `rust/transforms/pkg/shallot_transforms.js` + `.wasm`
-- Imported by `src/standard/transforms/wasm.ts` via a plain relative path
-
-It uses the **wasm-pack-style default export = init function** + named exports for the Rust fns, and works against the raw linear-memory pointers (typed array views over wasm memory rather than a thick wasm-bindgen object layer).
-
----
-
-## 3. What wasm-pack actually emits, and what's *not* in wasm
+## 2. What wasm-pack emits, and what's *not* in wasm
 
 **The emitted `.js` file** is a thin **loader/glue** — it `fetch`es the `.wasm`, instantiates it, and re-exports the Rust functions as JS bindings. Actual work is in the `.wasm` binary; the `.js` is just the bridge.
 
-**What's actually in wasm in Shallot:**
+**What typically lives in wasm in a setup like this:**
 - ✅ **`transforms`** — scene-graph matrix math (positions, quaternions, scale → matrices). Hot per-frame CPU loop.
 - ✅ **`audio`** — DSP for synthesis/effects. Likely consumed in the AudioWorklet.
-- ❌ **Graphics is *not* in wasm.** This is a WebGPU engine — the GPU-heavy work runs on the **GPU** via WGSL shaders, not on the CPU via wasm. Rendering doesn't benefit from wasm because the bottleneck is GPU command submission, not CPU speed. Package exports show `render/core` and `physics/core` both map to `.ts` files.
+- ❌ **Graphics is *not* in wasm.** WebGPU runs the GPU-heavy work on the **GPU** via WGSL shaders, not on the CPU via wasm. Rendering doesn't benefit from wasm because the bottleneck is GPU command submission, not CPU speed.
 
-The third Rust crate, `window`, is a **native binary** — for running the engine outside the browser as a desktop app, not for browser-side perf.
+A separate Rust crate compiled as a **native binary** (not wasm) covers running the engine outside the browser as a desktop app — that's a different concern from browser-side perf.
 
 **Mental model:** TS for orchestration + WebGPU for graphics/physics + wasm for tight CPU-bound loops the GPU can't do (scene-graph transforms, audio DSP) + a native Rust binary for the desktop host. Not "wasm does the heavy stuff" — more "each tool where it actually wins."
 
 ---
 
-## 4. WebGPU as a cross-platform native abstraction
+## 3. WebGPU as a cross-platform native abstraction
 
 WebGPU is designed as a cross-platform abstraction that compiles down to **Metal on macOS/iOS, Vulkan on Linux/Android, DirectX 12 on Windows**. The spec is intentionally close to the lowest common denominator of those three so the translation is thin.
 
 Nuances:
 1. **WebGPU isn't browser-only.** Browsers use one of two implementations: Chrome uses **Dawn** (C++, Google), Firefox uses **wgpu** (Rust, Mozilla). Both can be embedded in non-browser apps. `wgpu` in particular is a popular standalone Rust crate.
-2. **For Shallot specifically**, `bun-webgpu` is in devDependencies — that's a Bun-native binding to `wgpu`. So the native picture is likely: Bun executes the TS, `bun-webgpu` provides the WebGPU API surface, `wgpu` translates to Metal/DX12/Vulkan, the `rust/window` crate provides the OS-level window + surface. Same TypeScript engine code runs identically in the browser and on the desktop, only the bootstrap differs.
+2. **For a Bun-based engine**, `bun-webgpu` provides a Bun-native binding to `wgpu`. So the native picture looks like: Bun executes the TS, `bun-webgpu` provides the WebGPU API surface, `wgpu` translates to Metal/DX12/Vulkan, the native shell crate provides the OS-level window + surface. Same TypeScript engine code runs identically in the browser and on the desktop, only the bootstrap differs.
 3. **The tradeoff WebGPU makes**: deliberately conservative API, doesn't expose every native feature (raytracing extensions still patchy, mesh shaders not there yet). Fine for most game/visualisation work, hits ceilings on cutting-edge AAA techniques.
 
 Architectural payoff: write the engine once in TS+WGSL, get browser + native desktop targets nearly for free, with Rust filling the two gaps (windowing/host, plus CPU hot loops) that the JS/WebGPU side can't cover.
 
 ---
 
-## 5. Shallot vs Babylon.js
+## 4. GPU-resident physics — the architectural tradeoff
 
-*Caveat: most Babylon details are general knowledge, not verified in session.*
+If you want physics that scales with thousands of bodies *and* shares the GPU with the renderer, the choice is GPU-resident physics — and that essentially forces you to write the solver yourself.
 
-| | Shallot | Babylon |
-|---|---|---|
-| Architectural paradigm | ECS / data-oriented | Scene graph / object-oriented |
-| Render backend | WebGPU only | WebGL 1/2 + WebGPU |
-| Native desktop | Same TS via Bun + wgpu | Babylon Native (C++ via bgfx) |
-| Performance strategy | GPU-first + selective wasm | Pure JS + wasm physics plugins |
-| Maturity | v0.4, solo author | 12+ years, Microsoft + community |
-| API style | Procedural / declarative / ECS | Imperative, OOP |
-| Production track record | None yet | Adobe, NASA, BMW |
+**The two paths:**
 
-**They're not really competitors** — different points on the spectrum. Babylon = "production 3D engine you can ship a product on today." Shallot = "what would a 2026-era engine look like if we threw out WebGL compatibility and started from data-oriented design."
+- **Wrap a mature CPU engine** (Babylon's approach with Havok wasm, Rapier wasm): mature, deterministic, broad feature coverage. But every frame copies state CPU↔GPU. That bus traffic kills throughput once entity counts get serious.
+- **Write GPU-resident physics**: same buffers physics writes are read by the renderer. No bus traffic. But you re-implement broadphase, narrowphase, solver, constraints, raycast — every stage. Multi-year maturity debt against Havok forever.
 
----
+**Why you can't bolt GPU acceleration onto Havok/Rapier as a plugin** — those engines are designed around CPU memory layouts (cache-friendly arrays of bodies, sequential narrowphase passes). If the thesis is "physics belongs on the GPU alongside the renderer," you basically *have* to write it yourself.
 
-## 6. Shallot's physics — fully hand-rolled
+**The pipeline if you went this route** — every stage you'd find in Bullet or Rapier, as WebGPU compute shaders:
 
-**Evidence:** package.json has **zero** physics libraries — no Rapier, Havok, Ammo, Cannon, Jolt, Bullet, PhysX. The `src/standard/physics/` directory contains the full vertical implementation:
+- Broadphase: LBVH (Linear Bounding Volume Hierarchy) build + GPU traversal
+- Narrowphase: SAT (Separating Axis Theorem), convex hull construction (QuickHull or similar)
+- Solver: constraint solver on GPU
+- Integration & misc: interpolation, character controller, raycast
 
-- Broadphase: `lbvh.ts` (Linear Bounding Volume Hierarchy build), `broadphase.wgsl.ts` (GPU traversal)
-- Narrowphase: `sat.ts` (Separating Axis Theorem), `narrowphase.wgsl.ts`, `quickhull.ts`/`hull.ts` (convex hull construction)
-- Solver: `solver.wgsl.ts` (constraint solver on GPU)
-- Integration & misc: `interpolate.wgsl.ts`, `character.wgsl.ts`, `raycast.ts`, `body.ts`
+**Tradeoff summary:** architectural purity now, multi-year maturity debt forever. Bet only pays off if the engine finds a niche where GPU-resident physics matters more than feature breadth.
 
-Textbook from-scratch rigid-body pipeline — every stage you'd find in Bullet or Rapier, implemented as WebGPU compute shaders. AGENTS.md mentions "solver variants" which only makes sense if you're writing the solver yourself.
-
-**Why this isn't just NIH (Not Invented Here):**
-- Babylon's approach: plugin wrapping mature CPU engines (Havok wasm, Rapier wasm). Mature, deterministic. BUT — every frame copies state CPU↔GPU. Bus traffic kills throughput.
-- Shallot's approach: GPU-resident. Same buffers physics writes are read by the renderer. No bus traffic.
-- **You can't bolt GPU acceleration onto Havok/Rapier** as a plugin — those engines are designed around CPU memory layouts. If the thesis is "physics belongs on the GPU alongside the renderer," you basically *have* to write it yourself.
-
-**Tradeoff:** architectural purity now, multi-year maturity debt against Havok forever. Bet only pays off if the engine finds a niche where GPU-resident physics matters more than feature breadth.
+For one worked example of an engine that took this route, see `docs/research/shallot.md` § "Hand-rolled GPU-resident physics".
 
 ---
 
-## 7. Is there really no GPU physics engine out there?
+## 5. Is there really no GPU physics engine out there?
 
 Categorized landscape (mostly general knowledge):
 
@@ -160,7 +113,7 @@ So **no shippable option exists** that satisfies "WebGPU, browser + Bun-native, 
 
 ---
 
-## 8. Vision matters — hobby vs niche-finder vs big-engine competitor
+## 6. Vision matters — hobby vs niche-finder vs big-engine competitor
 
 "Big-engine competitor vs hobby" is a false binary. Successful engines live in the middle:
 
@@ -169,16 +122,16 @@ So **no shippable option exists** that satisfies "WebGPU, browser + Bun-native, 
 - **Three.js** — most-deployed 3D engine in the world, has nothing approaching Babylon's feature set.
 - **Defold, Heaps, MonoGame, LÖVE** — all real engines, none competing with Unreal.
 
-**Plausible niches for Shallot that don't require closing the Havok gap:**
+**Plausible niches for a WebGPU-first engine that don't require closing the Havok gap:**
 - **Embodied AI / robotics sim in browser** — GPU-resident physics maps onto RL training with thousands of parallel agents.
 - **Procedural / generative content tooling** — fits the "procedural-first" framing.
 - **Demoscene / creative coding / installations** — same niche Three.js dominates.
 
-The interesting question is not "hobby vs competitor" but **"what niche does this architecture make him uniquely good at?"** That determines whether the physics gap is existential or irrelevant.
+The interesting question is not "hobby vs competitor" but **"what niche does this architecture make uniquely good at?"** That determines whether the physics gap is existential or irrelevant.
 
 ---
 
-## 9. OSS adoption realism
+## 7. OSS adoption realism
 
 "People will pick it up and contribute" is the romantic version. The mechanical version:
 - Contribution follows usage
@@ -191,7 +144,7 @@ Most technically excellent solo projects on GitHub never get a second contributo
 
 ---
 
-## 10. Pattern summary — web-tech first, Rust where needed
+## 8. Pattern summary — web-tech first, Rust where needed
 
 The thesis isn't quite "maximum performance" — it's "**modern foundations without legacy compatibility tax**":
 - Dropped: WebGL fallback, OOP scene graph, CPU physics, React, Webpack, npm
@@ -202,7 +155,7 @@ The thesis isn't quite "maximum performance" — it's "**modern foundations with
 - **Figma**: C++/WASM rendering, JS UI
 - **VS Code / Cursor**: Electron shell, Rust acceleration (ripgrep, rust-analyzer)
 - **1Password 8**: Rust core, Electron UI
-- **Shallot**: Bun + TS + WebGPU shell, Rust hot loops + native window
+- WebGPU game engines like the one in `docs/research/shallot.md`: Bun + TS + WebGPU shell, Rust hot loops + native window
 
 The pattern: **web platform is the lowest-friction surface for tooling; the gap that remains gets filled with Rust because Rust integrates cleanly with wasm.** C++ used to fill that gap but the tooling is worse.
 
@@ -213,7 +166,7 @@ The pattern: **web platform is the lowest-friction surface for tooling; the gap 
 
 ---
 
-## 11. ECS refresher — what changed since 2000
+## 9. ECS refresher — what changed since 2000
 
 The ECS argument in 2000 was **composition over inheritance**: stop building `Goblin extends Enemy extends Character extends GameObject` hierarchies. Still true, but no longer the primary motivation.
 
@@ -240,7 +193,7 @@ velocities_y: [vy0, vy1, ...]
 ```
 Physics system: `for i in 0..N: positions_x[i] += velocities_x[i] * dt`. Each cache line holds 16 floats. Prefetcher predicts perfectly. SIMD processes 4-8 entities per instruction. GPU warps coalesce 32 thread reads into one memory transaction.
 
-**This is exactly what Shallot's `transforms/wasm.ts` does** — `posX`, `posY`, `posZ` as separate `Float32Array`s, not `Vec3` objects. Pure SoA layout. Wasm sweeps linearly; GPU ingests coalesced.
+**The reference example** (`docs/research/shallot.md` § "ECS with struct-of-arrays layout") shows this concretely: `posX`, `posY`, `posZ` as separate `Float32Array`s, not `Vec3` objects. Pure SoA. Wasm sweeps linearly; GPU ingests coalesced.
 
 **Secondary modern benefits:**
 - **Auto-parallelization** — systems declare which components they read/write, scheduler proves non-conflict and runs in parallel
@@ -256,7 +209,7 @@ The thing that mattered in 2000 (composition) is now a side effect. The thing th
 
 ---
 
-## 12. The event loop and how it doesn't bottleneck the engine
+## 10. The event loop and how it doesn't bottleneck the engine
 
 A well-architected real-time JS app puts hot work *off the event loop*. The event loop's job is **orchestration**, not computation.
 
@@ -281,7 +234,7 @@ The principle: event loop = scheduler dispatching to faster substrates (GPU, was
 
 ---
 
-## 13. Job systems and synchronization
+## 11. Job systems and synchronization
 
 The web platform doesn't ship a Unity-style job system primitive. You build one from:
 
@@ -312,7 +265,7 @@ The web platform doesn't ship a Unity-style job system primitive. You build one 
 
 ---
 
-## 14. AI in games — classical vs ML, GPU vs CPU
+## 12. AI in games — classical vs ML, GPU vs CPU
 
 **Two different things called "AI":**
 
@@ -340,7 +293,7 @@ Unifying principle: **GPU AI works when the same logic runs across many agents s
 
 ---
 
-## 15. Could a tiny LLM replace state machines / pathfinding?
+## 13. Could a tiny LLM replace state machines / pathfinding?
 
 **Initial framing pushback:** the architecture you want isn't an LLM specifically. LLMs are *language* models trained on next-token prediction over text. For "given world state, pick action," you want a **policy network** (RL output) or a **world model** (game dynamics).
 
@@ -368,7 +321,7 @@ Unifying principle: **GPU AI works when the same logic runs across many agents s
 
 ---
 
-## 16. LLM-as-planner — the actual architecture that works
+## 14. LLM-as-planner — the actual architecture that works
 
 User's refinement: not "neural replaces classical" but **"neural reasons about scene, classical executes"**. LLM understands "boulder in the way, go around left"; A* does the actual pathfinding given the chosen detour.
 
@@ -438,4 +391,3 @@ Pass to 3B-param local model, get JSON in 50-100ms. No training, no RL, no label
 - **Apollo / Cicero** (Meta) — Diplomacy AI using LLMs
 - **Bullet / Rapier / Jolt** source code — if curious about classical physics solver internals
 - **WGSL spec** — for understanding what GPU compute shaders can express
-- **Dylan Ebert's other work** — he's also done HuggingFace 3D / Gaussian splat tooling work (uncertain, didn't verify in session)

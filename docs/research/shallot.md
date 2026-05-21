@@ -1,0 +1,184 @@
+# Shallot — reference notes
+
+*Consolidated from earlier exploration (Bun + Rust + WebGPU investigation, 2026-05-14, and follow-on conversations through 2026-05-19). Furnace took architectural inspiration from this repo while making different choices on distribution, packaging, and the engine/harness split. The bits we lifted directly are noted under "What we adopted" below.*
+
+[Shallot](https://github.com/dylanebert/shallot) is a WebGPU game engine by Dylan Ebert — a Bun/TypeScript engine with selective Rust hot paths and a native desktop runner. We studied it as the starting point for thinking about modern engine architecture (web platform first, Rust where the platform can't deliver) and as a concrete reference implementation of "TS + WebGPU + wasm + native window" coexisting cleanly.
+
+**Confidence note:** assertions about Shallot's repo are verified from reading its source. Comparisons to other engines (Babylon, Unity, Unreal) and broader research discussions are general/training knowledge — flagged inline where relevant.
+
+## Repo at a glance
+
+Top level: Bun workspace (`workspaces: ["packages/*", "examples/*"]`), TypeScript-first, Biome for lint/format, Playwright for tests.
+
+- **`packages/shallot/`** — the engine. `package.json` declares `main: ./src/index.ts` — the shipped public API is TypeScript. Subpath exports cover ECS core, render, physics, audio, transforms, raytracing.
+- **`packages/shallot/rust/`** — three separate Rust crates, each compiled differently:
+  1. `transforms/` → **wasm-pack** (`--target web --release`) → emits a `pkg/` JS+wasm bundle imported from TS.
+  2. `audio/` → raw `cargo build --target wasm32-unknown-unknown --release`, then `wasm-opt -O3` (with a fallback that copies the unoptimised `.wasm` if `wasm-opt` is missing). The build script generates the JS + `.d.ts` loader by hand instead of using wasm-bindgen/wasm-pack.
+  3. `window/` → `cargo build --release` (no wasm target) — a native binary. The desktop runner.
+
+`scripts/build.ts` (via `bun run build`) is the orchestrator. It shells out to `cargo` / `wasm-pack` / `wasm-opt`, fixes up the generated `pkg/` (removes `.gitignore`, sets `sideEffects: false`, runs Biome on the output), then the TS source imports the produced wasm packages like any other JS module. No FFI, no NAPI native node addon, no build.rs glue — just **Rust → wasm → JS module → `import` from TS**.
+
+## Mental model
+
+TS for orchestration + WebGPU for graphics/physics + wasm for tight CPU-bound loops the GPU can't do (scene-graph transforms, audio DSP) + a native Rust binary for the desktop host. Not "wasm does the heavy stuff" — more "each tool where it actually wins."
+
+## Architectural patterns worth noting
+
+### 1. Engine library + wasm hot loops
+
+**Pattern:** Rust crates compiled to wasm, imported by the TS engine via plain ES module imports.
+
+Concrete proof — file: `packages/shallot/src/standard/transforms/wasm.ts`:
+
+```ts
+import wasmInit, {
+    get_pos_x_ptr, get_pos_y_ptr, get_pos_z_ptr,
+    get_quat_x_ptr, ..., get_scale_z_ptr,
+    get_matrices_ptr, get_indices_ptr, get_parents_ptr,
+    get_capacity, get_no_parent, init_data,
+    ensure_capacity as wasmEnsureCapacity,
+    compute_transforms,
+} from "../../../rust/transforms/pkg/shallot_transforms.js";
+```
+
+That `pkg/shallot_transforms.js` path is the wasm-pack output dir inside `packages/shallot/rust/transforms/pkg/`. The relationship:
+
+- Rust crate at `packages/shallot/rust/transforms/`
+- Built by `bun run build` → `wasm-pack` → emits `rust/transforms/pkg/shallot_transforms.js` + `.wasm`
+- Imported by `src/standard/transforms/wasm.ts` via plain relative path
+
+Uses the wasm-pack-style default export = init function + named exports for the Rust fns, working against raw linear-memory pointers (typed array views over wasm memory rather than a thick wasm-bindgen object layer).
+
+**What's in wasm in Shallot:**
+- `transforms` — scene-graph matrix math (positions, quaternions, scale → matrices). Hot per-frame CPU loop.
+- `audio` — DSP for synthesis/effects. Likely consumed in the AudioWorklet.
+- **Graphics is *not* in wasm.** WebGPU runs the GPU-heavy work on the GPU via WGSL shaders; rendering doesn't benefit from wasm because the bottleneck is GPU command submission, not CPU speed. Package exports show `render/core` and `physics/core` both map to `.ts` files.
+
+### 2. WebGPU as cross-platform native abstraction
+
+WebGPU compiles down to Metal on macOS/iOS, Vulkan on Linux/Android, DirectX 12 on Windows. Chrome uses **Dawn** (C++, Google); Firefox uses **wgpu** (Rust, Mozilla). Both can be embedded in non-browser apps.
+
+Shallot uses `bun-webgpu` in devDependencies — a Bun-native binding to `wgpu`. The native picture: Bun executes the TS, `bun-webgpu` provides the WebGPU API surface, `wgpu` translates to Metal/DX12/Vulkan, the `rust/window` crate provides the OS-level window + surface. **Same TypeScript engine code runs identically in the browser and on the desktop, only the bootstrap differs.**
+
+### 3. Native shell via Rust + wry/winit
+
+The `window` crate is a native binary that hosts the engine outside the browser. It uses `wry` (cross-platform WebView wrapper) + `winit` (cross-platform window/event-loop crate).
+
+**The macOS WKWebView trick we lifted directly** — `build_as_child` instead of the default `build()`:
+
+> `build_as_child` adds the WKWebView as a subview of winit's content view instead of replacing it via `setContentView`. Critical on macOS: winit's `WindowDelegate::view()` unsafely casts whatever content view is set back to `WinitView`, so wry's `setContentView` swap (the default `build()` path) leaves the delegate holding a wrong-class view that aborts on resign-key.
+
+See `packages/tools/crates/furnace-runtime/src/lib.rs` for furnace's use of the same pattern.
+
+**Linux uses CEF, not GTK WebKit.** Shallot's `packages/shallot/rust/window/Cargo.toml` uses `cef = 145` on Linux under `[target.'cfg(target_os = "linux")'.dependencies]` because GTK WebKit's WebGPU support is weak. Furnace currently defers Linux for the same reason.
+
+### 4. ECS with struct-of-arrays layout
+
+Modern ECS motivation is **data-oriented design and CPU caches**, not just composition-over-inheritance. The numbers driving this:
+
+- L1 cache hit: ~1 ns
+- Main memory fetch: ~100 ns
+- A 4 GHz CPU executes ~400 instructions in the time it takes to fetch one uncached byte
+
+OOP layout (one entity in memory) scatters heap allocations — iterating "all enemies" becomes a pointer chase per entity, virtual dispatch, cache lines wasted because you only wanted `pos` and `vel`.
+
+ECS struct-of-arrays layout (parallel `Float32Array`s):
+
+```
+positions_x: [x0, x1, x2, ..., xN]   // contiguous Float32Array
+positions_y: [y0, y1, y2, ..., yN]
+velocities_x: [vx0, vx1, ...]
+velocities_y: [vy0, vy1, ...]
+```
+
+Physics system: `for i in 0..N: positions_x[i] += velocities_x[i] * dt`. Each cache line holds 16 floats. Prefetcher predicts perfectly. SIMD processes 4-8 entities per instruction. GPU warps coalesce 32 thread reads into one memory transaction.
+
+**This is what Shallot's `transforms/wasm.ts` does** — `posX`, `posY`, `posZ` as separate `Float32Array`s, not `Vec3` objects. Pure SoA layout. Wasm sweeps linearly; GPU ingests coalesced.
+
+### 5. Hand-rolled GPU-resident physics
+
+Shallot's `package.json` has **zero** physics libraries — no Rapier, Havok, Ammo, Cannon, Jolt, Bullet, PhysX. `src/standard/physics/` contains a full vertical implementation:
+
+- Broadphase: `lbvh.ts` (Linear Bounding Volume Hierarchy build), `broadphase.wgsl.ts` (GPU traversal)
+- Narrowphase: `sat.ts` (Separating Axis Theorem), `narrowphase.wgsl.ts`, `quickhull.ts`/`hull.ts` (convex hull construction)
+- Solver: `solver.wgsl.ts` (constraint solver on GPU)
+- Integration & misc: `interpolate.wgsl.ts`, `character.wgsl.ts`, `raycast.ts`, `body.ts`
+
+Textbook from-scratch rigid-body pipeline — every stage you'd find in Bullet or Rapier, implemented as WebGPU compute shaders.
+
+**Why not just plug in Havok/Rapier (Babylon's approach):**
+- Babylon wraps mature CPU engines (Havok wasm, Rapier wasm). Mature, deterministic — but every frame copies state CPU↔GPU. Bus traffic kills throughput.
+- Shallot's approach is GPU-resident: same buffers physics writes are read by the renderer. No bus traffic.
+- **You can't bolt GPU acceleration onto Havok/Rapier as a plugin** — those engines are designed around CPU memory layouts. If the thesis is "physics belongs on the GPU alongside the renderer," you basically *have* to write it yourself.
+
+**Tradeoff:** architectural purity now, multi-year maturity debt against Havok forever. Bet only pays off if the engine finds a niche where GPU-resident physics matters more than feature breadth.
+
+### 6. Svelte 5 with runes for UI
+
+Rare choice — most engine editors are React or native. Shallot uses Svelte 5 with the runes/signals reactivity model. The rationale (mostly general knowledge):
+
+- Compiles to direct DOM updates, no virtual-DOM reconciler. Every ms the UI doesn't take is one the engine gets.
+- Runes/signals = fine-grained reactivity, maps cleanly to ECS (components are values, UI subscribes to specific values).
+- Coexists with WebGPU render loop on the same machine without fighting for main-thread time.
+
+### 7. Testing & benchmarking
+
+- **`mitata`** for hot-loop microbenchmarks (transform updates, etc.).
+- **Playwright** for visual regression — pixel-snapshot comparison of rendered output to catch shader regressions.
+
+Both are deferred in furnace until there's enough surface to make them worth wiring up (see `docs/backlog/testing-and-quality/`).
+
+### 8. Bundle extraction at startup
+
+Shallot's native runtime extracts bundled web assets out of the shipped binary at startup using a `payload.bin` pattern (`extract_bundle_payload`). Furnace's native runtime uses the same approach.
+
+## Shallot vs Babylon — for context
+
+*Most Babylon details are general knowledge, not verified in session.*
+
+| | Shallot | Babylon |
+|---|---|---|
+| Architectural paradigm | ECS / data-oriented | Scene graph / object-oriented |
+| Render backend | WebGPU only | WebGL 1/2 + WebGPU |
+| Native desktop | Same TS via Bun + wgpu | Babylon Native (C++ via bgfx) |
+| Performance strategy | GPU-first + selective wasm | Pure JS + wasm physics plugins |
+| Maturity | v0.4, solo author | 12+ years, Microsoft + community |
+| API style | Procedural / declarative / ECS | Imperative, OOP |
+| Production track record | None yet | Adobe, NASA, BMW |
+
+Not really competitors — different points on the spectrum. Babylon = "production 3D engine you can ship a product on today." Shallot = "what would a 2026-era engine look like if we threw out WebGL compatibility and started from data-oriented design."
+
+## What we adopted vs what we did differently
+
+### Adopted directly (with attribution in source)
+
+- **macOS WKWebView `build_as_child` pattern.** Verbatim in `packages/tools/crates/furnace-runtime/src/lib.rs:118` and the vendored shell templates. Without this, macOS native windows abort on resign-key due to the winit/wry content-view interaction.
+- **`payload.bin` bundle extraction at startup** in the native runtime.
+
+### Adopted as conceptual pattern
+
+- **Web-tech first, Rust where needed.** The framing that you reach for Rust only when the JS/wasm/WebGPU stack genuinely can't deliver — windowing/host, plus CPU hot loops where SIMD-style throughput matters.
+- **ECS with struct-of-arrays layout** as the modern motivation (cache locality), not just composition-over-inheritance.
+- **WebGPU as the cross-platform abstraction** — same engine code in browser and native, only the bootstrap differs.
+- **Svelte 5 runes for UI** (deferred — see `docs/backlog/editor-and-tooling/svelte-editor-inspector-surfaces.md`).
+- **Hand-rolled GPU-resident physics direction** — noted as the right architecture if/when physics becomes a priority. Not committed.
+
+### Did differently
+
+- **Engine/harness split.** Shallot bundles the native window crate inside the engine package (`packages/shallot/rust/window/`). Furnace separates concerns more strictly: `@furnace/core` is engine-only (TS, future wasm — no binaries, no platform-aware code); `@furnace/tools` is harness (Rust CLI + the shell runtime that consumers vendor). The rule that drives this — "only `@furnace/tools` produces binaries" — keeps the engine consumer-portable.
+- **Native shell distribution model.** Shallot's native runtime is a binary inside its workspace. Furnace ships the shell as **vendored Rust source**, copied into the consumer's repo by `furnace init` and compiled into the consumer's final native artifact at their build time. Closer to Tauri 2's model than Shallot's. See `docs/reference/packaging-and-distribution.md` §6.
+- **Build orchestration.** Shallot uses Bun + `scripts/build.ts` to shell out to cargo/wasm-pack. Furnace's `bun run build` chain is structurally similar but the artifacts go to a more explicit per-package `dist/<package>/` publish layout.
+
+### Deferred patterns (in `docs/backlog/`)
+
+- Rust transforms wasm crate — `docs/backlog/engine-architecture/rust-transforms-wasm-crate.md`
+- mitata microbenchmarks — `docs/backlog/testing-and-quality/mitata-microbenchmarks.md`
+- Playwright visual regression — `docs/backlog/testing-and-quality/playwright-visual-regression-for-browser-path.md`
+- Linux CEF support — `docs/backlog/native-runtime/linux-cef-support.md`
+
+## References
+
+- Repo: https://github.com/dylanebert/shallot
+- Author: Dylan Ebert
+- Investigation date: 2026-05-14
+- Specific files we read: `packages/shallot/src/standard/transforms/wasm.ts`, `packages/shallot/rust/transforms/`, `packages/shallot/rust/audio/`, `packages/shallot/rust/window/`, `packages/shallot/src/standard/physics/`, `scripts/build.ts`, `package.json`.

@@ -15,9 +15,31 @@
       "Bash(bun pm ls:*)",
       "Bash(bun pm:*)",
       "Bash(bunx tsc:*)",
-      "Bash(bunx --bun:*)"
+      "Bash(bunx --bun:*)",
+      "Bash(cargo fmt:*)",
+      "Bash(cargo clippy:*)",
+      "Bash(cargo check:*)"
     ],
     "deny": [],
     "ask": []
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "f=$(jq -r '.tool_response.filePath // .tool_input.file_path // empty'); case \"$f\" in *.ts) bunx biome check --write \"$f\" ;; esac",
+            "statusMessage": "biome check --write"
+          },
+          {
+            "type": "command",
+            "command": "f=$(jq -r '.tool_response.filePath // .tool_input.file_path // empty'); case \"$f\" in */packages/tools/crates/*.rs) cargo fmt --manifest-path packages/tools/crates/Cargo.toml --all && cargo clippy --manifest-path packages/tools/crates/Cargo.toml --workspace -- -D warnings ;; esac",
+            "statusMessage": "cargo fmt + clippy"
+          }
+        ]
+      }
+    ]
   }
 }

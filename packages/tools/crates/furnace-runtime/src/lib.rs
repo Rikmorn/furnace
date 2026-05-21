@@ -115,7 +115,7 @@ impl ApplicationHandler for AppState {
         // winit's WindowDelegate::view() unsafely casts whatever content view
         // is set back to WinitView, so wry's setContentView swap (the default
         // `build()` path) leaves the delegate holding a wrong-class view that
-        // aborts on resign-key. Pattern lifted from Shallot's window backend.
+        // aborts on resign-key.
         let size = window.inner_size();
         let webview = builder
             .with_bounds(Rect {
