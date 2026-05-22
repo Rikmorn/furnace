@@ -70,7 +70,8 @@ test("multiple subscribers all fire on the same event", () => {
 
 test("a throwing subscriber doesn't break the others", () => {
   const originalError = console.error;
-  console.error = () => {}; // suppress test noise
+  // biome-ignore lint/suspicious/noEmptyBlockStatements: suppress console noise in test
+  console.error = () => {};
   try {
     let firedAfter = 0;
     onKeyDown(() => {
