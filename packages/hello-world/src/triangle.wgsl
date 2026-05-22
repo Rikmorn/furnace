@@ -1,11 +1,17 @@
+struct CameraUniforms {
+  viewProjection: mat4x4f,
+};
+
+@group(0) @binding(0) var<uniform> camera: CameraUniforms;
+
 @vertex
 fn vs_main(@builtin(vertex_index) vi: u32) -> @builtin(position) vec4f {
-  var pos = array<vec2f, 3>(
-    vec2f( 0.0,  0.5),
-    vec2f(-0.5, -0.5),
-    vec2f( 0.5, -0.5),
+  var pos = array<vec3f, 3>(
+    vec3f( 0.0,  0.5, 0.0),
+    vec3f(-0.5, -0.5, 0.0),
+    vec3f( 0.5, -0.5, 0.0),
   );
-  return vec4f(pos[vi], 0.0, 1.0);
+  return camera.viewProjection * vec4f(pos[vi], 1.0);
 }
 
 @fragment
