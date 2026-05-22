@@ -1,5 +1,9 @@
 # ECS / data-oriented SoA layout
 
-The vision from `docs/reference/engine-architecture.md` §11 — SoA `Float32Array`s for positions/velocities/etc., with systems declaring read/write component sets for parallel scheduling. Not relevant until we render >1 entity.
+The vision from `docs/reference/engine-architecture.md` §9 — SoA `Float32Array`s for positions/velocities/etc., with systems declaring read/write component sets for parallel scheduling. Lands as the `@furnace/core/ecs` Tier 2 module (per the core architecture design spec). Not relevant until we render >1 entity; target ~1000+ entities justifies the machinery.
+
+Connects to `docs/backlog/engine-architecture/component-schemas.md` — how component types are defined and stored is the central design question alongside the storage layout itself.
 
 **Trigger to revisit:** First time we render multiple meshes or want to manage entities.
+
+**Reference:** `docs/superpowers/specs/2026-05-21-core-architecture-design.md` § "Tier 2 modules".
