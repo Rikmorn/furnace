@@ -83,3 +83,39 @@ test("listeners removed during emit do not fire for that emit", () => {
   // A unsubscribes B before B's turn; with removed-set semantics, B must not fire.
   expect(bRan).toBe(false);
 });
+
+test("subscriber throws don't break other subscribers; error is logged", () => {
+  const e = createEmitter<number>();
+  const originalError = console.error;
+  const errors: unknown[][] = [];
+  console.error = (...args: unknown[]) => {
+    errors.push(args);
+  };
+  try {
+    let receivedA = 0;
+    let receivedC = 0;
+    e.on(() => {
+      receivedA++;
+    });
+    e.on(() => {
+      throw new Error("boom");
+    });
+    e.on(() => {
+      receivedC++;
+    });
+
+    expect(() => e.emit(1)).not.toThrow();
+
+    expect(receivedA).toBe(1);
+    expect(receivedC).toBe(1);
+    expect(errors.length).toBe(1);
+    // The emitter passes the raw Error object as the second arg so
+    // console.error gets the full pretty-printing / stack treatment.
+    const args = errors[0];
+    expect(args[0]).toBe("[furnace/events] subscriber threw:");
+    expect(args[1]).toBeInstanceOf(Error);
+    expect((args[1] as Error).message).toBe("boom");
+  } finally {
+    console.error = originalError;
+  }
+});

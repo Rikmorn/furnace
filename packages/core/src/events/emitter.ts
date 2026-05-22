@@ -20,7 +20,16 @@ export function createEmitter<T = void>(): Emitter<T> {
       // Track removals-during-emit so removed listeners don't fire either.
       for (const listener of snapshot) {
         if (listeners.has(listener)) {
-          listener(data);
+          try {
+            listener(data);
+          } catch (err) {
+            // One bad subscriber must not break the iteration over the rest,
+            // nor leak into whoever called emit() — for DOM-dispatched listeners
+            // (gpu.onResize, input.onKeyDown, etc.) the unhandled throw would fire
+            // the window's "error" event. Per the master arch spec § "No silent
+            // failures": surface it via console.error, don't swallow.
+            console.error("[furnace/events] subscriber threw:", err);
+          }
         }
       }
     },
