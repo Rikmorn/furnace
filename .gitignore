@@ -41,5 +41,8 @@ Cargo.lock.bak
 # Claude Code personal overrides
 .claude/settings.local.json
 
+# Claude Code worktrees — isolated workspaces, never committed
+.claude/worktrees/
+
 # Superpowers tool output — implementation context only, not canonical reference
 docs/superpowers/
