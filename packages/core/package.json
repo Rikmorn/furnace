@@ -9,7 +9,8 @@
     "./gpu": "./src/gpu/index.ts",
     "./frame": "./src/frame/index.ts",
     "./stats": "./src/stats/index.ts",
-    "./camera": "./src/camera/index.ts"
+    "./camera": "./src/camera/index.ts",
+    "./input": "./src/input/index.ts"
   },
   "scripts": {
     "build": "bun scripts/build.ts",
