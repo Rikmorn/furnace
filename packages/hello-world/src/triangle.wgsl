@@ -2,7 +2,14 @@ struct CameraUniforms {
   viewProjection: mat4x4f,
 };
 
+struct ObjectUniforms {
+  translation: vec3f,
+  // WGSL aligns vec3<f32> to 16 bytes inside uniform buffers.
+  // The host buffer is sized 16 bytes; the trailing 4 bytes are padding.
+};
+
 @group(0) @binding(0) var<uniform> camera: CameraUniforms;
+@group(0) @binding(1) var<uniform> object: ObjectUniforms;
 
 struct VsOut {
   @builtin(position) clip_pos: vec4f,
@@ -11,21 +18,21 @@ struct VsOut {
 
 @vertex
 fn vs_main(@builtin(vertex_index) vi: u32) -> VsOut {
-  // Covering triangle in world space, sized generously so its projection
-  // through the camera always blankets the visible frustum at z=0 for any
-  // aspect/FOV we currently use.
+  // Covering triangle in world space, generously sized so its projection
+  // through the camera blankets the visible frustum at z=0.
   var corners = array<vec3f, 3>(
     vec3f(-10.0, -10.0, 0.0),
     vec3f( 30.0, -10.0, 0.0),
     vec3f(-10.0,  30.0, 0.0),
   );
-  let world = corners[vi];
+  let world = corners[vi] + object.translation;
 
   var out: VsOut;
   out.clip_pos = camera.viewProjection * vec4f(world, 1.0);
-  // World-space XY drives the SDF — the glow stays anchored in the world,
-  // so the camera moves *across* it rather than dragging it along.
-  out.uv = world.xy;
+  // The SDF math lives in triangle-local space; subtract the translation back
+  // out of the UV so the glow stays anchored to the (moving) triangle, not
+  // to the world.
+  out.uv = world.xy - object.translation.xy;
   return out;
 }
 
