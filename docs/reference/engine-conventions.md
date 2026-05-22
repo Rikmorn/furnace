@@ -57,6 +57,38 @@ Consumer-facing resources (meshes, textures, buffers) have `module.destroy(handl
 - Aspect ratio is consumer-managed: subscribe to `gpu.onResize` and call `camera.setAspect(cam, width / height)`. The engine's "size truth" is the backing-store dimensions, not the CSS dimensions.
 - For now, hello-world / consumer code manages the camera's uniform buffer and bind group manually. Tranche 4's `frame.render` will hide this plumbing.
 
+## Input
+
+`@furnace/core/input` is a module-level singleton with explicit `attach(canvas)` /
+`detach()` lifecycle. Keyboard listeners are window-bound; pointer and wheel are
+canvas-bound. Subscriptions (`onKeyDown`, `onPointerMove`, …) work before attach;
+they just don't fire until DOM listeners are installed.
+
+- **Identification**: keys are identified by DOM `event.code` (layout-independent —
+  WASD works on AZERTY). `event.key` (the produced character) is exposed in the
+  event payload but is not the snapshot lookup key. Pointer buttons use the
+  standard 0/1/2 mapping (primary/middle/secondary).
+- **Coordinate convention**: pointer and wheel events expose both CSS-pixel
+  coordinates (`x`, `y`) and device-pixel coordinates (`xDevice`, `yDevice`).
+  CSS pixels match the DOM and what the user visually points at; device pixels
+  match the backing-store the GPU writes into. Picking and UI hit-tests use CSS;
+  framebuffer-direct reads use device. The two are co-equal in the input domain
+  — distinct from rendering, where backing-store dimensions are the singular
+  size truth (see `gpu.onResize` above).
+- **Snapshot vs event**: `isKeyDown(code)` / `isPointerButtonDown(btn)` /
+  `getPointer()` return the current held state. Discrete press/release edges
+  live on `onKeyDown` / `onKeyUp` / `onPointerDown` / `onPointerUp` — consumers
+  needing "was pressed this frame" helpers maintain their own latched flags
+  (deferred per `docs/backlog/engine-architecture/input-edge-snapshot-helpers.md`).
+- **Stuck-key behavior**: on `window` blur the engine clears `keysDown` and
+  pointer button state. `onKeyUp` events are *not* synthesized for the cleared
+  keys; consumers requiring symmetric event streams subscribe to a future
+  `onBlur` (backlog: `input-stuck-key-recovery.md`).
+- **Default browser behaviors are not suppressed**: arrows scroll, right-click
+  opens the context menu, Cmd+S opens save. Hello-world's full-viewport canvas
+  is unaffected; embedded consumers need the future config option tracked in
+  `input-prevent-default-config.md`.
+
 ## References
 
 - Master architecture spec: `docs/superpowers/specs/2026-05-21-core-architecture-design.md` (gitignored — local design history)

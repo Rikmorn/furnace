@@ -1,6 +1,7 @@
 import * as camera from "@furnace/core/camera";
 import * as frame from "@furnace/core/frame";
 import * as gpu from "@furnace/core/gpu";
+import * as input from "@furnace/core/input";
 import {
   add,
   ready as demoWasmReady,
@@ -10,6 +11,9 @@ import { fpsSystem } from "./overlay/state.svelte.ts";
 import shaderUrl from "./triangle.wgsl";
 
 const CAMERA_UNIFORM_SIZE_BYTES = 64;
+const TRANSLATION_UNIFORM_SIZE_BYTES = 16;
+const MOVE_SPEED_WORLD_PER_SEC = 1.5;
+const DIAGONAL_NORMALIZE = 1 / Math.sqrt(2);
 
 async function main(): Promise<void> {
   await demoWasmReady;
@@ -61,19 +65,49 @@ async function main(): Promise<void> {
     usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
   });
 
-  const cameraBindGroup = ctx.device.createBindGroup({
+  const translationBuffer = ctx.device.createBuffer({
+    size: TRANSLATION_UNIFORM_SIZE_BYTES,
+    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+  });
+  // Mutable position accumulator; avoids noUncheckedIndexedAccess on Float32Array writes.
+  const pos = { x: 0, y: 0 };
+  const translation = new Float32Array(4); // x, y, z, _pad
+
+  const sceneBindGroup = ctx.device.createBindGroup({
     layout: pipeline.getBindGroupLayout(0),
-    entries: [{ binding: 0, resource: { buffer: cameraBuffer } }],
+    entries: [
+      { binding: 0, resource: { buffer: cameraBuffer } },
+      { binding: 1, resource: { buffer: translationBuffer } },
+    ],
   });
 
   gpu.onResize(ctx, ({ width, height }) => {
     camera.setAspect(cam, width / height);
   });
 
+  input.attach(canvas);
+
   mountFpsOverlay(uiRoot);
 
-  frame.loop(ctx, () => {
+  frame.loop(ctx, ({ deltaMs }) => {
     fpsSystem.frame();
+
+    const dt = deltaMs / 1000;
+    let dx = 0;
+    let dy = 0;
+    if (input.isKeyDown("ArrowLeft")) dx -= 1;
+    if (input.isKeyDown("ArrowRight")) dx += 1;
+    if (input.isKeyDown("ArrowDown")) dy -= 1;
+    if (input.isKeyDown("ArrowUp")) dy += 1;
+    if (dx !== 0 && dy !== 0) {
+      dx *= DIAGONAL_NORMALIZE;
+      dy *= DIAGONAL_NORMALIZE;
+    }
+    pos.x += dx * MOVE_SPEED_WORLD_PER_SEC * dt;
+    pos.y += dy * MOVE_SPEED_WORLD_PER_SEC * dt;
+    translation.set([pos.x, pos.y, 0, 0]);
+    ctx.queue.writeBuffer(translationBuffer, 0, translation);
+
     const { viewProjection } = camera.getMatrices(cam);
     ctx.queue.writeBuffer(cameraBuffer, 0, viewProjection);
     frame.encode(ctx, (encoder) => {
@@ -89,7 +123,7 @@ async function main(): Promise<void> {
         ],
       });
       pass.setPipeline(pipeline);
-      pass.setBindGroup(0, cameraBindGroup);
+      pass.setBindGroup(0, sceneBindGroup);
       pass.draw(3);
       pass.end();
     });
