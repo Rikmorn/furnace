@@ -21,9 +21,10 @@ await emitDeclarations({
   baseConfig: resolve(WORKSPACE_ROOT, "tsconfig.json"),
   // @webgpu/types is not a package under @types/ so it won't resolve from a
   // temp dir. Include its declaration file explicitly so tsc can see the GPU*
-  // globals during the emit pass.
+  // globals during the emit pass. Resolve from PKG_ROOT so Bun's hoisting of
+  // the peer dep into packages/core/node_modules/ is honored.
   extraDeclarationFiles: [
-    resolve(WORKSPACE_ROOT, "node_modules/@webgpu/types/dist/index.d.ts"),
+    Bun.resolveSync("@webgpu/types/dist/index.d.ts", PKG_ROOT),
   ],
 });
 
@@ -31,12 +32,6 @@ await synthesisePackageJson({
   workspaceManifest: resolve(PKG_ROOT, "package.json"),
   outPath: resolve(DIST_CORE, "package.json"),
   overrides: {
-    exports: {
-      ".": {
-        types: "./types/index.d.ts",
-        default: "./src/index.ts",
-      },
-    },
     files: ["src/**", "types/**"],
   },
 });

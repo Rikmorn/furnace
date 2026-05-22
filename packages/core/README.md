@@ -10,9 +10,15 @@ npm install @furnace/core
 
 ## What you get
 
-- `requestWebGpu` — WebGPU device acquisition with a uniform error shape.
-- `runFrameLoop` — `requestAnimationFrame` loop with start/stop semantics.
-- `createFpsSystem` / `computeFps` — frame-rate measurement with a subscribe API.
+Five sub-path modules under `@furnace/core`:
+
+- `@furnace/core/gpu` — `requestContext`, `dispose`, `isDisposed`, `getCurrentTextureView`, `onResize` (WebGPU device + canvas lifecycle, with `FurnaceGpuError` for failures).
+- `@furnace/core/frame` — `loop` (variable-timestep RAF wrapper), `fixedLoop` (Fix-Your-Timestep accumulator), `encode` (command-encoder helper with auto-submit).
+- `@furnace/core/transform` — `vec3`, `vec4`, `quat`, `mat4` math namespaces with out-parameter API; `Float32Array`-backed and column-major.
+- `@furnace/core/events` — `createEmitter` typed emitter primitive (snapshot semantics; removed-mid-emit listeners don't fire).
+- `@furnace/core/stats` — `createFpsSystem`, `computeFps` (frame-rate measurement with a subscribe API).
+
+Engine-wide conventions (coordinate system, color space, time, disposal) live in `docs/reference/engine-conventions.md`.
 
 For a working end-to-end example, see the `@furnace/hello-world` package in this repository.
 
