@@ -4,7 +4,11 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    "./events":    "./src/events/index.ts",
+    "./transform": "./src/transform/index.ts",
+    "./gpu":       "./src/gpu/index.ts",
+    "./frame":     "./src/frame/index.ts",
+    "./stats":     "./src/stats/index.ts"
   },
   "scripts": {
     "build": "bun scripts/build.ts",
@@ -13,5 +17,8 @@
   },
   "peerDependencies": {
     "@webgpu/types": "^0.1.70"
+  },
+  "devDependencies": {
+    "bun-webgpu": "^0.1.0"
   }
 }
