@@ -4,11 +4,11 @@
   "private": true,
   "type": "module",
   "exports": {
-    "./events":    "./src/events/index.ts",
+    "./events": "./src/events/index.ts",
     "./transform": "./src/transform/index.ts",
-    "./gpu":       "./src/gpu/index.ts",
-    "./frame":     "./src/frame/index.ts",
-    "./stats":     "./src/stats/index.ts"
+    "./gpu": "./src/gpu/index.ts",
+    "./frame": "./src/frame/index.ts",
+    "./stats": "./src/stats/index.ts"
   },
   "scripts": {
     "build": "bun scripts/build.ts",
