@@ -31,12 +31,6 @@ await synthesisePackageJson({
   workspaceManifest: resolve(PKG_ROOT, "package.json"),
   outPath: resolve(DIST_CORE, "package.json"),
   overrides: {
-    exports: {
-      ".": {
-        types: "./types/index.d.ts",
-        default: "./src/index.ts",
-      },
-    },
     files: ["src/**", "types/**"],
   },
 });
