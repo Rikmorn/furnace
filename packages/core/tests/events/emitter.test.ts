@@ -69,32 +69,17 @@ test("listeners added during emit do not fire for that emit (snapshot semantics)
 
 test("listeners removed during emit do not fire for that emit", () => {
   const e = createEmitter<number>();
-  const _bCalled = false;
-  const unsubB = e.on(() => {
-    /* fires first; will remove unsubB before B's turn */
-  });
-  // First listener (the one above) was added first; install A that unsubscribes B
-  const _unsubA = e.on(() => {
-    unsubB();
-  });
-  // Trick: re-order. Easier: create fresh emitter and explicitly test order.
-  // Replace above with a cleaner formulation:
-  const e2 = createEmitter<number>();
   let bRan = false;
-  let unsubBRef: () => void = () => {
+  let unsubB: () => void = () => {
     /* no-op */
   };
-  const _a = e2.on(() => {
-    unsubBRef();
+  e.on(() => {
+    unsubB();
   });
-  unsubBRef = e2.on(() => {
+  unsubB = e.on(() => {
     bRan = true;
   });
-  e2.emit(1);
-  // A ran first and unsubscribed B; the snapshot taken at emit-start still includes B,
-  // so B will or won't fire depending on semantics. Spec: snapshot is taken BEFORE the
-  // loop starts; listeners removed AFTER snapshot capture but before their turn STILL fire.
-  // Document the actual choice (clarified at implementation time): we implement "removed
-  // mid-emit doesn't fire" via a `removed` Set checked inside the loop.
+  e.emit(1);
+  // A unsubscribes B before B's turn; with removed-set semantics, B must not fire.
   expect(bRan).toBe(false);
 });
