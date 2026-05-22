@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { mat4 } from "../../src/transform/mat4.ts";
 import { vec3 } from "../../src/transform/vec3.ts";
 
 const approx = (a: number, b: number, eps = 1e-6) => Math.abs(a - b) < eps;
@@ -70,4 +71,18 @@ test("normalize of zero vector returns zero", () => {
   const out = vec3.create();
   vec3.normalize(out, vec3.fromValues(0, 0, 0));
   expect(approxArr(out, [0, 0, 0])).toBe(true);
+});
+
+test("transformMat4 with identity returns input", () => {
+  const out = vec3.create();
+  vec3.transformMat4(out, vec3.fromValues(1, 2, 3), mat4.create());
+  expect(approxArr(out, [1, 2, 3])).toBe(true);
+});
+
+test("transformMat4 with translation matrix applies the translation", () => {
+  const m = mat4.create();
+  mat4.translate(m, m, vec3.fromValues(10, 20, 30));
+  const out = vec3.create();
+  vec3.transformMat4(out, vec3.fromValues(1, 2, 3), m);
+  expect(approxArr(out, [11, 22, 33])).toBe(true);
 });
