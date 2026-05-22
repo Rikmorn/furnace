@@ -1,9 +1,6 @@
-export class FurnaceError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "FurnaceError";
-  }
-}
+import { FurnaceError } from "../errors.ts";
+
+export { FurnaceError };
 
 export class FurnaceGpuError extends FurnaceError {
   constructor(message: string) {

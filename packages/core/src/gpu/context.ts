@@ -7,11 +7,13 @@ export type RequestContextOptions = {
   pixelRatio?: "device" | "css" | number;
 };
 
-// Stash the WebGPU canvas context on the internal state so getCurrentTextureView can reach it.
-// Cast through unknown keeps the canvasContext field out of the public InternalState shape.
+// Stash the WebGPU canvas context and the format swapchain views must use on the
+// internal state so getCurrentTextureView can reach them. Cast through unknown
+// keeps these fields out of the public InternalState shape.
 type InternalWithCanvasCtx = {
   disposed: boolean;
   canvasContext: GPUCanvasContext;
+  viewFormat: GPUTextureFormat;
 };
 
 export async function requestContext(
@@ -43,20 +45,30 @@ export async function requestContext(
   canvas.height = Math.floor(canvas.clientHeight * dpr);
 
   const baseFormat = navigator.gpu.getPreferredCanvasFormat();
-  const format = applySurfaceFormat(
+  const viewFormat = resolveViewFormat(
     baseFormat,
     options.surfaceFormat ?? "srgb",
   );
 
-  canvasContext.configure({ device, format, alphaMode: "premultiplied" });
+  // The WebGPU spec restricts GPUCanvasContext.configure({ format }) to the
+  // canonical unorm/float formats (no -srgb variant). sRGB encoding happens via
+  // a viewFormat applied when we createView on each swapchain texture.
+  const needsSrgbView = viewFormat !== baseFormat;
+  canvasContext.configure({
+    device,
+    format: baseFormat,
+    alphaMode: "premultiplied",
+    viewFormats: needsSrgbView ? [viewFormat] : [],
+  });
 
   const internal = createInternalState() as unknown as InternalWithCanvasCtx;
   internal.canvasContext = canvasContext;
+  internal.viewFormat = viewFormat;
 
   return Object.freeze({
     device,
     queue: device.queue,
-    format,
+    format: viewFormat,
     canvas,
     pixelRatio: dpr,
     _internal: internal,
@@ -82,7 +94,9 @@ export function getCurrentTextureView(ctx: Context): GPUTextureView {
     throw new FurnaceGpuError("context disposed");
   }
   const internal = ctx._internal as unknown as InternalWithCanvasCtx;
-  return internal.canvasContext.getCurrentTexture().createView();
+  return internal.canvasContext
+    .getCurrentTexture()
+    .createView({ format: internal.viewFormat });
 }
 
 function resolvePixelRatio(
@@ -95,7 +109,7 @@ function resolvePixelRatio(
   return option;
 }
 
-function applySurfaceFormat(
+function resolveViewFormat(
   baseFormat: GPUTextureFormat,
   choice: "srgb" | "linear",
 ): GPUTextureFormat {

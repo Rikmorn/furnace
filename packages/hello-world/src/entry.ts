@@ -1,3 +1,4 @@
+import * as camera from "@furnace/core/camera";
 import * as frame from "@furnace/core/frame";
 import * as gpu from "@furnace/core/gpu";
 import {
@@ -7,6 +8,8 @@ import {
 import { mountFpsOverlay } from "./overlay/mount.ts";
 import { fpsSystem } from "./overlay/state.svelte.ts";
 import shaderUrl from "./triangle.wgsl";
+
+const CAMERA_UNIFORM_SIZE_BYTES = 64;
 
 async function main(): Promise<void> {
   await demoWasmReady;
@@ -49,10 +52,30 @@ async function main(): Promise<void> {
     return;
   }
 
+  const cam = camera.perspective({
+    aspect: ctx.canvas.width / ctx.canvas.height,
+  });
+
+  const cameraBuffer = ctx.device.createBuffer({
+    size: CAMERA_UNIFORM_SIZE_BYTES,
+    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+  });
+
+  const cameraBindGroup = ctx.device.createBindGroup({
+    layout: pipeline.getBindGroupLayout(0),
+    entries: [{ binding: 0, resource: { buffer: cameraBuffer } }],
+  });
+
+  gpu.onResize(ctx, ({ width, height }) => {
+    camera.setAspect(cam, width / height);
+  });
+
   mountFpsOverlay(uiRoot);
 
   frame.loop(ctx, () => {
     fpsSystem.frame();
+    const { viewProjection } = camera.getMatrices(cam);
+    ctx.queue.writeBuffer(cameraBuffer, 0, viewProjection);
     frame.encode(ctx, (encoder) => {
       const view = gpu.getCurrentTextureView(ctx);
       const pass = encoder.beginRenderPass({
@@ -66,6 +89,7 @@ async function main(): Promise<void> {
         ],
       });
       pass.setPipeline(pipeline);
+      pass.setBindGroup(0, cameraBindGroup);
       pass.draw(3);
       pass.end();
     });
