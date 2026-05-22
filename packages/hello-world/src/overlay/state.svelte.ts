@@ -1,4 +1,4 @@
-import { createFpsSystem } from "@furnace/core";
+import { createFpsSystem } from "@furnace/core/stats";
 
 export const fpsSystem = createFpsSystem();
 export const fps = $state({ value: 0 });

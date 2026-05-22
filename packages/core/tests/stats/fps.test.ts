@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { computeFps, createFpsSystem } from "../../../src/lib/stats/fps.ts";
+import { computeFps, createFpsSystem } from "../../src/stats/fps.ts";
 
 test("computeFps: zero elapsed time returns 0", () => {
   expect(computeFps(60, 0)).toBe(0);

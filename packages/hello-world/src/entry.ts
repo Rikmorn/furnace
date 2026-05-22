@@ -1,4 +1,5 @@
-import { requestWebGpu, runFrameLoop } from "@furnace/core";
+import * as frame from "@furnace/core/frame";
+import * as gpu from "@furnace/core/gpu";
 import {
   add,
   ready as demoWasmReady,
@@ -22,29 +23,27 @@ async function main(): Promise<void> {
   }
   const shaderSource = await shaderResponse.text();
 
-  let device: GPUDevice;
-  let context: GPUCanvasContext;
-  let format: GPUTextureFormat;
+  let ctx: gpu.Context;
   try {
-    ({ device, context, format } = await requestWebGpu(canvas));
+    ctx = await gpu.requestContext(canvas);
   } catch (e) {
     document.body.innerText = e instanceof Error ? e.message : String(e);
     return;
   }
 
-  device.pushErrorScope("validation");
-  const shaderModule = device.createShaderModule({ code: shaderSource });
-  const pipeline = device.createRenderPipeline({
+  ctx.device.pushErrorScope("validation");
+  const shaderModule = ctx.device.createShaderModule({ code: shaderSource });
+  const pipeline = ctx.device.createRenderPipeline({
     layout: "auto",
     vertex: { module: shaderModule, entryPoint: "vs_main" },
     fragment: {
       module: shaderModule,
       entryPoint: "fs_main",
-      targets: [{ format }],
+      targets: [{ format: ctx.format }],
     },
     primitive: { topology: "triangle-list" },
   });
-  const validationError = await device.popErrorScope();
+  const validationError = await ctx.device.popErrorScope();
   if (validationError) {
     document.body.innerText = `Pipeline error: ${validationError.message}`;
     return;
@@ -52,24 +51,24 @@ async function main(): Promise<void> {
 
   mountFpsOverlay(uiRoot);
 
-  runFrameLoop(() => {
+  frame.loop(ctx, () => {
     fpsSystem.frame();
-    const view = context.getCurrentTexture().createView();
-    const encoder = device.createCommandEncoder();
-    const pass = encoder.beginRenderPass({
-      colorAttachments: [
-        {
-          view,
-          clearValue: { r: 0.05, g: 0.05, b: 0.07, a: 1 },
-          loadOp: "clear",
-          storeOp: "store",
-        },
-      ],
+    frame.encode(ctx, (encoder) => {
+      const view = gpu.getCurrentTextureView(ctx);
+      const pass = encoder.beginRenderPass({
+        colorAttachments: [
+          {
+            view,
+            clearValue: { r: 0.05, g: 0.05, b: 0.07, a: 1 },
+            loadOp: "clear",
+            storeOp: "store",
+          },
+        ],
+      });
+      pass.setPipeline(pipeline);
+      pass.draw(3);
+      pass.end();
     });
-    pass.setPipeline(pipeline);
-    pass.draw(3);
-    pass.end();
-    device.queue.submit([encoder.finish()]);
   });
 }
 
