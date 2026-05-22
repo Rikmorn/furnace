@@ -112,6 +112,7 @@ test("subscriber throws don't break other subscribers; error is logged", () => {
     // The emitter passes the raw Error object as the second arg so
     // console.error gets the full pretty-printing / stack treatment.
     const args = errors[0];
+    if (!args) throw new Error("unreachable: errors.length checked above");
     expect(args[0]).toBe("[furnace/events] subscriber threw:");
     expect(args[1]).toBeInstanceOf(Error);
     expect((args[1] as Error).message).toBe("boom");
