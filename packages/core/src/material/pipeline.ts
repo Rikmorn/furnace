@@ -8,16 +8,16 @@ type CacheEntry = {
 
 const cache = new Map<string, CacheEntry>();
 
-function acquire(
+async function acquire(
   key: string,
-  build: () => GPURenderPipeline,
-): GPURenderPipeline {
+  build: () => Promise<GPURenderPipeline>,
+): Promise<GPURenderPipeline> {
   const hit = cache.get(key);
   if (hit) {
     hit.refCount += 1;
     return hit.pipeline;
   }
-  const pipeline = build();
+  const pipeline = await build();
   cache.set(key, { pipeline, refCount: 1 });
   return pipeline;
 }
