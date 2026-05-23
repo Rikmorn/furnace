@@ -65,6 +65,13 @@ function buildPipelineDescriptor(
   };
 }
 
+// Both getBindGroupLayout and createBindGroup can throw synchronously
+// (e.g. an OperationError in Chrome when entries don't match the layout).
+// Either failure must release the pipeline-cache slot we acquired above,
+// or the entry leaks: acquire ran but no release ever will, and the caller
+// has no key to release with. Bun's WebGPU surfaces these as async device
+// errors rather than throws, which is why this path is not covered by a
+// black-box GPU test in this suite.
 function buildGroup1(
   ctx: Context,
   pipeline: GPURenderPipeline,
@@ -80,7 +87,12 @@ function buildGroup1(
       "MaterialDescriptor.bindings provided but shader declares no @group(1) bindings",
     );
   }
-  return ctx.device.createBindGroup({ layout, entries: bindings });
+  try {
+    return ctx.device.createBindGroup({ layout, entries: bindings });
+  } catch (e) {
+    _pipelineCache.release(pipelineKey);
+    throw e;
+  }
 }
 
 export async function create(
