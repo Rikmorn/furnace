@@ -1,3 +1,6 @@
+import { FurnaceError } from "../errors.ts";
+import type { Context } from "../gpu/index.ts";
+
 type CacheEntry = {
   pipeline: GPURenderPipeline;
   refCount: number;
@@ -33,3 +36,16 @@ function resetForTests(): void {
 }
 
 export const _pipelineCache = { acquire, release, resetForTests };
+
+export async function createPipeline(
+  ctx: Context,
+  descriptor: GPURenderPipelineDescriptor,
+): Promise<GPURenderPipeline> {
+  ctx.device.pushErrorScope("validation");
+  const pipeline = ctx.device.createRenderPipeline(descriptor);
+  const error = await ctx.device.popErrorScope();
+  if (error) {
+    throw new FurnaceError(`pipeline creation failed: ${error.message}`);
+  }
+  return pipeline;
+}
