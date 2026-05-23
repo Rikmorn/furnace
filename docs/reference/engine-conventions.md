@@ -55,7 +55,42 @@ Consumer-facing resources (meshes, textures, buffers) have `module.destroy(handl
 - Pose is expressed via `position` / `target` / `up` (lookAt-style). Quaternion-driven cameras are not provided.
 - Setters mutate in place and flip internal dirty bits. `getMatrices(cam)` recomputes only dirty matrices and returns the same frozen wrapper across calls (the inner `Float32Array` references are stable; the engine writes into them in place).
 - Aspect ratio is consumer-managed: subscribe to `gpu.onResize` and call `camera.setAspect(cam, width / height)`. The engine's "size truth" is the backing-store dimensions, not the CSS dimensions.
-- For now, hello-world / consumer code manages the camera's uniform buffer and bind group manually. Tranche 4's `frame.render` will hide this plumbing.
+- The camera's uniform buffer is engine-managed inside `frame.render` (allocated lazily, written each frame from `getMatrices`). The Camera handle itself remains data-only — no GPU resources owned.
+
+## Drawables
+
+`@furnace/core/mesh` and `@furnace/core/material` define the engine's drawable model: a Mesh is a Geometry + a Material + a Transform.
+
+- **Geometry** (raw GPU resource): vertex buffer + optional index buffer + fixed vertex layout. Created via `mesh.createGeometry(ctx, { positions, normals, uvs, indices? })` for custom data, or via built-in factories `mesh.cubeGeometry` / `mesh.planeGeometry`. Geometries are shareable — one Geometry can back many Meshes with different materials and transforms.
+- **Material** (shader + pipeline + group-1 bind group): `material.create(ctx, descriptor)` accepts custom WGSL respecting the engine's binding contract (§Binding contract). Built-in factories `material.unlit({ color })` and `material.normalColor()` are thin wrappers over `create` with engine-bundled WGSL. The mechanical-tier `material.createPipeline` is the documented escape hatch for raw WebGPU pipelines.
+- **Mesh** (drawable): `mesh.create(ctx, { geometry, material })` combines a Geometry + a Material + an identity transform. Convenience factories `mesh.cube` / `mesh.plane` are the single-call shortcut for the common case.
+- **Transform**: mutated via setters — `mesh.setPosition`, `setRotation`, `setScale`. Setters flip an internal dirty flag; the engine recomputes the model matrix and writes the per-object uniform buffer lazily in `frame.render`. Initial transform is identity.
+- **Lifetime**: explicit destroy. `mesh.destroy`, `mesh.destroyGeometry`, `material.destroy`. Pipelines are refcounted internally and freed when the last material referencing them is destroyed. Custom material's group-1 bind-group resources (buffers, textures the consumer passed in `MaterialDescriptor.bindings`) are consumer-owned — destroy them yourself after `material.destroy`.
+
+## Binding contract
+
+Every Material's WGSL must respect the engine's binding contract:
+
+| Slot | Type | Owner | Written by |
+|---|---|---|---|
+| `@group(0) @binding(0)` | `Camera { viewProjection: mat4x4<f32> }` | engine | `frame.render` (once per frame, from `camera.getMatrices`) |
+| `@group(0) @binding(1)` | `Object { model: mat4x4<f32> }` | engine | `frame.render` (per mesh, when transform is dirty) |
+| `@group(1) @binding(N)` | consumer-defined | material | `MaterialDescriptor.bindings` |
+
+**Vertex format** (every vertex buffer carries this interleaved layout):
+- `@location(0)`: position, `vec3<f32>`, offset 0
+- `@location(1)`: normal, `vec3<f32>`, offset 12
+- `@location(2)`: uv, `vec2<f32>`, offset 24
+- `arrayStride: 32` bytes
+
+**Stability:** additive changes (a new group-0 binding 2, 3, … in a future tranche) are non-breaking. Changes that rename or repurpose binding 0 or binding 1 break every shader respecting the contract — including the SDF triangle in hello-world. With one consumer today, a contract change is a single-shader migration.
+
+**Defaults** for `material.create`:
+- `cullMode: "back"` — back-face culling on by default. Override to `"none"` for covering triangles or two-sided geometry.
+- `topology: "triangle-list"`
+- `depthWrite: true`, `depthCompare: "less"` — depth testing on; near-pixel wins.
+
+**Depth buffer:** the engine owns one `depth24plus` texture per context, resized when the canvas backing-store size changes. `frame.render` always uses it; no consumer-visible API.
 
 ## Input
 
