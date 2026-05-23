@@ -76,3 +76,14 @@ test.skipIf(!bunWebGpuAvailable())(
     gpu.dispose(ctx);
   },
 );
+
+test.skipIf(!bunWebGpuAvailable())(
+  "frame.render throws on disposed context",
+  async () => {
+    const canvas = await makeOffscreenCanvas();
+    const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
+    const cam = camera.perspective({});
+    gpu.dispose(ctx);
+    expect(() => render(ctx, { draw: [], camera: cam })).toThrow(/disposed/);
+  },
+);

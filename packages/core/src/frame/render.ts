@@ -1,5 +1,6 @@
 import type { Camera } from "../camera/index.ts";
 import * as camera from "../camera/index.ts";
+import { FurnaceGpuError } from "../gpu/errors.ts";
 import type { Context } from "../gpu/index.ts";
 import * as gpu from "../gpu/index.ts";
 import { _recomputeModelIfDirty } from "../mesh/mesh.ts";
@@ -153,6 +154,9 @@ function recordDraw(
 }
 
 export function render(ctx: Context, opts: RenderOptions): void {
+  if (ctx._internal.disposed) {
+    throw new FurnaceGpuError("context disposed");
+  }
   const cameraBuffer = _ensureCameraBuffer(ctx, opts.camera);
   const depth = _ensureDepthTexture(ctx);
   const colorView = gpu.getCurrentTextureView(ctx);
