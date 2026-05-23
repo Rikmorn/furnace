@@ -14,7 +14,7 @@ export function create(
     size: OBJECT_UNIFORM_SIZE_BYTES,
     usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
   });
-  const mesh = {
+  const mesh: Mesh = {
     ctx,
     geometry: opts.geometry,
     material: opts.material,
@@ -27,7 +27,7 @@ export function create(
     group0: null,
     group0Pipeline: null,
   };
-  return mesh as unknown as Mesh;
+  return mesh;
 }
 
 export function destroy(mesh: Mesh): void {

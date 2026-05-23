@@ -2,7 +2,7 @@ import { FurnaceError } from "../errors.ts";
 import { mat4 } from "../transform/mat4.ts";
 import type { Vec3 } from "../transform/types.ts";
 import { vec3 } from "../transform/vec3.ts";
-import type { Camera, CameraData, CameraMatrices } from "./types.ts";
+import type { Camera, CameraMatrices } from "./types.ts";
 
 const DEFAULT_FOV_Y_RAD = Math.PI / 4;
 const DEFAULT_ASPECT = 1;
@@ -53,7 +53,7 @@ function cloneVec3OrDefault(
   return vec3.fromValues(fallback[0], fallback[1], fallback[2]);
 }
 
-function recomputePerspective(data: CameraData): void {
+function recomputePerspective(data: Camera): void {
   if (data.projection.kind !== "perspective") return;
   const { fovYRad, aspect, near, far } = data.projection;
   mat4.perspective(data.projectionMatrix, fovYRad, aspect, near, far);
@@ -81,7 +81,7 @@ export function perspective(opts: PerspectiveOptions = {}): Camera {
     viewProjection,
   });
 
-  const data: CameraData = {
+  const data: Camera = {
     position,
     target,
     up,
@@ -93,7 +93,7 @@ export function perspective(opts: PerspectiveOptions = {}): Camera {
     recomputeProjection: recomputePerspective,
     viewDirty: true,
     projDirty: true,
-  } as unknown as CameraData;
+  };
 
   return data;
 }
@@ -102,10 +102,9 @@ export function setFov(cam: Camera, fovYRad: number): void {
   if (!Number.isFinite(fovYRad) || fovYRad <= 0) {
     throw new FurnaceError("fovYRad must be a positive finite number");
   }
-  const data = cam as CameraData;
-  if (data.projection.kind !== "perspective") {
+  if (cam.projection.kind !== "perspective") {
     throw new FurnaceError("setFov is perspective-only");
   }
-  data.projection.fovYRad = fovYRad;
-  data.projDirty = true;
+  cam.projection.fovYRad = fovYRad;
+  cam.projDirty = true;
 }

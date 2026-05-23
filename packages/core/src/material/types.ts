@@ -1,7 +1,5 @@
 import type { Context } from "../gpu/index.ts";
 
-declare const __furnaceMaterialBrand: unique symbol;
-
 export type MaterialDescriptor = {
   vertex: string;
   fragment: string;
@@ -12,8 +10,7 @@ export type MaterialDescriptor = {
   depthCompare?: GPUCompareFunction;
 };
 
-export type MaterialData = {
-  readonly [__furnaceMaterialBrand]: true;
+export type Material = {
   ctx: Context;
   pipeline: GPURenderPipeline;
   pipelineKey: string;
@@ -24,5 +21,3 @@ export type MaterialData = {
   depthWrite: boolean;
   depthCompare: GPUCompareFunction;
 };
-
-export type Material = MaterialData;

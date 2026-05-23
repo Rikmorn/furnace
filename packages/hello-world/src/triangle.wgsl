@@ -67,5 +67,9 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
   let intensity = 1.0 - smoothstep(0.0, halo_width, t_sdf);
   let glow_color = vec3<f32>(1.0, 0.85, 0.3);
 
-  return vec4<f32>(glow_color * intensity, 1.0);
+  // let bg_color = vec3<f32>(1.0, 0.0, 0.0);
+  // let rgb = mix(bg_color, glow_color, intensity);
+
+  // return vec4<f32>(rgb, 0);
+  return vec4<f32>(glow_color * intensity, intensity);
 }

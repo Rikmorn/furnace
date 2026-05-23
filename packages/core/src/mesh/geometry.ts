@@ -17,7 +17,7 @@ export function createGeometry(ctx: Context, data: GeometryData): Geometry {
 
   const indexResources = createIndexResources(ctx, data.indices);
 
-  const geometry = {
+  const geometry: Geometry = {
     ctx,
     vertexBuffer,
     vertexCount,
@@ -25,7 +25,7 @@ export function createGeometry(ctx: Context, data: GeometryData): Geometry {
     indexFormat: indexResources.format,
     indexCount: indexResources.count,
   };
-  return geometry as unknown as Geometry;
+  return geometry;
 }
 
 export function destroyGeometry(geometry: Geometry): void {

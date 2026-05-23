@@ -12,12 +12,12 @@
       "**/*.json",
       "**/*.html",
       "**/*.css",
+      "package.json",
       "!**/node_modules",
       "!**/target",
       "!**/dist",
       "!**/out",
       "!**/plugins/*/pkg",
-      "!package.json",
       "!bun.lock"
     ]
   },

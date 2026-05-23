@@ -2,9 +2,6 @@ import type { Context } from "../gpu/index.ts";
 import type { Material } from "../material/types.ts";
 import type { Mat4, Quat, Vec3 } from "../transform/types.ts";
 
-declare const __furnaceGeometryBrand: unique symbol;
-declare const __furnaceMeshBrand: unique symbol;
-
 export type GeometryData = {
   positions: Float32Array;
   normals: Float32Array;
@@ -12,8 +9,7 @@ export type GeometryData = {
   indices?: Uint16Array | Uint32Array;
 };
 
-export type GeometryInternal = {
-  readonly [__furnaceGeometryBrand]: true;
+export type Geometry = {
   ctx: Context;
   vertexBuffer: GPUBuffer;
   vertexCount: number;
@@ -22,8 +18,7 @@ export type GeometryInternal = {
   indexCount: number;
 };
 
-export type MeshInternal = {
-  readonly [__furnaceMeshBrand]: true;
+export type Mesh = {
   ctx: Context;
   geometry: Geometry;
   material: Material;
@@ -37,6 +32,3 @@ export type MeshInternal = {
   group0: GPUBindGroup | null;
   group0Pipeline: GPURenderPipeline | null;
 };
-
-export type Geometry = GeometryInternal;
-export type Mesh = MeshInternal;

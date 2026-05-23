@@ -2,7 +2,7 @@ import { FurnaceError } from "../errors.ts";
 import { mat4 } from "../transform/mat4.ts";
 import type { Vec3 } from "../transform/types.ts";
 import { vec3 } from "../transform/vec3.ts";
-import type { Camera, CameraData, CameraMatrices } from "./types.ts";
+import type { Camera, CameraMatrices } from "./types.ts";
 
 const DEFAULT_LEFT = -1;
 const DEFAULT_RIGHT = 1;
@@ -65,7 +65,7 @@ function cloneVec3OrDefault(
   return vec3.fromValues(fallback[0], fallback[1], fallback[2]);
 }
 
-function recomputeOrtho(data: CameraData): void {
+function recomputeOrtho(data: Camera): void {
   if (data.projection.kind !== "orthographic") return;
   const { left, right, bottom, top, near, far } = data.projection;
   mat4.ortho(data.projectionMatrix, left, right, bottom, top, near, far);
@@ -95,7 +95,7 @@ export function orthographic(opts: OrthographicOptions = {}): Camera {
     viewProjection,
   });
 
-  const data: CameraData = {
+  const data: Camera = {
     position,
     target,
     up,
@@ -107,7 +107,7 @@ export function orthographic(opts: OrthographicOptions = {}): Camera {
     recomputeProjection: recomputeOrtho,
     viewDirty: true,
     projDirty: true,
-  } as unknown as CameraData;
+  };
 
   return data;
 }
@@ -122,13 +122,12 @@ export function setBounds(cam: Camera, bounds: OrthographicBounds): void {
   if (!boundsFinite) {
     throw new FurnaceError("bounds must be finite numbers");
   }
-  const data = cam as CameraData;
-  if (data.projection.kind !== "orthographic") {
+  if (cam.projection.kind !== "orthographic") {
     throw new FurnaceError("setBounds is orthographic-only");
   }
-  data.projection.left = left;
-  data.projection.right = right;
-  data.projection.bottom = bottom;
-  data.projection.top = top;
-  data.projDirty = true;
+  cam.projection.left = left;
+  cam.projection.right = right;
+  cam.projection.bottom = bottom;
+  cam.projection.top = top;
+  cam.projDirty = true;
 }

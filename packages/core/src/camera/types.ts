@@ -1,7 +1,5 @@
 import type { Mat4, Vec3 } from "../transform/types.ts";
 
-declare const __furnaceCameraBrand: unique symbol;
-
 export type Projection =
   | {
       kind: "perspective";
@@ -29,10 +27,9 @@ export type CameraMatrices = Readonly<{
 // Internal recompute callback set by each projection factory. Lets common.ts
 // dispatch projection-matrix recompute without importing perspective.ts /
 // orthographic.ts (avoids a circular dep on common.ts).
-export type RecomputeProjection = (data: CameraData) => void;
+export type RecomputeProjection = (data: Camera) => void;
 
-export type CameraData = {
-  readonly [__furnaceCameraBrand]: true;
+export type Camera = {
   position: Vec3;
   target: Vec3;
   up: Vec3;
@@ -45,6 +42,3 @@ export type CameraData = {
   viewDirty: boolean;
   projDirty: boolean;
 };
-
-// Public Camera type is the same object behind the brand.
-export type Camera = CameraData;

@@ -1,15 +1,15 @@
 import type { Context } from "./context-types.ts";
 import { FurnaceGpuError } from "./errors.ts";
-import { createInternalState, markDisposed } from "./internal.ts";
+import { markDisposed } from "./internal.ts";
 
 export type RequestContextOptions = {
   surfaceFormat?: "srgb" | "linear";
   pixelRatio?: "device" | "css" | number;
 };
 
-// Stash the WebGPU canvas context and the format swapchain views must use on the
-// internal state so getCurrentTextureView can reach them. Cast through unknown
-// keeps these fields out of the public InternalState shape.
+// Boundary type — extends InternalState with module-private fields gpu/context.ts
+// installs and reads back. Keeps these fields out of the public InternalState shape
+// while letting the same module that wrote them read them back via a localised cast.
 type InternalWithCanvasCtx = {
   disposed: boolean;
   canvasContext: GPUCanvasContext;
@@ -61,9 +61,11 @@ export async function requestContext(
     viewFormats: needsSrgbView ? [viewFormat] : [],
   });
 
-  const internal = createInternalState() as unknown as InternalWithCanvasCtx;
-  internal.canvasContext = canvasContext;
-  internal.viewFormat = viewFormat;
+  const internal: InternalWithCanvasCtx = {
+    disposed: false,
+    canvasContext,
+    viewFormat,
+  };
 
   return Object.freeze({
     device,
@@ -72,7 +74,7 @@ export async function requestContext(
     canvas,
     pixelRatio: dpr,
     _internal: internal,
-  } as unknown as Context);
+  });
 }
 
 export function dispose(ctx: Context): void {
@@ -93,6 +95,8 @@ export function getCurrentTextureView(ctx: Context): GPUTextureView {
   if (ctx._internal.disposed) {
     throw new FurnaceGpuError("context disposed");
   }
+  // Boundary cast: requestContext installs canvasContext and viewFormat on _internal;
+  // type system can't track field installation across the public InternalState boundary.
   const internal = ctx._internal as unknown as InternalWithCanvasCtx;
   return internal.canvasContext
     .getCurrentTexture()

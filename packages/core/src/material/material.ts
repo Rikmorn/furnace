@@ -17,6 +17,10 @@ const VERTEX_BUFFER_LAYOUT: GPUVertexBufferLayout = {
   ],
 };
 
+// FNV-1a (32-bit) hash for the pipeline cache key. OFFSET_BASIS and PRIME are
+// fixed by the FNV-1a spec — don't change them. The separator (ASCII Unit
+// Separator, 0x1f) is mixed in between parts so that ["ab","cd"] and ["abcd",""]
+// hash differently. 0x1f never appears in WGSL or our format strings.
 const FNV_OFFSET_BASIS = 0x811c9dc5;
 const FNV_PRIME = 0x01000193;
 const FIELD_SEPARATOR_BYTE = 0x1f;
@@ -146,18 +150,18 @@ export async function create(
       ? buildGroup1(ctx, pipeline, pipelineKey, bindings)
       : null;
 
-  const data = {
+  const data: Material = {
     ctx,
     pipeline,
     pipelineKey,
     group1,
-    ownedBuffers: [] as GPUBuffer[],
+    ownedBuffers: [],
     cullMode,
     topology,
     depthWrite,
     depthCompare,
   };
-  return data as unknown as Material;
+  return data;
 }
 
 export function destroy(material: Material): void {

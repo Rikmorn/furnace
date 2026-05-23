@@ -4,6 +4,7 @@ import type { Material } from "./types.ts";
 
 const COLOR_BUFFER_SIZE_BYTES = 16;
 
+// gwsl file lazy loaded?
 const UNLIT_WGSL = /* wgsl */ `
 struct Camera { viewProjection: mat4x4<f32> };
 struct Object { model: mat4x4<f32> };

@@ -10,9 +10,9 @@ export type ResizeEvent = Readonly<{
   pixelRatio: number;
 }>;
 
-// Resize emitter + observer are stashed on the internal state (lazy on first onResize call).
-// The cast through unknown keeps these fields out of the public InternalState shape, matching
-// the canvasContext pattern in gpu/context.ts.
+// Boundary type — resize wiring is stashed on _internal lazily, matching the
+// canvasContext pattern in gpu/context.ts. The same-module write/read invariant
+// makes the localised cast in onResize the boundary mechanism.
 type InternalWithResize = {
   disposed: boolean;
   canvasContext: GPUCanvasContext;
@@ -28,6 +28,7 @@ export function onResize(
     throw new FurnaceGpuError("context disposed");
   }
 
+  // Boundary cast: resize wiring lives on _internal but isn't in the public InternalState shape.
   const internal = ctx._internal as unknown as InternalWithResize;
   const emitter = ensureResizeWiring(ctx, internal);
   const unsubscribe = emitter.on(fn);

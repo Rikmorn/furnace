@@ -31,7 +31,8 @@ export function normalizePointer(
   const y = e.offsetY;
   const buttonOnTransition =
     type === "pointerdown" || type === "pointerup"
-      ? (e.button as PointerButton)
+      ? // Boundary cast: DOM PointerEvent.button is number; PointerButton is the engine's narrower 0–4 union.
+        (e.button as PointerButton)
       : null;
   return Object.freeze({
     x,
@@ -40,6 +41,7 @@ export function normalizePointer(
     yDevice: y * ratio,
     button: buttonOnTransition,
     buttons: e.buttons,
+    // Boundary cast: DOM PointerEvent.pointerType is string; PointerType is the engine's "mouse" | "pen" | "touch" union.
     pointerType: e.pointerType as PointerType,
     pointerId: e.pointerId,
     shift: e.shiftKey,
