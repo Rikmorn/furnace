@@ -1,7 +1,10 @@
 import { expect, test } from "bun:test";
 import * as camera from "../../src/camera/index.ts";
-import { _frameRenderInternals } from "../../src/frame/render.ts";
+import { _frameRenderInternals, render } from "../../src/frame/render.ts";
 import * as gpu from "../../src/gpu/index.ts";
+import { normalColor } from "../../src/material/normal-color.ts";
+import { unlit } from "../../src/material/unlit.ts";
+import { cube, plane } from "../../src/mesh/factories.ts";
 import {
   bunWebGpuAvailable,
   ensureBunWebGpu,
@@ -32,6 +35,44 @@ test.skipIf(!bunWebGpuAvailable())(
     const b1 = _frameRenderInternals._ensureCameraBuffer(ctx, cam);
     const b2 = _frameRenderInternals._ensureCameraBuffer(ctx, cam);
     expect(b2).toBe(b1);
+    gpu.dispose(ctx);
+  },
+);
+
+// `surfaceFormat: "linear"` works around a bun-webgpu 0.1.7 mock bug where
+// GPUCanvasContextMock.createRenderTexture drops the configured `viewFormats`,
+// so an srgb view-format upcast on the swapchain texture fails validation.
+// Chrome handles this correctly; covered separately by the Playwright probe.
+test.skipIf(!bunWebGpuAvailable())(
+  "frame.render draws cube + plane in one pass with no validation errors",
+  async () => {
+    const canvas = await makeOffscreenCanvas();
+    const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
+    const cam = camera.perspective({
+      aspect: ctx.canvas.width / ctx.canvas.height,
+    });
+    const cubeMat = await normalColor(ctx);
+    const planeMat = await unlit(ctx, { color: [0.1, 0.15, 0.2, 1] });
+    const c = cube(ctx, { material: cubeMat });
+    const p = plane(ctx, { material: planeMat, size: 3 });
+    ctx.device.pushErrorScope("validation");
+    render(ctx, { draw: [p, c], camera: cam });
+    const err = await ctx.device.popErrorScope();
+    expect(err).toBe(null);
+    gpu.dispose(ctx);
+  },
+);
+
+test.skipIf(!bunWebGpuAvailable())(
+  "frame.render with empty draw array clears the framebuffer without error",
+  async () => {
+    const canvas = await makeOffscreenCanvas();
+    const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
+    const cam = camera.perspective({});
+    ctx.device.pushErrorScope("validation");
+    render(ctx, { draw: [], camera: cam, clearColor: [0.2, 0.3, 0.4, 1] });
+    const err = await ctx.device.popErrorScope();
+    expect(err).toBe(null);
     gpu.dispose(ctx);
   },
 );
