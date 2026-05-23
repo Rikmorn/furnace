@@ -37,24 +37,17 @@ export function destroy(mesh: Mesh): void {
 }
 
 export function setPosition(mesh: Mesh, position: Vec3): void {
-  mesh.position[0] = position[0] as number;
-  mesh.position[1] = position[1] as number;
-  mesh.position[2] = position[2] as number;
+  mesh.position.set(position);
   mesh.transformDirty = true;
 }
 
 export function setRotation(mesh: Mesh, rotation: Quat): void {
-  mesh.rotation[0] = rotation[0] as number;
-  mesh.rotation[1] = rotation[1] as number;
-  mesh.rotation[2] = rotation[2] as number;
-  mesh.rotation[3] = rotation[3] as number;
+  mesh.rotation.set(rotation);
   mesh.transformDirty = true;
 }
 
 export function setScale(mesh: Mesh, scale: Vec3): void {
-  mesh.scale[0] = scale[0] as number;
-  mesh.scale[1] = scale[1] as number;
-  mesh.scale[2] = scale[2] as number;
+  mesh.scale.set(scale);
   mesh.transformDirty = true;
 }
 
