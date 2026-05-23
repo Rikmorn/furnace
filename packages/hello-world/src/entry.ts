@@ -2,6 +2,9 @@ import * as camera from "@furnace/core/camera";
 import * as frame from "@furnace/core/frame";
 import * as gpu from "@furnace/core/gpu";
 import * as input from "@furnace/core/input";
+import * as material from "@furnace/core/material";
+import * as mesh from "@furnace/core/mesh";
+import { quat } from "@furnace/core/transform";
 import {
   add,
   ready as demoWasmReady,
@@ -10,10 +13,15 @@ import { mountFpsOverlay } from "./overlay/mount.ts";
 import { fpsSystem } from "./overlay/state.svelte.ts";
 import shaderUrl from "./triangle.wgsl";
 
-const CAMERA_UNIFORM_SIZE_BYTES = 64;
-const TRANSLATION_UNIFORM_SIZE_BYTES = 16;
 const MOVE_SPEED_WORLD_PER_SEC = 1.5;
 const DIAGONAL_NORMALIZE = 1 / Math.sqrt(2);
+const HALO_WIDTH = 0.3;
+const HALO_BUFFER_SIZE_BYTES = 16;
+const CUBE_ROTATION_PITCH_RATE = 0.0003;
+const CUBE_ROTATION_YAW_RATE = 0.0005;
+const PLANE_BACKDROP_SIZE = 6;
+const PLANE_Z = -2;
+const CUBE_X = 1;
 
 async function main(): Promise<void> {
   await demoWasmReady;
@@ -38,58 +46,52 @@ async function main(): Promise<void> {
     return;
   }
 
-  ctx.device.pushErrorScope("validation");
-  const shaderModule = ctx.device.createShaderModule({ code: shaderSource });
-  const pipeline = ctx.device.createRenderPipeline({
-    layout: "auto",
-    vertex: { module: shaderModule, entryPoint: "vs_main" },
-    fragment: {
-      module: shaderModule,
-      entryPoint: "fs_main",
-      targets: [{ format: ctx.format }],
-    },
-    primitive: { topology: "triangle-list" },
-  });
-  const validationError = await ctx.device.popErrorScope();
-  if (validationError) {
-    document.body.innerText = `Pipeline error: ${validationError.message}`;
-    return;
-  }
-
   const cam = camera.perspective({
     aspect: ctx.canvas.width / ctx.canvas.height,
   });
 
-  const cameraBuffer = ctx.device.createBuffer({
-    size: CAMERA_UNIFORM_SIZE_BYTES,
+  // Materials.
+  const haloBuffer = ctx.device.createBuffer({
+    size: HALO_BUFFER_SIZE_BYTES,
     usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
   });
-
-  const translationBuffer = ctx.device.createBuffer({
-    size: TRANSLATION_UNIFORM_SIZE_BYTES,
-    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+  ctx.queue.writeBuffer(haloBuffer, 0, new Float32Array([HALO_WIDTH, 0, 0, 0]));
+  const sdfMat = await material.create(ctx, {
+    vertex: shaderSource,
+    fragment: shaderSource,
+    bindings: [{ binding: 0, resource: { buffer: haloBuffer } }],
+    cullMode: "none",
   });
-  // Mutable position accumulator; avoids noUncheckedIndexedAccess on Float32Array writes.
-  const pos = { x: 0, y: 0 };
-  const translation = new Float32Array(4); // x, y, z, _pad
+  const cubeMat = await material.normalColor(ctx);
+  const planeMat = await material.unlit(ctx, { color: [0.1, 0.15, 0.2, 1] });
 
-  const sceneBindGroup = ctx.device.createBindGroup({
-    layout: pipeline.getBindGroupLayout(0),
-    entries: [
-      { binding: 0, resource: { buffer: cameraBuffer } },
-      { binding: 1, resource: { buffer: translationBuffer } },
-    ],
+  // Meshes. The SDF triangle uses a covering quad in world space; the cube and plane use built-ins.
+  const sdfGeo = mesh.createGeometry(ctx, {
+    positions: new Float32Array([-10, -10, 0, 30, -10, 0, -10, 30, 0]),
+    normals: new Float32Array([0, 0, 1, 0, 0, 1, 0, 0, 1]),
+    uvs: new Float32Array([0, 0, 1, 0, 0, 1]),
   });
+  const sdfMesh = mesh.create(ctx, { geometry: sdfGeo, material: sdfMat });
+  const cubeMesh = mesh.cube(ctx, { material: cubeMat });
+  const planeMesh = mesh.plane(ctx, {
+    material: planeMat,
+    size: PLANE_BACKDROP_SIZE,
+  });
+
+  mesh.setPosition(planeMesh, new Float32Array([0, 0, PLANE_Z]));
+  mesh.setPosition(cubeMesh, new Float32Array([CUBE_X, 0, 0]));
 
   gpu.onResize(ctx, ({ width, height }) => {
     camera.setAspect(cam, width / height);
   });
 
   input.attach(canvas);
-
   mountFpsOverlay(uiRoot);
 
-  frame.loop(ctx, ({ deltaMs }) => {
+  const pos = { x: 0, y: 0 };
+  const rotation = quat.create();
+  const sdfPosition = new Float32Array(3);
+  frame.loop(ctx, ({ deltaMs, elapsedMs }) => {
     fpsSystem.frame();
 
     const dt = deltaMs / 1000;
@@ -105,27 +107,23 @@ async function main(): Promise<void> {
     }
     pos.x += dx * MOVE_SPEED_WORLD_PER_SEC * dt;
     pos.y += dy * MOVE_SPEED_WORLD_PER_SEC * dt;
-    translation.set([pos.x, pos.y, 0, 0]);
-    ctx.queue.writeBuffer(translationBuffer, 0, translation);
+    sdfPosition[0] = pos.x;
+    sdfPosition[1] = pos.y;
+    sdfPosition[2] = 0;
+    mesh.setPosition(sdfMesh, sdfPosition);
 
-    const { viewProjection } = camera.getMatrices(cam);
-    ctx.queue.writeBuffer(cameraBuffer, 0, viewProjection);
-    frame.encode(ctx, (encoder) => {
-      const view = gpu.getCurrentTextureView(ctx);
-      const pass = encoder.beginRenderPass({
-        colorAttachments: [
-          {
-            view,
-            clearValue: { r: 0.05, g: 0.05, b: 0.07, a: 1 },
-            loadOp: "clear",
-            storeOp: "store",
-          },
-        ],
-      });
-      pass.setPipeline(pipeline);
-      pass.setBindGroup(0, sceneBindGroup);
-      pass.draw(3);
-      pass.end();
+    quat.fromEuler(
+      rotation,
+      elapsedMs * CUBE_ROTATION_PITCH_RATE,
+      elapsedMs * CUBE_ROTATION_YAW_RATE,
+      0,
+    );
+    mesh.setRotation(cubeMesh, rotation);
+
+    frame.render(ctx, {
+      draw: [planeMesh, cubeMesh, sdfMesh],
+      camera: cam,
+      clearColor: [0.05, 0.05, 0.07, 1],
     });
   });
 }
