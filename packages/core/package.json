@@ -10,7 +10,9 @@
     "./frame": "./src/frame/index.ts",
     "./stats": "./src/stats/index.ts",
     "./camera": "./src/camera/index.ts",
-    "./input": "./src/input/index.ts"
+    "./input": "./src/input/index.ts",
+    "./material": "./src/material/index.ts",
+    "./mesh": "./src/mesh/index.ts"
   },
   "scripts": {
     "build": "bun scripts/build.ts",
