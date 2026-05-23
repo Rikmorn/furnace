@@ -159,3 +159,11 @@ export async function create(
   };
   return data as unknown as Material;
 }
+
+export function destroy(material: Material): void {
+  for (const buf of material.ownedBuffers) {
+    buf.destroy();
+  }
+  material.ownedBuffers.length = 0;
+  _pipelineCache.release(material.pipelineKey);
+}
