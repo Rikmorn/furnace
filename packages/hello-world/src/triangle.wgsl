@@ -61,11 +61,11 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
   );
 
   let halo_width = mat.halo.x;
+  // Outside the glow region, drop the fragment so the plane backdrop shows through.
+  if (t_sdf > halo_width) { discard; }
+
   let intensity = 1.0 - smoothstep(0.0, halo_width, t_sdf);
-
   let glow_color = vec3<f32>(1.0, 0.85, 0.3);
-  let bg_color = vec3<f32>(0.0, 0.0, 0.0);
-  let rgb = mix(bg_color, glow_color, intensity);
 
-  return vec4<f32>(rgb, 1.0);
+  return vec4<f32>(glow_color * intensity, 1.0);
 }
