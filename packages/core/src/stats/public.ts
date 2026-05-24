@@ -148,3 +148,15 @@ export function startMeasurement(ctx: Context, name: string): Measurement {
     },
   });
 }
+
+import { _frameEnd, _frameStart, _recordDraw } from "./internal.ts";
+
+export function recordDraw(ctx: Context, info: { triangles: number }): void {
+  _recordDraw(ctx, info);
+}
+
+export function frameBoundary(ctx: Context): void {
+  if (ctx._internal.disposed) return;
+  _frameEnd(ctx);
+  _frameStart(ctx);
+}
