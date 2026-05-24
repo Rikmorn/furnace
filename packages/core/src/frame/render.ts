@@ -5,6 +5,11 @@ import type { Context } from "../gpu/index.ts";
 import * as gpu from "../gpu/index.ts";
 import { _recomputeModelIfDirty } from "../mesh/mesh.ts";
 import type { Mesh } from "../mesh/types.ts";
+import {
+  _recordBindGroupSwitch,
+  _recordDraw,
+  _recordPipelineSwitch,
+} from "../stats/internal.ts";
 
 const CAMERA_UNIFORM_SIZE = 64; // one mat4x4<f32>
 
@@ -137,20 +142,30 @@ function recordDraw(
   ctx: Context,
   mesh: Mesh,
   cameraBuffer: GPUBuffer,
-): void {
+  lastPipeline: GPURenderPipeline | null,
+): GPURenderPipeline {
   _recomputeModelIfDirty(mesh);
   const pipeline = mesh.material.pipeline;
   pass.setPipeline(pipeline);
+  if (pipeline !== lastPipeline) {
+    _recordPipelineSwitch(ctx);
+  }
   pass.setBindGroup(0, ensureGroup0(ctx, mesh, pipeline, cameraBuffer));
-  if (mesh.material.group1) pass.setBindGroup(1, mesh.material.group1);
+  _recordBindGroupSwitch(ctx);
+  if (mesh.material.group1) {
+    pass.setBindGroup(1, mesh.material.group1);
+    _recordBindGroupSwitch(ctx);
+  }
   pass.setVertexBuffer(0, mesh.geometry.vertexBuffer);
   const { indexBuffer, indexFormat, indexCount, vertexCount } = mesh.geometry;
   if (indexBuffer && indexFormat) {
     pass.setIndexBuffer(indexBuffer, indexFormat);
     pass.drawIndexed(indexCount);
-    return;
+  } else {
+    pass.draw(vertexCount);
   }
-  pass.draw(vertexCount);
+  _recordDraw(ctx, { triangles: mesh.geometry.triangleCount });
+  return pipeline;
 }
 
 export function render(ctx: Context, opts: RenderOptions): void {
@@ -172,8 +187,9 @@ export function render(ctx: Context, opts: RenderOptions): void {
     clearDepth,
   );
 
+  let lastPipeline: GPURenderPipeline | null = null;
   for (const mesh of opts.draw) {
-    recordDraw(pass, ctx, mesh, cameraBuffer);
+    lastPipeline = recordDraw(pass, ctx, mesh, cameraBuffer, lastPipeline);
   }
 
   pass.end();
