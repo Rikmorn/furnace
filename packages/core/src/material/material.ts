@@ -1,5 +1,6 @@
 import { FurnaceError } from "../errors.ts";
 import type { Context } from "../gpu/index.ts";
+import { _registerResource, _unregisterResource } from "../stats/internal.ts";
 import { _pipelineCache } from "./pipeline.ts";
 import type { Material, MaterialDescriptor } from "./types.ts";
 
@@ -150,12 +151,16 @@ export async function create(
       ? buildGroup1(ctx, pipeline, pipelineKey, bindings)
       : null;
 
+  const _materialHandle = _registerResource(ctx, { kind: "material" });
+
   const data: Material = {
     ctx,
     pipeline,
     pipelineKey,
     group1,
     ownedBuffers: [],
+    ownedBufferHandles: [],
+    _materialHandle,
     cullMode,
     topology,
     depthWrite,
@@ -165,9 +170,15 @@ export async function create(
 }
 
 export function destroy(material: Material): void {
-  for (const buf of material.ownedBuffers) {
-    buf.destroy();
+  // Length of ownedBuffers and ownedBufferHandles is the same by construction.
+  for (let i = 0; i < material.ownedBuffers.length; i++) {
+    const handle = material.ownedBufferHandles[i];
+    if (handle) _unregisterResource(material.ctx, handle);
+    const buf = material.ownedBuffers[i];
+    if (buf) buf.destroy();
   }
   material.ownedBuffers.length = 0;
+  material.ownedBufferHandles.length = 0;
+  _unregisterResource(material.ctx, material._materialHandle);
   _pipelineCache.release(material.pipelineKey);
 }
