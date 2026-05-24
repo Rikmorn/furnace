@@ -61,3 +61,56 @@ test.skipIf(!bunWebGpuAvailable())(
     gpu.dispose(ctx);
   },
 );
+
+test.skipIf(!bunWebGpuAvailable())(
+  "frame.render: depth texture registers; ensureDepthTexture on resize unregisters old + registers new",
+  async () => {
+    const canvas = await makeOffscreenCanvas(64, 48);
+    const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
+    const cam = camera.perspective({
+      aspect: 64 / 48,
+      fovYRad: Math.PI / 4,
+      near: 0.1,
+      far: 100,
+    });
+    const mat = await material.unlit(ctx, { color: [1, 0, 0, 1] });
+    const m = mesh.cube(ctx, { material: mat });
+    render(ctx, { draw: [m], camera: cam });
+    const firstSnap = snapshot(ctx);
+    expect(firstSnap.memory.textureBytes).toBeGreaterThanOrEqual(64 * 48 * 4);
+    const firstTexBytes = firstSnap.memory.textureBytes;
+
+    canvas.width = 128;
+    canvas.height = 96;
+    render(ctx, { draw: [m], camera: cam });
+    const secondSnap = snapshot(ctx);
+    expect(secondSnap.memory.textureBytes).toBeGreaterThan(firstTexBytes);
+    expect(secondSnap.memory.textureBytes).toBeGreaterThanOrEqual(128 * 96 * 4);
+    mesh.destroy(m);
+    gpu.dispose(ctx);
+  },
+);
+
+test.skipIf(!bunWebGpuAvailable())(
+  "frame.render: camera buffer registers on first use",
+  async () => {
+    const canvas = await makeOffscreenCanvas();
+    const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
+    const cam = camera.perspective({
+      aspect: 1,
+      fovYRad: Math.PI / 4,
+      near: 0.1,
+      far: 100,
+    });
+    const mat = await material.unlit(ctx, { color: [1, 0, 0, 1] });
+    const m = mesh.cube(ctx, { material: mat });
+    const before = snapshot(ctx);
+    render(ctx, { draw: [m], camera: cam });
+    const after = snapshot(ctx);
+    expect(
+      after.memory.bufferBytes - before.memory.bufferBytes,
+    ).toBeGreaterThanOrEqual(64);
+    mesh.destroy(m);
+    gpu.dispose(ctx);
+  },
+);

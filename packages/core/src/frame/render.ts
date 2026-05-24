@@ -9,6 +9,9 @@ import {
   _recordBindGroupSwitch,
   _recordDraw,
   _recordPipelineSwitch,
+  _registerResource,
+  _unregisterResource,
+  type ResourceHandle,
 } from "../stats/internal.ts";
 
 const CAMERA_UNIFORM_SIZE = 64; // one mat4x4<f32>
@@ -21,7 +24,9 @@ type DepthEntry = {
 };
 
 const depthByCtx = new WeakMap<Context, DepthEntry>();
+const depthHandleByCtx = new WeakMap<Context, ResourceHandle>();
 const cameraBuffers = new WeakMap<Context, Map<Camera, GPUBuffer>>();
+const cameraBufferHandles = new WeakMap<Context, Map<Camera, ResourceHandle>>();
 
 function _ensureDepthTexture(ctx: Context): DepthEntry {
   const existing = depthByCtx.get(ctx);
@@ -30,12 +35,21 @@ function _ensureDepthTexture(ctx: Context): DepthEntry {
   if (existing && existing.width === width && existing.height === height) {
     return existing;
   }
-  if (existing) existing.texture.destroy();
+  if (existing) {
+    existing.texture.destroy();
+    const oldHandle = depthHandleByCtx.get(ctx);
+    if (oldHandle) _unregisterResource(ctx, oldHandle);
+  }
   const texture = ctx.device.createTexture({
     size: { width, height },
     format: "depth24plus",
     usage: GPUTextureUsage.RENDER_ATTACHMENT,
   });
+  const handle = _registerResource(ctx, {
+    kind: "texture",
+    bytes: width * height * 4,
+  });
+  depthHandleByCtx.set(ctx, handle);
   const entry: DepthEntry = {
     texture,
     view: texture.createView(),
@@ -59,6 +73,15 @@ function _ensureCameraBuffer(ctx: Context, cam: Camera): GPUBuffer {
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
     perCam.set(cam, buffer);
+    let handles = cameraBufferHandles.get(ctx);
+    if (!handles) {
+      handles = new Map();
+      cameraBufferHandles.set(ctx, handles);
+    }
+    handles.set(
+      cam,
+      _registerResource(ctx, { kind: "buffer", bytes: CAMERA_UNIFORM_SIZE }),
+    );
   }
   const matrices = camera.getMatrices(cam);
   ctx.queue.writeBuffer(buffer, 0, matrices.viewProjection);
