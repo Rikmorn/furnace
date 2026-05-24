@@ -1,6 +1,32 @@
+// Public surface
+
+// Internal-only — re-exported so other core modules can import as
+// `import * as stats from "../stats/index.ts"` and call hooks consistently.
 export {
-  computeFps,
-  createFpsSystem,
-  type FpsSystem,
-  type FpsSystemOptions,
-} from "./fps.ts";
+  _frameEnd,
+  _frameStart,
+  _recordBindGroupSwitch,
+  _recordDraw,
+  _recordEmission,
+  _recordPipelineSwitch,
+  _recordUncapturedError,
+  _registerResource,
+  _unregisterResource,
+  type ResourceHandle,
+  type ResourceInfo,
+} from "./internal.ts";
+export {
+  frameBoundary,
+  gauge,
+  get,
+  increment,
+  type Measurement,
+  measure,
+  onFrame,
+  type Path,
+  type PathValue,
+  recordDraw,
+  type Snapshot,
+  snapshot,
+  startMeasurement,
+} from "./public.ts";
