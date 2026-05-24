@@ -88,11 +88,6 @@ function _ensureCameraBuffer(ctx: Context, cam: Camera): GPUBuffer {
   return buffer;
 }
 
-export const _frameRenderInternals = {
-  _ensureDepthTexture,
-  _ensureCameraBuffer,
-};
-
 export type ClearColor = [number, number, number, number];
 
 export type RenderOptions = {
@@ -133,6 +128,12 @@ function ensureGroup0(
   perMesh.set(pipeline, bindGroup);
   return bindGroup;
 }
+
+export const _frameRenderInternals = {
+  _ensureDepthTexture,
+  _ensureCameraBuffer,
+  _ensureMeshGroup0: ensureGroup0,
+};
 
 function beginRenderPass(
   encoder: GPUCommandEncoder,
