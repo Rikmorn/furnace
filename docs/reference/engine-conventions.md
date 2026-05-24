@@ -134,6 +134,34 @@ Failure policy: setup operations (`stats.onFrame`) throw on disposed ctx; runtim
 
 Full spec: `docs/superpowers/specs/2026-05-24-core-tranche-5-stats-expansion-design.md`.
 
+Failure semantics follow the framework in § Failure policy.
+
+## Failure policy
+
+Engine modules choose between two failure stances based on whether they're foreground
+(consumer expects to see the result) or background (observation/instrumentation that
+should stay out of the way).
+
+**Foreground modules** (rendering, post, input, mesh, material):
+- Setup ops throw on disposed ctx or bad config.
+- Runtime ops throw on synchronously-detectable consumer errors (ctx mismatch,
+  use-after-free, invalid handle).
+- GPU-layer failures we can't catch synchronously fall through to
+  `device.uncapturederror`, which is surfaced via stats.
+
+**Background modules** (stats, future logging):
+- Setup ops throw on disposed ctx (subscribing to a dead ctx is a bug).
+- Runtime reads return zero/null defaults silently on disposed ctx.
+- Runtime writes silently no-op on disposed ctx; log-warn on bad inputs.
+- Subscriber callbacks throwing are caught + logged; iteration continues.
+
+The distinction is intent: foreground silence is worse than a crash
+(broken-looking-deliberate); background loudness corrupts the observed system.
+Pick the policy that matches the module's role.
+
+Tranche 5 (stats) is the reference background example. Tranche 6 (post) is the
+reference foreground example.
+
 ## References
 
 - Master architecture spec: `docs/superpowers/specs/2026-05-21-core-architecture-design.md` (gitignored — local design history)
