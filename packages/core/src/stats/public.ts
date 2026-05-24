@@ -43,6 +43,8 @@ export function get<P extends Path<Snapshot>>(
 
 export type Measurement = Readonly<{ end: () => void }>;
 
+const NOOP_MEASUREMENT: Measurement = Object.freeze({ end: () => undefined });
+
 function badInput(op: string, name: string, reason: string): void {
   console.warn(
     `[furnace/stats] ${op}(${JSON.stringify(name)}): ${reason}; ignored`,
@@ -128,11 +130,10 @@ export function measure(ctx: Context, name: string, fn: () => void): void {
 }
 
 export function startMeasurement(ctx: Context, name: string): Measurement {
-  if (ctx._internal.disposed) return Object.freeze({ end: () => undefined });
-  if (!validName("startMeasurement", name))
-    return Object.freeze({ end: () => undefined });
+  if (ctx._internal.disposed) return NOOP_MEASUREMENT;
+  if (!validName("startMeasurement", name)) return NOOP_MEASUREMENT;
   if (!noCrossKindCollision(ctx, "startMeasurement", name, "measures")) {
-    return Object.freeze({ end: () => undefined });
+    return NOOP_MEASUREMENT;
   }
   const t0 = performance.now();
   let ended = false;
