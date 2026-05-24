@@ -29,8 +29,7 @@ export function get<P extends Path<Snapshot>>(
   if (ctx._internal.disposed) return null;
   const snap = buildSnapshot(ctx._internal.stats);
   // Walk the dotted path. Untyped at runtime; the type signature constrains call sites.
-  // Boundary cast: Path<Snapshot> is a template-literal subtype of string; .split lives on the string prototype.
-  const parts = (path as string).split(".");
+  const parts = path.split(".");
   let cur: unknown = snap;
   for (const p of parts) {
     if (cur == null || typeof cur !== "object") return null;
