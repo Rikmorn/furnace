@@ -1,5 +1,3 @@
-// Public surface
-
 // Internal-only — re-exported so other core modules can import as
 // `import * as stats from "../stats/index.ts"` and call hooks consistently.
 export {
@@ -15,6 +13,8 @@ export {
   type ResourceHandle,
   type ResourceInfo,
 } from "./internal.ts";
+
+// Public surface
 export {
   frameBoundary,
   gauge,
