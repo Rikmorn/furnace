@@ -29,8 +29,8 @@ const EMISSIVE_BUFFER_SIZE_BYTES = 16;
 const EMISSIVE_COLOR_HOT_PINK = new Float32Array([1.0, 0.8, 1.0, 1.0]);
 const BLOOM_BUFFER_SIZE_BYTES = 16;
 const BLOOM_THRESHOLD = 0.7;
-const BLOOM_INTENSITY = 1.5;
-const BLOOM_RADIUS = 0.004;
+const BLOOM_INTENSITY = 4.0;
+const BLOOM_RADIUS = 0.012;
 
 const sdfTriangle = async (ctx: gpu.Context) => {
   const shaderResponse = await fetch(shaderUrl);
