@@ -48,6 +48,8 @@ const sdfTriangle = async (ctx: gpu.Context) => {
     fragment: shaderSource,
     bindings: [{ binding: 0, resource: { buffer: haloBuffer } }],
     cullMode: "none",
+    blend: material.PREMULTIPLIED_ALPHA_BLEND,
+    depthWrite: false,
   });
 
   // Meshes. The SDF triangle uses a covering quad in world space; the cube and plane use built-ins.
