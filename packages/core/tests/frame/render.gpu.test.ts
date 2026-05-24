@@ -4,7 +4,7 @@ import { _frameRenderInternals, render } from "../../src/frame/render.ts";
 import * as gpu from "../../src/gpu/index.ts";
 import { normalColor } from "../../src/material/normal-color.ts";
 import { unlit } from "../../src/material/unlit.ts";
-import { cube, plane } from "../../src/mesh/factories.ts";
+import { cube, plane } from "../../src/mesh/factories";
 import {
   bunWebGpuAvailable,
   ensureBunWebGpu,

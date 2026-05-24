@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import * as gpu from "../../src/gpu/index.ts";
-import { cubeGeometry, planeGeometry } from "../../src/mesh/primitives.ts";
+import { cubeGeometry } from "../../src/mesh/factories/cube.ts";
+import { planeGeometry } from "../../src/mesh/factories/plane.ts";
 import {
   bunWebGpuAvailable,
   ensureBunWebGpu,

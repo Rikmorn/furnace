@@ -1,4 +1,4 @@
-export { cube, plane } from "./factories.ts";
+export { cube, plane } from "./factories";
 export { createGeometry, destroyGeometry } from "./geometry.ts";
 export {
   create,
@@ -7,5 +7,4 @@ export {
   setRotation,
   setScale,
 } from "./mesh.ts";
-export { cubeGeometry, planeGeometry } from "./primitives.ts";
 export type { Geometry, GeometryData, Mesh } from "./types.ts";

@@ -21,5 +21,8 @@
   },
   "[jsonc]": {
     "editor.defaultFormatter": "biomejs.biome"
-  }
+  },
+  "bun.debugTerminal.enabled": true,
+  "bun.debugTerminal.stopOnEntry": false,
+  "bun.test.filePattern": "**/*{.test.,.spec.,_test_,_spec_}{js,ts,tsx,jsx,mts,cts,cjs,mjs}"
 }

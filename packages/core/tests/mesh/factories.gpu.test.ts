@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import * as gpu from "../../src/gpu/index.ts";
 import { unlit } from "../../src/material/unlit.ts";
-import { cube, plane } from "../../src/mesh/factories.ts";
+import { cube, plane } from "../../src/mesh/factories";
 import {
   bunWebGpuAvailable,
   ensureBunWebGpu,

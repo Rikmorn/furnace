@@ -1,6 +1,8 @@
-import type { Context } from "../gpu/index.ts";
-import { createGeometry } from "./geometry.ts";
-import type { Geometry, GeometryData } from "./types.ts";
+import type { Context } from "../../gpu/index.ts";
+import type { Material } from "../../material/types.ts";
+import { createGeometry } from "../geometry.ts";
+import { create } from "../mesh.ts";
+import type { Geometry, GeometryData, Mesh } from "../types.ts";
 
 type Vec3Tuple = readonly [number, number, number];
 
@@ -11,6 +13,8 @@ type CubeFace = {
   readonly tangent: Vec3Tuple;
   readonly bitangent: Vec3Tuple;
 };
+
+const VERTICES_PER_FACE = 4;
 
 // Face order: +Z, -Z, +Y, -Y, +X, -X.
 // For each face we pick (tangent, bitangent) such that
@@ -25,34 +29,12 @@ const CUBE_FACES: readonly CubeFace[] = [
   { normal: [-1, 0, 0], tangent: [0, 0, 1], bitangent: [0, 1, 0] }, // -X
 ];
 
-const VERTICES_PER_FACE = 4;
-
-// UV pattern shared by every face: bottom-left, bottom-right, top-right, top-left.
 const FACE_UV_CORNERS: readonly Vec3Tuple[] = [
   [-1, -1, 0],
   [1, -1, 0],
   [1, 1, 0],
   [-1, 1, 0],
 ];
-
-function cubeGeometryData(size: number): GeometryData {
-  const s = size / 2;
-  const positions = new Float32Array(
-    CUBE_FACES.flatMap((face) =>
-      FACE_UV_CORNERS.flatMap((corner) => faceCorner(face, corner, s)),
-    ),
-  );
-  const normals = new Float32Array(
-    CUBE_FACES.flatMap((face) =>
-      Array.from({ length: VERTICES_PER_FACE }, () => face.normal).flat(),
-    ),
-  );
-  const uvs = new Float32Array(
-    CUBE_FACES.flatMap(() => [0, 0, 1, 0, 1, 1, 0, 1]),
-  );
-  const indices = buildCubeIndices();
-  return { positions, normals, uvs, indices };
-}
 
 // Corner = face_center (=normal*s) + tangent * cornerSign.u * s + bitangent * cornerSign.v * s.
 // `cornerSign` is one of FACE_UV_CORNERS — its z is unused (zero).
@@ -80,24 +62,38 @@ function buildCubeIndices(): Uint16Array {
   return Uint16Array.from(flat);
 }
 
+function cubeGeometryData(size: number): GeometryData {
+  const s = size / 2;
+
+  const positions = new Float32Array(
+    CUBE_FACES.flatMap((face) =>
+      FACE_UV_CORNERS.flatMap((corner) => faceCorner(face, corner, s)),
+    ),
+  );
+  const normals = new Float32Array(
+    CUBE_FACES.flatMap((face) =>
+      Array.from({ length: VERTICES_PER_FACE }, () => face.normal).flat(),
+    ),
+  );
+  const uvs = new Float32Array(
+    CUBE_FACES.flatMap(() => [0, 0, 1, 0, 1, 1, 0, 1]),
+  );
+  const indices = buildCubeIndices();
+
+  return { positions, normals, uvs, indices };
+}
+
 export function cubeGeometry(ctx: Context, opts?: { size?: number }): Geometry {
   const size = opts?.size ?? 1;
   return createGeometry(ctx, cubeGeometryData(size));
 }
 
-function planeGeometryData(size: number): GeometryData {
-  const s = size / 2;
-  const positions = new Float32Array([-s, -s, 0, s, -s, 0, s, s, 0, -s, s, 0]);
-  const normals = new Float32Array([0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1]);
-  const uvs = new Float32Array([0, 0, 1, 0, 1, 1, 0, 1]);
-  const indices = new Uint16Array([0, 1, 2, 0, 2, 3]);
-  return { positions, normals, uvs, indices };
-}
-
-export function planeGeometry(
+export function cube(
   ctx: Context,
-  opts?: { size?: number },
-): Geometry {
-  const size = opts?.size ?? 1;
-  return createGeometry(ctx, planeGeometryData(size));
+  opts: { material: Material; size?: number },
+): Mesh {
+  return create(ctx, {
+    geometry: cubeGeometry(ctx, opts),
+    material: opts.material,
+  });
 }
