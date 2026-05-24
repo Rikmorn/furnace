@@ -38,3 +38,25 @@ export function _frameEnd(ctx: Context): void {
     }
   }
 }
+
+export function _recordDraw(ctx: Context, info: { triangles: number }): void {
+  if (ctx._internal.disposed) return;
+  if (!Number.isFinite(info.triangles) || info.triangles < 0) {
+    console.warn(
+      `[furnace/stats] _recordDraw: triangles must be finite and non-negative, got ${info.triangles}; ignored`,
+    );
+    return;
+  }
+  ctx._internal.stats.drawCalls++;
+  ctx._internal.stats.triangles += info.triangles;
+}
+
+export function _recordPipelineSwitch(ctx: Context): void {
+  if (ctx._internal.disposed) return;
+  ctx._internal.stats.pipelineSwitches++;
+}
+
+export function _recordBindGroupSwitch(ctx: Context): void {
+  if (ctx._internal.disposed) return;
+  ctx._internal.stats.bindGroupSwitches++;
+}
