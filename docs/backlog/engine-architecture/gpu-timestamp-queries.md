@@ -1,5 +1,7 @@
 # GPU timestamp queries in `stats`
 
+**Status update (tranche 5, 2026-05-24):** `snap.gpu.renderMs` and `snap.gpu.computeMs` slots landed in tranche 5 as `null`. Consumers can pre-bind UI to these paths now; fill in real timestamp-query implementation when triggered.
+
 Per-pass GPU timing (vertex stage ms, fragment stage ms, compute ms per dispatch) via WebGPU's `timestamp-query` feature. Surfaced through `stats.snapshot(ctx).gpu` when the device supports it; `null` otherwise.
 
 Real instrumentation work: managing `GPUQuerySet` allocation per frame, writing timestamps into the encoder around render/compute passes, resolving the query buffer at frame end, reading back asynchronously without stalling the frame (timestamp buffer reads are one or two frames behind, which is fine for stats display).

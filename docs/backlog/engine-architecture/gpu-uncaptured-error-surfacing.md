@@ -1,5 +1,7 @@
 # Surface WebGPU uncaptured validation errors
 
+**Status update (tranche 5, 2026-05-24):** Listener install + `snap.gpu.uncapturedErrors` cumulative counter shipped per `docs/superpowers/specs/2026-05-24-core-tranche-5-stats-expansion-design.md`. Remaining open: typed `gpu.onUncapturedError(ctx, fn)` emitter and `device.lost` listener with parallel routing. The original open design questions about always-on vs opt-in (and logger callback shape) defer to the formal-log session (`docs/backlog/engine-architecture/formal-log-helper-and-sink.md`).
+
 The core gpu module currently has no listener on `device.uncapturederror`, so any WebGPU validation failure that doesn't throw synchronously is invisible. This bit us once already: `packages/core/src/gpu/context.ts` was passing a spec-invalid format to `GPUCanvasContext.configure()`, Chrome hard-rejected it (visible in console), but Safari silently accepted and then quietly failed to composite the swapchain — no error surfaced anywhere, the demo just "didn't render", and the misdirection ate a debug session before Playwright (real Chrome) was used to make the error visible.
 
 Implementation sketch: in `gpu.requestContext`, add `device.addEventListener("uncapturederror", e => console.error("[furnace/gpu] uncaptured:", e.error.message))` once per device. Single-line cost. This is the WebGPU spec equivalent of `GL_DEBUG_OUTPUT` and should generally be on whenever the engine is in development mode.
