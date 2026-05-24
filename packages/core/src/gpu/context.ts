@@ -1,3 +1,4 @@
+import { _recordUncapturedError } from "../stats/internal.ts";
 import { createStatsState, type StatsState } from "../stats/state.ts";
 import type { Context } from "./context-types.ts";
 import { FurnaceGpuError } from "./errors.ts";
@@ -70,7 +71,7 @@ export async function requestContext(
     viewFormat,
   };
 
-  return Object.freeze({
+  const ctx = Object.freeze({
     device,
     queue: device.queue,
     format: viewFormat,
@@ -78,6 +79,16 @@ export async function requestContext(
     pixelRatio: dpr,
     _internal: internal,
   });
+
+  device.addEventListener("uncapturederror", (e) => {
+    // Boundary cast: DOM addEventListener types the event as `Event`; the
+    // "uncapturederror" name guarantees a GPUUncapturedErrorEvent at runtime.
+    const evt = e as GPUUncapturedErrorEvent;
+    _recordUncapturedError(ctx);
+    console.error("[furnace/gpu] uncaptured device error:", evt.error.message);
+  });
+
+  return ctx;
 }
 
 export function dispose(ctx: Context): void {
