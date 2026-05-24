@@ -16,6 +16,8 @@ export type Geometry = {
   indexBuffer: GPUBuffer | null;
   indexFormat: GPUIndexFormat | null;
   indexCount: number;
+  // (indexCount || vertexCount) / 3 — assumes triangle-list topology.
+  triangleCount: number;
 };
 
 export type Mesh = {
