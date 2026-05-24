@@ -1,10 +1,23 @@
 import type { Context } from "../gpu/index.ts";
 import type { Material } from "../material/types.ts";
+import {
+  _registerResource,
+  _unregisterResource,
+  type ResourceHandle,
+} from "../stats/internal.ts";
 import { mat4, quat } from "../transform/index.ts";
 import type { Quat, Vec3 } from "../transform/types.ts";
 import type { Geometry, Mesh } from "./types.ts";
 
 const OBJECT_UNIFORM_SIZE_BYTES = 64; // one mat4x4<f32>
+
+// Boundary type — mesh handles stored on the Mesh object after create,
+// read by destroy. Same-module write/read makes the localised cast in
+// destroy the boundary mechanism.
+type MeshWithHandles = Mesh & {
+  _meshHandle: ResourceHandle;
+  _objectBufferHandle: ResourceHandle;
+};
 
 export function create(
   ctx: Context,
@@ -14,7 +27,13 @@ export function create(
     size: OBJECT_UNIFORM_SIZE_BYTES,
     usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
   });
-  const mesh: Mesh = {
+  const _objectBufferHandle = _registerResource(ctx, {
+    kind: "buffer",
+    bytes: OBJECT_UNIFORM_SIZE_BYTES,
+  });
+  const _meshHandle = _registerResource(ctx, { kind: "mesh" });
+
+  const mesh: MeshWithHandles = {
     ctx,
     geometry: opts.geometry,
     material: opts.material,
@@ -24,16 +43,18 @@ export function create(
     modelMatrix: mat4.create(),
     transformDirty: true,
     objectBuffer,
-    group0: null,
-    group0Pipeline: null,
+    _meshHandle,
+    _objectBufferHandle,
   };
   return mesh;
 }
 
 export function destroy(mesh: Mesh): void {
+  // Boundary cast: mesh handles were stashed by create on the same Mesh instance; the cross-function invariant isn't expressible in the public Mesh type.
+  const m = mesh as MeshWithHandles;
   mesh.objectBuffer.destroy();
-  mesh.group0 = null;
-  mesh.group0Pipeline = null;
+  _unregisterResource(mesh.ctx, m._objectBufferHandle);
+  _unregisterResource(mesh.ctx, m._meshHandle);
 }
 
 export function setPosition(mesh: Mesh, position: Vec3): void {
