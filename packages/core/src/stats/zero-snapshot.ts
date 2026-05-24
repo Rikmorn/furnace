@@ -11,7 +11,7 @@ export const ZERO_SNAPSHOT: Snapshot = Object.freeze({
     renderMs: null,
     computeMs: null,
   },
-  resources: { meshes: 0, materials: 0, geometries: 0 },
+  resources: { meshes: 0, materials: 0, geometries: 0, effects: 0 },
   events: { perEmitter: {} },
   memory: { bufferBytes: 0, textureBytes: 0, total: 0 },
   custom: {},

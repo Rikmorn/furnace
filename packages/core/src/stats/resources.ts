@@ -2,6 +2,7 @@ export type ResourceKind =
   | "mesh"
   | "material"
   | "geometry"
+  | "effect"
   | "buffer"
   | "texture";
 
@@ -9,6 +10,7 @@ export type ResourceInfo =
   | { kind: "mesh" }
   | { kind: "material" }
   | { kind: "geometry" }
+  | { kind: "effect" }
   | { kind: "buffer"; bytes: number }
   | { kind: "texture"; bytes: number };
 
@@ -19,14 +21,19 @@ export type ResourceHandle = Readonly<{
 
 export type ResourceRegistry = {
   entries: Set<ResourceHandle>;
-  counts: { meshes: number; materials: number; geometries: number };
+  counts: {
+    meshes: number;
+    materials: number;
+    geometries: number;
+    effects: number;
+  };
   memory: { bufferBytes: number; textureBytes: number };
 };
 
 export function createResourceRegistry(): ResourceRegistry {
   return {
     entries: new Set(),
-    counts: { meshes: 0, materials: 0, geometries: 0 },
+    counts: { meshes: 0, materials: 0, geometries: 0, effects: 0 },
     memory: { bufferBytes: 0, textureBytes: 0 },
   };
 }
@@ -47,6 +54,9 @@ export function registerResource(
       break;
     case "geometry":
       r.counts.geometries++;
+      break;
+    case "effect":
+      r.counts.effects++;
       break;
     case "buffer":
       r.memory.bufferBytes += info.bytes;
@@ -72,6 +82,9 @@ export function unregisterResource(
       break;
     case "geometry":
       r.counts.geometries--;
+      break;
+    case "effect":
+      r.counts.effects--;
       break;
     case "buffer":
       r.memory.bufferBytes -= handle.bytes;

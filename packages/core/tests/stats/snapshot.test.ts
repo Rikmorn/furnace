@@ -66,3 +66,11 @@ test("buildSnapshot: successive calls produce distinct objects", () => {
   const b = buildSnapshot(state);
   expect(a).not.toBe(b);
 });
+
+test("snapshot.resources includes effects count", () => {
+  const s = createStatsState(0);
+  registerResource(s.resources, { kind: "effect" });
+  registerResource(s.resources, { kind: "effect" });
+  const snap = buildSnapshot(s);
+  expect(snap.resources.effects).toBe(2);
+});
