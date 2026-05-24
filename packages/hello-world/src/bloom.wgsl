@@ -38,5 +38,9 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     }
   }
   glow = glow * (params.intensity / weight_sum);
-  return vec4<f32>(scene + glow, 1.0);
+  // Mask glow off pixels that are already bright — keeps the source colour
+  // readable while the halo spreads onto darker background pixels.
+  let scene_lum = luminance(scene);
+  let halo_mask = 1.0 - smoothstep(params.threshold * 0.6, params.threshold, scene_lum);
+  return vec4<f32>(scene + glow * halo_mask, 1.0);
 }
