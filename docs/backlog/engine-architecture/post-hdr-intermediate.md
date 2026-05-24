@@ -18,4 +18,14 @@ Likely shape:
 (downsample chain), tone mapping with auto-exposure, depth-of-field, or
 any HDR rendering path.
 
+**Demo evidence motivating this:** hello-world's normalColor cube top
+face (`+Y` normal → `(0.5, 1.0, 0.5)`, linear luminance 0.857) blooms
+identically to the intended emissive cube because single-pass
+screen-space bloom can only threshold on luminance — it has no way to
+distinguish "bright because emissive" from "bright because lit". A
+proper emissive output channel on an `rgba16float` intermediate (where
+emissive surfaces write > 1.0 and lit surfaces stay ≤ 1.0) is the only
+clean separator. Until that lands, any lit material whose colour
+crosses the bloom threshold will leak halo.
+
 **Reference:** `docs/superpowers/specs/2026-05-24-core-tranche-6-post-process-design.md` §1 Out.
