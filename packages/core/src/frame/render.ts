@@ -5,6 +5,11 @@ import type { Context } from "../gpu/index.ts";
 import * as gpu from "../gpu/index.ts";
 import { _recomputeModelIfDirty } from "../mesh/mesh.ts";
 import type { Mesh } from "../mesh/types.ts";
+import type { Effect } from "../post/effect.ts";
+import {
+  _ensureSceneIntermediates,
+  type IntermediateEntry,
+} from "../post/intermediate.ts";
 import {
   _recordBindGroupSwitch,
   _recordDraw,
@@ -93,6 +98,7 @@ export type ClearColor = [number, number, number, number];
 export type RenderOptions = {
   draw: Mesh[];
   camera: Camera;
+  effects?: Effect[];
   clearColor?: ClearColor;
   clearDepth?: number;
 };
@@ -192,30 +198,146 @@ function recordDraw(
   return pipeline;
 }
 
-export function render(ctx: Context, opts: RenderOptions): void {
-  if (ctx._internal.disposed) {
-    throw new FurnaceGpuError("context disposed");
+function validateEffects(ctx: Context, effects: readonly Effect[]): void {
+  for (let i = 0; i < effects.length; i++) {
+    const fx = effects[i];
+    if (fx == null) {
+      throw new FurnaceGpuError(`effects[${i}]: null/undefined effect`);
+    }
+    if (fx._internal.destroyed) {
+      throw new FurnaceGpuError(`effects[${i}]: effect was destroyed`);
+    }
+    if (fx.ctx !== ctx) {
+      throw new FurnaceGpuError(
+        `effects[${i}]: effect belongs to a different context`,
+      );
+    }
   }
-  const cameraBuffer = _ensureCameraBuffer(ctx, opts.camera);
-  const depth = _ensureDepthTexture(ctx);
-  const colorView = gpu.getCurrentTextureView(ctx);
-  const clearColor = opts.clearColor ?? DEFAULT_CLEAR_COLOR;
-  const clearDepth = opts.clearDepth ?? DEFAULT_CLEAR_DEPTH;
+}
 
+function recordScenePass(
+  ctx: Context,
+  colorView: GPUTextureView,
+  depthView: GPUTextureView,
+  draw: readonly Mesh[],
+  cameraBuffer: GPUBuffer,
+  clearColor: ClearColor,
+  clearDepth: number,
+): void {
   const encoder = ctx.device.createCommandEncoder();
   const pass = beginRenderPass(
     encoder,
     colorView,
-    depth.view,
+    depthView,
     clearColor,
     clearDepth,
   );
-
   let lastPipeline: GPURenderPipeline | null = null;
-  for (const mesh of opts.draw) {
+  for (const mesh of draw) {
     lastPipeline = recordDraw(pass, ctx, mesh, cameraBuffer, lastPipeline);
   }
-
   pass.end();
   ctx.device.queue.submit([encoder.finish()]);
+}
+
+function renderEffectPass(
+  ctx: Context,
+  effect: Effect,
+  inputView: GPUTextureView,
+  sampler: GPUSampler,
+  outputView: GPUTextureView,
+): void {
+  const group0 = ctx.device.createBindGroup({
+    layout: effect.pipeline.getBindGroupLayout(0),
+    entries: [
+      { binding: 0, resource: inputView },
+      { binding: 1, resource: sampler },
+    ],
+  });
+  const loadOp: GPULoadOp = effect.blend ? "load" : "clear";
+  const encoder = ctx.device.createCommandEncoder();
+  const pass = encoder.beginRenderPass({
+    colorAttachments: [
+      {
+        view: outputView,
+        clearValue: { r: 0, g: 0, b: 0, a: 0 },
+        loadOp,
+        storeOp: "store",
+      },
+    ],
+  });
+  pass.setPipeline(effect.pipeline);
+  _recordPipelineSwitch(ctx);
+  pass.setBindGroup(0, group0);
+  _recordBindGroupSwitch(ctx);
+  if (effect.bindings && effect.bindings.length > 0) {
+    const group1 = ctx.device.createBindGroup({
+      layout: effect.pipeline.getBindGroupLayout(1),
+      entries: effect.bindings,
+    });
+    pass.setBindGroup(1, group1);
+    _recordBindGroupSwitch(ctx);
+  }
+  pass.draw(3);
+  _recordDraw(ctx, { triangles: 1 });
+  pass.end();
+  ctx.device.queue.submit([encoder.finish()]);
+}
+
+function runEffectsPingPong(
+  ctx: Context,
+  effects: readonly Effect[],
+  im: IntermediateEntry,
+): void {
+  let inputView = im.aView;
+  let outputView = im.bView;
+  for (let i = 0; i < effects.length - 1; i++) {
+    const effect = effects[i];
+    if (!effect) continue; // unreachable after validateEffects; satisfies noUncheckedIndexedAccess
+    renderEffectPass(ctx, effect, inputView, im.sampler, outputView);
+    [inputView, outputView] = [outputView, inputView];
+  }
+  const finalEffect = effects[effects.length - 1];
+  if (!finalEffect) return; // unreachable after validateEffects
+  const swapView = gpu.getCurrentTextureView(ctx);
+  renderEffectPass(ctx, finalEffect, inputView, im.sampler, swapView);
+}
+
+export function render(ctx: Context, opts: RenderOptions): void {
+  if (ctx._internal.disposed) {
+    throw new FurnaceGpuError("context disposed");
+  }
+  const effects = opts.effects ?? [];
+  if (effects.length > 0) validateEffects(ctx, effects);
+
+  const cameraBuffer = _ensureCameraBuffer(ctx, opts.camera);
+  const depth = _ensureDepthTexture(ctx);
+  const clearColor = opts.clearColor ?? DEFAULT_CLEAR_COLOR;
+  const clearDepth = opts.clearDepth ?? DEFAULT_CLEAR_DEPTH;
+
+  if (effects.length === 0) {
+    const colorView = gpu.getCurrentTextureView(ctx);
+    recordScenePass(
+      ctx,
+      colorView,
+      depth.view,
+      opts.draw,
+      cameraBuffer,
+      clearColor,
+      clearDepth,
+    );
+    return;
+  }
+
+  const im = _ensureSceneIntermediates(ctx);
+  recordScenePass(
+    ctx,
+    im.aView,
+    depth.view,
+    opts.draw,
+    cameraBuffer,
+    clearColor,
+    clearDepth,
+  );
+  runEffectsPingPong(ctx, effects, im);
 }
