@@ -26,8 +26,6 @@ const PLANE_BACKDROP_SIZE = 6;
 const PLANE_Z = -2;
 const CUBE_X = 1;
 const EMISSIVE_BUFFER_SIZE_BYTES = 16;
-const EMISSIVE_CUBE_X = -1.5;
-const EMISSIVE_CUBE_Y = 0.5;
 const EMISSIVE_COLOR_MAGENTA_PINK = new Float32Array([1.0, 0.3, 0.9, 1.0]);
 const BLOOM_BUFFER_SIZE_BYTES = 16;
 const BLOOM_THRESHOLD = 0.7;
@@ -154,10 +152,7 @@ async function main(): Promise<void> {
 
   mesh.setPosition(planeMesh, new Float32Array([0, 0, PLANE_Z]));
   mesh.setPosition(cubeMesh, new Float32Array([CUBE_X, 0, 0]));
-  mesh.setPosition(
-    emissiveMesh,
-    new Float32Array([EMISSIVE_CUBE_X, EMISSIVE_CUBE_Y, 0]),
-  );
+  mesh.setPosition(emissiveMesh, new Float32Array([-CUBE_X, 0, 0]));
 
   gpu.onResize(ctx, ({ width, height }) => {
     camera.setAspect(cam, width / height);
@@ -209,6 +204,7 @@ async function main(): Promise<void> {
       0,
     );
     mesh.setRotation(cubeMesh, rotation);
+    mesh.setRotation(emissiveMesh, rotation);
 
     frame.render(ctx, {
       draw: [planeMesh, cubeMesh, emissiveMesh, sdfMesh],
