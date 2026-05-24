@@ -4,11 +4,13 @@ import * as gpu from "@furnace/core/gpu";
 import * as input from "@furnace/core/input";
 import * as material from "@furnace/core/material";
 import * as mesh from "@furnace/core/mesh";
+import * as post from "@furnace/core/post";
 import { quat, vec3 } from "@furnace/core/transform";
 import {
   add,
   ready as demoWasmReady,
 } from "../plugins/demo-wasm/pkg/demo_wasm";
+import bloomShaderUrl from "./bloom.wgsl";
 import emissiveShaderUrl from "./emissive.wgsl";
 import { mountFpsOverlay } from "./overlay/mount.ts";
 import { subscribeOverlay } from "./overlay/state.svelte.ts";
@@ -27,6 +29,10 @@ const EMISSIVE_BUFFER_SIZE_BYTES = 16;
 const EMISSIVE_CUBE_X = -1.5;
 const EMISSIVE_CUBE_Y = 0.5;
 const EMISSIVE_COLOR_MAGENTA_PINK = new Float32Array([1.0, 0.3, 0.9, 1.0]);
+const BLOOM_BUFFER_SIZE_BYTES = 16;
+const BLOOM_THRESHOLD = 0.7;
+const BLOOM_INTENSITY = 1.5;
+const BLOOM_RADIUS = 0.004;
 
 const sdfTriangle = async (ctx: gpu.Context) => {
   const shaderResponse = await fetch(shaderUrl);
@@ -86,6 +92,31 @@ const emissiveCube = async (ctx: gpu.Context) => {
   return mesh.cube(ctx, { material: emissiveMat });
 };
 
+const createBloomEffect = async (ctx: gpu.Context): Promise<post.Effect> => {
+  const shaderResponse = await fetch(bloomShaderUrl);
+  if (!shaderResponse.ok) {
+    throw new Error(
+      `Couldn't load bloom shader (HTTP ${shaderResponse.status})`,
+    );
+  }
+  const shaderSource = await shaderResponse.text();
+
+  const paramsBuffer = ctx.device.createBuffer({
+    size: BLOOM_BUFFER_SIZE_BYTES,
+    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+  });
+  ctx.queue.writeBuffer(
+    paramsBuffer,
+    0,
+    new Float32Array([BLOOM_THRESHOLD, BLOOM_INTENSITY, BLOOM_RADIUS, 0]),
+  );
+
+  return post.create(ctx, {
+    shader: shaderSource,
+    bindings: [{ binding: 0, resource: { buffer: paramsBuffer } }],
+  });
+};
+
 async function main(): Promise<void> {
   await demoWasmReady;
   console.log("demo-wasm: 2 + 3 =", add(2, 3));
@@ -119,6 +150,7 @@ async function main(): Promise<void> {
     size: PLANE_BACKDROP_SIZE,
   });
   const emissiveMesh = await emissiveCube(ctx);
+  const bloom = await createBloomEffect(ctx);
 
   mesh.setPosition(planeMesh, new Float32Array([0, 0, PLANE_Z]));
   mesh.setPosition(cubeMesh, new Float32Array([CUBE_X, 0, 0]));
@@ -181,6 +213,7 @@ async function main(): Promise<void> {
     frame.render(ctx, {
       draw: [planeMesh, cubeMesh, emissiveMesh, sdfMesh],
       camera: cam,
+      effects: [bloom],
       clearColor: [0.05, 0.05, 0.07, 1],
     });
   });
