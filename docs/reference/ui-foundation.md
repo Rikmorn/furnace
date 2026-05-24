@@ -18,7 +18,7 @@ The reference integration lives in `packages/hello-world/src/overlay/`:
 - `state.svelte.ts` — `$state` declaration plus the engine subscription that writes into it.
 - `mount.ts` — wraps `mount()` / `unmount()` so the consumer doesn't import Svelte's runtime directly.
 
-`@furnace/core` exposes the engine-side primitive (`createFpsSystem`) that the overlay subscribes to. The consumer owns the Svelte side.
+`@furnace/core` exposes the engine-side primitive (`stats.onFrame(ctx, fn)`) that the overlay subscribes to — each snapshot carries frame timing, GPU counters, resource counts, and memory totals. The consumer owns the Svelte side.
 
 ## Screen-space DOM UI
 
