@@ -26,7 +26,7 @@ const PLANE_BACKDROP_SIZE = 6;
 const PLANE_Z = -2;
 const CUBE_X = 1;
 const EMISSIVE_BUFFER_SIZE_BYTES = 16;
-const EMISSIVE_COLOR_MAGENTA_PINK = new Float32Array([1.0, 0.3, 0.9, 1.0]);
+const EMISSIVE_COLOR_HOT_PINK = new Float32Array([1.0, 0.8, 1.0, 1.0]);
 const BLOOM_BUFFER_SIZE_BYTES = 16;
 const BLOOM_THRESHOLD = 0.7;
 const BLOOM_INTENSITY = 1.5;
@@ -79,7 +79,7 @@ const emissiveCube = async (ctx: gpu.Context) => {
     size: EMISSIVE_BUFFER_SIZE_BYTES,
     usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
   });
-  ctx.queue.writeBuffer(emissiveBuffer, 0, EMISSIVE_COLOR_MAGENTA_PINK);
+  ctx.queue.writeBuffer(emissiveBuffer, 0, EMISSIVE_COLOR_HOT_PINK);
 
   const emissiveMat = await material.create(ctx, {
     vertex: shaderSource,
