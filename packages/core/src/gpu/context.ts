@@ -1,3 +1,4 @@
+import { createStatsState, type StatsState } from "../stats/state.ts";
 import type { Context } from "./context-types.ts";
 import { FurnaceGpuError } from "./errors.ts";
 import { markDisposed } from "./internal.ts";
@@ -12,6 +13,7 @@ export type RequestContextOptions = {
 // while letting the same module that wrote them read them back via a localised cast.
 type InternalWithCanvasCtx = {
   disposed: boolean;
+  stats: StatsState;
   canvasContext: GPUCanvasContext;
   viewFormat: GPUTextureFormat;
 };
@@ -63,6 +65,7 @@ export async function requestContext(
 
   const internal: InternalWithCanvasCtx = {
     disposed: false,
+    stats: createStatsState(performance.now()),
     canvasContext,
     viewFormat,
   };

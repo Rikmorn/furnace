@@ -1,14 +1,16 @@
 // Engine-private state carried inside Context._internal.
 // Only the gpu module's own internals construct or read these fields.
 
+import { createStatsState, type StatsState } from "../stats/state.ts";
+
 export type InternalState = {
   disposed: boolean;
-  // More fields added as modules need them (pipeline cache, resource registry, etc.).
+  stats: StatsState;
 };
 
 // Constructors used only inside core. Not exported via gpu/index.ts.
 export function createInternalState(): InternalState {
-  return { disposed: false };
+  return { disposed: false, stats: createStatsState(performance.now()) };
 }
 
 export function markDisposed(internal: InternalState): void {
