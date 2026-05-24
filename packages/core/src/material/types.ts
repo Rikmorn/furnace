@@ -1,4 +1,5 @@
 import type { Context } from "../gpu/index.ts";
+import type { ResourceHandle } from "../stats/internal.ts";
 
 export type MaterialDescriptor = {
   vertex: string;
@@ -16,6 +17,8 @@ export type Material = {
   pipelineKey: string;
   group1: GPUBindGroup | null;
   ownedBuffers: GPUBuffer[];
+  ownedBufferHandles: ResourceHandle[];
+  _materialHandle: ResourceHandle;
   cullMode: GPUCullMode;
   topology: GPUPrimitiveTopology;
   depthWrite: boolean;

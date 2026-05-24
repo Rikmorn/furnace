@@ -10,7 +10,7 @@ import {
   ready as demoWasmReady,
 } from "../plugins/demo-wasm/pkg/demo_wasm";
 import { mountFpsOverlay } from "./overlay/mount.ts";
-import { fpsSystem } from "./overlay/state.svelte.ts";
+import { subscribeOverlay } from "./overlay/state.svelte.ts";
 import shaderUrl from "./triangle.wgsl";
 
 const MOVE_SPEED_WORLD_PER_SEC = 1.5;
@@ -97,6 +97,7 @@ async function main(): Promise<void> {
 
   input.attach(canvas);
   mountFpsOverlay(uiRoot);
+  subscribeOverlay(ctx);
 
   // const pos = { x: 0, y: 0 };
   const rotation = quat.create();
@@ -104,8 +105,6 @@ async function main(): Promise<void> {
   const sdfPosition = vec3.fromValues(0, 0, 0);
 
   frame.loop(ctx, ({ deltaMs, elapsedMs }) => {
-    fpsSystem.frame();
-
     const dt = deltaMs / 1000;
     let dx = 0;
     let dy = 0;

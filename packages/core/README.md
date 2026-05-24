@@ -16,7 +16,7 @@ Five sub-path modules under `@furnace/core`:
 - `@furnace/core/frame` — `loop` (variable-timestep RAF wrapper), `fixedLoop` (Fix-Your-Timestep accumulator), `encode` (command-encoder helper with auto-submit).
 - `@furnace/core/transform` — `vec3`, `vec4`, `quat`, `mat4` math namespaces with out-parameter API; `Float32Array`-backed and column-major.
 - `@furnace/core/events` — `createEmitter` typed emitter primitive (snapshot semantics; removed-mid-emit listeners don't fire).
-- `@furnace/core/stats` — `createFpsSystem`, `computeFps` (frame-rate measurement with a subscribe API).
+- `@furnace/core/stats` — `snapshot`, `onFrame`, `get` (engine-wide instrumentation: frame timing, GPU draw/triangle/pipeline counts, resource counts, memory estimate); custom metrics via `gauge`, `increment`, `measure`.
 
 Engine-wide conventions (coordinate system, color space, time, disposal) live in `docs/reference/engine-conventions.md`.
 

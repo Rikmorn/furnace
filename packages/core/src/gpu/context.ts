@@ -1,3 +1,5 @@
+import { _recordUncapturedError } from "../stats/internal.ts";
+import { createStatsState, type StatsState } from "../stats/state.ts";
 import type { Context } from "./context-types.ts";
 import { FurnaceGpuError } from "./errors.ts";
 import { markDisposed } from "./internal.ts";
@@ -12,6 +14,7 @@ export type RequestContextOptions = {
 // while letting the same module that wrote them read them back via a localised cast.
 type InternalWithCanvasCtx = {
   disposed: boolean;
+  stats: StatsState;
   canvasContext: GPUCanvasContext;
   viewFormat: GPUTextureFormat;
 };
@@ -63,11 +66,12 @@ export async function requestContext(
 
   const internal: InternalWithCanvasCtx = {
     disposed: false,
+    stats: createStatsState(performance.now()),
     canvasContext,
     viewFormat,
   };
 
-  return Object.freeze({
+  const ctx = Object.freeze({
     device,
     queue: device.queue,
     format: viewFormat,
@@ -75,10 +79,26 @@ export async function requestContext(
     pixelRatio: dpr,
     _internal: internal,
   });
+
+  device.addEventListener("uncapturederror", (e) => {
+    // Boundary cast: DOM addEventListener types the event as `Event`; the
+    // "uncapturederror" name guarantees a GPUUncapturedErrorEvent at runtime.
+    const evt = e as GPUUncapturedErrorEvent;
+    _recordUncapturedError(ctx);
+    console.error("[furnace/gpu] uncaptured device error:", evt.error.message);
+  });
+
+  return ctx;
 }
 
 export function dispose(ctx: Context): void {
   if (ctx._internal.disposed) return;
+  const remaining = ctx._internal.stats.resources.entries.size;
+  if (remaining > 0) {
+    console.warn(
+      `[furnace/gpu] context disposed with ${remaining} resource(s) still registered — leak suspected`,
+    );
+  }
   markDisposed(ctx._internal);
   try {
     ctx.device.destroy();

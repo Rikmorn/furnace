@@ -124,6 +124,16 @@ they just don't fire until DOM listeners are installed.
   is unaffected; embedded consumers need the future config option tracked in
   `input-prevent-default-config.md`.
 
+## Instrumentation
+
+`@furnace/core/stats` is the single source of truth for engine-wide metrics. Other modules in core call underscore-prefixed `stats._*` hooks (`_frameStart`, `_recordDraw`, `_registerResource`, `_recordEmission`, etc.) to feed snapshots. This is the one documented exception to the no-cross-module-imports rule (master spec § 3).
+
+Consumers observe via `stats.snapshot(ctx)`, `stats.onFrame(ctx, fn)`, or `stats.get(ctx, path)` (type-safe dotted-path). Custom metrics via `stats.gauge`, `stats.increment`, `stats.measure`.
+
+Failure policy: setup operations (`stats.onFrame`) throw on disposed ctx; runtime reads return zero/null defaults; runtime writes silently no-op on disposed and `console.warn` on bad inputs. Functions wrapping consumer code (`stats.measure`) record what they can and re-throw consumer errors.
+
+Full spec: `docs/superpowers/specs/2026-05-24-core-tranche-5-stats-expansion-design.md`.
+
 ## References
 
 - Master architecture spec: `docs/superpowers/specs/2026-05-21-core-architecture-design.md` (gitignored — local design history)

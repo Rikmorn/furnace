@@ -16,6 +16,8 @@ export type Geometry = {
   indexBuffer: GPUBuffer | null;
   indexFormat: GPUIndexFormat | null;
   indexCount: number;
+  // (indexCount || vertexCount) / 3 — assumes triangle-list topology.
+  triangleCount: number;
 };
 
 export type Mesh = {
@@ -28,7 +30,4 @@ export type Mesh = {
   modelMatrix: Mat4;
   transformDirty: boolean;
   objectBuffer: GPUBuffer;
-  // Cached group-0 bind group per (pipeline, mesh). Rebuilt if material changes (out of scope).
-  group0: GPUBindGroup | null;
-  group0Pipeline: GPURenderPipeline | null;
 };

@@ -45,7 +45,7 @@ function ensureResizeWiring(
 ): Emitter<ResizeEvent> {
   if (internal.resizeEmitter) return internal.resizeEmitter;
 
-  const emitter = createEmitter<ResizeEvent>();
+  const emitter = createEmitter<ResizeEvent>(ctx, "gpu.onResize");
   internal.resizeEmitter = emitter;
   internal.resizeObserver = new ResizeObserver((entries) => {
     for (const entry of entries) {

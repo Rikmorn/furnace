@@ -1,4 +1,5 @@
 import type { Context } from "../gpu/index.ts";
+import { _registerResource } from "../stats/internal.ts";
 import { create } from "./material.ts";
 import type { Material } from "./types.ts";
 
@@ -38,12 +39,16 @@ export async function unlit(
     usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
   });
   ctx.queue.writeBuffer(colorBuffer, 0, new Float32Array(opts.color));
+  const colorBufferHandle = _registerResource(ctx, {
+    kind: "buffer",
+    bytes: COLOR_BUFFER_SIZE_BYTES,
+  });
   const mat = await create(ctx, {
     vertex: UNLIT_WGSL,
     fragment: UNLIT_WGSL,
     bindings: [{ binding: 0, resource: { buffer: colorBuffer } }],
   });
-  // Engine-owned: material.destroy (Task 6) will release this buffer.
   mat.ownedBuffers.push(colorBuffer);
+  mat.ownedBufferHandles.push(colorBufferHandle);
   return mat;
 }

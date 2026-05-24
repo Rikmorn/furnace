@@ -5,6 +5,14 @@ import type { Context } from "../gpu/index.ts";
 import * as gpu from "../gpu/index.ts";
 import { _recomputeModelIfDirty } from "../mesh/mesh.ts";
 import type { Mesh } from "../mesh/types.ts";
+import {
+  _recordBindGroupSwitch,
+  _recordDraw,
+  _recordPipelineSwitch,
+  _registerResource,
+  _unregisterResource,
+  type ResourceHandle,
+} from "../stats/internal.ts";
 
 const CAMERA_UNIFORM_SIZE = 64; // one mat4x4<f32>
 
@@ -16,7 +24,9 @@ type DepthEntry = {
 };
 
 const depthByCtx = new WeakMap<Context, DepthEntry>();
+const depthHandleByCtx = new WeakMap<Context, ResourceHandle>();
 const cameraBuffers = new WeakMap<Context, Map<Camera, GPUBuffer>>();
+const cameraBufferHandles = new WeakMap<Context, Map<Camera, ResourceHandle>>();
 
 function _ensureDepthTexture(ctx: Context): DepthEntry {
   const existing = depthByCtx.get(ctx);
@@ -25,12 +35,21 @@ function _ensureDepthTexture(ctx: Context): DepthEntry {
   if (existing && existing.width === width && existing.height === height) {
     return existing;
   }
-  if (existing) existing.texture.destroy();
+  if (existing) {
+    existing.texture.destroy();
+    const oldHandle = depthHandleByCtx.get(ctx);
+    if (oldHandle) _unregisterResource(ctx, oldHandle);
+  }
   const texture = ctx.device.createTexture({
     size: { width, height },
     format: "depth24plus",
     usage: GPUTextureUsage.RENDER_ATTACHMENT,
   });
+  const handle = _registerResource(ctx, {
+    kind: "texture",
+    bytes: width * height * 4,
+  });
+  depthHandleByCtx.set(ctx, handle);
   const entry: DepthEntry = {
     texture,
     view: texture.createView(),
@@ -54,6 +73,15 @@ function _ensureCameraBuffer(ctx: Context, cam: Camera): GPUBuffer {
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
     perCam.set(cam, buffer);
+    let handles = cameraBufferHandles.get(ctx);
+    if (!handles) {
+      handles = new Map();
+      cameraBufferHandles.set(ctx, handles);
+    }
+    handles.set(
+      cam,
+      _registerResource(ctx, { kind: "buffer", bytes: CAMERA_UNIFORM_SIZE }),
+    );
   }
   const matrices = camera.getMatrices(cam);
   ctx.queue.writeBuffer(buffer, 0, matrices.viewProjection);
@@ -137,20 +165,30 @@ function recordDraw(
   ctx: Context,
   mesh: Mesh,
   cameraBuffer: GPUBuffer,
-): void {
+  lastPipeline: GPURenderPipeline | null,
+): GPURenderPipeline {
   _recomputeModelIfDirty(mesh);
   const pipeline = mesh.material.pipeline;
   pass.setPipeline(pipeline);
+  if (pipeline !== lastPipeline) {
+    _recordPipelineSwitch(ctx);
+  }
   pass.setBindGroup(0, ensureGroup0(ctx, mesh, pipeline, cameraBuffer));
-  if (mesh.material.group1) pass.setBindGroup(1, mesh.material.group1);
+  _recordBindGroupSwitch(ctx);
+  if (mesh.material.group1) {
+    pass.setBindGroup(1, mesh.material.group1);
+    _recordBindGroupSwitch(ctx);
+  }
   pass.setVertexBuffer(0, mesh.geometry.vertexBuffer);
   const { indexBuffer, indexFormat, indexCount, vertexCount } = mesh.geometry;
   if (indexBuffer && indexFormat) {
     pass.setIndexBuffer(indexBuffer, indexFormat);
     pass.drawIndexed(indexCount);
-    return;
+  } else {
+    pass.draw(vertexCount);
   }
-  pass.draw(vertexCount);
+  _recordDraw(ctx, { triangles: mesh.geometry.triangleCount });
+  return pipeline;
 }
 
 export function render(ctx: Context, opts: RenderOptions): void {
@@ -172,8 +210,9 @@ export function render(ctx: Context, opts: RenderOptions): void {
     clearDepth,
   );
 
+  let lastPipeline: GPURenderPipeline | null = null;
   for (const mesh of opts.draw) {
-    recordDraw(pass, ctx, mesh, cameraBuffer);
+    lastPipeline = recordDraw(pass, ctx, mesh, cameraBuffer, lastPipeline);
   }
 
   pass.end();
