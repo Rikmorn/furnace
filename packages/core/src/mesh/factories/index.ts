@@ -1,2 +1,2 @@
-export { cube,  } from "./cube";
+export { cube } from "./cube";
 export { plane } from "./plane";
