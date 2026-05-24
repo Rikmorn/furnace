@@ -93,6 +93,12 @@ export async function requestContext(
 
 export function dispose(ctx: Context): void {
   if (ctx._internal.disposed) return;
+  const remaining = ctx._internal.stats.resources.entries.size;
+  if (remaining > 0) {
+    console.warn(
+      `[furnace/gpu] context disposed with ${remaining} resource(s) still registered — leak suspected`,
+    );
+  }
   markDisposed(ctx._internal);
   try {
     ctx.device.destroy();
