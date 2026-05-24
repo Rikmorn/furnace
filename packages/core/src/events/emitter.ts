@@ -1,3 +1,6 @@
+import type { Context } from "../gpu/context-types.ts";
+import { _recordEmission } from "../stats/internal.ts";
+
 export type Emitter<T> = Readonly<{
   on(listener: (data: T) => void): () => void;
   emit(data: T): void;
@@ -5,7 +8,10 @@ export type Emitter<T> = Readonly<{
   readonly listenerCount: number;
 }>;
 
-export function createEmitter<T = void>(): Emitter<T> {
+export function createEmitter<T = void>(
+  ctx?: Context,
+  name?: string,
+): Emitter<T> {
   const listeners = new Set<(data: T) => void>();
   return Object.freeze({
     on(listener: (data: T) => void): () => void {
@@ -15,6 +21,11 @@ export function createEmitter<T = void>(): Emitter<T> {
       };
     },
     emit(data: T): void {
+      // Inline narrowing: TS narrows ctx → Context and name → string inside the
+      // if-block; a hoisted boolean would not carry the narrowing into this closure.
+      if (ctx !== undefined && name !== undefined && name.length > 0) {
+        _recordEmission(ctx, name);
+      }
       // Snapshot before iterating so adds-during-emit don't fire this round.
       const snapshot = Array.from(listeners);
       // Track removals-during-emit so removed listeners don't fire either.
