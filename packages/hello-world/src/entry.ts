@@ -9,6 +9,7 @@ import {
   add,
   ready as demoWasmReady,
 } from "../plugins/demo-wasm/pkg/demo_wasm";
+import emissiveShaderUrl from "./emissive.wgsl";
 import { mountFpsOverlay } from "./overlay/mount.ts";
 import { subscribeOverlay } from "./overlay/state.svelte.ts";
 import shaderUrl from "./triangle.wgsl";
@@ -22,6 +23,10 @@ const CUBE_ROTATION_YAW_RATE = 0.0005;
 const PLANE_BACKDROP_SIZE = 6;
 const PLANE_Z = -2;
 const CUBE_X = 1;
+const EMISSIVE_BUFFER_SIZE_BYTES = 16;
+const EMISSIVE_CUBE_X = -1.5;
+const EMISSIVE_CUBE_Y = 0.5;
+const EMISSIVE_COLOR_MAGENTA_PINK = new Float32Array([1.0, 0.3, 0.9, 1.0]);
 
 const sdfTriangle = async (ctx: gpu.Context) => {
   const shaderResponse = await fetch(shaderUrl);
@@ -53,6 +58,30 @@ const sdfTriangle = async (ctx: gpu.Context) => {
   });
 
   return mesh.create(ctx, { geometry: sdfGeo, material: sdfMat });
+};
+
+const emissiveCube = async (ctx: gpu.Context) => {
+  const shaderResponse = await fetch(emissiveShaderUrl);
+  if (!shaderResponse.ok) {
+    throw new Error(
+      `Couldn't load emissive shader (HTTP ${shaderResponse.status})`,
+    );
+  }
+  const shaderSource = await shaderResponse.text();
+
+  const emissiveBuffer = ctx.device.createBuffer({
+    size: EMISSIVE_BUFFER_SIZE_BYTES,
+    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+  });
+  ctx.queue.writeBuffer(emissiveBuffer, 0, EMISSIVE_COLOR_MAGENTA_PINK);
+
+  const emissiveMat = await material.create(ctx, {
+    vertex: shaderSource,
+    fragment: shaderSource,
+    bindings: [{ binding: 0, resource: { buffer: emissiveBuffer } }],
+  });
+
+  return mesh.cube(ctx, { material: emissiveMat });
 };
 
 async function main(): Promise<void> {
@@ -87,9 +116,14 @@ async function main(): Promise<void> {
     material: planeMat,
     size: PLANE_BACKDROP_SIZE,
   });
+  const emissiveMesh = await emissiveCube(ctx);
 
   mesh.setPosition(planeMesh, new Float32Array([0, 0, PLANE_Z]));
   mesh.setPosition(cubeMesh, new Float32Array([CUBE_X, 0, 0]));
+  mesh.setPosition(
+    emissiveMesh,
+    new Float32Array([EMISSIVE_CUBE_X, EMISSIVE_CUBE_Y, 0]),
+  );
 
   gpu.onResize(ctx, ({ width, height }) => {
     camera.setAspect(cam, width / height);
@@ -143,7 +177,7 @@ async function main(): Promise<void> {
     mesh.setRotation(cubeMesh, rotation);
 
     frame.render(ctx, {
-      draw: [planeMesh, cubeMesh, sdfMesh],
+      draw: [planeMesh, cubeMesh, emissiveMesh, sdfMesh],
       camera: cam,
       clearColor: [0.05, 0.05, 0.07, 1],
     });
