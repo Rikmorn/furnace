@@ -39,6 +39,20 @@ function hashKey(parts: readonly string[]): string {
   return hash.toString(16);
 }
 
+export function _blendSignature(blend: GPUBlendState | undefined): string {
+  if (!blend) return "none";
+  const color = blend.color;
+  const alpha = blend.alpha;
+  return [
+    color.srcFactor ?? "one",
+    color.dstFactor ?? "zero",
+    color.operation ?? "add",
+    alpha.srcFactor ?? "one",
+    alpha.dstFactor ?? "zero",
+    alpha.operation ?? "add",
+  ].join("|");
+}
+
 function buildPipelineDescriptor(
   ctx: Context,
   descriptor: MaterialDescriptor,
@@ -46,6 +60,7 @@ function buildPipelineDescriptor(
   topology: GPUPrimitiveTopology,
   depthWrite: boolean,
   depthCompare: GPUCompareFunction,
+  blend: GPUBlendState | undefined,
 ): GPURenderPipelineDescriptor {
   const vsModule = ctx.device.createShaderModule({ code: descriptor.vertex });
   const fsModule = ctx.device.createShaderModule({ code: descriptor.fragment });
@@ -59,7 +74,7 @@ function buildPipelineDescriptor(
     fragment: {
       module: fsModule,
       entryPoint: "fs_main",
-      targets: [{ format: ctx.format }],
+      targets: [{ format: ctx.format, blend }],
     },
     primitive: { topology, cullMode },
     depthStencil: {
@@ -121,6 +136,7 @@ export async function create(
     String(depthWrite),
     depthCompare,
     ctx.format,
+    _blendSignature(descriptor.blend),
   ]);
 
   const build = async (): Promise<GPURenderPipeline> => {
@@ -132,6 +148,7 @@ export async function create(
       topology,
       depthWrite,
       depthCompare,
+      descriptor.blend,
     );
     const pipeline = ctx.device.createRenderPipeline(pipelineDescriptor);
     const err = await ctx.device.popErrorScope();

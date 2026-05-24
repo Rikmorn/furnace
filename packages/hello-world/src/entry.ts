@@ -4,11 +4,14 @@ import * as gpu from "@furnace/core/gpu";
 import * as input from "@furnace/core/input";
 import * as material from "@furnace/core/material";
 import * as mesh from "@furnace/core/mesh";
+import * as post from "@furnace/core/post";
 import { quat, vec3 } from "@furnace/core/transform";
 import {
   add,
   ready as demoWasmReady,
 } from "../plugins/demo-wasm/pkg/demo_wasm";
+import bloomShaderUrl from "./bloom.wgsl";
+import emissiveShaderUrl from "./emissive.wgsl";
 import { mountFpsOverlay } from "./overlay/mount.ts";
 import { subscribeOverlay } from "./overlay/state.svelte.ts";
 import shaderUrl from "./triangle.wgsl";
@@ -22,6 +25,14 @@ const CUBE_ROTATION_YAW_RATE = 0.0005;
 const PLANE_BACKDROP_SIZE = 6;
 const PLANE_Z = -2;
 const CUBE_X = 1;
+const EMISSIVE_BUFFER_SIZE_BYTES = 16;
+const EMISSIVE_CUBE_X = -1.5;
+const EMISSIVE_CUBE_Y = 0.5;
+const EMISSIVE_COLOR_MAGENTA_PINK = new Float32Array([1.0, 0.3, 0.9, 1.0]);
+const BLOOM_BUFFER_SIZE_BYTES = 16;
+const BLOOM_THRESHOLD = 0.7;
+const BLOOM_INTENSITY = 1.5;
+const BLOOM_RADIUS = 0.004;
 
 const sdfTriangle = async (ctx: gpu.Context) => {
   const shaderResponse = await fetch(shaderUrl);
@@ -43,6 +54,8 @@ const sdfTriangle = async (ctx: gpu.Context) => {
     fragment: shaderSource,
     bindings: [{ binding: 0, resource: { buffer: haloBuffer } }],
     cullMode: "none",
+    blend: material.PREMULTIPLIED_ALPHA_BLEND,
+    depthWrite: false,
   });
 
   // Meshes. The SDF triangle uses a covering quad in world space; the cube and plane use built-ins.
@@ -53,6 +66,55 @@ const sdfTriangle = async (ctx: gpu.Context) => {
   });
 
   return mesh.create(ctx, { geometry: sdfGeo, material: sdfMat });
+};
+
+const emissiveCube = async (ctx: gpu.Context) => {
+  const shaderResponse = await fetch(emissiveShaderUrl);
+  if (!shaderResponse.ok) {
+    throw new Error(
+      `Couldn't load emissive shader (HTTP ${shaderResponse.status})`,
+    );
+  }
+  const shaderSource = await shaderResponse.text();
+
+  const emissiveBuffer = ctx.device.createBuffer({
+    size: EMISSIVE_BUFFER_SIZE_BYTES,
+    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+  });
+  ctx.queue.writeBuffer(emissiveBuffer, 0, EMISSIVE_COLOR_MAGENTA_PINK);
+
+  const emissiveMat = await material.create(ctx, {
+    vertex: shaderSource,
+    fragment: shaderSource,
+    bindings: [{ binding: 0, resource: { buffer: emissiveBuffer } }],
+  });
+
+  return mesh.cube(ctx, { material: emissiveMat });
+};
+
+const createBloomEffect = async (ctx: gpu.Context): Promise<post.Effect> => {
+  const shaderResponse = await fetch(bloomShaderUrl);
+  if (!shaderResponse.ok) {
+    throw new Error(
+      `Couldn't load bloom shader (HTTP ${shaderResponse.status})`,
+    );
+  }
+  const shaderSource = await shaderResponse.text();
+
+  const paramsBuffer = ctx.device.createBuffer({
+    size: BLOOM_BUFFER_SIZE_BYTES,
+    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+  });
+  ctx.queue.writeBuffer(
+    paramsBuffer,
+    0,
+    new Float32Array([BLOOM_THRESHOLD, BLOOM_INTENSITY, BLOOM_RADIUS, 0]),
+  );
+
+  return post.create(ctx, {
+    shader: shaderSource,
+    bindings: [{ binding: 0, resource: { buffer: paramsBuffer } }],
+  });
 };
 
 async function main(): Promise<void> {
@@ -87,9 +149,15 @@ async function main(): Promise<void> {
     material: planeMat,
     size: PLANE_BACKDROP_SIZE,
   });
+  const emissiveMesh = await emissiveCube(ctx);
+  const bloom = await createBloomEffect(ctx);
 
   mesh.setPosition(planeMesh, new Float32Array([0, 0, PLANE_Z]));
   mesh.setPosition(cubeMesh, new Float32Array([CUBE_X, 0, 0]));
+  mesh.setPosition(
+    emissiveMesh,
+    new Float32Array([EMISSIVE_CUBE_X, EMISSIVE_CUBE_Y, 0]),
+  );
 
   gpu.onResize(ctx, ({ width, height }) => {
     camera.setAspect(cam, width / height);
@@ -143,8 +211,9 @@ async function main(): Promise<void> {
     mesh.setRotation(cubeMesh, rotation);
 
     frame.render(ctx, {
-      draw: [planeMesh, cubeMesh, sdfMesh],
+      draw: [planeMesh, cubeMesh, emissiveMesh, sdfMesh],
       camera: cam,
+      effects: [bloom],
       clearColor: [0.05, 0.05, 0.07, 1],
     });
   });

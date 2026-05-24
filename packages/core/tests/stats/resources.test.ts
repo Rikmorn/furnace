@@ -67,3 +67,19 @@ test("registerResource: multiple registrations accumulate correctly", () => {
   expect(r.memory.textureBytes).toBe(4096);
   expect(r.entries.size).toBe(6);
 });
+
+test("registerResource('effect') increments counts.effects", () => {
+  const r = createResourceRegistry();
+  const h = registerResource(r, { kind: "effect" });
+  expect(r.counts.effects).toBe(1);
+  expect(h.kind).toBe("effect");
+  expect(h.bytes).toBe(0);
+});
+
+test("unregisterResource removes effect handle and decrements counts.effects", () => {
+  const r = createResourceRegistry();
+  const h = registerResource(r, { kind: "effect" });
+  unregisterResource(r, h);
+  expect(r.counts.effects).toBe(0);
+  expect(r.entries.has(h)).toBe(false);
+});

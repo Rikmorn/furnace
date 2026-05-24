@@ -12,7 +12,12 @@ export type Snapshot = Readonly<{
     renderMs: number | null;
     computeMs: number | null;
   };
-  resources: { meshes: number; materials: number; geometries: number };
+  resources: {
+    meshes: number;
+    materials: number;
+    geometries: number;
+    effects: number;
+  };
   events: { perEmitter: Record<string, number> };
   memory: { bufferBytes: number; textureBytes: number; total: number };
   custom: Record<string, number>;

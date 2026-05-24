@@ -1,3 +1,4 @@
+export { ADDITIVE_BLEND, PREMULTIPLIED_ALPHA_BLEND } from "./blend.ts";
 export { create, destroy } from "./material.ts";
 export { normalColor } from "./normal-color.ts";
 export { createPipeline } from "./pipeline.ts";

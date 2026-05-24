@@ -4,7 +4,7 @@
 
 Likely shape: `frame.render(ctx, { passes: [{ camera: cam1, draw: [...], viewport: { x, y, w, h } }, { camera: cam2, draw: [...], viewport: { ... } }], effects: [...] })`. Or a `multiRender` variant that takes an array of camera+draw pairings.
 
-Related to `render-to-texture.md` — rendering one camera's view into a texture (for the mini-map case) requires offscreen render targets, which is its own design area.
+Rendering one camera's view into a texture (for the mini-map case) uses `frame.renderToTexture` (shipped in tranche 6); a multi-camera API would need to compose those offscreen passes with the swapchain pass.
 
 Open design questions: how do post-effects compose across multiple cameras (per-pass effects? final composite after all passes?); how are depth buffers shared or separated; whether multi-camera implies multi-uniform-buffer or one giant frame uniform with per-pass slices.
 

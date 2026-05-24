@@ -12,3 +12,7 @@ export {
   loop,
 } from "./loop.ts";
 export { type ClearColor, type RenderOptions, render } from "./render.ts";
+export {
+  type RenderToTextureOptions,
+  renderToTexture,
+} from "./render-to-texture.ts";

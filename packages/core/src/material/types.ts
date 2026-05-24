@@ -9,6 +9,7 @@ export type MaterialDescriptor = {
   topology?: GPUPrimitiveTopology;
   depthWrite?: boolean;
   depthCompare?: GPUCompareFunction;
+  blend?: GPUBlendState;
 };
 
 export type Material = {
