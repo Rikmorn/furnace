@@ -1,5 +1,6 @@
 import type { Context } from "../gpu/context-types.ts";
 import { FurnaceGpuError } from "../gpu/errors.ts";
+import { _frameEnd, _frameStart } from "../stats/internal.ts";
 
 export type FrameInfo = Readonly<{
   elapsedMs: number;
@@ -45,7 +46,9 @@ export function loop(
     const rawDelta = lastFrameTime == null ? 0 : timestampMs - lastFrameTime;
     const deltaMs = Math.min(rawDelta, maxDeltaMs);
     lastFrameTime = timestampMs;
+    _frameStart(ctx);
     onFrame({ elapsedMs, deltaMs });
+    _frameEnd(ctx);
     if (!stopped && !paused) {
       rafId = requestAnimationFrame(tick);
     }
