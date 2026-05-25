@@ -75,7 +75,11 @@ type SceneRef = {
   cam: Camera;
 };
 
-function buildGridData(subdiv: number, amplitude: number): GeometryData {
+function buildGridData(
+  subdiv: number,
+  amplitude: number,
+  topology: Topology,
+): GeometryData {
   const stride = subdiv + 1;
   const vertexCount = stride * stride;
   const positions = new Float32Array(vertexCount * 3);
@@ -91,22 +95,51 @@ function buildGridData(subdiv: number, amplitude: number): GeometryData {
       const z = v * GRID_FULL_EXTENT - GRID_HALF_EXTENT;
       const y =
         Math.sin(u * WAVE_FREQUENCY) * Math.cos(v * WAVE_FREQUENCY) * amplitude;
+
+      // Analytical normal from cross(tangent_v, tangent_u); orientation chosen so n=(0,1,0) at amplitude=0.
+      const dydu =
+        WAVE_FREQUENCY *
+        Math.cos(u * WAVE_FREQUENCY) *
+        Math.cos(v * WAVE_FREQUENCY) *
+        amplitude;
+      const dydv =
+        -WAVE_FREQUENCY *
+        Math.sin(u * WAVE_FREQUENCY) *
+        Math.sin(v * WAVE_FREQUENCY) *
+        amplitude;
+      const nx = -dydu * GRID_FULL_EXTENT;
+      const ny = GRID_FULL_EXTENT * GRID_FULL_EXTENT;
+      const nz = -dydv * GRID_FULL_EXTENT;
+      const len = Math.hypot(nx, ny, nz);
+
       positions[idx * 3 + 0] = x;
       positions[idx * 3 + 1] = y;
       positions[idx * 3 + 2] = z;
-      normals[idx * 3 + 0] = 0;
-      normals[idx * 3 + 1] = 1;
-      normals[idx * 3 + 2] = 0;
+      normals[idx * 3 + 0] = nx / len;
+      normals[idx * 3 + 1] = ny / len;
+      normals[idx * 3 + 2] = nz / len;
       uvs[idx * 2 + 0] = u;
       uvs[idx * 2 + 1] = v;
     }
   }
 
-  const indices = buildGridIndices(subdiv, stride);
-  return { positions, normals, uvs, indices };
+  const indices = buildIndicesFor(topology, subdiv, stride);
+  return indices !== undefined
+    ? { positions, normals, uvs, indices }
+    : { positions, normals, uvs };
 }
 
-function buildGridIndices(subdiv: number, stride: number): Uint32Array {
+function buildIndicesFor(
+  topology: Topology,
+  subdiv: number,
+  stride: number,
+): Uint32Array | undefined {
+  if (topology === "triangle-list") return buildTriangleIndices(subdiv, stride);
+  if (topology === "line-list") return buildWireframeIndices(subdiv, stride);
+  return undefined; // point-list: each vertex drawn once via non-indexed draw
+}
+
+function buildTriangleIndices(subdiv: number, stride: number): Uint32Array {
   const quadCount = subdiv * subdiv;
   const indices = new Uint32Array(quadCount * 6);
   let cursor = 0;
@@ -122,6 +155,38 @@ function buildGridIndices(subdiv: number, stride: number): Uint32Array {
       indices[cursor++] = b;
       indices[cursor++] = c;
       indices[cursor++] = d;
+    }
+  }
+  return indices;
+}
+
+function buildWireframeIndices(subdiv: number, stride: number): Uint32Array {
+  // Triangulation wireframe: every quad emits (a,b) top, (a,c) left, (b,c) diagonal.
+  // Boundary closure: last column emits (b,d) right; last row emits (c,d) bottom.
+  const interiorIndices = subdiv * subdiv * 6;
+  const boundaryIndices = subdiv * 4;
+  const indices = new Uint32Array(interiorIndices + boundaryIndices);
+  let cursor = 0;
+  for (let j = 0; j < subdiv; j++) {
+    for (let i = 0; i < subdiv; i++) {
+      const a = j * stride + i;
+      const b = a + 1;
+      const c = a + stride;
+      const d = c + 1;
+      indices[cursor++] = a;
+      indices[cursor++] = b;
+      indices[cursor++] = a;
+      indices[cursor++] = c;
+      indices[cursor++] = b;
+      indices[cursor++] = c;
+      if (i === subdiv - 1) {
+        indices[cursor++] = b;
+        indices[cursor++] = d;
+      }
+      if (j === subdiv - 1) {
+        indices[cursor++] = c;
+        indices[cursor++] = d;
+      }
     }
   }
   return indices;
@@ -145,7 +210,7 @@ async function buildScene(ctx: Context): Promise<SceneRef> {
   try {
     geometry = mesh.createGeometry(
       ctx,
-      buildGridData(state.subdiv, state.amplitude),
+      buildGridData(state.subdiv, state.amplitude, state.topology),
     );
     mat = await material.create(ctx, materialDescriptorFor(state.topology));
     const grid = mesh.create(ctx, { geometry, material: mat });
@@ -189,7 +254,7 @@ function makeRebuild(
     try {
       nextGeometry = mesh.createGeometry(
         ctx,
-        buildGridData(state.subdiv, state.amplitude),
+        buildGridData(state.subdiv, state.amplitude, state.topology),
       );
       nextMat = await material.create(
         ctx,
