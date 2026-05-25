@@ -1,11 +1,42 @@
 <script lang="ts">
-  import Slider from "../../shared/ui/Slider.svelte";
+  import Select from "../../shared/ui/Select.svelte";
+  import { makeUnionGuard } from "../../shared/type-guards.ts";
+  import type { PipAngle, PipResolution } from "./state.svelte.ts";
 
   type Props = {
-    pipSize: number;
-    onPipSizeChange: (v: number) => void;
+    pipAngle: PipAngle;
+    pipResolution: PipResolution;
+    onPipAngleChange: (v: PipAngle) => void;
+    onPipResolutionChange: (v: PipResolution) => void;
   };
-  let { pipSize, onPipSizeChange }: Props = $props();
+  let {
+    pipAngle,
+    pipResolution,
+    onPipAngleChange,
+    onPipResolutionChange,
+  }: Props = $props();
+
+  const isPipAngle = makeUnionGuard<PipAngle>(["overhead", "side", "front"]);
+  const isPipResolution = makeUnionGuard<PipResolution>(["256", "512", "1024"]);
 </script>
 
-<Slider label="pip-size" value={pipSize} min={0.1} max={0.5} step={0.01} onChange={onPipSizeChange} />
+<Select
+  label="pipAngle"
+  value={pipAngle}
+  options={[
+    { value: "overhead", label: "overhead" },
+    { value: "side", label: "side" },
+    { value: "front", label: "front" },
+  ]}
+  onChange={(v) => { if (isPipAngle(v)) onPipAngleChange(v); }}
+/>
+<Select
+  label="pipResolution"
+  value={pipResolution}
+  options={[
+    { value: "256", label: "256" },
+    { value: "512", label: "512" },
+    { value: "1024", label: "1024" },
+  ]}
+  onChange={(v) => { if (isPipResolution(v)) onPipResolutionChange(v); }}
+/>

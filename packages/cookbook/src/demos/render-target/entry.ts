@@ -1,42 +1,71 @@
+import type { Camera } from "@furnace/core/camera";
 import * as camera from "@furnace/core/camera";
 import * as frame from "@furnace/core/frame";
+import type { Context } from "@furnace/core/gpu";
+import * as input from "@furnace/core/input";
 import type { Material } from "@furnace/core/material";
 import * as material from "@furnace/core/material";
 import type { Mesh } from "@furnace/core/mesh";
 import * as mesh from "@furnace/core/mesh";
+import type { Quat, Vec3 } from "@furnace/core/transform";
 import { quat, vec3 } from "@furnace/core/transform";
 
 import { mountDemo } from "../../shared/mount.ts";
 import Controls from "./controls.svelte";
 import help from "./help.ts";
+import type { PipAngle, PipResolution } from "./state.svelte.ts";
 import { state } from "./state.svelte.ts";
 
-const PIP_TEX_WIDTH = 512;
-const PIP_TEX_HEIGHT = 512;
-const MAIN_CAMERA_Z = 3;
-const PIP_CAMERA_X = 3;
-const PIP_CAMERA_Y = 2;
-const PIP_CAMERA_Z = 3;
-const PIP_QUAD_BASE_SCALE = 1.2;
-const PIP_QUAD_BASE_OFFSET = 1.5;
-const PIP_QUAD_TOP_OFFSET = 1.0;
-const PIP_QUAD_Z_DEPTH = 1.5;
-const PIP_QUAD_SIZE = 1;
-const ROTATION_SPEED_RAD_PER_S = 0.5;
-const MS_PER_S = 1000;
-const CLEAR_COLOR_MAIN: [number, number, number, number] = [
-  0.05, 0.05, 0.07, 1,
-];
-const CLEAR_COLOR_PIP: [number, number, number, number] = [0.1, 0.05, 0.05, 1];
+// Cookbook escape hatch: controls callbacks reach the setup-scope rebuild via
+// this global. Mirrors the pattern used by cookbook/blend and cookbook/geometry.
+declare global {
+  interface Window {
+    __cookbookRenderTargetRebuild?: () => Promise<void>;
+  }
+}
 
-const PIP_SHADER = /* wgsl */ `
+// --- Constants ---
+
+const SUBJECT_ROTATION_SPEED_RAD_PER_S = 0.5;
+const MS_PER_S = 1000;
+
+const ROOM_SIZE = 4;
+const ROOM_COLOR: [number, number, number, number] = [0.08, 0.08, 0.1, 1];
+const SUBJECT_SIZE = 0.8;
+
+const MAIN_CAMERA_RADIUS = 2.5;
+const MAIN_CAMERA_Y = 0.5;
+const PIP_CAMERA_FOV_Y_RAD = Math.PI / 3;
+
+const MONITOR_SIZE = 1.0;
+const MONITOR_POSITION: readonly [number, number, number] = [0.85, 0.25, -1.99];
+
+const CLEAR_MAIN: [number, number, number, number] = [0, 0, 0, 1];
+const CLEAR_PIP: [number, number, number, number] = [0.06, 0.07, 0.08, 1];
+
+// PiP camera position per angle preset. All three are inside the ROOM_SIZE=4
+// cube (extents +/- 2), so the room serves as the PiP backdrop at every preset.
+// Overhead's small x/z offset avoids the lookAt-singularity when the view
+// direction would align with the world up vector.
+const PIP_POSITIONS: Record<PipAngle, readonly [number, number, number]> = {
+  overhead: [0.1, 1.7, 0.1],
+  side: [1.7, 0.2, 0],
+  front: [0, 0.2, 1.7],
+};
+
+const GIZMO_SIZE = 0.25;
+const GIZMO_COLOR: [number, number, number, number] = [1.0, 0.65, 0.2, 1];
+
+// --- Monitor shader ---
+
+const MONITOR_SHADER = /* wgsl */ `
 struct Camera { viewProjection: mat4x4<f32> };
 struct Object { model: mat4x4<f32> };
 
 @group(0) @binding(0) var<uniform> camera: Camera;
 @group(0) @binding(1) var<uniform> object: Object;
-@group(1) @binding(0) var pipTex: texture_2d<f32>;
-@group(1) @binding(1) var pipSamp: sampler;
+@group(1) @binding(0) var monTex: texture_2d<f32>;
+@group(1) @binding(1) var monSamp: sampler;
 
 struct VsIn {
   @location(0) position: vec3<f32>,
@@ -48,158 +77,441 @@ struct VsOut {
   @location(0) uv: vec2<f32>,
 };
 
-@vertex
-fn vs_main(v: VsIn) -> VsOut {
+@vertex fn vs_main(v: VsIn) -> VsOut {
   var out: VsOut;
   out.clip_pos = camera.viewProjection * object.model * vec4<f32>(v.position, 1.0);
   out.uv = v.uv;
   return out;
 }
 
-@fragment
-fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
-  return textureSample(pipTex, pipSamp, in.uv);
+@fragment fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
+  return textureSample(monTex, monSamp, in.uv);
 }
 `;
+
+// --- Gizmo geometry ---
+
+function gizmoQuadGeometryData(size: number): {
+  positions: Float32Array;
+  normals: Float32Array;
+  uvs: Float32Array;
+} {
+  const s = size / 2;
+  // 4 corners (CCW when looking down -Z at the +Z face)
+  const c00 = [-s, -s, 0] as const;
+  const c10 = [s, -s, 0] as const;
+  const c11 = [s, s, 0] as const;
+  const c01 = [-s, s, 0] as const;
+  // 4 edges as line-list pairs: bottom, right, top, left
+  const positions = new Float32Array([
+    ...c00,
+    ...c10,
+    ...c10,
+    ...c11,
+    ...c11,
+    ...c01,
+    ...c01,
+    ...c00,
+  ]);
+  // Normals + UVs are dummies — the unlit shader ignores them, but the engine's
+  // fixed vertex layout still requires one entry per position.
+  const normals = new Float32Array(positions.length);
+  for (let i = 0; i < normals.length; i += 3) {
+    normals[i] = 0;
+    normals[i + 1] = 0;
+    normals[i + 2] = 1;
+  }
+  const uvs = new Float32Array((positions.length / 3) * 2);
+  return { positions, normals, uvs };
+}
+
+// --- Types ---
+
+type PipResources = {
+  texture: GPUTexture;
+  depthTexture: GPUTexture;
+  monitorMat: Material;
+};
+
+type SceneRef = {
+  subjectMat: Material;
+  subjectMesh: Mesh;
+  roomMat: Material;
+  roomMesh: Mesh;
+  monitorMesh: Mesh;
+  pip: PipResources;
+  mainCam: Camera;
+  pipCam: Camera;
+  sampler: GPUSampler;
+  rotBuf: Quat;
+  scratchPos: Vec3;
+  gizmoMat: Material;
+  gizmoMesh: Mesh;
+  gizmoRot: Quat;
+  gizmoDir: Vec3;
+  gizmoAxis: Vec3;
+};
+
+type AbortFlag = { disposed: boolean };
+type RebuildQueue = { inFlight: boolean; pending: boolean };
+
+// --- Resource construction ---
+
+async function buildPipResources(
+  ctx: Context,
+  resolution: PipResolution,
+  sampler: GPUSampler,
+): Promise<PipResources> {
+  const size = Number(resolution);
+  const texture = ctx.device.createTexture({
+    size: { width: size, height: size },
+    format: ctx.format,
+    usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
+  });
+  const depthTexture = ctx.device.createTexture({
+    size: { width: size, height: size },
+    format: "depth24plus",
+    usage: GPUTextureUsage.RENDER_ATTACHMENT,
+  });
+  const monitorMat = await material.create(ctx, {
+    vertex: MONITOR_SHADER,
+    fragment: MONITOR_SHADER,
+    bindings: [
+      { binding: 0, resource: texture.createView() },
+      { binding: 1, resource: sampler },
+    ],
+  });
+  return { texture, depthTexture, monitorMat };
+}
+
+function disposePipResources(r: PipResources): void {
+  material.destroy(r.monitorMat);
+  r.texture.destroy();
+  r.depthTexture.destroy();
+}
+
+async function buildScene(ctx: Context): Promise<SceneRef> {
+  let subjectMat: Material | undefined;
+  let subjectMesh: Mesh | undefined;
+  let roomMat: Material | undefined;
+  let roomMesh: Mesh | undefined;
+  let monitorMesh: Mesh | undefined;
+  let pip: PipResources | undefined;
+  let sampler: GPUSampler | undefined;
+  let gizmoMat: Material | undefined;
+  let gizmoMesh: Mesh | undefined;
+
+  try {
+    subjectMat = await material.normalColor(ctx);
+    subjectMesh = mesh.cube(ctx, {
+      material: subjectMat,
+      size: SUBJECT_SIZE,
+    });
+
+    roomMat = await material.unlit(ctx, {
+      color: ROOM_COLOR,
+      cullMode: "front",
+    });
+    roomMesh = mesh.cube(ctx, { material: roomMat, size: ROOM_SIZE });
+
+    sampler = ctx.device.createSampler({
+      magFilter: "linear",
+      minFilter: "linear",
+      addressModeU: "clamp-to-edge",
+      addressModeV: "clamp-to-edge",
+    });
+    pip = await buildPipResources(ctx, state.pipResolution, sampler);
+
+    monitorMesh = mesh.plane(ctx, {
+      material: pip.monitorMat,
+      size: MONITOR_SIZE,
+    });
+    const monitorPos = vec3.fromValues(
+      MONITOR_POSITION[0],
+      MONITOR_POSITION[1],
+      MONITOR_POSITION[2],
+    );
+    mesh.setPosition(monitorMesh, monitorPos);
+
+    const mainCam = camera.perspective({
+      aspect: ctx.canvas.width / ctx.canvas.height,
+      position: vec3.fromValues(0, MAIN_CAMERA_Y, MAIN_CAMERA_RADIUS),
+    });
+    const initialPipPos = PIP_POSITIONS[state.pipAngle];
+    const pipCam = camera.perspective({
+      aspect: 1,
+      fovYRad: PIP_CAMERA_FOV_Y_RAD,
+      position: vec3.fromValues(
+        initialPipPos[0],
+        initialPipPos[1],
+        initialPipPos[2],
+      ),
+      target: vec3.fromValues(0, 0, 0),
+    });
+
+    gizmoMat = await material.unlit(ctx, {
+      color: GIZMO_COLOR,
+      topology: "line-list",
+      depthWrite: false,
+      depthCompare: "always",
+    });
+    const gizmoGeom = mesh.createGeometry(
+      ctx,
+      gizmoQuadGeometryData(GIZMO_SIZE),
+    );
+    gizmoMesh = mesh.create(ctx, { geometry: gizmoGeom, material: gizmoMat });
+
+    return {
+      subjectMat,
+      subjectMesh,
+      roomMat,
+      roomMesh,
+      monitorMesh,
+      pip,
+      mainCam,
+      pipCam,
+      sampler,
+      rotBuf: quat.create(),
+      scratchPos: vec3.create(),
+      gizmoMat,
+      gizmoMesh,
+      gizmoRot: quat.create(),
+      gizmoDir: vec3.create(),
+      gizmoAxis: vec3.create(),
+    };
+  } catch (e) {
+    if (gizmoMesh) mesh.destroy(gizmoMesh);
+    if (gizmoMat) material.destroy(gizmoMat);
+    if (monitorMesh) mesh.destroy(monitorMesh);
+    if (pip) disposePipResources(pip);
+    if (roomMesh) mesh.destroy(roomMesh);
+    if (roomMat) material.destroy(roomMat);
+    if (subjectMesh) mesh.destroy(subjectMesh);
+    if (subjectMat) material.destroy(subjectMat);
+    throw e;
+  }
+}
+
+function disposeScene(s: SceneRef): void {
+  mesh.destroy(s.gizmoMesh);
+  material.destroy(s.gizmoMat);
+  mesh.destroy(s.monitorMesh);
+  disposePipResources(s.pip);
+  mesh.destroy(s.roomMesh);
+  material.destroy(s.roomMat);
+  mesh.destroy(s.subjectMesh);
+  material.destroy(s.subjectMat);
+}
+
+// --- Rebuild queue (single-in-flight + one-pending) ---
+
+function makeRebuild(
+  ctx: Context,
+  sceneRef: SceneRef,
+  abortFlag: AbortFlag,
+): () => Promise<void> {
+  const queue: RebuildQueue = { inFlight: false, pending: false };
+
+  const rebuildOnce = async (): Promise<void> => {
+    let next: PipResources | undefined;
+    try {
+      next = await buildPipResources(
+        ctx,
+        state.pipResolution,
+        sceneRef.sampler,
+      );
+      if (abortFlag.disposed) {
+        disposePipResources(next);
+        return;
+      }
+      const old = sceneRef.pip;
+      sceneRef.pip = next;
+      sceneRef.monitorMesh.material = next.monitorMat;
+      disposePipResources(old);
+    } catch (e) {
+      if (next) disposePipResources(next);
+      throw e;
+    }
+  };
+
+  return async () => {
+    if (queue.inFlight) {
+      queue.pending = true;
+      return;
+    }
+    queue.inFlight = true;
+    try {
+      do {
+        queue.pending = false;
+        await rebuildOnce();
+        if (abortFlag.disposed) return;
+      } while (queue.pending);
+    } finally {
+      queue.inFlight = false;
+    }
+  };
+}
+
+function triggerRebuild(): Promise<void> {
+  const fn = window.__cookbookRenderTargetRebuild;
+  if (!fn) return Promise.resolve();
+  return fn();
+}
+
+// --- Per-frame camera updates ---
+
+function applyMainYaw(scene: SceneRef, yaw: number): void {
+  const x = Math.sin(yaw) * MAIN_CAMERA_RADIUS;
+  const z = Math.cos(yaw) * MAIN_CAMERA_RADIUS;
+  vec3.set(scene.scratchPos, x, MAIN_CAMERA_Y, z);
+  camera.setPosition(scene.mainCam, scene.scratchPos);
+}
+
+const Z_AXIS = vec3.fromValues(0, 0, 1);
+const PARALLEL_EPSILON = 0.9999;
+
+// Build a rotation that takes the +Z axis onto a given unit vector.
+// `axisScratch` is overwritten — pass a per-mesh scratch to avoid aliasing.
+function quatFromZTo(out: Quat, dirUnit: Vec3, axisScratch: Vec3): Quat {
+  const dot = vec3.dot(Z_AXIS, dirUnit);
+  if (dot > PARALLEL_EPSILON) {
+    return quat.identity(out);
+  }
+  if (dot < -PARALLEL_EPSILON) {
+    // dirUnit is anti-parallel to +Z: 180° rotation around any perpendicular axis (use X).
+    vec3.set(axisScratch, 1, 0, 0);
+    return quat.fromAxisAngle(out, axisScratch, Math.PI);
+  }
+  vec3.cross(axisScratch, Z_AXIS, dirUnit);
+  vec3.normalize(axisScratch, axisScratch);
+  const angle = Math.acos(dot);
+  return quat.fromAxisAngle(out, axisScratch, angle);
+}
+
+function applyPipAngle(scene: SceneRef, angle: PipAngle): void {
+  const p = PIP_POSITIONS[angle];
+  vec3.set(scene.scratchPos, p[0], p[1], p[2]);
+  camera.setPosition(scene.pipCam, scene.scratchPos);
+
+  // Gizmo: place at the PiP camera's position and orient its +Z face along the
+  // camera's view direction. The PiP camera always looks at the origin, so the
+  // view direction at position p is -p (normalized).
+  mesh.setPosition(scene.gizmoMesh, scene.scratchPos);
+  vec3.set(scene.gizmoDir, -p[0], -p[1], -p[2]);
+  vec3.normalize(scene.gizmoDir, scene.gizmoDir);
+  quatFromZTo(scene.gizmoRot, scene.gizmoDir, scene.gizmoAxis);
+  mesh.setRotation(scene.gizmoMesh, scene.gizmoRot);
+}
 
 await mountDemo({
   help,
   controls: Controls,
   controlsProps: {
-    get pipSize() {
-      return state.pipSize;
+    get pipAngle() {
+      return state.pipAngle;
     },
-    onPipSizeChange: (v: number) => {
-      state.pipSize = v;
+    get pipResolution() {
+      return state.pipResolution;
+    },
+    onPipAngleChange: (v: PipAngle) => {
+      state.pipAngle = v;
+    },
+    onPipResolutionChange: (v: PipResolution) => {
+      state.pipResolution = v;
+      void triggerRebuild();
     },
   },
   setup: async (ctx) => {
-    let cubeMat: Material | undefined;
-    let cube: Mesh | undefined;
-    let pipTex: GPUTexture | undefined;
-    let pipDepth: GPUTexture | undefined;
-    let pipMat: Material | undefined;
-    let pipQuad: Mesh | undefined;
-
+    input.attach(ctx.canvas);
     try {
-      cubeMat = await material.normalColor(ctx);
-      cube = mesh.cube(ctx, { material: cubeMat });
+      const sceneRef = await buildScene(ctx);
+      const abortFlag: AbortFlag = { disposed: false };
+      window.__cookbookRenderTargetRebuild = makeRebuild(
+        ctx,
+        sceneRef,
+        abortFlag,
+      );
 
-      pipTex = ctx.device.createTexture({
-        size: { width: PIP_TEX_WIDTH, height: PIP_TEX_HEIGHT },
-        format: ctx.format,
-        usage:
-          GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
+      let dragging = false;
+      let lastDragX = 0;
+      input.onPointerDown((e) => {
+        if (e.button !== 0) return;
+        dragging = true;
+        lastDragX = e.x;
       });
-      pipDepth = ctx.device.createTexture({
-        size: { width: PIP_TEX_WIDTH, height: PIP_TEX_HEIGHT },
-        format: "depth24plus",
-        usage: GPUTextureUsage.RENDER_ATTACHMENT,
+      input.onPointerMove((e) => {
+        if (!dragging) return;
+        const dx = e.x - lastDragX;
+        lastDragX = e.x;
+        const pxToRad = Math.PI / ctx.canvas.width;
+        state.yaw += dx * pxToRad;
       });
-
-      const pipSampler = ctx.device.createSampler({
-        magFilter: "linear",
-        minFilter: "linear",
-        addressModeU: "clamp-to-edge",
-        addressModeV: "clamp-to-edge",
+      input.onPointerUp((e) => {
+        if (e.button !== 0) return;
+        dragging = false;
       });
-
-      // The texture view bound here is captured by the material's group1 at
-      // creation time. If pipTex were ever recreated (e.g. on canvas resize,
-      // which this demo doesn't do), this view would become stale and the
-      // material would need to be rebuilt.
-      pipMat = await material.create(ctx, {
-        vertex: PIP_SHADER,
-        fragment: PIP_SHADER,
-        bindings: [
-          { binding: 0, resource: pipTex.createView() },
-          { binding: 1, resource: pipSampler },
-        ],
-      });
-      pipQuad = mesh.plane(ctx, { material: pipMat, size: PIP_QUAD_SIZE });
-
-      const mainCam = camera.perspective({
-        aspect: ctx.canvas.width / ctx.canvas.height,
-        position: vec3.fromValues(0, 0, MAIN_CAMERA_Z),
-      });
-      const pipCam = camera.perspective({
-        aspect: 1,
-        position: vec3.fromValues(PIP_CAMERA_X, PIP_CAMERA_Y, PIP_CAMERA_Z),
-        target: vec3.fromValues(0, 0, 0),
+      input.onKeyDown((e) => {
+        if (e.code === "Space") {
+          state.autoRotate = !state.autoRotate;
+        }
       });
 
-      const sceneCubeMat = cubeMat;
-      const sceneCube = cube;
-      const scenePipTex = pipTex;
-      const scenePipDepth = pipDepth;
-      const scenePipMat = pipMat;
-      const scenePipQuad = pipQuad;
-      const rotBuf = quat.create();
-      const scaleBuf = vec3.create();
-      const positionBuf = vec3.create();
+      // The input module's KeyEvent doesn't expose the underlying DOM event, so
+      // preventDefault must be wired separately. Without this, Space scrolls
+      // the page. Register on globalThis to match input.attach's keyboard
+      // target.
+      const preventSpaceScroll = (e: KeyboardEvent): void => {
+        if (e.code === "Space") e.preventDefault();
+      };
+      globalThis.addEventListener("keydown", preventSpaceScroll);
 
       return {
-        scene: {
-          cube: sceneCube,
-          mainCam,
-          pipCam,
-          pipTex: scenePipTex,
-          pipDepth: scenePipDepth,
-          pipQuad: scenePipQuad,
-          rotBuf,
-          scaleBuf,
-          positionBuf,
-        },
+        scene: sceneRef,
         dispose: () => {
-          mesh.destroy(sceneCube);
-          mesh.destroy(scenePipQuad);
-          material.destroy(sceneCubeMat);
-          material.destroy(scenePipMat);
-          scenePipTex.destroy();
-          scenePipDepth.destroy();
+          abortFlag.disposed = true;
+          window.__cookbookRenderTargetRebuild = undefined;
+          globalThis.removeEventListener("keydown", preventSpaceScroll);
+          disposeScene(sceneRef);
+          input.detach();
         },
       };
     } catch (e) {
-      if (cube) mesh.destroy(cube);
-      if (pipQuad) mesh.destroy(pipQuad);
-      if (cubeMat) material.destroy(cubeMat);
-      if (pipMat) material.destroy(pipMat);
-      if (pipTex) pipTex.destroy();
-      if (pipDepth) pipDepth.destroy();
+      input.detach();
       throw e;
     }
   },
   frame: ({ ctx, scene, info }) => {
-    state.angle += (info.deltaMs / MS_PER_S) * ROTATION_SPEED_RAD_PER_S;
+    if (state.autoRotate) {
+      state.angle +=
+        SUBJECT_ROTATION_SPEED_RAD_PER_S * (info.deltaMs / MS_PER_S);
+    }
     quat.fromEuler(scene.rotBuf, 0, state.angle, 0);
-    mesh.setRotation(scene.cube, scene.rotBuf);
+    mesh.setRotation(scene.subjectMesh, scene.rotBuf);
 
-    // Pass 1: render the rotating cube into the PiP texture from the PiP camera.
+    applyMainYaw(scene, state.yaw);
+    applyPipAngle(scene, state.pipAngle);
+
+    // Pass 1: PiP. Renders the subject + room into the offscreen texture that
+    // the monitor surface samples.
     frame.renderToTexture(ctx, {
-      texture: scene.pipTex,
-      depthTexture: scene.pipDepth,
-      draw: [scene.cube],
+      texture: scene.pip.texture,
+      depthTexture: scene.pip.depthTexture,
+      draw: [scene.subjectMesh, scene.roomMesh],
       camera: scene.pipCam,
-      clearColor: CLEAR_COLOR_PIP,
+      clearColor: CLEAR_PIP,
     });
 
-    // Approximate a screen-space corner overlay in world space — the PiP quad
-    // sits in front of the main camera, scaled by the slider. Honest about the
-    // simplification: see gaps[] in help.ts.
-    const pipScale = state.pipSize * PIP_QUAD_BASE_SCALE;
-    vec3.set(scene.scaleBuf, pipScale, pipScale, 1);
-    mesh.setScale(scene.pipQuad, scene.scaleBuf);
-
-    const pipX = PIP_QUAD_BASE_OFFSET - state.pipSize;
-    const pipY = PIP_QUAD_TOP_OFFSET - state.pipSize;
-    vec3.set(scene.positionBuf, pipX, pipY, PIP_QUAD_Z_DEPTH);
-    mesh.setPosition(scene.pipQuad, scene.positionBuf);
-
-    // Pass 2: main scene + PiP overlay to the swapchain.
+    // Pass 2: main + monitor (sampling the PiP texture). Two distinct draw
+    // lists per pass; the subject and the room appear in both.
     frame.render(ctx, {
-      draw: [scene.cube, scene.pipQuad],
+      draw: [
+        scene.roomMesh,
+        scene.subjectMesh,
+        scene.monitorMesh,
+        scene.gizmoMesh,
+      ],
       camera: scene.mainCam,
-      clearColor: CLEAR_COLOR_MAIN,
+      clearColor: CLEAR_MAIN,
     });
   },
 });
