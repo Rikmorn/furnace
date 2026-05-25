@@ -2,7 +2,7 @@ import type { Camera } from "@furnace/core/camera";
 import * as camera from "@furnace/core/camera";
 import * as frame from "@furnace/core/frame";
 import type { Context } from "@furnace/core/gpu";
-import type { Material, MaterialDescriptor } from "@furnace/core/material";
+import type { Material } from "@furnace/core/material";
 import * as material from "@furnace/core/material";
 import type { Geometry, GeometryData, Mesh } from "@furnace/core/mesh";
 import * as mesh from "@furnace/core/mesh";
@@ -35,38 +35,6 @@ const WAVE_FREQUENCY = Math.PI * 4;
 const GRID_HALF_EXTENT = 1;
 const GRID_FULL_EXTENT = GRID_HALF_EXTENT * 2;
 const CLEAR_COLOR: [number, number, number, number] = [0.05, 0.05, 0.07, 1];
-
-const GRID_WGSL = /* wgsl */ `
-struct Camera { viewProjection: mat4x4<f32> };
-struct Object { model: mat4x4<f32> };
-@group(0) @binding(0) var<uniform> camera: Camera;
-@group(0) @binding(1) var<uniform> object: Object;
-
-struct VsIn {
-  @location(0) position: vec3<f32>,
-  @location(1) normal: vec3<f32>,
-  @location(2) uv: vec2<f32>,
-};
-
-struct VsOut {
-  @builtin(position) clip_pos: vec4<f32>,
-  @location(0) uv: vec2<f32>,
-};
-
-@vertex
-fn vs_main(v: VsIn) -> VsOut {
-  let world = object.model * vec4<f32>(v.position, 1.0);
-  var out: VsOut;
-  out.clip_pos = camera.viewProjection * world;
-  out.uv = v.uv;
-  return out;
-}
-
-@fragment
-fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
-  return vec4<f32>(in.uv, 0.6, 1.0);
-}
-`;
 
 type SceneRef = {
   geometry: Geometry;
@@ -192,18 +160,6 @@ function buildWireframeIndices(subdiv: number, stride: number): Uint32Array {
   return indices;
 }
 
-function materialDescriptorFor(topology: Topology): MaterialDescriptor {
-  // WebGPU requires cullMode "none" with non-triangle topologies; faces don't
-  // exist for line-list / point-list, so back-face culling is undefined.
-  const cullMode: GPUCullMode = topology === "triangle-list" ? "back" : "none";
-  return {
-    vertex: GRID_WGSL,
-    fragment: GRID_WGSL,
-    topology,
-    cullMode,
-  };
-}
-
 async function buildScene(ctx: Context): Promise<SceneRef> {
   let geometry: Geometry | undefined;
   let mat: Material | undefined;
@@ -212,7 +168,10 @@ async function buildScene(ctx: Context): Promise<SceneRef> {
       ctx,
       buildGridData(state.subdiv, state.amplitude, state.topology),
     );
-    mat = await material.create(ctx, materialDescriptorFor(state.topology));
+    mat = await material.normalColor(ctx, {
+      topology: state.topology,
+      cullMode: state.topology === "triangle-list" ? "back" : "none",
+    });
     const grid = mesh.create(ctx, { geometry, material: mat });
     const cam = camera.perspective({
       aspect: ctx.canvas.width / ctx.canvas.height,
@@ -256,10 +215,10 @@ function makeRebuild(
         ctx,
         buildGridData(state.subdiv, state.amplitude, state.topology),
       );
-      nextMat = await material.create(
-        ctx,
-        materialDescriptorFor(state.topology),
-      );
+      nextMat = await material.normalColor(ctx, {
+        topology: state.topology,
+        cullMode: state.topology === "triangle-list" ? "back" : "none",
+      });
       // Tear-down (e.g. bun --hot reload) may have run while material.create
       // was pending. The sceneRef we'd swap into is already destroyed, so
       // clean up the fresh resources and bail before touching it.
