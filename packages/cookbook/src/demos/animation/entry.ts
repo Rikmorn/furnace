@@ -1,10 +1,11 @@
-import type { ScreenProjection } from "@furnace/core/camera";
+import type { Camera, ScreenProjection } from "@furnace/core/camera";
 import * as camera from "@furnace/core/camera";
 import * as frame from "@furnace/core/frame";
 import type { Material } from "@furnace/core/material";
 import * as material from "@furnace/core/material";
 import type { Mesh } from "@furnace/core/mesh";
 import * as mesh from "@furnace/core/mesh";
+import type { Vec3 } from "@furnace/core/transform";
 import { quat, vec3 } from "@furnace/core/transform";
 
 import { mountDemo } from "../../shared/mount.ts";
@@ -37,9 +38,9 @@ function requireLabel(key: LabelKey): HTMLElement {
 // so the label projects above the cube's top face rather than its center.
 function positionLabel(
   out: ScreenProjection,
-  anchorBuf: ReturnType<typeof vec3.create>,
-  cam: Parameters<typeof camera.projectToScreen>[1],
-  cubePos: Parameters<typeof camera.projectToScreen>[2],
+  anchorBuf: Vec3,
+  cam: Camera,
+  cubePos: Vec3,
   vpW: number,
   vpH: number,
   labelEl: HTMLElement,
@@ -162,8 +163,9 @@ await mountDemo({
       state.accumulatorMs -= fixedDtMs;
       ticks++;
     }
-    if (ticks >= MAX_CATCHUP_TICKS) {
-      // Spiral-of-death guard.
+    // Spiral-of-death guard: if the tick cap fired with work still pending,
+    // discard the surplus. Naturally-drained sub-tick remainders are preserved.
+    if (state.accumulatorMs >= fixedDtMs) {
       state.accumulatorMs = 0;
     }
     const alpha = state.accumulatorMs / fixedDtMs;
