@@ -1,8 +1,8 @@
 struct BloomParams {
-  threshold: f32,
-  intensity: f32,
-  radius:    f32,
-  _pad:      f32,
+  threshold:     f32,
+  intensity:     f32,
+  radius:        f32,
+  haloMaskStart: f32,
 };
 
 @group(0) @binding(0) var sceneTex: texture_2d<f32>;
@@ -38,9 +38,11 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     }
   }
   glow = glow * (params.intensity / weight_sum);
-  // Mask glow off pixels that are already bright — keeps the source colour
-  // readable while the halo spreads onto darker background pixels.
+  // Tuning: pixels above this absolute scene luminance get the halo masked off.
+  // haloMaskStart=0.0 → halo painted only on near-black pixels.
+  // haloMaskStart=1.0 → halo painted everywhere (mask never engages).
+  const HALO_MASK_BAND: f32 = 0.2;
   let scene_lum = luminance(scene);
-  let halo_mask = 1.0 - smoothstep(params.threshold * 0.6, params.threshold, scene_lum);
+  let halo_mask = 1.0 - smoothstep(params.haloMaskStart, params.haloMaskStart + HALO_MASK_BAND, scene_lum);
   return vec4<f32>(scene + glow * halo_mask, 1.0);
 }
