@@ -83,6 +83,7 @@ The reference is "what the engine IS today." If it's stale, it's broken.
 ### Demoed in cookbook
 
 - `loop`, `render`, `RenderOptions`, `ClearColor` → `cookbook/hello-cube`.
+- `loop` (variable dt), `fixedLoop` (mentioned), `FrameInfo` → `cookbook/animation`.
 
 ### Reference-only (no demo, by design)
 
@@ -112,11 +113,11 @@ The reference is "what the engine IS today." If it's stale, it's broken.
 
 ### Demoed in cookbook
 
-Used indirectly by every demo (camera placement, mesh TRS). No dedicated demo — see `Reference-only` below.
+- `quat.create`, `quat.fromEuler` → `cookbook/animation`.
 
 ### Reference-only (no demo, by design)
 
-The entire module is a math utility surface. Every cookbook demo exercises it implicitly via `camera.setPosition`, `mesh.setRotation`, etc. — there is no standalone "transform" demo because there is nothing visual to show on its own.
+The rest of the module is a math utility surface used implicitly by every demo (camera placement, mesh TRS) via `camera.setPosition`, `mesh.setRotation`, etc. — there is no standalone "transform" demo because there is nothing visual to show on its own.
 
 ---
 
@@ -277,6 +278,7 @@ Re-exported from `index.ts` so other core modules can `import * as stats` and ca
 ### Demoed in cookbook
 
 - `cube`, `cubeGeometry`, `plane`, `create`, `destroy`, `setPosition` → `cookbook/hello-cube`.
+- `setRotation`, `setScale` → `cookbook/animation`.
 
 ### Reference-only (no demo, by design)
 
