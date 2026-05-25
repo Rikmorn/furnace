@@ -35,6 +35,13 @@
     {/each}
   </div>
 
+  {#if help.notes && help.notes.length > 0}
+    <h4>notes</h4>
+    <ul class="notes">
+      {#each help.notes as note}<li>{note}</li>{/each}
+    </ul>
+  {/if}
+
   {#if help.gaps && help.gaps.length > 0}
     <h4>gaps</h4>
     <ul class="gaps">
@@ -100,6 +107,19 @@
     position: relative;
   }
   .gaps li::before {
+    content: "•";
+    position: absolute;
+    left: 0;
+    color: var(--text-dim);
+  }
+  .notes li {
+    color: var(--text-muted);
+    margin-bottom: var(--space-2);
+    padding-left: var(--space-3);
+    position: relative;
+    line-height: 1.5;
+  }
+  .notes li::before {
     content: "•";
     position: absolute;
     left: 0;
