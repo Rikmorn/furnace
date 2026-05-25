@@ -8,10 +8,11 @@ A Bun workspace (`workspaces: ["packages/*"]`, Bun v1.3.14) experimenting with W
 
 **Foundational rule:** Only `@furnace/tools` produces binaries. Everything else is TypeScript or wasm. See `docs/reference/packaging-and-distribution.md` for the engine/harness principle.
 
-**Current contents (three workspace packages):**
+**Current contents (four workspace packages):**
 - `packages/core/` (`@furnace/core`, private) — the engine library. Exposes five sub-path modules: `@furnace/core/gpu` (device + canvas lifecycle), `@furnace/core/frame` (RAF wrappers + command-encoder helper), `@furnace/core/transform` (vec3/vec4/quat/mat4 math), `@furnace/core/events` (typed emitter primitive), `@furnace/core/stats` (FPS measurement). Engine-wide conventions are committed at `docs/reference/engine-conventions.md`. **Browser-only**: no framework deps, no Bun coupling in core's source. The `tests/no-bun-leakage.test.ts` static scan is one guardrail; the full contract lives in "What we ship to consumers" below. Future wasm hot-path crates (transforms, audio) will live here. Contains no native binaries.
-- `packages/tools/` (`@furnace/tools`, private) — the harness. Internally a Rust workspace (`crates/furnace-cli/` for the CLI binary, `crates/furnace-runtime/` for the shell consumers vendor) plus scaffold templates and a tiny plain-Node JS shim that wraps the binary for npm distribution (biome's pattern). The only package in the workspace that produces a binary. No TypeScript source — pure orchestration. See `docs/reference/packaging-and-distribution.md` for the architecture.
 - `packages/hello-world/` (`@furnace/hello-world`, private) — the reference consumer. Renders the WebGPU triangle with the Svelte 5 FPS overlay. Owns its own `index.html`, `bunfig.toml`, `serve.ts`, and dev-server choice. Imports core via `@furnace/core` (workspace symlink). Uses `furnace dev --platform=macos` for native dev (via `bun run dev:native`) — dogfooding the consumer experience.
+- `packages/cookbook/` (`@furnace/cookbook`, private) — the reference cookbook. One page per Tier 1 feature, browseable demo collection. Co-evolves with `docs/reference/core-modules.md`: cookbook shows it, core-modules documents it.
+- `packages/tools/` (`@furnace/tools`, private) — the harness. Internally a Rust workspace (`crates/furnace-cli/` for the CLI binary, `crates/furnace-runtime/` for the shell consumers vendor) plus scaffold templates and a tiny plain-Node JS shim that wraps the binary for npm distribution (biome's pattern). The only package in the workspace that produces a binary. No TypeScript source — pure orchestration. See `docs/reference/packaging-and-distribution.md` for the architecture.
 - Two runtime targets, shared TS/HTML/WGSL between them: `bun run dev:web` (browser tab) and `bun run dev:native` (desktop window — macOS Tahoe 26+ / Windows; Linux deferred per `docs/backlog/`).
 - Build outputs: `dist/core/` (core publish layout) and `dist/web/` (bundled hello-world demo, with optional `dist/web/dev/` from `build:web:dev` for unminified inspection). The CLI binary builds in-place to `packages/tools/crates/target/{debug,release}/furnace`; the `dist/tools/` publish layout is deferred — see `docs/backlog/`.
 - Tooling: Biome for lint, `bun:test` for tests, TypeScript strict mode. Per-package `tsconfig.json` in core; root tsconfig excludes `dist`/`target`.
@@ -105,6 +106,7 @@ When `docs/backlog/` exceeds ~100 files or one topic subdirectory exceeds ~20, p
 Documentation rots quietly. The lifecycle is `docs/backlog/` → implementation → `docs/reference/`. After a piece of work completes:
 
 - **Resolved a backlog entry?** Delete `docs/backlog/<topic>/<slug>.md`. Don't leave done work parked as "deferred".
+- **Changed the `@furnace/core` public API?** Update `docs/reference/core-modules.md` to reflect the new exports / signatures. If the change is consumer-visible, also add or update the relevant `packages/cookbook` demo in the same PR.
 - **Materialized a new design or changed an existing one?** Update the relevant `docs/reference/*.md` to reflect the new reality. The reference is "how the project IS today" — if it's stale, it's broken.
 - **Renamed a file, moved a directory, changed a path that other files mention?** Grep for the old path before committing. Stale path references rot silently because nothing tests them.
 - **Tried an approach and walked away?** Capture the lesson in `docs/learnings/<topic>.md` so the next person doesn't retry it.
@@ -113,7 +115,12 @@ Before claiming a piece of work is complete: search `AGENTS.md`, `README.md`, an
 
 ## Canonical references
 
-- `docs/reference/` — canonical "how the project is" docs (packaging & distribution, engine architecture, UI foundation, ...).
+- `docs/reference/` — canonical "how the project is" docs:
+  - `engine-conventions.md` — behavioural contracts (coords, color, DPR, lifecycle, failure policy, instrumentation)
+  - `core-modules.md` — public API surface of `@furnace/core`, module by module
+  - `engine-architecture.md` — broader architectural rationale
+  - `packaging-and-distribution.md` — what we ship to consumers
+  - `ui-foundation.md` — Svelte 5 + screen-space projection patterns for consumer UI
 - `docs/backlog/` — deferred work register (one file per entry, grouped by topic).
 - `docs/learnings/` — post-mortems and "what we tried" notes.
 - `docs/research/` — pre-decision research that fed canonical docs.

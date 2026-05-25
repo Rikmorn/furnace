@@ -2,6 +2,8 @@
 
 This document captures the engine-wide conventions that every module of `@furnace/core` follows. These are committed; deviation requires a deliberate breaking-change decision.
 
+For the *API surface* (module-by-module list of public exports, signatures, and which cookbook demos exercise them), see `core-modules.md`.
+
 ## Coordinate system
 
 Right-handed, Y-up world space. WebGPU NDC: +X right, +Y up, Z ∈ [0, 1].
