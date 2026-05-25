@@ -5,6 +5,26 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>furnace · cookbook · blend</title>
   <link rel="stylesheet" href="../../shared/styles.css">
+  <style>
+    #labels {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+    }
+    #labels .surface-label {
+      position: absolute;
+      top: 0;
+      left: 0;
+      transform: translate(-9999px, -9999px);
+      padding: 0.25rem 0.5rem;
+      background: rgba(0, 0, 0, 0.6);
+      color: var(--text, #fff);
+      font-family: var(--font-mono, monospace);
+      font-size: 0.75rem;
+      border-radius: 3px;
+      white-space: nowrap;
+    }
+  </style>
 </head>
 <body>
   <canvas id="gpu"></canvas>
@@ -12,6 +32,11 @@
   <div id="stats"></div>
   <div id="help"></div>
   <div id="controls"></div>
+  <div id="labels">
+    <div class="surface-label" data-surface="red">straight α</div>
+    <div class="surface-label" data-surface="green">premultiplied</div>
+    <div class="surface-label" data-surface="blue">additive</div>
+  </div>
   <script type="module" src="./entry.ts"></script>
 </body>
 </html>

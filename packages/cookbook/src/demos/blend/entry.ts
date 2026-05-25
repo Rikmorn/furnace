@@ -1,4 +1,4 @@
-import type { Camera } from "@furnace/core/camera";
+import type { Camera, ScreenProjection } from "@furnace/core/camera";
 import * as camera from "@furnace/core/camera";
 import * as frame from "@furnace/core/frame";
 import type { Context } from "@furnace/core/gpu";
@@ -13,7 +13,12 @@ import { quat, vec3 } from "@furnace/core/transform";
 import { mountDemo } from "../../shared/mount.ts";
 import Controls from "./controls.svelte";
 import help from "./help.ts";
-import type { Backdrop, Cull, DepthCompare } from "./state.svelte.ts";
+import type {
+  Backdrop,
+  Cull,
+  DepthCompare,
+  Primitive,
+} from "./state.svelte.ts";
 import { state } from "./state.svelte.ts";
 
 // Cookbook escape hatch. mountDemo has no imperative bus, so the controls
@@ -30,8 +35,10 @@ declare global {
 const CAMERA_Z = 4.5;
 const CLEAR_COLOR: [number, number, number, number] = [0.05, 0.05, 0.07, 1];
 
-const CUBE_SIZE = 0.8;
-const CUBE_COLOR: [number, number, number, number] = [0.4, 0.4, 0.45, 1];
+const REFERENCE_COLOR: [number, number, number, number] = [0.4, 0.4, 0.45, 1];
+const REFERENCE_SIZE = 1.5;
+const REFERENCE_Z = -1.0;
+
 const QUAD_SIZE = 1;
 const X_SPREAD = 1.5;
 
@@ -53,7 +60,7 @@ const STRIP_COLORS: readonly [number, number, number, number][] = [
 const STRIP_COUNT = STRIP_COLORS.length;
 const STRIP_X_START = -((STRIP_COUNT - 1) * BACKDROP_STRIP_WIDTH) / 2;
 
-// Three translucent quads exercising the three canonical translucent blend
+// Three translucent surfaces exercising the three canonical translucent blend
 // modes: straight alpha (red), premultiplied alpha (green), additive (blue).
 //
 // PMA green's tint is pre-multiplied: green-at-alpha-0.5 means we write 0.5
@@ -74,7 +81,7 @@ const MS_PER_S = 1000;
 
 // --- Types ---
 
-type TranslucentQuads = {
+type TranslucentSurfaces = {
   red: Mesh;
   green: Mesh;
   blue: Mesh;
@@ -88,17 +95,23 @@ type BackdropResources = {
   mats: Material[];
 };
 
+type LabelKey = "red" | "green" | "blue";
+
 type SceneRef = {
   backdrop: BackdropResources;
-  cube: Mesh;
-  cubeMat: Material;
-  quads: TranslucentQuads;
+  reference: Mesh;
+  referenceMat: Material;
+  surfaces: TranslucentSurfaces;
   cam: Camera;
   // Pre-allocated per-frame buffers (reused to avoid per-frame allocations).
   posRed: Vec3;
   posGreen: Vec3;
   posBlue: Vec3;
   rotBuf: Quat;
+  // Label positioning (also reused per-frame).
+  labelAnchor: Vec3;
+  labelProj: ScreenProjection;
+  labelEls: { red: HTMLElement; green: HTMLElement; blue: HTMLElement };
 };
 
 type AbortFlag = { disposed: boolean };
@@ -176,33 +189,40 @@ function disposeBackdrop(b: BackdropResources): void {
   for (const mt of b.mats) material.destroy(mt);
 }
 
-// --- Cube ---
+// --- Reference plane ---
 
-async function buildCube(
+async function buildReference(
   ctx: Context,
   cull: Cull,
   depthCompare: DepthCompare,
-): Promise<{ cube: Mesh; mat: Material }> {
-  // Cube always writes depth — it's the depth reference for translucents.
+): Promise<{ refMesh: Mesh; mat: Material }> {
+  // Reference is always an opaque plane (cube was redundant since the camera
+  // is head-on; you'd only ever see one face). It always writes depth — it's
+  // the depth reference for translucents in front of it.
   const mat = await material.unlit(ctx, {
-    color: CUBE_COLOR,
+    color: REFERENCE_COLOR,
     cullMode: cull,
     depthCompare,
     depthWrite: true,
   });
-  const cube = mesh.cube(ctx, { material: mat, size: CUBE_SIZE });
-  return { cube, mat };
+  const refMesh = mesh.plane(ctx, { material: mat, size: REFERENCE_SIZE });
+  // Place the reference behind the translucent surfaces and in front of the
+  // backdrop. Z = -1.0 sits between BLUE_Z (-0.5) and BACKDROP_Z (-1.5).
+  const pos = vec3.fromValues(0, 0, REFERENCE_Z);
+  mesh.setPosition(refMesh, pos);
+  return { refMesh, mat };
 }
 
-// --- Translucent quads ---
+// --- Translucent surfaces ---
 
-async function buildTranslucentQuad(
+async function buildTranslucentSurface(
   ctx: Context,
   color: [number, number, number, number],
   blend: GPUBlendState | undefined,
   cull: Cull,
   depthWrite: boolean,
   depthCompare: DepthCompare,
+  primitive: Primitive,
 ): Promise<{ mesh: Mesh; mat: Material }> {
   const mat = await material.unlit(ctx, {
     color,
@@ -211,42 +231,49 @@ async function buildTranslucentQuad(
     depthWrite,
     depthCompare,
   });
-  const m = mesh.plane(ctx, { material: mat, size: QUAD_SIZE });
+  const m =
+    primitive === "cube"
+      ? mesh.cube(ctx, { material: mat, size: QUAD_SIZE })
+      : mesh.plane(ctx, { material: mat, size: QUAD_SIZE });
   return { mesh: m, mat };
 }
 
-async function buildTranslucentQuads(
+async function buildTranslucentSurfaces(
   ctx: Context,
   cull: Cull,
   depthWrite: boolean,
   depthCompare: DepthCompare,
-): Promise<TranslucentQuads> {
+  primitive: Primitive,
+): Promise<TranslucentSurfaces> {
   let red: { mesh: Mesh; mat: Material } | undefined;
   let green: { mesh: Mesh; mat: Material } | undefined;
   try {
-    red = await buildTranslucentQuad(
+    red = await buildTranslucentSurface(
       ctx,
       RED_TINT,
       material.STRAIGHT_ALPHA_BLEND,
       cull,
       depthWrite,
       depthCompare,
+      primitive,
     );
-    green = await buildTranslucentQuad(
+    green = await buildTranslucentSurface(
       ctx,
       GREEN_TINT_PREMULT,
       material.PREMULTIPLIED_ALPHA_BLEND,
       cull,
       depthWrite,
       depthCompare,
+      primitive,
     );
-    const blue = await buildTranslucentQuad(
+    const blue = await buildTranslucentSurface(
       ctx,
       BLUE_TINT,
       material.ADDITIVE_BLEND,
       cull,
       depthWrite,
       depthCompare,
+      primitive,
     );
     return {
       red: red.mesh,
@@ -269,21 +296,64 @@ async function buildTranslucentQuads(
   }
 }
 
-function disposeTranslucentQuads(q: TranslucentQuads): void {
-  mesh.destroy(q.red);
-  mesh.destroy(q.green);
-  mesh.destroy(q.blue);
-  material.destroy(q.redMat);
-  material.destroy(q.greenMat);
-  material.destroy(q.blueMat);
+function disposeTranslucentSurfaces(s: TranslucentSurfaces): void {
+  mesh.destroy(s.red);
+  mesh.destroy(s.green);
+  mesh.destroy(s.blue);
+  material.destroy(s.redMat);
+  material.destroy(s.greenMat);
+  material.destroy(s.blueMat);
+}
+
+// --- Label helpers ---
+
+function requireLabel(key: LabelKey): HTMLElement {
+  const el = document.querySelector<HTMLElement>(
+    `#labels .surface-label[data-surface="${key}"]`,
+  );
+  if (!el) {
+    throw new Error(
+      `[furnace/cookbook] blend: label[data-surface=${key}] not found`,
+    );
+  }
+  return el;
+}
+
+function positionLabel(
+  scene: SceneRef,
+  cam: Camera,
+  surfacePos: Vec3,
+  vpW: number,
+  vpH: number,
+  labelEl: HTMLElement,
+): void {
+  vec3.set(
+    scene.labelAnchor,
+    surfacePos[0] as number,
+    (surfacePos[1] as number) + 0.7,
+    surfacePos[2] as number,
+  );
+  const visible = camera.projectToScreen(
+    scene.labelProj,
+    cam,
+    scene.labelAnchor,
+    vpW,
+    vpH,
+  );
+  if (visible) {
+    labelEl.style.transform = `translate(${scene.labelProj.x}px, ${scene.labelProj.y}px) translate(-50%, -50%)`;
+    labelEl.style.display = "";
+  } else {
+    labelEl.style.display = "none";
+  }
 }
 
 // --- Full scene ---
 
 async function buildScene(ctx: Context): Promise<SceneRef> {
   let backdrop: BackdropResources | undefined;
-  let cubeRes: { cube: Mesh; mat: Material } | undefined;
-  let quads: TranslucentQuads | undefined;
+  let refRes: { refMesh: Mesh; mat: Material } | undefined;
+  let surfaces: TranslucentSurfaces | undefined;
   try {
     backdrop = await buildBackdrop(
       ctx,
@@ -291,12 +361,13 @@ async function buildScene(ctx: Context): Promise<SceneRef> {
       state.cull,
       state.depthCompare,
     );
-    cubeRes = await buildCube(ctx, state.cull, state.depthCompare);
-    quads = await buildTranslucentQuads(
+    refRes = await buildReference(ctx, state.cull, state.depthCompare);
+    surfaces = await buildTranslucentSurfaces(
       ctx,
       state.cull,
       state.depthWrite,
       state.depthCompare,
+      state.primitive,
     );
     const cam = camera.perspective({
       aspect: ctx.canvas.width / ctx.canvas.height,
@@ -304,20 +375,27 @@ async function buildScene(ctx: Context): Promise<SceneRef> {
     });
     return {
       backdrop,
-      cube: cubeRes.cube,
-      cubeMat: cubeRes.mat,
-      quads,
+      reference: refRes.refMesh,
+      referenceMat: refRes.mat,
+      surfaces,
       cam,
       posRed: vec3.create(),
       posGreen: vec3.create(),
       posBlue: vec3.create(),
       rotBuf: quat.create(),
+      labelAnchor: vec3.create(),
+      labelProj: { x: 0, y: 0, w: 1 },
+      labelEls: {
+        red: requireLabel("red"),
+        green: requireLabel("green"),
+        blue: requireLabel("blue"),
+      },
     };
   } catch (e) {
-    if (quads) disposeTranslucentQuads(quads);
-    if (cubeRes) {
-      mesh.destroy(cubeRes.cube);
-      material.destroy(cubeRes.mat);
+    if (surfaces) disposeTranslucentSurfaces(surfaces);
+    if (refRes) {
+      mesh.destroy(refRes.refMesh);
+      material.destroy(refRes.mat);
     }
     if (backdrop) disposeBackdrop(backdrop);
     throw e;
@@ -325,9 +403,9 @@ async function buildScene(ctx: Context): Promise<SceneRef> {
 }
 
 function disposeScene(scene: SceneRef): void {
-  disposeTranslucentQuads(scene.quads);
-  mesh.destroy(scene.cube);
-  material.destroy(scene.cubeMat);
+  disposeTranslucentSurfaces(scene.surfaces);
+  mesh.destroy(scene.reference);
+  material.destroy(scene.referenceMat);
   disposeBackdrop(scene.backdrop);
 }
 
@@ -342,8 +420,8 @@ function makeRebuild(
 
   const rebuildOnce = async (): Promise<void> => {
     let nextBackdrop: BackdropResources | undefined;
-    let nextCubeRes: { cube: Mesh; mat: Material } | undefined;
-    let nextQuads: TranslucentQuads | undefined;
+    let nextRefRes: { refMesh: Mesh; mat: Material } | undefined;
+    let nextSurfaces: TranslucentSurfaces | undefined;
     try {
       nextBackdrop = await buildBackdrop(
         ctx,
@@ -351,17 +429,18 @@ function makeRebuild(
         state.cull,
         state.depthCompare,
       );
-      nextCubeRes = await buildCube(ctx, state.cull, state.depthCompare);
-      nextQuads = await buildTranslucentQuads(
+      nextRefRes = await buildReference(ctx, state.cull, state.depthCompare);
+      nextSurfaces = await buildTranslucentSurfaces(
         ctx,
         state.cull,
         state.depthWrite,
         state.depthCompare,
+        state.primitive,
       );
       if (abortFlag.disposed) {
-        disposeTranslucentQuads(nextQuads);
-        mesh.destroy(nextCubeRes.cube);
-        material.destroy(nextCubeRes.mat);
+        disposeTranslucentSurfaces(nextSurfaces);
+        mesh.destroy(nextRefRes.refMesh);
+        material.destroy(nextRefRes.mat);
         disposeBackdrop(nextBackdrop);
         return;
       }
@@ -369,22 +448,22 @@ function makeRebuild(
       // are fully constructed; a failed rebuild leaves the running scene
       // untouched.
       const oldBackdrop = sceneRef.backdrop;
-      const oldCube = sceneRef.cube;
-      const oldCubeMat = sceneRef.cubeMat;
-      const oldQuads = sceneRef.quads;
+      const oldReference = sceneRef.reference;
+      const oldReferenceMat = sceneRef.referenceMat;
+      const oldSurfaces = sceneRef.surfaces;
       sceneRef.backdrop = nextBackdrop;
-      sceneRef.cube = nextCubeRes.cube;
-      sceneRef.cubeMat = nextCubeRes.mat;
-      sceneRef.quads = nextQuads;
-      disposeTranslucentQuads(oldQuads);
-      mesh.destroy(oldCube);
-      material.destroy(oldCubeMat);
+      sceneRef.reference = nextRefRes.refMesh;
+      sceneRef.referenceMat = nextRefRes.mat;
+      sceneRef.surfaces = nextSurfaces;
+      disposeTranslucentSurfaces(oldSurfaces);
+      mesh.destroy(oldReference);
+      material.destroy(oldReferenceMat);
       disposeBackdrop(oldBackdrop);
     } catch (e) {
-      if (nextQuads) disposeTranslucentQuads(nextQuads);
-      if (nextCubeRes) {
-        mesh.destroy(nextCubeRes.cube);
-        material.destroy(nextCubeRes.mat);
+      if (nextSurfaces) disposeTranslucentSurfaces(nextSurfaces);
+      if (nextRefRes) {
+        mesh.destroy(nextRefRes.refMesh);
+        material.destroy(nextRefRes.mat);
       }
       if (nextBackdrop) disposeBackdrop(nextBackdrop);
       throw e;
@@ -423,16 +502,16 @@ function applyQuadTransforms(scene: SceneRef): void {
   vec3.set(scene.posRed, xRed, 0, RED_Z);
   vec3.set(scene.posGreen, 0, 0, GREEN_Z);
   vec3.set(scene.posBlue, xBlue, 0, BLUE_Z);
-  mesh.setPosition(scene.quads.red, scene.posRed);
-  mesh.setPosition(scene.quads.green, scene.posGreen);
-  mesh.setPosition(scene.quads.blue, scene.posBlue);
+  mesh.setPosition(scene.surfaces.red, scene.posRed);
+  mesh.setPosition(scene.surfaces.green, scene.posGreen);
+  mesh.setPosition(scene.surfaces.blue, scene.posBlue);
 
   // Y-axis rotation. quat.fromYRotation isn't exported; fromEuler with
   // (0, yaw, 0) is the supported path.
   quat.fromEuler(scene.rotBuf, 0, state.yaw, 0);
-  mesh.setRotation(scene.quads.red, scene.rotBuf);
-  mesh.setRotation(scene.quads.green, scene.rotBuf);
-  mesh.setRotation(scene.quads.blue, scene.rotBuf);
+  mesh.setRotation(scene.surfaces.red, scene.rotBuf);
+  mesh.setRotation(scene.surfaces.green, scene.rotBuf);
+  mesh.setRotation(scene.surfaces.blue, scene.rotBuf);
 }
 
 // --- Mount ---
@@ -453,6 +532,12 @@ await mountDemo({
     get backdrop() {
       return state.backdrop;
     },
+    get primitive() {
+      return state.primitive;
+    },
+    get showReference() {
+      return state.showReference;
+    },
     get spread() {
       return state.spread;
     },
@@ -471,6 +556,14 @@ await mountDemo({
     onBackdropChange: (v: Backdrop) => {
       state.backdrop = v;
       void triggerRebuild();
+    },
+    onPrimitiveChange: (v: Primitive) => {
+      state.primitive = v;
+      void triggerRebuild();
+    },
+    onShowReferenceChange: (v: boolean) => {
+      state.showReference = v;
+      // No rebuild — showReference only changes draw-list inclusion at frame time.
     },
     onSpreadChange: (v: number) => {
       state.spread = v;
@@ -537,17 +630,32 @@ await mountDemo({
     }
     applyQuadTransforms(scene);
 
-    // Draw order: backdrop → cube (opaque, depth reference) → translucents in
-    // fixed front-to-back submission order. With depthWrite=on, this exercises
-    // the classic translucent-ordering bug; with depthWrite=off (default),
-    // translucents blend correctly.
-    const draw: Mesh[] = [
-      ...scene.backdrop.meshes,
-      scene.cube,
-      scene.quads.red,
-      scene.quads.green,
-      scene.quads.blue,
-    ];
+    const vpW = ctx.canvas.clientWidth;
+    const vpH = ctx.canvas.clientHeight;
+    positionLabel(scene, scene.cam, scene.posRed, vpW, vpH, scene.labelEls.red);
+    positionLabel(
+      scene,
+      scene.cam,
+      scene.posGreen,
+      vpW,
+      vpH,
+      scene.labelEls.green,
+    );
+    positionLabel(
+      scene,
+      scene.cam,
+      scene.posBlue,
+      vpW,
+      vpH,
+      scene.labelEls.blue,
+    );
+
+    // Draw order: backdrop → reference (if shown, opaque, writes depth) →
+    // translucents in fixed front-to-back submission order (which is the WRONG
+    // order — intentional to exercise the depthWrite=on ordering bug).
+    const draw: Mesh[] = [...scene.backdrop.meshes];
+    if (state.showReference) draw.push(scene.reference);
+    draw.push(scene.surfaces.red, scene.surfaces.green, scene.surfaces.blue);
 
     frame.render(ctx, {
       draw,
