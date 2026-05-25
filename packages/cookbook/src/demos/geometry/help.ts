@@ -22,8 +22,5 @@ export default {
     "MaterialDescriptor.topology",
     "GeometryData",
   ],
-  gaps: [
-    "Rapid slider drags fire one rebuild per onChange (no debounce) — multiple in-flight rebuilds chain through the swap with momentarily-live wasted GPU work.",
-  ],
   order: 40,
 } satisfies DemoHelp;

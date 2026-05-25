@@ -38,5 +38,5 @@
   ]}
   onChange={(v) => { if (isTopology(v)) onTopologyChange(v); }}
 />
-<Slider label="subdiv" value={subdiv} min={2} max={32} step={1} onChange={onSubdivChange} />
-<Slider label="amplitude" value={amplitude} min={0} max={0.5} step={0.01} onChange={onAmplitudeChange} />
+<Slider label="subdiv" value={subdiv} min={2} max={128} step={1} onChange={onSubdivChange} />
+<Slider label="amplitude" value={amplitude} min={0} max={0.8} step={0.01} onChange={onAmplitudeChange} />

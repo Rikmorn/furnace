@@ -6,6 +6,6 @@ export const state: {
   amplitude: number;
 } = $state({
   topology: "triangle-list",
-  subdiv: 16,
-  amplitude: 0.2,
+  subdiv: 32,
+  amplitude: 0.3,
 });
