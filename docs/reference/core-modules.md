@@ -102,7 +102,7 @@ The reference is "what the engine IS today." If it's stale, it's broken.
 
 | Export | Signature | Notes |
 |---|---|---|
-| `vec3` | namespace `{ create, fromValues, set, copy, add, sub, scale, dot, cross, length, normalize, transformMat4 }` | `Vec3` = `Float32Array` of length 3. All ops follow the gl-matrix `(out, ...args) => out` convention. |
+| `vec3` | namespace `{ create, fromValues, set, copy, add, sub, scale, lerp, dot, cross, length, normalize, transformMat4 }` | `Vec3` = `Float32Array` of length 3. All ops follow the gl-matrix `(out, ...args) => out` convention. `lerp(out, a, b, t)` is component-wise linear interpolation — use `quat.slerp` for rotations. |
 | `vec4` | namespace `{ create, fromValues, set, copy }` | `Vec4` = `Float32Array` of length 4. Minimal surface — extend as needed. |
 | `quat` | namespace `{ create, fromValues, identity, copy, fromEuler, fromAxisAngle, multiply, normalize, conjugate, slerp }` | `Quat` = `Float32Array` of length 4, `(x, y, z, w)`. `create()` returns identity. |
 | `mat4` | namespace `{ create, identity, copy, multiply, translate, scale, rotate, invert, transpose, perspective, ortho, lookAt, fromQuat, fromRotationTranslationScale }` | `Mat4` = `Float32Array` of length 16, column-major (matches WebGPU). `invert` returns `Mat4 \| null` (singular). `perspective` accepts `far = Infinity`. |

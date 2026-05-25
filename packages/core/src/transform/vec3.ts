@@ -48,6 +48,16 @@ export const vec3 = {
     return out;
   },
 
+  lerp(out: Vec3, a: Vec3, b: Vec3, t: number): Vec3 {
+    const ax = a[0] as number;
+    const ay = a[1] as number;
+    const az = a[2] as number;
+    out[0] = ax + ((b[0] as number) - ax) * t;
+    out[1] = ay + ((b[1] as number) - ay) * t;
+    out[2] = az + ((b[2] as number) - az) * t;
+    return out;
+  },
+
   dot(a: Vec3, b: Vec3): number {
     return (
       (a[0] as number) * (b[0] as number) +

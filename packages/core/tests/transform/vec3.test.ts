@@ -86,3 +86,32 @@ test("transformMat4 with translation matrix applies the translation", () => {
   vec3.transformMat4(out, vec3.fromValues(1, 2, 3), m);
   expect(approxArr(out, [11, 22, 33])).toBe(true);
 });
+
+test("lerp at t=0 returns a", () => {
+  const out = vec3.create();
+  vec3.lerp(out, vec3.fromValues(1, 2, 3), vec3.fromValues(7, 8, 9), 0);
+  expect(approxArr(out, [1, 2, 3])).toBe(true);
+});
+
+test("lerp at t=1 returns b", () => {
+  const out = vec3.create();
+  vec3.lerp(out, vec3.fromValues(1, 2, 3), vec3.fromValues(7, 8, 9), 1);
+  expect(approxArr(out, [7, 8, 9])).toBe(true);
+});
+
+test("lerp at t=0.5 returns midpoint", () => {
+  const out = vec3.create();
+  vec3.lerp(out, vec3.fromValues(0, 0, 0), vec3.fromValues(10, 20, 30), 0.5);
+  expect(approxArr(out, [5, 10, 15])).toBe(true);
+});
+
+test("lerp returns out", () => {
+  const out = vec3.create();
+  const ret = vec3.lerp(
+    out,
+    vec3.fromValues(1, 2, 3),
+    vec3.fromValues(4, 5, 6),
+    0.5,
+  );
+  expect(ret).toBe(out);
+});
