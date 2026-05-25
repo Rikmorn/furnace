@@ -32,18 +32,29 @@ function requireLabel(key: LabelKey): HTMLElement {
   return el;
 }
 
-// Out-param `out` is mutated to avoid per-frame allocation; called for each of three labels.
+// Out-param `out` and `anchorBuf` are mutated to avoid per-frame allocation;
+// called for each of three labels. anchorBuf is set to `cube.position + (0, 0.6, 0)`
+// so the label projects above the cube's top face rather than its center.
 function positionLabel(
   out: ScreenProjection,
+  anchorBuf: ReturnType<typeof vec3.create>,
   cam: Parameters<typeof camera.projectToScreen>[1],
-  worldPos: Parameters<typeof camera.projectToScreen>[2],
+  cubePos: Parameters<typeof camera.projectToScreen>[2],
   vpW: number,
   vpH: number,
   labelEl: HTMLElement,
 ): void {
-  const visible = camera.projectToScreen(out, cam, worldPos, vpW, vpH);
+  vec3.set(
+    anchorBuf,
+    cubePos[0] as number,
+    (cubePos[1] as number) + 0.6,
+    cubePos[2] as number,
+  );
+  const visible = camera.projectToScreen(out, cam, anchorBuf, vpW, vpH);
   if (visible) {
-    labelEl.style.transform = `translate(${out.x}px, ${out.y}px)`;
+    // translate(-50%, -50%) centers the label on the projected screen point;
+    // anchor is above the cube so the label sits above the cube top.
+    labelEl.style.transform = `translate(${out.x}px, ${out.y}px) translate(-50%, -50%)`;
     labelEl.style.display = "";
   } else {
     labelEl.style.display = "none";
@@ -92,6 +103,7 @@ await mountDemo({
       const rotBufNoInterp = quat.create();
       const rotBufInterp = quat.create();
       const projBuf: ScreenProjection = { x: 0, y: 0, w: 1 };
+      const labelAnchorBuf = vec3.create();
 
       const labelVariable = requireLabel("variable");
       const labelNoInterp = requireLabel("no-interp");
@@ -113,6 +125,7 @@ await mountDemo({
           rotBufNoInterp,
           rotBufInterp,
           projBuf,
+          labelAnchorBuf,
           labelVariable,
           labelNoInterp,
           labelInterp,
@@ -171,6 +184,7 @@ await mountDemo({
     const vpH = ctx.canvas.clientHeight;
     positionLabel(
       scene.projBuf,
+      scene.labelAnchorBuf,
       scene.cam,
       scene.cubeVariable.position,
       vpW,
@@ -179,6 +193,7 @@ await mountDemo({
     );
     positionLabel(
       scene.projBuf,
+      scene.labelAnchorBuf,
       scene.cam,
       scene.cubeNoInterp.position,
       vpW,
@@ -187,6 +202,7 @@ await mountDemo({
     );
     positionLabel(
       scene.projBuf,
+      scene.labelAnchorBuf,
       scene.cam,
       scene.cubeInterp.position,
       vpW,
