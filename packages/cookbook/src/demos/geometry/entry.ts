@@ -168,6 +168,7 @@ async function buildScene(ctx: Context): Promise<SceneRef> {
       ctx,
       buildGridData(state.subdiv, state.amplitude, state.topology),
     );
+    // WebGPU requires cullMode "none" for non-triangle topologies — faces don't exist for line/point primitives.
     mat = await material.normalColor(ctx, {
       topology: state.topology,
       cullMode: state.topology === "triangle-list" ? "back" : "none",
@@ -215,6 +216,7 @@ function makeRebuild(
         ctx,
         buildGridData(state.subdiv, state.amplitude, state.topology),
       );
+      // WebGPU requires cullMode "none" for non-triangle topologies — faces don't exist for line/point primitives.
       nextMat = await material.normalColor(ctx, {
         topology: state.topology,
         cullMode: state.topology === "triangle-list" ? "back" : "none",
