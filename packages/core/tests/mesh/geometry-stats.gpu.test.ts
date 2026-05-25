@@ -11,7 +11,7 @@ import {
 await ensureBunWebGpu();
 
 test.skipIf(!bunWebGpuAvailable())(
-  "createGeometry: registers 1 geometry + 1 vertex buffer (+ index buffer if indexed); triangleCount populated",
+  "createGeometry: registers 1 geometry + 1 vertex buffer (+ index buffer if indexed)",
   async () => {
     const canvas = await makeOffscreenCanvas();
     const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
@@ -22,7 +22,6 @@ test.skipIf(!bunWebGpuAvailable())(
     expect(
       after.memory.bufferBytes - before.memory.bufferBytes,
     ).toBeGreaterThan(0);
-    expect(geo.triangleCount).toBe(12);
     destroyGeometry(geo);
     const final = snapshot(ctx);
     expect(final.resources.geometries).toBe(before.resources.geometries);

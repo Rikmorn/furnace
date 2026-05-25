@@ -8,7 +8,6 @@ import { validateGeometryData } from "./geometry-validation.ts";
 import type { Geometry, GeometryData } from "./types.ts";
 
 const FLOATS_PER_VERTEX = 8;
-const VERTICES_PER_TRIANGLE = 3;
 
 // Boundary type — geometry handles stored on the Geometry object after create,
 // read by destroyGeometry. Same-module write/read makes the localised cast in
@@ -43,10 +42,6 @@ export function createGeometry(ctx: Context, data: GeometryData): Geometry {
         })
       : null;
 
-  const triangleCount = Math.floor(
-    (indexResources.count || vertexCount) / VERTICES_PER_TRIANGLE,
-  );
-
   const _geometryHandle = _registerResource(ctx, { kind: "geometry" });
 
   const geometry: GeometryWithHandles = {
@@ -56,7 +51,6 @@ export function createGeometry(ctx: Context, data: GeometryData): Geometry {
     indexBuffer: indexResources.buffer,
     indexFormat: indexResources.format,
     indexCount: indexResources.count,
-    triangleCount,
     _geometryHandle,
     _vertexBufferHandle,
     _indexBufferHandle,
