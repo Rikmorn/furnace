@@ -21,6 +21,12 @@ const server = Bun.serve({
   port: Number(Bun.env["FURNACE_PORT"] ?? 8766),
   routes,
 });
+
+// Pre-warm Bun's lazy HTMLBundle cache: avoids a Safari first-click navigation race.
+await Promise.all(
+  Object.keys(routes).map((path) => fetch(new URL(path, server.url))),
+);
+
 const demoCount = Object.keys(routes).length - 1;
 console.log(`PORT=${server.port}`);
 console.log(`Serving ${demoCount} demo(s) at ${server.url}`);
