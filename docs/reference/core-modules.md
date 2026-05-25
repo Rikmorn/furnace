@@ -85,6 +85,7 @@ The reference is "what the engine IS today." If it's stale, it's broken.
 - `loop`, `render`, `RenderOptions`, `ClearColor` → `cookbook/hello-cube`.
 - `loop` (variable dt), `fixedLoop` (mentioned), `FrameInfo` → `cookbook/animation`.
 - `renderToTexture`, `RenderToTextureOptions` → `cookbook/render-target`.
+- `render({ effects })` → `cookbook/post`.
 
 ### Reference-only (no demo, by design)
 
@@ -347,7 +348,7 @@ Re-exported from `index.ts` so other core modules can `import * as stats` and ca
 
 ### Demoed in cookbook
 
-(cross-links populated as demos land — Tasks 10–18)
+- `create`, `destroy`, `Effect`, `EffectDescriptor` → `cookbook/post`.
 
 ### Reference-only (no demo, by design)
 
