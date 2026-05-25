@@ -10,13 +10,16 @@ import ControlsPanel from "./ui/ControlsPanel.svelte";
 import HelpPanel from "./ui/HelpPanel.svelte";
 import StatsPanel from "./ui/StatsPanel.svelte";
 
-export type MountDemoOptions<Scene> = {
+export type MountDemoOptions<
+  Scene,
+  ControlsProps extends Record<string, unknown> = Record<string, never>,
+> = {
   /** The DemoHelp for this demo. */
   help: DemoHelp;
   /** Optional Svelte component rendering the controls panel body. */
-  controls?: Component<Record<string, unknown>>;
+  controls?: Component<ControlsProps>;
   /** Props to pass into the controls component (if any). */
-  controlsProps?: Record<string, unknown>;
+  controlsProps?: ControlsProps;
   /** Build scene resources once the ctx is ready. */
   setup: (ctx: Context) => Promise<{ scene: Scene; dispose?: () => void }>;
   /** Called every frame. */
@@ -52,9 +55,10 @@ function requireChromeHosts(): ChromeHosts {
   return { breadcrumb, stats, help, controls };
 }
 
-export async function mountDemo<Scene>(
-  opts: MountDemoOptions<Scene>,
-): Promise<void> {
+export async function mountDemo<
+  Scene,
+  ControlsProps extends Record<string, unknown> = Record<string, never>,
+>(opts: MountDemoOptions<Scene, ControlsProps>): Promise<void> {
   const slug = getSlug();
   const canvas = requireCanvas();
   const ctx = await gpu.requestContext(canvas);
@@ -74,13 +78,14 @@ export async function mountDemo<Scene>(
     target: hosts.help,
     props: { slug, help: opts.help },
   });
+  const bodyProps: Record<string, unknown> = opts.controlsProps ?? {};
   const controlsApp = opts.controls
     ? mount(ControlsPanel, {
         target: hosts.controls,
         props: {
           slug,
           body: opts.controls,
-          bodyProps: opts.controlsProps ?? {},
+          bodyProps,
         },
       })
     : null;

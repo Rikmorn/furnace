@@ -47,7 +47,7 @@ The reference is "what the engine IS today." If it's stale, it's broken.
 
 ### Demoed in cookbook
 
-(cross-links populated as demos land — Tasks 10–18)
+- `requestContext`, `onResize`, `Context` → `cookbook/hello-cube`.
 
 ### Reference-only (no demo, by design)
 
@@ -82,7 +82,7 @@ The reference is "what the engine IS today." If it's stale, it's broken.
 
 ### Demoed in cookbook
 
-(cross-links populated as demos land — Tasks 10–18)
+- `loop`, `render`, `RenderOptions`, `ClearColor` → `cookbook/hello-cube`.
 
 ### Reference-only (no demo, by design)
 
@@ -216,7 +216,7 @@ Re-exported from `index.ts` so other core modules can `import * as stats` and ca
 
 ### Demoed in cookbook
 
-(cross-links populated as demos land — Tasks 10–18)
+- `perspective`, `orthographic`, `setPosition`, `setTarget` → `cookbook/hello-cube`.
 
 ### Reference-only (no demo, by design)
 
@@ -244,7 +244,7 @@ Re-exported from `index.ts` so other core modules can `import * as stats` and ca
 
 ### Demoed in cookbook
 
-(cross-links populated as demos land — Tasks 10–18)
+- `unlit`, `normalColor`, `destroy` → `cookbook/hello-cube`.
 
 ### Reference-only (no demo, by design)
 
@@ -276,7 +276,7 @@ Re-exported from `index.ts` so other core modules can `import * as stats` and ca
 
 ### Demoed in cookbook
 
-(cross-links populated as demos land — Tasks 10–18)
+- `cube`, `cubeGeometry`, `plane`, `create`, `destroy`, `setPosition` → `cookbook/hello-cube`.
 
 ### Reference-only (no demo, by design)
 
@@ -316,7 +316,7 @@ Re-exported from `index.ts` so other core modules can `import * as stats` and ca
 
 ### Demoed in cookbook
 
-(cross-links populated as demos land — Tasks 10–18)
+- `attach`, `detach`, `onPointerDown`, `onPointerMove`, `onPointerUp` → `cookbook/hello-cube`.
 
 ### Reference-only (no demo, by design)
 
