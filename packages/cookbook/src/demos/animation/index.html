@@ -5,6 +5,28 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>furnace · cookbook · animation</title>
   <link rel="stylesheet" href="../../shared/styles.css">
+  <style>
+    #labels {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+    }
+    #labels .cube-label {
+      position: absolute;
+      top: 0;
+      left: 0;
+      transform: translate(-9999px, -9999px);
+      padding: 0.25rem 0.5rem;
+      background: rgba(0, 0, 0, 0.6);
+      color: var(--text, #fff);
+      font-family: var(--font-mono, monospace);
+      font-size: 0.75rem;
+      border-radius: 3px;
+      white-space: nowrap;
+      margin-left: -50%;
+      margin-top: -2.5rem;
+    }
+  </style>
 </head>
 <body>
   <canvas id="gpu"></canvas>
@@ -12,6 +34,11 @@
   <div id="stats"></div>
   <div id="help"></div>
   <div id="controls"></div>
+  <div id="labels">
+    <div class="cube-label" data-cube="variable">variable dt</div>
+    <div class="cube-label" data-cube="no-interp">fixed, no interp</div>
+    <div class="cube-label" data-cube="interp">fixed, alpha interp</div>
+  </div>
   <script type="module" src="./entry.ts"></script>
 </body>
 </html>

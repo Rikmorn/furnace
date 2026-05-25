@@ -2,24 +2,25 @@ import type { DemoHelp } from "../../shared/help-types.ts";
 
 export default {
   title: "animation",
-  blurb: "frame.loop's dt drives rotation + scale, toggle to a fixed-step loop",
+  blurb:
+    "three cubes, one frame.loop. Left: variable dt. Middle: fixed-step, no interpolation. Right: fixed-step with alpha lerp. Drag fixed Hz low to see the difference.",
   controls: [
     { key: "s", action: "toggle stats" },
     { key: "h", action: "toggle help" },
     { key: "c", action: "toggle controls" },
-    { input: "slider: rate", action: "rotation rate" },
-    { input: "slider: scale", action: "uniform scale" },
-    { input: "select: loop", action: "variable dt ↔ fixed step (60Hz)" },
+    { input: "slider: rate", action: "rotation rate (rad/s)" },
+    {
+      input: "slider: fixed Hz",
+      action: "tick rate for both fixed-step cubes (5–120 Hz)",
+    },
   ],
   features: [
-    "frame.loop",
-    "frame.fixedLoop",
-    "transform.quat",
-    "mesh.setRotation",
-    "mesh.setScale",
+    "frame.loop (variable dt) — left cube advances by info.deltaMs each RAF",
+    "fixed-step accumulator — middle/right cubes tick at the selected Hz; matches the pattern frame.fixedLoop packages up",
+    "alpha interpolation — right cube lerps between previous and current tick by alpha = accumulator / fixedDt",
+    "camera.projectToScreen — floating labels positioned via the new core helper",
+    "transform.quat / mesh.setRotation",
   ],
-  gaps: [
-    "fixedLoop accumulator drift not visualized — would need a perf-heavy scene to surface",
-  ],
+  gaps: [],
   order: 20,
 } satisfies DemoHelp;
