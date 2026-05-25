@@ -35,8 +35,9 @@ export function fixedLoop(
         accumulator -= opts.fixedDtMs;
         ticks++;
       }
-      if (ticks >= maxCatchupTicks) {
-        // Spiral-of-death guard: discard remaining accumulator.
+      // Spiral-of-death guard: if the tick cap fired with work still pending,
+      // discard the surplus. Naturally-drained sub-tick remainders are preserved.
+      if (accumulator >= opts.fixedDtMs) {
         accumulator = 0;
       }
       const alpha = accumulator / opts.fixedDtMs;

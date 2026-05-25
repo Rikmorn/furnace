@@ -109,6 +109,31 @@ test("when maxCatchupTicks hit, accumulator is discarded (no spiral)", () => {
   expect(alphas[0]).toBeCloseTo(0);
 });
 
+test("when ticks hits cap but no spiral, sub-tick remainder is preserved", () => {
+  const ctx = fakeCtx();
+  let tickCount = 0;
+  const alphas: number[] = [];
+  fixedLoop(ctx, {
+    fixedDtMs: 10,
+    maxCatchupTicks: 3,
+    onTick: () => {
+      tickCount++;
+    },
+    onFrame: ({ alpha }) => {
+      alphas.push(alpha);
+    },
+  });
+  raf.advance(0);
+  tickCount = 0;
+  alphas.length = 0;
+  // delta=35ms: 3 full ticks consume 30ms; remainder 5ms < fixedDtMs so no
+  // spiral. Old guard zeroed it because ticks==maxCatchupTicks; corrected
+  // guard preserves it — alpha = 5/10 = 0.5.
+  raf.advance(35);
+  expect(tickCount).toBe(3);
+  expect(alphas[0]).toBeCloseTo(0.5);
+});
+
 test("returned handle supports stop/pause/resume", () => {
   const ctx = fakeCtx();
   let ticks = 0;
