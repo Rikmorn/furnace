@@ -50,7 +50,7 @@ For UI anchored to a point in the 3D scene that does NOT need per-pixel occlusio
 
 The projection step must run after physics/animation but before render encoding in the same tick — otherwise the DOM lags the 3D content by one frame.
 
-This approach is committed but not yet implemented; the helper that wraps it lands when the first world-tracked surface is needed. See `docs/backlog/editor-and-tooling/screen-space-projection-helper-for-world-tracked-svelte-ui.md`.
+The projection helper ships in `@furnace/core/camera` as `projectToScreen(out, cam, worldPoint, viewportWidth, viewportHeight)`. The cookbook `animation` demo is the first consumer; see `docs/reference/core-modules.md` for the API.
 
 Performance envelope: comfortable up to a few hundred elements per frame. Thousands would force a different approach (instanced GPU-side rendering of the labels themselves).
 
@@ -77,7 +77,6 @@ A handful of approaches were evaluated and rejected:
 
 - `packages/hello-world/src/overlay/` — live Svelte 5 + `@furnace/core` integration.
 - `docs/learnings/render-to-texture.md` — render-to-texture gotchas from the WGSL primitive proof.
-- `docs/backlog/editor-and-tooling/screen-space-projection-helper-for-world-tracked-svelte-ui.md` — world-tracked UI helper, deferred.
 - `docs/backlog/editor-and-tooling/in-scene-ui-primitive-for-occluded-cases.md` — WGSL textured-plane primitive, deferred.
 - `docs/backlog/editor-and-tooling/svelte-editor-inspector-surfaces.md` — Svelte editor/inspector surfaces, deferred until ECS lands.
 - `docs/backlog/editor-and-tooling/sdf-font-atlas-glyph-rendering.md` — sharp text at varying scales, deferred.
