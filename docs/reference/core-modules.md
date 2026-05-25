@@ -245,7 +245,8 @@ Re-exported from `index.ts` so other core modules can `import * as stats` and ca
 | `create` | `(ctx: Context, descriptor: MaterialDescriptor) => Promise<Material>` | Builds (or reuses, via internal pipeline cache) a render pipeline keyed on shader source + raster state + blend signature + ctx format. Validates the descriptor; throws `FurnaceError` if pipeline creation fails. |
 | `destroy` | `(material: Material) => void` | Destroys owned buffers, unregisters resources, releases the cached pipeline ref. |
 | `unlit` | `(ctx: Context, opts: { color: [number, number, number, number] }) => Promise<Material>` | Stock unlit material. Allocates a 16-byte uniform buffer for the color (owned by the material). |
-| `normalColor` | `(ctx: Context) => Promise<Material>` | Stock debug material that renders the (uniform-scale-correct) world-space normal as RGB. No bindings. |
+| `normalColor` | `(ctx: Context, opts?: NormalColorOptions) => Promise<Material>` | Stock debug material that renders the (uniform-scale-correct) world-space normal as RGB. No bindings. `opts` overrides pipeline state — `{ topology?, cullMode?, depthWrite?, depthCompare?, blend? }`. |
+| `NormalColorOptions` | `{ topology?: GPUPrimitiveTopology; cullMode?: GPUCullMode; depthWrite?: boolean; depthCompare?: GPUCompareFunction; blend?: GPUBlendState }` | Pipeline-state overrides for `normalColor`. All fields optional; defaults match `MaterialDescriptor` (triangle-list / back / depthWrite true / less / opaque). |
 | `createPipeline` | `(ctx: Context, descriptor: GPURenderPipelineDescriptor) => Promise<GPURenderPipeline>` | Escape hatch: wraps `device.createRenderPipeline` in a validation error scope. Returns the raw pipeline; the caller owns it (not cached, not registered). |
 | `PREMULTIPLIED_ALPHA_BLEND` | `GPUBlendState` constant — `src=one, dst=one-minus-src-alpha, op=add` for both color and alpha | Frozen; pass to `MaterialDescriptor.blend`. |
 | `ADDITIVE_BLEND` | `GPUBlendState` constant — `src=one, dst=one, op=add` for both color and alpha | Frozen; pass to `MaterialDescriptor.blend`. |
@@ -283,7 +284,7 @@ Re-exported from `index.ts` so other core modules can `import * as stats` and ca
 | `setPosition` | `(mesh: Mesh, position: Vec3) => void` | Flips `transformDirty`. |
 | `setRotation` | `(mesh: Mesh, rotation: Quat) => void` | Flips `transformDirty`. |
 | `setScale` | `(mesh: Mesh, scale: Vec3) => void` | Flips `transformDirty`. |
-| `Geometry` | record holding `{ ctx, vertexBuffer, vertexCount, indexBuffer, indexFormat, indexCount, triangleCount }` | Treated as an opaque handle by consumers. |
+| `Geometry` | record holding `{ ctx, vertexBuffer, vertexCount, indexBuffer, indexFormat, indexCount }` | Treated as an opaque handle by consumers. Triangle count is derived per draw inside `frame.render` from `mesh.material.topology` rather than stored on `Geometry`. |
 | `GeometryData` | `{ positions: Float32Array; normals: Float32Array; uvs: Float32Array; indices?: Uint16Array \| Uint32Array }` | Raw arrays fed to `createGeometry`. |
 | `Mesh` | record holding `{ ctx, geometry, material, position, rotation, scale, modelMatrix, transformDirty, objectBuffer }` | Treated as an opaque handle by consumers — mutate only via setters. |
 
