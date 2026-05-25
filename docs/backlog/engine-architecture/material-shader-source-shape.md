@@ -15,4 +15,4 @@ Open design questions:
 
 **Trigger to revisit:** Next material variant that actually wants a different vertex shader from the previous one — text rendering, skinned mesh, instanced batch with a different transform path. Or: any time we add a fourth built-in material, because the duplicate `createShaderModule` cost grows with every material the engine ships.
 
-**Reference:** `packages/core/src/material/material.ts:46-47` (the duplicate-module construction), `packages/core/src/material/unlit.ts` and `packages/core/src/material/normal-color.ts` (current call sites), [[material-blend-state-support]] (adjacent material API change).
+**Reference:** `packages/core/src/material/material.ts:46-47` (the duplicate-module construction), `packages/core/src/material/unlit.ts` and `packages/core/src/material/normal-color.ts` (current call sites).
