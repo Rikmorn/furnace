@@ -20,6 +20,9 @@ export type ScreenProjection = {
  *
  * Viewport dimensions are CSS pixels (canvas.clientWidth / clientHeight),
  * not device pixels (canvas.width / height). DPR is the caller's problem.
+ *
+ * Non-finite inputs (NaN/Infinity in `worldPoint`) propagate to `out` without
+ * throwing — consistent with the engine's "runtime quiet" policy.
  */
 export function projectToScreen(
   out: ScreenProjection,
