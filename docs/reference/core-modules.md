@@ -256,7 +256,7 @@ Re-exported from `index.ts` so other core modules can `import * as stats` and ca
 ### Demoed in cookbook
 
 - `unlit`, `normalColor`, `destroy` → `cookbook/hello-cube`.
-- `create`, `MaterialDescriptor` (topology) → `cookbook/geometry`.
+- `normalColor`, `NormalColorOptions` (topology) → `cookbook/geometry`.
 - `create`, `MaterialDescriptor` (vertex/fragment/bindings) → `cookbook/shader`.
 - `create` (blend, cullMode, depthWrite, depthCompare), `PREMULTIPLIED_ALPHA_BLEND`, `ADDITIVE_BLEND` → `cookbook/blend`.
 
