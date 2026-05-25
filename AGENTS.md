@@ -121,6 +121,7 @@ Before claiming a piece of work is complete: search `AGENTS.md`, `README.md`, an
   - `engine-architecture.md` — broader architectural rationale
   - `packaging-and-distribution.md` — what we ship to consumers
   - `ui-foundation.md` — Svelte 5 + screen-space projection patterns for consumer UI
+  - `fixed-step-interpolation.md` — engine posture + consumer recipe for interpolating between fixed-step ticks
 - `docs/backlog/` — deferred work register (one file per entry, grouped by topic).
 - `docs/learnings/` — post-mortems and "what we tried" notes.
 - `docs/research/` — pre-decision research that fed canonical docs.
