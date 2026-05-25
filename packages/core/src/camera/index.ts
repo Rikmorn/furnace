@@ -16,4 +16,8 @@ export {
   perspective,
   setFov,
 } from "./perspective.ts";
+export {
+  projectToScreen,
+  type ScreenProjection,
+} from "./project.ts";
 export type { Camera, CameraMatrices } from "./types.ts";
