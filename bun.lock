@@ -10,6 +10,17 @@
         "typescript": "^6.0.3",
       },
     },
+    "packages/cookbook": {
+      "name": "@furnace/cookbook",
+      "version": "0.0.0",
+      "dependencies": {
+        "@furnace/core": "workspace:*",
+      },
+      "devDependencies": {
+        "bun-plugin-svelte": "^0.0.6",
+        "svelte": "^5.55.7",
+      },
+    },
     "packages/core": {
       "name": "@furnace/core",
       "version": "0.0.0",
@@ -58,6 +69,8 @@
     "@biomejs/cli-win32-arm64": ["@biomejs/cli-win32-arm64@2.4.15", "", { "os": "win32", "cpu": "arm64" }, "sha512-ouhkYdlhp/1GghEJPdWwD/Vi3gQ1nFxuSpMolWsbq3Lsq3QUR4jl6UdhhscdCugKU5vOEuMiJhvKj66O0OCq+w=="],
 
     "@biomejs/cli-win32-x64": ["@biomejs/cli-win32-x64@2.4.15", "", { "os": "win32", "cpu": "x64" }, "sha512-zBrGq5mx5wwpnow4+2BxUvleDM+GNd4sLbPaMapsSLQLD0NGRCquqPBTgN+7XkUteHvj7M+BstuI8tmnV7+HgQ=="],
+
+    "@furnace/cookbook": ["@furnace/cookbook@workspace:packages/cookbook"],
 
     "@furnace/core": ["@furnace/core@workspace:packages/core"],
 
