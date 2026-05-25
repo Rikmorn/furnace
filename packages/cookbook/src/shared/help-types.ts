@@ -1,11 +1,10 @@
-export type DemoControl = {
-  /** Keyboard key. Mutually optional with `input`. */
-  key?: string;
-  /** Mouse/pointer/wheel/UI-control label. Mutually optional with `key`. */
-  input?: string;
-  /** Short verb-phrase describing what this control does. */
-  action: string;
-};
+/**
+ * One row in a demo's controls list — exactly one of `key` or `input` is set.
+ * `key` = keyboard key; `input` = mouse/pointer/wheel/UI-control label. `action` is the verb-phrase.
+ */
+export type DemoControl =
+  | { key: string; input?: never; action: string }
+  | { key?: never; input: string; action: string };
 
 export type DemoHelp = {
   /** Short slug-ish title shown on the menu card and in the help panel. */
