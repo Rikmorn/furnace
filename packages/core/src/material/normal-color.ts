@@ -2,6 +2,14 @@ import type { Context } from "../gpu/index.ts";
 import { create } from "./material.ts";
 import type { Material } from "./types.ts";
 
+export type NormalColorOptions = {
+  topology?: GPUPrimitiveTopology;
+  cullMode?: GPUCullMode;
+  depthWrite?: boolean;
+  depthCompare?: GPUCompareFunction;
+  blend?: GPUBlendState;
+};
+
 const NORMAL_COLOR_WGSL = /* wgsl */ `
 struct Camera { viewProjection: mat4x4<f32> };
 struct Object { model: mat4x4<f32> };
@@ -34,9 +42,17 @@ struct VsOut {
 }
 `;
 
-export async function normalColor(ctx: Context): Promise<Material> {
+export async function normalColor(
+  ctx: Context,
+  opts?: NormalColorOptions,
+): Promise<Material> {
   return await create(ctx, {
     vertex: NORMAL_COLOR_WGSL,
     fragment: NORMAL_COLOR_WGSL,
+    topology: opts?.topology,
+    cullMode: opts?.cullMode,
+    depthWrite: opts?.depthWrite,
+    depthCompare: opts?.depthCompare,
+    blend: opts?.blend,
   });
 }
