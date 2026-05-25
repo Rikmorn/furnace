@@ -13,7 +13,8 @@ export default {
     { input: "select: cull", action: "back / front / none (all materials)" },
     {
       input: "toggle: depthWrite",
-      action: "translucent surfaces write depth? on = ordering bug visible",
+      action:
+        "translucent surfaces write depth? on = exposes the translucent ordering limitation",
     },
     {
       input: "select: depthCompare",
@@ -48,6 +49,7 @@ export default {
     "straight α (red): src*α + dst*(1-α). Translucent overlay — alpha scales the source contribution; backdrop shows through proportionally. The 'naive' alpha-blend most beginners reach for.",
     "premultiplied (green): src + dst*(1-α). Same family as straight, but the source RGB is pre-multiplied by alpha at write-time. Composes correctly under chained translucent layers — what production engines (Three.js, Unity, browser compositors) standardize on.",
     "additive (blue): src + dst. Pure addition; never reduces the backdrop. Saturates toward white where it lands on bright dst colors. Standard mode for fire, lasers, lens flares, UI highlights — anything that should look emissive/glowy.",
+    "depthWrite for translucents: when on, each translucent surface writes depth — blocking subsequent farther translucents in their overlap regions. This is a fundamental limitation of standard alpha-blending + depth-testing, not a core bug. The demo deliberately submits front-to-back to expose it; the real-engine fix is back-to-front sorting + depthWrite=off, or order-independent transparency techniques (depth peeling, weighted blended OIT).",
   ],
   order: 60,
 } satisfies DemoHelp;
