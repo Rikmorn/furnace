@@ -5,7 +5,6 @@ import type { Material } from "./types.ts";
 
 const COLOR_BUFFER_SIZE_BYTES = 16;
 
-// gwsl file lazy loaded?
 const UNLIT_WGSL = /* wgsl */ `
 struct Camera { viewProjection: mat4x4<f32> };
 struct Object { model: mat4x4<f32> };
@@ -30,9 +29,18 @@ struct VsIn {
 }
 `;
 
+export type UnlitOptions = {
+  color: [number, number, number, number];
+  topology?: GPUPrimitiveTopology;
+  cullMode?: GPUCullMode;
+  depthWrite?: boolean;
+  depthCompare?: GPUCompareFunction;
+  blend?: GPUBlendState;
+};
+
 export async function unlit(
   ctx: Context,
-  opts: { color: [number, number, number, number] },
+  opts: UnlitOptions,
 ): Promise<Material> {
   const colorBuffer = ctx.device.createBuffer({
     size: COLOR_BUFFER_SIZE_BYTES,
@@ -47,6 +55,11 @@ export async function unlit(
     vertex: UNLIT_WGSL,
     fragment: UNLIT_WGSL,
     bindings: [{ binding: 0, resource: { buffer: colorBuffer } }],
+    topology: opts.topology,
+    cullMode: opts.cullMode,
+    depthWrite: opts.depthWrite,
+    depthCompare: opts.depthCompare,
+    blend: opts.blend,
   });
   mat.ownedBuffers.push(colorBuffer);
   mat.ownedBufferHandles.push(colorBufferHandle);
