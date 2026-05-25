@@ -246,6 +246,7 @@ Re-exported from `index.ts` so other core modules can `import * as stats` and ca
 ### Demoed in cookbook
 
 - `unlit`, `normalColor`, `destroy` → `cookbook/hello-cube`.
+- `create`, `MaterialDescriptor` (topology) → `cookbook/geometry`.
 
 ### Reference-only (no demo, by design)
 
@@ -279,6 +280,7 @@ Re-exported from `index.ts` so other core modules can `import * as stats` and ca
 
 - `cube`, `cubeGeometry`, `plane`, `create`, `destroy`, `setPosition` → `cookbook/hello-cube`.
 - `setRotation`, `setScale` → `cookbook/animation`.
+- `createGeometry`, `destroyGeometry`, `GeometryData`, `Geometry` → `cookbook/geometry`.
 
 ### Reference-only (no demo, by design)
 
