@@ -1,13 +1,10 @@
 struct Camera { viewProjection: mat4x4<f32> };
 struct Object { model: mat4x4<f32> };
-struct Params { stripes: f32, hue: f32, softness: f32, _pad: f32 };
+// time auto-advances each frame from a state.time accumulator in entry.ts.
+struct Params { time: f32, scale: f32, colorPhase: f32, _pad: f32 };
 
-// Engine plumbs camera + per-object transforms into @group(0). The struct names
-// must match what the engine writes (see frame/render.ts).
 @group(0) @binding(0) var<uniform> camera: Camera;
 @group(0) @binding(1) var<uniform> object: Object;
-// Material-owned uniforms live at @group(1). The buffer behind this binding
-// comes from MaterialDescriptor.bindings in entry.ts.
 @group(1) @binding(0) var<uniform> params: Params;
 
 struct VsIn {
@@ -30,8 +27,8 @@ fn vs_main(v: VsIn) -> VsOut {
   return out;
 }
 
-// hsv2rgb: standard hue-saturation-value → RGB. Also copy-pasted into
-// plasma.wgsl — WGSL has no #include yet. See shader-preprocessor.md backlog.
+// hsv2rgb: standard hue-saturation-value → RGB. Also copy-pasted from
+// striped.wgsl — WGSL has no #include yet. See shader-preprocessor.md backlog.
 fn hsv2rgb(h: f32, s: f32, v: f32) -> vec3<f32> {
   let c = v * s;
   let x = c * (1.0 - abs(((h * 6.0) % 2.0) - 1.0));
@@ -46,17 +43,24 @@ fn hsv2rgb(h: f32, s: f32, v: f32) -> vec3<f32> {
   return vec3<f32>(r + m, g + m, b + m);
 }
 
-// Tuning anchors for the cube's base colour. Not exposed as sliders.
-const STRIPED_SATURATION: f32 = 0.7;
-const STRIPED_VALUE: f32 = 0.9;
+// Tuning anchors: backdrop sits slightly darker than the cube so the cube
+// stands out as the subject. Not exposed as sliders.
+const PLASMA_SATURATION: f32 = 0.8;
+const PLASMA_VALUE: f32 = 0.6;
 
+// Classic plasma: four sines (axis-aligned + diagonal + radial) summed into
+// a single value, then mapped to a hue. scale controls zoom (smaller = bigger
+// pattern blobs); colorPhase rotates the hue cycle.
 @fragment
 fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
-  let s = sin(in.uv.x * params.stripes * 6.2831853);
-  // smoothstep with edges at ±softness anti-aliases the band edge.
-  // At softness=0 this degenerates to step(); at softness>0 the edge fades.
-  let band = smoothstep(-params.softness, params.softness, s);
-  let base = hsv2rgb(params.hue, STRIPED_SATURATION, STRIPED_VALUE);
-  let dark = base * 0.4;
-  return vec4<f32>(mix(dark, base, band), 1.0);
+  let p = (in.uv - 0.5) * params.scale;
+  let t = params.time;
+  let v1 = sin(p.x + t);
+  let v2 = sin(p.y + t * 0.7);
+  let v3 = sin((p.x + p.y) * 0.5 + t * 0.5);
+  let v4 = sin(length(p) - t * 0.8);
+  let v = (v1 + v2 + v3 + v4) / 4.0;
+  // Map v ∈ [-1, 1] → [0, 1], then offset by colorPhase to drive hue.
+  let hue = fract(v * 0.5 + 0.5 + params.colorPhase);
+  return vec4<f32>(hsv2rgb(hue, PLASMA_SATURATION, PLASMA_VALUE), 1.0);
 }
