@@ -3,7 +3,7 @@ import type { DemoHelp } from "../../shared/help-types.ts";
 export default {
   title: "blend",
   blurb:
-    "opaque + premultiplied + additive over a cube and switchable backdrops",
+    "straight + premultiplied + additive over a cube and switchable backdrops",
   controls: [
     { key: "s", action: "toggle stats" },
     { key: "h", action: "toggle help" },
@@ -25,6 +25,7 @@ export default {
   features: [
     "material.unlit (with UnlitOptions)",
     "UnlitOptions",
+    "STRAIGHT_ALPHA_BLEND",
     "PREMULTIPLIED_ALPHA_BLEND",
     "ADDITIVE_BLEND",
     "MaterialDescriptor.cullMode (via UnlitOptions)",

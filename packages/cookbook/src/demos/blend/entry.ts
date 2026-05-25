@@ -53,9 +53,14 @@ const STRIP_COLORS: readonly [number, number, number, number][] = [
 const STRIP_COUNT = STRIP_COLORS.length;
 const STRIP_X_START = -((STRIP_COUNT - 1) * BACKDROP_STRIP_WIDTH) / 2;
 
-// Translucent quads. PMA green's tint is pre-multiplied: green-at-alpha-0.5
-// means we write 0.5 (not 1.0) for the green channel, because the blend
-// equation expects src.rgb already multiplied by src.alpha.
+// Three translucent quads exercising the three canonical translucent blend
+// modes: straight alpha (red), premultiplied alpha (green), additive (blue).
+//
+// PMA green's tint is pre-multiplied: green-at-alpha-0.5 means we write 0.5
+// (not 1.0) for the green channel, because the blend equation expects src.rgb
+// already multiplied by src.alpha. Compare with straight-alpha red: same shape
+// of tint, but the blend mode applies the alpha-multiplication inside the
+// equation, accumulating error under chained translucent overlays.
 const RED_TINT: [number, number, number, number] = [1, 0, 0, 0.5];
 const GREEN_TINT_PREMULT: [number, number, number, number] = [0, 0.5, 0, 0.5];
 const BLUE_TINT: [number, number, number, number] = [0, 0, 1, 0.5];
@@ -222,7 +227,7 @@ async function buildTranslucentQuads(
     red = await buildTranslucentQuad(
       ctx,
       RED_TINT,
-      undefined,
+      material.STRAIGHT_ALPHA_BLEND,
       cull,
       depthWrite,
       depthCompare,
