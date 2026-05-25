@@ -84,6 +84,7 @@ The reference is "what the engine IS today." If it's stale, it's broken.
 
 - `loop`, `render`, `RenderOptions`, `ClearColor` → `cookbook/hello-cube`.
 - `loop` (variable dt), `fixedLoop` (mentioned), `FrameInfo` → `cookbook/animation`.
+- `renderToTexture`, `RenderToTextureOptions` → `cookbook/render-target`.
 
 ### Reference-only (no demo, by design)
 
