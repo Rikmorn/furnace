@@ -28,19 +28,19 @@
     </ul>
   {/if}
 
-  <h4>features</h4>
-  <div class="features">
-    {#each help.features as feat}
-      <span class="feature">{feat}</span>
-    {/each}
-  </div>
-
   {#if help.notes && help.notes.length > 0}
     <h4>notes</h4>
     <ul class="notes">
       {#each help.notes as note}<li>{note}</li>{/each}
     </ul>
   {/if}
+
+  <h4>features</h4>
+  <div class="features">
+    {#each help.features as feat}
+      <span class="feature">{feat}</span>
+    {/each}
+  </div>
 
   {#if help.gaps && help.gaps.length > 0}
     <h4>gaps</h4>

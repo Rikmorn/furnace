@@ -126,5 +126,7 @@
     border-top: 1px solid var(--border);
     font-size: 12px;
     line-height: 1.5;
+    max-height: calc(100vh - var(--space-4) * 2 - 40px);
+    overflow-y: auto;
   }
 </style>
