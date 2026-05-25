@@ -1,9 +1,16 @@
 <script lang="ts">
+  import type { Component } from "svelte";
   import Panel from "./Panel.svelte";
-  import type { Snippet } from "svelte";
 
-  type Props = { slug: string; children?: Snippet };
-  let { slug, children }: Props = $props();
+  type Props = {
+    slug: string;
+    body?: Component<Record<string, unknown>>;
+    bodyProps?: Record<string, unknown>;
+  };
+  let { slug, body, bodyProps = {} }: Props = $props();
+
+  // Aliased to uppercase so Svelte parses `<Body ... />` as a component, not the HTML body element.
+  const Body = body;
 </script>
 
 <Panel
@@ -13,5 +20,7 @@
   storageKey={`cookbook.${slug}.controls.open`}
   defaultOpen={true}
 >
-  {@render children?.()}
+  {#if Body}
+    <Body {...bodyProps} />
+  {/if}
 </Panel>

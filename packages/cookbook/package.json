@@ -4,8 +4,11 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "predev": "bun scripts/generate-help-manifest.ts",
     "dev": "bun --hot serve.ts",
+    "prebuild:web": "bun scripts/generate-help-manifest.ts",
     "build:web": "bun scripts/build.ts",
+    "prebuild:web:dev": "bun scripts/generate-help-manifest.ts",
     "build:web:dev": "bun scripts/build.ts --dev",
     "test": "bun test",
     "typecheck": "bunx tsc --noEmit"
