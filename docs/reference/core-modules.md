@@ -186,11 +186,15 @@ Re-exported from `index.ts` so other core modules can `import * as stats` and ca
 
 ### Demoed in cookbook
 
-(cross-links populated as demos land — Tasks 10–18)
+- `onFrame`, `gauge`, `increment`, `measure`, `Snapshot.custom` → `cookbook/custom-stats`.
+- `snapshot` (via the always-on stats overlay) → every demo.
 
 ### Reference-only (no demo, by design)
 
-(none — the public surface is exercised by the custom-stats demo + the always-on stats overlay)
+- `frameBoundary` — for consumers not using `frame.loop`; every cookbook demo goes through `frame.loop` (via `mountDemo`).
+- `recordDraw` — escape hatch for custom passes; cookbook demos go through `frame.render` / `frame.renderToTexture`.
+- `get` — the typed dotted-path lookup; the cookbook's overlay and custom-stats demo both consume snapshots wholesale via `onFrame`, so the path-walking surface is not exercised. Covered by the unit tests in `packages/core/src/stats/`.
+- `startMeasurement` — async/manual measurement variant. The custom-stats demo's heavy loop is synchronous and uses `measure` directly; an async demo would justify a `startMeasurement` example.
 
 ---
 
