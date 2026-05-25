@@ -203,12 +203,16 @@ function disposeScene(scene: SceneRef): void {
 
 type AbortFlag = { disposed: boolean };
 
+type RebuildQueue = { inFlight: boolean; pending: boolean };
+
 function makeRebuild(
   ctx: Context,
   sceneRef: SceneRef,
   abortFlag: AbortFlag,
 ): () => Promise<void> {
-  return async () => {
+  const queue: RebuildQueue = { inFlight: false, pending: false };
+
+  const rebuildOnce = async (): Promise<void> => {
     let nextGeometry: Geometry | undefined;
     let nextMat: Material | undefined;
     try {
@@ -221,7 +225,7 @@ function makeRebuild(
         topology: state.topology,
         cullMode: state.topology === "triangle-list" ? "back" : "none",
       });
-      // Tear-down (e.g. bun --hot reload) may have run while material.create
+      // Tear-down (e.g. bun --hot reload) may have run while material.normalColor
       // was pending. The sceneRef we'd swap into is already destroyed, so
       // clean up the fresh resources and bail before touching it.
       if (abortFlag.disposed) {
@@ -249,6 +253,23 @@ function makeRebuild(
       if (nextMat) material.destroy(nextMat);
       if (nextGeometry) mesh.destroyGeometry(nextGeometry);
       throw e;
+    }
+  };
+
+  return async () => {
+    if (queue.inFlight) {
+      queue.pending = true;
+      return;
+    }
+    queue.inFlight = true;
+    try {
+      do {
+        queue.pending = false;
+        await rebuildOnce();
+        if (abortFlag.disposed) return;
+      } while (queue.pending);
+    } finally {
+      queue.inFlight = false;
     }
   };
 }
