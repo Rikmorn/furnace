@@ -9,7 +9,7 @@ export default {
     { key: "h", action: "toggle help" },
     { key: "c", action: "toggle controls" },
     { key: "Space", action: "toggle auto-rotation" },
-    { input: "drag", action: "yaw the quads (pauses auto-rotation)" },
+    { input: "drag", action: "yaw the surfaces (pauses auto-rotation)" },
     { input: "select: cull", action: "back / front / none (all materials)" },
     {
       input: "toggle: depthWrite",

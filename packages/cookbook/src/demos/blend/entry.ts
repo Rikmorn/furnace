@@ -39,7 +39,7 @@ const REFERENCE_COLOR: [number, number, number, number] = [0.4, 0.4, 0.45, 1];
 const REFERENCE_SIZE = 1.5;
 const REFERENCE_Z = -1.0;
 
-const QUAD_SIZE = 1;
+const SURFACE_SIZE = 1;
 const X_SPREAD = 1.5;
 
 const BACKDROP_Z = -1.5;
@@ -233,8 +233,8 @@ async function buildTranslucentSurface(
   });
   const m =
     primitive === "cube"
-      ? mesh.cube(ctx, { material: mat, size: QUAD_SIZE })
-      : mesh.plane(ctx, { material: mat, size: QUAD_SIZE });
+      ? mesh.cube(ctx, { material: mat, size: SURFACE_SIZE })
+      : mesh.plane(ctx, { material: mat, size: SURFACE_SIZE });
   return { mesh: m, mat };
 }
 
@@ -320,7 +320,8 @@ function requireLabel(key: LabelKey): HTMLElement {
 }
 
 function positionLabel(
-  scene: SceneRef,
+  out: ScreenProjection,
+  anchorBuf: Vec3,
   cam: Camera,
   surfacePos: Vec3,
   vpW: number,
@@ -328,20 +329,14 @@ function positionLabel(
   labelEl: HTMLElement,
 ): void {
   vec3.set(
-    scene.labelAnchor,
+    anchorBuf,
     surfacePos[0] as number,
     (surfacePos[1] as number) + 0.7,
     surfacePos[2] as number,
   );
-  const visible = camera.projectToScreen(
-    scene.labelProj,
-    cam,
-    scene.labelAnchor,
-    vpW,
-    vpH,
-  );
+  const visible = camera.projectToScreen(out, cam, anchorBuf, vpW, vpH);
   if (visible) {
-    labelEl.style.transform = `translate(${scene.labelProj.x}px, ${scene.labelProj.y}px) translate(-50%, -50%)`;
+    labelEl.style.transform = `translate(${out.x}px, ${out.y}px) translate(-50%, -50%)`;
     labelEl.style.display = "";
   } else {
     labelEl.style.display = "none";
@@ -496,7 +491,7 @@ function triggerRebuild(): Promise<void> {
 
 // --- Per-frame transform updates ---
 
-function applyQuadTransforms(scene: SceneRef): void {
+function applySurfaceTransforms(scene: SceneRef): void {
   const xRed = -X_SPREAD * state.spread;
   const xBlue = X_SPREAD * state.spread;
   vec3.set(scene.posRed, xRed, 0, RED_Z);
@@ -628,13 +623,22 @@ await mountDemo({
     if (state.autoRotate) {
       state.yaw += YAW_AUTOROTATE_RADIANS_PER_S * (info.deltaMs / MS_PER_S);
     }
-    applyQuadTransforms(scene);
+    applySurfaceTransforms(scene);
 
     const vpW = ctx.canvas.clientWidth;
     const vpH = ctx.canvas.clientHeight;
-    positionLabel(scene, scene.cam, scene.posRed, vpW, vpH, scene.labelEls.red);
     positionLabel(
-      scene,
+      scene.labelProj,
+      scene.labelAnchor,
+      scene.cam,
+      scene.posRed,
+      vpW,
+      vpH,
+      scene.labelEls.red,
+    );
+    positionLabel(
+      scene.labelProj,
+      scene.labelAnchor,
       scene.cam,
       scene.posGreen,
       vpW,
@@ -642,7 +646,8 @@ await mountDemo({
       scene.labelEls.green,
     );
     positionLabel(
-      scene,
+      scene.labelProj,
+      scene.labelAnchor,
       scene.cam,
       scene.posBlue,
       vpW,
