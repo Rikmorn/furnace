@@ -1,2 +1,2 @@
 export { cube, cubeGeometry } from "./cube";
-export { plane } from "./plane";
+export { plane, planeGeometry } from "./plane";
