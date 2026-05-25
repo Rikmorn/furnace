@@ -5,6 +5,7 @@ import * as gpu from "../../src/gpu/index.ts";
 import { normalColor } from "../../src/material/normal-color.ts";
 import { unlit } from "../../src/material/unlit.ts";
 import { cube, plane } from "../../src/mesh/factories";
+import { vec3 } from "../../src/transform/index.ts";
 import {
   bunWebGpuAvailable,
   ensureBunWebGpu,
@@ -85,5 +86,40 @@ test.skipIf(!bunWebGpuAvailable())(
     const cam = camera.perspective({});
     gpu.dispose(ctx);
     expect(() => render(ctx, { draw: [], camera: cam })).toThrow(/disposed/);
+  },
+);
+
+test.skipIf(!bunWebGpuAvailable())(
+  "_ensureMeshGroup0 returns distinct bind groups per cameraBuffer",
+  async () => {
+    const canvas = await makeOffscreenCanvas();
+    const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
+    const camA = camera.perspective({ position: vec3.fromValues(0, 0, 3) });
+    const camB = camera.perspective({ position: vec3.fromValues(3, 0, 0) });
+    const mat = await normalColor(ctx);
+    const c = cube(ctx, { material: mat });
+    const bufA = _frameRenderInternals._ensureCameraBuffer(ctx, camA);
+    const bufB = _frameRenderInternals._ensureCameraBuffer(ctx, camB);
+    const groupA = _frameRenderInternals._ensureMeshGroup0(
+      ctx,
+      c,
+      mat.pipeline,
+      bufA,
+    );
+    const groupB = _frameRenderInternals._ensureMeshGroup0(
+      ctx,
+      c,
+      mat.pipeline,
+      bufB,
+    );
+    const groupAagain = _frameRenderInternals._ensureMeshGroup0(
+      ctx,
+      c,
+      mat.pipeline,
+      bufA,
+    );
+    expect(groupA).not.toBe(groupB);
+    expect(groupAagain).toBe(groupA);
+    gpu.dispose(ctx);
   },
 );

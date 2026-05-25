@@ -107,10 +107,15 @@ export type RenderOptions = {
 const DEFAULT_CLEAR_COLOR: ClearColor = [0, 0, 0, 1];
 const DEFAULT_CLEAR_DEPTH = 1.0;
 
-// Per-mesh map from pipeline -> group-0 bind group. The outer WeakMap lets the
-// entries get GC'd when the mesh itself is dropped. The inner Map exists because
-// a mesh's material may swap pipelines over time.
-const group0Cache = new WeakMap<Mesh, Map<GPURenderPipeline, GPUBindGroup>>();
+// Per-mesh map from (pipeline, cameraBuffer) -> group-0 bind group. The outer
+// WeakMap lets entries get GC'd when the mesh itself is dropped. The inner Maps
+// exist because a mesh's material may swap pipelines over time AND the same
+// mesh may be rendered with multiple cameras (e.g. main pass + render-to-texture
+// pass) — each (pipeline, cameraBuffer) pair needs its own bind group.
+const group0Cache = new WeakMap<
+  Mesh,
+  Map<GPURenderPipeline, Map<GPUBuffer, GPUBindGroup>>
+>();
 
 function ensureGroup0(
   ctx: Context,
@@ -123,7 +128,12 @@ function ensureGroup0(
     perMesh = new Map();
     group0Cache.set(mesh, perMesh);
   }
-  const cached = perMesh.get(pipeline);
+  let perPipeline = perMesh.get(pipeline);
+  if (!perPipeline) {
+    perPipeline = new Map();
+    perMesh.set(pipeline, perPipeline);
+  }
+  const cached = perPipeline.get(cameraBuffer);
   if (cached) return cached;
   const bindGroup = ctx.device.createBindGroup({
     layout: pipeline.getBindGroupLayout(0),
@@ -132,7 +142,7 @@ function ensureGroup0(
       { binding: 1, resource: { buffer: mesh.objectBuffer } },
     ],
   });
-  perMesh.set(pipeline, bindGroup);
+  perPipeline.set(cameraBuffer, bindGroup);
   return bindGroup;
 }
 
