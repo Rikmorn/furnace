@@ -2,25 +2,37 @@ import type { DemoHelp } from "../../shared/help-types.ts";
 
 export default {
   title: "blend",
-  blurb: "opaque vs PREMULTIPLIED_ALPHA vs ADDITIVE side-by-side",
+  blurb:
+    "opaque + premultiplied + additive over a cube and switchable backdrops",
   controls: [
     { key: "s", action: "toggle stats" },
     { key: "h", action: "toggle help" },
     { key: "c", action: "toggle controls" },
-    { input: "select: cull", action: "back / front / none (applies to all)" },
-    { input: "toggle: depthWrite", action: "translucent quads write depth?" },
+    { key: "Space", action: "toggle auto-rotation" },
+    { input: "drag", action: "yaw the quads (pauses auto-rotation)" },
+    { input: "select: cull", action: "back / front / none (all materials)" },
+    {
+      input: "toggle: depthWrite",
+      action: "translucent quads write depth? on = ordering bug visible",
+    },
+    {
+      input: "select: depthCompare",
+      action: "less / less-equal / always / never (all materials)",
+    },
+    { input: "select: backdrop", action: "strips / solid-black / solid-white" },
+    { input: "slider: spread", action: "0 = stacked, 1 = side-by-side" },
   ],
   features: [
-    "material.create (blend)",
+    "material.unlit (with UnlitOptions)",
+    "UnlitOptions",
     "PREMULTIPLIED_ALPHA_BLEND",
     "ADDITIVE_BLEND",
-    "MaterialDescriptor.cullMode",
-    "MaterialDescriptor.depthWrite",
-    "MaterialDescriptor.depthCompare",
-  ],
-  gaps: [
-    "depthCompare not interactively demoed — set on the blend materials but no toggle",
-    "Toggling cull/depthWrite requires page reload — runtime rebuild deferred to keep entry.ts focused",
+    "MaterialDescriptor.cullMode (via UnlitOptions)",
+    "MaterialDescriptor.depthWrite (via UnlitOptions)",
+    "MaterialDescriptor.depthCompare (via UnlitOptions)",
+    "input.attach / detach",
+    "input.onPointerDown / Move / Up",
+    "input.onKeyDown",
   ],
   order: 60,
 } satisfies DemoHelp;
