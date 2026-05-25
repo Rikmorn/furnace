@@ -12,8 +12,8 @@ import Controls from "./controls.svelte";
 import help from "./help.ts";
 import { state } from "./state.svelte.ts";
 
-const CAMERA_Z = 4;
-const CUBE_X_SPACING = 1.2;
+const CAMERA_Z = 6;
+const CUBE_X_SPACING = 1.8;
 const MAX_CATCHUP_TICKS = 8;
 const MS_PER_S = 1000;
 const CLEAR_COLOR: [number, number, number, number] = [0.05, 0.05, 0.07, 1];
