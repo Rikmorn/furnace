@@ -9,6 +9,7 @@ import {
   _recordPipelineSwitch,
 } from "../stats/internal.ts";
 import { _frameRenderInternals, type ClearColor } from "./render.ts";
+import { trianglesForTopology } from "./triangles-for-topology.ts";
 
 export type RenderToTextureOptions = {
   texture: GPUTexture;
@@ -80,7 +81,10 @@ function recordDraw(
   } else {
     pass.draw(vertexCount);
   }
-  _recordDraw(ctx, { triangles: mesh.geometry.triangleCount });
+  const drawCount = indexCount || vertexCount;
+  _recordDraw(ctx, {
+    triangles: trianglesForTopology(mesh.material.topology, drawCount),
+  });
   return pipeline;
 }
 

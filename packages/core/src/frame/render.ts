@@ -18,6 +18,7 @@ import {
   _unregisterResource,
   type ResourceHandle,
 } from "../stats/internal.ts";
+import { trianglesForTopology } from "./triangles-for-topology.ts";
 
 const CAMERA_UNIFORM_SIZE = 64; // one mat4x4<f32>
 
@@ -194,7 +195,10 @@ function recordDraw(
   } else {
     pass.draw(vertexCount);
   }
-  _recordDraw(ctx, { triangles: mesh.geometry.triangleCount });
+  const drawCount = indexCount || vertexCount;
+  _recordDraw(ctx, {
+    triangles: trianglesForTopology(mesh.material.topology, drawCount),
+  });
   return pipeline;
 }
 
