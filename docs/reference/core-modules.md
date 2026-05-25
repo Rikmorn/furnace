@@ -47,7 +47,7 @@ The reference is "what the engine IS today." If it's stale, it's broken.
 
 ### Demoed in cookbook
 
-- `requestContext`, `onResize`, `Context` → `cookbook/hello-cube`.
+- `requestContext`, `onResize`, `Context` → `cookbook/camera`.
 
 ### Reference-only (no demo, by design)
 
@@ -82,7 +82,7 @@ The reference is "what the engine IS today." If it's stale, it's broken.
 
 ### Demoed in cookbook
 
-- `loop`, `render`, `RenderOptions`, `ClearColor` → `cookbook/hello-cube`.
+- `loop`, `render`, `RenderOptions`, `ClearColor` → `cookbook/camera`.
 - `loop` (variable dt), `fixedLoop` (mentioned), `FrameInfo` → `cookbook/animation`.
 - `renderToTexture`, `RenderToTextureOptions` → `cookbook/render-target`.
 - `render({ effects })` → `cookbook/post`.
@@ -225,7 +225,7 @@ Re-exported from `index.ts` so other core modules can `import * as stats` and ca
 
 ### Demoed in cookbook
 
-- `perspective`, `orthographic`, `setPosition`, `setTarget` → `cookbook/hello-cube`.
+- `perspective`, `orthographic`, `setPosition`, `setTarget` → `cookbook/camera`.
 - `projectToScreen` → `cookbook/animation` (floating labels above three cubes).
 
 ### Reference-only (no demo, by design)
@@ -257,7 +257,7 @@ Re-exported from `index.ts` so other core modules can `import * as stats` and ca
 
 ### Demoed in cookbook
 
-- `unlit`, `normalColor`, `destroy` → `cookbook/hello-cube`.
+- `unlit`, `normalColor`, `destroy` → `cookbook/camera`.
 - `normalColor`, `NormalColorOptions` (topology) → `cookbook/geometry`.
 - `create`, `MaterialDescriptor` (vertex/fragment/bindings) → `cookbook/shader`.
 - `unlit`, `UnlitOptions` (blend, cullMode, depthWrite, depthCompare), `STRAIGHT_ALPHA_BLEND`, `PREMULTIPLIED_ALPHA_BLEND`, `ADDITIVE_BLEND` → `cookbook/blend`.
@@ -293,7 +293,7 @@ Re-exported from `index.ts` so other core modules can `import * as stats` and ca
 
 ### Demoed in cookbook
 
-- `cube`, `cubeGeometry`, `plane`, `create`, `destroy`, `setPosition` → `cookbook/hello-cube`.
+- `cube`, `cubeGeometry`, `plane`, `create`, `destroy`, `setPosition` → `cookbook/camera`.
 - `setRotation`, `setScale` → `cookbook/animation`.
 - `createGeometry`, `destroyGeometry`, `GeometryData`, `Geometry` → `cookbook/geometry`.
 
@@ -335,7 +335,7 @@ Re-exported from `index.ts` so other core modules can `import * as stats` and ca
 
 ### Demoed in cookbook
 
-- `attach`, `detach`, `onPointerDown`, `onPointerMove`, `onPointerUp` → `cookbook/hello-cube`, `cookbook/blend`.
+- `attach`, `detach`, `onPointerDown`, `onPointerMove`, `onPointerUp` → `cookbook/camera`, `cookbook/blend`.
 - `isKeyDown`, `onKeyDown`, `onKeyUp`, `onWheel`, `KeyEvent`, `WheelEvent`, `PointerButton` → `cookbook/input`, `cookbook/blend`.
 
 ### Reference-only (no demo, by design)

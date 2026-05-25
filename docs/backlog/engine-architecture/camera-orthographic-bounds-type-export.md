@@ -4,7 +4,7 @@
 
 Surfaced during cookbook Task 8 (`docs/reference/core-modules.md`). The doc inlines the shape into `setBounds`'s signature and flags the asymmetry in the closing "Tier 1 surface NOT in the public API" section.
 
-**Demos impacted today:** none. Cookbook's `hello-cube` (Task 10) uses orthographic but composes bounds inline. Any future demo that wants to build orthographic-bounds helpers (e.g. fit-to-content auto-bounds) would benefit.
+**Demos impacted today:** none. The cookbook `camera` demo uses orthographic but composes bounds inline. Any future demo that wants to build orthographic-bounds helpers (e.g. fit-to-content auto-bounds) would benefit.
 
 **Ideal API shape:** Add `OrthographicBounds` to the type-export list in `camera/index.ts` (one line). Update `core-modules.md` to remove the asymmetry callout and add `OrthographicBounds` as a documented type export under the `camera` table.
 
