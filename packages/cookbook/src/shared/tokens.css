@@ -1,0 +1,37 @@
+:root {
+	/* Surface — warm dark */
+	--bg: #0e0c0a;
+	--surface: #1a1612;
+	--surface-hover: #221d18;
+	--border: #2c2520;
+	--border-strong: #4a3f33;
+
+	/* Text */
+	--text: #f4eee2;
+	--text-muted: #9c9384;
+	--text-dim: #6b6356;
+
+	/* Ember accents */
+	--accent: #ff7849;
+	--accent-soft: #ff7849aa;
+	--accent-warm: #fbbf24;
+
+	/* Type */
+	--font-ui: system-ui, -apple-system, "Segoe UI", sans-serif;
+	--font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+	/* Scale (8px grid) */
+	--space-1: 4px;
+	--space-2: 8px;
+	--space-3: 12px;
+	--space-4: 16px;
+	--space-6: 24px;
+	--space-8: 32px;
+	--space-12: 48px;
+	--space-16: 64px;
+
+	--radius-sm: 4px;
+	--radius-md: 8px;
+	--radius-lg: 12px;
+	--blur: blur(12px);
+}
