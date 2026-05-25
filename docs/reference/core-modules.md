@@ -216,14 +216,17 @@ Re-exported from `index.ts` so other core modules can `import * as stats` and ca
 | `setFov` | `(cam: Camera, fovYRad: number) => void` | Perspective-only — throws on orthographic. |
 | `setBounds` | `(cam: Camera, bounds: { left; right; bottom; top }) => void` | Orthographic-only — throws on perspective. |
 | `getMatrices` | `(cam: Camera) => CameraMatrices` | Recomputes only dirty matrices. Returns the same frozen `{ view, projection, viewProjection }` wrapper across calls (inner `Float32Array`s are stable; mutated in place). |
+| `projectToScreen` | `(out: ScreenProjection, cam: Camera, worldPoint: Vec3, viewportWidth: number, viewportHeight: number) => boolean` | Projects a world-space point to canvas-relative screen pixels. Returns `true` if in front of camera, `false` if behind (out left untouched). Viewport dimensions are CSS pixels — pass `canvas.clientWidth`/`canvas.clientHeight`. Out-param pattern matches `transform.*` math helpers. Mutates `out` with `{ x, y, w }` where `x`/`y` are CSS pixels (top-left origin) and `w` is the clip-space divisor. |
 | `PerspectiveOptions` | `{ fovYRad?; aspect?; near?; far?; position?; target?; up? }` | See defaults above. |
 | `OrthographicOptions` | `{ left?; right?; bottom?; top?; near?; far?; position?; target?; up? }` | See defaults above. |
 | `Camera` | mutable data record (position, target, up, projection union, cached matrices, dirty flags) | See `camera/types.ts`. Treated as an opaque handle by consumers — mutate only via setters. |
 | `CameraMatrices` | `Readonly<{ view: Mat4; projection: Mat4; viewProjection: Mat4 }>` | The wrapper returned by `getMatrices`. |
+| `ScreenProjection` | `{ x: number; y: number; w: number }` | Out-param for `projectToScreen`. `x`/`y` are CSS pixels (origin top-left), `w` is clip-space divisor (useful for distance-based label sizing). |
 
 ### Demoed in cookbook
 
 - `perspective`, `orthographic`, `setPosition`, `setTarget` → `cookbook/hello-cube`.
+- `projectToScreen` → `cookbook/animation` (floating labels above three cubes).
 
 ### Reference-only (no demo, by design)
 
