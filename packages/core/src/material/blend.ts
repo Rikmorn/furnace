@@ -25,3 +25,17 @@ export const ADDITIVE_BLEND: GPUBlendState = Object.freeze({
     operation: "add",
   }),
 }) as GPUBlendState;
+
+// Boundary cast: Object.freeze widens to Readonly; structural match with GPUBlendState is preserved
+export const STRAIGHT_ALPHA_BLEND: GPUBlendState = Object.freeze({
+  color: Object.freeze({
+    srcFactor: "src-alpha",
+    dstFactor: "one-minus-src-alpha",
+    operation: "add",
+  }),
+  alpha: Object.freeze({
+    srcFactor: "one",
+    dstFactor: "one-minus-src-alpha",
+    operation: "add",
+  }),
+}) as GPUBlendState;
