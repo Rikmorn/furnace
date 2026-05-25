@@ -244,7 +244,8 @@ Re-exported from `index.ts` so other core modules can `import * as stats` and ca
 |---|---|---|
 | `create` | `(ctx: Context, descriptor: MaterialDescriptor) => Promise<Material>` | Builds (or reuses, via internal pipeline cache) a render pipeline keyed on shader source + raster state + blend signature + ctx format. Validates the descriptor; throws `FurnaceError` if pipeline creation fails. |
 | `destroy` | `(material: Material) => void` | Destroys owned buffers, unregisters resources, releases the cached pipeline ref. |
-| `unlit` | `(ctx: Context, opts: { color: [number, number, number, number] }) => Promise<Material>` | Stock unlit material. Allocates a 16-byte uniform buffer for the color (owned by the material). |
+| `unlit` | `(ctx: Context, opts: UnlitOptions) => Promise<Material>` | Stock unlit material. Allocates a 16-byte uniform buffer for the color (owned by the material). `opts.color` is required; pipeline-state fields are optional. |
+| `UnlitOptions` | `{ color: [number, number, number, number]; topology?: GPUPrimitiveTopology; cullMode?: GPUCullMode; depthWrite?: boolean; depthCompare?: GPUCompareFunction; blend?: GPUBlendState }` | Options for `unlit`. `color` required; pipeline-state fields optional with `MaterialDescriptor` defaults (triangle-list / back / depthWrite true / less / opaque). |
 | `normalColor` | `(ctx: Context, opts?: NormalColorOptions) => Promise<Material>` | Stock debug material that renders the (uniform-scale-correct) world-space normal as RGB. No bindings. `opts` overrides pipeline state — `{ topology?, cullMode?, depthWrite?, depthCompare?, blend? }`. |
 | `NormalColorOptions` | `{ topology?: GPUPrimitiveTopology; cullMode?: GPUCullMode; depthWrite?: boolean; depthCompare?: GPUCompareFunction; blend?: GPUBlendState }` | Pipeline-state overrides for `normalColor`. All fields optional; defaults match `MaterialDescriptor` (triangle-list / back / depthWrite true / less / opaque). |
 | `createPipeline` | `(ctx: Context, descriptor: GPURenderPipelineDescriptor) => Promise<GPURenderPipeline>` | Escape hatch: wraps `device.createRenderPipeline` in a validation error scope. Returns the raw pipeline; the caller owns it (not cached, not registered). |
@@ -258,7 +259,7 @@ Re-exported from `index.ts` so other core modules can `import * as stats` and ca
 - `unlit`, `normalColor`, `destroy` → `cookbook/hello-cube`.
 - `normalColor`, `NormalColorOptions` (topology) → `cookbook/geometry`.
 - `create`, `MaterialDescriptor` (vertex/fragment/bindings) → `cookbook/shader`.
-- `create` (blend, cullMode, depthWrite, depthCompare), `PREMULTIPLIED_ALPHA_BLEND`, `ADDITIVE_BLEND` → `cookbook/blend`.
+- `unlit`, `UnlitOptions` (blend, cullMode, depthWrite, depthCompare), `PREMULTIPLIED_ALPHA_BLEND`, `ADDITIVE_BLEND` → `cookbook/blend`.
 
 ### Reference-only (no demo, by design)
 
@@ -277,6 +278,7 @@ Re-exported from `index.ts` so other core modules can `import * as stats` and ca
 | `cube` | `(ctx: Context, opts: { material: Material; size?: number }) => Mesh` | Convenience: builds a fresh cube geometry and binds it to `opts.material`. `size` default: 1. |
 | `plane` | `(ctx: Context, opts: { material: Material; size?: number }) => Mesh` | Convenience: builds a fresh `+Z`-facing unit plane and binds it to `opts.material`. `size` default: 1. |
 | `cubeGeometry` | `(ctx: Context, opts?: { size?: number }) => Geometry` | Standalone cube geometry — pass to `mesh.create` when you want to reuse one geometry across multiple meshes. |
+| `planeGeometry` | `(ctx: Context, opts?: { size?: number }) => Geometry` | Builds a fresh `+Z`-facing unit plane Geometry. `size` default: 1. Useful for sharing one Geometry across many `mesh.create` calls (e.g. instanced backdrops). |
 | `createGeometry` | `(ctx: Context, data: GeometryData) => Geometry` | Builds a vertex buffer (interleaved `[pos.xyz, normal.xyz, uv.uv]`, 32-byte stride) and optional index buffer from raw arrays. Validates the data. |
 | `destroyGeometry` | `(geometry: Geometry) => void` | Destroys vertex + index buffers, unregisters resources. |
 | `create` | `(ctx: Context, opts: { geometry: Geometry; material: Material }) => Mesh` | Allocates the per-mesh object-uniform buffer (64 bytes for `model`). Position `[0,0,0]`, identity rotation, scale `[1,1,1]`. |
@@ -332,8 +334,8 @@ Re-exported from `index.ts` so other core modules can `import * as stats` and ca
 
 ### Demoed in cookbook
 
-- `attach`, `detach`, `onPointerDown`, `onPointerMove`, `onPointerUp` → `cookbook/hello-cube`.
-- `isKeyDown`, `onKeyDown`, `onKeyUp`, `onWheel`, `KeyEvent`, `WheelEvent`, `PointerButton` → `cookbook/input`.
+- `attach`, `detach`, `onPointerDown`, `onPointerMove`, `onPointerUp` → `cookbook/hello-cube`, `cookbook/blend`.
+- `isKeyDown`, `onKeyDown`, `onKeyUp`, `onWheel`, `KeyEvent`, `WheelEvent`, `PointerButton` → `cookbook/input`, `cookbook/blend`.
 
 ### Reference-only (no demo, by design)
 
@@ -373,7 +375,6 @@ These appear in module source files but are NOT exported, OR are exported with a
 - Post's internal `_pipelineCache` (in `post/pipeline-cache.ts`), `_ensureFullscreenVS` (in `post/fullscreen.ts`), `_effectPipelineHashKey` / `_buildEffectPipelineDescriptor` (in `post/pipeline.ts`), and `_ensureSceneIntermediates` (in `post/intermediate.ts`). None re-exported from `post/index.ts`.
 - Frame's internal `_frameRenderInternals` in `frame/render.ts` — a bundle of `{ _ensureDepthTexture, _ensureCameraBuffer, _ensureMeshGroup0 }` consumed by `frame/render-to-texture.ts`. Not re-exported from `frame/index.ts`.
 - Mesh's internal `_recomputeModelIfDirty` in `mesh/mesh.ts`, called by `frame/render.ts` and `frame/render-to-texture.ts` per draw. Not re-exported from `mesh/index.ts`.
-- Mesh's `planeGeometry` factory in `mesh/factories/plane.ts` is defined but not re-exported from `mesh/factories/index.ts`. Asymmetric with `cubeGeometry`, which is exported — see note in the divergences register / `docs/backlog/` if this is intentional.
 - Camera's `OrthographicBounds` type in `camera/orthographic.ts` is defined but not re-exported from `camera/index.ts`. Its shape is inlined into `setBounds`'s signature in the camera table above. Surfacing it as a type export would let consumers compose `(bounds: OrthographicBounds) => ...` helpers; today they must redeclare the inline shape.
 
 These are accessed only by other core modules. If consumer code is reaching for one, that is a signal to either (a) export it as a documented public escape hatch or (b) extend the public API to cover the use case.
