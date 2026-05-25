@@ -216,38 +216,52 @@ async function buildTranslucentQuads(
   depthWrite: boolean,
   depthCompare: DepthCompare,
 ): Promise<TranslucentQuads> {
-  const red = await buildTranslucentQuad(
-    ctx,
-    RED_TINT,
-    undefined,
-    cull,
-    depthWrite,
-    depthCompare,
-  );
-  const green = await buildTranslucentQuad(
-    ctx,
-    GREEN_TINT_PREMULT,
-    material.PREMULTIPLIED_ALPHA_BLEND,
-    cull,
-    depthWrite,
-    depthCompare,
-  );
-  const blue = await buildTranslucentQuad(
-    ctx,
-    BLUE_TINT,
-    material.ADDITIVE_BLEND,
-    cull,
-    depthWrite,
-    depthCompare,
-  );
-  return {
-    red: red.mesh,
-    green: green.mesh,
-    blue: blue.mesh,
-    redMat: red.mat,
-    greenMat: green.mat,
-    blueMat: blue.mat,
-  };
+  let red: { mesh: Mesh; mat: Material } | undefined;
+  let green: { mesh: Mesh; mat: Material } | undefined;
+  try {
+    red = await buildTranslucentQuad(
+      ctx,
+      RED_TINT,
+      undefined,
+      cull,
+      depthWrite,
+      depthCompare,
+    );
+    green = await buildTranslucentQuad(
+      ctx,
+      GREEN_TINT_PREMULT,
+      material.PREMULTIPLIED_ALPHA_BLEND,
+      cull,
+      depthWrite,
+      depthCompare,
+    );
+    const blue = await buildTranslucentQuad(
+      ctx,
+      BLUE_TINT,
+      material.ADDITIVE_BLEND,
+      cull,
+      depthWrite,
+      depthCompare,
+    );
+    return {
+      red: red.mesh,
+      green: green.mesh,
+      blue: blue.mesh,
+      redMat: red.mat,
+      greenMat: green.mat,
+      blueMat: blue.mat,
+    };
+  } catch (e) {
+    if (green) {
+      mesh.destroy(green.mesh);
+      material.destroy(green.mat);
+    }
+    if (red) {
+      mesh.destroy(red.mesh);
+      material.destroy(red.mat);
+    }
+    throw e;
+  }
 }
 
 function disposeTranslucentQuads(q: TranslucentQuads): void {
@@ -459,53 +473,58 @@ await mountDemo({
   },
   setup: async (ctx) => {
     input.attach(ctx.canvas);
-    const sceneRef = await buildScene(ctx);
-    const abortFlag: AbortFlag = { disposed: false };
-    window.__cookbookBlendRebuild = makeRebuild(ctx, sceneRef, abortFlag);
+    try {
+      const sceneRef = await buildScene(ctx);
+      const abortFlag: AbortFlag = { disposed: false };
+      window.__cookbookBlendRebuild = makeRebuild(ctx, sceneRef, abortFlag);
 
-    let dragging = false;
-    let lastDragX = 0;
-    input.onPointerDown((e) => {
-      if (e.button !== 0) return;
-      dragging = true;
-      lastDragX = e.x;
-      state.autoRotate = false;
-    });
-    input.onPointerMove((e) => {
-      if (!dragging) return;
-      const dx = e.x - lastDragX;
-      lastDragX = e.x;
-      const pxToRad = Math.PI / ctx.canvas.width;
-      state.yaw += dx * pxToRad;
-    });
-    input.onPointerUp((e) => {
-      if (e.button !== 0) return;
-      dragging = false;
-    });
-    input.onKeyDown((e) => {
-      if (e.code === "Space") {
-        state.autoRotate = !state.autoRotate;
-      }
-    });
+      let dragging = false;
+      let lastDragX = 0;
+      input.onPointerDown((e) => {
+        if (e.button !== 0) return;
+        dragging = true;
+        lastDragX = e.x;
+        state.autoRotate = false;
+      });
+      input.onPointerMove((e) => {
+        if (!dragging) return;
+        const dx = e.x - lastDragX;
+        lastDragX = e.x;
+        const pxToRad = Math.PI / ctx.canvas.width;
+        state.yaw += dx * pxToRad;
+      });
+      input.onPointerUp((e) => {
+        if (e.button !== 0) return;
+        dragging = false;
+      });
+      input.onKeyDown((e) => {
+        if (e.code === "Space") {
+          state.autoRotate = !state.autoRotate;
+        }
+      });
 
-    // The input module's KeyEvent doesn't expose the underlying DOM event, so
-    // preventDefault must be wired separately. Without this, Space scrolls the
-    // page. Register on globalThis to match input.attach's keyboard target.
-    const preventSpaceScroll = (e: KeyboardEvent): void => {
-      if (e.code === "Space") e.preventDefault();
-    };
-    globalThis.addEventListener("keydown", preventSpaceScroll);
+      // The input module's KeyEvent doesn't expose the underlying DOM event, so
+      // preventDefault must be wired separately. Without this, Space scrolls the
+      // page. Register on globalThis to match input.attach's keyboard target.
+      const preventSpaceScroll = (e: KeyboardEvent): void => {
+        if (e.code === "Space") e.preventDefault();
+      };
+      globalThis.addEventListener("keydown", preventSpaceScroll);
 
-    return {
-      scene: sceneRef,
-      dispose: () => {
-        abortFlag.disposed = true;
-        window.__cookbookBlendRebuild = undefined;
-        globalThis.removeEventListener("keydown", preventSpaceScroll);
-        disposeScene(sceneRef);
-        input.detach();
-      },
-    };
+      return {
+        scene: sceneRef,
+        dispose: () => {
+          abortFlag.disposed = true;
+          window.__cookbookBlendRebuild = undefined;
+          globalThis.removeEventListener("keydown", preventSpaceScroll);
+          disposeScene(sceneRef);
+          input.detach();
+        },
+      };
+    } catch (e) {
+      input.detach();
+      throw e;
+    }
   },
   frame: ({ ctx, scene, info }) => {
     if (state.autoRotate) {
