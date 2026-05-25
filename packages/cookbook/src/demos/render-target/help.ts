@@ -33,7 +33,7 @@ export default {
   notes: [
     "Why render-to-texture? Minimap, security-camera feed, mirror surface, reflection probe, deferred-shading G-buffer, post-effect input. Anything that needs the result of a render as an input to another render.",
     "How the binding works: material.create accepts a `bindings:` array — GPUBindGroupEntry[] mapped to @group(1) in the shader. The monitor shader binds the PiP color texture at @binding(0) and a sampler at @binding(1). The texture *view* is captured at material-create time, which is why changing PiP resolution forces a material rebuild (rebuilt via a single-in-flight queue — rapid clicks coalesce to one pending rebuild).",
-    "Two distinct draw lists per pass: the PiP renders [subject, room]; the main renders [room, subject, monitor]. The subject and room both appear in both passes — the (mesh, pipeline, cameraBuffer) cache fix in @furnace/core/frame is what makes this work.",
+    "Two distinct draw lists per pass: the PiP renders [subject, room]; the main renders [room, subject, monitor, gizmo]. The subject and room both appear in both passes — the (mesh, pipeline, cameraBuffer) cache fix in @furnace/core/frame is what makes this work.",
     "The amber wireframe quad marks the PiP camera's position and orientation. Its normal points along the camera's view direction — switch `pipAngle` to see it jump between presets. Drawn only in the main pass with `depthCompare: \"always\"` so it's never occluded by the room walls.",
   ],
   gaps: [
