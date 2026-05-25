@@ -319,6 +319,7 @@ Re-exported from `index.ts` so other core modules can `import * as stats` and ca
 ### Demoed in cookbook
 
 - `attach`, `detach`, `onPointerDown`, `onPointerMove`, `onPointerUp` → `cookbook/hello-cube`.
+- `isKeyDown`, `onKeyDown`, `onKeyUp`, `onWheel`, `KeyEvent`, `WheelEvent`, `PointerButton` → `cookbook/input`.
 
 ### Reference-only (no demo, by design)
 
