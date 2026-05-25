@@ -249,6 +249,7 @@ Re-exported from `index.ts` so other core modules can `import * as stats` and ca
 | `normalColor` | `(ctx: Context, opts?: NormalColorOptions) => Promise<Material>` | Stock debug material that renders the (uniform-scale-correct) world-space normal as RGB. No bindings. `opts` overrides pipeline state — `{ topology?, cullMode?, depthWrite?, depthCompare?, blend? }`. |
 | `NormalColorOptions` | `{ topology?: GPUPrimitiveTopology; cullMode?: GPUCullMode; depthWrite?: boolean; depthCompare?: GPUCompareFunction; blend?: GPUBlendState }` | Pipeline-state overrides for `normalColor`. All fields optional; defaults match `MaterialDescriptor` (triangle-list / back / depthWrite true / less / opaque). |
 | `createPipeline` | `(ctx: Context, descriptor: GPURenderPipelineDescriptor) => Promise<GPURenderPipeline>` | Escape hatch: wraps `device.createRenderPipeline` in a validation error scope. Returns the raw pipeline; the caller owns it (not cached, not registered). |
+| `STRAIGHT_ALPHA_BLEND` | `GPUBlendState` constant — color: `src=src-alpha, dst=one-minus-src-alpha, op=add`; alpha: `src=one, dst=one-minus-src-alpha, op=add` | Frozen; pass to `MaterialDescriptor.blend`. Non-premultiplied alpha blending — the "naive" alpha-blend most beginners reach for. Compare with `PREMULTIPLIED_ALPHA_BLEND` to see why production engines pre-multiply: PMA composes correctly under chained translucent overlays; straight alpha accumulates α-multiplication error visible at the seams. |
 | `PREMULTIPLIED_ALPHA_BLEND` | `GPUBlendState` constant — `src=one, dst=one-minus-src-alpha, op=add` for both color and alpha | Frozen; pass to `MaterialDescriptor.blend`. |
 | `ADDITIVE_BLEND` | `GPUBlendState` constant — `src=one, dst=one, op=add` for both color and alpha | Frozen; pass to `MaterialDescriptor.blend`. |
 | `MaterialDescriptor` | `{ vertex: string; fragment: string; bindings?: GPUBindGroupEntry[]; cullMode?; topology?; depthWrite?; depthCompare?; blend? }` | Defaults: `cullMode = "back"`, `topology = "triangle-list"`, `depthWrite = true`, `depthCompare = "less"`. `vertex` and `fragment` are required WGSL strings. |
@@ -259,7 +260,7 @@ Re-exported from `index.ts` so other core modules can `import * as stats` and ca
 - `unlit`, `normalColor`, `destroy` → `cookbook/hello-cube`.
 - `normalColor`, `NormalColorOptions` (topology) → `cookbook/geometry`.
 - `create`, `MaterialDescriptor` (vertex/fragment/bindings) → `cookbook/shader`.
-- `unlit`, `UnlitOptions` (blend, cullMode, depthWrite, depthCompare), `PREMULTIPLIED_ALPHA_BLEND`, `ADDITIVE_BLEND` → `cookbook/blend`.
+- `unlit`, `UnlitOptions` (blend, cullMode, depthWrite, depthCompare), `STRAIGHT_ALPHA_BLEND`, `PREMULTIPLIED_ALPHA_BLEND`, `ADDITIVE_BLEND` → `cookbook/blend`.
 
 ### Reference-only (no demo, by design)
 
