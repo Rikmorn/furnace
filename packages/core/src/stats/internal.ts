@@ -97,4 +97,9 @@ export function _recordUncapturedError(ctx: Context): void {
   ctx._internal.stats.uncapturedErrors++;
 }
 
+export function _recordDeviceLost(ctx: Context): void {
+  if (ctx._internal.disposed) return;
+  ctx._internal.stats.deviceLost = true;
+}
+
 export type { ResourceHandle, ResourceInfo } from "./resources.ts";

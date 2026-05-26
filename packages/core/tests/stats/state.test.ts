@@ -19,3 +19,8 @@ test("createStatsState: returns a state with zero counters and empty maps", () =
   expect(s.measures.size).toBe(0);
   expect(s.onFrameSubscribers.size).toBe(0);
 });
+
+test("createStatsState initialises deviceLost to false", () => {
+  const s = createStatsState(performance.now());
+  expect(s.deviceLost).toBe(false);
+});

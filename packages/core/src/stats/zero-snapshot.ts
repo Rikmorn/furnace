@@ -4,6 +4,7 @@ export const ZERO_SNAPSHOT: Snapshot = Object.freeze({
   frame: { fps: 0, ms: { last: 0, mean: 0, p99: 0, min: 0, max: 0 } },
   gpu: {
     drawCalls: 0,
+    deviceLost: false,
     triangles: 0,
     pipelineSwitches: 0,
     bindGroupSwitches: 0,

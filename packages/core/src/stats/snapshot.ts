@@ -29,6 +29,7 @@ export function buildSnapshot(state: StatsState): Snapshot {
     },
     gpu: {
       drawCalls: state.drawCalls,
+      deviceLost: state.deviceLost,
       triangles: state.triangles,
       pipelineSwitches: state.pipelineSwitches,
       bindGroupSwitches: state.bindGroupSwitches,

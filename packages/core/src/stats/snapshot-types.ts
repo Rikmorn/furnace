@@ -9,6 +9,8 @@
  * - `gpu.drawCalls`, `gpu.triangles`, `gpu.pipelineSwitches`,
  *   `gpu.bindGroupSwitches`, `gpu.uncapturedErrors` — per-frame counters
  *   recorded by the engine's render path.
+ * - `gpu.deviceLost` — `true` after `device.lost` resolves on a non-disposed
+ *   context; `false` otherwise.
  * - `gpu.renderMs`, `gpu.computeMs` — reserved for GPU timestamp queries;
  *   currently always `null`.
  * - `resources` — live counts of `meshes`, `materials`, `geometries`,
@@ -32,6 +34,8 @@ export type Snapshot = Readonly<{
   };
   gpu: {
     drawCalls: number;
+    /** `true` after `device.lost` resolves on a non-disposed context. */
+    deviceLost: boolean;
     triangles: number;
     pipelineSwitches: number;
     bindGroupSwitches: number;

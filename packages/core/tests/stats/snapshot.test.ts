@@ -67,6 +67,13 @@ test("buildSnapshot: successive calls produce distinct objects", () => {
   expect(a).not.toBe(b);
 });
 
+test("snapshot.gpu.deviceLost reflects state.deviceLost", () => {
+  const s = createStatsState(performance.now());
+  expect(buildSnapshot(s).gpu.deviceLost).toBe(false);
+  s.deviceLost = true;
+  expect(buildSnapshot(s).gpu.deviceLost).toBe(true);
+});
+
 test("snapshot.resources includes effects count", () => {
   const s = createStatsState(0);
   registerResource(s.resources, { kind: "effect" });

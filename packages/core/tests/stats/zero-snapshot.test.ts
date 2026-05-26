@@ -25,3 +25,7 @@ test("ZERO_SNAPSHOT: events.perEmitter and custom are empty objects", () => {
 test("ZERO_SNAPSHOT: frozen", () => {
   expect(Object.isFrozen(ZERO_SNAPSHOT)).toBe(true);
 });
+
+test("ZERO_SNAPSHOT.gpu.deviceLost is false", () => {
+  expect(ZERO_SNAPSHOT.gpu.deviceLost).toBe(false);
+});

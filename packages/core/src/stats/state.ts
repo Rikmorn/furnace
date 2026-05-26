@@ -16,6 +16,7 @@ export type StatsState = {
   bindGroupSwitches: number;
 
   // Cumulative
+  deviceLost: boolean;
   uncapturedErrors: number;
 
   // Resources & memory
@@ -44,6 +45,7 @@ export function createStatsState(now: number): StatsState {
     pipelineSwitches: 0,
     bindGroupSwitches: 0,
 
+    deviceLost: false,
     uncapturedErrors: 0,
 
     resources: createResourceRegistry(),
