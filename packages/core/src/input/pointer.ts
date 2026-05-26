@@ -106,26 +106,53 @@ export function handleWheelDomEvent(e: WheelEvent): void {
   state.emitters.wheel.emit(normalizeWheel(e));
 }
 
+/**
+ * Subscribe to `pointerdown` events. Returns an idempotent unsubscribe.
+ * Subscriptions survive across {@link detach} / {@link attach} cycles.
+ */
 export function onPointerDown(cb: (e: InputPointerEvent) => void): () => void {
   return state.emitters.pointerDown.on(cb);
 }
 
+/**
+ * Subscribe to `pointermove` events. Returns an idempotent unsubscribe.
+ *
+ * On move events `PointerEvent.button` is `null` (no button transitioned);
+ * use the `buttons` bitmask to read held state, or {@link isPointerButtonDown}.
+ */
 export function onPointerMove(cb: (e: InputPointerEvent) => void): () => void {
   return state.emitters.pointerMove.on(cb);
 }
 
+/**
+ * Subscribe to `pointerup` events. Returns an idempotent unsubscribe.
+ * Subscriptions survive across {@link detach} / {@link attach} cycles.
+ */
 export function onPointerUp(cb: (e: InputPointerEvent) => void): () => void {
   return state.emitters.pointerUp.on(cb);
 }
 
+/**
+ * Subscribe to wheel events. Returns an idempotent unsubscribe.
+ * Subscriptions survive across {@link detach} / {@link attach} cycles.
+ */
 export function onWheel(cb: (e: InputWheelEvent) => void): () => void {
   return state.emitters.wheel.on(cb);
 }
 
+/** Snapshot read of the pointer-buttons bitmask. */
 export function isPointerButtonDown(button: PointerButton): boolean {
   return (state.pointer.buttons & (1 << button)) !== 0;
 }
 
+/**
+ * Frozen snapshot of the current pointer position and held buttons. A new
+ * object is allocated per call.
+ *
+ * `x` / `y` are CSS pixels; `xDevice` / `yDevice` are scaled by the
+ * canvas's backing-store DPR. See `engine-conventions.md` §"Input" for the
+ * CSS-vs-device coordinate split.
+ */
 export function getPointer(): PointerSnapshot {
   return Object.freeze({
     x: state.pointer.x,

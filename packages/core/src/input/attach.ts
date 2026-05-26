@@ -25,6 +25,19 @@ function registerListener(spec: ListenerSpec): void {
   state.listeners.push(spec);
 }
 
+/**
+ * Bind the input module's DOM listeners and begin delivering events.
+ * Keyboard and window-lifecycle (`blur`) listeners attach to `globalThis`
+ * so they fire regardless of focus; pointer and wheel listeners attach to
+ * `canvas` so coords are canvas-local and events stop firing when the
+ * cursor leaves.
+ *
+ * Setup-loud: throws if already attached. Call {@link detach} first if you
+ * need to rebind to a different canvas. Subscriptions made before `attach`
+ * are valid and will fire once listeners are installed.
+ *
+ * @throws FurnaceInputError - input is already attached.
+ */
 export function attach(canvas: HTMLCanvasElement): void {
   if (state.canvas !== null) {
     throw new FurnaceInputError("input already attached; call detach() first");
@@ -82,6 +95,15 @@ export function attach(canvas: HTMLCanvasElement): void {
   });
 }
 
+/**
+ * Remove all DOM listeners and clear runtime state (held keys, pointer
+ * position, canvas reference). Idempotent — no-op when not attached.
+ *
+ * Emitters are intentionally preserved across detach: consumer
+ * subscriptions registered via {@link onKeyDown}, {@link onPointerMove},
+ * etc. remain registered and will fire again after a subsequent
+ * {@link attach}.
+ */
 export function detach(): void {
   if (state.canvas === null) return; // no-op
   for (const spec of state.listeners) {
@@ -92,6 +114,7 @@ export function detach(): void {
   // preserved so subscribers survive across detach/attach cycles.
 }
 
+/** True between {@link attach} and {@link detach}. */
 export function isAttached(): boolean {
   return state.canvas !== null;
 }

@@ -32,14 +32,33 @@ export function handleBlur(): void {
   state.pointer.buttons = 0;
 }
 
+/**
+ * Subscribe to keydown events. Returns an idempotent unsubscribe.
+ * Subscriptions survive across {@link detach} / {@link attach} cycles.
+ */
 export function onKeyDown(cb: (e: KeyEvent) => void): () => void {
   return state.emitters.keyDown.on(cb);
 }
 
+/**
+ * Subscribe to keyup events. Returns an idempotent unsubscribe.
+ * Subscriptions survive across {@link detach} / {@link attach} cycles.
+ *
+ * Note: stuck-key recovery on window `blur` clears `keysDown` *without*
+ * synthesizing `onKeyUp` deliveries. Consumers needing symmetric streams
+ * track the future `onBlur` event (see `engine-conventions.md` §"Input").
+ */
 export function onKeyUp(cb: (e: KeyEvent) => void): () => void {
   return state.emitters.keyUp.on(cb);
 }
 
+/**
+ * Snapshot read of the held-key set. `code` is the layout-independent
+ * `KeyboardEvent.code` value (e.g. `"KeyW"`).
+ *
+ * The held-key set is cleared on window `blur` for stuck-key recovery; see
+ * `engine-conventions.md` §"Input".
+ */
 export function isKeyDown(code: KeyCode): boolean {
   return state.keysDown.has(code);
 }
