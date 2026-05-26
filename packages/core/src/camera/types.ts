@@ -18,6 +18,11 @@ export type Projection =
       far: number;
     };
 
+/**
+ * The frozen `{ view, projection, viewProjection }` wrapper returned by
+ * {@link getMatrices}. The inner `Mat4` references are stable across calls
+ * and mutated in place — consumers may cache them.
+ */
 export type CameraMatrices = Readonly<{
   view: Mat4;
   projection: Mat4;
@@ -29,6 +34,14 @@ export type CameraMatrices = Readonly<{
 // orthographic.ts (avoids a circular dep on common.ts).
 export type RecomputeProjection = (data: Camera) => void;
 
+/**
+ * Camera record produced by {@link perspective} or {@link orthographic}.
+ *
+ * Treated as an opaque handle by consumers — mutate only via the exported
+ * setters (`setPosition`, `setTarget`, `setUp`, `setAspect`, `setNearFar`,
+ * `setFov`, `setBounds`). The setters maintain the `viewDirty` / `projDirty`
+ * flags that {@link getMatrices} relies on to decide what to recompute.
+ */
 export type Camera = {
   position: Vec3;
   target: Vec3;

@@ -12,6 +12,13 @@ const DEFAULT_POSITION: readonly [number, number, number] = [0, 0, 3];
 const DEFAULT_TARGET: readonly [number, number, number] = [0, 0, 0];
 const DEFAULT_UP: readonly [number, number, number] = [0, 1, 0];
 
+/**
+ * Options accepted by {@link perspective}. All fields optional.
+ *
+ * Defaults: `fovYRad = π/4`, `aspect = 1`, `near = 0.1`, `far = 1000`,
+ * `position = [0, 0, 3]`, `target = [0, 0, 0]`, `up = [0, 1, 0]`. `fovYRad`
+ * is the vertical field of view in radians.
+ */
 export type PerspectiveOptions = {
   fovYRad?: number;
   aspect?: number;
@@ -59,6 +66,15 @@ function recomputePerspective(data: Camera): void {
   mat4.perspective(data.projectionMatrix, fovYRad, aspect, near, far);
 }
 
+/**
+ * Construct a perspective camera. See {@link PerspectiveOptions} for the
+ * field defaults.
+ *
+ * Setup-loud: validates the projection parameters synchronously.
+ *
+ * @throws FurnaceError - if `aspect` or `fovYRad` is non-finite or
+ * non-positive, if `near <= 0`, or if `near >= far`.
+ */
 export function perspective(opts: PerspectiveOptions = {}): Camera {
   const params: PerspectiveParams = {
     fovYRad: opts.fovYRad ?? DEFAULT_FOV_Y_RAD,
@@ -98,6 +114,15 @@ export function perspective(opts: PerspectiveOptions = {}): Camera {
   return data;
 }
 
+/**
+ * Set a perspective camera's vertical field of view (radians). Mutates `cam`
+ * in place; flips `projDirty`.
+ *
+ * Setup-loud: validates the input synchronously.
+ *
+ * @throws FurnaceError - if `fovYRad` is non-finite or non-positive, or if
+ * the camera is not perspective.
+ */
 export function setFov(cam: Camera, fovYRad: number): void {
   if (!Number.isFinite(fovYRad) || fovYRad <= 0) {
     throw new FurnaceError("fovYRad must be a positive finite number");

@@ -2,6 +2,13 @@ import type { Vec3 } from "../transform/types.ts";
 import * as common from "./common.ts";
 import type { Camera } from "./types.ts";
 
+/**
+ * Out-param shape mutated by {@link projectToScreen}.
+ *
+ * `x` and `y` are CSS pixels with the origin at the canvas's top-left.
+ * `w` is the clip-space divisor — useful for distance-based label sizing
+ * (smaller `w` = closer to camera).
+ */
 export type ScreenProjection = {
   x: number;
   y: number;

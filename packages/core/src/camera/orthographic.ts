@@ -14,6 +14,12 @@ const DEFAULT_POSITION: readonly [number, number, number] = [0, 0, 1];
 const DEFAULT_TARGET: readonly [number, number, number] = [0, 0, 0];
 const DEFAULT_UP: readonly [number, number, number] = [0, 1, 0];
 
+/**
+ * Options accepted by {@link orthographic}. All fields optional.
+ *
+ * Defaults: `left = -1`, `right = 1`, `bottom = -1`, `top = 1`, `near = -1`,
+ * `far = 1`, `position = [0, 0, 1]`, `target = [0, 0, 0]`, `up = [0, 1, 0]`.
+ */
 export type OrthographicOptions = {
   left?: number;
   right?: number;
@@ -35,6 +41,10 @@ type OrthographicParams = {
   far: number;
 };
 
+/**
+ * Shape passed to {@link setBounds}. Use this type when composing helpers
+ * that receive or forward orthographic bounds.
+ */
 export type OrthographicBounds = {
   left: number;
   right: number;
@@ -71,6 +81,15 @@ function recomputeOrtho(data: Camera): void {
   mat4.ortho(data.projectionMatrix, left, right, bottom, top, near, far);
 }
 
+/**
+ * Construct an orthographic camera. See {@link OrthographicOptions} for the
+ * field defaults.
+ *
+ * Setup-loud: validates bounds and clip planes synchronously.
+ *
+ * @throws FurnaceError - if any of `left`, `right`, `bottom`, `top` is
+ * non-finite, or if `near >= far`.
+ */
 export function orthographic(opts: OrthographicOptions = {}): Camera {
   const params: OrthographicParams = {
     left: opts.left ?? DEFAULT_LEFT,
@@ -112,6 +131,15 @@ export function orthographic(opts: OrthographicOptions = {}): Camera {
   return data;
 }
 
+/**
+ * Set an orthographic camera's view bounds. Mutates `cam` in place; flips
+ * `projDirty`.
+ *
+ * Setup-loud: validates the inputs synchronously.
+ *
+ * @throws FurnaceError - if any bound is non-finite, or if the camera is not
+ * orthographic.
+ */
 export function setBounds(cam: Camera, bounds: OrthographicBounds): void {
   const { left, right, bottom, top } = bounds;
   const boundsFinite =
