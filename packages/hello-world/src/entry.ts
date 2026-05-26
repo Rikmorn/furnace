@@ -158,6 +158,7 @@ async function main(): Promise<void> {
   mesh.setPosition(cubeMesh, new Float32Array([CUBE_X, 0, 0]));
   mesh.setPosition(emissiveMesh, new Float32Array([-CUBE_X, 0, 0]));
 
+  // No teardown — subscription lives for the page lifetime (no dispose path in hello-world).
   camera.bindToCanvas(cam, ctx);
 
   input.attach(canvas);

@@ -2,6 +2,7 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { bindToCanvas, updateForSize } from "../../src/camera/bind.ts";
 import { orthographic } from "../../src/camera/orthographic.ts";
 import { perspective } from "../../src/camera/perspective.ts";
+import type { Camera } from "../../src/camera/types.ts";
 import type { Context } from "../../src/gpu/context-types.ts";
 import { createInternalState } from "../../src/gpu/internal.ts";
 import {
@@ -84,6 +85,12 @@ test("updateForSize throws on negative width", () => {
   );
 });
 
+test("updateForSize throws on null camera", () => {
+  expect(() =>
+    updateForSize(null as unknown as Camera, { width: 800, height: 600 }),
+  ).toThrow(/null/);
+});
+
 // --- bindToCanvas --------------------------------------------------------
 
 test("bindToCanvas applies updateForSize once immediately on call", () => {
@@ -147,4 +154,14 @@ test("bindToCanvas on orthographic camera applies (no-op) immediately and on res
   expect(cam.projection.bottom).toBe(before.bottom);
   expect(cam.projection.top).toBe(before.top);
   unsub();
+});
+
+test("bindToCanvas throws on null camera", () => {
+  const ctx = fakeCtx();
+  expect(() => bindToCanvas(null as unknown as Camera, ctx)).toThrow(/null/);
+});
+
+test("bindToCanvas throws on null context", () => {
+  const cam = perspective({ aspect: 1 });
+  expect(() => bindToCanvas(cam, null as unknown as Context)).toThrow(/null/);
 });

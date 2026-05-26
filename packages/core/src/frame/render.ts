@@ -159,16 +159,12 @@ function beginRenderPass(
   clearColor: Vec4,
   clearDepth: number,
 ): GPURenderPassEncoder {
+  const [r = 0, g = 0, b = 0, a = 1] = clearColor;
   return encoder.beginRenderPass({
     colorAttachments: [
       {
         view: colorView,
-        clearValue: {
-          r: clearColor[0] ?? 0,
-          g: clearColor[1] ?? 0,
-          b: clearColor[2] ?? 0,
-          a: clearColor[3] ?? 1,
-        },
+        clearValue: { r, g, b, a },
         loadOp: "clear",
         storeOp: "store",
       },

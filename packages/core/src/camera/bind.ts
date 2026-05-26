@@ -19,6 +19,9 @@ export function updateForSize(
   cam: Camera,
   size: { width: number; height: number },
 ): void {
+  if (cam == null) {
+    throw new FurnaceError("cam must not be null/undefined");
+  }
   const { width, height } = size;
   if (!Number.isFinite(width) || !Number.isFinite(height)) {
     throw new FurnaceError("width and height must be finite numbers");
@@ -45,6 +48,12 @@ export function updateForSize(
  * per-frame (via `setBounds`) can continue doing so without conflict.
  */
 export function bindToCanvas(cam: Camera, ctx: Context): () => void {
+  if (cam == null) {
+    throw new FurnaceError("cam must not be null/undefined");
+  }
+  if (ctx == null) {
+    throw new FurnaceError("ctx must not be null/undefined");
+  }
   updateForSize(cam, { width: ctx.canvas.width, height: ctx.canvas.height });
   return onResize(ctx, ({ width, height }) => {
     updateForSize(cam, { width, height });
