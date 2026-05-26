@@ -3,6 +3,7 @@ import * as gpu from "../../src/gpu/index.ts";
 import { PREMULTIPLIED_ALPHA_BLEND } from "../../src/material/blend.ts";
 import * as material from "../../src/material/index.ts";
 import { unlit } from "../../src/material/unlit.ts";
+import { vec4 } from "../../src/transform/vec4.ts";
 import {
   bunWebGpuAvailable,
   ensureBunWebGpu,
@@ -16,7 +17,7 @@ test.skipIf(!bunWebGpuAvailable())(
   async () => {
     const canvas = await makeOffscreenCanvas();
     const ctx = await gpu.requestContext(canvas);
-    const mat = await unlit(ctx, { color: [0.5, 0.7, 0.3, 1] });
+    const mat = await unlit(ctx, { color: vec4.fromValues(0.5, 0.7, 0.3, 1) });
     expect(mat.pipeline).toBeDefined();
     expect(mat.group1).not.toBe(null);
     expect(mat.ownedBuffers.length).toBe(1);
@@ -31,7 +32,7 @@ test.skipIf(!bunWebGpuAvailable())(
     const canvas = await makeOffscreenCanvas();
     const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
     const mat = await unlit(ctx, {
-      color: [0.5, 0.7, 0.3, 1],
+      color: vec4.fromValues(0.5, 0.7, 0.3, 1),
       topology: "line-list",
       cullMode: "none",
       depthWrite: false,
@@ -51,9 +52,9 @@ test.skipIf(!bunWebGpuAvailable())(
   async () => {
     const canvas = await makeOffscreenCanvas();
     const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
-    const opaque = await unlit(ctx, { color: [1, 0, 0, 1] });
+    const opaque = await unlit(ctx, { color: vec4.fromValues(1, 0, 0, 1) });
     const blended = await unlit(ctx, {
-      color: [1, 0, 0, 1],
+      color: vec4.fromValues(1, 0, 0, 1),
       blend: PREMULTIPLIED_ALPHA_BLEND,
     });
     expect(blended.pipelineKey).not.toBe(opaque.pipelineKey);
@@ -68,7 +69,7 @@ test.skipIf(!bunWebGpuAvailable())(
   async () => {
     const canvas = await makeOffscreenCanvas();
     const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
-    const mat = await unlit(ctx, { color: [1, 1, 1, 1] });
+    const mat = await unlit(ctx, { color: vec4.fromValues(1, 1, 1, 1) });
     expect(mat.topology).toBe("triangle-list");
     expect(mat.cullMode).toBe("back");
     expect(mat.depthWrite).toBe(true);

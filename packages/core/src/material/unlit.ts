@@ -1,5 +1,6 @@
 import type { Context } from "../gpu/index.ts";
 import { _registerResource } from "../stats/internal.ts";
+import type { Vec4 } from "../transform/types.ts";
 import { create } from "./material.ts";
 import type { Material } from "./types.ts";
 
@@ -30,7 +31,7 @@ struct VsIn {
 `;
 
 export type UnlitOptions = {
-  color: [number, number, number, number];
+  color: Vec4;
   topology?: GPUPrimitiveTopology;
   cullMode?: GPUCullMode;
   depthWrite?: boolean;
@@ -46,7 +47,7 @@ export async function unlit(
     size: COLOR_BUFFER_SIZE_BYTES,
     usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
   });
-  ctx.queue.writeBuffer(colorBuffer, 0, new Float32Array(opts.color));
+  ctx.queue.writeBuffer(colorBuffer, 0, opts.color);
   const colorBufferHandle = _registerResource(ctx, {
     kind: "buffer",
     bytes: COLOR_BUFFER_SIZE_BYTES,
