@@ -56,7 +56,7 @@ Consumer-facing resources (meshes, textures, buffers) have `module.destroy(handl
 
 - Pose is expressed via `position` / `target` / `up` (lookAt-style). Quaternion-driven cameras are not provided.
 - Setters mutate in place and flip internal dirty bits. `getMatrices(cam)` recomputes only dirty matrices and returns the same frozen wrapper across calls (the inner `Float32Array` references are stable; the engine writes into them in place).
-- Aspect ratio is consumer-managed: subscribe to `gpu.onResize` and call `camera.setAspect(cam, width / height)`. The engine's "size truth" is the backing-store dimensions, not the CSS dimensions.
+- Aspect ratio is consumer-managed but the engine ships a one-line helper for the common case: `camera.bindToCanvas(cam, ctx)` subscribes to `gpu.onResize` and updates the camera's projection on every resize. The returned function unsubscribes — call it in dispose. The manual pattern (`gpu.onResize` + `camera.setAspect`) remains available for consumers needing finer control (multi-camera coordination, custom dispatch, conditional updates). Orthographic cameras are accepted by `bindToCanvas` but currently no-op on resize — explicit bounds management via `setBounds` is required while Tranche A-2's `fitPolicy` work is pending.
 - The camera's uniform buffer is engine-managed inside `frame.render` (allocated lazily, written each frame from `getMatrices`). The Camera handle itself remains data-only — no GPU resources owned.
 
 ## Drawables

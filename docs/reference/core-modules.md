@@ -208,6 +208,8 @@ Re-exported from `index.ts` so other core modules can `import * as stats` and ca
 |---|---|---|
 | `perspective` | `(opts?: PerspectiveOptions) => Camera` | Defaults: `fovYRad = π/4`, `aspect = 1`, `near = 0.1`, `far = 1000`, `position = [0,0,3]`, `target = [0,0,0]`, `up = [0,1,0]`. Throws `FurnaceError` on invalid params. |
 | `orthographic` | `(opts?: OrthographicOptions) => Camera` | Defaults: `left/right/bottom/top = ∓1`, `near/far = ∓1`, `position = [0,0,1]`. Throws on non-finite bounds or `near ≥ far`. |
+| `bindToCanvas` | `(cam: Camera, ctx: Context) => () => void` | Subscribes to `gpu.onResize`, applies `updateForSize` on every event. Applies once immediately on call. Returns an idempotent unsubscribe function — call it in dispose. Orthographic cameras are accepted but currently no-op on resize (A-2 `fitPolicy` will fill). |
+| `updateForSize` | `(cam: Camera, size: { width: number; height: number }) => void` | Polymorphic projection update from a canvas size. Perspective: recomputes aspect (`width / height`). Orthographic: no-op — use `setBounds` explicitly until A-2's `fitPolicy` lands. |
 | `setPosition` | `(cam: Camera, position: Vec3) => void` | Mutates in place, flips `viewDirty`. |
 | `setTarget` | `(cam: Camera, target: Vec3) => void` | Mutates in place, flips `viewDirty`. |
 | `setUp` | `(cam: Camera, up: Vec3) => void` | Mutates in place, flips `viewDirty`. |

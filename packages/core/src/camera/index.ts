@@ -1,3 +1,4 @@
+export { bindToCanvas, updateForSize } from "./bind.ts";
 export {
   getMatrices,
   setAspect,
