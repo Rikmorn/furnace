@@ -96,6 +96,23 @@ function _ensureCameraBuffer(ctx: Context, cam: Camera): GPUBuffer {
   return buffer;
 }
 
+/**
+ * Options accepted by {@link render}.
+ *
+ * - `draw`: meshes to render, in order. The engine submits them as one render
+ *   pass with no automatic sorting — caller controls draw order.
+ * - `camera`: camera whose view/projection matrices populate `@group(0)
+ *   @binding(0)` for each draw (see `engine-conventions.md` §"Binding
+ *   contract").
+ * - `effects`: optional post-process chain. When non-empty the scene is
+ *   rendered to an off-screen target and ping-ponged through the effects to
+ *   the swap chain. Final attachment.
+ * - `clearColor`: linear-space RGBA used to clear the color attachment.
+ *   Default `[0, 0, 0, 1]`. The sRGB encoding is applied on swap-chain write
+ *   via the view format (see `engine-conventions.md` §"Color space").
+ * - `clearDepth`: depth value cleared into the engine-managed depth texture
+ *   each frame. Default `1.0` (far plane).
+ */
 export type RenderOptions = {
   draw: Mesh[];
   camera: Camera;
@@ -317,6 +334,29 @@ function runEffectsPingPong(
   renderEffectPass(ctx, finalEffect, inputView, im.sampler, swapView);
 }
 
+/**
+ * Submit one frame: clear, draw `opts.draw` against `opts.camera`, optionally
+ * ping-pong through `opts.effects` to the swap chain.
+ *
+ * Allocation semantics — both lazy, both engine-owned and reused across
+ * frames:
+ * - One depth texture per context (`depth24plus`), allocated on first call
+ *   and reallocated when the canvas backing-store size changes. Always
+ *   attached; the engine has no depth-less render path here (see
+ *   `engine-conventions.md` §"Binding contract").
+ * - One camera uniform buffer (64 bytes) per `(context, camera)` pair,
+ *   allocated on first sighting of a given camera. The buffer is written each
+ *   call from `camera.getMatrices`. Per-mesh `@group(0)` bind groups are
+ *   cached on the mesh keyed by `(pipeline, cameraBuffer)`.
+ *
+ * Setup-loud per the foreground failure policy. The effects list is
+ * validated up front; any disposed-/cross-context effect throws before any
+ * GPU work is recorded.
+ *
+ * @throws FurnaceGpuError - if `ctx` has been disposed, or if any
+ *   `opts.effects` entry is `null`, destroyed, or belongs to a different
+ *   context.
+ */
 export function render(ctx: Context, opts: RenderOptions): void {
   if (ctx._internal.disposed) {
     throw new FurnaceGpuError("context disposed");

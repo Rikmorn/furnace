@@ -13,6 +13,26 @@ import { vec4 } from "../transform/vec4.ts";
 import { _frameRenderInternals } from "./render.ts";
 import { trianglesForTopology } from "./triangles-for-topology.ts";
 
+/**
+ * Options accepted by {@link renderToTexture}.
+ *
+ * - `texture`: consumer-supplied color target. The consumer owns its
+ *   creation and destruction; the engine does not register or pool it.
+ * - `draw` / `camera` / `clearColor` / `clearDepth`: same semantics as
+ *   `RenderOptions`. `clearColor` defaults to `[0, 0, 0, 1]` (linear);
+ *   `clearDepth` defaults to `1.0`.
+ * - `depthTexture`: optional consumer-supplied depth target. When omitted,
+ *   the render pass is built without a depth-stencil attachment.
+ *
+ * **Caveat — depth coupling:** stock materials (`material.unlit`,
+ * `material.normalColor`, and any `material.create` call) currently build
+ * pipelines that declare depth-stencil state. WebGPU validation requires the
+ * pass match the pipeline, so omitting `depthTexture` while drawing any
+ * stock material causes the pass to fail validation silently at submit time
+ * (consumers see a frozen previous-frame output). Genuine depth-less
+ * off-screen rendering is tracked in
+ * `docs/backlog/engine-architecture/render-to-texture-depth-coupling.md`.
+ */
 export type RenderToTextureOptions = {
   texture: GPUTexture;
   draw: Mesh[];
@@ -90,6 +110,23 @@ function recordDraw(
   return pipeline;
 }
 
+/**
+ * Off-screen variant of `render`: draw `opts.draw` against `opts.camera`
+ * into a consumer-supplied `GPUTexture` instead of the swap chain. No
+ * post-effects chain — pipe the result through another `render` call (as a
+ * shader input) for compositing.
+ *
+ * Reuses the engine-owned per-camera uniform buffer and `@group(0)` bind
+ * group cache shared with `render`, so calling both with the same camera
+ * does not allocate twice. The depth attachment is consumer-supplied — see
+ * the {@link RenderToTextureOptions} caveat about the silent validation
+ * failure when omitted with depth-declaring materials.
+ *
+ * Setup-loud per the foreground failure policy.
+ *
+ * @throws FurnaceGpuError - if `ctx` has been disposed or `opts.texture`
+ *   is missing.
+ */
 export function renderToTexture(
   ctx: Context,
   opts: RenderToTextureOptions,
