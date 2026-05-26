@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { consoleSink, type LogEntry, setSink } from "@furnace/core/log";
 import * as gpu from "../../src/gpu/index.ts";
 import * as material from "../../src/material/index.ts";
 import * as mesh from "../../src/mesh/index.ts";
@@ -20,16 +21,23 @@ test.skipIf(!bunWebGpuAvailable())(
     mesh.create(ctx, { geometry: geo, material: mat });
     // Deliberately do not call destroy.
 
-    const origWarn = console.warn;
-    let warned = "";
-    console.warn = (...a: unknown[]) => {
-      warned = String(a[0]);
-    };
-    gpu.dispose(ctx);
-    console.warn = origWarn;
+    const entries: LogEntry[] = [];
+    setSink((entry) => entries.push(entry));
+    try {
+      gpu.dispose(ctx);
+    } finally {
+      setSink(consoleSink);
+    }
 
-    expect(warned).toContain("[furnace/gpu]");
-    expect(warned.toLowerCase()).toContain("leak");
+    expect(entries.length).toBeGreaterThan(0);
+    const entry = entries[0];
+    if (!entry) throw new Error("unreachable: entries.length checked above");
+    expect(entry.level).toBe("warn");
+    expect(entry.module).toBe("gpu");
+    expect(entry.message).toContain(
+      "context disposed with resources still registered",
+    );
+    expect(entry.rest[0]).toMatchObject({ remaining: expect.any(Number) });
   },
 );
 
@@ -47,14 +55,14 @@ test.skipIf(!bunWebGpuAvailable())(
 
     // Camera buffer + depth texture only allocate inside frame.render; this
     // test never renders, so the registry is empty before dispose.
-    const origWarn = console.warn;
-    let warned = false;
-    console.warn = () => {
-      warned = true;
-    };
-    gpu.dispose(ctx);
-    console.warn = origWarn;
+    const entries: LogEntry[] = [];
+    setSink((entry) => entries.push(entry));
+    try {
+      gpu.dispose(ctx);
+    } finally {
+      setSink(consoleSink);
+    }
 
-    expect(warned).toBe(false);
+    expect(entries.length).toBe(0);
   },
 );

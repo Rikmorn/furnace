@@ -1,4 +1,4 @@
-import { beforeEach, expect, spyOn, test } from "bun:test";
+import { beforeEach, expect, test } from "bun:test";
 import { consoleSink, type LogEntry, setSink } from "@furnace/core/log";
 import { FurnaceError, FurnaceGpuError } from "../../src/gpu/errors.ts";
 import * as gpu from "../../src/gpu/index.ts";
@@ -84,11 +84,17 @@ test.skipIf(!bunWebGpuAvailable())(
     const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
     const e = await post.create(ctx, { shader: SHADER });
     post.destroy(e);
-    const warn = spyOn(console, "warn").mockImplementation(() => undefined);
-    post.destroy(e);
-    expect(warn).toHaveBeenCalledTimes(1);
-    expect(String(warn.mock.calls[0]?.[0])).toContain("[furnace/post]");
-    warn.mockRestore();
+    const entries: LogEntry[] = [];
+    setSink((entry) => entries.push(entry));
+    try {
+      post.destroy(e);
+    } finally {
+      setSink(consoleSink);
+    }
+    expect(entries).toHaveLength(1);
+    const entry = entries[0];
+    if (!entry) throw new Error("unreachable: entries.length checked above");
+    expect(entry.module).toBe("post");
     gpu.dispose(ctx);
   },
 );

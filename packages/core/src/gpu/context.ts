@@ -1,3 +1,4 @@
+import { error, warn } from "../log/internal.ts";
 import { _recordUncapturedError } from "../stats/internal.ts";
 import { createStatsState, type StatsState } from "../stats/state.ts";
 import type { Context } from "./context-types.ts";
@@ -41,8 +42,8 @@ type InternalWithCanvasCtx = {
  * Sizes the canvas backing store to `clientWidth/clientHeight * pixelRatio`
  * once at acquisition; ongoing layout changes are handled by `onResize`.
  * Installs an `uncapturederror` handler on the device that records into
- * stats and logs to the console — async GPU validation errors surface there
- * rather than as thrown exceptions.
+ * stats and routes via `error("gpu", ...)` — async GPU validation errors
+ * surface through the engine log helper rather than as thrown exceptions.
  *
  * Setup-loud per the foreground failure policy
  * (`engine-conventions.md` §"Failure policy").
@@ -116,7 +117,7 @@ export async function requestContext(
     // "uncapturederror" name guarantees a GPUUncapturedErrorEvent at runtime.
     const evt = e as GPUUncapturedErrorEvent;
     _recordUncapturedError(ctx);
-    console.error("[furnace/gpu] uncaptured device error:", evt.error.message);
+    error("gpu", "uncaptured device error", evt.error.message);
   });
 
   return ctx;
@@ -127,10 +128,11 @@ export async function requestContext(
  * and clear internal bookkeeping. Idempotent — calling on an already-disposed
  * ctx is a no-op.
  *
- * Warns to `console.warn` if any engine resources (meshes, materials,
- * geometries, effects, buffers, textures) are still registered when called,
- * naming the count. That's the leak signal: in well-behaved teardown the
- * consumer destroys owned resources before calling `dispose`.
+ * Routes a warning to the engine log helper (see `@furnace/core/log`) at
+ * `warn` level if any engine resources (meshes, materials, geometries,
+ * effects, buffers, textures) are still registered when called, naming
+ * the count in the entry's `rest`. That's the leak signal: in well-behaved
+ * teardown the consumer destroys owned resources before calling `dispose`.
  *
  * After `dispose`, `isDisposed(ctx)` returns `true` and foreground APIs that
  * take a `Context` throw `FurnaceGpuError`; background reads return zero /
@@ -140,8 +142,10 @@ export function dispose(ctx: Context): void {
   if (ctx._internal.disposed) return;
   const remaining = ctx._internal.stats.resources.entries.size;
   if (remaining > 0) {
-    console.warn(
-      `[furnace/gpu] context disposed with ${remaining} resource(s) still registered — leak suspected`,
+    warn(
+      "gpu",
+      "context disposed with resources still registered — leak suspected",
+      { remaining },
     );
   }
   markDisposed(ctx._internal);

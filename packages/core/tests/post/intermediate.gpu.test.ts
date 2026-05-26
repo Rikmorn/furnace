@@ -1,4 +1,5 @@
-import { expect, spyOn, test } from "bun:test";
+import { expect, test } from "bun:test";
+import { consoleSink, type LogEntry, setSink } from "@furnace/core/log";
 import * as gpu from "../../src/gpu/index.ts";
 import { _ensureSceneIntermediates } from "../../src/post/intermediate.ts";
 import * as stats from "../../src/stats/index.ts";
@@ -63,15 +64,20 @@ test.skipIf(!bunWebGpuAvailable())(
     const canvas = await makeOffscreenCanvas(64, 32);
     const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
     _ensureSceneIntermediates(ctx);
-    const warn = spyOn(console, "warn").mockImplementation(() => undefined);
-    gpu.dispose(ctx);
+    const entries: LogEntry[] = [];
+    setSink((entry) => entries.push(entry));
+    try {
+      gpu.dispose(ctx);
+    } finally {
+      setSink(consoleSink);
+    }
     expect(
-      warn.mock.calls.some(
-        (c) =>
-          String(c[0]).includes("[furnace/gpu]") &&
-          String(c[0]).includes("leak suspected"),
+      entries.some(
+        (e) =>
+          e.level === "warn" &&
+          e.module === "gpu" &&
+          e.message.includes("leak suspected"),
       ),
     ).toBe(true);
-    warn.mockRestore();
   },
 );
