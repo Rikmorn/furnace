@@ -38,7 +38,9 @@ The reference is "what the engine IS today." If it's stale, it's broken.
 | `dispose` | `(ctx: Context) => void` | Destroys the device, clears bookkeeping. Idempotent. Warns to console if resources are still registered. |
 | `isDisposed` | `(ctx: Context) => boolean` | True after `dispose(ctx)`. |
 | `getCurrentTextureView` | `(ctx: Context) => GPUTextureView` | Returns a view on the current swapchain texture, with the configured sRGB view format applied. Throws if `ctx` is disposed. Escape hatch — most consumers go through `frame.render`. |
+| `onDeviceLost` | `(ctx: Context, fn: (info: GPUDeviceLostInfo) => void) => () => void` | Subscribe to WebGPU `device.lost` notification. Callback receives `GPUDeviceLostInfo`. Fires at most once per context. The emit is skipped when `gpu.dispose(ctx)` has been called (`reason: "destroyed"` is expected teardown). Setup-loud on disposed ctx. Returns idempotent unsubscribe. |
 | `onResize` | `(ctx: Context, fn: (event: ResizeEvent) => void) => () => void` | Subscribes to canvas resize events. The engine resizes the backing store on each event. Returns an unsubscribe function. |
+| `onUncapturedError` | `(ctx: Context, fn: (error: GPUError) => void) => () => void` | Subscribe to WebGPU uncaptured-error events. Callback receives the unwrapped `GPUError`. Setup-loud on disposed ctx. Returns idempotent unsubscribe. |
 | `Context` | `Readonly<{ device: GPUDevice; queue: GPUQueue; format: GPUTextureFormat; canvas: HTMLCanvasElement; pixelRatio: number; _internal: InternalState }>` | The frozen handle every other module takes as its first argument. |
 | `RequestContextOptions` | `{ surfaceFormat?: "srgb" \| "linear"; pixelRatio?: "device" \| "css" \| number }` | Defaults: `surfaceFormat: "srgb"`, `pixelRatio: "device"`. |
 | `ResizeEvent` | `Readonly<{ cssWidth: number; cssHeight: number; width: number; height: number; pixelRatio: number }>` | `width` / `height` are backing-store dimensions (the engine's "size truth"). |
@@ -131,7 +133,7 @@ The rest of the module is a math utility surface used implicitly by every demo (
 
 | Export | Signature | Notes |
 |---|---|---|
-| `createEmitter` | `<T = void>(ctx?: Context, name?: string) => Emitter<T>` | Building block. When `ctx` + non-empty `name` are passed, each `emit` increments `events.perEmitter[name]` in stats. Snapshot-iteration semantics: adds during emit fire next round; removes during emit take effect this round. Subscriber throws are caught and `console.error`-ed. |
+| `createEmitter` | `<T = void>(ctx?: Context, name?: string) => Emitter<T>` | Building block. When `ctx` + non-empty `name` are passed, each `emit` increments `events.perEmitter[name]` in stats. Snapshot-iteration semantics: adds during emit fire next round; removes during emit take effect this round. Subscriber throws are caught and routed via `@furnace/core/log` at `error` level; iteration continues. |
 | `Emitter` | `Readonly<{ on(listener: (data: T) => void): () => void; emit(data: T): void; clear(): void; readonly listenerCount: number }>` | The type returned by `createEmitter`. `on` returns an unsubscribe function. |
 
 ### Demoed in cookbook
@@ -161,7 +163,8 @@ Used indirectly by every input/resize-driven demo (`gpu.onResize`, `input.onKeyD
 | `get` | `<P extends Path<Snapshot>>(ctx: Context, path: P) => PathValue<Snapshot, P> \| null` | Dotted-path lookup into a fresh snapshot. Returns `null` for unresolved paths or disposed ctx. Path is statically constrained to valid `Snapshot` keys. |
 | `measure` | `(ctx: Context, name: string, fn: () => void) => void` | Times `fn()` and stores `performance.now()` delta under `name`. `fn` is run even on errors (finally block). `fn` is intentionally **not** invoked on disposed ctx, invalid `name` (empty / non-string — warns), or cross-kind name collision with a gauge/counter (warns). |
 | `startMeasurement` | `(ctx: Context, name: string) => Measurement` | Returns `{ end }` for async/manual measurements. Calling `end` twice warns and no-ops. Returns a no-op `Measurement` on disposed ctx or invalid name. |
-| `Snapshot` | see `snapshot-types.ts` | Frozen `{ frame, gpu, resources, events, memory, custom }`. `frame.ms` includes `{ last, mean, p99, min, max }`. `gpu.renderMs` / `gpu.computeMs` are currently `null` (reserved). |
+| `Snapshot` | see `snapshot-types.ts` | Frozen `{ frame, gpu, resources, events, memory, custom }`. `frame.ms` includes `{ last, mean, p99, min, max }`. `gpu.renderMs` / `gpu.computeMs` are currently `null` (reserved). `gpu.uncapturedErrors` is a cumulative count. `gpu.deviceLost` is `true` after `device.lost` resolves on a non-disposed context (terminal — see below). |
+| `snap.gpu.deviceLost` | `boolean` | `true` after `device.lost` resolves on a non-disposed context. `false` on `ZERO_SNAPSHOT` and on a disposed-context snapshot. Terminal — device is non-recoverable; consumer should request a fresh context or surface the failure. |
 | `Path<T>` | template-literal type | Union of all valid dotted paths into `T`. |
 | `PathValue<T, P>` | recursive lookup type | Resolves the value type at path `P`. |
 | `Measurement` | `Readonly<{ end: () => void }>` | Returned by `startMeasurement`. |
@@ -344,6 +347,60 @@ Re-exported from `index.ts` so other core modules can `import * as stats` and ca
 ### Reference-only (no demo, by design)
 
 - `FurnaceInputError` — error type; surfaced indirectly by `attach` misuse in code-paths the demo doesn't go down.
+
+---
+
+## `@furnace/core/log`
+
+`import { setSink, consoleSink } from "@furnace/core/log";`
+(types: `import type { LogLevel, LogEntry, LogSink } from "@furnace/core/log";`)
+
+Formal log sink with a single consumer-replaceable sink. Engine call sites
+use internal entry points; consumers configure the sink and (optionally)
+restore or compose with the default.
+
+### Public
+
+| Export | Kind | Description |
+|---|---|---|
+| `setSink(sink \| null)` | function | Replace the current sink. `null` silences the engine (no entry is built and no sink invoked). At module init, `consoleSink` is the active sink. |
+| `consoleSink` | constant `LogSink` | Default sink. Formats each entry with `[furnace/<module>]` prefix and routes by level (`error→console.error`, `warn→console.warn`, `info→console.info`, `debug→console.debug`). Exported so consumers can compose or restore explicitly. |
+| `LogLevel` | type | `"warn" \| "error" \| "info" \| "debug"`. Engine emits at `warn` and `error`; `info` / `debug` are reserved for future engine verbosity. |
+| `LogEntry` | type | `Readonly<{ level: LogLevel; module: string; message: string; rest: readonly unknown[]; timestampMs: number }>`. Delivered to the active sink on every emit. |
+| `LogSink` | type | `(entry: LogEntry) => void`. Sinks run synchronously; throws propagate to the caller. |
+
+**Sink composition:**
+
+```ts
+import { setSink, consoleSink } from "@furnace/core/log";
+
+// Custom telemetry, console silent:
+setSink(entry => myTelemetry.log(entry));
+
+// Both:
+setSink(entry => { consoleSink(entry); myTelemetry.log(entry); });
+
+// Silence (e.g. production):
+setSink(null);
+
+// Restore default:
+setSink(consoleSink);
+```
+
+### Demoed in cookbook
+
+No dedicated demo. The log module is exercised indirectly by every demo that
+triggers a warn/error path (e.g. double-destroy, bad input). A dedicated
+`cookbook/diagnostics` demo is tracked in `docs/backlog/`.
+
+### Reference-only (no demo, by design)
+
+The entire public surface — consumers configure `setSink` at startup and
+observe entries in their custom sink; there is no visual output to demo.
+
+See `docs/reference/engine-conventions.md` §Diagnostics for the engine's
+internal usage policy (which levels fire from which call sites) and the
+module-level mutable-state exception.
 
 ---
 

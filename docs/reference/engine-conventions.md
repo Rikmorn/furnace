@@ -134,7 +134,7 @@ they just don't fire until DOM listeners are installed.
 
 Consumers observe via `stats.snapshot(ctx)`, `stats.onFrame(ctx, fn)`, or `stats.get(ctx, path)` (type-safe dotted-path). Custom metrics via `stats.gauge`, `stats.increment`, `stats.measure`.
 
-Failure policy: setup operations (`stats.onFrame`) throw on disposed ctx; runtime reads return zero/null defaults; runtime writes silently no-op on disposed and `console.warn` on bad inputs. Functions wrapping consumer code (`stats.measure`) record what they can and re-throw consumer errors.
+Failure policy: setup operations (`stats.onFrame`) throw on disposed ctx; runtime reads return zero/null defaults; runtime writes silently no-op on disposed and emit a `warn`-level log entry on bad inputs (routed via `@furnace/core/log`). Functions wrapping consumer code (`stats.measure`) record what they can and re-throw consumer errors.
 
 Full spec: `docs/superpowers/specs/2026-05-24-core-tranche-5-stats-expansion-design.md`.
 
@@ -153,11 +153,11 @@ should stay out of the way).
 - GPU-layer failures we can't catch synchronously fall through to
   `device.uncapturederror`, which is surfaced via stats.
 
-**Background modules** (stats, future logging):
+**Background modules** (stats, log):
 - Setup ops throw on disposed ctx (subscribing to a dead ctx is a bug).
 - Runtime reads return zero/null defaults silently on disposed ctx.
-- Runtime writes silently no-op on disposed ctx; log-warn on bad inputs.
-- Subscriber callbacks throwing are caught + logged; iteration continues.
+- Runtime writes silently no-op on disposed ctx; emit a `warn`-level log entry on bad inputs.
+- Subscriber callbacks throwing are caught and routed via the log helper at `error` level; iteration continues.
 
 The distinction is intent: foreground silence is worse than a crash
 (broken-looking-deliberate); background loudness corrupts the observed system.
@@ -165,6 +165,66 @@ Pick the policy that matches the module's role.
 
 Tranche 5 (stats) is the reference background example. Tranche 6 (post) is the
 reference foreground example.
+
+## Diagnostics
+
+The engine emits diagnostics through `@furnace/core/log`. A single
+consumer-replaceable sink receives every entry. Default sink writes to
+`console.*` with the `[furnace/<module>]` prefix.
+
+**Pipeline:**
+
+```
+engine call site         log/internal.ts          current sink (1 active)
+─────────────────────    ────────────────────     ──────────────────────────
+warn("gpu", "leak", 3)  ▶ warn(...)         ▶ LogEntry ▶ sink(entry)
+                           builds entry
+                                                            │ (default)
+                                                            ▼
+                                                     consoleSink:
+                                                     console.warn(
+                                                       "[furnace/gpu]",
+                                                       "leak", 3,
+                                                     )
+```
+
+**Levels and engine usage:**
+
+| Level | Engine usage |
+|---|---|
+| `error` | Subscriber-throw catches, GPU uncaptured errors, device lost. |
+| `warn`  | Recoverable misuse (resource-leak warnings on dispose, double-destroy guards, bad-input no-op warnings). |
+| `info`  | Reserved for future engine setup notifications. No current call sites. |
+| `debug` | Reserved for future engine verbose state. No current call sites. |
+
+**Sink semantics:**
+
+- `setSink(custom)` — install a custom sink. Default is silenced for as long as `custom` is installed.
+- `setSink(null)` — silence the engine. Entries are not built; no sink is invoked.
+- `setSink(consoleSink)` — restore the default explicitly after a silence or custom replacement.
+- Replacement, not augmentation. Exactly one sink at any moment. Consumers wanting "telemetry + console" compose:
+
+```ts
+import { setSink, consoleSink } from "@furnace/core/log";
+setSink(entry => { consoleSink(entry); telemetry(entry); });
+```
+
+- A throwing sink propagates to the caller. The engine does not swallow consumer-supplied callback failures — same posture as event subscribers.
+
+**Module-level mutable-state exception:**
+
+The active sink is a module-level mutable variable. This is the second documented exception to master spec §1.3.
+
+Justification: logging is process-level, not context-level. A pre-context call site (e.g. a future `requestContext` validation failure) has no `Context` available. Per-context sinks would force every log site to plumb `Context`; many engine warn/error paths have no context available (subscriber-throw catches, double-destroy guards, bad-input warnings).
+
+The exception is named explicitly so it can't extend casually. The test for a new module-level singleton: it must be process-level, must have no per-context semantics, and must work before any `ctx` exists.
+
+**Failure-policy alignment:**
+
+Diagnostics extend the existing failure policy, they don't replace it:
+- **Setup-loud:** still throws. `gpu.requestContext` throws `FurnaceGpuError` on adapter/device/context failure — not converted to a log call. `gpu.onUncapturedError`, `gpu.onDeviceLost`, `stats.onFrame` throw `FurnaceGpuError` on disposed ctx.
+- **Runtime-quiet:** still warns through the sink. The 7 internal call sites are all runtime-quiet sites; semantics unchanged, only transport.
+- **No silent failures:** consumer-supplied sinks and emitter subscribers that throw propagate, never swallowed.
 
 ## References
 
