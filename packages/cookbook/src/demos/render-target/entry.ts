@@ -40,8 +40,8 @@ const PIP_CAMERA_FOV_Y_RAD = Math.PI / 3;
 const MONITOR_SIZE = 1.0;
 const MONITOR_POSITION: readonly [number, number, number] = [0.85, 0.25, -1.99];
 
-const CLEAR_MAIN: [number, number, number, number] = [0, 0, 0, 1];
-const CLEAR_PIP: [number, number, number, number] = [0.06, 0.07, 0.08, 1];
+const CLEAR_MAIN: Vec4 = vec4.fromValues(0, 0, 0, 1);
+const CLEAR_PIP: Vec4 = vec4.fromValues(0.06, 0.07, 0.08, 1);
 
 // PiP camera position per angle preset. All three are inside the ROOM_SIZE=4
 // cube (extents +/- 2), so the room serves as the PiP backdrop at every preset.

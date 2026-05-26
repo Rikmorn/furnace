@@ -4,7 +4,8 @@ import type { Material } from "@furnace/core/material";
 import * as material from "@furnace/core/material";
 import type { Mesh } from "@furnace/core/mesh";
 import * as mesh from "@furnace/core/mesh";
-import { quat, vec3 } from "@furnace/core/transform";
+import type { Vec4 } from "@furnace/core/transform";
+import { quat, vec3, vec4 } from "@furnace/core/transform";
 
 import { mountDemo } from "../../shared/mount.ts";
 import Controls from "./controls.svelte";
@@ -20,7 +21,7 @@ const ROTATION_SPEED_RAD_PER_S = 0.5;
 const MS_PER_S = 1000;
 const STRIPED_PARAMS_SIZE = 16; // 4 floats — see Params in striped.wgsl
 const PLASMA_PARAMS_SIZE = 16; // 4 floats — see Params in plasma.wgsl
-const CLEAR_COLOR: [number, number, number, number] = [0.05, 0.05, 0.07, 1];
+const CLEAR_COLOR: Vec4 = vec4.fromValues(0.05, 0.05, 0.07, 1);
 
 async function loadShaderSource(url: string): Promise<string> {
   const resp = await fetch(url);

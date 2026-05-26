@@ -8,7 +8,9 @@ import {
   _recordDraw,
   _recordPipelineSwitch,
 } from "../stats/internal.ts";
-import { _frameRenderInternals, type ClearColor } from "./render.ts";
+import type { Vec4 } from "../transform/types.ts";
+import { vec4 } from "../transform/vec4.ts";
+import { _frameRenderInternals } from "./render.ts";
 import { trianglesForTopology } from "./triangles-for-topology.ts";
 
 export type RenderToTextureOptions = {
@@ -16,26 +18,30 @@ export type RenderToTextureOptions = {
   draw: Mesh[];
   camera: Camera;
   depthTexture?: GPUTexture;
-  clearColor?: ClearColor;
+  clearColor?: Vec4;
   clearDepth?: number;
 };
 
-const DEFAULT_CLEAR_COLOR: ClearColor = [0, 0, 0, 1];
+const DEFAULT_CLEAR_COLOR: Vec4 = vec4.fromValues(0, 0, 0, 1);
 const DEFAULT_CLEAR_DEPTH = 1.0;
 
 function beginRenderPass(
   encoder: GPUCommandEncoder,
   colorView: GPUTextureView,
   depthView: GPUTextureView | undefined,
-  clearColor: ClearColor,
+  clearColor: Vec4,
   clearDepth: number,
 ): GPURenderPassEncoder {
-  const [r, g, b, a] = clearColor;
   return encoder.beginRenderPass({
     colorAttachments: [
       {
         view: colorView,
-        clearValue: { r, g, b, a },
+        clearValue: {
+          r: clearColor[0] ?? 0,
+          g: clearColor[1] ?? 0,
+          b: clearColor[2] ?? 0,
+          a: clearColor[3] ?? 1,
+        },
         loadOp: "clear",
         storeOp: "store",
       },

@@ -33,7 +33,7 @@ declare global {
 // --- Constants ---
 
 const CAMERA_Z = 4.5;
-const CLEAR_COLOR: [number, number, number, number] = [0.05, 0.05, 0.07, 1];
+const CLEAR_COLOR: Vec4 = vec4.fromValues(0.05, 0.05, 0.07, 1);
 
 const REFERENCE_COLOR: Vec4 = vec4.fromValues(0.4, 0.4, 0.45, 1);
 const REFERENCE_SIZE = 1.5;

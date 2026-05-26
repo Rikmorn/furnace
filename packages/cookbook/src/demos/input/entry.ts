@@ -19,7 +19,7 @@ const ZOOM_MIN = 1.5;
 const ZOOM_MAX = 8.0;
 const ZOOM_SPEED = 0.003;
 const MS_PER_S = 1000;
-const CLEAR_COLOR: [number, number, number, number] = [0.05, 0.05, 0.07, 1];
+const CLEAR_COLOR: Vec4 = vec4.fromValues(0.05, 0.05, 0.07, 1);
 
 const COLORS: readonly Vec4[] = [
   vec4.fromValues(0.85, 0.4, 0.2, 1),

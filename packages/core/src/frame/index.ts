@@ -11,7 +11,7 @@ export {
   type LoopOptions,
   loop,
 } from "./loop.ts";
-export { type ClearColor, type RenderOptions, render } from "./render.ts";
+export { type RenderOptions, render } from "./render.ts";
 export {
   type RenderToTextureOptions,
   renderToTexture,

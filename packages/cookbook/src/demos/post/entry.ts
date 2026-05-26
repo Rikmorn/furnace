@@ -6,7 +6,8 @@ import type { Mesh } from "@furnace/core/mesh";
 import * as mesh from "@furnace/core/mesh";
 import type { Effect } from "@furnace/core/post";
 import * as post from "@furnace/core/post";
-import { quat, vec3 } from "@furnace/core/transform";
+import type { Vec4 } from "@furnace/core/transform";
+import { quat, vec3, vec4 } from "@furnace/core/transform";
 
 import { mountDemo } from "../../shared/mount.ts";
 import bloomShaderUrl from "./bloom.wgsl";
@@ -20,7 +21,7 @@ const ROTATION_SPEED_RAD_PER_S = 0.5;
 const MS_PER_S = 1000;
 const BLOOM_PARAMS_SIZE = 16; // 4 floats — see BloomParams in bloom.wgsl
 const VIGNETTE_PARAMS_SIZE = 16; // 4 floats — see VignetteParams in vignette.wgsl
-const CLEAR_COLOR: [number, number, number, number] = [0.05, 0.05, 0.07, 1];
+const CLEAR_COLOR: Vec4 = vec4.fromValues(0.05, 0.05, 0.07, 1);
 
 async function loadShaderSource(url: string): Promise<string> {
   const resp = await fetch(url);

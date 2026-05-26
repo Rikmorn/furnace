@@ -74,7 +74,11 @@ test.skipIf(!bunWebGpuAvailable())(
     const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
     const cam = camera.perspective({});
     ctx.device.pushErrorScope("validation");
-    render(ctx, { draw: [], camera: cam, clearColor: [0.2, 0.3, 0.4, 1] });
+    render(ctx, {
+      draw: [],
+      camera: cam,
+      clearColor: vec4.fromValues(0.2, 0.3, 0.4, 1),
+    });
     const err = await ctx.device.popErrorScope();
     expect(err).toBe(null);
     gpu.dispose(ctx);

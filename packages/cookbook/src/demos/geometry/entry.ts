@@ -6,7 +6,8 @@ import type { Material } from "@furnace/core/material";
 import * as material from "@furnace/core/material";
 import type { Geometry, GeometryData, Mesh } from "@furnace/core/mesh";
 import * as mesh from "@furnace/core/mesh";
-import { vec3 } from "@furnace/core/transform";
+import type { Vec4 } from "@furnace/core/transform";
+import { vec3, vec4 } from "@furnace/core/transform";
 
 import { mountDemo } from "../../shared/mount.ts";
 import Controls from "./controls.svelte";
@@ -34,7 +35,7 @@ const CAMERA_TARGET_Z = 0;
 const WAVE_FREQUENCY = Math.PI * 4;
 const GRID_HALF_EXTENT = 1;
 const GRID_FULL_EXTENT = GRID_HALF_EXTENT * 2;
-const CLEAR_COLOR: [number, number, number, number] = [0.05, 0.05, 0.07, 1];
+const CLEAR_COLOR: Vec4 = vec4.fromValues(0.05, 0.05, 0.07, 1);
 
 type SceneRef = {
   geometry: Geometry;

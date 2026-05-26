@@ -5,6 +5,7 @@ import * as input from "@furnace/core/input";
 import * as material from "@furnace/core/material";
 import * as mesh from "@furnace/core/mesh";
 import * as post from "@furnace/core/post";
+import type { Vec4 } from "@furnace/core/transform";
 import { quat, vec3, vec4 } from "@furnace/core/transform";
 import {
   add,
@@ -31,6 +32,7 @@ const BLOOM_BUFFER_SIZE_BYTES = 16;
 const BLOOM_THRESHOLD = 0.7;
 const BLOOM_INTENSITY = 4.0;
 const BLOOM_RADIUS = 0.012;
+const CLEAR_COLOR: Vec4 = vec4.fromValues(0.05, 0.05, 0.07, 1);
 
 const sdfTriangle = async (ctx: gpu.Context) => {
   const shaderResponse = await fetch(shaderUrl);
@@ -212,7 +214,7 @@ async function main(): Promise<void> {
       draw: [planeMesh, cubeMesh, emissiveMesh, sdfMesh],
       camera: cam,
       effects: [bloom],
-      clearColor: [0.05, 0.05, 0.07, 1],
+      clearColor: CLEAR_COLOR,
     });
   });
 }

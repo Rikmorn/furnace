@@ -42,7 +42,7 @@ test.skipIf(!bunWebGpuAvailable())(
       depthTexture: depth,
       draw: [cube],
       camera: cam,
-      clearColor: [0, 0, 0, 1],
+      clearColor: vec4.fromValues(0, 0, 0, 1),
     });
 
     expect(true).toBe(true); // No throw is the success criterion at this layer.

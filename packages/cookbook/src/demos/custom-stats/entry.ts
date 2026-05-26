@@ -6,7 +6,8 @@ import * as material from "@furnace/core/material";
 import type { Geometry, Mesh } from "@furnace/core/mesh";
 import * as mesh from "@furnace/core/mesh";
 import * as stats from "@furnace/core/stats";
-import { vec3 } from "@furnace/core/transform";
+import type { Vec4 } from "@furnace/core/transform";
+import { vec3, vec4 } from "@furnace/core/transform";
 
 import { mountDemo } from "../../shared/mount.ts";
 import Controls from "./controls.svelte";
@@ -33,7 +34,7 @@ const CUBE_Y_RANGE = 3;
 const CUBE_Z_RANGE = 2;
 const HEAVY_LOOP_ITERATIONS = 50_000;
 const HEAVY_MULTIPLIER = 0.01;
-const CLEAR_COLOR: [number, number, number, number] = [0.05, 0.05, 0.07, 1];
+const CLEAR_COLOR: Vec4 = vec4.fromValues(0.05, 0.05, 0.07, 1);
 
 // Custom stats keys. Names must be unique across kinds (gauge/counter/measure).
 const KEY_CUBES_ALIVE = "cubes.alive";

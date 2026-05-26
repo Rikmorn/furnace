@@ -5,8 +5,8 @@ import type { Material } from "@furnace/core/material";
 import * as material from "@furnace/core/material";
 import type { Mesh } from "@furnace/core/mesh";
 import * as mesh from "@furnace/core/mesh";
-import type { Vec3 } from "@furnace/core/transform";
-import { quat, vec3 } from "@furnace/core/transform";
+import type { Vec3, Vec4 } from "@furnace/core/transform";
+import { quat, vec3, vec4 } from "@furnace/core/transform";
 
 import { mountDemo } from "../../shared/mount.ts";
 import Controls from "./controls.svelte";
@@ -17,7 +17,7 @@ const CAMERA_Z = 6;
 const CUBE_X_SPACING = 1.8;
 const MAX_CATCHUP_TICKS = 8;
 const MS_PER_S = 1000;
-const CLEAR_COLOR: [number, number, number, number] = [0.05, 0.05, 0.07, 1];
+const CLEAR_COLOR: Vec4 = vec4.fromValues(0.05, 0.05, 0.07, 1);
 
 type LabelKey = "variable" | "no-interp" | "interp";
 

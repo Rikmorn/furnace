@@ -18,6 +18,8 @@ import {
   _unregisterResource,
   type ResourceHandle,
 } from "../stats/internal.ts";
+import type { Vec4 } from "../transform/types.ts";
+import { vec4 } from "../transform/vec4.ts";
 import { trianglesForTopology } from "./triangles-for-topology.ts";
 
 const CAMERA_UNIFORM_SIZE = 64; // one mat4x4<f32>
@@ -94,17 +96,15 @@ function _ensureCameraBuffer(ctx: Context, cam: Camera): GPUBuffer {
   return buffer;
 }
 
-export type ClearColor = [number, number, number, number];
-
 export type RenderOptions = {
   draw: Mesh[];
   camera: Camera;
   effects?: Effect[];
-  clearColor?: ClearColor;
+  clearColor?: Vec4;
   clearDepth?: number;
 };
 
-const DEFAULT_CLEAR_COLOR: ClearColor = [0, 0, 0, 1];
+const DEFAULT_CLEAR_COLOR: Vec4 = vec4.fromValues(0, 0, 0, 1);
 const DEFAULT_CLEAR_DEPTH = 1.0;
 
 // Per-mesh map from (pipeline, cameraBuffer) -> group-0 bind group. The outer
@@ -156,15 +156,19 @@ function beginRenderPass(
   encoder: GPUCommandEncoder,
   colorView: GPUTextureView,
   depthView: GPUTextureView,
-  clearColor: ClearColor,
+  clearColor: Vec4,
   clearDepth: number,
 ): GPURenderPassEncoder {
-  const [r, g, b, a] = clearColor;
   return encoder.beginRenderPass({
     colorAttachments: [
       {
         view: colorView,
-        clearValue: { r, g, b, a },
+        clearValue: {
+          r: clearColor[0] ?? 0,
+          g: clearColor[1] ?? 0,
+          b: clearColor[2] ?? 0,
+          a: clearColor[3] ?? 1,
+        },
         loadOp: "clear",
         storeOp: "store",
       },
@@ -235,7 +239,7 @@ function recordScenePass(
   depthView: GPUTextureView,
   draw: readonly Mesh[],
   cameraBuffer: GPUBuffer,
-  clearColor: ClearColor,
+  clearColor: Vec4,
   clearDepth: number,
 ): void {
   const encoder = ctx.device.createCommandEncoder();

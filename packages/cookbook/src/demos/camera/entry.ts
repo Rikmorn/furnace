@@ -7,7 +7,7 @@ import type { Material } from "@furnace/core/material";
 import * as material from "@furnace/core/material";
 import type { Mesh } from "@furnace/core/mesh";
 import * as mesh from "@furnace/core/mesh";
-import type { Vec3 } from "@furnace/core/transform";
+import type { Vec3, Vec4 } from "@furnace/core/transform";
 import { vec3, vec4 } from "@furnace/core/transform";
 
 import { mountDemo } from "../../shared/mount.ts";
@@ -23,7 +23,7 @@ const ORBIT_SPEED_DEG_PER_PX = 0.4;
 const PITCH_LIMIT_DEG = 89;
 const NEAR_FAR_MIN_GAP = 0.05;
 const DEG_TO_RAD = Math.PI / 180;
-const CLEAR_COLOR: [number, number, number, number] = [0.05, 0.05, 0.07, 1];
+const CLEAR_COLOR: Vec4 = vec4.fromValues(0.05, 0.05, 0.07, 1);
 
 function writeOrbitEye(out: Vec3): void {
   const yaw = state.yawDeg * DEG_TO_RAD;
