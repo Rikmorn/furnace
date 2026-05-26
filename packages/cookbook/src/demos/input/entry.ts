@@ -58,6 +58,7 @@ await mountDemo({
 
     const mats: Material[] = [];
     let cube: Mesh | undefined;
+    let unsubResize: (() => void) | undefined;
     try {
       // Sequential await so the catch branch can destroy any successfully-created
       // materials before the failure point (Promise.all leaks partial results).
@@ -72,6 +73,7 @@ await mountDemo({
         aspect: ctx.canvas.width / ctx.canvas.height,
         position: vec3.fromValues(0, 0, state.cameraZ),
       });
+      unsubResize = camera.bindToCanvas(cam, ctx);
 
       const sceneCube = cube;
       const sceneMats = mats;
@@ -119,6 +121,7 @@ await mountDemo({
 
       const positionBuf = vec3.create();
       const cameraPosBuf = vec3.create();
+      const sceneUnsubResize = unsubResize;
 
       return {
         scene: {
@@ -129,12 +132,14 @@ await mountDemo({
           cameraPosBuf,
         },
         dispose: () => {
+          sceneUnsubResize();
           mesh.destroy(sceneCube);
           for (const m of sceneMats) material.destroy(m);
           input.detach();
         },
       };
     } catch (e) {
+      if (unsubResize) unsubResize();
       if (cube) mesh.destroy(cube);
       for (const m of mats) material.destroy(m);
       input.detach();
