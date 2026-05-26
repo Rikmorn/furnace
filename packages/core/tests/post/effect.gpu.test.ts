@@ -1,7 +1,7 @@
 import { beforeEach, expect, spyOn, test } from "bun:test";
+import { consoleSink, type LogEntry, setSink } from "@furnace/core/log";
 import { FurnaceError, FurnaceGpuError } from "../../src/gpu/errors.ts";
 import * as gpu from "../../src/gpu/index.ts";
-import { consoleSink, type LogEntry, setSink } from "../../src/log/internal.ts";
 import * as post from "../../src/post/index.ts";
 import { _pipelineCache } from "../../src/post/pipeline-cache.ts";
 import * as stats from "../../src/stats/index.ts";
