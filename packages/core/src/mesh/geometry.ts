@@ -18,6 +18,24 @@ type GeometryWithHandles = Geometry & {
   _indexBufferHandle: ResourceHandle | null;
 };
 
+/**
+ * Build a {@link Geometry} from raw per-vertex arrays. Packs `positions`,
+ * `normals`, and `uvs` into a single interleaved vertex buffer with layout
+ * `[pos.xyz, normal.xyz, uv.uv]` and a 32-byte stride (matching the layout
+ * `material.create` declares). If `data.indices` is supplied, an index
+ * buffer is also created.
+ *
+ * Allocates GPU buffers; ownership transfers to the returned `Geometry` and
+ * is released by {@link destroyGeometry}.
+ *
+ * Setup-loud: validates `data` synchronously before touching the GPU.
+ *
+ * @throws FurnaceError - if `positions.length` is not a multiple of 3.
+ * @throws FurnaceError - if `normals.length` does not equal `positions.length`
+ *   (one `vec3` per vertex).
+ * @throws FurnaceError - if `uvs.length` does not equal `(positions.length / 3) * 2`
+ *   (one `vec2` per vertex).
+ */
 export function createGeometry(ctx: Context, data: GeometryData): Geometry {
   validateGeometryData(data);
   const vertexCount = data.positions.length / 3;
@@ -58,6 +76,14 @@ export function createGeometry(ctx: Context, data: GeometryData): Geometry {
   return geometry;
 }
 
+/**
+ * Destroy a {@link Geometry}: destroy its vertex buffer (and index buffer, if
+ * any) and unregister the resource handles from stats.
+ *
+ * Does **not** touch any {@link Mesh} that still holds this geometry — the
+ * consumer owns that contract. Destroying a geometry that is still bound to
+ * a live mesh will fail on the next draw with a GPU validation error.
+ */
 export function destroyGeometry(geometry: Geometry): void {
   // Boundary cast: geometry handles were stashed by createGeometry on the same Geometry instance; the cross-function invariant isn't expressible in the public Geometry type.
   const g = geometry as GeometryWithHandles;

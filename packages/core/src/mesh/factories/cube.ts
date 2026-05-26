@@ -83,11 +83,28 @@ function cubeGeometryData(size: number): GeometryData {
   return { positions, normals, uvs, indices };
 }
 
+/**
+ * Build a standalone cube {@link Geometry} (six axis-aligned faces, CCW
+ * winding viewed from outside, per-face normals, per-face UVs in `[0,1]`).
+ * `size` is the full edge length and defaults to `1`.
+ *
+ * Use when you want to share one geometry across multiple meshes (pass to
+ * `mesh.create({ geometry: shared, material })`). For the common
+ * single-mesh path, use {@link cube} instead.
+ */
 export function cubeGeometry(ctx: Context, opts?: { size?: number }): Geometry {
   const size = opts?.size ?? 1;
   return createGeometry(ctx, cubeGeometryData(size));
 }
 
+/**
+ * Convenience factory: build a fresh cube {@link Geometry} and bind it to
+ * `opts.material`, returning a ready-to-render {@link Mesh}. `size` is the
+ * full edge length and defaults to `1`.
+ *
+ * The geometry is owned by this mesh; share via {@link cubeGeometry} +
+ * `mesh.create` when one cube must back multiple meshes.
+ */
 export function cube(
   ctx: Context,
   opts: { material: Material; size?: number },

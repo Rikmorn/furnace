@@ -19,6 +19,17 @@ type MeshWithHandles = Mesh & {
   _objectBufferHandle: ResourceHandle;
 };
 
+/**
+ * Build a {@link Mesh} that binds a {@link Geometry} to a {@link Material}.
+ * Allocates the per-mesh object-uniform buffer (64 bytes for the `model`
+ * `mat4x4<f32>`) and initialises the pose to position `[0,0,0]`, identity
+ * rotation, scale `[1,1,1]` with `transformDirty` set so the first frame
+ * writes the buffer.
+ *
+ * The geometry and material are stored by reference — `mesh.destroy` does
+ * not destroy either. A single geometry/material pair may be shared across
+ * many meshes.
+ */
 export function create(
   ctx: Context,
   opts: { geometry: Geometry; material: Material },
@@ -49,6 +60,14 @@ export function create(
   return mesh;
 }
 
+/**
+ * Destroy a {@link Mesh}: destroy its object-uniform buffer and unregister
+ * the mesh + buffer handles from stats.
+ *
+ * Does **not** destroy `mesh.geometry` or `mesh.material` — both may be
+ * shared with other meshes. Call `mesh.destroyGeometry` and `material.destroy`
+ * separately when those resources have no other owners.
+ */
 export function destroy(mesh: Mesh): void {
   // Boundary cast: mesh handles were stashed by create on the same Mesh instance; the cross-function invariant isn't expressible in the public Mesh type.
   const m = mesh as MeshWithHandles;
@@ -57,16 +76,25 @@ export function destroy(mesh: Mesh): void {
   _unregisterResource(mesh.ctx, m._meshHandle);
 }
 
+/**
+ * Set the mesh's position. Mutates `mesh` in place; flips `transformDirty`.
+ */
 export function setPosition(mesh: Mesh, position: Vec3): void {
   mesh.position.set(position);
   mesh.transformDirty = true;
 }
 
+/**
+ * Set the mesh's rotation quaternion. Mutates `mesh` in place; flips `transformDirty`.
+ */
 export function setRotation(mesh: Mesh, rotation: Quat): void {
   mesh.rotation.set(rotation);
   mesh.transformDirty = true;
 }
 
+/**
+ * Set the mesh's scale. Mutates `mesh` in place; flips `transformDirty`.
+ */
 export function setScale(mesh: Mesh, scale: Vec3): void {
   mesh.scale.set(scale);
   mesh.transformDirty = true;
