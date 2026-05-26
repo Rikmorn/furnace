@@ -138,8 +138,9 @@ export async function create(
  * handed in) — the consumer destroys those.
  *
  * Runtime-quiet on double-destroy: routes a warning to the engine log
- * helper (see `@furnace/core/log`) and returns without re-releasing, so
- * accidental double-destroy never decrements the pipeline refcount twice.
+ * helper (see `@furnace/core/log`) at `warn` level and returns without
+ * re-releasing, so accidental double-destroy never decrements the
+ * pipeline refcount twice.
  */
 export function destroy(effect: Effect): void {
   if (effect._internal.destroyed) {

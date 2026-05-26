@@ -1,6 +1,7 @@
 import { beforeEach, expect, spyOn, test } from "bun:test";
 import { FurnaceError, FurnaceGpuError } from "../../src/gpu/errors.ts";
 import * as gpu from "../../src/gpu/index.ts";
+import { consoleSink, type LogEntry, setSink } from "../../src/log/internal.ts";
 import * as post from "../../src/post/index.ts";
 import { _pipelineCache } from "../../src/post/pipeline-cache.ts";
 import * as stats from "../../src/stats/index.ts";
@@ -88,6 +89,30 @@ test.skipIf(!bunWebGpuAvailable())(
     expect(warn).toHaveBeenCalledTimes(1);
     expect(String(warn.mock.calls[0]?.[0])).toContain("[furnace/post]");
     warn.mockRestore();
+    gpu.dispose(ctx);
+  },
+);
+
+test.skipIf(!bunWebGpuAvailable())(
+  "double-destroy routes a structured warn entry via log helper",
+  async () => {
+    const canvas = await makeOffscreenCanvas(64, 64);
+    const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
+    const e = await post.create(ctx, { shader: SHADER });
+    post.destroy(e);
+    const entries: LogEntry[] = [];
+    setSink((entry) => entries.push(entry));
+    try {
+      post.destroy(e);
+      expect(entries).toHaveLength(1);
+      const entry = entries[0];
+      if (!entry) throw new Error("unreachable: entries.length checked above");
+      expect(entry.level).toBe("warn");
+      expect(entry.module).toBe("post");
+      expect(entry.message).toBe("effect already destroyed");
+    } finally {
+      setSink(consoleSink);
+    }
     gpu.dispose(ctx);
   },
 );
