@@ -156,4 +156,112 @@ describe("checkTsdocForModule", () => {
       rmSync(root, { recursive: true, force: true });
     }
   });
+
+  test("chases re-export chains across multiple files (X -> Y -> Z)", () => {
+    const root = makeWorkspace({
+      "index.ts": `export { foo } from "./hop1.ts";\n`,
+      "hop1.ts": `export { foo } from "./hop2.ts";\n`,
+      "hop2.ts": `export function foo(): void {}\n`,
+    });
+    try {
+      const violations = checkTsdocForModule(resolve(root, "index.ts"));
+      expect(violations).toHaveLength(1);
+      expect(violations[0]?.exportName).toBe("foo");
+      expect(violations[0]?.declarationFile.endsWith("hop2.ts")).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("re-export chain finds TSDoc on the original declaration", () => {
+    const root = makeWorkspace({
+      "index.ts": `export { foo } from "./hop1.ts";\n`,
+      "hop1.ts": `export { foo } from "./hop2.ts";\n`,
+      "hop2.ts": `/**\n * Documented.\n */\nexport function foo(): void {}\n`,
+    });
+    try {
+      const violations = checkTsdocForModule(resolve(root, "index.ts"));
+      expect(violations).toHaveLength(0);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("chases import-then-export indirection (import {X}; export {X})", () => {
+    const root = makeWorkspace({
+      "index.ts": `export { foo } from "./reexporter.ts";\n`,
+      "reexporter.ts": `import { foo } from "./original.ts";\nexport { foo };\n`,
+      "original.ts": `export function foo(): void {}\n`,
+    });
+    try {
+      const violations = checkTsdocForModule(resolve(root, "index.ts"));
+      expect(violations).toHaveLength(1);
+      expect(violations[0]?.exportName).toBe("foo");
+      expect(violations[0]?.declarationFile.endsWith("original.ts")).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("import-then-export finds TSDoc on the original declaration", () => {
+    const root = makeWorkspace({
+      "index.ts": `export { foo } from "./reexporter.ts";\n`,
+      "reexporter.ts": `import { foo } from "./original.ts";\nexport { foo };\n`,
+      "original.ts": `/**\n * Documented.\n */\nexport function foo(): void {}\n`,
+    });
+    try {
+      const violations = checkTsdocForModule(resolve(root, "index.ts"));
+      expect(violations).toHaveLength(0);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("aliased re-export chain resolves source name across hops", () => {
+    const root = makeWorkspace({
+      "index.ts": `export { foo as bar } from "./hop1.ts";\n`,
+      "hop1.ts": `export { foo } from "./hop2.ts";\n`,
+      "hop2.ts": `export function foo(): void {}\n`,
+    });
+    try {
+      const violations = checkTsdocForModule(resolve(root, "index.ts"));
+      expect(violations).toHaveLength(1);
+      expect(violations[0]?.exportName).toBe("bar");
+      expect(violations[0]?.declarationFile.endsWith("hop2.ts")).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("cycle detection: A re-exports from B which re-exports from A", () => {
+    const root = makeWorkspace({
+      "index.ts": `export { foo } from "./a.ts";\n`,
+      "a.ts": `export { foo } from "./b.ts";\n`,
+      "b.ts": `export { foo } from "./a.ts";\n`,
+    });
+    try {
+      // Should not infinite-loop. Should silently skip (return no violations)
+      // because the declaration is genuinely unresolved.
+      const violations = checkTsdocForModule(resolve(root, "index.ts"));
+      expect(violations).toHaveLength(0);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("type-only re-export chain follows hops", () => {
+    const root = makeWorkspace({
+      "index.ts": `export type { Foo } from "./hop1.ts";\n`,
+      "hop1.ts": `export type { Foo } from "./hop2.ts";\n`,
+      "hop2.ts": `export type Foo = { x: number };\n`,
+    });
+    try {
+      const violations = checkTsdocForModule(resolve(root, "index.ts"));
+      expect(violations).toHaveLength(1);
+      expect(violations[0]?.exportName).toBe("Foo");
+      expect(violations[0]?.declarationFile.endsWith("hop2.ts")).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
 });

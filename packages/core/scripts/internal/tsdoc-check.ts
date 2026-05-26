@@ -35,12 +35,12 @@ export function checkTsdocForModule(indexPath: string): TsdocViolation[] {
   for (const re of reExports) {
     if (re.exportedName.startsWith("_")) continue;
     const declFile = re.sourceFile ?? indexPath;
-    const hit = locateDeclaration(declFile, re.sourceName);
+    const hit = locateDeclaration(declFile, re.sourceName, new Set());
     if (hit === null) continue; // unresolved — out of scope
     if (hit.hasTsdoc) continue;
     violations.push({
       exportName: re.exportedName,
-      declarationFile: declFile,
+      declarationFile: hit.filePath,
       line: hit.line,
     });
   }
@@ -124,31 +124,95 @@ function getDeclarationNames(stmt: ts.Statement): string[] {
   return [];
 }
 
-type DeclarationHit = { line: number; hasTsdoc: boolean };
+type DeclarationHit = { filePath: string; line: number; hasTsdoc: boolean };
 
 function locateDeclaration(
   filePath: string,
   name: string,
+  visited: Set<string>,
 ): DeclarationHit | null {
+  if (visited.has(filePath)) return null;
+  visited.add(filePath);
+  const sf = parseSourceFile(filePath);
+  if (sf === null) return null;
+  const local = findLocalDeclaration(sf, filePath, name);
+  if (local !== null) return local;
+  return followIndirection(sf, filePath, name, visited);
+}
+
+function parseSourceFile(filePath: string): ts.SourceFile | null {
   let source: string;
   try {
     source = readFileSync(filePath, "utf8");
   } catch {
     return null;
   }
-  const sf = ts.createSourceFile(
-    filePath,
-    source,
-    ts.ScriptTarget.Latest,
-    true,
-  );
+  return ts.createSourceFile(filePath, source, ts.ScriptTarget.Latest, true);
+}
+
+function findLocalDeclaration(
+  sf: ts.SourceFile,
+  filePath: string,
+  name: string,
+): DeclarationHit | null {
   for (const stmt of sf.statements) {
     if (!isExportedDeclaration(stmt)) continue;
     const names = getDeclarationNames(stmt);
     if (!names.includes(name)) continue;
     const { line } = sf.getLineAndCharacterOfPosition(stmt.getStart(sf));
     const hasTsdoc = hasLeadingTsdoc(stmt, sf);
-    return { line: line + 1, hasTsdoc };
+    return { filePath, line: line + 1, hasTsdoc };
+  }
+  return null;
+}
+
+function followIndirection(
+  sf: ts.SourceFile,
+  filePath: string,
+  name: string,
+  visited: Set<string>,
+): DeclarationHit | null {
+  const baseDir = dirname(filePath);
+  for (const stmt of sf.statements) {
+    if (!ts.isExportDeclaration(stmt)) continue;
+    if (!stmt.exportClause) continue;
+    if (!ts.isNamedExports(stmt.exportClause)) continue;
+    const match = stmt.exportClause.elements.find(
+      (el) => el.name.text === name,
+    );
+    if (!match) continue;
+    const sourceName = match.propertyName?.text ?? match.name.text;
+    if (stmt.moduleSpecifier) {
+      const next = resolveModulePath(stmt.moduleSpecifier, baseDir);
+      if (next === null) return null;
+      return locateDeclaration(next, sourceName, visited);
+    }
+    const binding = findImportBinding(sf, sourceName, baseDir);
+    if (binding === null) return null;
+    return locateDeclaration(binding.sourceFile, binding.sourceName, visited);
+  }
+  return null;
+}
+
+type ImportBinding = { sourceName: string; sourceFile: string };
+
+function findImportBinding(
+  sf: ts.SourceFile,
+  localName: string,
+  baseDir: string,
+): ImportBinding | null {
+  for (const stmt of sf.statements) {
+    if (!ts.isImportDeclaration(stmt)) continue;
+    const clause = stmt.importClause;
+    if (!clause?.namedBindings) continue;
+    if (!ts.isNamedImports(clause.namedBindings)) continue;
+    for (const el of clause.namedBindings.elements) {
+      if (el.name.text !== localName) continue;
+      const sourceName = el.propertyName?.text ?? el.name.text;
+      const sourceFile = resolveModulePath(stmt.moduleSpecifier, baseDir);
+      if (sourceFile === null) continue;
+      return { sourceName, sourceFile };
+    }
   }
   return null;
 }
