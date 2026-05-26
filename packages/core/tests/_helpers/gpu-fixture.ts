@@ -5,6 +5,16 @@
 // does NOT shim HTMLCanvasElement. Callers needing a canvas use makeOffscreenCanvas(),
 // which wires canvas.getContext("webgpu") to a real GPUCanvasContextMock.
 
+// IMPORTANT: GPU tests using bun-webgpu must pass `surfaceFormat: "linear"` to
+// `gpu.requestContext(canvas, ...)`. The bun-webgpu mock drops the `viewFormats`
+// array configured on the canvas context, so the engine's default sRGB surface
+// format causes `createView({ format: "bgra8unorm-srgb" })` to fail validation.
+//
+// This means sRGB-specific code paths are NOT exercised in unit tests under
+// bun-webgpu; coverage for the production surface format comes from manual
+// Safari / Chrome runs of hello-world and the cookbook demos. See
+// `docs/reference/engine-conventions.md` for the color-space convention.
+
 let _setup: Promise<boolean> | null = null;
 let _availableSync = false;
 
