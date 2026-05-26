@@ -4,6 +4,7 @@ import { createStatsState, type StatsState } from "../stats/state.ts";
 import type { Context } from "./context-types.ts";
 import { FurnaceGpuError } from "./errors.ts";
 import { markDisposed } from "./internal.ts";
+import { _emitUncapturedError } from "./uncaptured-error.ts";
 
 /**
  * Options accepted by {@link requestContext}.
@@ -118,6 +119,7 @@ export async function requestContext(
     // "uncapturederror" name guarantees a GPUUncapturedErrorEvent at runtime.
     const evt = e as GPUUncapturedErrorEvent;
     _recordUncapturedError(ctx);
+    _emitUncapturedError(ctx, evt.error);
     error("gpu", "uncaptured device error", evt.error.message);
   });
 

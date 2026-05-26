@@ -10,3 +10,4 @@ export { FurnaceError, FurnaceGpuError } from "./errors.ts";
 export type { ResizeEvent } from "./resize.ts";
 
 export { onResize } from "./resize.ts";
+export { onUncapturedError } from "./uncaptured-error.ts";
