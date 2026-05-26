@@ -84,6 +84,7 @@ await mountDemo({
     let cubeVariable: Mesh | undefined;
     let cubeNoInterp: Mesh | undefined;
     let cubeInterp: Mesh | undefined;
+    let unsubResize: (() => void) | undefined;
     try {
       mat = await material.normalColor(ctx);
       cubeVariable = mesh.cube(ctx, { material: mat });
@@ -98,6 +99,7 @@ await mountDemo({
         aspect: ctx.canvas.width / ctx.canvas.height,
         position: vec3.fromValues(0, 0, CAMERA_Z),
       });
+      unsubResize = camera.bindToCanvas(cam, ctx);
 
       // Pre-allocated per-frame scratch buffers. Mutated in frame(), never re-allocated.
       const rotBufVariable = quat.create();
@@ -114,6 +116,7 @@ await mountDemo({
       const sceneCubeVariable = cubeVariable;
       const sceneCubeNoInterp = cubeNoInterp;
       const sceneCubeInterp = cubeInterp;
+      const sceneUnsubResize = unsubResize;
 
       return {
         scene: {
@@ -132,6 +135,7 @@ await mountDemo({
           labelInterp,
         },
         dispose: () => {
+          sceneUnsubResize();
           mesh.destroy(sceneCubeVariable);
           mesh.destroy(sceneCubeNoInterp);
           mesh.destroy(sceneCubeInterp);
@@ -139,6 +143,7 @@ await mountDemo({
         },
       };
     } catch (e) {
+      if (unsubResize) unsubResize();
       if (cubeVariable) mesh.destroy(cubeVariable);
       if (cubeNoInterp) mesh.destroy(cubeNoInterp);
       if (cubeInterp) mesh.destroy(cubeInterp);
