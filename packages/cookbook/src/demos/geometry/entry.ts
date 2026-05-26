@@ -42,6 +42,7 @@ type SceneRef = {
   mat: Material;
   grid: Mesh;
   cam: Camera;
+  unsubResize: () => void;
 };
 
 function buildGridData(
@@ -188,7 +189,8 @@ async function buildScene(ctx: Context): Promise<SceneRef> {
         CAMERA_TARGET_Z,
       ),
     });
-    return { geometry, mat, grid, cam };
+    const unsubResize = camera.bindToCanvas(cam, ctx);
+    return { geometry, mat, grid, cam, unsubResize };
   } catch (e) {
     if (mat) material.destroy(mat);
     if (geometry) mesh.destroyGeometry(geometry);
@@ -197,6 +199,7 @@ async function buildScene(ctx: Context): Promise<SceneRef> {
 }
 
 function disposeScene(scene: SceneRef): void {
+  scene.unsubResize();
   mesh.destroy(scene.grid);
   mesh.destroyGeometry(scene.geometry);
   material.destroy(scene.mat);
