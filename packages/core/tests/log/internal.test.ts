@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { consoleSink, type LogEntry, setSink } from "@furnace/core/log";
 import { debug, error, info, warn } from "../../src/log/internal.ts";
 
-afterEach(() => setSink(null));
+afterEach(() => setSink(consoleSink));
 
 test("warn dispatches LogEntry to current sink", () => {
   const entries: LogEntry[] = [];
