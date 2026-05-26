@@ -158,9 +158,7 @@ async function main(): Promise<void> {
   mesh.setPosition(cubeMesh, new Float32Array([CUBE_X, 0, 0]));
   mesh.setPosition(emissiveMesh, new Float32Array([-CUBE_X, 0, 0]));
 
-  gpu.onResize(ctx, ({ width, height }) => {
-    camera.setAspect(cam, width / height);
-  });
+  camera.bindToCanvas(cam, ctx);
 
   input.attach(canvas);
   mountFpsOverlay(uiRoot);
