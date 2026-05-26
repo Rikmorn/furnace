@@ -35,20 +35,15 @@ test("onFrame on disposed: throws", () => {
 // — Runtime reads are quiet on disposed —
 test("snapshot on disposed: returns zero snapshot, silent", () => {
   const ctx = makeMockCtx(true);
-  const origWarn = console.warn;
-  const origErr = console.error;
-  let logged = false;
-  console.warn = () => {
-    logged = true;
-  };
-  console.error = () => {
-    logged = true;
-  };
-  const s = snapshot(ctx);
-  console.warn = origWarn;
-  console.error = origErr;
-  expect(s.gpu.drawCalls).toBe(0);
-  expect(logged).toBe(false);
+  const entries: LogEntry[] = [];
+  setSink((entry) => entries.push(entry));
+  try {
+    const s = snapshot(ctx);
+    expect(s.gpu.drawCalls).toBe(0);
+    expect(entries).toHaveLength(0);
+  } finally {
+    setSink(consoleSink);
+  }
 });
 
 test("get on disposed: returns null, silent", () => {
@@ -63,33 +58,49 @@ test.each([
   ["recordDraw", () => recordDraw(makeMockCtx(true), { triangles: 1 })],
   ["frameBoundary", () => frameBoundary(makeMockCtx(true))],
 ])("%s on disposed: silent no-op", (_, op) => {
-  const origWarn = console.warn;
-  const origErr = console.error;
-  let logged = false;
-  console.warn = () => {
-    logged = true;
-  };
-  console.error = () => {
-    logged = true;
-  };
-  op();
-  console.warn = origWarn;
-  console.error = origErr;
-  expect(logged).toBe(false);
+  const entries: LogEntry[] = [];
+  setSink((entry) => entries.push(entry));
+  try {
+    op();
+    expect(entries).toHaveLength(0);
+  } finally {
+    setSink(consoleSink);
+  }
 });
 
 // — Bad input on live ctx logs + no-ops —
 test.each([
-  ["gauge NaN", () => gauge(makeMockCtx(), "x", Number.NaN)],
-  ["gauge Infinity", () => gauge(makeMockCtx(), "x", Number.POSITIVE_INFINITY)],
-  ["gauge empty name", () => gauge(makeMockCtx(), "", 1)],
-  ["increment negative", () => increment(makeMockCtx(), "x", -1)],
-  ["increment NaN", () => increment(makeMockCtx(), "x", Number.NaN)],
+  [
+    "gauge NaN",
+    () => gauge(makeMockCtx(), "x", Number.NaN),
+    "value not finite",
+  ],
+  [
+    "gauge Infinity",
+    () => gauge(makeMockCtx(), "x", Number.POSITIVE_INFINITY),
+    "value not finite",
+  ],
+  [
+    "gauge empty name",
+    () => gauge(makeMockCtx(), "", 1),
+    "name must be a non-empty string",
+  ],
+  [
+    "increment negative",
+    () => increment(makeMockCtx(), "x", -1),
+    "negative delta not allowed",
+  ],
+  [
+    "increment NaN",
+    () => increment(makeMockCtx(), "x", Number.NaN),
+    "delta not finite",
+  ],
   [
     "recordDraw negative tris",
     () => recordDraw(makeMockCtx(), { triangles: -1 }),
+    "triangles",
   ],
-])("%s on live ctx: warn + no-op", (_, op) => {
+])("%s on live ctx: warn + no-op", (_, op, msgFragment) => {
   const entries: LogEntry[] = [];
   setSink((entry) => entries.push(entry));
   try {
@@ -99,6 +110,7 @@ test.each([
     if (!entry) throw new Error("unreachable: entries.length checked above");
     expect(entry.level).toBe("warn");
     expect(entry.module).toBe("stats");
+    expect(entry.message).toContain(msgFragment);
   } finally {
     setSink(consoleSink);
   }
@@ -121,12 +133,18 @@ test("startMeasurement: double end logs warn", () => {
   const ctx = makeMockCtx();
   const m = startMeasurement(ctx, "x");
   m.end();
-  const origWarn = console.warn;
-  let warned = false;
-  console.warn = () => {
-    warned = true;
-  };
-  m.end();
-  console.warn = origWarn;
-  expect(warned).toBe(true);
+  const entries: LogEntry[] = [];
+  setSink((entry) => entries.push(entry));
+  try {
+    m.end();
+    expect(entries).toHaveLength(1);
+    const entry = entries[0];
+    if (!entry) throw new Error("unreachable: entries.length checked above");
+    expect(entry.level).toBe("warn");
+    expect(entry.module).toBe("stats");
+    expect(entry.message).toContain("startMeasurement.end");
+    expect(entry.message).toContain("already ended");
+  } finally {
+    setSink(consoleSink);
+  }
 });
