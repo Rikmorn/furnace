@@ -98,6 +98,7 @@ The repo uses `docs/backlog/` to track deferred work and ideas across sessions. 
 - **Starting new work?** Scan `docs/backlog/` first for items that just became actionable. Promote them out by removing the entry and tracking the work in the current session.
 - **Don't put bugs there** — fix urgent bugs; use GitHub Issues for non-urgent ones once the repo is on GitHub.
 - **Don't put decisions there** — decisions go in `docs/reference/` or ADRs.
+- **Doing bulk standardisation work (TSDoc pass, type migration, audit sweep)?** Expect ~5–15% of items to surface engine-side findings outside your task's scope. Capture each as a `docs/backlog/` entry mid-tranche rather than silently expanding scope or silently dropping the finding. At end of tranche, summarise surfaced findings to the user and let them decide which warrant a follow-up tranche. Example: Tranche A-1's TSDoc bulk pass surfaced four engine API hygiene items (destroy-policy inconsistency, missing input validation, pre-existing type casts, math-primitive edge cases) which became Tranche A-3 candidates.
 
 When `docs/backlog/` exceeds ~100 files or one topic subdirectory exceeds ~20, prune by promoting actionable items out and consolidating context-decayed items.
 
@@ -111,6 +112,7 @@ Documentation rots quietly. The lifecycle is `docs/backlog/` → implementation 
 - **Materialized a new design or changed an existing one?** Update the relevant `docs/reference/*.md` to reflect the new reality. The reference is "how the project IS today" — if it's stale, it's broken.
 - **Renamed a file, moved a directory, changed a path that other files mention?** Grep for the old path before committing. Stale path references rot silently because nothing tests them.
 - **Tried an approach and walked away?** Capture the lesson in `docs/learnings/<topic>.md` so the next person doesn't retry it.
+- **Writing or updating API docs?** Read the implementation source to verify behaviour — don't synthesise from existing reference docs (`core-modules.md`, ADRs, sibling TSDoc), which can be stale or aspirational. Grep the function body for `throw new`, `console.warn`, early-return guards, etc. The code is authoritative; reference docs are summaries that decay. When the reference disagrees with the source, the source wins — and update the reference in the same change. Tranche A-1 caught several `core-modules.md` rows that mis-described actual behaviour (e.g. `stats.measure` no-invoke conditions) only because the TSDoc work read each implementation directly.
 
 Before claiming a piece of work is complete: search `AGENTS.md`, `README.md`, and `docs/reference/` for mentions of files, paths, scripts, or decisions you touched. Update where stale. The cost of a 60-second grep is much smaller than the cost of a future reader trusting a stale claim.
 

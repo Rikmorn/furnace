@@ -53,6 +53,8 @@ Don't:
 - Reference the current PR, ticket, or "added for X" — that belongs in the commit message and rots in the source
 - Leave commented-out code — delete it; git has the history
 
+**TSDoc contracts on public API are a different thing** — this rule does not apply to them. Every public re-export from `packages/core/src/<module>/index.ts` MUST have a leading TSDoc block (`/** ... */`) per the convention at `docs/reference/tsdoc-conventions.md`, enforced by `bun run check:tsdoc`. The "default to none" guidance covers inline `//` comments inside function bodies, not contract documentation on exports.
+
 ## Cognitive Load
 
 Watch for these signals that something has grown too big and warrants an extraction:
