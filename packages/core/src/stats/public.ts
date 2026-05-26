@@ -1,5 +1,6 @@
 import { FurnaceError } from "../errors.ts";
 import type { Context } from "../gpu/context-types.ts";
+import { warn } from "../log/internal.ts";
 import type { Path, PathValue } from "./path.ts";
 import { buildSnapshot, type Snapshot } from "./snapshot.ts";
 import { ZERO_SNAPSHOT } from "./zero-snapshot.ts";
@@ -82,17 +83,16 @@ export function get<P extends Path<Snapshot>>(
 /**
  * Handle returned by {@link startMeasurement}. Calling `end()` records the
  * elapsed `performance.now()` delta under the measurement's name into
- * `Snapshot.custom`. Calling `end()` more than once warns via
- * `console.warn` and no-ops; never throws.
+ * `Snapshot.custom`. Calling `end()` more than once routes a warning to
+ * the engine log helper (see `@furnace/core/log`) at `warn` level and
+ * no-ops; never throws.
  */
 export type Measurement = Readonly<{ end: () => void }>;
 
 const NOOP_MEASUREMENT: Measurement = Object.freeze({ end: () => undefined });
 
 function badInput(op: string, name: string, reason: string): void {
-  console.warn(
-    `[furnace/stats] ${op}(${JSON.stringify(name)}): ${reason}; ignored`,
-  );
+  warn("stats", `${op}(${JSON.stringify(name)}): ${reason}`);
 }
 
 function validName(op: string, name: string): boolean {
@@ -130,8 +130,9 @@ function noCrossKindCollision(
  * Set a consumer-named gauge in `Snapshot.custom` (last-write-wins).
  *
  * Runtime-quiet across the board: every failure path silently no-ops, and
- * the input-validation failures additionally warn to `console.warn` so
- * misuse is visible during development without breaking the frame:
+ * the input-validation failures additionally route a warning to the engine
+ * log helper (see `@furnace/core/log`) at `warn` level so misuse is visible
+ * during development without breaking the frame:
  * - disposed `ctx` — silent no-op.
  * - `name` empty or not a string — warns, no-op.
  * - `value` not finite (NaN / ±Infinity) — warns, no-op.
@@ -155,7 +156,8 @@ export function gauge(ctx: Context, name: string, value: number): void {
  * decrease.
  *
  * Runtime-quiet across the board: every failure path silently no-ops, and
- * the input-validation failures additionally warn to `console.warn`:
+ * the input-validation failures additionally route a warning to the engine
+ * log helper (see `@furnace/core/log`) at `warn` level:
  * - disposed `ctx` — silent no-op.
  * - `name` empty or not a string — warns, no-op.
  * - `by` not finite — warns, no-op.

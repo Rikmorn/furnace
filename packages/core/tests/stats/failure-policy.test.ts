@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { consoleSink, type LogEntry, setSink } from "@furnace/core/log";
 import { FurnaceError } from "../../src/errors.ts";
 import type { Context } from "../../src/gpu/context-types.ts";
 import {
@@ -89,14 +90,18 @@ test.each([
     () => recordDraw(makeMockCtx(), { triangles: -1 }),
   ],
 ])("%s on live ctx: warn + no-op", (_, op) => {
-  const origWarn = console.warn;
-  let warned = "";
-  console.warn = (...a: unknown[]) => {
-    warned = String(a[0]);
-  };
-  op();
-  console.warn = origWarn;
-  expect(warned).toContain("[furnace/stats]");
+  const entries: LogEntry[] = [];
+  setSink((entry) => entries.push(entry));
+  try {
+    op();
+    expect(entries.length).toBeGreaterThan(0);
+    const entry = entries[0];
+    if (!entry) throw new Error("unreachable: entries.length checked above");
+    expect(entry.level).toBe("warn");
+    expect(entry.module).toBe("stats");
+  } finally {
+    setSink(consoleSink);
+  }
 });
 
 // — Consumer-wrapping behavior: measure re-throws —

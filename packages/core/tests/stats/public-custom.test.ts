@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { consoleSink, type LogEntry, setSink } from "@furnace/core/log";
 import type { Context } from "../../src/gpu/context-types.ts";
 import {
   gauge,
@@ -29,15 +30,19 @@ test("gauge: sets and overwrites a named gauge", () => {
 
 test("gauge: NaN logs warn + no-op", () => {
   const ctx = makeMockCtx();
-  const origWarn = console.warn;
-  let warned = "";
-  console.warn = (...a: unknown[]) => {
-    warned = String(a[0]);
-  };
-  gauge(ctx, "x", Number.NaN);
-  console.warn = origWarn;
-  expect(warned).toContain("[furnace/stats]");
-  expect(ctx._internal.stats.gauges.has("x")).toBe(false);
+  const entries: LogEntry[] = [];
+  setSink((entry) => entries.push(entry));
+  try {
+    gauge(ctx, "x", Number.NaN);
+    expect(entries.length).toBeGreaterThan(0);
+    const entry = entries[0];
+    if (!entry) throw new Error("unreachable: entries.length checked above");
+    expect(entry.level).toBe("warn");
+    expect(entry.module).toBe("stats");
+    expect(ctx._internal.stats.gauges.has("x")).toBe(false);
+  } finally {
+    setSink(consoleSink);
+  }
 });
 
 test("gauge: Infinity logs warn + no-op", () => {
@@ -131,13 +136,17 @@ test("startMeasurement / end: records elapsed once; second end logs warn", () =>
 test("name collision across writer kinds logs warn + no-op", () => {
   const ctx = makeMockCtx();
   gauge(ctx, "x", 10);
-  const origWarn = console.warn;
-  let warned = "";
-  console.warn = (...a: unknown[]) => {
-    warned = String(a[0]);
-  };
-  increment(ctx, "x");
-  console.warn = origWarn;
-  expect(warned).toContain("[furnace/stats]");
-  expect(ctx._internal.stats.counters.has("x")).toBe(false);
+  const entries: LogEntry[] = [];
+  setSink((entry) => entries.push(entry));
+  try {
+    increment(ctx, "x");
+    expect(entries.length).toBeGreaterThan(0);
+    const entry = entries[0];
+    if (!entry) throw new Error("unreachable: entries.length checked above");
+    expect(entry.level).toBe("warn");
+    expect(entry.module).toBe("stats");
+    expect(ctx._internal.stats.counters.has("x")).toBe(false);
+  } finally {
+    setSink(consoleSink);
+  }
 });
