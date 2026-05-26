@@ -42,8 +42,9 @@ type InternalWithCanvasCtx = {
  * Sizes the canvas backing store to `clientWidth/clientHeight * pixelRatio`
  * once at acquisition; ongoing layout changes are handled by `onResize`.
  * Installs an `uncapturederror` handler on the device that records into
- * stats and routes via `error("gpu", ...)` — async GPU validation errors
- * surface through the engine log helper rather than as thrown exceptions.
+ * stats and routes to the engine log helper (see `@furnace/core/log`) at
+ * `error` level — async GPU validation errors surface there rather than
+ * as thrown exceptions.
  *
  * Setup-loud per the foreground failure policy
  * (`engine-conventions.md` §"Failure policy").
@@ -130,9 +131,10 @@ export async function requestContext(
  *
  * Routes a warning to the engine log helper (see `@furnace/core/log`) at
  * `warn` level if any engine resources (meshes, materials, geometries,
- * effects, buffers, textures) are still registered when called, naming
- * the count in the entry's `rest`. That's the leak signal: in well-behaved
- * teardown the consumer destroys owned resources before calling `dispose`.
+ * effects, buffers, textures) are still registered when called; the
+ * entry's `rest` carries the count as `{ remaining: N }`. That's the leak
+ * signal: in well-behaved teardown the consumer destroys owned resources
+ * before calling `dispose`.
  *
  * After `dispose`, `isDisposed(ctx)` returns `true` and foreground APIs that
  * take a `Context` throw `FurnaceGpuError`; background reads return zero /

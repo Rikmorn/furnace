@@ -50,6 +50,8 @@ test.skipIf(!bunWebGpuAvailable())(
         expect(entry.level).toBe("error");
         expect(entry.module).toBe("gpu");
         expect(entry.message).toContain("uncaptured device error");
+        expect(typeof entry.rest[0]).toBe("string");
+        expect(entry.rest[0]).toBeTruthy();
       }
     } finally {
       setSink(consoleSink);

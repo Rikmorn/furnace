@@ -37,7 +37,7 @@ test.skipIf(!bunWebGpuAvailable())(
     expect(entry.message).toContain(
       "context disposed with resources still registered",
     );
-    expect(entry.rest[0]).toMatchObject({ remaining: expect.any(Number) });
+    expect(entry.rest[0]).toEqual({ remaining: 6 });
   },
 );
 

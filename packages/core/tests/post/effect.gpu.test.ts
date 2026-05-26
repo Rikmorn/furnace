@@ -78,28 +78,6 @@ test.skipIf(!bunWebGpuAvailable())(
 );
 
 test.skipIf(!bunWebGpuAvailable())(
-  "post.destroy is idempotent: second call logs warn",
-  async () => {
-    const canvas = await makeOffscreenCanvas(64, 64);
-    const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
-    const e = await post.create(ctx, { shader: SHADER });
-    post.destroy(e);
-    const entries: LogEntry[] = [];
-    setSink((entry) => entries.push(entry));
-    try {
-      post.destroy(e);
-    } finally {
-      setSink(consoleSink);
-    }
-    expect(entries).toHaveLength(1);
-    const entry = entries[0];
-    if (!entry) throw new Error("unreachable: entries.length checked above");
-    expect(entry.module).toBe("post");
-    gpu.dispose(ctx);
-  },
-);
-
-test.skipIf(!bunWebGpuAvailable())(
   "double-destroy routes a structured warn entry via log helper",
   async () => {
     const canvas = await makeOffscreenCanvas(64, 64);
