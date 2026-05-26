@@ -1,7 +1,6 @@
 import type { Camera } from "@furnace/core/camera";
 import * as camera from "@furnace/core/camera";
 import * as frame from "@furnace/core/frame";
-import * as gpu from "@furnace/core/gpu";
 import * as input from "@furnace/core/input";
 import type { Material } from "@furnace/core/material";
 import * as material from "@furnace/core/material";
@@ -115,10 +114,10 @@ await mountDemo({
         position: vec3.fromValues(0, 0, CAMERA_RADIUS),
       });
 
-      unsubResize = gpu.onResize(ctx, ({ width, height }) => {
-        camera.setAspect(perspectiveCam, width / height);
-        // Orthographic aspect is handled per-frame via setBounds below.
-      });
+      unsubResize = camera.bindToCanvas(perspectiveCam, ctx);
+      // Orthographic aspect is handled per-frame via setBounds below — bindToCanvas
+      // is a no-op for orthographic cameras in this tranche (Tranche A-2 will
+      // introduce a configurable fitPolicy).
 
       let dragging = false;
       let lastX = 0;
