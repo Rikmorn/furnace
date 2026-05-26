@@ -37,6 +37,19 @@ function resetForTests(): void {
 
 export const _pipelineCache = { acquire, release, resetForTests };
 
+/**
+ * Escape hatch: wrap `device.createRenderPipeline` in a
+ * `pushErrorScope("validation")` so validation failures surface as a thrown
+ * `FurnaceError` instead of an async `uncapturederror`. Returns the raw
+ * `GPURenderPipeline`.
+ *
+ * The pipeline is **not** cached and **not** registered with stats — the
+ * caller owns it and is responsible for any teardown. For the normal path
+ * (cached + refcounted + resource-tracked), use {@link create}.
+ *
+ * @throws FurnaceError - if WebGPU pipeline creation reports a validation
+ *   error.
+ */
 export async function createPipeline(
   ctx: Context,
   descriptor: GPURenderPipelineDescriptor,

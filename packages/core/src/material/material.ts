@@ -115,6 +115,31 @@ function buildGroup1(
   }
 }
 
+/**
+ * Build (or reuse, via the internal pipeline cache) a render pipeline from a
+ * {@link MaterialDescriptor} and return the {@link Material} handle.
+ *
+ * The pipeline is keyed on `(vertex source, fragment source, cullMode,
+ * topology, depthWrite, depthCompare, ctx format, blend signature)`. Two
+ * `create` calls with identical keys share one underlying
+ * `GPURenderPipeline`; the cache holds a refcount that `destroy` releases.
+ *
+ * Allocation: when consumer-supplied `descriptor.bindings` are non-empty, a
+ * `@group(1)` `GPUBindGroup` is created over the auto-derived layout. The
+ * bind-group resources themselves (buffers, textures) are consumer-owned —
+ * `destroy` does not touch them. Built-in factories (`unlit`, `normalColor`)
+ * register their own uniform buffers as `ownedBuffers` so `destroy` cleans
+ * them up.
+ *
+ * Setup-loud per the foreground failure policy
+ * (`engine-conventions.md` §"Failure policy").
+ *
+ * @throws FurnaceError - if `vertex` or `fragment` WGSL is missing/empty.
+ * @throws FurnaceError - if WebGPU pipeline creation reports a validation
+ *   error (surfaced from `pushErrorScope("validation")`).
+ * @throws FurnaceError - if `bindings` are supplied but the shader declares
+ *   no `@group(1)` bindings (layout mismatch).
+ */
 export async function create(
   ctx: Context,
   descriptor: MaterialDescriptor,
@@ -186,6 +211,16 @@ export async function create(
   return data;
 }
 
+/**
+ * Destroy any buffers the material owns (the per-material uniform buffers
+ * registered by built-in factories like `unlit`), unregister its resource
+ * handles from stats, and release one ref on the cached pipeline. The
+ * pipeline itself is freed when its refcount drops to zero.
+ *
+ * Does not destroy the consumer-owned resources passed via
+ * `MaterialDescriptor.bindings` (buffers/textures the consumer created and
+ * handed in) — the consumer destroys those.
+ */
 export function destroy(material: Material): void {
   // Length of ownedBuffers and ownedBufferHandles is the same by construction.
   for (let i = 0; i < material.ownedBuffers.length; i++) {

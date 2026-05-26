@@ -30,6 +30,17 @@ struct VsIn {
 }
 `;
 
+/**
+ * Options accepted by {@link unlit}.
+ *
+ * `color` is required — linear-space RGBA `Vec4` written into the material's
+ * uniform buffer (see `engine-conventions.md` §"Color space"; sRGB encoding
+ * happens on swap-chain write via the view format).
+ *
+ * Pipeline-state fields are optional with defaults matching
+ * {@link MaterialDescriptor} (`topology: "triangle-list"`, `cullMode: "back"`,
+ * `depthWrite: true`, `depthCompare: "less"`, no blend).
+ */
 export type UnlitOptions = {
   color: Vec4;
   topology?: GPUPrimitiveTopology;
@@ -39,6 +50,14 @@ export type UnlitOptions = {
   blend?: GPUBlendState;
 };
 
+/**
+ * Stock unlit material — outputs `opts.color` directly from the fragment
+ * shader. Allocates a 16-byte uniform buffer (one `vec4<f32>`) for the
+ * color, owned by the material and freed on `destroy`.
+ *
+ * Delegates to {@link create}, so its failure policy and pipeline-cache
+ * behaviour apply.
+ */
 export async function unlit(
   ctx: Context,
   opts: UnlitOptions,
