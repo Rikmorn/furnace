@@ -6,6 +6,17 @@ export type ResourceKind =
   | "buffer"
   | "texture";
 
+/**
+ * Internal — type-only export so other `@furnace/core` modules can
+ * reference the discriminated union accepted by `_registerResource`. NOT
+ * part of the consumer API: it is re-exported from `stats/index.ts`
+ * alongside the engine-internal `_*` hooks for in-repo callers only.
+ *
+ * Variants without a `bytes` field (`mesh`, `material`, `geometry`,
+ * `effect`) contribute to `Snapshot.resources` counts. The `buffer` and
+ * `texture` variants carry `bytes` and contribute to
+ * `Snapshot.memory.bufferBytes` / `textureBytes` respectively.
+ */
 export type ResourceInfo =
   | { kind: "mesh" }
   | { kind: "material" }
@@ -14,6 +25,16 @@ export type ResourceInfo =
   | { kind: "buffer"; bytes: number }
   | { kind: "texture"; bytes: number };
 
+/**
+ * Internal — type-only export so other `@furnace/core` modules can hold
+ * the opaque handle returned by `_registerResource` and pass it back to
+ * `_unregisterResource` on `destroy`. NOT part of the consumer API:
+ * re-exported from `stats/index.ts` alongside the engine-internal `_*`
+ * hooks for in-repo callers only.
+ *
+ * `kind` mirrors the input `ResourceInfo.kind`; `bytes` is `0` for
+ * count-only kinds and the registered byte total for `buffer`/`texture`.
+ */
 export type ResourceHandle = Readonly<{
   kind: ResourceKind;
   bytes: number;
