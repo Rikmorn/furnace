@@ -112,8 +112,10 @@ test("subscriber throws don't break other subscribers; error is logged", () => {
     expect(entry.level).toBe("error");
     expect(entry.module).toBe("events");
     expect(entry.message).toBe("subscriber threw");
-    expect(entry.rest[0]).toBeInstanceOf(Error);
-    expect((entry.rest[0] as Error).message).toBe("boom");
+    const thrown = entry.rest[0];
+    if (!(thrown instanceof Error))
+      throw new Error("unreachable: rest[0] not Error");
+    expect(thrown.message).toBe("boom");
   } finally {
     setSink(consoleSink);
   }
