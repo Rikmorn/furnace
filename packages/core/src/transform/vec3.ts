@@ -1,10 +1,23 @@
 import type { Mat4, Vec3 } from "./types.ts";
 
+/**
+ * `Vec3` math helpers. All operations follow the gl-matrix
+ * `(out, ...args) => out` calling convention: the first argument is the
+ * destination buffer, which is mutated and also returned for chaining.
+ *
+ * @remarks
+ *
+ * `lerp` is component-wise linear interpolation — use {@link quat.slerp}
+ * for rotations. Allocation-free except for `create`/`fromValues`, which
+ * allocate a fresh `Float32Array(3)`.
+ */
 export const vec3 = {
+  /** Allocate a new zero-initialised `Vec3`. */
   create(): Vec3 {
     return new Float32Array(3);
   },
 
+  /** Allocate a new `Vec3` initialised with the given components. */
   fromValues(x: number, y: number, z: number): Vec3 {
     const out = new Float32Array(3);
     out[0] = x;
@@ -13,6 +26,7 @@ export const vec3 = {
     return out;
   },
 
+  /** Write `(x, y, z)` into `out`. */
   set(out: Vec3, x: number, y: number, z: number): Vec3 {
     out[0] = x;
     out[1] = y;
@@ -20,6 +34,7 @@ export const vec3 = {
     return out;
   },
 
+  /** Copy components of `a` into `out`. */
   copy(out: Vec3, a: Vec3): Vec3 {
     out[0] = a[0] as number;
     out[1] = a[1] as number;
@@ -27,6 +42,7 @@ export const vec3 = {
     return out;
   },
 
+  /** Component-wise addition: `out = a + b`. */
   add(out: Vec3, a: Vec3, b: Vec3): Vec3 {
     out[0] = (a[0] as number) + (b[0] as number);
     out[1] = (a[1] as number) + (b[1] as number);
@@ -34,6 +50,7 @@ export const vec3 = {
     return out;
   },
 
+  /** Component-wise subtraction: `out = a - b`. */
   sub(out: Vec3, a: Vec3, b: Vec3): Vec3 {
     out[0] = (a[0] as number) - (b[0] as number);
     out[1] = (a[1] as number) - (b[1] as number);
@@ -41,6 +58,7 @@ export const vec3 = {
     return out;
   },
 
+  /** Scalar multiplication: `out = a * s`. */
   scale(out: Vec3, a: Vec3, s: number): Vec3 {
     out[0] = (a[0] as number) * s;
     out[1] = (a[1] as number) * s;
@@ -48,6 +66,12 @@ export const vec3 = {
     return out;
   },
 
+  /**
+   * Component-wise linear interpolation: `out = a + (b - a) * t`.
+   *
+   * For rotations, use {@link quat.slerp} instead — lerping quaternion
+   * components does not produce a rotation along the great-circle arc.
+   */
   lerp(out: Vec3, a: Vec3, b: Vec3, t: number): Vec3 {
     const ax = a[0] as number;
     const ay = a[1] as number;
@@ -58,6 +82,7 @@ export const vec3 = {
     return out;
   },
 
+  /** Dot product: `a · b`. */
   dot(a: Vec3, b: Vec3): number {
     return (
       (a[0] as number) * (b[0] as number) +
@@ -66,6 +91,7 @@ export const vec3 = {
     );
   },
 
+  /** Cross product: `out = a × b`. */
   cross(out: Vec3, a: Vec3, b: Vec3): Vec3 {
     const ax = a[0] as number;
     const ay = a[1] as number;
@@ -79,6 +105,7 @@ export const vec3 = {
     return out;
   },
 
+  /** Euclidean length: `sqrt(x² + y² + z²)`. */
   length(a: Vec3): number {
     const x = a[0] as number;
     const y = a[1] as number;
@@ -86,6 +113,13 @@ export const vec3 = {
     return Math.sqrt(x * x + y * y + z * z);
   },
 
+  /**
+   * Normalize `a` to unit length, writing into `out`.
+   *
+   * If `length(a) === 0`, writes the zero vector into `out` (no throw, no
+   * NaN propagation) — callers that care about degenerate input should
+   * check `length` themselves.
+   */
   normalize(out: Vec3, a: Vec3): Vec3 {
     const len = vec3.length(a);
     if (len === 0) {
@@ -101,6 +135,13 @@ export const vec3 = {
     return out;
   },
 
+  /**
+   * Transform `v` (treated as the homogeneous point `(v.x, v.y, v.z, 1)`)
+   * by 4x4 matrix `m`, applying the perspective divide. Writes the
+   * resulting 3-vector into `out`.
+   *
+   * If the computed `w` is zero, falls back to `w = 1` (no divide-by-zero).
+   */
   transformMat4(out: Vec3, v: Vec3, m: Mat4): Vec3 {
     const x = v[0] as number;
     const y = v[1] as number;

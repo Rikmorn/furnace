@@ -2,13 +2,27 @@ import type { Quat, Vec3 } from "./types.ts";
 
 const SLERP_LINEAR_EPSILON = 1e-6;
 
+/**
+ * Quaternion math helpers. Quaternions are stored as `(x, y, z, w)` with
+ * identity `(0, 0, 0, 1)`. All operations follow the gl-matrix
+ * `(out, ...args) => out` calling convention — first argument is the
+ * destination, mutated and returned.
+ *
+ * @remarks
+ *
+ * `slerp` is the rotation-correct counterpart to {@link vec3.lerp}: prefer
+ * it whenever you are interpolating orientations. Angles are radians
+ * throughout.
+ */
 export const quat = {
+  /** Allocate a new identity quaternion `(0, 0, 0, 1)`. */
   create(): Quat {
     const out = new Float32Array(4);
     out[3] = 1;
     return out;
   },
 
+  /** Allocate a new quaternion initialised with the given components. */
   fromValues(x: number, y: number, z: number, w: number): Quat {
     const out = new Float32Array(4);
     out[0] = x;
@@ -18,6 +32,12 @@ export const quat = {
     return out;
   },
 
+  /**
+   * Write the identity quaternion `(0, 0, 0, 1)` into `out`.
+   *
+   * Distinct from {@link quat.create}, which allocates a fresh identity;
+   * `identity` reuses the caller's buffer.
+   */
   identity(out: Quat): Quat {
     out[0] = 0;
     out[1] = 0;
@@ -26,6 +46,7 @@ export const quat = {
     return out;
   },
 
+  /** Copy components of `a` into `out`. */
   copy(out: Quat, a: Quat): Quat {
     out[0] = a[0] as number;
     out[1] = a[1] as number;
@@ -34,6 +55,13 @@ export const quat = {
     return out;
   },
 
+  /**
+   * Build a quaternion from intrinsic XYZ Euler angles (radians).
+   *
+   * Rotation order is X then Y then Z applied to the rotating frame —
+   * equivalent to multiplying `qx * qy * qz`. For a different convention,
+   * compose `fromAxisAngle` rotations manually.
+   */
   fromEuler(out: Quat, x: number, y: number, z: number): Quat {
     const hx = x * 0.5;
     const hy = y * 0.5;
@@ -51,6 +79,11 @@ export const quat = {
     return out;
   },
 
+  /**
+   * Build a quaternion representing a rotation of `angleRad` radians
+   * around `axis`. `axis` is assumed to be unit length — callers wanting
+   * defensive normalization should call {@link vec3.normalize} first.
+   */
   fromAxisAngle(out: Quat, axis: Vec3, angleRad: number): Quat {
     const half = angleRad * 0.5;
     const s = Math.sin(half);
@@ -61,6 +94,10 @@ export const quat = {
     return out;
   },
 
+  /**
+   * Hamilton product: `out = a * b`. Composes rotations in the order
+   * "apply `b` first, then `a`" when used to rotate vectors.
+   */
   multiply(out: Quat, a: Quat, b: Quat): Quat {
     const ax = a[0] as number;
     const ay = a[1] as number;
@@ -77,6 +114,13 @@ export const quat = {
     return out;
   },
 
+  /**
+   * Normalize `a` to unit length, writing into `out`.
+   *
+   * If `|a| === 0`, writes the zero quaternion (not identity) — callers
+   * that need a sensible fallback should guard or call {@link quat.identity}
+   * themselves.
+   */
   normalize(out: Quat, a: Quat): Quat {
     const ax = a[0] as number;
     const ay = a[1] as number;
@@ -98,6 +142,10 @@ export const quat = {
     return out;
   },
 
+  /**
+   * Conjugate: negates the vector part, leaves `w` unchanged. For unit
+   * quaternions this is also the inverse rotation.
+   */
   conjugate(out: Quat, a: Quat): Quat {
     out[0] = -(a[0] as number);
     out[1] = -(a[1] as number);
@@ -106,6 +154,15 @@ export const quat = {
     return out;
   },
 
+  /**
+   * Spherical linear interpolation from `a` to `b` at parameter `t ∈ [0, 1]`.
+   *
+   * Takes the shortest path on the unit hypersphere (negates `b` if
+   * `a · b < 0`). Falls back to component-wise lerp when the arc length
+   * is below `1e-6` radians to avoid divide-by-zero from `sin(θ)`. Use
+   * this — not {@link vec3.lerp} on the components — for interpolating
+   * rotations.
+   */
   slerp(out: Quat, a: Quat, b: Quat, t: number): Quat {
     const ax = a[0] as number;
     const ay = a[1] as number;

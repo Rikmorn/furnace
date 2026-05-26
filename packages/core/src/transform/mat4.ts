@@ -3,7 +3,19 @@ import type { Mat4, Quat, Vec3 } from "./types.ts";
 const MIN_AXIS_LENGTH = 1e-6;
 const LOOK_AT_EYE_TARGET_EPSILON = 1e-6;
 
+/**
+ * 4x4 matrix math helpers. Matrices are stored column-major in a length-16
+ * `Float32Array` — the layout WebGPU expects when uploaded to a buffer.
+ * All operations follow the gl-matrix `(out, ...args) => out` calling
+ * convention: first argument is the destination, mutated and returned.
+ *
+ * @remarks
+ *
+ * Right-handed coordinate system throughout (see {@link mat4.lookAt} and
+ * {@link mat4.perspective}). Angles are radians.
+ */
 export const mat4 = {
+  /** Allocate a new identity matrix. */
   create(): Mat4 {
     const out = new Float32Array(16);
     out[0] = 1;
@@ -13,6 +25,12 @@ export const mat4 = {
     return out;
   },
 
+  /**
+   * Write the identity matrix into `out`.
+   *
+   * Distinct from {@link mat4.create}, which allocates a fresh identity;
+   * `identity` reuses the caller's buffer.
+   */
   identity(out: Mat4): Mat4 {
     out[0] = 1;
     out[1] = 0;
@@ -33,11 +51,13 @@ export const mat4 = {
     return out;
   },
 
+  /** Copy all 16 entries of `a` into `out`. */
   copy(out: Mat4, a: Mat4): Mat4 {
     for (let i = 0; i < 16; i++) out[i] = a[i] as number;
     return out;
   },
 
+  /** Matrix multiplication: `out = a * b`. Safe to alias `out` with `a` or `b`. */
   multiply(out: Mat4, a: Mat4, b: Mat4): Mat4 {
     const a00 = a[0] as number;
     const a01 = a[1] as number;
@@ -95,6 +115,7 @@ export const mat4 = {
     return out;
   },
 
+  /** Post-multiply `m` by a translation of `v`: `out = m * T(v)`. Safe to alias `out` with `m`. */
   translate(out: Mat4, m: Mat4, v: Vec3): Mat4 {
     const x = v[0] as number;
     const y = v[1] as number;
@@ -125,6 +146,7 @@ export const mat4 = {
     return out;
   },
 
+  /** Post-multiply `m` by a non-uniform scale of `v`: `out = m * S(v)`. */
   scale(out: Mat4, m: Mat4, v: Vec3): Mat4 {
     const x = v[0] as number;
     const y = v[1] as number;
@@ -148,6 +170,14 @@ export const mat4 = {
     return out;
   },
 
+  /**
+   * Post-multiply `m` by a rotation of `angleRad` radians around `axis`:
+   * `out = m * R(axis, angle)`.
+   *
+   * If `|axis| < 1e-6`, silently copies `m` into `out` (no rotation
+   * applied) rather than producing NaN. Internally normalizes the axis,
+   * so callers do not need to pre-normalize.
+   */
   rotate(out: Mat4, m: Mat4, angleRad: number, axis: Vec3): Mat4 {
     const ax = axis[0] as number;
     const ay = axis[1] as number;
@@ -206,6 +236,13 @@ export const mat4 = {
     return out;
   },
 
+  /**
+   * Invert `m`, writing into `out`.
+   *
+   * @returns `out` on success, or `null` if `m` is singular (determinant
+   * is zero). Callers must check for `null` — `out` is left in an
+   * indeterminate state on the singular path.
+   */
   invert(out: Mat4, m: Mat4): Mat4 | null {
     const a00 = m[0] as number;
     const a01 = m[1] as number;
@@ -262,6 +299,7 @@ export const mat4 = {
     return out;
   },
 
+  /** Transpose `m`, writing into `out`. Safe to alias `out` with `m`. */
   transpose(out: Mat4, m: Mat4): Mat4 {
     if (out === m) {
       const a01 = m[1] as number;
@@ -303,6 +341,17 @@ export const mat4 = {
     return out;
   },
 
+  /**
+   * Right-handed perspective projection.
+   *
+   * @param fovYRad - Vertical field of view in radians.
+   * @param aspect - Viewport `width / height`.
+   * @param near - Near clip-plane distance (positive).
+   * @param far - Far clip-plane distance (positive). Pass `Infinity` for
+   * an infinite far plane.
+   *
+   * Maps view-space depth to the WebGPU clip-space range `z ∈ [0, 1]`.
+   */
   perspective(
     out: Mat4,
     fovYRad: number,
@@ -336,6 +385,13 @@ export const mat4 = {
     return out;
   },
 
+  /**
+   * Right-handed orthographic projection.
+   *
+   * Argument order is `left, right, bottom, top, near, far` — matches
+   * gl-matrix. Maps view-space depth to the WebGPU clip-space range
+   * `z ∈ [0, 1]`.
+   */
   ortho(
     out: Mat4,
     left: number,
@@ -367,6 +423,16 @@ export const mat4 = {
     return out;
   },
 
+  /**
+   * Right-handed view matrix that places the camera at `eye` looking at
+   * `target` with `up` as the world-up hint.
+   *
+   * Returns the identity matrix if `eye` and `target` are within `1e-6`
+   * of each other on every axis. If `up` is colinear with the view
+   * direction, the orthonormalization zeros out the offending axis
+   * rather than throwing — the resulting view will be degenerate but
+   * not NaN.
+   */
   lookAt(out: Mat4, eye: Vec3, target: Vec3, up: Vec3): Mat4 {
     const ex = eye[0] as number;
     const ey = eye[1] as number;
@@ -443,6 +509,12 @@ export const mat4 = {
     return out;
   },
 
+  /**
+   * Build a rotation-only 4x4 matrix from quaternion `q`.
+   *
+   * `q` is assumed to be unit length — feed `quat.normalize` first if you
+   * are unsure.
+   */
   fromQuat(out: Mat4, q: Quat): Mat4 {
     const x = q[0] as number;
     const y = q[1] as number;
@@ -479,6 +551,13 @@ export const mat4 = {
     return out;
   },
 
+  /**
+   * Compose a TRS transform: `out = T(t) * R(q) * S(s)`.
+   *
+   * Application order on a point is scale first, then rotate, then
+   * translate — the conventional model-matrix layout. `q` is assumed
+   * unit length.
+   */
   fromRotationTranslationScale(out: Mat4, q: Quat, t: Vec3, s: Vec3): Mat4 {
     const x = q[0] as number;
     const y = q[1] as number;
