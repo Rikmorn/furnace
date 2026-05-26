@@ -1,7 +1,11 @@
 import { error, warn } from "../log/internal.ts";
-import { _recordUncapturedError } from "../stats/internal.ts";
+import {
+  _recordDeviceLost,
+  _recordUncapturedError,
+} from "../stats/internal.ts";
 import { createStatsState, type StatsState } from "../stats/state.ts";
 import type { Context } from "./context-types.ts";
+import { _emitDeviceLost } from "./device-lost.ts";
 import { FurnaceGpuError } from "./errors.ts";
 import { markDisposed } from "./internal.ts";
 import { _emitUncapturedError } from "./uncaptured-error.ts";
@@ -45,7 +49,10 @@ type InternalWithCanvasCtx = {
  * Installs an `uncapturederror` handler on the device that records into
  * stats and routes to the engine log helper (see `@furnace/core/log`) at
  * `error` level — async GPU validation errors surface there rather than
- * as thrown exceptions.
+ * as thrown exceptions. Also attaches a `device.lost` promise handler that
+ * records the loss in stats, emits it via {@link onDeviceLost} subscribers,
+ * and logs at `error` level; the handler no-ops when the context was
+ * disposed via {@link dispose} (expected teardown, not a runtime failure).
  *
  * Setup-loud per the foreground failure policy
  * (`engine-conventions.md` §"Failure policy").
@@ -121,6 +128,13 @@ export async function requestContext(
     _recordUncapturedError(ctx);
     _emitUncapturedError(ctx, evt.error);
     error("gpu", "uncaptured device error", evt.error.message);
+  });
+
+  device.lost.then((info) => {
+    if (ctx._internal.disposed) return;
+    _recordDeviceLost(ctx);
+    _emitDeviceLost(ctx, info);
+    error("gpu", "device lost", info.reason, info.message);
   });
 
   return ctx;
