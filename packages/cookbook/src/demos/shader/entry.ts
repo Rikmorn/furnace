@@ -73,6 +73,7 @@ await mountDemo({
     let plasmaMat: Material | undefined;
     let cube: Mesh | undefined;
     let backdrop: Mesh | undefined;
+    let unsubResize: (() => void) | undefined;
 
     try {
       const stripedSource = await loadShaderSource(stripedShaderUrl);
@@ -109,7 +110,9 @@ await mountDemo({
         aspect: ctx.canvas.width / ctx.canvas.height,
         position: vec3.fromValues(0, 0, CAMERA_Z),
       });
+      unsubResize = camera.bindToCanvas(cam, ctx);
 
+      const sceneUnsubResize = unsubResize;
       const sceneParamsBufStriped = paramsBufStriped;
       const sceneParamsBufPlasma = paramsBufPlasma;
       const sceneStripedMat = stripedMat;
@@ -134,6 +137,7 @@ await mountDemo({
           paramsScratchPlasma,
         },
         dispose: () => {
+          sceneUnsubResize();
           mesh.destroy(sceneBackdrop);
           mesh.destroy(sceneCube);
           material.destroy(scenePlasmaMat);
@@ -143,6 +147,7 @@ await mountDemo({
         },
       };
     } catch (e) {
+      if (unsubResize) unsubResize();
       if (backdrop) mesh.destroy(backdrop);
       if (cube) mesh.destroy(cube);
       if (plasmaMat) material.destroy(plasmaMat);
