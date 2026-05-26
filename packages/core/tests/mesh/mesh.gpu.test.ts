@@ -10,6 +10,7 @@ import {
   setScale,
 } from "../../src/mesh/mesh.ts";
 import { mat4, quat } from "../../src/transform/index.ts";
+import { vec4 } from "../../src/transform/vec4.ts";
 import {
   bunWebGpuAvailable,
   ensureBunWebGpu,
@@ -26,7 +27,7 @@ async function setup() {
     normals: new Float32Array([0, 0, 1, 0, 0, 1, 0, 0, 1]),
     uvs: new Float32Array([0, 0, 1, 0, 0, 1]),
   });
-  const m = await unlit(ctx, { color: [1, 1, 1, 1] });
+  const m = await unlit(ctx, { color: vec4.fromValues(1, 1, 1, 1) });
   return { ctx, g, m };
 }
 

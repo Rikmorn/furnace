@@ -5,6 +5,7 @@ import { FurnaceGpuError } from "../../src/gpu/errors.ts";
 import * as gpu from "../../src/gpu/index.ts";
 import * as material from "../../src/material/index.ts";
 import * as mesh from "../../src/mesh/index.ts";
+import { vec4 } from "../../src/transform/vec4.ts";
 import {
   bunWebGpuAvailable,
   ensureBunWebGpu,
@@ -19,7 +20,9 @@ test.skipIf(!bunWebGpuAvailable())(
     const canvas = await makeOffscreenCanvas(64, 64);
     const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
     const cam = camera.perspective({ aspect: 1 });
-    const mat = await material.unlit(ctx, { color: [1, 0, 0, 1] });
+    const mat = await material.unlit(ctx, {
+      color: vec4.fromValues(1, 0, 0, 1),
+    });
     const cube = mesh.cube(ctx, { material: mat });
 
     const target = ctx.device.createTexture({

@@ -3,6 +3,7 @@ import * as gpu from "../../src/gpu/index.ts";
 import { create, destroy } from "../../src/material/material.ts";
 import { _pipelineCache } from "../../src/material/pipeline.ts";
 import { unlit } from "../../src/material/unlit.ts";
+import { vec4 } from "../../src/transform/vec4.ts";
 import {
   bunWebGpuAvailable,
   ensureBunWebGpu,
@@ -52,7 +53,7 @@ test.skipIf(!bunWebGpuAvailable())(
   async () => {
     const canvas = await makeOffscreenCanvas();
     const ctx = await gpu.requestContext(canvas);
-    const mat = await unlit(ctx, { color: [1, 0, 0, 1] });
+    const mat = await unlit(ctx, { color: vec4.fromValues(1, 0, 0, 1) });
     const buffer = mat.ownedBuffers[0];
     expect(buffer).toBeDefined();
     destroy(mat);

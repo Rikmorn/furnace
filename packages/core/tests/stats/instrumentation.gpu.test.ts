@@ -5,6 +5,7 @@ import * as gpu from "../../src/gpu/index.ts";
 import * as material from "../../src/material/index.ts";
 import * as mesh from "../../src/mesh/index.ts";
 import { snapshot } from "../../src/stats/public.ts";
+import { vec4 } from "../../src/transform/vec4.ts";
 import {
   bunWebGpuAvailable,
   ensureBunWebGpu,
@@ -24,7 +25,9 @@ test.skipIf(!bunWebGpuAvailable())(
       near: 0.1,
       far: 100,
     });
-    const mat = await material.unlit(ctx, { color: [1, 0, 0, 1] });
+    const mat = await material.unlit(ctx, {
+      color: vec4.fromValues(1, 0, 0, 1),
+    });
     const m = mesh.cube(ctx, { material: mat });
     render(ctx, { draw: [m], camera: cam });
     const s = snapshot(ctx);
@@ -48,7 +51,9 @@ test.skipIf(!bunWebGpuAvailable())(
       near: 0.1,
       far: 100,
     });
-    const mat = await material.unlit(ctx, { color: [1, 0, 0, 1] });
+    const mat = await material.unlit(ctx, {
+      color: vec4.fromValues(1, 0, 0, 1),
+    });
     const a = mesh.cube(ctx, { material: mat });
     const b = mesh.cube(ctx, { material: mat });
     render(ctx, { draw: [a, b], camera: cam });
@@ -73,7 +78,9 @@ test.skipIf(!bunWebGpuAvailable())(
       near: 0.1,
       far: 100,
     });
-    const mat = await material.unlit(ctx, { color: [1, 0, 0, 1] });
+    const mat = await material.unlit(ctx, {
+      color: vec4.fromValues(1, 0, 0, 1),
+    });
     const m = mesh.cube(ctx, { material: mat });
     render(ctx, { draw: [m], camera: cam });
     const firstSnap = snapshot(ctx);
@@ -102,7 +109,9 @@ test.skipIf(!bunWebGpuAvailable())(
       near: 0.1,
       far: 100,
     });
-    const mat = await material.unlit(ctx, { color: [1, 0, 0, 1] });
+    const mat = await material.unlit(ctx, {
+      color: vec4.fromValues(1, 0, 0, 1),
+    });
     const m = mesh.cube(ctx, { material: mat });
     const before = snapshot(ctx);
     render(ctx, { draw: [m], camera: cam });

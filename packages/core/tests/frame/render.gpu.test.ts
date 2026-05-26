@@ -6,6 +6,7 @@ import { normalColor } from "../../src/material/normal-color.ts";
 import { unlit } from "../../src/material/unlit.ts";
 import { cube, plane } from "../../src/mesh/factories";
 import { vec3 } from "../../src/transform/index.ts";
+import { vec4 } from "../../src/transform/vec4.ts";
 import {
   bunWebGpuAvailable,
   ensureBunWebGpu,
@@ -53,7 +54,9 @@ test.skipIf(!bunWebGpuAvailable())(
       aspect: ctx.canvas.width / ctx.canvas.height,
     });
     const cubeMat = await normalColor(ctx);
-    const planeMat = await unlit(ctx, { color: [0.1, 0.15, 0.2, 1] });
+    const planeMat = await unlit(ctx, {
+      color: vec4.fromValues(0.1, 0.15, 0.2, 1),
+    });
     const c = cube(ctx, { material: cubeMat });
     const p = plane(ctx, { material: planeMat, size: 3 });
     ctx.device.pushErrorScope("validation");

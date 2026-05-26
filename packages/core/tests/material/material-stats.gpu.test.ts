@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import * as gpu from "../../src/gpu/index.ts";
 import * as material from "../../src/material/index.ts";
 import { snapshot } from "../../src/stats/public.ts";
+import { vec4 } from "../../src/transform/vec4.ts";
 import {
   bunWebGpuAvailable,
   ensureBunWebGpu,
@@ -33,7 +34,7 @@ test.skipIf(!bunWebGpuAvailable())(
     const canvas = await makeOffscreenCanvas();
     const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
     const before = snapshot(ctx);
-    const m = await material.unlit(ctx, { color: [1, 0, 0, 1] });
+    const m = await material.unlit(ctx, { color: vec4.fromValues(1, 0, 0, 1) });
     const after = snapshot(ctx);
     expect(after.resources.materials - before.resources.materials).toBe(1);
     expect(after.memory.bufferBytes - before.memory.bufferBytes).toBe(16);

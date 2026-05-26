@@ -7,6 +7,7 @@ import * as mesh from "../../src/mesh/index.ts";
 import * as post from "../../src/post/index.ts";
 import { _pipelineCache } from "../../src/post/pipeline-cache.ts";
 import * as stats from "../../src/stats/index.ts";
+import { vec4 } from "../../src/transform/vec4.ts";
 import {
   bunWebGpuAvailable,
   ensureBunWebGpu,
@@ -35,7 +36,7 @@ async function tinyScene(): Promise<{
   const canvas = await makeOffscreenCanvas(64, 64);
   const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
   const cam = camera.perspective({ aspect: 1 });
-  const mat = await material.unlit(ctx, { color: [1, 0, 0, 1] });
+  const mat = await material.unlit(ctx, { color: vec4.fromValues(1, 0, 0, 1) });
   const cube = mesh.cube(ctx, { material: mat });
   return { ctx, cam, cube };
 }
