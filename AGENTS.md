@@ -107,6 +107,7 @@ Documentation rots quietly. The lifecycle is `docs/backlog/` → implementation 
 
 - **Resolved a backlog entry?** Delete `docs/backlog/<topic>/<slug>.md`. Don't leave done work parked as "deferred".
 - **Changed the `@furnace/core` public API?** Update `docs/reference/core-modules.md` to reflect the new exports / signatures. If the change is consumer-visible, also add or update the relevant `packages/cookbook` demo in the same PR.
+- **Changed a public export's behaviour (new throws, new edge cases, changed contract)?** Update its TSDoc. The `bun run check:tsdoc` check catches *missing* TSDoc but not *stale* TSDoc — semantic drift is a review concern. See `docs/reference/tsdoc-conventions.md`.
 - **Materialized a new design or changed an existing one?** Update the relevant `docs/reference/*.md` to reflect the new reality. The reference is "how the project IS today" — if it's stale, it's broken.
 - **Renamed a file, moved a directory, changed a path that other files mention?** Grep for the old path before committing. Stale path references rot silently because nothing tests them.
 - **Tried an approach and walked away?** Capture the lesson in `docs/learnings/<topic>.md` so the next person doesn't retry it.
@@ -118,6 +119,7 @@ Before claiming a piece of work is complete: search `AGENTS.md`, `README.md`, an
 - `docs/reference/` — canonical "how the project is" docs:
   - `engine-conventions.md` — behavioural contracts (coords, color, DPR, lifecycle, failure policy, instrumentation)
   - `core-modules.md` — public API surface of `@furnace/core`, module by module
+  - `tsdoc-conventions.md` — TSDoc authoring policy for the `@furnace/core` public API surface
   - `engine-architecture.md` — broader architectural rationale
   - `packaging-and-distribution.md` — what we ship to consumers
   - `ui-foundation.md` — Svelte 5 + screen-space projection patterns for consumer UI
