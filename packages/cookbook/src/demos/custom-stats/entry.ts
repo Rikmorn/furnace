@@ -138,6 +138,7 @@ await mountDemo({
     let mat: Material | undefined;
     let geometry: Geometry | undefined;
     let unsubFrame: (() => void) | undefined;
+    let unsubResize: (() => void) | undefined;
     const cubes: Mesh[] = [];
 
     try {
@@ -150,6 +151,7 @@ await mountDemo({
         aspect: ctx.canvas.width / ctx.canvas.height,
         position: vec3.fromValues(0, 0, CAMERA_Z),
       });
+      unsubResize = camera.bindToCanvas(cam, ctx);
 
       const scene: Scene = {
         mat,
@@ -174,6 +176,7 @@ await mountDemo({
           state.heavyLoop && recorded !== undefined ? recorded : 0;
       });
 
+      const sceneUnsubResize = unsubResize;
       const sceneUnsub = unsubFrame;
       const sceneMat = mat;
       const sceneGeometry = geometry;
@@ -183,6 +186,7 @@ await mountDemo({
         dispose: () => {
           window.__cookbookCustomStatsSpawn = undefined;
           window.__cookbookCustomStatsDespawn = undefined;
+          sceneUnsubResize();
           sceneUnsub();
           for (const c of cubes) mesh.destroy(c);
           cubes.length = 0;
@@ -193,6 +197,7 @@ await mountDemo({
     } catch (e) {
       window.__cookbookCustomStatsSpawn = undefined;
       window.__cookbookCustomStatsDespawn = undefined;
+      if (unsubResize) unsubResize();
       if (unsubFrame) unsubFrame();
       for (const c of cubes) mesh.destroy(c);
       if (geometry) mesh.destroyGeometry(geometry);
