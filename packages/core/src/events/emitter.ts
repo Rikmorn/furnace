@@ -1,6 +1,28 @@
 import type { Context } from "../gpu/context-types.ts";
 import { _recordEmission } from "../stats/internal.ts";
 
+/**
+ * A minimal pub-sub emitter primitive.
+ *
+ * Generic over the event data type `T` (use `void` for events that carry no payload).
+ *
+ * - `on(listener)` subscribes a listener and returns an unsubscribe function.
+ * - `emit(data)` fires all current listeners synchronously. Listener throws are caught
+ *   and logged; the throw does not interrupt other listeners or propagate to the caller.
+ * - `clear()` removes all listeners.
+ * - `listenerCount` (read-only) returns the current listener count.
+ *
+ * @remarks
+ *
+ * **Snapshot-iteration semantics:** When `emit()` is called, listeners are snapshotted
+ * before the callback loop begins. Listeners added during the emit fire on the *next*
+ * emit. Listeners removed during the emit (via their unsubscribe function) are skipped
+ * in the *current* emit.
+ *
+ * **Subscriber error handling:** If a listener throws, the error is caught, logged
+ * to `console.error`, and iteration continues over remaining listeners. This follows
+ * the engine's runtime-quiet policy — subscriber failures do not break the emitter.
+ */
 export type Emitter<T> = Readonly<{
   on(listener: (data: T) => void): () => void;
   emit(data: T): void;
@@ -8,6 +30,23 @@ export type Emitter<T> = Readonly<{
   readonly listenerCount: number;
 }>;
 
+/**
+ * Create a new emitter instance.
+ *
+ * @param ctx - Optional. When provided together with a non-empty `name`, each
+ * `emit` increments the `events.perEmitter[name]` counter in the stats snapshot.
+ * See {@link stats.Snapshot}.
+ * @param name - Optional. Non-empty string name for stats recording. Ignored if `ctx`
+ * is absent or `name` is empty. Stats recording requires both parameters.
+ *
+ * @returns A new `Emitter<T>` instance.
+ *
+ * @remarks
+ *
+ * The returned emitter is independent of other emitters — subscribing to one does not
+ * affect others. When neither `ctx` nor `name` are provided, stats recording is skipped
+ * entirely (zero overhead for simple event sources).
+ */
 export function createEmitter<T = void>(
   ctx?: Context,
   name?: string,
