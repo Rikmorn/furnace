@@ -18,6 +18,8 @@
       "!**/dist",
       "!**/out",
       "!**/plugins/*/pkg",
+      "!**/graphify-out",
+      "!**/.claude",
       "!bun.lock"
     ]
   },
