@@ -1,5 +1,6 @@
 import { createEmitter, type Emitter } from "../events/emitter.ts";
 import type { Context } from "./context-types.ts";
+import { FurnaceGpuError } from "./errors.ts";
 
 // Boundary type — module-private field installed on `_internal` by this
 // module. Same pattern as gpu/resize.ts. The type system can't track the
@@ -46,16 +47,25 @@ export function _emitUncapturedError(ctx: Context, err: GPUError): void {
  * stat counter and the `error("gpu", ...)` log routing fire from the
  * `requestContext` listener.
  *
+ * Setup-loud: throws on disposed `ctx` (per the foreground failure policy
+ * in `engine-conventions.md` §"Failure policy"). Subscribing to a dead ctx
+ * is a bug.
+ *
  * Subscriber-throw handling follows the standard emitter contract (see
  * {@link createEmitter}): throws are caught, routed via the log helper at
  * `error` level, and iteration continues.
  *
  * @returns An idempotent unsubscribe function — safe to call once, never,
  * or repeatedly.
+ *
+ * @throws FurnaceGpuError - if `ctx` has been disposed.
  */
 export function onUncapturedError(
   ctx: Context,
   fn: (error: GPUError) => void,
 ): () => void {
+  if (ctx._internal.disposed) {
+    throw new FurnaceGpuError("context disposed");
+  }
   return getOrCreateEmitter(ctx).on(fn);
 }

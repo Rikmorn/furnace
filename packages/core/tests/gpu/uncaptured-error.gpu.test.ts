@@ -1,5 +1,6 @@
 import { afterEach, expect, test } from "bun:test";
 import { consoleSink, setSink } from "@furnace/core/log";
+import { FurnaceGpuError } from "../../src/gpu/errors.ts";
 import * as gpu from "../../src/gpu/index.ts";
 import { snapshot } from "../../src/stats/public.ts";
 import {
@@ -88,5 +89,17 @@ test.skipIf(!bunWebGpuAvailable())(
     expect(internal.uncapturedErrorEmitter).toBeDefined();
 
     gpu.dispose(ctx);
+  },
+);
+
+test.skipIf(!bunWebGpuAvailable())(
+  "onUncapturedError on disposed ctx throws FurnaceGpuError",
+  async () => {
+    const canvas = await makeOffscreenCanvas();
+    const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
+    gpu.dispose(ctx);
+    expect(() => gpu.onUncapturedError(ctx, () => undefined)).toThrow(
+      FurnaceGpuError,
+    );
   },
 );
