@@ -7,6 +7,7 @@ export {
   setUp,
 } from "./common.ts";
 export {
+  type OrthographicBounds,
   type OrthographicOptions,
   orthographic,
   setBounds,

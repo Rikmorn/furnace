@@ -214,7 +214,8 @@ Re-exported from `index.ts` so other core modules can `import * as stats` and ca
 | `setAspect` | `(cam: Camera, aspect: number) => void` | Works on both projection kinds. For orthographic, adjusts `left`/`right` to preserve the vertical range. Throws on non-positive / non-finite. |
 | `setNearFar` | `(cam: Camera, near: number, far: number) => void` | Throws if `near ≥ far`, or if perspective and `near ≤ 0`. |
 | `setFov` | `(cam: Camera, fovYRad: number) => void` | Perspective-only — throws on orthographic. |
-| `setBounds` | `(cam: Camera, bounds: { left; right; bottom; top }) => void` | Orthographic-only — throws on perspective. |
+| `setBounds` | `(cam: Camera, bounds: OrthographicBounds) => void` | Orthographic-only — throws on perspective. |
+| `OrthographicBounds` | `{ left: number; right: number; bottom: number; top: number }` | Shape passed to `setBounds`. Use this type when composing helpers that receive or forward bounds. |
 | `getMatrices` | `(cam: Camera) => CameraMatrices` | Recomputes only dirty matrices. Returns the same frozen `{ view, projection, viewProjection }` wrapper across calls (inner `Float32Array`s are stable; mutated in place). |
 | `projectToScreen` | `(out: ScreenProjection, cam: Camera, worldPoint: Vec3, viewportWidth: number, viewportHeight: number) => boolean` | Projects a world-space point to canvas-relative screen pixels. Returns `true` if in front of camera, `false` if behind (out left untouched). Viewport dimensions are CSS pixels — pass `canvas.clientWidth`/`canvas.clientHeight`. Out-param pattern matches `transform.*` math helpers. Mutates `out` with `{ x, y, w }` where `x`/`y` are CSS pixels (top-left origin) and `w` is the clip-space divisor. |
 | `PerspectiveOptions` | `{ fovYRad?; aspect?; near?; far?; position?; target?; up? }` | See defaults above. |
@@ -376,6 +377,5 @@ These appear in module source files but are NOT exported, OR are exported with a
 - Post's internal `_pipelineCache` (in `post/pipeline-cache.ts`), `_ensureFullscreenVS` (in `post/fullscreen.ts`), `_effectPipelineHashKey` / `_buildEffectPipelineDescriptor` (in `post/pipeline.ts`), and `_ensureSceneIntermediates` (in `post/intermediate.ts`). None re-exported from `post/index.ts`.
 - Frame's internal `_frameRenderInternals` in `frame/render.ts` — a bundle of `{ _ensureDepthTexture, _ensureCameraBuffer, _ensureMeshGroup0 }` consumed by `frame/render-to-texture.ts`. Not re-exported from `frame/index.ts`.
 - Mesh's internal `_recomputeModelIfDirty` in `mesh/mesh.ts`, called by `frame/render.ts` and `frame/render-to-texture.ts` per draw. Not re-exported from `mesh/index.ts`.
-- Camera's `OrthographicBounds` type in `camera/orthographic.ts` is defined but not re-exported from `camera/index.ts`. Its shape is inlined into `setBounds`'s signature in the camera table above. Surfacing it as a type export would let consumers compose `(bounds: OrthographicBounds) => ...` helpers; today they must redeclare the inline shape.
 
 These are accessed only by other core modules. If consumer code is reaching for one, that is a signal to either (a) export it as a documented public escape hatch or (b) extend the public API to cover the use case.
