@@ -1,4 +1,5 @@
 import type { Context } from "../gpu/context-types.ts";
+import { error } from "../log/internal.ts";
 import { _recordEmission } from "../stats/internal.ts";
 
 /**
@@ -19,9 +20,10 @@ import { _recordEmission } from "../stats/internal.ts";
  * emit. Listeners removed during the emit (via their unsubscribe function) are skipped
  * in the *current* emit.
  *
- * **Subscriber error handling:** If a listener throws, the error is caught, logged
- * to `console.error`, and iteration continues over remaining listeners. This follows
- * the engine's runtime-quiet policy — subscriber failures do not break the emitter.
+ * **Subscriber error handling:** If a listener throws, the error is caught, routed
+ * to `error("events", ...)` (see `@furnace/core/log`), and iteration continues over
+ * remaining listeners. This follows the engine's runtime-quiet policy — subscriber
+ * failures do not break the emitter.
  */
 export type Emitter<T> = Readonly<{
   on(listener: (data: T) => void): () => void;
@@ -77,8 +79,8 @@ export function createEmitter<T = void>(
             // nor leak into whoever called emit() — for DOM-dispatched listeners
             // (gpu.onResize, input.onKeyDown, etc.) the unhandled throw would fire
             // the window's "error" event. Per the master arch spec § "No silent
-            // failures": surface it via console.error, don't swallow.
-            console.error("[furnace/events] subscriber threw:", err);
+            // failures": surface it via log.error, don't swallow.
+            error("events", "subscriber threw", err);
           }
         }
       }

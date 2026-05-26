@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { consoleSink, type LogEntry, setSink } from "@furnace/core/log";
 import { createEmitter } from "../../src/events/emitter.ts";
 
 test("emit fires registered listeners with the data", () => {
@@ -86,11 +87,8 @@ test("listeners removed during emit do not fire for that emit", () => {
 
 test("subscriber throws don't break other subscribers; error is logged", () => {
   const e = createEmitter<number>();
-  const originalError = console.error;
-  const errors: unknown[][] = [];
-  console.error = (...args: unknown[]) => {
-    errors.push(args);
-  };
+  const entries: LogEntry[] = [];
+  setSink((entry) => entries.push(entry));
   try {
     let receivedA = 0;
     let receivedC = 0;
@@ -108,15 +106,15 @@ test("subscriber throws don't break other subscribers; error is logged", () => {
 
     expect(receivedA).toBe(1);
     expect(receivedC).toBe(1);
-    expect(errors.length).toBe(1);
-    // The emitter passes the raw Error object as the second arg so
-    // console.error gets the full pretty-printing / stack treatment.
-    const args = errors[0];
-    if (!args) throw new Error("unreachable: errors.length checked above");
-    expect(args[0]).toBe("[furnace/events] subscriber threw:");
-    expect(args[1]).toBeInstanceOf(Error);
-    expect((args[1] as Error).message).toBe("boom");
+    expect(entries).toHaveLength(1);
+    const entry = entries[0];
+    if (!entry) throw new Error("unreachable: entries.length checked above");
+    expect(entry.level).toBe("error");
+    expect(entry.module).toBe("events");
+    expect(entry.message).toBe("subscriber threw");
+    expect(entry.rest[0]).toBeInstanceOf(Error);
+    expect((entry.rest[0] as Error).message).toBe("boom");
   } finally {
-    console.error = originalError;
+    setSink(consoleSink);
   }
 });
