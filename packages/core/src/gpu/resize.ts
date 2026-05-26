@@ -2,6 +2,16 @@ import { createEmitter, type Emitter } from "../events/emitter.ts";
 import type { Context } from "./context-types.ts";
 import { FurnaceGpuError } from "./errors.ts";
 
+/**
+ * Payload delivered to {@link onResize} subscribers when the canvas resizes.
+ *
+ * `width` / `height` are backing-store dimensions in device pixels — the
+ * engine's "size truth" for cameras, viewports, and render targets.
+ * `cssWidth` / `cssHeight` are the CSS-pixel layout dimensions reported by
+ * the browser. `pixelRatio` matches `Context.pixelRatio` (i.e. the configured
+ * value, not necessarily live `devicePixelRatio`). See `engine-conventions.md`
+ * §"Device pixel ratio".
+ */
 export type ResizeEvent = Readonly<{
   cssWidth: number;
   cssHeight: number;
@@ -20,6 +30,24 @@ type InternalWithResize = {
   resizeObserver?: ResizeObserver;
 };
 
+/**
+ * Subscribe to canvas resize events. Returns an unsubscribe function.
+ *
+ * On the first subscription for a given context the engine installs a
+ * `ResizeObserver` on `ctx.canvas`. On each observed resize it updates the
+ * canvas backing store (`canvas.width`/`canvas.height = cssSize * pixelRatio`)
+ * *before* firing subscribers, so by the time `fn` runs the backing store
+ * already matches the new {@link ResizeEvent}. The observer is torn down
+ * automatically when the last subscriber unsubscribes.
+ *
+ * Setup-loud: throws on disposed ctx (per the foreground failure policy in
+ * `engine-conventions.md` §"Failure policy"). Subscribing to a dead ctx is
+ * a bug.
+ *
+ * @returns Unsubscribe function. Idempotent — calling more than once has no
+ * additional effect.
+ * @throws FurnaceGpuError - if `ctx` has been disposed.
+ */
 export function onResize(
   ctx: Context,
   fn: (event: ResizeEvent) => void,

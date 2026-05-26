@@ -4,6 +4,20 @@ import type { Context } from "./context-types.ts";
 import { FurnaceGpuError } from "./errors.ts";
 import { markDisposed } from "./internal.ts";
 
+/**
+ * Options accepted by {@link requestContext}.
+ *
+ * Defaults: `surfaceFormat: "srgb"`, `pixelRatio: "device"`.
+ *
+ * - `surfaceFormat`: `"srgb"` configures an sRGB *view* over the canonical
+ *   unorm swapchain format, so shaders write linear values and the swap-chain
+ *   does the linear→sRGB encoding on present. `"linear"` skips the sRGB view
+ *   — useful when the consumer wants to manage gamma themselves.
+ * - `pixelRatio`: `"device"` uses `globalThis.devicePixelRatio` (sharp on
+ *   high-DPI displays), `"css"` pins to 1 (CSS pixels = backing-store pixels,
+ *   cheaper to render), or a literal number for explicit DPR control.
+ *   See `engine-conventions.md` §"Device pixel ratio".
+ */
 export type RequestContextOptions = {
   surfaceFormat?: "srgb" | "linear";
   pixelRatio?: "device" | "css" | number;
@@ -19,6 +33,23 @@ type InternalWithCanvasCtx = {
   viewFormat: GPUTextureFormat;
 };
 
+/**
+ * Acquire a WebGPU adapter + device, configure `canvas` for presentation,
+ * and return the frozen {@link Context} every other `@furnace/core` module
+ * takes as its first argument.
+ *
+ * Sizes the canvas backing store to `clientWidth/clientHeight * pixelRatio`
+ * once at acquisition; ongoing layout changes are handled by `onResize`.
+ * Installs an `uncapturederror` handler on the device that records into
+ * stats and logs to the console — async GPU validation errors surface there
+ * rather than as thrown exceptions.
+ *
+ * Setup-loud per the foreground failure policy
+ * (`engine-conventions.md` §"Failure policy").
+ *
+ * @throws FurnaceGpuError - if WebGPU is unavailable (`navigator.gpu`
+ * missing, no adapter, no `webgpu` canvas context).
+ */
 export async function requestContext(
   canvas: HTMLCanvasElement,
   options: RequestContextOptions = {},
@@ -91,6 +122,20 @@ export async function requestContext(
   return ctx;
 }
 
+/**
+ * Tear down a context: mark it disposed, destroy the underlying `GPUDevice`,
+ * and clear internal bookkeeping. Idempotent — calling on an already-disposed
+ * ctx is a no-op.
+ *
+ * Warns to `console.warn` if any engine resources (meshes, materials,
+ * geometries, effects, buffers, textures) are still registered when called,
+ * naming the count. That's the leak signal: in well-behaved teardown the
+ * consumer destroys owned resources before calling `dispose`.
+ *
+ * After `dispose`, `isDisposed(ctx)` returns `true` and foreground APIs that
+ * take a `Context` throw `FurnaceGpuError`; background reads return zero /
+ * null defaults (see `engine-conventions.md` §"Failure policy").
+ */
 export function dispose(ctx: Context): void {
   if (ctx._internal.disposed) return;
   const remaining = ctx._internal.stats.resources.entries.size;
@@ -107,10 +152,24 @@ export function dispose(ctx: Context): void {
   }
 }
 
+/**
+ * `true` after {@link dispose} has been called on `ctx`, `false` otherwise.
+ */
 export function isDisposed(ctx: Context): boolean {
   return ctx._internal.disposed;
 }
 
+/**
+ * Return a `GPUTextureView` on the current swap-chain texture, with the
+ * configured sRGB view format applied (see {@link Context} `format`).
+ *
+ * Escape hatch for consumers writing their own render pass — most callers
+ * go through `frame.render`, which handles the view, depth attachment, and
+ * post chain. Each call invokes `getCurrentTexture()` on the underlying
+ * `GPUCanvasContext` and creates a fresh view.
+ *
+ * @throws FurnaceGpuError - if `ctx` has been disposed.
+ */
 export function getCurrentTextureView(ctx: Context): GPUTextureView {
   if (ctx._internal.disposed) {
     throw new FurnaceGpuError("context disposed");
