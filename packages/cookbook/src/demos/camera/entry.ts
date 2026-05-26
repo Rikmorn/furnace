@@ -8,7 +8,7 @@ import * as material from "@furnace/core/material";
 import type { Mesh } from "@furnace/core/mesh";
 import * as mesh from "@furnace/core/mesh";
 import type { Vec3 } from "@furnace/core/transform";
-import { vec3 } from "@furnace/core/transform";
+import { vec3, vec4 } from "@furnace/core/transform";
 
 import { mountDemo } from "../../shared/mount.ts";
 import Controls from "./controls.svelte";
@@ -89,7 +89,9 @@ await mountDemo({
 
     try {
       normalMat = await material.normalColor(ctx);
-      planeMat = await material.unlit(ctx, { color: [0.1, 0.1, 0.12, 1] });
+      planeMat = await material.unlit(ctx, {
+        color: vec4.fromValues(0.1, 0.1, 0.12, 1),
+      });
 
       cube = mesh.cube(ctx, { material: normalMat });
       plane = mesh.plane(ctx, {

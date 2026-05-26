@@ -5,7 +5,7 @@ import * as input from "@furnace/core/input";
 import * as material from "@furnace/core/material";
 import * as mesh from "@furnace/core/mesh";
 import * as post from "@furnace/core/post";
-import { quat, vec3 } from "@furnace/core/transform";
+import { quat, vec3, vec4 } from "@furnace/core/transform";
 import {
   add,
   ready as demoWasmReady,
@@ -140,7 +140,9 @@ async function main(): Promise<void> {
   if (!sdfMesh) throw new Error("could not load sdf mech");
 
   const cubeMat = await material.normalColor(ctx);
-  const planeMat = await material.unlit(ctx, { color: [0.1, 0.15, 0.2, 1] });
+  const planeMat = await material.unlit(ctx, {
+    color: vec4.fromValues(0.1, 0.15, 0.2, 1),
+  });
 
   const cubeMesh = mesh.cube(ctx, { material: cubeMat });
   const planeMesh = mesh.plane(ctx, {

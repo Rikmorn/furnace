@@ -7,8 +7,8 @@ import type { Material } from "@furnace/core/material";
 import * as material from "@furnace/core/material";
 import type { Mesh } from "@furnace/core/mesh";
 import * as mesh from "@furnace/core/mesh";
-import type { Quat, Vec3 } from "@furnace/core/transform";
-import { quat, vec3 } from "@furnace/core/transform";
+import type { Quat, Vec3, Vec4 } from "@furnace/core/transform";
+import { quat, vec3, vec4 } from "@furnace/core/transform";
 
 import { mountDemo } from "../../shared/mount.ts";
 import Controls from "./controls.svelte";
@@ -30,7 +30,7 @@ const SUBJECT_ROTATION_SPEED_RAD_PER_S = 0.5;
 const MS_PER_S = 1000;
 
 const ROOM_SIZE = 4;
-const ROOM_COLOR: [number, number, number, number] = [0.08, 0.08, 0.1, 1];
+const ROOM_COLOR: Vec4 = vec4.fromValues(0.08, 0.08, 0.1, 1);
 const SUBJECT_SIZE = 0.8;
 
 const MAIN_CAMERA_RADIUS = 2.5;
@@ -54,7 +54,7 @@ const PIP_POSITIONS: Record<PipAngle, readonly [number, number, number]> = {
 };
 
 const GIZMO_SIZE = 0.25;
-const GIZMO_COLOR: [number, number, number, number] = [1.0, 0.65, 0.2, 1];
+const GIZMO_COLOR: Vec4 = vec4.fromValues(1.0, 0.65, 0.2, 1);
 
 // --- Monitor shader ---
 

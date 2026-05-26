@@ -7,8 +7,8 @@ import type { Material } from "@furnace/core/material";
 import * as material from "@furnace/core/material";
 import type { Mesh } from "@furnace/core/mesh";
 import * as mesh from "@furnace/core/mesh";
-import type { Quat, Vec3 } from "@furnace/core/transform";
-import { quat, vec3 } from "@furnace/core/transform";
+import type { Quat, Vec3, Vec4 } from "@furnace/core/transform";
+import { quat, vec3, vec4 } from "@furnace/core/transform";
 
 import { mountDemo } from "../../shared/mount.ts";
 import Controls from "./controls.svelte";
@@ -35,7 +35,7 @@ declare global {
 const CAMERA_Z = 4.5;
 const CLEAR_COLOR: [number, number, number, number] = [0.05, 0.05, 0.07, 1];
 
-const REFERENCE_COLOR: [number, number, number, number] = [0.4, 0.4, 0.45, 1];
+const REFERENCE_COLOR: Vec4 = vec4.fromValues(0.4, 0.4, 0.45, 1);
 const REFERENCE_SIZE = 1.5;
 const REFERENCE_Z = -1.0;
 
@@ -49,13 +49,13 @@ const BACKDROP_SOLID_WIDTH = 6.0;
 const BACKDROP_SOLID_HEIGHT = 4.0;
 
 // R/G/B/Y/C/M for the strips backdrop.
-const STRIP_COLORS: readonly [number, number, number, number][] = [
-  [1, 0, 0, 1],
-  [0, 1, 0, 1],
-  [0, 0, 1, 1],
-  [1, 1, 0, 1],
-  [0, 1, 1, 1],
-  [1, 0, 1, 1],
+const STRIP_COLORS: readonly Vec4[] = [
+  vec4.fromValues(1, 0, 0, 1),
+  vec4.fromValues(0, 1, 0, 1),
+  vec4.fromValues(0, 0, 1, 1),
+  vec4.fromValues(1, 1, 0, 1),
+  vec4.fromValues(0, 1, 1, 1),
+  vec4.fromValues(1, 0, 1, 1),
 ];
 const STRIP_COUNT = STRIP_COLORS.length;
 const STRIP_X_START = -((STRIP_COUNT - 1) * BACKDROP_STRIP_WIDTH) / 2;
@@ -68,9 +68,9 @@ const STRIP_X_START = -((STRIP_COUNT - 1) * BACKDROP_STRIP_WIDTH) / 2;
 // already multiplied by src.alpha. Compare with straight-alpha red: same shape
 // of tint, but the blend mode applies the alpha-multiplication inside the
 // equation, accumulating error under chained translucent overlays.
-const RED_TINT: [number, number, number, number] = [1, 0, 0, 0.5];
-const GREEN_TINT_PREMULT: [number, number, number, number] = [0, 0.5, 0, 0.5];
-const BLUE_TINT: [number, number, number, number] = [0, 0, 1, 0.5];
+const RED_TINT: Vec4 = vec4.fromValues(1, 0, 0, 0.5);
+const GREEN_TINT_PREMULT: Vec4 = vec4.fromValues(0, 0.5, 0, 0.5);
+const BLUE_TINT: Vec4 = vec4.fromValues(0, 0, 1, 0.5);
 
 const RED_Z = 0.6;
 const GREEN_Z = 0.5;
@@ -157,8 +157,10 @@ async function buildBackdrop(
         meshes.push(m);
       }
     } else {
-      const color: [number, number, number, number] =
-        mode === "solid-black" ? [0, 0, 0, 1] : [1, 1, 1, 1];
+      const color: Vec4 =
+        mode === "solid-black"
+          ? vec4.fromValues(0, 0, 0, 1)
+          : vec4.fromValues(1, 1, 1, 1);
       const mat = await material.unlit(ctx, {
         color,
         cullMode: cull,
@@ -217,7 +219,7 @@ async function buildReference(
 
 async function buildTranslucentSurface(
   ctx: Context,
-  color: [number, number, number, number],
+  color: Vec4,
   blend: GPUBlendState | undefined,
   cull: Cull,
   depthWrite: boolean,

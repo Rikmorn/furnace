@@ -6,7 +6,8 @@ import type { Material } from "@furnace/core/material";
 import * as material from "@furnace/core/material";
 import type { Mesh } from "@furnace/core/mesh";
 import * as mesh from "@furnace/core/mesh";
-import { vec3 } from "@furnace/core/transform";
+import type { Vec4 } from "@furnace/core/transform";
+import { vec3, vec4 } from "@furnace/core/transform";
 
 import { mountDemo } from "../../shared/mount.ts";
 import Controls from "./controls.svelte";
@@ -20,11 +21,10 @@ const ZOOM_SPEED = 0.003;
 const MS_PER_S = 1000;
 const CLEAR_COLOR: [number, number, number, number] = [0.05, 0.05, 0.07, 1];
 
-type ColorRGBA = [number, number, number, number];
-const COLORS: readonly ColorRGBA[] = [
-  [0.85, 0.4, 0.2, 1],
-  [0.3, 0.7, 0.5, 1],
-  [0.4, 0.5, 0.9, 1],
+const COLORS: readonly Vec4[] = [
+  vec4.fromValues(0.85, 0.4, 0.2, 1),
+  vec4.fromValues(0.3, 0.7, 0.5, 1),
+  vec4.fromValues(0.4, 0.5, 0.9, 1),
 ];
 
 const BUTTON_LABELS: Readonly<Record<PointerButton, string>> = {
