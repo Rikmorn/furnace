@@ -1,6 +1,7 @@
 import { FurnaceError } from "../errors.ts";
 import { FurnaceGpuError } from "../gpu/errors.ts";
 import type { Context } from "../gpu/index.ts";
+import { warn } from "../log/internal.ts";
 import {
   _registerResource,
   _unregisterResource,
@@ -136,13 +137,13 @@ export async function create(
  * `EffectDescriptor.bindings` (buffers/textures the consumer created and
  * handed in) — the consumer destroys those.
  *
- * Runtime-quiet on double-destroy: logs a `[furnace/post]` warning via
- * `console.warn` and returns without re-releasing, so accidental
- * double-destroy never decrements the pipeline refcount twice.
+ * Runtime-quiet on double-destroy: routes a warning to the engine log
+ * helper (see `@furnace/core/log`) and returns without re-releasing, so
+ * accidental double-destroy never decrements the pipeline refcount twice.
  */
 export function destroy(effect: Effect): void {
   if (effect._internal.destroyed) {
-    console.warn("[furnace/post] effect already destroyed");
+    warn("post", "effect already destroyed");
     return;
   }
   effect._internal.destroyed = true;
