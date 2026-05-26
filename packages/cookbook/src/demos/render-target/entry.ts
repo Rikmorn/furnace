@@ -143,6 +143,7 @@ type SceneRef = {
   mainCam: Camera;
   pipCam: Camera;
   sampler: GPUSampler;
+  unsubResize: () => void;
   rotBuf: Quat;
   scratchPos: Vec3;
   gizmoMat: Material;
@@ -200,6 +201,7 @@ async function buildScene(ctx: Context): Promise<SceneRef> {
   let sampler: GPUSampler | undefined;
   let gizmoMat: Material | undefined;
   let gizmoMesh: Mesh | undefined;
+  let unsubResize: (() => void) | undefined;
 
   try {
     subjectMat = await material.normalColor(ctx);
@@ -237,6 +239,7 @@ async function buildScene(ctx: Context): Promise<SceneRef> {
       aspect: ctx.canvas.width / ctx.canvas.height,
       position: vec3.fromValues(0, MAIN_CAMERA_Y, MAIN_CAMERA_RADIUS),
     });
+    unsubResize = camera.bindToCanvas(mainCam, ctx);
     const initialPipPos = PIP_POSITIONS[state.pipAngle];
     const pipCam = camera.perspective({
       aspect: 1,
@@ -271,6 +274,7 @@ async function buildScene(ctx: Context): Promise<SceneRef> {
       mainCam,
       pipCam,
       sampler,
+      unsubResize,
       rotBuf: quat.create(),
       scratchPos: vec3.create(),
       gizmoMat,
@@ -280,6 +284,7 @@ async function buildScene(ctx: Context): Promise<SceneRef> {
       gizmoAxis: vec3.create(),
     };
   } catch (e) {
+    if (unsubResize) unsubResize();
     if (gizmoMesh) mesh.destroy(gizmoMesh);
     if (gizmoMat) material.destroy(gizmoMat);
     if (monitorMesh) mesh.destroy(monitorMesh);
@@ -293,6 +298,7 @@ async function buildScene(ctx: Context): Promise<SceneRef> {
 }
 
 function disposeScene(s: SceneRef): void {
+  s.unsubResize();
   mesh.destroy(s.gizmoMesh);
   material.destroy(s.gizmoMat);
   mesh.destroy(s.monitorMesh);
