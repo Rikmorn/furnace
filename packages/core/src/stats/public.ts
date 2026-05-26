@@ -192,9 +192,10 @@ export function increment(ctx: Context, name: string, by = 1): void {
  *
  * Runtime-quiet across the board:
  * - disposed `ctx` — `fn` is intentionally NOT invoked and the call
- *   silently no-ops. Engine spec §5 — the context is passive on disposed,
- *   so consumer work scoped to a `measure(...)` call deliberately skips.
- *   If you need the work to run regardless, call it outside `measure`.
+ *   silently no-ops. See `engine-conventions.md` §"Failure policy" — the
+ *   context is passive on disposed, so consumer work scoped to a
+ *   `measure(...)` call deliberately skips. If you need the work to run
+ *   regardless, call it outside `measure`.
  * - `name` empty or not a string — warns, `fn` not invoked, no-op.
  * - cross-kind collision (`name` already used as a {@link gauge} or
  *   {@link increment} counter) — warns, `fn` not invoked, no-op.
