@@ -97,6 +97,7 @@ await mountDemo({
     let vignette: Effect | undefined;
     let normalMat: Material | undefined;
     let cube: Mesh | undefined;
+    let unsubResize: (() => void) | undefined;
 
     try {
       const bloomSource = await loadShaderSource(bloomShaderUrl);
@@ -127,7 +128,9 @@ await mountDemo({
         aspect: ctx.canvas.width / ctx.canvas.height,
         position: vec3.fromValues(0, 0, CAMERA_Z),
       });
+      unsubResize = camera.bindToCanvas(cam, ctx);
 
+      const sceneUnsubResize = unsubResize;
       const sceneParamsBufBloom = paramsBufBloom;
       const sceneParamsBufVignette = paramsBufVignette;
       const sceneBloom = bloom;
@@ -152,6 +155,7 @@ await mountDemo({
           paramsScratchVignette,
         },
         dispose: () => {
+          sceneUnsubResize();
           mesh.destroy(sceneCube);
           material.destroy(sceneNormalMat);
           post.destroy(sceneVignette);
@@ -161,6 +165,7 @@ await mountDemo({
         },
       };
     } catch (e) {
+      if (unsubResize) unsubResize();
       if (cube) mesh.destroy(cube);
       if (normalMat) material.destroy(normalMat);
       if (vignette) post.destroy(vignette);
