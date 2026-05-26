@@ -103,6 +103,7 @@ type SceneRef = {
   referenceMat: Material;
   surfaces: TranslucentSurfaces;
   cam: Camera;
+  unsubResize: () => void;
   // Pre-allocated per-frame buffers (reused to avoid per-frame allocations).
   posRed: Vec3;
   posGreen: Vec3;
@@ -370,12 +371,14 @@ async function buildScene(ctx: Context): Promise<SceneRef> {
       aspect: ctx.canvas.width / ctx.canvas.height,
       position: vec3.fromValues(0, 0, CAMERA_Z),
     });
+    const unsubResize = camera.bindToCanvas(cam, ctx);
     return {
       backdrop,
       reference: refRes.refMesh,
       referenceMat: refRes.mat,
       surfaces,
       cam,
+      unsubResize,
       posRed: vec3.create(),
       posGreen: vec3.create(),
       posBlue: vec3.create(),
@@ -400,6 +403,7 @@ async function buildScene(ctx: Context): Promise<SceneRef> {
 }
 
 function disposeScene(scene: SceneRef): void {
+  scene.unsubResize();
   disposeTranslucentSurfaces(scene.surfaces);
   mesh.destroy(scene.reference);
   material.destroy(scene.referenceMat);
