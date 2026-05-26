@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { consoleSink, type LogEntry, setSink } from "@furnace/core/log";
 import type { Context } from "../../src/gpu/context-types.ts";
 import {
   _recordBindGroupSwitch,
@@ -30,14 +31,22 @@ test("_recordDraw: increments drawCalls and adds triangles", () => {
 
 test("_recordDraw: negative triangles logs warn + no-op", () => {
   const ctx = makeMockCtx();
-  const origWarn = console.warn;
-  let warned = "";
-  console.warn = (...args: unknown[]) => {
-    warned = String(args[0]);
-  };
-  _recordDraw(ctx, { triangles: -3 });
-  console.warn = origWarn;
-  expect(warned).toContain("[furnace/stats]");
+  const entries: LogEntry[] = [];
+  setSink((entry) => entries.push(entry));
+  try {
+    _recordDraw(ctx, { triangles: -3 });
+  } finally {
+    setSink(consoleSink);
+  }
+  expect(entries.length).toBe(1);
+  const entry = entries[0];
+  if (!entry) throw new Error("unreachable: entries.length checked above");
+  expect(entry.level).toBe("warn");
+  expect(entry.module).toBe("stats");
+  expect(entry.message).toBe(
+    "_recordDraw: triangles must be finite and non-negative",
+  );
+  expect(entry.rest[0]).toEqual({ value: -3 });
   expect(ctx._internal.stats.drawCalls).toBe(0);
   expect(ctx._internal.stats.triangles).toBe(0);
 });

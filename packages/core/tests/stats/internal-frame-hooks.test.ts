@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { consoleSink, type LogEntry, setSink } from "@furnace/core/log";
 import type { Context } from "../../src/gpu/context-types.ts";
 import { _frameEnd, _frameStart } from "../../src/stats/internal.ts";
 import { createStatsState } from "../../src/stats/state.ts";
@@ -65,17 +66,24 @@ test("_frameEnd: subscriber throw is caught + iteration continues", () => {
   ctx._internal.stats.onFrameSubscribers.add(() => {
     seen.push("b");
   });
-  const origErr = console.error;
-  let errCalls = 0;
-  console.error = (...args: unknown[]) => {
-    errCalls++;
-    const s = String(args[0]);
-    expect(s).toContain("[furnace/stats]");
-  };
-  _frameEnd(ctx);
-  console.error = origErr;
+  const entries: LogEntry[] = [];
+  setSink((entry) => entries.push(entry));
+  try {
+    _frameEnd(ctx);
+  } finally {
+    setSink(consoleSink);
+  }
   expect(seen).toEqual(["a", "b"]);
-  expect(errCalls).toBe(1);
+  expect(entries.length).toBe(1);
+  const entry = entries[0];
+  if (!entry) throw new Error("unreachable: entries.length checked above");
+  expect(entry.level).toBe("error");
+  expect(entry.module).toBe("stats");
+  expect(entry.message).toBe("onFrame subscriber threw");
+  const thrown = entry.rest[0];
+  if (!(thrown instanceof Error))
+    throw new Error("unreachable: rest[0] not Error");
+  expect(thrown.message).toBe("bad");
 });
 
 test("_frameEnd on disposed ctx: silent no-op", () => {

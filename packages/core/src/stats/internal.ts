@@ -1,4 +1,5 @@
 import type { Context } from "../gpu/context-types.ts";
+import { error, warn } from "../log/internal.ts";
 import { tickFps } from "./fps-counter.ts";
 import { pushFrameMs } from "./frame-window.ts";
 import {
@@ -42,7 +43,7 @@ export function _frameEnd(ctx: Context): void {
     try {
       sub(snap);
     } catch (err) {
-      console.error("[furnace/stats] onFrame subscriber threw:", err);
+      error("stats", "onFrame subscriber threw", err);
     }
   }
 }
@@ -50,9 +51,9 @@ export function _frameEnd(ctx: Context): void {
 export function _recordDraw(ctx: Context, info: { triangles: number }): void {
   if (ctx._internal.disposed) return;
   if (!Number.isFinite(info.triangles) || info.triangles < 0) {
-    console.warn(
-      `[furnace/stats] _recordDraw: triangles must be finite and non-negative, got ${info.triangles}; ignored`,
-    );
+    warn("stats", "_recordDraw: triangles must be finite and non-negative", {
+      value: info.triangles,
+    });
     return;
   }
   ctx._internal.stats.drawCalls++;
