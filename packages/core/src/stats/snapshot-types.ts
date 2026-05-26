@@ -7,12 +7,12 @@
  * - `frame.ms` — frame-time stats: `last` (most-recent frame), `mean`,
  *   `p99`, `min`, `max` over the same rolling window.
  * - `gpu.drawCalls`, `gpu.triangles`, `gpu.pipelineSwitches`,
- *   `gpu.bindGroupSwitches`, `gpu.uncapturedErrors` — per-frame counters
- *   recorded by the engine's render path.
- * - `gpu.deviceLost` — `true` after `device.lost` resolves on a non-disposed
- *   context; `false` otherwise.
+ *   `gpu.bindGroupSwitches` — per-frame counters recorded by the engine's
+ *   render path.
  * - `gpu.renderMs`, `gpu.computeMs` — reserved for GPU timestamp queries;
  *   currently always `null`.
+ * - `gpu.uncapturedErrors`, `gpu.deviceLost` — cumulative terminal-event
+ *   flags; see per-field TSDoc for semantics.
  * - `resources` — live counts of `meshes`, `materials`, `geometries`,
  *   `effects` registered with stats (incremented by `_registerResource`,
  *   decremented by `_unregisterResource`).
@@ -34,14 +34,25 @@ export type Snapshot = Readonly<{
   };
   gpu: {
     drawCalls: number;
-    /** `true` after `device.lost` resolves on a non-disposed context. */
-    deviceLost: boolean;
     triangles: number;
     pipelineSwitches: number;
     bindGroupSwitches: number;
-    uncapturedErrors: number;
     renderMs: number | null;
     computeMs: number | null;
+    uncapturedErrors: number;
+    /**
+     * `true` after `device.lost` resolves on a non-disposed context. Device
+     * loss is terminal — the underlying `GPUDevice` is non-recoverable and no
+     * further frames will render. Consumers observing this flag should either
+     * request a fresh context (which means a fresh `gpu.requestContext`) or
+     * surface the failure to the user.
+     *
+     * The reason (`"destroyed" | "unknown"` per the WebGPU spec) is not
+     * captured here — `boolean` was chosen for the cumulative snapshot field;
+     * consumers needing the reason should subscribe via `gpu.onDeviceLost`
+     * (added in Tranche C; receives the full `GPUDeviceLostInfo`).
+     */
+    deviceLost: boolean;
   };
   resources: {
     meshes: number;

@@ -29,13 +29,13 @@ export function buildSnapshot(state: StatsState): Snapshot {
     },
     gpu: {
       drawCalls: state.drawCalls,
-      deviceLost: state.deviceLost,
       triangles: state.triangles,
       pipelineSwitches: state.pipelineSwitches,
       bindGroupSwitches: state.bindGroupSwitches,
-      uncapturedErrors: state.uncapturedErrors,
       renderMs: null,
       computeMs: null,
+      uncapturedErrors: state.uncapturedErrors,
+      deviceLost: state.deviceLost,
     },
     resources: {
       meshes: state.resources.counts.meshes,

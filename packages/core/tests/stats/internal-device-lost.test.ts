@@ -29,7 +29,8 @@ test.skipIf(!bunWebGpuAvailable())(
     const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
     _recordDeviceLost(ctx);
     expect(() => _recordDeviceLost(ctx)).not.toThrow();
-    expect(snapshot(ctx).gpu.deviceLost).toBe(true);
+    expect(ctx._internal.stats.deviceLost).toBe(true); // direct state check
+    expect(snapshot(ctx).gpu.deviceLost).toBe(true); // public projection still holds
     gpu.dispose(ctx);
   },
 );
