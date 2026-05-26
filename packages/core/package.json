@@ -11,6 +11,7 @@
     "./stats": "./src/stats/index.ts",
     "./camera": "./src/camera/index.ts",
     "./input": "./src/input/index.ts",
+    "./log": "./src/log/index.ts",
     "./material": "./src/material/index.ts",
     "./mesh": "./src/mesh/index.ts",
     "./post": "./src/post/index.ts"
