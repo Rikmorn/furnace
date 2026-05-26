@@ -17,7 +17,7 @@
     "build:cookbook": "bun run --cwd packages/cookbook build:web",
     "typecheck": "bun run --cwd packages/core typecheck && bun run --cwd packages/hello-world typecheck && bun run --cwd packages/cookbook typecheck",
     "test": "bun test",
-    "check": "biome check",
+    "check": "biome check && bun run --cwd packages/core check:tsdoc",
     "clean": "rm -rf dist packages/*/dist packages/*/crates/target packages/*/.furnace/shell/target packages/*/plugins/*/pkg packages/*/plugins/*/target"
   },
   "devDependencies": {
