@@ -5,7 +5,7 @@ import type { Context } from "@furnace/core/gpu";
 import * as input from "@furnace/core/input";
 import type { Material } from "@furnace/core/material";
 import * as material from "@furnace/core/material";
-import type { Mesh } from "@furnace/core/mesh";
+import type { Geometry, Mesh } from "@furnace/core/mesh";
 import * as mesh from "@furnace/core/mesh";
 import type { Quat, Vec3, Vec4 } from "@furnace/core/transform";
 import { quat, vec3, vec4 } from "@furnace/core/transform";
@@ -135,9 +135,12 @@ type PipResources = {
 
 type SceneRef = {
   subjectMat: Material;
+  subjectGeo: Geometry;
   subjectMesh: Mesh;
   roomMat: Material;
+  roomGeo: Geometry;
   roomMesh: Mesh;
+  monitorGeo: Geometry;
   monitorMesh: Mesh;
   pip: PipResources;
   mainCam: Camera;
@@ -193,9 +196,12 @@ function disposePipResources(r: PipResources): void {
 
 async function buildScene(ctx: Context): Promise<SceneRef> {
   let subjectMat: Material | undefined;
+  let subjectGeo: Geometry | undefined;
   let subjectMesh: Mesh | undefined;
   let roomMat: Material | undefined;
+  let roomGeo: Geometry | undefined;
   let roomMesh: Mesh | undefined;
+  let monitorGeo: Geometry | undefined;
   let monitorMesh: Mesh | undefined;
   let pip: PipResources | undefined;
   let sampler: GPUSampler | undefined;
@@ -205,16 +211,18 @@ async function buildScene(ctx: Context): Promise<SceneRef> {
 
   try {
     subjectMat = await material.normalColor(ctx);
-    subjectMesh = mesh.cube(ctx, {
+    subjectGeo = mesh.cubeGeometry(ctx, { size: SUBJECT_SIZE });
+    subjectMesh = mesh.create(ctx, {
+      geometry: subjectGeo,
       material: subjectMat,
-      size: SUBJECT_SIZE,
     });
 
     roomMat = await material.unlit(ctx, {
       color: ROOM_COLOR,
       cullMode: "front",
     });
-    roomMesh = mesh.cube(ctx, { material: roomMat, size: ROOM_SIZE });
+    roomGeo = mesh.cubeGeometry(ctx, { size: ROOM_SIZE });
+    roomMesh = mesh.create(ctx, { geometry: roomGeo, material: roomMat });
 
     sampler = ctx.device.createSampler({
       magFilter: "linear",
@@ -224,9 +232,10 @@ async function buildScene(ctx: Context): Promise<SceneRef> {
     });
     pip = await buildPipResources(ctx, state.pipResolution, sampler);
 
-    monitorMesh = mesh.plane(ctx, {
+    monitorGeo = mesh.planeGeometry(ctx, { size: MONITOR_SIZE });
+    monitorMesh = mesh.create(ctx, {
+      geometry: monitorGeo,
       material: pip.monitorMat,
-      size: MONITOR_SIZE,
     });
     const monitorPos = vec3.fromValues(
       MONITOR_POSITION[0],
@@ -266,9 +275,12 @@ async function buildScene(ctx: Context): Promise<SceneRef> {
 
     return {
       subjectMat,
+      subjectGeo,
       subjectMesh,
       roomMat,
+      roomGeo,
       roomMesh,
+      monitorGeo,
       monitorMesh,
       pip,
       mainCam,
@@ -286,12 +298,15 @@ async function buildScene(ctx: Context): Promise<SceneRef> {
   } catch (e) {
     if (unsubResize) unsubResize();
     if (gizmoMesh) mesh.destroy(gizmoMesh);
-    if (gizmoMat) material.destroy(gizmoMat);
     if (monitorMesh) mesh.destroy(monitorMesh);
-    if (pip) disposePipResources(pip);
     if (roomMesh) mesh.destroy(roomMesh);
-    if (roomMat) material.destroy(roomMat);
     if (subjectMesh) mesh.destroy(subjectMesh);
+    if (monitorGeo) mesh.destroyGeometry(monitorGeo);
+    if (roomGeo) mesh.destroyGeometry(roomGeo);
+    if (subjectGeo) mesh.destroyGeometry(subjectGeo);
+    if (gizmoMat) material.destroy(gizmoMat);
+    if (pip) disposePipResources(pip);
+    if (roomMat) material.destroy(roomMat);
     if (subjectMat) material.destroy(subjectMat);
     throw e;
   }
@@ -300,12 +315,15 @@ async function buildScene(ctx: Context): Promise<SceneRef> {
 function disposeScene(s: SceneRef): void {
   s.unsubResize();
   mesh.destroy(s.gizmoMesh);
-  material.destroy(s.gizmoMat);
   mesh.destroy(s.monitorMesh);
-  disposePipResources(s.pip);
   mesh.destroy(s.roomMesh);
-  material.destroy(s.roomMat);
   mesh.destroy(s.subjectMesh);
+  mesh.destroyGeometry(s.monitorGeo);
+  mesh.destroyGeometry(s.roomGeo);
+  mesh.destroyGeometry(s.subjectGeo);
+  material.destroy(s.gizmoMat);
+  disposePipResources(s.pip);
+  material.destroy(s.roomMat);
   material.destroy(s.subjectMat);
 }
 
