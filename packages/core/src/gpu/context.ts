@@ -167,6 +167,7 @@ export async function requestContext(
  */
 export function dispose(ctx: Context): void {
   if (ctx._internal.disposed) return;
+  _runDisposeCascade(ctx);
   const remaining = ctx._internal.stats.resources.entries.size;
   if (remaining > 0) {
     warn(
@@ -175,7 +176,6 @@ export function dispose(ctx: Context): void {
       { remaining },
     );
   }
-  _runDisposeCascade(ctx);
   markDisposed(ctx._internal);
   try {
     ctx.device.destroy();
