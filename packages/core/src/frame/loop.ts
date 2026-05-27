@@ -1,3 +1,4 @@
+import { FurnaceError } from "../errors.ts";
 import type { Context } from "../gpu/context-types.ts";
 import { FurnaceGpuError } from "../gpu/errors.ts";
 import { _frameEnd, _frameStart } from "../stats/internal.ts";
@@ -68,6 +69,8 @@ const DEFAULT_MAX_DELTA_MS = 100;
  * (`engine-conventions.md` §"Failure policy").
  *
  * @returns A {@link FrameLoopHandle} for `stop`/`pause`/`resume` control.
+ * @throws FurnaceError - if `options.maxDeltaMs` is provided and not a
+ *   positive finite number.
  * @throws FurnaceGpuError - if `ctx` has been disposed.
  */
 export function loop(
@@ -77,6 +80,15 @@ export function loop(
 ): FrameLoopHandle {
   if (ctx._internal.disposed) {
     throw new FurnaceGpuError("context disposed");
+  }
+
+  if (
+    options.maxDeltaMs !== undefined &&
+    (!Number.isFinite(options.maxDeltaMs) || options.maxDeltaMs <= 0)
+  ) {
+    throw new FurnaceError(
+      `loop: maxDeltaMs must be a positive finite number if provided, got ${options.maxDeltaMs}`,
+    );
   }
 
   const maxDeltaMs = options.maxDeltaMs ?? DEFAULT_MAX_DELTA_MS;

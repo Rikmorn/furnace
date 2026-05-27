@@ -144,3 +144,64 @@ test("throws when called with a disposed context", () => {
     }),
   ).toThrow(/disposed/);
 });
+
+test("loop throws when maxDeltaMs is zero", () => {
+  const ctx = fakeCtx();
+  expect(() =>
+    loop(
+      ctx,
+      () => {
+        /* no-op */
+      },
+      { maxDeltaMs: 0 },
+    ),
+  ).toThrow("maxDeltaMs must be a positive finite number");
+});
+
+test("loop throws when maxDeltaMs is negative", () => {
+  const ctx = fakeCtx();
+  expect(() =>
+    loop(
+      ctx,
+      () => {
+        /* no-op */
+      },
+      { maxDeltaMs: -16 },
+    ),
+  ).toThrow("maxDeltaMs must be a positive finite number");
+});
+
+test("loop throws when maxDeltaMs is NaN", () => {
+  const ctx = fakeCtx();
+  expect(() =>
+    loop(
+      ctx,
+      () => {
+        /* no-op */
+      },
+      { maxDeltaMs: Number.NaN },
+    ),
+  ).toThrow("maxDeltaMs must be a positive finite number");
+});
+
+test("loop throws when maxDeltaMs is Infinity", () => {
+  const ctx = fakeCtx();
+  expect(() =>
+    loop(
+      ctx,
+      () => {
+        /* no-op */
+      },
+      { maxDeltaMs: Number.POSITIVE_INFINITY },
+    ),
+  ).toThrow("maxDeltaMs must be a positive finite number");
+});
+
+test("loop accepts undefined maxDeltaMs (uses default)", () => {
+  const ctx = fakeCtx();
+  expect(() =>
+    loop(ctx, () => {
+      /* no-op */
+    }),
+  ).not.toThrow();
+});
