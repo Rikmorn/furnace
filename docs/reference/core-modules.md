@@ -284,8 +284,8 @@ See `engine-conventions.md` §Resource ownership for the lifecycle contract that
 
 | Export | Signature | Notes |
 |---|---|---|
-| `cubeGeometry` | `(ctx: Context, opts?: { size?: number }) => Geometry` | Standalone cube geometry — pass to `mesh.create` when you want to reuse one geometry across multiple meshes. |
-| `planeGeometry` | `(ctx: Context, opts?: { size?: number }) => Geometry` | Builds a fresh `+Z`-facing unit plane Geometry. `size` default: 1. Useful for sharing one Geometry across many `mesh.create` calls (e.g. instanced backdrops). |
+| `cubeGeometry` | `(ctx: Context, opts?: { size?: number }) => Geometry` | Builds a fresh axis-aligned cube Geometry. `size` default: 1. Pass to `mesh.create` to bind. See `engine-conventions.md` §Resource ownership for the lifecycle contract. |
+| `planeGeometry` | `(ctx: Context, opts?: { size?: number }) => Geometry` | Builds a fresh `+Z`-facing unit plane Geometry. `size` default: 1. Pass to `mesh.create` to bind. See `engine-conventions.md` §Resource ownership for the lifecycle contract. |
 | `createGeometry` | `(ctx: Context, data: GeometryData) => Geometry` | Builds a vertex buffer (interleaved `[pos.xyz, normal.xyz, uv.uv]`, 32-byte stride) and optional index buffer from raw arrays. Validates the data. |
 | `destroyGeometry` | `(geometry: Geometry) => void` | Destroys vertex + index buffers, unregisters resources. |
 | `create` | `(ctx: Context, opts: { geometry: Geometry; material: Material }) => Mesh` | Allocates the per-mesh object-uniform buffer (64 bytes for `model`). Position `[0,0,0]`, identity rotation, scale `[1,1,1]`. |
@@ -305,8 +305,7 @@ See `engine-conventions.md` §Resource ownership for the lifecycle contract that
 
 ### Reference-only (no demo, by design)
 
-- `cubeGeometry` — exposed for the geometry-sharing pattern (one geometry, many meshes); use `mesh.create` for the common single-mesh path.
-- `destroyGeometry` — surfaces in teardown of any geometry-sharing demo; not exercised standalone.
+- `destroyGeometry` — surfaces in teardown of any demo that allocates a geometry; not exercised standalone.
 
 ---
 
