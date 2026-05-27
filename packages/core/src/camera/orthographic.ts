@@ -158,6 +158,88 @@ export function orthographic(opts: OrthographicOptions = {}): Camera {
 }
 
 /**
+ * Update the orthographic camera's fit policy. Re-derives bounds immediately
+ * using the camera's last-seen canvas size; subsequent resize events keep
+ * the policy active.
+ *
+ * The policy itself is not re-validated — construct via the `policy.*`
+ * factory namespace to guarantee well-formed inputs. Hand-written literals
+ * are accepted but lose validation.
+ *
+ * Setup-loud: validates `cam` and `p` references synchronously.
+ *
+ * @throws FurnaceError - if `cam` is null/undefined or not orthographic, or
+ * if `p` is null/undefined.
+ */
+export function setFitPolicy(cam: Camera, p: FitPolicy): void {
+  if (cam == null) {
+    throw new FurnaceError("cam must not be null/undefined");
+  }
+  if (cam.projection.kind !== "orthographic") {
+    throw new FurnaceError("setFitPolicy is orthographic-only");
+  }
+  if (p == null) {
+    throw new FurnaceError("policy must not be null/undefined");
+  }
+  cam.projection.fitPolicy = p;
+  const { width, height } = cam._lastSize;
+  const b = _deriveBounds(p, cam.projection.scale, width, height);
+  cam.projection.left = b.left;
+  cam.projection.right = b.right;
+  cam.projection.bottom = b.bottom;
+  cam.projection.top = b.top;
+  cam.projDirty = true;
+}
+
+/**
+ * Update the orthographic camera's scale (zoom multiplier). Bounds are
+ * multiplied by `scale` about the policy's anchor. Re-derives bounds
+ * immediately using the camera's last-seen canvas size.
+ *
+ * Setup-loud: validates inputs synchronously.
+ *
+ * @throws FurnaceError - if `cam` is null/undefined or not orthographic, or
+ * if `scale` is non-finite or non-positive.
+ */
+export function setScale(cam: Camera, scale: number): void {
+  if (cam == null) {
+    throw new FurnaceError("cam must not be null/undefined");
+  }
+  if (cam.projection.kind !== "orthographic") {
+    throw new FurnaceError("setScale is orthographic-only");
+  }
+  validateScale(scale);
+  cam.projection.scale = scale;
+  const { width, height } = cam._lastSize;
+  const b = _deriveBounds(cam.projection.fitPolicy, scale, width, height);
+  cam.projection.left = b.left;
+  cam.projection.right = b.right;
+  cam.projection.bottom = b.bottom;
+  cam.projection.top = b.top;
+  cam.projDirty = true;
+}
+
+/**
+ * Return the orthographic camera's current bounds as a frozen object.
+ *
+ * Bounds are derived state; consumers cannot mutate them. To freeze the
+ * current derived bounds into a stretch policy, pass the return value to
+ * `policy.stretch` and call {@link setFitPolicy}.
+ *
+ * @throws FurnaceError - if `cam` is null/undefined or not orthographic.
+ */
+export function getBounds(cam: Camera): Readonly<OrthographicBounds> {
+  if (cam == null) {
+    throw new FurnaceError("cam must not be null/undefined");
+  }
+  if (cam.projection.kind !== "orthographic") {
+    throw new FurnaceError("getBounds is orthographic-only");
+  }
+  const { left, right, bottom, top } = cam.projection;
+  return Object.freeze({ left, right, bottom, top });
+}
+
+/**
  * Set an orthographic camera's view bounds. Mutates `cam` in place; flips
  * `projDirty`.
  *

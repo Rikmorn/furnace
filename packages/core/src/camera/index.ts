@@ -13,10 +13,13 @@ export {
   policy,
 } from "./fit-policy.ts";
 export {
+  getBounds,
   type OrthographicBounds,
   type OrthographicOptions,
   orthographic,
   setBounds,
+  setFitPolicy,
+  setScale,
 } from "./orthographic.ts";
 export {
   type PerspectiveOptions,

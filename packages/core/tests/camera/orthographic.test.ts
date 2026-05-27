@@ -1,6 +1,14 @@
 import { expect, test } from "bun:test";
 import { getMatrices, setAspect, setNearFar } from "../../src/camera/common.ts";
-import { orthographic, setBounds } from "../../src/camera/orthographic.ts";
+import { policy } from "../../src/camera/fit-policy.ts";
+import {
+  getBounds,
+  orthographic,
+  setBounds,
+  setFitPolicy,
+  setScale,
+} from "../../src/camera/orthographic.ts";
+import { perspective } from "../../src/camera/perspective.ts";
 import { mat4 } from "../../src/transform/mat4.ts";
 import { vec3 } from "../../src/transform/vec3.ts";
 
@@ -91,4 +99,93 @@ test("factory options are honored", () => {
     vec3.fromValues(0, 1, 0),
   );
   expect(approxArr(view, expectedView)).toBe(true);
+});
+
+test("setFitPolicy updates the policy and re-derives bounds immediately", () => {
+  const cam = orthographic({
+    fitPolicy: policy.stretch({ left: -1, right: 1, bottom: -1, top: 1 }),
+  });
+  cam._lastSize = { width: 200, height: 100 }; // simulate post-bind state
+  setFitPolicy(cam, policy.preserveHeight(2));
+  // anchor centered, height 2, aspect 2 → bounds [-2, 2, -1, 1]
+  const b = getBounds(cam);
+  expect(b.left).toBeCloseTo(-2);
+  expect(b.right).toBeCloseTo(2);
+  expect(b.bottom).toBeCloseTo(-1);
+  expect(b.top).toBeCloseTo(1);
+  expect(cam.projDirty).toBe(true);
+});
+
+test("setFitPolicy throws on non-orthographic camera", () => {
+  const cam = perspective({});
+  expect(() => setFitPolicy(cam, policy.preserveHeight(2))).toThrow(
+    /orthographic/,
+  );
+});
+
+test("setFitPolicy throws on null camera", () => {
+  // biome-ignore lint/suspicious/noExplicitAny: testing invalid input
+  expect(() => setFitPolicy(null as any, policy.preserveHeight(2))).toThrow(
+    /cam/,
+  );
+});
+
+test("setFitPolicy throws on null policy", () => {
+  const cam = orthographic({});
+  // biome-ignore lint/suspicious/noExplicitAny: testing invalid input
+  expect(() => setFitPolicy(cam, null as any)).toThrow(/policy/);
+});
+
+test("setScale multiplies derived bounds and flips projDirty", () => {
+  const cam = orthographic({ fitPolicy: policy.preserveHeight(2) });
+  cam._lastSize = { width: 100, height: 100 };
+  cam.projDirty = false;
+  setScale(cam, 3);
+  // height=2*3=6, aspect 1 → bounds half=3 each axis
+  const b = getBounds(cam);
+  expect(b.top).toBeCloseTo(3);
+  expect(b.bottom).toBeCloseTo(-3);
+  expect(b.left).toBeCloseTo(-3);
+  expect(b.right).toBeCloseTo(3);
+  expect(cam.projDirty).toBe(true);
+});
+
+test("setScale throws on non-positive or non-finite scale", () => {
+  const cam = orthographic({});
+  expect(() => setScale(cam, 0)).toThrow(/positive/);
+  expect(() => setScale(cam, -1)).toThrow(/positive/);
+  expect(() => setScale(cam, Number.NaN)).toThrow(/finite/);
+});
+
+test("setScale throws on non-orthographic camera", () => {
+  const cam = perspective({});
+  expect(() => setScale(cam, 2)).toThrow(/orthographic/);
+});
+
+test("setScale throws on null camera", () => {
+  // biome-ignore lint/suspicious/noExplicitAny: testing invalid input
+  expect(() => setScale(null as any, 2)).toThrow(/cam/);
+});
+
+test("getBounds returns a frozen copy", () => {
+  const cam = orthographic({
+    fitPolicy: policy.stretch({ left: -2, right: 2, bottom: -1, top: 1 }),
+  });
+  const b = getBounds(cam);
+  expect(b).toEqual({ left: -2, right: 2, bottom: -1, top: 1 });
+  expect(Object.isFrozen(b)).toBe(true);
+  expect(() => {
+    // biome-ignore lint/suspicious/noExplicitAny: testing frozen behaviour
+    (b as any).left = 999;
+  }).toThrow();
+});
+
+test("getBounds throws on non-orthographic camera", () => {
+  const cam = perspective({});
+  expect(() => getBounds(cam)).toThrow(/orthographic/);
+});
+
+test("getBounds throws on null camera", () => {
+  // biome-ignore lint/suspicious/noExplicitAny: testing invalid input
+  expect(() => getBounds(null as any)).toThrow(/cam/);
 });
