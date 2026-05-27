@@ -45,7 +45,7 @@ Explicit destroy model.
 
 `gpu.dispose(ctx)`:
 - Calls `device.destroy()` (WebGPU frees GPU memory).
-- Clears internal bookkeeping (caches, registries, emitters).
+- Clears internal bookkeeping (caches, registries, emitters). Engine modules with ctx-bound lazy allocations (`frame.render`'s depth texture and per-camera uniform buffers, `post`'s scene intermediates) self-register their teardown internally — the consumer destroy contract for owned resources (meshes, materials, geometries, effects) is unchanged.
 - Subsequent calls taking the disposed ctx throw "context disposed".
 - `module.destroy(handle)` on handles tied to a disposed ctx is a no-op (safe to call).
 - Idempotent: calling `dispose` twice is safe.
