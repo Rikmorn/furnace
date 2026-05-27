@@ -37,7 +37,8 @@ async function tinyScene(): Promise<{
   const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
   const cam = camera.perspective({ aspect: 1 });
   const mat = await material.unlit(ctx, { color: vec4.fromValues(1, 0, 0, 1) });
-  const cube = mesh.cube(ctx, { material: mat });
+  const cubeGeo = mesh.cubeGeometry(ctx);
+  const cube = mesh.create(ctx, { geometry: cubeGeo, material: mat });
   return { ctx, cam, cube };
 }
 

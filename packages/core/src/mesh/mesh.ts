@@ -26,9 +26,9 @@ type MeshWithHandles = Mesh & {
  * rotation, scale `[1,1,1]` with `transformDirty` set so the first frame
  * writes the buffer.
  *
- * The geometry and material are stored by reference — `mesh.destroy` does
- * not destroy either. A single geometry/material pair may be shared across
- * many meshes.
+ * The caller owns the passed `geometry` and `material` — see
+ * `engine-conventions.md` §Resource ownership. `mesh.destroy` does not
+ * cascade to either.
  */
 export function create(
   ctx: Context,
@@ -64,9 +64,9 @@ export function create(
  * Destroy a {@link Mesh}: destroy its object-uniform buffer and unregister
  * the mesh + buffer handles from stats.
  *
- * Does **not** destroy `mesh.geometry` or `mesh.material` — both may be
- * shared with other meshes. Call `mesh.destroyGeometry` and `material.destroy`
- * separately when those resources have no other owners.
+ * Does **not** destroy `mesh.geometry` or `mesh.material` — the caller owns
+ * those handles per `engine-conventions.md` §Resource ownership. Call
+ * `mesh.destroyGeometry` and `material.destroy` separately.
  */
 export function destroy(mesh: Mesh): void {
   // Boundary cast: mesh handles were stashed by create on the same Mesh instance; the cross-function invariant isn't expressible in the public Mesh type.

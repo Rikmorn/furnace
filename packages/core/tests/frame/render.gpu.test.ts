@@ -4,7 +4,8 @@ import { _frameRenderInternals, render } from "../../src/frame/render.ts";
 import * as gpu from "../../src/gpu/index.ts";
 import { normalColor } from "../../src/material/normal-color.ts";
 import { unlit } from "../../src/material/unlit.ts";
-import { cube, plane } from "../../src/mesh/factories";
+import { cubeGeometry, planeGeometry } from "../../src/mesh/factories/index.ts";
+import { create as createMesh } from "../../src/mesh/mesh.ts";
 import { vec3 } from "../../src/transform/index.ts";
 import { vec4 } from "../../src/transform/vec4.ts";
 import {
@@ -57,8 +58,14 @@ test.skipIf(!bunWebGpuAvailable())(
     const planeMat = await unlit(ctx, {
       color: vec4.fromValues(0.1, 0.15, 0.2, 1),
     });
-    const c = cube(ctx, { material: cubeMat });
-    const p = plane(ctx, { material: planeMat, size: 3 });
+    const c = createMesh(ctx, {
+      geometry: cubeGeometry(ctx),
+      material: cubeMat,
+    });
+    const p = createMesh(ctx, {
+      geometry: planeGeometry(ctx, { size: 3 }),
+      material: planeMat,
+    });
     ctx.device.pushErrorScope("validation");
     render(ctx, { draw: [p, c], camera: cam });
     const err = await ctx.device.popErrorScope();
@@ -104,7 +111,7 @@ test.skipIf(!bunWebGpuAvailable())(
     const camA = camera.perspective({ position: vec3.fromValues(0, 0, 3) });
     const camB = camera.perspective({ position: vec3.fromValues(3, 0, 0) });
     const mat = await normalColor(ctx);
-    const c = cube(ctx, { material: mat });
+    const c = createMesh(ctx, { geometry: cubeGeometry(ctx), material: mat });
     const bufA = _frameRenderInternals._ensureCameraBuffer(ctx, camA);
     const bufB = _frameRenderInternals._ensureCameraBuffer(ctx, camB);
     const groupA = _frameRenderInternals._ensureMeshGroup0(

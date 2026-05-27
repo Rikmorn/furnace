@@ -1,4 +1,4 @@
-export { cube, cubeGeometry, plane, planeGeometry } from "./factories";
+export { cubeGeometry, planeGeometry } from "./factories";
 export { createGeometry, destroyGeometry } from "./geometry.ts";
 export {
   create,

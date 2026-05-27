@@ -28,7 +28,8 @@ test.skipIf(!bunWebGpuAvailable())(
     const mat = await material.unlit(ctx, {
       color: vec4.fromValues(1, 0, 0, 1),
     });
-    const m = mesh.cube(ctx, { material: mat });
+    const mGeo = mesh.cubeGeometry(ctx);
+    const m = mesh.create(ctx, { geometry: mGeo, material: mat });
     render(ctx, { draw: [m], camera: cam });
     const s = snapshot(ctx);
     expect(s.gpu.drawCalls).toBe(1);
@@ -36,6 +37,7 @@ test.skipIf(!bunWebGpuAvailable())(
     expect(s.gpu.pipelineSwitches).toBe(1);
     expect(s.gpu.bindGroupSwitches).toBe(2);
     mesh.destroy(m);
+    mesh.destroyGeometry(mGeo);
     gpu.dispose(ctx);
   },
 );
@@ -54,8 +56,9 @@ test.skipIf(!bunWebGpuAvailable())(
     const mat = await material.unlit(ctx, {
       color: vec4.fromValues(1, 0, 0, 1),
     });
-    const a = mesh.cube(ctx, { material: mat });
-    const b = mesh.cube(ctx, { material: mat });
+    const geo = mesh.cubeGeometry(ctx);
+    const a = mesh.create(ctx, { geometry: geo, material: mat });
+    const b = mesh.create(ctx, { geometry: geo, material: mat });
     render(ctx, { draw: [a, b], camera: cam });
     const s = snapshot(ctx);
     expect(s.gpu.drawCalls).toBe(2);
@@ -63,6 +66,7 @@ test.skipIf(!bunWebGpuAvailable())(
     expect(s.gpu.pipelineSwitches).toBe(1);
     mesh.destroy(a);
     mesh.destroy(b);
+    mesh.destroyGeometry(geo);
     gpu.dispose(ctx);
   },
 );
@@ -81,7 +85,8 @@ test.skipIf(!bunWebGpuAvailable())(
     const mat = await material.unlit(ctx, {
       color: vec4.fromValues(1, 0, 0, 1),
     });
-    const m = mesh.cube(ctx, { material: mat });
+    const mGeo = mesh.cubeGeometry(ctx);
+    const m = mesh.create(ctx, { geometry: mGeo, material: mat });
     render(ctx, { draw: [m], camera: cam });
     const firstSnap = snapshot(ctx);
     expect(firstSnap.memory.textureBytes).toBeGreaterThanOrEqual(64 * 48 * 4);
@@ -94,6 +99,7 @@ test.skipIf(!bunWebGpuAvailable())(
     expect(secondSnap.memory.textureBytes).toBeGreaterThan(firstTexBytes);
     expect(secondSnap.memory.textureBytes).toBeGreaterThanOrEqual(128 * 96 * 4);
     mesh.destroy(m);
+    mesh.destroyGeometry(mGeo);
     gpu.dispose(ctx);
   },
 );
@@ -112,7 +118,8 @@ test.skipIf(!bunWebGpuAvailable())(
     const mat = await material.unlit(ctx, {
       color: vec4.fromValues(1, 0, 0, 1),
     });
-    const m = mesh.cube(ctx, { material: mat });
+    const mGeo = mesh.cubeGeometry(ctx);
+    const m = mesh.create(ctx, { geometry: mGeo, material: mat });
     const before = snapshot(ctx);
     render(ctx, { draw: [m], camera: cam });
     const after = snapshot(ctx);
@@ -120,6 +127,7 @@ test.skipIf(!bunWebGpuAvailable())(
       after.memory.bufferBytes - before.memory.bufferBytes,
     ).toBeGreaterThanOrEqual(64);
     mesh.destroy(m);
+    mesh.destroyGeometry(mGeo);
     gpu.dispose(ctx);
   },
 );

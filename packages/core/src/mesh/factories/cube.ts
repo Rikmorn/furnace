@@ -1,8 +1,6 @@
 import type { Context } from "../../gpu/index.ts";
-import type { Material } from "../../material/types.ts";
 import { createGeometry } from "../geometry.ts";
-import { create } from "../mesh.ts";
-import type { Geometry, GeometryData, Mesh } from "../types.ts";
+import type { Geometry, GeometryData } from "../types.ts";
 
 type Vec3Tuple = readonly [number, number, number];
 
@@ -88,29 +86,10 @@ function cubeGeometryData(size: number): GeometryData {
  * winding viewed from outside, per-face normals, per-face UVs in `[0,1]`).
  * `size` is the full edge length and defaults to `1`.
  *
- * Use when you want to share one geometry across multiple meshes (pass to
- * `mesh.create({ geometry: shared, material })`). For the common
- * single-mesh path, use {@link cube} instead.
+ * Pass to `mesh.create({ geometry, material })` to bind. The caller owns
+ * the returned geometry — see `engine-conventions.md` §Resource ownership.
  */
 export function cubeGeometry(ctx: Context, opts?: { size?: number }): Geometry {
   const size = opts?.size ?? 1;
   return createGeometry(ctx, cubeGeometryData(size));
-}
-
-/**
- * Convenience factory: build a fresh cube {@link Geometry} and bind it to
- * `opts.material`, returning a ready-to-render {@link Mesh}. `size` is the
- * full edge length and defaults to `1`.
- *
- * The geometry is owned by this mesh; share via {@link cubeGeometry} +
- * `mesh.create` when one cube must back multiple meshes.
- */
-export function cube(
-  ctx: Context,
-  opts: { material: Material; size?: number },
-): Mesh {
-  return create(ctx, {
-    geometry: cubeGeometry(ctx, opts),
-    material: opts.material,
-  });
 }

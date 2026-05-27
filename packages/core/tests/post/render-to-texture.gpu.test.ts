@@ -23,7 +23,8 @@ test.skipIf(!bunWebGpuAvailable())(
     const mat = await material.unlit(ctx, {
       color: vec4.fromValues(1, 0, 0, 1),
     });
-    const cube = mesh.cube(ctx, { material: mat });
+    const cubeGeo = mesh.cubeGeometry(ctx);
+    const cube = mesh.create(ctx, { geometry: cubeGeo, material: mat });
 
     const target = ctx.device.createTexture({
       size: { width: 64, height: 64 },
@@ -49,6 +50,7 @@ test.skipIf(!bunWebGpuAvailable())(
     depth.destroy();
     target.destroy();
     mesh.destroy(cube);
+    mesh.destroyGeometry(cubeGeo);
     material.destroy(mat);
     gpu.dispose(ctx);
   },
