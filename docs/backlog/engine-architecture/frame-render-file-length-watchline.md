@@ -1,6 +1,6 @@
 # `frame/render.ts` file length on the clean-code watch line
 
-`packages/core/src/frame/render.ts` is **426 lines** as of Tranche B (commit `b962c45`). `.claude/rules/clean-code.md` flags ~400 lines as a cognitive-load signal worth watching, especially when a file mixes unrelated concerns.
+`packages/core/src/frame/render.ts` is **453 lines** as of Tranche A-4 Task 9 (commit `06701e3`). At filing it was 426 lines (Tranche B, commit `b962c45`). `.claude/rules/clean-code.md` flags ~400 lines as a cognitive-load signal worth watching, especially when a file mixes unrelated concerns.
 
 The current contents mix three concerns:
 
@@ -18,5 +18,7 @@ Tranche B added ~28 lines (cascade registration + two new private `_dispose*` he
 Either split reduces `render.ts` to ~200-250 lines and gives the second concern its own home. The first option (extracting internals) maps more cleanly onto the cascade boundary surfaced in Tranche B, since the extracted file would be the natural home for the next ctx-bound allocation that joins the cascade.
 
 **Trigger to revisit:** next non-trivial render-path addition (multi-camera passes, render-to-texture-depth-coupling, depth-disabled materials per `docs/backlog/engine-architecture/render-to-texture-depth-coupling.md`, etc.) that adds lines to `render.ts`. If that PR would push the file past ~450 lines, extract one of the two concerns above as part of the same change.
+
+**Trigger fired (2026-05-27):** Tranche A-4 Task 9 (`06701e3`, frame.render camera + draw input validation) added the `validateDraw` helper and pushed `render.ts` from 426 → 453 lines, crossing the ~450-line threshold. A-4 Task 9 itself was the trigger event but did not motivate an extraction — it added validation, not restructuring. The recommended extraction (preferred: `frame/render-internals.ts`) should be bundled with the **next** render-path PR that touches this file.
 
 **Reference:** surfaced during Tranche B final review (2026-05-27). Tranche B itself contributed 28 lines but did not cause the threshold crossing — the file was already at the watch line.
