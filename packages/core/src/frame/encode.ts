@@ -21,7 +21,7 @@ export function encode(
     throw new FurnaceGpuError("context disposed");
   }
   if (typeof callback !== "function") {
-    throw new FurnaceGpuError("encode: callback is required");
+    throw new FurnaceGpuError("encode: callback must be a function");
   }
   const encoder = ctx.device.createCommandEncoder();
   callback(encoder);

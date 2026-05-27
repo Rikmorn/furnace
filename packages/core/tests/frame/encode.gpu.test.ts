@@ -81,7 +81,7 @@ test.skipIf(skip)("encode throws when callback is null", async () => {
 
   expect(() =>
     encode(ctx, null as unknown as (encoder: GPUCommandEncoder) => void),
-  ).toThrow("callback is required");
+  ).toThrow("callback must be a function");
 
   dispose(ctx);
 });
@@ -95,7 +95,7 @@ test.skipIf(skip)("encode throws when callback is not a function", async () => {
 
   expect(() =>
     encode(ctx, 42 as unknown as (encoder: GPUCommandEncoder) => void),
-  ).toThrow("callback is required");
+  ).toThrow("callback must be a function");
 
   dispose(ctx);
 });
