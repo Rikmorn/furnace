@@ -151,6 +151,7 @@ type SceneRef = {
   scratchPos: Vec3;
   gizmoMat: Material;
   gizmoMesh: Mesh;
+  gizmoGeo: Geometry;
   gizmoRot: Quat;
   gizmoDir: Vec3;
   gizmoAxis: Vec3;
@@ -207,6 +208,7 @@ async function buildScene(ctx: Context): Promise<SceneRef> {
   let sampler: GPUSampler | undefined;
   let gizmoMat: Material | undefined;
   let gizmoMesh: Mesh | undefined;
+  let gizmoGeo: Geometry | undefined;
   let unsubResize: (() => void) | undefined;
 
   try {
@@ -267,11 +269,8 @@ async function buildScene(ctx: Context): Promise<SceneRef> {
       depthWrite: false,
       depthCompare: "always",
     });
-    const gizmoGeom = mesh.createGeometry(
-      ctx,
-      gizmoQuadGeometryData(GIZMO_SIZE),
-    );
-    gizmoMesh = mesh.create(ctx, { geometry: gizmoGeom, material: gizmoMat });
+    gizmoGeo = mesh.createGeometry(ctx, gizmoQuadGeometryData(GIZMO_SIZE));
+    gizmoMesh = mesh.create(ctx, { geometry: gizmoGeo, material: gizmoMat });
 
     return {
       subjectMat,
@@ -291,6 +290,7 @@ async function buildScene(ctx: Context): Promise<SceneRef> {
       scratchPos: vec3.create(),
       gizmoMat,
       gizmoMesh,
+      gizmoGeo,
       gizmoRot: quat.create(),
       gizmoDir: vec3.create(),
       gizmoAxis: vec3.create(),
@@ -301,6 +301,7 @@ async function buildScene(ctx: Context): Promise<SceneRef> {
     if (monitorMesh) mesh.destroy(monitorMesh);
     if (roomMesh) mesh.destroy(roomMesh);
     if (subjectMesh) mesh.destroy(subjectMesh);
+    if (gizmoGeo) mesh.destroyGeometry(gizmoGeo);
     if (monitorGeo) mesh.destroyGeometry(monitorGeo);
     if (roomGeo) mesh.destroyGeometry(roomGeo);
     if (subjectGeo) mesh.destroyGeometry(subjectGeo);
@@ -318,6 +319,7 @@ function disposeScene(s: SceneRef): void {
   mesh.destroy(s.monitorMesh);
   mesh.destroy(s.roomMesh);
   mesh.destroy(s.subjectMesh);
+  mesh.destroyGeometry(s.gizmoGeo);
   mesh.destroyGeometry(s.monitorGeo);
   mesh.destroyGeometry(s.roomGeo);
   mesh.destroyGeometry(s.subjectGeo);
