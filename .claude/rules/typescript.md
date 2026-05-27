@@ -3,12 +3,13 @@ paths:
   - "**/*.ts"
 ---
 
-Never bypass the compiler (`as Type`, `!`, `// @ts-ignore`, `// @ts-expect-error`, `// biome-ignore`). If the types don't work, fix the types -- don't silence them.
+These directives bypass static checks: `as Type`, `!`, `// @ts-ignore`, `// @ts-expect-error`, `// biome-ignore`. Use them only when the code is correct and the tool is wrong — never to hide or defer a real fix. If the types don't work, fix the types.
 
-Exceptions, narrowly scoped:
+Legitimate uses (each with the discipline it requires):
 
 - **Test files passing deliberately invalid inputs.** No comment required — the test's intent is the documentation.
 - **Boundary casts at a real system edge** where the type system cannot track an invariant the runtime guarantees. Requires an inline `// Boundary cast: ...` comment naming the boundary and the invariant. Examples in this repo: DOM `Event.button` (number) narrowing to a domain `PointerButton` union; reading back module-private fields installed on a Context's `_internal` (the same module wrote them, the type system can't carry that fact across the public `InternalState` shape). "I needed to silence the compiler" is not a boundary; "the data crosses an external system whose types are wider than ours" is.
+- **`// biome-ignore format`** preserves a deliberate readability choice the formatter would otherwise discard (e.g. parens that clarify operator precedence, alignment that aids visual scanning). Distinct from `// biome-ignore lint` — it doesn't silence a diagnostic, it stops normalisation. Requires an inline reason naming the readability concern, e.g. `// biome-ignore format: clarify precedence trap`.
 
 A type assertion to attach a phantom brand (`as unknown as BrandedType`) is **not** a boundary case — it disables structural verification of the factory's own output. If you find yourself reaching for it, drop the brand and use the structural type directly. A real `Symbol()` is the right tool when unforgeability is actually load-bearing, which is rare.
 
