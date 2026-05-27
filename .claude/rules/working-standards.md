@@ -20,6 +20,12 @@ Behavioural baseline for all contributors working in this repository.
 - Do what was asked. If you think the scope should be larger, say so — don't silently expand it.
 - Before claiming work is done, verify it — at minimum a type check, ideally run the relevant tests. Match the verification to the scope of the change.
 
+## Design
+- **Deletion pass before addition pass.** When evolving existing API surface, list deletion candidates before listing additions. For every existing export in the affected area, ask "if we add the new thing, could we delete this?" Removing surface is a first-class option, not a fallback.
+- **Single source of truth as a forcing function.** Two ways to spell the same thing — sugar fields alongside explicit fields, two parallel mutators, derived state that's also user-settable — is a smell. Pick one path and delete the other. Parallel paths force conflict-resolution rules (throw / warn / clear / silent) that are pure cost.
+- **Mine wrong proposals.** A rejected design idea usually surfaces a real constraint that a different shape can satisfy. Don't dismiss rejections; ask "what was that trying to solve?" and propose differently. Tranche A-2's construct-time sugar was wrong but exposed the constraint that the policy-factory namespace then satisfied cleanly.
+- **Hygiene tranches bias reductive; feature tranches still pass the overlap check.** Audit and clean-up tranches whose explicit goal is "tidy existing surface" default to removing things. Feature tranches that add capability should still pass each new primitive through "does this overlap with anything existing?" — and if yes, ship the new thing AND delete the old, or ship neither.
+
 ## Debugging
 - **Public API before internals.** When debugging a library integration, grep the library's exported functions first. Most "we need to fork" intuitions are wrong — the function you want usually exists in the public surface (e.g. `build_as_child` vs `build` in wry).
 - **Reference implementations before reverse engineering.** For any widely-used library combination, search for an open-source project using both together. Half an hour of pattern-matching against working code saves days of reverse-engineering from internals.
