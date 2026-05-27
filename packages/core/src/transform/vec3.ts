@@ -162,7 +162,8 @@ export const vec3 = {
     const m13 = m[13] as number;
     const m14 = m[14] as number;
     const m15 = m[15] as number;
-    const w = m3 * x + m7 * y + m11 * z + m15 || 1;
+    // biome-ignore format: clarify precedence trap
+    const w = (m3 * x + m7 * y + m11 * z + m15) || 1;
     out[0] = (m0 * x + m4 * y + m8 * z + m12) / w;
     out[1] = (m1 * x + m5 * y + m9 * z + m13) / w;
     out[2] = (m2 * x + m6 * y + m10 * z + m14) / w;
