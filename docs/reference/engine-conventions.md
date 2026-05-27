@@ -166,6 +166,39 @@ Pick the policy that matches the module's role.
 Tranche 5 (stats) is the reference background example. Tranche 6 (post) is the
 reference foreground example.
 
+## Resource ownership
+
+The engine follows one rule for GPU resource lifetime:
+
+> **Pass a GPU handle in, or get one back, → you own it.**
+
+- A constructor that returns a handle (`createGeometry`, `material.create`, `mesh.create`, etc.) hands ownership to the caller. The caller calls the corresponding `destroy*` on teardown.
+- A constructor that takes a handle in its descriptor (`mesh.create({ geometry, material })`) does **not** take ownership — the caller still owns the handle they passed in.
+- A factory that takes only configuration values (no handles) and returns a handle (`material.unlit({ color })`) keeps its internal allocations private. They are freed by the corresponding `destroy*`. The caller never receives a separately-disposable handle to those internals.
+
+There is no "managed mesh" or "factory-owned" middle category. The engine surface either gives you handles you own, or it returns opaque results whose internals you can't reach.
+
+### Mapping per public API
+
+| API | Inputs | Returns | Caller owns | Engine owns (private) |
+|---|---|---|---|---|
+| `createGeometry(ctx, data)` | typed-array values | `Geometry` | the Geometry | — |
+| `cubeGeometry(ctx, opts?)` | size value | `Geometry` | the Geometry | — |
+| `planeGeometry(ctx, opts?)` | size value | `Geometry` | the Geometry | — |
+| `mesh.create({ geometry, material })` | two handles | `Mesh` | Mesh + the passed geometry + the passed material | mesh's object buffer |
+| `material.create({ vertex, fragment, bindings })` | strings + buffer handles | `Material` | Material + each binding buffer | pipeline (refcounted) |
+| `material.unlit({ color })` | vec4 value | `Material` | the Material | pipeline + color uniform buffer |
+| `material.normalColor(opts?)` | options | `Material` | the Material | pipeline |
+| `post.create(ctx, { shader, bindings? })` | string + optional handles | `Effect` | Effect + each binding buffer | pipeline + intermediate textures |
+
+### Sharing
+
+To share one geometry across multiple meshes, allocate it via the explicit flow (`cubeGeometry` / `planeGeometry` / `createGeometry`) and pass the handle into every `mesh.create` that should bind it. You destroy it ONCE on teardown, after all dependent meshes are destroyed. See `packages/cookbook/src/demos/custom-stats/entry.ts` for a worked example (one geometry, N cubes).
+
+### Historical note
+
+Earlier engine versions exposed `mesh.cube` and `mesh.plane` convenience factories that returned a `Mesh` with an internally-allocated geometry. They violated the rule above — the geometry was *publicly visible* on `mesh.geometry` but `mesh.destroy` did not free it, leaking 3 GPU resources per mesh on dispose. Removed in Tranche B-1 (2026-05-27). To get the same shape today, allocate the geometry explicitly: `mesh.create(ctx, { geometry: mesh.cubeGeometry(ctx), material })`.
+
 ## Diagnostics
 
 The engine emits diagnostics through `@furnace/core/log`. A single
