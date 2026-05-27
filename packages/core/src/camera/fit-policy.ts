@@ -119,3 +119,49 @@ export const policy = {
     return { kind: "preserve-width", width, anchor: a };
   },
 };
+
+/**
+ * Internal: derives orthographic bounds from policy + scale + canvas size.
+ * Pure function — does not mutate the policy. Exported as `_deriveBounds`
+ * for testing; consumers should not call it directly.
+ *
+ * Underscore prefix marks it as internal; exempt from the TSDoc convention.
+ */
+export function _deriveBounds(
+  fitPolicy: FitPolicy,
+  scale: number,
+  width: number,
+  height: number,
+): OrthographicBounds {
+  if (fitPolicy.kind === "stretch") {
+    const { left, right, bottom, top } = fitPolicy.bounds;
+    return {
+      left: left * scale,
+      right: right * scale,
+      bottom: bottom * scale,
+      top: top * scale,
+    };
+  }
+  const aspect = width / height;
+  if (fitPolicy.kind === "preserve-height") {
+    const w = fitPolicy.height * aspect * scale;
+    const h = fitPolicy.height * scale;
+    const { x: ax, y: ay } = fitPolicy.anchor;
+    return {
+      left: (0 - ax) * w,
+      right: (1 - ax) * w,
+      bottom: (0 - ay) * h,
+      top: (1 - ay) * h,
+    };
+  }
+  // preserve-width
+  const w = fitPolicy.width * scale;
+  const h = (fitPolicy.width / aspect) * scale;
+  const { x: ax, y: ay } = fitPolicy.anchor;
+  return {
+    left: (0 - ax) * w,
+    right: (1 - ax) * w,
+    bottom: (0 - ay) * h,
+    top: (1 - ay) * h,
+  };
+}

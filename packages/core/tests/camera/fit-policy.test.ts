@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { policy } from "../../src/camera/fit-policy.ts";
+import { _deriveBounds, policy } from "../../src/camera/fit-policy.ts";
 
 test("policy.stretch returns a stretch variant with the given bounds", () => {
   const p = policy.stretch({ left: -2, right: 2, bottom: -1, top: 1 });
@@ -73,4 +73,61 @@ test("policy.preserveWidth mirrors preserveHeight", () => {
 
 test("policy.preserveWidth throws on non-positive width", () => {
   expect(() => policy.preserveWidth(0)).toThrow(/positive/);
+});
+
+test("_deriveBounds stretch: bounds multiplied by scale, canvas ignored", () => {
+  const p = policy.stretch({ left: -2, right: 2, bottom: -1, top: 1 });
+  const b1 = _deriveBounds(p, 1, 100, 100);
+  expect(b1).toEqual({ left: -2, right: 2, bottom: -1, top: 1 });
+  const b2 = _deriveBounds(p, 2, 800, 600);
+  expect(b2).toEqual({ left: -4, right: 4, bottom: -2, top: 2 });
+});
+
+test("_deriveBounds preserve-height with centered anchor: width = height * aspect", () => {
+  const p = policy.preserveHeight(2); // anchor (0.5, 0.5)
+  // 16:9 canvas → aspect 16/9; width = 2 * 16/9; half = 16/9
+  const b = _deriveBounds(p, 1, 1600, 900);
+  expect(b.bottom).toBeCloseTo(-1);
+  expect(b.top).toBeCloseTo(1);
+  expect(b.left).toBeCloseTo(-16 / 9);
+  expect(b.right).toBeCloseTo(16 / 9);
+});
+
+test("_deriveBounds preserve-height with bottom-left anchor: positive bounds", () => {
+  const p = policy.preserveHeight(2, { x: 0, y: 0 });
+  const b = _deriveBounds(p, 1, 200, 100);
+  // height = 2, width = 2 * 2 = 4; anchor (0,0) puts origin at bottom-left.
+  expect(b.left).toBe(0);
+  expect(b.right).toBe(4);
+  expect(b.bottom).toBe(0);
+  expect(b.top).toBe(2);
+});
+
+test("_deriveBounds preserve-height with top-right anchor", () => {
+  const p = policy.preserveHeight(2, { x: 1, y: 1 });
+  const b = _deriveBounds(p, 1, 200, 100);
+  expect(b.left).toBe(-4);
+  expect(b.right).toBe(0);
+  expect(b.bottom).toBe(-2);
+  expect(b.top).toBe(0);
+});
+
+test("_deriveBounds preserve-height honors scale", () => {
+  const p = policy.preserveHeight(2);
+  const b = _deriveBounds(p, 3, 100, 100);
+  // scale=3, height=2*3=6, width=6*1=6, anchor centered.
+  expect(b.left).toBeCloseTo(-3);
+  expect(b.right).toBeCloseTo(3);
+  expect(b.bottom).toBeCloseTo(-3);
+  expect(b.top).toBeCloseTo(3);
+});
+
+test("_deriveBounds preserve-width mirrors preserve-height", () => {
+  const p = policy.preserveWidth(4);
+  // width=4, aspect=2 → height=2; anchor centered.
+  const b = _deriveBounds(p, 1, 200, 100);
+  expect(b.left).toBeCloseTo(-2);
+  expect(b.right).toBeCloseTo(2);
+  expect(b.bottom).toBeCloseTo(-1);
+  expect(b.top).toBeCloseTo(1);
 });
