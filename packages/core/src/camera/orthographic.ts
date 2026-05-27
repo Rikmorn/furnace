@@ -21,20 +21,12 @@ const DEFAULT_UP: readonly [number, number, number] = [0, 1, 0];
  *
  * `fitPolicy` defaults to a stretch policy with unit bounds
  * (`{ left: -1, right: 1, bottom: -1, top: 1 }`). `scale` defaults to 1.
- *
- * Legacy fields `left`/`right`/`bottom`/`top` are accepted during the A-2
- * transition and synthesise a stretch policy when `fitPolicy` is omitted.
- * They will be removed in a follow-up commit; new code should use
- * `fitPolicy` directly.
+ * `near` defaults to -1, `far` to 1. `position`, `target`, `up` default to
+ * `[0, 0, 1]`, `[0, 0, 0]`, `[0, 1, 0]` respectively.
  */
 export type OrthographicOptions = {
   fitPolicy?: FitPolicy;
   scale?: number;
-  // Transitional legacy fields — remove in Task 8.
-  left?: number;
-  right?: number;
-  bottom?: number;
-  top?: number;
   near?: number;
   far?: number;
   position?: Vec3;
@@ -70,13 +62,11 @@ function recomputeOrtho(data: Camera): void {
 
 function resolveInitialFitPolicy(opts: OrthographicOptions): FitPolicy {
   if (opts.fitPolicy) return opts.fitPolicy;
-  // Transitional: synthesise stretch policy from legacy bounds fields (or
-  // their defaults if absent). Removed in Task 8.
   return policy.stretch({
-    left: opts.left ?? DEFAULT_LEFT,
-    right: opts.right ?? DEFAULT_RIGHT,
-    bottom: opts.bottom ?? DEFAULT_BOTTOM,
-    top: opts.top ?? DEFAULT_TOP,
+    left: DEFAULT_LEFT,
+    right: DEFAULT_RIGHT,
+    bottom: DEFAULT_BOTTOM,
+    top: DEFAULT_TOP,
   });
 }
 

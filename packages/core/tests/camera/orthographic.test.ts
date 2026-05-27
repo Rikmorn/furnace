@@ -74,10 +74,7 @@ test("setNearFar allows negative near (orthographic)", () => {
 
 test("factory options are honored", () => {
   const cam = orthographic({
-    left: -2,
-    right: 2,
-    bottom: -1,
-    top: 1,
+    fitPolicy: policy.stretch({ left: -2, right: 2, bottom: -1, top: 1 }),
     near: 0,
     far: 100,
     position: vec3.fromValues(0, 5, 10),

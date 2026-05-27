@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { policy } from "../../src/camera/fit-policy.ts";
 import { orthographic } from "../../src/camera/orthographic.ts";
 import { perspective } from "../../src/camera/perspective.ts";
 import {
@@ -46,10 +47,7 @@ test("off-center world point produces off-center screen coord (perspective)", ()
 
 test("orthographic camera supported", () => {
   const cam = orthographic({
-    left: -3,
-    right: 3,
-    bottom: -3,
-    top: 3,
+    fitPolicy: policy.stretch({ left: -3, right: 3, bottom: -3, top: 3 }),
     near: 0.1,
     far: 100,
     position: vec3.fromValues(0, 0, 5),

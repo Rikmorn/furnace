@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { setAspect, setNearFar } from "../../src/camera/common.ts";
+import { policy } from "../../src/camera/fit-policy.ts";
 import { orthographic } from "../../src/camera/orthographic.ts";
 import { perspective, setFov } from "../../src/camera/perspective.ts";
 
@@ -69,5 +70,14 @@ test("orthographic factory with invalid bounds throws", () => {
   expect(() => orthographic({ near: 10, far: 5 })).toThrow(
     /near must be less than far/,
   );
-  expect(() => orthographic({ left: Number.NaN })).toThrow(/finite/);
+  expect(() =>
+    orthographic({
+      fitPolicy: policy.stretch({
+        left: Number.NaN,
+        right: 1,
+        bottom: -1,
+        top: 1,
+      }),
+    }),
+  ).toThrow(/finite/);
 });
