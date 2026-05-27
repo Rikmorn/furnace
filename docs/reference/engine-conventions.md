@@ -173,8 +173,8 @@ The engine follows one rule for GPU resource lifetime:
 > **Pass a GPU handle in, or get one back, → you own it.**
 
 - A constructor that returns a handle (`createGeometry`, `material.create`, `mesh.create`, etc.) hands ownership to the caller. The caller calls the corresponding `destroy*` on teardown.
-- A constructor that takes a handle in its descriptor (`mesh.create({ geometry, material })`) does **not** take ownership — the caller still owns the handle they passed in.
-- A factory that takes only configuration values (no handles) and returns a handle (`material.unlit({ color })`) keeps its internal allocations private. They are freed by the corresponding `destroy*`. The caller never receives a separately-disposable handle to those internals.
+- A constructor that takes a handle in its descriptor (`mesh.create(ctx, { geometry, material })`) does **not** take ownership — the caller still owns the handle they passed in.
+- A factory that takes only configuration values (no handles) and returns a handle (`material.unlit(ctx, { color })`) keeps its internal allocations private. They are freed by the corresponding `destroy*`. The caller never receives a separately-disposable handle to those internals.
 
 There is no "managed mesh" or "factory-owned" middle category. The engine surface either gives you handles you own, or it returns opaque results whose internals you can't reach.
 
@@ -185,10 +185,10 @@ There is no "managed mesh" or "factory-owned" middle category. The engine surfac
 | `createGeometry(ctx, data)` | typed-array values | `Geometry` | the Geometry | — |
 | `cubeGeometry(ctx, opts?)` | size value | `Geometry` | the Geometry | — |
 | `planeGeometry(ctx, opts?)` | size value | `Geometry` | the Geometry | — |
-| `mesh.create({ geometry, material })` | two handles | `Mesh` | Mesh + the passed geometry + the passed material | mesh's object buffer |
-| `material.create({ vertex, fragment, bindings })` | strings + buffer handles | `Material` | Material + each binding buffer | pipeline (refcounted) |
-| `material.unlit({ color })` | vec4 value | `Material` | the Material | pipeline + color uniform buffer |
-| `material.normalColor(opts?)` | options | `Material` | the Material | pipeline |
+| `mesh.create(ctx, { geometry, material })` | two handles | `Mesh` | Mesh + the passed geometry + the passed material | mesh's object buffer |
+| `material.create(ctx, { vertex, fragment, bindings })` | strings + buffer handles | `Material` | Material + each binding buffer | pipeline (refcounted) |
+| `material.unlit(ctx, { color })` | vec4 value | `Material` | the Material | pipeline + color uniform buffer |
+| `material.normalColor(ctx, opts?)` | options | `Material` | the Material | pipeline |
 | `post.create(ctx, { shader, bindings? })` | string + optional handles | `Effect` | Effect + each binding buffer | pipeline + intermediate textures |
 
 ### Sharing
