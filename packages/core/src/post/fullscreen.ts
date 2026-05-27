@@ -1,4 +1,5 @@
 import type { Context } from "../gpu/context-types.ts";
+import { _onDispose } from "../gpu/dispose-cascade.ts";
 
 const FULLSCREEN_VS_WGSL = /* wgsl */ `
 struct VsOut {
@@ -24,5 +25,6 @@ export function _ensureFullscreenVS(ctx: Context): GPUShaderModule {
   if (cached) return cached;
   const module = ctx.device.createShaderModule({ code: FULLSCREEN_VS_WGSL });
   cache.set(ctx, module);
+  _onDispose(ctx, () => cache.delete(ctx));
   return module;
 }
