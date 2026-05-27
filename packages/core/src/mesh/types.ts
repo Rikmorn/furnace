@@ -37,9 +37,9 @@ export type Geometry = {
 };
 
 /**
- * Opaque mesh handle returned by {@link create} and the convenience factories
- * (`cube`, `plane`). Holds the bound geometry + material plus a TRS pose
- * (position, rotation, scale) that drives the per-mesh object-uniform buffer.
+ * Opaque mesh handle returned by {@link create}. Holds the bound geometry +
+ * material plus a TRS pose (position, rotation, scale) that drives the
+ * per-mesh object-uniform buffer.
  *
  * Mutate only via the provided setters (`setPosition`, `setRotation`,
  * `setScale`) — direct field writes will not flip `transformDirty` and the
