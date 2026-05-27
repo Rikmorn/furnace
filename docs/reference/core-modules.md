@@ -278,12 +278,12 @@ Re-exported from `index.ts` so other core modules can `import * as stats` and ca
 
 `import * as mesh from "@furnace/core/mesh";`
 
+See `engine-conventions.md` §Resource ownership for the lifecycle contract that governs `mesh.create` / `mesh.destroy` and the geometry/material handles they bind.
+
 ### Public
 
 | Export | Signature | Notes |
 |---|---|---|
-| `cube` | `(ctx: Context, opts: { material: Material; size?: number }) => Mesh` | Convenience: builds a fresh cube geometry and binds it to `opts.material`. `size` default: 1. |
-| `plane` | `(ctx: Context, opts: { material: Material; size?: number }) => Mesh` | Convenience: builds a fresh `+Z`-facing unit plane and binds it to `opts.material`. `size` default: 1. |
 | `cubeGeometry` | `(ctx: Context, opts?: { size?: number }) => Geometry` | Standalone cube geometry — pass to `mesh.create` when you want to reuse one geometry across multiple meshes. |
 | `planeGeometry` | `(ctx: Context, opts?: { size?: number }) => Geometry` | Builds a fresh `+Z`-facing unit plane Geometry. `size` default: 1. Useful for sharing one Geometry across many `mesh.create` calls (e.g. instanced backdrops). |
 | `createGeometry` | `(ctx: Context, data: GeometryData) => Geometry` | Builds a vertex buffer (interleaved `[pos.xyz, normal.xyz, uv.uv]`, 32-byte stride) and optional index buffer from raw arrays. Validates the data. |
@@ -299,13 +299,13 @@ Re-exported from `index.ts` so other core modules can `import * as stats` and ca
 
 ### Demoed in cookbook
 
-- `cube`, `cubeGeometry`, `plane`, `create`, `destroy`, `setPosition` → `cookbook/camera`.
+- `cubeGeometry`, `create`, `destroy`, `setPosition` → `cookbook/camera`.
 - `setRotation`, `setScale` → `cookbook/animation`.
 - `createGeometry`, `destroyGeometry`, `GeometryData`, `Geometry` → `cookbook/geometry`.
 
 ### Reference-only (no demo, by design)
 
-- `cubeGeometry` — exposed for the geometry-sharing pattern (one geometry, many meshes); the cube demo uses `mesh.cube` for the common single-mesh path.
+- `cubeGeometry` — exposed for the geometry-sharing pattern (one geometry, many meshes); use `mesh.create` for the common single-mesh path.
 - `destroyGeometry` — surfaces in teardown of any geometry-sharing demo; not exercised standalone.
 
 ---
