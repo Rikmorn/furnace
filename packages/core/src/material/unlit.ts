@@ -1,3 +1,4 @@
+import { FurnaceError } from "../errors.ts";
 import type { Context } from "../gpu/index.ts";
 import { _registerResource } from "../stats/internal.ts";
 import type { Vec4 } from "../transform/types.ts";
@@ -57,11 +58,23 @@ export type UnlitOptions = {
  *
  * Delegates to {@link create}, so its failure policy and pipeline-cache
  * behaviour apply.
+ *
+ * @throws FurnaceError - if `opts.color` is null or contains a
+ *   non-finite component.
  */
 export async function unlit(
   ctx: Context,
   opts: UnlitOptions,
 ): Promise<Material> {
+  if (
+    opts.color == null ||
+    !Number.isFinite(opts.color[0]) ||
+    !Number.isFinite(opts.color[1]) ||
+    !Number.isFinite(opts.color[2]) ||
+    !Number.isFinite(opts.color[3])
+  ) {
+    throw new FurnaceError("material.unlit: color must be a finite Vec4");
+  }
   const colorBuffer = ctx.device.createBuffer({
     size: COLOR_BUFFER_SIZE_BYTES,
     usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,

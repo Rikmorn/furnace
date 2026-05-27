@@ -3,6 +3,7 @@ import * as gpu from "../../src/gpu/index.ts";
 import { PREMULTIPLIED_ALPHA_BLEND } from "../../src/material/blend.ts";
 import * as material from "../../src/material/index.ts";
 import { unlit } from "../../src/material/unlit.ts";
+import type { Vec4 } from "../../src/transform/types.ts";
 import { vec4 } from "../../src/transform/vec4.ts";
 import {
   bunWebGpuAvailable,
@@ -75,6 +76,44 @@ test.skipIf(!bunWebGpuAvailable())(
     expect(mat.depthWrite).toBe(true);
     expect(mat.depthCompare).toBe("less");
     material.destroy(mat);
+    gpu.dispose(ctx);
+  },
+);
+
+test.skipIf(!bunWebGpuAvailable())(
+  "unlit throws when color contains NaN",
+  async () => {
+    const canvas = await makeOffscreenCanvas();
+    const ctx = await gpu.requestContext(canvas);
+    await expect(
+      unlit(ctx, { color: new Float32Array([Number.NaN, 0, 0, 1]) }),
+    ).rejects.toThrow("color must be a finite Vec4");
+    gpu.dispose(ctx);
+  },
+);
+
+test.skipIf(!bunWebGpuAvailable())(
+  "unlit throws when color contains Infinity",
+  async () => {
+    const canvas = await makeOffscreenCanvas();
+    const ctx = await gpu.requestContext(canvas);
+    await expect(
+      unlit(ctx, {
+        color: new Float32Array([Number.POSITIVE_INFINITY, 0, 0, 1]),
+      }),
+    ).rejects.toThrow("color must be a finite Vec4");
+    gpu.dispose(ctx);
+  },
+);
+
+test.skipIf(!bunWebGpuAvailable())(
+  "unlit throws when color is null",
+  async () => {
+    const canvas = await makeOffscreenCanvas();
+    const ctx = await gpu.requestContext(canvas);
+    await expect(
+      unlit(ctx, { color: null as unknown as Vec4 }),
+    ).rejects.toThrow("color must be a finite Vec4");
     gpu.dispose(ctx);
   },
 );
