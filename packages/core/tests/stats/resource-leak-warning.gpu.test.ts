@@ -77,6 +77,40 @@ test.skipIf(!bunWebGpuAvailable())(
 );
 
 test.skipIf(!bunWebGpuAvailable())(
+  "gpu.dispose: warns when mesh + material destroyed but geometry forgotten",
+  async () => {
+    const canvas = await makeOffscreenCanvas();
+    const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
+    const mat = await material.normalColor(ctx);
+    const geo = mesh.cubeGeometry(ctx);
+    const m = mesh.create(ctx, { geometry: geo, material: mat });
+    mesh.destroy(m);
+    material.destroy(mat);
+    // Deliberately skip mesh.destroyGeometry(geo) — this is the regression
+    // we want to keep catching: deleting mesh.cube/mesh.plane closed one
+    // shape of this trap, this test guards against re-introducing another.
+
+    const entries: LogEntry[] = [];
+    setSink((entry) => entries.push(entry));
+    try {
+      gpu.dispose(ctx);
+    } finally {
+      setSink(consoleSink);
+    }
+
+    expect(entries.length).toBeGreaterThan(0);
+    const entry = entries[0];
+    if (!entry) throw new Error("unreachable: entries.length checked above");
+    expect(entry.level).toBe("warn");
+    expect(entry.module).toBe("gpu");
+    expect(entry.message).toContain(
+      "context disposed with resources still registered",
+    );
+    expect(entry.rest[0]).toEqual({ remaining: 3 });
+  },
+);
+
+test.skipIf(!bunWebGpuAvailable())(
   "gpu.dispose: no warning after a render when all consumer resources destroyed",
   async () => {
     const canvas = await makeOffscreenCanvas();
