@@ -1,5 +1,5 @@
+import { FurnaceError } from "../errors.ts";
 import type { Context } from "../gpu/context-types.ts";
-import { FurnaceError } from "../gpu/errors.ts";
 import { type FrameLoopHandle, loop } from "./loop.ts";
 
 const DEFAULT_MAX_CATCHUP_TICKS = 8;
