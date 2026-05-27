@@ -172,7 +172,7 @@ they just don't fire until DOM listeners are installed.
 
 Consumers observe via `stats.snapshot(ctx)`, `stats.onFrame(ctx, fn)`, or `stats.get(ctx, path)` (type-safe dotted-path). Custom metrics via `stats.gauge`, `stats.increment`, `stats.measure`.
 
-Failure policy: setup operations (`stats.onFrame`) throw on disposed ctx; runtime reads return zero/null defaults; runtime writes silently no-op on disposed and emit a `warn`-level log entry on bad inputs (routed via `@furnace/core/log`). Functions wrapping consumer code (`stats.measure`) record what they can and re-throw consumer errors.
+Stance: observability per §Failure policy. Setup ops (`stats.onFrame`) throw on disposed ctx; runtime reads return zero/null defaults silently on disposed; runtime writes silently no-op on disposed and emit a `warn`-level log entry on bad inputs (routed via `@furnace/core/log`). Functions wrapping consumer code (`stats.measure`) record what they can and re-throw consumer errors.
 
 Full spec: `docs/superpowers/specs/2026-05-24-core-tranche-5-stats-expansion-design.md`.
 
@@ -180,29 +180,115 @@ Failure semantics follow the framework in § Failure policy.
 
 ## Failure policy
 
-Engine modules choose between two failure stances based on whether they're foreground
-(consumer expects to see the result) or background (observation/instrumentation that
-should stay out of the way).
+Engine modules pick one of four behavioural stances per export, driven
+by how often the function is called and what cost validation adds.
 
-**Foreground modules** (rendering, post, input, mesh, material):
-- Setup ops throw on disposed ctx or bad config.
-- Runtime ops throw on synchronously-detectable consumer errors (ctx mismatch,
-  use-after-free, invalid handle).
-- GPU-layer failures we can't catch synchronously fall through to
-  `device.uncapturederror`, which is surfaced via stats.
+### Cold-path validate (setup, teardown, rare config events)
 
-**Background modules** (stats, log):
-- Setup ops throw on disposed ctx (subscribing to a dead ctx is a bug).
-- Runtime reads return zero/null defaults silently on disposed ctx.
-- Runtime writes silently no-op on disposed ctx; emit a `warn`-level log entry on bad inputs.
-- Subscriber callbacks throwing are caught and routed via the log helper at `error` level; iteration continues.
+Functions called once at setup, once at teardown, or rarely on config
+events (resize, device-lost) validate inputs synchronously and throw
+on bad input or disposed ctx. Validation cost is irrelevant — these
+do not run in the draw loop. The caller learns about the bug
+immediately, at construction time, with a stack trace pointing at
+the bad call site.
 
-The distinction is intent: foreground silence is worse than a crash
-(broken-looking-deliberate); background loudness corrupts the observed system.
-Pick the policy that matches the module's role.
+Threshold: ≤1 call/frame.
 
-Tranche 5 (stats) is the reference background example. Tranche 6 (post) is the
-reference foreground example.
+Applies to: `gpu.requestContext`, `gpu.dispose`,
+`gpu.onResize`/`onDeviceLost`/`onUncapturedError`,
+`camera.perspective`/`orthographic` constructors,
+`camera.setAspect`/`setNearFar`/`setFov`/`setFitPolicy`/`setScale`,
+`camera.bindToCanvas`/`updateForSize`,
+`material.create`/`unlit`/`normalColor`,
+`mesh.create`/`createGeometry`,
+`post.create`,
+`frame.loop`/`fixedLoop` constructors,
+`input.attach`/`detach`,
+`stats.onFrame`.
+
+### Warm-path validate (per-frame orchestration, ≤100 calls/frame)
+
+Functions called per-frame but in bounded numbers (typically 1–3
+calls/frame for top-level orchestration) validate cheaply: O(1)
+checks on individual fields, O(N) checks over bounded lists like
+the draw list or effects chain. Validation cost stays below the
+noise floor at this call frequency (~300 ns/frame at 100 calls
+× 3 ns/check, or ~20 μs/frame for O(N) over a 10,000-element
+draw list — 0.12% of a 16.67ms budget).
+
+Threshold: 1–100 calls/frame.
+
+Applies to: `frame.render`, `frame.renderToTexture`, `frame.encode`,
+`gpu.getCurrentTextureView`.
+
+### Hot-path trust (math primitives, per-frame setters, >100 calls/frame)
+
+Functions called per-frame in tight loops trust the caller — no
+input validation, no logging, no exceptions. Degenerate input is
+handled with a documented sentinel value, set out in each function's
+TSDoc precondition. The function never throws, never logs.
+
+This is a deliberate performance contract. At hot-path call
+frequencies (1,000–100,000 calls/frame for math primitives in real
+scenes), a `Number.isFinite` guard per call costs 3 μs – 300 μs per
+frame — enough to eat 1–18% of a 16.67ms budget at the high end.
+The convention also matters for future Rust+wasm SIMD math kernels:
+a JS-side validation guard at the wasm boundary would erase most
+of the SIMD gain.
+
+When the caller violates a precondition, the engine produces a
+downstream-safe sentinel — identity matrix, zero vector, NaN
+propagation for projection — whichever keeps subsequent operations
+valid. Choosing "still a valid object" sentinels (identity
+quaternion, identity matrix) over "trivially-zero" sentinels (zero
+quaternion, zero matrix) is preferred because they don't cascade
+into NaN downstream.
+
+Threshold: >100 calls/frame.
+
+Applies to: all `transform/*` math primitives (`vec3.*`, `quat.*`,
+`mat4.*`, `vec4.*`), per-mesh pose setters
+(`mesh.setPosition`/`setRotation`/`setScale`), per-camera pose
+setters (`camera.setPosition`/`setTarget`/`setUp`),
+`camera.projectToScreen`, the per-frame body of `frame.loop`'s tick
+callback.
+
+### Observability (stats, log)
+
+Diagnostics modules must never affect the host program. Setup
+throws on disposed ctx; runtime writes silently no-op on disposed
+ctx and emit a `warn`-level log entry on bad input; runtime reads
+return zero/null defaults silently on disposed ctx. Subscriber
+callbacks that throw are caught and routed via the log helper at
+`error` level; iteration continues.
+
+Applies to: `stats.*`, `log.*`.
+
+### Subscriber dispatch (events)
+
+Emitters and subscriber loops catch each subscriber's throw, route
+it to the log helper at `error` level, and continue iteration. One
+bad subscriber must not break the rest of the dispatch or the host
+frame.
+
+Applies to: `events.createEmitter.emit`, `stats.onFrame` dispatch,
+`gpu.onResize`/`onDeviceLost`/`onUncapturedError` emitters.
+
+### Reference table
+
+| Stance | Threshold | Posture | Cost class at scale |
+|---|---|---|---|
+| Cold-path | ≤1 call/frame | Throw on bad input | One-time; irrelevant |
+| Warm-path | 1–100 calls/frame | Throw on bad input; O(N) over bounded lists | ~300 ns/frame at threshold |
+| Hot-path | >100 calls/frame | Trust caller; sentinel on degenerate; TSDoc contract | Up to 5–18% of 16.67ms budget if validated |
+| Observability | n/a | No-op + warn (writes), zero defaults (reads) | Existing |
+| Subscriber | n/a | Catch + log + continue | Existing |
+
+Tranche 5 (stats) is the reference observability example. Tranche 6
+(post) is the reference warm-path example. Tranche A-4 (2026-05-28)
+codified the four-stance taxonomy. Diagnostics extend the failure
+policy via `@furnace/core/log`; see §Diagnostics for routing and
+sink semantics.
 
 ## Resource ownership
 
@@ -293,8 +379,8 @@ The exception is named explicitly so it can't extend casually. The test for a ne
 **Failure-policy alignment:**
 
 Diagnostics extend the existing failure policy, they don't replace it:
-- **Setup-loud:** still throws. `gpu.requestContext` throws `FurnaceGpuError` on adapter/device/context failure — not converted to a log call. `gpu.onUncapturedError`, `gpu.onDeviceLost`, `stats.onFrame` throw `FurnaceGpuError` on disposed ctx.
-- **Runtime-quiet:** still warns through the sink. The 7 internal call sites are all runtime-quiet sites; semantics unchanged, only transport.
+- **Cold-path:** still throws. `gpu.requestContext` throws `FurnaceGpuError` on adapter/device/context failure — not converted to a log call. `gpu.onUncapturedError`, `gpu.onDeviceLost`, `stats.onFrame` throw `FurnaceGpuError` on disposed ctx.
+- **Observability:** still warns through the sink. The 7 internal call sites are all observability sites; semantics unchanged, only transport.
 - **No silent failures:** consumer-supplied sinks and emitter subscribers that throw propagate, never swallowed.
 
 ## References

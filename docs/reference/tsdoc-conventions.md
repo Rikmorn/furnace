@@ -158,3 +158,37 @@ post-implementation hygiene.
 - **Public API reference** lives in `core-modules.md`. TSDoc is the
   IDE-tooltip surface; `core-modules.md` is the consolidated reference.
   When you change one, update the other.
+
+## Hot-path preconditions
+
+Functions in the hot-path stance (see `engine-conventions.md §Failure
+policy`) do not validate their inputs at runtime. The TSDoc is the
+contract.
+
+Hot-path exports MUST document any non-obvious behaviour on degenerate
+input. The standard form is:
+
+> If `<condition>`, `<behaviour>` (no throw, no log).
+
+Examples (current TSDoc that meets the convention):
+
+- `vec3.normalize`: "If `length(a) === 0`, writes the zero vector into
+  `out` (no throw, no NaN propagation) — callers that care about
+  degenerate input should check `length` themselves."
+- `mat4.invert`: "@returns `out` on success, or `null` if `m` is
+  singular (determinant is zero). Callers must check for `null` — `out`
+  is left in an indeterminate state on the singular path."
+- `mat4.rotate`: "If `|axis| < 1e-6`, silently copies `m` into `out`
+  (no rotation applied) rather than producing NaN."
+
+Mandatory on:
+
+- Math primitives with degenerate-input branches.
+- Hot-path setters that write to engine-managed GPU buffers (the
+  consumer needs to know NaN components propagate to the GPU).
+
+Optional on:
+
+- Pure arithmetic operations (e.g. `vec3.add`, `mat4.multiply`,
+  `quat.conjugate`). NaN-propagation is universally understood; adding
+  prose notes to every arithmetic function is noise.
