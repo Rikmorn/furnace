@@ -2,7 +2,7 @@ import * as camera from "@furnace/core/camera";
 import * as frame from "@furnace/core/frame";
 import type { Material } from "@furnace/core/material";
 import * as material from "@furnace/core/material";
-import type { Mesh } from "@furnace/core/mesh";
+import type { Geometry, Mesh } from "@furnace/core/mesh";
 import * as mesh from "@furnace/core/mesh";
 import type { Vec4 } from "@furnace/core/transform";
 import { quat, vec3, vec4 } from "@furnace/core/transform";
@@ -72,7 +72,9 @@ await mountDemo({
     let stripedMat: Material | undefined;
     let plasmaMat: Material | undefined;
     let cube: Mesh | undefined;
+    let cubeGeo: Geometry | undefined;
     let backdrop: Mesh | undefined;
+    let backdropGeo: Geometry | undefined;
     let unsubResize: (() => void) | undefined;
 
     try {
@@ -99,10 +101,12 @@ await mountDemo({
         bindings: [{ binding: 0, resource: { buffer: paramsBufPlasma } }],
       });
 
-      cube = mesh.cube(ctx, { material: stripedMat });
-      backdrop = mesh.plane(ctx, {
+      cubeGeo = mesh.cubeGeometry(ctx);
+      cube = mesh.create(ctx, { geometry: cubeGeo, material: stripedMat });
+      backdropGeo = mesh.planeGeometry(ctx, { size: BACKDROP_SIZE });
+      backdrop = mesh.create(ctx, {
+        geometry: backdropGeo,
         material: plasmaMat,
-        size: BACKDROP_SIZE,
       });
       mesh.setPosition(backdrop, vec3.fromValues(0, 0, BACKDROP_Z));
 
@@ -118,7 +122,9 @@ await mountDemo({
       const sceneStripedMat = stripedMat;
       const scenePlasmaMat = plasmaMat;
       const sceneCube = cube;
+      const sceneCubeGeo = cubeGeo;
       const sceneBackdrop = backdrop;
+      const sceneBackdropGeo = backdropGeo;
       const rotBuf = quat.create();
       const paramsScratchStriped = new Float32Array(4);
       const paramsScratchPlasma = new Float32Array(4);
@@ -140,6 +146,8 @@ await mountDemo({
           sceneUnsubResize();
           mesh.destroy(sceneBackdrop);
           mesh.destroy(sceneCube);
+          mesh.destroyGeometry(sceneBackdropGeo);
+          mesh.destroyGeometry(sceneCubeGeo);
           material.destroy(scenePlasmaMat);
           material.destroy(sceneStripedMat);
           sceneParamsBufPlasma.destroy();
@@ -150,6 +158,8 @@ await mountDemo({
       if (unsubResize) unsubResize();
       if (backdrop) mesh.destroy(backdrop);
       if (cube) mesh.destroy(cube);
+      if (backdropGeo) mesh.destroyGeometry(backdropGeo);
+      if (cubeGeo) mesh.destroyGeometry(cubeGeo);
       if (plasmaMat) material.destroy(plasmaMat);
       if (stripedMat) material.destroy(stripedMat);
       if (paramsBufPlasma) paramsBufPlasma.destroy();
