@@ -109,6 +109,7 @@ export function perspective(opts: PerspectiveOptions = {}): Camera {
     recomputeProjection: recomputePerspective,
     viewDirty: true,
     projDirty: true,
+    _lastSize: { width: 1, height: 1 },
   };
 
   return data;

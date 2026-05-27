@@ -1,4 +1,5 @@
 import type { Mat4, Vec3 } from "../transform/types.ts";
+import type { FitPolicy } from "./fit-policy.ts";
 
 export type Projection =
   | {
@@ -10,10 +11,15 @@ export type Projection =
     }
   | {
       kind: "orthographic";
+      // Derived state — recomputed by updateForSize and immediately by
+      // setFitPolicy/setScale. Do not mutate directly.
       left: number;
       right: number;
       bottom: number;
       top: number;
+      // Source-of-truth state:
+      fitPolicy: FitPolicy;
+      scale: number;
       near: number;
       far: number;
     };
@@ -39,8 +45,9 @@ export type RecomputeProjection = (data: Camera) => void;
  *
  * Treated as an opaque handle by consumers — mutate only via the exported
  * setters (`setPosition`, `setTarget`, `setUp`, `setAspect`, `setNearFar`,
- * `setFov`, `setBounds`). The setters maintain the `viewDirty` / `projDirty`
- * flags that {@link getMatrices} relies on to decide what to recompute.
+ * `setFov`, `setBounds`, `setFitPolicy`, `setScale`). The setters maintain
+ * the `viewDirty` / `projDirty` flags that {@link getMatrices} relies on to
+ * decide what to recompute.
  */
 export type Camera = {
   position: Vec3;
@@ -54,4 +61,9 @@ export type Camera = {
   recomputeProjection: RecomputeProjection;
   viewDirty: boolean;
   projDirty: boolean;
+  // Cached last-seen canvas size. Initialized to { width: 1, height: 1 }
+  // (placeholder for "no canvas known"). Overwritten by bindToCanvas and
+  // each resize event. Used by setFitPolicy/setScale to re-derive bounds
+  // immediately even before the next resize event fires.
+  _lastSize: { width: number; height: number };
 };
