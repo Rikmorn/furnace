@@ -1,5 +1,6 @@
 import type { Camera } from "../camera/index.ts";
 import * as camera from "../camera/index.ts";
+import { _onDispose } from "../gpu/dispose-cascade.ts";
 import { FurnaceGpuError } from "../gpu/errors.ts";
 import type { Context } from "../gpu/index.ts";
 import * as gpu from "../gpu/index.ts";
@@ -65,7 +66,20 @@ function _ensureDepthTexture(ctx: Context): DepthEntry {
     height,
   };
   depthByCtx.set(ctx, entry);
+  if (existing === undefined) {
+    _onDispose(ctx, () => _disposeDepth(ctx));
+  }
   return entry;
+}
+
+function _disposeDepth(ctx: Context): void {
+  const entry = depthByCtx.get(ctx);
+  if (!entry) return;
+  entry.texture.destroy();
+  const handle = depthHandleByCtx.get(ctx);
+  if (handle) _unregisterResource(ctx, handle);
+  depthByCtx.delete(ctx);
+  depthHandleByCtx.delete(ctx);
 }
 
 function _ensureCameraBuffer(ctx: Context, cam: Camera): GPUBuffer {
@@ -73,6 +87,7 @@ function _ensureCameraBuffer(ctx: Context, cam: Camera): GPUBuffer {
   if (!perCam) {
     perCam = new Map();
     cameraBuffers.set(ctx, perCam);
+    _onDispose(ctx, () => _disposeCameraBuffers(ctx));
   }
   let buffer = perCam.get(cam);
   if (!buffer) {
@@ -94,6 +109,19 @@ function _ensureCameraBuffer(ctx: Context, cam: Camera): GPUBuffer {
   const matrices = camera.getMatrices(cam);
   ctx.queue.writeBuffer(buffer, 0, matrices.viewProjection);
   return buffer;
+}
+
+function _disposeCameraBuffers(ctx: Context): void {
+  const perCam = cameraBuffers.get(ctx);
+  if (perCam) {
+    for (const buffer of perCam.values()) buffer.destroy();
+    cameraBuffers.delete(ctx);
+  }
+  const handles = cameraBufferHandles.get(ctx);
+  if (handles) {
+    for (const h of handles.values()) _unregisterResource(ctx, h);
+    cameraBufferHandles.delete(ctx);
+  }
 }
 
 /**

@@ -1,8 +1,11 @@
 import { expect, test } from "bun:test";
 import { consoleSink, type LogEntry, setSink } from "@furnace/core/log";
+import * as camera from "../../src/camera/index.ts";
+import * as frame from "../../src/frame/index.ts";
 import * as gpu from "../../src/gpu/index.ts";
 import * as material from "../../src/material/index.ts";
 import * as mesh from "../../src/mesh/index.ts";
+import { vec3 } from "../../src/transform/vec3.ts";
 import {
   bunWebGpuAvailable,
   ensureBunWebGpu,
@@ -55,6 +58,37 @@ test.skipIf(!bunWebGpuAvailable())(
 
     // Camera buffer + depth texture only allocate inside frame.render; this
     // test never renders, so the registry is empty before dispose.
+    const entries: LogEntry[] = [];
+    setSink((entry) => entries.push(entry));
+    try {
+      gpu.dispose(ctx);
+    } finally {
+      setSink(consoleSink);
+    }
+
+    expect(entries.length).toBe(0);
+  },
+);
+
+test.skipIf(!bunWebGpuAvailable())(
+  "gpu.dispose: no warning after a render when all consumer resources destroyed",
+  async () => {
+    const canvas = await makeOffscreenCanvas();
+    const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
+    const mat = await material.normalColor(ctx);
+    const geo = mesh.cubeGeometry(ctx);
+    const m = mesh.create(ctx, { geometry: geo, material: mat });
+    const cam = camera.perspective({
+      aspect: ctx.canvas.width / ctx.canvas.height,
+      position: vec3.fromValues(0, 0, 5),
+    });
+
+    frame.render(ctx, { draw: [m], camera: cam });
+
+    mesh.destroy(m);
+    mesh.destroyGeometry(geo);
+    material.destroy(mat);
+
     const entries: LogEntry[] = [];
     setSink((entry) => entries.push(entry));
     try {
