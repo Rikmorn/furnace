@@ -124,8 +124,9 @@ function recordDraw(
  *
  * Setup-loud per the foreground failure policy.
  *
- * @throws FurnaceGpuError - if `ctx` has been disposed or `opts.texture`
- *   is missing.
+ * @throws FurnaceGpuError - if `ctx` has been disposed, `opts.texture`
+ *   is missing, `opts.camera` or `opts.draw` is null/undefined, or any
+ *   entry in `opts.draw` is null or belongs to a different context.
  */
 export function renderToTexture(
   ctx: Context,
@@ -137,6 +138,13 @@ export function renderToTexture(
   if (!opts.texture) {
     throw new FurnaceGpuError("renderToTexture: texture is required");
   }
+  if (opts.camera == null) {
+    throw new FurnaceGpuError("renderToTexture: camera is required");
+  }
+  if (opts.draw == null) {
+    throw new FurnaceGpuError("renderToTexture: draw is required");
+  }
+  _frameRenderInternals._validateDraw(ctx, opts.draw);
 
   const cameraBuffer = _frameRenderInternals._ensureCameraBuffer(
     ctx,

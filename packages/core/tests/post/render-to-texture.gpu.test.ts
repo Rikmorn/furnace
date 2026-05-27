@@ -1,10 +1,12 @@
 import { expect, test } from "bun:test";
+import type { Camera } from "../../src/camera/index.ts";
 import * as camera from "../../src/camera/index.ts";
 import * as frame from "../../src/frame/index.ts";
 import { FurnaceGpuError } from "../../src/gpu/errors.ts";
 import * as gpu from "../../src/gpu/index.ts";
 import * as material from "../../src/material/index.ts";
 import * as mesh from "../../src/mesh/index.ts";
+import type { Mesh } from "../../src/mesh/types.ts";
 import { vec4 } from "../../src/transform/vec4.ts";
 import {
   bunWebGpuAvailable,
@@ -71,5 +73,89 @@ test.skipIf(!bunWebGpuAvailable())(
     expect(() =>
       frame.renderToTexture(ctx, { texture: target, draw: [], camera: cam }),
     ).toThrow(FurnaceGpuError);
+  },
+);
+
+test.skipIf(!bunWebGpuAvailable())(
+  "frame.renderToTexture throws when camera is null",
+  async () => {
+    const canvas = await makeOffscreenCanvas(64, 64);
+    const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
+    const target = ctx.device.createTexture({
+      size: { width: 64, height: 64 },
+      format: ctx.format,
+      usage: GPUTextureUsage.RENDER_ATTACHMENT,
+    });
+    const mat = await material.unlit(ctx, {
+      color: vec4.fromValues(1, 0, 0, 1),
+    });
+    const cubeGeo = mesh.cubeGeometry(ctx);
+    const cube = mesh.create(ctx, { geometry: cubeGeo, material: mat });
+    expect(() =>
+      frame.renderToTexture(ctx, {
+        texture: target,
+        draw: [cube],
+        camera: null as unknown as Camera,
+      }),
+    ).toThrow("camera is required");
+    target.destroy();
+    mesh.destroy(cube);
+    mesh.destroyGeometry(cubeGeo);
+    material.destroy(mat);
+    gpu.dispose(ctx);
+  },
+);
+
+test.skipIf(!bunWebGpuAvailable())(
+  "frame.renderToTexture throws when draw is null",
+  async () => {
+    const canvas = await makeOffscreenCanvas(64, 64);
+    const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
+    const target = ctx.device.createTexture({
+      size: { width: 64, height: 64 },
+      format: ctx.format,
+      usage: GPUTextureUsage.RENDER_ATTACHMENT,
+    });
+    const cam = camera.perspective({ aspect: 1 });
+    expect(() =>
+      frame.renderToTexture(ctx, {
+        texture: target,
+        draw: null as unknown as Mesh[],
+        camera: cam,
+      }),
+    ).toThrow("draw is required");
+    target.destroy();
+    gpu.dispose(ctx);
+  },
+);
+
+test.skipIf(!bunWebGpuAvailable())(
+  "frame.renderToTexture throws when draw contains a null entry",
+  async () => {
+    const canvas = await makeOffscreenCanvas(64, 64);
+    const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
+    const target = ctx.device.createTexture({
+      size: { width: 64, height: 64 },
+      format: ctx.format,
+      usage: GPUTextureUsage.RENDER_ATTACHMENT,
+    });
+    const cam = camera.perspective({ aspect: 1 });
+    const mat = await material.unlit(ctx, {
+      color: vec4.fromValues(1, 0, 0, 1),
+    });
+    const cubeGeo = mesh.cubeGeometry(ctx);
+    const cube = mesh.create(ctx, { geometry: cubeGeo, material: mat });
+    expect(() =>
+      frame.renderToTexture(ctx, {
+        texture: target,
+        draw: [cube, null as unknown as Mesh],
+        camera: cam,
+      }),
+    ).toThrow("draw[1]: null/undefined mesh");
+    target.destroy();
+    mesh.destroy(cube);
+    mesh.destroyGeometry(cubeGeo);
+    material.destroy(mat);
+    gpu.dispose(ctx);
   },
 );
