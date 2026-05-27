@@ -1,4 +1,5 @@
 import type { Context } from "../gpu/context-types.ts";
+import { FurnaceError } from "../gpu/errors.ts";
 import { type FrameLoopHandle, loop } from "./loop.ts";
 
 const DEFAULT_MAX_CATCHUP_TICKS = 8;
@@ -63,6 +64,8 @@ export type FixedLoopOptions = {
  *
  * @returns A {@link FrameLoopHandle} for `stop`/`pause`/`resume` control
  *   (the same handle type `loop` returns — `fixedLoop` is a thin wrapper).
+ * @throws FurnaceError - if `fixedDtMs` is not a positive finite number,
+ *   or if `maxCatchupTicks` is provided and not a positive integer.
  * @throws FurnaceGpuError - propagated from the wrapped `loop` if `ctx` has
  *   been disposed.
  */
@@ -70,6 +73,19 @@ export function fixedLoop(
   ctx: Context,
   opts: FixedLoopOptions,
 ): FrameLoopHandle {
+  if (!Number.isFinite(opts.fixedDtMs) || opts.fixedDtMs <= 0) {
+    throw new FurnaceError(
+      `fixedLoop: fixedDtMs must be a positive finite number, got ${opts.fixedDtMs}`,
+    );
+  }
+  if (
+    opts.maxCatchupTicks !== undefined &&
+    (!Number.isInteger(opts.maxCatchupTicks) || opts.maxCatchupTicks < 1)
+  ) {
+    throw new FurnaceError(
+      `fixedLoop: maxCatchupTicks must be a positive integer if provided, got ${opts.maxCatchupTicks}`,
+    );
+  }
   const fixedDtSeconds = opts.fixedDtMs / 1000;
   const maxCatchupTicks = opts.maxCatchupTicks ?? DEFAULT_MAX_CATCHUP_TICKS;
   let accumulator = 0;

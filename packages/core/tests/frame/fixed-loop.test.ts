@@ -155,3 +155,89 @@ test("returned handle supports stop/pause/resume", () => {
   expect(ticks).toBe(2);
   handle.stop();
 });
+
+test("fixedLoop throws when fixedDtMs is zero", () => {
+  const ctx = fakeCtx();
+  expect(() =>
+    fixedLoop(ctx, {
+      fixedDtMs: 0,
+      onTick: () => {
+        /* no-op */
+      },
+    }),
+  ).toThrow("fixedDtMs must be a positive finite number");
+});
+
+test("fixedLoop throws when fixedDtMs is negative", () => {
+  const ctx = fakeCtx();
+  expect(() =>
+    fixedLoop(ctx, {
+      fixedDtMs: -16,
+      onTick: () => {
+        /* no-op */
+      },
+    }),
+  ).toThrow("fixedDtMs must be a positive finite number");
+});
+
+test("fixedLoop throws when fixedDtMs is NaN", () => {
+  const ctx = fakeCtx();
+  expect(() =>
+    fixedLoop(ctx, {
+      fixedDtMs: Number.NaN,
+      onTick: () => {
+        /* no-op */
+      },
+    }),
+  ).toThrow("fixedDtMs must be a positive finite number");
+});
+
+test("fixedLoop throws when fixedDtMs is Infinity", () => {
+  const ctx = fakeCtx();
+  expect(() =>
+    fixedLoop(ctx, {
+      fixedDtMs: Number.POSITIVE_INFINITY,
+      onTick: () => {
+        /* no-op */
+      },
+    }),
+  ).toThrow("fixedDtMs must be a positive finite number");
+});
+
+test("fixedLoop throws when maxCatchupTicks is zero", () => {
+  const ctx = fakeCtx();
+  expect(() =>
+    fixedLoop(ctx, {
+      fixedDtMs: 16,
+      onTick: () => {
+        /* no-op */
+      },
+      maxCatchupTicks: 0,
+    }),
+  ).toThrow("maxCatchupTicks must be a positive integer");
+});
+
+test("fixedLoop throws when maxCatchupTicks is fractional", () => {
+  const ctx = fakeCtx();
+  expect(() =>
+    fixedLoop(ctx, {
+      fixedDtMs: 16,
+      onTick: () => {
+        /* no-op */
+      },
+      maxCatchupTicks: 1.5,
+    }),
+  ).toThrow("maxCatchupTicks must be a positive integer");
+});
+
+test("fixedLoop accepts undefined maxCatchupTicks (uses default)", () => {
+  const ctx = fakeCtx();
+  expect(() =>
+    fixedLoop(ctx, {
+      fixedDtMs: 16,
+      onTick: () => {
+        /* no-op */
+      },
+    }),
+  ).not.toThrow();
+});
