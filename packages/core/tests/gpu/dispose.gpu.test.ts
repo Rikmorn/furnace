@@ -6,6 +6,8 @@ import {
   makeOffscreenCanvas,
 } from "../_helpers/gpu-fixture.ts";
 
+await ensureBunWebGpu();
+
 const skip = !bunWebGpuAvailable();
 
 const CONTEXT_MODULE = "../../src/gpu/context.ts";

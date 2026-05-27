@@ -6,11 +6,13 @@ import {
   makeOffscreenCanvas,
 } from "../_helpers/gpu-fixture.ts";
 
+await ensureBunWebGpu();
+
 const skip = !bunWebGpuAvailable();
 
-// gpu/context.ts is implemented in Task 10. Until then these specifiers are
-// resolved at runtime (not statically) so the dynamic imports below don't
-// break typecheck. Tests skip cleanly when bun-webgpu isn't available.
+// gpu/context.ts and frame/encode.ts are resolved at runtime (not statically) so
+// the dynamic imports below stay off the typechecker's static graph. Tests skip
+// cleanly when bun-webgpu isn't available.
 const CONTEXT_MODULE = "../../src/gpu/context.ts";
 const ENCODE_MODULE = "../../src/frame/encode.ts";
 
