@@ -58,8 +58,46 @@ Consumer-facing resources (meshes, textures, buffers) have `module.destroy(handl
 
 - Pose is expressed via `position` / `target` / `up` (lookAt-style). Quaternion-driven cameras are not provided.
 - Setters mutate in place and flip internal dirty bits. `getMatrices(cam)` recomputes only dirty matrices and returns the same frozen wrapper across calls (the inner `Float32Array` references are stable; the engine writes into them in place).
-- Aspect ratio is consumer-managed but the engine ships a one-line helper for the common case: `camera.bindToCanvas(cam, ctx)` subscribes to `gpu.onResize` and updates the camera's projection on every resize. The returned function unsubscribes — call it in dispose. The manual pattern (`gpu.onResize` + `camera.setAspect`) remains available for consumers needing finer control (multi-camera coordination, custom dispatch, conditional updates). Orthographic cameras are accepted by `bindToCanvas` but currently no-op on resize — explicit bounds management via `setBounds` is required while Tranche A-2's `fitPolicy` work is pending.
+- Projection-shape updates are split by kind. Perspective cameras carry an aspect ratio updated via `camera.setAspect`; orthographic cameras carry a `fitPolicy` updated via `camera.setFitPolicy` (see §Camera resize policy below). Both kinds are accepted by `camera.bindToCanvas(cam, ctx)`, the one-line helper that subscribes to `gpu.onResize` and runs `updateForSize` on every event. The returned function unsubscribes — call it in dispose. The manual pattern (`gpu.onResize` + `camera.updateForSize`) remains available for consumers needing finer control (multi-camera coordination, custom dispatch, conditional updates).
 - The camera's uniform buffer is engine-managed inside `frame.render` (allocated lazily, written each frame from `getMatrices`). The Camera handle itself remains data-only — no GPU resources owned.
+
+### Camera resize policy
+
+Orthographic cameras opt into engine-managed bounds via a `fitPolicy` field.
+The policy determines how bounds respond to canvas resize; the consumer wires
+it via `camera.bindToCanvas(cam, ctx)`, which subscribes to `gpu.onResize`
+and runs the policy on every resize event.
+
+**Variants (first wave):**
+
+- `stretch` — bounds preserved literally on resize; the rendered scene
+  distorts when canvas aspect changes. Use when you have explicit literal
+  bounds and want them held even as the canvas changes (e.g. UI overlay,
+  shadow mapping, mini-maps).
+- `preserve-height` — vertical world extent fixed at `height`; horizontal
+  extent recomputed from canvas aspect on resize. The 2D-game default.
+- `preserve-width` — mirror of preserve-height. Useful for vertically
+  scrolling content where horizontal extent is the primary axis.
+
+**Anchor.** `preserve-height` and `preserve-width` carry an `anchor: { x, y }`
+with components in `[0, 1]`. `(0.5, 0.5)` (default) centers the world origin
+in the visible rect; `(0, 0)` puts the world origin at the bottom-left
+corner of the visible rect; `(1, 1)` puts it at the top-right. Y-up. The
+`stretch` variant doesn't carry an anchor because bounds are literal.
+
+**Scale.** `camera.scale` (default 1) is a uniform zoom multiplier
+independent of the policy. `setScale(cam, n)` re-derives bounds immediately.
+For consumers wanting a zoom slider, this is the canonical mutator.
+
+**`setAspect` is perspective-only.** Orthographic cameras must use
+`setFitPolicy` for bounds management. Calling `setAspect` on an orthographic
+camera throws.
+
+**DPR.** `updateForSize` operates on the canvas's backing-store dimensions
+(`canvas.width` / `canvas.height` — CSS-pixel-size × DPR per the HTML canvas
+spec). Aspect derives from these; aspect is invariant under DPR.
+
+See `core-modules.md` (`camera` module) for the function/type table.
 
 ## Drawables
 
