@@ -138,3 +138,32 @@ test.skipIf(!bunWebGpuAvailable())(
     expect(() => unsub()).not.toThrow();
   },
 );
+
+test.skipIf(!bunWebGpuAvailable())(
+  "gpu.dispose: cascade runs before remaining-resources count is read",
+  async () => {
+    // Manually register a callback that unregisters a fake resource; the
+    // leak-warn computation should see the post-cascade state.
+    const canvas = await makeOffscreenCanvas();
+    const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
+
+    // Pretend a module registered a resource and then forgot to clean it up
+    // until cascade-time. The cascade callback unregisters it, so the
+    // leak-warn should NOT fire.
+    const { _registerResource, _unregisterResource } = await import(
+      "../../src/stats/internal.ts"
+    );
+    const handle = _registerResource(ctx, { kind: "buffer", bytes: 16 });
+    _onDispose(ctx, () => _unregisterResource(ctx, handle));
+
+    const entries: LogEntry[] = [];
+    setSink((entry) => entries.push(entry));
+    try {
+      gpu.dispose(ctx);
+    } finally {
+      setSink(consoleSink);
+    }
+
+    expect(entries.length).toBe(0);
+  },
+);
