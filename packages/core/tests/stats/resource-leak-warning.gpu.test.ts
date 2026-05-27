@@ -98,7 +98,7 @@ test.skipIf(!bunWebGpuAvailable())(
       setSink(consoleSink);
     }
 
-    expect(entries.length).toBeGreaterThan(0);
+    expect(entries.length).toBe(1);
     const entry = entries[0];
     if (!entry) throw new Error("unreachable: entries.length checked above");
     expect(entry.level).toBe("warn");
