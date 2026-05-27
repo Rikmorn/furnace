@@ -6,6 +6,7 @@ import {
 import { createStatsState, type StatsState } from "../stats/state.ts";
 import type { Context } from "./context-types.ts";
 import { _emitDeviceLost } from "./device-lost.ts";
+import { _runDisposeCascade } from "./dispose-cascade.ts";
 import { FurnaceGpuError } from "./errors.ts";
 import { markDisposed } from "./internal.ts";
 import { _emitUncapturedError } from "./uncaptured-error.ts";
@@ -174,6 +175,7 @@ export function dispose(ctx: Context): void {
       { remaining },
     );
   }
+  _runDisposeCascade(ctx);
   markDisposed(ctx._internal);
   try {
     ctx.device.destroy();
