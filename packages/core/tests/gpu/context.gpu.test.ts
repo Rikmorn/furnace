@@ -6,6 +6,8 @@ import {
   makeOffscreenCanvas,
 } from "../_helpers/gpu-fixture.ts";
 
+await ensureBunWebGpu();
+
 const skip = !bunWebGpuAvailable();
 
 // gpu/context.ts is resolved at runtime (not statically) so dynamic imports stay
@@ -75,4 +77,55 @@ test.skipIf(skip)("pixelRatio: 'css' uses 1; numeric is honored", async () => {
   const ctxB = await requestContext(canvasB, { pixelRatio: 2 });
   expect(ctxB.pixelRatio).toBe(2);
   dispose(ctxB);
+});
+
+test.skipIf(skip)("requestContext throws when pixelRatio is zero", async () => {
+  await ensureBunWebGpu();
+  const { requestContext } = await loadContextModule();
+  const canvas = await makeOffscreenCanvas();
+  await expect(requestContext(canvas, { pixelRatio: 0 })).rejects.toThrow(
+    "pixelRatio must be a positive finite number",
+  );
+});
+
+test.skipIf(skip)(
+  "requestContext throws when pixelRatio is negative",
+  async () => {
+    await ensureBunWebGpu();
+    const { requestContext } = await loadContextModule();
+    const canvas = await makeOffscreenCanvas();
+    await expect(requestContext(canvas, { pixelRatio: -1 })).rejects.toThrow(
+      "pixelRatio must be a positive finite number",
+    );
+  },
+);
+
+test.skipIf(skip)("requestContext throws when pixelRatio is NaN", async () => {
+  await ensureBunWebGpu();
+  const { requestContext } = await loadContextModule();
+  const canvas = await makeOffscreenCanvas();
+  await expect(
+    requestContext(canvas, { pixelRatio: Number.NaN }),
+  ).rejects.toThrow("pixelRatio must be a positive finite number");
+});
+
+test.skipIf(skip)(
+  "requestContext throws when pixelRatio is Infinity",
+  async () => {
+    await ensureBunWebGpu();
+    const { requestContext } = await loadContextModule();
+    const canvas = await makeOffscreenCanvas();
+    await expect(
+      requestContext(canvas, { pixelRatio: Number.POSITIVE_INFINITY }),
+    ).rejects.toThrow("pixelRatio must be a positive finite number");
+  },
+);
+
+test.skipIf(skip)("requestContext accepts a positive pixelRatio", async () => {
+  await ensureBunWebGpu();
+  const { requestContext, dispose } = await loadContextModule();
+  const canvas = await makeOffscreenCanvas();
+  const ctx = await requestContext(canvas, { pixelRatio: 2 });
+  expect(ctx.pixelRatio).toBe(2);
+  dispose(ctx);
 });

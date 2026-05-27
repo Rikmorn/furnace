@@ -60,6 +60,8 @@ type InternalWithCanvasCtx = {
  *
  * @throws FurnaceGpuError - if WebGPU is unavailable (`navigator.gpu`
  * missing, no adapter, no `webgpu` canvas context).
+ * @throws FurnaceGpuError - if `options.pixelRatio` is provided as a
+ *   number and is not a positive finite value.
  */
 export async function requestContext(
   canvas: HTMLCanvasElement,
@@ -221,6 +223,11 @@ function resolvePixelRatio(
     return globalThis.devicePixelRatio || 1;
   }
   if (option === "css") return 1;
+  if (!Number.isFinite(option) || option <= 0) {
+    throw new FurnaceGpuError(
+      `requestContext: pixelRatio must be a positive finite number, "device", or "css"; got ${option}`,
+    );
+  }
   return option;
 }
 
