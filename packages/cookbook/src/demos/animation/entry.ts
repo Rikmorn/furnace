@@ -3,7 +3,7 @@ import * as camera from "@furnace/core/camera";
 import * as frame from "@furnace/core/frame";
 import type { Material } from "@furnace/core/material";
 import * as material from "@furnace/core/material";
-import type { Mesh } from "@furnace/core/mesh";
+import type { Geometry, Mesh } from "@furnace/core/mesh";
 import * as mesh from "@furnace/core/mesh";
 import type { Vec3, Vec4 } from "@furnace/core/transform";
 import { quat, vec3, vec4 } from "@furnace/core/transform";
@@ -81,15 +81,17 @@ await mountDemo({
   },
   setup: async (ctx) => {
     let mat: Material | undefined;
+    let cubeGeo: Geometry | undefined;
     let cubeVariable: Mesh | undefined;
     let cubeNoInterp: Mesh | undefined;
     let cubeInterp: Mesh | undefined;
     let unsubResize: (() => void) | undefined;
     try {
       mat = await material.normalColor(ctx);
-      cubeVariable = mesh.cube(ctx, { material: mat });
-      cubeNoInterp = mesh.cube(ctx, { material: mat });
-      cubeInterp = mesh.cube(ctx, { material: mat });
+      cubeGeo = mesh.cubeGeometry(ctx);
+      cubeVariable = mesh.create(ctx, { geometry: cubeGeo, material: mat });
+      cubeNoInterp = mesh.create(ctx, { geometry: cubeGeo, material: mat });
+      cubeInterp = mesh.create(ctx, { geometry: cubeGeo, material: mat });
 
       mesh.setPosition(cubeVariable, vec3.fromValues(-CUBE_X_SPACING, 0, 0));
       mesh.setPosition(cubeNoInterp, vec3.fromValues(0, 0, 0));
@@ -113,6 +115,7 @@ await mountDemo({
       const labelInterp = requireLabel("interp");
 
       const sceneMat = mat;
+      const sceneCubeGeo = cubeGeo;
       const sceneCubeVariable = cubeVariable;
       const sceneCubeNoInterp = cubeNoInterp;
       const sceneCubeInterp = cubeInterp;
@@ -139,6 +142,7 @@ await mountDemo({
           mesh.destroy(sceneCubeVariable);
           mesh.destroy(sceneCubeNoInterp);
           mesh.destroy(sceneCubeInterp);
+          mesh.destroyGeometry(sceneCubeGeo);
           material.destroy(sceneMat);
         },
       };
@@ -147,6 +151,7 @@ await mountDemo({
       if (cubeVariable) mesh.destroy(cubeVariable);
       if (cubeNoInterp) mesh.destroy(cubeNoInterp);
       if (cubeInterp) mesh.destroy(cubeInterp);
+      if (cubeGeo) mesh.destroyGeometry(cubeGeo);
       if (mat) material.destroy(mat);
       throw e;
     }
