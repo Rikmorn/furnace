@@ -3,6 +3,7 @@ import * as frame from "@furnace/core/frame";
 import * as gpu from "@furnace/core/gpu";
 import * as input from "@furnace/core/input";
 import * as material from "@furnace/core/material";
+import type { Geometry, Mesh } from "@furnace/core/mesh";
 import * as mesh from "@furnace/core/mesh";
 import * as post from "@furnace/core/post";
 import type { Vec4 } from "@furnace/core/transform";
@@ -68,7 +69,9 @@ const sdfTriangle = async (ctx: gpu.Context) => {
   return mesh.create(ctx, { geometry: sdfGeo, material: sdfMat });
 };
 
-const emissiveCube = async (ctx: gpu.Context) => {
+const emissiveCube = async (
+  ctx: gpu.Context,
+): Promise<{ mesh: Mesh; geometry: Geometry }> => {
   const shaderResponse = await fetch(emissiveShaderUrl);
   if (!shaderResponse.ok) {
     throw new Error(
@@ -89,7 +92,11 @@ const emissiveCube = async (ctx: gpu.Context) => {
     bindings: [{ binding: 0, resource: { buffer: emissiveBuffer } }],
   });
 
-  return mesh.cube(ctx, { material: emissiveMat });
+  const geometry = mesh.cubeGeometry(ctx);
+  return {
+    mesh: mesh.create(ctx, { geometry, material: emissiveMat }),
+    geometry,
+  };
 };
 
 const createBloomEffect = async (ctx: gpu.Context): Promise<post.Effect> => {
@@ -146,17 +153,22 @@ async function main(): Promise<void> {
     color: vec4.fromValues(0.1, 0.15, 0.2, 1),
   });
 
-  const cubeMesh = mesh.cube(ctx, { material: cubeMat });
-  const planeMesh = mesh.plane(ctx, {
-    material: planeMat,
-    size: PLANE_BACKDROP_SIZE,
+  const cubeMeshGeo = mesh.cubeGeometry(ctx);
+  const cubeMesh = mesh.create(ctx, {
+    geometry: cubeMeshGeo,
+    material: cubeMat,
   });
-  const emissiveMesh = await emissiveCube(ctx);
+  const planeMeshGeo = mesh.planeGeometry(ctx, { size: PLANE_BACKDROP_SIZE });
+  const planeMesh = mesh.create(ctx, {
+    geometry: planeMeshGeo,
+    material: planeMat,
+  });
+  const emissive = await emissiveCube(ctx);
   const bloom = await createBloomEffect(ctx);
 
   mesh.setPosition(planeMesh, new Float32Array([0, 0, PLANE_Z]));
   mesh.setPosition(cubeMesh, new Float32Array([CUBE_X, 0, 0]));
-  mesh.setPosition(emissiveMesh, new Float32Array([-CUBE_X, 0, 0]));
+  mesh.setPosition(emissive.mesh, new Float32Array([-CUBE_X, 0, 0]));
 
   // No teardown — subscription lives for the page lifetime (no dispose path in hello-world).
   camera.bindToCanvas(cam, ctx);
@@ -207,10 +219,10 @@ async function main(): Promise<void> {
       0,
     );
     mesh.setRotation(cubeMesh, rotation);
-    mesh.setRotation(emissiveMesh, rotation);
+    mesh.setRotation(emissive.mesh, rotation);
 
     frame.render(ctx, {
-      draw: [planeMesh, cubeMesh, emissiveMesh, sdfMesh],
+      draw: [planeMesh, cubeMesh, emissive.mesh, sdfMesh],
       camera: cam,
       effects: [bloom],
       clearColor: CLEAR_COLOR,
