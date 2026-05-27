@@ -59,7 +59,7 @@ test.skipIf(!bunWebGpuAvailable())(
 );
 
 test.skipIf(!bunWebGpuAvailable())(
-  "dispose with intermediates registered triggers leak warn",
+  "dispose with intermediates allocated does not warn (self-registered teardown)",
   async () => {
     const canvas = await makeOffscreenCanvas(64, 32);
     const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
@@ -71,13 +71,6 @@ test.skipIf(!bunWebGpuAvailable())(
     } finally {
       setSink(consoleSink);
     }
-    expect(
-      entries.some(
-        (e) =>
-          e.level === "warn" &&
-          e.module === "gpu" &&
-          e.message.includes("leak suspected"),
-      ),
-    ).toBe(true);
+    expect(entries.length).toBe(0);
   },
 );

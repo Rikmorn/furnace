@@ -1,4 +1,5 @@
 import type { Context } from "../gpu/context-types.ts";
+import { _onDispose } from "../gpu/dispose-cascade.ts";
 import {
   _registerResource,
   _unregisterResource,
@@ -91,7 +92,17 @@ export function _ensureSceneIntermediates(ctx: Context): IntermediateEntry {
     height,
   };
   intermediateByCtx.set(ctx, entry);
+  if (existing === undefined) {
+    _onDispose(ctx, () => _disposeIntermediates(ctx));
+  }
   return entry;
+}
+
+function _disposeIntermediates(ctx: Context): void {
+  const entry = intermediateByCtx.get(ctx);
+  if (!entry) return;
+  destroyEntry(ctx, entry);
+  intermediateByCtx.delete(ctx);
 }
 
 export type { IntermediateEntry };
