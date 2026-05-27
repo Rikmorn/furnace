@@ -5,7 +5,7 @@ import type { Context } from "@furnace/core/gpu";
 import * as input from "@furnace/core/input";
 import type { Material } from "@furnace/core/material";
 import * as material from "@furnace/core/material";
-import type { Mesh } from "@furnace/core/mesh";
+import type { Geometry, Mesh } from "@furnace/core/mesh";
 import * as mesh from "@furnace/core/mesh";
 import type { Quat, Vec3, Vec4 } from "@furnace/core/transform";
 import { quat, vec3, vec4 } from "@furnace/core/transform";
@@ -85,6 +85,7 @@ type TranslucentSurfaces = {
   red: Mesh;
   green: Mesh;
   blue: Mesh;
+  geo: Geometry;
   redMat: Material;
   greenMat: Material;
   blueMat: Material;
@@ -92,6 +93,7 @@ type TranslucentSurfaces = {
 
 type BackdropResources = {
   meshes: Mesh[];
+  geo: Geometry;
   mats: Material[];
 };
 
@@ -100,6 +102,7 @@ type LabelKey = "red" | "green" | "blue";
 type SceneRef = {
   backdrop: BackdropResources;
   reference: Mesh;
+  referenceGeo: Geometry;
   referenceMat: Material;
   surfaces: TranslucentSurfaces;
   cam: Camera;
@@ -128,8 +131,11 @@ async function buildBackdrop(
 ): Promise<BackdropResources> {
   const mats: Material[] = [];
   const meshes: Mesh[] = [];
+  let geo: Geometry | undefined;
   try {
     if (mode === "strips") {
+      // One shared geometry for all strip planes (same size, different materials).
+      geo = mesh.planeGeometry(ctx, { size: BACKDROP_STRIP_WIDTH });
       for (let i = 0; i < STRIP_COUNT; i++) {
         const color = STRIP_COLORS[i];
         if (!color) continue;
@@ -139,10 +145,7 @@ async function buildBackdrop(
           depthCompare,
         });
         mats.push(mat);
-        const m = mesh.plane(ctx, {
-          material: mat,
-          size: BACKDROP_STRIP_WIDTH,
-        });
+        const m = mesh.create(ctx, { geometry: geo, material: mat });
         const scaleBuf = vec3.fromValues(
           1,
           BACKDROP_STRIP_HEIGHT / BACKDROP_STRIP_WIDTH,
@@ -158,6 +161,7 @@ async function buildBackdrop(
         meshes.push(m);
       }
     } else {
+      geo = mesh.planeGeometry(ctx, { size: BACKDROP_SOLID_WIDTH });
       const color: Vec4 =
         mode === "solid-black"
           ? vec4.fromValues(0, 0, 0, 1)
@@ -168,7 +172,7 @@ async function buildBackdrop(
         depthCompare,
       });
       mats.push(mat);
-      const m = mesh.plane(ctx, { material: mat, size: BACKDROP_SOLID_WIDTH });
+      const m = mesh.create(ctx, { geometry: geo, material: mat });
       const scaleBuf = vec3.fromValues(
         1,
         BACKDROP_SOLID_HEIGHT / BACKDROP_SOLID_WIDTH,
@@ -179,9 +183,10 @@ async function buildBackdrop(
       mesh.setPosition(m, pos);
       meshes.push(m);
     }
-    return { meshes, mats };
+    return { meshes, geo, mats };
   } catch (e) {
     for (const m of meshes) mesh.destroy(m);
+    if (geo) mesh.destroyGeometry(geo);
     for (const mt of mats) material.destroy(mt);
     throw e;
   }
@@ -189,6 +194,7 @@ async function buildBackdrop(
 
 function disposeBackdrop(b: BackdropResources): void {
   for (const m of b.meshes) mesh.destroy(m);
+  mesh.destroyGeometry(b.geo);
   for (const mt of b.mats) material.destroy(mt);
 }
 
@@ -198,34 +204,43 @@ async function buildReference(
   ctx: Context,
   cull: Cull,
   depthCompare: DepthCompare,
-): Promise<{ refMesh: Mesh; mat: Material }> {
+): Promise<{ refMesh: Mesh; refGeo: Geometry; mat: Material }> {
   // Reference is always an opaque plane (cube was redundant since the camera
   // is head-on; you'd only ever see one face). It always writes depth — it's
   // the depth reference for translucents in front of it.
-  const mat = await material.unlit(ctx, {
-    color: REFERENCE_COLOR,
-    cullMode: cull,
-    depthCompare,
-    depthWrite: true,
-  });
-  const refMesh = mesh.plane(ctx, { material: mat, size: REFERENCE_SIZE });
-  // Place the reference behind the translucent surfaces and in front of the
-  // backdrop. Z = -1.0 sits between BLUE_Z (-0.5) and BACKDROP_Z (-1.5).
-  const pos = vec3.fromValues(0, 0, REFERENCE_Z);
-  mesh.setPosition(refMesh, pos);
-  return { refMesh, mat };
+  let refGeo: Geometry | undefined;
+  let mat: Material | undefined;
+  try {
+    mat = await material.unlit(ctx, {
+      color: REFERENCE_COLOR,
+      cullMode: cull,
+      depthCompare,
+      depthWrite: true,
+    });
+    refGeo = mesh.planeGeometry(ctx, { size: REFERENCE_SIZE });
+    const refMesh = mesh.create(ctx, { geometry: refGeo, material: mat });
+    // Place the reference behind the translucent surfaces and in front of the
+    // backdrop. Z = -1.0 sits between BLUE_Z (-0.5) and BACKDROP_Z (-1.5).
+    const pos = vec3.fromValues(0, 0, REFERENCE_Z);
+    mesh.setPosition(refMesh, pos);
+    return { refMesh, refGeo, mat };
+  } catch (e) {
+    if (refGeo) mesh.destroyGeometry(refGeo);
+    if (mat) material.destroy(mat);
+    throw e;
+  }
 }
 
 // --- Translucent surfaces ---
 
 async function buildTranslucentSurface(
   ctx: Context,
+  geo: Geometry,
   color: Vec4,
   blend: GPUBlendState | undefined,
   cull: Cull,
   depthWrite: boolean,
   depthCompare: DepthCompare,
-  primitive: Primitive,
 ): Promise<{ mesh: Mesh; mat: Material }> {
   const mat = await material.unlit(ctx, {
     color,
@@ -234,10 +249,7 @@ async function buildTranslucentSurface(
     depthWrite,
     depthCompare,
   });
-  const m =
-    primitive === "cube"
-      ? mesh.cube(ctx, { material: mat, size: SURFACE_SIZE })
-      : mesh.plane(ctx, { material: mat, size: SURFACE_SIZE });
+  const m = mesh.create(ctx, { geometry: geo, material: mat });
   return { mesh: m, mat };
 }
 
@@ -248,40 +260,47 @@ async function buildTranslucentSurfaces(
   depthCompare: DepthCompare,
   primitive: Primitive,
 ): Promise<TranslucentSurfaces> {
+  let geo: Geometry | undefined;
   let red: { mesh: Mesh; mat: Material } | undefined;
   let green: { mesh: Mesh; mat: Material } | undefined;
   try {
+    // One shared geometry for all three surfaces — same primitive, same size.
+    geo =
+      primitive === "cube"
+        ? mesh.cubeGeometry(ctx, { size: SURFACE_SIZE })
+        : mesh.planeGeometry(ctx, { size: SURFACE_SIZE });
     red = await buildTranslucentSurface(
       ctx,
+      geo,
       RED_TINT,
       material.STRAIGHT_ALPHA_BLEND,
       cull,
       depthWrite,
       depthCompare,
-      primitive,
     );
     green = await buildTranslucentSurface(
       ctx,
+      geo,
       GREEN_TINT_PREMULT,
       material.PREMULTIPLIED_ALPHA_BLEND,
       cull,
       depthWrite,
       depthCompare,
-      primitive,
     );
     const blue = await buildTranslucentSurface(
       ctx,
+      geo,
       BLUE_TINT,
       material.ADDITIVE_BLEND,
       cull,
       depthWrite,
       depthCompare,
-      primitive,
     );
     return {
       red: red.mesh,
       green: green.mesh,
       blue: blue.mesh,
+      geo,
       redMat: red.mat,
       greenMat: green.mat,
       blueMat: blue.mat,
@@ -295,6 +314,7 @@ async function buildTranslucentSurfaces(
       mesh.destroy(red.mesh);
       material.destroy(red.mat);
     }
+    if (geo) mesh.destroyGeometry(geo);
     throw e;
   }
 }
@@ -303,6 +323,7 @@ function disposeTranslucentSurfaces(s: TranslucentSurfaces): void {
   mesh.destroy(s.red);
   mesh.destroy(s.green);
   mesh.destroy(s.blue);
+  mesh.destroyGeometry(s.geo);
   material.destroy(s.redMat);
   material.destroy(s.greenMat);
   material.destroy(s.blueMat);
@@ -350,7 +371,7 @@ function positionLabel(
 
 async function buildScene(ctx: Context): Promise<SceneRef> {
   let backdrop: BackdropResources | undefined;
-  let refRes: { refMesh: Mesh; mat: Material } | undefined;
+  let refRes: { refMesh: Mesh; refGeo: Geometry; mat: Material } | undefined;
   let surfaces: TranslucentSurfaces | undefined;
   try {
     backdrop = await buildBackdrop(
@@ -375,6 +396,7 @@ async function buildScene(ctx: Context): Promise<SceneRef> {
     return {
       backdrop,
       reference: refRes.refMesh,
+      referenceGeo: refRes.refGeo,
       referenceMat: refRes.mat,
       surfaces,
       cam,
@@ -395,6 +417,7 @@ async function buildScene(ctx: Context): Promise<SceneRef> {
     if (surfaces) disposeTranslucentSurfaces(surfaces);
     if (refRes) {
       mesh.destroy(refRes.refMesh);
+      mesh.destroyGeometry(refRes.refGeo);
       material.destroy(refRes.mat);
     }
     if (backdrop) disposeBackdrop(backdrop);
@@ -406,6 +429,7 @@ function disposeScene(scene: SceneRef): void {
   scene.unsubResize();
   disposeTranslucentSurfaces(scene.surfaces);
   mesh.destroy(scene.reference);
+  mesh.destroyGeometry(scene.referenceGeo);
   material.destroy(scene.referenceMat);
   disposeBackdrop(scene.backdrop);
 }
@@ -421,7 +445,9 @@ function makeRebuild(
 
   const rebuildOnce = async (): Promise<void> => {
     let nextBackdrop: BackdropResources | undefined;
-    let nextRefRes: { refMesh: Mesh; mat: Material } | undefined;
+    let nextRefRes:
+      | { refMesh: Mesh; refGeo: Geometry; mat: Material }
+      | undefined;
     let nextSurfaces: TranslucentSurfaces | undefined;
     try {
       nextBackdrop = await buildBackdrop(
@@ -441,6 +467,7 @@ function makeRebuild(
       if (abortFlag.disposed) {
         disposeTranslucentSurfaces(nextSurfaces);
         mesh.destroy(nextRefRes.refMesh);
+        mesh.destroyGeometry(nextRefRes.refGeo);
         material.destroy(nextRefRes.mat);
         disposeBackdrop(nextBackdrop);
         return;
@@ -450,20 +477,24 @@ function makeRebuild(
       // untouched.
       const oldBackdrop = sceneRef.backdrop;
       const oldReference = sceneRef.reference;
+      const oldReferenceGeo = sceneRef.referenceGeo;
       const oldReferenceMat = sceneRef.referenceMat;
       const oldSurfaces = sceneRef.surfaces;
       sceneRef.backdrop = nextBackdrop;
       sceneRef.reference = nextRefRes.refMesh;
+      sceneRef.referenceGeo = nextRefRes.refGeo;
       sceneRef.referenceMat = nextRefRes.mat;
       sceneRef.surfaces = nextSurfaces;
       disposeTranslucentSurfaces(oldSurfaces);
       mesh.destroy(oldReference);
+      mesh.destroyGeometry(oldReferenceGeo);
       material.destroy(oldReferenceMat);
       disposeBackdrop(oldBackdrop);
     } catch (e) {
       if (nextSurfaces) disposeTranslucentSurfaces(nextSurfaces);
       if (nextRefRes) {
         mesh.destroy(nextRefRes.refMesh);
+        mesh.destroyGeometry(nextRefRes.refGeo);
         material.destroy(nextRefRes.mat);
       }
       if (nextBackdrop) disposeBackdrop(nextBackdrop);
