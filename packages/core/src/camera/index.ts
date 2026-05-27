@@ -17,7 +17,6 @@ export {
   type OrthographicBounds,
   type OrthographicOptions,
   orthographic,
-  setBounds,
   setFitPolicy,
   setScale,
 } from "./orthographic.ts";

@@ -43,7 +43,8 @@ export type OrthographicOptions = {
 };
 
 /**
- * Shape passed to {@link setBounds}. Use this type when composing helpers
+ * Shape of an orthographic camera's view bounds. Returned by {@link getBounds}
+ * and accepted by {@link policy.stretch}. Use this type when composing helpers
  * that receive or forward orthographic bounds.
  */
 export type OrthographicBounds = {
@@ -237,33 +238,4 @@ export function getBounds(cam: Camera): Readonly<OrthographicBounds> {
   }
   const { left, right, bottom, top } = cam.projection;
   return Object.freeze({ left, right, bottom, top });
-}
-
-/**
- * Set an orthographic camera's view bounds. Mutates `cam` in place; flips
- * `projDirty`.
- *
- * Setup-loud: validates the inputs synchronously.
- *
- * @throws FurnaceError - if any bound is non-finite, or if the camera is not
- * orthographic.
- */
-export function setBounds(cam: Camera, bounds: OrthographicBounds): void {
-  const { left, right, bottom, top } = bounds;
-  const boundsFinite =
-    Number.isFinite(left) &&
-    Number.isFinite(right) &&
-    Number.isFinite(bottom) &&
-    Number.isFinite(top);
-  if (!boundsFinite) {
-    throw new FurnaceError("bounds must be finite numbers");
-  }
-  if (cam.projection.kind !== "orthographic") {
-    throw new FurnaceError("setBounds is orthographic-only");
-  }
-  cam.projection.left = left;
-  cam.projection.right = right;
-  cam.projection.bottom = bottom;
-  cam.projection.top = top;
-  cam.projDirty = true;
 }

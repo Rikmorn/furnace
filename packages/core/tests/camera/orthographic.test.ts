@@ -4,7 +4,6 @@ import { policy } from "../../src/camera/fit-policy.ts";
 import {
   getBounds,
   orthographic,
-  setBounds,
   setFitPolicy,
   setScale,
 } from "../../src/camera/orthographic.ts";
@@ -45,9 +44,9 @@ test("default view matches mat4.lookAt with default position/target/up", () => {
   expect(approxArr(view, expected)).toBe(true);
 });
 
-test("setBounds updates the projection", () => {
+test("setFitPolicy with stretch updates the projection", () => {
   const cam = orthographic();
-  setBounds(cam, { left: -2, right: 4, bottom: -3, top: 3 });
+  setFitPolicy(cam, policy.stretch({ left: -2, right: 4, bottom: -3, top: 3 }));
   const { projection } = getMatrices(cam);
   const expected = new Float32Array(16);
   mat4.ortho(expected, -2, 4, -3, 3, -1, 1);

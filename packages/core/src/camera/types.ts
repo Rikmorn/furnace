@@ -45,7 +45,7 @@ export type RecomputeProjection = (data: Camera) => void;
  *
  * Treated as an opaque handle by consumers — mutate only via the exported
  * setters (`setPosition`, `setTarget`, `setUp`, `setAspect`, `setNearFar`,
- * `setFov`, `setBounds`, `setFitPolicy`, `setScale`). The setters maintain
+ * `setFov`, `setFitPolicy`, `setScale`). The setters maintain
  * the `viewDirty` / `projDirty` flags that {@link getMatrices} relies on to
  * decide what to recompute.
  */

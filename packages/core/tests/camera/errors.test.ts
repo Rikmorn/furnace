@@ -1,18 +1,11 @@
 import { expect, test } from "bun:test";
 import { setAspect, setNearFar } from "../../src/camera/common.ts";
-import { orthographic, setBounds } from "../../src/camera/orthographic.ts";
+import { orthographic } from "../../src/camera/orthographic.ts";
 import { perspective, setFov } from "../../src/camera/perspective.ts";
 
 test("setFov on orthographic camera throws", () => {
   const cam = orthographic();
   expect(() => setFov(cam, Math.PI / 2)).toThrow(/perspective-only/);
-});
-
-test("setBounds on perspective camera throws", () => {
-  const cam = perspective();
-  expect(() =>
-    setBounds(cam, { left: -1, right: 1, bottom: -1, top: 1 }),
-  ).toThrow(/orthographic-only/);
 });
 
 test("setNearFar with near >= far throws", () => {
