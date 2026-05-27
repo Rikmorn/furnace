@@ -7,7 +7,6 @@ import {
   setTarget,
   setUp,
 } from "../../src/camera/common.ts";
-import { orthographic } from "../../src/camera/orthographic.ts";
 import { perspective } from "../../src/camera/perspective.ts";
 import { mat4 } from "../../src/transform/mat4.ts";
 import { vec3 } from "../../src/transform/vec3.ts";
@@ -64,16 +63,6 @@ test("setAspect on perspective updates projection", () => {
   const { projection } = getMatrices(cam);
   const expected = new Float32Array(16);
   mat4.perspective(expected, Math.PI / 4, 16 / 9, 0.1, 1000);
-  expect(approxArr(projection, expected)).toBe(true);
-});
-
-test("setAspect on orthographic preserves vertical range", () => {
-  const cam = orthographic();
-  // Default vertical range: top=1, bottom=-1 → 2.
-  setAspect(cam, 0.5); // horizontal range should be 1 → left=-0.5, right=0.5.
-  const { projection } = getMatrices(cam);
-  const expected = new Float32Array(16);
-  mat4.ortho(expected, -0.5, 0.5, -1, 1, -1, 1);
   expect(approxArr(projection, expected)).toBe(true);
 });
 

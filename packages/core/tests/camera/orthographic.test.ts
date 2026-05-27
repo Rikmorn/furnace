@@ -53,14 +53,9 @@ test("setFitPolicy with stretch updates the projection", () => {
   expect(approxArr(projection, expected)).toBe(true);
 });
 
-test("setAspect preserves vertical range, rescales horizontal symmetrically about 0", () => {
+test("setAspect throws on orthographic cameras", () => {
   const cam = orthographic();
-  // Default bounds: left=-1, right=1, bottom=-1, top=1 → vertical range = 2.
-  setAspect(cam, 2); // horizontal range should be 4 → left=-2, right=2.
-  const { projection } = getMatrices(cam);
-  const expected = new Float32Array(16);
-  mat4.ortho(expected, -2, 2, -1, 1, -1, 1);
-  expect(approxArr(projection, expected)).toBe(true);
+  expect(() => setAspect(cam, 2)).toThrow(/perspective-only|setFitPolicy/);
 });
 
 test("setNearFar allows negative near (orthographic)", () => {

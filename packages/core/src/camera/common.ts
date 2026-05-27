@@ -34,30 +34,25 @@ export function setUp(cam: Camera, up: Vec3): void {
 }
 
 /**
- * Set the camera's aspect ratio. Mutates `cam` in place; flips `projDirty`.
- *
- * Works on both projection kinds. For perspective, sets `aspect` directly.
- * For orthographic, adjusts `left` and `right` to make the horizontal range
- * equal `(top - bottom) * aspect`, preserving the vertical range.
+ * Set a perspective camera's aspect ratio. Mutates `cam` in place; flips
+ * `projDirty`.
  *
  * Setup-loud: validates the input synchronously.
  *
- * @throws FurnaceError - if `aspect` is non-finite or non-positive.
+ * @throws FurnaceError - if `aspect` is non-finite or non-positive, or if
+ * `cam` is orthographic (orthographic cameras use {@link setFitPolicy} for
+ * bounds management).
  */
 export function setAspect(cam: Camera, aspect: number): void {
   if (!Number.isFinite(aspect) || aspect <= 0) {
     throw new FurnaceError("aspect must be a positive finite number");
   }
-  if (cam.projection.kind === "perspective") {
-    cam.projection.aspect = aspect;
-  } else {
-    const top = cam.projection.top;
-    const bottom = cam.projection.bottom;
-    const verticalRange = top - bottom;
-    const horizontalRange = verticalRange * aspect;
-    cam.projection.left = -horizontalRange / 2;
-    cam.projection.right = horizontalRange / 2;
+  if (cam.projection.kind !== "perspective") {
+    throw new FurnaceError(
+      "setAspect is perspective-only; orthographic cameras use setFitPolicy",
+    );
   }
+  cam.projection.aspect = aspect;
   cam.projDirty = true;
 }
 
