@@ -1,3 +1,4 @@
+import { FurnaceError } from "../errors.ts";
 import type { Context } from "../gpu/index.ts";
 import type { Material } from "../material/types.ts";
 import {
@@ -29,11 +30,20 @@ type MeshWithHandles = Mesh & {
  * The caller owns the passed `geometry` and `material` — see
  * `engine-conventions.md` §Resource ownership. `mesh.destroy` does not
  * cascade to either.
+ *
+ * @throws FurnaceError - if `opts.geometry` or `opts.material` is
+ *   null/undefined.
  */
 export function create(
   ctx: Context,
   opts: { geometry: Geometry; material: Material },
 ): Mesh {
+  if (opts.geometry == null) {
+    throw new FurnaceError("mesh.create: geometry is required");
+  }
+  if (opts.material == null) {
+    throw new FurnaceError("mesh.create: material is required");
+  }
   const objectBuffer = ctx.device.createBuffer({
     size: OBJECT_UNIFORM_SIZE_BYTES,
     usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,

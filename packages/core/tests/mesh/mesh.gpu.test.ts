@@ -1,7 +1,9 @@
 import { expect, test } from "bun:test";
 import * as gpu from "../../src/gpu/index.ts";
+import { destroy as destroyMaterial } from "../../src/material/material.ts";
 import { unlit } from "../../src/material/unlit.ts";
-import { createGeometry } from "../../src/mesh/geometry.ts";
+import { cubeGeometry } from "../../src/mesh/factories/cube.ts";
+import { createGeometry, destroyGeometry } from "../../src/mesh/geometry.ts";
 import {
   _recomputeModelIfDirty,
   create,
@@ -90,6 +92,36 @@ test.skipIf(!bunWebGpuAvailable())(
       new Float32Array([1, 1, 1]),
     );
     expect(Array.from(mesh.modelMatrix)).toEqual(Array.from(expected));
+    gpu.dispose(ctx);
+  },
+);
+
+test.skipIf(!bunWebGpuAvailable())(
+  "mesh.create throws when geometry is null",
+  async () => {
+    const canvas = await makeOffscreenCanvas();
+    const ctx = await gpu.requestContext(canvas);
+    const mat = await unlit(ctx, { color: vec4.fromValues(1, 0, 0, 1) });
+    expect(() =>
+      // biome-ignore lint/suspicious/noExplicitAny: testing invalid input
+      create(ctx, { geometry: null as any, material: mat }),
+    ).toThrow("geometry is required");
+    destroyMaterial(mat);
+    gpu.dispose(ctx);
+  },
+);
+
+test.skipIf(!bunWebGpuAvailable())(
+  "mesh.create throws when material is null",
+  async () => {
+    const canvas = await makeOffscreenCanvas();
+    const ctx = await gpu.requestContext(canvas);
+    const geo = cubeGeometry(ctx);
+    expect(() =>
+      // biome-ignore lint/suspicious/noExplicitAny: testing invalid input
+      create(ctx, { geometry: geo, material: null as any }),
+    ).toThrow("material is required");
+    destroyGeometry(geo);
     gpu.dispose(ctx);
   },
 );
