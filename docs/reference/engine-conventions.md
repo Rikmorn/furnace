@@ -176,8 +176,6 @@ Stance: observability per §Failure policy. Setup ops (`stats.onFrame`) throw on
 
 Full spec: `docs/superpowers/specs/2026-05-24-core-tranche-5-stats-expansion-design.md`.
 
-Failure semantics follow the framework in § Failure policy.
-
 ## Failure policy
 
 Engine modules pick one of four behavioural stances per export, driven

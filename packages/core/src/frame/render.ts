@@ -396,9 +396,9 @@ function runEffectsPingPong(
  *   call from `camera.getMatrices`. Per-mesh `@group(0)` bind groups are
  *   cached on the mesh keyed by `(pipeline, cameraBuffer)`.
  *
- * Setup-loud per the foreground failure policy. The effects list is
- * validated up front; any disposed-/cross-context effect throws before any
- * GPU work is recorded.
+ * Setup-loud per the foreground failure policy. The draw and effects
+ * lists are validated up front; any null, destroyed, or cross-context
+ * entry throws before any GPU work is recorded.
  *
  * @throws FurnaceGpuError - if `ctx` has been disposed; if
  *   `opts.camera` or `opts.draw` is null/undefined; if any entry in
