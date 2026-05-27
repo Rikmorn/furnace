@@ -107,8 +107,9 @@ export function setPosition(mesh: Mesh, position: Vec3): void {
  * Hot-path setter — no input validation. Components must be finite;
  * non-finite components propagate to the per-mesh object uniform
  * buffer and the resulting model matrix is degenerate until a finite
- * value is written. Pass `quat.identity` or a normalized quaternion;
- * a zero quaternion produces a degenerate matrix.
+ * value is written. Pass a unit-length quaternion (`quat.create()`
+ * for identity, or `quat.normalize` first); a non-unit quaternion
+ * produces a non-orthonormal model matrix with implicit shear.
  */
 export function setRotation(mesh: Mesh, rotation: Quat): void {
   mesh.rotation.set(rotation);
