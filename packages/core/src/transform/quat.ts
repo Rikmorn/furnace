@@ -117,9 +117,9 @@ export const quat = {
   /**
    * Normalize `a` to unit length, writing into `out`.
    *
-   * If `|a| === 0`, writes the zero quaternion (not identity) — callers
-   * that need a sensible fallback should guard or call {@link quat.identity}
-   * themselves.
+   * If `|a| === 0`, writes the identity quaternion `(0, 0, 0, 1)` — a
+   * downstream-safe sentinel. Multiplying by identity is a no-op rather
+   * than the NaN-cascade you would get from a zero quaternion.
    */
   normalize(out: Quat, a: Quat): Quat {
     const ax = a[0] as number;
@@ -131,7 +131,7 @@ export const quat = {
       out[0] = 0;
       out[1] = 0;
       out[2] = 0;
-      out[3] = 0;
+      out[3] = 1;
       return out;
     }
     const inv = 1 / len;

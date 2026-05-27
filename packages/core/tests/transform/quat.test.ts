@@ -76,3 +76,9 @@ test("slerp t=1 returns b", () => {
   quat.slerp(out, a, b, 1);
   expect(approxArr(out, [1, 0, 0, 0])).toBe(true);
 });
+
+test("normalize of zero quaternion writes identity (0,0,0,1)", () => {
+  const out = quat.create();
+  quat.normalize(out, new Float32Array([0, 0, 0, 0]));
+  expect(approxArr(out, [0, 0, 0, 1])).toBe(true);
+});
