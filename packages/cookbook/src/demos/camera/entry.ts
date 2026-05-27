@@ -4,7 +4,7 @@ import * as frame from "@furnace/core/frame";
 import * as input from "@furnace/core/input";
 import type { Material } from "@furnace/core/material";
 import * as material from "@furnace/core/material";
-import type { Mesh } from "@furnace/core/mesh";
+import type { Geometry, Mesh } from "@furnace/core/mesh";
 import * as mesh from "@furnace/core/mesh";
 import type { Vec3, Vec4 } from "@furnace/core/transform";
 import { vec3, vec4 } from "@furnace/core/transform";
@@ -84,6 +84,8 @@ await mountDemo({
     let planeMat: Material | undefined;
     let cube: Mesh | undefined;
     let plane: Mesh | undefined;
+    let cubeGeo: Geometry | undefined;
+    let planeGeo: Geometry | undefined;
     let unsubResize: (() => void) | undefined;
 
     try {
@@ -92,11 +94,10 @@ await mountDemo({
         color: vec4.fromValues(0.1, 0.1, 0.12, 1),
       });
 
-      cube = mesh.cube(ctx, { material: normalMat });
-      plane = mesh.plane(ctx, {
-        material: planeMat,
-        size: PLANE_BACKDROP_SIZE,
-      });
+      cubeGeo = mesh.cubeGeometry(ctx);
+      cube = mesh.create(ctx, { geometry: cubeGeo, material: normalMat });
+      planeGeo = mesh.planeGeometry(ctx, { size: PLANE_BACKDROP_SIZE });
+      plane = mesh.create(ctx, { geometry: planeGeo, material: planeMat });
       mesh.setPosition(plane, vec3.fromValues(0, 0, PLANE_Z));
 
       const initialAspect = ctx.canvas.width / ctx.canvas.height;
@@ -145,6 +146,8 @@ await mountDemo({
 
       const sceneCube = cube;
       const scenePlane = plane;
+      const sceneCubeGeo = cubeGeo;
+      const scenePlaneGeo = planeGeo;
       const sceneNormalMat = normalMat;
       const scenePlaneMat = planeMat;
       const sceneUnsubResize = unsubResize;
@@ -163,6 +166,8 @@ await mountDemo({
           sceneUnsubResize();
           mesh.destroy(sceneCube);
           mesh.destroy(scenePlane);
+          mesh.destroyGeometry(sceneCubeGeo);
+          mesh.destroyGeometry(scenePlaneGeo);
           material.destroy(sceneNormalMat);
           material.destroy(scenePlaneMat);
           input.detach();
@@ -172,6 +177,8 @@ await mountDemo({
       if (unsubResize) unsubResize();
       if (cube) mesh.destroy(cube);
       if (plane) mesh.destroy(plane);
+      if (cubeGeo) mesh.destroyGeometry(cubeGeo);
+      if (planeGeo) mesh.destroyGeometry(planeGeo);
       if (normalMat) material.destroy(normalMat);
       if (planeMat) material.destroy(planeMat);
       input.detach();
