@@ -1,4 +1,4 @@
-import type { Camera } from "@furnace/core/camera";
+import type { Anchor, Camera } from "@furnace/core/camera";
 import * as camera from "@furnace/core/camera";
 import * as frame from "@furnace/core/frame";
 import * as input from "@furnace/core/input";
@@ -12,7 +12,11 @@ import { vec3, vec4 } from "@furnace/core/transform";
 import { mountDemo } from "../../shared/mount.ts";
 import Controls from "./controls.svelte";
 import help from "./help.ts";
-import type { CameraKind } from "./state.svelte.ts";
+import type {
+  AnchorPreset,
+  CameraKind,
+  FitPolicyKind,
+} from "./state.svelte.ts";
 import { state } from "./state.svelte.ts";
 
 const PLANE_BACKDROP_SIZE = 6;
@@ -22,7 +26,16 @@ const ORBIT_SPEED_DEG_PER_PX = 0.4;
 const PITCH_LIMIT_DEG = 89;
 const NEAR_FAR_MIN_GAP = 0.05;
 const DEG_TO_RAD = Math.PI / 180;
+const REFERENCE_EXTENT = 2;
 const CLEAR_COLOR: Vec4 = vec4.fromValues(0.05, 0.05, 0.07, 1);
+
+const ANCHOR_PRESETS: Record<AnchorPreset, Anchor> = {
+  center: { x: 0.5, y: 0.5 },
+  "top-left": { x: 0, y: 1 },
+  "top-right": { x: 1, y: 1 },
+  "bottom-left": { x: 0, y: 0 },
+  "bottom-right": { x: 1, y: 0 },
+};
 
 function writeOrbitEye(out: Vec3): void {
   const yaw = state.yawDeg * DEG_TO_RAD;
@@ -58,6 +71,12 @@ await mountDemo({
     get far() {
       return state.far;
     },
+    get fitPolicyKind() {
+      return state.fitPolicyKind;
+    },
+    get anchorPreset() {
+      return state.anchorPreset;
+    },
     onCameraKindChange: (v: CameraKind) => {
       state.cameraKind = v;
     },
@@ -75,6 +94,12 @@ await mountDemo({
     },
     onFarChange: (v: number) => {
       state.far = Math.max(v, state.near + NEAR_FAR_MIN_GAP);
+    },
+    onFitPolicyKindChange: (v: FitPolicyKind) => {
+      state.fitPolicyKind = v;
+    },
+    onAnchorPresetChange: (v: AnchorPreset) => {
+      state.anchorPreset = v;
     },
   },
   setup: async (ctx) => {
@@ -106,19 +131,22 @@ await mountDemo({
         position: vec3.fromValues(0, 0, CAMERA_RADIUS),
       });
       const orthographicCam = camera.orthographic({
-        left: -state.zoom * initialAspect,
-        right: state.zoom * initialAspect,
-        bottom: -state.zoom,
-        top: state.zoom,
+        fitPolicy: camera.policy.preserveHeight(
+          REFERENCE_EXTENT,
+          ANCHOR_PRESETS[state.anchorPreset],
+        ),
+        scale: state.zoom,
         near: state.near,
         far: state.far,
         position: vec3.fromValues(0, 0, CAMERA_RADIUS),
       });
 
-      unsubResize = camera.bindToCanvas(perspectiveCam, ctx);
-      // Orthographic aspect is handled per-frame via setBounds below — bindToCanvas
-      // is a no-op for orthographic cameras in this tranche (Tranche A-2 will
-      // introduce a configurable fitPolicy).
+      const unsubResizeP = camera.bindToCanvas(perspectiveCam, ctx);
+      const unsubResizeO = camera.bindToCanvas(orthographicCam, ctx);
+      unsubResize = () => {
+        unsubResizeP();
+        unsubResizeO();
+      };
 
       let dragging = false;
       let lastX = 0;
@@ -143,6 +171,10 @@ await mountDemo({
 
       const eyeBuf = vec3.create();
       const targetBuf = vec3.fromValues(0, 0, 0);
+      const fitPolicyDirty: {
+        lastKind: FitPolicyKind | undefined;
+        lastAnchor: AnchorPreset | undefined;
+      } = { lastKind: undefined, lastAnchor: undefined };
 
       const sceneCube = cube;
       const scenePlane = plane;
@@ -161,6 +193,7 @@ await mountDemo({
           planeMat: scenePlaneMat,
           eyeBuf,
           targetBuf,
+          fitPolicyDirty,
         },
         dispose: () => {
           sceneUnsubResize();
@@ -198,13 +231,42 @@ await mountDemo({
     if (state.cameraKind === "perspective") {
       camera.setFov(scene.perspectiveCam, state.fovDeg * DEG_TO_RAD);
     } else {
-      const aspect = ctx.canvas.width / ctx.canvas.height;
-      camera.setBounds(scene.orthographicCam, {
-        left: -state.zoom * aspect,
-        right: state.zoom * aspect,
-        bottom: -state.zoom,
-        top: state.zoom,
-      });
+      camera.setScale(scene.orthographicCam, state.zoom);
+      const policyChanged =
+        state.fitPolicyKind !== scene.fitPolicyDirty.lastKind ||
+        state.anchorPreset !== scene.fitPolicyDirty.lastAnchor;
+      if (policyChanged) {
+        const anchor = ANCHOR_PRESETS[state.anchorPreset];
+        if (state.fitPolicyKind === "preserve-height") {
+          camera.setFitPolicy(
+            scene.orthographicCam,
+            camera.policy.preserveHeight(REFERENCE_EXTENT, anchor),
+          );
+        } else if (state.fitPolicyKind === "preserve-width") {
+          camera.setFitPolicy(
+            scene.orthographicCam,
+            camera.policy.preserveWidth(REFERENCE_EXTENT, anchor),
+          );
+        } else {
+          // stretch: freeze the currently-visible extent into a literal-bounds
+          // policy. getBounds returns post-scale bounds; divide by scale so the
+          // next _deriveBounds call (which multiplies stretch bounds by scale)
+          // restores the same visible extent rather than zooming again.
+          const visible = camera.getBounds(scene.orthographicCam);
+          const s = state.zoom;
+          camera.setFitPolicy(
+            scene.orthographicCam,
+            camera.policy.stretch({
+              left: visible.left / s,
+              right: visible.right / s,
+              bottom: visible.bottom / s,
+              top: visible.top / s,
+            }),
+          );
+        }
+        scene.fitPolicyDirty.lastKind = state.fitPolicyKind;
+        scene.fitPolicyDirty.lastAnchor = state.anchorPreset;
+      }
     }
     camera.setNearFar(activeCam, state.near, state.far);
 

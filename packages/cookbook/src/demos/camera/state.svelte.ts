@@ -1,4 +1,11 @@
 export type CameraKind = "perspective" | "orthographic";
+export type FitPolicyKind = "stretch" | "preserve-height" | "preserve-width";
+export type AnchorPreset =
+  | "center"
+  | "top-left"
+  | "top-right"
+  | "bottom-left"
+  | "bottom-right";
 
 export const state: {
   cameraKind: CameraKind;
@@ -8,6 +15,8 @@ export const state: {
   far: number;
   yawDeg: number;
   pitchDeg: number;
+  fitPolicyKind: FitPolicyKind;
+  anchorPreset: AnchorPreset;
 } = $state({
   cameraKind: "perspective",
   fovDeg: 45,
@@ -16,4 +25,6 @@ export const state: {
   far: 10,
   yawDeg: 30,
   pitchDeg: 25,
+  fitPolicyKind: "preserve-height",
+  anchorPreset: "center",
 });
