@@ -8,6 +8,11 @@ export {
   setUp,
 } from "./common.ts";
 export {
+  type Anchor,
+  type FitPolicy,
+  policy,
+} from "./fit-policy.ts";
+export {
   type OrthographicBounds,
   type OrthographicOptions,
   orthographic,
