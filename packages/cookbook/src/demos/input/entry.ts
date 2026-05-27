@@ -4,7 +4,7 @@ import type { PointerButton } from "@furnace/core/input";
 import * as input from "@furnace/core/input";
 import type { Material } from "@furnace/core/material";
 import * as material from "@furnace/core/material";
-import type { Mesh } from "@furnace/core/mesh";
+import type { Geometry, Mesh } from "@furnace/core/mesh";
 import * as mesh from "@furnace/core/mesh";
 import type { Vec4 } from "@furnace/core/transform";
 import { vec3, vec4 } from "@furnace/core/transform";
@@ -58,6 +58,7 @@ await mountDemo({
 
     const mats: Material[] = [];
     let cube: Mesh | undefined;
+    let cubeGeo: Geometry | undefined;
     let unsubResize: (() => void) | undefined;
     try {
       // Sequential await so the catch branch can destroy any successfully-created
@@ -67,7 +68,8 @@ await mountDemo({
       }
       const first = mats[0];
       if (!first) throw new Error("[furnace/cookbook] no colors defined");
-      cube = mesh.cube(ctx, { material: first });
+      cubeGeo = mesh.cubeGeometry(ctx);
+      cube = mesh.create(ctx, { geometry: cubeGeo, material: first });
 
       const cam = camera.perspective({
         aspect: ctx.canvas.width / ctx.canvas.height,
@@ -76,6 +78,7 @@ await mountDemo({
       unsubResize = camera.bindToCanvas(cam, ctx);
 
       const sceneCube = cube;
+      const sceneCubeGeo = cubeGeo;
       const sceneMats = mats;
 
       input.onKeyDown((e) => {
@@ -134,6 +137,7 @@ await mountDemo({
         dispose: () => {
           sceneUnsubResize();
           mesh.destroy(sceneCube);
+          mesh.destroyGeometry(sceneCubeGeo);
           for (const m of sceneMats) material.destroy(m);
           input.detach();
         },
@@ -141,6 +145,7 @@ await mountDemo({
     } catch (e) {
       if (unsubResize) unsubResize();
       if (cube) mesh.destroy(cube);
+      if (cubeGeo) mesh.destroyGeometry(cubeGeo);
       for (const m of mats) material.destroy(m);
       input.detach();
       throw e;
