@@ -71,3 +71,31 @@ test.skipIf(skip)("encode throws on disposed context", async () => {
     }),
   ).toThrow(/disposed/);
 });
+
+test.skipIf(skip)("encode throws when callback is null", async () => {
+  await ensureBunWebGpu();
+  const { requestContext, dispose, encode } = await loadModules();
+
+  const canvas = await makeOffscreenCanvas();
+  const ctx = await requestContext(canvas);
+
+  expect(() =>
+    encode(ctx, null as unknown as (encoder: GPUCommandEncoder) => void),
+  ).toThrow("callback is required");
+
+  dispose(ctx);
+});
+
+test.skipIf(skip)("encode throws when callback is not a function", async () => {
+  await ensureBunWebGpu();
+  const { requestContext, dispose, encode } = await loadModules();
+
+  const canvas = await makeOffscreenCanvas();
+  const ctx = await requestContext(canvas);
+
+  expect(() =>
+    encode(ctx, 42 as unknown as (encoder: GPUCommandEncoder) => void),
+  ).toThrow("callback is required");
+
+  dispose(ctx);
+});

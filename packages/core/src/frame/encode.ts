@@ -10,7 +10,8 @@ import { FurnaceGpuError } from "../gpu/errors.ts";
  * Setup-loud per the foreground failure policy
  * (`engine-conventions.md` §"Failure policy").
  *
- * @throws FurnaceGpuError - if `ctx` has been disposed.
+ * @throws FurnaceGpuError - if `ctx` has been disposed, or if
+ *   `callback` is not a function.
  */
 export function encode(
   ctx: Context,
@@ -18,6 +19,9 @@ export function encode(
 ): void {
   if (ctx._internal.disposed) {
     throw new FurnaceGpuError("context disposed");
+  }
+  if (typeof callback !== "function") {
+    throw new FurnaceGpuError("encode: callback is required");
   }
   const encoder = ctx.device.createCommandEncoder();
   callback(encoder);
