@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { bindToCanvas, updateForSize } from "../../src/camera/bind.ts";
-import { orthographic } from "../../src/camera/orthographic.ts";
+import { policy } from "../../src/camera/fit-policy.ts";
+import { getBounds, orthographic } from "../../src/camera/orthographic.ts";
 import { perspective } from "../../src/camera/perspective.ts";
 import type { Camera } from "../../src/camera/types.ts";
 import type { Context } from "../../src/gpu/context-types.ts";
@@ -48,20 +49,55 @@ test("updateForSize on perspective camera updates aspect", () => {
   expect(cam.projDirty).toBe(true);
 });
 
-test("updateForSize on orthographic camera is a no-op (Tranche A scope)", () => {
-  const cam = orthographic({ left: -2, right: 2, bottom: -1, top: 1 });
+test("updateForSize: orthographic stretch preserves bounds literally", () => {
+  const cam = orthographic({
+    fitPolicy: policy.stretch({ left: -2, right: 2, bottom: -1, top: 1 }),
+  });
   if (cam.projection.kind !== "orthographic") throw new Error("unreachable");
-  const beforeLeft = cam.projection.left;
-  const beforeRight = cam.projection.right;
-  const beforeBottom = cam.projection.bottom;
-  const beforeTop = cam.projection.top;
-  cam.projDirty = false;
   updateForSize(cam, { width: 1600, height: 400 });
-  expect(cam.projection.left).toBe(beforeLeft);
-  expect(cam.projection.right).toBe(beforeRight);
-  expect(cam.projection.bottom).toBe(beforeBottom);
-  expect(cam.projection.top).toBe(beforeTop);
-  expect(cam.projDirty).toBe(false);
+  expect(cam.projection.left).toBe(-2);
+  expect(cam.projection.right).toBe(2);
+  expect(cam.projection.bottom).toBe(-1);
+  expect(cam.projection.top).toBe(1);
+  expect(cam.projDirty).toBe(true);
+});
+
+test("updateForSize: orthographic preserve-height derives bounds from canvas aspect", () => {
+  const cam = orthographic({ fitPolicy: policy.preserveHeight(2) });
+  updateForSize(cam, { width: 1600, height: 900 });
+  const b = getBounds(cam);
+  expect(b.top).toBeCloseTo(1);
+  expect(b.bottom).toBeCloseTo(-1);
+  expect(b.right).toBeCloseTo(16 / 9);
+  expect(b.left).toBeCloseTo(-16 / 9);
+});
+
+test("updateForSize: orthographic preserve-height with bottom-left anchor", () => {
+  const cam = orthographic({
+    fitPolicy: policy.preserveHeight(2, { x: 0, y: 0 }),
+  });
+  updateForSize(cam, { width: 200, height: 100 });
+  const b = getBounds(cam);
+  expect(b.left).toBe(0);
+  expect(b.right).toBe(4);
+  expect(b.bottom).toBe(0);
+  expect(b.top).toBe(2);
+});
+
+test("updateForSize: orthographic preserve-width mirrors preserve-height", () => {
+  const cam = orthographic({ fitPolicy: policy.preserveWidth(4) });
+  updateForSize(cam, { width: 200, height: 100 });
+  const b = getBounds(cam);
+  expect(b.left).toBeCloseTo(-2);
+  expect(b.right).toBeCloseTo(2);
+  expect(b.bottom).toBeCloseTo(-1);
+  expect(b.top).toBeCloseTo(1);
+});
+
+test("updateForSize updates cam._lastSize", () => {
+  const cam = orthographic({ fitPolicy: policy.preserveHeight(2) });
+  updateForSize(cam, { width: 800, height: 600 });
+  expect(cam._lastSize).toEqual({ width: 800, height: 600 });
 });
 
 test("updateForSize throws on non-finite width", () => {
@@ -139,20 +175,31 @@ test("bindToCanvas throws on disposed context", () => {
   expect(() => bindToCanvas(cam, ctx)).toThrow(/disposed/);
 });
 
-test("bindToCanvas on orthographic camera applies (no-op) immediately and on resize without throwing", () => {
-  // For Tranche A, orthographic dispatch is a no-op. The helper still subscribes,
-  // so it remains valid to call — the bound camera just doesn't auto-update.
-  // Tranche A-2 will fill in the orthographic dispatch.
-  const cam = orthographic({ left: -2, right: 2, bottom: -1, top: 1 });
+test("bindToCanvas: orthographic preserve-height updates bounds on bind and on resize", () => {
+  const cam = orthographic({ fitPolicy: policy.preserveHeight(2) });
   if (cam.projection.kind !== "orthographic") throw new Error("unreachable");
-  const before = { ...cam.projection };
+  const ctx = fakeCtx(800, 600);
+  const unsub = bindToCanvas(cam, ctx);
+  expect(cam.projection.top).toBeCloseTo(1);
+  expect(cam.projection.right).toBeCloseTo(4 / 3);
+  fireResize(ctx.canvas, 1600, 400);
+  expect(cam.projection.right).toBeCloseTo(4);
+  expect(cam.projection.top).toBeCloseTo(1);
+  unsub();
+});
+
+test("bindToCanvas: orthographic stretch ignores resize aspect", () => {
+  const cam = orthographic({
+    fitPolicy: policy.stretch({ left: -2, right: 2, bottom: -1, top: 1 }),
+  });
+  if (cam.projection.kind !== "orthographic") throw new Error("unreachable");
   const ctx = fakeCtx(800, 600);
   const unsub = bindToCanvas(cam, ctx);
   fireResize(ctx.canvas, 1600, 400);
-  expect(cam.projection.left).toBe(before.left);
-  expect(cam.projection.right).toBe(before.right);
-  expect(cam.projection.bottom).toBe(before.bottom);
-  expect(cam.projection.top).toBe(before.top);
+  expect(cam.projection.left).toBe(-2);
+  expect(cam.projection.right).toBe(2);
+  expect(cam.projection.bottom).toBe(-1);
+  expect(cam.projection.top).toBe(1);
   unsub();
 });
 

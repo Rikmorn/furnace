@@ -1,17 +1,18 @@
 import { FurnaceError } from "../errors.ts";
 import type { Context } from "../gpu/context-types.ts";
 import { onResize } from "../gpu/resize.ts";
-import { setAspect } from "./common.ts";
+import { _deriveBounds } from "./fit-policy.ts";
 import type { Camera } from "./types.ts";
 
 /**
  * Update a camera's projection in response to a new canvas size.
  *
  * Dispatches by camera kind:
- * - perspective: recomputes aspect from `width / height` via `setAspect`.
- * - orthographic: no-op in this tranche. Tranche A-2 will introduce an
- *   explicit fitPolicy (preserve-height / preserve-width / contain / cover
- *   / fixed-units) to fill this branch.
+ * - perspective: sets `projection.aspect = width / height`.
+ * - orthographic: derives bounds via `_deriveBounds(fitPolicy, scale, width, height)`
+ *   and writes them to the projection.
+ *
+ * Both branches update `cam._lastSize` and flip `projDirty`.
  *
  * Throws on non-finite or non-positive width/height.
  */
@@ -29,11 +30,24 @@ export function updateForSize(
   if (width <= 0 || height <= 0) {
     throw new FurnaceError("width and height must be positive");
   }
+  cam._lastSize = { width, height };
   if (cam.projection.kind === "perspective") {
-    setAspect(cam, width / height);
+    cam.projection.aspect = width / height;
+    cam.projDirty = true;
     return;
   }
-  // orthographic: no-op (Tranche A-2 will fill this branch with a configurable fitPolicy).
+  // orthographic: derive bounds from the camera's fit policy.
+  const b = _deriveBounds(
+    cam.projection.fitPolicy,
+    cam.projection.scale,
+    width,
+    height,
+  );
+  cam.projection.left = b.left;
+  cam.projection.right = b.right;
+  cam.projection.bottom = b.bottom;
+  cam.projection.top = b.top;
+  cam.projDirty = true;
 }
 
 /**
@@ -43,9 +57,9 @@ export function updateForSize(
  *
  * Returns an unsubscribe function (idempotent). Call in dispose.
  *
- * For orthographic cameras, this subscribes successfully but is currently a
- * no-op per `updateForSize`'s contract; consumers managing orthographic bounds
- * per-frame (via `setBounds`) can continue doing so without conflict.
+ * Works for both perspective and orthographic cameras. For orthographic, the
+ * camera's `fitPolicy` (default `stretch`) determines how bounds respond to
+ * resize.
  */
 export function bindToCanvas(cam: Camera, ctx: Context): () => void {
   if (cam == null) {
