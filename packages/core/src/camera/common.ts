@@ -5,6 +5,10 @@ import type { Camera, CameraMatrices } from "./types.ts";
 
 /**
  * Set the camera's position. Mutates `cam` in place; flips `viewDirty`.
+ *
+ * Hot-path setter — no input validation (see `engine-conventions.md`
+ * §"Failure policy"). Components must be finite; non-finite components
+ * propagate into the view matrix on the next `getMatrices` call.
  */
 export function setPosition(cam: Camera, position: Vec3): void {
   cam.position[0] = position[0] as number;
@@ -14,7 +18,12 @@ export function setPosition(cam: Camera, position: Vec3): void {
 }
 
 /**
- * Set the camera's look-at target. Mutates `cam` in place; flips `viewDirty`.
+ * Set the camera's look-at target. Mutates `cam` in place; flips
+ * `viewDirty`.
+ *
+ * Hot-path setter — no input validation. Components must be finite;
+ * non-finite components propagate into the view matrix on the next
+ * `getMatrices` call.
  */
 export function setTarget(cam: Camera, target: Vec3): void {
   cam.target[0] = target[0] as number;
@@ -25,6 +34,10 @@ export function setTarget(cam: Camera, target: Vec3): void {
 
 /**
  * Set the camera's up vector. Mutates `cam` in place; flips `viewDirty`.
+ *
+ * Hot-path setter — no input validation. Components must be finite;
+ * non-finite components propagate into the view matrix on the next
+ * `getMatrices` call.
  */
 export function setUp(cam: Camera, up: Vec3): void {
   cam.up[0] = up[0] as number;

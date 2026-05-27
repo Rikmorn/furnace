@@ -88,6 +88,12 @@ export function destroy(mesh: Mesh): void {
 
 /**
  * Set the mesh's position. Mutates `mesh` in place; flips `transformDirty`.
+ *
+ * Hot-path setter — no input validation (see `engine-conventions.md`
+ * §"Failure policy"). Components must be finite; non-finite components
+ * propagate to the per-mesh object uniform buffer and corrupt the model
+ * matrix used by every vertex shader for this mesh until a finite value
+ * is written.
  */
 export function setPosition(mesh: Mesh, position: Vec3): void {
   mesh.position.set(position);
@@ -95,7 +101,14 @@ export function setPosition(mesh: Mesh, position: Vec3): void {
 }
 
 /**
- * Set the mesh's rotation quaternion. Mutates `mesh` in place; flips `transformDirty`.
+ * Set the mesh's rotation quaternion. Mutates `mesh` in place; flips
+ * `transformDirty`.
+ *
+ * Hot-path setter — no input validation. Components must be finite;
+ * non-finite components propagate to the per-mesh object uniform
+ * buffer and the resulting model matrix is degenerate until a finite
+ * value is written. Pass `quat.identity` or a normalized quaternion;
+ * a zero quaternion produces a degenerate matrix.
  */
 export function setRotation(mesh: Mesh, rotation: Quat): void {
   mesh.rotation.set(rotation);
@@ -104,6 +117,11 @@ export function setRotation(mesh: Mesh, rotation: Quat): void {
 
 /**
  * Set the mesh's scale. Mutates `mesh` in place; flips `transformDirty`.
+ *
+ * Hot-path setter — no input validation. Components must be finite;
+ * non-finite components propagate to the per-mesh object uniform
+ * buffer and corrupt the model matrix used by every vertex shader for
+ * this mesh until a finite value is written.
  */
 export function setScale(mesh: Mesh, scale: Vec3): void {
   mesh.scale.set(scale);
