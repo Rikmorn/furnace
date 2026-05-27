@@ -138,6 +138,10 @@ function _disposeCameraBuffers(ctx: Context): void {
  * - `clearColor`: linear-space RGBA used to clear the color attachment.
  *   Default `[0, 0, 0, 1]`. The sRGB encoding is applied on swap-chain write
  *   via the view format (see `engine-conventions.md` §"Color space").
+ *   Components are read each frame and uploaded to the GPU verbatim;
+ *   passing non-finite components produces undefined output (no engine-
+ *   side validation per the hot-path-adjacent posture in
+ *   `engine-conventions.md` §Failure policy).
  * - `clearDepth`: depth value cleared into the engine-managed depth texture
  *   each frame. Default `1.0` (far plane).
  */
@@ -195,6 +199,7 @@ export const _frameRenderInternals = {
   _ensureDepthTexture,
   _ensureCameraBuffer,
   _ensureMeshGroup0: ensureGroup0,
+  _validateDraw: validateDraw,
 };
 
 function beginRenderPass(
@@ -269,6 +274,20 @@ function validateEffects(ctx: Context, effects: readonly Effect[]): void {
     if (fx.ctx !== ctx) {
       throw new FurnaceGpuError(
         `effects[${i}]: effect belongs to a different context`,
+      );
+    }
+  }
+}
+
+function validateDraw(ctx: Context, draw: readonly Mesh[]): void {
+  for (let i = 0; i < draw.length; i++) {
+    const m = draw[i];
+    if (m == null) {
+      throw new FurnaceGpuError(`draw[${i}]: null/undefined mesh`);
+    }
+    if (m.ctx !== ctx) {
+      throw new FurnaceGpuError(
+        `draw[${i}]: mesh belongs to a different context`,
       );
     }
   }
@@ -381,14 +400,23 @@ function runEffectsPingPong(
  * validated up front; any disposed-/cross-context effect throws before any
  * GPU work is recorded.
  *
- * @throws FurnaceGpuError - if `ctx` has been disposed, or if any
- *   `opts.effects` entry is `null`, destroyed, or belongs to a different
+ * @throws FurnaceGpuError - if `ctx` has been disposed; if
+ *   `opts.camera` or `opts.draw` is null/undefined; if any entry in
+ *   `opts.draw` is null or belongs to a different context; or if any
+ *   `opts.effects` entry is null, destroyed, or belongs to a different
  *   context.
  */
 export function render(ctx: Context, opts: RenderOptions): void {
   if (ctx._internal.disposed) {
     throw new FurnaceGpuError("context disposed");
   }
+  if (opts.camera == null) {
+    throw new FurnaceGpuError("render: camera is required");
+  }
+  if (opts.draw == null) {
+    throw new FurnaceGpuError("render: draw is required");
+  }
+  validateDraw(ctx, opts.draw);
   const effects = opts.effects ?? [];
   if (effects.length > 0) validateEffects(ctx, effects);
 

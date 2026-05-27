@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import type { Camera } from "../../src/camera/index.ts";
 import * as camera from "../../src/camera/index.ts";
 import { _frameRenderInternals, render } from "../../src/frame/render.ts";
 import * as gpu from "../../src/gpu/index.ts";
@@ -6,6 +7,7 @@ import { normalColor } from "../../src/material/normal-color.ts";
 import { unlit } from "../../src/material/unlit.ts";
 import { cubeGeometry, planeGeometry } from "../../src/mesh/factories/index.ts";
 import { create as createMesh } from "../../src/mesh/mesh.ts";
+import type { Mesh } from "../../src/mesh/types.ts";
 import { vec3 } from "../../src/transform/index.ts";
 import { vec4 } from "../../src/transform/vec4.ts";
 import {
@@ -135,5 +137,71 @@ test.skipIf(!bunWebGpuAvailable())(
     expect(groupA).not.toBe(groupB);
     expect(groupAagain).toBe(groupA);
     gpu.dispose(ctx);
+  },
+);
+
+test.skipIf(!bunWebGpuAvailable())(
+  "frame.render throws when camera is null",
+  async () => {
+    const canvas = await makeOffscreenCanvas();
+    const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
+    const mat = await unlit(ctx, { color: vec4.fromValues(1, 0, 0, 1) });
+    const m = createMesh(ctx, { geometry: cubeGeometry(ctx), material: mat });
+    expect(() =>
+      render(ctx, { draw: [m], camera: null as unknown as Camera }),
+    ).toThrow("camera is required");
+    gpu.dispose(ctx);
+  },
+);
+
+test.skipIf(!bunWebGpuAvailable())(
+  "frame.render throws when draw is null",
+  async () => {
+    const canvas = await makeOffscreenCanvas();
+    const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
+    const cam = camera.perspective({});
+    expect(() =>
+      render(ctx, { draw: null as unknown as Mesh[], camera: cam }),
+    ).toThrow("draw is required");
+    gpu.dispose(ctx);
+  },
+);
+
+test.skipIf(!bunWebGpuAvailable())(
+  "frame.render throws when draw contains a null entry",
+  async () => {
+    const canvas = await makeOffscreenCanvas();
+    const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
+    const cam = camera.perspective({});
+    const mat = await unlit(ctx, { color: vec4.fromValues(1, 0, 0, 1) });
+    const m = createMesh(ctx, { geometry: cubeGeometry(ctx), material: mat });
+    expect(() =>
+      render(ctx, {
+        draw: [m, null as unknown as Mesh],
+        camera: cam,
+      }),
+    ).toThrow("draw[1]: null/undefined mesh");
+    gpu.dispose(ctx);
+  },
+);
+
+test.skipIf(!bunWebGpuAvailable())(
+  "frame.render throws when draw contains a cross-context mesh",
+  async () => {
+    const canvasA = await makeOffscreenCanvas();
+    const ctxA = await gpu.requestContext(canvasA, { surfaceFormat: "linear" });
+    const canvasB = await makeOffscreenCanvas();
+    const ctxB = await gpu.requestContext(canvasB, { surfaceFormat: "linear" });
+    const cam = camera.perspective({});
+    const matB = await unlit(ctxB, { color: vec4.fromValues(1, 0, 0, 1) });
+    const mB = createMesh(ctxB, {
+      geometry: cubeGeometry(ctxB),
+      material: matB,
+    });
+    expect(() => render(ctxA, { draw: [mB], camera: cam })).toThrow(
+      "mesh belongs to a different context",
+    );
+    gpu.dispose(ctxA);
+    gpu.dispose(ctxB);
   },
 );
