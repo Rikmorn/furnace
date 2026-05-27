@@ -23,6 +23,9 @@ const DEFAULT_UP: readonly [number, number, number] = [0, 1, 0];
  * (`{ left: -1, right: 1, bottom: -1, top: 1 }`). `scale` defaults to 1.
  * `near` defaults to -1, `far` to 1. `position`, `target`, `up` default to
  * `[0, 0, 1]`, `[0, 0, 0]`, `[0, 1, 0]` respectively.
+ *
+ * Construct `fitPolicy` via the `policy.*` factory namespace to ensure
+ * validation; hand-written literals are accepted but not re-validated.
  */
 export type OrthographicOptions = {
   fitPolicy?: FitPolicy;

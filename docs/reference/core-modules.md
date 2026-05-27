@@ -238,7 +238,7 @@ Re-exported from `index.ts` so other core modules can `import * as stats` and ca
 
 ### Demoed in cookbook
 
-- `perspective`, `orthographic`, `setPosition`, `setTarget` → `cookbook/camera`.
+- `perspective`, `orthographic`, `setPosition`, `setTarget`, `setFov`, `setNearFar`, `setAspect`, `setFitPolicy`, `setScale`, `getBounds`, `policy.preserveHeight / preserveWidth / stretch`, `bindToCanvas` → `cookbook/camera`.
 - `projectToScreen` → `cookbook/animation` (floating labels above three cubes).
 
 ### Reference-only (no demo, by design)
