@@ -86,6 +86,30 @@ test("_frameEnd: subscriber throw is caught + iteration continues", () => {
   expect(thrown.message).toBe("bad");
 });
 
+test("_frameEnd: subscriber throw + throwing sink: iteration still continues", () => {
+  const ctx = makeMockCtx();
+  _frameStart(ctx);
+  const seen: string[] = [];
+  ctx._internal.stats.onFrameSubscribers.add(() => {
+    seen.push("a");
+    throw new Error("subscriber boom");
+  });
+  ctx._internal.stats.onFrameSubscribers.add(() => {
+    seen.push("b");
+  });
+  setSink(() => {
+    throw new Error("sink boom");
+  });
+  try {
+    // Even with both a throwing subscriber AND a throwing sink, _frameEnd
+    // must not propagate and remaining subscribers must fire.
+    expect(() => _frameEnd(ctx)).not.toThrow();
+  } finally {
+    setSink(consoleSink);
+  }
+  expect(seen).toEqual(["a", "b"]);
+});
+
 test("_frameEnd on disposed ctx: silent no-op", () => {
   const ctx = makeMockCtx();
   ctx._internal.disposed = true;

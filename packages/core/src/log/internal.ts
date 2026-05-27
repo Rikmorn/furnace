@@ -59,6 +59,12 @@ export const consoleSink: LogSink = (entry) => {
     case "debug":
       console.debug(prefix, entry.message, ...entry.rest);
       return;
+    default: {
+      // Exhaustiveness guard: if a new LogLevel is added, this assertion
+      // fails at compile time, forcing the switch to be updated.
+      const _exhaustive: never = entry.level;
+      return _exhaustive;
+    }
   }
 };
 

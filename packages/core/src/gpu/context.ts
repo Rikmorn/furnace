@@ -121,6 +121,9 @@ export async function requestContext(
     _internal: internal,
   });
 
+  // No disposed-check: GPU errors that arrived before dispose() are still
+  // real and worth surfacing. Contrast device.lost, where reason "destroyed"
+  // is the expected outcome of dispose() and must be filtered.
   device.addEventListener("uncapturederror", (e) => {
     // Boundary cast: DOM addEventListener types the event as `Event`; the
     // "uncapturederror" name guarantees a GPUUncapturedErrorEvent at runtime.
@@ -134,7 +137,12 @@ export async function requestContext(
     if (ctx._internal.disposed) return;
     _recordDeviceLost(ctx);
     _emitDeviceLost(ctx, info);
-    error("gpu", "device lost", info.reason, info.message);
+    try {
+      error("gpu", "device lost", info.reason, info.message);
+    } catch {
+      // Sink threw while logging device-lost. Swallow to avoid unhandled
+      // promise rejection from this async continuation.
+    }
   });
 
   return ctx;

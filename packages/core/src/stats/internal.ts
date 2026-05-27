@@ -43,7 +43,12 @@ export function _frameEnd(ctx: Context): void {
     try {
       sub(snap);
     } catch (err) {
-      error("stats", "onFrame subscriber threw", err);
+      try {
+        error("stats", "onFrame subscriber threw", err);
+      } catch {
+        // Sink threw while logging an onFrame subscriber failure. Swallow to
+        // preserve iteration over remaining subscribers.
+      }
     }
   }
 }

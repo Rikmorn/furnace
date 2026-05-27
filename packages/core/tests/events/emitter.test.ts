@@ -85,6 +85,34 @@ test("listeners removed during emit do not fire for that emit", () => {
   expect(bRan).toBe(false);
 });
 
+test("subscriber throws + throwing sink: iteration still continues", () => {
+  const e = createEmitter<number>();
+  setSink(() => {
+    throw new Error("sink boom");
+  });
+  try {
+    let receivedA = 0;
+    let receivedC = 0;
+    e.on(() => {
+      receivedA++;
+    });
+    e.on(() => {
+      throw new Error("subscriber boom");
+    });
+    e.on(() => {
+      receivedC++;
+    });
+
+    // Even with both a throwing subscriber AND a throwing sink, emit()
+    // must not propagate the failure and remaining subscribers must fire.
+    expect(() => e.emit(1)).not.toThrow();
+    expect(receivedA).toBe(1);
+    expect(receivedC).toBe(1);
+  } finally {
+    setSink(consoleSink);
+  }
+});
+
 test("subscriber throws don't break other subscribers; error is logged", () => {
   const e = createEmitter<number>();
   const entries: LogEntry[] = [];

@@ -80,7 +80,17 @@ export function createEmitter<T = void>(
             // (gpu.onResize, input.onKeyDown, etc.) the unhandled throw would fire
             // the window's "error" event. Per the master arch spec § "No silent
             // failures": surface it via the log helper, don't swallow.
-            error("events", "subscriber threw", err);
+            //
+            // Defensive try/catch around the log call: if the consumer-installed
+            // sink itself throws while reporting a subscriber failure, swallow
+            // that secondary throw to preserve iteration. "iteration continues"
+            // wins over "sink throws propagate" in the double-fault case.
+            try {
+              error("events", "subscriber threw", err);
+            } catch {
+              // Sink threw while logging a subscriber failure. Swallow to preserve
+              // iteration over remaining subscribers.
+            }
           }
         }
       }
