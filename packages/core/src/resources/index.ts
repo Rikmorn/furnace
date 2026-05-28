@@ -1,0 +1,17 @@
+// Engine-internal module — not part of `@furnace/core`'s public exports
+// (see `packages/core/package.json`). This file exists so the structural
+// `check-tsdoc.ts` walker (which expects one `index.ts` per src subdir)
+// has something to read. Public resource-manager surface is introduced
+// in Session 2; until then everything below is engine-internal.
+
+export {
+  allocSlot,
+  countLiveSlots,
+  createPool,
+  destroySlot,
+  INVALID_SLOT,
+  iterateLiveSlots,
+  lookupSlot,
+  POOL_INITIAL_CAPACITY,
+  type Pool,
+} from "./pool.ts";
