@@ -1,4 +1,5 @@
 import { FurnaceError } from "../errors.ts";
+import { warn } from "../log/internal.ts";
 
 /**
  * Generic pool primitive backing the resource manager. One pool per resource
@@ -91,6 +92,12 @@ export function allocSlot<T>(
   }
   // Internal invariant: slotIndex < pool.size = generations.length, so the
   // read is never undefined. `?? 0` narrows the type without runtime cost.
+  if ((pool.generations[slotIndex] ?? 0) === 0xffff) {
+    warn(
+      "resources",
+      `generation counter wrapping on slot ${slotIndex} — use-after-recycle protection is briefly compromised for this slot until the wrap completes`,
+    );
+  }
   const generation = (pool.generations[slotIndex] ?? 0) + 1;
   pool.generations[slotIndex] = generation;
   pool.slots[slotIndex] = data;

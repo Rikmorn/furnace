@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { consoleSink, type LogEntry, setSink } from "../../src/log/index.ts";
 import {
   allocSlot,
   countLiveSlots,
@@ -155,4 +156,35 @@ test("growPool throws when capacity would exceed 65536 slot limit", () => {
   expect(() => allocSlot(pool, { value: 1 })).toThrow(
     /cannot grow beyond 65536 slots/,
   );
+});
+
+test("allocSlot warns when generation counter wraps from 0xffff", () => {
+  const pool = createPool<TestSlot>();
+  // Pre-fill slot 1's generation to the wrap boundary.
+  pool.generations[1] = 0xffff;
+
+  const entries: LogEntry[] = [];
+  setSink((entry) => entries.push(entry));
+  try {
+    // Override free stack so slot 1 is the next allocated.
+    pool.free = [1];
+
+    const handle = allocSlot(pool, { value: 42 });
+    expect(handle.slotIndex).toBe(1);
+    // The bumped generation stored in the pool is 0x10000 (uint32 storage,
+    // pre-mask). The uint48 handle encoding masks this to 16 bits when
+    // building handles; here we just verify the in-pool value.
+    expect(handle.generation).toBe(0x10000);
+
+    // The warn was emitted exactly once with the expected module + slot id.
+    const warnEntries = entries.filter(
+      (e) =>
+        e.module === "resources" &&
+        e.message.includes("generation counter wrapping"),
+    );
+    expect(warnEntries.length).toBe(1);
+    expect(warnEntries[0]?.message).toContain("slot 1");
+  } finally {
+    setSink(consoleSink);
+  }
 });
