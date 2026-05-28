@@ -159,22 +159,22 @@ await mountDemo({
         },
         dispose: () => {
           sceneUnsubResize();
-          mesh.destroy(sceneCube);
-          mesh.destroyGeometry(sceneCubeGeo);
-          material.destroy(sceneNormalMat);
-          post.destroy(sceneVignette);
-          post.destroy(sceneBloom);
+          mesh.destroy(ctx, sceneCube);
+          mesh.destroyGeometry(ctx, sceneCubeGeo);
+          material.destroy(ctx, sceneNormalMat);
+          post.destroy(ctx, sceneVignette);
+          post.destroy(ctx, sceneBloom);
           sceneParamsBufVignette.destroy();
           sceneParamsBufBloom.destroy();
         },
       };
     } catch (e) {
       if (unsubResize) unsubResize();
-      if (cube) mesh.destroy(cube);
-      if (cubeGeo) mesh.destroyGeometry(cubeGeo);
-      if (normalMat) material.destroy(normalMat);
-      if (vignette) post.destroy(vignette);
-      if (bloom) post.destroy(bloom);
+      if (cube) mesh.destroy(ctx, cube);
+      if (cubeGeo) mesh.destroyGeometry(ctx, cubeGeo);
+      if (normalMat) material.destroy(ctx, normalMat);
+      if (vignette) post.destroy(ctx, vignette);
+      if (bloom) post.destroy(ctx, bloom);
       if (paramsBufVignette) paramsBufVignette.destroy();
       if (paramsBufBloom) paramsBufBloom.destroy();
       throw e;
@@ -183,7 +183,7 @@ await mountDemo({
   frame: ({ ctx, scene, info }) => {
     state.angle += (info.deltaMs / MS_PER_S) * ROTATION_SPEED_RAD_PER_S;
     quat.fromEuler(scene.rotBuf, 0, state.angle, 0);
-    mesh.setRotation(scene.cube, scene.rotBuf);
+    mesh.setRotation(ctx, scene.cube, scene.rotBuf);
 
     // Both uniform buffers are written every frame, even when their effect is off
     // or the slider hasn't moved. Cheap at 16 bytes; real consumers can gate on dirty state.
