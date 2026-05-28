@@ -1,4 +1,4 @@
-import { readdirSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { checkTsdocForModule, type TsdocViolation } from "./internal/index.ts";
 
@@ -10,6 +10,7 @@ function collectModuleIndices(): string[] {
   for (const entry of readdirSync(SRC_ROOT, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue;
     const indexPath = resolve(SRC_ROOT, entry.name, "index.ts");
+    if (!existsSync(indexPath)) continue;
     out.push(indexPath);
   }
   return out;
