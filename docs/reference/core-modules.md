@@ -182,10 +182,8 @@ Re-exported from `index.ts` so other core modules can `import * as stats` and ca
 | `_recordBindGroupSwitch` | `frame/render.ts`, `frame/render-to-texture.ts` |
 | `_recordEmission` | `events/emitter.ts` (per-emitter counter) |
 | `_recordUncapturedError` | `gpu/context.ts` (device `uncapturederror` handler) |
-| `_registerResource` | `mesh`, `material`, `post`, `frame/render.ts` (depth + camera buffers) |
-| `_unregisterResource` | matching `destroy` paths |
-| `ResourceHandle` | `Readonly<{ kind: ResourceKind; bytes: number }>` — opaque handle held by every resource owner so `destroy` can unregister |
-| `ResourceInfo` | discriminated union per `kind` (`"mesh" \| "material" \| "geometry" \| "effect" \| "buffer" \| "texture"`) accepted by `_registerResource` |
+| `_recordAlloc` | `resources/manager.ts` (per-kind alloc wrappers); `frame/render.ts` + `post/intermediate.ts` (ctx-owned engine-internal resources that don't flow through a pool slot). Signature: `(ctx, kind, bytes) => void`. |
+| `_recordDestroy` | matching destroy paths in the same call sites. Signature: `(ctx, kind, bytes) => void`. |
 
 ### Demoed in cookbook
 
@@ -442,29 +440,26 @@ module-level mutable-state exception.
 
 `import * as resources from "@furnace/core/resources";`
 
-Cross-cutting introspection over the per-ctx resource pools (meshes, materials, geometries, effects). Intended for debug overlays, leak tooling, and explicit mid-session cleanup — not per-frame gameplay code. The per-kind `create` / `destroy` functions still live in their owning modules (`mesh.*`, `material.*`, `post.*`); this module is the cross-kind surface.
+Cross-cutting cleanup over the per-ctx resource pools (meshes, materials, geometries, effects), plus the branded handle types and kind discriminator. The per-kind `create` / `destroy` functions live in their owning modules (`mesh.*`, `material.*`, `post.*`); this module is the cross-kind surface.
+
+Count / memory introspection lives on `stats.snapshot(ctx).resources.*` and `stats.snapshot(ctx).memory.*`.
 
 ### Public
 
 | Export | Signature | Notes |
 |---|---|---|
-| `summary` | `(ctx: Context) => ResourceSummary` | Counts of live handles per kind. O(N) over each pool's slot table. Suitable for a debug overlay (read once per frame at most), not per-frame gameplay code. |
-| `list` | `<H = number>(ctx: Context, kind: ResourceKind) => IterableIterator<H>` | Iterate live handles for one kind. The `H` type parameter narrows the yield type to the matching branded handle (e.g. `list<MeshHandle>(ctx, "mesh")`). For the slot data behind a handle, go through the per-kind accessors. |
-| `snapshot` | `(ctx: Context) => ResourceSnapshot` | Full per-kind dump of every live handle into arrays. Heavy; intended for dev tools, inspectors, post-mortem dumps. Not per-frame. |
 | `disposeAll` | `(ctx: Context) => void` | Manually trigger the resource-manager cascade — same teardown that `gpu.dispose` runs internally, but without disposing the `GPUDevice` itself. Used for explicit cleanup before context disposal (e.g. free memory during a level transition without dropping the device). Idempotent. |
-| `ResourceSummary` | `{ meshes: number; materials: number; geometries: number; effects: number }` | Per-kind live counts. |
-| `ResourceSnapshot` | `{ meshes: MeshHandle[]; materials: MaterialHandle[]; geometries: GeometryHandle[]; effects: EffectHandle[] }` | Per-kind handle arrays. |
-| `ResourceKind` | `"mesh" \| "material" \| "geometry" \| "effect"` | Discriminator string used by `list`. |
+| `ResourceKind` | `"mesh" \| "material" \| "geometry" \| "effect"` | Discriminator string for resource kinds. |
 | `MeshHandle` / `MaterialHandle` / `GeometryHandle` / `EffectHandle` | Branded uint48 handles | Re-exported from `resources/handle.ts` so consumers can type variables (e.g. a `Map<MeshHandle, …>`) without reaching into engine-internal modules. Aliased by `mesh.Mesh`, `material.Material`, etc. — same underlying type. |
-| `AnyResourceHandle` | `MeshHandle \| MaterialHandle \| GeometryHandle \| EffectHandle` | Cross-kind union. Name disambiguates from the structurally different `stats.ResourceHandle` opaque token. |
+| `AnyResourceHandle` | `MeshHandle \| MaterialHandle \| GeometryHandle \| EffectHandle` | Cross-kind union. Useful when storing handles of mixed kinds in a single collection. |
 
 ### Demoed in cookbook
 
-(none yet — debug-overlay use; cookbook demos focus on Tier 1 gameplay surface.)
+(none yet — handle-typing and `disposeAll` are scaffolding surface; cookbook demos focus on Tier 1 gameplay surface.)
 
 ### Reference-only (no demo, by design)
 
-- `summary`, `list`, `snapshot`, `disposeAll` — debug / tooling surface; not part of any cookbook demo.
+- `disposeAll` — explicit cascade trigger; not part of any cookbook demo.
 
 ---
 

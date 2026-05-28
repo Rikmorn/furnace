@@ -77,7 +77,6 @@ The call-site contract decides the response to null:
 
 - **Cold-path setters** (`mesh.setPosition`, `module.destroy`): silent no-op. Idempotent.
 - **Warm-path render** (`frame.render`): throws `FurnaceGpuError` with `draw[i]:` / `effects[i]:` prefix. The single error covers stale, destroyed, cross-context, and never-existed — the handle-pool generation counter does not distinguish those at runtime.
-- **Resource queries** (`resources.summary`, `resources.list`): destroyed handles never appear in live iteration.
 
 ### Idempotent destroy
 
@@ -97,42 +96,37 @@ The refcount is engine-private. Consumers cannot inspect it; the engine cannot e
 
 Consumer discipline becomes an *optimization* (free early to reduce in-context memory pressure), not a *requirement*.
 
-The pre-manager leak-warn (`stats.resources.entries.size > 0` → "context disposed with resources still registered — leak suspected") is preserved alongside the cascade warn. After Stage 1, all four resource modules are pooled and the cascade auto-unregisters their stats entries, so the leak-warn's count is typically zero. It remains as a safety net for any future non-pooled resource kind.
+The leak-warn (`sum(stats.resources.counts.*) > 0` → "context disposed with resources still registered — leak suspected") is preserved alongside the cascade warn. With all four resource kinds pool-tracked and the cascade firing each slot's stats decrement, the leak-warn's count is typically zero. It remains as a safety net for any future non-pooled resource kind.
 
 ### Dispose order
 
 `gpu.dispose(ctx)` runs two cascades in fixed order:
 
-1. **`_runDisposeCascade(ctx)` (engine-private cleanup)** — runs first. Tears down engine-private resources that are stats-tracked but NOT pool-tracked: depth texture, per-camera uniform buffers, post intermediates. Each tracks its own stats handle independently of the resource manager.
+1. **`_runDisposeCascade(ctx)` (engine-private cleanup)** — runs first. Tears down engine-private resources that are stats-tracked but NOT pool-tracked: depth texture, per-camera uniform buffers, post intermediates. Each calls `_recordDestroy` directly because it doesn't flow through a pool slot.
 
-2. **`disposeAllResources(ctx)` (pool cascade)** — runs second. Walks every live slot in every pool in the cascade order (meshes → effects → materials → geometries) and runs each slot's `_teardown`. Slot teardowns internally call `_unregisterResource` for each stats handle the slot was tracking.
+2. **`disposeAllResources(ctx)` (pool cascade)** — runs second. Walks every live slot in every pool in the cascade order (meshes → effects → materials → geometries) and runs each slot's `_teardown`. The manager's destroy path fires the single `_recordDestroy` call for each pool-tracked slot.
 
-The ordering is load-bearing. Engine-private resources are stats-tracked; running them first means their decrements compose correctly with the pool cascade's subsequent decrements. The pool cascade depends on slot teardowns running their `_unregisterResource` calls successfully — those calls are no-ops if the corresponding stats handle was already cleaned up earlier, but they MUST run in the right order to keep stats's `entries.size` consistent with the cascade's view.
+The ordering is load-bearing. Engine-private decrements run first; pool-cascade decrements follow. Together they bring stats's `resources.counts.*` back to zero in well-behaved teardown.
 
-After both cascades complete, `gpu.dispose` runs a final `stats.resources.entries.size > 0` check. In well-behaved teardown this is always zero (both cascades ran cleanly). The check remains as a safety net for any future non-pooled resource kind whose stats handles weren't decremented during either cascade.
+After both cascades complete, `gpu.dispose` reads `stats.resources.counts.{meshes|materials|geometries|effects}` and warns if the sum is non-zero. In well-behaved teardown this is always zero (both cascades ran cleanly). The check remains as a safety net for any future non-pooled resource kind whose stats decrements weren't fired during either cascade.
 
 ### Cross-cutting introspection
 
 `@furnace/core/resources` exposes:
 
-- `summary(ctx) → ResourceSummary` — counts per kind. O(N) over each pool's slot table; suitable for debug overlays, not per-frame gameplay.
-- `list<H>(ctx, kind) → IterableIterator<H>` — iterate live handles of the given kind. Caller narrows `H` to one of the branded handle types.
-- `snapshot(ctx) → ResourceSnapshot` — structured dump (per-kind handle arrays). Intended for dev tools and post-mortem dumps.
 - `disposeAll(ctx) → void` — explicit cascade trigger; identical to what `gpu.dispose(ctx)` does internally. Use when freeing handles ahead of a context transition without dropping the `GPUDevice`.
 
 Branded handle types (`MeshHandle`, `MaterialHandle`, `GeometryHandle`, `EffectHandle`, `AnyResourceHandle`) and the `ResourceKind` discriminator are re-exported from this module for type-level use.
 
-`AnyResourceHandle` (the union) is named to disambiguate from `stats.ResourceHandle` (the engine-internal stats opaque token — a `Readonly<{ kind; bytes? }>`). The two have different shapes and live in different modules; the naming makes the disambiguation explicit.
+For per-kind live counts and memory totals, see `stats.snapshot(ctx).resources.*` and `stats.snapshot(ctx).memory.*`. RM-4 deleted the prior `resources.summary`, `resources.list`, and `resources.snapshot` exports because no consumer used them; restoration is tracked in `docs/backlog/engine-architecture/resources-introspection-restore.md` for any future external consumer trigger.
 
 ### Stats relationship
 
-Two parallel registries track allocations today: the resource manager's per-kind pools, and the stats module's `_registerResource` / `_unregisterResource` calls. Each resource module's create function calls BOTH; each slot's teardown decrements BOTH.
+The resource manager is the single writer of "what is alive." Each pool-tracked slot's alloc and destroy fires a direct call into stats (`_recordAlloc(ctx, kind, bytes)` / `_recordDestroy(ctx, kind, bytes)`); stats's snapshot derives counts and memory totals from that one write path. Resource modules do not call stats directly for pool-tracked kinds.
 
-This is intentional **transitional state**, not a bug. The manager tracks slot identity, refcount, and lifecycle (what is in scope to destroy?). Stats tracks memory bytes, leak counts, and cumulative resource-type counters for the FPS overlay (what is using how much?). They overlap in what they register but not in what they track.
+Ctx-owned engine-internal resources (depth texture, per-camera uniform buffer, post intermediates) call the same stats API directly because they don't flow through a pool slot.
 
-The forward direction is event-driven loose coupling: the manager emits resource-lifecycle events, stats subscribes, and resource modules stop calling stats directly for pool-tracked kinds. See `docs/backlog/engine-architecture/resource-manager-stats-events-integration.md` (RM-4) for the design.
-
-Until RM-4 lands, every resource module imports `_registerResource` / `_unregisterResource` from `stats/internal.ts` and the slot teardown closures invoke them. This is documented surface; readers seeing the dual-tracking pattern in source should not interpret it as a bug.
+**The principle:** internal-to-core consumers use sync direct calls. Events are reserved for external-consumer subscription channels with a real consumer trigger. RM-4 considered an events-based decoupling between the manager and stats and rejected it as speculative scaffolding — both modules ship in the same package, both evolve together, and no external consumer of resource lifecycle events exists. See `docs/backlog/engine-architecture/resource-lifecycle-events-external-consumer.md` for the trigger that would re-open the question.
 
 ### Failure-policy alignment
 
@@ -269,7 +263,7 @@ they just don't fire until DOM listeners are installed.
 
 ## Instrumentation
 
-`@furnace/core/stats` is the single source of truth for engine-wide metrics. Other modules in core call underscore-prefixed `stats._*` hooks (`_frameStart`, `_recordDraw`, `_registerResource`, `_recordEmission`, etc.) to feed snapshots. This is the one documented exception to the no-cross-module-imports rule (master spec § 3).
+`@furnace/core/stats` is the single source of truth for engine-wide metrics. Other modules in core call underscore-prefixed `stats._*` hooks (`_frameStart`, `_recordDraw`, `_recordAlloc`, `_recordDestroy`, `_recordEmission`, etc.) to feed snapshots. This is the one documented exception to the no-cross-module-imports rule (master spec § 3).
 
 Consumers observe via `stats.snapshot(ctx)`, `stats.onFrame(ctx, fn)`, or `stats.get(ctx, path)` (type-safe dotted-path). Custom metrics via `stats.gauge`, `stats.increment`, `stats.measure`.
 

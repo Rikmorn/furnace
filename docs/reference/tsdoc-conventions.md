@@ -31,7 +31,7 @@ In scope (enforced by `check-tsdoc.ts`):
 
 Out of scope (not enforced; document at your discretion):
 
-- Internal `_*`-prefixed helpers (e.g. `_frameStart`, `_registerResource`).
+- Internal `_*`-prefixed helpers (e.g. `_frameStart`, `_recordAlloc`).
 - Test files.
 - `packages/hello-world`, `packages/cookbook`, `packages/tools`,
   scaffolding templates.
