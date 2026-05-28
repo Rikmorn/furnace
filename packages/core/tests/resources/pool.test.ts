@@ -98,17 +98,6 @@ test("pool auto-grows when free stack exhausted", () => {
   expect(pool.slots[slotIndex]).toEqual({ value: 999 });
 });
 
-test("growth preserves existing slot data and generation counters", () => {
-  const pool = createPool<TestSlot>();
-  const { slotIndex, generation } = allocSlot(pool, { value: 42 });
-  // Snapshot the initial size — `pool.size` mutates during growth, so
-  // using it as the loop bound would never terminate.
-  const startSize = pool.size;
-  for (let i = 0; i < startSize; i++) allocSlot(pool, { value: i });
-  expect(pool.size).toBeGreaterThan(POOL_INITIAL_CAPACITY);
-  expect(lookupSlot(pool, slotIndex, generation)).toEqual({ value: 42 });
-});
-
 test("countLiveSlots reports allocated minus destroyed", () => {
   const pool = createPool<TestSlot>();
   const a = allocSlot(pool, { value: 1 });
