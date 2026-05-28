@@ -4,17 +4,21 @@ import { _onDispose } from "../gpu/dispose-cascade.ts";
 import { FurnaceGpuError } from "../gpu/errors.ts";
 import type { Context } from "../gpu/index.ts";
 import * as gpu from "../gpu/index.ts";
-import { _resolveMaterial } from "../material/internal.ts";
-import { _resolveGeometry, _resolveMesh } from "../mesh/internal.ts";
+import type { MaterialSlot } from "../material/types.ts";
 import { _recomputeModelIfDirty } from "../mesh/mesh.ts";
-import type { Mesh, MeshSlot } from "../mesh/types.ts";
+import type { GeometrySlot, Mesh, MeshSlot } from "../mesh/types.ts";
 import type { Effect, EffectSlot } from "../post/effect.ts";
 import {
   _ensureSceneIntermediates,
   type IntermediateEntry,
 } from "../post/intermediate.ts";
 import { _resolveEffect } from "../post/internal.ts";
-import { _lookupEffect, _lookupMesh } from "../resources/internal.ts";
+import {
+  _lookupEffect,
+  _lookupGeometry,
+  _lookupMaterial,
+  _lookupMesh,
+} from "../resources/internal.ts";
 import {
   _recordBindGroupSwitch,
   _recordDraw,
@@ -201,6 +205,19 @@ function ensureGroup0(
   return bindGroup;
 }
 
+/**
+ * A draw entry pre-resolved by {@link validateDraw}: the mesh, material,
+ * and geometry slots fetched in one upfront pass so the per-draw loop
+ * body can consume them directly with no further lookups.
+ *
+ * Engine-internal; not part of the public surface.
+ */
+export type ResolvedDraw = {
+  mesh: MeshSlot;
+  material: MaterialSlot;
+  geometry: GeometrySlot;
+};
+
 export const _frameRenderInternals = {
   _ensureDepthTexture,
   _ensureCameraBuffer,
@@ -237,27 +254,25 @@ function beginRenderPass(
 function recordDraw(
   pass: GPURenderPassEncoder,
   ctx: Context,
-  mesh: Mesh,
+  resolved: ResolvedDraw,
   cameraBuffer: GPUBuffer,
   lastPipeline: GPURenderPipeline | null,
 ): GPURenderPipeline {
-  const slot = _resolveMesh(ctx, mesh);
-  _recomputeModelIfDirty(slot);
-  const materialSlot = _resolveMaterial(ctx, slot.material);
-  const pipeline = materialSlot.pipeline;
+  const { mesh, material, geometry } = resolved;
+  _recomputeModelIfDirty(mesh);
+  const pipeline = material.pipeline;
   pass.setPipeline(pipeline);
   if (pipeline !== lastPipeline) {
     _recordPipelineSwitch(ctx);
   }
-  pass.setBindGroup(0, ensureGroup0(ctx, slot, pipeline, cameraBuffer));
+  pass.setBindGroup(0, ensureGroup0(ctx, mesh, pipeline, cameraBuffer));
   _recordBindGroupSwitch(ctx);
-  if (materialSlot.group1) {
-    pass.setBindGroup(1, materialSlot.group1);
+  if (material.group1) {
+    pass.setBindGroup(1, material.group1);
     _recordBindGroupSwitch(ctx);
   }
-  const geom = _resolveGeometry(ctx, slot.geometry);
-  pass.setVertexBuffer(0, geom.vertexBuffer);
-  const { indexBuffer, indexFormat, indexCount, vertexCount } = geom;
+  pass.setVertexBuffer(0, geometry.vertexBuffer);
+  const { indexBuffer, indexFormat, indexCount, vertexCount } = geometry;
   if (indexBuffer && indexFormat) {
     pass.setIndexBuffer(indexBuffer, indexFormat);
     pass.drawIndexed(indexCount);
@@ -266,7 +281,7 @@ function recordDraw(
   }
   const drawCount = indexCount || vertexCount;
   _recordDraw(ctx, {
-    triangles: trianglesForTopology(materialSlot.topology, drawCount),
+    triangles: trianglesForTopology(material.topology, drawCount),
   });
   return pipeline;
 }
@@ -285,25 +300,45 @@ function validateEffects(ctx: Context, effects: readonly Effect[]): void {
   }
 }
 
-function validateDraw(ctx: Context, draw: readonly Mesh[]): void {
+function validateDraw(ctx: Context, draw: readonly Mesh[]): ResolvedDraw[] {
+  const resolved: ResolvedDraw[] = [];
   for (let i = 0; i < draw.length; i++) {
     const m = draw[i];
     if (m == null) {
       throw new FurnaceGpuError(`draw[${i}]: null/undefined mesh`);
     }
-    if (_lookupMesh(ctx, m) === null) {
+    const meshSlot = _lookupMesh<MeshSlot>(ctx, m);
+    if (meshSlot === null) {
       throw new FurnaceGpuError(
-        `draw[${i}]: mesh belongs to a different context`,
+        `draw[${i}]: mesh handle is invalid, destroyed, or belongs to a different context`,
       );
     }
+    const materialSlot = _lookupMaterial<MaterialSlot>(ctx, meshSlot.material);
+    if (materialSlot === null) {
+      throw new FurnaceGpuError(
+        `draw[${i}]: mesh.material handle is invalid or destroyed`,
+      );
+    }
+    const geometrySlot = _lookupGeometry<GeometrySlot>(ctx, meshSlot.geometry);
+    if (geometrySlot === null) {
+      throw new FurnaceGpuError(
+        `draw[${i}]: mesh.geometry handle is invalid or destroyed`,
+      );
+    }
+    resolved.push({
+      mesh: meshSlot,
+      material: materialSlot,
+      geometry: geometrySlot,
+    });
   }
+  return resolved;
 }
 
 function recordScenePass(
   ctx: Context,
   colorView: GPUTextureView,
   depthView: GPUTextureView,
-  draw: readonly Mesh[],
+  draw: readonly ResolvedDraw[],
   cameraBuffer: GPUBuffer,
   clearColor: Vec4,
   clearDepth: number,
@@ -317,8 +352,8 @@ function recordScenePass(
     clearDepth,
   );
   let lastPipeline: GPURenderPipeline | null = null;
-  for (const mesh of draw) {
-    lastPipeline = recordDraw(pass, ctx, mesh, cameraBuffer, lastPipeline);
+  for (const resolved of draw) {
+    lastPipeline = recordDraw(pass, ctx, resolved, cameraBuffer, lastPipeline);
   }
   pass.end();
   ctx.device.queue.submit([encoder.finish()]);
@@ -404,16 +439,20 @@ function runEffectsPingPong(
  *   cached on the mesh keyed by `(pipeline, cameraBuffer)`.
  *
  * Setup-loud per the foreground failure policy. The draw and effects
- * lists are validated up front; any null, destroyed, or cross-context
- * entry throws before any GPU work is recorded.
+ * lists are validated up front; `validateDraw` resolves each mesh's
+ * material and geometry slots in the same pass so the per-draw loop
+ * body consumes the resolved triple with no further lookups.
  *
  * @throws FurnaceGpuError - if `ctx` has been disposed; if
  *   `opts.camera` or `opts.draw` is null/undefined; if any entry in
- *   `opts.draw` is null or belongs to a different context; or if any
- *   `opts.effects` entry is null, already destroyed, or belongs to a
- *   different context (a single "invalid handle" diagnostic — the
- *   handle-pool generation counter does not distinguish destroyed from
- *   never-existed).
+ *   `opts.draw` is null, invalid, destroyed, or belongs to a different
+ *   context; if the resolved mesh's `material` or `geometry` does not
+ *   itself resolve to a live slot (defensive — the Mesh→Material and
+ *   Mesh→Geometry refcounts normally keep these alive while a mesh
+ *   references them); or if any `opts.effects` entry is null, already
+ *   destroyed, or belongs to a different context (a single "invalid
+ *   handle" diagnostic — the handle-pool generation counter does not
+ *   distinguish destroyed from never-existed).
  */
 export function render(ctx: Context, opts: RenderOptions): void {
   if (ctx._internal.disposed) {
@@ -425,7 +464,7 @@ export function render(ctx: Context, opts: RenderOptions): void {
   if (opts.draw == null) {
     throw new FurnaceGpuError("render: draw is required");
   }
-  validateDraw(ctx, opts.draw);
+  const resolvedDraws = validateDraw(ctx, opts.draw);
   const effects = opts.effects ?? [];
   if (effects.length > 0) validateEffects(ctx, effects);
 
@@ -440,7 +479,7 @@ export function render(ctx: Context, opts: RenderOptions): void {
       ctx,
       colorView,
       depth.view,
-      opts.draw,
+      resolvedDraws,
       cameraBuffer,
       clearColor,
       clearDepth,
@@ -453,7 +492,7 @@ export function render(ctx: Context, opts: RenderOptions): void {
     ctx,
     im.aView,
     depth.view,
-    opts.draw,
+    resolvedDraws,
     cameraBuffer,
     clearColor,
     clearDepth,

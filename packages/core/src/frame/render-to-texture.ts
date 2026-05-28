@@ -1,8 +1,6 @@
 import type { Camera } from "../camera/index.ts";
 import { FurnaceGpuError } from "../gpu/errors.ts";
 import type { Context } from "../gpu/index.ts";
-import { _resolveMaterial } from "../material/internal.ts";
-import { _resolveGeometry, _resolveMesh } from "../mesh/internal.ts";
 import { _recomputeModelIfDirty } from "../mesh/mesh.ts";
 import type { Mesh } from "../mesh/types.ts";
 import {
@@ -12,7 +10,7 @@ import {
 } from "../stats/internal.ts";
 import type { Vec4 } from "../transform/types.ts";
 import { vec4 } from "../transform/vec4.ts";
-import { _frameRenderInternals } from "./render.ts";
+import { _frameRenderInternals, type ResolvedDraw } from "./render.ts";
 import { trianglesForTopology } from "./triangles-for-topology.ts";
 
 /**
@@ -78,30 +76,28 @@ function beginRenderPass(
 function recordDraw(
   pass: GPURenderPassEncoder,
   ctx: Context,
-  mesh: Mesh,
+  resolved: ResolvedDraw,
   cameraBuffer: GPUBuffer,
   lastPipeline: GPURenderPipeline | null,
 ): GPURenderPipeline {
-  const slot = _resolveMesh(ctx, mesh);
-  _recomputeModelIfDirty(slot);
-  const materialSlot = _resolveMaterial(ctx, slot.material);
-  const pipeline = materialSlot.pipeline;
+  const { mesh, material, geometry } = resolved;
+  _recomputeModelIfDirty(mesh);
+  const pipeline = material.pipeline;
   pass.setPipeline(pipeline);
   if (pipeline !== lastPipeline) {
     _recordPipelineSwitch(ctx);
   }
   pass.setBindGroup(
     0,
-    _frameRenderInternals._ensureMeshGroup0(ctx, slot, pipeline, cameraBuffer),
+    _frameRenderInternals._ensureMeshGroup0(ctx, mesh, pipeline, cameraBuffer),
   );
   _recordBindGroupSwitch(ctx);
-  if (materialSlot.group1) {
-    pass.setBindGroup(1, materialSlot.group1);
+  if (material.group1) {
+    pass.setBindGroup(1, material.group1);
     _recordBindGroupSwitch(ctx);
   }
-  const geom = _resolveGeometry(ctx, slot.geometry);
-  pass.setVertexBuffer(0, geom.vertexBuffer);
-  const { indexBuffer, indexFormat, indexCount, vertexCount } = geom;
+  pass.setVertexBuffer(0, geometry.vertexBuffer);
+  const { indexBuffer, indexFormat, indexCount, vertexCount } = geometry;
   if (indexBuffer && indexFormat) {
     pass.setIndexBuffer(indexBuffer, indexFormat);
     pass.drawIndexed(indexCount);
@@ -110,7 +106,7 @@ function recordDraw(
   }
   const drawCount = indexCount || vertexCount;
   _recordDraw(ctx, {
-    triangles: trianglesForTopology(materialSlot.topology, drawCount),
+    triangles: trianglesForTopology(material.topology, drawCount),
   });
   return pipeline;
 }
@@ -127,11 +123,18 @@ function recordDraw(
  * the {@link RenderToTextureOptions} caveat about the silent validation
  * failure when omitted with depth-declaring materials.
  *
- * Setup-loud per the foreground failure policy.
+ * Setup-loud per the foreground failure policy. The shared
+ * `validateDraw` resolves each mesh's material and geometry slots in
+ * the same pass so the per-draw loop body consumes the resolved triple
+ * with no further lookups.
  *
  * @throws FurnaceGpuError - if `ctx` has been disposed, `opts.texture`
- *   is missing, `opts.camera` or `opts.draw` is null/undefined, or any
- *   entry in `opts.draw` is null or belongs to a different context.
+ *   is missing, `opts.camera` or `opts.draw` is null/undefined, any
+ *   entry in `opts.draw` is null, invalid, destroyed, or belongs to a
+ *   different context, or if a draw's mesh references a material or
+ *   geometry that does not itself resolve to a live slot (defensive —
+ *   the Mesh→Material and Mesh→Geometry refcounts normally keep these
+ *   alive while a mesh references them).
  */
 export function renderToTexture(
   ctx: Context,
@@ -149,7 +152,7 @@ export function renderToTexture(
   if (opts.draw == null) {
     throw new FurnaceGpuError("renderToTexture: draw is required");
   }
-  _frameRenderInternals._validateDraw(ctx, opts.draw);
+  const resolvedDraws = _frameRenderInternals._validateDraw(ctx, opts.draw);
 
   const cameraBuffer = _frameRenderInternals._ensureCameraBuffer(
     ctx,
@@ -170,8 +173,8 @@ export function renderToTexture(
   );
 
   let lastPipeline: GPURenderPipeline | null = null;
-  for (const mesh of opts.draw) {
-    lastPipeline = recordDraw(pass, ctx, mesh, cameraBuffer, lastPipeline);
+  for (const resolved of resolvedDraws) {
+    lastPipeline = recordDraw(pass, ctx, resolved, cameraBuffer, lastPipeline);
   }
 
   pass.end();

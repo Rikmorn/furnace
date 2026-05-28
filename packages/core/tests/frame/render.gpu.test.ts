@@ -8,7 +8,10 @@ import { normalColor } from "../../src/material/normal-color.ts";
 import { unlit } from "../../src/material/unlit.ts";
 import { cubeGeometry, planeGeometry } from "../../src/mesh/factories/index.ts";
 import { _resolveMesh } from "../../src/mesh/internal.ts";
-import { create as createMesh } from "../../src/mesh/mesh.ts";
+import {
+  create as createMesh,
+  destroy as destroyMesh,
+} from "../../src/mesh/mesh.ts";
 import type { Mesh } from "../../src/mesh/types.ts";
 import { vec3 } from "../../src/transform/index.ts";
 import { vec4 } from "../../src/transform/vec4.ts";
@@ -203,9 +206,34 @@ test.skipIf(!bunWebGpuAvailable())(
       material: matB,
     });
     expect(() => render(ctxA, { draw: [mB], camera: cam })).toThrow(
-      "mesh belongs to a different context",
+      "draw[0]: mesh handle is invalid, destroyed, or belongs to a different context",
     );
     gpu.dispose(ctxA);
     gpu.dispose(ctxB);
   },
 );
+
+test.skipIf(!bunWebGpuAvailable())(
+  "frame.render throws when draw contains a destroyed mesh handle",
+  async () => {
+    const canvas = await makeOffscreenCanvas();
+    const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
+    const cam = camera.perspective({});
+    const mat = await unlit(ctx, { color: vec4.fromValues(1, 0, 0, 1) });
+    const geo = cubeGeometry(ctx);
+    const m = createMesh(ctx, { geometry: geo, material: mat });
+    destroyMesh(ctx, m);
+    expect(() => render(ctx, { draw: [m], camera: cam })).toThrow(
+      "draw[0]: mesh handle is invalid, destroyed, or belongs to a different context",
+    );
+    gpu.dispose(ctx);
+  },
+);
+
+// validateDraw also defensively rejects meshes whose mesh.material or
+// mesh.geometry no longer resolves to a live slot. Those throw paths are
+// unreachable through the public API: the Mesh→Material and Mesh→Geometry
+// refcounts keep the referenced slots alive until the last referencing
+// mesh is destroyed (after which the mesh handle itself fails the first
+// lookup). The defensive paths exist to keep the per-draw loop body
+// indexed-access-free; no test exercises them organically.
