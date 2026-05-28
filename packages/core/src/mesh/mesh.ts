@@ -10,11 +10,7 @@ import {
   _lookupMaterial,
   _lookupMesh,
 } from "../resources/internal.ts";
-import {
-  _registerResource,
-  _unregisterResource,
-  type ResourceHandle,
-} from "../stats/internal.ts";
+import { _recordAlloc, _recordDestroy } from "../stats/internal.ts";
 import { mat4, quat } from "../transform/index.ts";
 import type { Quat, Vec3 } from "../transform/types.ts";
 import type { Geometry, GeometrySlot, Mesh, MeshSlot } from "./types.ts";
@@ -72,10 +68,7 @@ export function create(
     size: OBJECT_UNIFORM_SIZE_BYTES,
     usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
   });
-  const objectBufferHandle = _registerResource(ctx, {
-    kind: "buffer",
-    bytes: OBJECT_UNIFORM_SIZE_BYTES,
-  });
+  _recordAlloc(ctx, "buffer", OBJECT_UNIFORM_SIZE_BYTES);
 
   const slot: MeshSlot = {
     geometry: opts.geometry,
@@ -86,18 +79,14 @@ export function create(
     modelMatrix: mat4.create(),
     transformDirty: true,
     objectBuffer,
-    _teardown: () => meshTeardown(ctx, slot, objectBufferHandle),
+    _teardown: () => meshTeardown(ctx, slot),
   };
   return _allocMesh(ctx, slot);
 }
 
-function meshTeardown(
-  ctx: Context,
-  slot: MeshSlot,
-  objectBufferHandle: ResourceHandle,
-): void {
+function meshTeardown(ctx: Context, slot: MeshSlot): void {
   slot.objectBuffer.destroy();
-  _unregisterResource(ctx, objectBufferHandle);
+  _recordDestroy(ctx, "buffer", OBJECT_UNIFORM_SIZE_BYTES);
   decrementGeometryRefcount(ctx, slot.geometry);
   decrementMaterialRefcount(ctx, slot.material);
 }
