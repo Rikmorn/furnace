@@ -89,8 +89,8 @@ function effectTeardown(ctx: Context, slot: EffectSlot): void {
 /**
  * Build (or reuse, via the internal per-ctx post pipeline cache) a
  * full-screen post-process pipeline keyed on shader + ctx format + blend
- * signature, register an effect resource with stats, and return an
- * opaque {@link Effect} handle.
+ * signature, and return an opaque {@link Effect} handle. The effect slot
+ * is allocated in the per-ctx resource manager's effects pool.
  *
  * The shared fullscreen vertex shader (`vs_fullscreen`) is auto-supplied;
  * `desc.shader` only needs to provide the fragment stage (entry `fs_main`).
@@ -138,9 +138,8 @@ export async function create(
 }
 
 /**
- * Destroy an {@link Effect}: unregister its stats handle and release one
- * ref on the cached pipeline. The pipeline itself is freed when its
- * refcount drops to zero.
+ * Destroy an {@link Effect}: release one ref on the cached pipeline.
+ * The pipeline itself is freed when its refcount drops to zero.
  *
  * Does not destroy the consumer-owned resources passed via
  * `EffectDescriptor.bindings` (buffers/textures the consumer created and
