@@ -300,18 +300,20 @@ See `engine-conventions.md` §Resource ownership for the lifecycle contract that
 | `setPosition` | `(ctx: Context, mesh: Mesh, position: Vec3) => void` | Flips `transformDirty`. Silent no-op on stale handles. |
 | `setRotation` | `(ctx: Context, mesh: Mesh, rotation: Quat) => void` | Flips `transformDirty`. Silent no-op on stale handles. |
 | `setScale` | `(ctx: Context, mesh: Mesh, scale: Vec3) => void` | Flips `transformDirty`. Silent no-op on stale handles. |
+| `setMaterial` | `(ctx: Context, mesh: Mesh, newMaterial: Material) => void` | Swap the bound material on a live mesh. Decrements the previous material's refcount (firing deferred GPU teardown if it was marked-destroyed and the count hits zero); increments the new material's. Validate-first: a stale new-material handle throws without touching the previous refcount. Silent no-op on stale mesh handles; no-op when the new material already matches the bound one. |
 | `getPosition` | `(ctx: Context, mesh: Mesh, out: Vec3) => Vec3` | Reads the mesh's position into `out` (out-param convention). Returns `out` unchanged on stale handles. |
 | `getRotation` | `(ctx: Context, mesh: Mesh, out: Quat) => Quat` | Reads the mesh's rotation quaternion into `out`. Returns `out` unchanged on stale handles. |
 | `getScale` | `(ctx: Context, mesh: Mesh, out: Vec3) => Vec3` | Reads the mesh's scale into `out`. Returns `out` unchanged on stale handles. |
 | `Geometry` | Opaque branded uint48 handle (alias of `GeometryHandle`) | Returned by `createGeometry` / `cubeGeometry` / `planeGeometry`. Pass to `mesh.create` (may be shared across meshes); dispose via `mesh.destroyGeometry(ctx, g)`. |
 | `GeometryData` | `{ positions: Float32Array; normals: Float32Array; uvs: Float32Array; indices?: Uint16Array \| Uint32Array }` | Raw arrays fed to `createGeometry`. |
-| `Mesh` | Opaque branded uint48 handle (alias of `MeshHandle`) | Returned by `mesh.create`. Pass to `frame.render`; mutate the bound pose only via the `setPosition` / `setRotation` / `setScale` setters; dispose via `mesh.destroy(ctx, m)`. |
+| `Mesh` | Opaque branded uint48 handle (alias of `MeshHandle`) | Returned by `mesh.create`. Pass to `frame.render`; mutate the bound pose only via the `setPosition` / `setRotation` / `setScale` setters; swap the bound material via `setMaterial`; dispose via `mesh.destroy(ctx, m)`. |
 
 ### Demoed in cookbook
 
 - `cubeGeometry`, `create`, `destroy`, `setPosition` → `cookbook/camera`.
 - `setRotation`, `setScale` → `cookbook/animation`.
 - `createGeometry`, `destroyGeometry`, `GeometryData`, `Geometry` → `cookbook/geometry`.
+- `setMaterial` → `cookbook/render-target` (picture-in-picture rebuild swaps the monitor mesh's material on off-screen resolution change).
 
 ### Reference-only (no demo, by design)
 

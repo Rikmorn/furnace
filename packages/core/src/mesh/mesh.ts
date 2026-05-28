@@ -101,31 +101,27 @@ function meshTeardown(
   slot.objectBuffer.destroy();
   _unregisterResource(slot.ctx, objectBufferHandle);
   _unregisterResource(slot.ctx, meshHandle);
-  decrementGeometryRefcount(slot);
-  decrementMaterialRefcount(slot);
+  decrementGeometryRefcount(slot.ctx, slot.geometry);
+  decrementMaterialRefcount(slot.ctx, slot.material);
 }
 
-function decrementGeometryRefcount(slot: MeshSlot): void {
-  const geometrySlot = _lookupGeometry<GeometrySlot>(slot.ctx, slot.geometry);
+function decrementGeometryRefcount(ctx: Context, geometry: Geometry): void {
+  const geometrySlot = _lookupGeometry<GeometrySlot>(ctx, geometry);
   if (geometrySlot === null) return;
   geometrySlot.userCount -= 1;
   if (geometrySlot.userCount === 0 && geometrySlot.markedDestroyed) {
     geometrySlot.markedDestroyed = false;
-    _destroyGeometry<GeometrySlot>(slot.ctx, slot.geometry, (s) =>
-      s._teardown(),
-    );
+    _destroyGeometry<GeometrySlot>(ctx, geometry, (s) => s._teardown());
   }
 }
 
-function decrementMaterialRefcount(slot: MeshSlot): void {
-  const materialSlot = _lookupMaterial<MaterialSlot>(slot.ctx, slot.material);
+function decrementMaterialRefcount(ctx: Context, material: Material): void {
+  const materialSlot = _lookupMaterial<MaterialSlot>(ctx, material);
   if (materialSlot === null) return;
   materialSlot.userCount -= 1;
   if (materialSlot.userCount === 0 && materialSlot.markedDestroyed) {
     materialSlot.markedDestroyed = false;
-    _destroyMaterial<MaterialSlot>(slot.ctx, slot.material, (s) =>
-      s._teardown(),
-    );
+    _destroyMaterial<MaterialSlot>(ctx, material, (s) => s._teardown());
   }
 }
 
@@ -193,6 +189,56 @@ export function setScale(ctx: Context, mesh: Mesh, scale: Vec3): void {
   if (slot === null) return;
   slot.scale.set(scale);
   slot.transformDirty = true;
+}
+
+/**
+ * Swap the {@link Material} bound to a live {@link Mesh}. The previous
+ * material's refcount is decremented; if that drops it to zero and
+ * `material.destroy` had already been called on it, the deferred GPU
+ * teardown runs as part of this call. The new material's refcount is
+ * incremented symmetrically.
+ *
+ * Validate-first: the new material handle is looked up BEFORE the slot's
+ * reference is swapped or any refcount is touched, so a stale or invalid
+ * new-material handle cannot strand the previous material's refcount.
+ * No-op when the new material is the same handle already bound — does
+ * not touch either refcount.
+ *
+ * Use for swap-on-resize / picture-in-picture flows where a live mesh
+ * needs to point at a freshly-rebuilt material (e.g. a new off-screen
+ * texture's binding) without recreating the mesh. The render path looks
+ * up the bound material per draw, so mid-frame swaps are safe — no
+ * pipeline-cache invalidation is required.
+ *
+ * Silent no-op on stale or destroyed mesh handles (matches the other
+ * mesh setters).
+ *
+ * @throws FurnaceError - if `newMaterial` is null/undefined.
+ * @throws FurnaceError - if `newMaterial` is not a live handle (already
+ *   destroyed, stale, or from a different context). The previous
+ *   material's refcount is unchanged on this path.
+ */
+export function setMaterial(
+  ctx: Context,
+  mesh: Mesh,
+  newMaterial: Material,
+): void {
+  if (newMaterial == null) {
+    throw new FurnaceError("mesh.setMaterial: material is required");
+  }
+  const meshSlot = _lookupMesh<MeshSlot>(ctx, mesh);
+  if (meshSlot === null) return;
+  if (meshSlot.material === newMaterial) return;
+  const newMaterialSlot = _lookupMaterial<MaterialSlot>(ctx, newMaterial);
+  if (newMaterialSlot === null) {
+    throw new FurnaceError(
+      "mesh.setMaterial: material handle is invalid or destroyed",
+    );
+  }
+  const oldMaterial = meshSlot.material;
+  meshSlot.material = newMaterial;
+  newMaterialSlot.userCount += 1;
+  decrementMaterialRefcount(ctx, oldMaterial);
 }
 
 /**

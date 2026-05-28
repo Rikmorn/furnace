@@ -6,6 +6,7 @@ export {
   getPosition,
   getRotation,
   getScale,
+  setMaterial,
   setPosition,
   setRotation,
   setScale,
