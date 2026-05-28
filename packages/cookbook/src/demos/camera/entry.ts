@@ -123,7 +123,7 @@ await mountDemo({
       cube = mesh.create(ctx, { geometry: cubeGeo, material: normalMat });
       planeGeo = mesh.planeGeometry(ctx, { size: PLANE_BACKDROP_SIZE });
       plane = mesh.create(ctx, { geometry: planeGeo, material: planeMat });
-      mesh.setPosition(plane, vec3.fromValues(0, 0, PLANE_Z));
+      mesh.setPosition(ctx, plane, vec3.fromValues(0, 0, PLANE_Z));
 
       const initialAspect = ctx.canvas.width / ctx.canvas.height;
       const perspectiveCam = camera.perspective({
@@ -197,23 +197,23 @@ await mountDemo({
         },
         dispose: () => {
           sceneUnsubResize();
-          mesh.destroy(sceneCube);
-          mesh.destroy(scenePlane);
-          mesh.destroyGeometry(sceneCubeGeo);
-          mesh.destroyGeometry(scenePlaneGeo);
-          material.destroy(sceneNormalMat);
-          material.destroy(scenePlaneMat);
+          mesh.destroy(ctx, sceneCube);
+          mesh.destroy(ctx, scenePlane);
+          mesh.destroyGeometry(ctx, sceneCubeGeo);
+          mesh.destroyGeometry(ctx, scenePlaneGeo);
+          material.destroy(ctx, sceneNormalMat);
+          material.destroy(ctx, scenePlaneMat);
           input.detach();
         },
       };
     } catch (e) {
       if (unsubResize) unsubResize();
-      if (cube) mesh.destroy(cube);
-      if (plane) mesh.destroy(plane);
-      if (cubeGeo) mesh.destroyGeometry(cubeGeo);
-      if (planeGeo) mesh.destroyGeometry(planeGeo);
-      if (normalMat) material.destroy(normalMat);
-      if (planeMat) material.destroy(planeMat);
+      if (cube) mesh.destroy(ctx, cube);
+      if (plane) mesh.destroy(ctx, plane);
+      if (cubeGeo) mesh.destroyGeometry(ctx, cubeGeo);
+      if (planeGeo) mesh.destroyGeometry(ctx, planeGeo);
+      if (normalMat) material.destroy(ctx, normalMat);
+      if (planeMat) material.destroy(ctx, planeMat);
       input.detach();
       throw e;
     }
