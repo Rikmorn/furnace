@@ -108,7 +108,7 @@ await mountDemo({
         geometry: backdropGeo,
         material: plasmaMat,
       });
-      mesh.setPosition(backdrop, vec3.fromValues(0, 0, BACKDROP_Z));
+      mesh.setPosition(ctx, backdrop, vec3.fromValues(0, 0, BACKDROP_Z));
 
       const cam = camera.perspective({
         aspect: ctx.canvas.width / ctx.canvas.height,
@@ -144,24 +144,24 @@ await mountDemo({
         },
         dispose: () => {
           sceneUnsubResize();
-          mesh.destroy(sceneBackdrop);
-          mesh.destroy(sceneCube);
-          mesh.destroyGeometry(sceneBackdropGeo);
-          mesh.destroyGeometry(sceneCubeGeo);
-          material.destroy(scenePlasmaMat);
-          material.destroy(sceneStripedMat);
+          mesh.destroy(ctx, sceneBackdrop);
+          mesh.destroy(ctx, sceneCube);
+          mesh.destroyGeometry(ctx, sceneBackdropGeo);
+          mesh.destroyGeometry(ctx, sceneCubeGeo);
+          material.destroy(ctx, scenePlasmaMat);
+          material.destroy(ctx, sceneStripedMat);
           sceneParamsBufPlasma.destroy();
           sceneParamsBufStriped.destroy();
         },
       };
     } catch (e) {
       if (unsubResize) unsubResize();
-      if (backdrop) mesh.destroy(backdrop);
-      if (cube) mesh.destroy(cube);
-      if (backdropGeo) mesh.destroyGeometry(backdropGeo);
-      if (cubeGeo) mesh.destroyGeometry(cubeGeo);
-      if (plasmaMat) material.destroy(plasmaMat);
-      if (stripedMat) material.destroy(stripedMat);
+      if (backdrop) mesh.destroy(ctx, backdrop);
+      if (cube) mesh.destroy(ctx, cube);
+      if (backdropGeo) mesh.destroyGeometry(ctx, backdropGeo);
+      if (cubeGeo) mesh.destroyGeometry(ctx, cubeGeo);
+      if (plasmaMat) material.destroy(ctx, plasmaMat);
+      if (stripedMat) material.destroy(ctx, stripedMat);
       if (paramsBufPlasma) paramsBufPlasma.destroy();
       if (paramsBufStriped) paramsBufStriped.destroy();
       throw e;
@@ -172,7 +172,7 @@ await mountDemo({
     state.angle += dt * ROTATION_SPEED_RAD_PER_S;
     state.time += dt;
     quat.fromEuler(scene.rotBuf, 0, state.angle, 0);
-    mesh.setRotation(scene.cube, scene.rotBuf);
+    mesh.setRotation(ctx, scene.cube, scene.rotBuf);
 
     // Both uniform buffers written every frame. Cheap at 16 bytes; real
     // consumers can gate on dirty state.
