@@ -180,7 +180,12 @@ export function dispose(ctx: Context): void {
   if (ctx._internal.disposed) return;
   _runDisposeCascade(ctx);
   disposeAllResources(ctx);
-  const remaining = ctx._internal.stats.resources.entries.size;
+  const r = ctx._internal.stats.resources;
+  const remaining =
+    r.counts.meshes +
+    r.counts.materials +
+    r.counts.geometries +
+    r.counts.effects;
   if (remaining > 0) {
     warn(
       "gpu",

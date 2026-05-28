@@ -6,8 +6,6 @@ import {
   _recordDestroy,
   _recordEmission,
   _recordUncapturedError,
-  _registerResource,
-  _unregisterResource,
 } from "../../src/stats/internal.ts";
 import { createStatsState } from "../../src/stats/state.ts";
 
@@ -26,29 +24,6 @@ function makeMockCtx(disposed = false): Context {
     },
   } as Context;
 }
-
-test("_registerResource / _unregisterResource: mesh kind", () => {
-  const ctx = makeMockCtx();
-  const handle = _registerResource(ctx, { kind: "mesh" });
-  expect(ctx._internal.stats.resources.counts.meshes).toBe(1);
-  _unregisterResource(ctx, handle);
-  expect(ctx._internal.stats.resources.counts.meshes).toBe(0);
-});
-
-test("_registerResource: buffer kind tracks bytes", () => {
-  const ctx = makeMockCtx();
-  _registerResource(ctx, { kind: "buffer", bytes: 256 });
-  expect(ctx._internal.stats.resources.memory.bufferBytes).toBe(256);
-});
-
-test("_registerResource on disposed ctx: returns a no-op handle (does not register)", () => {
-  const ctx = makeMockCtx(true);
-  const handle = _registerResource(ctx, { kind: "buffer", bytes: 512 });
-  expect(ctx._internal.stats.resources.memory.bufferBytes).toBe(0);
-  expect(ctx._internal.stats.resources.entries.size).toBe(0);
-  _unregisterResource(ctx, handle);
-  expect(ctx._internal.stats.resources.memory.bufferBytes).toBe(0);
-});
 
 test("_recordEmission: increments per-emitter counter", () => {
   const ctx = makeMockCtx();

@@ -29,13 +29,6 @@ export type EffectHandle = number & { readonly __brand: "EffectHandle" };
  * Union of every branded handle kind. Used by cross-cutting
  * resource APIs (e.g., `resources.list`) that handle multiple
  * resource types uniformly.
- *
- * Name disambiguates from the engine-internal stats opaque token
- * `stats.ResourceHandle` (a `Readonly<{ kind; bytes? }>`) — these
- * are different concepts that happen to share the natural English
- * name. Consumers importing from `@furnace/core/resources` use
- * `AnyResourceHandle`; consumers of the stats module use the
- * `ResourceHandle` name there.
  */
 export type AnyResourceHandle =
   | MeshHandle

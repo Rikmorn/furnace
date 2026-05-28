@@ -147,14 +147,15 @@ test.skipIf(!bunWebGpuAvailable())(
     const canvas = await makeOffscreenCanvas();
     const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
 
-    // Pretend a module registered a resource and then forgot to clean it up
-    // until cascade-time. The cascade callback unregisters it, so the
-    // leak-warn should NOT fire.
-    const { _registerResource, _unregisterResource } = await import(
+    // Pretend a module recorded a slot-kind alloc and then forgot to clean it
+    // up until cascade-time. The cascade callback records the matching destroy,
+    // so the leak-warn (which reads slot-kind counts post-cascade) should NOT
+    // fire.
+    const { _recordAlloc, _recordDestroy } = await import(
       "../../src/stats/internal.ts"
     );
-    const handle = _registerResource(ctx, { kind: "buffer", bytes: 16 });
-    _onDispose(ctx, () => _unregisterResource(ctx, handle));
+    _recordAlloc(ctx, "mesh", 0);
+    _onDispose(ctx, () => _recordDestroy(ctx, "mesh", 0));
 
     const entries: LogEntry[] = [];
     setSink((entry) => entries.push(entry));

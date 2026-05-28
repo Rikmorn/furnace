@@ -1,85 +1,69 @@
 import { expect, test } from "bun:test";
 import {
   createResourceRegistry,
-  registerResource,
-  unregisterResource,
+  recordAlloc,
+  recordDestroy,
 } from "../../src/stats/resources.ts";
 
-test("createResourceRegistry: starts with empty set and zero counters", () => {
+test("createResourceRegistry: starts with zero counts and zero memory", () => {
   const r = createResourceRegistry();
-  expect(r.entries.size).toBe(0);
   expect(r.counts.meshes).toBe(0);
   expect(r.counts.materials).toBe(0);
   expect(r.counts.geometries).toBe(0);
+  expect(r.counts.effects).toBe(0);
   expect(r.memory.bufferBytes).toBe(0);
   expect(r.memory.textureBytes).toBe(0);
 });
 
-test("registerResource: 'mesh' kind increments meshes count", () => {
+test("recordAlloc/recordDestroy: mesh kind round-trips counts.meshes to 0", () => {
   const r = createResourceRegistry();
-  registerResource(r, { kind: "mesh" });
-  expect(r.counts.meshes).toBe(1);
-  expect(r.entries.size).toBe(1);
-});
-
-test("registerResource: 'buffer' kind adds bytes to bufferBytes", () => {
-  const r = createResourceRegistry();
-  registerResource(r, { kind: "buffer", bytes: 64 });
-  expect(r.memory.bufferBytes).toBe(64);
-  expect(r.counts.meshes).toBe(0);
-});
-
-test("registerResource: 'texture' kind adds bytes to textureBytes", () => {
-  const r = createResourceRegistry();
-  registerResource(r, { kind: "texture", bytes: 1024 });
-  expect(r.memory.textureBytes).toBe(1024);
-});
-
-test("registerResource: returns a handle the unregister call accepts", () => {
-  const r = createResourceRegistry();
-  const handle = registerResource(r, { kind: "mesh" });
-  expect(handle.kind).toBe("mesh");
-  expect(handle.bytes).toBe(0);
-  unregisterResource(r, handle);
-  expect(r.counts.meshes).toBe(0);
-  expect(r.entries.size).toBe(0);
-});
-
-test("unregisterResource: subtracts bytes from the matching memory bucket", () => {
-  const r = createResourceRegistry();
-  const h = registerResource(r, { kind: "buffer", bytes: 256 });
-  unregisterResource(r, h);
-  expect(r.memory.bufferBytes).toBe(0);
-  expect(r.entries.size).toBe(0);
-});
-
-test("registerResource: multiple registrations accumulate correctly", () => {
-  const r = createResourceRegistry();
-  registerResource(r, { kind: "mesh" });
-  registerResource(r, { kind: "mesh" });
-  registerResource(r, { kind: "geometry" });
-  registerResource(r, { kind: "buffer", bytes: 100 });
-  registerResource(r, { kind: "buffer", bytes: 200 });
-  registerResource(r, { kind: "texture", bytes: 4096 });
+  recordAlloc(r, "mesh", 0);
+  recordAlloc(r, "mesh", 0);
   expect(r.counts.meshes).toBe(2);
-  expect(r.counts.geometries).toBe(1);
-  expect(r.memory.bufferBytes).toBe(300);
-  expect(r.memory.textureBytes).toBe(4096);
-  expect(r.entries.size).toBe(6);
+  recordDestroy(r, "mesh", 0);
+  recordDestroy(r, "mesh", 0);
+  expect(r.counts.meshes).toBe(0);
 });
 
-test("registerResource('effect') increments counts.effects", () => {
+test("recordAlloc/recordDestroy: buffer kind round-trips memory.bufferBytes to 0", () => {
   const r = createResourceRegistry();
-  const h = registerResource(r, { kind: "effect" });
-  expect(r.counts.effects).toBe(1);
-  expect(h.kind).toBe("effect");
-  expect(h.bytes).toBe(0);
+  recordAlloc(r, "buffer", 256);
+  recordAlloc(r, "buffer", 64);
+  expect(r.memory.bufferBytes).toBe(320);
+  recordDestroy(r, "buffer", 256);
+  recordDestroy(r, "buffer", 64);
+  expect(r.memory.bufferBytes).toBe(0);
 });
 
-test("unregisterResource removes effect handle and decrements counts.effects", () => {
+test("recordAlloc: texture kind increments memory.textureBytes separately from bufferBytes", () => {
   const r = createResourceRegistry();
-  const h = registerResource(r, { kind: "effect" });
-  unregisterResource(r, h);
+  recordAlloc(r, "texture", 1024);
+  recordAlloc(r, "buffer", 128);
+  expect(r.memory.textureBytes).toBe(1024);
+  expect(r.memory.bufferBytes).toBe(128);
+});
+
+test("recordAlloc: kinds are independent (mesh alloc doesn't affect material count)", () => {
+  const r = createResourceRegistry();
+  recordAlloc(r, "mesh", 0);
+  expect(r.counts.meshes).toBe(1);
+  expect(r.counts.materials).toBe(0);
+  expect(r.counts.geometries).toBe(0);
   expect(r.counts.effects).toBe(0);
-  expect(r.entries.has(h)).toBe(false);
+});
+
+test("recordAlloc: effect kind increments counts.effects", () => {
+  const r = createResourceRegistry();
+  recordAlloc(r, "effect", 0);
+  expect(r.counts.effects).toBe(1);
+  recordDestroy(r, "effect", 0);
+  expect(r.counts.effects).toBe(0);
+});
+
+test("recordAlloc: geometry kind increments counts.geometries", () => {
+  const r = createResourceRegistry();
+  recordAlloc(r, "geometry", 0);
+  expect(r.counts.geometries).toBe(1);
+  recordDestroy(r, "geometry", 0);
+  expect(r.counts.geometries).toBe(0);
 });

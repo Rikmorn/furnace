@@ -2,18 +2,8 @@ import type { Context } from "../gpu/context-types.ts";
 import { error, warn } from "../log/internal.ts";
 import { tickFps } from "./fps-counter.ts";
 import { pushFrameMs } from "./frame-window.ts";
-import {
-  type ResourceHandle,
-  type ResourceInfo,
-  type ResourceKind,
-  recordAlloc,
-  recordDestroy,
-  registerResource,
-  unregisterResource,
-} from "./resources.ts";
+import { type ResourceKind, recordAlloc, recordDestroy } from "./resources.ts";
 import { buildSnapshot } from "./snapshot.ts";
-
-const NULL_HANDLE: ResourceHandle = Object.freeze({ kind: "buffer", bytes: 0 });
 
 export function _frameStart(ctx: Context): void {
   if (ctx._internal.disposed) return;
@@ -78,22 +68,6 @@ export function _recordBindGroupSwitch(ctx: Context): void {
   ctx._internal.stats.bindGroupSwitches++;
 }
 
-export function _registerResource(
-  ctx: Context,
-  info: ResourceInfo,
-): ResourceHandle {
-  if (ctx._internal.disposed) return NULL_HANDLE;
-  return registerResource(ctx._internal.stats.resources, info);
-}
-
-export function _unregisterResource(
-  ctx: Context,
-  handle: ResourceHandle,
-): void {
-  if (ctx._internal.disposed) return;
-  unregisterResource(ctx._internal.stats.resources, handle);
-}
-
 /**
  * Record a resource alloc with stats. Single-writer API (RM-4).
  *
@@ -142,5 +116,3 @@ export function _recordDeviceLost(ctx: Context): void {
   if (ctx._internal.disposed) return;
   ctx._internal.stats.deviceLost = true;
 }
-
-export type { ResourceHandle, ResourceInfo } from "./resources.ts";

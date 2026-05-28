@@ -3,15 +3,13 @@
 export {
   _frameEnd,
   _frameStart,
+  _recordAlloc,
   _recordBindGroupSwitch,
+  _recordDestroy,
   _recordDraw,
   _recordEmission,
   _recordPipelineSwitch,
   _recordUncapturedError,
-  _registerResource,
-  _unregisterResource,
-  type ResourceHandle,
-  type ResourceInfo,
 } from "./internal.ts";
 
 // Public surface

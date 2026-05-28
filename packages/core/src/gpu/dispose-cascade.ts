@@ -9,7 +9,7 @@ const callbacksByCtx = new WeakMap<Context, Array<() => void>>();
  *
  * Engine-internal. Modules with ctx-bound lazy state self-register cleanup
  * on first allocation. Callbacks run LIFO during dispose, before the
- * context's disposed flag is set, so they may call `_unregisterResource`
+ * context's disposed flag is set, so they may call `_recordDestroy`
  * and raw GPU `.destroy()` freely.
  *
  * @throws FurnaceGpuError - if `ctx` is already disposed (setup-loud, per

@@ -12,7 +12,12 @@ test("createStatsState: returns a state with zero counters and empty maps", () =
   expect(s.pipelineSwitches).toBe(0);
   expect(s.bindGroupSwitches).toBe(0);
   expect(s.uncapturedErrors).toBe(0);
-  expect(s.resources.entries.size).toBe(0);
+  expect(s.resources.counts.meshes).toBe(0);
+  expect(s.resources.counts.materials).toBe(0);
+  expect(s.resources.counts.geometries).toBe(0);
+  expect(s.resources.counts.effects).toBe(0);
+  expect(s.resources.memory.bufferBytes).toBe(0);
+  expect(s.resources.memory.textureBytes).toBe(0);
   expect(s.emissions.size).toBe(0);
   expect(s.gauges.size).toBe(0);
   expect(s.counters.size).toBe(0);

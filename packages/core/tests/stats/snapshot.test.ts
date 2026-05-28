@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { pushFrameMs } from "../../src/stats/frame-window.ts";
-import { registerResource } from "../../src/stats/resources.ts";
+import { recordAlloc } from "../../src/stats/resources.ts";
 import { buildSnapshot } from "../../src/stats/snapshot.ts";
 import { createStatsState } from "../../src/stats/state.ts";
 
@@ -35,8 +35,8 @@ test("buildSnapshot: populated state reflects counters", () => {
   state.gauges.set("npcCount", 42);
   state.counters.set("collisions", 7);
   state.measures.set("game.ai", 2.5);
-  registerResource(state.resources, { kind: "mesh" });
-  registerResource(state.resources, { kind: "buffer", bytes: 1024 });
+  recordAlloc(state.resources, "mesh", 0);
+  recordAlloc(state.resources, "buffer", 1024);
 
   const snap = buildSnapshot(state);
   expect(snap.frame.fps).toBe(60);
@@ -76,8 +76,8 @@ test("snapshot.gpu.deviceLost reflects state.deviceLost", () => {
 
 test("snapshot.resources includes effects count", () => {
   const s = createStatsState(0);
-  registerResource(s.resources, { kind: "effect" });
-  registerResource(s.resources, { kind: "effect" });
+  recordAlloc(s.resources, "effect", 0);
+  recordAlloc(s.resources, "effect", 0);
   const snap = buildSnapshot(s);
   expect(snap.resources.effects).toBe(2);
 });
