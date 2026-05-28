@@ -21,7 +21,7 @@ test.skipIf(!bunWebGpuAvailable())(
     const after = snapshot(ctx);
     expect(after.resources.materials - before.resources.materials).toBe(1);
     expect(after.memory.bufferBytes).toBe(before.memory.bufferBytes);
-    material.destroy(m);
+    material.destroy(ctx, m);
     const final = snapshot(ctx);
     expect(final.resources.materials).toBe(before.resources.materials);
     gpu.dispose(ctx);
@@ -38,7 +38,7 @@ test.skipIf(!bunWebGpuAvailable())(
     const after = snapshot(ctx);
     expect(after.resources.materials - before.resources.materials).toBe(1);
     expect(after.memory.bufferBytes - before.memory.bufferBytes).toBe(16);
-    material.destroy(m);
+    material.destroy(ctx, m);
     const final = snapshot(ctx);
     expect(final.resources.materials).toBe(before.resources.materials);
     expect(final.memory.bufferBytes).toBe(before.memory.bufferBytes);

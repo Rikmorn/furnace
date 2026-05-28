@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import * as gpu from "../../src/gpu/index.ts";
+import { _resolveMaterial } from "../../src/material/internal.ts";
 import { create } from "../../src/material/material.ts";
 import {
   bunWebGpuAvailable,
@@ -36,12 +37,13 @@ test.skipIf(!bunWebGpuAvailable())(
       vertex: TRIVIAL_WGSL,
       fragment: TRIVIAL_WGSL,
     });
-    expect(mat.pipeline).toBeDefined();
-    expect(mat.cullMode).toBe("back");
-    expect(mat.topology).toBe("triangle-list");
-    expect(mat.depthWrite).toBe(true);
-    expect(mat.depthCompare).toBe("less");
-    expect(mat.group1).toBe(null);
+    const slot = _resolveMaterial(ctx, mat);
+    expect(slot.pipeline).toBeDefined();
+    expect(slot.cullMode).toBe("back");
+    expect(slot.topology).toBe("triangle-list");
+    expect(slot.depthWrite).toBe(true);
+    expect(slot.depthCompare).toBe("less");
+    expect(slot.group1).toBe(null);
     gpu.dispose(ctx);
   },
 );
@@ -78,8 +80,9 @@ test.skipIf(!bunWebGpuAvailable())(
       fragment: wgsl,
       bindings: [{ binding: 0, resource: { buffer: colorBuffer } }],
     });
-    expect(mat.group1).not.toBe(null);
-    expect(mat.ownedBuffers.length).toBe(0);
+    const slot = _resolveMaterial(ctx, mat);
+    expect(slot.group1).not.toBe(null);
+    expect(slot.ownedBuffers.length).toBe(0);
     gpu.dispose(ctx);
   },
 );

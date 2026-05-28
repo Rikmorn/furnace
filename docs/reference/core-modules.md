@@ -255,9 +255,9 @@ Re-exported from `index.ts` so other core modules can `import * as stats` and ca
 
 | Export | Signature | Notes |
 |---|---|---|
-| `create` | `(ctx: Context, descriptor: MaterialDescriptor) => Promise<Material>` | Builds (or reuses, via internal pipeline cache) a render pipeline keyed on shader source + raster state + blend signature + ctx format. Validates the descriptor; throws `FurnaceError` if pipeline creation fails. |
-| `destroy` | `(material: Material) => void` | Destroys owned buffers, unregisters resources, releases the cached pipeline ref. |
-| `unlit` | `(ctx: Context, opts: UnlitOptions) => Promise<Material>` | Stock unlit material. Allocates a 16-byte uniform buffer for the color (owned by the material). `opts.color` is required; pipeline-state fields are optional. |
+| `create` | `(ctx: Context, descriptor: MaterialDescriptor) => Promise<Material>` | Builds (or reuses, via the per-ctx internal pipeline cache) a render pipeline keyed on shader source + raster state + blend signature + ctx format. Validates the descriptor; throws `FurnaceError` if pipeline creation fails. |
+| `destroy` | `(ctx: Context, material: Material) => void` | If a Mesh still references the material, defers GPU teardown; otherwise destroys factory-owned buffers, unregisters resources, releases the cached pipeline ref. Silent on stale handles. |
+| `unlit` | `(ctx: Context, opts: UnlitOptions) => Promise<Material>` | Stock unlit material. Allocates a 16-byte uniform buffer for the color (owned by the material's slot). `opts.color` is required; pipeline-state fields are optional. |
 | `UnlitOptions` | `{ color: [number, number, number, number]; topology?: GPUPrimitiveTopology; cullMode?: GPUCullMode; depthWrite?: boolean; depthCompare?: GPUCompareFunction; blend?: GPUBlendState }` | Options for `unlit`. `color` required; pipeline-state fields optional with `MaterialDescriptor` defaults (triangle-list / back / depthWrite true / less / opaque). |
 | `normalColor` | `(ctx: Context, opts?: NormalColorOptions) => Promise<Material>` | Stock debug material that renders the (uniform-scale-correct) world-space normal as RGB. No bindings. `opts` overrides pipeline state — `{ topology?, cullMode?, depthWrite?, depthCompare?, blend? }`. |
 | `NormalColorOptions` | `{ topology?: GPUPrimitiveTopology; cullMode?: GPUCullMode; depthWrite?: boolean; depthCompare?: GPUCompareFunction; blend?: GPUBlendState }` | Pipeline-state overrides for `normalColor`. All fields optional; defaults match `MaterialDescriptor` (triangle-list / back / depthWrite true / less / opaque). |
@@ -266,7 +266,7 @@ Re-exported from `index.ts` so other core modules can `import * as stats` and ca
 | `PREMULTIPLIED_ALPHA_BLEND` | `GPUBlendState` constant — `src=one, dst=one-minus-src-alpha, op=add` for both color and alpha | Frozen; pass to `MaterialDescriptor.blend`. |
 | `ADDITIVE_BLEND` | `GPUBlendState` constant — `src=one, dst=one, op=add` for both color and alpha | Frozen; pass to `MaterialDescriptor.blend`. |
 | `MaterialDescriptor` | `{ vertex: string; fragment: string; bindings?: GPUBindGroupEntry[]; cullMode?; topology?; depthWrite?; depthCompare?; blend? }` | Defaults: `cullMode = "back"`, `topology = "triangle-list"`, `depthWrite = true`, `depthCompare = "less"`. `vertex` and `fragment` are required WGSL strings. |
-| `Material` | record holding `{ ctx, pipeline, pipelineKey, group1, ownedBuffers, ownedBufferHandles, cullMode, topology, depthWrite, depthCompare, _materialHandle }` | Treated as an opaque handle by consumers — used by `mesh.create` and `frame.render`. |
+| `Material` | Opaque branded uint48 handle (alias of `MaterialHandle`) | Returned by `create` / `unlit` / `normalColor`. Pass to `mesh.create` and `frame.render`; dispose via `material.destroy(ctx, m)`. |
 
 ### Demoed in cookbook
 
@@ -438,7 +438,7 @@ module-level mutable-state exception.
 These appear in module source files but are NOT exported, OR are exported with a leading `_` to mark them internal-only:
 
 - Internal `_*` stats hooks (table above in `@furnace/core/stats`).
-- Material's internal `_pipelineCache` (in `material/pipeline.ts`) and `_blendSignature` (in `material/material.ts`). Neither re-exported from `material/index.ts`.
+- Material's internal `_pipelineCache` (a facade in `material/pipeline.ts` over `acquireMaterialPipeline` / `releaseMaterialPipeline` on the per-ctx `ResourceManager`), `_blendSignature` (in `material/material.ts`), and `_resolveMaterial` (in `material/internal.ts`, used by `frame/render*` and the built-in factories). None re-exported from `material/index.ts`.
 - Post's internal `_pipelineCache` (in `post/pipeline-cache.ts`), `_ensureFullscreenVS` (in `post/fullscreen.ts`), `_effectPipelineHashKey` / `_buildEffectPipelineDescriptor` (in `post/pipeline.ts`), and `_ensureSceneIntermediates` (in `post/intermediate.ts`). None re-exported from `post/index.ts`.
 - Frame's internal `_frameRenderInternals` in `frame/render.ts` — a bundle of `{ _ensureDepthTexture, _ensureCameraBuffer, _ensureMeshGroup0 }` consumed by `frame/render-to-texture.ts`. Not re-exported from `frame/index.ts`.
 - Mesh's internal `_recomputeModelIfDirty` in `mesh/mesh.ts`, called by `frame/render.ts` and `frame/render-to-texture.ts` per draw. Not re-exported from `mesh/index.ts`.

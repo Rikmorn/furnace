@@ -1,4 +1,5 @@
 import type { Context } from "../gpu/index.ts";
+import type { MaterialHandle } from "../resources/handle.ts";
 import type { ResourceHandle } from "../stats/internal.ts";
 
 /**
@@ -34,26 +35,42 @@ export type MaterialDescriptor = {
 };
 
 /**
- * Engine-owned material handle returned by `material.create` (and the built-in
- * factories `unlit` / `normalColor`).
+ * Opaque material handle. Returned by {@link create} and the built-in
+ * factories (`unlit`, `normalColor`). Consumers pass it to `mesh.create`
+ * and `frame.render` and otherwise treat it as opaque; mutate only via
+ * documented APIs, dispose via `material.destroy`.
  *
- * Treated as opaque by consumers — pass to `mesh.create` and `frame.render`,
- * mutate only via documented APIs, dispose via `material.destroy`. The
- * `pipeline`, `group1`, `ownedBuffers`, and `_materialHandle` fields are
- * engine-managed: `pipeline` is refcounted in the internal pipeline cache;
- * `ownedBuffers` holds any uniform buffers the factory allocated and
- * registered with stats so `destroy` can release them.
+ * Type-alias of {@link MaterialHandle}; consumers can use either name.
  */
-export type Material = {
+export type Material = MaterialHandle;
+
+/**
+ * Engine-private slot data backing a {@link Material} handle in the
+ * materials pool. Not exported from the `@furnace/core/material` public
+ * surface; resource-manager internals only.
+ *
+ * `pipeline` is refcounted in the per-ctx material pipeline cache;
+ * `ownedBuffers` / `ownedBufferHandles` hold any uniform buffers the
+ * factory allocated and registered with stats so the slot's `_teardown`
+ * can release them.
+ *
+ * `userCount` / `markedDestroyed` carry the Mesh→Material refcount
+ * (symmetric to Mesh→Geometry): `destroy` while `userCount > 0` sets
+ * `markedDestroyed` and skips actual GPU teardown; the last
+ * `mesh.destroy` that drops `userCount` to zero then triggers teardown.
+ */
+export type MaterialSlot = {
   ctx: Context;
   pipeline: GPURenderPipeline;
   pipelineKey: string;
   group1: GPUBindGroup | null;
   ownedBuffers: GPUBuffer[];
   ownedBufferHandles: ResourceHandle[];
-  _materialHandle: ResourceHandle;
   cullMode: GPUCullMode;
   topology: GPUPrimitiveTopology;
   depthWrite: boolean;
   depthCompare: GPUCompareFunction;
+  userCount: number;
+  markedDestroyed: boolean;
+  _teardown: () => void;
 };

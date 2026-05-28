@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import * as gpu from "../../src/gpu/index.ts";
 import * as material from "../../src/material/index.ts";
+import { _resolveMaterial } from "../../src/material/internal.ts";
 import {
   bunWebGpuAvailable,
   ensureBunWebGpu,
@@ -55,10 +56,12 @@ test.skipIf(!bunWebGpuAvailable())(
       blend: PREMULTIPLIED,
     });
 
-    expect(opaque.pipelineKey).not.toBe(blended.pipelineKey);
+    const opaqueSlot = _resolveMaterial(ctx, opaque);
+    const blendedSlot = _resolveMaterial(ctx, blended);
+    expect(opaqueSlot.pipelineKey).not.toBe(blendedSlot.pipelineKey);
 
-    material.destroy(opaque);
-    material.destroy(blended);
+    material.destroy(ctx, opaque);
+    material.destroy(ctx, blended);
     gpu.dispose(ctx);
   },
 );
@@ -80,11 +83,13 @@ test.skipIf(!bunWebGpuAvailable())(
       blend: PREMULTIPLIED,
     });
 
-    expect(a.pipelineKey).toBe(b.pipelineKey);
-    expect(a.pipeline).toBe(b.pipeline);
+    const aSlot = _resolveMaterial(ctx, a);
+    const bSlot = _resolveMaterial(ctx, b);
+    expect(aSlot.pipelineKey).toBe(bSlot.pipelineKey);
+    expect(aSlot.pipeline).toBe(bSlot.pipeline);
 
-    material.destroy(a);
-    material.destroy(b);
+    material.destroy(ctx, a);
+    material.destroy(ctx, b);
     gpu.dispose(ctx);
   },
 );

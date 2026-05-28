@@ -1,11 +1,13 @@
 import { FurnaceError } from "../errors.ts";
 import type { Context } from "../gpu/index.ts";
-import type { Material } from "../material/types.ts";
+import type { Material, MaterialSlot } from "../material/types.ts";
 import {
   _allocMesh,
   _destroyGeometry,
+  _destroyMaterial,
   _destroyMesh,
   _lookupGeometry,
+  _lookupMaterial,
   _lookupMesh,
 } from "../resources/internal.ts";
 import {
@@ -26,16 +28,20 @@ const OBJECT_UNIFORM_SIZE_BYTES = 64; // one mat4x4<f32>
  * rotation, scale `[1,1,1]` with `transformDirty` set so the first frame
  * writes the buffer.
  *
- * Increments the bound geometry's internal reference count. When the
- * mesh is destroyed, the refcount decrements; if `destroyGeometry` was
- * called while the mesh held the reference (marked-destroyed), the
- * geometry's actual GPU teardown runs as part of `mesh.destroy`.
- * Material refcount lands in Session 3.
+ * Increments the bound geometry's AND material's internal reference
+ * counts. When the mesh is destroyed, both refcounts decrement; if
+ * `destroyGeometry` or `material.destroy` were called while the mesh
+ * still held a reference (marked-destroyed), the corresponding GPU
+ * teardown runs as part of `mesh.destroy`.
  *
  * @throws FurnaceError - if `opts.geometry` or `opts.material` is
  *   null/undefined.
  * @throws FurnaceError - if `opts.geometry` is not a live handle
  *   (already destroyed, stale, or from a different context).
+ * @throws FurnaceError - if `opts.material` is not a live handle
+ *   (already destroyed, stale, or from a different context). Both
+ *   handles are validated before either refcount is incremented, so a
+ *   late material-lookup failure cannot strand the geometry refcount.
  */
 export function create(
   ctx: Context,
@@ -53,8 +59,14 @@ export function create(
       "mesh.create: geometry handle is invalid or destroyed",
     );
   }
+  const materialSlot = _lookupMaterial<MaterialSlot>(ctx, opts.material);
+  if (materialSlot === null) {
+    throw new FurnaceError(
+      "mesh.create: material handle is invalid or destroyed",
+    );
+  }
   geometrySlot.userCount += 1;
-  // (material refcount lands in Session 3)
+  materialSlot.userCount += 1;
 
   const objectBuffer = ctx.device.createBuffer({
     size: OBJECT_UNIFORM_SIZE_BYTES,
@@ -89,29 +101,42 @@ function meshTeardown(
   slot.objectBuffer.destroy();
   _unregisterResource(slot.ctx, objectBufferHandle);
   _unregisterResource(slot.ctx, meshHandle);
-  // Decrement geometry refcount; if marked-destroyed and now at zero,
-  // run the deferred actual teardown.
+  decrementGeometryRefcount(slot);
+  decrementMaterialRefcount(slot);
+}
+
+function decrementGeometryRefcount(slot: MeshSlot): void {
   const geometrySlot = _lookupGeometry<GeometrySlot>(slot.ctx, slot.geometry);
-  if (geometrySlot !== null) {
-    geometrySlot.userCount -= 1;
-    if (geometrySlot.userCount === 0 && geometrySlot.markedDestroyed) {
-      geometrySlot.markedDestroyed = false;
-      _destroyGeometry<GeometrySlot>(slot.ctx, slot.geometry, (s) =>
-        s._teardown(),
-      );
-    }
+  if (geometrySlot === null) return;
+  geometrySlot.userCount -= 1;
+  if (geometrySlot.userCount === 0 && geometrySlot.markedDestroyed) {
+    geometrySlot.markedDestroyed = false;
+    _destroyGeometry<GeometrySlot>(slot.ctx, slot.geometry, (s) =>
+      s._teardown(),
+    );
   }
-  // (material refcount decrement lands in Session 3)
+}
+
+function decrementMaterialRefcount(slot: MeshSlot): void {
+  const materialSlot = _lookupMaterial<MaterialSlot>(slot.ctx, slot.material);
+  if (materialSlot === null) return;
+  materialSlot.userCount -= 1;
+  if (materialSlot.userCount === 0 && materialSlot.markedDestroyed) {
+    materialSlot.markedDestroyed = false;
+    _destroyMaterial<MaterialSlot>(slot.ctx, slot.material, (s) =>
+      s._teardown(),
+    );
+  }
 }
 
 /**
  * Destroy a {@link Mesh}: destroy its object-uniform buffer and unregister
  * the mesh + buffer handles from stats. Decrements the bound geometry's
- * refcount; if the geometry was marked-destroyed and the refcount hits
- * zero, the geometry's GPU teardown runs as part of this call.
+ * AND material's refcounts; if either was marked-destroyed and its
+ * refcount hits zero, that resource's GPU teardown runs as part of this
+ * call.
  *
- * Silent on stale or already-destroyed handles (idempotent). Material
- * refcount decrement lands in Session 3.
+ * Silent on stale or already-destroyed handles (idempotent).
  */
 export function destroy(ctx: Context, mesh: Mesh): void {
   _destroyMesh<MeshSlot>(ctx, mesh, (s) => s._teardown());

@@ -49,13 +49,8 @@ test("release on an unknown key is a no-op (does not throw)", () => {
   expect(() => _pipelineCache.release("never-acquired")).not.toThrow();
 });
 
-test("post cache is independent of material cache", async () => {
-  const build = makeFactory();
-  const { _pipelineCache: matCache } = await import(
-    "../../src/material/pipeline.ts"
-  );
-  matCache.resetForTests();
-  await matCache.acquire("k1", async () => build());
-  const p2 = await _pipelineCache.acquire("k1", async () => build());
-  expect((p2 as unknown as FakePipeline).__id).toBe(2);
-});
+// The "post cache vs material cache" independence test was removed after
+// Task 3.1: the material cache lives in per-ctx ResourceManager state, the
+// post cache is still module-level here (Task 3.2 migrates it), so they
+// can no longer share entries by construction. Independence will be
+// re-tested as "two ctxs don't share post pipelines" in Task 3.2.

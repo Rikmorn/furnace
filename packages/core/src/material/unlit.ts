@@ -2,6 +2,7 @@ import { FurnaceError } from "../errors.ts";
 import type { Context } from "../gpu/index.ts";
 import { _registerResource } from "../stats/internal.ts";
 import type { Vec4 } from "../transform/types.ts";
+import { _resolveMaterial } from "./internal.ts";
 import { create } from "./material.ts";
 import type { Material } from "./types.ts";
 
@@ -54,7 +55,8 @@ export type UnlitOptions = {
 /**
  * Stock unlit material — outputs `opts.color` directly from the fragment
  * shader. Allocates a 16-byte uniform buffer (one `vec4<f32>`) for the
- * color, owned by the material and freed on `destroy`.
+ * color, owned by the material's slot and freed when the material's
+ * teardown runs (on `destroy`, or via the dispose cascade).
  *
  * Delegates to {@link create}, so its failure policy and pipeline-cache
  * behaviour apply.
@@ -84,7 +86,7 @@ export async function unlit(
     kind: "buffer",
     bytes: COLOR_BUFFER_SIZE_BYTES,
   });
-  const mat = await create(ctx, {
+  const handle = await create(ctx, {
     vertex: UNLIT_WGSL,
     fragment: UNLIT_WGSL,
     bindings: [{ binding: 0, resource: { buffer: colorBuffer } }],
@@ -94,7 +96,8 @@ export async function unlit(
     depthCompare: opts.depthCompare,
     blend: opts.blend,
   });
-  mat.ownedBuffers.push(colorBuffer);
-  mat.ownedBufferHandles.push(colorBufferHandle);
-  return mat;
+  const slot = _resolveMaterial(ctx, handle);
+  slot.ownedBuffers.push(colorBuffer);
+  slot.ownedBufferHandles.push(colorBufferHandle);
+  return handle;
 }

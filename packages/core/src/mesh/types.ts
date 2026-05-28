@@ -65,10 +65,11 @@ export type Mesh = MeshHandle;
  * Engine-private slot data backing a {@link Mesh} handle in the meshes
  * pool. Not exported from the `@furnace/core/mesh` public surface.
  *
- * Holds the bound geometry handle, material reference (still an object
- * during the Sessions 2-4 migration window), and TRS pose. `transformDirty`
- * flags a pending model-matrix recompute; flipped by the setters and
- * cleared by `_recomputeModelIfDirty`.
+ * Holds the bound geometry and material handles plus a TRS pose.
+ * `transformDirty` flags a pending model-matrix recompute; flipped by
+ * the setters and cleared by `_recomputeModelIfDirty`. The Mesh→Geometry
+ * and Mesh→Material refcounts are managed by `mesh.create` /
+ * `mesh.destroy` (the slot here only holds the handles).
  */
 export type MeshSlot = {
   ctx: Context;

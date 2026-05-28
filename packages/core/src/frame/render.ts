@@ -4,6 +4,7 @@ import { _onDispose } from "../gpu/dispose-cascade.ts";
 import { FurnaceGpuError } from "../gpu/errors.ts";
 import type { Context } from "../gpu/index.ts";
 import * as gpu from "../gpu/index.ts";
+import { _resolveMaterial } from "../material/internal.ts";
 import { _resolveGeometry, _resolveMesh } from "../mesh/internal.ts";
 import { _recomputeModelIfDirty } from "../mesh/mesh.ts";
 import type { Mesh, MeshSlot } from "../mesh/types.ts";
@@ -241,15 +242,16 @@ function recordDraw(
 ): GPURenderPipeline {
   const slot = _resolveMesh(ctx, mesh);
   _recomputeModelIfDirty(slot);
-  const pipeline = slot.material.pipeline;
+  const materialSlot = _resolveMaterial(ctx, slot.material);
+  const pipeline = materialSlot.pipeline;
   pass.setPipeline(pipeline);
   if (pipeline !== lastPipeline) {
     _recordPipelineSwitch(ctx);
   }
   pass.setBindGroup(0, ensureGroup0(ctx, slot, pipeline, cameraBuffer));
   _recordBindGroupSwitch(ctx);
-  if (slot.material.group1) {
-    pass.setBindGroup(1, slot.material.group1);
+  if (materialSlot.group1) {
+    pass.setBindGroup(1, materialSlot.group1);
     _recordBindGroupSwitch(ctx);
   }
   const geom = _resolveGeometry(ctx, slot.geometry);
@@ -263,7 +265,7 @@ function recordDraw(
   }
   const drawCount = indexCount || vertexCount;
   _recordDraw(ctx, {
-    triangles: trianglesForTopology(slot.material.topology, drawCount),
+    triangles: trianglesForTopology(materialSlot.topology, drawCount),
   });
   return pipeline;
 }

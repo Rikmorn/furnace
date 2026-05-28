@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import * as gpu from "../../src/gpu/index.ts";
+import { _resolveMaterial } from "../../src/material/internal.ts";
 import { create, destroy } from "../../src/material/material.ts";
-import { _pipelineCache } from "../../src/material/pipeline.ts";
 import { unlit } from "../../src/material/unlit.ts";
 import { vec4 } from "../../src/transform/vec4.ts";
 import {
@@ -31,19 +31,22 @@ const WGSL = `
 test.skipIf(!bunWebGpuAvailable())(
   "material.destroy releases the pipeline refcount; two same-descriptor materials share the cache entry",
   async () => {
-    _pipelineCache.resetForTests();
     const canvas = await makeOffscreenCanvas();
     const ctx = await gpu.requestContext(canvas);
     const mat1 = await create(ctx, { vertex: WGSL, fragment: WGSL });
     const mat2 = await create(ctx, { vertex: WGSL, fragment: WGSL });
-    expect(mat1.pipelineKey).toBe(mat2.pipelineKey);
-    expect(mat1.pipeline).toBe(mat2.pipeline);
-    destroy(mat1);
+    const slot1 = _resolveMaterial(ctx, mat1);
+    const slot2 = _resolveMaterial(ctx, mat2);
+    expect(slot1.pipelineKey).toBe(slot2.pipelineKey);
+    expect(slot1.pipeline).toBe(slot2.pipeline);
+    const sharedPipeline = slot1.pipeline;
+    destroy(ctx, mat1);
     // mat2 still holds a reference; second destroy fully evicts.
-    destroy(mat2);
+    destroy(ctx, mat2);
     // After both destroyed, a fresh create rebuilds the pipeline (different identity).
     const mat3 = await create(ctx, { vertex: WGSL, fragment: WGSL });
-    expect(mat3.pipeline).not.toBe(mat1.pipeline);
+    const slot3 = _resolveMaterial(ctx, mat3);
+    expect(slot3.pipeline).not.toBe(sharedPipeline);
     gpu.dispose(ctx);
   },
 );
@@ -54,9 +57,10 @@ test.skipIf(!bunWebGpuAvailable())(
     const canvas = await makeOffscreenCanvas();
     const ctx = await gpu.requestContext(canvas);
     const mat = await unlit(ctx, { color: vec4.fromValues(1, 0, 0, 1) });
-    const buffer = mat.ownedBuffers[0];
+    const slot = _resolveMaterial(ctx, mat);
+    const buffer = slot.ownedBuffers[0];
     expect(buffer).toBeDefined();
-    destroy(mat);
+    destroy(ctx, mat);
     // We can't observe destroy via the WebGPU API directly (no isDestroyed query).
     // Indirect check: writing to the buffer should fail with validation error.
     ctx.device.pushErrorScope("validation");

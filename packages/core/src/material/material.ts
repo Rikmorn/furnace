@@ -1,8 +1,17 @@
 import { FurnaceError } from "../errors.ts";
 import type { Context } from "../gpu/index.ts";
-import { _registerResource, _unregisterResource } from "../stats/internal.ts";
+import {
+  _allocMaterial,
+  _destroyMaterial,
+  _lookupMaterial,
+} from "../resources/internal.ts";
+import {
+  _registerResource,
+  _unregisterResource,
+  type ResourceHandle,
+} from "../stats/internal.ts";
 import { _pipelineCache } from "./pipeline.ts";
-import type { Material, MaterialDescriptor } from "./types.ts";
+import type { Material, MaterialDescriptor, MaterialSlot } from "./types.ts";
 
 const VERTEX_STRIDE_BYTES = 32;
 const POSITION_OFFSET = 0;
@@ -102,7 +111,7 @@ function buildGroup1(
   try {
     layout = pipeline.getBindGroupLayout(1);
   } catch {
-    _pipelineCache.release(pipelineKey);
+    _pipelineCache.release(ctx, pipelineKey);
     throw new FurnaceError(
       "MaterialDescriptor.bindings provided but shader declares no @group(1) bindings",
     );
@@ -110,26 +119,46 @@ function buildGroup1(
   try {
     return ctx.device.createBindGroup({ layout, entries: bindings });
   } catch (e) {
-    _pipelineCache.release(pipelineKey);
+    _pipelineCache.release(ctx, pipelineKey);
     throw e;
   }
 }
 
+function materialTeardown(
+  slot: MaterialSlot,
+  materialStatsHandle: ResourceHandle,
+): void {
+  // Length of ownedBuffers and ownedBufferHandles is the same by construction.
+  for (let i = 0; i < slot.ownedBuffers.length; i++) {
+    const handle = slot.ownedBufferHandles[i];
+    if (handle) _unregisterResource(slot.ctx, handle);
+    const buf = slot.ownedBuffers[i];
+    if (buf) buf.destroy();
+  }
+  slot.ownedBuffers.length = 0;
+  slot.ownedBufferHandles.length = 0;
+  _unregisterResource(slot.ctx, materialStatsHandle);
+  _pipelineCache.release(slot.ctx, slot.pipelineKey);
+}
+
 /**
- * Build (or reuse, via the internal pipeline cache) a render pipeline from a
- * {@link MaterialDescriptor} and return the {@link Material} handle.
+ * Build (or reuse, via the internal per-ctx pipeline cache) a render
+ * pipeline from a {@link MaterialDescriptor} and return an opaque
+ * {@link Material} handle.
  *
  * The pipeline is keyed on `(vertex source, fragment source, cullMode,
  * topology, depthWrite, depthCompare, ctx format, blend signature)`. Two
- * `create` calls with identical keys share one underlying
+ * `create` calls on the same ctx with identical keys share one underlying
  * `GPURenderPipeline`; the cache holds a refcount that `destroy` releases.
+ * The cache is per-ctx — a pipeline built against ctx A cannot be reused
+ * in ctx B (different `GPUDevice`).
  *
  * Allocation: when consumer-supplied `descriptor.bindings` are non-empty, a
  * `@group(1)` `GPUBindGroup` is created over the auto-derived layout. The
  * bind-group resources themselves (buffers, textures) are consumer-owned —
  * `destroy` does not touch them. Built-in factories (`unlit`, `normalColor`)
- * register their own uniform buffers as `ownedBuffers` so `destroy` cleans
- * them up.
+ * register their own uniform buffers on the slot's `ownedBuffers` so the
+ * slot's teardown cleans them up.
  *
  * Setup-loud per the foreground failure policy
  * (`engine-conventions.md` §"Failure policy").
@@ -185,7 +214,7 @@ export async function create(
     return pipeline;
   };
 
-  const pipeline = await _pipelineCache.acquire(pipelineKey, build);
+  const pipeline = await _pipelineCache.acquire(ctx, pipelineKey, build);
 
   const bindings = descriptor.bindings;
   const group1 =
@@ -193,44 +222,49 @@ export async function create(
       ? buildGroup1(ctx, pipeline, pipelineKey, bindings)
       : null;
 
-  const _materialHandle = _registerResource(ctx, { kind: "material" });
+  const materialStatsHandle = _registerResource(ctx, { kind: "material" });
 
-  const data: Material = {
+  const slot: MaterialSlot = {
     ctx,
     pipeline,
     pipelineKey,
     group1,
     ownedBuffers: [],
     ownedBufferHandles: [],
-    _materialHandle,
     cullMode,
     topology,
     depthWrite,
     depthCompare,
+    userCount: 0,
+    markedDestroyed: false,
+    _teardown: () => materialTeardown(slot, materialStatsHandle),
   };
-  return data;
+  return _allocMaterial(ctx, slot);
 }
 
 /**
- * Destroy any buffers the material owns (the per-material uniform buffers
- * registered by built-in factories like `unlit`), unregister its resource
- * handles from stats, and release one ref on the cached pipeline. The
- * pipeline itself is freed when its refcount drops to zero.
+ * Destroy a {@link Material}. If a Mesh still references it
+ * (`userCount > 0`), the slot is marked-destroyed and actual GPU teardown
+ * waits until the last referencing mesh is destroyed (symmetric to
+ * Mesh→Geometry). When teardown runs it destroys any factory-owned
+ * uniform buffers (e.g. `unlit`'s color buffer), unregisters their stats
+ * handles, and releases one ref on the cached pipeline. The pipeline
+ * itself is freed when its refcount drops to zero.
  *
  * Does not destroy the consumer-owned resources passed via
  * `MaterialDescriptor.bindings` (buffers/textures the consumer created and
  * handed in) — the consumer destroys those.
+ *
+ * Silent on stale or already-destroyed handles (idempotent).
  */
-export function destroy(material: Material): void {
-  // Length of ownedBuffers and ownedBufferHandles is the same by construction.
-  for (let i = 0; i < material.ownedBuffers.length; i++) {
-    const handle = material.ownedBufferHandles[i];
-    if (handle) _unregisterResource(material.ctx, handle);
-    const buf = material.ownedBuffers[i];
-    if (buf) buf.destroy();
+export function destroy(ctx: Context, material: Material): void {
+  const slot = _lookupMaterial<MaterialSlot>(ctx, material);
+  if (slot === null) return;
+  if (slot.userCount > 0) {
+    slot.markedDestroyed = true;
+    return;
   }
-  material.ownedBuffers.length = 0;
-  material.ownedBufferHandles.length = 0;
-  _unregisterResource(material.ctx, material._materialHandle);
-  _pipelineCache.release(material.pipelineKey);
+  _destroyMaterial<MaterialSlot>(ctx, material, (s) => {
+    s._teardown();
+  });
 }

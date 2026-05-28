@@ -3,6 +3,7 @@ import type { Camera } from "../../src/camera/index.ts";
 import * as camera from "../../src/camera/index.ts";
 import { _frameRenderInternals, render } from "../../src/frame/render.ts";
 import * as gpu from "../../src/gpu/index.ts";
+import { _resolveMaterial } from "../../src/material/internal.ts";
 import { normalColor } from "../../src/material/normal-color.ts";
 import { unlit } from "../../src/material/unlit.ts";
 import { cubeGeometry, planeGeometry } from "../../src/mesh/factories/index.ts";
@@ -116,24 +117,25 @@ test.skipIf(!bunWebGpuAvailable())(
     const mat = await normalColor(ctx);
     const c = createMesh(ctx, { geometry: cubeGeometry(ctx), material: mat });
     const cSlot = _resolveMesh(ctx, c);
+    const matSlot = _resolveMaterial(ctx, mat);
     const bufA = _frameRenderInternals._ensureCameraBuffer(ctx, camA);
     const bufB = _frameRenderInternals._ensureCameraBuffer(ctx, camB);
     const groupA = _frameRenderInternals._ensureMeshGroup0(
       ctx,
       cSlot,
-      mat.pipeline,
+      matSlot.pipeline,
       bufA,
     );
     const groupB = _frameRenderInternals._ensureMeshGroup0(
       ctx,
       cSlot,
-      mat.pipeline,
+      matSlot.pipeline,
       bufB,
     );
     const groupAagain = _frameRenderInternals._ensureMeshGroup0(
       ctx,
       cSlot,
-      mat.pipeline,
+      matSlot.pipeline,
       bufA,
     );
     expect(groupA).not.toBe(groupB);

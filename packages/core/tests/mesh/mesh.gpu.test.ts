@@ -116,7 +116,7 @@ test.skipIf(!bunWebGpuAvailable())(
       // biome-ignore lint/suspicious/noExplicitAny: testing invalid input
       create(ctx, { geometry: null as any, material: mat }),
     ).toThrow("geometry is required");
-    destroyMaterial(mat);
+    destroyMaterial(ctx, mat);
     gpu.dispose(ctx);
   },
 );
@@ -144,7 +144,7 @@ test.skipIf(!bunWebGpuAvailable())(
     destroy(ctx, mesh);
     expect(() => destroy(ctx, mesh)).not.toThrow();
     destroyGeometry(ctx, g);
-    destroyMaterial(m);
+    destroyMaterial(ctx, m);
     gpu.dispose(ctx);
   },
 );
@@ -161,7 +161,7 @@ test.skipIf(!bunWebGpuAvailable())(
     expect(_lookupMesh(ctx, second)).not.toBeNull();
     destroy(ctx, second);
     destroyGeometry(ctx, g);
-    destroyMaterial(m);
+    destroyMaterial(ctx, m);
     gpu.dispose(ctx);
   },
 );
@@ -182,7 +182,7 @@ test.skipIf(!bunWebGpuAvailable())(
     expect(Array.from(getScale(ctx, mesh, scaleOut))).toEqual([4, 5, 6]);
     destroy(ctx, mesh);
     destroyGeometry(ctx, g);
-    destroyMaterial(m);
+    destroyMaterial(ctx, m);
     gpu.dispose(ctx);
   },
 );
@@ -207,7 +207,7 @@ test.skipIf(!bunWebGpuAvailable())(
     const result = getPosition(ctx, mesh, posOut);
     expect(Array.from(result)).toEqual([9, 9, 9]);
     destroyGeometry(ctx, g);
-    destroyMaterial(m);
+    destroyMaterial(ctx, m);
     gpu.dispose(ctx);
   },
 );

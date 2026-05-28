@@ -53,7 +53,7 @@ test.skipIf(!bunWebGpuAvailable())(
     target.destroy();
     mesh.destroy(ctx, cube);
     mesh.destroyGeometry(ctx, cubeGeo);
-    material.destroy(mat);
+    material.destroy(ctx, mat);
     gpu.dispose(ctx);
   },
 );
@@ -101,7 +101,7 @@ test.skipIf(!bunWebGpuAvailable())(
     target.destroy();
     mesh.destroy(ctx, cube);
     mesh.destroyGeometry(ctx, cubeGeo);
-    material.destroy(mat);
+    material.destroy(ctx, mat);
     gpu.dispose(ctx);
   },
 );
@@ -155,7 +155,7 @@ test.skipIf(!bunWebGpuAvailable())(
     target.destroy();
     mesh.destroy(ctx, cube);
     mesh.destroyGeometry(ctx, cubeGeo);
-    material.destroy(mat);
+    material.destroy(ctx, mat);
     gpu.dispose(ctx);
   },
 );
