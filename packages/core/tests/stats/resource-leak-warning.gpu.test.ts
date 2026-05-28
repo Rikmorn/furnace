@@ -16,7 +16,7 @@ import {
 await ensureBunWebGpu();
 
 test.skipIf(!bunWebGpuAvailable())(
-  "gpu.dispose: warns when resources are still registered",
+  "gpu.dispose: warns when resource-manager slots are still live",
   async () => {
     const canvas = await makeOffscreenCanvas();
     const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
@@ -48,7 +48,7 @@ test.skipIf(!bunWebGpuAvailable())(
     const leakWarn = entries.find(
       (e) =>
         e.module === "gpu" &&
-        e.message.includes("context disposed with resources still registered"),
+        e.message.includes("context disposed with live resource-manager slots"),
     );
     expect(leakWarn).toBeUndefined();
   },
@@ -114,7 +114,7 @@ test.skipIf(!bunWebGpuAvailable())(
     const leakWarn = entries.find(
       (e) =>
         e.module === "gpu" &&
-        e.message.includes("context disposed with resources still registered"),
+        e.message.includes("context disposed with live resource-manager slots"),
     );
     expect(leakWarn).toBeUndefined();
   },

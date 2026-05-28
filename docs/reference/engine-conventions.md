@@ -96,7 +96,7 @@ The refcount is engine-private. Consumers cannot inspect it; the engine cannot e
 
 Consumer discipline becomes an *optimization* (free early to reduce in-context memory pressure), not a *requirement*.
 
-The leak-warn (`sum(stats.resources.counts.*) > 0` → "context disposed with resources still registered — leak suspected") is preserved alongside the cascade warn. (`stats.resources.counts.*` is the engine-internal registry; consumers read the same data via `stats.snapshot(ctx).resources.*`.) With all four resource kinds pool-tracked and the cascade firing each slot's stats decrement, the leak-warn's count is typically zero. It remains as a safety net for any future non-pooled resource kind.
+The leak-warn (`sum(stats.resources.counts.*) > 0` → "context disposed with live resource-manager slots — leak suspected") is preserved alongside the cascade warn. (`stats.resources.counts.*` is the engine-internal registry; consumers read the same data via `stats.snapshot(ctx).resources.*`.) With all four resource kinds pool-tracked and the cascade firing each slot's stats decrement, the leak-warn's count is typically zero. It remains as a safety net for any future non-pooled resource kind.
 
 ### Dispose order
 

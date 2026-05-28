@@ -167,7 +167,7 @@ export async function requestContext(
  *
  * Routes a warning to the engine log helper (see `@furnace/core/log`) at
  * `warn` level if any live resource manager slots (meshes, materials,
- * geometries, effects) are still registered when called; the entry's
+ * geometries, effects) are still live when called; the entry's
  * `rest` carries the count as `{ remaining: N }`. That's the leak signal:
  * in well-behaved teardown the consumer destroys owned resources before
  * calling `dispose`.
@@ -189,7 +189,7 @@ export function dispose(ctx: Context): void {
   if (remaining > 0) {
     warn(
       "gpu",
-      "context disposed with resources still registered — leak suspected",
+      "context disposed with live resource-manager slots — leak suspected",
       { remaining },
     );
   }
