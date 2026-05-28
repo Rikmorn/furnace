@@ -85,6 +85,7 @@ The con about pedagogy is real but probably outweighed: the dispose pattern is s
 
 ## Trigger to revisit
 
+- **Now A-7-tagged** in `docs/backlog/_AUDIT-2026-05-26.md` §7. Depends on A-6 outcomes per the order in that doc.
 - After A-6 (Type/API surface hygiene) — the engine-side hygiene work may surface helper-shape constraints that affect this tranche.
 - OR when a 9th cookbook demo is added and the temptation to copy the existing dispose/catch pattern is too obvious to ignore.
 - OR if a cookbook-shared cleanup decision is needed for the dispose-bag question regardless of demo count.
