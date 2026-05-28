@@ -436,6 +436,36 @@ module-level mutable-state exception.
 
 ---
 
+## `@furnace/core/resources`
+
+`import * as resources from "@furnace/core/resources";`
+
+Cross-cutting introspection over the per-ctx resource pools (meshes, materials, geometries, effects). Intended for debug overlays, leak tooling, and explicit mid-session cleanup — not per-frame gameplay code. The per-kind `create` / `destroy` functions still live in their owning modules (`mesh.*`, `material.*`, `post.*`); this module is the cross-kind surface.
+
+### Public
+
+| Export | Signature | Notes |
+|---|---|---|
+| `summary` | `(ctx: Context) => ResourceSummary` | Counts of live handles per kind. O(N) over each pool's slot table. Suitable for a debug overlay (read once per frame at most), not per-frame gameplay code. |
+| `list` | `<H = number>(ctx: Context, kind: ResourceKind) => IterableIterator<H>` | Iterate live handles for one kind. The `H` type parameter narrows the yield type to the matching branded handle (e.g. `list<MeshHandle>(ctx, "mesh")`). For the slot data behind a handle, go through the per-kind accessors. |
+| `snapshot` | `(ctx: Context) => ResourceSnapshot` | Full per-kind dump of every live handle into arrays. Heavy; intended for dev tools, inspectors, post-mortem dumps. Not per-frame. |
+| `disposeAll` | `(ctx: Context) => void` | Manually trigger the resource-manager cascade — same teardown that `gpu.dispose` runs internally, but without disposing the `GPUDevice` itself. Used for explicit cleanup before context disposal (e.g. free memory during a level transition without dropping the device). Idempotent. |
+| `ResourceSummary` | `{ meshes: number; materials: number; geometries: number; effects: number }` | Per-kind live counts. |
+| `ResourceSnapshot` | `{ meshes: MeshHandle[]; materials: MaterialHandle[]; geometries: GeometryHandle[]; effects: EffectHandle[] }` | Per-kind handle arrays. |
+| `ResourceKind` | `"mesh" \| "material" \| "geometry" \| "effect"` | Discriminator string used by `list`. |
+| `MeshHandle` / `MaterialHandle` / `GeometryHandle` / `EffectHandle` | Branded uint48 handles | Re-exported from `resources/handle.ts` so consumers can type variables (e.g. a `Map<MeshHandle, …>`) without reaching into engine-internal modules. Aliased by `mesh.Mesh`, `material.Material`, etc. — same underlying type. |
+| `AnyResourceHandle` | `MeshHandle \| MaterialHandle \| GeometryHandle \| EffectHandle` | Cross-kind union. Name disambiguates from the structurally different `stats.ResourceHandle` opaque token. |
+
+### Demoed in cookbook
+
+(none yet — debug-overlay use; cookbook demos focus on Tier 1 gameplay surface.)
+
+### Reference-only (no demo, by design)
+
+- `summary`, `list`, `snapshot`, `disposeAll` — debug / tooling surface; not part of any cookbook demo.
+
+---
+
 ## Tier 1 surface NOT in the public API
 
 These appear in module source files but are NOT exported, OR are exported with a leading `_` to mark them internal-only:

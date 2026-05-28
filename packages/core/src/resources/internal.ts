@@ -87,6 +87,10 @@ function _lookupRaw<T>(
  * `false`. Cross-context handles (ctxId mismatch): same — teardown is
  * NOT invoked, returns `false`. Live handles: teardown runs, the pool
  * is mutated, returns `true`.
+ *
+ * This kind-dispatched form is also reachable as the exported
+ * {@link _destroyByKind} for cross-kind callers (e.g. the dispose
+ * cascade) that don't have a branded handle in hand.
  */
 function _destroyRaw<T>(
   ctx: Context,
@@ -198,6 +202,22 @@ export function _destroyEffect<T>(
   teardown: (data: T) => void,
 ): boolean {
   return _destroyRaw(ctx, "effect", handle, teardown);
+}
+
+/**
+ * Cross-kind destroy used by the dispose cascade. Handles arrive as
+ * raw uint48s out of {@link _iterateLive} — no branded type to feed
+ * a per-kind `_destroy*` wrapper. Same semantics as {@link _destroyMesh}
+ * et al.: teardown runs before pool mutation; stale/cross-context
+ * handles are silently skipped.
+ */
+export function _destroyByKind<T>(
+  ctx: Context,
+  kind: ResourceKind,
+  handle: number,
+  teardown: (data: T) => void,
+): boolean {
+  return _destroyRaw(ctx, kind, handle, teardown);
 }
 
 // Live-slot iteration — used by the dispose cascade and `resources.list`.

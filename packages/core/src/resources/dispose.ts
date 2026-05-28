@@ -1,6 +1,11 @@
 import type { Context } from "../gpu/context-types.ts";
 import { warn } from "../log/internal.ts";
-import { _countLive, _iterateLive, type ResourceKind } from "./internal.ts";
+import {
+  _countLive,
+  _destroyByKind,
+  _iterateLive,
+  type ResourceKind,
+} from "./internal.ts";
 
 /**
  * Cascade order (load-bearing). Meshes refcount Materials and Geometries,
@@ -50,9 +55,16 @@ export function disposeAllResources(ctx: Context): void {
   for (const kind of CASCADE_ORDER) {
     // Snapshot live handles before iterating — teardown mutates the pool.
     const snapshot = [..._iterateLive<CascadeTeardownSlot>(ctx, kind)];
-    for (const { data } of snapshot) {
+    for (const { handle } of snapshot) {
+      // _destroyByKind invokes the slot's _teardown then frees the pool
+      // slot. Going through _destroyByKind (not raw teardown) keeps the
+      // pool's live-count consistent so resources.summary() reflects
+      // reality after the cascade — important when called outside of
+      // gpu.dispose (e.g. resources.disposeAll mid-session).
       try {
-        data._teardown();
+        _destroyByKind<CascadeTeardownSlot>(ctx, kind, handle, (data) =>
+          data._teardown(),
+        );
       } catch (e) {
         warn("resources", `teardown threw during cascade for ${kind}`, e);
         // Continue iteration; one failure must not abort the cascade.

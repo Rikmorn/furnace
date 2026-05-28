@@ -14,7 +14,8 @@
     "./log": "./src/log/index.ts",
     "./material": "./src/material/index.ts",
     "./mesh": "./src/mesh/index.ts",
-    "./post": "./src/post/index.ts"
+    "./post": "./src/post/index.ts",
+    "./resources": "./src/resources/index.ts"
   },
   "scripts": {
     "build": "bun scripts/build.ts",
