@@ -31,6 +31,8 @@ Strong preference for option 1 — single file affected, no API surface growth, 
 
 Other modules to audit during the fix: grep `as number` across `packages/core/src/` to find any other instances of the same anti-pattern. The transform module's hot-path math (`vec3.ts`, `mat4.ts`, etc.) likely also has this pattern; if so, decide whether the math primitives stay as-is (justified by hot-path performance + the math primitive itself IS the boundary) or follow the same cleanup.
 
+Consumer-side mirror: `packages/cookbook/src/demos/animation/entry.ts:51-53` also uses `cubePos[0] as number` etc. for `Vec3` element access inside the `positionLabel` helper. Surfaced 2026-05-28 during Resource Manager Stage 2 migration code-quality review. Same anti-pattern, different file — should be addressed by the same fix wave.
+
 ## What to verify when fixing
 
 - Zero `as number` casts in `camera/common.ts`.
