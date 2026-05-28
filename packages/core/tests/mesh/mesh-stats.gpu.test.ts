@@ -27,7 +27,7 @@ test.skipIf(!bunWebGpuAvailable())(
     const final = snapshot(ctx);
     expect(final.resources.meshes).toBe(before.resources.meshes);
     expect(final.memory.bufferBytes).toBe(before.memory.bufferBytes);
-    mesh.destroyGeometry(geo);
+    mesh.destroyGeometry(ctx, geo);
     material.destroy(mat);
     gpu.dispose(ctx);
   },

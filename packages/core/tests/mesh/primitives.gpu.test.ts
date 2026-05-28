@@ -2,6 +2,8 @@ import { expect, test } from "bun:test";
 import * as gpu from "../../src/gpu/index.ts";
 import { cubeGeometry } from "../../src/mesh/factories/cube.ts";
 import { planeGeometry } from "../../src/mesh/factories/plane.ts";
+import type { GeometrySlot } from "../../src/mesh/types.ts";
+import { _lookupGeometry } from "../../src/resources/internal.ts";
 import {
   bunWebGpuAvailable,
   ensureBunWebGpu,
@@ -16,9 +18,11 @@ test.skipIf(!bunWebGpuAvailable())(
     const canvas = await makeOffscreenCanvas();
     const ctx = await gpu.requestContext(canvas);
     const g = cubeGeometry(ctx);
-    expect(g.vertexCount).toBe(24);
-    expect(g.indexCount).toBe(36);
-    expect(g.indexFormat).toBe("uint16");
+    const slot = _lookupGeometry<GeometrySlot>(ctx, g);
+    if (!slot) throw new Error("unreachable: slot should be live");
+    expect(slot.vertexCount).toBe(24);
+    expect(slot.indexCount).toBe(36);
+    expect(slot.indexFormat).toBe("uint16");
     gpu.dispose(ctx);
   },
 );
@@ -29,7 +33,9 @@ test.skipIf(!bunWebGpuAvailable())(
     const canvas = await makeOffscreenCanvas();
     const ctx = await gpu.requestContext(canvas);
     const g = cubeGeometry(ctx, { size: 2 });
-    expect(g.vertexCount).toBe(24);
+    const slot = _lookupGeometry<GeometrySlot>(ctx, g);
+    if (!slot) throw new Error("unreachable: slot should be live");
+    expect(slot.vertexCount).toBe(24);
     gpu.dispose(ctx);
   },
 );
@@ -40,8 +46,10 @@ test.skipIf(!bunWebGpuAvailable())(
     const canvas = await makeOffscreenCanvas();
     const ctx = await gpu.requestContext(canvas);
     const g = planeGeometry(ctx);
-    expect(g.vertexCount).toBe(4);
-    expect(g.indexCount).toBe(6);
+    const slot = _lookupGeometry<GeometrySlot>(ctx, g);
+    if (!slot) throw new Error("unreachable: slot should be live");
+    expect(slot.vertexCount).toBe(4);
+    expect(slot.indexCount).toBe(6);
     gpu.dispose(ctx);
   },
 );

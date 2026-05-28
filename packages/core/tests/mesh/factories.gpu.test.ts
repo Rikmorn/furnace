@@ -4,6 +4,8 @@ import { unlit } from "../../src/material/unlit.ts";
 import { cubeGeometry, planeGeometry } from "../../src/mesh/factories/index.ts";
 import { destroyGeometry } from "../../src/mesh/geometry.ts";
 import { create, destroy } from "../../src/mesh/mesh.ts";
+import type { GeometrySlot } from "../../src/mesh/types.ts";
+import { _lookupGeometry } from "../../src/resources/internal.ts";
 import { vec4 } from "../../src/transform/vec4.ts";
 import {
   bunWebGpuAvailable,
@@ -21,11 +23,13 @@ test.skipIf(!bunWebGpuAvailable())(
     const mat = await unlit(ctx, { color: vec4.fromValues(1, 1, 1, 1) });
     const geom = cubeGeometry(ctx);
     const m = create(ctx, { geometry: geom, material: mat });
-    expect(m.geometry.vertexCount).toBe(24);
-    expect(m.geometry.indexCount).toBe(36);
+    const slot = _lookupGeometry<GeometrySlot>(ctx, m.geometry);
+    if (!slot) throw new Error("unreachable: slot should be live");
+    expect(slot.vertexCount).toBe(24);
+    expect(slot.indexCount).toBe(36);
     expect(m.material).toBe(mat);
     destroy(m);
-    destroyGeometry(geom);
+    destroyGeometry(ctx, geom);
     gpu.dispose(ctx);
   },
 );
@@ -38,10 +42,12 @@ test.skipIf(!bunWebGpuAvailable())(
     const mat = await unlit(ctx, { color: vec4.fromValues(1, 1, 1, 1) });
     const geom = planeGeometry(ctx, { size: 3 });
     const m = create(ctx, { geometry: geom, material: mat });
-    expect(m.geometry.vertexCount).toBe(4);
-    expect(m.geometry.indexCount).toBe(6);
+    const slot = _lookupGeometry<GeometrySlot>(ctx, m.geometry);
+    if (!slot) throw new Error("unreachable: slot should be live");
+    expect(slot.vertexCount).toBe(4);
+    expect(slot.indexCount).toBe(6);
     destroy(m);
-    destroyGeometry(geom);
+    destroyGeometry(ctx, geom);
     gpu.dispose(ctx);
   },
 );

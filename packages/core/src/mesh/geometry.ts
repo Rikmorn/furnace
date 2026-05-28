@@ -1,22 +1,18 @@
 import type { Context } from "../gpu/index.ts";
 import {
+  _allocGeometry,
+  _destroyGeometry,
+  _lookupGeometry,
+} from "../resources/internal.ts";
+import {
   _registerResource,
   _unregisterResource,
   type ResourceHandle,
 } from "../stats/internal.ts";
 import { validateGeometryData } from "./geometry-validation.ts";
-import type { Geometry, GeometryData } from "./types.ts";
+import type { Geometry, GeometryData, GeometrySlot } from "./types.ts";
 
 const FLOATS_PER_VERTEX = 8;
-
-// Boundary type — geometry handles stored on the Geometry object after create,
-// read by destroyGeometry. Same-module write/read makes the localised cast in
-// destroyGeometry the boundary mechanism.
-type GeometryWithHandles = Geometry & {
-  _geometryHandle: ResourceHandle;
-  _vertexBufferHandle: ResourceHandle;
-  _indexBufferHandle: ResourceHandle | null;
-};
 
 /**
  * Build a {@link Geometry} from raw per-vertex arrays. Packs `positions`,
@@ -25,8 +21,11 @@ type GeometryWithHandles = Geometry & {
  * `material.create` declares). If `data.indices` is supplied, an index
  * buffer is also created.
  *
- * Allocates GPU buffers; ownership transfers to the returned `Geometry` and
- * is released by {@link destroyGeometry}.
+ * Returns an opaque {@link Geometry} handle. Destroy via
+ * {@link destroyGeometry}. If a Mesh still references the geometry,
+ * `destroyGeometry` marks it for deferred teardown; the actual GPU free
+ * runs when the last referencing mesh is destroyed (refcount wiring
+ * arrives with Task 2.2 — today the refcount is always zero).
  *
  * Setup-loud: validates `data` synchronously before touching the GPU.
  *
@@ -59,41 +58,58 @@ export function createGeometry(ctx: Context, data: GeometryData): Geometry {
           bytes: indexResources.paddedByteLength,
         })
       : null;
-
   const _geometryHandle = _registerResource(ctx, { kind: "geometry" });
 
-  const geometry: GeometryWithHandles = {
+  const slot: GeometrySlot = {
     ctx,
     vertexBuffer,
     vertexCount,
     indexBuffer: indexResources.buffer,
     indexFormat: indexResources.format,
     indexCount: indexResources.count,
-    _geometryHandle,
-    _vertexBufferHandle,
-    _indexBufferHandle,
+    userCount: 0,
+    markedDestroyed: false,
+    _teardown: () =>
+      geometryTeardown(
+        slot,
+        _geometryHandle,
+        _vertexBufferHandle,
+        _indexBufferHandle,
+      ),
   };
-  return geometry;
+  return _allocGeometry(ctx, slot);
+}
+
+function geometryTeardown(
+  slot: GeometrySlot,
+  geometryHandle: ResourceHandle,
+  vertexHandle: ResourceHandle,
+  indexHandle: ResourceHandle | null,
+): void {
+  slot.vertexBuffer.destroy();
+  if (slot.indexBuffer) slot.indexBuffer.destroy();
+  _unregisterResource(slot.ctx, vertexHandle);
+  if (indexHandle) _unregisterResource(slot.ctx, indexHandle);
+  _unregisterResource(slot.ctx, geometryHandle);
 }
 
 /**
- * Destroy a {@link Geometry}: destroy its vertex buffer (and index buffer, if
- * any) and unregister the resource handles from stats.
- *
- * Does **not** touch any {@link Mesh} that still holds this geometry — the
- * consumer owns that contract. Destroying a geometry that is still bound to
- * a live mesh will fail on the next draw with a GPU validation error.
+ * Destroy a {@link Geometry}. If a Mesh still references it
+ * (`userCount > 0`), the slot is marked-destroyed and actual GPU teardown
+ * waits until the last referencing mesh is destroyed (refcount-driven
+ * cascade — wired up in Task 2.2). Silent on stale or already-destroyed
+ * handles (idempotent).
  */
-export function destroyGeometry(geometry: Geometry): void {
-  // Boundary cast: geometry handles were stashed by createGeometry on the same Geometry instance; the cross-function invariant isn't expressible in the public Geometry type.
-  const g = geometry as GeometryWithHandles;
-  geometry.vertexBuffer.destroy();
-  if (geometry.indexBuffer) geometry.indexBuffer.destroy();
-  _unregisterResource(geometry.ctx, g._vertexBufferHandle);
-  if (g._indexBufferHandle) {
-    _unregisterResource(geometry.ctx, g._indexBufferHandle);
+export function destroyGeometry(ctx: Context, geometry: Geometry): void {
+  const slot = _lookupGeometry<GeometrySlot>(ctx, geometry);
+  if (slot === null) return;
+  if (slot.userCount > 0) {
+    slot.markedDestroyed = true;
+    return;
   }
-  _unregisterResource(geometry.ctx, g._geometryHandle);
+  _destroyGeometry<GeometrySlot>(ctx, geometry, (s) => {
+    s._teardown();
+  });
 }
 
 function packInterleaved(

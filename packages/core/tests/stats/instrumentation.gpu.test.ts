@@ -37,7 +37,7 @@ test.skipIf(!bunWebGpuAvailable())(
     expect(s.gpu.pipelineSwitches).toBe(1);
     expect(s.gpu.bindGroupSwitches).toBe(2);
     mesh.destroy(m);
-    mesh.destroyGeometry(mGeo);
+    mesh.destroyGeometry(ctx, mGeo);
     gpu.dispose(ctx);
   },
 );
@@ -66,7 +66,7 @@ test.skipIf(!bunWebGpuAvailable())(
     expect(s.gpu.pipelineSwitches).toBe(1);
     mesh.destroy(a);
     mesh.destroy(b);
-    mesh.destroyGeometry(geo);
+    mesh.destroyGeometry(ctx, geo);
     gpu.dispose(ctx);
   },
 );
@@ -99,7 +99,7 @@ test.skipIf(!bunWebGpuAvailable())(
     expect(secondSnap.memory.textureBytes).toBeGreaterThan(firstTexBytes);
     expect(secondSnap.memory.textureBytes).toBeGreaterThanOrEqual(128 * 96 * 4);
     mesh.destroy(m);
-    mesh.destroyGeometry(mGeo);
+    mesh.destroyGeometry(ctx, mGeo);
     gpu.dispose(ctx);
   },
 );
@@ -127,7 +127,7 @@ test.skipIf(!bunWebGpuAvailable())(
       after.memory.bufferBytes - before.memory.bufferBytes,
     ).toBeGreaterThanOrEqual(64);
     mesh.destroy(m);
-    mesh.destroyGeometry(mGeo);
+    mesh.destroyGeometry(ctx, mGeo);
     gpu.dispose(ctx);
   },
 );

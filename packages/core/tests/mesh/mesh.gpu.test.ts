@@ -121,7 +121,7 @@ test.skipIf(!bunWebGpuAvailable())(
       // biome-ignore lint/suspicious/noExplicitAny: testing invalid input
       create(ctx, { geometry: geo, material: null as any }),
     ).toThrow("material is required");
-    destroyGeometry(geo);
+    destroyGeometry(ctx, geo);
     gpu.dispose(ctx);
   },
 );

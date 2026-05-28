@@ -22,7 +22,7 @@ test.skipIf(!bunWebGpuAvailable())(
     expect(
       after.memory.bufferBytes - before.memory.bufferBytes,
     ).toBeGreaterThan(0);
-    destroyGeometry(geo);
+    destroyGeometry(ctx, geo);
     const final = snapshot(ctx);
     expect(final.resources.geometries).toBe(before.resources.geometries);
     expect(final.memory.bufferBytes).toBe(before.memory.bufferBytes);

@@ -38,15 +38,27 @@ test.skipIf(!bunWebGpuAvailable())(
       setSink(consoleSink);
     }
 
-    expect(entries.length).toBeGreaterThan(0);
-    const entry = entries[0];
-    if (!entry) throw new Error("unreachable: entries.length checked above");
-    expect(entry.level).toBe("warn");
-    expect(entry.module).toBe("gpu");
-    expect(entry.message).toContain(
-      "context disposed with resources still registered",
+    // Two warns coexist during the Sessions 2-4 migration window: the
+    // dispose-cascade auto-clean warn (covers pooled kinds — geometry today)
+    // and the legacy stats-leak warn (covers still-Object kinds — mesh and
+    // material today). After Task 2.4 the legacy warn goes away entirely.
+    const cleanupWarn = entries.find(
+      (e) => e.module === "resources" && e.message.includes("auto-cleaned"),
     );
-    expect(entry.rest[0]).toEqual({ remaining: 6 });
+    expect(cleanupWarn).toBeDefined();
+    expect(cleanupWarn?.level).toBe("warn");
+    expect(cleanupWarn?.message).toContain("1 live handles");
+
+    const leakWarn = entries.find(
+      (e) =>
+        e.module === "gpu" &&
+        e.message.includes("context disposed with resources still registered"),
+    );
+    expect(leakWarn).toBeDefined();
+    expect(leakWarn?.level).toBe("warn");
+    // mesh(1) + objectBuffer(1) + material(1) — geometry's 3 entries get
+    // auto-unregistered by the cascade teardown.
+    expect(leakWarn?.rest[0]).toEqual({ remaining: 3 });
   },
 );
 
@@ -59,7 +71,7 @@ test.skipIf(!bunWebGpuAvailable())(
     const geo = mesh.cubeGeometry(ctx);
     const m = mesh.create(ctx, { geometry: geo, material: mat });
     mesh.destroy(m);
-    mesh.destroyGeometry(geo);
+    mesh.destroyGeometry(ctx, geo);
     material.destroy(mat);
 
     // Camera buffer + depth texture only allocate inside frame.render; this
@@ -77,7 +89,7 @@ test.skipIf(!bunWebGpuAvailable())(
 );
 
 test.skipIf(!bunWebGpuAvailable())(
-  "gpu.dispose: warns when mesh + material destroyed but geometry forgotten",
+  "gpu.dispose: auto-cleans a forgotten geometry via the cascade",
   async () => {
     const canvas = await makeOffscreenCanvas();
     const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
@@ -86,9 +98,11 @@ test.skipIf(!bunWebGpuAvailable())(
     const m = mesh.create(ctx, { geometry: geo, material: mat });
     mesh.destroy(m);
     material.destroy(mat);
-    // Deliberately skip mesh.destroyGeometry(geo) — this is the regression
-    // we want to keep catching: deleting mesh.cube/mesh.plane closed one
-    // shape of this trap, this test guards against re-introducing another.
+    // Deliberately skip mesh.destroyGeometry — pre-pool this was the leak
+    // regression guard; post-pool the dispose cascade auto-cleans the
+    // geometry slot and unregisters its stats handles, so no legacy
+    // leak-suspected warn fires. The auto-clean warn is the new safety
+    // signal that takes its place.
 
     const entries: LogEntry[] = [];
     setSink((entry) => entries.push(entry));
@@ -98,15 +112,19 @@ test.skipIf(!bunWebGpuAvailable())(
       setSink(consoleSink);
     }
 
-    expect(entries.length).toBe(1);
-    const entry = entries[0];
-    if (!entry) throw new Error("unreachable: entries.length checked above");
-    expect(entry.level).toBe("warn");
-    expect(entry.module).toBe("gpu");
-    expect(entry.message).toContain(
-      "context disposed with resources still registered",
+    const cleanupWarn = entries.find(
+      (e) => e.module === "resources" && e.message.includes("auto-cleaned"),
     );
-    expect(entry.rest[0]).toEqual({ remaining: 3 });
+    expect(cleanupWarn).toBeDefined();
+    expect(cleanupWarn?.level).toBe("warn");
+    expect(cleanupWarn?.message).toContain("1 live handles");
+
+    const leakWarn = entries.find(
+      (e) =>
+        e.module === "gpu" &&
+        e.message.includes("context disposed with resources still registered"),
+    );
+    expect(leakWarn).toBeUndefined();
   },
 );
 
@@ -126,7 +144,7 @@ test.skipIf(!bunWebGpuAvailable())(
     frame.render(ctx, { draw: [m], camera: cam });
 
     mesh.destroy(m);
-    mesh.destroyGeometry(geo);
+    mesh.destroyGeometry(ctx, geo);
     material.destroy(mat);
 
     const entries: LogEntry[] = [];
@@ -167,7 +185,7 @@ test.skipIf(!bunWebGpuAvailable())(
 
     post.destroy(fx);
     mesh.destroy(m);
-    mesh.destroyGeometry(geo);
+    mesh.destroyGeometry(ctx, geo);
     material.destroy(mat);
 
     const entries: LogEntry[] = [];

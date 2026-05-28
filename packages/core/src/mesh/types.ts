@@ -1,5 +1,6 @@
 import type { Context } from "../gpu/index.ts";
 import type { Material } from "../material/types.ts";
+import type { GeometryHandle } from "../resources/handle.ts";
 import type { Mat4, Quat, Vec3 } from "../transform/types.ts";
 
 /**
@@ -19,21 +20,38 @@ export type GeometryData = {
 };
 
 /**
- * Opaque GPU geometry handle returned by {@link createGeometry} and the
- * built-in factories (`cubeGeometry`, `planeGeometry`). Consumers pass it to
- * `mesh.create` (potentially shared across multiple meshes) and otherwise
- * treat it as opaque.
+ * Opaque GPU geometry handle. Returned by {@link createGeometry} and the
+ * built-in factories (`cubeGeometry`, `planeGeometry`). Consumers pass it
+ * to `mesh.create` (potentially shared across multiple meshes) and otherwise
+ * treat it as opaque. To release, call `mesh.destroyGeometry(ctx, geometry)`.
  *
- * Triangle count is not stored on `Geometry` — it is derived per draw inside
- * `frame.render` from `mesh.material.topology`.
+ * Type-alias of {@link GeometryHandle}; consumers can use either name.
  */
-export type Geometry = {
+export type Geometry = GeometryHandle;
+
+/**
+ * Engine-private slot data backing a {@link Geometry} handle in the
+ * geometries pool. Not exported from the `@furnace/core/mesh` public
+ * surface; resource-manager internals only.
+ *
+ * Carries refcount fields (`userCount`, `markedDestroyed`) used by the
+ * Mesh→Geometry deferred-free path: `destroyGeometry` while `userCount > 0`
+ * sets `markedDestroyed` and skips actual GPU teardown; the last
+ * `mesh.destroy` that drops `userCount` to zero then triggers teardown.
+ * The refcount itself is wired up in Task 2.2 (Mesh migration); today
+ * `userCount` stays at `0` and `destroyGeometry` always tears down
+ * immediately.
+ */
+export type GeometrySlot = {
   ctx: Context;
   vertexBuffer: GPUBuffer;
   vertexCount: number;
   indexBuffer: GPUBuffer | null;
   indexFormat: GPUIndexFormat | null;
   indexCount: number;
+  userCount: number;
+  markedDestroyed: boolean;
+  _teardown: () => void;
 };
 
 /**

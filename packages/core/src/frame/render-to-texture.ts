@@ -1,6 +1,7 @@
 import type { Camera } from "../camera/index.ts";
 import { FurnaceGpuError } from "../gpu/errors.ts";
 import type { Context } from "../gpu/index.ts";
+import { _resolveGeometry } from "../mesh/internal.ts";
 import { _recomputeModelIfDirty } from "../mesh/mesh.ts";
 import type { Mesh } from "../mesh/types.ts";
 import {
@@ -95,8 +96,9 @@ function recordDraw(
     pass.setBindGroup(1, mesh.material.group1);
     _recordBindGroupSwitch(ctx);
   }
-  pass.setVertexBuffer(0, mesh.geometry.vertexBuffer);
-  const { indexBuffer, indexFormat, indexCount, vertexCount } = mesh.geometry;
+  const geom = _resolveGeometry(ctx, mesh.geometry);
+  pass.setVertexBuffer(0, geom.vertexBuffer);
+  const { indexBuffer, indexFormat, indexCount, vertexCount } = geom;
   if (indexBuffer && indexFormat) {
     pass.setIndexBuffer(indexBuffer, indexFormat);
     pass.drawIndexed(indexCount);
