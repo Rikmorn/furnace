@@ -14,7 +14,7 @@ type FakeMeshSlot = { value: number };
 // is much richer; this stub exposes only what resources/internal.ts reads.
 function fakeCtx() {
   return {
-    _internal: { resources: createResourceManager() },
+    _internal: { resources: createResourceManager(), ctxId: 0xffff },
   } as unknown as Parameters<typeof _allocMesh>[0];
 }
 

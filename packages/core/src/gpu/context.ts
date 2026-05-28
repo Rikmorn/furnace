@@ -13,7 +13,7 @@ import type { Context } from "./context-types.ts";
 import { _emitDeviceLost } from "./device-lost.ts";
 import { _runDisposeCascade } from "./dispose-cascade.ts";
 import { FurnaceGpuError } from "./errors.ts";
-import { markDisposed } from "./internal.ts";
+import { _nextContextId, markDisposed } from "./internal.ts";
 import { _emitUncapturedError } from "./uncaptured-error.ts";
 
 /**
@@ -42,6 +42,7 @@ type InternalWithCanvasCtx = {
   disposed: boolean;
   stats: StatsState;
   resources: ResourceManager;
+  ctxId: number;
   canvasContext: GPUCanvasContext;
   viewFormat: GPUTextureFormat;
 };
@@ -118,6 +119,7 @@ export async function requestContext(
     disposed: false,
     stats: createStatsState(performance.now()),
     resources: createResourceManager(),
+    ctxId: _nextContextId(),
     canvasContext,
     viewFormat,
   };

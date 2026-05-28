@@ -9,6 +9,7 @@ export {
   disposeAllResources,
 } from "./dispose.ts";
 export {
+  decodeCtxId,
   decodeGeneration,
   decodeSlotIndex,
   type EffectHandle,

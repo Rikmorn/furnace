@@ -15,6 +15,7 @@ function makeMockCtx(): Context {
       disposed: false,
       stats: createStatsState(0),
       resources: createResourceManager(),
+      ctxId: 0xffff,
     },
   } as Context;
 }

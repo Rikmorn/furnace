@@ -1,5 +1,6 @@
 import type { Context } from "../gpu/context-types.ts";
 import {
+  decodeCtxId,
   decodeGeneration,
   decodeSlotIndex,
   type EffectHandle,
@@ -40,9 +41,10 @@ function poolFor(ctx: Context, kind: ResourceKind): Pool<unknown> {
 
 /**
  * Allocate a slot in the appropriate pool, populate it with `data`, and
- * return an encoded uint32 handle. The branded handle type is applied
- * at the typed `_alloc*` wrappers below; this raw helper returns a
- * plain `number`.
+ * return an encoded uint48 handle (ctxId in the upper 16 bits, generation
+ * in the middle, slot index in the low). The branded handle type is
+ * applied at the typed `_alloc*` wrappers below; this raw helper returns
+ * a plain `number`.
  */
 function _allocRaw<T>(ctx: Context, kind: ResourceKind, data: T): number {
   const pool = poolFor(ctx, kind);
@@ -51,18 +53,21 @@ function _allocRaw<T>(ctx: Context, kind: ResourceKind, data: T): number {
   // below enforce the (kind, T) pairing at their call sites.
   const typedPool = pool as Pool<T>;
   const { slotIndex, generation } = allocSlot(typedPool, data);
-  return encodeHandle(slotIndex, generation);
+  return encodeHandle(ctx._internal.ctxId, slotIndex, generation);
 }
 
 /**
  * Look up a slot by handle. Returns the slot data on match, or `null`
- * on generation mismatch (stale, destroyed, or invalid handle).
+ * on generation mismatch (stale, destroyed, or invalid handle) or
+ * ctxId mismatch (cross-context handle use — collision would otherwise
+ * resolve to a wrong-but-live slot in the recipient).
  */
 function _lookupRaw<T>(
   ctx: Context,
   kind: ResourceKind,
   handle: number,
 ): T | null {
+  if (decodeCtxId(handle) !== ctx._internal.ctxId) return null;
   const pool = poolFor(ctx, kind);
   // Boundary cast: see _allocRaw — uniform Pool<unknown> on the manager.
   const typedPool = pool as Pool<T>;
@@ -79,8 +84,9 @@ function _lookupRaw<T>(
  * it can release GPU resources, decrement refcounts, etc.
  *
  * Stale or already-destroyed handles: teardown is NOT invoked, returns
- * `false`. Live handles: teardown runs, the pool is mutated, returns
- * `true`.
+ * `false`. Cross-context handles (ctxId mismatch): same — teardown is
+ * NOT invoked, returns `false`. Live handles: teardown runs, the pool
+ * is mutated, returns `true`.
  */
 function _destroyRaw<T>(
   ctx: Context,
@@ -88,6 +94,7 @@ function _destroyRaw<T>(
   handle: number,
   teardown: (data: T) => void,
 ): boolean {
+  if (decodeCtxId(handle) !== ctx._internal.ctxId) return false;
   const pool = poolFor(ctx, kind);
   // Boundary cast: see _allocRaw.
   const typedPool = pool as Pool<T>;
@@ -202,7 +209,8 @@ export function _countLive(ctx: Context, kind: ResourceKind): number {
 
 /**
  * Iterate live `(handle, data)` pairs for `kind`. Handles are encoded
- * uint32s, ready to feed back into `_lookup*` / `_destroy*`.
+ * uint48s carrying the owning ctx's id, ready to feed back into
+ * `_lookup*` / `_destroy*`.
  */
 export function _iterateLive<T>(
   ctx: Context,
@@ -211,13 +219,14 @@ export function _iterateLive<T>(
   const pool = poolFor(ctx, kind);
   // Boundary cast: see _allocRaw — uniform Pool<unknown> on the manager.
   const typedPool = pool as Pool<T>;
-  return iterateLiveSlotsAsHandles(typedPool);
+  return iterateLiveSlotsAsHandles(ctx._internal.ctxId, typedPool);
 }
 
 function* iterateLiveSlotsAsHandles<T>(
+  ctxId: number,
   pool: Pool<T>,
 ): IterableIterator<{ handle: number; data: T }> {
   for (const { slotIndex, generation, data } of iterateLiveSlots(pool)) {
-    yield { handle: encodeHandle(slotIndex, generation), data };
+    yield { handle: encodeHandle(ctxId, slotIndex, generation), data };
   }
 }
