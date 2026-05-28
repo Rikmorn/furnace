@@ -313,7 +313,6 @@ See `engine-conventions.md` §Resource ownership for the lifecycle contract that
 - `cubeGeometry`, `create`, `destroy`, `setPosition` → `cookbook/camera`.
 - `setRotation`, `setScale` → `cookbook/animation`.
 - `createGeometry`, `destroyGeometry`, `GeometryData`, `Geometry` → `cookbook/geometry`.
-- `setMaterial` → `cookbook/render-target` (picture-in-picture rebuild swaps the monitor mesh's material on off-screen resolution change).
 
 ### Reference-only (no demo, by design)
 
