@@ -182,8 +182,8 @@ Re-exported from `index.ts` so other core modules can `import * as stats` and ca
 | `_recordBindGroupSwitch` | `frame/render.ts`, `frame/render-to-texture.ts` |
 | `_recordEmission` | `events/emitter.ts` (per-emitter counter) |
 | `_recordUncapturedError` | `gpu/context.ts` (device `uncapturederror` handler) |
-| `_recordAlloc` | `resources/manager.ts` (per-kind alloc wrappers); `frame/render.ts` + `post/intermediate.ts` (ctx-owned engine-internal resources that don't flow through a pool slot). Signature: `(ctx, kind, bytes) => void`. |
-| `_recordDestroy` | matching destroy paths in the same call sites. Signature: `(ctx, kind, bytes) => void`. |
+| `_recordAlloc` | Three categories of writer, all using the signature `(ctx, kind, bytes) => void`: (1) **slot-kind count records** — `resources/internal.ts` per-kind alloc wrappers (`_allocMesh` / `_allocMaterial` / `_allocGeometry` / `_allocEffect`) fire `(ctx, kind, 0)` to bump slot counts. (2) **slot-owned bytes** — resource modules that allocate GPU buffers owned by a slot: `mesh/mesh.ts` (object uniform), `mesh/geometry.ts` (vertex + optional index buffers), `material/unlit.ts` (color uniform). (3) **ctx-owned bytes** — engine-internal resources that don't flow through a pool slot: `frame/render.ts` (depth texture + per-camera uniform buffer), `post/intermediate.ts` (post color targets). |
+| `_recordDestroy` | Symmetric to `_recordAlloc` across the same three categories: (1) slot-kind count decrements from `resources/internal.ts` destroy paths (`_destroyMesh` / `_destroyMaterial` / `_destroyGeometry` / `_destroyEffect` / `_destroyByKind`). (2) slot-owned bytes from the resource module's teardown: `mesh/mesh.ts` (object uniform), `mesh/geometry.ts` (vertex + index buffers), `material/material.ts` (iterates `ownedBufferBytes` to release factory-allocated bytes such as `unlit`'s color uniform). (3) ctx-owned bytes from `frame/render.ts` and `post/intermediate.ts`. Signature: `(ctx, kind, bytes) => void`. |
 
 ### Demoed in cookbook
 

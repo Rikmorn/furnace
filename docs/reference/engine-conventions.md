@@ -96,7 +96,7 @@ The refcount is engine-private. Consumers cannot inspect it; the engine cannot e
 
 Consumer discipline becomes an *optimization* (free early to reduce in-context memory pressure), not a *requirement*.
 
-The leak-warn (`sum(stats.resources.counts.*) > 0` → "context disposed with resources still registered — leak suspected") is preserved alongside the cascade warn. With all four resource kinds pool-tracked and the cascade firing each slot's stats decrement, the leak-warn's count is typically zero. It remains as a safety net for any future non-pooled resource kind.
+The leak-warn (`sum(stats.resources.counts.*) > 0` → "context disposed with resources still registered — leak suspected") is preserved alongside the cascade warn. (`stats.resources.counts.*` is the engine-internal registry; consumers read the same data via `stats.snapshot(ctx).resources.*`.) With all four resource kinds pool-tracked and the cascade firing each slot's stats decrement, the leak-warn's count is typically zero. It remains as a safety net for any future non-pooled resource kind.
 
 ### Dispose order
 
@@ -122,9 +122,11 @@ For per-kind live counts and memory totals, see `stats.snapshot(ctx).resources.*
 
 ### Stats relationship
 
-The resource manager is the single writer of "what is alive." Each pool-tracked slot's alloc and destroy fires a direct call into stats (`_recordAlloc(ctx, kind, bytes)` / `_recordDestroy(ctx, kind, bytes)`); stats's snapshot derives counts and memory totals from that one write path. Resource modules do not call stats directly for pool-tracked kinds.
+The resource manager is the **single writer of slot-kind counts** (`mesh`, `material`, `geometry`, `effect`). Its alloc and destroy wrappers fire `_recordAlloc(ctx, kind, 0)` and `_recordDestroy(ctx, kind, 0)`; no other code path increments those counts.
 
-Ctx-owned engine-internal resources (depth texture, per-camera uniform buffer, post intermediates) call the same stats API directly because they don't flow through a pool slot.
+**Memory totals** (`buffer`, `texture` bytes) are written directly by whichever site owns the GPU resource — slot-owned buffer/texture bytes by the resource module that creates them (`mesh.ts` object uniforms, `geometry.ts` vertex/index buffers, `material/unlit.ts` color uniforms; `material.ts` iterates `ownedBufferBytes` on teardown to release those factory-allocated bytes), ctx-owned bytes by the engine-internal site that creates them (`frame/render.ts` depth texture + camera uniforms, `post/intermediate.ts` color targets). Bytes flow through the same `_recordAlloc` / `_recordDestroy` API.
+
+Stats's snapshot reads these two registries — counts and memory — and surfaces them at `stats.snapshot(ctx).resources.*` and `stats.snapshot(ctx).memory.*`.
 
 **The principle:** internal-to-core consumers use sync direct calls. Events are reserved for external-consumer subscription channels with a real consumer trigger. RM-4 considered an events-based decoupling between the manager and stats and rejected it as speculative scaffolding — both modules ship in the same package, both evolve together, and no external consumer of resource lifecycle events exists. See `docs/backlog/engine-architecture/resource-lifecycle-events-external-consumer.md` for the trigger that would re-open the question.
 
