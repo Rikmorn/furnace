@@ -189,8 +189,8 @@ async function buildPipResources(
   return { texture, depthTexture, monitorMat };
 }
 
-function disposePipResources(r: PipResources): void {
-  material.destroy(r.monitorMat);
+function disposePipResources(ctx: Context, r: PipResources): void {
+  material.destroy(ctx, r.monitorMat);
   r.texture.destroy();
   r.depthTexture.destroy();
 }
@@ -244,7 +244,7 @@ async function buildScene(ctx: Context): Promise<SceneRef> {
       MONITOR_POSITION[1],
       MONITOR_POSITION[2],
     );
-    mesh.setPosition(monitorMesh, monitorPos);
+    mesh.setPosition(ctx, monitorMesh, monitorPos);
 
     const mainCam = camera.perspective({
       aspect: ctx.canvas.width / ctx.canvas.height,
@@ -297,36 +297,36 @@ async function buildScene(ctx: Context): Promise<SceneRef> {
     };
   } catch (e) {
     if (unsubResize) unsubResize();
-    if (gizmoMesh) mesh.destroy(gizmoMesh);
-    if (monitorMesh) mesh.destroy(monitorMesh);
-    if (roomMesh) mesh.destroy(roomMesh);
-    if (subjectMesh) mesh.destroy(subjectMesh);
-    if (gizmoGeo) mesh.destroyGeometry(gizmoGeo);
-    if (monitorGeo) mesh.destroyGeometry(monitorGeo);
-    if (roomGeo) mesh.destroyGeometry(roomGeo);
-    if (subjectGeo) mesh.destroyGeometry(subjectGeo);
-    if (gizmoMat) material.destroy(gizmoMat);
-    if (pip) disposePipResources(pip);
-    if (roomMat) material.destroy(roomMat);
-    if (subjectMat) material.destroy(subjectMat);
+    if (gizmoMesh) mesh.destroy(ctx, gizmoMesh);
+    if (monitorMesh) mesh.destroy(ctx, monitorMesh);
+    if (roomMesh) mesh.destroy(ctx, roomMesh);
+    if (subjectMesh) mesh.destroy(ctx, subjectMesh);
+    if (gizmoGeo) mesh.destroyGeometry(ctx, gizmoGeo);
+    if (monitorGeo) mesh.destroyGeometry(ctx, monitorGeo);
+    if (roomGeo) mesh.destroyGeometry(ctx, roomGeo);
+    if (subjectGeo) mesh.destroyGeometry(ctx, subjectGeo);
+    if (gizmoMat) material.destroy(ctx, gizmoMat);
+    if (pip) disposePipResources(ctx, pip);
+    if (roomMat) material.destroy(ctx, roomMat);
+    if (subjectMat) material.destroy(ctx, subjectMat);
     throw e;
   }
 }
 
-function disposeScene(s: SceneRef): void {
+function disposeScene(ctx: Context, s: SceneRef): void {
   s.unsubResize();
-  mesh.destroy(s.gizmoMesh);
-  mesh.destroy(s.monitorMesh);
-  mesh.destroy(s.roomMesh);
-  mesh.destroy(s.subjectMesh);
-  mesh.destroyGeometry(s.gizmoGeo);
-  mesh.destroyGeometry(s.monitorGeo);
-  mesh.destroyGeometry(s.roomGeo);
-  mesh.destroyGeometry(s.subjectGeo);
-  material.destroy(s.gizmoMat);
-  disposePipResources(s.pip);
-  material.destroy(s.roomMat);
-  material.destroy(s.subjectMat);
+  mesh.destroy(ctx, s.gizmoMesh);
+  mesh.destroy(ctx, s.monitorMesh);
+  mesh.destroy(ctx, s.roomMesh);
+  mesh.destroy(ctx, s.subjectMesh);
+  mesh.destroyGeometry(ctx, s.gizmoGeo);
+  mesh.destroyGeometry(ctx, s.monitorGeo);
+  mesh.destroyGeometry(ctx, s.roomGeo);
+  mesh.destroyGeometry(ctx, s.subjectGeo);
+  material.destroy(ctx, s.gizmoMat);
+  disposePipResources(ctx, s.pip);
+  material.destroy(ctx, s.roomMat);
+  material.destroy(ctx, s.subjectMat);
 }
 
 // --- Rebuild queue (single-in-flight + one-pending) ---
@@ -347,15 +347,15 @@ function makeRebuild(
         sceneRef.sampler,
       );
       if (abortFlag.disposed) {
-        disposePipResources(next);
+        disposePipResources(ctx, next);
         return;
       }
       const old = sceneRef.pip;
       sceneRef.pip = next;
-      sceneRef.monitorMesh.material = next.monitorMat;
-      disposePipResources(old);
+      mesh.setMaterial(ctx, sceneRef.monitorMesh, next.monitorMat);
+      disposePipResources(ctx, old);
     } catch (e) {
-      if (next) disposePipResources(next);
+      if (next) disposePipResources(ctx, next);
       throw e;
     }
   };
@@ -414,7 +414,7 @@ function quatFromZTo(out: Quat, dirUnit: Vec3, axisScratch: Vec3): Quat {
   return quat.fromAxisAngle(out, axisScratch, angle);
 }
 
-function applyPipAngle(scene: SceneRef, angle: PipAngle): void {
+function applyPipAngle(ctx: Context, scene: SceneRef, angle: PipAngle): void {
   const p = PIP_POSITIONS[angle];
   vec3.set(scene.scratchPos, p[0], p[1], p[2]);
   camera.setPosition(scene.pipCam, scene.scratchPos);
@@ -422,11 +422,11 @@ function applyPipAngle(scene: SceneRef, angle: PipAngle): void {
   // Gizmo: place at the PiP camera's position and orient its +Z face along the
   // camera's view direction. The PiP camera always looks at the origin, so the
   // view direction at position p is -p (normalized).
-  mesh.setPosition(scene.gizmoMesh, scene.scratchPos);
+  mesh.setPosition(ctx, scene.gizmoMesh, scene.scratchPos);
   vec3.set(scene.gizmoDir, -p[0], -p[1], -p[2]);
   vec3.normalize(scene.gizmoDir, scene.gizmoDir);
   quatFromZTo(scene.gizmoRot, scene.gizmoDir, scene.gizmoAxis);
-  mesh.setRotation(scene.gizmoMesh, scene.gizmoRot);
+  mesh.setRotation(ctx, scene.gizmoMesh, scene.gizmoRot);
 }
 
 await mountDemo({
@@ -497,7 +497,7 @@ await mountDemo({
           abortFlag.disposed = true;
           window.__cookbookRenderTargetRebuild = undefined;
           globalThis.removeEventListener("keydown", preventSpaceScroll);
-          disposeScene(sceneRef);
+          disposeScene(ctx, sceneRef);
           input.detach();
         },
       };
@@ -512,10 +512,10 @@ await mountDemo({
         SUBJECT_ROTATION_SPEED_RAD_PER_S * (info.deltaMs / MS_PER_S);
     }
     quat.fromEuler(scene.rotBuf, 0, state.angle, 0);
-    mesh.setRotation(scene.subjectMesh, scene.rotBuf);
+    mesh.setRotation(ctx, scene.subjectMesh, scene.rotBuf);
 
     applyMainYaw(scene, state.yaw);
-    applyPipAngle(scene, state.pipAngle);
+    applyPipAngle(ctx, scene, state.pipAngle);
 
     // Pass 1: PiP. Renders the subject + room into the offscreen texture that
     // the monitor surface samples.
