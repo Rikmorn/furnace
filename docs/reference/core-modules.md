@@ -35,7 +35,7 @@ The reference is "what the engine IS today." If it's stale, it's broken.
 | Export | Signature | Notes |
 |---|---|---|
 | `requestContext` | `(canvas: HTMLCanvasElement, options?: RequestContextOptions) => Promise<Context>` | Acquires a WebGPU adapter + device, configures the canvas, and returns a frozen `Context`. Throws `FurnaceGpuError` if WebGPU is unavailable. |
-| `dispose` | `(ctx: Context) => void` | Destroys the device, clears bookkeeping. Idempotent. Warns to console if resources are still registered. |
+| `dispose` | `(ctx: Context) => void` | Destroys the device, clears bookkeeping. Idempotent. Warns to console if any resource-manager slots are still live when called. |
 | `isDisposed` | `(ctx: Context) => boolean` | True after `dispose(ctx)`. |
 | `getCurrentTextureView` | `(ctx: Context) => GPUTextureView` | Returns a view on the current swapchain texture, with the configured sRGB view format applied. Throws if `ctx` is disposed. Escape hatch — most consumers go through `frame.render`. |
 | `onDeviceLost` | `(ctx: Context, fn: (info: GPUDeviceLostInfo) => void) => () => void` | Subscribe to WebGPU `device.lost` notification. Callback receives `GPUDeviceLostInfo`. Fires at most once per context. The emit is skipped when `gpu.dispose(ctx)` has been called (`reason: "destroyed"` is expected teardown). Setup-loud on disposed ctx. Returns idempotent unsubscribe. |
@@ -254,12 +254,12 @@ Re-exported from `index.ts` so other core modules can `import * as stats` and ca
 | Export | Signature | Notes |
 |---|---|---|
 | `create` | `(ctx: Context, descriptor: MaterialDescriptor) => Promise<Material>` | Builds (or reuses, via the per-ctx internal pipeline cache) a render pipeline keyed on shader source + raster state + blend signature + ctx format. Validates the descriptor; throws `FurnaceError` if pipeline creation fails. |
-| `destroy` | `(ctx: Context, material: Material) => void` | If a Mesh still references the material, defers GPU teardown; otherwise destroys factory-owned buffers, unregisters resources, releases the cached pipeline ref. Silent on stale handles. |
+| `destroy` | `(ctx: Context, material: Material) => void` | If a Mesh still references the material, defers GPU teardown; otherwise destroys factory-owned buffers (iterating `ownedBufferBytes`, recording each byte release in stats) and releases the cached pipeline ref. Silent on stale handles. |
 | `unlit` | `(ctx: Context, opts: UnlitOptions) => Promise<Material>` | Stock unlit material. Allocates a 16-byte uniform buffer for the color (owned by the material's slot). `opts.color` is required; pipeline-state fields are optional. |
 | `UnlitOptions` | `{ color: [number, number, number, number]; topology?: GPUPrimitiveTopology; cullMode?: GPUCullMode; depthWrite?: boolean; depthCompare?: GPUCompareFunction; blend?: GPUBlendState }` | Options for `unlit`. `color` required; pipeline-state fields optional with `MaterialDescriptor` defaults (triangle-list / back / depthWrite true / less / opaque). |
 | `normalColor` | `(ctx: Context, opts?: NormalColorOptions) => Promise<Material>` | Stock debug material that renders the (uniform-scale-correct) world-space normal as RGB. No bindings. `opts` overrides pipeline state — `{ topology?, cullMode?, depthWrite?, depthCompare?, blend? }`. |
 | `NormalColorOptions` | `{ topology?: GPUPrimitiveTopology; cullMode?: GPUCullMode; depthWrite?: boolean; depthCompare?: GPUCompareFunction; blend?: GPUBlendState }` | Pipeline-state overrides for `normalColor`. All fields optional; defaults match `MaterialDescriptor` (triangle-list / back / depthWrite true / less / opaque). |
-| `createPipeline` | `(ctx: Context, descriptor: GPURenderPipelineDescriptor) => Promise<GPURenderPipeline>` | Escape hatch: wraps `device.createRenderPipeline` in a validation error scope. Returns the raw pipeline; the caller owns it (not cached, not registered). |
+| `createPipeline` | `(ctx: Context, descriptor: GPURenderPipelineDescriptor) => Promise<GPURenderPipeline>` | Escape hatch: wraps `device.createRenderPipeline` in a validation error scope. Returns the raw pipeline; the caller owns it (not cached). |
 | `STRAIGHT_ALPHA_BLEND` | `GPUBlendState` constant — color: `src=src-alpha, dst=one-minus-src-alpha, op=add`; alpha: `src=one, dst=one-minus-src-alpha, op=add` | Frozen; pass to `MaterialDescriptor.blend`. Non-premultiplied alpha blending — the "naive" alpha-blend most beginners reach for. Compare with `PREMULTIPLIED_ALPHA_BLEND` to see why production engines pre-multiply: PMA composes correctly under chained translucent overlays; straight alpha accumulates α-multiplication error visible at the seams. |
 | `PREMULTIPLIED_ALPHA_BLEND` | `GPUBlendState` constant — `src=one, dst=one-minus-src-alpha, op=add` for both color and alpha | Frozen; pass to `MaterialDescriptor.blend`. |
 | `ADDITIVE_BLEND` | `GPUBlendState` constant — `src=one, dst=one, op=add` for both color and alpha | Frozen; pass to `MaterialDescriptor.blend`. |
@@ -292,9 +292,9 @@ See `engine-conventions.md` §Resource ownership for the lifecycle contract that
 | `cubeGeometry` | `(ctx: Context, opts?: { size?: number }) => Geometry` | Builds a fresh axis-aligned cube Geometry. `size` default: 1. Pass to `mesh.create` to bind. See `engine-conventions.md` §Resource ownership for the lifecycle contract. |
 | `planeGeometry` | `(ctx: Context, opts?: { size?: number }) => Geometry` | Builds a fresh `+Z`-facing unit plane Geometry. `size` default: 1. Pass to `mesh.create` to bind. See `engine-conventions.md` §Resource ownership for the lifecycle contract. |
 | `createGeometry` | `(ctx: Context, data: GeometryData) => Geometry` | Builds a vertex buffer (interleaved `[pos.xyz, normal.xyz, uv.uv]`, 32-byte stride) and optional index buffer from raw arrays. Validates the data. |
-| `destroyGeometry` | `(ctx: Context, geometry: Geometry) => void` | If a Mesh still references the geometry, defers GPU teardown; otherwise destroys vertex + index buffers and unregisters resources. Silent on stale handles. |
+| `destroyGeometry` | `(ctx: Context, geometry: Geometry) => void` | If a Mesh still references the geometry, defers GPU teardown; otherwise destroys vertex and index buffers, recording their byte release in stats. Silent on stale handles. |
 | `create` | `(ctx: Context, opts: { geometry: Geometry; material: Material }) => Mesh` | Allocates the per-mesh object-uniform buffer (64 bytes for `model`). Position `[0,0,0]`, identity rotation, scale `[1,1,1]`. Increments the refcounts on the bound geometry and material. |
-| `destroy` | `(ctx: Context, mesh: Mesh) => void` | Destroys the object buffer, unregisters resources, and decrements the bound geometry/material refcounts. If either was marked-destroyed and its refcount hits zero, its GPU teardown runs as part of this call. Silent on stale handles. |
+| `destroy` | `(ctx: Context, mesh: Mesh) => void` | Destroys the object buffer (recording its byte release in stats) and decrements the bound geometry/material refcounts. If either was marked-destroyed and its refcount hits zero, its GPU teardown runs as part of this call. Silent on stale handles. |
 | `setPosition` | `(ctx: Context, mesh: Mesh, position: Vec3) => void` | Flips `transformDirty`. Silent no-op on stale handles. |
 | `setRotation` | `(ctx: Context, mesh: Mesh, rotation: Quat) => void` | Flips `transformDirty`. Silent no-op on stale handles. |
 | `setScale` | `(ctx: Context, mesh: Mesh, scale: Vec3) => void` | Flips `transformDirty`. Silent no-op on stale handles. |
@@ -422,7 +422,7 @@ module-level mutable-state exception.
 | Export | Signature | Notes |
 |---|---|---|
 | `create` | `(ctx: Context, desc: EffectDescriptor) => Promise<Effect>` | Builds (or reuses, via internal per-ctx pipeline cache) a full-screen post-process pipeline keyed on shader + ctx format + blend signature. The shared fullscreen vertex shader (`vs_fullscreen`) is auto-supplied. Throws on disposed ctx or missing `shader`. |
-| `destroy` | `(ctx: Context, effect: Effect) => void` | Unregisters the effect's stats handle and releases the cached pipeline ref. Silent on stale or already-destroyed handles (idempotent). Does not touch consumer-owned `bindings` resources. |
+| `destroy` | `(ctx: Context, effect: Effect) => void` | Releases the cached pipeline ref. The effect-slot count decrement is handled by the resource manager. Idempotent on stale or already-destroyed handles. Does not touch consumer-owned `bindings` resources. |
 | `EffectDescriptor` | `{ shader: string; bindings?: GPUBindGroupEntry[]; blend?: GPUBlendState }` | WGSL fragment shader with `fs_main` entry. Sampler + scene input are bound at `@group(0)`; `bindings` go to `@group(1)`. |
 | `Effect` | `EffectHandle` (alias) | Opaque branded uint48 handle into the per-ctx effects pool. Treated as opaque by consumers — passed to `frame.render` via `RenderOptions.effects`. |
 
