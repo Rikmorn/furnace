@@ -19,12 +19,11 @@ import {
   _lookupMesh,
 } from "../resources/internal.ts";
 import {
+  _recordAlloc,
   _recordBindGroupSwitch,
+  _recordDestroy,
   _recordDraw,
   _recordPipelineSwitch,
-  _registerResource,
-  _unregisterResource,
-  type ResourceHandle,
 } from "../stats/internal.ts";
 import type { Vec4 } from "../transform/types.ts";
 import { vec4 } from "../transform/vec4.ts";
@@ -40,9 +39,10 @@ type DepthEntry = {
 };
 
 const depthByCtx = new WeakMap<Context, DepthEntry>();
-const depthHandleByCtx = new WeakMap<Context, ResourceHandle>();
+const depthBytesByCtx = new WeakMap<Context, number>();
 const cameraBuffers = new WeakMap<Context, Map<Camera, GPUBuffer>>();
-const cameraBufferHandles = new WeakMap<Context, Map<Camera, ResourceHandle>>();
+// cameraBufferHandles deleted — every camera buffer is CAMERA_UNIFORM_SIZE bytes;
+// the constant is in scope at destroy time, no per-instance lookup needed.
 
 function _ensureDepthTexture(ctx: Context): DepthEntry {
   const existing = depthByCtx.get(ctx);
@@ -53,19 +53,17 @@ function _ensureDepthTexture(ctx: Context): DepthEntry {
   }
   if (existing) {
     existing.texture.destroy();
-    const oldHandle = depthHandleByCtx.get(ctx);
-    if (oldHandle) _unregisterResource(ctx, oldHandle);
+    const oldBytes = depthBytesByCtx.get(ctx);
+    if (oldBytes !== undefined) _recordDestroy(ctx, "texture", oldBytes);
   }
   const texture = ctx.device.createTexture({
     size: { width, height },
     format: "depth24plus",
     usage: GPUTextureUsage.RENDER_ATTACHMENT,
   });
-  const handle = _registerResource(ctx, {
-    kind: "texture",
-    bytes: width * height * 4,
-  });
-  depthHandleByCtx.set(ctx, handle);
+  const bytes = width * height * 4;
+  _recordAlloc(ctx, "texture", bytes);
+  depthBytesByCtx.set(ctx, bytes);
   const entry: DepthEntry = {
     texture,
     view: texture.createView(),
@@ -83,10 +81,10 @@ function _disposeDepth(ctx: Context): void {
   const entry = depthByCtx.get(ctx);
   if (!entry) return;
   entry.texture.destroy();
-  const handle = depthHandleByCtx.get(ctx);
-  if (handle) _unregisterResource(ctx, handle);
+  const bytes = depthBytesByCtx.get(ctx);
+  if (bytes !== undefined) _recordDestroy(ctx, "texture", bytes);
   depthByCtx.delete(ctx);
-  depthHandleByCtx.delete(ctx);
+  depthBytesByCtx.delete(ctx);
 }
 
 function _ensureCameraBuffer(ctx: Context, cam: Camera): GPUBuffer {
@@ -103,15 +101,7 @@ function _ensureCameraBuffer(ctx: Context, cam: Camera): GPUBuffer {
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
     perCam.set(cam, buffer);
-    let handles = cameraBufferHandles.get(ctx);
-    if (!handles) {
-      handles = new Map();
-      cameraBufferHandles.set(ctx, handles);
-    }
-    handles.set(
-      cam,
-      _registerResource(ctx, { kind: "buffer", bytes: CAMERA_UNIFORM_SIZE }),
-    );
+    _recordAlloc(ctx, "buffer", CAMERA_UNIFORM_SIZE);
   }
   const matrices = camera.getMatrices(cam);
   ctx.queue.writeBuffer(buffer, 0, matrices.viewProjection);
@@ -121,13 +111,11 @@ function _ensureCameraBuffer(ctx: Context, cam: Camera): GPUBuffer {
 function _disposeCameraBuffers(ctx: Context): void {
   const perCam = cameraBuffers.get(ctx);
   if (perCam) {
-    for (const buffer of perCam.values()) buffer.destroy();
+    for (const buffer of perCam.values()) {
+      buffer.destroy();
+      _recordDestroy(ctx, "buffer", CAMERA_UNIFORM_SIZE);
+    }
     cameraBuffers.delete(ctx);
-  }
-  const handles = cameraBufferHandles.get(ctx);
-  if (handles) {
-    for (const h of handles.values()) _unregisterResource(ctx, h);
-    cameraBufferHandles.delete(ctx);
   }
 }
 

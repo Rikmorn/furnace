@@ -1,26 +1,22 @@
 import type { Context } from "../gpu/context-types.ts";
 import { _onDispose } from "../gpu/dispose-cascade.ts";
-import {
-  _registerResource,
-  _unregisterResource,
-  type ResourceHandle,
-} from "../stats/internal.ts";
+import { _recordAlloc, _recordDestroy } from "../stats/internal.ts";
 
 const BYTES_PER_PIXEL = 4;
 
 type AllocatedTarget = Readonly<{
   tex: GPUTexture;
   view: GPUTextureView;
-  handle: ResourceHandle;
+  bytes: number;
 }>;
 
 type IntermediateEntry = {
   a: GPUTexture;
   aView: GPUTextureView;
-  aHandle: ResourceHandle;
+  aBytes: number;
   b: GPUTexture;
   bView: GPUTextureView;
-  bHandle: ResourceHandle;
+  bBytes: number;
   sampler: GPUSampler;
   width: number;
   height: number;
@@ -39,11 +35,9 @@ function allocateColorTarget(
     usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
   });
   const view = tex.createView();
-  const handle = _registerResource(ctx, {
-    kind: "texture",
-    bytes: width * height * BYTES_PER_PIXEL,
-  });
-  return { tex, view, handle };
+  const bytes = width * height * BYTES_PER_PIXEL;
+  _recordAlloc(ctx, "texture", bytes);
+  return { tex, view, bytes };
 }
 
 function createSharedSampler(ctx: Context): GPUSampler {
@@ -58,8 +52,8 @@ function createSharedSampler(ctx: Context): GPUSampler {
 function destroyEntry(ctx: Context, entry: IntermediateEntry): void {
   entry.a.destroy();
   entry.b.destroy();
-  _unregisterResource(ctx, entry.aHandle);
-  _unregisterResource(ctx, entry.bHandle);
+  _recordDestroy(ctx, "texture", entry.aBytes);
+  _recordDestroy(ctx, "texture", entry.bBytes);
 }
 
 export function _ensureSceneIntermediates(ctx: Context): IntermediateEntry {
@@ -83,10 +77,10 @@ export function _ensureSceneIntermediates(ctx: Context): IntermediateEntry {
   const entry: IntermediateEntry = {
     a: a.tex,
     aView: a.view,
-    aHandle: a.handle,
+    aBytes: a.bytes,
     b: b.tex,
     bView: b.view,
-    bHandle: b.handle,
+    bBytes: b.bytes,
     sampler,
     width,
     height,
