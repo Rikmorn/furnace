@@ -1,6 +1,8 @@
 # dependencies (bun install)
 node_modules
 
+.playwright-cli
+
 # output
 out
 dist
