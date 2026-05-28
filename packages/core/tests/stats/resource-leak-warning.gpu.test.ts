@@ -175,7 +175,7 @@ test.skipIf(!bunWebGpuAvailable())(
 
     frame.render(ctx, { draw: [m], camera: cam, effects: [fx] });
 
-    post.destroy(fx);
+    post.destroy(ctx, fx);
     mesh.destroy(ctx, m);
     mesh.destroyGeometry(ctx, geo);
     material.destroy(ctx, mat);

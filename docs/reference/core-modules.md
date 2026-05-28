@@ -421,10 +421,10 @@ module-level mutable-state exception.
 
 | Export | Signature | Notes |
 |---|---|---|
-| `create` | `(ctx: Context, desc: EffectDescriptor) => Promise<Effect>` | Builds (or reuses, via internal pipeline cache) a full-screen post-process pipeline keyed on shader + ctx format + blend signature. The shared fullscreen vertex shader (`vs_fullscreen`) is auto-supplied. Throws on disposed ctx or missing `shader`. |
-| `destroy` | `(effect: Effect) => void` | Marks the effect destroyed, unregisters its resource, releases the cached pipeline ref. Warns on double-destroy. |
+| `create` | `(ctx: Context, desc: EffectDescriptor) => Promise<Effect>` | Builds (or reuses, via internal per-ctx pipeline cache) a full-screen post-process pipeline keyed on shader + ctx format + blend signature. The shared fullscreen vertex shader (`vs_fullscreen`) is auto-supplied. Throws on disposed ctx or missing `shader`. |
+| `destroy` | `(ctx: Context, effect: Effect) => void` | Unregisters the effect's stats handle and releases the cached pipeline ref. Silent on stale or already-destroyed handles (idempotent). Does not touch consumer-owned `bindings` resources. |
 | `EffectDescriptor` | `{ shader: string; bindings?: GPUBindGroupEntry[]; blend?: GPUBlendState }` | WGSL fragment shader with `fs_main` entry. Sampler + scene input are bound at `@group(0)`; `bindings` go to `@group(1)`. |
-| `Effect` | `Readonly<{ ctx, pipeline, pipelineKey, bindings, blend, _effectHandle, _internal }>` | Treated as an opaque handle by consumers — passed to `frame.render` via `RenderOptions.effects`. |
+| `Effect` | `EffectHandle` (alias) | Opaque branded uint48 handle into the per-ctx effects pool. Treated as opaque by consumers — passed to `frame.render` via `RenderOptions.effects`. |
 
 ### Demoed in cookbook
 
@@ -442,7 +442,7 @@ These appear in module source files but are NOT exported, OR are exported with a
 
 - Internal `_*` stats hooks (table above in `@furnace/core/stats`).
 - Material's internal `_pipelineCache` (a facade in `material/pipeline.ts` over `acquireMaterialPipeline` / `releaseMaterialPipeline` on the per-ctx `ResourceManager`), `_blendSignature` (in `material/material.ts`), and `_resolveMaterial` (in `material/internal.ts`, used by `frame/render*` and the built-in factories). None re-exported from `material/index.ts`.
-- Post's internal `_pipelineCache` (in `post/pipeline-cache.ts`), `_ensureFullscreenVS` (in `post/fullscreen.ts`), `_effectPipelineHashKey` / `_buildEffectPipelineDescriptor` (in `post/pipeline.ts`), and `_ensureSceneIntermediates` (in `post/intermediate.ts`). None re-exported from `post/index.ts`.
+- Post's internal `_pipelineCache` (a facade in `post/pipeline-cache.ts` over `acquirePostPipeline` / `releasePostPipeline` on the per-ctx `ResourceManager`), `_resolveEffect` (in `post/internal.ts`, used by `frame/render.ts`), `_ensureFullscreenVS` (in `post/fullscreen.ts`), `_effectPipelineHashKey` / `_buildEffectPipelineDescriptor` (in `post/pipeline.ts`), and `_ensureSceneIntermediates` (in `post/intermediate.ts`). None re-exported from `post/index.ts`.
 - Frame's internal `_frameRenderInternals` in `frame/render.ts` — a bundle of `{ _ensureDepthTexture, _ensureCameraBuffer, _ensureMeshGroup0 }` consumed by `frame/render-to-texture.ts`. Not re-exported from `frame/index.ts`.
 - Mesh's internal `_recomputeModelIfDirty` in `mesh/mesh.ts`, called by `frame/render.ts` and `frame/render-to-texture.ts` per draw. Not re-exported from `mesh/index.ts`.
 

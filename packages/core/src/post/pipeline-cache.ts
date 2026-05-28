@@ -1,35 +1,20 @@
-type CacheEntry = {
-  pipeline: GPURenderPipeline;
-  refCount: number;
+import {
+  acquirePostPipeline,
+  releasePostPipeline,
+} from "../resources/manager.ts";
+
+/**
+ * Engine-internal facade over the per-ctx post pipeline cache. The
+ * underlying state lives in `ctx._internal.resources.postPipelineCache`
+ * — scoping the cache to the ctx is what closes the cross-context
+ * pipeline leak (mirror of the material-pipeline migration in Task 3.1;
+ * see `docs/backlog/engine-architecture/pipeline-cache-cross-context-leak.md`).
+ *
+ * `acquire(ctx, key, build)` returns a refcounted pipeline (built only on
+ * a cache miss). `release(ctx, key)` decrements one ref; the entry is
+ * evicted when refcount hits zero.
+ */
+export const _pipelineCache = {
+  acquire: acquirePostPipeline,
+  release: releasePostPipeline,
 };
-
-const cache = new Map<string, CacheEntry>();
-
-async function acquire(
-  key: string,
-  build: () => Promise<GPURenderPipeline>,
-): Promise<GPURenderPipeline> {
-  const hit = cache.get(key);
-  if (hit) {
-    hit.refCount += 1;
-    return hit.pipeline;
-  }
-  const pipeline = await build();
-  cache.set(key, { pipeline, refCount: 1 });
-  return pipeline;
-}
-
-function release(key: string): void {
-  const entry = cache.get(key);
-  if (!entry) return;
-  entry.refCount -= 1;
-  if (entry.refCount <= 0) {
-    cache.delete(key);
-  }
-}
-
-function resetForTests(): void {
-  cache.clear();
-}
-
-export const _pipelineCache = { acquire, release, resetForTests };

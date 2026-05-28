@@ -1,11 +1,10 @@
-import { beforeEach, expect, test } from "bun:test";
+import { expect, test } from "bun:test";
 import * as camera from "../../src/camera/index.ts";
 import * as frame from "../../src/frame/index.ts";
 import * as gpu from "../../src/gpu/index.ts";
 import * as material from "../../src/material/index.ts";
 import * as mesh from "../../src/mesh/index.ts";
 import * as post from "../../src/post/index.ts";
-import { _pipelineCache } from "../../src/post/pipeline-cache.ts";
 import * as stats from "../../src/stats/index.ts";
 import { vec4 } from "../../src/transform/vec4.ts";
 import {
@@ -15,10 +14,6 @@ import {
 } from "../_helpers/gpu-fixture.ts";
 
 await ensureBunWebGpu();
-
-beforeEach(() => {
-  _pipelineCache.resetForTests();
-});
 
 const IDENTITY_EFFECT = `
 @group(0) @binding(0) var sceneTex: texture_2d<f32>;
@@ -60,7 +55,7 @@ test.skipIf(!bunWebGpuAvailable())(
     const fx = await post.create(ctx, { shader: IDENTITY_EFFECT });
     frame.render(ctx, { draw: [cube], camera: cam, effects: [fx] });
     expect(stats.snapshot(ctx).gpu.drawCalls).toBe(2);
-    post.destroy(fx);
+    post.destroy(ctx, fx);
     gpu.dispose(ctx);
   },
 );
@@ -73,8 +68,8 @@ test.skipIf(!bunWebGpuAvailable())(
     const fx2 = await post.create(ctx, { shader: IDENTITY_EFFECT });
     frame.render(ctx, { draw: [cube], camera: cam, effects: [fx1, fx2] });
     expect(stats.snapshot(ctx).gpu.drawCalls).toBe(3);
-    post.destroy(fx1);
-    post.destroy(fx2);
+    post.destroy(ctx, fx1);
+    post.destroy(ctx, fx2);
     gpu.dispose(ctx);
   },
 );
@@ -88,7 +83,7 @@ test.skipIf(!bunWebGpuAvailable())(
     expect(() =>
       frame.render(b.ctx, { draw: [b.cube], camera: b.cam, effects: [fxA] }),
     ).toThrow(/effects\[0\]/);
-    post.destroy(fxA);
+    post.destroy(a.ctx, fxA);
     gpu.dispose(a.ctx);
     gpu.dispose(b.ctx);
   },
@@ -99,7 +94,7 @@ test.skipIf(!bunWebGpuAvailable())(
   async () => {
     const { ctx, cam, cube } = await tinyScene();
     const fx = await post.create(ctx, { shader: IDENTITY_EFFECT });
-    post.destroy(fx);
+    post.destroy(ctx, fx);
     expect(() =>
       frame.render(ctx, { draw: [cube], camera: cam, effects: [fx] }),
     ).toThrow(/effects\[0\]/);
@@ -119,7 +114,7 @@ test.skipIf(!bunWebGpuAvailable())(
         effects: [fx, null] as unknown as post.Effect[],
       }),
     ).toThrow(/effects\[1\]/);
-    post.destroy(fx);
+    post.destroy(ctx, fx);
     gpu.dispose(ctx);
   },
 );

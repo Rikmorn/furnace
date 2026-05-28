@@ -1,9 +1,10 @@
-import { beforeEach, expect, test } from "bun:test";
+import { expect, test } from "bun:test";
 import { consoleSink, type LogEntry, setSink } from "@furnace/core/log";
 import { FurnaceError, FurnaceGpuError } from "../../src/gpu/errors.ts";
 import * as gpu from "../../src/gpu/index.ts";
+import type { EffectSlot } from "../../src/post/effect.ts";
 import * as post from "../../src/post/index.ts";
-import { _pipelineCache } from "../../src/post/pipeline-cache.ts";
+import { _lookupEffect } from "../../src/resources/internal.ts";
 import * as stats from "../../src/stats/index.ts";
 import {
   bunWebGpuAvailable,
@@ -12,10 +13,6 @@ import {
 } from "../_helpers/gpu-fixture.ts";
 
 await ensureBunWebGpu();
-
-beforeEach(() => {
-  _pipelineCache.resetForTests();
-});
 
 const SHADER = `
 @group(0) @binding(0) var sceneTex: texture_2d<f32>;
@@ -33,7 +30,7 @@ test.skipIf(!bunWebGpuAvailable())(
     expect(stats.snapshot(ctx).resources.effects).toBe(0);
     const e = await post.create(ctx, { shader: SHADER });
     expect(stats.snapshot(ctx).resources.effects).toBe(1);
-    post.destroy(e);
+    post.destroy(ctx, e);
     expect(stats.snapshot(ctx).resources.effects).toBe(0);
     gpu.dispose(ctx);
   },
@@ -46,10 +43,15 @@ test.skipIf(!bunWebGpuAvailable())(
     const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
     const a = await post.create(ctx, { shader: SHADER });
     const b = await post.create(ctx, { shader: SHADER });
-    expect(a.pipelineKey).toBe(b.pipelineKey);
-    expect(a.pipeline).toBe(b.pipeline);
-    post.destroy(a);
-    post.destroy(b);
+    const slotA = _lookupEffect<EffectSlot>(ctx, a);
+    const slotB = _lookupEffect<EffectSlot>(ctx, b);
+    if (slotA === null || slotB === null) {
+      throw new Error("unreachable: effects were just created");
+    }
+    expect(slotA.pipelineKey).toBe(slotB.pipelineKey);
+    expect(slotA.pipeline).toBe(slotB.pipeline);
+    post.destroy(ctx, a);
+    post.destroy(ctx, b);
     gpu.dispose(ctx);
   },
 );
@@ -78,22 +80,17 @@ test.skipIf(!bunWebGpuAvailable())(
 );
 
 test.skipIf(!bunWebGpuAvailable())(
-  "double-destroy routes a structured warn entry via log helper",
+  "double-destroy is silent (no warn, no throw)",
   async () => {
     const canvas = await makeOffscreenCanvas(64, 64);
     const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
     const e = await post.create(ctx, { shader: SHADER });
-    post.destroy(e);
+    post.destroy(ctx, e);
     const entries: LogEntry[] = [];
     setSink((entry) => entries.push(entry));
     try {
-      post.destroy(e);
-      expect(entries).toHaveLength(1);
-      const entry = entries[0];
-      if (!entry) throw new Error("unreachable: entries.length checked above");
-      expect(entry.level).toBe("warn");
-      expect(entry.module).toBe("post");
-      expect(entry.message).toBe("effect already destroyed");
+      expect(() => post.destroy(ctx, e)).not.toThrow();
+      expect(entries).toHaveLength(0);
     } finally {
       setSink(consoleSink);
     }

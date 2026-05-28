@@ -8,12 +8,13 @@ import { _resolveMaterial } from "../material/internal.ts";
 import { _resolveGeometry, _resolveMesh } from "../mesh/internal.ts";
 import { _recomputeModelIfDirty } from "../mesh/mesh.ts";
 import type { Mesh, MeshSlot } from "../mesh/types.ts";
-import type { Effect } from "../post/effect.ts";
+import type { Effect, EffectSlot } from "../post/effect.ts";
 import {
   _ensureSceneIntermediates,
   type IntermediateEntry,
 } from "../post/intermediate.ts";
-import { _lookupMesh } from "../resources/internal.ts";
+import { _resolveEffect } from "../post/internal.ts";
+import { _lookupEffect, _lookupMesh } from "../resources/internal.ts";
 import {
   _recordBindGroupSwitch,
   _recordDraw,
@@ -276,12 +277,9 @@ function validateEffects(ctx: Context, effects: readonly Effect[]): void {
     if (fx == null) {
       throw new FurnaceGpuError(`effects[${i}]: null/undefined effect`);
     }
-    if (fx._internal.destroyed) {
-      throw new FurnaceGpuError(`effects[${i}]: effect was destroyed`);
-    }
-    if (fx.ctx !== ctx) {
+    if (_lookupEffect<EffectSlot>(ctx, fx) === null) {
       throw new FurnaceGpuError(
-        `effects[${i}]: effect belongs to a different context`,
+        `effects[${i}]: effect is invalid, destroyed, or belongs to a different context`,
       );
     }
   }
@@ -333,14 +331,15 @@ function renderEffectPass(
   sampler: GPUSampler,
   outputView: GPUTextureView,
 ): void {
+  const slot = _resolveEffect(ctx, effect);
   const group0 = ctx.device.createBindGroup({
-    layout: effect.pipeline.getBindGroupLayout(0),
+    layout: slot.pipeline.getBindGroupLayout(0),
     entries: [
       { binding: 0, resource: inputView },
       { binding: 1, resource: sampler },
     ],
   });
-  const loadOp: GPULoadOp = effect.blend ? "load" : "clear";
+  const loadOp: GPULoadOp = slot.blend ? "load" : "clear";
   const encoder = ctx.device.createCommandEncoder();
   const pass = encoder.beginRenderPass({
     colorAttachments: [
@@ -352,14 +351,14 @@ function renderEffectPass(
       },
     ],
   });
-  pass.setPipeline(effect.pipeline);
+  pass.setPipeline(slot.pipeline);
   _recordPipelineSwitch(ctx);
   pass.setBindGroup(0, group0);
   _recordBindGroupSwitch(ctx);
-  if (effect.bindings && effect.bindings.length > 0) {
+  if (slot.bindings && slot.bindings.length > 0) {
     const group1 = ctx.device.createBindGroup({
-      layout: effect.pipeline.getBindGroupLayout(1),
-      entries: effect.bindings,
+      layout: slot.pipeline.getBindGroupLayout(1),
+      entries: slot.bindings,
     });
     pass.setBindGroup(1, group1);
     _recordBindGroupSwitch(ctx);
@@ -411,8 +410,10 @@ function runEffectsPingPong(
  * @throws FurnaceGpuError - if `ctx` has been disposed; if
  *   `opts.camera` or `opts.draw` is null/undefined; if any entry in
  *   `opts.draw` is null or belongs to a different context; or if any
- *   `opts.effects` entry is null, destroyed, or belongs to a different
- *   context.
+ *   `opts.effects` entry is null, already destroyed, or belongs to a
+ *   different context (a single "invalid handle" diagnostic — the
+ *   handle-pool generation counter does not distinguish destroyed from
+ *   never-existed).
  */
 export function render(ctx: Context, opts: RenderOptions): void {
   if (ctx._internal.disposed) {
