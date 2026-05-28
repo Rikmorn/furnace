@@ -148,9 +148,11 @@ function materialTeardown(ctx: Context, slot: MaterialSlot): void {
  * Allocation: when consumer-supplied `descriptor.bindings` are non-empty, a
  * `@group(1)` `GPUBindGroup` is created over the auto-derived layout. The
  * bind-group resources themselves (buffers, textures) are consumer-owned —
- * `destroy` does not touch them. Built-in factories (`unlit`, `normalColor`)
- * register their own uniform buffers on the slot's `ownedBuffers` so the
- * slot's teardown cleans them up.
+ * `destroy` does not touch them. Built-in factories may allocate uniform
+ * buffers and push them onto the slot's `ownedBuffers` so the slot's
+ * teardown cleans them up (e.g. `unlit` registers a 16-byte color buffer;
+ * `normalColor` has no owned buffers since it uses only engine-provided
+ * `@group(0)` uniforms).
  *
  * Setup-loud per the foreground failure policy
  * (`engine-conventions.md` §"Failure policy").
