@@ -170,9 +170,9 @@ async function main(): Promise<void> {
   mesh.setPosition(ctx, cubeMesh, new Float32Array([CUBE_X, 0, 0]));
   mesh.setPosition(ctx, emissive.mesh, new Float32Array([-CUBE_X, 0, 0]));
 
-  // No teardown — subscription lives for the page lifetime (no dispose path in hello-world).
+  // No teardown — hello-world has no dispose path; these subscriptions
+  // (resize, input, overlay) live for the page lifetime.
   camera.bindToCanvas(cam, ctx);
-
   input.attach(canvas);
   mountFpsOverlay(uiRoot);
   subscribeOverlay(ctx);

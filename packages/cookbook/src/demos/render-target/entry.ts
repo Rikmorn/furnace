@@ -313,20 +313,20 @@ async function buildScene(ctx: Context): Promise<SceneRef> {
   }
 }
 
-function disposeScene(ctx: Context, s: SceneRef): void {
-  s.unsubResize();
-  mesh.destroy(ctx, s.gizmoMesh);
-  mesh.destroy(ctx, s.monitorMesh);
-  mesh.destroy(ctx, s.roomMesh);
-  mesh.destroy(ctx, s.subjectMesh);
-  mesh.destroyGeometry(ctx, s.gizmoGeo);
-  mesh.destroyGeometry(ctx, s.monitorGeo);
-  mesh.destroyGeometry(ctx, s.roomGeo);
-  mesh.destroyGeometry(ctx, s.subjectGeo);
-  material.destroy(ctx, s.gizmoMat);
-  disposePipResources(ctx, s.pip);
-  material.destroy(ctx, s.roomMat);
-  material.destroy(ctx, s.subjectMat);
+function disposeScene(ctx: Context, scene: SceneRef): void {
+  scene.unsubResize();
+  mesh.destroy(ctx, scene.gizmoMesh);
+  mesh.destroy(ctx, scene.monitorMesh);
+  mesh.destroy(ctx, scene.roomMesh);
+  mesh.destroy(ctx, scene.subjectMesh);
+  mesh.destroyGeometry(ctx, scene.gizmoGeo);
+  mesh.destroyGeometry(ctx, scene.monitorGeo);
+  mesh.destroyGeometry(ctx, scene.roomGeo);
+  mesh.destroyGeometry(ctx, scene.subjectGeo);
+  material.destroy(ctx, scene.gizmoMat);
+  disposePipResources(ctx, scene.pip);
+  material.destroy(ctx, scene.roomMat);
+  material.destroy(ctx, scene.subjectMat);
 }
 
 // --- Rebuild queue (single-in-flight + one-pending) ---
