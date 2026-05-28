@@ -64,7 +64,7 @@ function makeSpawn(ctx: Context, scene: Scene): () => void {
       material: scene.mat,
     });
     randomCubePosition(scene.positionBuf);
-    mesh.setPosition(c, scene.positionBuf);
+    mesh.setPosition(ctx, c, scene.positionBuf);
     scene.cubes.push(c);
     state.cubeCount = scene.cubes.length;
     state.spawnTotal += 1;
@@ -77,7 +77,7 @@ function makeDespawn(ctx: Context, scene: Scene): () => void {
   return () => {
     const c = scene.cubes.pop();
     if (!c) return;
-    mesh.destroy(c);
+    mesh.destroy(ctx, c);
     state.cubeCount = scene.cubes.length;
     state.despawnTotal += 1;
     stats.gauge(ctx, KEY_CUBES_ALIVE, scene.cubes.length);
@@ -188,10 +188,10 @@ await mountDemo({
           window.__cookbookCustomStatsDespawn = undefined;
           sceneUnsubResize();
           sceneUnsub();
-          for (const c of cubes) mesh.destroy(c);
+          for (const c of cubes) mesh.destroy(ctx, c);
           cubes.length = 0;
-          mesh.destroyGeometry(sceneGeometry);
-          material.destroy(sceneMat);
+          mesh.destroyGeometry(ctx, sceneGeometry);
+          material.destroy(ctx, sceneMat);
         },
       };
     } catch (e) {
@@ -199,9 +199,9 @@ await mountDemo({
       window.__cookbookCustomStatsDespawn = undefined;
       if (unsubResize) unsubResize();
       if (unsubFrame) unsubFrame();
-      for (const c of cubes) mesh.destroy(c);
-      if (geometry) mesh.destroyGeometry(geometry);
-      if (mat) material.destroy(mat);
+      for (const c of cubes) mesh.destroy(ctx, c);
+      if (geometry) mesh.destroyGeometry(ctx, geometry);
+      if (mat) material.destroy(ctx, mat);
       throw e;
     }
   },
