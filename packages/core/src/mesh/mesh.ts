@@ -112,8 +112,8 @@ function decrementMaterialRefcount(ctx: Context, material: Material): void {
 }
 
 /**
- * Destroy a {@link Mesh}: destroy its object-uniform buffer and unregister
- * the mesh + buffer handles from stats. Decrements the bound geometry's
+ * Destroy a {@link Mesh}: destroy its object-uniform buffer and record
+ * the buffer's byte release in stats. Decrements the bound geometry's
  * AND material's refcounts; if either was marked-destroyed and its
  * refcount hits zero, that resource's GPU teardown runs as part of this
  * call.
