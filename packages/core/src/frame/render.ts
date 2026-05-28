@@ -12,7 +12,6 @@ import {
   _ensureSceneIntermediates,
   type IntermediateEntry,
 } from "../post/intermediate.ts";
-import { _resolveEffect } from "../post/internal.ts";
 import {
   _lookupEffect,
   _lookupGeometry,
@@ -286,18 +285,25 @@ function recordDraw(
   return pipeline;
 }
 
-function validateEffects(ctx: Context, effects: readonly Effect[]): void {
+function validateEffects(
+  ctx: Context,
+  effects: readonly Effect[],
+): EffectSlot[] {
+  const resolved: EffectSlot[] = [];
   for (let i = 0; i < effects.length; i++) {
     const fx = effects[i];
     if (fx == null) {
       throw new FurnaceGpuError(`effects[${i}]: null/undefined effect`);
     }
-    if (_lookupEffect<EffectSlot>(ctx, fx) === null) {
+    const slot = _lookupEffect<EffectSlot>(ctx, fx);
+    if (slot === null) {
       throw new FurnaceGpuError(
         `effects[${i}]: effect is invalid, destroyed, or belongs to a different context`,
       );
     }
+    resolved.push(slot);
   }
+  return resolved;
 }
 
 function validateDraw(ctx: Context, draw: readonly Mesh[]): ResolvedDraw[] {
@@ -361,12 +367,11 @@ function recordScenePass(
 
 function renderEffectPass(
   ctx: Context,
-  effect: Effect,
+  slot: EffectSlot,
   inputView: GPUTextureView,
   sampler: GPUSampler,
   outputView: GPUTextureView,
 ): void {
-  const slot = _resolveEffect(ctx, effect);
   const group0 = ctx.device.createBindGroup({
     layout: slot.pipeline.getBindGroupLayout(0),
     entries: [
@@ -406,21 +411,21 @@ function renderEffectPass(
 
 function runEffectsPingPong(
   ctx: Context,
-  effects: readonly Effect[],
+  effects: readonly EffectSlot[],
   im: IntermediateEntry,
 ): void {
   let inputView = im.aView;
   let outputView = im.bView;
   for (let i = 0; i < effects.length - 1; i++) {
-    const effect = effects[i];
-    if (!effect) continue; // unreachable after validateEffects; satisfies noUncheckedIndexedAccess
-    renderEffectPass(ctx, effect, inputView, im.sampler, outputView);
+    const slot = effects[i];
+    if (!slot) continue; // unreachable after validateEffects; satisfies noUncheckedIndexedAccess
+    renderEffectPass(ctx, slot, inputView, im.sampler, outputView);
     [inputView, outputView] = [outputView, inputView];
   }
-  const finalEffect = effects[effects.length - 1];
-  if (!finalEffect) return; // unreachable after validateEffects
+  const finalSlot = effects[effects.length - 1];
+  if (!finalSlot) return; // unreachable after validateEffects
   const swapView = gpu.getCurrentTextureView(ctx);
-  renderEffectPass(ctx, finalEffect, inputView, im.sampler, swapView);
+  renderEffectPass(ctx, finalSlot, inputView, im.sampler, swapView);
 }
 
 /**
@@ -466,7 +471,7 @@ export function render(ctx: Context, opts: RenderOptions): void {
   }
   const resolvedDraws = validateDraw(ctx, opts.draw);
   const effects = opts.effects ?? [];
-  if (effects.length > 0) validateEffects(ctx, effects);
+  const resolvedEffects = validateEffects(ctx, effects);
 
   const cameraBuffer = _ensureCameraBuffer(ctx, opts.camera);
   const depth = _ensureDepthTexture(ctx);
@@ -497,5 +502,5 @@ export function render(ctx: Context, opts: RenderOptions): void {
     clearColor,
     clearDepth,
   );
-  runEffectsPingPong(ctx, effects, im);
+  runEffectsPingPong(ctx, resolvedEffects, im);
 }

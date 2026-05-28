@@ -52,8 +52,8 @@ export type Effect = EffectHandle;
  *
  * `pipeline` is refcounted in the per-ctx post pipeline cache (keyed on
  * shader + ctx format + blend signature). `bindings` and `blend` are the
- * descriptor values captured at create time, consumed by `frame.render`'s
- * post pass via `_resolveEffect`.
+ * descriptor values captured at create time, consumed directly by
+ * `frame.render`'s post pass after upfront resolution via `validateEffects`.
  */
 export type EffectSlot = {
   ctx: Context;
