@@ -192,17 +192,17 @@ async function buildScene(ctx: Context): Promise<SceneRef> {
     const unsubResize = camera.bindToCanvas(cam, ctx);
     return { geometry, mat, grid, cam, unsubResize };
   } catch (e) {
-    if (mat) material.destroy(mat);
-    if (geometry) mesh.destroyGeometry(geometry);
+    if (mat) material.destroy(ctx, mat);
+    if (geometry) mesh.destroyGeometry(ctx, geometry);
     throw e;
   }
 }
 
-function disposeScene(scene: SceneRef): void {
+function disposeScene(ctx: Context, scene: SceneRef): void {
   scene.unsubResize();
-  mesh.destroy(scene.grid);
-  mesh.destroyGeometry(scene.geometry);
-  material.destroy(scene.mat);
+  mesh.destroy(ctx, scene.grid);
+  mesh.destroyGeometry(ctx, scene.geometry);
+  material.destroy(ctx, scene.mat);
 }
 
 type AbortFlag = { disposed: boolean };
@@ -233,8 +233,8 @@ function makeRebuild(
       // was pending. The sceneRef we'd swap into is already destroyed, so
       // clean up the fresh resources and bail before touching it.
       if (abortFlag.disposed) {
-        mesh.destroyGeometry(nextGeometry);
-        material.destroy(nextMat);
+        mesh.destroyGeometry(ctx, nextGeometry);
+        material.destroy(ctx, nextMat);
         return;
       }
       const nextGrid = mesh.create(ctx, {
@@ -250,12 +250,12 @@ function makeRebuild(
       sceneRef.grid = nextGrid;
       sceneRef.geometry = nextGeometry;
       sceneRef.mat = nextMat;
-      mesh.destroy(oldGrid);
-      mesh.destroyGeometry(oldGeometry);
-      material.destroy(oldMat);
+      mesh.destroy(ctx, oldGrid);
+      mesh.destroyGeometry(ctx, oldGeometry);
+      material.destroy(ctx, oldMat);
     } catch (e) {
-      if (nextMat) material.destroy(nextMat);
-      if (nextGeometry) mesh.destroyGeometry(nextGeometry);
+      if (nextMat) material.destroy(ctx, nextMat);
+      if (nextGeometry) mesh.destroyGeometry(ctx, nextGeometry);
       throw e;
     }
   };
@@ -319,7 +319,7 @@ await mountDemo({
       dispose: () => {
         abortFlag.disposed = true;
         window.__cookbookGeometryRebuild = undefined;
-        disposeScene(sceneRef);
+        disposeScene(ctx, sceneRef);
       },
     };
   },
