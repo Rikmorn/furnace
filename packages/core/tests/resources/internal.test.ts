@@ -7,14 +7,22 @@ import {
   _lookupMesh,
 } from "../../src/resources/internal.ts";
 import { createResourceManager } from "../../src/resources/manager.ts";
+import { createResourceRegistry } from "../../src/stats/resources.ts";
 
 type FakeMeshSlot = { value: number };
 
 // Minimal Context shape sufficient for the internal API. The real Context
 // is much richer; this stub exposes only what resources/internal.ts reads.
+// Includes a stats.resources registry because the typed wrappers fire
+// _recordAlloc/_recordDestroy on every alloc/destroy (RM-4 single-writer).
 function fakeCtx() {
   return {
-    _internal: { resources: createResourceManager(), ctxId: 0xffff },
+    _internal: {
+      resources: createResourceManager(),
+      ctxId: 0xffff,
+      disposed: false,
+      stats: { resources: createResourceRegistry() },
+    },
   } as unknown as Parameters<typeof _allocMesh>[0];
 }
 

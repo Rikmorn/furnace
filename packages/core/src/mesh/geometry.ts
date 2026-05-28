@@ -58,7 +58,6 @@ export function createGeometry(ctx: Context, data: GeometryData): Geometry {
           bytes: indexResources.paddedByteLength,
         })
       : null;
-  const geometryHandle = _registerResource(ctx, { kind: "geometry" });
 
   const slot: GeometrySlot = {
     vertexBuffer,
@@ -69,13 +68,7 @@ export function createGeometry(ctx: Context, data: GeometryData): Geometry {
     userCount: 0,
     markedDestroyed: false,
     _teardown: () =>
-      geometryTeardown(
-        ctx,
-        slot,
-        geometryHandle,
-        vertexBufferHandle,
-        indexBufferHandle,
-      ),
+      geometryTeardown(ctx, slot, vertexBufferHandle, indexBufferHandle),
   };
   return _allocGeometry(ctx, slot);
 }
@@ -83,7 +76,6 @@ export function createGeometry(ctx: Context, data: GeometryData): Geometry {
 function geometryTeardown(
   ctx: Context,
   slot: GeometrySlot,
-  geometryHandle: ResourceHandle,
   vertexHandle: ResourceHandle,
   indexHandle: ResourceHandle | null,
 ): void {
@@ -91,7 +83,6 @@ function geometryTeardown(
   if (slot.indexBuffer) slot.indexBuffer.destroy();
   _unregisterResource(ctx, vertexHandle);
   if (indexHandle) _unregisterResource(ctx, indexHandle);
-  _unregisterResource(ctx, geometryHandle);
 }
 
 /**

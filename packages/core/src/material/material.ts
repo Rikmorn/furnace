@@ -5,11 +5,7 @@ import {
   _destroyMaterial,
   _lookupMaterial,
 } from "../resources/internal.ts";
-import {
-  _registerResource,
-  _unregisterResource,
-  type ResourceHandle,
-} from "../stats/internal.ts";
+import { _unregisterResource } from "../stats/internal.ts";
 import { _pipelineCache } from "./pipeline.ts";
 import type { Material, MaterialDescriptor, MaterialSlot } from "./types.ts";
 
@@ -124,11 +120,7 @@ function buildGroup1(
   }
 }
 
-function materialTeardown(
-  ctx: Context,
-  slot: MaterialSlot,
-  materialHandle: ResourceHandle,
-): void {
+function materialTeardown(ctx: Context, slot: MaterialSlot): void {
   // Length of ownedBuffers and ownedBufferHandles is the same by construction.
   for (let i = 0; i < slot.ownedBuffers.length; i++) {
     const handle = slot.ownedBufferHandles[i];
@@ -138,7 +130,6 @@ function materialTeardown(
   }
   slot.ownedBuffers.length = 0;
   slot.ownedBufferHandles.length = 0;
-  _unregisterResource(ctx, materialHandle);
   _pipelineCache.release(ctx, slot.pipelineKey);
 }
 
@@ -223,8 +214,6 @@ export async function create(
       ? buildGroup1(ctx, pipeline, pipelineKey, bindings)
       : null;
 
-  const materialHandle = _registerResource(ctx, { kind: "material" });
-
   const slot: MaterialSlot = {
     pipeline,
     pipelineKey,
@@ -237,7 +226,7 @@ export async function create(
     depthCompare,
     userCount: 0,
     markedDestroyed: false,
-    _teardown: () => materialTeardown(ctx, slot, materialHandle),
+    _teardown: () => materialTeardown(ctx, slot),
   };
   return _allocMaterial(ctx, slot);
 }

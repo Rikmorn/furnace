@@ -76,7 +76,6 @@ export function create(
     kind: "buffer",
     bytes: OBJECT_UNIFORM_SIZE_BYTES,
   });
-  const meshHandle = _registerResource(ctx, { kind: "mesh" });
 
   const slot: MeshSlot = {
     geometry: opts.geometry,
@@ -87,7 +86,7 @@ export function create(
     modelMatrix: mat4.create(),
     transformDirty: true,
     objectBuffer,
-    _teardown: () => meshTeardown(ctx, slot, meshHandle, objectBufferHandle),
+    _teardown: () => meshTeardown(ctx, slot, objectBufferHandle),
   };
   return _allocMesh(ctx, slot);
 }
@@ -95,12 +94,10 @@ export function create(
 function meshTeardown(
   ctx: Context,
   slot: MeshSlot,
-  meshHandle: ResourceHandle,
   objectBufferHandle: ResourceHandle,
 ): void {
   slot.objectBuffer.destroy();
   _unregisterResource(ctx, objectBufferHandle);
-  _unregisterResource(ctx, meshHandle);
   decrementGeometryRefcount(ctx, slot.geometry);
   decrementMaterialRefcount(ctx, slot.material);
 }

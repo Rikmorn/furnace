@@ -1,4 +1,5 @@
 import type { Context } from "../gpu/context-types.ts";
+import { _recordAlloc, _recordDestroy } from "../stats/internal.ts";
 import {
   decodeCtxId,
   decodeGeneration,
@@ -117,25 +118,33 @@ function _destroyRaw<T>(
 export function _allocMesh<T>(ctx: Context, data: T): MeshHandle {
   // Boundary cast: brand-application at the typed wrapper. The underlying
   // value is a plain uint32; the brand is type-level only.
-  return _allocRaw(ctx, "mesh", data) as MeshHandle;
+  const handle = _allocRaw(ctx, "mesh", data) as MeshHandle;
+  _recordAlloc(ctx, "mesh", 0);
+  return handle;
 }
 
 /** Allocate a material slot and return a branded {@link MaterialHandle}. */
 export function _allocMaterial<T>(ctx: Context, data: T): MaterialHandle {
   // Boundary cast: see _allocMesh.
-  return _allocRaw(ctx, "material", data) as MaterialHandle;
+  const handle = _allocRaw(ctx, "material", data) as MaterialHandle;
+  _recordAlloc(ctx, "material", 0);
+  return handle;
 }
 
 /** Allocate a geometry slot and return a branded {@link GeometryHandle}. */
 export function _allocGeometry<T>(ctx: Context, data: T): GeometryHandle {
   // Boundary cast: see _allocMesh.
-  return _allocRaw(ctx, "geometry", data) as GeometryHandle;
+  const handle = _allocRaw(ctx, "geometry", data) as GeometryHandle;
+  _recordAlloc(ctx, "geometry", 0);
+  return handle;
 }
 
 /** Allocate an effect slot and return a branded {@link EffectHandle}. */
 export function _allocEffect<T>(ctx: Context, data: T): EffectHandle {
   // Boundary cast: see _allocMesh.
-  return _allocRaw(ctx, "effect", data) as EffectHandle;
+  const handle = _allocRaw(ctx, "effect", data) as EffectHandle;
+  _recordAlloc(ctx, "effect", 0);
+  return handle;
 }
 
 /** Look up a mesh slot. Returns `null` on stale or invalid handles. */
@@ -174,7 +183,9 @@ export function _destroyMesh<T>(
   handle: MeshHandle,
   teardown: (data: T) => void,
 ): boolean {
-  return _destroyRaw(ctx, "mesh", handle, teardown);
+  const destroyed = _destroyRaw(ctx, "mesh", handle, teardown);
+  if (destroyed) _recordDestroy(ctx, "mesh", 0);
+  return destroyed;
 }
 
 /** Destroy a material slot. See {@link _destroyMesh} for semantics. */
@@ -183,7 +194,9 @@ export function _destroyMaterial<T>(
   handle: MaterialHandle,
   teardown: (data: T) => void,
 ): boolean {
-  return _destroyRaw(ctx, "material", handle, teardown);
+  const destroyed = _destroyRaw(ctx, "material", handle, teardown);
+  if (destroyed) _recordDestroy(ctx, "material", 0);
+  return destroyed;
 }
 
 /** Destroy a geometry slot. See {@link _destroyMesh} for semantics. */
@@ -192,7 +205,9 @@ export function _destroyGeometry<T>(
   handle: GeometryHandle,
   teardown: (data: T) => void,
 ): boolean {
-  return _destroyRaw(ctx, "geometry", handle, teardown);
+  const destroyed = _destroyRaw(ctx, "geometry", handle, teardown);
+  if (destroyed) _recordDestroy(ctx, "geometry", 0);
+  return destroyed;
 }
 
 /** Destroy an effect slot. See {@link _destroyMesh} for semantics. */
@@ -201,7 +216,9 @@ export function _destroyEffect<T>(
   handle: EffectHandle,
   teardown: (data: T) => void,
 ): boolean {
-  return _destroyRaw(ctx, "effect", handle, teardown);
+  const destroyed = _destroyRaw(ctx, "effect", handle, teardown);
+  if (destroyed) _recordDestroy(ctx, "effect", 0);
+  return destroyed;
 }
 
 /**
@@ -217,7 +234,9 @@ export function _destroyByKind<T>(
   handle: number,
   teardown: (data: T) => void,
 ): boolean {
-  return _destroyRaw(ctx, kind, handle, teardown);
+  const destroyed = _destroyRaw(ctx, kind, handle, teardown);
+  if (destroyed) _recordDestroy(ctx, kind, 0);
+  return destroyed;
 }
 
 // Live-slot iteration — used by the dispose cascade and `resources.list`.

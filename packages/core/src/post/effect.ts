@@ -3,11 +3,6 @@ import { FurnaceGpuError } from "../gpu/errors.ts";
 import type { Context } from "../gpu/index.ts";
 import type { EffectHandle } from "../resources/handle.ts";
 import { _allocEffect, _destroyEffect } from "../resources/internal.ts";
-import {
-  _registerResource,
-  _unregisterResource,
-  type ResourceHandle,
-} from "../stats/internal.ts";
 import { _ensureFullscreenVS } from "./fullscreen.ts";
 import {
   _buildEffectPipelineDescriptor,
@@ -87,12 +82,7 @@ async function buildPipeline(
   return pipeline;
 }
 
-function effectTeardown(
-  ctx: Context,
-  slot: EffectSlot,
-  effectHandle: ResourceHandle,
-): void {
-  _unregisterResource(ctx, effectHandle);
+function effectTeardown(ctx: Context, slot: EffectSlot): void {
   _pipelineCache.release(ctx, slot.pipelineKey);
 }
 
@@ -136,14 +126,13 @@ export async function create(
   const pipeline = await _pipelineCache.acquire(ctx, pipelineKey, () =>
     buildPipeline(ctx, desc.shader, vsModule, desc.blend),
   );
-  const effectHandle = _registerResource(ctx, { kind: "effect" });
 
   const slot: EffectSlot = {
     pipeline,
     pipelineKey,
     bindings: desc.bindings ?? null,
     blend: desc.blend,
-    _teardown: () => effectTeardown(ctx, slot, effectHandle),
+    _teardown: () => effectTeardown(ctx, slot),
   };
   return _allocEffect(ctx, slot);
 }
