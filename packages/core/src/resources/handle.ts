@@ -27,8 +27,7 @@ export type EffectHandle = number & { readonly __brand: "EffectHandle" };
 
 /**
  * Union of every branded handle kind. Used by cross-cutting
- * resource APIs (e.g., `resources.list`) that handle multiple
- * resource types uniformly.
+ * resource APIs that handle multiple resource types uniformly.
  */
 export type AnyResourceHandle =
   | MeshHandle

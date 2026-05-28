@@ -239,7 +239,7 @@ export function _destroyByKind<T>(
   return destroyed;
 }
 
-// Live-slot iteration — used by the dispose cascade and `resources.list`.
+// Live-slot iteration — used by the dispose cascade.
 
 /** Count live slots in the pool for `kind`. */
 export function _countLive(ctx: Context, kind: ResourceKind): number {

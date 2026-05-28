@@ -60,9 +60,9 @@ export function disposeAllResources(ctx: Context): void {
     for (const { handle } of snapshot) {
       // _destroyByKind invokes the slot's _teardown then frees the pool
       // slot. Going through _destroyByKind (not raw teardown) keeps the
-      // pool's live-count consistent so resources.summary() reflects
-      // reality after the cascade — important when called outside of
-      // gpu.dispose (e.g. resources.disposeAll mid-session).
+      // pool's live-count consistent so stats.snapshot(ctx).resources
+      // reflects reality after the cascade — important when called
+      // outside of gpu.dispose (e.g. resources.disposeAll mid-session).
       try {
         if (
           _destroyByKind<CascadeTeardownSlot>(ctx, kind, handle, (data) =>

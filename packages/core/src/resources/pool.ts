@@ -163,7 +163,7 @@ export function countLiveSlots<T>(pool: Pool<T>): number {
 
 /**
  * Iterate live slot indices. Yields `(slotIndex, generation, data)`
- * triples. Used by the dispose cascade and `resources.list`.
+ * triples. Used by the dispose cascade.
  *
  * Iteration order is slot-index ascending; consumers needing
  * destruction-safe order should snapshot the indices first.
