@@ -34,8 +34,9 @@ function requireLabel(key: LabelKey): HTMLElement {
 }
 
 // Out-param `out` and `anchorBuf` are mutated to avoid per-frame allocation;
-// called for each of three labels. anchorBuf is set to `cube.position + (0, 0.6, 0)`
-// so the label projects above the cube's top face rather than its center.
+// called for each of three labels. anchorBuf is set to the cube's position
+// (read via mesh.getPosition into a scratch buffer) plus (0, 0.6, 0) so the
+// label projects above the cube's top face rather than its center.
 function positionLabel(
   out: ScreenProjection,
   anchorBuf: Vec3,
@@ -93,9 +94,13 @@ await mountDemo({
       cubeNoInterp = mesh.create(ctx, { geometry: cubeGeo, material: mat });
       cubeInterp = mesh.create(ctx, { geometry: cubeGeo, material: mat });
 
-      mesh.setPosition(cubeVariable, vec3.fromValues(-CUBE_X_SPACING, 0, 0));
-      mesh.setPosition(cubeNoInterp, vec3.fromValues(0, 0, 0));
-      mesh.setPosition(cubeInterp, vec3.fromValues(CUBE_X_SPACING, 0, 0));
+      mesh.setPosition(
+        ctx,
+        cubeVariable,
+        vec3.fromValues(-CUBE_X_SPACING, 0, 0),
+      );
+      mesh.setPosition(ctx, cubeNoInterp, vec3.fromValues(0, 0, 0));
+      mesh.setPosition(ctx, cubeInterp, vec3.fromValues(CUBE_X_SPACING, 0, 0));
 
       const cam = camera.perspective({
         aspect: ctx.canvas.width / ctx.canvas.height,
@@ -107,6 +112,9 @@ await mountDemo({
       const rotBufVariable = quat.create();
       const rotBufNoInterp = quat.create();
       const rotBufInterp = quat.create();
+      const posBufVariable = vec3.create();
+      const posBufNoInterp = vec3.create();
+      const posBufInterp = vec3.create();
       const projBuf: ScreenProjection = { x: 0, y: 0, w: 1 };
       const labelAnchorBuf = vec3.create();
 
@@ -131,6 +139,9 @@ await mountDemo({
           rotBufVariable,
           rotBufNoInterp,
           rotBufInterp,
+          posBufVariable,
+          posBufNoInterp,
+          posBufInterp,
           projBuf,
           labelAnchorBuf,
           labelVariable,
@@ -139,20 +150,20 @@ await mountDemo({
         },
         dispose: () => {
           sceneUnsubResize();
-          mesh.destroy(sceneCubeVariable);
-          mesh.destroy(sceneCubeNoInterp);
-          mesh.destroy(sceneCubeInterp);
-          mesh.destroyGeometry(sceneCubeGeo);
-          material.destroy(sceneMat);
+          mesh.destroy(ctx, sceneCubeVariable);
+          mesh.destroy(ctx, sceneCubeNoInterp);
+          mesh.destroy(ctx, sceneCubeInterp);
+          mesh.destroyGeometry(ctx, sceneCubeGeo);
+          material.destroy(ctx, sceneMat);
         },
       };
     } catch (e) {
       if (unsubResize) unsubResize();
-      if (cubeVariable) mesh.destroy(cubeVariable);
-      if (cubeNoInterp) mesh.destroy(cubeNoInterp);
-      if (cubeInterp) mesh.destroy(cubeInterp);
-      if (cubeGeo) mesh.destroyGeometry(cubeGeo);
-      if (mat) material.destroy(mat);
+      if (cubeVariable) mesh.destroy(ctx, cubeVariable);
+      if (cubeNoInterp) mesh.destroy(ctx, cubeNoInterp);
+      if (cubeInterp) mesh.destroy(ctx, cubeInterp);
+      if (cubeGeo) mesh.destroyGeometry(ctx, cubeGeo);
+      if (mat) material.destroy(ctx, mat);
       throw e;
     }
   },
@@ -186,11 +197,11 @@ await mountDemo({
       (state.fixedCurrAngle - state.fixedPrevAngle) * alpha;
 
     quat.fromEuler(scene.rotBufVariable, 0, state.angle, 0);
-    mesh.setRotation(scene.cubeVariable, scene.rotBufVariable);
+    mesh.setRotation(ctx, scene.cubeVariable, scene.rotBufVariable);
     quat.fromEuler(scene.rotBufNoInterp, 0, state.fixedCurrAngle, 0);
-    mesh.setRotation(scene.cubeNoInterp, scene.rotBufNoInterp);
+    mesh.setRotation(ctx, scene.cubeNoInterp, scene.rotBufNoInterp);
     quat.fromEuler(scene.rotBufInterp, 0, interpDisplayAngle, 0);
-    mesh.setRotation(scene.cubeInterp, scene.rotBufInterp);
+    mesh.setRotation(ctx, scene.cubeInterp, scene.rotBufInterp);
 
     const vpW = ctx.canvas.clientWidth;
     const vpH = ctx.canvas.clientHeight;
@@ -198,7 +209,7 @@ await mountDemo({
       scene.projBuf,
       scene.labelAnchorBuf,
       scene.cam,
-      scene.cubeVariable.position,
+      mesh.getPosition(ctx, scene.cubeVariable, scene.posBufVariable),
       vpW,
       vpH,
       scene.labelVariable,
@@ -207,7 +218,7 @@ await mountDemo({
       scene.projBuf,
       scene.labelAnchorBuf,
       scene.cam,
-      scene.cubeNoInterp.position,
+      mesh.getPosition(ctx, scene.cubeNoInterp, scene.posBufNoInterp),
       vpW,
       vpH,
       scene.labelNoInterp,
@@ -216,7 +227,7 @@ await mountDemo({
       scene.projBuf,
       scene.labelAnchorBuf,
       scene.cam,
-      scene.cubeInterp.position,
+      mesh.getPosition(ctx, scene.cubeInterp, scene.posBufInterp),
       vpW,
       vpH,
       scene.labelInterp,
