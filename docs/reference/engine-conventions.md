@@ -124,6 +124,16 @@ Branded handle types (`MeshHandle`, `MaterialHandle`, `GeometryHandle`, `EffectH
 
 `AnyResourceHandle` (the union) is named to disambiguate from `stats.ResourceHandle` (the engine-internal stats opaque token — a `Readonly<{ kind; bytes? }>`). The two have different shapes and live in different modules; the naming makes the disambiguation explicit.
 
+### Stats relationship
+
+Two parallel registries track allocations today: the resource manager's per-kind pools, and the stats module's `_registerResource` / `_unregisterResource` calls. Each resource module's create function calls BOTH; each slot's teardown decrements BOTH.
+
+This is intentional **transitional state**, not a bug. The manager tracks slot identity, refcount, and lifecycle (what is in scope to destroy?). Stats tracks memory bytes, leak counts, and cumulative resource-type counters for the FPS overlay (what is using how much?). They overlap in what they register but not in what they track.
+
+The forward direction is event-driven loose coupling: the manager emits resource-lifecycle events, stats subscribes, and resource modules stop calling stats directly for pool-tracked kinds. See `docs/backlog/engine-architecture/resource-manager-stats-events-integration.md` (RM-4) for the design.
+
+Until RM-4 lands, every resource module imports `_registerResource` / `_unregisterResource` from `stats/internal.ts` and the slot teardown closures invoke them. This is documented surface; readers seeing the dual-tracking pattern in source should not interpret it as a bug.
+
 ### Failure-policy alignment
 
 The manager's contract slots into the four-stance taxonomy of §Failure policy:
@@ -131,6 +141,7 @@ The manager's contract slots into the four-stance taxonomy of §Failure policy:
 - Allocation (`mesh.create`, `material.create`, etc.) — cold-path; throws on bad input or unavailable handle.
 - Destroy (`mesh.destroy`, etc.) — cold-path; silent + idempotent on stale/destroyed handle. Override of cold-path default because the bug class is benign and the industry default is silent.
 - Setters / getters (`mesh.setPosition`, etc.) — hot-path; silent on stale/destroyed handle.
+- Refcount-mutating setters (`mesh.setMaterial`) — cold-path-validate; throws on null or stale new-resource handle, silent no-op on stale owner handle. Asymmetric with the pose setters above because refcount-mutation needs validation that pose-mutation doesn't — bad refcount state is harder to recover from than a non-finite position. See `mesh.setMaterial` TSDoc for the precise contract.
 - Render-time validation (`frame.render` `validateDraw` / `validateEffects`) — warm-path; throws with positional context.
 - Diagnostics (cascade summary warn, leak-warn fallback, generation-overflow debug warn) — observability stance.
 
