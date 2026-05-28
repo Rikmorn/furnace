@@ -14,7 +14,6 @@ export {
   isInvalidHandle,
   type MaterialHandle,
   type MeshHandle,
-  type ResourceHandle,
 } from "./handle.ts";
 export {
   allocSlot,

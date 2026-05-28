@@ -60,6 +60,15 @@ test("two different (slot, gen) pairs produce different handles", () => {
   expect(a).not.toBe(c);
 });
 
+test("encodeHandle returns positive uint32 even when high bit of generation is set (>>> 0 regression)", () => {
+  // Without the `>>> 0` coercion in encodeHandle, (1 << 16) | 0 ... (0x8000 << 16)
+  // would produce a negative signed int32. This regression test pins the fix.
+  const handle = encodeHandle(1, 0x8000);
+  expect(handle).toBeGreaterThan(0);
+  expect(decodeSlotIndex(handle)).toBe(1);
+  expect(decodeGeneration(handle)).toBe(0x8000);
+});
+
 test("handles are always non-negative uint32 values", () => {
   for (let slot = 1; slot <= 100; slot += 7) {
     for (let gen = 1; gen <= 65535; gen += 4095) {

@@ -1,14 +1,14 @@
-/**
- * Branded handle types per resource kind. Each handle is a 32-bit
- * unsigned integer encoding (slot index, generation):
- *
- *   bits  0-15 : slot index (0..65535; slot 0 is the invalid sentinel)
- *   bits 16-31 : generation counter (0..65535; bumped on each alloc and destroy)
- *
- * The brand is type-level only — at runtime, all handles are plain
- * numbers. The brand prevents accidentally passing a MeshHandle where
- * a MaterialHandle is expected.
- */
+// Branded handle types per resource kind. Each handle is a 32-bit
+// unsigned integer encoding (slot index, generation):
+//
+//   bits  0-15 : slot index (0..65535; slot 0 is the invalid sentinel)
+//   bits 16-31 : generation counter (0..65535; bumped on each alloc and destroy)
+//
+// The brand is type-level only — at runtime, all handles are plain
+// numbers. The brand prevents accidentally passing a MeshHandle where
+// a MaterialHandle is expected.
+
+/** Branded handle referring to a slot in the meshes pool. */
 export type MeshHandle = number & { readonly __brand: "MeshHandle" };
 
 /** Branded handle referring to a slot in the material pool. */
@@ -20,13 +20,6 @@ export type GeometryHandle = number & { readonly __brand: "GeometryHandle" };
 /** Branded handle referring to a slot in the effect pool. */
 export type EffectHandle = number & { readonly __brand: "EffectHandle" };
 
-/** Union of all branded handle types. Used in resources.* introspection. */
-export type ResourceHandle =
-  | MeshHandle
-  | MaterialHandle
-  | GeometryHandle
-  | EffectHandle;
-
 const SLOT_BITS = 16;
 const SLOT_MASK = 0xffff;
 const GEN_MASK = 0xffff;
@@ -35,17 +28,18 @@ const GEN_MASK = 0xffff;
 export const INVALID_HANDLE = 0;
 
 /**
- * Encode (slot index, generation) into a uint32 handle. The result is
- * branded as the given handle type via the caller's type assertion at
- * the alloc site.
+ * Encode (slot index, generation) into a uint32 handle. Caller is
+ * responsible for narrowing the result to the appropriate branded
+ * handle type (MeshHandle, MaterialHandle, etc.).
  *
- * Generation overflow at 16 bits (~65k destroys per slot) wraps. Debug
- * builds warn; production builds wrap silently. See
- * `engine-conventions.md` §Resource manager.
+ * Generation overflow at 16 bits (~65k destroys per slot) wraps.
+ * See `engine-conventions.md` §Resource manager.
  */
 export function encodeHandle(slotIndex: number, generation: number): number {
-  // `>>> 0` coerces the signed-int32 result of `<<` back to uint32 — without
-  // it, generation values with the high bit set produce a negative number.
+  // `<<` and `|` in JS operate on signed int32; the result becomes negative
+  // for any generation >= 0x8000 (high bit set). `>>> 0` coerces back to
+  // uint32 so the handle satisfies its documented contract and decode round-
+  // trips correctly.
   return (
     (((generation & GEN_MASK) << SLOT_BITS) | (slotIndex & SLOT_MASK)) >>> 0
   );
