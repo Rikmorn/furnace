@@ -1,6 +1,6 @@
 import { FurnaceError } from "../errors.ts";
 import type { Context } from "../gpu/index.ts";
-import { _registerResource } from "../stats/internal.ts";
+import { _recordAlloc } from "../stats/internal.ts";
 import type { Vec4 } from "../transform/types.ts";
 import { _resolveMaterial } from "./internal.ts";
 import { create } from "./material.ts";
@@ -82,10 +82,7 @@ export async function unlit(
     usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
   });
   ctx.queue.writeBuffer(colorBuffer, 0, opts.color);
-  const colorBufferHandle = _registerResource(ctx, {
-    kind: "buffer",
-    bytes: COLOR_BUFFER_SIZE_BYTES,
-  });
+  _recordAlloc(ctx, "buffer", COLOR_BUFFER_SIZE_BYTES);
   const handle = await create(ctx, {
     vertex: UNLIT_WGSL,
     fragment: UNLIT_WGSL,
@@ -98,6 +95,6 @@ export async function unlit(
   });
   const slot = _resolveMaterial(ctx, handle);
   slot.ownedBuffers.push(colorBuffer);
-  slot.ownedBufferHandles.push(colorBufferHandle);
+  slot.ownedBufferBytes.push(COLOR_BUFFER_SIZE_BYTES);
   return handle;
 }

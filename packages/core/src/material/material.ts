@@ -5,7 +5,7 @@ import {
   _destroyMaterial,
   _lookupMaterial,
 } from "../resources/internal.ts";
-import { _unregisterResource } from "../stats/internal.ts";
+import { _recordDestroy } from "../stats/internal.ts";
 import { _pipelineCache } from "./pipeline.ts";
 import type { Material, MaterialDescriptor, MaterialSlot } from "./types.ts";
 
@@ -121,15 +121,15 @@ function buildGroup1(
 }
 
 function materialTeardown(ctx: Context, slot: MaterialSlot): void {
-  // Length of ownedBuffers and ownedBufferHandles is the same by construction.
+  // Length of ownedBuffers and ownedBufferBytes is the same by construction.
   for (let i = 0; i < slot.ownedBuffers.length; i++) {
-    const handle = slot.ownedBufferHandles[i];
-    if (handle) _unregisterResource(ctx, handle);
     const buf = slot.ownedBuffers[i];
     if (buf) buf.destroy();
+    const bytes = slot.ownedBufferBytes[i];
+    if (bytes !== undefined) _recordDestroy(ctx, "buffer", bytes);
   }
   slot.ownedBuffers.length = 0;
-  slot.ownedBufferHandles.length = 0;
+  slot.ownedBufferBytes.length = 0;
   _pipelineCache.release(ctx, slot.pipelineKey);
 }
 
@@ -219,7 +219,7 @@ export async function create(
     pipelineKey,
     group1,
     ownedBuffers: [],
-    ownedBufferHandles: [],
+    ownedBufferBytes: [],
     cullMode,
     topology,
     depthWrite,
@@ -236,9 +236,9 @@ export async function create(
  * (`userCount > 0`), the slot is marked-destroyed and actual GPU teardown
  * waits until the last referencing mesh is destroyed (symmetric to
  * Mesh→Geometry). When teardown runs it destroys any factory-owned
- * uniform buffers (e.g. `unlit`'s color buffer), unregisters their stats
- * handles, and releases one ref on the cached pipeline. The pipeline
- * itself is freed when its refcount drops to zero.
+ * uniform buffers (e.g. `unlit`'s color buffer), records the matching
+ * stats destroy for each, and releases one ref on the cached pipeline.
+ * The pipeline itself is freed when its refcount drops to zero.
  *
  * Does not destroy the consumer-owned resources passed via
  * `MaterialDescriptor.bindings` (buffers/textures the consumer created and

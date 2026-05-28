@@ -1,5 +1,4 @@
 import type { MaterialHandle } from "../resources/handle.ts";
-import type { ResourceHandle } from "../stats/internal.ts";
 
 /**
  * Descriptor accepted by `material.create`.
@@ -49,9 +48,9 @@ export type Material = MaterialHandle;
  * surface; resource-manager internals only.
  *
  * `pipeline` is refcounted in the per-ctx material pipeline cache;
- * `ownedBuffers` / `ownedBufferHandles` hold any uniform buffers the
- * factory allocated and registered with stats so the slot's `_teardown`
- * can release them.
+ * `ownedBuffers` / `ownedBufferBytes` are paired arrays holding any
+ * uniform buffers the factory allocated and their byte sizes (used by
+ * the slot's `_teardown` to fire matching stats decrements).
  *
  * `userCount` / `markedDestroyed` carry the Mesh→Material refcount
  * (symmetric to Mesh→Geometry): `destroy` while `userCount > 0` sets
@@ -63,7 +62,7 @@ export type MaterialSlot = {
   pipelineKey: string;
   group1: GPUBindGroup | null;
   ownedBuffers: GPUBuffer[];
-  ownedBufferHandles: ResourceHandle[];
+  ownedBufferBytes: number[];
   cullMode: GPUCullMode;
   topology: GPUPrimitiveTopology;
   depthWrite: boolean;
