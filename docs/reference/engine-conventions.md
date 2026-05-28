@@ -39,18 +39,96 @@ Both:
 - Auto-pause when the document becomes hidden (Page Visibility API). Configurable via `{ pauseOnHidden: false }`.
 - Return a `FrameLoopHandle` with `{ stop, pause, resume }`.
 
+## Resource manager
+
+`@furnace/core` centralises GPU-backed consumer-resource lifecycles in a per-context resource manager. Every consumer-facing resource — `Mesh`, `Material`, `Geometry`, `Effect` — is allocated through the manager, tracked in a typed pool, and freed via a synchronous teardown that runs atomically with the slot's destroy.
+
+### Handle representation
+
+A handle is a branded `uint48` — a plain JS `number` within the IEEE 754 safe-integer range:
+
+- bits  0–15: slot index (0..65535; slot 0 reserved as the invalid sentinel)
+- bits 16–31: generation counter (bumped on each alloc and destroy)
+- bits 32–47: context id (assigned per Context at construction; 0 reserved)
+
+JS bitwise ops truncate to int32, which cleanly drops the ctxId in the upper bits — so `decodeSlotIndex` and `decodeGeneration` stay as simple bitwise decoders. `decodeCtxId` uses arithmetic (`Math.floor(handle / 0x100000000)`) because bitwise can't reach the upper bits.
+
+The brand is type-level only — at runtime, all handles are plain numbers. Brands prevent passing a `MeshHandle` where a `MaterialHandle` is expected; the ctxId catches the harder case of passing one context's handle to another context's lookup (which would otherwise silently resolve to a wrong-but-live slot in the recipient pool — handle collisions across contexts are otherwise frequent at startup when both pools begin at slot 1 generation 1).
+
+Public API (example):
+
+```ts
+const cube: MeshHandle = mesh.create(ctx, { geometry, material });
+mesh.setPosition(ctx, cube, vec3.fromValues(1, 0, 0));
+mesh.destroy(ctx, cube);
+```
+
+Consumers treat handles as opaque — no field access, no deref. All state mutation goes through the typed accessor functions (`mesh.setPosition`, `mesh.getPosition`, `material.destroy`, etc.).
+
+### Pool model
+
+One pool per resource kind. Backing arrays plus a `Uint32Array` of generation counters plus a LIFO free stack. Pools auto-grow on allocation when the free stack is empty; pools never shrink (high-water-mark capacity stays for the context's lifetime). Initial capacity is 64 slots per pool.
+
+### Lookup, ctxId guard, and use-after-destroy
+
+Every operation against a handle does a lookup. The lookup compares the handle's encoded ctxId to the context's ctxId; on mismatch (cross-context misuse), returns null. Then bounds check + generation match against the pool; on mismatch (stale handle, recycled slot, destroyed handle, invalid input), also returns null.
+
+The call-site contract decides the response to null:
+
+- **Cold-path setters** (`mesh.setPosition`, `module.destroy`): silent no-op. Idempotent.
+- **Warm-path render** (`frame.render`): throws `FurnaceGpuError` with `draw[i]:` / `effects[i]:` prefix. The single error covers stale, destroyed, cross-context, and never-existed — the handle-pool generation counter does not distinguish those at runtime.
+- **Resource queries** (`resources.summary`, `resources.list`): destroyed handles never appear in live iteration.
+
+### Idempotent destroy
+
+`module.destroy(ctx, handle)` is silent + idempotent on a stale or destroyed handle (lookup returns null → early return without effect). This matches the WebGPU spec (`GPUBuffer.destroy()` is valid to call multiple times), C#'s `IDisposable`, Java `Closeable`, PixiJS, and TC39 `Symbol.dispose`. All four resource modules (`mesh`, `material`, `mesh.destroyGeometry`, `post`) follow this contract.
+
+### Internal refcount for sharing
+
+`Geometry` and `Material` slots carry an internal `userCount` field. `mesh.create({ geometry, material })` validates BOTH lookups, then increments both counts. `mesh.destroy` decrements both, and if either dependency was marked-destroyed (`destroyGeometry` / `material.destroy` called while a mesh still referenced it) and the refcount hits zero, that dependency's actual GPU teardown runs as part of `mesh.destroy`.
+
+Order-matters footgun is eliminated. Consumers can destroy in any order; the refcount enforces correctness.
+
+The refcount is engine-private. Consumers cannot inspect it; the engine cannot expose it as public API without leaking the manager's internal shape.
+
+### Auto-cleanup on dispose
+
+`gpu.dispose(ctx)` walks every pool in fixed order (meshes → effects → materials → geometries) and runs each live slot's teardown. After the cascade, a single informational warn summarises the cleanup: `"auto-cleaned N live handles on dispose; explicit destroy is an optimization, not a requirement"` — where N is the count of slots the cascade actually freed (refcount-cascaded slots are accounted for; the warn is exact, not approximate).
+
+Consumer discipline becomes an *optimization* (free early to reduce in-context memory pressure), not a *requirement*.
+
+The pre-manager leak-warn (`stats.resources.entries.size > 0` → "context disposed with resources still registered — leak suspected") is preserved alongside the cascade warn. After Stage 1, all four resource modules are pooled and the cascade auto-unregisters their stats entries, so the leak-warn's count is typically zero. It remains as a safety net for any future non-pooled resource kind.
+
+### Cross-cutting introspection
+
+`@furnace/core/resources` exposes:
+
+- `summary(ctx) → ResourceSummary` — counts per kind. O(N) over each pool's slot table; suitable for debug overlays, not per-frame gameplay.
+- `list<H>(ctx, kind) → IterableIterator<H>` — iterate live handles of the given kind. Caller narrows `H` to one of the branded handle types.
+- `snapshot(ctx) → ResourceSnapshot` — structured dump (per-kind handle arrays). Intended for dev tools and post-mortem dumps.
+- `disposeAll(ctx) → void` — explicit cascade trigger; identical to what `gpu.dispose(ctx)` does internally. Use when freeing handles ahead of a context transition without dropping the `GPUDevice`.
+
+Branded handle types (`MeshHandle`, `MaterialHandle`, `GeometryHandle`, `EffectHandle`, `AnyResourceHandle`) and the `ResourceKind` discriminator are re-exported from this module for type-level use.
+
+`AnyResourceHandle` (the union) is named to disambiguate from `stats.ResourceHandle` (the engine-internal stats opaque token — a `Readonly<{ kind; bytes? }>`). The two have different shapes and live in different modules; the naming makes the disambiguation explicit.
+
+### Failure-policy alignment
+
+The manager's contract slots into the four-stance taxonomy of §Failure policy:
+
+- Allocation (`mesh.create`, `material.create`, etc.) — cold-path; throws on bad input or unavailable handle.
+- Destroy (`mesh.destroy`, etc.) — cold-path; silent + idempotent on stale/destroyed handle. Override of cold-path default because the bug class is benign and the industry default is silent.
+- Setters / getters (`mesh.setPosition`, etc.) — hot-path; silent on stale/destroyed handle.
+- Render-time validation (`frame.render` `validateDraw` / `validateEffects`) — warm-path; throws with positional context.
+- Diagnostics (cascade summary warn, leak-warn fallback, generation-overflow debug warn) — observability stance.
+
+### Why this shape
+
+See `docs/research/destroy-ownership-prior-art.md` and `docs/research/resource-manager-prior-art.md` for the prior-art research that drove the choice. Short version: the Sokol pool + generation counter pattern is unusually well-suited to JS-on-WebGPU because (a) WebGPU's spec already handles mid-frame destroy safely, (b) the JS layer provides cheap `Uint32Array`-backed counters, and (c) the alternative refcount-handle pattern (wgpu-style `Arc`) has no JS equivalent. The ctxId extension to uint48 was a Session 1 discovery — uint32 alone collides across multiple `Context`s on a single page.
+
 ## Disposal
 
-Explicit destroy model.
-
-`gpu.dispose(ctx)`:
-- Calls `device.destroy()` (WebGPU frees GPU memory).
-- Clears internal bookkeeping (caches, registries, emitters). Engine modules with ctx-bound lazy allocations (`frame.render`'s depth texture and per-camera uniform buffers, `post`'s scene intermediates) self-register their teardown internally — the consumer destroy contract for owned resources (meshes, materials, geometries, effects) is unchanged.
-- Subsequent calls taking the disposed ctx throw "context disposed".
-- `module.destroy(handle)` on handles tied to a disposed ctx is a no-op (safe to call).
-- Idempotent: calling `dispose` twice is safe.
-
-Consumer-facing resources (meshes, textures, buffers) have `module.destroy(handle)`. Pipelines / bind-group-layouts are internal — cached by the engine; never destroyed by the consumer.
+Superseded by §Resource manager (2026-05-28). `gpu.dispose(ctx)` cascades through the resource manager; explicit `module.destroy(ctx, handle)` is an optimization rather than a requirement. The idempotent-on-second-dispose contract on `gpu.dispose` itself is unchanged.
 
 ## Cameras
 
@@ -290,36 +368,9 @@ sink semantics.
 
 ## Resource ownership
 
-The engine follows one rule for GPU resource lifetime:
+Superseded by §Resource manager (2026-05-28). The manager is the single source of truth for resource lifecycle; "who owns what" reduces to "the manager owns every consumer-facing slot; the consumer holds opaque handles." Built-in factories (e.g. `material.unlit`'s color uniform buffer) attach their owned buffers to the slot's `ownedBuffers` array, so factory-allocated internals are freed alongside the public handle.
 
-> **Pass a GPU handle in, or get one back, → you own it.**
-
-- A constructor that returns a handle (`createGeometry`, `material.create`, `mesh.create`, etc.) hands ownership to the caller. The caller calls the corresponding `destroy*` on teardown.
-- A constructor that takes a handle in its descriptor (`mesh.create(ctx, { geometry, material })`) does **not** take ownership — the caller still owns the handle they passed in.
-- A factory that takes only configuration values (no handles) and returns a handle (`material.unlit(ctx, { color })`) keeps its internal allocations private. They are freed by the corresponding `destroy*`. The caller never receives a separately-disposable handle to those internals.
-
-There is no "managed mesh" or "factory-owned" middle category. The engine surface either gives you handles you own, or it returns opaque results whose internals you can't reach.
-
-### Mapping per public API
-
-| API | Inputs | Returns | Caller owns | Engine owns (private) |
-|---|---|---|---|---|
-| `createGeometry(ctx, data)` | typed-array values | `Geometry` | the Geometry | — |
-| `cubeGeometry(ctx, opts?)` | size value | `Geometry` | the Geometry | — |
-| `planeGeometry(ctx, opts?)` | size value | `Geometry` | the Geometry | — |
-| `mesh.create(ctx, { geometry, material })` | two handles | `Mesh` | Mesh + the passed geometry + the passed material | mesh's object buffer |
-| `material.create(ctx, { vertex, fragment, bindings })` | strings + buffer handles | `Material` | Material + each binding buffer | pipeline (refcounted) |
-| `material.unlit(ctx, { color })` | vec4 value | `Material` | the Material | pipeline + color uniform buffer |
-| `material.normalColor(ctx, opts?)` | options | `Material` | the Material | pipeline |
-| `post.create(ctx, { shader, bindings? })` | string + optional handles | `Effect` | Effect + each binding buffer | pipeline + intermediate textures |
-
-### Sharing
-
-To share one geometry across multiple meshes, allocate it via the explicit flow (`cubeGeometry` / `planeGeometry` / `createGeometry`) and pass the handle into every `mesh.create` that should bind it. You destroy it ONCE on teardown, after all dependent meshes are destroyed. See `packages/cookbook/src/demos/custom-stats/entry.ts` for a worked example (one geometry, N cubes).
-
-### Historical note
-
-Earlier engine versions exposed `mesh.cube` and `mesh.plane` convenience factories that returned a `Mesh` with an internally-allocated geometry. They violated the rule above — the geometry was *publicly visible* on `mesh.geometry` but `mesh.destroy` did not free it, leaking 3 GPU resources per mesh on dispose. Removed in Tranche B-1 (2026-05-27). To get the same shape today, allocate the geometry explicitly: `mesh.create(ctx, { geometry: mesh.cubeGeometry(ctx), material })`.
+The original ownership rule ("Pass a handle in, or get one back → you own it") still describes consumer-side intent — you destroy what you explicitly created. Enforcement and refcount tracking now live in the manager rather than in consumer discipline; the cascade-on-dispose path safeguards against forgotten destroys.
 
 ## Diagnostics
 
