@@ -5,6 +5,18 @@
 // in Session 2; until then everything below is engine-internal.
 
 export {
+  decodeGeneration,
+  decodeSlotIndex,
+  type EffectHandle,
+  encodeHandle,
+  type GeometryHandle,
+  INVALID_HANDLE,
+  isInvalidHandle,
+  type MaterialHandle,
+  type MeshHandle,
+  type ResourceHandle,
+} from "./handle.ts";
+export {
   allocSlot,
   countLiveSlots,
   createPool,
