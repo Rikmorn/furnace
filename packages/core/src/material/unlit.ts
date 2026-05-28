@@ -1,6 +1,6 @@
 import { FurnaceError } from "../errors.ts";
 import type { Context } from "../gpu/index.ts";
-import { _recordAlloc } from "../stats/internal.ts";
+import { _recordAlloc, _recordDestroy } from "../stats/internal.ts";
 import type { Vec4 } from "../transform/types.ts";
 import { _resolveMaterial } from "./internal.ts";
 import { create } from "./material.ts";
@@ -83,18 +83,28 @@ export async function unlit(
   });
   ctx.queue.writeBuffer(colorBuffer, 0, opts.color);
   _recordAlloc(ctx, "buffer", COLOR_BUFFER_SIZE_BYTES);
-  const handle = await create(ctx, {
-    vertex: UNLIT_WGSL,
-    fragment: UNLIT_WGSL,
-    bindings: [{ binding: 0, resource: { buffer: colorBuffer } }],
-    topology: opts.topology,
-    cullMode: opts.cullMode,
-    depthWrite: opts.depthWrite,
-    depthCompare: opts.depthCompare,
-    blend: opts.blend,
-  });
-  const slot = _resolveMaterial(ctx, handle);
-  slot.ownedBuffers.push(colorBuffer);
-  slot.ownedBufferBytes.push(COLOR_BUFFER_SIZE_BYTES);
-  return handle;
+  try {
+    const handle = await create(ctx, {
+      vertex: UNLIT_WGSL,
+      fragment: UNLIT_WGSL,
+      bindings: [{ binding: 0, resource: { buffer: colorBuffer } }],
+      topology: opts.topology,
+      cullMode: opts.cullMode,
+      depthWrite: opts.depthWrite,
+      depthCompare: opts.depthCompare,
+      blend: opts.blend,
+    });
+    const slot = _resolveMaterial(ctx, handle);
+    slot.ownedBuffers.push(colorBuffer);
+    slot.ownedBufferBytes.push(COLOR_BUFFER_SIZE_BYTES);
+    return handle;
+  } catch (err) {
+    // Setup-loud leak window: if create() or _resolveMaterial throws after
+    // we've recorded the alloc, the colorBuffer has no slot to own it and
+    // no teardown attached. Free it and roll back the byte accounting
+    // before rethrowing.
+    colorBuffer.destroy();
+    _recordDestroy(ctx, "buffer", COLOR_BUFFER_SIZE_BYTES);
+    throw err;
+  }
 }
