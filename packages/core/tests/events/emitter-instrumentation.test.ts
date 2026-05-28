@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { createEmitter } from "../../src/events/emitter.ts";
 import type { Context } from "../../src/gpu/context-types.ts";
+import { createResourceManager } from "../../src/resources/manager.ts";
 import { createStatsState } from "../../src/stats/state.ts";
 
 function makeMockCtx(): Context {
@@ -10,7 +11,11 @@ function makeMockCtx(): Context {
     format: "bgra8unorm" as GPUTextureFormat,
     canvas: null as unknown as HTMLCanvasElement,
     pixelRatio: 1,
-    _internal: { disposed: false, stats: createStatsState(0) },
+    _internal: {
+      disposed: false,
+      stats: createStatsState(0),
+      resources: createResourceManager(),
+    },
   } as Context;
 }
 

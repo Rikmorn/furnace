@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { consoleSink, type LogEntry, setSink } from "@furnace/core/log";
 import type { Context } from "../../src/gpu/context-types.ts";
+import { createResourceManager } from "../../src/resources/manager.ts";
 import {
   _recordBindGroupSwitch,
   _recordDraw,
@@ -15,7 +16,11 @@ function makeMockCtx(disposed = false): Context {
     format: "bgra8unorm" as GPUTextureFormat,
     canvas: null as unknown as HTMLCanvasElement,
     pixelRatio: 1,
-    _internal: { disposed, stats: createStatsState(0) },
+    _internal: {
+      disposed,
+      stats: createStatsState(0),
+      resources: createResourceManager(),
+    },
   } as Context;
 }
 

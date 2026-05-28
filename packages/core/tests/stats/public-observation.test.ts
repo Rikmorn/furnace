@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { FurnaceError } from "../../src/errors.ts";
 import type { Context } from "../../src/gpu/context-types.ts";
+import { createResourceManager } from "../../src/resources/manager.ts";
 import { _frameEnd, _frameStart } from "../../src/stats/internal.ts";
 import { get, onFrame, snapshot } from "../../src/stats/public.ts";
 import { createStatsState } from "../../src/stats/state.ts";
@@ -12,7 +13,11 @@ function makeMockCtx(disposed = false): Context {
     format: "bgra8unorm" as GPUTextureFormat,
     canvas: null as unknown as HTMLCanvasElement,
     pixelRatio: 1,
-    _internal: { disposed, stats: createStatsState(0) },
+    _internal: {
+      disposed,
+      stats: createStatsState(0),
+      resources: createResourceManager(),
+    },
   } as Context;
 }
 
