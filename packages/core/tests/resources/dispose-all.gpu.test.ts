@@ -50,7 +50,7 @@ test.skipIf(!bunWebGpuAvailable())(
 );
 
 test.skipIf(!bunWebGpuAvailable())(
-  "alloc-after-disposeAll reuses freed slots and renders correctly",
+  "alloc-after-disposeAll reuses freed slots and stale handles silently no-op",
   async () => {
     const canvas = await makeOffscreenCanvas();
     const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
@@ -96,8 +96,11 @@ test.skipIf(!bunWebGpuAvailable())(
     // Old handles must NOT resolve (slots recycled, generation bumped).
     // Verifies the silent-no-op contract on stale handles.
     expect(() => mesh.destroy(ctx, cube1)).not.toThrow();
+    expect(stats.snapshot(ctx).resources.meshes).toBe(1);
     expect(() => material.destroy(ctx, mat1)).not.toThrow();
+    expect(stats.snapshot(ctx).resources.materials).toBe(1);
     expect(() => mesh.destroyGeometry(ctx, geo1)).not.toThrow();
+    expect(stats.snapshot(ctx).resources.geometries).toBe(1);
 
     // The fresh handles must work normally.
     mesh.destroy(ctx, cube2);
