@@ -5,6 +5,10 @@
 // in Session 2; until then everything below is engine-internal.
 
 export {
+  type CascadeTeardownSlot,
+  disposeAllResources,
+} from "./dispose.ts";
+export {
   decodeGeneration,
   decodeSlotIndex,
   type EffectHandle,

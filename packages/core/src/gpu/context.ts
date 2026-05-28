@@ -1,4 +1,5 @@
 import { error, warn } from "../log/internal.ts";
+import { disposeAllResources } from "../resources/dispose.ts";
 import {
   createResourceManager,
   type ResourceManager,
@@ -176,6 +177,7 @@ export async function requestContext(
 export function dispose(ctx: Context): void {
   if (ctx._internal.disposed) return;
   _runDisposeCascade(ctx);
+  disposeAllResources(ctx);
   const remaining = ctx._internal.stats.resources.entries.size;
   if (remaining > 0) {
     warn(
