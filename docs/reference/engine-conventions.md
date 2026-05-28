@@ -93,11 +93,23 @@ The refcount is engine-private. Consumers cannot inspect it; the engine cannot e
 
 ### Auto-cleanup on dispose
 
-`gpu.dispose(ctx)` walks every pool in fixed order (meshes → effects → materials → geometries) and runs each live slot's teardown. After the cascade, a single informational warn summarises the cleanup: `"auto-cleaned N live handles on dispose; explicit destroy is an optimization, not a requirement"` — where N is the count of slots the cascade actually freed (refcount-cascaded slots are accounted for; the warn is exact, not approximate).
+`gpu.dispose(ctx)` walks every pool in fixed order (meshes → effects → materials → geometries) and runs each live slot's teardown. After the cascade, a single informational warn summarises the cleanup: `"auto-cleaned N live handles on dispose; explicit destroy is an optimization, not a requirement"` — where N is the count of slots the cascade directly freed. Refcount-cascaded slots (slots freed implicitly when a mesh teardown decrements a marked-destroyed geometry/material to zero) are correctly **excluded** from N: they reflect user-requested destroys (`material.destroy(ctx, m)` was called; the actual GPU free was just deferred until the last referencing mesh went away), not engine-rescued leaks. The warn counts what the cascade had to clean up because the user didn't.
 
 Consumer discipline becomes an *optimization* (free early to reduce in-context memory pressure), not a *requirement*.
 
 The pre-manager leak-warn (`stats.resources.entries.size > 0` → "context disposed with resources still registered — leak suspected") is preserved alongside the cascade warn. After Stage 1, all four resource modules are pooled and the cascade auto-unregisters their stats entries, so the leak-warn's count is typically zero. It remains as a safety net for any future non-pooled resource kind.
+
+### Dispose order
+
+`gpu.dispose(ctx)` runs two cascades in fixed order:
+
+1. **`_runDisposeCascade(ctx)` (engine-private cleanup)** — runs first. Tears down engine-private resources that are stats-tracked but NOT pool-tracked: depth texture, per-camera uniform buffers, post intermediates. Each tracks its own stats handle independently of the resource manager.
+
+2. **`disposeAllResources(ctx)` (pool cascade)** — runs second. Walks every live slot in every pool in the cascade order (meshes → effects → materials → geometries) and runs each slot's `_teardown`. Slot teardowns internally call `_unregisterResource` for each stats handle the slot was tracking.
+
+The ordering is load-bearing. Engine-private resources are stats-tracked; running them first means their decrements compose correctly with the pool cascade's subsequent decrements. The pool cascade depends on slot teardowns running their `_unregisterResource` calls successfully — those calls are no-ops if the corresponding stats handle was already cleaned up earlier, but they MUST run in the right order to keep stats's `entries.size` consistent with the cascade's view.
+
+After both cascades complete, `gpu.dispose` runs a final `stats.resources.entries.size > 0` check. In well-behaved teardown this is always zero (both cascades ran cleanly). The check remains as a safety net for any future non-pooled resource kind whose stats handles weren't decremented during either cascade.
 
 ### Cross-cutting introspection
 
