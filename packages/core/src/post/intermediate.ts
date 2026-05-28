@@ -7,16 +7,13 @@ const BYTES_PER_PIXEL = 4;
 type AllocatedTarget = Readonly<{
   tex: GPUTexture;
   view: GPUTextureView;
-  bytes: number;
 }>;
 
 type IntermediateEntry = {
   a: GPUTexture;
   aView: GPUTextureView;
-  aBytes: number;
   b: GPUTexture;
   bView: GPUTextureView;
-  bBytes: number;
   sampler: GPUSampler;
   width: number;
   height: number;
@@ -35,9 +32,8 @@ function allocateColorTarget(
     usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
   });
   const view = tex.createView();
-  const bytes = width * height * BYTES_PER_PIXEL;
-  _recordAlloc(ctx, "texture", bytes);
-  return { tex, view, bytes };
+  _recordAlloc(ctx, "texture", width * height * BYTES_PER_PIXEL);
+  return { tex, view };
 }
 
 function createSharedSampler(ctx: Context): GPUSampler {
@@ -50,10 +46,13 @@ function createSharedSampler(ctx: Context): GPUSampler {
 }
 
 function destroyEntry(ctx: Context, entry: IntermediateEntry): void {
+  // Both `a` and `b` are allocated at the same width×height, so a single
+  // derivation covers both records.
+  const bytes = entry.width * entry.height * BYTES_PER_PIXEL;
   entry.a.destroy();
   entry.b.destroy();
-  _recordDestroy(ctx, "texture", entry.aBytes);
-  _recordDestroy(ctx, "texture", entry.bBytes);
+  _recordDestroy(ctx, "texture", bytes);
+  _recordDestroy(ctx, "texture", bytes);
 }
 
 export function _ensureSceneIntermediates(ctx: Context): IntermediateEntry {
@@ -77,10 +76,8 @@ export function _ensureSceneIntermediates(ctx: Context): IntermediateEntry {
   const entry: IntermediateEntry = {
     a: a.tex,
     aView: a.view,
-    aBytes: a.bytes,
     b: b.tex,
     bView: b.view,
-    bBytes: b.bytes,
     sampler,
     width,
     height,

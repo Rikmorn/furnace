@@ -39,10 +39,15 @@ type DepthEntry = {
 };
 
 const depthByCtx = new WeakMap<Context, DepthEntry>();
-const depthBytesByCtx = new WeakMap<Context, number>();
 const cameraBuffers = new WeakMap<Context, Map<Camera, GPUBuffer>>();
 // cameraBufferHandles deleted — every camera buffer is CAMERA_UNIFORM_SIZE bytes;
 // the constant is in scope at destroy time, no per-instance lookup needed.
+
+const DEPTH_BYTES_PER_PIXEL = 4; // depth24plus → 4 bytes/texel for accounting
+
+function depthEntryBytes(entry: DepthEntry): number {
+  return entry.width * entry.height * DEPTH_BYTES_PER_PIXEL;
+}
 
 function _ensureDepthTexture(ctx: Context): DepthEntry {
   const existing = depthByCtx.get(ctx);
@@ -53,17 +58,14 @@ function _ensureDepthTexture(ctx: Context): DepthEntry {
   }
   if (existing) {
     existing.texture.destroy();
-    const oldBytes = depthBytesByCtx.get(ctx);
-    if (oldBytes !== undefined) _recordDestroy(ctx, "texture", oldBytes);
+    _recordDestroy(ctx, "texture", depthEntryBytes(existing));
   }
   const texture = ctx.device.createTexture({
     size: { width, height },
     format: "depth24plus",
     usage: GPUTextureUsage.RENDER_ATTACHMENT,
   });
-  const bytes = width * height * 4;
-  _recordAlloc(ctx, "texture", bytes);
-  depthBytesByCtx.set(ctx, bytes);
+  _recordAlloc(ctx, "texture", width * height * DEPTH_BYTES_PER_PIXEL);
   const entry: DepthEntry = {
     texture,
     view: texture.createView(),
@@ -81,10 +83,8 @@ function _disposeDepth(ctx: Context): void {
   const entry = depthByCtx.get(ctx);
   if (!entry) return;
   entry.texture.destroy();
-  const bytes = depthBytesByCtx.get(ctx);
-  if (bytes !== undefined) _recordDestroy(ctx, "texture", bytes);
+  _recordDestroy(ctx, "texture", depthEntryBytes(entry));
   depthByCtx.delete(ctx);
-  depthBytesByCtx.delete(ctx);
 }
 
 function _ensureCameraBuffer(ctx: Context, cam: Camera): GPUBuffer {
