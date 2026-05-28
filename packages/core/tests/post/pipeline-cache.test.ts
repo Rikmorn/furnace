@@ -48,9 +48,3 @@ test("final release evicts; next acquire rebuilds", async () => {
 test("release on an unknown key is a no-op (does not throw)", () => {
   expect(() => _pipelineCache.release("never-acquired")).not.toThrow();
 });
-
-// The "post cache vs material cache" independence test was removed after
-// Task 3.1: the material cache lives in per-ctx ResourceManager state, the
-// post cache is still module-level here (Task 3.2 migrates it), so they
-// can no longer share entries by construction. Independence will be
-// re-tested as "two ctxs don't share post pipelines" in Task 3.2.

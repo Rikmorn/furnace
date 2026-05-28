@@ -139,7 +139,7 @@ test.skipIf(!bunWebGpuAvailable())(
 );
 
 test.skipIf(!bunWebGpuAvailable())(
-  "mesh.create rolls back the geometry refcount when the material handle is invalid",
+  "mesh.create does not increment the geometry refcount when the material handle is invalid",
   async () => {
     const canvas = await makeOffscreenCanvas();
     const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
@@ -155,7 +155,8 @@ test.skipIf(!bunWebGpuAvailable())(
     expect(() => mesh.create(ctx, { geometry: geo, material: mat })).toThrow(
       /material handle is invalid or destroyed/,
     );
-    // Geometry refcount unchanged — rolled back on the throw path.
+    // mesh.create validates both handles before incrementing either, so a
+    // failed material lookup leaves the geometry refcount untouched.
     expect(_lookupGeometry<GeometrySlot>(ctx, geo)?.userCount).toBe(before);
 
     mesh.destroyGeometry(ctx, geo);

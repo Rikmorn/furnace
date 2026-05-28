@@ -294,15 +294,18 @@ See `engine-conventions.md` §Resource ownership for the lifecycle contract that
 | `cubeGeometry` | `(ctx: Context, opts?: { size?: number }) => Geometry` | Builds a fresh axis-aligned cube Geometry. `size` default: 1. Pass to `mesh.create` to bind. See `engine-conventions.md` §Resource ownership for the lifecycle contract. |
 | `planeGeometry` | `(ctx: Context, opts?: { size?: number }) => Geometry` | Builds a fresh `+Z`-facing unit plane Geometry. `size` default: 1. Pass to `mesh.create` to bind. See `engine-conventions.md` §Resource ownership for the lifecycle contract. |
 | `createGeometry` | `(ctx: Context, data: GeometryData) => Geometry` | Builds a vertex buffer (interleaved `[pos.xyz, normal.xyz, uv.uv]`, 32-byte stride) and optional index buffer from raw arrays. Validates the data. |
-| `destroyGeometry` | `(geometry: Geometry) => void` | Destroys vertex + index buffers, unregisters resources. |
-| `create` | `(ctx: Context, opts: { geometry: Geometry; material: Material }) => Mesh` | Allocates the per-mesh object-uniform buffer (64 bytes for `model`). Position `[0,0,0]`, identity rotation, scale `[1,1,1]`. |
-| `destroy` | `(mesh: Mesh) => void` | Destroys the object buffer, unregisters resources. Does **not** destroy the geometry (it may be shared). |
-| `setPosition` | `(mesh: Mesh, position: Vec3) => void` | Flips `transformDirty`. |
-| `setRotation` | `(mesh: Mesh, rotation: Quat) => void` | Flips `transformDirty`. |
-| `setScale` | `(mesh: Mesh, scale: Vec3) => void` | Flips `transformDirty`. |
-| `Geometry` | record holding `{ ctx, vertexBuffer, vertexCount, indexBuffer, indexFormat, indexCount }` | Treated as an opaque handle by consumers. Triangle count is derived per draw inside `frame.render` from `mesh.material.topology` rather than stored on `Geometry`. |
+| `destroyGeometry` | `(ctx: Context, geometry: Geometry) => void` | If a Mesh still references the geometry, defers GPU teardown; otherwise destroys vertex + index buffers and unregisters resources. Silent on stale handles. |
+| `create` | `(ctx: Context, opts: { geometry: Geometry; material: Material }) => Mesh` | Allocates the per-mesh object-uniform buffer (64 bytes for `model`). Position `[0,0,0]`, identity rotation, scale `[1,1,1]`. Increments the refcounts on the bound geometry and material. |
+| `destroy` | `(ctx: Context, mesh: Mesh) => void` | Destroys the object buffer, unregisters resources, and decrements the bound geometry/material refcounts. If either was marked-destroyed and its refcount hits zero, its GPU teardown runs as part of this call. Silent on stale handles. |
+| `setPosition` | `(ctx: Context, mesh: Mesh, position: Vec3) => void` | Flips `transformDirty`. Silent no-op on stale handles. |
+| `setRotation` | `(ctx: Context, mesh: Mesh, rotation: Quat) => void` | Flips `transformDirty`. Silent no-op on stale handles. |
+| `setScale` | `(ctx: Context, mesh: Mesh, scale: Vec3) => void` | Flips `transformDirty`. Silent no-op on stale handles. |
+| `getPosition` | `(ctx: Context, mesh: Mesh, out: Vec3) => Vec3` | Reads the mesh's position into `out` (out-param convention). Returns `out` unchanged on stale handles. |
+| `getRotation` | `(ctx: Context, mesh: Mesh, out: Quat) => Quat` | Reads the mesh's rotation quaternion into `out`. Returns `out` unchanged on stale handles. |
+| `getScale` | `(ctx: Context, mesh: Mesh, out: Vec3) => Vec3` | Reads the mesh's scale into `out`. Returns `out` unchanged on stale handles. |
+| `Geometry` | Opaque branded uint48 handle (alias of `GeometryHandle`) | Returned by `createGeometry` / `cubeGeometry` / `planeGeometry`. Pass to `mesh.create` (may be shared across meshes); dispose via `mesh.destroyGeometry(ctx, g)`. |
 | `GeometryData` | `{ positions: Float32Array; normals: Float32Array; uvs: Float32Array; indices?: Uint16Array \| Uint32Array }` | Raw arrays fed to `createGeometry`. |
-| `Mesh` | record holding `{ ctx, geometry, material, position, rotation, scale, modelMatrix, transformDirty, objectBuffer }` | Treated as an opaque handle by consumers — mutate only via setters. |
+| `Mesh` | Opaque branded uint48 handle (alias of `MeshHandle`) | Returned by `mesh.create`. Pass to `frame.render`; mutate the bound pose only via the `setPosition` / `setRotation` / `setScale` setters; dispose via `mesh.destroy(ctx, m)`. |
 
 ### Demoed in cookbook
 
