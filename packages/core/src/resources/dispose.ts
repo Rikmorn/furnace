@@ -43,17 +43,19 @@ export type CascadeTeardownSlot = {
  * iteration continues so one failure doesn't abort the cascade.
  */
 export function disposeAllResources(ctx: Context): void {
-  const total = CASCADE_ORDER.reduce(
+  const upfrontTotal = CASCADE_ORDER.reduce(
     (acc, kind) => acc + _countLive(ctx, kind),
     0,
   );
-  if (total === 0) return;
-  warn(
-    "resources",
-    `auto-cleaned ${total} live handles on dispose; explicit destroy is an optimization, not a requirement`,
-  );
+  if (upfrontTotal === 0) return;
+  let destroyed = 0;
   for (const kind of CASCADE_ORDER) {
     // Snapshot live handles before iterating — teardown mutates the pool.
+    // Some snapshot entries may already be destroyed by the time we reach
+    // them because mesh teardown can refcount-cascade into the geometry
+    // and material slots it referenced. _destroyByKind returns false on
+    // those; we count only the slots WE actually freed so the post-cascade
+    // warn matches reality.
     const snapshot = [..._iterateLive<CascadeTeardownSlot>(ctx, kind)];
     for (const { handle } of snapshot) {
       // _destroyByKind invokes the slot's _teardown then frees the pool
@@ -62,13 +64,21 @@ export function disposeAllResources(ctx: Context): void {
       // reality after the cascade — important when called outside of
       // gpu.dispose (e.g. resources.disposeAll mid-session).
       try {
-        _destroyByKind<CascadeTeardownSlot>(ctx, kind, handle, (data) =>
-          data._teardown(),
-        );
+        if (
+          _destroyByKind<CascadeTeardownSlot>(ctx, kind, handle, (data) =>
+            data._teardown(),
+          )
+        ) {
+          destroyed += 1;
+        }
       } catch (e) {
         warn("resources", `teardown threw during cascade for ${kind}`, e);
         // Continue iteration; one failure must not abort the cascade.
       }
     }
   }
+  warn(
+    "resources",
+    `auto-cleaned ${destroyed} live handles on dispose; explicit destroy is an optimization, not a requirement`,
+  );
 }
