@@ -3,6 +3,9 @@ export { createGeometry, destroyGeometry } from "./geometry.ts";
 export {
   create,
   destroy,
+  getPosition,
+  getRotation,
+  getScale,
   setPosition,
   setRotation,
   setScale,

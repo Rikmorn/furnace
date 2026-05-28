@@ -4,14 +4,15 @@ import { _onDispose } from "../gpu/dispose-cascade.ts";
 import { FurnaceGpuError } from "../gpu/errors.ts";
 import type { Context } from "../gpu/index.ts";
 import * as gpu from "../gpu/index.ts";
-import { _resolveGeometry } from "../mesh/internal.ts";
+import { _resolveGeometry, _resolveMesh } from "../mesh/internal.ts";
 import { _recomputeModelIfDirty } from "../mesh/mesh.ts";
-import type { Mesh } from "../mesh/types.ts";
+import type { Mesh, MeshSlot } from "../mesh/types.ts";
 import type { Effect } from "../post/effect.ts";
 import {
   _ensureSceneIntermediates,
   type IntermediateEntry,
 } from "../post/intermediate.ts";
+import { _lookupMesh } from "../resources/internal.ts";
 import {
   _recordBindGroupSwitch,
   _recordDraw,
@@ -157,26 +158,28 @@ export type RenderOptions = {
 const DEFAULT_CLEAR_COLOR: Vec4 = vec4.fromValues(0, 0, 0, 1);
 const DEFAULT_CLEAR_DEPTH = 1.0;
 
-// Per-mesh map from (pipeline, cameraBuffer) -> group-0 bind group. The outer
-// WeakMap lets entries get GC'd when the mesh itself is dropped. The inner Maps
-// exist because a mesh's material may swap pipelines over time AND the same
-// mesh may be rendered with multiple cameras (e.g. main pass + render-to-texture
-// pass) — each (pipeline, cameraBuffer) pair needs its own bind group.
+// Per-mesh map from (pipeline, cameraBuffer) -> group-0 bind group. Keyed by
+// MeshSlot (the slot object reference) so a WeakMap suffices: when the slot is
+// recycled by the pool, the old reference becomes unreachable and its cache
+// drops naturally. The inner Maps exist because a mesh's material may swap
+// pipelines over time AND the same mesh may be rendered with multiple cameras
+// (e.g. main pass + render-to-texture pass) — each (pipeline, cameraBuffer)
+// pair needs its own bind group.
 const group0Cache = new WeakMap<
-  Mesh,
+  MeshSlot,
   Map<GPURenderPipeline, Map<GPUBuffer, GPUBindGroup>>
 >();
 
 function ensureGroup0(
   ctx: Context,
-  mesh: Mesh,
+  slot: MeshSlot,
   pipeline: GPURenderPipeline,
   cameraBuffer: GPUBuffer,
 ): GPUBindGroup {
-  let perMesh = group0Cache.get(mesh);
+  let perMesh = group0Cache.get(slot);
   if (!perMesh) {
     perMesh = new Map();
-    group0Cache.set(mesh, perMesh);
+    group0Cache.set(slot, perMesh);
   }
   let perPipeline = perMesh.get(pipeline);
   if (!perPipeline) {
@@ -189,7 +192,7 @@ function ensureGroup0(
     layout: pipeline.getBindGroupLayout(0),
     entries: [
       { binding: 0, resource: { buffer: cameraBuffer } },
-      { binding: 1, resource: { buffer: mesh.objectBuffer } },
+      { binding: 1, resource: { buffer: slot.objectBuffer } },
     ],
   });
   perPipeline.set(cameraBuffer, bindGroup);
@@ -236,19 +239,20 @@ function recordDraw(
   cameraBuffer: GPUBuffer,
   lastPipeline: GPURenderPipeline | null,
 ): GPURenderPipeline {
-  _recomputeModelIfDirty(mesh);
-  const pipeline = mesh.material.pipeline;
+  const slot = _resolveMesh(ctx, mesh);
+  _recomputeModelIfDirty(slot);
+  const pipeline = slot.material.pipeline;
   pass.setPipeline(pipeline);
   if (pipeline !== lastPipeline) {
     _recordPipelineSwitch(ctx);
   }
-  pass.setBindGroup(0, ensureGroup0(ctx, mesh, pipeline, cameraBuffer));
+  pass.setBindGroup(0, ensureGroup0(ctx, slot, pipeline, cameraBuffer));
   _recordBindGroupSwitch(ctx);
-  if (mesh.material.group1) {
-    pass.setBindGroup(1, mesh.material.group1);
+  if (slot.material.group1) {
+    pass.setBindGroup(1, slot.material.group1);
     _recordBindGroupSwitch(ctx);
   }
-  const geom = _resolveGeometry(ctx, mesh.geometry);
+  const geom = _resolveGeometry(ctx, slot.geometry);
   pass.setVertexBuffer(0, geom.vertexBuffer);
   const { indexBuffer, indexFormat, indexCount, vertexCount } = geom;
   if (indexBuffer && indexFormat) {
@@ -259,7 +263,7 @@ function recordDraw(
   }
   const drawCount = indexCount || vertexCount;
   _recordDraw(ctx, {
-    triangles: trianglesForTopology(mesh.material.topology, drawCount),
+    triangles: trianglesForTopology(slot.material.topology, drawCount),
   });
   return pipeline;
 }
@@ -287,7 +291,7 @@ function validateDraw(ctx: Context, draw: readonly Mesh[]): void {
     if (m == null) {
       throw new FurnaceGpuError(`draw[${i}]: null/undefined mesh`);
     }
-    if (m.ctx !== ctx) {
+    if (_lookupMesh(ctx, m) === null) {
       throw new FurnaceGpuError(
         `draw[${i}]: mesh belongs to a different context`,
       );

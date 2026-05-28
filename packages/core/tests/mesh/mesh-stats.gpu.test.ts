@@ -23,7 +23,7 @@ test.skipIf(!bunWebGpuAvailable())(
     const after = snapshot(ctx);
     expect(after.resources.meshes - before.resources.meshes).toBe(1);
     expect(after.memory.bufferBytes - before.memory.bufferBytes).toBe(64);
-    mesh.destroy(m);
+    mesh.destroy(ctx, m);
     const final = snapshot(ctx);
     expect(final.resources.meshes).toBe(before.resources.meshes);
     expect(final.memory.bufferBytes).toBe(before.memory.bufferBytes);

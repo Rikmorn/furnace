@@ -1,6 +1,6 @@
 import type { Context } from "../gpu/index.ts";
 import type { Material } from "../material/types.ts";
-import type { GeometryHandle } from "../resources/handle.ts";
+import type { GeometryHandle, MeshHandle } from "../resources/handle.ts";
 import type { Mat4, Quat, Vec3 } from "../transform/types.ts";
 
 /**
@@ -38,9 +38,6 @@ export type Geometry = GeometryHandle;
  * Mesh→Geometry deferred-free path: `destroyGeometry` while `userCount > 0`
  * sets `markedDestroyed` and skips actual GPU teardown; the last
  * `mesh.destroy` that drops `userCount` to zero then triggers teardown.
- * The refcount itself is wired up in Task 2.2 (Mesh migration); today
- * `userCount` stays at `0` and `destroyGeometry` always tears down
- * immediately.
  */
 export type GeometrySlot = {
   ctx: Context;
@@ -55,15 +52,25 @@ export type GeometrySlot = {
 };
 
 /**
- * Opaque mesh handle returned by {@link create}. Holds the bound geometry +
- * material plus a TRS pose (position, rotation, scale) that drives the
- * per-mesh object-uniform buffer.
+ * Opaque mesh handle. Returned by {@link create} and holds a reference
+ * to the bound geometry + material plus a TRS pose. Pass to setters
+ * (`setPosition`, `setRotation`, `setScale`) or `frame.render` along
+ * with `ctx`.
  *
- * Mutate only via the provided setters (`setPosition`, `setRotation`,
- * `setScale`) — direct field writes will not flip `transformDirty` and the
- * model matrix will go stale.
+ * Type-alias of {@link MeshHandle}; consumers can use either name.
  */
-export type Mesh = {
+export type Mesh = MeshHandle;
+
+/**
+ * Engine-private slot data backing a {@link Mesh} handle in the meshes
+ * pool. Not exported from the `@furnace/core/mesh` public surface.
+ *
+ * Holds the bound geometry handle, material reference (still an object
+ * during the Sessions 2-4 migration window), and TRS pose. `transformDirty`
+ * flags a pending model-matrix recompute; flipped by the setters and
+ * cleared by `_recomputeModelIfDirty`.
+ */
+export type MeshSlot = {
   ctx: Context;
   geometry: Geometry;
   material: Material;
@@ -73,4 +80,5 @@ export type Mesh = {
   modelMatrix: Mat4;
   transformDirty: boolean;
   objectBuffer: GPUBuffer;
+  _teardown: () => void;
 };

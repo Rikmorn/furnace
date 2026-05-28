@@ -6,6 +6,7 @@ import * as gpu from "../../src/gpu/index.ts";
 import { normalColor } from "../../src/material/normal-color.ts";
 import { unlit } from "../../src/material/unlit.ts";
 import { cubeGeometry, planeGeometry } from "../../src/mesh/factories/index.ts";
+import { _resolveMesh } from "../../src/mesh/internal.ts";
 import { create as createMesh } from "../../src/mesh/mesh.ts";
 import type { Mesh } from "../../src/mesh/types.ts";
 import { vec3 } from "../../src/transform/index.ts";
@@ -114,23 +115,24 @@ test.skipIf(!bunWebGpuAvailable())(
     const camB = camera.perspective({ position: vec3.fromValues(3, 0, 0) });
     const mat = await normalColor(ctx);
     const c = createMesh(ctx, { geometry: cubeGeometry(ctx), material: mat });
+    const cSlot = _resolveMesh(ctx, c);
     const bufA = _frameRenderInternals._ensureCameraBuffer(ctx, camA);
     const bufB = _frameRenderInternals._ensureCameraBuffer(ctx, camB);
     const groupA = _frameRenderInternals._ensureMeshGroup0(
       ctx,
-      c,
+      cSlot,
       mat.pipeline,
       bufA,
     );
     const groupB = _frameRenderInternals._ensureMeshGroup0(
       ctx,
-      c,
+      cSlot,
       mat.pipeline,
       bufB,
     );
     const groupAagain = _frameRenderInternals._ensureMeshGroup0(
       ctx,
-      c,
+      cSlot,
       mat.pipeline,
       bufA,
     );

@@ -3,6 +3,7 @@ import * as gpu from "../../src/gpu/index.ts";
 import { unlit } from "../../src/material/unlit.ts";
 import { cubeGeometry, planeGeometry } from "../../src/mesh/factories/index.ts";
 import { destroyGeometry } from "../../src/mesh/geometry.ts";
+import { _resolveMesh } from "../../src/mesh/internal.ts";
 import { create, destroy } from "../../src/mesh/mesh.ts";
 import type { GeometrySlot } from "../../src/mesh/types.ts";
 import { _lookupGeometry } from "../../src/resources/internal.ts";
@@ -23,12 +24,13 @@ test.skipIf(!bunWebGpuAvailable())(
     const mat = await unlit(ctx, { color: vec4.fromValues(1, 1, 1, 1) });
     const geom = cubeGeometry(ctx);
     const m = create(ctx, { geometry: geom, material: mat });
-    const slot = _lookupGeometry<GeometrySlot>(ctx, m.geometry);
+    const meshSlot = _resolveMesh(ctx, m);
+    const slot = _lookupGeometry<GeometrySlot>(ctx, meshSlot.geometry);
     if (!slot) throw new Error("unreachable: slot should be live");
     expect(slot.vertexCount).toBe(24);
     expect(slot.indexCount).toBe(36);
-    expect(m.material).toBe(mat);
-    destroy(m);
+    expect(meshSlot.material).toBe(mat);
+    destroy(ctx, m);
     destroyGeometry(ctx, geom);
     gpu.dispose(ctx);
   },
@@ -42,11 +44,12 @@ test.skipIf(!bunWebGpuAvailable())(
     const mat = await unlit(ctx, { color: vec4.fromValues(1, 1, 1, 1) });
     const geom = planeGeometry(ctx, { size: 3 });
     const m = create(ctx, { geometry: geom, material: mat });
-    const slot = _lookupGeometry<GeometrySlot>(ctx, m.geometry);
+    const meshSlot = _resolveMesh(ctx, m);
+    const slot = _lookupGeometry<GeometrySlot>(ctx, meshSlot.geometry);
     if (!slot) throw new Error("unreachable: slot should be live");
     expect(slot.vertexCount).toBe(4);
     expect(slot.indexCount).toBe(6);
-    destroy(m);
+    destroy(ctx, m);
     destroyGeometry(ctx, geom);
     gpu.dispose(ctx);
   },

@@ -51,7 +51,7 @@ test.skipIf(!bunWebGpuAvailable())(
     expect(true).toBe(true); // No throw is the success criterion at this layer.
     depth.destroy();
     target.destroy();
-    mesh.destroy(cube);
+    mesh.destroy(ctx, cube);
     mesh.destroyGeometry(ctx, cubeGeo);
     material.destroy(mat);
     gpu.dispose(ctx);
@@ -99,7 +99,7 @@ test.skipIf(!bunWebGpuAvailable())(
       }),
     ).toThrow("camera is required");
     target.destroy();
-    mesh.destroy(cube);
+    mesh.destroy(ctx, cube);
     mesh.destroyGeometry(ctx, cubeGeo);
     material.destroy(mat);
     gpu.dispose(ctx);
@@ -153,7 +153,7 @@ test.skipIf(!bunWebGpuAvailable())(
       }),
     ).toThrow("draw[1]: null/undefined mesh");
     target.destroy();
-    mesh.destroy(cube);
+    mesh.destroy(ctx, cube);
     mesh.destroyGeometry(ctx, cubeGeo);
     material.destroy(mat);
     gpu.dispose(ctx);

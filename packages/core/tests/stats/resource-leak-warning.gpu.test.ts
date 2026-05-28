@@ -39,15 +39,17 @@ test.skipIf(!bunWebGpuAvailable())(
     }
 
     // Two warns coexist during the Sessions 2-4 migration window: the
-    // dispose-cascade auto-clean warn (covers pooled kinds — geometry today)
-    // and the legacy stats-leak warn (covers still-Object kinds — mesh and
-    // material today). After Task 2.4 the legacy warn goes away entirely.
+    // dispose-cascade auto-clean warn (covers pooled kinds — mesh and
+    // geometry today) and the legacy stats-leak warn (covers still-Object
+    // kinds — material today). After Task 2.4 the legacy warn goes away
+    // entirely.
     const cleanupWarn = entries.find(
       (e) => e.module === "resources" && e.message.includes("auto-cleaned"),
     );
     expect(cleanupWarn).toBeDefined();
     expect(cleanupWarn?.level).toBe("warn");
-    expect(cleanupWarn?.message).toContain("1 live handles");
+    // mesh(1) + geometry(1) live slots auto-cleaned by the cascade.
+    expect(cleanupWarn?.message).toContain("2 live handles");
 
     const leakWarn = entries.find(
       (e) =>
@@ -56,9 +58,9 @@ test.skipIf(!bunWebGpuAvailable())(
     );
     expect(leakWarn).toBeDefined();
     expect(leakWarn?.level).toBe("warn");
-    // mesh(1) + objectBuffer(1) + material(1) — geometry's 3 entries get
-    // auto-unregistered by the cascade teardown.
-    expect(leakWarn?.rest[0]).toEqual({ remaining: 3 });
+    // Only material(1) remains — mesh + objectBuffer + geometry + buffers
+    // are auto-unregistered by the cascade teardown.
+    expect(leakWarn?.rest[0]).toEqual({ remaining: 1 });
   },
 );
 
@@ -70,7 +72,7 @@ test.skipIf(!bunWebGpuAvailable())(
     const mat = await material.normalColor(ctx);
     const geo = mesh.cubeGeometry(ctx);
     const m = mesh.create(ctx, { geometry: geo, material: mat });
-    mesh.destroy(m);
+    mesh.destroy(ctx, m);
     mesh.destroyGeometry(ctx, geo);
     material.destroy(mat);
 
@@ -96,7 +98,7 @@ test.skipIf(!bunWebGpuAvailable())(
     const mat = await material.normalColor(ctx);
     const geo = mesh.cubeGeometry(ctx);
     const m = mesh.create(ctx, { geometry: geo, material: mat });
-    mesh.destroy(m);
+    mesh.destroy(ctx, m);
     material.destroy(mat);
     // Deliberately skip mesh.destroyGeometry — pre-pool this was the leak
     // regression guard; post-pool the dispose cascade auto-cleans the
@@ -143,7 +145,7 @@ test.skipIf(!bunWebGpuAvailable())(
 
     frame.render(ctx, { draw: [m], camera: cam });
 
-    mesh.destroy(m);
+    mesh.destroy(ctx, m);
     mesh.destroyGeometry(ctx, geo);
     material.destroy(mat);
 
@@ -184,7 +186,7 @@ test.skipIf(!bunWebGpuAvailable())(
     frame.render(ctx, { draw: [m], camera: cam, effects: [fx] });
 
     post.destroy(fx);
-    mesh.destroy(m);
+    mesh.destroy(ctx, m);
     mesh.destroyGeometry(ctx, geo);
     material.destroy(mat);
 
