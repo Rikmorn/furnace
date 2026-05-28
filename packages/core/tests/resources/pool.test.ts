@@ -142,3 +142,17 @@ test("pool growth preserves existing slot data and generation counters across ca
   // Original generation counter is preserved.
   expect(pool.generations[original.slotIndex]).toBe(originalGen);
 });
+
+test("growPool throws when capacity would exceed 65536 slot limit", () => {
+  const pool = createPool<TestSlot>();
+  // Crank pool state directly to the ceiling so the next alloc forces growth
+  // past it. Doubling 65536 → 131072 must throw.
+  pool.size = 0x10000;
+  pool.generations = new Uint32Array(0x10000);
+  pool.slots = new Array(0x10000).fill(null);
+  pool.free = []; // empty free stack → next alloc triggers growPool
+
+  expect(() => allocSlot(pool, { value: 1 })).toThrow(
+    /cannot grow beyond 65536 slots/,
+  );
+});

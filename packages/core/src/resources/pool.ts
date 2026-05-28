@@ -1,3 +1,5 @@
+import { FurnaceError } from "../errors.ts";
+
 /**
  * Generic pool primitive backing the resource manager. One pool per resource
  * type (Mesh, Material, Geometry, Effect).
@@ -55,6 +57,11 @@ export function createPool<T>(): Pool<T> {
 function growPool<T>(pool: Pool<T>): void {
   const oldSize = pool.size;
   const newSize = oldSize * 2;
+  if (newSize > 0x10000) {
+    throw new FurnaceError(
+      "resources.pool: cannot grow beyond 65536 slots — uint48 handle encoding limit (see engine-conventions §Resource manager → Pool model)",
+    );
+  }
   // Resize slots — push nulls.
   for (let i = oldSize; i < newSize; i++) pool.slots.push(null);
   // Resize generations — typed-array copy.

@@ -67,7 +67,7 @@ Consumers treat handles as opaque — no field access, no deref. All state mutat
 
 ### Pool model
 
-One pool per resource kind. Backing arrays plus a `Uint32Array` of generation counters plus a LIFO free stack. Pools auto-grow on allocation when the free stack is empty; pools never shrink (high-water-mark capacity stays for the context's lifetime). Initial capacity is 64 slots per pool.
+One pool per resource kind. Backing arrays plus a `Uint32Array` of generation counters plus a LIFO free stack. Pools auto-grow on allocation when the free stack is empty; pools never shrink (high-water-mark capacity stays for the context's lifetime). Initial capacity is 64 slots per pool. **Hard ceiling: pools cannot grow beyond 65536 slots — the uint48 handle encoding reserves 16 bits for the slot index. Hitting the ceiling throws `FurnaceError` at allocation time, not silently corrupting handles.**
 
 ### Lookup, ctxId guard, and use-after-destroy
 
