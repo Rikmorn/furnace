@@ -1,4 +1,3 @@
-import type { Context } from "../gpu/index.ts";
 import type { Material } from "../material/types.ts";
 import type { GeometryHandle, MeshHandle } from "../resources/handle.ts";
 import type { Mat4, Quat, Vec3 } from "../transform/types.ts";
@@ -40,7 +39,6 @@ export type Geometry = GeometryHandle;
  * `mesh.destroy` that drops `userCount` to zero then triggers teardown.
  */
 export type GeometrySlot = {
-  ctx: Context;
   vertexBuffer: GPUBuffer;
   vertexCount: number;
   indexBuffer: GPUBuffer | null;
@@ -72,7 +70,6 @@ export type Mesh = MeshHandle;
  * `mesh.destroy` (the slot here only holds the handles).
  */
 export type MeshSlot = {
-  ctx: Context;
   geometry: Geometry;
   material: Material;
   position: Vec3;

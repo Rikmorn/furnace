@@ -61,7 +61,6 @@ export function createGeometry(ctx: Context, data: GeometryData): Geometry {
   const geometryHandle = _registerResource(ctx, { kind: "geometry" });
 
   const slot: GeometrySlot = {
-    ctx,
     vertexBuffer,
     vertexCount,
     indexBuffer: indexResources.buffer,
@@ -71,6 +70,7 @@ export function createGeometry(ctx: Context, data: GeometryData): Geometry {
     markedDestroyed: false,
     _teardown: () =>
       geometryTeardown(
+        ctx,
         slot,
         geometryHandle,
         vertexBufferHandle,
@@ -81,6 +81,7 @@ export function createGeometry(ctx: Context, data: GeometryData): Geometry {
 }
 
 function geometryTeardown(
+  ctx: Context,
   slot: GeometrySlot,
   geometryHandle: ResourceHandle,
   vertexHandle: ResourceHandle,
@@ -88,9 +89,9 @@ function geometryTeardown(
 ): void {
   slot.vertexBuffer.destroy();
   if (slot.indexBuffer) slot.indexBuffer.destroy();
-  _unregisterResource(slot.ctx, vertexHandle);
-  if (indexHandle) _unregisterResource(slot.ctx, indexHandle);
-  _unregisterResource(slot.ctx, geometryHandle);
+  _unregisterResource(ctx, vertexHandle);
+  if (indexHandle) _unregisterResource(ctx, indexHandle);
+  _unregisterResource(ctx, geometryHandle);
 }
 
 /**

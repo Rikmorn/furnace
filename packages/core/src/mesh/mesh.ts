@@ -79,7 +79,6 @@ export function create(
   const meshHandle = _registerResource(ctx, { kind: "mesh" });
 
   const slot: MeshSlot = {
-    ctx,
     geometry: opts.geometry,
     material: opts.material,
     position: new Float32Array([0, 0, 0]),
@@ -88,21 +87,22 @@ export function create(
     modelMatrix: mat4.create(),
     transformDirty: true,
     objectBuffer,
-    _teardown: () => meshTeardown(slot, meshHandle, objectBufferHandle),
+    _teardown: () => meshTeardown(ctx, slot, meshHandle, objectBufferHandle),
   };
   return _allocMesh(ctx, slot);
 }
 
 function meshTeardown(
+  ctx: Context,
   slot: MeshSlot,
   meshHandle: ResourceHandle,
   objectBufferHandle: ResourceHandle,
 ): void {
   slot.objectBuffer.destroy();
-  _unregisterResource(slot.ctx, objectBufferHandle);
-  _unregisterResource(slot.ctx, meshHandle);
-  decrementGeometryRefcount(slot.ctx, slot.geometry);
-  decrementMaterialRefcount(slot.ctx, slot.material);
+  _unregisterResource(ctx, objectBufferHandle);
+  _unregisterResource(ctx, meshHandle);
+  decrementGeometryRefcount(ctx, slot.geometry);
+  decrementMaterialRefcount(ctx, slot.material);
 }
 
 function decrementGeometryRefcount(ctx: Context, geometry: Geometry): void {
@@ -291,7 +291,7 @@ export function getScale(ctx: Context, mesh: Mesh, out: Vec3): Vec3 {
  * resolved the slot for this draw call. Engine-internal — exported so
  * tests can drive it directly without going through a frame.
  */
-export function _recomputeModelIfDirty(slot: MeshSlot): void {
+export function _recomputeModelIfDirty(ctx: Context, slot: MeshSlot): void {
   if (!slot.transformDirty) return;
   mat4.fromRotationTranslationScale(
     slot.modelMatrix,
@@ -299,6 +299,6 @@ export function _recomputeModelIfDirty(slot: MeshSlot): void {
     slot.position,
     slot.scale,
   );
-  slot.ctx.queue.writeBuffer(slot.objectBuffer, 0, slot.modelMatrix);
+  ctx.queue.writeBuffer(slot.objectBuffer, 0, slot.modelMatrix);
   slot.transformDirty = false;
 }

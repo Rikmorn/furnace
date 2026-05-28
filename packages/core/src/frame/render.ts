@@ -258,7 +258,7 @@ function recordDraw(
   lastPipeline: GPURenderPipeline | null,
 ): GPURenderPipeline {
   const { mesh, material, geometry } = resolved;
-  _recomputeModelIfDirty(mesh);
+  _recomputeModelIfDirty(ctx, mesh);
   const pipeline = material.pipeline;
   pass.setPipeline(pipeline);
   if (pipeline !== lastPipeline) {

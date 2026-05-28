@@ -56,7 +56,6 @@ export type Effect = EffectHandle;
  * `frame.render`'s post pass after upfront resolution via `validateEffects`.
  */
 export type EffectSlot = {
-  ctx: Context;
   pipeline: GPURenderPipeline;
   pipelineKey: string;
   bindings: GPUBindGroupEntry[] | null;
@@ -88,9 +87,13 @@ async function buildPipeline(
   return pipeline;
 }
 
-function effectTeardown(slot: EffectSlot, statsHandle: ResourceHandle): void {
-  _unregisterResource(slot.ctx, statsHandle);
-  _pipelineCache.release(slot.ctx, slot.pipelineKey);
+function effectTeardown(
+  ctx: Context,
+  slot: EffectSlot,
+  effectHandle: ResourceHandle,
+): void {
+  _unregisterResource(ctx, effectHandle);
+  _pipelineCache.release(ctx, slot.pipelineKey);
 }
 
 /**
@@ -133,15 +136,14 @@ export async function create(
   const pipeline = await _pipelineCache.acquire(ctx, pipelineKey, () =>
     buildPipeline(ctx, desc.shader, vsModule, desc.blend),
   );
-  const statsHandle = _registerResource(ctx, { kind: "effect" });
+  const effectHandle = _registerResource(ctx, { kind: "effect" });
 
   const slot: EffectSlot = {
-    ctx,
     pipeline,
     pipelineKey,
     bindings: desc.bindings ?? null,
     blend: desc.blend,
-    _teardown: () => effectTeardown(slot, statsHandle),
+    _teardown: () => effectTeardown(ctx, slot, effectHandle),
   };
   return _allocEffect(ctx, slot);
 }

@@ -59,7 +59,7 @@ test.skipIf(!bunWebGpuAvailable())(
     const { ctx, g, m } = await setup();
     const mesh = create(ctx, { geometry: g, material: m });
     const slot = _resolveMesh(ctx, mesh);
-    _recomputeModelIfDirty(slot);
+    _recomputeModelIfDirty(ctx, slot);
     expect(slot.transformDirty).toBe(false);
     setPosition(ctx, mesh, new Float32Array([1, 2, 3]));
     expect(slot.transformDirty).toBe(true);
@@ -74,11 +74,11 @@ test.skipIf(!bunWebGpuAvailable())(
     const { ctx, g, m } = await setup();
     const mesh = create(ctx, { geometry: g, material: m });
     const slot = _resolveMesh(ctx, mesh);
-    _recomputeModelIfDirty(slot);
+    _recomputeModelIfDirty(ctx, slot);
     expect(slot.transformDirty).toBe(false);
     setRotation(ctx, mesh, quat.fromValues(0, 0, 0, 1));
     expect(slot.transformDirty).toBe(true);
-    _recomputeModelIfDirty(slot);
+    _recomputeModelIfDirty(ctx, slot);
     setScale(ctx, mesh, new Float32Array([2, 2, 2]));
     expect(slot.transformDirty).toBe(true);
     gpu.dispose(ctx);
@@ -92,7 +92,7 @@ test.skipIf(!bunWebGpuAvailable())(
     const mesh = create(ctx, { geometry: g, material: m });
     setPosition(ctx, mesh, new Float32Array([10, 20, 30]));
     const slot = _resolveMesh(ctx, mesh);
-    _recomputeModelIfDirty(slot);
+    _recomputeModelIfDirty(ctx, slot);
     expect(slot.transformDirty).toBe(false);
     const expected = mat4.create();
     mat4.fromRotationTranslationScale(

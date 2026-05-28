@@ -125,20 +125,21 @@ function buildGroup1(
 }
 
 function materialTeardown(
+  ctx: Context,
   slot: MaterialSlot,
-  materialStatsHandle: ResourceHandle,
+  materialHandle: ResourceHandle,
 ): void {
   // Length of ownedBuffers and ownedBufferHandles is the same by construction.
   for (let i = 0; i < slot.ownedBuffers.length; i++) {
     const handle = slot.ownedBufferHandles[i];
-    if (handle) _unregisterResource(slot.ctx, handle);
+    if (handle) _unregisterResource(ctx, handle);
     const buf = slot.ownedBuffers[i];
     if (buf) buf.destroy();
   }
   slot.ownedBuffers.length = 0;
   slot.ownedBufferHandles.length = 0;
-  _unregisterResource(slot.ctx, materialStatsHandle);
-  _pipelineCache.release(slot.ctx, slot.pipelineKey);
+  _unregisterResource(ctx, materialHandle);
+  _pipelineCache.release(ctx, slot.pipelineKey);
 }
 
 /**
@@ -222,10 +223,9 @@ export async function create(
       ? buildGroup1(ctx, pipeline, pipelineKey, bindings)
       : null;
 
-  const materialStatsHandle = _registerResource(ctx, { kind: "material" });
+  const materialHandle = _registerResource(ctx, { kind: "material" });
 
   const slot: MaterialSlot = {
-    ctx,
     pipeline,
     pipelineKey,
     group1,
@@ -237,7 +237,7 @@ export async function create(
     depthCompare,
     userCount: 0,
     markedDestroyed: false,
-    _teardown: () => materialTeardown(slot, materialStatsHandle),
+    _teardown: () => materialTeardown(ctx, slot, materialHandle),
   };
   return _allocMaterial(ctx, slot);
 }

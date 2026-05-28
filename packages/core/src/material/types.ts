@@ -1,4 +1,3 @@
-import type { Context } from "../gpu/index.ts";
 import type { MaterialHandle } from "../resources/handle.ts";
 import type { ResourceHandle } from "../stats/internal.ts";
 
@@ -60,7 +59,6 @@ export type Material = MaterialHandle;
  * `mesh.destroy` that drops `userCount` to zero then triggers teardown.
  */
 export type MaterialSlot = {
-  ctx: Context;
   pipeline: GPURenderPipeline;
   pipelineKey: string;
   group1: GPUBindGroup | null;
