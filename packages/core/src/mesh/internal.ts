@@ -17,7 +17,9 @@ export function _resolveGeometry(
 ): GeometrySlot {
   const slot = _lookupGeometry<GeometrySlot>(ctx, geometry);
   if (slot === null) {
-    throw new FurnaceGpuError("geometry was destroyed or stale");
+    throw new FurnaceGpuError(
+      `geometry handle ${geometry} resolves to no live slot (destroyed, stale, or invalid)`,
+    );
   }
   return slot;
 }

@@ -45,20 +45,20 @@ export function createGeometry(ctx: Context, data: GeometryData): Geometry {
     usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
   });
   ctx.queue.writeBuffer(vertexBuffer, 0, interleaved);
-  const _vertexBufferHandle = _registerResource(ctx, {
+  const vertexBufferHandle = _registerResource(ctx, {
     kind: "buffer",
     bytes: interleaved.byteLength,
   });
 
   const indexResources = createIndexResources(ctx, data.indices);
-  const _indexBufferHandle =
+  const indexBufferHandle =
     indexResources.buffer !== null
       ? _registerResource(ctx, {
           kind: "buffer",
           bytes: indexResources.paddedByteLength,
         })
       : null;
-  const _geometryHandle = _registerResource(ctx, { kind: "geometry" });
+  const geometryHandle = _registerResource(ctx, { kind: "geometry" });
 
   const slot: GeometrySlot = {
     ctx,
@@ -72,9 +72,9 @@ export function createGeometry(ctx: Context, data: GeometryData): Geometry {
     _teardown: () =>
       geometryTeardown(
         slot,
-        _geometryHandle,
-        _vertexBufferHandle,
-        _indexBufferHandle,
+        geometryHandle,
+        vertexBufferHandle,
+        indexBufferHandle,
       ),
   };
   return _allocGeometry(ctx, slot);
