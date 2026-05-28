@@ -233,8 +233,8 @@ function makeRebuild(
       // was pending. The sceneRef we'd swap into is already destroyed, so
       // clean up the fresh resources and bail before touching it.
       if (abortFlag.disposed) {
-        mesh.destroyGeometry(ctx, nextGeometry);
         material.destroy(ctx, nextMat);
+        mesh.destroyGeometry(ctx, nextGeometry);
         return;
       }
       const nextGrid = mesh.create(ctx, {
