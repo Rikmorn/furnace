@@ -16,6 +16,23 @@ export {
   type MeshHandle,
 } from "./handle.ts";
 export {
+  _allocEffect,
+  _allocGeometry,
+  _allocMaterial,
+  _allocMesh,
+  _countLive,
+  _destroyEffect,
+  _destroyGeometry,
+  _destroyMaterial,
+  _destroyMesh,
+  _iterateLive,
+  _lookupEffect,
+  _lookupGeometry,
+  _lookupMaterial,
+  _lookupMesh,
+  type ResourceKind,
+} from "./internal.ts";
+export {
   createResourceManager,
   type ResourceManager,
 } from "./manager.ts";
