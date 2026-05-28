@@ -4,11 +4,7 @@ import {
   _destroyGeometry,
   _lookupGeometry,
 } from "../resources/internal.ts";
-import {
-  _registerResource,
-  _unregisterResource,
-  type ResourceHandle,
-} from "../stats/internal.ts";
+import { _recordAlloc, _recordDestroy } from "../stats/internal.ts";
 import { validateGeometryData } from "./geometry-validation.ts";
 import type { Geometry, GeometryData, GeometrySlot } from "./types.ts";
 
@@ -45,19 +41,15 @@ export function createGeometry(ctx: Context, data: GeometryData): Geometry {
     usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
   });
   ctx.queue.writeBuffer(vertexBuffer, 0, interleaved);
-  const vertexBufferHandle = _registerResource(ctx, {
-    kind: "buffer",
-    bytes: interleaved.byteLength,
-  });
+  const vertexBytes = interleaved.byteLength;
+  _recordAlloc(ctx, "buffer", vertexBytes);
 
   const indexResources = createIndexResources(ctx, data.indices);
-  const indexBufferHandle =
-    indexResources.buffer !== null
-      ? _registerResource(ctx, {
-          kind: "buffer",
-          bytes: indexResources.paddedByteLength,
-        })
-      : null;
+  const indexBytes =
+    indexResources.buffer !== null ? indexResources.paddedByteLength : 0;
+  if (indexBytes > 0) {
+    _recordAlloc(ctx, "buffer", indexBytes);
+  }
 
   const slot: GeometrySlot = {
     vertexBuffer,
@@ -67,8 +59,7 @@ export function createGeometry(ctx: Context, data: GeometryData): Geometry {
     indexCount: indexResources.count,
     userCount: 0,
     markedDestroyed: false,
-    _teardown: () =>
-      geometryTeardown(ctx, slot, vertexBufferHandle, indexBufferHandle),
+    _teardown: () => geometryTeardown(ctx, slot, vertexBytes, indexBytes),
   };
   return _allocGeometry(ctx, slot);
 }
@@ -76,13 +67,15 @@ export function createGeometry(ctx: Context, data: GeometryData): Geometry {
 function geometryTeardown(
   ctx: Context,
   slot: GeometrySlot,
-  vertexHandle: ResourceHandle,
-  indexHandle: ResourceHandle | null,
+  vertexBytes: number,
+  indexBytes: number,
 ): void {
   slot.vertexBuffer.destroy();
   if (slot.indexBuffer) slot.indexBuffer.destroy();
-  _unregisterResource(ctx, vertexHandle);
-  if (indexHandle) _unregisterResource(ctx, indexHandle);
+  _recordDestroy(ctx, "buffer", vertexBytes);
+  if (indexBytes > 0) {
+    _recordDestroy(ctx, "buffer", indexBytes);
+  }
 }
 
 /**
