@@ -2,6 +2,7 @@ import { beforeEach, expect, test } from "bun:test";
 import { consoleSink, type LogEntry, setSink } from "@furnace/core/log";
 import * as gpu from "../../src/gpu/index.ts";
 import {
+  _allocEffect,
   _allocGeometry,
   _allocMaterial,
   _allocMesh,
@@ -106,9 +107,10 @@ test.skipIf(!bunWebGpuAvailable())(
     const order: string[] = [];
     _allocGeometry(ctx, { _teardown: () => order.push("geometry") });
     _allocMaterial(ctx, { _teardown: () => order.push("material") });
+    _allocEffect(ctx, { _teardown: () => order.push("effect") });
     _allocMesh(ctx, { _teardown: () => order.push("mesh") });
     gpu.dispose(ctx);
-    expect(order).toEqual(["mesh", "material", "geometry"]);
+    expect(order).toEqual(["mesh", "effect", "material", "geometry"]);
   },
 );
 

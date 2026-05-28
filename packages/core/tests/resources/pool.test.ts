@@ -130,3 +130,26 @@ test("iterateLiveSlots yields all and only live slots", () => {
   const values = [...iterateLiveSlots(pool)].map((s) => s.data.value);
   expect(values.sort()).toEqual([20, 30]);
 });
+
+test("pool growth preserves existing slot data and generation counters across capacity doubling", () => {
+  const pool = createPool<TestSlot>();
+  // Allocate one slot, capture handle + data.
+  const original = allocSlot(pool, { value: 42 });
+  expect(original.slotIndex).toBeGreaterThanOrEqual(1);
+  const originalGen = original.generation;
+
+  // Fill the pool to force at least one growth.
+  for (let i = 0; i < POOL_INITIAL_CAPACITY * 2; i++) {
+    allocSlot(pool, { value: i });
+  }
+
+  // Pool must have grown beyond initial capacity.
+  expect(pool.size).toBeGreaterThan(POOL_INITIAL_CAPACITY);
+
+  // Original handle still resolves to original data.
+  const resolved = lookupSlot(pool, original.slotIndex, original.generation);
+  expect(resolved).toEqual({ value: 42 });
+
+  // Original generation counter is preserved.
+  expect(pool.generations[original.slotIndex]).toBe(originalGen);
+});
