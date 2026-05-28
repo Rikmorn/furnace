@@ -166,9 +166,9 @@ async function main(): Promise<void> {
   const emissive = await emissiveCube(ctx);
   const bloom = await createBloomEffect(ctx);
 
-  mesh.setPosition(planeMesh, new Float32Array([0, 0, PLANE_Z]));
-  mesh.setPosition(cubeMesh, new Float32Array([CUBE_X, 0, 0]));
-  mesh.setPosition(emissive.mesh, new Float32Array([-CUBE_X, 0, 0]));
+  mesh.setPosition(ctx, planeMesh, new Float32Array([0, 0, PLANE_Z]));
+  mesh.setPosition(ctx, cubeMesh, new Float32Array([CUBE_X, 0, 0]));
+  mesh.setPosition(ctx, emissive.mesh, new Float32Array([-CUBE_X, 0, 0]));
 
   // No teardown — subscription lives for the page lifetime (no dispose path in hello-world).
   camera.bindToCanvas(cam, ctx);
@@ -209,7 +209,7 @@ async function main(): Promise<void> {
     );
 
     // update sdf position
-    mesh.setPosition(sdfMesh, sdfPosition);
+    mesh.setPosition(ctx, sdfMesh, sdfPosition);
 
     // update cube position
     quat.fromEuler(
@@ -218,8 +218,8 @@ async function main(): Promise<void> {
       elapsedMs * CUBE_ROTATION_YAW_RATE,
       0,
     );
-    mesh.setRotation(cubeMesh, rotation);
-    mesh.setRotation(emissive.mesh, rotation);
+    mesh.setRotation(ctx, cubeMesh, rotation);
+    mesh.setRotation(ctx, emissive.mesh, rotation);
 
     frame.render(ctx, {
       draw: [planeMesh, cubeMesh, emissive.mesh, sdfMesh],
