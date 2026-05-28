@@ -16,6 +16,10 @@ export {
   type MeshHandle,
 } from "./handle.ts";
 export {
+  createResourceManager,
+  type ResourceManager,
+} from "./manager.ts";
+export {
   allocSlot,
   countLiveSlots,
   createPool,

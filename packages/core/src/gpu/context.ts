@@ -1,5 +1,9 @@
 import { error, warn } from "../log/internal.ts";
 import {
+  createResourceManager,
+  type ResourceManager,
+} from "../resources/manager.ts";
+import {
   _recordDeviceLost,
   _recordUncapturedError,
 } from "../stats/internal.ts";
@@ -36,6 +40,7 @@ export type RequestContextOptions = {
 type InternalWithCanvasCtx = {
   disposed: boolean;
   stats: StatsState;
+  resources: ResourceManager;
   canvasContext: GPUCanvasContext;
   viewFormat: GPUTextureFormat;
 };
@@ -111,6 +116,7 @@ export async function requestContext(
   const internal: InternalWithCanvasCtx = {
     disposed: false,
     stats: createStatsState(performance.now()),
+    resources: createResourceManager(),
     canvasContext,
     viewFormat,
   };
