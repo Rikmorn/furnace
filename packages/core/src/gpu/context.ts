@@ -166,11 +166,11 @@ export async function requestContext(
  * ctx is a no-op.
  *
  * Routes a warning to the engine log helper (see `@furnace/core/log`) at
- * `warn` level if any engine resources (meshes, materials, geometries,
- * effects, buffers, textures) are still registered when called; the
- * entry's `rest` carries the count as `{ remaining: N }`. That's the leak
- * signal: in well-behaved teardown the consumer destroys owned resources
- * before calling `dispose`.
+ * `warn` level if any live resource manager slots (meshes, materials,
+ * geometries, effects) are still registered when called; the entry's
+ * `rest` carries the count as `{ remaining: N }`. That's the leak signal:
+ * in well-behaved teardown the consumer destroys owned resources before
+ * calling `dispose`.
  *
  * After `dispose`, `isDisposed(ctx)` returns `true` and foreground APIs that
  * take a `Context` throw `FurnaceGpuError`; background reads return zero /
