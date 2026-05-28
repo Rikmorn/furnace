@@ -5,6 +5,9 @@ import { pushFrameMs } from "./frame-window.ts";
 import {
   type ResourceHandle,
   type ResourceInfo,
+  type ResourceKind,
+  recordAlloc,
+  recordDestroy,
   registerResource,
   unregisterResource,
 } from "./resources.ts";
@@ -89,6 +92,39 @@ export function _unregisterResource(
 ): void {
   if (ctx._internal.disposed) return;
   unregisterResource(ctx._internal.stats.resources, handle);
+}
+
+/**
+ * Record a resource alloc with stats. Single-writer API (RM-4).
+ *
+ * - Slot kinds (`mesh`/`material`/`geometry`/`effect`): called by the
+ *   resource manager's typed wrappers (`_allocMesh`, etc.) with `bytes: 0`.
+ * - Buffer/texture kinds: called by the resource module or engine-internal
+ *   site that allocates the GPU resource, right after `device.createBuffer`
+ *   / `device.createTexture`. `bytes` is the resource's size.
+ *
+ * Runtime-quiet on disposed `ctx`.
+ */
+export function _recordAlloc(
+  ctx: Context,
+  kind: ResourceKind,
+  bytes: number,
+): void {
+  if (ctx._internal.disposed) return;
+  recordAlloc(ctx._internal.stats.resources, kind, bytes);
+}
+
+/**
+ * Record a resource destroy with stats. Symmetric to {@link _recordAlloc};
+ * caller passes the same `bytes` value used at alloc time.
+ */
+export function _recordDestroy(
+  ctx: Context,
+  kind: ResourceKind,
+  bytes: number,
+): void {
+  if (ctx._internal.disposed) return;
+  recordDestroy(ctx._internal.stats.resources, kind, bytes);
 }
 
 export function _recordEmission(ctx: Context, name: string): void {
