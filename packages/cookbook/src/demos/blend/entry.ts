@@ -151,13 +151,13 @@ async function buildBackdrop(
           BACKDROP_STRIP_HEIGHT / BACKDROP_STRIP_WIDTH,
           1,
         );
-        mesh.setScale(m, scaleBuf);
+        mesh.setScale(ctx, m, scaleBuf);
         const pos = vec3.fromValues(
           STRIP_X_START + i * BACKDROP_STRIP_WIDTH,
           0,
           BACKDROP_Z,
         );
-        mesh.setPosition(m, pos);
+        mesh.setPosition(ctx, m, pos);
         meshes.push(m);
       }
     } else {
@@ -178,24 +178,24 @@ async function buildBackdrop(
         BACKDROP_SOLID_HEIGHT / BACKDROP_SOLID_WIDTH,
         1,
       );
-      mesh.setScale(m, scaleBuf);
+      mesh.setScale(ctx, m, scaleBuf);
       const pos = vec3.fromValues(0, 0, BACKDROP_Z);
-      mesh.setPosition(m, pos);
+      mesh.setPosition(ctx, m, pos);
       meshes.push(m);
     }
     return { meshes, geo, mats };
   } catch (e) {
-    for (const m of meshes) mesh.destroy(m);
-    if (geo) mesh.destroyGeometry(geo);
-    for (const mt of mats) material.destroy(mt);
+    for (const m of meshes) mesh.destroy(ctx, m);
+    if (geo) mesh.destroyGeometry(ctx, geo);
+    for (const mt of mats) material.destroy(ctx, mt);
     throw e;
   }
 }
 
-function disposeBackdrop(b: BackdropResources): void {
-  for (const m of b.meshes) mesh.destroy(m);
-  mesh.destroyGeometry(b.geo);
-  for (const mt of b.mats) material.destroy(mt);
+function disposeBackdrop(ctx: Context, b: BackdropResources): void {
+  for (const m of b.meshes) mesh.destroy(ctx, m);
+  mesh.destroyGeometry(ctx, b.geo);
+  for (const mt of b.mats) material.destroy(ctx, mt);
 }
 
 // --- Reference plane ---
@@ -222,11 +222,11 @@ async function buildReference(
     // Place the reference behind the translucent surfaces and in front of the
     // backdrop. Z = -1.0 sits between BLUE_Z (-0.5) and BACKDROP_Z (-1.5).
     const pos = vec3.fromValues(0, 0, REFERENCE_Z);
-    mesh.setPosition(refMesh, pos);
+    mesh.setPosition(ctx, refMesh, pos);
     return { refMesh, refGeo, mat };
   } catch (e) {
-    if (refGeo) mesh.destroyGeometry(refGeo);
-    if (mat) material.destroy(mat);
+    if (refGeo) mesh.destroyGeometry(ctx, refGeo);
+    if (mat) material.destroy(ctx, mat);
     throw e;
   }
 }
@@ -307,26 +307,29 @@ async function buildTranslucentSurfaces(
     };
   } catch (e) {
     if (green) {
-      mesh.destroy(green.mesh);
-      material.destroy(green.mat);
+      mesh.destroy(ctx, green.mesh);
+      material.destroy(ctx, green.mat);
     }
     if (red) {
-      mesh.destroy(red.mesh);
-      material.destroy(red.mat);
+      mesh.destroy(ctx, red.mesh);
+      material.destroy(ctx, red.mat);
     }
-    if (geo) mesh.destroyGeometry(geo);
+    if (geo) mesh.destroyGeometry(ctx, geo);
     throw e;
   }
 }
 
-function disposeTranslucentSurfaces(s: TranslucentSurfaces): void {
-  mesh.destroy(s.red);
-  mesh.destroy(s.green);
-  mesh.destroy(s.blue);
-  mesh.destroyGeometry(s.geo);
-  material.destroy(s.redMat);
-  material.destroy(s.greenMat);
-  material.destroy(s.blueMat);
+function disposeTranslucentSurfaces(
+  ctx: Context,
+  s: TranslucentSurfaces,
+): void {
+  mesh.destroy(ctx, s.red);
+  mesh.destroy(ctx, s.green);
+  mesh.destroy(ctx, s.blue);
+  mesh.destroyGeometry(ctx, s.geo);
+  material.destroy(ctx, s.redMat);
+  material.destroy(ctx, s.greenMat);
+  material.destroy(ctx, s.blueMat);
 }
 
 // --- Label helpers ---
@@ -414,24 +417,24 @@ async function buildScene(ctx: Context): Promise<SceneRef> {
       },
     };
   } catch (e) {
-    if (surfaces) disposeTranslucentSurfaces(surfaces);
+    if (surfaces) disposeTranslucentSurfaces(ctx, surfaces);
     if (refRes) {
-      mesh.destroy(refRes.refMesh);
-      mesh.destroyGeometry(refRes.refGeo);
-      material.destroy(refRes.mat);
+      mesh.destroy(ctx, refRes.refMesh);
+      mesh.destroyGeometry(ctx, refRes.refGeo);
+      material.destroy(ctx, refRes.mat);
     }
-    if (backdrop) disposeBackdrop(backdrop);
+    if (backdrop) disposeBackdrop(ctx, backdrop);
     throw e;
   }
 }
 
-function disposeScene(scene: SceneRef): void {
+function disposeScene(ctx: Context, scene: SceneRef): void {
   scene.unsubResize();
-  disposeTranslucentSurfaces(scene.surfaces);
-  mesh.destroy(scene.reference);
-  mesh.destroyGeometry(scene.referenceGeo);
-  material.destroy(scene.referenceMat);
-  disposeBackdrop(scene.backdrop);
+  disposeTranslucentSurfaces(ctx, scene.surfaces);
+  mesh.destroy(ctx, scene.reference);
+  mesh.destroyGeometry(ctx, scene.referenceGeo);
+  material.destroy(ctx, scene.referenceMat);
+  disposeBackdrop(ctx, scene.backdrop);
 }
 
 // --- Rebuild queue (single-in-flight + one-pending) ---
@@ -465,11 +468,11 @@ function makeRebuild(
         state.primitive,
       );
       if (abortFlag.disposed) {
-        disposeTranslucentSurfaces(nextSurfaces);
-        mesh.destroy(nextRefRes.refMesh);
-        mesh.destroyGeometry(nextRefRes.refGeo);
-        material.destroy(nextRefRes.mat);
-        disposeBackdrop(nextBackdrop);
+        disposeTranslucentSurfaces(ctx, nextSurfaces);
+        mesh.destroy(ctx, nextRefRes.refMesh);
+        mesh.destroyGeometry(ctx, nextRefRes.refGeo);
+        material.destroy(ctx, nextRefRes.mat);
+        disposeBackdrop(ctx, nextBackdrop);
         return;
       }
       // Swap-on-success: existing resources stay live until the replacements
@@ -485,19 +488,19 @@ function makeRebuild(
       sceneRef.referenceGeo = nextRefRes.refGeo;
       sceneRef.referenceMat = nextRefRes.mat;
       sceneRef.surfaces = nextSurfaces;
-      disposeTranslucentSurfaces(oldSurfaces);
-      mesh.destroy(oldReference);
-      mesh.destroyGeometry(oldReferenceGeo);
-      material.destroy(oldReferenceMat);
-      disposeBackdrop(oldBackdrop);
+      disposeTranslucentSurfaces(ctx, oldSurfaces);
+      mesh.destroy(ctx, oldReference);
+      mesh.destroyGeometry(ctx, oldReferenceGeo);
+      material.destroy(ctx, oldReferenceMat);
+      disposeBackdrop(ctx, oldBackdrop);
     } catch (e) {
-      if (nextSurfaces) disposeTranslucentSurfaces(nextSurfaces);
+      if (nextSurfaces) disposeTranslucentSurfaces(ctx, nextSurfaces);
       if (nextRefRes) {
-        mesh.destroy(nextRefRes.refMesh);
-        mesh.destroyGeometry(nextRefRes.refGeo);
-        material.destroy(nextRefRes.mat);
+        mesh.destroy(ctx, nextRefRes.refMesh);
+        mesh.destroyGeometry(ctx, nextRefRes.refGeo);
+        material.destroy(ctx, nextRefRes.mat);
       }
-      if (nextBackdrop) disposeBackdrop(nextBackdrop);
+      if (nextBackdrop) disposeBackdrop(ctx, nextBackdrop);
       throw e;
     }
   };
@@ -528,22 +531,22 @@ function triggerRebuild(): Promise<void> {
 
 // --- Per-frame transform updates ---
 
-function applySurfaceTransforms(scene: SceneRef): void {
+function applySurfaceTransforms(ctx: Context, scene: SceneRef): void {
   const xRed = -X_SPREAD * state.spread;
   const xBlue = X_SPREAD * state.spread;
   vec3.set(scene.posRed, xRed, 0, RED_Z);
   vec3.set(scene.posGreen, 0, 0, GREEN_Z);
   vec3.set(scene.posBlue, xBlue, 0, BLUE_Z);
-  mesh.setPosition(scene.surfaces.red, scene.posRed);
-  mesh.setPosition(scene.surfaces.green, scene.posGreen);
-  mesh.setPosition(scene.surfaces.blue, scene.posBlue);
+  mesh.setPosition(ctx, scene.surfaces.red, scene.posRed);
+  mesh.setPosition(ctx, scene.surfaces.green, scene.posGreen);
+  mesh.setPosition(ctx, scene.surfaces.blue, scene.posBlue);
 
   // Y-axis rotation. quat.fromYRotation isn't exported; fromEuler with
   // (0, yaw, 0) is the supported path.
   quat.fromEuler(scene.rotBuf, 0, state.yaw, 0);
-  mesh.setRotation(scene.surfaces.red, scene.rotBuf);
-  mesh.setRotation(scene.surfaces.green, scene.rotBuf);
-  mesh.setRotation(scene.surfaces.blue, scene.rotBuf);
+  mesh.setRotation(ctx, scene.surfaces.red, scene.rotBuf);
+  mesh.setRotation(ctx, scene.surfaces.green, scene.rotBuf);
+  mesh.setRotation(ctx, scene.surfaces.blue, scene.rotBuf);
 }
 
 // --- Mount ---
@@ -647,7 +650,7 @@ await mountDemo({
           abortFlag.disposed = true;
           window.__cookbookBlendRebuild = undefined;
           globalThis.removeEventListener("keydown", preventSpaceScroll);
-          disposeScene(sceneRef);
+          disposeScene(ctx, sceneRef);
           input.detach();
         },
       };
@@ -660,7 +663,7 @@ await mountDemo({
     if (state.autoRotate) {
       state.yaw += YAW_AUTOROTATE_RADIANS_PER_S * (info.deltaMs / MS_PER_S);
     }
-    applySurfaceTransforms(scene);
+    applySurfaceTransforms(ctx, scene);
 
     const vpW = ctx.canvas.clientWidth;
     const vpH = ctx.canvas.clientHeight;
