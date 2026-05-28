@@ -102,7 +102,7 @@ await mountDemo({
         if (e.button === 0) {
           state.colorIdx = (state.colorIdx + 1) % COLORS.length;
           const nextMat = sceneMats[state.colorIdx];
-          if (nextMat) sceneCube.material = nextMat;
+          if (nextMat) mesh.setMaterial(ctx, sceneCube, nextMat);
         }
       });
       input.onPointerUp((e) => {
@@ -136,17 +136,17 @@ await mountDemo({
         },
         dispose: () => {
           sceneUnsubResize();
-          mesh.destroy(sceneCube);
-          mesh.destroyGeometry(sceneCubeGeo);
-          for (const m of sceneMats) material.destroy(m);
+          mesh.destroy(ctx, sceneCube);
+          mesh.destroyGeometry(ctx, sceneCubeGeo);
+          for (const m of sceneMats) material.destroy(ctx, m);
           input.detach();
         },
       };
     } catch (e) {
       if (unsubResize) unsubResize();
-      if (cube) mesh.destroy(cube);
-      if (cubeGeo) mesh.destroyGeometry(cubeGeo);
-      for (const m of mats) material.destroy(m);
+      if (cube) mesh.destroy(ctx, cube);
+      if (cubeGeo) mesh.destroyGeometry(ctx, cubeGeo);
+      for (const m of mats) material.destroy(ctx, m);
       input.detach();
       throw e;
     }
@@ -170,7 +170,7 @@ await mountDemo({
         state.cubePos[1],
         state.cubePos[2],
       );
-      mesh.setPosition(scene.cube, scene.positionBuf);
+      mesh.setPosition(ctx, scene.cube, scene.positionBuf);
     }
 
     vec3.set(scene.cameraPosBuf, 0, 0, state.cameraZ);
