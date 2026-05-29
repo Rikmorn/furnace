@@ -1,10 +1,7 @@
 import * as camera from "@furnace/core/camera";
 import * as frame from "@furnace/core/frame";
-import type { Geometry } from "@furnace/core/geometry";
 import * as geometry from "@furnace/core/geometry";
-import type { Material } from "@furnace/core/material";
 import * as material from "@furnace/core/material";
-import type { Mesh } from "@furnace/core/mesh";
 import * as mesh from "@furnace/core/mesh";
 import type { Vec4 } from "@furnace/core/transform";
 import { quat, vec3, vec4 } from "@furnace/core/transform";
@@ -71,13 +68,6 @@ await mountDemo({
   setup: async (ctx) => {
     let paramsBufStriped: GPUBuffer | undefined;
     let paramsBufPlasma: GPUBuffer | undefined;
-    let stripedMat: Material | undefined;
-    let plasmaMat: Material | undefined;
-    let cube: Mesh | undefined;
-    let cubeGeo: Geometry | undefined;
-    let backdrop: Mesh | undefined;
-    let backdropGeo: Geometry | undefined;
-    let unsubResize: (() => void) | undefined;
 
     try {
       const stripedSource = await loadShaderSource(stripedShaderUrl);
@@ -92,21 +82,24 @@ await mountDemo({
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
       });
 
-      stripedMat = await material.create(ctx, {
+      const stripedMat = await material.create(ctx, {
         vertex: stripedSource,
         fragment: stripedSource,
         bindings: [{ binding: 0, resource: { buffer: paramsBufStriped } }],
       });
-      plasmaMat = await material.create(ctx, {
+      const plasmaMat = await material.create(ctx, {
         vertex: plasmaSource,
         fragment: plasmaSource,
         bindings: [{ binding: 0, resource: { buffer: paramsBufPlasma } }],
       });
 
-      cubeGeo = geometry.cube(ctx);
-      cube = mesh.create(ctx, { geometry: cubeGeo, material: stripedMat });
-      backdropGeo = geometry.plane(ctx, { size: BACKDROP_SIZE });
-      backdrop = mesh.create(ctx, {
+      const cubeGeo = geometry.cube(ctx);
+      const cube = mesh.create(ctx, {
+        geometry: cubeGeo,
+        material: stripedMat,
+      });
+      const backdropGeo = geometry.plane(ctx, { size: BACKDROP_SIZE });
+      const backdrop = mesh.create(ctx, {
         geometry: backdropGeo,
         material: plasmaMat,
       });
@@ -116,27 +109,18 @@ await mountDemo({
         aspect: ctx.canvas.width / ctx.canvas.height,
         position: vec3.fromValues(0, 0, CAMERA_Z),
       });
-      unsubResize = camera.bindToCanvas(ctx, cam);
+      camera.bindToCanvas(ctx, cam);
 
-      const sceneUnsubResize = unsubResize;
       const sceneParamsBufStriped = paramsBufStriped;
       const sceneParamsBufPlasma = paramsBufPlasma;
-      const sceneStripedMat = stripedMat;
-      const scenePlasmaMat = plasmaMat;
-      const sceneCube = cube;
-      const sceneCubeGeo = cubeGeo;
-      const sceneBackdrop = backdrop;
-      const sceneBackdropGeo = backdropGeo;
       const rotBuf = quat.create();
       const paramsScratchStriped = new Float32Array(4);
       const paramsScratchPlasma = new Float32Array(4);
 
       return {
         scene: {
-          cube: sceneCube,
-          backdrop: sceneBackdrop,
-          stripedMat: sceneStripedMat,
-          plasmaMat: scenePlasmaMat,
+          cube,
+          backdrop,
           cam,
           paramsBufStriped: sceneParamsBufStriped,
           paramsBufPlasma: sceneParamsBufPlasma,
@@ -145,25 +129,15 @@ await mountDemo({
           paramsScratchPlasma,
         },
         dispose: () => {
-          sceneUnsubResize();
-          mesh.destroy(ctx, sceneBackdrop);
-          mesh.destroy(ctx, sceneCube);
-          geometry.destroy(ctx, sceneBackdropGeo);
-          geometry.destroy(ctx, sceneCubeGeo);
-          material.destroy(ctx, scenePlasmaMat);
-          material.destroy(ctx, sceneStripedMat);
+          // gpu.dispose cascades the meshes/materials/geometries and
+          // auto-disconnects the resize binding. Only the consumer-owned raw
+          // GPUBuffers (created via ctx.device.createBuffer) are freed here —
+          // the cascade tracks managed slots, not raw GPU resources.
           sceneParamsBufPlasma.destroy();
           sceneParamsBufStriped.destroy();
         },
       };
     } catch (e) {
-      if (unsubResize) unsubResize();
-      if (backdrop) mesh.destroy(ctx, backdrop);
-      if (cube) mesh.destroy(ctx, cube);
-      if (backdropGeo) geometry.destroy(ctx, backdropGeo);
-      if (cubeGeo) geometry.destroy(ctx, cubeGeo);
-      if (plasmaMat) material.destroy(ctx, plasmaMat);
-      if (stripedMat) material.destroy(ctx, stripedMat);
       if (paramsBufPlasma) paramsBufPlasma.destroy();
       if (paramsBufStriped) paramsBufStriped.destroy();
       throw e;

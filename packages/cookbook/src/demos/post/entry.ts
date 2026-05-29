@@ -1,12 +1,8 @@
 import * as camera from "@furnace/core/camera";
 import * as frame from "@furnace/core/frame";
-import type { Geometry } from "@furnace/core/geometry";
 import * as geometry from "@furnace/core/geometry";
-import type { Material } from "@furnace/core/material";
 import * as material from "@furnace/core/material";
-import type { Mesh } from "@furnace/core/mesh";
 import * as mesh from "@furnace/core/mesh";
-import type { Effect } from "@furnace/core/post";
 import * as post from "@furnace/core/post";
 import type { Vec4 } from "@furnace/core/transform";
 import { quat, vec3, vec4 } from "@furnace/core/transform";
@@ -95,12 +91,6 @@ await mountDemo({
   setup: async (ctx) => {
     let paramsBufBloom: GPUBuffer | undefined;
     let paramsBufVignette: GPUBuffer | undefined;
-    let bloom: Effect | undefined;
-    let vignette: Effect | undefined;
-    let normalMat: Material | undefined;
-    let cube: Mesh | undefined;
-    let cubeGeo: Geometry | undefined;
-    let unsubResize: (() => void) | undefined;
 
     try {
       const bloomSource = await loadShaderSource(bloomShaderUrl);
@@ -115,44 +105,37 @@ await mountDemo({
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
       });
 
-      bloom = await post.create(ctx, {
+      const bloom = await post.create(ctx, {
         shader: bloomSource,
         bindings: [{ binding: 0, resource: { buffer: paramsBufBloom } }],
       });
-      vignette = await post.create(ctx, {
+      const vignette = await post.create(ctx, {
         shader: vignetteSource,
         bindings: [{ binding: 0, resource: { buffer: paramsBufVignette } }],
       });
 
-      normalMat = await material.normalColor(ctx);
-      cubeGeo = geometry.cube(ctx);
-      cube = mesh.create(ctx, { geometry: cubeGeo, material: normalMat });
+      const normalMat = await material.normalColor(ctx);
+      const cubeGeo = geometry.cube(ctx);
+      const cube = mesh.create(ctx, { geometry: cubeGeo, material: normalMat });
 
       const cam = camera.perspective({
         aspect: ctx.canvas.width / ctx.canvas.height,
         position: vec3.fromValues(0, 0, CAMERA_Z),
       });
-      unsubResize = camera.bindToCanvas(ctx, cam);
+      camera.bindToCanvas(ctx, cam);
 
-      const sceneUnsubResize = unsubResize;
       const sceneParamsBufBloom = paramsBufBloom;
       const sceneParamsBufVignette = paramsBufVignette;
-      const sceneBloom = bloom;
-      const sceneVignette = vignette;
-      const sceneNormalMat = normalMat;
-      const sceneCube = cube;
-      const sceneCubeGeo = cubeGeo;
       const rotBuf = quat.create();
       const paramsScratchBloom = new Float32Array(4);
       const paramsScratchVignette = new Float32Array(4);
 
       return {
         scene: {
-          cube: sceneCube,
-          normalMat: sceneNormalMat,
+          cube,
           cam,
-          bloom: sceneBloom,
-          vignette: sceneVignette,
+          bloom,
+          vignette,
           paramsBufBloom: sceneParamsBufBloom,
           paramsBufVignette: sceneParamsBufVignette,
           rotBuf,
@@ -160,23 +143,15 @@ await mountDemo({
           paramsScratchVignette,
         },
         dispose: () => {
-          sceneUnsubResize();
-          mesh.destroy(ctx, sceneCube);
-          geometry.destroy(ctx, sceneCubeGeo);
-          material.destroy(ctx, sceneNormalMat);
-          post.destroy(ctx, sceneVignette);
-          post.destroy(ctx, sceneBloom);
+          // gpu.dispose cascades the mesh/material/geometry/effects and
+          // auto-disconnects the resize binding. Only the consumer-owned raw
+          // GPUBuffers (created via ctx.device.createBuffer) are freed here —
+          // the cascade tracks managed slots, not raw GPU resources.
           sceneParamsBufVignette.destroy();
           sceneParamsBufBloom.destroy();
         },
       };
     } catch (e) {
-      if (unsubResize) unsubResize();
-      if (cube) mesh.destroy(ctx, cube);
-      if (cubeGeo) geometry.destroy(ctx, cubeGeo);
-      if (normalMat) material.destroy(ctx, normalMat);
-      if (vignette) post.destroy(ctx, vignette);
-      if (bloom) post.destroy(ctx, bloom);
       if (paramsBufVignette) paramsBufVignette.destroy();
       if (paramsBufBloom) paramsBufBloom.destroy();
       throw e;
