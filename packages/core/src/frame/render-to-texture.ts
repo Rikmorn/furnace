@@ -1,8 +1,6 @@
-import type { Camera } from "../camera/index.ts";
 import { FurnaceGpuError } from "../gpu/errors.ts";
 import type { Context } from "../gpu/index.ts";
 import { _recomputeModelIfDirty } from "../mesh/mesh.ts";
-import type { Mesh } from "../mesh/types.ts";
 import {
   _recordBindGroupSwitch,
   _recordDraw,
@@ -10,7 +8,11 @@ import {
 } from "../stats/internal.ts";
 import type { Vec4 } from "../transform/types.ts";
 import { vec4 } from "../transform/vec4.ts";
-import { _frameRenderInternals, type ResolvedDraw } from "./render.ts";
+import {
+  _frameRenderInternals,
+  type RenderPassBase,
+  type ResolvedDraw,
+} from "./render.ts";
 import { trianglesForTopology } from "./triangles-for-topology.ts";
 
 /**
@@ -33,13 +35,9 @@ import { trianglesForTopology } from "./triangles-for-topology.ts";
  * off-screen rendering is tracked in
  * `docs/backlog/engine-architecture/render-to-texture-depth-coupling.md`.
  */
-export type RenderToTextureOptions = {
+export type RenderToTextureOptions = RenderPassBase & {
   texture: GPUTexture;
-  draw: Mesh[];
-  camera: Camera;
   depthTexture?: GPUTexture;
-  clearColor?: Vec4;
-  clearDepth?: number;
 };
 
 const DEFAULT_CLEAR_COLOR: Vec4 = vec4.fromValues(0, 0, 0, 1);

@@ -119,6 +119,26 @@ function _disposeCameraBuffers(ctx: Context): void {
   }
 }
 
+/** Internal — shared fields of the render commands. Not a public export. */
+export type RenderPassBase = {
+  /** Meshes to render, in order. The engine submits them as one render pass
+   *  with no automatic sorting — caller controls draw order. */
+  draw: Mesh[];
+  /** Camera whose view/projection matrices populate `@group(0) @binding(0)`
+   *  for each draw (see `engine-conventions.md` §"Binding contract"). */
+  camera: Camera;
+  /** Linear-space RGBA used to clear the color attachment. Default
+   *  `[0, 0, 0, 1]`. The sRGB encoding is applied on swap-chain write via the
+   *  view format (see `engine-conventions.md` §"Color space"). Components are
+   *  read each frame and uploaded to the GPU verbatim; passing non-finite
+   *  components produces undefined output (no engine-side validation per the
+   *  hot-path-adjacent posture in `engine-conventions.md` §Failure policy). */
+  clearColor?: Vec4;
+  /** Depth value cleared into the engine-managed depth texture each frame.
+   *  Default `1.0` (far plane). */
+  clearDepth?: number;
+};
+
 /**
  * Options accepted by {@link render}.
  *
@@ -140,12 +160,8 @@ function _disposeCameraBuffers(ctx: Context): void {
  * - `clearDepth`: depth value cleared into the engine-managed depth texture
  *   each frame. Default `1.0` (far plane).
  */
-export type RenderOptions = {
-  draw: Mesh[];
-  camera: Camera;
+export type RenderOptions = RenderPassBase & {
   effects?: Effect[];
-  clearColor?: Vec4;
-  clearDepth?: number;
 };
 
 const DEFAULT_CLEAR_COLOR: Vec4 = vec4.fromValues(0, 0, 0, 1);
