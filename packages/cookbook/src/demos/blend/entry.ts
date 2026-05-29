@@ -108,7 +108,6 @@ type SceneRef = {
   referenceMat: Material;
   surfaces: TranslucentSurfaces;
   cam: Camera;
-  unsubResize: () => void;
   // Pre-allocated per-frame buffers (reused to avoid per-frame allocations).
   posRed: Vec3;
   posGreen: Vec3;
@@ -375,68 +374,44 @@ function positionLabel(
 // --- Full scene ---
 
 async function buildScene(ctx: Context): Promise<SceneRef> {
-  let backdrop: BackdropResources | undefined;
-  let refRes: { refMesh: Mesh; refGeo: Geometry; mat: Material } | undefined;
-  let surfaces: TranslucentSurfaces | undefined;
-  try {
-    backdrop = await buildBackdrop(
-      ctx,
-      state.backdrop,
-      state.cull,
-      state.depthCompare,
-    );
-    refRes = await buildReference(ctx, state.cull, state.depthCompare);
-    surfaces = await buildTranslucentSurfaces(
-      ctx,
-      state.cull,
-      state.depthWrite,
-      state.depthCompare,
-      state.primitive,
-    );
-    const cam = camera.perspective({
-      aspect: ctx.canvas.width / ctx.canvas.height,
-      position: vec3.fromValues(0, 0, CAMERA_Z),
-    });
-    const unsubResize = camera.bindToCanvas(ctx, cam);
-    return {
-      backdrop,
-      reference: refRes.refMesh,
-      referenceGeo: refRes.refGeo,
-      referenceMat: refRes.mat,
-      surfaces,
-      cam,
-      unsubResize,
-      posRed: vec3.create(),
-      posGreen: vec3.create(),
-      posBlue: vec3.create(),
-      rotBuf: quat.create(),
-      labelAnchor: vec3.create(),
-      labelProj: { x: 0, y: 0, w: 1 },
-      labelEls: {
-        red: requireLabel("red"),
-        green: requireLabel("green"),
-        blue: requireLabel("blue"),
-      },
-    };
-  } catch (e) {
-    if (surfaces) disposeTranslucentSurfaces(ctx, surfaces);
-    if (refRes) {
-      mesh.destroy(ctx, refRes.refMesh);
-      geometry.destroy(ctx, refRes.refGeo);
-      material.destroy(ctx, refRes.mat);
-    }
-    if (backdrop) disposeBackdrop(ctx, backdrop);
-    throw e;
-  }
-}
-
-function disposeScene(ctx: Context, scene: SceneRef): void {
-  scene.unsubResize();
-  disposeTranslucentSurfaces(ctx, scene.surfaces);
-  mesh.destroy(ctx, scene.reference);
-  geometry.destroy(ctx, scene.referenceGeo);
-  material.destroy(ctx, scene.referenceMat);
-  disposeBackdrop(ctx, scene.backdrop);
+  const backdrop = await buildBackdrop(
+    ctx,
+    state.backdrop,
+    state.cull,
+    state.depthCompare,
+  );
+  const refRes = await buildReference(ctx, state.cull, state.depthCompare);
+  const surfaces = await buildTranslucentSurfaces(
+    ctx,
+    state.cull,
+    state.depthWrite,
+    state.depthCompare,
+    state.primitive,
+  );
+  const cam = camera.perspective({
+    aspect: ctx.canvas.width / ctx.canvas.height,
+    position: vec3.fromValues(0, 0, CAMERA_Z),
+  });
+  camera.bindToCanvas(ctx, cam);
+  return {
+    backdrop,
+    reference: refRes.refMesh,
+    referenceGeo: refRes.refGeo,
+    referenceMat: refRes.mat,
+    surfaces,
+    cam,
+    posRed: vec3.create(),
+    posGreen: vec3.create(),
+    posBlue: vec3.create(),
+    rotBuf: quat.create(),
+    labelAnchor: vec3.create(),
+    labelProj: { x: 0, y: 0, w: 1 },
+    labelEls: {
+      red: requireLabel("red"),
+      green: requireLabel("green"),
+      blue: requireLabel("blue"),
+    },
+  };
 }
 
 // --- Rebuild queue (single-in-flight + one-pending) ---
@@ -648,11 +623,14 @@ await mountDemo({
 
       return {
         scene: sceneRef,
+        // gpu.dispose cascades all managed surfaces/backdrop/reference and
+        // auto-disconnects the resize binding. Only non-resource teardown
+        // survives here. (Mid-life explicit destroy lives in makeRebuild,
+        // which swaps and frees the previous scene on a control change.)
         dispose: () => {
           abortFlag.disposed = true;
           window.__cookbookBlendRebuild = undefined;
           globalThis.removeEventListener("keydown", preventSpaceScroll);
-          disposeScene(ctx, sceneRef);
           input.detach();
         },
       };
