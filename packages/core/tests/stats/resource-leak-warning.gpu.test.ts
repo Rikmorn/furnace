@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { consoleSink, type LogEntry, setSink } from "@furnace/core/log";
 import * as camera from "../../src/camera/index.ts";
 import * as frame from "../../src/frame/index.ts";
+import * as geometry from "../../src/geometry/index.ts";
 import * as gpu from "../../src/gpu/index.ts";
 import * as material from "../../src/material/index.ts";
 import * as mesh from "../../src/mesh/index.ts";
@@ -21,7 +22,7 @@ test.skipIf(!bunWebGpuAvailable())(
     const canvas = await makeOffscreenCanvas();
     const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
     const mat = await material.normalColor(ctx);
-    const geo = mesh.cubeGeometry(ctx);
+    const geo = geometry.cube(ctx);
     mesh.create(ctx, { geometry: geo, material: mat });
     // Deliberately do not call destroy.
 
@@ -60,10 +61,10 @@ test.skipIf(!bunWebGpuAvailable())(
     const canvas = await makeOffscreenCanvas();
     const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
     const mat = await material.normalColor(ctx);
-    const geo = mesh.cubeGeometry(ctx);
+    const geo = geometry.cube(ctx);
     const m = mesh.create(ctx, { geometry: geo, material: mat });
     mesh.destroy(ctx, m);
-    mesh.destroyGeometry(ctx, geo);
+    geometry.destroy(ctx, geo);
     material.destroy(ctx, mat);
 
     // Camera buffer + depth texture only allocate inside frame.render; this
@@ -86,11 +87,11 @@ test.skipIf(!bunWebGpuAvailable())(
     const canvas = await makeOffscreenCanvas();
     const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
     const mat = await material.normalColor(ctx);
-    const geo = mesh.cubeGeometry(ctx);
+    const geo = geometry.cube(ctx);
     const m = mesh.create(ctx, { geometry: geo, material: mat });
     mesh.destroy(ctx, m);
     material.destroy(ctx, mat);
-    // Deliberately skip mesh.destroyGeometry — pre-pool this was the leak
+    // Deliberately skip geometry.destroy — pre-pool this was the leak
     // regression guard; post-pool the dispose cascade auto-cleans the
     // geometry slot and unregisters its stats handles, so no legacy
     // leak-suspected warn fires. The auto-clean warn is the new safety
@@ -126,7 +127,7 @@ test.skipIf(!bunWebGpuAvailable())(
     const canvas = await makeOffscreenCanvas();
     const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
     const mat = await material.normalColor(ctx);
-    const geo = mesh.cubeGeometry(ctx);
+    const geo = geometry.cube(ctx);
     const m = mesh.create(ctx, { geometry: geo, material: mat });
     const cam = camera.perspective({
       aspect: ctx.canvas.width / ctx.canvas.height,
@@ -136,7 +137,7 @@ test.skipIf(!bunWebGpuAvailable())(
     frame.render(ctx, { draw: [m], camera: cam });
 
     mesh.destroy(ctx, m);
-    mesh.destroyGeometry(ctx, geo);
+    geometry.destroy(ctx, geo);
     material.destroy(ctx, mat);
 
     const entries: LogEntry[] = [];
@@ -165,7 +166,7 @@ test.skipIf(!bunWebGpuAvailable())(
     const canvas = await makeOffscreenCanvas();
     const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
     const mat = await material.normalColor(ctx);
-    const geo = mesh.cubeGeometry(ctx);
+    const geo = geometry.cube(ctx);
     const m = mesh.create(ctx, { geometry: geo, material: mat });
     const cam = camera.perspective({
       aspect: ctx.canvas.width / ctx.canvas.height,
@@ -177,7 +178,7 @@ test.skipIf(!bunWebGpuAvailable())(
 
     post.destroy(ctx, fx);
     mesh.destroy(ctx, m);
-    mesh.destroyGeometry(ctx, geo);
+    geometry.destroy(ctx, geo);
     material.destroy(ctx, mat);
 
     const entries: LogEntry[] = [];

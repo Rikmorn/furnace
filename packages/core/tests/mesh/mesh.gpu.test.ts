@@ -1,9 +1,5 @@
 import { expect, test } from "bun:test";
-import { cube as cubeGeometry } from "../../src/geometry/factories/cube.ts";
-import {
-  create as createGeometry,
-  destroy as destroyGeometry,
-} from "../../src/geometry/geometry.ts";
+import * as geometry from "../../src/geometry/index.ts";
 import * as gpu from "../../src/gpu/index.ts";
 import { destroy as destroyMaterial } from "../../src/material/material.ts";
 import { unlit } from "../../src/material/unlit.ts";
@@ -33,7 +29,7 @@ await ensureBunWebGpu();
 async function setup() {
   const canvas = await makeOffscreenCanvas();
   const ctx = await gpu.requestContext(canvas);
-  const g = createGeometry(ctx, {
+  const g = geometry.create(ctx, {
     positions: new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]),
     normals: new Float32Array([0, 0, 1, 0, 0, 1, 0, 0, 1]),
     uvs: new Float32Array([0, 0, 1, 0, 0, 1]),
@@ -129,12 +125,12 @@ test.skipIf(!bunWebGpuAvailable())(
   async () => {
     const canvas = await makeOffscreenCanvas();
     const ctx = await gpu.requestContext(canvas);
-    const geo = cubeGeometry(ctx);
+    const geo = geometry.cube(ctx);
     expect(() =>
       // biome-ignore lint/suspicious/noExplicitAny: testing invalid input
       create(ctx, { geometry: geo, material: null as any }),
     ).toThrow("material is required");
-    destroyGeometry(ctx, geo);
+    geometry.destroy(ctx, geo);
     gpu.dispose(ctx);
   },
 );
@@ -146,7 +142,7 @@ test.skipIf(!bunWebGpuAvailable())(
     const mesh = create(ctx, { geometry: g, material: m });
     destroy(ctx, mesh);
     expect(() => destroy(ctx, mesh)).not.toThrow();
-    destroyGeometry(ctx, g);
+    geometry.destroy(ctx, g);
     destroyMaterial(ctx, m);
     gpu.dispose(ctx);
   },
@@ -163,7 +159,7 @@ test.skipIf(!bunWebGpuAvailable())(
     expect(second).not.toBe(first);
     expect(_lookupMesh(ctx, second)).not.toBeNull();
     destroy(ctx, second);
-    destroyGeometry(ctx, g);
+    geometry.destroy(ctx, g);
     destroyMaterial(ctx, m);
     gpu.dispose(ctx);
   },
@@ -184,7 +180,7 @@ test.skipIf(!bunWebGpuAvailable())(
     expect(Array.from(getRotation(ctx, mesh, rotOut))).toEqual([0, 0, 0, 1]);
     expect(Array.from(getScale(ctx, mesh, scaleOut))).toEqual([4, 5, 6]);
     destroy(ctx, mesh);
-    destroyGeometry(ctx, g);
+    geometry.destroy(ctx, g);
     destroyMaterial(ctx, m);
     gpu.dispose(ctx);
   },
@@ -209,7 +205,7 @@ test.skipIf(!bunWebGpuAvailable())(
     // getPosition on stale handle returns the unchanged out-param.
     const result = getPosition(ctx, mesh, posOut);
     expect(Array.from(result)).toEqual([9, 9, 9]);
-    destroyGeometry(ctx, g);
+    geometry.destroy(ctx, g);
     destroyMaterial(ctx, m);
     gpu.dispose(ctx);
   },

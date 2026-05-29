@@ -1,8 +1,5 @@
 import { expect, test } from "bun:test";
-import {
-  create as createGeometry,
-  destroy as destroyGeometry,
-} from "../../src/geometry/geometry.ts";
+import * as geometry from "../../src/geometry/index.ts";
 import type { GeometrySlot } from "../../src/geometry/types.ts";
 import * as gpu from "../../src/gpu/index.ts";
 import { _lookupGeometry } from "../../src/resources/internal.ts";
@@ -15,11 +12,11 @@ import {
 await ensureBunWebGpu();
 
 test.skipIf(!bunWebGpuAvailable())(
-  "createGeometry allocates an interleaved vertex buffer (non-indexed)",
+  "geometry.create allocates an interleaved vertex buffer (non-indexed)",
   async () => {
     const canvas = await makeOffscreenCanvas();
     const ctx = await gpu.requestContext(canvas);
-    const g = createGeometry(ctx, {
+    const g = geometry.create(ctx, {
       positions: new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]),
       normals: new Float32Array([0, 0, 1, 0, 0, 1, 0, 0, 1]),
       uvs: new Float32Array([0, 0, 1, 0, 0, 1]),
@@ -29,18 +26,18 @@ test.skipIf(!bunWebGpuAvailable())(
     expect(slot.vertexBuffer).toBeDefined();
     expect(slot.vertexCount).toBe(3);
     expect(slot.indexBuffer).toBe(null);
-    destroyGeometry(ctx, g);
+    geometry.destroy(ctx, g);
     expect(_lookupGeometry<GeometrySlot>(ctx, g)).toBe(null);
     gpu.dispose(ctx);
   },
 );
 
 test.skipIf(!bunWebGpuAvailable())(
-  "createGeometry allocates an index buffer when indices are provided",
+  "geometry.create allocates an index buffer when indices are provided",
   async () => {
     const canvas = await makeOffscreenCanvas();
     const ctx = await gpu.requestContext(canvas);
-    const g = createGeometry(ctx, {
+    const g = geometry.create(ctx, {
       positions: new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]),
       normals: new Float32Array([0, 0, 1, 0, 0, 1, 0, 0, 1]),
       uvs: new Float32Array([0, 0, 1, 0, 0, 1]),
@@ -51,18 +48,18 @@ test.skipIf(!bunWebGpuAvailable())(
     expect(slot.indexBuffer).not.toBe(null);
     expect(slot.indexFormat).toBe("uint16");
     expect(slot.indexCount).toBe(3);
-    destroyGeometry(ctx, g);
+    geometry.destroy(ctx, g);
     gpu.dispose(ctx);
   },
 );
 
 test.skipIf(!bunWebGpuAvailable())(
-  "createGeometry rejects malformed input before touching the GPU",
+  "geometry.create rejects malformed input before touching the GPU",
   async () => {
     const canvas = await makeOffscreenCanvas();
     const ctx = await gpu.requestContext(canvas);
     expect(() =>
-      createGeometry(ctx, {
+      geometry.create(ctx, {
         positions: new Float32Array([0, 0, 0, 1]),
         normals: new Float32Array([0, 0, 1]),
         uvs: new Float32Array([0, 0]),
@@ -73,17 +70,17 @@ test.skipIf(!bunWebGpuAvailable())(
 );
 
 test.skipIf(!bunWebGpuAvailable())(
-  "destroyGeometry is idempotent: second call on a stale handle is a silent no-op",
+  "geometry.destroy is idempotent: second call on a stale handle is a silent no-op",
   async () => {
     const canvas = await makeOffscreenCanvas();
     const ctx = await gpu.requestContext(canvas);
-    const g = createGeometry(ctx, {
+    const g = geometry.create(ctx, {
       positions: new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]),
       normals: new Float32Array([0, 0, 1, 0, 0, 1, 0, 0, 1]),
       uvs: new Float32Array([0, 0, 1, 0, 0, 1]),
     });
-    destroyGeometry(ctx, g);
-    expect(() => destroyGeometry(ctx, g)).not.toThrow();
+    geometry.destroy(ctx, g);
+    expect(() => geometry.destroy(ctx, g)).not.toThrow();
     expect(_lookupGeometry<GeometrySlot>(ctx, g)).toBe(null);
     gpu.dispose(ctx);
   },

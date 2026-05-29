@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import * as camera from "../../src/camera/index.ts";
 import { render } from "../../src/frame/render.ts";
+import * as geometry from "../../src/geometry/index.ts";
 import * as gpu from "../../src/gpu/index.ts";
 import * as material from "../../src/material/index.ts";
 import * as mesh from "../../src/mesh/index.ts";
@@ -28,7 +29,7 @@ test.skipIf(!bunWebGpuAvailable())(
     const mat = await material.unlit(ctx, {
       color: vec4.fromValues(1, 0, 0, 1),
     });
-    const mGeo = mesh.cubeGeometry(ctx);
+    const mGeo = geometry.cube(ctx);
     const m = mesh.create(ctx, { geometry: mGeo, material: mat });
     render(ctx, { draw: [m], camera: cam });
     const s = snapshot(ctx);
@@ -37,7 +38,7 @@ test.skipIf(!bunWebGpuAvailable())(
     expect(s.gpu.pipelineSwitches).toBe(1);
     expect(s.gpu.bindGroupSwitches).toBe(2);
     mesh.destroy(ctx, m);
-    mesh.destroyGeometry(ctx, mGeo);
+    geometry.destroy(ctx, mGeo);
     gpu.dispose(ctx);
   },
 );
@@ -56,7 +57,7 @@ test.skipIf(!bunWebGpuAvailable())(
     const mat = await material.unlit(ctx, {
       color: vec4.fromValues(1, 0, 0, 1),
     });
-    const geo = mesh.cubeGeometry(ctx);
+    const geo = geometry.cube(ctx);
     const a = mesh.create(ctx, { geometry: geo, material: mat });
     const b = mesh.create(ctx, { geometry: geo, material: mat });
     render(ctx, { draw: [a, b], camera: cam });
@@ -66,7 +67,7 @@ test.skipIf(!bunWebGpuAvailable())(
     expect(s.gpu.pipelineSwitches).toBe(1);
     mesh.destroy(ctx, a);
     mesh.destroy(ctx, b);
-    mesh.destroyGeometry(ctx, geo);
+    geometry.destroy(ctx, geo);
     gpu.dispose(ctx);
   },
 );
@@ -85,7 +86,7 @@ test.skipIf(!bunWebGpuAvailable())(
     const mat = await material.unlit(ctx, {
       color: vec4.fromValues(1, 0, 0, 1),
     });
-    const mGeo = mesh.cubeGeometry(ctx);
+    const mGeo = geometry.cube(ctx);
     const m = mesh.create(ctx, { geometry: mGeo, material: mat });
     render(ctx, { draw: [m], camera: cam });
     const firstSnap = snapshot(ctx);
@@ -99,7 +100,7 @@ test.skipIf(!bunWebGpuAvailable())(
     expect(secondSnap.memory.textureBytes).toBeGreaterThan(firstTexBytes);
     expect(secondSnap.memory.textureBytes).toBeGreaterThanOrEqual(128 * 96 * 4);
     mesh.destroy(ctx, m);
-    mesh.destroyGeometry(ctx, mGeo);
+    geometry.destroy(ctx, mGeo);
     gpu.dispose(ctx);
   },
 );
@@ -118,7 +119,7 @@ test.skipIf(!bunWebGpuAvailable())(
     const mat = await material.unlit(ctx, {
       color: vec4.fromValues(1, 0, 0, 1),
     });
-    const mGeo = mesh.cubeGeometry(ctx);
+    const mGeo = geometry.cube(ctx);
     const m = mesh.create(ctx, { geometry: mGeo, material: mat });
     const before = snapshot(ctx);
     render(ctx, { draw: [m], camera: cam });
@@ -127,7 +128,7 @@ test.skipIf(!bunWebGpuAvailable())(
       after.memory.bufferBytes - before.memory.bufferBytes,
     ).toBeGreaterThanOrEqual(64);
     mesh.destroy(ctx, m);
-    mesh.destroyGeometry(ctx, mGeo);
+    geometry.destroy(ctx, mGeo);
     gpu.dispose(ctx);
   },
 );

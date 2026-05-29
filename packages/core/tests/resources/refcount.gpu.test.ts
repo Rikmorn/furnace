@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import * as geometry from "../../src/geometry/index.ts";
 import type { GeometrySlot } from "../../src/geometry/types.ts";
 import * as gpu from "../../src/gpu/index.ts";
 import * as material from "../../src/material/index.ts";
@@ -18,14 +19,14 @@ import {
 await ensureBunWebGpu();
 
 test.skipIf(!bunWebGpuAvailable())(
-  "destroyGeometry while a mesh references it defers actual teardown",
+  "geometry.destroy while a mesh references it defers actual teardown",
   async () => {
     const canvas = await makeOffscreenCanvas();
     const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
     const mat = await material.unlit(ctx, {
       color: vec4.fromValues(1, 0, 0, 1),
     });
-    const geo = mesh.cubeGeometry(ctx);
+    const geo = geometry.cube(ctx);
     const cube = mesh.create(ctx, { geometry: geo, material: mat });
 
     // userCount === 1 after mesh.create
@@ -33,7 +34,7 @@ test.skipIf(!bunWebGpuAvailable())(
     expect(slotBefore?.userCount).toBe(1);
 
     // Destroy geometry FIRST — deferred via markedDestroyed
-    mesh.destroyGeometry(ctx, geo);
+    geometry.destroy(ctx, geo);
     const slotAfterMark = _lookupGeometry<GeometrySlot>(ctx, geo);
     expect(slotAfterMark).not.toBeNull();
     expect(slotAfterMark?.markedDestroyed).toBe(true);
@@ -55,7 +56,7 @@ test.skipIf(!bunWebGpuAvailable())(
     const mat = await material.unlit(ctx, {
       color: vec4.fromValues(0, 1, 0, 1),
     });
-    const geo = mesh.cubeGeometry(ctx);
+    const geo = geometry.cube(ctx);
     const m1 = mesh.create(ctx, { geometry: geo, material: mat });
     const m2 = mesh.create(ctx, { geometry: geo, material: mat });
     const m3 = mesh.create(ctx, { geometry: geo, material: mat });
@@ -70,7 +71,7 @@ test.skipIf(!bunWebGpuAvailable())(
     mesh.destroy(ctx, m3);
     expect(_lookupGeometry<GeometrySlot>(ctx, geo)?.userCount).toBe(0);
 
-    mesh.destroyGeometry(ctx, geo);
+    geometry.destroy(ctx, geo);
     expect(_lookupGeometry(ctx, geo)).toBeNull();
 
     material.destroy(ctx, mat);
@@ -86,7 +87,7 @@ test.skipIf(!bunWebGpuAvailable())(
     const mat = await material.unlit(ctx, {
       color: vec4.fromValues(1, 0, 0, 1),
     });
-    const geo = mesh.cubeGeometry(ctx);
+    const geo = geometry.cube(ctx);
     const cube = mesh.create(ctx, { geometry: geo, material: mat });
 
     const slotBefore = _lookupMaterial<MaterialSlot>(ctx, mat);
@@ -102,7 +103,7 @@ test.skipIf(!bunWebGpuAvailable())(
     mesh.destroy(ctx, cube);
     expect(_lookupMaterial(ctx, mat)).toBeNull();
 
-    mesh.destroyGeometry(ctx, geo);
+    geometry.destroy(ctx, geo);
     gpu.dispose(ctx);
   },
 );
@@ -115,7 +116,7 @@ test.skipIf(!bunWebGpuAvailable())(
     const mat = await material.unlit(ctx, {
       color: vec4.fromValues(0, 1, 0, 1),
     });
-    const geo = mesh.cubeGeometry(ctx);
+    const geo = geometry.cube(ctx);
     const m1 = mesh.create(ctx, { geometry: geo, material: mat });
     const m2 = mesh.create(ctx, { geometry: geo, material: mat });
     const m3 = mesh.create(ctx, { geometry: geo, material: mat });
@@ -133,7 +134,7 @@ test.skipIf(!bunWebGpuAvailable())(
     material.destroy(ctx, mat);
     expect(_lookupMaterial(ctx, mat)).toBeNull();
 
-    mesh.destroyGeometry(ctx, geo);
+    geometry.destroy(ctx, geo);
     gpu.dispose(ctx);
   },
 );
@@ -146,7 +147,7 @@ test.skipIf(!bunWebGpuAvailable())(
     const mat = await material.unlit(ctx, {
       color: vec4.fromValues(1, 1, 0, 1),
     });
-    const geo = mesh.cubeGeometry(ctx);
+    const geo = geometry.cube(ctx);
 
     // Destroy the material so its handle becomes stale.
     material.destroy(ctx, mat);
@@ -159,7 +160,7 @@ test.skipIf(!bunWebGpuAvailable())(
     // failed material lookup leaves the geometry refcount untouched.
     expect(_lookupGeometry<GeometrySlot>(ctx, geo)?.userCount).toBe(before);
 
-    mesh.destroyGeometry(ctx, geo);
+    geometry.destroy(ctx, geo);
     gpu.dispose(ctx);
   },
 );
@@ -172,7 +173,7 @@ test.skipIf(!bunWebGpuAvailable())(
     const mat = await material.unlit(ctx, {
       color: vec4.fromValues(0, 0, 1, 1),
     });
-    const geo = mesh.cubeGeometry(ctx);
+    const geo = geometry.cube(ctx);
     const handles: ReturnType<typeof mesh.create>[] = [];
     for (let i = 0; i < 1000; i++) {
       if (i % 3 === 0 && handles.length > 0) {
@@ -184,7 +185,7 @@ test.skipIf(!bunWebGpuAvailable())(
     }
     for (const m of handles) mesh.destroy(ctx, m);
     expect(_lookupGeometry<GeometrySlot>(ctx, geo)?.userCount).toBe(0);
-    mesh.destroyGeometry(ctx, geo);
+    geometry.destroy(ctx, geo);
     material.destroy(ctx, mat);
     gpu.dispose(ctx);
   },

@@ -1,9 +1,5 @@
 import { expect, test } from "bun:test";
-import {
-  cube as cubeGeometry,
-  plane as planeGeometry,
-} from "../../src/geometry/factories/index.ts";
-import { destroy as destroyGeometry } from "../../src/geometry/geometry.ts";
+import * as geometry from "../../src/geometry/index.ts";
 import type { GeometrySlot } from "../../src/geometry/types.ts";
 import * as gpu from "../../src/gpu/index.ts";
 import { unlit } from "../../src/material/unlit.ts";
@@ -20,12 +16,12 @@ import {
 await ensureBunWebGpu();
 
 test.skipIf(!bunWebGpuAvailable())(
-  "cubeGeometry produces a Geometry with 24 vertices and 36 indices",
+  "geometry.cube produces a Geometry with 24 vertices and 36 indices",
   async () => {
     const canvas = await makeOffscreenCanvas();
     const ctx = await gpu.requestContext(canvas);
     const mat = await unlit(ctx, { color: vec4.fromValues(1, 1, 1, 1) });
-    const geom = cubeGeometry(ctx);
+    const geom = geometry.cube(ctx);
     const m = create(ctx, { geometry: geom, material: mat });
     const meshSlot = _resolveMesh(ctx, m);
     const slot = _lookupGeometry<GeometrySlot>(ctx, meshSlot.geometry);
@@ -34,18 +30,18 @@ test.skipIf(!bunWebGpuAvailable())(
     expect(slot.indexCount).toBe(36);
     expect(meshSlot.material).toBe(mat);
     destroy(ctx, m);
-    destroyGeometry(ctx, geom);
+    geometry.destroy(ctx, geom);
     gpu.dispose(ctx);
   },
 );
 
 test.skipIf(!bunWebGpuAvailable())(
-  "planeGeometry produces a Geometry with 4 vertices and 6 indices",
+  "geometry.plane produces a Geometry with 4 vertices and 6 indices",
   async () => {
     const canvas = await makeOffscreenCanvas();
     const ctx = await gpu.requestContext(canvas);
     const mat = await unlit(ctx, { color: vec4.fromValues(1, 1, 1, 1) });
-    const geom = planeGeometry(ctx, { size: 3 });
+    const geom = geometry.plane(ctx, { size: 3 });
     const m = create(ctx, { geometry: geom, material: mat });
     const meshSlot = _resolveMesh(ctx, m);
     const slot = _lookupGeometry<GeometrySlot>(ctx, meshSlot.geometry);
@@ -53,7 +49,7 @@ test.skipIf(!bunWebGpuAvailable())(
     expect(slot.vertexCount).toBe(4);
     expect(slot.indexCount).toBe(6);
     destroy(ctx, m);
-    destroyGeometry(ctx, geom);
+    geometry.destroy(ctx, geom);
     gpu.dispose(ctx);
   },
 );

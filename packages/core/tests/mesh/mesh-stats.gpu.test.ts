@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import * as geometry from "../../src/geometry/index.ts";
 import * as gpu from "../../src/gpu/index.ts";
 import * as material from "../../src/material/index.ts";
 import * as mesh from "../../src/mesh/index.ts";
@@ -17,7 +18,7 @@ test.skipIf(!bunWebGpuAvailable())(
     const canvas = await makeOffscreenCanvas();
     const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
     const mat = await material.normalColor(ctx);
-    const geo = mesh.cubeGeometry(ctx);
+    const geo = geometry.cube(ctx);
     const before = snapshot(ctx);
     const m = mesh.create(ctx, { geometry: geo, material: mat });
     const after = snapshot(ctx);
@@ -27,7 +28,7 @@ test.skipIf(!bunWebGpuAvailable())(
     const final = snapshot(ctx);
     expect(final.resources.meshes).toBe(before.resources.meshes);
     expect(final.memory.bufferBytes).toBe(before.memory.bufferBytes);
-    mesh.destroyGeometry(ctx, geo);
+    geometry.destroy(ctx, geo);
     material.destroy(ctx, mat);
     gpu.dispose(ctx);
   },

@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import * as geometry from "../../src/geometry/index.ts";
 import * as gpu from "../../src/gpu/index.ts";
 import * as material from "../../src/material/index.ts";
 import * as mesh from "../../src/mesh/index.ts";
@@ -22,7 +23,7 @@ test.skipIf(!bunWebGpuAvailable())(
     const mat = await material.unlit(ctx, {
       color: vec4.fromValues(1, 1, 0, 1),
     });
-    const geo = mesh.cubeGeometry(ctx);
+    const geo = geometry.cube(ctx);
     mesh.create(ctx, { geometry: geo, material: mat });
 
     expect(stats.snapshot(ctx).resources).toEqual({
@@ -59,7 +60,7 @@ test.skipIf(!bunWebGpuAvailable())(
     const mat1 = await material.unlit(ctx, {
       color: vec4.fromValues(1, 0, 0, 1),
     });
-    const geo1 = mesh.cubeGeometry(ctx);
+    const geo1 = geometry.cube(ctx);
     const cube1 = mesh.create(ctx, { geometry: geo1, material: mat1 });
 
     expect(stats.snapshot(ctx).resources).toEqual({
@@ -83,7 +84,7 @@ test.skipIf(!bunWebGpuAvailable())(
     const mat2 = await material.unlit(ctx, {
       color: vec4.fromValues(0, 1, 0, 1),
     });
-    const geo2 = mesh.cubeGeometry(ctx);
+    const geo2 = geometry.cube(ctx);
     const cube2 = mesh.create(ctx, { geometry: geo2, material: mat2 });
 
     expect(stats.snapshot(ctx).resources).toEqual({
@@ -99,13 +100,13 @@ test.skipIf(!bunWebGpuAvailable())(
     expect(stats.snapshot(ctx).resources.meshes).toBe(1);
     expect(() => material.destroy(ctx, mat1)).not.toThrow();
     expect(stats.snapshot(ctx).resources.materials).toBe(1);
-    expect(() => mesh.destroyGeometry(ctx, geo1)).not.toThrow();
+    expect(() => geometry.destroy(ctx, geo1)).not.toThrow();
     expect(stats.snapshot(ctx).resources.geometries).toBe(1);
 
     // The fresh handles must work normally.
     mesh.destroy(ctx, cube2);
     material.destroy(ctx, mat2);
-    mesh.destroyGeometry(ctx, geo2);
+    geometry.destroy(ctx, geo2);
 
     gpu.dispose(ctx);
   },

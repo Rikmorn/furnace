@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import * as geometry from "../../src/geometry/index.ts";
 import * as gpu from "../../src/gpu/index.ts";
 import * as material from "../../src/material/index.ts";
 import * as mesh from "../../src/mesh/index.ts";
@@ -24,7 +25,7 @@ test.skipIf(!bunWebGpuAvailable())(
     const matA = await material.unlit(ctxA, {
       color: vec4.fromValues(1, 0, 0, 1),
     });
-    const geoA = mesh.cubeGeometry(ctxA);
+    const geoA = geometry.cube(ctxA);
     const meshA = mesh.create(ctxA, { geometry: geoA, material: matA });
 
     // Setters against ctxB with a ctxA handle must silent no-op.
@@ -39,7 +40,7 @@ test.skipIf(!bunWebGpuAvailable())(
     // accidentally affect ctxA's pool.
     mesh.destroy(ctxA, meshA);
     material.destroy(ctxA, matA);
-    mesh.destroyGeometry(ctxA, geoA);
+    geometry.destroy(ctxA, geoA);
 
     gpu.dispose(ctxA);
     gpu.dispose(ctxB);
@@ -57,7 +58,7 @@ test.skipIf(!bunWebGpuAvailable())(
     const matA = await material.unlit(ctxA, {
       color: vec4.fromValues(0, 1, 0, 1),
     });
-    const geoA = mesh.cubeGeometry(ctxA);
+    const geoA = geometry.cube(ctxA);
     const meshA = mesh.create(ctxA, { geometry: geoA, material: matA });
 
     const camera = await import("../../src/camera/index.ts");
@@ -78,7 +79,7 @@ test.skipIf(!bunWebGpuAvailable())(
     // Cleanup.
     mesh.destroy(ctxA, meshA);
     material.destroy(ctxA, matA);
-    mesh.destroyGeometry(ctxA, geoA);
+    geometry.destroy(ctxA, geoA);
     gpu.dispose(ctxA);
     gpu.dispose(ctxB);
   },

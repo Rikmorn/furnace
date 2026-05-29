@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import type { Camera } from "../../src/camera/index.ts";
 import * as camera from "../../src/camera/index.ts";
 import * as frame from "../../src/frame/index.ts";
+import * as geometry from "../../src/geometry/index.ts";
 import { FurnaceGpuError } from "../../src/gpu/errors.ts";
 import * as gpu from "../../src/gpu/index.ts";
 import * as material from "../../src/material/index.ts";
@@ -25,7 +26,7 @@ test.skipIf(!bunWebGpuAvailable())(
     const mat = await material.unlit(ctx, {
       color: vec4.fromValues(1, 0, 0, 1),
     });
-    const cubeGeo = mesh.cubeGeometry(ctx);
+    const cubeGeo = geometry.cube(ctx);
     const cube = mesh.create(ctx, { geometry: cubeGeo, material: mat });
 
     const target = ctx.device.createTexture({
@@ -52,7 +53,7 @@ test.skipIf(!bunWebGpuAvailable())(
     depth.destroy();
     target.destroy();
     mesh.destroy(ctx, cube);
-    mesh.destroyGeometry(ctx, cubeGeo);
+    geometry.destroy(ctx, cubeGeo);
     material.destroy(ctx, mat);
     gpu.dispose(ctx);
   },
@@ -89,7 +90,7 @@ test.skipIf(!bunWebGpuAvailable())(
     const mat = await material.unlit(ctx, {
       color: vec4.fromValues(1, 0, 0, 1),
     });
-    const cubeGeo = mesh.cubeGeometry(ctx);
+    const cubeGeo = geometry.cube(ctx);
     const cube = mesh.create(ctx, { geometry: cubeGeo, material: mat });
     expect(() =>
       frame.renderToTexture(ctx, {
@@ -100,7 +101,7 @@ test.skipIf(!bunWebGpuAvailable())(
     ).toThrow("camera is required");
     target.destroy();
     mesh.destroy(ctx, cube);
-    mesh.destroyGeometry(ctx, cubeGeo);
+    geometry.destroy(ctx, cubeGeo);
     material.destroy(ctx, mat);
     gpu.dispose(ctx);
   },
@@ -143,7 +144,7 @@ test.skipIf(!bunWebGpuAvailable())(
     const mat = await material.unlit(ctx, {
       color: vec4.fromValues(1, 0, 0, 1),
     });
-    const cubeGeo = mesh.cubeGeometry(ctx);
+    const cubeGeo = geometry.cube(ctx);
     const cube = mesh.create(ctx, { geometry: cubeGeo, material: mat });
     expect(() =>
       frame.renderToTexture(ctx, {
@@ -154,7 +155,7 @@ test.skipIf(!bunWebGpuAvailable())(
     ).toThrow("draw[1]: null/undefined mesh");
     target.destroy();
     mesh.destroy(ctx, cube);
-    mesh.destroyGeometry(ctx, cubeGeo);
+    geometry.destroy(ctx, cubeGeo);
     material.destroy(ctx, mat);
     gpu.dispose(ctx);
   },
