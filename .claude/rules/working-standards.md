@@ -2,6 +2,10 @@
 
 Behavioural baseline for all contributors working in this repository.
 
+## Engine conventions take precedence
+
+These are general defaults. Where they conflict with a committed engine convention, the engine convention wins — `docs/reference/engine-conventions.md` is the canonical reference, and its §Failure policy is the **authority** on where the hot/warm/cold-path performance stances override the generic `typescript.md` / `clean-code.md` rules (e.g. intentional compiler-bypass classes, out-param mutation, imperative hot-path loops). The rule files link here rather than restating it.
+
 ## Reasoning
 - Never state uncertain things as facts. Distinguish between "verified in this session" and "I believe based on general knowledge."
 - State what assumptions a recommendation depends on. If an assumption is wrong, the recommendation is wrong.

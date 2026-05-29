@@ -1,6 +1,25 @@
 # `camera/common.ts` uses `as number` casts on `Vec3` indexing
 
-*Tranche A-3 candidate (typescript hygiene).*
+> **ENGINE-SIDE RESOLVED in A-6 (2026-05-29).** The `transform/*` + `camera`
+> hot-path indexing casts (~263 sites) are a **recognised intentional-bypass
+> class**, documented once in `.claude/rules/typescript.md` (no per-site
+> comment needed). The fix-option-1 `vec3Get` runtime-checked helper below is
+> **rejected**: it predates A-4's hot-path failure-policy stance (2026-05-28)
+> and would add per-call validation to functions the convention forbids from
+> validating. See `docs/superpowers/specs/2026-05-29-a6-audit.md` §5.1.
+>
+> **Remaining (out of A-6's six-module scope):**
+> 1. **Consumer mirror** — `packages/cookbook/src/demos/animation/entry.ts:51-53`
+>    (`cubePos[0] as number`) is the same pattern in demo code. Give it a
+>    `// Boundary cast:` comment or fold under the same class note when a
+>    cookbook hygiene pass next touches that file.
+> 2. **Optional scope-off mechanism** — a per-directory `tsconfig` flipping
+>    `noUncheckedIndexedAccess: false` for `transform/` would delete the casts
+>    at zero runtime cost. Not adopted (keeps one strictness config). **Trigger
+>    to revisit:** if the cast volume becomes a maintenance irritant, or a
+>    `noUncheckedIndexedAccess` config review happens for another reason.
+
+*Original entry (Tranche A-3 candidate, typescript hygiene) below — retained for context.*
 
 `packages/core/src/camera/common.ts` has 8 sites where `Vec3` / `Float32Array` indexing is read as `number` via explicit casts:
 

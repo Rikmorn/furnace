@@ -47,6 +47,10 @@ export function attach(canvas: HTMLCanvasElement): void {
   // Keyboard + window lifecycle bind to globalThis so they fire regardless of
   // which element has focus. Pointer + wheel bind to the canvas for canvas-
   // local coords and to prevent firing when the cursor leaves the surface.
+  //
+  // Boundary cast: registerListener stores handlers as `(e: Event) => void`;
+  // each `e as KeyboardEvent | PointerEvent | WheelEvent` below narrows to the
+  // DOM subtype guaranteed by the corresponding listener's event-type string.
   registerListener({
     target: globalThis,
     type: "keydown",

@@ -385,6 +385,30 @@ codified the four-stance taxonomy. Diagnostics extend the failure
 policy via `@furnace/core/log`; see §Diagnostics for routing and
 sink semantics.
 
+### Authority over the generic contributor rules
+
+This section is the **single source of truth** for where the generic
+contributor rules (`.claude/rules/typescript.md`, `.claude/rules/clean-code.md`)
+are overridden by performance needs. `.claude/rules/working-standards.md`
+links here as the authority; the rule files are not edited to restate the
+stances. The overrides the stances sanction, by stance:
+
+- **Hot-path** waives, for the named functions only: "fix the types
+  instead of bypassing the compiler" (intentional bypass classes —
+  e.g. hot-path typed-array indexing casts), "don't mutate parameters"
+  and "commands vs queries" (the `(out, a, b) => out` math convention),
+  and "prefer functional pipelines over `for` loops" (index loops in
+  math kernels).
+- **Warm-path** waives "prefer functional pipelines" for the bounded
+  per-frame validation/scene-pass loops in `frame.render`.
+- **Cold-path** waives nothing — the generic rules apply in full.
+
+When a generic rule and a performance need conflict, this section
+decides. Change it here; `.claude/rules/working-standards.md` links
+here rather than restating. Reconciled in A-6 (2026-05-29) after the
+audit found the generic rules silently contradicting the committed
+stances.
+
 ## Resource ownership
 
 Superseded by §Resource manager (2026-05-28). The manager is the single source of truth for resource lifecycle; "who owns what" reduces to "the manager owns every consumer-facing slot; the consumer holds opaque handles." Built-in factories (e.g. `material.unlit`'s color uniform buffer) attach their owned buffers to the slot's `ownedBuffers` array, so factory-allocated internals are freed alongside the public handle.
