@@ -1,8 +1,8 @@
 # Sphere built-in geometry
 
-`mesh.cubeGeometry` and `mesh.planeGeometry` ship in tranche 4. Sphere is the natural third primitive but its construction is non-trivial: latitude/longitude tessellation, UV seam handling, parameterized vertex count.
+`geometry.cube` and `geometry.plane` ship in tranche 4. Sphere is the natural third primitive but its construction is non-trivial: latitude/longitude tessellation, UV seam handling, parameterized vertex count.
 
-Likely shape: `mesh.sphereGeometry(ctx, opts?: { radius?: number; latitudeBands?: number; longitudeBands?: number })`. Defaults: radius 0.5, 24×16 bands (1024 vertices, ≈4500 triangles). Standard UV unwrap with polar singularities.
+Likely shape: `geometry.sphere(ctx, opts?: { radius?: number; latitudeBands?: number; longitudeBands?: number })`. Defaults: radius 0.5, 24×16 bands (1024 vertices, ≈4500 triangles). Standard UV unwrap with polar singularities.
 
 Open design questions:
 - Icosphere subdivision vs latitude/longitude. Icosphere has more uniform triangle area but trickier UV; lat/long is standard.

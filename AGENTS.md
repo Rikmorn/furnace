@@ -131,6 +131,7 @@ Before claiming a piece of work is complete: search `AGENTS.md`, `README.md`, an
 - `docs/reference/` — canonical "how the project is" docs:
   - `engine-conventions.md` — behavioural contracts (coords, color, DPR, lifecycle, failure policy, instrumentation)
   - `core-modules.md` — public API surface of `@furnace/core`, module by module
+  - `api-posture.md` — concept taxonomy (data/function kinds) + R1–R9 rules for how new API surface is shaped & named
   - `tsdoc-conventions.md` — TSDoc authoring policy for the `@furnace/core` public API surface
   - `engine-architecture.md` — broader architectural rationale
   - `packaging-and-distribution.md` — what we ship to consumers

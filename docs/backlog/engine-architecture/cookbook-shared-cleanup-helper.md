@@ -11,7 +11,7 @@ setup: async (ctx) => {
   let mat: Material | undefined;
   try {
     mat = await material.normalColor(ctx);
-    cubeGeo = mesh.cubeGeometry(ctx);
+    cubeGeo = geometry.cube(ctx);
     cube = mesh.create(ctx, { geometry: cubeGeo, material: mat });
     // ... more allocations ...
 
@@ -24,13 +24,13 @@ setup: async (ctx) => {
       frame: ({ ctx, scene }) => { ... },
       dispose: () => {                  // success-path teardown
         mesh.destroy(ctx, sceneCube);
-        mesh.destroyGeometry(ctx, sceneCubeGeo);
+        geometry.destroy(ctx, sceneCubeGeo);
         material.destroy(ctx, sceneMat);
       },
     };
   } catch (e) {                          // failure-path teardown
     if (cube) mesh.destroy(ctx, cube);
-    if (cubeGeo) mesh.destroyGeometry(ctx, cubeGeo);
+    if (cubeGeo) geometry.destroy(ctx, cubeGeo);
     if (mat) material.destroy(ctx, mat);
     throw e;
   }
