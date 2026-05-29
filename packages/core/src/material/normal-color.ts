@@ -62,11 +62,11 @@ struct VsOut {
  * `opts`. Delegates to {@link create}, so its failure policy and pipeline-
  * cache behaviour apply.
  */
-export function normalColor(
+export async function normalColor(
   ctx: Context,
   opts?: NormalColorOptions,
 ): Promise<Material> {
-  return create(ctx, {
+  return await create(ctx, {
     vertex: NORMAL_COLOR_WGSL,
     fragment: NORMAL_COLOR_WGSL,
     topology: opts?.topology,
