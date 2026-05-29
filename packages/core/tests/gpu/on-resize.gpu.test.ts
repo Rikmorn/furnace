@@ -128,3 +128,27 @@ test("dispose cascade tears down only the disposed context's resize wiring", () 
   expect(aCount).toBe(0);
   expect(bCount).toBe(1);
 });
+
+test("re-subscribe after idle teardown rebuilds the observer and re-registers dispose", () => {
+  const ctx = fakeCtx();
+  let firstCount = 0;
+  const unsub1 = onResize(ctx, () => {
+    firstCount++;
+  });
+  // Last subscriber leaves: observer torn down early, cascade callback deregistered.
+  unsub1();
+
+  // Re-subscribe: must rebuild the observer + emitter and re-register with the cascade.
+  let secondCount = 0;
+  onResize(ctx, () => {
+    secondCount++;
+  });
+  fireResize(ctx.canvas, 1280, 720);
+  expect(secondCount).toBe(1); // the rebuilt observer fires the new subscriber
+  expect(firstCount).toBe(0); // the old subscriber is gone
+
+  // The re-registered cascade callback disconnects the rebuilt observer.
+  _runDisposeCascade(ctx);
+  fireResize(ctx.canvas, 1920, 1080);
+  expect(secondCount).toBe(1); // inert after dispose
+});
