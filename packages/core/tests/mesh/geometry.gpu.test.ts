@@ -1,7 +1,10 @@
 import { expect, test } from "bun:test";
+import {
+  create as createGeometry,
+  destroy as destroyGeometry,
+} from "../../src/geometry/geometry.ts";
+import type { GeometrySlot } from "../../src/geometry/types.ts";
 import * as gpu from "../../src/gpu/index.ts";
-import { createGeometry, destroyGeometry } from "../../src/mesh/geometry.ts";
-import type { GeometrySlot } from "../../src/mesh/types.ts";
 import { _lookupGeometry } from "../../src/resources/internal.ts";
 import {
   bunWebGpuAvailable,

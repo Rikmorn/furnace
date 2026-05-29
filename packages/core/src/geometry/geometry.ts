@@ -17,11 +17,11 @@ const FLOATS_PER_VERTEX = 8;
  * `material.create` declares). If `data.indices` is supplied, an index
  * buffer is also created.
  *
- * Returns an opaque {@link Geometry} handle. Destroy via
- * {@link destroyGeometry}. If a Mesh still references the geometry,
- * `destroyGeometry` marks it for deferred teardown; the actual GPU free
- * runs when the last referencing mesh is destroyed (refcount wiring
- * arrives with Task 2.2 — today the refcount is always zero).
+ * Returns an opaque {@link Geometry} handle. Destroy via {@link destroy}.
+ * If a Mesh still references the geometry, `destroy` marks it for deferred
+ * teardown; the actual GPU free runs when the last referencing mesh is
+ * destroyed (`mesh.create` increments the refcount, `mesh.destroy`
+ * decrements it).
  *
  * Setup-loud: validates `data` synchronously before touching the GPU.
  *
@@ -31,7 +31,7 @@ const FLOATS_PER_VERTEX = 8;
  * @throws FurnaceError - if `uvs.length` does not equal `(positions.length / 3) * 2`
  *   (one `vec2` per vertex).
  */
-export function createGeometry(ctx: Context, data: GeometryData): Geometry {
+export function create(ctx: Context, data: GeometryData): Geometry {
   validateGeometryData(data);
   const vertexCount = data.positions.length / 3;
 
@@ -82,10 +82,9 @@ function geometryTeardown(
  * Destroy a {@link Geometry}. If a Mesh still references it
  * (`userCount > 0`), the slot is marked-destroyed and actual GPU teardown
  * waits until the last referencing mesh is destroyed (refcount-driven
- * cascade — wired up in Task 2.2). Silent on stale or already-destroyed
- * handles (idempotent).
+ * cascade). Silent on stale or already-destroyed handles (idempotent).
  */
-export function destroyGeometry(ctx: Context, geometry: Geometry): void {
+export function destroy(ctx: Context, geometry: Geometry): void {
   const slot = _lookupGeometry<GeometrySlot>(ctx, geometry);
   if (slot === null) return;
   if (slot.userCount > 0) {

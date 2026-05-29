@@ -1,5 +1,5 @@
 import type { Context } from "../../gpu/index.ts";
-import { createGeometry } from "../geometry.ts";
+import { create } from "../geometry.ts";
 import type { Geometry, GeometryData } from "../types.ts";
 
 function planeGeometryData(size: number): GeometryData {
@@ -19,10 +19,7 @@ function planeGeometryData(size: number): GeometryData {
  * Pass to `mesh.create({ geometry, material })` to bind. The caller owns
  * the returned geometry — see `engine-conventions.md` §Resource ownership.
  */
-export function planeGeometry(
-  ctx: Context,
-  opts?: { size?: number },
-): Geometry {
+export function plane(ctx: Context, opts?: { size?: number }): Geometry {
   const size = opts?.size ?? 1;
-  return createGeometry(ctx, planeGeometryData(size));
+  return create(ctx, planeGeometryData(size));
 }

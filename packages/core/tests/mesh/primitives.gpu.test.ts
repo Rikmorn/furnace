@@ -1,8 +1,8 @@
 import { expect, test } from "bun:test";
+import { cube as cubeGeometry } from "../../src/geometry/factories/cube.ts";
+import { plane as planeGeometry } from "../../src/geometry/factories/plane.ts";
+import type { GeometrySlot } from "../../src/geometry/types.ts";
 import * as gpu from "../../src/gpu/index.ts";
-import { cubeGeometry } from "../../src/mesh/factories/cube.ts";
-import { planeGeometry } from "../../src/mesh/factories/plane.ts";
-import type { GeometrySlot } from "../../src/mesh/types.ts";
 import { _lookupGeometry } from "../../src/resources/internal.ts";
 import {
   bunWebGpuAvailable,

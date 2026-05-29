@@ -1,4 +1,5 @@
 import { FurnaceError } from "../errors.ts";
+import type { Geometry, GeometrySlot } from "../geometry/types.ts";
 import type { Context } from "../gpu/index.ts";
 import type { Material, MaterialSlot } from "../material/types.ts";
 import {
@@ -13,7 +14,7 @@ import {
 import { _recordAlloc, _recordDestroy } from "../stats/internal.ts";
 import { mat4, quat } from "../transform/index.ts";
 import type { Quat, Vec3 } from "../transform/types.ts";
-import type { Geometry, GeometrySlot, Mesh, MeshSlot } from "./types.ts";
+import type { Mesh, MeshSlot } from "./types.ts";
 
 const OBJECT_UNIFORM_SIZE_BYTES = 64; // one mat4x4<f32>
 

@@ -1,10 +1,10 @@
 import { expect, test } from "bun:test";
 import * as camera from "../../src/camera/index.ts";
 import { render } from "../../src/frame/render.ts";
+import { cube as cubeGeometry } from "../../src/geometry/factories/cube.ts";
 import * as gpu from "../../src/gpu/index.ts";
 import { destroy as destroyMaterial, unlit } from "../../src/material/index.ts";
 import type { Material, MaterialSlot } from "../../src/material/types.ts";
-import { cubeGeometry } from "../../src/mesh/factories/cube.ts";
 import {
   create as createMesh,
   destroy as destroyMesh,

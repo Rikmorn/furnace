@@ -1,9 +1,9 @@
 import { expect, test } from "bun:test";
+import type { GeometrySlot } from "../../src/geometry/types.ts";
 import * as gpu from "../../src/gpu/index.ts";
 import * as material from "../../src/material/index.ts";
 import type { MaterialSlot } from "../../src/material/types.ts";
 import * as mesh from "../../src/mesh/index.ts";
-import type { GeometrySlot } from "../../src/mesh/types.ts";
 import {
   _lookupGeometry,
   _lookupMaterial,

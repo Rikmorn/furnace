@@ -1,9 +1,12 @@
 import { expect, test } from "bun:test";
+import { cube as cubeGeometry } from "../../src/geometry/factories/cube.ts";
+import {
+  create as createGeometry,
+  destroy as destroyGeometry,
+} from "../../src/geometry/geometry.ts";
 import * as gpu from "../../src/gpu/index.ts";
 import { destroy as destroyMaterial } from "../../src/material/material.ts";
 import { unlit } from "../../src/material/unlit.ts";
-import { cubeGeometry } from "../../src/mesh/factories/cube.ts";
-import { createGeometry, destroyGeometry } from "../../src/mesh/geometry.ts";
 import { _resolveMesh } from "../../src/mesh/internal.ts";
 import {
   _recomputeModelIfDirty,

@@ -1,12 +1,13 @@
 import type { Camera } from "../camera/index.ts";
 import * as camera from "../camera/index.ts";
+import type { GeometrySlot } from "../geometry/types.ts";
 import { _onDispose } from "../gpu/dispose-cascade.ts";
 import { FurnaceGpuError } from "../gpu/errors.ts";
 import type { Context } from "../gpu/index.ts";
 import * as gpu from "../gpu/index.ts";
 import type { MaterialSlot } from "../material/types.ts";
 import { _recomputeModelIfDirty } from "../mesh/mesh.ts";
-import type { GeometrySlot, Mesh, MeshSlot } from "../mesh/types.ts";
+import type { Mesh, MeshSlot } from "../mesh/types.ts";
 import type { Effect, EffectSlot } from "../post/effect.ts";
 import {
   _ensureSceneIntermediates,

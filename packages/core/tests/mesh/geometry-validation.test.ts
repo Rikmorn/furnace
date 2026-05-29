@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
-import { validateGeometryData } from "../../src/mesh/geometry-validation.ts";
-import type { GeometryData } from "../../src/mesh/types.ts";
+import { validateGeometryData } from "../../src/geometry/geometry-validation.ts";
+import type { GeometryData } from "../../src/geometry/types.ts";
 
 const VALID: GeometryData = {
   positions: new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]), // 3 vertices

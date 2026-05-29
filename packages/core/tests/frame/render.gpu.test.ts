@@ -2,11 +2,14 @@ import { expect, test } from "bun:test";
 import type { Camera } from "../../src/camera/index.ts";
 import * as camera from "../../src/camera/index.ts";
 import { _frameRenderInternals, render } from "../../src/frame/render.ts";
+import {
+  cube as cubeGeometry,
+  plane as planeGeometry,
+} from "../../src/geometry/factories/index.ts";
 import * as gpu from "../../src/gpu/index.ts";
 import { _resolveMaterial } from "../../src/material/internal.ts";
 import { normalColor } from "../../src/material/normal-color.ts";
 import { unlit } from "../../src/material/unlit.ts";
-import { cubeGeometry, planeGeometry } from "../../src/mesh/factories/index.ts";
 import { _resolveMesh } from "../../src/mesh/internal.ts";
 import {
   create as createMesh,

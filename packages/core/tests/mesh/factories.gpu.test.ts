@@ -1,11 +1,14 @@
 import { expect, test } from "bun:test";
+import {
+  cube as cubeGeometry,
+  plane as planeGeometry,
+} from "../../src/geometry/factories/index.ts";
+import { destroy as destroyGeometry } from "../../src/geometry/geometry.ts";
+import type { GeometrySlot } from "../../src/geometry/types.ts";
 import * as gpu from "../../src/gpu/index.ts";
 import { unlit } from "../../src/material/unlit.ts";
-import { cubeGeometry, planeGeometry } from "../../src/mesh/factories/index.ts";
-import { destroyGeometry } from "../../src/mesh/geometry.ts";
 import { _resolveMesh } from "../../src/mesh/internal.ts";
 import { create, destroy } from "../../src/mesh/mesh.ts";
-import type { GeometrySlot } from "../../src/mesh/types.ts";
 import { _lookupGeometry } from "../../src/resources/internal.ts";
 import { vec4 } from "../../src/transform/vec4.ts";
 import {

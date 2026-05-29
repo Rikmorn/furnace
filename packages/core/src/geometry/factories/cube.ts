@@ -1,5 +1,5 @@
 import type { Context } from "../../gpu/index.ts";
-import { createGeometry } from "../geometry.ts";
+import { create } from "../geometry.ts";
 import type { Geometry, GeometryData } from "../types.ts";
 
 type Vec3Tuple = readonly [number, number, number];
@@ -89,7 +89,7 @@ function cubeGeometryData(size: number): GeometryData {
  * Pass to `mesh.create({ geometry, material })` to bind. The caller owns
  * the returned geometry — see `engine-conventions.md` §Resource ownership.
  */
-export function cubeGeometry(ctx: Context, opts?: { size?: number }): Geometry {
+export function cube(ctx: Context, opts?: { size?: number }): Geometry {
   const size = opts?.size ?? 1;
-  return createGeometry(ctx, cubeGeometryData(size));
+  return create(ctx, cubeGeometryData(size));
 }
