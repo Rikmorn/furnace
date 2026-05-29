@@ -259,8 +259,8 @@ export function startMeasurement(ctx: Context, name: string): Measurement {
 import { _frameEnd, _frameStart, _recordDraw } from "./internal.ts";
 
 /**
- * Public wrapper over the internal `_recordDraw` hook. Increments
- * `Snapshot.gpu.drawCalls` by 1 and adds `info.triangles` to
+ * **Escape hatch.** Public wrapper over the internal `_recordDraw` hook.
+ * Increments `Snapshot.gpu.drawCalls` by 1 and adds `info.triangles` to
  * `Snapshot.gpu.triangles`.
  *
  * Use when issuing your own `GPURenderPassEncoder.draw*` calls outside

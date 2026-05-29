@@ -209,13 +209,14 @@ export function isDisposed(ctx: Context): boolean {
 }
 
 /**
- * Return a `GPUTextureView` on the current swap-chain texture, with the
- * configured sRGB view format applied (see {@link Context} `format`).
+ * **Escape hatch.** Returns a `GPUTextureView` on the current swap-chain
+ * texture, with the configured sRGB view format applied (see
+ * {@link Context} `format`).
  *
- * Escape hatch for consumers writing their own render pass — most callers
- * go through `frame.render`, which handles the view, depth attachment, and
- * post chain. Each call invokes `getCurrentTexture()` on the underlying
- * `GPUCanvasContext` and creates a fresh view.
+ * For consumers writing their own render pass — most callers go through
+ * `frame.render`, which handles the view, depth attachment, and post chain.
+ * Each call invokes `getCurrentTexture()` on the underlying `GPUCanvasContext`
+ * and creates a fresh view.
  *
  * @throws FurnaceGpuError - if `ctx` has been disposed.
  */

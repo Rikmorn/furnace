@@ -1,8 +1,8 @@
 import type { InternalState } from "./internal.ts";
 
 /**
- * The frozen handle returned by {@link requestContext} and accepted as the
- * first argument by every other `@furnace/core` module.
+ * The frozen root context value-type returned by {@link requestContext} and
+ * threaded as the first argument by every other `@furnace/core` module.
  *
  * The object itself is `Object.freeze`d; the WebGPU resources it points at
  * (device, queue, canvas) are not — `dispose(ctx)` is the engine-owned

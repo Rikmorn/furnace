@@ -41,7 +41,7 @@ The reference is "what the engine IS today." If it's stale, it's broken.
 | `onDeviceLost` | `(ctx: Context, fn: (info: GPUDeviceLostInfo) => void) => () => void` | Subscribe to WebGPU `device.lost` notification. Callback receives `GPUDeviceLostInfo`. Fires at most once per context. The emit is skipped when `gpu.dispose(ctx)` has been called (`reason: "destroyed"` is expected teardown). Setup-loud on disposed ctx. Returns idempotent unsubscribe. |
 | `onResize` | `(ctx: Context, fn: (event: ResizeEvent) => void) => () => void` | Subscribes to canvas resize events. The engine resizes the backing store on each event. Returns an unsubscribe function. |
 | `onUncapturedError` | `(ctx: Context, fn: (error: GPUError) => void) => () => void` | Subscribe to WebGPU uncaptured-error events. Callback receives the unwrapped `GPUError`. Setup-loud on disposed ctx. Returns idempotent unsubscribe. |
-| `Context` | `Readonly<{ device: GPUDevice; queue: GPUQueue; format: GPUTextureFormat; canvas: HTMLCanvasElement; pixelRatio: number; _internal: InternalState }>` | The frozen handle every other module takes as its first argument. |
+| `Context` | `Readonly<{ device: GPUDevice; queue: GPUQueue; format: GPUTextureFormat; canvas: HTMLCanvasElement; pixelRatio: number; _internal: InternalState }>` | The frozen root context **value-type** every other module threads as its first argument. |
 | `RequestContextOptions` | `{ surfaceFormat?: "srgb" \| "linear"; pixelRatio?: "device" \| "css" \| number }` | Defaults: `surfaceFormat: "srgb"`, `pixelRatio: "device"`. |
 | `ResizeEvent` | `Readonly<{ cssWidth: number; cssHeight: number; width: number; height: number; pixelRatio: number }>` | `width` / `height` are backing-store dimensions (the engine's "size truth"). |
 | `FurnaceError` | `class FurnaceError extends Error` | Re-exported base class. Thrown for engine-domain errors. |
@@ -78,13 +78,12 @@ The reference is "what the engine IS today." If it's stale, it's broken.
 | `FrameLoopHandle` | `Readonly<{ stop: () => void; pause: () => void; resume: () => void }>` | Returned by both `loop` and `fixedLoop`. |
 | `LoopOptions` | `{ maxDeltaMs?: number; pauseOnHidden?: boolean }` | Defaults: `maxDeltaMs: 100`, `pauseOnHidden: true`. |
 | `FixedLoopOptions` | `{ fixedDtMs: number; onTick: (dtSeconds: number) => void; onFrame?: (info: FixedLoopInfo) => void; maxCatchupTicks?: number; maxDeltaMs?: number; pauseOnHidden?: boolean }` | `maxCatchupTicks` default: 8. |
-| `RenderOptions` | `{ draw: Mesh[]; camera: Camera; effects?: Effect[]; clearColor?: ClearColor; clearDepth?: number }` | Defaults: `clearColor: [0, 0, 0, 1]`, `clearDepth: 1.0`. |
-| `RenderToTextureOptions` | `{ texture: GPUTexture; draw: Mesh[]; camera: Camera; depthTexture?: GPUTexture; clearColor?: ClearColor; clearDepth?: number }` | `depthTexture` is optional — omit to skip depth. |
-| `ClearColor` | `[number, number, number, number]` | Linear-space RGBA (the sRGB encoding happens on swap-chain write via the view format). |
+| `RenderOptions` | `{ draw: Mesh[]; camera: Camera; effects?: Effect[]; clearColor?: Vec4; clearDepth?: number }` | `clearColor` is a linear-space RGBA `Vec4`; defaults to `[0, 0, 0, 1]`. `clearDepth` defaults to `1.0`. |
+| `RenderToTextureOptions` | `{ texture: GPUTexture; draw: Mesh[]; camera: Camera; depthTexture?: GPUTexture; clearColor?: Vec4; clearDepth?: number }` | `clearColor` is a linear-space RGBA `Vec4`. `depthTexture` is optional — omit to skip depth. |
 
 ### Demoed in cookbook
 
-- `loop`, `render`, `RenderOptions`, `ClearColor` → `cookbook/camera`.
+- `loop`, `render`, `RenderOptions` → `cookbook/camera`.
 - `loop` (variable dt), `fixedLoop` (mentioned), `FrameInfo` → `cookbook/animation`.
 - `renderToTexture`, `RenderToTextureOptions` → `cookbook/render-target`.
 - `render({ effects })` → `cookbook/post`.
@@ -108,11 +107,11 @@ The reference is "what the engine IS today." If it's stale, it's broken.
 | `vec4` | namespace `{ create, fromValues, set, copy }` | `Vec4` = `Float32Array` of length 4. Minimal surface — extend as needed. |
 | `quat` | namespace `{ create, fromValues, identity, copy, fromEuler, fromAxisAngle, multiply, normalize, conjugate, slerp }` | `Quat` = `Float32Array` of length 4, `(x, y, z, w)`. `create()` returns identity. |
 | `mat4` | namespace `{ create, identity, copy, multiply, translate, scale, rotate, invert, transpose, perspective, ortho, lookAt, fromQuat, fromRotationTranslationScale }` | `Mat4` = `Float32Array` of length 16, column-major (matches WebGPU). `invert` returns `Mat4 \| null` (singular). `perspective` accepts `far = Infinity`. |
-| `Vec2` | `Float32Array` (length 2) | Type alias. |
+| `Vec2` | `Float32Array` (length 2) | Type alias. Reserved; not currently produced by any engine function. |
 | `Vec3` | `Float32Array` (length 3) | Type alias. |
 | `Vec4` | `Float32Array` (length 4) | Type alias. |
 | `Quat` | `Float32Array` (length 4) — `(x, y, z, w)` | Type alias. |
-| `Mat3` | `Float32Array` (length 9) | Type alias. Reserved; not currently produced by any function. |
+| `Mat3` | `Float32Array` (length 9) | Type alias. Reserved; not currently produced by any engine function. |
 | `Mat4` | `Float32Array` (length 16), column-major | Type alias. |
 
 ### Demoed in cookbook
@@ -233,7 +232,7 @@ Re-exported from `index.ts` so other core modules can `import * as stats` and ca
 | `OrthographicBounds` | `{ left: number; right: number; bottom: number; top: number }` | Shape returned by `getBounds` and accepted by `policy.stretch`. Use this type when composing helpers that receive or forward bounds. |
 | `FitPolicy` | discriminated union — `{ kind: "stretch"; bounds: OrthographicBounds } \| { kind: "preserve-height"; height: number; anchor: Anchor } \| { kind: "preserve-width"; width: number; anchor: Anchor }` | Orthographic fit policy variants. Construct via the `policy` factory namespace (validated) or write the literal directly (unvalidated). |
 | `Anchor` | `{ x: number; y: number }` | Components in `[0, 1]`. Anchor for derived-bounds policies. `(0.5, 0.5)` = world origin centered in the visible rect (default). Y-up. |
-| `Camera` | mutable data record (position, target, up, projection union, cached matrices, dirty flags) | See `camera/types.ts`. Treated as an opaque handle by consumers — mutate only via setters. |
+| `Camera` | mutable data record (position, target, up, projection union, cached matrices, dirty flags) | See `camera/types.ts`. A **value-type** (mutable data record), not a handle. Mutate via the camera setters; read via the getters / `getMatrices`. Owns no GPU resources. |
 | `CameraMatrices` | `Readonly<{ view: Mat4; projection: Mat4; viewProjection: Mat4 }>` | The wrapper returned by `getMatrices`. |
 | `ScreenProjection` | `{ x: number; y: number; w: number }` | Out-param for `projectToScreen`. `x`/`y` are CSS pixels (origin top-left), `w` is clip-space divisor (useful for distance-based label sizing). |
 

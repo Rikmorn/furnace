@@ -22,7 +22,7 @@ export const _pipelineCache = {
 };
 
 /**
- * Escape hatch: wrap `device.createRenderPipeline` in a
+ * **Escape hatch.** Wraps `device.createRenderPipeline` in a
  * `pushErrorScope("validation")` so validation failures surface as a thrown
  * `FurnaceError` instead of an async `uncapturederror`. Returns the raw
  * `GPURenderPipeline`.
