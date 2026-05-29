@@ -155,14 +155,14 @@ Superseded by §Resource manager (2026-05-28). `gpu.dispose(ctx)` cascades throu
 
 - Pose is expressed via `position` / `target` / `up` (lookAt-style). Quaternion-driven cameras are not provided.
 - Setters mutate in place and flip internal dirty bits. `getMatrices(cam)` recomputes only dirty matrices and returns the same frozen wrapper across calls (the inner `Float32Array` references are stable; the engine writes into them in place).
-- Projection-shape updates are split by kind. Perspective cameras carry an aspect ratio updated via `camera.setAspect`; orthographic cameras carry a `fitPolicy` updated via `camera.setFitPolicy` (see §Camera resize policy below). Both kinds are accepted by `camera.bindToCanvas(cam, ctx)`, the one-line helper that subscribes to `gpu.onResize` and runs `updateForSize` on every event. The returned function unsubscribes — call it in dispose. The manual pattern (`gpu.onResize` + `camera.updateForSize`) remains available for consumers needing finer control (multi-camera coordination, custom dispatch, conditional updates).
+- Projection-shape updates are split by kind. Perspective cameras carry an aspect ratio updated via `camera.setAspect`; orthographic cameras carry a `fitPolicy` updated via `camera.setFitPolicy` (see §Camera resize policy below). Both kinds are accepted by `camera.bindToCanvas(ctx, cam)`, the one-line helper that subscribes to `gpu.onResize` and runs `updateForSize` on every event. The returned function unsubscribes — call it for early/manual unsubscribe; `gpu.dispose` auto-disconnects the binding per-context. The manual pattern (`gpu.onResize` + `camera.updateForSize`) remains available for consumers needing finer control (multi-camera coordination, custom dispatch, conditional updates).
 - The camera's uniform buffer is engine-managed inside `frame.render` (allocated lazily, written each frame from `getMatrices`). The Camera handle itself remains data-only — no GPU resources owned.
 
 ### Camera resize policy
 
 Orthographic cameras opt into engine-managed bounds via a `fitPolicy` field.
 The policy determines how bounds respond to canvas resize; the consumer wires
-it via `camera.bindToCanvas(cam, ctx)`, which subscribes to `gpu.onResize`
+it via `camera.bindToCanvas(ctx, cam)`, which subscribes to `gpu.onResize`
 and runs the policy on every resize event.
 
 **Variants (first wave):**

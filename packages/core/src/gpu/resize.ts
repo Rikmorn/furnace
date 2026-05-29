@@ -1,5 +1,6 @@
 import { createEmitter, type Emitter } from "../events/emitter.ts";
 import type { Context } from "./context-types.ts";
+import { _onDispose } from "./dispose-cascade.ts";
 import { FurnaceGpuError } from "./errors.ts";
 
 /**
@@ -28,6 +29,9 @@ type InternalWithResize = {
   canvasContext: GPUCanvasContext;
   resizeEmitter?: Emitter<ResizeEvent>;
   resizeObserver?: ResizeObserver;
+  // Deregisters the dispose-cascade callback, so early teardown (last
+  // subscriber leaves) keeps the registration 1:1 with the observer.
+  resizeDisposeOff?: () => void;
 };
 
 /**
@@ -85,6 +89,14 @@ function ensureResizeWiring(
     }
   });
   internal.resizeObserver.observe(ctx.canvas);
+  // The ResizeObserver is ctx-bound lazy infrastructure. Self-register its
+  // teardown with the dispose cascade so gpu.dispose disconnects it even when
+  // the consumer never unsubscribes — mirrors frame.render / post.intermediate.
+  // Per-context: _onDispose keys callbacks by ctx, so disposing one context
+  // never tears down another's resize wiring.
+  internal.resizeDisposeOff = _onDispose(ctx, () => {
+    teardownResizeWiring(internal);
+  });
   return emitter;
 }
 
@@ -104,10 +116,21 @@ function computeResizeEvent(
   };
 }
 
-function teardownIfIdle(internal: InternalWithResize): void {
-  const emitter = internal.resizeEmitter;
-  if (!emitter || emitter.listenerCount > 0) return;
+function teardownResizeWiring(internal: InternalWithResize): void {
   internal.resizeObserver?.disconnect();
   internal.resizeObserver = undefined;
   internal.resizeEmitter = undefined;
+  // Clearing the deregister fn matters on the early-unsubscribe path (so a
+  // later gpu.dispose finds nothing to do); on the cascade path it's already
+  // inert because _runDisposeCascade removed the callback list first.
+  internal.resizeDisposeOff = undefined;
+}
+
+function teardownIfIdle(internal: InternalWithResize): void {
+  const emitter = internal.resizeEmitter;
+  if (!emitter || emitter.listenerCount > 0) return;
+  // Deregister the cascade callback before clearing, so a later gpu.dispose
+  // doesn't call into already-torn-down wiring.
+  internal.resizeDisposeOff?.();
+  teardownResizeWiring(internal);
 }
