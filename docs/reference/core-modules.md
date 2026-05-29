@@ -214,6 +214,9 @@ Re-exported from `index.ts` so other core modules can `import * as stats` and ca
 | `setPosition` | `(cam: Camera, position: Vec3) => void` | Mutates in place, flips `viewDirty`. |
 | `setTarget` | `(cam: Camera, target: Vec3) => void` | Mutates in place, flips `viewDirty`. |
 | `setUp` | `(cam: Camera, up: Vec3) => void` | Mutates in place, flips `viewDirty`. |
+| `getPosition` | `(out: Vec3, cam: Camera) => Vec3` | Reads the camera position into `out` (out-param, out-first). Hot-path read. |
+| `getTarget` | `(out: Vec3, cam: Camera) => Vec3` | Reads the look-at target into `out`. Hot-path read. |
+| `getUp` | `(out: Vec3, cam: Camera) => Vec3` | Reads the up vector into `out`. Hot-path read. |
 | `setAspect` | `(cam: Camera, aspect: number) => void` | Perspective-only. Sets `projection.aspect`, flips `projDirty`. Throws if `aspect` is non-finite or non-positive, or if `cam` is orthographic (orthographic cameras use `setFitPolicy`). |
 | `setNearFar` | `(cam: Camera, near: number, far: number) => void` | Throws if `near ≥ far`, or if perspective and `near ≤ 0`. |
 | `setFov` | `(cam: Camera, fovYRad: number) => void` | Perspective-only — throws on orthographic. |
@@ -242,6 +245,7 @@ Re-exported from `index.ts` so other core modules can `import * as stats` and ca
 ### Reference-only (no demo, by design)
 
 - `getMatrices` — `frame.render` calls it internally per draw; consumers rarely call it themselves outside of custom render paths.
+- `getPosition`, `getTarget`, `getUp` — low-level pose reads (out-param, out-first); most consumers hold their own pose vectors and rarely read them back off the camera.
 
 ---
 

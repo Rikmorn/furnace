@@ -47,6 +47,33 @@ export function setUp(cam: Camera, up: Vec3): void {
 }
 
 /**
+ * Read the camera's position into `out`. Out-param convention (out first;
+ * see api-posture.md). Hot-path read — no validation.
+ */
+export function getPosition(out: Vec3, cam: Camera): Vec3 {
+  out[0] = cam.position[0] as number;
+  out[1] = cam.position[1] as number;
+  out[2] = cam.position[2] as number;
+  return out;
+}
+
+/** Read the camera's look-at target into `out`. Out-param; hot-path read. */
+export function getTarget(out: Vec3, cam: Camera): Vec3 {
+  out[0] = cam.target[0] as number;
+  out[1] = cam.target[1] as number;
+  out[2] = cam.target[2] as number;
+  return out;
+}
+
+/** Read the camera's up vector into `out`. Out-param; hot-path read. */
+export function getUp(out: Vec3, cam: Camera): Vec3 {
+  out[0] = cam.up[0] as number;
+  out[1] = cam.up[1] as number;
+  out[2] = cam.up[2] as number;
+  return out;
+}
+
+/**
  * Set a perspective camera's aspect ratio. Mutates `cam` in place; flips
  * `projDirty`.
  *
