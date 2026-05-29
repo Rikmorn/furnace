@@ -28,7 +28,7 @@ export function snapshot(ctx: Context): Snapshot {
 
 /**
  * Subscribe to per-frame {@link Snapshot} delivery. The callback is fired
- * once per frame from `_frameEnd` (the close of {@link frameBoundary} or
+ * once per frame from `_frameEnd` (the close of {@link markFrameBoundary} or
  * `frame.loop`'s frame) with a single shared frozen snapshot.
  *
  * Setup-loud: throws on a disposed `ctx` because subscribing to a context
@@ -273,9 +273,9 @@ export function recordDraw(ctx: Context, info: { triangles: number }): void {
 }
 
 /**
- * Manual frame boundary — calls `_frameEnd` (which fires {@link onFrame}
- * subscribers with this frame's snapshot) and then `_frameStart` to open
- * the next frame's counters.
+ * **Escape hatch.** Manual frame boundary — calls `_frameEnd` (which fires
+ * {@link onFrame} subscribers with this frame's snapshot) and then
+ * `_frameStart` to open the next frame's counters.
  *
  * For consumers driving their own render loop without `frame.loop`
  * (`frame.loop` already calls these hooks). Calling this in addition to
@@ -283,7 +283,7 @@ export function recordDraw(ctx: Context, info: { triangles: number }): void {
  *
  * Runtime-quiet: silently no-ops on a disposed `ctx`.
  */
-export function frameBoundary(ctx: Context): void {
+export function markFrameBoundary(ctx: Context): void {
   if (ctx._internal.disposed) return;
   _frameEnd(ctx);
   _frameStart(ctx);

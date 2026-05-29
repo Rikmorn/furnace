@@ -155,7 +155,7 @@ Used indirectly by every input/resize-driven demo (`gpu.onResize`, `input.onKeyD
 |---|---|---|
 | `snapshot` | `(ctx: Context) => Snapshot` | Returns a frozen snapshot of the current frame's stats. Returns the zero-snapshot if `ctx` is disposed. |
 | `onFrame` | `(ctx: Context, fn: (s: Snapshot) => void) => () => void` | Subscribes to per-frame stats. Fired from `_frameEnd`. Throws if `ctx` is disposed. Returns unsubscribe. |
-| `frameBoundary` | `(ctx: Context) => void` | Manual frame boundary for consumers not using `frame.loop`. Calls `_frameEnd` then `_frameStart`. No-op if disposed. |
+| `markFrameBoundary` | `(ctx: Context) => void` | **Escape hatch.** Manual frame boundary for consumers not using `frame.loop`. Calls `_frameEnd` then `_frameStart`. No-op if disposed. |
 | `recordDraw` | `(ctx: Context, info: { triangles: number }) => void` | Public wrapper over `_recordDraw`. Use when issuing your own draw calls outside `frame.render`. |
 | `gauge` | `(ctx: Context, name: string, value: number) => void` | Sets a custom gauge (last-write-wins). Silently no-ops on disposed ctx, non-finite `value`, empty `name`, or cross-kind name collision (warns to console). |
 | `increment` | `(ctx: Context, name: string, by?: number) => void` | Increments a custom counter. Monotonic — negative `by` is rejected (warns). Default `by = 1`. |
@@ -191,7 +191,7 @@ Re-exported from `index.ts` so other core modules can `import * as stats` and ca
 
 ### Reference-only (no demo, by design)
 
-- `frameBoundary` — for consumers not using `frame.loop`; every cookbook demo goes through `frame.loop` (via `mountDemo`).
+- `markFrameBoundary` — for consumers not using `frame.loop`; every cookbook demo goes through `frame.loop` (via `mountDemo`).
 - `recordDraw` — escape hatch for custom passes; cookbook demos go through `frame.render` / `frame.renderToTexture`.
 - `get` — the typed dotted-path lookup; the cookbook's overlay and custom-stats demo both consume snapshots wholesale via `onFrame`, so the path-walking surface is not exercised. Covered by the unit tests in `packages/core/src/stats/`.
 - `startMeasurement` — async/manual measurement variant. The custom-stats demo's heavy loop is synchronous and uses `measure` directly; an async demo would justify a `startMeasurement` example.

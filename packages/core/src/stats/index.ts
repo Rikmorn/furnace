@@ -14,11 +14,11 @@ export {
 
 // Public surface
 export {
-  frameBoundary,
   gauge,
   get,
   increment,
   type Measurement,
+  markFrameBoundary,
   measure,
   onFrame,
   type Path,

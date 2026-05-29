@@ -1,7 +1,11 @@
 import { expect, test } from "bun:test";
 import type { Context } from "../../src/gpu/context-types.ts";
 import { createResourceManager } from "../../src/resources/manager.ts";
-import { frameBoundary, onFrame, recordDraw } from "../../src/stats/public.ts";
+import {
+  markFrameBoundary,
+  onFrame,
+  recordDraw,
+} from "../../src/stats/public.ts";
 import { createStatsState } from "../../src/stats/state.ts";
 
 function makeMockCtx(disposed = false): Context {
@@ -33,7 +37,7 @@ test("recordDraw on disposed ctx: silent no-op", () => {
   expect(ctx._internal.stats.drawCalls).toBe(0);
 });
 
-test("frameBoundary: fires subscribers with snapshot + resets per-frame counters", () => {
+test("markFrameBoundary: fires subscribers with snapshot + resets per-frame counters", () => {
   const ctx = makeMockCtx();
   ctx._internal.stats.drawCalls = 3;
   ctx._internal.stats.triangles = 99;
@@ -41,18 +45,18 @@ test("frameBoundary: fires subscribers with snapshot + resets per-frame counters
   onFrame(ctx, (s) => seen.push(s.gpu.drawCalls));
   // First boundary: starts the frame (no subscriber fire yet since frameStartTime was null)
   // Implementation calls _frameEnd then _frameStart so subscribers fire with the prior frame's snapshot.
-  frameBoundary(ctx);
+  markFrameBoundary(ctx);
   // Counters should be reset for the new frame.
   expect(ctx._internal.stats.drawCalls).toBe(0);
   expect(ctx._internal.stats.triangles).toBe(0);
 });
 
-test("frameBoundary on disposed ctx: silent no-op", () => {
+test("markFrameBoundary on disposed ctx: silent no-op", () => {
   const ctx = makeMockCtx(true);
   let fired = false;
   ctx._internal.stats.onFrameSubscribers.add(() => {
     fired = true;
   });
-  frameBoundary(ctx);
+  markFrameBoundary(ctx);
   expect(fired).toBe(false);
 });

@@ -4,10 +4,10 @@ import { FurnaceError } from "../../src/errors.ts";
 import type { Context } from "../../src/gpu/context-types.ts";
 import { createResourceManager } from "../../src/resources/manager.ts";
 import {
-  frameBoundary,
   gauge,
   get,
   increment,
+  markFrameBoundary,
   measure,
   onFrame,
   recordDraw,
@@ -62,7 +62,7 @@ test.each([
   ["gauge", () => gauge(makeMockCtx(true), "x", 1)],
   ["increment", () => increment(makeMockCtx(true), "x")],
   ["recordDraw", () => recordDraw(makeMockCtx(true), { triangles: 1 })],
-  ["frameBoundary", () => frameBoundary(makeMockCtx(true))],
+  ["markFrameBoundary", () => markFrameBoundary(makeMockCtx(true))],
 ])("%s on disposed: silent no-op", (_, op) => {
   const entries: LogEntry[] = [];
   setSink((entry) => entries.push(entry));
