@@ -1,12 +1,9 @@
 import type { Anchor, Camera } from "@furnace/core/camera";
 import * as camera from "@furnace/core/camera";
 import * as frame from "@furnace/core/frame";
-import type { Geometry } from "@furnace/core/geometry";
 import * as geometry from "@furnace/core/geometry";
 import * as input from "@furnace/core/input";
-import type { Material } from "@furnace/core/material";
 import * as material from "@furnace/core/material";
-import type { Mesh } from "@furnace/core/mesh";
 import * as mesh from "@furnace/core/mesh";
 import type { Vec3, Vec4 } from "@furnace/core/transform";
 import { vec3, vec4 } from "@furnace/core/transform";
@@ -107,24 +104,19 @@ await mountDemo({
   setup: async (ctx) => {
     input.attach(ctx.canvas);
 
-    let normalMat: Material | undefined;
-    let planeMat: Material | undefined;
-    let cube: Mesh | undefined;
-    let plane: Mesh | undefined;
-    let cubeGeo: Geometry | undefined;
-    let planeGeo: Geometry | undefined;
-    let unsubResize: (() => void) | undefined;
-
     try {
-      normalMat = await material.normalColor(ctx);
-      planeMat = await material.unlit(ctx, {
+      const normalMat = await material.normalColor(ctx);
+      const planeMat = await material.unlit(ctx, {
         color: vec4.fromValues(0.1, 0.1, 0.12, 1),
       });
 
-      cubeGeo = geometry.cube(ctx);
-      cube = mesh.create(ctx, { geometry: cubeGeo, material: normalMat });
-      planeGeo = geometry.plane(ctx, { size: PLANE_BACKDROP_SIZE });
-      plane = mesh.create(ctx, { geometry: planeGeo, material: planeMat });
+      const cubeGeo = geometry.cube(ctx);
+      const cube = mesh.create(ctx, { geometry: cubeGeo, material: normalMat });
+      const planeGeo = geometry.plane(ctx, { size: PLANE_BACKDROP_SIZE });
+      const plane = mesh.create(ctx, {
+        geometry: planeGeo,
+        material: planeMat,
+      });
       mesh.setPosition(ctx, plane, vec3.fromValues(0, 0, PLANE_Z));
 
       const initialAspect = ctx.canvas.width / ctx.canvas.height;
@@ -143,12 +135,9 @@ await mountDemo({
         position: vec3.fromValues(0, 0, CAMERA_RADIUS),
       });
 
-      const unsubResizeP = camera.bindToCanvas(ctx, perspectiveCam);
-      const unsubResizeO = camera.bindToCanvas(ctx, orthographicCam);
-      unsubResize = () => {
-        unsubResizeP();
-        unsubResizeO();
-      };
+      // gpu.dispose auto-disconnects both resize bindings per-context.
+      camera.bindToCanvas(ctx, perspectiveCam);
+      camera.bindToCanvas(ctx, orthographicCam);
 
       let dragging = false;
       let lastX = 0;
@@ -178,44 +167,24 @@ await mountDemo({
         lastAnchor: AnchorPreset | undefined;
       } = { lastKind: undefined, lastAnchor: undefined };
 
-      const sceneCube = cube;
-      const scenePlane = plane;
-      const sceneCubeGeo = cubeGeo;
-      const scenePlaneGeo = planeGeo;
-      const sceneNormalMat = normalMat;
-      const scenePlaneMat = planeMat;
-      const sceneUnsubResize = unsubResize;
+      // No managed teardown: gpu.dispose cascades the meshes/geometries/
+      // materials and auto-disconnects the resize bindings. Only input
+      // (a module singleton with explicit attach/detach) is torn down here.
       return {
         scene: {
-          cube: sceneCube,
-          plane: scenePlane,
+          cube,
+          plane,
           perspectiveCam,
           orthographicCam,
-          normalMat: sceneNormalMat,
-          planeMat: scenePlaneMat,
           eyeBuf,
           targetBuf,
           fitPolicyDirty,
         },
         dispose: () => {
-          sceneUnsubResize();
-          mesh.destroy(ctx, sceneCube);
-          mesh.destroy(ctx, scenePlane);
-          geometry.destroy(ctx, sceneCubeGeo);
-          geometry.destroy(ctx, scenePlaneGeo);
-          material.destroy(ctx, sceneNormalMat);
-          material.destroy(ctx, scenePlaneMat);
           input.detach();
         },
       };
     } catch (e) {
-      if (unsubResize) unsubResize();
-      if (cube) mesh.destroy(ctx, cube);
-      if (plane) mesh.destroy(ctx, plane);
-      if (cubeGeo) geometry.destroy(ctx, cubeGeo);
-      if (planeGeo) geometry.destroy(ctx, planeGeo);
-      if (normalMat) material.destroy(ctx, normalMat);
-      if (planeMat) material.destroy(ctx, planeMat);
       input.detach();
       throw e;
     }

@@ -1,12 +1,10 @@
 import * as camera from "@furnace/core/camera";
 import * as frame from "@furnace/core/frame";
-import type { Geometry } from "@furnace/core/geometry";
 import * as geometry from "@furnace/core/geometry";
 import type { PointerButton } from "@furnace/core/input";
 import * as input from "@furnace/core/input";
 import type { Material } from "@furnace/core/material";
 import * as material from "@furnace/core/material";
-import type { Mesh } from "@furnace/core/mesh";
 import * as mesh from "@furnace/core/mesh";
 import type { Vec4 } from "@furnace/core/transform";
 import { vec3, vec4 } from "@furnace/core/transform";
@@ -58,30 +56,23 @@ await mountDemo({
   setup: async (ctx) => {
     input.attach(ctx.canvas);
 
-    const mats: Material[] = [];
-    let cube: Mesh | undefined;
-    let cubeGeo: Geometry | undefined;
-    let unsubResize: (() => void) | undefined;
     try {
-      // Sequential await so the catch branch can destroy any successfully-created
-      // materials before the failure point (Promise.all leaks partial results).
+      // Sequential await so each material is created in order; the dispose
+      // cascade frees them all on teardown (no per-handle destroy needed).
+      const mats: Material[] = [];
       for (const c of COLORS) {
         mats.push(await material.unlit(ctx, { color: c }));
       }
       const first = mats[0];
       if (!first) throw new Error("[furnace/cookbook] no colors defined");
-      cubeGeo = geometry.cube(ctx);
-      cube = mesh.create(ctx, { geometry: cubeGeo, material: first });
+      const cubeGeo = geometry.cube(ctx);
+      const cube = mesh.create(ctx, { geometry: cubeGeo, material: first });
 
       const cam = camera.perspective({
         aspect: ctx.canvas.width / ctx.canvas.height,
         position: vec3.fromValues(0, 0, state.cameraZ),
       });
-      unsubResize = camera.bindToCanvas(ctx, cam);
-
-      const sceneCube = cube;
-      const sceneCubeGeo = cubeGeo;
-      const sceneMats = mats;
+      camera.bindToCanvas(ctx, cam);
 
       input.onKeyDown((e) => {
         if (!state.keys.includes(e.code)) state.keys = [...state.keys, e.code];
@@ -103,8 +94,8 @@ await mountDemo({
         }
         if (e.button === 0) {
           state.colorIdx = (state.colorIdx + 1) % COLORS.length;
-          const nextMat = sceneMats[state.colorIdx];
-          if (nextMat) mesh.setMaterial(ctx, sceneCube, nextMat);
+          const nextMat = mats[state.colorIdx];
+          if (nextMat) mesh.setMaterial(ctx, cube, nextMat);
         }
       });
       input.onPointerUp((e) => {
@@ -126,29 +117,21 @@ await mountDemo({
 
       const positionBuf = vec3.create();
       const cameraPosBuf = vec3.create();
-      const sceneUnsubResize = unsubResize;
 
+      // No managed teardown: gpu.dispose cascades the mesh/geometry/materials
+      // and auto-disconnects the resize binding. Only input is torn down here.
       return {
         scene: {
-          cube: sceneCube,
-          mats: sceneMats,
+          cube,
           cam,
           positionBuf,
           cameraPosBuf,
         },
         dispose: () => {
-          sceneUnsubResize();
-          mesh.destroy(ctx, sceneCube);
-          geometry.destroy(ctx, sceneCubeGeo);
-          for (const m of sceneMats) material.destroy(ctx, m);
           input.detach();
         },
       };
     } catch (e) {
-      if (unsubResize) unsubResize();
-      if (cube) mesh.destroy(ctx, cube);
-      if (cubeGeo) geometry.destroy(ctx, cubeGeo);
-      for (const m of mats) material.destroy(ctx, m);
       input.detach();
       throw e;
     }
