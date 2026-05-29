@@ -2,7 +2,7 @@ import type { Camera } from "@furnace/core/camera";
 import * as camera from "@furnace/core/camera";
 import * as frame from "@furnace/core/frame";
 import type { Geometry, GeometryData } from "@furnace/core/geometry";
-import * as geometryMod from "@furnace/core/geometry";
+import * as geometry from "@furnace/core/geometry";
 import type { Context } from "@furnace/core/gpu";
 import type { Material } from "@furnace/core/material";
 import * as material from "@furnace/core/material";
@@ -40,7 +40,7 @@ const GRID_FULL_EXTENT = GRID_HALF_EXTENT * 2;
 const CLEAR_COLOR: Vec4 = vec4.fromValues(0.05, 0.05, 0.07, 1);
 
 type SceneRef = {
-  geometry: Geometry;
+  geo: Geometry;
   mat: Material;
   grid: Mesh;
   cam: Camera;
@@ -165,10 +165,10 @@ function buildWireframeIndices(subdiv: number, stride: number): Uint32Array {
 }
 
 async function buildScene(ctx: Context): Promise<SceneRef> {
-  let geometry: Geometry | undefined;
+  let geo: Geometry | undefined;
   let mat: Material | undefined;
   try {
-    geometry = geometryMod.create(
+    geo = geometry.create(
       ctx,
       buildGridData(state.subdiv, state.amplitude, state.topology),
     );
@@ -177,7 +177,7 @@ async function buildScene(ctx: Context): Promise<SceneRef> {
       topology: state.topology,
       cullMode: state.topology === "triangle-list" ? "back" : "none",
     });
-    const grid = mesh.create(ctx, { geometry, material: mat });
+    const grid = mesh.create(ctx, { geometry: geo, material: mat });
     const cam = camera.perspective({
       aspect: ctx.canvas.width / ctx.canvas.height,
       position: vec3.fromValues(
@@ -192,10 +192,10 @@ async function buildScene(ctx: Context): Promise<SceneRef> {
       ),
     });
     const unsubResize = camera.bindToCanvas(ctx, cam);
-    return { geometry, mat, grid, cam, unsubResize };
+    return { geo, mat, grid, cam, unsubResize };
   } catch (e) {
     if (mat) material.destroy(ctx, mat);
-    if (geometry) geometryMod.destroy(ctx, geometry);
+    if (geo) geometry.destroy(ctx, geo);
     throw e;
   }
 }
@@ -203,7 +203,7 @@ async function buildScene(ctx: Context): Promise<SceneRef> {
 function disposeScene(ctx: Context, scene: SceneRef): void {
   scene.unsubResize();
   mesh.destroy(ctx, scene.grid);
-  geometryMod.destroy(ctx, scene.geometry);
+  geometry.destroy(ctx, scene.geo);
   material.destroy(ctx, scene.mat);
 }
 
@@ -222,7 +222,7 @@ function makeRebuild(
     let nextGeometry: Geometry | undefined;
     let nextMat: Material | undefined;
     try {
-      nextGeometry = geometryMod.create(
+      nextGeometry = geometry.create(
         ctx,
         buildGridData(state.subdiv, state.amplitude, state.topology),
       );
@@ -236,7 +236,7 @@ function makeRebuild(
       // clean up the fresh resources and bail before touching it.
       if (abortFlag.disposed) {
         material.destroy(ctx, nextMat);
-        geometryMod.destroy(ctx, nextGeometry);
+        geometry.destroy(ctx, nextGeometry);
         return;
       }
       const nextGrid = mesh.create(ctx, {
@@ -247,17 +247,17 @@ function makeRebuild(
       // the replacement is fully constructed, so a failed rebuild leaves the
       // running scene untouched.
       const oldGrid = sceneRef.grid;
-      const oldGeometry = sceneRef.geometry;
+      const oldGeometry = sceneRef.geo;
       const oldMat = sceneRef.mat;
       sceneRef.grid = nextGrid;
-      sceneRef.geometry = nextGeometry;
+      sceneRef.geo = nextGeometry;
       sceneRef.mat = nextMat;
       mesh.destroy(ctx, oldGrid);
-      geometryMod.destroy(ctx, oldGeometry);
+      geometry.destroy(ctx, oldGeometry);
       material.destroy(ctx, oldMat);
     } catch (e) {
       if (nextMat) material.destroy(ctx, nextMat);
-      if (nextGeometry) geometryMod.destroy(ctx, nextGeometry);
+      if (nextGeometry) geometry.destroy(ctx, nextGeometry);
       throw e;
     }
   };
