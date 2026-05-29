@@ -481,3 +481,4 @@ Diagnostics extend the existing failure policy, they don't replace it:
 - Tranche 1 implementation spec: `docs/superpowers/specs/2026-05-22-core-tranche-1-gpu-foundation-design.md` (gitignored)
 - Engine architecture exploration notes: `docs/reference/engine-architecture.md`
 - Packaging and distribution: `docs/reference/packaging-and-distribution.md`
+- API surface taxonomy & naming posture: `api-posture.md` (the taxonomy maps each concept kind to a default failure-policy stance; this section remains the authority on the stances themselves).

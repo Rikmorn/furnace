@@ -7,6 +7,8 @@ textually with full signatures.
 For *behavioural* contracts (coordinate system, color space, DPR, lifecycle,
 failure policy, instrumentation), see `engine-conventions.md`.
 
+For the *concept taxonomy* and the rules governing how new surface is shaped/named, see `api-posture.md`.
+
 ## Maintenance
 
 Update this file whenever the public API of `@furnace/core` changes:
