@@ -55,7 +55,10 @@ export function updateForSize(
  * immediately with the current canvas size, then subscribes to `gpu.onResize`
  * and calls `updateForSize` on every resize event.
  *
- * Returns an unsubscribe function (idempotent). Call in dispose.
+ * Returns an unsubscribe function (idempotent). `gpu.dispose(ctx)` auto-disconnects
+ * the binding per-context, so calling it in `dispose` is unnecessary — use it only
+ * for early/manual unsubscribe (e.g. swapping the bound camera without disposing
+ * the context).
  *
  * Works for both perspective and orthographic cameras. For orthographic, the
  * camera's `fitPolicy` (default `stretch`) determines how bounds respond to
