@@ -182,7 +182,7 @@ Re-exported from `index.ts` so other core modules can `import * as stats` and ca
 | `_recordEmission` | `events/emitter.ts` (per-emitter counter) |
 | `_recordUncapturedError` | `gpu/context.ts` (device `uncapturederror` handler) |
 | `_recordAlloc` | Three categories of writer, all using the signature `(ctx, kind, bytes) => void`: (1) **slot-kind count records** — `resources/internal.ts` per-kind alloc wrappers (`_allocMesh` / `_allocMaterial` / `_allocGeometry` / `_allocEffect`) fire `(ctx, kind, 0)` to bump slot counts. (2) **slot-owned bytes** — resource modules that allocate GPU buffers owned by a slot: `mesh/mesh.ts` (object uniform), `mesh/geometry.ts` (vertex + optional index buffers), `material/unlit.ts` (color uniform). (3) **ctx-owned bytes** — engine-internal resources that don't flow through a pool slot: `frame/render.ts` (depth texture + per-camera uniform buffer), `post/intermediate.ts` (post color targets). |
-| `_recordDestroy` | Symmetric to `_recordAlloc` across the same three categories: (1) slot-kind count decrements from `resources/internal.ts` destroy paths (`_destroyMesh` / `_destroyMaterial` / `_destroyGeometry` / `_destroyEffect` / `_destroyByKind`). (2) slot-owned bytes from the resource module's teardown: `mesh/mesh.ts` (object uniform), `mesh/geometry.ts` (vertex + index buffers), `material/material.ts` (iterates `ownedBufferBytes` to release factory-allocated bytes such as `unlit`'s color uniform). (3) ctx-owned bytes from `frame/render.ts` and `post/intermediate.ts`. Signature: `(ctx, kind, bytes) => void`. |
+| `_recordDestroy` | Symmetric to `_recordAlloc` across the same three categories: (1) slot-kind count decrements from `resources/internal.ts` destroy paths (`_destroyMesh` / `_destroyMaterial` / `_destroyGeometry` / `_destroyEffect` / `_destroyByKind`). (2) slot-owned bytes from the resource module's teardown: `mesh/mesh.ts` (object uniform), `geometry/geometry.ts` (vertex + index buffers), `material/material.ts` (iterates `ownedBufferBytes` to release factory-allocated bytes such as `unlit`'s color uniform). (3) ctx-owned bytes from `frame/render.ts` and `post/intermediate.ts`. Signature: `(ctx, kind, bytes) => void`. |
 
 ### Demoed in cookbook
 
@@ -283,6 +283,31 @@ Re-exported from `index.ts` so other core modules can `import * as stats` and ca
 
 ---
 
+## `@furnace/core/geometry`
+
+`import * as geometry from "@furnace/core/geometry";`
+
+See `engine-conventions.md` §Resource ownership for the lifecycle contract that governs geometry handles and the meshes that reference them.
+
+### Public
+
+| Export | Signature | Notes |
+|---|---|---|
+| `create` | `(ctx: Context, data: GeometryData) => Geometry` | Builds a vertex buffer (interleaved `[pos.xyz, normal.xyz, uv.uv]`, 32-byte stride) and optional index buffer from raw arrays. Validates the data. Throws `FurnaceError` if `positions.length` is not a multiple of 3, if `normals.length` does not equal `positions.length`, or if `uvs.length` does not equal `(positions.length / 3) * 2`. |
+| `destroy` | `(ctx: Context, geometry: Geometry) => void` | If a Mesh still references the geometry, defers GPU teardown; otherwise destroys vertex and index buffers, recording their byte release in stats. Silent on stale handles. |
+| `cube` | `(ctx: Context, opts?: { size?: number }) => Geometry` | Builds a fresh axis-aligned cube Geometry (six faces, CCW winding, per-face normals, per-face UVs in `[0,1]`). `size` is the full edge length; default `1`. Pass to `mesh.create` to bind. |
+| `plane` | `(ctx: Context, opts?: { size?: number }) => Geometry` | Builds a fresh `+Z`-facing unit plane Geometry (single quad, two triangles, normals along `+Z`, UVs in `[0,1]`). `size` is the full edge length; default `1`. Pass to `mesh.create` to bind. |
+| `Geometry` | Opaque branded uint48 handle (alias of `GeometryHandle`) | Returned by `geometry.create` / `geometry.cube` / `geometry.plane`. Pass to `mesh.create` (may be shared across meshes); dispose via `geometry.destroy(ctx, g)`. |
+| `GeometryData` | `{ positions: Float32Array; normals: Float32Array; uvs: Float32Array; indices?: Uint16Array \| Uint32Array }` | Raw arrays fed to `geometry.create`. Vertex count `N` is derived from `positions.length / 3`; `normals` and `uvs` must match. |
+
+### Demoed in cookbook
+
+- `create`, `destroy`, `GeometryData`, `Geometry` → `cookbook/geometry`.
+- `cube` → `cookbook/camera`, `cookbook/geometry`.
+- `plane` → `cookbook/geometry`.
+
+---
+
 ## `@furnace/core/mesh`
 
 `import * as mesh from "@furnace/core/mesh";`
@@ -293,10 +318,6 @@ See `engine-conventions.md` §Resource ownership for the lifecycle contract that
 
 | Export | Signature | Notes |
 |---|---|---|
-| `cubeGeometry` | `(ctx: Context, opts?: { size?: number }) => Geometry` | Builds a fresh axis-aligned cube Geometry. `size` default: 1. Pass to `mesh.create` to bind. See `engine-conventions.md` §Resource ownership for the lifecycle contract. |
-| `planeGeometry` | `(ctx: Context, opts?: { size?: number }) => Geometry` | Builds a fresh `+Z`-facing unit plane Geometry. `size` default: 1. Pass to `mesh.create` to bind. See `engine-conventions.md` §Resource ownership for the lifecycle contract. |
-| `createGeometry` | `(ctx: Context, data: GeometryData) => Geometry` | Builds a vertex buffer (interleaved `[pos.xyz, normal.xyz, uv.uv]`, 32-byte stride) and optional index buffer from raw arrays. Validates the data. |
-| `destroyGeometry` | `(ctx: Context, geometry: Geometry) => void` | If a Mesh still references the geometry, defers GPU teardown; otherwise destroys vertex and index buffers, recording their byte release in stats. Silent on stale handles. |
 | `create` | `(ctx: Context, opts: { geometry: Geometry; material: Material }) => Mesh` | Allocates the per-mesh object-uniform buffer (64 bytes for `model`). Position `[0,0,0]`, identity rotation, scale `[1,1,1]`. Increments the refcounts on the bound geometry and material. |
 | `destroy` | `(ctx: Context, mesh: Mesh) => void` | Destroys the object buffer (recording its byte release in stats) and decrements the bound geometry/material refcounts. If either was marked-destroyed and its refcount hits zero, its GPU teardown runs as part of this call. Silent on stale handles. |
 | `setPosition` | `(ctx: Context, mesh: Mesh, position: Vec3) => void` | Flips `transformDirty`. Silent no-op on stale handles. |
@@ -306,20 +327,13 @@ See `engine-conventions.md` §Resource ownership for the lifecycle contract that
 | `getPosition` | `(ctx: Context, mesh: Mesh, out: Vec3) => Vec3` | Reads the mesh's position into `out` (out-param convention). Returns `out` unchanged on stale handles. |
 | `getRotation` | `(ctx: Context, mesh: Mesh, out: Quat) => Quat` | Reads the mesh's rotation quaternion into `out`. Returns `out` unchanged on stale handles. |
 | `getScale` | `(ctx: Context, mesh: Mesh, out: Vec3) => Vec3` | Reads the mesh's scale into `out`. Returns `out` unchanged on stale handles. |
-| `Geometry` | Opaque branded uint48 handle (alias of `GeometryHandle`) | Returned by `createGeometry` / `cubeGeometry` / `planeGeometry`. Pass to `mesh.create` (may be shared across meshes); dispose via `mesh.destroyGeometry(ctx, g)`. |
-| `GeometryData` | `{ positions: Float32Array; normals: Float32Array; uvs: Float32Array; indices?: Uint16Array \| Uint32Array }` | Raw arrays fed to `createGeometry`. |
 | `Mesh` | Opaque branded uint48 handle (alias of `MeshHandle`) | Returned by `mesh.create`. Pass to `frame.render`; mutate the bound pose only via the `setPosition` / `setRotation` / `setScale` setters; swap the bound material via `setMaterial`; dispose via `mesh.destroy(ctx, m)`. |
 
 ### Demoed in cookbook
 
-- `cubeGeometry`, `create`, `destroy`, `setPosition` → `cookbook/camera`.
+- `create`, `destroy`, `setPosition` → `cookbook/camera`.
 - `setRotation`, `setScale` → `cookbook/animation`.
-- `createGeometry`, `destroyGeometry`, `GeometryData`, `Geometry` → `cookbook/geometry`.
 - `setMaterial` → `cookbook/render-target` (picture-in-picture rebuild swaps the monitor mesh's material on off-screen resolution change).
-
-### Reference-only (no demo, by design)
-
-- `destroyGeometry` — surfaces in teardown of any demo that allocates a geometry; not exercised standalone.
 
 ---
 

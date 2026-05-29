@@ -80,11 +80,11 @@ The call-site contract decides the response to null:
 
 ### Idempotent destroy
 
-`module.destroy(ctx, handle)` is silent + idempotent on a stale or destroyed handle (lookup returns null → early return without effect). This matches the WebGPU spec (`GPUBuffer.destroy()` is valid to call multiple times), C#'s `IDisposable`, Java `Closeable`, PixiJS, and TC39 `Symbol.dispose`. All four resource modules (`mesh`, `material`, `mesh.destroyGeometry`, `post`) follow this contract.
+`module.destroy(ctx, handle)` is silent + idempotent on a stale or destroyed handle (lookup returns null → early return without effect). This matches the WebGPU spec (`GPUBuffer.destroy()` is valid to call multiple times), C#'s `IDisposable`, Java `Closeable`, PixiJS, and TC39 `Symbol.dispose`. All four resource modules (`mesh`, `material`, `geometry.destroy`, `post`) follow this contract.
 
 ### Internal refcount for sharing
 
-`Geometry` and `Material` slots carry an internal `userCount` field. `mesh.create({ geometry, material })` validates BOTH lookups, then increments both counts. `mesh.destroy` decrements both, and if either dependency was marked-destroyed (`destroyGeometry` / `material.destroy` called while a mesh still referenced it) and the refcount hits zero, that dependency's actual GPU teardown runs as part of `mesh.destroy`.
+`Geometry` and `Material` slots carry an internal `userCount` field. `mesh.create({ geometry, material })` validates BOTH lookups, then increments both counts. `mesh.destroy` decrements both, and if either dependency was marked-destroyed (`geometry.destroy` / `material.destroy` called while a mesh still referenced it) and the refcount hits zero, that dependency's actual GPU teardown runs as part of `mesh.destroy`.
 
 Order-matters footgun is eliminated. Consumers can destroy in any order; the refcount enforces correctness.
 
@@ -200,11 +200,11 @@ See `core-modules.md` (`camera` module) for the function/type table.
 
 `@furnace/core/mesh` and `@furnace/core/material` define the engine's drawable model: a Mesh is a Geometry + a Material + a Transform.
 
-- **Geometry** (raw GPU resource): vertex buffer + optional index buffer + fixed vertex layout. Created via `mesh.createGeometry(ctx, { positions, normals, uvs, indices? })` for custom data, or via built-in factories `mesh.cubeGeometry` / `mesh.planeGeometry`. Geometries are shareable — one Geometry can back many Meshes with different materials and transforms.
+- **Geometry** (raw GPU resource): vertex buffer + optional index buffer + fixed vertex layout. Created via `geometry.create(ctx, { positions, normals, uvs, indices? })` for custom data, or via built-in factories `geometry.cube` / `geometry.plane`. Geometries are shareable — one Geometry can back many Meshes with different materials and transforms.
 - **Material** (shader + pipeline + group-1 bind group): `material.create(ctx, descriptor)` accepts custom WGSL respecting the engine's binding contract (§Binding contract). Built-in factories `material.unlit({ color })` and `material.normalColor()` are thin wrappers over `create` with engine-bundled WGSL. The mechanical-tier `material.createPipeline` is the documented escape hatch for raw WebGPU pipelines.
-- **Mesh** (drawable): `mesh.create(ctx, { geometry, material })` combines a Geometry + a Material + an identity transform. The caller allocates the geometry (via `mesh.cubeGeometry` / `mesh.planeGeometry` / `mesh.createGeometry`) and the material (via `material.unlit` / `material.normalColor` / `material.create`) and passes them in — see §Resource ownership.
+- **Mesh** (drawable): `mesh.create(ctx, { geometry, material })` combines a Geometry + a Material + an identity transform. The caller allocates the geometry (via `geometry.cube` / `geometry.plane` / `geometry.create`) and the material (via `material.unlit` / `material.normalColor` / `material.create`) and passes them in — see §Resource ownership.
 - **Transform**: mutated via setters — `mesh.setPosition`, `setRotation`, `setScale`. Setters flip an internal dirty flag; the engine recomputes the model matrix and writes the per-object uniform buffer lazily in `frame.render`. Initial transform is identity.
-- **Lifetime**: explicit destroy — `mesh.destroy(ctx, m)`, `mesh.destroyGeometry(ctx, g)`, `material.destroy(ctx, m)`, and (for post-effects) `post.destroy(ctx, e)`. All four are silent on stale or already-destroyed handles (idempotent — the per-ctx handle pool's generation counter is the liveness source of truth). Geometry and Material both refcount inbound Mesh references: calling `destroy*` on a still-referenced handle defers the actual GPU teardown until the last referencing mesh is destroyed. Pipelines are refcounted internally in a per-ctx cache (separate cache per consumer-facing kind: material pipelines vs post-effect pipelines) and freed when the last material/effect referencing them is destroyed. Custom material's group-1 bind-group resources and post-effect `EffectDescriptor.bindings` resources are consumer-owned — destroy them yourself after `material.destroy` / `post.destroy`.
+- **Lifetime**: explicit destroy — `mesh.destroy(ctx, m)`, `geometry.destroy(ctx, g)`, `material.destroy(ctx, m)`, and (for post-effects) `post.destroy(ctx, e)`. All four are silent on stale or already-destroyed handles (idempotent — the per-ctx handle pool's generation counter is the liveness source of truth). Geometry and Material both refcount inbound Mesh references: calling `destroy` on a still-referenced handle defers the actual GPU teardown until the last referencing mesh is destroyed. Pipelines are refcounted internally in a per-ctx cache (separate cache per consumer-facing kind: material pipelines vs post-effect pipelines) and freed when the last material/effect referencing them is destroyed. Custom material's group-1 bind-group resources and post-effect `EffectDescriptor.bindings` resources are consumer-owned — destroy them yourself after `material.destroy` / `post.destroy`.
 
 ## Binding contract
 
@@ -295,7 +295,7 @@ Applies to: `gpu.requestContext`, `gpu.dispose`,
 `camera.setAspect`/`setNearFar`/`setFov`/`setFitPolicy`/`setScale`,
 `camera.bindToCanvas`/`updateForSize`,
 `material.create`/`unlit`/`normalColor`,
-`mesh.create`/`createGeometry`,
+`mesh.create`, `geometry.create`/`cube`/`plane`,
 `post.create`,
 `frame.loop`/`fixedLoop` constructors,
 `input.attach`/`detach`,
