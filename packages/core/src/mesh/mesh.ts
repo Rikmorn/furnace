@@ -27,7 +27,7 @@ const OBJECT_UNIFORM_SIZE_BYTES = 64; // one mat4x4<f32>
  *
  * Increments the bound geometry's AND material's internal reference
  * counts. When the mesh is destroyed, both refcounts decrement; if
- * `destroyGeometry` or `material.destroy` were called while the mesh
+ * `geometry.destroy` or `material.destroy` were called while the mesh
  * still held a reference (marked-destroyed), the corresponding GPU
  * teardown runs as part of `mesh.destroy`.
  *
