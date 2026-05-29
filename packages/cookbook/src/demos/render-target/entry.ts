@@ -1,11 +1,13 @@
 import type { Camera } from "@furnace/core/camera";
 import * as camera from "@furnace/core/camera";
 import * as frame from "@furnace/core/frame";
+import type { Geometry } from "@furnace/core/geometry";
+import * as geometry from "@furnace/core/geometry";
 import type { Context } from "@furnace/core/gpu";
 import * as input from "@furnace/core/input";
 import type { Material } from "@furnace/core/material";
 import * as material from "@furnace/core/material";
-import type { Geometry, Mesh } from "@furnace/core/mesh";
+import type { Mesh } from "@furnace/core/mesh";
 import * as mesh from "@furnace/core/mesh";
 import type { Quat, Vec3, Vec4 } from "@furnace/core/transform";
 import { quat, vec3, vec4 } from "@furnace/core/transform";
@@ -213,7 +215,7 @@ async function buildScene(ctx: Context): Promise<SceneRef> {
 
   try {
     subjectMat = await material.normalColor(ctx);
-    subjectGeo = mesh.cubeGeometry(ctx, { size: SUBJECT_SIZE });
+    subjectGeo = geometry.cube(ctx, { size: SUBJECT_SIZE });
     subjectMesh = mesh.create(ctx, {
       geometry: subjectGeo,
       material: subjectMat,
@@ -223,7 +225,7 @@ async function buildScene(ctx: Context): Promise<SceneRef> {
       color: ROOM_COLOR,
       cullMode: "front",
     });
-    roomGeo = mesh.cubeGeometry(ctx, { size: ROOM_SIZE });
+    roomGeo = geometry.cube(ctx, { size: ROOM_SIZE });
     roomMesh = mesh.create(ctx, { geometry: roomGeo, material: roomMat });
 
     sampler = ctx.device.createSampler({
@@ -234,7 +236,7 @@ async function buildScene(ctx: Context): Promise<SceneRef> {
     });
     pip = await buildPipResources(ctx, state.pipResolution, sampler);
 
-    monitorGeo = mesh.planeGeometry(ctx, { size: MONITOR_SIZE });
+    monitorGeo = geometry.plane(ctx, { size: MONITOR_SIZE });
     monitorMesh = mesh.create(ctx, {
       geometry: monitorGeo,
       material: pip.monitorMat,
@@ -269,7 +271,7 @@ async function buildScene(ctx: Context): Promise<SceneRef> {
       depthWrite: false,
       depthCompare: "always",
     });
-    gizmoGeo = mesh.createGeometry(ctx, gizmoQuadGeometryData(GIZMO_SIZE));
+    gizmoGeo = geometry.create(ctx, gizmoQuadGeometryData(GIZMO_SIZE));
     gizmoMesh = mesh.create(ctx, { geometry: gizmoGeo, material: gizmoMat });
 
     return {
@@ -301,10 +303,10 @@ async function buildScene(ctx: Context): Promise<SceneRef> {
     if (monitorMesh) mesh.destroy(ctx, monitorMesh);
     if (roomMesh) mesh.destroy(ctx, roomMesh);
     if (subjectMesh) mesh.destroy(ctx, subjectMesh);
-    if (gizmoGeo) mesh.destroyGeometry(ctx, gizmoGeo);
-    if (monitorGeo) mesh.destroyGeometry(ctx, monitorGeo);
-    if (roomGeo) mesh.destroyGeometry(ctx, roomGeo);
-    if (subjectGeo) mesh.destroyGeometry(ctx, subjectGeo);
+    if (gizmoGeo) geometry.destroy(ctx, gizmoGeo);
+    if (monitorGeo) geometry.destroy(ctx, monitorGeo);
+    if (roomGeo) geometry.destroy(ctx, roomGeo);
+    if (subjectGeo) geometry.destroy(ctx, subjectGeo);
     if (gizmoMat) material.destroy(ctx, gizmoMat);
     if (pip) disposePipResources(ctx, pip);
     if (roomMat) material.destroy(ctx, roomMat);
@@ -319,10 +321,10 @@ function disposeScene(ctx: Context, scene: SceneRef): void {
   mesh.destroy(ctx, scene.monitorMesh);
   mesh.destroy(ctx, scene.roomMesh);
   mesh.destroy(ctx, scene.subjectMesh);
-  mesh.destroyGeometry(ctx, scene.gizmoGeo);
-  mesh.destroyGeometry(ctx, scene.monitorGeo);
-  mesh.destroyGeometry(ctx, scene.roomGeo);
-  mesh.destroyGeometry(ctx, scene.subjectGeo);
+  geometry.destroy(ctx, scene.gizmoGeo);
+  geometry.destroy(ctx, scene.monitorGeo);
+  geometry.destroy(ctx, scene.roomGeo);
+  geometry.destroy(ctx, scene.subjectGeo);
   material.destroy(ctx, scene.gizmoMat);
   disposePipResources(ctx, scene.pip);
   material.destroy(ctx, scene.roomMat);

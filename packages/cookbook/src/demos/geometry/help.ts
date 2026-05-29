@@ -2,7 +2,7 @@ import type { DemoHelp } from "../../shared/help-types.ts";
 
 export default {
   title: "geometry",
-  blurb: "mesh.createGeometry with a custom grid + topology toggle",
+  blurb: "geometry.create with a custom grid + topology toggle",
   controls: [
     { key: "s", action: "toggle stats" },
     { key: "h", action: "toggle help" },
@@ -17,10 +17,6 @@ export default {
       action: "vertical displacement amplitude",
     },
   ],
-  features: [
-    "mesh.createGeometry",
-    "MaterialDescriptor.topology",
-    "GeometryData",
-  ],
+  features: ["geometry.create", "MaterialDescriptor.topology", "GeometryData"],
   order: 40,
 } satisfies DemoHelp;

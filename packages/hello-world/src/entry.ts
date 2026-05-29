@@ -1,9 +1,11 @@
 import * as camera from "@furnace/core/camera";
 import * as frame from "@furnace/core/frame";
+import type { Geometry } from "@furnace/core/geometry";
+import * as geometryMod from "@furnace/core/geometry";
 import * as gpu from "@furnace/core/gpu";
 import * as input from "@furnace/core/input";
 import * as material from "@furnace/core/material";
-import type { Geometry, Mesh } from "@furnace/core/mesh";
+import type { Mesh } from "@furnace/core/mesh";
 import * as mesh from "@furnace/core/mesh";
 import * as post from "@furnace/core/post";
 import type { Vec4 } from "@furnace/core/transform";
@@ -60,7 +62,7 @@ const sdfTriangle = async (ctx: gpu.Context) => {
   });
 
   // Meshes. The SDF triangle uses a covering quad in world space; the cube and plane use built-ins.
-  const sdfGeo = mesh.createGeometry(ctx, {
+  const sdfGeo = geometryMod.create(ctx, {
     positions: new Float32Array([-10, -10, 0, 30, -10, 0, -10, 30, 0]),
     normals: new Float32Array([0, 0, 1, 0, 0, 1, 0, 0, 1]),
     uvs: new Float32Array([0, 0, 1, 0, 0, 1]),
@@ -92,7 +94,7 @@ const emissiveCube = async (
     bindings: [{ binding: 0, resource: { buffer: emissiveBuffer } }],
   });
 
-  const geometry = mesh.cubeGeometry(ctx);
+  const geometry = geometryMod.cube(ctx);
   return {
     mesh: mesh.create(ctx, { geometry, material: emissiveMat }),
     geometry,
@@ -153,12 +155,12 @@ async function main(): Promise<void> {
     color: vec4.fromValues(0.1, 0.15, 0.2, 1),
   });
 
-  const cubeMeshGeo = mesh.cubeGeometry(ctx);
+  const cubeMeshGeo = geometryMod.cube(ctx);
   const cubeMesh = mesh.create(ctx, {
     geometry: cubeMeshGeo,
     material: cubeMat,
   });
-  const planeMeshGeo = mesh.planeGeometry(ctx, { size: PLANE_BACKDROP_SIZE });
+  const planeMeshGeo = geometryMod.plane(ctx, { size: PLANE_BACKDROP_SIZE });
   const planeMesh = mesh.create(ctx, {
     geometry: planeMeshGeo,
     material: planeMat,

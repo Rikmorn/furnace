@@ -1,9 +1,11 @@
 import type { Camera, ScreenProjection } from "@furnace/core/camera";
 import * as camera from "@furnace/core/camera";
 import * as frame from "@furnace/core/frame";
+import type { Geometry } from "@furnace/core/geometry";
+import * as geometry from "@furnace/core/geometry";
 import type { Material } from "@furnace/core/material";
 import * as material from "@furnace/core/material";
-import type { Geometry, Mesh } from "@furnace/core/mesh";
+import type { Mesh } from "@furnace/core/mesh";
 import * as mesh from "@furnace/core/mesh";
 import type { Vec3, Vec4 } from "@furnace/core/transform";
 import { quat, vec3, vec4 } from "@furnace/core/transform";
@@ -89,7 +91,7 @@ await mountDemo({
     let unsubResize: (() => void) | undefined;
     try {
       mat = await material.normalColor(ctx);
-      cubeGeo = mesh.cubeGeometry(ctx);
+      cubeGeo = geometry.cube(ctx);
       cubeVariable = mesh.create(ctx, { geometry: cubeGeo, material: mat });
       cubeNoInterp = mesh.create(ctx, { geometry: cubeGeo, material: mat });
       cubeInterp = mesh.create(ctx, { geometry: cubeGeo, material: mat });
@@ -153,7 +155,7 @@ await mountDemo({
           mesh.destroy(ctx, sceneCubeVariable);
           mesh.destroy(ctx, sceneCubeNoInterp);
           mesh.destroy(ctx, sceneCubeInterp);
-          mesh.destroyGeometry(ctx, sceneCubeGeo);
+          geometry.destroy(ctx, sceneCubeGeo);
           material.destroy(ctx, sceneMat);
         },
       };
@@ -162,7 +164,7 @@ await mountDemo({
       if (cubeVariable) mesh.destroy(ctx, cubeVariable);
       if (cubeNoInterp) mesh.destroy(ctx, cubeNoInterp);
       if (cubeInterp) mesh.destroy(ctx, cubeInterp);
-      if (cubeGeo) mesh.destroyGeometry(ctx, cubeGeo);
+      if (cubeGeo) geometry.destroy(ctx, cubeGeo);
       if (mat) material.destroy(ctx, mat);
       throw e;
     }

@@ -1,9 +1,11 @@
 import * as camera from "@furnace/core/camera";
 import * as frame from "@furnace/core/frame";
+import type { Geometry } from "@furnace/core/geometry";
+import * as geometryMod from "@furnace/core/geometry";
 import type { Context } from "@furnace/core/gpu";
 import type { Material } from "@furnace/core/material";
 import * as material from "@furnace/core/material";
-import type { Geometry, Mesh } from "@furnace/core/mesh";
+import type { Mesh } from "@furnace/core/mesh";
 import * as mesh from "@furnace/core/mesh";
 import * as stats from "@furnace/core/stats";
 import type { Vec4 } from "@furnace/core/transform";
@@ -145,7 +147,7 @@ await mountDemo({
       mat = await material.normalColor(ctx);
       // Shared geometry across all spawned meshes: 200 cubes share one VBO.
       // resources.meshes climbs with spawns; resources.geometries stays at 1.
-      geometry = mesh.cubeGeometry(ctx, { size: CUBE_SIZE });
+      geometry = geometryMod.cube(ctx, { size: CUBE_SIZE });
 
       const cam = camera.perspective({
         aspect: ctx.canvas.width / ctx.canvas.height,
@@ -190,7 +192,7 @@ await mountDemo({
           sceneUnsub();
           for (const c of cubes) mesh.destroy(ctx, c);
           cubes.length = 0;
-          mesh.destroyGeometry(ctx, sceneGeometry);
+          geometryMod.destroy(ctx, sceneGeometry);
           material.destroy(ctx, sceneMat);
         },
       };
@@ -200,7 +202,7 @@ await mountDemo({
       if (unsubResize) unsubResize();
       if (unsubFrame) unsubFrame();
       for (const c of cubes) mesh.destroy(ctx, c);
-      if (geometry) mesh.destroyGeometry(ctx, geometry);
+      if (geometry) geometryMod.destroy(ctx, geometry);
       if (mat) material.destroy(ctx, mat);
       throw e;
     }

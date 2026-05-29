@@ -1,8 +1,10 @@
 import * as camera from "@furnace/core/camera";
 import * as frame from "@furnace/core/frame";
+import type { Geometry } from "@furnace/core/geometry";
+import * as geometry from "@furnace/core/geometry";
 import type { Material } from "@furnace/core/material";
 import * as material from "@furnace/core/material";
-import type { Geometry, Mesh } from "@furnace/core/mesh";
+import type { Mesh } from "@furnace/core/mesh";
 import * as mesh from "@furnace/core/mesh";
 import type { Vec4 } from "@furnace/core/transform";
 import { quat, vec3, vec4 } from "@furnace/core/transform";
@@ -101,9 +103,9 @@ await mountDemo({
         bindings: [{ binding: 0, resource: { buffer: paramsBufPlasma } }],
       });
 
-      cubeGeo = mesh.cubeGeometry(ctx);
+      cubeGeo = geometry.cube(ctx);
       cube = mesh.create(ctx, { geometry: cubeGeo, material: stripedMat });
-      backdropGeo = mesh.planeGeometry(ctx, { size: BACKDROP_SIZE });
+      backdropGeo = geometry.plane(ctx, { size: BACKDROP_SIZE });
       backdrop = mesh.create(ctx, {
         geometry: backdropGeo,
         material: plasmaMat,
@@ -146,8 +148,8 @@ await mountDemo({
           sceneUnsubResize();
           mesh.destroy(ctx, sceneBackdrop);
           mesh.destroy(ctx, sceneCube);
-          mesh.destroyGeometry(ctx, sceneBackdropGeo);
-          mesh.destroyGeometry(ctx, sceneCubeGeo);
+          geometry.destroy(ctx, sceneBackdropGeo);
+          geometry.destroy(ctx, sceneCubeGeo);
           material.destroy(ctx, scenePlasmaMat);
           material.destroy(ctx, sceneStripedMat);
           sceneParamsBufPlasma.destroy();
@@ -158,8 +160,8 @@ await mountDemo({
       if (unsubResize) unsubResize();
       if (backdrop) mesh.destroy(ctx, backdrop);
       if (cube) mesh.destroy(ctx, cube);
-      if (backdropGeo) mesh.destroyGeometry(ctx, backdropGeo);
-      if (cubeGeo) mesh.destroyGeometry(ctx, cubeGeo);
+      if (backdropGeo) geometry.destroy(ctx, backdropGeo);
+      if (cubeGeo) geometry.destroy(ctx, cubeGeo);
       if (plasmaMat) material.destroy(ctx, plasmaMat);
       if (stripedMat) material.destroy(ctx, stripedMat);
       if (paramsBufPlasma) paramsBufPlasma.destroy();

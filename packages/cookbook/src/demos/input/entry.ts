@@ -1,10 +1,12 @@
 import * as camera from "@furnace/core/camera";
 import * as frame from "@furnace/core/frame";
+import type { Geometry } from "@furnace/core/geometry";
+import * as geometry from "@furnace/core/geometry";
 import type { PointerButton } from "@furnace/core/input";
 import * as input from "@furnace/core/input";
 import type { Material } from "@furnace/core/material";
 import * as material from "@furnace/core/material";
-import type { Geometry, Mesh } from "@furnace/core/mesh";
+import type { Mesh } from "@furnace/core/mesh";
 import * as mesh from "@furnace/core/mesh";
 import type { Vec4 } from "@furnace/core/transform";
 import { vec3, vec4 } from "@furnace/core/transform";
@@ -68,7 +70,7 @@ await mountDemo({
       }
       const first = mats[0];
       if (!first) throw new Error("[furnace/cookbook] no colors defined");
-      cubeGeo = mesh.cubeGeometry(ctx);
+      cubeGeo = geometry.cube(ctx);
       cube = mesh.create(ctx, { geometry: cubeGeo, material: first });
 
       const cam = camera.perspective({
@@ -137,7 +139,7 @@ await mountDemo({
         dispose: () => {
           sceneUnsubResize();
           mesh.destroy(ctx, sceneCube);
-          mesh.destroyGeometry(ctx, sceneCubeGeo);
+          geometry.destroy(ctx, sceneCubeGeo);
           for (const m of sceneMats) material.destroy(ctx, m);
           input.detach();
         },
@@ -145,7 +147,7 @@ await mountDemo({
     } catch (e) {
       if (unsubResize) unsubResize();
       if (cube) mesh.destroy(ctx, cube);
-      if (cubeGeo) mesh.destroyGeometry(ctx, cubeGeo);
+      if (cubeGeo) geometry.destroy(ctx, cubeGeo);
       for (const m of mats) material.destroy(ctx, m);
       input.detach();
       throw e;

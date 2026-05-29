@@ -1,8 +1,10 @@
 import * as camera from "@furnace/core/camera";
 import * as frame from "@furnace/core/frame";
+import type { Geometry } from "@furnace/core/geometry";
+import * as geometry from "@furnace/core/geometry";
 import type { Material } from "@furnace/core/material";
 import * as material from "@furnace/core/material";
-import type { Geometry, Mesh } from "@furnace/core/mesh";
+import type { Mesh } from "@furnace/core/mesh";
 import * as mesh from "@furnace/core/mesh";
 import type { Effect } from "@furnace/core/post";
 import * as post from "@furnace/core/post";
@@ -123,7 +125,7 @@ await mountDemo({
       });
 
       normalMat = await material.normalColor(ctx);
-      cubeGeo = mesh.cubeGeometry(ctx);
+      cubeGeo = geometry.cube(ctx);
       cube = mesh.create(ctx, { geometry: cubeGeo, material: normalMat });
 
       const cam = camera.perspective({
@@ -160,7 +162,7 @@ await mountDemo({
         dispose: () => {
           sceneUnsubResize();
           mesh.destroy(ctx, sceneCube);
-          mesh.destroyGeometry(ctx, sceneCubeGeo);
+          geometry.destroy(ctx, sceneCubeGeo);
           material.destroy(ctx, sceneNormalMat);
           post.destroy(ctx, sceneVignette);
           post.destroy(ctx, sceneBloom);
@@ -171,7 +173,7 @@ await mountDemo({
     } catch (e) {
       if (unsubResize) unsubResize();
       if (cube) mesh.destroy(ctx, cube);
-      if (cubeGeo) mesh.destroyGeometry(ctx, cubeGeo);
+      if (cubeGeo) geometry.destroy(ctx, cubeGeo);
       if (normalMat) material.destroy(ctx, normalMat);
       if (vignette) post.destroy(ctx, vignette);
       if (bloom) post.destroy(ctx, bloom);

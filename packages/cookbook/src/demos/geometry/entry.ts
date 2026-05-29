@@ -1,10 +1,12 @@
 import type { Camera } from "@furnace/core/camera";
 import * as camera from "@furnace/core/camera";
 import * as frame from "@furnace/core/frame";
+import type { Geometry, GeometryData } from "@furnace/core/geometry";
+import * as geometryMod from "@furnace/core/geometry";
 import type { Context } from "@furnace/core/gpu";
 import type { Material } from "@furnace/core/material";
 import * as material from "@furnace/core/material";
-import type { Geometry, GeometryData, Mesh } from "@furnace/core/mesh";
+import type { Mesh } from "@furnace/core/mesh";
 import * as mesh from "@furnace/core/mesh";
 import type { Vec4 } from "@furnace/core/transform";
 import { vec3, vec4 } from "@furnace/core/transform";
@@ -166,7 +168,7 @@ async function buildScene(ctx: Context): Promise<SceneRef> {
   let geometry: Geometry | undefined;
   let mat: Material | undefined;
   try {
-    geometry = mesh.createGeometry(
+    geometry = geometryMod.create(
       ctx,
       buildGridData(state.subdiv, state.amplitude, state.topology),
     );
@@ -193,7 +195,7 @@ async function buildScene(ctx: Context): Promise<SceneRef> {
     return { geometry, mat, grid, cam, unsubResize };
   } catch (e) {
     if (mat) material.destroy(ctx, mat);
-    if (geometry) mesh.destroyGeometry(ctx, geometry);
+    if (geometry) geometryMod.destroy(ctx, geometry);
     throw e;
   }
 }
@@ -201,7 +203,7 @@ async function buildScene(ctx: Context): Promise<SceneRef> {
 function disposeScene(ctx: Context, scene: SceneRef): void {
   scene.unsubResize();
   mesh.destroy(ctx, scene.grid);
-  mesh.destroyGeometry(ctx, scene.geometry);
+  geometryMod.destroy(ctx, scene.geometry);
   material.destroy(ctx, scene.mat);
 }
 
@@ -220,7 +222,7 @@ function makeRebuild(
     let nextGeometry: Geometry | undefined;
     let nextMat: Material | undefined;
     try {
-      nextGeometry = mesh.createGeometry(
+      nextGeometry = geometryMod.create(
         ctx,
         buildGridData(state.subdiv, state.amplitude, state.topology),
       );
@@ -234,7 +236,7 @@ function makeRebuild(
       // clean up the fresh resources and bail before touching it.
       if (abortFlag.disposed) {
         material.destroy(ctx, nextMat);
-        mesh.destroyGeometry(ctx, nextGeometry);
+        geometryMod.destroy(ctx, nextGeometry);
         return;
       }
       const nextGrid = mesh.create(ctx, {
@@ -251,11 +253,11 @@ function makeRebuild(
       sceneRef.geometry = nextGeometry;
       sceneRef.mat = nextMat;
       mesh.destroy(ctx, oldGrid);
-      mesh.destroyGeometry(ctx, oldGeometry);
+      geometryMod.destroy(ctx, oldGeometry);
       material.destroy(ctx, oldMat);
     } catch (e) {
       if (nextMat) material.destroy(ctx, nextMat);
-      if (nextGeometry) mesh.destroyGeometry(ctx, nextGeometry);
+      if (nextGeometry) geometryMod.destroy(ctx, nextGeometry);
       throw e;
     }
   };
