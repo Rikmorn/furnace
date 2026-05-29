@@ -18,8 +18,9 @@ import type { MaterialHandle } from "../resources/handle.ts";
  * - `depthWrite`: default `true`.
  * - `depthCompare`: default `"less"`.
  * - `blend`: undefined disables blending (opaque). Use the
- *   {@link PREMULTIPLIED_ALPHA_BLEND} / {@link ADDITIVE_BLEND} /
- *   {@link STRAIGHT_ALPHA_BLEND} constants, or supply a custom `GPUBlendState`.
+ *   {@link blend} presets (`material.blend.premultiplied`,
+ *   `material.blend.additive`, `material.blend.straightAlpha`), or supply a
+ *   custom `GPUBlendState`.
  */
 export type MaterialDescriptor = {
   vertex: string;

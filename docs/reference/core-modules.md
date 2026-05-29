@@ -263,9 +263,10 @@ Re-exported from `index.ts` so other core modules can `import * as stats` and ca
 | `normalColor` | `(ctx: Context, opts?: NormalColorOptions) => Promise<Material>` | Stock debug material that renders the (uniform-scale-correct) world-space normal as RGB. No bindings. `opts` overrides pipeline state — `{ topology?, cullMode?, depthWrite?, depthCompare?, blend? }`. |
 | `NormalColorOptions` | `{ topology?: GPUPrimitiveTopology; cullMode?: GPUCullMode; depthWrite?: boolean; depthCompare?: GPUCompareFunction; blend?: GPUBlendState }` | Pipeline-state overrides for `normalColor`. All fields optional; defaults match `MaterialDescriptor` (triangle-list / back / depthWrite true / less / opaque). |
 | `createPipeline` | `(ctx: Context, descriptor: GPURenderPipelineDescriptor) => Promise<GPURenderPipeline>` | Escape hatch: wraps `device.createRenderPipeline` in a validation error scope. Returns the raw pipeline; the caller owns it (not cached). |
-| `STRAIGHT_ALPHA_BLEND` | `GPUBlendState` constant — color: `src=src-alpha, dst=one-minus-src-alpha, op=add`; alpha: `src=one, dst=one-minus-src-alpha, op=add` | Frozen; pass to `MaterialDescriptor.blend`. Non-premultiplied alpha blending — the "naive" alpha-blend most beginners reach for. Compare with `PREMULTIPLIED_ALPHA_BLEND` to see why production engines pre-multiply: PMA composes correctly under chained translucent overlays; straight alpha accumulates α-multiplication error visible at the seams. |
-| `PREMULTIPLIED_ALPHA_BLEND` | `GPUBlendState` constant — `src=one, dst=one-minus-src-alpha, op=add` for both color and alpha | Frozen; pass to `MaterialDescriptor.blend`. |
-| `ADDITIVE_BLEND` | `GPUBlendState` constant — `src=one, dst=one, op=add` for both color and alpha | Frozen; pass to `MaterialDescriptor.blend`. |
+| `blend` | `{ straightAlpha: GPUBlendState; premultiplied: GPUBlendState; additive: GPUBlendState }` | Frozen sugar-helper namespace (api-posture.md R6). All three values are frozen `GPUBlendState` objects; pass directly to `MaterialDescriptor.blend`. |
+| `blend.straightAlpha` | `GPUBlendState` constant — color: `src=src-alpha, dst=one-minus-src-alpha, op=add`; alpha: `src=one, dst=one-minus-src-alpha, op=add` | Non-premultiplied alpha blending — the "naive" alpha-blend most beginners reach for. Compare with `blend.premultiplied` to see why production engines pre-multiply: PMA composes correctly under chained translucent overlays; straight alpha accumulates α-multiplication error visible at the seams. |
+| `blend.premultiplied` | `GPUBlendState` constant — `src=one, dst=one-minus-src-alpha, op=add` for both color and alpha | Premultiplied-alpha compositing; the production default. Shader must output `vec4(rgb * a, a)`. |
+| `blend.additive` | `GPUBlendState` constant — `src=one, dst=one, op=add` for both color and alpha | Additive blending; contributions sum rather than occlude. Useful for particles, glow passes, light accumulation. |
 | `MaterialDescriptor` | `{ vertex: string; fragment: string; bindings?: GPUBindGroupEntry[]; cullMode?; topology?; depthWrite?; depthCompare?; blend? }` | Defaults: `cullMode = "back"`, `topology = "triangle-list"`, `depthWrite = true`, `depthCompare = "less"`. `vertex` and `fragment` are required WGSL strings. |
 | `Material` | Opaque branded uint48 handle (alias of `MaterialHandle`) | Returned by `create` / `unlit` / `normalColor`. Pass to `mesh.create` and `frame.render`; dispose via `material.destroy(ctx, m)`. |
 
@@ -274,7 +275,7 @@ Re-exported from `index.ts` so other core modules can `import * as stats` and ca
 - `unlit`, `normalColor`, `destroy` → `cookbook/camera`.
 - `normalColor`, `NormalColorOptions` (topology) → `cookbook/geometry`.
 - `create`, `MaterialDescriptor` (vertex/fragment/bindings) → `cookbook/shader`.
-- `unlit`, `UnlitOptions` (blend, cullMode, depthWrite, depthCompare), `STRAIGHT_ALPHA_BLEND`, `PREMULTIPLIED_ALPHA_BLEND`, `ADDITIVE_BLEND` → `cookbook/blend`.
+- `unlit`, `UnlitOptions` (blend, cullMode, depthWrite, depthCompare), `blend.straightAlpha`, `blend.premultiplied`, `blend.additive` → `cookbook/blend`.
 
 ### Reference-only (no demo, by design)
 

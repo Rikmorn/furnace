@@ -34,9 +34,9 @@ export default {
   features: [
     "material.unlit (with UnlitOptions)",
     "UnlitOptions",
-    "STRAIGHT_ALPHA_BLEND",
-    "PREMULTIPLIED_ALPHA_BLEND",
-    "ADDITIVE_BLEND",
+    "material.blend.straightAlpha",
+    "material.blend.premultiplied",
+    "material.blend.additive",
     "MaterialDescriptor.cullMode (via UnlitOptions)",
     "MaterialDescriptor.depthWrite (via UnlitOptions)",
     "MaterialDescriptor.depthCompare (via UnlitOptions)",

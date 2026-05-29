@@ -1,8 +1,4 @@
-export {
-  ADDITIVE_BLEND,
-  PREMULTIPLIED_ALPHA_BLEND,
-  STRAIGHT_ALPHA_BLEND,
-} from "./blend.ts";
+export { blend } from "./blend.ts";
 export { create, destroy } from "./material.ts";
 export type { NormalColorOptions } from "./normal-color.ts";
 export { normalColor } from "./normal-color.ts";

@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import * as gpu from "../../src/gpu/index.ts";
-import { PREMULTIPLIED_ALPHA_BLEND } from "../../src/material/blend.ts";
+import { blend } from "../../src/material/blend.ts";
 import * as material from "../../src/material/index.ts";
 import { _resolveMaterial } from "../../src/material/internal.ts";
 import { unlit } from "../../src/material/unlit.ts";
@@ -59,7 +59,7 @@ test.skipIf(!bunWebGpuAvailable())(
     const opaque = await unlit(ctx, { color: vec4.fromValues(1, 0, 0, 1) });
     const blended = await unlit(ctx, {
       color: vec4.fromValues(1, 0, 0, 1),
-      blend: PREMULTIPLIED_ALPHA_BLEND,
+      blend: blend.premultiplied,
     });
     const opaqueSlot = _resolveMaterial(ctx, opaque);
     const blendedSlot = _resolveMaterial(ctx, blended);

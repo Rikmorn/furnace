@@ -55,7 +55,7 @@ const sdfTriangle = async (ctx: gpu.Context) => {
     fragment: shaderSource,
     bindings: [{ binding: 0, resource: { buffer: haloBuffer } }],
     cullMode: "none",
-    blend: material.PREMULTIPLIED_ALPHA_BLEND,
+    blend: material.blend.premultiplied,
     depthWrite: false,
   });
 

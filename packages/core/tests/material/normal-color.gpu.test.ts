@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import * as gpu from "../../src/gpu/index.ts";
-import { PREMULTIPLIED_ALPHA_BLEND } from "../../src/material/blend.ts";
+import { blend } from "../../src/material/blend.ts";
 import * as material from "../../src/material/index.ts";
 import { _resolveMaterial } from "../../src/material/internal.ts";
 import { normalColor } from "../../src/material/normal-color.ts";
@@ -54,7 +54,7 @@ test.skipIf(!bunWebGpuAvailable())(
     const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
     const opaque = await normalColor(ctx);
     const blended = await normalColor(ctx, {
-      blend: PREMULTIPLIED_ALPHA_BLEND,
+      blend: blend.premultiplied,
     });
     const opaqueSlot = _resolveMaterial(ctx, opaque);
     const blendedSlot = _resolveMaterial(ctx, blended);
