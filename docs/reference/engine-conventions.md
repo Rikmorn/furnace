@@ -198,7 +198,7 @@ See `core-modules.md` (`camera` module) for the function/type table.
 
 ## Drawables
 
-`@furnace/core/mesh` and `@furnace/core/material` define the engine's drawable model: a Mesh is a Geometry + a Material + a Transform.
+`@furnace/core/geometry`, `@furnace/core/mesh`, and `@furnace/core/material` define the engine's drawable model: a Mesh is a Geometry + a Material + a Transform.
 
 - **Geometry** (raw GPU resource): vertex buffer + optional index buffer + fixed vertex layout. Created via `geometry.create(ctx, { positions, normals, uvs, indices? })` for custom data, or via built-in factories `geometry.cube` / `geometry.plane`. Geometries are shareable — one Geometry can back many Meshes with different materials and transforms.
 - **Material** (shader + pipeline + group-1 bind group): `material.create(ctx, descriptor)` accepts custom WGSL respecting the engine's binding contract (§Binding contract). Built-in factories `material.unlit({ color })` and `material.normalColor()` are thin wrappers over `create` with engine-bundled WGSL. The mechanical-tier `material.createPipeline` is the documented escape hatch for raw WebGPU pipelines.
