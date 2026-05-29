@@ -137,23 +137,18 @@ await mountDemo({
     },
   },
   setup: async (ctx) => {
-    let mat: Material | undefined;
-    let geometry: Geometry | undefined;
-    let unsubFrame: (() => void) | undefined;
-    let unsubResize: (() => void) | undefined;
-    const cubes: Mesh[] = [];
-
     try {
-      mat = await material.normalColor(ctx);
+      const cubes: Mesh[] = [];
+      const mat = await material.normalColor(ctx);
       // Shared geometry across all spawned meshes: 200 cubes share one VBO.
       // resources.meshes climbs with spawns; resources.geometries stays at 1.
-      geometry = geometryMod.cube(ctx, { size: CUBE_SIZE });
+      const geometry = geometryMod.cube(ctx, { size: CUBE_SIZE });
 
       const cam = camera.perspective({
         aspect: ctx.canvas.width / ctx.canvas.height,
         position: vec3.fromValues(0, 0, CAMERA_Z),
       });
-      unsubResize = camera.bindToCanvas(ctx, cam);
+      camera.bindToCanvas(ctx, cam);
 
       const scene: Scene = {
         mat,
@@ -168,42 +163,34 @@ await mountDemo({
       window.__cookbookCustomStatsSpawn = spawn;
       window.__cookbookCustomStatsDespawn = despawn;
 
-      // Custom onFrame subscriber: maintains a sliding-window fps history
-      // and reads back the duration recorded by stats.measure earlier in the
-      // same frame (snap.custom["heavy-loop"] is the previous measure() ms).
-      unsubFrame = stats.onFrame(ctx, (snap) => {
+      // Custom onFrame subscriber: maintains a sliding-window fps history and
+      // reads back the duration recorded by stats.measure earlier in the same
+      // frame (snap.custom["heavy-loop"] is the previous measure() ms). This is
+      // the last fallible step in setup, so the catch below only needs to clear
+      // the window globals — nothing was registered if we reach it.
+      const unsubFrame = stats.onFrame(ctx, (snap) => {
         pushFpsSample(snap.frame.fps);
         const recorded = snap.custom[KEY_HEAVY_LOOP];
         state.heavyMs =
           state.heavyLoop && recorded !== undefined ? recorded : 0;
       });
 
-      const sceneUnsubResize = unsubResize;
-      const sceneUnsub = unsubFrame;
-      const sceneMat = mat;
-      const sceneGeometry = geometry;
-
+      // No managed teardown: gpu.dispose cascades the cubes/geometry/material
+      // and auto-disconnects the resize binding. (Explicit mid-life destroy is
+      // shown in makeDespawn, which frees a cube on demand.) Only the
+      // non-resource handles are torn down here: the window globals and the
+      // stats.onFrame subscription.
       return {
         scene,
         dispose: () => {
           window.__cookbookCustomStatsSpawn = undefined;
           window.__cookbookCustomStatsDespawn = undefined;
-          sceneUnsubResize();
-          sceneUnsub();
-          for (const c of cubes) mesh.destroy(ctx, c);
-          cubes.length = 0;
-          geometryMod.destroy(ctx, sceneGeometry);
-          material.destroy(ctx, sceneMat);
+          unsubFrame();
         },
       };
     } catch (e) {
       window.__cookbookCustomStatsSpawn = undefined;
       window.__cookbookCustomStatsDespawn = undefined;
-      if (unsubResize) unsubResize();
-      if (unsubFrame) unsubFrame();
-      for (const c of cubes) mesh.destroy(ctx, c);
-      if (geometry) geometryMod.destroy(ctx, geometry);
-      if (mat) material.destroy(ctx, mat);
       throw e;
     }
   },

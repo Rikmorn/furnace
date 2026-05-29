@@ -1,11 +1,8 @@
 import type { Camera, ScreenProjection } from "@furnace/core/camera";
 import * as camera from "@furnace/core/camera";
 import * as frame from "@furnace/core/frame";
-import type { Geometry } from "@furnace/core/geometry";
 import * as geometry from "@furnace/core/geometry";
-import type { Material } from "@furnace/core/material";
 import * as material from "@furnace/core/material";
-import type { Mesh } from "@furnace/core/mesh";
 import * as mesh from "@furnace/core/mesh";
 import type { Vec3, Vec4 } from "@furnace/core/transform";
 import { quat, vec3, vec4 } from "@furnace/core/transform";
@@ -83,91 +80,59 @@ await mountDemo({
     },
   },
   setup: async (ctx) => {
-    let mat: Material | undefined;
-    let cubeGeo: Geometry | undefined;
-    let cubeVariable: Mesh | undefined;
-    let cubeNoInterp: Mesh | undefined;
-    let cubeInterp: Mesh | undefined;
-    let unsubResize: (() => void) | undefined;
-    try {
-      mat = await material.normalColor(ctx);
-      cubeGeo = geometry.cube(ctx);
-      cubeVariable = mesh.create(ctx, { geometry: cubeGeo, material: mat });
-      cubeNoInterp = mesh.create(ctx, { geometry: cubeGeo, material: mat });
-      cubeInterp = mesh.create(ctx, { geometry: cubeGeo, material: mat });
+    // No teardown: gpu.dispose cascades through managed resources (mesh/
+    // material/geometry) and auto-disconnects the resize binding. Explicit
+    // destroy is an optimization, shown where it's genuinely needed:
+    // mid-life churn (geometry, custom-stats) and raw resources (post).
+    const mat = await material.normalColor(ctx);
+    const cubeGeo = geometry.cube(ctx);
+    const cubeVariable = mesh.create(ctx, { geometry: cubeGeo, material: mat });
+    const cubeNoInterp = mesh.create(ctx, { geometry: cubeGeo, material: mat });
+    const cubeInterp = mesh.create(ctx, { geometry: cubeGeo, material: mat });
 
-      mesh.setPosition(
-        ctx,
+    mesh.setPosition(ctx, cubeVariable, vec3.fromValues(-CUBE_X_SPACING, 0, 0));
+    mesh.setPosition(ctx, cubeNoInterp, vec3.fromValues(0, 0, 0));
+    mesh.setPosition(ctx, cubeInterp, vec3.fromValues(CUBE_X_SPACING, 0, 0));
+
+    const cam = camera.perspective({
+      aspect: ctx.canvas.width / ctx.canvas.height,
+      position: vec3.fromValues(0, 0, CAMERA_Z),
+    });
+    camera.bindToCanvas(ctx, cam);
+
+    // Pre-allocated per-frame scratch buffers. Mutated in frame(), never re-allocated.
+    const rotBufVariable = quat.create();
+    const rotBufNoInterp = quat.create();
+    const rotBufInterp = quat.create();
+    const posBufVariable = vec3.create();
+    const posBufNoInterp = vec3.create();
+    const posBufInterp = vec3.create();
+    const projBuf: ScreenProjection = { x: 0, y: 0, w: 1 };
+    const labelAnchorBuf = vec3.create();
+
+    const labelVariable = requireLabel("variable");
+    const labelNoInterp = requireLabel("no-interp");
+    const labelInterp = requireLabel("interp");
+
+    return {
+      scene: {
         cubeVariable,
-        vec3.fromValues(-CUBE_X_SPACING, 0, 0),
-      );
-      mesh.setPosition(ctx, cubeNoInterp, vec3.fromValues(0, 0, 0));
-      mesh.setPosition(ctx, cubeInterp, vec3.fromValues(CUBE_X_SPACING, 0, 0));
-
-      const cam = camera.perspective({
-        aspect: ctx.canvas.width / ctx.canvas.height,
-        position: vec3.fromValues(0, 0, CAMERA_Z),
-      });
-      unsubResize = camera.bindToCanvas(ctx, cam);
-
-      // Pre-allocated per-frame scratch buffers. Mutated in frame(), never re-allocated.
-      const rotBufVariable = quat.create();
-      const rotBufNoInterp = quat.create();
-      const rotBufInterp = quat.create();
-      const posBufVariable = vec3.create();
-      const posBufNoInterp = vec3.create();
-      const posBufInterp = vec3.create();
-      const projBuf: ScreenProjection = { x: 0, y: 0, w: 1 };
-      const labelAnchorBuf = vec3.create();
-
-      const labelVariable = requireLabel("variable");
-      const labelNoInterp = requireLabel("no-interp");
-      const labelInterp = requireLabel("interp");
-
-      const sceneMat = mat;
-      const sceneCubeGeo = cubeGeo;
-      const sceneCubeVariable = cubeVariable;
-      const sceneCubeNoInterp = cubeNoInterp;
-      const sceneCubeInterp = cubeInterp;
-      const sceneUnsubResize = unsubResize;
-
-      return {
-        scene: {
-          mat: sceneMat,
-          cubeVariable: sceneCubeVariable,
-          cubeNoInterp: sceneCubeNoInterp,
-          cubeInterp: sceneCubeInterp,
-          cam,
-          rotBufVariable,
-          rotBufNoInterp,
-          rotBufInterp,
-          posBufVariable,
-          posBufNoInterp,
-          posBufInterp,
-          projBuf,
-          labelAnchorBuf,
-          labelVariable,
-          labelNoInterp,
-          labelInterp,
-        },
-        dispose: () => {
-          sceneUnsubResize();
-          mesh.destroy(ctx, sceneCubeVariable);
-          mesh.destroy(ctx, sceneCubeNoInterp);
-          mesh.destroy(ctx, sceneCubeInterp);
-          geometry.destroy(ctx, sceneCubeGeo);
-          material.destroy(ctx, sceneMat);
-        },
-      };
-    } catch (e) {
-      if (unsubResize) unsubResize();
-      if (cubeVariable) mesh.destroy(ctx, cubeVariable);
-      if (cubeNoInterp) mesh.destroy(ctx, cubeNoInterp);
-      if (cubeInterp) mesh.destroy(ctx, cubeInterp);
-      if (cubeGeo) geometry.destroy(ctx, cubeGeo);
-      if (mat) material.destroy(ctx, mat);
-      throw e;
-    }
+        cubeNoInterp,
+        cubeInterp,
+        cam,
+        rotBufVariable,
+        rotBufNoInterp,
+        rotBufInterp,
+        posBufVariable,
+        posBufNoInterp,
+        posBufInterp,
+        projBuf,
+        labelAnchorBuf,
+        labelVariable,
+        labelNoInterp,
+        labelInterp,
+      },
+    };
   },
   frame: ({ ctx, scene, info }) => {
     // 1. Variable-dt advance — uses real elapsed time each RAF.
