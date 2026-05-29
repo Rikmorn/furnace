@@ -45,6 +45,23 @@ This pattern duplicates across **8 demos** (animation, blend, camera, geometry, 
 
 Stage 2's per-demo migration touched every dispose AND catch-arm body — 30+ resource destroys × 2 paths in some demos. Each migration commit roughly doubled the diff size because the migration had to be applied symmetrically. The duplication became impossible to miss.
 
+## Reframe (2026-05-29, post-A-8): the resource-manager cascade already covers most of this
+
+Re-examined after A-8. The dispose/catch-arm boilerplate this entry targets is **largely redundant** given the resource manager + the cookbook harness:
+
+- `gpu.dispose(ctx)` runs `disposeAllResources` — a cascade that tears down every live managed slot (mesh → effect → material → geometry, in refcount-safe order). The engine's own log says it: *"auto-cleaned N live handles on dispose; explicit destroy is an optimization, not a requirement"* (`resources/dispose.ts`).
+- The cookbook harness (`packages/cookbook/src/shared/mount.ts`) gives **each demo its own `Context`** and **always calls `gpu.dispose(ctx)`** on teardown — both the normal `beforeunload` path AND the setup-failure `catch` path.
+
+So for the cookbook specifically, a demo's success-path `dispose` resource-destroys and its catch-arm cleanup are **freeing things the cascade frees anyway**. The catch-arm is *fully* redundant — the harness already disposes the ctx when `setup` throws.
+
+**This flips the intervention from *add a helper* to *delete the redundant teardown* (deletion-pass-before-addition, `working-standards.md` §Design).** The cleaner A-7 is: drop the per-handle teardown destroys + catch-arm from the demos and lean on the cascade, keeping explicit destroy ONLY where genuinely required:
+
+1. **Mid-life resource churn** — demos that rebuild a resource during the session (geometry topology toggle, render-target PiP rebuild, blend reference swap) must destroy the *old* handle when creating the new one; the cascade only runs at ctx teardown, not mid-session.
+2. **Consumer-owned, non-managed GPU resources** — raw textures, custom material group-1 bind-group resources, post-effect `EffectDescriptor.bindings` (per `engine-conventions.md` §Resource ownership); the cascade only tracks managed slots.
+3. **Non-resource teardown** — unsubscribe callbacks (the harness already handles `loop.stop()`).
+
+A `tryWithCleanup`/dispose-bag helper may then be unnecessary, or shrink to just (1)+(2). **First step of the tranche: do the deletion pass and measure what survives before deciding any helper is warranted.**
+
 ## Fix shape (sketch — confirm during the tranche)
 
 A `tryWithCleanup` helper in `packages/cookbook/src/shared/` that takes:
@@ -64,7 +81,7 @@ Alternative shape — **dispose-bag pattern** (mentioned in §9.2 of the Stage 2
 - Both success-dispose and catch-arm just call `bag.disposeAll()` — one path, one ordering
 - Stage 1's refcount machinery handles destroy-order automatically; the bag just needs the set of handles
 
-The dispose-bag approach is cleaner — it eliminates the dispose/catch divergence entirely. But it needs a small engine-side helper (or could be cookbook-side using `resources.summary`-style introspection). Worth comparing both shapes during the tranche brainstorm.
+The dispose-bag approach is cleaner — it eliminates the dispose/catch divergence entirely. But it needs a small engine-side helper. *(An earlier draft suggested a cookbook-side variant using `resources.summary`-style introspection — but RM-4 deleted `resources.summary`/`list`/`snapshot`; only `resources.disposeAll` remains, which is itself the whole-pool cascade, so the bag would need its own handle set rather than introspection.)* Worth comparing both shapes during the tranche brainstorm — **but see the Reframe above first: the cascade may make a bag unnecessary.**
 
 ## Trade-offs
 
