@@ -250,7 +250,7 @@ async function buildScene(ctx: Context): Promise<SceneRef> {
       aspect: ctx.canvas.width / ctx.canvas.height,
       position: vec3.fromValues(0, MAIN_CAMERA_Y, MAIN_CAMERA_RADIUS),
     });
-    unsubResize = camera.bindToCanvas(mainCam, ctx);
+    unsubResize = camera.bindToCanvas(ctx, mainCam);
     const initialPipPos = PIP_POSITIONS[state.pipAngle];
     const pipCam = camera.perspective({
       aspect: 1,

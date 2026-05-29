@@ -172,7 +172,7 @@ async function main(): Promise<void> {
 
   // No teardown — hello-world has no dispose path; these subscriptions
   // (resize, input, overlay) live for the page lifetime.
-  camera.bindToCanvas(cam, ctx);
+  camera.bindToCanvas(ctx, cam);
   input.attach(canvas);
   mountFpsOverlay(uiRoot);
   subscribeOverlay(ctx);

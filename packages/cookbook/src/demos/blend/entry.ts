@@ -395,7 +395,7 @@ async function buildScene(ctx: Context): Promise<SceneRef> {
       aspect: ctx.canvas.width / ctx.canvas.height,
       position: vec3.fromValues(0, 0, CAMERA_Z),
     });
-    const unsubResize = camera.bindToCanvas(cam, ctx);
+    const unsubResize = camera.bindToCanvas(ctx, cam);
     return {
       backdrop,
       reference: refRes.refMesh,

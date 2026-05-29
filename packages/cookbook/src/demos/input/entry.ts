@@ -75,7 +75,7 @@ await mountDemo({
         aspect: ctx.canvas.width / ctx.canvas.height,
         position: vec3.fromValues(0, 0, state.cameraZ),
       });
-      unsubResize = camera.bindToCanvas(cam, ctx);
+      unsubResize = camera.bindToCanvas(ctx, cam);
 
       const sceneCube = cube;
       const sceneCubeGeo = cubeGeo;

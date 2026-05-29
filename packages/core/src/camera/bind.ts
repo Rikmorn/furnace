@@ -60,13 +60,16 @@ export function updateForSize(
  * Works for both perspective and orthographic cameras. For orthographic, the
  * camera's `fitPolicy` (default `stretch`) determines how bounds respond to
  * resize.
+ *
+ * @param ctx - The GPU context supplying the canvas and resize events.
+ * @param cam - The camera whose projection is kept in sync with the canvas.
  */
-export function bindToCanvas(cam: Camera, ctx: Context): () => void {
-  if (cam == null) {
-    throw new FurnaceError("cam must not be null/undefined");
-  }
+export function bindToCanvas(ctx: Context, cam: Camera): () => void {
   if (ctx == null) {
     throw new FurnaceError("ctx must not be null/undefined");
+  }
+  if (cam == null) {
+    throw new FurnaceError("cam must not be null/undefined");
   }
   updateForSize(cam, { width: ctx.canvas.width, height: ctx.canvas.height });
   return onResize(ctx, ({ width, height }) => {

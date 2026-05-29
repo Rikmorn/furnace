@@ -189,7 +189,7 @@ async function buildScene(ctx: Context): Promise<SceneRef> {
         CAMERA_TARGET_Z,
       ),
     });
-    const unsubResize = camera.bindToCanvas(cam, ctx);
+    const unsubResize = camera.bindToCanvas(ctx, cam);
     return { geometry, mat, grid, cam, unsubResize };
   } catch (e) {
     if (mat) material.destroy(ctx, mat);

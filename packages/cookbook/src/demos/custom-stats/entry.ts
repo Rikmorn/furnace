@@ -151,7 +151,7 @@ await mountDemo({
         aspect: ctx.canvas.width / ctx.canvas.height,
         position: vec3.fromValues(0, 0, CAMERA_Z),
       });
-      unsubResize = camera.bindToCanvas(cam, ctx);
+      unsubResize = camera.bindToCanvas(ctx, cam);
 
       const scene: Scene = {
         mat,

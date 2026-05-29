@@ -141,8 +141,8 @@ await mountDemo({
         position: vec3.fromValues(0, 0, CAMERA_RADIUS),
       });
 
-      const unsubResizeP = camera.bindToCanvas(perspectiveCam, ctx);
-      const unsubResizeO = camera.bindToCanvas(orthographicCam, ctx);
+      const unsubResizeP = camera.bindToCanvas(ctx, perspectiveCam);
+      const unsubResizeO = camera.bindToCanvas(ctx, orthographicCam);
       unsubResize = () => {
         unsubResizeP();
         unsubResizeO();

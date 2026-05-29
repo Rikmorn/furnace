@@ -134,7 +134,7 @@ test("bindToCanvas applies updateForSize once immediately on call", () => {
   if (cam.projection.kind !== "perspective") throw new Error("unreachable");
   const ctx = fakeCtx(1600, 800);
   expect(cam.projection.aspect).toBe(1);
-  const unsub = bindToCanvas(cam, ctx);
+  const unsub = bindToCanvas(ctx, cam);
   expect(cam.projection.aspect).toBe(2);
   unsub();
 });
@@ -143,7 +143,7 @@ test("bindToCanvas updates aspect on subsequent resize events", () => {
   const cam = perspective({ aspect: 1 });
   if (cam.projection.kind !== "perspective") throw new Error("unreachable");
   const ctx = fakeCtx(800, 600);
-  const unsub = bindToCanvas(cam, ctx);
+  const unsub = bindToCanvas(ctx, cam);
   fireResize(ctx.canvas, 1200, 300);
   expect(cam.projection.aspect).toBe(4);
   unsub();
@@ -153,7 +153,7 @@ test("bindToCanvas unsubscribe stops further updates", () => {
   const cam = perspective({ aspect: 1 });
   if (cam.projection.kind !== "perspective") throw new Error("unreachable");
   const ctx = fakeCtx(800, 600);
-  const unsub = bindToCanvas(cam, ctx);
+  const unsub = bindToCanvas(ctx, cam);
   unsub();
   fireResize(ctx.canvas, 1600, 400);
   // aspect stays at the value applied on bind (800/600 = 4/3)
@@ -163,7 +163,7 @@ test("bindToCanvas unsubscribe stops further updates", () => {
 test("bindToCanvas unsubscribe is idempotent", () => {
   const cam = perspective({ aspect: 1 });
   const ctx = fakeCtx(800, 600);
-  const unsub = bindToCanvas(cam, ctx);
+  const unsub = bindToCanvas(ctx, cam);
   unsub();
   expect(() => unsub()).not.toThrow();
 });
@@ -172,14 +172,14 @@ test("bindToCanvas throws on disposed context", () => {
   const cam = perspective({ aspect: 1 });
   const ctx = fakeCtx();
   ctx._internal.disposed = true;
-  expect(() => bindToCanvas(cam, ctx)).toThrow(/disposed/);
+  expect(() => bindToCanvas(ctx, cam)).toThrow(/disposed/);
 });
 
 test("bindToCanvas: orthographic preserve-height updates bounds on bind and on resize", () => {
   const cam = orthographic({ fitPolicy: policy.preserveHeight(2) });
   if (cam.projection.kind !== "orthographic") throw new Error("unreachable");
   const ctx = fakeCtx(800, 600);
-  const unsub = bindToCanvas(cam, ctx);
+  const unsub = bindToCanvas(ctx, cam);
   expect(cam.projection.top).toBeCloseTo(1);
   expect(cam.projection.right).toBeCloseTo(4 / 3);
   fireResize(ctx.canvas, 1600, 400);
@@ -194,7 +194,7 @@ test("bindToCanvas: orthographic stretch ignores resize aspect", () => {
   });
   if (cam.projection.kind !== "orthographic") throw new Error("unreachable");
   const ctx = fakeCtx(800, 600);
-  const unsub = bindToCanvas(cam, ctx);
+  const unsub = bindToCanvas(ctx, cam);
   fireResize(ctx.canvas, 1600, 400);
   expect(cam.projection.left).toBe(-2);
   expect(cam.projection.right).toBe(2);
@@ -205,10 +205,10 @@ test("bindToCanvas: orthographic stretch ignores resize aspect", () => {
 
 test("bindToCanvas throws on null camera", () => {
   const ctx = fakeCtx();
-  expect(() => bindToCanvas(null as unknown as Camera, ctx)).toThrow(/null/);
+  expect(() => bindToCanvas(ctx, null as unknown as Camera)).toThrow(/null/);
 });
 
 test("bindToCanvas throws on null context", () => {
   const cam = perspective({ aspect: 1 });
-  expect(() => bindToCanvas(cam, null as unknown as Context)).toThrow(/null/);
+  expect(() => bindToCanvas(null as unknown as Context, cam)).toThrow(/null/);
 });
