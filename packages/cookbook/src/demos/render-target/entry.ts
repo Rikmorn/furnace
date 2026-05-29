@@ -1,7 +1,6 @@
 import type { Camera } from "@furnace/core/camera";
 import * as camera from "@furnace/core/camera";
 import * as frame from "@furnace/core/frame";
-import type { Geometry } from "@furnace/core/geometry";
 import * as geometry from "@furnace/core/geometry";
 import type { Context } from "@furnace/core/gpu";
 import * as input from "@furnace/core/input";
@@ -136,24 +135,16 @@ type PipResources = {
 };
 
 type SceneRef = {
-  subjectMat: Material;
-  subjectGeo: Geometry;
   subjectMesh: Mesh;
-  roomMat: Material;
-  roomGeo: Geometry;
   roomMesh: Mesh;
-  monitorGeo: Geometry;
   monitorMesh: Mesh;
   pip: PipResources;
   mainCam: Camera;
   pipCam: Camera;
   sampler: GPUSampler;
-  unsubResize: () => void;
   rotBuf: Quat;
   scratchPos: Vec3;
-  gizmoMat: Material;
   gizmoMesh: Mesh;
-  gizmoGeo: Geometry;
   gizmoRot: Quat;
   gizmoDir: Vec3;
   gizmoAxis: Vec3;
@@ -198,37 +189,24 @@ function disposePipResources(ctx: Context, r: PipResources): void {
 }
 
 async function buildScene(ctx: Context): Promise<SceneRef> {
-  let subjectMat: Material | undefined;
-  let subjectGeo: Geometry | undefined;
-  let subjectMesh: Mesh | undefined;
-  let roomMat: Material | undefined;
-  let roomGeo: Geometry | undefined;
-  let roomMesh: Mesh | undefined;
-  let monitorGeo: Geometry | undefined;
-  let monitorMesh: Mesh | undefined;
   let pip: PipResources | undefined;
-  let sampler: GPUSampler | undefined;
-  let gizmoMat: Material | undefined;
-  let gizmoMesh: Mesh | undefined;
-  let gizmoGeo: Geometry | undefined;
-  let unsubResize: (() => void) | undefined;
 
   try {
-    subjectMat = await material.normalColor(ctx);
-    subjectGeo = geometry.cube(ctx, { size: SUBJECT_SIZE });
-    subjectMesh = mesh.create(ctx, {
+    const subjectMat = await material.normalColor(ctx);
+    const subjectGeo = geometry.cube(ctx, { size: SUBJECT_SIZE });
+    const subjectMesh = mesh.create(ctx, {
       geometry: subjectGeo,
       material: subjectMat,
     });
 
-    roomMat = await material.unlit(ctx, {
+    const roomMat = await material.unlit(ctx, {
       color: ROOM_COLOR,
       cullMode: "front",
     });
-    roomGeo = geometry.cube(ctx, { size: ROOM_SIZE });
-    roomMesh = mesh.create(ctx, { geometry: roomGeo, material: roomMat });
+    const roomGeo = geometry.cube(ctx, { size: ROOM_SIZE });
+    const roomMesh = mesh.create(ctx, { geometry: roomGeo, material: roomMat });
 
-    sampler = ctx.device.createSampler({
+    const sampler = ctx.device.createSampler({
       magFilter: "linear",
       minFilter: "linear",
       addressModeU: "clamp-to-edge",
@@ -236,8 +214,8 @@ async function buildScene(ctx: Context): Promise<SceneRef> {
     });
     pip = await buildPipResources(ctx, state.pipResolution, sampler);
 
-    monitorGeo = geometry.plane(ctx, { size: MONITOR_SIZE });
-    monitorMesh = mesh.create(ctx, {
+    const monitorGeo = geometry.plane(ctx, { size: MONITOR_SIZE });
+    const monitorMesh = mesh.create(ctx, {
       geometry: monitorGeo,
       material: pip.monitorMat,
     });
@@ -252,7 +230,7 @@ async function buildScene(ctx: Context): Promise<SceneRef> {
       aspect: ctx.canvas.width / ctx.canvas.height,
       position: vec3.fromValues(0, MAIN_CAMERA_Y, MAIN_CAMERA_RADIUS),
     });
-    unsubResize = camera.bindToCanvas(ctx, mainCam);
+    camera.bindToCanvas(ctx, mainCam);
     const initialPipPos = PIP_POSITIONS[state.pipAngle];
     const pipCam = camera.perspective({
       aspect: 1,
@@ -265,70 +243,52 @@ async function buildScene(ctx: Context): Promise<SceneRef> {
       target: vec3.fromValues(0, 0, 0),
     });
 
-    gizmoMat = await material.unlit(ctx, {
+    const gizmoMat = await material.unlit(ctx, {
       color: GIZMO_COLOR,
       topology: "line-list",
       depthWrite: false,
       depthCompare: "always",
     });
-    gizmoGeo = geometry.create(ctx, gizmoQuadGeometryData(GIZMO_SIZE));
-    gizmoMesh = mesh.create(ctx, { geometry: gizmoGeo, material: gizmoMat });
+    const gizmoGeo = geometry.create(ctx, gizmoQuadGeometryData(GIZMO_SIZE));
+    const gizmoMesh = mesh.create(ctx, {
+      geometry: gizmoGeo,
+      material: gizmoMat,
+    });
 
     return {
-      subjectMat,
-      subjectGeo,
       subjectMesh,
-      roomMat,
-      roomGeo,
       roomMesh,
-      monitorGeo,
       monitorMesh,
       pip,
       mainCam,
       pipCam,
       sampler,
-      unsubResize,
       rotBuf: quat.create(),
       scratchPos: vec3.create(),
-      gizmoMat,
       gizmoMesh,
-      gizmoGeo,
       gizmoRot: quat.create(),
       gizmoDir: vec3.create(),
       gizmoAxis: vec3.create(),
     };
   } catch (e) {
-    if (unsubResize) unsubResize();
-    if (gizmoMesh) mesh.destroy(ctx, gizmoMesh);
-    if (monitorMesh) mesh.destroy(ctx, monitorMesh);
-    if (roomMesh) mesh.destroy(ctx, roomMesh);
-    if (subjectMesh) mesh.destroy(ctx, subjectMesh);
-    if (gizmoGeo) geometry.destroy(ctx, gizmoGeo);
-    if (monitorGeo) geometry.destroy(ctx, monitorGeo);
-    if (roomGeo) geometry.destroy(ctx, roomGeo);
-    if (subjectGeo) geometry.destroy(ctx, subjectGeo);
-    if (gizmoMat) material.destroy(ctx, gizmoMat);
+    // gpu.dispose (called by the harness on setup failure) cascades all
+    // managed resources. Only the consumer-owned raw PiP textures need
+    // freeing here; disposePipResources frees them (its bundled managed
+    // material.destroy is idempotent).
     if (pip) disposePipResources(ctx, pip);
-    if (roomMat) material.destroy(ctx, roomMat);
-    if (subjectMat) material.destroy(ctx, subjectMat);
     throw e;
   }
 }
 
-function disposeScene(ctx: Context, scene: SceneRef): void {
-  scene.unsubResize();
-  mesh.destroy(ctx, scene.gizmoMesh);
-  mesh.destroy(ctx, scene.monitorMesh);
-  mesh.destroy(ctx, scene.roomMesh);
-  mesh.destroy(ctx, scene.subjectMesh);
-  geometry.destroy(ctx, scene.gizmoGeo);
-  geometry.destroy(ctx, scene.monitorGeo);
-  geometry.destroy(ctx, scene.roomGeo);
-  geometry.destroy(ctx, scene.subjectGeo);
-  material.destroy(ctx, scene.gizmoMat);
-  disposePipResources(ctx, scene.pip);
-  material.destroy(ctx, scene.roomMat);
-  material.destroy(ctx, scene.subjectMat);
+function disposeScene(_ctx: Context, scene: SceneRef): void {
+  // gpu.dispose cascades all managed resources (materials, geometries, meshes)
+  // and auto-disconnects the resize binding. Only the consumer-owned raw PiP
+  // textures (created via ctx.device.createTexture) are freed here — the
+  // cascade tracks managed slots, not raw GPU resources. monitorMat is managed,
+  // so the cascade frees it; we do NOT call disposePipResources (which would
+  // redundantly destroy monitorMat).
+  scene.pip.texture.destroy();
+  scene.pip.depthTexture.destroy();
 }
 
 // --- Rebuild queue (single-in-flight + one-pending) ---
