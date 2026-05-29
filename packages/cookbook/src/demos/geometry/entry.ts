@@ -44,7 +44,6 @@ type SceneRef = {
   mat: Material;
   grid: Mesh;
   cam: Camera;
-  unsubResize: () => void;
 };
 
 function buildGridData(
@@ -165,46 +164,27 @@ function buildWireframeIndices(subdiv: number, stride: number): Uint32Array {
 }
 
 async function buildScene(ctx: Context): Promise<SceneRef> {
-  let geo: Geometry | undefined;
-  let mat: Material | undefined;
-  try {
-    geo = geometry.create(
-      ctx,
-      buildGridData(state.subdiv, state.amplitude, state.topology),
-    );
-    // WebGPU requires cullMode "none" for non-triangle topologies — faces don't exist for line/point primitives.
-    mat = await material.normalColor(ctx, {
-      topology: state.topology,
-      cullMode: state.topology === "triangle-list" ? "back" : "none",
-    });
-    const grid = mesh.create(ctx, { geometry: geo, material: mat });
-    const cam = camera.perspective({
-      aspect: ctx.canvas.width / ctx.canvas.height,
-      position: vec3.fromValues(
-        CAMERA_POSITION_X,
-        CAMERA_POSITION_Y,
-        CAMERA_POSITION_Z,
-      ),
-      target: vec3.fromValues(
-        CAMERA_TARGET_X,
-        CAMERA_TARGET_Y,
-        CAMERA_TARGET_Z,
-      ),
-    });
-    const unsubResize = camera.bindToCanvas(ctx, cam);
-    return { geo, mat, grid, cam, unsubResize };
-  } catch (e) {
-    if (mat) material.destroy(ctx, mat);
-    if (geo) geometry.destroy(ctx, geo);
-    throw e;
-  }
-}
-
-function disposeScene(ctx: Context, scene: SceneRef): void {
-  scene.unsubResize();
-  mesh.destroy(ctx, scene.grid);
-  geometry.destroy(ctx, scene.geo);
-  material.destroy(ctx, scene.mat);
+  const geo = geometry.create(
+    ctx,
+    buildGridData(state.subdiv, state.amplitude, state.topology),
+  );
+  // WebGPU requires cullMode "none" for non-triangle topologies — faces don't exist for line/point primitives.
+  const mat = await material.normalColor(ctx, {
+    topology: state.topology,
+    cullMode: state.topology === "triangle-list" ? "back" : "none",
+  });
+  const grid = mesh.create(ctx, { geometry: geo, material: mat });
+  const cam = camera.perspective({
+    aspect: ctx.canvas.width / ctx.canvas.height,
+    position: vec3.fromValues(
+      CAMERA_POSITION_X,
+      CAMERA_POSITION_Y,
+      CAMERA_POSITION_Z,
+    ),
+    target: vec3.fromValues(CAMERA_TARGET_X, CAMERA_TARGET_Y, CAMERA_TARGET_Z),
+  });
+  camera.bindToCanvas(ctx, cam);
+  return { geo, mat, grid, cam };
 }
 
 type AbortFlag = { disposed: boolean };
@@ -318,10 +298,13 @@ await mountDemo({
     window.__cookbookGeometryRebuild = makeRebuild(ctx, sceneRef, abortFlag);
     return {
       scene: sceneRef,
+      // gpu.dispose cascades the grid/geometry/material and auto-disconnects
+      // the resize binding. Only the rebuild abort-flag + window global are
+      // torn down here. (Mid-life explicit destroy lives in makeRebuild, which
+      // frees the previous grid/geometry/material when a control changes.)
       dispose: () => {
         abortFlag.disposed = true;
         window.__cookbookGeometryRebuild = undefined;
-        disposeScene(ctx, sceneRef);
       },
     };
   },
