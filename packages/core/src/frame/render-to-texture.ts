@@ -21,20 +21,26 @@ import { trianglesForTopology } from "./triangles-for-topology.ts";
  *
  * - `texture`: consumer-supplied color target. The consumer owns its
  *   creation and destruction; the engine does not register or pool it.
+ *   Must have the same format as `ctx.format`; a mismatch throws
+ *   `FurnaceGpuError`.
  * - `draw` / `camera` / `clearColor` / `clearDepth`: same semantics as
  *   `RenderOptions`. `clearColor` defaults to `[0, 0, 0, 1]` (linear);
  *   `clearDepth` defaults to `1.0`.
  * - `depthTexture`: optional consumer-supplied depth target. When omitted,
- *   the render pass is built without a depth-stencil attachment.
+ *   the render pass is built without a depth-stencil attachment. Omit
+ *   **only** when every drawn material was created with `depthEnabled: false`.
+ *   Must be format `depth24plus` when supplied; any other format throws
+ *   `FurnaceGpuError`.
  *
- * **Caveat — depth coupling:** stock materials (`material.unlit`,
- * `material.normalColor`, and any `material.create` call) currently build
- * pipelines that declare depth-stencil state. WebGPU validation requires the
- * pass match the pipeline, so omitting `depthTexture` while drawing any
- * stock material causes the pass to fail validation silently at submit time
- * (consumers see a frozen previous-frame output). Genuine depth-less
- * off-screen rendering is tracked in
- * `docs/backlog/engine-architecture/render-to-texture-depth-coupling.md`.
+ * **Depth coupling — now loud:** `renderToTexture` validates that the depth
+ * attachment presence agrees with each drawn material's `depthEnabled` flag.
+ * A pass with `depthTexture` requires every material to have `depthEnabled:
+ * true` (the default); a pass without `depthTexture` requires every material
+ * to have `depthEnabled: false`. A mismatch in either direction throws
+ * `FurnaceGpuError` immediately at call time. This replaces the previous
+ * silent WebGPU validation failure (which produced a frozen previous-frame
+ * output). To draw a genuinely depth-less off-screen pass, create all
+ * materials with `depthEnabled: false` and omit `depthTexture`.
  */
 export type RenderToTextureOptions = RenderPassBase & {
   texture: GPUTexture;
@@ -119,8 +125,9 @@ function recordDraw(
  * Reuses the engine-owned per-camera uniform buffer and `@group(0)` bind
  * group cache shared with `render`, so calling both with the same camera
  * does not allocate twice. The depth attachment is consumer-supplied — see
- * the {@link RenderToTextureOptions} caveat about the silent validation
- * failure when omitted with depth-declaring materials.
+ * {@link RenderToTextureOptions} for the depth-coupling rules and the three
+ * conditions that throw `FurnaceGpuError` (color-format mismatch, depth-
+ * presence mismatch, depth-format mismatch).
  *
  * Setup-loud per the foreground failure policy. The shared
  * `validateDraw` resolves each mesh's material and geometry slots in
@@ -134,6 +141,14 @@ function recordDraw(
  *   geometry that does not itself resolve to a live slot (defensive —
  *   the Mesh→Material and Mesh→Geometry refcounts normally keep these
  *   alive while a mesh references them).
+ * @throws FurnaceGpuError - if `opts.texture.format` does not equal
+ *   `ctx.format` (the format material pipelines render to).
+ * @throws FurnaceGpuError - if any drawn material's `depthEnabled` flag
+ *   disagrees with whether `opts.depthTexture` was supplied: a material
+ *   created with `depthEnabled: false` in a depth-having pass, or a
+ *   depth-enabled material in a pass without a `depthTexture`.
+ * @throws FurnaceGpuError - if `opts.depthTexture` is supplied but its
+ *   format is not `depth24plus`.
  */
 export function renderToTexture(
   ctx: Context,
