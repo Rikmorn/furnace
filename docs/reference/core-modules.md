@@ -490,8 +490,8 @@ Count / memory introspection lives on `stats.snapshot(ctx).resources.*` and `sta
 |---|---|---|
 | `disposeAll` | `(ctx: Context) => void` | Manually trigger the resource-manager cascade — same teardown that `gpu.dispose` runs internally, but without disposing the `GPUDevice` itself. Used for explicit cleanup before context disposal (e.g. free memory during a level transition without dropping the device). Idempotent. |
 | `ResourceKind` | `"mesh" \| "material" \| "geometry" \| "effect" \| "shader"` | Discriminator string for resource kinds. |
-| `MeshHandle` / `MaterialHandle` / `GeometryHandle` / `EffectHandle` | Branded uint48 handles | Re-exported from `resources/handle.ts` so consumers can type variables (e.g. a `Map<MeshHandle, …>`) without reaching into engine-internal modules. Aliased by `mesh.Mesh`, `material.Material`, etc. — same underlying type. |
-| `AnyResourceHandle` | `MeshHandle \| MaterialHandle \| GeometryHandle \| EffectHandle \| ShaderHandle` | Cross-kind union. Useful when storing handles of mixed kinds in a single collection. `ShaderHandle` itself is not re-exported here — its public alias is `Shader` from `@furnace/core/shader`. |
+| `MeshHandle` / `MaterialHandle` / `GeometryHandle` / `EffectHandle` / `ShaderHandle` | Branded uint48 handles | Re-exported from `resources/handle.ts` so consumers can type variables (e.g. a `Map<MeshHandle, …>`) without reaching into engine-internal modules. Each is also aliased by its owning module (`mesh.Mesh`, `material.Material`, `shader.Shader`, …) — same underlying type. |
+| `AnyResourceHandle` | `MeshHandle \| MaterialHandle \| GeometryHandle \| EffectHandle \| ShaderHandle` | Cross-kind union. Useful when storing handles of mixed kinds in a single collection. |
 
 ### Demoed in cookbook
 

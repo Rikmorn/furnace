@@ -11,6 +11,7 @@ export type {
   GeometryHandle,
   MaterialHandle,
   MeshHandle,
+  ShaderHandle,
 } from "./handle.ts";
 
 /** Discriminator string for resource kinds. */
