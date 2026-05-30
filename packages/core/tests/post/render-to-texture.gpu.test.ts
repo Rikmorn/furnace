@@ -321,6 +321,63 @@ test.skipIf(!bunWebGpuAvailable())(
   },
 );
 
+// (F) mixed draw list — first depth-enabled (agrees), second depthEnabled:false (disagrees)
+// → throws positionally on the offending index (draw[1]), not draw[0]. (spec test plan item 11)
+test.skipIf(!bunWebGpuAvailable())(
+  "frame.renderToTexture: mixed draw list throws on the offending index",
+  async () => {
+    const canvas = await makeOffscreenCanvas(64, 64);
+    const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
+    const cam = camera.perspective({ aspect: 1 });
+
+    const depthMat = await material.unlit(ctx, {
+      color: vec4.fromValues(1, 0, 0, 1),
+    }); // depthEnabled defaults true
+    const noDepthMat = await material.unlit(ctx, {
+      color: vec4.fromValues(0, 1, 0, 1),
+      depthEnabled: false,
+    });
+    const geo = geometry.cube(ctx);
+    const depthMesh = mesh.create(ctx, { geometry: geo, material: depthMat });
+    const noDepthMesh = mesh.create(ctx, {
+      geometry: geo,
+      material: noDepthMat,
+    });
+
+    const target = ctx.device.createTexture({
+      size: { width: 64, height: 64 },
+      format: ctx.format,
+      usage:
+        GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
+    });
+    const depth = ctx.device.createTexture({
+      size: { width: 64, height: 64 },
+      format: "depth24plus",
+      usage: GPUTextureUsage.RENDER_ATTACHMENT,
+    });
+
+    // passHasDepth = true (depthTexture provided): draw[0] depth-enabled agrees,
+    // draw[1] depthEnabled:false disagrees → throws on index 1.
+    expect(() =>
+      frame.renderToTexture(ctx, {
+        texture: target,
+        depthTexture: depth,
+        draw: [depthMesh, noDepthMesh],
+        camera: cam,
+      }),
+    ).toThrow(/draw\[1\]/);
+
+    depth.destroy();
+    target.destroy();
+    mesh.destroy(ctx, noDepthMesh);
+    mesh.destroy(ctx, depthMesh);
+    geometry.destroy(ctx, geo);
+    material.destroy(ctx, noDepthMat);
+    material.destroy(ctx, depthMat);
+    gpu.dispose(ctx);
+  },
+);
+
 test.skipIf(!bunWebGpuAvailable())(
   "frame.renderToTexture throws when draw contains a null entry",
   async () => {
