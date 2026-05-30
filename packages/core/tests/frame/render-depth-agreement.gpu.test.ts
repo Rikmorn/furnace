@@ -5,6 +5,7 @@ import * as geometry from "../../src/geometry/index.ts";
 import * as gpu from "../../src/gpu/index.ts";
 import { create } from "../../src/material/material.ts";
 import * as mesh from "../../src/mesh/index.ts";
+import { create as createShader } from "../../src/shader/shader.ts";
 import {
   bunWebGpuAvailable,
   ensureBunWebGpu,
@@ -26,7 +27,11 @@ struct VsIn { @location(0) position: vec3<f32>, @location(1) normal: vec3<f32>, 
 `;
 
 async function meshWith(ctx: gpu.Context, depthEnabled: boolean) {
-  const mat = await create(ctx, { vertex: WGSL, fragment: WGSL, depthEnabled });
+  const sh = await createShader(ctx, WGSL);
+  const mat = await create(ctx, {
+    shader: sh,
+    depth: depthEnabled ? undefined : false,
+  });
   const geo = geometry.cube(ctx);
   return mesh.create(ctx, { geometry: geo, material: mat });
 }

@@ -2,6 +2,8 @@ import { expect, test } from "bun:test";
 import * as gpu from "../../src/gpu/index.ts";
 import { _resolveMaterial } from "../../src/material/internal.ts";
 import { create } from "../../src/material/material.ts";
+import { create as createShader } from "../../src/shader/shader.ts";
+import type { Shader } from "../../src/shader/types.ts";
 import {
   bunWebGpuAvailable,
   ensureBunWebGpu,
@@ -28,15 +30,49 @@ const TRIVIAL_WGSL = `
   }
 `;
 
+const WGSL_WITH_GROUP1 = `
+  struct Camera { viewProjection: mat4x4<f32> };
+  struct Object { model: mat4x4<f32> };
+  struct Mat { color: vec4<f32> };
+  @group(0) @binding(0) var<uniform> camera: Camera;
+  @group(0) @binding(1) var<uniform> object: Object;
+  @group(1) @binding(0) var<uniform> mat: Mat;
+  struct VsIn {
+    @location(0) position: vec3<f32>,
+    @location(1) normal: vec3<f32>,
+    @location(2) uv: vec2<f32>,
+  };
+  @vertex fn vs_main(v: VsIn) -> @builtin(position) vec4<f32> {
+    return camera.viewProjection * object.model * vec4<f32>(v.position, 1.0);
+  }
+  @fragment fn fs_main() -> @location(0) vec4<f32> { return mat.color; }
+`;
+
+const ENTRY_WGSL = `
+  struct Camera { viewProjection: mat4x4<f32> };
+  struct Object { model: mat4x4<f32> };
+  @group(0) @binding(0) var<uniform> camera: Camera;
+  @group(0) @binding(1) var<uniform> object: Object;
+  struct VsIn {
+    @location(0) position: vec3<f32>,
+    @location(1) normal: vec3<f32>,
+    @location(2) uv: vec2<f32>,
+  };
+  @vertex fn my_vs(v: VsIn) -> @builtin(position) vec4<f32> {
+    return camera.viewProjection * object.model * vec4<f32>(v.position, 1.0);
+  }
+  @fragment fn my_fs() -> @location(0) vec4<f32> {
+    return vec4<f32>(0.0, 1.0, 0.0, 1.0);
+  }
+`;
+
 test.skipIf(!bunWebGpuAvailable())(
   "material.create builds a Material with default state",
   async () => {
     const canvas = await makeOffscreenCanvas();
     const ctx = await gpu.requestContext(canvas);
-    const mat = await create(ctx, {
-      vertex: TRIVIAL_WGSL,
-      fragment: TRIVIAL_WGSL,
-    });
+    const sh = await createShader(ctx, TRIVIAL_WGSL);
+    const mat = await create(ctx, { shader: sh });
     const slot = _resolveMaterial(ctx, mat);
     expect(slot.pipeline).toBeDefined();
     expect(slot.cullMode).toBe("back");
@@ -53,31 +89,14 @@ test.skipIf(!bunWebGpuAvailable())(
   async () => {
     const canvas = await makeOffscreenCanvas();
     const ctx = await gpu.requestContext(canvas);
-    const wgsl = `
-      struct Camera { viewProjection: mat4x4<f32> };
-      struct Object { model: mat4x4<f32> };
-      struct Mat { color: vec4<f32> };
-      @group(0) @binding(0) var<uniform> camera: Camera;
-      @group(0) @binding(1) var<uniform> object: Object;
-      @group(1) @binding(0) var<uniform> mat: Mat;
-      struct VsIn {
-        @location(0) position: vec3<f32>,
-        @location(1) normal: vec3<f32>,
-        @location(2) uv: vec2<f32>,
-      };
-      @vertex fn vs_main(v: VsIn) -> @builtin(position) vec4<f32> {
-        return camera.viewProjection * object.model * vec4<f32>(v.position, 1.0);
-      }
-      @fragment fn fs_main() -> @location(0) vec4<f32> { return mat.color; }
-    `;
     const colorBuffer = ctx.device.createBuffer({
       size: 16,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
     ctx.queue.writeBuffer(colorBuffer, 0, new Float32Array([1, 0, 0, 1]));
+    const sh = await createShader(ctx, WGSL_WITH_GROUP1);
     const mat = await create(ctx, {
-      vertex: wgsl,
-      fragment: wgsl,
+      shader: sh,
       bindings: [{ binding: 0, resource: { buffer: colorBuffer } }],
     });
     const slot = _resolveMaterial(ctx, mat);
@@ -88,36 +107,76 @@ test.skipIf(!bunWebGpuAvailable())(
 );
 
 test.skipIf(!bunWebGpuAvailable())(
-  "material.create throws when vertex or fragment is empty",
+  "material.create throws when shader is missing",
   async () => {
     const canvas = await makeOffscreenCanvas();
     const ctx = await gpu.requestContext(canvas);
-    let threw = false;
-    try {
-      await create(ctx, { vertex: "", fragment: TRIVIAL_WGSL });
-    } catch (e) {
-      threw = true;
-      expect(e).toBeInstanceOf(Error);
-      expect((e as Error).message).toMatch(/vertex.*fragment.*required/i);
-    }
-    expect(threw).toBe(true);
+    await expect(
+      create(ctx, {} as unknown as Parameters<typeof create>[1]),
+    ).rejects.toThrow(/shader is required/);
     gpu.dispose(ctx);
   },
 );
 
 test.skipIf(!bunWebGpuAvailable())(
-  "material.create throws when shader fails to compile",
+  "material.create throws when shader handle is invalid or destroyed",
   async () => {
     const canvas = await makeOffscreenCanvas();
     const ctx = await gpu.requestContext(canvas);
-    let threw = false;
-    try {
-      await create(ctx, { vertex: "broken wgsl", fragment: "also broken" });
-    } catch (e) {
-      threw = true;
-      expect(e).toBeInstanceOf(Error);
-    }
-    expect(threw).toBe(true);
+    await expect(create(ctx, { shader: 999999 as Shader })).rejects.toThrow(
+      /invalid or destroyed/,
+    );
+    gpu.dispose(ctx);
+  },
+);
+
+test.skipIf(!bunWebGpuAvailable())(
+  "same shader handle + same state share one pipeline",
+  async () => {
+    const canvas = await makeOffscreenCanvas();
+    const ctx = await gpu.requestContext(canvas);
+    const sh = await createShader(ctx, TRIVIAL_WGSL);
+    const a = await create(ctx, { shader: sh });
+    const b = await create(ctx, { shader: sh });
+    expect(_resolveMaterial(ctx, a).pipeline).toBe(
+      _resolveMaterial(ctx, b).pipeline,
+    );
+    gpu.dispose(ctx);
+  },
+);
+
+test.skipIf(!bunWebGpuAvailable())(
+  "two shaders of identical source produce two distinct pipelines (no source dedup)",
+  async () => {
+    const canvas = await makeOffscreenCanvas();
+    const ctx = await gpu.requestContext(canvas);
+    const a = await create(ctx, {
+      shader: await createShader(ctx, TRIVIAL_WGSL),
+    });
+    const b = await create(ctx, {
+      shader: await createShader(ctx, TRIVIAL_WGSL),
+    });
+    expect(_resolveMaterial(ctx, a).pipeline).not.toBe(
+      _resolveMaterial(ctx, b).pipeline,
+    );
+    gpu.dispose(ctx);
+  },
+);
+
+test.skipIf(!bunWebGpuAvailable())(
+  "entryPoints override builds pipeline with custom entry names",
+  async () => {
+    const canvas = await makeOffscreenCanvas();
+    const ctx = await gpu.requestContext(canvas);
+    const esh = await createShader(ctx, ENTRY_WGSL);
+    // Default vs_main/fs_main are absent — pipeline build should fail.
+    await expect(create(ctx, { shader: esh })).rejects.toThrow();
+    // Explicit override should succeed.
+    const m = await create(ctx, {
+      shader: esh,
+      entryPoints: { vertex: "my_vs", fragment: "my_fs" },
+    });
+    expect(_resolveMaterial(ctx, m).pipeline).toBeDefined();
     gpu.dispose(ctx);
   },
 );

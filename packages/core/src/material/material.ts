@@ -4,7 +4,9 @@ import {
   _allocMaterial,
   _destroyMaterial,
   _lookupMaterial,
+  _lookupShader,
 } from "../resources/internal.ts";
+import type { ShaderSlot } from "../shader/types.ts";
 import { _recordDestroy } from "../stats/internal.ts";
 import { _pipelineCache } from "./pipeline.ts";
 import type { Material, MaterialDescriptor, MaterialSlot } from "./types.ts";
@@ -64,9 +66,45 @@ export function _blendSignature(blend: GPUBlendState | undefined): string {
   ].join("|");
 }
 
+function resolveDepth(depth: MaterialDescriptor["depth"]): {
+  enabled: boolean;
+  write: boolean;
+  compare: GPUCompareFunction;
+} {
+  if (depth === false) return { enabled: false, write: true, compare: "less" };
+  return {
+    enabled: true,
+    write: depth?.write ?? true,
+    compare: depth?.compare ?? "less",
+  };
+}
+
+/** Translate a built-in factory's flat render-state options to the grouped
+ *  MaterialDescriptor fields. Used by `unlit`/`normalColor` (their public flat
+ *  options are unchanged in D-1; reconciled in E). */
+export function _flatRenderState(o: {
+  topology?: GPUPrimitiveTopology;
+  cullMode?: GPUCullMode;
+  depthEnabled?: boolean;
+  depthWrite?: boolean;
+  depthCompare?: GPUCompareFunction;
+}): Pick<MaterialDescriptor, "primitive" | "depth"> {
+  const primitive =
+    o.topology !== undefined || o.cullMode !== undefined
+      ? { topology: o.topology, cullMode: o.cullMode }
+      : undefined;
+  let depth: MaterialDescriptor["depth"];
+  if (o.depthEnabled === false) depth = false;
+  else if (o.depthWrite !== undefined || o.depthCompare !== undefined)
+    depth = { write: o.depthWrite, compare: o.depthCompare };
+  return { primitive, depth };
+}
+
 function buildPipelineDescriptor(
   ctx: Context,
-  descriptor: MaterialDescriptor,
+  module: GPUShaderModule,
+  vertexEntry: string,
+  fragmentEntry: string,
   cullMode: GPUCullMode,
   topology: GPUPrimitiveTopology,
   depthEnabled: boolean,
@@ -74,18 +112,16 @@ function buildPipelineDescriptor(
   depthCompare: GPUCompareFunction,
   blend: GPUBlendState | undefined,
 ): GPURenderPipelineDescriptor {
-  const vsModule = ctx.device.createShaderModule({ code: descriptor.vertex });
-  const fsModule = ctx.device.createShaderModule({ code: descriptor.fragment });
   const pipelineDescriptor: GPURenderPipelineDescriptor = {
     layout: "auto",
     vertex: {
-      module: vsModule,
-      entryPoint: "vs_main",
+      module,
+      entryPoint: vertexEntry,
       buffers: [VERTEX_BUFFER_LAYOUT],
     },
     fragment: {
-      module: fsModule,
-      entryPoint: "fs_main",
+      module,
+      entryPoint: fragmentEntry,
       targets: [{ format: ctx.format, blend }],
     },
     primitive: { topology, cullMode },
@@ -148,9 +184,9 @@ function materialTeardown(ctx: Context, slot: MaterialSlot): void {
  * pipeline from a {@link MaterialDescriptor} and return an opaque
  * {@link Material} handle.
  *
- * The pipeline is keyed on `(vertex source, fragment source, cullMode,
+ * The pipeline is keyed on `(shader handle, entry points, cullMode,
  * topology, depthEnabled, depthWrite, depthCompare, ctx format, blend
- * signature)`. When `depthEnabled` is `false`, `depthWrite` and `depthCompare`
+ * signature)`. When `depth` is `false`, `depthWrite` and `depthCompare`
  * are normalized out of the key so they don't produce spurious cache misses.
  * Two `create` calls on the same ctx with identical keys share one underlying
  * `GPURenderPipeline`; the cache holds a refcount that `destroy` releases.
@@ -169,7 +205,8 @@ function materialTeardown(ctx: Context, slot: MaterialSlot): void {
  * Setup-loud per the foreground failure policy
  * (`engine-conventions.md` §"Failure policy").
  *
- * @throws FurnaceError - if `vertex` or `fragment` WGSL is missing/empty.
+ * @throws FurnaceError - if `descriptor.shader` is missing.
+ * @throws FurnaceError - if the shader handle is invalid or destroyed.
  * @throws FurnaceError - if WebGPU pipeline creation reports a validation
  *   error (surfaced from `pushErrorScope("validation")`).
  * @throws FurnaceError - if `bindings` are supplied but the shader declares
@@ -179,19 +216,30 @@ export async function create(
   ctx: Context,
   descriptor: MaterialDescriptor,
 ): Promise<Material> {
-  if (!descriptor.vertex || !descriptor.fragment) {
-    throw new FurnaceError("vertex and fragment WGSL are required");
+  if (descriptor.shader == null) {
+    throw new FurnaceError("material.create: shader is required");
+  }
+  const shaderSlot = _lookupShader<ShaderSlot>(ctx, descriptor.shader);
+  if (shaderSlot === null) {
+    throw new FurnaceError(
+      "material.create: shader handle is invalid or destroyed",
+    );
   }
 
-  const cullMode = descriptor.cullMode ?? "back";
-  const topology = descriptor.topology ?? "triangle-list";
-  const depthEnabled = descriptor.depthEnabled ?? true;
-  const depthWrite = descriptor.depthWrite ?? true;
-  const depthCompare = descriptor.depthCompare ?? "less";
+  const vertexEntry = descriptor.entryPoints?.vertex ?? "vs_main";
+  const fragmentEntry = descriptor.entryPoints?.fragment ?? "fs_main";
+  const cullMode = descriptor.primitive?.cullMode ?? "back";
+  const topology = descriptor.primitive?.topology ?? "triangle-list";
+  const {
+    enabled: depthEnabled,
+    write: depthWrite,
+    compare: depthCompare,
+  } = resolveDepth(descriptor.depth);
 
   const pipelineKey = hashKey([
-    descriptor.vertex,
-    descriptor.fragment,
+    String(descriptor.shader),
+    vertexEntry,
+    fragmentEntry,
     cullMode,
     topology,
     String(depthEnabled),
@@ -205,7 +253,9 @@ export async function create(
     ctx.device.pushErrorScope("validation");
     const pipelineDescriptor = buildPipelineDescriptor(
       ctx,
-      descriptor,
+      shaderSlot.module,
+      vertexEntry,
+      fragmentEntry,
       cullMode,
       topology,
       depthEnabled,

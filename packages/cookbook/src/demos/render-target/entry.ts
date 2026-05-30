@@ -8,6 +8,7 @@ import type { Material } from "@furnace/core/material";
 import * as material from "@furnace/core/material";
 import type { Mesh } from "@furnace/core/mesh";
 import * as mesh from "@furnace/core/mesh";
+import * as shader from "@furnace/core/shader";
 import type { Quat, Vec3, Vec4 } from "@furnace/core/transform";
 import { quat, vec3, vec4 } from "@furnace/core/transform";
 
@@ -173,9 +174,9 @@ async function buildPipResources(
     format: "depth24plus",
     usage: GPUTextureUsage.RENDER_ATTACHMENT,
   });
+  const monitorShader = await shader.create(ctx, MONITOR_SHADER);
   const monitorMat = await material.create(ctx, {
-    vertex: MONITOR_SHADER,
-    fragment: MONITOR_SHADER,
+    shader: monitorShader,
     bindings: [
       { binding: 0, resource: texture.createView() },
       { binding: 1, resource: sampler },

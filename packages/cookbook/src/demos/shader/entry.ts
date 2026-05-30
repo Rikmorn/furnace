@@ -3,6 +3,7 @@ import * as frame from "@furnace/core/frame";
 import * as geometry from "@furnace/core/geometry";
 import * as material from "@furnace/core/material";
 import * as mesh from "@furnace/core/mesh";
+import * as shader from "@furnace/core/shader";
 import type { Vec4 } from "@furnace/core/transform";
 import { quat, vec3, vec4 } from "@furnace/core/transform";
 
@@ -21,14 +22,6 @@ const MS_PER_S = 1000;
 const STRIPED_PARAMS_SIZE = 16; // 4 floats — see Params in striped.wgsl
 const PLASMA_PARAMS_SIZE = 16; // 4 floats — see Params in plasma.wgsl
 const CLEAR_COLOR: Vec4 = vec4.fromValues(0.05, 0.05, 0.07, 1);
-
-async function loadShaderSource(url: string): Promise<string> {
-  const resp = await fetch(url);
-  if (!resp.ok) {
-    throw new Error(`[furnace/cookbook] shader load: HTTP ${resp.status}`);
-  }
-  return resp.text();
-}
 
 await mountDemo({
   help,
@@ -70,8 +63,8 @@ await mountDemo({
     let paramsBufPlasma: GPUBuffer | undefined;
 
     try {
-      const stripedSource = await loadShaderSource(stripedShaderUrl);
-      const plasmaSource = await loadShaderSource(plasmaShaderUrl);
+      const stripedShader = await shader.load(ctx, stripedShaderUrl);
+      const plasmaShader = await shader.load(ctx, plasmaShaderUrl);
 
       paramsBufStriped = ctx.device.createBuffer({
         size: STRIPED_PARAMS_SIZE,
@@ -83,13 +76,11 @@ await mountDemo({
       });
 
       const stripedMat = await material.create(ctx, {
-        vertex: stripedSource,
-        fragment: stripedSource,
+        shader: stripedShader,
         bindings: [{ binding: 0, resource: { buffer: paramsBufStriped } }],
       });
       const plasmaMat = await material.create(ctx, {
-        vertex: plasmaSource,
-        fragment: plasmaSource,
+        shader: plasmaShader,
         bindings: [{ binding: 0, resource: { buffer: paramsBufPlasma } }],
       });
 

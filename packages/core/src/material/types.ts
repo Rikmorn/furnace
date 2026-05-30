@@ -1,40 +1,24 @@
 import type { MaterialHandle } from "../resources/handle.ts";
+import type { Shader } from "../shader/types.ts";
 
 /**
  * Descriptor accepted by `material.create`.
- *
- * - `vertex` / `fragment`: required WGSL source strings. Must respect the
- *   engine's binding contract (see `engine-conventions.md` §"Binding
- *   contract"): `@group(0) @binding(0)` is the camera uniform,
- *   `@group(0) @binding(1)` is the object uniform; consumer bindings live
- *   under `@group(1)`. The vertex stage entry is `vs_main`, fragment is
- *   `fs_main`.
- * - `bindings`: entries bound at `@group(1)`. The resources (buffers,
- *   textures) are consumer-owned — destroy them yourself after
- *   `material.destroy`.
- * - `cullMode`: default `"back"`. Override to `"none"` for two-sided or
- *   full-screen geometry.
- * - `topology`: default `"triangle-list"`.
- * - `depthEnabled`: default `true`. When `false`, the pipeline is built with
- *   no depth-stencil state and can only be drawn into a pass with no depth
- *   attachment (`renderToTexture` without a `depthTexture`). `depthWrite` and
- *   `depthCompare` are ignored when `false`.
- * - `depthWrite`: default `true`.
- * - `depthCompare`: default `"less"`.
- * - `blend`: undefined disables blending (opaque). Use the
- *   {@link blend} presets (`material.blend.premultiplied`,
- *   `material.blend.additive`, `material.blend.straightAlpha`), or supply a
- *   custom `GPUBlendState`.
+ * - `shader`: the {@link Shader} resource (from `shader.create`/`load`). Must
+ *   respect the binding contract (`@group(0)` camera+object; `@group(1)` consumer).
+ * - `entryPoints`: per-stage entry-point names. Default `vs_main`/`fs_main`.
+ *   Override to use any name, or pinpoint one entry in a multi-entry module.
+ * - `bindings`: `@group(1)` entries (consumer-owned).
+ * - `primitive`: `topology` (default `"triangle-list"`), `cullMode` (default `"back"`).
+ * - `depth`: omit → depth test+write enabled (`compare:"less"`); `false` → no
+ *   depth-stencil; `{ write?, compare? }` → enabled with overrides.
+ * - `blend`: undefined → opaque; or a preset / custom `GPUBlendState`.
  */
 export type MaterialDescriptor = {
-  vertex: string;
-  fragment: string;
+  shader: Shader;
+  entryPoints?: { vertex?: string; fragment?: string };
   bindings?: GPUBindGroupEntry[];
-  cullMode?: GPUCullMode;
-  topology?: GPUPrimitiveTopology;
-  depthEnabled?: boolean;
-  depthWrite?: boolean;
-  depthCompare?: GPUCompareFunction;
+  primitive?: { topology?: GPUPrimitiveTopology; cullMode?: GPUCullMode };
+  depth?: false | { write?: boolean; compare?: GPUCompareFunction };
   blend?: GPUBlendState;
 };
 

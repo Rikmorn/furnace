@@ -4,6 +4,7 @@ import { _resolveMaterial } from "../../src/material/internal.ts";
 import { create } from "../../src/material/material.ts";
 import { normalColor } from "../../src/material/normal-color.ts";
 import { unlit } from "../../src/material/unlit.ts";
+import { create as createShader } from "../../src/shader/shader.ts";
 import { vec4 } from "../../src/transform/vec4.ts";
 import {
   bunWebGpuAvailable,
@@ -31,46 +32,35 @@ test.skipIf(!bunWebGpuAvailable())(
     const ctx = await gpu.requestContext(await makeOffscreenCanvas(), {
       surfaceFormat: "linear",
     });
-    const mat = await create(ctx, { vertex: WGSL, fragment: WGSL });
+    const sh = await createShader(ctx, WGSL);
+    const mat = await create(ctx, { shader: sh });
     expect(_resolveMaterial(ctx, mat).depthEnabled).toBe(true);
     gpu.dispose(ctx);
   },
 );
 
 test.skipIf(!bunWebGpuAvailable())(
-  "depthEnabled:false builds a depth-less pipeline",
+  "depth:false builds a depth-less pipeline",
   async () => {
     const ctx = await gpu.requestContext(await makeOffscreenCanvas(), {
       surfaceFormat: "linear",
     });
-    const mat = await create(ctx, {
-      vertex: WGSL,
-      fragment: WGSL,
-      depthEnabled: false,
-    });
+    const sh = await createShader(ctx, WGSL);
+    const mat = await create(ctx, { shader: sh, depth: false });
     expect(_resolveMaterial(ctx, mat).depthEnabled).toBe(false);
     gpu.dispose(ctx);
   },
 );
 
 test.skipIf(!bunWebGpuAvailable())(
-  "depthEnabled:false materials differing only in depthWrite share one pipeline (key normalized)",
+  "depth:false materials share one pipeline (key normalized)",
   async () => {
     const ctx = await gpu.requestContext(await makeOffscreenCanvas(), {
       surfaceFormat: "linear",
     });
-    const a = await create(ctx, {
-      vertex: WGSL,
-      fragment: WGSL,
-      depthEnabled: false,
-      depthWrite: true,
-    });
-    const b = await create(ctx, {
-      vertex: WGSL,
-      fragment: WGSL,
-      depthEnabled: false,
-      depthWrite: false,
-    });
+    const sh = await createShader(ctx, WGSL);
+    const a = await create(ctx, { shader: sh, depth: false });
+    const b = await create(ctx, { shader: sh, depth: false });
     expect(_resolveMaterial(ctx, a).pipeline).toBe(
       _resolveMaterial(ctx, b).pipeline,
     );

@@ -31,7 +31,7 @@ test.skipIf(!bunWebGpuAvailable())(
       materials: 1,
       geometries: 1,
       effects: 0,
-      shaders: 0,
+      shaders: 1,
     });
 
     resources.disposeAll(ctx);
@@ -70,7 +70,7 @@ test.skipIf(!bunWebGpuAvailable())(
       materials: 1,
       geometries: 1,
       effects: 0,
-      shaders: 0,
+      shaders: 1,
     });
 
     resources.disposeAll(ctx);
@@ -96,7 +96,7 @@ test.skipIf(!bunWebGpuAvailable())(
       materials: 1,
       geometries: 1,
       effects: 0,
-      shaders: 0,
+      shaders: 1,
     });
 
     // Old handles must NOT resolve (slots recycled, generation bumped).

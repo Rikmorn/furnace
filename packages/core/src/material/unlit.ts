@@ -1,36 +1,13 @@
 import { FurnaceError } from "../errors.ts";
 import type { Context } from "../gpu/index.ts";
+import { _unlitShader } from "../shader/builtins.ts";
 import { _recordAlloc, _recordDestroy } from "../stats/internal.ts";
 import type { Vec4 } from "../transform/types.ts";
 import { _resolveMaterial } from "./internal.ts";
-import { create } from "./material.ts";
+import { _flatRenderState, create } from "./material.ts";
 import type { Material } from "./types.ts";
 
 const COLOR_BUFFER_SIZE_BYTES = 16;
-
-const UNLIT_WGSL = /* wgsl */ `
-struct Camera { viewProjection: mat4x4<f32> };
-struct Object { model: mat4x4<f32> };
-struct Mat { color: vec4<f32> };
-
-@group(0) @binding(0) var<uniform> camera: Camera;
-@group(0) @binding(1) var<uniform> object: Object;
-@group(1) @binding(0) var<uniform> mat: Mat;
-
-struct VsIn {
-  @location(0) position: vec3<f32>,
-  @location(1) normal: vec3<f32>,
-  @location(2) uv: vec2<f32>,
-};
-
-@vertex fn vs_main(v: VsIn) -> @builtin(position) vec4<f32> {
-  return camera.viewProjection * object.model * vec4<f32>(v.position, 1.0);
-}
-
-@fragment fn fs_main() -> @location(0) vec4<f32> {
-  return mat.color;
-}
-`;
 
 /**
  * Options accepted by {@link unlit}.
@@ -88,14 +65,9 @@ export async function unlit(
   _recordAlloc(ctx, "buffer", COLOR_BUFFER_SIZE_BYTES);
   try {
     const handle = await create(ctx, {
-      vertex: UNLIT_WGSL,
-      fragment: UNLIT_WGSL,
+      shader: await _unlitShader(ctx),
       bindings: [{ binding: 0, resource: { buffer: colorBuffer } }],
-      topology: opts.topology,
-      cullMode: opts.cullMode,
-      depthEnabled: opts.depthEnabled,
-      depthWrite: opts.depthWrite,
-      depthCompare: opts.depthCompare,
+      ..._flatRenderState(opts),
       blend: opts.blend,
     });
     const slot = _resolveMaterial(ctx, handle);

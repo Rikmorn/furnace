@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import * as gpu from "../../src/gpu/index.ts";
 import * as material from "../../src/material/index.ts";
 import { _resolveMaterial } from "../../src/material/internal.ts";
+import { create as createShader } from "../../src/shader/shader.ts";
 import {
   bunWebGpuAvailable,
   ensureBunWebGpu,
@@ -46,13 +47,12 @@ test.skipIf(!bunWebGpuAvailable())(
     const canvas = await makeOffscreenCanvas(64, 64);
     const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
 
+    const sh = await createShader(ctx, SHADER);
     const opaque = await material.create(ctx, {
-      vertex: SHADER,
-      fragment: SHADER,
+      shader: sh,
     });
     const blended = await material.create(ctx, {
-      vertex: SHADER,
-      fragment: SHADER,
+      shader: sh,
       blend: PREMULTIPLIED,
     });
 
@@ -72,14 +72,13 @@ test.skipIf(!bunWebGpuAvailable())(
     const canvas = await makeOffscreenCanvas(64, 64);
     const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
 
+    const sh = await createShader(ctx, SHADER);
     const a = await material.create(ctx, {
-      vertex: SHADER,
-      fragment: SHADER,
+      shader: sh,
       blend: PREMULTIPLIED,
     });
     const b = await material.create(ctx, {
-      vertex: SHADER,
-      fragment: SHADER,
+      shader: sh,
       blend: PREMULTIPLIED,
     });
 

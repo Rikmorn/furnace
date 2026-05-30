@@ -3,6 +3,7 @@ import * as gpu from "../../src/gpu/index.ts";
 import { _resolveMaterial } from "../../src/material/internal.ts";
 import { create, destroy } from "../../src/material/material.ts";
 import { unlit } from "../../src/material/unlit.ts";
+import { create as createShader } from "../../src/shader/shader.ts";
 import { vec4 } from "../../src/transform/vec4.ts";
 import {
   bunWebGpuAvailable,
@@ -33,8 +34,9 @@ test.skipIf(!bunWebGpuAvailable())(
   async () => {
     const canvas = await makeOffscreenCanvas();
     const ctx = await gpu.requestContext(canvas);
-    const mat1 = await create(ctx, { vertex: WGSL, fragment: WGSL });
-    const mat2 = await create(ctx, { vertex: WGSL, fragment: WGSL });
+    const sh = await createShader(ctx, WGSL);
+    const mat1 = await create(ctx, { shader: sh });
+    const mat2 = await create(ctx, { shader: sh });
     const slot1 = _resolveMaterial(ctx, mat1);
     const slot2 = _resolveMaterial(ctx, mat2);
     expect(slot1.pipelineKey).toBe(slot2.pipelineKey);
@@ -44,7 +46,7 @@ test.skipIf(!bunWebGpuAvailable())(
     // mat2 still holds a reference; second destroy fully evicts.
     destroy(ctx, mat2);
     // After both destroyed, a fresh create rebuilds the pipeline (different identity).
-    const mat3 = await create(ctx, { vertex: WGSL, fragment: WGSL });
+    const mat3 = await create(ctx, { shader: sh });
     const slot3 = _resolveMaterial(ctx, mat3);
     expect(slot3.pipeline).not.toBe(sharedPipeline);
     gpu.dispose(ctx);

@@ -8,6 +8,7 @@ import * as material from "@furnace/core/material";
 import type { Mesh } from "@furnace/core/mesh";
 import * as mesh from "@furnace/core/mesh";
 import * as post from "@furnace/core/post";
+import * as shader from "@furnace/core/shader";
 import type { Vec4 } from "@furnace/core/transform";
 import { quat, vec3, vec4 } from "@furnace/core/transform";
 import {
@@ -38,12 +39,11 @@ const BLOOM_RADIUS = 0.012;
 const CLEAR_COLOR: Vec4 = vec4.fromValues(0.05, 0.05, 0.07, 1);
 
 const sdfTriangle = async (ctx: gpu.Context) => {
-  const shaderResponse = await fetch(shaderUrl);
-  if (!shaderResponse.ok) {
-    document.body.innerText = `Couldn't load shader (HTTP ${shaderResponse.status}): ${shaderUrl}`;
-    return;
-  }
-  const shaderSource = await shaderResponse.text();
+  const sdfShader = await shader.load(ctx, shaderUrl).catch((e: unknown) => {
+    document.body.innerText = `Couldn't load shader: ${e instanceof Error ? e.message : String(e)}`;
+    return null;
+  });
+  if (!sdfShader) return;
 
   const haloBuffer = ctx.device.createBuffer({
     size: HALO_BUFFER_SIZE_BYTES,
@@ -53,12 +53,11 @@ const sdfTriangle = async (ctx: gpu.Context) => {
   ctx.queue.writeBuffer(haloBuffer, 0, new Float32Array([HALO_WIDTH, 0, 0, 0]));
 
   const sdfMat = await material.create(ctx, {
-    vertex: shaderSource,
-    fragment: shaderSource,
+    shader: sdfShader,
     bindings: [{ binding: 0, resource: { buffer: haloBuffer } }],
-    cullMode: "none",
+    primitive: { cullMode: "none" },
     blend: material.blend.premultiplied,
-    depthWrite: false,
+    depth: { write: false },
   });
 
   // Meshes. The SDF triangle uses a covering quad in world space; the cube and plane use built-ins.
@@ -74,13 +73,7 @@ const sdfTriangle = async (ctx: gpu.Context) => {
 const emissiveCube = async (
   ctx: gpu.Context,
 ): Promise<{ mesh: Mesh; geometry: Geometry }> => {
-  const shaderResponse = await fetch(emissiveShaderUrl);
-  if (!shaderResponse.ok) {
-    throw new Error(
-      `Couldn't load emissive shader (HTTP ${shaderResponse.status})`,
-    );
-  }
-  const shaderSource = await shaderResponse.text();
+  const emissiveShader = await shader.load(ctx, emissiveShaderUrl);
 
   const emissiveBuffer = ctx.device.createBuffer({
     size: EMISSIVE_BUFFER_SIZE_BYTES,
@@ -89,8 +82,7 @@ const emissiveCube = async (
   ctx.queue.writeBuffer(emissiveBuffer, 0, EMISSIVE_COLOR_HOT_PINK);
 
   const emissiveMat = await material.create(ctx, {
-    vertex: shaderSource,
-    fragment: shaderSource,
+    shader: emissiveShader,
     bindings: [{ binding: 0, resource: { buffer: emissiveBuffer } }],
   });
 
