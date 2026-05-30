@@ -278,6 +278,7 @@ Re-exported from `index.ts` so other core modules can `import * as stats` and ca
 - `normalColor`, `NormalColorOptions` (topology) → `cookbook/geometry`.
 - `create`, `MaterialDescriptor` (vertex/fragment/bindings) → `cookbook/shader`.
 - `unlit`, `UnlitOptions` (blend, cullMode, depthWrite, depthCompare), `blend.straightAlpha`, `blend.premultiplied`, `blend.additive` → `cookbook/blend`.
+- `depthEnabled` (via `UnlitOptions`/`NormalColorOptions`) → `cookbook/render-target`.
 
 ### Reference-only (no demo, by design)
 

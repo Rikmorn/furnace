@@ -137,6 +137,8 @@ type PipResources = {
 type SceneRef = {
   subjectMesh: Mesh;
   roomMesh: Mesh;
+  subjectMeshNoDepth: Mesh;
+  roomMeshNoDepth: Mesh;
   monitorMesh: Mesh;
   pip: PipResources;
   mainCam: Camera;
@@ -206,6 +208,24 @@ async function buildScene(ctx: Context): Promise<SceneRef> {
     const roomGeo = geometry.cube(ctx, { size: ROOM_SIZE });
     const roomMesh = mesh.create(ctx, { geometry: roomGeo, material: roomMat });
 
+    const subjectMatNoDepth = await material.normalColor(ctx, {
+      depthEnabled: false,
+    });
+    const subjectMeshNoDepth = mesh.create(ctx, {
+      geometry: subjectGeo,
+      material: subjectMatNoDepth,
+    });
+
+    const roomMatNoDepth = await material.unlit(ctx, {
+      color: ROOM_COLOR,
+      cullMode: "front",
+      depthEnabled: false,
+    });
+    const roomMeshNoDepth = mesh.create(ctx, {
+      geometry: roomGeo,
+      material: roomMatNoDepth,
+    });
+
     const sampler = ctx.device.createSampler({
       magFilter: "linear",
       minFilter: "linear",
@@ -258,6 +278,8 @@ async function buildScene(ctx: Context): Promise<SceneRef> {
     return {
       subjectMesh,
       roomMesh,
+      subjectMeshNoDepth,
+      roomMeshNoDepth,
       monitorMesh,
       pip,
       mainCam,
@@ -401,12 +423,18 @@ await mountDemo({
     get pipResolution() {
       return state.pipResolution;
     },
+    get pipDepth() {
+      return state.pipDepth;
+    },
     onPipAngleChange: (v: PipAngle) => {
       state.pipAngle = v;
     },
     onPipResolutionChange: (v: PipResolution) => {
       state.pipResolution = v;
       void triggerRebuild();
+    },
+    onPipDepthChange: (v: boolean) => {
+      state.pipDepth = v;
     },
   },
   setup: async (ctx) => {
@@ -475,19 +503,30 @@ await mountDemo({
     }
     quat.fromEuler(scene.rotBuf, 0, state.angle, 0);
     mesh.setRotation(ctx, scene.subjectMesh, scene.rotBuf);
+    mesh.setRotation(ctx, scene.subjectMeshNoDepth, scene.rotBuf);
 
     applyMainYaw(scene, state.yaw);
     applyPipAngle(ctx, scene, state.pipAngle);
 
-    // Pass 1: PiP. Renders the subject + room into the offscreen texture that
-    // the monitor surface samples.
-    frame.renderToTexture(ctx, {
-      texture: scene.pip.texture,
-      depthTexture: scene.pip.depthTexture,
-      draw: [scene.subjectMesh, scene.roomMesh],
-      camera: scene.pipCam,
-      clearColor: CLEAR_PIP,
-    });
+    // Pass 1: PiP. depthEnabled ON → correct occlusion (depthTexture + depth materials);
+    // OFF → genuine depth-less offscreen (no depthTexture + depthEnabled:false materials),
+    // so geometry composites in draw order — a visible "why offscreen needs depth" artifact.
+    if (state.pipDepth) {
+      frame.renderToTexture(ctx, {
+        texture: scene.pip.texture,
+        depthTexture: scene.pip.depthTexture,
+        draw: [scene.subjectMesh, scene.roomMesh],
+        camera: scene.pipCam,
+        clearColor: CLEAR_PIP,
+      });
+    } else {
+      frame.renderToTexture(ctx, {
+        texture: scene.pip.texture,
+        draw: [scene.subjectMeshNoDepth, scene.roomMeshNoDepth],
+        camera: scene.pipCam,
+        clearColor: CLEAR_PIP,
+      });
+    }
 
     // Pass 2: main + monitor (sampling the PiP texture). Two distinct draw
     // lists per pass; the subject and the room appear in both.

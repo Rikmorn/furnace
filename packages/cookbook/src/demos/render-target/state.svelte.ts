@@ -6,11 +6,13 @@ export const state: {
   autoRotate: boolean;
   pipAngle: PipAngle;
   pipResolution: PipResolution;
+  pipDepth: boolean;
   yaw: number;
 } = $state({
   angle: 0,
   autoRotate: true,
   pipAngle: "front",
   pipResolution: "512",
+  pipDepth: true,
   yaw: 0,
 });
