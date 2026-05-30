@@ -14,6 +14,7 @@
     "./log": "./src/log/index.ts",
     "./geometry": "./src/geometry/index.ts",
     "./material": "./src/material/index.ts",
+    "./shader": "./src/shader/index.ts",
     "./mesh": "./src/mesh/index.ts",
     "./post": "./src/post/index.ts",
     "./resources": "./src/resources/index.ts"

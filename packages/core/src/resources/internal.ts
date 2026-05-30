@@ -9,6 +9,7 @@ import {
   type GeometryHandle,
   type MaterialHandle,
   type MeshHandle,
+  type ShaderHandle,
 } from "./handle.ts";
 import {
   allocSlot,
@@ -20,7 +21,12 @@ import {
 } from "./pool.ts";
 
 /** The kinds the resource manager tracks today. */
-export type ResourceKind = "mesh" | "material" | "geometry" | "effect";
+export type ResourceKind =
+  | "mesh"
+  | "material"
+  | "geometry"
+  | "effect"
+  | "shader";
 
 /**
  * Map a {@link ResourceKind} to the matching pool on the manager. Engine-
@@ -37,6 +43,8 @@ function poolFor(ctx: Context, kind: ResourceKind): Pool<unknown> {
       return r.geometries;
     case "effect":
       return r.effects;
+    case "shader":
+      return r.shaders;
   }
 }
 
@@ -218,6 +226,30 @@ export function _destroyEffect<T>(
 ): boolean {
   const destroyed = _destroyRaw(ctx, "effect", handle, teardown);
   if (destroyed) _recordDestroy(ctx, "effect", 0);
+  return destroyed;
+}
+
+/** Allocate a shader slot and return a branded {@link ShaderHandle}. */
+export function _allocShader<T>(ctx: Context, data: T): ShaderHandle {
+  // Boundary cast: see _allocMesh.
+  const handle = _allocRaw(ctx, "shader", data) as ShaderHandle;
+  _recordAlloc(ctx, "shader", 0);
+  return handle;
+}
+
+/** Look up a shader slot. Returns `null` on stale or invalid handles. */
+export function _lookupShader<T>(ctx: Context, handle: ShaderHandle): T | null {
+  return _lookupRaw(ctx, "shader", handle);
+}
+
+/** Destroy a shader slot. See {@link _destroyMesh} for semantics. */
+export function _destroyShader<T>(
+  ctx: Context,
+  handle: ShaderHandle,
+  teardown: (data: T) => void,
+): boolean {
+  const destroyed = _destroyRaw(ctx, "shader", handle, teardown);
+  if (destroyed) _recordDestroy(ctx, "shader", 0);
   return destroyed;
 }
 

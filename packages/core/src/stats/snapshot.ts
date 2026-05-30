@@ -42,6 +42,7 @@ export function buildSnapshot(state: StatsState): Snapshot {
       materials: state.resources.counts.materials,
       geometries: state.resources.counts.geometries,
       effects: state.resources.counts.effects,
+      shaders: state.resources.counts.shaders,
     },
     events: {
       perEmitter: Object.fromEntries(state.emissions),

@@ -22,6 +22,7 @@ export type ResourceManager = {
   materials: Pool<unknown>;
   geometries: Pool<unknown>;
   effects: Pool<unknown>;
+  shaders: Pool<unknown>;
   materialPipelineCache: Map<string, PipelineCacheEntry>;
   postPipelineCache: Map<string, PipelineCacheEntry>;
 };
@@ -47,6 +48,7 @@ export function createResourceManager(): ResourceManager {
     materials: createPool(),
     geometries: createPool(),
     effects: createPool(),
+    shaders: createPool(),
     materialPipelineCache: new Map(),
     postPipelineCache: new Map(),
   };

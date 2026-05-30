@@ -25,6 +25,9 @@ export type GeometryHandle = number & { readonly __brand: "GeometryHandle" };
 /** Branded handle referring to a slot in the effect pool. */
 export type EffectHandle = number & { readonly __brand: "EffectHandle" };
 
+/** Branded handle referring to a slot in the shader pool. */
+export type ShaderHandle = number & { readonly __brand: "ShaderHandle" };
+
 /**
  * Union of every branded handle kind. Used by cross-cutting
  * resource APIs that handle multiple resource types uniformly.
@@ -33,7 +36,8 @@ export type AnyResourceHandle =
   | MeshHandle
   | MaterialHandle
   | GeometryHandle
-  | EffectHandle;
+  | EffectHandle
+  | ShaderHandle;
 
 const SLOT_BITS = 16;
 const SLOT_MASK = 0xffff;
