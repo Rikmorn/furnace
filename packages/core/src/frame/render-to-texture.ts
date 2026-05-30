@@ -1,5 +1,6 @@
 import { FurnaceGpuError } from "../gpu/errors.ts";
 import type { Context } from "../gpu/index.ts";
+import { _ENGINE_DEPTH_FORMAT } from "../material/material.ts";
 import { _recomputeModelIfDirty } from "../mesh/mesh.ts";
 import {
   _recordBindGroupSwitch,
@@ -151,6 +152,33 @@ export function renderToTexture(
     throw new FurnaceGpuError("renderToTexture: draw is required");
   }
   const resolvedDraws = _frameRenderInternals._validateDraw(ctx, opts.draw);
+
+  const passHasDepth = opts.depthTexture !== undefined;
+
+  // (1) color-target format must match what material pipelines render to.
+  if (opts.texture.format !== ctx.format) {
+    throw new FurnaceGpuError(
+      `renderToTexture: texture format '${opts.texture.format}' must equal the context format '${ctx.format}' that materials render to`,
+    );
+  }
+  // (2) every drawn material's depth declaration must match the pass.
+  const depthMismatch = _frameRenderInternals._firstDepthDisagreement(
+    resolvedDraws,
+    passHasDepth,
+  );
+  if (depthMismatch !== -1) {
+    throw new FurnaceGpuError(
+      passHasDepth
+        ? `renderToTexture: draw[${depthMismatch}] was created with depthEnabled:false but a depthTexture was provided; omit it or set depthEnabled:true`
+        : `renderToTexture: draw[${depthMismatch}] uses a depth-enabled material but no depthTexture was provided; pass a depthTexture or set depthEnabled:false`,
+    );
+  }
+  // (3) consumer depthTexture must match the format material pipelines declare.
+  if (opts.depthTexture && opts.depthTexture.format !== _ENGINE_DEPTH_FORMAT) {
+    throw new FurnaceGpuError(
+      `renderToTexture: depthTexture format '${opts.depthTexture.format}' must be '${_ENGINE_DEPTH_FORMAT}'`,
+    );
+  }
 
   const cameraBuffer = _frameRenderInternals._ensureCameraBuffer(
     ctx,

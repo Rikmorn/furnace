@@ -130,6 +130,197 @@ test.skipIf(!bunWebGpuAvailable())(
   },
 );
 
+// (A) depth presence — the headline fix: depth material, NO depthTexture → throws
+test.skipIf(!bunWebGpuAvailable())(
+  "frame.renderToTexture: depth material without depthTexture throws",
+  async () => {
+    const canvas = await makeOffscreenCanvas(64, 64);
+    const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
+    const cam = camera.perspective({ aspect: 1 });
+    const mat = await material.unlit(ctx, {
+      color: vec4.fromValues(1, 0, 0, 1),
+    }); // depthEnabled defaults true
+    const geo = geometry.cube(ctx);
+    const cube = mesh.create(ctx, { geometry: geo, material: mat });
+    const target = ctx.device.createTexture({
+      size: { width: 64, height: 64 },
+      format: ctx.format,
+      usage:
+        GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
+    });
+    expect(() =>
+      frame.renderToTexture(ctx, {
+        texture: target,
+        draw: [cube],
+        camera: cam,
+      }),
+    ).toThrow(/no depthTexture/);
+    target.destroy();
+    mesh.destroy(ctx, cube);
+    geometry.destroy(ctx, geo);
+    material.destroy(ctx, mat);
+    gpu.dispose(ctx);
+  },
+);
+
+// (B) genuine depth-less offscreen: depthEnabled:false material, NO depthTexture → succeeds (no throw)
+test.skipIf(!bunWebGpuAvailable())(
+  "frame.renderToTexture: depthEnabled:false material without depthTexture succeeds",
+  async () => {
+    const canvas = await makeOffscreenCanvas(64, 64);
+    const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
+    const cam = camera.perspective({ aspect: 1 });
+    const mat = await material.unlit(ctx, {
+      color: vec4.fromValues(1, 0, 0, 1),
+      depthEnabled: false,
+    });
+    const geo = geometry.cube(ctx);
+    const cube = mesh.create(ctx, { geometry: geo, material: mat });
+    const target = ctx.device.createTexture({
+      size: { width: 64, height: 64 },
+      format: ctx.format,
+      usage:
+        GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
+    });
+    expect(() =>
+      frame.renderToTexture(ctx, {
+        texture: target,
+        draw: [cube],
+        camera: cam,
+      }),
+    ).not.toThrow();
+    target.destroy();
+    mesh.destroy(ctx, cube);
+    geometry.destroy(ctx, geo);
+    material.destroy(ctx, mat);
+    gpu.dispose(ctx);
+  },
+);
+
+// (C) reverse mismatch: depthEnabled:false material WITH depthTexture → throws
+test.skipIf(!bunWebGpuAvailable())(
+  "frame.renderToTexture: depthEnabled:false material with depthTexture throws",
+  async () => {
+    const canvas = await makeOffscreenCanvas(64, 64);
+    const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
+    const cam = camera.perspective({ aspect: 1 });
+    const mat = await material.unlit(ctx, {
+      color: vec4.fromValues(1, 0, 0, 1),
+      depthEnabled: false,
+    });
+    const geo = geometry.cube(ctx);
+    const cube = mesh.create(ctx, { geometry: geo, material: mat });
+    const target = ctx.device.createTexture({
+      size: { width: 64, height: 64 },
+      format: ctx.format,
+      usage:
+        GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
+    });
+    const depth = ctx.device.createTexture({
+      size: { width: 64, height: 64 },
+      format: "depth24plus",
+      usage: GPUTextureUsage.RENDER_ATTACHMENT,
+    });
+    expect(() =>
+      frame.renderToTexture(ctx, {
+        texture: target,
+        depthTexture: depth,
+        draw: [cube],
+        camera: cam,
+      }),
+    ).toThrow(/depthEnabled:false/);
+    depth.destroy();
+    target.destroy();
+    mesh.destroy(ctx, cube);
+    geometry.destroy(ctx, geo);
+    material.destroy(ctx, mat);
+    gpu.dispose(ctx);
+  },
+);
+
+// (D) color format mismatch — isolate check (1) by making depth setup correct
+test.skipIf(!bunWebGpuAvailable())(
+  "frame.renderToTexture: color texture format != ctx.format throws",
+  async () => {
+    const canvas = await makeOffscreenCanvas(64, 64);
+    const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
+    const cam = camera.perspective({ aspect: 1 });
+    const mat = await material.unlit(ctx, {
+      color: vec4.fromValues(1, 0, 0, 1),
+    }); // depth material
+    const geo = geometry.cube(ctx);
+    const cube = mesh.create(ctx, { geometry: geo, material: mat });
+    // a renderable format guaranteed different from ctx.format:
+    const wrongFormat: GPUTextureFormat =
+      ctx.format === "rgba8unorm" ? "bgra8unorm" : "rgba8unorm";
+    const target = ctx.device.createTexture({
+      size: { width: 64, height: 64 },
+      format: wrongFormat,
+      usage:
+        GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
+    });
+    const depth = ctx.device.createTexture({
+      size: { width: 64, height: 64 },
+      format: "depth24plus",
+      usage: GPUTextureUsage.RENDER_ATTACHMENT,
+    });
+    expect(() =>
+      frame.renderToTexture(ctx, {
+        texture: target,
+        depthTexture: depth,
+        draw: [cube],
+        camera: cam,
+      }),
+    ).toThrow(/must equal the context format/);
+    depth.destroy();
+    target.destroy();
+    mesh.destroy(ctx, cube);
+    geometry.destroy(ctx, geo);
+    material.destroy(ctx, mat);
+    gpu.dispose(ctx);
+  },
+);
+
+// (E) depth format mismatch — correct color + depth presence, wrong depth format
+test.skipIf(!bunWebGpuAvailable())(
+  "frame.renderToTexture: depthTexture format != depth24plus throws",
+  async () => {
+    const canvas = await makeOffscreenCanvas(64, 64);
+    const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
+    const cam = camera.perspective({ aspect: 1 });
+    const mat = await material.unlit(ctx, {
+      color: vec4.fromValues(1, 0, 0, 1),
+    }); // depth material
+    const geo = geometry.cube(ctx);
+    const cube = mesh.create(ctx, { geometry: geo, material: mat });
+    const target = ctx.device.createTexture({
+      size: { width: 64, height: 64 },
+      format: ctx.format,
+      usage:
+        GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
+    });
+    const depth = ctx.device.createTexture({
+      size: { width: 64, height: 64 },
+      format: "depth32float",
+      usage: GPUTextureUsage.RENDER_ATTACHMENT,
+    });
+    expect(() =>
+      frame.renderToTexture(ctx, {
+        texture: target,
+        depthTexture: depth,
+        draw: [cube],
+        camera: cam,
+      }),
+    ).toThrow(/must be 'depth24plus'/);
+    depth.destroy();
+    target.destroy();
+    mesh.destroy(ctx, cube);
+    geometry.destroy(ctx, geo);
+    material.destroy(ctx, mat);
+    gpu.dispose(ctx);
+  },
+);
+
 test.skipIf(!bunWebGpuAvailable())(
   "frame.renderToTexture throws when draw contains a null entry",
   async () => {
