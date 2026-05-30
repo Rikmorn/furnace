@@ -1,4 +1,5 @@
 import type { Context } from "../gpu/context-types.ts";
+import type { ShaderHandle } from "./handle.ts";
 import { createPool, type Pool } from "./pool.ts";
 
 /**
@@ -25,6 +26,13 @@ export type ResourceManager = {
   shaders: Pool<unknown>;
   materialPipelineCache: Map<string, PipelineCacheEntry>;
   postPipelineCache: Map<string, PipelineCacheEntry>;
+  /** Per-ctx engine-owned built-in shader cache (lazily compiled once; stores
+   *  the in-flight Promise for concurrent-first-call dedup; freed by the
+   *  dispose cascade). See `shader/builtins.ts`. */
+  builtinShaders: {
+    unlit: Promise<ShaderHandle> | null;
+    normalColor: Promise<ShaderHandle> | null;
+  };
 };
 
 /**
@@ -51,6 +59,7 @@ export function createResourceManager(): ResourceManager {
     shaders: createPool(),
     materialPipelineCache: new Map(),
     postPipelineCache: new Map(),
+    builtinShaders: { unlit: null, normalColor: null },
   };
 }
 
