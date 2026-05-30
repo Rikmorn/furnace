@@ -1,6 +1,16 @@
 # Shader preprocessor / imports
 
-**Folds into Tranche D-1 (`shader-resource.md`), 2026-05-30.** The `// @include` resolution is shader *code* composition — it lives in D-1's shader-loading path (`shader.load` / `shader.create`), not as a standalone item. Trigger has **fired**: `hsv2rgb` is duplicated across `cookbook/shader/plasma.wgsl` + `striped.wgsl`. D-1's brainstorm picks the preprocessor approach (open question #5 there). This entry is retained for the approach options below; delete it when D-1 lands the include path.
+**DEFERRED to its own session — decided in the D-1 brainstorm (2026-05-30, reversing the earlier "folds into D-1" plan).** D-1 ships the *substrate* (`Shader` resource + `shader.load(ctx, url)` = fetch + create), but **`shader.load` resolves NO includes yet**. The `// @include` preprocessor is **additive behaviour on `shader.load`** — adding it later does not change the signature or force a migration — so it is cleanly separable and does not need to ride D-1's breaking reshape. Trigger has **fired** (`hsv2rgb` duplicated across `cookbook/shader/plasma.wgsl` + `striped.wgsl`); we **accept that duplication for now** rather than half-ass the resolver. Build it well in a dedicated session.
+
+**What a proper session must think through (D-1 brainstorm, 2026-05-30):**
+- **Graph traversal** — recursive include resolution with **cycle detection** (a `Set` of visited absolute URLs; a cyclic include must not infinite-loop / fetch-storm).
+- **Combination / dedup** — including the same file twice must not emit duplicate **top-level declarations** (WGSL has no redefinition tolerance, unlike GLSL snippet inlining); dedup-within-graph is a **correctness** requirement, not just an optimization.
+- **Relative URL resolution** — `new URL(spec, includingFileUrl)` referrer-relative (as CSS `@import` / ES modules resolve), since `shader.load` fetches arbitrary author URLs (three.js's flat `ShaderChunk` registry sidesteps this; furnace cannot).
+- **Compilation cost & main-loop impact** — when does resolution/compile happen, and does it block frames? (`shader.load` is async/setup; but a future hot-reload or lazy path could touch the loop.)
+- **Prerequisite infrastructure** — is a fetch/asset layer, an in-flight-dedup cache, or a "never cache failures" loader (three.js #17635) needed first? These may be their own items.
+- **Failure modes from prior art** — see `docs/research/shader-resource-prior-art.md` §Q5: cache by URL but **never cache HTTP failures**, dedup in-flight requests, the build-time-vs-runtime tension (WESL/naga_oil lean build-time).
+
+The approach options below remain the menu; the research doc (§1.10–1.12) is the verified prior-art survey for them.
 
 WGSL has no native `#include` mechanism. As shaders grow more complex and share common code (camera uniform structs, lighting helpers, noise functions, post-effect utility math), we'll want some form of import/include support.
 
