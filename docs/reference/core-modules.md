@@ -73,7 +73,7 @@ The reference is "what the engine IS today." If it's stale, it's broken.
 | `loop` | `(ctx: Context, onFrame: (info: FrameInfo) => void, options?: LoopOptions) => FrameLoopHandle` | RAF wrapper. Records `_frameStart`/`_frameEnd` around the callback. Auto-pauses on `document.hidden` by default. |
 | `fixedLoop` | `(ctx: Context, opts: FixedLoopOptions) => FrameLoopHandle` | Fix-Your-Timestep accumulator wrapping `loop`. `opts.onTick(dtSeconds)` runs zero-or-more times per RAF; `opts.onFrame({ deltaMs, alpha })` runs once. Spiral-of-death guarded via `maxCatchupTicks` (default 8). |
 | `render` | `(ctx: Context, opts: RenderOptions) => void` | One-shot render pass. Allocates a depth texture and per-camera uniform buffer lazily, sets up `group(0)`, iterates `opts.draw`, and (if `opts.effects` non-empty) ping-pongs effects to the swap chain. |
-| `renderToTexture` | `(ctx: Context, opts: RenderToTextureOptions) => void` | Like `render`, but the color target is a consumer-supplied `GPUTexture`. No post-effects chain. Depth presence must agree with every drawn material's `depthEnabled` flag; a mismatch (or a color-target format ≠ `ctx.format`, or a supplied `depthTexture` format ≠ `depth24plus`) throws `FurnaceGpuError`. |
+| `renderToTexture` | `(ctx: Context, opts: RenderToTextureOptions) => void` | Like `render`, but the color target is a consumer-supplied `GPUTexture`. No post-effects chain. Depth presence must agree with each drawn material's depth state; a mismatch (or a color-target format ≠ `ctx.format`, or a supplied `depthTexture` format ≠ `depth24plus`) throws `FurnaceGpuError`. |
 | `encode` | `(ctx: Context, callback: (encoder: GPUCommandEncoder) => void) => void` | Low-level escape hatch: creates a command encoder, hands it to the callback, finishes and submits. Bypasses scene-pass / camera / mesh bookkeeping. Throws if `ctx` is disposed. |
 | `FrameInfo` | `Readonly<{ elapsedMs: number; deltaMs: number }>` | `deltaMs` is capped by `LoopOptions.maxDeltaMs` (default 100). |
 | `FixedLoopInfo` | `Readonly<{ deltaMs: number; alpha: number }>` | `alpha = accumulator / fixedDtMs`, in `[0, 1)`. |
@@ -81,7 +81,7 @@ The reference is "what the engine IS today." If it's stale, it's broken.
 | `LoopOptions` | `{ maxDeltaMs?: number; pauseOnHidden?: boolean }` | Defaults: `maxDeltaMs: 100`, `pauseOnHidden: true`. |
 | `FixedLoopOptions` | `{ fixedDtMs: number; onTick: (dtSeconds: number) => void; onFrame?: (info: FixedLoopInfo) => void; maxCatchupTicks?: number; maxDeltaMs?: number; pauseOnHidden?: boolean }` | `maxCatchupTicks` default: 8. |
 | `RenderOptions` | `{ draw: Mesh[]; camera: Camera; effects?: Effect[]; clearColor?: Vec4; clearDepth?: number }` | `clearColor` is a linear-space RGBA `Vec4`; defaults to `[0, 0, 0, 1]`. `clearDepth` defaults to `1.0`. |
-| `RenderToTextureOptions` | `{ texture: GPUTexture; draw: Mesh[]; camera: Camera; depthTexture?: GPUTexture; clearColor?: Vec4; clearDepth?: number }` | `clearColor` is a linear-space RGBA `Vec4`. Omit `depthTexture` **only if every drawn material was created with `depthEnabled: false`**; a depth/format mismatch (or a color format ≠ `ctx.format`, or depth format ≠ `depth24plus`) throws `FurnaceGpuError`. |
+| `RenderToTextureOptions` | `{ texture: GPUTexture; draw: Mesh[]; camera: Camera; depthTexture?: GPUTexture; clearColor?: Vec4; clearDepth?: number }` | `clearColor` is a linear-space RGBA `Vec4`. Omit `depthTexture` **only if every drawn material has depth disabled** (`material.create` with `depth: false`, or a built-in factory with `depthEnabled: false`); a depth/format mismatch (or a color format ≠ `ctx.format`, or depth format ≠ `depth24plus`) throws `FurnaceGpuError`. |
 
 ### Demoed in cookbook
 
@@ -250,6 +250,25 @@ Re-exported from `index.ts` so other core modules can `import * as stats` and ca
 
 ---
 
+## `@furnace/core/shader`
+
+`import * as shader from "@furnace/core/shader";`
+
+### Public
+
+| Export | Signature | Notes |
+|---|---|---|
+| `create` | `(ctx: Context, wgsl: string) => Promise<Shader>` | Compile a `Shader` from WGSL source. Validates via a `pushErrorScope("validation")` scope AND `getCompilationInfo` (belt-and-braces across runtimes). Setup-loud: throws `FurnaceError` if `wgsl` is empty; throws `FurnaceError` if WGSL compilation reports an error. |
+| `load` | `(ctx: Context, url: string) => Promise<Shader>` | Fetch WGSL from `url` and compile it. Does **not** resolve `// @include` directives (deferred — see `shader-preprocessor.md`) and does **not** cache by URL (the browser HTTP-caches the bytes; reuse the returned handle to deduplicate). Setup-loud: throws `FurnaceError` on a non-OK HTTP response; throws `FurnaceError` if the fetched WGSL fails to compile. |
+| `destroy` | `(ctx: Context, shader: Shader) => void` | Drop the engine's reference to the `GPUShaderModule` (GC reclaims it; no GPU-timeline free). Pipelines already built from it are unaffected (WebGPU captures the module at creation). No-op on engine-owned built-in shaders (`material.unlit`/`normalColor` reference internal shared shaders; `destroy` silently skips them). Idempotent on stale or destroyed handles. |
+| `Shader` | Opaque branded uint48 handle (alias of `ShaderHandle`) | Returned by `create` / `load`. Holds a compiled `GPUShaderModule` for one WGSL module (which may declare `@vertex`/`@fragment`/`@compute` entry points). Pass to `material.create` via `MaterialDescriptor.shader`; dispose via `shader.destroy(ctx, s)`. |
+
+### Demoed in cookbook
+
+- `create`, `load`, `Shader`, `MaterialDescriptor (shader/bindings)` → `cookbook/shader`.
+
+---
+
 ## `@furnace/core/material`
 
 `import * as material from "@furnace/core/material";`
@@ -258,25 +277,25 @@ Re-exported from `index.ts` so other core modules can `import * as stats` and ca
 
 | Export | Signature | Notes |
 |---|---|---|
-| `create` | `(ctx: Context, descriptor: MaterialDescriptor) => Promise<Material>` | Builds (or reuses, via the per-ctx internal pipeline cache) a render pipeline keyed on shader source + raster state + blend signature + ctx format. Validates the descriptor; throws `FurnaceError` if pipeline creation fails. |
+| `create` | `(ctx: Context, descriptor: MaterialDescriptor) => Promise<Material>` | Builds (or reuses, via the per-ctx internal pipeline cache) a render pipeline keyed on the shader handle, entry points, resolved render state (`primitive` + `depth`), ctx format, and blend signature. Two `create` calls with identical keys share one underlying `GPURenderPipeline`. Setup-loud: throws `FurnaceError` if `descriptor.shader` is missing; throws `FurnaceError` if the shader handle is invalid or destroyed; throws `FurnaceError` if WebGPU pipeline creation reports a validation error; throws `FurnaceError` if `bindings` are supplied but the shader declares no `@group(1)` bindings (layout mismatch). |
 | `destroy` | `(ctx: Context, material: Material) => void` | If a Mesh still references the material, defers GPU teardown; otherwise destroys factory-owned buffers (iterating `ownedBufferBytes`, recording each byte release in stats) and releases the cached pipeline ref. Silent on stale handles. |
-| `unlit` | `(ctx: Context, opts: UnlitOptions) => Promise<Material>` | Stock unlit material. Allocates a 16-byte uniform buffer for the color (owned by the material's slot). `opts.color` is required; pipeline-state fields are optional. |
-| `UnlitOptions` | `{ color: [number, number, number, number]; topology?: GPUPrimitiveTopology; cullMode?: GPUCullMode; depthEnabled?: boolean; depthWrite?: boolean; depthCompare?: GPUCompareFunction; blend?: GPUBlendState }` | Options for `unlit`. `color` required; pipeline-state fields optional with `MaterialDescriptor` defaults (triangle-list / back / `depthEnabled` true / depthWrite true / less / opaque). When `depthEnabled` is `false`, `depthWrite` and `depthCompare` are ignored. |
-| `normalColor` | `(ctx: Context, opts?: NormalColorOptions) => Promise<Material>` | Stock debug material that renders the (uniform-scale-correct) world-space normal as RGB. No bindings. `opts` overrides pipeline state — `{ topology?, cullMode?, depthEnabled?, depthWrite?, depthCompare?, blend? }`. |
+| `unlit` | `(ctx: Context, opts: UnlitOptions) => Promise<Material>` | Stock unlit material. References an engine-owned internal shared shader compiled once per ctx. Allocates a 16-byte uniform buffer for the color (owned by the material's slot). `opts.color` is required; pipeline-state fields are optional. Delegates to `create`; its failure policy and pipeline-cache behaviour apply. |
+| `UnlitOptions` | `{ color: Vec4; topology?: GPUPrimitiveTopology; cullMode?: GPUCullMode; depthEnabled?: boolean; depthWrite?: boolean; depthCompare?: GPUCompareFunction; blend?: GPUBlendState }` | Options for `unlit`. `color` required (linear-space RGBA `Vec4`); pipeline-state fields optional with `MaterialDescriptor` defaults (triangle-list / back / `depthEnabled` true / depthWrite true / less / opaque). When `depthEnabled` is `false`, `depthWrite` and `depthCompare` are ignored. |
+| `normalColor` | `(ctx: Context, opts?: NormalColorOptions) => Promise<Material>` | Stock debug material that renders the (uniform-scale-correct) world-space normal as RGB. No bindings — uses only engine-provided `@group(0)` uniforms. References an engine-owned internal shared shader compiled once per ctx. Delegates to `create`; its failure policy and pipeline-cache behaviour apply. |
 | `NormalColorOptions` | `{ topology?: GPUPrimitiveTopology; cullMode?: GPUCullMode; depthEnabled?: boolean; depthWrite?: boolean; depthCompare?: GPUCompareFunction; blend?: GPUBlendState }` | Pipeline-state overrides for `normalColor`. All fields optional; defaults match `MaterialDescriptor` (triangle-list / back / `depthEnabled` true / depthWrite true / less / opaque). When `depthEnabled` is `false`, `depthWrite` and `depthCompare` are ignored. |
 | `createPipeline` | `(ctx: Context, descriptor: GPURenderPipelineDescriptor) => Promise<GPURenderPipeline>` | Escape hatch: wraps `device.createRenderPipeline` in a validation error scope. Returns the raw pipeline; the caller owns it (not cached). |
 | `blend` | `{ straightAlpha: GPUBlendState; premultiplied: GPUBlendState; additive: GPUBlendState }` | Frozen sugar-helper namespace (api-posture.md R6). All three values are frozen `GPUBlendState` objects; pass directly to `MaterialDescriptor.blend`. |
 | `blend.straightAlpha` | `GPUBlendState` constant — color: `src=src-alpha, dst=one-minus-src-alpha, op=add`; alpha: `src=one, dst=one-minus-src-alpha, op=add` | Non-premultiplied alpha blending — the "naive" alpha-blend most beginners reach for. Compare with `blend.premultiplied` to see why production engines pre-multiply: PMA composes correctly under chained translucent overlays; straight alpha accumulates α-multiplication error visible at the seams. |
 | `blend.premultiplied` | `GPUBlendState` constant — `src=one, dst=one-minus-src-alpha, op=add` for both color and alpha | Premultiplied-alpha compositing; the production default. Shader must output `vec4(rgb * a, a)`. |
 | `blend.additive` | `GPUBlendState` constant — `src=one, dst=one, op=add` for both color and alpha | Additive blending; contributions sum rather than occlude. Useful for particles, glow passes, light accumulation. |
-| `MaterialDescriptor` | `{ vertex: string; fragment: string; bindings?: GPUBindGroupEntry[]; cullMode?; topology?; depthEnabled?; depthWrite?; depthCompare?; blend? }` | Defaults: `cullMode = "back"`, `topology = "triangle-list"`, `depthEnabled = true`, `depthWrite = true`, `depthCompare = "less"`. `vertex` and `fragment` are required WGSL strings. When `depthEnabled` is `false` the pipeline is built with no depth-stencil block; `depthWrite` and `depthCompare` are ignored. |
+| `MaterialDescriptor` | `{ shader: Shader; entryPoints?: { vertex?: string; fragment?: string }; bindings?: GPUBindGroupEntry[]; primitive?: { topology?: GPUPrimitiveTopology; cullMode?: GPUCullMode }; depth?: false \| { write?: boolean; compare?: GPUCompareFunction }; blend?: GPUBlendState }` | `shader` required. `entryPoints` defaults to `vs_main`/`fs_main` and is overridable. `primitive.topology` defaults to `"triangle-list"`, `cullMode` to `"back"`. `depth` omitted → depth test + write enabled (`write: true`, `compare: "less"`); `depth: false` → no depth-stencil block; `depth: { write?, compare? }` → enabled with overrides. `blend` undefined → opaque. |
 | `Material` | Opaque branded uint48 handle (alias of `MaterialHandle`) | Returned by `create` / `unlit` / `normalColor`. Pass to `mesh.create` and `frame.render`; dispose via `material.destroy(ctx, m)`. |
 
 ### Demoed in cookbook
 
 - `unlit`, `normalColor`, `destroy` → `cookbook/camera`.
 - `normalColor`, `NormalColorOptions` (topology) → `cookbook/geometry`.
-- `create`, `MaterialDescriptor` (vertex/fragment/bindings) → `cookbook/shader`.
+- `create`, `MaterialDescriptor (shader/bindings)` → `cookbook/shader` (also demos `shader.load`).
 - `unlit`, `UnlitOptions` (blend, cullMode, depthWrite, depthCompare), `blend.straightAlpha`, `blend.premultiplied`, `blend.additive` → `cookbook/blend`.
 - `depthEnabled` (via `UnlitOptions`/`NormalColorOptions`) → `cookbook/render-target`.
 
@@ -461,7 +480,7 @@ module-level mutable-state exception.
 
 `import * as resources from "@furnace/core/resources";`
 
-Cross-cutting cleanup over the per-ctx resource pools (meshes, materials, geometries, effects), plus the branded handle types and kind discriminator. The per-kind `create` / `destroy` functions live in their owning modules (`mesh.*`, `material.*`, `post.*`); this module is the cross-kind surface.
+Cross-cutting cleanup over the per-ctx resource pools (meshes, materials, geometries, effects, shaders), plus the branded handle types and kind discriminator. The per-kind `create` / `destroy` functions live in their owning modules (`mesh.*`, `material.*`, `post.*`); this module is the cross-kind surface.
 
 Count / memory introspection lives on `stats.snapshot(ctx).resources.*` and `stats.snapshot(ctx).memory.*`.
 
@@ -470,9 +489,9 @@ Count / memory introspection lives on `stats.snapshot(ctx).resources.*` and `sta
 | Export | Signature | Notes |
 |---|---|---|
 | `disposeAll` | `(ctx: Context) => void` | Manually trigger the resource-manager cascade — same teardown that `gpu.dispose` runs internally, but without disposing the `GPUDevice` itself. Used for explicit cleanup before context disposal (e.g. free memory during a level transition without dropping the device). Idempotent. |
-| `ResourceKind` | `"mesh" \| "material" \| "geometry" \| "effect"` | Discriminator string for resource kinds. |
+| `ResourceKind` | `"mesh" \| "material" \| "geometry" \| "effect" \| "shader"` | Discriminator string for resource kinds. |
 | `MeshHandle` / `MaterialHandle` / `GeometryHandle` / `EffectHandle` | Branded uint48 handles | Re-exported from `resources/handle.ts` so consumers can type variables (e.g. a `Map<MeshHandle, …>`) without reaching into engine-internal modules. Aliased by `mesh.Mesh`, `material.Material`, etc. — same underlying type. |
-| `AnyResourceHandle` | `MeshHandle \| MaterialHandle \| GeometryHandle \| EffectHandle` | Cross-kind union. Useful when storing handles of mixed kinds in a single collection. |
+| `AnyResourceHandle` | `MeshHandle \| MaterialHandle \| GeometryHandle \| EffectHandle \| ShaderHandle` | Cross-kind union. Useful when storing handles of mixed kinds in a single collection. `ShaderHandle` itself is not re-exported here — its public alias is `Shader` from `@furnace/core/shader`. |
 
 ### Demoed in cookbook
 
@@ -489,7 +508,8 @@ Count / memory introspection lives on `stats.snapshot(ctx).resources.*` and `sta
 These appear in module source files but are NOT exported, OR are exported with a leading `_` to mark them internal-only:
 
 - Internal `_*` stats hooks (table above in `@furnace/core/stats`).
-- Material's internal `_pipelineCache` (a facade in `material/pipeline.ts` over `acquireMaterialPipeline` / `releaseMaterialPipeline` on the per-ctx `ResourceManager`), `_blendSignature` (in `material/material.ts`), and `_resolveMaterial` (in `material/internal.ts`, used by `frame/render*` and the built-in factories). None re-exported from `material/index.ts`.
+- Shader's internal `_createShader` (in `shader/shader.ts`, used by `create`, `load`, and the built-in factories) and `_unlitShader` / `_normalColorShader` (in `shader/builtins.ts`, lazy-init engine-owned shared shaders). None re-exported from `shader/index.ts`.
+- Material's internal `_pipelineCache` (a facade in `material/pipeline.ts` over `acquireMaterialPipeline` / `releaseMaterialPipeline` on the per-ctx `ResourceManager`), `_blendSignature` (in `material/material.ts`), `_flatRenderState` (in `material/material.ts`, used by the built-in factories), and `_resolveMaterial` (in `material/internal.ts`, used by `frame/render*` and the built-in factories). None re-exported from `material/index.ts`.
 - Post's internal `_pipelineCache` (a facade in `post/pipeline-cache.ts` over `acquirePostPipeline` / `releasePostPipeline` on the per-ctx `ResourceManager`), `_resolveEffect` (in `post/internal.ts`, used by `frame/render.ts`), `_ensureFullscreenVS` (in `post/fullscreen.ts`), `_effectPipelineHashKey` / `_buildEffectPipelineDescriptor` (in `post/pipeline.ts`), and `_ensureSceneIntermediates` (in `post/intermediate.ts`). None re-exported from `post/index.ts`.
 - Frame's internal `_frameRenderInternals` in `frame/render.ts` — a bundle of `{ _ensureDepthTexture, _ensureCameraBuffer, _ensureMeshGroup0 }` consumed by `frame/render-to-texture.ts`. Not re-exported from `frame/index.ts`.
 - Mesh's internal `_recomputeModelIfDirty` in `mesh/mesh.ts`, called by `frame/render.ts` and `frame/render-to-texture.ts` per draw. Not re-exported from `mesh/index.ts`.

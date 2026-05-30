@@ -91,7 +91,7 @@ When adding or changing public surface, apply these.
 ### Supporting rules (surfaced by the conformance sweep)
 
 - **Out-parameter position.** Out-param functions place `out` **first** (the gl-matrix convention — `vec3.add(out, a, b)`, `camera.getPosition(out, cam)`, `camera.projectToScreen(out, cam, …)`) **unless `ctx` is present**, in which case `ctx` is first and `out` is last (`mesh.getPosition(ctx, mesh, out)`). The two rules interact deterministically: ctx-first dominates; otherwise out-first.
-- **Async vs sync factories.** A factory is `async` (returns `Promise<T>`) **iff it compiles a pipeline or shader** (`material.create`/`unlit`/`normalColor`, `post.create`, `material.createPipeline`). Pure-data/buffer factories are synchronous (`mesh.create`, `geometry.create`/`cube`/`plane`, `camera.perspective`/`orthographic`).
+- **Async vs sync factories.** A factory is `async` (returns `Promise<T>`) **iff it compiles a pipeline or shader** (`shader.create`/`load`, `material.create`/`unlit`/`normalColor`, `post.create`, `material.createPipeline`). Pure-data/buffer factories are synchronous (`mesh.create`, `geometry.create`/`cube`/`plane`, `camera.perspective`/`orthographic`).
 - **Custom-metric verbs.** `stats.gauge` / `increment` / `measure` follow the statsd/Datadog metric-type vocabulary; they are kept as-is despite `gauge` reading as a noun, because they match the convention practitioners already know.
 - **Generic vs concrete subscription.** A concrete event subscription is `on<Event>` (`gpu.onResize`, `input.onKeyDown`, …). The generic `Emitter.on` building block — which the concrete subscriptions delegate to — keeps the bare `on`.
 
@@ -101,15 +101,15 @@ Every `@furnace/core` public export, by kind. (Function-kind verbs in **bold** t
 
 | Kind | Members |
 |---|---|
-| **Resource** | `Mesh`, `Material`, `Geometry`, `Effect`; the `*Handle` aliases, `AnyResourceHandle`, `ResourceKind` |
+| **Resource** | `Mesh`, `Material`, `Geometry`, `Effect`, `Shader`; the re-exported `*Handle` aliases (`MeshHandle`, `MaterialHandle`, `GeometryHandle`, `EffectHandle`), `AnyResourceHandle`, `ResourceKind`. (`Shader` is the public name for the shader handle; `ShaderHandle` is its internal brand, not separately re-exported from `@furnace/core/resources`.) |
 | **Value-type** | `Camera`, `Context`; the `transform` types (`Vec2`/`Vec3`/`Vec4`/`Quat`/`Mat3`/`Mat4`) + `CameraMatrices`; `FitPolicy`/`Anchor`/`OrthographicBounds`/`ScreenProjection`; event records (`FrameInfo`/`FixedLoopInfo`/`ResizeEvent`/`KeyEvent`/`PointerEvent`/`WheelEvent`/`PointerSnapshot`); `Snapshot`/`Measurement`/`Path`/`PathValue`; `LogLevel`/`LogEntry`/`LogSink` + `consoleSink`; `FrameLoopHandle`/`Emitter`; the error classes (`FurnaceError`/`FurnaceGpuError`/`FurnaceInputError`); `KeyCode`/`PointerButton`/`PointerType` |
-| **Descriptor** | `MaterialDescriptor`, `EffectDescriptor` (create-specs); `RequestContextOptions`/`LoopOptions`/`FixedLoopOptions`/`RenderOptions`/`RenderToTextureOptions`/`PerspectiveOptions`/`OrthographicOptions`/`UnlitOptions`/`NormalColorOptions` (config); `GeometryData` (raw data) |
-| **Factory** | `gpu.requestContext`; `material.create`/`unlit`/`normalColor`; `mesh.create`; `geometry.create`/`cube`/`plane`; `post.create`; `camera.perspective`/`orthographic`; `events.createEmitter`; `stats.snapshot`/`startMeasurement` |
+| **Descriptor** | `MaterialDescriptor`, `EffectDescriptor` (create-specs); `RequestContextOptions`/`LoopOptions`/`FixedLoopOptions`/`RenderOptions`/`RenderToTextureOptions`/`PerspectiveOptions`/`OrthographicOptions`/`UnlitOptions`/`NormalColorOptions` (config); `GeometryData` (raw data). Note: `Shader` has no public descriptor — the source string is passed directly to `shader.create`/`load`. |
+| **Factory** | `gpu.requestContext`; `shader.create`/`load` (async — compile from WGSL source / fetch + compile); `material.create`/`unlit`/`normalColor`; `mesh.create`; `geometry.create`/`cube`/`plane`; `post.create`; `camera.perspective`/`orthographic`; `events.createEmitter`; `stats.snapshot`/`startMeasurement` |
 | **Core-mutator** | `mesh.set{Position,Rotation,Scale,Material}` / `get{Position,Rotation,Scale}`; `camera.set{Position,Target,Up,Aspect,NearFar,Fov,FitPolicy,Scale}` / `get{Position,Target,Up,Bounds,Matrices}` / `updateForSize` / `projectToScreen`; all `transform.*` ops; `stats.gauge`/`increment`/`get`; `log.setSink`; the `is*` reads (`gpu.isDisposed`, `input.isAttached`/`isKeyDown`/`isPointerButtonDown`) |
 | **Command** | `frame.render`, `frame.renderToTexture` |
 | **Sugar-helper** | `camera.policy.{stretch,preserveHeight,preserveWidth}`; `material.blend.{straightAlpha,premultiplied,additive}` |
 | **Escape-hatch** | `material.createPipeline`; `frame.encode`; `gpu.getCurrentTextureView`; `stats.recordDraw`; `stats.markFrameBoundary` (see R7 table) |
-| **Lifecycle-op** | `gpu.dispose`; `resources.disposeAll`; `mesh.destroy`; `geometry.destroy`; `material.destroy`; `post.destroy`; `input.attach`/`detach`; `frame.loop`/`fixedLoop` (+ `stop`/`pause`/`resume`); all `on*` subscriptions (`gpu.onResize`/`onDeviceLost`/`onUncapturedError`, `input.on*`, `stats.onFrame`); `camera.bindToCanvas`; `Emitter.on`/`clear`; `Measurement.end` |
+| **Lifecycle-op** | `gpu.dispose`; `resources.disposeAll`; `shader.destroy`; `mesh.destroy`; `geometry.destroy`; `material.destroy`; `post.destroy`; `input.attach`/`detach`; `frame.loop`/`fixedLoop` (+ `stop`/`pause`/`resume`); all `on*` subscriptions (`gpu.onResize`/`onDeviceLost`/`onUncapturedError`, `input.on*`, `stats.onFrame`); `camera.bindToCanvas`; `Emitter.on`/`clear`; `Measurement.end` |
 
 ## References
 

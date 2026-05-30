@@ -25,8 +25,9 @@ export default {
     },
   ],
   features: [
+    "shader.load",
     "material.create",
-    "MaterialDescriptor (vertex/fragment/bindings)",
+    "MaterialDescriptor (shader/bindings)",
     "multiple custom materials in one scene",
     "time-driven uniform (plasma)",
   ],
@@ -37,7 +38,6 @@ export default {
   ],
   gaps: [
     "Uniforms are raw writeBuffer — typed uniform setters are in docs/backlog/engine-architecture/typed-uniform-setters.md. With two materials now, the per-frame writeBuffer boilerplate is starting to feel real.",
-    "Both material.create calls pass the same WGSL string to vertex: and fragment: — see docs/backlog/engine-architecture/material-shader-source-shape.md. Every material in the codebase is single-source with two entry points; the two-field API doesn't pay for itself.",
     "hsv2rgb is copy-pasted between striped.wgsl and plasma.wgsl because WGSL has no #include — see docs/backlog/engine-architecture/shader-preprocessor.md.",
   ],
   order: 50,

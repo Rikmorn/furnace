@@ -1,6 +1,6 @@
 # Render-state completeness — the unexposed `GPURenderPipeline` fixed-function surface
 
-`MaterialDescriptor` deliberately exposes a **subset** of WebGPU render-state — the knobs demos actually need: `cullMode`, `topology`, `depthWrite`, `depthCompare`, `blend` (+ `material.blend.*` presets), and (after Tranche D) `depthEnabled`. The rest of the `GPURenderPipeline` fixed-function surface is hardcoded or omitted, by scope-to-current-need. This entry catalogs what's missing so it isn't re-discovered each time, each with its own trigger.
+`MaterialDescriptor` deliberately exposes a **subset** of WebGPU render-state — the knobs demos actually need: `primitive` (`cullMode`, `topology`), the `depth` union (`false | { write?, compare? }`), and `blend` (+ `material.blend.*` presets). The rest of the `GPURenderPipeline` fixed-function surface is hardcoded or omitted, by scope-to-current-need. This entry catalogs what's missing so it isn't re-discovered each time, each with its own trigger.
 
 Surfaced in the D brainstorm (2026-05-30) when mapping the render-state layer (one of the three material layers: **code** = D-1 / **render-state** = D / **params** = E).
 
@@ -26,8 +26,8 @@ Render-state splits two ways, and it matters for validation:
 
 ## Signature note
 
-When render-state grows, the flat `MaterialDescriptor` fields become a grab-bag. The signature regrouping (grouping render-state the way WebGPU does — `primitive{}`/`depthStencil{}`/`multisample{}` — and collapsing the conditional depth fields into a `depth?: false | {…}` union) is tracked as part of **D-1's** breaking descriptor reshape — see `shader-resource.md`. Don't regroup piecemeal; do it once in that reshape.
+The signature regrouping (grouping render-state the way WebGPU does — `primitive{}` plus a `depth?: false | {…}` union, with `multisample{}` etc. to follow) **landed in D-1's** breaking descriptor reshape (2026-05-31): `MaterialDescriptor` now uses `primitive{ topology, cullMode }` and the `depth` union. Future render-state fields (the rows above) slot into that grouping — add each once, in the WebGPU-shaped group it belongs to, rather than re-flattening.
 
 **Trigger to revisit:** per-row above. MSAA is the most likely first mover (visual quality). None has fired as of 2026-05-30.
 
-**Reference:** D brainstorm 2026-05-30. Render-state is immutable create-time data (baked into the pipeline) — all of these are descriptor *fields*, never setters. Cross-refs `shader-resource.md` (D-1 signature regrouping), `docs/superpowers/specs/2026-05-30-d-depth-enabled-design.md` (the pass-coupled validation D shipped).
+**Reference:** D brainstorm 2026-05-30. Render-state is immutable create-time data (baked into the pipeline) — all of these are descriptor *fields*, never setters. The D-1 signature regrouping (which landed the `primitive{}`/`depth` grouping these fields slot into, 2026-05-31) is recorded in the `_AUDIT-2026-05-26.md` D-1 row.

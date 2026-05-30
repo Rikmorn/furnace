@@ -1,6 +1,6 @@
 # Material uniform setters
 
-**Paired into the "uniform/params session" with `typed-uniform-setters.md`, 2026-05-30.** Deferred out of the D brainstorm (no demo animates a built-in's params per frame — trigger not met). When the `Shader` resource (Tranche D-1, `shader-resource.md`) drew the code-vs-params seam, this stayed on the **params** side — it's `@group(1)` data mutation, not shader code, so it does **not** go in D-1. Design it with `typed-uniform-setters` (the generic schema-driven version across material + post) as one session: per-built-in `setColor` is the friendly end; the generic `setUniform(name, data)` is the open-ended end. Prior-art (2026-05-30): three.js/bevy use typed per-field setters for built-ins; the generic by-name path needs a reflected uniform schema (the heaviest, worst-fit-for-tier option).
+**Paired into the "uniform/params session" with `typed-uniform-setters.md`, 2026-05-30.** Deferred out of the D brainstorm (no demo animates a built-in's params per frame — trigger not met). When the `Shader` resource (Tranche D-1, landed 2026-05-31) drew the code-vs-params seam, this stayed on the **params** side — it's `@group(1)` data mutation, not shader code, so it does **not** go in D-1. Design it with `typed-uniform-setters` (the generic schema-driven version across material + post) as one session: per-built-in `setColor` is the friendly end; the generic `setUniform(name, data)` is the open-ended end. Prior-art (2026-05-30): three.js/bevy use typed per-field setters for built-ins; the generic by-name path needs a reflected uniform schema (the heaviest, worst-fit-for-tier option).
 
 `material.unlit({ color })` sets the color at creation; there's no API to change it afterwards. Same for any other built-in material with parameters. Custom materials let the consumer mutate buffers directly (they own the buffers via `MaterialDescriptor.bindings`), but built-ins hide the buffer.
 
@@ -24,4 +24,4 @@ Net: E should treat 1–4 as a single built-in-reconciliation pass layered on th
 
 **Trigger to revisit:** First demo wanting to animate a built-in material's parameters per frame — pulsing colors, fading planes, transition effects. (The D-1 built-in half-state above is also resolved here, regardless of the animation trigger, since it is the natural home for the work.)
 
-**Reference:** Tranche-4 design § Out; D-1 brainstorm 2026-05-30 (`shader-resource.md`, `2026-05-30-d1-shader-resource-design.md`). Pairs with `typed-uniform-setters.md`.
+**Reference:** Tranche-4 design § Out; D-1 brainstorm 2026-05-30 (landed 2026-05-31; see `_AUDIT-2026-05-26.md` D-1 row). Pairs with `typed-uniform-setters.md`.
