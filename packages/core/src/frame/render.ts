@@ -228,6 +228,7 @@ export const _frameRenderInternals = {
   _ensureCameraBuffer,
   _ensureMeshGroup0: ensureGroup0,
   _validateDraw: validateDraw,
+  _firstDepthDisagreement: firstDepthDisagreement,
 };
 
 function beginRenderPass(
@@ -346,6 +347,23 @@ function validateDraw(ctx: Context, draw: readonly Mesh[]): ResolvedDraw[] {
   return resolved;
 }
 
+/**
+ * Returns the index of the first draw whose `material.depthEnabled` disagrees
+ * with `passHasDepth`, or `-1` if all draws agree with `passHasDepth`.
+ * Query only — no side effects.
+ */
+function firstDepthDisagreement(
+  resolvedDraws: readonly ResolvedDraw[],
+  passHasDepth: boolean,
+): number {
+  for (let i = 0; i < resolvedDraws.length; i++) {
+    const draw = resolvedDraws[i];
+    if (!draw) continue; // unreachable — dense array from validateDraw; satisfies noUncheckedIndexedAccess
+    if (draw.material.depthEnabled !== passHasDepth) return i;
+  }
+  return -1;
+}
+
 function recordScenePass(
   ctx: Context,
   colorView: GPUTextureView,
@@ -460,7 +478,10 @@ function runEffectsPingPong(
  *   context; if the resolved mesh's `material` or `geometry` does not
  *   itself resolve to a live slot (defensive — the Mesh→Material and
  *   Mesh→Geometry refcounts normally keep these alive while a mesh
- *   references them); or if any `opts.effects` entry is null, already
+ *   references them); if any drawn material was created with
+ *   `depthEnabled:false` (`frame.render` always renders with a depth
+ *   attachment — depth-less materials must use `renderToTexture` without
+ *   a `depthTexture`); or if any `opts.effects` entry is null, already
  *   destroyed, or belongs to a different context (a single "invalid
  *   handle" diagnostic — the handle-pool generation counter does not
  *   distinguish destroyed from never-existed).
@@ -476,6 +497,13 @@ export function render(ctx: Context, opts: RenderOptions): void {
     throw new FurnaceGpuError("render: draw is required");
   }
   const resolvedDraws = validateDraw(ctx, opts.draw);
+  const depthMismatch = firstDepthDisagreement(resolvedDraws, true);
+  if (depthMismatch !== -1) {
+    throw new FurnaceGpuError(
+      `render: draw[${depthMismatch}] was created with depthEnabled:false but frame.render always renders with a depth attachment; ` +
+        `depth-less materials can only be drawn via renderToTexture without a depthTexture`,
+    );
+  }
   const effects = opts.effects ?? [];
   const resolvedEffects = validateEffects(ctx, effects);
 
