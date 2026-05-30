@@ -23,6 +23,12 @@ const VERTEX_BUFFER_LAYOUT: GPUVertexBufferLayout = {
   ],
 };
 
+/** The depth-stencil format every depth-declaring material pipeline uses, and
+ *  that the engine's depth attachment (frame.render) and any consumer-supplied
+ *  depthTexture (frame.renderToTexture) must match. Single source of truth for
+ *  the pipeline↔attachment depth-format invariant. Internal. */
+export const _ENGINE_DEPTH_FORMAT: GPUTextureFormat = "depth24plus";
+
 // FNV-1a (32-bit) hash for the pipeline cache key. OFFSET_BASIS and PRIME are
 // fixed by the FNV-1a spec — don't change them. The separator (ASCII Unit
 // Separator, 0x1f) is mixed in between parts so that ["ab","cd"] and ["abcd",""]
@@ -83,7 +89,7 @@ function buildPipelineDescriptor(
     },
     primitive: { topology, cullMode },
     depthStencil: {
-      format: "depth24plus",
+      format: _ENGINE_DEPTH_FORMAT,
       depthWriteEnabled: depthWrite,
       depthCompare,
     },

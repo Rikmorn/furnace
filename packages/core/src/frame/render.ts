@@ -5,6 +5,7 @@ import { _onDispose } from "../gpu/dispose-cascade.ts";
 import { FurnaceGpuError } from "../gpu/errors.ts";
 import type { Context } from "../gpu/index.ts";
 import * as gpu from "../gpu/index.ts";
+import { _ENGINE_DEPTH_FORMAT } from "../material/material.ts";
 import type { MaterialSlot } from "../material/types.ts";
 import { _recomputeModelIfDirty } from "../mesh/mesh.ts";
 import type { Mesh, MeshSlot } from "../mesh/types.ts";
@@ -63,7 +64,7 @@ function _ensureDepthTexture(ctx: Context): DepthEntry {
   }
   const texture = ctx.device.createTexture({
     size: { width, height },
-    format: "depth24plus",
+    format: _ENGINE_DEPTH_FORMAT,
     usage: GPUTextureUsage.RENDER_ATTACHMENT,
   });
   _recordAlloc(ctx, "texture", width * height * DEPTH_BYTES_PER_PIXEL);
