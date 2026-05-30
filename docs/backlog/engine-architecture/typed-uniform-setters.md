@@ -1,5 +1,7 @@
 # Typed uniform setters for material + post
 
+**Paired into the "uniform/params session" with `material-uniform-setters.md`, 2026-05-30.** When the `Shader` resource (Tranche D-1, `shader-resource.md`) drew the code-vs-params seam, this item stayed on the **params** side: it's the `@group(1)` uniform-*data* layer, orthogonal to the shader-code resource. It does **not** go in D-1. This is the uniform-schema-DSL question A-4 deliberately avoided; it spans material + post and should be designed with `material-uniform-setters` (per-built-in `setColor`) as one session. Trigger met at 7 `writeBuffer` call sites.
+
 Today, material and post both follow the same pattern: consumer creates a
 GPUBuffer with the right alignment, writes initial values via
 `ctx.queue.writeBuffer(buf, 0, new Float32Array([...]))`, and passes the

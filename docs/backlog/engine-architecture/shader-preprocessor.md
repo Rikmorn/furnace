@@ -1,5 +1,7 @@
 # Shader preprocessor / imports
 
+**Folds into Tranche D-1 (`shader-resource.md`), 2026-05-30.** The `// @include` resolution is shader *code* composition — it lives in D-1's shader-loading path (`shader.load` / `shader.create`), not as a standalone item. Trigger has **fired**: `hsv2rgb` is duplicated across `cookbook/shader/plasma.wgsl` + `striped.wgsl`. D-1's brainstorm picks the preprocessor approach (open question #5 there). This entry is retained for the approach options below; delete it when D-1 lands the include path.
+
 WGSL has no native `#include` mechanism. As shaders grow more complex and share common code (camera uniform structs, lighting helpers, noise functions, post-effect utility math), we'll want some form of import/include support.
 
 Options to consider when this is brainstormed:

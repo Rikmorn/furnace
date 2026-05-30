@@ -1,5 +1,7 @@
 # Hot reload of shaders
 
+**Unblocked by Tranche D-1 (`shader-resource.md`), 2026-05-30 — but not part of it.** The implementation sketch below hangs off `material.loadShader(url)` + a dev registry; D-1's `Shader` resource (`shader.load` + a poolable handle) is exactly that substrate. D-1 should make the `Shader` handle hot-reload-*ready*; building HMR itself stays here as a later dev-tooling tranche. Trigger (below) has NOT fired.
+
 In dev mode, when a `.wgsl` file changes on disk, the engine recompiles the shader and swaps pipelines without restarting the app. Wires into Bun's HMR (`bun --hot serve.ts`) — Bun already notifies on file changes; the engine listens and propagates.
 
 Implementation sketch: shaders loaded via `material.loadShader(url)` are tracked in a dev-mode registry; on HMR file change, the engine re-fetches the source, calls `device.createShaderModule` with the new code, and atomically swaps the pipeline. State held in the running app (camera position, mesh transforms, animation progress) is preserved.
