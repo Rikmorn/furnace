@@ -21,6 +21,6 @@ Either split reduces `render.ts` to ~200-250 lines and gives the second concern 
 
 **Trigger fired (2026-05-27):** Tranche A-4 Task 9 (`06701e3`, frame.render camera + draw input validation) added the `validateDraw` helper and pushed `render.ts` from 426 → 453 lines, crossing the ~450-line threshold. A-4 Task 9 itself was the trigger event but did not motivate an extraction — it added validation, not restructuring. The recommended extraction (preferred: `frame/render-internals.ts`) should be bundled with the **next** render-path PR that touches this file.
 
-**Trigger fired (2026-05-30):** Tranche D (`depthEnabled` + depth/attachment agreement; commit `bd6ddfb`) added `firstDepthDisagreement` helper and related validation, pushing `render.ts` from 453 → 540 lines. The extraction has not yet happened — it should be bundled with the next render-path PR that touches this file.
+**Trigger fired (2026-05-30):** Tranche D (`depthEnabled` + depth/attachment agreement; commit `a490b19`) added `firstDepthDisagreement` helper and related validation, pushing `render.ts` from 453 → 540 lines. The extraction has not yet happened — it should be bundled with the next render-path PR that touches this file.
 
 **Reference:** surfaced during Tranche B final review (2026-05-27). Tranche B itself contributed 28 lines but did not cause the threshold crossing — the file was already at the watch line.
