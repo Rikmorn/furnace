@@ -41,12 +41,15 @@ struct VsIn {
  *
  * Pipeline-state fields are optional with defaults matching
  * {@link MaterialDescriptor} (`topology: "triangle-list"`, `cullMode: "back"`,
- * `depthWrite: true`, `depthCompare: "less"`, no blend).
+ * `depthEnabled: true`, `depthWrite: true`, `depthCompare: "less"`, no blend).
+ * When `depthEnabled` is `false` the pipeline is built without a depth-stencil
+ * attachment; `depthWrite` and `depthCompare` are ignored in that case.
  */
 export type UnlitOptions = {
   color: Vec4;
   topology?: GPUPrimitiveTopology;
   cullMode?: GPUCullMode;
+  depthEnabled?: boolean;
   depthWrite?: boolean;
   depthCompare?: GPUCompareFunction;
   blend?: GPUBlendState;
@@ -90,6 +93,7 @@ export async function unlit(
       bindings: [{ binding: 0, resource: { buffer: colorBuffer } }],
       topology: opts.topology,
       cullMode: opts.cullMode,
+      depthEnabled: opts.depthEnabled,
       depthWrite: opts.depthWrite,
       depthCompare: opts.depthCompare,
       blend: opts.blend,

@@ -2,6 +2,9 @@ import { expect, test } from "bun:test";
 import * as gpu from "../../src/gpu/index.ts";
 import { _resolveMaterial } from "../../src/material/internal.ts";
 import { create } from "../../src/material/material.ts";
+import { normalColor } from "../../src/material/normal-color.ts";
+import { unlit } from "../../src/material/unlit.ts";
+import { vec4 } from "../../src/transform/vec4.ts";
 import {
   bunWebGpuAvailable,
   ensureBunWebGpu,
@@ -71,6 +74,33 @@ test.skipIf(!bunWebGpuAvailable())(
     expect(_resolveMaterial(ctx, a).pipeline).toBe(
       _resolveMaterial(ctx, b).pipeline,
     );
+    gpu.dispose(ctx);
+  },
+);
+
+test.skipIf(!bunWebGpuAvailable())(
+  "unlit forwards depthEnabled:false",
+  async () => {
+    const ctx = await gpu.requestContext(await makeOffscreenCanvas(), {
+      surfaceFormat: "linear",
+    });
+    const mat = await unlit(ctx, {
+      color: vec4.fromValues(1, 0, 0, 1),
+      depthEnabled: false,
+    });
+    expect(_resolveMaterial(ctx, mat).depthEnabled).toBe(false);
+    gpu.dispose(ctx);
+  },
+);
+
+test.skipIf(!bunWebGpuAvailable())(
+  "normalColor forwards depthEnabled:false",
+  async () => {
+    const ctx = await gpu.requestContext(await makeOffscreenCanvas(), {
+      surfaceFormat: "linear",
+    });
+    const mat = await normalColor(ctx, { depthEnabled: false });
+    expect(_resolveMaterial(ctx, mat).depthEnabled).toBe(false);
     gpu.dispose(ctx);
   },
 );

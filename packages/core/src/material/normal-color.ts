@@ -6,12 +6,15 @@ import type { Material } from "./types.ts";
  * Pipeline-state overrides accepted by {@link normalColor}.
  *
  * All fields optional; defaults match {@link MaterialDescriptor}
- * (`topology: "triangle-list"`, `cullMode: "back"`, `depthWrite: true`,
- * `depthCompare: "less"`, no blend).
+ * (`topology: "triangle-list"`, `cullMode: "back"`, `depthEnabled: true`,
+ * `depthWrite: true`, `depthCompare: "less"`, no blend). When `depthEnabled`
+ * is `false` the pipeline is built without a depth-stencil attachment;
+ * `depthWrite` and `depthCompare` are ignored in that case.
  */
 export type NormalColorOptions = {
   topology?: GPUPrimitiveTopology;
   cullMode?: GPUCullMode;
+  depthEnabled?: boolean;
   depthWrite?: boolean;
   depthCompare?: GPUCompareFunction;
   blend?: GPUBlendState;
@@ -71,6 +74,7 @@ export async function normalColor(
     fragment: NORMAL_COLOR_WGSL,
     topology: opts?.topology,
     cullMode: opts?.cullMode,
+    depthEnabled: opts?.depthEnabled,
     depthWrite: opts?.depthWrite,
     depthCompare: opts?.depthCompare,
     blend: opts?.blend,
