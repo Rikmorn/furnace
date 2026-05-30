@@ -15,6 +15,10 @@ import type { MaterialHandle } from "../resources/handle.ts";
  * - `cullMode`: default `"back"`. Override to `"none"` for two-sided or
  *   full-screen geometry.
  * - `topology`: default `"triangle-list"`.
+ * - `depthEnabled`: default `true`. When `false`, the pipeline is built with
+ *   no depth-stencil state and can only be drawn into a pass with no depth
+ *   attachment (`renderToTexture` without a `depthTexture`). `depthWrite` and
+ *   `depthCompare` are ignored when `false`.
  * - `depthWrite`: default `true`.
  * - `depthCompare`: default `"less"`.
  * - `blend`: undefined disables blending (opaque). Use the
@@ -28,6 +32,7 @@ export type MaterialDescriptor = {
   bindings?: GPUBindGroupEntry[];
   cullMode?: GPUCullMode;
   topology?: GPUPrimitiveTopology;
+  depthEnabled?: boolean;
   depthWrite?: boolean;
   depthCompare?: GPUCompareFunction;
   blend?: GPUBlendState;
@@ -68,6 +73,7 @@ export type MaterialSlot = {
   topology: GPUPrimitiveTopology;
   depthWrite: boolean;
   depthCompare: GPUCompareFunction;
+  depthEnabled: boolean;
   userCount: number;
   markedDestroyed: boolean;
   _teardown: () => void;

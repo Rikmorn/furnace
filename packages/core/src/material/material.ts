@@ -69,13 +69,14 @@ function buildPipelineDescriptor(
   descriptor: MaterialDescriptor,
   cullMode: GPUCullMode,
   topology: GPUPrimitiveTopology,
+  depthEnabled: boolean,
   depthWrite: boolean,
   depthCompare: GPUCompareFunction,
   blend: GPUBlendState | undefined,
 ): GPURenderPipelineDescriptor {
   const vsModule = ctx.device.createShaderModule({ code: descriptor.vertex });
   const fsModule = ctx.device.createShaderModule({ code: descriptor.fragment });
-  return {
+  const pipelineDescriptor: GPURenderPipelineDescriptor = {
     layout: "auto",
     vertex: {
       module: vsModule,
@@ -88,12 +89,15 @@ function buildPipelineDescriptor(
       targets: [{ format: ctx.format, blend }],
     },
     primitive: { topology, cullMode },
-    depthStencil: {
+  };
+  if (depthEnabled) {
+    pipelineDescriptor.depthStencil = {
       format: _ENGINE_DEPTH_FORMAT,
       depthWriteEnabled: depthWrite,
       depthCompare,
-    },
-  };
+    };
+  }
+  return pipelineDescriptor;
 }
 
 // Both getBindGroupLayout and createBindGroup can throw synchronously
@@ -145,8 +149,10 @@ function materialTeardown(ctx: Context, slot: MaterialSlot): void {
  * {@link Material} handle.
  *
  * The pipeline is keyed on `(vertex source, fragment source, cullMode,
- * topology, depthWrite, depthCompare, ctx format, blend signature)`. Two
- * `create` calls on the same ctx with identical keys share one underlying
+ * topology, depthEnabled, depthWrite, depthCompare, ctx format, blend
+ * signature)`. When `depthEnabled` is `false`, `depthWrite` and `depthCompare`
+ * are normalized out of the key so they don't produce spurious cache misses.
+ * Two `create` calls on the same ctx with identical keys share one underlying
  * `GPURenderPipeline`; the cache holds a refcount that `destroy` releases.
  * The cache is per-ctx — a pipeline built against ctx A cannot be reused
  * in ctx B (different `GPUDevice`).
@@ -179,6 +185,7 @@ export async function create(
 
   const cullMode = descriptor.cullMode ?? "back";
   const topology = descriptor.topology ?? "triangle-list";
+  const depthEnabled = descriptor.depthEnabled ?? true;
   const depthWrite = descriptor.depthWrite ?? true;
   const depthCompare = descriptor.depthCompare ?? "less";
 
@@ -187,8 +194,9 @@ export async function create(
     descriptor.fragment,
     cullMode,
     topology,
-    String(depthWrite),
-    depthCompare,
+    String(depthEnabled),
+    depthEnabled ? String(depthWrite) : "-",
+    depthEnabled ? depthCompare : "-",
     ctx.format,
     _blendSignature(descriptor.blend),
   ]);
@@ -200,6 +208,7 @@ export async function create(
       descriptor,
       cullMode,
       topology,
+      depthEnabled,
       depthWrite,
       depthCompare,
       descriptor.blend,
@@ -232,6 +241,7 @@ export async function create(
     topology,
     depthWrite,
     depthCompare,
+    depthEnabled,
     userCount: 0,
     markedDestroyed: false,
     _teardown: () => materialTeardown(ctx, slot),
