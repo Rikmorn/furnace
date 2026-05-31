@@ -195,7 +195,9 @@ async function buildScene(ctx: Context): Promise<SceneRef> {
   let pip: PipResources | undefined;
 
   try {
-    const subjectMat = await material.normalColor(ctx);
+    const subjectMat = await material.create(ctx, {
+      shader: await shader.normalColor(ctx),
+    });
     const subjectGeo = geometry.cube(ctx, { size: SUBJECT_SIZE });
     const subjectMesh = mesh.create(ctx, {
       geometry: subjectGeo,
@@ -209,8 +211,9 @@ async function buildScene(ctx: Context): Promise<SceneRef> {
     const roomGeo = geometry.cube(ctx, { size: ROOM_SIZE });
     const roomMesh = mesh.create(ctx, { geometry: roomGeo, material: roomMat });
 
-    const subjectMatNoDepth = await material.normalColor(ctx, {
-      depthEnabled: false,
+    const subjectMatNoDepth = await material.create(ctx, {
+      shader: await shader.normalColor(ctx),
+      depth: false,
     });
     const subjectMeshNoDepth = mesh.create(ctx, {
       geometry: subjectGeo,

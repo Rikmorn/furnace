@@ -4,6 +4,7 @@ import * as frame from "@furnace/core/frame";
 import * as geometry from "@furnace/core/geometry";
 import * as material from "@furnace/core/material";
 import * as mesh from "@furnace/core/mesh";
+import * as shader from "@furnace/core/shader";
 import type { Vec3, Vec4 } from "@furnace/core/transform";
 import { quat, vec3, vec4 } from "@furnace/core/transform";
 
@@ -84,7 +85,9 @@ await mountDemo({
     // material/geometry) and auto-disconnects the resize binding. Explicit
     // destroy is an optimization, shown where it's genuinely needed:
     // mid-life churn (geometry, custom-stats) and raw resources (post).
-    const mat = await material.normalColor(ctx);
+    const mat = await material.create(ctx, {
+      shader: await shader.normalColor(ctx),
+    });
     const cubeGeo = geometry.cube(ctx);
     const cubeVariable = mesh.create(ctx, { geometry: cubeGeo, material: mat });
     const cubeNoInterp = mesh.create(ctx, { geometry: cubeGeo, material: mat });

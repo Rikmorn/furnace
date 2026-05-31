@@ -7,6 +7,7 @@ import type { Material } from "@furnace/core/material";
 import * as material from "@furnace/core/material";
 import type { Mesh } from "@furnace/core/mesh";
 import * as mesh from "@furnace/core/mesh";
+import * as shader from "@furnace/core/shader";
 import * as stats from "@furnace/core/stats";
 import type { Vec4 } from "@furnace/core/transform";
 import { vec3, vec4 } from "@furnace/core/transform";
@@ -139,7 +140,9 @@ await mountDemo({
   setup: async (ctx) => {
     try {
       const cubes: Mesh[] = [];
-      const mat = await material.normalColor(ctx);
+      const mat = await material.create(ctx, {
+        shader: await shader.normalColor(ctx),
+      });
       // Shared geometry across all spawned meshes: 200 cubes share one VBO.
       // resources.meshes climbs with spawns; resources.geometries stays at 1.
       const geometry = geometryMod.cube(ctx, { size: CUBE_SIZE });

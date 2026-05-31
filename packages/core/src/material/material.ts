@@ -80,8 +80,8 @@ function resolveDepth(depth: MaterialDescriptor["depth"]): {
 }
 
 /** Translate a built-in factory's flat render-state options to the grouped
- *  MaterialDescriptor fields. Used by `unlit`/`normalColor` (their public flat
- *  options are unchanged in D-1; reconciled in E). */
+ *  MaterialDescriptor fields. Used by `unlit` (flat options unchanged in D-1;
+ *  reconciled in E). */
 export function _flatRenderState(o: {
   topology?: GPUPrimitiveTopology;
   cullMode?: GPUCullMode;
@@ -198,9 +198,10 @@ function materialTeardown(ctx: Context, slot: MaterialSlot): void {
  * bind-group resources themselves (buffers, textures) are consumer-owned —
  * `destroy` does not touch them. Built-in factories may allocate uniform
  * buffers and push them onto the slot's `ownedBuffers` so the slot's
- * teardown cleans them up (e.g. `unlit` registers a 16-byte color buffer;
- * `normalColor` has no owned buffers since it uses only engine-provided
- * `@group(0)` uniforms).
+ * teardown cleans them up (e.g. `unlit` registers a 16-byte color buffer).
+ * `material.create(ctx, { shader: await shader.normalColor(ctx) })` has no owned
+ * buffers since the normal-debug shader uses only engine-provided
+ * `@group(0)` uniforms.
  *
  * Setup-loud per the foreground failure policy
  * (`engine-conventions.md` §"Failure policy").

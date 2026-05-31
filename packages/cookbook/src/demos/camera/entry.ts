@@ -5,6 +5,7 @@ import * as geometry from "@furnace/core/geometry";
 import * as input from "@furnace/core/input";
 import * as material from "@furnace/core/material";
 import * as mesh from "@furnace/core/mesh";
+import * as shader from "@furnace/core/shader";
 import type { Vec3, Vec4 } from "@furnace/core/transform";
 import { vec3, vec4 } from "@furnace/core/transform";
 
@@ -105,7 +106,9 @@ await mountDemo({
     input.attach(ctx.canvas);
 
     try {
-      const normalMat = await material.normalColor(ctx);
+      const normalMat = await material.create(ctx, {
+        shader: await shader.normalColor(ctx),
+      });
       const planeMat = await material.unlit(ctx, {
         color: vec4.fromValues(0.1, 0.1, 0.12, 1),
       });

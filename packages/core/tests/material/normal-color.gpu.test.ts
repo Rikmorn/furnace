@@ -3,7 +3,7 @@ import * as gpu from "../../src/gpu/index.ts";
 import { blend } from "../../src/material/blend.ts";
 import * as material from "../../src/material/index.ts";
 import { _resolveMaterial } from "../../src/material/internal.ts";
-import { normalColor } from "../../src/material/normal-color.ts";
+import * as shader from "../../src/shader/index.ts";
 import {
   bunWebGpuAvailable,
   ensureBunWebGpu,
@@ -13,11 +13,13 @@ import {
 await ensureBunWebGpu();
 
 test.skipIf(!bunWebGpuAvailable())(
-  "material.normalColor builds a Material with no group-1",
+  "material.create with shader.normalColor builds a Material with no group-1",
   async () => {
     const canvas = await makeOffscreenCanvas();
     const ctx = await gpu.requestContext(canvas);
-    const mat = await normalColor(ctx);
+    const mat = await material.create(ctx, {
+      shader: await shader.normalColor(ctx),
+    });
     const slot = _resolveMaterial(ctx, mat);
     expect(slot.pipeline).toBeDefined();
     expect(slot.group1).toBe(null);
@@ -27,15 +29,14 @@ test.skipIf(!bunWebGpuAvailable())(
 );
 
 test.skipIf(!bunWebGpuAvailable())(
-  "normalColor: opts override topology / cullMode / depthWrite / depthCompare",
+  "material.create + shader.normalColor: opts override topology / cullMode / depthWrite / depthCompare",
   async () => {
     const canvas = await makeOffscreenCanvas();
     const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
-    const mat = await normalColor(ctx, {
-      topology: "line-list",
-      cullMode: "none",
-      depthWrite: false,
-      depthCompare: "less-equal",
+    const mat = await material.create(ctx, {
+      shader: await shader.normalColor(ctx),
+      primitive: { topology: "line-list", cullMode: "none" },
+      depth: { write: false, compare: "less-equal" },
     });
     const slot = _resolveMaterial(ctx, mat);
     expect(slot.topology).toBe("line-list");
@@ -48,12 +49,15 @@ test.skipIf(!bunWebGpuAvailable())(
 );
 
 test.skipIf(!bunWebGpuAvailable())(
-  "normalColor: opts.blend yields a distinct pipeline cache key",
+  "material.create + shader.normalColor: blend yields a distinct pipeline cache key",
   async () => {
     const canvas = await makeOffscreenCanvas();
     const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
-    const opaque = await normalColor(ctx);
-    const blended = await normalColor(ctx, {
+    const opaque = await material.create(ctx, {
+      shader: await shader.normalColor(ctx),
+    });
+    const blended = await material.create(ctx, {
+      shader: await shader.normalColor(ctx),
       blend: blend.premultiplied,
     });
     const opaqueSlot = _resolveMaterial(ctx, opaque);
@@ -66,11 +70,13 @@ test.skipIf(!bunWebGpuAvailable())(
 );
 
 test.skipIf(!bunWebGpuAvailable())(
-  "normalColor: defaults when no opts passed",
+  "material.create + shader.normalColor: defaults when no opts passed",
   async () => {
     const canvas = await makeOffscreenCanvas();
     const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
-    const mat = await normalColor(ctx);
+    const mat = await material.create(ctx, {
+      shader: await shader.normalColor(ctx),
+    });
     const slot = _resolveMaterial(ctx, mat);
     expect(slot.topology).toBe("triangle-list");
     expect(slot.cullMode).toBe("back");

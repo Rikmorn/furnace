@@ -90,7 +90,8 @@ export function disposeAllResources(ctx: Context): void {
   }
   // The cascade just freed any live built-in shader slots; invalidate the
   // per-ctx cache that held their (now-dead) handles so a post-disposeAll
-  // material.unlit/normalColor recompiles instead of reusing a freed handle.
+  // material.unlit / shader.unlit / shader.normalColor recompiles instead
+  // of reusing a freed handle.
   _resetBuiltinShaders(ctx);
   if (consumerDestroyed > 0) {
     warn(

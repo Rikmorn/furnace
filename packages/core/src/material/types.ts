@@ -24,9 +24,9 @@ export type MaterialDescriptor = {
 
 /**
  * Opaque material handle. Returned by {@link create} and the built-in
- * factories (`unlit`, `normalColor`). Consumers pass it to `mesh.create`
- * and `frame.render` and otherwise treat it as opaque; mutate only via
- * documented APIs, dispose via `material.destroy`.
+ * factory `unlit`. Consumers pass it to `mesh.create` and `frame.render`
+ * and otherwise treat it as opaque; mutate only via documented APIs,
+ * dispose via `material.destroy`.
  *
  * Type-alias of {@link MaterialHandle}; consumers can use either name.
  */

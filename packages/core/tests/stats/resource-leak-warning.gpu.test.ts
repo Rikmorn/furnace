@@ -7,6 +7,7 @@ import * as gpu from "../../src/gpu/index.ts";
 import * as material from "../../src/material/index.ts";
 import * as mesh from "../../src/mesh/index.ts";
 import * as post from "../../src/post/index.ts";
+import * as shader from "../../src/shader/index.ts";
 import { vec3 } from "../../src/transform/vec3.ts";
 import {
   bunWebGpuAvailable,
@@ -21,7 +22,9 @@ test.skipIf(!bunWebGpuAvailable())(
   async () => {
     const canvas = await makeOffscreenCanvas();
     const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
-    const mat = await material.normalColor(ctx);
+    const mat = await material.create(ctx, {
+      shader: await shader.normalColor(ctx),
+    });
     const geo = geometry.cube(ctx);
     mesh.create(ctx, { geometry: geo, material: mat });
     // Deliberately do not call destroy.
@@ -60,7 +63,9 @@ test.skipIf(!bunWebGpuAvailable())(
   async () => {
     const canvas = await makeOffscreenCanvas();
     const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
-    const mat = await material.normalColor(ctx);
+    const mat = await material.create(ctx, {
+      shader: await shader.normalColor(ctx),
+    });
     const geo = geometry.cube(ctx);
     const m = mesh.create(ctx, { geometry: geo, material: mat });
     mesh.destroy(ctx, m);
@@ -86,7 +91,9 @@ test.skipIf(!bunWebGpuAvailable())(
   async () => {
     const canvas = await makeOffscreenCanvas();
     const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
-    const mat = await material.normalColor(ctx);
+    const mat = await material.create(ctx, {
+      shader: await shader.normalColor(ctx),
+    });
     const geo = geometry.cube(ctx);
     const m = mesh.create(ctx, { geometry: geo, material: mat });
     mesh.destroy(ctx, m);
@@ -126,7 +133,9 @@ test.skipIf(!bunWebGpuAvailable())(
   async () => {
     const canvas = await makeOffscreenCanvas();
     const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
-    const mat = await material.normalColor(ctx);
+    const mat = await material.create(ctx, {
+      shader: await shader.normalColor(ctx),
+    });
     const geo = geometry.cube(ctx);
     const m = mesh.create(ctx, { geometry: geo, material: mat });
     const cam = camera.perspective({
@@ -165,7 +174,9 @@ test.skipIf(!bunWebGpuAvailable())(
   async () => {
     const canvas = await makeOffscreenCanvas();
     const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
-    const mat = await material.normalColor(ctx);
+    const mat = await material.create(ctx, {
+      shader: await shader.normalColor(ctx),
+    });
     const geo = geometry.cube(ctx);
     const m = mesh.create(ctx, { geometry: geo, material: mat });
     const cam = camera.perspective({

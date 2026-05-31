@@ -6,8 +6,8 @@ import type { Material, MaterialSlot } from "./types.ts";
 /**
  * Resolve a {@link Material} handle to its slot data; throws on a stale
  * or destroyed handle. Engine-internal — used by `frame.render`, the
- * material factories (`unlit`, `normalColor`) to attach owned buffers
- * post-alloc, and other paths that need direct slot access.
+ * `unlit` factory to attach owned buffers post-alloc, and other paths
+ * that need direct slot access.
  *
  * @throws FurnaceGpuError - if `material` does not resolve to a live
  *   slot (already destroyed, generation mismatch, or invalid handle).

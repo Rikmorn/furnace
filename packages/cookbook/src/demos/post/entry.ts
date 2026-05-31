@@ -4,6 +4,7 @@ import * as geometry from "@furnace/core/geometry";
 import * as material from "@furnace/core/material";
 import * as mesh from "@furnace/core/mesh";
 import * as post from "@furnace/core/post";
+import * as shader from "@furnace/core/shader";
 import type { Vec4 } from "@furnace/core/transform";
 import { quat, vec3, vec4 } from "@furnace/core/transform";
 
@@ -114,7 +115,9 @@ await mountDemo({
         bindings: [{ binding: 0, resource: { buffer: paramsBufVignette } }],
       });
 
-      const normalMat = await material.normalColor(ctx);
+      const normalMat = await material.create(ctx, {
+        shader: await shader.normalColor(ctx),
+      });
       const cubeGeo = geometry.cube(ctx);
       const cube = mesh.create(ctx, { geometry: cubeGeo, material: normalMat });
 

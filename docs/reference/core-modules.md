@@ -268,6 +268,7 @@ Re-exported from `index.ts` so other core modules can `import * as stats` and ca
 ### Demoed in cookbook
 
 - `create`, `load`, `Shader`, `MaterialDescriptor (shader/bindings)` → `cookbook/shader`.
+- `unlit`, `normalColor` (engine-owned built-ins) → demoed via `material.create` across the cookbook (e.g. `cookbook/camera`, `cookbook/geometry`, `cookbook/render-target`).
 
 ---
 
@@ -283,23 +284,21 @@ Re-exported from `index.ts` so other core modules can `import * as stats` and ca
 | `destroy` | `(ctx: Context, material: Material) => void` | If a Mesh still references the material, defers GPU teardown; otherwise destroys factory-owned buffers (iterating `ownedBufferBytes`, recording each byte release in stats) and releases the cached pipeline ref. Silent on stale handles. |
 | `unlit` | `(ctx: Context, opts: UnlitOptions) => Promise<Material>` | Stock unlit material. References an engine-owned internal shared shader compiled once per ctx. Allocates a 16-byte uniform buffer for the color (owned by the material's slot). `opts.color` is required; pipeline-state fields are optional. Delegates to `create`; its failure policy and pipeline-cache behaviour apply. |
 | `UnlitOptions` | `{ color: Vec4; topology?: GPUPrimitiveTopology; cullMode?: GPUCullMode; depthEnabled?: boolean; depthWrite?: boolean; depthCompare?: GPUCompareFunction; blend?: GPUBlendState }` | Options for `unlit`. `color` required (linear-space RGBA `Vec4`); pipeline-state fields optional with `MaterialDescriptor` defaults (triangle-list / back / `depthEnabled` true / depthWrite true / less / opaque). When `depthEnabled` is `false`, `depthWrite` and `depthCompare` are ignored. |
-| `normalColor` | `(ctx: Context, opts?: NormalColorOptions) => Promise<Material>` | Stock debug material that renders the (uniform-scale-correct) world-space normal as RGB. No bindings — uses only engine-provided `@group(0)` uniforms. References an engine-owned internal shared shader compiled once per ctx. Delegates to `create`; its failure policy and pipeline-cache behaviour apply. |
-| `NormalColorOptions` | `{ topology?: GPUPrimitiveTopology; cullMode?: GPUCullMode; depthEnabled?: boolean; depthWrite?: boolean; depthCompare?: GPUCompareFunction; blend?: GPUBlendState }` | Pipeline-state overrides for `normalColor`. All fields optional; defaults match `MaterialDescriptor` (triangle-list / back / `depthEnabled` true / depthWrite true / less / opaque). When `depthEnabled` is `false`, `depthWrite` and `depthCompare` are ignored. |
 | `createPipeline` | `(ctx: Context, descriptor: GPURenderPipelineDescriptor) => Promise<GPURenderPipeline>` | Escape hatch: wraps `device.createRenderPipeline` in a validation error scope. Returns the raw pipeline; the caller owns it (not cached). |
 | `blend` | `{ straightAlpha: GPUBlendState; premultiplied: GPUBlendState; additive: GPUBlendState }` | Frozen sugar-helper namespace (api-posture.md R6). All three values are frozen `GPUBlendState` objects; pass directly to `MaterialDescriptor.blend`. |
 | `blend.straightAlpha` | `GPUBlendState` constant — color: `src=src-alpha, dst=one-minus-src-alpha, op=add`; alpha: `src=one, dst=one-minus-src-alpha, op=add` | Non-premultiplied alpha blending — the "naive" alpha-blend most beginners reach for. Compare with `blend.premultiplied` to see why production engines pre-multiply: PMA composes correctly under chained translucent overlays; straight alpha accumulates α-multiplication error visible at the seams. |
 | `blend.premultiplied` | `GPUBlendState` constant — `src=one, dst=one-minus-src-alpha, op=add` for both color and alpha | Premultiplied-alpha compositing; the production default. Shader must output `vec4(rgb * a, a)`. |
 | `blend.additive` | `GPUBlendState` constant — `src=one, dst=one, op=add` for both color and alpha | Additive blending; contributions sum rather than occlude. Useful for particles, glow passes, light accumulation. |
 | `MaterialDescriptor` | `{ shader: Shader; entryPoints?: { vertex?: string; fragment?: string }; bindings?: GPUBindGroupEntry[]; primitive?: { topology?: GPUPrimitiveTopology; cullMode?: GPUCullMode }; depth?: false \| { write?: boolean; compare?: GPUCompareFunction }; blend?: GPUBlendState }` | `shader` required. `entryPoints` defaults to `vs_main`/`fs_main` and is overridable. `primitive.topology` defaults to `"triangle-list"`, `cullMode` to `"back"`. `depth` omitted → depth test + write enabled (`write: true`, `compare: "less"`); `depth: false` → no depth-stencil block; `depth: { write?, compare? }` → enabled with overrides. `blend` undefined → opaque. |
-| `Material` | Opaque branded uint48 handle (alias of `MaterialHandle`) | Returned by `create` / `unlit` / `normalColor`. Pass to `mesh.create` and `frame.render`; dispose via `material.destroy(ctx, m)`. |
+| `Material` | Opaque branded uint48 handle (alias of `MaterialHandle`) | Returned by `create` / `unlit`. Pass to `mesh.create` and `frame.render`; dispose via `material.destroy(ctx, m)`. |
 
 ### Demoed in cookbook
 
-- `unlit`, `normalColor`, `destroy` → `cookbook/camera`.
-- `normalColor`, `NormalColorOptions` (topology) → `cookbook/geometry`.
+- `unlit`, `create` (+ `shader.normalColor`), `destroy` → `cookbook/camera`.
+- `create` (+ `shader.normalColor`, `primitive` topology/cullMode) → `cookbook/geometry`.
 - `create`, `MaterialDescriptor (shader/bindings)` → `cookbook/shader` (also demos `shader.load`).
 - `unlit`, `UnlitOptions` (blend, cullMode, depthWrite, depthCompare), `blend.straightAlpha`, `blend.premultiplied`, `blend.additive` → `cookbook/blend`.
-- `depthEnabled` (via `UnlitOptions`/`NormalColorOptions`) → `cookbook/render-target`.
+- `depthEnabled` (via `UnlitOptions`), `depth: false` (via `material.create` + `shader.normalColor`) → `cookbook/render-target`.
 
 ### Reference-only (no demo, by design)
 

@@ -4,8 +4,8 @@ import * as camera from "../../src/camera/index.ts";
 import { _frameRenderInternals, render } from "../../src/frame/render.ts";
 import * as geometry from "../../src/geometry/index.ts";
 import * as gpu from "../../src/gpu/index.ts";
+import * as material from "../../src/material/index.ts";
 import { _resolveMaterial } from "../../src/material/internal.ts";
-import { normalColor } from "../../src/material/normal-color.ts";
 import { unlit } from "../../src/material/unlit.ts";
 import { _resolveMesh } from "../../src/mesh/internal.ts";
 import {
@@ -13,6 +13,7 @@ import {
   destroy as destroyMesh,
 } from "../../src/mesh/mesh.ts";
 import type { Mesh } from "../../src/mesh/types.ts";
+import * as shader from "../../src/shader/index.ts";
 import { vec3 } from "../../src/transform/index.ts";
 import { vec4 } from "../../src/transform/vec4.ts";
 import {
@@ -61,7 +62,9 @@ test.skipIf(!bunWebGpuAvailable())(
     const cam = camera.perspective({
       aspect: ctx.canvas.width / ctx.canvas.height,
     });
-    const cubeMat = await normalColor(ctx);
+    const cubeMat = await material.create(ctx, {
+      shader: await shader.normalColor(ctx),
+    });
     const planeMat = await unlit(ctx, {
       color: vec4.fromValues(0.1, 0.15, 0.2, 1),
     });
@@ -117,7 +120,9 @@ test.skipIf(!bunWebGpuAvailable())(
     const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
     const camA = camera.perspective({ position: vec3.fromValues(0, 0, 3) });
     const camB = camera.perspective({ position: vec3.fromValues(3, 0, 0) });
-    const mat = await normalColor(ctx);
+    const mat = await material.create(ctx, {
+      shader: await shader.normalColor(ctx),
+    });
     const c = createMesh(ctx, { geometry: geometry.cube(ctx), material: mat });
     const cSlot = _resolveMesh(ctx, c);
     const matSlot = _resolveMaterial(ctx, mat);

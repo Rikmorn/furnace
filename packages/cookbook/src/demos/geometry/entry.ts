@@ -8,6 +8,7 @@ import type { Material } from "@furnace/core/material";
 import * as material from "@furnace/core/material";
 import type { Mesh } from "@furnace/core/mesh";
 import * as mesh from "@furnace/core/mesh";
+import * as shader from "@furnace/core/shader";
 import type { Vec4 } from "@furnace/core/transform";
 import { vec3, vec4 } from "@furnace/core/transform";
 
@@ -169,9 +170,12 @@ async function buildScene(ctx: Context): Promise<SceneRef> {
     buildGridData(state.subdiv, state.amplitude, state.topology),
   );
   // WebGPU requires cullMode "none" for non-triangle topologies — faces don't exist for line/point primitives.
-  const mat = await material.normalColor(ctx, {
-    topology: state.topology,
-    cullMode: state.topology === "triangle-list" ? "back" : "none",
+  const mat = await material.create(ctx, {
+    shader: await shader.normalColor(ctx),
+    primitive: {
+      topology: state.topology,
+      cullMode: state.topology === "triangle-list" ? "back" : "none",
+    },
   });
   const grid = mesh.create(ctx, { geometry: geo, material: mat });
   const cam = camera.perspective({
@@ -207,11 +211,14 @@ function makeRebuild(
         buildGridData(state.subdiv, state.amplitude, state.topology),
       );
       // WebGPU requires cullMode "none" for non-triangle topologies — faces don't exist for line/point primitives.
-      nextMat = await material.normalColor(ctx, {
-        topology: state.topology,
-        cullMode: state.topology === "triangle-list" ? "back" : "none",
+      nextMat = await material.create(ctx, {
+        shader: await shader.normalColor(ctx),
+        primitive: {
+          topology: state.topology,
+          cullMode: state.topology === "triangle-list" ? "back" : "none",
+        },
       });
-      // Tear-down (e.g. bun --hot reload) may have run while material.normalColor
+      // Tear-down (e.g. bun --hot reload) may have run while material.create
       // was pending. The sceneRef we'd swap into is already destroyed, so
       // clean up the fresh resources and bail before touching it.
       if (abortFlag.disposed) {

@@ -2,8 +2,8 @@ import { expect, test } from "bun:test";
 import * as gpu from "../../src/gpu/index.ts";
 import { _resolveMaterial } from "../../src/material/internal.ts";
 import { create } from "../../src/material/material.ts";
-import { normalColor } from "../../src/material/normal-color.ts";
 import { unlit } from "../../src/material/unlit.ts";
+import * as shader from "../../src/shader/index.ts";
 import { create as createShader } from "../../src/shader/shader.ts";
 import { vec4 } from "../../src/transform/vec4.ts";
 import {
@@ -84,12 +84,15 @@ test.skipIf(!bunWebGpuAvailable())(
 );
 
 test.skipIf(!bunWebGpuAvailable())(
-  "normalColor forwards depthEnabled:false",
+  "material.create + shader.normalColor forwards depth:false",
   async () => {
     const ctx = await gpu.requestContext(await makeOffscreenCanvas(), {
       surfaceFormat: "linear",
     });
-    const mat = await normalColor(ctx, { depthEnabled: false });
+    const mat = await create(ctx, {
+      shader: await shader.normalColor(ctx),
+      depth: false,
+    });
     expect(_resolveMaterial(ctx, mat).depthEnabled).toBe(false);
     gpu.dispose(ctx);
   },

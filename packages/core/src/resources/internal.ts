@@ -256,9 +256,10 @@ export function _destroyShader<T>(
 /**
  * Clear the per-ctx engine-owned built-in shader cache. Called by the dispose
  * cascade after it frees the built-in shader slots: the cache holds resolved
- * handles to those now-dead slots, so a later `material.unlit`/`normalColor`
- * (e.g. after a mid-session `resources.disposeAll`) must recompile the shader
- * rather than reuse a freed handle.
+ * handles to those now-dead slots, so a later `material.unlit` or
+ * `shader.unlit`/`shader.normalColor` (e.g. after a mid-session
+ * `resources.disposeAll`) must recompile the shader rather than reuse a
+ * freed handle.
  */
 export function _resetBuiltinShaders(ctx: Context): void {
   // Fresh object (not field-by-field reset) so adding a built-in shader to the

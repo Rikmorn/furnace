@@ -3,6 +3,7 @@ import * as geometry from "../../src/geometry/index.ts";
 import * as gpu from "../../src/gpu/index.ts";
 import * as material from "../../src/material/index.ts";
 import * as mesh from "../../src/mesh/index.ts";
+import * as shader from "../../src/shader/index.ts";
 import { snapshot } from "../../src/stats/public.ts";
 import {
   bunWebGpuAvailable,
@@ -17,7 +18,9 @@ test.skipIf(!bunWebGpuAvailable())(
   async () => {
     const canvas = await makeOffscreenCanvas();
     const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
-    const mat = await material.normalColor(ctx);
+    const mat = await material.create(ctx, {
+      shader: await shader.normalColor(ctx),
+    });
     const geo = geometry.cube(ctx);
     const before = snapshot(ctx);
     const m = mesh.create(ctx, { geometry: geo, material: mat });

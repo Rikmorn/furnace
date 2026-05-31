@@ -142,7 +142,9 @@ async function main(): Promise<void> {
   const sdfMesh = await sdfTriangle(ctx);
   if (!sdfMesh) throw new Error("could not load sdf mech");
 
-  const cubeMat = await material.normalColor(ctx);
+  const cubeMat = await material.create(ctx, {
+    shader: await shader.normalColor(ctx),
+  });
   const planeMat = await material.unlit(ctx, {
     color: vec4.fromValues(0.1, 0.15, 0.2, 1),
   });
