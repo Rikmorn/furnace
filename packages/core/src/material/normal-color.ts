@@ -1,5 +1,5 @@
 import type { Context } from "../gpu/index.ts";
-import { _normalColorShader } from "../shader/builtins.ts";
+import { normalColor as normalColorShader } from "../shader/index.ts";
 import { _flatRenderState, create } from "./material.ts";
 import type { Material } from "./types.ts";
 
@@ -39,7 +39,7 @@ export async function normalColor(
   opts?: NormalColorOptions,
 ): Promise<Material> {
   return await create(ctx, {
-    shader: await _normalColorShader(ctx),
+    shader: await normalColorShader(ctx),
     ..._flatRenderState(opts ?? {}),
     blend: opts?.blend,
   });

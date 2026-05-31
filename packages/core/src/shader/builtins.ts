@@ -73,14 +73,22 @@ function builtinShader(
   return promise;
 }
 
-/** Internal — the stock unlit shader (reads a `vec4` color at `@group(1)
- *  @binding(0)`). Used by `material.unlit`. Public exposure waits for E. */
-export function _unlitShader(ctx: Context): Promise<Shader> {
+/**
+ * The engine's stock **unlit** shader (reads a `vec4<f32>` colour at
+ * `@group(1) @binding(0)`). Engine-owned and shared per context (compiled
+ * once); {@link destroy} is a no-op on it — it is freed only by the dispose
+ * cascade. Pass to `material.create` (or use the `material.unlit` factory).
+ */
+export function unlit(ctx: Context): Promise<Shader> {
   return builtinShader(ctx, "unlit");
 }
 
-/** Internal — the stock normal-debug shader (no `@group(1)` bindings). Used by
- *  `material.normalColor`. Public exposure waits for E. */
-export function _normalColorShader(ctx: Context): Promise<Shader> {
+/**
+ * The engine's stock **normal-debug** shader — renders the world-space normal
+ * as RGB; declares no `@group(1)` bindings. Engine-owned and shared per
+ * context (compiled once); {@link destroy} is a no-op on it. Pass to
+ * `material.create`.
+ */
+export function normalColor(ctx: Context): Promise<Shader> {
   return builtinShader(ctx, "normalColor");
 }

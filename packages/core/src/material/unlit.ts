@@ -1,6 +1,6 @@
 import { FurnaceError } from "../errors.ts";
 import type { Context } from "../gpu/index.ts";
-import { _unlitShader } from "../shader/builtins.ts";
+import { unlit as unlitShader } from "../shader/index.ts";
 import { _recordAlloc, _recordDestroy } from "../stats/internal.ts";
 import type { Vec4 } from "../transform/types.ts";
 import { _resolveMaterial } from "./internal.ts";
@@ -65,7 +65,7 @@ export async function unlit(
   _recordAlloc(ctx, "buffer", COLOR_BUFFER_SIZE_BYTES);
   try {
     const handle = await create(ctx, {
-      shader: await _unlitShader(ctx),
+      shader: await unlitShader(ctx),
       bindings: [{ binding: 0, resource: { buffer: colorBuffer } }],
       ..._flatRenderState(opts),
       blend: opts.blend,
