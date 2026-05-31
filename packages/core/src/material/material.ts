@@ -80,8 +80,9 @@ function resolveDepth(depth: MaterialDescriptor["depth"]): {
 }
 
 /** Translate a built-in factory's flat render-state options to the grouped
- *  MaterialDescriptor fields. Used by `unlit` (flat options unchanged in D-1;
- *  reconciled in E). */
+ *  MaterialDescriptor fields. Used by `unlit`; reconciling its flat options to
+ *  the grouped shape is deferred to a later E tranche (E-B) — see
+ *  docs/backlog/engine-architecture/material-uniform-setters.md item 3. */
 export function _flatRenderState(o: {
   topology?: GPUPrimitiveTopology;
   cullMode?: GPUCullMode;
