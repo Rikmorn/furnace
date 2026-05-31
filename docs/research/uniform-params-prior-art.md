@@ -48,7 +48,11 @@ WGSL defines `AlignOf` and `SizeOf` for every type in its formal memory-layout s
 
 where `roundUp(k, n) = ⌈n ÷ k⌉ × k` (verified verbatim from the [W3C CRD-WGSL-20260519](https://www.w3.org/TR/2026/CRD-WGSL-20260519/#alignment-and-size)).
 
-**The `vec3` footgun, concretely.** `vec3<f32>` has `AlignOf = 16` but `SizeOf = 12`. A struct `{ vec3<f32>, f32 }` is **not** 16 bytes: the `vec3` occupies bytes 0–11, the `f32` lands at byte 16 (its slot padded to 16-byte alignment), so the struct is 20 bytes total. This is a verified spec consequence, not folklore.
+**The `vec3` footgun, concretely.** `vec3<f32>` has `AlignOf = 16` but `SizeOf = 12`. A struct member's offset is `roundUp(AlignOf(member), prevOffset + SizeOf(prev))` — the running offset advances by **`SizeOf`**, not by `roundUp(align, size)` (that rounded-stride rule is for *array elements*, §14.4.4, a distinct rule). Two consequences:
+- `{ vec3<f32>, f32 }` is **16 bytes**: the `vec3` occupies bytes 0–11, and the `f32` (align 4) packs into the tail padding at offset `roundUp(4, 12) = 12`. The scalar fills the hole — this is the *benign* direction. (Earlier drafts of this note, and the E-B plan, wrongly put the `f32` at byte 16 / struct 20; corrected here against the spec — the calculator in `packages/core/src/binding/layout.ts` and its tests encode the right values.)
+- `{ f32, vec3<f32> }` is **32 bytes**: the `f32` is at 0, but the `vec3` needs align 16, so it lands at `roundUp(16, 4) = 16` (bytes 4–15 wasted), running extent 28, struct rounded to 32. *This* is where vec3's alignment actually bites.
+
+Both are verified spec consequences, not folklore.
 
 The `@align(N)` and `@size(N)` attributes override member alignment/size (`@align`: N a power of 2 ≥ natural align; `@size`: N ≥ natural size), letting a host struct be byte-exactly matched against a WGSL struct even when natural layout would differ ([WGSL §12.1 `@align`](https://www.w3.org/TR/WGSL/#align-attr), [§12.13 `@size`](https://www.w3.org/TR/WGSL/#size-attr)).
 
