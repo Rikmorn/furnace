@@ -258,12 +258,24 @@ Re-exported from `index.ts` so other core modules can `import * as stats` and ca
 
 | Export | Signature | Notes |
 |---|---|---|
-| `create` | `(ctx: Context, wgsl: string) => Promise<Shader>` | Compile a `Shader` from WGSL source. Validates via a `pushErrorScope("validation")` scope AND `getCompilationInfo` (belt-and-braces across runtimes). Setup-loud: throws `FurnaceError` if `wgsl` is empty; throws `FurnaceError` if WGSL compilation reports an error. |
-| `load` | `(ctx: Context, url: string) => Promise<Shader>` | Fetch WGSL from `url` and compile it. Does **not** resolve `// @include` directives (deferred — see `shader-preprocessor.md`) and does **not** cache by URL (the browser HTTP-caches the bytes; reuse the returned handle to deduplicate). Setup-loud: throws `FurnaceError` on a non-OK HTTP response; throws `FurnaceError` if the fetched WGSL fails to compile. |
-| `unlit` | `(ctx: Context) => Promise<Shader>` | The engine's stock unlit shader (reads a `vec4<f32>` colour at `@group(1) @binding(0)`). Engine-owned, shared per ctx (compiled once); `destroy` no-ops. Pass to `material.create` / used internally by `material.unlit`. |
-| `normalColor` | `(ctx: Context) => Promise<Shader>` | The engine's stock normal-debug shader (world-space normal → RGB; no `@group(1)`). Engine-owned, shared per ctx (compiled once); `destroy` no-ops. Pass to `material.create`. |
+| `create` | `(ctx: Context, wgsl: string, opts?: ShaderCreateOpts<L>) => Promise<Shader<L>>` | Compile a `Shader` from WGSL source. Pass `opts.layout` to declare the shader's `@group(1)` uniform-buffer schema; the layout is resolved at compile time and stored on the handle (readable via `_layoutOf`). `opts.addressSpace` defaults to `"uniform"`. Omit `opts` entirely for shaders with no `@group(1)` binding; existing 2-arg calls are unaffected. Validates via `pushErrorScope("validation")` AND `getCompilationInfo` (belt-and-braces across runtimes). Setup-loud: throws `FurnaceError` if `wgsl` is empty; throws `FurnaceError` if WGSL compilation fails; throws `FurnaceError` if `opts.layout` uses an unsupported token or unimplemented address space. |
+| `load` | `(ctx: Context, url: string, opts?: ShaderCreateOpts<L>) => Promise<Shader<L>>` | Fetch WGSL from `url` and compile it. Accepts the same `opts` as `create`. Does **not** resolve `// @include` directives (deferred — see `shader-preprocessor.md`) and does **not** cache by URL (the browser HTTP-caches the bytes; reuse the returned handle to deduplicate). Setup-loud: throws `FurnaceError` on a non-OK HTTP response; throws `FurnaceError` if the fetched WGSL fails to compile. |
+| `unlit` | `(ctx: Context) => Promise<Shader<{ color: "vec4f" }>>` | The engine's stock unlit shader (reads a `vec4<f32>` colour at `@group(1) @binding(0)`). Engine-owned, shared per ctx (compiled once); `destroy` no-ops. Pass to `material.create` / used internally by `material.unlit`. Carries a by-construction `@group(1)` layout: `{ color: "vec4f" }` (16 bytes, uniform); readable via `_layoutOf`. |
+| `normalColor` | `(ctx: Context) => Promise<Shader<Record<string, never>>>` | The engine's stock normal-debug shader (world-space normal → RGB; declares no `@group(1)` bindings). Engine-owned, shared per ctx (compiled once); `destroy` no-ops. Pass to `material.create`. `_layoutOf` returns `null`. |
 | `destroy` | `(ctx: Context, shader: Shader) => void` | Drop the engine's reference to the `GPUShaderModule` (GC reclaims it; no GPU-timeline free). Pipelines already built from it are unaffected (WebGPU captures the module at creation). No-op on engine-owned built-in shaders (`shader.unlit`/`shader.normalColor`; `destroy` silently skips them). Idempotent on stale or destroyed handles. |
-| `Shader` | Opaque branded uint48 handle (alias of `ShaderHandle`) | Returned by `create` / `load` / `unlit` / `normalColor`. Holds a compiled `GPUShaderModule` for one WGSL module (which may declare `@vertex`/`@fragment`/`@compute` entry points). Pass to `material.create` via `MaterialDescriptor.shader`; dispose via `shader.destroy(ctx, s)`. |
+| `Shader<L>` | Opaque branded uint48 handle (alias of `ShaderHandle`) carrying phantom `L` | Returned by `create` / `load` / `unlit` / `normalColor`. `L` records the declared `@group(1)` layout schema at compile time; defaults to `LayoutSchema` (wide) when no `opts.layout` is provided. Pass to `material.create` via `MaterialDescriptor.shader`; dispose via `shader.destroy(ctx, s)`. |
+| `ShaderCreateOpts<L>` | `{ layout?: L; addressSpace?: AddressSpace }` | Optional third argument to `create`/`load`. `layout` is a `LayoutSchema` (field name → WGSL token). `addressSpace` defaults to `"uniform"`. |
+| `LayoutSchema` | `Record<string, Token>` | Consumer-declared uniform-buffer schema: field name → WGSL token, in declaration order. |
+| `AddressSpace` | `"uniform" \| "storage-read" \| "storage-readwrite"` | Address space of the layout buffer. Only `"uniform"` is implemented; storage variants throw until the compute tranche. |
+| `ResolvedLayout` | `{ fields: Record<string, ResolvedField>; byteSize: number; addressSpace: AddressSpace }` | Output of the layout calculator: per-field byte offsets + total buffer byte size. |
+
+### Internal (`_*`) — not for consumers
+
+Re-exported from `index.ts` so the binding subsystem (Task 3+) can `import * as shader` and call the accessor without reaching into the module's internal files.
+
+| Export | Used by |
+|---|---|
+| `_layoutOf` | `(ctx: Context, shader: Shader) => ResolvedLayout \| null` — reads the resolved `@group(1)` layout stored on a shader slot. Used by the binding subsystem to validate a `Binding` against its paired shader's declared schema. Returns `null` if no layout was declared at compile time. |
 
 ### Demoed in cookbook
 

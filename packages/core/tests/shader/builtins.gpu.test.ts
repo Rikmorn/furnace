@@ -51,3 +51,27 @@ test.skipIf(!bunWebGpuAvailable())(
     gpu.dispose(ctx2);
   },
 );
+
+test.skipIf(!bunWebGpuAvailable())(
+  "shader.unlit carries the { color: vec4f } layout",
+  async () => {
+    const ctx = await createTestContext();
+    const s = await shader.unlit(ctx);
+    expect(shader._layoutOf(ctx, s)?.fields["color"]).toEqual({
+      offset: 0,
+      size: 16,
+      token: "vec4f",
+    });
+    expect(shader._layoutOf(ctx, s)?.byteSize).toBe(16);
+    gpu.dispose(ctx);
+  },
+);
+
+test.skipIf(!bunWebGpuAvailable())(
+  "shader.normalColor has no layout (no @group(1))",
+  async () => {
+    const ctx = await createTestContext();
+    expect(shader._layoutOf(ctx, await shader.normalColor(ctx))).toBe(null);
+    gpu.dispose(ctx);
+  },
+);

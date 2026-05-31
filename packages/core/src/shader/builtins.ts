@@ -1,3 +1,5 @@
+import { computeLayout } from "../binding/layout.ts";
+import type { ResolvedLayout } from "../binding/types.ts";
 import type { Context } from "../gpu/index.ts";
 import { _createShader } from "./shader.ts";
 import type { Shader } from "./types.ts";
@@ -58,6 +60,9 @@ struct VsOut {
 }
 `;
 
+/** Resolved layout for the unlit shader's `@group(1)` uniform buffer. */
+const UNLIT_LAYOUT: ResolvedLayout = computeLayout({ color: "vec4f" });
+
 /** Lazily compile (once per ctx) the engine-owned shared built-in shader for
  *  `kind`. The Promise is cached so concurrent first-calls share one compile. */
 function builtinShader(
@@ -68,7 +73,8 @@ function builtinShader(
   const existing = cache[kind];
   if (existing) return existing;
   const wgsl = kind === "unlit" ? UNLIT_WGSL : NORMAL_COLOR_WGSL;
-  const promise = _createShader(ctx, wgsl, true);
+  const layout = kind === "unlit" ? UNLIT_LAYOUT : null;
+  const promise = _createShader(ctx, wgsl, true, layout);
   cache[kind] = promise;
   return promise;
 }
@@ -78,9 +84,12 @@ function builtinShader(
  * `@group(1) @binding(0)`). Engine-owned and shared per context (compiled
  * once); {@link destroy} is a no-op on it — it is freed only by the dispose
  * cascade. Pass to `material.create` (or use the `material.unlit` factory).
+ *
+ * Carries a by-construction `@group(1)` layout: `{ color: "vec4f" }` (16 bytes,
+ * uniform). Readable via `shader._layoutOf(ctx, s)`.
  */
-export function unlit(ctx: Context): Promise<Shader> {
-  return builtinShader(ctx, "unlit");
+export function unlit(ctx: Context): Promise<Shader<{ color: "vec4f" }>> {
+  return builtinShader(ctx, "unlit") as Promise<Shader<{ color: "vec4f" }>>;
 }
 
 /**
@@ -88,7 +97,13 @@ export function unlit(ctx: Context): Promise<Shader> {
  * as RGB; declares no `@group(1)` bindings. Engine-owned and shared per
  * context (compiled once); {@link destroy} is a no-op on it. Pass to
  * `material.create`.
+ *
+ * Has no `@group(1)` layout (`shader._layoutOf` returns `null`).
  */
-export function normalColor(ctx: Context): Promise<Shader> {
-  return builtinShader(ctx, "normalColor");
+export function normalColor(
+  ctx: Context,
+): Promise<Shader<Record<string, never>>> {
+  return builtinShader(ctx, "normalColor") as Promise<
+    Shader<Record<string, never>>
+  >;
 }
