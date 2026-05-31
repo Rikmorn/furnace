@@ -3,6 +3,7 @@ export type { BindingCreateOpts } from "./binding.ts";
 // `import * as binding from ".../binding/index.ts"`. Not part of the
 // consumer-facing API.
 export {
+  _bufferOf,
   _flushDirtyBindings,
   _isDirty,
   _scratchOf,

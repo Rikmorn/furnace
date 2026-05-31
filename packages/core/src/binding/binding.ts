@@ -275,3 +275,11 @@ export function _isDirty(ctx: Context, b: BindingHandle): boolean {
   const slot = _lookupBinding<BindingSlot>(ctx, b);
   return slot !== null ? slot.dirty : false;
 }
+
+/** Return the binding's `GPUBuffer`, or `null` on stale handles. Used by
+ *  `material.create` to build the `@group(1)` bind group over the binding's
+ *  buffer without coupling to {@link BindingSlot}'s shape. */
+export function _bufferOf(ctx: Context, b: BindingHandle): GPUBuffer | null {
+  const slot = _lookupBinding<BindingSlot>(ctx, b);
+  return slot !== null ? slot.buffer : null;
+}

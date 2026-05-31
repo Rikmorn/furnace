@@ -1,3 +1,5 @@
+import { _bufferOf } from "../binding/binding.ts";
+import type { LayoutSchema } from "../binding/types.ts";
 import { FurnaceError } from "../errors.ts";
 import type { Context } from "../gpu/index.ts";
 import {
@@ -6,6 +8,7 @@ import {
   _lookupMaterial,
   _lookupShader,
 } from "../resources/internal.ts";
+import { _layoutOf } from "../shader/shader.ts";
 import type { ShaderSlot } from "../shader/types.ts";
 import { _recordDestroy } from "../stats/internal.ts";
 import { _pipelineCache } from "./pipeline.ts";
@@ -156,7 +159,7 @@ function buildGroup1(
   } catch {
     _pipelineCache.release(ctx, pipelineKey);
     throw new FurnaceError(
-      "MaterialDescriptor.bindings provided but shader declares no @group(1) bindings",
+      "MaterialDescriptor @group(1) data (binding/bindings) supplied but shader declares no @group(1) bindings",
     );
   }
   try {
@@ -211,13 +214,17 @@ function materialTeardown(ctx: Context, slot: MaterialSlot): void {
  * @throws FurnaceError - if the shader handle is invalid or destroyed.
  * @throws FurnaceError - if WebGPU pipeline creation reports a validation
  *   error (surfaced from `pushErrorScope("validation")`).
- * @throws FurnaceError - if `bindings` are supplied but the shader declares
- *   no `@group(1)` bindings (layout mismatch).
+ * @throws FurnaceError - if `descriptor.shader` declares a `@group(1)` layout
+ *   but neither `descriptor.binding` nor a non-empty `descriptor.bindings` is
+ *   supplied (completeness check — setup-loud).
+ * @throws FurnaceError - if `binding` or `bindings` are supplied but the shader
+ *   declares no `@group(1)` bindings (layout mismatch).
+ * @throws FurnaceError - if `descriptor.binding` is invalid or destroyed.
  */
-export async function create(
+export async function create<L extends LayoutSchema = LayoutSchema>(
   ctx: Context,
-  descriptor: MaterialDescriptor,
-): Promise<Material> {
+  descriptor: MaterialDescriptor<L>,
+): Promise<Material<L>> {
   if (descriptor.shader == null) {
     throw new FurnaceError("material.create: shader is required");
   }
@@ -225,6 +232,19 @@ export async function create(
   if (shaderSlot === null) {
     throw new FurnaceError(
       "material.create: shader handle is invalid or destroyed",
+    );
+  }
+
+  // Completeness check: if the shader declares @group(1) data, the caller must
+  // supply either a typed binding or raw bindings — a no-data material against
+  // a data-expecting shader is almost certainly a mistake (setup-loud).
+  const shaderLayout = _layoutOf(ctx, descriptor.shader);
+  const hasBinding = descriptor.binding != null;
+  const hasRawBindings =
+    descriptor.bindings != null && descriptor.bindings.length > 0;
+  if (shaderLayout !== null && !hasBinding && !hasRawBindings) {
+    throw new FurnaceError(
+      "material.create: shader declares @group(1) data but no binding/bindings supplied",
     );
   }
 
@@ -277,11 +297,26 @@ export async function create(
 
   const pipeline = await _pipelineCache.acquire(ctx, pipelineKey, build);
 
-  const bindings = descriptor.bindings;
-  const group1 =
-    bindings !== undefined && bindings.length > 0
-      ? buildGroup1(ctx, pipeline, pipelineKey, bindings)
-      : null;
+  // Resolve @group(1) bind group: typed binding path takes precedence over
+  // raw bindings. The binding OWNS its buffer — do NOT push to ownedBuffers.
+  let group1: GPUBindGroup | null = null;
+  if (descriptor.binding != null) {
+    const buf = _bufferOf(ctx, descriptor.binding);
+    if (buf === null) {
+      // Stale/destroyed binding — fail setup-loud rather than silently leaving
+      // group1 null (which would surface as a GPU error at draw time). Release
+      // the pipeline-cache slot acquired above, mirroring buildGroup1's discipline.
+      _pipelineCache.release(ctx, pipelineKey);
+      throw new FurnaceError(
+        "material.create: binding handle is invalid or destroyed",
+      );
+    }
+    group1 = buildGroup1(ctx, pipeline, pipelineKey, [
+      { binding: 0, resource: { buffer: buf } },
+    ]);
+  } else if (descriptor.bindings != null && descriptor.bindings.length > 0) {
+    group1 = buildGroup1(ctx, pipeline, pipelineKey, descriptor.bindings);
+  }
 
   const slot: MaterialSlot = {
     pipeline,
@@ -298,7 +333,9 @@ export async function create(
     markedDestroyed: false,
     _teardown: () => materialTeardown(ctx, slot),
   };
-  return _allocMaterial(ctx, slot);
+  // Boundary cast: phantom L is compile-time only; _allocMaterial returns
+  // MaterialHandle which is structurally identical to Material<L> at runtime.
+  return _allocMaterial(ctx, slot) as Material<L>;
 }
 
 /**
