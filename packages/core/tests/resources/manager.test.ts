@@ -1,12 +1,14 @@
 import { expect, test } from "bun:test";
 import { createResourceManager } from "../../src/resources/manager.ts";
 
-test("createResourceManager returns four initialised pools", () => {
+test("createResourceManager returns all initialised pools", () => {
   const mgr = createResourceManager();
   expect(mgr.meshes).toBeDefined();
   expect(mgr.materials).toBeDefined();
   expect(mgr.geometries).toBeDefined();
   expect(mgr.effects).toBeDefined();
+  expect(mgr.shaders).toBeDefined();
+  expect(mgr.bindings).toBeDefined();
 });
 
 test("each pool starts at the initial capacity with slot 0 reserved", () => {

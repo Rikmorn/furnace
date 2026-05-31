@@ -4,6 +4,7 @@ export type ResourceKind =
   | "geometry"
   | "effect"
   | "shader"
+  | "binding"
   | "buffer"
   | "texture";
 
@@ -14,13 +15,21 @@ export type ResourceRegistry = {
     geometries: number;
     effects: number;
     shaders: number;
+    bindings: number;
   };
   memory: { bufferBytes: number; textureBytes: number };
 };
 
 export function createResourceRegistry(): ResourceRegistry {
   return {
-    counts: { meshes: 0, materials: 0, geometries: 0, effects: 0, shaders: 0 },
+    counts: {
+      meshes: 0,
+      materials: 0,
+      geometries: 0,
+      effects: 0,
+      shaders: 0,
+      bindings: 0,
+    },
     memory: { bufferBytes: 0, textureBytes: 0 },
   };
 }
@@ -56,6 +65,9 @@ export function recordAlloc(
     case "shader":
       r.counts.shaders++;
       break;
+    case "binding":
+      r.counts.bindings++;
+      break;
     case "buffer":
       r.memory.bufferBytes += bytes;
       break;
@@ -89,6 +101,9 @@ export function recordDestroy(
       break;
     case "shader":
       r.counts.shaders--;
+      break;
+    case "binding":
+      r.counts.bindings--;
       break;
     case "buffer":
       r.memory.bufferBytes -= bytes;

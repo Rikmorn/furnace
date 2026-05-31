@@ -1,3 +1,31 @@
+import type { BindingHandle } from "../resources/handle.ts";
+
+/**
+ * Opaque binding handle — a `@group(1)` data instance owning a `GPUBuffer`,
+ * its CPU scratch, the offset map, and (Task 4) the typed setters. Phantom `L`
+ * carries the layout shape at compile time; the runtime layout lives in the
+ * slot. Type-alias of {@link BindingHandle}. Managed pool kind; dispose via
+ * `binding.destroy` (or let the dispose cascade free it).
+ */
+export type Binding<L extends LayoutSchema = LayoutSchema> = BindingHandle & {
+  readonly __layout?: L;
+};
+
+/**
+ * Engine-private slot backing a {@link Binding}. `scratch` is the persistent
+ * CPU staging buffer; `views` are cached typed-array views over it (so Task 4's
+ * set/setUniform write without allocating).
+ */
+export type BindingSlot = {
+  buffer: GPUBuffer;
+  byteSize: number;
+  scratch: ArrayBuffer;
+  views: { f32: Float32Array; i32: Int32Array; u32: Uint32Array };
+  layout: ResolvedLayout;
+  dirty: boolean;
+  _teardown: () => void;
+};
+
 /** WGSL scalar/vector/matrix tokens the layout calculator understands.
  * Extensible to nested structs / arrays / `@align`/`@size` / atomics / `f16`
  * later (the design language admits them; E-B implements this subset). */

@@ -7,6 +7,7 @@ import { disposeAllResources } from "./dispose.ts";
  */
 export type {
   AnyResourceHandle,
+  BindingHandle,
   EffectHandle,
   GeometryHandle,
   MaterialHandle,

@@ -67,3 +67,11 @@ test("recordAlloc: geometry kind increments counts.geometries", () => {
   recordDestroy(r, "geometry", 0);
   expect(r.counts.geometries).toBe(0);
 });
+
+test("recordAlloc: binding kind increments counts.bindings", () => {
+  const r = createResourceRegistry();
+  recordAlloc(r, "binding", 0);
+  expect(r.counts.bindings).toBe(1);
+  recordDestroy(r, "binding", 0);
+  expect(r.counts.bindings).toBe(0);
+});

@@ -32,6 +32,7 @@ test.skipIf(!bunWebGpuAvailable())(
       geometries: 1,
       effects: 0,
       shaders: 1,
+      bindings: 0,
     });
 
     resources.disposeAll(ctx);
@@ -42,6 +43,7 @@ test.skipIf(!bunWebGpuAvailable())(
       geometries: 0,
       effects: 0,
       shaders: 0,
+      bindings: 0,
     });
 
     // Idempotent: a second call is a no-op.
@@ -71,6 +73,7 @@ test.skipIf(!bunWebGpuAvailable())(
       geometries: 1,
       effects: 0,
       shaders: 1,
+      bindings: 0,
     });
 
     resources.disposeAll(ctx);
@@ -81,6 +84,7 @@ test.skipIf(!bunWebGpuAvailable())(
       geometries: 0,
       effects: 0,
       shaders: 0,
+      bindings: 0,
     });
 
     // Second wave: allocate fresh after disposeAll — confirms mid-session
@@ -97,6 +101,7 @@ test.skipIf(!bunWebGpuAvailable())(
       geometries: 1,
       effects: 0,
       shaders: 1,
+      bindings: 0,
     });
 
     // Old handles must NOT resolve (slots recycled, generation bumped).

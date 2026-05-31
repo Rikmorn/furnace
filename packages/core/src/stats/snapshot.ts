@@ -43,6 +43,7 @@ export function buildSnapshot(state: StatsState): Snapshot {
       geometries: state.resources.counts.geometries,
       effects: state.resources.counts.effects,
       shaders: state.resources.counts.shaders,
+      bindings: state.resources.counts.bindings,
     },
     events: {
       perEmitter: Object.fromEntries(state.emissions),

@@ -96,7 +96,7 @@ The refcount is engine-private. Consumers cannot inspect it; the engine cannot e
 
 Consumer discipline becomes an *optimization* (free early to reduce in-context memory pressure), not a *requirement*.
 
-The leak-warn (`sum(stats.resources.counts.*) > 0` → "context disposed with live resource-manager slots — leak suspected") is preserved alongside the cascade warn. (`stats.resources.counts.*` is the engine-internal registry; consumers read the same data via `stats.snapshot(ctx).resources.*`.) With all four resource kinds pool-tracked and the cascade firing each slot's stats decrement, the leak-warn's count is typically zero. It remains as a safety net for any future non-pooled resource kind.
+The leak-warn (`sum(stats.resources.counts.*) > 0` → "context disposed with live resource-manager slots — leak suspected") is preserved alongside the cascade warn. (`stats.resources.counts.*` is the engine-internal registry; consumers read the same data via `stats.snapshot(ctx).resources.*`.) With all pool kinds tracked and the cascade firing each slot's stats decrement, the leak-warn's count is typically zero. It remains as a safety net for any future non-pooled resource kind.
 
 ### Dispose order
 
@@ -104,11 +104,11 @@ The leak-warn (`sum(stats.resources.counts.*) > 0` → "context disposed with li
 
 1. **`_runDisposeCascade(ctx)` (engine-private cleanup)** — runs first. Tears down engine-private resources that are stats-tracked but NOT pool-tracked: depth texture, per-camera uniform buffers, post intermediates. Each calls `_recordDestroy` directly because it doesn't flow through a pool slot.
 
-2. **`disposeAllResources(ctx)` (pool cascade)** — runs second. Walks every live slot in every pool in the cascade order (meshes → effects → materials → geometries) and runs each slot's `_teardown`. The manager's destroy path fires the single `_recordDestroy` call for each pool-tracked slot.
+2. **`disposeAllResources(ctx)` (pool cascade)** — runs second. Walks every live slot in every pool in the cascade order (meshes → effects → materials → geometries → shaders → bindings) and runs each slot's `_teardown`. The manager's destroy path fires the single `_recordDestroy` call for each pool-tracked slot.
 
 The ordering is load-bearing. Engine-private decrements run first; pool-cascade decrements follow. Together they bring stats's `resources.counts.*` back to zero in well-behaved teardown.
 
-After both cascades complete, `gpu.dispose` reads `stats.resources.counts.{meshes|materials|geometries|effects}` and warns if the sum is non-zero. In well-behaved teardown this is always zero (both cascades ran cleanly). The check remains as a safety net for any future non-pooled resource kind whose stats decrements weren't fired during either cascade.
+After both cascades complete, `gpu.dispose` reads `stats.resources.counts.{meshes|materials|geometries|effects|shaders|bindings}` and warns if the sum is non-zero. In well-behaved teardown this is always zero (both cascades ran cleanly). The check remains as a safety net for any future non-pooled resource kind whose stats decrements weren't fired during either cascade.
 
 ### Cross-cutting introspection
 
@@ -116,15 +116,17 @@ After both cascades complete, `gpu.dispose` reads `stats.resources.counts.{meshe
 
 - `disposeAll(ctx) → void` — explicit cascade trigger; identical to what `gpu.dispose(ctx)` does internally. Use when freeing handles ahead of a context transition without dropping the `GPUDevice`.
 
-Branded handle types (`MeshHandle`, `MaterialHandle`, `GeometryHandle`, `EffectHandle`, `AnyResourceHandle`) and the `ResourceKind` discriminator are re-exported from this module for type-level use.
+Branded handle types (`MeshHandle`, `MaterialHandle`, `GeometryHandle`, `EffectHandle`, `ShaderHandle`, `BindingHandle`, `AnyResourceHandle`) and the `ResourceKind` discriminator are re-exported from this module for type-level use.
 
 For per-kind live counts and memory totals, see `stats.snapshot(ctx).resources.*` and `stats.snapshot(ctx).memory.*`. RM-4 deleted the prior `resources.summary`, `resources.list`, and `resources.snapshot` exports because no consumer used them; restoration is tracked in `docs/backlog/engine-architecture/resources-introspection-restore.md` for any future external consumer trigger.
 
 ### Stats relationship
 
-The resource manager is the **single writer of slot-kind counts** (`mesh`, `material`, `geometry`, `effect`). Its alloc and destroy wrappers fire `_recordAlloc(ctx, kind, 0)` and `_recordDestroy(ctx, kind, 0)`; no other code path increments those counts.
+The resource manager is the **single writer of slot-kind counts** (`mesh`, `material`, `geometry`, `effect`, `shader`, `binding`). Its alloc and destroy wrappers fire `_recordAlloc(ctx, kind, 0)` and `_recordDestroy(ctx, kind, 0)`; no other code path increments those counts.
 
-**Memory totals** (`buffer`, `texture` bytes) are written directly by whichever site owns the GPU resource — slot-owned buffer/texture bytes by the resource module that creates them (`mesh.ts` object uniforms, `geometry.ts` vertex/index buffers, `material/unlit.ts` color uniforms; `material.ts` iterates `ownedBufferBytes` on teardown to release those factory-allocated bytes), ctx-owned bytes by the engine-internal site that creates them (`frame/render.ts` depth texture + camera uniforms, `post/intermediate.ts` color targets). Bytes flow through the same `_recordAlloc` / `_recordDestroy` API.
+**Memory totals** (`buffer`, `texture` bytes) are written directly by whichever site owns the GPU resource — slot-owned buffer/texture bytes by the resource module that creates them (`mesh.ts` object uniforms, `geometry.ts` vertex/index buffers, `material/unlit.ts` color uniforms, `binding/binding.ts` uniform buffer; teardown paths decrement the matching bytes: `material.ts` via `ownedBufferBytes`, `binding/binding.ts` via `_teardown`), ctx-owned bytes by the engine-internal site that creates them (`frame/render.ts` depth texture + camera uniforms, `post/intermediate.ts` color targets). Bytes flow through the same `_recordAlloc` / `_recordDestroy` API.
+
+A `Binding` slot owns one `GPUBuffer`; its byte size is recorded at `createBuffer` time via `_recordAlloc(ctx, "buffer", byteSize)` and decremented in `_teardown` via `_recordDestroy(ctx, "buffer", byteSize)`. The slot count itself is tracked separately as `_recordAlloc(ctx, "binding", 0)` (single-writer rule). Consumers read both via `stats.snapshot(ctx).resources.bindings` (slot count) and `stats.snapshot(ctx).memory.bufferBytes` (byte total).
 
 Stats's snapshot reads these two registries — counts and memory — and surfaces them at `stats.snapshot(ctx).resources.*` and `stats.snapshot(ctx).memory.*`.
 

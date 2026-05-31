@@ -12,9 +12,10 @@ import {
  * Cascade order (load-bearing). Meshes refcount Materials and Geometries,
  * so meshes tear down first. Effects are independent and slot in after
  * meshes. Materials and Geometries follow (their refcount must already
- * be at zero when actual GPU teardown runs). Shaders are order-insensitive
- * — nothing references a shader slot after pipeline creation (WebGPU captures
- * the module at pipeline-build time), so they slot last.
+ * be at zero when actual GPU teardown runs). Shaders and Bindings are
+ * order-insensitive — nothing references a shader slot after pipeline creation
+ * (WebGPU captures the module at pipeline-build time), and a Binding owns its
+ * buffer outright (no slot references it back), so they slot last.
  */
 const CASCADE_ORDER: readonly ResourceKind[] = [
   "mesh",
@@ -22,6 +23,7 @@ const CASCADE_ORDER: readonly ResourceKind[] = [
   "material",
   "geometry",
   "shader",
+  "binding",
 ];
 
 /**

@@ -24,6 +24,7 @@ export type ResourceManager = {
   geometries: Pool<unknown>;
   effects: Pool<unknown>;
   shaders: Pool<unknown>;
+  bindings: Pool<unknown>;
   materialPipelineCache: Map<string, PipelineCacheEntry>;
   postPipelineCache: Map<string, PipelineCacheEntry>;
   /** Per-ctx engine-owned built-in shader cache (lazily compiled once; stores
@@ -57,6 +58,7 @@ export function createResourceManager(): ResourceManager {
     geometries: createPool(),
     effects: createPool(),
     shaders: createPool(),
+    bindings: createPool(),
     materialPipelineCache: new Map(),
     postPipelineCache: new Map(),
     builtinShaders: { unlit: null, normalColor: null },

@@ -164,7 +164,7 @@ Used indirectly by every input/resize-driven demo (`gpu.onResize`, `input.onKeyD
 | `get` | `<P extends Path<Snapshot>>(ctx: Context, path: P) => PathValue<Snapshot, P> \| null` | Dotted-path lookup into a fresh snapshot. Returns `null` for unresolved paths or disposed ctx. Path is statically constrained to valid `Snapshot` keys. |
 | `measure` | `(ctx: Context, name: string, fn: () => void) => void` | Times `fn()` and stores `performance.now()` delta under `name`. `fn` is run even on errors (finally block). `fn` is intentionally **not** invoked on disposed ctx, invalid `name` (empty / non-string — warns), or cross-kind name collision with a gauge/counter (warns). |
 | `startMeasurement` | `(ctx: Context, name: string) => Measurement` | Returns `{ end }` for async/manual measurements. Calling `end` twice warns and no-ops. Returns a no-op `Measurement` on disposed ctx or invalid name. |
-| `Snapshot` | see `snapshot-types.ts` | Frozen `{ frame, gpu, resources, events, memory, custom }`. `frame.ms` includes `{ last, mean, p99, min, max }`. `gpu.renderMs` / `gpu.computeMs` are currently `null` (reserved). `gpu.uncapturedErrors` is a cumulative count. `gpu.deviceLost` is `true` after `device.lost` resolves on a non-disposed context (terminal — see below). |
+| `Snapshot` | see `snapshot-types.ts` | Frozen `{ frame, gpu, resources, events, memory, custom }`. `resources` contains `{ meshes, materials, geometries, effects, shaders, bindings }` — live counts per pool kind. `frame.ms` includes `{ last, mean, p99, min, max }`. `gpu.renderMs` / `gpu.computeMs` are currently `null` (reserved). `gpu.uncapturedErrors` is a cumulative count. `gpu.deviceLost` is `true` after `device.lost` resolves on a non-disposed context (terminal — see below). |
 | `snap.gpu.deviceLost` | `boolean` | `true` after `device.lost` resolves on a non-disposed context. `false` on `ZERO_SNAPSHOT` and on a disposed-context snapshot. Terminal — device is non-recoverable; consumer should request a fresh context or surface the failure. |
 | `Path<T>` | template-literal type | Union of all valid dotted paths into `T`. |
 | `PathValue<T, P>` | recursive lookup type | Resolves the value type at path `P`. |
@@ -183,8 +183,8 @@ Re-exported from `index.ts` so other core modules can `import * as stats` and ca
 | `_recordBindGroupSwitch` | `frame/render.ts`, `frame/render-to-texture.ts` |
 | `_recordEmission` | `events/emitter.ts` (per-emitter counter) |
 | `_recordUncapturedError` | `gpu/context.ts` (device `uncapturederror` handler) |
-| `_recordAlloc` | Three categories of writer, all using the signature `(ctx, kind, bytes) => void`: (1) **slot-kind count records** — `resources/internal.ts` per-kind alloc wrappers (`_allocMesh` / `_allocMaterial` / `_allocGeometry` / `_allocEffect`) fire `(ctx, kind, 0)` to bump slot counts. (2) **slot-owned bytes** — resource modules that allocate GPU buffers owned by a slot: `mesh/mesh.ts` (object uniform), `geometry/geometry.ts` (vertex + optional index buffers), `material/unlit.ts` (color uniform). (3) **ctx-owned bytes** — engine-internal resources that don't flow through a pool slot: `frame/render.ts` (depth texture + per-camera uniform buffer), `post/intermediate.ts` (post color targets). |
-| `_recordDestroy` | Symmetric to `_recordAlloc` across the same three categories: (1) slot-kind count decrements from `resources/internal.ts` destroy paths (`_destroyMesh` / `_destroyMaterial` / `_destroyGeometry` / `_destroyEffect` / `_destroyByKind`). (2) slot-owned bytes from the resource module's teardown: `mesh/mesh.ts` (object uniform), `geometry/geometry.ts` (vertex + index buffers), `material/material.ts` (iterates `ownedBufferBytes` to release factory-allocated bytes such as `unlit`'s color uniform). (3) ctx-owned bytes from `frame/render.ts` and `post/intermediate.ts`. Signature: `(ctx, kind, bytes) => void`. |
+| `_recordAlloc` | Three categories of writer, all using the signature `(ctx, kind, bytes) => void`: (1) **slot-kind count records** — `resources/internal.ts` per-kind alloc wrappers (`_allocMesh` / `_allocMaterial` / `_allocGeometry` / `_allocEffect` / `_allocShader` / `_allocBinding`) fire `(ctx, kind, 0)` to bump slot counts. (2) **slot-owned bytes** — resource modules that allocate GPU buffers owned by a slot: `mesh/mesh.ts` (object uniform), `geometry/geometry.ts` (vertex + optional index buffers), `material/unlit.ts` (color uniform), `binding/binding.ts` (uniform buffer). (3) **ctx-owned bytes** — engine-internal resources that don't flow through a pool slot: `frame/render.ts` (depth texture + per-camera uniform buffer), `post/intermediate.ts` (post color targets). |
+| `_recordDestroy` | Symmetric to `_recordAlloc` across the same three categories: (1) slot-kind count decrements from `resources/internal.ts` destroy paths (`_destroyMesh` / `_destroyMaterial` / `_destroyGeometry` / `_destroyEffect` / `_destroyShader` / `_destroyBinding` / `_destroyByKind`). (2) slot-owned bytes from the resource module's teardown: `mesh/mesh.ts` (object uniform), `geometry/geometry.ts` (vertex + index buffers), `material/material.ts` (iterates `ownedBufferBytes`), `binding/binding.ts` (`_teardown` decrements the buffer bytes). (3) ctx-owned bytes from `frame/render.ts` and `post/intermediate.ts`. Signature: `(ctx, kind, bytes) => void`. |
 
 ### Demoed in cookbook
 
@@ -281,6 +281,29 @@ Re-exported from `index.ts` so the binding subsystem (Task 3+) can `import * as 
 
 - `create`, `load`, `Shader`, `MaterialDescriptor (shader/bindings)` → `cookbook/shader`.
 - `unlit`, `normalColor` (engine-owned built-ins) → demoed via `material.create` across the cookbook (e.g. `cookbook/camera`, `cookbook/geometry`, `cookbook/render-target`).
+
+---
+
+## `@furnace/core/binding`
+
+`import * as binding from "@furnace/core/binding";`
+
+### Public
+
+| Export | Signature | Notes |
+|---|---|---|
+| `create` | `(ctx: Context, shader: Shader<L>) => Binding<L>` | Create a `Binding` from a compiled `Shader`. Reads the `@group(1)` layout stored on the shader slot (via `_layoutOf`) and allocates a `GPUBuffer` + CPU scratch. **Synchronous**. Setup-loud: throws `FurnaceError` if the shader declares no layout (`_layoutOf` returns `null`) or the layout has no fields. |
+| `create` | `(ctx: Context, opts: { layout: L; addressSpace?: AddressSpace }) => Binding<L>` | Create a `Binding` without a paired shader. Calls `computeLayout` on the provided schema. **Synchronous**. Setup-loud: throws `FurnaceError` on an unsupported token, unimplemented address space, or empty schema. |
+| `destroy` | `(ctx: Context, b: Binding) => void` | Free the binding's `GPUBuffer` and CPU scratch. Stats decrements for both the binding slot count and the buffer bytes are fired via `_teardown`. Idempotent on stale or already-destroyed handles. |
+| `Binding<L>` | Opaque branded uint48 handle (alias of `BindingHandle`) carrying phantom `L` | Returned by `create`. `L` records the declared `@group(1)` layout schema at compile time. Managed pool kind — owns a `GPUBuffer` (stats `memory.bufferBytes`) and a CPU scratch buffer; freed explicitly via `binding.destroy` or by the dispose cascade. No refcount. |
+| `LayoutSchema` | `Record<string, Token>` | Re-exported for consumers declaring schemas without importing from `@furnace/core/shader`. |
+| `AddressSpace` | `"uniform" \| "storage-read" \| "storage-readwrite"` | Re-exported. Only `"uniform"` is implemented; storage variants throw until the compute tranche. |
+| `ResolvedLayout` | `{ fields: Record<string, ResolvedField>; byteSize: number; addressSpace: AddressSpace }` | Re-exported. Output of the layout calculator. |
+| `Token` | `"f32" \| "i32" \| "u32" \| "vec2f" \| "vec3f" \| "vec4f" \| "mat2x2f" \| "mat3x3f" \| "mat4x4f"` | Re-exported. WGSL scalar/vector/matrix tokens the layout calculator understands. |
+
+### Demoed in cookbook
+
+(none yet — `set`/`setUniform`/flush land in Task 4; cookbook demo deferred until the binding write path is complete.)
 
 ---
 
@@ -493,7 +516,7 @@ module-level mutable-state exception.
 
 `import * as resources from "@furnace/core/resources";`
 
-Cross-cutting cleanup over the per-ctx resource pools (meshes, materials, geometries, effects, shaders), plus the branded handle types and kind discriminator. The per-kind `create` / `destroy` functions live in their owning modules (`mesh.*`, `material.*`, `post.*`); this module is the cross-kind surface.
+Cross-cutting cleanup over the per-ctx resource pools (meshes, materials, geometries, effects, shaders, bindings), plus the branded handle types and kind discriminator. The per-kind `create` / `destroy` functions live in their owning modules (`mesh.*`, `material.*`, `post.*`, `binding.*`); this module is the cross-kind surface.
 
 Count / memory introspection lives on `stats.snapshot(ctx).resources.*` and `stats.snapshot(ctx).memory.*`.
 
@@ -502,9 +525,9 @@ Count / memory introspection lives on `stats.snapshot(ctx).resources.*` and `sta
 | Export | Signature | Notes |
 |---|---|---|
 | `disposeAll` | `(ctx: Context) => void` | Manually trigger the resource-manager cascade — same teardown that `gpu.dispose` runs internally, but without disposing the `GPUDevice` itself. Used for explicit cleanup before context disposal (e.g. free memory during a level transition without dropping the device). Idempotent. |
-| `ResourceKind` | `"mesh" \| "material" \| "geometry" \| "effect" \| "shader"` | Discriminator string for resource kinds. |
-| `MeshHandle` / `MaterialHandle` / `GeometryHandle` / `EffectHandle` / `ShaderHandle` | Branded uint48 handles | Re-exported from `resources/handle.ts` so consumers can type variables (e.g. a `Map<MeshHandle, …>`) without reaching into engine-internal modules. Each is also aliased by its owning module (`mesh.Mesh`, `material.Material`, `shader.Shader`, …) — same underlying type. |
-| `AnyResourceHandle` | `MeshHandle \| MaterialHandle \| GeometryHandle \| EffectHandle \| ShaderHandle` | Cross-kind union. Useful when storing handles of mixed kinds in a single collection. |
+| `ResourceKind` | `"mesh" \| "material" \| "geometry" \| "effect" \| "shader" \| "binding"` | Discriminator string for resource kinds. |
+| `MeshHandle` / `MaterialHandle` / `GeometryHandle` / `EffectHandle` / `ShaderHandle` / `BindingHandle` | Branded uint48 handles | Re-exported from `resources/handle.ts` so consumers can type variables (e.g. a `Map<MeshHandle, …>`) without reaching into engine-internal modules. Each is also aliased by its owning module (`mesh.Mesh`, `material.Material`, `shader.Shader`, `binding.Binding`, …) — same underlying type. |
+| `AnyResourceHandle` | `MeshHandle \| MaterialHandle \| GeometryHandle \| EffectHandle \| ShaderHandle \| BindingHandle` | Cross-kind union. Useful when storing handles of mixed kinds in a single collection. |
 
 ### Demoed in cookbook
 

@@ -1,6 +1,7 @@
 import type { Context } from "../gpu/context-types.ts";
 import { _recordAlloc, _recordDestroy } from "../stats/internal.ts";
 import {
+  type BindingHandle,
   decodeCtxId,
   decodeGeneration,
   decodeSlotIndex,
@@ -26,7 +27,8 @@ export type ResourceKind =
   | "material"
   | "geometry"
   | "effect"
-  | "shader";
+  | "shader"
+  | "binding";
 
 /**
  * Map a {@link ResourceKind} to the matching pool on the manager. Engine-
@@ -45,6 +47,8 @@ function poolFor(ctx: Context, kind: ResourceKind): Pool<unknown> {
       return r.effects;
     case "shader":
       return r.shaders;
+    case "binding":
+      return r.bindings;
   }
 }
 
@@ -250,6 +254,33 @@ export function _destroyShader<T>(
 ): boolean {
   const destroyed = _destroyRaw(ctx, "shader", handle, teardown);
   if (destroyed) _recordDestroy(ctx, "shader", 0);
+  return destroyed;
+}
+
+/** Allocate a binding slot and return a branded {@link BindingHandle}. */
+export function _allocBinding<T>(ctx: Context, data: T): BindingHandle {
+  // Boundary cast: see _allocMesh.
+  const handle = _allocRaw(ctx, "binding", data) as BindingHandle;
+  _recordAlloc(ctx, "binding", 0);
+  return handle;
+}
+
+/** Look up a binding slot. Returns `null` on stale or invalid handles. */
+export function _lookupBinding<T>(
+  ctx: Context,
+  handle: BindingHandle,
+): T | null {
+  return _lookupRaw(ctx, "binding", handle);
+}
+
+/** Destroy a binding slot. See {@link _destroyMesh} for semantics. */
+export function _destroyBinding<T>(
+  ctx: Context,
+  handle: BindingHandle,
+  teardown: (data: T) => void,
+): boolean {
+  const destroyed = _destroyRaw(ctx, "binding", handle, teardown);
+  if (destroyed) _recordDestroy(ctx, "binding", 0);
   return destroyed;
 }
 
