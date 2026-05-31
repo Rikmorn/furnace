@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import * as binding from "../../src/binding/index.ts";
 import * as geometry from "../../src/geometry/index.ts";
 import * as gpu from "../../src/gpu/index.ts";
 import * as material from "../../src/material/index.ts";
@@ -11,6 +12,7 @@ import {
   ensureBunWebGpu,
   makeOffscreenCanvas,
 } from "../_helpers/gpu-fixture.ts";
+import { makeUnlitMaterial } from "../_helpers/unlit-material.ts";
 
 await ensureBunWebGpu();
 
@@ -20,9 +22,10 @@ test.skipIf(!bunWebGpuAvailable())(
     const canvas = await makeOffscreenCanvas();
     const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
 
-    const mat = await material.unlit(ctx, {
-      color: vec4.fromValues(1, 1, 0, 1),
-    });
+    const { material: mat } = await makeUnlitMaterial(
+      ctx,
+      vec4.fromValues(1, 1, 0, 1),
+    );
     const geo = geometry.cube(ctx);
     mesh.create(ctx, { geometry: geo, material: mat });
 
@@ -32,7 +35,7 @@ test.skipIf(!bunWebGpuAvailable())(
       geometries: 1,
       effects: 0,
       shaders: 1,
-      bindings: 0,
+      bindings: 1,
     });
 
     resources.disposeAll(ctx);
@@ -61,9 +64,10 @@ test.skipIf(!bunWebGpuAvailable())(
     const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
 
     // First wave: allocate, then dispose
-    const mat1 = await material.unlit(ctx, {
-      color: vec4.fromValues(1, 0, 0, 1),
-    });
+    const { material: mat1 } = await makeUnlitMaterial(
+      ctx,
+      vec4.fromValues(1, 0, 0, 1),
+    );
     const geo1 = geometry.cube(ctx);
     const cube1 = mesh.create(ctx, { geometry: geo1, material: mat1 });
 
@@ -73,7 +77,7 @@ test.skipIf(!bunWebGpuAvailable())(
       geometries: 1,
       effects: 0,
       shaders: 1,
-      bindings: 0,
+      bindings: 1,
     });
 
     resources.disposeAll(ctx);
@@ -89,9 +93,10 @@ test.skipIf(!bunWebGpuAvailable())(
 
     // Second wave: allocate fresh after disposeAll — confirms mid-session
     // level-transition reuse case the API was designed for.
-    const mat2 = await material.unlit(ctx, {
-      color: vec4.fromValues(0, 1, 0, 1),
-    });
+    const { material: mat2, binding: binding2 } = await makeUnlitMaterial(
+      ctx,
+      vec4.fromValues(0, 1, 0, 1),
+    );
     const geo2 = geometry.cube(ctx);
     const cube2 = mesh.create(ctx, { geometry: geo2, material: mat2 });
 
@@ -101,7 +106,7 @@ test.skipIf(!bunWebGpuAvailable())(
       geometries: 1,
       effects: 0,
       shaders: 1,
-      bindings: 0,
+      bindings: 1,
     });
 
     // Old handles must NOT resolve (slots recycled, generation bumped).
@@ -117,6 +122,7 @@ test.skipIf(!bunWebGpuAvailable())(
     mesh.destroy(ctx, cube2);
     material.destroy(ctx, mat2);
     geometry.destroy(ctx, geo2);
+    binding.destroy(ctx, binding2);
 
     gpu.dispose(ctx);
   },

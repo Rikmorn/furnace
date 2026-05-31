@@ -287,7 +287,7 @@ export function _destroyBinding<T>(
 /**
  * Clear the per-ctx engine-owned built-in shader cache. Called by the dispose
  * cascade after it frees the built-in shader slots: the cache holds resolved
- * handles to those now-dead slots, so a later `material.unlit` or
+ * handles to those now-dead slots, so a later `material.create` with
  * `shader.unlit`/`shader.normalColor` (e.g. after a mid-session
  * `resources.disposeAll`) must recompile the shader rather than reuse a
  * freed handle.

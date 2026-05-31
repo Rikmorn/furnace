@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import * as binding from "../../src/binding/index.ts";
 import * as geometry from "../../src/geometry/index.ts";
 import * as gpu from "../../src/gpu/index.ts";
 import * as material from "../../src/material/index.ts";
@@ -9,6 +10,7 @@ import {
   ensureBunWebGpu,
   makeOffscreenCanvas,
 } from "../_helpers/gpu-fixture.ts";
+import { makeUnlitMaterial } from "../_helpers/unlit-material.ts";
 
 await ensureBunWebGpu();
 
@@ -22,9 +24,10 @@ test.skipIf(!bunWebGpuAvailable())(
     const ctxB = await gpu.requestContext(canvasB, { surfaceFormat: "linear" });
 
     // Allocate a mesh in ctx A.
-    const matA = await material.unlit(ctxA, {
-      color: vec4.fromValues(1, 0, 0, 1),
-    });
+    const { material: matA, binding: bindingA } = await makeUnlitMaterial(
+      ctxA,
+      vec4.fromValues(1, 0, 0, 1),
+    );
     const geoA = geometry.cube(ctxA);
     const meshA = mesh.create(ctxA, { geometry: geoA, material: matA });
 
@@ -40,6 +43,7 @@ test.skipIf(!bunWebGpuAvailable())(
     // accidentally affect ctxA's pool.
     mesh.destroy(ctxA, meshA);
     material.destroy(ctxA, matA);
+    binding.destroy(ctxA, bindingA);
     geometry.destroy(ctxA, geoA);
 
     gpu.dispose(ctxA);
@@ -55,9 +59,10 @@ test.skipIf(!bunWebGpuAvailable())(
     const ctxA = await gpu.requestContext(canvasA, { surfaceFormat: "linear" });
     const ctxB = await gpu.requestContext(canvasB, { surfaceFormat: "linear" });
 
-    const matA = await material.unlit(ctxA, {
-      color: vec4.fromValues(0, 1, 0, 1),
-    });
+    const { material: matA, binding: bindingA } = await makeUnlitMaterial(
+      ctxA,
+      vec4.fromValues(0, 1, 0, 1),
+    );
     const geoA = geometry.cube(ctxA);
     const meshA = mesh.create(ctxA, { geometry: geoA, material: matA });
 
@@ -79,6 +84,7 @@ test.skipIf(!bunWebGpuAvailable())(
     // Cleanup.
     mesh.destroy(ctxA, meshA);
     material.destroy(ctxA, matA);
+    binding.destroy(ctxA, bindingA);
     geometry.destroy(ctxA, geoA);
     gpu.dispose(ctxA);
     gpu.dispose(ctxB);

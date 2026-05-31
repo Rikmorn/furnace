@@ -1,8 +1,8 @@
 import { expect, test } from "bun:test";
+import * as binding from "../../src/binding/index.ts";
 import * as gpu from "../../src/gpu/index.ts";
 import { _resolveMaterial } from "../../src/material/internal.ts";
 import { create, destroy } from "../../src/material/material.ts";
-import { unlit } from "../../src/material/unlit.ts";
 import { create as createShader } from "../../src/shader/shader.ts";
 import { vec4 } from "../../src/transform/vec4.ts";
 import {
@@ -10,6 +10,7 @@ import {
   ensureBunWebGpu,
   makeOffscreenCanvas,
 } from "../_helpers/gpu-fixture.ts";
+import { makeUnlitMaterial } from "../_helpers/unlit-material.ts";
 
 await ensureBunWebGpu();
 
@@ -54,25 +55,39 @@ test.skipIf(!bunWebGpuAvailable())(
 );
 
 test.skipIf(!bunWebGpuAvailable())(
-  "material.destroy on a built-in unlit material releases the owned color buffer",
+  "the Binding owns the colour buffer: material.destroy leaves it live, binding.destroy frees it",
   async () => {
     const canvas = await makeOffscreenCanvas();
     const ctx = await gpu.requestContext(canvas);
-    const mat = await unlit(ctx, { color: vec4.fromValues(1, 0, 0, 1) });
-    const slot = _resolveMaterial(ctx, mat);
-    const buffer = slot.ownedBuffers[0];
-    expect(buffer).toBeDefined();
+    const { material: mat, binding: colorBinding } = await makeUnlitMaterial(
+      ctx,
+      vec4.fromValues(1, 0, 0, 1),
+    );
+    // The material owns no buffers — the Binding owns the colour buffer.
+    expect(_resolveMaterial(ctx, mat).ownedBuffers.length).toBe(0);
+    const buffer = binding._bufferOf(ctx, colorBinding);
+    expect(buffer).not.toBe(null);
+
+    // material.destroy must NOT free the binding's buffer — writing still
+    // succeeds (no validation error). We can't query isDestroyed directly.
     destroy(ctx, mat);
-    // We can't observe destroy via the WebGPU API directly (no isDestroyed query).
-    // Indirect check: writing to the buffer should fail with validation error.
     ctx.device.pushErrorScope("validation");
     ctx.queue.writeBuffer(
       buffer as GPUBuffer,
       0,
       new Float32Array([0, 0, 0, 1]),
     );
-    const err = await ctx.device.popErrorScope();
-    expect(err).not.toBe(null);
+    expect(await ctx.device.popErrorScope()).toBe(null);
+
+    // binding.destroy frees the buffer — a subsequent write fails validation.
+    binding.destroy(ctx, colorBinding);
+    ctx.device.pushErrorScope("validation");
+    ctx.queue.writeBuffer(
+      buffer as GPUBuffer,
+      0,
+      new Float32Array([0, 0, 0, 1]),
+    );
+    expect(await ctx.device.popErrorScope()).not.toBe(null);
     gpu.dispose(ctx);
   },
 );

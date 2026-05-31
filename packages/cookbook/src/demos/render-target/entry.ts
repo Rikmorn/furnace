@@ -1,3 +1,4 @@
+import * as binding from "@furnace/core/binding";
 import type { Camera } from "@furnace/core/camera";
 import * as camera from "@furnace/core/camera";
 import * as frame from "@furnace/core/frame";
@@ -204,9 +205,13 @@ async function buildScene(ctx: Context): Promise<SceneRef> {
       material: subjectMat,
     });
 
-    const roomMat = await material.unlit(ctx, {
-      color: ROOM_COLOR,
-      cullMode: "front",
+    const unlitShader = await shader.unlit(ctx);
+    const roomBinding = binding.create(ctx, unlitShader);
+    binding.set(ctx, roomBinding, { color: ROOM_COLOR });
+    const roomMat = await material.create(ctx, {
+      shader: unlitShader,
+      binding: roomBinding,
+      primitive: { cullMode: "front" },
     });
     const roomGeo = geometry.cube(ctx, { size: ROOM_SIZE });
     const roomMesh = mesh.create(ctx, { geometry: roomGeo, material: roomMat });
@@ -220,10 +225,13 @@ async function buildScene(ctx: Context): Promise<SceneRef> {
       material: subjectMatNoDepth,
     });
 
-    const roomMatNoDepth = await material.unlit(ctx, {
-      color: ROOM_COLOR,
-      cullMode: "front",
-      depthEnabled: false,
+    const roomBindingNoDepth = binding.create(ctx, unlitShader);
+    binding.set(ctx, roomBindingNoDepth, { color: ROOM_COLOR });
+    const roomMatNoDepth = await material.create(ctx, {
+      shader: unlitShader,
+      binding: roomBindingNoDepth,
+      primitive: { cullMode: "front" },
+      depth: false,
     });
     const roomMeshNoDepth = mesh.create(ctx, {
       geometry: roomGeo,
@@ -267,11 +275,13 @@ async function buildScene(ctx: Context): Promise<SceneRef> {
       target: vec3.fromValues(0, 0, 0),
     });
 
-    const gizmoMat = await material.unlit(ctx, {
-      color: GIZMO_COLOR,
-      topology: "line-list",
-      depthWrite: false,
-      depthCompare: "always",
+    const gizmoBinding = binding.create(ctx, unlitShader);
+    binding.set(ctx, gizmoBinding, { color: GIZMO_COLOR });
+    const gizmoMat = await material.create(ctx, {
+      shader: unlitShader,
+      binding: gizmoBinding,
+      primitive: { topology: "line-list" },
+      depth: { write: false, compare: "always" },
     });
     const gizmoGeo = geometry.create(ctx, gizmoQuadGeometryData(GIZMO_SIZE));
     const gizmoMesh = mesh.create(ctx, {

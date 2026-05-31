@@ -82,28 +82,6 @@ function resolveDepth(depth: MaterialDescriptor["depth"]): {
   };
 }
 
-/** Translate a built-in factory's flat render-state options to the grouped
- *  MaterialDescriptor fields. Used by `unlit`; reconciling its flat options to
- *  the grouped shape is deferred to a later E tranche (E-B) — see
- *  docs/backlog/engine-architecture/material-uniform-setters.md item 3. */
-export function _flatRenderState(o: {
-  topology?: GPUPrimitiveTopology;
-  cullMode?: GPUCullMode;
-  depthEnabled?: boolean;
-  depthWrite?: boolean;
-  depthCompare?: GPUCompareFunction;
-}): Pick<MaterialDescriptor, "primitive" | "depth"> {
-  const primitive =
-    o.topology !== undefined || o.cullMode !== undefined
-      ? { topology: o.topology, cullMode: o.cullMode }
-      : undefined;
-  let depth: MaterialDescriptor["depth"];
-  if (o.depthEnabled === false) depth = false;
-  else if (o.depthWrite !== undefined || o.depthCompare !== undefined)
-    depth = { write: o.depthWrite, compare: o.depthCompare };
-  return { primitive, depth };
-}
-
 function buildPipelineDescriptor(
   ctx: Context,
   module: GPUShaderModule,
@@ -200,12 +178,12 @@ function materialTeardown(ctx: Context, slot: MaterialSlot): void {
  * Allocation: when consumer-supplied `descriptor.bindings` are non-empty, a
  * `@group(1)` `GPUBindGroup` is created over the auto-derived layout. The
  * bind-group resources themselves (buffers, textures) are consumer-owned —
- * `destroy` does not touch them. Built-in factories may allocate uniform
- * buffers and push them onto the slot's `ownedBuffers` so the slot's
- * teardown cleans them up (e.g. `unlit` registers a 16-byte color buffer).
- * `material.create(ctx, { shader: await shader.normalColor(ctx) })` has no owned
- * buffers since the normal-debug shader uses only engine-provided
- * `@group(0)` uniforms.
+ * `destroy` does not touch them. The typed `descriptor.binding` path is also
+ * consumer-owned: the `Binding` owns its `GPUBuffer` and `material.destroy`
+ * does not free it. The slot's `ownedBuffers` array exists for factory-
+ * allocated uniform buffers freed by the slot's teardown, but no current
+ * factory uses it (the typed-`Binding` path superseded `material.unlit`'s
+ * owned color buffer).
  *
  * Setup-loud per the foreground failure policy
  * (`engine-conventions.md` §"Failure policy").

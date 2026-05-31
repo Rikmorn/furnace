@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import * as binding from "../../src/binding/index.ts";
 import type { Camera } from "../../src/camera/index.ts";
 import * as camera from "../../src/camera/index.ts";
 import * as frame from "../../src/frame/index.ts";
@@ -14,6 +15,7 @@ import {
   ensureBunWebGpu,
   makeOffscreenCanvas,
 } from "../_helpers/gpu-fixture.ts";
+import { makeUnlitMaterial } from "../_helpers/unlit-material.ts";
 
 await ensureBunWebGpu();
 
@@ -23,9 +25,10 @@ test.skipIf(!bunWebGpuAvailable())(
     const canvas = await makeOffscreenCanvas(64, 64);
     const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
     const cam = camera.perspective({ aspect: 1 });
-    const mat = await material.unlit(ctx, {
-      color: vec4.fromValues(1, 0, 0, 1),
-    });
+    const { material: mat, binding: matBinding } = await makeUnlitMaterial(
+      ctx,
+      vec4.fromValues(1, 0, 0, 1),
+    );
     const cubeGeo = geometry.cube(ctx);
     const cube = mesh.create(ctx, { geometry: cubeGeo, material: mat });
 
@@ -55,6 +58,7 @@ test.skipIf(!bunWebGpuAvailable())(
     mesh.destroy(ctx, cube);
     geometry.destroy(ctx, cubeGeo);
     material.destroy(ctx, mat);
+    binding.destroy(ctx, matBinding);
     gpu.dispose(ctx);
   },
 );
@@ -87,9 +91,10 @@ test.skipIf(!bunWebGpuAvailable())(
       format: ctx.format,
       usage: GPUTextureUsage.RENDER_ATTACHMENT,
     });
-    const mat = await material.unlit(ctx, {
-      color: vec4.fromValues(1, 0, 0, 1),
-    });
+    const { material: mat, binding: matBinding } = await makeUnlitMaterial(
+      ctx,
+      vec4.fromValues(1, 0, 0, 1),
+    );
     const cubeGeo = geometry.cube(ctx);
     const cube = mesh.create(ctx, { geometry: cubeGeo, material: mat });
     expect(() =>
@@ -103,6 +108,7 @@ test.skipIf(!bunWebGpuAvailable())(
     mesh.destroy(ctx, cube);
     geometry.destroy(ctx, cubeGeo);
     material.destroy(ctx, mat);
+    binding.destroy(ctx, matBinding);
     gpu.dispose(ctx);
   },
 );
@@ -137,9 +143,11 @@ test.skipIf(!bunWebGpuAvailable())(
     const canvas = await makeOffscreenCanvas(64, 64);
     const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
     const cam = camera.perspective({ aspect: 1 });
-    const mat = await material.unlit(ctx, {
-      color: vec4.fromValues(1, 0, 0, 1),
-    }); // depthEnabled defaults true
+    // depthEnabled defaults true
+    const { material: mat, binding: matBinding } = await makeUnlitMaterial(
+      ctx,
+      vec4.fromValues(1, 0, 0, 1),
+    );
     const geo = geometry.cube(ctx);
     const cube = mesh.create(ctx, { geometry: geo, material: mat });
     const target = ctx.device.createTexture({
@@ -159,6 +167,7 @@ test.skipIf(!bunWebGpuAvailable())(
     mesh.destroy(ctx, cube);
     geometry.destroy(ctx, geo);
     material.destroy(ctx, mat);
+    binding.destroy(ctx, matBinding);
     gpu.dispose(ctx);
   },
 );
@@ -170,10 +179,11 @@ test.skipIf(!bunWebGpuAvailable())(
     const canvas = await makeOffscreenCanvas(64, 64);
     const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
     const cam = camera.perspective({ aspect: 1 });
-    const mat = await material.unlit(ctx, {
-      color: vec4.fromValues(1, 0, 0, 1),
-      depthEnabled: false,
-    });
+    const { material: mat, binding: matBinding } = await makeUnlitMaterial(
+      ctx,
+      vec4.fromValues(1, 0, 0, 1),
+      { depth: false },
+    );
     const geo = geometry.cube(ctx);
     const cube = mesh.create(ctx, { geometry: geo, material: mat });
     const target = ctx.device.createTexture({
@@ -193,6 +203,7 @@ test.skipIf(!bunWebGpuAvailable())(
     mesh.destroy(ctx, cube);
     geometry.destroy(ctx, geo);
     material.destroy(ctx, mat);
+    binding.destroy(ctx, matBinding);
     gpu.dispose(ctx);
   },
 );
@@ -204,10 +215,11 @@ test.skipIf(!bunWebGpuAvailable())(
     const canvas = await makeOffscreenCanvas(64, 64);
     const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
     const cam = camera.perspective({ aspect: 1 });
-    const mat = await material.unlit(ctx, {
-      color: vec4.fromValues(1, 0, 0, 1),
-      depthEnabled: false,
-    });
+    const { material: mat, binding: matBinding } = await makeUnlitMaterial(
+      ctx,
+      vec4.fromValues(1, 0, 0, 1),
+      { depth: false },
+    );
     const geo = geometry.cube(ctx);
     const cube = mesh.create(ctx, { geometry: geo, material: mat });
     const target = ctx.device.createTexture({
@@ -234,6 +246,7 @@ test.skipIf(!bunWebGpuAvailable())(
     mesh.destroy(ctx, cube);
     geometry.destroy(ctx, geo);
     material.destroy(ctx, mat);
+    binding.destroy(ctx, matBinding);
     gpu.dispose(ctx);
   },
 );
@@ -245,9 +258,11 @@ test.skipIf(!bunWebGpuAvailable())(
     const canvas = await makeOffscreenCanvas(64, 64);
     const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
     const cam = camera.perspective({ aspect: 1 });
-    const mat = await material.unlit(ctx, {
-      color: vec4.fromValues(1, 0, 0, 1),
-    }); // depth material
+    // depth material
+    const { material: mat, binding: matBinding } = await makeUnlitMaterial(
+      ctx,
+      vec4.fromValues(1, 0, 0, 1),
+    );
     const geo = geometry.cube(ctx);
     const cube = mesh.create(ctx, { geometry: geo, material: mat });
     // a renderable format guaranteed different from ctx.format:
@@ -277,6 +292,7 @@ test.skipIf(!bunWebGpuAvailable())(
     mesh.destroy(ctx, cube);
     geometry.destroy(ctx, geo);
     material.destroy(ctx, mat);
+    binding.destroy(ctx, matBinding);
     gpu.dispose(ctx);
   },
 );
@@ -288,9 +304,11 @@ test.skipIf(!bunWebGpuAvailable())(
     const canvas = await makeOffscreenCanvas(64, 64);
     const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
     const cam = camera.perspective({ aspect: 1 });
-    const mat = await material.unlit(ctx, {
-      color: vec4.fromValues(1, 0, 0, 1),
-    }); // depth material
+    // depth material
+    const { material: mat, binding: matBinding } = await makeUnlitMaterial(
+      ctx,
+      vec4.fromValues(1, 0, 0, 1),
+    );
     const geo = geometry.cube(ctx);
     const cube = mesh.create(ctx, { geometry: geo, material: mat });
     const target = ctx.device.createTexture({
@@ -317,6 +335,7 @@ test.skipIf(!bunWebGpuAvailable())(
     mesh.destroy(ctx, cube);
     geometry.destroy(ctx, geo);
     material.destroy(ctx, mat);
+    binding.destroy(ctx, matBinding);
     gpu.dispose(ctx);
   },
 );
@@ -330,13 +349,13 @@ test.skipIf(!bunWebGpuAvailable())(
     const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
     const cam = camera.perspective({ aspect: 1 });
 
-    const depthMat = await material.unlit(ctx, {
-      color: vec4.fromValues(1, 0, 0, 1),
-    }); // depthEnabled defaults true
-    const noDepthMat = await material.unlit(ctx, {
-      color: vec4.fromValues(0, 1, 0, 1),
-      depthEnabled: false,
-    });
+    // depthEnabled defaults true
+    const { material: depthMat, binding: depthBinding } =
+      await makeUnlitMaterial(ctx, vec4.fromValues(1, 0, 0, 1));
+    const { material: noDepthMat, binding: noDepthBinding } =
+      await makeUnlitMaterial(ctx, vec4.fromValues(0, 1, 0, 1), {
+        depth: false,
+      });
     const geo = geometry.cube(ctx);
     const depthMesh = mesh.create(ctx, { geometry: geo, material: depthMat });
     const noDepthMesh = mesh.create(ctx, {
@@ -374,6 +393,8 @@ test.skipIf(!bunWebGpuAvailable())(
     geometry.destroy(ctx, geo);
     material.destroy(ctx, noDepthMat);
     material.destroy(ctx, depthMat);
+    binding.destroy(ctx, noDepthBinding);
+    binding.destroy(ctx, depthBinding);
     gpu.dispose(ctx);
   },
 );
@@ -389,9 +410,10 @@ test.skipIf(!bunWebGpuAvailable())(
       usage: GPUTextureUsage.RENDER_ATTACHMENT,
     });
     const cam = camera.perspective({ aspect: 1 });
-    const mat = await material.unlit(ctx, {
-      color: vec4.fromValues(1, 0, 0, 1),
-    });
+    const { material: mat, binding: matBinding } = await makeUnlitMaterial(
+      ctx,
+      vec4.fromValues(1, 0, 0, 1),
+    );
     const cubeGeo = geometry.cube(ctx);
     const cube = mesh.create(ctx, { geometry: cubeGeo, material: mat });
     expect(() =>
@@ -405,6 +427,7 @@ test.skipIf(!bunWebGpuAvailable())(
     mesh.destroy(ctx, cube);
     geometry.destroy(ctx, cubeGeo);
     material.destroy(ctx, mat);
+    binding.destroy(ctx, matBinding);
     gpu.dispose(ctx);
   },
 );

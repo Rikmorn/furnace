@@ -83,7 +83,7 @@ function builtinShader(
  * The engine's stock **unlit** shader (reads a `vec4<f32>` colour at
  * `@group(1) @binding(0)`). Engine-owned and shared per context (compiled
  * once); {@link destroy} is a no-op on it — it is freed only by the dispose
- * cascade. Pass to `material.create` (or use the `material.unlit` factory).
+ * cascade. Pass to `material.create`.
  *
  * Carries a by-construction `@group(1)` layout: `{ color: "vec4f" }` (16 bytes,
  * uniform). Readable via `shader._layoutOf(ctx, s)`.

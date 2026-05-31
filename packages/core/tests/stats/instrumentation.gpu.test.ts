@@ -3,7 +3,6 @@ import * as camera from "../../src/camera/index.ts";
 import { render } from "../../src/frame/render.ts";
 import * as geometry from "../../src/geometry/index.ts";
 import * as gpu from "../../src/gpu/index.ts";
-import * as material from "../../src/material/index.ts";
 import * as mesh from "../../src/mesh/index.ts";
 import { snapshot } from "../../src/stats/public.ts";
 import { vec4 } from "../../src/transform/vec4.ts";
@@ -12,6 +11,7 @@ import {
   ensureBunWebGpu,
   makeOffscreenCanvas,
 } from "../_helpers/gpu-fixture.ts";
+import { makeUnlitMaterial } from "../_helpers/unlit-material.ts";
 
 await ensureBunWebGpu();
 
@@ -26,9 +26,10 @@ test.skipIf(!bunWebGpuAvailable())(
       near: 0.1,
       far: 100,
     });
-    const mat = await material.unlit(ctx, {
-      color: vec4.fromValues(1, 0, 0, 1),
-    });
+    const { material: mat } = await makeUnlitMaterial(
+      ctx,
+      vec4.fromValues(1, 0, 0, 1),
+    );
     const mGeo = geometry.cube(ctx);
     const m = mesh.create(ctx, { geometry: mGeo, material: mat });
     render(ctx, { draw: [m], camera: cam });
@@ -54,9 +55,10 @@ test.skipIf(!bunWebGpuAvailable())(
       near: 0.1,
       far: 100,
     });
-    const mat = await material.unlit(ctx, {
-      color: vec4.fromValues(1, 0, 0, 1),
-    });
+    const { material: mat } = await makeUnlitMaterial(
+      ctx,
+      vec4.fromValues(1, 0, 0, 1),
+    );
     const geo = geometry.cube(ctx);
     const a = mesh.create(ctx, { geometry: geo, material: mat });
     const b = mesh.create(ctx, { geometry: geo, material: mat });
@@ -83,9 +85,10 @@ test.skipIf(!bunWebGpuAvailable())(
       near: 0.1,
       far: 100,
     });
-    const mat = await material.unlit(ctx, {
-      color: vec4.fromValues(1, 0, 0, 1),
-    });
+    const { material: mat } = await makeUnlitMaterial(
+      ctx,
+      vec4.fromValues(1, 0, 0, 1),
+    );
     const mGeo = geometry.cube(ctx);
     const m = mesh.create(ctx, { geometry: mGeo, material: mat });
     render(ctx, { draw: [m], camera: cam });
@@ -116,9 +119,10 @@ test.skipIf(!bunWebGpuAvailable())(
       near: 0.1,
       far: 100,
     });
-    const mat = await material.unlit(ctx, {
-      color: vec4.fromValues(1, 0, 0, 1),
-    });
+    const { material: mat } = await makeUnlitMaterial(
+      ctx,
+      vec4.fromValues(1, 0, 0, 1),
+    );
     const mGeo = geometry.cube(ctx);
     const m = mesh.create(ctx, { geometry: mGeo, material: mat });
     const before = snapshot(ctx);

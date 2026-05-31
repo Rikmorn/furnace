@@ -141,8 +141,12 @@ async function main(): Promise<void> {
   const cubeMat = await material.create(ctx, {
     shader: await shader.normalColor(ctx),
   });
-  const planeMat = await material.unlit(ctx, {
-    color: vec4.fromValues(0.1, 0.15, 0.2, 1),
+  const planeShader = await shader.unlit(ctx);
+  const planeBinding = binding.create(ctx, planeShader);
+  binding.set(ctx, planeBinding, { color: vec4.fromValues(0.1, 0.15, 0.2, 1) });
+  const planeMat = await material.create(ctx, {
+    shader: planeShader,
+    binding: planeBinding,
   });
 
   const cubeMeshGeo = geometryMod.cube(ctx);

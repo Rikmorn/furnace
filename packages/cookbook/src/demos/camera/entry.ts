@@ -1,3 +1,4 @@
+import * as binding from "@furnace/core/binding";
 import type { Anchor, Camera } from "@furnace/core/camera";
 import * as camera from "@furnace/core/camera";
 import * as frame from "@furnace/core/frame";
@@ -109,8 +110,14 @@ await mountDemo({
       const normalMat = await material.create(ctx, {
         shader: await shader.normalColor(ctx),
       });
-      const planeMat = await material.unlit(ctx, {
+      const planeShader = await shader.unlit(ctx);
+      const planeBinding = binding.create(ctx, planeShader);
+      binding.set(ctx, planeBinding, {
         color: vec4.fromValues(0.1, 0.1, 0.12, 1),
+      });
+      const planeMat = await material.create(ctx, {
+        shader: planeShader,
+        binding: planeBinding,
       });
 
       const cubeGeo = geometry.cube(ctx);

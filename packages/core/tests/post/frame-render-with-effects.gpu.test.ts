@@ -3,7 +3,6 @@ import * as camera from "../../src/camera/index.ts";
 import * as frame from "../../src/frame/index.ts";
 import * as geometry from "../../src/geometry/index.ts";
 import * as gpu from "../../src/gpu/index.ts";
-import * as material from "../../src/material/index.ts";
 import * as mesh from "../../src/mesh/index.ts";
 import * as post from "../../src/post/index.ts";
 import * as stats from "../../src/stats/index.ts";
@@ -13,6 +12,7 @@ import {
   ensureBunWebGpu,
   makeOffscreenCanvas,
 } from "../_helpers/gpu-fixture.ts";
+import { makeUnlitMaterial } from "../_helpers/unlit-material.ts";
 
 await ensureBunWebGpu();
 
@@ -32,7 +32,10 @@ async function tinyScene(): Promise<{
   const canvas = await makeOffscreenCanvas(64, 64);
   const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
   const cam = camera.perspective({ aspect: 1 });
-  const mat = await material.unlit(ctx, { color: vec4.fromValues(1, 0, 0, 1) });
+  const { material: mat } = await makeUnlitMaterial(
+    ctx,
+    vec4.fromValues(1, 0, 0, 1),
+  );
   const cubeGeo = geometry.cube(ctx);
   const cube = mesh.create(ctx, { geometry: cubeGeo, material: mat });
   return { ctx, cam, cube };

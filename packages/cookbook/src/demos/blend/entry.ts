@@ -1,3 +1,5 @@
+import type { Binding } from "@furnace/core/binding";
+import * as binding from "@furnace/core/binding";
 import type { Camera, ScreenProjection } from "@furnace/core/camera";
 import * as camera from "@furnace/core/camera";
 import * as frame from "@furnace/core/frame";
@@ -9,6 +11,7 @@ import type { Material } from "@furnace/core/material";
 import * as material from "@furnace/core/material";
 import type { Mesh } from "@furnace/core/mesh";
 import * as mesh from "@furnace/core/mesh";
+import * as shader from "@furnace/core/shader";
 import type { Quat, Vec3, Vec4 } from "@furnace/core/transform";
 import { quat, vec3, vec4 } from "@furnace/core/transform";
 
@@ -91,12 +94,16 @@ type TranslucentSurfaces = {
   redMat: Material;
   greenMat: Material;
   blueMat: Material;
+  redBinding: Binding;
+  greenBinding: Binding;
+  blueBinding: Binding;
 };
 
 type BackdropResources = {
   meshes: Mesh[];
   geo: Geometry;
   mats: Material[];
+  bindings: Binding[];
 };
 
 type LabelKey = "red" | "green" | "blue";
@@ -106,6 +113,7 @@ type SceneRef = {
   reference: Mesh;
   referenceGeo: Geometry;
   referenceMat: Material;
+  referenceBinding: Binding;
   surfaces: TranslucentSurfaces;
   cam: Camera;
   // Pre-allocated per-frame buffers (reused to avoid per-frame allocations).
@@ -122,6 +130,38 @@ type SceneRef = {
 type AbortFlag = { disposed: boolean };
 type RebuildQueue = { inFlight: boolean; pending: boolean };
 
+// --- Unlit material helper ---
+
+// An unlit material is shader.unlit (a shared per-ctx Shader<{ color }>) + a
+// colour Binding + material.create. Each material gets its own colour binding;
+// the caller stores it for teardown alongside the material. Render-state maps
+// to material.create's grouped fields: cull → primitive.cullMode, depthWrite/
+// depthCompare → depth.{write,compare}, blend → blend.
+type UnlitRenderState = {
+  cull: Cull;
+  depthWrite?: boolean;
+  depthCompare: DepthCompare;
+  blend?: GPUBlendState;
+};
+
+async function createUnlit(
+  ctx: Context,
+  color: Vec4,
+  rs: UnlitRenderState,
+): Promise<{ mat: Material; binding: Binding }> {
+  const s = await shader.unlit(ctx);
+  const cb = binding.create(ctx, s);
+  binding.set(ctx, cb, { color });
+  const mat = await material.create(ctx, {
+    shader: s,
+    binding: cb,
+    primitive: { cullMode: rs.cull },
+    depth: { write: rs.depthWrite, compare: rs.depthCompare },
+    blend: rs.blend,
+  });
+  return { mat, binding: cb };
+}
+
 // --- Backdrop construction ---
 
 async function buildBackdrop(
@@ -131,6 +171,7 @@ async function buildBackdrop(
   depthCompare: DepthCompare,
 ): Promise<BackdropResources> {
   const mats: Material[] = [];
+  const bindings: Binding[] = [];
   const meshes: Mesh[] = [];
   let geo: Geometry | undefined;
   try {
@@ -140,12 +181,12 @@ async function buildBackdrop(
       for (let i = 0; i < STRIP_COUNT; i++) {
         const color = STRIP_COLORS[i];
         if (!color) continue;
-        const mat = await material.unlit(ctx, {
-          color,
-          cullMode: cull,
+        const { mat, binding: cb } = await createUnlit(ctx, color, {
+          cull,
           depthCompare,
         });
         mats.push(mat);
+        bindings.push(cb);
         const m = mesh.create(ctx, { geometry: geo, material: mat });
         const scaleBuf = vec3.fromValues(
           1,
@@ -167,12 +208,12 @@ async function buildBackdrop(
         mode === "solid-black"
           ? vec4.fromValues(0, 0, 0, 1)
           : vec4.fromValues(1, 1, 1, 1);
-      const mat = await material.unlit(ctx, {
-        color,
-        cullMode: cull,
+      const { mat, binding: cb } = await createUnlit(ctx, color, {
+        cull,
         depthCompare,
       });
       mats.push(mat);
+      bindings.push(cb);
       const m = mesh.create(ctx, { geometry: geo, material: mat });
       const scaleBuf = vec3.fromValues(
         1,
@@ -184,11 +225,12 @@ async function buildBackdrop(
       mesh.setPosition(ctx, m, pos);
       meshes.push(m);
     }
-    return { meshes, geo, mats };
+    return { meshes, geo, mats, bindings };
   } catch (e) {
     for (const m of meshes) mesh.destroy(ctx, m);
     if (geo) geometry.destroy(ctx, geo);
     for (const mt of mats) material.destroy(ctx, mt);
+    for (const cb of bindings) binding.destroy(ctx, cb);
     throw e;
   }
 }
@@ -197,37 +239,46 @@ function disposeBackdrop(ctx: Context, b: BackdropResources): void {
   for (const m of b.meshes) mesh.destroy(ctx, m);
   geometry.destroy(ctx, b.geo);
   for (const mt of b.mats) material.destroy(ctx, mt);
+  for (const cb of b.bindings) binding.destroy(ctx, cb);
 }
 
 // --- Reference plane ---
+
+type ReferenceResources = {
+  refMesh: Mesh;
+  refGeo: Geometry;
+  mat: Material;
+  binding: Binding;
+};
 
 async function buildReference(
   ctx: Context,
   cull: Cull,
   depthCompare: DepthCompare,
-): Promise<{ refMesh: Mesh; refGeo: Geometry; mat: Material }> {
+): Promise<ReferenceResources> {
   // Reference is always an opaque plane (cube was redundant since the camera
   // is head-on; you'd only ever see one face). It always writes depth — it's
   // the depth reference for translucents in front of it.
   let refGeo: Geometry | undefined;
   let mat: Material | undefined;
+  let cb: Binding | undefined;
   try {
-    mat = await material.unlit(ctx, {
-      color: REFERENCE_COLOR,
-      cullMode: cull,
+    ({ mat, binding: cb } = await createUnlit(ctx, REFERENCE_COLOR, {
+      cull,
       depthCompare,
       depthWrite: true,
-    });
+    }));
     refGeo = geometry.plane(ctx, { size: REFERENCE_SIZE });
     const refMesh = mesh.create(ctx, { geometry: refGeo, material: mat });
     // Place the reference behind the translucent surfaces and in front of the
     // backdrop. Z = -1.0 sits between BLUE_Z (-0.5) and BACKDROP_Z (-1.5).
     const pos = vec3.fromValues(0, 0, REFERENCE_Z);
     mesh.setPosition(ctx, refMesh, pos);
-    return { refMesh, refGeo, mat };
+    return { refMesh, refGeo, mat, binding: cb };
   } catch (e) {
     if (refGeo) geometry.destroy(ctx, refGeo);
     if (mat) material.destroy(ctx, mat);
+    if (cb) binding.destroy(ctx, cb);
     throw e;
   }
 }
@@ -242,16 +293,15 @@ async function buildTranslucentSurface(
   cull: Cull,
   depthWrite: boolean,
   depthCompare: DepthCompare,
-): Promise<{ mesh: Mesh; mat: Material }> {
-  const mat = await material.unlit(ctx, {
-    color,
-    blend,
-    cullMode: cull,
+): Promise<{ mesh: Mesh; mat: Material; binding: Binding }> {
+  const { mat, binding: cb } = await createUnlit(ctx, color, {
+    cull,
     depthWrite,
     depthCompare,
+    blend,
   });
   const m = mesh.create(ctx, { geometry: geo, material: mat });
-  return { mesh: m, mat };
+  return { mesh: m, mat, binding: cb };
 }
 
 async function buildTranslucentSurfaces(
@@ -262,8 +312,8 @@ async function buildTranslucentSurfaces(
   primitive: Primitive,
 ): Promise<TranslucentSurfaces> {
   let geo: Geometry | undefined;
-  let red: { mesh: Mesh; mat: Material } | undefined;
-  let green: { mesh: Mesh; mat: Material } | undefined;
+  let red: { mesh: Mesh; mat: Material; binding: Binding } | undefined;
+  let green: { mesh: Mesh; mat: Material; binding: Binding } | undefined;
   try {
     // One shared geometry for all three surfaces — same primitive, same size.
     geo =
@@ -305,15 +355,20 @@ async function buildTranslucentSurfaces(
       redMat: red.mat,
       greenMat: green.mat,
       blueMat: blue.mat,
+      redBinding: red.binding,
+      greenBinding: green.binding,
+      blueBinding: blue.binding,
     };
   } catch (e) {
     if (green) {
       mesh.destroy(ctx, green.mesh);
       material.destroy(ctx, green.mat);
+      binding.destroy(ctx, green.binding);
     }
     if (red) {
       mesh.destroy(ctx, red.mesh);
       material.destroy(ctx, red.mat);
+      binding.destroy(ctx, red.binding);
     }
     if (geo) geometry.destroy(ctx, geo);
     throw e;
@@ -331,6 +386,9 @@ function disposeTranslucentSurfaces(
   material.destroy(ctx, s.redMat);
   material.destroy(ctx, s.greenMat);
   material.destroy(ctx, s.blueMat);
+  binding.destroy(ctx, s.redBinding);
+  binding.destroy(ctx, s.greenBinding);
+  binding.destroy(ctx, s.blueBinding);
 }
 
 // --- Label helpers ---
@@ -398,6 +456,7 @@ async function buildScene(ctx: Context): Promise<SceneRef> {
     reference: refRes.refMesh,
     referenceGeo: refRes.refGeo,
     referenceMat: refRes.mat,
+    referenceBinding: refRes.binding,
     surfaces,
     cam,
     posRed: vec3.create(),
@@ -425,9 +484,7 @@ function makeRebuild(
 
   const rebuildOnce = async (): Promise<void> => {
     let nextBackdrop: BackdropResources | undefined;
-    let nextRefRes:
-      | { refMesh: Mesh; refGeo: Geometry; mat: Material }
-      | undefined;
+    let nextRefRes: ReferenceResources | undefined;
     let nextSurfaces: TranslucentSurfaces | undefined;
     try {
       nextBackdrop = await buildBackdrop(
@@ -449,6 +506,7 @@ function makeRebuild(
         mesh.destroy(ctx, nextRefRes.refMesh);
         geometry.destroy(ctx, nextRefRes.refGeo);
         material.destroy(ctx, nextRefRes.mat);
+        binding.destroy(ctx, nextRefRes.binding);
         disposeBackdrop(ctx, nextBackdrop);
         return;
       }
@@ -459,16 +517,19 @@ function makeRebuild(
       const oldReference = sceneRef.reference;
       const oldReferenceGeo = sceneRef.referenceGeo;
       const oldReferenceMat = sceneRef.referenceMat;
+      const oldReferenceBinding = sceneRef.referenceBinding;
       const oldSurfaces = sceneRef.surfaces;
       sceneRef.backdrop = nextBackdrop;
       sceneRef.reference = nextRefRes.refMesh;
       sceneRef.referenceGeo = nextRefRes.refGeo;
       sceneRef.referenceMat = nextRefRes.mat;
+      sceneRef.referenceBinding = nextRefRes.binding;
       sceneRef.surfaces = nextSurfaces;
       disposeTranslucentSurfaces(ctx, oldSurfaces);
       mesh.destroy(ctx, oldReference);
       geometry.destroy(ctx, oldReferenceGeo);
       material.destroy(ctx, oldReferenceMat);
+      binding.destroy(ctx, oldReferenceBinding);
       disposeBackdrop(ctx, oldBackdrop);
     } catch (e) {
       if (nextSurfaces) disposeTranslucentSurfaces(ctx, nextSurfaces);
@@ -476,6 +537,7 @@ function makeRebuild(
         mesh.destroy(ctx, nextRefRes.refMesh);
         geometry.destroy(ctx, nextRefRes.refGeo);
         material.destroy(ctx, nextRefRes.mat);
+        binding.destroy(ctx, nextRefRes.binding);
       }
       if (nextBackdrop) disposeBackdrop(ctx, nextBackdrop);
       throw e;

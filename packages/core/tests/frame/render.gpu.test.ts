@@ -6,7 +6,6 @@ import * as geometry from "../../src/geometry/index.ts";
 import * as gpu from "../../src/gpu/index.ts";
 import * as material from "../../src/material/index.ts";
 import { _resolveMaterial } from "../../src/material/internal.ts";
-import { unlit } from "../../src/material/unlit.ts";
 import { _resolveMesh } from "../../src/mesh/internal.ts";
 import {
   create as createMesh,
@@ -21,6 +20,7 @@ import {
   ensureBunWebGpu,
   makeOffscreenCanvas,
 } from "../_helpers/gpu-fixture.ts";
+import { makeUnlitMaterial } from "../_helpers/unlit-material.ts";
 
 await ensureBunWebGpu();
 
@@ -65,9 +65,10 @@ test.skipIf(!bunWebGpuAvailable())(
     const cubeMat = await material.create(ctx, {
       shader: await shader.normalColor(ctx),
     });
-    const planeMat = await unlit(ctx, {
-      color: vec4.fromValues(0.1, 0.15, 0.2, 1),
-    });
+    const { material: planeMat } = await makeUnlitMaterial(
+      ctx,
+      vec4.fromValues(0.1, 0.15, 0.2, 1),
+    );
     const c = createMesh(ctx, {
       geometry: geometry.cube(ctx),
       material: cubeMat,
@@ -157,7 +158,10 @@ test.skipIf(!bunWebGpuAvailable())(
   async () => {
     const canvas = await makeOffscreenCanvas();
     const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
-    const mat = await unlit(ctx, { color: vec4.fromValues(1, 0, 0, 1) });
+    const { material: mat } = await makeUnlitMaterial(
+      ctx,
+      vec4.fromValues(1, 0, 0, 1),
+    );
     const m = createMesh(ctx, { geometry: geometry.cube(ctx), material: mat });
     expect(() =>
       render(ctx, { draw: [m], camera: null as unknown as Camera }),
@@ -185,7 +189,10 @@ test.skipIf(!bunWebGpuAvailable())(
     const canvas = await makeOffscreenCanvas();
     const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
     const cam = camera.perspective({});
-    const mat = await unlit(ctx, { color: vec4.fromValues(1, 0, 0, 1) });
+    const { material: mat } = await makeUnlitMaterial(
+      ctx,
+      vec4.fromValues(1, 0, 0, 1),
+    );
     const m = createMesh(ctx, { geometry: geometry.cube(ctx), material: mat });
     expect(() =>
       render(ctx, {
@@ -205,7 +212,10 @@ test.skipIf(!bunWebGpuAvailable())(
     const canvasB = await makeOffscreenCanvas();
     const ctxB = await gpu.requestContext(canvasB, { surfaceFormat: "linear" });
     const cam = camera.perspective({});
-    const matB = await unlit(ctxB, { color: vec4.fromValues(1, 0, 0, 1) });
+    const { material: matB } = await makeUnlitMaterial(
+      ctxB,
+      vec4.fromValues(1, 0, 0, 1),
+    );
     const mB = createMesh(ctxB, {
       geometry: geometry.cube(ctxB),
       material: matB,
@@ -224,7 +234,10 @@ test.skipIf(!bunWebGpuAvailable())(
     const canvas = await makeOffscreenCanvas();
     const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
     const cam = camera.perspective({});
-    const mat = await unlit(ctx, { color: vec4.fromValues(1, 0, 0, 1) });
+    const { material: mat } = await makeUnlitMaterial(
+      ctx,
+      vec4.fromValues(1, 0, 0, 1),
+    );
     const geo = geometry.cube(ctx);
     const m = createMesh(ctx, { geometry: geo, material: mat });
     destroyMesh(ctx, m);

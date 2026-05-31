@@ -2,7 +2,6 @@ import { expect, test } from "bun:test";
 import * as gpu from "../../src/gpu/index.ts";
 import { _resolveMaterial } from "../../src/material/internal.ts";
 import { create } from "../../src/material/material.ts";
-import { unlit } from "../../src/material/unlit.ts";
 import * as shader from "../../src/shader/index.ts";
 import { create as createShader } from "../../src/shader/shader.ts";
 import { vec4 } from "../../src/transform/vec4.ts";
@@ -11,6 +10,7 @@ import {
   ensureBunWebGpu,
   makeOffscreenCanvas,
 } from "../_helpers/gpu-fixture.ts";
+import { makeUnlitMaterial } from "../_helpers/unlit-material.ts";
 
 await ensureBunWebGpu();
 
@@ -69,15 +69,16 @@ test.skipIf(!bunWebGpuAvailable())(
 );
 
 test.skipIf(!bunWebGpuAvailable())(
-  "unlit forwards depthEnabled:false",
+  "an unlit-shader material honours depth:false through the binding bridge",
   async () => {
     const ctx = await gpu.requestContext(await makeOffscreenCanvas(), {
       surfaceFormat: "linear",
     });
-    const mat = await unlit(ctx, {
-      color: vec4.fromValues(1, 0, 0, 1),
-      depthEnabled: false,
-    });
+    const { material: mat } = await makeUnlitMaterial(
+      ctx,
+      vec4.fromValues(1, 0, 0, 1),
+      { depth: false },
+    );
     expect(_resolveMaterial(ctx, mat).depthEnabled).toBe(false);
     gpu.dispose(ctx);
   },

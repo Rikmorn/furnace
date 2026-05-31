@@ -1,3 +1,4 @@
+import * as binding from "@furnace/core/binding";
 import * as camera from "@furnace/core/camera";
 import * as frame from "@furnace/core/frame";
 import * as geometry from "@furnace/core/geometry";
@@ -6,6 +7,7 @@ import * as input from "@furnace/core/input";
 import type { Material } from "@furnace/core/material";
 import * as material from "@furnace/core/material";
 import * as mesh from "@furnace/core/mesh";
+import * as shader from "@furnace/core/shader";
 import type { Vec4 } from "@furnace/core/transform";
 import { vec3, vec4 } from "@furnace/core/transform";
 
@@ -58,10 +60,17 @@ await mountDemo({
 
     try {
       // Sequential await so each material is created in order; the dispose
-      // cascade frees them all on teardown (no per-handle destroy needed).
+      // cascade frees them all (and their colour bindings) on teardown (no
+      // per-handle destroy needed). One shared unlit shader (cached per ctx),
+      // one colour binding per material.
+      const unlitShader = await shader.unlit(ctx);
       const mats: Material[] = [];
       for (const c of COLORS) {
-        mats.push(await material.unlit(ctx, { color: c }));
+        const cb = binding.create(ctx, unlitShader);
+        binding.set(ctx, cb, { color: c });
+        mats.push(
+          await material.create(ctx, { shader: unlitShader, binding: cb }),
+        );
       }
       const first = mats[0];
       if (!first) throw new Error("[furnace/cookbook] no colors defined");

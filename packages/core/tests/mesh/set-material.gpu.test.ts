@@ -3,7 +3,7 @@ import * as camera from "../../src/camera/index.ts";
 import { render } from "../../src/frame/render.ts";
 import * as geometry from "../../src/geometry/index.ts";
 import * as gpu from "../../src/gpu/index.ts";
-import { destroy as destroyMaterial, unlit } from "../../src/material/index.ts";
+import { destroy as destroyMaterial } from "../../src/material/index.ts";
 import type { Material, MaterialSlot } from "../../src/material/types.ts";
 import {
   create as createMesh,
@@ -17,6 +17,7 @@ import {
   ensureBunWebGpu,
   makeOffscreenCanvas,
 } from "../_helpers/gpu-fixture.ts";
+import { makeUnlitMaterial } from "../_helpers/unlit-material.ts";
 
 await ensureBunWebGpu();
 
@@ -24,9 +25,11 @@ async function setup() {
   const canvas = await makeOffscreenCanvas();
   const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
   const geo = geometry.cube(ctx);
-  const matA = await unlit(ctx, { color: vec4.fromValues(1, 0, 0, 1) });
-  const matB = await unlit(ctx, { color: vec4.fromValues(0, 1, 0, 1) });
-  return { ctx, geo, matA, matB };
+  const a = await makeUnlitMaterial(ctx, vec4.fromValues(1, 0, 0, 1));
+  const b = await makeUnlitMaterial(ctx, vec4.fromValues(0, 1, 0, 1));
+  // Bindings are not tracked here — these tests exercise material refcounting,
+  // not binding lifetime; the dispose cascade frees the colour bindings.
+  return { ctx, geo, matA: a.material, matB: b.material };
 }
 
 test.skipIf(!bunWebGpuAvailable())(

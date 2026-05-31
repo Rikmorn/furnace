@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import * as binding from "../../src/binding/index.ts";
 import * as geometry from "../../src/geometry/index.ts";
 import type { GeometrySlot } from "../../src/geometry/types.ts";
 import * as gpu from "../../src/gpu/index.ts";
@@ -15,6 +16,7 @@ import {
   ensureBunWebGpu,
   makeOffscreenCanvas,
 } from "../_helpers/gpu-fixture.ts";
+import { makeUnlitMaterial } from "../_helpers/unlit-material.ts";
 
 await ensureBunWebGpu();
 
@@ -23,9 +25,10 @@ test.skipIf(!bunWebGpuAvailable())(
   async () => {
     const canvas = await makeOffscreenCanvas();
     const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
-    const mat = await material.unlit(ctx, {
-      color: vec4.fromValues(1, 0, 0, 1),
-    });
+    const { material: mat, binding: matBinding } = await makeUnlitMaterial(
+      ctx,
+      vec4.fromValues(1, 0, 0, 1),
+    );
     const geo = geometry.cube(ctx);
     const cube = mesh.create(ctx, { geometry: geo, material: mat });
 
@@ -44,6 +47,7 @@ test.skipIf(!bunWebGpuAvailable())(
     expect(_lookupGeometry(ctx, geo)).toBeNull();
 
     material.destroy(ctx, mat);
+    binding.destroy(ctx, matBinding);
     gpu.dispose(ctx);
   },
 );
@@ -53,9 +57,10 @@ test.skipIf(!bunWebGpuAvailable())(
   async () => {
     const canvas = await makeOffscreenCanvas();
     const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
-    const mat = await material.unlit(ctx, {
-      color: vec4.fromValues(0, 1, 0, 1),
-    });
+    const { material: mat, binding: matBinding } = await makeUnlitMaterial(
+      ctx,
+      vec4.fromValues(0, 1, 0, 1),
+    );
     const geo = geometry.cube(ctx);
     const m1 = mesh.create(ctx, { geometry: geo, material: mat });
     const m2 = mesh.create(ctx, { geometry: geo, material: mat });
@@ -75,6 +80,7 @@ test.skipIf(!bunWebGpuAvailable())(
     expect(_lookupGeometry(ctx, geo)).toBeNull();
 
     material.destroy(ctx, mat);
+    binding.destroy(ctx, matBinding);
     gpu.dispose(ctx);
   },
 );
@@ -84,9 +90,10 @@ test.skipIf(!bunWebGpuAvailable())(
   async () => {
     const canvas = await makeOffscreenCanvas();
     const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
-    const mat = await material.unlit(ctx, {
-      color: vec4.fromValues(1, 0, 0, 1),
-    });
+    const { material: mat, binding: matBinding } = await makeUnlitMaterial(
+      ctx,
+      vec4.fromValues(1, 0, 0, 1),
+    );
     const geo = geometry.cube(ctx);
     const cube = mesh.create(ctx, { geometry: geo, material: mat });
 
@@ -104,6 +111,7 @@ test.skipIf(!bunWebGpuAvailable())(
     expect(_lookupMaterial(ctx, mat)).toBeNull();
 
     geometry.destroy(ctx, geo);
+    binding.destroy(ctx, matBinding);
     gpu.dispose(ctx);
   },
 );
@@ -113,9 +121,10 @@ test.skipIf(!bunWebGpuAvailable())(
   async () => {
     const canvas = await makeOffscreenCanvas();
     const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
-    const mat = await material.unlit(ctx, {
-      color: vec4.fromValues(0, 1, 0, 1),
-    });
+    const { material: mat, binding: matBinding } = await makeUnlitMaterial(
+      ctx,
+      vec4.fromValues(0, 1, 0, 1),
+    );
     const geo = geometry.cube(ctx);
     const m1 = mesh.create(ctx, { geometry: geo, material: mat });
     const m2 = mesh.create(ctx, { geometry: geo, material: mat });
@@ -135,6 +144,7 @@ test.skipIf(!bunWebGpuAvailable())(
     expect(_lookupMaterial(ctx, mat)).toBeNull();
 
     geometry.destroy(ctx, geo);
+    binding.destroy(ctx, matBinding);
     gpu.dispose(ctx);
   },
 );
@@ -144,9 +154,10 @@ test.skipIf(!bunWebGpuAvailable())(
   async () => {
     const canvas = await makeOffscreenCanvas();
     const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
-    const mat = await material.unlit(ctx, {
-      color: vec4.fromValues(1, 1, 0, 1),
-    });
+    const { material: mat, binding: matBinding } = await makeUnlitMaterial(
+      ctx,
+      vec4.fromValues(1, 1, 0, 1),
+    );
     const geo = geometry.cube(ctx);
 
     // Destroy the material so its handle becomes stale.
@@ -161,6 +172,7 @@ test.skipIf(!bunWebGpuAvailable())(
     expect(_lookupGeometry<GeometrySlot>(ctx, geo)?.userCount).toBe(before);
 
     geometry.destroy(ctx, geo);
+    binding.destroy(ctx, matBinding);
     gpu.dispose(ctx);
   },
 );
@@ -170,9 +182,10 @@ test.skipIf(!bunWebGpuAvailable())(
   async () => {
     const canvas = await makeOffscreenCanvas();
     const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
-    const mat = await material.unlit(ctx, {
-      color: vec4.fromValues(0, 0, 1, 1),
-    });
+    const { material: mat, binding: matBinding } = await makeUnlitMaterial(
+      ctx,
+      vec4.fromValues(0, 0, 1, 1),
+    );
     const geo = geometry.cube(ctx);
     const handles: ReturnType<typeof mesh.create>[] = [];
     for (let i = 0; i < 1000; i++) {
@@ -187,6 +200,7 @@ test.skipIf(!bunWebGpuAvailable())(
     expect(_lookupGeometry<GeometrySlot>(ctx, geo)?.userCount).toBe(0);
     geometry.destroy(ctx, geo);
     material.destroy(ctx, mat);
+    binding.destroy(ctx, matBinding);
     gpu.dispose(ctx);
   },
 );

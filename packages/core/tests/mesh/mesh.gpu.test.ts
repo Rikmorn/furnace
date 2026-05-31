@@ -2,7 +2,6 @@ import { expect, test } from "bun:test";
 import * as geometry from "../../src/geometry/index.ts";
 import * as gpu from "../../src/gpu/index.ts";
 import { destroy as destroyMaterial } from "../../src/material/material.ts";
-import { unlit } from "../../src/material/unlit.ts";
 import { _resolveMesh } from "../../src/mesh/internal.ts";
 import {
   _recomputeModelIfDirty,
@@ -23,6 +22,7 @@ import {
   ensureBunWebGpu,
   makeOffscreenCanvas,
 } from "../_helpers/gpu-fixture.ts";
+import { makeUnlitMaterial } from "../_helpers/unlit-material.ts";
 
 await ensureBunWebGpu();
 
@@ -34,7 +34,10 @@ async function setup() {
     normals: new Float32Array([0, 0, 1, 0, 0, 1, 0, 0, 1]),
     uvs: new Float32Array([0, 0, 1, 0, 0, 1]),
   });
-  const m = await unlit(ctx, { color: vec4.fromValues(1, 1, 1, 1) });
+  const { material: m } = await makeUnlitMaterial(
+    ctx,
+    vec4.fromValues(1, 1, 1, 1),
+  );
   return { ctx, g, m };
 }
 
@@ -110,7 +113,10 @@ test.skipIf(!bunWebGpuAvailable())(
   async () => {
     const canvas = await makeOffscreenCanvas();
     const ctx = await gpu.requestContext(canvas);
-    const mat = await unlit(ctx, { color: vec4.fromValues(1, 0, 0, 1) });
+    const { material: mat } = await makeUnlitMaterial(
+      ctx,
+      vec4.fromValues(1, 0, 0, 1),
+    );
     expect(() =>
       // biome-ignore lint/suspicious/noExplicitAny: testing invalid input
       create(ctx, { geometry: null as any, material: mat }),

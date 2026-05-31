@@ -2,7 +2,6 @@ import { expect, test } from "bun:test";
 import * as geometry from "../../src/geometry/index.ts";
 import type { GeometrySlot } from "../../src/geometry/types.ts";
 import * as gpu from "../../src/gpu/index.ts";
-import { unlit } from "../../src/material/unlit.ts";
 import { _resolveMesh } from "../../src/mesh/internal.ts";
 import { create, destroy } from "../../src/mesh/mesh.ts";
 import { _lookupGeometry } from "../../src/resources/internal.ts";
@@ -12,6 +11,7 @@ import {
   ensureBunWebGpu,
   makeOffscreenCanvas,
 } from "../_helpers/gpu-fixture.ts";
+import { makeUnlitMaterial } from "../_helpers/unlit-material.ts";
 
 await ensureBunWebGpu();
 
@@ -20,7 +20,10 @@ test.skipIf(!bunWebGpuAvailable())(
   async () => {
     const canvas = await makeOffscreenCanvas();
     const ctx = await gpu.requestContext(canvas);
-    const mat = await unlit(ctx, { color: vec4.fromValues(1, 1, 1, 1) });
+    const { material: mat } = await makeUnlitMaterial(
+      ctx,
+      vec4.fromValues(1, 1, 1, 1),
+    );
     const geom = geometry.cube(ctx);
     const m = create(ctx, { geometry: geom, material: mat });
     const meshSlot = _resolveMesh(ctx, m);
@@ -40,7 +43,10 @@ test.skipIf(!bunWebGpuAvailable())(
   async () => {
     const canvas = await makeOffscreenCanvas();
     const ctx = await gpu.requestContext(canvas);
-    const mat = await unlit(ctx, { color: vec4.fromValues(1, 1, 1, 1) });
+    const { material: mat } = await makeUnlitMaterial(
+      ctx,
+      vec4.fromValues(1, 1, 1, 1),
+    );
     const geom = geometry.plane(ctx, { size: 3 });
     const m = create(ctx, { geometry: geom, material: mat });
     const meshSlot = _resolveMesh(ctx, m);

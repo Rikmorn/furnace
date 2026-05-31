@@ -33,8 +33,9 @@ export type BindingCreateOpts<L extends LayoutSchema = LayoutSchema> = {
  * Internal factory: allocate a `GPUBuffer`, a CPU scratch `ArrayBuffer`,
  * cached typed-array views, and register the slot. Throws setup-loud if
  * the layout is empty (a binding needs at least one field). Rolls back the
- * buffer on any failure after creation (mirrors the `material/unlit.ts`
- * create-leak-window discipline).
+ * buffer on any failure after creation: once `_recordAlloc` has fired, a
+ * later throw would leak the buffer and its byte accounting, so the catch
+ * destroys the buffer and emits a matching `_recordDestroy` before rethrowing.
  */
 function createFromLayout<L extends LayoutSchema>(
   ctx: Context,
