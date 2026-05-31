@@ -30,4 +30,4 @@ The signature regrouping (grouping render-state the way WebGPU does — `primiti
 
 **Trigger to revisit:** per-row above. MSAA is the most likely first mover (visual quality). None has fired as of 2026-05-30.
 
-**Reference:** D brainstorm 2026-05-30. Render-state is immutable create-time data (baked into the pipeline) — all of these are descriptor *fields*, never setters. The D-1 signature regrouping (which landed the `primitive{}`/`depth` grouping these fields slot into, 2026-05-31) is recorded in the `_AUDIT-2026-05-26.md` D-1 row.
+**Reference:** D brainstorm 2026-05-30. Render-state is immutable create-time data (baked into the pipeline) — all of these are descriptor *fields*, never setters. They slot into the `primitive{}`/`depth` grouping that the D-1 signature regrouping landed (2026-05-31); see `MaterialDescriptor` in `docs/reference/core-modules.md`.

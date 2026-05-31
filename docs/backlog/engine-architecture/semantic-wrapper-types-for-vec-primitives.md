@@ -33,6 +33,6 @@ color conversion when textures.load lands, OR hex/hsv color literal authoring
 in cookbook, OR world-vs-screen point disambiguation when a tooltip / hover
 system lands.
 
-**Reference:** `docs/backlog/_AUDIT-2026-05-26.md` §9.5 + the Tranche A
-brainstorm discussion (Color.rgba option B vs raw vec4.fromValues option B1).
-Spec: `docs/superpowers/specs/2026-05-26-tranche-a-quick-wins-design.md` §1.
+**Reference:** the Tranche A brainstorm discussion (Color.rgba option B vs raw
+vec4.fromValues option B1). Spec:
+`docs/superpowers/specs/2026-05-26-tranche-a-quick-wins-design.md` §1.
