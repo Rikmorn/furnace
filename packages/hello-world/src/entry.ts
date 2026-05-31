@@ -1,3 +1,4 @@
+import * as binding from "@furnace/core/binding";
 import * as camera from "@furnace/core/camera";
 import * as frame from "@furnace/core/frame";
 import type { Geometry } from "@furnace/core/geometry";
@@ -24,13 +25,11 @@ import shaderUrl from "./triangle.wgsl";
 const MOVE_SPEED_WORLD_PER_SEC = 1.5;
 const DIAGONAL_NORMALIZE = 1 / Math.sqrt(2);
 const HALO_WIDTH = 0.3;
-const HALO_BUFFER_SIZE_BYTES = 16;
 const CUBE_ROTATION_PITCH_RATE = 0.0003;
 const CUBE_ROTATION_YAW_RATE = 0.0005;
 const PLANE_BACKDROP_SIZE = 6;
 const PLANE_Z = -2;
 const CUBE_X = 1;
-const EMISSIVE_BUFFER_SIZE_BYTES = 16;
 const EMISSIVE_COLOR_HOT_PINK = new Float32Array([1.0, 0.8, 1.0, 1.0]);
 const BLOOM_BUFFER_SIZE_BYTES = 16;
 const BLOOM_THRESHOLD = 0.7;
@@ -39,22 +38,20 @@ const BLOOM_RADIUS = 0.012;
 const CLEAR_COLOR: Vec4 = vec4.fromValues(0.05, 0.05, 0.07, 1);
 
 const sdfTriangle = async (ctx: gpu.Context) => {
-  const sdfShader = await shader.load(ctx, shaderUrl).catch((e: unknown) => {
-    document.body.innerText = `Couldn't load shader: ${e instanceof Error ? e.message : String(e)}`;
-    return null;
-  });
+  const sdfShader = await shader
+    .load(ctx, shaderUrl, { layout: { halo: "vec4f" } })
+    .catch((e: unknown) => {
+      document.body.innerText = `Couldn't load shader: ${e instanceof Error ? e.message : String(e)}`;
+      return null;
+    });
   if (!sdfShader) return;
 
-  const haloBuffer = ctx.device.createBuffer({
-    size: HALO_BUFFER_SIZE_BYTES,
-    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-  });
-
-  ctx.queue.writeBuffer(haloBuffer, 0, new Float32Array([HALO_WIDTH, 0, 0, 0]));
+  const haloBinding = binding.create(ctx, sdfShader);
+  binding.set(ctx, haloBinding, { halo: [HALO_WIDTH, 0, 0, 0] });
 
   const sdfMat = await material.create(ctx, {
     shader: sdfShader,
-    bindings: [{ binding: 0, resource: { buffer: haloBuffer } }],
+    binding: haloBinding,
     primitive: { cullMode: "none" },
     blend: material.blend.premultiplied,
     depth: { write: false },
@@ -73,17 +70,16 @@ const sdfTriangle = async (ctx: gpu.Context) => {
 const emissiveCube = async (
   ctx: gpu.Context,
 ): Promise<{ mesh: Mesh; geometry: Geometry }> => {
-  const emissiveShader = await shader.load(ctx, emissiveShaderUrl);
-
-  const emissiveBuffer = ctx.device.createBuffer({
-    size: EMISSIVE_BUFFER_SIZE_BYTES,
-    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+  const emissiveShader = await shader.load(ctx, emissiveShaderUrl, {
+    layout: { color: "vec4f" },
   });
-  ctx.queue.writeBuffer(emissiveBuffer, 0, EMISSIVE_COLOR_HOT_PINK);
+
+  const emissiveBinding = binding.create(ctx, emissiveShader);
+  binding.set(ctx, emissiveBinding, { color: EMISSIVE_COLOR_HOT_PINK });
 
   const emissiveMat = await material.create(ctx, {
     shader: emissiveShader,
-    bindings: [{ binding: 0, resource: { buffer: emissiveBuffer } }],
+    binding: emissiveBinding,
   });
 
   const geometry = geometryMod.cube(ctx);

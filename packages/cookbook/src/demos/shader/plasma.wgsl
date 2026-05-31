@@ -1,7 +1,7 @@
 struct Camera { viewProjection: mat4x4<f32> };
 struct Object { model: mat4x4<f32> };
 // time auto-advances each frame from a state.time accumulator in entry.ts.
-struct Params { time: f32, scale: f32, colorPhase: f32, _pad: f32 };
+struct Params { time: f32, scale: f32, colorPhase: f32 };
 
 @group(0) @binding(0) var<uniform> camera: Camera;
 @group(0) @binding(1) var<uniform> object: Object;

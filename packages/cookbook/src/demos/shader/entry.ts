@@ -1,3 +1,4 @@
+import * as binding from "@furnace/core/binding";
 import * as camera from "@furnace/core/camera";
 import * as frame from "@furnace/core/frame";
 import * as geometry from "@furnace/core/geometry";
@@ -19,8 +20,6 @@ const BACKDROP_Z = -2;
 const BACKDROP_SIZE = 12; // covers ultrawide viewports — see spec
 const ROTATION_SPEED_RAD_PER_S = 0.5;
 const MS_PER_S = 1000;
-const STRIPED_PARAMS_SIZE = 16; // 4 floats — see Params in striped.wgsl
-const PLASMA_PARAMS_SIZE = 16; // 4 floats — see Params in plasma.wgsl
 const CLEAR_COLOR: Vec4 = vec4.fromValues(0.05, 0.05, 0.07, 1);
 
 await mountDemo({
@@ -59,80 +58,73 @@ await mountDemo({
     },
   },
   setup: async (ctx) => {
-    let paramsBufStriped: GPUBuffer | undefined;
-    let paramsBufPlasma: GPUBuffer | undefined;
+    const stripedShader = await shader.load(ctx, stripedShaderUrl, {
+      layout: { stripes: "f32", hue: "f32", softness: "f32" },
+    });
+    const plasmaShader = await shader.load(ctx, plasmaShaderUrl, {
+      layout: { time: "f32", scale: "f32", colorPhase: "f32" },
+    });
 
-    try {
-      const stripedShader = await shader.load(ctx, stripedShaderUrl);
-      const plasmaShader = await shader.load(ctx, plasmaShaderUrl);
+    const stripedBinding = binding.create(ctx, stripedShader);
+    binding.set(ctx, stripedBinding, {
+      stripes: state.stripes,
+      hue: state.hue,
+      softness: state.softness,
+    });
 
-      paramsBufStriped = ctx.device.createBuffer({
-        size: STRIPED_PARAMS_SIZE,
-        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-      });
-      paramsBufPlasma = ctx.device.createBuffer({
-        size: PLASMA_PARAMS_SIZE,
-        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-      });
+    const plasmaBinding = binding.create(ctx, plasmaShader);
+    binding.set(ctx, plasmaBinding, {
+      time: state.time,
+      scale: state.plasmaScale,
+      colorPhase: state.plasmaPhase,
+    });
 
-      const stripedMat = await material.create(ctx, {
-        shader: stripedShader,
-        bindings: [{ binding: 0, resource: { buffer: paramsBufStriped } }],
-      });
-      const plasmaMat = await material.create(ctx, {
-        shader: plasmaShader,
-        bindings: [{ binding: 0, resource: { buffer: paramsBufPlasma } }],
-      });
+    const stripedMat = await material.create(ctx, {
+      shader: stripedShader,
+      binding: stripedBinding,
+    });
+    const plasmaMat = await material.create(ctx, {
+      shader: plasmaShader,
+      binding: plasmaBinding,
+    });
 
-      const cubeGeo = geometry.cube(ctx);
-      const cube = mesh.create(ctx, {
-        geometry: cubeGeo,
-        material: stripedMat,
-      });
-      const backdropGeo = geometry.plane(ctx, { size: BACKDROP_SIZE });
-      const backdrop = mesh.create(ctx, {
-        geometry: backdropGeo,
-        material: plasmaMat,
-      });
-      mesh.setPosition(ctx, backdrop, vec3.fromValues(0, 0, BACKDROP_Z));
+    const cubeGeo = geometry.cube(ctx);
+    const cube = mesh.create(ctx, {
+      geometry: cubeGeo,
+      material: stripedMat,
+    });
+    const backdropGeo = geometry.plane(ctx, { size: BACKDROP_SIZE });
+    const backdrop = mesh.create(ctx, {
+      geometry: backdropGeo,
+      material: plasmaMat,
+    });
+    mesh.setPosition(ctx, backdrop, vec3.fromValues(0, 0, BACKDROP_Z));
 
-      const cam = camera.perspective({
-        aspect: ctx.canvas.width / ctx.canvas.height,
-        position: vec3.fromValues(0, 0, CAMERA_Z),
-      });
-      camera.bindToCanvas(ctx, cam);
+    const cam = camera.perspective({
+      aspect: ctx.canvas.width / ctx.canvas.height,
+      position: vec3.fromValues(0, 0, CAMERA_Z),
+    });
+    camera.bindToCanvas(ctx, cam);
 
-      const sceneParamsBufStriped = paramsBufStriped;
-      const sceneParamsBufPlasma = paramsBufPlasma;
-      const rotBuf = quat.create();
-      const paramsScratchStriped = new Float32Array(4);
-      const paramsScratchPlasma = new Float32Array(4);
+    const rotBuf = quat.create();
 
-      return {
-        scene: {
-          cube,
-          backdrop,
-          cam,
-          paramsBufStriped: sceneParamsBufStriped,
-          paramsBufPlasma: sceneParamsBufPlasma,
-          rotBuf,
-          paramsScratchStriped,
-          paramsScratchPlasma,
-        },
-        dispose: () => {
-          // gpu.dispose cascades the meshes/materials/geometries and
-          // auto-disconnects the resize binding. Only the consumer-owned raw
-          // GPUBuffers (created via ctx.device.createBuffer) are freed here —
-          // the cascade tracks managed slots, not raw GPU resources.
-          sceneParamsBufPlasma.destroy();
-          sceneParamsBufStriped.destroy();
-        },
-      };
-    } catch (e) {
-      if (paramsBufPlasma) paramsBufPlasma.destroy();
-      if (paramsBufStriped) paramsBufStriped.destroy();
-      throw e;
-    }
+    return {
+      scene: {
+        cube,
+        backdrop,
+        cam,
+        stripedBinding,
+        plasmaBinding,
+        rotBuf,
+      },
+      dispose: () => {
+        // gpu.dispose cascades the meshes/materials/geometries and
+        // auto-disconnects the resize binding. Bindings own their GPUBuffers —
+        // destroy them explicitly here to match the per-resource teardown discipline.
+        binding.destroy(ctx, plasmaBinding);
+        binding.destroy(ctx, stripedBinding);
+      },
+    };
   },
   frame: ({ ctx, scene, info }) => {
     const dt = info.deltaMs / MS_PER_S;
@@ -141,23 +133,20 @@ await mountDemo({
     quat.fromEuler(scene.rotBuf, 0, state.angle, 0);
     mesh.setRotation(ctx, scene.cube, scene.rotBuf);
 
-    // Both uniform buffers written every frame. Cheap at 16 bytes; real
-    // consumers can gate on dirty state.
-    scene.paramsScratchStriped[0] = state.stripes;
-    scene.paramsScratchStriped[1] = state.hue;
-    scene.paramsScratchStriped[2] = state.softness;
-    scene.paramsScratchStriped[3] = 0;
-    ctx.queue.writeBuffer(
-      scene.paramsBufStriped,
-      0,
-      scene.paramsScratchStriped,
-    );
+    // Striped: all three fields are user-controllable sliders — write each frame.
+    binding.setUniform(ctx, scene.stripedBinding, "stripes", state.stripes);
+    binding.setUniform(ctx, scene.stripedBinding, "hue", state.hue);
+    binding.setUniform(ctx, scene.stripedBinding, "softness", state.softness);
 
-    scene.paramsScratchPlasma[0] = state.time;
-    scene.paramsScratchPlasma[1] = state.plasmaScale;
-    scene.paramsScratchPlasma[2] = state.plasmaPhase;
-    scene.paramsScratchPlasma[3] = 0;
-    ctx.queue.writeBuffer(scene.paramsBufPlasma, 0, scene.paramsScratchPlasma);
+    // Plasma: time advances every frame; scale and phase are user-controllable.
+    binding.setUniform(ctx, scene.plasmaBinding, "time", state.time);
+    binding.setUniform(ctx, scene.plasmaBinding, "scale", state.plasmaScale);
+    binding.setUniform(
+      ctx,
+      scene.plasmaBinding,
+      "colorPhase",
+      state.plasmaPhase,
+    );
 
     frame.render(ctx, {
       draw: [scene.backdrop, scene.cube],
