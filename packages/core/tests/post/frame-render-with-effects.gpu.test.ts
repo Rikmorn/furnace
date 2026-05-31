@@ -5,6 +5,7 @@ import * as geometry from "../../src/geometry/index.ts";
 import * as gpu from "../../src/gpu/index.ts";
 import * as mesh from "../../src/mesh/index.ts";
 import * as post from "../../src/post/index.ts";
+import * as shader from "../../src/shader/index.ts";
 import * as stats from "../../src/stats/index.ts";
 import { vec4 } from "../../src/transform/vec4.ts";
 import {
@@ -56,7 +57,9 @@ test.skipIf(!bunWebGpuAvailable())(
   "render with one effect: drawCalls === meshCount + 1",
   async () => {
     const { ctx, cam, cube } = await tinyScene();
-    const fx = await post.create(ctx, { shader: IDENTITY_EFFECT });
+    const fx = await post.create(ctx, {
+      shader: await shader.create(ctx, IDENTITY_EFFECT),
+    });
     frame.render(ctx, { draw: [cube], camera: cam, effects: [fx] });
     expect(stats.snapshot(ctx).gpu.drawCalls).toBe(2);
     post.destroy(ctx, fx);
@@ -68,8 +71,12 @@ test.skipIf(!bunWebGpuAvailable())(
   "render with two effects: drawCalls === meshCount + 2",
   async () => {
     const { ctx, cam, cube } = await tinyScene();
-    const fx1 = await post.create(ctx, { shader: IDENTITY_EFFECT });
-    const fx2 = await post.create(ctx, { shader: IDENTITY_EFFECT });
+    const fx1 = await post.create(ctx, {
+      shader: await shader.create(ctx, IDENTITY_EFFECT),
+    });
+    const fx2 = await post.create(ctx, {
+      shader: await shader.create(ctx, IDENTITY_EFFECT),
+    });
     frame.render(ctx, { draw: [cube], camera: cam, effects: [fx1, fx2] });
     expect(stats.snapshot(ctx).gpu.drawCalls).toBe(3);
     post.destroy(ctx, fx1);
@@ -83,7 +90,9 @@ test.skipIf(!bunWebGpuAvailable())(
   async () => {
     const a = await tinyScene();
     const b = await tinyScene();
-    const fxA = await post.create(a.ctx, { shader: IDENTITY_EFFECT });
+    const fxA = await post.create(a.ctx, {
+      shader: await shader.create(a.ctx, IDENTITY_EFFECT),
+    });
     expect(() =>
       frame.render(b.ctx, { draw: [b.cube], camera: b.cam, effects: [fxA] }),
     ).toThrow(/effects\[0\]/);
@@ -97,7 +106,9 @@ test.skipIf(!bunWebGpuAvailable())(
   "destroyed effect throws naming the offending index",
   async () => {
     const { ctx, cam, cube } = await tinyScene();
-    const fx = await post.create(ctx, { shader: IDENTITY_EFFECT });
+    const fx = await post.create(ctx, {
+      shader: await shader.create(ctx, IDENTITY_EFFECT),
+    });
     post.destroy(ctx, fx);
     expect(() =>
       frame.render(ctx, { draw: [cube], camera: cam, effects: [fx] }),
@@ -110,7 +121,9 @@ test.skipIf(!bunWebGpuAvailable())(
   "null in effects array throws naming the offending index",
   async () => {
     const { ctx, cam, cube } = await tinyScene();
-    const fx = await post.create(ctx, { shader: IDENTITY_EFFECT });
+    const fx = await post.create(ctx, {
+      shader: await shader.create(ctx, IDENTITY_EFFECT),
+    });
     expect(() =>
       frame.render(ctx, {
         draw: [cube],

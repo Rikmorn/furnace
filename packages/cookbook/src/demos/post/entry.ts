@@ -1,3 +1,4 @@
+import * as binding from "@furnace/core/binding";
 import * as camera from "@furnace/core/camera";
 import * as frame from "@furnace/core/frame";
 import * as geometry from "@furnace/core/geometry";
@@ -18,8 +19,14 @@ import vignetteShaderUrl from "./vignette.wgsl";
 const CAMERA_Z = 3;
 const ROTATION_SPEED_RAD_PER_S = 0.5;
 const MS_PER_S = 1000;
-const BLOOM_PARAMS_SIZE = 16; // 4 floats — see BloomParams in bloom.wgsl
-const VIGNETTE_PARAMS_SIZE = 16; // 4 floats — see VignetteParams in vignette.wgsl
+// @group(1) param schemas — field order + tokens match the WGSL structs.
+const BLOOM_LAYOUT = {
+  threshold: "f32",
+  intensity: "f32",
+  radius: "f32",
+  haloMaskStart: "f32",
+} as const;
+const VIGNETTE_LAYOUT = { strength: "f32", falloff: "f32" } as const;
 const CLEAR_COLOR: Vec4 = vec4.fromValues(0.05, 0.05, 0.07, 1);
 
 async function loadShaderSource(url: string): Promise<string> {
@@ -90,98 +97,79 @@ await mountDemo({
     },
   },
   setup: async (ctx) => {
-    let paramsBufBloom: GPUBuffer | undefined;
-    let paramsBufVignette: GPUBuffer | undefined;
+    const bloomSource = await loadShaderSource(bloomShaderUrl);
+    const vignetteSource = await loadShaderSource(vignetteShaderUrl);
 
-    try {
-      const bloomSource = await loadShaderSource(bloomShaderUrl);
-      const vignetteSource = await loadShaderSource(vignetteShaderUrl);
+    // Compile each post shader with its @group(1) param schema, then pair a
+    // typed Binding to it. The bridge sizes the uniform buffer from the schema
+    // (no hand-counted byte sizes, no _pad fields) and lazily flushes the
+    // per-frame writes at the render boundary.
+    const bloomShader = await shader.create(ctx, bloomSource, {
+      layout: BLOOM_LAYOUT,
+    });
+    const vignetteShader = await shader.create(ctx, vignetteSource, {
+      layout: VIGNETTE_LAYOUT,
+    });
+    const bloomBinding = binding.create(ctx, bloomShader);
+    const vignetteBinding = binding.create(ctx, vignetteShader);
 
-      paramsBufBloom = ctx.device.createBuffer({
-        size: BLOOM_PARAMS_SIZE,
-        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-      });
-      paramsBufVignette = ctx.device.createBuffer({
-        size: VIGNETTE_PARAMS_SIZE,
-        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-      });
+    const bloom = await post.create(ctx, {
+      shader: bloomShader,
+      binding: bloomBinding,
+    });
+    const vignette = await post.create(ctx, {
+      shader: vignetteShader,
+      binding: vignetteBinding,
+    });
 
-      const bloom = await post.create(ctx, {
-        shader: bloomSource,
-        bindings: [{ binding: 0, resource: { buffer: paramsBufBloom } }],
-      });
-      const vignette = await post.create(ctx, {
-        shader: vignetteSource,
-        bindings: [{ binding: 0, resource: { buffer: paramsBufVignette } }],
-      });
+    const normalMat = await material.create(ctx, {
+      shader: await shader.normalColor(ctx),
+    });
+    const cubeGeo = geometry.cube(ctx);
+    const cube = mesh.create(ctx, { geometry: cubeGeo, material: normalMat });
 
-      const normalMat = await material.create(ctx, {
-        shader: await shader.normalColor(ctx),
-      });
-      const cubeGeo = geometry.cube(ctx);
-      const cube = mesh.create(ctx, { geometry: cubeGeo, material: normalMat });
+    const cam = camera.perspective({
+      aspect: ctx.canvas.width / ctx.canvas.height,
+      position: vec3.fromValues(0, 0, CAMERA_Z),
+    });
+    camera.bindToCanvas(ctx, cam);
 
-      const cam = camera.perspective({
-        aspect: ctx.canvas.width / ctx.canvas.height,
-        position: vec3.fromValues(0, 0, CAMERA_Z),
-      });
-      camera.bindToCanvas(ctx, cam);
+    const rotBuf = quat.create();
 
-      const sceneParamsBufBloom = paramsBufBloom;
-      const sceneParamsBufVignette = paramsBufVignette;
-      const rotBuf = quat.create();
-      const paramsScratchBloom = new Float32Array(4);
-      const paramsScratchVignette = new Float32Array(4);
-
-      return {
-        scene: {
-          cube,
-          cam,
-          bloom,
-          vignette,
-          paramsBufBloom: sceneParamsBufBloom,
-          paramsBufVignette: sceneParamsBufVignette,
-          rotBuf,
-          paramsScratchBloom,
-          paramsScratchVignette,
-        },
-        dispose: () => {
-          // gpu.dispose cascades the mesh/material/geometry/effects and
-          // auto-disconnects the resize binding. Only the consumer-owned raw
-          // GPUBuffers (created via ctx.device.createBuffer) are freed here —
-          // the cascade tracks managed slots, not raw GPU resources.
-          sceneParamsBufVignette.destroy();
-          sceneParamsBufBloom.destroy();
-        },
-      };
-    } catch (e) {
-      if (paramsBufVignette) paramsBufVignette.destroy();
-      if (paramsBufBloom) paramsBufBloom.destroy();
-      throw e;
-    }
+    return {
+      scene: {
+        cube,
+        cam,
+        bloom,
+        vignette,
+        bloomBinding,
+        vignetteBinding,
+        rotBuf,
+      },
+      // gpu.dispose cascades the mesh/material/geometry/effects/bindings and
+      // auto-disconnects the resize binding. The typed Bindings are managed
+      // pool slots, so the cascade frees their buffers — no manual teardown.
+    };
   },
   frame: ({ ctx, scene, info }) => {
     state.angle += (info.deltaMs / MS_PER_S) * ROTATION_SPEED_RAD_PER_S;
     quat.fromEuler(scene.rotBuf, 0, state.angle, 0);
     mesh.setRotation(ctx, scene.cube, scene.rotBuf);
 
-    // Both uniform buffers are written every frame, even when their effect is off
-    // or the slider hasn't moved. Cheap at 16 bytes; real consumers can gate on dirty state.
-    scene.paramsScratchBloom[0] = state.threshold;
-    scene.paramsScratchBloom[1] = state.intensity;
-    scene.paramsScratchBloom[2] = state.radius;
-    scene.paramsScratchBloom[3] = state.haloMaskStart;
-    ctx.queue.writeBuffer(scene.paramsBufBloom, 0, scene.paramsScratchBloom);
-
-    scene.paramsScratchVignette[0] = state.vignetteStrength;
-    scene.paramsScratchVignette[1] = state.vignetteFalloff;
-    scene.paramsScratchVignette[2] = 0;
-    scene.paramsScratchVignette[3] = 0;
-    ctx.queue.writeBuffer(
-      scene.paramsBufVignette,
-      0,
-      scene.paramsScratchVignette,
-    );
+    // Both bindings are written every frame, even when their effect is off or
+    // the slider hasn't moved. binding.set is lazy — it stages the CPU scratch
+    // and flushes once at the render boundary. Real consumers can gate on dirty
+    // state; here we keep it simple.
+    binding.set(ctx, scene.bloomBinding, {
+      threshold: state.threshold,
+      intensity: state.intensity,
+      radius: state.radius,
+      haloMaskStart: state.haloMaskStart,
+    });
+    binding.set(ctx, scene.vignetteBinding, {
+      strength: state.vignetteStrength,
+      falloff: state.vignetteFalloff,
+    });
 
     const base = state.swapOrder
       ? [

@@ -46,8 +46,9 @@ export default {
     },
   ],
   features: [
-    "post.create",
+    "post.create({ shader, binding })",
     "post.destroy",
+    "shader.create({ layout }) + binding.create for @group(1) params",
     "frame.render({ effects: [...] }) chain",
     "chain ordering matters",
   ],

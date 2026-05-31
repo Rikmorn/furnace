@@ -5,6 +5,7 @@ import * as gpu from "../../src/gpu/index.ts";
 import type { EffectSlot } from "../../src/post/effect.ts";
 import * as post from "../../src/post/index.ts";
 import { _lookupEffect } from "../../src/resources/internal.ts";
+import * as shader from "../../src/shader/index.ts";
 import * as stats from "../../src/stats/index.ts";
 import {
   bunWebGpuAvailable,
@@ -28,7 +29,9 @@ test.skipIf(!bunWebGpuAvailable())(
     const canvas = await makeOffscreenCanvas(64, 64);
     const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
     expect(stats.snapshot(ctx).resources.effects).toBe(0);
-    const e = await post.create(ctx, { shader: SHADER });
+    const e = await post.create(ctx, {
+      shader: await shader.create(ctx, SHADER),
+    });
     expect(stats.snapshot(ctx).resources.effects).toBe(1);
     post.destroy(ctx, e);
     expect(stats.snapshot(ctx).resources.effects).toBe(0);
@@ -41,8 +44,10 @@ test.skipIf(!bunWebGpuAvailable())(
   async () => {
     const canvas = await makeOffscreenCanvas(64, 64);
     const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
-    const a = await post.create(ctx, { shader: SHADER });
-    const b = await post.create(ctx, { shader: SHADER });
+    // Same shader handle → same pipeline-cache key (the key is the handle).
+    const s = await shader.create(ctx, SHADER);
+    const a = await post.create(ctx, { shader: s });
+    const b = await post.create(ctx, { shader: s });
     const slotA = _lookupEffect<EffectSlot>(ctx, a);
     const slotB = _lookupEffect<EffectSlot>(ctx, b);
     if (slotA === null || slotB === null) {
@@ -61,8 +66,11 @@ test.skipIf(!bunWebGpuAvailable())(
   async () => {
     const canvas = await makeOffscreenCanvas(64, 64);
     const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
+    // Compile the shader BEFORE disposing so that post.create — not
+    // shader.create — is the call that throws on the disposed ctx.
+    const s = await shader.create(ctx, SHADER);
     gpu.dispose(ctx);
-    await expect(post.create(ctx, { shader: SHADER })).rejects.toThrow(
+    await expect(post.create(ctx, { shader: s })).rejects.toThrow(
       FurnaceGpuError,
     );
   },
@@ -84,7 +92,9 @@ test.skipIf(!bunWebGpuAvailable())(
   async () => {
     const canvas = await makeOffscreenCanvas(64, 64);
     const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
-    const e = await post.create(ctx, { shader: SHADER });
+    const e = await post.create(ctx, {
+      shader: await shader.create(ctx, SHADER),
+    });
     post.destroy(ctx, e);
     const entries: LogEntry[] = [];
     setSink((entry) => entries.push(entry));

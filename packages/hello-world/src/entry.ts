@@ -31,7 +31,6 @@ const PLANE_BACKDROP_SIZE = 6;
 const PLANE_Z = -2;
 const CUBE_X = 1;
 const EMISSIVE_COLOR_HOT_PINK = new Float32Array([1.0, 0.8, 1.0, 1.0]);
-const BLOOM_BUFFER_SIZE_BYTES = 16;
 const BLOOM_THRESHOLD = 0.7;
 const BLOOM_INTENSITY = 4.0;
 const BLOOM_RADIUS = 0.012;
@@ -90,28 +89,21 @@ const emissiveCube = async (
 };
 
 const createBloomEffect = async (ctx: gpu.Context): Promise<post.Effect> => {
-  const shaderResponse = await fetch(bloomShaderUrl);
-  if (!shaderResponse.ok) {
-    throw new Error(
-      `Couldn't load bloom shader (HTTP ${shaderResponse.status})`,
-    );
-  }
-  const shaderSource = await shaderResponse.text();
-
-  const paramsBuffer = ctx.device.createBuffer({
-    size: BLOOM_BUFFER_SIZE_BYTES,
-    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+  // Compile the bloom shader with its @group(1) param schema, pair a typed
+  // Binding to it, and set the params once (they're constant for this demo).
+  // The bridge sizes the uniform buffer from the schema and lazily flushes the
+  // write at the render boundary — no hand-rolled GPUBuffer / writeBuffer.
+  const bloomShader = await shader.load(ctx, bloomShaderUrl, {
+    layout: { threshold: "f32", intensity: "f32", radius: "f32" },
   });
-  ctx.queue.writeBuffer(
-    paramsBuffer,
-    0,
-    new Float32Array([BLOOM_THRESHOLD, BLOOM_INTENSITY, BLOOM_RADIUS, 0]),
-  );
-
-  return post.create(ctx, {
-    shader: shaderSource,
-    bindings: [{ binding: 0, resource: { buffer: paramsBuffer } }],
+  const bloomBinding = binding.create(ctx, bloomShader);
+  binding.set(ctx, bloomBinding, {
+    threshold: BLOOM_THRESHOLD,
+    intensity: BLOOM_INTENSITY,
+    radius: BLOOM_RADIUS,
   });
+
+  return post.create(ctx, { shader: bloomShader, binding: bloomBinding });
 };
 
 async function main(): Promise<void> {

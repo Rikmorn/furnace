@@ -183,11 +183,13 @@ test.skipIf(!bunWebGpuAvailable())(
       aspect: ctx.canvas.width / ctx.canvas.height,
       position: vec3.fromValues(0, 0, 5),
     });
-    const fx = await post.create(ctx, { shader: PASSTHROUGH_SHADER });
+    const fxShader = await shader.create(ctx, PASSTHROUGH_SHADER);
+    const fx = await post.create(ctx, { shader: fxShader });
 
     frame.render(ctx, { draw: [m], camera: cam, effects: [fx] });
 
     post.destroy(ctx, fx);
+    shader.destroy(ctx, fxShader);
     mesh.destroy(ctx, m);
     geometry.destroy(ctx, geo);
     material.destroy(ctx, mat);

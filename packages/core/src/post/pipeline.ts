@@ -30,11 +30,11 @@ function blendSignature(blend: GPUBlendState | undefined): string {
 }
 
 export function _effectPipelineHashKey(
-  shaderSource: string,
+  shaderKey: string,
   targetFormat: GPUTextureFormat,
   blend: GPUBlendState | undefined,
 ): string {
-  return fnv1a([shaderSource, targetFormat, blendSignature(blend)]);
+  return fnv1a([shaderKey, targetFormat, blendSignature(blend)]);
 }
 
 export function _buildEffectPipelineDescriptor(

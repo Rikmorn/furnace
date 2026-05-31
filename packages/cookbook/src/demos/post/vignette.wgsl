@@ -1,8 +1,6 @@
 struct VignetteParams {
   strength: f32,
   falloff:  f32,
-  _pad0:    f32,
-  _pad1:    f32,
 };
 
 @group(0) @binding(0) var sceneTex: texture_2d<f32>;

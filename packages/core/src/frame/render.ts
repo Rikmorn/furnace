@@ -420,12 +420,8 @@ function renderEffectPass(
   _recordPipelineSwitch(ctx);
   pass.setBindGroup(0, group0);
   _recordBindGroupSwitch(ctx);
-  if (slot.bindings && slot.bindings.length > 0) {
-    const group1 = ctx.device.createBindGroup({
-      layout: slot.pipeline.getBindGroupLayout(1),
-      entries: slot.bindings,
-    });
-    pass.setBindGroup(1, group1);
+  if (slot.group1 !== null) {
+    pass.setBindGroup(1, slot.group1);
     _recordBindGroupSwitch(ctx);
   }
   pass.draw(3);
