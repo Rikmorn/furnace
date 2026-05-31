@@ -1,5 +1,5 @@
 import type { Context } from "../gpu/context-types.ts";
-import type { ShaderHandle } from "./handle.ts";
+import type { BindingHandle, ShaderHandle } from "./handle.ts";
 import { createPool, type Pool } from "./pool.ts";
 
 /**
@@ -27,6 +27,11 @@ export type ResourceManager = {
   bindings: Pool<unknown>;
   materialPipelineCache: Map<string, PipelineCacheEntry>;
   postPipelineCache: Map<string, PipelineCacheEntry>;
+  /** Bindings whose CPU scratch has been written since the last render flush.
+   *  Drained by `_flushDirtyBindings` at the render boundary (one
+   *  `writeBuffer` per entry). Per-ctx so a binding not attached to any drawn
+   *  material still flushes (compute-ready). */
+  dirtyBindings: Set<BindingHandle>;
   /** Per-ctx engine-owned built-in shader cache (lazily compiled once; stores
    *  the in-flight Promise for concurrent-first-call dedup; freed by the
    *  dispose cascade). See `shader/builtins.ts`. */
@@ -62,6 +67,7 @@ export function createResourceManager(): ResourceManager {
     materialPipelineCache: new Map(),
     postPipelineCache: new Map(),
     builtinShaders: { unlit: null, normalColor: null },
+    dirtyBindings: new Set(),
   };
 }
 

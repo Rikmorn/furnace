@@ -208,6 +208,20 @@ See `core-modules.md` (`camera` module) for the function/type table.
 - **Transform**: mutated via setters — `mesh.setPosition`, `setRotation`, `setScale`. Setters flip an internal dirty flag; the engine recomputes the model matrix and writes the per-object uniform buffer lazily in `frame.render`. Initial transform is identity.
 - **Lifetime**: explicit destroy — `mesh.destroy(ctx, m)`, `geometry.destroy(ctx, g)`, `material.destroy(ctx, m)`, and (for post-effects) `post.destroy(ctx, e)`. All four are silent on stale or already-destroyed handles (idempotent — the per-ctx handle pool's generation counter is the liveness source of truth). Geometry and Material both refcount inbound Mesh references: calling `destroy` on a still-referenced handle defers the actual GPU teardown until the last referencing mesh is destroyed. Pipelines are refcounted internally in a per-ctx cache (separate cache per consumer-facing kind: material pipelines vs post-effect pipelines) and freed when the last material/effect referencing them is destroyed. Custom material's group-1 bind-group resources and post-effect `EffectDescriptor.bindings` resources are consumer-owned — destroy them yourself after `material.destroy` / `post.destroy`.
 
+## Binding (uniform bridge)
+
+A `Binding` owns a CPU scratch buffer + a matching `GPUBuffer` for a declared `@group(1)` uniform-buffer layout. The write path is **lazy**:
+
+- `binding.set(ctx, b, values)` — batch-writes multiple fields into the CPU scratch and marks the binding dirty.
+- `binding.setUniform(ctx, b, name, value)` — single-field write, **zero-alloc** hot path; writes directly into the cached typed-array view at the pre-computed byte offset.
+- Neither call touches the GPU. Both are **runtime-quiet**: silent no-op on a stale or destroyed binding.
+- `frame.render` (and future compute dispatches) calls `_flushDirtyBindings(ctx)` **before any draw work** on every render call. This drains the per-ctx dirty-binding set: one `queue.writeBuffer(slot.buffer, 0, slot.scratch)` per dirty binding, then `slot.dirty = false` and the set is cleared.
+- The flush is **per-ctx** (not per-draw): a binding not yet attached to any drawn material is still flushed, keeping it compute-ready.
+- A binding destroyed after being marked dirty is silently skipped (warn-skip) at flush time — the slot lookup returns `null` and the handle is removed with `dirty.clear()`.
+- **Lifetime rule**: destroy `binding.destroy(ctx, b)` after (or alongside) destroying any material or effect that references it. A destroyed binding skips silently at flush; an orphaned live binding is cleaned by the dispose cascade on `gpu.dispose`.
+
+This generalises the existing per-mesh transform dirty-flush (`transformDirty` → `_recomputeModelIfDirty` per draw) to the binding layer.
+
 ## Binding contract
 
 Every Material's WGSL must respect the engine's binding contract:

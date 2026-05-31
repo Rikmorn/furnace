@@ -1,6 +1,12 @@
 import { FurnaceError } from "../errors.ts";
 import type { Context } from "../gpu/index.ts";
-import { _allocBinding, _destroyBinding } from "../resources/internal.ts";
+import { warn } from "../log/internal.ts";
+import type { BindingHandle } from "../resources/handle.ts";
+import {
+  _allocBinding,
+  _destroyBinding,
+  _lookupBinding,
+} from "../resources/internal.ts";
 import { _layoutOf } from "../shader/shader.ts";
 import type { Shader } from "../shader/types.ts";
 import { _recordAlloc, _recordDestroy } from "../stats/internal.ts";
@@ -11,6 +17,8 @@ import type {
   BindingSlot,
   LayoutSchema,
   ResolvedLayout,
+  Token,
+  Values,
 } from "./types.ts";
 
 /** Options for creating a binding without a paired shader. */
@@ -114,4 +122,156 @@ export function create<L extends LayoutSchema = LayoutSchema>(
  */
 export function destroy(ctx: Context, b: Binding): void {
   _destroyBinding<BindingSlot>(ctx, b, (s) => s._teardown());
+}
+
+// ---------------------------------------------------------------------------
+// Write path — set / setUniform
+// ---------------------------------------------------------------------------
+
+// Lookup table: token → element count (number of 4-byte elements written).
+// Scalars write 1 element; vectors/matrices write their component count.
+// biome-ignore format: alignment aids scanning the token→count map
+const TOKEN_ELEMENT_COUNT: Record<Token, number> = {
+  f32:      1,
+  i32:      1,
+  u32:      1,
+  vec2f:    2,
+  vec3f:    3,
+  vec4f:    4,
+  mat2x2f:  4,
+  mat3x3f: 12,
+  mat4x4f: 16,
+};
+
+/**
+ * Write one field by name into the binding's CPU scratch buffer. Dispatches
+ * on token to select the correct typed-array view. All byte offsets are
+ * multiples of 4 (WGSL alignment guarantee), so `offset / 4` is the integer
+ * element index into a 4-byte-per-element typed-array view.
+ *
+ * Unknown field name: warns and returns (defensive — `keyof L` prevents it
+ * at compile time; the check catches dynamic/cast call sites).
+ */
+function writeField(
+  slot: BindingSlot,
+  name: string,
+  value: number | number[] | Float32Array,
+): void {
+  const field = slot.layout.fields[name];
+  if (field === undefined) {
+    warn("binding", `set/setUniform: unknown field "${name}" — skipped`);
+    return;
+  }
+  const elementIndex = field.offset / 4;
+  const count = TOKEN_ELEMENT_COUNT[field.token];
+  if (count === 1) {
+    // Scalar path — dispatch on token to the correct integer view.
+    if (field.token === "i32") {
+      slot.views.i32[elementIndex] = value as number;
+    } else if (field.token === "u32") {
+      slot.views.u32[elementIndex] = value as number;
+    } else {
+      slot.views.f32[elementIndex] = value as number;
+    }
+  } else {
+    // Vector / matrix path — write N floats starting at the element index.
+    slot.views.f32.set(value as ArrayLike<number>, elementIndex);
+  }
+}
+
+function markDirty(ctx: Context, b: BindingHandle, slot: BindingSlot): void {
+  slot.dirty = true;
+  ctx._internal.resources.dirtyBindings.add(b);
+}
+
+/**
+ * Batch-write multiple fields on a {@link Binding} from a partial values
+ * object. Writes each supplied key into the CPU scratch buffer and marks the
+ * binding dirty for the next render flush.
+ *
+ * @remarks
+ * Both `set` and {@link setUniform} are **lazy**: they write only the CPU
+ * scratch; no GPU buffer upload occurs until `frame.render` (or a future
+ * compute dispatch) calls `_flushDirtyBindings`. Silent no-op on a stale or
+ * destroyed binding (runtime-quiet — hot-path).
+ */
+export function set<L extends LayoutSchema>(
+  ctx: Context,
+  b: Binding<L>,
+  values: Partial<Values<L>>,
+): void {
+  const slot = _lookupBinding<BindingSlot>(ctx, b);
+  if (slot === null) return;
+  for (const [name, value] of Object.entries(values)) {
+    writeField(slot, name, value as number | number[] | Float32Array);
+  }
+  markDirty(ctx, b, slot);
+}
+
+/**
+ * Write a single named field on a {@link Binding}. Zero-alloc hot path:
+ * no transient object is created; the value is written directly into the
+ * cached typed-array view at the pre-computed byte offset.
+ *
+ * @remarks
+ * The field name is constrained to `keyof L` at compile time, so unknown
+ * field names are prevented statically. A runtime defensive warn+skip
+ * applies to call sites that bypass the type checker (e.g. a cast).
+ *
+ * Silent no-op on a stale or destroyed binding (runtime-quiet — hot-path).
+ */
+export function setUniform<L extends LayoutSchema, K extends keyof L>(
+  ctx: Context,
+  b: Binding<L>,
+  name: K,
+  value: Values<L>[K],
+): void {
+  const slot = _lookupBinding<BindingSlot>(ctx, b);
+  if (slot === null) return;
+  writeField(slot, name as string, value as number | number[] | Float32Array);
+  markDirty(ctx, b, slot);
+}
+
+// ---------------------------------------------------------------------------
+// Render-boundary flush (engine-internal)
+// ---------------------------------------------------------------------------
+
+/**
+ * Drain the per-ctx dirty-binding set: upload each dirty binding's CPU
+ * scratch to its `GPUBuffer` via one `queue.writeBuffer` call, then clear
+ * `slot.dirty` and the set. Called by `frame.render` before any draw calls.
+ *
+ * Stale handles in the set (binding destroyed after being marked dirty) are
+ * silently skipped — the slot lookup returns `null` and the handle is removed
+ * from the set with the rest of `dirty.clear()`. Engine-internal; not
+ * re-exported from the public `@furnace/core/binding` sub-path.
+ */
+export function _flushDirtyBindings(ctx: Context): void {
+  const dirty = ctx._internal.resources.dirtyBindings;
+  for (const handle of dirty) {
+    const slot = _lookupBinding<BindingSlot>(ctx, handle);
+    // Skip a stale handle (destroyed since marked) or an already-clean slot;
+    // both are cleared from the set by dirty.clear() below.
+    if (slot === null || !slot.dirty) continue;
+    ctx.queue.writeBuffer(slot.buffer, 0, slot.scratch);
+    slot.dirty = false;
+  }
+  dirty.clear();
+}
+
+// ---------------------------------------------------------------------------
+// Internal test accessors (engine-internal; exported from index.ts so tests
+// can reach them via `import * as binding from ".../index.ts"`)
+// ---------------------------------------------------------------------------
+
+/** Return the slot's CPU scratch `ArrayBuffer`, or `null` on stale handles. */
+export function _scratchOf(ctx: Context, b: BindingHandle): ArrayBuffer | null {
+  const slot = _lookupBinding<BindingSlot>(ctx, b);
+  return slot !== null ? slot.scratch : null;
+}
+
+/** Return whether the binding's dirty flag is set, or `false` on stale handles. */
+export function _isDirty(ctx: Context, b: BindingHandle): boolean {
+  const slot = _lookupBinding<BindingSlot>(ctx, b);
+  return slot !== null ? slot.dirty : false;
 }

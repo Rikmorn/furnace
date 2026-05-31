@@ -1,3 +1,4 @@
+import { _flushDirtyBindings } from "../binding/binding.ts";
 import type { Camera } from "../camera/index.ts";
 import * as camera from "../camera/index.ts";
 import type { GeometrySlot } from "../geometry/types.ts";
@@ -496,6 +497,9 @@ export function render(ctx: Context, opts: RenderOptions): void {
   if (opts.draw == null) {
     throw new FurnaceGpuError("render: draw is required");
   }
+  // Flush all dirty bindings to the GPU before any draw work begins.
+  // Generalises the per-mesh transform dirty-flush to the binding layer.
+  _flushDirtyBindings(ctx);
   const resolvedDraws = validateDraw(ctx, opts.draw);
   const depthMismatch = firstDepthDisagreement(resolvedDraws, true);
   if (depthMismatch !== -1) {

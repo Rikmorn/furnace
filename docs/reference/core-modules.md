@@ -295,6 +295,8 @@ Re-exported from `index.ts` so the binding subsystem (Task 3+) can `import * as 
 | `create` | `(ctx: Context, shader: Shader<L>) => Binding<L>` | Create a `Binding` from a compiled `Shader`. Reads the `@group(1)` layout stored on the shader slot (via `_layoutOf`) and allocates a `GPUBuffer` + CPU scratch. **Synchronous**. Setup-loud: throws `FurnaceError` if the shader declares no layout (`_layoutOf` returns `null`) or the layout has no fields. |
 | `create` | `(ctx: Context, opts: { layout: L; addressSpace?: AddressSpace }) => Binding<L>` | Create a `Binding` without a paired shader. Calls `computeLayout` on the provided schema. **Synchronous**. Setup-loud: throws `FurnaceError` on an unsupported token, unimplemented address space, or empty schema. |
 | `destroy` | `(ctx: Context, b: Binding) => void` | Free the binding's `GPUBuffer` and CPU scratch. Stats decrements for both the binding slot count and the buffer bytes are fired via `_teardown`. Idempotent on stale or already-destroyed handles. |
+| `set` | `(ctx: Context, b: Binding<L>, values: Partial<Values<L>>) => void` | Batch-write multiple fields from a partial values object into the binding's CPU scratch buffer and mark it dirty for the next render flush. **Lazy** — no GPU write occurs until `frame.render` (or a future compute dispatch) calls `_flushDirtyBindings`. **Runtime-quiet**: silent no-op on a stale or destroyed binding. |
+| `setUniform` | `(ctx: Context, b: Binding<L>, name: keyof L, value: Values<L>[K]) => void` | Write a single named field. **Zero-alloc** hot path — no transient object created; value written directly into the cached typed-array view at the pre-computed byte offset. Field name is `keyof L` at compile time (unknown names warn+skip defensively at runtime). **Lazy** and **runtime-quiet** — same semantics as `set`. |
 | `Binding<L>` | Opaque branded uint48 handle (alias of `BindingHandle`) carrying phantom `L` | Returned by `create`. `L` records the declared `@group(1)` layout schema at compile time. Managed pool kind — owns a `GPUBuffer` (stats `memory.bufferBytes`) and a CPU scratch buffer; freed explicitly via `binding.destroy` or by the dispose cascade. No refcount. |
 | `LayoutSchema` | `Record<string, Token>` | Re-exported for consumers declaring schemas without importing from `@furnace/core/shader`. |
 | `AddressSpace` | `"uniform" \| "storage-read" \| "storage-readwrite"` | Re-exported. Only `"uniform"` is implemented; storage variants throw until the compute tranche. |
@@ -303,7 +305,7 @@ Re-exported from `index.ts` so the binding subsystem (Task 3+) can `import * as 
 
 ### Demoed in cookbook
 
-(none yet — `set`/`setUniform`/flush land in Task 4; cookbook demo deferred until the binding write path is complete.)
+(none yet — cookbook demo deferred until the material-binding integration lands in Task 5+.)
 
 ---
 

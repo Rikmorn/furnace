@@ -1,5 +1,16 @@
 export type { BindingCreateOpts } from "./binding.ts";
-export { create, destroy } from "./binding.ts";
+// Internal — re-exported so engine tests can reach them via
+// `import * as binding from ".../binding/index.ts"`. Not part of the
+// consumer-facing API.
+export {
+  _flushDirtyBindings,
+  _isDirty,
+  _scratchOf,
+  create,
+  destroy,
+  set,
+  setUniform,
+} from "./binding.ts";
 export type {
   AddressSpace,
   Binding,
