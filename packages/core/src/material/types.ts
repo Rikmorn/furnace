@@ -50,9 +50,9 @@ export type Material<L extends LayoutSchema = LayoutSchema> = MaterialHandle & {
  * surface; resource-manager internals only.
  *
  * `pipeline` is refcounted in the per-ctx material pipeline cache;
- * `ownedBuffers` / `ownedBufferBytes` are paired arrays holding any
- * uniform buffers the factory allocated and their byte sizes (used by
- * the slot's `_teardown` to fire matching stats decrements).
+ * `ownedBuffers` / `ownedBufferBytes` are paired arrays for slot-owned
+ * uniform buffers freed by `_teardown` — currently unused (see the field
+ * comment below).
  *
  * `userCount` / `markedDestroyed` carry the Mesh→Material refcount
  * (symmetric to Mesh→Geometry): `destroy` while `userCount > 0` sets
@@ -63,6 +63,13 @@ export type MaterialSlot = {
   pipeline: GPURenderPipeline;
   pipelineKey: string;
   group1: GPUBindGroup | null;
+  // CURRENTLY DEAD (no writer): these hold factory-allocated uniform buffers the
+  // slot frees on destroy. The only writer was `material.unlit`, retired in
+  // Tranche E-B — the bridge now owns `@group(1)` buffers in the `Binding`
+  // (material.destroy must NOT free those) and raw `bindings` are consumer-owned,
+  // so nothing pushes here and `_teardown`'s loop iterates an empty array.
+  // Retained pending a design call (is binding-ownership permanent?); removal
+  // backlogged: docs/backlog/engine-architecture/material-ownedbuffers-dead-after-unlit-retirement.md
   ownedBuffers: GPUBuffer[];
   ownedBufferBytes: number[];
   cullMode: GPUCullMode;
