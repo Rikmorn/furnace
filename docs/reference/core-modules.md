@@ -525,7 +525,7 @@ Count / memory introspection lives on `stats.snapshot(ctx).resources.*` and `sta
 | Export | Signature | Notes |
 |---|---|---|
 | `disposeAll` | `(ctx: Context) => void` | Manually trigger the resource-manager cascade — same teardown that `gpu.dispose` runs internally, but without disposing the `GPUDevice` itself. Used for explicit cleanup before context disposal (e.g. free memory during a level transition without dropping the device). Idempotent. |
-| `ResourceKind` | `"mesh" \| "material" \| "geometry" \| "effect" \| "shader" \| "binding"` | Discriminator string for resource kinds. |
+| `ResourceKind` | `"mesh" \| "material" \| "geometry" \| "effect" \| "shader" \| "binding" \| "physics-world" \| "physics-body"` | Discriminator string for resource kinds. The two `physics-*` kinds back the `@furnace/core/physics` handles (`World` / `Body`); they have their own dedicated `physics.destroyWorld` / `physics.destroyBody` rather than a generic per-kind `destroy`. |
 | `MeshHandle` / `MaterialHandle` / `GeometryHandle` / `EffectHandle` / `ShaderHandle` / `BindingHandle` | Branded uint48 handles | Re-exported from `resources/handle.ts` so consumers can type variables (e.g. a `Map<MeshHandle, …>`) without reaching into engine-internal modules. Each is also aliased by its owning module (`mesh.Mesh`, `material.Material`, `shader.Shader`, `binding.Binding`, …) — same underlying type. |
 | `AnyResourceHandle` | `MeshHandle \| MaterialHandle \| GeometryHandle \| EffectHandle \| ShaderHandle \| BindingHandle` | Cross-kind union. Useful when storing handles of mixed kinds in a single collection. |
 
@@ -536,6 +536,37 @@ Count / memory introspection lives on `stats.snapshot(ctx).resources.*` and `sta
 ### Reference-only (no demo, by design)
 
 - `disposeAll` — explicit cascade trigger; not part of any cookbook demo.
+
+---
+
+## `@furnace/core/physics`
+
+`import * as physics from "@furnace/core/physics";`
+
+CPU-authoritative rigid-body simulation over a Rapier backend (see `docs/reference/adr/0001-physics-two-track-architecture.md`). Stage 1 surface: dynamic + static bodies with ball + cuboid colliders. Kinematic bodies, capsule/cylinder colliders, joints, and the body↔mesh binding are deferred. Live `World` / `Body` counts surface on `stats.snapshot(ctx).resources.physicsWorlds` / `.physicsBodies`.
+
+### Public
+
+| Export | Signature | Notes |
+|---|---|---|
+| `createWorld` | `(ctx: Context, descriptor: WorldDescriptor) => Promise<World>` | `async` — lazily runs Rapier's one-time wasm init (memoized across all worlds), then constructs the backend world + event queue. Setup-loud: throws `FurnaceError` if `gravity` is not a finite 3-component vector. |
+| `step` | `(ctx: Context, world: World, dtSeconds: number) => void` | Hot-path Command — sets the backend timestep to `dtSeconds` and advances one step. Runtime-quiet: silent no-op on a stale/destroyed world. Populates the collision-event buffer drained by `drainCollisions`. |
+| `drainCollisions` | `(ctx: Context, world: World) => CollisionEvent[]` | Drains begin/end contacts recorded by the most recent `step`. Returns `[]` on a stale world or when nothing collided. Events whose collider does not resolve to a live body (e.g. a body destroyed mid-step) are dropped. |
+| `destroyWorld` | `(ctx: Context, world: World) => void` | Tears down every body the world owns (removing each from the still-live backend world), then frees the backend world + its event queue. Idempotent silent no-op on a stale/destroyed handle. |
+| `createBody` | `(ctx: Context, world: World, descriptor: BodyDescriptor) => Body` | **Synchronous.** Builds a Rapier rigid body + collider (colliders are created event-enabled). Setup-loud: throws `FurnaceError` if the descriptor is `null`, has an unknown `type`, a non-finite `position`, or an invalid `shape`; also throws if `world` is not a live handle. |
+| `destroyBody` | `(ctx: Context, body: Body) => void` | Removes the body from its world's backend simulation and frees its slot. Idempotent silent no-op on a stale/destroyed handle. |
+| `getBodyTranslation` | `(ctx: Context, body: Body, out: Vec3) => Vec3` | Hot-path read of world-space translation into the **required** `out` (no per-call alloc); returns `out`. `out` is left unchanged on a stale/destroyed body. |
+| `getBodyRotation` | `(ctx: Context, body: Body, out: Quat) => Quat` | Hot-path read of the world-space rotation quaternion into the **required** `out` (no per-call alloc); returns `out`. `out` is left unchanged on a stale/destroyed body. |
+| `WorldDescriptor` | `{ gravity: readonly [number, number, number] }` | Gravity vector for the world (e.g. `[0, -9.81, 0]`). |
+| `BodyDescriptor` | `{ type: "dynamic" \| "static"; shape: ShapeDescriptor; position: readonly [number, number, number]; rotation?: readonly [number, number, number, number]; linearVelocity?: readonly [number, number, number]; density?: number }` | `rotation` is an `[x,y,z,w]` quaternion, defaults to identity. `linearVelocity` defaults to zero and is only meaningful for `dynamic` bodies (static bodies don't integrate velocity). `density` defaults to `1` (drives dynamic mass). |
+| `ShapeDescriptor` | `{ ball: number } \| { cuboid: readonly [number, number, number] }` | `ball` = sphere radius; `cuboid` = box half-extents. |
+| `CollisionEvent` | `{ a: Body; b: Body; started: boolean }` | A contact begin (`started: true`) or end (`started: false`) between bodies `a` and `b`. |
+| `World` | Opaque branded uint48 handle (alias of `PhysicsWorldHandle`) | Owns the backend world + its bodies + event queue. Dispose via `physics.destroyWorld` or the resource-manager cascade (`gpu.dispose` / `resources.disposeAll`). |
+| `Body` | Opaque branded uint48 handle (alias of `PhysicsBodyHandle`) | A rigid body inside a `World`. Dispose via `physics.destroyBody`, by destroying its owning `World`, or by the cascade. |
+
+### Demoed in cookbook
+
+(none yet — Stage 1 bodies don't render on their own; the body↔mesh binding that would make a demo meaningful is Stage 2.)
 
 ---
 
