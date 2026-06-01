@@ -24,6 +24,9 @@
     "packages/core": {
       "name": "@furnace/core",
       "version": "0.0.0",
+      "dependencies": {
+        "@dimforge/rapier3d-compat": "^0.19.3",
+      },
       "devDependencies": {
         "bun-webgpu": "^0.1.0",
       },
@@ -69,6 +72,8 @@
     "@biomejs/cli-win32-arm64": ["@biomejs/cli-win32-arm64@2.4.15", "", { "os": "win32", "cpu": "arm64" }, "sha512-ouhkYdlhp/1GghEJPdWwD/Vi3gQ1nFxuSpMolWsbq3Lsq3QUR4jl6UdhhscdCugKU5vOEuMiJhvKj66O0OCq+w=="],
 
     "@biomejs/cli-win32-x64": ["@biomejs/cli-win32-x64@2.4.15", "", { "os": "win32", "cpu": "x64" }, "sha512-zBrGq5mx5wwpnow4+2BxUvleDM+GNd4sLbPaMapsSLQLD0NGRCquqPBTgN+7XkUteHvj7M+BstuI8tmnV7+HgQ=="],
+
+    "@dimforge/rapier3d-compat": ["@dimforge/rapier3d-compat@0.19.3", "", {}, "sha512-mMVdSj1PRTT108s9Swbu2GQOmHbn8kbJANRV5xfczL3s0T4vkgZAuoMRgvBzQcHanpKusbC0ZJj6z3mC3aj3vg=="],
 
     "@furnace/cookbook": ["@furnace/cookbook@workspace:packages/cookbook"],
 
