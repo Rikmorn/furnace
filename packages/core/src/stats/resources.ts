@@ -5,6 +5,8 @@ export type ResourceKind =
   | "effect"
   | "shader"
   | "binding"
+  | "physics-world"
+  | "physics-body"
   | "buffer"
   | "texture";
 
@@ -16,6 +18,8 @@ export type ResourceRegistry = {
     effects: number;
     shaders: number;
     bindings: number;
+    physicsWorlds: number;
+    physicsBodies: number;
   };
   memory: { bufferBytes: number; textureBytes: number };
 };
@@ -29,6 +33,8 @@ export function createResourceRegistry(): ResourceRegistry {
       effects: 0,
       shaders: 0,
       bindings: 0,
+      physicsWorlds: 0,
+      physicsBodies: 0,
     },
     memory: { bufferBytes: 0, textureBytes: 0 },
   };
@@ -68,6 +74,12 @@ export function recordAlloc(
     case "binding":
       r.counts.bindings++;
       break;
+    case "physics-world":
+      r.counts.physicsWorlds++;
+      break;
+    case "physics-body":
+      r.counts.physicsBodies++;
+      break;
     case "buffer":
       r.memory.bufferBytes += bytes;
       break;
@@ -104,6 +116,12 @@ export function recordDestroy(
       break;
     case "binding":
       r.counts.bindings--;
+      break;
+    case "physics-world":
+      r.counts.physicsWorlds--;
+      break;
+    case "physics-body":
+      r.counts.physicsBodies--;
       break;
     case "buffer":
       r.memory.bufferBytes -= bytes;

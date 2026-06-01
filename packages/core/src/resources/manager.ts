@@ -25,6 +25,8 @@ export type ResourceManager = {
   effects: Pool<unknown>;
   shaders: Pool<unknown>;
   bindings: Pool<unknown>;
+  physicsWorlds: Pool<unknown>;
+  physicsBodies: Pool<unknown>;
   materialPipelineCache: Map<string, PipelineCacheEntry>;
   postPipelineCache: Map<string, PipelineCacheEntry>;
   /** Bindings whose CPU scratch has been written since the last render flush.
@@ -64,6 +66,8 @@ export function createResourceManager(): ResourceManager {
     effects: createPool(),
     shaders: createPool(),
     bindings: createPool(),
+    physicsWorlds: createPool(),
+    physicsBodies: createPool(),
     materialPipelineCache: new Map(),
     postPipelineCache: new Map(),
     builtinShaders: { unlit: null, normalColor: null },

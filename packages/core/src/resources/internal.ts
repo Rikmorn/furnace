@@ -10,6 +10,8 @@ import {
   type GeometryHandle,
   type MaterialHandle,
   type MeshHandle,
+  type PhysicsBodyHandle,
+  type PhysicsWorldHandle,
   type ShaderHandle,
 } from "./handle.ts";
 import {
@@ -28,7 +30,9 @@ export type ResourceKind =
   | "geometry"
   | "effect"
   | "shader"
-  | "binding";
+  | "binding"
+  | "physics-world"
+  | "physics-body";
 
 /**
  * Map a {@link ResourceKind} to the matching pool on the manager. Engine-
@@ -49,6 +53,10 @@ function poolFor(ctx: Context, kind: ResourceKind): Pool<unknown> {
       return r.shaders;
     case "binding":
       return r.bindings;
+    case "physics-world":
+      return r.physicsWorlds;
+    case "physics-body":
+      return r.physicsBodies;
   }
 }
 
@@ -281,6 +289,63 @@ export function _destroyBinding<T>(
 ): boolean {
   const destroyed = _destroyRaw(ctx, "binding", handle, teardown);
   if (destroyed) _recordDestroy(ctx, "binding", 0);
+  return destroyed;
+}
+
+/** Allocate a physics-world slot and return a branded {@link PhysicsWorldHandle}. */
+export function _allocPhysicsWorld<T>(
+  ctx: Context,
+  data: T,
+): PhysicsWorldHandle {
+  // Boundary cast: see _allocMesh.
+  const handle = _allocRaw(ctx, "physics-world", data) as PhysicsWorldHandle;
+  _recordAlloc(ctx, "physics-world", 0);
+  return handle;
+}
+
+/** Look up a physics-world slot. Returns `null` on stale or invalid handles. */
+export function _lookupPhysicsWorld<T>(
+  ctx: Context,
+  handle: PhysicsWorldHandle,
+): T | null {
+  return _lookupRaw(ctx, "physics-world", handle);
+}
+
+/** Destroy a physics-world slot. See {@link _destroyMesh} for semantics. */
+export function _destroyPhysicsWorld<T>(
+  ctx: Context,
+  handle: PhysicsWorldHandle,
+  teardown: (data: T) => void,
+): boolean {
+  const destroyed = _destroyRaw(ctx, "physics-world", handle, teardown);
+  if (destroyed) _recordDestroy(ctx, "physics-world", 0);
+  return destroyed;
+}
+
+/** Allocate a physics-body slot and return a branded {@link PhysicsBodyHandle}. */
+export function _allocPhysicsBody<T>(ctx: Context, data: T): PhysicsBodyHandle {
+  // Boundary cast: see _allocMesh.
+  const handle = _allocRaw(ctx, "physics-body", data) as PhysicsBodyHandle;
+  _recordAlloc(ctx, "physics-body", 0);
+  return handle;
+}
+
+/** Look up a physics-body slot. Returns `null` on stale or invalid handles. */
+export function _lookupPhysicsBody<T>(
+  ctx: Context,
+  handle: PhysicsBodyHandle,
+): T | null {
+  return _lookupRaw(ctx, "physics-body", handle);
+}
+
+/** Destroy a physics-body slot. See {@link _destroyMesh} for semantics. */
+export function _destroyPhysicsBody<T>(
+  ctx: Context,
+  handle: PhysicsBodyHandle,
+  teardown: (data: T) => void,
+): boolean {
+  const destroyed = _destroyRaw(ctx, "physics-body", handle, teardown);
+  if (destroyed) _recordDestroy(ctx, "physics-body", 0);
   return destroyed;
 }
 

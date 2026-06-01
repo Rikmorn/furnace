@@ -19,6 +19,8 @@ export const ZERO_SNAPSHOT: Snapshot = Object.freeze({
     effects: 0,
     shaders: 0,
     bindings: 0,
+    physicsWorlds: 0,
+    physicsBodies: 0,
   },
   events: { perEmitter: {} },
   memory: { bufferBytes: 0, textureBytes: 0, total: 0 },

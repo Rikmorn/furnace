@@ -31,6 +31,16 @@ export type ShaderHandle = number & { readonly __brand: "ShaderHandle" };
 /** Branded handle referring to a slot in the binding pool. */
 export type BindingHandle = number & { readonly __brand: "BindingHandle" };
 
+/** Branded handle referring to a slot in the physics-world pool. */
+export type PhysicsWorldHandle = number & {
+  readonly __brand: "PhysicsWorldHandle";
+};
+
+/** Branded handle referring to a slot in the physics-body pool. */
+export type PhysicsBodyHandle = number & {
+  readonly __brand: "PhysicsBodyHandle";
+};
+
 /**
  * Union of every branded handle kind. Used by cross-cutting
  * resource APIs that handle multiple resource types uniformly.
@@ -41,7 +51,9 @@ export type AnyResourceHandle =
   | GeometryHandle
   | EffectHandle
   | ShaderHandle
-  | BindingHandle;
+  | BindingHandle
+  | PhysicsWorldHandle
+  | PhysicsBodyHandle;
 
 const SLOT_BITS = 16;
 const SLOT_MASK = 0xffff;

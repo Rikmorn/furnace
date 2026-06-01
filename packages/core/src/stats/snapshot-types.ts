@@ -63,6 +63,10 @@ export type Snapshot = Readonly<{
     shaders: number;
     /** Live count of {@link Binding} handles registered with stats. */
     bindings: number;
+    /** Live count of physics {@link World} handles registered with stats. */
+    physicsWorlds: number;
+    /** Live count of physics {@link Body} handles registered with stats. */
+    physicsBodies: number;
   };
   events: { perEmitter: Record<string, number> };
   memory: { bufferBytes: number; textureBytes: number; total: number };

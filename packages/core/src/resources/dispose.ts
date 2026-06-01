@@ -15,7 +15,10 @@ import {
  * be at zero when actual GPU teardown runs). Shaders and Bindings are
  * order-insensitive — nothing references a shader slot after pipeline creation
  * (WebGPU captures the module at pipeline-build time), and a Binding owns its
- * buffer outright (no slot references it back), so they slot last.
+ * buffer outright (no slot references it back), so they slot last. Physics is
+ * independent of the render kinds and slots after them: a body's teardown
+ * removes it from its (still-live) Rapier world, so bodies MUST tear down
+ * before worlds.
  */
 const CASCADE_ORDER: readonly ResourceKind[] = [
   "mesh",
@@ -24,6 +27,10 @@ const CASCADE_ORDER: readonly ResourceKind[] = [
   "geometry",
   "shader",
   "binding",
+  // Physics is independent of the render kinds. A body's teardown removes it
+  // from its (still-live) Rapier world, so bodies MUST tear down before worlds.
+  "physics-body",
+  "physics-world",
 ];
 
 /**
