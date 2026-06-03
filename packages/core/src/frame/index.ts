@@ -2,11 +2,6 @@ export { encode } from "./encode.ts";
 
 export { type FixedClock, fixedClock } from "./fixed-clock.ts";
 export {
-  type FixedLoopInfo,
-  type FixedLoopOptions,
-  fixedLoop,
-} from "./fixed-loop.ts";
-export {
   type FrameInfo,
   type FrameLoopHandle,
   type LoopOptions,

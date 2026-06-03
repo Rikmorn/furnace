@@ -71,24 +71,21 @@ The reference is "what the engine IS today." If it's stale, it's broken.
 | Export | Signature | Notes |
 |---|---|---|
 | `loop` | `(ctx: Context, onFrame: (info: FrameInfo) => void, options?: LoopOptions) => FrameLoopHandle` | RAF wrapper. Records `_frameStart`/`_frameEnd` around the callback. Auto-pauses on `document.hidden` by default. |
-| `fixedLoop` | `(ctx: Context, opts: FixedLoopOptions) => FrameLoopHandle` | Fix-Your-Timestep accumulator wrapping `loop`. `opts.onTick(dtSeconds)` runs zero-or-more times per RAF; `opts.onFrame({ deltaMs, alpha })` runs once. Spiral-of-death guarded via `maxCatchupTicks` (default 8). |
 | `fixedClock` | `(opts: { fixedDtMs: number; maxCatchupTicks?: number }) => FixedClock` | A separable fixed-step accumulator (no `ctx` — pure timing state, like an emitter). `advance(deltaMs, onTick) → alpha` runs `onTick(dtSeconds)` zero-or-more times (catch-up capped by `maxCatchupTicks`, default 8, spiral-of-death guarded) and returns `alpha ∈ [0,1)`; `setFixedDtMs` changes the step at runtime. Drive it from inside any render loop. |
 | `FixedClock` | `{ advance(deltaMs, onTick): number; setFixedDtMs(fixedDtMs): void; readonly fixedDtMs: number }` | Returned by `fixedClock`. No lifecycle (plain GC'd timing state). Cold-path throws on non-positive `fixedDtMs` / non-integer `maxCatchupTicks`. |
 | `render` | `(ctx: Context, opts: RenderOptions) => void` | One-shot render pass. Allocates a depth texture and per-camera uniform buffer lazily, sets up `group(0)`, iterates `opts.draw`, and (if `opts.effects` non-empty) ping-pongs effects to the swap chain. |
 | `renderToTexture` | `(ctx: Context, opts: RenderToTextureOptions) => void` | Like `render`, but the color target is a consumer-supplied `GPUTexture`. No post-effects chain. Depth presence must agree with each drawn material's depth state; a mismatch (or a color-target format ≠ `ctx.format`, or a supplied `depthTexture` format ≠ `depth24plus`) throws `FurnaceGpuError`. |
 | `encode` | `(ctx: Context, callback: (encoder: GPUCommandEncoder) => void) => void` | Low-level escape hatch: creates a command encoder, hands it to the callback, finishes and submits. Bypasses scene-pass / camera / mesh bookkeeping. Throws if `ctx` is disposed. |
 | `FrameInfo` | `Readonly<{ elapsedMs: number; deltaMs: number }>` | `deltaMs` is capped by `LoopOptions.maxDeltaMs` (default 100). |
-| `FixedLoopInfo` | `Readonly<{ deltaMs: number; alpha: number }>` | `alpha = accumulator / fixedDtMs`, in `[0, 1)`. |
-| `FrameLoopHandle` | `Readonly<{ stop: () => void; pause: () => void; resume: () => void }>` | Returned by both `loop` and `fixedLoop`. |
+| `FrameLoopHandle` | `Readonly<{ stop: () => void; pause: () => void; resume: () => void }>` | Returned by `loop`. |
 | `LoopOptions` | `{ maxDeltaMs?: number; pauseOnHidden?: boolean }` | Defaults: `maxDeltaMs: 100`, `pauseOnHidden: true`. |
-| `FixedLoopOptions` | `{ fixedDtMs: number; onTick: (dtSeconds: number) => void; onFrame?: (info: FixedLoopInfo) => void; maxCatchupTicks?: number; maxDeltaMs?: number; pauseOnHidden?: boolean }` | `maxCatchupTicks` default: 8. |
 | `RenderOptions` | `{ draw: Mesh[]; camera: Camera; effects?: Effect[]; clearColor?: Vec4; clearDepth?: number }` | `clearColor` is a linear-space RGBA `Vec4`; defaults to `[0, 0, 0, 1]`. `clearDepth` defaults to `1.0`. |
 | `RenderToTextureOptions` | `{ texture: GPUTexture; draw: Mesh[]; camera: Camera; depthTexture?: GPUTexture; clearColor?: Vec4; clearDepth?: number }` | `clearColor` is a linear-space RGBA `Vec4`. Omit `depthTexture` **only if every drawn material has depth disabled** (`material.create` with `depth: false`, or a built-in factory with `depthEnabled: false`); a depth/format mismatch (or a color format ≠ `ctx.format`, or depth format ≠ `depth24plus`) throws `FurnaceGpuError`. |
 
 ### Demoed in cookbook
 
 - `loop`, `render`, `RenderOptions` → `cookbook/camera`.
-- `loop` (variable dt), `fixedLoop` (mentioned), `FrameInfo` → `cookbook/animation`.
+- `loop`, `fixedClock`, `FrameInfo` → `cookbook/animation` (variable dt vs fixed-step + interpolation).
 - `renderToTexture`, `RenderToTextureOptions` → `cookbook/render-target`.
 - `render({ effects })` → `cookbook/post`.
 

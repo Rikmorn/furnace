@@ -3,8 +3,8 @@
  * a `string` (e.g. from a <select>) must be narrowed back to the literal type
  * without a forbidden `as` cast.
  *
- *   type LoopKind = "loop" | "fixedLoop";
- *   const isLoopKind = makeUnionGuard<LoopKind>(["loop", "fixedLoop"]);
+ *   type LoopKind = "variable" | "fixed";
+ *   const isLoopKind = makeUnionGuard<LoopKind>(["variable", "fixed"]);
  *   if (isLoopKind(v)) onLoopChange(v);
  */
 export function makeUnionGuard<T extends string>(

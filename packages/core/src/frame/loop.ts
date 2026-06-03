@@ -18,7 +18,7 @@ export type FrameInfo = Readonly<{
 }>;
 
 /**
- * Handle returned by {@link loop} and `fixedLoop` for controlling a running
+ * Handle returned by {@link loop} for controlling a running
  * frame loop.
  *
  * `stop` tears the loop down permanently (cancels the pending RAF, removes
@@ -37,7 +37,7 @@ export type FrameLoopHandle = Readonly<{
 }>;
 
 /**
- * Options accepted by {@link loop} (and forwarded by `fixedLoop`).
+ * Options accepted by {@link loop}.
  *
  * Defaults: `maxDeltaMs: 100`, `pauseOnHidden: true`.
  *
@@ -61,9 +61,9 @@ const DEFAULT_MAX_DELTA_MS = 100;
  * caps `deltaMs` per {@link LoopOptions.maxDeltaMs}, and optionally
  * auto-pauses on `document.hidden`.
  *
- * For deterministic simulation (physics, networking, replay), prefer
- * `fixedLoop` — `loop` is intended for visual demos with no determinism
- * requirements (see `engine-conventions.md` §"Time").
+ * For deterministic simulation (physics, networking, replay), drive a
+ * `frame.fixedClock` from inside this loop — see
+ * `engine-conventions.md` §"Time".
  *
  * Setup-loud per the foreground failure policy
  * (`engine-conventions.md` §"Failure policy").

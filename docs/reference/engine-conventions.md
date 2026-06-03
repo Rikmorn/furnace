@@ -30,14 +30,11 @@ Override via `gpu.requestContext(canvas, { pixelRatio: "device" | "css" | number
 
 ## Time
 
-Two frame loops:
-- `frame.loop(ctx, fn)` — variable timestep RAF wrapper. Use for visual demos with no determinism requirements.
-- `frame.fixedLoop(ctx, opts)` — Fix-Your-Timestep accumulator. Use for simulation, physics, networking, replay — anywhere determinism matters.
+One render loop + a separable fixed-step clock:
+- `frame.loop(ctx, fn)` — the variable-timestep RAF wrapper (the single render loop). Caps `deltaMs` to a configurable maximum (default 100 ms) to prevent jumps after sleep/visibility changes; auto-pauses when the document becomes hidden (Page Visibility API, configurable via `{ pauseOnHidden: false }`); returns a `FrameLoopHandle` with `{ stop, pause, resume }`.
+- `frame.fixedClock({ fixedDtMs, maxCatchupTicks? })` — a "Fix Your Timestep" accumulator, decoupled from loop ownership. `clock.advance(deltaMs, onTick) → alpha` runs `onTick(dtSeconds)` zero-or-more times (catch-up capped by `maxCatchupTicks`, default 8, with a spiral-of-death guard) and returns the interpolation `alpha ∈ [0,1)`. `fixedDtMs` is runtime-settable via `setFixedDtMs`. Use for simulation/physics/networking/replay — anywhere determinism matters.
 
-Both:
-- Cap `deltaMs` to a configurable maximum (default 100 ms) to prevent jumps after sleep or visibility changes.
-- Auto-pause when the document becomes hidden (Page Visibility API). Configurable via `{ pauseOnHidden: false }`.
-- Return a `FrameLoopHandle` with `{ stop, pause, resume }`.
+A fixed-step game is `frame.loop` + `frame.fixedClock`, composed — the same composition whether a consumer owns the loop directly or a shell owns it and dispatches a per-scene frame callback. See `fixed-step-interpolation.md`.
 
 ## Resource manager
 
@@ -319,7 +316,7 @@ Applies to: `gpu.requestContext`, `gpu.dispose`,
 `material.create`/`unlit`/`normalColor`,
 `mesh.create`, `geometry.create`/`cube`/`plane`,
 `post.create`,
-`frame.loop`/`fixedLoop` constructors,
+`frame.loop`/`fixedClock` constructors + `fixedClock.setFixedDtMs`,
 `input.attach`/`detach`,
 `stats.onFrame`.
 

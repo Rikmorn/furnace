@@ -109,7 +109,7 @@ export function commit(ctx: Context, rm: RigidMesh): void {
 
 /**
  * Blend the previous→current tick pose by `alpha ∈ [0,1)` (from
- * `frame.fixedLoop`'s `onFrame`) and write the result to the mesh: `vec3.lerp`
+ * `frame.fixedClock`'s `advance`) and write the result to the mesh: `vec3.lerp`
  * for position, `quat.slerp` for rotation. Call once per render frame. Pass
  * `alpha = 1` to pin the mesh to the latest tick pose (no interpolation).
  * Hot-path; silent no-op on a stale/destroyed `rm`.
