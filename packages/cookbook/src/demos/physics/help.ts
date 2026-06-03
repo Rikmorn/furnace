@@ -30,7 +30,7 @@ export default {
   ],
   gaps: [
     "collision shape == render shape here (cuboid body, cube mesh); collision≠render (capsule collide, cylinder render) lands with the bowling pins (Stage 3/4)",
-    "reset re-drops by destroy+recreate; an in-place teleport + interpolation-buffer reset on rigid-mesh is not yet exposed",
+    "reset re-drops by destroy+recreate; an in-place teleport + interpolation-buffer reset on rigid-mesh is not yet exposed — see docs/backlog/engine-architecture/rigidmesh-teleport-reset.md",
   ],
   order: 25,
 } satisfies DemoHelp;

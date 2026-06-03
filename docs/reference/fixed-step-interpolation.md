@@ -33,6 +33,8 @@ Worked example: `packages/cookbook/src/demos/animation/entry.ts` — three cubes
 
 A thin engine-side helper that absorbs prev/curr storage and auto-applies the lerp at render time (e.g. `mesh.tickTransform(m, { rotation, position, scale })` + an `alpha` param on `frame.render`) is conceivable if multiple consumer applications converge on identical storage shapes for the same kinds of state. Not on the roadmap — surfaced here so the design space isn't reinvented if the signal arrives.
 
+The physics `rigidMesh` composite (`@furnace/core/rigid-mesh`, Stage 2) realises engine-owned prev/curr storage + alpha-blend **for the physics-renderable case** in its own module: a `Body` is the gameplay truth, a `Mesh` is the smoothed visual output, and the binding is opt-in per body. `rigidMesh.commit` (per fixed tick) snapshots the body pose into prev/curr; `rigidMesh.interpolate(ctx, rm, alpha)` (per render frame) blends them into the mesh with `vec3.lerp` / `quat.slerp`. This matches how Unity, Godot, Avian, and `@react-three/rapier` bind a physics body to a smoothed render transform. It does **not** generalise the all-meshes version above — `mesh.tickTransform` + `alpha` on `frame.render` for arbitrary (non-physics) state stays deferred, and the consumer recipe in this doc remains the path for non-composite meshes.
+
 ## References
 
 - `packages/cookbook/src/demos/animation/entry.ts` — canonical worked example.

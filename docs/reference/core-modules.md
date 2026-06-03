@@ -525,7 +525,7 @@ Count / memory introspection lives on `stats.snapshot(ctx).resources.*` and `sta
 | Export | Signature | Notes |
 |---|---|---|
 | `disposeAll` | `(ctx: Context) => void` | Manually trigger the resource-manager cascade — same teardown that `gpu.dispose` runs internally, but without disposing the `GPUDevice` itself. Used for explicit cleanup before context disposal (e.g. free memory during a level transition without dropping the device). Idempotent. |
-| `ResourceKind` | `"mesh" \| "material" \| "geometry" \| "effect" \| "shader" \| "binding" \| "physics-world" \| "physics-body"` | Discriminator string for resource kinds. The two `physics-*` kinds back the `@furnace/core/physics` handles (`World` / `Body`); they have their own dedicated `physics.destroyWorld` / `physics.destroyBody` rather than a generic per-kind `destroy`. |
+| `ResourceKind` | `"mesh" \| "material" \| "geometry" \| "effect" \| "shader" \| "binding" \| "physics-world" \| "physics-body" \| "rigid-mesh"` | Discriminator string for resource kinds. The two `physics-*` kinds back the `@furnace/core/physics` handles (`World` / `Body`); the `rigid-mesh` kind backs the `@furnace/core/rigid-mesh` composite (`RigidMesh`). Each has its own dedicated `physics.destroyWorld` / `physics.destroyBody` / `rigidMesh.destroy` rather than a generic per-kind `destroy`. |
 | `MeshHandle` / `MaterialHandle` / `GeometryHandle` / `EffectHandle` / `ShaderHandle` / `BindingHandle` | Branded uint48 handles | Re-exported from `resources/handle.ts` so consumers can type variables (e.g. a `Map<MeshHandle, …>`) without reaching into engine-internal modules. Each is also aliased by its owning module (`mesh.Mesh`, `material.Material`, `shader.Shader`, `binding.Binding`, …) — same underlying type. |
 | `AnyResourceHandle` | `MeshHandle \| MaterialHandle \| GeometryHandle \| EffectHandle \| ShaderHandle \| BindingHandle` | Cross-kind union. Useful when storing handles of mixed kinds in a single collection. |
 
@@ -558,7 +558,7 @@ CPU-authoritative rigid-body simulation over a Rapier backend (see `docs/referen
 | `getBodyTranslation` | `(ctx: Context, body: Body, out: Vec3) => Vec3` | Hot-path read of world-space translation into the **required** `out` (no per-call alloc); returns `out`. `out` is left unchanged on a stale/destroyed body. |
 | `getBodyRotation` | `(ctx: Context, body: Body, out: Quat) => Quat` | Hot-path read of the world-space rotation quaternion into the **required** `out` (no per-call alloc); returns `out`. `out` is left unchanged on a stale/destroyed body. |
 | `WorldDescriptor` | `{ gravity: readonly [number, number, number] }` | Gravity vector for the world (e.g. `[0, -9.81, 0]`). |
-| `BodyDescriptor` | `{ type: "dynamic" \| "static"; shape: ShapeDescriptor; position: readonly [number, number, number]; rotation?: readonly [number, number, number, number]; linearVelocity?: readonly [number, number, number]; density?: number }` | `rotation` is an `[x,y,z,w]` quaternion, defaults to identity. `linearVelocity` defaults to zero and is only meaningful for `dynamic` bodies (static bodies don't integrate velocity). `density` defaults to `1` (drives dynamic mass). |
+| `BodyDescriptor` | `{ type: "dynamic" \| "static"; shape: ShapeDescriptor; position: readonly [number, number, number]; rotation?: readonly [number, number, number, number]; linearVelocity?: readonly [number, number, number]; angularVelocity?: readonly [number, number, number]; density?: number }` | `rotation` is an `[x,y,z,w]` quaternion, defaults to identity. `linearVelocity` defaults to zero and is only meaningful for `dynamic` bodies (static bodies don't integrate velocity). `angularVelocity` is radians/sec about `x,y,z`, defaults to zero, and is likewise `dynamic`-only. `density` defaults to `1` (drives dynamic mass). |
 | `ShapeDescriptor` | `{ ball: number } \| { cuboid: readonly [number, number, number] }` | `ball` = sphere radius; `cuboid` = box half-extents. |
 | `CollisionEvent` | `{ a: Body; b: Body; started: boolean }` | A contact begin (`started: true`) or end (`started: false`) between bodies `a` and `b`. |
 | `World` | Opaque branded uint48 handle (alias of `PhysicsWorldHandle`) | Owns the backend world + its bodies + event queue. Dispose via `physics.destroyWorld` or the resource-manager cascade (`gpu.dispose` / `resources.disposeAll`). |
@@ -566,7 +566,34 @@ CPU-authoritative rigid-body simulation over a Rapier backend (see `docs/referen
 
 ### Demoed in cookbook
 
-(none yet — Stage 1 bodies don't render on their own; the body↔mesh binding that would make a demo meaningful is Stage 2.)
+- `createWorld`, `step`, `createBody`, `getBodyTranslation`, `getBodyRotation` (and `WorldDescriptor` / `BodyDescriptor` / `ShapeDescriptor`) → `cookbook/physics`, exercised indirectly through `@furnace/core/rigid-mesh`: the demo's cubes are `rigidMesh` composites whose bodies are stepped each fixed tick and read back for interpolation. (Bodies still don't render on their own — `rigid-mesh` is the renderable binding.)
+
+---
+
+## `@furnace/core/rigid-mesh`
+
+`import * as rigidMesh from "@furnace/core/rigid-mesh";`
+
+The composite that owns **fixed-step interpolation for the physics-renderable case**: a physics `Body` (gameplay truth) drives a render `Mesh` (a derived display output). `create` builds and owns both; `commit` (per fixed tick) snapshots the body pose into prev/curr buffers; `interpolate` (per render frame) lerp/slerps prev→curr into the mesh. It layers over `@furnace/core/physics` + `@furnace/core/mesh` (it imports both; nothing in core imports it). Live count surfaces on `stats.snapshot(ctx).resources.rigidMeshes`.
+
+See `docs/reference/fixed-step-interpolation.md` for the engine posture: `rigid-mesh` realises engine-owned prev/curr + alpha-blend for *this* case; the generic all-meshes version stays consumer-owned.
+
+### Public
+
+| Export | Signature | Notes |
+|---|---|---|
+| `create` | `(ctx: Context, world: World, descriptor: RigidMeshDescriptor) => RigidMesh` | **Synchronous.** Builds (and owns) a `physics.createBody` body from `descriptor.body` + a `mesh.create` mesh from `descriptor.mesh`, then seeds the prev/curr interpolation buffers and the mesh pose to the body's initial pose (so it renders correctly before the first `commit`/`interpolate`). Setup-loud: throws `FurnaceError` if `descriptor`, `descriptor.body`, or `descriptor.mesh` is null/undefined; propagates throws from `physics.createBody` (bad body descriptor / dead world) and `mesh.create` (dead geometry/material). If the body was created but mesh creation fails, the body is torn down before re-throwing (no stranded body). |
+| `destroy` | `(ctx: Context, rm: RigidMesh) => void` | Cascades to the owned body + mesh (`physics.destroyBody` then `mesh.destroy`). Idempotent silent no-op on a stale/destroyed handle. |
+| `commit` | `(ctx: Context, rm: RigidMesh) => void` | Call once per fixed tick, after `physics.step`: shifts `curr → prev`, then snapshots the body's live pose into `curr`. Hot-path; silent no-op on a stale/destroyed `rm`. |
+| `interpolate` | `(ctx: Context, rm: RigidMesh, alpha: number) => void` | Call once per render frame: blends `prev → curr` by `alpha` (`vec3.lerp` for position, `quat.slerp` for rotation) and writes the result to the mesh. Pass `alpha = 1` to pin the mesh to the latest committed tick (no interpolation). Hot-path; silent no-op on a stale/destroyed `rm`. |
+| `getBody` | `(ctx: Context, rm: RigidMesh) => Body` | The composite's underlying physics `Body` — for `physics.*` ops (forces, reads). Hot-path read; returns an invalid sentinel handle on a stale `rm` (downstream `physics.*` ops on it no-op). |
+| `getMesh` | `(ctx: Context, rm: RigidMesh) => Mesh` | The composite's underlying render `Mesh` — for `mesh.setScale` / `mesh.setMaterial`, or adding to a `frame.render` draw list. Hot-path read; returns an invalid sentinel handle on a stale `rm`. |
+| `RigidMeshDescriptor` | `{ body: BodyDescriptor; mesh: { geometry: Geometry; material: Material } }` | Input bundle for `create`: a `physics.BodyDescriptor` (carries the collision shape) plus the render mesh's geometry + material (carries the render shape). The two are independent — collision shape need not equal render shape. |
+| `RigidMesh` | Opaque branded uint48 handle (alias of `RigidMeshHandle`) | Returned by `create`. Drive it with `commit` (per fixed tick) + `interpolate` (per render frame); reach the owned body/mesh via `getBody` / `getMesh`; dispose via `rigidMesh.destroy(ctx, rm)` or the resource-manager cascade. |
+
+### Demoed in cookbook
+
+- `create`, `destroy`, `commit`, `interpolate`, `getMesh` (and `RigidMesh` / `RigidMeshDescriptor`) → `cookbook/physics` (cubes drop + spin onto a ground; interpolation on/off exposes the fixed-step stutter; reset re-drops).
 
 ---
 
