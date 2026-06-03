@@ -7,6 +7,7 @@ export type ResourceKind =
   | "binding"
   | "physics-world"
   | "physics-body"
+  | "rigid-mesh"
   | "buffer"
   | "texture";
 
@@ -20,6 +21,7 @@ export type ResourceRegistry = {
     bindings: number;
     physicsWorlds: number;
     physicsBodies: number;
+    rigidMeshes: number;
   };
   memory: { bufferBytes: number; textureBytes: number };
 };
@@ -35,6 +37,7 @@ export function createResourceRegistry(): ResourceRegistry {
       bindings: 0,
       physicsWorlds: 0,
       physicsBodies: 0,
+      rigidMeshes: 0,
     },
     memory: { bufferBytes: 0, textureBytes: 0 },
   };
@@ -80,6 +83,9 @@ export function recordAlloc(
     case "physics-body":
       r.counts.physicsBodies++;
       break;
+    case "rigid-mesh":
+      r.counts.rigidMeshes++;
+      break;
     case "buffer":
       r.memory.bufferBytes += bytes;
       break;
@@ -122,6 +128,9 @@ export function recordDestroy(
       break;
     case "physics-body":
       r.counts.physicsBodies--;
+      break;
+    case "rigid-mesh":
+      r.counts.rigidMeshes--;
       break;
     case "buffer":
       r.memory.bufferBytes -= bytes;

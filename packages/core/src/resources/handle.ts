@@ -41,6 +41,11 @@ export type PhysicsBodyHandle = number & {
   readonly __brand: "PhysicsBodyHandle";
 };
 
+/** Branded handle referring to a slot in the rigid-mesh pool. */
+export type RigidMeshHandle = number & {
+  readonly __brand: "RigidMeshHandle";
+};
+
 /**
  * Union of every branded handle kind. Used by cross-cutting
  * resource APIs that handle multiple resource types uniformly.
@@ -53,7 +58,8 @@ export type AnyResourceHandle =
   | ShaderHandle
   | BindingHandle
   | PhysicsWorldHandle
-  | PhysicsBodyHandle;
+  | PhysicsBodyHandle
+  | RigidMeshHandle;
 
 const SLOT_BITS = 16;
 const SLOT_MASK = 0xffff;

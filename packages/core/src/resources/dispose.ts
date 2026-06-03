@@ -9,18 +9,23 @@ import {
 } from "./internal.ts";
 
 /**
- * Cascade order (load-bearing). Meshes refcount Materials and Geometries,
- * so meshes tear down first. Effects are independent and slot in after
- * meshes. Materials and Geometries follow (their refcount must already
- * be at zero when actual GPU teardown runs). Shaders and Bindings are
- * order-insensitive — nothing references a shader slot after pipeline creation
- * (WebGPU captures the module at pipeline-build time), and a Binding owns its
- * buffer outright (no slot references it back), so they slot last. Physics is
- * independent of the render kinds and slots after them: a body's teardown
- * removes it from its (still-live) Rapier world, so bodies MUST tear down
- * before worlds.
+ * Cascade order (load-bearing). A rigid-mesh owns a physics body + a render
+ * mesh and tears both down in its teardown, so it MUST come before "mesh" and
+ * "physics-body". Meshes refcount Materials and Geometries, so meshes tear down
+ * next. Effects are independent and slot in after meshes. Materials and
+ * Geometries follow (their refcount must already be at zero when actual GPU
+ * teardown runs). Shaders and Bindings are order-insensitive — nothing
+ * references a shader slot after pipeline creation (WebGPU captures the module
+ * at pipeline-build time), and a Binding owns its buffer outright (no slot
+ * references it back), so they slot last. Physics is independent of the render
+ * kinds and slots after them: a body's teardown removes it from its (still-live)
+ * Rapier world, so bodies MUST tear down before worlds.
  */
 const CASCADE_ORDER: readonly ResourceKind[] = [
+  // A rigid-mesh owns a physics body + a render mesh and tears both down in its
+  // teardown, so it MUST come before "mesh" and "physics-body" (idempotency
+  // makes ordering forgiving, but this is the correct order).
+  "rigid-mesh",
   "mesh",
   "effect",
   "material",

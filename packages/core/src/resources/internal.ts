@@ -12,6 +12,7 @@ import {
   type MeshHandle,
   type PhysicsBodyHandle,
   type PhysicsWorldHandle,
+  type RigidMeshHandle,
   type ShaderHandle,
 } from "./handle.ts";
 import {
@@ -32,7 +33,8 @@ export type ResourceKind =
   | "shader"
   | "binding"
   | "physics-world"
-  | "physics-body";
+  | "physics-body"
+  | "rigid-mesh";
 
 /**
  * Map a {@link ResourceKind} to the matching pool on the manager. Engine-
@@ -57,6 +59,8 @@ function poolFor(ctx: Context, kind: ResourceKind): Pool<unknown> {
       return r.physicsWorlds;
     case "physics-body":
       return r.physicsBodies;
+    case "rigid-mesh":
+      return r.rigidMeshes;
   }
 }
 
@@ -346,6 +350,33 @@ export function _destroyPhysicsBody<T>(
 ): boolean {
   const destroyed = _destroyRaw(ctx, "physics-body", handle, teardown);
   if (destroyed) _recordDestroy(ctx, "physics-body", 0);
+  return destroyed;
+}
+
+/** Allocate a rigid-mesh slot and return a branded {@link RigidMeshHandle}. */
+export function _allocRigidMesh<T>(ctx: Context, data: T): RigidMeshHandle {
+  // Boundary cast: see _allocMesh.
+  const handle = _allocRaw(ctx, "rigid-mesh", data) as RigidMeshHandle;
+  _recordAlloc(ctx, "rigid-mesh", 0);
+  return handle;
+}
+
+/** Look up a rigid-mesh slot. Returns `null` on stale or invalid handles. */
+export function _lookupRigidMesh<T>(
+  ctx: Context,
+  handle: RigidMeshHandle,
+): T | null {
+  return _lookupRaw(ctx, "rigid-mesh", handle);
+}
+
+/** Destroy a rigid-mesh slot. See {@link _destroyMesh} for semantics. */
+export function _destroyRigidMesh<T>(
+  ctx: Context,
+  handle: RigidMeshHandle,
+  teardown: (data: T) => void,
+): boolean {
+  const destroyed = _destroyRaw(ctx, "rigid-mesh", handle, teardown);
+  if (destroyed) _recordDestroy(ctx, "rigid-mesh", 0);
   return destroyed;
 }
 

@@ -67,6 +67,9 @@ export type Snapshot = Readonly<{
     physicsWorlds: number;
     /** Live count of physics {@link Body} handles registered with stats. */
     physicsBodies: number;
+    /** Live count of rigid-mesh ({@link Body} + render mesh) composite handles
+     *  registered with stats. */
+    rigidMeshes: number;
   };
   events: { perEmitter: Record<string, number> };
   memory: { bufferBytes: number; textureBytes: number; total: number };
