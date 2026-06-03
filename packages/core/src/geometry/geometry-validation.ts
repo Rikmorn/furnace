@@ -1,6 +1,17 @@
 import { FurnaceError } from "../errors.ts";
 import type { GeometryData } from "./types.ts";
 
+/**
+ * Guard a positive, finite dimension (radius, height, size). Setup-loud:
+ * throws `FurnaceError` on zero, negative, or non-finite values before any
+ * vertex math or GPU work runs.
+ */
+export function assertPositiveFinite(name: string, value: number): void {
+  if (!Number.isFinite(value) || value <= 0) {
+    throw new FurnaceError(`${name} must be a finite number > 0, got ${value}`);
+  }
+}
+
 export function validateGeometryData(data: GeometryData): void {
   if (data.positions.length % 3 !== 0) {
     throw new FurnaceError("positions length must be a multiple of 3");

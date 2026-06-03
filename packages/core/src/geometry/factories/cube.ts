@@ -1,5 +1,6 @@
 import type { Context } from "../../gpu/index.ts";
 import { create } from "../geometry.ts";
+import { assertPositiveFinite } from "../geometry-validation.ts";
 import type { Geometry, GeometryData } from "../types.ts";
 
 type Vec3Tuple = readonly [number, number, number];
@@ -88,8 +89,11 @@ function cubeGeometryData(size: number): GeometryData {
  *
  * Pass to `mesh.create({ geometry, material })` to bind. The caller owns
  * the returned geometry — see `engine-conventions.md` §Resource ownership.
+ *
+ * @throws FurnaceError - if `size` is not a finite number greater than `0`.
  */
 export function cube(ctx: Context, opts?: { size?: number }): Geometry {
   const size = opts?.size ?? 1;
+  assertPositiveFinite("size", size);
   return create(ctx, cubeGeometryData(size));
 }
