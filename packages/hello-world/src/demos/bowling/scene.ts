@@ -1,5 +1,6 @@
 import type { Camera } from "@furnace/core/camera";
 import * as camera from "@furnace/core/camera";
+import type { FixedClock } from "@furnace/core/frame";
 import * as frame from "@furnace/core/frame";
 import type { Geometry } from "@furnace/core/geometry";
 import * as geometry from "@furnace/core/geometry";
@@ -21,8 +22,6 @@ import type { SceneController, SceneFactory } from "../../shell/scene.ts";
 const CLEAR_COLOR: Vec4 = vec4.fromValues(0.05, 0.06, 0.09, 1);
 const FIXED_HZ = 60;
 const FIXED_DT_MS = 1000 / FIXED_HZ;
-const FIXED_DT_S = 1 / FIXED_HZ;
-const MAX_CATCHUP_TICKS = 8;
 
 const LANE_HALF: readonly [number, number, number] = [1, 0.1, 4];
 const LANE_SCALE = vec3.fromValues(2, 0.2, 8); // unit cube → lane slab
@@ -62,7 +61,7 @@ type BowlingState = {
   pins: Mesh[];
   cam: Camera;
   unbindCamera: () => void;
-  accumulatorMs: number;
+  clock: FixedClock;
 };
 
 function spawnBall(
@@ -133,24 +132,15 @@ export const bowlingScene: SceneFactory = {
       pins,
       cam,
       unbindCamera,
-      accumulatorMs: 0,
+      clock: frame.fixedClock({ fixedDtMs: FIXED_DT_MS }),
     };
 
     return {
       frame: (info) => {
-        state.accumulatorMs += info.deltaMs;
-        let ticks = 0;
-        while (
-          state.accumulatorMs >= FIXED_DT_MS &&
-          ticks < MAX_CATCHUP_TICKS
-        ) {
-          physics.step(ctx, state.world, FIXED_DT_S);
+        const alpha = state.clock.advance(info.deltaMs, (dt) => {
+          physics.step(ctx, state.world, dt);
           rigidMesh.commit(ctx, state.ball); // only the dynamic ball moves
-          state.accumulatorMs -= FIXED_DT_MS;
-          ticks++;
-        }
-        if (state.accumulatorMs >= FIXED_DT_MS) state.accumulatorMs = 0;
-        const alpha = state.accumulatorMs / FIXED_DT_MS;
+        });
         rigidMesh.interpolate(ctx, state.ball, alpha);
         // The static lane was seeded to its pose at rigidMesh.create — draw as-is.
 
