@@ -19,6 +19,7 @@
     "./mesh": "./src/mesh/index.ts",
     "./post": "./src/post/index.ts",
     "./physics": "./src/physics/index.ts",
+    "./rigid-mesh": "./src/rigid-mesh/index.ts",
     "./resources": "./src/resources/index.ts"
   },
   "scripts": {
