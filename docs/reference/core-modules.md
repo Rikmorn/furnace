@@ -363,8 +363,10 @@ See `engine-conventions.md` §Resource ownership for the lifecycle contract that
 ### Demoed in cookbook
 
 - `create`, `destroy`, `GeometryData`, `Geometry` → `cookbook/geometry`.
-- `cube` → `cookbook/camera`, `cookbook/geometry`.
-- `plane` → `cookbook/geometry`.
+- `cube` → `cookbook/camera`, `cookbook/geometry`, `cookbook/primitives`.
+- `plane` → `cookbook/geometry`, `cookbook/primitives`.
+- `sphere` → `cookbook/primitives`.
+- `cylinder` → `cookbook/primitives`.
 
 ---
 
