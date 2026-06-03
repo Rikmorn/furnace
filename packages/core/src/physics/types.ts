@@ -29,6 +29,7 @@ export type BodyDescriptor = {
   position: Vec3Tuple;
   rotation?: QuatTuple;
   linearVelocity?: Vec3Tuple;
+  angularVelocity?: Vec3Tuple;
   density?: number;
 };
 

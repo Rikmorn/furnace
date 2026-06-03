@@ -28,6 +28,10 @@ export function buildRigidBodyDesc(d: BodyDescriptor): RAPIER.RigidBodyDesc {
     const [x, y, z] = d.linearVelocity;
     desc.setLinvel(x, y, z);
   }
+  if (d.angularVelocity !== undefined) {
+    const [x, y, z] = d.angularVelocity;
+    desc.setAngvel({ x, y, z });
+  }
   return desc;
 }
 
