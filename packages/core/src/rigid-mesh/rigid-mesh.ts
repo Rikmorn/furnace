@@ -18,6 +18,11 @@ import {
 import { quat, vec3 } from "../transform/index.ts";
 import type { RigidMesh, RigidMeshDescriptor, RigidMeshSlot } from "./types.ts";
 
+// Module-level interpolation scratch — reused each interpolate call (JS is
+// single-threaded; no concurrent rigid-mesh interpolate). Avoids per-frame alloc.
+const SCRATCH_POS = vec3.create();
+const SCRATCH_ROT = quat.create();
+
 /**
  * Create a {@link RigidMesh} composite: builds (and owns) a physics {@link Body}
  * from `descriptor.body` and a render {@link Mesh} from `descriptor.mesh`, then
@@ -85,6 +90,37 @@ export function create(
  */
 export function destroy(ctx: Context, rm: RigidMesh): void {
   _destroyRigidMesh<RigidMeshSlot>(ctx, rm, (s) => s._teardown());
+}
+
+/**
+ * Snapshot the body's current pose into the composite's interpolation buffers.
+ * Call once per fixed tick, after `physics.step`: the previous `curr` becomes
+ * `prev`, and the body's live pose becomes the new `curr`. Hot-path; silent
+ * no-op on a stale/destroyed `rm`.
+ */
+export function commit(ctx: Context, rm: RigidMesh): void {
+  const slot = _lookupRigidMesh<RigidMeshSlot>(ctx, rm);
+  if (slot === null) return;
+  vec3.copy(slot.prevPos, slot.currPos);
+  quat.copy(slot.prevRot, slot.currRot);
+  getBodyTranslation(ctx, slot.body, slot.currPos);
+  getBodyRotation(ctx, slot.body, slot.currRot);
+}
+
+/**
+ * Blend the previous→current tick pose by `alpha ∈ [0,1)` (from
+ * `frame.fixedLoop`'s `onFrame`) and write the result to the mesh: `vec3.lerp`
+ * for position, `quat.slerp` for rotation. Call once per render frame. Pass
+ * `alpha = 1` to pin the mesh to the latest tick pose (no interpolation).
+ * Hot-path; silent no-op on a stale/destroyed `rm`.
+ */
+export function interpolate(ctx: Context, rm: RigidMesh, alpha: number): void {
+  const slot = _lookupRigidMesh<RigidMeshSlot>(ctx, rm);
+  if (slot === null) return;
+  vec3.lerp(SCRATCH_POS, slot.prevPos, slot.currPos, alpha);
+  quat.slerp(SCRATCH_ROT, slot.prevRot, slot.currRot, alpha);
+  mesh.setPosition(ctx, slot.mesh, SCRATCH_POS);
+  mesh.setRotation(ctx, slot.mesh, SCRATCH_ROT);
 }
 
 /**
