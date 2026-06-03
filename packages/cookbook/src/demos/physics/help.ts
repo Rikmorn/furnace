@@ -24,7 +24,7 @@ export default {
   features: [
     "rigidMesh.create — owns a physics Body + a render Mesh, cascade-destroyed together",
     "rigidMesh.commit (per fixed tick) + rigidMesh.interpolate (per frame) — engine-owned prev/curr + alpha-blend",
-    "physics.step driven from a hand-rolled fixed-step accumulator (the pattern frame.fixedLoop packages)",
+    "physics.step driven from a frame.fixedClock advanced inside the frame.loop",
     "interpolation on/off — alpha vs alpha=1, the same lesson as the animation demo, now physics-driven",
     "rigidMesh.getMesh — flatten the ground via mesh.setScale on the underlying mesh",
   ],

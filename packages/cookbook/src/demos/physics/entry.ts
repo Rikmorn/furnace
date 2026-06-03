@@ -19,7 +19,6 @@ import Controls from "./controls.svelte";
 import help from "./help.ts";
 import { state } from "./state.svelte.ts";
 
-const MAX_CATCHUP_TICKS = 8;
 const MS_PER_S = 1000;
 const CLEAR_COLOR: Vec4 = vec4.fromValues(0.05, 0.05, 0.07, 1);
 const DROP_HEIGHT = 5;
@@ -113,6 +112,8 @@ await mountDemo({
     camera.setTarget(cam, vec3.fromValues(0, 2, 0));
     camera.bindToCanvas(ctx, cam);
 
+    const clock = frame.fixedClock({ fixedDtMs: MS_PER_S / state.fixedHz });
+
     return {
       scene: {
         world,
@@ -121,7 +122,7 @@ await mountDemo({
         ground,
         cam,
         cubes: spawnCubes(ctx, world, cubeGeo, mat),
-        accumulatorMs: 0,
+        clock,
         lastNonce: state.resetNonce,
       },
     };
@@ -133,22 +134,12 @@ await mountDemo({
       scene.lastNonce = state.resetNonce;
     }
 
-    // Fixed-step accumulator. Mirrors frame.fixedLoop's algorithm so the pattern
-    // is visible in source; engine ships the packaged version as frame.fixedLoop.
-    const fixedDtMs = MS_PER_S / state.fixedHz;
-    const fixedDtSec = fixedDtMs / MS_PER_S;
-    scene.accumulatorMs += info.deltaMs;
-    let ticks = 0;
-    while (scene.accumulatorMs >= fixedDtMs && ticks < MAX_CATCHUP_TICKS) {
-      physics.step(ctx, scene.world, fixedDtSec);
+    // Fixed-step advance via frame.fixedClock — honor the live Hz slider.
+    scene.clock.setFixedDtMs(MS_PER_S / state.fixedHz);
+    const alpha = scene.clock.advance(info.deltaMs, (dt) => {
+      physics.step(ctx, scene.world, dt);
       for (const rm of scene.cubes) rigidMesh.commit(ctx, rm);
-      scene.accumulatorMs -= fixedDtMs;
-      ticks++;
-    }
-    // Spiral-of-death guard: if the tick cap fired with work still pending,
-    // discard the surplus. Naturally-drained sub-tick remainders are preserved.
-    if (scene.accumulatorMs >= fixedDtMs) scene.accumulatorMs = 0;
-    const alpha = scene.accumulatorMs / fixedDtMs;
+    });
 
     // interpolate=on → alpha-blend prev→curr; off → pin to the latest tick (1).
     const displayAlpha = state.interpolate ? alpha : 1;
