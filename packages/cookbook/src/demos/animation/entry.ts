@@ -15,7 +15,6 @@ import { state } from "./state.svelte.ts";
 
 const CAMERA_Z = 6;
 const CUBE_X_SPACING = 1.8;
-const MAX_CATCHUP_TICKS = 8;
 const MS_PER_S = 1000;
 const CLEAR_COLOR: Vec4 = vec4.fromValues(0.05, 0.05, 0.07, 1);
 
@@ -117,12 +116,15 @@ await mountDemo({
     const labelNoInterp = requireLabel("no-interp");
     const labelInterp = requireLabel("interp");
 
+    const clock = frame.fixedClock({ fixedDtMs: MS_PER_S / state.fixedHz });
+
     return {
       scene: {
         cubeVariable,
         cubeNoInterp,
         cubeInterp,
         cam,
+        clock,
         rotBufVariable,
         rotBufNoInterp,
         rotBufInterp,
@@ -141,25 +143,13 @@ await mountDemo({
     // 1. Variable-dt advance — uses real elapsed time each RAF.
     state.angle += (info.deltaMs / MS_PER_S) * state.rate;
 
-    // 2. Fixed-step accumulator. Mirrors frame.fixedLoop's algorithm so the
-    //    pattern is visible in source; engine ships the packaged version as
-    //    frame.fixedLoop.
-    const fixedDtMs = MS_PER_S / state.fixedHz;
-    const fixedDtSec = fixedDtMs / MS_PER_S;
-    state.accumulatorMs += info.deltaMs;
-    let ticks = 0;
-    while (state.accumulatorMs >= fixedDtMs && ticks < MAX_CATCHUP_TICKS) {
+    // 2. Fixed-step advance via frame.fixedClock. Honor the live Hz slider,
+    //    then run the sim per elapsed fixed step.
+    scene.clock.setFixedDtMs(MS_PER_S / state.fixedHz);
+    const alpha = scene.clock.advance(info.deltaMs, (dt) => {
       state.fixedPrevAngle = state.fixedCurrAngle;
-      state.fixedCurrAngle += fixedDtSec * state.rate;
-      state.accumulatorMs -= fixedDtMs;
-      ticks++;
-    }
-    // Spiral-of-death guard: if the tick cap fired with work still pending,
-    // discard the surplus. Naturally-drained sub-tick remainders are preserved.
-    if (state.accumulatorMs >= fixedDtMs) {
-      state.accumulatorMs = 0;
-    }
-    const alpha = state.accumulatorMs / fixedDtMs;
+      state.fixedCurrAngle += dt * state.rate;
+    });
 
     // 3. Compute the alpha-lerped angle for the interp cube.
     const interpDisplayAngle =

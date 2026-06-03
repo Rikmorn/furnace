@@ -16,7 +16,7 @@ export default {
   ],
   features: [
     "frame.loop (variable dt) — left cube advances by info.deltaMs each RAF",
-    "fixed-step accumulator — middle/right cubes tick at the selected Hz; matches the pattern frame.fixedLoop packages up",
+    "fixed-step via frame.fixedClock — middle/right cubes tick at the selected Hz; one clock advanced inside the frame.loop",
     "alpha interpolation — right cube lerps between previous and current tick by alpha = accumulator / fixedDt",
     "camera.projectToScreen — floating labels positioned via the new core helper",
     "transform.quat / mesh.setRotation",
