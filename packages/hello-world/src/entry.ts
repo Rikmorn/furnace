@@ -3,6 +3,7 @@ import * as gpu from "@furnace/core/gpu";
 import * as input from "@furnace/core/input";
 import { mount } from "svelte";
 
+import { bowlingScene } from "./demos/bowling/scene.ts";
 import { triangleScene } from "./demos/triangle/scene.ts";
 import { mountFpsOverlay } from "./overlay/mount.ts";
 import { subscribeOverlay } from "./overlay/state.svelte.ts";
@@ -10,8 +11,7 @@ import SceneButtons from "./shell/SceneButtons.svelte";
 import type { SceneController, SceneFactory } from "./shell/scene.ts";
 import { switcher } from "./shell/switcher-state.svelte.ts";
 
-// Task 9 appends bowlingScene here; the switcher is scene-count-agnostic.
-const SCENES: SceneFactory[] = [triangleScene];
+const SCENES: SceneFactory[] = [triangleScene, bowlingScene];
 
 async function main(): Promise<void> {
   const canvas = document.querySelector<HTMLCanvasElement>("#gpu");
