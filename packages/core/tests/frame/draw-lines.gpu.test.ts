@@ -68,6 +68,7 @@ test.skipIf(!bunWebGpuAvailable())(
     const big = new Float32Array(n);
     const bigC = new Float32Array((n / 3) * 4).fill(1);
 
+    render(ctx, { draw: [], camera: cam }); // populate depth + swap-chain
     ctx.device.pushErrorScope("validation");
     drawLines(ctx, { vertices: small, colors: smallC, camera: cam });
     drawLines(ctx, { vertices: big, colors: bigC, camera: cam });
