@@ -546,7 +546,7 @@ Count / memory introspection lives on `stats.snapshot(ctx).resources.*` and `sta
 
 `import * as physics from "@furnace/core/physics";`
 
-CPU-authoritative rigid-body simulation over a Rapier backend (see `docs/reference/adr/0001-physics-two-track-architecture.md`). Stage 1 surface: dynamic + static bodies with ball + cuboid colliders. Kinematic bodies, capsule/cylinder colliders, joints, and the body↔mesh binding are deferred. Live `World` / `Body` counts surface on `stats.snapshot(ctx).resources.physicsWorlds` / `.physicsBodies`.
+CPU-authoritative rigid-body simulation over a Rapier backend (see `docs/reference/adr/0001-physics-two-track-architecture.md`). Dynamic + static bodies with ball, cuboid, and cylinder colliders. Kinematic bodies, capsule colliders, joints, and the body↔mesh binding are deferred. Live `World` / `Body` counts surface on `stats.snapshot(ctx).resources.physicsWorlds` / `.physicsBodies`.
 
 ### Public
 
@@ -562,7 +562,9 @@ CPU-authoritative rigid-body simulation over a Rapier backend (see `docs/referen
 | `getBodyRotation` | `(ctx: Context, body: Body, out: Quat) => Quat` | Hot-path read of the world-space rotation quaternion into the **required** `out` (no per-call alloc); returns `out`. `out` is left unchanged on a stale/destroyed body. |
 | `WorldDescriptor` | `{ gravity: readonly [number, number, number] }` | Gravity vector for the world (e.g. `[0, -9.81, 0]`). |
 | `BodyDescriptor` | `{ type: "dynamic" \| "static"; shape: ShapeDescriptor; position: readonly [number, number, number]; rotation?: readonly [number, number, number, number]; linearVelocity?: readonly [number, number, number]; angularVelocity?: readonly [number, number, number]; density?: number }` | `rotation` is an `[x,y,z,w]` quaternion, defaults to identity. `linearVelocity` defaults to zero and is only meaningful for `dynamic` bodies (static bodies don't integrate velocity). `angularVelocity` is radians/sec about `x,y,z`, defaults to zero, and is likewise `dynamic`-only. `density` defaults to `1` (drives dynamic mass). |
-| `ShapeDescriptor` | `{ ball: number } \| { cuboid: readonly [number, number, number] }` | `ball` = sphere radius; `cuboid` = box half-extents. |
+| `ShapeDescriptor` | `{ ball: number } \| { cuboid: readonly [number, number, number] } \| { cylinder: { halfHeight: number; radius: number } }` | `ball` = sphere radius; `cuboid` = box half-extents; `cylinder` = Y-axis-aligned half-height + radius (same Y axis as `geometry.cylinder`, whose `height` = `2 × halfHeight`). Backed by Rapier's round-cylinder for solver robustness; the requested `halfHeight`/`radius` are the true outer dimensions. |
+| `Vec3Tuple` | `readonly [number, number, number]` | Plain 3-tuple alias used across the descriptor inputs (`position`, `linearVelocity`, `angularVelocity`, `cuboid`). Re-exported for consumers building descriptor literals. |
+| `QuatTuple` | `readonly [number, number, number, number]` | Plain `[x,y,z,w]` quaternion-tuple alias for `rotation`. Re-exported for consumers building descriptor literals. |
 | `CollisionEvent` | `{ a: Body; b: Body; started: boolean }` | A contact begin (`started: true`) or end (`started: false`) between bodies `a` and `b`. |
 | `World` | Opaque branded uint48 handle (alias of `PhysicsWorldHandle`) | Owns the backend world + its bodies + event queue. Dispose via `physics.destroyWorld` or the resource-manager cascade (`gpu.dispose` / `resources.disposeAll`). |
 | `Body` | Opaque branded uint48 handle (alias of `PhysicsBodyHandle`) | A rigid body inside a `World`. Dispose via `physics.destroyBody`, by destroying its owning `World`, or by the cascade. |

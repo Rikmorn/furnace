@@ -35,19 +35,36 @@ export function buildRigidBodyDesc(d: BodyDescriptor): RAPIER.RigidBodyDesc {
   return desc;
 }
 
+const PIN_BORDER_RADIUS = 0.02; // rounded edge for solver robustness + rolling
+
+/** Map a furnace shape to a Rapier shape descriptor (no density/events yet). */
+function buildShapeDesc(shape: ShapeDescriptor): RAPIER.ColliderDesc {
+  if ("ball" in shape) return RAPIER.ColliderDesc.ball(shape.ball);
+  if ("cuboid" in shape) {
+    return RAPIER.ColliderDesc.cuboid(
+      shape.cuboid[0],
+      shape.cuboid[1],
+      shape.cuboid[2],
+    );
+  }
+  // roundCylinder's border is added to the requested dims (Minkowski sum), so
+  // compensate to keep { halfHeight, radius } the true outer dimension. The
+  // `max(dim - b, b)` floor keeps the Rapier dims positive for sub-2b inputs
+  // (those read slightly larger than requested — irrelevant at pin scale).
+  const b = Math.min(PIN_BORDER_RADIUS, shape.cylinder.radius * 0.5);
+  return RAPIER.ColliderDesc.roundCylinder(
+    Math.max(shape.cylinder.halfHeight - b, b),
+    Math.max(shape.cylinder.radius - b, b),
+    b,
+  );
+}
+
 /** Map a furnace shape to a Rapier collider descriptor (event-enabled). */
 export function buildColliderDesc(
   shape: ShapeDescriptor,
   density: number,
 ): RAPIER.ColliderDesc {
-  const desc =
-    "ball" in shape
-      ? RAPIER.ColliderDesc.ball(shape.ball)
-      : RAPIER.ColliderDesc.cuboid(
-          shape.cuboid[0],
-          shape.cuboid[1],
-          shape.cuboid[2],
-        );
+  const desc = buildShapeDesc(shape);
   desc.setDensity(density);
   desc.setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS);
   return desc;

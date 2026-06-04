@@ -8,7 +8,9 @@ export type {
   Body,
   BodyDescriptor,
   CollisionEvent,
+  QuatTuple,
   ShapeDescriptor,
+  Vec3Tuple,
   World,
   WorldDescriptor,
 } from "./types.ts";

@@ -19,8 +19,12 @@ export type QuatTuple = readonly [number, number, number, number];
 /** Input bundle for {@link createWorld}. */
 export type WorldDescriptor = { gravity: Vec3Tuple };
 
-/** Collision shape: a sphere (`ball` radius) or box (`cuboid` half-extents). */
-export type ShapeDescriptor = { ball: number } | { cuboid: Vec3Tuple };
+/** Collision shape: a sphere (`ball` radius), box (`cuboid` half-extents),
+ *  or cylinder (`cylinder` half-height + radius, Y-axis aligned). */
+export type ShapeDescriptor =
+  | { ball: number }
+  | { cuboid: Vec3Tuple }
+  | { cylinder: { halfHeight: number; radius: number } };
 
 /** Input bundle for {@link createBody}. */
 export type BodyDescriptor = {
