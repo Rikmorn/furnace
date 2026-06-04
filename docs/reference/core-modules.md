@@ -548,6 +548,8 @@ Count / memory introspection lives on `stats.snapshot(ctx).resources.*` and `sta
 
 CPU-authoritative rigid-body simulation over a Rapier backend (see `docs/reference/adr/0001-physics-two-track-architecture.md`). Dynamic + static bodies with ball, cuboid, and cylinder colliders. Kinematic bodies, capsule colliders, joints, and the body↔mesh binding are deferred. Live `World` / `Body` counts surface on `stats.snapshot(ctx).resources.physicsWorlds` / `.physicsBodies`.
 
+**Gate-rule (section-wide).** Every physics field is a pure pass-through to the Rapier backend — furnace performs no JS-side physics math (no inertia / center-of-mass / mass computation). Descriptor fields and setters hand their values straight to Rapier, and capability gaps (kinematic bodies, capsules, joints, …) are tracked toward a future backend, never faked. The per-row "no JS-side physics math" notes below are instances of this single rule.
+
 ### Public
 
 | Export | Signature | Notes |
