@@ -93,3 +93,16 @@ test("fixedClock throws when maxCatchupTicks is zero or fractional", () => {
 test("fixedClock accepts undefined maxCatchupTicks (uses default)", () => {
   expect(() => fixedClock({ fixedDtMs: 16 })).not.toThrow();
 });
+
+test("advance(fixedDtMs) runs exactly one tick (single-step recipe)", () => {
+  const clock = fixedClock({ fixedDtMs: 1000 / 60 });
+  // Seed a sub-tick remainder, as a normal frame would leave behind.
+  let ticks = 0;
+  clock.advance(clock.fixedDtMs * 1.3, () => ticks++); // runs 1 tick, leaves 0.3
+  expect(ticks).toBe(1);
+
+  // One explicit step must advance by exactly one tick regardless of remainder.
+  ticks = 0;
+  clock.advance(clock.fixedDtMs, () => ticks++);
+  expect(ticks).toBe(1);
+});
