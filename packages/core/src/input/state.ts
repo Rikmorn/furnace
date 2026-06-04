@@ -13,6 +13,10 @@ export type Emitters = Readonly<{
 export type State = {
   canvas: HTMLCanvasElement | null;
   keysDown: Set<KeyCode>;
+  keysPressed: Set<KeyCode>;
+  keysReleased: Set<KeyCode>;
+  buttonsPressed: number;
+  buttonsReleased: number;
   pointer: {
     x: number;
     y: number;
@@ -44,6 +48,10 @@ function makeInitialState(): State {
   return {
     canvas: null,
     keysDown: new Set<KeyCode>(),
+    keysPressed: new Set<KeyCode>(),
+    keysReleased: new Set<KeyCode>(),
+    buttonsPressed: 0,
+    buttonsReleased: 0,
     pointer: {
       x: 0,
       y: 0,
@@ -64,6 +72,10 @@ export const state: State = makeInitialState();
 export function resetRuntimeState(): void {
   state.canvas = null;
   state.keysDown.clear();
+  state.keysPressed.clear();
+  state.keysReleased.clear();
+  state.buttonsPressed = 0;
+  state.buttonsReleased = 0;
   state.pointer.x = 0;
   state.pointer.y = 0;
   state.pointer.xDevice = 0;

@@ -15,12 +15,16 @@ export function normalizeKey(e: KeyboardEvent): KeyEvent {
 }
 
 export function handleKeyDownDomEvent(e: KeyboardEvent): void {
+  // Transition-guard BEFORE the add: only a true up→down edge records a press,
+  // so OS auto-repeat keydowns (key already held) don't re-fire wasKeyPressed.
+  if (!state.keysDown.has(e.code)) state.keysPressed.add(e.code);
   state.keysDown.add(e.code);
   state.emitters.keyDown.emit(normalizeKey(e));
 }
 
 export function handleKeyUpDomEvent(e: KeyboardEvent): void {
   state.keysDown.delete(e.code);
+  state.keysReleased.add(e.code);
   state.emitters.keyUp.emit(normalizeKey(e));
 }
 
@@ -29,6 +33,8 @@ export function handleBlur(): void {
   // See docs/backlog/engine-architecture/input-stuck-key-recovery.md for the
   // future onBlur event that closes the symmetric-streams gap.
   state.keysDown.clear();
+  state.keysPressed.clear();
+  state.keysReleased.clear();
   state.pointer.buttons = 0;
 }
 
@@ -61,4 +67,17 @@ export function onKeyUp(cb: (e: KeyEvent) => void): () => void {
  */
 export function isKeyDown(code: KeyCode): boolean {
   return state.keysDown.has(code);
+}
+
+/** True only on the frame `code` transitioned up→down (cleared each frame by
+ *  `frame.loop`). Per-frame, not per-tick — latch it for fixed-step sims; see
+ *  `engine-conventions.md` §"Input". */
+export function wasKeyPressed(code: KeyCode): boolean {
+  return state.keysPressed.has(code);
+}
+
+/** True only on the frame `code` transitioned down→up (cleared each frame by
+ *  `frame.loop`). Per-frame, not per-tick. */
+export function wasKeyReleased(code: KeyCode): boolean {
+  return state.keysReleased.has(code);
 }
