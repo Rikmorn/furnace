@@ -219,5 +219,5 @@ export function renderToTexture(
   }
 
   pass.end();
-  ctx.device.queue.submit([encoder.finish()]);
+  ctx.queue.submit([encoder.finish()]);
 }

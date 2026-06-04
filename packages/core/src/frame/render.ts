@@ -387,7 +387,7 @@ function recordScenePass(
     lastPipeline = recordDraw(pass, ctx, resolved, cameraBuffer, lastPipeline);
   }
   pass.end();
-  ctx.device.queue.submit([encoder.finish()]);
+  ctx.queue.submit([encoder.finish()]);
 }
 
 function renderEffectPass(
@@ -427,7 +427,7 @@ function renderEffectPass(
   pass.draw(3);
   _recordDraw(ctx, { triangles: 1 });
   pass.end();
-  ctx.device.queue.submit([encoder.finish()]);
+  ctx.queue.submit([encoder.finish()]);
 }
 
 function runEffectsPingPong(
