@@ -268,11 +268,28 @@ they just don't fire until DOM listeners are installed.
   framebuffer-direct reads use device. The two are co-equal in the input domain
   — distinct from rendering, where backing-store dimensions are the singular
   size truth (see `gpu.onResize` above).
-- **Snapshot vs event**: `isKeyDown(code)` / `isPointerButtonDown(btn)` /
-  `getPointer()` return the current held state. Discrete press/release edges
-  live on `onKeyDown` / `onKeyUp` / `onPointerDown` / `onPointerUp` — consumers
-  needing "was pressed this frame" helpers maintain their own latched flags
-  (deferred per `docs/backlog/engine-architecture/input-edge-snapshot-helpers.md`).
+- **Level vs edge**: `isKeyDown(code)` / `isPointerButtonDown(btn)` /
+  `getPointer()` read the current *held* (level) state. The `was*` reads —
+  `wasKeyPressed` / `wasKeyReleased` / `wasPointerButtonPressed` /
+  `wasPointerButtonReleased` — read per-frame *edge* (transition) state, plus
+  the lower-level `onKeyDown` / `onKeyUp` / `onPointerDown` / `onPointerUp`
+  subscriptions for consumers wanting the full event payload. Edge mechanics:
+  - **Set by the synchronous DOM handlers**, so a sub-frame press *and* release
+    both register in the same frame (no edge is lost to a fast tap).
+  - **Cleared once per render frame by `frame.loop`**, after the frame callback
+    has run. This is the `frame → input` per-frame coupling — an acyclic
+    cross-module dependency analogous to the `stats` instrumentation exception
+    documented in §Instrumentation below. Edges only reset correctly when the
+    consumer drives `frame.loop`; reading `was*` outside a running loop leaves
+    edges latched until the next loop tick (or `detach`).
+  - **Per-frame, not per-tick.** A single render frame may advance a
+    `frame.fixedClock` 0, 1, or 2+ times. Reading an edge *inside* `onTick`
+    would miss it (0 ticks that frame) or double-fire it (2+ ticks) — the Unity
+    `Input.GetKeyDown`-in-`FixedUpdate` bug. **Latch recipe:** read the edge
+    once at frame level, store it in a local flag, and consume that flag in the
+    sim. Example — read at frame level: `if (input.wasKeyReleased("Space"))
+    launchRequested = true;` then apply `launchRequested` at the next
+    `fixedClock` `onTick` and clear it.
 - **Stuck-key behavior**: on `window` blur the engine clears `keysDown` and
   pointer button state. `onKeyUp` events are *not* synthesized for the cleared
   keys; consumers requiring symmetric event streams subscribe to a future

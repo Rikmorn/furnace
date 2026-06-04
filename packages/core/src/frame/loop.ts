@@ -1,6 +1,7 @@
 import { FurnaceError } from "../errors.ts";
 import type { Context } from "../gpu/context-types.ts";
 import { FurnaceGpuError } from "../gpu/errors.ts";
+import { _inputEndFrame } from "../input/internal.ts";
 import { _frameEnd, _frameStart } from "../stats/internal.ts";
 
 /**
@@ -111,6 +112,7 @@ export function loop(
     _frameStart(ctx);
     onFrame({ elapsedMs, deltaMs });
     _frameEnd(ctx);
+    _inputEndFrame(); // clear per-frame input edges after the frame read them
     if (!stopped && !paused) {
       rafId = requestAnimationFrame(tick);
     }

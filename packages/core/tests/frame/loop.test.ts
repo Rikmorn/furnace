@@ -2,6 +2,11 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { loop } from "../../src/frame/loop.ts";
 import type { Context } from "../../src/gpu/context-types.ts";
 import { createInternalState } from "../../src/gpu/internal.ts";
+import {
+  handleKeyDownDomEvent,
+  wasKeyPressed,
+} from "../../src/input/keyboard.ts";
+import { _resetForTests } from "../../src/input/state.ts";
 import { type MockRaf, setupMockRaf } from "../_helpers/mock-raf.ts";
 
 let raf: MockRaf;
@@ -204,4 +209,31 @@ test("loop accepts undefined maxDeltaMs (uses default)", () => {
       /* no-op */
     }),
   ).not.toThrow();
+});
+
+test("loop clears per-frame input edges after each tick (frame → input)", () => {
+  _resetForTests();
+  // Seed an up→down edge synchronously, as a DOM keydown handler would.
+  handleKeyDownDomEvent({
+    code: "Space",
+    key: " ",
+    repeat: false,
+    shiftKey: false,
+    ctrlKey: false,
+    altKey: false,
+    metaKey: false,
+    timeStamp: 0,
+  } as unknown as KeyboardEvent);
+  expect(wasKeyPressed("Space")).toBe(true);
+
+  const ctx = fakeCtx();
+  const handle = loop(ctx, () => {
+    // The frame callback reads edges; after it returns, the loop clears them.
+    expect(wasKeyPressed("Space")).toBe(true);
+  });
+  raf.advance(16); // one tick → _inputEndFrame() runs
+  expect(wasKeyPressed("Space")).toBe(false);
+
+  handle.stop();
+  _resetForTests();
 });

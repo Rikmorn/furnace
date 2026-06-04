@@ -410,10 +410,14 @@ See `engine-conventions.md` §Resource ownership for the lifecycle contract that
 | `detach` | `() => void` | Removes all DOM listeners and clears runtime state. Emitters survive across detach/attach cycles. No-op when not attached. |
 | `isAttached` | `() => boolean` | True between `attach` and `detach`. |
 | `isKeyDown` | `(code: KeyCode) => boolean` | Snapshot read of the held-key set. Cleared on window `blur` (stuck-key recovery). |
+| `wasKeyPressed` | `(code: KeyCode) => boolean` | True only on the frame the key transitioned up→down; per-frame edge, cleared by `frame.loop`. Latch for fixed-step sims (per-frame, not per-tick). |
+| `wasKeyReleased` | `(code: KeyCode) => boolean` | True only on the frame the key transitioned down→up; per-frame edge, cleared by `frame.loop`. Latch for fixed-step sims (per-frame, not per-tick). |
 | `onKeyDown` | `(cb: (e: KeyEvent) => void) => () => void` | Subscribe to keydown events. Returns unsubscribe. |
 | `onKeyUp` | `(cb: (e: KeyEvent) => void) => () => void` | Subscribe to keyup events. Returns unsubscribe. |
 | `getPointer` | `() => PointerSnapshot` | Frozen `{ x, y, xDevice, yDevice, buttons, overCanvas }`. `*Device` coords honor the canvas's backing-store DPR. |
 | `isPointerButtonDown` | `(button: PointerButton) => boolean` | Snapshot read of the buttons bitmask. |
+| `wasPointerButtonPressed` | `(button: PointerButton) => boolean` | True only on the frame the button transitioned up→down; per-frame edge, cleared by `frame.loop`. Latch for fixed-step sims (per-frame, not per-tick). |
+| `wasPointerButtonReleased` | `(button: PointerButton) => boolean` | True only on the frame the button transitioned down→up; per-frame edge, cleared by `frame.loop`. Latch for fixed-step sims (per-frame, not per-tick). |
 | `onPointerDown` | `(cb: (e: PointerEvent) => void) => () => void` | Subscribe to pointerdown. Returns unsubscribe. |
 | `onPointerMove` | `(cb: (e: PointerEvent) => void) => () => void` | Subscribe to pointermove. Returns unsubscribe. |
 | `onPointerUp` | `(cb: (e: PointerEvent) => void) => () => void` | Subscribe to pointerup. Returns unsubscribe. |
