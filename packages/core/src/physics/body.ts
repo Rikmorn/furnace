@@ -1,5 +1,6 @@
 import { FurnaceError } from "../errors.ts";
 import type { Context } from "../gpu/index.ts";
+import { warn } from "../log/internal.ts";
 import {
   _allocPhysicsBody,
   _destroyPhysicsBody,
@@ -138,4 +139,23 @@ export function getBodyRotation(ctx: Context, body: Body, out: Quat): Quat {
   out[2] = r.z;
   out[3] = r.w;
   return out;
+}
+
+/**
+ * Set a body's world-space linear velocity (a runtime "kick" — throw, jump,
+ * launch). Wakes the body. Hot-path setter; runtime-quiet — logs a warning on
+ * non-finite input and is a silent no-op on a stale/destroyed handle.
+ */
+export function setBodyLinearVelocity(
+  ctx: Context,
+  body: Body,
+  v: Vec3Tuple,
+): void {
+  const slot = _lookupPhysicsBody<BodySlot>(ctx, body);
+  if (slot === null) return;
+  if (!v.every((c) => Number.isFinite(c))) {
+    warn("physics", "setBodyLinearVelocity: velocity must be finite", { v });
+    return;
+  }
+  slot.rapierBody.setLinvel({ x: v[0], y: v[1], z: v[2] }, true);
 }

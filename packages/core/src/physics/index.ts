@@ -3,6 +3,7 @@ export {
   destroyBody,
   getBodyRotation,
   getBodyTranslation,
+  setBodyLinearVelocity,
 } from "./body.ts";
 export type {
   Body,
