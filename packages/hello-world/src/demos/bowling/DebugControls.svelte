@@ -38,8 +38,10 @@
 <style>
   .debug {
     position: fixed;
-    top: 12px;
-    right: 12px;
+    /* Sits below the shell scene selector (top-right, ~32px tall) so the two
+       top-right overlays don't collide; right edge aligned with the selector. */
+    top: 44px;
+    right: 8px;
     display: flex;
     flex-direction: column;
     gap: 6px;
