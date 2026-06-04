@@ -1,3 +1,4 @@
+import * as binding from "@furnace/core/binding";
 import type { Camera, ScreenProjection } from "@furnace/core/camera";
 import * as camera from "@furnace/core/camera";
 import * as frame from "@furnace/core/frame";
@@ -17,6 +18,10 @@ const CAMERA_Z = 6;
 const CUBE_X_SPACING = 1.8;
 const MS_PER_S = 1000;
 const CLEAR_COLOR: Vec4 = vec4.fromValues(0.05, 0.05, 0.07, 1);
+// Mid-tone base color: lit's directional+hemisphere term peaks well above 1×,
+// so a bright base clips to white on light-facing faces and the shading
+// gradient (which conveys cube rotation — the demo's point) is lost.
+const CUBE_COLOR: Vec4 = vec4.fromValues(0.45, 0.55, 0.75, 1);
 
 type LabelKey = "variable" | "no-interp" | "interp";
 
@@ -84,8 +89,12 @@ await mountDemo({
     // material/geometry) and auto-disconnects the resize binding. Explicit
     // destroy is an optimization, shown where it's genuinely needed:
     // mid-life churn (geometry, custom-stats) and raw resources (post).
+    const litShader = await shader.lit(ctx);
+    const colorBinding = binding.create(ctx, litShader);
+    binding.set(ctx, colorBinding, { color: CUBE_COLOR });
     const mat = await material.create(ctx, {
-      shader: await shader.normalColor(ctx),
+      shader: litShader,
+      binding: colorBinding,
     });
     const cubeGeo = geometry.cube(ctx);
     const cubeVariable = mesh.create(ctx, { geometry: cubeGeo, material: mat });
