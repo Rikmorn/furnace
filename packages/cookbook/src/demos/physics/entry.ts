@@ -87,6 +87,12 @@ await mountDemo({
     onReset: () => {
       state.resetNonce += 1;
     },
+    get showColliders() {
+      return state.showColliders;
+    },
+    onShowCollidersChange: (v: boolean) => {
+      state.showColliders = v;
+    },
   },
   setup: async (ctx) => {
     const world = await physics.createWorld(ctx, { gravity: [0, -9.81, 0] });
@@ -150,5 +156,14 @@ await mountDemo({
       ...scene.cubes.map((rm) => rigidMesh.getMesh(ctx, rm)),
     ];
     frame.render(ctx, { draw, camera: scene.cam, clearColor: CLEAR_COLOR });
+
+    if (state.showColliders) {
+      const dl = physics.getDebugLines(ctx, scene.world);
+      frame.drawLines(ctx, {
+        vertices: dl.vertices,
+        colors: dl.colors,
+        camera: scene.cam,
+      });
+    }
   },
 });

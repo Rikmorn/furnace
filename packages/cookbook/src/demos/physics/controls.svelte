@@ -7,6 +7,8 @@
     onInterpolateChange: (v: boolean) => void;
     onFixedHzChange: (v: number) => void;
     onReset: () => void;
+    showColliders: boolean;
+    onShowCollidersChange: (v: boolean) => void;
   };
   let {
     interpolate,
@@ -14,6 +16,8 @@
     onInterpolateChange,
     onFixedHzChange,
     onReset,
+    showColliders,
+    onShowCollidersChange,
   }: Props = $props();
 </script>
 
@@ -24,6 +28,14 @@
     onchange={(e) => onInterpolateChange(e.currentTarget.checked)}
   />
   <span>interpolate</span>
+</label>
+<label class="toggle">
+  <input
+    type="checkbox"
+    checked={showColliders}
+    onchange={(e) => onShowCollidersChange(e.currentTarget.checked)}
+  />
+  <span>colliders</span>
 </label>
 <Slider label="fixed Hz" value={fixedHz} min={5} max={120} step={1} onChange={onFixedHzChange} />
 <button class="reset" type="button" onclick={onReset}>reset</button>
