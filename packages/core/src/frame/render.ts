@@ -52,7 +52,7 @@ function depthEntryBytes(entry: DepthEntry): number {
   return entry.width * entry.height * DEPTH_BYTES_PER_PIXEL;
 }
 
-function _ensureDepthTexture(ctx: Context): DepthEntry {
+export function _ensureDepthTexture(ctx: Context): DepthEntry {
   const existing = depthByCtx.get(ctx);
   const width = ctx.canvas.width;
   const height = ctx.canvas.height;
@@ -90,7 +90,7 @@ function _disposeDepth(ctx: Context): void {
   depthByCtx.delete(ctx);
 }
 
-function _ensureCameraBuffer(ctx: Context, cam: Camera): GPUBuffer {
+export function _ensureCameraBuffer(ctx: Context, cam: Camera): GPUBuffer {
   let perCam = cameraBuffers.get(ctx);
   if (!perCam) {
     perCam = new Map();
