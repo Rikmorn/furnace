@@ -36,6 +36,15 @@ One render loop + a separable fixed-step clock:
 
 A fixed-step game is `frame.loop` + `frame.fixedClock`, composed — the same composition whether a consumer owns the loop directly or a shell owns it and dispatches a per-scene frame callback. See `fixed-step-interpolation.md`.
 
+### Time scaling (slow-mo / pause / single-step)
+
+Time dilation needs no engine surface — scale the `deltaMs` fed to `frame.fixedClock.advance`:
+- **slow-mo / fast-forward:** `clock.advance(info.deltaMs * timeScale, onTick)` (`timeScale < 1` slows, `> 1` speeds). Render keeps running every frame; only the simulation rate changes. `alpha` interpolation stays correct (it is derived from the sim clock, not real time).
+- **pause:** `timeScale = 0` → `advance(0, …)` runs zero ticks; render still draws the frozen, interpolated pose.
+- **single-step:** `clock.advance(clock.fixedDtMs, onTick)` runs exactly one tick. The accumulator is always `< fixedDtMs` after any `advance` (it holds only the sub-tick remainder), so feeding exactly one step advances the sim by precisely one tick — clean step-debug with no `tick()`/`setTimeScale` method.
+
+Input handlers and `frame.loop` are unaffected; only the fixed-step sim clock scales. See the bowling demo's debug controls for a worked example.
+
 ## Resource manager
 
 `@furnace/core` centralises GPU-backed consumer-resource lifecycles in a per-context resource manager. Every consumer-facing resource — `Mesh`, `Material`, `Geometry`, `Effect` — is allocated through the manager, tracked in a typed pool, and freed via a synchronous teardown that runs atomically with the slot's destroy.
