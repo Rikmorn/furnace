@@ -391,7 +391,11 @@ export function _destroyRigidMesh<T>(
 export function _resetBuiltinShaders(ctx: Context): void {
   // Fresh object (not field-by-field reset) so adding a built-in shader to the
   // cache shape becomes a typecheck error here, not a silently-missed reset.
-  ctx._internal.resources.builtinShaders = { unlit: null, normalColor: null };
+  ctx._internal.resources.builtinShaders = {
+    unlit: null,
+    normalColor: null,
+    lit: null,
+  };
 }
 
 /**

@@ -41,6 +41,7 @@ export type ResourceManager = {
   builtinShaders: {
     unlit: Promise<ShaderHandle> | null;
     normalColor: Promise<ShaderHandle> | null;
+    lit: Promise<ShaderHandle> | null;
   };
 };
 
@@ -72,7 +73,7 @@ export function createResourceManager(): ResourceManager {
     rigidMeshes: createPool(),
     materialPipelineCache: new Map(),
     postPipelineCache: new Map(),
-    builtinShaders: { unlit: null, normalColor: null },
+    builtinShaders: { unlit: null, normalColor: null, lit: null },
     dirtyBindings: new Set(),
   };
 }

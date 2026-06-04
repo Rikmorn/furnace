@@ -75,3 +75,30 @@ test.skipIf(!bunWebGpuAvailable())(
     gpu.dispose(ctx);
   },
 );
+
+test.skipIf(!bunWebGpuAvailable())(
+  "shader.lit is shared per ctx and carries the { color: vec4f } layout",
+  async () => {
+    const ctx = await createTestContext();
+    expect(await shader.lit(ctx)).toBe(await shader.lit(ctx)); // compiled once
+    expect(
+      shader._layoutOf(ctx, await shader.lit(ctx))?.fields["color"],
+    ).toEqual({
+      offset: 0,
+      size: 16,
+      token: "vec4f",
+    });
+    gpu.dispose(ctx);
+  },
+);
+
+test.skipIf(!bunWebGpuAvailable())(
+  "lit and unlit share a layout (materials are shader-swappable)",
+  async () => {
+    const ctx = await createTestContext();
+    const litLayout = shader._layoutOf(ctx, await shader.lit(ctx));
+    const unlitLayout = shader._layoutOf(ctx, await shader.unlit(ctx));
+    expect(litLayout?.byteSize).toBe(unlitLayout?.byteSize);
+    gpu.dispose(ctx);
+  },
+);
