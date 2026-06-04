@@ -16,8 +16,12 @@ export type Vec3Tuple = readonly [number, number, number];
 /** A quaternion as a plain `[x,y,z,w]` tuple. */
 export type QuatTuple = readonly [number, number, number, number];
 
-/** Input bundle for {@link createWorld}. */
-export type WorldDescriptor = { gravity: Vec3Tuple };
+/** Input bundle for {@link createWorld}. `lengthUnit` is the approximate size,
+ *  in world units, of a 1-meter object — it scales the backend solver's
+ *  length-based tolerances so non-meter-scale scenes (sub-meter objects jitter
+ *  at the default) stay stable. Optional; furnace supplies a meter-scale
+ *  default when omitted. */
+export type WorldDescriptor = { gravity: Vec3Tuple; lengthUnit?: number };
 
 /** Collision shape: a sphere (`ball` radius), box (`cuboid` half-extents),
  *  or cylinder (`cylinder` half-height + radius, Y-axis aligned). */

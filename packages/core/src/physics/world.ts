@@ -18,9 +18,16 @@ import type {
 
 const GRAVITY_COMPONENTS = 3;
 
+// furnace-owned default: meter scale (1 world unit per meter). The wrapper
+// ALWAYS passes an explicit value so the backend's own default is never relied
+// upon — a future backend (Jolt) maps furnace's meter scale to its equivalent.
+const DEFAULT_LENGTH_UNIT = 1;
+
 /**
  * Create a physics {@link World}. Lazily runs Rapier's one-time wasm init
- * (memoized), then constructs the backend world with the given gravity.
+ * (memoized), then constructs the backend world with the given gravity and
+ * length scale. The descriptor's `lengthUnit` is always forwarded explicitly to
+ * the backend — omitting it applies furnace's meter-scale default.
  *
  * @throws FurnaceError - if `gravity` is not a finite 3-component vector.
  */
@@ -41,6 +48,7 @@ export async function createWorld(
   await ensureRapierInit();
   const [gx, gy, gz] = g;
   const rapier = new RAPIER.World({ x: gx, y: gy, z: gz });
+  rapier.lengthUnit = descriptor.lengthUnit ?? DEFAULT_LENGTH_UNIT;
   const eventQueue = new RAPIER.EventQueue(true);
   const slot: WorldSlot = {
     rapier,
