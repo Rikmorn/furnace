@@ -18,7 +18,6 @@ import type {
   WorldSlot,
 } from "./types.ts";
 
-const DEFAULT_DENSITY = 1;
 const VEC3_LEN = 3;
 
 function isFiniteVec3(v: Vec3Tuple): boolean {
@@ -82,7 +81,7 @@ export function createBody(
     buildRigidBodyDesc(descriptor),
   );
   const collider = worldSlot.rapier.createCollider(
-    buildColliderDesc(descriptor.shape, descriptor.density ?? DEFAULT_DENSITY),
+    buildColliderDesc(descriptor),
     rapierBody,
   );
   const colliderHandle = collider.handle;

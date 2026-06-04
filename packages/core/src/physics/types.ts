@@ -35,6 +35,14 @@ export type BodyDescriptor = {
   linearVelocity?: Vec3Tuple;
   angularVelocity?: Vec3Tuple;
   density?: number;
+  /** Coulomb friction coefficient (applies to static + dynamic contact). Pass-through. */
+  friction?: number;
+  /** Bounciness in [0,1]; 0 = no bounce. Pass-through. */
+  restitution?: number;
+  /** Per-second linear velocity decay; helps a body come to rest. Pass-through. */
+  linearDamping?: number;
+  /** Per-second angular velocity decay; helps a spinning body settle. Pass-through. */
+  angularDamping?: number;
 };
 
 /** A contact begin/end between two bodies, drained after a step. */

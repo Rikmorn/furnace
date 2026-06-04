@@ -32,6 +32,8 @@ export function buildRigidBodyDesc(d: BodyDescriptor): RAPIER.RigidBodyDesc {
     const [x, y, z] = d.angularVelocity;
     desc.setAngvel({ x, y, z });
   }
+  if (d.linearDamping !== undefined) desc.setLinearDamping(d.linearDamping);
+  if (d.angularDamping !== undefined) desc.setAngularDamping(d.angularDamping);
   return desc;
 }
 
@@ -59,13 +61,12 @@ function buildShapeDesc(shape: ShapeDescriptor): RAPIER.ColliderDesc {
   );
 }
 
-/** Map a furnace shape to a Rapier collider descriptor (event-enabled). */
-export function buildColliderDesc(
-  shape: ShapeDescriptor,
-  density: number,
-): RAPIER.ColliderDesc {
-  const desc = buildShapeDesc(shape);
-  desc.setDensity(density);
+/** Map a furnace body descriptor to a Rapier collider descriptor (event-enabled). */
+export function buildColliderDesc(d: BodyDescriptor): RAPIER.ColliderDesc {
+  const desc = buildShapeDesc(d.shape);
+  desc.setDensity(d.density ?? 1);
+  if (d.friction !== undefined) desc.setFriction(d.friction);
+  if (d.restitution !== undefined) desc.setRestitution(d.restitution);
   desc.setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS);
   return desc;
 }
