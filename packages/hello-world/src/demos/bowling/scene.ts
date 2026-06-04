@@ -23,6 +23,8 @@ import { quat, vec3, vec4 } from "@furnace/core/transform";
 import type { SceneController, SceneFactory } from "../../shell/scene.ts";
 import { mountChargeMeter } from "./charge-meter-mount.ts";
 import { chargeMeter } from "./charge-meter-state.svelte.ts";
+import { mountDebugControls } from "./debug-controls-mount.ts";
+import { debugControls } from "./debug-controls-state.svelte.ts";
 
 const CLEAR_COLOR: Vec4 = vec4.fromValues(0.05, 0.06, 0.09, 1);
 const FIXED_HZ = 60;
@@ -110,6 +112,7 @@ type BowlingState = {
   charge: number;
   launchRequested: boolean;
   unmountMeter: () => void;
+  unmountDebug: () => void;
 };
 
 // Build a lit material with a single colour binding. The binding OWNS its
@@ -273,6 +276,12 @@ export const bowlingScene: SceneFactory = {
           /* intentional no-op */
         };
 
+    const unmountDebug = uiRoot
+      ? mountDebugControls(uiRoot)
+      : () => {
+          /* intentional no-op */
+        };
+
     const state: BowlingState = {
       world,
       pinMat,
@@ -296,6 +305,7 @@ export const bowlingScene: SceneFactory = {
       charge: 0,
       launchRequested: false,
       unmountMeter,
+      unmountDebug,
     };
     updateAimLine(ctx, state);
 
@@ -329,7 +339,18 @@ export const bowlingScene: SceneFactory = {
         chargeMeter.charge = state.charge;
         chargeMeter.phase = state.phase;
 
-        const alpha = state.clock.advance(info.deltaMs, (dt) => {
+        // Time-scaling (demo-side, zero engine surface): scale the delta fed to
+        // the fixed clock. Paused → feed 0 (sim frozen, render continues); a
+        // pending step while paused feeds exactly one tick's worth.
+        let simDeltaMs = debugControls.paused
+          ? 0
+          : info.deltaMs * debugControls.timeScale;
+        if (debugControls.paused && debugControls.stepRequested) {
+          simDeltaMs = state.clock.fixedDtMs;
+          debugControls.stepRequested = false;
+        }
+
+        const alpha = state.clock.advance(simDeltaMs, (dt) => {
           if (state.launchRequested) {
             const speed = MIN_SPEED + state.charge * (MAX_SPEED - MIN_SPEED);
             const dir = headingToDir(state.aimHeading);
@@ -356,9 +377,19 @@ export const bowlingScene: SceneFactory = {
           ...(state.phase === "aiming" ? [state.aimLine] : []),
         ];
         frame.render(ctx, { draw, camera: state.cam, clearColor: CLEAR_COLOR });
+
+        if (debugControls.showColliders) {
+          const dl = physics.getDebugLines(ctx, state.world);
+          frame.drawLines(ctx, {
+            vertices: dl.vertices,
+            colors: dl.colors,
+            camera: state.cam,
+          });
+        }
       },
       unload: () => {
         state.unmountMeter();
+        state.unmountDebug();
         state.unbindCamera();
         // Aim line shares laneGeo + ballMat; destroy it before those so its
         // refcount decrements land before the geometry/material teardown.
