@@ -11,6 +11,7 @@ import { ensureRapierInit } from "./internal.ts";
 import type {
   BodySlot,
   CollisionEvent,
+  DebugLines,
   World,
   WorldDescriptor,
   WorldSlot,
@@ -91,6 +92,22 @@ export function drainCollisions(ctx: Context, world: World): CollisionEvent[] {
     events.push({ a, b, started });
   });
   return events;
+}
+
+/**
+ * Read the world's colliders as a wireframe line-list — a pure pass-through to
+ * Rapier's debug renderer. Hot-path read: returns empty buffers on a
+ * stale/destroyed world. The returned arrays are transient (see
+ * {@link DebugLines}). Pair with `frame.drawLines` to overlay the colliders on
+ * the rendered scene.
+ */
+export function getDebugLines(ctx: Context, world: World): DebugLines {
+  const slot = _lookupPhysicsWorld<WorldSlot>(ctx, world);
+  if (slot === null) {
+    return { vertices: new Float32Array(0), colors: new Float32Array(0) };
+  }
+  const buffers = slot.rapier.debugRender();
+  return { vertices: buffers.vertices, colors: buffers.colors };
 }
 
 /**

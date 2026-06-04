@@ -52,6 +52,14 @@ export type BodyDescriptor = {
 /** A contact begin/end between two bodies, drained after a step. */
 export type CollisionEvent = { a: Body; b: Body; started: boolean };
 
+/** Wireframe line data for a world's colliders, from a debug-render pass.
+ *  `vertices` is a flat line-list — two consecutive points per line, three
+ *  floats (xyz) per point. `colors` is RGBA per vertex (four floats), so
+ *  `colors.length === (vertices.length / 3) * 4`. Transient: the arrays are
+ *  produced by the backend and valid only until the next `getDebugLines` or
+ *  `step`; copy them if you need to retain. */
+export type DebugLines = { vertices: Float32Array; colors: Float32Array };
+
 /** Engine-private slot backing a {@link World}. */
 export type WorldSlot = CascadeTeardownSlot & {
   rapier: RAPIER.World;
