@@ -6,6 +6,12 @@ import {
   wasKeyPressed,
   wasKeyReleased,
 } from "../../src/input/keyboard.ts";
+import {
+  handlePointerDownDomEvent,
+  handlePointerUpDomEvent,
+  wasPointerButtonPressed,
+  wasPointerButtonReleased,
+} from "../../src/input/pointer.ts";
 import { _resetForTests } from "../../src/input/state.ts";
 
 type RawKbEvent = {
@@ -29,6 +35,36 @@ function rawKb(overrides: Partial<RawKbEvent> = {}): RawKbEvent {
     metaKey: false,
     timeStamp: 0,
     ...overrides,
+  };
+}
+
+type RawPtr = {
+  offsetX: number;
+  offsetY: number;
+  button: number;
+  buttons: number;
+  pointerType: string;
+  pointerId: number;
+  shiftKey: boolean;
+  ctrlKey: boolean;
+  altKey: boolean;
+  metaKey: boolean;
+  timeStamp: number;
+};
+function rawPtr(o: Partial<RawPtr> = {}): RawPtr {
+  return {
+    offsetX: 0,
+    offsetY: 0,
+    button: 0,
+    buttons: 1,
+    pointerType: "mouse",
+    pointerId: 1,
+    shiftKey: false,
+    ctrlKey: false,
+    altKey: false,
+    metaKey: false,
+    timeStamp: 0,
+    ...o,
   };
 }
 
@@ -66,4 +102,20 @@ test("OS auto-repeat does not re-fire wasKeyPressed after the press frame", () =
     rawKb({ code: "KeyD", repeat: true }) as unknown as KeyboardEvent,
   );
   expect(wasKeyPressed("KeyD")).toBe(false); // held, not a new press
+});
+
+test("wasPointerButtonPressed/Released register button edges, then clear", () => {
+  handlePointerDownDomEvent(
+    rawPtr({ button: 0, buttons: 1 }) as unknown as PointerEvent,
+  );
+  expect(wasPointerButtonPressed(0)).toBe(true);
+  _inputEndFrame();
+  expect(wasPointerButtonPressed(0)).toBe(false);
+
+  handlePointerUpDomEvent(
+    rawPtr({ button: 0, buttons: 0 }) as unknown as PointerEvent,
+  );
+  expect(wasPointerButtonReleased(0)).toBe(true);
+  _inputEndFrame();
+  expect(wasPointerButtonReleased(0)).toBe(false);
 });

@@ -79,6 +79,9 @@ function syncPointerStateFromEvent(e: PointerEvent): void {
 
 export function handlePointerDownDomEvent(e: PointerEvent): void {
   syncPointerStateFromEvent(e);
+  // Guard -1 (no button transitioned): `1 << -1` is `1 << 31` (mod-32 shift),
+  // which would corrupt the edge bitmask.
+  if (e.button >= 0) state.buttonsPressed |= 1 << e.button;
   state.emitters.pointerDown.emit(normalizePointer(e, "pointerdown"));
 }
 
@@ -89,6 +92,7 @@ export function handlePointerMoveDomEvent(e: PointerEvent): void {
 
 export function handlePointerUpDomEvent(e: PointerEvent): void {
   syncPointerStateFromEvent(e);
+  if (e.button >= 0) state.buttonsReleased |= 1 << e.button;
   state.emitters.pointerUp.emit(normalizePointer(e, "pointerup"));
 }
 
@@ -143,6 +147,22 @@ export function onWheel(cb: (e: InputWheelEvent) => void): () => void {
 /** Snapshot read of the pointer-buttons bitmask. */
 export function isPointerButtonDown(button: PointerButton): boolean {
   return (state.pointer.buttons & (1 << button)) !== 0;
+}
+
+/**
+ * True only on the frame `button` transitioned to pressed (cleared each frame
+ * by `frame.loop`). Per-frame, not per-tick.
+ */
+export function wasPointerButtonPressed(button: PointerButton): boolean {
+  return (state.buttonsPressed & (1 << button)) !== 0;
+}
+
+/**
+ * True only on the frame `button` transitioned to released (cleared each frame
+ * by `frame.loop`). Per-frame, not per-tick.
+ */
+export function wasPointerButtonReleased(button: PointerButton): boolean {
+  return (state.buttonsReleased & (1 << button)) !== 0;
 }
 
 /**
