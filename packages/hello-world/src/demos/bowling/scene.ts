@@ -21,6 +21,8 @@ import type { Vec3, Vec4 } from "@furnace/core/transform";
 import { quat, vec3, vec4 } from "@furnace/core/transform";
 
 import type { SceneController, SceneFactory } from "../../shell/scene.ts";
+import { mountChargeMeter } from "./charge-meter-mount.ts";
+import { chargeMeter } from "./charge-meter-state.svelte.ts";
 
 const CLEAR_COLOR: Vec4 = vec4.fromValues(0.05, 0.06, 0.09, 1);
 const FIXED_HZ = 60;
@@ -107,6 +109,7 @@ type BowlingState = {
   aimHeading: number;
   charge: number;
   launchRequested: boolean;
+  unmountMeter: () => void;
 };
 
 // Build a lit material with a single colour binding. The binding OWNS its
@@ -261,6 +264,15 @@ export const bowlingScene: SceneFactory = {
     // binding to track, so unload stays leak-free for free.
     const aimLine = mesh.create(ctx, { geometry: laneGeo, material: ballMat });
 
+    // Bowling-specific charge meter chrome. The meter is non-essential UI, so a
+    // missing #ui-root is not fatal — skip mounting and keep a no-op unmount.
+    const uiRoot = document.querySelector<HTMLElement>("#ui-root");
+    const unmountMeter = uiRoot
+      ? mountChargeMeter(uiRoot)
+      : () => {
+          /* intentional no-op */
+        };
+
     const state: BowlingState = {
       world,
       pinMat,
@@ -283,6 +295,7 @@ export const bowlingScene: SceneFactory = {
       aimHeading: 0,
       charge: 0,
       launchRequested: false,
+      unmountMeter,
     };
     updateAimLine(ctx, state);
 
@@ -310,6 +323,11 @@ export const bowlingScene: SceneFactory = {
           }
           updateAimLine(ctx, state);
         }
+
+        // Surface the live throw state to the charge-meter chrome. Svelte 5
+        // $state only re-renders on actual change, so writing every frame is fine.
+        chargeMeter.charge = state.charge;
+        chargeMeter.phase = state.phase;
 
         const alpha = state.clock.advance(info.deltaMs, (dt) => {
           if (state.launchRequested) {
@@ -340,6 +358,7 @@ export const bowlingScene: SceneFactory = {
         frame.render(ctx, { draw, camera: state.cam, clearColor: CLEAR_COLOR });
       },
       unload: () => {
+        state.unmountMeter();
         state.unbindCamera();
         // Aim line shares laneGeo + ballMat; destroy it before those so its
         // refcount decrements land before the geometry/material teardown.
