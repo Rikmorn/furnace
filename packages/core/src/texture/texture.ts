@@ -19,6 +19,7 @@ import type { Texture, TextureDescriptor, TextureSlot } from "./types.ts";
  * error (surfaced from `pushErrorScope("validation")`).
  *
  * @throws FurnaceError - if the `{source}` branch is passed (not yet implemented).
+ * @throws FurnaceError - if `data.byteLength` does not equal `width * height * 4` (rgba8 expects 4 bytes per texel).
  * @throws FurnaceError - if WebGPU texture creation reports a validation error.
  */
 export async function create(
@@ -30,12 +31,15 @@ export async function create(
       "texture.create: only the {data} source is implemented (T1)",
     );
   }
-  const { data, width, height } = descriptor;
-  // T2 makes format colorSpace-driven; for T1 default to rgba8unorm-srgb.
-  // bun-webgpu note: standalone createTexture({format:"rgba8unorm-srgb"}) +
-  // createView() (no format arg) works under Dawn. If bun-webgpu rejects the
-  // srgb format, callers can pass colorSpace:"linear" to use rgba8unorm instead.
-  const format: GPUTextureFormat = "rgba8unorm-srgb";
+  const { data, width, height, colorSpace = "srgb" } = descriptor;
+  const format: GPUTextureFormat =
+    colorSpace === "srgb" ? "rgba8unorm-srgb" : "rgba8unorm";
+  const expected = width * height * 4; // rgba8: 4 bytes/texel
+  if (data.byteLength !== expected) {
+    throw new FurnaceError(
+      `texture.create: data length ${data.byteLength} != expected ${expected} (${width}x${height} rgba8)`,
+    );
+  }
   ctx.device.pushErrorScope("validation");
   const gpuTex = ctx.device.createTexture({
     size: { width, height },
@@ -83,4 +87,9 @@ export function destroy(ctx: Context, tex: Texture): void {
   const slot = _lookupTexture<TextureSlot>(ctx, tex);
   if (slot === null) return; // idempotent on stale/destroyed
   _destroyTexture<TextureSlot>(ctx, tex, (s) => s._teardown());
+}
+
+/** Test-only: read the backing GPUTexture format. Not part of the public surface. */
+export function _formatOf(ctx: Context, tex: Texture): GPUTextureFormat | null {
+  return _lookupTexture<TextureSlot>(ctx, tex)?.gpu.format ?? null;
 }
