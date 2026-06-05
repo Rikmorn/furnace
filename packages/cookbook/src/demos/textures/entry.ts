@@ -19,9 +19,9 @@ import texturedUrl from "./textured.wgsl";
 const PLANE_SIZE = 8;
 // Tilt the plane so the far edge recedes sharply toward the horizon — this is
 // the grazing angle where nearest / linear / AF16 are most visibly different.
-// At 70° the texels near the top of the screen are extremely compressed, making
+// At 76° the texels near the top of the screen are extremely compressed, making
 // anisotropic filtering the only option that still looks sharp.
-const TILT_DEG = 70;
+const TILT_DEG = 76;
 const CAMERA_POS = vec3.fromValues(0, 0.8, 3.5);
 const CLEAR_COLOR: Vec4 = vec4.fromValues(0.06, 0.06, 0.08, 1);
 

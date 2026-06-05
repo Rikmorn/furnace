@@ -41,9 +41,11 @@ struct VsOut {
 //   2. It creates a range of texel densities across the surface — large texels
 //      near the camera (magnification) and small texels toward the horizon
 //      (minification+anisotropy). This is exactly where nearest/linear/AF16
-//      produce visibly different results. Without tiling the differences are
-//      subtle; at TILES=6 they are impossible to miss.
-const TILES: f32 = 6.0;
+//      produce visibly different results. More tiling pushes the far field
+//      deeper into minification, widening the linear-vs-AF16 gap; AF is subtle
+//      by nature (it only diverges from trilinear at steep grazing angles on
+//      high-frequency detail), so we tile heavily to make the gap clear.
+const TILES: f32 = 16.0;
 
 @vertex
 fn vs_main(v: VsIn) -> VsOut {

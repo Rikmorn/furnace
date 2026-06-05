@@ -229,12 +229,15 @@ export const bowlingScene: SceneFactory = {
       BALL_COLOR,
     );
 
-    // Lane: procedural checkerboard texture (512×512, 16 cells, mipmaps for AF).
+    // Lane: procedural checkerboard texture (512×512, 48 cells, mipmaps for AF).
+    // Fine cells (48) so the far end of the lane is deep in minification, where
+    // AF×16 vs trilinear actually diverge. The built-in texturedLit samples raw
+    // UV (0..1 per face), so cell count is the only frequency knob here.
     // Two materials share the same texture — one with maxAnisotropy 16 (AF on),
     // one with maxAnisotropy 1 (AF off). The AF toggle swaps between them.
     const tlShader = await shader.texturedLit(ctx);
     const laneTex = await texture.create(ctx, {
-      ...texture.checkerboard({ size: 512, cells: 16 }),
+      ...texture.checkerboard({ size: 512, cells: 48 }),
       mipmaps: true,
     });
     const laneMatAF = await material.create(ctx, {
