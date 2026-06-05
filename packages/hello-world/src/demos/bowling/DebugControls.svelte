@@ -33,6 +33,14 @@
   <button type="button" onclick={() => (debugControls.stepRequested = true)}>
     step
   </button>
+  <label class="row">
+    <input
+      type="checkbox"
+      checked={debugControls.anisotropy}
+      onchange={(e) => (debugControls.anisotropy = e.currentTarget.checked)}
+    />
+    <span>anisotropy (AF)</span>
+  </label>
 </div>
 
 <style>

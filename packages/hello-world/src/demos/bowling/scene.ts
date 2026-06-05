@@ -17,6 +17,8 @@ import * as physics from "@furnace/core/physics";
 import type { RigidMesh } from "@furnace/core/rigid-mesh";
 import * as rigidMesh from "@furnace/core/rigid-mesh";
 import * as shader from "@furnace/core/shader";
+import type { Texture } from "@furnace/core/texture";
+import * as texture from "@furnace/core/texture";
 import type { Vec3, Vec4 } from "@furnace/core/transform";
 import { quat, vec3, vec4 } from "@furnace/core/transform";
 
@@ -25,6 +27,7 @@ import { mountChargeMeter } from "./charge-meter-mount.ts";
 import { chargeMeter } from "./charge-meter-state.svelte.ts";
 import { mountDebugControls } from "./debug-controls-mount.ts";
 import { debugControls } from "./debug-controls-state.svelte.ts";
+import { DECAL_DATA_URL } from "./decal.ts";
 
 const CLEAR_COLOR: Vec4 = vec4.fromValues(0.05, 0.06, 0.09, 1);
 const FIXED_HZ = 60;
@@ -54,11 +57,8 @@ const PIN_FRICTION = 0.4;
 const PIN_LINEAR_DAMPING = 0.15;
 const PIN_ANGULAR_DAMPING = 0.4;
 
-// Mid-tone colours, alpha 1. `lit` clips above ~1.6× brightness, so pins are
-// off-white (not pure white) to keep the toppling shading gradient visible.
-const PIN_COLOR: Vec4 = vec4.fromValues(0.72, 0.72, 0.74, 1);
+// Ball colour (lit material). Lane + pins use textured materials.
 const BALL_COLOR: Vec4 = vec4.fromValues(0.6, 0.16, 0.16, 1);
-const LANE_COLOR: Vec4 = vec4.fromValues(0.32, 0.24, 0.16, 1);
 
 // Throw tuning (deltaMs-scaled rates; tunable in the Safari gate).
 // AIM_RATE / CHARGE_RATE are per-millisecond; MIN/MAX_SPEED are m/s applied
@@ -91,12 +91,16 @@ function pinPositions(): Array<readonly [number, number, number]> {
 
 type BowlingState = {
   world: World;
+  // Lane: textured with two pre-built materials (AF on / off) sharing one texture.
+  laneTex: Texture;
+  laneMatAF: Material;
+  laneMatNoAF: Material;
+  // Pins: texture.load-decoded image decal.
+  pinTex: Texture;
   pinMat: Material;
+  // Ball: solid lit colour + binding (aim-line reuses ballMat).
   ballMat: Material;
-  laneMat: Material;
-  pinBinding: Binding;
   ballBinding: Binding;
-  laneBinding: Binding;
   laneGeo: Geometry;
   ballGeo: Geometry;
   pinGeo: Geometry;
@@ -219,18 +223,35 @@ export const bowlingScene: SceneFactory = {
       lengthUnit: LENGTH_UNIT,
     });
 
-    const { mat: pinMat, binding: pinBinding } = await createLitMaterial(
-      ctx,
-      PIN_COLOR,
-    );
+    // Ball: solid lit colour + binding.
     const { mat: ballMat, binding: ballBinding } = await createLitMaterial(
       ctx,
       BALL_COLOR,
     );
-    const { mat: laneMat, binding: laneBinding } = await createLitMaterial(
-      ctx,
-      LANE_COLOR,
-    );
+
+    // Lane: procedural checkerboard texture (512×512, 16 cells, mipmaps for AF).
+    // Two materials share the same texture — one with maxAnisotropy 16 (AF on),
+    // one with maxAnisotropy 1 (AF off). The AF toggle swaps between them.
+    const tlShader = await shader.texturedLit(ctx);
+    const laneTex = await texture.create(ctx, {
+      ...texture.checkerboard({ size: 512, cells: 16 }),
+      mipmaps: true,
+    });
+    const laneMatAF = await material.create(ctx, {
+      shader: tlShader,
+      texture: { texture: laneTex, sampler: { maxAnisotropy: 16 } },
+    });
+    const laneMatNoAF = await material.create(ctx, {
+      shader: tlShader,
+      texture: { texture: laneTex, sampler: { maxAnisotropy: 1 } },
+    });
+
+    // Pins: image decoded via texture.load (exercises the full fetch+decode path).
+    const pinTex = await texture.load(ctx, DECAL_DATA_URL);
+    const pinMat = await material.create(ctx, {
+      shader: tlShader,
+      texture: { texture: pinTex },
+    });
 
     const laneGeo = geometry.cube(ctx);
     const ballGeo = geometry.sphere(ctx, { radius: BALL_RADIUS });
@@ -246,7 +267,7 @@ export const bowlingScene: SceneFactory = {
         position: LANE_POS,
         friction: LANE_FRICTION,
       },
-      mesh: { geometry: laneGeo, material: laneMat },
+      mesh: { geometry: laneGeo, material: laneMatAF },
     });
     mesh.setScale(ctx, rigidMesh.getMesh(ctx, lane), LANE_SCALE);
 
@@ -284,12 +305,13 @@ export const bowlingScene: SceneFactory = {
 
     const state: BowlingState = {
       world,
+      laneTex,
+      laneMatAF,
+      laneMatNoAF,
+      pinTex,
       pinMat,
       ballMat,
-      laneMat,
-      pinBinding,
       ballBinding,
-      laneBinding,
       laneGeo,
       ballGeo,
       pinGeo,
@@ -370,6 +392,14 @@ export const bowlingScene: SceneFactory = {
         for (const pin of state.pins) rigidMesh.interpolate(ctx, pin, alpha);
         // The static lane was seeded to its pose at rigidMesh.create — draw as-is.
 
+        // AF toggle: swap the lane material each frame based on the debug toggle.
+        // setMaterial is idempotent when the handle matches, so per-frame is fine.
+        mesh.setMaterial(
+          ctx,
+          rigidMesh.getMesh(ctx, state.lane),
+          debugControls.anisotropy ? state.laneMatAF : state.laneMatNoAF,
+        );
+
         const draw = [
           rigidMesh.getMesh(ctx, state.lane),
           rigidMesh.getMesh(ctx, state.ball),
@@ -401,13 +431,17 @@ export const bowlingScene: SceneFactory = {
         geometry.destroy(ctx, state.ballGeo);
         geometry.destroy(ctx, state.pinGeo);
         geometry.destroy(ctx, state.laneGeo);
-        // material.destroy does NOT free the binding's buffer — free both.
+        // Destroy materials before textures (material holds a ref to the texture
+        // view; mirrors the geometry-after-mesh discipline).
+        // texturedLit materials carry no binding — no binding.destroy needed.
+        material.destroy(ctx, state.laneMatAF);
+        material.destroy(ctx, state.laneMatNoAF);
         material.destroy(ctx, state.pinMat);
+        texture.destroy(ctx, state.laneTex);
+        texture.destroy(ctx, state.pinTex);
+        // Ball uses a lit material with a colour binding — destroy both.
         material.destroy(ctx, state.ballMat);
-        material.destroy(ctx, state.laneMat);
-        binding.destroy(ctx, state.pinBinding);
         binding.destroy(ctx, state.ballBinding);
-        binding.destroy(ctx, state.laneBinding);
       },
     };
   },
