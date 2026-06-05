@@ -1,6 +1,7 @@
 import type { Binding, LayoutSchema } from "../binding/types.ts";
 import type { MaterialHandle } from "../resources/handle.ts";
 import type { Shader } from "../shader/types.ts";
+import type { SamplerParams, Texture } from "../texture/types.ts";
 
 /**
  * Descriptor accepted by `material.create`.
@@ -15,6 +16,9 @@ import type { Shader } from "../shader/types.ts";
  * - `bindings`: raw `@group(1)` entries (consumer-owned). Retained for
  *   textures, samplers, and advanced use-cases; `binding` is preferred for
  *   typed uniform data.
+ * - `texture`: bind a {@link Texture} + optional {@link SamplerParams} to
+ *   `@group(1)` (sampler@0, texture-view@1) for a `textureBinding` shader.
+ *   Mutually exclusive with `binding`/`bindings`.
  * - `primitive`: `topology` (default `"triangle-list"`), `cullMode` (default `"back"`).
  * - `depth`: omit → depth test+write enabled (`compare:"less"`); `false` → no
  *   depth-stencil; `{ write?, compare? }` → enabled with overrides.
@@ -25,6 +29,7 @@ export type MaterialDescriptor<L extends LayoutSchema = LayoutSchema> = {
   binding?: Binding<L>;
   entryPoints?: { vertex?: string; fragment?: string };
   bindings?: GPUBindGroupEntry[];
+  texture?: { texture: Texture; sampler?: SamplerParams };
   primitive?: { topology?: GPUPrimitiveTopology; cullMode?: GPUCullMode };
   depth?: false | { write?: boolean; compare?: GPUCompareFunction };
   blend?: GPUBlendState;

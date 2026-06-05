@@ -7,10 +7,13 @@ import {
   _destroyMaterial,
   _lookupMaterial,
   _lookupShader,
+  _lookupTexture,
 } from "../resources/internal.ts";
-import { _layoutOf } from "../shader/shader.ts";
+import { _layoutOf, _textureBindingOf } from "../shader/shader.ts";
 import type { ShaderSlot } from "../shader/types.ts";
 import { _recordDestroy } from "../stats/internal.ts";
+import { _getSampler } from "../texture/sampler-cache.ts";
+import type { TextureSlot } from "../texture/types.ts";
 import { _pipelineCache } from "./pipeline.ts";
 import type { Material, MaterialDescriptor, MaterialSlot } from "./types.ts";
 
@@ -175,15 +178,13 @@ function materialTeardown(ctx: Context, slot: MaterialSlot): void {
  * The cache is per-ctx — a pipeline built against ctx A cannot be reused
  * in ctx B (different `GPUDevice`).
  *
- * Allocation: when consumer-supplied `descriptor.bindings` are non-empty, a
- * `@group(1)` `GPUBindGroup` is created over the auto-derived layout. The
- * bind-group resources themselves (buffers, textures) are consumer-owned —
- * `destroy` does not touch them. The typed `descriptor.binding` path is also
- * consumer-owned: the `Binding` owns its `GPUBuffer` and `material.destroy`
- * does not free it. The slot's `ownedBuffers` array exists for factory-
- * allocated uniform buffers freed by the slot's teardown, but no current
- * factory uses it (the typed-`Binding` path superseded `material.unlit`'s
- * owned color buffer).
+ * Allocation: the `@group(1)` bind group is built from exactly one of three
+ * sources — `descriptor.texture` (sampler@0 + texture-view@1 for a
+ * `textureBinding` shader), `descriptor.binding` (typed uniform path), or
+ * `descriptor.bindings` (raw entries). All three are consumer-owned; `destroy`
+ * does not free any of them. The slot's `ownedBuffers` array exists for
+ * factory-allocated uniform buffers freed by the slot's teardown, but no
+ * current factory uses it.
  *
  * Setup-loud per the foreground failure policy
  * (`engine-conventions.md` §"Failure policy").
@@ -198,6 +199,11 @@ function materialTeardown(ctx: Context, slot: MaterialSlot): void {
  * @throws FurnaceError - if `binding` or `bindings` are supplied but the shader
  *   declares no `@group(1)` bindings (layout mismatch).
  * @throws FurnaceError - if `descriptor.binding` is invalid or destroyed.
+ * @throws FurnaceError - if `descriptor.texture` and `descriptor.binding` or
+ *   `descriptor.bindings` are both supplied (mutually exclusive `@group(1)` sources).
+ * @throws FurnaceError - if the shader declares a `textureBinding` but no
+ *   `descriptor.texture` is supplied (texture-completeness check — setup-loud).
+ * @throws FurnaceError - if `descriptor.texture.texture` is invalid or destroyed.
  */
 export async function create<L extends LayoutSchema = LayoutSchema>(
   ctx: Context,
@@ -223,6 +229,22 @@ export async function create<L extends LayoutSchema = LayoutSchema>(
   if (shaderLayout !== null && !hasBinding && !hasRawBindings) {
     throw new FurnaceError(
       "material.create: shader declares @group(1) data but no binding/bindings supplied",
+    );
+  }
+
+  const needsTexture = _textureBindingOf(ctx, descriptor.shader);
+  const hasTexture = descriptor.texture != null;
+
+  // `texture` and `binding`/`bindings` are competing @group(1) sources — exactly one.
+  if (hasTexture && (hasBinding || hasRawBindings)) {
+    throw new FurnaceError(
+      "material.create: `texture` is mutually exclusive with `binding`/`bindings` — supply only one @group(1) source",
+    );
+  }
+  // A textureBinding shader requires a texture.
+  if (needsTexture && !hasTexture) {
+    throw new FurnaceError(
+      "material.create: shader declares a @group(1) texture binding but no `texture` was supplied",
     );
   }
 
@@ -275,10 +297,27 @@ export async function create<L extends LayoutSchema = LayoutSchema>(
 
   const pipeline = await _pipelineCache.acquire(ctx, pipelineKey, build);
 
-  // Resolve @group(1) bind group: typed binding path takes precedence over
-  // raw bindings. The binding OWNS its buffer — do NOT push to ownedBuffers.
+  // Resolve @group(1) bind group: texture path, then typed binding, then raw
+  // bindings. The mutual-exclusion guard above ensures only one branch fires.
+  // The texture is consumer-owned — do NOT free it in teardown.
   let group1: GPUBindGroup | null = null;
-  if (descriptor.binding != null) {
+  if (descriptor.texture != null) {
+    const texSlot = _lookupTexture<TextureSlot>(
+      ctx,
+      descriptor.texture.texture,
+    );
+    if (texSlot === null) {
+      _pipelineCache.release(ctx, pipelineKey);
+      throw new FurnaceError(
+        "material.create: texture handle is invalid or destroyed",
+      );
+    }
+    const sampler = _getSampler(ctx, descriptor.texture.sampler);
+    group1 = buildGroup1(ctx, pipeline, pipelineKey, [
+      { binding: 0, resource: sampler },
+      { binding: 1, resource: texSlot.view },
+    ]);
+  } else if (descriptor.binding != null) {
     const buf = _bufferOf(ctx, descriptor.binding);
     if (buf === null) {
       // Stale/destroyed binding — fail setup-loud rather than silently leaving
@@ -326,8 +365,9 @@ export async function create<L extends LayoutSchema = LayoutSchema>(
  * The pipeline itself is freed when its refcount drops to zero.
  *
  * Does not destroy the consumer-owned resources passed via
- * `MaterialDescriptor.bindings` (buffers/textures the consumer created and
- * handed in) — the consumer destroys those.
+ * `MaterialDescriptor.bindings`, `MaterialDescriptor.binding`, or
+ * `MaterialDescriptor.texture` — the consumer destroys those independently
+ * (e.g. `texture.destroy` for a texture handle).
  *
  * Silent on stale or already-destroyed handles (idempotent).
  */
