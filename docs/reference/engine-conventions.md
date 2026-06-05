@@ -259,6 +259,46 @@ Every Material's WGSL must respect the engine's binding contract:
 
 **Depth buffer:** the engine owns one `depth24plus` texture per context, resized when the canvas backing-store size changes. `frame.render` always uses it; no consumer-visible API. Materials declare depth-stencil state unless created with `depth: false` (e.g. `material.create(ctx, { shader, depth: false })`). `frame.render` (always depth) and `frame.renderToTexture` (depth optional) now throw `FurnaceGpuError` on a material↔pass depth/attachment mismatch — what was previously a silent WebGPU validation failure. Any consumer-supplied `depthTexture` passed to `renderToTexture` must be format `depth24plus` (same as the engine-managed depth texture); a different format throws immediately.
 
+## Textures
+
+`@furnace/core/texture` provides GPU 2D textures (rgba8 only). The following conventions apply engine-wide.
+
+### Texture resource ownership
+
+Extends the general resource-manager ownership rule: the engine does **not** free consumer-created textures. A `Texture` handle returned by `texture.create` or `texture.load` is the consumer's responsibility — call `texture.destroy(ctx, tex)` when done. `material.destroy` does **not** free a texture (the `texture` field of `MaterialDescriptor` is consumer-owned, symmetrically with how `binding`'s `GPUBuffer` is consumer-owned). `gpu.dispose(ctx)` cascades through the textures pool and frees every live slot — so explicit destroy is an optimization (reduce in-context VRAM pressure), not a requirement.
+
+### colorSpace / sRGB-by-format
+
+`TextureDescriptor.colorSpace` drives GPU format selection:
+
+- `"srgb"` (default) → `rgba8unorm-srgb`: hardware applies sRGB linearisation on each `textureSample`. Use for albedo/diffuse textures.
+- `"linear"` → `rgba8unorm`: samples are taken as-is. Use for data textures (normal maps, masks, metalness/roughness).
+
+Shader-side decode (`pow(sample, 2.2)`) is the avoid-path — let the GPU format do the job. The mipmap blit kernel relies on the same hardware decode: `_generateMipmaps` uses the texture's own `format` (e.g. `rgba8unorm-srgb`) for both the source view and the render target — no linear `viewFormats` override. So sampling the source level decodes sRGB→linear, the GPU downsamples in **linear** space, and the write re-encodes linear→sRGB. That sRGB→linear→sRGB round-trip per mip level is intentional: it is exactly what makes mip generation gamma-correct (averaging in linear light, not in perceptual sRGB).
+
+### Sampler-cache stance
+
+`GPUSampler` objects are engine-cached and deduplicated per `SamplerParams` descriptor, per context. The cache lives on `ctx._internal.resources.samplerCache`; its entries are GC'd with the `GPUDevice` (WebGPU specifies no `GPUSampler.destroy()`). There is no public `Sampler` handle — the cache is a correctness mechanism (WebGPU limits `maxSamplersPerShaderStage` to 16; uncached consumer creation exhausts the limit under moderate multi-material scenes) as well as an ergonomic one.
+
+The default sampler (`DEFAULT_SAMPLER` in `texture/sampler-cache.ts`): `magFilter: "linear"`, `minFilter: "linear"`, `mipmapFilter: "linear"`, `addressU: "repeat"`, `addressV: "repeat"`, `maxAnisotropy: 1`. An omitted `SamplerParams` resolves to this default.
+
+### Anisotropic filtering (AF) setup-loud rule
+
+`maxAnisotropy > 1` requires `magFilter`, `minFilter`, **and** `mipmapFilter` all set to `"linear"`. This is a WebGPU spec rule (see `GPUSamplerDescriptor`). The engine enforces it at `material.create` time (via `_getSampler`) with a setup-loud throw (`FurnaceError`). Passing `maxAnisotropy > 1` with any non-`"linear"` filter throws; fix the filter or drop the anisotropy.
+
+### Mipmaps
+
+Mipmap generation is opt-in (`mipmaps: true` on `TextureDescriptor`). When enabled:
+
+- The GPU texture is created with `RENDER_ATTACHMENT | TEXTURE_BINDING | COPY_DST`.
+- A render-pass blit kernel (`_generateMipmaps` in `texture/mipmap.ts`) downsamples each level from the previous: a single full-screen-triangle blit (one 3-vertex `triangle-list` draw) per level, with one linear `textureSample` per fragment. The 2×2 box average comes from the GPU's linear minification filter, not from multiple shader taps.
+- The pipeline is built per-call (create-time cost, not hot-path; caching is a deferred optimisation).
+- `mipLevelCount = floor(log2(max(width, height))) + 1`.
+
+**Stats caveat.** `memory.textureBytes` records **base-level bytes only** — a mipmapped texture undercounts by roughly 33% (the geometric-series tail: ~`width*height*4 * (1 + 1/4 + 1/16 + …) ≈ base * 4/3`). The recorded `byteLength` is symmetric across create and teardown, so leak detection is unaffected; only the absolute byte figure is low for mipmapped resources. See `docs/backlog/engine-architecture/mipmap-texture-bytes-undercount.md`.
+
+---
+
 ## Input
 
 `@furnace/core/input` is a module-level singleton with explicit `attach(canvas)` /
