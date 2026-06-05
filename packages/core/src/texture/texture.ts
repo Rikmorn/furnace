@@ -6,6 +6,7 @@ import {
   _lookupTexture,
 } from "../resources/internal.ts";
 import { _recordAlloc, _recordDestroy } from "../stats/internal.ts";
+import { _generateMipmaps, _mipLevelCount } from "./mipmap.ts";
 import type {
   Texture,
   TextureColorSpace,
@@ -59,6 +60,7 @@ async function createFromData(
   width: number,
   height: number,
   colorSpace: TextureColorSpace,
+  mipmaps: boolean,
 ): Promise<Texture> {
   const expected = width * height * RGBA8_BYTES_PER_TEXEL;
   if (data.byteLength !== expected) {
@@ -66,11 +68,18 @@ async function createFromData(
       `texture.create: data length ${data.byteLength} != expected ${expected} (${width}x${height} rgba8)`,
     );
   }
+  const format = formatFor(colorSpace);
+  const mipLevelCount = mipmaps ? _mipLevelCount(width, height) : 1;
+  const baseUsage = GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST;
+  const usage = mipmaps
+    ? baseUsage | GPUTextureUsage.RENDER_ATTACHMENT
+    : baseUsage;
   ctx.device.pushErrorScope("validation");
   const gpuTex = ctx.device.createTexture({
     size: { width, height },
-    format: formatFor(colorSpace),
-    usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+    format,
+    mipLevelCount,
+    usage,
   });
   ctx.device.queue.writeTexture(
     { texture: gpuTex },
@@ -78,6 +87,10 @@ async function createFromData(
     { bytesPerRow: width * RGBA8_BYTES_PER_TEXEL, rowsPerImage: height },
     { width, height },
   );
+  if (mipmaps) {
+    _generateMipmaps(ctx, gpuTex, format, width, height);
+  }
+  // byteLength tracks base-level bytes only (mip memory accounting is out of scope).
   return await finalizeTexture(ctx, gpuTex, data.byteLength);
 }
 
@@ -85,12 +98,16 @@ async function createFromSource(
   ctx: Context,
   source: ImageBitmap,
   colorSpace: TextureColorSpace,
+  mipmaps: boolean,
 ): Promise<Texture> {
   const { width, height } = source;
+  const format = formatFor(colorSpace);
+  const mipLevelCount = mipmaps ? _mipLevelCount(width, height) : 1;
   ctx.device.pushErrorScope("validation");
   const gpuTex = ctx.device.createTexture({
     size: { width, height },
-    format: formatFor(colorSpace),
+    format,
+    mipLevelCount,
     // copyExternalImageToTexture requires RENDER_ATTACHMENT in addition to
     // TEXTURE_BINDING | COPY_DST (unlike writeTexture which only needs COPY_DST).
     usage:
@@ -103,6 +120,10 @@ async function createFromSource(
     { texture: gpuTex },
     { width, height },
   );
+  if (mipmaps) {
+    _generateMipmaps(ctx, gpuTex, format, width, height);
+  }
+  // byteLength tracks base-level bytes only (mip memory accounting is out of scope).
   const byteLength = width * height * RGBA8_BYTES_PER_TEXEL;
   return await finalizeTexture(ctx, gpuTex, byteLength);
 }
@@ -130,11 +151,17 @@ export function create(
   descriptor: TextureDescriptor,
 ): Promise<Texture> {
   if ("data" in descriptor) {
-    const { data, width, height, colorSpace = "srgb" } = descriptor;
-    return createFromData(ctx, data, width, height, colorSpace);
+    const {
+      data,
+      width,
+      height,
+      colorSpace = "srgb",
+      mipmaps = false,
+    } = descriptor;
+    return createFromData(ctx, data, width, height, colorSpace, mipmaps);
   }
-  const { source, colorSpace = "srgb" } = descriptor;
-  return createFromSource(ctx, source, colorSpace);
+  const { source, colorSpace = "srgb", mipmaps = false } = descriptor;
+  return createFromSource(ctx, source, colorSpace, mipmaps);
 }
 
 /**
@@ -176,4 +203,9 @@ export async function load(
 /** Test-only: read the backing GPUTexture format. Not part of the public surface. */
 export function _formatOf(ctx: Context, tex: Texture): GPUTextureFormat | null {
   return _lookupTexture<TextureSlot>(ctx, tex)?.gpu.format ?? null;
+}
+
+/** Test-only: read the backing GPUTexture mipLevelCount. Not part of the public surface. */
+export function _mipLevelCountOf(ctx: Context, tex: Texture): number | null {
+  return _lookupTexture<TextureSlot>(ctx, tex)?.gpu.mipLevelCount ?? null;
 }
