@@ -20,14 +20,17 @@ export type Shader<L extends LayoutSchema = LayoutSchema> = ShaderHandle & {
  * `GPUShaderModule`; `source` is the WGSL, retained for hot-reload-readiness +
  * debugging; `engineOwned` marks the shared built-in shaders (public `destroy`
  * no-ops on them; freed only by the dispose cascade); `layout` is the resolved
- * `@group(1)` layout (or `null` if no layout was declared). `_teardown` is a
- * no-op — `GPUShaderModule` has no `.destroy()`; GC reclaims the module when
- * the slot clears.
+ * `@group(1)` layout (or `null` if no layout was declared); `textureBinding`
+ * is `true` when the shader declares a texture+sampler at `@group(1)` (bindings
+ * 0 and 1 respectively) — read by `material.create` to enforce a completeness
+ * check. `_teardown` is a no-op — `GPUShaderModule` has no `.destroy()`; GC
+ * reclaims the module when the slot clears.
  */
 export type ShaderSlot = {
   module: GPUShaderModule;
   source: string;
   engineOwned: boolean;
   layout: ResolvedLayout | null;
+  textureBinding: boolean;
   _teardown: () => void;
 };

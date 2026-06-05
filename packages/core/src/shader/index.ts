@@ -11,5 +11,11 @@ export type { ShaderCreateOpts } from "./shader.ts";
 // Internal — re-exported so the binding subsystem (Task 3+) can import
 // `import * as shader from "@furnace/core/shader"` and call the accessor.
 // Not part of the consumer-facing API.
-export { _layoutOf, create, destroy, load } from "./shader.ts";
+export {
+  _layoutOf,
+  _textureBindingOf,
+  create,
+  destroy,
+  load,
+} from "./shader.ts";
 export type { Shader } from "./types.ts";

@@ -20,6 +20,10 @@ export type ShaderCreateOpts<L extends LayoutSchema = LayoutSchema> = {
   layout?: L;
   /** Address space for the layout buffer. Defaults to `"uniform"`. */
   addressSpace?: AddressSpace;
+  /** When `true`, declares the shader samples a texture at `@group(1)`
+   * (sampler at binding 0, texture-view at binding 1); `material.create`
+   * then requires a `texture` to be supplied. Defaults to `false`. */
+  textureBinding?: boolean;
 };
 
 /**
@@ -54,13 +58,15 @@ async function compilationError(
  * see {@link compilationError}); throws setup-loud.
  *
  * `layout` is stored on the slot as-is (already resolved by the caller, or
- * `null` for shaders with no `@group(1)` binding).
+ * `null` for shaders with no `@group(1)` binding). `textureBinding` is stored
+ * as pure metadata; defaults to `false` for engine-owned built-ins.
  */
 export async function _createShader(
   ctx: Context,
   wgsl: string,
   engineOwned: boolean,
   layout: ResolvedLayout | null = null,
+  textureBinding = false,
 ): Promise<Shader> {
   if (!wgsl) throw new FurnaceError("shader.create: WGSL source is required");
   ctx.device.pushErrorScope("validation");
@@ -76,6 +82,7 @@ export async function _createShader(
     source: wgsl,
     engineOwned,
     layout,
+    textureBinding,
     // GPUShaderModule has no .destroy(); GC reclaims it when the slot clears.
     _teardown: () => {
       /* intentional no-op */
@@ -106,7 +113,13 @@ export function create<L extends LayoutSchema = LayoutSchema>(
 ): Promise<Shader<L>> {
   const layout =
     opts?.layout != null ? computeLayout(opts.layout, opts.addressSpace) : null;
-  return _createShader(ctx, wgsl, false, layout) as Promise<Shader<L>>;
+  return _createShader(
+    ctx,
+    wgsl,
+    false,
+    layout,
+    opts?.textureBinding ?? false,
+  ) as Promise<Shader<L>>;
 }
 
 /**
@@ -155,4 +168,17 @@ export function destroy(ctx: Context, shader: Shader): void {
  */
 export function _layoutOf(ctx: Context, shader: Shader): ResolvedLayout | null {
   return _lookupShader<ShaderSlot>(ctx, shader)?.layout ?? null;
+}
+
+/**
+ * Engine-internal: read the `textureBinding` flag stored on a shader slot.
+ * Returns `true` when the shader was compiled with `textureBinding: true`
+ * (declares a texture+sampler at `@group(1)`, bindings 0 and 1); `false`
+ * otherwise (default for all built-ins and shaders created without the flag).
+ *
+ * Used by `material.create` (Task 8) to enforce that a `texture` is supplied
+ * when the shader samples one. Not part of the consumer surface.
+ */
+export function _textureBindingOf(ctx: Context, shader: Shader): boolean {
+  return _lookupShader<ShaderSlot>(ctx, shader)?.textureBinding ?? false;
 }
