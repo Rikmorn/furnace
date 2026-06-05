@@ -102,26 +102,91 @@ const GROUND_COLOR: vec3<f32> = vec3<f32>(0.12, 0.12, 0.14);
 }
 `;
 
+const TEXTURED_WGSL = /* wgsl */ `
+struct Camera { viewProjection: mat4x4<f32> };
+struct Object { model: mat4x4<f32> };
+@group(0) @binding(0) var<uniform> camera: Camera;
+@group(0) @binding(1) var<uniform> object: Object;
+@group(1) @binding(0) var samp: sampler;
+@group(1) @binding(1) var tex: texture_2d<f32>;
+struct VsIn { @location(0) position: vec3<f32>, @location(1) normal: vec3<f32>, @location(2) uv: vec2<f32> };
+struct VsOut { @builtin(position) pos: vec4<f32>, @location(0) uv: vec2<f32> };
+@vertex fn vs_main(v: VsIn) -> VsOut {
+  var out: VsOut;
+  out.pos = camera.viewProjection * object.model * vec4<f32>(v.position, 1.0);
+  out.uv = v.uv;
+  return out;
+}
+@fragment fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
+  return textureSample(tex, samp, in.uv);
+}
+`;
+
+const TEXTURED_LIT_WGSL = /* wgsl */ `
+struct Camera { viewProjection: mat4x4<f32> };
+struct Object { model: mat4x4<f32> };
+@group(0) @binding(0) var<uniform> camera: Camera;
+@group(0) @binding(1) var<uniform> object: Object;
+@group(1) @binding(0) var samp: sampler;
+@group(1) @binding(1) var tex: texture_2d<f32>;
+struct VsIn { @location(0) position: vec3<f32>, @location(1) normal: vec3<f32>, @location(2) uv: vec2<f32> };
+struct VsOut { @builtin(position) pos: vec4<f32>, @location(0) normal: vec3<f32>, @location(1) uv: vec2<f32> };
+@vertex fn vs_main(v: VsIn) -> VsOut {
+  var out: VsOut;
+  out.pos = camera.viewProjection * object.model * vec4<f32>(v.position, 1.0);
+  // Uniform-scale-correct normal transform (inverse-transpose deferred).
+  out.normal = (object.model * vec4<f32>(v.normal, 0.0)).xyz;
+  out.uv = v.uv;
+  return out;
+}
+const LIGHT_DIR: vec3<f32> = vec3<f32>(0.324, 0.811, 0.487);
+const LIGHT_COLOR: vec3<f32> = vec3<f32>(1.0, 0.98, 0.94);
+const SKY_COLOR: vec3<f32> = vec3<f32>(0.55, 0.60, 0.72);
+const GROUND_COLOR: vec3<f32> = vec3<f32>(0.12, 0.12, 0.14);
+@fragment fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
+  let albedo = textureSample(tex, samp, in.uv);
+  let n = normalize(in.normal);
+  let halfLambert = dot(n, LIGHT_DIR) * 0.5 + 0.5;
+  let directional = LIGHT_COLOR * (halfLambert * halfLambert);
+  let hemi = mix(GROUND_COLOR, SKY_COLOR, n.y * 0.5 + 0.5);
+  return vec4<f32>(albedo.rgb * (directional + hemi), albedo.a);
+}
+`;
+
 /** Resolved layout for the unlit shader's `@group(1)` uniform buffer. */
 const UNLIT_LAYOUT: ResolvedLayout = computeLayout({ color: "vec4f" });
 
+type BuiltinKind = "unlit" | "lit" | "normalColor" | "textured" | "texturedLit";
+
+const BUILTIN_SPECS: Record<
+  BuiltinKind,
+  { wgsl: string; layout: ResolvedLayout | null; textureBinding: boolean }
+> = {
+  unlit: { wgsl: UNLIT_WGSL, layout: UNLIT_LAYOUT, textureBinding: false },
+  lit: { wgsl: LIT_WGSL, layout: UNLIT_LAYOUT, textureBinding: false },
+  normalColor: {
+    wgsl: NORMAL_COLOR_WGSL,
+    layout: null,
+    textureBinding: false,
+  },
+  textured: { wgsl: TEXTURED_WGSL, layout: null, textureBinding: true },
+  texturedLit: { wgsl: TEXTURED_LIT_WGSL, layout: null, textureBinding: true },
+};
+
 /** Lazily compile (once per ctx) the engine-owned shared built-in shader for
  *  `kind`. The Promise is cached so concurrent first-calls share one compile. */
-function builtinShader(
-  ctx: Context,
-  kind: "unlit" | "normalColor" | "lit",
-): Promise<Shader> {
+function builtinShader(ctx: Context, kind: BuiltinKind): Promise<Shader> {
   const cache = ctx._internal.resources.builtinShaders;
   const existing = cache[kind];
   if (existing) return existing;
-  const wgsl =
-    kind === "unlit"
-      ? UNLIT_WGSL
-      : kind === "lit"
-        ? LIT_WGSL
-        : NORMAL_COLOR_WGSL;
-  const layout = kind === "normalColor" ? null : UNLIT_LAYOUT;
-  const promise = _createShader(ctx, wgsl, true, layout);
+  const spec = BUILTIN_SPECS[kind];
+  const promise = _createShader(
+    ctx,
+    spec.wgsl,
+    true,
+    spec.layout,
+    spec.textureBinding,
+  );
   cache[kind] = promise;
   return promise;
 }
@@ -162,6 +227,51 @@ export function normalColor(
   ctx: Context,
 ): Promise<Shader<Record<string, never>>> {
   return builtinShader(ctx, "normalColor") as Promise<
+    Shader<Record<string, never>>
+  >;
+}
+
+/**
+ * The engine's stock **textured (unlit)** shader — samples albedo from a
+ * texture at `@group(1)` and outputs it directly (no lighting). Engine-owned
+ * and shared per context (compiled once); {@link destroy} is a no-op — freed
+ * only by the dispose cascade. Pass to `material.create`.
+ *
+ * `@group(1)` contract: `@binding(0)` sampler, `@binding(1)` `texture_2d<f32>`.
+ * These reach the shader via `MaterialDescriptor.texture` (Task 8) — no
+ * `@group(1)` uniform layout is declared (`Shader<Record<string, never>>`).
+ * Declares `textureBinding: true`; `material.create` will require a `texture`
+ * when this shader is used.
+ *
+ * For a lit variant that multiplies albedo by baked lighting, use
+ * {@link texturedLit}.
+ */
+export function textured(ctx: Context): Promise<Shader<Record<string, never>>> {
+  return builtinShader(ctx, "textured") as Promise<
+    Shader<Record<string, never>>
+  >;
+}
+
+/**
+ * The engine's stock **textured + lit** shader — samples albedo from a texture
+ * at `@group(1)` and multiplies it by the same baked half-Lambert directional
+ * and hemisphere ambient lighting used by {@link lit}. Engine-owned and shared
+ * per context (compiled once); {@link destroy} is a no-op — freed only by the
+ * dispose cascade. Pass to `material.create`.
+ *
+ * `@group(1)` contract: `@binding(0)` sampler, `@binding(1)` `texture_2d<f32>`.
+ * These reach the shader via `MaterialDescriptor.texture` (Task 8) — no
+ * `@group(1)` uniform layout is declared (`Shader<Record<string, never>>`).
+ * Declares `textureBinding: true`; `material.create` will require a `texture`
+ * when this shader is used.
+ *
+ * Light constants are identical to {@link lit}'s baked model — textured objects
+ * will match the tone of solid-colour lit objects in the same scene.
+ */
+export function texturedLit(
+  ctx: Context,
+): Promise<Shader<Record<string, never>>> {
+  return builtinShader(ctx, "texturedLit") as Promise<
     Shader<Record<string, never>>
   >;
 }

@@ -38,11 +38,17 @@ export type ResourceManager = {
   dirtyBindings: Set<BindingHandle>;
   /** Per-ctx engine-owned built-in shader cache (lazily compiled once; stores
    *  the in-flight Promise for concurrent-first-call dedup; freed by the
-   *  dispose cascade). See `shader/builtins.ts`. */
+   *  dispose cascade). See `shader/builtins.ts`.
+   *
+   *  Adding a field here is a compile-time forcing function: TypeScript will
+   *  error in `_resetBuiltinShaders` (internal.ts) until the reset object is
+   *  updated to include the new field. */
   builtinShaders: {
     unlit: Promise<ShaderHandle> | null;
     normalColor: Promise<ShaderHandle> | null;
     lit: Promise<ShaderHandle> | null;
+    textured: Promise<ShaderHandle> | null;
+    texturedLit: Promise<ShaderHandle> | null;
   };
   /** Descriptor-keyed GPUSampler cache. Deduplicates sampler objects across
    *  all materials on this ctx. GPUSampler has no `.destroy()`; entries are
@@ -79,7 +85,13 @@ export function createResourceManager(): ResourceManager {
     textures: createPool(),
     materialPipelineCache: new Map(),
     postPipelineCache: new Map(),
-    builtinShaders: { unlit: null, normalColor: null, lit: null },
+    builtinShaders: {
+      unlit: null,
+      normalColor: null,
+      lit: null,
+      textured: null,
+      texturedLit: null,
+    },
     dirtyBindings: new Set(),
     samplerCache: new Map(),
   };
