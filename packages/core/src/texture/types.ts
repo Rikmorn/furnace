@@ -33,6 +33,26 @@ export type TextureDescriptor =
 export type Texture = TextureHandle & { readonly __texture?: unique symbol };
 
 /**
+ * Sampler configuration for a texture. All fields are optional — omitted fields
+ * fall back to {@link DEFAULT_SAMPLER}. Consumed by `material.create` via
+ * `MaterialDescriptor.texture.sampler` (T8). Engine-internal until the public
+ * Sampler escape-hatch is shipped.
+ *
+ * @remarks
+ * WebGPU anisotropic-filtering (AF) rule: `maxAnisotropy > 1` requires
+ * `magFilter`, `minFilter`, and `mipmapFilter` all set to `"linear"`.
+ * `_getSampler` enforces this setup-loud (throws {@link FurnaceError}).
+ */
+export type SamplerParams = {
+  magFilter?: GPUFilterMode;
+  minFilter?: GPUFilterMode;
+  mipmapFilter?: GPUMipmapFilterMode;
+  addressU?: GPUAddressMode;
+  addressV?: GPUAddressMode;
+  maxAnisotropy?: number;
+};
+
+/**
  * Engine-private slot data backing a {@link Texture} handle in the textures
  * pool. Not exported from the public surface; resource-manager internals only.
  */

@@ -44,6 +44,10 @@ export type ResourceManager = {
     normalColor: Promise<ShaderHandle> | null;
     lit: Promise<ShaderHandle> | null;
   };
+  /** Descriptor-keyed GPUSampler cache. Deduplicates sampler objects across
+   *  all materials on this ctx. GPUSampler has no `.destroy()`; entries are
+   *  GC'd with the ctx device. Never cleared by the dispose cascade. */
+  samplerCache: Map<string, GPUSampler>;
 };
 
 /**
@@ -77,6 +81,7 @@ export function createResourceManager(): ResourceManager {
     postPipelineCache: new Map(),
     builtinShaders: { unlit: null, normalColor: null, lit: null },
     dirtyBindings: new Set(),
+    samplerCache: new Map(),
   };
 }
 
