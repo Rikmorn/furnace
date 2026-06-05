@@ -14,8 +14,8 @@
  * - `gpu.uncapturedErrors`, `gpu.deviceLost` — cumulative terminal-event
  *   flags; see per-field TSDoc for semantics.
  * - `resources` — live counts of `meshes`, `materials`, `geometries`,
- *   `effects`, `shaders`, `bindings` registered with stats (incremented by
- *   `_recordAlloc`, decremented by `_recordDestroy`).
+ *   `effects`, `shaders`, `bindings`, `textures` registered with stats
+ *   (incremented by `_recordAlloc`, decremented by `_recordDestroy`).
  * - `events.perEmitter` — emit counts keyed by emitter name (only emitters
  *   created with a `name` contribute).
  * - `memory.bufferBytes`, `memory.textureBytes`, `memory.total` — running
@@ -70,6 +70,8 @@ export type Snapshot = Readonly<{
     /** Live count of rigid-mesh ({@link Body} + render mesh) composite handles
      *  registered with stats. */
     rigidMeshes: number;
+    /** Live count of texture resource handles registered with stats. */
+    textures: number;
   };
   events: { perEmitter: Record<string, number> };
   memory: { bufferBytes: number; textureBytes: number; total: number };

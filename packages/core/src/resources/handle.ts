@@ -46,6 +46,9 @@ export type RigidMeshHandle = number & {
   readonly __brand: "RigidMeshHandle";
 };
 
+/** Branded handle referring to a slot in the textures pool. */
+export type TextureHandle = number & { readonly __brand: "TextureHandle" };
+
 /**
  * Union of every branded handle kind. Used by cross-cutting
  * resource APIs that handle multiple resource types uniformly.
@@ -59,7 +62,8 @@ export type AnyResourceHandle =
   | BindingHandle
   | PhysicsWorldHandle
   | PhysicsBodyHandle
-  | RigidMeshHandle;
+  | RigidMeshHandle
+  | TextureHandle;
 
 const SLOT_BITS = 16;
 const SLOT_MASK = 0xffff;

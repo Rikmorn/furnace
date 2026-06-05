@@ -14,6 +14,7 @@ import {
   type PhysicsWorldHandle,
   type RigidMeshHandle,
   type ShaderHandle,
+  type TextureHandle,
 } from "./handle.ts";
 import {
   allocSlot,
@@ -34,7 +35,8 @@ export type ResourceKind =
   | "binding"
   | "physics-world"
   | "physics-body"
-  | "rigid-mesh";
+  | "rigid-mesh"
+  | "texture-resource";
 
 /**
  * Map a {@link ResourceKind} to the matching pool on the manager. Engine-
@@ -61,6 +63,8 @@ function poolFor(ctx: Context, kind: ResourceKind): Pool<unknown> {
       return r.physicsBodies;
     case "rigid-mesh":
       return r.rigidMeshes;
+    case "texture-resource":
+      return r.textures;
   }
 }
 
@@ -377,6 +381,36 @@ export function _destroyRigidMesh<T>(
 ): boolean {
   const destroyed = _destroyRaw(ctx, "rigid-mesh", handle, teardown);
   if (destroyed) _recordDestroy(ctx, "rigid-mesh", 0);
+  return destroyed;
+}
+
+/** Allocate a texture slot and return a branded {@link TextureHandle}. */
+export function _allocTexture<T>(ctx: Context, data: T): TextureHandle {
+  // Boundary cast: see _allocMesh.
+  const handle = _allocRaw(ctx, "texture-resource", data) as TextureHandle;
+  // Counts the texture *handle* (resources.textures). GPU *bytes* are recorded
+  // separately by texture.create via the "texture" memory kind — mirrors how
+  // geometry counts its slot ("geometry") and its bytes ("buffer") apart.
+  _recordAlloc(ctx, "texture-resource", 0);
+  return handle;
+}
+
+/** Look up a texture slot. Returns `null` on stale or invalid handles. */
+export function _lookupTexture<T>(
+  ctx: Context,
+  handle: TextureHandle,
+): T | null {
+  return _lookupRaw(ctx, "texture-resource", handle);
+}
+
+/** Destroy a texture slot. See {@link _destroyMesh} for semantics. */
+export function _destroyTexture<T>(
+  ctx: Context,
+  handle: TextureHandle,
+  teardown: (data: T) => void,
+): boolean {
+  const destroyed = _destroyRaw(ctx, "texture-resource", handle, teardown);
+  if (destroyed) _recordDestroy(ctx, "texture-resource", 0);
   return destroyed;
 }
 

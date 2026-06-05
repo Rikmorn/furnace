@@ -9,7 +9,12 @@ export type ResourceKind =
   | "physics-body"
   | "rigid-mesh"
   | "buffer"
-  | "texture";
+  | "texture"
+  // "texture-resource" counts first-class Texture *handles* (resources.textures).
+  // Distinct from "texture" which tracks GPU texture *memory* bytes
+  // (memory.textureBytes, shared with internal render targets). Mirrors
+  // how geometry splits its "geometry" slot-count kind from its "buffer" byte kind.
+  | "texture-resource";
 
 export type ResourceRegistry = {
   counts: {
@@ -22,6 +27,7 @@ export type ResourceRegistry = {
     physicsWorlds: number;
     physicsBodies: number;
     rigidMeshes: number;
+    textures: number;
   };
   memory: { bufferBytes: number; textureBytes: number };
 };
@@ -38,6 +44,7 @@ export function createResourceRegistry(): ResourceRegistry {
       physicsWorlds: 0,
       physicsBodies: 0,
       rigidMeshes: 0,
+      textures: 0,
     },
     memory: { bufferBytes: 0, textureBytes: 0 },
   };
@@ -92,6 +99,9 @@ export function recordAlloc(
     case "texture":
       r.memory.textureBytes += bytes;
       break;
+    case "texture-resource":
+      r.counts.textures++;
+      break;
   }
 }
 
@@ -137,6 +147,9 @@ export function recordDestroy(
       break;
     case "texture":
       r.memory.textureBytes -= bytes;
+      break;
+    case "texture-resource":
+      r.counts.textures--;
       break;
   }
 }

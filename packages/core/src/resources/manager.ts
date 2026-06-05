@@ -28,6 +28,7 @@ export type ResourceManager = {
   physicsWorlds: Pool<unknown>;
   physicsBodies: Pool<unknown>;
   rigidMeshes: Pool<unknown>;
+  textures: Pool<unknown>;
   materialPipelineCache: Map<string, PipelineCacheEntry>;
   postPipelineCache: Map<string, PipelineCacheEntry>;
   /** Bindings whose CPU scratch has been written since the last render flush.
@@ -71,6 +72,7 @@ export function createResourceManager(): ResourceManager {
     physicsWorlds: createPool(),
     physicsBodies: createPool(),
     rigidMeshes: createPool(),
+    textures: createPool(),
     materialPipelineCache: new Map(),
     postPipelineCache: new Map(),
     builtinShaders: { unlit: null, normalColor: null, lit: null },

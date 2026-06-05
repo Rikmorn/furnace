@@ -39,6 +39,7 @@ test.skipIf(!bunWebGpuAvailable())(
       physicsWorlds: 0,
       physicsBodies: 0,
       rigidMeshes: 0,
+      textures: 0,
     });
 
     resources.disposeAll(ctx);
@@ -53,6 +54,7 @@ test.skipIf(!bunWebGpuAvailable())(
       physicsWorlds: 0,
       physicsBodies: 0,
       rigidMeshes: 0,
+      textures: 0,
     });
 
     // Idempotent: a second call is a no-op.
@@ -87,6 +89,7 @@ test.skipIf(!bunWebGpuAvailable())(
       physicsWorlds: 0,
       physicsBodies: 0,
       rigidMeshes: 0,
+      textures: 0,
     });
 
     resources.disposeAll(ctx);
@@ -101,6 +104,7 @@ test.skipIf(!bunWebGpuAvailable())(
       physicsWorlds: 0,
       physicsBodies: 0,
       rigidMeshes: 0,
+      textures: 0,
     });
 
     // Second wave: allocate fresh after disposeAll — confirms mid-session
@@ -122,6 +126,7 @@ test.skipIf(!bunWebGpuAvailable())(
       physicsWorlds: 0,
       physicsBodies: 0,
       rigidMeshes: 0,
+      textures: 0,
     });
 
     // Old handles must NOT resolve (slots recycled, generation bumped).

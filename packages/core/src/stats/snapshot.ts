@@ -47,6 +47,7 @@ export function buildSnapshot(state: StatsState): Snapshot {
       physicsWorlds: state.resources.counts.physicsWorlds,
       physicsBodies: state.resources.counts.physicsBodies,
       rigidMeshes: state.resources.counts.rigidMeshes,
+      textures: state.resources.counts.textures,
     },
     events: {
       perEmitter: Object.fromEntries(state.emissions),
