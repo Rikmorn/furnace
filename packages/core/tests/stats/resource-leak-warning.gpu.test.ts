@@ -143,7 +143,7 @@ test.skipIf(!bunWebGpuAvailable())(
       position: vec3.fromValues(0, 0, 5),
     });
 
-    frame.render(ctx, { draw: [m], camera: cam });
+    frame.render(ctx, { meshes: [m], camera: cam });
 
     mesh.destroy(ctx, m);
     geometry.destroy(ctx, geo);
@@ -186,7 +186,7 @@ test.skipIf(!bunWebGpuAvailable())(
     const fxShader = await shader.create(ctx, PASSTHROUGH_SHADER);
     const fx = await post.create(ctx, { shader: fxShader });
 
-    frame.render(ctx, { draw: [m], camera: cam, effects: [fx] });
+    frame.render(ctx, { meshes: [m], camera: cam, effects: [fx] });
 
     post.destroy(ctx, fx);
     shader.destroy(ctx, fxShader);

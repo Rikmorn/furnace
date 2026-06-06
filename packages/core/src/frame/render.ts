@@ -126,7 +126,7 @@ function _disposeCameraBuffers(ctx: Context): void {
 export type RenderPassBase = {
   /** Meshes to render, in order. The engine submits them as one render pass
    *  with no automatic sorting — caller controls draw order. */
-  draw: Mesh[];
+  meshes: Mesh[];
   /** Camera whose view/projection matrices populate `@group(0) @binding(0)`
    *  for each draw (see `engine-conventions.md` §"Binding contract"). */
   camera: Camera;
@@ -145,10 +145,10 @@ export type RenderPassBase = {
 /**
  * Options accepted by {@link render}.
  *
- * - `draw`: meshes to render, in order. The engine submits them as one render
+ * - `meshes`: meshes to render, in order. The engine submits them as one render
  *   pass with no automatic sorting — caller controls draw order.
  * - `camera`: camera whose view/projection matrices populate `@group(0)
- *   @binding(0)` for each draw (see `engine-conventions.md` §"Binding
+ *   @binding(0)` for each mesh (see `engine-conventions.md` §"Binding
  *   contract").
  * - `effects`: optional post-process chain. When non-empty the scene is
  *   rendered to an off-screen target and ping-ponged through the effects to
@@ -319,24 +319,24 @@ function validateDraw(ctx: Context, draw: readonly Mesh[]): ResolvedDraw[] {
   for (let i = 0; i < draw.length; i++) {
     const m = draw[i];
     if (m == null) {
-      throw new FurnaceGpuError(`draw[${i}]: null/undefined mesh`);
+      throw new FurnaceGpuError(`meshes[${i}]: null/undefined mesh`);
     }
     const meshSlot = _lookupMesh<MeshSlot>(ctx, m);
     if (meshSlot === null) {
       throw new FurnaceGpuError(
-        `draw[${i}]: mesh handle is invalid, destroyed, or belongs to a different context`,
+        `meshes[${i}]: mesh handle is invalid, destroyed, or belongs to a different context`,
       );
     }
     const materialSlot = _lookupMaterial<MaterialSlot>(ctx, meshSlot.material);
     if (materialSlot === null) {
       throw new FurnaceGpuError(
-        `draw[${i}]: mesh.material handle is invalid or destroyed`,
+        `meshes[${i}]: mesh.material handle is invalid or destroyed`,
       );
     }
     const geometrySlot = _lookupGeometry<GeometrySlot>(ctx, meshSlot.geometry);
     if (geometrySlot === null) {
       throw new FurnaceGpuError(
-        `draw[${i}]: mesh.geometry handle is invalid or destroyed`,
+        `meshes[${i}]: mesh.geometry handle is invalid or destroyed`,
       );
     }
     resolved.push({
@@ -450,7 +450,7 @@ function runEffectsPingPong(
 }
 
 /**
- * Submit one frame: clear, draw `opts.draw` against `opts.camera`, optionally
+ * Submit one frame: clear, draw `opts.meshes` against `opts.camera`, optionally
  * ping-pong through `opts.effects` to the swap chain.
  *
  * Allocation semantics — both lazy, both engine-owned and reused across
@@ -470,8 +470,8 @@ function runEffectsPingPong(
  * body consumes the resolved triple with no further lookups.
  *
  * @throws FurnaceGpuError - if `ctx` has been disposed; if
- *   `opts.camera` or `opts.draw` is null/undefined; if any entry in
- *   `opts.draw` is null, invalid, destroyed, or belongs to a different
+ *   `opts.camera` or `opts.meshes` is null/undefined; if any entry in
+ *   `opts.meshes` is null, invalid, destroyed, or belongs to a different
  *   context; if the resolved mesh's `material` or `geometry` does not
  *   itself resolve to a live slot (defensive — the Mesh→Material and
  *   Mesh→Geometry refcounts normally keep these alive while a mesh
@@ -490,17 +490,17 @@ export function render(ctx: Context, opts: RenderOptions): void {
   if (opts.camera == null) {
     throw new FurnaceGpuError("render: camera is required");
   }
-  if (opts.draw == null) {
-    throw new FurnaceGpuError("render: draw is required");
+  if (opts.meshes == null) {
+    throw new FurnaceGpuError("render: meshes is required");
   }
   // Flush all dirty bindings to the GPU before any draw work begins.
   // Generalises the per-mesh transform dirty-flush to the binding layer.
   _flushDirtyBindings(ctx);
-  const resolvedDraws = validateDraw(ctx, opts.draw);
+  const resolvedDraws = validateDraw(ctx, opts.meshes);
   const depthMismatch = firstDepthDisagreement(resolvedDraws, true);
   if (depthMismatch !== -1) {
     throw new FurnaceGpuError(
-      `render: draw[${depthMismatch}] was created with depthEnabled:false but frame.render always renders with a depth attachment; ` +
+      `render: meshes[${depthMismatch}] was created with depthEnabled:false but frame.render always renders with a depth attachment; ` +
         `depth-less materials can only be drawn via renderToTexture without a depthTexture`,
     );
   }

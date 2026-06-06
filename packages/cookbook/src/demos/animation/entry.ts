@@ -203,7 +203,7 @@ await mountDemo({
     );
 
     frame.render(ctx, {
-      draw: [scene.cubeVariable, scene.cubeNoInterp, scene.cubeInterp],
+      meshes: [scene.cubeVariable, scene.cubeNoInterp, scene.cubeInterp],
       camera: scene.cam,
       clearColor: CLEAR_COLOR,
     });

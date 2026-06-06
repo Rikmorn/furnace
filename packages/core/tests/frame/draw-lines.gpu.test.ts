@@ -31,7 +31,7 @@ test.skipIf(!bunWebGpuAvailable())(
     const vertices = new Float32Array([0, 0, 0, 1, 1, 1]);
     const colors = new Float32Array([1, 0, 0, 1, 0, 1, 0, 1]);
 
-    render(ctx, { draw: [], camera: cam }); // populate depth + swap-chain
+    render(ctx, { meshes: [], camera: cam }); // populate depth + swap-chain
     ctx.device.pushErrorScope("validation");
     drawLines(ctx, { vertices, colors, camera: cam });
     const err = await ctx.device.popErrorScope();
@@ -68,7 +68,7 @@ test.skipIf(!bunWebGpuAvailable())(
     const big = new Float32Array(n);
     const bigC = new Float32Array((n / 3) * 4).fill(1);
 
-    render(ctx, { draw: [], camera: cam }); // populate depth + swap-chain
+    render(ctx, { meshes: [], camera: cam }); // populate depth + swap-chain
     ctx.device.pushErrorScope("validation");
     drawLines(ctx, { vertices: small, colors: smallC, camera: cam });
     drawLines(ctx, { vertices: big, colors: bigC, camera: cam });

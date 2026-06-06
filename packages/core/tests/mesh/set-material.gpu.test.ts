@@ -42,7 +42,7 @@ test.skipIf(!bunWebGpuAvailable())(
     const m = createMesh(ctx, { geometry: geo, material: matA });
     setMaterial(ctx, m, matB);
     ctx.device.pushErrorScope("validation");
-    render(ctx, { draw: [m], camera: cam });
+    render(ctx, { meshes: [m], camera: cam });
     const err = await ctx.device.popErrorScope();
     expect(err).toBe(null);
     destroyMesh(ctx, m);

@@ -151,11 +151,11 @@ await mountDemo({
     const displayAlpha = state.interpolate ? alpha : 1;
     for (const rm of scene.cubes) rigidMesh.interpolate(ctx, rm, displayAlpha);
 
-    const draw = [
+    const meshes = [
       rigidMesh.getMesh(ctx, scene.ground),
       ...scene.cubes.map((rm) => rigidMesh.getMesh(ctx, rm)),
     ];
-    frame.render(ctx, { draw, camera: scene.cam, clearColor: CLEAR_COLOR });
+    frame.render(ctx, { meshes, camera: scene.cam, clearColor: CLEAR_COLOR });
 
     if (state.showColliders) {
       const dl = physics.getDebugLines(ctx, scene.world);

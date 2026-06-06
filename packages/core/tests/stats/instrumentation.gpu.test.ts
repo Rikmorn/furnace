@@ -32,7 +32,7 @@ test.skipIf(!bunWebGpuAvailable())(
     );
     const mGeo = geometry.cube(ctx);
     const m = mesh.create(ctx, { geometry: mGeo, material: mat });
-    render(ctx, { draw: [m], camera: cam });
+    render(ctx, { meshes: [m], camera: cam });
     const s = snapshot(ctx);
     expect(s.gpu.drawCalls).toBe(1);
     expect(s.gpu.triangles).toBe(12);
@@ -62,7 +62,7 @@ test.skipIf(!bunWebGpuAvailable())(
     const geo = geometry.cube(ctx);
     const a = mesh.create(ctx, { geometry: geo, material: mat });
     const b = mesh.create(ctx, { geometry: geo, material: mat });
-    render(ctx, { draw: [a, b], camera: cam });
+    render(ctx, { meshes: [a, b], camera: cam });
     const s = snapshot(ctx);
     expect(s.gpu.drawCalls).toBe(2);
     expect(s.gpu.triangles).toBe(24);
@@ -91,14 +91,14 @@ test.skipIf(!bunWebGpuAvailable())(
     );
     const mGeo = geometry.cube(ctx);
     const m = mesh.create(ctx, { geometry: mGeo, material: mat });
-    render(ctx, { draw: [m], camera: cam });
+    render(ctx, { meshes: [m], camera: cam });
     const firstSnap = snapshot(ctx);
     expect(firstSnap.memory.textureBytes).toBeGreaterThanOrEqual(64 * 48 * 4);
     const firstTexBytes = firstSnap.memory.textureBytes;
 
     canvas.width = 128;
     canvas.height = 96;
-    render(ctx, { draw: [m], camera: cam });
+    render(ctx, { meshes: [m], camera: cam });
     const secondSnap = snapshot(ctx);
     expect(secondSnap.memory.textureBytes).toBeGreaterThan(firstTexBytes);
     expect(secondSnap.memory.textureBytes).toBeGreaterThanOrEqual(128 * 96 * 4);
@@ -126,7 +126,7 @@ test.skipIf(!bunWebGpuAvailable())(
     const mGeo = geometry.cube(ctx);
     const m = mesh.create(ctx, { geometry: mGeo, material: mat });
     const before = snapshot(ctx);
-    render(ctx, { draw: [m], camera: cam });
+    render(ctx, { meshes: [m], camera: cam });
     const after = snapshot(ctx);
     expect(
       after.memory.bufferBytes - before.memory.bufferBytes,

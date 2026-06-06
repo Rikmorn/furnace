@@ -403,13 +403,17 @@ export const bowlingScene: SceneFactory = {
           debugControls.anisotropy ? state.laneMatAF : state.laneMatNoAF,
         );
 
-        const draw = [
+        const meshes = [
           rigidMesh.getMesh(ctx, state.lane),
           rigidMesh.getMesh(ctx, state.ball),
           ...state.pins.map((pin) => rigidMesh.getMesh(ctx, pin)),
           ...(state.phase === "aiming" ? [state.aimLine] : []),
         ];
-        frame.render(ctx, { draw, camera: state.cam, clearColor: CLEAR_COLOR });
+        frame.render(ctx, {
+          meshes,
+          camera: state.cam,
+          clearColor: CLEAR_COLOR,
+        });
 
         if (debugControls.showColliders) {
           const dl = physics.getDebugLines(ctx, state.world);

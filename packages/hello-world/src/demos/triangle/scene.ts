@@ -219,7 +219,7 @@ export const triangleScene: SceneFactory = {
         mesh.setRotation(ctx, state.cubeMesh, state.rotation);
         mesh.setRotation(ctx, state.emissiveMesh, state.rotation);
         frame.render(ctx, {
-          draw: [
+          meshes: [
             state.planeMesh,
             state.cubeMesh,
             state.emissiveMesh,

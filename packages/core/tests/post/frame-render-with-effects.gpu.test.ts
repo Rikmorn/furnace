@@ -47,7 +47,7 @@ test.skipIf(!bunWebGpuAvailable())(
   async () => {
     const { ctx, cam, cube } = await tinyScene();
     expect(() =>
-      frame.render(ctx, { draw: [cube], camera: cam, effects: [] }),
+      frame.render(ctx, { meshes: [cube], camera: cam, effects: [] }),
     ).not.toThrow();
     gpu.dispose(ctx);
   },
@@ -60,7 +60,7 @@ test.skipIf(!bunWebGpuAvailable())(
     const fx = await post.create(ctx, {
       shader: await shader.create(ctx, IDENTITY_EFFECT),
     });
-    frame.render(ctx, { draw: [cube], camera: cam, effects: [fx] });
+    frame.render(ctx, { meshes: [cube], camera: cam, effects: [fx] });
     expect(stats.snapshot(ctx).gpu.drawCalls).toBe(2);
     post.destroy(ctx, fx);
     gpu.dispose(ctx);
@@ -77,7 +77,7 @@ test.skipIf(!bunWebGpuAvailable())(
     const fx2 = await post.create(ctx, {
       shader: await shader.create(ctx, IDENTITY_EFFECT),
     });
-    frame.render(ctx, { draw: [cube], camera: cam, effects: [fx1, fx2] });
+    frame.render(ctx, { meshes: [cube], camera: cam, effects: [fx1, fx2] });
     expect(stats.snapshot(ctx).gpu.drawCalls).toBe(3);
     post.destroy(ctx, fx1);
     post.destroy(ctx, fx2);
@@ -94,7 +94,7 @@ test.skipIf(!bunWebGpuAvailable())(
       shader: await shader.create(a.ctx, IDENTITY_EFFECT),
     });
     expect(() =>
-      frame.render(b.ctx, { draw: [b.cube], camera: b.cam, effects: [fxA] }),
+      frame.render(b.ctx, { meshes: [b.cube], camera: b.cam, effects: [fxA] }),
     ).toThrow(/effects\[0\]/);
     post.destroy(a.ctx, fxA);
     gpu.dispose(a.ctx);
@@ -111,7 +111,7 @@ test.skipIf(!bunWebGpuAvailable())(
     });
     post.destroy(ctx, fx);
     expect(() =>
-      frame.render(ctx, { draw: [cube], camera: cam, effects: [fx] }),
+      frame.render(ctx, { meshes: [cube], camera: cam, effects: [fx] }),
     ).toThrow(/effects\[0\]/);
     gpu.dispose(ctx);
   },
@@ -126,7 +126,7 @@ test.skipIf(!bunWebGpuAvailable())(
     });
     expect(() =>
       frame.render(ctx, {
-        draw: [cube],
+        meshes: [cube],
         camera: cam,
         effects: [fx, null] as unknown as post.Effect[],
       }),

@@ -740,12 +740,12 @@ await mountDemo({
     // Draw order: backdrop → reference (if shown, opaque, writes depth) →
     // translucents in fixed front-to-back submission order (which is the WRONG
     // order — intentional to expose the depthWrite=on ordering limitation).
-    const draw: Mesh[] = [...scene.backdrop.meshes];
-    if (state.showReference) draw.push(scene.reference);
-    draw.push(scene.surfaces.red, scene.surfaces.green, scene.surfaces.blue);
+    const meshes: Mesh[] = [...scene.backdrop.meshes];
+    if (state.showReference) meshes.push(scene.reference);
+    meshes.push(scene.surfaces.red, scene.surfaces.green, scene.surfaces.blue);
 
     frame.render(ctx, {
-      draw,
+      meshes,
       camera: scene.cam,
       clearColor: CLEAR_COLOR,
     });

@@ -47,7 +47,7 @@ test.skipIf(!bunWebGpuAvailable())(
     frame.renderToTexture(ctx, {
       texture: target,
       depthTexture: depth,
-      draw: [cube],
+      meshes: [cube],
       camera: cam,
       clearColor: vec4.fromValues(0, 0, 0, 1),
     });
@@ -76,7 +76,7 @@ test.skipIf(!bunWebGpuAvailable())(
     });
     gpu.dispose(ctx);
     expect(() =>
-      frame.renderToTexture(ctx, { texture: target, draw: [], camera: cam }),
+      frame.renderToTexture(ctx, { texture: target, meshes: [], camera: cam }),
     ).toThrow(FurnaceGpuError);
   },
 );
@@ -100,7 +100,7 @@ test.skipIf(!bunWebGpuAvailable())(
     expect(() =>
       frame.renderToTexture(ctx, {
         texture: target,
-        draw: [cube],
+        meshes: [cube],
         camera: null as unknown as Camera,
       }),
     ).toThrow("camera is required");
@@ -127,10 +127,10 @@ test.skipIf(!bunWebGpuAvailable())(
     expect(() =>
       frame.renderToTexture(ctx, {
         texture: target,
-        draw: null as unknown as Mesh[],
+        meshes: null as unknown as Mesh[],
         camera: cam,
       }),
-    ).toThrow("draw is required");
+    ).toThrow("meshes is required");
     target.destroy();
     gpu.dispose(ctx);
   },
@@ -159,7 +159,7 @@ test.skipIf(!bunWebGpuAvailable())(
     expect(() =>
       frame.renderToTexture(ctx, {
         texture: target,
-        draw: [cube],
+        meshes: [cube],
         camera: cam,
       }),
     ).toThrow(/no depthTexture/);
@@ -195,7 +195,7 @@ test.skipIf(!bunWebGpuAvailable())(
     expect(() =>
       frame.renderToTexture(ctx, {
         texture: target,
-        draw: [cube],
+        meshes: [cube],
         camera: cam,
       }),
     ).not.toThrow();
@@ -237,7 +237,7 @@ test.skipIf(!bunWebGpuAvailable())(
       frame.renderToTexture(ctx, {
         texture: target,
         depthTexture: depth,
-        draw: [cube],
+        meshes: [cube],
         camera: cam,
       }),
     ).toThrow(/depthEnabled:false/);
@@ -283,7 +283,7 @@ test.skipIf(!bunWebGpuAvailable())(
       frame.renderToTexture(ctx, {
         texture: target,
         depthTexture: depth,
-        draw: [cube],
+        meshes: [cube],
         camera: cam,
       }),
     ).toThrow(/must equal the context format/);
@@ -326,7 +326,7 @@ test.skipIf(!bunWebGpuAvailable())(
       frame.renderToTexture(ctx, {
         texture: target,
         depthTexture: depth,
-        draw: [cube],
+        meshes: [cube],
         camera: cam,
       }),
     ).toThrow(/must be 'depth24plus'/);
@@ -381,10 +381,10 @@ test.skipIf(!bunWebGpuAvailable())(
       frame.renderToTexture(ctx, {
         texture: target,
         depthTexture: depth,
-        draw: [depthMesh, noDepthMesh],
+        meshes: [depthMesh, noDepthMesh],
         camera: cam,
       }),
-    ).toThrow(/draw\[1\]/);
+    ).toThrow(/meshes\[1\]/);
 
     depth.destroy();
     target.destroy();
@@ -419,10 +419,10 @@ test.skipIf(!bunWebGpuAvailable())(
     expect(() =>
       frame.renderToTexture(ctx, {
         texture: target,
-        draw: [cube, null as unknown as Mesh],
+        meshes: [cube, null as unknown as Mesh],
         camera: cam,
       }),
-    ).toThrow("draw[1]: null/undefined mesh");
+    ).toThrow("meshes[1]: null/undefined mesh");
     target.destroy();
     mesh.destroy(ctx, cube);
     geometry.destroy(ctx, cubeGeo);

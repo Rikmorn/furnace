@@ -171,7 +171,7 @@ await mountDemo({
     camera.setPosition(scene.cam, scene.cameraPosBuf);
 
     frame.render(ctx, {
-      draw: [scene.cube],
+      meshes: [scene.cube],
       camera: scene.cam,
       clearColor: CLEAR_COLOR,
     });

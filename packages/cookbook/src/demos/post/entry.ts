@@ -183,7 +183,7 @@ await mountDemo({
     const effects = base.filter((slot) => slot.on).map((slot) => slot.fx);
 
     frame.render(ctx, {
-      draw: [scene.cube],
+      meshes: [scene.cube],
       camera: scene.cam,
       effects,
       clearColor: CLEAR_COLOR,

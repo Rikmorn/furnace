@@ -115,7 +115,7 @@ await mountDemo({
     );
     mesh.setRotation(ctx, scene.obj, scene.rotBuf);
     frame.render(ctx, {
-      draw: [scene.obj],
+      meshes: [scene.obj],
       camera: scene.cam,
       clearColor: CLEAR_COLOR,
     });

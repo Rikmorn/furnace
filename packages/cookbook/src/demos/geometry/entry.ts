@@ -317,7 +317,7 @@ await mountDemo({
   },
   frame: ({ ctx, scene }) => {
     frame.render(ctx, {
-      draw: [scene.grid],
+      meshes: [scene.grid],
       camera: scene.cam,
       clearColor: CLEAR_COLOR,
     });

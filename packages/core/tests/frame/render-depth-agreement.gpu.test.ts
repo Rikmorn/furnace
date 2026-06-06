@@ -44,7 +44,7 @@ test.skipIf(!bunWebGpuAvailable())(
     });
     const cam = camera.perspective({ aspect: 1 });
     const m = await meshWith(ctx, false);
-    expect(() => render(ctx, { draw: [m], camera: cam })).toThrow(
+    expect(() => render(ctx, { meshes: [m], camera: cam })).toThrow(
       /depthEnabled:false/,
     );
     gpu.dispose(ctx);
@@ -59,7 +59,7 @@ test.skipIf(!bunWebGpuAvailable())(
     });
     const cam = camera.perspective({ aspect: 1 });
     const m = await meshWith(ctx, true);
-    expect(() => render(ctx, { draw: [m], camera: cam })).not.toThrow();
+    expect(() => render(ctx, { meshes: [m], camera: cam })).not.toThrow();
     gpu.dispose(ctx);
   },
 );

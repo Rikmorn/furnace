@@ -26,7 +26,7 @@ test.skipIf(!bunWebGpuAvailable())(
       shader: await shader.normalColor(ctx),
     });
     const c = createMesh(ctx, { geometry: geometry.cube(ctx), material: mat });
-    render(ctx, { draw: [c], camera: cam });
+    render(ctx, { meshes: [c], camera: cam });
     expect(ctx._internal.stats.triangles).toBe(12);
     expect(ctx._internal.stats.drawCalls).toBe(1);
     gpu.dispose(ctx);
@@ -46,7 +46,7 @@ test.skipIf(!bunWebGpuAvailable())(
       primitive: { topology: "line-list", cullMode: "none" },
     });
     const c = createMesh(ctx, { geometry: geometry.cube(ctx), material: mat });
-    render(ctx, { draw: [c], camera: cam });
+    render(ctx, { meshes: [c], camera: cam });
     expect(ctx._internal.stats.triangles).toBe(0);
     expect(ctx._internal.stats.drawCalls).toBe(1);
     gpu.dispose(ctx);
@@ -66,7 +66,7 @@ test.skipIf(!bunWebGpuAvailable())(
       primitive: { topology: "point-list", cullMode: "none" },
     });
     const c = createMesh(ctx, { geometry: geometry.cube(ctx), material: mat });
-    render(ctx, { draw: [c], camera: cam });
+    render(ctx, { meshes: [c], camera: cam });
     expect(ctx._internal.stats.triangles).toBe(0);
     expect(ctx._internal.stats.drawCalls).toBe(1);
     gpu.dispose(ctx);

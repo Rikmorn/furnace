@@ -23,7 +23,7 @@ import { trianglesForTopology } from "./triangles-for-topology.ts";
  *   creation and destruction; the engine does not register or pool it.
  *   Must have the same format as `ctx.format`; a mismatch throws
  *   `FurnaceGpuError`.
- * - `draw` / `camera` / `clearColor` / `clearDepth`: same semantics as
+ * - `meshes` / `camera` / `clearColor` / `clearDepth`: same semantics as
  *   `RenderOptions`. `clearColor` defaults to `[0, 0, 0, 1]` (linear);
  *   `clearDepth` defaults to `1.0`.
  * - `depthTexture`: optional consumer-supplied depth target. When omitted,
@@ -117,7 +117,7 @@ function recordDraw(
 }
 
 /**
- * Off-screen variant of `render`: draw `opts.draw` against `opts.camera`
+ * Off-screen variant of `render`: draw `opts.meshes` against `opts.camera`
  * into a consumer-supplied `GPUTexture` instead of the swap chain. No
  * post-effects chain — pipe the result through another `render` call (as a
  * shader input) for compositing.
@@ -135,9 +135,9 @@ function recordDraw(
  * with no further lookups.
  *
  * @throws FurnaceGpuError - if `ctx` has been disposed, `opts.texture`
- *   is missing, `opts.camera` or `opts.draw` is null/undefined, any
- *   entry in `opts.draw` is null, invalid, destroyed, or belongs to a
- *   different context, or if a draw's mesh references a material or
+ *   is missing, `opts.camera` or `opts.meshes` is null/undefined, any
+ *   entry in `opts.meshes` is null, invalid, destroyed, or belongs to a
+ *   different context, or if a drawn mesh references a material or
  *   geometry that does not itself resolve to a live slot (defensive —
  *   the Mesh→Material and Mesh→Geometry refcounts normally keep these
  *   alive while a mesh references them).
@@ -163,10 +163,10 @@ export function renderToTexture(
   if (opts.camera == null) {
     throw new FurnaceGpuError("renderToTexture: camera is required");
   }
-  if (opts.draw == null) {
-    throw new FurnaceGpuError("renderToTexture: draw is required");
+  if (opts.meshes == null) {
+    throw new FurnaceGpuError("renderToTexture: meshes is required");
   }
-  const resolvedDraws = _frameRenderInternals._validateDraw(ctx, opts.draw);
+  const resolvedDraws = _frameRenderInternals._validateDraw(ctx, opts.meshes);
 
   const passHasDepth = opts.depthTexture !== undefined;
 
@@ -184,8 +184,8 @@ export function renderToTexture(
   if (depthMismatch !== -1) {
     throw new FurnaceGpuError(
       passHasDepth
-        ? `renderToTexture: draw[${depthMismatch}] was created with depthEnabled:false but a depthTexture was provided; omit it or set depthEnabled:true`
-        : `renderToTexture: draw[${depthMismatch}] uses a depth-enabled material but no depthTexture was provided; pass a depthTexture or set depthEnabled:false`,
+        ? `renderToTexture: meshes[${depthMismatch}] was created with depthEnabled:false but a depthTexture was provided; omit it or set depthEnabled:true`
+        : `renderToTexture: meshes[${depthMismatch}] uses a depth-enabled material but no depthTexture was provided; pass a depthTexture or set depthEnabled:false`,
     );
   }
   // (3) consumer depthTexture must match the format material pipelines declare.

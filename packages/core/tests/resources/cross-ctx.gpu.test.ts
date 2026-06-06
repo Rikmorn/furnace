@@ -77,8 +77,8 @@ test.skipIf(!bunWebGpuAvailable())(
     // frame.render throws with `draw[0]:` prefix when meshA's ctxId
     // doesn't match ctxB.
     const frame = await import("../../src/frame/index.ts");
-    expect(() => frame.render(ctxB, { draw: [meshA], camera: camB })).toThrow(
-      /draw\[0\]/,
+    expect(() => frame.render(ctxB, { meshes: [meshA], camera: camB })).toThrow(
+      /meshes\[0\]/,
     );
 
     // Cleanup.

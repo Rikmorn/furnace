@@ -529,14 +529,14 @@ await mountDemo({
       frame.renderToTexture(ctx, {
         texture: scene.pip.texture,
         depthTexture: scene.pip.depthTexture,
-        draw: [scene.subjectMesh, scene.roomMesh],
+        meshes: [scene.subjectMesh, scene.roomMesh],
         camera: scene.pipCam,
         clearColor: CLEAR_PIP,
       });
     } else {
       frame.renderToTexture(ctx, {
         texture: scene.pip.texture,
-        draw: [scene.subjectMeshNoDepth, scene.roomMeshNoDepth],
+        meshes: [scene.subjectMeshNoDepth, scene.roomMeshNoDepth],
         camera: scene.pipCam,
         clearColor: CLEAR_PIP,
       });
@@ -545,7 +545,7 @@ await mountDemo({
     // Pass 2: main + monitor (sampling the PiP texture). Two distinct draw
     // lists per pass; the subject and the room appear in both.
     frame.render(ctx, {
-      draw: [
+      meshes: [
         scene.roomMesh,
         scene.subjectMesh,
         scene.monitorMesh,

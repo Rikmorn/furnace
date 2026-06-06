@@ -252,7 +252,7 @@ await mountDemo({
     camera.setNearFar(activeCam, state.near, state.far);
 
     frame.render(ctx, {
-      draw: [scene.plane, scene.cube],
+      meshes: [scene.plane, scene.cube],
       camera: activeCam,
       clearColor: CLEAR_COLOR,
     });

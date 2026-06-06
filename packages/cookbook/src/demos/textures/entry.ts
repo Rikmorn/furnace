@@ -147,7 +147,7 @@ await mountDemo({
     mesh.setMaterial(ctx, scene.floor, scene.materials[state.preset]);
 
     frame.render(ctx, {
-      draw: [scene.floor],
+      meshes: [scene.floor],
       camera: scene.cam,
       clearColor: CLEAR_COLOR,
     });

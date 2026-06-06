@@ -78,7 +78,7 @@ test.skipIf(!bunWebGpuAvailable())(
       material: planeMat,
     });
     ctx.device.pushErrorScope("validation");
-    render(ctx, { draw: [p, c], camera: cam });
+    render(ctx, { meshes: [p, c], camera: cam });
     const err = await ctx.device.popErrorScope();
     expect(err).toBe(null);
     gpu.dispose(ctx);
@@ -93,7 +93,7 @@ test.skipIf(!bunWebGpuAvailable())(
     const cam = camera.perspective({});
     ctx.device.pushErrorScope("validation");
     render(ctx, {
-      draw: [],
+      meshes: [],
       camera: cam,
       clearColor: vec4.fromValues(0.2, 0.3, 0.4, 1),
     });
@@ -110,7 +110,7 @@ test.skipIf(!bunWebGpuAvailable())(
     const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
     const cam = camera.perspective({});
     gpu.dispose(ctx);
-    expect(() => render(ctx, { draw: [], camera: cam })).toThrow(/disposed/);
+    expect(() => render(ctx, { meshes: [], camera: cam })).toThrow(/disposed/);
   },
 );
 
@@ -164,7 +164,7 @@ test.skipIf(!bunWebGpuAvailable())(
     );
     const m = createMesh(ctx, { geometry: geometry.cube(ctx), material: mat });
     expect(() =>
-      render(ctx, { draw: [m], camera: null as unknown as Camera }),
+      render(ctx, { meshes: [m], camera: null as unknown as Camera }),
     ).toThrow("camera is required");
     gpu.dispose(ctx);
   },
@@ -177,8 +177,8 @@ test.skipIf(!bunWebGpuAvailable())(
     const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
     const cam = camera.perspective({});
     expect(() =>
-      render(ctx, { draw: null as unknown as Mesh[], camera: cam }),
-    ).toThrow("draw is required");
+      render(ctx, { meshes: null as unknown as Mesh[], camera: cam }),
+    ).toThrow("meshes is required");
     gpu.dispose(ctx);
   },
 );
@@ -196,10 +196,10 @@ test.skipIf(!bunWebGpuAvailable())(
     const m = createMesh(ctx, { geometry: geometry.cube(ctx), material: mat });
     expect(() =>
       render(ctx, {
-        draw: [m, null as unknown as Mesh],
+        meshes: [m, null as unknown as Mesh],
         camera: cam,
       }),
-    ).toThrow("draw[1]: null/undefined mesh");
+    ).toThrow("meshes[1]: null/undefined mesh");
     gpu.dispose(ctx);
   },
 );
@@ -220,8 +220,8 @@ test.skipIf(!bunWebGpuAvailable())(
       geometry: geometry.cube(ctxB),
       material: matB,
     });
-    expect(() => render(ctxA, { draw: [mB], camera: cam })).toThrow(
-      "draw[0]: mesh handle is invalid, destroyed, or belongs to a different context",
+    expect(() => render(ctxA, { meshes: [mB], camera: cam })).toThrow(
+      "meshes[0]: mesh handle is invalid, destroyed, or belongs to a different context",
     );
     gpu.dispose(ctxA);
     gpu.dispose(ctxB);
@@ -241,8 +241,8 @@ test.skipIf(!bunWebGpuAvailable())(
     const geo = geometry.cube(ctx);
     const m = createMesh(ctx, { geometry: geo, material: mat });
     destroyMesh(ctx, m);
-    expect(() => render(ctx, { draw: [m], camera: cam })).toThrow(
-      "draw[0]: mesh handle is invalid, destroyed, or belongs to a different context",
+    expect(() => render(ctx, { meshes: [m], camera: cam })).toThrow(
+      "meshes[0]: mesh handle is invalid, destroyed, or belongs to a different context",
     );
     gpu.dispose(ctx);
   },
