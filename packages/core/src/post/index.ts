@@ -1,3 +1,4 @@
+export { bloom } from "./bloom.ts";
 export {
   create,
   destroy,
