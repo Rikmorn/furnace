@@ -211,7 +211,9 @@ export async function createPasses(
   const passes = desc.passes.map((d, i) => resolvePassSlot(ctx, d, i));
   const slot: EffectSlot = {
     passes,
-    // ownedBindings stays empty: resource ownership wiring is a later task.
+    // Consumer-authored effects own no engine-internal bindings: the consumer's
+    // binding/bindings stay consumer-owned. Built-in factories (post.bloom)
+    // register their internal bindings as owned via _setOwnedBindings afterward.
     ownedBindings: [],
     _teardown: () => _effectTeardown(ctx, slot),
   };

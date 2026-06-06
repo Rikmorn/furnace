@@ -1,4 +1,5 @@
 import { _bufferOf } from "../binding/binding.ts";
+import * as binding from "../binding/index.ts";
 import type { Binding, LayoutSchema } from "../binding/types.ts";
 import { FurnaceError } from "../errors.ts";
 import { FurnaceGpuError } from "../gpu/errors.ts";
@@ -7,6 +8,7 @@ import type { EffectHandle } from "../resources/handle.ts";
 import {
   _allocEffect,
   _destroyEffect,
+  _lookupEffect,
   _lookupShader,
 } from "../resources/internal.ts";
 import { _layoutOf } from "../shader/shader.ts";
@@ -85,9 +87,11 @@ type EffectPipelineVariant = {
  * `frame.render` flattens all effects' passes into one linear sequence. A
  * single-pass effect is one {@link PassSlot} with `inputs: ["prev"]` (the first
  * `"prev"` resolves to the scene target). `ownedBindings` holds bindings the
- * effect created and must free on destroy (empty until a later task wires
- * built-in-effect resource ownership). `_teardown` releases every pass's
- * cached pipeline refs.
+ * effect itself created and must free on destroy (populated by built-in
+ * factories like `post.tonemap` / `post.bloom` via `_setOwnedBindings`; empty
+ * for consumer effects, whose `binding`/`bindings` stay consumer-owned).
+ * `_teardown` releases every pass's cached pipeline refs and destroys every
+ * binding in `ownedBindings`.
  */
 export type EffectSlot = {
   passes: PassSlot[];
@@ -146,16 +150,44 @@ function buildGroup1(
 }
 
 /**
- * Release every cached pipeline ref across all of an effect's passes. Each
- * pass's `byFormat` map holds one refcounted pipeline-cache entry per resolved
- * target format; teardown drops one ref on each. Exported so `passes.ts` can
- * wire it as the multi-pass effect's `_teardown` without an import cycle.
+ * Release every cached pipeline ref across all of an effect's passes, then
+ * free any engine-internal bindings the effect owns. Each pass's `byFormat`
+ * map holds one refcounted pipeline-cache entry per resolved target format;
+ * teardown drops one ref on each. The `ownedBindings` list holds bindings
+ * created by built-in factories (e.g. tonemap, bloom) and registered via
+ * {@link _setOwnedBindings}; consumer-supplied bindings are never in this
+ * list. Exported so `passes.ts` can wire it as the multi-pass effect's
+ * `_teardown` without an import cycle.
  */
 export function _effectTeardown(ctx: Context, slot: EffectSlot): void {
   for (const pass of slot.passes) {
     for (const variant of pass.byFormat.values()) {
       _pipelineCache.release(ctx, variant.pipelineKey);
     }
+  }
+  for (const b of slot.ownedBindings) {
+    binding.destroy(ctx, b);
+  }
+}
+
+/**
+ * Register engine-internal bindings as owned by the effect. Called by
+ * built-in factories (e.g. `post.tonemap`, `post.bloom`) after creating their
+ * internal `@group(1)` uniform bindings so that `post.destroy` frees them.
+ * Consumer-supplied bindings passed via `EffectDescriptor.binding` /
+ * `EffectDescriptor.bindings` must NEVER be registered here.
+ *
+ * Engine-internal — not re-exported from `post/index.ts`.
+ */
+export function _setOwnedBindings(
+  ctx: Context,
+  effect: Effect,
+  bindings: Binding[],
+): void {
+  const slot = _lookupEffect<EffectSlot>(ctx, effect);
+  if (slot === null) return;
+  for (const b of bindings) {
+    slot.ownedBindings.push(b);
   }
 }
 

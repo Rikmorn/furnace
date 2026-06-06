@@ -7,6 +7,7 @@ import type { Context } from "../gpu/index.ts";
 import { _createShader } from "../shader/shader.ts";
 import type { Shader } from "../shader/types.ts";
 import type { Effect } from "./effect.ts";
+import { _setOwnedBindings } from "./effect.ts";
 import type { PassDescriptor } from "./passes.ts";
 import { createPasses } from "./passes.ts";
 
@@ -413,12 +414,12 @@ function buildBloomPasses(
  * The tent-upsample `radius` (UV-space offset applied by every upsample pass) is
  * fixed internally at `DEFAULT_RADIUS` (0.005) and is not yet a consumer option.
  *
- * **Resource ownership:** the four engine-owned bloom shaders are shared
- * per-ctx and freed by the dispose cascade at `gpu.dispose(ctx)`. The shared
- * `@group(1)` params binding is passed via the `createPasses` `binding` path
- * (consumer-binding semantics), so today it too is freed by the dispose
- * cascade. `post.destroy(ctx, bloomEffect)` releases only the chain's pipeline
- * refs.
+ * **Resource ownership:** `post.destroy(ctx, bloomEffect)` frees the internal
+ * `@group(1)` params binding (the shared `{ threshold, softness, intensity,
+ * radius }` uniform buffer) that the engine created for this effect instance.
+ * The four engine-owned bloom shaders are shared per-ctx and are NOT freed on
+ * `post.destroy` — they are reclaimed by the dispose cascade at
+ * `gpu.dispose(ctx)`.
  *
  * Setup-loud: throws on a non-HDR or disposed context, or WGSL compilation
  * failure (via the underlying `_createShader`).
@@ -445,9 +446,7 @@ export async function bloom(
 
   // Shared params binding. Reused across the prefilter, every upsample, and the
   // composite (identical @group(1) struct → one buffer fits all auto-derived
-  // layouts).
-  // MIGRATION (until 2b-6): bloom params binding is freed by the dispose
-  // cascade; 2b-6 wires post.destroy ownership.
+  // layouts). Registered as an owned binding so post.destroy frees it.
   const params = binding.create(ctx, { layout: BLOOM_LAYOUT });
   binding.set(ctx, params, {
     threshold: opts?.threshold ?? DEFAULT_THRESHOLD,
@@ -458,5 +457,7 @@ export async function bloom(
 
   const mipCount = bloomMipCount(ctx.canvas.width, ctx.canvas.height);
   const passes = buildBloomPasses(mipCount, shaders, params);
-  return createPasses(ctx, { passes });
+  const effect = await createPasses(ctx, { passes });
+  _setOwnedBindings(ctx, effect, [params]);
+  return effect;
 }

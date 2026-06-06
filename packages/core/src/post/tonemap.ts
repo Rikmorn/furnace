@@ -5,7 +5,7 @@ import type { Context } from "../gpu/index.ts";
 import { _createShader } from "../shader/shader.ts";
 import type { Shader } from "../shader/types.ts";
 import type { Effect } from "./effect.ts";
-import { create as createEffect } from "./effect.ts";
+import { _setOwnedBindings, create as createEffect } from "./effect.ts";
 
 /**
  * Selects the tone-mapping operator applied by {@link tonemap}.
@@ -130,12 +130,12 @@ function tonemapShader(ctx: Context): Promise<Shader<ToneMapLayout>> {
  * multiplier applied to the sampled HDR colour before the operator. Values
  * above 1 brighten the scene; values below 1 darken it.
  *
- * **Resource ownership:** the engine-owned tonemap shader and the internal
- * `@group(1)` Binding are freed by the dispose cascade at `gpu.dispose(ctx)`.
- * `post.destroy(ctx, tonemapEffect)` releases only the effect's pipeline ref,
- * per the post-effect contract — it does not free the shader or the binding.
- * For a long-lived tonemap (the normal case) this is correct: dispose the
- * context when the scene tears down and everything is released together.
+ * **Resource ownership:** `post.destroy(ctx, tonemapEffect)` frees the
+ * internal `@group(1)` binding (the `{ exposure, op }` uniform buffer) that
+ * the engine created for this effect instance. The engine-owned tonemap shader
+ * is shared per-ctx and is NOT freed on `post.destroy` — it is reclaimed by
+ * the dispose cascade at `gpu.dispose(ctx)` (a second `post.tonemap` call on
+ * the same ctx reuses it from the cache).
  *
  * Setup-loud: throws on a disposed context or WGSL compilation failure (via
  * the underlying `_createShader` + `post.create`).
@@ -154,5 +154,7 @@ export async function tonemap(
     exposure: opts?.exposure ?? 1,
     op: OPERATOR_CODE[opts?.operator ?? "neutral"],
   });
-  return createEffect(ctx, { shader, binding: b });
+  const effect = await createEffect(ctx, { shader, binding: b });
+  _setOwnedBindings(ctx, effect, [b]);
+  return effect;
 }
