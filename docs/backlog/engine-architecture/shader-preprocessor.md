@@ -1,5 +1,15 @@
 # Shader preprocessor / imports
 
+**SCHEDULED as Visual Fidelity epic "Stage 2.5" — a dedicated session between Stage 2
+(AA + HDR post) and Stage 3 (lighting), decided in the Stage 2 brainstorm (2026-06-06).**
+Rationale: the trigger has now fired multiple times (cookbook `hsv2rgb` duplication; light
+post-chain helper duplication in Stage 2), and Stage 3's multi-light Blinn-Phong shaders are
+where it *"fires hard"* (lighting helpers duplicated across shaders). Landing the preprocessor
+as 2.5 means Stage-3 shaders are authored with `// @include` from the start instead of written
+copy-paste and refactored later — the same "infra lands just before the stage that needs it"
+pattern as textures→Stage 1 and HDR→before lighting. It gets its own brainstorm→spec→plan→execute
+cycle. Stage 2 itself stays preprocessor-free (tolerates the light post-chain duplication).
+
 **DEFERRED to its own session — decided in the D-1 brainstorm (2026-05-30, reversing the earlier "folds into D-1" plan).** D-1 ships the *substrate* (`Shader` resource + `shader.load(ctx, url)` = fetch + create), but **`shader.load` resolves NO includes yet**. The `// @include` preprocessor is **additive behaviour on `shader.load`** — adding it later does not change the signature or force a migration — so it is cleanly separable and does not need to ride D-1's breaking reshape. Trigger has **fired** (`hsv2rgb` duplicated across `cookbook/shader/plasma.wgsl` + `striped.wgsl`); we **accept that duplication for now** rather than half-ass the resolver. Build it well in a dedicated session.
 
 **What a proper session must think through (D-1 brainstorm, 2026-05-30):**
