@@ -5,7 +5,7 @@ Tranche B's cascade callbacks for `frame.render`'s depth texture and `post.inter
 Verified by code inspection of:
 
 - `packages/core/src/frame/render.ts` — `_disposeDepth(ctx)` calls `depthByCtx.get(ctx)` at cascade time; `_ensureDepthTexture` registers `_onDispose(ctx, () => _disposeDepth(ctx))` only on first allocation (guarded by `existing === undefined`).
-- `packages/core/src/post/intermediate.ts` — `_disposeIntermediates(ctx)` calls `intermediateByCtx.get(ctx)` at cascade time; `_ensureSceneIntermediates` registers the cascade callback only on first allocation (same guard pattern).
+- `packages/core/src/post/pool.ts` — the live post-side ctx-bound state since the A/B intermediate allocator was removed (2026-06-06). `_disposePool(ctx)` reads `poolByCtx.get(ctx)` at cascade time; `ensurePool` registers `_onDispose(ctx, () => _disposePool(ctx))` only on first touch (same once-registered guard). Resize mechanics differ from the depth texture: rather than reallocate-on-ensure, `_poolBeginFrame` destroys the stale free list at the next frame boundary when the canvas size changes, so a resize-between-renders-then-dispose test would exercise trim + dispose here.
 
 But there's no regression test for the specific scenario "canvas resizes between renders, then dispose". The scenario exercises:
 
