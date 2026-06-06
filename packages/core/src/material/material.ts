@@ -107,9 +107,10 @@ function buildPipelineDescriptor(
     fragment: {
       module,
       entryPoint: fragmentEntry,
-      targets: [{ format: ctx.format, blend }],
+      targets: [{ format: ctx._internal.workingColorFormat, blend }],
     },
     primitive: { topology, cullMode },
+    multisample: { count: ctx._internal.sampleCount },
   };
   if (depthEnabled) {
     pipelineDescriptor.depthStencil = {
@@ -170,9 +171,12 @@ function materialTeardown(ctx: Context, slot: MaterialSlot): void {
  * {@link Material} handle.
  *
  * The pipeline is keyed on `(shader handle, entry points, cullMode,
- * topology, depthEnabled, depthWrite, depthCompare, ctx format, blend
- * signature)`. When `depth` is `false`, `depthWrite` and `depthCompare`
- * are normalized out of the key so they don't produce spurious cache misses.
+ * topology, depthEnabled, depthWrite, depthCompare, sampleCount, working
+ * color format, blend signature)`. The working color format (the fragment
+ * target — `ctx.format` for LDR, `rgba16float` for HDR) subsumes the swap-chain
+ * format, so it is keyed instead of `ctx.format`. When `depth` is `false`,
+ * `depthWrite` and `depthCompare` are normalized out of the key so they don't
+ * produce spurious cache misses.
  * Two `create` calls on the same ctx with identical keys share one underlying
  * `GPURenderPipeline`; the cache holds a refcount that `destroy` releases.
  * The cache is per-ctx — a pipeline built against ctx A cannot be reused
@@ -267,7 +271,8 @@ export async function create<L extends LayoutSchema = LayoutSchema>(
     String(depthEnabled),
     depthEnabled ? String(depthWrite) : "-",
     depthEnabled ? depthCompare : "-",
-    ctx.format,
+    String(ctx._internal.sampleCount),
+    ctx._internal.workingColorFormat,
     _blendSignature(descriptor.blend),
   ]);
 
