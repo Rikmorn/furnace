@@ -45,8 +45,8 @@ export type PassOutput = {
  * - `shader` — the compiled {@link Shader} providing the `fs_main` fragment
  *   stage. The shared fullscreen vertex shader is auto-supplied.
  * - `inputs` — the colour inputs bound at `@group(0)`, in declaration order
- *   (binding 0..N-1); the sampler follows at binding N. (Multi-input N>1 lands
- *   in a later task; today every pass declares exactly one input.)
+ *   (binding 0..N-1); the sampler follows at binding N. Supply multiple inputs
+ *   (`["scene", { intermediate: "x" }]`) for composite passes.
  * - `output` — the render target shape (see {@link PassOutput}); omit for a
  *   full-size, working-format, anonymous target.
  * - `binding` — typed `@group(1)` data path (a {@link Binding} whose buffer is
