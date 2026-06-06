@@ -46,8 +46,16 @@ const FIXED_DT_MS = 1000 / FIXED_HZ;
 const SAMPLE_COUNT_MSAA = 4 as const;
 const SAMPLE_COUNT_OFF = 1 as const;
 
-// Bloom intensity tuned for the emissive ball (start ~0.6; tune in the Safari gate).
+// Bloom tuned to halo ONLY the emissive ball, not the lit lane. The texturedLit
+// shader's baked lighting (directional + hemisphere) sums to ~1.5× albedo, so the
+// white checkerboard texels sit at ~1.5 in the HDR target — well above 1.0. A
+// thresholdless bloom would extract them and the whole lane glows. The ball is an
+// unlit vec4(4, 1.2, 1.2), so a soft-knee threshold above the lit-lane ceiling
+// (~1.5) and below the ball (4.0) isolates it: at threshold 2.0 the lane
+// contributes ~0 and the ball blooms. (Tune in the Safari gate.)
 const BLOOM_INTENSITY = 0.6;
+const BLOOM_THRESHOLD = 2.0;
+const BLOOM_SOFTNESS = 0.5;
 
 // Decimeter-scale scene: lengthUnit tells the solver the typical body size so
 // a sub-meter sim stays stable (Task 3 verified 0.1 for this lane).
@@ -404,7 +412,11 @@ async function buildBowling(
   });
 
   // HDR post chain: bloom in linear space, then tonemap to the LDR swap chain.
-  const bloom = await post.bloom(ctx, { intensity: BLOOM_INTENSITY });
+  const bloom = await post.bloom(ctx, {
+    intensity: BLOOM_INTENSITY,
+    threshold: BLOOM_THRESHOLD,
+    softness: BLOOM_SOFTNESS,
+  });
   const tonemap = await post.tonemap(ctx);
 
   const lane = rigidMesh.create(ctx, world, {

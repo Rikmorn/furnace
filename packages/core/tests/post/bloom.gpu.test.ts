@@ -43,6 +43,39 @@ test.skipIf(!bunWebGpuAvailable())(
 );
 
 test.skipIf(!bunWebGpuAvailable())(
+  "post.bloom with a soft-knee threshold renders one clean HDR frame",
+  async () => {
+    // The thresholded prefilter path (softKnee branch, threshold > 0) is what the
+    // bowling + cookbook demos ship to isolate the emissive source from bright lit
+    // content. Assert that configuration renders without a validation error.
+    const ctx = await gpu.requestContext(await makeOffscreenCanvas(128, 128), {
+      surfaceFormat: "linear",
+      hdr: true,
+    });
+    const bloom = await post.bloom(ctx, {
+      intensity: 0.6,
+      threshold: 2.0,
+      softness: 0.5,
+    });
+    const tm = await post.tonemap(ctx);
+    const { material } = await makeUnlitMaterial(
+      ctx,
+      vec4.fromValues(4, 1.2, 1.2, 1),
+    );
+    const m = meshMod.create(ctx, { geometry: geometry.cube(ctx), material });
+    const cam = camera.perspective({
+      aspect: 1,
+      position: vec3.fromValues(0, 0, 3),
+    });
+    ctx.device.pushErrorScope("validation");
+    frame.render(ctx, { meshes: [m], camera: cam, effects: [bloom, tm] });
+    const err = await ctx.device.popErrorScope();
+    expect(err).toBeNull();
+    gpu.dispose(ctx);
+  },
+);
+
+test.skipIf(!bunWebGpuAvailable())(
   "post.bloom on a non-hdr ctx is setup-loud",
   async () => {
     const ctx = await gpu.requestContext(await makeOffscreenCanvas(128, 128), {

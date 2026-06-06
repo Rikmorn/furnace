@@ -34,6 +34,11 @@ const BLUR_LAYOUT = { dir: "vec2f", radius: "f32" } as const;
  *  On an LDR clamp this would just be white; under HDR it survives as a real
  *  super-bright value that the bloom prefilter can pull a halo from. */
 const EMISSIVE_COLOR: Vec4 = vec4.fromValues(3, 3, 3, 1);
+// Soft-knee bloom threshold: the normalColor cube's faces top out at ~1.0, so a
+// thresholdless bloom would halo the whole cube. The accent above is 3.0, so a
+// threshold between them (1.3) isolates the accent as the bloom source.
+const BLOOM_THRESHOLD = 1.3;
+const BLOOM_SOFTNESS = 0.3;
 const ACCENT_SIZE = 0.35;
 const ACCENT_OFFSET = vec3.fromValues(0.9, 0.6, 0);
 /** Per-tap UV offset for the separable blur (~3 px on a 1000-wide canvas). */
@@ -227,7 +232,11 @@ await mountDemo({
 
     // Built-in effects (recreated on param change). tonemap is ALWAYS the final
     // effect under HDR — a non-empty chain reaching the LDR swapchain is required.
-    const bloom = await post.bloom(ctx, { intensity: state.bloomIntensity });
+    const bloom = await post.bloom(ctx, {
+      intensity: state.bloomIntensity,
+      threshold: BLOOM_THRESHOLD,
+      softness: BLOOM_SOFTNESS,
+    });
     const tonemap = await post.tonemap(ctx, {
       operator: state.operator,
       exposure: state.exposure,
@@ -291,7 +300,11 @@ await mountDemo({
       scene.tonemap = next;
     }, abortFlag);
     window.__cookbookPostRecreateBloom = makeRecreate(async () => {
-      const next = await post.bloom(ctx, { intensity: state.bloomIntensity });
+      const next = await post.bloom(ctx, {
+        intensity: state.bloomIntensity,
+        threshold: BLOOM_THRESHOLD,
+        softness: BLOOM_SOFTNESS,
+      });
       if (abortFlag.disposed) {
         post.destroy(ctx, next);
         return;
