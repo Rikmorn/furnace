@@ -1,5 +1,8 @@
 <script lang="ts">
-  import { debugControls } from "./debug-controls-state.svelte.ts";
+  import {
+    debugControls,
+    notifyMsaaChange,
+  } from "./debug-controls-state.svelte.ts";
 </script>
 
 <div class="debug">
@@ -40,6 +43,17 @@
       onchange={(e) => (debugControls.anisotropy = e.currentTarget.checked)}
     />
     <span>anisotropy (AF)</span>
+  </label>
+  <label class="row">
+    <input
+      type="checkbox"
+      checked={debugControls.msaa}
+      onchange={(e) => {
+        debugControls.msaa = e.currentTarget.checked;
+        notifyMsaaChange(debugControls.msaa);
+      }}
+    />
+    <span>MSAA (4×)</span>
   </label>
 </div>
 
