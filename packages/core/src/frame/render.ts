@@ -471,6 +471,7 @@ function firstDepthDisagreement(
 
 function recordScenePass(
   ctx: Context,
+  encoder: GPUCommandEncoder,
   colorView: GPUTextureView,
   depthView: GPUTextureView,
   draw: readonly ResolvedDraw[],
@@ -479,7 +480,6 @@ function recordScenePass(
   clearDepth: number,
   resolveTarget?: GPUTextureView,
 ): void {
-  const encoder = ctx.device.createCommandEncoder();
   const pass = beginRenderPass(
     encoder,
     colorView,
@@ -493,11 +493,11 @@ function recordScenePass(
     lastPipeline = recordDraw(pass, ctx, resolved, cameraBuffer, lastPipeline);
   }
   pass.end();
-  ctx.queue.submit([encoder.finish()]);
 }
 
 function renderEffectPass(
   ctx: Context,
+  encoder: GPUCommandEncoder,
   slot: EffectSlot,
   inputView: GPUTextureView,
   sampler: GPUSampler,
@@ -511,7 +511,6 @@ function renderEffectPass(
     ],
   });
   const loadOp: GPULoadOp = slot.blend ? "load" : "clear";
-  const encoder = ctx.device.createCommandEncoder();
   const pass = encoder.beginRenderPass({
     colorAttachments: [
       {
@@ -533,11 +532,11 @@ function renderEffectPass(
   pass.draw(3);
   _recordDraw(ctx, { triangles: 1 });
   pass.end();
-  ctx.queue.submit([encoder.finish()]);
 }
 
 function runEffectsPingPong(
   ctx: Context,
+  encoder: GPUCommandEncoder,
   effects: readonly EffectSlot[],
   im: IntermediateEntry,
 ): void {
@@ -546,13 +545,13 @@ function runEffectsPingPong(
   for (let i = 0; i < effects.length - 1; i++) {
     const slot = effects[i];
     if (!slot) continue; // unreachable after validateEffects; satisfies noUncheckedIndexedAccess
-    renderEffectPass(ctx, slot, inputView, im.sampler, outputView);
+    renderEffectPass(ctx, encoder, slot, inputView, im.sampler, outputView);
     [inputView, outputView] = [outputView, inputView];
   }
   const finalSlot = effects[effects.length - 1];
   if (!finalSlot) return; // unreachable after validateEffects
   const swapView = gpu.getCurrentTextureView(ctx);
-  renderEffectPass(ctx, finalSlot, inputView, im.sampler, swapView);
+  renderEffectPass(ctx, encoder, finalSlot, inputView, im.sampler, swapView);
 }
 
 /**
@@ -623,12 +622,15 @@ export function render(ctx: Context, opts: RenderOptions): void {
   const clearColor = opts.clearColor ?? DEFAULT_CLEAR_COLOR;
   const clearDepth = opts.clearDepth ?? DEFAULT_CLEAR_DEPTH;
 
+  const encoder = ctx.device.createCommandEncoder();
+
   if (effects.length === 0) {
     const singleSampleDest = gpu.getCurrentTextureView(ctx);
     const sceneColorView = msaa ? msaa.view : singleSampleDest;
     const resolveTarget = msaa ? singleSampleDest : undefined;
     recordScenePass(
       ctx,
+      encoder,
       sceneColorView,
       depth.view,
       resolvedDraws,
@@ -637,21 +639,23 @@ export function render(ctx: Context, opts: RenderOptions): void {
       clearDepth,
       resolveTarget,
     );
-    return;
+  } else {
+    const im = _ensureSceneIntermediates(ctx);
+    const sceneColorView = msaa ? msaa.view : im.aView;
+    const resolveTarget = msaa ? im.aView : undefined;
+    recordScenePass(
+      ctx,
+      encoder,
+      sceneColorView,
+      depth.view,
+      resolvedDraws,
+      cameraBuffer,
+      clearColor,
+      clearDepth,
+      resolveTarget,
+    );
+    runEffectsPingPong(ctx, encoder, resolvedEffects, im);
   }
 
-  const im = _ensureSceneIntermediates(ctx);
-  const sceneColorView = msaa ? msaa.view : im.aView;
-  const resolveTarget = msaa ? im.aView : undefined;
-  recordScenePass(
-    ctx,
-    sceneColorView,
-    depth.view,
-    resolvedDraws,
-    cameraBuffer,
-    clearColor,
-    clearDepth,
-    resolveTarget,
-  );
-  runEffectsPingPong(ctx, resolvedEffects, im);
+  ctx.queue.submit([encoder.finish()]);
 }
