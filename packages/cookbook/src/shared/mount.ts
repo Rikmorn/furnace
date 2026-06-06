@@ -1,6 +1,6 @@
 import type { FrameInfo, FrameLoopHandle } from "@furnace/core/frame";
 import * as frame from "@furnace/core/frame";
-import type { Context } from "@furnace/core/gpu";
+import type { Context, RequestContextOptions } from "@furnace/core/gpu";
 import * as gpu from "@furnace/core/gpu";
 import { type Component, mount, unmount } from "svelte";
 import type { DemoHelp } from "./help-types.ts";
@@ -16,6 +16,12 @@ export type MountDemoOptions<
 > = {
   /** The DemoHelp for this demo. */
   help: DemoHelp;
+  /**
+   * Optional `requestContext` options for demos that need a non-default ctx
+   * (e.g. `{ hdr: true }` for the post demo, or `{ sampleCount: 4 }` for MSAA).
+   * Forwarded verbatim to `gpu.requestContext`.
+   */
+  ctxOptions?: RequestContextOptions;
   /** Optional Svelte component rendering the controls panel body. */
   controls?: Component<ControlsProps>;
   /** Props to pass into the controls component (if any). */
@@ -61,7 +67,7 @@ export async function mountDemo<
 >(opts: MountDemoOptions<Scene, ControlsProps>): Promise<void> {
   const slug = getSlug();
   const canvas = requireCanvas();
-  const ctx = await gpu.requestContext(canvas);
+  const ctx = await gpu.requestContext(canvas, opts.ctxOptions);
 
   const unsubStats = subscribeOverlay(ctx);
   const hosts = requireChromeHosts();

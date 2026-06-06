@@ -5,9 +5,15 @@
     min?: number;
     max?: number;
     step?: number;
+    /** Fires continuously while dragging (cheap live updates). */
     onChange: (next: number) => void;
+    /**
+     * Fires once on release (pointerup / change). Use for expensive work that
+     * shouldn't run per-tick — e.g. recreating a GPU resource with a new param.
+     */
+    onCommit?: (next: number) => void;
   };
-  let { label, value, min = 0, max = 1, step = 0.01, onChange }: Props = $props();
+  let { label, value, min = 0, max = 1, step = 0.01, onChange, onCommit }: Props = $props();
 </script>
 
 <label class="slider">
@@ -19,6 +25,7 @@
     {step}
     {value}
     oninput={(e) => onChange(Number(e.currentTarget.value))}
+    onchange={(e) => onCommit?.(Number(e.currentTarget.value))}
   />
   <span class="value">{value.toFixed(step < 0.1 ? 3 : 2)}</span>
 </label>

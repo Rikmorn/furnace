@@ -1,23 +1,28 @@
+import type { ToneMapOperator } from "@furnace/core/post";
+
 export const state: {
-  threshold: number;
-  intensity: number;
-  radius: number;
-  haloMaskStart: number;
+  // tonemap (always the final effect under HDR) — operator + exposure are
+  // create-time params, so changing them RECREATES the tonemap effect.
+  operator: ToneMapOperator;
+  exposure: number;
+  // bloom — intensity is a create-time param, so changing it RECREATES bloom.
+  bloomIntensity: number;
+  // chain toggles for the three mid-chain effects.
+  bloomOn: boolean;
+  blurOn: boolean;
+  vignetteOn: boolean;
+  // vignette (consumer 1-in-1-out effect) — live params, written every frame.
   vignetteStrength: number;
   vignetteFalloff: number;
-  bloomOn: boolean;
-  vignetteOn: boolean;
-  swapOrder: boolean;
   angle: number;
 } = $state({
-  threshold: 0.7, // catches +Y face (lum 0.86) and side faces mid-rotation (peak 0.61)
-  intensity: 4.0, // hot enough that the halo bleeds visibly into vignette territory
-  radius: 0.012, // ~12 px on a 1000-wide canvas — wide enough to soften, narrow enough to localise
-  haloMaskStart: 0.6, // the magic constant promoted out of bloom.wgsl
-  vignetteStrength: 0.5, // corners drop to 50% — visible without being oppressive
-  vignetteFalloff: 0.5, // band runs 0.5 → 0.8 (mid-frame to edge) — visibly affects bloom reach
+  operator: "neutral",
+  exposure: 1.0,
+  bloomIntensity: 1.5, // hot enough that the emissive accent visibly halos
   bloomOn: true,
+  blurOn: false, // off by default — the consumer multi-pass effect is opt-in
   vignetteOn: true,
-  swapOrder: false,
+  vignetteStrength: 0.5,
+  vignetteFalloff: 0.5,
   angle: 0,
 });

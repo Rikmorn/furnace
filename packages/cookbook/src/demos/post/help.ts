@@ -2,63 +2,65 @@ import type { DemoHelp } from "../../shared/help-types.ts";
 
 export default {
   title: "post",
-  blurb: "compose effects — bloom + vignette via a chain you control per frame",
+  blurb:
+    "HDR post chain — real multi-pass bloom + tonemap + a consumer multi-pass effect, composed per frame",
   controls: [
     { key: "s", action: "toggle stats" },
     { key: "h", action: "toggle help" },
     { key: "c", action: "toggle controls" },
     {
-      input: "slider: threshold",
+      input: "select: operator",
       action:
-        "bloom — physics knob: luminance level a pixel must cross to glow",
+        "tonemap operator — neutral (Khronos PBR Neutral) or reinhard. Changing it RECREATES the tonemap effect (create-time param).",
     },
     {
-      input: "slider: radius",
-      action: "bloom — physics knob: blur kernel spacing (UV units)",
-    },
-    {
-      input: "slider: intensity",
-      action: "bloom — tuning knob: how hot the halo gets",
-    },
-    {
-      input: "slider: haloMaskStart",
+      input: "slider: exposure",
       action:
-        "bloom — tuning knob: pixels above this absolute luminance get the halo masked off",
+        "tonemap exposure — linear pre-tonemap multiplier. Recreates the tonemap effect on release.",
     },
     {
-      input: "slider: vignetteStrength",
+      input: "slider: bloom int.",
+      action:
+        "bloom intensity — how hot the glow gets. Recreates the bloom effect on release.",
+    },
+    {
+      input: "slider: vig. strength",
       action: "vignette — corner darkening, 0 = off, 1 = corners go to black",
     },
     {
-      input: "slider: vignetteFalloff",
+      input: "slider: vig. falloff",
       action:
         "vignette — where the darkened ring starts (0 = at centre, 1 = corners only)",
     },
-    { input: "toggle: bloom", action: "include bloom in the effects chain" },
     {
-      input: "toggle: vignette",
-      action: "include vignette in the effects chain",
+      input: "toggle: bloom",
+      action: "include the built-in dual-filter bloom in the chain",
     },
     {
-      input: "toggle: swapOrder",
+      input: "toggle: blur (multi-pass)",
       action:
-        "vignette before bloom (changes how the halo interacts with the dim corners)",
+        "include the CONSUMER 2-pass separable blur (authored via post.createPasses)",
+    },
+    {
+      input: "toggle: vignette",
+      action: "include the consumer single-pass vignette in the chain",
     },
   ],
   features: [
-    "post.create({ shader, binding })",
-    "post.destroy",
-    "shader.create({ layout }) + binding.create for @group(1) params",
-    "frame.render({ effects: [...] }) chain",
-    "chain ordering matters",
+    "ctx hdr: true → rgba16float working format (values survive >1.0)",
+    "post.tonemap({ operator, exposure }) — always the final HDR→LDR effect",
+    "post.bloom({ intensity }) — built-in COD/Jimenez dual-filter (multi-pass downsample pyramid)",
+    "post.createPasses — CONSUMER multi-pass effect: a 2-pass separable blur (blurH → blurV)",
+    "post.create({ shader, binding }) — consumer single-pass vignette",
+    "frame.render({ effects: [...] }) chain — toggles compose the mid-chain effects, tonemap pinned last",
+    "create-time params (operator/exposure/intensity) → recreate-on-change (leak-free destroy + create)",
   ],
   notes: [
-    "Bloom is half physics, half tuning. Threshold and radius are physics-ish (luminance + kernel geometry). Intensity and haloMaskStart are art direction — there's no derivation, you tune until it looks right.",
-    "Order matters when effects share screen space. Vignette-before-bloom dims the corners before bloom's bright-pass threshold sees them, so the halo never extracts much there. Vignette-after-bloom lets the halo fully form, then paints darkness over it.",
-  ],
-  gaps: [
-    "Single-pass — multi-pass downsample bloom in docs/backlog/engine-architecture/post-multi-pass-effects.md",
-    "bgra8unorm intermediates clamp to [0,1] — see docs/backlog/engine-architecture/post-hdr-intermediate.md. You can watch this gap on screen: the +Y face of the normalColor cube blooms identically to a hypothetical bright-emissive surface, because single-pass bloom can only see luminance — it can't tell 'bright because lit' from 'bright because emissive'.",
+    "Under HDR the chain must always reach the LDR swapchain via a non-empty effects array — so tonemap is ALWAYS the last effect, every frame, regardless of which mid-chain toggles are on. frame.render throws on an empty HDR chain.",
+    "Real emissive source: the small bright accent cube uses an unlit material with colour (3,3,3,1). On the old LDR (bgra8unorm) path that would clamp to white; under HDR rgba16float it survives as a genuine >1.0 value, so the bloom prefilter pulls a halo from a TRUE emissive surface — not just a bright-because-lit face.",
+    "Post-effect params are fixed at create time in this stage (no runtime setters). operator/exposure/intensity therefore RECREATE the relevant effect on change: the demo post.destroy's the old effect and creates a new one (single-in-flight + one-pending queue, so rapid slider releases coalesce and never accumulate effects).",
+    "Order matters when effects share screen space. Bloom works in linear HDR and must precede tonemap; the consumer blur and vignette sit between them. The blur's H pass writes a named intermediate that its V pass reads — that hand-off is the whole point of the multi-pass primitive.",
+    "Consumer-owned vs engine-owned: the consumer blur's two direction bindings + the vignette binding (and the two consumer shaders) are freed by the demo in teardown. The built-in bloom/tonemap own their internal @group(1) bindings — post.destroy frees those.",
   ],
   order: 80,
 } satisfies DemoHelp;
