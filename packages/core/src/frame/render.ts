@@ -13,8 +13,8 @@ import type { Mesh, MeshSlot } from "../mesh/types.ts";
 import type { Effect, EffectSlot } from "../post/effect.ts";
 import { _evaluateChain } from "../post/evaluate.ts";
 import { bytesPerTexel } from "../post/format-bytes.ts";
-import { _ensurePostSampler } from "../post/intermediate.ts";
 import { _acquirePoolTarget, _poolBeginFrame } from "../post/pool.ts";
+import { _ensurePostSampler } from "../post/post-sampler.ts";
 import {
   _lookupEffect,
   _lookupGeometry,
