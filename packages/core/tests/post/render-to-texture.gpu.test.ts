@@ -286,7 +286,7 @@ test.skipIf(!bunWebGpuAvailable())(
         meshes: [cube],
         camera: cam,
       }),
-    ).toThrow(/must equal the context format/);
+    ).toThrow(/must equal the working color format/);
     depth.destroy();
     target.destroy();
     mesh.destroy(ctx, cube);

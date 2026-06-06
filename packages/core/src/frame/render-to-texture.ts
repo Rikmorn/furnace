@@ -21,8 +21,9 @@ import { trianglesForTopology } from "./triangles-for-topology.ts";
  *
  * - `texture`: consumer-supplied color target. The consumer owns its
  *   creation and destruction; the engine does not register or pool it.
- *   Must have the same format as `ctx.format`; a mismatch throws
- *   `FurnaceGpuError`.
+ *   Must have the same format as `ctx._internal.workingColorFormat` (the
+ *   format material pipelines render to — `ctx.format` for LDR contexts,
+ *   `rgba16float` for HDR contexts). A mismatch throws `FurnaceGpuError`.
  * - `meshes` / `camera` / `clearColor` / `clearDepth`: same semantics as
  *   `RenderOptions`. `clearColor` defaults to `[0, 0, 0, 1]` (linear);
  *   `clearDepth` defaults to `1.0`.
@@ -31,6 +32,12 @@ import { trianglesForTopology } from "./triangles-for-topology.ts";
  *   **only** when every drawn material was created with `depthEnabled: false`.
  *   Must be format `depth24plus` when supplied; any other format throws
  *   `FurnaceGpuError`.
+ *
+ * **MSAA contexts not supported:** `renderToTexture` renders a single-sample
+ * off-screen pass. When the context was created with `sampleCount: 4`, every
+ * material pipeline is multisampled and cannot be drawn in this single-sample
+ * pass. Calling `renderToTexture` on an MSAA context throws `FurnaceGpuError`.
+ * Use a `sampleCount: 1` context for off-screen render targets.
  *
  * **Depth coupling — now loud:** `renderToTexture` validates that the depth
  * attachment presence agrees with each drawn material's `depthEnabled` flag.
@@ -141,8 +148,13 @@ function recordDraw(
  *   geometry that does not itself resolve to a live slot (defensive —
  *   the Mesh→Material and Mesh→Geometry refcounts normally keep these
  *   alive while a mesh references them).
+ * @throws FurnaceGpuError - if `ctx._internal.sampleCount` is not `1`.
+ *   MSAA contexts build multisampled material pipelines that are
+ *   incompatible with the single-sample off-screen pass. Use a
+ *   `sampleCount: 1` context for off-screen render targets.
  * @throws FurnaceGpuError - if `opts.texture.format` does not equal
- *   `ctx.format` (the format material pipelines render to).
+ *   `ctx._internal.workingColorFormat` (the format material pipelines
+ *   render to — `ctx.format` for LDR, `rgba16float` for HDR).
  * @throws FurnaceGpuError - if any drawn material's `depthEnabled` flag
  *   disagrees with whether `opts.depthTexture` was supplied: a material
  *   created with `depthEnabled: false` in a depth-having pass, or a
@@ -166,17 +178,27 @@ export function renderToTexture(
   if (opts.meshes == null) {
     throw new FurnaceGpuError("renderToTexture: meshes is required");
   }
+  // (1) MSAA guard: renderToTexture is a single-sample pass; multisampled
+  // material pipelines cannot be drawn in it. Reject early with a clear error
+  // rather than letting the GPU layer surface a silent validation failure.
+  if (ctx._internal.sampleCount !== 1) {
+    throw new FurnaceGpuError(
+      `renderToTexture: MSAA contexts are not supported (ctx sampleCount is ${ctx._internal.sampleCount}); its material pipelines are built multisampled but renderToTexture renders a single-sample pass. Use a sampleCount:1 context for off-screen render targets`,
+    );
+  }
+
   const resolvedDraws = _frameRenderInternals._validateDraw(ctx, opts.meshes);
 
   const passHasDepth = opts.depthTexture !== undefined;
 
-  // (1) color-target format must match what material pipelines render to.
-  if (opts.texture.format !== ctx.format) {
+  // (2) color-target format must match the working color format that material
+  // pipelines render to (ctx.format for LDR, rgba16float for HDR).
+  if (opts.texture.format !== ctx._internal.workingColorFormat) {
     throw new FurnaceGpuError(
-      `renderToTexture: texture format '${opts.texture.format}' must equal the context format '${ctx.format}' that materials render to`,
+      `renderToTexture: texture format '${opts.texture.format}' must equal the working color format '${ctx._internal.workingColorFormat}' that material pipelines render to`,
     );
   }
-  // (2) every drawn material's depth declaration must match the pass.
+  // (3) every drawn material's depth declaration must match the pass.
   const depthMismatch = _frameRenderInternals._firstDepthDisagreement(
     resolvedDraws,
     passHasDepth,
@@ -188,7 +210,7 @@ export function renderToTexture(
         : `renderToTexture: meshes[${depthMismatch}] uses a depth-enabled material but no depthTexture was provided; pass a depthTexture or set depthEnabled:false`,
     );
   }
-  // (3) consumer depthTexture must match the format material pipelines declare.
+  // (4) consumer depthTexture must match the format material pipelines declare.
   if (opts.depthTexture && opts.depthTexture.format !== _ENGINE_DEPTH_FORMAT) {
     throw new FurnaceGpuError(
       `renderToTexture: depthTexture format '${opts.depthTexture.format}' must be '${_ENGINE_DEPTH_FORMAT}'`,
