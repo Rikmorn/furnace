@@ -564,13 +564,7 @@ module-level mutable-state exception.
 
 ### Demoed in cookbook
 
-- `create`, `destroy`, `Effect`, `EffectDescriptor` → `cookbook/post`.
-
-### Reference-only (no demo, by design)
-
-- `tonemap`, `ToneMapOperator` — the built-in HDR tonemap effect; exercised by the hello-world bowling scene's HDR path (Stage 2a), not the cookbook. A dedicated HDR cookbook demo is deferred.
-- `createPasses`, `PassesDescriptor`, `PassDescriptor`, `PassInput`, `PassOutput` — the declarative multi-pass chain surface (Stage 2b); covered by GPU tests (`tests/post/createpasses.gpu.test.ts`, `tests/post/multi-input.gpu.test.ts`). A multi-pass cookbook demo is deferred.
-- `bloom` — the built-in COD/Jimenez dual-filter bloom chain (Stage 2b), authored on `createPasses`; covered by GPU tests (`tests/post/bloom.gpu.test.ts`). A cookbook demo + the hello-world bowling emissive integration are deferred to the Stage 2b demo task.
+- `create`, `destroy`, `Effect`, `EffectDescriptor`, `createPasses`, `PassesDescriptor`, `PassDescriptor`, `PassInput`, `PassOutput`, `tonemap`, `ToneMapOperator`, `bloom` → `cookbook/post` (HDR + tonemap operator/exposure controls + built-in `bloom` + a consumer-authored 2-pass separable blur via `createPasses`). The hello-world bowling scene also exercises `tonemap` + `bloom` on the HDR path. All are additionally covered by GPU tests (`tests/post/createpasses.gpu.test.ts`, `tests/post/multi-input.gpu.test.ts`, `tests/post/bloom.gpu.test.ts`).
 
 ---
 
