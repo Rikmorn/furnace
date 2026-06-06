@@ -10,7 +10,11 @@ import { _ENGINE_DEPTH_FORMAT } from "../material/material.ts";
 import type { MaterialSlot } from "../material/types.ts";
 import { _recomputeModelIfDirty } from "../mesh/mesh.ts";
 import type { Mesh, MeshSlot } from "../mesh/types.ts";
-import type { Effect, EffectSlot } from "../post/effect.ts";
+import {
+  _resolveEffectPipeline,
+  type Effect,
+  type EffectSlot,
+} from "../post/effect.ts";
 import { bytesPerTexel } from "../post/format-bytes.ts";
 import {
   _ensureSceneIntermediates,
@@ -493,9 +497,11 @@ function renderEffectPass(
   inputView: GPUTextureView,
   sampler: GPUSampler,
   outputView: GPUTextureView,
+  targetFormat: GPUTextureFormat,
 ): void {
+  const { pipeline, group1 } = _resolveEffectPipeline(ctx, slot, targetFormat);
   const group0 = ctx.device.createBindGroup({
-    layout: slot.pipeline.getBindGroupLayout(0),
+    layout: pipeline.getBindGroupLayout(0),
     entries: [
       { binding: 0, resource: inputView },
       { binding: 1, resource: sampler },
@@ -512,12 +518,12 @@ function renderEffectPass(
       },
     ],
   });
-  pass.setPipeline(slot.pipeline);
+  pass.setPipeline(pipeline);
   _recordPipelineSwitch(ctx);
   pass.setBindGroup(0, group0);
   _recordBindGroupSwitch(ctx);
-  if (slot.group1 !== null) {
-    pass.setBindGroup(1, slot.group1);
+  if (group1 !== null) {
+    pass.setBindGroup(1, group1);
     _recordBindGroupSwitch(ctx);
   }
   pass.draw(3);
@@ -531,18 +537,38 @@ function runEffectsPingPong(
   effects: readonly EffectSlot[],
   im: IntermediateEntry,
 ): void {
+  // Mid-chain effects write into the rgba16float-or-ctx.format intermediates
+  // (workingColorFormat); the final effect writes to the swap chain (ctx.format).
+  // Under LDR both formats are ctx.format, so every effect resolves one pipeline.
+  const midFormat = ctx._internal.workingColorFormat;
   let inputView = im.aView;
   let outputView = im.bView;
   for (let i = 0; i < effects.length - 1; i++) {
     const slot = effects[i];
     if (!slot) continue; // unreachable after validateEffects; satisfies noUncheckedIndexedAccess
-    renderEffectPass(ctx, encoder, slot, inputView, im.sampler, outputView);
+    renderEffectPass(
+      ctx,
+      encoder,
+      slot,
+      inputView,
+      im.sampler,
+      outputView,
+      midFormat,
+    );
     [inputView, outputView] = [outputView, inputView];
   }
   const finalSlot = effects[effects.length - 1];
   if (!finalSlot) return; // unreachable after validateEffects
   const swapView = gpu.getCurrentTextureView(ctx);
-  renderEffectPass(ctx, encoder, finalSlot, inputView, im.sampler, swapView);
+  renderEffectPass(
+    ctx,
+    encoder,
+    finalSlot,
+    inputView,
+    im.sampler,
+    swapView,
+    ctx.format,
+  );
 }
 
 /**
@@ -593,26 +619,17 @@ export function render(ctx: Context, opts: RenderOptions): void {
   if (opts.meshes == null) {
     throw new FurnaceGpuError("render: meshes is required");
   }
-  // Setup-loud, before any GPU work. HDR (rgba16float scene target) supports
-  // exactly one effect in this foundation: the final pass that tonemaps back to
-  // the LDR swap chain. Zero effects has no pass to reach the swap chain; more
-  // than one needs rgba16float-targeted mid-chain pipelines (the post
-  // pipeline-cache gains a target-format axis in Stage 2b's multi-pass chain —
-  // until then a mid-chain effect's ctx.format pipeline would silently fail
-  // validation writing into the rgba16float intermediate).
+  // Setup-loud, before any GPU work. HDR renders the scene into an rgba16float
+  // intermediate, so it needs at least one effect to reach the LDR swap chain
+  // (zero effects has no pass to get there — e.g. supply post.tonemap as the
+  // final pass). Multi-effect HDR chains are supported: each effect builds its
+  // pipeline for its resolved target format (mid-chain = rgba16float, final =
+  // ctx.format) lazily via _resolveEffectPipeline.
   if (ctx._internal.hdr) {
     const effectCount = opts.effects?.length ?? 0;
     if (effectCount === 0) {
       throw new FurnaceGpuError(
         "render: hdr is enabled but no effects were supplied — an rgba16float scene target needs at least one effect (e.g. post.tonemap) to reach the LDR swap chain",
-      );
-    }
-    // MIGRATION (until Stage 2b): relax this guard when the multi-pass chain
-    // gives post pipelines a per-target format axis — then mid-chain effects can
-    // target the rgba16float intermediate and >1 HDR effect becomes valid.
-    if (effectCount > 1) {
-      throw new FurnaceGpuError(
-        "render: hdr currently supports only a single effect (the final tonemap pass) — multi-effect HDR chains need per-target pipeline formats, landing in Stage 2b",
       );
     }
   }

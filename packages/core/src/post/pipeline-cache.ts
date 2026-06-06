@@ -1,5 +1,6 @@
 import {
   acquirePostPipeline,
+  acquirePostPipelineSync,
   releasePostPipeline,
 } from "../resources/manager.ts";
 
@@ -11,10 +12,13 @@ import {
  * see `docs/backlog/engine-architecture/pipeline-cache-cross-context-leak.md`).
  *
  * `acquire(ctx, key, build)` returns a refcounted pipeline (built only on
- * a cache miss). `release(ctx, key)` decrements one ref; the entry is
- * evicted when refcount hits zero.
+ * a cache miss). `acquireSync` is the synchronous-`build` variant, safe to call
+ * from the synchronous `frame.render` hot path (effect pipelines build lazily
+ * per resolved target format there). `release(ctx, key)` decrements one ref; the
+ * entry is evicted when refcount hits zero.
  */
 export const _pipelineCache = {
   acquire: acquirePostPipeline,
+  acquireSync: acquirePostPipelineSync,
   release: releasePostPipeline,
 };

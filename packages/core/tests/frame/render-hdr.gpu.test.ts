@@ -75,18 +75,21 @@ test.skipIf(!bunWebGpuAvailable())(
 );
 
 test.skipIf(!bunWebGpuAvailable())(
-  "hdr on + MORE THAN ONE effect → setup-loud throw (multi-effect HDR is Stage 2b)",
+  "hdr on + MORE THAN ONE effect → renders one clean frame (mid-chain targets rgba16float)",
   async () => {
     const { ctx, cam, cube } = await makeHdrScene();
+    // fxA is mid-chain (targets the rgba16float intermediate via
+    // workingColorFormat); fxB is the final pass (targets ctx.format swap chain).
     const fxA = await post.create(ctx, {
       shader: await shader.create(ctx, PASSTHROUGH_WGSL),
     });
     const fxB = await post.create(ctx, {
       shader: await shader.create(ctx, PASSTHROUGH_WGSL),
     });
-    expect(() =>
-      frame.render(ctx, { meshes: [cube], camera: cam, effects: [fxA, fxB] }),
-    ).toThrow(/single effect|multi-effect|Stage 2b/);
+    ctx.device.pushErrorScope("validation");
+    frame.render(ctx, { meshes: [cube], camera: cam, effects: [fxA, fxB] });
+    const err = await ctx.device.popErrorScope();
+    expect(err).toBeNull();
     post.destroy(ctx, fxA);
     post.destroy(ctx, fxB);
     gpu.dispose(ctx);

@@ -2,7 +2,10 @@ import { expect, test } from "bun:test";
 import { consoleSink, type LogEntry, setSink } from "@furnace/core/log";
 import { FurnaceError, FurnaceGpuError } from "../../src/gpu/errors.ts";
 import * as gpu from "../../src/gpu/index.ts";
-import type { EffectSlot } from "../../src/post/effect.ts";
+import {
+  _resolveEffectPipeline,
+  type EffectSlot,
+} from "../../src/post/effect.ts";
 import * as post from "../../src/post/index.ts";
 import { _lookupEffect } from "../../src/resources/internal.ts";
 import * as shader from "../../src/shader/index.ts";
@@ -53,8 +56,12 @@ test.skipIf(!bunWebGpuAvailable())(
     if (slotA === null || slotB === null) {
       throw new Error("unreachable: effects were just created");
     }
-    expect(slotA.pipelineKey).toBe(slotB.pipelineKey);
-    expect(slotA.pipeline).toBe(slotB.pipeline);
+    // Pipelines build lazily per target format; resolve both at ctx.format and
+    // assert they share one cache entry (same key → same GPURenderPipeline).
+    const varA = _resolveEffectPipeline(ctx, slotA, ctx.format);
+    const varB = _resolveEffectPipeline(ctx, slotB, ctx.format);
+    expect(varA.pipelineKey).toBe(varB.pipelineKey);
+    expect(varA.pipeline).toBe(varB.pipeline);
     post.destroy(ctx, a);
     post.destroy(ctx, b);
     gpu.dispose(ctx);

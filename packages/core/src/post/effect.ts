@@ -62,46 +62,61 @@ export type Effect<L extends LayoutSchema = LayoutSchema> = EffectHandle & {
 };
 
 /**
+ * One cached pipeline variant for a single target colour format, plus its
+ * `@group(1)` bind group resolved against that pipeline's auto-derived layout.
+ * Effects build one of these lazily per format they render into: under HDR the
+ * same effect can target the `rgba16float` intermediate (mid-chain) and
+ * `ctx.format` (final swap-chain pass) and so holds two variants.
+ */
+type EffectPipelineVariant = {
+  pipeline: GPURenderPipeline;
+  pipelineKey: string;
+  group1: GPUBindGroup | null;
+};
+
+/**
  * Engine-private slot data backing an {@link Effect} handle in the
  * effects pool. Not exported from the `@furnace/core/post` public
  * surface; resource-manager internals only.
  *
- * `pipeline` is refcounted in the per-ctx post pipeline cache (keyed on
- * shader handle + ctx format + blend signature). `group1` is the `@group(1)`
- * `GPUBindGroup` resolved at create time over the consumer's binding/bindings
- * (or `null` when the shader declares no `@group(1)` data); `blend` is the
- * descriptor value captured at create time. Both are consumed directly by
- * `frame.render`'s post pass after upfront resolution via `validateEffects`.
+ * Pipelines build lazily per resolved target format (see
+ * {@link _resolveEffectPipeline}) and are cached in `byFormat`, keyed on the
+ * `GPUTextureFormat` the effect renders into. Each variant is refcounted in the
+ * per-ctx post pipeline cache (keyed on shader handle + target format + blend
+ * signature). `fsModule` is the fragment-stage module retained so target-format
+ * variants can be built on demand; `group1Entries` are the `@group(1)` bind-group
+ * entries (re)bound per pipeline variant (or `null` when the shader declares no
+ * `@group(1)` data); `blend` is the descriptor value captured at create time.
  */
 export type EffectSlot = {
-  pipeline: GPURenderPipeline;
-  pipelineKey: string;
-  group1: GPUBindGroup | null;
+  fsModule: GPUShaderModule;
+  shaderKey: string;
+  group1Entries: GPUBindGroupEntry[] | null;
   blend: GPUBlendState | undefined;
+  byFormat: Map<GPUTextureFormat, EffectPipelineVariant>;
   _teardown: () => void;
 };
 
-async function buildPipeline(
+// Synchronous: GPUDevice.createRenderPipeline is synchronous and effect
+// pipelines are built lazily on the synchronous frame.render hot path (per
+// resolved target format). Any pipeline-creation validation error surfaces via
+// the device's error scope at the call site (e.g. the test's pushErrorScope
+// around frame.render) or the uncaptured-error handler in production — we cannot
+// await popErrorScope here without making render async.
+function buildPipeline(
   ctx: Context,
   fsModule: GPUShaderModule,
   vsModule: GPUShaderModule,
+  targetFormat: GPUTextureFormat,
   blend: GPUBlendState | undefined,
-): Promise<GPURenderPipeline> {
-  ctx.device.pushErrorScope("validation");
+): GPURenderPipeline {
   const descriptor = _buildEffectPipelineDescriptor(
     fsModule,
     vsModule,
-    ctx.format,
+    targetFormat,
     blend,
   );
-  const pipeline = ctx.device.createRenderPipeline(descriptor);
-  const err = await ctx.device.popErrorScope();
-  if (err) {
-    throw new FurnaceError(
-      `post effect pipeline creation failed: ${err.message}`,
-    );
-  }
-  return pipeline;
+  return ctx.device.createRenderPipeline(descriptor);
 }
 
 // getBindGroupLayout and createBindGroup can throw synchronously when the
@@ -133,30 +148,75 @@ function buildGroup1(
 }
 
 function effectTeardown(ctx: Context, slot: EffectSlot): void {
-  _pipelineCache.release(ctx, slot.pipelineKey);
+  for (const variant of slot.byFormat.values()) {
+    _pipelineCache.release(ctx, variant.pipelineKey);
+  }
 }
 
 /**
- * Build (or reuse, via the internal per-ctx post pipeline cache) a
- * full-screen post-process pipeline keyed on shader handle + ctx format +
- * blend signature, and return an opaque {@link Effect} handle. The effect slot
- * is allocated in the per-ctx resource manager's effects pool.
+ * Get-or-build the pipeline variant for `targetFormat` on `slot`, caching it in
+ * `slot.byFormat`. The pipeline is built (or reused from the per-ctx post
+ * pipeline cache) against `targetFormat` — under HDR a mid-chain effect targets
+ * `ctx._internal.workingColorFormat` (rgba16float) while the final pass targets
+ * `ctx.format`, so the same effect acquires two distinct cache entries.
+ *
+ * Engine-internal; called synchronously by `frame.render`'s post pass, not the
+ * public surface.
+ */
+export function _resolveEffectPipeline(
+  ctx: Context,
+  slot: EffectSlot,
+  targetFormat: GPUTextureFormat,
+): EffectPipelineVariant {
+  const cached = slot.byFormat.get(targetFormat);
+  if (cached !== undefined) return cached;
+
+  const vsModule = _ensureFullscreenVS(ctx);
+  const pipelineKey = _effectPipelineHashKey(
+    slot.shaderKey,
+    targetFormat,
+    slot.blend,
+  );
+  const pipeline = _pipelineCache.acquireSync(ctx, pipelineKey, () =>
+    buildPipeline(ctx, slot.fsModule, vsModule, targetFormat, slot.blend),
+  );
+
+  const group1 =
+    slot.group1Entries !== null
+      ? buildGroup1(ctx, pipeline, pipelineKey, slot.group1Entries)
+      : null;
+
+  const variant: EffectPipelineVariant = { pipeline, pipelineKey, group1 };
+  slot.byFormat.set(targetFormat, variant);
+  return variant;
+}
+
+/**
+ * Register a full-screen post-process effect and return an opaque
+ * {@link Effect} handle. The effect slot is allocated in the per-ctx resource
+ * manager's effects pool. The fragment-stage module and `@group(1)` entries are
+ * captured now; the `GPURenderPipeline` (and its `@group(1)` bind group) build
+ * lazily on first render, per resolved target colour format — under HDR the
+ * same effect targets the `rgba16float` intermediate mid-chain and `ctx.format`
+ * as the final swap-chain pass, so it holds one pipeline variant per format.
  *
  * The shared fullscreen vertex shader (`vs_fullscreen`) is auto-supplied; the
  * `desc.shader` resource only needs to provide the fragment stage (entry
  * `fs_main`). See {@link EffectDescriptor} for the `@group(0)` / `@group(1)`
  * binding contract. Two `create` calls on the same ctx with the same shader
- * handle (and identical format + blend) share one underlying
- * `GPURenderPipeline`; the cache is per-ctx, so a pipeline built against ctx A
- * cannot be reused in ctx B.
+ * handle (and identical blend) share one underlying `GPURenderPipeline` per
+ * target format via the per-ctx post pipeline cache; the cache is per-ctx, so a
+ * pipeline built against ctx A cannot be reused in ctx B.
  *
  * Allocation: when `desc.binding` (or a non-empty `desc.bindings`) is supplied,
- * a `@group(1)` `GPUBindGroup` is created over the auto-derived layout at create
- * time. The bind-group resources (the binding's buffer, or consumer textures)
- * are consumer-owned — `post.destroy` does not touch them.
+ * the `@group(1)` entries are retained and a `GPUBindGroup` is built over each
+ * pipeline variant's auto-derived layout at first render. The bind-group
+ * resources (the binding's buffer, or consumer textures) are consumer-owned —
+ * `post.destroy` does not touch them.
  *
  * Setup-loud: throws on bad input or a disposed context (see
- * `engine-conventions.md` §"Failure policy").
+ * `engine-conventions.md` §"Failure policy"). Pipeline-creation validation
+ * errors surface at first render (when the pipeline is built), not at create.
  *
  * @throws FurnaceGpuError - `ctx` is disposed.
  * @throws FurnaceError - `desc.shader` is missing.
@@ -165,10 +225,8 @@ function effectTeardown(ctx: Context, slot: EffectSlot): void {
  *   `desc.binding` nor a non-empty `desc.bindings` is supplied (completeness
  *   check — setup-loud).
  * @throws FurnaceError - `desc.binding` is invalid or destroyed.
- * @throws FurnaceError - `binding`/`bindings` are supplied but the shader
- *   declares no `@group(1)` bindings (layout mismatch).
- * @throws FurnaceError - pipeline creation surfaced a WebGPU validation error.
  */
+// biome-ignore lint/suspicious/useAwait: public post.create returns Promise<Effect> by contract (sibling post.tonemap is irreducibly async; 2b-3's multi-pass reshape may reintroduce async work); body became await-free only because pipelines build lazily at render time
 export async function create<L extends LayoutSchema = LayoutSchema>(
   ctx: Context,
   desc: EffectDescriptor<L>,
@@ -199,42 +257,32 @@ export async function create<L extends LayoutSchema = LayoutSchema>(
     );
   }
 
-  const vsModule = _ensureFullscreenVS(ctx);
-  const pipelineKey = _effectPipelineHashKey(
-    String(desc.shader),
-    ctx.format,
-    desc.blend,
-  );
-  const pipeline = await _pipelineCache.acquire(ctx, pipelineKey, () =>
-    buildPipeline(ctx, shaderSlot.module, vsModule, desc.blend),
-  );
-
-  // Resolve @group(1) bind group: typed binding path takes precedence over raw
-  // bindings. The binding OWNS its buffer — post.destroy does not free it.
-  let group1: GPUBindGroup | null = null;
+  // Resolve the @group(1) bind-group entries: typed binding path takes
+  // precedence over raw bindings. These entries are (re)bound per pipeline
+  // variant in _resolveEffectPipeline; no pipeline is built at create time.
+  // The binding OWNS its buffer — post.destroy does not free it.
+  let group1Entries: GPUBindGroupEntry[] | null = null;
   if (desc.binding != null) {
     const buf = _bufferOf(ctx, desc.binding);
     if (buf === null) {
       // Stale/destroyed binding — fail setup-loud rather than silently leaving
-      // group1 null (which would surface as a GPU error at draw time). Release
-      // the pipeline-cache slot acquired above, mirroring buildGroup1.
-      _pipelineCache.release(ctx, pipelineKey);
+      // group1 null (which would surface as a GPU error at draw time). No
+      // pipeline-cache slot to release: pipelines build lazily at render time.
       throw new FurnaceError(
         "post.create: binding handle is invalid or destroyed",
       );
     }
-    group1 = buildGroup1(ctx, pipeline, pipelineKey, [
-      { binding: 0, resource: { buffer: buf } },
-    ]);
+    group1Entries = [{ binding: 0, resource: { buffer: buf } }];
   } else if (hasRawBindings && desc.bindings != null) {
-    group1 = buildGroup1(ctx, pipeline, pipelineKey, desc.bindings);
+    group1Entries = desc.bindings;
   }
 
   const slot: EffectSlot = {
-    pipeline,
-    pipelineKey,
-    group1,
+    fsModule: shaderSlot.module,
+    shaderKey: String(desc.shader),
+    group1Entries,
     blend: desc.blend,
+    byFormat: new Map(),
     _teardown: () => effectTeardown(ctx, slot),
   };
   // Boundary cast: phantom L is compile-time only; _allocEffect returns

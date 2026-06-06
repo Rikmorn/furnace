@@ -4,7 +4,10 @@ import * as frame from "../../src/frame/index.ts";
 import * as geometry from "../../src/geometry/index.ts";
 import * as gpu from "../../src/gpu/index.ts";
 import * as mesh from "../../src/mesh/index.ts";
-import type { EffectSlot } from "../../src/post/effect.ts";
+import {
+  _resolveEffectPipeline,
+  type EffectSlot,
+} from "../../src/post/effect.ts";
 import * as post from "../../src/post/index.ts";
 import { _lookupEffect } from "../../src/resources/internal.ts";
 import { vec3, vec4 } from "../../src/transform/index.ts";
@@ -87,9 +90,15 @@ test.skipIf(!bunWebGpuAvailable())(
     // The shared per-ctx shader cache means both effects resolve to the same
     // shader handle → same post pipeline-cache key → one shared GPURenderPipeline.
     // Pipeline identity is the observable proof the shader was reused, not recompiled.
+    // Pipelines build lazily per target format — resolve both at ctx.format first.
     const slotA = _lookupEffect<EffectSlot>(ctx, a);
     const slotB = _lookupEffect<EffectSlot>(ctx, b);
-    expect(slotA?.pipeline).toBe(slotB?.pipeline);
+    if (slotA === null || slotB === null) {
+      throw new Error("unreachable: tonemaps were just created");
+    }
+    const varA = _resolveEffectPipeline(ctx, slotA, ctx.format);
+    const varB = _resolveEffectPipeline(ctx, slotB, ctx.format);
+    expect(varA.pipeline).toBe(varB.pipeline);
     post.destroy(ctx, a);
     post.destroy(ctx, b);
     gpu.dispose(ctx);

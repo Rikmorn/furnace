@@ -112,6 +112,21 @@ async function acquirePipeline(
   return pipeline;
 }
 
+function acquirePipelineSync(
+  cache: Map<string, PipelineCacheEntry>,
+  key: string,
+  build: () => GPURenderPipeline,
+): GPURenderPipeline {
+  const hit = cache.get(key);
+  if (hit) {
+    hit.refCount += 1;
+    return hit.pipeline;
+  }
+  const pipeline = build();
+  cache.set(key, { pipeline, refCount: 1 });
+  return pipeline;
+}
+
 function releasePipeline(
   cache: Map<string, PipelineCacheEntry>,
   key: string,
@@ -161,6 +176,24 @@ export function acquirePostPipeline(
   build: () => Promise<GPURenderPipeline>,
 ): Promise<GPURenderPipeline> {
   return acquirePipeline(ctx._internal.resources.postPipelineCache, key, build);
+}
+
+/**
+ * Synchronous variant of {@link acquirePostPipeline}. Builds the pipeline with
+ * a synchronous `build` (`GPUDevice.createRenderPipeline` is synchronous), so it
+ * is safe to call from the synchronous `frame.render` hot path. Refcount on the
+ * entry is incremented on a hit; `build` runs only on a miss. Engine-internal.
+ */
+export function acquirePostPipelineSync(
+  ctx: Context,
+  key: string,
+  build: () => GPURenderPipeline,
+): GPURenderPipeline {
+  return acquirePipelineSync(
+    ctx._internal.resources.postPipelineCache,
+    key,
+    build,
+  );
 }
 
 /**
