@@ -602,12 +602,28 @@ export function render(ctx: Context, opts: RenderOptions): void {
   if (opts.meshes == null) {
     throw new FurnaceGpuError("render: meshes is required");
   }
-  // Setup-loud, before any GPU work: an HDR (rgba16float) scene target with no
-  // effect chain has no pass to tonemap back to the LDR swap chain.
-  if (ctx._internal.hdr && (opts.effects?.length ?? 0) === 0) {
-    throw new FurnaceGpuError(
-      "render: hdr is enabled but no effects were supplied — an rgba16float scene target needs at least one effect (e.g. post.tonemap) to reach the LDR swap chain",
-    );
+  // Setup-loud, before any GPU work. HDR (rgba16float scene target) supports
+  // exactly one effect in this foundation: the final pass that tonemaps back to
+  // the LDR swap chain. Zero effects has no pass to reach the swap chain; more
+  // than one needs rgba16float-targeted mid-chain pipelines (the post
+  // pipeline-cache gains a target-format axis in Stage 2b's multi-pass chain —
+  // until then a mid-chain effect's ctx.format pipeline would silently fail
+  // validation writing into the rgba16float intermediate).
+  if (ctx._internal.hdr) {
+    const effectCount = opts.effects?.length ?? 0;
+    if (effectCount === 0) {
+      throw new FurnaceGpuError(
+        "render: hdr is enabled but no effects were supplied — an rgba16float scene target needs at least one effect (e.g. post.tonemap) to reach the LDR swap chain",
+      );
+    }
+    // MIGRATION (until Stage 2b): relax this guard when the multi-pass chain
+    // gives post pipelines a per-target format axis — then mid-chain effects can
+    // target the rgba16float intermediate and >1 HDR effect becomes valid.
+    if (effectCount > 1) {
+      throw new FurnaceGpuError(
+        "render: hdr currently supports only a single effect (the final tonemap pass) — multi-effect HDR chains need per-target pipeline formats, landing in Stage 2b",
+      );
+    }
   }
   // Flush all dirty bindings to the GPU before any draw work begins.
   // Generalises the per-mesh transform dirty-flush to the binding layer.

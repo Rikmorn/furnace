@@ -75,6 +75,25 @@ test.skipIf(!bunWebGpuAvailable())(
 );
 
 test.skipIf(!bunWebGpuAvailable())(
+  "hdr on + MORE THAN ONE effect → setup-loud throw (multi-effect HDR is Stage 2b)",
+  async () => {
+    const { ctx, cam, cube } = await makeHdrScene();
+    const fxA = await post.create(ctx, {
+      shader: await shader.create(ctx, PASSTHROUGH_WGSL),
+    });
+    const fxB = await post.create(ctx, {
+      shader: await shader.create(ctx, PASSTHROUGH_WGSL),
+    });
+    expect(() =>
+      frame.render(ctx, { meshes: [cube], camera: cam, effects: [fxA, fxB] }),
+    ).toThrow(/single effect|multi-effect|Stage 2b/);
+    post.destroy(ctx, fxA);
+    post.destroy(ctx, fxB);
+    gpu.dispose(ctx);
+  },
+);
+
+test.skipIf(!bunWebGpuAvailable())(
   "hdr on + MSAA (sampleCount 4) + ONE passthrough effect → renders one clean frame",
   async () => {
     const canvas = await makeOffscreenCanvas(64, 64);
