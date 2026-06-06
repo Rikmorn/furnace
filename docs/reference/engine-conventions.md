@@ -20,6 +20,32 @@ Override the surface format via `gpu.requestContext(canvas, { surfaceFormat: "li
 
 **Test/prod color-space gap.** GPU tests run under `bun-webgpu` use `surfaceFormat: "linear"` because the mock drops `viewFormats` from canvas context configuration — production's default sRGB format would fail mock validation. sRGB-specific code paths are exercised only by manual Safari / Chrome runs of hello-world and the cookbook. See `packages/core/tests/_helpers/gpu-fixture.ts`.
 
+## MSAA
+
+MSAA is ctx-level and pass-coupled. `gpu.requestContext(canvas, { sampleCount: 1 | 4 })` (default `1`). Core WebGPU only supports these two values; any other value throws `FurnaceGpuError` at request time.
+
+- **Engine-owned targets.** When `sampleCount: 4`, `frame.render` allocates (lazily, reallocated on resize) a multisampled scene-color texture (format = working color format, see §HDR below) and a multisampled depth texture, both matching the canvas backing-store size. The scene renders into the multisampled color target; the pass resolves it into the single-sample destination (swap-chain texture, or post intermediate when effects are present) with `storeOp: "discard"` — tile-memory-friendly on mobile/tiled GPUs.
+- **Pipeline coupling.** `sampleCount` is part of the material pipeline-cache key (alongside the working color format). A pipeline built for `sampleCount: 4` can only draw in a 4× multisampled pass; passing it to a single-sample pass (e.g. `frame.renderToTexture`) produces a GPU validation error. `frame.renderToTexture` rejects MSAA contexts setup-loud (throws `FurnaceGpuError`) for this reason — use a `sampleCount: 1` context for off-screen render targets.
+- **Depth.** The engine-owned depth texture is also multisampled to match `sampleCount`, using `storeOp: "discard"` in tandem with the color resolve.
+
+## HDR intermediate (working color format)
+
+`gpu.requestContext(canvas, { hdr: true })` (default `false`) selects an `rgba16float` *working color format*. When `hdr: false`, the working color format equals the swap-chain surface format (the LDR path — e.g. `bgra8unorm-srgb`).
+
+The working color format is the format of:
+- The engine-owned multisampled scene-color target (MSAA path).
+- The engine-owned post-effect ping-pong intermediates (`post/intermediate.ts`).
+- Every material pipeline's fragment target (keyed alongside `sampleCount` in the cache).
+- Consumer-supplied color targets for `frame.renderToTexture` — the target's format must equal the working color format (not the swap-chain format); a mismatch throws `FurnaceGpuError`.
+
+**Tonemap is an effect, not a mandatory stage.** `post.tonemap()` is an ordinary consumer-replaceable effect (see `@furnace/core/post`). The engine does **not** auto-inject it. However, **HDR-on with an empty effect chain is setup-loud**: `frame.render` throws `FurnaceGpuError` when `hdr: true` and no effects are supplied — an `rgba16float` scene target with no effect to reach the LDR swap chain produces incorrect output that would be silent otherwise.
+
+**Color-space interaction.** `post.tonemap` writes **linear** LDR values (no manual `pow(1/2.2)`). When the swap-chain surface format is an `*-srgb` variant (the default `surfaceFormat: "srgb"`), the hardware applies the sRGB OETF automatically on present — this is the same rule as the §Color space section: shaders write linear, the swap-chain encodes.
+
+## Single-encoder / single-submit
+
+`frame.render` records the scene pass and all effect passes into **one `GPUCommandEncoder`** and submits once via `ctx.queue.submit([encoder.finish()])`. All GPU work for a frame — scene draw + post chain — is batched into a single command buffer. `frame.renderToTexture` similarly uses one encoder + one submit for its single off-screen pass.
+
 ## Device pixel ratio
 
 Default behavior: render at native device resolution (sharp on high-DPI displays). Canvas backing-store size set to `clientWidth * devicePixelRatio × clientHeight * devicePixelRatio`.
