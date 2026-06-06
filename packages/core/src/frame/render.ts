@@ -39,9 +39,20 @@ type DepthEntry = {
   view: GPUTextureView;
   width: number;
   height: number;
+  sampleCount: number;
+};
+
+type SceneColorEntry = {
+  texture: GPUTexture;
+  view: GPUTextureView;
+  width: number;
+  height: number;
+  sampleCount: number;
+  format: GPUTextureFormat;
 };
 
 const depthByCtx = new WeakMap<Context, DepthEntry>();
+const sceneColorByCtx = new WeakMap<Context, SceneColorEntry>();
 const cameraBuffers = new WeakMap<Context, Map<Camera, GPUBuffer>>();
 // cameraBufferHandles deleted — every camera buffer is CAMERA_UNIFORM_SIZE bytes;
 // the constant is in scope at destroy time, no per-instance lookup needed.
@@ -49,14 +60,36 @@ const cameraBuffers = new WeakMap<Context, Map<Camera, GPUBuffer>>();
 const DEPTH_BYTES_PER_PIXEL = 4; // depth24plus → 4 bytes/texel for accounting
 
 function depthEntryBytes(entry: DepthEntry): number {
-  return entry.width * entry.height * DEPTH_BYTES_PER_PIXEL;
+  return entry.width * entry.height * DEPTH_BYTES_PER_PIXEL * entry.sampleCount;
+}
+
+/** Bytes per texel for common render target formats. */
+function bytesPerTexel(format: GPUTextureFormat): number {
+  switch (format) {
+    case "rgba16float":
+      return 8;
+    default:
+      return 4; // bgra8unorm, rgba8unorm, bgra8unorm-srgb, rgba8unorm-srgb
+  }
+}
+
+function sceneColorEntryBytes(entry: SceneColorEntry): number {
+  return (
+    entry.width * entry.height * bytesPerTexel(entry.format) * entry.sampleCount
+  );
 }
 
 export function _ensureDepthTexture(ctx: Context): DepthEntry {
   const existing = depthByCtx.get(ctx);
   const width = ctx.canvas.width;
   const height = ctx.canvas.height;
-  if (existing && existing.width === width && existing.height === height) {
+  const sampleCount = ctx._internal.sampleCount;
+  if (
+    existing &&
+    existing.width === width &&
+    existing.height === height &&
+    existing.sampleCount === sampleCount
+  ) {
     return existing;
   }
   if (existing) {
@@ -66,14 +99,20 @@ export function _ensureDepthTexture(ctx: Context): DepthEntry {
   const texture = ctx.device.createTexture({
     size: { width, height },
     format: _ENGINE_DEPTH_FORMAT,
+    sampleCount,
     usage: GPUTextureUsage.RENDER_ATTACHMENT,
   });
-  _recordAlloc(ctx, "texture", width * height * DEPTH_BYTES_PER_PIXEL);
+  _recordAlloc(
+    ctx,
+    "texture",
+    width * height * DEPTH_BYTES_PER_PIXEL * sampleCount,
+  );
   const entry: DepthEntry = {
     texture,
     view: texture.createView(),
     width,
     height,
+    sampleCount,
   };
   depthByCtx.set(ctx, entry);
   if (existing === undefined) {
@@ -88,6 +127,68 @@ function _disposeDepth(ctx: Context): void {
   entry.texture.destroy();
   _recordDestroy(ctx, "texture", depthEntryBytes(entry));
   depthByCtx.delete(ctx);
+}
+
+/**
+ * When `sampleCount > 1`, lazily allocates (and resize-reallocates) the
+ * multisampled color target that the scene renders into, resolving into the
+ * single-sample destination after the pass. Returns `null` when
+ * `sampleCount === 1` — the scene renders directly into the destination.
+ * Module-private: used only by `render`; exercised via `frame.render`.
+ */
+function _ensureSceneColorTarget(ctx: Context): SceneColorEntry | null {
+  const sampleCount = ctx._internal.sampleCount;
+  if (sampleCount === 1) return null;
+
+  const existing = sceneColorByCtx.get(ctx);
+  const width = ctx.canvas.width;
+  const height = ctx.canvas.height;
+  const format = ctx._internal.workingColorFormat;
+  if (
+    existing &&
+    existing.width === width &&
+    existing.height === height &&
+    existing.sampleCount === sampleCount &&
+    existing.format === format
+  ) {
+    return existing;
+  }
+  if (existing) {
+    existing.texture.destroy();
+    _recordDestroy(ctx, "texture", sceneColorEntryBytes(existing));
+  }
+  const texture = ctx.device.createTexture({
+    size: { width, height },
+    format,
+    sampleCount,
+    usage: GPUTextureUsage.RENDER_ATTACHMENT,
+  });
+  _recordAlloc(
+    ctx,
+    "texture",
+    width * height * bytesPerTexel(format) * sampleCount,
+  );
+  const entry: SceneColorEntry = {
+    texture,
+    view: texture.createView(),
+    width,
+    height,
+    sampleCount,
+    format,
+  };
+  sceneColorByCtx.set(ctx, entry);
+  if (existing === undefined) {
+    _onDispose(ctx, () => _disposeSceneColor(ctx));
+  }
+  return entry;
+}
+
+function _disposeSceneColor(ctx: Context): void {
+  const entry = sceneColorByCtx.get(ctx);
+  if (!entry) return;
+  entry.texture.destroy();
+  _recordDestroy(ctx, "texture", sceneColorEntryBytes(entry));
+  sceneColorByCtx.delete(ctx);
 }
 
 export function _ensureCameraBuffer(ctx: Context, cam: Camera): GPUBuffer {
@@ -238,22 +339,25 @@ function beginRenderPass(
   depthView: GPUTextureView,
   clearColor: Vec4,
   clearDepth: number,
+  resolveTarget?: GPUTextureView,
 ): GPURenderPassEncoder {
   const [r = 0, g = 0, b = 0, a = 1] = clearColor;
+  const msaa = resolveTarget !== undefined;
   return encoder.beginRenderPass({
     colorAttachments: [
       {
         view: colorView,
+        resolveTarget: msaa ? resolveTarget : undefined,
         clearValue: { r, g, b, a },
         loadOp: "clear",
-        storeOp: "store",
+        storeOp: msaa ? "discard" : "store",
       },
     ],
     depthStencilAttachment: {
       view: depthView,
       depthClearValue: clearDepth,
       depthLoadOp: "clear",
-      depthStoreOp: "store",
+      depthStoreOp: msaa ? "discard" : "store",
     },
   });
 }
@@ -373,6 +477,7 @@ function recordScenePass(
   cameraBuffer: GPUBuffer,
   clearColor: Vec4,
   clearDepth: number,
+  resolveTarget?: GPUTextureView,
 ): void {
   const encoder = ctx.device.createCommandEncoder();
   const pass = beginRenderPass(
@@ -381,6 +486,7 @@ function recordScenePass(
     depthView,
     clearColor,
     clearDepth,
+    resolveTarget,
   );
   let lastPipeline: GPURenderPipeline | null = null;
   for (const resolved of draw) {
@@ -453,12 +559,16 @@ function runEffectsPingPong(
  * Submit one frame: clear, draw `opts.meshes` against `opts.camera`, optionally
  * ping-pong through `opts.effects` to the swap chain.
  *
- * Allocation semantics — both lazy, both engine-owned and reused across
- * frames:
- * - One depth texture per context (`depth24plus`), allocated on first call
- *   and reallocated when the canvas backing-store size changes. Always
- *   attached; the engine has no depth-less render path here (see
- *   `engine-conventions.md` §"Binding contract").
+ * Allocation semantics — all lazy, engine-owned and reused across frames:
+ * - One depth texture per context (`depth24plus`, multisampled to match
+ *   `ctx._internal.sampleCount`), allocated on first call and reallocated when
+ *   the canvas backing-store size changes. Always attached; the engine has no
+ *   depth-less render path here (see `engine-conventions.md` §"Binding contract").
+ * - One multisampled scene color target per context (`workingColorFormat`),
+ *   allocated only when `ctx._internal.sampleCount > 1` (skipped entirely for
+ *   the no-MSAA path) and reallocated on resize. The scene renders into it and
+ *   resolves into the single-sample destination (swap chain, or post
+ *   intermediate when effects are present).
  * - One camera uniform buffer (64 bytes) per `(context, camera)` pair,
  *   allocated on first sighting of a given camera. The buffer is written each
  *   call from `camera.getMatrices`. Per-mesh `@group(0)` bind groups are
@@ -509,32 +619,39 @@ export function render(ctx: Context, opts: RenderOptions): void {
 
   const cameraBuffer = _ensureCameraBuffer(ctx, opts.camera);
   const depth = _ensureDepthTexture(ctx);
+  const msaa = _ensureSceneColorTarget(ctx);
   const clearColor = opts.clearColor ?? DEFAULT_CLEAR_COLOR;
   const clearDepth = opts.clearDepth ?? DEFAULT_CLEAR_DEPTH;
 
   if (effects.length === 0) {
-    const colorView = gpu.getCurrentTextureView(ctx);
+    const singleSampleDest = gpu.getCurrentTextureView(ctx);
+    const sceneColorView = msaa ? msaa.view : singleSampleDest;
+    const resolveTarget = msaa ? singleSampleDest : undefined;
     recordScenePass(
       ctx,
-      colorView,
+      sceneColorView,
       depth.view,
       resolvedDraws,
       cameraBuffer,
       clearColor,
       clearDepth,
+      resolveTarget,
     );
     return;
   }
 
   const im = _ensureSceneIntermediates(ctx);
+  const sceneColorView = msaa ? msaa.view : im.aView;
+  const resolveTarget = msaa ? im.aView : undefined;
   recordScenePass(
     ctx,
-    im.aView,
+    sceneColorView,
     depth.view,
     resolvedDraws,
     cameraBuffer,
     clearColor,
     clearDepth,
+    resolveTarget,
   );
   runEffectsPingPong(ctx, resolvedEffects, im);
 }
