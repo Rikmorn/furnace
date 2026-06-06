@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import * as gpu from "../../src/gpu/index.ts";
 import {
   _acquirePoolTarget,
+  _poolBeginFrame,
   _poolStats,
   _releasePoolTarget,
 } from "../../src/post/pool.ts";
@@ -56,6 +57,29 @@ test.skipIf(!bunWebGpuAvailable())(
     expect(stats.snapshot(ctx).memory.textureBytes).toBeGreaterThan(base);
     gpu.dispose(ctx);
     expect(a.tex).toBeDefined();
+  },
+);
+
+test.skipIf(!bunWebGpuAvailable())(
+  "_poolBeginFrame frees stale free targets when the canvas size changes (no resize leak)",
+  async () => {
+    const ctx = await gpu.requestContext(await makeOffscreenCanvas(64, 64), {
+      surfaceFormat: "linear",
+    });
+    // Frame 1 at canvas 64x64: acquire + release a target → it sits in the free list.
+    _poolBeginFrame(ctx, 64, 64);
+    const a = _acquirePoolTarget(ctx, 32, 32, "rgba16float");
+    _releasePoolTarget(ctx, a);
+    const afterFirst = stats.snapshot(ctx).memory.textureBytes;
+    expect(_poolStats(ctx)).toEqual({ free: 1, live: 0 });
+    // Frame 2 at a NEW canvas size: the old-size free target is stale → freed.
+    _poolBeginFrame(ctx, 128, 128);
+    expect(_poolStats(ctx)).toEqual({ free: 0, live: 0 });
+    expect(stats.snapshot(ctx).memory.textureBytes).toBeLessThan(afterFirst);
+    // Same size again → no eviction (idempotent within a size).
+    _poolBeginFrame(ctx, 128, 128);
+    expect(_poolStats(ctx)).toEqual({ free: 0, live: 0 });
+    gpu.dispose(ctx);
   },
 );
 

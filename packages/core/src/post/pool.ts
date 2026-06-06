@@ -19,6 +19,10 @@ type PoolTarget = {
 type PoolState = {
   free: PoolTarget[];
   live: Set<PoolTarget>;
+  /** Canvas size the current free targets were sized against. When it changes,
+   *  every pooled target (all chain sizes derive from the canvas) is stale. */
+  canvasWidth: number;
+  canvasHeight: number;
 };
 
 const poolByCtx = new WeakMap<Context, PoolState>();
@@ -38,7 +42,12 @@ function targetBytes(t: PoolTarget): number {
 function ensurePool(ctx: Context): PoolState {
   const existing = poolByCtx.get(ctx);
   if (existing !== undefined) return existing;
-  const state: PoolState = { free: [], live: new Set() };
+  const state: PoolState = {
+    free: [],
+    live: new Set(),
+    canvasWidth: 0,
+    canvasHeight: 0,
+  };
   poolByCtx.set(ctx, state);
   _onDispose(ctx, () => _disposePool(ctx));
   return state;
@@ -57,6 +66,37 @@ function allocateTarget(
   });
   _recordAlloc(ctx, "texture", width * height * bytesPerTexel(format));
   return { tex, view: tex.createView(), width, height, format };
+}
+
+/**
+ * Frame-boundary trim: call once per frame with the current canvas size BEFORE
+ * acquiring any chain targets. When the canvas size changes, every free target
+ * is stale (all chain target sizes derive from the canvas), so destroy the whole
+ * free list — otherwise old-size targets accumulate forever across resizes (they
+ * are never matched again and only freed at `gpu.dispose`). Live targets are not
+ * touched: at a frame boundary the previous chain has already released them, and
+ * a still-live target would be mid-use. No-op until the pool exists.
+ */
+export function _poolBeginFrame(
+  ctx: Context,
+  canvasWidth: number,
+  canvasHeight: number,
+): void {
+  const state = poolByCtx.get(ctx);
+  if (state === undefined) return;
+  if (
+    state.canvasWidth === canvasWidth &&
+    state.canvasHeight === canvasHeight
+  ) {
+    return;
+  }
+  for (const t of state.free) {
+    t.tex.destroy();
+    _recordDestroy(ctx, "texture", targetBytes(t));
+  }
+  state.free = [];
+  state.canvasWidth = canvasWidth;
+  state.canvasHeight = canvasHeight;
 }
 
 /**

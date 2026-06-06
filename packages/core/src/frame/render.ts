@@ -14,7 +14,7 @@ import type { Effect, EffectSlot } from "../post/effect.ts";
 import { _evaluateChain } from "../post/evaluate.ts";
 import { bytesPerTexel } from "../post/format-bytes.ts";
 import { _ensurePostSampler } from "../post/intermediate.ts";
-import { _acquirePoolTarget } from "../post/pool.ts";
+import { _acquirePoolTarget, _poolBeginFrame } from "../post/pool.ts";
 import {
   _lookupEffect,
   _lookupGeometry,
@@ -591,6 +591,9 @@ export function render(ctx: Context, opts: RenderOptions): void {
       resolveTarget,
     );
   } else {
+    // Free any pool targets left at a stale canvas size (resize) before this
+    // frame's chain acquires fresh ones — otherwise old-size targets accumulate.
+    _poolBeginFrame(ctx, ctx.canvas.width, ctx.canvas.height);
     // Render the scene into a pool-backed transient (working format = rgba16float
     // under HDR, else ctx.format); the post chain reads it as its "scene" input.
     const sceneTarget = _acquirePoolTarget(
