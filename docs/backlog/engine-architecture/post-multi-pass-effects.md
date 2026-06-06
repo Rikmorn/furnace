@@ -1,48 +1,28 @@
 # Post: multi-pass effects
 
-Tranche 6's post API is single-pass: each Effect runs one fullscreen-quad
-pass, reading the previous output and writing to the next intermediate
-(or swapchain). This is enough for: bloom-approximation, vignette,
-color grading, sharpen, chromatic aberration, film grain, simple
-tonemap (without auto-exposure), CRT/scanline filters, simple FXAA.
+## Stage 2b status
 
-What it can't express:
-- **Multi-input passes** — reading multiple textures (color + depth +
-  normal + velocity), not just the previous effect's output.
-- **Different-sized intermediates** — half/quarter-resolution targets
-  for downsample chains.
-- **Cross-frame history** — TAA needs the previous frame's output
-  retained across frames.
-- **Compute passes** between fragment passes — luminance histograms,
-  particle simulation, sort/scan.
+**Resolved by Stage 2b (T2 / `createPasses` + pool + `bloom`):**
 
-Concrete second cases that would trigger this work:
-- **Real bloom** — bright-pass extract → downsample chain (5-6 mips)
-  → upsample with blur at each level → composite. ~10 passes.
-- **SSAO** — sample depth+normal, compute AO, separate blur to denoise.
-- **Depth of field** — extract CoC → downsample → separable bokeh →
-  composite. Multi-input + multi-resolution.
-- **Screen-space reflections** — march rays against depth, blur, composite.
-- **Temporal anti-aliasing** — needs persistent history target.
-- **Motion blur** — needs velocity buffer from the scene pass.
-- **Tonemapping with auto-exposure** — compute pass for luminance
-  histogram → exposure value → tonemap.
-- **Separable Gaussian blur** as a building block — horizontal +
-  vertical = 2 passes.
+- Multi-pass effects — `post.createPasses({ passes: PassDescriptor[] })` lets each effect declare an arbitrary ordered list of fullscreen passes.
+- Multi-input passes — `PassDescriptor.inputs: PassInput[]` supports N `@group(0)` texture inputs per pass (`"scene"`, `"prev"`, `{ intermediate: name }`). Used by `post.bloom`'s upsample passes (two inputs: smaller mip + same-level mip) and the composite pass (scene + bloom).
+- Different-sized intermediates — `PassDescriptor.output.scale` multiplies the canvas size; the per-ctx transient pool (`post/pool.ts`) acquires the correctly-sized `GPUTexture` and reuses it across frames.
+- Real bloom — built-in COD/Jimenez dual-filter (`post.bloom`) ships as a `createPasses`-authored effect: prefilter + downsample chain + tent-upsample accumulation + composite, all mid-chain pool-backed. Up to 6 mips.
 
-Likely shape:
-- Effect descriptor grows fields for intermediate declarations
-  (`requests: [{ scale: 0.5, format: ..., persistFrames: 1 }]`) and
-  for input bindings beyond "previous pass."
-- Engine grows a target pool keyed by `(size, format)` with frame
-  scoping rules.
-- `frame.render` orchestration grows a small graph evaluator.
+## Remaining / deferred
 
-Design risk: doing this without a concrete second case to validate
-against risks the wrong abstraction. Wait for a real driver.
+What the T2 `createPasses` surface **cannot** express today:
 
-**Trigger to revisit:** First of the above concrete cases lands as a
-real consumer need, or a tier-2 effect (animation, scene module)
-demands cross-frame state.
+- **Scene-side G-buffer inputs** — depth, normals, velocity from the scene pass itself. The scene pass's depth/normal buffers are not yet accessible to post effects (`PassInput` only covers scene-color + named post-chain intermediates). SSAO, SSR, motion blur, and depth-of-field all need this.
+- **Cross-frame history** — TAA needs the previous frame's output retained across frames. The pool does not persist across frames; targets on the free list are available but not semantically guaranteed to be "last frame's output."
+- **Compute passes** — luminance histogram (auto-exposure), GPU sort/scan, particle simulation. `createPasses` records fragment passes only; the chain evaluator has no compute-pass slot.
+- **Separable blur** as a cross-effect building block — the T2 API composes this via two passes in one `createPasses` call; the abstraction gap is that the consumer must wire the intermediate by name, which is fine for now.
 
-**Reference:** `docs/superpowers/specs/2026-05-24-core-tranche-6-post-process-design.md` §1 Out.
+These deferred items form the seed of a render-graph entry point. They are tracked in `docs/backlog/engine-architecture/post-render-graph.md`.
+
+**Trigger to revisit:** First of the remaining cases lands as a real consumer need:
+- SSAO or SSR (scene-side G-buffer inputs).
+- TAA (cross-frame history target).
+- Auto-exposure (compute pass).
+
+**Reference:** Stage 2b `createPasses` + `bloom` (packages/core/src/post/passes.ts, bloom.ts, pool.ts, evaluate.ts). Deferred remainder → `post-render-graph.md`.

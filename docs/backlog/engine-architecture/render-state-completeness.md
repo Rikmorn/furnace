@@ -13,7 +13,7 @@ Surfaced in the D brainstorm (2026-05-30) when mapping the render-state layer (o
 | **`depthBias`** (+ slopeScale, clamp) | `depthStencil` | omitted | Shadow-acne / z-fighting on coplanar geometry (decals, terrain layers). |
 | **`frontFace`** (ccw/cw winding) | `primitive` | hardcoded `ccw` | A consumer with cw-wound geometry, or a flip for mirrored rendering. |
 | **configurable depth format** | `depthStencil.format` | hardcoded `depth24plus` | A consumer needing `depth32float` (precision) or `depth24plus-stencil8` (with stencil). Couples to the engine's depth-texture allocation in `frame/render.ts`. |
-| **configurable color-target format** | `fragment.targets[].format` | hardcoded `ctx.format` | An HDR float offscreen target (e.g. real bloom rendering to `rgba16float`) via `renderToTexture`. |
+| **configurable color-target format** | `fragment.targets[].format` | ~~hardcoded `ctx.format`~~ **RESOLVED mid-chain (T2 Stage 2b):** mid-chain post passes target `workingColorFormat` (`rgba16float` under HDR) or an explicit `PassDescriptor.output.format`; the final pass targets `ctx.format`. For `renderToTexture`, the consumer must supply a texture matching the working color format (validated at call time). The `materialDescriptor` still hardcodes the scene-pass target format to the working color format (correct, not a gap). | (none remaining for material pipelines; resolved for post chain) |
 | **color `writeMask`** | `fragment.targets[]` | omitted (all) | Channel-selective writes (e.g. write alpha only). |
 
 ## Pass-coupled vs pipeline-internal (the organizing distinction)
@@ -28,6 +28,6 @@ Render-state splits two ways, and it matters for validation:
 
 The signature regrouping (grouping render-state the way WebGPU does — `primitive{}` plus a `depth?: false | {…}` union, with `multisample{}` etc. to follow) **landed in D-1's** breaking descriptor reshape (2026-05-31): `MaterialDescriptor` now uses `primitive{ topology, cullMode }` and the `depth` union. Future render-state fields (the rows above) slot into that grouping — add each once, in the WebGPU-shaped group it belongs to, rather than re-flattening.
 
-**Trigger to revisit:** per-row above. MSAA is the most likely first mover (visual quality). None has fired as of 2026-05-30.
+**Trigger to revisit:** per-row above. MSAA (`multisample.count` + `alphaToCoverageEnabled`) is the most likely first mover (visual quality). The configurable color-target-format row is resolved for the post chain (T2 Stage 2b); it was never an open gap for material pipelines (which correctly target the working color format). As of 2026-06-06: MSAA still deferred.
 
 **Reference:** D brainstorm 2026-05-30. Render-state is immutable create-time data (baked into the pipeline) — all of these are descriptor *fields*, never setters. They slot into the `primitive{}`/`depth` grouping that the D-1 signature regrouping landed (2026-05-31); see `MaterialDescriptor` in `docs/reference/core-modules.md`.

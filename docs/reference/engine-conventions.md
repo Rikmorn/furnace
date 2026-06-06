@@ -34,7 +34,7 @@ MSAA is ctx-level and pass-coupled. `gpu.requestContext(canvas, { sampleCount: 1
 
 The working color format is the format of:
 - The engine-owned multisampled scene-color target (MSAA path).
-- The engine-owned post-effect ping-pong intermediates (`post/intermediate.ts`).
+- The scene-color target and every mid-chain intermediate acquired from the per-ctx transient target pool (`post/pool.ts`).
 - Every material pipeline's fragment target (keyed alongside `sampleCount` in the cache).
 - Consumer-supplied color targets for `frame.renderToTexture` — the target's format must equal the working color format (not the swap-chain format); a mismatch throws `FurnaceGpuError`.
 
@@ -45,6 +45,26 @@ The working color format is the format of:
 ## Single-encoder / single-submit
 
 `frame.render` records the scene pass and all effect passes into **one `GPUCommandEncoder`** and submits once via `ctx.queue.submit([encoder.finish()])`. All GPU work for a frame — scene draw + post chain — is batched into a single command buffer. `frame.renderToTexture` similarly uses one encoder + one submit for its single off-screen pass.
+
+## Post-chain model
+
+The post chain is a flat list of `PassSlot`s assembled by the chain evaluator (`post/evaluate.ts: _evaluateChain`). Every effect in `RenderOptions.effects` contributes one or more slots (a single-pass `post.create` effect contributes one; a `post.createPasses` chain contributes N; `post.bloom` contributes 1 prefilter + (mips−1) downsamples + (mips−1) upsamples + 1 composite). The evaluator flattens all effects into one linear sequence and records them into the **same** command encoder as the scene pass.
+
+**Transient target pool.** Mid-chain passes render into pool-backed textures (`post/pool.ts`). The pool is keyed by `(width, height, format)` and reuses targets across acquire/release cycles within a frame — a bloom chain with 12 sub-passes doesn't reallocate every frame. The pool frees all live and free textures on `gpu.dispose(ctx)`. Resize requires no explicit flush: targets are sized at acquire time, so a resize produces differently-keyed targets at the next frame and old-sized targets expire naturally when they are no longer acquired.
+
+**Pass input semantics:**
+- `"scene"` — the scene-color target (acquired from the pool in the working color format, same as the scene-pass output). Never changes mid-chain; a composite pass can re-read it after intermediate transforms.
+- `"prev"` — the output of the immediately preceding pass. For the first pass in the chain, `"prev"` resolves to the scene target (same as `"scene"`).
+- `{ intermediate: name }` — a named target produced by a strictly earlier pass's `output.intermediate`. Forward references throw at `createPasses` time (setup-loud).
+
+**Final pass.** The last pass in the flattened sequence always writes to the swap-chain texture (`ctx.format`, full canvas size), regardless of the pass's `output.scale` / `output.format`. All preceding passes write to pool-backed targets, which are released back to the free list at the end of the chain.
+
+**Two-layer ownership:**
+- **Pool** owns the transient scratch targets (reused across frames; freed on resize collision + `gpu.dispose`).
+- **Effect** owns its per-instance `@group(1)` bindings created by built-in factories (`post.tonemap`, `post.bloom`). These are registered via `_setOwnedBindings` and freed by `post.destroy`.
+- **Ctx** owns the shared per-ctx shaders for built-in effects (tonemap, bloom). They are freed by the dispose cascade at `gpu.dispose(ctx)`, not by `post.destroy`.
+
+Consumer-supplied `binding`/`bindings` (passed to `post.create` or via `PassDescriptor`) are consumer-owned: `post.destroy` never touches them.
 
 ## Device pixel ratio
 
@@ -156,7 +176,7 @@ For per-kind live counts and memory totals, see `stats.snapshot(ctx).resources.*
 
 The resource manager is the **single writer of slot-kind counts** (`mesh`, `material`, `geometry`, `effect`, `shader`, `binding`). Its alloc and destroy wrappers fire `_recordAlloc(ctx, kind, 0)` and `_recordDestroy(ctx, kind, 0)`; no other code path increments those counts.
 
-**Memory totals** (`buffer`, `texture` bytes) are written directly by whichever site owns the GPU resource — slot-owned buffer/texture bytes by the resource module that creates them (`mesh.ts` object uniforms, `geometry.ts` vertex/index buffers, `binding/binding.ts` uniform buffer — the colour buffer behind an unlit material is binding-owned; teardown paths decrement the matching bytes: `material.ts` via `ownedBufferBytes`, `binding/binding.ts` via `_teardown`), ctx-owned bytes by the engine-internal site that creates them (`frame/render.ts` depth texture + camera uniforms, `post/intermediate.ts` color targets). Bytes flow through the same `_recordAlloc` / `_recordDestroy` API.
+**Memory totals** (`buffer`, `texture` bytes) are written directly by whichever site owns the GPU resource — slot-owned buffer/texture bytes by the resource module that creates them (`mesh.ts` object uniforms, `geometry.ts` vertex/index buffers, `binding/binding.ts` uniform buffer — the colour buffer behind an unlit material is binding-owned; teardown paths decrement the matching bytes: `material.ts` via `ownedBufferBytes`, `binding/binding.ts` via `_teardown`), ctx-owned bytes by the engine-internal site that creates them (`frame/render.ts` depth texture + camera uniforms, `post/pool.ts` transient chain targets). Bytes flow through the same `_recordAlloc` / `_recordDestroy` API.
 
 A `Binding` slot owns one `GPUBuffer`; its byte size is recorded at `createBuffer` time via `_recordAlloc(ctx, "buffer", byteSize)` and decremented in `_teardown` via `_recordDestroy(ctx, "buffer", byteSize)`. The slot count itself is tracked separately as `_recordAlloc(ctx, "binding", 0)` (single-writer rule). Consumers read both via `stats.snapshot(ctx).resources.bindings` (slot count) and `stats.snapshot(ctx).memory.bufferBytes` (byte total).
 
