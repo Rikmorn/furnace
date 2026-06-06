@@ -12,6 +12,9 @@ export type InternalState = {
   stats: StatsState;
   resources: ResourceManager;
   ctxId: number;
+  sampleCount: 1 | 4;
+  hdr: boolean;
+  workingColorFormat: GPUTextureFormat;
 };
 
 // Module-level monotonic counter. Wraps at 16 bits (65535 contexts per
@@ -37,6 +40,11 @@ export function createInternalState(): InternalState {
     stats: createStatsState(performance.now()),
     resources: createResourceManager(),
     ctxId: _nextContextId(),
+    sampleCount: 1,
+    hdr: false,
+    // Stub sentinel for non-canvas test contexts (no swapchain to query). The
+    // real working format is derived in requestContext from hdr + viewFormat.
+    workingColorFormat: "bgra8unorm",
   };
 }
 

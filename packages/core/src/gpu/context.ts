@@ -19,7 +19,8 @@ import { _emitUncapturedError } from "./uncaptured-error.ts";
 /**
  * Options accepted by {@link requestContext}.
  *
- * Defaults: `surfaceFormat: "srgb"`, `pixelRatio: "device"`.
+ * Defaults: `surfaceFormat: "srgb"`, `pixelRatio: "device"`, `sampleCount: 1`,
+ * `hdr: false`.
  *
  * - `surfaceFormat`: `"srgb"` configures an sRGB *view* over the canonical
  *   unorm swapchain format, so shaders write linear values and the swap-chain
@@ -29,10 +30,17 @@ import { _emitUncapturedError } from "./uncaptured-error.ts";
  *   high-DPI displays), `"css"` pins to 1 (CSS pixels = backing-store pixels,
  *   cheaper to render), or a literal number for explicit DPR control.
  *   See `engine-conventions.md` §"Device pixel ratio".
+ * - `sampleCount`: MSAA sample count for the scene pass. `1` = no MSAA
+ *   (default); `4` = 4× MSAA. Core WebGPU only supports these two values.
+ * - `hdr`: `true` selects an `rgba16float` working colour format so the scene
+ *   pass operates in high dynamic range; `false` (default) uses the swapchain's
+ *   surface format as the working format (LDR path).
  */
 export type RequestContextOptions = {
   surfaceFormat?: "srgb" | "linear";
   pixelRatio?: "device" | "css" | number;
+  sampleCount?: 1 | 4;
+  hdr?: boolean;
 };
 
 // Boundary type — extends InternalState with module-private fields gpu/context.ts
@@ -45,6 +53,9 @@ type InternalWithCanvasCtx = {
   ctxId: number;
   canvasContext: GPUCanvasContext;
   viewFormat: GPUTextureFormat;
+  sampleCount: 1 | 4;
+  hdr: boolean;
+  workingColorFormat: GPUTextureFormat;
 };
 
 /**
@@ -104,6 +115,16 @@ export async function requestContext(
     options.surfaceFormat ?? "srgb",
   );
 
+  const sampleCount = options.sampleCount ?? 1;
+  if (sampleCount !== 1 && sampleCount !== 4) {
+    throw new FurnaceGpuError(
+      `requestContext: sampleCount must be 1 or 4 (core WebGPU supports only these); got ${sampleCount}`,
+    );
+  }
+
+  const hdr = options.hdr ?? false;
+  const workingColorFormat: GPUTextureFormat = hdr ? "rgba16float" : viewFormat;
+
   // The WebGPU spec restricts GPUCanvasContext.configure({ format }) to the
   // canonical unorm/float formats (no -srgb variant). sRGB encoding happens via
   // a viewFormat applied when we createView on each swapchain texture.
@@ -122,6 +143,9 @@ export async function requestContext(
     ctxId: _nextContextId(),
     canvasContext,
     viewFormat,
+    sampleCount,
+    hdr,
+    workingColorFormat,
   };
 
   const ctx = Object.freeze({
