@@ -10,16 +10,11 @@ import { _ENGINE_DEPTH_FORMAT } from "../material/material.ts";
 import type { MaterialSlot } from "../material/types.ts";
 import { _recomputeModelIfDirty } from "../mesh/mesh.ts";
 import type { Mesh, MeshSlot } from "../mesh/types.ts";
-import {
-  _resolveEffectPipeline,
-  type Effect,
-  type EffectSlot,
-} from "../post/effect.ts";
+import type { Effect, EffectSlot } from "../post/effect.ts";
+import { _evaluateChain } from "../post/evaluate.ts";
 import { bytesPerTexel } from "../post/format-bytes.ts";
-import {
-  _ensureSceneIntermediates,
-  type IntermediateEntry,
-} from "../post/intermediate.ts";
+import { _ensurePostSampler } from "../post/intermediate.ts";
+import { _acquirePoolTarget } from "../post/pool.ts";
 import {
   _lookupEffect,
   _lookupGeometry,
@@ -247,8 +242,10 @@ export type RenderPassBase = {
  *   @binding(0)` for each mesh (see `engine-conventions.md` §"Binding
  *   contract").
  * - `effects`: optional post-process chain. When non-empty the scene is
- *   rendered to an off-screen target and ping-ponged through the effects to
- *   the swap chain. Final attachment.
+ *   rendered to a pool-backed off-screen target and evaluated through the
+ *   effects' passes (a flattened linear sequence) to the swap chain. Each
+ *   mid-chain pass renders into a pool-backed transient; the final pass writes
+ *   the swap chain.
  * - `clearColor`: linear-space RGBA used to clear the color attachment.
  *   Default `[0, 0, 0, 1]`. The sRGB encoding is applied on swap-chain write
  *   via the view format (see `engine-conventions.md` §"Color space").
@@ -490,90 +487,9 @@ function recordScenePass(
   pass.end();
 }
 
-function renderEffectPass(
-  ctx: Context,
-  encoder: GPUCommandEncoder,
-  slot: EffectSlot,
-  inputView: GPUTextureView,
-  sampler: GPUSampler,
-  outputView: GPUTextureView,
-  targetFormat: GPUTextureFormat,
-): void {
-  const { pipeline, group1 } = _resolveEffectPipeline(ctx, slot, targetFormat);
-  const group0 = ctx.device.createBindGroup({
-    layout: pipeline.getBindGroupLayout(0),
-    entries: [
-      { binding: 0, resource: inputView },
-      { binding: 1, resource: sampler },
-    ],
-  });
-  const loadOp: GPULoadOp = slot.blend ? "load" : "clear";
-  const pass = encoder.beginRenderPass({
-    colorAttachments: [
-      {
-        view: outputView,
-        clearValue: { r: 0, g: 0, b: 0, a: 0 },
-        loadOp,
-        storeOp: "store",
-      },
-    ],
-  });
-  pass.setPipeline(pipeline);
-  _recordPipelineSwitch(ctx);
-  pass.setBindGroup(0, group0);
-  _recordBindGroupSwitch(ctx);
-  if (group1 !== null) {
-    pass.setBindGroup(1, group1);
-    _recordBindGroupSwitch(ctx);
-  }
-  pass.draw(3);
-  _recordDraw(ctx, { triangles: 1 });
-  pass.end();
-}
-
-function runEffectsPingPong(
-  ctx: Context,
-  encoder: GPUCommandEncoder,
-  effects: readonly EffectSlot[],
-  im: IntermediateEntry,
-): void {
-  // Mid-chain effects write into the rgba16float-or-ctx.format intermediates
-  // (workingColorFormat); the final effect writes to the swap chain (ctx.format).
-  // Under LDR both formats are ctx.format, so every effect resolves one pipeline.
-  const midFormat = ctx._internal.workingColorFormat;
-  let inputView = im.aView;
-  let outputView = im.bView;
-  for (let i = 0; i < effects.length - 1; i++) {
-    const slot = effects[i];
-    if (!slot) continue; // unreachable after validateEffects; satisfies noUncheckedIndexedAccess
-    renderEffectPass(
-      ctx,
-      encoder,
-      slot,
-      inputView,
-      im.sampler,
-      outputView,
-      midFormat,
-    );
-    [inputView, outputView] = [outputView, inputView];
-  }
-  const finalSlot = effects[effects.length - 1];
-  if (!finalSlot) return; // unreachable after validateEffects
-  const swapView = gpu.getCurrentTextureView(ctx);
-  renderEffectPass(
-    ctx,
-    encoder,
-    finalSlot,
-    inputView,
-    im.sampler,
-    swapView,
-    ctx.format,
-  );
-}
-
 /**
  * Submit one frame: clear, draw `opts.meshes` against `opts.camera`, optionally
- * ping-pong through `opts.effects` to the swap chain.
+ * evaluate `opts.effects` (a pool-backed multi-pass post chain) to the swap chain.
  *
  * Allocation semantics — all lazy, engine-owned and reused across frames:
  * - One depth texture per context (`depth24plus`, multisampled to match
@@ -583,8 +499,12 @@ function runEffectsPingPong(
  * - One multisampled scene color target per context (`workingColorFormat`),
  *   allocated only when `ctx._internal.sampleCount > 1` (skipped entirely for
  *   the no-MSAA path) and reallocated on resize. The scene renders into it and
- *   resolves into the single-sample destination (swap chain, or post
- *   intermediate when effects are present).
+ *   resolves into the single-sample destination (swap chain, or a pool-backed
+ *   scene target when effects are present).
+ * - When effects are present, transient post-chain color targets are drawn from
+ *   the per-context pool (`post/pool.ts`) — the scene target plus one per
+ *   mid-chain pass — and released back to the pool's free list at chain end,
+ *   reused across frames rather than reallocated.
  * - One camera uniform buffer (64 bytes) per `(context, camera)` pair,
  *   allocated on first sighting of a given camera. The buffer is written each
  *   call from `camera.getMatrices`. Per-mesh `@group(0)` bind groups are
@@ -622,9 +542,9 @@ export function render(ctx: Context, opts: RenderOptions): void {
   // Setup-loud, before any GPU work. HDR renders the scene into an rgba16float
   // intermediate, so it needs at least one effect to reach the LDR swap chain
   // (zero effects has no pass to get there — e.g. supply post.tonemap as the
-  // final pass). Multi-effect HDR chains are supported: each effect builds its
+  // final pass). Multi-pass HDR chains are supported: each pass builds its
   // pipeline for its resolved target format (mid-chain = rgba16float, final =
-  // ctx.format) lazily via _resolveEffectPipeline.
+  // ctx.format) lazily via _resolvePassPipeline.
   if (ctx._internal.hdr) {
     const effectCount = opts.effects?.length ?? 0;
     if (effectCount === 0) {
@@ -671,9 +591,16 @@ export function render(ctx: Context, opts: RenderOptions): void {
       resolveTarget,
     );
   } else {
-    const im = _ensureSceneIntermediates(ctx);
-    const sceneColorView = msaa ? msaa.view : im.aView;
-    const resolveTarget = msaa ? im.aView : undefined;
+    // Render the scene into a pool-backed transient (working format = rgba16float
+    // under HDR, else ctx.format); the post chain reads it as its "scene" input.
+    const sceneTarget = _acquirePoolTarget(
+      ctx,
+      ctx.canvas.width,
+      ctx.canvas.height,
+      ctx._internal.workingColorFormat,
+    );
+    const sceneColorView = msaa ? msaa.view : sceneTarget.view;
+    const resolveTarget = msaa ? sceneTarget.view : undefined;
     recordScenePass(
       ctx,
       encoder,
@@ -685,7 +612,13 @@ export function render(ctx: Context, opts: RenderOptions): void {
       clearDepth,
       resolveTarget,
     );
-    runEffectsPingPong(ctx, encoder, resolvedEffects, im);
+    _evaluateChain(
+      ctx,
+      encoder,
+      resolvedEffects,
+      sceneTarget,
+      _ensurePostSampler(ctx),
+    );
   }
 
   ctx.queue.submit([encoder.finish()]);

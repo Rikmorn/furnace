@@ -12,6 +12,7 @@ import {
 import { _layoutOf } from "../shader/shader.ts";
 import type { Shader, ShaderSlot } from "../shader/types.ts";
 import { _ensureFullscreenVS } from "./fullscreen.ts";
+import type { PassSlot } from "./passes.ts";
 import {
   _buildEffectPipelineDescriptor,
   _effectPipelineHashKey,
@@ -64,8 +65,8 @@ export type Effect<L extends LayoutSchema = LayoutSchema> = EffectHandle & {
 /**
  * One cached pipeline variant for a single target colour format, plus its
  * `@group(1)` bind group resolved against that pipeline's auto-derived layout.
- * Effects build one of these lazily per format they render into: under HDR the
- * same effect can target the `rgba16float` intermediate (mid-chain) and
+ * A pass builds one of these lazily per format it renders into: under HDR the
+ * same pass can target the `rgba16float` intermediate (mid-chain) and
  * `ctx.format` (final swap-chain pass) and so holds two variants.
  */
 type EffectPipelineVariant = {
@@ -79,21 +80,18 @@ type EffectPipelineVariant = {
  * effects pool. Not exported from the `@furnace/core/post` public
  * surface; resource-manager internals only.
  *
- * Pipelines build lazily per resolved target format (see
- * {@link _resolveEffectPipeline}) and are cached in `byFormat`, keyed on the
- * `GPUTextureFormat` the effect renders into. Each variant is refcounted in the
- * per-ctx post pipeline cache (keyed on shader handle + target format + blend
- * signature). `fsModule` is the fragment-stage module retained so target-format
- * variants can be built on demand; `group1Entries` are the `@group(1)` bind-group
- * entries (re)bound per pipeline variant (or `null` when the shader declares no
- * `@group(1)` data); `blend` is the descriptor value captured at create time.
+ * Every effect — single-pass (`post.create` / `post.tonemap`) and multi-pass
+ * (`post.createPasses`) — is a list of {@link PassSlot}s. The chain evaluator in
+ * `frame.render` flattens all effects' passes into one linear sequence. A
+ * single-pass effect is one {@link PassSlot} with `inputs: ["prev"]` (the first
+ * `"prev"` resolves to the scene target). `ownedBindings` holds bindings the
+ * effect created and must free on destroy (empty until a later task wires
+ * built-in-effect resource ownership). `_teardown` releases every pass's
+ * cached pipeline refs.
  */
 export type EffectSlot = {
-  fsModule: GPUShaderModule;
-  shaderKey: string;
-  group1Entries: GPUBindGroupEntry[] | null;
-  blend: GPUBlendState | undefined;
-  byFormat: Map<GPUTextureFormat, EffectPipelineVariant>;
+  passes: PassSlot[];
+  ownedBindings: Binding[];
   _teardown: () => void;
 };
 
@@ -147,57 +145,74 @@ function buildGroup1(
   }
 }
 
-function effectTeardown(ctx: Context, slot: EffectSlot): void {
-  for (const variant of slot.byFormat.values()) {
-    _pipelineCache.release(ctx, variant.pipelineKey);
+/**
+ * Release every cached pipeline ref across all of an effect's passes. Each
+ * pass's `byFormat` map holds one refcounted pipeline-cache entry per resolved
+ * target format; teardown drops one ref on each. Exported so `passes.ts` can
+ * wire it as the multi-pass effect's `_teardown` without an import cycle.
+ */
+export function _effectTeardown(ctx: Context, slot: EffectSlot): void {
+  for (const pass of slot.passes) {
+    for (const variant of pass.byFormat.values()) {
+      _pipelineCache.release(ctx, variant.pipelineKey);
+    }
   }
 }
 
 /**
- * Get-or-build the pipeline variant for `targetFormat` on `slot`, caching it in
- * `slot.byFormat`. The pipeline is built (or reused from the per-ctx post
- * pipeline cache) against `targetFormat` — under HDR a mid-chain effect targets
- * `ctx._internal.workingColorFormat` (rgba16float) while the final pass targets
- * `ctx.format`, so the same effect acquires two distinct cache entries.
+ * Get-or-build the pipeline variant for `targetFormat` on a single `passSlot`,
+ * caching it in `passSlot.byFormat`. The pipeline is built (or reused from the
+ * per-ctx post pipeline cache) against `targetFormat` — under HDR a mid-chain
+ * pass targets `ctx._internal.workingColorFormat` (rgba16float) while the final
+ * pass targets `ctx.format`, so the same pass acquires two distinct cache
+ * entries.
  *
- * Engine-internal; called synchronously by `frame.render`'s post pass, not the
- * public surface.
+ * Engine-internal; called synchronously by `frame.render`'s chain evaluator,
+ * not the public surface.
  */
-export function _resolveEffectPipeline(
+export function _resolvePassPipeline(
   ctx: Context,
-  slot: EffectSlot,
+  passSlot: PassSlot,
   targetFormat: GPUTextureFormat,
 ): EffectPipelineVariant {
-  const cached = slot.byFormat.get(targetFormat);
+  const cached = passSlot.byFormat.get(targetFormat);
   if (cached !== undefined) return cached;
 
   const vsModule = _ensureFullscreenVS(ctx);
   const pipelineKey = _effectPipelineHashKey(
-    slot.shaderKey,
+    passSlot.shaderKey,
     targetFormat,
-    slot.blend,
+    passSlot.blend,
   );
   const pipeline = _pipelineCache.acquireSync(ctx, pipelineKey, () =>
-    buildPipeline(ctx, slot.fsModule, vsModule, targetFormat, slot.blend),
+    buildPipeline(
+      ctx,
+      passSlot.fsModule,
+      vsModule,
+      targetFormat,
+      passSlot.blend,
+    ),
   );
 
   const group1 =
-    slot.group1Entries !== null
-      ? buildGroup1(ctx, pipeline, pipelineKey, slot.group1Entries)
+    passSlot.group1Entries !== null
+      ? buildGroup1(ctx, pipeline, pipelineKey, passSlot.group1Entries)
       : null;
 
   const variant: EffectPipelineVariant = { pipeline, pipelineKey, group1 };
-  slot.byFormat.set(targetFormat, variant);
+  passSlot.byFormat.set(targetFormat, variant);
   return variant;
 }
 
 /**
- * Register a full-screen post-process effect and return an opaque
+ * Register a single-pass full-screen post-process effect and return an opaque
  * {@link Effect} handle. The effect slot is allocated in the per-ctx resource
- * manager's effects pool. The fragment-stage module and `@group(1)` entries are
+ * manager's effects pool as a one-{@link PassSlot} chain (input `"prev"`,
+ * full-size, swap-chain output) — the same machinery `post.createPasses` uses
+ * for multi-pass chains. The fragment-stage module and `@group(1)` entries are
  * captured now; the `GPURenderPipeline` (and its `@group(1)` bind group) build
  * lazily on first render, per resolved target colour format — under HDR the
- * same effect targets the `rgba16float` intermediate mid-chain and `ctx.format`
+ * same pass targets the `rgba16float` intermediate mid-chain and `ctx.format`
  * as the final swap-chain pass, so it holds one pipeline variant per format.
  *
  * The shared fullscreen vertex shader (`vs_fullscreen`) is auto-supplied; the
@@ -259,7 +274,7 @@ export async function create<L extends LayoutSchema = LayoutSchema>(
 
   // Resolve the @group(1) bind-group entries: typed binding path takes
   // precedence over raw bindings. These entries are (re)bound per pipeline
-  // variant in _resolveEffectPipeline; no pipeline is built at create time.
+  // variant in _resolvePassPipeline; no pipeline is built at create time.
   // The binding OWNS its buffer — post.destroy does not free it.
   let group1Entries: GPUBindGroupEntry[] | null = null;
   if (desc.binding != null) {
@@ -277,13 +292,24 @@ export async function create<L extends LayoutSchema = LayoutSchema>(
     group1Entries = desc.bindings;
   }
 
-  const slot: EffectSlot = {
+  // A single-pass effect is a one-pass chain: input "prev" (the scene target on
+  // the first pass), full-size, swap-chain output (outFormat null = working/
+  // ctx.format resolved at render time, outName null = anonymous).
+  const pass: PassSlot = {
     fsModule: shaderSlot.module,
     shaderKey: String(desc.shader),
+    inputs: ["prev"],
+    scale: 1,
+    outFormat: null,
+    outName: null,
     group1Entries,
     blend: desc.blend,
     byFormat: new Map(),
-    _teardown: () => effectTeardown(ctx, slot),
+  };
+  const slot: EffectSlot = {
+    passes: [pass],
+    ownedBindings: [],
+    _teardown: () => _effectTeardown(ctx, slot),
   };
   // Boundary cast: phantom L is compile-time only; _allocEffect returns
   // EffectHandle which is structurally identical to Effect<L> at runtime.
@@ -291,8 +317,9 @@ export async function create<L extends LayoutSchema = LayoutSchema>(
 }
 
 /**
- * Destroy an {@link Effect}: release one ref on the cached pipeline.
- * The pipeline itself is freed when its refcount drops to zero.
+ * Destroy an {@link Effect} (single-pass `post.create` / `post.tonemap` or
+ * multi-pass `post.createPasses`): release one ref on every pass's cached
+ * pipeline variants. Each pipeline is freed when its refcount drops to zero.
  *
  * Does not destroy the consumer-owned resources passed via
  * `EffectDescriptor.binding` / `EffectDescriptor.bindings` (the binding's

@@ -5,7 +5,7 @@ import * as geometry from "../../src/geometry/index.ts";
 import * as gpu from "../../src/gpu/index.ts";
 import * as mesh from "../../src/mesh/index.ts";
 import {
-  _resolveEffectPipeline,
+  _resolvePassPipeline,
   type EffectSlot,
 } from "../../src/post/effect.ts";
 import * as post from "../../src/post/index.ts";
@@ -96,8 +96,13 @@ test.skipIf(!bunWebGpuAvailable())(
     if (slotA === null || slotB === null) {
       throw new Error("unreachable: tonemaps were just created");
     }
-    const varA = _resolveEffectPipeline(ctx, slotA, ctx.format);
-    const varB = _resolveEffectPipeline(ctx, slotB, ctx.format);
+    const passA = slotA.passes[0];
+    const passB = slotB.passes[0];
+    if (passA === undefined || passB === undefined) {
+      throw new Error("unreachable: tonemap is a single-pass effect");
+    }
+    const varA = _resolvePassPipeline(ctx, passA, ctx.format);
+    const varB = _resolvePassPipeline(ctx, passB, ctx.format);
     expect(varA.pipeline).toBe(varB.pipeline);
     post.destroy(ctx, a);
     post.destroy(ctx, b);
