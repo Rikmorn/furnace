@@ -116,10 +116,15 @@ function makeRecreate(
 }
 
 /** Build the consumer 2-pass separable blur from one shader + two direction
- *  bindings. Pass H writes a named intermediate; pass V reads it → chain output.
- *  Returns the effect plus its consumer-owned resources (shader + the two
- *  direction bindings) — the demo frees them in teardown. createPasses does NOT
- *  free them: consumer-supplied bindings/shaders stay consumer-owned. */
+ *  bindings. Pass H reads `"prev"` — the running chain image (the previous
+ *  effect's output, e.g. bloom's; or the scene when blur is first) — and writes a
+ *  named intermediate; pass V reads it → chain output. Reading `"prev"` (not
+ *  `"scene"`) is what lets the blur COMPOSE with upstream effects: `"scene"` is
+ *  the original scene target, so a blur reading it would discard whatever ran
+ *  before it (bloom included). Returns the effect plus its consumer-owned
+ *  resources (shader + the two direction bindings) — the demo frees them in
+ *  teardown. createPasses does NOT free them: consumer-supplied bindings/shaders
+ *  stay consumer-owned. */
 async function buildBlur(ctx: Context): Promise<{
   blur: Effect;
   blurShader: Shader;
@@ -138,7 +143,7 @@ async function buildBlur(ctx: Context): Promise<{
     passes: [
       {
         shader: blurShader,
-        inputs: ["scene"],
+        inputs: ["prev"],
         output: { intermediate: "blurH" },
         binding: bindingH,
       },

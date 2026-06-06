@@ -53,9 +53,11 @@ The post chain is a flat list of `PassSlot`s assembled by the chain evaluator (`
 **Transient target pool.** Mid-chain passes render into pool-backed textures (`post/pool.ts`). The pool is keyed by `(width, height, format)` and reuses targets across acquire/release cycles within a frame — a bloom chain with 12 sub-passes doesn't reallocate every frame. The pool frees all live and free textures on `gpu.dispose(ctx)`. Resize requires no explicit flush: targets are sized at acquire time, so a resize produces differently-keyed targets at the next frame and old-sized targets expire naturally when they are no longer acquired.
 
 **Pass input semantics:**
-- `"scene"` — the scene-color target (acquired from the pool in the working color format, same as the scene-pass output). Never changes mid-chain; a composite pass can re-read it after intermediate transforms.
+- `"scene"` — the **global** original scene-color target (acquired from the pool in the working color format, same as the scene-pass output). Preserved read-only for the *whole* chain — it does NOT advance as effects run, so it is always the original scene, never an upstream effect's output.
 - `"prev"` — the output of the immediately preceding pass. For the first pass in the chain, `"prev"` resolves to the scene target (same as `"scene"`).
 - `{ intermediate: name }` — a named target produced by a strictly earlier pass's `output.intermediate`. Forward references throw at `createPasses` time (setup-loud).
+
+**Composition gotcha.** An effect that should *transform the running chain image* (a blur, color grade, vignette) must read **`"prev"`** as its first input — reading `"scene"` re-reads the original and silently discards whatever ran upstream. An effect that *composites onto its own input* (`post.bloom` = `input + glow`) reads `"scene"` for its composite base (within a multi-pass effect `"prev"` rolls forward through the effect's own passes, so it can't reference the effect's input by the composite pass). Consequence: such an effect only behaves correctly as the **first** scene-reading effect — placing an effect *before* bloom is currently ignored by bloom. See `docs/backlog/engine-architecture/post-chain-effect-input-composability.md` (the per-effect-input fix).
 
 **Final pass.** The last pass in the flattened sequence always writes to the swap-chain texture (`ctx.format`, full canvas size), regardless of the pass's `output.scale` / `output.format`. All preceding passes write to pool-backed targets, which are released back to the free list at the end of the chain.
 
