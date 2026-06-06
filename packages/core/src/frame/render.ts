@@ -11,6 +11,7 @@ import type { MaterialSlot } from "../material/types.ts";
 import { _recomputeModelIfDirty } from "../mesh/mesh.ts";
 import type { Mesh, MeshSlot } from "../mesh/types.ts";
 import type { Effect, EffectSlot } from "../post/effect.ts";
+import { bytesPerTexel } from "../post/format-bytes.ts";
 import {
   _ensureSceneIntermediates,
   type IntermediateEntry,
@@ -61,16 +62,6 @@ const DEPTH_BYTES_PER_PIXEL = 4; // depth24plus → 4 bytes/texel for accounting
 
 function depthEntryBytes(entry: DepthEntry): number {
   return entry.width * entry.height * DEPTH_BYTES_PER_PIXEL * entry.sampleCount;
-}
-
-/** Bytes per texel for common render target formats. */
-function bytesPerTexel(format: GPUTextureFormat): number {
-  switch (format) {
-    case "rgba16float":
-      return 8;
-    default:
-      return 4; // bgra8unorm, rgba8unorm, bgra8unorm-srgb, rgba8unorm-srgb
-  }
 }
 
 function sceneColorEntryBytes(entry: SceneColorEntry): number {

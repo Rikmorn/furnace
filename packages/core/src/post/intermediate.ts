@@ -1,6 +1,7 @@
 import type { Context } from "../gpu/context-types.ts";
 import { _onDispose } from "../gpu/dispose-cascade.ts";
 import { _recordAlloc, _recordDestroy } from "../stats/internal.ts";
+import { bytesPerTexel } from "./format-bytes.ts";
 
 type AllocatedTarget = Readonly<{
   tex: GPUTexture;
@@ -19,16 +20,6 @@ type IntermediateEntry = {
 };
 
 const intermediateByCtx = new WeakMap<Context, IntermediateEntry>();
-
-/** Bytes per texel for common render target formats. Mirrors the helper in `frame/render.ts`. */
-function bytesPerTexel(format: GPUTextureFormat): number {
-  switch (format) {
-    case "rgba16float":
-      return 8;
-    default:
-      return 4; // bgra8unorm, rgba8unorm, bgra8unorm-srgb, rgba8unorm-srgb
-  }
-}
 
 function allocateColorTarget(
   ctx: Context,
