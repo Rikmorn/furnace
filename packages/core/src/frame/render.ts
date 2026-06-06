@@ -602,6 +602,13 @@ export function render(ctx: Context, opts: RenderOptions): void {
   if (opts.meshes == null) {
     throw new FurnaceGpuError("render: meshes is required");
   }
+  // Setup-loud, before any GPU work: an HDR (rgba16float) scene target with no
+  // effect chain has no pass to tonemap back to the LDR swap chain.
+  if (ctx._internal.hdr && (opts.effects?.length ?? 0) === 0) {
+    throw new FurnaceGpuError(
+      "render: hdr is enabled but no effects were supplied — an rgba16float scene target needs at least one effect (e.g. post.tonemap) to reach the LDR swap chain",
+    );
+  }
   // Flush all dirty bindings to the GPU before any draw work begins.
   // Generalises the per-mesh transform dirty-flush to the binding layer.
   _flushDirtyBindings(ctx);
