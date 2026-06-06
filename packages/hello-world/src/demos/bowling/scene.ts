@@ -7,6 +7,7 @@ import * as frame from "@furnace/core/frame";
 import type { Geometry } from "@furnace/core/geometry";
 import * as geometry from "@furnace/core/geometry";
 import type { Context } from "@furnace/core/gpu";
+import * as gpu from "@furnace/core/gpu";
 import * as input from "@furnace/core/input";
 import type { Material } from "@furnace/core/material";
 import * as material from "@furnace/core/material";
@@ -22,6 +23,7 @@ import * as texture from "@furnace/core/texture";
 import type { Vec3, Vec4 } from "@furnace/core/transform";
 import { quat, vec3, vec4 } from "@furnace/core/transform";
 
+import { subscribeOverlay } from "../../overlay/state.svelte.ts";
 import type { SceneController, SceneFactory } from "../../shell/scene.ts";
 import { mountChargeMeter } from "./charge-meter-mount.ts";
 import { chargeMeter } from "./charge-meter-state.svelte.ts";
@@ -217,7 +219,12 @@ function reRack(ctx: Context, state: BowlingState): void {
 
 export const bowlingScene: SceneFactory = {
   label: "Bowling",
-  load: async (ctx: Context): Promise<SceneController> => {
+  load: async (canvas: HTMLCanvasElement): Promise<SceneController> => {
+    // Default config for now — the { sampleCount, hdr } MSAA/HDR config plus
+    // tonemap/bloom/emissive ball is task 2b-8; this task only restructures
+    // ctx ownership (each scene owns its ctx + loop + overlay).
+    const ctx = await gpu.requestContext(canvas);
+
     const world = await physics.createWorld(ctx, {
       gravity: GRAVITY,
       lengthUnit: LENGTH_UNIT,
@@ -334,97 +341,98 @@ export const bowlingScene: SceneFactory = {
     };
     updateAimLine(ctx, state);
 
-    return {
-      frame: (info) => {
-        // Read edges once at the top of the frame and latch — frame.loop clears
-        // edges after this callback, so the sim tick below consumes the latch.
-        if (input.wasKeyReleased("Space") && state.phase === "aiming") {
-          state.launchRequested = true;
+    const unsubOverlay = subscribeOverlay(ctx);
+    const loop = frame.loop(ctx, (info) => {
+      // Read edges once at the top of the frame and latch — frame.loop clears
+      // edges after this callback, so the sim tick below consumes the latch.
+      if (input.wasKeyReleased("Space") && state.phase === "aiming") {
+        state.launchRequested = true;
+      }
+      if (input.wasKeyPressed("KeyR")) reRack(ctx, state);
+
+      if (state.phase === "aiming") {
+        if (input.isKeyDown("ArrowLeft")) {
+          state.aimHeading += AIM_RATE * info.deltaMs;
         }
-        if (input.wasKeyPressed("KeyR")) reRack(ctx, state);
-
-        if (state.phase === "aiming") {
-          if (input.isKeyDown("ArrowLeft")) {
-            state.aimHeading += AIM_RATE * info.deltaMs;
-          }
-          if (input.isKeyDown("ArrowRight")) {
-            state.aimHeading -= AIM_RATE * info.deltaMs;
-          }
-          if (input.isKeyDown("Space")) {
-            state.charge = Math.min(
-              1,
-              state.charge + CHARGE_RATE * info.deltaMs,
-            );
-          }
-          updateAimLine(ctx, state);
+        if (input.isKeyDown("ArrowRight")) {
+          state.aimHeading -= AIM_RATE * info.deltaMs;
         }
-
-        // Surface the live throw state to the charge-meter chrome. Svelte 5
-        // $state only re-renders on actual change, so writing every frame is fine.
-        chargeMeter.charge = state.charge;
-        chargeMeter.phase = state.phase;
-
-        // Time-scaling (demo-side, zero engine surface): scale the delta fed to
-        // the fixed clock. Paused → feed 0 (sim frozen, render continues); a
-        // pending step while paused feeds exactly one tick's worth.
-        let simDeltaMs = debugControls.paused
-          ? 0
-          : info.deltaMs * debugControls.timeScale;
-        if (debugControls.paused && debugControls.stepRequested) {
-          simDeltaMs = state.clock.fixedDtMs;
-          debugControls.stepRequested = false;
+        if (input.isKeyDown("Space")) {
+          state.charge = Math.min(1, state.charge + CHARGE_RATE * info.deltaMs);
         }
+        updateAimLine(ctx, state);
+      }
 
-        const alpha = state.clock.advance(simDeltaMs, (dt) => {
-          if (state.launchRequested) {
-            const speed = MIN_SPEED + state.charge * (MAX_SPEED - MIN_SPEED);
-            const dir = headingToDir(state.aimHeading);
-            physics.setBodyLinearVelocity(
-              ctx,
-              rigidMesh.getBody(ctx, state.ball),
-              [dir[0] * speed, 0, dir[2] * speed],
-            );
-            state.launchRequested = false;
-            state.phase = "rolling";
-          }
-          physics.step(ctx, state.world, dt);
-          rigidMesh.commit(ctx, state.ball);
-          for (const pin of state.pins) rigidMesh.commit(ctx, pin);
-        });
-        rigidMesh.interpolate(ctx, state.ball, alpha);
-        for (const pin of state.pins) rigidMesh.interpolate(ctx, pin, alpha);
-        // The static lane was seeded to its pose at rigidMesh.create — draw as-is.
+      // Surface the live throw state to the charge-meter chrome. Svelte 5
+      // $state only re-renders on actual change, so writing every frame is fine.
+      chargeMeter.charge = state.charge;
+      chargeMeter.phase = state.phase;
 
-        // AF toggle: swap the lane material each frame based on the debug toggle.
-        // setMaterial is idempotent when the handle matches, so per-frame is fine.
-        mesh.setMaterial(
-          ctx,
-          rigidMesh.getMesh(ctx, state.lane),
-          debugControls.anisotropy ? state.laneMatAF : state.laneMatNoAF,
-        );
+      // Time-scaling (demo-side, zero engine surface): scale the delta fed to
+      // the fixed clock. Paused → feed 0 (sim frozen, render continues); a
+      // pending step while paused feeds exactly one tick's worth.
+      let simDeltaMs = debugControls.paused
+        ? 0
+        : info.deltaMs * debugControls.timeScale;
+      if (debugControls.paused && debugControls.stepRequested) {
+        simDeltaMs = state.clock.fixedDtMs;
+        debugControls.stepRequested = false;
+      }
 
-        const meshes = [
-          rigidMesh.getMesh(ctx, state.lane),
-          rigidMesh.getMesh(ctx, state.ball),
-          ...state.pins.map((pin) => rigidMesh.getMesh(ctx, pin)),
-          ...(state.phase === "aiming" ? [state.aimLine] : []),
-        ];
-        frame.render(ctx, {
-          meshes,
+      const alpha = state.clock.advance(simDeltaMs, (dt) => {
+        if (state.launchRequested) {
+          const speed = MIN_SPEED + state.charge * (MAX_SPEED - MIN_SPEED);
+          const dir = headingToDir(state.aimHeading);
+          physics.setBodyLinearVelocity(
+            ctx,
+            rigidMesh.getBody(ctx, state.ball),
+            [dir[0] * speed, 0, dir[2] * speed],
+          );
+          state.launchRequested = false;
+          state.phase = "rolling";
+        }
+        physics.step(ctx, state.world, dt);
+        rigidMesh.commit(ctx, state.ball);
+        for (const pin of state.pins) rigidMesh.commit(ctx, pin);
+      });
+      rigidMesh.interpolate(ctx, state.ball, alpha);
+      for (const pin of state.pins) rigidMesh.interpolate(ctx, pin, alpha);
+      // The static lane was seeded to its pose at rigidMesh.create — draw as-is.
+
+      // AF toggle: swap the lane material each frame based on the debug toggle.
+      // setMaterial is idempotent when the handle matches, so per-frame is fine.
+      mesh.setMaterial(
+        ctx,
+        rigidMesh.getMesh(ctx, state.lane),
+        debugControls.anisotropy ? state.laneMatAF : state.laneMatNoAF,
+      );
+
+      const meshes = [
+        rigidMesh.getMesh(ctx, state.lane),
+        rigidMesh.getMesh(ctx, state.ball),
+        ...state.pins.map((pin) => rigidMesh.getMesh(ctx, pin)),
+        ...(state.phase === "aiming" ? [state.aimLine] : []),
+      ];
+      frame.render(ctx, {
+        meshes,
+        camera: state.cam,
+        clearColor: CLEAR_COLOR,
+      });
+
+      if (debugControls.showColliders) {
+        const dl = physics.getDebugLines(ctx, state.world);
+        frame.drawLines(ctx, {
+          vertices: dl.vertices,
+          colors: dl.colors,
           camera: state.cam,
-          clearColor: CLEAR_COLOR,
         });
+      }
+    });
 
-        if (debugControls.showColliders) {
-          const dl = physics.getDebugLines(ctx, state.world);
-          frame.drawLines(ctx, {
-            vertices: dl.vertices,
-            colors: dl.colors,
-            camera: state.cam,
-          });
-        }
-      },
+    return {
       unload: () => {
+        loop.stop();
+        unsubOverlay();
         state.unmountMeter();
         state.unmountDebug();
         state.unbindCamera();
@@ -449,6 +457,8 @@ export const bowlingScene: SceneFactory = {
         // Ball uses a lit material with a colour binding — destroy both.
         material.destroy(ctx, state.ballMat);
         binding.destroy(ctx, state.ballBinding);
+        // Dispose the ctx LAST — after all per-ctx resources are torn down.
+        gpu.dispose(ctx);
       },
     };
   },

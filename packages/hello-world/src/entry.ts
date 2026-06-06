@@ -1,12 +1,9 @@
-import * as frame from "@furnace/core/frame";
-import * as gpu from "@furnace/core/gpu";
 import * as input from "@furnace/core/input";
 import { mount } from "svelte";
 
 import { bowlingScene } from "./demos/bowling/scene.ts";
 import { triangleScene } from "./demos/triangle/scene.ts";
 import { mountFpsOverlay } from "./overlay/mount.ts";
-import { subscribeOverlay } from "./overlay/state.svelte.ts";
 import SceneButtons from "./shell/SceneButtons.svelte";
 import type { SceneController, SceneFactory } from "./shell/scene.ts";
 import { switcher } from "./shell/switcher-state.svelte.ts";
@@ -19,17 +16,11 @@ async function main(): Promise<void> {
   if (!canvas) throw new Error("canvas#gpu not found");
   if (!uiRoot) throw new Error("#ui-root not found");
 
-  let ctx: gpu.Context;
-  try {
-    ctx = await gpu.requestContext(canvas);
-  } catch (e) {
-    document.body.innerText = e instanceof Error ? e.message : String(e);
-    return;
-  }
-
+  // Shell owns the DOM-bound, ctx-independent chrome: input attaches to the
+  // canvas (persists across scene switches) and the FPS overlay mounts once.
+  // Each scene owns its own ctx + render loop + overlay subscription.
   input.attach(canvas);
   mountFpsOverlay(uiRoot);
-  subscribeOverlay(ctx);
 
   let active: SceneController | null = null;
 
@@ -43,7 +34,7 @@ async function main(): Promise<void> {
         active = null;
       }
       const factory = SCENES[index];
-      active = factory ? await factory.load(ctx) : null;
+      active = factory ? await factory.load(canvas) : null;
       switcher.activeIndex = index;
     } finally {
       switcher.switching = false;
@@ -60,12 +51,6 @@ async function main(): Promise<void> {
         });
       },
     },
-  });
-
-  // The loop starts before the first scene finishes loading; while `active` is
-  // null it renders nothing (a blank frame) — intentional and safe.
-  frame.loop(ctx, (info) => {
-    if (active) active.frame(info);
   });
 
   await selectScene(0);

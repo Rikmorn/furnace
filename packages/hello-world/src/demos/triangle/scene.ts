@@ -5,7 +5,7 @@ import * as camera from "@furnace/core/camera";
 import * as frame from "@furnace/core/frame";
 import type { Geometry } from "@furnace/core/geometry";
 import * as geometry from "@furnace/core/geometry";
-import type { Context } from "@furnace/core/gpu";
+import * as gpu from "@furnace/core/gpu";
 import * as input from "@furnace/core/input";
 import type { Material } from "@furnace/core/material";
 import * as material from "@furnace/core/material";
@@ -25,6 +25,7 @@ import {
 // .wgsl files stay in src/ (siblings of the old entry.ts); reference them up two dirs.
 import bloomShaderUrl from "../../bloom.wgsl";
 import emissiveShaderUrl from "../../emissive.wgsl";
+import { subscribeOverlay } from "../../overlay/state.svelte.ts";
 import type { SceneController, SceneFactory } from "../../shell/scene.ts";
 import triangleShaderUrl from "../../triangle.wgsl";
 
@@ -72,7 +73,11 @@ type TriangleState = {
 
 export const triangleScene: SceneFactory = {
   label: "Triangle",
-  load: async (ctx: Context): Promise<SceneController> => {
+  load: async (canvas: HTMLCanvasElement): Promise<SceneController> => {
+    // Default config — LDR, no MSAA. The triangle's look is intentionally
+    // unchanged by the per-demo-ctx refactor.
+    const ctx = await gpu.requestContext(canvas);
+
     await demoWasmReady;
     console.log("demo-wasm: 2 + 3 =", add(2, 3));
 
@@ -187,50 +192,54 @@ export const triangleScene: SceneFactory = {
       sdfPosition: vec3.fromValues(0, 0, 0),
     };
 
-    return {
-      frame: (info) => {
-        const dt = info.deltaMs / MS_PER_S;
-        let dx = 0;
-        let dy = 0;
-        if (input.isKeyDown("ArrowLeft")) dx -= 1;
-        if (input.isKeyDown("ArrowRight")) dx += 1;
-        if (input.isKeyDown("ArrowDown")) dy -= 1;
-        if (input.isKeyDown("ArrowUp")) dy += 1;
-        if (dx !== 0 && dy !== 0) {
-          dx *= DIAGONAL_NORMALIZE;
-          dy *= DIAGONAL_NORMALIZE;
-        }
-        vec3.add(
-          state.sdfPosition,
-          state.sdfPosition,
-          vec3.fromValues(
-            dx * MOVE_SPEED_WORLD_PER_SEC * dt,
-            dy * MOVE_SPEED_WORLD_PER_SEC * dt,
-            0,
-          ),
-        );
-        mesh.setPosition(ctx, state.sdfMesh, state.sdfPosition);
-        quat.fromEuler(
-          state.rotation,
-          info.elapsedMs * CUBE_ROTATION_PITCH_RATE,
-          info.elapsedMs * CUBE_ROTATION_YAW_RATE,
+    const unsubOverlay = subscribeOverlay(ctx);
+    const loop = frame.loop(ctx, (info) => {
+      const dt = info.deltaMs / MS_PER_S;
+      let dx = 0;
+      let dy = 0;
+      if (input.isKeyDown("ArrowLeft")) dx -= 1;
+      if (input.isKeyDown("ArrowRight")) dx += 1;
+      if (input.isKeyDown("ArrowDown")) dy -= 1;
+      if (input.isKeyDown("ArrowUp")) dy += 1;
+      if (dx !== 0 && dy !== 0) {
+        dx *= DIAGONAL_NORMALIZE;
+        dy *= DIAGONAL_NORMALIZE;
+      }
+      vec3.add(
+        state.sdfPosition,
+        state.sdfPosition,
+        vec3.fromValues(
+          dx * MOVE_SPEED_WORLD_PER_SEC * dt,
+          dy * MOVE_SPEED_WORLD_PER_SEC * dt,
           0,
-        );
-        mesh.setRotation(ctx, state.cubeMesh, state.rotation);
-        mesh.setRotation(ctx, state.emissiveMesh, state.rotation);
-        frame.render(ctx, {
-          meshes: [
-            state.planeMesh,
-            state.cubeMesh,
-            state.emissiveMesh,
-            state.sdfMesh,
-          ],
-          camera: state.cam,
-          effects: [state.bloom],
-          clearColor: CLEAR_COLOR,
-        });
-      },
+        ),
+      );
+      mesh.setPosition(ctx, state.sdfMesh, state.sdfPosition);
+      quat.fromEuler(
+        state.rotation,
+        info.elapsedMs * CUBE_ROTATION_PITCH_RATE,
+        info.elapsedMs * CUBE_ROTATION_YAW_RATE,
+        0,
+      );
+      mesh.setRotation(ctx, state.cubeMesh, state.rotation);
+      mesh.setRotation(ctx, state.emissiveMesh, state.rotation);
+      frame.render(ctx, {
+        meshes: [
+          state.planeMesh,
+          state.cubeMesh,
+          state.emissiveMesh,
+          state.sdfMesh,
+        ],
+        camera: state.cam,
+        effects: [state.bloom],
+        clearColor: CLEAR_COLOR,
+      });
+    });
+
+    return {
       unload: () => {
+        loop.stop();
+        unsubOverlay();
         state.unbindCamera();
         mesh.destroy(ctx, state.sdfMesh);
         mesh.destroy(ctx, state.cubeMesh);
@@ -254,6 +263,8 @@ export const triangleScene: SceneFactory = {
         shader.destroy(ctx, state.sdfShader);
         shader.destroy(ctx, state.emissiveShader);
         shader.destroy(ctx, state.bloomShader);
+        // Dispose the ctx LAST — after all per-ctx resources are torn down.
+        gpu.dispose(ctx);
       },
     };
   },

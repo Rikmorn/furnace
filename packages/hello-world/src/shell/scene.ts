@@ -1,17 +1,18 @@
-import type { FrameInfo } from "@furnace/core/frame";
-import type { Context } from "@furnace/core/gpu";
-
 /**
- * A loaded scene: drives one frame and tears itself down. State is closed over
- * inside the controller, so the switcher never threads a per-scene type.
+ * A loaded scene: tears itself down. Each scene owns its own `gpu.Context`,
+ * render loop, and overlay subscription, so the switcher only needs to call
+ * `unload()` — the controller closes over everything else.
  */
 export type SceneController = {
-  frame(info: FrameInfo): void;
   unload(): void;
 };
 
-/** A selectable scene: a label + an async loader that builds its resources. */
+/**
+ * A selectable scene: a label + an async loader. The loader receives the shared
+ * DOM canvas and creates its own per-demo `gpu.Context` (so each demo picks its
+ * own render config — MSAA, HDR — without forcing it on the others).
+ */
 export type SceneFactory = {
   label: string;
-  load(ctx: Context): Promise<SceneController>;
+  load(canvas: HTMLCanvasElement): Promise<SceneController>;
 };
