@@ -656,9 +656,10 @@ function recordScenePass(
  *   `array<Light, 16>`) per context, allocated on first call and rewritten each
  *   frame from `opts.lights`/`opts.ambient` (clamped to `MAX_LIGHTS`, warn-once
  *   on overflow). It is bound at `@group(0) @binding(1)` only for pipelines
- *   whose shader declares `usesScene`; pipelines that don't (every built-in
- *   until lighting lands) never see it, so their group-0 bind group has only
- *   binding 0.
+ *   whose shader declares `usesScene` (the built-in `lit`/`texturedLit` shaders
+ *   and any custom shader created with `shader.create(ctx, src, { usesScene:
+ *   true })`); pipelines that don't never see it, so their group-0 bind group
+ *   has only binding 0.
  *
  * Setup-loud per the foreground failure policy. The draw and effects
  * lists are validated up front; `validateDraw` resolves each mesh's
