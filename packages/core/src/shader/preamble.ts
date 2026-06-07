@@ -13,9 +13,11 @@ import { source } from "./source.ts";
  * - `@group(2)` = per-draw object data (model matrix)
  */
 
-/** Camera binding — `@group(0) @binding(0)`, per-frame. */
+/** Camera binding — `@group(0) @binding(0)`, per-frame. `position` is the
+ *  world-space eye (vec4 for std140; `.w` unused) — read by lit shaders for
+ *  Blinn-Phong specular; non-specular shaders ignore it. */
 export const _cameraBinding: ShaderSource = source(
-  `struct Camera { viewProjection: mat4x4<f32> };
+  `struct Camera { viewProjection: mat4x4<f32>, position: vec4<f32> };
 @group(0) @binding(0) var<uniform> camera: Camera;`,
 );
 

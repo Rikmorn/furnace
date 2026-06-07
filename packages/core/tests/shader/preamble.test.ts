@@ -6,10 +6,11 @@ import {
   _vsIn,
 } from "../../src/shader/preamble.ts";
 
-test("camera binding fragment declares @group(0) @binding(0)", () => {
+test("camera binding fragment declares @group(0) @binding(0) with position", () => {
   const wgsl = toWgsl(_cameraBinding);
   expect(wgsl).toContain("@group(0) @binding(0) var<uniform> camera: Camera");
-  expect(wgsl).toContain("struct Camera { viewProjection: mat4x4<f32> }");
+  expect(wgsl).toContain("viewProjection: mat4x4<f32>");
+  expect(wgsl).toContain("position: vec4<f32>");
 });
 
 test("object binding fragment declares @group(2) @binding(0) — moved out of group 0", () => {

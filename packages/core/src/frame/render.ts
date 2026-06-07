@@ -32,7 +32,7 @@ import type { Vec4 } from "../transform/types.ts";
 import { vec4 } from "../transform/vec4.ts";
 import { trianglesForTopology } from "./triangles-for-topology.ts";
 
-const CAMERA_UNIFORM_SIZE = 64; // one mat4x4<f32>
+const CAMERA_UNIFORM_SIZE = 80; // mat4x4<f32> viewProjection (64) + vec4<f32> position (16)
 
 type DepthEntry = {
   texture: GPUTexture;
@@ -199,6 +199,8 @@ export function _ensureCameraBuffer(ctx: Context, cam: Camera): GPUBuffer {
   }
   const matrices = camera.getMatrices(cam);
   ctx.queue.writeBuffer(buffer, 0, matrices.viewProjection);
+  // Eye world-position at offset 64 (vec4 lane; .w unwritten, reads as zero — shader uses only .xyz).
+  ctx.queue.writeBuffer(buffer, 64, cam.position);
   return buffer;
 }
 
@@ -550,9 +552,10 @@ function recordScenePass(
  *   the per-context pool (`post/pool.ts`) — the scene target plus one per
  *   mid-chain pass — and released back to the pool's free list at chain end,
  *   reused across frames rather than reallocated.
- * - One camera uniform buffer (64 bytes) per `(context, camera)` pair,
- *   allocated on first sighting of a given camera. The buffer is written each
- *   call from `camera.getMatrices`. Per-frame `@group(0)` camera bind groups are
+ * - One camera uniform buffer (80 bytes: `viewProjection` mat4x4 + `position`
+ *   vec4) per `(context, camera)` pair, allocated on first sighting of a given
+ *   camera. The buffer is written each call from `camera.getMatrices` and
+ *   `camera.position`. Per-frame `@group(0)` camera bind groups are
  *   cached keyed by `(pipeline, cameraBuffer)`; per-draw `@group(2)` object bind
  *   groups are cached on the mesh keyed by `(mesh, pipeline)`.
  *
