@@ -9,11 +9,12 @@ import type { Vec4 } from "@furnace/core/transform";
 import { quat, vec3, vec4 } from "@furnace/core/transform";
 
 import { mountDemo } from "../../shared/mount.ts";
+import colorChunk from "./chunks/color.wgsl" with { type: "text" };
 import Controls from "./controls.svelte";
 import help from "./help.ts";
-import plasmaShaderUrl from "./plasma.wgsl";
+import plasmaBody from "./plasma.wgsl" with { type: "text" };
 import { state } from "./state.svelte.ts";
-import stripedShaderUrl from "./striped.wgsl";
+import stripedBody from "./striped.wgsl" with { type: "text" };
 
 const CAMERA_Z = 3;
 const BACKDROP_Z = -2;
@@ -58,12 +59,21 @@ await mountDemo({
     },
   },
   setup: async (ctx) => {
-    const stripedShader = await shader.load(ctx, stripedShaderUrl, {
-      layout: { stripes: "f32", hue: "f32", softness: "f32" },
-    });
-    const plasmaShader = await shader.load(ctx, plasmaShaderUrl, {
-      layout: { time: "f32", scale: "f32", colorPhase: "f32" },
-    });
+    const color = shader.source(colorChunk);
+    const stripedShader = await shader.create(
+      ctx,
+      shader.source(stripedBody, [color]),
+      {
+        layout: { stripes: "f32", hue: "f32", softness: "f32" },
+      },
+    );
+    const plasmaShader = await shader.create(
+      ctx,
+      shader.source(plasmaBody, [color]),
+      {
+        layout: { time: "f32", scale: "f32", colorPhase: "f32" },
+      },
+    );
 
     const stripedBinding = binding.create(ctx, stripedShader);
     binding.set(ctx, stripedBinding, {

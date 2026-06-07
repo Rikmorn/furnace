@@ -25,7 +25,8 @@ export default {
     },
   ],
   features: [
-    "shader.load",
+    "shader.create",
+    "shader.source",
     "material.create",
     "MaterialDescriptor (shader/bindings)",
     "multiple custom materials in one scene",
@@ -38,7 +39,7 @@ export default {
   ],
   gaps: [
     "Uniforms are raw writeBuffer — typed uniform setters are in docs/backlog/engine-architecture/typed-uniform-setters.md. With two materials now, the per-frame writeBuffer boilerplate is starting to feel real.",
-    "hsv2rgb is copy-pasted between striped.wgsl and plasma.wgsl because WGSL has no #include — see docs/backlog/engine-architecture/shader-preprocessor.md.",
+    "hsv2rgb lives in chunks/color.wgsl and is shared by striped + plasma via shader.source (Stage 2.5 composition) — no copy-paste, deduped by toWgsl.",
   ],
   order: 50,
 } satisfies DemoHelp;

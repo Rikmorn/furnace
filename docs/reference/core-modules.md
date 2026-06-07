@@ -287,7 +287,7 @@ Re-exported from `index.ts` so the binding subsystem (Task 3+) can `import * as 
 
 ### Demoed in cookbook
 
-- `create`, `load`, `Shader`, `MaterialDescriptor (shader/bindings)` → `cookbook/shader`. `source` / `toWgsl` are part of the public surface but not yet demoed (the `cookbook/shader` `hsv2rgb` dedup lands in a follow-up task).
+- `create`, `source`, `toWgsl`, `Shader`, `MaterialDescriptor (shader/bindings)` → `cookbook/shader` (the striped + plasma shaders share `hsv2rgb` from `chunks/color.wgsl` via `shader.source`, flattened by `toWgsl`).
 - `unlit`, `normalColor` (engine-owned built-ins) → demoed via `material.create` across the cookbook (e.g. `cookbook/camera`, `cookbook/geometry`, `cookbook/render-target`).
 - `textured`, `texturedLit` (engine-owned built-ins) → used by the hello-world **bowling scene** (`packages/hello-world/src/demos/bowling/scene.ts`), not the cookbook. `cookbook/textures` authors its own textured shader against the same `@group(1)` contract rather than using the built-ins.
 
@@ -340,7 +340,7 @@ Re-exported from `index.ts` so the binding subsystem (Task 3+) can `import * as 
 
 - `create` (+ `shader.unlit` + `binding`, `shader.normalColor`), `destroy` → `cookbook/camera`.
 - `create` (+ `shader.normalColor`, `primitive` topology/cullMode) → `cookbook/geometry`.
-- `create`, `MaterialDescriptor (shader/bindings)` → `cookbook/shader` (also demos `shader.load`).
+- `create`, `MaterialDescriptor (shader/bindings)` → `cookbook/shader` (also demos `shader.create` + `shader.source`).
 - `create` (+ `shader.unlit` + `binding`), `primitive.cullMode`, `depth.write`/`depth.compare`, `blend.straightAlpha`, `blend.premultiplied`, `blend.additive` → `cookbook/blend`.
 - `depth: false` (via `material.create` + `shader.unlit`/`shader.normalColor`) → `cookbook/render-target`.
 - `create` (+ `MaterialDescriptor.texture`, against a consumer-authored textured shader) → `cookbook/textures`. The built-in `shader.textured` / `shader.texturedLit` material path is exercised by the hello-world bowling scene, not the cookbook.
