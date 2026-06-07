@@ -115,7 +115,7 @@ test.skipIf(!bunWebGpuAvailable())(
 );
 
 test.skipIf(!bunWebGpuAvailable())(
-  "_ensureMeshGroup0 returns distinct bind groups per cameraBuffer",
+  "_ensureCameraGroup0 returns distinct bind groups per cameraBuffer",
   async () => {
     const canvas = await makeOffscreenCanvas();
     const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
@@ -124,31 +124,60 @@ test.skipIf(!bunWebGpuAvailable())(
     const mat = await material.create(ctx, {
       shader: await shader.normalColor(ctx),
     });
-    const c = createMesh(ctx, { geometry: geometry.cube(ctx), material: mat });
-    const cSlot = _resolveMesh(ctx, c);
     const matSlot = _resolveMaterial(ctx, mat);
     const bufA = _frameRenderInternals._ensureCameraBuffer(ctx, camA);
     const bufB = _frameRenderInternals._ensureCameraBuffer(ctx, camB);
-    const groupA = _frameRenderInternals._ensureMeshGroup0(
+    const groupA = _frameRenderInternals._ensureCameraGroup0(
       ctx,
-      cSlot,
       matSlot.pipeline,
       bufA,
     );
-    const groupB = _frameRenderInternals._ensureMeshGroup0(
+    const groupB = _frameRenderInternals._ensureCameraGroup0(
       ctx,
-      cSlot,
       matSlot.pipeline,
       bufB,
     );
-    const groupAagain = _frameRenderInternals._ensureMeshGroup0(
+    const groupAagain = _frameRenderInternals._ensureCameraGroup0(
       ctx,
-      cSlot,
       matSlot.pipeline,
       bufA,
     );
     expect(groupA).not.toBe(groupB);
     expect(groupAagain).toBe(groupA);
+    gpu.dispose(ctx);
+  },
+);
+
+test.skipIf(!bunWebGpuAvailable())(
+  "_ensureObjectGroup2 returns distinct bind groups per mesh, cached per (mesh, pipeline)",
+  async () => {
+    const canvas = await makeOffscreenCanvas();
+    const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
+    const mat = await material.create(ctx, {
+      shader: await shader.normalColor(ctx),
+    });
+    const c1 = createMesh(ctx, { geometry: geometry.cube(ctx), material: mat });
+    const c2 = createMesh(ctx, { geometry: geometry.cube(ctx), material: mat });
+    const slot1 = _resolveMesh(ctx, c1);
+    const slot2 = _resolveMesh(ctx, c2);
+    const matSlot = _resolveMaterial(ctx, mat);
+    const g1 = _frameRenderInternals._ensureObjectGroup2(
+      ctx,
+      slot1,
+      matSlot.pipeline,
+    );
+    const g2 = _frameRenderInternals._ensureObjectGroup2(
+      ctx,
+      slot2,
+      matSlot.pipeline,
+    );
+    const g1again = _frameRenderInternals._ensureObjectGroup2(
+      ctx,
+      slot1,
+      matSlot.pipeline,
+    );
+    expect(g1).not.toBe(g2);
+    expect(g1again).toBe(g1);
     gpu.dispose(ctx);
   },
 );

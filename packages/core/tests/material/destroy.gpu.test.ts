@@ -18,7 +18,7 @@ const WGSL = `
   struct Camera { viewProjection: mat4x4<f32> };
   struct Object { model: mat4x4<f32> };
   @group(0) @binding(0) var<uniform> camera: Camera;
-  @group(0) @binding(1) var<uniform> object: Object;
+  @group(2) @binding(0) var<uniform> object: Object;
   struct VsIn {
     @location(0) position: vec3<f32>,
     @location(1) normal: vec3<f32>,

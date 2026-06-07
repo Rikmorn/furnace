@@ -1,23 +1,17 @@
 import { computeLayout } from "../binding/layout.ts";
 import type { ResolvedLayout } from "../binding/types.ts";
 import type { Context } from "../gpu/index.ts";
+import { _cameraBinding, _objectBinding, _vsIn } from "./preamble.ts";
 import { _createShader } from "./shader.ts";
+import type { ShaderSource } from "./source.ts";
+import { source, toWgsl } from "./source.ts";
 import type { Shader } from "./types.ts";
 
-const UNLIT_WGSL = /* wgsl */ `
-struct Camera { viewProjection: mat4x4<f32> };
-struct Object { model: mat4x4<f32> };
+const UNLIT_SRC: ShaderSource = source`${_cameraBinding}
+${_objectBinding}
+${_vsIn}
 struct Mat { color: vec4<f32> };
-
-@group(0) @binding(0) var<uniform> camera: Camera;
-@group(0) @binding(1) var<uniform> object: Object;
 @group(1) @binding(0) var<uniform> mat: Mat;
-
-struct VsIn {
-  @location(0) position: vec3<f32>,
-  @location(1) normal: vec3<f32>,
-  @location(2) uv: vec2<f32>,
-};
 
 @vertex fn vs_main(v: VsIn) -> @builtin(position) vec4<f32> {
   return camera.viewProjection * object.model * vec4<f32>(v.position, 1.0);
@@ -25,21 +19,11 @@ struct VsIn {
 
 @fragment fn fs_main() -> @location(0) vec4<f32> {
   return mat.color;
-}
-`;
+}`;
 
-const NORMAL_COLOR_WGSL = /* wgsl */ `
-struct Camera { viewProjection: mat4x4<f32> };
-struct Object { model: mat4x4<f32> };
-
-@group(0) @binding(0) var<uniform> camera: Camera;
-@group(0) @binding(1) var<uniform> object: Object;
-
-struct VsIn {
-  @location(0) position: vec3<f32>,
-  @location(1) normal: vec3<f32>,
-  @location(2) uv: vec2<f32>,
-};
+const NORMAL_COLOR_SRC: ShaderSource = source`${_cameraBinding}
+${_objectBinding}
+${_vsIn}
 struct VsOut {
   @builtin(position) pos: vec4<f32>,
   @location(0) normal: vec3<f32>,
@@ -57,23 +41,14 @@ struct VsOut {
 @fragment fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
   let n = normalize(in.normal);
   return vec4<f32>(n * 0.5 + 0.5, 1.0);
-}
-`;
+}`;
 
-const LIT_WGSL = /* wgsl */ `
-struct Camera { viewProjection: mat4x4<f32> };
-struct Object { model: mat4x4<f32> };
+const LIT_SRC: ShaderSource = source`${_cameraBinding}
+${_objectBinding}
+${_vsIn}
 struct Mat { color: vec4<f32> };
-
-@group(0) @binding(0) var<uniform> camera: Camera;
-@group(0) @binding(1) var<uniform> object: Object;
 @group(1) @binding(0) var<uniform> mat: Mat;
 
-struct VsIn {
-  @location(0) position: vec3<f32>,
-  @location(1) normal: vec3<f32>,
-  @location(2) uv: vec2<f32>,
-};
 struct VsOut {
   @builtin(position) pos: vec4<f32>,
   @location(0) normal: vec3<f32>,
@@ -99,17 +74,13 @@ const GROUND_COLOR: vec3<f32> = vec3<f32>(0.12, 0.12, 0.14);
   let hemi = mix(GROUND_COLOR, SKY_COLOR, n.y * 0.5 + 0.5);
   let rgb = mat.color.rgb * (directional + hemi);
   return vec4<f32>(rgb, mat.color.a);
-}
-`;
+}`;
 
-const TEXTURED_WGSL = /* wgsl */ `
-struct Camera { viewProjection: mat4x4<f32> };
-struct Object { model: mat4x4<f32> };
-@group(0) @binding(0) var<uniform> camera: Camera;
-@group(0) @binding(1) var<uniform> object: Object;
+const TEXTURED_SRC: ShaderSource = source`${_cameraBinding}
+${_objectBinding}
+${_vsIn}
 @group(1) @binding(0) var samp: sampler;
 @group(1) @binding(1) var tex: texture_2d<f32>;
-struct VsIn { @location(0) position: vec3<f32>, @location(1) normal: vec3<f32>, @location(2) uv: vec2<f32> };
 struct VsOut { @builtin(position) pos: vec4<f32>, @location(0) uv: vec2<f32> };
 @vertex fn vs_main(v: VsIn) -> VsOut {
   var out: VsOut;
@@ -119,17 +90,13 @@ struct VsOut { @builtin(position) pos: vec4<f32>, @location(0) uv: vec2<f32> };
 }
 @fragment fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
   return textureSample(tex, samp, in.uv);
-}
-`;
+}`;
 
-const TEXTURED_LIT_WGSL = /* wgsl */ `
-struct Camera { viewProjection: mat4x4<f32> };
-struct Object { model: mat4x4<f32> };
-@group(0) @binding(0) var<uniform> camera: Camera;
-@group(0) @binding(1) var<uniform> object: Object;
+const TEXTURED_LIT_SRC: ShaderSource = source`${_cameraBinding}
+${_objectBinding}
+${_vsIn}
 @group(1) @binding(0) var samp: sampler;
 @group(1) @binding(1) var tex: texture_2d<f32>;
-struct VsIn { @location(0) position: vec3<f32>, @location(1) normal: vec3<f32>, @location(2) uv: vec2<f32> };
 struct VsOut { @builtin(position) pos: vec4<f32>, @location(0) normal: vec3<f32>, @location(1) uv: vec2<f32> };
 @vertex fn vs_main(v: VsIn) -> VsOut {
   var out: VsOut;
@@ -150,8 +117,7 @@ const GROUND_COLOR: vec3<f32> = vec3<f32>(0.12, 0.12, 0.14);
   let directional = LIGHT_COLOR * (halfLambert * halfLambert);
   let hemi = mix(GROUND_COLOR, SKY_COLOR, n.y * 0.5 + 0.5);
   return vec4<f32>(albedo.rgb * (directional + hemi), albedo.a);
-}
-`;
+}`;
 
 /** Resolved layout for the unlit shader's `@group(1)` uniform buffer. */
 const UNLIT_LAYOUT: ResolvedLayout = computeLayout({ color: "vec4f" });
@@ -160,17 +126,13 @@ type BuiltinKind = "unlit" | "lit" | "normalColor" | "textured" | "texturedLit";
 
 const BUILTIN_SPECS: Record<
   BuiltinKind,
-  { wgsl: string; layout: ResolvedLayout | null; textureBinding: boolean }
+  { src: ShaderSource; layout: ResolvedLayout | null; textureBinding: boolean }
 > = {
-  unlit: { wgsl: UNLIT_WGSL, layout: UNLIT_LAYOUT, textureBinding: false },
-  lit: { wgsl: LIT_WGSL, layout: UNLIT_LAYOUT, textureBinding: false },
-  normalColor: {
-    wgsl: NORMAL_COLOR_WGSL,
-    layout: null,
-    textureBinding: false,
-  },
-  textured: { wgsl: TEXTURED_WGSL, layout: null, textureBinding: true },
-  texturedLit: { wgsl: TEXTURED_LIT_WGSL, layout: null, textureBinding: true },
+  unlit: { src: UNLIT_SRC, layout: UNLIT_LAYOUT, textureBinding: false },
+  lit: { src: LIT_SRC, layout: UNLIT_LAYOUT, textureBinding: false },
+  normalColor: { src: NORMAL_COLOR_SRC, layout: null, textureBinding: false },
+  textured: { src: TEXTURED_SRC, layout: null, textureBinding: true },
+  texturedLit: { src: TEXTURED_LIT_SRC, layout: null, textureBinding: true },
 };
 
 /** Lazily compile (once per ctx) the engine-owned shared built-in shader for
@@ -182,7 +144,7 @@ function builtinShader(ctx: Context, kind: BuiltinKind): Promise<Shader> {
   const spec = BUILTIN_SPECS[kind];
   const promise = _createShader(
     ctx,
-    spec.wgsl,
+    toWgsl(spec.src),
     true,
     spec.layout,
     spec.textureBinding,

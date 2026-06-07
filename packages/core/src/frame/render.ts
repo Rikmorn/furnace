@@ -263,44 +263,65 @@ export type RenderOptions = RenderPassBase & {
 const DEFAULT_CLEAR_COLOR: Vec4 = vec4.fromValues(0, 0, 0, 1);
 const DEFAULT_CLEAR_DEPTH = 1.0;
 
-// Per-mesh map from (pipeline, cameraBuffer) -> group-0 bind group. Keyed by
-// MeshSlot (the slot object reference) so a WeakMap suffices: when the slot is
-// recycled by the pool, the old reference becomes unreachable and its cache
-// drops naturally. The inner Maps exist because a mesh's material may swap
-// pipelines over time AND the same mesh may be rendered with multiple cameras
-// (e.g. main pass + render-to-texture pass) — each (pipeline, cameraBuffer)
-// pair needs its own bind group.
-const group0Cache = new WeakMap<
+// The per-draw bind state is split across two groups:
+// - `@group(0)` carries per-frame camera data, shared by every mesh drawn with
+//   the same (pipeline, cameraBuffer). Keyed by pipeline (a long-lived object),
+//   then by cameraBuffer — the same pipeline may be drawn with multiple cameras
+//   (e.g. main pass + render-to-texture pass).
+// - `@group(2)` carries per-draw object data (the model matrix). Keyed by
+//   MeshSlot (the slot object reference) so a WeakMap suffices: when the slot is
+//   recycled by the pool, the old reference becomes unreachable and its cache
+//   drops naturally. The inner Map exists because a mesh's material may swap
+//   pipelines over time — each (slot, pipeline) pair needs its own bind group.
+
+// Per-frame group 0 (camera): one bind group per (pipeline, cameraBuffer).
+const cameraGroup0Cache = new WeakMap<
+  GPURenderPipeline,
+  Map<GPUBuffer, GPUBindGroup>
+>();
+// Per-draw group 2 (object): one bind group per (MeshSlot, pipeline).
+const objectGroup2Cache = new WeakMap<
   MeshSlot,
-  Map<GPURenderPipeline, Map<GPUBuffer, GPUBindGroup>>
+  Map<GPURenderPipeline, GPUBindGroup>
 >();
 
-function ensureGroup0(
+function ensureCameraGroup0(
   ctx: Context,
-  slot: MeshSlot,
   pipeline: GPURenderPipeline,
   cameraBuffer: GPUBuffer,
 ): GPUBindGroup {
-  let perMesh = group0Cache.get(slot);
-  if (!perMesh) {
-    perMesh = new Map();
-    group0Cache.set(slot, perMesh);
-  }
-  let perPipeline = perMesh.get(pipeline);
+  let perPipeline = cameraGroup0Cache.get(pipeline);
   if (!perPipeline) {
     perPipeline = new Map();
-    perMesh.set(pipeline, perPipeline);
+    cameraGroup0Cache.set(pipeline, perPipeline);
   }
   const cached = perPipeline.get(cameraBuffer);
   if (cached) return cached;
   const bindGroup = ctx.device.createBindGroup({
     layout: pipeline.getBindGroupLayout(0),
-    entries: [
-      { binding: 0, resource: { buffer: cameraBuffer } },
-      { binding: 1, resource: { buffer: slot.objectBuffer } },
-    ],
+    entries: [{ binding: 0, resource: { buffer: cameraBuffer } }],
   });
   perPipeline.set(cameraBuffer, bindGroup);
+  return bindGroup;
+}
+
+function ensureObjectGroup2(
+  ctx: Context,
+  slot: MeshSlot,
+  pipeline: GPURenderPipeline,
+): GPUBindGroup {
+  let perSlot = objectGroup2Cache.get(slot);
+  if (!perSlot) {
+    perSlot = new Map();
+    objectGroup2Cache.set(slot, perSlot);
+  }
+  const cached = perSlot.get(pipeline);
+  if (cached) return cached;
+  const bindGroup = ctx.device.createBindGroup({
+    layout: pipeline.getBindGroupLayout(2),
+    entries: [{ binding: 0, resource: { buffer: slot.objectBuffer } }],
+  });
+  perSlot.set(pipeline, bindGroup);
   return bindGroup;
 }
 
@@ -320,7 +341,8 @@ export type ResolvedDraw = {
 export const _frameRenderInternals = {
   _ensureDepthTexture,
   _ensureCameraBuffer,
-  _ensureMeshGroup0: ensureGroup0,
+  _ensureCameraGroup0: ensureCameraGroup0,
+  _ensureObjectGroup2: ensureObjectGroup2,
   _validateDraw: validateDraw,
   _firstDepthDisagreement: firstDepthDisagreement,
 };
@@ -368,12 +390,14 @@ function recordDraw(
   if (pipeline !== lastPipeline) {
     _recordPipelineSwitch(ctx);
   }
-  pass.setBindGroup(0, ensureGroup0(ctx, mesh, pipeline, cameraBuffer));
+  pass.setBindGroup(0, ensureCameraGroup0(ctx, pipeline, cameraBuffer));
   _recordBindGroupSwitch(ctx);
   if (material.group1) {
     pass.setBindGroup(1, material.group1);
     _recordBindGroupSwitch(ctx);
   }
+  pass.setBindGroup(2, ensureObjectGroup2(ctx, mesh, pipeline));
+  _recordBindGroupSwitch(ctx);
   pass.setVertexBuffer(0, geometry.vertexBuffer);
   const { indexBuffer, indexFormat, indexCount, vertexCount } = geometry;
   if (indexBuffer && indexFormat) {

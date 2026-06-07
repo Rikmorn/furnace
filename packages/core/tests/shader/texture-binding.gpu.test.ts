@@ -11,7 +11,7 @@ await ensureBunWebGpu();
 
 const TEXTURED_WGSL = /* wgsl */ `
 @group(0) @binding(0) var<uniform> camera: mat4x4<f32>;
-@group(0) @binding(1) var<uniform> object: mat4x4<f32>;
+@group(2) @binding(0) var<uniform> object: mat4x4<f32>;
 @group(1) @binding(0) var samp: sampler;
 @group(1) @binding(1) var tex: texture_2d<f32>;
 struct VsIn { @location(0) position: vec3<f32>, @location(1) normal: vec3<f32>, @location(2) uv: vec2<f32> };

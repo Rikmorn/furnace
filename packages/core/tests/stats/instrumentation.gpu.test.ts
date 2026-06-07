@@ -16,7 +16,7 @@ import { makeUnlitMaterial } from "../_helpers/unlit-material.ts";
 await ensureBunWebGpu();
 
 test.skipIf(!bunWebGpuAvailable())(
-  "frame.render: one cube → drawCalls=1, triangles=12, pipelineSwitches=1, bindGroupSwitches=2 (group0 + group1)",
+  "frame.render: one cube → drawCalls=1, triangles=12, pipelineSwitches=1, bindGroupSwitches=3 (group0 camera + group1 material + group2 object)",
   async () => {
     const canvas = await makeOffscreenCanvas();
     const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
@@ -37,7 +37,7 @@ test.skipIf(!bunWebGpuAvailable())(
     expect(s.gpu.drawCalls).toBe(1);
     expect(s.gpu.triangles).toBe(12);
     expect(s.gpu.pipelineSwitches).toBe(1);
-    expect(s.gpu.bindGroupSwitches).toBe(2);
+    expect(s.gpu.bindGroupSwitches).toBe(3);
     mesh.destroy(ctx, m);
     geometry.destroy(ctx, mGeo);
     gpu.dispose(ctx);

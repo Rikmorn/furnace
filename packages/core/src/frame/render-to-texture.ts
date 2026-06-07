@@ -101,13 +101,18 @@ function recordDraw(
   }
   pass.setBindGroup(
     0,
-    _frameRenderInternals._ensureMeshGroup0(ctx, mesh, pipeline, cameraBuffer),
+    _frameRenderInternals._ensureCameraGroup0(ctx, pipeline, cameraBuffer),
   );
   _recordBindGroupSwitch(ctx);
   if (material.group1) {
     pass.setBindGroup(1, material.group1);
     _recordBindGroupSwitch(ctx);
   }
+  pass.setBindGroup(
+    2,
+    _frameRenderInternals._ensureObjectGroup2(ctx, mesh, pipeline),
+  );
+  _recordBindGroupSwitch(ctx);
   pass.setVertexBuffer(0, geometry.vertexBuffer);
   const { indexBuffer, indexFormat, indexCount, vertexCount } = geometry;
   if (indexBuffer && indexFormat) {

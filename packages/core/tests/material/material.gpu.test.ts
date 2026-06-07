@@ -16,7 +16,7 @@ const TRIVIAL_WGSL = `
   struct Camera { viewProjection: mat4x4<f32> };
   struct Object { model: mat4x4<f32> };
   @group(0) @binding(0) var<uniform> camera: Camera;
-  @group(0) @binding(1) var<uniform> object: Object;
+  @group(2) @binding(0) var<uniform> object: Object;
   struct VsIn {
     @location(0) position: vec3<f32>,
     @location(1) normal: vec3<f32>,
@@ -35,7 +35,7 @@ const WGSL_WITH_GROUP1 = `
   struct Object { model: mat4x4<f32> };
   struct Mat { color: vec4<f32> };
   @group(0) @binding(0) var<uniform> camera: Camera;
-  @group(0) @binding(1) var<uniform> object: Object;
+  @group(2) @binding(0) var<uniform> object: Object;
   @group(1) @binding(0) var<uniform> mat: Mat;
   struct VsIn {
     @location(0) position: vec3<f32>,
@@ -52,7 +52,7 @@ const ENTRY_WGSL = `
   struct Camera { viewProjection: mat4x4<f32> };
   struct Object { model: mat4x4<f32> };
   @group(0) @binding(0) var<uniform> camera: Camera;
-  @group(0) @binding(1) var<uniform> object: Object;
+  @group(2) @binding(0) var<uniform> object: Object;
   struct VsIn {
     @location(0) position: vec3<f32>,
     @location(1) normal: vec3<f32>,
