@@ -18,4 +18,6 @@ export {
   destroy,
   load,
 } from "./shader.ts";
+export type { ShaderSource } from "./source.ts";
+export { source, toWgsl } from "./source.ts";
 export type { Shader } from "./types.ts";
