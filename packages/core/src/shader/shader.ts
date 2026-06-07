@@ -11,6 +11,8 @@ import {
   _destroyShader,
   _lookupShader,
 } from "../resources/internal.ts";
+import type { ShaderSource } from "./source.ts";
+import { toWgsl } from "./source.ts";
 import type { Shader, ShaderSlot } from "./types.ts";
 
 /** Options for declaring the shader's `@group(1)` uniform-buffer layout. */
@@ -92,8 +94,12 @@ export async function _createShader(
 }
 
 /**
- * Compile a {@link Shader} from WGSL source. One module may declare
- * `@vertex`/`@fragment` (and, in future, `@compute`) entry points. Setup-loud.
+ * Compile a {@link Shader} from a {@link ShaderSource} or a WGSL string. One
+ * module may declare `@vertex`/`@fragment` (and, in future, `@compute`) entry
+ * points. Setup-loud.
+ *
+ * Accepts a `ShaderSource` (flattened via {@link toWgsl}) or a bare WGSL string
+ * (compiled unchanged).
  *
  * Pass `opts.layout` to declare the shader's `@group(1)` uniform-buffer schema;
  * the layout is resolved at compile time and stored on the handle — readable via
@@ -101,16 +107,17 @@ export async function _createShader(
  * entirely for shaders with no `@group(1)` binding; existing 2-arg calls are
  * unaffected (the parameter is optional and `L` defaults to `LayoutSchema`).
  *
- * @throws FurnaceError - if `wgsl` is empty.
+ * @throws FurnaceError - if the resolved WGSL source is empty.
  * @throws FurnaceError - if WGSL compilation reports an error.
  * @throws FurnaceError - if `opts.layout` is provided with an unsupported token
  *   or an unimplemented address space.
  */
 export function create<L extends LayoutSchema = LayoutSchema>(
   ctx: Context,
-  wgsl: string,
+  src: ShaderSource | string,
   opts?: ShaderCreateOpts<L>,
 ): Promise<Shader<L>> {
+  const wgsl = typeof src === "string" ? src : toWgsl(src);
   const layout =
     opts?.layout != null ? computeLayout(opts.layout, opts.addressSpace) : null;
   return _createShader(
