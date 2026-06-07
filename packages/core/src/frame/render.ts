@@ -531,8 +531,9 @@ function recordScenePass(
  *   reused across frames rather than reallocated.
  * - One camera uniform buffer (64 bytes) per `(context, camera)` pair,
  *   allocated on first sighting of a given camera. The buffer is written each
- *   call from `camera.getMatrices`. Per-mesh `@group(0)` bind groups are
- *   cached on the mesh keyed by `(pipeline, cameraBuffer)`.
+ *   call from `camera.getMatrices`. Per-frame `@group(0)` camera bind groups are
+ *   cached keyed by `(pipeline, cameraBuffer)`; per-draw `@group(2)` object bind
+ *   groups are cached on the mesh keyed by `(mesh, pipeline)`.
  *
  * Setup-loud per the foreground failure policy. The draw and effects
  * lists are validated up front; `validateDraw` resolves each mesh's
