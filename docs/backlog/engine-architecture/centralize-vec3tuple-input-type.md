@@ -26,6 +26,35 @@ import). `texture/procedural.ts`'s `Rgb` is a same-shape alias used for
 checkerboard/grid pixel colors — it could either adopt `Vec3Tuple` directly or
 remain a local alias referencing the canonical type.
 
+**Governing rule (decided 2026-06-07 — codify alongside the centralization).**
+The choice between the two types is settled by *layer*, not case-by-case, and
+this rule should be the deliverable of the centralization pass (not just a moved
+type):
+
+- **`Vec3` (`Float32Array`) — storage / compute.** Long-lived state mutated in
+  place, cache-hot or hot-loop data, anything uploaded to the GPU, and math-op
+  in/out. E.g. `mesh`/`camera` transforms, matrices, geometry buffers, the
+  per-frame Scene UBO scratch buffer.
+- **`Vec3Tuple` (`readonly [number, number, number]`) — descriptor / input.**
+  Immutable, hand-authored, **bounded-count** data passed by value into a
+  setup-time or per-frame API and immediately consumed (copied into a
+  `Float32Array`). E.g. `Light` / `Ambient`, physics descriptors, geometry
+  factory inputs.
+
+Rationale: performance is governed by the **storage** layer (always
+`Float32Array`), not the input shape. At bounded input counts (e.g.
+`MAX_LIGHTS = 16`) the tuple's costs — an `f64` backing store, and a per-frame
+allocation to "move" a `readonly` tuple instead of an in-place `Float32Array`
+write — are negligible and never become a hot path, so the input-type choice is
+decided by **posture** (immutable value-data vs. mutable buffer) and ergonomics,
+not cache layout. Lights/ambient keep `Vec3Tuple` (immutable value-data,
+mirroring `Camera` and physics; literal authoring); the cache-friendly
+`Float32Array` decision is preserved where it counts — the Scene UBO is a reused
+`Float32Array` and the tuple never reaches the GPU. The centralization pass
+should land this rule in `docs/reference/` (engine-conventions or api-posture)
+so contributors pick the right type by layer without re-deriving the tradeoff
+per module.
+
 **Why deferred:** multi-module change with no new consumer surface — all
 occurrences are internal types. Touches 6+ files across 5 sub-modules. No
 design decision is open (the canonical location and distinction are settled here);
