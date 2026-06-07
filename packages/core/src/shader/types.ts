@@ -40,5 +40,10 @@ export type ShaderSlot = {
    *  `material.create` → stored on the material slot → consumed by the render
    *  path's `ensurePerFrameGroup0`. */
   usesScene: boolean;
+  /** `true` when the shader samples the engine shadow maps at `@group(0)`
+   *  bindings 2 and 3 — the per-frame group-0 bind group then includes the
+   *  shadow atlas and its sampler. Read by `material.create` → stored on the
+   *  material slot → consumed by the render path. */
+  usesShadows: boolean;
   _teardown: () => void;
 };

@@ -16,6 +16,7 @@ export {
   _layoutOf,
   _textureBindingOf,
   _usesSceneOf,
+  _usesShadowsOf,
   create,
   destroy,
   load,

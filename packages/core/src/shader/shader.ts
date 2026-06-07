@@ -31,6 +31,12 @@ export type ShaderCreateOpts<L extends LayoutSchema = LayoutSchema> = {
    *  buffer for this pipeline. Defaults to `false`. Set it when composing the
    *  public `shader.lighting` fragments into a custom lit shader. */
   usesScene?: boolean;
+  /** When `true`, declares the shader samples the engine shadow maps at
+   *  `@group(0)` bindings 2 and 3 (shadow atlas + comparison sampler). The
+   *  render path then binds the shadow resources for this pipeline. Defaults to
+   *  `false`. Set it when composing `shader.shadowHelpers` into a custom
+   *  shadow-receiving shader. */
+  usesShadows?: boolean;
 };
 
 /**
@@ -75,6 +81,7 @@ export async function _createShader(
   layout: ResolvedLayout | null = null,
   textureBinding = false,
   usesScene = false,
+  usesShadows = false,
 ): Promise<Shader> {
   if (!wgsl) throw new FurnaceError("shader.create: WGSL source is required");
   ctx.device.pushErrorScope("validation");
@@ -92,6 +99,7 @@ export async function _createShader(
     layout,
     textureBinding,
     usesScene,
+    usesShadows,
     // GPUShaderModule has no .destroy(); GC reclaims it when the slot clears.
     _teardown: () => {
       /* intentional no-op */
@@ -134,6 +142,7 @@ export function create<L extends LayoutSchema = LayoutSchema>(
     layout,
     opts?.textureBinding ?? false,
     opts?.usesScene ?? false,
+    opts?.usesShadows ?? false,
   ) as Promise<Shader<L>>;
 }
 
@@ -205,4 +214,14 @@ export function _textureBindingOf(ctx: Context, shader: Shader): boolean {
  */
 export function _usesSceneOf(ctx: Context, shader: Shader): boolean {
   return _lookupShader<ShaderSlot>(ctx, shader)?.usesScene ?? false;
+}
+
+/**
+ * Engine-internal: read the `usesShadows` flag stored on a shader slot. `true`
+ * when the shader samples the engine shadow maps at `@group(0) @binding(2)`
+ * (depth array) + `@binding(3)` (comparison sampler). Read by `material.create`
+ * to record it on the material slot for the render path.
+ */
+export function _usesShadowsOf(ctx: Context, shader: Shader): boolean {
+  return _lookupShader<ShaderSlot>(ctx, shader)?.usesShadows ?? false;
 }
