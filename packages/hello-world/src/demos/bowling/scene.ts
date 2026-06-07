@@ -2,7 +2,12 @@ import type { Binding } from "@furnace/core/binding";
 import * as binding from "@furnace/core/binding";
 import type { Camera } from "@furnace/core/camera";
 import * as camera from "@furnace/core/camera";
-import type { FixedClock, FrameLoopHandle } from "@furnace/core/frame";
+import type {
+  Ambient,
+  FixedClock,
+  FrameLoopHandle,
+  Light,
+} from "@furnace/core/frame";
 import * as frame from "@furnace/core/frame";
 import type { Geometry } from "@furnace/core/geometry";
 import * as geometry from "@furnace/core/geometry";
@@ -46,16 +51,55 @@ const FIXED_DT_MS = 1000 / FIXED_HZ;
 const SAMPLE_COUNT_MSAA = 4 as const;
 const SAMPLE_COUNT_OFF = 1 as const;
 
-// Bloom tuned to halo ONLY the emissive ball, not the lit lane. The texturedLit
-// shader's baked lighting (directional + hemisphere) sums to ~1.5× albedo, so the
-// white checkerboard texels sit at ~1.5 in the HDR target — well above 1.0. A
-// thresholdless bloom would extract them and the whole lane glows. The ball is an
-// unlit vec4(4, 1.2, 1.2), so a soft-knee threshold above the lit-lane ceiling
-// (~1.5) and below the ball (4.0) isolates it: at threshold 2.0 the lane
-// contributes ~0 and the ball blooms. (Tune in the Safari gate.)
+// Bloom tuned to halo ONLY the emissive ball, not the lit lane. Lighting is now
+// HDR-calibrated (multi-light Blinn-Phong, no 1/π): a white surface under one key
+// light peaks ≈1.0, so the lit lane no longer overshoots 1.0 the way the old baked
+// ~1.5× term did. The ball is an unlit vec4(4, 1.2, 1.2), so a soft-knee threshold
+// just above the lit-content ceiling (≈1.0) and well below the ball (4.0) isolates
+// it: at threshold 1.1 the lane contributes ~0 and the ball blooms. (Tune in the
+// Safari gate.)
 const BLOOM_INTENSITY = 0.6;
-const BLOOM_THRESHOLD = 2.0;
+const BLOOM_THRESHOLD = 1.1;
 const BLOOM_SOFTNESS = 0.5;
+
+// Scene lighting (HDR-calibrated, no 1/π — a white surface under one key peaks
+// ≈1.0; specular is additive and may exceed 1.0). Three positioned lights over
+// the decimeter lane (z spans roughly [-4, 4]; pins at z≈-3, foul line at z=3):
+//   - KEY: a warm directional raking down-lane from the player's upper-left.
+//   - FILL: a cool point above/near the pins, softening the shadow side.
+//   - RAKE: a white spot from the foul-line end down the lane for specular streaks.
+// Starting values — the user tunes visually in the Safari gate.
+const KEY_DIR: readonly [number, number, number] = [-0.3, -1, -0.5];
+const SCENE_LIGHTS: Light[] = [
+  {
+    type: "directional",
+    direction: KEY_DIR,
+    color: [1, 0.96, 0.9],
+    intensity: 1.0,
+  },
+  {
+    type: "point",
+    position: [0, 1.2, -3],
+    color: [0.6, 0.7, 1.0],
+    intensity: 1.5,
+    range: 6,
+  },
+  {
+    type: "spot",
+    position: [0, 1.5, 3],
+    direction: [0, -0.6, -1],
+    color: [1, 1, 1],
+    intensity: 2.5,
+    range: 10,
+    innerAngle: 0.35,
+    outerAngle: 0.6,
+  },
+];
+const SCENE_AMBIENT: Ambient = {
+  sky: [0.5, 0.55, 0.65],
+  ground: [0.15, 0.14, 0.13],
+  intensity: 0.06,
+};
 
 // Decimeter-scale scene: lengthUnit tells the solver the typical body size so
 // a sub-meter sim stays stable (Task 3 verified 0.1 for this lane).
@@ -337,6 +381,8 @@ function renderFrame(
     meshes,
     camera: state.cam,
     clearColor: CLEAR_COLOR,
+    lights: SCENE_LIGHTS,
+    ambient: SCENE_AMBIENT,
     effects: [state.bloom, state.tonemap],
   });
 

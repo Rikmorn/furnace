@@ -1,6 +1,7 @@
 import * as binding from "@furnace/core/binding";
 import type { Camera, ScreenProjection } from "@furnace/core/camera";
 import * as camera from "@furnace/core/camera";
+import type { Ambient, Light } from "@furnace/core/frame";
 import * as frame from "@furnace/core/frame";
 import * as geometry from "@furnace/core/geometry";
 import * as material from "@furnace/core/material";
@@ -18,10 +19,27 @@ const CAMERA_Z = 6;
 const CUBE_X_SPACING = 1.8;
 const MS_PER_S = 1000;
 const CLEAR_COLOR: Vec4 = vec4.fromValues(0.05, 0.05, 0.07, 1);
-// Mid-tone base color: lit's directional+hemisphere term peaks well above 1×,
-// so a bright base clips to white on light-facing faces and the shading
-// gradient (which conveys cube rotation — the demo's point) is lost.
+// Mid-tone base color: lit is HDR-calibrated (a white surface under one key
+// peaks ≈1.0), so a near-white base would still wash out the light-to-dark
+// shading gradient that conveys the cube's rotation — the demo's whole point.
+// A mid-tone base keeps that gradient legible across the faces.
 const CUBE_COLOR: Vec4 = vec4.fromValues(0.45, 0.55, 0.75, 1);
+
+// Single warm key directional + a low hemisphere ambient so the shaded faces
+// keep a floor of fill. HDR-calibrated (no 1/π): the lit face peaks ≈1.0.
+const LIGHTS: Light[] = [
+  {
+    type: "directional",
+    direction: [-0.4, -1, -0.3],
+    color: [1, 1, 1],
+    intensity: 1.0,
+  },
+];
+const AMBIENT: Ambient = {
+  sky: [0.5, 0.55, 0.65],
+  ground: [0.18, 0.18, 0.2],
+  intensity: 0.08,
+};
 
 type LabelKey = "variable" | "no-interp" | "interp";
 
@@ -206,6 +224,8 @@ await mountDemo({
       meshes: [scene.cubeVariable, scene.cubeNoInterp, scene.cubeInterp],
       camera: scene.cam,
       clearColor: CLEAR_COLOR,
+      lights: LIGHTS,
+      ambient: AMBIENT,
     });
   },
 });
