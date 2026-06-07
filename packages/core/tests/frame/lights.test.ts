@@ -4,15 +4,39 @@ import {
   type Ambient,
   type Light,
   MAX_LIGHTS,
+  MAX_SHADOW_CASTERS,
   SCENE_BYTE_SIZE,
 } from "../../src/frame/lights.ts";
 
 const f32 = (buf: ArrayBuffer) => new Float32Array(buf);
 const u32 = (buf: ArrayBuffer) => new Uint32Array(buf);
 
-test("SCENE_BYTE_SIZE is 1088 (64B header + 16 × 64B lights)", () => {
-  expect(SCENE_BYTE_SIZE).toBe(1088);
+test("SCENE_BYTE_SIZE reflects the shadow-extended layout", () => {
+  // header 64 + 16 lights * 80 + MAX_SHADOW_CASTERS * 64.
+  expect(SCENE_BYTE_SIZE).toBe(64 + 16 * 80 + MAX_SHADOW_CASTERS * 64);
   expect(MAX_LIGHTS).toBe(16);
+});
+
+test("_packScene defaults every light's shadow slot to -1 when no casters", () => {
+  const buf = new ArrayBuffer(SCENE_BYTE_SIZE);
+  _packScene(
+    buf,
+    [
+      {
+        type: "directional",
+        direction: [0, -1, 0],
+        color: [1, 1, 1],
+        intensity: 1,
+      },
+    ],
+    undefined,
+    [], // no casters
+  );
+  const f = new Float32Array(buf);
+  // light 0 starts at float index 16 (header); shadow lane is the 5th vec4 (+16).
+  const LIGHT0 = 16;
+  const SHADOW_LANE = 16; // 4 vec4 * 4 floats
+  expect(f[LIGHT0 + SHADOW_LANE]).toBe(-1); // slot = -1
 });
 
 test("packs ambient into the header (sky@0, ground@16, intensity in sky.w)", () => {
@@ -140,6 +164,10 @@ test("directional light in a pre-dirtied buffer: shader-read lanes correct, type
   // posRange lane (1st vec4, +0): NOT written for directional — intentionally dirty.
   // The shader branches on type tag before reading posRange, so 99 here is correct.
   expect(v[base + 0]).toBe(99); // stale prior-frame content — shader must not read this for directional
+
+  // shadow lane (5th vec4, +16): shadow slot MUST be written even in a pre-dirtied buffer
+  // so the shader can read it unconditionally to decide whether to sample shadows.
+  expect(v[base + 16]).toBe(-1); // default no-shadow slot overwrites the 99 sentinel
 });
 
 test("clamps to MAX_LIGHTS and reports overflow", () => {
@@ -154,4 +182,68 @@ test("clamps to MAX_LIGHTS and reports overflow", () => {
   const r = _packScene(buf, many, undefined);
   expect(u32(buf)[8]).toBe(MAX_LIGHTS);
   expect(r.overflowed).toBe(true);
+});
+
+test("_packScene overlays caster: shadow lane and shadowMatrices tail written at correct offsets", () => {
+  const buf = new ArrayBuffer(SCENE_BYTE_SIZE);
+  const viewProj = new Float32Array(16);
+  viewProj[0] = 1.1;
+  viewProj[15] = 2.2; // distinctive sentinels
+
+  _packScene(
+    buf,
+    [
+      {
+        type: "directional",
+        direction: [0, -1, 0],
+        color: [1, 1, 1],
+        intensity: 1,
+      },
+      {
+        type: "directional",
+        direction: [1, 0, 0],
+        color: [1, 1, 1],
+        intensity: 1,
+      },
+    ],
+    undefined,
+    [{ lightIndex: 1, slot: 2, depthBias: 0.005, normalBias: 0.02, viewProj }],
+  );
+  const f = new Float32Array(buf);
+
+  const LIGHT0_BASE = 16; // HEADER_FLOATS
+  expect(f[LIGHT0_BASE + 16]).toBe(-1); // light 0 still -1 (not stomped)
+
+  const LIGHT1_BASE = 16 + 20; // HEADER_FLOATS + 1 * FLOATS_PER_LIGHT
+  expect(f[LIGHT1_BASE + 16]).toBeCloseTo(2); // slot
+  expect(f[LIGHT1_BASE + 17]).toBeCloseTo(0.005); // depthBias
+  expect(f[LIGHT1_BASE + 18]).toBeCloseTo(0.02); // normalBias
+
+  const MAT_BASE = 336 + 2 * 16; // SHADOW_MATRICES_FLOAT_OFFSET + slot*16
+  expect(f[MAT_BASE]).toBeCloseTo(1.1);
+  expect(f[MAT_BASE + 15]).toBeCloseTo(2.2);
+});
+
+test("_packScene skips casters whose lightIndex >= count and slot out of range", () => {
+  const buf = new ArrayBuffer(SCENE_BYTE_SIZE);
+  const viewProj = new Float32Array(16);
+  viewProj[0] = 7;
+  _packScene(
+    buf,
+    [
+      {
+        type: "directional",
+        direction: [0, -1, 0],
+        color: [1, 1, 1],
+        intensity: 1,
+      },
+    ], // count = 1
+    undefined,
+    [
+      { lightIndex: 5, slot: 0, depthBias: 0, normalBias: 0, viewProj }, // lightIndex out of range
+      { lightIndex: 0, slot: 9, depthBias: 0, normalBias: 0, viewProj }, // slot out of range
+    ],
+  );
+  const f = new Float32Array(buf);
+  expect(f[336]).toBe(0); // shadowMatrices slot 0 untouched (both casters skipped)
 });

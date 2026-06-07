@@ -8,7 +8,13 @@
  * Scene UBO byte layout (std140-safe, all vec4 lanes):
  * - Header (64 B): ambientSky @0, ambientGround @16, lightCount @32,
  *   _reserved @48.
- * - Lights (16 × 64 B each): posRange, dirType, colorInt, spotCos per light.
+ * - Lights (16 × 80 B each): posRange, dirType, colorInt, spotCos, shadow per
+ *   light. The `shadow` lane is `(slot, depthBias, normalBias, _)`; `slot` is
+ *   −1 when the light casts no shadow.
+ * - Shadow matrices (MAX_SHADOW_CASTERS × 64 B each): per-caster light-space
+ *   `mat4x4` (view·proj·remap), indexed by the per-light `shadow.slot`.
+ *
+ * Total: 64 + 16 × 80 + MAX_SHADOW_CASTERS × 64 = 1600 B.
  */
 
 /** A 3-component number tuple used for light color / direction / position input. */
@@ -106,20 +112,52 @@ export type Light = DirectionalLight | PointLight | SpotLight;
 export type Ambient = { sky: Vec3Tuple; ground: Vec3Tuple; intensity: number };
 
 /**
+ * A resolved shadow caster: which light, its slot, and its light-space matrix
+ * (view·proj·remap, ready to multiply a world position to shadow-map UV+depth).
+ */
+export type ShadowCaster = {
+  lightIndex: number;
+  slot: number;
+  /** Light-space view·proj·remap matrix; column-major, exactly 16 elements. */
+  viewProj: Float32Array;
+  depthBias: number;
+  normalBias: number;
+};
+
+/**
  * Max lights per frame in the fixed uniform-array Scene UBO. Forward uniform
  * renderers cap hard and low; 16 is conventional and fits the 64 KiB budget.
  */
 export const MAX_LIGHTS = 16;
 
+/**
+ * Max shadow-casting lights per frame. The Scene UBO carries one light-space
+ * `mat4x4` per slot; a per-light `shadow.slot` (−1 = no shadow) indexes into
+ * this fixed array. Kept small (forward uniform renderer) and conventional.
+ */
+export const MAX_SHADOW_CASTERS = 4;
+
 const FLOATS_PER_VEC4 = 4;
-const VEC4_PER_LIGHT = 4; // posRange, dirType, colorInt, spotCos
+const VEC4_PER_LIGHT = 5; // posRange, dirType, colorInt, spotCos, shadow
 const HEADER_VEC4 = 4; // ambientSky, ambientGround, lightCount, _reserved
 const HEADER_FLOATS = HEADER_VEC4 * FLOATS_PER_VEC4; // 16
-const FLOATS_PER_LIGHT = VEC4_PER_LIGHT * FLOATS_PER_VEC4; // 16
+const FLOATS_PER_LIGHT = VEC4_PER_LIGHT * FLOATS_PER_VEC4; // 20
+const MAT4_FLOATS = 16;
 
-/** Byte size of the Scene UBO: 64 B header + 16 × 64 B lights = 1088. */
+/** header(64B) + 16 lights × 80B + MAX_SHADOW_CASTERS mat4 × 64B = 1600 B. */
 export const SCENE_BYTE_SIZE =
-  (HEADER_FLOATS + MAX_LIGHTS * FLOATS_PER_LIGHT) * 4;
+  (HEADER_FLOATS + MAX_LIGHTS * FLOATS_PER_LIGHT) * 4 +
+  MAX_SHADOW_CASTERS * MAT4_FLOATS * 4;
+
+/** Float index where the `shadowMatrices` tail begins (after all light records). */
+const SHADOW_MATRICES_FLOAT_OFFSET =
+  HEADER_FLOATS + MAX_LIGHTS * FLOATS_PER_LIGHT;
+
+/** Float offset of the per-light `shadow` lane (5th vec4) within a light record. */
+const SHADOW_LANE_FLOAT_OFFSET = 16;
+
+/** Sentinel slot value meaning "this light casts no shadow". */
+const NO_SHADOW_SLOT = -1;
 
 const LIGHT_COUNT_U32_INDEX = 8; // lightCount.x at byte 32 → u32 element 8
 const TYPE_DIRECTIONAL = 0;
@@ -149,11 +187,20 @@ const DEFAULT_AMBIENT: Ambient = {
  * `_packScene` does **not** zero it. The consuming shader is therefore
  * contracted to branch on each light's `dirType.w` type tag and iterate only
  * `0..lightCount`; it must never read type-irrelevant or beyond-count lanes.
+ *
+ * **Shadow lane exception.** Unlike the type-irrelevant `posRange`/`spotCos`
+ * lanes, the `shadow` lane (5th vec4) IS written for every packed light: its
+ * `slot` defaults to −1 (no shadow), so the shader can read `shadow.slot`
+ * unconditionally and branch on `slot >= 0`. Any `casters` passed overlay the
+ * matching light's lane (`slot`, `depthBias`, `normalBias`) and write that
+ * caster's `viewProj` into the `shadowMatrices` tail at `slot`. Casters whose
+ * `lightIndex` is beyond `lightCount` are skipped (the light was clamped out).
  */
 export function _packScene(
   out: ArrayBuffer,
   lights: readonly Light[] | undefined,
   ambient: Ambient | undefined,
+  casters: readonly ShadowCaster[] = [],
 ): { overflowed: boolean } {
   const f = new Float32Array(out);
   const u = new Uint32Array(out);
@@ -174,12 +221,34 @@ export function _packScene(
   u[LIGHT_COUNT_U32_INDEX] = count;
 
   for (let i = 0; i < count; i++) {
-    writeLight(f, HEADER_FLOATS + i * FLOATS_PER_LIGHT, list[i] as Light);
+    const o = HEADER_FLOATS + i * FLOATS_PER_LIGHT;
+    writeLight(f, o, list[i] as Light);
+    // shadow lane (5th vec4): default to no-shadow (slot −1, zero biases).
+    f[o + SHADOW_LANE_FLOAT_OFFSET] = NO_SHADOW_SLOT;
+    f[o + SHADOW_LANE_FLOAT_OFFSET + 1] = 0;
+    f[o + SHADOW_LANE_FLOAT_OFFSET + 2] = 0;
+    f[o + SHADOW_LANE_FLOAT_OFFSET + 3] = 0;
   }
+
+  for (const c of casters) {
+    if (c.lightIndex >= count) continue;
+    // Runtime-quiet: `_packScene` runs on the per-frame render path, so a bad slot
+    // must never throw (would crash the render loop). The caster producer
+    // (_collectShadowCasters) clamps slots by construction; this guards defensively.
+    if (c.slot < 0 || c.slot >= MAX_SHADOW_CASTERS) continue;
+    const lo = HEADER_FLOATS + c.lightIndex * FLOATS_PER_LIGHT;
+    f[lo + SHADOW_LANE_FLOAT_OFFSET] = c.slot;
+    f[lo + SHADOW_LANE_FLOAT_OFFSET + 1] = c.depthBias;
+    f[lo + SHADOW_LANE_FLOAT_OFFSET + 2] = c.normalBias;
+    const mo = SHADOW_MATRICES_FLOAT_OFFSET + c.slot * MAT4_FLOATS;
+    f.set(c.viewProj, mo);
+  }
+
   return { overflowed: list.length > MAX_LIGHTS };
 }
 
-/** Write one light's 4 vec4 lanes starting at float index `o`. */
+/** Write one light's type-specific vec4 lanes starting at float index `o`.
+ *  The 5th (`shadow`) lane is written by the caller, not here. */
 function writeLight(f: Float32Array, o: number, light: Light): void {
   // colorInt lane (3rd vec4 = +8): rgb color + w intensity — all lights share this.
   f[o + 8] = light.color[0];
