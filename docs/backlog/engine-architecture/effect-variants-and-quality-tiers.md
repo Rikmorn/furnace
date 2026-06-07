@@ -19,8 +19,9 @@ re-derived per effect.
   `getCompilationInfo` on bun-webgpu). A systematic version would centralize "which variant
   for this adapter."
 - **Shader permutations / ubershaders** — `#define`-driven variant compilation vs a single
-  branchy shader. Couples to the deferred shader preprocessor (`shader-preprocessor.md` /
-  Stage 2.5) — permutation generation usually rides the same include/macro machinery.
+  branchy shader. Couples to shader composition (`shader-preprocessor.md` / Stage 2.5 landed
+  the `ShaderSource` core) — `#define`/permutation generation is a deferred follow-on that
+  would ride the same composition machinery.
 - **Dynamic degradation** — drop effects or scale resolution when over the frame budget
   (dynamic resolution, effect auto-disable). Needs the frame-timing furnace already collects
   (`stats.gpu.*`) plus a policy.
@@ -44,5 +45,5 @@ tier* framing is what this entry guards). Do **not** build the variant/tier/fall
 are the right *small* shape until then.
 
 **Reference:** `docs/superpowers/specs/2026-06-06-stage-2-aa-hdr-post-design.md` §2
-(decision 5), §6 (fences). Related: `shader-preprocessor.md` (permutation machinery),
+(decision 5), §6 (fences). Related: `shader-preprocessor.md` (composition core landed; permutation/`#define` gen would be a follow-on),
 `render-state-completeness.md` (MSAA off/4× as a tier axis).
