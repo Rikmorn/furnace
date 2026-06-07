@@ -1,6 +1,13 @@
 export { encode } from "./encode.ts";
 
 export { type FixedClock, fixedClock } from "./fixed-clock.ts";
+export type {
+  Ambient,
+  DirectionalLight,
+  Light,
+  PointLight,
+  SpotLight,
+} from "./lights.ts";
 export {
   type FrameInfo,
   type FrameLoopHandle,
