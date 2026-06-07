@@ -22,6 +22,11 @@ plain data; see the Stage-4 shadow-modeling decision). Cookies and shadows likel
 resolution (engine-owned atlas indexed by light slot, or a promoted light resource) — decide them
 together.
 
+**Status note (2026-06-07):** the multi-light Blinn-Phong base (Visual Fidelity Stage 3 Phase 2) has
+now LANDED — `Light` is a `directional | point | spot` union with uniform per-light RGB color (see
+`packages/core/src/frame/lights.ts`). Cookies remain a future, orthogonal extension *not* delivered
+by Phase 2; the trigger refines to "when extending the `Light` union" (with the shadow infra).
+
 **Trigger to revisit:** a concrete need for projected/patterned light color (stained glass, window
 masks, flashlight gobos), OR when Stage-4 shadows land the light-space-projection + per-light-texture
 infrastructure that cookies would reuse — whichever comes first. Build on that infra, not before it.
