@@ -325,6 +325,28 @@ function ensureObjectGroup2(
   return bindGroup;
 }
 
+// Empty `@group(1)` fallback for material-less shaders (e.g. normalColor declares
+// no `@group(1)`). With object now at `@group(2)`, such a pipeline spans bind-group
+// slots 0 and 2 with an EMPTY intermediate slot 1 — and an unbound intermediate
+// slot below a bound higher slot is a WebGPU validation error. Binding an empty
+// bind group at slot 1 keeps the 0→1→2 sequence contiguous and valid. Cached per
+// pipeline (the empty layout is pipeline-specific under `auto`).
+const emptyGroup1Cache = new WeakMap<GPURenderPipeline, GPUBindGroup>();
+
+function ensureEmptyGroup1(
+  ctx: Context,
+  pipeline: GPURenderPipeline,
+): GPUBindGroup {
+  const cached = emptyGroup1Cache.get(pipeline);
+  if (cached) return cached;
+  const bindGroup = ctx.device.createBindGroup({
+    layout: pipeline.getBindGroupLayout(1),
+    entries: [],
+  });
+  emptyGroup1Cache.set(pipeline, bindGroup);
+  return bindGroup;
+}
+
 /**
  * A draw entry pre-resolved by {@link validateDraw}: the mesh, material,
  * and geometry slots fetched in one upfront pass so the per-draw loop
@@ -343,6 +365,7 @@ export const _frameRenderInternals = {
   _ensureCameraBuffer,
   _ensureCameraGroup0: ensureCameraGroup0,
   _ensureObjectGroup2: ensureObjectGroup2,
+  _ensureEmptyGroup1: ensureEmptyGroup1,
   _validateDraw: validateDraw,
   _firstDepthDisagreement: firstDepthDisagreement,
 };
@@ -392,10 +415,8 @@ function recordDraw(
   }
   pass.setBindGroup(0, ensureCameraGroup0(ctx, pipeline, cameraBuffer));
   _recordBindGroupSwitch(ctx);
-  if (material.group1) {
-    pass.setBindGroup(1, material.group1);
-    _recordBindGroupSwitch(ctx);
-  }
+  pass.setBindGroup(1, material.group1 ?? ensureEmptyGroup1(ctx, pipeline));
+  _recordBindGroupSwitch(ctx);
   pass.setBindGroup(2, ensureObjectGroup2(ctx, mesh, pipeline));
   _recordBindGroupSwitch(ctx);
   pass.setVertexBuffer(0, geometry.vertexBuffer);

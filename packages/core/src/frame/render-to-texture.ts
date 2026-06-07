@@ -104,10 +104,11 @@ function recordDraw(
     _frameRenderInternals._ensureCameraGroup0(ctx, pipeline, cameraBuffer),
   );
   _recordBindGroupSwitch(ctx);
-  if (material.group1) {
-    pass.setBindGroup(1, material.group1);
-    _recordBindGroupSwitch(ctx);
-  }
+  pass.setBindGroup(
+    1,
+    material.group1 ?? _frameRenderInternals._ensureEmptyGroup1(ctx, pipeline),
+  );
+  _recordBindGroupSwitch(ctx);
   pass.setBindGroup(
     2,
     _frameRenderInternals._ensureObjectGroup2(ctx, mesh, pipeline),
