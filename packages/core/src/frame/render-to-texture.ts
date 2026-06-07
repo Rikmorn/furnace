@@ -90,6 +90,7 @@ function recordDraw(
   ctx: Context,
   resolved: ResolvedDraw,
   cameraBuffer: GPUBuffer,
+  sceneBuffer: GPUBuffer,
   lastPipeline: GPURenderPipeline | null,
 ): GPURenderPipeline {
   const { mesh, material, geometry } = resolved;
@@ -101,7 +102,13 @@ function recordDraw(
   }
   pass.setBindGroup(
     0,
-    _frameRenderInternals._ensureCameraGroup0(ctx, pipeline, cameraBuffer),
+    _frameRenderInternals._ensurePerFrameGroup0(
+      ctx,
+      pipeline,
+      cameraBuffer,
+      sceneBuffer,
+      material.usesScene,
+    ),
   );
   _recordBindGroupSwitch(ctx);
   pass.setBindGroup(
@@ -227,6 +234,13 @@ export function renderToTexture(
     ctx,
     opts.camera,
   );
+  // Off-screen passes carry no lights param — write a default (ambient-only)
+  // Scene so lit materials still validate + draw. (Off-screen lighting: backlog.)
+  const sceneBuffer = _frameRenderInternals._writeSceneBuffer(
+    ctx,
+    undefined,
+    undefined,
+  );
   const colorView = opts.texture.createView();
   const depthView = opts.depthTexture?.createView();
   const clearColor = opts.clearColor ?? DEFAULT_CLEAR_COLOR;
@@ -243,7 +257,14 @@ export function renderToTexture(
 
   let lastPipeline: GPURenderPipeline | null = null;
   for (const resolved of resolvedDraws) {
-    lastPipeline = recordDraw(pass, ctx, resolved, cameraBuffer, lastPipeline);
+    lastPipeline = recordDraw(
+      pass,
+      ctx,
+      resolved,
+      cameraBuffer,
+      sceneBuffer,
+      lastPipeline,
+    );
   }
 
   pass.end();

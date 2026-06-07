@@ -14,6 +14,7 @@ export type { ShaderCreateOpts } from "./shader.ts";
 export {
   _layoutOf,
   _textureBindingOf,
+  _usesSceneOf,
   create,
   destroy,
   load,

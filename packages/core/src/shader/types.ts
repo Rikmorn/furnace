@@ -23,8 +23,11 @@ export type Shader<L extends LayoutSchema = LayoutSchema> = ShaderHandle & {
  * `@group(1)` layout (or `null` if no layout was declared); `textureBinding`
  * is `true` when the shader declares a texture+sampler at `@group(1)` (bindings
  * 0 and 1 respectively) — read by `material.create` to enforce a completeness
- * check. `_teardown` is a no-op — `GPUShaderModule` has no `.destroy()`; GC
- * reclaims the module when the slot clears.
+ * check. `usesScene` is `true` when the shader reads the engine Scene UBO at
+ * `@group(0) @binding(1)` — mirrored onto the material slot so the render path
+ * binds the Scene buffer for this pipeline. `_teardown` is a no-op —
+ * `GPUShaderModule` has no `.destroy()`; GC reclaims the module when the slot
+ * clears.
  */
 export type ShaderSlot = {
   module: GPUShaderModule;
@@ -32,5 +35,10 @@ export type ShaderSlot = {
   engineOwned: boolean;
   layout: ResolvedLayout | null;
   textureBinding: boolean;
+  /** `true` when the shader statically uses the Scene UBO at `@group(0)
+   *  @binding(1)` — the per-frame group-0 bind group then includes it. Read by
+   *  `material.create` → stored on the material slot → consumed by the render
+   *  path's `ensurePerFrameGroup0`. */
+  usesScene: boolean;
   _teardown: () => void;
 };

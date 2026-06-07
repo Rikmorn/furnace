@@ -26,6 +26,11 @@ export type ShaderCreateOpts<L extends LayoutSchema = LayoutSchema> = {
    * (sampler at binding 0, texture-view at binding 1); `material.create`
    * then requires a `texture` to be supplied. Defaults to `false`. */
   textureBinding?: boolean;
+  /** When `true`, declares the shader reads the engine Scene UBO at `@group(0)
+   *  @binding(1)` (lights + ambient). The render path then binds the Scene
+   *  buffer for this pipeline. Defaults to `false`. Set it when composing the
+   *  public `shader.lighting` fragments into a custom lit shader. */
+  usesScene?: boolean;
 };
 
 /**
@@ -69,6 +74,7 @@ export async function _createShader(
   engineOwned: boolean,
   layout: ResolvedLayout | null = null,
   textureBinding = false,
+  usesScene = false,
 ): Promise<Shader> {
   if (!wgsl) throw new FurnaceError("shader.create: WGSL source is required");
   ctx.device.pushErrorScope("validation");
@@ -85,6 +91,7 @@ export async function _createShader(
     engineOwned,
     layout,
     textureBinding,
+    usesScene,
     // GPUShaderModule has no .destroy(); GC reclaims it when the slot clears.
     _teardown: () => {
       /* intentional no-op */
@@ -126,6 +133,7 @@ export function create<L extends LayoutSchema = LayoutSchema>(
     false,
     layout,
     opts?.textureBinding ?? false,
+    opts?.usesScene ?? false,
   ) as Promise<Shader<L>>;
 }
 
@@ -188,4 +196,13 @@ export function _layoutOf(ctx: Context, shader: Shader): ResolvedLayout | null {
  */
 export function _textureBindingOf(ctx: Context, shader: Shader): boolean {
   return _lookupShader<ShaderSlot>(ctx, shader)?.textureBinding ?? false;
+}
+
+/**
+ * Engine-internal: read the `usesScene` flag stored on a shader slot. `true`
+ * when the shader reads the Scene UBO at `@group(0) @binding(1)`. Read by
+ * `material.create` to record it on the material slot for the render path.
+ */
+export function _usesSceneOf(ctx: Context, shader: Shader): boolean {
+  return _lookupShader<ShaderSlot>(ctx, shader)?.usesScene ?? false;
 }

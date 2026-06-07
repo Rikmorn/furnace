@@ -82,6 +82,9 @@ export type MaterialSlot = {
   depthWrite: boolean;
   depthCompare: GPUCompareFunction;
   depthEnabled: boolean;
+  /** Mirror of the shader's `usesScene` — the render path binds the Scene UBO
+   *  at `@group(0) @binding(1)` for this material's pipeline when true. */
+  usesScene: boolean;
   userCount: number;
   markedDestroyed: boolean;
   _teardown: () => void;

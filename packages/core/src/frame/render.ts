@@ -6,6 +6,7 @@ import { _onDispose } from "../gpu/dispose-cascade.ts";
 import { FurnaceGpuError } from "../gpu/errors.ts";
 import type { Context } from "../gpu/index.ts";
 import * as gpu from "../gpu/index.ts";
+import { warn } from "../log/internal.ts";
 import { _ENGINE_DEPTH_FORMAT } from "../material/material.ts";
 import type { MaterialSlot } from "../material/types.ts";
 import { _recomputeModelIfDirty } from "../mesh/mesh.ts";
@@ -30,6 +31,13 @@ import {
 } from "../stats/internal.ts";
 import type { Vec4 } from "../transform/types.ts";
 import { vec4 } from "../transform/vec4.ts";
+import {
+  _packScene,
+  type Ambient,
+  type Light,
+  MAX_LIGHTS,
+  SCENE_BYTE_SIZE,
+} from "./lights.ts";
 import { trianglesForTopology } from "./triangles-for-topology.ts";
 
 const CAMERA_UNIFORM_SIZE = 80; // mat4x4<f32> viewProjection (64) + vec4<f32> position (16)
@@ -56,6 +64,11 @@ const sceneColorByCtx = new WeakMap<Context, SceneColorEntry>();
 const cameraBuffers = new WeakMap<Context, Map<Camera, GPUBuffer>>();
 // cameraBufferHandles deleted — every camera buffer is CAMERA_UNIFORM_SIZE bytes;
 // the constant is in scope at destroy time, no per-instance lookup needed.
+
+const sceneBuffers = new WeakMap<Context, GPUBuffer>();
+// Reused across frames; render() is synchronous so one module scratch is safe.
+const sceneScratch = new ArrayBuffer(SCENE_BYTE_SIZE);
+let warnedLightOverflow = false;
 
 const DEPTH_BYTES_PER_PIXEL = 4; // depth24plus → 4 bytes/texel for accounting
 
@@ -215,6 +228,48 @@ function _disposeCameraBuffers(ctx: Context): void {
   }
 }
 
+function _ensureSceneBuffer(ctx: Context): GPUBuffer {
+  let buffer = sceneBuffers.get(ctx);
+  if (!buffer) {
+    buffer = ctx.device.createBuffer({
+      size: SCENE_BYTE_SIZE,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
+    sceneBuffers.set(ctx, buffer);
+    _recordAlloc(ctx, "buffer", SCENE_BYTE_SIZE);
+    _onDispose(ctx, () => _disposeSceneBuffer(ctx));
+  }
+  return buffer;
+}
+
+function _disposeSceneBuffer(ctx: Context): void {
+  const buffer = sceneBuffers.get(ctx);
+  if (!buffer) return;
+  buffer.destroy();
+  _recordDestroy(ctx, "buffer", SCENE_BYTE_SIZE);
+  sceneBuffers.delete(ctx);
+}
+
+/** Pack + upload the per-frame Scene UBO. Clamps to MAX_LIGHTS and warns ONCE
+ *  on overflow (runtime-quiet — never throws on the render path). */
+function _writeSceneBuffer(
+  ctx: Context,
+  lights: readonly Light[] | undefined,
+  ambient: Ambient | undefined,
+): GPUBuffer {
+  const buffer = _ensureSceneBuffer(ctx);
+  const { overflowed } = _packScene(sceneScratch, lights, ambient);
+  if (overflowed && !warnedLightOverflow) {
+    warnedLightOverflow = true;
+    warn(
+      "frame",
+      `render: more than ${MAX_LIGHTS} lights supplied; extra lights ignored (clamped). This warning fires once.`,
+    );
+  }
+  ctx.queue.writeBuffer(buffer, 0, sceneScratch);
+  return buffer;
+}
+
 /** Internal — shared fields of the render commands. Not a public export. */
 export type RenderPassBase = {
   /** Meshes to render, in order. The engine submits them as one render pass
@@ -260,24 +315,36 @@ export type RenderPassBase = {
  */
 export type RenderOptions = RenderPassBase & {
   effects?: Effect[];
+  /** Per-frame lights. Omitted/empty → ambient-only. Clamped to `MAX_LIGHTS`
+   *  (16) with a once-only `log.warn` (never throws — render hot path). */
+  lights?: Light[];
+  /** Per-frame hemisphere ambient. Omitted → a neutral low default
+   *  (`intensity ≈ 0.05`). Recompute per frame for day/night or volume schemes
+   *  (consumer policy). */
+  ambient?: Ambient;
 };
 
 const DEFAULT_CLEAR_COLOR: Vec4 = vec4.fromValues(0, 0, 0, 1);
 const DEFAULT_CLEAR_DEPTH = 1.0;
 
 // The per-draw bind state is split across two groups:
-// - `@group(0)` carries per-frame camera data, shared by every mesh drawn with
-//   the same (pipeline, cameraBuffer). Keyed by pipeline (a long-lived object),
-//   then by cameraBuffer — the same pipeline may be drawn with multiple cameras
-//   (e.g. main pass + render-to-texture pass).
+// - `@group(0)` carries per-frame scene data — the camera UBO at binding 0 and,
+//   for pipelines whose shader sets `usesScene`, the Scene UBO (lights/ambient)
+//   at binding 1. Shared by every mesh drawn with the same (pipeline,
+//   cameraBuffer). Keyed by pipeline (a long-lived object), then by cameraBuffer
+//   — the same pipeline may be drawn with multiple cameras (e.g. main pass +
+//   render-to-texture pass). The Scene buffer is a per-ctx singleton, so it does
+//   not widen the cache key.
 // - `@group(2)` carries per-draw object data (the model matrix). Keyed by
 //   MeshSlot (the slot object reference) so a WeakMap suffices: when the slot is
 //   recycled by the pool, the old reference becomes unreachable and its cache
 //   drops naturally. The inner Map exists because a mesh's material may swap
 //   pipelines over time — each (slot, pipeline) pair needs its own bind group.
 
-// Per-frame group 0 (camera): one bind group per (pipeline, cameraBuffer).
-const cameraGroup0Cache = new WeakMap<
+// Per-frame group 0: one bind group per (pipeline, cameraBuffer). For pipelines
+// that use the Scene UBO the bind group additionally binds the scene buffer at
+// binding 1 (a per-ctx singleton, so keying by cameraBuffer still suffices).
+const perFrameGroup0Cache = new WeakMap<
   GPURenderPipeline,
   Map<GPUBuffer, GPUBindGroup>
 >();
@@ -287,21 +354,29 @@ const objectGroup2Cache = new WeakMap<
   Map<GPURenderPipeline, GPUBindGroup>
 >();
 
-function ensureCameraGroup0(
+function ensurePerFrameGroup0(
   ctx: Context,
   pipeline: GPURenderPipeline,
   cameraBuffer: GPUBuffer,
+  sceneBuffer: GPUBuffer,
+  usesScene: boolean,
 ): GPUBindGroup {
-  let perPipeline = cameraGroup0Cache.get(pipeline);
+  let perPipeline = perFrameGroup0Cache.get(pipeline);
   if (!perPipeline) {
     perPipeline = new Map();
-    cameraGroup0Cache.set(pipeline, perPipeline);
+    perFrameGroup0Cache.set(pipeline, perPipeline);
   }
   const cached = perPipeline.get(cameraBuffer);
   if (cached) return cached;
+  const entries: GPUBindGroupEntry[] = [
+    { binding: 0, resource: { buffer: cameraBuffer } },
+  ];
+  if (usesScene) {
+    entries.push({ binding: 1, resource: { buffer: sceneBuffer } });
+  }
   const bindGroup = ctx.device.createBindGroup({
     layout: pipeline.getBindGroupLayout(0),
-    entries: [{ binding: 0, resource: { buffer: cameraBuffer } }],
+    entries,
   });
   perPipeline.set(cameraBuffer, bindGroup);
   return bindGroup;
@@ -365,7 +440,8 @@ export type ResolvedDraw = {
 export const _frameRenderInternals = {
   _ensureDepthTexture,
   _ensureCameraBuffer,
-  _ensureCameraGroup0: ensureCameraGroup0,
+  _ensurePerFrameGroup0: ensurePerFrameGroup0,
+  _writeSceneBuffer,
   _ensureObjectGroup2: ensureObjectGroup2,
   _ensureEmptyGroup1: ensureEmptyGroup1,
   _validateDraw: validateDraw,
@@ -406,6 +482,7 @@ function recordDraw(
   ctx: Context,
   resolved: ResolvedDraw,
   cameraBuffer: GPUBuffer,
+  sceneBuffer: GPUBuffer,
   lastPipeline: GPURenderPipeline | null,
 ): GPURenderPipeline {
   const { mesh, material, geometry } = resolved;
@@ -415,7 +492,16 @@ function recordDraw(
   if (pipeline !== lastPipeline) {
     _recordPipelineSwitch(ctx);
   }
-  pass.setBindGroup(0, ensureCameraGroup0(ctx, pipeline, cameraBuffer));
+  pass.setBindGroup(
+    0,
+    ensurePerFrameGroup0(
+      ctx,
+      pipeline,
+      cameraBuffer,
+      sceneBuffer,
+      material.usesScene,
+    ),
+  );
   _recordBindGroupSwitch(ctx);
   pass.setBindGroup(1, material.group1 ?? ensureEmptyGroup1(ctx, pipeline));
   _recordBindGroupSwitch(ctx);
@@ -515,6 +601,7 @@ function recordScenePass(
   depthView: GPUTextureView,
   draw: readonly ResolvedDraw[],
   cameraBuffer: GPUBuffer,
+  sceneBuffer: GPUBuffer,
   clearColor: Vec4,
   clearDepth: number,
   resolveTarget?: GPUTextureView,
@@ -529,7 +616,14 @@ function recordScenePass(
   );
   let lastPipeline: GPURenderPipeline | null = null;
   for (const resolved of draw) {
-    lastPipeline = recordDraw(pass, ctx, resolved, cameraBuffer, lastPipeline);
+    lastPipeline = recordDraw(
+      pass,
+      ctx,
+      resolved,
+      cameraBuffer,
+      sceneBuffer,
+      lastPipeline,
+    );
   }
   pass.end();
 }
@@ -555,9 +649,16 @@ function recordScenePass(
  * - One camera uniform buffer (80 bytes: `viewProjection` mat4x4 + `position`
  *   vec4) per `(context, camera)` pair, allocated on first sighting of a given
  *   camera. The buffer is written each call from `camera.getMatrices` and
- *   `camera.position`. Per-frame `@group(0)` camera bind groups are
- *   cached keyed by `(pipeline, cameraBuffer)`; per-draw `@group(2)` object bind
- *   groups are cached on the mesh keyed by `(mesh, pipeline)`.
+ *   `camera.position`. Per-frame `@group(0)` bind groups are cached keyed by
+ *   `(pipeline, cameraBuffer)`; per-draw `@group(2)` object bind groups are
+ *   cached on the mesh keyed by `(mesh, pipeline)`.
+ * - One Scene uniform buffer (`SCENE_BYTE_SIZE`: hemisphere ambient + a fixed
+ *   `array<Light, 16>`) per context, allocated on first call and rewritten each
+ *   frame from `opts.lights`/`opts.ambient` (clamped to `MAX_LIGHTS`, warn-once
+ *   on overflow). It is bound at `@group(0) @binding(1)` only for pipelines
+ *   whose shader declares `usesScene`; pipelines that don't (every built-in
+ *   until lighting lands) never see it, so their group-0 bind group has only
+ *   binding 0.
  *
  * Setup-loud per the foreground failure policy. The draw and effects
  * lists are validated up front; `validateDraw` resolves each mesh's
@@ -617,6 +718,7 @@ export function render(ctx: Context, opts: RenderOptions): void {
   const resolvedEffects = validateEffects(ctx, effects);
 
   const cameraBuffer = _ensureCameraBuffer(ctx, opts.camera);
+  const sceneBuffer = _writeSceneBuffer(ctx, opts.lights, opts.ambient);
   const depth = _ensureDepthTexture(ctx);
   const msaa = _ensureSceneColorTarget(ctx);
   const clearColor = opts.clearColor ?? DEFAULT_CLEAR_COLOR;
@@ -635,6 +737,7 @@ export function render(ctx: Context, opts: RenderOptions): void {
       depth.view,
       resolvedDraws,
       cameraBuffer,
+      sceneBuffer,
       clearColor,
       clearDepth,
       resolveTarget,
@@ -660,6 +763,7 @@ export function render(ctx: Context, opts: RenderOptions): void {
       depth.view,
       resolvedDraws,
       cameraBuffer,
+      sceneBuffer,
       clearColor,
       clearDepth,
       resolveTarget,

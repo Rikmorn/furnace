@@ -115,7 +115,7 @@ test.skipIf(!bunWebGpuAvailable())(
 );
 
 test.skipIf(!bunWebGpuAvailable())(
-  "_ensureCameraGroup0 returns distinct bind groups per cameraBuffer",
+  "_ensurePerFrameGroup0 returns distinct bind groups per cameraBuffer",
   async () => {
     const canvas = await makeOffscreenCanvas();
     const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
@@ -127,20 +127,33 @@ test.skipIf(!bunWebGpuAvailable())(
     const matSlot = _resolveMaterial(ctx, mat);
     const bufA = _frameRenderInternals._ensureCameraBuffer(ctx, camA);
     const bufB = _frameRenderInternals._ensureCameraBuffer(ctx, camB);
-    const groupA = _frameRenderInternals._ensureCameraGroup0(
+    // normalColor does not use the Scene UBO; pass usesScene:false so the bind
+    // group has only binding 0 (its group-0 layout has no binding 1).
+    const sceneBuf = _frameRenderInternals._writeSceneBuffer(
+      ctx,
+      undefined,
+      undefined,
+    );
+    const groupA = _frameRenderInternals._ensurePerFrameGroup0(
       ctx,
       matSlot.pipeline,
       bufA,
+      sceneBuf,
+      false,
     );
-    const groupB = _frameRenderInternals._ensureCameraGroup0(
+    const groupB = _frameRenderInternals._ensurePerFrameGroup0(
       ctx,
       matSlot.pipeline,
       bufB,
+      sceneBuf,
+      false,
     );
-    const groupAagain = _frameRenderInternals._ensureCameraGroup0(
+    const groupAagain = _frameRenderInternals._ensurePerFrameGroup0(
       ctx,
       matSlot.pipeline,
       bufA,
+      sceneBuf,
+      false,
     );
     expect(groupA).not.toBe(groupB);
     expect(groupAagain).toBe(groupA);
