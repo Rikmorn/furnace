@@ -2,10 +2,11 @@ struct Camera { viewProjection: mat4x4<f32> };
 struct Object { model: mat4x4<f32> };
 struct Params { stripes: f32, hue: f32, softness: f32 };
 
-// Engine plumbs camera + per-object transforms into @group(0). The struct names
-// must match what the engine writes (see frame/render.ts).
+// Engine plumbs the camera into @group(0) (per-frame) and per-object transforms
+// into @group(2) (per-draw). The struct names must match what the engine writes
+// (see frame/render.ts).
 @group(0) @binding(0) var<uniform> camera: Camera;
-@group(0) @binding(1) var<uniform> object: Object;
+@group(2) @binding(0) var<uniform> object: Object;
 // Material-owned uniforms live at @group(1). The buffer comes from the
 // binding bridge (binding.create) wired via MaterialDescriptor.binding.
 @group(1) @binding(0) var<uniform> params: Params;

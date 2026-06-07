@@ -3,7 +3,7 @@ struct Object { model: mat4x4<f32> };
 struct Mat { halo: vec4<f32> }; // halo width in .x; .yzw unused (group 1 binding 0, via binding bridge)
 
 @group(0) @binding(0) var<uniform> camera: Camera;
-@group(0) @binding(1) var<uniform> object: Object;
+@group(2) @binding(0) var<uniform> object: Object;
 @group(1) @binding(0) var<uniform> mat: Mat;
 
 struct VsIn {
