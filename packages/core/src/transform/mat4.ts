@@ -342,6 +342,21 @@ export const mat4 = {
   },
 
   /**
+   * Write the **normal matrix** of `m` into `out` — the inverse-transpose of
+   * `m`, which transforms normals correctly under non-uniform scale (the naive
+   * `model * normal` skews them). Stored as a full `mat4x4<f32>`; shaders read
+   * the upper-left 3×3.
+   *
+   * Falls back to writing the identity when `m` is singular (non-invertible),
+   * rather than emitting NaN.
+   */
+  normalFromMat4(out: Mat4, m: Mat4): Mat4 {
+    const inv = mat4.invert(out, m);
+    if (inv === null) return mat4.identity(out);
+    return mat4.transpose(out, out);
+  },
+
+  /**
    * Right-handed perspective projection.
    *
    * @param fovYRad - Vertical field of view in radians.

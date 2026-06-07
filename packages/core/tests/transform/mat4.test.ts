@@ -130,3 +130,25 @@ test("fromRotationTranslationScale composes a TRS matrix", () => {
   expect(out[5]).toBe(1);
   expect(out[10]).toBe(1);
 });
+
+test("normalFromMat4 is the inverse-transpose (correct under non-uniform scale)", () => {
+  // Non-uniform scale S(2,1,1): a normal along +X must NOT stay unit after the
+  // naive model transform, but the inverse-transpose rescales it correctly.
+  const model = mat4.fromRotationTranslationScale(
+    mat4.create(),
+    quat.create(), // identity rotation
+    vec3.fromValues(0, 0, 0),
+    vec3.fromValues(2, 1, 1),
+  );
+  const nm = mat4.normalFromMat4(mat4.create(), model);
+  // inverse-transpose of S(2,1,1) is S(1/2,1,1): the (0,0) entry is 0.5.
+  expect(nm[0]).toBeCloseTo(0.5, 5);
+  expect(nm[5]).toBeCloseTo(1, 5);
+  expect(nm[10]).toBeCloseTo(1, 5);
+});
+
+test("normalFromMat4 falls back to identity on a singular matrix", () => {
+  const singular = new Float32Array(16); // all zeros → det 0
+  const nm = mat4.normalFromMat4(mat4.create(), singular);
+  expect(Array.from(nm)).toEqual(Array.from(mat4.identity(mat4.create())));
+});

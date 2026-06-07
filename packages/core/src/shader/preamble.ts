@@ -21,9 +21,11 @@ export const _cameraBinding: ShaderSource = source(
 @group(0) @binding(0) var<uniform> camera: Camera;`,
 );
 
-/** Object binding — `@group(2) @binding(0)`, per-draw. */
+/** Object binding — `@group(2) @binding(0)`, per-draw. `normalMatrix` is the
+ *  inverse-transpose of `model` (correct normals under non-uniform scale);
+ *  shaders read its upper 3×3. */
 export const _objectBinding: ShaderSource = source(
-  `struct Object { model: mat4x4<f32> };
+  `struct Object { model: mat4x4<f32>, normalMatrix: mat4x4<f32> };
 @group(2) @binding(0) var<uniform> object: Object;`,
 );
 

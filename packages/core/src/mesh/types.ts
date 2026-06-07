@@ -30,6 +30,7 @@ export type MeshSlot = {
   rotation: Quat;
   scale: Vec3;
   modelMatrix: Mat4;
+  normalMatrix: Mat4;
   transformDirty: boolean;
   objectBuffer: GPUBuffer;
   _teardown: () => void;

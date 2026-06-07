@@ -32,9 +32,7 @@ struct VsOut {
 @vertex fn vs_main(v: VsIn) -> VsOut {
   var out: VsOut;
   out.pos = camera.viewProjection * object.model * vec4<f32>(v.position, 1.0);
-  // Uniform-scale-correct normal transform. Non-uniform scale needs inverse-transpose
-  // (deferred — tranche 4 demos use uniform scale).
-  out.normal = (object.model * vec4<f32>(v.normal, 0.0)).xyz;
+  out.normal = (object.normalMatrix * vec4<f32>(v.normal, 0.0)).xyz;
   return out;
 }
 
@@ -57,8 +55,7 @@ struct VsOut {
 @vertex fn vs_main(v: VsIn) -> VsOut {
   var out: VsOut;
   out.pos = camera.viewProjection * object.model * vec4<f32>(v.position, 1.0);
-  // Uniform-scale-correct normal transform (inverse-transpose deferred).
-  out.normal = (object.model * vec4<f32>(v.normal, 0.0)).xyz;
+  out.normal = (object.normalMatrix * vec4<f32>(v.normal, 0.0)).xyz;
   return out;
 }
 
@@ -101,8 +98,7 @@ struct VsOut { @builtin(position) pos: vec4<f32>, @location(0) normal: vec3<f32>
 @vertex fn vs_main(v: VsIn) -> VsOut {
   var out: VsOut;
   out.pos = camera.viewProjection * object.model * vec4<f32>(v.position, 1.0);
-  // Uniform-scale-correct normal transform (inverse-transpose deferred).
-  out.normal = (object.model * vec4<f32>(v.normal, 0.0)).xyz;
+  out.normal = (object.normalMatrix * vec4<f32>(v.normal, 0.0)).xyz;
   out.uv = v.uv;
   return out;
 }

@@ -16,12 +16,13 @@ import { mat4, quat } from "../transform/index.ts";
 import type { Quat, Vec3 } from "../transform/types.ts";
 import type { Mesh, MeshSlot } from "./types.ts";
 
-const OBJECT_UNIFORM_SIZE_BYTES = 64; // one mat4x4<f32>
+const OBJECT_UNIFORM_SIZE_BYTES = 128; // model mat4x4<f32> (64) + normalMatrix mat4x4<f32> (64)
 
 /**
  * Build a {@link Mesh} that binds a {@link Geometry} to a {@link Material}.
- * Allocates the per-mesh object-uniform buffer (64 bytes for the `model`
- * `mat4x4<f32>`) and initialises the pose to position `[0,0,0]`, identity
+ * Allocates the per-mesh object-uniform buffer (128 bytes for `model` +
+ * `normalMatrix`, two `mat4x4<f32>`s) and initialises the pose to position
+ * `[0,0,0]`, identity
  * rotation, scale `[1,1,1]` with `transformDirty` set so the first frame
  * writes the buffer.
  *
@@ -78,6 +79,7 @@ export function create(
     rotation: quat.create(),
     scale: new Float32Array([1, 1, 1]),
     modelMatrix: mat4.create(),
+    normalMatrix: mat4.create(),
     transformDirty: true,
     objectBuffer,
     _teardown: () => meshTeardown(ctx, slot),
@@ -286,6 +288,8 @@ export function _recomputeModelIfDirty(ctx: Context, slot: MeshSlot): void {
     slot.position,
     slot.scale,
   );
+  mat4.normalFromMat4(slot.normalMatrix, slot.modelMatrix);
   ctx.queue.writeBuffer(slot.objectBuffer, 0, slot.modelMatrix);
+  ctx.queue.writeBuffer(slot.objectBuffer, 64, slot.normalMatrix);
   slot.transformDirty = false;
 }

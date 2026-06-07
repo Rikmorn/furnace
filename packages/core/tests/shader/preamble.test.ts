@@ -13,10 +13,11 @@ test("camera binding fragment declares @group(0) @binding(0) with position", () 
   expect(wgsl).toContain("position: vec4<f32>");
 });
 
-test("object binding fragment declares @group(2) @binding(0) — moved out of group 0", () => {
+test("object binding fragment declares @group(2) @binding(0) with normalMatrix", () => {
   const wgsl = toWgsl(_objectBinding);
   expect(wgsl).toContain("@group(2) @binding(0) var<uniform> object: Object");
-  expect(wgsl).toContain("struct Object { model: mat4x4<f32> }");
+  expect(wgsl).toContain("model: mat4x4<f32>");
+  expect(wgsl).toContain("normalMatrix: mat4x4<f32>");
   expect(wgsl).not.toContain("@group(0) @binding(1)");
 });
 
