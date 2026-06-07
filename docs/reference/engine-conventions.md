@@ -290,6 +290,8 @@ Groups are split by update cadence: `@group(0)` per-frame (scene/camera), `@grou
 
 The engine's built-in shaders compose the `Camera`/`Object` binding preamble from shared `shader.source` fragments in `packages/core/src/shader/preamble.ts` (single source of truth for the standard binding structs).
 
+**Material-less shaders are supported.** A shader may declare no `@group(1)` (e.g. `normalColor`, or a custom camera+object-only shader). Since the per-draw object lives at `@group(2)`, `@group(1)` then becomes an empty *intermediate* bind-group slot — and WebGPU rejects a draw that leaves an intermediate slot unbound below a bound higher slot. `frame.render` handles this transparently by binding an empty bind group at `@group(1)` when the material has none, so material-less shaders Just Work. (See `docs/learnings/webgpu-empty-intermediate-bind-group.md`.)
+
 **Vertex format** (every vertex buffer carries this interleaved layout):
 - `@location(0)`: position, `vec3<f32>`, offset 0
 - `@location(1)`: normal, `vec3<f32>`, offset 12
