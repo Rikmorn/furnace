@@ -282,9 +282,13 @@ Every Material's WGSL must respect the engine's binding contract:
 
 | Slot | Type | Owner | Written by |
 |---|---|---|---|
-| `@group(0) @binding(0)` | `Camera { viewProjection: mat4x4<f32> }` | engine | `frame.render` (once per frame, from `camera.getMatrices`) |
-| `@group(0) @binding(1)` | `Object { model: mat4x4<f32> }` | engine | `frame.render` (per mesh, when transform is dirty) |
+| `@group(0) @binding(0)` | `Camera { viewProjection: mat4x4<f32> }` | engine (per-frame) | `frame.render` (once per frame, from `camera.getMatrices`) |
 | `@group(1) @binding(N)` | consumer-defined | material | `MaterialDescriptor.bindings` |
+| `@group(2) @binding(0)` | `Object { model: mat4x4<f32> }` | engine (per-draw) | `frame.render` (per mesh, when transform is dirty) |
+
+Groups are split by update cadence: `@group(0)` per-frame (scene/camera), `@group(1)` per-material, `@group(2)` per-draw (object). `@group(0) @binding(1)` is reserved for per-frame scene data (lights/ambient), to be added in Stage 3 Phase 2.
+
+The engine's built-in shaders compose the `Camera`/`Object` binding preamble from shared `shader.source` fragments in `packages/core/src/shader/preamble.ts` (single source of truth for the standard binding structs).
 
 **Vertex format** (every vertex buffer carries this interleaved layout):
 - `@location(0)`: position, `vec3<f32>`, offset 0
@@ -292,7 +296,7 @@ Every Material's WGSL must respect the engine's binding contract:
 - `@location(2)`: uv, `vec2<f32>`, offset 24
 - `arrayStride: 32` bytes
 
-**Stability:** additive changes (a new group-0 binding 2, 3, … in a future tranche) are non-breaking. Changes that rename or repurpose binding 0 or binding 1 break every shader respecting the contract — including the SDF triangle in hello-world. With one consumer today, a contract change is a single-shader migration.
+**Stability:** additive changes are non-breaking — per-frame scene data extends `@group(0)` (binding 1, 2, … in a future tranche) and per-draw object data lives in `@group(2)`. Changes that rename or repurpose the camera at `@group(0) @binding(0)` or the object at `@group(2) @binding(0)` break every shader respecting the contract — including the SDF triangle in hello-world. With few private consumers today, a contract change is a small migration.
 
 **Post-effect contract** (distinct `@group(0)`, shared `@group(1)`): a post effect's WGSL binds the engine-provided scene input at `@group(0) @binding(0)` (`texture_2d<f32>`) and a sampler at `@group(0) @binding(1)` — NOT camera/object. The fragment entry must be `fs_main`; the fullscreen vertex stage is engine-supplied. Consumer params live at `@group(1)`, written via the **same** typed-`Binding` path as materials: `post.create(ctx, { shader, binding })` retains the binding's `GPUBuffer` and builds the `@group(1)` `GPUBindGroup` lazily at first render (per resolved target colour format — the effect pipeline itself builds lazily then too, so under HDR a mid-chain effect targets the `rgba16float` intermediate and the final pass targets the swap-chain `ctx.format`), and `binding.set`/`setUniform` lazily flush at the render boundary (§Binding). The binding OWNS its buffer; `post.destroy` does not free it. The raw `EffectDescriptor.bindings` path (consumer-owned `GPUBindGroupEntry[]`) is retained for textures/samplers/advanced cases. Same completeness check as material: a shader declaring a `@group(1)` layout with neither `binding` nor `bindings` supplied throws at create (setup-loud); the inverse mismatch (`binding`/`bindings` supplied but the shader declares no `@group(1)`) surfaces at first render, when the bind group is built.
 
