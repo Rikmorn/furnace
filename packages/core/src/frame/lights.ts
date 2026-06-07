@@ -14,6 +14,44 @@
 /** A 3-component number tuple used for light color / direction / position input. */
 type Vec3Tuple = readonly [number, number, number];
 
+/**
+ * Per-light shadow config (shadow mapping). Presence on a `directional`/`spot`
+ * light = that light casts shadows. Technique-neutral opt-in; the fields are
+ * shadow-mapping params. Omitted bias fields fall back to engine defaults.
+ */
+export type DirectionalShadow = {
+  /** Half width/height of the orthographic shadow frustum (world units). */
+  orthoHalfExtent: number;
+  /** Near plane of the ortho frustum. */
+  near: number;
+  /** Far plane of the ortho frustum. */
+  far: number;
+  /** World point the ortho box is centered on / looks at. Default `[0,0,0]`. */
+  target?: Vec3Tuple;
+  /** Distance back along `-direction` to place the light eye. Default `far/2`. */
+  distance?: number;
+  /** In-shader constant bias subtracted from the compare depth (acne). */
+  depthBias?: number;
+  /** Texel-scaled normal-offset bias (acne at grazing angles). */
+  normalBias?: number;
+};
+
+/**
+ * Per-light shadow config for a spot light (perspective frustum from the cone).
+ * Presence on a `spot` light = that light casts shadows. Omitted fields fall
+ * back to engine defaults.
+ */
+export type SpotShadow = {
+  /** Near plane of the perspective frustum. Default `0.1`. */
+  near?: number;
+  /** Far plane. Default = the light's `range`. */
+  far?: number;
+  /** In-shader constant bias subtracted from the compare depth (acne). */
+  depthBias?: number;
+  /** Texel-scaled normal-offset bias (acne at grazing angles). */
+  normalBias?: number;
+};
+
 /** A directional light — infinitely far, parallel rays (the sun). */
 export type DirectionalLight = {
   type: "directional";
@@ -24,6 +62,8 @@ export type DirectionalLight = {
   color: Vec3Tuple;
   /** Calibrated so a white surface under one key light peaks ≈1.0 (no 1/π). */
   intensity: number;
+  /** Optional shadow-mapping config. Presence enables shadow casting for this light. */
+  shadow?: DirectionalShadow;
 };
 
 /** A point light — radiates from a position, windowed inverse-square falloff. */
@@ -49,6 +89,8 @@ export type SpotLight = {
   innerAngle: number;
   /** Radians; falls to zero by this half-angle. */
   outerAngle: number;
+  /** Optional shadow-mapping config. Presence enables shadow casting for this light. */
+  shadow?: SpotShadow;
 };
 
 /**

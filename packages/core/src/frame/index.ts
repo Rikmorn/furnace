@@ -4,9 +4,11 @@ export { type FixedClock, fixedClock } from "./fixed-clock.ts";
 export type {
   Ambient,
   DirectionalLight,
+  DirectionalShadow,
   Light,
   PointLight,
   SpotLight,
+  SpotShadow,
 } from "./lights.ts";
 export {
   type FrameInfo,
