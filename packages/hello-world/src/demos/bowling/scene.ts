@@ -65,11 +65,14 @@ const BLOOM_SOFTNESS = 0.5;
 // Scene lighting (HDR-calibrated, no 1/π — a white surface under one key peaks
 // ≈1.0; specular is additive and may exceed 1.0). Three positioned lights over
 // the decimeter lane (z spans roughly [-4, 4]; pins at z≈-3, foul line at z=3):
-//   - KEY: a warm directional raking down-lane from the player's upper-left.
-//   - FILL: a cool point above/near the pins, softening the shadow side.
+//   - KEY: a warm directional raking down-lane from the player's upper-left —
+//     the dominant form-defining light, held at the HDR ceiling (≈1.0).
+//   - FILL: a cool point above/near the pins, kept BELOW the key so it only
+//     lifts the shadow side rather than flattening the form.
 //   - RAKE: a white spot from the foul-line end down the lane for specular streaks.
-// Starting values — the user tunes visually in the Safari gate.
-const KEY_DIR: readonly [number, number, number] = [-0.3, -1, -0.5];
+// Contrast-tuned: low ambient + fill < key gives the lit form punch without
+// pushing lit content past the bloom threshold (1.1). Tune visually in the gate.
+const KEY_DIR: readonly [number, number, number] = [-0.4, -0.8, -0.5];
 const SCENE_LIGHTS: Light[] = [
   {
     type: "directional",
@@ -81,7 +84,7 @@ const SCENE_LIGHTS: Light[] = [
     type: "point",
     position: [0, 1.2, -3],
     color: [0.6, 0.7, 1.0],
-    intensity: 1.5,
+    intensity: 0.6,
     range: 6,
   },
   {
@@ -89,7 +92,7 @@ const SCENE_LIGHTS: Light[] = [
     position: [0, 1.5, 3],
     direction: [0, -0.6, -1],
     color: [1, 1, 1],
-    intensity: 2.5,
+    intensity: 2.0,
     range: 10,
     innerAngle: 0.35,
     outerAngle: 0.6,
@@ -98,7 +101,7 @@ const SCENE_LIGHTS: Light[] = [
 const SCENE_AMBIENT: Ambient = {
   sky: [0.5, 0.55, 0.65],
   ground: [0.15, 0.14, 0.13],
-  intensity: 0.06,
+  intensity: 0.03,
 };
 
 // Decimeter-scale scene: lengthUnit tells the solver the typical body size so
