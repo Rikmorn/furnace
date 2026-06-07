@@ -77,14 +77,18 @@ test.skipIf(!bunWebGpuAvailable())(
 );
 
 test.skipIf(!bunWebGpuAvailable())(
-  "shader.lit is shared per ctx and carries the { color: vec4f } layout",
+  "shader.lit is shared per ctx and carries the { color, specular } layout",
   async () => {
     const ctx = await createTestContext();
     expect(await shader.lit(ctx)).toBe(await shader.lit(ctx)); // compiled once
-    expect(
-      shader._layoutOf(ctx, await shader.lit(ctx))?.fields["color"],
-    ).toEqual({
+    const layout = shader._layoutOf(ctx, await shader.lit(ctx));
+    expect(layout?.fields["color"]).toEqual({
       offset: 0,
+      size: 16,
+      token: "vec4f",
+    });
+    expect(layout?.fields["specular"]).toEqual({
+      offset: 16,
       size: 16,
       token: "vec4f",
     });
@@ -93,12 +97,14 @@ test.skipIf(!bunWebGpuAvailable())(
 );
 
 test.skipIf(!bunWebGpuAvailable())(
-  "lit and unlit share a layout (materials are shader-swappable)",
+  "lit grows its own layout (no longer shares unlit's — specular added)",
   async () => {
     const ctx = await createTestContext();
     const litLayout = shader._layoutOf(ctx, await shader.lit(ctx));
     const unlitLayout = shader._layoutOf(ctx, await shader.unlit(ctx));
-    expect(litLayout?.byteSize).toBe(unlitLayout?.byteSize);
+    expect(litLayout?.byteSize).toBe(32);
+    expect(unlitLayout?.byteSize).toBe(16);
+    expect(litLayout?.byteSize).not.toBe(unlitLayout?.byteSize);
     gpu.dispose(ctx);
   },
 );

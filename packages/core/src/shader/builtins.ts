@@ -1,6 +1,7 @@
 import { computeLayout } from "../binding/layout.ts";
 import type { ResolvedLayout } from "../binding/types.ts";
 import type { Context } from "../gpu/index.ts";
+import { lightingHelpers } from "./lighting.ts";
 import { _cameraBinding, _objectBinding, _vsIn } from "./preamble.ts";
 import { _createShader } from "./shader.ts";
 import type { ShaderSource } from "./source.ts";
@@ -44,32 +45,32 @@ struct VsOut {
 const LIT_SRC: ShaderSource = source`${_cameraBinding}
 ${_objectBinding}
 ${_vsIn}
-struct Mat { color: vec4<f32> };
+${lightingHelpers}
+struct Mat { color: vec4<f32>, specular: vec4<f32> };
 @group(1) @binding(0) var<uniform> mat: Mat;
+
+// Per-material specular is MATTE by default: an unset (zero-initialized)
+// specular = vec4(0) yields zero highlight (specColor.rgb = 0). Opt in by
+// setting specular = vec4(specR, specG, specB, shininess) on the binding.
 
 struct VsOut {
   @builtin(position) pos: vec4<f32>,
-  @location(0) normal: vec3<f32>,
+  @location(0) worldNormal: vec3<f32>,
+  @location(1) worldPos: vec3<f32>,
 };
 
 @vertex fn vs_main(v: VsIn) -> VsOut {
   var out: VsOut;
-  out.pos = camera.viewProjection * object.model * vec4<f32>(v.position, 1.0);
-  out.normal = (object.normalMatrix * vec4<f32>(v.normal, 0.0)).xyz;
+  let world = object.model * vec4<f32>(v.position, 1.0);
+  out.pos = camera.viewProjection * world;
+  out.worldPos = world.xyz;
+  out.worldNormal = (object.normalMatrix * vec4<f32>(v.normal, 0.0)).xyz;
   return out;
 }
 
-const LIGHT_DIR: vec3<f32> = vec3<f32>(0.324, 0.811, 0.487); // normalized
-const LIGHT_COLOR: vec3<f32> = vec3<f32>(1.0, 0.98, 0.94);
-const SKY_COLOR: vec3<f32> = vec3<f32>(0.55, 0.60, 0.72);
-const GROUND_COLOR: vec3<f32> = vec3<f32>(0.12, 0.12, 0.14);
-
 @fragment fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
-  let n = normalize(in.normal);
-  let halfLambert = dot(n, LIGHT_DIR) * 0.5 + 0.5; // wraps the terminator
-  let directional = LIGHT_COLOR * (halfLambert * halfLambert);
-  let hemi = mix(GROUND_COLOR, SKY_COLOR, n.y * 0.5 + 0.5);
-  let rgb = mat.color.rgb * (directional + hemi);
+  let n = normalize(in.worldNormal);
+  let rgb = fr_shade(in.worldPos, n, camera.position.xyz, mat.color.rgb, mat.specular.rgb, mat.specular.w);
   return vec4<f32>(rgb, mat.color.a);
 }`;
 
@@ -118,17 +119,54 @@ const GROUND_COLOR: vec3<f32> = vec3<f32>(0.12, 0.12, 0.14);
 /** Resolved layout for the unlit shader's `@group(1)` uniform buffer. */
 const UNLIT_LAYOUT: ResolvedLayout = computeLayout({ color: "vec4f" });
 
+/** The lit shader's `@group(1)`: colour + specular (`specular.rgb` = specular
+ *  colour, `specular.w` = shininess). */
+const LIT_LAYOUT: ResolvedLayout = computeLayout({
+  color: "vec4f",
+  specular: "vec4f",
+});
+
 type BuiltinKind = "unlit" | "lit" | "normalColor" | "textured" | "texturedLit";
 
 const BUILTIN_SPECS: Record<
   BuiltinKind,
-  { src: ShaderSource; layout: ResolvedLayout | null; textureBinding: boolean }
+  {
+    src: ShaderSource;
+    layout: ResolvedLayout | null;
+    textureBinding: boolean;
+    usesScene: boolean;
+  }
 > = {
-  unlit: { src: UNLIT_SRC, layout: UNLIT_LAYOUT, textureBinding: false },
-  lit: { src: LIT_SRC, layout: UNLIT_LAYOUT, textureBinding: false },
-  normalColor: { src: NORMAL_COLOR_SRC, layout: null, textureBinding: false },
-  textured: { src: TEXTURED_SRC, layout: null, textureBinding: true },
-  texturedLit: { src: TEXTURED_LIT_SRC, layout: null, textureBinding: true },
+  unlit: {
+    src: UNLIT_SRC,
+    layout: UNLIT_LAYOUT,
+    textureBinding: false,
+    usesScene: false,
+  },
+  lit: {
+    src: LIT_SRC,
+    layout: LIT_LAYOUT,
+    textureBinding: false,
+    usesScene: true,
+  },
+  normalColor: {
+    src: NORMAL_COLOR_SRC,
+    layout: null,
+    textureBinding: false,
+    usesScene: false,
+  },
+  textured: {
+    src: TEXTURED_SRC,
+    layout: null,
+    textureBinding: true,
+    usesScene: false,
+  },
+  texturedLit: {
+    src: TEXTURED_LIT_SRC,
+    layout: null,
+    textureBinding: true,
+    usesScene: false,
+  },
 };
 
 /** Lazily compile (once per ctx) the engine-owned shared built-in shader for
@@ -144,6 +182,7 @@ function builtinShader(ctx: Context, kind: BuiltinKind): Promise<Shader> {
     true,
     spec.layout,
     spec.textureBinding,
+    spec.usesScene,
   );
   cache[kind] = promise;
   return promise;
@@ -163,14 +202,27 @@ export function unlit(ctx: Context): Promise<Shader<{ color: "vec4f" }>> {
 }
 
 /**
- * The engine's stock **lit** shader — baked half-Lambert directional + hemisphere
- * ambient lighting over a per-material `vec4<f32>` colour at `@group(1) @binding(0)`
- * (the SAME layout as {@link unlit}, so materials are unlit↔lit swappable).
- * Engine-owned and shared per context (compiled once); {@link destroy} is a
- * no-op — freed only by the dispose cascade. Pass to `material.create`.
+ * The engine's stock **lit** shader — multi-light Blinn-Phong over the engine
+ * Scene UBO (`RenderOptions.lights` + `ambient`): hemisphere ambient + per-light
+ * diffuse and half-vector specular, with windowed inverse-square attenuation and
+ * spot cones, HDR-calibrated (no 1/π). `@group(1)` carries `{ color, specular }`
+ * (`specular.rgb` = specular colour, `specular.w` = shininess); the default is
+ * **matte** — an unset (zero) specular adds no highlight, so a `{ color }`-only
+ * binding keeps working. Add a highlight by setting both `specular.rgb` and
+ * `specular.w`. Engine-owned, shared per ctx (compiled once); {@link destroy}
+ * no-ops. Pass to `material.create` with a `binding` carrying at least
+ * `{ color }`. Supply `frame.render({ lights })` or the surface renders
+ * ambient-only.
+ *
+ * NOTE: lit no longer shares `unlit`'s layout (it adds `specular`), so an
+ * unlit↔lit material swap requires a `{ color, specular }` binding.
  */
-export function lit(ctx: Context): Promise<Shader<{ color: "vec4f" }>> {
-  return builtinShader(ctx, "lit") as Promise<Shader<{ color: "vec4f" }>>;
+export function lit(
+  ctx: Context,
+): Promise<Shader<{ color: "vec4f"; specular: "vec4f" }>> {
+  return builtinShader(ctx, "lit") as Promise<
+    Shader<{ color: "vec4f"; specular: "vec4f" }>
+  >;
 }
 
 /**
