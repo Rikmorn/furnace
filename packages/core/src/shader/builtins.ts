@@ -93,27 +93,36 @@ struct VsOut { @builtin(position) pos: vec4<f32>, @location(0) uv: vec2<f32> };
 const TEXTURED_LIT_SRC: ShaderSource = source`${_cameraBinding}
 ${_objectBinding}
 ${_vsIn}
+${lightingHelpers}
 @group(1) @binding(0) var samp: sampler;
 @group(1) @binding(1) var tex: texture_2d<f32>;
-struct VsOut { @builtin(position) pos: vec4<f32>, @location(0) normal: vec3<f32>, @location(1) uv: vec2<f32> };
+
+// Fixed engine-default specular: texturedLit's @group(1) is sampler+texture only
+// (texture is mutually exclusive with a uniform binding), so specular cannot be
+// per-material here. Per-material textured specular: backlog (descriptor ext).
+const FR_TL_SPEC: vec3<f32> = vec3<f32>(0.04, 0.04, 0.04);
+const FR_TL_SHININESS: f32 = 32.0;
+
+struct VsOut {
+  @builtin(position) pos: vec4<f32>,
+  @location(0) worldNormal: vec3<f32>,
+  @location(1) worldPos: vec3<f32>,
+  @location(2) uv: vec2<f32>,
+};
 @vertex fn vs_main(v: VsIn) -> VsOut {
   var out: VsOut;
-  out.pos = camera.viewProjection * object.model * vec4<f32>(v.position, 1.0);
-  out.normal = (object.normalMatrix * vec4<f32>(v.normal, 0.0)).xyz;
+  let world = object.model * vec4<f32>(v.position, 1.0);
+  out.pos = camera.viewProjection * world;
+  out.worldPos = world.xyz;
+  out.worldNormal = (object.normalMatrix * vec4<f32>(v.normal, 0.0)).xyz;
   out.uv = v.uv;
   return out;
 }
-const LIGHT_DIR: vec3<f32> = vec3<f32>(0.324, 0.811, 0.487);
-const LIGHT_COLOR: vec3<f32> = vec3<f32>(1.0, 0.98, 0.94);
-const SKY_COLOR: vec3<f32> = vec3<f32>(0.55, 0.60, 0.72);
-const GROUND_COLOR: vec3<f32> = vec3<f32>(0.12, 0.12, 0.14);
 @fragment fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
   let albedo = textureSample(tex, samp, in.uv);
-  let n = normalize(in.normal);
-  let halfLambert = dot(n, LIGHT_DIR) * 0.5 + 0.5;
-  let directional = LIGHT_COLOR * (halfLambert * halfLambert);
-  let hemi = mix(GROUND_COLOR, SKY_COLOR, n.y * 0.5 + 0.5);
-  return vec4<f32>(albedo.rgb * (directional + hemi), albedo.a);
+  let n = normalize(in.worldNormal);
+  let rgb = fr_shade(in.worldPos, n, camera.position.xyz, albedo.rgb, FR_TL_SPEC, FR_TL_SHININESS);
+  return vec4<f32>(rgb, albedo.a);
 }`;
 
 /** Resolved layout for the unlit shader's `@group(1)` uniform buffer. */
@@ -165,7 +174,7 @@ const BUILTIN_SPECS: Record<
     src: TEXTURED_LIT_SRC,
     layout: null,
     textureBinding: true,
-    usesScene: false,
+    usesScene: true,
   },
 };
 
@@ -248,13 +257,13 @@ export function normalColor(
  * only by the dispose cascade. Pass to `material.create`.
  *
  * `@group(1)` contract: `@binding(0)` sampler, `@binding(1)` `texture_2d<f32>`.
- * These reach the shader via `MaterialDescriptor.texture` (Task 8) — no
- * `@group(1)` uniform layout is declared (`Shader<Record<string, never>>`).
- * Declares `textureBinding: true`; `material.create` will require a `texture`
- * when this shader is used.
+ * These reach the shader via `MaterialDescriptor.texture` — no `@group(1)`
+ * uniform layout is declared (`Shader<Record<string, never>>`). Declares
+ * `textureBinding: true`; `material.create` will require a `texture` when this
+ * shader is used.
  *
- * For a lit variant that multiplies albedo by baked lighting, use
- * {@link texturedLit}.
+ * For a lit variant that shades the sampled albedo with the engine's multi-light
+ * Blinn-Phong model, use {@link texturedLit}.
  */
 export function textured(ctx: Context): Promise<Shader<Record<string, never>>> {
   return builtinShader(ctx, "textured") as Promise<
@@ -263,20 +272,24 @@ export function textured(ctx: Context): Promise<Shader<Record<string, never>>> {
 }
 
 /**
- * The engine's stock **textured + lit** shader — samples albedo from a texture
- * at `@group(1)` and multiplies it by the same baked half-Lambert directional
- * and hemisphere ambient lighting used by {@link lit}. Engine-owned and shared
- * per context (compiled once); {@link destroy} is a no-op — freed only by the
- * dispose cascade. Pass to `material.create`.
+ * The engine's stock **textured + lit** shader — multi-light Blinn-Phong (the
+ * same model as {@link lit}) over the engine Scene UBO (`RenderOptions.lights` +
+ * `ambient`): hemisphere ambient + per-light diffuse and half-vector specular,
+ * with windowed inverse-square attenuation and spot cones, HDR-calibrated. Albedo
+ * is sampled from the texture; specular is a **fixed engine default** (0.04 grey
+ * / shininess 32), not per-material — `@group(1)` carries only the sampler +
+ * texture (texture is mutually exclusive with a uniform binding), so a per-material
+ * specular uniform cannot be supplied here. Per-material textured specular is a
+ * backlog item (a `MaterialDescriptor` extension). Engine-owned and shared per
+ * context (compiled once); {@link destroy} is a no-op — freed only by the dispose
+ * cascade. Pass to `material.create`.
  *
  * `@group(1)` contract: `@binding(0)` sampler, `@binding(1)` `texture_2d<f32>`.
- * These reach the shader via `MaterialDescriptor.texture` (Task 8) — no
- * `@group(1)` uniform layout is declared (`Shader<Record<string, never>>`).
- * Declares `textureBinding: true`; `material.create` will require a `texture`
- * when this shader is used.
- *
- * Light constants are identical to {@link lit}'s baked model — textured objects
- * will match the tone of solid-colour lit objects in the same scene.
+ * These reach the shader via `MaterialDescriptor.texture` — no `@group(1)` uniform
+ * layout is declared (`Shader<Record<string, never>>`). Declares
+ * `textureBinding: true`; `material.create` will require a `texture` when this
+ * shader is used. Supply `frame.render({ lights })` or the surface renders
+ * ambient-only (textured).
  */
 export function texturedLit(
   ctx: Context,
