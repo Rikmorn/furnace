@@ -4,6 +4,8 @@ import { FurnaceGpuError } from "../gpu/errors.ts";
 import type { Context } from "../gpu/index.ts";
 import * as gpu from "../gpu/index.ts";
 import { _ENGINE_DEPTH_FORMAT } from "../material/material.ts";
+import { _cameraBinding } from "../shader/preamble.ts";
+import { toWgsl } from "../shader/source.ts";
 import {
   _recordAlloc,
   _recordDestroy,
@@ -18,8 +20,7 @@ const COLOR_STRIDE_BYTES = 16; // 4 × f32
 const INITIAL_LINES = 256;
 
 const LINE_WGSL = /* wgsl */ `
-struct Camera { viewProjection: mat4x4<f32> };
-@group(0) @binding(0) var<uniform> camera: Camera;
+${toWgsl(_cameraBinding)}
 
 struct VsIn {
   @location(0) position: vec3<f32>,
