@@ -1,37 +1,36 @@
-# Shader preprocessor / imports
+# Shader composition — deferred follow-ons
 
-**SCHEDULED as Visual Fidelity epic "Stage 2.5" — a dedicated session between Stage 2
-(AA + HDR post) and Stage 3 (lighting), decided in the Stage 2 brainstorm (2026-06-06).**
-Rationale: the trigger has now fired multiple times (cookbook `hsv2rgb` duplication; light
-post-chain helper duplication in Stage 2), and Stage 3's multi-light Blinn-Phong shaders are
-where it *"fires hard"* (lighting helpers duplicated across shaders). Landing the preprocessor
-as 2.5 means Stage-3 shaders are authored with `// @include` from the start instead of written
-copy-paste and refactored later — the same "infra lands just before the stage that needs it"
-pattern as textures→Stage 1 and HDR→before lighting. It gets its own brainstorm→spec→plan→execute
-cycle. Stage 2 itself stays preprocessor-free (tolerates the light post-chain duplication).
+**The composition spine LANDED as Visual Fidelity Stage 2.5 (2026-06-07):** `ShaderSource`
+(`shader.source` tagged + call forms) → `toWgsl()` (DFS, dedup by object identity) →
+`shader.create` accepts `ShaderSource | string`. Composition is pure in-memory JS string
+work — NOT runtime URL fetch. The earlier framing in this file (a runtime
+`new URL(spec, includingUrl)` `// @include` resolver) was **retired**: it is verified-broken
+under Bun's `file` loader (build-time content-hash + flatten severs sibling paths, and
+include-only `.wgsl` files are never emitted). Spec:
+`docs/superpowers/specs/2026-06-07-stage-2.5-shader-preprocessor-design.md`.
 
-**DEFERRED to its own session — decided in the D-1 brainstorm (2026-05-30, reversing the earlier "folds into D-1" plan).** D-1 ships the *substrate* (`Shader` resource + `shader.load(ctx, url)` = fetch + create), but **`shader.load` resolves NO includes yet**. The `// @include` preprocessor is **additive behaviour on `shader.load`** — adding it later does not change the signature or force a migration — so it is cleanly separable and does not need to ride D-1's breaking reshape. Trigger has **fired** (`hsv2rgb` duplicated across `cookbook/shader/plasma.wgsl` + `striped.wgsl`); we **accept that duplication for now** rather than half-ass the resolver. Build it well in a dedicated session.
+The `toWgsl`/dedup core operates on the `ShaderSource` DAG independent of how the DAG was
+built, so the items below slot in without reshaping it.
 
-**What a proper session must think through (D-1 brainstorm, 2026-05-30):**
-- **Graph traversal** — recursive include resolution with **cycle detection** (a `Set` of visited absolute URLs; a cyclic include must not infinite-loop / fetch-storm).
-- **Combination / dedup** — including the same file twice must not emit duplicate **top-level declarations** (WGSL has no redefinition tolerance, unlike GLSL snippet inlining); dedup-within-graph is a **correctness** requirement, not just an optimization.
-- **Relative URL resolution** — `new URL(spec, includingFileUrl)` referrer-relative (as CSS `@import` / ES modules resolve), since `shader.load` fetches arbitrary author URLs (three.js's flat `ShaderChunk` registry sidesteps this; furnace cannot).
-- **Compilation cost & main-loop impact** — when does resolution/compile happen, and does it block frames? (`shader.load` is async/setup; but a future hot-reload or lazy path could touch the loop.)
-- **Prerequisite infrastructure** — is a fetch/asset layer, an in-flight-dedup cache, or a "never cache failures" loader (three.js #17635) needed first? These may be their own items.
-- **Failure modes from prior art** — see `docs/research/shader-resource-prior-art.md` §Q5: cache by URL but **never cache HTTP failures**, dedup in-flight requests, the build-time-vs-runtime tension (WESL/naga_oil lean build-time).
+**Deferred follow-ons (each with its own trigger):**
 
-The approach options below remain the menu; the research doc (§1.10–1.12) is the verified prior-art survey for them.
+1. **Runtime live-editor resolver** — `// @include "name"` string syntax resolved against a
+   `name → ShaderSource` registry, building a DAG from live-edited text + the registry and
+   reusing the dedup core. Live-typed text has no JS import graph, so this is a distinct
+   consumer from the authoring path. *Trigger:* shader-editor work begins.
 
-WGSL has no native `#include` mechanism. As shaders grow more complex and share common code (camera uniform structs, lighting helpers, noise functions, post-effect utility math), we'll want some form of import/include support.
+2. **Build-time validation tool / CLI** — `toWgsl()` + a WGSL compile-check (naga-wasm, or a
+   `*.gpu.test.ts` using bun-webgpu's validation error scope — available today) so broken
+   composition fails the build, not the frame. Composition is already prod-safe (JS imports
+   are bundler-inlined; `toWgsl` is in-memory concat, no runtime file I/O) — this item is about
+   *validation*, not avoiding I/O. *Trigger:* prod-hardening / unvalidated-composition pain.
 
-Options to consider when this is brainstormed:
-- **String concatenation with a tiny preprocessor**: `material.loadShader("foo.wgsl")` reads the file, scans for `// @include "bar.wgsl"` comments, recursively inlines. Small implementation, no build-time tooling.
-- **Bun-side build-time preprocessor**: a Bun plugin that processes `.wgsl` imports at bundle time. Cleaner output, no runtime overhead, but couples to Bun.
-- **Naga-based preprocessor in wasm**: use the same WGSL tooling Rust uses. Heavy but most correct.
-- **Template literals in TS**: shaders defined as `const myShader = wgsl\`... ${cameraUniform} ...\`;` with composition via TS string interpolation. No new format; loses WGSL editor tooling.
+3. **`ShaderSource.load(url)`** — lazy runtime fetch of a fragment; a dev/editor convenience
+   that must not leak into prod (the prod-safe path is static import + bundler inline). A
+   future lint/CLI could flag `.load` in prod builds. *Trigger:* a concrete runtime-fetched-
+   composition need.
 
-Whichever path, the goal is to eliminate copy-paste of common shader snippets without inventing a third language.
+**Not planned:** node-graph / typed-IO shader editor (Unreal Material Function / Unity Sub
+Graph) — a higher layer that *generates* `ShaderSource`; out of the Visual Fidelity epic.
 
-**Trigger to revisit:** When the same WGSL snippet appears in two or more shader files. Until then, copy-paste with a comment is fine.
-
-**Reference:** `docs/superpowers/specs/2026-05-21-core-architecture-design.md` § "Deferred decisions".
+**Reference:** Stage 2.5 spec (above); `docs/research/shader-resource-prior-art.md`.
