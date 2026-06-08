@@ -20,16 +20,18 @@ export const shadowHelpers: ShaderSource = source`${sceneBinding}
 fn fr_shadowFactor(worldPos: vec3<f32>, slot: i32, depthBias: f32) -> f32 {
   if (slot < 0) { return 1.0; }
   let lightSpace = scene.shadowMatrices[slot] * vec4<f32>(worldPos, 1.0);
-  let proj = lightSpace.xyz / lightSpace.w;
-  // Outside the shadow frustum -> treat as lit. (proj.z < 0, in front of the
+  let ndc = lightSpace.xyz / lightSpace.w;
+  // Light clip-space NDC (xy in [-1,1], z in [0,1]) -> shadow-map UV (y flipped).
+  let uv = ndc.xy * vec2<f32>(0.5, -0.5) + vec2<f32>(0.5, 0.5);
+  // Outside the shadow frustum -> treat as lit. (ndc.z < 0, in front of the
   // near plane, is intentionally not culled: compared against [0,1] stored
   // depths with compare:"less" it always resolves lit, so the result is correct.)
-  if (proj.x < 0.0 || proj.x > 1.0 || proj.y < 0.0 || proj.y > 1.0 || proj.z > 1.0) {
+  if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0 || ndc.z > 1.0) {
     return 1.0;
   }
   // 2048 = SHADOW_MAP_SIZE (frame/shadow-map.ts).
   let texel = 1.0 / 2048.0;
-  let refDepth = proj.z - depthBias;
+  let refDepth = ndc.z - depthBias;
   var vis = 0.0;
   for (var y = -1; y <= 1; y = y + 1) {
     for (var x = -1; x <= 1; x = x + 1) {
@@ -37,7 +39,7 @@ fn fr_shadowFactor(worldPos: vec3<f32>, slot: i32, depthBias: f32) -> f32 {
       // textureSampleCompareLevel: no uniformity requirement (we are past early
       // returns) and no derivative computation -> correct + portable for shadows.
       vis = vis + textureSampleCompareLevel(
-        fr_shadowMaps, fr_shadowSamp, proj.xy + off, slot, refDepth);
+        fr_shadowMaps, fr_shadowSamp, uv + off, slot, refDepth);
     }
   }
   return vis / 9.0;

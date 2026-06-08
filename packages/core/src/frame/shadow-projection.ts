@@ -3,19 +3,8 @@ import type { Mat4, Vec3 } from "../transform/types.ts";
 import { vec3 } from "../transform/vec3.ts";
 import type { DirectionalLight, SpotLight } from "./lights.ts";
 
-// Remap clip space [-1,1] xy -> [0,1] UV (y flipped to match texture space) and
-// pass through WebGPU's [0,1] depth. Column-major. Receiver samples with .xy/.z.
-// biome-ignore format: matrix layout aids spatial correctness review
-const CLIP_TO_UV: Mat4 = new Float32Array([
-  0.5,  0,   0, 0,
-  0,   -0.5, 0, 0,
-  0,    0,   1, 0,
-  0.5,  0.5, 0, 1,
-]);
-
 const scratchView: Mat4 = mat4.create();
 const scratchProj: Mat4 = mat4.create();
-const scratchVP: Mat4 = mat4.create();
 const scratchEye: Vec3 = vec3.create();
 const scratchTarget: Vec3 = vec3.create();
 const scratchDir: Vec3 = vec3.create();
@@ -30,9 +19,10 @@ function safeUp(dir: Vec3): Vec3 {
 }
 
 /**
- * Build the light-space view·proj·remap matrix for a directional light's
- * orthographic shadow frustum. The result maps world positions to shadow-map
- * UV (`.xy`) and depth (`.z`) in `[0, 1]`. Engine-internal; consumed by the
+ * Build the light-space view·proj matrix for a directional light's
+ * orthographic shadow frustum. The result maps world positions to light
+ * CLIP space (NDC: `.xy` in `[-1, 1]`, `.z` in `[0, 1]`). The receiver shader
+ * applies the NDC→UV remap when sampling. Engine-internal; consumed by the
  * shadow-caster collection pass.
  */
 export function _directionalLightViewProj(light: DirectionalLight): Mat4 {
@@ -54,14 +44,14 @@ export function _directionalLightViewProj(light: DirectionalLight): Mat4 {
   mat4.lookAt(scratchView, scratchEye, scratchTarget, safeUp(scratchDir));
   const h = s.orthoHalfExtent;
   mat4.ortho(scratchProj, -h, h, -h, h, s.near, s.far);
-  mat4.multiply(scratchVP, scratchProj, scratchView);
-  return mat4.multiply(mat4.create(), CLIP_TO_UV, scratchVP);
+  return mat4.multiply(mat4.create(), scratchProj, scratchView);
 }
 
 /**
- * Build the light-space view·proj·remap matrix for a spot light's perspective
- * shadow frustum. The result maps world positions to shadow-map UV (`.xy`) and
- * depth (`.z`) in `[0, 1]`. Engine-internal; consumed by the shadow-caster
+ * Build the light-space view·proj matrix for a spot light's perspective
+ * shadow frustum. The result maps world positions to light CLIP space (NDC:
+ * `.xy` in `[-1, 1]`, `.z` in `[0, 1]`). The receiver shader applies the
+ * NDC→UV remap when sampling. Engine-internal; consumed by the shadow-caster
  * collection pass.
  */
 export function _spotLightViewProj(light: SpotLight): Mat4 {
@@ -82,6 +72,5 @@ export function _spotLightViewProj(light: SpotLight): Mat4 {
   const near = s.near ?? 0.1;
   const far = s.far ?? light.range;
   mat4.perspective(scratchProj, fovY, 1, near, far);
-  mat4.multiply(scratchVP, scratchProj, scratchView);
-  return mat4.multiply(mat4.create(), CLIP_TO_UV, scratchVP);
+  return mat4.multiply(mat4.create(), scratchProj, scratchView);
 }

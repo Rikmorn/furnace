@@ -35,7 +35,7 @@ function project(m: Float32Array, x: number, y: number, z: number) {
   };
 }
 
-test("directional matrix maps the target to UV center (0.5, 0.5)", () => {
+test("directional matrix maps the target to NDC center (0, 0)", () => {
   const l: DirectionalLight = {
     type: "directional",
     direction: [0, -1, 0],
@@ -45,9 +45,9 @@ test("directional matrix maps the target to UV center (0.5, 0.5)", () => {
   };
   const m = _directionalLightViewProj(l);
   const p = project(m, 0, 0, 0);
-  // The matrix bakes the clip->UV remap, so center projects to UV (0.5, 0.5).
-  expect(p.x).toBeCloseTo(0.5, 3);
-  expect(p.y).toBeCloseTo(0.5, 3);
+  // The matrix is raw proj·view (no UV remap), so center projects to NDC (0, 0).
+  expect(p.x).toBeCloseTo(0, 3);
+  expect(p.y).toBeCloseTo(0, 3);
   // Target sits at view-space z = -dist = -10; ortho depth = (10 - 0.1) / (20 - 0.1) ≈ 0.497.
   expect(p.z).toBeCloseTo(0.497, 3);
 });
