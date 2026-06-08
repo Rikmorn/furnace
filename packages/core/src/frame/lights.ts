@@ -12,7 +12,7 @@
  *   light. The `shadow` lane is `(slot, depthBias, normalBias, _)`; `slot` is
  *   −1 when the light casts no shadow.
  * - Shadow matrices (MAX_SHADOW_CASTERS × 64 B each): per-caster light-space
- *   `mat4x4` (view·proj·remap), indexed by the per-light `shadow.slot`.
+ *   `mat4x4` (view·proj, raw clip space), indexed by the per-light `shadow.slot`.
  *
  * Total: 64 + 16 × 80 + MAX_SHADOW_CASTERS × 64 = 1600 B.
  */
@@ -36,7 +36,14 @@ export type DirectionalShadow = {
   target?: Vec3Tuple;
   /** Distance back along `-direction` to place the light eye. Default `far/2`. */
   distance?: number;
-  /** In-shader constant bias subtracted from the compare depth (acne). */
+  /**
+   * In-shader constant subtracted from the receiver's compare depth to fight
+   * acne. This is **normalized [0,1] depth**, so use a *small* value — roughly
+   * `0.001`–`0.01` (the WebGPU shadow sample uses `~0.007`). Values near `1`
+   * push every receiver in front of the stored depth and disable shadows
+   * entirely. Defaults to `0`; the primary acne defense is the engine's
+   * slope-scaled hardware bias, with this a per-light nudge on top.
+   */
   depthBias?: number;
   /** Texel-scaled normal-offset bias (acne at grazing angles). */
   normalBias?: number;
@@ -52,7 +59,14 @@ export type SpotShadow = {
   near?: number;
   /** Far plane. Default = the light's `range`. */
   far?: number;
-  /** In-shader constant bias subtracted from the compare depth (acne). */
+  /**
+   * In-shader constant subtracted from the receiver's compare depth to fight
+   * acne. This is **normalized [0,1] depth**, so use a *small* value — roughly
+   * `0.001`–`0.01` (the WebGPU shadow sample uses `~0.007`). Values near `1`
+   * push every receiver in front of the stored depth and disable shadows
+   * entirely. Defaults to `0`; the primary acne defense is the engine's
+   * slope-scaled hardware bias, with this a per-light nudge on top.
+   */
   depthBias?: number;
   /** Texel-scaled normal-offset bias (acne at grazing angles). */
   normalBias?: number;
@@ -113,12 +127,13 @@ export type Ambient = { sky: Vec3Tuple; ground: Vec3Tuple; intensity: number };
 
 /**
  * A resolved shadow caster: which light, its slot, and its light-space matrix
- * (view·proj·remap, ready to multiply a world position to shadow-map UV+depth).
+ * (view·proj, raw clip space; the receiver shader remaps NDC→shadow-map UV when
+ * sampling, and the caster pass uses it as the depth-pass clip transform).
  */
 export type ShadowCaster = {
   lightIndex: number;
   slot: number;
-  /** Light-space view·proj·remap matrix; column-major, exactly 16 elements. */
+  /** Light-space view·proj (clip-space) matrix; column-major, exactly 16 elements. */
   viewProj: Float32Array;
   depthBias: number;
   normalBias: number;

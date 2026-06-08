@@ -166,20 +166,22 @@ function buildShadowLight(t: number): Light {
 }
 
 function buildDirectionalLight(t: number): Light {
-  // A sun whose direction arcs left-to-right, sweeping the shadows.
-  const sweep = Math.sin(t * 0.4) * 0.6;
+  // A LOW sun from the upper-back, arcing left↔right. The shallow pitch throws
+  // the casters' shadows forward into the open ground in clear view of the
+  // camera (a steep/overhead light would hide them directly under each object).
+  const sweep = Math.sin(t * 0.35) * 0.5;
   return {
     type: "directional",
-    direction: [sweep, -1, -0.35],
+    direction: [sweep, -0.85, 0.5],
     color: [1, 0.96, 0.9],
     intensity: 1.1,
     shadow: {
-      orthoHalfExtent: 4,
+      orthoHalfExtent: 4.5,
       near: 0.1,
-      far: 14,
+      far: 16,
       target: GROUND_CENTER,
       normalBias: state.normalBias,
-      depthBias: 1.0,
+      depthBias: 0.005,
     },
   };
 }
@@ -208,7 +210,7 @@ function buildSpotLight(t: number): Light {
       near: 0.5,
       far: 14,
       normalBias: state.normalBias,
-      depthBias: 1.0,
+      depthBias: 0.005,
     },
   };
 }

@@ -182,7 +182,7 @@ const DEFAULT_NORMAL_BIAS = 1.5;
 /**
  * Scan `lights` for shadow casters — `directional`/`spot` lights that carry a
  * `shadow` config — assigning slots `0..N-1` and deriving each light-space
- * view·proj·remap matrix. Clamps to {@link MAX_SHADOW_CASTERS} and reports
+ * view·proj (clip-space) matrix. Clamps to {@link MAX_SHADOW_CASTERS} and reports
  * overflow (the caller warns once — never throws; this runs on the render path).
  * Pure: builds and returns a fresh array, mutates nothing. Engine-internal;
  * exported for tests.

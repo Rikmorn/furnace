@@ -86,7 +86,7 @@ const SCENE_LIGHTS: Light[] = [
       far: 20,
       target: [0, 0, -2],
       normalBias: 2.0,
-      depthBias: 1.0,
+      depthBias: 0.005,
     },
   },
   {
