@@ -75,6 +75,7 @@ test.skipIf(!bunWebGpuAvailable())(
     const s = await shader.create(ctx, CUSTOM_LIT_SRC, {
       layout: { tint: "vec4f" },
       usesScene: true,
+      usesShadows: true,
     });
     const b = binding.create(ctx, s);
     binding.set(ctx, b, { tint: [0.6, 0.4, 0.8, 1] });

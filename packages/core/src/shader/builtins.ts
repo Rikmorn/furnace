@@ -144,6 +144,7 @@ const BUILTIN_SPECS: Record<
     layout: ResolvedLayout | null;
     textureBinding: boolean;
     usesScene: boolean;
+    usesShadows: boolean;
   }
 > = {
   unlit: {
@@ -151,30 +152,35 @@ const BUILTIN_SPECS: Record<
     layout: UNLIT_LAYOUT,
     textureBinding: false,
     usesScene: false,
+    usesShadows: false,
   },
   lit: {
     src: LIT_SRC,
     layout: LIT_LAYOUT,
     textureBinding: false,
     usesScene: true,
+    usesShadows: true,
   },
   normalColor: {
     src: NORMAL_COLOR_SRC,
     layout: null,
     textureBinding: false,
     usesScene: false,
+    usesShadows: false,
   },
   textured: {
     src: TEXTURED_SRC,
     layout: null,
     textureBinding: true,
     usesScene: false,
+    usesShadows: false,
   },
   texturedLit: {
     src: TEXTURED_LIT_SRC,
     layout: null,
     textureBinding: true,
     usesScene: true,
+    usesShadows: true,
   },
 };
 
@@ -192,6 +198,7 @@ function builtinShader(ctx: Context, kind: BuiltinKind): Promise<Shader> {
     spec.layout,
     spec.textureBinding,
     spec.usesScene,
+    spec.usesShadows,
   );
   cache[kind] = promise;
   return promise;

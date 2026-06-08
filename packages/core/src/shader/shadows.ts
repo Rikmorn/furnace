@@ -1,4 +1,4 @@
-import { sceneBinding } from "./lighting.ts";
+import { sceneBinding } from "./scene-binding.ts";
 import { type ShaderSource, source } from "./source.ts";
 
 /**

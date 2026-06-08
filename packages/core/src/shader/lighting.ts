@@ -1,45 +1,28 @@
+import { shadowHelpers } from "./shadows.ts";
 import type { ShaderSource } from "./source.ts";
 import { source } from "./source.ts";
 
-/**
- * The engine **Scene** binding at `@group(0) @binding(1)`: the `Light` struct
- * (std140-safe vec4 lanes — `posRange`, `dirType`, `colorInt`, `spotCos`, and a
- * `shadow` lane packing `(slot, depthBias, normalBias, _)`) + the `Scene` uniform
- * (hemisphere ambient, a fixed `array<Light, 16>`, and a `shadowMatrices` tail of
- * per-caster light-space view-projection matrices). Compose this into a custom
- * shader and pass `shader.create(ctx, src, { usesScene: true })` to receive the
- * engine's per-frame lights. Engine-managed and written by `frame.render` from
- * `RenderOptions.lights`/`ambient` (and shadow casters when `usesShadows`).
- */
-export const sceneBinding: ShaderSource = source(
-  `struct Light {
-  posRange : vec4<f32>,
-  dirType  : vec4<f32>,
-  colorInt : vec4<f32>,
-  spotCos  : vec4<f32>,
-  shadow   : vec4<f32>,
-};
-struct Scene {
-  ambientSky    : vec4<f32>,
-  ambientGround : vec4<f32>,
-  lightCount    : vec4<u32>,
-  _reserved     : vec4<f32>,
-  lights        : array<Light, 16>,
-  // literal 4 must equal MAX_SHADOW_CASTERS in frame/lights.ts.
-  shadowMatrices : array<mat4x4<f32>, 4>,
-};
-@group(0) @binding(1) var<uniform> scene: Scene;`,
-);
+// Re-exported for back-compat: `sceneBinding` historically lived here and several
+// importers still reach for `shader/lighting.ts`. It now lives in the leaf module
+// `scene-binding.ts` to break the lighting↔shadows import cycle (lightingHelpers
+// composes shadowHelpers, which depends on sceneBinding).
+export { sceneBinding } from "./scene-binding.ts";
 
 /**
  * Composable Blinn-Phong helpers over the engine {@link sceneBinding} (it is a
- * dependency, so composing `lightingHelpers` pulls the Scene UBO in too). Exposes
+ * dependency, so composing `lightingHelpers` pulls the Scene UBO in too). It also
+ * composes {@link shadowHelpers}, so it pulls in the shadow bindings at `@group(0)`
+ * bindings 2 and 3 — a lit shader composing `lightingHelpers` MUST be created with
+ * `usesShadows: true` (the built-in `lit`/`texturedLit` already do) or the render
+ * path leaves those bindings unbound and fails validation. Exposes
  * `fr_shade(worldPos, n, viewPos, albedo, specColor, shininess) -> vec3<f32>`:
  * hemisphere ambient + per-light diffuse/specular with windowed inverse-square
- * attenuation and spot cones, HDR-calibrated (no 1/π; specular is additive).
- * Names carry an `fr_` prefix to avoid colliding with consumer functions.
+ * attenuation and spot cones, HDR-calibrated (no 1/π; specular is additive). The
+ * per-light direct term is multiplied by `fr_shadowFactor` so casting lights cast
+ * shadows; ambient is never shadowed. Names carry an `fr_` prefix to avoid
+ * colliding with consumer functions.
  */
-export const lightingHelpers: ShaderSource = source`${sceneBinding}
+export const lightingHelpers: ShaderSource = source`${shadowHelpers}
 fn fr_windowedInvSq(d: f32, r: f32) -> f32 {
   let w = saturate(1.0 - pow(d / max(r, 1e-4), 4.0));
   return (w * w) / max(d * d, 1e-4);
@@ -81,7 +64,14 @@ fn fr_shade(
     // shininess=0): the clamp is a no-op for real highlights (shininess >= 1) and
     // keeps a matte surface NaN-free at grazing angles.
     let spec = specColor * pow(max(dot(n, H), 0.0), max(shininess, 1.0)) * step(0.0001, NdotL);
-    color = color + light.colorInt.rgb * light.colorInt.w * att * (albedo * NdotL + spec);
+    let slot = i32(light.shadow.x);
+    let depthBias = light.shadow.y;
+    let normalBias = light.shadow.z;
+    // texel-scaled normal-offset bias (2048 = SHADOW_MAP_SIZE) applied to the
+    // receiver position before sampling — fights acne at grazing angles.
+    let biasedPos = worldPos + n * normalBias * (1.0 / 2048.0);
+    let vis = fr_shadowFactor(biasedPos, slot, depthBias);
+    color = color + vis * light.colorInt.rgb * light.colorInt.w * att * (albedo * NdotL + spec);
   }
   return color;
 }`;
