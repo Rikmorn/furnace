@@ -79,6 +79,15 @@ const SCENE_LIGHTS: Light[] = [
     direction: KEY_DIR,
     color: [1, 0.96, 0.9],
     intensity: 1.0,
+    // Shadow frustum sized for the gate; tune orthoHalfExtent/target/normalBias if shadows clip or show acne/peter-panning.
+    shadow: {
+      orthoHalfExtent: 3.5,
+      near: 0.1,
+      far: 20,
+      target: [0, 0, -2],
+      normalBias: 2.0,
+      depthBias: 1.0,
+    },
   },
   {
     type: "point",
