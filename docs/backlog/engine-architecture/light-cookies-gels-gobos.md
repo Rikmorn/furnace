@@ -34,3 +34,13 @@ infrastructure that cookies would reuse — whichever comes first. Build on that
 **Reference:** `docs/superpowers/specs/2026-06-07-stage-3-lighting-design.md` (§3.1 `Light` data
 model, §3.4 shading, §5 fences); `advanced-shadows-cascades-and-point.md` + the Stage-4 shadow-
 modeling decision (shared light-space-projection machinery); the Visual Fidelity epic.
+
+**Update (Stage 4, 2026-06-08):** Shadows landed, and with them the light-space-projection machinery
+this entry needs now exists — `packages/core/src/frame/shadow-projection.ts` builds the per-light
+view-projection matrix (ortho for directional, perspective for spot). The per-light-texture pattern
+also resolved: `Light` stays plain per-frame value data, and the engine owns a per-frame
+texture reference (the shadow array bound at `@group(0)` bindings 2/3 — see
+`frame/render.ts` `ensurePerFrameGroup0`). Cookies/gels/gobos build directly on both: reuse the
+shadow-projection matrix and add a projected texture per cookie-light alongside the depth array. The
+trigger now refines to **extending the `Light` union with a projected texture** (rather than
+modelling the projection from scratch).

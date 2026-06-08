@@ -22,3 +22,12 @@ cast shadows (→ cube maps).
 
 **Reference:** `docs/superpowers/specs/2026-06-05-visual-fidelity-epic-design.md` §5.4;
 `shared-pipeline-factory.md` (depth-only shadow pipeline).
+
+**Update (Stage 4, 2026-06-08):** The single-map shadow substrate this entry builds on has now
+LANDED — a depth-only caster pass (`frame/shadow-map.ts`), a comparison sampler, and a
+`texture_depth_2d_array` indexed by light slot (engine-owned; `Light` stays plain per-frame data).
+CSM (directional cascades) and point-light cube shadows are now true extensions of this foundation:
+CSM splits the directional frustum into multiple layers of the same array + adds a per-cascade
+selection in the shader; cube shadows add 6 depth renders per point light. Neither needs a different
+foundation — both reuse the depth pass, the comparison sampler, and the `texture_depth_2d_array`
+plumbing that shipped in Stage 4.

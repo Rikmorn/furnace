@@ -26,3 +26,12 @@ Likely shape:
 **Trigger to revisit:** Third pipeline-building module lands.
 
 **Reference:** `docs/superpowers/specs/2026-05-24-core-tranche-6-post-process-design.md` §1 Out.
+
+**Update (Stage 4, 2026-06-08):** The shadow-map work landed the **depth-only caster pipeline** —
+the THIRD pipeline-building site this entry anticipated. It is built inline in `frame/shadow-map.ts`
+`_ensureShadowCasterPipeline` (depth-only target, no color attachment, `depth32float`, single-sample,
+own vertex layout), with its own ad-hoc once-cache rather than the shared refcounted primitive. The
+trigger has now technically fired (three sites: material, post, shadow caster), but extraction stays
+**deferred** for Stage 4 — the caster pipeline is a singleton built once, so the duplication cost is
+small today. Re-evaluate when a fourth site (compute / debug-draw / instanced) makes the shared
+factory pay for itself.
