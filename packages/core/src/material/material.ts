@@ -13,6 +13,7 @@ import {
   _layoutOf,
   _textureBindingOf,
   _usesSceneOf,
+  _usesShadowsOf,
 } from "../shader/shader.ts";
 import type { ShaderSlot } from "../shader/types.ts";
 import { _recordDestroy } from "../stats/internal.ts";
@@ -243,6 +244,7 @@ export async function create<L extends LayoutSchema = LayoutSchema>(
   const needsTexture = _textureBindingOf(ctx, descriptor.shader);
   const hasTexture = descriptor.texture != null;
   const usesScene = _usesSceneOf(ctx, descriptor.shader);
+  const usesShadows = _usesShadowsOf(ctx, descriptor.shader);
 
   // `texture` and `binding`/`bindings` are competing @group(1) sources — exactly one.
   if (hasTexture && (hasBinding || hasRawBindings)) {
@@ -357,6 +359,7 @@ export async function create<L extends LayoutSchema = LayoutSchema>(
     depthCompare,
     depthEnabled,
     usesScene,
+    usesShadows,
     userCount: 0,
     markedDestroyed: false,
     _teardown: () => materialTeardown(ctx, slot),

@@ -85,6 +85,10 @@ export type MaterialSlot = {
   /** Mirror of the shader's `usesScene` — the render path binds the Scene UBO
    *  at `@group(0) @binding(1)` for this material's pipeline when true. */
   usesScene: boolean;
+  /** Mirror of the shader's `usesShadows` — the render path binds the shadow
+   *  map array + comparison sampler at `@group(0) @binding(2/3)` for this
+   *  material's pipeline when true. */
+  usesShadows: boolean;
   userCount: number;
   markedDestroyed: boolean;
   _teardown: () => void;
