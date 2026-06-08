@@ -1,5 +1,7 @@
 import { _onDispose } from "../gpu/dispose-cascade.ts";
 import type { Context } from "../gpu/index.ts";
+import { _shadowCasterSrc } from "../shader/shadows.ts";
+import { toWgsl } from "../shader/source.ts";
 import { _recordAlloc, _recordDestroy } from "../stats/internal.ts";
 import { MAX_SHADOW_CASTERS } from "./lights.ts";
 
@@ -92,4 +94,76 @@ function _disposeShadowMap(ctx: Context): void {
   entry.texture.destroy();
   _recordDestroy(ctx, "texture", shadowMapBytes());
   shadowMapByCtx.delete(ctx);
+}
+
+/** Fixed slope-scaled depth bias on the caster pipeline (hardware), per the
+ *  wgpu/Filament default. Per-light constant + normal-offset bias are applied
+ *  in the receiver shader (fr_shade). */
+export const SHADOW_SLOPE_SCALE = 2.0;
+
+/** Fixed constant depth bias (hardware `depthBias` units, depth32float) on the
+ *  caster pipeline. Paired with {@link SHADOW_SLOPE_SCALE}; per-light constant +
+ *  normal-offset bias are applied in the receiver shader (fr_shade). */
+export const SHADOW_CONST_BIAS = 2;
+
+const SHADOW_VERTEX_STRIDE = 32; // pos(12) + normal(12) + uv(8) — matches the engine vertex layout
+const SHADOW_POS_OFFSET = 0;
+const SHADOW_NORMAL_OFFSET = 12; // after position (3 × f32)
+const SHADOW_UV_OFFSET = 24; // after position + normal (6 × f32)
+
+const casterPipelineByCtx = new WeakMap<Context, GPURenderPipeline>();
+
+/** Build (once per ctx, SYNCHRONOUSLY) the single depth-only caster pipeline:
+ *  vertex-only (no fragment / no color target), depth32float, single-sample,
+ *  fixed slope-scaled bias. Cached + reused for all casters and all meshes.
+ *  Sync because frame.render is sync and calls this on the per-frame path. */
+export function _ensureShadowCasterPipeline(ctx: Context): GPURenderPipeline {
+  const cached = casterPipelineByCtx.get(ctx);
+  if (cached) return cached;
+  const module = ctx.device.createShaderModule({
+    code: toWgsl(_shadowCasterSrc),
+  });
+  const pipeline = ctx.device.createRenderPipeline({
+    layout: "auto",
+    vertex: {
+      module,
+      entryPoint: "vs_main",
+      buffers: [
+        {
+          arrayStride: SHADOW_VERTEX_STRIDE,
+          attributes: [
+            {
+              shaderLocation: 0,
+              offset: SHADOW_POS_OFFSET,
+              format: "float32x3",
+            },
+            {
+              shaderLocation: 1,
+              offset: SHADOW_NORMAL_OFFSET,
+              format: "float32x3",
+            },
+            {
+              shaderLocation: 2,
+              offset: SHADOW_UV_OFFSET,
+              format: "float32x2",
+            },
+          ],
+        },
+      ],
+    },
+    // cullMode "back": standard caster choice; flips shadow acne toward peter-panning
+    // risk on thin geometry — revisit at the visual gate (try "front") if leaks appear.
+    primitive: { topology: "triangle-list", cullMode: "back" },
+    depthStencil: {
+      format: SHADOW_FORMAT,
+      depthWriteEnabled: true,
+      depthCompare: "less",
+      depthBias: SHADOW_CONST_BIAS,
+      depthBiasSlopeScale: SHADOW_SLOPE_SCALE,
+    },
+    multisample: { count: 1 },
+    // NO fragment stage -> depth-only.
+  });
+  casterPipelineByCtx.set(ctx, pipeline);
+  return pipeline;
 }
