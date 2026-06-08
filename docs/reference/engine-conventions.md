@@ -283,11 +283,13 @@ Every Material's WGSL must respect the engine's binding contract:
 | Slot | Type | Owner | Written by |
 |---|---|---|---|
 | `@group(0) @binding(0)` | `Camera { viewProjection: mat4x4<f32>, position: vec4<f32> }` | engine (per-frame) | `frame.render` (once per frame, from `camera.getMatrices` + `camera.position`) |
-| `@group(0) @binding(1)` | `Scene { ambientSky: vec4<f32>, ambientGround: vec4<f32>, lightCount: vec4<u32>, _reserved: vec4<f32>, lights: array<Light, 16> }` | engine (per-frame) | `frame.render` (once per frame, from `RenderOptions.lights`/`ambient`) — bound only for pipelines whose shader declares `usesScene` |
+| `@group(0) @binding(1)` | `Scene { ambientSky: vec4<f32>, ambientGround: vec4<f32>, lightCount: vec4<u32>, _reserved: vec4<f32>, lights: array<Light, 16>, shadowMatrices: array<mat4x4<f32>, 4> }` | engine (per-frame) | `frame.render` (once per frame, from `RenderOptions.lights`/`ambient`) — bound only for pipelines whose shader declares `usesScene` |
+| `@group(0) @binding(2)` | `texture_depth_2d_array` (engine shadow maps; `MAX_SHADOW_CASTERS` layers, `depth32float`) | engine (per-frame) | `frame.render` (depth-only caster passes) — bound only for pipelines whose shader declares `usesShadows` |
+| `@group(0) @binding(3)` | `sampler_comparison` (PCF comparison sampler, `compare: "less"`) | engine (per-ctx) | `frame.render` — bound only for pipelines whose shader declares `usesShadows` |
 | `@group(1) @binding(N)` | consumer-defined | material | `MaterialDescriptor.bindings` |
 | `@group(2) @binding(0)` | `Object { model: mat4x4<f32>, normalMatrix: mat4x4<f32> }` | engine (per-draw) | `frame.render` (per mesh, when transform is dirty) |
 
-Groups are split by update cadence: `@group(0)` per-frame (scene/camera), `@group(1)` per-material, `@group(2)` per-draw (object). `@group(0) @binding(0)` carries the camera (`viewProjection` + the world-space eye `position`, the latter read by lit shaders for specular; `.w` unused). `@group(0) @binding(1)` carries the Scene UBO — hemisphere ambient + a fixed `array<Light, 16>` — landed in Stage 3 Phase 2 (see §Lighting). The Scene binding is engine-managed and bound only for pipelines whose shader sets `usesScene` (see `_usesSceneOf`); pipelines that don't never see it, so their `@group(0)` bind group has only binding 0. The per-draw `Object` adds `normalMatrix` (the inverse-transpose of `model`, for correct normals under non-uniform scale; shaders read its upper 3×3).
+Groups are split by update cadence: `@group(0)` per-frame (scene/camera), `@group(1)` per-material, `@group(2)` per-draw (object). `@group(0) @binding(0)` carries the camera (`viewProjection` + the world-space eye `position`, the latter read by lit shaders for specular; `.w` unused). `@group(0) @binding(1)` carries the Scene UBO — hemisphere ambient + a fixed `array<Light, 16>` + a `shadowMatrices` tail (`array<mat4x4<f32>, 4>`, one per shadow caster) — landed in Stage 3 Phase 2 (lighting) and extended in Stage 4 (the `shadowMatrices` tail; see §Lighting / §Shadows). The Scene binding is engine-managed and bound only for pipelines whose shader sets `usesScene` (see `_usesSceneOf`); pipelines that don't never see it, so their `@group(0)` bind group has only binding 0. `@group(0)` bindings 2 (`texture_depth_2d_array`) and 3 (`sampler_comparison`) carry the engine shadow maps + comparison sampler; both are engine-managed and bound only for pipelines whose shader sets `usesShadows` (see `_usesShadowsOf`). The per-draw `Object` adds `normalMatrix` (the inverse-transpose of `model`, for correct normals under non-uniform scale; shaders read its upper 3×3).
 
 The engine's built-in shaders compose the `Camera`/`Object` binding preamble from shared `shader.source` fragments in `packages/core/src/shader/preamble.ts` (single source of truth for the standard binding structs).
 
@@ -299,7 +301,7 @@ The engine's built-in shaders compose the `Camera`/`Object` binding preamble fro
 - `@location(2)`: uv, `vec2<f32>`, offset 24
 - `arrayStride: 32` bytes
 
-**Stability:** additive changes are non-breaking — per-frame scene data extends `@group(0)` (the Scene UBO at binding 1 landed in Stage 3 Phase 2; binding 2, … remain available for future per-frame data) and per-draw object data lives in `@group(2)`. Changes that rename or repurpose the camera at `@group(0) @binding(0)` or the object at `@group(2) @binding(0)` break every shader respecting the contract — including the SDF triangle in hello-world. With few private consumers today, a contract change is a small migration.
+**Stability:** additive changes are non-breaking — per-frame scene data extends `@group(0)` (the Scene UBO at binding 1 landed in Stage 3 Phase 2; the shadow maps at binding 2 + comparison sampler at binding 3 landed in Stage 4; binding 4, … remain available for future per-frame data) and per-draw object data lives in `@group(2)`. Changes that rename or repurpose the camera at `@group(0) @binding(0)` or the object at `@group(2) @binding(0)` break every shader respecting the contract — including the SDF triangle in hello-world. With few private consumers today, a contract change is a small migration.
 
 **Post-effect contract** (distinct `@group(0)`, shared `@group(1)`): a post effect's WGSL binds the engine-provided scene input at `@group(0) @binding(0)` (`texture_2d<f32>`) and a sampler at `@group(0) @binding(1)` — NOT camera/object. The fragment entry must be `fs_main`; the fullscreen vertex stage is engine-supplied. Consumer params live at `@group(1)`, written via the **same** typed-`Binding` path as materials: `post.create(ctx, { shader, binding })` retains the binding's `GPUBuffer` and builds the `@group(1)` `GPUBindGroup` lazily at first render (per resolved target colour format — the effect pipeline itself builds lazily then too, so under HDR a mid-chain effect targets the `rgba16float` intermediate and the final pass targets the swap-chain `ctx.format`), and `binding.set`/`setUniform` lazily flush at the render boundary (§Binding). The binding OWNS its buffer; `post.destroy` does not free it. The raw `EffectDescriptor.bindings` path (consumer-owned `GPUBindGroupEntry[]`) is retained for textures/samplers/advanced cases. Same completeness check as material: a shader declaring a `@group(1)` layout with neither `binding` nor `bindings` supplied throws at create (setup-loud); the inverse mismatch (`binding`/`bindings` supplied but the shader declares no `@group(1)`) surfaces at first render, when the bind group is built.
 
@@ -336,6 +338,36 @@ Multi-light Blinn-Phong lighting landed in Stage 3 Phase 2. Lights and ambient a
 - `shader.texturedLit` — albedo is sampled from the texture and shaded with the **same** Blinn-Phong model, but specular is a **fixed engine default** (0.04 grey, shininess 32). Its `@group(1)` is sampler + texture only (a texture binding is mutually exclusive with a uniform binding), so per-material specular can't be supplied here; per-material textured specular is a backlog item.
 
 Supplying no lights renders ambient-only (the surface still shows hemisphere ambient × albedo).
+
+## Shadows
+
+Shadow mapping landed in Stage 4. It extends the lighting model without changing the `Light` posture: lights stay **per-frame value data** (a `directional`/`spot` light opts in by carrying a `shadow` config; presence = casts). The shadow maps themselves are **engine-owned**, not light-attached: the engine keeps one `texture_depth_2d_array` indexed by *slot* (the Bevy/ECS render-layer model, not a per-light texture). A light's chosen slot is published into its Scene-UBO `shadow` lane; the receiver shader reads `slot` and samples the matching array layer.
+
+**Opt-in and caster cap.** Only `directional` and `spot` lights cast — a `point` light never does (cube shadows are a fence, below). `MAX_SHADOW_CASTERS = 4` (`frame/lights.ts`): `_collectShadowCasters` assigns slots `0..N-1` in light order and **clamps** the surplus. Overflow is **runtime-quiet** (clamp + warn-once at the caller; never throws on the render path — it runs per frame, so a throw would crash the loop).
+
+**Format and resolution.** `SHADOW_FORMAT = depth32float`, fixed `SHADOW_MAP_SIZE = 2048` (`frame/shadow-map.ts`). The array texture is `2048 × 2048 × MAX_SHADOW_CASTERS` layers, allocated once per ctx (lazily) and freed by the dispose cascade. Configurable resolution / format is a fence.
+
+**Technique.** Forward shadow mapping with a depth-only pass per caster:
+- One **depth-only render pass per caster** into its array layer, drawing every resolved mesh with a single shared caster pipeline (`_ensureShadowCasterPipeline`, per-ctx singleton, vertex-only, no fragment/color target, single-sample). The caster pass writes from the light's POV.
+- Fixed **slope-scaled hardware bias** on the caster pipeline: `depthBiasSlopeScale = SHADOW_SLOPE_SCALE = 2.0`, `depthBias = SHADOW_CONST_BIAS = 2` (`frame/shadow-map.ts`). This is the primary acne defense.
+- The **receiver** samples the depth array with the comparison sampler (`compare: "less"`, linear) using **3×3 PCF** (9 `textureSampleCompareLevel` taps, averaged) — `fr_shadowFactor` in `shader/shadows.ts`. A `slot < 0` (light not casting) returns `1.0` (fully lit); a receiver outside the shadow frustum (UV out of `[0,1]` or `ndc.z > 1`) also returns `1.0`.
+
+**Light view-projection convention (important).** The per-caster matrix stored in `scene.shadowMatrices[slot]` is **raw `proj · view` — light CLIP space** (NDC: `.xy ∈ [-1, 1]`, `.z ∈ [0, 1]`). It is the SAME matrix used two ways:
+- the depth-pass **vertex** shader uses it directly as the clip-space transform (`_shadowCasterSrc`: `lightVP.viewProj * object.model * pos`);
+- the **receiver** applies the NDC → shadow-map-UV remap **in-shader** inside `fr_shadowFactor` (`uv = ndc.xy * vec2(0.5, -0.5) + vec2(0.5, 0.5)`, y flipped).
+
+There is **no baked clip→UV matrix** — both endpoints share the raw clip-space matrix and the receiver does the remap. (This is the corrected design; an earlier version baked a `CLIP_TO_UV` remap into the stored matrix, which broke the depth pass.) Projection per kind (`frame/shadow-projection.ts`):
+- **spot** — perspective from the cone: `fovY = 2 · outerAngle` (outerAngle is the half-angle), aspect 1, `near` (default `0.1`) / `far` (default the light's `range`);
+- **directional** — orthographic from a consumer-specified `orthoHalfExtent` (the ortho half-extent in world units), `near`/`far`, looking at `target` (default origin) from `distance` back along `-direction` (default `far/2`).
+
+**Bias (three knobs).** Acne is fought at three points:
+1. the fixed slope-scaled **hardware** bias on the caster pipeline (above) — the primary defense;
+2. a per-light in-shader **`depthBias`** — subtracted from the receiver's compare depth (`refDepth = ndc.z - depthBias` in `fr_shadowFactor`). This is **normalized `[0,1]` depth**, so it must be *small* (≈ `0.001`–`0.01`); a value near `1` disables shadows entirely. Defaults to `0`;
+3. a per-light texel-scaled **`normalBias`** — a normal-offset applied to the receiver world position before sampling (`worldPos + n * normalBias * (1/2048)` in `fr_shade`), fighting acne at grazing angles. Defaults to `1.5` when the caster omits it.
+
+**Shadow term in `fr_shade`.** Shadowing folds into the existing Blinn-Phong `fr_shade` (`shader/lighting.ts`): each casting light's visibility (`fr_shadowFactor`) **multiplies only its DIRECT term** (diffuse + specular). **Ambient is never shadowed** — `fr_ambient` is added once, before the light loop, with no visibility factor. A light that casts no shadow (`slot < 0`) contributes `vis = 1.0`, so non-casting lights are unaffected.
+
+**Fences (deferred to backlog):** point-light cube shadows, cascaded shadow maps (CSM), auto-fit ortho frustum, configurable resolution / PCF kernel, per-mesh cast/receive opt-in, transparent casters.
 
 ## Textures
 
