@@ -239,11 +239,13 @@ export function renderToTexture(
     opts.camera,
   );
   // Off-screen passes carry no lights param — write a default (ambient-only)
-  // Scene so lit materials still validate + draw. (Off-screen lighting: backlog.)
+  // Scene so lit materials still validate + draw. No shadow casters in the
+  // off-screen path. (Off-screen lighting + shadows: backlog.)
   const sceneBuffer = _frameRenderInternals._writeSceneBuffer(
     ctx,
     undefined,
     undefined,
+    [],
   );
   const colorView = opts.texture.createView();
   const depthView = opts.depthTexture?.createView();

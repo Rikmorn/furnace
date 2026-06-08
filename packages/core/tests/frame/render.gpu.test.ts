@@ -134,6 +134,7 @@ test.skipIf(!bunWebGpuAvailable())(
       ctx,
       undefined,
       undefined,
+      [],
     );
     const groupA = _frameRenderInternals._ensurePerFrameGroup0(
       ctx,

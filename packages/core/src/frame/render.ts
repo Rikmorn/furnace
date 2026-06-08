@@ -36,9 +36,15 @@ import {
   type Ambient,
   type Light,
   MAX_LIGHTS,
+  MAX_SHADOW_CASTERS,
   SCENE_BYTE_SIZE,
+  type ShadowCaster,
 } from "./lights.ts";
-import { _ensureShadowMap } from "./shadow-map.ts";
+import {
+  _collectShadowCasters,
+  _ensureShadowMap,
+  _recordShadowPasses,
+} from "./shadow-map.ts";
 import { trianglesForTopology } from "./triangles-for-topology.ts";
 
 const CAMERA_UNIFORM_SIZE = 80; // mat4x4<f32> viewProjection (64) + vec4<f32> position (16)
@@ -70,6 +76,7 @@ const sceneBuffers = new WeakMap<Context, GPUBuffer>();
 // Reused across frames; render() is synchronous so one module scratch is safe.
 const sceneScratch = new ArrayBuffer(SCENE_BYTE_SIZE);
 let warnedLightOverflow = false;
+let warnedShadowOverflow = false;
 
 const DEPTH_BYTES_PER_PIXEL = 4; // depth24plus → 4 bytes/texel for accounting
 
@@ -257,9 +264,10 @@ function _writeSceneBuffer(
   ctx: Context,
   lights: readonly Light[] | undefined,
   ambient: Ambient | undefined,
+  casters: readonly ShadowCaster[],
 ): GPUBuffer {
   const buffer = _ensureSceneBuffer(ctx);
-  const { overflowed } = _packScene(sceneScratch, lights, ambient);
+  const { overflowed } = _packScene(sceneScratch, lights, ambient, casters);
   if (overflowed && !warnedLightOverflow) {
     warnedLightOverflow = true;
     warn(
@@ -730,13 +738,31 @@ export function render(ctx: Context, opts: RenderOptions): void {
   const resolvedEffects = validateEffects(ctx, effects);
 
   const cameraBuffer = _ensureCameraBuffer(ctx, opts.camera);
-  const sceneBuffer = _writeSceneBuffer(ctx, opts.lights, opts.ambient);
+  const { casters, overflowed: shadowOverflow } = _collectShadowCasters(
+    opts.lights,
+  );
+  if (shadowOverflow && !warnedShadowOverflow) {
+    warnedShadowOverflow = true;
+    warn(
+      "frame",
+      `render: more than ${MAX_SHADOW_CASTERS} shadow casters supplied; extra ignored (clamped). This warning fires once.`,
+    );
+  }
+  const sceneBuffer = _writeSceneBuffer(
+    ctx,
+    opts.lights,
+    opts.ambient,
+    casters,
+  );
   const depth = _ensureDepthTexture(ctx);
   const msaa = _ensureSceneColorTarget(ctx);
   const clearColor = opts.clearColor ?? DEFAULT_CLEAR_COLOR;
   const clearDepth = opts.clearDepth ?? DEFAULT_CLEAR_DEPTH;
 
   const encoder = ctx.device.createCommandEncoder();
+  // Depth-only caster passes run first, into the per-slot shadow array layers,
+  // so the main scene pass can sample them. No-op when there are no casters.
+  _recordShadowPasses(ctx, encoder, casters, resolvedDraws);
 
   if (effects.length === 0) {
     const singleSampleDest = gpu.getCurrentTextureView(ctx);
