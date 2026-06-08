@@ -127,8 +127,9 @@ test.skipIf(!bunWebGpuAvailable())(
     const matSlot = _resolveMaterial(ctx, mat);
     const bufA = _frameRenderInternals._ensureCameraBuffer(ctx, camA);
     const bufB = _frameRenderInternals._ensureCameraBuffer(ctx, camB);
-    // normalColor does not use the Scene UBO; pass usesScene:false so the bind
-    // group has only binding 0 (its group-0 layout has no binding 1).
+    // normalColor uses neither the Scene UBO nor shadows; pass usesScene:false +
+    // usesShadows:false so the bind group has only binding 0 (its group-0 layout
+    // has no binding 1/2/3).
     const sceneBuf = _frameRenderInternals._writeSceneBuffer(
       ctx,
       undefined,
@@ -140,6 +141,7 @@ test.skipIf(!bunWebGpuAvailable())(
       bufA,
       sceneBuf,
       false,
+      false,
     );
     const groupB = _frameRenderInternals._ensurePerFrameGroup0(
       ctx,
@@ -147,12 +149,14 @@ test.skipIf(!bunWebGpuAvailable())(
       bufB,
       sceneBuf,
       false,
+      false,
     );
     const groupAagain = _frameRenderInternals._ensurePerFrameGroup0(
       ctx,
       matSlot.pipeline,
       bufA,
       sceneBuf,
+      false,
       false,
     );
     expect(groupA).not.toBe(groupB);

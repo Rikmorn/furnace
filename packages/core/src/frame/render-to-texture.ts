@@ -108,6 +108,10 @@ function recordDraw(
       cameraBuffer,
       sceneBuffer,
       material.usesScene,
+      // usesShadows binds the shadow array/sampler even in RTT: the array is cleared
+      // (depth = 1.0) and fr_shadowFactor returns 1.0 (lit) for non-casting slots — a
+      // harmless no-op. RTT runs no shadow passes (see the RTT deferral note above).
+      material.usesShadows,
     ),
   );
   _recordBindGroupSwitch(ctx);

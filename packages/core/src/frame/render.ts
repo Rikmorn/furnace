@@ -38,6 +38,7 @@ import {
   MAX_LIGHTS,
   SCENE_BYTE_SIZE,
 } from "./lights.ts";
+import { _ensureShadowMap } from "./shadow-map.ts";
 import { trianglesForTopology } from "./triangles-for-topology.ts";
 
 const CAMERA_UNIFORM_SIZE = 80; // mat4x4<f32> viewProjection (64) + vec4<f32> position (16)
@@ -328,22 +329,25 @@ const DEFAULT_CLEAR_COLOR: Vec4 = vec4.fromValues(0, 0, 0, 1);
 const DEFAULT_CLEAR_DEPTH = 1.0;
 
 // The per-draw bind state is split across two groups:
-// - `@group(0)` carries per-frame scene data — the camera UBO at binding 0 and,
+// - `@group(0)` carries per-frame scene data — the camera UBO at binding 0;
 //   for pipelines whose shader sets `usesScene`, the Scene UBO (lights/ambient)
-//   at binding 1. Shared by every mesh drawn with the same (pipeline,
-//   cameraBuffer). Keyed by pipeline (a long-lived object), then by cameraBuffer
-//   — the same pipeline may be drawn with multiple cameras (e.g. main pass +
-//   render-to-texture pass). The Scene buffer is a per-ctx singleton, so it does
-//   not widen the cache key.
+//   at binding 1; and for pipelines whose shader sets `usesShadows`, the shadow
+//   depth array at binding 2 + the comparison sampler at binding 3. Shared by
+//   every mesh drawn with the same (pipeline, cameraBuffer). Keyed by pipeline
+//   (a long-lived object), then by cameraBuffer — the same pipeline may be drawn
+//   with multiple cameras (e.g. main pass + render-to-texture pass). usesScene /
+//   usesShadows are invariant per pipeline (the shader fixes them) and the Scene
+//   buffer + shadow map are per-ctx singletons, so none of them widen the cache key.
 // - `@group(2)` carries per-draw object data (the model matrix). Keyed by
 //   MeshSlot (the slot object reference) so a WeakMap suffices: when the slot is
 //   recycled by the pool, the old reference becomes unreachable and its cache
 //   drops naturally. The inner Map exists because a mesh's material may swap
 //   pipelines over time — each (slot, pipeline) pair needs its own bind group.
 
-// Per-frame group 0: one bind group per (pipeline, cameraBuffer). For pipelines
-// that use the Scene UBO the bind group additionally binds the scene buffer at
-// binding 1 (a per-ctx singleton, so keying by cameraBuffer still suffices).
+// Per-frame group 0: one bind group per (pipeline, cameraBuffer). Conditionally
+// also holds the scene buffer (binding 1) for usesScene pipelines and the shadow
+// array + sampler (bindings 2/3) for usesShadows pipelines — all per-ctx
+// singletons, so neither widens the cache key.
 const perFrameGroup0Cache = new WeakMap<
   GPURenderPipeline,
   Map<GPUBuffer, GPUBindGroup>
@@ -360,6 +364,7 @@ function ensurePerFrameGroup0(
   cameraBuffer: GPUBuffer,
   sceneBuffer: GPUBuffer,
   usesScene: boolean,
+  usesShadows: boolean,
 ): GPUBindGroup {
   let perPipeline = perFrameGroup0Cache.get(pipeline);
   if (!perPipeline) {
@@ -373,6 +378,11 @@ function ensurePerFrameGroup0(
   ];
   if (usesScene) {
     entries.push({ binding: 1, resource: { buffer: sceneBuffer } });
+  }
+  if (usesShadows) {
+    const sm = _ensureShadowMap(ctx);
+    entries.push({ binding: 2, resource: sm.arrayView });
+    entries.push({ binding: 3, resource: sm.comparisonSampler });
   }
   const bindGroup = ctx.device.createBindGroup({
     layout: pipeline.getBindGroupLayout(0),
@@ -500,6 +510,7 @@ function recordDraw(
       cameraBuffer,
       sceneBuffer,
       material.usesScene,
+      material.usesShadows,
     ),
   );
   _recordBindGroupSwitch(ctx);
