@@ -21,6 +21,6 @@ Precedent: Godot `.tscn` + `PackedScene`, Unity scene/prefab serialization, thre
 
 This is the **encode/decode + loader** layer. It sits on top of whatever scene representation `scene-graph-helpers.md` (lightweight node tree) or the ECS items (`component-schemas.md`, `ecs-data-oriented-soa-layout.md`) settle on — it does not decide that. It coordinates with `scene-based-resource-ownership.md` (the loaded scene is an ownership root whose `destroy` cascades what it instantiated) and `assets-loader-module.md` (how referenced assets are fetched).
 
-**Trigger to revisit:** Scene-model epic kickoff — serialization is part of that epic's scope, not a separate later thing (the loader is what makes the scene model useful beyond a single session). Also when editor work begins, since this is its hard prerequisite.
+**Trigger to revisit:** Scene-model epic kickoff — serialization is part of that epic's scope, not a separate later thing (the loader is what makes the scene model useful beyond a single session). Also when editor work begins, since this is its hard prerequisite. **Now milestone 1 of the editor epic — `docs/superpowers/specs/2026-06-09-editor-epic-design.md` (DRAFT).**
 
 **Reference:** `editor-and-tooling/editor-backend-architecture.md` (dual-mode decisions 5–6 + Gating prerequisite), `scene-graph-helpers.md`, `scene-based-resource-ownership.md`, `component-schemas.md`, `assets-loader-module.md`.
