@@ -64,6 +64,11 @@ test.skipIf(!bunWebGpuAvailable())(
     expect(stats.snapshot(ctx).gpu.drawCalls).toBe(1);
 
     loaded.destroy();
+    const live = stats.snapshot(ctx).resources;
+    expect(live.bindings).toBe(0); // per-material color binding freed (regression guard: was leaking)
+    expect(live.meshes).toBe(0);
+    expect(live.materials).toBe(0);
+    expect(live.geometries).toBe(0);
     gpu.dispose(ctx);
   },
 );

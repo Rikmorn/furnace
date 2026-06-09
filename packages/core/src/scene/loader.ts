@@ -1,3 +1,5 @@
+import * as binding from "../binding/index.ts";
+import type { Binding } from "../binding/types.ts";
 import * as camera from "../camera/index.ts";
 import type { Camera } from "../camera/types.ts";
 import { FurnaceError } from "../errors.ts";
@@ -59,8 +61,15 @@ export async function loadScene(
   };
 
   const materials = new Map<string, material.Material>();
+  const bindings: Binding[] = [];
   for (const [id, res] of Object.entries(doc.resources?.materials ?? {})) {
-    materials.set(id, await buildMaterial(ctx, res, resolveShader));
+    const { material: mat, binding: b } = await buildMaterial(
+      ctx,
+      res,
+      resolveShader,
+    );
+    materials.set(id, mat);
+    if (b) bindings.push(b);
   }
 
   // Entities → meshes + camera.
@@ -103,6 +112,7 @@ export async function loadScene(
     destroy: () => {
       for (const m of meshes) mesh.destroy(ctx, m);
       for (const mat of materials.values()) material.destroy(ctx, mat);
+      for (const b of bindings) binding.destroy(ctx, b);
       for (const geo of geometries.values()) geometry.destroy(ctx, geo);
       // Built-in shaders (e.g. unlit) are ctx-cached singletons — not destroyed here.
     },

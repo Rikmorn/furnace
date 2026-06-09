@@ -59,16 +59,25 @@ export function buildShader(
  * Build a material: resolve its shader handle, bind any uniform `params` (Slice 1:
  * optional `color` vec4f), and create the material.
  *
+ * Returns both the created material and the binding it allocated (if any). The
+ * **caller owns teardown of the returned binding** — `material.destroy` does not
+ * free consumer-passed bindings (the creator owns them). When the returned
+ * `binding` is defined, the caller must call `binding.destroy(ctx, b)` to free it.
+ *
  * @param ctx - the GPU context
  * @param res - the material resource descriptor from the scene document
  * @param resolveShader - callback that returns an already-built shader handle by document id
+ * @returns `{ material, binding }` — `binding` is `undefined` for the no-color branch
  * @throws {FurnaceError} if the shader id is not found (caller's responsibility to throw)
  */
-export function buildMaterial(
+export async function buildMaterial(
   ctx: Context,
   res: MaterialResource,
   resolveShader: (id: string) => shader.Shader,
-): Promise<material.Material> {
+): Promise<{
+  material: material.Material;
+  binding: binding.Binding | undefined;
+}> {
   const s = resolveShader(res.shader);
   const color = res.params?.color;
   if (color !== undefined) {
@@ -76,9 +85,15 @@ export function buildMaterial(
     binding.set(ctx, b, {
       color: vec4.fromValues(color[0], color[1], color[2], color[3]),
     });
-    return material.create(ctx, { shader: s, binding: b });
+    return {
+      material: await material.create(ctx, { shader: s, binding: b }),
+      binding: b,
+    };
   }
   // No params: valid only for shaders with no @group(1) layout. Unlit requires a color binding,
   // so a paramless unlit material is rejected by material.create — Task 4's loader supplies params.color.
-  return material.create(ctx, { shader: s });
+  return {
+    material: await material.create(ctx, { shader: s }),
+    binding: undefined,
+  };
 }
