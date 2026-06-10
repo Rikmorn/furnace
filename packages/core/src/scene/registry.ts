@@ -195,3 +195,43 @@ export function resetRegistryForTests(): void {
   for (const m of resources.values()) m.clear();
   settingsSchema = z.strictObject({});
 }
+
+/** A JSON Schema document (draft 2020-12), as produced by zod. */
+export type JsonSchema = Record<string, unknown>;
+
+/** The registry's reflection snapshot: everything an inspector generator needs. */
+export type SceneSchemaReflection = {
+  components: Record<string, JsonSchema>;
+  resources: Record<TableName, Record<string, JsonSchema>>;
+  settings: JsonSchema;
+};
+
+/**
+ * Reflect the registry's two surfaces — per-entity component schemas and the
+ * scene-level settings schema — as JSON Schema (furnace field semantics
+ * embedded per field under the `furnace` key). The editor's inspector
+ * generator (M5) and its daemon wire format consume exactly this. Computed
+ * lazily per call; reflection is a cold, edit-time path.
+ */
+export function introspect(): SceneSchemaReflection {
+  const toJson = (schema: z.ZodObject<z.ZodRawShape>): JsonSchema =>
+    // Boundary cast: z.toJSONSchema returns a wide JSON-serialisable type;
+    // we narrow to Record<string,unknown> for a stable internal contract.
+    z.toJSONSchema(schema, { io: "input" }) as JsonSchema;
+  return {
+    components: Object.fromEntries(
+      componentEntries().map(([n, r]) => [n, toJson(r.schema)]),
+    ),
+    // Boundary cast: Object.fromEntries widens the key to string; cast
+    // restores the TableName constraint the caller can rely on.
+    resources: Object.fromEntries(
+      TABLE_ORDER.map((table) => [
+        table,
+        Object.fromEntries(
+          resourceKindEntries(table).map(([k, r]) => [k, toJson(r.schema)]),
+        ),
+      ]),
+    ) as Record<TableName, Record<string, JsonSchema>>,
+    settings: toJson(getSettingsSchema()),
+  };
+}

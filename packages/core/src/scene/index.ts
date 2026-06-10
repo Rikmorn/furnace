@@ -20,11 +20,13 @@ export { loadScene } from "./loader.ts";
 export type {
   BuildContext,
   ComponentDefinition,
+  JsonSchema,
   OutSinks,
   ResourceBuildContext,
   ResourceDefinition,
+  SceneSchemaReflection,
 } from "./registry.ts";
-export { defineComponent, defineResource } from "./registry.ts";
+export { defineComponent, defineResource, introspect } from "./registry.ts";
 export type { ResolvedParamsOf } from "./schema.ts";
 export type { FurnaceMeta, TableName } from "./t.ts";
 /**
