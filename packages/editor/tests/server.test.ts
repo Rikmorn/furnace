@@ -72,23 +72,27 @@ test("GET /engine.js with a broken extensions entry → 500 with diagnostics", a
   // viewport-host FIRST — that is the documented project-first behavior (see
   // bundle.test.ts), not what this test is asserting. We assert the *extension*
   // diagnostic surfaces, so we keep the broken root in-workspace.
+  // mkdtempSync first (nothing to clean if it itself throws); everything that
+  // writes into the tree or starts a server goes inside the try, so the finally
+  // rmSync always removes the in-tree broken-* dir even on a setup failure.
   const brokenRoot = mkdtempSync(join(import.meta.dir, "fixtures", "broken-"));
-  mkdirSync(join(brokenRoot, "src"), { recursive: true });
-  writeFileSync(
-    join(brokenRoot, "furnace.config.json"),
-    JSON.stringify({ extensions: "src/broken.ts" }),
-  );
-  writeFileSync(
-    join(brokenRoot, "src", "broken.ts"),
-    'import { nope } from "./missing.ts";',
-  );
-  const broken = await startServer({ root: brokenRoot, port: 0 });
+  let broken: RunningServer | undefined;
   try {
+    mkdirSync(join(brokenRoot, "src"), { recursive: true });
+    writeFileSync(
+      join(brokenRoot, "furnace.config.json"),
+      JSON.stringify({ extensions: "src/broken.ts" }),
+    );
+    writeFileSync(
+      join(brokenRoot, "src", "broken.ts"),
+      'import { nope } from "./missing.ts";',
+    );
+    broken = await startServer({ root: brokenRoot, port: 0 });
     const res = await fetch(`http://127.0.0.1:${broken.port}/engine.js`);
     expect(res.status).toBe(500);
     expect(await res.text()).toContain("missing");
   } finally {
-    broken.close();
+    broken?.close();
     rmSync(brokenRoot, { recursive: true, force: true });
   }
 });
