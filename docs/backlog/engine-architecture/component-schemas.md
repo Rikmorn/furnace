@@ -2,6 +2,8 @@
 
 **Status:** **Active — editor-epic M1 (component contract) + M6 (behavior runtime), design resolved 2026-06-09.** Full design + bowling mapping + SOTA grounding in the (gitignored) spec `docs/superpowers/specs/2026-06-09-editor-M1-scene-format-and-behaviors-design.md`. The serialized format that carries these components is in `scene-serialization-interchange.md`. **Lifecycle:** promote to a canonical `docs/reference/` doc and delete this backlog entry in the post-ship documentation phase.
 
+**M2 landed (2026-06-10):** `defineComponent`/`defineResource` + zod-backed schemas + `introspect()` shipped in `@furnace/core/scene`; loader fully registry-driven; `t.ref` boundary validation live (M6 consumes it). `docs/reference/core-modules.md` update deferred to the epic doc phase.
+
 The original question — "what does `defineComponent(...)` look like?" — resolved to the **hybrid** option below, now extended with the full behavior contract.
 
 ## Resolved decisions (2026-06-09)

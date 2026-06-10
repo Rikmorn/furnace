@@ -146,7 +146,7 @@ export function registerBuiltins(): void {
 
   defineResource("shaders", "unlit", {
     // Boundary cast: unlit returns Shader<{color:"vec4f"}> — widened so all
-    // shaders fit the uniform table (same cast slice 1's resources.ts carried).
+    // shaders fit the uniform table.
     build: (ctx) => shader.unlit(ctx) as Promise<shader.Shader>,
     // No destroy: built-in shaders are ctx-cached singletons.
   });
