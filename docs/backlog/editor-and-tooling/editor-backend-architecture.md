@@ -31,6 +31,34 @@ Scene-model cluster this keystone draws from:
 
 The editor does **not** replace the cookbook — it absorbs its *boilerplate*. The maintenance taxes map cleanly: imperative scene construction → removed by the scene model + serialization; bespoke per-demo `controls.svelte` → removed by the editor's introspection-driven inspector (a generic property panel for free); manual dispose discipline → removed by scene-based ownership. The cookbook's durable value — the teaching prose — survives as annotations on example scenes, collapsing a demo from a 5-file mini-app to "a scene file + the prose." The *biggest* tax (construction) is removed by the scene model alone, with or without the editor — which is why the keystone, not the editor, is the thing to build first.
 
+## M3 resolutions (2026-06-10 design session; spec gitignored — this is the durable record)
+
+- **Daemon runtime (open-decision 2) — RESOLVED: Node-portable source.** No `Bun.*` in daemon
+  source (static-scan-enforced); esbuild for extension bundling; runs under Node ≥20 and Bun.
+  Prior art: dev-loop daemons (Vite/Storybook) assume the project's standard runtime; VS Code
+  writes Node-API source and provisions the runtime per distribution (Electron's Node locally,
+  bundled Node for the remote server). Keeps both doors open: devDependency on the system runtime
+  today, self-contained `bun build --compile` binary later.
+- **UI framework (open-decision 3) — RESOLVED: React 19 + dockview + Tailwind/shadcn** for the
+  editor chrome. **Svelte 5 remains the committed framework for consumer/in-page UI**
+  (`docs/reference/ui-foundation.md` boundary unchanged). RJSF-vs-JSON-Forms deferred to M5.
+- **Project-first resolution invariant.** The editor contains NO engine: the daemon bundles the
+  consumer's `@furnace/core` + extensions + the editor's viewport-host source from the consumer's
+  `node_modules` into one ESM bundle (`/engine.js`) — one core/registry/zod instance (Branch A's
+  instance-identity requirement). Consequences: devDependency + run command now; a global
+  launcher / compiled binary is a *packaging* step later, not a re-architecture; "editor bundled
+  into core" is ruled out (core is browser-only).
+- **Tab now, native shell later.** Browser tab over the same-origin daemon for M3+. A native
+  window is a packaging shell around the same daemon+frontend; **lean: Tauri** over extending the
+  in-house wry shell ("our Electron" — menus/updater/signing out of the box); `furnace-runtime`
+  stays the consumers' *game* shell. Decide at the packaging epic.
+- **Command transport.** A zod-validated handler registry (Map) behind `POST /api/<command>`
+  (M3: `scene.list`, `scene.read` only — read-only shell). M4 mounts MCP over the same Map and
+  adds mutations; reflection comes from the engine bundle in the browser (`host.introspect()`),
+  not a daemon command.
+- **`ViewportHost { init, loadScene, introspect, destroy }`** is the chrome↔engine protocol —
+  the narrow interface the Tauri shell and M4 command layer version against.
+
 **Trigger to revisit:** When concrete editor work begins. Any of these counts:
 - First asset pipeline command in `@furnace/tools` that needs more than one shot to complete (job queue, file watching, daemon territory).
 - First interactive scene-editing surface that can't reasonably live inside `hello-world`.
