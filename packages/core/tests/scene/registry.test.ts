@@ -1,5 +1,6 @@
-import { beforeEach, expect, test } from "bun:test";
+import { afterAll, beforeEach, expect, test } from "bun:test";
 import { z } from "zod";
+import { registerBuiltins } from "../../src/scene/builtins.ts";
 import {
   defineComponent,
   defineResource,
@@ -12,6 +13,10 @@ import {
 import * as t from "../../src/scene/t.ts";
 
 beforeEach(() => resetRegistryForTests());
+afterAll(() => {
+  resetRegistryForTests();
+  registerBuiltins();
+});
 
 test("defineComponent registers and getComponent returns schema + shape", () => {
   defineComponent("spin", { params: { speed: z.number() } });
