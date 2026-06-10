@@ -58,6 +58,9 @@ export async function loadScene(
   };
 
   const built: BuiltRecord[] = [];
+  const destroyAll = (): void => {
+    for (const b of [...built].reverse()) b.destroy?.(ctx, b.instance);
+  };
   const meshes: Mesh[] = [];
   let loadedCamera: Camera | undefined;
   let currentEntityId = "";
@@ -130,11 +133,12 @@ export async function loadScene(
     }
   } catch (err) {
     // Partial-load cleanup: a failed load leaks nothing (reverse build order).
-    for (const b of [...built].reverse()) b.destroy?.(ctx, b.instance);
+    destroyAll();
     throw err;
   }
 
   if (!loadedCamera) {
+    destroyAll();
     throw new FurnaceError("scene: no entity carries a camera component");
   }
   const cam = loadedCamera;
@@ -149,8 +153,6 @@ export async function loadScene(
     meshes,
     camera: cam,
     settings,
-    destroy: () => {
-      for (const b of [...built].reverse()) b.destroy?.(ctx, b.instance);
-    },
+    destroy: destroyAll,
   };
 }

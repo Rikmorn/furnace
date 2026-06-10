@@ -1,7 +1,13 @@
 import { expect, test } from "bun:test";
+import { FurnaceError } from "../../src/errors.ts";
 import * as frame from "../../src/frame/index.ts";
 import * as gpu from "../../src/gpu/index.ts";
+import { registerBuiltins } from "../../src/scene/builtins.ts";
 import * as scene from "../../src/scene/index.ts";
+import {
+  defineComponent,
+  resetRegistryForTests,
+} from "../../src/scene/registry.ts";
 import type { SceneDocument } from "../../src/scene/types.ts";
 import * as stats from "../../src/stats/index.ts";
 import {
@@ -82,5 +88,94 @@ test.skipIf(!bunWebGpuAvailable())(
       scene.loadScene(ctx, { ...CUBE_SCENE, version: 999 }),
     ).rejects.toThrow(/version/i);
     gpu.dispose(ctx);
+  },
+);
+
+test.skipIf(!bunWebGpuAvailable())(
+  "a second camera fails loud naming the entity",
+  async () => {
+    const canvas = await makeOffscreenCanvas(64, 64);
+    const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
+    const doc: SceneDocument = {
+      ...CUBE_SCENE,
+      entities: [
+        ...CUBE_SCENE.entities,
+        {
+          id: "cam2",
+          components: { camera: { kind: "perspective", aspect: 1 } },
+        },
+      ],
+    };
+    await expect(scene.loadScene(ctx, doc)).rejects.toThrow(
+      /cam2.*second camera/i,
+    );
+    // Partial-load cleanup freed everything the failed load built:
+    const live = stats.snapshot(ctx).resources;
+    expect(live.meshes).toBe(0);
+    expect(live.materials).toBe(0);
+    expect(live.bindings).toBe(0);
+    expect(live.geometries).toBe(0);
+    gpu.dispose(ctx);
+  },
+);
+
+test.skipIf(!bunWebGpuAvailable())(
+  "a camera-less scene fails loud",
+  async () => {
+    const canvas = await makeOffscreenCanvas(64, 64);
+    const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
+    const doc: SceneDocument = {
+      ...CUBE_SCENE,
+      entities: [
+        {
+          id: "cube",
+          components: {
+            transform: { position: [0, 0, 0] },
+            meshRenderer: { geometry: "g_cube", material: "m_red" },
+          },
+        },
+      ],
+    };
+    await expect(scene.loadScene(ctx, doc)).rejects.toThrow(
+      /no entity carries a camera/i,
+    );
+    const live = stats.snapshot(ctx).resources;
+    expect(live.meshes).toBe(0); // cleanup is loadScene's job even on post-build failure
+    expect(live.materials).toBe(0);
+    expect(live.bindings).toBe(0);
+    expect(live.geometries).toBe(0);
+    gpu.dispose(ctx);
+  },
+);
+
+test.skipIf(!bunWebGpuAvailable())(
+  "fault injection: a throwing component build leaks nothing (partial-load cleanup)",
+  async () => {
+    resetRegistryForTests();
+    registerBuiltins();
+    defineComponent("boom", {
+      build() {
+        throw new FurnaceError("scene: boom (test fault injection)");
+      },
+    });
+    const canvas = await makeOffscreenCanvas(64, 64);
+    const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
+    const doc: SceneDocument = {
+      ...CUBE_SCENE,
+      entities: [
+        ...CUBE_SCENE.entities,
+        { id: "grenade", components: { boom: {} } },
+      ],
+    };
+    // All resources + the first entity's mesh were built before the throw.
+    await expect(scene.loadScene(ctx, doc)).rejects.toThrow(/boom/);
+    const live = stats.snapshot(ctx).resources;
+    expect(live.meshes).toBe(0);
+    expect(live.materials).toBe(0);
+    expect(live.bindings).toBe(0);
+    expect(live.geometries).toBe(0);
+    gpu.dispose(ctx);
+    resetRegistryForTests();
+    registerBuiltins();
   },
 );
