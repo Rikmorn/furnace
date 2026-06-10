@@ -14,6 +14,7 @@ import { vec4 } from "../transform/vec4.ts";
 import {
   defineComponent,
   defineResource,
+  getComponent,
   setSettingsSchema,
 } from "./registry.ts";
 import * as t from "./t.ts";
@@ -83,9 +84,12 @@ function applyTransform(
  * schema. Runs once at `@furnace/core/scene` module init — the same
  * side-effect path consumer extensions use. Exported (internally) so test
  * suites can re-register after `resetRegistryForTests`; NOT part of the
- * public scene surface.
+ * public scene surface. Idempotent: a second call without an intervening
+ * `resetRegistryForTests` is a no-op (guards on the sentinel "transform"
+ * component already being present in the registry).
  */
 export function registerBuiltins(): void {
+  if (getComponent("transform")) return;
   // --- components ---
   defineComponent("transform", { params: transformShape }); // pure data
 
