@@ -90,6 +90,13 @@ let settingsSchema: z.ZodObject<z.ZodRawShape> = z.strictObject({});
  * validation, loader instantiation, and editor reflection. Importing the
  * module that calls this is what makes a type loadable (epic Branch A).
  *
+ * @remarks
+ * **Build atomicity contract:** if `build` allocates GPU resources (e.g. a
+ * binding or mesh) and then throws before returning, it MUST free those
+ * resources itself (e.g. via `try/catch` + `binding.destroy`). The loader
+ * only tracks and later frees the instance that `build` RETURNS — any
+ * allocation that does not make it into the return value leaks permanently.
+ *
  * @throws {FurnaceError} if `name` is already registered (setup-loud).
  */
 export function defineComponent<S extends z.ZodRawShape, I>(
@@ -113,6 +120,13 @@ export function defineComponent<S extends z.ZodRawShape, I>(
 /**
  * Register a resource kind within a fixed table. Same single-declaration
  * contract as {@link defineComponent}.
+ *
+ * @remarks
+ * **Build atomicity contract:** if `build` allocates GPU resources (e.g. a
+ * binding or geometry) and then throws before returning, it MUST free those
+ * resources itself (e.g. via `try/catch` + `binding.destroy`). The loader
+ * only tracks and later frees the instance that `build` RETURNS — any
+ * allocation that does not make it into the return value leaks permanently.
  *
  * @throws {FurnaceError} if `table`+`kind` is already registered (setup-loud).
  */

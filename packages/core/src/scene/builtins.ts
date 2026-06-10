@@ -161,13 +161,21 @@ export function registerBuiltins(): void {
       const color = rx.params.params?.color;
       if (color !== undefined) {
         const b = binding.create(ctx, s);
-        binding.set(ctx, b, {
-          color: vec4.fromValues(color[0], color[1], color[2], color[3]),
-        });
-        return {
-          material: await material.create(ctx, { shader: s, binding: b }),
-          binding: b,
-        };
+        try {
+          binding.set(ctx, b, {
+            color: vec4.fromValues(color[0], color[1], color[2], color[3]),
+          });
+          return {
+            material: await material.create(ctx, { shader: s, binding: b }),
+            binding: b,
+          };
+        } catch (err) {
+          // Atomic build: if material.create (or set) throws after the binding
+          // is allocated, free it here — the loader only owns what build RETURNS,
+          // so an un-returned binding would otherwise leak.
+          binding.destroy(ctx, b);
+          throw err;
+        }
       }
       // No params: valid only for shaders with no @group(1) layout.
       return {
