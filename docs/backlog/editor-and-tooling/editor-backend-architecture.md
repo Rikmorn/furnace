@@ -56,8 +56,9 @@ The editor does **not** replace the cookbook — it absorbs its *boilerplate*. T
   (M3: `scene.list`, `scene.read` only — read-only shell). M4 mounts MCP over the same Map and
   adds mutations; reflection comes from the engine bundle in the browser (`host.introspect()`),
   not a daemon command.
-- **`ViewportHost { init, loadScene, introspect, destroy }`** is the chrome↔engine protocol —
-  the narrow interface the Tauri shell and M4 command layer version against.
+- **`ViewportHost { init, loadScene, render, introspect, destroy }`** is the chrome↔engine protocol —
+  the narrow interface the Tauri shell and M4 command layer version against. (`render()` re-issues the
+  current scene on demand — panel resize — since the editor viewport is render-on-demand, no loop.)
 
 **Trigger to revisit:** When concrete editor work begins. Any of these counts:
 - First asset pipeline command in `@furnace/tools` that needs more than one shot to complete (job queue, file watching, daemon territory).
