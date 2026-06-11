@@ -41,6 +41,38 @@ const builtinScene = {
 };
 
 test.skipIf(!bunWebGpuAvailable())(
+  "loadScene issued before init is queued and applied once init completes",
+  async () => {
+    const restore = installMockResizeObserver();
+    try {
+      const host = createViewportHost();
+      const canvas = await makeOffscreenCanvas(64, 64);
+      // loadScene BEFORE init must NOT throw — it queues the document.
+      await host.loadScene(builtinScene as never);
+      // init resolves → the queued scene is applied.
+      // Boundary cast: bun-webgpu mock canvas stands in for HTMLCanvasElement.
+      await host.init(canvas as unknown as HTMLCanvasElement, {
+        surfaceFormat: "linear",
+      });
+      // Proof the queued scene actually loaded: render() presents only when a
+      // scene is loaded (no-op otherwise).
+      const gpuCtx = (canvas as unknown as HTMLCanvasElement).getContext(
+        "webgpu",
+      );
+      if (!gpuCtx)
+        throw new Error("expected a webgpu context on the mock canvas");
+      const present = spyOn(gpuCtx, "getCurrentTexture");
+      const before = present.mock.calls.length;
+      host.render();
+      expect(present.mock.calls.length).toBeGreaterThan(before);
+      host.destroy();
+    } finally {
+      restore();
+    }
+  },
+);
+
+test.skipIf(!bunWebGpuAvailable())(
   "canvas resize re-renders the loaded scene (render happens AFTER the backing-store resize, not before)",
   async () => {
     const restore = installMockResizeObserver();

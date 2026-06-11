@@ -67,8 +67,10 @@ export function App() {
         view.path !== lastLoaded.current.path ||
         view.revision !== lastLoaded.current.revision
       ) {
-        lastLoaded.current = { path: view.path, revision: view.revision };
         await hostRef.current?.loadScene(view.document);
+        // Assign AFTER the await so a genuine loadScene failure does not poison
+        // the dedup cache — the next SSE event will retry rather than skip.
+        lastLoaded.current = { path: view.path, revision: view.revision };
       }
       dispatch({
         type: "session-updated",
@@ -96,6 +98,9 @@ export function App() {
           dispatch({ type: "file-invalid", message: event.message });
           return;
         }
+        // A fresh session (scene.open resets revision to 0) must always reload,
+        // even if (path, revision) collides with what's already loaded.
+        if (event.type === "scene-opened") lastLoaded.current = {};
         void refreshSession();
       },
     });
