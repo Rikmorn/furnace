@@ -1,9 +1,0 @@
-# Editor daemon: classify scene-read errors into precise HTTP status codes
-
-The M3 daemon's `scene.read` handler (`packages/editor/src/daemon/handlers.ts`) wraps **every** `readScene` failure as `ApiError(404)`. But `readScene` (`scenes.ts`) already distinguishes four cases: traversal-outside-root, ENOENT (not found), non-ENOENT read failure (EISDIR/EACCES → "could not be read"), and invalid-JSON. Per the design spec §6.1 the intended mapping is **404 for not-found/traversal, 500 for unexpected** — so a permissions error, a directory, or a corrupt scene file currently reports HTTP 404 ("doesn't exist") when the file exists-but-is-unreadable/corrupt. The *message* is accurate and is displayed verbatim (spec §6.3), so user-visible impact in the read-only M3 shell is low; only the status code is imprecise.
-
-A clean fix threads a small domain discriminant from `scenes.ts` (e.g. a `SceneReadError` carrying `reason: "not-found" | "traversal" | "unreadable" | "invalid-json"`, with **no** HTTP coupling in `scenes.ts`) and lets the handler map `not-found`/`traversal` → 404, the rest → 500. Deferred rather than done inline because it introduces a new internal error type across two modules — more than a trivial change — and the handler registry is the M4 MCP seam, where the error contract (HTTP codes ↔ MCP error codes — see the `code: number` width note already recorded in handlers.ts review) gets revisited holistically anyway.
-
-**Trigger to revisit:** M4 — when mutations/MCP mount over the handler registry and the error contract is designed for real (status codes + MCP error codes). Do the read-error classification in the same pass.
-
-**Reference:** `packages/editor/src/daemon/handlers.ts` (`scene.read` 404-collapse), `packages/editor/src/daemon/scenes.ts` (`readScene` four-way error distinction), spec §6.1–6.3 (gitignored; mirrored in `editor-backend-architecture.md` §M3 resolutions). Surfaced by the M3 Plan A final holistic review.

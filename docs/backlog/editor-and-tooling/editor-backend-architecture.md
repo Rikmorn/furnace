@@ -1,5 +1,7 @@
 # Editor backend as fourth pillar
 
+> **As-built reference:** the M3+M4 editor is now documented as the canonical "how it IS today" at **`docs/reference/editor-architecture.md`** (daemon, two-target bundling, command table, SSE events, error contract, chrome, config namespacing). **This file is decision history** — the *why* behind that reality; for *what runs*, read the reference.
+
 > **Epic:** `docs/superpowers/specs/2026-06-09-editor-epic-design.md` (DRAFT) — the editor epic frame; objective = replicate the bowling demo. **This doc is its design home** (the detailed architecture + decisions live here; the epic spec is the milestone-level frame).
 
 The editor surface, once it materialises, doesn't fit any current furnace pillar. Today's model is engine (`@furnace/core`) / harness (`@furnace/tools`) / consumer (`hello-world`). The editor is two things glued together: a thin furnace consumer for its viewport and UI rendering, and a long-running application server backend that orchestrates external authoring tools (Blender headless, Aseprite CLI, ComfyUI, TTS engines, filesystem watching, asset-graph state, job queues, possibly GPU-bound model invocation).
@@ -59,6 +61,40 @@ The editor does **not** replace the cookbook — it absorbs its *boilerplate*. T
 - **`ViewportHost { init, loadScene, render, introspect, destroy }`** is the chrome↔engine protocol —
   the narrow interface the Tauri shell and M4 command layer version against. (`render()` re-issues the
   current scene on demand — panel resize — since the editor viewport is render-on-demand, no loop.)
+
+## M4 resolutions (2026-06-11; executed — as-built reality in `docs/reference/editor-architecture.md`)
+
+M4 turned the M3 read-only shell into the editor's command layer. Renamed from "MCP command
+layer" to **"command layer"** — MCP was descoped (below). What landed:
+
+- **Command layer + document session landed.** The daemon owns a single mutable document
+  session: `scene.open`/`get`/`save`, the mutation command set (`addEntity`, `removeEntity`,
+  `setComponent`/`removeComponent`, `setResource`/`removeResource`, `setSettings`), snapshot
+  undo/redo (cap 100), plus `scene.validate` / `scene.introspect`. Every mutation funnels
+  through one transactional handler (`session.apply`: clone → edit → `validateDocument` →
+  commit/reject) over the same zod-validated `dispatch()`. An SSE change feed (`GET /api/events`)
+  and scene-file watching with conflict semantics make disk edits first-class and live.
+- **Daemon-side validation = the registry's third reader.** A second esbuild target — a
+  node-platform bundle of the consumer's extensions + `@furnace/core/scene` — gives the daemon
+  the same registry the browser engine bundle and core's loader have, so mutations validate
+  against the project's real schemas. (Resolves the M1 "one registry, two readers" note: there
+  are now three.)
+- **Error contract = string codes.** The handler registry's error contract was redesigned to a
+  closed **string-code** `EditorErrorCode` union (`errors.ts`), each transport edge mapping codes
+  to its own status (HTTP via `httpStatus`). This **resolved** the read-error HTTP-classification
+  question (`editor-read-error-http-status-classification.md`) — `scenes.ts` now throws precise
+  codes (`not-found`/`outside-root` → 404, `unreadable` → 500, `invalid-json` → 400) instead of
+  collapsing every read failure to 404; that backlog entry is deleted.
+- **MCP mount DESCOPED.** The "MCP-first protocol" framing (decision 2; M1 "MCP command layer"
+  bullet below) was deliberately *not* built in M4. For an FS-capable agent (Claude Code in the
+  repo), direct file editing beats mutation tools, so M4 instead made disk edits first-class
+  (watch + reload + validate + introspect over plain HTTP) and shipped the transport-agnostic
+  substrate the bindings will mount over. The MCP mount + `viewport.capture` + embedded/outbound
+  AI moved to a dedicated milestone: `editor-ai-integration-milestone.md` (slot after M5). The
+  decision-2 "three audiences for free" thesis still holds — it just becomes its own milestone
+  rather than falling out of M4.
+- **Deferred from M4:** extension-file watching (known gap from M3); concurrent-open await races
+  (`session-concurrent-open-race-hardening.md`, benign under single-user); mutation UI → M5.
 
 ## Epic execution order (resolved 2026-06-11; M1 slice-1/M2/M3 sealed by then)
 
