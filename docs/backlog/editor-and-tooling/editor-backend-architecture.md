@@ -60,6 +60,19 @@ The editor does **not** replace the cookbook — it absorbs its *boilerplate*. T
   the narrow interface the Tauri shell and M4 command layer version against. (`render()` re-issues the
   current scene on demand — panel resize — since the editor viewport is render-on-demand, no loop.)
 
+## Epic execution order (resolved 2026-06-11; M1 slice-1/M2/M3 sealed by then)
+
+**M4 (MCP commands) → M5 (inspector/hierarchy/gizmos) → all remaining M1 slices as one
+registration batch (lights, textures, physics, full settings, migration, serialize) → M6 (behavior
+runtime + bowling gate) → M7 (porting + docs — new milestone).** Rationale: the M1 slices are
+*content*, not infrastructure — M4/M5 exercise fully on cube/unlit scenes (inspector renderers map
+to schema *field kinds*, all already exhibited); the slices gate only M6. M4 should prefer
+document-as-source-of-truth mutations (save = write the JSON document; the live-object serializer
+then serves dual-mode round-trip, not the M6 gate). **M7 stance:** existing cookbook demos stay
+imperative deliberately (they showcase the code-first half of dual-mode); add a new scene-driven
+demo alongside instead of rewriting; cookbook UI/controls porting may defer; M7 also clears the
+epic's doc debt (`core-modules.md` `./scene` + editor docs).
+
 **Trigger to revisit:** When concrete editor work begins. Any of these counts:
 - First asset pipeline command in `@furnace/tools` that needs more than one shot to complete (job queue, file watching, daemon territory).
 - First interactive scene-editing surface that can't reasonably live inside `hello-world`.
