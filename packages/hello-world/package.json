@@ -10,12 +10,14 @@
     "build:web:dev": "bun build src/index.html --outdir ../../dist/web/dev --sourcemap=inline",
     "build:macos": "furnace build --platform=macos",
     "test": "bun test",
-    "typecheck": "bunx tsc --noEmit"
+    "typecheck": "bunx tsc --noEmit",
+    "edit": "bun run --cwd ../editor build:frontend && bun ../editor/src/daemon/main.ts"
   },
   "dependencies": {
     "@furnace/core": "workspace:*"
   },
   "devDependencies": {
+    "@furnace/editor": "workspace:*",
     "@furnace/tools": "workspace:*",
     "bun-plugin-svelte": "^0.0.6",
     "svelte": "^5.55.7"
