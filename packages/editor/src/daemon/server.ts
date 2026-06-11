@@ -134,6 +134,10 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
         res.end(result.code);
         return;
       }
+      if (req.method === "GET" && url.pathname === "/api/events") {
+        hub.subscribe(res);
+        return;
+      }
       if (req.method === "POST" && url.pathname.startsWith("/api/")) {
         const command = url.pathname.slice("/api/".length);
         const bodyText = await readBody(req);
@@ -141,7 +145,12 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
         try {
           input = bodyText === "" ? {} : JSON.parse(bodyText);
         } catch {
-          sendJson(res, 400, { error: "request body is not valid JSON" });
+          sendJson(res, 400, {
+            error: {
+              code: "invalid-json",
+              message: "request body is not valid JSON",
+            },
+          });
           return;
         }
         sendJson(res, 200, await dispatch(handlers, command, input));
@@ -152,7 +161,10 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
         return;
       }
       sendJson(res, 404, {
-        error: `no route for ${req.method} ${url.pathname}`,
+        error: {
+          code: "not-found",
+          message: `no route for ${req.method} ${url.pathname}`,
+        },
       });
     } catch (err) {
       if (err instanceof EditorError) {

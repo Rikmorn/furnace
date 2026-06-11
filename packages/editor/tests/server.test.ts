@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type RunningServer, startServer } from "../src/daemon/server.ts";
@@ -141,3 +141,99 @@ test("GET /engine.js with a broken extensions entry → 500 with diagnostics", a
     rmSync(brokenRoot, { recursive: true, force: true });
   }
 });
+
+type SseReader = {
+  reader: ReadableStreamDefaultReader<Uint8Array>;
+  decoder: TextDecoder;
+  buffer: string;
+};
+
+function openSseReader(res: Response): SseReader {
+  if (!res.body) throw new Error("SSE response has no body");
+  return {
+    reader: res.body.getReader(),
+    decoder: new TextDecoder(),
+    buffer: "",
+  };
+}
+
+async function readSse(
+  state: SseReader,
+  predicate: (buffer: string) => boolean,
+  timeoutMs = 8000,
+): Promise<string> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const { value, done } = await state.reader.read();
+    if (done) break;
+    state.buffer += state.decoder.decode(value, { stream: true });
+    if (predicate(state.buffer)) return state.buffer;
+  }
+  throw new Error(`SSE timeout; buffer so far:\n${state.buffer}`);
+}
+
+test("structured error bodies carry code + message", async () => {
+  const res = await fetch(url("/api/scene.read"), {
+    method: "POST",
+    body: JSON.stringify({ path: "ghost.scene.json" }),
+  });
+  expect(res.status).toBe(404);
+  expect(await res.json()).toEqual({
+    error: {
+      code: "not-found",
+      message: 'scene file "ghost.scene.json" not found',
+    },
+  });
+});
+
+test("session lifecycle over HTTP with a live SSE feed + watcher reload", async () => {
+  // Dedicated server over an in-workspace COPY of mini-project: this test
+  // mutates scene files (save + on-disk edit), so it must not touch FIXTURE.
+  const root = mkdtempSync(join(import.meta.dir, "fixtures", "tmp-sse-"));
+  let live: RunningServer | undefined;
+  try {
+    cpSync(FIXTURE, root, { recursive: true });
+    live = await startServer({ root, port: 0, staticDir: staticFixture() });
+    const port = live.port;
+    const liveUrl = (p: string) => `http://127.0.0.1:${port}${p}`;
+    const sseRes = await fetch(liveUrl("/api/events"));
+    expect(sseRes.headers.get("content-type")).toContain("text/event-stream");
+    const sseState = openSseReader(sseRes);
+
+    const post = (cmd: string, body: unknown) =>
+      fetch(liveUrl(`/api/${cmd}`), {
+        method: "POST",
+        body: JSON.stringify(body),
+      });
+
+    const opened = await post("scene.open", { path: "scenes/cube.scene.json" });
+    expect(opened.status).toBe(200);
+    await readSse(sseState, (b) => b.includes("event: scene-opened"));
+
+    const added = await post("scene.addEntity", {});
+    expect(((await added.json()) as { id: string }).id).toBe("entity-1");
+    await readSse(
+      sseState,
+      (b) =>
+        b.includes("event: document-changed") && b.includes("scene.addEntity"),
+    );
+
+    // Disk edit on the CLEAN session → watcher reload event.
+    await post("scene.undo", {}); // back to clean
+    writeFileSync(
+      join(root, "scenes", "cube.scene.json"),
+      JSON.stringify({ version: 1, entities: [] }),
+    );
+    await readSse(sseState, (b) => b.includes("file-reload"));
+
+    const view = (await (await post("scene.get", {})).json()) as {
+      document: { entities: unknown[] };
+      dirty: boolean;
+    };
+    expect(view.document.entities).toHaveLength(0);
+    expect(view.dirty).toBe(false);
+  } finally {
+    live?.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+}, 20_000);
