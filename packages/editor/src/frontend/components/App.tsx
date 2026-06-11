@@ -6,8 +6,9 @@ import {
 import { useCallback, useEffect, useReducer, useRef } from "react";
 import type { FunctionComponent } from "react";
 import type { ViewportHost } from "../../viewport-host/index.ts"; // type-only
-import { api } from "../lib/api.ts";
+import { ApiClientError, api } from "../lib/api.ts";
 import { EngineBuildError, loadEngine } from "../lib/engine.ts";
+import { subscribeEvents } from "../lib/events.ts";
 import { initialState, reduce } from "../lib/state.ts";
 import { EditorContext, type EditorContextValue } from "./editor-context.ts";
 import { EntitiesPanel } from "./EntitiesPanel.tsx";
@@ -29,6 +30,7 @@ const COMPONENTS: Record<string, FunctionComponent<IDockviewPanelProps>> = {
 export function App() {
   const [state, dispatch] = useReducer(reduce, initialState);
   const hostRef = useRef<ViewportHost | undefined>(undefined);
+  const lastLoaded = useRef<{ path?: string; revision?: number }>({});
 
   useEffect(() => {
     let cancelled = false;
@@ -55,19 +57,81 @@ export function App() {
     };
   }, []);
 
-  const selectScene = useCallback(async (path: string) => {
-    dispatch({ type: "scene-loading", path });
+  // The single doc-refresh path: pull the read model, reload the viewport only
+  // when (path, revision) actually advanced. Every SSE event and every locally
+  // initiated change funnels through here — one code path, every client.
+  const refreshSession = useCallback(async () => {
     try {
-      const { document } = await api.sceneRead(path);
-      await hostRef.current?.loadScene(document);
-      dispatch({ type: "scene-loaded", doc: document });
+      const view = await api.sceneGet();
+      if (
+        view.path !== lastLoaded.current.path ||
+        view.revision !== lastLoaded.current.revision
+      ) {
+        lastLoaded.current = { path: view.path, revision: view.revision };
+        await hostRef.current?.loadScene(view.document);
+      }
+      dispatch({
+        type: "session-updated",
+        doc: view.document,
+        path: view.path,
+        revision: view.revision,
+        dirty: view.dirty,
+        conflict: view.conflict,
+      });
     } catch (err) {
+      if (err instanceof ApiClientError && err.code === "no-session") return;
       dispatch({
         type: "scene-error",
         message: err instanceof Error ? err.message : String(err),
       });
     }
   }, []);
+
+  useEffect(() => {
+    if (state.status !== "ready") return;
+    return subscribeEvents({
+      onOpen: () => void refreshSession(),
+      onEvent: (event) => {
+        if (event.type === "file-invalid") {
+          dispatch({ type: "file-invalid", message: event.message });
+          return;
+        }
+        void refreshSession();
+      },
+    });
+  }, [state.status, refreshSession]);
+
+  const selectScene = useCallback(
+    async (path: string) => {
+      dispatch({ type: "scene-loading", path });
+      try {
+        await api.sceneOpen(path);
+        // No loadScene here: the scene-opened SSE event drives refreshSession —
+        // the chrome rides the same change feed as every other client.
+      } catch (err) {
+        if (err instanceof ApiClientError && err.code === "unsaved-changes") {
+          if (window.confirm("The open scene has unsaved changes. Discard them?")) {
+            try {
+              await api.sceneOpen(path, true);
+            } catch (err2) {
+              dispatch({
+                type: "scene-error",
+                message: err2 instanceof Error ? err2.message : String(err2),
+              });
+            }
+          } else {
+            void refreshSession(); // clears `loading`, restores the current view
+          }
+          return;
+        }
+        dispatch({
+          type: "scene-error",
+          message: err instanceof Error ? err.message : String(err),
+        });
+      }
+    },
+    [refreshSession],
+  );
 
   const onReady = useCallback((event: DockviewReadyEvent) => {
     event.api.addPanel({

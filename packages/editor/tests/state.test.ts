@@ -5,21 +5,32 @@ import {
   reduce,
 } from "../src/frontend/lib/state.ts";
 
-test("boot happy path: engine-ready → scenes-listed → scene-loaded", () => {
+const sessionUpdate = (over: Record<string, unknown> = {}) =>
+  ({
+    type: "session-updated",
+    doc: {
+      version: 1,
+      entities: [{ id: "cube", components: { transform: {} } }],
+    },
+    path: "a.scene.json",
+    revision: 1,
+    dirty: false,
+    conflict: false,
+    ...over,
+  }) as Parameters<typeof reduce>[1];
+
+test("boot happy path: engine-ready → scenes → session-updated", () => {
   let s: EditorState = initialState;
   s = reduce(s, { type: "engine-ready" });
   s = reduce(s, { type: "scenes", scenes: ["a.scene.json"] });
   expect(s.status).toBe("ready");
   s = reduce(s, { type: "scene-loading", path: "a.scene.json" });
-  s = reduce(s, {
-    type: "scene-loaded",
-    doc: {
-      version: 1,
-      entities: [{ id: "cube", components: { transform: {} } }],
-    },
-  });
+  s = reduce(s, sessionUpdate());
   expect(s.selectedScene).toBe("a.scene.json");
   expect(s.doc?.entities).toHaveLength(1);
+  expect(s.loading).toBe(false);
+  expect(s.revision).toBe(1);
+  expect(s.dirty).toBe(false);
   expect(s.error).toBeUndefined();
 });
 
@@ -42,8 +53,7 @@ test("scene load failure keeps the previous doc and surfaces the message", () =>
     type: "scenes",
     scenes: ["a.scene.json", "b.scene.json"],
   });
-  s = reduce(s, { type: "scene-loading", path: "a.scene.json" });
-  s = reduce(s, { type: "scene-loaded", doc: { version: 1, entities: [] } });
+  s = reduce(s, sessionUpdate());
   const prevDoc = s.doc;
   s = reduce(s, { type: "scene-loading", path: "b.scene.json" });
   s = reduce(s, {
@@ -55,15 +65,34 @@ test("scene load failure keeps the previous doc and surfaces the message", () =>
   expect(s.error).toContain("not registered");
 });
 
-test("entity selection", () => {
-  let s: EditorState = reduce(reduce(initialState, { type: "engine-ready" }), {
-    type: "scenes",
-    scenes: [],
-  });
+test("dirty/conflict flags track the session; file-invalid is a notice", () => {
+  let s: EditorState = reduce(initialState, sessionUpdate({ dirty: true }));
+  expect(s.dirty).toBe(true);
+  s = reduce(s, sessionUpdate({ conflict: true, dirty: true, revision: 2 }));
+  expect(s.conflict).toBe(true);
+  expect(s.revision).toBe(2);
   s = reduce(s, {
-    type: "scene-loaded",
-    doc: { version: 1, entities: [{ id: "cam", components: {} }] },
+    type: "file-invalid",
+    message: "scenes/a.scene.json is not valid JSON",
   });
-  s = reduce(s, { type: "select-entity", id: "cam" });
-  expect(s.selectedEntity).toBe("cam");
+  expect(s.notice).toContain("not valid JSON");
+  // The next session update clears the notice.
+  s = reduce(s, sessionUpdate({ revision: 3 }));
+  expect(s.notice).toBeUndefined();
+});
+
+test("entity selection survives updates that keep the entity, clears otherwise", () => {
+  let s: EditorState = reduce(initialState, sessionUpdate());
+  s = reduce(s, { type: "select-entity", id: "cube" });
+  expect(s.selectedEntity).toBe("cube");
+  s = reduce(s, sessionUpdate({ revision: 2 }));
+  expect(s.selectedEntity).toBe("cube");
+  s = reduce(
+    s,
+    sessionUpdate({
+      revision: 3,
+      doc: { version: 1, entities: [{ id: "other", components: {} }] },
+    }),
+  );
+  expect(s.selectedEntity).toBeUndefined();
 });

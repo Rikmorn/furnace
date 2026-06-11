@@ -1,0 +1,38 @@
+// packages/editor/src/frontend/lib/events.ts
+
+/** The daemon's SSE feed events (mirror of the daemon's SessionEvent union). */
+export type ServerEvent =
+  | { type: "scene-opened"; path: string; revision: number }
+  | { type: "document-changed"; revision: number; command: string }
+  | { type: "saved"; revision: number }
+  | { type: "file-conflict"; path: string }
+  | { type: "file-invalid"; path: string; message: string };
+
+const EVENT_TYPES = [
+  "scene-opened",
+  "document-changed",
+  "saved",
+  "file-conflict",
+  "file-invalid",
+] as const;
+
+/**
+ * Subscribe to /api/events. `onOpen` fires on every (re)connect — the caller
+ * catches up via scene.get there, which also covers events missed while
+ * disconnected. Returns an unsubscribe function.
+ */
+export function subscribeEvents(handlers: {
+  onOpen(): void;
+  onEvent(event: ServerEvent): void;
+}): () => void {
+  const source = new EventSource("/api/events");
+  source.onopen = () => handlers.onOpen();
+  for (const type of EVENT_TYPES) {
+    source.addEventListener(type, (e) => {
+      // Boundary cast: the daemon emits exactly these JSON shapes per event
+      // name (events.ts emit writes `event: <type>` + the serialized event).
+      handlers.onEvent(JSON.parse((e as MessageEvent).data) as ServerEvent);
+    });
+  }
+  return () => source.close();
+}

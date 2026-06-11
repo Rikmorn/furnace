@@ -44,7 +44,4 @@ export const api = {
   sceneOpen: (path: string, force = false) =>
     call<SessionView>("scene.open", { path, force }),
   sceneGet: () => call<SessionView>("scene.get", {}),
-  // MIGRATION (until Task 11): App.tsx still uses sceneRead; deleted in Task 11.
-  sceneRead: (path: string) =>
-    call<{ document: SceneDocument }>("scene.read", { path }),
 };
