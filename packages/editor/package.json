@@ -8,17 +8,27 @@
   },
   "scripts": {
     "test": "bun test",
-    "typecheck": "bunx tsc --noEmit"
+    "typecheck": "bunx tsc --noEmit",
+    "build:frontend": "bun scripts/build-frontend.ts"
   },
   "dependencies": {
+    "clsx": "^2.1.1",
+    "dockview": "^6.6",
     "esbuild": "^0.27.0",
     "fast-glob": "^3.3.3",
+    "react": "^19",
+    "react-dom": "^19",
+    "tailwind-merge": "^3.6.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {
     "@furnace/core": "workspace:*",
     "@types/node": "^24.0.0",
-    "bun-webgpu": "^0.1.0"
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "bun-plugin-tailwind": "^0.1.2",
+    "bun-webgpu": "^0.1.0",
+    "tailwindcss": "^4"
   },
   "peerDependencies": {
     "@webgpu/types": "^0.1.70"

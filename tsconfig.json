@@ -4,6 +4,7 @@
     "lib": ["ESNext", "DOM"],
     "target": "ESNext",
     "module": "Preserve",
+    "jsx": "react-jsx",
     "moduleDetection": "force",
     "allowJs": true,
     "types": ["bun", "@webgpu/types"],

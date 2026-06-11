@@ -1,0 +1,9 @@
+@import "tailwindcss";
+@import "dockview/dist/styles/dockview.css";
+
+/* shadcn-convention theme variables — minimal dark baseline; M5 extends. */
+:root {
+	--background: oklch(0.145 0 0);
+	--foreground: oklch(0.85 0 0);
+	--border: oklch(0.3 0 0);
+}
