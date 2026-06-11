@@ -15,7 +15,9 @@ import { vec4 } from "@furnace/core/transform";
  * The chrome↔engine protocol. The editor chrome (which contains no engine
  * code) drives the viewport exclusively through this interface; the host owns
  * the GPU context and the loaded scene. Render-on-demand: a render is issued
- * on load and via `render()` (e.g. after a panel resize). The loaded camera's
+ * on load, on canvas resize (the host subscribes its own re-render via
+ * `gpu.onResize`, so the chrome must NOT drive resize-rendering itself), and
+ * via `render()` for any other on-demand redraw. The loaded camera's
  * projection is bound to the canvas so aspect automatically tracks canvas size.
  */
 export type ViewportHost = {
@@ -24,7 +26,7 @@ export type ViewportHost = {
     gpuOptions?: RequestContextOptions,
   ): Promise<void>;
   loadScene(doc: SceneDocument): Promise<void>;
-  /** Re-issue the render of the currently-loaded scene (e.g. after a panel resize). No-op when nothing is loaded. */
+  /** Re-issue the render of the currently-loaded scene (on-demand redraw). The host re-renders itself on canvas resize, so callers need not invoke this for resize. No-op when nothing is loaded. */
   render(): void;
   introspect(): SceneSchemaReflection;
   destroy(): void;
@@ -44,6 +46,7 @@ export function createViewportHost(): ViewportHost {
   let ctx: Context | undefined;
   let loaded: LoadedScene | undefined;
   let unbindCamera: (() => void) | undefined;
+  let unbindResize: (() => void) | undefined;
 
   const requireCtx = (): Context => {
     if (!ctx)
@@ -71,12 +74,23 @@ export function createViewportHost(): ViewportHost {
       // the context, the exact case bind.ts says needs manual unsubscribe).
       unbindCamera?.();
       unbindCamera = undefined;
+      unbindResize?.();
+      unbindResize = undefined;
       loaded?.destroy();
       loaded = undefined;
       loaded = await scene.loadScene(c, doc);
       // bindToCanvas applies the current canvas aspect immediately, then keeps it
       // in sync on resize; render after so the first frame uses that aspect.
       unbindCamera = camera.bindToCanvas(c, loaded.camera);
+      // Re-render on canvas resize. Subscribe AFTER bindToCanvas so this runs
+      // after the camera-aspect update, and because the engine's onResize sets
+      // the canvas backing store BEFORE emitting, the render here happens at the
+      // NEW size — the chrome must NOT drive this via its own ResizeObserver
+      // (that fires before the backing-store resize and the resize then blanks
+      // the surface).
+      unbindResize = gpu.onResize(c, () => {
+        if (ctx && loaded) renderLoaded(ctx, loaded);
+      });
       renderLoaded(c, loaded);
     },
     render() {
@@ -86,6 +100,8 @@ export function createViewportHost(): ViewportHost {
     destroy() {
       unbindCamera?.();
       unbindCamera = undefined;
+      unbindResize?.();
+      unbindResize = undefined;
       loaded?.destroy();
       loaded = undefined;
       if (ctx) gpu.dispose(ctx);

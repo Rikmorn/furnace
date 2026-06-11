@@ -18,9 +18,10 @@ export function Viewport() {
         diagnostics: `viewport init failed: ${String(err)}`,
       });
     });
-    const observer = new ResizeObserver(() => host.render());
-    observer.observe(canvas);
-    return () => observer.disconnect();
+    // The host owns resize-rendering (it re-renders itself via gpu.onResize,
+    // ordered after the backing-store resize). The chrome must NOT add a
+    // competing ResizeObserver here — one that fires before the backing-store
+    // resize blanks the viewport.
   }, [state.status, dispatch, hostRef]);
 
   if (state.status === "no-webgpu") {
