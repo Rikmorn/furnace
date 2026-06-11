@@ -13,25 +13,37 @@ test("defaults when furnace.config.json is absent", () => {
   expect(cfg).toEqual({ scenes: "**/*.scene.json", extensions: undefined });
 });
 
-test("reads scenes + extensions from furnace.config.json", () => {
+test("CLI-owned top-level fields are tolerated (the hello-world collision)", () => {
   const root = tempRoot();
   writeFileSync(
     join(root, "furnace.config.json"),
     JSON.stringify({
-      scenes: "assets/**/*.scene.json",
-      extensions: "src/editor-extensions.ts",
+      identity: { name: "x", bundleId: "c.x", version: "0.0.0" },
+      source: "src/",
+      window: { title: "x", width: 1, height: 1 },
+      editor: { scenes: "scenes/**/*.scene.json" },
     }),
   );
-  const cfg = loadConfig(root);
-  expect(cfg.scenes).toBe("assets/**/*.scene.json");
-  expect(cfg.extensions).toBe("src/editor-extensions.ts");
+  expect(loadConfig(root).scenes).toBe("scenes/**/*.scene.json");
 });
 
-test("unknown fields fail loud (setup-loud policy)", () => {
+test("absent editor block falls back to defaults even with CLI fields present", () => {
   const root = tempRoot();
   writeFileSync(
     join(root, "furnace.config.json"),
-    JSON.stringify({ scense: "typo/**" }),
+    JSON.stringify({ source: "src/" }),
+  );
+  expect(loadConfig(root)).toEqual({
+    scenes: "**/*.scene.json",
+    extensions: undefined,
+  });
+});
+
+test("unknown fields INSIDE the editor block fail loud (setup-loud policy)", () => {
+  const root = tempRoot();
+  writeFileSync(
+    join(root, "furnace.config.json"),
+    JSON.stringify({ editor: { scense: "typo/**" } }),
   );
   expect(() => loadConfig(root)).toThrow(/scense/);
 });

@@ -1,1 +1,6 @@
-{ "scenes": "scenes/**/*.scene.json", "extensions": "src/editor-extensions.ts" }
+{
+  "editor": {
+    "scenes": "scenes/**/*.scene.json",
+    "extensions": "src/editor-extensions.ts"
+  }
+}

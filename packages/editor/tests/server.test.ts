@@ -81,7 +81,7 @@ test("GET /engine.js with a broken extensions entry → 500 with diagnostics", a
     mkdirSync(join(brokenRoot, "src"), { recursive: true });
     writeFileSync(
       join(brokenRoot, "furnace.config.json"),
-      JSON.stringify({ extensions: "src/broken.ts" }),
+      JSON.stringify({ editor: { extensions: "src/broken.ts" } }),
     );
     writeFileSync(
       join(brokenRoot, "src", "broken.ts"),
