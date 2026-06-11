@@ -88,6 +88,14 @@ test("open a compactly-formatted file starts clean (canonical savedText)", async
   expect(view.dirty).toBe(false);
 });
 
+/** Assert an array has exactly one element and return it — stricter than `arr[0]!`. */
+function only<T>(arr: readonly T[]): T {
+  const first = arr[0];
+  if (first === undefined || arr.length !== 1)
+    throw new Error(`expected exactly one element, got ${arr.length}`);
+  return first;
+}
+
 // bun:test's toThrow doesn't take matchers; capture sync throws and
 // toMatchObject them (async sites use rejects.toMatchObject).
 function captureError(fn: () => unknown): unknown {
@@ -128,7 +136,9 @@ test("apply: a rejected edit leaves the session untouched", async () => {
   // (components is Record<string, unknown>); ! for noUncheckedIndexedAccess.
   await expect(
     session.apply("scene.setComponent", (doc) => {
-      doc.entities[0]!["components"]["marker"] = "INVALID";
+      const cube = doc.entities[0];
+      if (!cube) throw new Error("expected entity at [0]");
+      cube["components"]["marker"] = "INVALID";
     }),
   ).rejects.toMatchObject({ code: "validation-failed" });
   const view = session.get();
@@ -197,7 +207,7 @@ test("file change on a clean session reloads as an undoable mutation", async () 
     join(root, "scenes", "a.scene.json"),
     JSON.stringify({ version: 1, entities: [] }),
   );
-  await watched[0]!.trigger();
+  await only(watched).trigger();
   const view = session.get();
   expect(view.revision).toBe(1);
   expect(view.dirty).toBe(false);
@@ -217,7 +227,7 @@ test("file change with identical canonical content is a no-op (covers save echo)
   await bump(session);
   await session.save(); // daemon's own write — watcher will echo this
   const before = events.length;
-  await watched[0]!.trigger();
+  await only(watched).trigger();
   expect(events.length).toBe(before);
 });
 
@@ -229,7 +239,7 @@ test("file change under a dirty session → conflict, never clobbers", async () 
     join(root, "scenes", "a.scene.json"),
     JSON.stringify({ version: 1, entities: [] }),
   );
-  await watched[0]!.trigger();
+  await only(watched).trigger();
   const view = session.get();
   expect(view.conflict).toBe(true);
   expect(view.document.entities).toHaveLength(2); // session kept
@@ -243,7 +253,7 @@ test("invalid new disk content → file-invalid, session untouched", async () =>
   const { root, session, events, watched } = harness();
   await session.open("scenes/a.scene.json", false);
   writeFileSync(join(root, "scenes", "a.scene.json"), "{ nope");
-  await watched[0]!.trigger();
+  await only(watched).trigger();
   expect(session.get().revision).toBe(0);
   expect(events.at(-1)).toMatchObject({ type: "file-invalid" });
   // Registry-invalid (parses, fails validation) is also file-invalid:
@@ -251,7 +261,7 @@ test("invalid new disk content → file-invalid, session untouched", async () =>
     join(root, "scenes", "a.scene.json"),
     JSON.stringify({ version: 1, entities: [], marker: "INVALID" }),
   );
-  await watched[0]!.trigger();
+  await only(watched).trigger();
   expect(session.get().revision).toBe(0);
   expect(events.at(-1)).toMatchObject({ type: "file-invalid" });
 });
@@ -260,7 +270,7 @@ test("file deleted → conflict", async () => {
   const { root, session, events, watched } = harness();
   await session.open("scenes/a.scene.json", false);
   rmSync(join(root, "scenes", "a.scene.json"));
-  await watched[0]!.trigger();
+  await only(watched).trigger();
   expect(session.get().conflict).toBe(true);
   expect(events.at(-1)).toMatchObject({ type: "file-conflict" });
 });
@@ -269,13 +279,13 @@ test("re-open unwatches the previous file; save clears conflict", async () => {
   const { root, session, watched } = harness();
   await session.open("scenes/a.scene.json", false);
   rmSync(join(root, "scenes", "a.scene.json"));
-  await watched[0]!.trigger();
+  await only(watched).trigger();
   expect(session.get().conflict).toBe(true);
   await session.save(); // restores the file, clears conflict
   expect(session.get().conflict).toBe(false);
   await session.open("scenes/b.scene.json", false);
   expect(watched).toHaveLength(1);
-  expect(watched[0]!.path).toContain("b.scene.json");
+  expect(only(watched).path).toContain("b.scene.json");
 });
 
 test("validate: inline document and file path, valid and invalid", async () => {
@@ -291,6 +301,11 @@ test("validate: inline document and file path, valid and invalid", async () => {
   expect(await session.validate({ path: "scenes/a.scene.json" })).toEqual({
     valid: true,
   });
+  // M4 spec: file errors (e.g. not-found) still throw; only validation
+  // problems are returned as { valid: false }.
+  await expect(
+    session.validate({ path: "scenes/ghost.scene.json" }),
+  ).rejects.toMatchObject({ code: "not-found" });
 });
 
 test("introspect proxies the registry", async () => {
