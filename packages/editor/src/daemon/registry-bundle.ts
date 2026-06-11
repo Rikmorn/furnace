@@ -70,28 +70,24 @@ export function createRegistryLoader(
         err instanceof Error ? err.message : String(err),
       );
     }
-    // Boundary cast: the dynamically-imported bundle's namespace is untyped;
-    // the virtual entry above re-exports exactly these three names from
-    // @furnace/core/scene, whose signatures RegistryModule mirrors.
-    //
-    // realpathSync is required: on macOS, tmpdir() returns /var/folders/...
-    // but Bun's module loader canonicalises paths to /private/var/folders/...
-    // On the second import() call (with a different UUID), Bun fails with
-    // "Cannot find module ... from ''" unless the URL uses the canonical path.
-    // The rm runs explicitly after the import resolves — not in a finally block
-    // — to ensure the file exists for the full duration of module resolution.
     let mod: RegistryModule;
     try {
+      // Boundary cast: the dynamically-imported bundle's namespace is untyped;
+      // the virtual entry above re-exports exactly these three names from
+      // @furnace/core/scene, whose signatures RegistryModule mirrors.
+      // realpathSync canonicalizes the temp path: on macOS os.tmpdir() is a
+      // symlink (/var/folders → /private/var/folders) and Bun's module loader
+      // fails a second import() of a fresh-UUID symlink path. realpath fixes it.
       const canonical = realpathSync(outfile);
       mod = (await import(pathToFileURL(canonical).href)) as RegistryModule;
     } catch (err) {
-      await rm(outfile, { force: true });
       throw new EditorError(
         "extension-build-failed",
         err instanceof Error ? err.message : String(err),
       );
+    } finally {
+      await rm(outfile, { force: true });
     }
-    await rm(outfile, { force: true });
     return {
       validateDocument: mod.validateDocument,
       introspect: mod.introspect,
