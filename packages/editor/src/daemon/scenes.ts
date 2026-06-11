@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { relative, resolve } from "node:path";
 import fg from "fast-glob";
+import { EditorError } from "./errors.ts";
 
 /** Directories never scanned for scenes. */
 const SCAN_IGNORE = ["**/node_modules/**", "**/dist/**", "**/.git/**"];
@@ -23,7 +24,10 @@ export async function readScene(
 ): Promise<unknown> {
   const abs = resolve(root, relPath);
   if (relative(root, abs).startsWith("..")) {
-    throw new Error(`scene path "${relPath}" is outside the project root`);
+    throw new EditorError(
+      "outside-root",
+      `scene path "${relPath}" is outside the project root`,
+    );
   }
   let text: string;
   try {
@@ -34,15 +38,21 @@ export async function readScene(
         ? (err as { code?: unknown }).code
         : undefined;
     if (code === "ENOENT") {
-      throw new Error(`scene file "${relPath}" not found`);
+      throw new EditorError("not-found", `scene file "${relPath}" not found`);
     }
     const detail = err instanceof Error ? err.message : String(err);
-    throw new Error(`scene file "${relPath}" could not be read: ${detail}`);
+    throw new EditorError(
+      "unreadable",
+      `scene file "${relPath}" could not be read: ${detail}`,
+    );
   }
   try {
     return JSON.parse(text);
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);
-    throw new Error(`scene file "${relPath}" is not valid JSON: ${detail}`);
+    throw new EditorError(
+      "invalid-json",
+      `scene file "${relPath}" is not valid JSON: ${detail}`,
+    );
   }
 }

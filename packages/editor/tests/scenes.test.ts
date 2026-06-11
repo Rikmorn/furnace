@@ -71,3 +71,20 @@ test("readScene rejects malformed JSON naming the file", async () => {
     /bad\.scene\.json/,
   );
 });
+
+test("readScene failures carry EditorError codes", async () => {
+  const root = projectFixture();
+  writeFileSync(join(root, "bad.scene.json"), "{ nope");
+  await expect(readScene(root, "../escape.json")).rejects.toMatchObject({
+    code: "outside-root",
+  });
+  await expect(readScene(root, "ghost.scene.json")).rejects.toMatchObject({
+    code: "not-found",
+  });
+  await expect(readScene(root, "scenes")).rejects.toMatchObject({
+    code: "unreadable",
+  });
+  await expect(readScene(root, "bad.scene.json")).rejects.toMatchObject({
+    code: "invalid-json",
+  });
+});
