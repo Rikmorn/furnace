@@ -164,7 +164,7 @@ Wire shape on every error: `{ "error": { "code": "<EditorErrorCode>", "message":
 
 ## 7. Chrome
 
-The browser frontend is **React 19 + dockview** (docking panel layout), Tailwind-styled. It is **prebuilt** to `dist/frontend` by `scripts/build-frontend.ts` (`bun run --cwd packages/editor build:frontend`) and served same-origin by the daemon's static route (§2). `bun run edit` rebuilds it before starting the daemon.
+The browser frontend is **React 19 + dockview** (docking panel layout), Tailwind-styled. It is **prebuilt** to `dist/frontend` by `packages/editor/scripts/build-frontend.ts` (`bun run --cwd packages/editor build:frontend`) and served same-origin by the daemon's static route (§2). `bun run edit` rebuilds it before starting the daemon.
 
 **Zero engine value-imports.** The chrome must never `import` `@furnace/core` at value level — doing so would create a *second* core instance alongside the engine bundle's, the exact bug project-first resolution prevents. This is enforced by `packages/editor/tests/frontend-no-engine-leakage.test.ts`, which scans `src/frontend` and forbids value imports / side-effect imports / value re-exports of `@furnace/core` (`import type` / `export type` are erased and allowed). The chrome reaches the engine **only** through `loadEngine()` (a dynamic `import("/engine.js")`) and the `ViewportHost` type (imported type-only, §below).
 

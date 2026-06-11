@@ -137,6 +137,7 @@ Before claiming a piece of work is complete: search `AGENTS.md`, `README.md`, an
   - `tsdoc-conventions.md` — TSDoc authoring policy for the `@furnace/core` public API surface
   - `engine-architecture.md` — broader architectural rationale
   - `packaging-and-distribution.md` — what we ship to consumers
+  - `editor-architecture.md` — as-built M3+M4 editor: daemon, project-first bundling, command registry, document session, SSE change feed + file watching, error contract, chrome, config namespacing
   - `ui-foundation.md` — Svelte 5 + screen-space projection patterns for consumer UI
   - `fixed-step-interpolation.md` — engine posture + consumer recipe for interpolating between fixed-step ticks
 - `docs/backlog/` — deferred work register (one file per entry, grouped by topic).
