@@ -12,6 +12,7 @@
     "build:frontend": "bun scripts/build-frontend.ts"
   },
   "dependencies": {
+    "chokidar": "^4",
     "clsx": "^2.1.1",
     "dockview": "^6.6",
     "esbuild": "^0.27.0",
