@@ -87,9 +87,11 @@ test("unknown command → 404 JSON error", async () => {
     body: "{}",
   });
   expect(res.status).toBe(404);
-  expect(((await res.json()) as { error: string }).error).toContain(
-    "scene.zap",
-  );
+  const body = (await res.json()) as {
+    error: { code: string; message: string };
+  };
+  expect(body.error.code).toBe("unknown-command");
+  expect(body.error.message).toContain("scene.zap");
 });
 
 test("bad input → 400 JSON error", async () => {

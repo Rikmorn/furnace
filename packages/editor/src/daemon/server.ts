@@ -8,12 +8,12 @@ import { dirname, extname, join, normalize, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createEngineBundler, type EngineBundler } from "./bundle.ts";
 import { loadConfig } from "./config.ts";
-import {
-  ApiError,
-  createHandlers,
-  dispatch,
-  type Handlers,
-} from "./handlers.ts";
+import { EditorError, httpStatus } from "./errors.ts";
+import { createEventHub } from "./events.ts";
+import { createHandlers, dispatch, type Handlers } from "./handlers.ts";
+import { createRegistryLoader } from "./registry-bundle.ts";
+import { createSession } from "./session.ts";
+import { chokidarWatchFile } from "./watch.ts";
 
 export type ServerOptions = {
   root: string;
@@ -93,9 +93,18 @@ function sendJson(res: ServerResponse, status: number, body: unknown): void {
 /** Start the editor daemon for one project root. `port: 0` lets the OS pick (tests). */
 export async function startServer(opts: ServerOptions): Promise<RunningServer> {
   const config = loadConfig(opts.root);
+  const registry = createRegistryLoader(opts.root, config.extensions);
+  const hub = createEventHub();
+  const session = createSession({
+    root: opts.root,
+    watchFile: chokidarWatchFile,
+    registry,
+    emit: (event) => hub.emit(event),
+  });
   const handlers: Handlers = createHandlers({
     root: opts.root,
     scenesPattern: config.scenes,
+    session,
   });
   const bundler: EngineBundler = await createEngineBundler(
     opts.root,
@@ -146,12 +155,14 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
         error: `no route for ${req.method} ${url.pathname}`,
       });
     } catch (err) {
-      if (err instanceof ApiError) {
-        sendJson(res, err.code, { error: err.message });
+      if (err instanceof EditorError) {
+        sendJson(res, httpStatus(err.code), {
+          error: { code: err.code, message: err.message },
+        });
         return;
       }
       const detail = err instanceof Error ? err.message : String(err);
-      sendJson(res, 500, { error: detail });
+      sendJson(res, 500, { error: { code: "internal", message: detail } });
     }
   }
 
@@ -166,6 +177,8 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
     port,
     close() {
       server.close();
+      session.dispose();
+      hub.close();
       void bundler.dispose();
     },
   };

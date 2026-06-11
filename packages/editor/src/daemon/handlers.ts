@@ -1,32 +1,35 @@
+// packages/editor/src/daemon/handlers.ts
 import { z } from "zod";
+import { EditorError } from "./errors.ts";
+import * as mutations from "./mutations.ts";
 import { listScenes, readScene } from "./scenes.ts";
-
-/** An API error with an HTTP status code attached. */
-export class ApiError extends Error {
-  readonly code: number;
-  constructor(code: number, message: string) {
-    super(message);
-    this.name = "ApiError";
-    this.code = code;
-  }
-}
+import type { Session } from "./session.ts";
 
 type Handler = {
   input: z.ZodType;
   run(input: unknown): Promise<unknown>;
 };
 
-/** The command registry: name → zod-validated handler. M4 mounts MCP over this same map. */
+/** The command registry: name → zod-validated handler. Every client (chrome, HTTP, future MCP/agent bindings) funnels through dispatch(). */
 export type Handlers = Map<string, Handler>;
 
 export type HandlerContext = {
   root: string;
   scenesPattern: string;
+  session: Session;
 };
 
-/** Build the M3 (read-only) command set: scene.list, scene.read. */
+const componentsRecord = z.record(z.string(), z.unknown());
+const tableEnum = z.enum(["geometries", "shaders", "materials"]);
+
+/** Build the M4 command set: stateless reads + the document-session commands. */
 export function createHandlers(ctx: HandlerContext): Handlers {
+  const { session } = ctx;
   const handlers: Handlers = new Map();
+
+  // Each run() opens with a boundary cast: the homogeneous Handler.run(input:
+  // unknown) signature erases the per-command schema; dispatch() validated the
+  // input against this command's schema immediately before invoking run.
 
   handlers.set("scene.list", {
     input: z.strictObject({}),
@@ -38,23 +41,180 @@ export function createHandlers(ctx: HandlerContext): Handlers {
   handlers.set("scene.read", {
     input: z.strictObject({ path: z.string() }),
     run: async (input) => {
-      // Boundary cast: the homogeneous Handler.run(input: unknown) signature erases the
-      // per-command schema; dispatch() zod-validated input against this command's
-      // z.strictObject({ path: z.string() }) immediately before invoking run.
       const { path } = input as { path: string };
-      try {
-        return { document: await readScene(ctx.root, path) };
-      } catch (err) {
-        const detail = err instanceof Error ? err.message : String(err);
-        throw new ApiError(404, detail);
-      }
+      return { document: await readScene(ctx.root, path) };
+    },
+  });
+
+  handlers.set("scene.open", {
+    input: z.strictObject({ path: z.string(), force: z.boolean().optional() }),
+    run: (input) => {
+      const { path, force } = input as { path: string; force?: boolean };
+      return session.open(path, force ?? false);
+    },
+  });
+
+  handlers.set("scene.get", {
+    input: z.strictObject({}),
+    run: () => Promise.resolve(session.get()),
+  });
+
+  handlers.set("scene.save", {
+    input: z.strictObject({}),
+    run: async () => {
+      const { revision, dirty } = await session.save();
+      return { revision, dirty };
+    },
+  });
+
+  handlers.set("scene.validate", {
+    input: z
+      .strictObject({
+        path: z.string().optional(),
+        document: z.unknown().optional(),
+      })
+      .refine((v) => (v.path === undefined) !== (v.document === undefined), {
+        message: "provide exactly one of path or document",
+      }),
+    run: (input) =>
+      session.validate(input as { path?: string; document?: unknown }),
+  });
+
+  handlers.set("scene.introspect", {
+    input: z.strictObject({}),
+    run: () => session.introspect(),
+  });
+
+  handlers.set("scene.addEntity", {
+    input: z.strictObject({
+      id: z.string().optional(),
+      components: componentsRecord.optional(),
+    }),
+    run: async (input) => {
+      const args = input as {
+        id?: string;
+        components?: Record<string, unknown>;
+      };
+      let id = "";
+      const { revision, dirty } = await session.apply(
+        "scene.addEntity",
+        (doc) => {
+          id = mutations.addEntity(doc, args);
+        },
+      );
+      return { id, revision, dirty };
+    },
+  });
+
+  handlers.set("scene.removeEntity", {
+    input: z.strictObject({ id: z.string() }),
+    run: async (input) => {
+      const { id } = input as { id: string };
+      const { revision, dirty } = await session.apply(
+        "scene.removeEntity",
+        (doc) => mutations.removeEntity(doc, id),
+      );
+      return { revision, dirty };
+    },
+  });
+
+  handlers.set("scene.setComponent", {
+    input: z.strictObject({
+      entity: z.string(),
+      component: z.string(),
+      params: componentsRecord,
+    }),
+    run: async (input) => {
+      const args = input as {
+        entity: string;
+        component: string;
+        params: Record<string, unknown>;
+      };
+      const { revision, dirty } = await session.apply(
+        "scene.setComponent",
+        (doc) =>
+          mutations.setComponent(doc, args.entity, args.component, args.params),
+      );
+      return { revision, dirty };
+    },
+  });
+
+  handlers.set("scene.removeComponent", {
+    input: z.strictObject({ entity: z.string(), component: z.string() }),
+    run: async (input) => {
+      const args = input as { entity: string; component: string };
+      const { revision, dirty } = await session.apply(
+        "scene.removeComponent",
+        (doc) => mutations.removeComponent(doc, args.entity, args.component),
+      );
+      return { revision, dirty };
+    },
+  });
+
+  handlers.set("scene.setResource", {
+    input: z.strictObject({
+      table: tableEnum,
+      id: z.string(),
+      entry: componentsRecord,
+    }),
+    run: async (input) => {
+      const args = input as {
+        table: mutations.ResourceTable;
+        id: string;
+        entry: Record<string, unknown>;
+      };
+      const { revision, dirty } = await session.apply(
+        "scene.setResource",
+        (doc) => mutations.setResource(doc, args.table, args.id, args.entry),
+      );
+      return { revision, dirty };
+    },
+  });
+
+  handlers.set("scene.removeResource", {
+    input: z.strictObject({ table: tableEnum, id: z.string() }),
+    run: async (input) => {
+      const args = input as { table: mutations.ResourceTable; id: string };
+      const { revision, dirty } = await session.apply(
+        "scene.removeResource",
+        (doc) => mutations.removeResource(doc, args.table, args.id),
+      );
+      return { revision, dirty };
+    },
+  });
+
+  handlers.set("scene.setSettings", {
+    input: z.strictObject({ settings: z.unknown() }),
+    run: async (input) => {
+      const { settings } = input as { settings: unknown };
+      const { revision, dirty } = await session.apply(
+        "scene.setSettings",
+        (doc) => mutations.setSettings(doc, settings),
+      );
+      return { revision, dirty };
+    },
+  });
+
+  handlers.set("scene.undo", {
+    input: z.strictObject({}),
+    run: () => {
+      const { revision, dirty } = session.undo();
+      return Promise.resolve({ revision, dirty });
+    },
+  });
+
+  handlers.set("scene.redo", {
+    input: z.strictObject({}),
+    run: () => {
+      const { revision, dirty } = session.redo();
+      return Promise.resolve({ revision, dirty });
     },
   });
 
   return handlers;
 }
 
-/** Validate input against the command's schema and run it. Throws ApiError on all failures. */
+/** Validate input against the command's schema and run it. Throws EditorError on all failures. */
 // biome-ignore lint/suspicious/useAwait: async is load-bearing — synchronous throws become rejected promises, matching caller await + .rejects semantics
 export async function dispatch(
   handlers: Handlers,
@@ -62,12 +222,13 @@ export async function dispatch(
   input: unknown,
 ): Promise<unknown> {
   const handler = handlers.get(command);
-  if (!handler) throw new ApiError(404, `unknown command "${command}"`);
+  if (!handler)
+    throw new EditorError("unknown-command", `unknown command "${command}"`);
   const parsed = handler.input.safeParse(input);
   if (!parsed.success) {
     const issue = parsed.error.issues[0];
-    throw new ApiError(
-      400,
+    throw new EditorError(
+      "invalid-input",
       `invalid input at "${issue?.path.join(".") ?? ""}": ${issue?.message ?? ""}`,
     );
   }
