@@ -2,17 +2,24 @@ import { expect, test } from "bun:test";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-// Cross-package test-helper import: core's bun-webgpu fixture (documented pattern).
+// Cross-package test-helper imports: core's bun-webgpu fixture (documented pattern).
 import {
   bunWebGpuAvailable,
   ensureBunWebGpu,
   makeOffscreenCanvas,
 } from "../../core/tests/_helpers/gpu-fixture.ts";
+import { installMockResizeObserver } from "../../core/tests/_helpers/mock-resize-observer.ts";
 import { createEngineBundler } from "../src/daemon/bundle.ts";
 import type { ViewportHost } from "../src/viewport-host/index.ts";
 import cubeScene from "./fixtures/mini-project/scenes/cube.scene.json";
 
 await ensureBunWebGpu();
+
+// bindToCanvas (called in loadScene) subscribes to gpu.onResize, which lazily
+// creates a ResizeObserver. bun-webgpu does not provide ResizeObserver, so we
+// install the core mock globally before any test runs. The bundled engine.mjs
+// shares this process so it picks up globalThis.ResizeObserver at call time.
+installMockResizeObserver();
 
 const FIXTURE = join(import.meta.dir, "fixtures", "mini-project");
 
@@ -51,6 +58,9 @@ test.skipIf(!bunWebGpuAvailable())(
 
     // 2. Load + draw: the scene (which USES fixtureGlow) renders one mesh.
     await host.loadScene(cubeScene as never);
+
+    // 2b. Re-render on demand (e.g. after a panel resize) — must not throw or leak.
+    host.render();
 
     // 3. Teardown: nothing leaks.
     host.destroy();

@@ -1,3 +1,4 @@
+import * as camera from "@furnace/core/camera";
 import * as frame from "@furnace/core/frame";
 import type { Context, RequestContextOptions } from "@furnace/core/gpu";
 import * as gpu from "@furnace/core/gpu";
@@ -14,7 +15,8 @@ import { vec4 } from "@furnace/core/transform";
  * The chrome↔engine protocol. The editor chrome (which contains no engine
  * code) drives the viewport exclusively through this interface; the host owns
  * the GPU context and the loaded scene. Render-on-demand: a render is issued
- * on load; nothing animates in M3.
+ * on load and via `render()` (e.g. after a panel resize). The loaded camera's
+ * projection is bound to the canvas so aspect automatically tracks canvas size.
  */
 export type ViewportHost = {
   init(
@@ -22,6 +24,8 @@ export type ViewportHost = {
     gpuOptions?: RequestContextOptions,
   ): Promise<void>;
   loadScene(doc: SceneDocument): Promise<void>;
+  /** Re-issue the render of the currently-loaded scene (e.g. after a panel resize). No-op when nothing is loaded. */
+  render(): void;
   introspect(): SceneSchemaReflection;
   destroy(): void;
 };
@@ -39,11 +43,20 @@ function toVec4(
 export function createViewportHost(): ViewportHost {
   let ctx: Context | undefined;
   let loaded: LoadedScene | undefined;
+  let unbindCamera: (() => void) | undefined;
 
   const requireCtx = (): Context => {
     if (!ctx)
       throw new Error("viewport-host: init(canvas) must be called first");
     return ctx;
+  };
+
+  const renderLoaded = (c: Context, l: LoadedScene): void => {
+    frame.render(c, {
+      meshes: l.meshes,
+      camera: l.camera,
+      clearColor: toVec4(l.settings.clearColor),
+    });
   };
 
   return {
@@ -53,19 +66,26 @@ export function createViewportHost(): ViewportHost {
     },
     async loadScene(doc) {
       const c = requireCtx();
-      // Destroy-before-build: M2's partial-load cleanup guarantees a failed
-      // load leaks nothing; the viewport simply ends up empty.
+      // Destroy-before-build; also unbind the previous camera's resize
+      // subscription (scene-swap = swapping the bound camera without disposing
+      // the context, the exact case bind.ts says needs manual unsubscribe).
+      unbindCamera?.();
+      unbindCamera = undefined;
       loaded?.destroy();
       loaded = undefined;
       loaded = await scene.loadScene(c, doc);
-      frame.render(c, {
-        meshes: loaded.meshes,
-        camera: loaded.camera,
-        clearColor: toVec4(loaded.settings.clearColor),
-      });
+      // bindToCanvas applies the current canvas aspect immediately, then keeps it
+      // in sync on resize; render after so the first frame uses that aspect.
+      unbindCamera = camera.bindToCanvas(c, loaded.camera);
+      renderLoaded(c, loaded);
+    },
+    render() {
+      if (ctx && loaded) renderLoaded(ctx, loaded);
     },
     introspect: () => scene.introspect(),
     destroy() {
+      unbindCamera?.();
+      unbindCamera = undefined;
       loaded?.destroy();
       loaded = undefined;
       if (ctx) gpu.dispose(ctx);
