@@ -1,8 +1,11 @@
+import { createReadStream, existsSync, statSync } from "node:fs";
 import {
   createServer,
   type IncomingMessage,
   type ServerResponse,
 } from "node:http";
+import { dirname, extname, join, normalize, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { createEngineBundler, type EngineBundler } from "./bundle.ts";
 import { loadConfig } from "./config.ts";
 import {
@@ -12,13 +15,60 @@ import {
   type Handlers,
 } from "./handlers.ts";
 
-export type ServerOptions = { root: string; port: number };
+export type ServerOptions = {
+  root: string;
+  port: number;
+  staticDir?: string;
+};
 export type RunningServer = { port: number; close(): void };
 
-const PLACEHOLDER_HTML = `<!doctype html>
-<html><head><meta charset="utf-8"><title>furnace editor</title></head>
-<body><h1>furnace editor</h1><p>The editor chrome lands in M3 Plan B. The daemon is running:
-<code>POST /api/scene.list</code> · <code>POST /api/scene.read</code> · <code>GET /engine.js</code></p></body></html>`;
+const DEFAULT_STATIC_DIR = resolve(
+  dirname(fileURLToPath(import.meta.url)),
+  "../../dist/frontend",
+);
+
+const CONTENT_TYPES: Record<string, string> = {
+  ".html": "text/html; charset=utf-8",
+  ".js": "text/javascript; charset=utf-8",
+  ".css": "text/css; charset=utf-8",
+  ".map": "application/json",
+  ".svg": "image/svg+xml",
+  ".png": "image/png",
+  ".woff2": "font/woff2",
+};
+
+function serveStatic(
+  staticDir: string,
+  pathname: string,
+  res: ServerResponse,
+): void {
+  if (!existsSync(staticDir)) {
+    res.writeHead(503, { "content-type": "text/plain" });
+    res.end(
+      "editor chrome not built — run `bun run --cwd packages/editor build:frontend` (or reinstall @furnace/editor)",
+    );
+    return;
+  }
+  const rel = pathname === "/" ? "index.html" : pathname.slice(1);
+  const abs = normalize(join(staticDir, rel));
+  if (
+    !abs.startsWith(normalize(staticDir)) ||
+    !existsSync(abs) ||
+    !statSync(abs).isFile()
+  ) {
+    res.writeHead(404, { "content-type": "text/plain" });
+    res.end(`not found: ${pathname}`);
+    return;
+  }
+  res.writeHead(200, {
+    "content-type": CONTENT_TYPES[extname(abs)] ?? "application/octet-stream",
+  });
+  const stream = createReadStream(abs);
+  // pipe() does not forward read errors; abort the response so the connection
+  // doesn't hang if the file errors mid-stream (headers are already sent).
+  stream.on("error", () => res.destroy());
+  stream.pipe(res);
+}
 
 function readBody(req: IncomingMessage): Promise<string> {
   // No body-size cap by design: the daemon binds 127.0.0.1 and serves one local
@@ -62,11 +112,6 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
   ): Promise<void> {
     const url = new URL(req.url ?? "/", "http://localhost");
     try {
-      if (req.method === "GET" && url.pathname === "/") {
-        res.writeHead(200, { "content-type": "text/html" });
-        res.end(PLACEHOLDER_HTML);
-        return;
-      }
       if (req.method === "GET" && url.pathname === "/engine.js") {
         const result = await bundler.build();
         if (!result.ok) {
@@ -91,6 +136,10 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
           return;
         }
         sendJson(res, 200, await dispatch(handlers, command, input));
+        return;
+      }
+      if (req.method === "GET") {
+        serveStatic(opts.staticDir ?? DEFAULT_STATIC_DIR, url.pathname, res);
         return;
       }
       sendJson(res, 404, {

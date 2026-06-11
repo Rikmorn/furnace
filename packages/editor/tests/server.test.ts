@@ -1,22 +1,65 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type RunningServer, startServer } from "../src/daemon/server.ts";
 
 const FIXTURE = join(import.meta.dir, "fixtures", "mini-project");
 let server: RunningServer;
 
+function staticFixture(): string {
+  const dir = mkdtempSync(join(tmpdir(), "furnace-static-"));
+  writeFileSync(
+    join(dir, "index.html"),
+    "<!doctype html><title>chrome-fixture</title>",
+  );
+  mkdirSync(join(dir, "assets"), { recursive: true });
+  writeFileSync(join(dir, "assets", "app.js"), "console.log(1)");
+  return dir;
+}
+
 beforeAll(async () => {
-  server = await startServer({ root: FIXTURE, port: 0 }); // port 0 = OS-assigned
+  server = await startServer({
+    root: FIXTURE,
+    port: 0,
+    staticDir: staticFixture(),
+  });
 });
 afterAll(() => server.close());
 
 const url = (p: string) => `http://127.0.0.1:${server.port}${p}`;
 
-test("GET / serves the placeholder page", async () => {
+test("GET / serves the built chrome's index.html", async () => {
   const res = await fetch(url("/"));
   expect(res.status).toBe(200);
-  expect(await res.text()).toContain("furnace editor");
+  expect(res.headers.get("content-type")).toContain("text/html");
+  expect(await res.text()).toContain("chrome-fixture");
+});
+
+test("GET /assets/app.js serves with a JS content-type", async () => {
+  const res = await fetch(url("/assets/app.js"));
+  expect(res.status).toBe(200);
+  expect(res.headers.get("content-type")).toContain("text/javascript");
+});
+
+test("static paths cannot escape the static dir", async () => {
+  // The URL constructor normalizes `..` segments away before the server sees
+  // the path, so raw traversal never reaches serveStatic; its startsWith guard
+  // is defence-in-depth. This asserts the end-to-end guarantee holds.
+  const res = await fetch(url("/../package.json"));
+  expect(res.status).toBe(404);
+});
+
+test("missing static dir → 503 with a build hint", async () => {
+  const bare = await startServer({
+    root: FIXTURE,
+    port: 0,
+    staticDir: join(tmpdir(), `nope-${Date.now()}`),
+  });
+  const res = await fetch(`http://127.0.0.1:${bare.port}/`);
+  expect(res.status).toBe(503);
+  expect(await res.text()).toContain("build:frontend");
+  bare.close();
 });
 
 test("POST /api/scene.list returns the fixture's scenes", async () => {
