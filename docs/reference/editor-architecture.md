@@ -168,7 +168,7 @@ The browser frontend is **React 19 + dockview** (docking panel layout), Tailwind
 
 **Zero engine value-imports.** The chrome must never `import` `@furnace/core` at value level — doing so would create a *second* core instance alongside the engine bundle's, the exact bug project-first resolution prevents. This is enforced by `packages/editor/tests/frontend-no-engine-leakage.test.ts`, which scans `src/frontend` and forbids value imports / side-effect imports / value re-exports of `@furnace/core` (`import type` / `export type` are erased and allowed). The chrome reaches the engine **only** through `loadEngine()` (a dynamic `import("/engine.js")`) and the `ViewportHost` type (imported type-only, §below).
 
-**`ViewportHost` protocol** — `src/viewport-host/index.ts`. The narrow chrome↔engine interface: `{ init(canvas, gpuOptions?), loadScene(doc), render(), introspect(), destroy() }`. The host owns the GPU context and the loaded scene; the chrome drives it through this interface and never enters the render loop. It is **render-on-demand** (no rAF loop): a render is issued on load, on canvas resize, and via `render()` for any other redraw.
+**`ViewportHost` protocol** — `src/viewport-host/index.ts`. The narrow chrome↔engine interface: `{ init(canvas, gpuOptions?), loadScene(doc), render(), introspect(), destroy() }` plus the M5A live-preview seam (`previewEntity`, `previewSettings`, `revertEntity`, `syncCommitted` — §10). The host owns the GPU context and the loaded scene; the chrome drives it through this interface and never enters the render loop. It is **render-on-demand** (no rAF loop): a render is issued on load, on canvas resize, and via `render()` for any other redraw.
 
 - **Host owns resize-rendering.** On `loadScene`, the host calls `camera.bindToCanvas` (aspect tracks canvas size) and subscribes its own re-render via `gpu.onResize`. Because the engine's `onResize` sets the canvas backing store *before* emitting, the host's render runs at the new size. The chrome must **not** drive resize-rendering from its own `ResizeObserver` — that fires before the backing-store resize and blanks the surface. (This was a real bug caught only by the manual visual gate; the protocol TSDoc documents the constraint.)
 
@@ -189,5 +189,96 @@ If the file is absent, all editor settings fall back to defaults. Malformed JSON
 
 - **AI bindings** — MCP mount, `viewport.capture`, embedded agent, and outbound editor→LLM were **descoped from M4** into a dedicated milestone: `docs/backlog/editor-and-tooling/editor-ai-integration-milestone.md`. Rationale: for an FS-capable agent, direct file editing beats mutation tools, so M4 made disk edits first-class (watch + reload + validate + introspect over plain HTTP) and shipped the transport-agnostic substrate; the bindings get designed together when appetite is there (slot after M5). The error contract and the `MCP/agent bindings` notes in `errors.ts` / `handlers.ts` are the forward-looking seam for that work.
 - **Extension-file watching** — editing an extension's TypeScript does not auto-rebuild the engine bundle or registry; re-open the scene / refresh the browser to pick up changes (§3). Known gap carried from M3.
-- **Mutation UI in the chrome** — M4's chrome only *reflects* the session (display-only). Inspector / hierarchy / gizmo authoring surfaces are M5 (`docs/backlog/editor-and-tooling/svelte-editor-inspector-surfaces.md`).
+- **Inspector interactions deferred from M5A** — viewport picking, AABB highlight, translate gizmo, resource live-preview (rebuildResource cascade), editor fly-camera, hierarchy tree, smooth continuous drag-scrub (binding.set fast-path), focused-input echo-suppression guard, and the settings-revert gap are all 5B. See `docs/backlog/editor-and-tooling/editor-M5B-viewport-interaction.md`.
 - **Session concurrent-open race hardening** — two await-point races in `session.ts` (`onFileChanged` / `apply` capturing stale `state` across an await) are benign under the single-user serialized-command model and deferred with a staleness-guard fix: `docs/backlog/editor-and-tooling/session-concurrent-open-race-hardening.md`. Becomes load-bearing when M5 adds continuous interactions or a second concurrent writer.
+
+## 10. M5A — inspector, selection, live preview
+
+M5A landed an **editable, reflection-driven inspector** with multi-entity selection and live-preview. This section documents the as-built additions to the M3+M4 substrate.
+
+### 10.1 `scene.batch` command
+
+A single command that atomically applies N component edits (one `SceneDocument` snapshot, one undo entry, one `document-changed` event). Used when the inspector commits a field change across multiple selected entities at once. The whole batch is rejected if any single `setComponent` call fails validation — the session document is untouched (same transactional guarantee as any other `session.apply` call). Input: `{ edits: [{ entity, component, params }]+ }` (at least one edit). Returns `{ revision, dirty }`.
+
+### 10.2 `t.color()` kind
+
+`packages/core/src/scene/t.ts` exports `color()`: a `z.tuple([number × 4])` with `meta({ furnace: { kind: "color" } })` — same wire shape as `vec4()` but a distinct `furnace.kind` so the editor inspector renders a color picker instead of four raw number inputs. The load boundary treats it exactly as a vec4. Channels are in the engine's working color space (linear RGBA — see `docs/reference/engine-conventions.md §color`). Scene settings `clearColor` uses this kind.
+
+### 10.3 Core live-preview seam — `rebuildEntity` + `setSettings`
+
+`LoadedScene` (returned by `scene.loadScene`) carries two new methods (both verified in `packages/core/src/scene/types.ts` and `loader.ts`):
+
+- **`rebuildEntity(entityId, doc)`** — tears down the named entity's built instances/meshes, then rebuilds it from `doc` using the same internal `buildEntity` path that `loadScene` uses. **Transactional**: the replacement is built *before* the old entity is torn down — if `buildEntity` throws (invalid params, bad resource ref), the existing entity is left intact and the throw propagates to the caller. The resource `lookup` is frozen at `loadScene` time; a `doc` whose `resources` differ from the loaded document is not supported (lookup would throw). In M5A the caller always passes the committed doc with one component's fields overridden, so resources never change.
+- **`setSettings(next)`** — replaces `loaded.settings` in place (no rebuild); the next `frame.render` call picks up the new settings. No-op complexity; purely a field swap.
+
+Both are editor live-preview seams. They are not safe to call after `loaded.destroy()`.
+
+### 10.4 Viewport-host live-preview methods
+
+`src/viewport-host/index.ts` extends `ViewportHost` with four methods that close the loop between the inspector and the engine (verified in source):
+
+| Method | What it does |
+| --- | --- |
+| `previewEntity(entityId, component, params)` | Clones the committed doc, overrides `entity.components[component]`, calls `loaded.rebuildEntity`, re-renders. Invalid params are swallowed (last good render kept) — the daemon commit path reports the real validation error. No-op before init or before a scene is loaded. |
+| `previewSettings(settings)` | Calls `loaded.setSettings(settings)`, re-renders. No daemon op. No-op before init. |
+| `revertEntity(entityId)` | Calls `loaded.rebuildEntity(entityId, committedDoc)`, re-renders — discards the preview and restores from the committed baseline. |
+| `syncCommitted(doc)` | Adopts `doc` as the new committed baseline without any rebuild or render — used when an SSE echo is deduplicated (the viewport already shows the result via the local preview). |
+
+**`committedDoc`** is the `SceneDocument` the viewport last successfully loaded; it is the revert target for `revertEntity`. It is set on every `loadScene` call and updated (without reload) by `syncCommitted`.
+
+### 10.5 Inspector module — `frontend/inspector/`
+
+The inspector is a **self-contained, swappable boundary**: the chrome consumes it only through `<SchemaForm>` and the types in `index.tsx`. Input is standard JSON Schema (with furnace-specific `meta.furnace.kind`) plus N target values plus change callbacks; output is rendered controls. Swapping the inspector library touches only this directory.
+
+**JSON Schema contract (`types.ts`).** The inspector's `JsonSchemaNode` is a plain frontend-local type (structurally equivalent to what `scene.introspect()` returns, cast at the boundary in `InspectPanel.tsx`). The module must not value-import `@furnace/core` — enforced by `packages/editor/tests/frontend-no-engine-leakage.test.ts`.
+
+**Kind resolution (`kind.ts`).** `resolveKind(schema)` maps a schema node to a `FieldKind` in priority order: `meta.furnace.kind` (for furnace-specific kinds) → `enum` presence → JSON type string → `"unknown"`. The furnace kinds handled: `vec2`, `vec3`, `vec4`, `quat`, `color`, `resource`, `ref`.
+
+**Kind→renderer registry (`registry.tsx`).** A `Partial<Record<FieldKind, FieldRenderer>>` maps each kind to its React component. Current registry (verified against source):
+
+| Kind | Renderer |
+| --- | --- |
+| `number` | `NumberField` — numeric input with drag-scrub |
+| `string` | `StringField` — text input |
+| `boolean` | `BooleanField` — checkbox |
+| `enum` | `EnumField` — `<select>` |
+| `vec2` / `vec3` / `vec4` | `makeVecField(n)` — N-component number row |
+| `color` | `ColorField` — RGBA color picker |
+| `quat` | `QuatField` — Euler XYZ degree inputs (converted via `lib/euler.ts`) |
+| `resource` | `ResourceRefField` — `<select>` over available resource ids |
+| `ref` | `EntityRefField` — `<select>` over entity ids |
+| `object` | `ObjectField` — nested properties |
+
+`fallbackRenderer` is `DefaultField` — displays the value as JSON read-only.
+
+**`<SchemaForm>` (`SchemaForm.tsx`).** Iterates `schema.properties`, resolves each field's kind, looks up (or falls back to) the renderer, and renders it wrapped in a **`RowErrorBoundary`** — a React class error boundary that catches per-row render errors and displays them inline without crashing the whole form. Manages N working drafts (`useState`); re-seeds them when the committed `values` reference changes (the `seed` ref guard). Props: `{ schema, values: unknown[], onPreview, onCommit, onCancel }` — a pure callback contract, no internal fetch or mutation.
+
+**Euler / quat duplication (`lib/euler.ts`).** The `quatToEulerDeg` / `eulerDegToQuat` math is hand-rolled in the inspector because the frontend cannot value-import `@furnace/core`. The conversion matches `core/transform quat.fromEuler` (intrinsic XYZ) and is pinned to core's convention by a test. Similarly, material `"default"` kind detection is duplicated frontend-side (see `lib/resource-kind.ts`). Both duplications are intentional and documented as such.
+
+**Swap escape hatch.** The `frontend/inspector/` boundary is the swap seam: replacing the rendering library (e.g. moving to a richer form engine for M5B) means rewriting only `SchemaForm.tsx` + the field renderers in `fields/`, keeping `<InspectPanel>` and `SchemaFormProps` untouched. The `JsonSchemaNode` type and the `onPreview`/`onCommit`/`onCancel` callback contract are the stable interface.
+
+### 10.6 Multi-entity selection
+
+`EditorState.selectedEntities` (`src/frontend/lib/state.ts`) is a `string[]` of entity ids. The `select-entity` reducer event supports three modes (verified in `reduce()`):
+
+| Mode | Behaviour |
+| --- | --- |
+| `replace` | Replace selection with this entity; set anchor. |
+| `toggle` | Add if not in selection, remove if already present; set anchor. |
+| `range` | Select the document-order range from `selectionAnchor` to this entity (inclusive). Anchor is not updated. |
+
+`EntitiesPanel` triggers `replace` on a plain click, `toggle` on Cmd/Ctrl-click, `range` on Shift-click (modifier detection in `EntitiesPanel.tsx`). Selection is **not undoable** — it is UI ephemeral state and does not go through `session.apply`.
+
+When a `session-updated` event arrives, any selected entity id that no longer exists in the new document is pruned from `selectedEntities` automatically (the reducer filters against `e.doc.entities`).
+
+### 10.7 Echo suppression — own-commit dedup
+
+`App.tsx` keeps `lastLoaded = useRef<{ path?, revision? }>({})`. When a commit action resolves, `suppressEcho(result)` records `{ path, revision }` so the next SSE `document-changed` event's `refreshSession` skips `loadScene` (the dedup check `path === lastLoaded.path && revision === lastLoaded.revision`). On the skip path, `syncCommitted(doc)` is still called to update the host's committed baseline (so `revertEntity` has the fresh doc). This is the as-built mechanism in `App.tsx`.
+
+The guard applies to entity-component commits (`commitComponents`) and settings commits (`commitSettings`). Resource commits (`commitResource`) do **not** suppress the echo — a resource change requires a full scene reload (no resource live-preview in M5A), so the SSE echo driving `loadScene` is the intended mechanism.
+
+The `scene-opened` event clears `lastLoaded` entirely (`lastLoaded.current = {}`) to force a reload even if `(path, revision)` collide with a previous load.
+
+### 10.8 Settings-revert gap (M5A known limitation)
+
+M5A has `revertEntity` (rebuilds from committed doc) but **no `revertSettings`**. When the user previews a settings field (e.g. `clearColor`) and then presses Escape, the `onCancel` path in `InspectPanel.tsx` is a no-op: the preview value stays in the engine until the next SSE `document-changed` event drives a `loadScene` reload. Entity edits revert cleanly; settings edits do not. This gap is noted inline in `InspectPanel.tsx` and tracked in `docs/backlog/editor-and-tooling/editor-M5B-viewport-interaction.md`.
