@@ -5,6 +5,7 @@ import {
   _lookupGeometry,
 } from "../resources/internal.ts";
 import { _recordAlloc, _recordDestroy } from "../stats/internal.ts";
+import { computeBounds } from "./bounds.ts";
 import { validateGeometryData } from "./geometry-validation.ts";
 import type { Geometry, GeometryData, GeometrySlot } from "./types.ts";
 
@@ -34,6 +35,7 @@ const FLOATS_PER_VERTEX = 8;
 export function create(ctx: Context, data: GeometryData): Geometry {
   validateGeometryData(data);
   const vertexCount = data.positions.length / 3;
+  const bounds = computeBounds(data.positions);
 
   const interleaved = packInterleaved(data, vertexCount);
   const vertexBuffer = ctx.device.createBuffer({
@@ -57,6 +59,8 @@ export function create(ctx: Context, data: GeometryData): Geometry {
     indexBuffer: indexResources.buffer,
     indexFormat: indexResources.format,
     indexCount: indexResources.count,
+    boundsMin: bounds.min,
+    boundsMax: bounds.max,
     userCount: 0,
     markedDestroyed: false,
     _teardown: () => geometryTeardown(ctx, slot, vertexBytes, indexBytes),

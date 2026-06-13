@@ -1,4 +1,5 @@
 import type { GeometryHandle } from "../resources/handle.ts";
+import type { Vec3 } from "../transform/types.ts";
 
 /**
  * Raw per-vertex arrays consumed by {@link create}. Layout is
@@ -42,6 +43,8 @@ export type GeometrySlot = {
   indexBuffer: GPUBuffer | null;
   indexFormat: GPUIndexFormat | null;
   indexCount: number;
+  boundsMin: Vec3;
+  boundsMax: Vec3;
   userCount: number;
   markedDestroyed: boolean;
   _teardown: () => void;
