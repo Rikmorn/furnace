@@ -33,6 +33,23 @@ export type ViewportHost = {
    * the last document wins (latest revision takes precedence).
    */
   loadScene(doc: SceneDocument): Promise<void>;
+  /**
+   * Live-preview a single component edit on `entityId` (no daemon op): apply the
+   * whole-component override onto the committed doc, rebuild just that entity,
+   * and render. Invalid params are swallowed (last good render kept) — the daemon
+   * commit path reports the real validation error.
+   */
+  previewEntity(
+    entityId: string,
+    component: string,
+    params: Record<string, unknown>,
+  ): void;
+  /** Live-preview a settings edit (e.g. clearColor) — no daemon op, no rebuild, re-render only. No-op before init. */
+  previewSettings(settings: SceneDocument["settings"]): void;
+  /** Discard any preview on `entityId`: rebuild it from the committed doc + render. */
+  revertEntity(entityId: string): void;
+  /** Adopt `doc` as the committed baseline with NO rebuild (own-commit echo already shown). */
+  syncCommitted(doc: SceneDocument): void;
   /** Re-issue the render of the currently-loaded scene (on-demand redraw). The host re-renders itself on canvas resize, so callers need not invoke this for resize. No-op when nothing is loaded. */
   render(): void;
   introspect(): SceneSchemaReflection;
@@ -58,6 +75,7 @@ function toVec4(
 export function createViewportHost(): ViewportHost {
   let ctx: Context | undefined;
   let loaded: LoadedScene | undefined;
+  let committedDoc: SceneDocument | undefined;
   let unbindCamera: (() => void) | undefined;
   let unbindResize: (() => void) | undefined;
   // SSE-driven loads can race the async GPU init; the latest doc is queued here
@@ -94,6 +112,7 @@ export function createViewportHost(): ViewportHost {
     loaded?.destroy();
     loaded = undefined;
     loaded = await scene.loadScene(c, doc);
+    committedDoc = doc;
     // bindToCanvas applies the current canvas aspect immediately, then keeps it
     // in sync on resize; render after so the first frame uses that aspect.
     unbindCamera = camera.bindToCanvas(c, loaded.camera);
@@ -131,6 +150,51 @@ export function createViewportHost(): ViewportHost {
     render() {
       if (ctx && loaded) renderLoaded(ctx, loaded);
     },
+    previewEntity(entityId, component, params) {
+      if (!ctx || !loaded || !committedDoc) return;
+      const next = structuredClone(committedDoc);
+      const entity = next.entities.find((e) => e.id === entityId);
+      if (!entity) return;
+      entity.components[component] = params;
+      const prevCamera = loaded.camera;
+      try {
+        loaded.rebuildEntity(entityId, next);
+      } catch {
+        // Transiently-invalid preview (bad ref / params): keep last good render.
+        return;
+      }
+      if (loaded.camera !== prevCamera) {
+        unbindCamera?.();
+        unbindCamera = camera.bindToCanvas(ctx, loaded.camera);
+      }
+      renderLoaded(ctx, loaded);
+    },
+    previewSettings(settings) {
+      if (!ctx || !loaded) return;
+      // Boundary cast: preview value comes from the typed settings inspector;
+      // the daemon commit path validates it for real.
+      loaded.setSettings((settings ?? {}) as LoadedScene["settings"]);
+      renderLoaded(ctx, loaded);
+    },
+    revertEntity(entityId) {
+      if (!ctx || !loaded || !committedDoc) return;
+      const prevCamera = loaded.camera;
+      try {
+        loaded.rebuildEntity(entityId, committedDoc);
+      } catch {
+        // Committed doc loaded cleanly before; a throw here is an unexpected
+        // invariant violation — keep the last good render rather than corrupt it.
+        return;
+      }
+      if (loaded.camera !== prevCamera) {
+        unbindCamera?.();
+        unbindCamera = camera.bindToCanvas(ctx, loaded.camera);
+      }
+      renderLoaded(ctx, loaded);
+    },
+    syncCommitted(doc) {
+      committedDoc = doc;
+    },
     introspect: () => scene.introspect(),
     destroy() {
       unbindCamera?.();
@@ -139,6 +203,7 @@ export function createViewportHost(): ViewportHost {
       unbindResize = undefined;
       loaded?.destroy();
       loaded = undefined;
+      committedDoc = undefined;
       if (ctx) gpu.dispose(ctx);
       ctx = undefined;
     },
