@@ -65,4 +65,20 @@ export type LoadedScene = {
    * `wmax.x` when `c & 1`, `wmax.y` when `c & 2`, `wmax.z` when `c & 4`).
    */
   entityBoxCorners: (entityId: string) => Float32Array | null;
+  /**
+   * Fast-path transform poke (no rebuild): applies the supplied position,
+   * rotation, and/or scale to the entity's mesh(es). Omitted fields are left
+   * unchanged. Silent no-op for unknown `entityId` or stale mesh handles.
+   *
+   * Intended for continuous drag-scrub and gizmo preview — avoids the
+   * component rebuild overhead of `rebuildEntity` for pure transform changes.
+   */
+  setEntityTransform: (
+    entityId: string,
+    transform: {
+      position?: readonly [number, number, number];
+      rotation?: readonly [number, number, number, number];
+      scale?: readonly [number, number, number];
+    },
+  ) => void;
 };

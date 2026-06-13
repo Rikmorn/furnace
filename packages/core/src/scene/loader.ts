@@ -2,7 +2,12 @@ import type { Camera } from "../camera/types.ts";
 import { FurnaceError } from "../errors.ts";
 import type { GeometrySlot } from "../geometry/types.ts";
 import type { Context } from "../gpu/context-types.ts";
-import { _recomputeModelIfDirty } from "../mesh/mesh.ts";
+import {
+  _recomputeModelIfDirty,
+  setPosition,
+  setRotation,
+  setScale,
+} from "../mesh/mesh.ts";
 import type { Mesh, MeshSlot } from "../mesh/types.ts";
 import { _lookupGeometry, _lookupMesh } from "../resources/internal.ts";
 import { vec3 } from "../transform/vec3.ts";
@@ -281,6 +286,15 @@ export async function loadScene(
     entityBoxCorners(entityId) {
       const rec = records.get(entityId);
       return rec ? entityWorldCorners(ctx, rec) : null;
+    },
+    setEntityTransform(entityId, t) {
+      const rec = records.get(entityId);
+      if (!rec) return;
+      for (const m of rec.meshes) {
+        if (t.position) setPosition(ctx, m, new Float32Array(t.position));
+        if (t.rotation) setRotation(ctx, m, new Float32Array(t.rotation));
+        if (t.scale) setScale(ctx, m, new Float32Array(t.scale));
+      }
     },
   };
   return result;
