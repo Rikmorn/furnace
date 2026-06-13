@@ -7,8 +7,9 @@ const LABELS = ["x", "y", "z", "w"];
 
 /** Render an n-component numeric vector. `n` from the kind (vec2=2, vec3=3, vec4=4). */
 export function makeVecField(n: number) {
-  return function VecField({ values, onPreview, onCommit, onCancel, path }: FieldProps) {
-    const vec0 = (values[0] as number[]) ?? new Array(n).fill(0);
+  return function VecField({ schema, values, onPreview, onCommit, onCancel, path }: FieldProps) {
+    const fallback = (Array.isArray(schema.default) ? schema.default : new Array(n).fill(0)) as number[];
+    const vec0 = (values[0] as number[]) ?? fallback;
     const seed = vec0.slice(0, n).map(String);
     // Raw per-component text: storing parsed numbers would round-trip "1." back to
     // "1", making decimals untypeable. Parse only when emitting preview/commit.

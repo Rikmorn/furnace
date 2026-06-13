@@ -19,10 +19,16 @@ import {
 } from "./registry.ts";
 import * as t from "./t.ts";
 
+// .default() exists so z.toJSONSchema (used by introspect()) emits a "default"
+// key on each JSON-Schema node, which the inspector reads to seed omitted fields
+// for display. In zod 4, safeParse({}) DOES fill the value with its default, but
+// the daemon stores/serializes the raw document (validateDocument returns void),
+// so saved files are unchanged; applyTransform's filled values exactly match
+// the mesh/camera build-time defaults, so the built scene is identical.
 const transformShape = {
-  position: t.vec3().optional(),
-  rotation: t.quat().optional(),
-  scale: t.vec3().optional(),
+  position: t.vec3().default([0, 0, 0]).optional(),
+  rotation: t.quat().default([0, 0, 0, 1]).optional(),
+  scale: t.vec3().default([1, 1, 1]).optional(),
 };
 
 const cameraShape = {

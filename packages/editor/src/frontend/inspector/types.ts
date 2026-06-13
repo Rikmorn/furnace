@@ -21,6 +21,8 @@ export type JsonSchemaNode = {
    * NOT nested under a `meta` wrapper. Read it from here.
    */
   furnace?: { kind: string; table?: string; requires?: readonly string[] };
+  /** JSON Schema default value, emitted by zod `.default()` — used by field renderers to seed display when the doc omits the field. */
+  default?: unknown;
   [key: string]: unknown;
 };
 

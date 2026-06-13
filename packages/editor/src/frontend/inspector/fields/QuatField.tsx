@@ -7,8 +7,10 @@ import { FieldRow, inputCls } from "./common.tsx";
 const LABELS = ["x°", "y°", "z°"];
 
 /** Rotation as Euler degrees; stored value stays a quaternion (single source of truth). */
-export function QuatField({ values, onPreview, onCommit, onCancel, path }: FieldProps) {
-  const q0 = (values[0] as [number, number, number, number]) ?? [0, 0, 0, 1];
+export function QuatField({ schema, values, onPreview, onCommit, onCancel, path }: FieldProps) {
+  const rawDefault = Array.isArray(schema.default) ? schema.default : [0, 0, 0, 1];
+  const fallback = rawDefault as [number, number, number, number];
+  const q0 = (values[0] as [number, number, number, number]) ?? fallback;
   const euler0 = quatToEulerDeg(q0).map((v) => Math.round(v * 100) / 100) as [number, number, number];
   const seed = euler0.map(String) as string[];
   // Raw per-component text: storing parsed numbers would round-trip "90." back to

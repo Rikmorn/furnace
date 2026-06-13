@@ -3,9 +3,10 @@ import { isMixed } from "../lib/mixed.ts";
 import type { FieldProps } from "../types.ts";
 import { FieldRow, inputCls, MIXED } from "./common.tsx";
 
-export function NumberField({ values, onPreview, onCommit, onCancel, path }: FieldProps) {
+export function NumberField({ schema, values, onPreview, onCommit, onCancel, path }: FieldProps) {
   const mixed = isMixed(values);
-  const initial = mixed ? "" : String((values[0] as number) ?? 0);
+  const def = typeof schema.default === "number" ? schema.default : 0;
+  const initial = mixed ? "" : String((values[0] as number) ?? def);
   const [text, setText] = useState(initial);
   const focusedRef = useRef(false);
   // Re-seed when committed values change externally (e.g. SSE / selection change),
