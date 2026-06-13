@@ -44,7 +44,8 @@ struct VsOut {
 `;
 
 type LineResources = {
-  pipeline: GPURenderPipeline;
+  pipelineOcclude: GPURenderPipeline; // depthCompare: "less-equal" (default)
+  pipelineOverlay: GPURenderPipeline; // depthCompare: "always" (always-on-top)
   posBuffer: GPUBuffer;
   posCapacityBytes: number;
   colorBuffer: GPUBuffer;
@@ -52,12 +53,20 @@ type LineResources = {
 };
 
 const lineResByCtx = new WeakMap<Context, LineResources>();
-// Bind group keyed by the (stable per ctx+camera) camera VP buffer.
-const bindGroupByCameraBuffer = new WeakMap<GPUBuffer, GPUBindGroup>();
+// Bind group keyed by (pipeline, cameraBuffer). Both pipelines use layout:"auto"
+// so their bind group layouts are distinct — a bind group built for one is not
+// valid for the other.
+const bindGroupByPipeline = new WeakMap<
+  GPURenderPipeline,
+  WeakMap<GPUBuffer, GPUBindGroup>
+>();
 
-function createLineResources(ctx: Context): LineResources {
-  const module = ctx.device.createShaderModule({ code: LINE_WGSL });
-  const pipeline = ctx.device.createRenderPipeline({
+function makeLinePipeline(
+  ctx: Context,
+  module: GPUShaderModule,
+  depthCompare: GPUCompareFunction,
+): GPURenderPipeline {
+  return ctx.device.createRenderPipeline({
     layout: "auto",
     vertex: {
       module,
@@ -79,14 +88,21 @@ function createLineResources(ctx: Context): LineResources {
       targets: [{ format: ctx.format }],
     },
     primitive: { topology: "line-list" },
-    // Test against the scene depth, but never write — the wireframe shows on
-    // the near surface of each collider and is occluded behind solid meshes.
     depthStencil: {
       format: _ENGINE_DEPTH_FORMAT,
       depthWriteEnabled: false,
-      depthCompare: "less-equal",
+      depthCompare,
     },
   });
+}
+
+function createLineResources(ctx: Context): LineResources {
+  const module = ctx.device.createShaderModule({ code: LINE_WGSL });
+  // Test against the scene depth, but never write — the wireframe shows on
+  // the near surface of each collider and is occluded behind solid meshes.
+  const pipelineOcclude = makeLinePipeline(ctx, module, "less-equal");
+  // Always-on-top variant — skips depth test entirely, used for gizmos.
+  const pipelineOverlay = makeLinePipeline(ctx, module, "always");
   const posCapacityBytes = INITIAL_LINES * 2 * POINT_STRIDE_BYTES;
   const colorCapacityBytes = INITIAL_LINES * 2 * COLOR_STRIDE_BYTES;
   const posBuffer = ctx.device.createBuffer({
@@ -99,7 +115,8 @@ function createLineResources(ctx: Context): LineResources {
   });
   _recordAlloc(ctx, "buffer", posCapacityBytes + colorCapacityBytes);
   const res: LineResources = {
-    pipeline,
+    pipelineOcclude,
+    pipelineOverlay,
     posBuffer,
     posCapacityBytes,
     colorBuffer,
@@ -149,13 +166,18 @@ function lineBindGroup(
   pipeline: GPURenderPipeline,
   cameraBuffer: GPUBuffer,
 ): GPUBindGroup {
-  const cached = bindGroupByCameraBuffer.get(cameraBuffer);
+  let byBuffer = bindGroupByPipeline.get(pipeline);
+  if (!byBuffer) {
+    byBuffer = new WeakMap<GPUBuffer, GPUBindGroup>();
+    bindGroupByPipeline.set(pipeline, byBuffer);
+  }
+  const cached = byBuffer.get(cameraBuffer);
   if (cached) return cached;
   const bg = ctx.device.createBindGroup({
     layout: pipeline.getBindGroupLayout(0),
     entries: [{ binding: 0, resource: { buffer: cameraBuffer } }],
   });
-  bindGroupByCameraBuffer.set(cameraBuffer, bg);
+  byBuffer.set(cameraBuffer, bg);
   return bg;
 }
 
@@ -167,11 +189,22 @@ function lineBindGroup(
  * - `colors`: RGBA per vertex (four floats); `colors.length` must equal
  *   `(vertices.length / 3) * 4`.
  * - `camera`: camera whose view-projection transforms the (world-space) points.
+ * - `occlude`: when `false`, draw always-on-top (`depthCompare: "always"`) —
+ *   intended for gizmos that must remain visible regardless of depth. Default
+ *   `true` preserves the original depth-tested (`"less-equal"`) behaviour, so
+ *   existing callers (e.g. physics debug-draw) are unaffected.
  */
 export type DrawLinesOptions = {
   vertices: Float32Array;
   colors: Float32Array;
   camera: Camera;
+  /**
+   * When `false`, lines are drawn always-on-top (`depthCompare: "always"`),
+   * ignoring scene depth — use for gizmos that must remain visible in front of
+   * all geometry. Default `true`: depth-tested (`"less-equal"`), so lines are
+   * occluded behind meshes closer to the camera.
+   */
+  occlude?: boolean;
 };
 
 /**
@@ -179,14 +212,21 @@ export type DrawLinesOptions = {
  * raw-buffer primitive (distinct from the managed, Mesh-based {@link render}).
  *
  * Runs a second render pass over the current swap-chain texture (`loadOp:
- * "load"`, so it does not clear) and against the engine's scene depth texture
- * (read-only `less-equal`), so the lines overlay the already-rendered meshes
- * and are occluded where a mesh is in front. **Call after `frame.render` in the
- * same frame** so the depth/colour it tests against are present.
+ * "load"`, so it does not clear) and against the engine's scene depth texture.
+ * **Call after `frame.render` in the same frame** so the depth/colour it reads
+ * are present.
  *
- * The line pipeline, shader and grow-on-demand vertex buffers are engine-owned
- * per context and reused across frames. Warm-path-validate: throws on a disposed
- * context or a null `camera`/`vertices`/`colors`; an empty `vertices` is a no-op.
+ * Depth behaviour is controlled by `opts.occlude` (default `true`):
+ * - `true` (default) — `depthCompare: "less-equal"`, no depth write: lines are
+ *   occluded behind meshes closer to the camera (physics wireframes, AABB
+ *   highlights).
+ * - `false` — `depthCompare: "always"`, no depth write: lines draw always on
+ *   top, ignoring scene depth (translate/rotate gizmos).
+ *
+ * Two pipelines are cached per context (one per depth mode); the bind group is
+ * cached per `(pipeline, cameraBuffer)` pair. Grow-on-demand vertex buffers are
+ * also engine-owned. Warm-path-validate: throws on a disposed context or a null
+ * `camera`/`vertices`/`colors`; an empty `vertices` is a no-op.
  *
  * @throws FurnaceGpuError - if `ctx` is disposed, or `camera`/`vertices`/
  *   `colors` is null/undefined.
@@ -226,6 +266,8 @@ export function drawLines(ctx: Context, opts: DrawLinesOptions): void {
   ctx.queue.writeBuffer(res.posBuffer, 0, opts.vertices);
   ctx.queue.writeBuffer(res.colorBuffer, 0, opts.colors);
 
+  const pipeline =
+    opts.occlude === false ? res.pipelineOverlay : res.pipelineOcclude;
   const cameraBuffer = _ensureCameraBuffer(ctx, opts.camera);
   const depth = _ensureDepthTexture(ctx);
   const colorView = gpu.getCurrentTextureView(ctx);
@@ -238,8 +280,8 @@ export function drawLines(ctx: Context, opts: DrawLinesOptions): void {
       depthStoreOp: "store",
     },
   });
-  pass.setPipeline(res.pipeline);
-  pass.setBindGroup(0, lineBindGroup(ctx, res.pipeline, cameraBuffer));
+  pass.setPipeline(pipeline);
+  pass.setBindGroup(0, lineBindGroup(ctx, pipeline, cameraBuffer));
   pass.setVertexBuffer(0, res.posBuffer);
   pass.setVertexBuffer(1, res.colorBuffer);
   const vertexCount = opts.vertices.length / FLOATS_PER_POINT;
