@@ -11,6 +11,7 @@ import type {
 import * as scene from "@furnace/core/scene";
 import type { Vec4 } from "@furnace/core/transform";
 import { vec3, vec4 } from "@furnace/core/transform";
+import { boxEdges } from "./box-edges.ts";
 import {
   fromEyeTarget,
   type OrbitState,
@@ -59,6 +60,12 @@ export type ViewportHost = {
   syncCommitted(doc: SceneDocument): void;
   /** Re-issue the render of the currently-loaded scene (on-demand redraw). The host re-renders itself on canvas resize, so callers need not invoke this for resize. No-op when nothing is loaded. */
   render(): void;
+  /**
+   * Push a selection of entity ids into the host. The host immediately re-renders
+   * with depth-tested AABB highlight boxes drawn over the scene for each selected
+   * entity. Pass an empty array to clear the selection highlight.
+   */
+  setSelection(entityIds: string[]): void;
   introspect(): SceneSchemaReflection;
   destroy(): void;
 };
@@ -95,6 +102,8 @@ export function createViewportHost(): ViewportHost {
   // editor view, and vice versa).
   let editorCam: Camera | undefined;
   let orbitState: OrbitState | undefined;
+  // Reassigned wholesale on every setSelection call (replace-not-mutate).
+  let selection: string[] = [];
 
   const requireCtx = (): Context => {
     if (!ctx)
@@ -102,12 +111,21 @@ export function createViewportHost(): ViewportHost {
     return ctx;
   };
 
+  const HILITE: [number, number, number, number] = [1, 0.6, 0, 1];
+
   const renderLoaded = (c: Context, l: LoadedScene): void => {
+    const cam = editorCam ?? l.camera;
     frame.render(c, {
       meshes: l.meshes,
-      camera: editorCam ?? l.camera,
+      camera: cam,
       clearColor: toVec4(l.settings.clearColor),
     });
+    for (const id of selection) {
+      const corners = l.entityBoxCorners(id);
+      if (!corners) continue;
+      const { vertices, colors } = boxEdges(corners, HILITE);
+      frame.drawLines(c, { vertices, colors, camera: cam, occlude: true });
+    }
   };
 
   // Write the current orbitState into editorCam's position/target/up fields.
@@ -193,6 +211,10 @@ export function createViewportHost(): ViewportHost {
       await applyScene(doc);
     },
     render() {
+      if (ctx && loaded) renderLoaded(ctx, loaded);
+    },
+    setSelection(ids) {
+      selection = ids;
       if (ctx && loaded) renderLoaded(ctx, loaded);
     },
     previewEntity(entityId, component, params) {
