@@ -1,4 +1,5 @@
 import { Component, type ErrorInfo, type ReactNode, useRef, useState } from "react";
+import { shouldReseed } from "./lib/echo-guard.ts";
 import { resolveKind } from "./kind.ts";
 import { getAtPath, setAtPath } from "./lib/paths.ts";
 import { fallbackRenderer, registry } from "./registry.tsx";
@@ -39,14 +40,38 @@ export function SchemaForm({ schema, values, onPreview, onCommit, onCancel }: Sc
   // Drafts are the live edited copies; re-seed when the committed values change.
   const [drafts, setDrafts] = useState<unknown[]>(values);
   const seed = useRef(values);
+  // Echo-guard: track whether any input inside this form currently has focus.
+  // While focused, incoming session-updated re-seeds are deferred so an external
+  // edit mid-interaction does not clobber the in-progress draft.
+  const focusWithin = useRef(false);
+
   if (seed.current !== values) {
+    // Always record that a new value arrived so we know to reseed on blur.
     seed.current = values;
-    if (drafts !== values) setDrafts(values);
+    // Only re-seed immediately when no input is active (shouldReseed returns true).
+    if (drafts !== values && shouldReseed(focusWithin.current)) setDrafts(values);
   }
 
   const properties = schema.properties ?? {};
   return (
-    <div className="flex flex-col gap-1">
+    <div
+      className="flex flex-col gap-1"
+      onFocusCapture={() => {
+        focusWithin.current = true;
+      }}
+      onBlurCapture={(e) => {
+        // Only clear the flag when focus leaves the form entirely (not when moving
+        // between inputs within the form).
+        // Boundary cast: relatedTarget is EventTarget | null; DOM guarantees it is
+        // a Node when non-null, which is what contains() requires.
+        if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+          focusWithin.current = false;
+          // A session-updated arrived while focused and was deferred — reseed now
+          // so the field shows the latest committed value now that editing is done.
+          if (drafts !== values) setDrafts(values);
+        }
+      }}
+    >
       {Object.entries(properties).map(([key, fieldSchema]) => {
         const kind = resolveKind(fieldSchema);
         const Renderer = registry[kind] ?? fallbackRenderer;
