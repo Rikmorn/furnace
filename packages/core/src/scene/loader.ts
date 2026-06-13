@@ -13,6 +13,14 @@ import { TABLE_ORDER, type TableName } from "./t.ts";
 import type { LoadedScene, SceneDocument } from "./types.ts";
 import { splitKind, validateDocument } from "./validate.ts";
 
+/** Remove every element of `toRemove` from `arr` in place (identity match). */
+function removeAll<T>(arr: T[], toRemove: readonly T[]): void {
+  for (const item of toRemove) {
+    const i = arr.indexOf(item);
+    if (i !== -1) arr.splice(i, 1);
+  }
+}
+
 type BuiltRecord = {
   instance: unknown;
   destroy?: (ctx: Context, instance: unknown) => void;
@@ -28,7 +36,8 @@ type EntityRecord = {
 /**
  * Build a single entity's components (registration order) into its own scoped
  * record. The scoped `out` collects only this entity's contributions; the
- * caller merges them and enforces the cross-entity single-camera invariant.
+ * caller merges them and enforces the cross-entity single-camera invariant;
+ * a single entity contributing two cameras is caught here.
  * Reused by both initial load and `rebuildEntity` — one projection path.
  */
 function buildEntity(
@@ -130,6 +139,7 @@ export async function loadScene(
   };
   const meshes: Mesh[] = [];
   let loadedCamera: Camera | undefined;
+  const records = new Map<string, EntityRecord>();
 
   try {
     // Resources, fixed dependency order. Re-parses after validateDocument:
@@ -169,6 +179,7 @@ export async function loadScene(
       }
       meshes.push(...record.meshes);
       built.push(...record.built);
+      records.set(entity.id, record);
     }
   } catch (err) {
     // Partial-load cleanup: a failed load leaks nothing (reverse build order).
@@ -188,10 +199,35 @@ export async function loadScene(
     "settings",
   );
 
-  return {
+  const result: LoadedScene = {
     meshes,
     camera: cam,
     settings,
     destroy: destroyAll,
+    rebuildEntity(entityId, nextDoc) {
+      const entity = nextDoc.entities.find((e) => e.id === entityId);
+      // Build the replacement FIRST: if buildEntity throws (invalid params/ref),
+      // the existing entity is left untouched — the rebuild is transactional, so a
+      // transiently-invalid preview keeps the last good scene rather than dropping
+      // the entity. (buildEntity cleans up its own partial build on throw.)
+      // `lookup` is the resource table frozen at loadScene time; resource changes in nextDoc are not applied.
+      const next = entity ? buildEntity(ctx, entity, lookup) : undefined;
+      const prev = records.get(entityId);
+      if (prev) {
+        for (const b of [...prev.built].reverse()) b.destroy?.(ctx, b.instance);
+        removeAll(result.meshes, prev.meshes);
+        removeAll(built, prev.built);
+        records.delete(entityId);
+      }
+      if (!next) return; // entity removed in the preview doc: teardown only
+      result.meshes.push(...next.meshes);
+      built.push(...next.built);
+      records.set(entityId, next);
+      if (next.camera) result.camera = next.camera;
+    },
+    setSettings(next) {
+      result.settings = next;
+    },
   };
+  return result;
 }

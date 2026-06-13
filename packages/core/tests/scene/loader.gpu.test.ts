@@ -184,6 +184,66 @@ test.skipIf(!bunWebGpuAvailable())(
 );
 
 test.skipIf(!bunWebGpuAvailable())(
+  "rebuildEntity swaps a transform without a full reload, GPU-clean + leak-free",
+  async () => {
+    const canvas = await makeOffscreenCanvas(64, 64);
+    const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
+    const loaded = await scene.loadScene(ctx, structuredClone(CUBE_SCENE));
+    const cubeMeshBefore = loaded.meshes[0];
+
+    const moved = structuredClone(CUBE_SCENE);
+    // biome-ignore lint/style/noNonNullAssertion: fixture index is known
+    moved.entities[1]!.components["transform"] = { position: [2, 0, 0] };
+
+    ctx.device.pushErrorScope("validation");
+    loaded.rebuildEntity("cube", moved);
+    frame.render(ctx, { meshes: loaded.meshes, camera: loaded.camera });
+    const err = await ctx.device.popErrorScope();
+
+    expect(err).toBe(null);
+    expect(loaded.meshes).toHaveLength(1); // still one cube, swapped not duplicated
+    expect(loaded.meshes[0]).not.toBe(cubeMeshBefore); // a fresh mesh
+    expect(stats.snapshot(ctx).resources.meshes).toBe(1); // old mesh freed, not leaked
+    loaded.destroy();
+    const live = stats.snapshot(ctx).resources;
+    expect(live.meshes).toBe(0); // rebuilt record tracked + freed by destroy
+    expect(live.bindings).toBe(0);
+    gpu.dispose(ctx);
+  },
+);
+
+test.skipIf(!bunWebGpuAvailable())(
+  "rebuildEntity on the camera entity swaps the camera (no false second-camera throw)",
+  async () => {
+    const canvas = await makeOffscreenCanvas(64, 64);
+    const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
+    const loaded = await scene.loadScene(ctx, structuredClone(CUBE_SCENE));
+    const camBefore = loaded.camera;
+
+    const moved = structuredClone(CUBE_SCENE);
+    // biome-ignore lint/style/noNonNullAssertion: fixture index is known
+    moved.entities[0]!.components["transform"] = { position: [0, 0, 8] };
+    expect(() => loaded.rebuildEntity("cam", moved)).not.toThrow();
+    expect(loaded.camera).not.toBe(camBefore);
+    loaded.destroy();
+    gpu.dispose(ctx);
+  },
+);
+
+test.skipIf(!bunWebGpuAvailable())(
+  "setSettings replaces clearColor without rebuilding",
+  async () => {
+    const canvas = await makeOffscreenCanvas(64, 64);
+    const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
+    const loaded = await scene.loadScene(ctx, structuredClone(CUBE_SCENE));
+    loaded.setSettings({ clearColor: [0.1, 0.2, 0.3, 1] });
+    expect(loaded.settings.clearColor).toEqual([0.1, 0.2, 0.3, 1]);
+    loaded.destroy();
+    gpu.dispose(ctx);
+  },
+);
+
+test.skipIf(!bunWebGpuAvailable())(
   "fault injection: a resource build that allocates a binding then throws leaks nothing (atomic-build contract)",
   async () => {
     // Approach: custom-kind pattern (see docs for the investigation summary).
@@ -240,5 +300,33 @@ test.skipIf(!bunWebGpuAvailable())(
     gpu.dispose(ctx);
     resetRegistryForTests();
     registerBuiltins();
+  },
+);
+
+test.skipIf(!bunWebGpuAvailable())(
+  "rebuildEntity with an invalid ref throws but leaves the scene intact + leak-free",
+  async () => {
+    const canvas = await makeOffscreenCanvas(64, 64);
+    const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
+    const loaded = await scene.loadScene(ctx, structuredClone(CUBE_SCENE));
+    const cubeMeshBefore = loaded.meshes[0];
+
+    const bad = structuredClone(CUBE_SCENE);
+    // Point the cube's meshRenderer at a non-existent material → resolveParams
+    // calls lookup("materials", "nope") which throws, so buildEntity throws before
+    // the old entity is torn down. The transactional swap leaves the scene intact.
+    // biome-ignore lint/style/noNonNullAssertion: fixture index is known
+    bad.entities[1]!.components["meshRenderer"] = {
+      geometry: "g_cube",
+      material: "nope",
+    };
+
+    expect(() => loaded.rebuildEntity("cube", bad)).toThrow();
+    expect(loaded.meshes).toHaveLength(1); // entity still present
+    expect(loaded.meshes[0]).toBe(cubeMeshBefore); // unchanged (no swap happened)
+    expect(stats.snapshot(ctx).resources.meshes).toBe(1); // failed build leaked nothing
+    loaded.destroy();
+    expect(stats.snapshot(ctx).resources.meshes).toBe(0);
+    gpu.dispose(ctx);
   },
 );
