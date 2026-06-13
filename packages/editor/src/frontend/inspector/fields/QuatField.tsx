@@ -10,23 +10,27 @@ const LABELS = ["x°", "y°", "z°"];
 export function QuatField({ values, onPreview, onCommit, onCancel, path }: FieldProps) {
   const q0 = (values[0] as [number, number, number, number]) ?? [0, 0, 0, 1];
   const euler0 = quatToEulerDeg(q0).map((v) => Math.round(v * 100) / 100) as [number, number, number];
-  const [draft, setDraft] = useState<[number, number, number]>(euler0);
-  // Fix B: only re-seed when no input in the row is focused — prevents clobbering
-  // a live decimal the user is typing (e.g. "90." parsed to 90 → re-seeds to [90,...]).
+  const seed = euler0.map(String) as string[];
+  // Raw per-component text: storing parsed numbers would round-trip "90." back to
+  // "90", making decimals untypeable. Parse only when emitting preview/commit.
+  const [text, setText] = useState<string[]>(seed);
   const focusedRef = useRef(false);
   useEffect(() => {
-    if (!focusedRef.current) setDraft(euler0);
+    if (!focusedRef.current) setText(euler0.map(String));
   }, [JSON.stringify(q0)]);
   const mixed = isMixed(values);
   const fanout = (e: [number, number, number]) => values.map(() => eulerDegToQuat(e));
 
+  // Emit only when all three components parse to finite numbers.
+  const emit = (texts: string[], commit: boolean) => {
+    if (texts.some((t) => t.trim() === "" || !Number.isFinite(Number(t)))) return;
+    (commit ? onCommit : onPreview)(fanout(texts.map(Number) as [number, number, number]));
+  };
   const setComp = (i: number, raw: string, commit: boolean) => {
-    const num = Number(raw);
-    if (raw.trim() === "" || !Number.isFinite(num)) return;
-    const next = draft.slice() as [number, number, number];
-    next[i] = num;
-    setDraft(next);
-    (commit ? onCommit : onPreview)(fanout(next));
+    const next = text.slice();
+    next[i] = raw;
+    setText(next);
+    emit(next, commit);
   };
   return (
     <FieldRow path={path}>
@@ -37,25 +41,30 @@ export function QuatField({ values, onPreview, onCommit, onCancel, path }: Field
           inputMode="decimal"
           title={label}
           placeholder={mixed ? "—" : undefined}
-          value={mixed && draft[i] === euler0[i] ? "" : String(draft[i])}
+          value={mixed && text[i] === seed[i] ? "" : (text[i] ?? "")}
           onFocus={() => {
             focusedRef.current = true;
           }}
           onChange={(e) => setComp(i, e.target.value, false)}
           onKeyDown={(e) => {
             if (e.key === "Enter") {
-              // Fix A: do NOT commit here — blur fires onBlur which is the sole committer.
               (e.target as HTMLInputElement).blur();
             } else if (e.key === "Escape") {
               onCancel();
-              setDraft(euler0);
+              setText(euler0.map(String));
             }
           }}
           onBlur={(e) => {
-            // Fix B: clear focused flag before committing so the re-seed effect
-            // can run on the next render if no other input in the row is focused.
             focusedRef.current = false;
-            setComp(i, e.target.value, true);
+            const raw = e.target.value;
+            // Invalid leftover on blur: revert just this component to committed.
+            if (raw.trim() === "" || !Number.isFinite(Number(raw))) {
+              const next = text.slice();
+              next[i] = seed[i] ?? "";
+              setText(next);
+            } else {
+              setComp(i, raw, true);
+            }
           }}
         />
       ))}

@@ -9,23 +9,27 @@ const LABELS = ["x", "y", "z", "w"];
 export function makeVecField(n: number) {
   return function VecField({ values, onPreview, onCommit, onCancel, path }: FieldProps) {
     const vec0 = (values[0] as number[]) ?? new Array(n).fill(0);
-    const [draft, setDraft] = useState<number[]>(vec0.slice(0, n));
-    // Fix B: only re-seed when no input in the row is focused — prevents clobbering
-    // a live decimal the user is typing (e.g. "1." parsed to 1 → re-seeds to [1,...]).
+    const seed = vec0.slice(0, n).map(String);
+    // Raw per-component text: storing parsed numbers would round-trip "1." back to
+    // "1", making decimals untypeable. Parse only when emitting preview/commit.
+    const [text, setText] = useState<string[]>(seed);
     const focusedRef = useRef(false);
     useEffect(() => {
-      if (!focusedRef.current) setDraft(vec0.slice(0, n));
+      if (!focusedRef.current) setText(vec0.slice(0, n).map(String));
     }, [JSON.stringify(vec0)]);
     const mixedAt = (i: number) => isMixed(values.map((v) => (v as number[])?.[i]));
     const fanout = (next: number[]) => values.map(() => next);
 
+    // Emit the whole vector only when every component currently parses to finite.
+    const emit = (texts: string[], commit: boolean) => {
+      if (texts.some((t) => t.trim() === "" || !Number.isFinite(Number(t)))) return;
+      (commit ? onCommit : onPreview)(fanout(texts.map(Number)));
+    };
     const setComp = (i: number, raw: string, commit: boolean) => {
-      const num = Number(raw);
-      if (raw.trim() === "" || !Number.isFinite(num)) return;
-      const next = draft.slice();
-      next[i] = num;
-      setDraft(next);
-      (commit ? onCommit : onPreview)(fanout(next));
+      const next = text.slice();
+      next[i] = raw;
+      setText(next);
+      emit(next, commit);
     };
     return (
       <FieldRow path={path}>
@@ -36,25 +40,30 @@ export function makeVecField(n: number) {
             inputMode="decimal"
             title={LABELS[i]}
             placeholder={mixedAt(i) ? "—" : undefined}
-            value={mixedAt(i) && draft[i] === vec0[i] ? "" : String(draft[i])}
+            value={mixedAt(i) && text[i] === seed[i] ? "" : (text[i] ?? "")}
             onFocus={() => {
               focusedRef.current = true;
             }}
             onChange={(e) => setComp(i, e.target.value, false)}
             onKeyDown={(e) => {
               if (e.key === "Enter") {
-                // Fix A: do NOT commit here — blur fires onBlur which is the sole committer.
                 (e.target as HTMLInputElement).blur();
               } else if (e.key === "Escape") {
                 onCancel();
-                setDraft(vec0.slice(0, n));
+                setText(vec0.slice(0, n).map(String));
               }
             }}
             onBlur={(e) => {
-              // Fix B: clear focused flag before committing so the re-seed effect
-              // can run on the next render if no other input in the row is focused.
               focusedRef.current = false;
-              setComp(i, e.target.value, true);
+              const raw = e.target.value;
+              // Invalid leftover on blur: revert just this component to committed.
+              if (raw.trim() === "" || !Number.isFinite(Number(raw))) {
+                const next = text.slice();
+                next[i] = seed[i] ?? "";
+                setText(next);
+              } else {
+                setComp(i, raw, true);
+              }
             }}
           />
         ))}
