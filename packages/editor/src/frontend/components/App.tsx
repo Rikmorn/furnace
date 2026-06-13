@@ -9,6 +9,7 @@ import type { ViewportHost } from "../../viewport-host/index.ts"; // type-only
 import { ApiClientError, api, type ComponentEdit } from "../lib/api.ts";
 import { EngineBuildError, loadEngine } from "../lib/engine.ts";
 import { subscribeEvents } from "../lib/events.ts";
+import { clickMode } from "../lib/selection.ts";
 import { initialState, reduce } from "../lib/state.ts";
 import { EditorContext, type EditorActions, type EditorContextValue } from "./editor-context.ts";
 import { EntitiesPanel } from "./EntitiesPanel.tsx";
@@ -32,6 +33,18 @@ export function App() {
   const hostRef = useRef<ViewportHost | undefined>(undefined);
   const lastLoaded = useRef<{ path?: string; revision?: number }>({});
 
+  // Hoisted so both `actions.commitComponents`/`commitSettings` and the host
+  // onTransformCommit callback can suppress their own SSE echoes identically.
+  // Stable: closes only over the lastLoaded ref, whose identity never changes.
+  const suppressEcho = useCallback((result: { revision: number }) => {
+    // Record the just-produced revision so the SSE echo skips the reload —
+    // the viewport already shows it via the local preview.
+    lastLoaded.current = {
+      path: lastLoaded.current.path,
+      revision: result.revision,
+    };
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -43,6 +56,29 @@ export function App() {
         const engine = await loadEngine();
         if (cancelled) return;
         hostRef.current = engine.createViewportHost();
+        hostRef.current.setCallbacks({
+          onSelect: (entityId, mods) => {
+            if (entityId === null) {
+              dispatch({ type: "clear-selection" });
+              return;
+            }
+            dispatch({ type: "select-entity", id: entityId, mode: clickMode(mods) });
+          },
+          onTransformCommit: (edits) => {
+            const ces: ComponentEdit[] = edits.map((e) => ({
+              entity: e.entityId,
+              component: "transform",
+              params: e.transform,
+            }));
+            const first = ces[0];
+            if (first === undefined) return;
+            const p =
+              ces.length === 1
+                ? api.setComponent(first.entity, first.component, first.params)
+                : api.setComponentMany(ces);
+            void p.then(suppressEcho);
+          },
+        });
         dispatch({ type: "engine-ready" });
         const { scenes } = await api.sceneList();
         if (!cancelled) dispatch({ type: "scenes", scenes });
@@ -94,16 +130,7 @@ export function App() {
   }, []);
 
   const actions = useMemo<EditorActions>(
-    () => {
-      const suppressEcho = (result: { revision: number }) => {
-        // Record the just-produced revision so the SSE echo skips the reload —
-        // the viewport already shows it via the local preview.
-        lastLoaded.current = {
-          path: lastLoaded.current.path,
-          revision: result.revision,
-        };
-      };
-      return {
+    () => ({
         previewEntity: (id, component, params) =>
           hostRef.current?.previewEntity(id, component, params),
         // Boundary cast: settings is unknown at this layer; ViewportHost.previewSettings
@@ -129,9 +156,8 @@ export function App() {
           const result = await api.setSettings(settings);
           suppressEcho(result);
         },
-      };
-    },
-    [],
+      }),
+    [suppressEcho],
   );
 
   useEffect(() => {
@@ -150,6 +176,12 @@ export function App() {
       },
     });
   }, [state.status, refreshSession]);
+
+  // Keep the host's selection in sync so highlight boxes and the gizmo origin
+  // always track the chrome selection state.
+  useEffect(() => {
+    hostRef.current?.setSelection(state.selectedEntities);
+  }, [state.selectedEntities]);
 
   const selectScene = useCallback(
     async (path: string) => {

@@ -35,7 +35,8 @@ export type EditorEvent =
     }
   | { type: "scene-error"; message: string }
   | { type: "file-invalid"; message: string }
-  | { type: "select-entity"; id: string; mode: "replace" | "toggle" | "range" };
+  | { type: "select-entity"; id: string; mode: "replace" | "toggle" | "range" }
+  | { type: "clear-selection" };
 
 export const initialState: EditorState = {
   status: "booting",
@@ -104,5 +105,7 @@ export function reduce(s: EditorState, e: EditorEvent): EditorState {
       }
       return { ...s, selectedEntities: [e.id], selectionAnchor: e.id };
     }
+    case "clear-selection":
+      return { ...s, selectedEntities: [], selectionAnchor: undefined };
   }
 }

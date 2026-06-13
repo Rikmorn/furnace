@@ -91,9 +91,11 @@ export type ViewportHost = {
    */
   setSelection(entityIds: string[]): void;
   /**
-   * Register chrome callbacks for selection and transform-commit events. Must be
-   * called after `init`. `onTransformCommit` receives an array so a multi-entity
-   * gizmo drag produces a single undo entry (Tasks 13+14 depend on this shape).
+   * Register chrome callbacks for selection and transform-commit events. May be
+   * called before or after `init` — the callbacks are latched immediately and
+   * take effect once `init` has wired the pointer/gizmo event handlers.
+   * `onTransformCommit` receives an array so a multi-entity gizmo drag produces
+   * a single undo entry (Tasks 13+14 depend on this shape).
    */
   setCallbacks(cb: ViewportCallbacks): void;
   introspect(): SceneSchemaReflection;
