@@ -455,13 +455,28 @@ export function createViewportHost(): ViewportHost {
 
   // Commit the drag as ONE array of edits (one undo entry for a multi-entity
   // drag). currentTransform reads the stored lastPos so commit == final preview.
+  // Guard: if no pointermove ever fired (lastPos empty) the entities never moved —
+  // skip the commit entirely (no revision bump, no empty undo entry). Spec §4.
   const commitGizmoDrag = (): void => {
     if (!gizmoDrag) return;
-    const edits = selection.map((id) => ({
-      entityId: id,
-      transform: currentTransform(id),
-    }));
-    if (edits.length > 0) callbacks?.onTransformCommit(edits);
+    if (gizmoDrag.lastPos.size > 0) {
+      const edits = selection.map((id) => ({
+        entityId: id,
+        transform: currentTransform(id),
+      }));
+      // Fold the just-committed positions into committedDoc synchronously so a
+      // second drag's committedTransform baseline is already at P1 — not the
+      // stale P0 that would persist until the async SSE syncCommitted arrives.
+      if (committedDoc) {
+        const next = structuredClone(committedDoc);
+        for (const e of edits) {
+          const ent = next.entities.find((x) => x.id === e.entityId);
+          if (ent) ent.components["transform"] = e.transform;
+        }
+        committedDoc = next;
+      }
+      if (edits.length > 0) callbacks?.onTransformCommit(edits);
+    }
     canvasEl?.releasePointerCapture(gizmoDrag.pointerId);
     gizmoDrag = null;
   };

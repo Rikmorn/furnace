@@ -62,7 +62,11 @@ export function App() {
               dispatch({ type: "clear-selection" });
               return;
             }
-            dispatch({ type: "select-entity", id: entityId, mode: clickMode(mods) });
+            const mode = clickMode(mods);
+            // Spec §4: range-select is an EntitiesPanel-only affordance (no 3D
+            // ordering). Shift in the viewport behaves like a plain replace.
+            const viewportMode = mode === "range" ? "replace" : mode;
+            dispatch({ type: "select-entity", id: entityId, mode: viewportMode });
           },
           onTransformCommit: (edits) => {
             const ces: ComponentEdit[] = edits.map((e) => ({
