@@ -21,18 +21,25 @@ export function QuatField({ schema, values, onPreview, onCommit, onCancel, path 
     if (!focusedRef.current) setText(euler0.map(String));
   }, [JSON.stringify(q0)]);
   const mixed = isMixed(values);
-  const fanout = (e: [number, number, number]) => values.map(() => eulerDegToQuat(e));
 
-  // Emit only when all three components parse to finite numbers.
-  const emit = (texts: string[], commit: boolean) => {
-    if (texts.some((t) => t.trim() === "" || !Number.isFinite(Number(t)))) return;
-    (commit ? onCommit : onPreview)(fanout(texts.map(Number) as [number, number, number]));
+  // Emit a single euler component change: each target converts its own quat to euler,
+  // sets component i, then converts back — preserving each target's other euler components.
+  const emitComp = (i: number, raw: string, commit: boolean) => {
+    if (raw.trim() === "" || !Number.isFinite(Number(raw))) return;
+    const next = values.map((q) => {
+      const e = quatToEulerDeg(
+        (q as [number, number, number, number]) ?? [0, 0, 0, 1],
+      ) as [number, number, number];
+      e[i] = Number(raw);
+      return eulerDegToQuat(e);
+    });
+    (commit ? onCommit : onPreview)(next);
   };
   const setComp = (i: number, raw: string, commit: boolean) => {
     const next = text.slice();
     next[i] = raw;
     setText(next);
-    emit(next, commit);
+    emitComp(i, raw, commit);
   };
   return (
     <FieldRow path={path}>

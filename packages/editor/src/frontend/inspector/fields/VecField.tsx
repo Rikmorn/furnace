@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { isMixed } from "../lib/mixed.ts";
+import { fanComponent } from "../lib/vec-fan.ts";
 import type { FieldProps } from "../types.ts";
 import { FieldRow, inputCls } from "./common.tsx";
 
@@ -19,18 +20,17 @@ export function makeVecField(n: number) {
       if (!focusedRef.current) setText(vec0.slice(0, n).map(String));
     }, [JSON.stringify(vec0)]);
     const mixedAt = (i: number) => isMixed(values.map((v) => (v as number[])?.[i]));
-    const fanout = (next: number[]) => values.map(() => next);
 
-    // Emit the whole vector only when every component currently parses to finite.
-    const emit = (texts: string[], commit: boolean) => {
-      if (texts.some((t) => t.trim() === "" || !Number.isFinite(Number(t)))) return;
-      (commit ? onCommit : onPreview)(fanout(texts.map(Number)));
+    // Emit a single component change: preserves every target's own other components.
+    const emitComp = (i: number, raw: string, commit: boolean) => {
+      if (raw.trim() === "" || !Number.isFinite(Number(raw))) return;
+      (commit ? onCommit : onPreview)(fanComponent(values, i, Number(raw), n));
     };
     const setComp = (i: number, raw: string, commit: boolean) => {
       const next = text.slice();
       next[i] = raw;
       setText(next);
-      emit(next, commit);
+      emitComp(i, raw, commit);
     };
     return (
       <FieldRow path={path}>
