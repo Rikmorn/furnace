@@ -33,6 +33,16 @@ The GPU-id path is the industry standard (Unity, Godot, Blender all use it). The
 
 **9. Settings-revert gap** — M5A has no `revertSettings` on `ViewportHost`. When the user previews a settings field (e.g. `clearColor`) and then presses Escape, the `onCancel` handler in `InspectPanel.tsx` is a no-op: the preview stays in the engine until the next `document-changed` SSE event reloads the scene. Entity edits revert cleanly via `revertEntity`; settings edits do not. The fix is a `revertSettings()` method on `ViewportHost` that restores `loaded.settings` from the committed doc's settings and re-renders. The gap is noted inline in `InspectPanel.tsx` (`onCancel` comment).
 
+### Discovered during the M5A live visual gate (2026-06-13)
+
+These three are inspector display/semantics refinements surfaced by driving the as-shipped inspector in a browser. None block M5A (the core editable-inspector flow works); each is a papercut.
+
+**10. Omitted optional fields render as `0`, not the engine default** — the cube's `transform` is `{}` in `editor-cube.scene.json` (position/rotation/scale all omitted; the engine defaults them to `[0,0,0]`/identity/`[1,1,1]`). The inspector shows `scale` as `0,0,0` because `VecField` falls back to `new Array(n).fill(0)` for an absent value, and `introspect()` does not carry the schema/engine default. This is misleading (scale `0` would make the cube invisible) and a footgun if the user edits the field. Fix needs `introspect()` to expose each field's default (zod `.default()` / engine default), and the renderers to seed from it when the document omits the value. Note: editing one field does NOT write the others — only the edited field is sent — so committing a `position` edit does not accidentally zero `scale`.
+
+**11. Vector multi-edit forces non-edited components to the first target's values** — editing one component of a vector (e.g. `position.y`) on a multi-selection sends the WHOLE vector `[x, y, z]` to all N targets, where `x`/`z` come from `values[0]` (the first selected entity in doc order). So multi-selecting two entities with different `position.x` and editing only `y` clobbers both to the first entity's `x`/`z`. This follows from the whole-component mutation model (spec §6) and the mixed `—` indicator correctly warns the components differ, but per-component multi-edit (preserve each target's own x/z; only set the edited subcomponent) would be less surprising for vectors. Consider a per-component fan in `VecField`/`QuatField` for the multi-target case.
+
+**12. `ColorField` commits on blur even when unchanged** — focusing then blurring a color swatch without changing it still fires `onCommit`, producing a no-op revision bump + undo entry (observed: rev 0→1 from an incidental focus/blur on `clearColor`). Guard the commit on an actual value change (compare against the committed value before emitting), matching the other renderers' "don't emit a no-op" posture.
+
 ## Trigger to revisit
 
 When viewport interaction (picking, gizmos) becomes the next editor priority, or when continuous-scrub performance is observed to be a problem in the as-shipped M5A inspector. Items 5 (echo-suppression guard) and 9 (settings-revert gap) are the clearest day-one papercuts — they surface as real UX friction as soon as the inspector is in daily use.
