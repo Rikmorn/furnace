@@ -228,11 +228,11 @@ Both are editor live-preview seams. They are not safe to call after `loaded.dest
 
 ### 10.5 Inspector module — `frontend/inspector/`
 
-The inspector is a **self-contained, swappable boundary**: the chrome consumes it only through `<SchemaForm>` and the types in `index.tsx`. Input is standard JSON Schema (with furnace-specific `meta.furnace.kind`) plus N target values plus change callbacks; output is rendered controls. Swapping the inspector library touches only this directory.
+The inspector is a **self-contained, swappable boundary**: the chrome consumes it only through `<SchemaForm>` and the types in `index.tsx`. Input is standard JSON Schema (with a root-level `furnace` field-semantics key) plus N target values plus change callbacks; output is rendered controls. Swapping the inspector library touches only this directory.
 
 **JSON Schema contract (`types.ts`).** The inspector's `JsonSchemaNode` is a plain frontend-local type (structurally equivalent to what `scene.introspect()` returns, cast at the boundary in `InspectPanel.tsx`). The module must not value-import `@furnace/core` — enforced by `packages/editor/tests/frontend-no-engine-leakage.test.ts`.
 
-**Kind resolution (`kind.ts`).** `resolveKind(schema)` maps a schema node to a `FieldKind` in priority order: `meta.furnace.kind` (for furnace-specific kinds) → `enum` presence → JSON type string → `"unknown"`. The furnace kinds handled: `vec2`, `vec3`, `vec4`, `quat`, `color`, `resource`, `ref`.
+**Kind resolution (`kind.ts`).** `resolveKind(schema)` maps a schema node to a `FieldKind` in priority order: `schema.furnace.kind` (for furnace-specific kinds) → `enum` presence → JSON type string → `"unknown"`. The furnace kinds handled: `vec2`, `vec3`, `vec4`, `quat`, `color`, `resource`, `ref`. **Note:** `furnace` sits at the schema-node ROOT, not nested under `meta` — `z.toJSONSchema` hoists zod's `.meta({ furnace })` to the node root. (Reading it from `meta` was the M5A holistic-review CRITICAL bug.)
 
 **Kind→renderer registry (`registry.tsx`).** A `Partial<Record<FieldKind, FieldRenderer>>` maps each kind to its React component. Current registry (verified against source):
 
