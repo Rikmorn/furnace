@@ -1,4 +1,5 @@
 import { cn } from "../lib/cn.ts";
+import { clickMode } from "../lib/selection.ts";
 import { useEditor } from "./editor-context.ts";
 
 export function EntitiesPanel() {
@@ -13,9 +14,12 @@ export function EntitiesPanel() {
             type="button"
             className={cn(
               "w-full rounded px-2 py-1 text-left text-sm hover:bg-neutral-800",
-              state.selectedEntities.includes(e.id) && "bg-neutral-800 text-emerald-300",
+              state.selectedEntities.includes(e.id) &&
+                "bg-neutral-800 text-emerald-300",
             )}
-            onClick={() => dispatch({ type: "select-entity", id: e.id, mode: "replace" })}
+            onClick={(ev) =>
+              dispatch({ type: "select-entity", id: e.id, mode: clickMode(ev) })
+            }
           >
             {e.id}
           </button>
