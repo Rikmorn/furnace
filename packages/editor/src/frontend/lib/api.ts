@@ -39,9 +39,31 @@ async function call<T>(command: string, input: unknown): Promise<T> {
   return body;
 }
 
+export type MutationResult = { revision: number; dirty: boolean };
+export type ComponentEdit = {
+  entity: string;
+  component: string;
+  params: Record<string, unknown>;
+};
+
 export const api = {
   sceneList: () => call<{ scenes: string[] }>("scene.list", {}),
   sceneOpen: (path: string, force = false) =>
     call<SessionView>("scene.open", { path, force }),
   sceneGet: () => call<SessionView>("scene.get", {}),
+  setComponent: (
+    entity: string,
+    component: string,
+    params: Record<string, unknown>,
+  ) =>
+    call<MutationResult>("scene.setComponent", { entity, component, params }),
+  setComponentMany: (edits: ComponentEdit[]) =>
+    call<MutationResult>("scene.batch", { edits }),
+  setResource: (table: string, id: string, entry: Record<string, unknown>) =>
+    call<MutationResult>("scene.setResource", { table, id, entry }),
+  setSettings: (settings: unknown) =>
+    call<MutationResult>("scene.setSettings", { settings }),
+  undo: () => call<MutationResult>("scene.undo", {}),
+  redo: () => call<MutationResult>("scene.redo", {}),
+  save: () => call<MutationResult>("scene.save", {}),
 };
