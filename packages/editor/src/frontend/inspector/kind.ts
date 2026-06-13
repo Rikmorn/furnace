@@ -12,7 +12,7 @@ const FURNACE_KINDS = new Set([
 
 /** Resolve a schema node to a field kind. Order: furnace.kind → enum → JSON type → unknown. */
 export function resolveKind(schema: JsonSchemaNode): FieldKind {
-  const furnace = schema.meta?.furnace?.kind;
+  const furnace = schema.furnace?.kind;
   if (furnace && FURNACE_KINDS.has(furnace)) return furnace as FieldKind;
   if (Array.isArray(schema.enum) && schema.enum.length > 0) return "enum";
   const type = Array.isArray(schema.type) ? schema.type[0] : schema.type;

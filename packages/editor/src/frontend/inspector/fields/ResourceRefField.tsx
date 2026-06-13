@@ -4,7 +4,7 @@ import type { FieldProps } from "../types.ts";
 import { FieldRow, inputCls } from "./common.tsx";
 
 export function ResourceRefField({ schema, values, onCommit, path }: FieldProps) {
-  const table = String(schema.meta?.furnace?.table ?? "");
+  const table = String(schema.furnace?.table ?? "");
   const { resourceIds } = useInspectorOptions();
   const ids = resourceIds(table);
   const mixed = isMixed(values);
