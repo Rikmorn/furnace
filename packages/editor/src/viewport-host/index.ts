@@ -15,8 +15,23 @@ import { boxEdges } from "./box-edges.ts";
 import {
   fromEyeTarget,
   type OrbitState,
+  orbit,
+  pan,
   toEyeTarget,
+  zoom,
 } from "./camera-control.ts";
+import { classifyDrag, type DragAction } from "./input-map.ts";
+
+/** Callbacks registered by the chrome via `ViewportHost.setCallbacks`. */
+export type ViewportCallbacks = {
+  onSelect: (
+    entityId: string | null,
+    mods: { metaKey: boolean; ctrlKey: boolean; shiftKey: boolean },
+  ) => void;
+  onTransformCommit: (
+    edits: { entityId: string; transform: Record<string, unknown> }[],
+  ) => void;
+};
 
 /**
  * The chrome↔engine protocol. The editor chrome (which contains no engine
@@ -68,6 +83,12 @@ export type ViewportHost = {
    * entity. Pass an empty array to clear the selection highlight.
    */
   setSelection(entityIds: string[]): void;
+  /**
+   * Register chrome callbacks for selection and transform-commit events. Must be
+   * called after `init`. `onTransformCommit` receives an array so a multi-entity
+   * gizmo drag produces a single undo entry (Tasks 13+14 depend on this shape).
+   */
+  setCallbacks(cb: ViewportCallbacks): void;
   introspect(): SceneSchemaReflection;
   destroy(): void;
 };
@@ -106,6 +127,16 @@ export function createViewportHost(): ViewportHost {
   let orbitState: OrbitState | undefined;
   // Reassigned wholesale on every setSelection call (replace-not-mutate).
   let selection: string[] = [];
+
+  // Chrome callbacks registered via setCallbacks; undefined until called.
+  let callbacks: ViewportCallbacks | undefined;
+  // Canvas element stored at init time for event attachment and capture.
+  let canvasEl: HTMLCanvasElement | undefined;
+  // Active pointer drag state; null when no drag is in progress.
+  let drag: { action: DragAction; lastX: number; lastY: number } | null = null;
+
+  const ORBIT_SPEED = 0.01;
+  const PAN_SPEED = 0.002;
 
   const requireCtx = (): Context => {
     if (!ctx)
@@ -193,10 +224,123 @@ export function createViewportHost(): ViewportHost {
     renderLoaded(c, loaded);
   };
 
+  const toNdc = (clientX: number, clientY: number): [number, number] => {
+    if (!canvasEl) return [0, 0];
+    const r = canvasEl.getBoundingClientRect();
+    const x = ((clientX - r.left) / r.width) * 2 - 1;
+    const y = -(((clientY - r.top) / r.height) * 2 - 1);
+    return [x, y];
+  };
+
+  const frameSelected = (): void => {
+    if (!loaded || !orbitState) return;
+    const ids = selection;
+    if (ids.length === 0) return;
+    let cx = 0;
+    let cy = 0;
+    let cz = 0;
+    let n = 0;
+    for (const id of ids) {
+      const c = loaded.entityBoxCorners(id);
+      if (!c) continue;
+      for (let k = 0; k < 8; k++) {
+        cx += c[k * 3] as number;
+        cy += c[k * 3 + 1] as number;
+        cz += c[k * 3 + 2] as number;
+      }
+      n += 8;
+    }
+    if (n === 0) return;
+    orbitState = { ...orbitState, target: [cx / n, cy / n, cz / n] };
+    applyOrbit();
+    if (ctx) renderLoaded(ctx, loaded);
+  };
+
+  const onPointerDown = (e: PointerEvent): void => {
+    if (!ctx || !loaded || !editorCam) return;
+    // Task 13 inserts a gizmo hit-test here FIRST (gizmo pick-priority), returning early on a handle hit.
+    const action = classifyDrag({
+      button: e.button,
+      altKey: e.altKey,
+      shiftKey: e.shiftKey,
+    });
+    if (action === "select") {
+      const [nx, ny] = toNdc(e.clientX, e.clientY);
+      void loaded.pick(ctx, editorCam, nx, ny).then((id) => {
+        callbacks?.onSelect(id, {
+          metaKey: e.metaKey,
+          ctrlKey: e.ctrlKey,
+          shiftKey: e.shiftKey,
+        });
+      });
+      return;
+    }
+    drag = { action, lastX: e.clientX, lastY: e.clientY };
+    canvasEl?.setPointerCapture(e.pointerId);
+  };
+
+  const onPointerMove = (e: PointerEvent): void => {
+    if (!drag || !orbitState || !editorCam || !ctx || !loaded) return;
+    const dx = e.clientX - drag.lastX;
+    const dy = e.clientY - drag.lastY;
+    drag.lastX = e.clientX;
+    drag.lastY = e.clientY;
+    if (drag.action === "orbit") {
+      // Negate so a rightward/downward drag orbits the camera the intuitive way (drag the world, not the camera).
+      orbitState = orbit(orbitState, -dx * ORBIT_SPEED, -dy * ORBIT_SPEED);
+    } else if (drag.action === "pan") {
+      // view matrix is world→view; its rows give the camera basis in world space.
+      const m = camera.getMatrices(editorCam).view;
+      const right: [number, number, number] = [
+        m[0] as number,
+        m[4] as number,
+        m[8] as number,
+      ];
+      const up: [number, number, number] = [
+        m[1] as number,
+        m[5] as number,
+        m[9] as number,
+      ];
+      orbitState = pan(orbitState, dx, dy, right, up, PAN_SPEED);
+    }
+    applyOrbit();
+    renderLoaded(ctx, loaded);
+  };
+
+  const onPointerUp = (e: PointerEvent): void => {
+    if (!drag) return;
+    canvasEl?.releasePointerCapture(e.pointerId);
+    drag = null;
+  };
+
+  const onWheel = (e: WheelEvent): void => {
+    if (!orbitState || !ctx || !loaded) return;
+    e.preventDefault();
+    orbitState = zoom(orbitState, Math.sign(e.deltaY));
+    applyOrbit();
+    renderLoaded(ctx, loaded);
+  };
+
+  const onKeyDown = (e: KeyboardEvent): void => {
+    if (e.key === "f" || e.key === "F") frameSelected();
+  };
+
   return {
     async init(canvas, gpuOptions) {
       if (ctx) throw new Error("viewport-host: already initialized");
       ctx = await gpu.requestContext(canvas, gpuOptions);
+      // Guard: test mocks (OffscreenCanvas cast as HTMLCanvasElement) don't
+      // expose addEventListener — only attach in real browser environments.
+      if (typeof canvas.addEventListener === "function") {
+        canvasEl = canvas;
+        canvas.addEventListener("pointerdown", onPointerDown);
+        canvas.addEventListener("pointermove", onPointerMove);
+        canvas.addEventListener("pointerup", onPointerUp);
+        canvas.addEventListener("pointercancel", onPointerUp);
+        canvas.addEventListener("wheel", onWheel, { passive: false });
+        canvas.tabIndex = 0; // so the canvas can receive key events
+        canvas.addEventListener("keydown", onKeyDown);
+      }
       // Flush any scene queued before init resolved (SSE-driven load race).
       if (pendingDoc !== undefined) {
         const d = pendingDoc;
@@ -276,8 +420,20 @@ export function createViewportHost(): ViewportHost {
     syncCommitted(doc) {
       committedDoc = doc;
     },
+    setCallbacks(cb) {
+      callbacks = cb;
+    },
     introspect: () => scene.introspect(),
     destroy() {
+      if (canvasEl) {
+        canvasEl.removeEventListener("pointerdown", onPointerDown);
+        canvasEl.removeEventListener("pointermove", onPointerMove);
+        canvasEl.removeEventListener("pointerup", onPointerUp);
+        canvasEl.removeEventListener("pointercancel", onPointerUp);
+        canvasEl.removeEventListener("wheel", onWheel);
+        canvasEl.removeEventListener("keydown", onKeyDown);
+        canvasEl = undefined;
+      }
       unbindCamera?.();
       unbindCamera = undefined;
       unbindResize?.();
@@ -287,6 +443,8 @@ export function createViewportHost(): ViewportHost {
       committedDoc = undefined;
       editorCam = undefined;
       orbitState = undefined;
+      callbacks = undefined;
+      drag = null;
       if (ctx) gpu.dispose(ctx);
       ctx = undefined;
     },
