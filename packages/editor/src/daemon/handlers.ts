@@ -195,6 +195,35 @@ export function createHandlers(ctx: HandlerContext): Handlers {
     },
   });
 
+  handlers.set("scene.batch", {
+    input: z.strictObject({
+      edits: z
+        .array(
+          z.strictObject({
+            entity: z.string(),
+            component: z.string(),
+            params: componentsRecord,
+          }),
+        )
+        .min(1),
+    }),
+    run: async (input) => {
+      const { edits } = input as {
+        edits: {
+          entity: string;
+          component: string;
+          params: Record<string, unknown>;
+        }[];
+      };
+      const { revision, dirty } = await session.apply("scene.batch", (doc) => {
+        for (const e of edits) {
+          mutations.setComponent(doc, e.entity, e.component, e.params);
+        }
+      });
+      return { revision, dirty };
+    },
+  });
+
   handlers.set("scene.undo", {
     input: z.strictObject({}),
     run: () => {

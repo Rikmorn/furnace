@@ -138,3 +138,73 @@ test("scene.validate: file path and inline document; exactly one required", asyn
     code: "invalid-input",
   });
 });
+
+test("scene.batch applies all edits in one snapshot (one undo reverts all)", async () => {
+  await dispatch(handlers, "scene.open", {
+    path: "scenes/cube.scene.json",
+    force: true,
+  });
+  await dispatch(handlers, "scene.addEntity", {
+    id: "ba",
+    components: { transform: { position: [0, 0, 0] } },
+  });
+  await dispatch(handlers, "scene.addEntity", {
+    id: "bb",
+    components: { transform: { position: [0, 0, 0] } },
+  });
+  const before = (await dispatch(handlers, "scene.get", {})) as {
+    document: {
+      entities: { id: string; components: Record<string, unknown> }[];
+    };
+    revision: number;
+  };
+  const r = (await dispatch(handlers, "scene.batch", {
+    edits: [
+      { entity: "ba", component: "transform", params: { position: [1, 0, 0] } },
+      { entity: "bb", component: "transform", params: { position: [2, 0, 0] } },
+    ],
+  })) as { revision: number; dirty: boolean };
+  expect(r.revision).toBe(before.revision + 1); // ONE revision bump for two edits
+
+  await dispatch(handlers, "scene.undo", {});
+  const after = (await dispatch(handlers, "scene.get", {})) as {
+    document: {
+      entities: { id: string; components: Record<string, unknown> }[];
+    };
+  };
+  expect(after.document.entities).toEqual(before.document.entities); // one undo reverts BOTH
+});
+
+test("scene.batch rejects the whole batch if any edit is invalid (session untouched)", async () => {
+  await dispatch(handlers, "scene.open", {
+    path: "scenes/cube.scene.json",
+    force: true,
+  });
+  await dispatch(handlers, "scene.addEntity", {
+    id: "rb",
+    components: { transform: { position: [0, 0, 0] } },
+  });
+  const before = (await dispatch(handlers, "scene.get", {})) as {
+    revision: number;
+  };
+  await expect(
+    dispatch(handlers, "scene.batch", {
+      edits: [
+        {
+          entity: "rb",
+          component: "transform",
+          params: { position: [9, 0, 0] },
+        },
+        {
+          entity: "ghost",
+          component: "transform",
+          params: { position: [0, 0, 0] },
+        },
+      ],
+    }),
+  ).rejects.toMatchObject({ code: "validation-failed" });
+  const after = (await dispatch(handlers, "scene.get", {})) as {
+    revision: number;
+  };
+  expect(after.revision).toBe(before.revision); // no partial apply
+});
