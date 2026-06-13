@@ -32,4 +32,5 @@ export {
   projectToScreen,
   type ScreenProjection,
 } from "./project.ts";
+export { type Ray, screenToRay } from "./ray.ts";
 export type { Camera, CameraMatrices } from "./types.ts";

@@ -236,6 +236,7 @@ Re-exported from `index.ts` so other core modules can `import * as stats` and ca
 | `policy.preserveWidth` | `(width: number, anchor?: Anchor) => FitPolicy` | Construct a preserve-width policy. Mirror of `preserveHeight`. Same validation. |
 | `getMatrices` | `(cam: Camera) => CameraMatrices` | Recomputes only dirty matrices. Returns the same frozen `{ view, projection, viewProjection }` wrapper across calls (inner `Float32Array`s are stable; mutated in place). |
 | `projectToScreen` | `(out: ScreenProjection, cam: Camera, worldPoint: Vec3, viewportWidth: number, viewportHeight: number) => boolean` | Projects a world-space point to canvas-relative screen pixels. Returns `true` if in front of camera, `false` if behind (out left untouched). Viewport dimensions are CSS pixels — pass `canvas.clientWidth`/`canvas.clientHeight`. Out-param pattern matches `transform.*` math helpers. Mutates `out` with `{ x, y, w }` where `x`/`y` are CSS pixels (top-left origin) and `w` is the clip-space divisor. |
+| `screenToRay` | `(cam: Camera, ndcX: number, ndcY: number) => Ray` | Unprojects a normalized-device-coordinate cursor position (`ndcX`/`ndcY` in `[-1, 1]`, Y-up) into a world-space ray. Returns `{ origin, dir }` where `origin` is the near-plane point and `dir` is normalized. Geometric counterpart of `projectToScreen` (unprojects via the inverse view-projection). Returns a degenerate ray (`dir ≈ 0`) only if the view-projection is singular. Used for viewport picking and gizmo hit-testing. Allocates a fresh `Ray` per call; scratch buffers for the inverse-VP computation are reused. |
 | `PerspectiveOptions` | `{ fovYRad?; aspect?; near?; far?; position?; target?; up? }` | See defaults above. |
 | `OrthographicOptions` | `{ fitPolicy?; scale?; near?; far?; position?; target?; up? }` | See defaults above. `fitPolicy` defaults to a `stretch` policy with unit bounds; `scale` defaults to 1. |
 | `OrthographicBounds` | `{ left: number; right: number; bottom: number; top: number }` | Shape returned by `getBounds` and accepted by `policy.stretch`. Use this type when composing helpers that receive or forward bounds. |
@@ -244,6 +245,7 @@ Re-exported from `index.ts` so other core modules can `import * as stats` and ca
 | `Camera` | mutable data record (position, target, up, projection union, cached matrices, dirty flags) | See `camera/types.ts`. A **value-type** (mutable data record), not a handle. Mutate via the camera setters; read via the getters / `getMatrices`. Owns no GPU resources. |
 | `CameraMatrices` | `Readonly<{ view: Mat4; projection: Mat4; viewProjection: Mat4 }>` | The wrapper returned by `getMatrices`. |
 | `ScreenProjection` | `{ x: number; y: number; w: number }` | Out-param for `projectToScreen`. `x`/`y` are CSS pixels (origin top-left), `w` is clip-space divisor (useful for distance-based label sizing). |
+| `Ray` | `{ origin: Vec3; dir: Vec3 }` | World-space ray returned by `screenToRay`. `origin` is a `Float32Array(3)` near-plane point; `dir` is a normalized `Float32Array(3)` direction. |
 
 ### Demoed in cookbook
 
