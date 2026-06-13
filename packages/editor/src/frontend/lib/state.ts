@@ -7,7 +7,8 @@ export type EditorState = {
   scenes: string[];
   selectedScene?: string;
   doc?: SceneDocument;
-  selectedEntity?: string;
+  selectedEntities: string[];
+  selectionAnchor?: string;
   loading: boolean;
   error?: string;
   /** Daemon session read-model fields (undefined until a scene is open). */
@@ -34,11 +35,12 @@ export type EditorEvent =
     }
   | { type: "scene-error"; message: string }
   | { type: "file-invalid"; message: string }
-  | { type: "select-entity"; id: string };
+  | { type: "select-entity"; id: string; mode: "replace" | "toggle" | "range" };
 
 export const initialState: EditorState = {
   status: "booting",
   scenes: [],
+  selectedEntities: [],
   loading: false,
   dirty: false,
   conflict: false,
@@ -58,11 +60,8 @@ export function reduce(s: EditorState, e: EditorEvent): EditorState {
     case "scene-loading":
       return { ...s, loading: true, selectedScene: e.path, error: undefined };
     case "session-updated": {
-      const selectedEntity = e.doc.entities.some(
-        (entity) => entity.id === s.selectedEntity,
-      )
-        ? s.selectedEntity
-        : undefined;
+      const ids = new Set(e.doc.entities.map((entity) => entity.id));
+      const selectedEntities = s.selectedEntities.filter((id) => ids.has(id));
       return {
         ...s,
         loading: false,
@@ -71,7 +70,10 @@ export function reduce(s: EditorState, e: EditorEvent): EditorState {
         revision: e.revision,
         dirty: e.dirty,
         conflict: e.conflict,
-        selectedEntity,
+        selectedEntities,
+        selectionAnchor: ids.has(s.selectionAnchor ?? "")
+          ? s.selectionAnchor
+          : undefined,
         error: undefined,
         notice: undefined,
       };
@@ -80,7 +82,27 @@ export function reduce(s: EditorState, e: EditorEvent): EditorState {
       return { ...s, loading: false, error: e.message }; // previous doc/viewport kept
     case "file-invalid":
       return { ...s, notice: e.message };
-    case "select-entity":
-      return { ...s, selectedEntity: e.id };
+    case "select-entity": {
+      if (e.mode === "toggle") {
+        const has = s.selectedEntities.includes(e.id);
+        return {
+          ...s,
+          selectedEntities: has
+            ? s.selectedEntities.filter((id) => id !== e.id)
+            : [...s.selectedEntities, e.id],
+          selectionAnchor: e.id,
+        };
+      }
+      if (e.mode === "range" && s.selectionAnchor && s.doc) {
+        const order = s.doc.entities.map((entity) => entity.id);
+        const from = order.indexOf(s.selectionAnchor);
+        const to = order.indexOf(e.id);
+        if (from !== -1 && to !== -1) {
+          const [lo, hi] = from <= to ? [from, to] : [to, from];
+          return { ...s, selectedEntities: order.slice(lo, hi + 1) };
+        }
+      }
+      return { ...s, selectedEntities: [e.id], selectionAnchor: e.id };
+    }
   }
 }

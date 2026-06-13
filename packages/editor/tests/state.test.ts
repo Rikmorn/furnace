@@ -83,10 +83,10 @@ test("dirty/conflict flags track the session; file-invalid is a notice", () => {
 
 test("entity selection survives updates that keep the entity, clears otherwise", () => {
   let s: EditorState = reduce(initialState, sessionUpdate());
-  s = reduce(s, { type: "select-entity", id: "cube" });
-  expect(s.selectedEntity).toBe("cube");
+  s = reduce(s, { type: "select-entity", id: "cube", mode: "replace" });
+  expect(s.selectedEntities).toEqual(["cube"]);
   s = reduce(s, sessionUpdate({ revision: 2 }));
-  expect(s.selectedEntity).toBe("cube");
+  expect(s.selectedEntities).toEqual(["cube"]);
   s = reduce(
     s,
     sessionUpdate({
@@ -94,5 +94,124 @@ test("entity selection survives updates that keep the entity, clears otherwise",
       doc: { version: 1, entities: [{ id: "other", components: {} }] },
     }),
   );
-  expect(s.selectedEntity).toBeUndefined();
+  expect(s.selectedEntities).toEqual([]);
+});
+
+test("replace select sets a single-element selection + anchor", () => {
+  let s = reduce(
+    initialState,
+    sessionUpdate({
+      doc: {
+        version: 1,
+        entities: [
+          { id: "a", components: {} },
+          { id: "b", components: {} },
+        ],
+      },
+    }),
+  );
+  s = reduce(s, { type: "select-entity", id: "a", mode: "replace" });
+  expect(s.selectedEntities).toEqual(["a"]);
+});
+
+test("toggle adds then removes without losing the rest", () => {
+  let s = reduce(
+    initialState,
+    sessionUpdate({
+      doc: {
+        version: 1,
+        entities: [
+          { id: "a", components: {} },
+          { id: "b", components: {} },
+          { id: "c", components: {} },
+        ],
+      },
+    }),
+  );
+  s = reduce(s, { type: "select-entity", id: "a", mode: "replace" });
+  s = reduce(s, { type: "select-entity", id: "c", mode: "toggle" });
+  expect(s.selectedEntities.sort()).toEqual(["a", "c"]);
+  s = reduce(s, { type: "select-entity", id: "a", mode: "toggle" });
+  expect(s.selectedEntities).toEqual(["c"]);
+});
+
+test("range selects the inclusive span from anchor to target in doc order", () => {
+  let s = reduce(
+    initialState,
+    sessionUpdate({
+      doc: {
+        version: 1,
+        entities: [
+          { id: "a", components: {} },
+          { id: "b", components: {} },
+          { id: "c", components: {} },
+          { id: "d", components: {} },
+        ],
+      },
+    }),
+  );
+  s = reduce(s, { type: "select-entity", id: "b", mode: "replace" });
+  s = reduce(s, { type: "select-entity", id: "d", mode: "range" });
+  expect(s.selectedEntities).toEqual(["b", "c", "d"]);
+});
+
+test("session-updated prunes vanished entities from the selection", () => {
+  let s = reduce(
+    initialState,
+    sessionUpdate({
+      doc: {
+        version: 1,
+        entities: [
+          { id: "a", components: {} },
+          { id: "b", components: {} },
+        ],
+      },
+    }),
+  );
+  s = reduce(s, { type: "select-entity", id: "a", mode: "replace" });
+  s = reduce(s, { type: "select-entity", id: "b", mode: "toggle" });
+  s = reduce(
+    s,
+    sessionUpdate({
+      doc: { version: 1, entities: [{ id: "b", components: {} }] },
+    }),
+  );
+  expect(s.selectedEntities).toEqual(["b"]);
+});
+
+test("replace select sets selectionAnchor to the chosen entity", () => {
+  let s = reduce(
+    initialState,
+    sessionUpdate({
+      doc: {
+        version: 1,
+        entities: [
+          { id: "a", components: {} },
+          { id: "b", components: {} },
+        ],
+      },
+    }),
+  );
+  s = reduce(s, { type: "select-entity", id: "a", mode: "replace" });
+  expect(s.selectionAnchor).toBe("a");
+});
+
+test("reverse range (anchor after target) selects the same inclusive span in doc order", () => {
+  let s = reduce(
+    initialState,
+    sessionUpdate({
+      doc: {
+        version: 1,
+        entities: [
+          { id: "a", components: {} },
+          { id: "b", components: {} },
+          { id: "c", components: {} },
+          { id: "d", components: {} },
+        ],
+      },
+    }),
+  );
+  s = reduce(s, { type: "select-entity", id: "d", mode: "replace" });
+  s = reduce(s, { type: "select-entity", id: "b", mode: "range" });
+  expect(s.selectedEntities).toEqual(["b", "c", "d"]);
 });

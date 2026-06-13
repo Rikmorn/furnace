@@ -6,7 +6,7 @@ import { JsonView } from "./JsonView.tsx";
 export function InspectPanel() {
   const { state, hostRef } = useEditor();
   const [tab, setTab] = useState<"entity" | "schemas">("entity");
-  const entity = state.doc?.entities.find((e) => e.id === state.selectedEntity);
+  const entity = state.doc?.entities.find((e) => state.selectedEntities.includes(e.id));
 
   return (
     <div className="flex h-full flex-col">
