@@ -56,6 +56,8 @@ export type ViewportHost = {
   previewSettings(settings: SceneDocument["settings"]): void;
   /** Discard any preview on `entityId`: rebuild it from the committed doc + render. */
   revertEntity(entityId: string): void;
+  /** Discard any settings preview: restore from the committed doc + render. */
+  revertSettings(): void;
   /** Adopt `doc` as the committed baseline with NO rebuild (own-commit echo already shown). */
   syncCommitted(doc: SceneDocument): void;
   /** Re-issue the render of the currently-loaded scene (on-demand redraw). The host re-renders itself on canvas resize, so callers need not invoke this for resize. No-op when nothing is loaded. */
@@ -219,6 +221,20 @@ export function createViewportHost(): ViewportHost {
     },
     previewEntity(entityId, component, params) {
       if (!ctx || !loaded || !committedDoc) return;
+      if (component === "transform") {
+        // Fast path: poke the mesh transform directly — no clone, no rebuild.
+        loaded.setEntityTransform(
+          entityId,
+          params as {
+            position?: readonly [number, number, number];
+            rotation?: readonly [number, number, number, number];
+            scale?: readonly [number, number, number];
+          },
+        ); // Boundary cast: params comes from the inspector's typed form fields;
+        // setEntityTransform's shape matches the transform component schema.
+        renderLoaded(ctx, loaded);
+        return;
+      }
       const next = structuredClone(committedDoc);
       const entity = next.entities.find((e) => e.id === entityId);
       if (!entity) return;
@@ -247,6 +263,14 @@ export function createViewportHost(): ViewportHost {
         // invariant violation — keep the last good render rather than corrupt it.
         return;
       }
+      renderLoaded(ctx, loaded);
+    },
+    revertSettings() {
+      if (!ctx || !loaded || !committedDoc) return;
+      // Boundary cast: mirrors previewSettings — restores from committed baseline.
+      loaded.setSettings(
+        (committedDoc.settings ?? {}) as LoadedScene["settings"],
+      );
       renderLoaded(ctx, loaded);
     },
     syncCommitted(doc) {
