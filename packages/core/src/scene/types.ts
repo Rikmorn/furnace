@@ -55,4 +55,14 @@ export type LoadedScene = {
   rebuildEntity: (entityId: string, doc: SceneDocument) => void;
   /** Replace scene settings (e.g. clearColor) without a rebuild; next render uses them. */
   setSettings: (settings: SceneSettings) => void;
+  /**
+   * Returns the 8 world-space AABB corners (a `Float32Array` of length 24)
+   * for the entity's mesh(es), or `null` if the entity has no renderable
+   * mesh. Corners reflect the mesh's current model matrix — call after a
+   * render (or `setEntityTransform` + render) to get an up-to-date box.
+   *
+   * Corner bit layout: bit0=x, bit1=y, bit2=z (index `c` uses
+   * `wmax.x` when `c & 1`, `wmax.y` when `c & 2`, `wmax.z` when `c & 4`).
+   */
+  entityBoxCorners: (entityId: string) => Float32Array | null;
 };

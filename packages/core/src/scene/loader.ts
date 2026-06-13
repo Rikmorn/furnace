@@ -1,7 +1,11 @@
 import type { Camera } from "../camera/types.ts";
 import { FurnaceError } from "../errors.ts";
+import type { GeometrySlot } from "../geometry/types.ts";
 import type { Context } from "../gpu/context-types.ts";
-import type { Mesh } from "../mesh/types.ts";
+import { _recomputeModelIfDirty } from "../mesh/mesh.ts";
+import type { Mesh, MeshSlot } from "../mesh/types.ts";
+import { _lookupGeometry, _lookupMesh } from "../resources/internal.ts";
+import { vec3 } from "../transform/vec3.ts";
 import {
   componentEntries,
   getResourceKind,
@@ -32,6 +36,52 @@ type EntityRecord = {
   meshes: Mesh[];
   camera?: Camera;
 };
+
+/**
+ * Union the local AABB corners of all of an entity's meshes into a single
+ * world-space AABB, then return the 8 corners as a `Float32Array(24)`.
+ * Returns `null` if the entity has no meshes or if none resolve to live slots.
+ * Corner bit layout: bit0=x, bit1=y, bit2=z.
+ */
+function entityWorldCorners(
+  ctx: Context,
+  record: EntityRecord,
+): Float32Array | null {
+  if (record.meshes.length === 0) return null;
+  const wmin = vec3.fromValues(Infinity, Infinity, Infinity);
+  const wmax = vec3.fromValues(-Infinity, -Infinity, -Infinity);
+  const p = vec3.create();
+  for (const m of record.meshes) {
+    const ms = _lookupMesh<MeshSlot>(ctx, m);
+    if (!ms) continue;
+    _recomputeModelIfDirty(ctx, ms);
+    const gs = _lookupGeometry<GeometrySlot>(ctx, ms.geometry);
+    if (!gs) continue;
+    const lo = gs.boundsMin;
+    const hi = gs.boundsMax;
+    for (let c = 0; c < 8; c++) {
+      vec3.set(
+        p,
+        c & 1 ? (hi[0] as number) : (lo[0] as number),
+        c & 2 ? (hi[1] as number) : (lo[1] as number),
+        c & 4 ? (hi[2] as number) : (lo[2] as number),
+      );
+      vec3.transformMat4(p, p, ms.modelMatrix);
+      for (let a = 0; a < 3; a++) {
+        if ((p[a] as number) < (wmin[a] as number)) wmin[a] = p[a] as number;
+        if ((p[a] as number) > (wmax[a] as number)) wmax[a] = p[a] as number;
+      }
+    }
+  }
+  if (!Number.isFinite(wmin[0] as number)) return null;
+  const out = new Float32Array(24);
+  for (let c = 0; c < 8; c++) {
+    out[c * 3 + 0] = c & 1 ? (wmax[0] as number) : (wmin[0] as number);
+    out[c * 3 + 1] = c & 2 ? (wmax[1] as number) : (wmin[1] as number);
+    out[c * 3 + 2] = c & 4 ? (wmax[2] as number) : (wmin[2] as number);
+  }
+  return out;
+}
 
 /**
  * Build a single entity's components (registration order) into its own scoped
@@ -227,6 +277,10 @@ export async function loadScene(
     },
     setSettings(next) {
       result.settings = next;
+    },
+    entityBoxCorners(entityId) {
+      const rec = records.get(entityId);
+      return rec ? entityWorldCorners(ctx, rec) : null;
     },
   };
   return result;
