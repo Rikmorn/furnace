@@ -20,6 +20,13 @@ import {
   toEyeTarget,
   zoom,
 } from "./camera-control.ts";
+import {
+  AXIS_DIR,
+  type Axis,
+  closestPointParamOnAxis,
+  pickAxis,
+  type Ray,
+} from "./gizmo.ts";
 import { classifyDrag, type DragAction } from "./input-map.ts";
 
 /** Callbacks registered by the chrome via `ViewportHost.setCallbacks`. */
@@ -93,6 +100,11 @@ export type ViewportHost = {
   destroy(): void;
 };
 
+// Vertical FOV the editor orbit camera is created with. Shared so the gizmo's
+// screen-constant axis-length math uses the exact same projection the camera
+// renders with (a divergence here would make handle hit-tests miss).
+const EDITOR_FOV_Y = Math.PI / 3;
+
 // Boundary: scene-document settings store clearColor as a hand-authored RGBA
 // tuple, but frame.render wants a Vec4 (Float32Array). Convert at the call
 // site; undefined passes through so render falls back to its own default.
@@ -134,6 +146,19 @@ export function createViewportHost(): ViewportHost {
   let canvasEl: HTMLCanvasElement | undefined;
   // Active pointer drag state; null when no drag is in progress.
   let drag: { action: DragAction; lastX: number; lastY: number } | null = null;
+  // Active translate-gizmo drag; null when no handle is being dragged. `startPos`
+  // is the gizmo origin (selection centroid) captured at grab time so the axis
+  // line stays fixed during the drag; `startParam` is the axis param under the
+  // cursor at grab. `lastPos` records the exact position last poked into each
+  // entity's mesh during the move, so the commit on release is byte-identical to
+  // the final preview (no recompute, no visual jump).
+  let gizmoDrag: {
+    axis: Axis;
+    startParam: number;
+    startPos: [number, number, number];
+    lastPos: Map<string, [number, number, number]>;
+    pointerId: number;
+  } | null = null;
 
   const ORBIT_SPEED = 0.01;
   const PAN_SPEED = 0.002;
@@ -145,6 +170,81 @@ export function createViewportHost(): ViewportHost {
   };
 
   const HILITE: [number, number, number, number] = [1, 0.6, 0, 1];
+
+  // Centroid of the current selection's AABB corners — the gizmo origin and the
+  // frame-selected target. null when nothing is loaded, the selection is empty,
+  // or no selected entity has a renderable box.
+  const selectionCentroid = (): [number, number, number] | null => {
+    if (!loaded || selection.length === 0) return null;
+    let cx = 0;
+    let cy = 0;
+    let cz = 0;
+    let n = 0;
+    for (const id of selection) {
+      const c = loaded.entityBoxCorners(id);
+      if (!c) continue;
+      for (let k = 0; k < 8; k++) {
+        cx += c[k * 3] as number;
+        cy += c[k * 3 + 1] as number;
+        cz += c[k * 3 + 2] as number;
+      }
+      n += 8;
+    }
+    return n === 0 ? null : [cx / n, cy / n, cz / n];
+  };
+
+  // World length of the gizmo's screen-constant pixel size, so the handles stay
+  // ~GIZMO_PX long regardless of camera distance. Uses the editor cam's FOV
+  // (EDITOR_FOV_Y) and the canvas backing-store height.
+  const GIZMO_PX = 90;
+  const axisLenWorld = (origin: [number, number, number]): number => {
+    if (!editorCam || !ctx) return 1;
+    const eye = vec3.create();
+    camera.getPosition(eye, editorCam);
+    const dist = Math.hypot(
+      (eye[0] as number) - origin[0],
+      (eye[1] as number) - origin[1],
+      (eye[2] as number) - origin[2],
+    );
+    const worldPerPx =
+      (2 * dist * Math.tan(EDITOR_FOV_Y / 2)) / ctx.canvas.height;
+    return worldPerPx * GIZMO_PX;
+  };
+
+  // Per-axis handle colours (X red, Y green, Z blue). Render constants.
+  const GIZMO_COLORS: Record<Axis, [number, number, number, number]> = {
+    x: [1, 0.2, 0.2, 1],
+    y: [0.2, 1, 0.2, 1],
+    z: [0.3, 0.4, 1, 1],
+  };
+
+  // Draw the three always-on-top axis handles at the selection centroid. Called
+  // after the highlight loop so it sits on top; occlude:false = ignores depth.
+  const renderGizmo = (c: Context): void => {
+    if (!editorCam) return;
+    const origin = selectionCentroid();
+    if (!origin) return;
+    const axisLen = axisLenWorld(origin);
+    for (const ax of ["x", "y", "z"] as Axis[]) {
+      const d = AXIS_DIR[ax];
+      const vertices = new Float32Array([
+        origin[0],
+        origin[1],
+        origin[2],
+        origin[0] + d[0] * axisLen,
+        origin[1] + d[1] * axisLen,
+        origin[2] + d[2] * axisLen,
+      ]);
+      const col = GIZMO_COLORS[ax];
+      const colors = new Float32Array([...col, ...col]);
+      frame.drawLines(c, {
+        vertices,
+        colors,
+        camera: editorCam,
+        occlude: false,
+      });
+    }
+  };
 
   const renderLoaded = (c: Context, l: LoadedScene): void => {
     const cam = editorCam ?? l.camera;
@@ -159,6 +259,7 @@ export function createViewportHost(): ViewportHost {
       const { vertices, colors } = boxEdges(corners, HILITE);
       frame.drawLines(c, { vertices, colors, camera: cam, occlude: true });
     }
+    renderGizmo(c);
   };
 
   // Write the current orbitState into editorCam's position/target/up fields.
@@ -192,7 +293,7 @@ export function createViewportHost(): ViewportHost {
     // editable in the inspector without moving the editor view.
     const sc = loaded.camera;
     editorCam = camera.perspective({
-      fovYRad: Math.PI / 3,
+      fovYRad: EDITOR_FOV_Y,
       aspect: 1,
       near: 0.1,
       far: 1000,
@@ -234,31 +335,165 @@ export function createViewportHost(): ViewportHost {
 
   const frameSelected = (): void => {
     if (!loaded || !orbitState) return;
-    const ids = selection;
-    if (ids.length === 0) return;
-    let cx = 0;
-    let cy = 0;
-    let cz = 0;
-    let n = 0;
-    for (const id of ids) {
-      const c = loaded.entityBoxCorners(id);
-      if (!c) continue;
-      for (let k = 0; k < 8; k++) {
-        cx += c[k * 3] as number;
-        cy += c[k * 3 + 1] as number;
-        cz += c[k * 3 + 2] as number;
-      }
-      n += 8;
-    }
-    if (n === 0) return;
-    orbitState = { ...orbitState, target: [cx / n, cy / n, cz / n] };
+    const centroid = selectionCentroid();
+    if (!centroid) return;
+    orbitState = { ...orbitState, target: centroid };
     applyOrbit();
     if (ctx) renderLoaded(ctx, loaded);
   };
 
+  // Marshal an engine `screenToRay` result into the gizmo's plain-tuple Ray.
+  // Returns null when there is no editor camera, or when the view-projection is
+  // singular (screenToRay returns dir=[0,0,0]) — callers treat null as "no hit".
+  const rayFromCursor = (clientX: number, clientY: number): Ray | null => {
+    if (!editorCam) return null;
+    const [nx, ny] = toNdc(clientX, clientY);
+    const r = camera.screenToRay(editorCam, nx, ny);
+    const dx = r.dir[0] as number;
+    const dy = r.dir[1] as number;
+    const dz = r.dir[2] as number;
+    // Singular VP → dir=[0,0,0]: guard explicitly rather than relying on NaN
+    // propagation through pickAxis/rayAxisDistance (dot(dir,dir)=0 → 0/0=NaN).
+    if (Math.hypot(dx, dy, dz) < 1e-8) return null;
+    return {
+      origin: [
+        r.origin[0] as number,
+        r.origin[1] as number,
+        r.origin[2] as number,
+      ],
+      dir: [dx, dy, dz],
+    };
+  };
+
+  // The entity's committed (pre-drag) transform with schema defaults filled for
+  // omitted position/rotation/scale. This is the baseline the anchor-relative
+  // drag delta is applied to — never integrated per-event, so it can't drift.
+  const committedTransform = (
+    entityId: string,
+  ): {
+    position: [number, number, number];
+    rotation: [number, number, number, number];
+    scale: [number, number, number];
+  } => {
+    const entity = committedDoc?.entities.find((e) => e.id === entityId);
+    // Runtime shape of the transform component (see scene/builtins transformShape);
+    // the document type stores components as `unknown`.
+    const tf = entity?.components["transform"] as
+      | {
+          position?: readonly [number, number, number];
+          rotation?: readonly [number, number, number, number];
+          scale?: readonly [number, number, number];
+        }
+      | undefined;
+    return {
+      position: tf?.position ? [...tf.position] : [0, 0, 0],
+      rotation: tf?.rotation ? [...tf.rotation] : [0, 0, 0, 1],
+      scale: tf?.scale ? [...tf.scale] : [1, 1, 1],
+    };
+  };
+
+  // The transform to COMMIT for `entityId`: committed rotation/scale plus the
+  // exact position last poked into the mesh during the drag (from gizmoDrag.lastPos).
+  // Reading the stored pos — rather than recomputing — guarantees commit == final
+  // preview, so the visual never jumps on release.
+  const currentTransform = (entityId: string): Record<string, unknown> => {
+    const base = committedTransform(entityId);
+    const pos = gizmoDrag?.lastPos.get(entityId) ?? base.position;
+    return { position: pos, rotation: base.rotation, scale: base.scale };
+  };
+
+  // Hit-test the gizmo handles under the cursor; on a hit, begin a drag and
+  // capture the pointer. Returns true if a handle was grabbed (caller returns
+  // early — the gizmo wins over scene-pick and orbit). The pick tolerance is a
+  // fraction of the handle length so it scales with the screen-constant size.
+  const GIZMO_PICK_TOL_FRAC = 0.08;
+  const tryStartGizmoDrag = (e: PointerEvent): boolean => {
+    if (e.button !== 0 || e.altKey) return false;
+    const origin = selectionCentroid();
+    if (!origin) return false;
+    const ray = rayFromCursor(e.clientX, e.clientY);
+    if (!ray) return false;
+    const axisLen = axisLenWorld(origin);
+    const axis = pickAxis(ray, origin, axisLen, axisLen * GIZMO_PICK_TOL_FRAC);
+    if (!axis) return false;
+    gizmoDrag = {
+      axis,
+      startParam: closestPointParamOnAxis(origin, AXIS_DIR[axis], ray),
+      startPos: origin,
+      lastPos: new Map(),
+      pointerId: e.pointerId,
+    };
+    canvasEl?.setPointerCapture(e.pointerId);
+    return true;
+  };
+
+  // Apply the anchor-relative ABSOLUTE drag delta to every selected entity. The
+  // delta is `currentParam − startParam` against the fixed grab-time axis line —
+  // never integrated per-event, so it can't drift. The SAME world delta applies
+  // to each entity (added to its own committed base), preserving relative offsets.
+  const updateGizmoDrag = (e: PointerEvent): void => {
+    if (!gizmoDrag || !ctx || !loaded) return;
+    const ray = rayFromCursor(e.clientX, e.clientY);
+    if (!ray) return;
+    const axisDir = AXIS_DIR[gizmoDrag.axis];
+    const t = closestPointParamOnAxis(gizmoDrag.startPos, axisDir, ray);
+    const delta = t - gizmoDrag.startParam;
+    for (const id of selection) {
+      const base = committedTransform(id).position;
+      const pos: [number, number, number] = [
+        base[0] + axisDir[0] * delta,
+        base[1] + axisDir[1] * delta,
+        base[2] + axisDir[2] * delta,
+      ];
+      gizmoDrag.lastPos.set(id, pos);
+      loaded.setEntityTransform(id, { position: pos });
+    }
+    renderLoaded(ctx, loaded);
+  };
+
+  // Commit the drag as ONE array of edits (one undo entry for a multi-entity
+  // drag). currentTransform reads the stored lastPos so commit == final preview.
+  const commitGizmoDrag = (): void => {
+    if (!gizmoDrag) return;
+    const edits = selection.map((id) => ({
+      entityId: id,
+      transform: currentTransform(id),
+    }));
+    if (edits.length > 0) callbacks?.onTransformCommit(edits);
+    canvasEl?.releasePointerCapture(gizmoDrag.pointerId);
+    gizmoDrag = null;
+  };
+
+  // Abort the drag and restore each selected entity's committed transform via
+  // rebuild (the same mechanism the public revertEntity uses). Releases capture
+  // by the stored pointerId so it works when triggered by an Escape keypress.
+  const cancelGizmoDrag = (): void => {
+    if (!gizmoDrag) return;
+    for (const id of selection) revertEntityToCommitted(id);
+    canvasEl?.releasePointerCapture(gizmoDrag.pointerId);
+    gizmoDrag = null;
+  };
+
+  // Discard any preview on `entityId` by rebuilding it from the committed doc.
+  // Shared by the public `revertEntity` and the gizmo's Escape-cancel so both
+  // restore identically.
+  const revertEntityToCommitted = (entityId: string): void => {
+    if (!ctx || !loaded || !committedDoc) return;
+    try {
+      loaded.rebuildEntity(entityId, committedDoc);
+    } catch {
+      // Committed doc loaded cleanly before; a throw here is an unexpected
+      // invariant violation — keep the last good render rather than corrupt it.
+      return;
+    }
+    renderLoaded(ctx, loaded);
+  };
+
   const onPointerDown = (e: PointerEvent): void => {
     if (!ctx || !loaded || !editorCam) return;
-    // Task 13 inserts a gizmo hit-test here FIRST (gizmo pick-priority), returning early on a handle hit.
+    // Gizmo pick-priority: a handle hit starts a drag and returns early, beating
+    // both scene-pick (select) and orbit/pan.
+    if (tryStartGizmoDrag(e)) return;
     const action = classifyDrag({
       button: e.button,
       altKey: e.altKey,
@@ -280,6 +515,11 @@ export function createViewportHost(): ViewportHost {
   };
 
   const onPointerMove = (e: PointerEvent): void => {
+    // Gizmo drag takes priority over orbit/pan while a handle is held.
+    if (gizmoDrag) {
+      updateGizmoDrag(e);
+      return;
+    }
     if (!drag || !orbitState || !editorCam || !ctx || !loaded) return;
     const dx = e.clientX - drag.lastX;
     const dy = e.clientY - drag.lastY;
@@ -308,6 +548,11 @@ export function createViewportHost(): ViewportHost {
   };
 
   const onPointerUp = (e: PointerEvent): void => {
+    if (gizmoDrag) {
+      // pointercancel routes here too: an interrupted gizmo drag commits its last preview (undoable), not reverts.
+      commitGizmoDrag();
+      return;
+    }
     if (!drag) return;
     canvasEl?.releasePointerCapture(e.pointerId);
     drag = null;
@@ -322,6 +567,10 @@ export function createViewportHost(): ViewportHost {
   };
 
   const onKeyDown = (e: KeyboardEvent): void => {
+    if (e.key === "Escape" && gizmoDrag) {
+      cancelGizmoDrag();
+      return;
+    }
     if (e.key === "f" || e.key === "F") frameSelected();
   };
 
@@ -399,15 +648,7 @@ export function createViewportHost(): ViewportHost {
       renderLoaded(ctx, loaded);
     },
     revertEntity(entityId) {
-      if (!ctx || !loaded || !committedDoc) return;
-      try {
-        loaded.rebuildEntity(entityId, committedDoc);
-      } catch {
-        // Committed doc loaded cleanly before; a throw here is an unexpected
-        // invariant violation — keep the last good render rather than corrupt it.
-        return;
-      }
-      renderLoaded(ctx, loaded);
+      revertEntityToCommitted(entityId);
     },
     revertSettings() {
       if (!ctx || !loaded || !committedDoc) return;
@@ -445,6 +686,7 @@ export function createViewportHost(): ViewportHost {
       orbitState = undefined;
       callbacks = undefined;
       drag = null;
+      gizmoDrag = null;
       if (ctx) gpu.dispose(ctx);
       ctx = undefined;
     },
