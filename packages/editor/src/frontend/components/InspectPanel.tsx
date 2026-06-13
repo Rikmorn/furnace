@@ -7,6 +7,7 @@ import {
   type InspectorOptions,
 } from "../inspector/options.ts";
 import type { JsonSchemaNode } from "../inspector/types.ts";
+import { splitResourceEntry } from "../inspector/lib/resource-kind.ts";
 import { useEditor } from "./editor-context.ts";
 import { JsonView } from "./JsonView.tsx";
 
@@ -59,17 +60,26 @@ export function InspectPanel() {
             </p>
           )}
           {tab === "entity" && (
-            <EntityInspector
-              selected={selectedEntities}
-              componentSchema={componentSchema}
-              // Boundary cast: introspect() returns core's JSON-schema (Record<string,unknown>); the
-          // inspector consumes the structurally-equivalent frontend-local JsonSchemaNode.
-          settingsSchema={reflection?.settings as JsonSchemaNode | undefined}
-              // Boundary cast: doc.settings is typed as unknown from the JSON session doc;
-          // the settings form expects a plain object shape.
-          settingsValue={(doc?.settings ?? {}) as Record<string, unknown>}
-              actions={actions}
-            />
+            <div className="flex flex-col gap-4">
+              <EntityInspector
+                selected={selectedEntities}
+                componentSchema={componentSchema}
+                // Boundary cast: introspect() returns core's JSON-schema (Record<string,unknown>); the
+                // inspector consumes the structurally-equivalent frontend-local JsonSchemaNode.
+                settingsSchema={reflection?.settings as JsonSchemaNode | undefined}
+                // Boundary cast: doc.settings is typed as unknown from the JSON session doc;
+                // the settings form expects a plain object shape.
+                settingsValue={(doc?.settings ?? {}) as Record<string, unknown>}
+                actions={actions}
+              />
+              {doc && reflection && (
+                <ResourcesInspector
+                  resources={doc.resources}
+                  reflection={reflection}
+                  actions={actions}
+                />
+              )}
+            </div>
           )}
           {tab === "schemas" &&
             (reflection ? (
@@ -80,6 +90,61 @@ export function InspectPanel() {
         </div>
       </div>
     </InspectorOptionsContext.Provider>
+  );
+}
+
+function ResourcesInspector({
+  resources,
+  reflection,
+  actions,
+}: {
+  resources: { [table: string]: Record<string, unknown> | undefined } | undefined;
+  reflection: { resources: Record<string, Record<string, JsonSchemaNode>> };
+  actions: ReturnType<typeof useEditor>["actions"];
+}) {
+  const tables = Object.entries(resources ?? {}).filter(
+    ([, entries]) => entries && Object.keys(entries).length > 0,
+  );
+  if (tables.length === 0) return null;
+  return (
+    <section>
+      <h3 className="mb-1 text-xs font-semibold text-neutral-300">resources</h3>
+      <div className="flex flex-col gap-2">
+        {tables.map(([table, entries]) =>
+          Object.entries(entries ?? {}).map(([id, entry]) => {
+            const { kind, params } = splitResourceEntry(
+              table,
+              entry as Record<string, unknown>,
+            );
+            const schema = reflection.resources[table]?.[kind];
+            if (!schema) return null;
+            return (
+              <div key={`${table}:${id}`} className="rounded border border-neutral-800 p-1">
+                <p className="text-xs text-neutral-500">
+                  {table}/{id} <span className="text-neutral-600">({kind})</span>
+                </p>
+                <SchemaForm
+                  schema={schema}
+                  values={[params]}
+                  onPreview={() => {
+                    /* resources are not live-previewed in 5A (spec §4) */
+                  }}
+                  onCommit={(next) =>
+                    void actions.commitResource(table, id, {
+                      kind,
+                      ...(next[0] as Record<string, unknown>),
+                    })
+                  }
+                  onCancel={() => {
+                    /* reverts on the next refresh */
+                  }}
+                />
+              </div>
+            );
+          }),
+        )}
+      </div>
+    </section>
   );
 }
 

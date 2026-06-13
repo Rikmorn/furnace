@@ -71,3 +71,21 @@ test("commonComponents returns the intersection of component names across entiti
   expect(commonComponents([entityA])).toEqual(["transform", "meshRenderer"]);
   expect(commonComponents([])).toEqual([]);
 });
+
+import { splitResourceEntry } from "../src/frontend/inspector/lib/resource-kind.ts";
+
+test("splitResourceEntry resolves kind (materials default 'standard') and strips it from params", () => {
+  expect(
+    splitResourceEntry("materials", {
+      shader: "s",
+      params: { color: [1, 0, 0, 1] },
+    }),
+  ).toEqual({
+    kind: "standard",
+    params: { shader: "s", params: { color: [1, 0, 0, 1] } },
+  });
+  expect(splitResourceEntry("geometries", { kind: "cube" })).toEqual({
+    kind: "cube",
+    params: {},
+  });
+});
