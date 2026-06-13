@@ -1,3 +1,4 @@
+import type { Camera } from "@furnace/core/camera";
 import * as camera from "@furnace/core/camera";
 import * as frame from "@furnace/core/frame";
 import type { Context, RequestContextOptions } from "@furnace/core/gpu";
@@ -9,7 +10,12 @@ import type {
 } from "@furnace/core/scene";
 import * as scene from "@furnace/core/scene";
 import type { Vec4 } from "@furnace/core/transform";
-import { vec4 } from "@furnace/core/transform";
+import { vec3, vec4 } from "@furnace/core/transform";
+import {
+  fromEyeTarget,
+  type OrbitState,
+  toEyeTarget,
+} from "./camera-control.ts";
 
 /**
  * The chrome↔engine protocol. The editor chrome (which contains no engine
@@ -17,8 +23,9 @@ import { vec4 } from "@furnace/core/transform";
  * the GPU context and the loaded scene. Render-on-demand: a render is issued
  * on load, on canvas resize (the host subscribes its own re-render via
  * `gpu.onResize`, so the chrome must NOT drive resize-rendering itself), and
- * via `render()` for any other on-demand redraw. The loaded camera's
- * projection is bound to the canvas so aspect automatically tracks canvas size.
+ * via `render()` for any other on-demand redraw. The editor camera (orbit
+ * perspective) is bound to the canvas so aspect automatically tracks canvas
+ * size; it is never serialized and is independent of the scene camera entity.
  */
 export type ViewportHost = {
   init(
@@ -82,6 +89,12 @@ export function createViewportHost(): ViewportHost {
   // and flushed once init completes. If multiple loads arrive before init, the
   // last one wins (latest revision takes precedence).
   let pendingDoc: SceneDocument | undefined;
+  // Editor-owned orbit camera: initialized from the scene camera's pose on each
+  // scene load, then driven by pointer events. Never serialized; independent of
+  // the scene camera entity (editing the scene camera entity does NOT move the
+  // editor view, and vice versa).
+  let editorCam: Camera | undefined;
+  let orbitState: OrbitState | undefined;
 
   const requireCtx = (): Context => {
     if (!ctx)
@@ -92,9 +105,18 @@ export function createViewportHost(): ViewportHost {
   const renderLoaded = (c: Context, l: LoadedScene): void => {
     frame.render(c, {
       meshes: l.meshes,
-      camera: l.camera,
+      camera: editorCam ?? l.camera,
       clearColor: toVec4(l.settings.clearColor),
     });
+  };
+
+  // Write the current orbitState into editorCam's position/target/up fields.
+  const applyOrbit = (): void => {
+    if (!editorCam || !orbitState) return;
+    const { eye, target, up } = toEyeTarget(orbitState);
+    camera.setPosition(editorCam, new Float32Array(eye));
+    camera.setTarget(editorCam, new Float32Array(target));
+    camera.setUp(editorCam, new Float32Array(up));
   };
 
   // Applies a scene document assuming ctx is already set. Encapsulates the
@@ -102,7 +124,7 @@ export function createViewportHost(): ViewportHost {
   // resize-blank fix depends on the specific sequence below — do not reorder).
   const applyScene = async (doc: SceneDocument): Promise<void> => {
     const c = requireCtx();
-    // Destroy-before-build; also unbind the previous camera's resize
+    // Destroy-before-build; also unbind the previous editor camera's resize
     // subscription (scene-swap = swapping the bound camera without disposing
     // the context, the exact case bind.ts says needs manual unsubscribe).
     unbindCamera?.();
@@ -113,9 +135,32 @@ export function createViewportHost(): ViewportHost {
     loaded = undefined;
     loaded = await scene.loadScene(c, doc);
     committedDoc = doc;
+    // Initialize the editor orbit camera from the scene camera's pose, then
+    // bind the editor camera (not the scene camera) to the canvas so aspect
+    // tracks canvas size. The scene camera entity remains independently
+    // editable in the inspector without moving the editor view.
+    const sc = loaded.camera;
+    editorCam = camera.perspective({
+      fovYRad: Math.PI / 3,
+      aspect: 1,
+      near: 0.1,
+      far: 1000,
+    });
+    const eye = vec3.create();
+    camera.getPosition(eye, sc);
+    const tgt = vec3.create();
+    camera.getTarget(tgt, sc);
+    // vec3.create() returns Float32Array; index reads are number | undefined
+    // under noUncheckedIndexedAccess but indices 0-2 are always present on a
+    // vec3 — hot-path typed-array cast (documented in typescript.md).
+    orbitState = fromEyeTarget(
+      [eye[0] as number, eye[1] as number, eye[2] as number],
+      [tgt[0] as number, tgt[1] as number, tgt[2] as number],
+    );
+    applyOrbit();
     // bindToCanvas applies the current canvas aspect immediately, then keeps it
     // in sync on resize; render after so the first frame uses that aspect.
-    unbindCamera = camera.bindToCanvas(c, loaded.camera);
+    unbindCamera = camera.bindToCanvas(c, editorCam);
     // Re-render on canvas resize. Subscribe AFTER bindToCanvas so this runs
     // after the camera-aspect update, and because the engine's onResize sets
     // the canvas backing store BEFORE emitting, the render here happens at the
@@ -156,16 +201,11 @@ export function createViewportHost(): ViewportHost {
       const entity = next.entities.find((e) => e.id === entityId);
       if (!entity) return;
       entity.components[component] = params;
-      const prevCamera = loaded.camera;
       try {
         loaded.rebuildEntity(entityId, next);
       } catch {
         // Transiently-invalid preview (bad ref / params): keep last good render.
         return;
-      }
-      if (loaded.camera !== prevCamera) {
-        unbindCamera?.();
-        unbindCamera = camera.bindToCanvas(ctx, loaded.camera);
       }
       renderLoaded(ctx, loaded);
     },
@@ -178,17 +218,12 @@ export function createViewportHost(): ViewportHost {
     },
     revertEntity(entityId) {
       if (!ctx || !loaded || !committedDoc) return;
-      const prevCamera = loaded.camera;
       try {
         loaded.rebuildEntity(entityId, committedDoc);
       } catch {
         // Committed doc loaded cleanly before; a throw here is an unexpected
         // invariant violation — keep the last good render rather than corrupt it.
         return;
-      }
-      if (loaded.camera !== prevCamera) {
-        unbindCamera?.();
-        unbindCamera = camera.bindToCanvas(ctx, loaded.camera);
       }
       renderLoaded(ctx, loaded);
     },
@@ -204,6 +239,8 @@ export function createViewportHost(): ViewportHost {
       loaded?.destroy();
       loaded = undefined;
       committedDoc = undefined;
+      editorCam = undefined;
+      orbitState = undefined;
       if (ctx) gpu.dispose(ctx);
       ctx = undefined;
     },
