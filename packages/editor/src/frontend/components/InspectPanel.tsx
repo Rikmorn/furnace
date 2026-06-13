@@ -1,49 +1,159 @@
 import { useState } from "react";
 import { cn } from "../lib/cn.ts";
+import { SchemaForm } from "../inspector/index.tsx";
+import { commonComponents } from "../inspector/lib/common-components.ts";
+import {
+  InspectorOptionsContext,
+  type InspectorOptions,
+} from "../inspector/options.ts";
+import type { JsonSchemaNode } from "../inspector/types.ts";
 import { useEditor } from "./editor-context.ts";
 import { JsonView } from "./JsonView.tsx";
 
 export function InspectPanel() {
-  const { state, hostRef } = useEditor();
+  const { state, hostRef, actions } = useEditor();
   const [tab, setTab] = useState<"entity" | "schemas">("entity");
-  const entity = state.doc?.entities.find((e) => state.selectedEntities.includes(e.id));
+
+  const reflection = hostRef.current?.introspect();
+  const doc = state.doc;
+  const selectedEntities =
+    doc?.entities.filter((e) => state.selectedEntities.includes(e.id)) ?? [];
+
+  const options: InspectorOptions = {
+    resourceIds: (table) =>
+      Object.keys(
+        (doc?.resources as Record<string, Record<string, unknown>> | undefined)?.[
+          table
+        ] ?? {},
+      ),
+    entityIds: () => doc?.entities.map((e) => e.id) ?? [],
+  };
+
+  const componentSchema = (name: string): JsonSchemaNode | undefined =>
+    // Boundary cast: introspect() returns core's JSON-schema (Record<string,unknown>); the
+    // inspector consumes the structurally-equivalent frontend-local JsonSchemaNode.
+    reflection?.components[name] as JsonSchemaNode | undefined;
 
   return (
-    <div className="flex h-full flex-col">
-      <div className="flex gap-1 border-b border-neutral-800 p-1">
-        {(["entity", "schemas"] as const).map((t) => (
-          <button
-            key={t}
-            type="button"
-            className={cn(
-              "rounded px-2 py-1 text-xs",
-              tab === t ? "bg-neutral-800" : "text-neutral-500",
-            )}
-            onClick={() => setTab(t)}
-          >
-            {t === "entity" ? "Inspect" : "Schemas"}
-          </button>
-        ))}
+    <InspectorOptionsContext.Provider value={options}>
+      <div className="flex h-full flex-col">
+        <div className="flex gap-1 border-b border-neutral-800 p-1">
+          {(["entity", "schemas"] as const).map((t) => (
+            <button
+              key={t}
+              type="button"
+              className={cn(
+                "rounded px-2 py-1 text-xs",
+                tab === t ? "bg-neutral-800" : "text-neutral-500",
+              )}
+              onClick={() => setTab(t)}
+            >
+              {t === "entity" ? "Inspect" : "Schemas"}
+            </button>
+          ))}
+        </div>
+        <div className="min-h-0 flex-1 overflow-auto p-2">
+          {state.error && (
+            <p className="mb-2 whitespace-pre-wrap font-mono text-xs text-red-400">
+              {state.error}
+            </p>
+          )}
+          {tab === "entity" && (
+            <EntityInspector
+              selected={selectedEntities}
+              componentSchema={componentSchema}
+              // Boundary cast: introspect() returns core's JSON-schema (Record<string,unknown>); the
+          // inspector consumes the structurally-equivalent frontend-local JsonSchemaNode.
+          settingsSchema={reflection?.settings as JsonSchemaNode | undefined}
+              // Boundary cast: doc.settings is typed as unknown from the JSON session doc;
+          // the settings form expects a plain object shape.
+          settingsValue={(doc?.settings ?? {}) as Record<string, unknown>}
+              actions={actions}
+            />
+          )}
+          {tab === "schemas" &&
+            (reflection ? (
+              <JsonView label="registry" value={reflection} />
+            ) : (
+              <p className="text-sm text-neutral-500">engine not loaded</p>
+            ))}
+        </div>
       </div>
-      <div className="min-h-0 flex-1 overflow-auto p-2">
-        {state.error && (
-          <p className="mb-2 whitespace-pre-wrap font-mono text-xs text-red-400">
-            {state.error}
-          </p>
+    </InspectorOptionsContext.Provider>
+  );
+}
+
+function EntityInspector({
+  selected,
+  componentSchema,
+  settingsSchema,
+  settingsValue,
+  actions,
+}: {
+  selected: { id: string; components: Record<string, unknown> }[];
+  componentSchema: (name: string) => JsonSchemaNode | undefined;
+  settingsSchema: JsonSchemaNode | undefined;
+  settingsValue: Record<string, unknown>;
+  actions: ReturnType<typeof useEditor>["actions"];
+}) {
+  if (selected.length === 0)
+    return (
+      <div className="flex flex-col gap-3">
+        <p className="text-sm text-neutral-500">select an entity</p>
+        {settingsSchema && (
+          <section>
+            <h3 className="mb-1 text-xs font-semibold text-neutral-300">settings</h3>
+            <SchemaForm
+              schema={settingsSchema}
+              values={[settingsValue]}
+              onPreview={(next) => actions.previewSettings(next[0])}
+              onCommit={(next) => void actions.commitSettings(next[0])}
+              onCancel={() => {
+                // M5A gap: no revertSettings action — a previewed settings change persists in the
+                // engine until the next refresh (components revert via revertEntity; settings don't). 5B.
+              }}
+            />
+          </section>
         )}
-        {tab === "entity" &&
-          (entity ? (
-            <JsonView label={entity.id} value={entity.components} />
-          ) : (
-            <p className="text-sm text-neutral-500">select an entity</p>
-          ))}
-        {tab === "schemas" &&
-          (hostRef.current ? (
-            <JsonView label="registry" value={hostRef.current.introspect()} />
-          ) : (
-            <p className="text-sm text-neutral-500">engine not loaded</p>
-          ))}
       </div>
+    );
+
+  const names = commonComponents(selected);
+  const ids = selected.map((e) => e.id);
+  return (
+    <div className="flex flex-col gap-3">
+      <p className="text-xs text-neutral-500">
+        {ids.length === 1 ? ids[0] : `${ids.length} selected`}
+      </p>
+      {names.map((name) => {
+        const schema = componentSchema(name);
+        if (!schema) return null;
+        return (
+          <section key={name}>
+            <h3 className="mb-1 text-xs font-semibold text-neutral-300">{name}</h3>
+            <SchemaForm
+              schema={schema}
+              values={selected.map((e) => e.components[name] ?? {})}
+              // Boundary cast: SchemaForm emits unknown[] drafts; each is this component's params object.
+              onPreview={(next) =>
+                selected.forEach((e, i) =>
+                  actions.previewEntity(e.id, name, next[i] as Record<string, unknown>),
+                )
+              }
+              onCommit={(next) =>
+                void actions.commitComponents(
+                  selected.map((e, i) => ({
+                    entity: e.id,
+                    component: name,
+                    params: next[i] as Record<string, unknown>,
+                  })),
+                )
+              }
+              onCancel={() => selected.forEach((e) => actions.revertEntity(e.id))}
+            />
+          </section>
+        );
+      })}
     </div>
   );
 }
