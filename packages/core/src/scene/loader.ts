@@ -18,6 +18,73 @@ type BuiltRecord = {
   destroy?: (ctx: Context, instance: unknown) => void;
 };
 
+/** What one entity contributed at load — enough to tear down and replace it. */
+type EntityRecord = {
+  built: BuiltRecord[];
+  meshes: Mesh[];
+  camera?: Camera;
+};
+
+/**
+ * Build a single entity's components (registration order) into its own scoped
+ * record. The scoped `out` collects only this entity's contributions; the
+ * caller merges them and enforces the cross-entity single-camera invariant.
+ * Reused by both initial load and `rebuildEntity` — one projection path.
+ */
+function buildEntity(
+  ctx: Context,
+  entity: SceneDocument["entities"][number],
+  lookup: (table: TableName, id: string) => unknown,
+): EntityRecord {
+  const parsedByName = new Map<string, Record<string, unknown>>();
+  for (const [name, reg] of componentEntries()) {
+    const raw = entity.components[name];
+    if (raw === undefined) continue;
+    parsedByName.set(
+      name,
+      parseOrThrow(
+        reg.schema,
+        raw,
+        `entity "${entity.id}" component "${name}"`,
+      ),
+    );
+  }
+  const sibling = (name: string): unknown => parsedByName.get(name);
+  const record: EntityRecord = { built: [], meshes: [] };
+  const out: OutSinks = {
+    addMesh: (m) => record.meshes.push(m),
+    setCamera: (c) => {
+      if (record.camera) {
+        throw new FurnaceError(
+          `scene: entity "${entity.id}" contributes a second camera (a scene has exactly one)`,
+        );
+      }
+      record.camera = c;
+    },
+  };
+  for (const [name, reg] of componentEntries()) {
+    const parsed = parsedByName.get(name);
+    if (parsed === undefined || !reg.build) continue;
+    const bx = {
+      entityId: entity.id,
+      params: resolveParams(reg.shape, parsed, lookup) as never, // Boundary cast: see resources loop.
+      sibling,
+      out,
+    };
+    try {
+      const instance = reg.build(ctx, bx);
+      record.built.push({ instance, destroy: reg.destroy });
+    } catch (err) {
+      // Mid-entity build failure: tear down this entity's already-built records
+      // (reverse order) so nothing leaks — matches loadScene's whole-load cleanup
+      // and keeps the shared buildEntity path leak-free for rebuildEntity/preview.
+      for (const b of [...record.built].reverse()) b.destroy?.(ctx, b.instance);
+      throw err;
+    }
+  }
+  return record;
+}
+
 /**
  * Load a serialized scene document into live core objects.
  *
@@ -63,18 +130,6 @@ export async function loadScene(
   };
   const meshes: Mesh[] = [];
   let loadedCamera: Camera | undefined;
-  let currentEntityId = "";
-  const out: OutSinks = {
-    addMesh: (m) => meshes.push(m),
-    setCamera: (c) => {
-      if (loadedCamera) {
-        throw new FurnaceError(
-          `scene: entity "${currentEntityId}" contributes a second camera (a scene has exactly one)`,
-        );
-      }
-      loadedCamera = c;
-    },
-  };
 
   try {
     // Resources, fixed dependency order. Re-parses after validateDocument:
@@ -103,33 +158,17 @@ export async function loadScene(
 
     // Entities in document order; components in registration order.
     for (const entity of doc.entities) {
-      currentEntityId = entity.id;
-      const parsedByName = new Map<string, Record<string, unknown>>();
-      for (const [name, reg] of componentEntries()) {
-        const raw = entity.components[name];
-        if (raw === undefined) continue;
-        parsedByName.set(
-          name,
-          parseOrThrow(
-            reg.schema,
-            raw,
-            `entity "${entity.id}" component "${name}"`,
-          ),
-        );
+      const record = buildEntity(ctx, entity, lookup);
+      if (record.camera) {
+        if (loadedCamera) {
+          throw new FurnaceError(
+            `scene: entity "${entity.id}" contributes a second camera (a scene has exactly one)`,
+          );
+        }
+        loadedCamera = record.camera;
       }
-      const sibling = (name: string): unknown => parsedByName.get(name);
-      for (const [name, reg] of componentEntries()) {
-        const parsed = parsedByName.get(name);
-        if (parsed === undefined || !reg.build) continue;
-        const bx = {
-          entityId: entity.id,
-          params: resolveParams(reg.shape, parsed, lookup) as never, // Boundary cast: see resources loop.
-          sibling,
-          out,
-        };
-        const instance = reg.build(ctx, bx);
-        built.push({ instance, destroy: reg.destroy });
-      }
+      meshes.push(...record.meshes);
+      built.push(...record.built);
     }
   } catch (err) {
     // Partial-load cleanup: a failed load leaks nothing (reverse build order).
