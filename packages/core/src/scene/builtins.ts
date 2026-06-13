@@ -34,7 +34,7 @@ const cameraShape = {
 };
 
 const settingsShape = {
-  clearColor: t.vec4().optional(),
+  clearColor: t.color().optional(),
 };
 
 /** Local-transform component params. Rotation is a quaternion `[x,y,z,w]`; omitted fields keep identity defaults. */
@@ -154,7 +154,7 @@ export function registerBuiltins(): void {
   defineResource("materials", "standard", {
     params: {
       shader: t.resource("shaders"),
-      params: z.strictObject({ color: t.vec4().optional() }).optional(),
+      params: z.strictObject({ color: t.color().optional() }).optional(),
     },
     async build(ctx, rx) {
       const s = rx.params.shader;

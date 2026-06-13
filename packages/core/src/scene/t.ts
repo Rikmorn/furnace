@@ -22,7 +22,7 @@ export type TableHandle<T extends TableName> = T extends "geometries"
  * its plain JSON shape.
  */
 export type FurnaceMeta =
-  | { kind: "vec2" | "vec3" | "vec4" | "quat" }
+  | { kind: "vec2" | "vec3" | "vec4" | "quat" | "color" }
   | { kind: "resource"; table: TableName }
   | { kind: "ref"; requires: readonly string[] };
 
@@ -58,11 +58,24 @@ export function vec3() {
     .meta({ furnace: { kind: "vec3" } });
 }
 
-/** A 4-component vector param: `[x, y, z, w]` (also used for RGBA colors). */
+/** A 4-component vector param: `[x, y, z, w]`. For RGBA color fields use {@link color} instead. */
 export function vec4() {
   return z
     .tuple([z.number(), z.number(), z.number(), z.number()])
     .meta({ furnace: { kind: "vec4" } });
+}
+
+/**
+ * An RGBA color param: `[r, g, b, a]` (same wire shape as {@link vec4}).
+ * Distinct `furnace.kind: "color"` so the editor inspector renders a color
+ * picker rather than four raw number inputs; the load boundary treats it
+ * exactly as a vec4. Channels are in the engine's working color space (see
+ * `docs/reference/engine-conventions.md §color`).
+ */
+export function color() {
+  return z
+    .tuple([z.number(), z.number(), z.number(), z.number()])
+    .meta({ furnace: { kind: "color" } });
 }
 
 /** A rotation quaternion param: `[x, y, z, w]`. */

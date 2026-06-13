@@ -2,7 +2,10 @@ import { expect, test } from "bun:test";
 import { z } from "zod";
 import type { Geometry } from "../../src/geometry/index.ts";
 import type { Material } from "../../src/material/index.ts";
-import type { ResolvedParamsOf } from "../../src/scene/schema.ts";
+import {
+  fieldFurnaceMeta,
+  type ResolvedParamsOf,
+} from "../../src/scene/schema.ts";
 import * as t from "../../src/scene/t.ts";
 import type { Shader } from "../../src/shader/types.ts";
 
@@ -39,4 +42,19 @@ type _b7 = Expect<Eq<Build["position"], [number, number, number] | undefined>>;
 
 test("type assertions compile (see typecheck gate)", () => {
   expect(true).toBe(true);
+});
+
+test("t.color carries furnace.kind 'color' and parses a 4-tuple", () => {
+  const c = t.color();
+  expect(fieldFurnaceMeta(c)).toEqual({ kind: "color" });
+  expect(c.safeParse([1, 0, 0, 1]).success).toBe(true);
+  expect(c.safeParse([1, 0, 0]).success).toBe(false);
+});
+
+test("t.color optional unwraps to the same meta", () => {
+  expect(
+    fieldFurnaceMeta(t.color().optional() as unknown as z.ZodType),
+  ).toEqual({
+    kind: "color",
+  });
 });
