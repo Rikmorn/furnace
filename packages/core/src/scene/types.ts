@@ -1,4 +1,5 @@
 import type { Camera } from "../camera/types.ts";
+import type { Context } from "../gpu/context-types.ts";
 import type { Mesh } from "../mesh/types.ts";
 import type { SceneSettings } from "./builtins.ts";
 
@@ -81,4 +82,13 @@ export type LoadedScene = {
       scale?: readonly [number, number, number];
     },
   ) => void;
+  /** GPU id-buffer pick: render an id pass over the scene meshes and read back
+   *  the entity id under the NDC cursor (`[-1,1]`, Y-up). null = background.
+   *  Renders on demand (call on click), ~one frame of readback latency. */
+  pick: (
+    ctx: Context,
+    cam: Camera,
+    ndcX: number,
+    ndcY: number,
+  ) => Promise<string | null>;
 };

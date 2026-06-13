@@ -11,6 +11,7 @@ import {
 import type { Mesh, MeshSlot } from "../mesh/types.ts";
 import { _lookupGeometry, _lookupMesh } from "../resources/internal.ts";
 import { vec3 } from "../transform/vec3.ts";
+import { pickEntity } from "./pick.ts";
 import {
   componentEntries,
   getResourceKind,
@@ -295,6 +296,13 @@ export async function loadScene(
         if (t.rotation) setRotation(ctx, m, new Float32Array(t.rotation));
         if (t.scale) setScale(ctx, m, new Float32Array(t.scale));
       }
+    },
+    pick(c, cam, ndcX, ndcY) {
+      const entries: { mesh: Mesh; entityId: string }[] = [];
+      for (const [entityId, rec] of records) {
+        for (const m of rec.meshes) entries.push({ mesh: m, entityId });
+      }
+      return pickEntity(c, cam, entries, ndcX, ndcY);
     },
   };
   return result;
