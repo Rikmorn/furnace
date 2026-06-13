@@ -1,7 +1,26 @@
 import type { RefObject } from "react";
 import { createContext, useContext } from "react";
 import type { ViewportHost } from "../../viewport-host/index.ts";
+import type { ComponentEdit } from "../lib/api.ts";
 import type { EditorEvent, EditorState } from "../lib/state.ts";
+
+/** Preview/commit actions the inspector drives; implemented in App (owns host + dedup). */
+export type EditorActions = {
+  previewEntity(
+    entityId: string,
+    component: string,
+    params: Record<string, unknown>,
+  ): void;
+  previewSettings(settings: unknown): void;
+  revertEntity(entityId: string): void;
+  commitComponents(edits: ComponentEdit[]): Promise<void>;
+  commitResource(
+    table: string,
+    id: string,
+    entry: Record<string, unknown>,
+  ): Promise<void>;
+  commitSettings(settings: unknown): Promise<void>;
+};
 
 /** Live editor state shared with the dockview panels through React context
  *  (panels are portaled, so closure props can't carry live state — see App). */
@@ -9,6 +28,7 @@ export type EditorContextValue = {
   state: EditorState;
   dispatch: (e: EditorEvent) => void;
   hostRef: RefObject<ViewportHost | undefined>;
+  actions: EditorActions;
 };
 
 export const EditorContext = createContext<EditorContextValue | null>(null);

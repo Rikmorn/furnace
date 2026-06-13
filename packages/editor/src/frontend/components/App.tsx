@@ -3,14 +3,14 @@ import {
   type DockviewReadyEvent,
   type IDockviewPanelProps,
 } from "dockview";
-import { useCallback, useEffect, useReducer, useRef } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useRef } from "react";
 import type { FunctionComponent } from "react";
 import type { ViewportHost } from "../../viewport-host/index.ts"; // type-only
-import { ApiClientError, api } from "../lib/api.ts";
+import { ApiClientError, api, type ComponentEdit } from "../lib/api.ts";
 import { EngineBuildError, loadEngine } from "../lib/engine.ts";
 import { subscribeEvents } from "../lib/events.ts";
 import { initialState, reduce } from "../lib/state.ts";
-import { EditorContext, type EditorContextValue } from "./editor-context.ts";
+import { EditorContext, type EditorActions, type EditorContextValue } from "./editor-context.ts";
 import { EntitiesPanel } from "./EntitiesPanel.tsx";
 import { InspectPanel } from "./InspectPanel.tsx";
 import { StatusBar } from "./StatusBar.tsx";
@@ -71,6 +71,10 @@ export function App() {
         // Assign AFTER the await so a genuine loadScene failure does not poison
         // the dedup cache — the next SSE event will retry rather than skip.
         lastLoaded.current = { path: view.path, revision: view.revision };
+      } else {
+        // Dedup hit (e.g. our own committed edit, already previewed): no reload,
+        // but adopt the fresh doc as the host's committed baseline.
+        hostRef.current?.syncCommitted(view.document);
       }
       dispatch({
         type: "session-updated",
@@ -88,6 +92,47 @@ export function App() {
       });
     }
   }, []);
+
+  const actions = useMemo<EditorActions>(
+    () => {
+      const suppressEcho = (result: { revision: number }) => {
+        // Record the just-produced revision so the SSE echo skips the reload —
+        // the viewport already shows it via the local preview.
+        lastLoaded.current = {
+          path: lastLoaded.current.path,
+          revision: result.revision,
+        };
+      };
+      return {
+        previewEntity: (id, component, params) =>
+          hostRef.current?.previewEntity(id, component, params),
+        // Boundary cast: settings is unknown at this layer; ViewportHost.previewSettings
+        // expects the narrower SceneDocument["settings"] — the daemon validates for real.
+        previewSettings: (settings) =>
+          hostRef.current?.previewSettings(settings as never),
+        revertEntity: (id) => hostRef.current?.revertEntity(id),
+        commitComponents: async (edits: ComponentEdit[]) => {
+          const first = edits[0];
+          const result =
+            edits.length === 1 && first !== undefined
+              ? await api.setComponent(first.entity, first.component, first.params)
+              : await api.setComponentMany(edits);
+          suppressEcho(result);
+        },
+        commitResource: async (table, id, entry) => {
+          // Resources are NOT live-previewed in 5A: commit, then the SSE echo
+          // reloads (no suppressEcho → full reload shows the change).
+          await api.setResource(table, id, entry);
+        },
+        // settings is unknown at this layer; the daemon's setSettings validates the real shape.
+        commitSettings: async (settings) => {
+          const result = await api.setSettings(settings);
+          suppressEcho(result);
+        },
+      };
+    },
+    [],
+  );
 
   useEffect(() => {
     if (state.status !== "ready") return;
@@ -160,7 +205,7 @@ export function App() {
 
   // Fresh object each render — that is intentional: a new context value on every
   // state change is what forces the portaled panel consumers to re-render.
-  const ctxValue: EditorContextValue = { state, dispatch, hostRef };
+  const ctxValue: EditorContextValue = { state, dispatch, hostRef, actions };
 
   return (
     <div className="flex h-screen flex-col">
