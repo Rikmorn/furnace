@@ -19,6 +19,6 @@ This was an accepted, documented scope boundary of the M1-slices batch (the batc
 - The M5A inspector's resource-edit → command dispatch for the new tables (does editing a checkerboard's `cells` or a bloom's `intensity` round-trip through `scene.setResource`?).
 - Adding/removing a texture/effect resource and the reference integrity it implies (a material referencing a deleted texture; `settings.post` referencing a deleted effect — the loader's resolve-or-throw + the now-recursive `checkResourceRefs` already validate refs at the boundary).
 
-**Trigger to revisit:** when in-editor authoring of textured / post-processed scenes is needed (likely the editor milestone after M1 — e.g. M5C/M6 editor work), i.e. when "open + render a hand-authored lit/textured scene" is no longer enough and users need to *create* texture/effect resources in the editor.
+**Trigger to revisit:** when in-editor authoring of textured / post-processed scenes is needed (likely the editor redesign for procgen authoring — see `editor-interaction-model-redesign.md`), i.e. when "open + render a hand-authored lit/textured scene" is no longer enough and users need to *create* texture/effect resources in the editor.
 
 **Reference:** `packages/editor/src/daemon/handlers.ts` (`tableEnum`, `scene.setResource`, `scene.removeResource`), `packages/core/src/scene/t.ts` (`TABLE_ORDER`), `docs/reference/editor-architecture.md §12`, sibling entry `editor-viewport-hdr-context-and-post-preview.md`.

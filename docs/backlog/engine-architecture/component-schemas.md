@@ -1,8 +1,8 @@
 # Type-strict component schemas + behavior contract
 
-**Status:** **Active — editor-epic M1 (component contract) + M6 (behavior runtime), design resolved 2026-06-09.** Full design + bowling mapping + SOTA grounding in the (gitignored) spec `docs/superpowers/specs/2026-06-09-editor-M1-scene-format-and-behaviors-design.md`. The serialized format that carries these components is in `scene-serialization-interchange.md`. **Lifecycle:** promote to a canonical `docs/reference/` doc and delete this backlog entry in the post-ship documentation phase.
+**Status:** **Component contract LANDED (M1/M2, 2026-06-10)** — documented in `docs/reference/editor-architecture.md` + `docs/reference/core-modules.md`. **Behaviour runtime DEFERRED** to the retargeted roadmap (the game's update/behaviour model): the editor epic closed and the project retargeted from the bowling demo to the dungeon-crawler app, so the old editor-epic "M6" is superseded. The component contract + serialized format it rides on are documented in `docs/reference/editor-architecture.md`; the serialized format's deferred concerns are tracked in `scene-serialization-interchange.md`. **Lifecycle:** the behaviour-contract design below is retained as input to the eventual game behaviour/update model; the component-contract half is done.
 
-**M2 landed (2026-06-10):** `defineComponent`/`defineResource` + zod-backed schemas + `introspect()` shipped in `@furnace/core/scene`; loader fully registry-driven; `t.ref` boundary validation live (M6 consumes it). `docs/reference/core-modules.md` update deferred to the epic doc phase.
+**M2 landed (2026-06-10):** `defineComponent`/`defineResource` + zod-backed schemas + `introspect()` shipped in `@furnace/core/scene`; loader fully registry-driven; `t.ref` boundary validation live (the future behaviour runtime will consume it). `docs/reference/core-modules.md` update deferred to the epic doc phase.
 
 The original question — "what does `defineComponent(...)` look like?" — resolved to the **hybrid** option below, now extended with the full behavior contract.
 

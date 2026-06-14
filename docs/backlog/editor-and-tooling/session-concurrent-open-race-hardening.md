@@ -31,6 +31,4 @@ coalesced ~10Hz commits) or any second concurrent writer (multi-client, embedded
 serialization assumption weakens and these guards become load-bearing. Also revisit if the live
 gate ever shows a spurious conflict/ghost event.
 
-**Reference.** `packages/editor/src/daemon/session.ts` (`onFileChanged`, `apply`); M4 spec
-`docs/superpowers/specs/2026-06-11-editor-M4-command-layer-design.md` §2 (concurrency descope),
-§5 (notification-only events). Surfaced by the Task 6 code-quality review.
+**Reference.** `packages/editor/src/daemon/session.ts` (`onFileChanged`, `apply`); the command layer + change-feed contract is documented in `docs/reference/editor-architecture.md` (concurrency was descoped to single-user; events are notification-only). Surfaced by the Task 6 code-quality review.

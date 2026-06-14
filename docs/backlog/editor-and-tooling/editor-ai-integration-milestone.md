@@ -43,6 +43,4 @@ again: `docs/backlog/ai-agents/llm-as-planner-experiments.md`.
 wants a stable viewport; slot into the epic execution order at that point. Also reopens early if
 a sandboxed-client need shows up (someone wants Claude desktop/web driving the editor).
 
-**Reference:** epic spec `docs/superpowers/specs/2026-06-09-editor-epic-design.md` §5 M4 + §8;
-M4 spec (same dir, 2026-06-11) for the substrate this builds on; `handlers.ts` (the registry all
-three bindings mount over); `docs/research/2026-05-25-ai-asset-authoring/`.
+**Reference:** `docs/reference/editor-architecture.md` (the command-registry substrate this builds on); `packages/editor/src/daemon/handlers.ts` (the registry all three bindings mount over); `docs/research/2026-05-25-ai-asset-authoring/`.

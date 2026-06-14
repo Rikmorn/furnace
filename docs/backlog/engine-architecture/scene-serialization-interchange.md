@@ -10,7 +10,7 @@ Precedent: Godot `.tscn` + `PackedScene`, Unity scene/prefab serialization, thre
 
 ## Resolved decisions (2026-06-09 — M1 design)
 
-**Now active as editor-epic M1.** Full design + bowling mapping + SOTA grounding in the (gitignored) spec `docs/superpowers/specs/2026-06-09-editor-M1-scene-format-and-behaviors-design.md`; the component/behavior contract riding on this format is in `component-schemas.md`. What was settled:
+**LANDED (M1 + the M1-slices batch, 2026-06): the format + core loader shipped** — documented in `docs/reference/editor-architecture.md` + `docs/reference/core-modules.md`. The component/behaviour contract riding on this format is in `component-schemas.md`. What was settled in design:
 
 - **Format = text JSON.** Skeleton `{ version, settings, resources, entities }`. Baked-binary is a later, additive concern.
 - **Resources = id-keyed table, dependency-ordered load**, referenced by **human-readable string ids** (diffable; content-hashing deferred with the asset pipeline). Content policy: **procedural generators by params + embedded bytes**; **external file / asset-id refs deferred** (asset-pipeline epic). Resource kinds are an **extensible tagged union** — adding a `url`/`assetId` variant later is backward-compatible, not a breaking migration. Built-in shaders referenced by `kind`; material uniforms serialize as inline `params`. Loader resolves refs to live GPU resources via the existing `*.create`/`*.load` paths.

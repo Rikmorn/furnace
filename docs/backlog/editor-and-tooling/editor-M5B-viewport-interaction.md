@@ -52,7 +52,7 @@ can be implemented.
 extraction candidate: pure drag-state management that could live in a `gizmo-controller.ts`
 alongside `gizmo.ts`.
 
-**Trigger to revisit:** Next substantial host change (e.g. M5C rotate/scale gizmo work) or a
+**Trigger to revisit:** Next substantial host change (e.g. rotate/scale gizmo work in a future editor-redesign pass) or a
 dedicated cleanup tranche. Not urgent — the file is cohesive; the smell is size alone.
 
 **Reference:** M5B Task 13 holistic review.
@@ -89,7 +89,7 @@ the correct values (same as engine defaults), but they are now explicit in the d
 where they were previously omitted — a cosmetic bloat. The right fix is to commit only the
 changed field (position) and preserve omission of unchanged ones.
 
-**Trigger to revisit:** M5C gizmo work (rotate/scale handles) or a dedicated transform-mutation
+**Trigger to revisit:** rotate/scale gizmo work (a future editor-redesign pass) or a dedicated transform-mutation
 cleanup session.
 
 **Reference:** M5B Task 13 holistic review #4.
@@ -163,7 +163,7 @@ values would have caught this directly. This is the same class of gap as the Sta
 bug — "renders clean / all green" does not prove correct *output/behavior*.
 
 **Trigger to revisit:** Next editor test-infra investment, or before the next inspector feature
-tranche (M5C). Worth doing before more field types are added.
+tranche (a future editor-redesign pass). Worth doing before more field types are added.
 
 **Reference:** M5B Safari-pass regression triage 2026-06-14.
 
@@ -172,7 +172,7 @@ tranche (M5C). Worth doing before more field types are added.
 ## Trigger to revisit (remaining fenced items)
 
 Items 6–8 become actionable when the next editor milestone targets them:
-- Item 6 (`rebuildResource`) — when resource live-preview is prioritized (M5C or later).
+- Item 6 (`rebuildResource`) — when resource live-preview is prioritized (a future editor-redesign pass or later).
 - Item 7 (fly-camera) — when the orbit model limits navigation in practice.
 - Item 8 (hierarchy tree) — when entity-parenting is added to the scene format.
 

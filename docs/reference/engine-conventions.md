@@ -466,8 +466,6 @@ Consumers observe via `stats.snapshot(ctx)`, `stats.onFrame(ctx, fn)`, or `stats
 
 Stance: observability per §Failure policy. Setup ops (`stats.onFrame`) throw on disposed ctx; runtime reads return zero/null defaults silently on disposed; runtime writes silently no-op on disposed and emit a `warn`-level log entry on bad inputs (routed via `@furnace/core/log`). Functions wrapping consumer code (`stats.measure`) record what they can and re-throw consumer errors.
 
-Full spec: `docs/superpowers/specs/2026-05-24-core-tranche-5-stats-expansion-design.md`.
-
 ## Failure policy
 
 Engine modules pick one of four behavioural stances per export, driven
@@ -672,8 +670,6 @@ Diagnostics extend the existing failure policy, they don't replace it:
 
 ## References
 
-- Master architecture spec: `docs/superpowers/specs/2026-05-21-core-architecture-design.md` (gitignored — local design history)
-- Tranche 1 implementation spec: `docs/superpowers/specs/2026-05-22-core-tranche-1-gpu-foundation-design.md` (gitignored)
 - Engine architecture exploration notes: `docs/reference/engine-architecture.md`
 - Packaging and distribution: `docs/reference/packaging-and-distribution.md`
 - API surface taxonomy & naming posture: `api-posture.md` (the taxonomy maps each concept kind to a default failure-policy stance; this section remains the authority on the stances themselves).
