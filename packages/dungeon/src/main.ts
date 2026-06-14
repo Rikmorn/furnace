@@ -7,6 +7,7 @@ import { vec3, vec4 } from "@furnace/core/transform";
 import { slideMove } from "./collision.ts";
 import { FpController } from "./fp-controller.ts";
 import { buildGlows, buildLevel } from "./level.ts";
+import { buildMotes } from "./motes.ts";
 import { Torch } from "./torch.ts";
 
 const PLAYER_RADIUS = 0.3;
@@ -33,6 +34,7 @@ async function main(): Promise<void> {
 
   const level = await buildLevel(ctx);
   const glows = await buildGlows(ctx);
+  const motes = await buildMotes(ctx);
 
   // Bloom REQUIRES an hdr context; an hdr context REQUIRES a non-empty effects chain.
   const bloom = await post.bloom(ctx, {
@@ -66,10 +68,11 @@ async function main(): Promise<void> {
       const r = slideMove(fromPos, delta, PLAYER_RADIUS, level.boxes);
       return [r[0] - fromPos[0], r[1] - fromPos[1], r[2] - fromPos[2]];
     });
+    motes.update(player.position, dt);
     // Torch follows the player and flickers — rebuilt each frame.
     const lights: frame.Light[] = [torch.light(player.position, dt)];
     frame.render(ctx, {
-      meshes: [...level.meshes, ...glows.meshes],
+      meshes: [...level.meshes, ...glows.meshes, ...motes.meshes],
       camera: cam,
       clearColor: CLEAR_COLOR,
       lights,
