@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import { isMixed } from "../lib/mixed.ts";
 import type { FieldProps } from "../types.ts";
 import { FieldRow } from "./common.tsx";
@@ -19,22 +20,38 @@ const parseHex = (h: string, alpha: number): number[] => [
 
 export function ColorField({ values, onPreview, onCommit, path }: FieldProps) {
   const mixed = isMixed(values);
-  // `rgba` comes from SchemaForm's working draft, which onChange→onPreview already
-  // advances to the picked color. So the swatch tracks the pick with no local draft,
-  // and onBlur commits unconditionally: a no-op-revision guard cannot live here — by
-  // blur time `rgba` already equals the picked value, so an equality check would
-  // suppress every real commit (M5B ⑫ regression). No-op suppression, if wanted,
-  // belongs in SchemaForm, which alone holds both the draft and the committed baseline.
   const rgba = (values[0] as number[]) ?? [0, 0, 0, 1];
   // Color is always broadcast: all targets get the same picked value (no per-target channel to preserve).
   const fanout = (next: number[]) => values.map(() => next);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  // Commit on the native `change` event (fires once when the OS color picker is
+  // dismissed), NOT on blur. A native color input only blurs when focus moves to a
+  // focusable element — in Safari, clicking the inspector panel does not blur it, so
+  // a blur-commit only landed if you next clicked the (focusable) canvas. `change`
+  // fires from the pick itself, so the value sticks wherever you click next, and it
+  // only fires when the value actually changed (no no-op revision bumps). React's
+  // onChange maps to the `input` event (continuous through the drag) and drives the
+  // live preview; `change` is a distinct event React does not surface as a prop,
+  // hence the ref listener. `commitRef` holds the latest commit closure so the
+  // listener subscribes once.
+  const commitRef = useRef<(h: string) => void>(() => {});
+  commitRef.current = (h) => onCommit(fanout(parseHex(h, rgba[3] ?? 1)));
+  useEffect(() => {
+    const el = inputRef.current;
+    if (!el) return;
+    const handler = () => commitRef.current(el.value);
+    el.addEventListener("change", handler);
+    return () => el.removeEventListener("change", handler);
+  }, []);
+
   return (
     <FieldRow path={path}>
       <input
+        ref={inputRef}
         type="color"
         value={mixed ? "#000000" : hex(rgba)}
         onChange={(e) => onPreview(fanout(parseHex(e.target.value, rgba[3] ?? 1)))}
-        onBlur={(e) => onCommit(fanout(parseHex(e.target.value, rgba[3] ?? 1)))}
       />
     </FieldRow>
   );

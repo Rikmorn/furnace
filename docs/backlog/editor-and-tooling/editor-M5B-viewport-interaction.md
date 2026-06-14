@@ -113,7 +113,7 @@ viewport showing the transformed state while the document is unchanged — the S
 
 ---
 
-### No-op-revision suppression (reopened ⑫, at the correct layer)
+### No-op-revision suppression for non-color fields
 
 **Title:** Suppress no-op-revision bumps where both draft and committed baseline are known
 
@@ -121,10 +121,12 @@ viewport showing the transformed state while the document is unchanged — the S
 on a focus+blur with no edit. It was a regression: `ColorField`'s `rgba` comes from
 `SchemaForm`'s working draft, which `onChange → onPreview` advances to the picked value *before*
 blur — so the guard's `eq(next, rgba)` was always true and it suppressed **every** real commit
-(colors silently failed to stick). It was reverted 2026-06-14; `ColorField` commits
-unconditionally again (M5A behavior). A field that only ever sees the draft cannot implement
-this guard. The correct home is one layer up, where both the live draft **and** the committed
-baseline exist:
+(colors silently failed to stick). **Color is now fully resolved (2026-06-14):** `ColorField`
+commits on the native `change` event, which fires only when the value actually changed — so no
+no-op color commits are possible and no guard is needed. What remains is the general case for
+**other** fields (`NumberField` on Enter/blur, etc.), where a focus+blur or Enter with no edit
+can still bump the revision. If that becomes an annoyance, the correct home is a layer that holds
+both the live draft **and** the committed baseline:
 - **`SchemaForm.onCommit`** — compare the about-to-commit `updated` against the committed
   `values` prop (deep-equal on the small params object); skip the parent `onCommit` if equal.
   Frontend-local, covers every field uniformly (not just color).
