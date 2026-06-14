@@ -1,6 +1,6 @@
 import type { Camera } from "../camera/types.ts";
 import { FurnaceError } from "../errors.ts";
-import type { Light } from "../frame/index.ts";
+import type { Ambient, Light } from "../frame/index.ts";
 import type { GeometrySlot } from "../geometry/types.ts";
 import type { Context } from "../gpu/context-types.ts";
 import {
@@ -10,6 +10,7 @@ import {
   setScale,
 } from "../mesh/mesh.ts";
 import type { Mesh, MeshSlot } from "../mesh/types.ts";
+import type { Effect } from "../post/index.ts";
 import { _lookupGeometry, _lookupMesh } from "../resources/internal.ts";
 import { vec3 } from "../transform/vec3.ts";
 import { pickEntity } from "./pick.ts";
@@ -264,12 +265,35 @@ export async function loadScene(
     "settings",
   );
 
+  // ambient → LoadedScene.ambient. Boundary cast: the settings schema is stored
+  // type-erased (z.ZodObject<ZodRawShape>), so the parsed value is loosely typed;
+  // the schema's `ambient` shape (sky/ground vec3 tuples + intensity) is exactly
+  // `Ambient` modulo readonly, so this assignment is sound.
+  const ambient = settings["ambient"] as Ambient | undefined;
+
+  // post → resolve effect refs to live handles (loud at the load boundary: the
+  // validator parses `post` as a string[] but does not descend into it to check
+  // the ids resolve, so an unknown effect id reaches here un-caught).
+  // `tables.effects` holds the handles built by the TABLE_ORDER loop above.
+  // Boundary cast: same type-erasure as `ambient`.
+  const post = (settings["post"] ?? []) as string[];
+  const effects = post.map((id) => {
+    const fx = tables.effects.get(id);
+    if (fx === undefined) {
+      destroyAll();
+      throw new FurnaceError(
+        `scene: settings.post references unknown effect "${id}"`,
+      );
+    }
+    return fx as Effect;
+  });
+
   const result: LoadedScene = {
     meshes,
     camera: cam,
     lights,
-    // MIGRATION (until Task 11): ambient/world and effects not yet wired; populated in tasks 10/11.
-    effects: [],
+    ambient,
+    effects,
     settings,
     destroy: destroyAll,
     rebuildEntity(entityId, nextDoc) {

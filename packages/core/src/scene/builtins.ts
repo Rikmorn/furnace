@@ -54,13 +54,30 @@ const cameraShape = {
 
 const settingsShape = {
   clearColor: t.color().optional(),
+  ambient: z
+    .strictObject({ sky: t.vec3(), ground: t.vec3(), intensity: z.number() })
+    .optional(),
+  post: z.array(z.string()).optional(),
+  gravity: t.vec3().optional(),
+  lengthUnit: z.number().optional(),
+  sim: z.strictObject({ fixedHz: z.number() }).optional(),
+  msaa: z.union([z.literal(1), z.literal(4), z.literal(8)]).optional(),
+  hdr: z.boolean().optional(),
 };
 
 /** Local-transform component params. Rotation is a quaternion `[x,y,z,w]`; omitted fields keep identity defaults. */
 export type TransformParams = z.infer<z.ZodObject<typeof transformShape>>;
 /** Camera component params (non-spatial; pose comes from the entity's transform). */
 export type CameraParams = z.infer<z.ZodObject<typeof cameraShape>>;
-/** Scene-level render/world globals. M2 content: clearColor only. */
+/**
+ * Scene-level render/world globals. `clearColor`, `ambient`, and `post` (a
+ * chain of effect ids) are applied by the loader (clearColor → `LoadedScene.settings`;
+ * consumers pass it to the render clear pass. ambient → `LoadedScene.ambient`,
+ * post → `LoadedScene.effects`). `gravity`/`lengthUnit`/`sim` are physics globals
+ * consumed downstream (M6+). `msaa`/`hdr` are advisory context-creation inputs:
+ * the loader validates and carries them in `LoadedScene.settings` but does NOT
+ * create the context or apply them.
+ */
 export type SceneSettings = z.infer<z.ZodObject<typeof settingsShape>>;
 
 /** Apply a transform component's params to a mesh. Omitted fields keep the mesh's identity defaults. */
