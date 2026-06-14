@@ -107,7 +107,13 @@ export function App() {
         view.path !== lastLoaded.current.path ||
         view.revision !== lastLoaded.current.revision
       ) {
-        await hostRef.current?.loadScene(view.document);
+        // Only re-init the editor camera when the scene itself changed (open /
+        // switch). A same-scene revision bump (resource commit, external file
+        // edit) reloads the document but must preserve the user's orbit/zoom.
+        const isNewScene = view.path !== lastLoaded.current.path;
+        await hostRef.current?.loadScene(view.document, {
+          resetCamera: isNewScene,
+        });
         // Assign AFTER the await so a genuine loadScene failure does not poison
         // the dedup cache — the next SSE event will retry rather than skip.
         lastLoaded.current = { path: view.path, revision: view.revision };

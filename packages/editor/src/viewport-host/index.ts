@@ -61,8 +61,17 @@ export type ViewportHost = {
    * await `init` before issuing a `loadScene` (the SSE-driven editor can load
    * before the canvas's async GPU init). If multiple pre-init calls are made,
    * the last document wins (latest revision takes precedence).
+   *
+   * `opts.resetCamera` (default `true`) re-initializes the editor orbit camera
+   * from the scene camera's pose. Pass `false` for a same-scene reload (a
+   * resource/settings commit or external file edit that bumps the revision) so
+   * the user's current orbit/zoom is preserved — the editor camera is
+   * independent of the scene and must not jump when scene content changes.
    */
-  loadScene(doc: SceneDocument): Promise<void>;
+  loadScene(
+    doc: SceneDocument,
+    opts?: { resetCamera?: boolean },
+  ): Promise<void>;
   /**
    * Live-preview a single component edit on `entityId` (no daemon op): apply the
    * whole-component override onto the committed doc, rebuild just that entity,
@@ -132,11 +141,11 @@ export function createViewportHost(): ViewportHost {
   // SSE-driven loads can race the async GPU init; the latest doc is queued here
   // and flushed once init completes. If multiple loads arrive before init, the
   // last one wins (latest revision takes precedence).
-  let pendingDoc: SceneDocument | undefined;
-  // Editor-owned orbit camera: initialized from the scene camera's pose on each
-  // scene load, then driven by pointer events. Never serialized; independent of
-  // the scene camera entity (editing the scene camera entity does NOT move the
-  // editor view, and vice versa).
+  let pendingDoc: { doc: SceneDocument; resetCamera: boolean } | undefined;
+  // Editor-owned orbit camera: initialized from the scene camera's pose on a NEW
+  // scene load, preserved across same-scene reloads, then driven by pointer
+  // events. Never serialized; independent of the scene camera entity (editing the
+  // scene camera entity does NOT move the editor view, and vice versa).
   let editorCam: Camera | undefined;
   let orbitState: OrbitState | undefined;
   // Reassigned wholesale on every setSelection call (replace-not-mutate).
@@ -289,7 +298,10 @@ export function createViewportHost(): ViewportHost {
   // Applies a scene document assuming ctx is already set. Encapsulates the
   // destroy-before-build and resize/bind ordering that is load-critical (the M3
   // resize-blank fix depends on the specific sequence below — do not reorder).
-  const applyScene = async (doc: SceneDocument): Promise<void> => {
+  const applyScene = async (
+    doc: SceneDocument,
+    resetCamera: boolean,
+  ): Promise<void> => {
     const c = requireCtx();
     // Destroy-before-build; also unbind the previous editor camera's resize
     // subscription (scene-swap = swapping the bound camera without disposing
@@ -302,36 +314,44 @@ export function createViewportHost(): ViewportHost {
     loaded = undefined;
     loaded = await scene.loadScene(c, doc);
     committedDoc = doc;
-    // Initialize the editor orbit camera at the scene camera's eye position, but
-    // pivot the orbit on the scene CONTENT centroid (not the scene camera's
-    // authored look-target, which the camera builtin places only ~1 unit ahead of
-    // the eye — a near point that makes the whole scene swing wildly when you
-    // orbit). Falling back to the authored target keeps a sane pivot for an empty
-    // scene. The scene camera entity stays independently editable in the
-    // inspector without moving the editor view.
-    const sc = loaded.camera;
+    // The editor camera is recreated each reload (then rebound to the canvas
+    // below), but the orbit STATE — what the user is actually looking at — is only
+    // reset for a NEW scene. A resource/settings commit or external file edit
+    // reloads the document (rebuilding meshes) but must NOT move the editor view:
+    // the editor camera is independent of the scene. Applying a preserved
+    // orbitState to the fresh camera reproduces the exact view. (`!orbitState`
+    // guards the first-ever load even if the caller passed resetCamera=false.)
     editorCam = camera.perspective({
       fovYRad: EDITOR_FOV_Y,
       aspect: 1,
       near: 0.1,
       far: 1000,
     });
-    const eye = vec3.create();
-    camera.getPosition(eye, sc);
-    const tgt = vec3.create();
-    camera.getTarget(tgt, sc);
-    // vec3.create() returns Float32Array; index reads are number | undefined
-    // under noUncheckedIndexedAccess but indices 0-2 are always present on a
-    // vec3 — hot-path typed-array cast (documented in typescript.md).
-    const target = sceneContentCentroid() ?? [
-      tgt[0] as number,
-      tgt[1] as number,
-      tgt[2] as number,
-    ];
-    orbitState = fromEyeTarget(
-      [eye[0] as number, eye[1] as number, eye[2] as number],
-      target,
-    );
+    if (resetCamera || !orbitState) {
+      // Init at the scene camera's eye position, but pivot the orbit on the scene
+      // CONTENT centroid (not the scene camera's authored look-target, which the
+      // camera builtin places only ~1 unit ahead of the eye — a near point that
+      // makes the whole scene swing wildly when you orbit). Falling back to the
+      // authored target keeps a sane pivot for an empty scene. The scene camera
+      // entity stays independently editable in the inspector.
+      const sc = loaded.camera;
+      const eye = vec3.create();
+      camera.getPosition(eye, sc);
+      const tgt = vec3.create();
+      camera.getTarget(tgt, sc);
+      // vec3.create() returns Float32Array; index reads are number | undefined
+      // under noUncheckedIndexedAccess but indices 0-2 are always present on a
+      // vec3 — hot-path typed-array cast (documented in typescript.md).
+      const target = sceneContentCentroid() ?? [
+        tgt[0] as number,
+        tgt[1] as number,
+        tgt[2] as number,
+      ];
+      orbitState = fromEyeTarget(
+        [eye[0] as number, eye[1] as number, eye[2] as number],
+        target,
+      );
+    }
     applyOrbit();
     // bindToCanvas applies the current canvas aspect immediately, then keeps it
     // in sync on resize; render after so the first frame uses that aspect.
@@ -638,16 +658,17 @@ export function createViewportHost(): ViewportHost {
       if (pendingDoc !== undefined) {
         const d = pendingDoc;
         pendingDoc = undefined;
-        await applyScene(d);
+        await applyScene(d.doc, d.resetCamera);
       }
     },
-    async loadScene(doc) {
+    async loadScene(doc, opts) {
+      const resetCamera = opts?.resetCamera ?? true;
       if (!ctx) {
         // queue: SSE-driven load can race the async GPU init; apply on init
-        pendingDoc = doc;
+        pendingDoc = { doc, resetCamera };
         return;
       }
-      await applyScene(doc);
+      await applyScene(doc, resetCamera);
     },
     render() {
       if (ctx && loaded) renderLoaded(ctx, loaded);
