@@ -6,7 +6,14 @@ import { vec3, vec4 } from "@furnace/core/transform";
 import { FpController } from "./fp-controller.ts";
 import { buildLevel } from "./level.ts";
 
-const CLEAR_COLOR = vec4.fromValues(0.02, 0.02, 0.03, 1);
+const FOG_COLOR: [number, number, number] = [0.015, 0.02, 0.03];
+// Clear color matches the fog so the void at depth reads as fog, not a hard edge.
+const CLEAR_COLOR = vec4.fromValues(
+  FOG_COLOR[0],
+  FOG_COLOR[1],
+  FOG_COLOR[2],
+  1,
+);
 
 async function main(): Promise<void> {
   const canvas = document.querySelector<HTMLCanvasElement>("#gpu");
@@ -30,10 +37,12 @@ async function main(): Promise<void> {
       intensity: 1.2,
     },
   ];
+  const fog: frame.Fog = { color: FOG_COLOR, density: 0.12 };
+  // Ambient dropped low now that fog + (soon) the torch carry the mood.
   const ambient: frame.Ambient = {
-    sky: [0.4, 0.45, 0.55],
-    ground: [0.15, 0.15, 0.2],
-    intensity: 0.3,
+    sky: [0.06, 0.07, 0.1],
+    ground: [0.02, 0.02, 0.03],
+    intensity: 0.4,
   };
 
   input.attach(canvas);
@@ -48,6 +57,7 @@ async function main(): Promise<void> {
       clearColor: CLEAR_COLOR,
       lights,
       ambient,
+      fog,
     });
   });
 }
