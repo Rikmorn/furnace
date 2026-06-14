@@ -2,9 +2,10 @@ import * as camera from "@furnace/core/camera";
 import * as frame from "@furnace/core/frame";
 import * as gpu from "@furnace/core/gpu";
 import * as input from "@furnace/core/input";
+import * as post from "@furnace/core/post";
 import { vec3, vec4 } from "@furnace/core/transform";
 import { FpController } from "./fp-controller.ts";
-import { buildLevel } from "./level.ts";
+import { buildGlows, buildLevel } from "./level.ts";
 import { Torch } from "./torch.ts";
 
 const FOG_COLOR: [number, number, number] = [0.015, 0.02, 0.03];
@@ -20,7 +21,7 @@ async function main(): Promise<void> {
   const canvas = document.querySelector<HTMLCanvasElement>("#gpu");
   if (!canvas) throw new Error("canvas#gpu not found");
 
-  const ctx = await gpu.requestContext(canvas, { sampleCount: 4 });
+  const ctx = await gpu.requestContext(canvas, { sampleCount: 4, hdr: true });
   const cam = camera.perspective({
     position: vec3.fromValues(0, 1.6, 0),
     target: vec3.fromValues(0, 1.6, -1),
@@ -28,6 +29,18 @@ async function main(): Promise<void> {
   camera.bindToCanvas(ctx, cam);
 
   const level = await buildLevel(ctx);
+  const glows = await buildGlows(ctx);
+
+  // Bloom REQUIRES an hdr context; an hdr context REQUIRES a non-empty effects chain.
+  const bloom = await post.bloom(ctx, {
+    intensity: 0.9,
+    threshold: 1.0,
+    softness: 0.2,
+  });
+  const tonemap = await post.tonemap(ctx, {
+    exposure: 1.0,
+    operator: "neutral",
+  });
 
   const fog: frame.Fog = { color: FOG_COLOR, density: 0.12 };
   // Ambient dropped low now that fog + (soon) the torch carry the mood.
@@ -48,12 +61,13 @@ async function main(): Promise<void> {
     // Torch follows the player and flickers — rebuilt each frame.
     const lights: frame.Light[] = [torch.light(player.position, dt)];
     frame.render(ctx, {
-      meshes: level.meshes,
+      meshes: [...level.meshes, ...glows.meshes],
       camera: cam,
       clearColor: CLEAR_COLOR,
       lights,
       ambient,
       fog,
+      effects: [bloom, tonemap],
     });
   });
 }

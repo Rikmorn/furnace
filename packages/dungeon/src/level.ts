@@ -71,3 +71,50 @@ export async function buildLevel(ctx: Context): Promise<Level> {
   };
   return { meshes, boxes: LEVEL_BOXES, destroy };
 }
+
+export type Glow = {
+  center: [number, number, number];
+  color: [number, number, number];
+  radius: number;
+};
+export const LEVEL_GLOWS: Glow[] = [
+  { center: [0, 1.2, -30], color: [0.2, 2.6, 1.4], radius: 0.25 }, // eerie green-cyan at the back
+  { center: [-4.5, 0.6, -26], color: [2.2, 1.0, 0.3], radius: 0.18 }, // amber (treasure?)
+  { center: [4.2, 2.0, -28], color: [1.6, 0.4, 2.4], radius: 0.15 }, // violet
+];
+
+export async function buildGlows(
+  ctx: Context,
+): Promise<{ meshes: mesh.Mesh[]; destroy: () => void }> {
+  const sphere = geometry.sphere(ctx, { radius: 1 });
+  const unlit = await shader.unlit(ctx);
+  // Track each glow's owned resources as a triple so destroy() is exact (no casts).
+  const made: {
+    mesh: mesh.Mesh;
+    material: material.Material;
+    binding: binding.Binding;
+  }[] = [];
+  for (const g of LEVEL_GLOWS) {
+    const b = binding.create(ctx, unlit);
+    binding.set(ctx, b, { color: [g.color[0], g.color[1], g.color[2], 1] });
+    const mat = await material.create(ctx, { shader: unlit, binding: b });
+    const m = mesh.create(ctx, { geometry: sphere, material: mat });
+    mesh.setPosition(
+      ctx,
+      m,
+      vec3.fromValues(g.center[0], g.center[1], g.center[2]),
+    );
+    mesh.setScale(ctx, m, vec3.fromValues(g.radius, g.radius, g.radius));
+    made.push({ mesh: m, material: mat, binding: b });
+  }
+  const meshes = made.map((x) => x.mesh);
+  const destroy = (): void => {
+    for (const x of made) {
+      mesh.destroy(ctx, x.mesh);
+      material.destroy(ctx, x.material);
+      binding.destroy(ctx, x.binding);
+    }
+    geometry.destroy(ctx, sphere);
+  };
+  return { meshes, destroy };
+}
