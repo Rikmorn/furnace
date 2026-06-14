@@ -3,6 +3,7 @@ import * as binding from "../binding/index.ts";
 import type { Binding } from "../binding/types.ts";
 import * as camera from "../camera/index.ts";
 import { FurnaceError } from "../errors.ts";
+import type { DirectionalShadow, Light, SpotShadow } from "../frame/index.ts";
 import * as geometry from "../geometry/index.ts";
 import type { Context } from "../gpu/context-types.ts";
 import * as material from "../material/index.ts";
@@ -97,6 +98,124 @@ function applyTransform(
   }
 }
 
+/** Engine forward axis (right-handed Y-up): -Z. Rotated by the transform's
+ *  quaternion to derive a light's / camera's look direction. */
+const FORWARD = vec3.fromValues(0, 0, -1);
+
+/** Derive a world-space forward direction from a transform's rotation quaternion
+ *  (identity → -Z). Used by both the `light` and `camera` builds. */
+function dirFromRotation(
+  rot: TransformParams["rotation"],
+): [number, number, number] {
+  const out = vec3.create();
+  const q = rot
+    ? quat.fromValues(rot[0], rot[1], rot[2], rot[3])
+    : quat.fromValues(0, 0, 0, 1);
+  vec3.transformQuat(out, FORWARD, q);
+  return [out[0] as number, out[1] as number, out[2] as number];
+}
+
+// Defaults for required core *Shadow fields the all-optional component schema
+// leaves out, so a bare `shadow: {}` opt-in still yields a valid shadow config.
+const DEFAULT_ORTHO_HALF_EXTENT = 10;
+const DEFAULT_SHADOW_NEAR = 0.1;
+const DEFAULT_SHADOW_FAR = 50;
+const DEFAULT_LIGHT_COLOR: [number, number, number] = [1, 1, 1];
+const DEFAULT_LIGHT_INTENSITY = 1;
+const DEFAULT_LIGHT_RANGE = 10;
+const DEFAULT_SPOT_INNER_ANGLE = Math.PI / 8;
+const DEFAULT_SPOT_OUTER_ANGLE = Math.PI / 6;
+
+/** Raw `shadow` params off the (all-optional) light component schema. */
+type ShadowParams = {
+  orthoHalfExtent?: number;
+  near?: number;
+  far?: number;
+  target?: [number, number, number];
+  distance?: number;
+  depthBias?: number;
+  normalBias?: number;
+};
+
+/** Build a `DirectionalShadow`, filling the core-required fields the schema
+ *  leaves optional with sensible defaults. */
+function buildDirectionalShadow(s: ShadowParams): DirectionalShadow {
+  return {
+    orthoHalfExtent: s.orthoHalfExtent ?? DEFAULT_ORTHO_HALF_EXTENT,
+    near: s.near ?? DEFAULT_SHADOW_NEAR,
+    far: s.far ?? DEFAULT_SHADOW_FAR,
+    target: s.target,
+    distance: s.distance,
+    depthBias: s.depthBias,
+    normalBias: s.normalBias,
+  };
+}
+
+/** Build a `SpotShadow` (all core fields optional).
+ *  Projects only the spot-relevant subset of `ShadowParams` — `s.orthoHalfExtent`,
+ *  `s.target`, and `s.distance` are directional-only and are intentionally dropped here. */
+function buildSpotShadow(s: ShadowParams): SpotShadow {
+  return {
+    near: s.near,
+    far: s.far,
+    depthBias: s.depthBias,
+    normalBias: s.normalBias,
+  };
+}
+
+/**
+ * Construct a `Light` per its discriminated-union variant from a `light`
+ * component's raw params + its sibling transform. Direction (directional/spot)
+ * is derived from the transform rotation; position (point/spot) from the
+ * transform position. Per-type construction — no union-erasing casts.
+ */
+function buildLight(
+  p: Record<string, unknown>,
+  tf: TransformParams | undefined,
+): Light {
+  const type = p["type"] as "directional" | "point" | "spot";
+  const color =
+    (p["color"] as [number, number, number] | undefined) ?? DEFAULT_LIGHT_COLOR;
+  const intensity =
+    (p["intensity"] as number | undefined) ?? DEFAULT_LIGHT_INTENSITY;
+  const range = (p["range"] as number | undefined) ?? DEFAULT_LIGHT_RANGE;
+  const shadow = p["shadow"] as ShadowParams | undefined;
+  const direction = dirFromRotation(tf?.rotation);
+  const pos = tf?.position;
+  const position: [number, number, number] = pos
+    ? [pos[0], pos[1], pos[2]]
+    : [0, 0, 0];
+
+  switch (type) {
+    case "directional":
+      return {
+        type: "directional",
+        direction,
+        color,
+        intensity,
+        ...(shadow ? { shadow: buildDirectionalShadow(shadow) } : {}),
+      };
+    case "point":
+      return { type: "point", position, color, intensity, range };
+    case "spot":
+      return {
+        type: "spot",
+        position,
+        direction,
+        color,
+        intensity,
+        range,
+        innerAngle:
+          (p["innerAngle"] as number | undefined) ?? DEFAULT_SPOT_INNER_ANGLE,
+        outerAngle:
+          (p["outerAngle"] as number | undefined) ?? DEFAULT_SPOT_OUTER_ANGLE,
+        ...(shadow ? { shadow: buildSpotShadow(shadow) } : {}),
+      };
+    default:
+      throw new FurnaceError(`scene: unknown light type "${type}"`);
+  }
+}
+
 /**
  * Register the built-in component types, resource kinds, and the settings
  * schema. Runs once at `@furnace/core/scene` module init — the same
@@ -140,20 +259,51 @@ export function registerBuiltins(): void {
       // Boundary cast: see meshRenderer.
       const tf = bx.sibling("transform") as TransformParams | undefined;
       const p = tf?.position ?? [0, 0, 0];
-      // Identity-rotation only — forward is -Z (engine right-handed Y-up);
-      // general quaternion → look-direction is a follow-on slice.
+      // Look direction derives from the transform rotation (identity → -Z,
+      // engine right-handed Y-up); target = position + forward.
+      const dir = dirFromRotation(tf?.rotation);
       const cam = camera.perspective({
         aspect: bx.params.aspect,
         fovYRad: bx.params.fovYRad,
         near: bx.params.near,
         far: bx.params.far,
         position: vec3.fromValues(p[0], p[1], p[2]),
-        target: vec3.fromValues(p[0], p[1], p[2] - 1),
+        target: vec3.fromValues(p[0] + dir[0], p[1] + dir[1], p[2] + dir[2]),
       });
       bx.out.setCamera(cam);
       return cam;
     },
     // No destroy: Camera is a CPU-side value, not a pooled GPU resource.
+  });
+
+  defineComponent("light", {
+    params: {
+      type: z.enum(["directional", "point", "spot"]),
+      color: t.vec3().optional(),
+      intensity: z.number().optional(),
+      range: z.number().optional(),
+      innerAngle: z.number().optional(),
+      outerAngle: z.number().optional(),
+      shadow: z
+        .strictObject({
+          orthoHalfExtent: z.number().optional(),
+          near: z.number().optional(),
+          far: z.number().optional(),
+          target: t.vec3().optional(),
+          distance: z.number().optional(),
+          depthBias: z.number().optional(),
+          normalBias: z.number().optional(),
+        })
+        .optional(),
+    },
+    build(_ctx, bx) {
+      // Boundary cast: see meshRenderer.
+      const tf = bx.sibling("transform") as TransformParams | undefined;
+      const light = buildLight(bx.params as Record<string, unknown>, tf);
+      bx.out.addLight(light);
+      return light; // no destroy — Light is plain CPU data
+    },
+    // No destroy: Light is a per-frame value type, not a pooled GPU resource.
   });
 
   // --- resource kinds ---

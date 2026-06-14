@@ -1,5 +1,6 @@
 import type { Camera } from "../camera/types.ts";
 import { FurnaceError } from "../errors.ts";
+import type { Light } from "../frame/index.ts";
 import type { GeometrySlot } from "../geometry/types.ts";
 import type { Context } from "../gpu/context-types.ts";
 import {
@@ -40,6 +41,7 @@ type BuiltRecord = {
 type EntityRecord = {
   built: BuiltRecord[];
   meshes: Mesh[];
+  lights: Light[];
   camera?: Camera;
 };
 
@@ -117,7 +119,7 @@ function buildEntity(
     resolvedByName.set(name, resolveParams(reg.shape, parsed, lookup));
   }
   const sibling = (name: string): unknown => resolvedByName.get(name);
-  const record: EntityRecord = { built: [], meshes: [] };
+  const record: EntityRecord = { built: [], meshes: [], lights: [] };
   const out: OutSinks = {
     addMesh: (m) => record.meshes.push(m),
     setCamera: (c) => {
@@ -128,6 +130,7 @@ function buildEntity(
       }
       record.camera = c;
     },
+    addLight: (l) => record.lights.push(l),
   };
   for (const [name, reg] of componentEntries()) {
     const params = resolvedByName.get(name);
@@ -198,6 +201,7 @@ export async function loadScene(
     for (const b of [...built].reverse()) b.destroy?.(ctx, b.instance);
   };
   const meshes: Mesh[] = [];
+  const lights: Light[] = [];
   let loadedCamera: Camera | undefined;
   const records = new Map<string, EntityRecord>();
 
@@ -238,6 +242,7 @@ export async function loadScene(
         loadedCamera = record.camera;
       }
       meshes.push(...record.meshes);
+      lights.push(...record.lights);
       built.push(...record.built);
       records.set(entity.id, record);
     }
@@ -262,6 +267,9 @@ export async function loadScene(
   const result: LoadedScene = {
     meshes,
     camera: cam,
+    lights,
+    // MIGRATION (until Task 11): ambient/world and effects not yet wired; populated in tasks 10/11.
+    effects: [],
     settings,
     destroy: destroyAll,
     rebuildEntity(entityId, nextDoc) {
@@ -276,11 +284,13 @@ export async function loadScene(
       if (prev) {
         for (const b of [...prev.built].reverse()) b.destroy?.(ctx, b.instance);
         removeAll(result.meshes, prev.meshes);
+        removeAll(result.lights, prev.lights);
         removeAll(built, prev.built);
         records.delete(entityId);
       }
       if (!next) return; // entity removed in the preview doc: teardown only
       result.meshes.push(...next.meshes);
+      result.lights.push(...next.lights);
       built.push(...next.built);
       records.set(entityId, next);
       if (next.camera) result.camera = next.camera;

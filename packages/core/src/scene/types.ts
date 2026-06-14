@@ -1,6 +1,9 @@
 import type { Camera } from "../camera/types.ts";
+import type { Ambient, Light } from "../frame/index.ts";
 import type { Context } from "../gpu/context-types.ts";
 import type { Mesh } from "../mesh/types.ts";
+import type { World } from "../physics/index.ts";
+import type { Effect } from "../post/index.ts";
 import type { SceneSettings } from "./builtins.ts";
 
 /**
@@ -32,6 +35,14 @@ export type EntityDoc = {
 export type LoadedScene = {
   meshes: Mesh[];
   camera: Camera;
+  /** Lights projected from `light` entities (direction derived from transform rotation). */
+  lights: Light[];
+  /** Scene hemisphere ambient term, if a settings/ambient source set one (Task 10). */
+  ambient?: Ambient;
+  /** Post-processing effect chain projected from the scene (Task 10). */
+  effects: Effect[];
+  /** Physics world, lazily created when a `rigidBody` entity is present (Task 11). */
+  world?: World;
   settings: SceneSettings;
   destroy: () => void;
   /**

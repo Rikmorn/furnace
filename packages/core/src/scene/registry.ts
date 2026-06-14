@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { Camera } from "../camera/types.ts";
 import { FurnaceError } from "../errors.ts";
+import type { Light } from "../frame/index.ts";
 import type { Context } from "../gpu/context-types.ts";
 import type { Mesh } from "../mesh/types.ts";
 import type { ResolvedParamsOf } from "./schema.ts";
@@ -16,6 +17,8 @@ export type OutSinks = {
   addMesh(m: Mesh): void;
   /** Contribute THE scene camera. Throws if a camera was already set. */
   setCamera(c: Camera): void;
+  /** Contribute a light to `LoadedScene.lights` (projected from a light entity). */
+  addLight(light: Light): void;
 };
 
 /**
