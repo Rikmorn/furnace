@@ -35,6 +35,13 @@
         "@webgpu/types": "^0.1.70",
       },
     },
+    "packages/dungeon": {
+      "name": "@furnace/dungeon",
+      "version": "0.0.0",
+      "dependencies": {
+        "@furnace/core": "workspace:*",
+      },
+    },
     "packages/editor": {
       "name": "@furnace/editor",
       "version": "0.0.0",
@@ -159,6 +166,8 @@
     "@furnace/cookbook": ["@furnace/cookbook@workspace:packages/cookbook"],
 
     "@furnace/core": ["@furnace/core@workspace:packages/core"],
+
+    "@furnace/dungeon": ["@furnace/dungeon@workspace:packages/dungeon"],
 
     "@furnace/editor": ["@furnace/editor@workspace:packages/editor"],
 

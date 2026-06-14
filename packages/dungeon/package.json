@@ -1,0 +1,15 @@
+{
+  "name": "@furnace/dungeon",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun --hot serve.ts",
+    "build:web": "bun build src/index.html --outdir ../../dist/dungeon --minify --sourcemap=external",
+    "test": "bun test",
+    "typecheck": "bunx tsc --noEmit"
+  },
+  "dependencies": {
+    "@furnace/core": "workspace:*"
+  }
+}
