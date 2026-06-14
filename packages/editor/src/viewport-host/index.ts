@@ -176,13 +176,17 @@ export function createViewportHost(): ViewportHost {
   // Centroid of the current selection's AABB corners — the gizmo origin and the
   // frame-selected target. null when nothing is loaded, the selection is empty,
   // or no selected entity has a renderable box.
-  const selectionCentroid = (): [number, number, number] | null => {
-    if (!loaded || selection.length === 0) return null;
+  // Centroid of the AABB corners of the given entity ids (mesh-less entities are
+  // skipped). Returns null when no id has a renderable mesh.
+  const centroidOf = (
+    ids: readonly string[],
+  ): [number, number, number] | null => {
+    if (!loaded) return null;
     let cx = 0;
     let cy = 0;
     let cz = 0;
     let n = 0;
-    for (const id of selection) {
+    for (const id of ids) {
       const c = loaded.entityBoxCorners(id);
       if (!c) continue;
       for (let k = 0; k < 8; k++) {
@@ -194,6 +198,15 @@ export function createViewportHost(): ViewportHost {
     }
     return n === 0 ? null : [cx / n, cy / n, cz / n];
   };
+
+  const selectionCentroid = (): [number, number, number] | null =>
+    selection.length === 0 ? null : centroidOf(selection);
+
+  // Centroid of all renderable entities in the loaded scene — the orbit pivot the
+  // editor camera frames on load (the scene camera's authored look-target is only
+  // ~1 unit ahead of the eye, a poor pivot that makes content swing wildly).
+  const sceneContentCentroid = (): [number, number, number] | null =>
+    centroidOf(committedDoc?.entities.map((e) => e.id) ?? []);
 
   // World length of the gizmo's screen-constant pixel size, so the handles stay
   // ~GIZMO_PX long regardless of camera distance. Uses the editor cam's FOV
@@ -289,10 +302,13 @@ export function createViewportHost(): ViewportHost {
     loaded = undefined;
     loaded = await scene.loadScene(c, doc);
     committedDoc = doc;
-    // Initialize the editor orbit camera from the scene camera's pose, then
-    // bind the editor camera (not the scene camera) to the canvas so aspect
-    // tracks canvas size. The scene camera entity remains independently
-    // editable in the inspector without moving the editor view.
+    // Initialize the editor orbit camera at the scene camera's eye position, but
+    // pivot the orbit on the scene CONTENT centroid (not the scene camera's
+    // authored look-target, which the camera builtin places only ~1 unit ahead of
+    // the eye — a near point that makes the whole scene swing wildly when you
+    // orbit). Falling back to the authored target keeps a sane pivot for an empty
+    // scene. The scene camera entity stays independently editable in the
+    // inspector without moving the editor view.
     const sc = loaded.camera;
     editorCam = camera.perspective({
       fovYRad: EDITOR_FOV_Y,
@@ -307,9 +323,14 @@ export function createViewportHost(): ViewportHost {
     // vec3.create() returns Float32Array; index reads are number | undefined
     // under noUncheckedIndexedAccess but indices 0-2 are always present on a
     // vec3 — hot-path typed-array cast (documented in typescript.md).
+    const target = sceneContentCentroid() ?? [
+      tgt[0] as number,
+      tgt[1] as number,
+      tgt[2] as number,
+    ];
     orbitState = fromEyeTarget(
       [eye[0] as number, eye[1] as number, eye[2] as number],
-      [tgt[0] as number, tgt[1] as number, tgt[2] as number],
+      target,
     );
     applyOrbit();
     // bindToCanvas applies the current canvas aspect immediately, then keeps it
@@ -508,6 +529,12 @@ export function createViewportHost(): ViewportHost {
 
   const onPointerDown = (e: PointerEvent): void => {
     if (!ctx || !loaded || !editorCam) return;
+    // Give the canvas keyboard focus so F/Escape keydowns reach it. Safari does
+    // NOT focus a tabindex element on click (and blurs the prior focus), so
+    // without this the canvas's keydown handler only fires until the first click.
+    // preventScroll: the canvas fills its dock pane — never scroll an ancestor to
+    // reveal it on click.
+    canvasEl?.focus({ preventScroll: true });
     // Gizmo pick-priority: a handle hit starts a drag and returns early, beating
     // both scene-pick (select) and orbit/pan.
     if (tryStartGizmoDrag(e)) return;

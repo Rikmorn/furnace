@@ -7,7 +7,9 @@ AABB selection highlight, translate gizmo (3-axis drag, anchor-relative-absolute
 one-undo), editor orbit/pan/zoom camera (init from scene cam, never serialized), NumberField
 drag-scrub (Safari-safe Pointer Events), focused-input echo-guard (`shouldReseed`), and
 `revertSettings`. The three M5A inspector papercuts (⑩ omitted-default display, ⑪ vector
-per-component multi-edit fan, ⑫ ColorField no-op-commit guard) were also delivered in M5B.
+per-component multi-edit fan, ⑫ ColorField no-op-commit guard) were also delivered in M5B —
+but ⑫ was a regression (it suppressed every real color commit) and was reverted 2026-06-14;
+see "No-op-revision suppression (reopened ⑫)" below.
 
 The following items were explicitly fenced out of M5B scope and remain deferred.
 
@@ -108,6 +110,60 @@ viewport showing the transformed state while the document is unchanged — the S
 `commitComponents`/`commitSettings` paths have the same gap).
 
 **Reference:** M5B Task 14 review.
+
+---
+
+### No-op-revision suppression (reopened ⑫, at the correct layer)
+
+**Title:** Suppress no-op-revision bumps where both draft and committed baseline are known
+
+**Context:** M5B's ⑫ put a draft-equality guard inside `ColorField` to skip the revision bump
+on a focus+blur with no edit. It was a regression: `ColorField`'s `rgba` comes from
+`SchemaForm`'s working draft, which `onChange → onPreview` advances to the picked value *before*
+blur — so the guard's `eq(next, rgba)` was always true and it suppressed **every** real commit
+(colors silently failed to stick). It was reverted 2026-06-14; `ColorField` commits
+unconditionally again (M5A behavior). A field that only ever sees the draft cannot implement
+this guard. The correct home is one layer up, where both the live draft **and** the committed
+baseline exist:
+- **`SchemaForm.onCommit`** — compare the about-to-commit `updated` against the committed
+  `values` prop (deep-equal on the small params object); skip the parent `onCommit` if equal.
+  Frontend-local, covers every field uniformly (not just color).
+- **Document-session mutation layer (daemon)** — skip the revision bump when a
+  `setComponent`/`setResource`/`setSettings` produces a document structurally identical to the
+  current one. Truest single-source-of-truth fix; covers all clients (MCP, file-watch echoes),
+  not just the inspector. Bigger change; needs an equality/canonical-form decision and undo
+  interaction review.
+
+Recommend the document-session approach (single source of truth) but it is a design decision,
+not a regression — hence deferred.
+
+**Trigger to revisit:** Next inspector/command-layer cleanup tranche, or when no-op undo entries
+become an actual annoyance in practice.
+
+**Reference:** M5B Safari-pass regression triage 2026-06-14; `editor-architecture.md` §11.9 ⑫.
+
+---
+
+### Inspector fields have no component-level tests (process gap)
+
+**Title:** Add a component-render test harness for inspector fields
+
+**Context:** The ⑫ regression above shipped through all 974 tests, the two-stage spec/quality
+review, the final holistic review, AND the Chrome visual gate — because the inspector fields
+(`packages/editor/src/frontend/inspector/fields/*`) have **no component-level tests**. The
+existing inspector tests (`tests/inspector/*.test.ts`) only cover extracted pure helpers
+(`fanComponent`, `shouldReseed`, scrub math) — they never render a field and exercise the
+`onChange → onPreview → setDrafts → onBlur → onCommit` chain that the bug lived in. The Chrome
+gate missed it too: it never opened a scene and edited the material color (the resource path
+with no-op preview + full reload). A `happy-dom` (or `@testing-library/react`) harness that
+renders `SchemaForm` + a field and asserts the commit/preview callbacks fire with the right
+values would have caught this directly. This is the same class of gap as the Stage-4 shadow
+bug — "renders clean / all green" does not prove correct *output/behavior*.
+
+**Trigger to revisit:** Next editor test-infra investment, or before the next inspector feature
+tranche (M5C). Worth doing before more field types are added.
+
+**Reference:** M5B Safari-pass regression triage 2026-06-14.
 
 ---
 
