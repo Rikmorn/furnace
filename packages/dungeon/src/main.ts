@@ -30,7 +30,7 @@ async function main(): Promise<void> {
     position: vec3.fromValues(0, 1.6, 0),
     target: vec3.fromValues(0, 1.6, -1),
   });
-  camera.bindToCanvas(ctx, cam);
+  const unbindCamera = camera.bindToCanvas(ctx, cam);
 
   const level = await buildLevel(ctx);
   const glows = await buildGlows(ctx);
@@ -60,7 +60,7 @@ async function main(): Promise<void> {
   player.attachMouse(canvas);
   const torch = new Torch();
 
-  frame.loop(ctx, (info) => {
+  const loopHandle = frame.loop(ctx, (info) => {
     const dt = info.deltaMs / 1000;
     // slideMove returns an absolute resolved position; the controller's clampMove
     // contract wants a DELTA, so subtract the start position back out.
@@ -81,6 +81,23 @@ async function main(): Promise<void> {
       effects: [bloom, tonemap],
     });
   });
+
+  // Tear down in reverse dependency order: stop the loop, release consumer
+  // objects, then effects/meshes/bindings, and finally the context — gpu.dispose
+  // warns on any leaked resource-manager slot, so a clean shutdown IS the leak check.
+  const dispose = (): void => {
+    loopHandle.stop();
+    player.destroy();
+    input.detach();
+    unbindCamera();
+    motes.destroy();
+    glows.destroy();
+    level.destroy();
+    post.destroy(ctx, bloom);
+    post.destroy(ctx, tonemap);
+    gpu.dispose(ctx); // LAST — warns on leaked resource-manager slots; a clean shutdown is the leak check.
+  };
+  window.addEventListener("beforeunload", dispose);
 }
 
 main().catch((e: unknown) => {
