@@ -1,7 +1,9 @@
 import * as camera from "@furnace/core/camera";
 import * as frame from "@furnace/core/frame";
 import * as gpu from "@furnace/core/gpu";
+import * as input from "@furnace/core/input";
 import { vec3, vec4 } from "@furnace/core/transform";
+import { FpController } from "./fp-controller.ts";
 import { buildLevel } from "./level.ts";
 
 const CLEAR_COLOR = vec4.fromValues(0.02, 0.02, 0.03, 1);
@@ -34,7 +36,12 @@ async function main(): Promise<void> {
     intensity: 0.3,
   };
 
-  frame.loop(ctx, () => {
+  input.attach(canvas);
+  const player = new FpController({ position: [0, 1.6, -2] });
+  player.attachMouse(canvas);
+
+  frame.loop(ctx, (info) => {
+    player.update(ctx, cam, info.deltaMs / 1000);
     frame.render(ctx, {
       meshes: level.meshes,
       camera: cam,
