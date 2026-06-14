@@ -1,10 +1,18 @@
 import { z } from "zod";
 import type { Geometry } from "../geometry/index.ts";
 import type { Material } from "../material/index.ts";
+import type { Effect } from "../post/index.ts";
 import type { Shader } from "../shader/types.ts";
+import type { Texture } from "../texture/index.ts";
 
 /** The fixed, dependency-ordered resource tables of a scene document. */
-export const TABLE_ORDER = ["geometries", "shaders", "materials"] as const;
+export const TABLE_ORDER = [
+  "geometries",
+  "textures",
+  "shaders",
+  "materials",
+  "effects",
+] as const;
 
 /** Name of a scene resource table. */
 export type TableName = (typeof TABLE_ORDER)[number];
@@ -12,9 +20,15 @@ export type TableName = (typeof TABLE_ORDER)[number];
 /** The live handle type a resource table stores, by table name. */
 export type TableHandle<T extends TableName> = T extends "geometries"
   ? Geometry
-  : T extends "shaders"
-    ? Shader
-    : Material;
+  : T extends "textures"
+    ? Texture
+    : T extends "shaders"
+      ? Shader
+      : T extends "materials"
+        ? Material
+        : T extends "effects"
+          ? Effect
+          : never;
 
 /**
  * Furnace field semantics carried on a zod schema via `.meta({ furnace })`:

@@ -14,8 +14,10 @@ export type SceneDocument = {
   settings?: SceneSettings;
   resources?: {
     geometries?: Record<string, unknown>;
+    textures?: Record<string, unknown>;
     shaders?: Record<string, unknown>;
     materials?: Record<string, unknown>;
+    effects?: Record<string, unknown>;
   };
   entities: EntityDoc[];
 };

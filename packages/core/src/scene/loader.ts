@@ -154,7 +154,7 @@ function buildEntity(
  * Load a serialized scene document into live core objects.
  *
  * Validates the document against the registry, builds resources in fixed
- * table order (geometries → shaders → materials) via their registered
+ * table order (geometries → textures → shaders → materials → effects) via their registered
  * builders, instantiates entity components in registration order with
  * pre-resolved resource refs, and returns the scene's render inputs together
  * with a `destroy` that frees everything this call created (reverse build
@@ -175,8 +175,10 @@ export async function loadScene(
 
   const tables: Record<TableName, Map<string, unknown>> = {
     geometries: new Map(),
+    textures: new Map(),
     shaders: new Map(),
     materials: new Map(),
+    effects: new Map(),
   };
   const lookup = (table: TableName, id: string): unknown => {
     const handle = tables[table].get(id);
