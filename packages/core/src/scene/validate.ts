@@ -7,7 +7,7 @@ import {
   getSettingsSchema,
   type ResourceRegistration,
 } from "./registry.ts";
-import { fieldFurnaceMeta, parseOrThrow } from "./schema.ts";
+import { asNestedObject, fieldFurnaceMeta, parseOrThrow } from "./schema.ts";
 import { TABLE_ORDER, type TableName } from "./t.ts";
 import type { SceneDocument } from "./types.ts";
 
@@ -46,25 +46,60 @@ function isTableName(key: string): key is TableName {
   return (TABLE_ORDER as readonly string[]).includes(key);
 }
 
-/** Resource-ref fields must point at ids present in the document. */
+/**
+ * Resource-ref fields must point at ids present in the document. Recurses into
+ * nested object shapes (mirroring `resolveParams`) so a nested ref like a
+ * `standard` material's `texture.texture` is validated at the boundary with the
+ * same clean error — keeping validation and resolution in sync. Arrays, tuples
+ * (vec/color/quat), and `t.ref` fields are skipped, exactly as in resolution.
+ */
 function checkResourceRefs(
   reg: ComponentRegistration | ResourceRegistration,
   parsed: Record<string, unknown>,
   doc: SceneDocument,
   where: string,
 ): void {
-  for (const [key, field] of Object.entries(reg.shape)) {
+  checkResourceRefsInShape(reg.shape, parsed, doc, where, "");
+}
+
+function checkResourceRefsInShape(
+  shape: z.ZodRawShape,
+  parsed: Record<string, unknown>,
+  doc: SceneDocument,
+  where: string,
+  pathPrefix: string,
+): void {
+  for (const [key, field] of Object.entries(shape)) {
+    const value = parsed[key];
+    if (value === undefined) continue;
+    const path = pathPrefix ? `${pathPrefix}.${key}` : key;
     // Boundary cast: zod v4 types ZodRawShape values as the internal `$ZodType`
-    // base; `fieldFurnaceMeta` takes the public `ZodType` (same runtime object).
-    const meta = fieldFurnaceMeta(field as z.ZodType);
-    if (meta?.kind !== "resource") continue;
-    const id = parsed[key];
-    if (id === undefined) continue;
-    if (
-      !(typeof id === "string" && id in (doc.resources?.[meta.table] ?? {}))
-    ) {
-      throw new FurnaceError(
-        `scene: ${where} references unknown ${meta.table} "${String(id)}" at "${key}"`,
+    // base; the schema helpers take the public `ZodType` (same runtime object).
+    const fieldType = field as z.ZodType;
+    const meta = fieldFurnaceMeta(fieldType);
+    if (meta?.kind === "resource") {
+      if (
+        !(
+          typeof value === "string" &&
+          value in (doc.resources?.[meta.table] ?? {})
+        )
+      ) {
+        throw new FurnaceError(
+          `scene: ${where} references unknown ${meta.table} "${String(value)}" at "${path}"`,
+        );
+      }
+      continue;
+    }
+    const nested = asNestedObject(fieldType);
+    if (nested && typeof value === "object" && value !== null) {
+      // Boundary cast: a nested-object field validated to an object; recurse so
+      // resource refs inside it are validated against its own shape.
+      checkResourceRefsInShape(
+        nested.shape,
+        value as Record<string, unknown>,
+        doc,
+        where,
+        path,
       );
     }
   }

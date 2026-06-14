@@ -51,9 +51,11 @@ export function fieldFurnaceMeta(field: z.ZodType): FurnaceMeta | undefined {
 /**
  * Unwrap `.optional()` and return the inner `z.ZodObject` if the field is one
  * (directly or optional-wrapped); `undefined` for any other zod type. Used to
- * decide whether `resolveParams` should recurse into a nested object shape.
+ * decide whether `resolveParams` (resolution) and `checkResourceRefs`
+ * (validation) should recurse into a nested object shape — kept in sync so a
+ * nested resource ref is validated at the boundary exactly where it resolves.
  */
-function asNestedObject(field: z.ZodType): z.ZodObject | undefined {
+export function asNestedObject(field: z.ZodType): z.ZodObject | undefined {
   let s = field;
   while (s instanceof z.ZodOptional) s = s.unwrap() as z.ZodType;
   return s instanceof z.ZodObject ? s : undefined;

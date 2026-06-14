@@ -85,6 +85,39 @@ test("rejects a material referencing an unknown shader id", () => {
   );
 });
 
+test("rejects a standard material whose NESTED texture.texture ref is unknown (boundary, not internal)", () => {
+  const bad: SceneDocument = {
+    ...minimal,
+    resources: {
+      ...minimal.resources,
+      textures: { tex_ok: { kind: "checkerboard" } },
+      materials: {
+        m_red: { shader: "s_unlit", texture: { texture: "MISSING" } },
+      },
+    },
+  };
+  // Clean boundary error: names the table, the bad id, and the nested path —
+  // NOT the loader's `scene [internal]: ...` lookup error.
+  expect(() => validateDocument(bad)).toThrow(
+    /textures.*"MISSING".*"texture\.texture"|"texture\.texture".*textures.*"MISSING"/i,
+  );
+  expect(() => validateDocument(bad)).not.toThrow(/\[internal\]/);
+});
+
+test("accepts a standard material with a valid NESTED texture.texture ref", () => {
+  const ok: SceneDocument = {
+    ...minimal,
+    resources: {
+      ...minimal.resources,
+      textures: { tex_ok: { kind: "checkerboard" } },
+      materials: {
+        m_red: { shader: "s_unlit", texture: { texture: "tex_ok" } },
+      },
+    },
+  };
+  expect(() => validateDocument(ok)).not.toThrow();
+});
+
 test("rejects a meshRenderer referencing an unknown material id", () => {
   const bad: SceneDocument = {
     ...minimal,
