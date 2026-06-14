@@ -4,9 +4,12 @@ import * as gpu from "@furnace/core/gpu";
 import * as input from "@furnace/core/input";
 import * as post from "@furnace/core/post";
 import { vec3, vec4 } from "@furnace/core/transform";
+import { slideMove } from "./collision.ts";
 import { FpController } from "./fp-controller.ts";
 import { buildGlows, buildLevel } from "./level.ts";
 import { Torch } from "./torch.ts";
+
+const PLAYER_RADIUS = 0.3;
 
 const FOG_COLOR: [number, number, number] = [0.015, 0.02, 0.03];
 // Clear color matches the fog so the void at depth reads as fog, not a hard edge.
@@ -57,7 +60,12 @@ async function main(): Promise<void> {
 
   frame.loop(ctx, (info) => {
     const dt = info.deltaMs / 1000;
-    player.update(ctx, cam, dt);
+    // slideMove returns an absolute resolved position; the controller's clampMove
+    // contract wants a DELTA, so subtract the start position back out.
+    player.update(ctx, cam, dt, (fromPos, delta) => {
+      const r = slideMove(fromPos, delta, PLAYER_RADIUS, level.boxes);
+      return [r[0] - fromPos[0], r[1] - fromPos[1], r[2] - fromPos[2]];
+    });
     // Torch follows the player and flickers — rebuilt each frame.
     const lights: frame.Light[] = [torch.light(player.position, dt)];
     frame.render(ctx, {
