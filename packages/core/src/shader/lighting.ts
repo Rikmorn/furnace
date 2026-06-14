@@ -19,7 +19,10 @@ export { sceneBinding } from "./scene-binding.ts";
  * hemisphere ambient + per-light diffuse/specular with windowed inverse-square
  * attenuation and spot cones, HDR-calibrated (no 1/π; specular is additive). The
  * per-light direct term is multiplied by `fr_shadowFactor` so casting lights cast
- * shadows; ambient is never shadowed. Names carry an `fr_` prefix to avoid
+ * shadows; ambient is never shadowed. Also exposes
+ * `fr_applyFog(color, worldPos, viewPos) -> vec3<f32>`: exponential distance fog
+ * (`mix(color, scene.fog.rgb, 1 - exp(-scene.fog.a * dist))`), a no-op when the
+ * fog density (`scene.fog.a`) is 0. Names carry an `fr_` prefix to avoid
  * colliding with consumer functions.
  */
 export const lightingHelpers: ShaderSource = source`${shadowHelpers}
@@ -34,6 +37,11 @@ fn fr_spotCone(L: vec3<f32>, axis: vec3<f32>, cosInner: f32, cosOuter: f32) -> f
 fn fr_ambient(n: vec3<f32>, albedo: vec3<f32>) -> vec3<f32> {
   let hemi = mix(scene.ambientGround.rgb, scene.ambientSky.rgb, n.y * 0.5 + 0.5);
   return hemi * scene.ambientSky.w * albedo;
+}
+fn fr_applyFog(color: vec3<f32>, worldPos: vec3<f32>, viewPos: vec3<f32>) -> vec3<f32> {
+  let dist = length(worldPos - viewPos);
+  let factor = 1.0 - exp(-scene.fog.a * dist);
+  return mix(color, scene.fog.rgb, factor);
 }
 fn fr_shade(
   worldPos: vec3<f32>, n: vec3<f32>, viewPos: vec3<f32>,

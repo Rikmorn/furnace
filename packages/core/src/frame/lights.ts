@@ -7,7 +7,7 @@
  *
  * Scene UBO byte layout (std140-safe, all vec4 lanes):
  * - Header (64 B): ambientSky @0, ambientGround @16, lightCount @32,
- *   _reserved @48.
+ *   fog @48 (rgb = fog color, a = density; density 0 = disabled).
  * - Lights (16 × 80 B each): posRange, dirType, colorInt, spotCos, shadow per
  *   light. The `shadow` lane is `(slot, depthBias, normalBias, _)`; `slot` is
  *   −1 when the light casts no shadow.
@@ -125,6 +125,10 @@ export type Light = DirectionalLight | PointLight | SpotLight;
  */
 export type Ambient = { sky: Vec3Tuple; ground: Vec3Tuple; intensity: number };
 
+/** Exponential distance fog. `density` 0 disables it (no visual change).
+ *  `final = mix(litColor, color, 1 - exp(-density * distanceFromCamera))`. */
+export type Fog = { color: Vec3Tuple; density: number };
+
 /**
  * A resolved shadow caster: which light, its slot, and its light-space matrix
  * (view·proj, raw clip space; the receiver shader remaps NDC→shadow-map UV when
@@ -154,7 +158,7 @@ export const MAX_SHADOW_CASTERS = 4;
 
 const FLOATS_PER_VEC4 = 4;
 const VEC4_PER_LIGHT = 5; // posRange, dirType, colorInt, spotCos, shadow
-const HEADER_VEC4 = 4; // ambientSky, ambientGround, lightCount, _reserved
+const HEADER_VEC4 = 4; // ambientSky, ambientGround, lightCount, fog
 const HEADER_FLOATS = HEADER_VEC4 * FLOATS_PER_VEC4; // 16
 const FLOATS_PER_LIGHT = VEC4_PER_LIGHT * FLOATS_PER_VEC4; // 20
 const MAT4_FLOATS = 16;
@@ -175,6 +179,7 @@ const SHADOW_LANE_FLOAT_OFFSET = 16;
 const NO_SHADOW_SLOT = -1;
 
 const LIGHT_COUNT_U32_INDEX = 8; // lightCount.x at byte 32 → u32 element 8
+const FOG_FLOAT_OFFSET = 12; // _reserved lane (byte 48): rgb = color, a = density
 const TYPE_DIRECTIONAL = 0;
 const TYPE_POINT = 1;
 const TYPE_SPOT = 2;
@@ -184,6 +189,8 @@ const DEFAULT_AMBIENT: Ambient = {
   ground: [0.2, 0.2, 0.22],
   intensity: 0.05,
 };
+
+const DEFAULT_FOG: Fog = { color: [0, 0, 0], density: 0 };
 
 /**
  * Pack `lights` + `ambient` into the Scene UBO byte layout (see
@@ -216,6 +223,7 @@ export function _packScene(
   lights: readonly Light[] | undefined,
   ambient: Ambient | undefined,
   casters: readonly ShadowCaster[] = [],
+  fog: Fog | undefined = undefined,
 ): { overflowed: boolean } {
   const f = new Float32Array(out);
   const u = new Uint32Array(out);
@@ -230,6 +238,13 @@ export function _packScene(
   f[4] = amb.ground[0];
   f[5] = amb.ground[1];
   f[6] = amb.ground[2];
+
+  // Header _reserved lane → fog: rgb = color, a = density (0 = disabled).
+  const fg = fog ?? DEFAULT_FOG;
+  f[FOG_FLOAT_OFFSET] = fg.color[0];
+  f[FOG_FLOAT_OFFSET + 1] = fg.color[1];
+  f[FOG_FLOAT_OFFSET + 2] = fg.color[2];
+  f[FOG_FLOAT_OFFSET + 3] = fg.density;
 
   const list = lights ?? [];
   const count = Math.min(list.length, MAX_LIGHTS);

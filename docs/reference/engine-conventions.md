@@ -283,7 +283,7 @@ Every Material's WGSL must respect the engine's binding contract:
 | Slot | Type | Owner | Written by |
 |---|---|---|---|
 | `@group(0) @binding(0)` | `Camera { viewProjection: mat4x4<f32>, position: vec4<f32> }` | engine (per-frame) | `frame.render` (once per frame, from `camera.getMatrices` + `camera.position`) |
-| `@group(0) @binding(1)` | `Scene { ambientSky: vec4<f32>, ambientGround: vec4<f32>, lightCount: vec4<u32>, _reserved: vec4<f32>, lights: array<Light, 16>, shadowMatrices: array<mat4x4<f32>, 4> }` | engine (per-frame) | `frame.render` (once per frame, from `RenderOptions.lights`/`ambient`) — bound only for pipelines whose shader declares `usesScene` |
+| `@group(0) @binding(1)` | `Scene { ambientSky: vec4<f32>, ambientGround: vec4<f32>, lightCount: vec4<u32>, fog: vec4<f32>, lights: array<Light, 16>, shadowMatrices: array<mat4x4<f32>, 4> }` (the `fog` lane packs `rgb` = fog color, `a` = density; density `0` = disabled) | engine (per-frame) | `frame.render` (once per frame, from `RenderOptions.lights`/`ambient`/`fog`) — bound only for pipelines whose shader declares `usesScene` |
 | `@group(0) @binding(2)` | `texture_depth_2d_array` (engine shadow maps; `MAX_SHADOW_CASTERS` layers, `depth32float`) | engine (per-frame) | `frame.render` (depth-only caster passes) — bound only for pipelines whose shader declares `usesShadows` |
 | `@group(0) @binding(3)` | `sampler_comparison` (PCF comparison sampler, `compare: "less"`) | engine (per-ctx) | `frame.render` — bound only for pipelines whose shader declares `usesShadows` |
 | `@group(1) @binding(N)` | consumer-defined | material | `MaterialDescriptor.bindings` |

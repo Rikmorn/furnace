@@ -5,6 +5,7 @@ export type {
   Ambient,
   DirectionalLight,
   DirectionalShadow,
+  Fog,
   Light,
   PointLight,
   SpotLight,

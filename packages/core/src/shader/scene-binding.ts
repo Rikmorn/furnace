@@ -23,7 +23,7 @@ struct Scene {
   ambientSky    : vec4<f32>,
   ambientGround : vec4<f32>,
   lightCount    : vec4<u32>,
-  _reserved     : vec4<f32>,
+  fog           : vec4<f32>, // rgb = fog color, a = density (0 = disabled)
   lights        : array<Light, 16>,
   // literal 4 must equal MAX_SHADOW_CASTERS in frame/lights.ts.
   shadowMatrices : array<mat4x4<f32>, 4>,

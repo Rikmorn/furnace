@@ -34,6 +34,7 @@ import { vec4 } from "../transform/vec4.ts";
 import {
   _packScene,
   type Ambient,
+  type Fog,
   type Light,
   MAX_LIGHTS,
   MAX_SHADOW_CASTERS,
@@ -265,9 +266,16 @@ function _writeSceneBuffer(
   lights: readonly Light[] | undefined,
   ambient: Ambient | undefined,
   casters: readonly ShadowCaster[],
+  fog: Fog | undefined = undefined,
 ): GPUBuffer {
   const buffer = _ensureSceneBuffer(ctx);
-  const { overflowed } = _packScene(sceneScratch, lights, ambient, casters);
+  const { overflowed } = _packScene(
+    sceneScratch,
+    lights,
+    ambient,
+    casters,
+    fog,
+  );
   if (overflowed && !warnedLightOverflow) {
     warnedLightOverflow = true;
     warn(
@@ -331,6 +339,10 @@ export type RenderOptions = RenderPassBase & {
    *  (`intensity ≈ 0.05`). Recompute per frame for day/night or volume schemes
    *  (consumer policy). */
   ambient?: Ambient;
+  /** Per-frame exponential distance fog. Omitted → disabled (density 0).
+   *  Applied by the built-in `lit`/`texturedLit` shaders (and any shader
+   *  composing the fog helper). */
+  fog?: Fog;
 };
 
 const DEFAULT_CLEAR_COLOR: Vec4 = vec4.fromValues(0, 0, 0, 1);
@@ -753,6 +765,7 @@ export function render(ctx: Context, opts: RenderOptions): void {
     opts.lights,
     opts.ambient,
     casters,
+    opts.fog,
   );
   const depth = _ensureDepthTexture(ctx);
   const msaa = _ensureSceneColorTarget(ctx);

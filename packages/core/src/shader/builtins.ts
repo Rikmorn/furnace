@@ -71,7 +71,7 @@ struct VsOut {
 @fragment fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
   let n = normalize(in.worldNormal);
   let rgb = fr_shade(in.worldPos, n, camera.position.xyz, mat.color.rgb, mat.specular.rgb, mat.specular.w);
-  return vec4<f32>(rgb, mat.color.a);
+  return vec4<f32>(fr_applyFog(rgb, in.worldPos, camera.position.xyz), mat.color.a);
 }`;
 
 const TEXTURED_SRC: ShaderSource = source`${_cameraBinding}
@@ -122,7 +122,7 @@ struct VsOut {
   let albedo = textureSample(tex, samp, in.uv);
   let n = normalize(in.worldNormal);
   let rgb = fr_shade(in.worldPos, n, camera.position.xyz, albedo.rgb, FR_TL_SPEC, FR_TL_SHININESS);
-  return vec4<f32>(rgb, albedo.a);
+  return vec4<f32>(fr_applyFog(rgb, in.worldPos, camera.position.xyz), albedo.a);
 }`;
 
 /** Resolved layout for the unlit shader's `@group(1)` uniform buffer. */
