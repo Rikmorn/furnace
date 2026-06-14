@@ -1,4 +1,4 @@
-import type { Mat4, Vec3 } from "./types.ts";
+import type { Mat4, Quat, Vec3 } from "./types.ts";
 
 /**
  * `Vec3` math helpers. All operations follow the gl-matrix
@@ -167,6 +167,35 @@ export const vec3 = {
     out[0] = (m0 * x + m4 * y + m8 * z + m12) / w;
     out[1] = (m1 * x + m5 * y + m9 * z + m13) / w;
     out[2] = (m2 * x + m6 * y + m10 * z + m14) / w;
+    return out;
+  },
+
+  /**
+   * Rotate `v` by quaternion `q`, writing the result into `out`. Uses the
+   * standard `v + 2*cross(q.xyz, cross(q.xyz, v) + q.w*v)` form. `out` may
+   * alias `v`. Returns `out`.
+   *
+   * @remarks
+   *
+   * `q` is assumed to be a unit quaternion. For arbitrary quaternions,
+   * normalise with {@link quat.normalize} first.
+   */
+  transformQuat(out: Vec3, v: Vec3, q: Quat): Vec3 {
+    const qx = q[0] as number;
+    const qy = q[1] as number;
+    const qz = q[2] as number;
+    const qw = q[3] as number;
+    const vx = v[0] as number;
+    const vy = v[1] as number;
+    const vz = v[2] as number;
+    // t = 2 * cross(q.xyz, v)
+    const tx = 2 * (qy * vz - qz * vy);
+    const ty = 2 * (qz * vx - qx * vz);
+    const tz = 2 * (qx * vy - qy * vx);
+    // out = v + qw*t + cross(q.xyz, t)
+    out[0] = vx + qw * tx + (qy * tz - qz * ty);
+    out[1] = vy + qw * ty + (qz * tx - qx * tz);
+    out[2] = vz + qw * tz + (qx * ty - qy * tx);
     return out;
   },
 };
