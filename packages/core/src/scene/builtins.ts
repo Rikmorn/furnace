@@ -150,6 +150,28 @@ export function registerBuiltins(): void {
     destroy: (ctx, g) => geometry.destroy(ctx, g),
   });
 
+  defineResource("geometries", "sphere", {
+    params: { radius: z.number().optional() },
+    build: (ctx, rx) => geometry.sphere(ctx, { radius: rx.params.radius }),
+    destroy: (ctx, g) => geometry.destroy(ctx, g),
+  });
+
+  defineResource("geometries", "cylinder", {
+    params: { radius: z.number().optional(), height: z.number().optional() },
+    build: (ctx, rx) =>
+      geometry.cylinder(ctx, {
+        radius: rx.params.radius,
+        height: rx.params.height,
+      }),
+    destroy: (ctx, g) => geometry.destroy(ctx, g),
+  });
+
+  defineResource("geometries", "plane", {
+    params: { size: z.number().optional() },
+    build: (ctx, rx) => geometry.plane(ctx, { size: rx.params.size }),
+    destroy: (ctx, g) => geometry.destroy(ctx, g),
+  });
+
   defineResource("shaders", "unlit", {
     // Boundary cast: unlit returns Shader<{color:"vec4f"}> — widened so all
     // shaders fit the uniform table.
