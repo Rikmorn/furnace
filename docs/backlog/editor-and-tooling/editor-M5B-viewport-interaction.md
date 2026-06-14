@@ -1,54 +1,124 @@
-# Editor M5B — viewport interaction, picking, gizmos, drag-scrub
+# Editor — remaining deferred viewport and hierarchy work
 
 ## Context
 
-M5A (2026-06-13) landed the reflection-driven inspector (editable components, settings, resources), multi-entity selection (replace/toggle/range, modifier-click), live preview (`previewEntity`/`previewSettings`/`revertEntity`/`syncCommitted`), and the `scene.batch` command. The following surfaces were explicitly fenced out of M5A scope and are recorded here for M5B.
+M5B (2026-06-14) delivered the full viewport manipulation loop on top of M5A: GPU-id picking,
+AABB selection highlight, translate gizmo (3-axis drag, anchor-relative-absolute, multi-select
+one-undo), editor orbit/pan/zoom camera (init from scene cam, never serialized), NumberField
+drag-scrub (Safari-safe Pointer Events), focused-input echo-guard (`shouldReseed`), and
+`revertSettings`. The three M5A inspector papercuts (⑩ omitted-default display, ⑪ vector
+per-component multi-edit fan, ⑫ ColorField no-op-commit guard) were also delivered in M5B.
 
-**Note: multi-select was pulled forward into M5A** (vs the M5 SOTA research's deferral recommendation — the research recommended deferring it to the same milestone as batch editing, but the brainstorm concluded they belonged together with the inspector).
+The following items were explicitly fenced out of M5B scope and remain deferred.
 
-### Fenced 5B items
+---
 
-**1. Viewport picking** — click in the 3D viewport to select an entity. Two candidate strategies documented in the M5 SOTA research:
-- **GPU-id pick**: render a flat-shaded pass where each entity has a unique integer color id encoded into the pixel; read back the pixel at the mouse position. Accurate to pixel, correct for any mesh shape, requires a second render pass (depth write, no AA) and a GPU→CPU readback (async, introduces one frame of latency). WebGPU supports this via `copyTextureToBuffer`.
-- **CPU-ray**: unproject the mouse into world space, cast a ray, test against each entity's AABB or triangle mesh. No extra pass, no readback latency, but requires the scene's geometry to be CPU-accessible and is O(entities × triangles) naive.
+## Remaining fenced items
 
-The GPU-id path is the industry standard (Unity, Godot, Blender all use it). The CPU-ray path is viable for small scenes. Decision pending.
+**6. `rebuildResource` + resource live-preview cascade** — M5A/M5B resources commit without
+live preview (the `onPreview` callback in `ResourcesInspector` is a no-op; the SSE echo drives
+a full `loadScene` reload). A `rebuildResource` on `LoadedScene` (analogous to `rebuildEntity`)
+could be called from a `viewport-host.previewResource` method, with `ResourcesInspector.onPreview`
+wired to it. The cascade implication: an entity that references the previewed resource must also
+be rebuilt (its bound material/shader/geometry changes). This is a non-trivial dependency-graph
+traversal.
 
-**2. AABB highlight via `frame.drawLines`** — highlight the selected entity's axis-aligned bounding box in the viewport. `frame.drawLines` (`@furnace/core/frame`) is the primitive; the host needs to accumulate the 12 AABB edges and submit them as an overlay on the rendered frame.
+**7. Editor fly-camera (WASD)** — WASD + mouse-look navigation of the viewport when the
+viewport panel has focus. The host's orbit camera and the `render()` seam are the starting
+point. Requires a per-frame update loop (rAF) driven by the viewport panel, paused when the
+panel loses focus. The orbit camera would need to coexist with or switch to a fly mode.
 
-**3. Translate gizmo** — a 3-axis drag handle centered on the selected entity. Requires:
-- Transform-gizmo math: project the 3D axis handles into screen space; detect which axis is dragged; compute the world-space delta from mouse delta along the projected axis (Blender's technique: project the axis to screen, find the component of mouse movement along that line).
-- In-place update contract: the gizmo drag emits a preview on every mouse-move (no daemon round-trip) and commits on mouse-up. This is where the `binding.set` fast-path matters — see item 4.
-- Visual: the three axis handles (X=red, Y=green, Z=blue) rendered via `frame.drawLines` or a dedicated gizmo pass.
+**8. Hierarchy tree** — a tree view of entities (parent→children) in the entities panel. M5B's
+`EntitiesPanel` is a flat list. The scene document's entity model is also flat today (no parent
+field); the hierarchy view may require either an entity-parenting field in the scene format or
+a local editor-only grouping layer. Requires a scene-format parent decision before the view
+can be implemented.
 
-**4. Smooth continuous drag-scrub + `binding.set` fast-path** — the NumberField renderer currently commits on blur. Drag-scrub (mouse-down → drag → mouse-up) requires preview on every mouse-move frame. The seam is already in place (`onPreview` wires to `viewport-host.previewEntity`), but continuous 60 fps scrub will create GC pressure from `structuredClone(committedDoc)` on every frame. The `binding.set` fast-path (direct GPU uniform update without a scene rebuild) is the correct fix: `rebuildEntity` is too expensive for continuous input; `Binding<L>.set` is the GPU fast path. This item also makes the **focused-input echo-suppression guard** load-bearing (see item 5).
+---
 
-**5. Focused-input echo-suppression guard** (spec §B rule 3, deferred from M5A) — in a single-user local session, a concurrent external edit (another process editing the scene file) arriving mid-keystroke while the user has a number input focused would clobber the field with the daemon's value. M5A does not implement this guard: `session-updated` events unconditionally re-seed `SchemaForm`'s `values` prop, which drops any in-progress draft. The guard is: if the focused element is inside a `<SchemaForm>` (tracked via a `FocusManager` or a `data-inspector-input` attribute), suppress `session-updated` re-seeds for that field until the input blurs. This is single-user only and benign in M5A (only one writer), but lands naturally alongside the smooth drag-scrub seam (same interaction model: in-progress input must not be clobbered by an incoming update).
+## New deferred items surfaced during M5B
 
-**6. `rebuildResource` + resource live-preview cascade** — M5A resources commit without live preview (the `onPreview` callback in `ResourcesInspector` is a no-op; the SSE echo drives a full `loadScene` reload). M5B can add `rebuildResource` on `LoadedScene` (analogous to `rebuildEntity`), call it from `viewport-host.previewResource`, and wire `ResourcesInspector.onPreview` to it. The cascade implication: an entity that references the previewed resource must also be rebuilt (its bound material/shader/geometry changes). This is a non-trivial dependency-graph traversal.
+### Gizmo-controller extraction
 
-**7. Editor fly-camera** — WASD + mouse-look navigation of the viewport when the viewport panel has focus. The host's `render()` + the transform module are the seam. Requires a per-frame update loop (rAF) driven by the viewport panel, paused when the panel loses focus.
+**Title:** Extract translate-gizmo controller from `viewport-host/index.ts`
 
-**8. Hierarchy tree** — a tree view of entities (parent→children) in the entities panel. M5A's `EntitiesPanel` is a flat list. The scene document's entity model is also flat today (no parent field); the hierarchy view may require either an entity-parenting field in the scene format or a local editor-only grouping layer.
+**Context:** `viewport-host/index.ts` grew to ~685 lines after M5B. The file is cohesive
+(all host wiring), but it is past the ~400-line cognitive-load guideline
+(`docs/rules/clean-code.md`). The gizmo controller — `tryStartGizmoDrag`,
+`updateGizmoDrag`, `commitGizmoDrag`, `cancelGizmoDrag`, `committedTransform`,
+`currentTransform`, `gizmoDrag` state, and `renderGizmo` (~110 lines) — is the cleanest
+extraction candidate: pure drag-state management that could live in a `gizmo-controller.ts`
+alongside `gizmo.ts`.
 
-**9. Settings-revert gap** — M5A has no `revertSettings` on `ViewportHost`. When the user previews a settings field (e.g. `clearColor`) and then presses Escape, the `onCancel` handler in `InspectPanel.tsx` is a no-op: the preview stays in the engine until the next `document-changed` SSE event reloads the scene. Entity edits revert cleanly via `revertEntity`; settings edits do not. The fix is a `revertSettings()` method on `ViewportHost` that restores `loaded.settings` from the committed doc's settings and re-renders. The gap is noted inline in `InspectPanel.tsx` (`onCancel` comment).
+**Trigger to revisit:** Next substantial host change (e.g. M5C rotate/scale gizmo work) or a
+dedicated cleanup tranche. Not urgent — the file is cohesive; the smell is size alone.
 
-### Discovered during the M5A live visual gate (2026-06-13)
+**Reference:** M5B Task 13 holistic review.
 
-These three are inspector display/semantics refinements surfaced by driving the as-shipped inspector in a browser. None block M5A (the core editable-inspector flow works); each is a papercut.
+---
 
-**10. Omitted optional fields render as `0`, not the engine default** — the cube's `transform` is `{}` in `editor-cube.scene.json` (position/rotation/scale all omitted; the engine defaults them to `[0,0,0]`/identity/`[1,1,1]`). The inspector shows `scale` as `0,0,0` because `VecField` falls back to `new Array(n).fill(0)` for an absent value, and `introspect()` does not carry the schema/engine default. This is misleading (scale `0` would make the cube invisible) and a footgun if the user edits the field. Fix needs `introspect()` to expose each field's default (zod `.default()` / engine default), and the renderers to seed from it when the document omits the value. Note: editing one field does NOT write the others — only the edited field is sent — so committing a `position` edit does not accidentally zero `scale`.
+### Per-field focus-guard redundancy
 
-**11. Vector multi-edit forces non-edited components to the first target's values** — editing one component of a vector (e.g. `position.y`) on a multi-selection sends the WHOLE vector `[x, y, z]` to all N targets, where `x`/`z` come from `values[0]` (the first selected entity in doc order). So multi-selecting two entities with different `position.x` and editing only `y` clobbers both to the first entity's `x`/`z`. This follows from the whole-component mutation model (spec §6) and the mixed `—` indicator correctly warns the components differ, but per-component multi-edit (preserve each target's own x/z; only set the edited subcomponent) would be less surprising for vectors. Consider a per-component fan in `VecField`/`QuatField` for the multi-target case.
+**Title:** Audit per-field `focusedRef` guards vs form-level `shouldReseed` echo-guard
 
-**12. `ColorField` commits on blur even when unchanged** — focusing then blurring a color swatch without changing it still fires `onCommit`, producing a no-op revision bump + undo entry (observed: rev 0→1 from an incidental focus/blur on `clearColor`). Guard the commit on an actual value change (compare against the committed value before emitting), matching the other renderers' "don't emit a no-op" posture.
+**Context:** Task 16's form-level echo-guard (SchemaForm gates `setDrafts` on
+`shouldReseed(focusWithin)`) subsumes the per-field `focusedRef` guards in
+`NumberField`/`VecField` for the echo case: freezing `setDrafts` freezes the `values` prop,
+so per-field `useEffect`s that re-seed from `values` never fire while focus is within the form.
+The per-field guards remain as defense-in-depth but may be removable without behavioral
+change.
 
-## Trigger to revisit
+**Trigger to revisit:** Post-M5B inspector audit or when a future inspector refactor changes
+the SchemaForm/field architecture. Removable if the architecture doesn't change.
 
-When viewport interaction (picking, gizmos) becomes the next editor priority, or when continuous-scrub performance is observed to be a problem in the as-shipped M5A inspector. Items 5 (echo-suppression guard) and 9 (settings-revert gap) are the clearest day-one papercuts — they surface as real UX friction as soon as the inspector is in daily use.
+**Reference:** M5B Task 16 review.
+
+---
+
+### Gizmo commit materializes default rotation/scale
+
+**Title:** Gizmo commit writes explicit rotation/scale even when they were previously omitted
+
+**Context:** `currentTransform` in `viewport-host/index.ts` fills omitted rotation/scale with
+schema defaults (`[0,0,0,1]` / `[1,1,1]`) so it always produces a complete transform record.
+This means a gizmo commit writes `{ position, rotation: [0,0,0,1], scale: [1,1,1] }` into the
+document even when the entity's transform only had `position` before the drag. The fields have
+the correct values (same as engine defaults), but they are now explicit in the document JSON
+where they were previously omitted — a cosmetic bloat. The right fix is to commit only the
+changed field (position) and preserve omission of unchanged ones.
+
+**Trigger to revisit:** M5C gizmo work (rotate/scale handles) or a dedicated transform-mutation
+cleanup session.
+
+**Reference:** M5B Task 13 holistic review #4.
+
+---
+
+### Viewport commit error surfacing
+
+**Title:** Surface errors from `onTransformCommit` daemon calls (toast/notification UX)
+
+**Context:** `App.tsx`'s `onTransformCommit` handler calls `api.setComponent` /
+`api.setComponentMany` via `suppressEcho`, but does not surface errors (no `.catch`, no user
+notification). This matches the existing `commitResource` precedent. A failed commit leaves the
+viewport showing the transformed state while the document is unchanged — the SSE event
+(or lack thereof) is the only signal that something went wrong.
+
+**Trigger to revisit:** When adding editor error-toast or notification UX (the
+`commitComponents`/`commitSettings` paths have the same gap).
+
+**Reference:** M5B Task 14 review.
+
+---
+
+## Trigger to revisit (remaining fenced items)
+
+Items 6–8 become actionable when the next editor milestone targets them:
+- Item 6 (`rebuildResource`) — when resource live-preview is prioritized (M5C or later).
+- Item 7 (fly-camera) — when the orbit model limits navigation in practice.
+- Item 8 (hierarchy tree) — when entity-parenting is added to the scene format.
 
 ## Reference
 
-- Plan: `docs/superpowers/plans/2026-06-13-editor-M5A-inspector.md` (Tasks 1–15 executed the 5A scope)
-- SOTA research: `docs/research/2026-06-11-editor-m5-inspector-sota.md` (picking strategies, gizmo math, form-engine evaluation, leva pattern analysis)
-- As-built architecture: `docs/reference/editor-architecture.md` §10 (M5A inspector, live-preview seam, echo suppression, settings-revert gap)
+- As-built M5A/M5B architecture: `docs/reference/editor-architecture.md` §10–§11
+- SOTA research (picking, gizmo math, form-engine): `docs/research/2026-06-11-editor-m5-inspector-sota.md`

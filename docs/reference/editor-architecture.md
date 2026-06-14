@@ -1,6 +1,6 @@
 # Editor Architecture
 
-The as-built `@furnace/editor` package, milestones **M3** (editor shell) + **M4** (command layer). This is the reference — "how the editor IS today." The decision history that produced it lives in `docs/backlog/editor-and-tooling/editor-backend-architecture.md`; this doc describes the running system.
+The as-built `@furnace/editor` package, milestones **M3** (editor shell) + **M4** (command layer) + **M5A** (inspector) + **M5B** (viewport interaction). This is the reference — "how the editor IS today." The decision history that produced it lives in `docs/backlog/editor-and-tooling/editor-backend-architecture.md`; this doc describes the running system.
 
 ## 1. What the editor is
 
@@ -189,7 +189,7 @@ If the file is absent, all editor settings fall back to defaults. Malformed JSON
 
 - **AI bindings** — MCP mount, `viewport.capture`, embedded agent, and outbound editor→LLM were **descoped from M4** into a dedicated milestone: `docs/backlog/editor-and-tooling/editor-ai-integration-milestone.md`. Rationale: for an FS-capable agent, direct file editing beats mutation tools, so M4 made disk edits first-class (watch + reload + validate + introspect over plain HTTP) and shipped the transport-agnostic substrate; the bindings get designed together when appetite is there (slot after M5). The error contract and the `MCP/agent bindings` notes in `errors.ts` / `handlers.ts` are the forward-looking seam for that work.
 - **Extension-file watching** — editing an extension's TypeScript does not auto-rebuild the engine bundle or registry; re-open the scene / refresh the browser to pick up changes (§3). Known gap carried from M3.
-- **Inspector interactions deferred from M5A** — viewport picking, AABB highlight, translate gizmo, resource live-preview (rebuildResource cascade), editor fly-camera, hierarchy tree, smooth continuous drag-scrub (binding.set fast-path), focused-input echo-suppression guard, and the settings-revert gap are all 5B. See `docs/backlog/editor-and-tooling/editor-M5B-viewport-interaction.md`.
+- **Remaining viewport/hierarchy work deferred from M5B** — resource live-preview (`rebuildResource` cascade), editor fly-camera (WASD), and hierarchy tree (requires scene-format parent decision). See `docs/backlog/editor-and-tooling/editor-M5B-viewport-interaction.md`.
 - **Session concurrent-open race hardening** — two await-point races in `session.ts` (`onFileChanged` / `apply` capturing stale `state` across an await) are benign under the single-user serialized-command model and deferred with a staleness-guard fix: `docs/backlog/editor-and-tooling/session-concurrent-open-race-hardening.md`. Becomes load-bearing when M5 adds continuous interactions or a second concurrent writer.
 
 ## 10. M5A — inspector, selection, live preview
@@ -282,3 +282,93 @@ The `scene-opened` event clears `lastLoaded` entirely (`lastLoaded.current = {}`
 ### 10.8 Settings-revert gap (M5A known limitation)
 
 M5A has `revertEntity` (rebuilds from committed doc) but **no `revertSettings`**. When the user previews a settings field (e.g. `clearColor`) and then presses Escape, the `onCancel` path in `InspectPanel.tsx` is a no-op: the preview value stays in the engine until the next SSE `document-changed` event drives a `loadScene` reload. Entity edits revert cleanly; settings edits do not. This gap is noted inline in `InspectPanel.tsx` and tracked in `docs/backlog/editor-and-tooling/editor-M5B-viewport-interaction.md`.
+
+## 11. M5B — viewport interaction (picking, gizmos, orbit camera, drag-scrub)
+
+M5B landed the full manipulation loop: GPU-id picking, AABB selection highlight, translate gizmo, orbit/pan/zoom camera, NumberField drag-scrub, focused-input echo-guard, settings-revert, and three M5A inspector papercuts (⑩⑪⑫). This section documents the as-built additions to the M5A substrate.
+
+### 11.1 Engine additions (`@furnace/core`)
+
+**`camera.screenToRay(cam, ndcX, ndcY) → Ray`** — unprojects a normalized-device-coordinate position (`ndcX`/`ndcY` in `[-1, 1]`, Y-up) to a world-space ray `{ origin: Vec3, dir: Vec3 }`. `origin` is the near-plane point; `dir` is normalized. Returns a degenerate ray (`dir ≈ 0`) when the view-projection is singular. Reuses scratch buffers; allocates one fresh `Ray` per call. Source: `packages/core/src/camera/ray.ts`; exported from `@furnace/core/camera`.
+
+**`LoadedScene.entityBoxCorners(entityId) → Float32Array | null`** — returns the 8 world-space AABB corners of the named entity (24-element `Float32Array`, 3 floats per corner, bit-index layout: bit0=x, bit1=y, bit2=z); null when the entity has no geometry. Computed from geometry local bounds baked at `geometry.create` time, transformed by each mesh's current model matrix. Source: `packages/core/src/scene/loader.ts`.
+
+**`LoadedScene.setEntityTransform(entityId, { position?, rotation?, scale? })`** — direct GPU poke on all meshes owned by the named entity: per-field optional, no rebuild, no clone. The translate-gizmo preview fast path — avoids `rebuildEntity`'s clone+teardown+rebuild for the common "drag a transform" case. Source: `packages/core/src/scene/loader.ts`.
+
+**`LoadedScene.pick(ctx, cam, ndcX, ndcY) → Promise<string | null>`** — GPU id-buffer pick. Renders all pickable meshes into an off-screen `r32uint` id target (1-based per-entity integer colors, no AA, depth write enabled), reads back the single texel under the cursor via `copyTextureToBuffer`, and maps the id back to an entity id string. Returns `null` for a background click. All transient GPU resources (id texture, depth texture, id uniform buffer, readback buffer) are allocated and freed per call; the render pipeline is lazily built and cached per context. Source: `packages/core/src/scene/pick.ts`.
+
+**Geometry local AABB (internal)** — at `geometry.create` time, the engine now computes the AABB from vertex data and stores it on the `GeometrySlot` as `localMin`/`localMax`. Used by `entityBoxCorners` to produce world-space corners without re-scanning vertices at pick time. Internal; not part of the consumer-facing `@furnace/core/geometry` surface.
+
+**`drawLines` `occlude` option** — `frame.drawLines` gained an `occlude?: boolean` option (default `true`). `occlude: true` → `depthCompare: "less-equal"` (depth-tested, occluded behind nearer meshes — AABB highlights, physics debug); `occlude: false` → `depthCompare: "always"` (always-on-top — gizmos). Two pipelines are kept per context (one per depth mode). `DrawLinesOptions` type updated. Source: `packages/core/src/frame/draw-lines.ts`.
+
+### 11.2 Editor orbit camera
+
+`viewport-host/camera-control.ts` implements a **spherical orbit camera** as the pure-math state type `OrbitState { target, distance, yaw, pitch }` plus four pure functions: `orbit(s, dYaw, dPitch)`, `zoom(s, delta)`, `pan(s, dx, dy, right, up, speed)`, `toEyeTarget(s)`, `fromEyeTarget(eye, target)`. No engine imports; trivially unit-testable.
+
+The host (`viewport-host/index.ts`) maintains a private `editorCam: Camera` and `orbitState: OrbitState`:
+
+- **Initialized at scene load** from the scene camera entity's pose (`camera.getPosition` / `camera.getTarget` → `fromEyeTarget`) and bound to the canvas via `camera.bindToCanvas` so the editor camera's aspect auto-tracks canvas size. `camera.bindToCanvas` is unsubscribed and re-subscribed on each `loadScene` call.
+- **Never serialized** — the editor camera is completely independent of the scene camera entity. Editing the scene camera entity in the inspector does not move the editor view; orbiting in the viewport does not touch the scene document.
+- The `loaded.camera` (the scene camera entity) is kept but not used for rendering; `editorCam` is passed to `frame.render` and `frame.drawLines` instead.
+- **Controls** (see `viewport-host/input-map.ts` `classifyDrag`): left-drag = select (no modifier) or orbit (Alt held), Alt+Shift-drag = pan, middle-drag = orbit, scroll = zoom (exponential, `exp(delta * 0.1)`), F key = frame-selected (sets orbit target to selection centroid).
+
+### 11.3 AABB selection highlight
+
+`setSelection(ids)` stores the selection array and re-renders. On each `renderLoaded` call, for each selected id the host calls `loaded.entityBoxCorners(id)` and passes the result to `boxEdges(corners, HILITE)` (`viewport-host/box-edges.ts`) to build a `{ vertices, colors }` line-list for the 12 axis-aligned edges, then issues `frame.drawLines(ctx, { ..., occlude: true })` (depth-tested — highlight correctly occludes behind nearer meshes). Highlight color is `[1, 0.6, 0, 1]` (orange, alpha 1). Entities without geometry are silently skipped.
+
+### 11.4 Translate gizmo
+
+The gizmo is implemented across two files:
+
+**`viewport-host/gizmo.ts`** — pure-math, no engine imports: `Ray`, `Axis`, `AXIS_DIR`, `pickAxis(ray, gizmoOrigin, axisLen, tol)`, `closestPointParamOnAxis(origin, axisDir, ray)`. `pickAxis` returns the nearest world axis (or `null`) whose handle segment `[0, axisLen]` the ray passes within `tol` world units of, after culling axes within ~8° of view-parallel (degenerate screen-space projection). `closestPointParamOnAxis` returns the standard closest-point parameter `t` on the axis line (in axis-direction units — world-space offset with unit axis), used for both hit-testing and anchor-relative drag.
+
+**Host-side gizmo loop** (in `viewport-host/index.ts`):
+
+- **Rendering** — `renderGizmo` calls `frame.drawLines` with `occlude: false` (always-on-top) for each of the three handles. Handle length is **screen-constant** (`GIZMO_PX = 90`): world length = `(2 × dist × tan(fovY/2)) / canvasHeight × GIZMO_PX` where `dist` is the eye-to-origin distance. Uses `EDITOR_FOV_Y` for this computation (the same `Math.PI / 3` constant used to create the editor camera, so the math is consistent). Colors: X = `[1, 0.2, 0.2, 1]`, Y = `[0.2, 1, 0.2, 1]`, Z = `[0.3, 0.4, 1, 1]`.
+
+- **Grab (`tryStartGizmoDrag`)** — on left-pointerdown (no Alt), unprojects the cursor via `camera.screenToRay` → `pickAxis`; on a hit, stores `{ axis, startParam, startPos (centroid), lastPos: Map, pointerId }` and captures the pointer. Returns `true` to short-circuit the select/orbit dispatch.
+
+- **Drag (`updateGizmoDrag`)** — on each pointermove while a gizmo drag is active: unprojects the cursor, computes the axis parameter `t`, derives `delta = t − startParam`, and for each selected entity computes `pos = committedPosition + axisDir * delta` (anchor-relative absolute, never integrated per-event — cannot drift). Calls `loaded.setEntityTransform(id, { position: pos })` (fast path, no rebuild) and stores `pos` in `lastPos`. Renders.
+
+- **Commit (`commitGizmoDrag`)** — on pointerup: if `lastPos` is non-empty (at least one pointermove fired), reads `lastPos` to build the commit array (each entity's `currentTransform` = committed rotation/scale + stored `lastPos`), **synchronously folds the committed positions into `committedDoc`** (preventing a second drag from reading stale P0 before the async SSE `syncCommitted` arrives), then calls `callbacks.onTransformCommit(edits)`. If `lastPos` is empty (no-op drag), skips the commit entirely. Releases pointer capture.
+
+- **Cancel (Escape)** — calls `revertEntityToCommitted` for each selected entity (rebuilds from committed doc via `loaded.rebuildEntity`) and releases capture.
+
+- **Multi-select** — all selected entities are dragged simultaneously with the **same world delta** applied to each entity's own committed position, preserving relative offsets between entities. The commit array has one entry per selected entity; one `scene.batch` command is issued via `api.setComponentMany` — one undo entry.
+
+### 11.5 Host↔frontend contract
+
+The `ViewportHost` interface (`viewport-host/index.ts`) exposes two new methods:
+
+| Method | Direction | What it does |
+| --- | --- | --- |
+| `setSelection(ids: string[])` | chrome → host | Push selection; host re-renders with AABB highlights + gizmo for centroid. |
+| `setCallbacks(cb: ViewportCallbacks)` | chrome → host | Register `{ onSelect, onTransformCommit }`. May be called before `init`. |
+
+`ViewportCallbacks`:
+- `onSelect(entityId, mods)` — host emits on pick; chrome dispatches a `select-entity` reducer event. Modifier key flags (`metaKey`, `ctrlKey`, `shiftKey`) are forwarded. Viewport shift-click maps to `replace` mode (range-select is an `EntitiesPanel`-only affordance — no meaningful 3D ordering).
+- `onTransformCommit(edits: { entityId, transform }[])` — host emits on gizmo release; chrome calls `api.setComponent` (single entity) or `api.setComponentMany` (multi) and suppresses the SSE echo via `suppressEcho` — same dedup mechanism as `commitComponents`. One undo entry for the whole gizmo drag.
+
+**Chrome owns all daemon I/O.** The host never calls the daemon; it only emits callbacks. This keeps the engine bundle free of daemon protocol knowledge.
+
+### 11.6 Transform fast-path preview and drag-commit seam
+
+For `previewEntity` with `component === "transform"`, the host takes a fast path: it calls `loaded.setEntityTransform` directly (no clone, no rebuild) rather than the general `rebuildEntity` path. This is the hot path for both the gizmo drag and the inspector's transform field preview — no `structuredClone` overhead per event.
+
+`revertSettings()` is now implemented (M5A gap closed): calls `loaded.setSettings(committedDoc.settings)` and re-renders. Wired to the `InspectPanel.tsx` `onCancel` handler for settings forms. Source: `viewport-host/index.ts`.
+
+### 11.7 Echo-guard (focused-input reseed suppression)
+
+`packages/editor/src/frontend/inspector/lib/echo-guard.ts` exports `shouldReseed(focusWithin: boolean): boolean`. `SchemaForm` tracks whether any input inside it is focused (via `onFocusCapture` / `onBlurCapture`) and gates `setDrafts` on `shouldReseed(focusWithin)`: while the user is editing a field, incoming `session-updated` events do not clobber the in-progress draft. The check is a pure predicate so it is independently unit-testable.
+
+### 11.8 NumberField drag-scrub
+
+`packages/editor/src/frontend/inspector/lib/scrub.ts` exports `scrubValue(start, dxPixels, sensitivity, fine)`. `NumberField` attaches `onPointerDown` / `onPointerMove` / `onPointerUp` handlers: on pointerdown it captures the pointer and records `startValue`; on each pointermove it calls `scrubValue` with accumulated `dx` and dispatches `onPreview`; on pointerup it dispatches `onCommit` with the final value and releases capture. Shift held during drag applies `FINE_FACTOR = 0.1` for sub-unit precision. Safari-safe (uses Pointer Events, not mouse events; avoids pointer-lock for broader browser support).
+
+### 11.9 Inspector papercuts (⑩⑪⑫)
+
+**⑩ Omitted fields seed from schema defaults** — `introspect()` now carries a `default` field for each schema node (from zod `.default()`) and `SchemaForm`'s draft seed falls back to it when the document value is absent. Before M5B, absent optional fields (e.g. `scale` on a `{}` transform) showed as `0` (misleading — `scale=0` would make the cube invisible). Now they show the engine default (`[1,1,1]`). Committing an edited field still sends only that field; other absent fields are not written.
+
+**⑪ Per-component vector multi-edit fan** (`lib/vec-fan.ts`) — `fanComponent(targets, index, value, n)`: for a multi-selection, editing one component of a vector (e.g. `position.y`) now fans only that component to the value across all N targets, preserving each target's own other components. Before M5B, the whole vector from `values[0]` was sent to all targets, clobbering their x/z.
+
+**⑫ ColorField no-op-commit guard** — `ColorField` now compares the committed value before firing `onCommit` on blur; if unchanged, the commit is suppressed. Before M5B, focusing then blurring a color swatch without editing it produced a no-op revision bump + undo entry.
