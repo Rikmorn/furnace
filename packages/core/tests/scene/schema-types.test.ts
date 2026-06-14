@@ -8,6 +8,7 @@ import {
 } from "../../src/scene/schema.ts";
 import * as t from "../../src/scene/t.ts";
 import type { Shader } from "../../src/shader/types.ts";
+import type { Texture } from "../../src/texture/index.ts";
 
 const shape = {
   geometry: t.resource("geometries"),
@@ -39,6 +40,37 @@ type _b4 = Expect<Eq<Build["aim"], string | undefined>>; // t.ref stays an id un
 type _b5 = Expect<Eq<Build["name"], string>>;
 type _b6 = Expect<Eq<Build["count"], number | undefined>>;
 type _b7 = Expect<Eq<Build["position"], [number, number, number] | undefined>>;
+
+// Nested-object recursion: resource refs inside a nested z.ZodObject resolve to
+// their live handle types; non-resource fields pass through unchanged.
+const nestedShape = {
+  // required nested object containing a t.resource ref
+  textureSettings: z.strictObject({
+    texture: t.resource("textures"),
+    sampler: z
+      .strictObject({ maxAnisotropy: z.number().optional() })
+      .optional(),
+  }),
+  // optional nested object containing a t.resource ref
+  overlay: z
+    .strictObject({
+      texture: t.resource("textures"),
+    })
+    .optional(),
+};
+
+type NestedBuild = ResolvedParamsOf<typeof nestedShape>;
+
+// Required nested object: inner resource field → live handle; inner plain field untouched.
+type _n1 = Expect<Eq<NestedBuild["textureSettings"]["texture"], Texture>>;
+type _n2 = Expect<
+  Eq<
+    NestedBuild["textureSettings"]["sampler"],
+    { maxAnisotropy?: number | undefined } | undefined
+  >
+>;
+// Optional nested object: resolves to `{ texture: Texture } | undefined`.
+type _n3 = Expect<Eq<NestedBuild["overlay"], { texture: Texture } | undefined>>;
 
 test("type assertions compile (see typecheck gate)", () => {
   expect(true).toBe(true);

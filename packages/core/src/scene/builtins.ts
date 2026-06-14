@@ -2,6 +2,7 @@ import { z } from "zod";
 import * as binding from "../binding/index.ts";
 import type { Binding } from "../binding/types.ts";
 import * as camera from "../camera/index.ts";
+import { FurnaceError } from "../errors.ts";
 import * as geometry from "../geometry/index.ts";
 import type { Context } from "../gpu/context-types.ts";
 import * as material from "../material/index.ts";
@@ -19,6 +20,15 @@ import {
   setSettingsSchema,
 } from "./registry.ts";
 import * as t from "./t.ts";
+
+const samplerShape = z.strictObject({
+  maxAnisotropy: z.number().optional(),
+  magFilter: z.enum(["nearest", "linear"]).optional(),
+  minFilter: z.enum(["nearest", "linear"]).optional(),
+  mipmapFilter: z.enum(["nearest", "linear"]).optional(),
+  addressU: z.enum(["clamp-to-edge", "repeat", "mirror-repeat"]).optional(),
+  addressV: z.enum(["clamp-to-edge", "repeat", "mirror-repeat"]).optional(),
+});
 
 // .default() exists so z.toJSONSchema (used by introspect()) emits a "default"
 // key on each JSON-Schema node, which the inspector reads to seed omitted fields
@@ -242,11 +252,34 @@ export function registerBuiltins(): void {
   defineResource("materials", "standard", {
     params: {
       shader: t.resource("shaders"),
+      texture: z
+        .strictObject({
+          texture: t.resource("textures"),
+          sampler: samplerShape.optional(),
+        })
+        .optional(),
       params: z.strictObject({ color: t.color().optional() }).optional(),
     },
     async build(ctx, rx) {
       const s = rx.params.shader;
       const color = rx.params.params?.color;
+      if (rx.params.texture && color !== undefined) {
+        throw new FurnaceError(
+          "scene: material has both a texture and a color param (mutually exclusive)",
+        );
+      }
+      if (rx.params.texture) {
+        return {
+          material: await material.create(ctx, {
+            shader: s,
+            texture: {
+              texture: rx.params.texture.texture,
+              sampler: rx.params.texture.sampler,
+            },
+          }),
+          binding: undefined as Binding | undefined,
+        };
+      }
       if (color !== undefined) {
         const b = binding.create(ctx, s);
         try {
