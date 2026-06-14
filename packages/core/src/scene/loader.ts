@@ -10,6 +10,8 @@ import {
   setScale,
 } from "../mesh/mesh.ts";
 import type { Mesh, MeshSlot } from "../mesh/types.ts";
+import type { World } from "../physics/index.ts";
+import * as physics from "../physics/index.ts";
 import type { Effect } from "../post/index.ts";
 import { _lookupGeometry, _lookupMesh } from "../resources/internal.ts";
 import { vec3 } from "../transform/vec3.ts";
@@ -24,6 +26,9 @@ import { parseOrThrow, resolveParams } from "./schema.ts";
 import { TABLE_ORDER, type TableName } from "./t.ts";
 import type { LoadedScene, SceneDocument } from "./types.ts";
 import { splitKind, validateDocument } from "./validate.ts";
+
+/** Earth gravity, m/s² (Y-down). */
+const DEFAULT_GRAVITY: [number, number, number] = [0, -9.81, 0];
 
 /** Remove every element of `toRemove` from `arr` in place (identity match). */
 function removeAll<T>(arr: T[], toRemove: readonly T[]): void {
@@ -103,6 +108,7 @@ function buildEntity(
   ctx: Context,
   entity: SceneDocument["entities"][number],
   lookup: (table: TableName, id: string) => unknown,
+  world: World | undefined,
 ): EntityRecord {
   // Resolve EVERY present component's params (ids → handles) before any build,
   // so sibling() hands resolved handles to consumers (e.g. the rigidMesh
@@ -141,10 +147,22 @@ function buildEntity(
       params: params as never, // Boundary cast: resolved up front; see resources loop.
       sibling,
       out,
+      world: () => {
+        if (!world) {
+          throw new FurnaceError(
+            `scene: entity "${entity.id}" has a rigidBody but no physics world`,
+          );
+        }
+        return world;
+      },
     };
     try {
       const instance = reg.build(ctx, bx);
-      record.built.push({ instance, destroy: reg.destroy });
+      // A deferred component (e.g. a meshRenderer owned by a sibling rigidBody)
+      // returns undefined — nothing to track or tear down for it.
+      if (instance !== undefined) {
+        record.built.push({ instance, destroy: reg.destroy });
+      }
     } catch (err) {
       // Mid-entity build failure: tear down this entity's already-built records
       // (reverse order) so nothing leaks — matches loadScene's whole-load cleanup
@@ -198,13 +216,24 @@ export async function loadScene(
   };
 
   const built: BuiltRecord[] = [];
+  // Lazily created when any entity has a rigidBody. Destroyed LAST (after every
+  // body/rigidMesh in `built`), so each body is removed via its own teardown
+  // while the world is still live.
+  let world: World | undefined;
   const destroyAll = (): void => {
     for (const b of [...built].reverse()) b.destroy?.(ctx, b.instance);
+    if (world) physics.destroyWorld(ctx, world);
   };
   const meshes: Mesh[] = [];
   const lights: Light[] = [];
   let loadedCamera: Camera | undefined;
   const records = new Map<string, EntityRecord>();
+
+  const settings = parseOrThrow(
+    getSettingsSchema(),
+    doc.settings ?? {},
+    "settings",
+  );
 
   try {
     // Resources, fixed dependency order. Re-parses after validateDocument:
@@ -231,9 +260,21 @@ export async function loadScene(
       }
     }
 
+    // Lazy physics world: created once, before any entity, if any entity has a
+    // rigidBody. Gravity/lengthUnit come from the parsed settings (Task 10).
+    const needsPhysics = doc.entities.some((e) => "rigidBody" in e.components);
+    if (needsPhysics) {
+      world = await physics.createWorld(ctx, {
+        gravity:
+          (settings["gravity"] as [number, number, number] | undefined) ??
+          DEFAULT_GRAVITY,
+        lengthUnit: settings["lengthUnit"] as number | undefined,
+      });
+    }
+
     // Entities in document order; components in registration order.
     for (const entity of doc.entities) {
-      const record = buildEntity(ctx, entity, lookup);
+      const record = buildEntity(ctx, entity, lookup, world);
       if (record.camera) {
         if (loadedCamera) {
           throw new FurnaceError(
@@ -258,12 +299,6 @@ export async function loadScene(
     throw new FurnaceError("scene: no entity carries a camera component");
   }
   const cam = loadedCamera;
-
-  const settings = parseOrThrow(
-    getSettingsSchema(),
-    doc.settings ?? {},
-    "settings",
-  );
 
   // ambient → LoadedScene.ambient. Boundary cast: the settings schema is stored
   // type-erased (z.ZodObject<ZodRawShape>), so the parsed value is loosely typed;
@@ -294,6 +329,7 @@ export async function loadScene(
     lights,
     ambient,
     effects,
+    world,
     settings,
     destroy: destroyAll,
     rebuildEntity(entityId, nextDoc) {
@@ -303,7 +339,7 @@ export async function loadScene(
       // transiently-invalid preview keeps the last good scene rather than dropping
       // the entity. (buildEntity cleans up its own partial build on throw.)
       // `lookup` is the resource table frozen at loadScene time; resource changes in nextDoc are not applied.
-      const next = entity ? buildEntity(ctx, entity, lookup) : undefined;
+      const next = entity ? buildEntity(ctx, entity, lookup, world) : undefined;
       const prev = records.get(entityId);
       if (prev) {
         for (const b of [...prev.built].reverse()) b.destroy?.(ctx, b.instance);

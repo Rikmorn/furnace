@@ -4,6 +4,7 @@ import { FurnaceError } from "../errors.ts";
 import type { Light } from "../frame/index.ts";
 import type { Context } from "../gpu/context-types.ts";
 import type { Mesh } from "../mesh/types.ts";
+import type { World } from "../physics/index.ts";
 import type { ResolvedParamsOf } from "./schema.ts";
 import { TABLE_ORDER, type TableHandle, type TableName } from "./t.ts";
 
@@ -31,6 +32,9 @@ export type BuildContext<S extends z.ZodRawShape> = {
   params: ResolvedParamsOf<S>;
   sibling(name: string): unknown;
   out: OutSinks;
+  /** The scene physics world (created lazily from settings on first `rigidBody`).
+   *  Throws if the scene has no physics world (no `rigidBody` entity present). */
+  world(): World;
 };
 
 /** Context handed to a resource `build`: validated + ref-resolved params. */

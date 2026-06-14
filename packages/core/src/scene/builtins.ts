@@ -5,11 +5,15 @@ import * as camera from "../camera/index.ts";
 import { FurnaceError } from "../errors.ts";
 import type { DirectionalShadow, Light, SpotShadow } from "../frame/index.ts";
 import * as geometry from "../geometry/index.ts";
+import type { Geometry } from "../geometry/types.ts";
 import type { Context } from "../gpu/context-types.ts";
 import * as material from "../material/index.ts";
+import type { Material } from "../material/types.ts";
 import * as mesh from "../mesh/index.ts";
 import type { Mesh } from "../mesh/types.ts";
+import type { ShapeDescriptor } from "../physics/index.ts";
 import * as post from "../post/index.ts";
+import * as rigidMesh from "../rigid-mesh/index.ts";
 import * as shader from "../shader/index.ts";
 import * as texture from "../texture/index.ts";
 import { quat } from "../transform/quat.ts";
@@ -233,6 +237,32 @@ function buildLight(
   }
 }
 
+/** Raw `rigidBody.shape` params off the (one-of-three-optional) component schema. */
+type ShapeParams = {
+  cuboid?: [number, number, number];
+  ball?: number;
+  cylinder?: { halfHeight: number; radius: number };
+};
+
+/** Project a `rigidBody.shape` param bundle to a physics {@link ShapeDescriptor},
+ *  enforcing exactly one of cuboid/ball/cylinder. */
+function toShape(s: ShapeParams): ShapeDescriptor {
+  const set = [
+    s.cuboid !== undefined,
+    s.ball !== undefined,
+    s.cylinder !== undefined,
+  ].filter(Boolean).length;
+  if (set !== 1) {
+    throw new FurnaceError(
+      "scene: rigidBody.shape must set exactly one of cuboid/ball/cylinder",
+    );
+  }
+  if (s.cuboid !== undefined) return { cuboid: s.cuboid };
+  if (s.ball !== undefined) return { ball: s.ball };
+  // Exactly-one invariant proven above: cylinder is the remaining case.
+  return { cylinder: s.cylinder as { halfHeight: number; radius: number } };
+}
+
 /**
  * Register the built-in component types, resource kinds, and the settings
  * schema. Runs once at `@furnace/core/scene` module init — the same
@@ -253,6 +283,10 @@ export function registerBuiltins(): void {
       material: t.resource("materials"),
     },
     build(ctx, bx) {
+      // A rigidBody sibling owns the mesh (via a rigidMesh composite) — defer:
+      // return undefined so the loader tracks nothing and the rigidBody builds
+      // the one mesh, seated at the body's initial pose.
+      if (bx.sibling("rigidBody") !== undefined) return undefined;
       const m = mesh.create(ctx, {
         geometry: bx.params.geometry,
         material: bx.params.material,
@@ -267,7 +301,12 @@ export function registerBuiltins(): void {
       bx.out.addMesh(m);
       return m;
     },
-    destroy: (ctx, m) => mesh.destroy(ctx, m),
+    // `m` is `Mesh | undefined` (build defers to a rigidBody sibling by returning
+    // undefined). The loader never tracks the deferred case, so destroy only ever
+    // runs on a real mesh; the guard satisfies the inferred union type.
+    destroy: (ctx, m) => {
+      if (m) mesh.destroy(ctx, m);
+    },
   });
 
   defineComponent("camera", {
@@ -321,6 +360,59 @@ export function registerBuiltins(): void {
       return light; // no destroy — Light is plain CPU data
     },
     // No destroy: Light is a per-frame value type, not a pooled GPU resource.
+  });
+
+  defineComponent("rigidBody", {
+    params: {
+      type: z.enum(["static", "dynamic"]),
+      shape: z.strictObject({
+        cuboid: t.vec3().optional(),
+        ball: z.number().optional(),
+        cylinder: z
+          .strictObject({ halfHeight: z.number(), radius: z.number() })
+          .optional(),
+      }),
+      friction: z.number().optional(),
+      restitution: z.number().optional(),
+      density: z.number().optional(),
+      linearDamping: z.number().optional(),
+      angularDamping: z.number().optional(),
+    },
+    build(ctx, bx) {
+      const world = bx.world();
+      // Boundary cast: sibling params were validated at the load boundary
+      // (meshRenderer's geometry/material are resolved handles after T8).
+      const mr = bx.sibling("meshRenderer") as
+        | { geometry: Geometry; material: Material }
+        | undefined;
+      if (!mr) {
+        throw new FurnaceError(
+          "scene: rigidBody requires a sibling meshRenderer (geometry+material)",
+        );
+      }
+      // Boundary cast: see meshRenderer — the transform sibling is schema-validated.
+      const tf = bx.sibling("transform") as TransformParams | undefined;
+      const p = bx.params;
+      const rm = rigidMesh.create(ctx, world, {
+        body: {
+          type: p.type,
+          shape: toShape(p.shape),
+          position: tf?.position ?? [0, 0, 0],
+          rotation: tf?.rotation,
+          friction: p.friction,
+          restitution: p.restitution,
+          density: p.density,
+          linearDamping: p.linearDamping,
+          angularDamping: p.angularDamping,
+        },
+        mesh: { geometry: mr.geometry, material: mr.material },
+      });
+      // rigidMesh seats the mesh at the body's initial pose (= the seed transform),
+      // so the scene renders correctly at rest before any physics step (M6).
+      bx.out.addMesh(rigidMesh.getMesh(ctx, rm));
+      return rm;
+    },
+    destroy: (ctx, rm) => rigidMesh.destroy(ctx, rm),
   });
 
   // --- resource kinds ---
