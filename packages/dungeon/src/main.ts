@@ -5,6 +5,7 @@ import * as input from "@furnace/core/input";
 import { vec3, vec4 } from "@furnace/core/transform";
 import { FpController } from "./fp-controller.ts";
 import { buildLevel } from "./level.ts";
+import { Torch } from "./torch.ts";
 
 const FOG_COLOR: [number, number, number] = [0.015, 0.02, 0.03];
 // Clear color matches the fog so the void at depth reads as fog, not a hard edge.
@@ -28,15 +29,6 @@ async function main(): Promise<void> {
 
   const level = await buildLevel(ctx);
 
-  // Temporary visibility lighting (replaced by torch in Task 6).
-  const lights: frame.Light[] = [
-    {
-      type: "directional",
-      direction: [0.3, -1, -0.4],
-      color: [1, 1, 1],
-      intensity: 1.2,
-    },
-  ];
   const fog: frame.Fog = { color: FOG_COLOR, density: 0.12 };
   // Ambient dropped low now that fog + (soon) the torch carry the mood.
   const ambient: frame.Ambient = {
@@ -48,9 +40,13 @@ async function main(): Promise<void> {
   input.attach(canvas);
   const player = new FpController({ position: [0, 1.6, -2] });
   player.attachMouse(canvas);
+  const torch = new Torch();
 
   frame.loop(ctx, (info) => {
-    player.update(ctx, cam, info.deltaMs / 1000);
+    const dt = info.deltaMs / 1000;
+    player.update(ctx, cam, dt);
+    // Torch follows the player and flickers — rebuilt each frame.
+    const lights: frame.Light[] = [torch.light(player.position, dt)];
     frame.render(ctx, {
       meshes: level.meshes,
       camera: cam,
