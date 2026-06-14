@@ -8,6 +8,7 @@ import type { Context } from "../gpu/context-types.ts";
 import * as material from "../material/index.ts";
 import * as mesh from "../mesh/index.ts";
 import type { Mesh } from "../mesh/types.ts";
+import * as post from "../post/index.ts";
 import * as shader from "../shader/index.ts";
 import * as texture from "../texture/index.ts";
 import { quat } from "../transform/quat.ts";
@@ -309,6 +310,34 @@ export function registerBuiltins(): void {
       material.destroy(ctx, i.material);
       if (i.binding) binding.destroy(ctx, i.binding);
     },
+  });
+
+  defineResource("effects", "bloom", {
+    params: {
+      intensity: z.number().optional(),
+      threshold: z.number().optional(),
+      softness: z.number().optional(),
+    },
+    build: (ctx, rx) =>
+      post.bloom(ctx, {
+        intensity: rx.params.intensity,
+        threshold: rx.params.threshold,
+        softness: rx.params.softness,
+      }),
+    destroy: (ctx, e) => post.destroy(ctx, e),
+  });
+
+  defineResource("effects", "tonemap", {
+    params: {
+      exposure: z.number().optional(),
+      operator: z.enum(["neutral", "reinhard"]).optional(),
+    },
+    build: (ctx, rx) =>
+      post.tonemap(ctx, {
+        exposure: rx.params.exposure,
+        operator: rx.params.operator,
+      }),
+    destroy: (ctx, e) => post.destroy(ctx, e),
   });
 
   // --- settings (the second reflection surface) ---
