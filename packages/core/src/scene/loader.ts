@@ -101,20 +101,22 @@ function buildEntity(
   entity: SceneDocument["entities"][number],
   lookup: (table: TableName, id: string) => unknown,
 ): EntityRecord {
-  const parsedByName = new Map<string, Record<string, unknown>>();
+  // Resolve EVERY present component's params (ids → handles) before any build,
+  // so sibling() hands resolved handles to consumers (e.g. the rigidMesh
+  // composite reading sibling("meshRenderer").geometry). Resolve once here,
+  // reused for both a component's own bx.params and its siblings.
+  const resolvedByName = new Map<string, Record<string, unknown>>();
   for (const [name, reg] of componentEntries()) {
     const raw = entity.components[name];
     if (raw === undefined) continue;
-    parsedByName.set(
-      name,
-      parseOrThrow(
-        reg.schema,
-        raw,
-        `entity "${entity.id}" component "${name}"`,
-      ),
+    const parsed = parseOrThrow(
+      reg.schema,
+      raw,
+      `entity "${entity.id}" component "${name}"`,
     );
+    resolvedByName.set(name, resolveParams(reg.shape, parsed, lookup));
   }
-  const sibling = (name: string): unknown => parsedByName.get(name);
+  const sibling = (name: string): unknown => resolvedByName.get(name);
   const record: EntityRecord = { built: [], meshes: [] };
   const out: OutSinks = {
     addMesh: (m) => record.meshes.push(m),
@@ -128,11 +130,11 @@ function buildEntity(
     },
   };
   for (const [name, reg] of componentEntries()) {
-    const parsed = parsedByName.get(name);
-    if (parsed === undefined || !reg.build) continue;
+    const params = resolvedByName.get(name);
+    if (params === undefined || !reg.build) continue;
     const bx = {
       entityId: entity.id,
-      params: resolveParams(reg.shape, parsed, lookup) as never, // Boundary cast: see resources loop.
+      params: params as never, // Boundary cast: resolved up front; see resources loop.
       sibling,
       out,
     };
