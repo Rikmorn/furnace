@@ -8,6 +8,7 @@ import * as material from "../material/index.ts";
 import * as mesh from "../mesh/index.ts";
 import type { Mesh } from "../mesh/types.ts";
 import * as shader from "../shader/index.ts";
+import * as texture from "../texture/index.ts";
 import { quat } from "../transform/quat.ts";
 import { vec3 } from "../transform/vec3.ts";
 import { vec4 } from "../transform/vec4.ts";
@@ -201,6 +202,41 @@ export function registerBuiltins(): void {
     // Boundary cast: normalColor returns Shader<Record<string,never>> — widened.
     build: (ctx) => shader.normalColor(ctx) as Promise<shader.Shader>,
     // No destroy: built-in shaders are ctx-cached singletons.
+  });
+
+  defineResource("textures", "checkerboard", {
+    params: {
+      size: z.number().optional(),
+      cells: z.number().optional(),
+      colorA: t.vec3().optional(),
+      colorB: t.vec3().optional(),
+      mipmaps: z.boolean().optional(),
+    },
+    build: (ctx, rx) =>
+      texture.create(ctx, {
+        ...texture.checkerboard({
+          size: rx.params.size,
+          cells: rx.params.cells,
+          colorA: rx.params.colorA,
+          colorB: rx.params.colorB,
+        }),
+        mipmaps: rx.params.mipmaps,
+      }),
+    destroy: (ctx, tex) => texture.destroy(ctx, tex),
+  });
+
+  defineResource("textures", "load", {
+    params: {
+      src: z.string(),
+      colorSpace: z.enum(["srgb", "linear"]).optional(),
+      mipmaps: z.boolean().optional(),
+    },
+    build: (ctx, rx) =>
+      texture.load(ctx, rx.params.src, {
+        colorSpace: rx.params.colorSpace,
+        mipmaps: rx.params.mipmaps,
+      }),
+    destroy: (ctx, tex) => texture.destroy(ctx, tex),
   });
 
   defineResource("materials", "standard", {
