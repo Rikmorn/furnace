@@ -12,4 +12,4 @@ Should be off in production (no `import.meta.hot` access, no dev-server listener
 
 **Trigger to revisit:** When shader iteration becomes a friction point — typically when working on a real post-process pipeline or experimenting with shader effects where the round-trip "edit, save, refresh, re-set-up scene" is noticeable.
 
-**Reference:** `docs/superpowers/specs/2026-05-21-core-architecture-design.md` § "Deferred decisions".
+**Reference:** Core architecture design § "Deferred decisions".

@@ -11,4 +11,4 @@ Practically, the common case ("two canvases, same engine") is solved by one devi
 
 **Trigger to revisit:** When a real consumer demo needs two canvases sharing meshes/textures — likely never for a single-window app; possibly for a future editor with main view + thumbnail preview.
 
-**Reference:** `docs/superpowers/specs/2026-05-21-core-architecture-design.md` § "Deferred decisions".
+**Reference:** Core architecture design § "Deferred decisions".

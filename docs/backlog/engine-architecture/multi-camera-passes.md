@@ -10,4 +10,4 @@ Open design questions: how do post-effects compose across multiple cameras (per-
 
 **Trigger to revisit:** First demo needing more than one camera — typically split-screen co-op or a mini-map.
 
-**Reference:** `docs/superpowers/specs/2026-05-21-core-architecture-design.md` § "Deferred decisions".
+**Reference:** Core architecture design § "Deferred decisions".

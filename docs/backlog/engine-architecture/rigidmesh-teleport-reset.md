@@ -28,5 +28,4 @@ own design decision (velocity-zeroing, wake semantics, `setTranslation` vs
 
 ## Reference
 
-- Spec: `docs/superpowers/specs/2026-06-03-physics-stage-2-sim-render-binding-design.md` §1 OUT, §5.
 - Prior art: Godot `reset_physics_interpolation()`.

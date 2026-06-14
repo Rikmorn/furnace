@@ -33,6 +33,5 @@ motion blur, or auto-exposure (compute) — **or** effect count + transient-targ
 grows enough that VRAM aliasing is worth the FrameGraph's complexity. Designing it without
 one of those risks the wrong abstraction (the same caution that kept the pre-T2 chain simple).
 
-**Reference:** `docs/superpowers/specs/2026-06-06-stage-2-aa-hdr-post-design.md` §6 (fences),
-§9 (prior art: Filament FrameGraph, Bevy render graph). Distinct from `post-node-graph-editor.md`
+**Reference:** Prior art: Filament FrameGraph, Bevy render graph. Distinct from `post-node-graph-editor.md`
 (a consumer-facing *tool*, not a runtime).

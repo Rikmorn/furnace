@@ -45,6 +45,5 @@ Pick one and apply it uniformly to `keyOf`, `_blendSignature`, and `blendSignatu
   the risk is latent and matches long-standing existing helpers.
 
 ## Reference
-- `docs/superpowers/plans/2026-06-05-stage-1-textures.md` (Task 5).
 - `packages/core/src/texture/sampler-cache.ts`, `packages/core/src/material/material.ts`,
   `packages/core/src/post/pipeline.ts`.

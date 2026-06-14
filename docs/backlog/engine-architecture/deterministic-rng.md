@@ -8,4 +8,4 @@ Important for: replay systems, networked physics (deterministic lockstep), proce
 
 **Trigger to revisit:** When the first feature needs reproducibility — physics typically the first (deterministic simulation), procedural content generation second.
 
-**Reference:** `docs/superpowers/specs/2026-05-21-core-architecture-design.md` § "What I'd skip (deliberately)" (originally deferred from Tier 1).
+**Reference:** Originally deferred from Tier 1 ("what I'd skip deliberately") in the core architecture design.

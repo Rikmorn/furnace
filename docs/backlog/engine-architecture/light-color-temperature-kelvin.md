@@ -1,7 +1,6 @@
 # Light color via color temperature (Kelvin) — authoring sugar
 
-Stage 3 lights take a raw **linear RGB** `color: Vec3` (see
-`docs/superpowers/specs/2026-06-07-stage-3-lighting-design.md` §3.1). A common authoring convenience
+Stage 3 lights take a raw **linear RGB** `color: Vec3`. A common authoring convenience
 in other engines is to specify a light's color as a **color temperature in Kelvin** (e.g. 3200K
 tungsten, 5600K daylight, 6500K overcast) and convert to RGB internally — three.js
 `Light` (via helpers), Unreal, Blender all offer it. It reads more naturally for physically-grounded
@@ -24,5 +23,5 @@ make the `cookbook/lighting` demo's controls read better (a Kelvin slider instea
 If added, ship it as a small pure helper (e.g. `light.kelvin(k)` → `Vec3` or a `color` convenience),
 not as new light-data surface.
 
-**Reference:** `docs/superpowers/specs/2026-06-07-stage-3-lighting-design.md` (§3.1 `Light.color` =
-linear RGB); the Visual Fidelity epic Stage 3.
+**Reference:** `packages/core/src/frame/lights.ts` (`Light.color` = linear RGB);
+the Visual Fidelity epic Stage 3.

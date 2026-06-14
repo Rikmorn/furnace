@@ -6,4 +6,4 @@ Open design questions to settle when this is brainstormed: whether animations ar
 
 **Trigger to revisit:** First demo needing motion beyond per-frame manual updates — typically when a triangle needs to bounce, a UI element needs to fade in, or a mesh needs to follow a path.
 
-**Reference:** `docs/superpowers/specs/2026-05-21-core-architecture-design.md` § "Tier 2 modules".
+**Reference:** Core architecture design § "Tier 2 modules".

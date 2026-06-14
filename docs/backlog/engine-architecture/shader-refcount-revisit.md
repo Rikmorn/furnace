@@ -21,4 +21,4 @@ Revisit (add an `Arc`-style refcount, à la wgpu/bevy) **only if** furnace adds 
 
 None of these are in furnace's current or planned design as of 2026-05-30.
 
-**Reference:** D-1 brainstorm 2026-05-30; spec `docs/superpowers/specs/2026-05-30-d1-shader-resource-design.md` (local); `docs/research/shader-resource-prior-art.md` §Q1. Cross-refs `shader-hot-reload.md`.
+**Reference:** D-1 brainstorm 2026-05-30; `docs/research/shader-resource-prior-art.md` §Q1. Cross-refs `shader-hot-reload.md`.

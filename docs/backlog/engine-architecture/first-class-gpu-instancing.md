@@ -13,4 +13,4 @@ Master spec § Section 3 listed "instance management" in mesh's purpose column, 
 
 **Trigger to revisit:** First demo with ≫10 copies of the same geometry — particles, foliage, instanced ECS entities.
 
-**Reference:** Tranche-4 design § Out (`docs/superpowers/specs/2026-05-23-core-tranche-4-drawable-primitives-design.md`).
+**Reference:** Tranche-4 design § Out.

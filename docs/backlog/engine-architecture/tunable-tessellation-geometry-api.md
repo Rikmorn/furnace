@@ -13,4 +13,4 @@ A demo needs a low-poly aesthetic, a hero close-up, or LOD that the fixed defaul
 can't serve.
 
 ## Reference
-`docs/superpowers/specs/2026-06-03-physics-stage-3-render-shapes-design.md` §0/§1.
+Physics Stage 3 (render shapes) design §0/§1.

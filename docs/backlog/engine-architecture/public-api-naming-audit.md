@@ -8,7 +8,7 @@ This is a focused hygiene tranche of its own (cross-cutting, needs design depth,
 
 **Trigger to revisit:** Before public release / first `@furnace/core` npm publish (hard deadline — renames are cheap only while unpushed + private); OR when the count of coined (c)-class names crosses ~8 and the inconsistency becomes a research/onboarding tax; whichever comes first. Promote out of backlog as its own tranche after the Visual Fidelity epic seals.
 
-**Reference:** `docs/reference/api-posture.md` (R4 construct-naming, R7 escape-hatch convention — the audit extends these with a "prefer-industry-term" rule); `docs/reference/core-modules.md` (the surface to enumerate); the Stage 2b spec `docs/superpowers/specs/2026-06-06-stage-2b-t2-multipass-bloom-design.md` §"T2 surface" (where `post.createPasses` is recorded as provisional); memory `feedback_research_prior_art_before_options` (why vocabulary alignment feeds research).
+**Reference:** `docs/reference/api-posture.md` (R4 construct-naming, R7 escape-hatch convention — the audit extends these with a "prefer-industry-term" rule); `docs/reference/core-modules.md` (the surface to enumerate); the Stage 2b T2 surface, where `post.createPasses` is recorded as provisional; memory `feedback_research_prior_art_before_options` (why vocabulary alignment feeds research).
 
 ---
 

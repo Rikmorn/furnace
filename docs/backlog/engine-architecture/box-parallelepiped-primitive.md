@@ -11,4 +11,4 @@ A demo needs correct normals under non-uniform box dimensions without the
 deferred inverse-transpose normal fix, or a sheared parallelepiped.
 
 ## Reference
-`docs/superpowers/specs/2026-06-03-physics-stage-3-render-shapes-design.md` §1 OUT.
+Physics Stage 3 (render shapes) design §1 OUT.

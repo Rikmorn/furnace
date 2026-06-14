@@ -9,4 +9,4 @@ toggle (open tube). Deferred — bowling pins are capped solids.
 A demo needs a cone/funnel/frustum or an open tube.
 
 ## Reference
-`docs/superpowers/specs/2026-06-03-physics-stage-3-render-shapes-design.md` §1 OUT.
+Physics Stage 3 (render shapes) design §1 OUT.

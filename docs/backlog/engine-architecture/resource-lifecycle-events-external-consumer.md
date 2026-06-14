@@ -23,5 +23,4 @@ The events channel is small to build; the work is gated only by knowing what sha
 
 ## Reference
 
-- RM-4 spec: `docs/superpowers/specs/2026-05-28-resource-manager-rm4-single-writer-design.md`
 - `engine-conventions.md` §"Stats relationship" — codified principle

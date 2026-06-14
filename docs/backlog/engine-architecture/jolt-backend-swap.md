@@ -33,5 +33,4 @@ When triggered, resolve these before committing to the swap (detailed in `docs/r
 
 - ADR: `docs/reference/adr/0001-physics-two-track-architecture.md` (Decision 6–7, Consequences, Resolved 2026-06-01)
 - Research: `docs/research/rapier-vs-jolt-threading-debuggability.md` (this evaluation), `docs/research/cpu-physics-backend-comparison.md` (the original Rapier-vs-Jolt comparison)
-- Epic: `docs/superpowers/specs/2026-06-01-demo-1-cpu-physics-epic.md` (§2 backend, §3 drainable-event architecture)
 - Related: `cpu-authoritative-gameplay-physics.md` (deferred determinism/networking remainder), `gpu-resident-physics.md` (the deferred GPU visual/throughput track — note: NOT a substitute for multicore *interactive* CPU physics)

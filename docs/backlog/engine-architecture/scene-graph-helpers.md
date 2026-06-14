@@ -12,4 +12,4 @@ Open design questions: whether `mesh` returns nodes that already understand pare
 
 **Trigger to revisit:** When consumer code repeatedly hand-rolls "iterate this hierarchy and compute world matrices" — typically when a demo grows beyond ~10 entities with parent/child relationships.
 
-**Reference:** `docs/superpowers/specs/2026-05-21-core-architecture-design.md` § "Tier 2 modules".
+**Reference:** Core architecture design § "Tier 2 modules".

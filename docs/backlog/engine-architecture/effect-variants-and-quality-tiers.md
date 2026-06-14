@@ -44,6 +44,5 @@ tier* framing is what this entry guards). Do **not** build the variant/tier/fall
 *system* until one of these is real — the per-effect parameterizations (enums, counts)
 are the right *small* shape until then.
 
-**Reference:** `docs/superpowers/specs/2026-06-06-stage-2-aa-hdr-post-design.md` §2
-(decision 5), §6 (fences). Related: `shader-preprocessor.md` (composition core landed; permutation/`#define` gen would be a follow-on),
+**Reference:** `shader-preprocessor.md` (composition core landed; permutation/`#define` gen would be a follow-on),
 `render-state-completeness.md` (MSAA off/4× as a tier axis).

@@ -6,4 +6,4 @@ Likely depends on a wasm-backed DSP implementation (Rust → wasm, AudioWorklet 
 
 **Trigger to revisit:** When audio is on the roadmap.
 
-**Reference:** `docs/superpowers/specs/2026-05-21-core-architecture-design.md` § "Tier 2 modules".
+**Reference:** Core architecture design § "Tier 2 modules".

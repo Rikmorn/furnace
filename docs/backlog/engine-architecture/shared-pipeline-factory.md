@@ -25,7 +25,7 @@ Likely shape:
 
 **Trigger to revisit:** Third pipeline-building module lands.
 
-**Reference:** `docs/superpowers/specs/2026-05-24-core-tranche-6-post-process-design.md` §1 Out.
+**Reference:** Core Tranche 6 (post-process) design §1 Out.
 
 **Update (Stage 4, 2026-06-08):** The shadow-map work landed the **depth-only caster pipeline** —
 the THIRD pipeline-building site this entry anticipated. It is built inline in `frame/shadow-map.ts`

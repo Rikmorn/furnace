@@ -28,7 +28,6 @@ Low immediate appetite at E-B close; it's a Rust/tooling build in a different pa
 
 ## Reference
 
-- Overarching E design: `docs/superpowers/specs/2026-05-31-e-shader-params-binding-design.md` (E5 — the codegen decision; E4 — reflection-deferred-not-precluded; "the chokepoint" — `slot.layout.fields` is the additive seam all populators feed).
-- E-B design + plan: `docs/superpowers/specs/2026-05-31-eb-bridge-design.md`, `docs/superpowers/plans/2026-05-31-eb-bridge.md`.
+- Overarching E design: E5 = the codegen decision; E4 = reflection-deferred-not-precluded; "the chokepoint" = `slot.layout.fields` is the additive seam all populators feed.
 - Research (committed): `docs/research/uniform-params-prior-art.md` §3 (layout-source options matrix), §3.1 (pure-JS reflection is viable — the backlog's "needs heavy wasm parser" was FALSE), §7 (keeping the reflection door open).
 - `@furnace/tools` architecture: `docs/reference/packaging-and-distribution.md`.

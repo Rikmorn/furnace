@@ -6,8 +6,7 @@
 work — NOT runtime URL fetch. The earlier framing in this file (a runtime
 `new URL(spec, includingUrl)` `// @include` resolver) was **retired**: it is verified-broken
 under Bun's `file` loader (build-time content-hash + flatten severs sibling paths, and
-include-only `.wgsl` files are never emitted). Spec:
-`docs/superpowers/specs/2026-06-07-stage-2.5-shader-preprocessor-design.md`.
+include-only `.wgsl` files are never emitted).
 
 The `toWgsl`/dedup core operates on the `ShaderSource` DAG independent of how the DAG was
 built, so the items below slot in without reshaping it.

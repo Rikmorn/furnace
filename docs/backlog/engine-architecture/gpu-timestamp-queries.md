@@ -10,4 +10,4 @@ The `timestamp-query` feature is gated on `device.features.has("timestamp-query"
 
 **Trigger to revisit:** First real perf-debugging session against a workload that's hitting frame-time limits — typically when adding physics, post-effects, or large mesh counts and needing to know whether the bottleneck is on the CPU side, the vertex stage, or the fragment stage.
 
-**Reference:** `docs/superpowers/specs/2026-05-21-core-architecture-design.md` § "Stats / instrumentation".
+**Reference:** Core architecture design § "Stats / instrumentation".

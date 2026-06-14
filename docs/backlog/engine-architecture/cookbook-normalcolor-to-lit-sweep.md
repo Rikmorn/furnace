@@ -19,6 +19,5 @@ A cookbook-polish pass, OR when a specific demo's legibility is observed to suff
 
 ## Reference
 
-- Spec: `docs/superpowers/specs/2026-06-04-stage-4a-playable-core-design.md` §1.3 (shader.lit), §3 (cookbook target), §5 (adjacent findings)
 - Pattern: `packages/cookbook/src/demos/animation/entry.ts` (the Task-10 swap), `packages/cookbook/src/demos/blend/entry.ts` `createUnlit` (the binding pattern)
 - API: `docs/reference/core-modules.md` `@furnace/core/shader` (`lit`), `@furnace/core/binding`

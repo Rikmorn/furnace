@@ -27,7 +27,7 @@ Add only the setter(s) the need requires, mirroring `setBodyLinearVelocity`. Don
 
 ## Reference
 
-- Spec: `docs/superpowers/specs/2026-06-04-stage-4a-playable-core-design.md` §1.1 (setBodyLinearVelocity, "First setter"), §5 (adjacent findings)
-- Decision: same spec §6 ("setBodyLinearVelocity setter (not spawn-on-launch)") + §0 gate-rule (pure pass-through)
+- Origin: Stage 4A (`setBodyLinearVelocity`, the "first setter"; surfaced in the stage's adjacent findings).
+- Decision: setBodyLinearVelocity setter (not spawn-on-launch) + the gate-rule of pure pass-through to Rapier.
 - Impl: `packages/core/src/physics/body.ts` (`setBodyLinearVelocity` — the shape to mirror)
 - API: `docs/reference/core-modules.md` `@furnace/core/physics`; `docs/reference/api-posture.md` (setter classification)

@@ -24,7 +24,7 @@ When a NEW render-geometry primitive lands (cone, capsule-as-render, parallelepi
 
 ## Reference
 
-- Spec: `docs/superpowers/specs/2026-06-04-stage-4a-playable-core-design.md` §1.1 (cylinder collider), §5 (adjacent findings)
-- Gate-rule: same spec §0 (pure pass-through to Rapier; no JS-side physics math)
+- Origin: Stage 4A (cylinder collider; surfaced in the stage's adjacent findings).
+- Gate-rule: pure pass-through to Rapier; no JS-side physics math.
 - Related: `box-parallelepiped-primitive.md`, `cone-and-open-cylinder-primitive.md` (queued render primitives), `jolt-backend-swap.md` (where collider gaps flag)
 - API: `docs/reference/core-modules.md` `@furnace/core/physics` (`ShapeDescriptor`), `@furnace/core/geometry`

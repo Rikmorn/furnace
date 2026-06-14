@@ -1,7 +1,6 @@
 # Consumer-facing node-graph post editor
 
-Deferred out of the Visual Fidelity epic
-(`docs/superpowers/specs/2026-06-05-visual-fidelity-epic-design.md`), whose Stage 2
+Deferred out of the Visual Fidelity epic, whose Stage 2
 builds the runtime **multi-pass post chain** (a linear, pluggable ping-pong chain
 of fullscreen passes) and ships tonemap + bloom. That runtime engine is distinct
 from a **consumer-facing node-graph editor** — an authoring surface where effects
@@ -17,5 +16,4 @@ editor — so this is a convenience/tooling layer, not a capability gap.
 / shared intermediates that a linear chain can't express, or when post authoring
 moves into a visual editor (likely the editor-and-tooling track).
 
-**Reference:** `docs/superpowers/specs/2026-06-05-visual-fidelity-epic-design.md` §4, §5.2;
-`post-multi-pass-effects.md`.
+**Reference:** `post-multi-pass-effects.md`.

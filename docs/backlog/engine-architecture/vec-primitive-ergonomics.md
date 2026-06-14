@@ -42,8 +42,7 @@ color conversion when richer `textures.load` lands, hex/hsv color authoring in
 the cookbook, or world-vs-screen point disambiguation when a hover/tooltip system
 lands.
 
-**Reference:** Tranche A brainstorm (Color.rgba option B vs raw `vec4.fromValues`);
-`docs/superpowers/specs/2026-05-26-tranche-a-quick-wins-design.md` §1.
+**Reference:** Tranche A brainstorm (Color.rgba option B vs raw `vec4.fromValues`).
 
 ---
 
@@ -54,8 +53,7 @@ lands.
 > intentional-bypass class**, documented once in `.claude/rules/typescript.md`
 > (no per-site comment needed). The runtime-checked `vec3Get` helper once proposed
 > here is **rejected** — it predates A-4's hot-path failure-policy stance and would
-> add per-call validation the convention forbids. See
-> `docs/superpowers/specs/2026-05-29-a6-audit.md` §5.1.
+> add per-call validation the convention forbids.
 
 **Remaining (small):**
 
@@ -77,4 +75,4 @@ exists (added in Stage 3 Phase 2), and centralizing it is tracked in
 maintenance irritant.
 
 **Reference:** surfaced Tranche A-1 (T6 camera TSDoc), 2026-05-26 — pre-existing;
-resolution in `docs/superpowers/specs/2026-05-29-a6-audit.md` §5.1.
+resolved in A-6 (2026-05-29).

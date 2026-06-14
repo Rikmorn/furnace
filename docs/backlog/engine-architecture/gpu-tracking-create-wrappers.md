@@ -8,4 +8,4 @@ Open design questions: do we wrap or replace `ctx.device.createBuffer` access? R
 
 **Trigger to revisit:** When engine-internal create sites exceed ~15, or when a new tranche adds resource types (e.g. compute pipelines, query sets) that should participate in tracking without each one re-implementing the register/unregister boilerplate.
 
-**Reference:** `docs/superpowers/specs/2026-05-24-core-tranche-5-stats-expansion-design.md` § Section 6 — "Why explicit-at-site instead of wrapped `device.createBuffer/Texture`".
+**Reference:** Core Tranche 5 (stats expansion) — "Why explicit-at-site instead of wrapped `device.createBuffer/Texture`".

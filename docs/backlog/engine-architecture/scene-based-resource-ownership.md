@@ -25,6 +25,6 @@ The existing `scene-graph-helpers.md` backlog entry is about *transform composit
 When a real use case needs streaming, level loading, or per-bundle teardown — concretely, when the cookbook gains a multi-scene demo or hello-world grows a level-switch feature, OR when a consumer reports the ownership rule becoming unwieldy at scale (more than ~20 long-lived handles to track).
 
 **Reference:**
-- `docs/superpowers/specs/2026-05-27-tranche-b1-mesh-factory-geometry-ownership-design.md` — B-1's "Alternatives considered" table notes scene-based ownership as the rejected-because-too-big option.
+- Tranche B-1's "Alternatives considered" table noted scene-based ownership as the rejected-because-too-big option.
 - `docs/reference/engine-conventions.md` §Resource ownership — the rule Scene would supersede or layer over.
 - Adjacent: `docs/backlog/engine-architecture/scene-graph-helpers.md` (transform composition; not the same scope).

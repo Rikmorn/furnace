@@ -81,4 +81,4 @@ During Session 3 Task 3.1's docs expansion, the Material row in `core-modules.md
 
 ---
 
-For the per-session commit list and the Stage 2 readiness check, see the handoff document at `docs/superpowers/plans/handoffs/2026-05-28-resource-manager-stage-1-to-2.md` (executor working context; not tracked). For the canonical design, see `docs/reference/engine-conventions.md` §Resource manager.
+For the per-session commit list and the Stage 2 readiness check, see the git history of the Stage 1 work. For the canonical design, see `docs/reference/engine-conventions.md` §Resource manager.

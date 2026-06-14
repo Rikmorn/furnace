@@ -20,4 +20,4 @@ Doesn't affect input handlers or `frame.loop` (the variable-timestep render loop
 
 **Trigger to revisit:** When a demo or game needs any of the above effects. Specifically when debug stepping becomes useful for inspecting physics behavior (likely concurrent with `physics` arriving).
 
-**Reference:** `docs/superpowers/specs/2026-05-21-core-architecture-design.md` § "Rendering API".
+**Reference:** Core architecture design § "Rendering API".

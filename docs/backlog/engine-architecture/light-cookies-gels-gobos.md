@@ -1,8 +1,7 @@
 # Light cookies / gels / gobos (projected-texture lights)
 
 Stage 3 lighting ships per-light **uniform RGB color** on every light type (`Light.color: Vec3`,
-linear), which covers "a red point light / a warm sun / a blue spot" — see
-`docs/superpowers/specs/2026-06-07-stage-3-lighting-design.md` §3.1/§3.4 and the `colorInt` lane of
+linear), which covers "a red point light / a warm sun / a blue spot" via the `colorInt` lane of
 the Scene UBO. What it does **not** cover is a *spatially-varying* colored light: a texture
 **projected through** a light — a "cookie"/"gobo"/"gel" — e.g. stained-glass color through a
 spotlight, a window-blinds pattern, a flashlight mask, dappled tree-shadow light. These modulate the
@@ -31,8 +30,7 @@ by Phase 2; the trigger refines to "when extending the `Light` union" (with the 
 masks, flashlight gobos), OR when Stage-4 shadows land the light-space-projection + per-light-texture
 infrastructure that cookies would reuse — whichever comes first. Build on that infra, not before it.
 
-**Reference:** `docs/superpowers/specs/2026-06-07-stage-3-lighting-design.md` (§3.1 `Light` data
-model, §3.4 shading, §5 fences); `advanced-shadows-cascades-and-point.md` + the Stage-4 shadow-
+**Reference:** `advanced-shadows-cascades-and-point.md` + the Stage-4 shadow-
 modeling decision (shared light-space-projection machinery); the Visual Fidelity epic.
 
 **Update (Stage 4, 2026-06-08):** Shadows landed, and with them the light-space-projection machinery

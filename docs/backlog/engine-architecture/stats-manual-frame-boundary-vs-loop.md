@@ -10,4 +10,4 @@ For tranche 5 there's no real consumer mix doing this, so the behavior is "docum
 
 **Trigger to revisit:** When a real consumer mixes `frame.loop` and manual `stats.markFrameBoundary` and reports confusing metric drift.
 
-**Reference:** `docs/superpowers/specs/2026-05-24-core-tranche-5-stats-expansion-design.md` § Section 5 + § Section 8.
+**Reference:** Core Tranche 5 (stats expansion) design, §5 + §8.

@@ -17,4 +17,4 @@ Should be tree-shakeable so production builds can drop it; possibly compile-time
 
 **Trigger to revisit:** See the banner's **Revisit trigger** above. The original trigger — physics-collider visualization — fired in Stage 4B (which shipped the line substrate); remaining future needs include scene-graph axes for transform debugging, mesh normals, or another non-line gizmo client.
 
-**Reference:** `docs/superpowers/specs/2026-05-21-core-architecture-design.md` § "Tier 2 cross-cutting patterns".
+**Reference:** Core architecture design § "Tier 2 cross-cutting patterns".

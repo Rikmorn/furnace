@@ -8,4 +8,4 @@ Connects to `docs/backlog/engine-architecture/component-schemas.md` — how comp
 
 **Trigger to revisit:** First time we render multiple meshes or want to manage entities.
 
-**Reference:** `docs/superpowers/specs/2026-05-21-core-architecture-design.md` § "Tier 2 modules".
+**Reference:** Core architecture design § "Tier 2 modules".

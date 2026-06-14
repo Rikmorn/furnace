@@ -15,4 +15,4 @@ This is roughly tranche-3-scope worth of work — touches every file under `pack
 
 **Trigger to revisit:** When per-emitter input event counts become diagnostically useful (debugging input event storms, event-handler perf), OR when multi-context / multi-viewport / split-screen input becomes a real requirement (multi-canvas apps, HMR / SPA mounting, per-viewport input routing), OR when `engine-cascade-teardown.md` lands (input would self-register via `gpu.onDispose`).
 
-**Reference:** `docs/superpowers/specs/2026-05-24-core-tranche-5-stats-expansion-design.md` § Section 1 — "Minor signature change to events".
+**Reference:** Core Tranche 5 (stats expansion) design, §1 — "Minor signature change to events".

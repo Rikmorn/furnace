@@ -6,4 +6,4 @@ The Tier 1 `transform` module is pure JS/TS to start; this entry is its eventual
 
 **Trigger to revisit:** When transforms become a hot path.
 
-**Reference:** `docs/superpowers/specs/2026-05-21-core-architecture-design.md` § "Design language" rule 4; `docs/research/shallot.md` § "Engine library + wasm hot loops" for the reference pattern.
+**Reference:** `docs/research/shallot.md` § "Engine library + wasm hot loops" for the reference pattern.

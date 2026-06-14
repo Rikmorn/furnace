@@ -28,5 +28,4 @@ Implementation is ~30 LOC; no design questions.
 
 ## Reference
 
-- RM-4 spec: `docs/superpowers/specs/2026-05-28-resource-manager-rm4-single-writer-design.md`
 - Deleted code: see git history at the RM-4 deletion commit

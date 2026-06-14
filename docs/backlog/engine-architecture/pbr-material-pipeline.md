@@ -1,7 +1,7 @@
 # PBR material pipeline (metallic-roughness + IBL + normal mapping)
 
-Deferred out of the Visual Fidelity epic (`docs/superpowers/specs/2026-06-05-visual-fidelity-epic-design.md`),
-which ships a **Blinn-Phong** reference shader instead. A physically-based
+Deferred out of the Visual Fidelity epic, which ships a **Blinn-Phong**
+reference shader instead. A physically-based
 metallic-roughness pipeline is a cohesive follow-on epic, not a stage, because
 "minimal PBR" is a misnomer: the Cook-Torrance BRDF itself (~30–50 lines WGSL) is
 small, but to not look *worse* than Blinn-Phong it drags in two genuine subsystems:
@@ -24,5 +24,4 @@ needs the same IBL + normal-map + tangent machinery.
 **Trigger to revisit:** after the Visual Fidelity epic lands shadows, OR when the
 glTF asset epic starts (whichever first) — glTF forces the same machinery.
 
-**Reference:** `docs/superpowers/specs/2026-06-05-visual-fidelity-epic-design.md` §4, §7;
-`assets-loader-module.md` (the glTF asset epic this pairs with).
+**Reference:** `assets-loader-module.md` (the glTF asset epic this pairs with).

@@ -20,5 +20,4 @@ textures); OR procedural content rich enough to warrant a dedicated
 module/namespace; OR GPU-generated procedural content (also fires the
 compute/storage tranche).
 
-**Reference:** `docs/superpowers/specs/2026-06-05-visual-fidelity-epic-design.md` (Stage 1);
-the storage/compute tranche notes in `binding/types.ts`.
+**Reference:** the storage/compute tranche notes in `binding/types.ts`.

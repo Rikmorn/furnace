@@ -8,4 +8,4 @@ Real engineering required: dependency graph that spans substrates; data marshall
 
 **Trigger to revisit:** When the consumer surface accumulates 4-5 distinct kinds of "heavy" work that would benefit from unified scheduling — likely after physics, audio, animation, and one of (AI / pathfinding / large-data processing) arrive.
 
-**Reference:** `docs/superpowers/specs/2026-05-21-core-architecture-design.md` § "Tier 2 cross-cutting patterns".
+**Reference:** Core architecture design § "Tier 2 cross-cutting patterns".

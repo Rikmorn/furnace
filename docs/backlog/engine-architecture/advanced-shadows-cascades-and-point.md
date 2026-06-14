@@ -1,7 +1,6 @@
 # Advanced shadows — cascaded (CSM) + point-light cube maps
 
-Deferred out of the Visual Fidelity epic
-(`docs/superpowers/specs/2026-06-05-visual-fidelity-epic-design.md`), whose Stage 4
+Deferred out of the Visual Fidelity epic, whose Stage 4
 ships **one shadow map per caster** covering spot + orthographic directional
 lights (both single-map). Two genuine subsystems are fenced out:
 
@@ -20,8 +19,7 @@ bias, PCF) — they are quality/coverage extensions, not a different foundation.
 directional shadows look low-res (→ CSM), OR a demo that needs a point light to
 cast shadows (→ cube maps).
 
-**Reference:** `docs/superpowers/specs/2026-06-05-visual-fidelity-epic-design.md` §5.4;
-`shared-pipeline-factory.md` (depth-only shadow pipeline).
+**Reference:** `shared-pipeline-factory.md` (depth-only shadow pipeline).
 
 **Update (Stage 4, 2026-06-08):** The single-map shadow substrate this entry builds on has now
 LANDED — a depth-only caster pass (`frame/shadow-map.ts`), a comparison sampler, and a

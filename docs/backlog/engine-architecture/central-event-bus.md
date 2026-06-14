@@ -8,4 +8,4 @@ Open design questions to settle when this is brainstormed: synchronous fan-out v
 
 **Trigger to revisit:** First time two unrelated subsystems need to coordinate via events — likely when physics and audio both land in Tier 2.
 
-**Reference:** `docs/superpowers/specs/2026-05-21-core-architecture-design.md` § "Events architecture".
+**Reference:** Core architecture design § "Events architecture".

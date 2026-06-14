@@ -8,4 +8,4 @@ Should integrate with `stats` for load-queue depth, bytes-loaded gauges, and per
 
 **Trigger to revisit:** First demo loading a non-primitive mesh (glTF) or compressed texture. Mesh primitives (`mesh.primitives.cube/sphere/...`) and the existing texture-load helper cover most early needs.
 
-**Reference:** `docs/superpowers/specs/2026-05-21-core-architecture-design.md` § "Tier 2 modules".
+**Reference:** Core architecture design § "Tier 2 modules".
