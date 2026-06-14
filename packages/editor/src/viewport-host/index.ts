@@ -276,6 +276,19 @@ export function createViewportHost(): ViewportHost {
       meshes: l.meshes,
       camera: cam,
       clearColor: toVec4(l.settings.clearColor),
+      // lights/ambient are always safe to pass — they don't depend on the
+      // context's HDR state — so the editor viewport shows the real lit scene.
+      lights: l.lights,
+      ambient: l.ambient,
+      // effects (post chain) are DEFERRED. This host's GPU context is non-HDR
+      // (init() requests the default `hdr: false`). A scene's post chain
+      // (bloom→tonemap) is authored for the consumer's HDR pipeline, where
+      // tonemap maps rgba16float→LDR. frame.render won't throw on a non-HDR
+      // context with effects (the throw is the inverse: HDR + zero effects),
+      // but running an HDR-authored chain against an LDR scene target produces
+      // wrong output, not the real preview. Post-preview is deferred until the
+      // editor viewport supports an HDR context (then pass l.effects here).
+      effects: [],
     });
     for (const id of selection) {
       const corners = l.entityBoxCorners(id);
