@@ -46,12 +46,12 @@ test.skipIf(!bunWebGpuAvailable())(
     } as unknown as SceneDocument;
     const loaded = await loadScene(ctx, doc);
     expect(loaded.lights.length).toBe(1);
+    // biome-ignore lint/style/noNonNullAssertion: length asserted above
     const l = loaded.lights[0]!;
     expect(l.type).toBe("directional");
-    expect((l as { direction: readonly number[] }).direction[2]!).toBeCloseTo(
-      -1,
-      5,
-    );
+    expect(
+      (l as { direction: readonly number[] }).direction[2] as number,
+    ).toBeCloseTo(-1, 5);
     loaded.destroy();
     gpu.dispose(ctx);
   },
@@ -94,6 +94,7 @@ test.skipIf(!bunWebGpuAvailable())(
     } as unknown as SceneDocument;
     const loaded = await loadScene(ctx, doc);
     expect(loaded.lights.length).toBe(1);
+    // biome-ignore lint/style/noNonNullAssertion: length asserted above
     const l = loaded.lights[0]!;
     expect(l.type).toBe("directional");
     const dir = (l as { direction: readonly number[] }).direction;
@@ -133,6 +134,7 @@ test.skipIf(!bunWebGpuAvailable())(
     } as unknown as SceneDocument;
     const loaded = await loadScene(ctx, doc);
     expect(loaded.lights.length).toBe(1);
+    // biome-ignore lint/style/noNonNullAssertion: length asserted above
     const l = loaded.lights[0]!;
     expect(l.type).toBe("point");
     const pos = (l as { position: readonly number[] }).position;
