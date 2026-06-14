@@ -179,7 +179,7 @@ const SHADOW_LANE_FLOAT_OFFSET = 16;
 const NO_SHADOW_SLOT = -1;
 
 const LIGHT_COUNT_U32_INDEX = 8; // lightCount.x at byte 32 → u32 element 8
-const FOG_FLOAT_OFFSET = 12; // _reserved lane (byte 48): rgb = color, a = density
+const FOG_FLOAT_OFFSET = 12; // fog lane (byte 48): rgb = color, a = density
 const TYPE_DIRECTIONAL = 0;
 const TYPE_POINT = 1;
 const TYPE_SPOT = 2;
@@ -239,7 +239,7 @@ export function _packScene(
   f[5] = amb.ground[1];
   f[6] = amb.ground[2];
 
-  // Header _reserved lane → fog: rgb = color, a = density (0 = disabled).
+  // Header fog lane: rgb = color, a = density (0 = disabled).
   const fg = fog ?? DEFAULT_FOG;
   f[FOG_FLOAT_OFFSET] = fg.color[0];
   f[FOG_FLOAT_OFFSET + 1] = fg.color[1];

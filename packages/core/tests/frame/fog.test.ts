@@ -8,7 +8,7 @@ import {
 
 const AMB: Ambient = { sky: [1, 1, 1], ground: [0, 0, 0], intensity: 0.5 };
 
-test("fog packs into the _reserved header lane (floats 12..15): rgb + density", () => {
+test("fog packs into the fog header lane (floats 12..15): rgb + density", () => {
   const buf = new ArrayBuffer(SCENE_BYTE_SIZE);
   const fog: Fog = { color: [0.1, 0.2, 0.3], density: 0.42 };
   _packScene(buf, [], AMB, [], fog);
@@ -24,4 +24,9 @@ test("omitted fog → density 0 (disabled, backward compatible)", () => {
   _packScene(buf, [], AMB, [], undefined);
   const f = new Float32Array(buf);
   expect(f[15]).toBe(0); // density 0 → fog factor 0 → no visual change
+  // The disabled default must overwrite the WHOLE lane (the scratch buffer is
+  // reused frame-to-frame and not zeroed), not just the density float.
+  expect(f[12]).toBe(0);
+  expect(f[13]).toBe(0);
+  expect(f[14]).toBe(0);
 });
