@@ -179,6 +179,30 @@ export function registerBuiltins(): void {
     // No destroy: built-in shaders are ctx-cached singletons.
   });
 
+  defineResource("shaders", "lit", {
+    // Boundary cast: lit returns Shader<{color:"vec4f";specular:"vec4f"}> — widened.
+    build: (ctx) => shader.lit(ctx) as Promise<shader.Shader>,
+    // No destroy: built-in shaders are ctx-cached singletons.
+  });
+
+  defineResource("shaders", "texturedLit", {
+    // Boundary cast: texturedLit returns Shader<Record<string,never>> — widened.
+    build: (ctx) => shader.texturedLit(ctx) as Promise<shader.Shader>,
+    // No destroy: built-in shaders are ctx-cached singletons.
+  });
+
+  defineResource("shaders", "textured", {
+    // Boundary cast: textured returns Shader<Record<string,never>> — widened.
+    build: (ctx) => shader.textured(ctx) as Promise<shader.Shader>,
+    // No destroy: built-in shaders are ctx-cached singletons.
+  });
+
+  defineResource("shaders", "normalColor", {
+    // Boundary cast: normalColor returns Shader<Record<string,never>> — widened.
+    build: (ctx) => shader.normalColor(ctx) as Promise<shader.Shader>,
+    // No destroy: built-in shaders are ctx-cached singletons.
+  });
+
   defineResource("materials", "standard", {
     params: {
       shader: t.resource("shaders"),
