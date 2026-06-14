@@ -9,6 +9,7 @@
     "dev:web": "bun run --cwd packages/hello-world dev",
     "dev:native": "bun run --cwd packages/hello-world dev:native",
     "dev:cookbook": "bun run --cwd packages/cookbook dev",
+    "dev:dungeon": "bun run --cwd packages/dungeon dev",
     "build": "bun run build:core && bun run build:tools && bun run build:web",
     "build:core": "bun run --cwd packages/core build",
     "build:tools": "cargo build --manifest-path packages/tools/crates/Cargo.toml --release",
