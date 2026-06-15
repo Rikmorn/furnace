@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "defaultBranch": "master",
+  "gates": {
+    "typecheck": "bun run typecheck",
+    "lint": "bun run check",
+    "test": "bun run test"
+  },
+  "waveSizeCap": 4,
+  "buildCheckpoints": "deviations-only",
+  "fanout": {
+    "backend": "auto",
+    "budget": "standard"
+  }
+}

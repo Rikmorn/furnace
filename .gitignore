@@ -52,3 +52,7 @@ Cargo.lock.bak
 
 # Superpowers tool output — implementation context only, not canonical reference
 docs/superpowers/
+
+# sidekick — local working state (managed by `sidekick init`)
+.sidekick/cache/
+.sidekick/state/
