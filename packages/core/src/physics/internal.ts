@@ -49,6 +49,12 @@ function buildShapeDesc(shape: ShapeDescriptor): RAPIER.ColliderDesc {
       shape.cuboid[2],
     );
   }
+  if ("capsule" in shape) {
+    return RAPIER.ColliderDesc.capsule(
+      shape.capsule.halfHeight,
+      shape.capsule.radius,
+    );
+  }
   // roundCylinder's border is added to the requested dims (Minkowski sum), so
   // compensate to keep { halfHeight, radius } the true outer dimension. The
   // `max(dim - b, b)` floor keeps the Rapier dims positive for sub-2b inputs

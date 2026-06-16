@@ -32,6 +32,12 @@ function isFiniteVec3(v: Vec3Tuple): boolean {
 function isValidShape(shape: ShapeDescriptor): boolean {
   if ("ball" in shape) return Number.isFinite(shape.ball);
   if ("cuboid" in shape) return isFiniteVec3(shape.cuboid);
+  if ("capsule" in shape) {
+    return (
+      Number.isFinite(shape.capsule.halfHeight) &&
+      Number.isFinite(shape.capsule.radius)
+    );
+  }
   return (
     Number.isFinite(shape.cylinder.halfHeight) &&
     Number.isFinite(shape.cylinder.radius)
@@ -52,14 +58,14 @@ function validateBodyDescriptor(d: BodyDescriptor): void {
   }
   if (!isValidShape(d.shape)) {
     throw new FurnaceError(
-      "physics.createBody: shape must be { ball }, { cuboid } or { cylinder }",
+      "physics.createBody: shape must be { ball }, { cuboid }, { cylinder } or { capsule }",
     );
   }
 }
 
 /**
  * Create a rigid {@link Body} in `world`. `type` selects dynamic (simulated)
- * or static (immovable); `shape` is the collider (ball/cuboid/cylinder).
+ * or static (immovable); `shape` is the collider (ball/cuboid/cylinder/capsule).
  * Dynamic mass comes from `density` (default 1).
  *
  * @throws FurnaceError - if the descriptor is malformed (unknown type,

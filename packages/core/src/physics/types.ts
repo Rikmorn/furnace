@@ -24,11 +24,13 @@ export type QuatTuple = readonly [number, number, number, number];
 export type WorldDescriptor = { gravity: Vec3Tuple; lengthUnit?: number };
 
 /** Collision shape: a sphere (`ball` radius), box (`cuboid` half-extents),
- *  or cylinder (`cylinder` half-height + radius, Y-axis aligned). */
+ *  cylinder (`cylinder` half-height + radius, Y-axis aligned), or capsule
+ *  (`capsule` half-height + radius, Y-axis aligned — the player shape). */
 export type ShapeDescriptor =
   | { ball: number }
   | { cuboid: Vec3Tuple }
-  | { cylinder: { halfHeight: number; radius: number } };
+  | { cylinder: { halfHeight: number; radius: number } }
+  | { capsule: { halfHeight: number; radius: number } };
 
 /** Input bundle for {@link createBody}. */
 export type BodyDescriptor = {
