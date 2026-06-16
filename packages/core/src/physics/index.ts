@@ -8,6 +8,7 @@ export {
 } from "./body.ts";
 export type { CharacterControllerOptions } from "./character.ts";
 export {
+  computeMovement,
   createCharacterController,
   destroyCharacterController,
 } from "./character.ts";

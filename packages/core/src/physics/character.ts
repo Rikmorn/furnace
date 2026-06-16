@@ -1,7 +1,14 @@
 import { FurnaceError } from "../errors.ts";
 import type { Context } from "../gpu/index.ts";
-import { _lookupPhysicsWorld } from "../resources/internal.ts";
+import { warn } from "../log/internal.ts";
+import {
+  _lookupPhysicsBody,
+  _lookupPhysicsWorld,
+} from "../resources/internal.ts";
+import type { Vec3 } from "../transform/types.ts";
 import type {
+  Body,
+  BodySlot,
   CharacterController,
   Vec3Tuple,
   World,
@@ -99,4 +106,48 @@ export function destroyCharacterController(
     worldSlot.controllers.delete(controller);
   }
   controller._destroyed = true;
+}
+
+/**
+ * Resolve a `desired` translation for a kinematic capsule `body` against the
+ * world's colliders, writing the corrected movement into `out` and returning
+ * whether the body is grounded. Hot-path; runtime-quiet — warns on non-finite
+ * `desired`, and returns `false` with zeroed `out` on a destroyed controller or
+ * stale handles. Obstacles are seen only after the world has {@link step}ped at
+ * least once (Rapier's broadphase is populated by {@link step}); a call before
+ * the first step returns `desired` unobstructed. Apply `out` with
+ * {@link setBodyNextKinematicTranslation}, then {@link step}.
+ */
+export function computeMovement(
+  ctx: Context,
+  controller: CharacterController,
+  body: Body,
+  desired: Vec3Tuple,
+  out: Vec3,
+): boolean {
+  out[0] = 0;
+  out[1] = 0;
+  out[2] = 0;
+  if (controller._destroyed) return false;
+  if (!desired.every((c) => Number.isFinite(c))) {
+    warn("physics", "computeMovement: desired translation must be finite", {
+      desired,
+    });
+    return false;
+  }
+  const worldSlot = _lookupPhysicsWorld<WorldSlot>(ctx, controller._world);
+  const bodySlot = _lookupPhysicsBody<BodySlot>(ctx, body);
+  if (worldSlot === null || bodySlot === null) return false;
+
+  const collider = worldSlot.rapier.getCollider(bodySlot.colliderHandle);
+  controller._rapier.computeColliderMovement(collider, {
+    x: desired[0],
+    y: desired[1],
+    z: desired[2],
+  });
+  const m = controller._rapier.computedMovement();
+  out[0] = m.x;
+  out[1] = m.y;
+  out[2] = m.z;
+  return controller._rapier.computedGrounded();
 }

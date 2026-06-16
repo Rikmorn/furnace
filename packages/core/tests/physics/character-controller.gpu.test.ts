@@ -48,3 +48,94 @@ test.skipIf(!bunWebGpuAvailable())(
     gpu.dispose(ctx);
   },
 );
+
+test.skipIf(!bunWebGpuAvailable())(
+  "computeMovement slides along a wall, is blocked head-on, and reports grounded",
+  async () => {
+    const { vec3 } = await import("../../src/transform/index.ts");
+    const canvas = await makeOffscreenCanvas();
+    const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
+    const world = await physics.createWorld(ctx, { gravity: [0, -9.81, 0] });
+    // Floor (top at y=0) and a wall at x≈1.0 (near face at x=0.8).
+    physics.createBody(ctx, world, {
+      type: "static",
+      shape: { cuboid: [5, 0.5, 5] },
+      position: [0, -0.5, 0],
+    });
+    physics.createBody(ctx, world, {
+      type: "static",
+      shape: { cuboid: [0.2, 2, 5] },
+      position: [1, 1, 0],
+    });
+    // Player capsule resting on the floor at x=0 (feet at 0, centre at 0.9).
+    const player = physics.createBody(ctx, world, {
+      type: "kinematicPosition",
+      shape: { capsule: { halfHeight: 0.6, radius: 0.3 } },
+      position: [0, 0.9, 0],
+    });
+    const controller = physics.createCharacterController(ctx, world, {
+      offset: 0.01,
+      up: [0, 1, 0],
+      snapToGround: 0.5,
+    });
+
+    const mv = vec3.create();
+
+    // computeColliderMovement queries Rapier's collider/broadphase structures,
+    // which are populated by world.step — without a first step the query sees
+    // no obstacles and returns the full desired translation. Step once so the
+    // wall is in the query pipeline.
+    physics.step(ctx, world, 1 / 60);
+
+    // Push toward the wall (+x). Blocked: corrected x is far less than 1.0.
+    const groundedIntoWall = physics.computeMovement(
+      ctx,
+      controller,
+      player,
+      [1, -0.05, 0],
+      mv,
+    );
+    expect(mv[0]).toBeLessThan(0.6); // wall stopped most of the +x travel
+    expect(groundedIntoWall).toBe(true); // standing on the floor
+
+    // Push parallel to the wall (+z). Free: corrected z ≈ requested.
+    physics.computeMovement(ctx, controller, player, [0, -0.05, 1], mv);
+    expect(mv[2]).toBeGreaterThan(0.9);
+
+    physics.destroyWorld(ctx, world);
+    gpu.dispose(ctx);
+  },
+);
+
+test.skipIf(!bunWebGpuAvailable())(
+  "computeMovement on a destroyed controller returns grounded=false and zero movement",
+  async () => {
+    const { vec3 } = await import("../../src/transform/index.ts");
+    const canvas = await makeOffscreenCanvas();
+    const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
+    const world = await physics.createWorld(ctx, { gravity: [0, -9.81, 0] });
+    const player = physics.createBody(ctx, world, {
+      type: "kinematicPosition",
+      shape: { capsule: { halfHeight: 0.6, radius: 0.3 } },
+      position: [0, 0.9, 0],
+    });
+    const controller = physics.createCharacterController(ctx, world);
+    physics.destroyCharacterController(ctx, controller);
+
+    const mv = vec3.fromValues(9, 9, 9);
+    const grounded = physics.computeMovement(
+      ctx,
+      controller,
+      player,
+      [1, 0, 0],
+      mv,
+    );
+    expect(grounded).toBe(false);
+    expect(mv[0]).toBe(0);
+    expect(mv[1]).toBe(0);
+    expect(mv[2]).toBe(0);
+
+    physics.destroyWorld(ctx, world);
+    gpu.dispose(ctx);
+  },
+);
