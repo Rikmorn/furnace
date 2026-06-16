@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { forwardVector, moveDelta } from "../src/fp-controller.ts";
+import { forwardVector, gravityStep, moveDelta } from "../src/fp-controller.ts";
 
 test("forwardVector: yaw=0 pitch=0 looks down -Z", () => {
   const f = forwardVector(0, 0);
@@ -68,4 +68,19 @@ test("moveDelta: diagonal is normalized (no faster-on-diagonal)", () => {
   );
   const len = Math.hypot(d[0], d[1], d[2]);
   expect(len).toBeCloseTo(1, 5);
+});
+
+test("gravityStep resets vertical velocity when grounded (small downward nudge)", () => {
+  const { vVel, dy } = gravityStep(-5, true, -9.81, 1 / 60);
+  expect(vVel).toBe(0);
+  expect(dy).toBeLessThan(0); // a small downward bias keeps ground contact
+  expect(dy).toBeGreaterThan(-0.2);
+});
+
+test("gravityStep accumulates downward velocity while airborne", () => {
+  const first = gravityStep(0, false, -9.81, 1 / 60);
+  const second = gravityStep(first.vVel, false, -9.81, 1 / 60);
+  expect(first.vVel).toBeLessThan(0);
+  expect(second.vVel).toBeLessThan(first.vVel); // faster each frame
+  expect(second.dy).toBeLessThan(first.dy); // falling further per frame
 });

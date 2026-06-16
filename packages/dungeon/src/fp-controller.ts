@@ -13,6 +13,24 @@ export type MoveKeys = {
 
 const PITCH_LIMIT = Math.PI / 2 - 0.01; // avoid gimbal flip at straight up/down
 
+/** World gravity along Y (m/s²). Negative = downward. */
+export const GRAVITY = -9.81;
+
+/** Advance vertical velocity one tick. Grounded resets accumulated fall and
+ *  applies a small downward bias (so snap-to-ground keeps contact on steps/slopes);
+ *  airborne integrates gravity. Returns the new velocity and this tick's vertical
+ *  delta. Pure; unit-tested. */
+export function gravityStep(
+  vVel: number,
+  grounded: boolean,
+  gravity: number,
+  dtSeconds: number,
+): { vVel: number; dy: number } {
+  if (grounded) return { vVel: 0, dy: gravity * dtSeconds };
+  const nv = vVel + gravity * dtSeconds;
+  return { vVel: nv, dy: nv * dtSeconds };
+}
+
 /** World-space forward unit vector for a yaw/pitch (right-handed Y-up, identity → -Z).
  *  Pure; unit-tested. */
 export function forwardVector(
