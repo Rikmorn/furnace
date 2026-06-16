@@ -142,3 +142,71 @@ test.skipIf(!bunWebGpuAvailable())(
     gpu.dispose(ctx);
   },
 );
+
+test.skipIf(!bunWebGpuAvailable())(
+  "a controller with applyImpulsesToDynamicBodies pushes a dynamic body it walks into",
+  async () => {
+    const { vec3 } = await import("../../src/transform/index.ts");
+    const canvas = await makeOffscreenCanvas();
+    const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
+    const world = await physics.createWorld(ctx, { gravity: [0, -9.81, 0] });
+
+    // Static floor with its top at y=0.
+    physics.createBody(ctx, world, {
+      type: "static",
+      shape: { cuboid: [5, 0.5, 5] },
+      position: [0, -0.5, 0],
+    });
+    // A small dynamic cube resting on the floor, in the player's +x path.
+    const cubeStartX = 1.0;
+    const cube = physics.createBody(ctx, world, {
+      type: "dynamic",
+      shape: { cuboid: [0.25, 0.25, 0.25] },
+      position: [cubeStartX, 0.25, 0],
+      friction: 0.8,
+    });
+    // Kinematic player capsule resting on the floor at x=0 (centre at 0.9).
+    const player = physics.createBody(ctx, world, {
+      type: "kinematicPosition",
+      shape: { capsule: { halfHeight: 0.6, radius: 0.3 } },
+      position: [0, 0.9, 0],
+    });
+    const controller = physics.createCharacterController(ctx, world, {
+      offset: 0.01,
+      up: [0, 1, 0],
+      snapToGround: 0.5,
+      applyImpulsesToDynamicBodies: true,
+    });
+
+    const moveOut = vec3.create();
+    const playerPos = vec3.fromValues(0, 0.9, 0);
+
+    // Drive the player into the cube along +x, one frame at a time. The
+    // broadphase Rapier queries is populated by step, so step every frame.
+    for (let frame = 0; frame < 60; frame++) {
+      physics.computeMovement(
+        ctx,
+        controller,
+        player,
+        [0.05, -0.01, 0],
+        moveOut,
+      );
+      vec3.add(playerPos, playerPos, moveOut);
+      physics.setBodyNextKinematicTranslation(ctx, player, [
+        playerPos[0] as number,
+        playerPos[1] as number,
+        playerPos[2] as number,
+      ]);
+      physics.step(ctx, world, 1 / 60);
+    }
+
+    const cubePos = vec3.create();
+    physics.getBodyTranslation(ctx, cube, cubePos);
+    // A real shove, not numerical noise: the cube must have travelled well
+    // beyond its start of 1.0 in +x.
+    expect(cubePos[0]).toBeGreaterThan(1.2);
+
+    physics.destroyWorld(ctx, world);
+    gpu.dispose(ctx);
+  },
+);

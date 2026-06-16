@@ -32,6 +32,12 @@ export type CharacterControllerOptions = {
   minSlopeSlideAngle?: number;
   /** Slide along blocking geometry instead of stopping dead. Default true. */
   slide?: boolean;
+  /** Push dynamic rigid-bodies the character collides with (default Rapier off).
+   *  Required for "shove the props" behaviour. */
+  applyImpulsesToDynamicBodies?: boolean;
+  /** Character mass used for impulse resolution when {@link CharacterControllerOptions.applyImpulsesToDynamicBodies}
+   *  is on. Omit to use the character body's own mass. Tune for shove strength. */
+  characterMass?: number;
 };
 
 const DEFAULT_OFFSET = 0.01;
@@ -80,6 +86,12 @@ export function createCharacterController(
     rapier.setMinSlopeSlideAngle(opts.minSlopeSlideAngle);
   }
   if (opts.slide !== undefined) rapier.setSlideEnabled(opts.slide);
+  if (opts.applyImpulsesToDynamicBodies !== undefined) {
+    rapier.setApplyImpulsesToDynamicBodies(opts.applyImpulsesToDynamicBodies);
+  }
+  if (opts.characterMass !== undefined) {
+    rapier.setCharacterMass(opts.characterMass);
+  }
 
   const controller: CharacterController = {
     _world: world,
