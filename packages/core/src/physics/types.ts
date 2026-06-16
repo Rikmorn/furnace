@@ -68,6 +68,7 @@ export type WorldSlot = CascadeTeardownSlot & {
   eventQueue: RAPIER.EventQueue;
   bodies: Set<Body>;
   colliderToBody: Map<number, Body>;
+  controllers: Set<CharacterController>;
 };
 
 /** Engine-private slot backing a {@link Body}. */
@@ -75,4 +76,16 @@ export type BodySlot = CascadeTeardownSlot & {
   world: World;
   rapierBody: RAPIER.RigidBody;
   colliderHandle: number;
+};
+
+/** Opaque handle to a kinematic character controller, owned by its {@link World}.
+ *  Freed by `destroyCharacterController` or when its world is destroyed.
+ *  Engine-internal fields are underscore-prefixed; treat it as opaque. */
+export type CharacterController = {
+  readonly _world: World;
+  _rapier: RAPIER.KinematicCharacterController;
+  /** Set by destroyCharacterController/destroyWorld. NOT set on a gpu.dispose
+   *  cascade (which frees the backend via the world slot's _teardown) — so a
+   *  null world lookup, not this flag, is the authoritative post-teardown guard. */
+  _destroyed: boolean;
 };

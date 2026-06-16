@@ -6,9 +6,15 @@ export {
   setBodyLinearVelocity,
   setBodyNextKinematicTranslation,
 } from "./body.ts";
+export type { CharacterControllerOptions } from "./character.ts";
+export {
+  createCharacterController,
+  destroyCharacterController,
+} from "./character.ts";
 export type {
   Body,
   BodyDescriptor,
+  CharacterController,
   CollisionEvent,
   DebugLines,
   QuatTuple,

@@ -56,6 +56,7 @@ export async function createWorld(
     eventQueue,
     bodies: new Set(),
     colliderToBody: new Map(),
+    controllers: new Set(),
     _teardown: () => {
       eventQueue.free();
       rapier.free();
@@ -122,5 +123,9 @@ export function destroyWorld(ctx: Context, world: World): void {
   for (const body of [...slot.bodies]) {
     _destroyPhysicsBody<BodySlot>(ctx, body, (s) => s._teardown());
   }
+  // Mark any live controllers destroyed; rapier.free() (in _teardown) releases
+  // the backend objects. Consumers holding a stale controller then no-op.
+  for (const c of slot.controllers) c._destroyed = true;
+  slot.controllers.clear();
   _destroyPhysicsWorld<WorldSlot>(ctx, world, (s) => s._teardown());
 }
