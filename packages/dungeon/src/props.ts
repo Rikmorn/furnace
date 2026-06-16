@@ -10,6 +10,11 @@ import { quat, vec3 } from "@furnace/core/transform";
 
 const COUNT = 12;
 const HALF = 0.25; // prop half-extent (a 0.5 cube)
+const FLOOR_TOP = 0.1; // chamber2 floor top (box [10,0,-10] size[10,0.2,12])
+const REST_Y = FLOOR_TOP + HALF; // 0.35 — a prop resting on the floor
+const STACK_COUNT = 4; // a 4-high tower to topple
+const STACK_X = 7;
+const STACK_Z = -10;
 
 type Prop = { mesh: mesh.Mesh; body: physics.Body };
 
@@ -19,9 +24,10 @@ export type Props = {
   destroy: () => void;
 };
 
-/** Build ~a dozen dynamic cuboid props in `world`, clustered (and lightly stacked)
- *  in the east chamber so the player can shove them and watch them fall/settle.
- *  Each prop's mesh follows its body each frame via {@link Props.update}. */
+/** Build a dozen dynamic cuboid props in `world`: a 4-high tower to topple plus
+ *  an 8-prop floor cluster, in the east chamber so the player can shove them and
+ *  watch them fall/settle. Each prop's mesh follows its body each frame via
+ *  {@link Props.update}. */
 export async function buildProps(
   ctx: Context,
   world: physics.World,
@@ -35,13 +41,25 @@ export async function buildProps(
   });
   const mat = await material.create(ctx, { shader: lit, binding: bind });
 
-  // Deterministic placement (no Math.random — vary by index). Cluster + a small stack.
+  // Deterministic placement (no Math.random — vary by index): a 4-high tower
+  // to topple, plus an 8-prop floor cluster. All rest cleanly on the chamber2
+  // floor, clear of the immovable pillar (x≥8.5) and slab (x≥10.3).
   const props: Prop[] = Array.from({ length: COUNT }, (_, i) => {
-    const col = i % 4;
-    const row = Math.floor(i / 4);
-    const px = 8 + col * 0.6 + (row % 2) * 0.2;
-    const pz = -9 - row * 0.6;
-    const py = HALF + 0.02 + (i % 3) * (HALF * 2.05); // some resting, some stacked
+    let px: number;
+    let py: number;
+    let pz: number;
+    if (i < STACK_COUNT) {
+      px = STACK_X;
+      pz = STACK_Z;
+      py = REST_Y + i * (HALF * 2 + 0.01); // stacked, tiny gap to settle
+    } else {
+      const j = i - STACK_COUNT; // 0..7
+      const col = j % 4;
+      const row = Math.floor(j / 4);
+      px = 6.5 + col * 0.6; // centres 6.5..8.3
+      pz = -11 - row * 0.7; // centres -11..-11.7 — south of the pillar (z≥-8.5) and west of the slab (x≥10.3), so clear of both features
+      py = REST_Y;
+    }
     const m = mesh.create(ctx, { geometry: cube, material: mat });
     mesh.setPosition(ctx, m, vec3.fromValues(px, py, pz));
     const body = physics.createBody(ctx, world, {

@@ -70,6 +70,7 @@ async function main(): Promise<void> {
     snapToGround: 0.5,
     maxSlopeClimbAngle: 0.87,
     minSlopeSlideAngle: 0.7,
+    applyImpulsesToDynamicBodies: true,
   });
 
   // Bloom REQUIRES an hdr context; an hdr context REQUIRES a non-empty effects chain.
