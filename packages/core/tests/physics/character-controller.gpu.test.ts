@@ -27,8 +27,11 @@ test.skipIf(!bunWebGpuAvailable())(
     physics.destroyCharacterController(ctx, controller);
     physics.destroyCharacterController(ctx, controller);
 
-    // A fresh controller left undestroyed must be cleaned up by destroyWorld
-    // (no leak); gpu.dispose is the leak check — a clean shutdown does not throw.
+    // A fresh controller left undestroyed must be cleaned up by destroyWorld:
+    // it marks the controller destroyed and rapier.free() reclaims the backend
+    // (controllers aren't resource-pool slots, so gpu.dispose's slot leak-check
+    // doesn't count them) — a clean shutdown that does not throw confirms the
+    // world teardown freed the live controller without a double-free.
     physics.createCharacterController(ctx, world);
     physics.destroyWorld(ctx, world);
     gpu.dispose(ctx);
