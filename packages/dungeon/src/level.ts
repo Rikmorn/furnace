@@ -19,9 +19,10 @@ export const LEVEL_BOXES: Box[] = [
   // --- corridor floor + ceiling ---
   { center: [0, 0, -8], size: [3, 0.2, 16] },
   { center: [0, 3, -8], size: [3, 0.2, 16] },
-  // corridor walls
+  // corridor walls (east wall split to leave a doorway into the side branch, gap z=-8.5..-11.5)
   { center: [-1.5, 1.5, -8], size: [0.2, 3, 16] },
-  { center: [1.5, 1.5, -8], size: [0.2, 3, 16] },
+  { center: [1.5, 1.5, -4.25], size: [0.2, 3, 8.5] },
+  { center: [1.5, 1.5, -13.75], size: [0.2, 3, 4.5] },
   // --- cave chamber floor + ceiling ---
   { center: [0, 0, -24], size: [12, 0.2, 16] },
   { center: [0, 6, -24], size: [12, 0.2, 16] },
@@ -40,14 +41,14 @@ export const LEVEL_BOXES: Box[] = [
   { center: [3, 3, -10], size: [6, 0.2, 3] }, // branch ceiling
   { center: [3, 1.5, -8.5], size: [6, 3, 0.2] }, // branch south wall
   { center: [3, 1.5, -11.5], size: [6, 3, 0.2] }, // branch north wall
-  { center: [6, 1.5, -10], size: [0.2, 3, 3] }, // branch end wall
+  // (no east end wall — the branch's east end opens into the second chamber)
   // --- second (east) chamber the branch leads into ---
   { center: [10, 0, -10], size: [10, 0.2, 12] }, // floor
   { center: [10, 6, -10], size: [10, 6, 0.2] }, // back-ish detail handled by walls below
   { center: [10, 3, -4], size: [10, 6, 0.2] }, // south wall
   { center: [10, 3, -16], size: [10, 6, 0.2] }, // north wall
   { center: [15, 3, -10], size: [0.2, 6, 12] }, // east wall
-  { center: [5, 3, -10], size: [0.2, 6, 4] }, // west wall (doorway gap to the branch)
+  // (no west wall — the side branch joins the chamber here, over the x=5..6 overlap)
   // --- immovable features (presence that STOPS you) ---
   { center: [9, 1, -8], size: [1, 2, 1] }, // a standing pillar
   { center: [11.5, 0.6, -12], size: [2.4, 1.2, 1.2] }, // a fallen slab
