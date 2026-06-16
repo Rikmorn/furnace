@@ -2,15 +2,18 @@ import * as camera from "@furnace/core/camera";
 import * as frame from "@furnace/core/frame";
 import * as gpu from "@furnace/core/gpu";
 import * as input from "@furnace/core/input";
+import * as physics from "@furnace/core/physics";
 import * as post from "@furnace/core/post";
 import { vec3, vec4 } from "@furnace/core/transform";
-import { slideMove } from "./collision.ts";
 import { FpController } from "./fp-controller.ts";
 import { buildGlows, buildLevel } from "./level.ts";
 import { buildMotes } from "./motes.ts";
+import { buildProps } from "./props.ts";
 import { Torch } from "./torch.ts";
 
-const PLAYER_RADIUS = 0.3;
+const PLAYER_CAPSULE_HALF_HEIGHT = 0.6;
+const PLAYER_CAPSULE_RADIUS = 0.3;
+const PLAYER_SPAWN: [number, number, number] = [0, 1.1, -2];
 
 const FOG_COLOR: [number, number, number] = [0.015, 0.02, 0.03];
 // Clear color matches the fog so the void at depth reads as fog, not a hard edge.
@@ -36,6 +39,39 @@ async function main(): Promise<void> {
   const glows = await buildGlows(ctx);
   const motes = await buildMotes(ctx);
 
+  const world = await physics.createWorld(ctx, {
+    gravity: [0, -9.81, 0],
+    lengthUnit: 1,
+  });
+  // Static colliders: one fixed cuboid per level box (size/2 = half-extents).
+  for (const b of level.boxes) {
+    physics.createBody(ctx, world, {
+      type: "static",
+      shape: { cuboid: [b.size[0] / 2, b.size[1] / 2, b.size[2] / 2] },
+      position: [b.center[0], b.center[1], b.center[2]],
+    });
+  }
+  const props = await buildProps(ctx, world);
+
+  const playerBody = physics.createBody(ctx, world, {
+    type: "kinematicPosition",
+    shape: {
+      capsule: {
+        halfHeight: PLAYER_CAPSULE_HALF_HEIGHT,
+        radius: PLAYER_CAPSULE_RADIUS,
+      },
+    },
+    position: PLAYER_SPAWN,
+  });
+  const controller = physics.createCharacterController(ctx, world, {
+    offset: 0.01,
+    up: [0, 1, 0],
+    autostep: { maxHeight: 0.3, minWidth: 0.1 },
+    snapToGround: 0.5,
+    maxSlopeClimbAngle: 0.87,
+    minSlopeSlideAngle: 0.7,
+  });
+
   // Bloom REQUIRES an hdr context; an hdr context REQUIRES a non-empty effects chain.
   const bloom = await post.bloom(ctx, {
     intensity: 0.9,
@@ -56,23 +92,51 @@ async function main(): Promise<void> {
   };
 
   input.attach(canvas);
-  const player = new FpController({ position: [0, 1.6, -2] });
+  const player = new FpController();
   player.attachMouse(canvas);
   const torch = new Torch();
+  let grounded = false;
+  const moveOut = vec3.create();
+  const bodyPos = vec3.create();
 
   const loopHandle = frame.loop(ctx, (info) => {
     const dt = info.deltaMs / 1000;
-    // slideMove returns an absolute resolved position; the controller's clampMove
-    // contract wants a DELTA, so subtract the start position back out.
-    player.update(ctx, cam, dt, (fromPos, delta) => {
-      const r = slideMove(fromPos, delta, PLAYER_RADIUS, level.boxes);
-      return [r[0] - fromPos[0], r[1] - fromPos[1], r[2] - fromPos[2]];
-    });
-    motes.update(player.position, dt);
-    // Torch follows the player and flickers — rebuilt each frame.
-    const lights: frame.Light[] = [torch.light(player.position, dt)];
+
+    player.consumeMouse();
+    const desired = player.desiredMove(dt, grounded);
+    grounded = physics.computeMovement(
+      ctx,
+      controller,
+      playerBody,
+      desired,
+      moveOut,
+    );
+    physics.getBodyTranslation(ctx, playerBody, bodyPos);
+    physics.setBodyNextKinematicTranslation(ctx, playerBody, [
+      (bodyPos[0] as number) + (moveOut[0] as number),
+      (bodyPos[1] as number) + (moveOut[1] as number),
+      (bodyPos[2] as number) + (moveOut[2] as number),
+    ]);
+    physics.step(ctx, world, dt);
+
+    physics.getBodyTranslation(ctx, playerBody, bodyPos);
+    const playerPos: [number, number, number] = [
+      bodyPos[0] as number,
+      bodyPos[1] as number,
+      bodyPos[2] as number,
+    ];
+    player.placeCamera(cam, playerPos);
+    props.update();
+    motes.update(playerPos, dt);
+
+    const lights: frame.Light[] = [torch.light(playerPos, dt)];
     frame.render(ctx, {
-      meshes: [...level.meshes, ...glows.meshes, ...motes.meshes],
+      meshes: [
+        ...level.meshes,
+        ...glows.meshes,
+        ...props.meshes,
+        ...motes.meshes,
+      ],
       camera: cam,
       clearColor: CLEAR_COLOR,
       lights,
@@ -88,6 +152,9 @@ async function main(): Promise<void> {
   const dispose = (): void => {
     loopHandle.stop();
     player.destroy();
+    props.destroy();
+    physics.destroyCharacterController(ctx, controller);
+    physics.destroyWorld(ctx, world);
     input.detach();
     unbindCamera();
     motes.destroy();
