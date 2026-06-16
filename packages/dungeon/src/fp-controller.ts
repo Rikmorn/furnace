@@ -1,6 +1,5 @@
 import type { Camera } from "@furnace/core/camera";
 import * as camera from "@furnace/core/camera";
-import type { Context } from "@furnace/core/gpu";
 import * as input from "@furnace/core/input";
 import { vec3 } from "@furnace/core/transform";
 
@@ -62,26 +61,32 @@ export function moveDelta(
   return [mx, 0, mz];
 }
 
-/** A first-person controller: owns yaw/pitch + position, drives the camera each
- *  frame. Mouselook uses raw pointer-lock (engine input has no relative delta). */
+/** A first-person controller: owns yaw/pitch + vertical velocity, produces a
+ *  desired per-tick move (input + gravity) for the physics character controller,
+ *  and places the camera from the resolved body position. Mouselook uses raw
+ *  pointer-lock (engine input has no relative delta). Position authority lives in
+ *  the physics body, not here. */
 export class FpController {
   yaw = 0;
   pitch = 0;
-  readonly position: [number, number, number];
+  private vVel = 0;
   private readonly speed: number;
   private readonly sensitivity: number;
+  private readonly eyeOffset: number;
   private accumDX = 0;
   private accumDY = 0;
   private detachMouse: (() => void) | null = null;
 
-  constructor(opts: {
-    position: [number, number, number];
-    speed?: number;
-    sensitivity?: number;
-  }) {
-    this.position = [...opts.position];
+  constructor(
+    opts: {
+      speed?: number;
+      sensitivity?: number;
+      eyeOffset?: number;
+    } = {},
+  ) {
     this.speed = opts.speed ?? 4; // m/s
     this.sensitivity = opts.sensitivity ?? 0.0022; // rad per pixel
+    this.eyeOffset = opts.eyeOffset ?? 0.7; // camera height above body centre
   }
 
   /** Wire pointer-lock + raw movementX/Y. Click the canvas to capture the mouse. */
@@ -102,49 +107,43 @@ export class FpController {
     };
   }
 
-  /** Advance one frame: consume mouse deltas → yaw/pitch; keyboard → position;
-   *  push pose to the camera. `dtSeconds` from the frame loop. `clampMove` lets
-   *  Task 8 inject collision (identity by default). */
-  update(
-    _ctx: Context,
-    cam: Camera,
-    dtSeconds: number,
-    clampMove: (
-      from: [number, number, number],
-      delta: [number, number, number],
-    ) => [number, number, number] = (_, d) => d,
-  ): void {
+  /** Consume accumulated mouse deltas into yaw/pitch. Call once per frame. */
+  consumeMouse(): void {
     this.yaw -= this.accumDX * this.sensitivity;
     this.pitch -= this.accumDY * this.sensitivity;
     this.pitch = Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, this.pitch));
     this.accumDX = 0;
     this.accumDY = 0;
+  }
 
+  /** The desired world-space move this tick: horizontal from held keys (yaw-
+   *  rotated), vertical from gravity. `grounded` (from the previous resolve)
+   *  gates gravity accumulation.
+   *
+   *  Side-effect: advances the private `vVel` (vertical-velocity accumulator),
+   *  so it must be called exactly once per physics tick — skipping a tick
+   *  leaves `vVel` stale; calling twice double-steps gravity. */
+  desiredMove(dtSeconds: number, grounded: boolean): [number, number, number] {
     const keys: MoveKeys = {
       forward: input.isKeyDown("KeyW"),
       back: input.isKeyDown("KeyS"),
       left: input.isKeyDown("KeyA"),
       right: input.isKeyDown("KeyD"),
     };
-    const delta = moveDelta(keys, this.yaw, this.speed * dtSeconds);
-    const moved = clampMove(this.position, delta);
-    this.position[0] += moved[0];
-    this.position[1] += moved[1];
-    this.position[2] += moved[2];
+    const [dx, , dz] = moveDelta(keys, this.yaw, this.speed * dtSeconds); // Y is always 0; vertical comes from gravityStep
+    const g = gravityStep(this.vVel, grounded, GRAVITY, dtSeconds);
+    this.vVel = g.vVel;
+    return [dx, g.dy, dz];
+  }
 
+  /** Place the camera at the body position + eye offset, looking along yaw/pitch. */
+  placeCamera(cam: Camera, bodyPos: [number, number, number]): void {
+    const ex = bodyPos[0];
+    const ey = bodyPos[1] + this.eyeOffset;
+    const ez = bodyPos[2];
     const f = forwardVector(this.yaw, this.pitch);
-    camera.setPosition(
-      cam,
-      vec3.fromValues(this.position[0], this.position[1], this.position[2]),
-    );
-    camera.setTarget(
-      cam,
-      vec3.fromValues(
-        this.position[0] + f[0],
-        this.position[1] + f[1],
-        this.position[2] + f[2],
-      ),
-    );
+    camera.setPosition(cam, vec3.fromValues(ex, ey, ez));
+    camera.setTarget(cam, vec3.fromValues(ex + f[0], ey + f[1], ez + f[2]));
   }
 
   destroy(): void {
