@@ -4,6 +4,7 @@ export {
   getBodyRotation,
   getBodyTranslation,
   setBodyLinearVelocity,
+  setBodyNextKinematicTranslation,
 } from "./body.ts";
 export type {
   Body,

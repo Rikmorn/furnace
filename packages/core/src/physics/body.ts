@@ -170,3 +170,32 @@ export function setBodyLinearVelocity(
   }
   slot.rapierBody.setLinvel({ x: v[0], y: v[1], z: v[2] }, true);
 }
+
+/**
+ * Queue a `kinematicPosition` body's next world-space translation; the move is
+ * applied by the following {@link step}. Hot-path setter; runtime-quiet — logs a
+ * warning on non-finite input and is a silent no-op on a stale/destroyed handle.
+ */
+export function setBodyNextKinematicTranslation(
+  ctx: Context,
+  body: Body,
+  pos: Vec3Tuple,
+): void {
+  const slot = _lookupPhysicsBody<BodySlot>(ctx, body);
+  if (slot === null) return;
+  if (!pos.every((c) => Number.isFinite(c))) {
+    warn(
+      "physics",
+      "setBodyNextKinematicTranslation: position must be finite",
+      {
+        pos,
+      },
+    );
+    return;
+  }
+  slot.rapierBody.setNextKinematicTranslation({
+    x: pos[0],
+    y: pos[1],
+    z: pos[2],
+  });
+}

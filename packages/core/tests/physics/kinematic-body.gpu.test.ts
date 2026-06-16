@@ -32,3 +32,29 @@ test.skipIf(!bunWebGpuAvailable())(
     gpu.dispose(ctx);
   },
 );
+
+test.skipIf(!bunWebGpuAvailable())(
+  "setBodyNextKinematicTranslation moves a kinematic body on the next step",
+  async () => {
+    const canvas = await makeOffscreenCanvas();
+    const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
+    const world = await physics.createWorld(ctx, { gravity: [0, -9.81, 0] });
+    const body = physics.createBody(ctx, world, {
+      type: "kinematicPosition",
+      shape: { capsule: { halfHeight: 0.6, radius: 0.3 } },
+      position: [0, 1, 0],
+    });
+
+    physics.setBodyNextKinematicTranslation(ctx, body, [2, 1, -1]);
+    physics.step(ctx, world, 1 / 60);
+
+    const t = vec3.create();
+    physics.getBodyTranslation(ctx, body, t);
+    expect(t[0]).toBeCloseTo(2, 4);
+    expect(t[1]).toBeCloseTo(1, 4);
+    expect(t[2]).toBeCloseTo(-1, 4);
+
+    physics.destroyWorld(ctx, world);
+    gpu.dispose(ctx);
+  },
+);
