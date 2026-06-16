@@ -34,7 +34,7 @@ export type ShapeDescriptor =
 
 /** Input bundle for {@link createBody}. */
 export type BodyDescriptor = {
-  type: "dynamic" | "static";
+  type: "dynamic" | "static" | "kinematicPosition";
   shape: ShapeDescriptor;
   position: Vec3Tuple;
   rotation?: QuatTuple;

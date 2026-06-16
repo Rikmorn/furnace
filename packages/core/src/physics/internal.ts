@@ -17,7 +17,9 @@ export function buildRigidBodyDesc(d: BodyDescriptor): RAPIER.RigidBodyDesc {
   const desc =
     d.type === "dynamic"
       ? RAPIER.RigidBodyDesc.dynamic()
-      : RAPIER.RigidBodyDesc.fixed();
+      : d.type === "kinematicPosition"
+        ? RAPIER.RigidBodyDesc.kinematicPositionBased()
+        : RAPIER.RigidBodyDesc.fixed();
   const [px, py, pz] = d.position;
   desc.setTranslation(px, py, pz);
   if (d.rotation !== undefined) {

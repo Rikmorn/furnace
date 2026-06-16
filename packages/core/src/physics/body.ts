@@ -48,7 +48,11 @@ function validateBodyDescriptor(d: BodyDescriptor): void {
   if (d == null) {
     throw new FurnaceError("physics.createBody: descriptor is required");
   }
-  if (d.type !== "dynamic" && d.type !== "static") {
+  if (
+    d.type !== "dynamic" &&
+    d.type !== "static" &&
+    d.type !== "kinematicPosition"
+  ) {
     throw new FurnaceError(`physics.createBody: unknown body type "${d.type}"`);
   }
   if (!isFiniteVec3(d.position)) {
@@ -64,8 +68,9 @@ function validateBodyDescriptor(d: BodyDescriptor): void {
 }
 
 /**
- * Create a rigid {@link Body} in `world`. `type` selects dynamic (simulated)
- * or static (immovable); `shape` is the collider (ball/cuboid/cylinder/capsule).
+ * Create a rigid {@link Body} in `world`. `type` selects dynamic (simulated),
+ * static (immovable), or kinematicPosition (pose-driven, ignores gravity);
+ * `shape` is the collider (ball/cuboid/cylinder/capsule).
  * Dynamic mass comes from `density` (default 1).
  *
  * @throws FurnaceError - if the descriptor is malformed (unknown type,
