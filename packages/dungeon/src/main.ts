@@ -1,11 +1,17 @@
+import * as binding from "@furnace/core/binding";
 import * as camera from "@furnace/core/camera";
 import * as frame from "@furnace/core/frame";
+import * as geometry from "@furnace/core/geometry";
 import * as gpu from "@furnace/core/gpu";
 import * as input from "@furnace/core/input";
+import * as material from "@furnace/core/material";
+import * as mesh from "@furnace/core/mesh";
 import * as physics from "@furnace/core/physics";
 import * as post from "@furnace/core/post";
+import * as shader from "@furnace/core/shader";
 import { vec3, vec4 } from "@furnace/core/transform";
 import { FpController } from "./fp-controller.ts";
+import { generateRegion, type RegionParams } from "./generator.ts";
 import { buildGlows, buildLevel } from "./level.ts";
 import { buildMotes } from "./motes.ts";
 import { buildProps } from "./props.ts";
@@ -23,6 +29,39 @@ const CLEAR_COLOR = vec4.fromValues(
   FOG_COLOR[2],
   1,
 );
+
+/** Build one generated region: a lit-stone mesh seated at the region origin, plus
+ *  a static trimesh collider added to `world`. The trimesh body is freed by
+ *  `physics.destroyWorld`; `destroy()` only frees the GPU mesh + geometry. */
+function addRegion(
+  ctx: gpu.Context,
+  world: physics.World,
+  stone: material.Material,
+  params: RegionParams,
+): { mesh: mesh.Mesh; destroy: () => void } {
+  const region = generateRegion(params);
+  const [ox, oy, oz] = region.origin;
+  const geo = geometry.create(ctx, region.mesh);
+  const m = mesh.create(ctx, { geometry: geo, material: stone });
+  mesh.setPosition(ctx, m, vec3.fromValues(ox, oy, oz));
+  physics.createBody(ctx, world, {
+    type: "static",
+    shape: {
+      trimesh: {
+        vertices: region.mesh.positions,
+        indices: region.mesh.indices,
+      },
+    },
+    position: [ox, oy, oz],
+  });
+  return {
+    mesh: m,
+    destroy: () => {
+      mesh.destroy(ctx, m);
+      geometry.destroy(ctx, geo);
+    },
+  };
+}
 
 async function main(): Promise<void> {
   const canvas = document.querySelector<HTMLCanvasElement>("#gpu");
@@ -51,6 +90,26 @@ async function main(): Promise<void> {
       position: [b.center[0], b.center[1], b.center[2]],
     });
   }
+  // Shared stone material for all generated regions (same matte-stone params as
+  // level.ts). Built here so Task 8's shaft + chamber can reuse it without
+  // duplicating the shader/binding allocation.
+  const regionLit = await shader.lit(ctx);
+  const regionBind = binding.create(ctx, regionLit);
+  binding.set(ctx, regionBind, {
+    color: [0.5, 0.5, 0.52, 1],
+    specular: [0.02, 0.02, 0.02, 8],
+  });
+  const regionStone = await material.create(ctx, {
+    shader: regionLit,
+    binding: regionBind,
+  });
+
+  const cavern = addRegion(ctx, world, regionStone, {
+    seed: "cavern-1",
+    kind: "cavern",
+    origin: [0, 0, -24],
+  });
+
   const props = await buildProps(ctx, world);
 
   const playerBody = physics.createBody(ctx, world, {
@@ -134,6 +193,7 @@ async function main(): Promise<void> {
     frame.render(ctx, {
       meshes: [
         ...level.meshes,
+        cavern.mesh,
         ...glows.meshes,
         ...props.meshes,
         ...motes.meshes,
@@ -161,6 +221,9 @@ async function main(): Promise<void> {
     motes.destroy();
     glows.destroy();
     level.destroy();
+    cavern.destroy();
+    material.destroy(ctx, regionStone);
+    binding.destroy(ctx, regionBind);
     post.destroy(ctx, bloom);
     post.destroy(ctx, tonemap);
     gpu.dispose(ctx); // LAST — warns on leaked resource-manager slots; a clean shutdown is the leak check.
