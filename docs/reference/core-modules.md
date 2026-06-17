@@ -414,7 +414,8 @@ See `engine-conventions.md` §Resource ownership for the lifecycle contract that
 
 | Export | Signature | Notes |
 |---|---|---|
-| `create` | `(ctx: Context, data: GeometryData) => Geometry` | Builds a vertex buffer (interleaved `[pos.xyz, normal.xyz, uv.uv]`, 32-byte stride) and optional index buffer from raw arrays. Validates the data. Throws `FurnaceError` if `positions.length` is not a multiple of 3, if `normals.length` does not equal `positions.length`, or if `uvs.length` does not equal `(positions.length / 3) * 2`. |
+| `create` | `(ctx: Context, data: GeometryData, opts?: { retainForCollision?: boolean }) => Geometry` | Builds a vertex buffer (interleaved `[pos.xyz, normal.xyz, uv.uv]`, 32-byte stride) and optional index buffer from raw arrays. Validates the data. When `opts.retainForCollision` is `true`, the raw `positions` and a `Uint32Array` copy of the indices are retained CPU-side in the geometry slot so that `getCollisionData` can feed them to a physics `trimesh` collider. Throws `FurnaceError` if `positions.length` is not a multiple of 3, if `normals.length` does not equal `positions.length`, if `uvs.length` does not equal `(positions.length / 3) * 2`, or if `opts.retainForCollision` is `true` but `data.indices` is absent (a trimesh collider requires an index buffer). |
+| `getCollisionData` | `(ctx: Context, geometry: Geometry) => { vertices: Float32Array; indices: Uint32Array } \| null` | Returns the retained CPU collision arrays (`positions` + `Uint32Array` indices) for a geometry built with `{ retainForCollision: true }`, or `null` if none were retained or the handle is stale. Feed the returned `{ vertices, indices }` directly to `physics.createBody` with a `{ trimesh: { vertices, indices } }` shape. |
 | `destroy` | `(ctx: Context, geometry: Geometry) => void` | If a Mesh still references the geometry, defers GPU teardown; otherwise destroys vertex and index buffers, recording their byte release in stats. Silent on stale handles. |
 | `cube` | `(ctx: Context, opts?: { size?: number }) => Geometry` | Builds a fresh axis-aligned cube Geometry (six faces, CCW winding, per-face normals, per-face UVs in `[0,1]`). `size` is the full edge length; default `1`. Pass to `mesh.create` to bind. Throws `FurnaceError` if `size` ≤ 0 or non-finite. |
 | `plane` | `(ctx: Context, opts?: { size?: number }) => Geometry` | Builds a fresh `+Z`-facing unit plane Geometry (single quad, two triangles, normals along `+Z`, UVs in `[0,1]`). `size` is the full edge length; default `1`. Pass to `mesh.create` to bind. Throws `FurnaceError` if `size` ≤ 0 or non-finite. |
@@ -642,7 +643,7 @@ CPU-authoritative rigid-body simulation over a Rapier backend (see `docs/referen
 | `computeMovement` | `(ctx: Context, controller: CharacterController, body: Body, desired: readonly [number, number, number], out: Vec3) => boolean` | Hot-path: resolves a kinematic capsule's `desired` translation against the world's colliders (Rapier `computeColliderMovement` → `computedMovement`), writing the corrected slide/blocked movement into the **required** `out` and returning whether the body is grounded (`computedGrounded`). Obstacles come from Rapier's query structures, populated by `step` — query after the world has stepped. Apply `out` via `setBodyNextKinematicTranslation`, then `step`. Runtime-quiet: log-warns and returns `false` with zeroed `out` on a non-finite `desired`; silent `false` + zeroed `out` on a destroyed controller or stale body/world. |
 | `WorldDescriptor` | `{ gravity: readonly [number, number, number]; lengthUnit?: number }` | Gravity vector for the world (e.g. `[0, -9.81, 0]`). `lengthUnit` = approximate size in world units of a 1-meter object; scales the backend solver's length tolerances for non-meter-scale scenes (sub-meter objects jitter at the default). Optional — furnace forwards its own meter-scale default (`1`) when omitted, so the backend's own default is never relied upon. |
 | `BodyDescriptor` | `{ type: "dynamic" \| "static" \| "kinematicPosition"; shape: ShapeDescriptor; position: readonly [number, number, number]; rotation?: readonly [number, number, number, number]; linearVelocity?: readonly [number, number, number]; angularVelocity?: readonly [number, number, number]; density?: number; friction?: number; restitution?: number; linearDamping?: number; angularDamping?: number }` | `rotation` is an `[x,y,z,w]` quaternion, defaults to identity. `linearVelocity` defaults to zero and is only meaningful for `dynamic` bodies (static and kinematicPosition bodies don't integrate velocity). `angularVelocity` is radians/sec about `x,y,z`, defaults to zero, and is likewise `dynamic`-only. `density` defaults to `1` (drives dynamic mass). `friction`, `restitution`, `linearDamping`, `angularDamping` are pass-through rigid-body material scalars: `friction` is the Coulomb coefficient, `restitution` is bounciness in `[0,1]` (`0` = no bounce), `linearDamping`/`angularDamping` are per-second velocity decay. All four are optional and forwarded straight to Rapier (no JS-side physics math). `kinematicPosition` bodies are not integrated by gravity; their pose is driven externally via `setBodyNextKinematicTranslation`. |
-| `ShapeDescriptor` | `{ ball: number } \| { cuboid: readonly [number, number, number] } \| { cylinder: { halfHeight: number; radius: number } } \| { capsule: { halfHeight: number; radius: number } }` | `ball` = sphere radius; `cuboid` = box half-extents; `cylinder` = Y-axis-aligned half-height + radius (same Y axis as `geometry.cylinder`, whose `height` = `2 × halfHeight`). Backed by Rapier's round-cylinder for solver robustness; the requested `halfHeight`/`radius` are the true outer dimensions. `capsule` = Y-axis-aligned half-height + radius (the player shape). |
+| `ShapeDescriptor` | `{ ball: number } \| { cuboid: readonly [number, number, number] } \| { cylinder: { halfHeight: number; radius: number } } \| { capsule: { halfHeight: number; radius: number } } \| { trimesh: { vertices: Float32Array; indices: Uint32Array } }` | `ball` = sphere radius; `cuboid` = box half-extents; `cylinder` = Y-axis-aligned half-height + radius (same Y axis as `geometry.cylinder`, whose `height` = `2 × halfHeight`). Backed by Rapier's round-cylinder for solver robustness; the requested `halfHeight`/`radius` are the true outer dimensions. `capsule` = Y-axis-aligned half-height + radius (the player shape). `trimesh` = flat triangle-soup for static level geometry: `vertices` xyz-packed, `indices` u32 triples; requires `indices.length % 3 === 0` and both arrays non-empty (validated by `createBody`). **For static or kinematic bodies only** — trimesh has no interior volume so a `dynamic` body with a trimesh collider produces undefined solver behaviour. Obtain the arrays from `geometry.getCollisionData` when using a mesh-resource geometry. |
 | `Vec3Tuple` | `readonly [number, number, number]` | Plain 3-tuple alias used across the descriptor inputs (`position`, `linearVelocity`, `angularVelocity`, `cuboid`). Re-exported for consumers building descriptor literals. |
 | `QuatTuple` | `readonly [number, number, number, number]` | Plain `[x,y,z,w]` quaternion-tuple alias for `rotation`. Re-exported for consumers building descriptor literals. |
 | `CollisionEvent` | `{ a: Body; b: Body; started: boolean }` | A contact begin (`started: true`) or end (`started: false`) between bodies `a` and `b`. |
@@ -682,6 +683,79 @@ See `docs/reference/fixed-step-interpolation.md` for the engine posture: `rigid-
 ### Demoed in cookbook
 
 - `create`, `destroy`, `commit`, `interpolate`, `getMesh` (and `RigidMesh` / `RigidMeshDescriptor`) → `cookbook/physics` (cubes drop + spin onto a ground; interpolation on/off exposes the fixed-step stutter; reset re-drops).
+
+---
+
+## `@furnace/core/rng`
+
+`import * as rng from "@furnace/core/rng";`
+(types: `import type { Rng } from "@furnace/core/rng";`)
+
+Deterministic, seeded pseudo-random number generators — replay-safe randomness for procedural generation. The same seed always produces the same sequence on every machine (no `Math.random` / `Date`). The algorithm is **sfc32** seeded via splitmix32; string seeds are hashed with xmur3. All state is 32-bit (no BigInt), so determinism is exact across JS engines.
+
+### Public
+
+| Export | Signature | Notes |
+|---|---|---|
+| `create` | `(seed: number \| string) => Rng` | Create a deterministic `Rng` from a numeric or string seed. A numeric seed is masked to 32 bits (unsigned). A string seed is hashed with xmur3. Calling `create` with the same seed value always returns an independent generator in the same initial state — seed, don't share. |
+| `Rng` | `{ float(): number; int(minInclusive, maxExclusive): number; bool(probability?): boolean; pick<T>(items): T; derive(label): Rng }` | The RNG interface. All methods advance the generator state. `float` returns a value in `[0, 1)`. `int` returns an integer in `[minInclusive, maxExclusive)` — throws `FurnaceError` if `maxExclusive <= minInclusive`. `bool` returns `true` with the given `probability` (default `0.5`) — throws `FurnaceError` if `probability` is outside `[0, 1]`. `pick` returns a uniformly-chosen element — throws `FurnaceError` on an empty array. `derive` returns a child `Rng` seeded deterministically from the parent seed + `label` string, so subsystems (e.g. geometry vs props) can draw from isolated, non-desyncing streams; a change to one subsystem's draws does not shift another's. |
+
+### Reference-only (no demo, by design)
+
+- `create`, `Rng` — substrate for procedural generation (dungeon regions, field sampling); no dedicated cookbook demo. Exercised by the dungeon's field + mesher pipeline.
+
+---
+
+## `@furnace/core/scene`
+
+`import { loadScene, encodeMeshBlob, decodeMeshBlob, defineComponent, defineResource } from "@furnace/core/scene";`
+(types: `import type { SceneDocument, LoadedScene, LoadSceneOptions, MeshBlob, SceneSettings, EntityDoc, LoadSceneOptions } from "@furnace/core/scene";`)
+
+The scene format: a text-JSON document (`SceneDocument`) with typed resource tables and entity component lists, validated by a consumer-extensible registry, loaded by `loadScene` into live engine objects. Built-in resource kinds and components register automatically at module import.
+
+### Public
+
+| Export | Signature | Notes |
+|---|---|---|
+| `loadScene` | `(ctx: Context, doc: SceneDocument, opts?: LoadSceneOptions) => Promise<LoadedScene>` | Validate the document against the registry, build resources in fixed table order (`geometries → textures → shaders → materials → effects`), instantiate entity components in registration order with pre-resolved resource refs, and return the scene's render inputs + a `destroy` that frees everything this call created. A failed load tears down everything it already built (no leaks). Throws `FurnaceError` on validation failure, unknown resource kind, or (unless `opts.fragment` is set) a document with no camera entity. With `opts.world`, builds rigid bodies into an existing world (the world is NOT destroyed by the returned `destroy`); without it, a physics world is lazily created and owned by the loaded scene. With `opts.fragment`, suppresses the missing-camera error — the caller owns the camera (used for region fragments: mesh + bodies, no camera). |
+| `LoadSceneOptions` | `{ world?: World; fragment?: boolean }` | Options for `loadScene`. `world` injects an existing `World` so the loader builds rigid bodies into it without creating a new one. `fragment` suppresses the missing-camera guard (for documents that contain geometry + bodies but no camera entity). |
+| `encodeMeshBlob` | `(blob: MeshBlob) => ArrayBuffer` | Encode a `MeshBlob` to a self-describing little-endian `ArrayBuffer` (the `.fmesh` format). Layout: `magic(4) + headerByteLen(4) + UTF-8 JSON header (padded to 4-byte alignment) + 4-byte-aligned typed-array regions (render first, then optional collision)`. Browser-safe: uses only `DataView`, `TextEncoder`, and typed arrays. |
+| `decodeMeshBlob` | `(buf: ArrayBuffer) => MeshBlob` | Decode an `ArrayBuffer` produced by `encodeMeshBlob`. Throws `FurnaceError` if the magic number does not match (`"not a .fmesh buffer"`). |
+| `MeshBlob` | `{ render: { positions: Float32Array; normals: Float32Array; uvs: Float32Array; indices: Uint32Array }; collision?: { vertices: Float32Array; indices: Uint32Array } }` | The in-memory representation of a `.fmesh` sidecar: render buffers (positions, normals, uvs, u32 indices) plus optional collision geometry (xyz positions + u32 indices). The `collision` block is consumed by `geometry.create(..., { retainForCollision: true })` for physics trimesh support. |
+| `SceneDocument` | `{ version: number; settings?: SceneSettings; resources?: { geometries?, textures?, shaders?, materials?, effects? }; entities: EntityDoc[] }` | Text-JSON shape of a serialized scene. Resource entries and component entries are open (`unknown`) — the registry is the authority on what is valid; `validateDocument` proves every entry at the load boundary. |
+| `SceneSettings` | `{ clearColor?, ambient?, post?, gravity?, lengthUnit?, sim?, msaa?, hdr?, region? }` | Scene-level render/world globals. `region` (added in Slice 2.1) carries optional provenance + theme + origin metadata for baked region documents: `{ provenance?: { generatorId, generatorVersion, seed, kind }; theme?: string; origin?: [x,y,z] }`. Loaded into `LoadedScene.settings`; the loader validates and carries all fields but does not act on `region` (it is metadata for the consumer and for bake tooling). |
+| `validateDocument` | `(doc: SceneDocument) => void` | Validate a document against the registry without loading it (throws `FurnaceError` on any invalid entry). Side-effect-free — does not build any resources. |
+| `defineComponent` | `(name: string, def: ComponentDefinition) => void` | Register a custom component type with the scene loader. See `registry.ts` for the `ComponentDefinition` shape. |
+| `defineResource` | `(table: TableName, kind: string, def: ResourceDefinition) => void` | Register a custom resource kind in one of the five resource tables. |
+| `introspect` | `() => SceneSchemaReflection` | Reflect the full registry (built-in + consumer-registered components and resource kinds) as JSON-Schema. Used by the editor inspector. |
+| `EntityDoc` | `{ id: string; components: Record<string, unknown> }` | A scene entity: stable string `id` + a map of typed components. |
+| `LoadedScene` | includes `meshes, camera, lights, ambient?, effects, world?, settings, destroy, rebuildEntity, setSettings, entityBoxCorners, setEntityTransform, pick` | The live result of `loadScene`. `destroy()` frees everything the call created (reverse build order). `rebuildEntity(id, doc)` is the editor live-preview seam — transactional swap of one entity's components. `pick(ctx, cam, ndcX, ndcY)` is GPU id-buffer viewport picking. See `types.ts` for full shape. |
+
+#### Built-in geometry resource kinds
+
+| Kind | Params | Notes |
+|---|---|---|
+| `"cube"` | `{}` | Axis-aligned unit cube. |
+| `"sphere"` | `{ radius? }` | UV sphere, radius defaults `0.5`. |
+| `"cylinder"` | `{ radius?, height? }` | Y-axis cylinder, radius `0.5`, height `1`. |
+| `"plane"` | `{ size? }` | `+Z`-facing quad, size defaults `1`. |
+| `"mesh"` | `{ src: string }` | Fetches a `.fmesh` binary from `src` (URL or relative path), decodes it via `decodeMeshBlob`, and creates a geometry with `{ retainForCollision: true }` — so a sibling `rigidBody.shape.trimesh` can pull the collision arrays directly. Throws `FurnaceError` on a non-OK HTTP response or bad magic. |
+
+#### Built-in entity components
+
+| Component | Shape | Notes |
+|---|---|---|
+| `transform` | `{ position?, rotation?, scale? }` | Local TRS. `rotation` is `[x,y,z,w]` quaternion; omitted fields keep identity defaults. |
+| `meshRenderer` | `{ geometry: ref, material: ref }` | Renders the entity. Deferred to a sibling `rigidBody` when one is present (the `rigidBody` builder owns the mesh in that case). |
+| `camera` | `{ kind: "perspective", aspect, fovYRad?, near?, far? }` | One camera per scene (a second throws at load). Pose from sibling `transform`. |
+| `light` | `{ type: "directional" \| "point" \| "spot", ... }` | See `frame.Light` for per-type fields. Pose from sibling `transform`. |
+| `rigidBody` | `{ type: "static" \| "dynamic", shape: { cuboid?, ball?, cylinder?, trimesh? }, friction?, ... }` | Builds a `rigidMesh` composite (owns the mesh) and adds the body to the scene world. `shape.trimesh: true` (boolean flag) — when set, reads the collision arrays from `geometry.getCollisionData` on the sibling `meshRenderer`'s geometry (requires the geometry to have been built with `{ retainForCollision: true }`, i.e. from a `"mesh"` resource). Throws `FurnaceError` if `trimesh: true` but the geometry has no retained collision data. |
+
+### Reference-only (no demo, by design)
+
+- `encodeMeshBlob` / `decodeMeshBlob` / `MeshBlob` — the `.fmesh` codec; used by region bake tooling, not a general cookbook topic.
+- `defineComponent` / `defineResource` / `introspect` — extension and reflection surface; used by the editor.
+- `validateDocument` — load-boundary guard; consumers call `loadScene` which runs it internally.
 
 ---
 
