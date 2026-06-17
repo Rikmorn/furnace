@@ -11,5 +11,8 @@
   },
   "dependencies": {
     "@furnace/core": "workspace:*"
+  },
+  "devDependencies": {
+    "bun-webgpu": "^0.1.0"
   }
 }
