@@ -19,6 +19,7 @@ import * as texture from "../texture/index.ts";
 import { quat } from "../transform/quat.ts";
 import { vec3 } from "../transform/vec3.ts";
 import { vec4 } from "../transform/vec4.ts";
+import { decodeMeshBlob } from "./mesh-blob.ts";
 import {
   defineComponent,
   defineResource,
@@ -440,6 +441,21 @@ export function registerBuiltins(): void {
   defineResource("geometries", "plane", {
     params: { size: z.number().optional() },
     build: (ctx, rx) => geometry.plane(ctx, { size: rx.params.size }),
+    destroy: (ctx, g) => geometry.destroy(ctx, g),
+  });
+
+  defineResource("geometries", "mesh", {
+    params: { src: z.string() },
+    async build(ctx, rx) {
+      const res = await fetch(rx.params.src);
+      if (!res.ok) {
+        throw new FurnaceError(
+          `scene: failed to fetch mesh blob "${rx.params.src}" (${res.status})`,
+        );
+      }
+      const blob = decodeMeshBlob(await res.arrayBuffer());
+      return geometry.create(ctx, blob.render, { retainForCollision: true });
+    },
     destroy: (ctx, g) => geometry.destroy(ctx, g),
   });
 
