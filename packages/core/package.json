@@ -22,7 +22,8 @@
     "./physics": "./src/physics/index.ts",
     "./rigid-mesh": "./src/rigid-mesh/index.ts",
     "./resources": "./src/resources/index.ts",
-    "./scene": "./src/scene/index.ts"
+    "./scene": "./src/scene/index.ts",
+    "./rng": "./src/rng/index.ts"
   },
   "scripts": {
     "build": "bun scripts/build.ts",
