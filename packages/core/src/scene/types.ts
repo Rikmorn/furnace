@@ -6,6 +6,17 @@ import type { World } from "../physics/index.ts";
 import type { Effect } from "../post/index.ts";
 import type { SceneSettings } from "./builtins.ts";
 
+/** Options passed to {@link loadScene} (all optional). */
+export type LoadSceneOptions = {
+  /**
+   * Build the scene's rigid bodies into this existing world instead of
+   * creating (and owning) a new one. The injected world is NOT destroyed by
+   * the returned `destroy`. This is the composition seam for loading a region
+   * fragment into a live game world.
+   */
+  world?: World;
+};
+
 /**
  * A serialized furnace scene document (text-JSON shape). Component and
  * resource entries are open (`unknown`) — the registry is the authority on

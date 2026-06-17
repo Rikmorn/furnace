@@ -34,5 +34,10 @@ export type { FurnaceMeta, TableName } from "./t.ts";
  * resource refs, entity refs. See each helper's TSDoc.
  */
 export * as t from "./t.ts";
-export type { EntityDoc, LoadedScene, SceneDocument } from "./types.ts";
+export type {
+  EntityDoc,
+  LoadedScene,
+  LoadSceneOptions,
+  SceneDocument,
+} from "./types.ts";
 export { CURRENT_SCENE_VERSION, validateDocument } from "./validate.ts";

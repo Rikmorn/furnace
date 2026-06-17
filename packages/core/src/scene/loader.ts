@@ -24,7 +24,7 @@ import {
 } from "./registry.ts";
 import { parseOrThrow, resolveParams } from "./schema.ts";
 import { TABLE_ORDER, type TableName } from "./t.ts";
-import type { LoadedScene, SceneDocument } from "./types.ts";
+import type { LoadedScene, LoadSceneOptions, SceneDocument } from "./types.ts";
 import { splitKind, validateDocument } from "./validate.ts";
 
 /** Earth gravity, m/s² (Y-down). */
@@ -194,6 +194,7 @@ function buildEntity(
 export async function loadScene(
   ctx: Context,
   doc: SceneDocument,
+  opts?: LoadSceneOptions,
 ): Promise<LoadedScene> {
   validateDocument(doc);
 
@@ -216,13 +217,15 @@ export async function loadScene(
   };
 
   const built: BuiltRecord[] = [];
-  // Lazily created when any entity has a rigidBody. Destroyed LAST (after every
-  // body/rigidMesh in `built`), so each body is removed via its own teardown
-  // while the world is still live.
-  let world: World | undefined;
+  // When opts.world is provided, the caller owns the world — we build into it
+  // but do NOT destroy it on teardown. When absent, the world is created and
+  // owned here (destroyed last, after every body/rigidMesh in `built`, so each
+  // body is removed via its own teardown while the world is still live).
+  let world: World | undefined = opts?.world;
+  const ownsWorld = opts?.world === undefined;
   const destroyAll = (): void => {
     for (const b of [...built].reverse()) b.destroy?.(ctx, b.instance);
-    if (world) physics.destroyWorld(ctx, world);
+    if (world && ownsWorld) physics.destroyWorld(ctx, world);
   };
   const meshes: Mesh[] = [];
   const lights: Light[] = [];
@@ -261,9 +264,10 @@ export async function loadScene(
     }
 
     // Lazy physics world: created once, before any entity, if any entity has a
-    // rigidBody. Gravity/lengthUnit come from the parsed settings (Task 10).
+    // rigidBody AND no world was injected. Gravity/lengthUnit come from the
+    // parsed settings (Task 10). An injected world keeps its own gravity/lengthUnit.
     const needsPhysics = doc.entities.some((e) => "rigidBody" in e.components);
-    if (needsPhysics) {
+    if (needsPhysics && !world) {
       world = await physics.createWorld(ctx, {
         gravity:
           (settings["gravity"] as [number, number, number] | undefined) ??
