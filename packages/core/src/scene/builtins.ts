@@ -68,6 +68,20 @@ const settingsShape = {
   sim: z.strictObject({ fixedHz: z.number() }).optional(),
   msaa: z.union([z.literal(1), z.literal(4), z.literal(8)]).optional(),
   hdr: z.boolean().optional(),
+  region: z
+    .strictObject({
+      provenance: z
+        .strictObject({
+          generatorId: z.string(),
+          generatorVersion: z.number(),
+          seed: z.string(),
+          kind: z.string(),
+        })
+        .optional(),
+      theme: z.string().optional(),
+      origin: t.vec3().optional(),
+    })
+    .optional(),
 };
 
 /** Local-transform component params. Rotation is a quaternion `[x,y,z,w]`; omitted fields keep identity defaults. */
