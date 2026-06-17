@@ -127,10 +127,13 @@ export function surfaceNets(field: Field, grid: GridConfig): MeshData {
     flip: boolean,
   ): void => {
     if (v0 < 0 || v1 < 0 || v2 < 0 || v3 < 0) return;
+    // Winding chosen so the air-facing side (toward the player inside the cave) is
+    // the front face; the gradient normals already point that way. Flipped from the
+    // naive form after the visual gate showed inside-out (back-face-culled) walls.
     if (flip) {
-      indices.push(v0, v1, v2, v0, v2, v3);
-    } else {
       indices.push(v0, v3, v2, v0, v2, v1);
+    } else {
+      indices.push(v0, v1, v2, v0, v2, v3);
     }
   };
   for (let k = 0; k < nz; k++) {
@@ -146,8 +149,7 @@ export function surfaceNets(field: Field, grid: GridConfig): MeshData {
           k > 0 &&
           s0 > 0 !== (sample[sidx(i + 1, j, k)] as number) > 0
         ) {
-          // flip winding by which side the current cell is on (s0 > 0 = air); this is the
-          // knob to flip if faces render inside-out at the visual gate.
+          // flip winding by which side the current cell is on (s0 > 0 = air).
           emitQuad(
             v,
             cellVert[cidx(i, j - 1, k)] as number,
