@@ -8,6 +8,7 @@ import * as material from "@furnace/core/material";
 import * as mesh from "@furnace/core/mesh";
 import * as physics from "@furnace/core/physics";
 import * as post from "@furnace/core/post";
+import { loadScene } from "@furnace/core/scene";
 import * as shader from "@furnace/core/shader";
 import { vec3, vec4 } from "@furnace/core/transform";
 import { FpController } from "./fp-controller.ts";
@@ -104,11 +105,11 @@ async function main(): Promise<void> {
     binding: regionBind,
   });
 
-  const cavern = addRegion(ctx, world, regionStone, {
-    seed: "cavern-1",
-    kind: "cavern",
-    origin: [0, 0, -24],
-  });
+  const baked = await loadScene(
+    ctx,
+    await (await fetch("/regions/region-cavern.scene.json")).json(),
+    { world, fragment: true },
+  );
   const shaft = addRegion(ctx, world, regionStone, {
     seed: "shaft-1",
     kind: "shaft",
@@ -203,7 +204,7 @@ async function main(): Promise<void> {
     frame.render(ctx, {
       meshes: [
         ...level.meshes,
-        cavern.mesh,
+        ...baked.meshes,
         shaft.mesh,
         chamber.mesh,
         ...glows.meshes,
@@ -233,7 +234,7 @@ async function main(): Promise<void> {
     motes.destroy();
     glows.destroy();
     level.destroy();
-    cavern.destroy();
+    baked.destroy();
     shaft.destroy();
     chamber.destroy();
     material.destroy(ctx, regionStone);
