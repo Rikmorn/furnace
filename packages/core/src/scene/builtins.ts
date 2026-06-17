@@ -372,6 +372,7 @@ export function registerBuiltins(): void {
         cylinder: z
           .strictObject({ halfHeight: z.number(), radius: z.number() })
           .optional(),
+        trimesh: z.boolean().optional(),
       }),
       friction: z.number().optional(),
       restitution: z.number().optional(),
@@ -394,10 +395,23 @@ export function registerBuiltins(): void {
       // Boundary cast: see meshRenderer — the transform sibling is schema-validated.
       const tf = bx.sibling("transform") as TransformParams | undefined;
       const p = bx.params;
+      const shape: ShapeDescriptor = p.shape.trimesh
+        ? (() => {
+            const col = geometry.getCollisionData(ctx, mr.geometry);
+            if (!col) {
+              throw new FurnaceError(
+                "scene: rigidBody shape.trimesh requires its meshRenderer geometry to retain collision data (use a 'mesh' geometry resource)",
+              );
+            }
+            return {
+              trimesh: { vertices: col.vertices, indices: col.indices },
+            };
+          })()
+        : toShape(p.shape);
       const rm = rigidMesh.create(ctx, world, {
         body: {
           type: p.type,
-          shape: toShape(p.shape),
+          shape,
           position: tf?.position ?? [0, 0, 0],
           rotation: tf?.rotation,
           friction: p.friction,
