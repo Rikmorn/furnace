@@ -41,6 +41,9 @@
       "dependencies": {
         "@furnace/core": "workspace:*",
       },
+      "devDependencies": {
+        "bun-webgpu": "^0.1.0",
+      },
     },
     "packages/editor": {
       "name": "@furnace/editor",
