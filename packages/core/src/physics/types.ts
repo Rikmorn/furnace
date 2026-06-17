@@ -24,13 +24,16 @@ export type QuatTuple = readonly [number, number, number, number];
 export type WorldDescriptor = { gravity: Vec3Tuple; lengthUnit?: number };
 
 /** Collision shape: a sphere (`ball` radius), box (`cuboid` half-extents),
- *  cylinder (`cylinder` half-height + radius, Y-axis aligned), or capsule
- *  (`capsule` half-height + radius, Y-axis aligned — the player shape). */
+ *  cylinder/capsule (Y-axis aligned, half-height + radius), or a `trimesh`
+ *  (flat triangle soup — `vertices` xyz-packed, `indices` u32 triples).
+ *  **`trimesh` is for static (or kinematic) level geometry only** — it has no
+ *  interior volume, so never put it on a `dynamic` body (use convex shapes there). */
 export type ShapeDescriptor =
   | { ball: number }
   | { cuboid: Vec3Tuple }
   | { cylinder: { halfHeight: number; radius: number } }
-  | { capsule: { halfHeight: number; radius: number } };
+  | { capsule: { halfHeight: number; radius: number } }
+  | { trimesh: { vertices: Float32Array; indices: Uint32Array } };
 
 /** Input bundle for {@link createBody}. */
 export type BodyDescriptor = {
