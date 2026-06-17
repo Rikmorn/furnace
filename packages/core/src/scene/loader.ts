@@ -1,3 +1,4 @@
+import * as camera from "../camera/index.ts";
 import type { Camera } from "../camera/types.ts";
 import { FurnaceError } from "../errors.ts";
 import type { Ambient, Light } from "../frame/index.ts";
@@ -187,9 +188,10 @@ function buildEntity(
  *
  * @param ctx - the GPU context to create resources in
  * @param doc - the parsed scene document
+ * @param opts - optional load options (e.g. `fragment` to suppress the no-camera requirement)
  * @returns the loaded scene's render inputs + a `destroy` that frees everything created
  * @throws {FurnaceError} if the document fails boundary validation
- * @throws {FurnaceError} if an entity contributes a second camera, or no entity contributes one
+ * @throws {FurnaceError} if an entity contributes a second camera, or (unless `fragment` is set) no entity contributes one
  */
 export async function loadScene(
   ctx: Context,
@@ -298,11 +300,11 @@ export async function loadScene(
     throw err;
   }
 
-  if (!loadedCamera) {
+  if (!loadedCamera && !opts?.fragment) {
     destroyAll();
     throw new FurnaceError("scene: no entity carries a camera component");
   }
-  const cam = loadedCamera;
+  const cam = loadedCamera ?? camera.perspective({ aspect: 1 });
 
   // ambient → LoadedScene.ambient. Boundary cast: the settings schema is stored
   // type-erased (z.ZodObject<ZodRawShape>), so the parsed value is loosely typed;

@@ -15,6 +15,11 @@ export type LoadSceneOptions = {
    * fragment into a live game world.
    */
   world?: World;
+  /**
+   * Allow a document with no camera entity to load (the caller owns the camera).
+   * Used for region fragments (mesh + bodies, no camera).
+   */
+  fragment?: boolean;
 };
 
 /**
