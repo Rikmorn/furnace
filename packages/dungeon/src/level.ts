@@ -27,7 +27,7 @@ export const LEVEL_BOXES: Box[] = [
   // cave chamber floor — split to leave a 4x4 pit opening (x -2..2, z -22..-26)
   // for the generated grotto you descend into. The opening is smaller than the
   // bowl's mouth so there's trimesh floor under every point of the hole.
-  { center: [0, 0, -19], size: [12, 0.2, 6] }, // front strip (z -16..-22)
+  // Front strip (z -16..-22) removed — the generated chamber floor sheet replaces it.
   { center: [0, 0, -29], size: [12, 0.2, 6] }, // back strip  (z -26..-32)
   { center: [-4, 0, -24], size: [4, 0.2, 4] }, // left strip  (x -6..-2, z -22..-26)
   { center: [4, 0, -24], size: [4, 0.2, 4] }, // right strip (x 2..6, z -22..-26)
@@ -49,7 +49,12 @@ export const LEVEL_BOXES: Box[] = [
   { center: [3, 1.5, -11.5], size: [6, 3, 0.2] }, // branch north wall
   // (no east end wall — the branch's east end opens into the second chamber)
   // --- second (east) chamber the branch leads into ---
-  { center: [10, 0, -10], size: [10, 0.2, 12] }, // floor
+  // east chamber floor — split to leave a 2x2 shaft hole (x 12..14, z -5..-7)
+  // in the NE corner (clear of the pillar/slab) for the vertical shaft you drop down.
+  { center: [8.5, 0, -10], size: [7, 0.2, 12] }, // west of hole (x 5..12)
+  { center: [14.5, 0, -10], size: [1, 0.2, 12] }, // east of hole (x 14..15)
+  { center: [13, 0, -4.5], size: [2, 0.2, 1] }, // north of hole (z -4..-5)
+  { center: [13, 0, -11.5], size: [2, 0.2, 9] }, // south of hole (z -7..-16)
   { center: [10, 6, -10], size: [10, 6, 0.2] }, // back-ish detail handled by walls below
   { center: [10, 3, -4], size: [10, 6, 0.2] }, // south wall
   { center: [10, 3, -16], size: [10, 6, 0.2] }, // north wall

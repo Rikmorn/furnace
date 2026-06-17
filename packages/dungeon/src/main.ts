@@ -109,6 +109,16 @@ async function main(): Promise<void> {
     kind: "cavern",
     origin: [0, 0, -24],
   });
+  const shaft = addRegion(ctx, world, regionStone, {
+    seed: "shaft-1",
+    kind: "shaft",
+    origin: [13, 0, -6],
+  });
+  const chamber = addRegion(ctx, world, regionStone, {
+    seed: "chamber-1",
+    kind: "chamber",
+    origin: [0, 0, -19],
+  });
 
   const props = await buildProps(ctx, world);
 
@@ -194,6 +204,8 @@ async function main(): Promise<void> {
       meshes: [
         ...level.meshes,
         cavern.mesh,
+        shaft.mesh,
+        chamber.mesh,
         ...glows.meshes,
         ...props.meshes,
         ...motes.meshes,
@@ -222,6 +234,8 @@ async function main(): Promise<void> {
     glows.destroy();
     level.destroy();
     cavern.destroy();
+    shaft.destroy();
+    chamber.destroy();
     material.destroy(ctx, regionStone);
     binding.destroy(ctx, regionBind);
     post.destroy(ctx, bloom);
