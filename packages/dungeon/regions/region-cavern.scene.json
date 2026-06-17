@@ -1,0 +1,56 @@
+{
+  "version": 1,
+  "settings": {
+    "region": {
+      "provenance": {
+        "generatorId": "dungeon",
+        "generatorVersion": 1,
+        "seed": "cavern-1",
+        "kind": "cavern"
+      },
+      "theme": "damp-stone",
+      "origin": [0, 0, -24]
+    }
+  },
+  "resources": {
+    "geometries": {
+      "regionMesh": {
+        "kind": "mesh",
+        "src": "/regions/region-cavern.fmesh"
+      }
+    },
+    "shaders": {
+      "s_lit": {
+        "kind": "lit"
+      }
+    },
+    "materials": {
+      "m_stone": {
+        "shader": "s_lit",
+        "params": {
+          "color": [0.5, 0.5, 0.52, 1]
+        }
+      }
+    }
+  },
+  "entities": [
+    {
+      "id": "region-cavern",
+      "components": {
+        "transform": {
+          "position": [0, 0, -24]
+        },
+        "meshRenderer": {
+          "geometry": "regionMesh",
+          "material": "m_stone"
+        },
+        "rigidBody": {
+          "type": "static",
+          "shape": {
+            "trimesh": true
+          }
+        }
+      }
+    }
+  ]
+}

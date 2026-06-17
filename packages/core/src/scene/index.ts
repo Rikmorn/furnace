@@ -17,6 +17,8 @@ export type {
   TransformParams,
 } from "./builtins.ts";
 export { loadScene } from "./loader.ts";
+export type { MeshBlob } from "./mesh-blob.ts";
+export { decodeMeshBlob, encodeMeshBlob } from "./mesh-blob.ts";
 export type {
   BuildContext,
   ComponentDefinition,
