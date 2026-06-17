@@ -24,7 +24,12 @@ export const LEVEL_BOXES: Box[] = [
   { center: [1.5, 1.5, -4.25], size: [0.2, 3, 8.5] },
   { center: [1.5, 1.5, -13.75], size: [0.2, 3, 4.5] },
   // --- cave chamber floor + ceiling ---
-  { center: [0, 0, -24], size: [12, 0.2, 16] },
+  // cave chamber floor — split to leave an 8x8 pit opening (x -4..4, z -20..-28)
+  // for the generated grotto you descend into.
+  { center: [0, 0, -18], size: [12, 0.2, 4] }, // front strip (z -16..-20)
+  { center: [0, 0, -30], size: [12, 0.2, 4] }, // back strip (z -28..-32)
+  { center: [-5, 0, -24], size: [2, 0.2, 8] }, // left strip (x -6..-4)
+  { center: [5, 0, -24], size: [2, 0.2, 8] }, // right strip (x 4..6)
   { center: [0, 6, -24], size: [12, 0.2, 16] },
   // chamber walls
   { center: [-6, 3, -24], size: [0.2, 6, 16] },
