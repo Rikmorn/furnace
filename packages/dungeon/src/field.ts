@@ -105,3 +105,38 @@ export function noiseDisplace(
     base(x, y, z) +
     amplitude * noise(x * frequency, y * frequency, z * frequency);
 }
+
+/** A separable rectangular weight: 1 inside the core, smoothly ramping to 0
+ *  across a `margin`-wide border of the [±hx, ±hz] footprint. Multiply a
+ *  displacement by this so a carved floor stays flush with its surroundings at
+ *  the seam (weight 0) while its interior (weight 1) is fully displaced. */
+export function rectWeight(
+  hx: number,
+  hz: number,
+  margin: number,
+): (x: number, z: number) => number {
+  // d = distance from the footprint edge inward; 0 at the edge → 1 at `margin` in.
+  const ramp = (d: number): number => {
+    const t = Math.min(Math.max(d / margin, 0), 1);
+    return t * t * (3 - 2 * t); // smoothstep
+  };
+  return (x, z) => ramp(hx - Math.abs(x)) * ramp(hz - Math.abs(z));
+}
+
+/** Like {@link noiseDisplace}, but the displacement is multiplied by `weight(x,z)`
+ *  so it tapers to 0 at a footprint's edges — a carved floor that is bumpy in its
+ *  interior yet stays flush with the surrounding (flat) floor at the walk-across seam. */
+export function taperedNoiseDisplace(
+  base: Field,
+  rng: Rng,
+  amplitude: number,
+  frequency: number,
+  weight: (x: number, z: number) => number,
+): Field {
+  const noise = makeValueNoise(rng);
+  return (x, y, z) =>
+    base(x, y, z) +
+    amplitude *
+      weight(x, z) *
+      noise(x * frequency, y * frequency, z * frequency);
+}

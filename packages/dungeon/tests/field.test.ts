@@ -33,3 +33,36 @@ test("noiseDisplace is deterministic for a given seed and stays bounded", () => 
   const delta = f1(1, 1, 1) - base(1, 1, 1);
   expect(Math.abs(delta)).toBeLessThanOrEqual(0.5 + 1e-6); // within amplitude
 });
+
+test("rectWeight is 1 in the core and 0 at the footprint edges", () => {
+  const w = field.rectWeight(6, 3, 1.5);
+  expect(w(0, 0)).toBeCloseTo(1, 5); // center → full weight
+  expect(w(6, 0)).toBeCloseTo(0, 5); // x edge → zero
+  expect(w(0, 3)).toBeCloseTo(0, 5); // z edge → zero
+  expect(w(6, 3)).toBeCloseTo(0, 5); // corner → zero
+});
+
+test("taperedNoiseDisplace leaves the base unchanged at the footprint edge but perturbs the interior", () => {
+  const base = field.boxCavern(0, 10, 0, 10, 10, 10); // flat floor at y=0
+  const f = field.taperedNoiseDisplace(
+    base,
+    rng.create("c1"),
+    0.6,
+    0.55,
+    field.rectWeight(6, 3, 1.5),
+  );
+  // At the x edge (x=6), weight=0 → displacement 0 → equals base exactly.
+  expect(f(6, 0, 0)).toBeCloseTo(base(6, 0, 0), 5);
+  // Deterministic per seed.
+  const g = field.taperedNoiseDisplace(
+    base,
+    rng.create("c1"),
+    0.6,
+    0.55,
+    field.rectWeight(6, 3, 1.5),
+  );
+  expect(f(1, 0, 1)).toEqual(g(1, 0, 1));
+  // Interior displacement is bounded by amplitude.
+  const delta = f(1, 0, 1) - base(1, 0, 1);
+  expect(Math.abs(delta)).toBeLessThanOrEqual(0.6 + 1e-6);
+});
