@@ -1,3 +1,4 @@
+import { FurnaceError } from "../errors.ts";
 import type { Context } from "../gpu/index.ts";
 import {
   _allocGeometry,
@@ -31,9 +32,20 @@ const FLOATS_PER_VERTEX = 8;
  *   (one `vec3` per vertex).
  * @throws FurnaceError - if `uvs.length` does not equal `(positions.length / 3) * 2`
  *   (one `vec2` per vertex).
+ * @throws FurnaceError - if `opts.retainForCollision` is `true` but
+ *   `data.indices` is absent (a trimesh collider requires an index buffer).
  */
-export function create(ctx: Context, data: GeometryData): Geometry {
+export function create(
+  ctx: Context,
+  data: GeometryData,
+  opts?: { retainForCollision?: boolean },
+): Geometry {
   validateGeometryData(data);
+  // Compute (and validate) retained collision indices BEFORE any GPU allocation,
+  // so the retainForCollision-without-indices throw can't leak a half-built geometry.
+  const collisionIndices = opts?.retainForCollision
+    ? toU32Indices(data.indices)
+    : undefined;
   const vertexCount = data.positions.length / 3;
   const bounds = computeBounds(data.positions);
 
@@ -64,6 +76,9 @@ export function create(ctx: Context, data: GeometryData): Geometry {
     userCount: 0,
     markedDestroyed: false,
     _teardown: () => geometryTeardown(ctx, slot, vertexBytes, indexBytes),
+    collision: collisionIndices
+      ? { vertices: data.positions, indices: collisionIndices }
+      : undefined,
   };
   return _allocGeometry(ctx, slot);
 }
@@ -156,4 +171,35 @@ function createIndexResources(
     ctx.queue.writeBuffer(buffer, 0, padded);
   }
   return { buffer, format, count: indices.length, paddedByteLength };
+}
+
+/** Coerce optional index data to Uint32 for physics trimesh; require indices
+ *  when retaining for collision (a trimesh collider needs an index buffer). */
+function toU32Indices(
+  indices: Uint16Array | Uint32Array | undefined,
+): Uint32Array {
+  if (!indices) {
+    throw new FurnaceError(
+      "geometry.create: retainForCollision requires indexed geometry (data.indices)",
+    );
+  }
+  return indices instanceof Uint32Array ? indices : Uint32Array.from(indices);
+}
+
+/**
+ * The retained CPU collision arrays (positions + u32 indices) for a geometry
+ * built with `{ retainForCollision: true }`, or `null` if none were retained
+ * (or the handle is stale). Feed these to a physics `trimesh` collider.
+ *
+ * @param ctx - The GPU context that owns the geometry.
+ * @param geometry - The geometry handle to query.
+ * @returns The retained `{ vertices, indices }` arrays, or `null`.
+ */
+export function getCollisionData(
+  ctx: Context,
+  geometry: Geometry,
+): { vertices: Float32Array; indices: Uint32Array } | null {
+  const slot = _lookupGeometry<GeometrySlot>(ctx, geometry);
+  if (slot === null) return null;
+  return slot.collision ?? null;
 }

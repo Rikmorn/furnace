@@ -48,4 +48,8 @@ export type GeometrySlot = {
   userCount: number;
   markedDestroyed: boolean;
   _teardown: () => void;
+  /** Retained CPU copy (positions + u32 indices) for building a physics
+   *  trimesh collider from this geometry. Set only when `create` is called
+   *  with `{ retainForCollision: true }`; undefined otherwise. */
+  collision?: { vertices: Float32Array; indices: Uint32Array };
 };
