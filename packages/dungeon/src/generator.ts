@@ -43,8 +43,8 @@ const GENERATOR_VERSION = 1;
 // region origin = the chamber floor) so the bowl's top is left OPEN (you
 // descend into it); shaft/chamber keep the taller default box.
 const GRIDS: Record<RegionKind, GridConfig> = {
-  // x,z ∈ [-5,5]; y ∈ [-3,0] → floor captured, top (y=0) open.
-  cavern: { min: [-5, -3, -5], cellSize: 0.5, dims: [20, 6, 20] },
+  // x,z ∈ [-5,5]; y ∈ [-4,0] → deeper bowl, floor captured (~y=-3), top (y=0) open.
+  cavern: { min: [-5, -4, -5], cellSize: 0.5, dims: [20, 8, 20] },
   shaft: { min: [-8, -2, -8], cellSize: 0.5, dims: [32, 16, 32] },
   chamber: { min: [-8, -2, -8], cellSize: 0.5, dims: [32, 16, 32] },
 };
@@ -64,9 +64,10 @@ const geometryPass: Pass = (model) => {
       base = field.boxCavern(0, 1.5, 0, 5, 2.5, 5);
       break;
     default:
-      // "cavern": an open-top bowl you descend into. Center is above the grid's
-      // top (y=0) so only the lower bowl is meshed; floor closes at world y≈-2.
-      base = field.sphereCavern(0, 2, 0, 4);
+      // "cavern": an open-top bowl you descend into. Center above the grid top
+      // (y=0) so only the lower bowl is meshed; floor closes ~world y=-3, opening
+      // radius ~3.9 at y=0.
+      base = field.sphereCavern(0, 1, 0, 4);
       break;
   }
   return { ...model, grid, field: field.noiseDisplace(base, r, 0.6, 0.35) };
