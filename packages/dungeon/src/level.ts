@@ -27,7 +27,7 @@ export const LEVEL_BOXES: Box[] = [
   // cave chamber floor — split to leave a 4x4 pit opening (x -2..2, z -22..-26)
   // for the generated grotto you descend into. The opening is smaller than the
   // bowl's mouth so there's trimesh floor under every point of the hole.
-  // Front strip (z -16..-22) removed — the generated chamber floor sheet replaces it.
+  { center: [0, 0, -19], size: [12, 0.2, 6] }, // chamber front floor (z -16..-22): solid base under the generated bumpy chamber sheet so the controller can cross the seam
   { center: [0, 0, -29], size: [12, 0.2, 6] }, // back strip  (z -26..-32)
   { center: [-4, 0, -24], size: [4, 0.2, 4] }, // left strip  (x -6..-2, z -22..-26)
   { center: [4, 0, -24], size: [4, 0.2, 4] }, // right strip (x 2..6, z -22..-26)
