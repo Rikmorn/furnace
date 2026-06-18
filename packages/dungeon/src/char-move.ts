@@ -24,6 +24,9 @@ export function isWalkable(
 const SKIN = 0.08; // gap kept between the capsule and surfaces (tunable)
 const MAX_SLIDE_ITERS = 4;
 const MIN_MOVE_LENGTH = 1e-5; // below this the remaining move is exhausted
+const GRAVITY = -9.81;
+const GROUND_SNAP = 0.35; // snap-to-ground reach below the feet (tunable)
+const SLOPE_LIMIT_COS = Math.cos((55 * Math.PI) / 180); // max walkable slope (tunable)
 
 export type Capsule = { halfHeight: number; radius: number };
 
@@ -81,5 +84,38 @@ export class CharacterMover {
       move = clipVelocity(remaining, hit.normal);
     }
     return p;
+  }
+
+  private footOffset(): number {
+    return this.capsule.halfHeight + this.capsule.radius;
+  }
+
+  /** Resolve the vertical pass from `pos`: detect ground via a downward ray to the
+   *  TRUE surface normal (bypassing corrupted contact normals). Snap to the ground
+   *  and report grounded ONLY when the ground is walkable (slope gate via
+   *  isWalkable); otherwise integrate gravity into `vVel` so the player slides/falls
+   *  off too-steep surfaces. Separate from the horizontal pass (Fauerby §4.3). */
+  applyGravity(
+    ctx: Context,
+    world: physics.World,
+    pos: [number, number, number],
+    dt: number,
+  ): { pos: [number, number, number]; grounded: boolean } {
+    const foot = this.footOffset();
+    // Ray from the body centre straight down; foot is at pos.y - foot.
+    const ground = physics.castRay(ctx, world, {
+      origin: [pos[0], pos[1], pos[2]],
+      dir: [0, -1, 0],
+      maxDistance: foot + GROUND_SNAP,
+      excludeBody: this.body,
+    });
+    if (ground !== null && isWalkable(ground.normal, SLOPE_LIMIT_COS)) {
+      // Walkable ground: snap the feet onto it; zero vertical velocity.
+      this.vVel = 0;
+      return { pos: [pos[0], ground.point[1] + foot, pos[2]], grounded: true };
+    }
+    // No ground, or too steep to stand on → fall/slide.
+    this.vVel += GRAVITY * dt;
+    return { pos: [pos[0], pos[1] + this.vVel * dt, pos[2]], grounded: false };
   }
 }
