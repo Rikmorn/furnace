@@ -12,24 +12,6 @@ export type MoveKeys = {
 
 const PITCH_LIMIT = Math.PI / 2 - 0.01; // avoid gimbal flip at straight up/down
 
-/** World gravity along Y (m/s²). Negative = downward. */
-export const GRAVITY = -9.81;
-
-/** Advance vertical velocity one tick. Grounded resets accumulated fall and
- *  applies a small downward bias (so snap-to-ground keeps contact on steps/slopes);
- *  airborne integrates gravity. Returns the new velocity and this tick's vertical
- *  delta. Pure; unit-tested. */
-export function gravityStep(
-  vVel: number,
-  grounded: boolean,
-  gravity: number,
-  dtSeconds: number,
-): { vVel: number; dy: number } {
-  if (grounded) return { vVel: 0, dy: gravity * dtSeconds };
-  const nv = vVel + gravity * dtSeconds;
-  return { vVel: nv, dy: nv * dtSeconds };
-}
-
 /** World-space forward unit vector for a yaw/pitch (right-handed Y-up, identity → -Z).
  *  Pure; unit-tested. */
 export function forwardVector(
@@ -61,15 +43,14 @@ export function moveDelta(
   return [mx, 0, mz];
 }
 
-/** A first-person controller: owns yaw/pitch + vertical velocity, produces a
- *  desired per-tick move (input + gravity) for the physics character controller,
- *  and places the camera from the resolved body position. Mouselook uses raw
- *  pointer-lock (engine input has no relative delta). Position authority lives in
- *  the physics body, not here. */
+/** A first-person controller: owns yaw/pitch, produces the desired per-tick
+ *  horizontal move (yaw-rotated input) for the mover, and places the camera from
+ *  the resolved body position. Mouselook uses raw pointer-lock (engine input has
+ *  no relative delta). Position + vertical authority live in the physics body and
+ *  CharacterMover, not here. */
 export class FpController {
   yaw = 0;
   pitch = 0;
-  private vVel = 0;
   private readonly speed: number;
   private readonly sensitivity: number;
   private readonly eyeOffset: number;
@@ -116,24 +97,16 @@ export class FpController {
     this.accumDY = 0;
   }
 
-  /** The desired world-space move this tick: horizontal from held keys (yaw-
-   *  rotated), vertical from gravity. `grounded` (from the previous resolve)
-   *  gates gravity accumulation.
-   *
-   *  Side-effect: advances the private `vVel` (vertical-velocity accumulator),
-   *  so it must be called exactly once per physics tick — skipping a tick
-   *  leaves `vVel` stale; calling twice double-steps gravity. */
-  desiredMove(dtSeconds: number, grounded: boolean): [number, number, number] {
+  /** The desired horizontal world-space move this tick (yaw-rotated input).
+   *  Vertical motion is owned by CharacterMover (separate gravity pass). */
+  desiredHorizontal(dtSeconds: number): [number, number, number] {
     const keys: MoveKeys = {
       forward: input.isKeyDown("KeyW"),
       back: input.isKeyDown("KeyS"),
       left: input.isKeyDown("KeyA"),
       right: input.isKeyDown("KeyD"),
     };
-    const [dx, , dz] = moveDelta(keys, this.yaw, this.speed * dtSeconds); // Y is always 0; vertical comes from gravityStep
-    const g = gravityStep(this.vVel, grounded, GRAVITY, dtSeconds);
-    this.vVel = g.vVel;
-    return [dx, g.dy, dz];
+    return moveDelta(keys, this.yaw, this.speed * dtSeconds);
   }
 
   /** Place the camera at the body position + eye offset, looking along yaw/pitch. */

@@ -11,6 +11,7 @@ import * as post from "@furnace/core/post";
 import { loadScene } from "@furnace/core/scene";
 import * as shader from "@furnace/core/shader";
 import { vec3, vec4 } from "@furnace/core/transform";
+import { CharacterMover } from "./char-move.ts";
 import { FpController } from "./fp-controller.ts";
 import { generateRegion, type RegionParams } from "./generator.ts";
 import { buildGlows, buildLevel } from "./level.ts";
@@ -21,6 +22,7 @@ import { Torch } from "./torch.ts";
 const PLAYER_CAPSULE_HALF_HEIGHT = 0.6;
 const PLAYER_CAPSULE_RADIUS = 0.3;
 const PLAYER_SPAWN: [number, number, number] = [0, 1.1, -2];
+const NOCLIP_FLY_SPEED = 6; // m/s vertical fly rate in noclip (dev tool)
 
 const FOG_COLOR: [number, number, number] = [0.015, 0.02, 0.03];
 // Clear color matches the fog so the void at depth reads as fog, not a hard edge.
@@ -133,15 +135,12 @@ async function main(): Promise<void> {
     },
     position: PLAYER_SPAWN,
   });
-  const controller = physics.createCharacterController(ctx, world, {
-    offset: 0.01,
-    up: [0, 1, 0],
-    autostep: { maxHeight: 0.3, minWidth: 0.1 },
-    snapToGround: 0.5,
-    maxSlopeClimbAngle: 0.87,
-    minSlopeSlideAngle: 0.7,
-    applyImpulsesToDynamicBodies: true,
-  });
+  const mover = new CharacterMover(
+    { halfHeight: PLAYER_CAPSULE_HALF_HEIGHT, radius: PLAYER_CAPSULE_RADIUS },
+    playerBody,
+  );
+  let noclip = false; // V toggles fly/noclip (dev tool)
+  let debugNormals = false; // B toggles the ground-normal debug line (dev aid)
 
   // Bloom REQUIRES an hdr context; an hdr context REQUIRES a non-empty effects chain.
   const bloom = await post.bloom(ctx, {
@@ -166,28 +165,41 @@ async function main(): Promise<void> {
   const player = new FpController();
   player.attachMouse(canvas);
   const torch = new Torch();
-  let grounded = false;
-  const moveOut = vec3.create();
   const bodyPos = vec3.create();
 
   const loopHandle = frame.loop(ctx, (info) => {
     const dt = info.deltaMs / 1000;
 
     player.consumeMouse();
-    const desired = player.desiredMove(dt, grounded);
-    grounded = physics.computeMovement(
-      ctx,
-      controller,
-      playerBody,
-      desired,
-      moveOut,
-    );
+    if (input.wasKeyPressed("KeyV")) noclip = !noclip;
+    if (input.wasKeyPressed("KeyB")) debugNormals = !debugNormals;
+
     physics.getBodyTranslation(ctx, playerBody, bodyPos);
-    physics.setBodyNextKinematicTranslation(ctx, playerBody, [
-      (bodyPos[0] as number) + (moveOut[0] as number),
-      (bodyPos[1] as number) + (moveOut[1] as number),
-      (bodyPos[2] as number) + (moveOut[2] as number),
-    ]);
+    const here: [number, number, number] = [
+      bodyPos[0] as number,
+      bodyPos[1] as number,
+      bodyPos[2] as number,
+    ];
+
+    let next: [number, number, number];
+    if (noclip) {
+      // Noclip: free-fly. WASD moves horizontally (no collision); Space/Shift = up/down.
+      const h = player.desiredHorizontal(dt);
+      const flySpeed = NOCLIP_FLY_SPEED * dt;
+      const lift =
+        (input.isKeyDown("Space") ? flySpeed : 0) -
+        (input.isKeyDown("ShiftLeft") ? flySpeed : 0);
+      next = [here[0] + h[0], here[1] + lift, here[2] + h[2]];
+    } else {
+      next = mover.resolve(
+        ctx,
+        world,
+        here,
+        player.desiredHorizontal(dt),
+        dt,
+      ).pos;
+    }
+    physics.setBodyNextKinematicTranslation(ctx, playerBody, next);
     physics.step(ctx, world, dt);
 
     physics.getBodyTranslation(ctx, playerBody, bodyPos);
@@ -218,6 +230,31 @@ async function main(): Promise<void> {
       fog,
       effects: [bloom, tonemap],
     });
+
+    // DEBUG (2.1.1): draw the true ground normal under the player (toggle with B).
+    if (debugNormals) {
+      const g = physics.castRay(ctx, world, {
+        origin: next,
+        dir: [0, -1, 0],
+        maxDistance: 1.2,
+        excludeBody: playerBody,
+      });
+      if (g) {
+        frame.drawLines(ctx, {
+          vertices: new Float32Array([
+            g.point[0],
+            g.point[1],
+            g.point[2],
+            g.point[0] + g.normal[0],
+            g.point[1] + g.normal[1],
+            g.point[2] + g.normal[2],
+          ]),
+          colors: new Float32Array([0, 1, 0, 1, 0, 1, 0, 1]),
+          camera: cam,
+          occlude: false, // draw on top so the probe is visible through geometry
+        });
+      }
+    }
   });
 
   // Tear down in reverse dependency order: stop the loop, release consumer
@@ -227,7 +264,6 @@ async function main(): Promise<void> {
     loopHandle.stop();
     player.destroy();
     props.destroy();
-    physics.destroyCharacterController(ctx, controller);
     physics.destroyWorld(ctx, world);
     input.detach();
     unbindCamera();
