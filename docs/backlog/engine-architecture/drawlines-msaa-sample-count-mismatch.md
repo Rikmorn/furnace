@@ -13,6 +13,16 @@ bowling demo defaults to MSAA-on; `showColliders` defaults off, so the default
 render path is unaffected. The break only manifests when a user turns colliders
 ON while MSAA is ON. Flagged for the 2b-11 Safari gate.
 
+**Surfaced again by:** Epic 2 Slice 2.1.1 (traversal foundation). The dungeon —
+which uses `gpu.requestContext(..., { sampleCount: 4 })` — added a ground-normal
+debug-draw via `drawLines` and it **never rendered**: the single-sample line pass
+against the dungeon's 4× scene depth texture is the same validation error as the
+bowling collider overlay. The debug-draw was subsequently removed. Before 2.1.1
+`drawLines` had only ever been exercised in single-sample contexts (bowling Slice
+4B), so the MSAA path stayed latent — confirming this is a real gap whenever a
+debug/gizmo overlay is wanted in an MSAA context (the editor viewport is the next
+likely caller).
+
 **Note on the color side:** the color attachment is fine. `drawLines` targets the
 swap chain (`gpu.getCurrentTextureView`, single-sample, `ctx.format`) with
 `loadOp: "load"`, and the post chain's final pass already wrote the tonemapped
@@ -46,4 +56,5 @@ isolation.
 
 **Reference:** `packages/core/src/frame/render-lines.ts` (pipeline +
 `drawLines`), `packages/core/src/frame/render.ts` `_ensureDepthTexture`,
+`docs/reference/engine-conventions.md §MSAA` (the multisampled-depth contract),
 `packages/hello-world/src/demos/bowling/scene.ts` (`renderFrame` collider overlay).

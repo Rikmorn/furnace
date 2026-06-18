@@ -12,6 +12,13 @@ directly — it is now the real walking surface. What remains is purely *visual*
 - **Chamber carved-floor visibility / look.** With the box floor gone the bumpy carved
   sheet is the surface, but its look may still want tuning (sheet visibility, displacement
   range, how the carved bumps read against the lighting) now that nothing sits over it.
+- **Hall ↔ chamber seam fall-through gap.** Surfaced at the 2.1.1 visual gate: removing the
+  box-floor workaround exposed the seam in its *worst* form — the generated chamber sheet
+  doesn't quite meet the authored corridor floor, leaving a gap at the hall↔chamber seam
+  that the player can **drop through into the void**. This is the same rim-seam issue as
+  above (a discontinuity where generated meets authored geometry), not a `CharacterMover`
+  bug — it is the expected fallout of removing the workaround, and the seam-stitching /
+  skirt fix listed below resolves it (it closes the hole, not just the visual seam).
 
 **Options to revisit (pick when polishing):**
 - Blend / skirt the generated mesh into the authored box geometry at the rim so the seam
