@@ -12,6 +12,8 @@ export {
   createCharacterController,
   destroyCharacterController,
 } from "./character.ts";
+export type { CastRayOptions, RayHit } from "./query.ts";
+export { castRay } from "./query.ts";
 export type {
   Body,
   BodyDescriptor,
