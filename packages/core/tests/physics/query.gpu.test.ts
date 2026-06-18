@@ -16,7 +16,7 @@ test.skipIf(!bunWebGpuAvailable())(
     const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
     const world = await physics.createWorld(ctx, { gravity: [0, -9.81, 0] });
     // 10x0.2x10 cuboid floor, top face at y=0.1.
-    physics.createBody(ctx, world, {
+    const floor = physics.createBody(ctx, world, {
       type: "static",
       shape: { cuboid: [5, 0.1, 5] },
       position: [0, 0, 0],
@@ -32,6 +32,7 @@ test.skipIf(!bunWebGpuAvailable())(
     if (hit) {
       expect(hit.point[1]).toBeCloseTo(0.1, 2); // top face
       expect(hit.normal[1]).toBeGreaterThan(0.9); // points up
+      expect(hit.body).toBe(floor); // resolves the body that was hit
     }
 
     const miss = physics.castRay(ctx, world, {
@@ -53,7 +54,7 @@ test.skipIf(!bunWebGpuAvailable())(
     const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
     const world = await physics.createWorld(ctx, { gravity: [0, -9.81, 0] });
     // A wall (thin cuboid) at x=2, spanning the path.
-    physics.createBody(ctx, world, {
+    const wall = physics.createBody(ctx, world, {
       type: "static",
       shape: { cuboid: [0.1, 2, 2] },
       position: [2, 0, 0],
@@ -72,6 +73,7 @@ test.skipIf(!bunWebGpuAvailable())(
       expect(hit.toi).toBeGreaterThan(1.2);
       expect(hit.toi).toBeLessThan(1.8);
       expect(hit.normal[0]).toBeLessThan(-0.5); // surface normal opposes +x travel
+      expect(hit.body).toBe(wall); // resolves the body that was hit
     }
 
     physics.destroyWorld(ctx, world);

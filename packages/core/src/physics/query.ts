@@ -24,6 +24,8 @@ export type RayHit = {
   point: [number, number, number];
   /** World-space surface normal at the hit. */
   normal: [number, number, number];
+  /** The body that was hit, or `null` if the hit collider has no tracked body. */
+  body: Body | null;
 };
 
 /** Options for {@link castRay}. */
@@ -90,10 +92,12 @@ export function castRay(
   );
   if (hit === null) return null;
   const p = ray.pointAt(hit.timeOfImpact);
+  const body = worldSlot.colliderToBody.get(hit.collider.handle) ?? null;
   return {
     toi: hit.timeOfImpact,
     point: [p.x, p.y, p.z],
     normal: [hit.normal.x, hit.normal.y, hit.normal.z],
+    body,
   };
 }
 
@@ -157,6 +161,7 @@ export function castShape(
   );
   if (hit === null) return null;
   const t = hit.time_of_impact;
+  const body = worldSlot.colliderToBody.get(hit.collider.handle) ?? null;
   return {
     toi: t,
     point: [
@@ -165,5 +170,6 @@ export function castShape(
       opts.position[2] + dz * t,
     ],
     normal: [hit.normal1.x, hit.normal1.y, hit.normal1.z],
+    body,
   };
 }

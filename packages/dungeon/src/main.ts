@@ -11,7 +11,7 @@ import * as post from "@furnace/core/post";
 import { loadScene } from "@furnace/core/scene";
 import * as shader from "@furnace/core/shader";
 import { vec3, vec4 } from "@furnace/core/transform";
-import { CharacterMover } from "./char-move.ts";
+import { CharacterMover, shoveDynamicBodies } from "./char-move.ts";
 import { FpController } from "./fp-controller.ts";
 import { generateRegion, type RegionParams } from "./generator.ts";
 import { buildGlows, buildLevel } from "./level.ts";
@@ -23,6 +23,8 @@ const PLAYER_CAPSULE_HALF_HEIGHT = 0.6;
 const PLAYER_CAPSULE_RADIUS = 0.3;
 const PLAYER_SPAWN: [number, number, number] = [0, 1.1, -2];
 const NOCLIP_FLY_SPEED = 6; // m/s vertical fly rate in noclip (dev tool)
+const SHOVE_SPEED = 3; // m/s push imparted to dynamic props
+const SHOVE_REACH = 0.6; // forward distance to detect a shovable prop
 
 const FOG_COLOR: [number, number, number] = [0.015, 0.02, 0.03];
 // Clear color matches the fog so the void at depth reads as fog, not a hard edge.
@@ -124,6 +126,7 @@ async function main(): Promise<void> {
   });
 
   const props = await buildProps(ctx, world);
+  const shovable = new Set(props.bodies);
 
   const playerBody = physics.createBody(ctx, world, {
     type: "kinematicPosition",
@@ -200,6 +203,22 @@ async function main(): Promise<void> {
       ).pos;
     }
     physics.setBodyNextKinematicTranslation(ctx, playerBody, next);
+    if (!noclip) {
+      shoveDynamicBodies(
+        ctx,
+        world,
+        {
+          halfHeight: PLAYER_CAPSULE_HALF_HEIGHT,
+          radius: PLAYER_CAPSULE_RADIUS,
+        },
+        playerBody,
+        next,
+        player.desiredHorizontal(dt),
+        shovable,
+        SHOVE_SPEED,
+        SHOVE_REACH,
+      );
+    }
     physics.step(ctx, world, dt);
 
     physics.getBodyTranslation(ctx, playerBody, bodyPos);

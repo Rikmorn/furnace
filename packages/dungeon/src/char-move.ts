@@ -32,6 +32,7 @@ const GROUND_SNAP = 0.45; // snap-to-ground reach below the feet. MUST be >= STE
 const SLOPE_LIMIT_COS = Math.cos((55 * Math.PI) / 180); // max walkable slope (tunable)
 const STEP_HEIGHT = 0.4; // max auto-step height (> old autostep 0.3, < waist; tunable)
 const STALL_GAIN = 0.6; // horizontal-progress fraction below which we try a step-up
+const SHOVE_LIFT = 0.1; // raise the shove probe off the floor so it doesn't graze the resting surface (which would hit the floor instead of the prop ahead)
 
 export type Capsule = { halfHeight: number; radius: number };
 
@@ -155,5 +156,40 @@ export class CharacterMover {
       }
     }
     return this.applyGravity(ctx, world, horiz, dt);
+  }
+}
+
+/** Shove the dynamic body directly ahead of the capsule, if it is in `shovable`.
+ *  Casts the capsule forward along `moveDir` (horizontal) and, on a shovable hit,
+ *  sets that body's linear velocity to push it. Call before `physics.step` so the
+ *  step integrates the shove. Game-interaction policy lives with the caller via
+ *  `shovable`; the mover itself stays pure locomotion. */
+export function shoveDynamicBodies(
+  ctx: Context,
+  world: physics.World,
+  capsule: Capsule,
+  selfBody: physics.Body,
+  pos: [number, number, number],
+  moveDir: [number, number, number],
+  shovable: ReadonlySet<physics.Body>,
+  speed: number,
+  reach: number,
+): void {
+  const len = Math.hypot(moveDir[0], 0, moveDir[2]);
+  if (len < MIN_MOVE_LENGTH) return;
+  const dir: [number, number, number] = [moveDir[0] / len, 0, moveDir[2] / len];
+  const hit = physics.castShape(ctx, world, {
+    shape: { capsule },
+    position: [pos[0], pos[1] + SHOVE_LIFT, pos[2]],
+    dir,
+    maxDistance: reach,
+    excludeBody: selfBody,
+  });
+  if (hit !== null && hit.body !== null && shovable.has(hit.body)) {
+    physics.setBodyLinearVelocity(ctx, hit.body, [
+      dir[0] * speed,
+      0,
+      dir[2] * speed,
+    ]);
   }
 }

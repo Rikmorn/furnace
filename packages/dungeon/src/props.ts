@@ -20,6 +20,7 @@ type Prop = { mesh: mesh.Mesh; body: physics.Body };
 
 export type Props = {
   meshes: mesh.Mesh[];
+  bodies: physics.Body[];
   update: () => void;
   destroy: () => void;
 };
@@ -92,5 +93,10 @@ export async function buildProps(
     geometry.destroy(ctx, cube);
   };
 
-  return { meshes: props.map((x) => x.mesh), update, destroy };
+  return {
+    meshes: props.map((x) => x.mesh),
+    bodies: props.map((x) => x.body),
+    update,
+    destroy,
+  };
 }
