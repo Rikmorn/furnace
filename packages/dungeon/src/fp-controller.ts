@@ -11,6 +11,7 @@ export type MoveKeys = {
 };
 
 const PITCH_LIMIT = Math.PI / 2 - 0.01; // avoid gimbal flip at straight up/down
+const EYE_SMOOTH_RATE = 12; // per-second exponential rate for camera eye-height smoothing (higher = snappier; lower = floatier). Tunable.
 
 /** World-space forward unit vector for a yaw/pitch (right-handed Y-up, identity → -Z).
  *  Pure; unit-tested. */
@@ -56,6 +57,7 @@ export class FpController {
   private readonly eyeOffset: number;
   private accumDX = 0;
   private accumDY = 0;
+  private smoothEyeY: number | null = null;
   private detachMouse: (() => void) | null = null;
 
   constructor(
@@ -109,10 +111,25 @@ export class FpController {
     return moveDelta(keys, this.yaw, this.speed * dtSeconds);
   }
 
-  /** Place the camera at the body position + eye offset, looking along yaw/pitch. */
-  placeCamera(cam: Camera, bodyPos: [number, number, number]): void {
+  /** Place the camera at the body position + eye offset, looking along yaw/pitch.
+   *  Horizontal (x/z) tracks the body exactly; the eye HEIGHT is smoothed toward
+   *  the body height with frame-rate-independent exponential easing so single-frame
+   *  body-Y jumps (step-ups, rough generated terrain) ease over a few frames instead
+   *  of snapping. First call snaps (no swoop from 0); needs `dtSeconds` for the ease. */
+  placeCamera(
+    cam: Camera,
+    bodyPos: [number, number, number],
+    dtSeconds: number,
+  ): void {
+    const targetEyeY = bodyPos[1] + this.eyeOffset;
+    if (this.smoothEyeY === null) {
+      this.smoothEyeY = targetEyeY; // first frame: snap (no swoop from 0)
+    } else {
+      const t = 1 - Math.exp(-EYE_SMOOTH_RATE * dtSeconds); // frame-rate-independent
+      this.smoothEyeY += (targetEyeY - this.smoothEyeY) * t;
+    }
     const ex = bodyPos[0];
-    const ey = bodyPos[1] + this.eyeOffset;
+    const ey = this.smoothEyeY;
     const ez = bodyPos[2];
     const f = forwardVector(this.yaw, this.pitch);
     camera.setPosition(cam, vec3.fromValues(ex, ey, ez));

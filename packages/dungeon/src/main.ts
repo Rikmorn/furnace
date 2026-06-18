@@ -227,7 +227,7 @@ async function main(): Promise<void> {
       bodyPos[1] as number,
       bodyPos[2] as number,
     ];
-    player.placeCamera(cam, playerPos);
+    player.placeCamera(cam, playerPos, dt);
     props.update();
     motes.update(playerPos, dt);
 
