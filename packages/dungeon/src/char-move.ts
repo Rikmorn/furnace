@@ -25,7 +25,10 @@ const SKIN = 0.08; // gap kept between the capsule and surfaces (tunable)
 const MAX_SLIDE_ITERS = 4;
 const MIN_MOVE_LENGTH = 1e-5; // below this the remaining move is exhausted
 const GRAVITY = -9.81;
-const GROUND_SNAP = 0.35; // snap-to-ground reach below the feet (tunable)
+const GROUND_SNAP = 0.45; // snap-to-ground reach below the feet. MUST be >= STEP_HEIGHT
+// so applyGravity's ground ray can still reach the floor after a step-up raise —
+// otherwise a (possibly spurious) step-up leaves the body floating, then it falls and
+// snaps, producing vertical jitter while moving on trimesh/stepped ground.
 const SLOPE_LIMIT_COS = Math.cos((55 * Math.PI) / 180); // max walkable slope (tunable)
 const STEP_HEIGHT = 0.4; // max auto-step height (> old autostep 0.3, < waist; tunable)
 const STALL_GAIN = 0.6; // horizontal-progress fraction below which we try a step-up
