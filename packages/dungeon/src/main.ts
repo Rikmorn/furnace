@@ -143,7 +143,6 @@ async function main(): Promise<void> {
     playerBody,
   );
   let noclip = false; // V toggles fly/noclip (dev tool)
-  let debugNormals = false; // B toggles the ground-normal debug line (dev aid)
 
   // Bloom REQUIRES an hdr context; an hdr context REQUIRES a non-empty effects chain.
   const bloom = await post.bloom(ctx, {
@@ -175,7 +174,6 @@ async function main(): Promise<void> {
 
     player.consumeMouse();
     if (input.wasKeyPressed("KeyV")) noclip = !noclip;
-    if (input.wasKeyPressed("KeyB")) debugNormals = !debugNormals;
 
     physics.getBodyTranslation(ctx, playerBody, bodyPos);
     const here: [number, number, number] = [
@@ -249,31 +247,6 @@ async function main(): Promise<void> {
       fog,
       effects: [bloom, tonemap],
     });
-
-    // DEBUG (2.1.1): draw the true ground normal under the player (toggle with B).
-    if (debugNormals) {
-      const g = physics.castRay(ctx, world, {
-        origin: next,
-        dir: [0, -1, 0],
-        maxDistance: 1.2,
-        excludeBody: playerBody,
-      });
-      if (g) {
-        frame.drawLines(ctx, {
-          vertices: new Float32Array([
-            g.point[0],
-            g.point[1],
-            g.point[2],
-            g.point[0] + g.normal[0],
-            g.point[1] + g.normal[1],
-            g.point[2] + g.normal[2],
-          ]),
-          colors: new Float32Array([0, 1, 0, 1, 0, 1, 0, 1]),
-          camera: cam,
-          occlude: false, // draw on top so the probe is visible through geometry
-        });
-      }
-    }
   });
 
   // Tear down in reverse dependency order: stop the loop, release consumer

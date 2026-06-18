@@ -13,7 +13,7 @@ await ensureBunWebGpu();
 
 const CAPSULE = { halfHeight: 0.6, radius: 0.3 };
 const SHOVE_SPEED = 3;
-const SHOVE_REACH = 0.7;
+const SHOVE_REACH = 0.6;
 const TICKS = 20;
 const DT = 1 / 60;
 // Capsule centre with the feet resting EXACTLY on the floor top (y=0.1) — the
