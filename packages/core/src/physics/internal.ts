@@ -1,4 +1,5 @@
 import RAPIER from "@dimforge/rapier3d-compat";
+import { FurnaceError } from "../errors.ts";
 import type { BodyDescriptor, ShapeDescriptor } from "./types.ts";
 
 let initPromise: Promise<void> | null = null;
@@ -72,6 +73,27 @@ function buildShapeDesc(shape: ShapeDescriptor): RAPIER.ColliderDesc {
     Math.max(shape.cylinder.halfHeight - b, b),
     Math.max(shape.cylinder.radius - b, b),
     b,
+  );
+}
+
+/** Build a Rapier `Shape` from a furnace `ShapeDescriptor`, for shape-casting.
+ *  Convex shapes only — trimesh is not a castable shape. */
+export function buildShape(shape: ShapeDescriptor): RAPIER.Shape {
+  if ("ball" in shape) return new RAPIER.Ball(shape.ball);
+  if ("cuboid" in shape) {
+    return new RAPIER.Cuboid(shape.cuboid[0], shape.cuboid[1], shape.cuboid[2]);
+  }
+  if ("capsule" in shape) {
+    return new RAPIER.Capsule(shape.capsule.halfHeight, shape.capsule.radius);
+  }
+  if ("cylinder" in shape) {
+    return new RAPIER.Cylinder(
+      shape.cylinder.halfHeight,
+      shape.cylinder.radius,
+    );
+  }
+  throw new FurnaceError(
+    "physics.castShape: shape must be { ball }, { cuboid }, { capsule } or { cylinder } (trimesh is not castable)",
   );
 }
 

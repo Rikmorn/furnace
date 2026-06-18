@@ -45,3 +45,36 @@ test.skipIf(!bunWebGpuAvailable())(
     gpu.dispose(ctx);
   },
 );
+
+test.skipIf(!bunWebGpuAvailable())(
+  "castShape sweeps a capsule into a wall and returns toi + a normal opposing travel",
+  async () => {
+    const canvas = await makeOffscreenCanvas();
+    const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
+    const world = await physics.createWorld(ctx, { gravity: [0, -9.81, 0] });
+    // A wall (thin cuboid) at x=2, spanning the path.
+    physics.createBody(ctx, world, {
+      type: "static",
+      shape: { cuboid: [0.1, 2, 2] },
+      position: [2, 0, 0],
+    });
+    physics.step(ctx, world, 1 / 60);
+
+    const hit = physics.castShape(ctx, world, {
+      shape: { capsule: { halfHeight: 0.6, radius: 0.3 } },
+      position: [0, 0, 0],
+      dir: [1, 0, 0],
+      maxDistance: 5,
+    });
+    expect(hit).not.toBeNull();
+    if (hit) {
+      // capsule radius 0.3 hits the wall face at x=1.9 (2 - 0.1), from x=0 → toi ≈ 1.6
+      expect(hit.toi).toBeGreaterThan(1.2);
+      expect(hit.toi).toBeLessThan(1.8);
+      expect(hit.normal[0]).toBeLessThan(-0.5); // surface normal opposes +x travel
+    }
+
+    physics.destroyWorld(ctx, world);
+    gpu.dispose(ctx);
+  },
+);
