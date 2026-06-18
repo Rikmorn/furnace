@@ -27,6 +27,8 @@ const MIN_MOVE_LENGTH = 1e-5; // below this the remaining move is exhausted
 const GRAVITY = -9.81;
 const GROUND_SNAP = 0.35; // snap-to-ground reach below the feet (tunable)
 const SLOPE_LIMIT_COS = Math.cos((55 * Math.PI) / 180); // max walkable slope (tunable)
+const STEP_HEIGHT = 0.4; // max auto-step height (> old autostep 0.3, < waist; tunable)
+const STALL_GAIN = 0.6; // horizontal-progress fraction below which we try a step-up
 
 export type Capsule = { halfHeight: number; radius: number };
 
@@ -117,5 +119,38 @@ export class CharacterMover {
     // No ground, or too steep to stand on → fall/slide.
     this.vVel += GRAVITY * dt;
     return { pos: [pos[0], pos[1] + this.vVel * dt, pos[2]], grounded: false };
+  }
+
+  /** Full per-tick resolve: horizontal slide (with step-up), then the vertical
+   *  gravity/ground pass. `desiredHoriz` is the input move (Y ignored). */
+  resolve(
+    ctx: Context,
+    world: physics.World,
+    pos: [number, number, number],
+    desiredHoriz: [number, number, number],
+    dt: number,
+  ): { pos: [number, number, number]; grounded: boolean } {
+    const flat = this.slideHorizontal(ctx, world, pos, desiredHoriz);
+    const flatDist = Math.hypot(flat[0] - pos[0], flat[2] - pos[2]);
+    const flatGain =
+      flatDist / Math.max(1e-5, Math.hypot(desiredHoriz[0], desiredHoriz[2]));
+    let horiz = flat;
+    // If horizontal progress stalled, try stepping up and over.
+    if (flatGain < STALL_GAIN) {
+      const raised: [number, number, number] = [
+        pos[0],
+        pos[1] + STEP_HEIGHT,
+        pos[2],
+      ];
+      const stepped = this.slideHorizontal(ctx, world, raised, desiredHoriz);
+      const stepGain = Math.hypot(
+        stepped[0] - raised[0],
+        stepped[2] - raised[2],
+      );
+      if (stepGain > flatDist + 1e-4) {
+        horiz = stepped; // accept the raised path; gravity snaps the feet down next
+      }
+    }
+    return this.applyGravity(ctx, world, horiz, dt);
   }
 }
