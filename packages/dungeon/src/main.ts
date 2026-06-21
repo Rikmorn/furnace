@@ -36,8 +36,8 @@ const CLEAR_COLOR = vec4.fromValues(
 );
 
 /** Build one generated region: a lit-stone mesh seated at the region origin, plus
- *  a static trimesh collider added to `world`. The trimesh body is freed by
- *  `physics.destroyWorld`; `destroy()` only frees the GPU mesh + geometry. */
+ *  a static field-derived voxel collider added to `world`. The collider body is
+ *  freed by `physics.destroyWorld`; `destroy()` only frees the GPU mesh + geometry. */
 function addRegion(
   ctx: gpu.Context,
   world: physics.World,
@@ -51,13 +51,8 @@ function addRegion(
   mesh.setPosition(ctx, m, vec3.fromValues(ox, oy, oz));
   physics.createBody(ctx, world, {
     type: "static",
-    shape: {
-      trimesh: {
-        vertices: region.mesh.positions,
-        indices: region.mesh.indices,
-      },
-    },
-    position: [ox, oy, oz],
+    shape: region.proxy,
+    position: region.proxyPosition,
   });
   return {
     mesh: m,
