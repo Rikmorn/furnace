@@ -47,6 +47,15 @@ function isValidShape(shape: ShapeDescriptor): boolean {
       shape.trimesh.indices.length % 3 === 0
     );
   }
+  if ("voxels" in shape) {
+    const v = shape.voxels;
+    return (
+      v.coords instanceof Int32Array &&
+      v.coords.length > 0 &&
+      v.coords.length % 3 === 0 &&
+      isFiniteVec3(v.size)
+    );
+  }
   return (
     Number.isFinite(shape.cylinder.halfHeight) &&
     Number.isFinite(shape.cylinder.radius)
@@ -71,7 +80,7 @@ function validateBodyDescriptor(d: BodyDescriptor): void {
   }
   if (!isValidShape(d.shape)) {
     throw new FurnaceError(
-      "physics.createBody: shape must be { ball }, { cuboid }, { cylinder }, { capsule } or { trimesh }",
+      "physics.createBody: shape must be { ball }, { cuboid }, { cylinder }, { capsule }, { trimesh } or { voxels }",
     );
   }
 }
@@ -79,7 +88,7 @@ function validateBodyDescriptor(d: BodyDescriptor): void {
 /**
  * Create a rigid {@link Body} in `world`. `type` selects dynamic (simulated),
  * static (immovable), or kinematicPosition (pose-driven, ignores gravity);
- * `shape` is the collider (ball/cuboid/cylinder/capsule/trimesh).
+ * `shape` is the collider (ball/cuboid/cylinder/capsule/trimesh/voxels).
  * Dynamic mass comes from `density` (default 1).
  *
  * @throws FurnaceError - if the descriptor is malformed (unknown type,

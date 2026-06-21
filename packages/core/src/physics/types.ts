@@ -23,17 +23,20 @@ export type QuatTuple = readonly [number, number, number, number];
  *  default when omitted. */
 export type WorldDescriptor = { gravity: Vec3Tuple; lengthUnit?: number };
 
-/** Collision shape: a sphere (`ball` radius), box (`cuboid` half-extents),
- *  cylinder/capsule (Y-axis aligned, half-height + radius), or a `trimesh`
- *  (flat triangle soup — `vertices` xyz-packed, `indices` u32 triples).
- *  **`trimesh` is for static (or kinematic) level geometry only** — it has no
- *  interior volume, so never put it on a `dynamic` body (use convex shapes there). */
+/** Collision shape: a sphere (`ball`), box (`cuboid`), cylinder/capsule
+ *  (Y-aligned, half-height + radius), a `trimesh` (triangle soup), or `voxels`
+ *  (a set of solid grid cells). **`trimesh` and `voxels` are for static (or
+ *  kinematic) level geometry only** — no interior volume, never on a `dynamic`
+ *  body. `voxels.coords` are signed integer grid coordinates, 3 ints per solid
+ *  voxel; each voxel is sized by `size`; the collider is free of the internal-edge
+ *  artifact across shared voxel faces. */
 export type ShapeDescriptor =
   | { ball: number }
   | { cuboid: Vec3Tuple }
   | { cylinder: { halfHeight: number; radius: number } }
   | { capsule: { halfHeight: number; radius: number } }
-  | { trimesh: { vertices: Float32Array; indices: Uint32Array } };
+  | { trimesh: { vertices: Float32Array; indices: Uint32Array } }
+  | { voxels: { coords: Int32Array; size: Vec3Tuple } };
 
 /** Input bundle for {@link createBody}. */
 export type BodyDescriptor = {

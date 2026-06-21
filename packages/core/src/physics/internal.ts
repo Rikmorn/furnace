@@ -64,6 +64,14 @@ function buildShapeDesc(shape: ShapeDescriptor): RAPIER.ColliderDesc {
       shape.trimesh.indices,
     );
   }
+  if ("voxels" in shape) {
+    const v = shape.voxels;
+    return RAPIER.ColliderDesc.voxels(v.coords, {
+      x: v.size[0],
+      y: v.size[1],
+      z: v.size[2],
+    });
+  }
   // roundCylinder's border is added to the requested dims (Minkowski sum), so
   // compensate to keep { halfHeight, radius } the true outer dimension. The
   // `max(dim - b, b)` floor keeps the Rapier dims positive for sub-2b inputs
