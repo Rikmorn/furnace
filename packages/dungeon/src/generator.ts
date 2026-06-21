@@ -1,6 +1,8 @@
+import type { ShapeDescriptor } from "@furnace/core/physics";
 import * as rng from "@furnace/core/rng";
 import type { Field } from "./field.ts";
 import * as field from "./field.ts";
+import { voxelProxyPosition, voxelsFromField } from "./proxy.ts";
 import { type GridConfig, type MeshData, surfaceNets } from "./surface-nets.ts";
 
 export type RegionKind = "cavern" | "shaft" | "chamber";
@@ -29,12 +31,14 @@ export type RegionModel = {
   entities: never[]; // populated by future passes (prop/light scatter)
 };
 
-/** A generated region: the realised mesh + its provenance + placement origin. */
+/** A generated region: the realised mesh + collision proxy + provenance + placement origin. */
 export type Region = {
   mesh: MeshData;
   origin: [number, number, number];
   provenance: Provenance;
   theme: string;
+  proxy: ShapeDescriptor;
+  proxyPosition: [number, number, number];
 };
 
 const GENERATOR_VERSION = 1;
@@ -101,6 +105,30 @@ function seedModel(params: RegionParams): RegionModel {
   };
 }
 
+function buildProxy(
+  f: Field,
+  grid: GridConfig,
+  origin: [number, number, number],
+): { proxy: ShapeDescriptor; proxyPosition: [number, number, number] } {
+  const vox = voxelsFromField(f, grid);
+  return {
+    proxy: { voxels: vox },
+    proxyPosition: voxelProxyPosition(grid, origin),
+  };
+}
+
+/** Build only the collision proxy for `params` (runs the field, no Surface-Nets).
+ *  Used for baked regions whose render comes from a `.fmesh`. */
+export function generateProxy(params: RegionParams): {
+  proxy: ShapeDescriptor;
+  proxyPosition: [number, number, number];
+} {
+  const cfg = KIND_CONFIG[params.kind];
+  const r = rng.create(params.seed);
+  const f = cfg.makeField(r.derive("geometry"));
+  return buildProxy(f, cfg.grid, params.origin);
+}
+
 /** Run the pass pipeline for `params` and realise the result to mesh data. */
 export function generateRegion(params: RegionParams): Region {
   let model = seedModel(params);
@@ -108,6 +136,11 @@ export function generateRegion(params: RegionParams): Region {
   if (!model.field)
     throw new Error("generator: no geometry pass produced a field");
   const mesh = surfaceNets(model.field, model.grid);
+  const { proxy, proxyPosition } = buildProxy(
+    model.field,
+    model.grid,
+    params.origin,
+  );
   return {
     mesh,
     origin: params.origin,
@@ -118,5 +151,7 @@ export function generateRegion(params: RegionParams): Region {
       seed: params.seed,
       kind: params.kind,
     },
+    proxy,
+    proxyPosition,
   };
 }
