@@ -35,10 +35,9 @@ test.skipIf(!bunWebGpuAvailable())(
       maxDistance: 8,
     });
     expect(hit).not.toBeNull();
-    // VERIFIED (this session): Rapier voxels are CORNER-anchored, not centred.
-    // Voxel (0,0,0) with size 1 occupies the cell [0,1]^3, so its top face is at
-    // y≈1.0 (NOT 0.5). Task 2's voxelProxyPosition must use HALF_VOXEL=0 (corner),
-    // not +0.5*size (centre), to align the proxy with the field cells.
+    // Rapier voxels are CORNER-anchored, not centred: voxel (0,0,0) with size 1
+    // occupies the cell [0,1]^3, so its top face is at y≈1.0 (NOT 0.5). A proxy
+    // placement must therefore use a zero half-cell offset to align with the field.
     if (hit) expect(hit.point[1]).toBeCloseTo(1.0, 1);
 
     const ball = physics.createBody(ctx, world, {
