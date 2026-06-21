@@ -63,6 +63,36 @@ test.skipIf(!bunWebGpuAvailable())(
 );
 
 test.skipIf(!bunWebGpuAvailable())(
+  "the chamber voxel floor covers the hall↔chamber seam (no gap at z=-15.5)",
+  async () => {
+    const canvas = await makeOffscreenCanvas();
+    const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
+    const world = await physics.createWorld(ctx, { gravity: [0, -9.81, 0] });
+    const region = generateRegion({
+      seed: "chamber-1",
+      kind: "chamber",
+      origin: [0, 0, -19],
+    });
+    physics.createBody(ctx, world, {
+      type: "static",
+      shape: region.proxy,
+      position: region.proxyPosition,
+    });
+    physics.step(ctx, world, 1 / 60);
+    // world z=-15.5 is past the chamber's visual front edge (z=-16), toward the
+    // corridor — must still hit voxel floor (overlap coverage).
+    const hit = physics.castRay(ctx, world, {
+      origin: [0, 3, -15.5],
+      dir: [0, -1, 0],
+      maxDistance: 8,
+    });
+    expect(hit).not.toBeNull();
+    physics.destroyWorld(ctx, world);
+    gpu.dispose(ctx);
+  },
+);
+
+test.skipIf(!bunWebGpuAvailable())(
   "player dropped into the shaft is caught by the voxel proxy (no fall-through)",
   async () => {
     const canvas = await makeOffscreenCanvas();

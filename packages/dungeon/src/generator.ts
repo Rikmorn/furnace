@@ -68,7 +68,7 @@ const KIND_CONFIG: Record<
   // grid → only the y=0 floor meshes) with edge-tapered noise so the seam stays
   // flush (walkable) while the interior is visibly carved.
   chamber: {
-    grid: { min: [-6, -1.5, -3], cellSize: 0.5, dims: [24, 6, 12] },
+    grid: { min: [-6, -1.5, -3], cellSize: 0.5, dims: [24, 6, 14] },
     makeField: (r) =>
       field.taperedNoiseDisplace(
         field.boxCavern(0, 10, 0, 10, 10, 10),
