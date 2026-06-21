@@ -43,12 +43,6 @@
         "meshRenderer": {
           "geometry": "regionMesh",
           "material": "m_stone"
-        },
-        "rigidBody": {
-          "type": "static",
-          "shape": {
-            "trimesh": true
-          }
         }
       }
     }

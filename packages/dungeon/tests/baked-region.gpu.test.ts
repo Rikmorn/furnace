@@ -5,6 +5,7 @@ import * as gpu from "@furnace/core/gpu";
 import * as physics from "@furnace/core/physics";
 import { loadScene } from "@furnace/core/scene";
 import { vec3 } from "@furnace/core/transform";
+import { generateProxy } from "../src/generator.ts";
 import {
   bunWebGpuAvailable,
   ensureBunWebGpu,
@@ -17,7 +18,7 @@ import {
 await ensureBunWebGpu();
 
 test.skipIf(!bunWebGpuAvailable())(
-  "the baked region loads via loadScene into an existing world (round-trip) and collides",
+  "the baked region loads via loadScene (render-only) and a field-derived voxel proxy catches a ball",
   async () => {
     const canvas = await makeOffscreenCanvas();
     const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
@@ -41,8 +42,21 @@ test.skipIf(!bunWebGpuAvailable())(
       expect(scene.meshes.length).toBe(1);
       expect(scene.world).toBe(world); // injected world is reused, not a new one
 
+      // The cavern scene is now render-only; collision comes from a field-derived
+      // voxel proxy regenerated from the same seed/kind/origin as the baked mesh.
+      const cavernProxy = generateProxy({
+        seed: "cavern-1",
+        kind: "cavern",
+        origin: [0, 0, -24],
+      });
+      physics.createBody(ctx, world, {
+        type: "static",
+        shape: cavernProxy.proxy,
+        position: cavernProxy.proxyPosition,
+      });
+
       // Collision proof: a ball dropped above the cavern bowl center (entity placed
-      // at world [0,0,-24]) should be caught by the floor, not fall to -infinity.
+      // at world [0,0,-24]) should be caught by the voxel floor, not fall to -infinity.
       const ball = physics.createBody(ctx, world, {
         type: "dynamic",
         shape: { ball: 0.4 },
@@ -52,7 +66,7 @@ test.skipIf(!bunWebGpuAvailable())(
       for (let i = 0; i < 240; i++) physics.step(ctx, world, 1 / 60);
 
       const pos = physics.getBodyTranslation(ctx, ball, vec3.create());
-      // The ball must be caught by the trimesh floor — NOT fallen through to -infinity.
+      // The ball must be caught by the voxel floor — NOT fallen through to -infinity.
       // Threshold -4 is generous enough to tolerate any bowl depth while still
       // ruling out an uncollided free-fall (240 steps × 9.81 m/s² ≈ 470 m down).
       expect(pos[1]).toBeGreaterThan(-4);

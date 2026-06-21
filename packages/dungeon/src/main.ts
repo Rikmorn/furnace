@@ -13,7 +13,11 @@ import * as shader from "@furnace/core/shader";
 import { vec3, vec4 } from "@furnace/core/transform";
 import { CharacterMover, shoveDynamicBodies } from "./char-move.ts";
 import { FpController } from "./fp-controller.ts";
-import { generateRegion, type RegionParams } from "./generator.ts";
+import {
+  generateProxy,
+  generateRegion,
+  type RegionParams,
+} from "./generator.ts";
 import { buildGlows, buildLevel } from "./level.ts";
 import { buildMotes } from "./motes.ts";
 import { buildProps } from "./props.ts";
@@ -109,6 +113,18 @@ async function main(): Promise<void> {
     await (await fetch("/regions/region-cavern.scene.json")).json(),
     { world, fragment: true },
   );
+  // Cavern renders from the baked .fmesh (render-only scene); collision is a
+  // field-derived voxel proxy regenerated here (seed/kind/origin match the bake).
+  const cavernProxy = generateProxy({
+    seed: "cavern-1",
+    kind: "cavern",
+    origin: [0, 0, -24],
+  });
+  physics.createBody(ctx, world, {
+    type: "static",
+    shape: cavernProxy.proxy,
+    position: cavernProxy.proxyPosition,
+  });
   const shaft = addRegion(ctx, world, regionStone, {
     seed: "shaft-1",
     kind: "shaft",
