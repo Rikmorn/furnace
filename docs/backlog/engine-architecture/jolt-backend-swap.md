@@ -12,19 +12,46 @@ Rapier was chosen as the *simple start*: lowest wrapper cost for the immediate p
 
 **Why this is a cheap option, not a fork in the road:** the physics wrapper is **backend-neutral and thread-ready by design** (ADR 0001, Decision 7) — collision/contact events are a **drainable queue read after each `step()`**, never mid-step push-callbacks. That shape is portable across both engines and survives Jolt's Emscripten-worker model. So swapping Rapier→Jolt rewrites wrapper internals only; **consumer code is untouched**. The reversal cost is real but asymmetric, and the wrapper front-loads it.
 
+## Slice 2.2.1 spike finding — a *second* reason to swap: edge-aware mesh collision (2026-06-22)
+
+A second, independent motivation arrived from the procgen collision work. The generated
+Surface-Nets render mesh suffers internal-edge "ghost collisions" under Rapier's `trimesh`
+(no internal-edge filtering); Slice 2.2.1 worked around it with blocky **voxel** colliders.
+A throwaway headless spike confirmed **Jolt's `CharacterVirtual` walks those exact generated
+trimeshes ghost-free** (single-frame deflection never exceeds the walk step on any surface)
+— so the endgame is **field → Surface-Nets mesh → collide on Jolt** (the NMS pattern),
+adopting Jolt's `CharacterVirtual` KCC in place of the custom `CharacterMover`, with voxels
+retired. Full method/results/caveats: `docs/learnings/jolt-mesh-collision-spike.md`.
+
+Spike-verified facts that shrink the swap's risk:
+- `jolt-physics@1.0.0` exposes the needed surface from JS (`MeshShapeSettings`,
+  `CharacterVirtual`/`ExtendedUpdate`, `CapsuleShape`, `mEnhancedInternalEdgeRemoval` on
+  both body and character; partially fills evidence gap #1 below).
+- Bundle ≈ +0.4 MB (~30%) over Rapier-compat (Jolt wasm ~1.99 MB vs ~1.57 MB) — modest.
+- Single-thread `wasm-compat` build needs **no** cross-origin isolation → fits browser-only
+  core. (Multicore — the original trigger — still needs isolation.)
+- **Nuance for the implementer:** `mEnhancedInternalEdgeRemoval` *pins* the character at
+  curved walls instead of sliding; clean floor traversal needs no flag. Don't blindly enable
+  it — evaluate slide feel.
+
 ## Trigger to revisit
 
 Any **one** of:
 1. **A demo or consumer need for single-scene multicore CPU physics** — heavy interactive rigid-body simulation that must scale across compute and *cannot* move to the GPU-resident track (i.e. gameplay-critical, per-frame-readback physics, not fire-and-forget visual sim). This is the primary trigger and maps onto the deferred job-system / compute-scalability ambition.
 2. **A decision to offer a consumer-selectable backend** (`physics` API stays fixed; consumer picks Rapier vs Jolt at build/config time) — the "who knows" upside the neutral wrapper enables.
 3. A Jolt-only featureset becoming a real gameplay need (soft bodies, large-scale destruction, etc.) — the original AAA-breadth flip condition from `cpu-physics-backend-comparison.md`.
+4. **Edge-aware mesh collision for procgen geometry** (added 2026-06-22) — wanting to
+   collide the detailed Surface-Nets render mesh directly (ghost-free) and retire the blocky
+   voxel proxies. Spike-confirmed viable (see the Slice 2.2.1 section above). This is a
+   dungeon/Epic-2 trigger; first step would be a Rapier-vs-Jolt A/B regression test on the
+   identical chamber mesh (the gold-standard the spike deferred).
 
 Bowling and similar single-player, low-body-count, single-scene interactive physics do **not** trigger it — Rapier is the active backend for those.
 
 ## Evidence gaps to fill first (left open by the lighter research run)
 
 When triggered, resolve these before committing to the swap (detailed in `docs/research/rapier-vs-jolt-threading-debuggability.md` §Open gaps):
-1. **Jolt's debug wasm** — what `jolt-physics` actually exposes from JS (debug-render geometry, runtime introspection). Repo: https://github.com/jrouwe/JoltPhysics.js — uncharacterized.
+1. **Jolt's debug wasm** — what `jolt-physics` actually exposes from JS (debug-render geometry, runtime introspection). Repo: https://github.com/jrouwe/JoltPhysics.js. *Partially characterized 2026-06-22:* the core sim/mesh/character surface is confirmed bound and usable headless (see the Slice 2.2.1 spike section + `docs/learnings/jolt-mesh-collision-spike.md`); the debug-render/introspection surface specifically is still uncharacterized.
 2. **Jolt threaded JS callbacks** — has an official/safe path landed since the 2024 `JoltPhysics.js#134`/`#110` discussion, or is the unofficial post-js worker swizzle still required? Determines how thread-ready a Jolt wrapper really is. (Less critical if the wrapper holds the drainable-event shape, which sidesteps cross-worker callbacks.)
 3. **Rapier multi-world-on-workers + `wasm-bindgen-rayon` Rapier** — confirm whether either is a real, used scaling path before assuming Jolt is the *only* multicore option.
 4. **Jolt wasm determinism** — guarantee + any optimization trade-off analogous to Rapier's `-deterministic` vs SIMD/parallel mutual exclusion.
