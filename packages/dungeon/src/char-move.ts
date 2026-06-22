@@ -96,11 +96,15 @@ export class CharacterMover {
     return this.capsule.halfHeight + this.capsule.radius;
   }
 
-  /** Resolve the vertical pass from `pos`: detect ground via a downward ray to the
-   *  TRUE surface normal (bypassing corrupted contact normals). Snap to the ground
-   *  and report grounded ONLY when the ground is walkable (slope gate via
-   *  isWalkable); otherwise integrate gravity into `vVel` so the player slides/falls
-   *  off too-steep surfaces. Separate from the horizontal pass (Fauerby §4.3). */
+  /** Resolve the vertical pass from `pos`. The slope gate uses a centre down-RAY
+   *  for the TRUE surface normal (a shape sweep picks up corrupted trimesh
+   *  internal-edge normals). The rest HEIGHT, however, comes from a downward
+   *  capsule SWEEP from STEP_HEIGHT above: it rests the body on the highest
+   *  support within its footprint instead of letting a single ray sink it into a
+   *  voxel pocket narrower than the capsule (where it would wedge and stick). On a
+   *  smooth surface the sweep and the ray agree, so trimesh behaviour is unchanged.
+   *  Grounded/walkable only when the ground passes the slope gate; otherwise
+   *  integrate gravity so the player slides/falls off too-steep surfaces. */
   applyGravity(
     ctx: Context,
     world: physics.World,
@@ -108,17 +112,25 @@ export class CharacterMover {
     dt: number,
   ): { pos: [number, number, number]; grounded: boolean } {
     const foot = this.footOffset();
-    // Ray from the body centre straight down; foot is at pos.y - foot.
-    const ground = physics.castRay(ctx, world, {
+    const ray = physics.castRay(ctx, world, {
       origin: [pos[0], pos[1], pos[2]],
       dir: [0, -1, 0],
       maxDistance: foot + GROUND_SNAP,
       excludeBody: this.body,
     });
-    if (ground !== null && isWalkable(ground.normal, SLOPE_LIMIT_COS)) {
-      // Walkable ground: snap the feet onto it; zero vertical velocity.
+    if (ray !== null && isWalkable(ray.normal, SLOPE_LIMIT_COS)) {
       this.vVel = 0;
-      return { pos: [pos[0], ground.point[1] + foot, pos[2]], grounded: true };
+      // Rest on the highest support under the footprint (rim-riding, no pocket sink).
+      const sweep = physics.castShape(ctx, world, {
+        shape: { capsule: this.capsule },
+        position: [pos[0], pos[1] + STEP_HEIGHT, pos[2]],
+        dir: [0, -1, 0],
+        maxDistance: STEP_HEIGHT + GROUND_SNAP,
+        excludeBody: this.body,
+      });
+      const restY =
+        sweep !== null ? pos[1] + STEP_HEIGHT - sweep.toi : ray.point[1] + foot;
+      return { pos: [pos[0], restY, pos[2]], grounded: true };
     }
     // No ground, or too steep to stand on → fall/slide.
     this.vVel += GRAVITY * dt;

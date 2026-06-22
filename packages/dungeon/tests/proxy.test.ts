@@ -13,12 +13,27 @@ test("emits one int-triple per solid cell (rock = f<0), 3 ints each", () => {
   expect(vox.coords.length / 3).toBe(9); // 3x3 bottom layer
 });
 
-test("shell-only drops the fully-enclosed centre cell", () => {
+test("off-grid neighbours count as solid: an all-rock grid has no shell", () => {
+  // Every cell is rock and every neighbour (in-grid rock OR off-grid, treated as
+  // solid) is solid → all cells are enclosed → the shell is empty. This is the
+  // fix for the invisible-wall bug: a grid's outer rock faces, which Surface-Nets
+  // never meshes, must NOT become collision.
   const allRock: Field = () => -1;
   const full = voxelsFromField(allRock, GRID, undefined, false);
   const shell = voxelsFromField(allRock, GRID, undefined, true);
-  expect(full.coords.length / 3).toBe(27);
-  expect(shell.coords.length / 3).toBe(26);
+  expect(full.coords.length / 3).toBe(27); // shellOnly=false emits every rock cell
+  expect(shell.coords.length / 3).toBe(0); // shellOnly drops them all (no in-grid air)
+});
+
+test("shell keeps rock bordering in-grid air, drops the deeper interior", () => {
+  // Two rock layers (y<0) with air above. The top rock layer borders in-grid air
+  // → kept; the layer beneath it is enclosed (rock above, off-grid below) → dropped.
+  const grid: GridConfig = { min: [-1, -2, -1], cellSize: 1, dims: [3, 4, 3] };
+  const halfRock: Field = (_x, y, _z) => y; // rock y<0 → j=0,1; air y>0 → j=2,3
+  const full = voxelsFromField(halfRock, grid, undefined, false);
+  const shell = voxelsFromField(halfRock, grid, undefined, true);
+  expect(full.coords.length / 3).toBe(18); // both rock layers (2 × 3×3)
+  expect(shell.coords.length / 3).toBe(9); // only the air-bordering top layer
 });
 
 test("deterministic + honours an anisotropic voxelSize override", () => {

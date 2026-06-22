@@ -54,8 +54,14 @@ const KIND_CONFIG: Record<
   // the lower bowl is meshed; floor closes ~world y=-3, opening radius ~3.9 at y=0.
   cavern: {
     grid: { min: [-5, -4, -5], cellSize: 0.5, dims: [20, 8, 20] },
+    // A rounded-box grotto sized to the authored floor pit (world x[-2,2],
+    // z[-22,-26], centred at the region origin [0,0,-24]). A box (not a sphere)
+    // fills the SQUARE pit with no unfilled corners → no fall-through, and stays
+    // within the pit → no rim poking up into the surrounding chamber floor.
+    // Half-extents 1.9 keep the walls a touch inside the 2.0 pit edge so noise
+    // can't push them into the chamber; depth 2 floors the grotto at world y=-2.
     makeField: (r) =>
-      field.noiseDisplace(field.sphereCavern(0, 1, 0, 4), r, 0.6, 0.35),
+      field.noiseDisplace(field.boxCavern(0, 0, 0, 1.9, 2, 1.9), r, 0.3, 0.4),
   },
   // Deep narrow vertical shaft you DROP down. Air cylinder extends above the grid
   // top (y=0) → open mouth; floor closes ~world y=-6, opening radius ~2.5 at y=0.
@@ -105,12 +111,22 @@ function seedModel(params: RegionParams): RegionModel {
   };
 }
 
+// Collision voxels are anisotropic in Y: half the cubic cell height so a
+// floor-height quantization step is 0.25m (< the controller's 0.4m STEP_HEIGHT)
+// instead of a 0.5m cubic cell (> STEP_HEIGHT, which stalls walking). X/Z stay
+// at grid.cellSize — only the climbed axis needs the finer resolution.
+const PROXY_VOXEL_Y = 0.25;
+
 function buildProxy(
   f: Field,
   grid: GridConfig,
   origin: [number, number, number],
 ): { proxy: ShapeDescriptor; proxyPosition: [number, number, number] } {
-  const vox = voxelsFromField(f, grid);
+  const vox = voxelsFromField(f, grid, [
+    grid.cellSize,
+    PROXY_VOXEL_Y,
+    grid.cellSize,
+  ]);
   return {
     proxy: { voxels: vox },
     proxyPosition: voxelProxyPosition(grid, origin),

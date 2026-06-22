@@ -5,8 +5,9 @@ const SEED = "cavern-1";
 const ORIGIN: [number, number, number] = [0, 0, -24];
 const region = generateRegion({ seed: SEED, kind: "cavern", origin: ORIGIN });
 
-// render == collision in 2.1: omit the collision block (the 'mesh' resource retains
-// the render buffers for the trimesh collider).
+// Render-only since 2.2.1: collision is a field-derived voxel proxy regenerated
+// at runtime from the same seed/kind/origin (deterministic → matches the bake), so
+// the scene carries NO rigidBody and the .fmesh holds only render buffers.
 const fmesh = encodeMeshBlob({ render: region.mesh });
 await Bun.write("packages/dungeon/regions/region-cavern.fmesh", fmesh);
 
@@ -39,7 +40,6 @@ const scene = {
       components: {
         transform: { position: ORIGIN },
         meshRenderer: { geometry: "regionMesh", material: "m_stone" },
-        rigidBody: { type: "static", shape: { trimesh: true } },
       },
     },
   ],
@@ -48,4 +48,6 @@ await Bun.write(
   "packages/dungeon/regions/region-cavern.scene.json",
   JSON.stringify(scene, null, 2),
 );
-console.log("baked region-cavern");
+// JSON.stringify expands arrays; biome wants them inline. Run after re-baking:
+//   bunx biome format --write packages/dungeon/regions/region-cavern.scene.json
+console.log("baked region-cavern (run biome format on the .scene.json)");
