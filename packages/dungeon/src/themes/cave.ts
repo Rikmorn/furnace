@@ -42,15 +42,16 @@ type Graph = { hub: Node; branches: Branch[] };
  *  extends beyond it. */
 function buildGraph(rng: Rng): Graph {
   const hub: Node = { center: [0, FLOOR_Y + HUB_HALF[1], 0], half: HUB_HALF };
-  // -Z is reserved for the cave entrance (where the area attaches to the authored level),
-  // so branches fan only into +X / -X / +Z — this keeps the entrance the sole -Z mouth and
-  // prevents a branch room from overlapping the entrance corridor.
+  // The wing attaches to the authored level on its -Z (entrance) and -X (the level
+  // extends west of the attachment — corridor/main spine) sides, so branches fan only
+  // into the OPEN quadrant +X / +Z. A -X or -Z branch would drive a room back into the
+  // authored level (overlapping the spawn corridor → colliding geometry). Only two
+  // cardinals are open here, so the wing carries two branches.
   const DIRS: Vec3[] = [
     [1, 0, 0],
-    [-1, 0, 0],
     [0, 0, 1],
   ];
-  const count = rng.int(2, 4); // 2 or 3 branches
+  const count = Math.min(rng.int(2, 4), DIRS.length); // branches, capped to open dirs
   const chosen = rng.derive("dirs");
   const pool: Vec3[] = [...DIRS];
   const branches: Branch[] = [];

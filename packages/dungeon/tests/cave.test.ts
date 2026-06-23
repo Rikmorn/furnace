@@ -53,3 +53,19 @@ test("every tunnel-mouth connection faces outward in the XZ plane", () => {
     expect(c.width).toBeGreaterThanOrEqual(0.7);
   }
 });
+
+// Regression (gate fix): a -X or -Z branch drives a room back into the authored level
+// the wing attaches to (the level sits to the wing's -X corridor / -Z entrance sides),
+// which overlapped the spawn corridor. Branches must fan ONLY into the open +X/+Z
+// quadrant; -Z is the entrance alone. Verified across several seeds.
+test("cave branches fan only into the open +X/+Z quadrant (never back toward the level)", () => {
+  for (const seed of ["cave-1", "A", "B", "wing-1", "walk-1"]) {
+    const r = cave({ ...params, seed });
+    for (const c of r.connections) {
+      if (c.kind !== "tunnel-mouth") continue;
+      const isEntrance = c.facing[0] === 0 && c.facing[2] === -1;
+      if (isEntrance) continue;
+      expect(c.facing[0] === 1 || c.facing[2] === 1).toBe(true); // +X or +Z only
+    }
+  }
+});
