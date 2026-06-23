@@ -14,7 +14,12 @@ export function pillarHall(p: RegionParams): RegionData {
   const width = rng.derive("w").int(8, 15);
   const depth = rng.derive("d").int(10, 19);
   const height = 3.5 + rng.derive("h").float() * 1.5;
-  const door: DoorSpec = { side: "S", offset: 0, width: 1.6, height: 2.2 };
+  // Door height clears the controller's step-up reach at the cave seam: the cave
+  // voxel floor sits ~0.25m below the room floor at the mouth, so entering the room
+  // is a step-up; a 2.2m lintel sat only STEP_HEIGHT above the room-floor rest height,
+  // so the step-up raise slammed the capsule into the lintel and wedged it (walk-probe
+  // gate). A 2.8m door lifts the lintel well clear of the raised capsule top.
+  const door: DoorSpec = { side: "S", offset: 0, width: 1.6, height: 2.8 };
   const bay = rng.derive("bay").pick([3, 3.5, 4, 4.5]);
   const section = rng.derive("sec").pick([0.5, 0.7, 1.0]);
   const pillars = pillarGrid({ width, depth, bay, section, door }).map((g) =>
