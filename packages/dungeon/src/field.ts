@@ -140,3 +140,73 @@ export function taperedNoiseDisplace(
       weight(x, z) *
       noise(x * frequency, y * frequency, z * frequency);
 }
+
+/** Air-positive capsule/segment SDF: a tube of `r` around segment (ax,ay,az)→(bx,by,bz).
+ *  `>0` inside the tube (air), `<0` outside (rock). The organic-tunnel primitive. */
+export function capsuleCavern(
+  ax: number,
+  ay: number,
+  az: number,
+  bx: number,
+  by: number,
+  bz: number,
+  r: number,
+): Field {
+  const bax = bx - ax;
+  const bay = by - ay;
+  const baz = bz - az;
+  const baLen2 = bax * bax + bay * bay + baz * baz || 1;
+  return (x, y, z) => {
+    const pax = x - ax;
+    const pay = y - ay;
+    const paz = z - az;
+    const t = Math.min(
+      1,
+      Math.max(0, (pax * bax + pay * bay + paz * baz) / baLen2),
+    );
+    const dx = pax - bax * t;
+    const dy = pay - bay * t;
+    const dz = paz - baz * t;
+    return r - Math.hypot(dx, dy, dz);
+  };
+}
+
+/** Smooth maximum (air-positive smooth-union of two densities). `k` = blend thickness
+ *  in distance units. Uses the Quilez polynomial smooth-max: equal inputs produce a
+ *  lift of `k/4`, and inputs more than `k` apart degrade to a hard max. */
+export function smax(a: number, b: number, k: number): number {
+  const h = Math.max(k - Math.abs(a - b), 0);
+  return Math.max(a, b) + (h * h) / (4 * k);
+}
+
+/** Smooth `union` (air ∪ air with a fillet). Drop-in for {@link union}; keep
+ *  `k >= cellSize` (~0.5m) or the blend degrades to a hard max. */
+export function smoothUnion(k: number, ...fields: Field[]): Field {
+  return (x, y, z) => {
+    let m = -Infinity;
+    for (const f of fields) m = smax(m, f(x, y, z), k);
+    return m;
+  };
+}
+
+/** Like {@link noiseDisplace}, but the displacement fades to 0 within `fade` metres of
+ *  `floorY` (smoothstep) so walked floors stay smooth while walls/ceilings stay organic
+ *  (research §1 walkable-floor technique). */
+export function yTaperedNoiseDisplace(
+  base: Field,
+  rng: Rng,
+  amplitude: number,
+  frequency: number,
+  floorY: number,
+  fade: number,
+): Field {
+  const noise = makeValueNoise(rng);
+  return (x, y, z) => {
+    const d = Math.min(Math.max((y - floorY) / fade, 0), 1);
+    const w = d * d * (3 - 2 * d); // smoothstep: 0 at floor → 1 a `fade` above
+    return (
+      base(x, y, z) +
+      amplitude * w * noise(x * frequency, y * frequency, z * frequency)
+    );
+  };
+}

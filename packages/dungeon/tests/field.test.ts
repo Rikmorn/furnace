@@ -66,3 +66,41 @@ test("taperedNoiseDisplace leaves the base unchanged at the footprint edge but p
   const delta = f(1, 0, 1) - base(1, 0, 1);
   expect(Math.abs(delta)).toBeLessThanOrEqual(0.6 + 1e-6);
 });
+
+test("capsuleCavern is air-positive inside the tube, negative outside", () => {
+  const tube = field.capsuleCavern(0, 0, 0, 0, 0, 4, 1); // segment (0,0,0)->(0,0,4), radius 1
+  expect(tube(0, 0, 2)).toBeGreaterThan(0); // on the axis, mid-segment → inside
+  expect(tube(0, 0, 2)).toBeCloseTo(1, 5); // distance 0 → radius - 0 = 1
+  expect(tube(3, 0, 2)).toBeLessThan(0); // 3m off-axis, radius 1 → outside
+  expect(tube(0, 0, -2)).toBeLessThan(0); // before the segment start, > radius away
+});
+
+test("smax is a smooth maximum: >= hard max, within k of it", () => {
+  expect(field.smax(5, -5, 1)).toBeCloseTo(5, 5); // far apart → equals max
+  expect(field.smax(0, 0, 1)).toBeGreaterThan(0); // equal inputs → inflated above max
+  expect(field.smax(0, 0, 1)).toBeLessThan(1); // but bounded by ~k
+});
+
+test("smoothUnion of two spheres has no negative crease between them", () => {
+  // Two air spheres whose hard union would dip to ~0 at the midpoint; smooth must lift it.
+  const a = (x: number, _y: number, _z: number) => 1 - Math.abs(x - 0); // air near x=0
+  const b = (x: number, _y: number, _z: number) => 1 - Math.abs(x - 1.5); // air near x=1.5
+  const hard = Math.max(a(0.75, 0, 0), b(0.75, 0, 0));
+  const soft = field.smoothUnion(1, a, b)(0.75, 0, 0);
+  expect(soft).toBeGreaterThanOrEqual(hard); // fillet lifts the seam
+});
+
+test("yTaperedNoiseDisplace leaves the field near floorY undisplaced, rough above", () => {
+  const base = field.boxCavern(0, 5, 0, 5, 5, 5); // air box centred high; floor crossing near y=0
+  const rough = field.yTaperedNoiseDisplace(
+    base,
+    rng.create("s"),
+    1.0,
+    0.6,
+    0,
+    1.5,
+  ); // floorY=0, fade 1.5m
+  // At the floor band the displacement weight ~0 → equals base; well above, it differs.
+  expect(rough(1, 0, 1)).toBeCloseTo(base(1, 0, 1), 5);
+  expect(rough(1, 4, 1)).not.toBeCloseTo(base(1, 4, 1), 5);
+});
