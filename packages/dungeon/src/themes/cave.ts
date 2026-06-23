@@ -36,11 +36,13 @@ type Graph = { hub: Node; branches: Branch[] };
 /** Seeded graph: a hub + 2..3 branch-end nodes, each reached by one tunnel. */
 function buildGraph(rng: Rng): Graph {
   const hub: Node = { center: [0, FLOOR_Y + HUB_HALF[1], 0], half: HUB_HALF };
+  // -Z is reserved for the cave entrance (where the area attaches to the authored level),
+  // so branches fan only into +X / -X / +Z — this keeps the entrance the sole -Z mouth and
+  // prevents a branch room from overlapping the entrance corridor.
   const DIRS: Vec3[] = [
     [1, 0, 0],
     [-1, 0, 0],
     [0, 0, 1],
-    [0, 0, -1],
   ];
   const count = rng.int(2, 4); // 2 or 3 branches
   const chosen = rng.derive("dirs");
