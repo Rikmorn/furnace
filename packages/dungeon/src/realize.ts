@@ -19,7 +19,12 @@ export class MaterialCache {
 
   constructor(private readonly ctx: Context) {}
 
-  /** Returns a cached GPU material for the given descriptor, creating it on first use. */
+  /** Returns a cached GPU material for the given descriptor, creating it on first use.
+   *
+   *  NOT safe for CONCURRENT calls with the same descriptor key: the check-then-await-
+   *  then-set window means two concurrent same-key calls both miss the cache and each
+   *  allocate a binding+material (only the last is retained — the rest leak). Callers
+   *  must realize regions SEQUENTIALLY (`for ... await`), never `Promise.all`. */
   async get(d: MaterialDescriptor): Promise<material.Material> {
     const key = JSON.stringify(d);
     const hit = this.entries.get(key);

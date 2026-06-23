@@ -1,26 +1,19 @@
-import * as binding from "@furnace/core/binding";
 import * as camera from "@furnace/core/camera";
 import * as frame from "@furnace/core/frame";
-import * as geometry from "@furnace/core/geometry";
 import * as gpu from "@furnace/core/gpu";
 import * as input from "@furnace/core/input";
-import * as material from "@furnace/core/material";
-import * as mesh from "@furnace/core/mesh";
 import * as physics from "@furnace/core/physics";
 import * as post from "@furnace/core/post";
 import { loadScene } from "@furnace/core/scene";
-import * as shader from "@furnace/core/shader";
 import { vec3, vec4 } from "@furnace/core/transform";
 import { CharacterMover, shoveDynamicBodies } from "./char-move.ts";
+import { buildArea } from "./compose.ts";
 import { FpController } from "./fp-controller.ts";
-import {
-  generateProxy,
-  generateRegion,
-  type RegionParams,
-} from "./generator.ts";
+import { generateProxy } from "./generator.ts";
 import { buildGlows, buildLevel } from "./level.ts";
 import { buildMotes } from "./motes.ts";
 import { buildProps } from "./props.ts";
+import { MaterialCache, realizeRegion } from "./realize.ts";
 import { Torch } from "./torch.ts";
 
 const PLAYER_CAPSULE_HALF_HEIGHT = 0.6;
@@ -38,34 +31,6 @@ const CLEAR_COLOR = vec4.fromValues(
   FOG_COLOR[2],
   1,
 );
-
-/** Build one generated region: a lit-stone mesh seated at the region origin, plus
- *  a static field-derived voxel collider added to `world`. The collider body is
- *  freed by `physics.destroyWorld`; `destroy()` only frees the GPU mesh + geometry. */
-function addRegion(
-  ctx: gpu.Context,
-  world: physics.World,
-  stone: material.Material,
-  params: RegionParams,
-): { mesh: mesh.Mesh; destroy: () => void } {
-  const region = generateRegion(params);
-  const [ox, oy, oz] = region.origin;
-  const geo = geometry.create(ctx, region.mesh);
-  const m = mesh.create(ctx, { geometry: geo, material: stone });
-  mesh.setPosition(ctx, m, vec3.fromValues(ox, oy, oz));
-  physics.createBody(ctx, world, {
-    type: "static",
-    shape: region.proxy,
-    position: region.proxyPosition,
-  });
-  return {
-    mesh: m,
-    destroy: () => {
-      mesh.destroy(ctx, m);
-      geometry.destroy(ctx, geo);
-    },
-  };
-}
 
 async function main(): Promise<void> {
   const canvas = document.querySelector<HTMLCanvasElement>("#gpu");
@@ -94,20 +59,6 @@ async function main(): Promise<void> {
       position: [b.center[0], b.center[1], b.center[2]],
     });
   }
-  // Shared stone material for all generated regions (same matte-stone params as
-  // level.ts). Built here so Task 8's shaft + chamber can reuse it without
-  // duplicating the shader/binding allocation.
-  const regionLit = await shader.lit(ctx);
-  const regionBind = binding.create(ctx, regionLit);
-  binding.set(ctx, regionBind, {
-    color: [0.5, 0.5, 0.52, 1],
-    specular: [0.02, 0.02, 0.02, 8],
-  });
-  const regionStone = await material.create(ctx, {
-    shader: regionLit,
-    binding: regionBind,
-  });
-
   const baked = await loadScene(
     ctx,
     await (await fetch("/regions/region-cavern.scene.json")).json(),
@@ -125,16 +76,21 @@ async function main(): Promise<void> {
     shape: cavernProxy.proxy,
     position: cavernProxy.proxyPosition,
   });
-  const shaft = addRegion(ctx, world, regionStone, {
-    seed: "shaft-1",
-    kind: "shaft",
-    origin: [13, 0, -6],
-  });
-  const chamber = addRegion(ctx, world, regionStone, {
-    seed: "chamber-1",
-    kind: "chamber",
-    origin: [0, 0, -19],
-  });
+  // The branching-cave wing: a cave hub + vestibule/room pairs at each branch
+  // mouth, realized as lit-stone meshes + field-derived voxel colliders into `world`.
+  const matCache = new MaterialCache(ctx);
+  // Wing attaches south of the 2nd-chamber's z=-4 wall. y=2 makes the cave floor
+  // (origin.y + cave FLOOR_Y(-2) = 0) flush with the chamber floor. — GATE-TUNE
+  const AREA_ORIGIN: [number, number, number] = [10, 2, -0.5];
+  // Realize SEQUENTIALLY: the cave + its vestibules share one material descriptor,
+  // and MaterialCache.get is not concurrency-safe for a shared key (its check-then-
+  // await-then-set window would double-allocate and leak under Promise.all). Sequential
+  // await keeps the cache single-source; there's no real parallelism to lose here.
+  const area: Awaited<ReturnType<typeof realizeRegion>>[] = [];
+  for (const r of buildArea("wing-1", AREA_ORIGIN)) {
+    area.push(await realizeRegion(ctx, world, matCache, r));
+  }
+  const areaMeshes = area.flatMap((a) => a.meshes);
 
   const props = await buildProps(ctx, world);
   const shovable = new Set(props.bodies);
@@ -245,8 +201,7 @@ async function main(): Promise<void> {
       meshes: [
         ...level.meshes,
         ...baked.meshes,
-        shaft.mesh,
-        chamber.mesh,
+        ...areaMeshes,
         ...glows.meshes,
         ...props.meshes,
         ...motes.meshes,
@@ -274,10 +229,10 @@ async function main(): Promise<void> {
     glows.destroy();
     level.destroy();
     baked.destroy();
-    shaft.destroy();
-    chamber.destroy();
-    material.destroy(ctx, regionStone);
-    binding.destroy(ctx, regionBind);
+    // Order matters: each region's destroy() frees meshes/geometries that reference
+    // matCache's materials, so it must run BEFORE matCache frees those materials.
+    for (const a of area) a.destroy();
+    matCache.destroy();
     post.destroy(ctx, bloom);
     post.destroy(ctx, tonemap);
     gpu.dispose(ctx); // LAST — warns on leaked resource-manager slots; a clean shutdown is the leak check.

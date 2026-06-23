@@ -57,14 +57,15 @@ export const LEVEL_BOXES: Box[] = [
   { center: [3, 1.5, -11.5], size: [6, 3, 0.2] }, // branch north wall
   // (no east end wall — the branch's east end opens into the second chamber)
   // --- second (east) chamber the branch leads into ---
-  // east chamber floor — split to leave a 2x2 shaft hole (x 12..14, z -5..-7)
-  // in the NE corner (clear of the pillar/slab) for the vertical shaft you drop down.
-  { center: [8.5, 0, -10], size: [7, 0.2, 12] }, // west of hole (x 5..12)
-  { center: [14.5, 0, -10], size: [1, 0.2, 12] }, // east of hole (x 14..15)
-  { center: [13, 0, -4.5], size: [2, 0.2, 1] }, // north of hole (z -4..-5)
-  { center: [13, 0, -11.5], size: [2, 0.2, 9] }, // south of hole (z -7..-16)
+  // east chamber floor — one solid slab now that the shaft region (which used a
+  // 2x2 hole here) is removed; covers x 5..15, z -16..-4 (keeps the x=5..6 overlap
+  // with the side branch). No open hole to fall through.
+  { center: [10, 0, -10], size: [10, 0.2, 12] },
   { center: [10, 6, -10], size: [10, 6, 0.2] }, // back-ish detail handled by walls below
-  { center: [10, 3, -4], size: [10, 6, 0.2] }, // south wall
+  // south wall split to leave a ~3m full-height doorway into the cave wing
+  // (gap x=8.5..11.5, centred on the wing entrance at world x=10, z=-4)
+  { center: [6.75, 3, -4], size: [3.5, 6, 0.2] }, // west segment (x 5..8.5)
+  { center: [13.25, 3, -4], size: [3.5, 6, 0.2] }, // east segment (x 11.5..15)
   { center: [10, 3, -16], size: [10, 6, 0.2] }, // north wall
   { center: [15, 3, -10], size: [0.2, 6, 12] }, // east wall
   // (no west wall — the side branch joins the chamber here, over the x=5..6 overlap)
