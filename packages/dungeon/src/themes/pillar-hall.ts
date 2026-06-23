@@ -1,13 +1,32 @@
-// packages/dungeon/src/themes/pillar-hall.ts (stub — real body in Task 5)
+import { create as makeRng } from "@furnace/core/rng";
 import type { RegionData, RegionParams } from "../region.ts";
+import { boxRoom, type DoorSpec, pillarBox, pillarGrid } from "./box-room.ts";
 
-/** TODO Task 5: real pillarHall generator. Stub returns empty RegionData. */
+const MATERIAL_COLOR: [number, number, number, number] = [0.55, 0.54, 0.5, 1];
+const MATERIAL_SPECULAR: [number, number, number, number] = [
+  0.05, 0.05, 0.05, 16,
+];
+
+/** Columned rectangular hall: seeded dims + pillar grid over a boxRoom shell.
+ *  Returns a full `RegionData` in LOCAL frame; `compose.ts` bakes world placement. */
 export function pillarHall(p: RegionParams): RegionData {
+  const rng = makeRng(p.seed);
+  const width = rng.derive("w").int(8, 15);
+  const depth = rng.derive("d").int(10, 19);
+  const height = 3.5 + rng.derive("h").float() * 1.5;
+  const door: DoorSpec = { side: "S", offset: 0, width: 1.6, height: 2.2 };
+  const bay = rng.derive("bay").pick([3, 3.5, 4, 4.5]);
+  const section = rng.derive("sec").pick([0.5, 0.7, 1.0]);
+  const pillars = pillarGrid({ width, depth, bay, section, door }).map((g) =>
+    pillarBox(g.x, g.z, height, section),
+  );
+  const room = boxRoom(
+    { width, depth, height, wallThick: 0.4, floorThick: 0.3, door },
+    pillars,
+  );
   return {
-    meshes: [],
-    colliders: [],
-    materials: [],
-    connections: [],
+    ...room,
+    materials: [{ color: MATERIAL_COLOR, specular: MATERIAL_SPECULAR }],
     origin: p.origin,
     provenance: {
       generatorId: "dungeon",
