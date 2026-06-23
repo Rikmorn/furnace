@@ -39,6 +39,10 @@ export const LEVEL_BOXES: Box[] = [
   { center: [0, 0, -29], size: [12, 0.2, 6] }, // back strip  (z -26..-32)
   { center: [-4, 0, -24], size: [4, 0.2, 4] }, // left strip  (x -6..-2, z -22..-26)
   { center: [4, 0, -24], size: [4, 0.2, 4] }, // right strip (x 2..6, z -22..-26)
+  // front-chamber floor — replaces the retired bumpy chamber region's floor (Task 9
+  // removed the live chamber that provided this band). Covers x[-6,6], z[-22,-16];
+  // abuts the pit at z=-22 (south) and the corridor floor at z=-16 (does NOT cover the pit).
+  { center: [0, 0, -19], size: [12, 0.2, 6] },
   { center: [0, 6, -24], size: [12, 0.2, 16] },
   // chamber walls
   { center: [-6, 3, -24], size: [0.2, 6, 16] },

@@ -108,6 +108,22 @@ function buildField(rng: Rng, graph: Graph): Field {
       ),
     );
   }
+  // Entrance bore: carve the hub's -Z wall so the cave is ENTERABLE from the authored level.
+  // The entrance Connection alone is just metadata; without this the -Z wall is solid rock
+  // (an invisible wall the player can't cross). Like a branch tunnel but toward -Z, no room —
+  // it opens to the authored chamber through the cut doorway. Floor-routed (TUNNEL_Y) so the
+  // bore floor is continuous with the hub floor.
+  parts.push(
+    capsuleCavern(
+      graph.hub.center[0],
+      TUNNEL_Y,
+      graph.hub.center[2],
+      graph.hub.center[0],
+      TUNNEL_Y,
+      graph.hub.center[2] - HUB_HALF[2] - TUNNEL_OVERSHOOT,
+      TUNNEL_R,
+    ),
+  );
   const base = smoothUnion(BLEND, ...parts);
   return yTaperedNoiseDisplace(
     base,
