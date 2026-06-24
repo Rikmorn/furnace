@@ -123,7 +123,10 @@ export function pillarBox(
 
 /** A staircase climbing from y=0 to `top` along the +Z axis, each riser < `STEP_HEIGHT`.
  *  Each step is a cuboid whose top surface is at the cumulative height; step `i` supports
- *  steps 0..i above it so the collider stack is solid. */
+ *  steps 0..i above it so the collider stack is solid.
+ *  Step 0 (shortest, one riser) sits at `frontZ - (n-1)*treadDepth` (bottom of staircase,
+ *  farthest from the platform); step n-1 (tallest, at `top`) sits at `frontZ` (adjacent to
+ *  the platform face). A player walking +Z therefore climbs one riser at a time. */
 export function stepBoxes(
   top: number,
   frontZ: number,
@@ -137,7 +140,7 @@ export function stepBoxes(
     const h = rise * (i + 1);
     out.push(
       makeBox(
-        [0, h / 2, frontZ - i * treadDepth] as Vec3,
+        [0, h / 2, frontZ - (n - 1 - i) * treadDepth] as Vec3,
         [width, h, treadDepth] as Vec3,
       ),
     );

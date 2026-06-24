@@ -1,6 +1,13 @@
 import { create as makeRng } from "@furnace/core/rng";
-import type { Connection, RegionData, Vec3 } from "./region.ts";
+import type {
+  Connection,
+  RegionData,
+  ThemeGenerator,
+  ThemeName,
+  Vec3,
+} from "./region.ts";
 import { cave } from "./themes/cave.ts";
+import { greatHall } from "./themes/great-hall.ts";
 import { pillarHall } from "./themes/pillar-hall.ts";
 
 export { STEP_HEIGHT } from "./themes/box-room.ts";
@@ -137,7 +144,15 @@ function vestibule(
   };
 }
 
-/** Compose a branching cave + a vestibule + a pillarHall room at each branch end.
+/** Room theme rotation — branch 0 → pillarHall, branch 1 → greatHall, cycling for
+ *  any future branch count. */
+const ROOM_THEMES: Array<{ gen: ThemeGenerator; theme: ThemeName }> = [
+  { gen: pillarHall, theme: "pillarHall" },
+  { gen: greatHall, theme: "greatHall" },
+];
+
+/** Compose a branching cave + a vestibule + a room per branch end.
+ *  Branch 0 uses `pillarHall`, branch 1 uses `greatHall`; future branches cycle.
  *
  * @param seed  - Deterministic seed string for the entire area.
  * @param origin - World-space origin (XYZ) at which the cave hub is placed.
@@ -155,8 +170,14 @@ export function buildArea(seed: string, origin: Vec3): RegionData[] {
       m.kind === "tunnel-mouth" && !(m.facing[0] === 0 && m.facing[2] === -1),
   );
   const pairs = mouths.flatMap((mouth, i) => {
-    const room = pillarHall({
-      theme: "pillarHall",
+    // Boundary cast: modulo index is provably in-bounds; noUncheckedIndexedAccess
+    // widens the element to `| undefined` and cannot track that invariant.
+    const choice = ROOM_THEMES[i % ROOM_THEMES.length] as {
+      gen: ThemeGenerator;
+      theme: ThemeName;
+    };
+    const room = choice.gen({
+      theme: choice.theme,
       seed: `${seed}-room-${i}`,
       origin,
     });

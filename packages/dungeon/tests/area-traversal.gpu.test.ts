@@ -83,3 +83,92 @@ test.skipIf(!bunWebGpuAvailable())(
     gpu.dispose(ctx);
   },
 );
+
+test.skipIf(!bunWebGpuAvailable())(
+  "player walks into greatHall and climbs onto the dais platform",
+  async () => {
+    const canvas = await makeOffscreenCanvas();
+    const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
+    const world = await physics.createWorld(ctx, { gravity: [0, -9.81, 0] });
+    const cache = new MaterialCache(ctx);
+    const regions = buildArea("walk-1", [0, 0, 0]);
+    for (const r of regions) await realizeRegion(ctx, world, cache, r);
+
+    const caveRegion = regions.find(
+      (r) => r.provenance.theme === "cave",
+    ) as RegionData;
+    const ghRegion = regions.find(
+      (r) => r.provenance.theme === "greatHall",
+    ) as RegionData;
+    // placeRoom sets the placed region's origin to its cave mouth's world position,
+    // so this match is always exact — no fallback is needed. If it ever failed, the
+    // later `.position`/`.facing` access throws loudly, which is the desired behaviour.
+    const ghMouth = caveRegion.connections.find(
+      (c) =>
+        c.kind === "tunnel-mouth" &&
+        Math.abs(c.position[0] - ghRegion.origin[0]) < 1e-6 &&
+        Math.abs(c.position[2] - ghRegion.origin[2]) < 1e-6,
+    ) as Connection;
+
+    // capsule rest height on flat floor at mouth Y
+    const flatFloorRestY =
+      ghMouth.position[1] + CAPSULE.halfHeight + CAPSULE.radius;
+    const startY = flatFloorRestY + 0.1;
+    let pos: [number, number, number] = [0, startY, 0];
+    const body = physics.createBody(ctx, world, {
+      type: "kinematicPosition",
+      shape: { capsule: CAPSULE },
+      position: pos,
+    });
+    physics.step(ctx, world, 1 / 60);
+    const mover = new CharacterMover(CAPSULE, body);
+    const dir = ghMouth.facing; // unit toward the greatHall branch
+    const mouthAlong =
+      ghMouth.position[0] * dir[0] + ghMouth.position[2] * dir[2];
+    // platTop ∈ [0.3, 0.8); 0.25 m is a robust threshold that any seed must reach
+    const DAIS_RISE_THRESHOLD = 0.25;
+    let minY = pos[1];
+    let stalls = 0;
+    let climbedDais = false;
+    // greatHall depth up to ~31 m; walk at 3 m/s for 900 iterations (15 s) to
+    // reach and climb onto the dais at the far end. Break early once the dais is
+    // confirmed so the player does not continue into the far wall.
+    for (let i = 0; i < 900; i++) {
+      const prev = pos;
+      pos = mover.resolve(
+        ctx,
+        world,
+        pos,
+        [(dir[0] * 3) / 60, 0, (dir[2] * 3) / 60],
+        1 / 60,
+      ).pos;
+      physics.setBodyNextKinematicTranslation(ctx, body, pos);
+      physics.step(ctx, world, 1 / 60);
+      minY = Math.min(minY, pos[1]);
+      const progressed = Math.hypot(pos[0] - prev[0], pos[2] - prev[2]) > 0.005;
+      stalls = progressed ? 0 : stalls + 1;
+      expect(stalls).toBeLessThan(45); // never wedged for ~0.75s
+      // stop as soon as we confirm the dais has been climbed — avoids walking into the far wall.
+      // Guard with "past mouthAlong + 5" so cave/vestibule terrain variation cannot trigger this early.
+      const depthNow = pos[0] * dir[0] + pos[2] * dir[2];
+      if (
+        depthNow > mouthAlong + 5 &&
+        pos[1] > flatFloorRestY + DAIS_RISE_THRESHOLD
+      ) {
+        climbedDais = true;
+        break;
+      }
+    }
+    // entered the room (advanced past the mouth)
+    const advanced = pos[0] * dir[0] + pos[2] * dir[2];
+    expect(advanced).toBeGreaterThan(mouthAlong + 2);
+    // climbed onto the dais: Y rose above flat-floor rest height
+    expect(climbedDais).toBe(true);
+    // never fell through the floor
+    expect(minY).toBeGreaterThan(ghMouth.position[1] - 1);
+
+    cache.destroy();
+    physics.destroyWorld(ctx, world);
+    gpu.dispose(ctx);
+  },
+);

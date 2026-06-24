@@ -45,6 +45,13 @@ test("buildArea is deterministic", () => {
   );
 });
 
+test("buildArea uses more than one room type across branches", () => {
+  const regions = buildArea("area-multi", [0, 0, 0]);
+  const themes = new Set(regions.map((r) => r.provenance.theme));
+  expect(themes.has("pillarHall")).toBe(true);
+  expect(themes.has("greatHall")).toBe(true);
+});
+
 function stripMesh(rs: ReturnType<typeof buildArea>) {
   return rs.map((r) => ({
     ...r,
