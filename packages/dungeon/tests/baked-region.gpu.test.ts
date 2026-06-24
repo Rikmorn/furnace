@@ -5,7 +5,7 @@ import * as gpu from "@furnace/core/gpu";
 import * as physics from "@furnace/core/physics";
 import { loadScene } from "@furnace/core/scene";
 import { vec3 } from "@furnace/core/transform";
-import { generateProxy } from "../src/generator.ts";
+import { bakedCavernProxy } from "../src/themes/cave.ts";
 import {
   bunWebGpuAvailable,
   ensureBunWebGpu,
@@ -43,12 +43,8 @@ test.skipIf(!bunWebGpuAvailable())(
       expect(scene.world).toBe(world); // injected world is reused, not a new one
 
       // The cavern scene is now render-only; collision comes from a field-derived
-      // voxel proxy regenerated from the same seed/kind/origin as the baked mesh.
-      const cavernProxy = generateProxy({
-        seed: "cavern-1",
-        kind: "cavern",
-        origin: [0, 0, -24],
-      });
+      // voxel proxy regenerated from the same seed/origin as the baked mesh.
+      const cavernProxy = bakedCavernProxy("cavern-1", [0, 0, -24]);
       physics.createBody(ctx, world, {
         type: "static",
         shape: cavernProxy.proxy,

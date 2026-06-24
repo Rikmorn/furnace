@@ -9,11 +9,11 @@ import { vec3, vec4 } from "@furnace/core/transform";
 import { CharacterMover, shoveDynamicBodies } from "./char-move.ts";
 import { buildArea } from "./compose.ts";
 import { FpController } from "./fp-controller.ts";
-import { generateProxy } from "./generator.ts";
 import { buildGlows, buildLevel } from "./level.ts";
 import { buildMotes } from "./motes.ts";
 import { buildProps } from "./props.ts";
 import { MaterialCache, realizeRegion } from "./realize.ts";
+import { bakedCavernProxy } from "./themes/cave.ts";
 import { Torch } from "./torch.ts";
 
 const PLAYER_CAPSULE_HALF_HEIGHT = 0.6;
@@ -65,12 +65,8 @@ async function main(): Promise<void> {
     { world, fragment: true },
   );
   // Cavern renders from the baked .fmesh (render-only scene); collision is a
-  // field-derived voxel proxy regenerated here (seed/kind/origin match the bake).
-  const cavernProxy = generateProxy({
-    seed: "cavern-1",
-    kind: "cavern",
-    origin: [0, 0, -24],
-  });
+  // field-derived voxel proxy regenerated here (seed/origin match the bake).
+  const cavernProxy = bakedCavernProxy("cavern-1", [0, 0, -24]);
   physics.createBody(ctx, world, {
     type: "static",
     shape: cavernProxy.proxy,

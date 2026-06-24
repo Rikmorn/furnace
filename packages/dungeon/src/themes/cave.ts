@@ -4,12 +4,17 @@ import {
   boxCavern,
   capsuleCavern,
   type Field,
+  noiseDisplace,
   smoothUnion,
   yTaperedNoiseDisplace,
 } from "../field.ts";
 import { voxelProxyPosition, voxelsFromField } from "../proxy.ts";
 import type { Connection, RegionData, RegionParams, Vec3 } from "../region.ts";
-import { type GridConfig, surfaceNets } from "../surface-nets.ts";
+import {
+  type GridConfig,
+  type MeshData,
+  surfaceNets,
+} from "../surface-nets.ts";
 
 const CELL = 0.5; // grid cell size (m)
 const PROXY_VOXEL_Y = 0.25; // anisotropic-Y voxel height (< STEP_HEIGHT 0.4) — GATE-TUNE
@@ -221,4 +226,61 @@ export function cave(p: RegionParams): RegionData {
       seed: p.seed,
     },
   };
+}
+
+// The preserved single-kind cavern from the retired generator.ts: a rounded-box pit
+// sized to the authored floor opening (world x[-2,2], z[-22,-26]). The grid/field/
+// derive-label below are the SINGLE SOURCE for both the runtime collision proxy
+// (`bakedCavernProxy`) and the baked render mesh (`bakeCavernMesh`, used by the
+// throwaway scripts/bake-region.ts) — sharing them is the by-construction parity
+// invariant: the `.fmesh` the player sees and the voxel proxy they collide with are
+// derived from the exact same field, so they cannot drift.
+const CAVERN_GRID: GridConfig = {
+  min: [-5, -4, -5],
+  cellSize: 0.5,
+  dims: [20, 8, 20],
+};
+const CAVERN_PROXY_VOXEL_Y = 0.25; // anisotropic-Y, matches the branching-cave proxy
+
+/** The shared baked-cavern density field: a rounded-box pit roughened by seeded noise. */
+function bakedCavernField(seed: string): Field {
+  const r = makeRng(seed);
+  return noiseDisplace(
+    boxCavern(0, 0, 0, 1.9, 2, 1.9),
+    r.derive("geometry"),
+    0.3,
+    0.4,
+  );
+}
+
+/** The preserved baked-cavern collision proxy. The cavern renders from a baked `.fmesh`
+ *  (render-only scene) and collides against this field-derived voxel proxy regenerated at
+ *  runtime — they must agree, so both derive from `bakedCavernField` over `CAVERN_GRID`.
+ *
+ * @param seed - The bake seed (`"cavern-1"` for the shipped cavern).
+ * @param origin - World-space origin (XYZ) at which the cavern was baked.
+ * @returns The voxel collision proxy and the world position to seat its body. */
+export function bakedCavernProxy(
+  seed: string,
+  origin: Vec3,
+): { proxy: ShapeDescriptor; proxyPosition: Vec3 } {
+  const vox = voxelsFromField(bakedCavernField(seed), CAVERN_GRID, [
+    CAVERN_GRID.cellSize,
+    CAVERN_PROXY_VOXEL_Y,
+    CAVERN_GRID.cellSize,
+  ]);
+  return {
+    proxy: { voxels: vox },
+    proxyPosition: voxelProxyPosition(CAVERN_GRID, origin),
+  };
+}
+
+/** The preserved baked-cavern RENDER mesh (Surface-Nets over the same field/grid as
+ *  `bakedCavernProxy`). Only the throwaway `scripts/bake-region.ts` calls this, to
+ *  regenerate `regions/region-cavern.fmesh`; the live game loads that committed `.fmesh`.
+ *
+ * @param seed - The bake seed (`"cavern-1"` for the shipped cavern).
+ * @returns The triangle mesh for the cavern grotto surface. */
+export function bakeCavernMesh(seed: string): MeshData {
+  return surfaceNets(bakedCavernField(seed), CAVERN_GRID);
 }

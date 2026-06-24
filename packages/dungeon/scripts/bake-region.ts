@@ -1,14 +1,18 @@
 import { encodeMeshBlob } from "@furnace/core/scene";
-import { generateRegion } from "../src/generator.ts";
+import { bakeCavernMesh } from "../src/themes/cave.ts";
 
+// Throwaway one-shot baker for the cavern grotto. Since 2.2.2 the cavern mesh comes
+// from `bakeCavernMesh` (Surface-Nets over the same field/grid as the runtime
+// `bakedCavernProxy` in themes/cave.ts) — the single source that keeps the baked render
+// and the runtime voxel collider byte-aligned. The retired single-kind generator.ts is gone.
 const SEED = "cavern-1";
 const ORIGIN: [number, number, number] = [0, 0, -24];
-const region = generateRegion({ seed: SEED, kind: "cavern", origin: ORIGIN });
+const mesh = bakeCavernMesh(SEED);
 
-// Render-only since 2.2.1: collision is a field-derived voxel proxy regenerated
-// at runtime from the same seed/kind/origin (deterministic → matches the bake), so
-// the scene carries NO rigidBody and the .fmesh holds only render buffers.
-const fmesh = encodeMeshBlob({ render: region.mesh });
+// Render-only since 2.2.1: collision is a field-derived voxel proxy regenerated at
+// runtime from the same seed/origin (deterministic → matches the bake), so the scene
+// carries NO rigidBody and the .fmesh holds only render buffers.
+const fmesh = encodeMeshBlob({ render: mesh });
 await Bun.write("packages/dungeon/regions/region-cavern.fmesh", fmesh);
 
 const scene = {
@@ -16,12 +20,12 @@ const scene = {
   settings: {
     region: {
       provenance: {
-        generatorId: region.provenance.generatorId,
-        generatorVersion: region.provenance.generatorVersion,
+        generatorId: "dungeon",
+        generatorVersion: 1,
         seed: SEED,
-        kind: region.provenance.kind,
+        kind: "cavern",
       },
-      theme: region.theme,
+      theme: "damp-stone",
       origin: ORIGIN,
     },
   },
