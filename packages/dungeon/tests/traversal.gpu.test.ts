@@ -116,18 +116,21 @@ function along(from: V3, to: V3, dir: V3): number {
 }
 
 test.skipIf(!bunWebGpuAvailable())(
-  "cave-hub fuzz: lanes on the +Z tunnel axis walk out of the hub without wedging",
+  "cave-hub fuzz: every lane in the designed walkable band walks out of the hub without wedging",
   async () => {
     const { ctx, world } = await buildFullWorld();
-    // The cave +Z branch mouth sits on the x=AREA_ORIGIN.x (=10) axis; the bore radius
-    // (TUNNEL_R 1.6) gives a clear walkable lane within ~1m of the axis. Lanes farther
-    // out hit the solid hub wall (a legitimate stop, not a wedge) — so the fuzz set is
-    // the three central lanes that have a real floor path through the mouth.
+    // The +Z tunnel mouth (world ~[10,0,8.18]) necks into the branch room's 1.6m-wide
+    // door (clear gap x[9.2,10.8] centred on the x=10 tunnel axis), so the walkable band
+    // through the tunnel→door funnel is ~±0.75m of the axis. Lanes beyond that wedge in
+    // the narrowing voxel bore (the descending curved tunnel ceiling) or hit the
+    // door-flanking wall — a known narrow-tunnel limitation tracked in
+    // docs/backlog/dungeon/charmover-stepup-into-low-ceiling-guard.md. This fuzz sweeps
+    // the designed walkable band: every 0.25m lane in x[9.25,10.75] must clear the hub.
     const HUB_CZ = AREA_ORIGIN[2]; // hub centred on the area origin XZ
     const CAVE_FLOOR_Y = 0; // origin.y(2) + cave FLOOR_Y(-2)
     const SPAWN_Y = CAVE_FLOOR_Y + CAP.halfHeight + CAP.radius + 0.1;
     const dir: V3 = [0, 0, 1];
-    for (const x of [9.5, 10, 10.5]) {
+    for (let x = 9.25; x <= 10.75001; x += 0.25) {
       const start: V3 = [x, SPAWN_Y, HUB_CZ];
       const { body, mover } = spawn(ctx, world, start);
       const { end, minY, maxStall } = walkPath(
