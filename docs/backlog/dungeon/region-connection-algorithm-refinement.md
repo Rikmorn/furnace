@@ -44,7 +44,8 @@ redesigned together for both correctness and looks. Likely its own slice.
 - `packages/dungeon/src/themes/cave.ts` (entrance bore, branch tunnels, `buildGrid`),
   `packages/dungeon/src/compose.ts` (`buildArea`, `placeRoom`, `vestibule`),
   `packages/dungeon/src/main.ts` (`AREA_ORIGIN`), `packages/dungeon/src/level.ts` (doorway cut).
-- Design rationale: `docs/superpowers/specs/2026-06-22-...-design.md` §"Connections + the
-  vestibule seam"; research §3 (cited). Related: `region-connection` portion of the spec's
-  deferred macro-layout.
+- Design rationale: `docs/research/2026-06-22-dungeon-2.2.2-procgen-algorithms.md` §3 (the
+  connection / vestibule-seam research that fed this slice). The as-built seam lives in
+  `packages/dungeon/src/compose.ts` (`vestibule`, `placeRoom`) and `packages/dungeon/src/themes/cave.ts`
+  (tunnel mouths). Macro-layout (Poisson/MST/loops) remains deferred — see this entry's Trigger.
 - Sibling deferral: `docs/backlog/dungeon/pillarhall-centerline-pillar-navigability.md`.
