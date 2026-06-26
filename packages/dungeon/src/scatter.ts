@@ -138,6 +138,9 @@ export function _sampleSurface(
 export type KeepOut = { center: Vec3; radius: number };
 
 const UP: Vec3 = [0, 1, 0];
+/** `dot(normal, UP)` at/below this → a ceiling. Single source for both the
+ *  ceiling slope mask ({@link passesTarget}) and the ceiling hang anchor. */
+const CEILING_COS = -0.6;
 
 function dot(a: Vec3, b: Vec3): number {
   return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
@@ -149,7 +152,7 @@ function passesTarget(n: Vec3, target: ScatterLayerSpec["target"]): boolean {
   const c = dot(n, UP);
   if (target === "floor") return c >= 0.6;
   if (target === "wall") return Math.abs(c) <= 0.5;
-  if (target === "ceiling") return c <= -0.6;
+  if (target === "ceiling") return c <= CEILING_COS;
   return true; // "any"
 }
 
@@ -248,8 +251,10 @@ function spaceOut(samples: Sample[], r: number): Sample[] {
 
 const EMBED = 0.05; // sink slightly along -normal so items are seated, not floating
 
-/** Per-instance variation in a FIXED draw order (yaw, scale, tint), then seat the
- *  point just below the surface along -normal. */
+/** Per-instance variation in a FIXED draw order (yaw, scale, tint), then anchor the
+ *  point to the surface. Floors/walls sink slightly into the surface along -normal;
+ *  a ceiling instead HANGS below, its top tucked into the rock and its body dangling
+ *  into the room (so a -Y normal doesn't bury the item up into the ceiling). */
 function seat(s: Sample, spec: ScatterLayerSpec, rng: Rng): InstanceData {
   const yaw = rng.float() * Math.PI * 2;
   const scale =
@@ -257,10 +262,18 @@ function seat(s: Sample, spec: ScatterLayerSpec, rng: Rng): InstanceData {
   const tint = spec.tint
     ? jitterTint(spec.tint, rng)
     : ([1, 1, 1, 1] as [number, number, number, number]);
+  // Unit archetypes span ±0.5 along each local axis; after orient the +Y axis aligns
+  // to the normal, so the item's half-height along the normal is 0.5*scale. For a
+  // ceiling, push the CENTRE down the normal (into the room) by ~half the height so the
+  // top tucks just into the surface and the body hangs below; otherwise sink slightly
+  // into the surface (-EMBED). Note +normal*(-EMBED) is bit-identical to the old
+  // -normal*EMBED, so the floor/wall path is unchanged.
+  const onCeiling = dot(s.normal, UP) <= CEILING_COS; // surface normal points down → a ceiling
+  const anchor = onCeiling ? 0.5 * scale - EMBED : -EMBED;
   const position: Vec3 = [
-    s.position[0] - s.normal[0] * EMBED,
-    s.position[1] - s.normal[1] * EMBED,
-    s.position[2] - s.normal[2] * EMBED,
+    s.position[0] + s.normal[0] * anchor,
+    s.position[1] + s.normal[1] * anchor,
+    s.position[2] + s.normal[2] * anchor,
   ];
   return { position, rotation: _orient(s.normal, yaw), scale, tint };
 }

@@ -96,15 +96,16 @@ const SCATTER_LAYERS: ScatterLayerSpec[] = [
     scale: { min: 0.1, max: 0.2 },
     tint: { rgb: [0.55, 0.45, 1.0], jitter: 0.15 },
   },
-  // 5. glow-worms — emissive, CEILING (hangs down via orient), sparse dim
+  // 5. glow-worms — emissive, CEILING (hangs down via orient + ceiling anchor),
+  //    warm strands dangling ~0.3–0.55 m below the rock so they bloom clearly
   {
     name: "glowWorms",
     geometry: { primitive: "cylinder" },
     posture: "emissive",
-    material: { color: [1.4, 1.1, 0.5, 1], specular: [0, 0, 0, 0] },
+    material: { color: [1.8, 1.3, 0.55, 1], specular: [0, 0, 0, 0] },
     target: "ceiling",
-    spacing: { min: 2.0, max: 2.0 },
-    scale: { min: 0.08, max: 0.16 },
+    spacing: { min: 1.6, max: 1.6 },
+    scale: { min: 0.3, max: 0.55 },
     tint: { rgb: [1.0, 0.85, 0.4], jitter: 0.12 },
   },
 ];

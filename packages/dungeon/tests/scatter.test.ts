@@ -174,6 +174,29 @@ test("cave theme emits scatter instance groups, grouped by variant, doorways cle
     }
 });
 
+test("ceiling-target instances hang below the surface (not buried above it)", () => {
+  // a quad at y=3 whose winding gives a -Y face normal (a ceiling)
+  const ceiling: MeshData = {
+    positions: new Float32Array([0, 3, 0, 4, 3, 0, 0, 3, 4, 4, 3, 4]),
+    normals: new Float32Array(12), // unused — meshSurface derives the normal from winding
+    uvs: new Float32Array(8),
+    indices: new Uint32Array([0, 1, 2, 1, 3, 2]), // cross((4,0,0),(0,0,4)) = (0,-16,0) → -Y
+  };
+  const worms: ScatterLayerSpec = {
+    ...floorSpec,
+    name: "worms",
+    target: "ceiling",
+    spacing: { min: 1, max: 1 },
+    scale: { min: 0.4, max: 0.4 },
+  };
+  const pts = scatter(meshSurface(ceiling), worms, makeRng("c"), []);
+  expect(pts.length).toBeGreaterThan(0);
+  for (const d of pts) {
+    expect(d.position[1]).toBeLessThan(3); // hangs BELOW the ceiling, not buried above it
+    expect(d.position[1]).toBeGreaterThan(3 - 1); // within ~one body-length of the surface
+  }
+});
+
 test("box rooms carry world-placed floor scatter", () => {
   const regions = buildArea("rooms", [0, 0, 0]);
   // Bridge vestibules also carry theme "pillarHall" (a pre-existing tag) but are not
