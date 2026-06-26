@@ -198,9 +198,11 @@ export function setInstanceTint(
 
 /**
  * Bulk-replace the per-instance model matrices from a packed Float32Array
- * (16 floats per instance, row-major mat4) and mark the slot dirty. Copies
- * up to the slot's capacity (`16 * count` floats); a longer source is
- * truncated, a shorter source leaves the trailing instances unchanged.
+ * (16 floats per instance, column-major mat4 — the gl-matrix layout that
+ * {@link setInstanceTransform} bakes and that the instanced shader reads as
+ * `mat4x4(m0,m1,m2,m3)` columns) and mark the slot dirty. Copies up to the
+ * slot's capacity (`16 * count` floats); a longer source is truncated, a
+ * shorter source leaves the trailing instances unchanged.
  *
  * For uploading a scatter buffer in one call instead of per-instance
  * {@link setInstanceTransform}. Hot-path setter — no input validation.
