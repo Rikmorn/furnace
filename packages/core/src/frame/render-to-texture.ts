@@ -1,7 +1,9 @@
+import { _flushDirtyBindings } from "../binding/binding.ts";
 import { FurnaceGpuError } from "../gpu/errors.ts";
 import type { Context } from "../gpu/index.ts";
 import { _ENGINE_DEPTH_FORMAT } from "../material/material.ts";
 import { _recomputeModelIfDirty } from "../mesh/mesh.ts";
+import type { InstancedMesh } from "../mesh/types.ts";
 import {
   _recordBindGroupSwitch,
   _recordDraw,
@@ -12,6 +14,7 @@ import { vec4 } from "../transform/vec4.ts";
 import {
   _frameRenderInternals,
   type RenderPassBase,
+  type ResolvedDraw,
   type ResolvedMeshDraw,
 } from "./render.ts";
 import { trianglesForTopology } from "./triangles-for-topology.ts";
@@ -27,6 +30,12 @@ import { trianglesForTopology } from "./triangles-for-topology.ts";
  * - `meshes` / `camera` / `clearColor` / `clearDepth`: same semantics as
  *   `RenderOptions`. `clearColor` defaults to `[0, 0, 0, 1]` (linear);
  *   `clearDepth` defaults to `1.0`.
+ * - `instanced`: optional instanced draw groups, recorded after `meshes` in
+ *   the same off-screen pass. Each is drawn as one instanced draw call sourcing
+ *   its per-instance model matrix + tint from the instance vertex buffers (slots
+ *   1/2). Resolved against the dedicated instanced-mesh pool — never inferred
+ *   from a shared handle. Same invalid-handle semantics as `meshes`. Instanced
+ *   materials default `depthEnabled: true`, so a `depthTexture` is required.
  * - `depthTexture`: optional consumer-supplied depth target. When omitted,
  *   the render pass is built without a depth-stencil attachment. Omit
  *   **only** when every drawn material was created with `depthEnabled: false`.
@@ -52,6 +61,11 @@ import { trianglesForTopology } from "./triangles-for-topology.ts";
 export type RenderToTextureOptions = RenderPassBase & {
   texture: GPUTexture;
   depthTexture?: GPUTexture;
+  /** Instanced draw groups, recorded after `meshes` in the same off-screen
+   *  pass. Each is drawn as one instanced draw call (per-instance transform +
+   *  tint from the instance vertex buffers). Resolved against the dedicated
+   *  instanced-mesh pool. Same invalid-handle semantics as `meshes`. */
+  instanced?: InstancedMesh[];
 };
 
 const DEFAULT_CLEAR_COLOR: Vec4 = vec4.fromValues(0, 0, 0, 1);
@@ -164,7 +178,9 @@ function recordDraw(
  *   different context, or if a drawn mesh references a material or
  *   geometry that does not itself resolve to a live slot (defensive —
  *   the Mesh→Material and Mesh→Geometry refcounts normally keep these
- *   alive while a mesh references them).
+ *   alive while a mesh references them). The same invalid-handle
+ *   semantics apply to every entry in `opts.instanced` (resolved against
+ *   the instanced-mesh pool, with its bound material/geometry).
  * @throws FurnaceGpuError - if `ctx._internal.sampleCount` is not `1`.
  *   MSAA contexts build multisampled material pipelines that are
  *   incompatible with the single-sample off-screen pass. Use a
@@ -204,7 +220,14 @@ export function renderToTexture(
     );
   }
 
-  const resolvedDraws = _frameRenderInternals._validateDraw(ctx, opts.meshes);
+  // Flush all dirty bindings to the GPU before any draw work begins — mirrors
+  // frame.render. Without it, material uniforms set via binding.set (lazy,
+  // dirty-marked) read as their zero-initialized GPU value (e.g. mat.color = 0).
+  _flushDirtyBindings(ctx);
+  const resolvedDraws: ResolvedDraw[] = [
+    ..._frameRenderInternals._validateDraw(ctx, opts.meshes),
+    ..._frameRenderInternals._validateInstancedDraw(ctx, opts.instanced ?? []),
+  ];
 
   const passHasDepth = opts.depthTexture !== undefined;
 
@@ -263,14 +286,26 @@ export function renderToTexture(
 
   let lastPipeline: GPURenderPipeline | null = null;
   for (const resolved of resolvedDraws) {
-    lastPipeline = recordDraw(
-      pass,
-      ctx,
-      resolved,
-      cameraBuffer,
-      sceneBuffer,
-      lastPipeline,
-    );
+    // Instanced groups reuse the shared recorder from render.ts (no duplicated
+    // instanced draw body); RTT's local recordDraw stays mesh-only typed.
+    lastPipeline =
+      resolved.kind === "instanced"
+        ? _frameRenderInternals._recordInstancedDraw(
+            pass,
+            ctx,
+            resolved,
+            cameraBuffer,
+            sceneBuffer,
+            lastPipeline,
+          )
+        : recordDraw(
+            pass,
+            ctx,
+            resolved,
+            cameraBuffer,
+            sceneBuffer,
+            lastPipeline,
+          );
   }
 
   pass.end();

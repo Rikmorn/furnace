@@ -2,11 +2,13 @@ import { expect, test } from "bun:test";
 import * as binding from "../../src/binding/index.ts";
 import * as camera from "../../src/camera/index.ts";
 import { render } from "../../src/frame/render.ts";
+import { renderToTexture } from "../../src/frame/render-to-texture.ts";
 import * as geometry from "../../src/geometry/index.ts";
 import * as gpu from "../../src/gpu/index.ts";
 import * as material from "../../src/material/index.ts";
 import * as mesh from "../../src/mesh/index.ts";
 import * as shader from "../../src/shader/index.ts";
+import { vec4 } from "../../src/transform/vec4.ts";
 import {
   bunWebGpuAvailable,
   ensureBunWebGpu,
@@ -102,6 +104,82 @@ test.skipIf(!bunWebGpuAvailable())(
     // 4 instances of a 12-triangle cube = 48 triangles in ONE draw call
     expect(ctx._internal.stats.drawCalls).toBe(1);
     expect(ctx._internal.stats.triangles).toBe(48);
+    gpu.dispose(ctx);
+  },
+);
+
+test.skipIf(!bunWebGpuAvailable())(
+  "per-instance tint renders distinctly (red vs green instance, pixel readback)",
+  async () => {
+    const W = 64;
+    const H = 64;
+    const canvas = await makeOffscreenCanvas(W, H);
+    const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
+    const tex = ctx.device.createTexture({
+      size: { width: W, height: H },
+      format: ctx._internal.workingColorFormat,
+      usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC,
+    });
+    const depth = ctx.device.createTexture({
+      size: { width: W, height: H },
+      format: "depth24plus",
+      usage: GPUTextureUsage.RENDER_ATTACHMENT,
+    });
+    const sh = await shader.unlitInstanced(ctx);
+    const bind = binding.create(ctx, sh);
+    binding.set(ctx, bind, { color: [1, 1, 1, 1] }); // white material; tint comes from the instance
+    const mat = await material.create(ctx, { shader: sh, binding: bind });
+    const geo = geometry.cube(ctx, { size: 1.4 });
+    const im = mesh.createInstanced(ctx, {
+      geometry: geo,
+      material: mat,
+      count: 2,
+    });
+    // instance 0 → left, RED ; instance 1 → right, GREEN
+    mesh.setInstanceTransform(ctx, im, 0, [-1.2, 0, -4], [0, 0, 0, 1], 1);
+    mesh.setInstanceTint(ctx, im, 0, [1, 0, 0, 1]);
+    mesh.setInstanceTransform(ctx, im, 1, [1.2, 0, -4], [0, 0, 0, 1], 1);
+    mesh.setInstanceTint(ctx, im, 1, [0, 1, 0, 1]);
+    const cam = camera.perspective({ aspect: 1 });
+    renderToTexture(ctx, {
+      texture: tex,
+      depthTexture: depth,
+      camera: cam,
+      meshes: [],
+      instanced: [im],
+      clearColor: vec4.fromValues(0, 0, 0, 1),
+    });
+
+    const bytesPerRow = 256; // 64*4 == 256 (already 256-aligned)
+    const buf = ctx.device.createBuffer({
+      size: bytesPerRow * H,
+      usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+    });
+    const enc = ctx.device.createCommandEncoder();
+    enc.copyTextureToBuffer(
+      { texture: tex },
+      { buffer: buf, bytesPerRow, rowsPerImage: H },
+      { width: W, height: H },
+    );
+    ctx.queue.submit([enc.finish()]);
+    await buf.mapAsync(GPUMapMode.READ);
+    const data = new Uint8Array(buf.getMappedRange().slice(0));
+    buf.unmap();
+    const px = (x: number, y: number): [number, number, number, number] => {
+      const o = y * bytesPerRow + x * 4;
+      return [
+        data[o] ?? 0,
+        data[o + 1] ?? 0,
+        data[o + 2] ?? 0,
+        data[o + 3] ?? 0,
+      ];
+    };
+    const left = px(Math.floor(W * 0.28), Math.floor(H / 2)); // red instance
+    const right = px(Math.floor(W * 0.72), Math.floor(H / 2)); // green instance
+    // The GREEN channel is byte[1] in BOTH rgba and bgra layouts — a layout-agnostic discriminator.
+    expect(left[1]).toBeLessThan(96); // red cube → low green
+    expect(right[1]).toBeGreaterThan(160); // green cube → high green
+    expect(Math.max(left[0], left[2])).toBeGreaterThan(160); // red-ish channel high on the left (rgba byte0 or bgra byte2)
     gpu.dispose(ctx);
   },
 );

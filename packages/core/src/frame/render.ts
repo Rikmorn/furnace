@@ -518,6 +518,8 @@ export const _frameRenderInternals = {
   _ensureObjectGroup2: ensureObjectGroup2,
   _ensureEmptyGroup1: ensureEmptyGroup1,
   _validateDraw: validateDraw,
+  _validateInstancedDraw: validateInstancedDraw,
+  _recordInstancedDraw: recordInstancedDraw,
   _firstDepthDisagreement: firstDepthDisagreement,
 };
 
