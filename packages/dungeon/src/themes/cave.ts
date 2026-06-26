@@ -9,7 +9,19 @@ import {
   yTaperedNoiseDisplace,
 } from "../field.ts";
 import { voxelProxyPosition, voxelsFromField } from "../proxy.ts";
-import type { Connection, RegionData, RegionParams, Vec3 } from "../region.ts";
+import type {
+  Connection,
+  MaterialDescriptor,
+  RegionData,
+  RegionParams,
+  ScatterLayerSpec,
+  Vec3,
+} from "../region.ts";
+import {
+  instanceGroupsFromLayers,
+  type KeepOut,
+  meshSurface,
+} from "../scatter.ts";
 import {
   type GridConfig,
   type MeshData,
@@ -33,6 +45,68 @@ const NOISE_FADE = 1.5; // metres above the floor over which noise fades in — 
 const MATERIAL_COLOR: [number, number, number, number] = [0.5, 0.5, 0.52, 1];
 const MATERIAL_SPECULAR: [number, number, number, number] = [
   0.02, 0.02, 0.02, 8,
+];
+const KEEPOUT_MIN_HALF_WIDTH = 1; // floor for a connection's half-width keep-out radius (m) — GATE-TUNE
+const KEEPOUT_PADDING = 0.6; // extra clearance added around every doorway/mouth (m) — GATE-TUNE
+
+// Five scatter layers (2 lit + 3 emissive) spanning floor / wall / ceiling. The
+// material colours, spacing, and scale are GATE-TUNABLE starting values.
+const SCATTER_LAYERS: ScatterLayerSpec[] = [
+  // 1. rubble — lit, floor, dense small cubes, earthy tint jitter
+  {
+    name: "rubble",
+    geometry: { primitive: "cube" },
+    posture: "lit",
+    material: { color: [0.42, 0.36, 0.3, 1], specular: [0.02, 0.02, 0.02, 8] },
+    target: "floor",
+    spacing: { min: 0.6, max: 0.6 },
+    scale: { min: 0.12, max: 0.28 },
+    tint: { rgb: [0.55, 0.46, 0.36], jitter: 0.12 },
+  },
+  // 2. crystal spires — lit, floor, sparser, taller cylinders, cool tint
+  {
+    name: "spires",
+    geometry: { primitive: "cylinder" },
+    posture: "lit",
+    material: { color: [0.5, 0.6, 0.72, 1], specular: [0.2, 0.2, 0.25, 24] },
+    target: "floor",
+    spacing: { min: 2.2, max: 2.2 },
+    scale: { min: 0.3, max: 0.6 },
+    tint: { rgb: [0.6, 0.7, 0.85], jitter: 0.1 },
+  },
+  // 3. glow fungus — emissive, floor, warm-green glow spheres (bright > 1 for bloom)
+  {
+    name: "fungus",
+    geometry: { primitive: "sphere" },
+    posture: "emissive",
+    material: { color: [0.3, 1.6, 0.5, 1], specular: [0, 0, 0, 0] },
+    target: "floor",
+    spacing: { min: 1.1, max: 1.1 },
+    scale: { min: 0.1, max: 0.22 },
+    tint: { rgb: [0.4, 1.0, 0.5], jitter: 0.2 },
+  },
+  // 4. wall crystals — emissive, wall, blue/purple glow
+  {
+    name: "wallCrystals",
+    geometry: { primitive: "cube" },
+    posture: "emissive",
+    material: { color: [0.5, 0.4, 1.7, 1], specular: [0, 0, 0, 0] },
+    target: "wall",
+    spacing: { min: 1.6, max: 1.6 },
+    scale: { min: 0.1, max: 0.2 },
+    tint: { rgb: [0.55, 0.45, 1.0], jitter: 0.15 },
+  },
+  // 5. glow-worms — emissive, CEILING (hangs down via orient), sparse dim
+  {
+    name: "glowWorms",
+    geometry: { primitive: "cylinder" },
+    posture: "emissive",
+    material: { color: [1.4, 1.1, 0.5, 1], specular: [0, 0, 0, 0] },
+    target: "ceiling",
+    spacing: { min: 2.0, max: 2.0 },
+    scale: { min: 0.08, max: 0.16 },
+    tint: { rgb: [1.0, 0.85, 0.4], jitter: 0.12 },
+  },
 ];
 
 type Node = { center: Vec3; half: Vec3 };
@@ -213,12 +287,38 @@ export function cave(p: RegionParams): RegionData {
     kind: "tunnel-mouth",
   };
 
+  // Scatter keep-outs: convert each WORLD connection centre back to the cave's
+  // LOCAL frame (scatter samples the local mesh), with a generous radius so
+  // doorways and tunnel mouths stay clear of decoration.
+  const keepOut: KeepOut[] = [entrance, ...branchConnections].map((c) => ({
+    center: [
+      c.position[0] - p.origin[0],
+      c.position[1] - p.origin[1],
+      c.position[2] - p.origin[2],
+    ] as Vec3,
+    radius: Math.max(c.width / 2, KEEPOUT_MIN_HALF_WIDTH) + KEEPOUT_PADDING,
+  }));
+  // Materials start with the wall material at index 0 (the mesh references it);
+  // each scatter layer appends its material at index >= 1. Bake WORLD transforms
+  // (offset = origin) so instances align with the mesh rendered at local+origin.
+  const materials: MaterialDescriptor[] = [
+    { color: MATERIAL_COLOR, specular: MATERIAL_SPECULAR },
+  ];
+  const instances = instanceGroupsFromLayers(
+    meshSurface(mesh),
+    SCATTER_LAYERS,
+    rng.derive("scatter"),
+    keepOut,
+    materials,
+    p.origin,
+  );
+
   return {
     meshes: [{ geometry: { custom: mesh }, material: 0, position: p.origin }],
     colliders: [{ shape, position: voxelProxyPosition(grid, p.origin) }],
-    materials: [{ color: MATERIAL_COLOR, specular: MATERIAL_SPECULAR }],
+    materials,
     connections: [entrance, ...branchConnections],
-    instances: [],
+    instances,
     origin: p.origin,
     provenance: {
       generatorId: "dungeon",

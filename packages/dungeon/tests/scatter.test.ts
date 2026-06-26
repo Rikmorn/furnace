@@ -11,6 +11,7 @@ import {
   scatter,
 } from "../src/scatter.ts";
 import type { MeshData } from "../src/surface-nets.ts";
+import { cave } from "../src/themes/cave.ts";
 
 test("composed regions carry an instances array (empty until themes populate)", () => {
   const regions = buildArea("seed-x", [0, 0, 0]);
@@ -151,4 +152,24 @@ test("rectSurface scatters within the floor rect on the floor plane", () => {
     expect(d.position[2]).toBeLessThanOrEqual(6.1);
     expect(Math.abs(d.position[1] - 2)).toBeLessThan(0.1); // floor plane (minus the 0.05 embed)
   }
+});
+
+test("cave theme emits scatter instance groups, grouped by variant, doorways clear", () => {
+  const r = cave({ theme: "cave", seed: "cv", origin: [0, 0, 0] });
+  expect(r.instances.length).toBeGreaterThanOrEqual(3); // grouped by variant
+  const postures = new Set(r.instances.map((g) => g.posture));
+  expect(postures.has("lit")).toBe(true);
+  expect(postures.has("emissive")).toBe(true);
+  const total = r.instances.reduce((n, g) => n + g.transforms.length / 16, 0);
+  expect(total).toBeGreaterThan(20);
+  // keep-out: no instance within 0.5m (XZ) of any connection centre (world frame)
+  for (const g of r.instances)
+    for (let i = 0; i < g.transforms.length / 16; i++) {
+      const x = g.transforms[i * 16 + 12] as number; // column-major translation X
+      const z = g.transforms[i * 16 + 14] as number; // column-major translation Z
+      for (const c of r.connections)
+        expect(
+          Math.hypot(x - c.position[0], z - c.position[2]),
+        ).toBeGreaterThan(0.5);
+    }
 });

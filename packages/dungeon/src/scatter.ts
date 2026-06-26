@@ -1,6 +1,12 @@
 import type { Rng } from "@furnace/core/rng";
-import { quat, vec3 } from "@furnace/core/transform";
-import type { InstanceData, ScatterLayerSpec, Vec3 } from "./region.ts";
+import { mat4, quat, vec3 } from "@furnace/core/transform";
+import type {
+  InstanceData,
+  InstanceGroup,
+  MaterialDescriptor,
+  ScatterLayerSpec,
+  Vec3,
+} from "./region.ts";
 import type { MeshData } from "./surface-nets.ts";
 
 /** One scatter placement: a point on the surface plus that point's face normal. */
@@ -302,4 +308,61 @@ export function scatter(
   });
 
   return spaceOut(masked, spec.spacing.min).map((s) => seat(s, spec, srng));
+}
+
+/** Resolve + bake a set of scatter layers on one surface into GPU-ready
+ *  `InstanceGroup`s (one group per layer). Each layer's material is appended to
+ *  `materials` (deduplicated by descriptor) and referenced by index. `offset` is
+ *  added to every instance position before baking — pass the region origin to bake
+ *  WORLD transforms (cave), or omit (`[0,0,0]`) to bake LOCAL transforms that a
+ *  later placement step transforms (rooms). Pure given `rng`: one derived stream
+ *  per layer (`scatter()` derives again by spec.name, so layers never reshuffle
+ *  each other). Layers that resolve to zero instances are dropped. */
+export function instanceGroupsFromLayers(
+  surface: SampleableSurface,
+  specs: ScatterLayerSpec[],
+  rng: Rng,
+  keepOut: KeepOut[],
+  materials: MaterialDescriptor[],
+  offset: Vec3 = [0, 0, 0],
+): InstanceGroup[] {
+  const groups: InstanceGroup[] = [];
+  for (const spec of specs) {
+    const data = scatter(surface, spec, rng, keepOut);
+    if (data.length === 0) continue;
+    const matKey = JSON.stringify(spec.material);
+    let materialIndex = materials.findIndex(
+      (m) => JSON.stringify(m) === matKey,
+    );
+    if (materialIndex < 0) {
+      materialIndex = materials.length;
+      materials.push(spec.material);
+    }
+    const transforms = new Float32Array(16 * data.length);
+    const tints = new Float32Array(4 * data.length);
+    const m = mat4.create();
+    const q = quat.create();
+    const tv = vec3.create();
+    const sv = vec3.create();
+    for (const [i, d] of data.entries()) {
+      q.set(d.rotation);
+      tv.set([
+        d.position[0] + offset[0],
+        d.position[1] + offset[1],
+        d.position[2] + offset[2],
+      ]);
+      sv.fill(d.scale);
+      mat4.fromRotationTranslationScale(m, q, tv, sv); // column-major
+      transforms.set(m, i * 16);
+      tints.set(d.tint, i * 4);
+    }
+    groups.push({
+      geometry: spec.geometry,
+      material: materialIndex,
+      posture: spec.posture,
+      transforms,
+      tints,
+    });
+  }
+  return groups;
 }
