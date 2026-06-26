@@ -39,6 +39,7 @@ export function buildSnapshot(state: StatsState): Snapshot {
     },
     resources: {
       meshes: state.resources.counts.meshes,
+      instancedMeshes: state.resources.counts.instancedMeshes,
       materials: state.resources.counts.materials,
       geometries: state.resources.counts.geometries,
       effects: state.resources.counts.effects,

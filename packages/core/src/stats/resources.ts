@@ -1,5 +1,6 @@
 export type ResourceKind =
   | "mesh"
+  | "instanced-mesh"
   | "material"
   | "geometry"
   | "effect"
@@ -19,6 +20,7 @@ export type ResourceKind =
 export type ResourceRegistry = {
   counts: {
     meshes: number;
+    instancedMeshes: number;
     materials: number;
     geometries: number;
     effects: number;
@@ -36,6 +38,7 @@ export function createResourceRegistry(): ResourceRegistry {
   return {
     counts: {
       meshes: 0,
+      instancedMeshes: 0,
       materials: 0,
       geometries: 0,
       effects: 0,
@@ -68,6 +71,9 @@ export function recordAlloc(
   switch (kind) {
     case "mesh":
       r.counts.meshes++;
+      break;
+    case "instanced-mesh":
+      r.counts.instancedMeshes++;
       break;
     case "material":
       r.counts.materials++;
@@ -117,6 +123,9 @@ export function recordDestroy(
   switch (kind) {
     case "mesh":
       r.counts.meshes--;
+      break;
+    case "instanced-mesh":
+      r.counts.instancedMeshes--;
       break;
     case "material":
       r.counts.materials--;

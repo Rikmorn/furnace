@@ -14,6 +14,7 @@ export const ZERO_SNAPSHOT: Snapshot = Object.freeze({
   },
   resources: {
     meshes: 0,
+    instancedMeshes: 0,
     materials: 0,
     geometries: 0,
     effects: 0,

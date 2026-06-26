@@ -16,6 +16,11 @@
 /** Branded handle referring to a slot in the meshes pool. */
 export type MeshHandle = number & { readonly __brand: "MeshHandle" };
 
+/** Branded handle referring to a slot in the instanced-meshes pool. */
+export type InstancedMeshHandle = number & {
+  readonly __brand: "InstancedMeshHandle";
+};
+
 /** Branded handle referring to a slot in the material pool. */
 export type MaterialHandle = number & { readonly __brand: "MaterialHandle" };
 
@@ -55,6 +60,7 @@ export type TextureHandle = number & { readonly __brand: "TextureHandle" };
  */
 export type AnyResourceHandle =
   | MeshHandle
+  | InstancedMeshHandle
   | MaterialHandle
   | GeometryHandle
   | EffectHandle

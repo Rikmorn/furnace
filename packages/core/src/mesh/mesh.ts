@@ -4,8 +4,6 @@ import type { Context } from "../gpu/index.ts";
 import type { Material, MaterialSlot } from "../material/types.ts";
 import {
   _allocMesh,
-  _destroyGeometry,
-  _destroyMaterial,
   _destroyMesh,
   _lookupGeometry,
   _lookupMaterial,
@@ -14,6 +12,10 @@ import {
 import { _recordAlloc, _recordDestroy } from "../stats/internal.ts";
 import { mat4, quat } from "../transform/index.ts";
 import type { Quat, Vec3 } from "../transform/types.ts";
+import {
+  decrementGeometryRefcount,
+  decrementMaterialRefcount,
+} from "./refcount.ts";
 import type { Mesh, MeshSlot } from "./types.ts";
 
 const OBJECT_UNIFORM_SIZE_BYTES = 128; // model mat4x4<f32> (64) + normalMatrix mat4x4<f32> (64)
@@ -92,26 +94,6 @@ function meshTeardown(ctx: Context, slot: MeshSlot): void {
   _recordDestroy(ctx, "buffer", OBJECT_UNIFORM_SIZE_BYTES);
   decrementGeometryRefcount(ctx, slot.geometry);
   decrementMaterialRefcount(ctx, slot.material);
-}
-
-function decrementGeometryRefcount(ctx: Context, geometry: Geometry): void {
-  const geometrySlot = _lookupGeometry<GeometrySlot>(ctx, geometry);
-  if (geometrySlot === null) return;
-  geometrySlot.userCount -= 1;
-  if (geometrySlot.userCount === 0 && geometrySlot.markedDestroyed) {
-    geometrySlot.markedDestroyed = false;
-    _destroyGeometry<GeometrySlot>(ctx, geometry, (s) => s._teardown());
-  }
-}
-
-function decrementMaterialRefcount(ctx: Context, material: Material): void {
-  const materialSlot = _lookupMaterial<MaterialSlot>(ctx, material);
-  if (materialSlot === null) return;
-  materialSlot.userCount -= 1;
-  if (materialSlot.userCount === 0 && materialSlot.markedDestroyed) {
-    materialSlot.markedDestroyed = false;
-    _destroyMaterial<MaterialSlot>(ctx, material, (s) => s._teardown());
-  }
 }
 
 /**

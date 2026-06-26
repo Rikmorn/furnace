@@ -1,4 +1,12 @@
 export {
+  createInstanced,
+  destroyInstanced,
+  setInstanceCount,
+  setInstanceMatrices,
+  setInstanceTint,
+  setInstanceTransform,
+} from "./instanced.ts";
+export {
   create,
   destroy,
   getPosition,
@@ -9,4 +17,4 @@ export {
   setRotation,
   setScale,
 } from "./mesh.ts";
-export type { Mesh } from "./types.ts";
+export type { InstancedMesh, Mesh } from "./types.ts";

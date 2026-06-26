@@ -31,6 +31,7 @@ test.skipIf(!bunWebGpuAvailable())(
 
     expect(stats.snapshot(ctx).resources).toEqual({
       meshes: 1,
+      instancedMeshes: 0,
       materials: 1,
       geometries: 1,
       effects: 0,
@@ -46,6 +47,7 @@ test.skipIf(!bunWebGpuAvailable())(
 
     expect(stats.snapshot(ctx).resources).toEqual({
       meshes: 0,
+      instancedMeshes: 0,
       materials: 0,
       geometries: 0,
       effects: 0,
@@ -81,6 +83,7 @@ test.skipIf(!bunWebGpuAvailable())(
 
     expect(stats.snapshot(ctx).resources).toEqual({
       meshes: 1,
+      instancedMeshes: 0,
       materials: 1,
       geometries: 1,
       effects: 0,
@@ -96,6 +99,7 @@ test.skipIf(!bunWebGpuAvailable())(
 
     expect(stats.snapshot(ctx).resources).toEqual({
       meshes: 0,
+      instancedMeshes: 0,
       materials: 0,
       geometries: 0,
       effects: 0,
@@ -118,6 +122,7 @@ test.skipIf(!bunWebGpuAvailable())(
 
     expect(stats.snapshot(ctx).resources).toEqual({
       meshes: 1,
+      instancedMeshes: 0,
       materials: 1,
       geometries: 1,
       effects: 0,

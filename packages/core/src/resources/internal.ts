@@ -8,6 +8,7 @@ import {
   type EffectHandle,
   encodeHandle,
   type GeometryHandle,
+  type InstancedMeshHandle,
   type MaterialHandle,
   type MeshHandle,
   type PhysicsBodyHandle,
@@ -28,6 +29,7 @@ import {
 /** The kinds the resource manager tracks today. */
 export type ResourceKind =
   | "mesh"
+  | "instanced-mesh"
   | "material"
   | "geometry"
   | "effect"
@@ -47,6 +49,8 @@ function poolFor(ctx: Context, kind: ResourceKind): Pool<unknown> {
   switch (kind) {
     case "mesh":
       return r.meshes;
+    case "instanced-mesh":
+      return r.instancedMeshes;
     case "material":
       return r.materials;
     case "geometry":
@@ -151,6 +155,17 @@ export function _allocMesh<T>(ctx: Context, data: T): MeshHandle {
   return handle;
 }
 
+/** Allocate an instanced-mesh slot and return a branded {@link InstancedMeshHandle}. */
+export function _allocInstancedMesh<T>(
+  ctx: Context,
+  data: T,
+): InstancedMeshHandle {
+  // Boundary cast: see _allocMesh.
+  const handle = _allocRaw(ctx, "instanced-mesh", data) as InstancedMeshHandle;
+  _recordAlloc(ctx, "instanced-mesh", 0);
+  return handle;
+}
+
 /** Allocate a material slot and return a branded {@link MaterialHandle}. */
 export function _allocMaterial<T>(ctx: Context, data: T): MaterialHandle {
   // Boundary cast: see _allocMesh.
@@ -178,6 +193,14 @@ export function _allocEffect<T>(ctx: Context, data: T): EffectHandle {
 /** Look up a mesh slot. Returns `null` on stale or invalid handles. */
 export function _lookupMesh<T>(ctx: Context, handle: MeshHandle): T | null {
   return _lookupRaw(ctx, "mesh", handle);
+}
+
+/** Look up an instanced-mesh slot. Returns `null` on stale or invalid handles. */
+export function _lookupInstancedMesh<T>(
+  ctx: Context,
+  handle: InstancedMeshHandle,
+): T | null {
+  return _lookupRaw(ctx, "instanced-mesh", handle);
 }
 
 /** Look up a material slot. Returns `null` on stale or invalid handles. */
@@ -213,6 +236,17 @@ export function _destroyMesh<T>(
 ): boolean {
   const destroyed = _destroyRaw(ctx, "mesh", handle, teardown);
   if (destroyed) _recordDestroy(ctx, "mesh", 0);
+  return destroyed;
+}
+
+/** Destroy an instanced-mesh slot. See {@link _destroyMesh} for semantics. */
+export function _destroyInstancedMesh<T>(
+  ctx: Context,
+  handle: InstancedMeshHandle,
+  teardown: (data: T) => void,
+): boolean {
+  const destroyed = _destroyRaw(ctx, "instanced-mesh", handle, teardown);
+  if (destroyed) _recordDestroy(ctx, "instanced-mesh", 0);
   return destroyed;
 }
 

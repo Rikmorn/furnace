@@ -56,6 +56,8 @@ export type Snapshot = Readonly<{
   };
   resources: {
     meshes: number;
+    /** Live count of {@link InstancedMesh} handles registered with stats. */
+    instancedMeshes: number;
     materials: number;
     geometries: number;
     effects: number;

@@ -12,7 +12,9 @@ import {
  * Cascade order (load-bearing). A rigid-mesh owns a physics body + a render
  * mesh and tears both down in its teardown, so it MUST come before "mesh" and
  * "physics-body". Meshes refcount Materials and Geometries, so meshes tear down
- * next. Effects are independent and slot in after meshes. Materials and
+ * next. Instanced-meshes refcount Materials and Geometries exactly like meshes,
+ * so they slot in immediately after "mesh" (before "material"/"geometry").
+ * Effects are independent and slot in after meshes. Materials and
  * Geometries follow (their refcount must already be at zero when actual GPU
  * teardown runs). Textures are leaf GPU resources consumed by materials; they
  * slot after geometry. Shaders and Bindings are order-insensitive — nothing
@@ -28,6 +30,9 @@ const CASCADE_ORDER: readonly ResourceKind[] = [
   // makes ordering forgiving, but this is the correct order).
   "rigid-mesh",
   "mesh",
+  // An instanced-mesh refcounts Geometry + Material exactly like a mesh, so it
+  // must tear down before "material"/"geometry" — same slot as "mesh".
+  "instanced-mesh",
   "effect",
   "material",
   "geometry",

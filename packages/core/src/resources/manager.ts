@@ -20,6 +20,7 @@ import { createPool, type Pool } from "./pool.ts";
  */
 export type ResourceManager = {
   meshes: Pool<unknown>;
+  instancedMeshes: Pool<unknown>;
   materials: Pool<unknown>;
   geometries: Pool<unknown>;
   effects: Pool<unknown>;
@@ -76,6 +77,7 @@ export type PipelineCacheEntry = {
 export function createResourceManager(): ResourceManager {
   return {
     meshes: createPool(),
+    instancedMeshes: createPool(),
     materials: createPool(),
     geometries: createPool(),
     effects: createPool(),
