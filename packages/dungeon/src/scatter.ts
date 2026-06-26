@@ -72,6 +72,31 @@ export function meshSurface(md: MeshData): SampleableSurface {
   };
 }
 
+/** A flat axis-aligned floor rectangle as a `SampleableSurface` — for box-room
+ *  themes that scatter on a plane instead of a Surface-Nets mesh. Samples
+ *  uniformly across the rect at height `y`; the surface normal is always +Y so
+ *  `scatter`'s floor slope-mask accepts it. The XZ-extent is `[minX,maxX] ×
+ *  [z0,z1]`. */
+export function rectSurface(rect: {
+  minX: number;
+  maxX: number;
+  z0: number;
+  z1: number;
+  y: number;
+}): SampleableSurface {
+  const w = rect.maxX - rect.minX;
+  const d = rect.z1 - rect.z0;
+  const halfArea = (w * d) / 2;
+  return {
+    triCount: 2, // two equal halves keep the area-CDF + binary search well-formed
+    area: () => halfArea,
+    sample: (_t, r1, r2) => ({
+      position: [rect.minX + r1 * w, rect.y, rect.z0 + r2 * d],
+      normal: [0, 1, 0],
+    }),
+  };
+}
+
 /** Build the area CDF once, then draw `n` area-weighted samples from `surf`.
  *  Pure given `rng` — draws in a fixed order (CDF pick, then two barycentric
  *  floats per sample), so the same seed yields byte-identical placements. */

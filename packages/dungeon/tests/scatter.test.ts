@@ -7,6 +7,7 @@ import {
   _orient,
   _sampleSurface,
   meshSurface,
+  rectSurface,
   scatter,
 } from "../src/scatter.ts";
 import type { MeshData } from "../src/surface-nets.ts";
@@ -132,4 +133,22 @@ test("scatter slope mask rejects off-target surfaces", () => {
   };
   const out = scatter(meshSurface(wall), floorSpec, makeRng("w"), []);
   expect(out.length).toBe(0); // floor target, wall normal → all rejected
+});
+
+test("rectSurface scatters within the floor rect on the floor plane", () => {
+  const surf = rectSurface({ minX: 0, maxX: 4, z0: 0, z1: 6, y: 2 }); // a 4x6 floor at y=2
+  const pts = scatter(
+    surf,
+    { ...floorSpec, spacing: { min: 0.4, max: 0.4 } },
+    makeRng("r"),
+    [],
+  );
+  expect(pts.length).toBeGreaterThan(10);
+  for (const d of pts) {
+    expect(d.position[0]).toBeGreaterThanOrEqual(-0.1);
+    expect(d.position[0]).toBeLessThanOrEqual(4.1);
+    expect(d.position[2]).toBeGreaterThanOrEqual(-0.1);
+    expect(d.position[2]).toBeLessThanOrEqual(6.1);
+    expect(Math.abs(d.position[1] - 2)).toBeLessThan(0.1); // floor plane (minus the 0.05 embed)
+  }
 });
