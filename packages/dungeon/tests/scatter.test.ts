@@ -1,7 +1,14 @@
 import { expect, test } from "bun:test";
 import { create as makeRng } from "@furnace/core/rng";
+import { quat, vec3 } from "@furnace/core/transform";
 import { buildArea } from "../src/compose.ts";
-import { _sampleSurface, meshSurface } from "../src/scatter.ts";
+import type { InstanceData, ScatterLayerSpec, Vec3 } from "../src/region.ts";
+import {
+  _orient,
+  _sampleSurface,
+  meshSurface,
+  scatter,
+} from "../src/scatter.ts";
 import type { MeshData } from "../src/surface-nets.ts";
 
 test("composed regions carry an instances array (empty until themes populate)", () => {
@@ -37,9 +44,11 @@ const md: MeshData = {
     0,
     3, // big quad (verts 4-7), 3x3 = area 9
   ]),
-  normals: new Float32Array(24).fill(0).map((_, i) => (i % 3 === 1 ? 1 : 0)), // all +Y
+  normals: new Float32Array(24).fill(0).map((_, i) => (i % 3 === 1 ? 1 : 0)), // all +Y (unused: meshSurface derives normals from winding)
   uvs: new Float32Array(16),
-  indices: new Uint32Array([0, 1, 2, 1, 3, 2, 4, 5, 6, 5, 7, 6]),
+  // CCW-from-above winding → +Y face normals (a floor). meshSurface ignores the
+  // stored `normals` above and computes the face normal from this winding.
+  indices: new Uint32Array([0, 2, 1, 1, 2, 3, 4, 6, 5, 5, 6, 7]),
 };
 
 test("sampleSurface is deterministic and area-weighted, points on surface", () => {
@@ -51,4 +60,76 @@ test("sampleSurface is deterministic and area-weighted, points on surface", () =
   for (const s of a) expect(Math.abs(s.position[1])).toBeLessThan(1e-6); // y≈0 plane (on-surface)
   const inBig = a.filter((s) => s.position[0] >= 2).length;
   expect(inBig / a.length).toBeGreaterThan(0.8); // ~9/10 of total area is the big quad
+});
+
+const floorSpec: ScatterLayerSpec = {
+  name: "rubble",
+  geometry: { primitive: "cube" },
+  posture: "lit",
+  material: { color: [0.5, 0.4, 0.3, 1], specular: [0, 0, 0, 0] },
+  target: "floor",
+  spacing: { min: 0.5, max: 0.5 },
+  scale: { min: 0.1, max: 0.2 },
+};
+
+test("scatter respects min-distance, floor mask, keep-out, determinism", () => {
+  const surf = meshSurface(md); // reuse the Task-8 quad fixture (all +Y normals)
+  const keepOut = [{ center: [3, 0, 1] as Vec3, radius: 1.0 }];
+  const a = scatter(surf, floorSpec, makeRng("k"), keepOut);
+  const b = scatter(surf, floorSpec, makeRng("k"), keepOut);
+  expect(a.map((d) => d.position.join(","))).toEqual(
+    b.map((d) => d.position.join(",")),
+  ); // determinism
+  expect(a.length).toBeGreaterThan(0);
+  for (let i = 0; i < a.length; i++)
+    for (let j = i + 1; j < a.length; j++) {
+      const pi = (a[i] as InstanceData).position;
+      const pj = (a[j] as InstanceData).position;
+      const d = Math.hypot(pi[0] - pj[0], pi[2] - pj[2]);
+      expect(d).toBeGreaterThanOrEqual(0.5 - 1e-6); // blue-noise min spacing (XZ)
+    }
+  for (const d of a)
+    expect(Math.hypot(d.position[0] - 3, d.position[2] - 1)).toBeGreaterThan(
+      1.0,
+    ); // keep-out
+});
+
+// Orientation: orient() must align the archetype +Y to the surface normal — the
+// ceiling glow-worm "hangs down" requirement (n = -Y) is the critical case.
+test("orient aligns +Y to the surface normal (incl. ceiling -Y)", () => {
+  const cases: Vec3[] = [
+    [0, 1, 0],
+    [0, -1, 0],
+    [1, 0, 0],
+    [0, 0, 1],
+    [0.3, 0.8, -0.5],
+  ];
+  for (const n of cases) {
+    const nn = vec3.normalize(vec3.create(), vec3.fromValues(n[0], n[1], n[2]));
+    const nx = nn[0] as number;
+    const ny = nn[1] as number;
+    const nz = nn[2] as number;
+    const q = _orient([nx, ny, nz], 1.234); // arbitrary yaw must not move +Y off n
+    const up = vec3.transformQuat(
+      vec3.create(),
+      vec3.fromValues(0, 1, 0),
+      quat.fromValues(q[0], q[1], q[2], q[3]),
+    );
+    expect(up[0] as number).toBeCloseTo(nx, 5);
+    expect(up[1] as number).toBeCloseTo(ny, 5);
+    expect(up[2] as number).toBeCloseTo(nz, 5);
+  }
+});
+
+// Slope mask rejects: a floor-target layer finds nothing on a vertical wall.
+test("scatter slope mask rejects off-target surfaces", () => {
+  const wall: MeshData = {
+    // a quad in the x=0 plane, normal +X (a wall)
+    positions: new Float32Array([0, 0, 0, 0, 2, 0, 0, 0, 2, 0, 2, 2]),
+    normals: new Float32Array([1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0]),
+    uvs: new Float32Array(8),
+    indices: new Uint32Array([0, 1, 2, 1, 3, 2]),
+  };
+  const out = scatter(meshSurface(wall), floorSpec, makeRng("w"), []);
+  expect(out.length).toBe(0); // floor target, wall normal → all rejected
 });

@@ -1,5 +1,6 @@
 import type { Rng } from "@furnace/core/rng";
-import type { Vec3 } from "./region.ts";
+import { quat, vec3 } from "@furnace/core/transform";
+import type { InstanceData, ScatterLayerSpec, Vec3 } from "./region.ts";
 import type { MeshData } from "./surface-nets.ts";
 
 /** One scatter placement: a point on the surface plus that point's face normal. */
@@ -85,6 +86,7 @@ export function _sampleSurface(
     total += surf.area(t);
     cdf[t] = total;
   }
+  if (total === 0) return []; // zero-triangle / zero-area surface → no samples (avoid NaN OOB reads)
   const out: Sample[] = [];
   for (let i = 0; i < n; i++) {
     const r = rng.float() * total;
@@ -98,4 +100,181 @@ export function _sampleSurface(
     out.push(surf.sample(lo, rng.float(), rng.float()));
   }
   return out;
+}
+
+/** A circular XZ exclusion region a scatter layer must avoid (e.g. doorways,
+ *  the spawn point, prop footprints). `center.y` is ignored — masking is 2D. */
+export type KeepOut = { center: Vec3; radius: number };
+
+const UP: Vec3 = [0, 1, 0];
+
+function dot(a: Vec3, b: Vec3): number {
+  return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+}
+
+/** Slope mask: which surface orientations a layer's `target` accepts, by the
+ *  cosine between the face normal and world up. */
+function passesTarget(n: Vec3, target: ScatterLayerSpec["target"]): boolean {
+  const c = dot(n, UP);
+  if (target === "floor") return c >= 0.6;
+  if (target === "wall") return Math.abs(c) <= 0.5;
+  if (target === "ceiling") return c <= -0.6;
+  return true; // "any"
+}
+
+/**
+ * Quaternion (x,y,z,w) that aligns the archetype's local +Y onto surface normal
+ * `n`, then spins by `yaw` about the archetype up so +Y still maps onto `n`
+ * (the yaw is applied first, in the +Y-up frame, then the align rotation — so
+ * yaw never tilts +Y off `n`). Implements the gl-matrix `rotationTo` half-way
+ * construction for +Y→`n` (there is no `quat.rotationTo` in `@furnace/core`),
+ * with the antiparallel (`n = -Y`, the ceiling case) handled as a 180° turn
+ * about +Z. `n` MUST be unit length.
+ */
+export function _orient(
+  n: Vec3,
+  yaw: number,
+): [number, number, number, number] {
+  const a = vec3.fromValues(0, 1, 0);
+  const b = vec3.fromValues(n[0], n[1], n[2]);
+  const d = vec3.dot(a, b);
+  const align = quat.create();
+  if (d < -0.999999) {
+    // antiparallel (+Y vs -Y): a 180° turn about any axis ⊥ +Y. Use +Z.
+    quat.fromAxisAngle(align, vec3.fromValues(0, 0, 1), Math.PI);
+  } else if (d > 0.999999) {
+    quat.identity(align);
+  } else {
+    const c = vec3.cross(vec3.create(), a, b);
+    quat.normalize(
+      align,
+      quat.fromValues(c[0] as number, c[1] as number, c[2] as number, 1 + d),
+    );
+  }
+  const yawQ = quat.fromAxisAngle(quat.create(), vec3.fromValues(0, 1, 0), yaw);
+  const out = quat.multiply(quat.create(), align, yawQ); // apply yaw (about +Y) first, then align +Y→n
+  return [
+    out[0] as number,
+    out[1] as number,
+    out[2] as number,
+    out[3] as number,
+  ];
+}
+
+function jitterTint(
+  t: NonNullable<ScatterLayerSpec["tint"]>,
+  rng: Rng,
+): [number, number, number, number] {
+  const j = (base: number) =>
+    Math.max(0, Math.min(1, base + (rng.float() * 2 - 1) * t.jitter));
+  return [j(t.rgb[0]), j(t.rgb[1]), j(t.rgb[2]), 1];
+}
+
+function surfaceArea(surf: SampleableSurface): number {
+  let area = 0;
+  for (let t = 0; t < surf.triCount; t++) area += surf.area(t);
+  return area;
+}
+
+/** Blue-noise thinning: keep `samples` in order, dropping any within `r` (XZ) of
+ *  an already-kept one. Backed by an array-keyed spatial hash looked up by cell
+ *  key only (never iterated for output) — output order is `samples` order, so
+ *  the result is deterministic. */
+function spaceOut(samples: Sample[], r: number): Sample[] {
+  // Cell size == r so any point within r of a candidate is at most one cell away
+  // in each axis (|Δ| < r == cell) — the 3×3 neighbour scan below is then exact.
+  // (A smaller r/√2 cell would put conflicts up to TWO cells away, which a 3×3
+  // scan would miss.) Buckets hold multiple points since a cell's diagonal > r.
+  const cell = r;
+  const grid = new Map<string, Sample[]>(); // KEYED LOOKUP ONLY — never iterated
+  const placed: Sample[] = [];
+  for (const c of samples) {
+    const ci = Math.floor(c.position[0] / cell);
+    const cj = Math.floor(c.position[2] / cell);
+    let ok = true;
+    for (let di = -1; di <= 1 && ok; di++)
+      for (let dj = -1; dj <= 1 && ok; dj++) {
+        const bucket = grid.get(`${ci + di},${cj + dj}`);
+        if (bucket)
+          for (const q of bucket) {
+            const dx = c.position[0] - q.position[0];
+            const dz = c.position[2] - q.position[2];
+            if (Math.hypot(dx, dz) < r) {
+              ok = false;
+              break;
+            }
+          }
+      }
+    if (!ok) continue;
+    const key = `${ci},${cj}`;
+    const bucket = grid.get(key);
+    if (bucket) bucket.push(c);
+    else grid.set(key, [c]);
+    placed.push(c);
+  }
+  return placed;
+}
+
+const EMBED = 0.05; // sink slightly along -normal so items are seated, not floating
+
+/** Per-instance variation in a FIXED draw order (yaw, scale, tint), then seat the
+ *  point just below the surface along -normal. */
+function seat(s: Sample, spec: ScatterLayerSpec, rng: Rng): InstanceData {
+  const yaw = rng.float() * Math.PI * 2;
+  const scale =
+    spec.scale.min + rng.float() * (spec.scale.max - spec.scale.min);
+  const tint = spec.tint
+    ? jitterTint(spec.tint, rng)
+    : ([1, 1, 1, 1] as [number, number, number, number]);
+  const position: Vec3 = [
+    s.position[0] - s.normal[0] * EMBED,
+    s.position[1] - s.normal[1] * EMBED,
+    s.position[2] - s.normal[2] * EMBED,
+  ];
+  return { position, rotation: _orient(s.normal, yaw), scale, tint };
+}
+
+/**
+ * Resolve one scatter layer over a surface into seated, varied instances.
+ *
+ * Pipeline: area-weight oversample (6× the target count) → cheap masks (slope
+ * `target`, optional `density` field, `keepOut` exclusions, in that fixed order)
+ * → blue-noise min-distance thinning at `spec.spacing.min` → per-instance
+ * variation (yaw / scale / tint). Deterministic given `rng`: draws come from a
+ * per-layer `rng.derive("scatter:" + spec.name)` stream (so adding or removing a
+ * layer cannot reshuffle another's placements), and variation is drawn only for
+ * accepted points in a fixed order. Returns `[]` for a zero-area surface.
+ *
+ * `spec.cluster` is NOT honoured this slice — a layer that sets it just gets
+ * ungrouped scatter (two-level clustering is out of scope here).
+ */
+export function scatter(
+  surf: SampleableSurface,
+  spec: ScatterLayerSpec,
+  rng: Rng,
+  keepOut: KeepOut[],
+): InstanceData[] {
+  const srng = rng.derive(`scatter:${spec.name}`);
+  const area = surfaceArea(surf);
+  if (area === 0) return [];
+  const target = Math.max(
+    1,
+    Math.round(area / (Math.PI * spec.spacing.min ** 2)),
+  );
+  const cands = _sampleSurface(surf, target * 6, srng);
+
+  // Masks (slope → density → keep-out), in a fixed order. The density draw is
+  // taken only when `spec.density` is set, preserving the draw sequence.
+  const masked = cands.filter((c) => {
+    if (!passesTarget(c.normal, spec.target)) return false;
+    if (spec.density && srng.float() > spec.density(c.position)) return false;
+    for (const k of keepOut) {
+      const dx = c.position[0] - k.center[0];
+      const dz = c.position[2] - k.center[2];
+      if (Math.hypot(dx, dz) < k.radius) return false;
+    }
+    return true;
+  });
+
+  return spaceOut(masked, spec.spacing.min).map((s) => seat(s, spec, srng));
 }
