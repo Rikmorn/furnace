@@ -12,7 +12,7 @@ import { vec4 } from "../transform/vec4.ts";
 import {
   _frameRenderInternals,
   type RenderPassBase,
-  type ResolvedDraw,
+  type ResolvedMeshDraw,
 } from "./render.ts";
 import { trianglesForTopology } from "./triangles-for-topology.ts";
 
@@ -88,7 +88,7 @@ function beginRenderPass(
 function recordDraw(
   pass: GPURenderPassEncoder,
   ctx: Context,
-  resolved: ResolvedDraw,
+  resolved: ResolvedMeshDraw,
   cameraBuffer: GPUBuffer,
   sceneBuffer: GPUBuffer,
   lastPipeline: GPURenderPipeline | null,

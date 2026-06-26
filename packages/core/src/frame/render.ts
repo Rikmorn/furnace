@@ -9,8 +9,14 @@ import * as gpu from "../gpu/index.ts";
 import { warn } from "../log/internal.ts";
 import { _ENGINE_DEPTH_FORMAT } from "../material/material.ts";
 import type { MaterialSlot } from "../material/types.ts";
+import { _flushInstancedIfDirty } from "../mesh/instanced.ts";
 import { _recomputeModelIfDirty } from "../mesh/mesh.ts";
-import type { Mesh, MeshSlot } from "../mesh/types.ts";
+import type {
+  InstancedMesh,
+  InstancedMeshSlot,
+  Mesh,
+  MeshSlot,
+} from "../mesh/types.ts";
 import type { Effect, EffectSlot } from "../post/effect.ts";
 import { _evaluateChain } from "../post/evaluate.ts";
 import { bytesPerTexel } from "../post/format-bytes.ts";
@@ -19,6 +25,7 @@ import { _ensurePostSampler } from "../post/post-sampler.ts";
 import {
   _lookupEffect,
   _lookupGeometry,
+  _lookupInstancedMesh,
   _lookupMaterial,
   _lookupMesh,
 } from "../resources/internal.ts";
@@ -315,6 +322,11 @@ export type RenderPassBase = {
  * - `camera`: camera whose view/projection matrices populate `@group(0)
  *   @binding(0)` for each mesh (see `engine-conventions.md` §"Binding
  *   contract").
+ * - `instanced`: optional instanced draw groups, recorded after `meshes` in
+ *   the same scene pass. Each is drawn as one instanced draw call sourcing its
+ *   per-instance model matrix + tint from the instance vertex buffers (slots
+ *   1/2). Resolved against the dedicated instanced-mesh pool — never inferred
+ *   from a shared handle.
  * - `effects`: optional post-process chain. When non-empty the scene is
  *   rendered to a pool-backed off-screen target and evaluated through the
  *   effects' passes (a flattened linear sequence) to the swap chain. Each
@@ -332,6 +344,11 @@ export type RenderPassBase = {
  */
 export type RenderOptions = RenderPassBase & {
   effects?: Effect[];
+  /** Instanced draw groups, recorded after `meshes` in the same scene pass.
+   *  Each is drawn as one instanced draw call (per-instance transform + tint
+   *  from the instance vertex buffers). Emissive groups flow through the post
+   *  chain like any other drawable. */
+  instanced?: InstancedMesh[];
   /** Per-frame lights. Omitted/empty → ambient-only. Clamped to `MAX_LIGHTS`
    *  (16) with a once-only `log.warn` (never throws — render hot path). */
   lights?: Light[];
@@ -455,17 +472,43 @@ function ensureEmptyGroup1(
 }
 
 /**
- * A draw entry pre-resolved by {@link validateDraw}: the mesh, material,
- * and geometry slots fetched in one upfront pass so the per-draw loop
- * body can consume them directly with no further lookups.
+ * A non-instanced draw entry pre-resolved by {@link validateDraw}: the
+ * mesh, material, and geometry slots fetched in one upfront pass so the
+ * per-draw loop body can consume them directly with no further lookups.
  *
  * Engine-internal; not part of the public surface.
  */
-export type ResolvedDraw = {
+export type ResolvedMeshDraw = {
+  kind: "mesh";
   mesh: MeshSlot;
   material: MaterialSlot;
   geometry: GeometrySlot;
 };
+
+/**
+ * An instanced draw entry pre-resolved by {@link validateInstancedDraw}:
+ * the instanced-mesh, material, and geometry slots. Drawn as one instanced
+ * draw call sourcing per-instance model + tint from the instance vertex
+ * buffers (slots 1/2). The instanced shader declares no `@group(2)`.
+ *
+ * Engine-internal; not part of the public surface.
+ */
+export type ResolvedInstancedDraw = {
+  kind: "instanced";
+  instanced: InstancedMeshSlot;
+  material: MaterialSlot;
+  geometry: GeometrySlot;
+};
+
+/**
+ * A resolved draw entry — either a non-instanced {@link ResolvedMeshDraw}
+ * or an instanced {@link ResolvedInstancedDraw}. Discriminated by `kind`;
+ * each variant's slot kind is known from its typed source list, so no
+ * handle-pool inference is needed.
+ *
+ * Engine-internal; not part of the public surface.
+ */
+export type ResolvedDraw = ResolvedMeshDraw | ResolvedInstancedDraw;
 
 export const _frameRenderInternals = {
   _ensureDepthTexture,
@@ -507,6 +550,58 @@ function beginRenderPass(
   });
 }
 
+/** Record one instanced draw: flush the dirty instance buffers, bind the
+ *  per-frame group 0 + material group 1, set vertex slots 0/1/2 (geometry +
+ *  per-instance matrix + tint), and draw `drawCount` instances. The instanced
+ *  shader declares no `@group(2)`, so group 2 is intentionally left unbound —
+ *  calling `pipeline.getBindGroupLayout(2)` under `auto` layout would throw. */
+function recordInstancedDraw(
+  pass: GPURenderPassEncoder,
+  ctx: Context,
+  resolved: ResolvedInstancedDraw,
+  cameraBuffer: GPUBuffer,
+  sceneBuffer: GPUBuffer,
+  lastPipeline: GPURenderPipeline | null,
+): GPURenderPipeline {
+  const { instanced, material, geometry } = resolved;
+  _flushInstancedIfDirty(ctx, instanced);
+  const pipeline = material.pipeline;
+  pass.setPipeline(pipeline);
+  if (pipeline !== lastPipeline) {
+    _recordPipelineSwitch(ctx);
+  }
+  pass.setBindGroup(
+    0,
+    ensurePerFrameGroup0(
+      ctx,
+      pipeline,
+      cameraBuffer,
+      sceneBuffer,
+      material.usesScene,
+      material.usesShadows,
+    ),
+  );
+  _recordBindGroupSwitch(ctx);
+  pass.setBindGroup(1, material.group1 ?? ensureEmptyGroup1(ctx, pipeline));
+  _recordBindGroupSwitch(ctx);
+  pass.setVertexBuffer(0, geometry.vertexBuffer);
+  pass.setVertexBuffer(1, instanced.matrixBuffer);
+  pass.setVertexBuffer(2, instanced.tintBuffer);
+  const drawCount = instanced.drawCount;
+  const { indexBuffer, indexFormat, indexCount, vertexCount } = geometry;
+  if (indexBuffer && indexFormat) {
+    pass.setIndexBuffer(indexBuffer, indexFormat);
+    pass.drawIndexed(indexCount, drawCount);
+  } else {
+    pass.draw(vertexCount, drawCount);
+  }
+  const perInstance = indexBuffer ? indexCount : vertexCount;
+  _recordDraw(ctx, {
+    triangles: trianglesForTopology(material.topology, perInstance) * drawCount,
+  });
+  return pipeline;
+}
+
 function recordDraw(
   pass: GPURenderPassEncoder,
   ctx: Context,
@@ -515,6 +610,16 @@ function recordDraw(
   sceneBuffer: GPUBuffer,
   lastPipeline: GPURenderPipeline | null,
 ): GPURenderPipeline {
+  if (resolved.kind === "instanced") {
+    return recordInstancedDraw(
+      pass,
+      ctx,
+      resolved,
+      cameraBuffer,
+      sceneBuffer,
+      lastPipeline,
+    );
+  }
   const { mesh, material, geometry } = resolved;
   _recomputeModelIfDirty(ctx, mesh);
   const pipeline = material.pipeline;
@@ -574,8 +679,8 @@ function validateEffects(
   return resolved;
 }
 
-function validateDraw(ctx: Context, draw: readonly Mesh[]): ResolvedDraw[] {
-  const resolved: ResolvedDraw[] = [];
+function validateDraw(ctx: Context, draw: readonly Mesh[]): ResolvedMeshDraw[] {
+  const resolved: ResolvedMeshDraw[] = [];
   for (let i = 0; i < draw.length; i++) {
     const m = draw[i];
     if (m == null) {
@@ -600,7 +705,59 @@ function validateDraw(ctx: Context, draw: readonly Mesh[]): ResolvedDraw[] {
       );
     }
     resolved.push({
+      kind: "mesh",
       mesh: meshSlot,
+      material: materialSlot,
+      geometry: geometrySlot,
+    });
+  }
+  return resolved;
+}
+
+/**
+ * Resolve each {@link InstancedMesh} against the instanced-mesh pool — and
+ * its bound material + geometry — in one upfront pass, mirroring
+ * {@link validateDraw}. Resolving against the dedicated instanced pool (not
+ * the mesh pool) is what makes the separate `instanced` render param sound:
+ * a `Mesh` and an `InstancedMesh` can share a numerically identical handle,
+ * so the kind must come from the typed source list, never from inference.
+ *
+ * @throws FurnaceGpuError - if any entry is null, its handle does not
+ *   resolve to a live instanced-mesh slot, or its bound material/geometry
+ *   does not resolve to a live slot (defensive — refcounts normally keep
+ *   them alive while an instanced mesh references them).
+ */
+function validateInstancedDraw(
+  ctx: Context,
+  instanced: readonly InstancedMesh[],
+): ResolvedInstancedDraw[] {
+  const resolved: ResolvedInstancedDraw[] = [];
+  for (let i = 0; i < instanced.length; i++) {
+    const im = instanced[i];
+    if (im == null) {
+      throw new FurnaceGpuError(`instanced[${i}]: null/undefined`);
+    }
+    const slot = _lookupInstancedMesh<InstancedMeshSlot>(ctx, im);
+    if (slot === null) {
+      throw new FurnaceGpuError(
+        `instanced[${i}]: handle is invalid, destroyed, or belongs to a different context`,
+      );
+    }
+    const materialSlot = _lookupMaterial<MaterialSlot>(ctx, slot.material);
+    if (materialSlot === null) {
+      throw new FurnaceGpuError(
+        `instanced[${i}]: material handle is invalid or destroyed`,
+      );
+    }
+    const geometrySlot = _lookupGeometry<GeometrySlot>(ctx, slot.geometry);
+    if (geometrySlot === null) {
+      throw new FurnaceGpuError(
+        `instanced[${i}]: geometry handle is invalid or destroyed`,
+      );
+    }
+    resolved.push({
+      kind: "instanced",
+      instanced: slot,
       material: materialSlot,
       geometry: geometrySlot,
     });
@@ -703,7 +860,10 @@ function recordScenePass(
  *   context; if the resolved mesh's `material` or `geometry` does not
  *   itself resolve to a live slot (defensive — the Mesh→Material and
  *   Mesh→Geometry refcounts normally keep these alive while a mesh
- *   references them); if any drawn material was created with
+ *   references them); if any entry in `opts.instanced` is null, invalid,
+ *   destroyed, belongs to a different context, or references a material
+ *   or geometry that does not resolve to a live slot; if any drawn material
+ *   was created with
  *   `depthEnabled:false` (`frame.render` always renders with a depth
  *   attachment — depth-less materials must use `renderToTexture` without
  *   a `depthTexture`); or if any `opts.effects` entry is null, already
@@ -738,7 +898,10 @@ export function render(ctx: Context, opts: RenderOptions): void {
   // Flush all dirty bindings to the GPU before any draw work begins.
   // Generalises the per-mesh transform dirty-flush to the binding layer.
   _flushDirtyBindings(ctx);
-  const resolvedDraws = validateDraw(ctx, opts.meshes);
+  const resolvedDraws: ResolvedDraw[] = [
+    ...validateDraw(ctx, opts.meshes),
+    ...validateInstancedDraw(ctx, opts.instanced ?? []),
+  ];
   const depthMismatch = firstDepthDisagreement(resolvedDraws, true);
   if (depthMismatch !== -1) {
     throw new FurnaceGpuError(

@@ -1,5 +1,7 @@
 import { expect, test } from "bun:test";
 import * as binding from "../../src/binding/index.ts";
+import * as camera from "../../src/camera/index.ts";
+import { render } from "../../src/frame/render.ts";
 import * as geometry from "../../src/geometry/index.ts";
 import * as gpu from "../../src/gpu/index.ts";
 import * as material from "../../src/material/index.ts";
@@ -72,6 +74,34 @@ test.skipIf(!bunWebGpuAvailable())(
     material.destroy(ctx, mat);
     binding.destroy(ctx, bind);
     geometry.destroy(ctx, geo);
+    gpu.dispose(ctx);
+  },
+);
+
+test.skipIf(!bunWebGpuAvailable())(
+  "frame.render draws an InstancedMesh as N instances in one draw",
+  async () => {
+    const canvas = await makeOffscreenCanvas();
+    const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
+    const sh = await shader.unlitInstanced(ctx);
+    const bind = binding.create(ctx, sh);
+    binding.set(ctx, bind, { color: [1, 1, 1, 1] });
+    const mat = await material.create(ctx, { shader: sh, binding: bind });
+    const geo = geometry.cube(ctx, { size: 1 });
+    const im = mesh.createInstanced(ctx, {
+      geometry: geo,
+      material: mat,
+      count: 4,
+    });
+    for (let i = 0; i < 4; i++)
+      mesh.setInstanceTransform(ctx, im, i, [i * 2, 0, 0], [0, 0, 0, 1], 1);
+    const cam = camera.perspective({
+      aspect: ctx.canvas.width / ctx.canvas.height,
+    });
+    render(ctx, { meshes: [], instanced: [im], camera: cam });
+    // 4 instances of a 12-triangle cube = 48 triangles in ONE draw call
+    expect(ctx._internal.stats.drawCalls).toBe(1);
+    expect(ctx._internal.stats.triangles).toBe(48);
     gpu.dispose(ctx);
   },
 );

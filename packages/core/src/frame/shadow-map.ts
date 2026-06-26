@@ -306,9 +306,10 @@ function casterObjectGroup(
  * Record one depth-only pass per caster into its array layer, drawing every
  * resolved mesh with the shared caster pipeline. Each caster's light-VP matrix
  * is written to its per-slot uniform buffer first; each mesh's model matrix is
- * refreshed (idempotently priming it for the main pass that follows). No-op when
- * there are no casters. SYNCHRONOUS — runs on the per-frame render path.
- * Engine-internal.
+ * refreshed (idempotently priming it for the main pass that follows). Instanced
+ * draws are skipped — they have no Object UBO for the caster pipeline to read,
+ * so instanced decoration is non-shadow-casting for now. No-op when there are
+ * no casters. SYNCHRONOUS — runs on the per-frame render path. Engine-internal.
  */
 export function _recordShadowPasses(
   ctx: Context,
@@ -335,6 +336,10 @@ export function _recordShadowPasses(
     pass.setPipeline(pipeline);
     pass.setBindGroup(0, perSlotLightGroup0(ctx, pipeline, c.slot, vpBuf));
     for (const d of resolvedDraws) {
+      // Instanced decoration does not cast shadows this slice: the caster
+      // pipeline reads `model` from an Object UBO (group 1), which instanced
+      // draws don't have. Skipping leaves them out of the shadow map.
+      if (d.kind !== "mesh") continue;
       // Refresh the model matrix before drawing — mirrors the main pass
       // (recordDraw). Since the shadow pass runs first, this also primes
       // mesh.objectBuffer for the main pass (idempotent).
