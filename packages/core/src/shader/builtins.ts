@@ -2,7 +2,12 @@ import { computeLayout } from "../binding/layout.ts";
 import type { ResolvedLayout } from "../binding/types.ts";
 import type { Context } from "../gpu/index.ts";
 import { lightingHelpers } from "./lighting.ts";
-import { _cameraBinding, _objectBinding, _vsIn } from "./preamble.ts";
+import {
+  _cameraBinding,
+  _objectBinding,
+  _vsIn,
+  _vsInInstanced,
+} from "./preamble.ts";
 import { _createShader } from "./shader.ts";
 import type { ShaderSource } from "./source.ts";
 import { source, toWgsl } from "./source.ts";
@@ -125,6 +130,50 @@ struct VsOut {
   return vec4<f32>(fr_applyFog(rgb, in.worldPos, camera.position.xyz), albedo.a);
 }`;
 
+const UNLIT_INSTANCED_SRC: ShaderSource = source`${_cameraBinding}
+${_vsInInstanced}
+struct Mat { color: vec4<f32> };
+@group(1) @binding(0) var<uniform> mat: Mat;
+struct VsOut { @builtin(position) pos: vec4<f32>, @location(0) tint: vec4<f32> };
+@vertex fn vs_main(v: VsIn) -> VsOut {
+  var out: VsOut;
+  let model = fr_instanceModel(v);
+  out.pos = camera.viewProjection * model * vec4<f32>(v.position, 1.0);
+  out.tint = v.tint;
+  return out;
+}
+@fragment fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
+  return mat.color * in.tint;
+}`;
+
+const LIT_INSTANCED_SRC: ShaderSource = source`${_cameraBinding}
+${_vsInInstanced}
+${lightingHelpers}
+struct Mat { color: vec4<f32>, specular: vec4<f32> };
+@group(1) @binding(0) var<uniform> mat: Mat;
+struct VsOut {
+  @builtin(position) pos: vec4<f32>,
+  @location(0) worldNormal: vec3<f32>,
+  @location(1) worldPos: vec3<f32>,
+  @location(2) tint: vec4<f32>,
+};
+@vertex fn vs_main(v: VsIn) -> VsOut {
+  var out: VsOut;
+  let model = fr_instanceModel(v);
+  let world = model * vec4<f32>(v.position, 1.0);
+  out.pos = camera.viewProjection * world;
+  out.worldPos = world.xyz;
+  out.worldNormal = mat3x3<f32>(model[0].xyz, model[1].xyz, model[2].xyz) * v.normal;
+  out.tint = v.tint;
+  return out;
+}
+@fragment fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
+  let n = normalize(in.worldNormal);
+  let albedo = mat.color.rgb * in.tint.rgb;
+  let rgb = fr_shade(in.worldPos, n, camera.position.xyz, albedo, mat.specular.rgb, mat.specular.w);
+  return vec4<f32>(fr_applyFog(rgb, in.worldPos, camera.position.xyz), mat.color.a);
+}`;
+
 /** Resolved layout for the unlit shader's `@group(1)` uniform buffer. */
 const UNLIT_LAYOUT: ResolvedLayout = computeLayout({ color: "vec4f" });
 
@@ -135,7 +184,14 @@ const LIT_LAYOUT: ResolvedLayout = computeLayout({
   specular: "vec4f",
 });
 
-type BuiltinKind = "unlit" | "lit" | "normalColor" | "textured" | "texturedLit";
+type BuiltinKind =
+  | "unlit"
+  | "lit"
+  | "normalColor"
+  | "textured"
+  | "texturedLit"
+  | "litInstanced"
+  | "unlitInstanced";
 
 const BUILTIN_SPECS: Record<
   BuiltinKind,
@@ -145,6 +201,7 @@ const BUILTIN_SPECS: Record<
     textureBinding: boolean;
     usesScene: boolean;
     usesShadows: boolean;
+    instanced: boolean;
   }
 > = {
   unlit: {
@@ -153,6 +210,7 @@ const BUILTIN_SPECS: Record<
     textureBinding: false,
     usesScene: false,
     usesShadows: false,
+    instanced: false,
   },
   lit: {
     src: LIT_SRC,
@@ -160,6 +218,7 @@ const BUILTIN_SPECS: Record<
     textureBinding: false,
     usesScene: true,
     usesShadows: true,
+    instanced: false,
   },
   normalColor: {
     src: NORMAL_COLOR_SRC,
@@ -167,6 +226,7 @@ const BUILTIN_SPECS: Record<
     textureBinding: false,
     usesScene: false,
     usesShadows: false,
+    instanced: false,
   },
   textured: {
     src: TEXTURED_SRC,
@@ -174,6 +234,7 @@ const BUILTIN_SPECS: Record<
     textureBinding: true,
     usesScene: false,
     usesShadows: false,
+    instanced: false,
   },
   texturedLit: {
     src: TEXTURED_LIT_SRC,
@@ -181,6 +242,23 @@ const BUILTIN_SPECS: Record<
     textureBinding: true,
     usesScene: true,
     usesShadows: true,
+    instanced: false,
+  },
+  unlitInstanced: {
+    src: UNLIT_INSTANCED_SRC,
+    layout: UNLIT_LAYOUT,
+    textureBinding: false,
+    usesScene: false,
+    usesShadows: false,
+    instanced: true,
+  },
+  litInstanced: {
+    src: LIT_INSTANCED_SRC,
+    layout: LIT_LAYOUT,
+    textureBinding: false,
+    usesScene: true,
+    usesShadows: true,
+    instanced: true,
   },
 };
 
@@ -199,6 +277,7 @@ function builtinShader(ctx: Context, kind: BuiltinKind): Promise<Shader> {
     spec.textureBinding,
     spec.usesScene,
     spec.usesShadows,
+    spec.instanced,
   );
   cache[kind] = promise;
   return promise;
@@ -237,6 +316,58 @@ export function lit(
   ctx: Context,
 ): Promise<Shader<{ color: "vec4f"; specular: "vec4f" }>> {
   return builtinShader(ctx, "lit") as Promise<
+    Shader<{ color: "vec4f"; specular: "vec4f" }>
+  >;
+}
+
+/**
+ * The engine's stock **unlit, instanced** shader — like {@link unlit} (reads a
+ * `vec4<f32>` colour at `@group(1) @binding(0)`), but sources the model matrix
+ * from **per-instance vertex attributes** (mat4 rows at locations 3–6) and a
+ * per-instance **tint** (`vec4<f32>` at location 7) instead of the `@group(2)`
+ * Object UBO — it declares **no** `@group(2)`. The final colour is
+ * `mat.color * tint` (the tint modulates the material colour per instance).
+ * `@group(0)` (camera) and `@group(1)` (material `{ color }`) are shared
+ * verbatim with {@link unlit}. Engine-owned and shared per context (compiled
+ * once); {@link destroy} is a no-op on it — freed only by the dispose cascade.
+ * Pass to `material.create`; bind via an instanced mesh that supplies the
+ * per-instance model rows + tint as a per-instance vertex buffer.
+ *
+ * Carries the same `@group(1)` layout as {@link unlit}: `{ color: "vec4f" }`.
+ */
+export function unlitInstanced(
+  ctx: Context,
+): Promise<Shader<{ color: "vec4f" }>> {
+  return builtinShader(ctx, "unlitInstanced") as Promise<
+    Shader<{ color: "vec4f" }>
+  >;
+}
+
+/**
+ * The engine's stock **lit, instanced** shader — the same multi-light
+ * Blinn-Phong model as {@link lit} (hemisphere ambient + per-light
+ * diffuse/specular over the engine Scene UBO, shadow-receiving, fog-applied),
+ * but sources the model matrix from **per-instance vertex attributes** (mat4
+ * rows at locations 3–6) and a per-instance **tint** (`vec4<f32>` at location 7)
+ * instead of the `@group(2)` Object UBO — it declares **no** `@group(2)`. The
+ * tint multiplies into albedo (`mat.color.rgb * tint.rgb`) for per-instance
+ * colour variation. `@group(0)` (camera/scene/shadows) and `@group(1)`
+ * (material `{ color, specular }`) are shared verbatim with {@link lit}.
+ *
+ * **Precondition — uniform scale.** The world normal is reconstructed from the
+ * upper 3×3 of the per-instance model with **no normal matrix** (a uniform-scale
+ * shortcut; `normalize()` in the fragment absorbs the positive scale factor).
+ * Per-instance transforms MUST be uniform-scale (rotation + translation +
+ * uniform scale); non-uniform scale skews normals and mis-shades.
+ *
+ * Engine-owned, shared per ctx (compiled once); {@link destroy} no-ops. Pass to
+ * `material.create` with a `binding` carrying at least `{ color }`, and supply
+ * `frame.render({ lights })` or the surface renders ambient-only.
+ */
+export function litInstanced(
+  ctx: Context,
+): Promise<Shader<{ color: "vec4f"; specular: "vec4f" }>> {
+  return builtinShader(ctx, "litInstanced") as Promise<
     Shader<{ color: "vec4f"; specular: "vec4f" }>
   >;
 }

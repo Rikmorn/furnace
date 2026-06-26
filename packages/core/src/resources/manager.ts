@@ -49,6 +49,8 @@ export type ResourceManager = {
     lit: Promise<ShaderHandle> | null;
     textured: Promise<ShaderHandle> | null;
     texturedLit: Promise<ShaderHandle> | null;
+    unlitInstanced: Promise<ShaderHandle> | null;
+    litInstanced: Promise<ShaderHandle> | null;
   };
   /** Descriptor-keyed GPUSampler cache. Deduplicates sampler objects across
    *  all materials on this ctx. GPUSampler has no `.destroy()`; entries are
@@ -91,6 +93,8 @@ export function createResourceManager(): ResourceManager {
       lit: null,
       textured: null,
       texturedLit: null,
+      unlitInstanced: null,
+      litInstanced: null,
     },
     dirtyBindings: new Set(),
     samplerCache: new Map(),

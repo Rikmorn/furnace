@@ -431,6 +431,8 @@ export function _resetBuiltinShaders(ctx: Context): void {
     lit: null,
     textured: null,
     texturedLit: null,
+    unlitInstanced: null,
+    litInstanced: null,
   };
 }
 

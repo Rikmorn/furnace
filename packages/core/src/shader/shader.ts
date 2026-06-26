@@ -73,6 +73,9 @@ async function compilationError(
  * `layout` is stored on the slot as-is (already resolved by the caller, or
  * `null` for shaders with no `@group(1)` binding). `textureBinding` is stored
  * as pure metadata; defaults to `false` for engine-owned built-ins.
+ * `instanced` marks a shader that sources its model matrix from per-instance
+ * vertex attributes (locations 3–6) and declares no `@group(2)`; defaults to
+ * `false`.
  */
 export async function _createShader(
   ctx: Context,
@@ -82,6 +85,7 @@ export async function _createShader(
   textureBinding = false,
   usesScene = false,
   usesShadows = false,
+  instanced = false,
 ): Promise<Shader> {
   if (!wgsl) throw new FurnaceError("shader.create: WGSL source is required");
   ctx.device.pushErrorScope("validation");
@@ -100,6 +104,7 @@ export async function _createShader(
     textureBinding,
     usesScene,
     usesShadows,
+    instanced,
     // GPUShaderModule has no .destroy(); GC reclaims it when the slot clears.
     _teardown: () => {
       /* intentional no-op */
@@ -224,4 +229,14 @@ export function _usesSceneOf(ctx: Context, shader: Shader): boolean {
  */
 export function _usesShadowsOf(ctx: Context, shader: Shader): boolean {
   return _lookupShader<ShaderSlot>(ctx, shader)?.usesShadows ?? false;
+}
+
+/**
+ * Engine-internal: read the `instanced` flag stored on a shader slot. `true`
+ * when the shader sources its model matrix from per-instance vertex attributes
+ * (locations 3–6) and bypasses the `@group(2)` Object UBO. Read by
+ * `material.create` to select the instance vertex-buffer pipeline layout.
+ */
+export function _instancedOf(ctx: Context, shader: Shader): boolean {
+  return _lookupShader<ShaderSlot>(ctx, shader)?.instanced ?? false;
 }

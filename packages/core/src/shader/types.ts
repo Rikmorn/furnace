@@ -45,5 +45,10 @@ export type ShaderSlot = {
    *  shadow atlas and its sampler. Read by `material.create` → stored on the
    *  material slot → consumed by the render path. */
   usesShadows: boolean;
+  /** `true` when the shader sources its model matrix from per-instance vertex
+   *  attributes (locations 3–6) and bypasses the `@group(2)` Object UBO. Read
+   *  by `material.create` to select the instance vertex-buffer pipeline layout
+   *  (per-instance step-mode buffers for the model rows + tint). */
+  instanced: boolean;
   _teardown: () => void;
 };

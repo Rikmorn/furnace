@@ -6,13 +6,22 @@ export type {
   LayoutSchema,
   ResolvedLayout,
 } from "../binding/types.ts";
-export { lit, normalColor, textured, texturedLit, unlit } from "./builtins.ts";
+export {
+  lit,
+  litInstanced,
+  normalColor,
+  textured,
+  texturedLit,
+  unlit,
+  unlitInstanced,
+} from "./builtins.ts";
 export { lightingHelpers, sceneBinding } from "./lighting.ts";
 export type { ShaderCreateOpts } from "./shader.ts";
 // Internal — re-exported so the binding subsystem (Task 3+) can import
 // `import * as shader from "@furnace/core/shader"` and call the accessor.
 // Not part of the consumer-facing API.
 export {
+  _instancedOf,
   _layoutOf,
   _textureBindingOf,
   _usesSceneOf,

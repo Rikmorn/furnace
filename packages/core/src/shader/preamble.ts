@@ -37,3 +37,22 @@ export const _vsIn: ShaderSource = source(
   @location(2) uv: vec2<f32>,
 };`,
 );
+
+/** Instance vertex attributes: mat4 rows (slot 1, locations 3-6) + tint
+ *  (slot 2, location 7). Used by instanced built-in shaders, which source
+ *  `model` from these and bypass the `@group(2)` Object UBO. */
+export const _vsInInstanced: ShaderSource = source(
+  `struct VsIn {
+  @location(0) position: vec3<f32>,
+  @location(1) normal: vec3<f32>,
+  @location(2) uv: vec2<f32>,
+  @location(3) m0: vec4<f32>,
+  @location(4) m1: vec4<f32>,
+  @location(5) m2: vec4<f32>,
+  @location(6) m3: vec4<f32>,
+  @location(7) tint: vec4<f32>,
+};
+fn fr_instanceModel(v: VsIn) -> mat4x4<f32> {
+  return mat4x4<f32>(v.m0, v.m1, v.m2, v.m3);
+}`,
+);
