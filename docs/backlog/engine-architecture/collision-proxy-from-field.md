@@ -33,6 +33,7 @@ real endgame — collide the detailed render mesh directly on an **edge-aware** 
 
 ## Remaining 2.2 work (separate entries)
 
-The 2.2 holistic split left generator richness (2.2.2) and populate/scatter (2.2.3) — see
-`procedural-generation-direction.md` and `first-class-gpu-instancing.md`. Recipe-as-truth
-stays in `region-recipe-as-truth.md`.
+The 2.2 holistic split left generator richness (2.2.2, landed) and populate/scatter (2.2.3a,
+landed — GPU instancing in `@furnace/core` + decorative scatter in the dungeon; see the
+`packages/core` + `packages/dungeon` bullets in `AGENTS.md`) — broader procgen direction in
+`procedural-generation-direction.md`. Recipe-as-truth stays in `region-recipe-as-truth.md`.
