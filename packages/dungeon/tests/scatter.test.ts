@@ -173,3 +173,39 @@ test("cave theme emits scatter instance groups, grouped by variant, doorways cle
         ).toBeGreaterThan(0.5);
     }
 });
+
+test("box rooms carry world-placed floor scatter", () => {
+  const regions = buildArea("rooms", [0, 0, 0]);
+  // Bridge vestibules also carry theme "pillarHall" (a pre-existing tag) but are not
+  // rooms — they emit no scatter and have no door. A real placed room is the one that
+  // owns a door connection; filter on that so the vestibules don't poison the assertion.
+  const rooms = regions.filter(
+    (r) =>
+      (r.provenance.theme === "pillarHall" ||
+        r.provenance.theme === "greatHall") &&
+      r.connections.some((c) => c.kind === "door"),
+  );
+  expect(rooms.length).toBeGreaterThan(0);
+  for (const room of rooms) {
+    const total = room.instances.reduce(
+      (n, g) => n + g.transforms.length / 16,
+      0,
+    );
+    expect(total).toBeGreaterThan(5); // floor scatter present
+    for (const g of room.instances)
+      for (let i = 0; i < g.transforms.length / 16; i++) {
+        const x = g.transforms[i * 16 + 12] as number;
+        const y = g.transforms[i * 16 + 13] as number;
+        const z = g.transforms[i * 16 + 14] as number;
+        expect(
+          Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(z),
+        ).toBe(true);
+        // placed into world on the room floor plane (origin.y), within embed slack
+        expect(Math.abs(y - room.origin[1])).toBeLessThan(0.3);
+        // within the room footprint around its world origin (generous bound)
+        expect(Math.hypot(x - room.origin[0], z - room.origin[2])).toBeLessThan(
+          40,
+        );
+      }
+  }
+});

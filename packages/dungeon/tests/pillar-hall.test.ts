@@ -11,7 +11,9 @@ test("pillarHall yields box meshes, matching cuboids, a material, and a door con
   const r = pillarHall(params);
   expect(r.meshes.length).toBeGreaterThan(6); // shell + pillars
   expect(r.colliders.length).toBe(r.meshes.length);
-  expect(r.materials.length).toBe(1);
+  // Shell material at index 0 (every box mesh references it) plus appended
+  // floor-scatter layer materials — assert the shell is present, not the exact count.
+  expect(r.materials.length).toBeGreaterThanOrEqual(1);
   expect(r.connections.filter((c) => c.kind === "door").length).toBe(1);
 });
 

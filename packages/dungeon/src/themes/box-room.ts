@@ -1,10 +1,19 @@
 import type { ShapeDescriptor } from "@furnace/core/physics";
+import type { Rng } from "@furnace/core/rng";
 import type {
   Connection,
+  InstanceGroup,
+  MaterialDescriptor,
   RegionCollider,
   RegionMesh,
+  ScatterLayerSpec,
   Vec3,
 } from "../region.ts";
+import {
+  instanceGroupsFromLayers,
+  type KeepOut,
+  rectSurface,
+} from "../scatter.ts";
 
 /** Maximum auto-step height. Must match `STEP_HEIGHT` in `char-move.ts`. */
 export const STEP_HEIGHT = 0.4;
@@ -248,4 +257,65 @@ export function pillarGrid(p: PillarGridParams): { x: number; z: number }[] {
     }
   }
   return out;
+}
+
+/** Box-room floor scatter layers: small rubble cubes plus a sparse emissive glow
+ *  fungus (a little life). Shared by both box-room themes (pillarHall, greatHall). */
+const ROOM_SCATTER_LAYERS: ScatterLayerSpec[] = [
+  {
+    name: "roomRubble",
+    geometry: { primitive: "cube" },
+    posture: "lit",
+    material: { color: [0.4, 0.38, 0.34, 1], specular: [0.03, 0.03, 0.03, 10] },
+    target: "floor",
+    spacing: { min: 1.0, max: 1.0 },
+    scale: { min: 0.1, max: 0.22 },
+    tint: { rgb: [0.5, 0.46, 0.4], jitter: 0.12 },
+  },
+  {
+    name: "roomGlow",
+    geometry: { primitive: "sphere" },
+    posture: "emissive",
+    material: { color: [0.4, 1.4, 0.6, 1], specular: [0, 0, 0, 0] },
+    target: "floor",
+    spacing: { min: 2.5, max: 2.5 },
+    scale: { min: 0.08, max: 0.16 },
+    tint: { rgb: [0.5, 1.0, 0.6], jitter: 0.15 },
+  },
+];
+
+/** Clearance around the door so the entrance stays walkable (m). */
+const ROOM_DOOR_KEEPOUT_PAD = 1.0;
+
+/** Floor scatter for a box room (rubble + sparse glow) over the room floor rect in
+ *  LOCAL frame (floor top y=0), keeping the S-wall doorway clear. compose.ts's
+ *  placeRoom transforms the result into world. Appends layer materials to `materials`. */
+export function roomFloorScatter(
+  width: number,
+  depth: number,
+  door: DoorSpec,
+  rng: Rng,
+  materials: MaterialDescriptor[],
+): InstanceGroup[] {
+  const floor = rectSurface({
+    minX: -width / 2,
+    maxX: width / 2,
+    z0: -depth / 2,
+    z1: depth / 2,
+    y: 0,
+  });
+  // The door is on the S wall (z = -depth/2); keep its corridor clear.
+  const keepOut: KeepOut[] = [
+    {
+      center: [door.offset, 0, -depth / 2],
+      radius: door.width / 2 + ROOM_DOOR_KEEPOUT_PAD,
+    },
+  ];
+  return instanceGroupsFromLayers(
+    floor,
+    ROOM_SCATTER_LAYERS,
+    rng,
+    keepOut,
+    materials,
+  );
 }

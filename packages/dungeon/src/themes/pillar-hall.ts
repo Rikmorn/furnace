@@ -1,6 +1,16 @@
 import { create as makeRng } from "@furnace/core/rng";
-import type { RegionData, RegionParams } from "../region.ts";
-import { boxRoom, type DoorSpec, pillarBox, pillarGrid } from "./box-room.ts";
+import type {
+  MaterialDescriptor,
+  RegionData,
+  RegionParams,
+} from "../region.ts";
+import {
+  boxRoom,
+  type DoorSpec,
+  pillarBox,
+  pillarGrid,
+  roomFloorScatter,
+} from "./box-room.ts";
 
 const MATERIAL_COLOR: [number, number, number, number] = [0.55, 0.54, 0.5, 1];
 const MATERIAL_SPECULAR: [number, number, number, number] = [
@@ -29,10 +39,20 @@ export function pillarHall(p: RegionParams): RegionData {
     { width, depth, height, wallThick: 0.4, floorThick: 0.3, door },
     pillars,
   );
+  const materials: MaterialDescriptor[] = [
+    { color: MATERIAL_COLOR, specular: MATERIAL_SPECULAR },
+  ];
+  const instances = roomFloorScatter(
+    width,
+    depth,
+    door,
+    rng.derive("scatter"),
+    materials,
+  );
   return {
     ...room,
-    materials: [{ color: MATERIAL_COLOR, specular: MATERIAL_SPECULAR }],
-    instances: [],
+    materials,
+    instances,
     origin: p.origin,
     provenance: {
       generatorId: "dungeon",

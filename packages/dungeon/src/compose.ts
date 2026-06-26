@@ -1,4 +1,5 @@
 import { create as makeRng } from "@furnace/core/rng";
+import { mat4 } from "@furnace/core/transform";
 import type {
   Connection,
   RegionData,
@@ -77,6 +78,25 @@ function placeRoom(room: RegionData, target: Connection): RegionData {
     return [r[0] + t[0], r[1] + t[1], r[2] + t[2]];
   };
 
+  // Placement mat4 `T(t)·R` (column-major): the room's instances were baked in LOCAL
+  // frame, so apply the same cardinal-yaw + translation placeRoom applies to meshes so
+  // decoration lands in world with the room. Cardinal yaw preserves +Y, so column 1
+  // stays [0,1,0,0] (mat4.create) and flat floors stay flat. Built once, reused across
+  // groups (each group copies out before the next multiply — no aliasing corruption).
+  const e0 = rot([1, 0, 0]); // world X basis (cardinal)
+  const e2 = rot([0, 0, 1]); // world Z basis
+  const placement = mat4.create();
+  placement[0] = e0[0];
+  placement[1] = e0[1];
+  placement[2] = e0[2];
+  placement[8] = e2[0];
+  placement[9] = e2[1];
+  placement[10] = e2[2];
+  placement[12] = t[0];
+  placement[13] = t[1];
+  placement[14] = t[2];
+  const scratchM = mat4.create();
+
   return {
     ...room,
     meshes: room.meshes.map((m) => ({
@@ -96,6 +116,15 @@ function placeRoom(room: RegionData, target: Connection): RegionData {
       position: xf(c.position),
       facing: rot(c.facing),
     })),
+    instances: room.instances.map((g) => {
+      const out = new Float32Array(g.transforms.length);
+      for (let i = 0; i < g.transforms.length; i += 16) {
+        const local = g.transforms.subarray(i, i + 16); // Float32Array view (Mat4)
+        mat4.multiply(scratchM, placement, local);
+        out.set(scratchM, i);
+      }
+      return { ...g, transforms: out };
+    }),
     origin: target.position,
   };
 }
