@@ -134,6 +134,7 @@ function vestibule(
     ],
     materials: [mat],
     connections: [],
+    instances: [],
     origin: mouth.position,
     provenance: {
       generatorId: "dungeon",

@@ -218,6 +218,7 @@ export function cave(p: RegionParams): RegionData {
     colliders: [{ shape, position: voxelProxyPosition(grid, p.origin) }],
     materials: [{ color: MATERIAL_COLOR, specular: MATERIAL_SPECULAR }],
     connections: [entrance, ...branchConnections],
+    instances: [],
     origin: p.origin,
     provenance: {
       generatorId: "dungeon",

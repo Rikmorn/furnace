@@ -39,6 +39,7 @@ export function greatHall(p: RegionParams): RegionData {
   return {
     ...room,
     materials: [{ color: MATERIAL_COLOR, specular: MATERIAL_SPECULAR }],
+    instances: [],
     origin: p.origin,
     provenance: {
       generatorId: "dungeon",

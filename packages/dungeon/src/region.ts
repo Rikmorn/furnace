@@ -27,6 +27,56 @@ export type RegionMesh = {
 /** A single physics collider within a region. */
 export type RegionCollider = { shape: ShapeDescriptor; position: Vec3 };
 
+/** Whether a scatter layer's material lights normally or glows (unlit + bloom). */
+export type MaterialPosture = "lit" | "emissive";
+
+/** Unit-primitive archetype a scatter layer instances (placed/scaled per instance). */
+export type ArchetypeGeometry = { primitive: "cube" | "sphere" | "cylinder" };
+
+/** A theme's declarative rule for one scatter layer; resolved by `scatter()`. */
+export type ScatterLayerSpec = {
+  /** Stable label → `rng.derive` stream. */
+  name: string;
+  geometry: ArchetypeGeometry;
+  posture: MaterialPosture;
+  /** color/specular (lit) or emissive color (unlit). */
+  material: MaterialDescriptor;
+  target: "floor" | "wall" | "ceiling" | "any";
+  spacing: { min: number; max: number };
+  scale: { min: number; max: number };
+  /** Optional per-instance colour jitter. */
+  tint?: { rgb: [number, number, number]; jitter: number };
+  /** Field-as-mask, [0,1], default 1. */
+  density?: (p: Vec3) => number;
+  /** Optional two-level clustering. */
+  cluster?: { count: number; radius: number };
+};
+
+/** One resolved scatter instance: a seated placement + per-instance variation. */
+export type InstanceData = {
+  position: Vec3;
+  /** Quaternion (x,y,z,w). */
+  rotation: [number, number, number, number];
+  /** Uniform scalar. */
+  scale: number;
+  /** RGBA. */
+  tint: [number, number, number, number];
+};
+
+/** GPU-ready resolved instance group, bucketed by (archetype, posture, material).
+ *  `realize` only uploads these — no further computation. */
+export type InstanceGroup = {
+  geometry: ArchetypeGeometry;
+  /** Index into `RegionData.materials`. */
+  material: number;
+  posture: MaterialPosture;
+  /** 16 * n, baked COLUMN-MAJOR mat4 (gl-matrix layout — the layout
+   *  `mesh.setInstanceMatrices` consumes). */
+  transforms: Float32Array;
+  /** 4 * n, RGBA. */
+  tints: Float32Array;
+};
+
 /** A navigable opening on a region boundary, used to join adjacent regions. */
 export type Connection = {
   position: Vec3; // opening centre, on the floor plane
@@ -44,12 +94,13 @@ export type Provenance = {
   seed: string;
 };
 
-/** The full output of a theme generator: geometry, colliders, materials, connections. */
+/** The full output of a theme generator: geometry, colliders, materials, connections, scatter instances. */
 export type RegionData = {
   meshes: RegionMesh[];
   colliders: RegionCollider[];
   materials: MaterialDescriptor[];
   connections: Connection[];
+  instances: InstanceGroup[];
   origin: Vec3;
   provenance: Provenance;
 };
