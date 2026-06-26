@@ -87,6 +87,10 @@ async function main(): Promise<void> {
     area.push(await realizeRegion(ctx, world, matCache, r));
   }
   const areaMeshes = area.flatMap((a) => a.meshes);
+  // Scattered decoration (rocks/crystals/glows) as instanced draws — one per region
+  // variant group. Drawn after the opaque region meshes; emissive groups glow through
+  // the existing bloom→tonemap chain.
+  const areaInstanced = area.flatMap((a) => a.instanced);
 
   const props = await buildProps(ctx, world);
   const shovable = new Set(props.bodies);
@@ -202,6 +206,7 @@ async function main(): Promise<void> {
         ...props.meshes,
         ...motes.meshes,
       ],
+      instanced: areaInstanced,
       camera: cam,
       clearColor: CLEAR_COLOR,
       lights,
