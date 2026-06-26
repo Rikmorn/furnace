@@ -10,6 +10,7 @@ import {
   _lookupTexture,
 } from "../resources/internal.ts";
 import {
+  _instancedOf,
   _layoutOf,
   _textureBindingOf,
   _usesSceneOf,
@@ -34,6 +35,27 @@ const VERTEX_BUFFER_LAYOUT: GPUVertexBufferLayout = {
     { shaderLocation: 1, offset: NORMAL_OFFSET, format: "float32x3" },
     { shaderLocation: 2, offset: UV_OFFSET, format: "float32x2" },
   ],
+};
+
+// Per-instance vertex buffers for instanced shaders (slots 1 and 2). The matrix
+// buffer at slot 1 supplies the four rows of a mat4 model transform as four
+// float32x4 attributes (locations 3–6); the tint buffer at slot 2 supplies a
+// float32x4 per-instance tint (location 7). Both step per-instance. Pulled into
+// the pipeline only when the shader is instanced (`_instancedOf`).
+const INSTANCE_MATRIX_LAYOUT: GPUVertexBufferLayout = {
+  arrayStride: 64,
+  stepMode: "instance",
+  attributes: [
+    { shaderLocation: 3, offset: 0, format: "float32x4" },
+    { shaderLocation: 4, offset: 16, format: "float32x4" },
+    { shaderLocation: 5, offset: 32, format: "float32x4" },
+    { shaderLocation: 6, offset: 48, format: "float32x4" },
+  ],
+};
+const INSTANCE_TINT_LAYOUT: GPUVertexBufferLayout = {
+  arrayStride: 16,
+  stepMode: "instance",
+  attributes: [{ shaderLocation: 7, offset: 0, format: "float32x4" }],
 };
 
 /** The depth-stencil format every depth-declaring material pipeline uses, and
@@ -101,13 +123,16 @@ function buildPipelineDescriptor(
   depthWrite: boolean,
   depthCompare: GPUCompareFunction,
   blend: GPUBlendState | undefined,
+  instanced: boolean,
 ): GPURenderPipelineDescriptor {
   const pipelineDescriptor: GPURenderPipelineDescriptor = {
     layout: "auto",
     vertex: {
       module,
       entryPoint: vertexEntry,
-      buffers: [VERTEX_BUFFER_LAYOUT],
+      buffers: instanced
+        ? [VERTEX_BUFFER_LAYOUT, INSTANCE_MATRIX_LAYOUT, INSTANCE_TINT_LAYOUT]
+        : [VERTEX_BUFFER_LAYOUT],
     },
     fragment: {
       module,
@@ -177,7 +202,10 @@ function materialTeardown(ctx: Context, slot: MaterialSlot): void {
  *
  * The pipeline is keyed on `(shader handle, entry points, cullMode,
  * topology, depthEnabled, depthWrite, depthCompare, sampleCount, working
- * color format, blend signature)`. The working color format (the fragment
+ * color format, blend signature, instanced)`. The `instanced` flag (whether
+ * the shader declares per-instance vertex attributes — see `_instancedOf`)
+ * is part of the key so an instanced and a non-instanced pipeline built from
+ * the same shader never alias in the cache. The working color format (the fragment
  * target — `ctx.format` for LDR, `rgba16float` for HDR) subsumes the swap-chain
  * format, so it is keyed instead of `ctx.format`. When `depth` is `false`,
  * `depthWrite` and `depthCompare` are normalized out of the key so they don't
@@ -245,6 +273,7 @@ export async function create<L extends LayoutSchema = LayoutSchema>(
   const hasTexture = descriptor.texture != null;
   const usesScene = _usesSceneOf(ctx, descriptor.shader);
   const usesShadows = _usesShadowsOf(ctx, descriptor.shader);
+  const instanced = _instancedOf(ctx, descriptor.shader);
 
   // `texture` and `binding`/`bindings` are competing @group(1) sources — exactly one.
   if (hasTexture && (hasBinding || hasRawBindings)) {
@@ -281,6 +310,7 @@ export async function create<L extends LayoutSchema = LayoutSchema>(
     String(ctx._internal.sampleCount),
     ctx._internal.workingColorFormat,
     _blendSignature(descriptor.blend),
+    String(instanced),
   ]);
 
   const build = async (): Promise<GPURenderPipeline> => {
@@ -296,6 +326,7 @@ export async function create<L extends LayoutSchema = LayoutSchema>(
       depthWrite,
       depthCompare,
       descriptor.blend,
+      instanced,
     );
     const pipeline = ctx.device.createRenderPipeline(pipelineDescriptor);
     const err = await ctx.device.popErrorScope();
