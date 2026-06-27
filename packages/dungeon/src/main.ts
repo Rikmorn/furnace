@@ -11,7 +11,6 @@ import { buildArea } from "./compose.ts";
 import { FpController } from "./fp-controller.ts";
 import { buildGlows, buildLevel } from "./level.ts";
 import { buildMotes } from "./motes.ts";
-import { buildProps } from "./props.ts";
 import { MaterialCache, realizeRegion } from "./realize.ts";
 import { bakedCavernProxy } from "./themes/cave.ts";
 import { Torch } from "./torch.ts";
@@ -92,8 +91,8 @@ async function main(): Promise<void> {
   // the existing bloom→tonemap chain.
   const areaInstanced = area.flatMap((a) => a.instanced);
 
-  const props = await buildProps(ctx, world);
-  const shovable = new Set(props.bodies);
+  const dynamicProps = area.flatMap((a) => a.dynamicProps);
+  const shovable = new Set(dynamicProps.map((p) => p.body));
 
   const playerBody = physics.createBody(ctx, world, {
     type: "kinematicPosition",
@@ -193,7 +192,7 @@ async function main(): Promise<void> {
       bodyPos[2] as number,
     ];
     player.placeCamera(cam, playerPos, dt);
-    props.update();
+    for (const a of area) a.update();
     motes.update(playerPos, dt);
 
     const lights: frame.Light[] = [torch.light(playerPos, dt)];
@@ -203,7 +202,6 @@ async function main(): Promise<void> {
         ...baked.meshes,
         ...areaMeshes,
         ...glows.meshes,
-        ...props.meshes,
         ...motes.meshes,
       ],
       instanced: areaInstanced,
@@ -222,7 +220,6 @@ async function main(): Promise<void> {
   const dispose = (): void => {
     loopHandle.stop();
     player.destroy();
-    props.destroy();
     physics.destroyWorld(ctx, world);
     input.detach();
     unbindCamera();
