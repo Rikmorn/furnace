@@ -70,6 +70,7 @@ const SCATTER_LAYERS: ScatterLayerSpec[] = [
     posture: "lit",
     material: { color: [0.5, 0.6, 0.72, 1], specular: [0.2, 0.2, 0.25, 24] },
     target: "floor",
+    collision: "solid",
     spacing: { min: 2.2, max: 2.2 },
     scale: { min: 0.3, max: 0.6 },
     tint: { rgb: [0.6, 0.7, 0.85], jitter: 0.1 },

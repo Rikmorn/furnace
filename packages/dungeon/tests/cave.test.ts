@@ -69,3 +69,24 @@ test("cave branches fan only into the open +X/+Z quadrant (never back toward the
     }
   }
 });
+
+test("cave spires are a solid scatter layer with world-frame placements", () => {
+  const region = cave({
+    theme: "cave",
+    seed: "spire-seed",
+    origin: [10, 2, -0.5],
+  });
+  const spires = region.instances.find(
+    (g) => g.geometry.primitive === "cylinder" && g.posture === "lit",
+  );
+  expect(spires).toBeDefined();
+  expect(spires?.collision).toBe("solid");
+  expect(spires?.placements?.length).toBe(
+    (spires?.transforms.length ?? 0) / 16,
+  );
+  // Cave bakes WORLD transforms (offset = origin), so a placement's position equals
+  // its baked mat4 translation.
+  const p0 = spires?.placements?.[0];
+  expect(p0?.position[0]).toBeCloseTo(spires?.transforms[12] as number, 5);
+  expect(p0?.position[2]).toBeCloseTo(spires?.transforms[14] as number, 5);
+});
