@@ -282,6 +282,17 @@ const ROOM_SCATTER_LAYERS: ScatterLayerSpec[] = [
     scale: { min: 0.08, max: 0.16 },
     tint: { rgb: [0.5, 1.0, 0.6], jitter: 0.15 },
   },
+  {
+    name: "roomCrates",
+    geometry: { primitive: "cube" },
+    posture: "lit",
+    material: { color: [0.45, 0.4, 0.35, 1], specular: [0.05, 0.05, 0.05, 16] },
+    target: "floor",
+    collision: "dynamic",
+    spacing: { min: 1.5, max: 1.5 },
+    scale: { min: 0.25, max: 0.35 },
+    tint: { rgb: [0.5, 0.45, 0.38], jitter: 0.1 },
+  },
 ];
 
 /** Clearance around the door so the entrance stays walkable (m). */

@@ -1,5 +1,5 @@
 import { create as makeRng } from "@furnace/core/rng";
-import { mat4 } from "@furnace/core/transform";
+import { mat4, quat, vec3 } from "@furnace/core/transform";
 import type {
   Connection,
   RegionData,
@@ -96,6 +96,13 @@ function placeRoom(room: RegionData, target: Connection): RegionData {
   placement[13] = t[1];
   placement[14] = t[2];
   const scratchM = mat4.create();
+  // The cardinal yaw `rot` applies, as a quaternion, to rotate placement orientations.
+  // Ry(θ)·[1,0,0] = [cosθ, 0, -sinθ], so θ = atan2(-e0.z, e0.x).
+  const qYaw = quat.fromAxisAngle(
+    quat.create(),
+    vec3.fromValues(0, 1, 0),
+    Math.atan2(-e0[2], e0[0]),
+  );
 
   return {
     ...room,
@@ -123,7 +130,29 @@ function placeRoom(room: RegionData, target: Connection): RegionData {
         mat4.multiply(scratchM, placement, local);
         out.set(scratchM, i);
       }
-      return { ...g, transforms: out };
+      const placements = g.placements?.map((p) => {
+        const wr = quat.multiply(
+          quat.create(),
+          qYaw,
+          quat.fromValues(
+            p.rotation[0],
+            p.rotation[1],
+            p.rotation[2],
+            p.rotation[3],
+          ),
+        );
+        return {
+          ...p,
+          position: xf(p.position),
+          rotation: [wr[0], wr[1], wr[2], wr[3]] as [
+            number,
+            number,
+            number,
+            number,
+          ],
+        };
+      });
+      return { ...g, transforms: out, placements };
     }),
     origin: target.position,
   };
