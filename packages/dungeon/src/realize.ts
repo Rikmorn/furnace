@@ -6,13 +6,22 @@ import * as mesh from "@furnace/core/mesh";
 import type { ShapeDescriptor } from "@furnace/core/physics";
 import * as physics from "@furnace/core/physics";
 import * as shader from "@furnace/core/shader";
-import { vec3 } from "@furnace/core/transform";
+import { mat4, quat, vec3 } from "@furnace/core/transform";
 import type {
   ArchetypeGeometry,
   MaterialDescriptor,
   MaterialPosture,
   RegionData,
 } from "./region.ts";
+
+/** An addressable dynamic scatter prop: the rigid body realize created. The seam future
+ *  interaction verbs (pickup/throw/query) target — a record, not an anonymous body, so it
+ *  can grow metadata without reshaping callers. */
+export type DynamicProp = { body: physics.Body };
+
+const PROP_FRICTION = 0.8;
+const PROP_LINEAR_DAMPING = 0.2;
+const PROP_ANGULAR_DAMPING = 0.4;
 
 /** Creates one GPU material per distinct descriptor, shared across regions. Caller owns it
  *  (outlives the regions); `destroy()` frees every material + binding it created. The lit
@@ -116,6 +125,8 @@ export async function realizeRegion(
 ): Promise<{
   meshes: mesh.Mesh[];
   instanced: mesh.InstancedMesh[];
+  dynamicProps: DynamicProp[];
+  update: () => void;
   destroy: () => void;
 }> {
   for (const m of data.meshes) {
@@ -181,11 +192,20 @@ export async function realizeRegion(
 
   // Scatter instance groups → one InstancedMesh (+ one archetype geometry) each. Group
   // material indices were validated above, and empty groups are skipped before any alloc,
-  // so no createInstanced call below can strand a buffer on a late throw. Sequential
+  // so the createInstanced call below can't strand a buffer on a late throw. The collider /
+  // dynamic-body creation that runs AFTER createInstanced is setup-loud (createBody only
+  // throws on programmer error), so it doesn't reintroduce a strand risk. Sequential
   // (`for ... await`) because `getInstanced` is async and the MaterialCache is not
   // concurrency-safe.
   const ownedInstanced: { im: mesh.InstancedMesh; geo: geometry.Geometry }[] =
     [];
+  const dynamicProps: DynamicProp[] = [];
+  const dynamicGroups: {
+    im: mesh.InstancedMesh;
+    bodies: physics.Body[];
+    transforms: Float32Array;
+    scales: number[];
+  }[] = [];
   for (const g of data.instances) {
     const count = g.transforms.length / 16;
     if (count === 0) continue; // createInstanced rejects count 0; skip before allocating
@@ -218,12 +238,54 @@ export async function realizeRegion(
         });
       }
     }
+    if (g.collision === "dynamic" && g.placements) {
+      const bodies = g.placements.map((p) =>
+        physics.createBody(ctx, world, {
+          type: "dynamic",
+          shape: colliderFor(g.geometry, p.scale),
+          position: p.position,
+          rotation: p.rotation,
+          friction: PROP_FRICTION,
+          linearDamping: PROP_LINEAR_DAMPING,
+          angularDamping: PROP_ANGULAR_DAMPING,
+        }),
+      );
+      for (const b of bodies) dynamicProps.push({ body: b });
+      dynamicGroups.push({
+        im,
+        bodies,
+        transforms: g.transforms,
+        scales: g.placements.map((p) => p.scale),
+      });
+    }
     ownedInstanced.push({ im, geo });
   }
+
+  // Per-frame sync of dynamic instanced meshes from their bodies. Rewrites each group's
+  // mat4 buffer IN PLACE (it is the GPU upload source) from the body's pose + the stored
+  // per-instance scale, then re-uploads. No-op when the region has no dynamic groups.
+  const tp = vec3.create();
+  const tr = quat.create();
+  const sv = vec3.create();
+  const m = mat4.create();
+  const update = (): void => {
+    for (const dg of dynamicGroups) {
+      for (let i = 0; i < dg.bodies.length; i++) {
+        physics.getBodyTranslation(ctx, dg.bodies[i] as physics.Body, tp);
+        physics.getBodyRotation(ctx, dg.bodies[i] as physics.Body, tr);
+        sv.fill(dg.scales[i] as number);
+        mat4.fromRotationTranslationScale(m, tr, tp, sv);
+        dg.transforms.set(m, i * 16);
+      }
+      mesh.setInstanceMatrices(ctx, dg.im, dg.transforms);
+    }
+  };
 
   return {
     meshes: owned.map((o) => o.mesh),
     instanced: ownedInstanced.map((o) => o.im),
+    dynamicProps,
+    update,
     destroy: () => {
       for (const o of owned) {
         mesh.destroy(ctx, o.mesh);

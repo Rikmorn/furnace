@@ -107,3 +107,82 @@ test.skipIf(!bunWebGpuAvailable())(
     gpu.dispose(ctx);
   },
 );
+
+test.skipIf(!bunWebGpuAvailable())(
+  "dynamic scatter realizes shovable bodies; update() tracks them in the instance buffer",
+  async () => {
+    const canvas = await makeOffscreenCanvas();
+    const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
+    const world = await physics.createWorld(ctx, {
+      gravity: [0, -9.81, 0],
+      lengthUnit: 1,
+    });
+    const cache = new MaterialCache(ctx);
+
+    const xform = mat4.fromRotationTranslationScale(
+      mat4.create(),
+      quat.create(),
+      vec3.fromValues(0, 1, 0),
+      vec3.fromValues(1, 1, 1),
+    );
+    const group: InstanceGroup = {
+      geometry: { primitive: "cube" },
+      material: 0,
+      posture: "lit",
+      transforms: new Float32Array(xform),
+      tints: new Float32Array([1, 1, 1, 1]),
+      collision: "dynamic",
+      placements: [
+        {
+          position: [0, 1, 0],
+          rotation: [0, 0, 0, 1],
+          scale: 1,
+          tint: [1, 1, 1, 1],
+        },
+      ],
+    };
+    const data: RegionData = {
+      meshes: [],
+      colliders: [],
+      materials: [{ color: [0.6, 0.6, 0.6, 1], specular: [0, 0, 0, 0] }],
+      connections: [],
+      instances: [group],
+      origin: [0, 0, 0],
+      provenance: {
+        generatorId: "dungeon",
+        generatorVersion: 2,
+        theme: "cave",
+        seed: "t",
+      },
+    };
+
+    const region = await realizeRegion(ctx, world, cache, data);
+    expect(region.dynamicProps.length).toBe(1);
+
+    // Shove it: a velocity moves the body, and update() makes the instance matrix follow.
+    physics.setBodyLinearVelocity(
+      ctx,
+      region.dynamicProps[0]?.body as physics.Body,
+      [2, 0, 0],
+    );
+    for (let i = 0; i < 10; i++) physics.step(ctx, world, 1 / 60);
+    region.update();
+
+    const bp = physics.getBodyTranslation(
+      ctx,
+      region.dynamicProps[0]?.body as physics.Body,
+      vec3.create(),
+    );
+    expect(bp[0]).toBeGreaterThan(0); // shove moved it
+    // update() wrote the body's translation into the group's mat4 buffer (col-major: x at index 12).
+    expect(data.instances[0]?.transforms[12] as number).toBeCloseTo(
+      bp[0] as number,
+      4,
+    );
+
+    region.destroy();
+    physics.destroyWorld(ctx, world);
+    cache.destroy();
+    gpu.dispose(ctx);
+  },
+);
