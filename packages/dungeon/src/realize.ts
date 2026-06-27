@@ -3,6 +3,7 @@ import * as geometry from "@furnace/core/geometry";
 import type { Context } from "@furnace/core/gpu";
 import * as material from "@furnace/core/material";
 import * as mesh from "@furnace/core/mesh";
+import type { ShapeDescriptor } from "@furnace/core/physics";
 import * as physics from "@furnace/core/physics";
 import * as shader from "@furnace/core/shader";
 import { vec3 } from "@furnace/core/transform";
@@ -207,6 +208,16 @@ export async function realizeRegion(
         g.tints[i * 4 + 3] as number,
       ]);
     }
+    if (g.collision === "solid" && g.placements) {
+      for (const p of g.placements) {
+        physics.createBody(ctx, world, {
+          type: "static",
+          shape: colliderFor(g.geometry, p.scale),
+          position: p.position,
+          rotation: p.rotation,
+        });
+      }
+    }
     ownedInstanced.push({ im, geo });
   }
 
@@ -237,4 +248,15 @@ function archetypeGeometry(
   if (a.primitive === "cylinder")
     return geometry.cylinder(ctx, { radius: 0.5, height: 1 });
   return geometry.cube(ctx, { size: 1 });
+}
+
+/** A static/dynamic collider for a scatter archetype, uniform-scaled to match the
+ *  rendered unit primitive (which spans ±0.5). Primitive shapes only (no trimesh) so
+ *  scatter colliders are free of the internal-edge ghost-collision class. */
+function colliderFor(a: ArchetypeGeometry, scale: number): ShapeDescriptor {
+  const h = 0.5 * scale;
+  if (a.primitive === "sphere") return { ball: h };
+  if (a.primitive === "cylinder")
+    return { cylinder: { halfHeight: h, radius: h } };
+  return { cuboid: [h, h, h] };
 }
