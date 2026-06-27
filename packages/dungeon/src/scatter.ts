@@ -250,6 +250,8 @@ function spaceOut(samples: Sample[], r: number): Sample[] {
 }
 
 const EMBED = 0.05; // sink slightly along -normal so items are seated, not floating
+const DROP_MARGIN = 0.02; // dynamic props spawn this far above the surface so they never
+//                            start interpenetrating; they free-fall a few cm and settle.
 
 /** Per-instance variation in a FIXED draw order (yaw, scale, tint), then anchor the
  *  point to the surface. Floors/walls sink slightly into the surface along -normal;
@@ -269,7 +271,14 @@ function seat(s: Sample, spec: ScatterLayerSpec, rng: Rng): InstanceData {
   // into the surface (-EMBED). Note +normal*(-EMBED) is bit-identical to the old
   // -normal*EMBED, so the floor/wall path is unchanged.
   const onCeiling = dot(s.normal, UP) <= CEILING_COS; // surface normal points down → a ceiling
-  const anchor = onCeiling ? 0.5 * scale - EMBED : -EMBED;
+  // A `dynamic` prop must rest ON the surface (lifted), not sink into it: spawn its centre
+  // half-its-height + a margin along the normal, then let physics settle it.
+  const anchorAlongNormal = (): number => {
+    if (spec.collision === "dynamic") return 0.5 * scale + DROP_MARGIN;
+    if (onCeiling) return 0.5 * scale - EMBED;
+    return -EMBED;
+  };
+  const anchor = anchorAlongNormal();
   const position: Vec3 = [
     s.position[0] + s.normal[0] * anchor,
     s.position[1] + s.normal[1] * anchor,

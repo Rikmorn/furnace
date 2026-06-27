@@ -288,3 +288,33 @@ test("box rooms carry world-placed floor scatter", () => {
       }
   }
 });
+
+test("dynamic posture lifts the spawn to rest on the surface; ghost sinks; XZ unchanged", () => {
+  const surf = rectSurface({ minX: -2, maxX: 2, z0: -2, z1: 2, y: 0 });
+  const layer: ScatterLayerSpec = {
+    ...BASE_LAYER,
+    name: "crates",
+    spacing: { min: 0.6, max: 0.6 },
+    scale: { min: 0.4, max: 0.4 }, // fixed scale → deterministic half-height 0.2
+  };
+  const dyn = scatter(
+    surf,
+    { ...layer, collision: "dynamic" },
+    makeRng("s"),
+    [],
+  );
+  const ghost = scatter(surf, layer, makeRng("s"), []);
+
+  expect(dyn.length).toBeGreaterThan(0);
+  expect(dyn.length).toBe(ghost.length);
+
+  // dynamic: centre lifted to 0.5*scale + DROP_MARGIN above the floor (0.2 + 0.02 = 0.22)
+  for (const d of dyn) expect(d.position[1]).toBeCloseTo(0.22, 5);
+  // ghost: sinks by EMBED (-0.05)
+  for (const g of ghost) expect(g.position[1]).toBeCloseTo(-0.05, 5);
+
+  // No reshuffle: identical XZ + scale, only Y differs.
+  expect(dyn.map((d) => [d.position[0], d.position[2], d.scale])).toEqual(
+    ghost.map((g) => [g.position[0], g.position[2], g.scale]),
+  );
+});
