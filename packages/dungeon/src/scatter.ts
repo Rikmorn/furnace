@@ -375,6 +375,17 @@ export function instanceGroupsFromLayers(
       posture: spec.posture,
       transforms,
       tints,
+      collision: spec.collision,
+      placements: spec.collision
+        ? data.map((d) => ({
+            ...d,
+            position: [
+              d.position[0] + offset[0],
+              d.position[1] + offset[1],
+              d.position[2] + offset[2],
+            ] as Vec3,
+          }))
+        : undefined,
     });
   }
   return groups;

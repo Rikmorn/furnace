@@ -2,10 +2,17 @@ import { expect, test } from "bun:test";
 import { create as makeRng } from "@furnace/core/rng";
 import { quat, vec3 } from "@furnace/core/transform";
 import { buildArea } from "../src/compose.ts";
-import type { InstanceData, ScatterLayerSpec, Vec3 } from "../src/region.ts";
+import type {
+  InstanceData,
+  InstanceGroup,
+  MaterialDescriptor,
+  ScatterLayerSpec,
+  Vec3,
+} from "../src/region.ts";
 import {
   _orient,
   _sampleSurface,
+  instanceGroupsFromLayers,
   meshSurface,
   rectSurface,
   scatter,
@@ -195,6 +202,55 @@ test("ceiling-target instances hang below the surface (not buried above it)", ()
     expect(d.position[1]).toBeLessThan(3); // hangs BELOW the ceiling, not buried above it
     expect(d.position[1]).toBeGreaterThan(3 - 1); // within ~one body-length of the surface
   }
+});
+
+const BASE_LAYER: ScatterLayerSpec = {
+  name: "probe",
+  geometry: { primitive: "cube" },
+  posture: "lit",
+  material: { color: [1, 1, 1, 1], specular: [0, 0, 0, 0] },
+  target: "floor",
+  spacing: { min: 0.5, max: 0.5 },
+  scale: { min: 0.2, max: 0.2 },
+};
+
+test("collision posture is carried onto the group with placements, and consumes no RNG", () => {
+  const surf = rectSurface({ minX: -2, maxX: 2, z0: -2, z1: 2, y: 0 });
+  const matsGhost: MaterialDescriptor[] = [];
+  const matsSolid: MaterialDescriptor[] = [];
+  const ghost = instanceGroupsFromLayers(
+    surf,
+    [BASE_LAYER],
+    makeRng("seed"),
+    [],
+    matsGhost,
+  );
+  const solid = instanceGroupsFromLayers(
+    surf,
+    [{ ...BASE_LAYER, collision: "solid" }],
+    makeRng("seed"),
+    [],
+    matsSolid,
+  );
+
+  const g = ghost[0] as InstanceGroup;
+  const s = solid[0] as InstanceGroup;
+
+  expect(g.collision).toBeUndefined();
+  expect(g.placements).toBeUndefined();
+
+  expect(s.collision).toBe("solid");
+  expect(s.placements).toBeDefined();
+  expect(s.placements?.length).toBe(s.transforms.length / 16);
+
+  // No RNG perturbation: a solid layer's baked transforms are byte-identical to the ghost's.
+  expect(Array.from(s.transforms)).toEqual(Array.from(g.transforms));
+
+  // Placements carry the SAME baked frame as transforms (offset applied): translation matches.
+  const p0 = s.placements?.[0];
+  expect(p0?.position[0]).toBeCloseTo(s.transforms[12] as number, 6);
+  expect(p0?.position[1]).toBeCloseTo(s.transforms[13] as number, 6);
+  expect(p0?.position[2]).toBeCloseTo(s.transforms[14] as number, 6);
 });
 
 test("box rooms carry world-placed floor scatter", () => {

@@ -30,6 +30,12 @@ export type RegionCollider = { shape: ShapeDescriptor; position: Vec3 };
 /** Whether a scatter layer's material lights normally or glows (unlit + bloom). */
 export type MaterialPosture = "lit" | "emissive";
 
+/** Collision posture of a scatter layer's instances. ABSENT = no collision
+ *  (decorative ghost — today's behaviour). `solid` = one static collider per
+ *  instance (a boulder you bump). `dynamic` = one shovable rigid body per instance
+ *  (a crate). Future additive value: `query` (hittable, non-blocking). */
+export type CollisionPosture = "solid" | "dynamic";
+
 /** Unit-primitive archetype a scatter layer instances (placed/scaled per instance). */
 export type ArchetypeGeometry = { primitive: "cube" | "sphere" | "cylinder" };
 
@@ -39,6 +45,8 @@ export type ScatterLayerSpec = {
   name: string;
   geometry: ArchetypeGeometry;
   posture: MaterialPosture;
+  /** Collision posture; absent = decorative ghost (no collider). */
+  collision?: CollisionPosture;
   /** color/specular (lit) or emissive color (unlit). */
   material: MaterialDescriptor;
   target: "floor" | "wall" | "ceiling" | "any";
@@ -70,6 +78,12 @@ export type InstanceGroup = {
   /** Index into `RegionData.materials`. */
   material: number;
   posture: MaterialPosture;
+  /** Collision posture; absent = decorative ghost. */
+  collision?: CollisionPosture;
+  /** Per-instance pos/rot/scale in the SAME baked frame as `transforms` (offset
+   *  applied). Present iff `collision` is set — `realize` builds colliders/bodies
+   *  from it. Omitted for decorative (ghost) layers to avoid bloat. */
+  placements?: InstanceData[];
   /** 16 * n, baked COLUMN-MAJOR mat4 (gl-matrix layout — the layout
    *  `mesh.setInstanceMatrices` consumes). */
   transforms: Float32Array;
