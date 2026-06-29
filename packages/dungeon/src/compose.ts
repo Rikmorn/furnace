@@ -11,8 +11,6 @@ import { cave } from "./themes/cave.ts";
 import { greatHall } from "./themes/great-hall.ts";
 import { pillarHall } from "./themes/pillar-hall.ts";
 
-export { STEP_HEIGHT } from "./themes/box-room.ts";
-
 /** Place a local-frame room so its door connection lands on `target` (facing −target.facing). */
 function placeRoom(room: RegionData, target: Connection): RegionData {
   const door = room.connections.find((c) => c.kind === "door") as Connection;
