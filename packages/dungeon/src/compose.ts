@@ -1,5 +1,5 @@
 import { create as makeRng } from "@furnace/core/rng";
-import { mat4, quat, vec3 } from "@furnace/core/transform";
+import { join, placePiece } from "./connect.ts";
 import type {
   Connection,
   RegionData,
@@ -20,142 +20,10 @@ function snapCardinal(f: Vec3): Vec3 {
     : [0, 0, Math.sign(f[2]) || 1];
 }
 
-/** Rotate a local XZ vector by the cardinal yaw that maps `from` → `to` (both unit cardinals). */
-function yawMap(from: Vec3, to: Vec3): (v: Vec3) => Vec3 {
-  const rots: Array<(v: Vec3) => Vec3> = [
-    (v) => [v[0], v[1], v[2]], // 0°
-    (v) => [v[2], v[1], -v[0]], // +90°
-    (v) => [-v[0], v[1], -v[2]], // 180°
-    (v) => [-v[2], v[1], v[0]], // -90°
-  ];
-  const matched = rots.find((r) => {
-    const a = r(from);
-    return a[0] === to[0] && a[2] === to[2];
-  });
-  if (!matched)
-    throw new Error(
-      `yawMap: no cardinal rotation maps ${JSON.stringify(from)} -> ${JSON.stringify(to)}`,
-    );
-  return matched;
-}
-
-/** Cardinal yaw swaps X/Z extents for 90/270-degree rotations. */
-function rotateExtent(size: Vec3, rot: (v: Vec3) => Vec3): Vec3 {
-  const r = rot([size[0], size[1], size[2]]);
-  return [Math.abs(r[0]), Math.abs(r[1]), Math.abs(r[2])];
-}
-
-function rotateShape(
-  shape: RegionData["colliders"][number]["shape"],
-  rot: (v: Vec3) => Vec3,
-): RegionData["colliders"][number]["shape"] {
-  if ("cuboid" in shape) {
-    const e = rotateExtent(shape.cuboid as Vec3, rot);
-    return { cuboid: e };
-  }
-  // voxels (cave proxies) never go through placeRoom
-  return shape;
-}
-
-/** Place a local-frame room so its door connection lands on `target` facing −target.facing. */
+/** Place a local-frame room so its door connection lands on `target` (facing −target.facing). */
 function placeRoom(room: RegionData, target: Connection): RegionData {
   const door = room.connections.find((c) => c.kind === "door") as Connection;
-  const wantFacing: Vec3 = [
-    -target.facing[0],
-    target.facing[1],
-    -target.facing[2],
-  ];
-  const rot = yawMap(door.facing, snapCardinal(wantFacing));
-
-  const doorWorld = rot(door.position);
-  const t: Vec3 = [
-    target.position[0] - doorWorld[0],
-    target.position[1] - doorWorld[1],
-    target.position[2] - doorWorld[2],
-  ];
-  const xf = (v: Vec3): Vec3 => {
-    const r = rot(v);
-    return [r[0] + t[0], r[1] + t[1], r[2] + t[2]];
-  };
-
-  // Placement mat4 `T(t)·R` (column-major): the room's instances were baked in LOCAL
-  // frame, so apply the same cardinal-yaw + translation placeRoom applies to meshes so
-  // decoration lands in world with the room. Cardinal yaw preserves +Y, so column 1
-  // stays [0,1,0,0] (mat4.create) and flat floors stay flat. Built once, reused across
-  // groups (each group copies out before the next multiply — no aliasing corruption).
-  const e0 = rot([1, 0, 0]); // world X basis (cardinal)
-  const e2 = rot([0, 0, 1]); // world Z basis
-  const placement = mat4.create();
-  placement[0] = e0[0];
-  placement[1] = e0[1];
-  placement[2] = e0[2];
-  placement[8] = e2[0];
-  placement[9] = e2[1];
-  placement[10] = e2[2];
-  placement[12] = t[0];
-  placement[13] = t[1];
-  placement[14] = t[2];
-  const scratchM = mat4.create();
-  // The cardinal yaw `rot` applies, as a quaternion, to rotate placement orientations.
-  // Ry(θ)·[1,0,0] = [cosθ, 0, -sinθ], so θ = atan2(-e0.z, e0.x).
-  const qYaw = quat.fromAxisAngle(
-    quat.create(),
-    vec3.fromValues(0, 1, 0),
-    Math.atan2(-e0[2], e0[0]),
-  );
-
-  return {
-    ...room,
-    meshes: room.meshes.map((m) => ({
-      ...m,
-      position: xf(m.position),
-      geometry:
-        "box" in m.geometry
-          ? { box: rotateExtent(m.geometry.box, rot) }
-          : m.geometry,
-    })),
-    colliders: room.colliders.map((c) => ({
-      shape: rotateShape(c.shape, rot),
-      position: xf(c.position),
-    })),
-    connections: room.connections.map((c) => ({
-      ...c,
-      position: xf(c.position),
-      facing: rot(c.facing),
-    })),
-    instances: room.instances.map((g) => {
-      const out = new Float32Array(g.transforms.length);
-      for (let i = 0; i < g.transforms.length; i += 16) {
-        const local = g.transforms.subarray(i, i + 16); // Float32Array view (Mat4)
-        mat4.multiply(scratchM, placement, local);
-        out.set(scratchM, i);
-      }
-      const placements = g.placements?.map((p) => {
-        const wr = quat.multiply(
-          quat.create(),
-          qYaw,
-          quat.fromValues(
-            p.rotation[0],
-            p.rotation[1],
-            p.rotation[2],
-            p.rotation[3],
-          ),
-        );
-        return {
-          ...p,
-          position: xf(p.position),
-          rotation: [wr[0], wr[1], wr[2], wr[3]] as [
-            number,
-            number,
-            number,
-            number,
-          ],
-        };
-      });
-      return { ...g, transforms: out, placements };
-    }),
-    origin: target.position,
-  };
+  return placePiece(room, join(target, door));
 }
 
 /** A small flat-floored vestibule box bridging a cave mouth to a room door (research §3). */

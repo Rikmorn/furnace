@@ -94,25 +94,20 @@ test.skipIf(!bunWebGpuAvailable())(
     const regions = buildArea("walk-1", [0, 0, 0]);
     for (const r of regions) await realizeRegion(ctx, world, cache, r);
 
-    const caveRegion = regions.find(
-      (r) => r.provenance.theme === "cave",
-    ) as RegionData;
     const ghRegion = regions.find(
       (r) => r.provenance.theme === "greatHall",
     ) as RegionData;
-    // placeRoom sets the placed region's origin to its cave mouth's world position,
-    // so this match is always exact — no fallback is needed. If it ever failed, the
-    // later `.position`/`.facing` access throws loudly, which is the desired behaviour.
-    const ghMouth = caveRegion.connections.find(
-      (c) =>
-        c.kind === "tunnel-mouth" &&
-        Math.abs(c.position[0] - ghRegion.origin[0]) < 1e-6 &&
-        Math.abs(c.position[2] - ghRegion.origin[2]) < 1e-6,
+    // The placed greatHall's door is its real entrance. The player walks from the cave hub
+    // INTO the room — i.e. OPPOSITE the door's outward facing. (placePiece sets a placed
+    // region's origin generically to xf(local origin), so we key off the door connection,
+    // not origin, which also survives the Task-7 room gap.)
+    const ghDoor = ghRegion.connections.find(
+      (c) => c.kind === "door",
     ) as Connection;
 
     // capsule rest height on flat floor at mouth Y
     const flatFloorRestY =
-      ghMouth.position[1] + CAPSULE.halfHeight + CAPSULE.radius;
+      ghDoor.position[1] + CAPSULE.halfHeight + CAPSULE.radius;
     const startY = flatFloorRestY + 0.1;
     let pos: [number, number, number] = [0, startY, 0];
     const body = physics.createBody(ctx, world, {
@@ -122,9 +117,14 @@ test.skipIf(!bunWebGpuAvailable())(
     });
     physics.step(ctx, world, 1 / 60);
     const mover = new CharacterMover(CAPSULE, body);
-    const dir = ghMouth.facing; // unit toward the greatHall branch
+    // toward the room = opposite the door's outward facing
+    const dir: [number, number, number] = [
+      -ghDoor.facing[0],
+      0,
+      -ghDoor.facing[2],
+    ];
     const mouthAlong =
-      ghMouth.position[0] * dir[0] + ghMouth.position[2] * dir[2];
+      ghDoor.position[0] * dir[0] + ghDoor.position[2] * dir[2];
     // platTop ∈ [0.3, 0.8); 0.25 m is a robust threshold that any seed must reach
     const DAIS_RISE_THRESHOLD = 0.25;
     let minY = pos[1];
@@ -165,7 +165,7 @@ test.skipIf(!bunWebGpuAvailable())(
     // climbed onto the dais: Y rose above flat-floor rest height
     expect(climbedDais).toBe(true);
     // never fell through the floor
-    expect(minY).toBeGreaterThan(ghMouth.position[1] - 1);
+    expect(minY).toBeGreaterThan(ghDoor.position[1] - 1);
 
     cache.destroy();
     physics.destroyWorld(ctx, world);

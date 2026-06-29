@@ -23,6 +23,11 @@ test("each room's door aligns to its cave branch (positions meet, facings negate
     (c) =>
       c.kind === "tunnel-mouth" && !(c.facing[0] === 0 && c.facing[2] === -1),
   );
+  // Facing is compared within an epsilon, not bit-exactly: placeRoom now joins via continuous
+  // yaw (connect.join/placePiece), so a 90° join leaves a ~6e-17 residual in the zeroed facing
+  // component (cos(π/2) ≠ 0). The retired cardinal-snap rotated by exact integer swaps, which is
+  // the only reason `===` held before. 1e-9 still catches any genuine (O(1)) misorientation.
+  const FACING_EPS = 1e-9;
   for (const m of mouths) {
     // some region exposes a connection whose position ~= the mouth and facing ~= -mouth.facing
     const matched = regions.some((r) =>
@@ -32,8 +37,8 @@ test("each room's door aligns to its cave branch (positions meet, facings negate
             c.position[0] - m.position[0],
             c.position[2] - m.position[2],
           ) < 3 &&
-          c.facing[0] === -m.facing[0] &&
-          c.facing[2] === -m.facing[2],
+          Math.abs(c.facing[0] + m.facing[0]) < FACING_EPS &&
+          Math.abs(c.facing[2] + m.facing[2]) < FACING_EPS,
       ),
     );
     expect(matched).toBe(true);
