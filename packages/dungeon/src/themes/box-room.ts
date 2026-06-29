@@ -15,10 +15,9 @@ import {
   rectSurface,
 } from "../scatter.ts";
 
-/** Maximum auto-step height. Must match `STEP_HEIGHT` in `char-move.ts`. */
-export const STEP_HEIGHT = 0.4;
-/** Keep step rises strictly below `STEP_HEIGHT` to guarantee traversability. */
-const STEP_MARGIN = 0.05;
+export { STEP_HEIGHT } from "../walkability.ts";
+
+import { STEP_HEIGHT, STEP_MARGIN } from "../walkability.ts";
 
 /** Cardinal wall side. */
 export type Side = "N" | "S" | "E" | "W";
