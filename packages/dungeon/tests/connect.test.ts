@@ -1,7 +1,7 @@
 // packages/dungeon/tests/connect.test.ts
 import { expect, test } from "bun:test";
 import { quat, vec3 } from "@furnace/core/transform";
-import { join, placePiece } from "../src/connect.ts";
+import { chooseKind, join, placePiece, route } from "../src/connect.ts";
 import type {
   Connection,
   RegionData,
@@ -105,4 +105,65 @@ test("join cardinal case keeps a box room axis-aligned (regression: matches exte
   const m = placed.meshes[0] as RegionMesh;
   expect((m.position as Vec3)[0]).toBeCloseTo(-2, 5);
   expect((m.position as Vec3)[2]).toBeCloseTo(1, 5);
+});
+
+const P = (position: Vec3, facing: Vec3): Connection => ({
+  position,
+  facing,
+  width: 2,
+  height: 3,
+  kind: "door",
+});
+
+test("chooseKind: flat→corridor, gentle climb→ramp, steep→stairs", () => {
+  expect(chooseKind(0, 4)).toBe("corridor"); // Δh 0
+  expect(chooseKind(1, 4)).toBe("ramp"); // 14° slope, walkable
+  expect(chooseKind(4, 1)).toBe("stairs"); // ~76° — too steep for a ramp
+});
+
+test("route ramp top face is walkable (normal.y >= SLOPE_LIMIT_COS)", () => {
+  const r = route(P([0, 0, 0], [1, 0, 0]), P([4, 1, 0], [-1, 0, 0]), {
+    kind: "ramp",
+  });
+  const m = r.meshes.find((mm) => "box" in mm.geometry);
+  expect(m?.rotation).toBeDefined();
+  const q = quat.fromValues(
+    ...(m?.rotation as [number, number, number, number]),
+  );
+  const up = vec3.transformQuat(vec3.create(), vec3.fromValues(0, 1, 0), q);
+  expect(up[1] as number).toBeGreaterThanOrEqual(
+    Math.cos((55 * Math.PI) / 180) - 1e-6,
+  );
+});
+
+test("route stairs risers stay below STEP_HEIGHT", () => {
+  const r = route(P([0, 0, 0], [0, 0, 1]), P([0, 2, 2], [0, 0, -1]), {
+    kind: "stairs",
+  });
+  const stepHeights = r.colliders.map(
+    (c) => (c.shape as { cuboid: Vec3 }).cuboid[1] * 2,
+  );
+  const sorted = [...stepHeights].sort((a, b) => a - b);
+  for (let i = 1; i < sorted.length; i++) {
+    expect((sorted[i] as number) - (sorted[i - 1] as number)).toBeLessThan(0.4);
+  }
+  expect(sorted[0] as number).toBeLessThan(0.4); // first riser
+});
+
+test("route corridor overlaps both endpoints (floor spans the join)", () => {
+  const from = P([0, 0, 0], [0, 0, 1]);
+  const to = P([0, 0, 3], [0, 0, -1]);
+  const r = route(from, to);
+  expect(r.provenance.theme).toBe("connector");
+  const floor = r.meshes[0] as RegionMesh;
+  const halfDepth = (floor.geometry as { box: Vec3 }).box[2] / 2;
+  const cz = (floor.position as Vec3)[2];
+  expect(cz - halfDepth).toBeLessThanOrEqual(0); // covers `from`
+  expect(cz + halfDepth).toBeGreaterThanOrEqual(3); // covers `to`
+});
+
+test("route throws when a forced ramp can't satisfy the slope limit", () => {
+  expect(() =>
+    route(P([0, 0, 0], [1, 0, 0]), P([1, 4, 0], [-1, 0, 0]), { kind: "ramp" }),
+  ).toThrow();
 });
