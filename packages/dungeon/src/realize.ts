@@ -161,6 +161,18 @@ export async function realizeRegion(
       handle,
       vec3.fromValues(m.position[0], m.position[1], m.position[2]),
     );
+    if (m.rotation) {
+      mesh.setRotation(
+        ctx,
+        handle,
+        quat.fromValues(
+          m.rotation[0],
+          m.rotation[1],
+          m.rotation[2],
+          m.rotation[3],
+        ),
+      );
+    }
     if ("box" in m.geometry) {
       const s = m.geometry.box;
       mesh.setScale(
@@ -187,6 +199,7 @@ export async function realizeRegion(
       type: "static",
       shape: c.shape,
       position: c.position,
+      rotation: c.rotation,
     });
   }
 

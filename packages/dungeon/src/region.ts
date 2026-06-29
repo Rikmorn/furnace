@@ -10,6 +10,9 @@ export type Vec3 = [number, number, number];
 /** The set of named theme generators available in the dungeon. */
 export type ThemeName = "cave" | "pillarHall" | "greatHall";
 
+/** A region's origin kind: a generatable theme, or a structural connector piece. */
+export type RegionKind = ThemeName | "connector";
+
 /** RGBA material descriptor for a region mesh surface. */
 export type MaterialDescriptor = {
   color: [number, number, number, number];
@@ -22,10 +25,17 @@ export type RegionMesh = {
   material: number; // index into RegionData.materials
   position: Vec3; // WORLD position
   scale?: Vec3; // box primitives only
+  /** Optional world orientation quaternion (x,y,z,w); absent = identity. */
+  rotation?: [number, number, number, number];
 };
 
 /** A single physics collider within a region. */
-export type RegionCollider = { shape: ShapeDescriptor; position: Vec3 };
+export type RegionCollider = {
+  shape: ShapeDescriptor;
+  position: Vec3;
+  /** Optional world orientation quaternion (x,y,z,w); absent = identity. */
+  rotation?: [number, number, number, number];
+};
 
 /** Whether a scatter layer's material lights normally or glows (unlit + bloom). */
 export type MaterialPosture = "lit" | "emissive";
@@ -104,7 +114,7 @@ export type Connection = {
 export type Provenance = {
   generatorId: "dungeon";
   generatorVersion: number;
-  theme: ThemeName;
+  theme: RegionKind;
   seed: string;
 };
 
