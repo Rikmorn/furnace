@@ -176,12 +176,12 @@ async function climbUpper(
 test.skipIf(!bunWebGpuAvailable())(
   "player climbs the off-axis ramp to the upper room",
   async () => {
-    // dir mirrors attachUpperLevel's aDir (RAMP_OFF_AXIS_DEG off −Z); from = its fromA.
+    // dir mirrors attachUpperLevel's aDir (RAMP_OFF_AXIS_DEG off −Z, NORTH-WEST); from = its fromA.
     const yaw = (30 * Math.PI) / 180;
-    const dir: [number, number, number] = [Math.sin(yaw), 0, -Math.cos(yaw)];
-    const RAMP_RUN = 4.33; // mirrors compose.ts CLIMB_RUN
-    const RAMP_HEIGHT = 2.5; // mirrors compose.ts CLIMB_HEIGHT
-    const r = await climbUpper([8, 0, -9.5], dir, RAMP_RUN, RAMP_HEIGHT);
+    const dir: [number, number, number] = [-Math.sin(yaw), 0, -Math.cos(yaw)];
+    const RAMP_RUN = 16; // mirrors compose.ts CLIMB_RUN
+    const RAMP_HEIGHT = 13.4; // mirrors compose.ts CLIMB_HEIGHT
+    const r = await climbUpper([10, 0, -9.6], dir, RAMP_RUN, RAMP_HEIGHT);
     expect(r.reachedTop).toBe(true); // climbed the whole ramp, never fell off
     expect(r.maxY).toBeGreaterThan(r.startY + RAMP_HEIGHT * 0.6); // rose most of the height
     expect(r.maxStall).toBeLessThan(STALL_LIMIT);
@@ -192,9 +192,9 @@ test.skipIf(!bunWebGpuAvailable())(
   "player climbs the cardinal stairs to the upper room",
   async () => {
     const dir: [number, number, number] = [1, 0, 0]; // mirrors attachUpperLevel's bDir; from = fromB
-    const STAIR_RUN = 6; // mirrors compose.ts STAIR_RUN
-    const STAIR_HEIGHT = 3.5; // mirrors compose.ts STAIR_HEIGHT
-    const r = await climbUpper([6, 0, -6], dir, STAIR_RUN, STAIR_HEIGHT);
+    const STAIR_RUN = 12; // mirrors compose.ts STAIR_RUN
+    const STAIR_HEIGHT = 10; // mirrors compose.ts STAIR_HEIGHT
+    const r = await climbUpper([7, 0, -6], dir, STAIR_RUN, STAIR_HEIGHT);
     expect(r.reachedTop).toBe(true);
     expect(r.maxY).toBeGreaterThan(r.startY + STAIR_HEIGHT * 0.6);
     expect(r.maxStall).toBeLessThan(STALL_LIMIT);

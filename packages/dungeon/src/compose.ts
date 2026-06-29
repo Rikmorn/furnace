@@ -128,10 +128,14 @@ export function attachWing(
   return { regions, corridor };
 }
 
-const CLIMB_RUN = 4.33; // horizontal run of the ramp climb (≈30° at CLIMB_HEIGHT) — GATE-TUNE
-const CLIMB_HEIGHT = 2.5; // height the ramp upper room sits above its floor portal — GATE-TUNE
-const STAIR_RUN = 6; // horizontal run of the stair climb — GATE-TUNE
-const STAIR_HEIGHT = 3.5; // height the stair upper room sits above its floor portal — GATE-TUNE
+// Both upper rooms float in the VOID well clear of the authored chamber: each climb rises
+// over a chamber rim (walls reach y=6, open-topped above) and continues OUT into empty space,
+// so the room floor lands above y=6 (clearing the chamber by elevation) AND offset in XZ
+// (clearing the other room). Long connectors are intentional — the rooms sit high in the fog.
+const CLIMB_RUN = 16; // off-axis ramp horizontal run — long, to climb over the north rim into the void — GATE-TUNE
+const CLIMB_HEIGHT = 13.4; // ramp room floats this high; the slab clears the y=6 north wall mid-climb (pitch ≈40°) — GATE-TUNE
+const STAIR_RUN = 12; // cardinal stair horizontal run — long, to climb over the east rim into the void — GATE-TUNE
+const STAIR_HEIGHT = 10; // stair room floats this high; the steps clear the y=6 east wall mid-climb — GATE-TUNE
 const RAMP_OFF_AXIS_DEG = 30; // ramp yaw off −Z — non-cardinal, proves arbitrary-angle joining
 
 /** Build one elevated room: seat `room`'s door `run` metres out and `height` up along the
@@ -162,21 +166,26 @@ function attachUpperRoom(
   return [route(from, door, { kind }), placed];
 }
 
-/** Two elevated rooms attached to authored 2nd-chamber floor portals: a pillarHall reached
- *  by a ~30° OFF-AXIS ramp (proves arbitrary-yaw joining) and a greatHall reached by a
- *  cardinal stair-run. Coordinates clear the chamber's walls/pillar/slab/detail (GATE-TUNE);
- *  the rooms sit above the chamber at the climb height (their footprints overlap it). Returns
- *  connector+room pairs (same shape as `buildArea`'s). */
+/** Two elevated rooms attached to authored 2nd-chamber floor portals, each relocated into
+ *  SEPARATED clear void: a pillarHall reached by a ~30° OFF-AXIS ramp (proves arbitrary-yaw
+ *  joining) that climbs over the NORTH rim and sprawls north-west, and a greatHall reached by
+ *  a cardinal stair-run that climbs over the EAST rim and sprawls east. Both room floors land
+ *  ABOVE y=6 (so neither overlaps the chamber, walls y[0,6]) and in disjoint XZ volumes (so
+ *  the two rooms do not overlap each other) — asserted by `tests/upper-level.test.ts`. The
+ *  climbs clear the chamber's walls/pillar/slab/detail (GATE-TUNE). Returns connector+room
+ *  pairs (same shape as `buildArea`'s). */
 export function attachUpperLevel(seed: string): RegionData[] {
-  // (a) off-axis ramp — fromA in the chamber's mid-west, climbing ~30° toward the NORTH (the
-  // ramp passes UNDER the z=-10 floating detail at y<1, and stays WEST of the fallen slab).
-  // aDir is 30° off −Z so the pillarHall sprawls north (past the north wall), clear of (b)'s
-  // stair path at z=-6. Both rooms are large; aiming their sprawl into different exterior
-  // volumes keeps each climb path clear of the other's room.
+  // (a) off-axis ramp — fromA at the chamber's east-mid floor, just south of the z=-10 floating
+  // detail (the wall y[3,9]), climbing ~30° off −Z toward the NORTH-WEST. Sitting close to z=-10
+  // keeps the crossing LOW so the capsule (and its per-tick step-up raise) passes UNDER the
+  // detail; the ramp then stays WEST of the fallen slab, clears the north wall (x[5,15]) ABOVE
+  // y=6 mid-climb, and continues into the void. The pillarHall floor lands ~13 m up with its
+  // door at z≈-23; the room AABB (x[-13,8], z[-42,-20], y[13,18]) is clear of both the chamber
+  // and the EAST-sprawling greatHall (which lives at x>18).
   const aYaw = (RAMP_OFF_AXIS_DEG * Math.PI) / 180;
-  const aDir: Vec3 = [Math.sin(aYaw), 0, -Math.cos(aYaw)];
+  const aDir: Vec3 = [-Math.sin(aYaw), 0, -Math.cos(aYaw)];
   const fromA: Connection = {
-    position: [8, 0, -9.5],
+    position: [10, 0, -9.6],
     facing: aDir,
     width: 2,
     height: 3,
@@ -188,10 +197,13 @@ export function attachUpperLevel(seed: string): RegionData[] {
     origin: [0, 0, 0],
   });
 
-  // (b) cardinal stairs — fromB in the south-clear band, climbing +X.
+  // (b) cardinal stairs — fromB in the south-clear band (z=-6, clear of the pillar and the
+  // z=-10 detail), climbing +X over the EAST wall (x=15, cleared above y=6 mid-climb) and out
+  // into the void; the greatHall floor lands ~10 m up at x>15 — clear of both the chamber and
+  // the NW-sprawling pillarHall.
   const bDir: Vec3 = [1, 0, 0];
   const fromB: Connection = {
-    position: [6, 0, -6],
+    position: [7, 0, -6],
     facing: bDir,
     width: 2,
     height: 3,
