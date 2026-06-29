@@ -1,7 +1,7 @@
 // Headless seam walk-probe. Builds the FULL composed collider set buildArea
-// produces (cave voxels + vestibule cuboid + room cuboids) and WALKS the player
+// produces (cave voxels + connector cuboid + room cuboids) and WALKS the player
 // capsule from inside the cave hub, out through a tunnel mouth, across the
-// cave->vestibule->room seams, and into the room — asserting it never wedges, never
+// cave->connector->room seams, and into the room — asserting it never wedges, never
 // falls through a seam, and actually enters the room. This converts the 2.2.1
 // gate-only seam class (curved-wall stall / floor stall / hall<->chamber fall-through)
 // into a hard headless assert. It is WALK-IN, not drop-in: dropping a capsule rests
@@ -23,7 +23,7 @@ await ensureBunWebGpu();
 const CAPSULE = { halfHeight: 0.6, radius: 0.3 };
 
 test.skipIf(!bunWebGpuAvailable())(
-  "player walks cave -> vestibule -> room across a seam, no fall/stall",
+  "player walks cave -> corridor -> room across a seam, no fall/stall",
   async () => {
     const canvas = await makeOffscreenCanvas();
     const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
@@ -149,7 +149,7 @@ test.skipIf(!bunWebGpuAvailable())(
       stalls = progressed ? 0 : stalls + 1;
       expect(stalls).toBeLessThan(45); // never wedged for ~0.75s
       // stop as soon as we confirm the dais has been climbed — avoids walking into the far wall.
-      // Guard with "past mouthAlong + 5" so cave/vestibule terrain variation cannot trigger this early.
+      // Guard with "past mouthAlong + 5" so cave/connector terrain variation cannot trigger this early.
       const depthNow = pos[0] * dir[0] + pos[2] * dir[2];
       if (
         depthNow > mouthAlong + 5 &&

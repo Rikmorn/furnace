@@ -5,6 +5,7 @@ import * as material from "@furnace/core/material";
 import * as mesh from "@furnace/core/mesh";
 import * as shader from "@furnace/core/shader";
 import { vec3 } from "@furnace/core/transform";
+import type { Connection } from "./region.ts";
 
 /** An axis-aligned box: world-space center + full extents (size along x,y,z).
  *  Doubles as a collider AABB (Task 8). */
@@ -77,6 +78,17 @@ export const LEVEL_BOXES: Box[] = [
   { center: [9, 1, -8], size: [1, 2, 1] }, // a standing pillar
   { center: [11.5, 0.6, -12], size: [2.4, 1.2, 1.2] }, // a fallen slab
 ];
+
+/** The 2nd (east) chamber's doorway in the z=-4 wall (gap x[8.5,11.5], floor y=0). The
+ *  generated wing attaches here via the connection primitive. Facing +Z = outward from the
+ *  chamber interior (z<-4) toward the wing. */
+export const CHAMBER_DOOR: Connection = {
+  position: [10, 0, -4],
+  facing: [0, 0, 1],
+  width: 3,
+  height: 6,
+  kind: "door",
+};
 
 export type Level = { meshes: mesh.Mesh[]; boxes: Box[]; destroy: () => void };
 

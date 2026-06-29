@@ -255,14 +255,12 @@ test("collision posture is carried onto the group with placements, and consumes 
 
 test("box rooms carry world-placed floor scatter", () => {
   const regions = buildArea("rooms", [0, 0, 0]);
-  // Bridge vestibules also carry theme "pillarHall" (a pre-existing tag) but are not
-  // rooms — they emit no scatter and have no door. A real placed room is the one that
-  // owns a door connection; filter on that so the vestibules don't poison the assertion.
+  // Connectors (the route corridors bridging cave mouths to rooms) carry theme
+  // "connector" with no connections, so the theme check alone excludes them — only the
+  // placed pillarHall/greatHall rooms remain.
   const rooms = regions.filter(
     (r) =>
-      (r.provenance.theme === "pillarHall" ||
-        r.provenance.theme === "greatHall") &&
-      r.connections.some((c) => c.kind === "door"),
+      r.provenance.theme === "pillarHall" || r.provenance.theme === "greatHall",
   );
   expect(rooms.length).toBeGreaterThan(0);
   for (const room of rooms) {

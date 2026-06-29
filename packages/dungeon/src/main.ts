@@ -7,9 +7,9 @@ import * as post from "@furnace/core/post";
 import { loadScene } from "@furnace/core/scene";
 import { vec3, vec4 } from "@furnace/core/transform";
 import { CharacterMover, shoveDynamicBodies } from "./char-move.ts";
-import { buildArea } from "./compose.ts";
+import { attachWing } from "./compose.ts";
 import { FpController } from "./fp-controller.ts";
-import { buildGlows, buildLevel } from "./level.ts";
+import { buildGlows, buildLevel, CHAMBER_DOOR } from "./level.ts";
 import { buildMotes } from "./motes.ts";
 import { MaterialCache, realizeRegion } from "./realize.ts";
 import { bakedCavernProxy } from "./themes/cave.ts";
@@ -71,18 +71,24 @@ async function main(): Promise<void> {
     shape: cavernProxy.proxy,
     position: cavernProxy.proxyPosition,
   });
-  // The branching-cave wing: a cave hub + vestibule/room pairs at each branch
+  // The branching-cave wing: a cave hub + connector/room pairs at each branch
   // mouth, realized as lit-stone meshes + field-derived voxel colliders into `world`.
+  // The whole wing seats onto the authored 2nd-chamber doorway via the connection
+  // primitive (join the cave's −Z entrance portal onto CHAMBER_DOOR, bridged by a route
+  // corridor) — the same join the cave→room seams use, so no hand-tuned area origin.
   const matCache = new MaterialCache(ctx);
-  // Wing attaches south of the 2nd-chamber's z=-4 wall. y=2 makes the cave floor
-  // (origin.y + cave FLOOR_Y(-2) = 0) flush with the chamber floor. — GATE-TUNE
-  const AREA_ORIGIN: [number, number, number] = [10, 2, -0.5];
-  // Realize SEQUENTIALLY: the cave + its vestibules share one material descriptor,
+  const WING_SEAM_GAP = 2.5; // cave entrance sits this far out from the chamber door — GATE-TUNE
+  const { regions: wingRegions, corridor: wingCorridor } = attachWing(
+    "wing-1",
+    CHAMBER_DOOR,
+    WING_SEAM_GAP,
+  );
+  // Realize SEQUENTIALLY: the cave + its connectors share one material descriptor,
   // and MaterialCache.get is not concurrency-safe for a shared key (its check-then-
   // await-then-set window would double-allocate and leak under Promise.all). Sequential
   // await keeps the cache single-source; there's no real parallelism to lose here.
   const area: Awaited<ReturnType<typeof realizeRegion>>[] = [];
-  for (const r of buildArea("wing-1", AREA_ORIGIN)) {
+  for (const r of [...wingRegions, wingCorridor]) {
     area.push(await realizeRegion(ctx, world, matCache, r));
   }
   const areaMeshes = area.flatMap((a) => a.meshes);

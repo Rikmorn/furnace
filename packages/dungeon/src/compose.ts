@@ -80,3 +80,52 @@ export function buildArea(seed: string, origin: Vec3): RegionData[] {
   });
   return [c, ...pairs];
 }
+
+/** Seat the generated wing onto an authored door via the connection primitive: build the
+ *  wing at a provisional origin, `join` the cave's −Z entrance portal onto `chamberDoor`
+ *  (pushed `gap` metres out along the door facing), rigidly move every wing region by that
+ *  placement, and `route` a corridor from the door to the placed entrance. Shared by
+ *  `main.ts` and the traversal harness so they cannot drift.
+ *
+ * @param seed        - Deterministic seed string for the wing's area.
+ * @param chamberDoor - The authored door the wing attaches to (its facing points outward,
+ *                      away from the chamber interior, toward the wing).
+ * @param gap         - Metres the cave entrance sits beyond the door; a `route` corridor
+ *                      bridges the span.
+ * @returns The placed wing regions and the corridor bridging the door to the placed entrance. */
+export function attachWing(
+  seed: string,
+  chamberDoor: Connection,
+  gap: number,
+): { regions: RegionData[]; corridor: RegionData } {
+  const wing = buildArea(seed, [0, 0, 0]);
+  const caveRegion = wing.find(
+    (r) => r.provenance.theme === "cave",
+  ) as RegionData;
+  const entrance = caveRegion.connections.find(
+    (cn) =>
+      cn.kind === "tunnel-mouth" && cn.facing[0] === 0 && cn.facing[2] === -1,
+  ) as Connection;
+  const seamTarget: Connection = {
+    position: [
+      chamberDoor.position[0] + chamberDoor.facing[0] * gap,
+      chamberDoor.position[1],
+      chamberDoor.position[2] + chamberDoor.facing[2] * gap,
+    ],
+    facing: chamberDoor.facing,
+    width: entrance.width,
+    height: entrance.height,
+    kind: "door",
+  };
+  const place = join(seamTarget, entrance);
+  const regions = wing.map((r) => placePiece(r, place));
+  const placedCave = regions.find(
+    (r) => r.provenance.theme === "cave",
+  ) as RegionData;
+  const placedEntrance = placedCave.connections.find(
+    (cn) =>
+      cn.kind === "tunnel-mouth" && cn.facing[0] === 0 && cn.facing[2] === -1,
+  ) as Connection;
+  const corridor = route(chamberDoor, placedEntrance);
+  return { regions, corridor };
+}
