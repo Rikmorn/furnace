@@ -7,7 +7,7 @@ import * as post from "@furnace/core/post";
 import { loadScene } from "@furnace/core/scene";
 import { vec3, vec4 } from "@furnace/core/transform";
 import { CharacterMover, shoveDynamicBodies } from "./char-move.ts";
-import { attachWing } from "./compose.ts";
+import { attachUpperLevel, attachWing } from "./compose.ts";
 import { FpController } from "./fp-controller.ts";
 import { buildGlows, buildLevel, CHAMBER_DOOR } from "./level.ts";
 import { buildMotes } from "./motes.ts";
@@ -89,6 +89,12 @@ async function main(): Promise<void> {
   // await keeps the cache single-source; there's no real parallelism to lose here.
   const area: Awaited<ReturnType<typeof realizeRegion>>[] = [];
   for (const r of [...wingRegions, wingCorridor]) {
+    area.push(await realizeRegion(ctx, world, matCache, r));
+  }
+  // Multi-level showcase: two elevated rooms reached from authored 2nd-chamber floor
+  // portals — a pillarHall up a ~30° off-axis ramp + a greatHall up a cardinal stair-run.
+  // Realized into `area` BEFORE the flatMap below so their meshes/colliders join the draw.
+  for (const r of attachUpperLevel("wing-1")) {
     area.push(await realizeRegion(ctx, world, matCache, r));
   }
   const areaMeshes = area.flatMap((a) => a.meshes);

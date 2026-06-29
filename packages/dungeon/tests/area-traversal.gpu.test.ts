@@ -10,7 +10,8 @@ import { expect, test } from "bun:test";
 import * as gpu from "@furnace/core/gpu";
 import * as physics from "@furnace/core/physics";
 import { CharacterMover } from "../src/char-move.ts";
-import { buildArea } from "../src/compose.ts";
+import { attachUpperLevel, buildArea } from "../src/compose.ts";
+import { LEVEL_BOXES } from "../src/level.ts";
 import { MaterialCache, realizeRegion } from "../src/realize.ts";
 import type { Connection, RegionData } from "../src/region.ts";
 import {
@@ -81,6 +82,122 @@ test.skipIf(!bunWebGpuAvailable())(
     cache.destroy();
     physics.destroyWorld(ctx, world);
     gpu.dispose(ctx);
+  },
+);
+
+// --- Task 9: multi-level showcase (ramp climb + stairs + off-axis upper rooms) ---
+// Two elevated rooms attach to the authored 2nd-chamber floor portals (attachUpperLevel):
+// a pillarHall up a ~30° OFF-AXIS ramp and a greatHall up a cardinal stair-run. These walk
+// the CharacterMover up each climb on the FULL chamber collider set + the upper level, and
+// assert it actually RISES (proving arbitrary-angle + multi-height joining via `route`) and
+// never wedges. The upper rooms' footprints overlap the chamber walls at climb height, so —
+// like connect.gpu.test.ts's `climb` helper — we break at the landing (the final sample is
+// the climbed state) rather than walking deeper into the room and into a chamber wall.
+const MAX_FRAMES = 700;
+const STALL_LIMIT = 45; // never wedged for ~0.75 s
+const WALK_SPEED = 3; // m/s
+const DT = 1 / 60;
+
+/** Realize the authored chamber colliders + the multi-level showcase, spawn the capsule on
+ *  a floor portal at `from`, and walk it along `dir` up a climb of horizontal `run` to a
+ *  room sitting `height` above. Returns whether it reached the landing (advanced past `run`
+ *  AND rose well above spawn) plus the climb metrics. */
+async function climbUpper(
+  from: [number, number, number],
+  dir: [number, number, number],
+  run: number,
+  height: number,
+): Promise<{
+  reachedTop: boolean;
+  maxY: number;
+  maxStall: number;
+  startY: number;
+}> {
+  const canvas = await makeOffscreenCanvas();
+  const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
+  const world = await physics.createWorld(ctx, { gravity: [0, -9.81, 0] });
+  const cache = new MaterialCache(ctx);
+  for (const b of LEVEL_BOXES) {
+    physics.createBody(ctx, world, {
+      type: "static",
+      shape: { cuboid: [b.size[0] / 2, b.size[1] / 2, b.size[2] / 2] },
+      position: b.center,
+    });
+  }
+  const realized: Awaited<ReturnType<typeof realizeRegion>>[] = [];
+  for (const r of attachUpperLevel("wing-1")) {
+    realized.push(await realizeRegion(ctx, world, cache, r));
+  }
+
+  const startY = CAPSULE.halfHeight + CAPSULE.radius + 0.2;
+  let pos: [number, number, number] = [from[0], startY, from[2]];
+  const body = physics.createBody(ctx, world, {
+    type: "kinematicPosition",
+    shape: { capsule: CAPSULE },
+    position: pos,
+  });
+  physics.step(ctx, world, DT);
+  const mover = new CharacterMover(CAPSULE, body);
+  let maxStall = 0;
+  let stall = 0;
+  let maxY = pos[1];
+  let reachedTop = false;
+  for (let i = 0; i < MAX_FRAMES; i++) {
+    const prev = pos;
+    pos = mover.resolve(
+      ctx,
+      world,
+      pos,
+      [dir[0] * WALK_SPEED * DT, 0, dir[2] * WALK_SPEED * DT],
+      DT,
+    ).pos;
+    physics.setBodyNextKinematicTranslation(ctx, body, pos);
+    physics.step(ctx, world, DT);
+    maxY = Math.max(maxY, pos[1]);
+    const progressed = Math.hypot(pos[0] - prev[0], pos[2] - prev[2]) > 0.005;
+    stall = progressed ? 0 : stall + 1;
+    maxStall = Math.max(maxStall, stall);
+    // Reached the landing: advanced past the connector exit along `dir` AND risen well above
+    // spawn. Break before walking deeper into the upper room (its footprint overlaps the
+    // chamber walls at climb height).
+    const advanced = (pos[0] - from[0]) * dir[0] + (pos[2] - from[2]) * dir[2];
+    if (advanced >= run && pos[1] > startY + height * 0.5) {
+      reachedTop = true;
+      break;
+    }
+  }
+  for (const r of realized) r.destroy();
+  cache.destroy();
+  physics.destroyWorld(ctx, world);
+  gpu.dispose(ctx);
+  return { reachedTop, maxY, maxStall, startY };
+}
+
+test.skipIf(!bunWebGpuAvailable())(
+  "player climbs the off-axis ramp to the upper room",
+  async () => {
+    // dir mirrors attachUpperLevel's aDir (RAMP_OFF_AXIS_DEG off −Z); from = its fromA.
+    const yaw = (30 * Math.PI) / 180;
+    const dir: [number, number, number] = [Math.sin(yaw), 0, -Math.cos(yaw)];
+    const RAMP_RUN = 4.33; // mirrors compose.ts CLIMB_RUN
+    const RAMP_HEIGHT = 2.5; // mirrors compose.ts CLIMB_HEIGHT
+    const r = await climbUpper([8, 0, -9.5], dir, RAMP_RUN, RAMP_HEIGHT);
+    expect(r.reachedTop).toBe(true); // climbed the whole ramp, never fell off
+    expect(r.maxY).toBeGreaterThan(r.startY + RAMP_HEIGHT * 0.6); // rose most of the height
+    expect(r.maxStall).toBeLessThan(STALL_LIMIT);
+  },
+);
+
+test.skipIf(!bunWebGpuAvailable())(
+  "player climbs the cardinal stairs to the upper room",
+  async () => {
+    const dir: [number, number, number] = [1, 0, 0]; // mirrors attachUpperLevel's bDir; from = fromB
+    const STAIR_RUN = 6; // mirrors compose.ts STAIR_RUN
+    const STAIR_HEIGHT = 3.5; // mirrors compose.ts STAIR_HEIGHT
+    const r = await climbUpper([6, 0, -6], dir, STAIR_RUN, STAIR_HEIGHT);
+    expect(r.reachedTop).toBe(true);
+    expect(r.maxY).toBeGreaterThan(r.startY + STAIR_HEIGHT * 0.6);
+    expect(r.maxStall).toBeLessThan(STALL_LIMIT);
   },
 );
 
