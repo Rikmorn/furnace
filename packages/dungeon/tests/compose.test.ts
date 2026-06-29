@@ -3,16 +3,16 @@ import { quat, vec3 } from "@furnace/core/transform";
 import { buildArea } from "../src/compose.ts";
 import type { RegionData } from "../src/region.ts";
 
-test("buildArea returns the cave + a vestibule + a room per branch", () => {
+test("buildArea returns the cave + a connector + a room per branch", () => {
   const regions = buildArea("area-1", [0, 0, 0]);
   const cave = regions.find((r) => r.provenance.theme === "cave") as RegionData;
   const branches = cave.connections.filter(
     (c) =>
       c.kind === "tunnel-mouth" && !(c.facing[0] === 0 && c.facing[2] === -1),
   ).length;
-  // each branch → 1 vestibule + 1 room
+  // each branch → 1 connector + 1 room
   const rooms = regions.filter((r) => r.provenance.theme !== "cave");
-  expect(rooms.length).toBeGreaterThanOrEqual(branches * 2); // vestibule + hall per branch
+  expect(rooms.length).toBeGreaterThanOrEqual(branches * 2); // connector + hall per branch
   expect((regions[0] as RegionData).provenance.theme).toBe("cave");
 });
 
