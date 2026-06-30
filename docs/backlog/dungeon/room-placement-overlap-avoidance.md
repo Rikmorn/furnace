@@ -10,7 +10,12 @@ tests didn't catch it because they break at the landing and never walk into the 
 the overlap is invisible to a path-only gate (the same "subset world hides the real thing" trap
 as 2.2.1/2.2.2). A 2.2.4-local stopgap relocates the showcase rooms into separated clear void
 and adds an AABB non-overlap assertion to the climb tests; the underlying algorithm is still
-missing.
+missing. **The stopgap is itself imperfect:** to avoid editing the authored chamber walls, the
+relocated connectors climb up and *over* the chamber's open top, so the long ramps/stairs pass
+through the chamber airspace and **clip its walls/interior** on the way out (and the rooms now
+float ~10–13 m up). The user accepted this as good-enough-for-now at the 2.2.4 gate ("we can
+handle it after"); the real fix (collision-aware layout, or cutting wall doorways so connectors
+exit level) supersedes the stopgap — don't preserve the over-the-rim placement, redo it.
 
 **The principle (from the user, 2026-06-30):** rooms should not overlap. If two pieces *do*
 overlap, that must be **intentional** — a deliberate boolean/CSG merge that yields a
