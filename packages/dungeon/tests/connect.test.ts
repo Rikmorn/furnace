@@ -170,6 +170,74 @@ test("route throws when a forced ramp can't satisfy the slope limit", () => {
   ).toThrow();
 });
 
+test("route: DESCENDING stairs emit a real staircase (not empty)", () => {
+  const from: Connection = {
+    position: [0, 6, 0],
+    facing: [0, 0, 1],
+    width: 2,
+    height: 3,
+    kind: "door",
+  };
+  const to: Connection = {
+    position: [0, 0, 8],
+    facing: [0, 0, -1],
+    width: 2,
+    height: 3,
+    kind: "door",
+  };
+  const r = route(from, to, { kind: "stairs" });
+  expect(r.colliders.length).toBeGreaterThan(10); // ceil(6/0.35) = 18 steps
+  // the staircase spans the full height band [0, 6]
+  const tops = r.colliders.map(
+    (c) => c.position[1] + ("cuboid" in c.shape ? c.shape.cuboid[1] : 0),
+  );
+  expect(Math.max(...tops)).toBeGreaterThan(5.5);
+  expect(Math.min(...tops)).toBeLessThan(1.0);
+  // and every riser is walkable
+  const sorted = [...tops].sort((a, b) => a - b);
+  for (let i = 1; i < sorted.length; i++) {
+    expect((sorted[i] as number) - (sorted[i - 1] as number)).toBeLessThan(0.4);
+  }
+});
+
+test("route: forced STEEP DESCENDING ramp throws setup-loud", () => {
+  const from: Connection = {
+    position: [0, 10, 0],
+    facing: [0, 0, 1],
+    width: 2,
+    height: 3,
+    kind: "door",
+  };
+  const to: Connection = {
+    position: [0, 0, 3],
+    facing: [0, 0, -1],
+    width: 2,
+    height: 3,
+    kind: "door",
+  };
+  expect(() => route(from, to, { kind: "ramp" })).toThrow(/slope limit/);
+});
+
+test("route: gentle descending ramp still builds (signed pitch kept)", () => {
+  const from: Connection = {
+    position: [0, 2, 0],
+    facing: [0, 0, 1],
+    width: 2,
+    height: 3,
+    kind: "door",
+  };
+  const to: Connection = {
+    position: [0, 0, 10],
+    facing: [0, 0, -1],
+    width: 2,
+    height: 3,
+    kind: "door",
+  };
+  const r = route(from, to, { kind: "ramp" });
+  expect(r.meshes.length).toBe(1);
+  expect(r.meshes[0]?.rotation).toBeDefined();
+});
+
 test("placePiece transforms bounds conservatively (yaw 90° + translate)", () => {
   const door: Connection = {
     position: [0, 0, 1],

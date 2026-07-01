@@ -211,7 +211,7 @@ function buildConnectorLocal(
   }
   if (kind === "ramp") {
     const pitch = Math.atan2(dh, run);
-    if (pitch > SLOPE_LIMIT_RAD - RAMP_MARGIN) {
+    if (Math.abs(pitch) > SLOPE_LIMIT_RAD - RAMP_MARGIN) {
       throw new Error(
         `route: forced ramp pitch ${(pitch * 180) / Math.PI}° exceeds the slope limit`,
       );
@@ -243,9 +243,22 @@ function buildConnectorLocal(
     };
   }
   // stairs: reuse box-room stepBoxes (climbs +Z from y=0, tallest at frontZ=run).
-  const n = Math.ceil(Math.abs(dh) / (STEP_HEIGHT - STEP_MARGIN));
+  // stepBoxes requires a positive `top`, so it's always built ascending on `rise`, then
+  // mirrored (z ↔ run−z, y shifted by dh) for the descending case: the tallest step —
+  // built adjacent to z=run — lands at z≈0 with its top flush with the `from` floor (y=0),
+  // and the shortest step lands near z=run, flush with the lower `to` floor (y=dh).
+  const rise = Math.abs(dh);
+  const n = Math.ceil(rise / (STEP_HEIGHT - STEP_MARGIN));
   const treadDepth = run / n;
-  const boxes = stepBoxes(dh, run, w, treadDepth);
+  const boxes = stepBoxes(rise, run, w, treadDepth).map(
+    (b): Box =>
+      dh >= 0
+        ? b
+        : {
+            center: [b.center[0], b.center[1] + dh, run - b.center[2]],
+            size: b.size,
+          },
+  );
   return {
     meshes: boxes.map((b) => boxToMesh(b)),
     colliders: boxes.map((b) => boxToCollider(b)),
