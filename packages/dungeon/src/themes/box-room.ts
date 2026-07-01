@@ -1,6 +1,8 @@
 import type { ShapeDescriptor } from "@furnace/core/physics";
 import type { Rng } from "@furnace/core/rng";
+import { aabbOfBoxes } from "../aabb.ts";
 import type {
+  Aabb,
   Connection,
   InstanceGroup,
   MaterialDescriptor,
@@ -180,6 +182,7 @@ export function boxRoom(
   meshes: RegionMesh[];
   colliders: RegionCollider[];
   connections: Connection[];
+  bounds: Aabb;
 } {
   const boxes: Box[] = [
     ...slabBoxes(p),
@@ -216,6 +219,7 @@ export function boxRoom(
         kind: "door",
       },
     ],
+    bounds: aabbOfBoxes(boxes),
   };
 }
 

@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import * as gpu from "@furnace/core/gpu";
 import * as physics from "@furnace/core/physics";
 import { vec3 } from "@furnace/core/transform";
+import { aabbOfBoxes } from "../src/aabb.ts";
 import { MaterialCache, realizeRegion } from "../src/realize.ts";
 import type { RegionData } from "../src/region.ts";
 import {
@@ -42,6 +43,9 @@ test.skipIf(!bunWebGpuAvailable())(
       connections: [],
       instances: [],
       origin: [0, 0, 0],
+      bounds: aabbOfBoxes([
+        { center: [0, 0, 0], size: [10, 0.4, 0.4], rotation: q },
+      ]),
       provenance: {
         generatorId: "dungeon",
         generatorVersion: 2,

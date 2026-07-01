@@ -1,5 +1,6 @@
 // packages/dungeon/src/connect.ts
 import { mat4, quat, vec3 } from "@furnace/core/transform";
+import { aabbOfBoxes, transformAabb } from "./aabb.ts";
 import type {
   Connection,
   InstanceData,
@@ -117,6 +118,7 @@ export function placePiece(region: RegionData, place: Placement): RegionData {
     connections,
     instances,
     origin: xf(region.origin),
+    bounds: transformAabb(region.bounds, yaw, t),
   };
 }
 
@@ -178,21 +180,34 @@ function boxToCollider(
   return collider;
 }
 
+/** A local-frame connector box, optionally rotated (the ramp case pitches about X). */
+type ConnectorBox = Box & { rotation?: [number, number, number, number] };
+
 /** Build the connector in LOCAL frame: it climbs +Z from local origin (the `from` portal)
  *  to local [0, dh, run] (the `to` portal). `width` is the clear walking width. The caller
- *  (`route`) yaw-aligns +Z to the real direction and translates to `from.position`. */
+ *  (`route`) yaw-aligns +Z to the real direction and translates to `from.position`. Also
+ *  returns the raw `boxes` (with per-box rotation) so `route` can envelope them for `bounds`
+ *  without re-deriving box extents from the baked meshes. */
 function buildConnectorLocal(
   kind: ConnectorKind,
   width: number,
   dh: number,
   run: number,
-): { meshes: RegionMesh[]; colliders: RegionCollider[] } {
+): {
+  meshes: RegionMesh[];
+  colliders: RegionCollider[];
+  boxes: ConnectorBox[];
+} {
   const w = width + 2 * SHOULDER;
   if (kind === "corridor") {
     const len = run + 2 * SEAM_OVERLAP;
     const center: Vec3 = [0, -FLOOR_THICK / 2, run / 2];
     const box: Box = { center, size: [w, FLOOR_THICK, len] };
-    return { meshes: [boxToMesh(box)], colliders: [boxToCollider(box)] };
+    return {
+      meshes: [boxToMesh(box)],
+      colliders: [boxToCollider(box)],
+      boxes: [box],
+    };
   }
   if (kind === "ramp") {
     const pitch = Math.atan2(dh, run);
@@ -224,6 +239,7 @@ function buildConnectorLocal(
     return {
       meshes: [boxToMesh(box, rot)],
       colliders: [boxToCollider(box, rot)],
+      boxes: [{ ...box, rotation: rot }],
     };
   }
   // stairs: reuse box-room stepBoxes (climbs +Z from y=0, tallest at frontZ=run).
@@ -233,6 +249,7 @@ function buildConnectorLocal(
   return {
     meshes: boxes.map((b) => boxToMesh(b)),
     colliders: boxes.map((b) => boxToCollider(b)),
+    boxes,
   };
 }
 
@@ -262,6 +279,7 @@ export function route(
     connections: [],
     instances: [],
     origin: [0, 0, 0],
+    bounds: aabbOfBoxes(local.boxes),
     provenance: {
       generatorId: "dungeon",
       generatorVersion: GENERATOR_VERSION,

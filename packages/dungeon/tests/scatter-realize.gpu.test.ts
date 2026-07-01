@@ -4,6 +4,7 @@ import * as physics from "@furnace/core/physics";
 import { create as makeRng } from "@furnace/core/rng";
 import * as stats from "@furnace/core/stats";
 import { mat4, quat, vec3 } from "@furnace/core/transform";
+import { aabbOfBoxes } from "../src/aabb.ts";
 import { MaterialCache, realizeRegion } from "../src/realize.ts";
 import type {
   InstanceGroup,
@@ -87,6 +88,9 @@ test.skipIf(!bunWebGpuAvailable())(
       connections: [],
       instances: [group],
       origin: [0, 0, 0],
+      // No meshes/colliders on this fixture (only a scatter instance); envelope the
+      // instance's unit-cube geometry directly so `bounds` stays a correct footprint.
+      bounds: aabbOfBoxes([{ center: [0, 0.5, 0], size: [1, 1, 1] }]),
       provenance: {
         generatorId: "dungeon",
         generatorVersion: 2,
@@ -155,6 +159,9 @@ test.skipIf(!bunWebGpuAvailable())(
       connections: [],
       instances: [group],
       origin: [0, 0, 0],
+      // No meshes/colliders on this fixture (only a scatter instance); envelope the
+      // instance's unit-cube geometry directly so `bounds` stays a correct footprint.
+      bounds: aabbOfBoxes([{ center: [0, 1, 0], size: [1, 1, 1] }]),
       provenance: {
         generatorId: "dungeon",
         generatorVersion: 2,
@@ -255,6 +262,7 @@ test.skipIf(!bunWebGpuAvailable())(
       connections: [],
       instances: groups,
       origin: [0, 0, 0],
+      bounds: region.bounds, // same colliders → same envelope the cave() generator computed
       provenance: {
         generatorId: "dungeon",
         generatorVersion: 2,

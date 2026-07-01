@@ -10,6 +10,7 @@ import {
 } from "../field.ts";
 import { voxelProxyPosition, voxelsFromField } from "../proxy.ts";
 import type {
+  Aabb,
   Connection,
   MaterialDescriptor,
   RegionData,
@@ -253,6 +254,25 @@ function buildGrid(graph: Graph): GridConfig {
   return { min, cellSize: CELL, dims };
 }
 
+/** World-space AABB of a generation grid: the mesh's local vertices span
+ *  `[grid.min, grid.min + grid.dims * grid.cellSize)`, and `realize.ts` positions the
+ *  custom-geometry mesh at `origin` (`mesh.setPosition`) on top of those local
+ *  coordinates — so the world envelope is the local grid extent offset by `origin`. */
+function gridWorldBounds(grid: GridConfig, origin: Vec3): Aabb {
+  return {
+    min: [
+      origin[0] + grid.min[0],
+      origin[1] + grid.min[1],
+      origin[2] + grid.min[2],
+    ],
+    max: [
+      origin[0] + grid.min[0] + grid.dims[0] * grid.cellSize,
+      origin[1] + grid.min[1] + grid.dims[1] * grid.cellSize,
+      origin[2] + grid.min[2] + grid.dims[2] * grid.cellSize,
+    ],
+  };
+}
+
 /** Branching cave region: a hub chamber with 2–3 smooth-union capsule tunnels fanning
  *  out to mouths where rooms attach, roughened by Y-tapered noise. Produces a mesh,
  *  a voxel collision proxy, and a `Connection` for each tunnel mouth plus the
@@ -322,6 +342,7 @@ export function cave(p: RegionParams): RegionData {
     connections: [entrance, ...branchConnections],
     instances,
     origin: p.origin,
+    bounds: gridWorldBounds(grid, p.origin),
     provenance: {
       generatorId: "dungeon",
       generatorVersion: 2,

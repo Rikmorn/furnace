@@ -1,6 +1,7 @@
 // packages/dungeon/tests/connect.test.ts
 import { expect, test } from "bun:test";
 import { quat, vec3 } from "@furnace/core/transform";
+import { aabbOfBoxes } from "../src/aabb.ts";
 import { chooseKind, join, placePiece, route } from "../src/connect.ts";
 import type {
   Connection,
@@ -19,6 +20,7 @@ function room(door: Connection): RegionData {
     connections: [door],
     instances: [],
     origin: [0, 0, 0],
+    bounds: aabbOfBoxes([{ center: [2, 0, 0], size: [1, 1, 1] }]),
     provenance: {
       generatorId: "dungeon",
       generatorVersion: 2,
@@ -166,4 +168,26 @@ test("route throws when a forced ramp can't satisfy the slope limit", () => {
   expect(() =>
     route(P([0, 0, 0], [1, 0, 0]), P([1, 4, 0], [-1, 0, 0]), { kind: "ramp" }),
   ).toThrow();
+});
+
+test("placePiece transforms bounds conservatively (yaw 90° + translate)", () => {
+  const door: Connection = {
+    position: [0, 0, 1],
+    facing: [0, 0, 1],
+    width: 2,
+    height: 3,
+    kind: "door",
+  };
+  const region = room(door);
+  region.bounds = { min: [-1, 0, -2], max: [1, 2, 2] };
+  const placed = placePiece(region, {
+    yaw: Math.PI / 2,
+    translation: [10, 5, 0],
+  });
+  expect(placed.bounds.min[0]).toBeCloseTo(10 - 2, 5);
+  expect(placed.bounds.max[0]).toBeCloseTo(10 + 2, 5);
+  expect(placed.bounds.min[1]).toBeCloseTo(5, 5);
+  expect(placed.bounds.max[1]).toBeCloseTo(7, 5);
+  expect(placed.bounds.min[2]).toBeCloseTo(-1, 5);
+  expect(placed.bounds.max[2]).toBeCloseTo(1, 5);
 });

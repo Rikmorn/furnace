@@ -10,8 +10,12 @@ export type Vec3 = [number, number, number];
 /** The set of named theme generators available in the dungeon. */
 export type ThemeName = "cave" | "pillarHall" | "greatHall";
 
-/** A region's origin kind: a generatable theme, or a structural connector piece. */
-export type RegionKind = ThemeName | "connector";
+/** A region's origin kind: a generatable theme, a structural connector piece, or the
+ *  authored level participating in placement as a pinned obstacle. */
+export type RegionKind = ThemeName | "connector" | "authored";
+
+/** Axis-aligned box in the region's frame: component-wise min/max corners. */
+export type Aabb = { min: Vec3; max: Vec3 };
 
 /** RGBA material descriptor for a region mesh surface. */
 export type MaterialDescriptor = {
@@ -126,6 +130,9 @@ export type RegionData = {
   connections: Connection[];
   instances: InstanceGroup[];
   origin: Vec3;
+  /** Envelope of all solid geometry (meshes + colliders) in the region's frame. The
+   *  placement engine's piece-vs-piece broad-phase unit; `placePiece` transforms it. */
+  bounds: Aabb;
   provenance: Provenance;
 };
 
