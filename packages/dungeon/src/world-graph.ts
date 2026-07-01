@@ -83,14 +83,17 @@ export function validateGraph(graph: WorldGraph): void {
   if (!graph.nodes.some((n) => n.pinned)) {
     throw new Error("world-graph: at least one node must be pinned");
   }
-  // Connectivity: BFS over edges from the first node.
+  // Connectivity: every node must be reachable from the pinned skeleton. Pinned nodes are
+  // the BFS roots (a lone pinned obstacle landmark is its own root); an unpinned node with
+  // no edge path to any pin is unplaceable → disconnected.
   const adj = new Map<NodeId, NodeId[]>();
   for (const e of graph.edges) {
     adj.set(e.a, [...(adj.get(e.a) ?? []), e.b]);
     adj.set(e.b, [...(adj.get(e.b) ?? []), e.a]);
   }
-  const seen = new Set<NodeId>([first.id]);
-  const queue = [first.id];
+  const pinnedIds = graph.nodes.filter((n) => n.pinned).map((n) => n.id);
+  const seen = new Set<NodeId>(pinnedIds);
+  const queue = [...pinnedIds];
   while (queue.length) {
     const id = queue.shift();
     if (id === undefined) break;

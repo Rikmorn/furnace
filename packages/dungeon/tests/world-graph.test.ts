@@ -75,6 +75,16 @@ test("throws: no pinned node / disconnected graph", () => {
   expect(() => validateGraph(g2)).toThrow(/disconnected/);
 });
 
+test("a lone pinned obstacle node (no edges) is allowed", () => {
+  const g = twoNodeGraph();
+  g.nodes.push({
+    id: "obstacle",
+    region: stubRegion(0),
+    pinned: { yaw: 0, translation: [0, 0, 0] },
+  });
+  expect(() => validateGraph(g)).not.toThrow();
+});
+
 test("throws: directed edges and non-walk verbs are reserved", () => {
   const g1 = twoNodeGraph();
   g1.edges[0]!.directed = true;

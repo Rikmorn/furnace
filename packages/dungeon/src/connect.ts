@@ -142,7 +142,10 @@ const FLAT_EPS = 0.05; // |Δh| below this → a flat corridor
 const RAMP_MARGIN = (3 * Math.PI) / 180; // keep ramp pitch this far below the slope limit
 const SEAM_OVERLAP = 0.6; // connector floor pokes past each portal by >= 1 cell (CELL 0.5)
 const FLOOR_THICK = 0.3; // connector slab thickness (m), matches the retired vestibule
-const SHOULDER = 0.4; // a little shoulder past the clear walking width on each side
+/** A little shoulder past the clear walking width on each side. Exported so the placement
+ *  engine's clearance/exemption math (layout.ts) uses the SAME footprint `route` builds —
+ *  a divergence here would silently validate the wrong connector width. */
+export const SHOULDER = 0.4;
 const CONNECTOR_MATERIAL: MaterialDescriptor = {
   color: [0.5, 0.5, 0.52, 1],
   specular: [0.02, 0.02, 0.02, 8],
