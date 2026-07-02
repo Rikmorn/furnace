@@ -213,8 +213,8 @@ function doorConnection(p: BoxRoomParams, door: DoorSpec): Connection {
  *  Extra feature boxes (pillars, platforms, steps) are appended via the `features` param.
  *  Returns local-frame mesh and collider arrays plus one outward door connection per
  *  entry in `p.doors` (same order). World placement is the caller's responsibility
- *  (compose.ts applies origin). Throws setup-loud if `p.doors` is empty or has more
- *  than one door on the same side (see {@link validateDoors}). */
+ *  (`layout.ts` applies it via `connect.ts placePiece`). Throws setup-loud if `p.doors`
+ *  is empty or has more than one door on the same side (see {@link validateDoors}). */
 export function boxRoom(
   p: BoxRoomParams,
   features: Box[],
@@ -360,8 +360,9 @@ function doorKeepOutCenter(door: DoorSpec, width: number, depth: number): Vec3 {
 }
 
 /** Floor scatter for a box room (rubble + sparse glow) over the room floor rect in
- *  LOCAL frame (floor top y=0), keeping every door's corridor clear. compose.ts's
- *  placeRoom transforms the result into world. Appends layer materials to `materials`. */
+ *  LOCAL frame (floor top y=0), keeping every door's corridor clear. `layout.ts`'s
+ *  placement (via `connect.ts placePiece`) transforms the result into world. Appends
+ *  layer materials to `materials`. */
 export function roomFloorScatter(
   width: number,
   depth: number,

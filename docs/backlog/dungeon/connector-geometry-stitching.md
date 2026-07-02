@@ -10,10 +10,12 @@ a transition sleeve that meets each surface, or blends them.
 
 So a cave→room join is an **organic cave bore** (a tunnel carved in the cave's Surface-Nets
 isosurface) and a **box-room doorway** (a gap in a cuboid wall) — two independently generated
-openings sitting near each other, bridged only by a floor. Since `buildArea` now places the
-room `ROOM_GAP` (2.5 m) out from the mouth (2.2.4 changed this from room-at-mouth), you walk a
-floor strip with **void/fog visible on the sides and above** — the connection reads as open and
-unfinished. The same applies to the authored chamber→wing seam (box chamber ↔ organic cave).
+openings sitting near each other, bridged only by a floor. Because the placer seats a room a
+connector-length out from the mouth (in 2.2.5a `layoutWorld` samples that length from the
+edge's `lengthRange`; in the retired 2.2.4 `compose.ts` it was a fixed `ROOM_GAP` ~2.5 m), you
+walk a floor strip with **void/fog visible on the sides and above** — the connection reads as
+open and unfinished. The same applies to the authored chamber→wing seam (box chamber ↔ organic
+cave).
 
 **This is faithful to 2.2.4's spec** (the primitive was scoped to *placement + a walkable
 connector*, NOT surface stitching) and **collision/walkability is unaffected** — the floor
@@ -37,11 +39,14 @@ rather than placed pieces.
   "enclose the corridor" idea, but with end-caps shaped to each neighbour rather than a bare box.
 - **CSG / boolean.** Union the corridor volume into both pieces and re-mesh the result, so the
   surfaces genuinely merge (heaviest; needs a robust mesh boolean).
-- **Interim cosmetic stopgap** (only if a visual gate needs it before the real fix): shrink
-  `ROOM_GAP`/`WING_SEAM_GAP` toward 0 so rooms sit ~at the mouth (the pre-2.2.4 tight look),
-  and/or give the corridor side walls + a ceiling. Both hide the open seam without truly
-  connecting the geometries — explicitly a stopgap, not the algorithm.
+- **Interim cosmetic stopgap** (only if a visual gate needs it before the real fix): shrink the
+  connector length toward 0 (the per-edge `lengthRange` in the world graph — formerly the retired
+  `compose.ts` `ROOM_GAP`/`WING_SEAM_GAP` constants) so rooms sit ~at the mouth (the pre-2.2.4
+  tight look), and/or give the corridor side walls + a ceiling. Both hide the open seam without
+  truly connecting the geometries — explicitly a stopgap, not the algorithm.
 
 **Reference.** `packages/dungeon/src/connect.ts` (`join`/`placePiece`/`route` +
-`buildConnectorLocal` — floor-only output), `packages/dungeon/src/compose.ts` (`buildArea`
-`ROOM_GAP`, `attachWing` `WING_SEAM_GAP`). Surfaced at the Slice 2.2.4 visual gate (2026-06-29).
+`buildConnectorLocal` — floor-only output), `packages/dungeon/src/layout.ts` (`layoutWorld` —
+the connector-length sampling that gaps each room from its mouth; replaced the retired
+`compose.ts` `buildArea`/`attachWing` in Slice 2.2.5a). Surfaced at the Slice 2.2.4 visual gate
+(2026-06-29).

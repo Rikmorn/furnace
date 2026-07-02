@@ -21,8 +21,8 @@ const MATERIAL_SPECULAR: [number, number, number, number] = [
 /** Grand rectangular hall with a raised dais at the far end and a stepped approach.
  *  Seeded dims are wider and taller than a pillarHall. Door height 2.8 clears the
  *  controller's step-up reach at the cave-mouth seam (same gate-proven clearance as
- *  pillarHall). Returns a full `RegionData` in LOCAL frame; `compose.ts` bakes world
- *  placement. */
+ *  pillarHall). Returns a full `RegionData` in LOCAL frame; `layout.ts` (via
+ *  `connect.ts placePiece`) bakes world placement. */
 export function greatHall(p: RegionParams): RegionData {
   const rng = makeRng(p.seed);
   const width = rng.derive("w").int(14, 23);

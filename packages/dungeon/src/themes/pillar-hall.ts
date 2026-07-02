@@ -18,7 +18,8 @@ const MATERIAL_SPECULAR: [number, number, number, number] = [
 ];
 
 /** Columned rectangular hall: seeded dims + pillar grid over a boxRoom shell.
- *  Returns a full `RegionData` in LOCAL frame; `compose.ts` bakes world placement.
+ *  Returns a full `RegionData` in LOCAL frame; `layout.ts` (via `connect.ts placePiece`)
+ *  bakes world placement.
  *  `doors` defaults to a single S-facing door (the historical shape); pass an explicit
  *  list (≥1, at most one per side) for a room of degree > 1 in a graph-shaped world. */
 export function pillarHall(

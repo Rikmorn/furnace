@@ -25,7 +25,7 @@ reproduce it. Two related levers:
   is the robust, theme-agnostic fix.
 - **(b) Wider walkable through-passage at the geometry layer.** The wedge band is narrow partly
   because the bore narrows AND the mouth necks into the branch room's 1.6 m-wide door
-  (`compose.ts` / `box-room.ts`), so the funnel is ~±0.75 m of the tunnel axis. Widening only
+  (`box-room.ts` `DoorSpec`), so the funnel is ~±0.75 m of the tunnel axis. Widening only
   the tunnel bore (`TUNNEL_R`) does **not** open the through-passage — the 1.6 m door caps it.
   Tunnel-bore radius + matching door width would have to move together (theme / connection
   geometry — see the sibling deferral).
