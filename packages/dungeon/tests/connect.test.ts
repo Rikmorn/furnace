@@ -254,6 +254,24 @@ test("route: forced STEEP DESCENDING ramp throws setup-loud", () => {
   expect(() => route(from, to, { kind: "ramp" })).toThrow(/slope limit/);
 });
 
+test("route: forced stairs on a ~flat span throws setup-loud (would emit zero steps)", () => {
+  const from: Connection = {
+    position: [0, 0, 0],
+    facing: [0, 0, 1],
+    width: 2,
+    height: 3,
+    kind: "door",
+  };
+  const to: Connection = {
+    position: [0, 0, 8],
+    facing: [0, 0, -1],
+    width: 2,
+    height: 3,
+    kind: "door",
+  };
+  expect(() => route(from, to, { kind: "stairs" })).toThrow(/flat/);
+});
+
 test("route: gentle descending ramp still builds (signed pitch kept)", () => {
   const from: Connection = {
     position: [0, 2, 0],

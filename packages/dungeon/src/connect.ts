@@ -251,6 +251,11 @@ function buildConnectorLocal(
   // built adjacent to z=run — lands at z≈0 with its top flush with the `from` floor (y=0),
   // and the shortest step lands near z=run, flush with the lower `to` floor (y=dh).
   const rise = Math.abs(dh);
+  if (rise <= FLAT_EPS) {
+    throw new Error(
+      "route: forced stairs on a ~flat span (|dh| <= FLAT_EPS) would emit zero steps — use a corridor",
+    );
+  }
   const n = Math.ceil(rise / (STEP_HEIGHT - STEP_MARGIN));
   const treadDepth = run / n;
   const boxes = stepBoxes(rise, run, w, treadDepth).map(
