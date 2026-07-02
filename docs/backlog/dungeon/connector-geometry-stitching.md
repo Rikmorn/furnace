@@ -28,6 +28,19 @@ visual-polish pass on connections — the world graph will multiply these hetero
 a real connection algorithm becomes load-bearing for the world reading as one continuous space
 rather than placed pieces.
 
+**TRIGGER FIRED (2026-07-02, Slice 2.2.5a visual gate).** The world graph landed and the user
+called the gap out: caves visibly end, then a bare floor strip, then the room. It reads worse
+than at 2.2.4 because placement feasibility LENGTHENED connectors (the authored→cave wing seam
+went ~2.5 m → 7–10 m during Task 7 iteration) and every edge is now a real connector.
+**Decision (user-approved): a short connector-ENCLOSURE slice runs BEFORE 2.2.5b** (walls +
+ceiling on connectors, portal-shaped end openings), so the 2.2.5b generator's output is judged
+on topology rather than a known cosmetic gap; true stitching (carve/blend at the cave rim)
+stays behind it. **New synergy since this entry was filed:** the 2.2.5a placer guarantees every
+connector a collision-free **clearance volume** (footprint × portal height, `layout.ts
+clearanceBoxes`) — that volume is exactly the envelope an enclosure can fill WITHOUT clipping
+anything, by construction. Note: shrinking `lengthRange` is no longer a free stopgap — the
+placer needed those lengths for envelope clearance.
+
 **Options to revisit (pick when scoping the work):**
 - **Carve matching portals.** At the join plane, carve/open a matching aperture through both
   pieces' surfaces (the cave field + the box wall) so a single continuous opening spans them.
