@@ -11,14 +11,18 @@ import {
   RING_RISE,
   route,
 } from "../src/connect.ts";
+import { clearanceBoxes } from "../src/layout.ts";
 import type {
+  Aabb,
   Connection,
   InstanceData,
   InstanceGroup,
+  RegionCollider,
   RegionData,
   RegionMesh,
   Vec3,
 } from "../src/region.ts";
+import { STEP_HEIGHT, STEP_MARGIN } from "../src/walkability.ts";
 
 /** A quaternion (x,y,z,w) for a rotation `theta` about an arbitrary (auto-normalized)
  *  axis. Surface-aligned scatter genuinely tilts off +Y, and — critically — a TILTED
@@ -186,9 +190,11 @@ test("route stairs risers stay below STEP_HEIGHT", () => {
   const r = route(P([0, 0, 0], [0, 0, 1]), P([0, 2, 2], [0, 0, -1]), {
     kind: "stairs",
   });
-  const stepHeights = r.colliders.map(
-    (c) => (c.shape as { cuboid: Vec3 }).cuboid[1] * 2,
-  );
+  // Repointed for the enclosure slice: r.colliders now carries walls + ceilings too. The
+  // riser check applies to the STEP boxes only — splitEnclosure's `floors` (the walking
+  // surface). Riser height = the step AABB's y-extent (axis-aligned → == cuboid[1]*2).
+  const { floors } = splitEnclosure(r, 2, 2, 3);
+  const stepHeights = floors.map((b) => b.max[1] - b.min[1]);
   const sorted = [...stepHeights].sort((a, b) => a - b);
   for (let i = 1; i < sorted.length; i++) {
     expect((sorted[i] as number) - (sorted[i - 1] as number)).toBeLessThan(0.4);
@@ -230,9 +236,14 @@ test("route: DESCENDING stairs emit a real staircase (not empty)", () => {
     kind: "door",
   };
   const r = route(from, to, { kind: "stairs" });
-  expect(r.colliders.length).toBeGreaterThan(10); // ceil(6/0.35) = 18 steps
+  expect(r.colliders.length).toBeGreaterThan(10); // steps + enclosure — never empty
+  // Repointed for the enclosure slice: the step boxes are FIRST in colliders (floorBoxes
+  // before enclosureBoxes), so slice them off — the staircase-span + riser-walkability
+  // checks apply to the steps only, not the enclosure walls/ceilings.
+  const nSteps = Math.ceil(6 / (STEP_HEIGHT - STEP_MARGIN)); // 18 mirrored steps
+  const steps = r.colliders.slice(0, nSteps);
   // the staircase spans the full height band [0, 6]
-  const tops = r.colliders.map(
+  const tops = steps.map(
     (c) => c.position[1] + ("cuboid" in c.shape ? c.shape.cuboid[1] : 0),
   );
   expect(Math.max(...tops)).toBeGreaterThan(5.5);
@@ -296,8 +307,15 @@ test("route: gentle descending ramp still builds (signed pitch kept)", () => {
     kind: "door",
   };
   const r = route(from, to, { kind: "ramp" });
-  expect(r.meshes.length).toBe(1);
-  expect(r.meshes[0]?.rotation).toBeDefined();
+  // Repointed for the enclosure slice: r.meshes now carries the floor slab PLUS axis-aligned
+  // enclosure boxes. `placePiece` stamps identity [0,0,0,1] on the axis-aligned enclosure at
+  // this yaw=0 join, so "has a rotation field" no longer isolates the pitched slab — filter
+  // for the NON-IDENTITY rotation. The pitched floor slab must be the only such mesh.
+  const pitched = r.meshes.filter(
+    (m) => m.rotation && !isIdentityQuat(m.rotation),
+  );
+  expect(pitched.length).toBe(1);
+  expect(r.meshes[0]?.rotation).toBeDefined(); // floor is first, carries the pitch
 });
 
 test("placePiece transforms a group's placements into world frame, consistent with the baked transforms", () => {
@@ -474,4 +492,192 @@ test("connectorSection: outer width = max portal width + shoulders; headroom = m
 
 test("RING_RISE stays below CEIL_T (adjacent ring ceilings must overlap — the seal invariant)", () => {
   expect(RING_RISE).toBeLessThan(CEIL_T);
+});
+
+/** Minimal portal for enclosure tests (width 2, height 3 unless a kind needs otherwise). */
+const conn = (
+  position: Vec3,
+  facing: Vec3,
+  kind: Connection["kind"] = "door",
+): Connection => ({ position, facing, width: 2, height: 3, kind });
+
+/** True when a quaternion (x,y,z,w) is (numerically) the identity rotation. `placePiece`
+ *  stamps identity [0,0,0,1] on axis-aligned pieces at a yaw=0 join, so "has a rotation
+ *  field" no longer distinguishes the pitched ramp slab from the axis-aligned enclosure —
+ *  this does. */
+function isIdentityQuat(q: [number, number, number, number]): boolean {
+  return (
+    Math.abs(q[0]) < 1e-9 &&
+    Math.abs(q[1]) < 1e-9 &&
+    Math.abs(q[2]) < 1e-9 &&
+    Math.abs(Math.abs(q[3]) - 1) < 1e-9
+  );
+}
+
+/** World AABB of one cuboid collider (rotation-aware via aabbOfBoxes). */
+function colliderAabb(c: RegionCollider): Aabb {
+  if (!("cuboid" in c.shape)) throw new Error("expected cuboid collider");
+  const h = c.shape.cuboid;
+  return aabbOfBoxes([
+    {
+      center: c.position,
+      size: [h[0] * 2, h[1] * 2, h[2] * 2],
+      rotation: c.rotation,
+    },
+  ]);
+}
+
+/** Classify a +Z, from-at-origin connector's colliders. Walls hug the ±x edges;
+ *  ceilings are centred boxes whose underside sits at/above the local climb line +
+ *  headroom; everything else is floor (slab or steps). */
+function splitEnclosure(
+  r: RegionData,
+  dh: number,
+  run: number,
+  headroom: number,
+) {
+  const climbAt = (z: number): number => {
+    const t = run > 1e-6 ? z / run : 0;
+    return Math.min(Math.max(dh * t, Math.min(0, dh)), Math.max(0, dh));
+  };
+  const boxes = r.colliders.map(colliderAabb);
+  const cx = (b: Aabb): number => (b.min[0] + b.max[0]) / 2;
+  const walls = boxes.filter((b) => Math.abs(cx(b)) > 0.5);
+  const ceilings = boxes.filter(
+    (b) =>
+      Math.abs(cx(b)) <= 0.5 &&
+      b.min[1] >= climbAt((b.min[2] + b.max[2]) / 2) + headroom - 1e-6,
+  );
+  const floors = boxes.filter(
+    (b) => !walls.includes(b) && !ceilings.includes(b),
+  );
+  return { boxes, walls, ceilings, floors, climbAt };
+}
+
+test("corridor tube: floor + 2 walls + 1 ceiling, sealed, flush at door planes", () => {
+  const r = route(conn([0, 0, 0], [0, 0, 1]), conn([0, 0, 6], [0, 0, -1]));
+  const { walls, ceilings, floors } = splitEnclosure(r, 0, 6, 3);
+  expect(floors.length).toBe(1);
+  expect(walls.length).toBe(2);
+  expect(ceilings.length).toBe(1);
+  const c = ceilings[0] as Aabb;
+  expect(c.min[1]).toBeCloseTo(3, 5); // underside at headroom
+  expect(c.max[1]).toBeCloseTo(3 + CEIL_T, 5);
+  for (const wb of walls) {
+    // Inner face stays clear of the 2 m portal opening (walls live in the shoulder band).
+    expect(
+      Math.min(Math.abs(wb.min[0]), Math.abs(wb.max[0])),
+    ).toBeGreaterThanOrEqual(1);
+    expect(wb.min[1]).toBeCloseTo(0, 5); // no gap under the wall
+    expect(wb.max[1]).toBeCloseTo(c.max[1], 5); // wall reaches the ceiling top
+    expect(wb.min[2]).toBeCloseTo(0, 5); // door ends: flush at both portal planes
+    expect(wb.max[2]).toBeCloseTo(6, 5);
+  }
+  expect(r.meshes.length).toBe(r.colliders.length); // mesh/collider parity
+});
+
+test("tunnel-mouth end extends the enclosure into the rock; door end stays flush", () => {
+  const r = route(
+    conn([0, 0, 0], [0, 0, 1], "tunnel-mouth"),
+    conn([0, 0, 6], [0, 0, -1]),
+  );
+  const { walls, ceilings } = splitEnclosure(r, 0, 6, 3);
+  for (const b of [...walls, ...ceilings]) {
+    expect(b.min[2]).toBeCloseTo(-0.6, 5); // SEAM_OVERLAP embed at the mouth
+    expect(b.max[2]).toBeCloseTo(6, 5); // flush at the door
+  }
+});
+
+test("ramp tube: ringed enclosure, interior >= headroom, ring ceilings overlap-sealed", () => {
+  const dh = 2;
+  const run = 8; // pitch ~14° → auto ramp
+  const r = route(conn([0, 0, 0], [0, 0, 1]), conn([0, dh, run], [0, 0, -1]));
+  const { walls, ceilings, floors } = splitEnclosure(r, dh, run, 3);
+  expect(floors.length).toBe(1); // one pitched slab, unchanged
+  const nRings = Math.ceil(dh / RING_RISE); // door↔door: span = run → rings = |dh|/RING_RISE
+  expect(ceilings.length).toBe(nRings);
+  expect(walls.length).toBe(2 * nRings);
+  const sorted = [...ceilings].sort((a, b) => a.min[2] - b.min[2]);
+  for (let i = 1; i < sorted.length; i++) {
+    // Seal: adjacent ring ceilings overlap vertically (RING_RISE < CEIL_T).
+    expect((sorted[i] as Aabb).min[1]).toBeLessThanOrEqual(
+      (sorted[i - 1] as Aabb).max[1] + 1e-6,
+    );
+  }
+  for (let z = 0.05; z < run; z += 0.25) {
+    const climb = dh * (z / run);
+    const covering = sorted.filter((c) => c.min[2] <= z && z <= c.max[2]);
+    expect(covering.length).toBeGreaterThan(0);
+    const underside = Math.min(...covering.map((c) => c.min[1]));
+    expect(underside - climb).toBeGreaterThanOrEqual(3 - 1e-6); // interior >= H everywhere
+    expect(underside - climb).toBeLessThanOrEqual(3 + RING_RISE + 1e-6); // bounded wobble
+  }
+});
+
+test("descending forced stairs: ringed tube over the mirrored steps, no gap under walls", () => {
+  const dh = -2;
+  const run = 4;
+  const r = route(conn([0, 0, 0], [0, 0, 1]), conn([0, dh, run], [0, 0, -1]), {
+    kind: "stairs",
+  });
+  const { walls, ceilings, floors, climbAt } = splitEnclosure(r, dh, run, 3);
+  expect(floors.length).toBe(6); // ceil(2 / (STEP_HEIGHT − STEP_MARGIN)) mirrored steps
+  const nRings = Math.ceil(2 / RING_RISE); // 8
+  expect(ceilings.length).toBe(nRings);
+  expect(walls.length).toBe(2 * nRings);
+  for (const wb of walls) {
+    const base = Math.min(climbAt(wb.min[2]), climbAt(wb.max[2]));
+    expect(wb.min[1]).toBeLessThanOrEqual(base + 1e-6); // wall base at/below the climb line
+  }
+});
+
+test("tunnel-ended ramp: ring rise stays <= RING_RISE across the extended span (seal holds)", () => {
+  const r = route(
+    conn([0, 0, 0], [0, 0, 1], "tunnel-mouth"),
+    conn([0, 3, 7], [0, 0, -1], "tunnel-mouth"),
+  );
+  const { ceilings } = splitEnclosure(r, 3, 7, 3);
+  const sorted = [...ceilings].sort((a, b) => a.min[2] - b.min[2]);
+  for (let i = 1; i < sorted.length; i++) {
+    expect((sorted[i] as Aabb).min[1]).toBeLessThanOrEqual(
+      (sorted[i - 1] as Aabb).max[1] + 1e-6,
+    );
+  }
+});
+
+test("open style: rail-height walls, no ceiling", () => {
+  const r = route(conn([0, 0, 0], [0, 0, 1]), conn([0, 0, 6], [0, 0, -1]), {
+    enclosure: "open",
+  });
+  const { walls, ceilings } = splitEnclosure(r, 0, 6, 3);
+  expect(ceilings.length).toBe(0);
+  expect(walls.length).toBe(2);
+  for (const wb of walls) {
+    expect(wb.max[1]).toBeCloseTo(1.1, 5); // RAIL_H
+  }
+});
+
+test("enclosure stays inside the placer's grown clearance volume (containment contract)", () => {
+  const from = conn([0, 0, 0], [0, 0, 1]);
+  const to = conn([0, 3, 9], [0, 0, -1]); // pitch ~18° → auto ramp
+  const r = route(from, to);
+  const clearance = clearanceBoxes(from, to);
+  for (const c of r.colliders) {
+    // Skip the pitched floor slab (hangs below the walking line); enclosure boxes are
+    // axis-aligned so placePiece leaves them identity-rotated at this yaw=0 join — the
+    // pitched slab is the only NON-IDENTITY rotation, so this checks walls + ceilings.
+    if (c.rotation && !isIdentityQuat(c.rotation)) continue;
+    const box = colliderAabb(c);
+    for (let z = box.min[2] + 0.01; z < box.max[2]; z += 0.1) {
+      const covering = clearance.filter(
+        (cl) => cl.min[2] <= z && z <= cl.max[2],
+      );
+      expect(covering.length).toBeGreaterThan(0);
+      const yHi = Math.max(...covering.map((cl) => cl.max[1]));
+      const xHi = Math.max(...covering.map((cl) => cl.max[0]));
+      expect(box.max[1]).toBeLessThanOrEqual(yHi + 1e-6);
+      expect(box.max[0]).toBeLessThanOrEqual(xHi + 1e-6);
+      expect(box.min[0]).toBeGreaterThanOrEqual(-xHi - 1e-6);
+    }
+  }
 });

@@ -49,15 +49,19 @@ test("the closing hop is flat: landing→hallA stays within a narrow height band
   );
   expect(closeIndex).toBeGreaterThanOrEqual(0);
   const close = r.connectors[closeIndex]!;
-  const ys = close.colliders.map((c) => c.position[1]);
-  expect(Math.max(...ys) - Math.min(...ys)).toBeLessThan(1.5); // connector stays flat
-  // Direct flatness proof off the joined PORTALS (a single-collider ramp would pass the
-  // span check trivially): the landing↔hallA edge mates aPortal 1 / bPortal 1, so each
-  // region's connections[1] is the loop door — assert they sit at (near-)equal world Y.
   const landingReg = r.regions[g.nodes.findIndex((n) => n.id === "landing")]!;
   const hallAReg = r.regions[g.nodes.findIndex((n) => n.id === "hallA")]!;
   const landingLoopY = landingReg.connections[1]!.position[1];
   const hallALoopY = hallAReg.connections[1]!.position[1];
+  // The connector's WALKING SURFACE stays flat: filter out the enclosure (walls/ceiling
+  // sit above the walking plane) and span-check the floor boxes only.
+  const floorYs = close.colliders
+    .map((c) => c.position[1])
+    .filter((y) => y < landingLoopY);
+  expect(Math.max(...floorYs) - Math.min(...floorYs)).toBeLessThan(1.5);
+  // Direct flatness proof off the joined PORTALS (a single-collider ramp would pass the
+  // span check trivially): the landing↔hallA edge mates aPortal 1 / bPortal 1, so each
+  // region's connections[1] is the loop door — assert they sit at (near-)equal world Y.
   expect(Math.abs(landingLoopY - hallALoopY)).toBeLessThan(0.5); // flat join, not a ramp
 });
 

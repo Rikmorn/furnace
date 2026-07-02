@@ -140,6 +140,8 @@ export type ConnectorKind = "corridor" | "ramp" | "stairs";
 
 const FLAT_EPS = 0.05; // |Δh| below this → a flat corridor
 const RAMP_MARGIN = (3 * Math.PI) / 180; // keep ramp pitch this far below the slope limit
+const WALL_T = 0.3; // enclosure wall thickness; must stay <= SHOULDER (walls live in the shoulder band)
+const RAIL_H = 1.1; // "open" style guardrail height above the local floor
 const SEAM_OVERLAP = 0.6; // connector floor pokes past each portal by >= 1 cell (CELL 0.5)
 const FLOOR_THICK = 0.3; // connector slab thickness (m), matches the retired vestibule
 /** A little shoulder past the clear walking width on each side. Exported so the placement
@@ -214,31 +216,22 @@ function boxToCollider(
 /** A local-frame connector box, optionally rotated (the ramp case pitches about X). */
 type ConnectorBox = Box & { rotation?: [number, number, number, number] };
 
-/** Build the connector in LOCAL frame: it climbs +Z from local origin (the `from` portal)
- *  to local [0, dh, run] (the `to` portal). `width` is the clear walking width. The caller
- *  (`route`) yaw-aligns +Z to the real direction and translates to `from.position`. Also
- *  returns the raw `boxes` (with per-box rotation) so `route` can envelope them for `bounds`
- *  without re-deriving box extents from the baked meshes. */
-function buildConnectorLocal(
+/** Which portal kind each connector end meets: a `door` end stops flush at the portal
+ *  plane; a `tunnel-mouth` end extends SEAM_OVERLAP past it into the neighbour's rock. */
+type EndKinds = { from: Connection["kind"]; to: Connection["kind"] };
+
+/** The connector's walking surface for one kind, in LOCAL frame (climbing +Z from the
+ *  origin portal to [0, dh, run]): corridor/ramp emit one slab, stairs emit stepBoxes
+ *  (mirrored for descents). Enclosure walls/ceilings are added by enclosureBoxes. */
+function floorBoxes(
   kind: ConnectorKind,
-  width: number,
+  w: number,
   dh: number,
   run: number,
-): {
-  meshes: RegionMesh[];
-  colliders: RegionCollider[];
-  boxes: ConnectorBox[];
-} {
-  const w = width + 2 * SHOULDER;
+): ConnectorBox[] {
   if (kind === "corridor") {
-    const len = run + 2 * SEAM_OVERLAP;
     const center: Vec3 = [0, -FLOOR_THICK / 2, run / 2];
-    const box: Box = { center, size: [w, FLOOR_THICK, len] };
-    return {
-      meshes: [boxToMesh(box)],
-      colliders: [boxToCollider(box)],
-      boxes: [box],
-    };
+    return [{ center, size: [w, FLOOR_THICK, run + 2 * SEAM_OVERLAP] }];
   }
   if (kind === "ramp") {
     const pitch = Math.atan2(dh, run);
@@ -266,12 +259,7 @@ function buildConnectorLocal(
       dh / 2 - (FLOOR_THICK / 2) * upY,
       run / 2 - (FLOOR_THICK / 2) * upZ,
     ];
-    const box: Box = { center, size: [w, FLOOR_THICK, rampLen] };
-    return {
-      meshes: [boxToMesh(box, rot)],
-      colliders: [boxToCollider(box, rot)],
-      boxes: [{ ...box, rotation: rot }],
-    };
+    return [{ center, size: [w, FLOOR_THICK, rampLen], rotation: rot }];
   }
   // stairs: reuse box-room stepBoxes (climbs +Z from y=0, tallest at frontZ=run).
   // stepBoxes requires a positive `top`, so it's always built ascending on `rise`, then
@@ -286,7 +274,7 @@ function buildConnectorLocal(
   }
   const n = Math.ceil(rise / (STEP_HEIGHT - STEP_MARGIN));
   const treadDepth = run / n;
-  const boxes = stepBoxes(rise, run, w, treadDepth).map(
+  return stepBoxes(rise, run, w, treadDepth).map(
     (b): Box =>
       dh >= 0
         ? b
@@ -295,21 +283,92 @@ function buildConnectorLocal(
             size: b.size,
           },
   );
+}
+
+/** Enclosure boxes — side walls + (tube-style) ceilings — as vertical-walled rings
+ *  quantized along the climb (≤ RING_RISE floor rise per ring). Pitched slabs cannot
+ *  end flush against a vertical door plane (their end faces lean along-climb), so every
+ *  ring is axis-aligned: walls rise from the ring's floor MIN, the flat ceiling sits at
+ *  the ring's floor MAX + headroom. Adjacent ring ceilings overlap vertically because
+ *  RING_RISE < CEIL_T — sealed by construction. `open` = rail-top walls, no ceilings. */
+function enclosureBoxes(
+  section: ConnectorSection,
+  dh: number,
+  run: number,
+  ends: EndKinds,
+  open: boolean,
+): ConnectorBox[] {
+  const { width: w, headroom: h } = section;
+  const z0 = ends.from === "tunnel-mouth" ? -SEAM_OVERLAP : 0;
+  const z1 = run + (ends.to === "tunnel-mouth" ? SEAM_OVERLAP : 0);
+  const yMin = Math.min(0, dh);
+  const yMax = Math.max(0, dh);
+  const floorAt = (z: number): number =>
+    run > 1e-6 ? Math.min(yMax, Math.max(yMin, dh * (z / run))) : 0;
+  const slope = run > 1e-6 ? Math.abs(dh) / run : 0;
+  const nRings = Math.max(1, Math.ceil((slope * (z1 - z0)) / RING_RISE));
+  const wallX = w / 2 - WALL_T / 2;
+  const out: ConnectorBox[] = [];
+  for (let i = 0; i < nRings; i++) {
+    const zA = z0 + ((z1 - z0) * i) / nRings;
+    const zB = z0 + ((z1 - z0) * (i + 1)) / nRings;
+    const zc = (zA + zB) / 2;
+    const len = zB - zA;
+    const fLo = Math.min(floorAt(zA), floorAt(zB));
+    const fHi = Math.max(floorAt(zA), floorAt(zB));
+    const top = open ? fHi + RAIL_H : fHi + h + CEIL_T;
+    const wallH = top - fLo;
+    out.push(
+      { center: [-wallX, fLo + wallH / 2, zc], size: [WALL_T, wallH, len] },
+      { center: [wallX, fLo + wallH / 2, zc], size: [WALL_T, wallH, len] },
+    );
+    if (!open) {
+      out.push({
+        center: [0, fHi + h + CEIL_T / 2, zc],
+        size: [w, CEIL_T, len],
+      });
+    }
+  }
+  return out;
+}
+
+/** Build the whole connector in LOCAL frame — walking floor plus enclosure. The caller
+ *  (`route`) yaw-aligns +Z to the real direction and translates to `from.position`.
+ *  Also returns the raw `boxes` so `route` can envelope them for `bounds`. */
+function buildConnectorLocal(
+  kind: ConnectorKind,
+  section: ConnectorSection,
+  dh: number,
+  run: number,
+  ends: EndKinds,
+  open: boolean,
+): {
+  meshes: RegionMesh[];
+  colliders: RegionCollider[];
+  boxes: ConnectorBox[];
+} {
+  const boxes = [
+    ...floorBoxes(kind, section.width, dh, run),
+    ...enclosureBoxes(section, dh, run, ends, open),
+  ];
   return {
-    meshes: boxes.map((b) => boxToMesh(b)),
-    colliders: boxes.map((b) => boxToCollider(b)),
+    meshes: boxes.map((b) => boxToMesh(b, b.rotation)),
+    colliders: boxes.map((b) => boxToCollider(b, b.rotation)),
     boxes,
   };
 }
 
-/** A connector RegionData bridging two portals, walkable by construction. Auto-derives the
- *  kind from the geometry unless `opts.kind` forces it (setup-loud throw if a forced kind
- *  can't satisfy the walkability constraints). The connector floor spans the join and
- *  overlaps both endpoints by >= 1 cell. */
+/** A connector RegionData bridging two portals, walkable by construction. Auto-derives
+ *  the kind from the geometry unless `opts.kind` forces it (setup-loud throw if a forced
+ *  kind can't satisfy the walkability constraints). The connector floor spans the join
+ *  and overlaps both endpoints by >= 1 cell, and the connector is ENCLOSED — ringed side
+ *  walls plus a ceiling (`opts.enclosure: "open"` swaps the tube for guardrail-height
+ *  walls with no ceiling). Enclosure ends stop flush at `door` portal planes and embed
+ *  SEAM_OVERLAP into the rock at `tunnel-mouth` ends. */
 export function route(
   from: Connection,
   to: Connection,
-  opts?: { kind?: ConnectorKind },
+  opts?: { kind?: ConnectorKind; enclosure?: "open" },
 ): RegionData {
   const dx = to.position[0] - from.position[0];
   const dz = to.position[2] - from.position[2];
@@ -317,9 +376,15 @@ export function route(
   const dh = to.position[1] - from.position[1];
   const dir: Vec3 =
     run > 1e-6 ? [dx / run, 0, dz / run] : [from.facing[0], 0, from.facing[2]];
-  const width = Math.max(from.width, to.width);
   const kind = opts?.kind ?? chooseKind(dh, run);
-  const local = buildConnectorLocal(kind, width, dh, run);
+  const local = buildConnectorLocal(
+    kind,
+    connectorSection(from, to),
+    dh,
+    run,
+    { from: from.kind, to: to.kind },
+    opts?.enclosure === "open",
+  );
   const yaw = Math.atan2(dir[0], dir[2]);
   const region: RegionData = {
     meshes: local.meshes,
