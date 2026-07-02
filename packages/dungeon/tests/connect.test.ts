@@ -1,14 +1,50 @@
 // packages/dungeon/tests/connect.test.ts
 import { expect, test } from "bun:test";
-import { quat, vec3 } from "@furnace/core/transform";
+import { mat4, quat, vec3 } from "@furnace/core/transform";
 import { aabbOfBoxes } from "../src/aabb.ts";
 import { chooseKind, join, placePiece, route } from "../src/connect.ts";
 import type {
   Connection,
+  InstanceData,
+  InstanceGroup,
   RegionData,
   RegionMesh,
   Vec3,
 } from "../src/region.ts";
+
+/** A quaternion (x,y,z,w) for a rotation `theta` about an arbitrary (auto-normalized)
+ *  axis. Surface-aligned scatter genuinely tilts off +Y, and — critically — a TILTED
+ *  local rotation does NOT commute with the placement's +Y yaw, so the composed
+ *  orientation is order-sensitive: this is what makes the rotation checks below able to
+ *  catch a flipped quaternion-multiply order (two +Y-yaw rotations would commute and hide
+ *  it). */
+function axisQuat(axis: Vec3, theta: number): [number, number, number, number] {
+  const a = vec3.normalize(
+    vec3.create(),
+    vec3.fromValues(axis[0], axis[1], axis[2]),
+  );
+  const q = quat.fromAxisAngle(quat.create(), a, theta);
+  return [q[0], q[1], q[2], q[3]] as [number, number, number, number];
+}
+
+/** Bake a column-major `T·R·S` mat4 per instance — exactly how scatter.ts bakes an
+ *  InstanceGroup's `transforms` from its `placements`, so the fixture's two arrays are
+ *  consistent in LOCAL frame before `placePiece` transforms them. */
+function bakeTransforms(data: InstanceData[]): Float32Array {
+  const out = new Float32Array(16 * data.length);
+  const m = mat4.create();
+  const q = quat.create();
+  const tv = vec3.create();
+  const sv = vec3.create();
+  data.forEach((d, i) => {
+    q.set(d.rotation);
+    tv.set(d.position);
+    sv.fill(d.scale);
+    mat4.fromRotationTranslationScale(m, q, tv, sv);
+    out.set(m, i * 16);
+  });
+  return out;
+}
 
 function room(door: Connection): RegionData {
   return {
@@ -236,6 +272,136 @@ test("route: gentle descending ramp still builds (signed pitch kept)", () => {
   const r = route(from, to, { kind: "ramp" });
   expect(r.meshes.length).toBe(1);
   expect(r.meshes[0]?.rotation).toBeDefined();
+});
+
+test("placePiece transforms a group's placements into world frame, consistent with the baked transforms", () => {
+  // Ported from the deleted compose.test.ts placeRoom coverage (placeRoom was just
+  // placePiece(room, join(...))). This is the ONLY test of placePiece's instance path —
+  // the path realize.ts uses to build colliders/bodies for solid/dynamic scatter on the
+  // PLACED world's rooms. A regression in either sub-path (the mat4×transforms matrix path
+  // OR the xf/compose placements path — e.g. a flipped quaternion-multiply order) would
+  // otherwise go undetected: every other fixture uses `instances: []`.
+  //
+  // Fixture: an InstanceGroup whose baked `transforms` are the exact T·R·S of its
+  // `placements` (as scatter bakes them). Each instance has a TILTED (off-+Y) rotation,
+  // an off-origin position, and a non-unit scale, so nothing below is vacuously true AND
+  // the composed orientation is order-sensitive (see axisQuat).
+  const locals: InstanceData[] = [
+    {
+      position: [1, 0, 2],
+      rotation: axisQuat([1, 2, 0], 0.5),
+      scale: 1.4,
+      tint: [1, 1, 1, 1],
+    },
+    {
+      position: [-2, 0.5, 1],
+      rotation: axisQuat([0, 1, 1], 1.3),
+      scale: 0.7,
+      tint: [1, 1, 1, 1],
+    },
+    {
+      position: [3, 0, -1],
+      rotation: axisQuat([1, 0, 2], 2.1),
+      scale: 1.1,
+      tint: [1, 1, 1, 1],
+    },
+  ];
+  const group: InstanceGroup = {
+    geometry: { primitive: "cube" },
+    material: 0,
+    posture: "lit",
+    collision: "dynamic",
+    placements: locals.map((d) => ({ ...d })),
+    transforms: bakeTransforms(locals),
+    tints: new Float32Array(locals.flatMap((d) => d.tint)),
+  };
+  const door: Connection = {
+    position: [0, 0, 1],
+    facing: [0, 0, 1],
+    width: 2,
+    height: 3,
+    kind: "door",
+  };
+  const region: RegionData = { ...room(door), instances: [group] };
+
+  const place = { yaw: Math.PI / 2, translation: [10, 5, -3] as Vec3 };
+  const { yaw, translation: t } = place;
+  const c = Math.cos(yaw);
+  const s = Math.sin(yaw);
+  // Independent ground truth (connect.ts's rotateY convention: Ry(θ)·[x,y,z] =
+  // [x·c + z·s, y, −x·s + z·c]). Pins BOTH paths to the expected world transform, so a
+  // no-op regression (placements/transforms left in local frame) fails here too.
+  const expectWorldPos = (p: Vec3): Vec3 => [
+    p[0] * c + p[2] * s + t[0],
+    p[1] + t[1],
+    -p[0] * s + p[2] * c + t[2],
+  ];
+  const qYaw = quat.fromAxisAngle(quat.create(), vec3.fromValues(0, 1, 0), yaw);
+
+  const placed = placePiece(region, place);
+  const g = placed.instances[0] as InstanceGroup;
+  expect(g.placements?.length).toBe(g.transforms.length / 16);
+
+  (g.placements as InstanceData[]).forEach((p, i) => {
+    const local = locals[i] as InstanceData;
+    const wp = expectWorldPos(local.position);
+    // (a) placement position IS the world transform (not left in local frame).
+    expect(p.position[0]).toBeCloseTo(wp[0], 4);
+    expect(p.position[1]).toBeCloseTo(wp[1], 4);
+    expect(p.position[2]).toBeCloseTo(wp[2], 4);
+    // (b) the baked transform's translation column agrees with the placement position.
+    expect(g.transforms[i * 16 + 12] as number).toBeCloseTo(p.position[0], 4);
+    expect(g.transforms[i * 16 + 13] as number).toBeCloseTo(p.position[1], 4);
+    expect(g.transforms[i * 16 + 14] as number).toBeCloseTo(p.position[2], 4);
+
+    // Expected world orientation = qYaw ⊗ localRotation (ORDER MATTERS for a tilted
+    // localRotation). Compare full basis-vector images — X̂ and Ẑ, all three components —
+    // which pin the whole rotation, not just its yaw. A flipped multiply order changes
+    // these for a tilted rotation and fails (c); a broken matrix path fails (d).
+    const qExpected = quat.multiply(
+      quat.create(),
+      qYaw,
+      quat.fromValues(...local.rotation),
+    );
+    const imageOf = (basis: Vec3, q: Float32Array): Float32Array =>
+      vec3.normalize(
+        vec3.create(),
+        vec3.transformQuat(vec3.create(), vec3.fromValues(...basis), q),
+      );
+    const xExpected = imageOf([1, 0, 0], qExpected);
+    const zExpected = imageOf([0, 0, 1], qExpected);
+
+    // (c) placement rotation carries the composed world orientation.
+    const pq = quat.fromValues(...p.rotation);
+    const xFromQuat = imageOf([1, 0, 0], pq);
+    const zFromQuat = imageOf([0, 0, 1], pq);
+    for (let k = 0; k < 3; k++) {
+      expect(xFromQuat[k] as number).toBeCloseTo(xExpected[k] as number, 4);
+      expect(zFromQuat[k] as number).toBeCloseTo(zExpected[k] as number, 4);
+    }
+    // (d) the baked transform's normalized X/Z basis (columns 0 and 2) agree too — the
+    // matrix path and the placement path are computed independently in placePiece.
+    const xCol = vec3.normalize(
+      vec3.create(),
+      vec3.fromValues(
+        g.transforms[i * 16] as number,
+        g.transforms[i * 16 + 1] as number,
+        g.transforms[i * 16 + 2] as number,
+      ),
+    );
+    const zCol = vec3.normalize(
+      vec3.create(),
+      vec3.fromValues(
+        g.transforms[i * 16 + 8] as number,
+        g.transforms[i * 16 + 9] as number,
+        g.transforms[i * 16 + 10] as number,
+      ),
+    );
+    for (let k = 0; k < 3; k++) {
+      expect(xCol[k] as number).toBeCloseTo(xExpected[k] as number, 4);
+      expect(zCol[k] as number).toBeCloseTo(zExpected[k] as number, 4);
+    }
+  });
 });
 
 test("placePiece transforms bounds conservatively (yaw 90° + translate)", () => {

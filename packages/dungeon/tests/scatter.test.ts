@@ -1,7 +1,6 @@
 import { expect, test } from "bun:test";
 import { create as makeRng } from "@furnace/core/rng";
 import { quat, vec3 } from "@furnace/core/transform";
-import { buildArea } from "../src/compose.ts";
 import type {
   InstanceData,
   InstanceGroup,
@@ -19,9 +18,17 @@ import {
 } from "../src/scatter.ts";
 import type { MeshData } from "../src/surface-nets.ts";
 import { cave } from "../src/themes/cave.ts";
+import { greatHall } from "../src/themes/great-hall.ts";
+import { pillarHall } from "../src/themes/pillar-hall.ts";
 
 test("composed regions carry an instances array (empty until themes populate)", () => {
-  const regions = buildArea("seed-x", [0, 0, 0]);
+  // Any theme output qualifies — this only asserts the RegionData contract's
+  // `instances` field, not compose.ts's (retired) specific area composition.
+  const regions = [
+    cave({ theme: "cave", seed: "seed-x", origin: [0, 0, 0] }),
+    pillarHall({ theme: "pillarHall", seed: "seed-x-a", origin: [0, 0, 0] }),
+    greatHall({ theme: "greatHall", seed: "seed-x-b", origin: [0, 0, 0] }),
+  ];
   for (const r of regions) expect(Array.isArray(r.instances)).toBe(true);
 });
 
@@ -254,14 +261,12 @@ test("collision posture is carried onto the group with placements, and consumes 
 });
 
 test("box rooms carry world-placed floor scatter", () => {
-  const regions = buildArea("rooms", [0, 0, 0]);
-  // Connectors (the route corridors bridging cave mouths to rooms) carry theme
-  // "connector" with no connections, so the theme check alone excludes them — only the
-  // placed pillarHall/greatHall rooms remain.
-  const rooms = regions.filter(
-    (r) =>
-      r.provenance.theme === "pillarHall" || r.provenance.theme === "greatHall",
-  );
+  // Direct theme output — compose.ts's specific area composition is retired; the
+  // scatter contract only cares that a room's instances land near its own origin.
+  const rooms = [
+    pillarHall({ theme: "pillarHall", seed: "rooms-a", origin: [0, 0, 0] }),
+    greatHall({ theme: "greatHall", seed: "rooms-b", origin: [0, 0, 0] }),
+  ];
   expect(rooms.length).toBeGreaterThan(0);
   for (const room of rooms) {
     const total = room.instances.reduce(

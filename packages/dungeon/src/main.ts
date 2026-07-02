@@ -7,13 +7,14 @@ import * as post from "@furnace/core/post";
 import { loadScene } from "@furnace/core/scene";
 import { vec3, vec4 } from "@furnace/core/transform";
 import { CharacterMover, shoveDynamicBodies } from "./char-move.ts";
-import { attachUpperLevel, attachWing } from "./compose.ts";
 import { FpController } from "./fp-controller.ts";
-import { buildGlows, buildLevel, CHAMBER_DOOR } from "./level.ts";
+import { layoutWorld } from "./layout.ts";
+import { buildGlows, buildLevel } from "./level.ts";
 import { buildMotes } from "./motes.ts";
 import { MaterialCache, realizeRegion } from "./realize.ts";
 import { bakedCavernProxy } from "./themes/cave.ts";
 import { Torch } from "./torch.ts";
+import { buildWorldGraph, WORLD_SEED } from "./world.ts";
 
 const PLAYER_CAPSULE_HALF_HEIGHT = 0.6;
 const PLAYER_CAPSULE_RADIUS = 0.3;
@@ -71,30 +72,22 @@ async function main(): Promise<void> {
     shape: cavernProxy.proxy,
     position: cavernProxy.proxyPosition,
   });
-  // The branching-cave wing: a cave hub + connector/room pairs at each branch
-  // mouth, realized as lit-stone meshes + field-derived voxel colliders into `world`.
-  // The whole wing seats onto the authored 2nd-chamber doorway via the connection
-  // primitive (join the cave's −Z entrance portal onto CHAMBER_DOOR, bridged by a route
-  // corridor) — the same join the cave→room seams use, so no hand-tuned area origin.
+  // The generated world: a hand-written world GRAPH (authored chamber pinned as a
+  // collision phantom + cave wing + ground rooms + two elevated rooms + one loop),
+  // placed by the collision-aware layout engine — no hand-tuned world positions.
   const matCache = new MaterialCache(ctx);
-  const WING_SEAM_GAP = 2.5; // cave entrance sits this far out from the chamber door — GATE-TUNE
-  const { regions: wingRegions, corridor: wingCorridor } = attachWing(
-    "wing-1",
-    CHAMBER_DOOR,
-    WING_SEAM_GAP,
+  const { regions: worldRegions, connectors } = layoutWorld(
+    buildWorldGraph(WORLD_SEED),
+    WORLD_SEED,
   );
-  // Realize SEQUENTIALLY: the cave + its connectors share one material descriptor,
-  // and MaterialCache.get is not concurrency-safe for a shared key (its check-then-
-  // await-then-set window would double-allocate and leak under Promise.all). Sequential
-  // await keeps the cache single-source; there's no real parallelism to lose here.
+  // Realize SEQUENTIALLY (MaterialCache is not concurrency-safe — see its TSDoc). The
+  // authored phantom is skipped: buildLevel above already realizes the authored level;
+  // the phantom exists so the placer sees it as an obstacle.
   const area: Awaited<ReturnType<typeof realizeRegion>>[] = [];
-  for (const r of [...wingRegions, wingCorridor]) {
-    area.push(await realizeRegion(ctx, world, matCache, r));
-  }
-  // Multi-level showcase: two elevated rooms reached from authored 2nd-chamber floor
-  // portals — a pillarHall up a ~30° off-axis ramp + a greatHall up a cardinal stair-run.
-  // Realized into `area` BEFORE the flatMap below so their meshes/colliders join the draw.
-  for (const r of attachUpperLevel("wing-1")) {
+  for (const r of [
+    ...worldRegions.filter((r) => r.provenance.theme !== "authored"),
+    ...connectors,
+  ]) {
     area.push(await realizeRegion(ctx, world, matCache, r));
   }
   const areaMeshes = area.flatMap((a) => a.meshes);
