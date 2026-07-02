@@ -18,8 +18,12 @@ const MATERIAL_SPECULAR: [number, number, number, number] = [
 ];
 
 /** Columned rectangular hall: seeded dims + pillar grid over a boxRoom shell.
- *  Returns a full `RegionData` in LOCAL frame; `compose.ts` bakes world placement. */
-export function pillarHall(p: RegionParams): RegionData {
+ *  Returns a full `RegionData` in LOCAL frame; `compose.ts` bakes world placement.
+ *  `doors` defaults to a single S-facing door (the historical shape); pass an explicit
+ *  list (≥1, at most one per side) for a room of degree > 1 in a graph-shaped world. */
+export function pillarHall(
+  p: RegionParams & { doors?: DoorSpec[] },
+): RegionData {
   const rng = makeRng(p.seed);
   const width = rng.derive("w").int(8, 15);
   const depth = rng.derive("d").int(10, 19);
@@ -29,14 +33,16 @@ export function pillarHall(p: RegionParams): RegionData {
   // is a step-up; a 2.2m lintel sat only STEP_HEIGHT above the room-floor rest height,
   // so the step-up raise slammed the capsule into the lintel and wedged it (walk-probe
   // gate). A 2.8m door lifts the lintel well clear of the raised capsule top.
-  const door: DoorSpec = { side: "S", offset: 0, width: 1.6, height: 2.8 };
+  const doors: DoorSpec[] = p.doors ?? [
+    { side: "S", offset: 0, width: 1.6, height: 2.8 },
+  ];
   const bay = rng.derive("bay").pick([3, 3.5, 4, 4.5]);
   const section = rng.derive("sec").pick([0.5, 0.7, 1.0]);
-  const pillars = pillarGrid({ width, depth, bay, section, door }).map((g) =>
+  const pillars = pillarGrid({ width, depth, bay, section, doors }).map((g) =>
     pillarBox(g.x, g.z, height, section),
   );
   const room = boxRoom(
-    { width, depth, height, wallThick: 0.4, floorThick: 0.3, door },
+    { width, depth, height, wallThick: 0.4, floorThick: 0.3, doors },
     pillars,
   );
   const materials: MaterialDescriptor[] = [
@@ -45,7 +51,7 @@ export function pillarHall(p: RegionParams): RegionData {
   const instances = roomFloorScatter(
     width,
     depth,
-    door,
+    doors,
     rng.derive("scatter"),
     materials,
   );

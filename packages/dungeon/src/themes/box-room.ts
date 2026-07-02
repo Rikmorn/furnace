@@ -33,15 +33,35 @@ export type DoorSpec = {
   height: number;
 };
 
-/** Parameters for a rectangular room in local frame (floor top at y=0, centred on XZ). */
+/** Parameters for a rectangular room in local frame (floor top at y=0, centred on XZ).
+ *  `doors` holds one or more openings, at most one per {@link Side} — a graph-shaped
+ *  world needs rooms of degree > 1 (multiple connections in/out). */
 export type BoxRoomParams = {
   width: number;
   depth: number;
   height: number;
   wallThick: number;
   floorThick: number;
-  door: DoorSpec;
+  doors: DoorSpec[];
 };
+
+/** Validates a door list shared by `boxRoom` and `pillarGrid`: at least one door, and
+ *  at most one door per cardinal side (a wall can't host two openings). Setup-loud —
+ *  throws immediately rather than silently dropping a conflicting door. */
+function validateDoors(doors: DoorSpec[], fnName: string): void {
+  if (doors.length === 0) {
+    throw new Error(`${fnName}: at least one door is required`);
+  }
+  const seen = new Set<Side>();
+  for (const door of doors) {
+    if (seen.has(door.side)) {
+      throw new Error(
+        `${fnName}: at most one door per side (duplicate "${door.side}")`,
+      );
+    }
+    seen.add(door.side);
+  }
+}
 
 /** A centre+size box (local frame). Exported so theme wrappers can assemble feature
  *  arrays (pillars/steps) for boxRoom. */
@@ -87,12 +107,13 @@ function wallBoxes(p: BoxRoomParams, side: Side): Box[] {
       : makeBox([wallCoord, cy, centerAlong] as Vec3, [t, segH, len] as Vec3);
   };
 
-  if (p.door.side !== side) {
+  const door = p.doors.find((candidate) => candidate.side === side);
+  if (!door) {
     return [place(0, along, h, 0)];
   }
 
-  const half = p.door.width / 2;
-  const c = p.door.offset;
+  const half = door.width / 2;
+  const c = door.offset;
   const leftLen = along / 2 + c - half;
   const rightLen = along / 2 - c - half;
   const out: Box[] = [];
@@ -102,9 +123,9 @@ function wallBoxes(p: BoxRoomParams, side: Side): Box[] {
   if (rightLen > 1e-3) {
     out.push(place(along / 2 - rightLen / 2, rightLen, h, 0));
   }
-  const lintelH = h - p.door.height;
+  const lintelH = h - door.height;
   if (lintelH > 1e-3) {
-    out.push(place(c, p.door.width, lintelH, p.door.height));
+    out.push(place(c, door.width, lintelH, door.height));
   }
   return out;
 }
@@ -171,10 +192,29 @@ const toCollider = (b: Box): RegionCollider => ({
   position: b.center,
 });
 
+/** The outward-facing door `Connection` for one door of a `boxRoom` (position on the
+ *  room's own wall, at wall-centre + half wall thickness beyond the room's footprint). */
+function doorConnection(p: BoxRoomParams, door: DoorSpec): Connection {
+  const facing = SIDE_FACING[door.side];
+  const isZWall = door.side === "N" || door.side === "S";
+  const position: Vec3 = isZWall
+    ? [door.offset, 0, (facing[2] as number) * (p.depth / 2 + p.wallThick / 2)]
+    : [(facing[0] as number) * (p.width / 2 + p.wallThick / 2), 0, door.offset];
+  return {
+    position,
+    facing,
+    width: door.width,
+    height: door.height,
+    kind: "door",
+  };
+}
+
 /** Build a rectangular room as boxes in local frame (floor top at y=0, centred on XZ).
  *  Extra feature boxes (pillars, platforms, steps) are appended via the `features` param.
- *  Returns local-frame mesh and collider arrays plus outward door connections.
- *  World placement is the caller's responsibility (compose.ts applies origin). */
+ *  Returns local-frame mesh and collider arrays plus one outward door connection per
+ *  entry in `p.doors` (same order). World placement is the caller's responsibility
+ *  (compose.ts applies origin). Throws setup-loud if `p.doors` is empty or has more
+ *  than one door on the same side (see {@link validateDoors}). */
 export function boxRoom(
   p: BoxRoomParams,
   features: Box[],
@@ -184,6 +224,7 @@ export function boxRoom(
   connections: Connection[];
   bounds: Aabb;
 } {
+  validateDoors(p.doors, "boxRoom");
   const boxes: Box[] = [
     ...slabBoxes(p),
     ...wallBoxes(p, "N"),
@@ -193,32 +234,10 @@ export function boxRoom(
     ...features,
   ];
 
-  const facing = SIDE_FACING[p.door.side];
-  const isZWall = p.door.side === "N" || p.door.side === "S";
-  const doorPos: Vec3 = isZWall
-    ? [
-        p.door.offset,
-        0,
-        (facing[2] as number) * (p.depth / 2 + p.wallThick / 2),
-      ]
-    : [
-        (facing[0] as number) * (p.width / 2 + p.wallThick / 2),
-        0,
-        p.door.offset,
-      ];
-
   return {
     meshes: boxes.map(toMesh),
     colliders: boxes.map(toCollider),
-    connections: [
-      {
-        position: doorPos,
-        facing,
-        width: p.door.width,
-        height: p.door.height,
-        kind: "door",
-      },
-    ],
+    connections: p.doors.map((door) => doorConnection(p, door)),
     bounds: aabbOfBoxes(boxes),
   };
 }
@@ -229,33 +248,58 @@ export type PillarGridParams = {
   depth: number;
   bay: number;
   section: number;
-  door: DoorSpec;
+  doors: DoorSpec[];
 };
 
-/** Centred grid of pillar positions, culling any that fall inside the doorway walk
- *  corridor. Rooms are always generated with a centered, South-facing door (compose.ts
- *  rotates the placed room into world orientation), so the corridor runs along -Z from
- *  the door to room centre; the cull is correct only for that generation-frame convention.
- *  `door.side`/`door.offset` are not consulted here — adding direction-handling would be
- *  speculative and unused. */
+/** The walk-corridor half-width for one door: half the opening plus clearance for a
+ *  capsule body plus half a pillar section, so a pillar never overlaps the doorway's
+ *  walk-through path. */
+function doorCorridorHalf(door: DoorSpec, section: number): number {
+  return door.width / 2 + CAPSULE_R + section / 2;
+}
+
+/** Whether grid point `(x, z)` falls inside `door`'s walk corridor — the strip running
+ *  from the door's own wall toward room centre, `doorCorridorHalf` wide, on the door's
+ *  cardinal axis. */
+function inDoorCorridor(
+  x: number,
+  z: number,
+  door: DoorSpec,
+  section: number,
+): boolean {
+  const half = doorCorridorHalf(door, section);
+  switch (door.side) {
+    case "S":
+      return Math.abs(x - door.offset) < half && z < 0;
+    case "N":
+      return Math.abs(x - door.offset) < half && z > 0;
+    case "E":
+      return Math.abs(z - door.offset) < half && x > 0;
+    case "W":
+      return Math.abs(z - door.offset) < half && x < 0;
+  }
+}
+
+/** Centred grid of pillar positions, culling any that fall inside the walk corridor of
+ *  ANY door in `p.doors` — each door carves its own corridor from its wall toward room
+ *  centre, on its own cardinal axis (see {@link inDoorCorridor}). Throws setup-loud on
+ *  an invalid door list (see {@link validateDoors}). */
 export function pillarGrid(p: PillarGridParams): { x: number; z: number }[] {
+  validateDoors(p.doors, "pillarGrid");
   const margin = p.bay;
   const usableW = p.width - 2 * margin;
   const usableD = p.depth - 2 * margin;
   const cols = Math.max(0, Math.floor(usableW / p.bay) + 1);
   const rows = Math.max(0, Math.floor(usableD / p.bay) + 1);
-  const corridorHalf = p.door.width / 2 + CAPSULE_R + p.section / 2;
   const out: { x: number; z: number }[] = [];
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
       const x = -((cols - 1) * p.bay) / 2 + c * p.bay;
       const z = -((rows - 1) * p.bay) / 2 + r * p.bay;
-      // Rooms are always generated with a centered, South-facing door (compose.ts rotates
-      // the placed room into world orientation), so the walk corridor runs along -Z from
-      // the door to room centre. This cull is correct only for that generation-frame
-      // convention.
-      const inDoorCorridor = Math.abs(x) < corridorHalf && z < 0;
-      if (inDoorCorridor) continue;
+      const blocked = p.doors.some((door) =>
+        inDoorCorridor(x, z, door, p.section),
+      );
+      if (blocked) continue;
       out.push({ x, z });
     }
   }
@@ -301,13 +345,27 @@ const ROOM_SCATTER_LAYERS: ScatterLayerSpec[] = [
 /** Clearance around the door so the entrance stays walkable (m). */
 const ROOM_DOOR_KEEPOUT_PAD = 1.0;
 
+/** The door-keepout centre, on the room's floor rect edge under `door`'s own wall. */
+function doorKeepOutCenter(door: DoorSpec, width: number, depth: number): Vec3 {
+  switch (door.side) {
+    case "S":
+      return [door.offset, 0, -depth / 2];
+    case "N":
+      return [door.offset, 0, depth / 2];
+    case "E":
+      return [width / 2, 0, door.offset];
+    case "W":
+      return [-width / 2, 0, door.offset];
+  }
+}
+
 /** Floor scatter for a box room (rubble + sparse glow) over the room floor rect in
- *  LOCAL frame (floor top y=0), keeping the S-wall doorway clear. compose.ts's
+ *  LOCAL frame (floor top y=0), keeping every door's corridor clear. compose.ts's
  *  placeRoom transforms the result into world. Appends layer materials to `materials`. */
 export function roomFloorScatter(
   width: number,
   depth: number,
-  door: DoorSpec,
+  doors: DoorSpec[],
   rng: Rng,
   materials: MaterialDescriptor[],
 ): InstanceGroup[] {
@@ -318,13 +376,10 @@ export function roomFloorScatter(
     z1: depth / 2,
     y: 0,
   });
-  // The door is on the S wall (z = -depth/2); keep its corridor clear.
-  const keepOut: KeepOut[] = [
-    {
-      center: [door.offset, 0, -depth / 2],
-      radius: door.width / 2 + ROOM_DOOR_KEEPOUT_PAD,
-    },
-  ];
+  const keepOut: KeepOut[] = doors.map((door) => ({
+    center: doorKeepOutCenter(door, width, depth),
+    radius: door.width / 2 + ROOM_DOOR_KEEPOUT_PAD,
+  }));
   return instanceGroupsFromLayers(
     floor,
     ROOM_SCATTER_LAYERS,

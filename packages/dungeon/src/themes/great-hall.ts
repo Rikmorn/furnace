@@ -44,7 +44,7 @@ export function greatHall(p: RegionParams): RegionData {
   );
   const features: Box[] = [dais, ...steps];
   const room = boxRoom(
-    { width, depth, height, wallThick: 0.5, floorThick: 0.3, door },
+    { width, depth, height, wallThick: 0.5, floorThick: 0.3, doors: [door] },
     features,
   );
   const materials: MaterialDescriptor[] = [
@@ -53,7 +53,7 @@ export function greatHall(p: RegionParams): RegionData {
   const instances = roomFloorScatter(
     width,
     depth,
-    door,
+    [door],
     rng.derive("scatter"),
     materials,
   );

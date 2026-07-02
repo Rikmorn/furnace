@@ -1,6 +1,13 @@
 import { expect, test } from "bun:test";
 import type { Connection } from "../src/region.ts";
-import { boxRoom, pillarGrid, STEP_HEIGHT } from "../src/themes/box-room.ts";
+import {
+  boxRoom,
+  type DoorSpec,
+  pillarGrid,
+  STEP_HEIGHT,
+} from "../src/themes/box-room.ts";
+
+const door: DoorSpec = { side: "S", offset: 0, width: 1.6, height: 2.2 };
 
 const base = {
   width: 10,
@@ -8,7 +15,7 @@ const base = {
   height: 4,
   wallThick: 0.4,
   floorThick: 0.3,
-  door: { side: "S" as const, offset: 0, width: 1.6, height: 2.2 },
+  doors: [door],
 };
 
 test("a room has floor + ceiling + walls and a cuboid per mesh box", () => {
@@ -39,9 +46,9 @@ test("the doorway leaves a gap: no collider spans the door opening at floor leve
 test("boxRoom emits one outward-facing door connection", () => {
   const r = boxRoom(base, []);
   expect(r.connections.length).toBe(1);
-  const door = r.connections[0] as Connection;
-  expect(door.kind).toBe("door");
-  expect(door.facing).toEqual([0, 0, -1]); // S wall faces -Z outward
+  const conn = r.connections[0] as Connection;
+  expect(conn.kind).toBe("door");
+  expect(conn.facing).toEqual([0, 0, -1]); // S wall faces -Z outward
 });
 
 test("STEP_HEIGHT is exported and equals 0.4", () => {
@@ -49,13 +56,12 @@ test("STEP_HEIGHT is exported and equals 0.4", () => {
 });
 
 test("pillarGrid leaves the doorway walk corridor clear", () => {
-  const door = { side: "S" as const, offset: 0, width: 1.6, height: 2.2 };
   const pillars = pillarGrid({
     width: 12,
     depth: 14,
     bay: 3,
     section: 0.6,
-    door,
+    doors: [door],
   });
   // No pillar within (door half-width + capsule radius 0.3 + section/2 0.3) of the
   // corridor centre line x=0, for z between the door and the room centre.
@@ -64,4 +70,89 @@ test("pillarGrid leaves the doorway walk corridor clear", () => {
   );
   expect(clear).toBe(true);
   expect(pillars.length).toBeGreaterThan(0);
+});
+
+const S: DoorSpec = { side: "S", offset: 0, width: 1.6, height: 2.8 };
+const E: DoorSpec = { side: "E", offset: 1, width: 1.6, height: 2.8 };
+
+test("two-door room: both walls split, two connections in doors order", () => {
+  const r = boxRoom(
+    {
+      width: 10,
+      depth: 12,
+      height: 4,
+      wallThick: 0.4,
+      floorThick: 0.3,
+      doors: [S, E],
+    },
+    [],
+  );
+  expect(r.connections.length).toBe(2);
+  const [connS, connE] = r.connections as [Connection, Connection];
+  expect(connS.facing).toEqual([0, 0, -1]);
+  expect(connE.facing).toEqual([1, 0, 0]);
+  expect(connE.position[0]).toBeCloseTo(5.2, 5); // width/2 + wallThick/2
+  expect(connE.position[2]).toBeCloseTo(1, 5); // offset along the E wall
+  const single = boxRoom(
+    {
+      width: 10,
+      depth: 12,
+      height: 4,
+      wallThick: 0.4,
+      floorThick: 0.3,
+      doors: [S],
+    },
+    [],
+  );
+  expect(r.meshes.length).toBeGreaterThan(single.meshes.length);
+});
+
+test("two doors on the same side throw setup-loud", () => {
+  expect(() =>
+    boxRoom(
+      {
+        width: 10,
+        depth: 12,
+        height: 4,
+        wallThick: 0.4,
+        floorThick: 0.3,
+        doors: [S, { ...S, offset: 2 }],
+      },
+      [],
+    ),
+  ).toThrow(/one door per side/);
+});
+
+test("boxRoom throws setup-loud on an empty door list", () => {
+  expect(() =>
+    boxRoom(
+      {
+        width: 10,
+        depth: 12,
+        height: 4,
+        wallThick: 0.4,
+        floorThick: 0.3,
+        doors: [],
+      },
+      [],
+    ),
+  ).toThrow();
+});
+
+test("pillarGrid culls a corridor for EVERY door", () => {
+  const withE = pillarGrid({
+    width: 12,
+    depth: 12,
+    bay: 3,
+    section: 0.6,
+    doors: [S, E],
+  });
+  const withoutE = pillarGrid({
+    width: 12,
+    depth: 12,
+    bay: 3,
+    section: 0.6,
+    doors: [S],
+  });
+  expect(withE.length).toBeLessThan(withoutE.length);
 });
