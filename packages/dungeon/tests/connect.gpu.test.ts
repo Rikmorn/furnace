@@ -119,3 +119,49 @@ test.skipIf(!bunWebGpuAvailable())(
     expect(r.maxStall).toBeLessThan(STALL_LIMIT);
   },
 );
+
+test.skipIf(!bunWebGpuAvailable())(
+  "enclosure rays: tube ceiling blocks upward, open style doesn't, rails block sideways",
+  async () => {
+    const canvas = await makeOffscreenCanvas();
+    const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
+    const world = await physics.createWorld(ctx, { gravity: [0, -9.81, 0] });
+    const cache = new MaterialCache(ctx);
+    const tube = route(P([0, 0, 0], [0, 0, 1]), P([0, 0, 6], [0, 0, -1]), {
+      kind: "corridor",
+    });
+    const open = route(P([20, 0, 0], [0, 0, 1]), P([20, 0, 6], [0, 0, -1]), {
+      kind: "corridor",
+      enclosure: "open",
+    });
+    const realized = [];
+    for (const r of [tube, open]) {
+      realized.push(await realizeRegion(ctx, world, cache, r));
+    }
+    physics.step(ctx, world, DT);
+    const upTube = physics.castRay(ctx, world, {
+      origin: [0, 1, 3],
+      dir: [0, 1, 0],
+      maxDistance: 10,
+    });
+    expect(upTube).not.toBeNull(); // the tube ceiling
+    expect(upTube ? upTube.point[1] : -1).toBeCloseTo(3, 3); // underside at headroom
+    const upOpen = physics.castRay(ctx, world, {
+      origin: [20, 1, 3],
+      dir: [0, 1, 0],
+      maxDistance: 10,
+    });
+    expect(upOpen).toBeNull(); // no ceiling on the open style
+    const sideOpen = physics.castRay(ctx, world, {
+      origin: [20, 0.5, 3],
+      dir: [1, 0, 0],
+      maxDistance: 10,
+    });
+    expect(sideOpen).not.toBeNull(); // the guardrail wall
+    expect(sideOpen ? sideOpen.point[0] : -1).toBeCloseTo(21.1, 2); // inner face: w/2 − WALL_T = 1.1 out
+    for (const r of realized) r.destroy();
+    cache.destroy();
+    physics.destroyWorld(ctx, world);
+    gpu.dispose(ctx);
+  },
+);

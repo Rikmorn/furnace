@@ -63,3 +63,12 @@ placer needed those lengths for envelope clearance.
 the connector-length sampling that gaps each room from its mouth; replaced the retired
 `compose.ts` `buildArea`/`attachWing` in Slice 2.2.5a). Surfaced at the Slice 2.2.4 visual gate
 (2026-06-29).
+
+**Phase A LANDED (2026-07-02, Slice 2.2.5b-A).** Every routed connector is now an
+enclosed tube — ringed side walls + ceiling, flush vertical ends at `door` portal
+planes, `SEAM_OVERLAP`-embedded ends at `tunnel-mouth` portals — with a per-edge
+`enclosure: "open"` guardrail style (`connect.ts enclosureBoxes`; clearance grown by
+`ENCLOSURE_TOP_PAD`). This entry now covers ONLY true stitching at the cave rim: the
+tube's tunnel end still just embeds into the rock — nothing blends the isosurface to
+the tube mouth, and the room-side flush ends rely on the portal plane sitting inside
+the neighbour's wall thickness.

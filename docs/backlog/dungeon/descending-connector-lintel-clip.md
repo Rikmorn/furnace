@@ -33,3 +33,9 @@ consider then:
 climb-following segmented clearance volume), `packages/dungeon/src/world.ts`
 (`LANDING_SEAT_DOOR` — the full-height workaround). Surfaced + verified during the Slice 2.2.5a
 proof-graph build (2026-07-02).
+
+**Update (2026-07-02, Slice 2.2.5b-A):** connectors now carry a real ceiling slab, so a
+descending connector's clearance clipping a lower room's lintel is no longer just
+reserved air — it would be VISIBLE interpenetrating geometry. Raises this entry's
+priority for 2.2.5b Phase B's generated graphs (a generator can emit this join shape
+freely; the hand-authored world dodges it with the full-height landing seat door).
