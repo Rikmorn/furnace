@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { aabbIntersects } from "../src/aabb.ts";
-import { layoutWorld } from "../src/layout.ts";
+import { connectorSection, ENCLOSURE_TOP_PAD } from "../src/connect.ts";
+import { clearanceBoxes, layoutWorld } from "../src/layout.ts";
 import type { Connection, RegionData, Vec3 } from "../src/region.ts";
 import type { WorldGraph } from "../src/world-graph.ts";
 
@@ -225,4 +226,27 @@ test("backtracking: an ANCESTOR is popped and re-placed to satisfy a descendant"
       );
     }
   }
+});
+
+test("clearanceBoxes: tops padded by ENCLOSURE_TOP_PAD above the climbing headroom line", () => {
+  const from: Connection = {
+    position: [0, 0, 0],
+    facing: [0, 0, 1],
+    width: 2,
+    height: 3,
+    kind: "door",
+  };
+  const to: Connection = {
+    position: [0, 2, 6],
+    facing: [0, 0, -1],
+    width: 2,
+    height: 2.5,
+    kind: "door",
+  };
+  const boxes = clearanceBoxes(from, to);
+  expect(boxes.length).toBeGreaterThan(1); // segmented along the climb
+  const top = Math.max(...boxes.map((b) => b.max[1]));
+  expect(top).toBeCloseTo(2 + 3 + ENCLOSURE_TOP_PAD, 5); // to.y + headroom + pad
+  const halfW = Math.max(...boxes.map((b) => b.max[0]));
+  expect(halfW).toBeCloseTo(connectorSection(from, to).width / 2, 5); // same footprint authority
 });

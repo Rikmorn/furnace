@@ -2,7 +2,15 @@
 import { expect, test } from "bun:test";
 import { mat4, quat, vec3 } from "@furnace/core/transform";
 import { aabbOfBoxes } from "../src/aabb.ts";
-import { chooseKind, join, placePiece, route } from "../src/connect.ts";
+import {
+  CEIL_T,
+  chooseKind,
+  connectorSection,
+  join,
+  placePiece,
+  RING_RISE,
+  route,
+} from "../src/connect.ts";
 import type {
   Connection,
   InstanceData,
@@ -442,4 +450,28 @@ test("placePiece transforms bounds conservatively (yaw 90° + translate)", () =>
   expect(placed.bounds.max[1]).toBeCloseTo(7, 5);
   expect(placed.bounds.min[2]).toBeCloseTo(-1, 5);
   expect(placed.bounds.max[2]).toBeCloseTo(1, 5);
+});
+
+test("connectorSection: outer width = max portal width + shoulders; headroom = max height", () => {
+  const a: Connection = {
+    position: [0, 0, 0],
+    facing: [0, 0, 1],
+    width: 2,
+    height: 3,
+    kind: "door",
+  };
+  const b: Connection = {
+    position: [0, 0, 6],
+    facing: [0, 0, -1],
+    width: 1.6,
+    height: 3.2,
+    kind: "tunnel-mouth",
+  };
+  const s = connectorSection(a, b);
+  expect(s.width).toBeCloseTo(2 + 0.8, 5); // max(2, 1.6) + 2·SHOULDER(0.4)
+  expect(s.headroom).toBeCloseTo(3.2, 5); // max(3, 3.2)
+});
+
+test("RING_RISE stays below CEIL_T (adjacent ring ceilings must overlap — the seal invariant)", () => {
+  expect(RING_RISE).toBeLessThan(CEIL_T);
 });

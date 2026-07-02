@@ -146,6 +146,34 @@ const FLOOR_THICK = 0.3; // connector slab thickness (m), matches the retired ve
  *  engine's clearance/exemption math (layout.ts) uses the SAME footprint `route` builds —
  *  a divergence here would silently validate the wrong connector width. */
 export const SHOULDER = 0.4;
+/** Enclosure ceiling slab thickness (m). Part of the layout↔connect containment
+ *  contract (see ENCLOSURE_TOP_PAD); exported for the seal-invariant assert. */
+export const CEIL_T = 0.3;
+/** Max floor rise per enclosure ring (m). MUST stay < CEIL_T so adjacent ring
+ *  ceilings overlap vertically — the seal invariant, unit-asserted. */
+export const RING_RISE = 0.25;
+/** How far above the shared headroom a connector's enclosure can reach: the ceiling
+ *  slab plus the ring quantization wobble. layout.ts grows every clearance volume's
+ *  top by this, so the placer's reserved air covers the whole enclosure by
+ *  construction. */
+export const ENCLOSURE_TOP_PAD = CEIL_T + RING_RISE;
+
+/** A connector's outer cross-section: outer width (clear walking width + shoulders)
+ *  and vertical headroom. */
+export type ConnectorSection = { width: number; headroom: number };
+
+/** THE single source for connector sizing — layout.ts clearance math and the
+ *  enclosure/floor geometry here both read it, so the placer's reserved air and the
+ *  built connector cannot drift apart. */
+export function connectorSection(
+  from: Connection,
+  to: Connection,
+): ConnectorSection {
+  return {
+    width: Math.max(from.width, to.width) + 2 * SHOULDER,
+    headroom: Math.max(from.height, to.height),
+  };
+}
 const CONNECTOR_MATERIAL: MaterialDescriptor = {
   color: [0.5, 0.5, 0.52, 1],
   specular: [0.02, 0.02, 0.02, 8],

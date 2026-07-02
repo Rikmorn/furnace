@@ -8,6 +8,8 @@
 import { create as makeRng } from "@furnace/core/rng";
 import { aabbOfBoxes } from "./aabb.ts";
 import {
+  connectorSection,
+  ENCLOSURE_TOP_PAD,
   join,
   type Placement,
   placePiece,
@@ -111,11 +113,14 @@ function solidsOf(region: RegionData): Solid[] {
   });
 }
 
-/** The reserved walking air between two portals, as axis-aligned segments that follow the
- *  (possibly climbing) straight run — a headroom clearance volume, not just a floor slab. */
-function clearanceBoxes(from: Connection, to: Connection): Aabb[] {
-  const headroom = Math.max(from.height, to.height);
-  const w = Math.max(from.width, to.width) + 2 * SHOULDER;
+/** The reserved walking air between two portals, as axis-aligned segments that follow
+ *  the (possibly climbing) straight run — a headroom clearance volume, not just a floor
+ *  slab. Cross-section comes from {@link connectorSection}, and the top is padded by
+ *  ENCLOSURE_TOP_PAD so the reserved air covers the connector's enclosure (ceiling slab
+ *  + ring quantization wobble). Exported: the layout↔connect containment contract is
+ *  unit-tested against it. */
+export function clearanceBoxes(from: Connection, to: Connection): Aabb[] {
+  const { width: w, headroom } = connectorSection(from, to);
   const dx = to.position[0] - from.position[0];
   const dz = to.position[2] - from.position[2];
   const run = Math.hypot(dx, dz);
@@ -130,7 +135,11 @@ function clearanceBoxes(from: Connection, to: Connection): Aabb[] {
     const z0 = from.position[2] + dz * t0;
     const z1 = from.position[2] + dz * t1;
     const yLo = from.position[1] + Math.min(dh * t0, dh * t1);
-    const yHi = from.position[1] + Math.max(dh * t0, dh * t1) + headroom;
+    const yHi =
+      from.position[1] +
+      Math.max(dh * t0, dh * t1) +
+      headroom +
+      ENCLOSURE_TOP_PAD;
     out.push({
       min: [Math.min(x0, x1) - w / 2, yLo, Math.min(z0, z1) - w / 2],
       max: [Math.max(x0, x1) + w / 2, yHi, Math.max(z0, z1) + w / 2],
@@ -140,7 +149,10 @@ function clearanceBoxes(from: Connection, to: Connection): Aabb[] {
 }
 
 /** The exemption box around a portal — the connector is allowed to bore through its own
- *  endpoint pieces' solids here (a mouth necessarily pierces its own wall). */
+ *  endpoint pieces' solids here (a mouth necessarily pierces its own wall). The box
+ *  reaches ENCLOSURE_TOP_PAD above the headroom (the connector may build its ceiling band
+ *  there, and the padded clearance column must stay inside the exemption at the portal);
+ *  PORTAL_EXEMPT_PAD is the LATERAL cross-section pad only. */
 function portalExemption(portal: Connection, headroom: number): Aabb {
   const w = portal.width / 2 + SHOULDER + PORTAL_EXEMPT_PAD;
   const d = PORTAL_EXEMPT_DEPTH;
@@ -152,7 +164,7 @@ function portalExemption(portal: Connection, headroom: number): Aabb {
     ],
     max: [
       portal.position[0] + w + d,
-      portal.position[1] + headroom + PORTAL_EXEMPT_PAD,
+      portal.position[1] + headroom + ENCLOSURE_TOP_PAD,
       portal.position[2] + w + d,
     ],
   };
@@ -304,7 +316,7 @@ export function layoutWorld(graph: WorldGraph, seed: string): LayoutResult {
     } catch {
       return { fail: "route-throw" };
     }
-    const headroom = Math.max(pa.height, pb.height);
+    const { headroom } = connectorSection(pa, pb);
     const clearance = clearanceBoxes(pa, pb);
     const exemptions = [
       portalExemption(pa, headroom),
