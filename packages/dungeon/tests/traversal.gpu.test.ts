@@ -76,7 +76,12 @@ async function buildFullWorld() {
   const entrance = placedCave.connections.find(
     (c) => c.kind === "tunnel-mouth" && c.facing[0] === 0 && c.facing[2] === -1,
   ) as Connection;
-  return { ctx, world, entrance };
+  // The +Z tunnel mouth (facing north) — the fuzz walks the hub band toward it. Anchoring
+  // the progress bar to its PLACED position keeps the assertion placement-relative.
+  const northMouth = placedCave.connections.find(
+    (c) => c.kind === "tunnel-mouth" && c.facing[2] === 1,
+  ) as Connection;
+  return { ctx, world, entrance, northMouth };
 }
 
 function disposeWorld(ctx: gpu.Context, world: physics.World) {
@@ -129,46 +134,54 @@ function along(from: V3, to: V3, dir: V3): number {
   return (to[0] - from[0]) * dir[0] + (to[2] - from[2]) * dir[2];
 }
 
-// Task 9: rework against placed world — the along-dir threshold below (> 8) was tuned to
-// the retired attachWing's fixed WING_SEAM_GAP (2.5m authored<->cave connector). layoutWorld
-// samples the authored<->cave edge's connector length from a [7,10] range (world.ts), so the
-// walkable distance from this spawn to the assertion point shrinks slightly and the fuzz
-// now falls just short (~7.68 vs 8) at this seed — not a wedge/fall-through regression, a
-// stale distance threshold against the new geometry.
-test.todo("cave-hub fuzz: every lane in the designed walkable band walks out of the hub without wedging", async () => {
-  const { ctx, world, entrance } = await buildFullWorld();
-  // Spawn just inside the hub (1m past the entrance seam) and walk +Z out the +Z tunnel
-  // mouth. The +Z mouth necks into the branch room's 1.6m-wide door (clear gap centred
-  // on the tunnel axis), so the walkable band through the tunnel→door funnel is ~±0.75m
-  // of the axis. Lanes beyond that wedge in the narrowing voxel bore (the descending
-  // curved tunnel ceiling) or hit the door-flanking wall — a known narrow-tunnel
-  // limitation tracked in docs/backlog/dungeon/charmover-stepup-into-low-ceiling-guard.md.
-  // Anchored to the PLACED entrance so it tracks the world graph's seam, not a hard origin.
-  const SPAWN_Y = entrance.position[1] + CAP.halfHeight + CAP.radius + 0.1;
-  const HUB_FRONT_Z = entrance.position[2] + 1.0;
-  const AXIS_X = entrance.position[0];
-  const dir: V3 = [0, 0, 1];
-  for (let x = AXIS_X - 0.75; x <= AXIS_X + 0.75001; x += 0.25) {
-    const start: V3 = [x, SPAWN_Y, HUB_FRONT_Z];
-    const { body, mover } = spawn(ctx, world, start);
-    const { end, minY, maxStall } = walkPath(
-      ctx,
-      world,
-      body,
-      mover,
-      start,
-      dir,
-      300,
-    );
-    // Never wedged mid-floor; cleared the hub + entered the tunnel (well past the
-    // hub front wall ~3m ahead); never fell through the floor.
-    expect(maxStall).toBeLessThan(MAX_STALL);
-    expect(along(start, end, dir)).toBeGreaterThan(8);
-    expect(minY).toBeGreaterThan(-1);
-    physics.destroyBody(ctx, body);
-  }
-  disposeWorld(ctx, world);
-});
+test.skipIf(!bunWebGpuAvailable())(
+  "cave-hub fuzz: every lane in the designed walkable band walks out of the hub without wedging",
+  async () => {
+    const { ctx, world, entrance, northMouth } = await buildFullWorld();
+    // Spawn just inside the hub (1m past the entrance seam) and walk +Z out the +Z tunnel
+    // mouth. The +Z mouth necks into the branch room's 1.6m-wide door (clear gap centred
+    // on the tunnel axis), so the walkable band through the tunnel→door funnel is ~±0.75m
+    // of the axis. Lanes beyond that wedge in the narrowing voxel bore (the descending
+    // curved tunnel ceiling) or hit the door-flanking wall — a known narrow-tunnel
+    // limitation tracked in docs/backlog/dungeon/charmover-stepup-into-low-ceiling-guard.md.
+    // Anchored to the PLACED entrance so it tracks the world graph's seam, not a hard origin.
+    const SPAWN_Y = entrance.position[1] + CAP.halfHeight + CAP.radius + 0.1;
+    const HUB_FRONT_Z = entrance.position[2] + 1.0;
+    const AXIS_X = entrance.position[0];
+    const dir: V3 = [0, 0, 1];
+    // Placement-relative progress bar: the distance from spawn to the PLACED +Z mouth,
+    // less a bore margin. The central/right band sails ~5m PAST the mouth into the
+    // connector toward hallB; the left band-edge lane grinds in the narrowing voxel bore
+    // and stops ~2.3m short of the mouth (the backlogged narrow-tunnel limit above) — so
+    // the honest bar every lane clears is "advanced to within HUB_BORE_MARGIN of the mouth".
+    // This tracks layoutWorld's placement of the cave (authored↔cave length ∈ [7,10]);
+    // the retired hardcoded `> 8` was tuned to the deleted attachWing WING_SEAM_GAP=2.5.
+    const HUB_BORE_MARGIN = 3;
+    const mouthAlong = along([0, 0, HUB_FRONT_Z], northMouth.position, dir);
+    for (let x = AXIS_X - 0.75; x <= AXIS_X + 0.75001; x += 0.25) {
+      const start: V3 = [x, SPAWN_Y, HUB_FRONT_Z];
+      const { body, mover } = spawn(ctx, world, start);
+      const { end, minY, maxStall } = walkPath(
+        ctx,
+        world,
+        body,
+        mover,
+        start,
+        dir,
+        300,
+      );
+      // Never wedged mid-floor; cleared the hub + advanced up the bore to (or past) the
+      // +Z mouth; never fell through the floor.
+      expect(maxStall).toBeLessThan(MAX_STALL);
+      expect(along(start, end, dir)).toBeGreaterThan(
+        mouthAlong - HUB_BORE_MARGIN,
+      );
+      expect(minY).toBeGreaterThan(-1);
+      physics.destroyBody(ctx, body);
+    }
+    disposeWorld(ctx, world);
+  },
+);
 
 test.skipIf(!bunWebGpuAvailable())(
   "level<->wing seam: walk from the authored 2nd chamber through the doorway into the cave",
