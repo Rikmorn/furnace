@@ -32,10 +32,10 @@ rather than placed pieces.
 called the gap out: caves visibly end, then a bare floor strip, then the room. It reads worse
 than at 2.2.4 because placement feasibility LENGTHENED connectors (the authored→cave wing seam
 went ~2.5 m → 7–10 m during Task 7 iteration) and every edge is now a real connector.
-**Decision (user-approved): a short connector-ENCLOSURE slice runs BEFORE 2.2.5b** (walls +
-ceiling on connectors, portal-shaped end openings), so the 2.2.5b generator's output is judged
-on topology rather than a known cosmetic gap; true stitching (carve/blend at the cave rim)
-stays behind it. **New synergy since this entry was filed:** the 2.2.5a placer guarantees every
+**Decision (user-approved; amended 2026-07-02): the connector ENCLOSURE is Phase A of Slice
+2.2.5b** (walls + ceiling on connectors, portal-shaped end openings), landing BEFORE the
+Phase-B layout generator so generated output is judged on topology rather than a known
+cosmetic gap; true stitching (carve/blend at the cave rim) stays behind it. **New synergy since this entry was filed:** the 2.2.5a placer guarantees every
 connector a collision-free **clearance volume** (footprint × portal height, `layout.ts
 clearanceBoxes`) — that volume is exactly the envelope an enclosure can fill WITHOUT clipping
 anything, by construction. Note: shrinking `lengthRange` is no longer a free stopgap — the
