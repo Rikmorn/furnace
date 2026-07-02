@@ -96,3 +96,44 @@ test("throws: directed edges and non-walk verbs are reserved", () => {
   g3.edges[0]!.requiredVerbs = ["walk"];
   expect(() => validateGraph(g3)).not.toThrow();
 });
+
+function enclosureRegion(): RegionData {
+  return {
+    meshes: [],
+    colliders: [],
+    materials: [],
+    connections: [
+      {
+        position: [0, 0, 1],
+        facing: [0, 0, 1],
+        width: 2,
+        height: 3,
+        kind: "door",
+      },
+    ],
+    instances: [],
+    origin: [0, 0, 0],
+    bounds: { min: [-1, 0, -1], max: [1, 3, 1] },
+    provenance: {
+      generatorId: "dungeon",
+      generatorVersion: 2,
+      theme: "pillarHall",
+      seed: "s",
+    },
+  };
+}
+
+test("enclosure 'open' is a legal edge annotation (validation passes it through)", () => {
+  const g: WorldGraph = {
+    nodes: [
+      {
+        id: "a",
+        region: enclosureRegion(),
+        pinned: { yaw: 0, translation: [0, 0, 0] },
+      },
+      { id: "b", region: enclosureRegion() },
+    ],
+    edges: [{ a: "a", b: "b", aPortal: 0, bPortal: 0, enclosure: "open" }],
+  };
+  expect(() => validateGraph(g)).not.toThrow();
+});

@@ -250,3 +250,37 @@ test("clearanceBoxes: tops padded by ENCLOSURE_TOP_PAD above the climbing headro
   const halfW = Math.max(...boxes.map((b) => b.max[0]));
   expect(halfW).toBeCloseTo(connectorSection(from, to).width / 2, 5); // same footprint authority
 });
+
+test("edge enclosure styles reach the connector: default tube has a ceiling, 'open' has rails only", () => {
+  const mk = (enclosure?: "open"): WorldGraph => ({
+    nodes: [
+      {
+        id: "root",
+        region: room(["N"]),
+        pinned: { yaw: 0, translation: [0, 0, 0] },
+      },
+      { id: "far", region: room(["S"]) },
+    ],
+    edges: [
+      enclosure
+        ? {
+            a: "root",
+            b: "far",
+            aPortal: 0,
+            bPortal: 0,
+            lengthRange: [3, 5],
+            enclosure,
+          }
+        : { a: "root", b: "far", aPortal: 0, bPortal: 0, lengthRange: [3, 5] },
+    ],
+  });
+  const tops = (g: WorldGraph): number =>
+    Math.max(
+      ...layoutWorld(g, "seed-1").connectors[0]!.colliders.map((c) => {
+        if (!("cuboid" in c.shape)) throw new Error("expected cuboid");
+        return c.position[1] + c.shape.cuboid[1];
+      }),
+    );
+  expect(tops(mk())).toBeGreaterThan(3); // tube: ceiling band above the 3 m headroom
+  expect(tops(mk("open"))).toBeLessThan(2); // open: nothing above the ~1.1 m rails
+});

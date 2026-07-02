@@ -8,6 +8,7 @@
 import { create as makeRng } from "@furnace/core/rng";
 import { aabbOfBoxes } from "./aabb.ts";
 import {
+  type ConnectorKind,
   connectorSection,
   ENCLOSURE_TOP_PAD,
   join,
@@ -312,7 +313,10 @@ export function layoutWorld(graph: WorldGraph, seed: string): LayoutResult {
     if (!facingsCompatible(pa, pb)) return { fail: "facing" };
     let connector: RegionData;
     try {
-      connector = route(pa, pb, e.kind ? { kind: e.kind } : undefined);
+      const opts: { kind?: ConnectorKind; enclosure?: "open" } = {};
+      if (e.kind) opts.kind = e.kind;
+      if (e.enclosure) opts.enclosure = e.enclosure;
+      connector = route(pa, pb, opts);
     } catch {
       return { fail: "route-throw" };
     }

@@ -227,7 +227,9 @@ export function buildWorldGraph(seed: string): WorldGraph {
         kind: "stairs",
       },
       // Descending hop: forced stairs drop upperA (y≈10) down to the ground `landing`
-      // (heightDelta b-above-a = -10). Seats landing in the void east of x=15.
+      // (heightDelta b-above-a = -10). Seats landing in the void east of x=15. Marked
+      // `open`: a guardrailed open-air stair descent — the visual gate exercises both
+      // enclosure styles (every other edge defaults to the closed tube).
       {
         a: "upperA",
         b: "landing",
@@ -236,6 +238,7 @@ export function buildWorldGraph(seed: string): WorldGraph {
         lengthRange: [8, 16],
         heightDelta: -10,
         kind: "stairs",
+        enclosure: "open",
       },
       // Flat closing hop: landing → hallA on the ground (no heightDelta). This is the
       // cycle-closing edge — hallA already seated off the cave, landing off upperA.
