@@ -8,6 +8,7 @@
 // threshold/mouth-structure work); a hole only fails the sweep when an unsupported
 // disc of radius HOLE_R fits, which is what actually drops a player.
 import { expect, test } from "bun:test";
+import { walkLineAt } from "../src/connect.ts";
 import { layoutWorld } from "../src/layout.ts";
 import type { RegionData, Vec3 } from "../src/region.ts";
 import { buildWorldGraph, WORLD_SEED } from "../src/world.ts";
@@ -173,9 +174,15 @@ test("world seams: every edge walk line has capsule-scale floor support end to e
     const lzv = ux;
     const doorHalf = Math.min(pa.width, pb.width) / 2;
     let supportedSamples = 0;
+    const dh = pb.position[1] - pa.position[1];
     for (let s = -EXT; s <= run + EXT + 1e-9; s += STEP) {
-      const t = Math.min(Math.max(s / run, 0), 1);
-      const walkY = pa.position[1] + (pb.position[1] - pa.position[1]) * t;
+      // The sweep's walk-height MODEL follows the same single-sourced profile the
+      // geometry is built from (flat low-end landing, then linear over the climb window),
+      // so it tracks the real tread/ramp heights instead of a naive straight line.
+      // walkLineAt clamps s outside [0, run], so the ±EXT extensions still work. The
+      // test's job — capsule-scale hole detection — is unchanged; profile correctness is
+      // owned by connect.test.ts's walkLineAt unit tests.
+      const walkY = pa.position[1] + walkLineAt(dh, run, s);
       for (const lat of LATS) {
         if ((s < 0 || s > run) && Math.abs(lat) > doorHalf) continue;
         const at = (ds: number, dlat: number): "support" | "blocked" | "hole" =>

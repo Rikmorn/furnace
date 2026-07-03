@@ -1,7 +1,15 @@
 import { expect, test } from "bun:test";
 import { aabbIntersects } from "../src/aabb.ts";
-import { connectorSection, ENCLOSURE_TOP_PAD } from "../src/connect.ts";
-import { clearanceBoxes, layoutWorld } from "../src/layout.ts";
+import {
+  connectorSection,
+  ENCLOSURE_TOP_PAD,
+  LANDING_LEN,
+} from "../src/connect.ts";
+import {
+  CLEARANCE_SEGMENT,
+  clearanceBoxes,
+  layoutWorld,
+} from "../src/layout.ts";
 import type { Connection, RegionData, Vec3 } from "../src/region.ts";
 import type { WorldGraph } from "../src/world-graph.ts";
 
@@ -226,6 +234,10 @@ test("backtracking: an ANCESTOR is popped and re-placed to satisfy a descendant"
       );
     }
   }
+});
+
+test("LANDING_LEN >= CLEARANCE_SEGMENT so the arrival clearance segment is flat by construction", () => {
+  expect(LANDING_LEN).toBeGreaterThanOrEqual(CLEARANCE_SEGMENT);
 });
 
 test("clearanceBoxes: tops padded by ENCLOSURE_TOP_PAD above the climbing headroom line", () => {

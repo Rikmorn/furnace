@@ -4,12 +4,15 @@ import { mat4, quat, vec3 } from "@furnace/core/transform";
 import { aabbOfBoxes } from "../src/aabb.ts";
 import {
   CEIL_T,
+  type ConnectorKind,
   chooseKind,
   connectorSection,
   join,
+  LANDING_LEN,
   placePiece,
   RING_RISE,
   route,
+  walkLineAt,
 } from "../src/connect.ts";
 import { clearanceBoxes } from "../src/layout.ts";
 import type {
@@ -165,17 +168,82 @@ const P = (position: Vec3, facing: Vec3): Connection => ({
   kind: "door",
 });
 
-test("chooseKind: flat→corridor, gentle climb→ramp, steep→stairs", () => {
+test("chooseKind: flat→corridor, gentle climb→ramp, steep→stairs (pitch over the climb window)", () => {
   expect(chooseKind(0, 4)).toBe("corridor"); // Δh 0
-  expect(chooseKind(1, 4)).toBe("ramp"); // 14° slope, walkable
+  expect(chooseKind(1, 4)).toBe("ramp"); // ascending: ~14° over the full run, walkable
   expect(chooseKind(4, 1)).toBe("stairs"); // ~76° — too steep for a ramp
+  // descending: pitch is measured over the climb window (run − LANDING_LEN)
+  expect(chooseKind(-1, 6)).toBe("ramp"); // ~14° over climb 4 (6 − 2), walkable
+  expect(chooseKind(-2, 3)).toBe("stairs"); // ~63° over climb 1 (3 − 2), too steep
 });
+
+test("walkLineAt: ascending is linear over the full run; descending gets a flat arrival landing", () => {
+  // ascending (dh>0): LINEAR — no landing (the low end is a free-floor departure)
+  expect(walkLineAt(2, 8, 0)).toBeCloseTo(0, 9);
+  expect(walkLineAt(2, 8, 1.5)).toBeCloseTo(0.375, 9); // 2·(1.5/8)
+  expect(walkLineAt(2, 8, 4)).toBeCloseTo(1, 9);
+  expect(walkLineAt(2, 8, 8)).toBeCloseTo(2, 9);
+  // descending (dh<0): flat y=dh across [run − LANDING_LEN, run]
+  expect(walkLineAt(-2, 8, 8 - LANDING_LEN)).toBeCloseTo(-2, 9); // z=6
+  expect(walkLineAt(-2, 8, 8)).toBeCloseTo(-2, 9);
+  expect(walkLineAt(-2, 8, 0)).toBeCloseTo(0, 9);
+  // flat + clamps
+  expect(walkLineAt(0, 8, 4)).toBeCloseTo(0, 9);
+  expect(walkLineAt(2, 8, -1)).toBeCloseTo(0, 9);
+  expect(walkLineAt(2, 8, 9)).toBeCloseTo(2, 9);
+});
+
+test("route throws setup-loud when a DESCENDING run is too short for its arrival landing", () => {
+  // Descending run 2 < LANDING_LEN(2) + MIN_CLIMB_RUN(1) → throws.
+  expect(() =>
+    route(P([0, 0, 0], [0, 0, 1]), P([0, -2, 2], [0, 0, -1])),
+  ).toThrow(/landing/);
+  // Ascending has NO landing — a short climbing run just builds (45° ramp here, no throw).
+  expect(() =>
+    route(P([0, 0, 0], [0, 0, 1]), P([0, 2, 2], [0, 0, -1])),
+  ).not.toThrow();
+});
+
+test("ramp: descending gets a flat arrival landing; ascending has none (single pitched slab)", () => {
+  // Descending: flat support across [run − LANDING_LEN, run] at y = dh (the arrival landing).
+  const desc = route(P([0, 0, 0], [0, 0, 1]), P([0, -2, 8], [0, 0, -1]), {
+    kind: "ramp",
+  });
+  const { floors: descFloors } = splitEnclosure(desc, -2, 8, 3);
+  for (const z of [8 - LANDING_LEN + 0.05, 7, 7.5, 8]) {
+    const covered = descFloors.some(
+      (b) => b.min[2] <= z && z <= b.max[2] && Math.abs(b.max[1] - -2) <= 0.05,
+    );
+    expect(covered).toBe(true);
+  }
+  // Ascending: a single pitched slab, NO landing (the low end is a free-floor departure).
+  const asc = route(P([0, 0, 0], [0, 0, 1]), P([0, 2, 8], [0, 0, -1]), {
+    kind: "ramp",
+  });
+  const { floors: ascFloors } = splitEnclosure(asc, 2, 8, 3);
+  expect(ascFloors.length).toBe(1);
+});
+
+/** True when a quaternion (x,y,z,w) is (numerically) the identity rotation. `placePiece`
+ *  stamps identity [0,0,0,1] on axis-aligned pieces at a yaw=0 join, so "has a rotation
+ *  field" no longer distinguishes the pitched ramp slab from the axis-aligned enclosure —
+ *  this does. */
+function isIdentityQuat(q: [number, number, number, number]): boolean {
+  return (
+    Math.abs(q[0]) < 1e-9 &&
+    Math.abs(q[1]) < 1e-9 &&
+    Math.abs(q[2]) < 1e-9 &&
+    Math.abs(Math.abs(q[3]) - 1) < 1e-9
+  );
+}
 
 test("route ramp top face is walkable (normal.y >= SLOPE_LIMIT_COS)", () => {
   const r = route(P([0, 0, 0], [1, 0, 0]), P([4, 1, 0], [-1, 0, 0]), {
     kind: "ramp",
   });
-  const m = r.meshes.find((mm) => "box" in mm.geometry);
+  const m = r.meshes.find(
+    (mm) => "box" in mm.geometry && mm.rotation && !isIdentityQuat(mm.rotation),
+  );
   expect(m?.rotation).toBeDefined();
   const q = quat.fromValues(
     ...(m?.rotation as [number, number, number, number]),
@@ -501,19 +569,6 @@ const conn = (
   kind: Connection["kind"] = "door",
 ): Connection => ({ position, facing, width: 2, height: 3, kind });
 
-/** True when a quaternion (x,y,z,w) is (numerically) the identity rotation. `placePiece`
- *  stamps identity [0,0,0,1] on axis-aligned pieces at a yaw=0 join, so "has a rotation
- *  field" no longer distinguishes the pitched ramp slab from the axis-aligned enclosure —
- *  this does. */
-function isIdentityQuat(q: [number, number, number, number]): boolean {
-  return (
-    Math.abs(q[0]) < 1e-9 &&
-    Math.abs(q[1]) < 1e-9 &&
-    Math.abs(q[2]) < 1e-9 &&
-    Math.abs(Math.abs(q[3]) - 1) < 1e-9
-  );
-}
-
 /** World AABB of one cuboid collider (rotation-aware via aabbOfBoxes). */
 function colliderAabb(c: RegionCollider): Aabb {
   if (!("cuboid" in c.shape)) throw new Error("expected cuboid collider");
@@ -536,10 +591,7 @@ function splitEnclosure(
   run: number,
   headroom: number,
 ) {
-  const climbAt = (z: number): number => {
-    const t = run > 1e-6 ? z / run : 0;
-    return Math.min(Math.max(dh * t, Math.min(0, dh)), Math.max(0, dh));
-  };
+  const climbAt = (z: number): number => walkLineAt(dh, run, z);
   const boxes = r.colliders.map(colliderAabb);
   const cx = (b: Aabb): number => (b.min[0] + b.max[0]) / 2;
   const walls = boxes.filter((b) => Math.abs(cx(b)) > 0.5);
@@ -593,8 +645,8 @@ test("ramp tube: ringed enclosure, interior >= headroom, ring ceilings overlap-s
   const run = 8; // pitch ~14° → auto ramp
   const r = route(conn([0, 0, 0], [0, 0, 1]), conn([0, dh, run], [0, 0, -1]));
   const { walls, ceilings, floors } = splitEnclosure(r, dh, run, 3);
-  expect(floors.length).toBe(1); // one pitched slab, unchanged
-  const nRings = Math.ceil(dh / RING_RISE); // door↔door: span = run → rings = |dh|/RING_RISE
+  expect(floors.length).toBe(1); // single pitched slab — ascending has no landing
+  const nRings = Math.ceil(dh / RING_RISE); // ascending: linear over the full run → dh/RING_RISE
   expect(ceilings.length).toBe(nRings);
   expect(walls.length).toBe(2 * nRings);
   const sorted = [...ceilings].sort((a, b) => a.min[2] - b.min[2]);
@@ -605,7 +657,7 @@ test("ramp tube: ringed enclosure, interior >= headroom, ring ceilings overlap-s
     );
   }
   for (let z = 0.05; z < run; z += 0.25) {
-    const climb = dh * (z / run);
+    const climb = walkLineAt(dh, run, z);
     const covering = sorted.filter((c) => c.min[2] <= z && z <= c.max[2]);
     expect(covering.length).toBeGreaterThan(0);
     const underside = Math.min(...covering.map((c) => c.min[1]));
@@ -621,8 +673,8 @@ test("descending forced stairs: ringed tube over the mirrored steps, no gap unde
     kind: "stairs",
   });
   const { walls, ceilings, floors, climbAt } = splitEnclosure(r, dh, run, 3);
-  expect(floors.length).toBe(8); // ceil(2 / (STEP_HEIGHT − STEP_MARGIN)) mirrored steps + 2 end aprons
-  const nRings = Math.ceil(2 / RING_RISE); // 8
+  expect(floors.length).toBe(8); // 6 mirrored steps (ceil(2/(STEP_HEIGHT−STEP_MARGIN))) + landing + top apron
+  const nRings = Math.ceil(((2 / (run - LANDING_LEN)) * run) / RING_RISE); // (2/2.0)·4/0.25 = 16
   expect(ceilings.length).toBe(nRings);
   expect(walls.length).toBe(2 * nRings);
   for (const wb of walls) {
@@ -658,26 +710,28 @@ test("open style: rail-height walls, no ceiling", () => {
 });
 
 test("enclosure stays inside the placer's grown clearance volume (containment contract)", () => {
-  const from = conn([0, 0, 0], [0, 0, 1]);
-  const to = conn([0, 3, 9], [0, 0, -1]); // pitch ~18° → auto ramp
-  const r = route(from, to);
-  const clearance = clearanceBoxes(from, to);
-  for (const c of r.colliders) {
-    // Skip the pitched floor slab (hangs below the walking line); enclosure boxes are
-    // axis-aligned so placePiece leaves them identity-rotated at this yaw=0 join — the
-    // pitched slab is the only NON-IDENTITY rotation, so this checks walls + ceilings.
-    if (c.rotation && !isIdentityQuat(c.rotation)) continue;
-    const box = colliderAabb(c);
-    for (let z = box.min[2] + 0.01; z < box.max[2]; z += 0.1) {
-      const covering = clearance.filter(
-        (cl) => cl.min[2] <= z && z <= cl.max[2],
-      );
-      expect(covering.length).toBeGreaterThan(0);
-      const yHi = Math.max(...covering.map((cl) => cl.max[1]));
-      const xHi = Math.max(...covering.map((cl) => cl.max[0]));
-      expect(box.max[1]).toBeLessThanOrEqual(yHi + 1e-6);
-      expect(box.max[0]).toBeLessThanOrEqual(xHi + 1e-6);
-      expect(box.min[0]).toBeGreaterThanOrEqual(-xHi - 1e-6);
+  // Both climb signs, both kinds — the landing profile must stay contained everywhere.
+  const cases: { to: Connection; dh: number; kind?: ConnectorKind }[] = [
+    { to: conn([0, 3, 9], [0, 0, -1]), dh: 3 }, // auto ramp (climb-window pitch ~21.8°)
+    { to: conn([0, -4, 9], [0, 0, -1]), dh: -4, kind: "stairs" }, // forced descent
+  ];
+  for (const { to, dh, kind } of cases) {
+    const from = conn([0, 0, 0], [0, 0, 1]);
+    const r = kind ? route(from, to, { kind }) : route(from, to);
+    const clearance = clearanceBoxes(from, to);
+    const { walls, ceilings } = splitEnclosure(r, dh, 9, 3);
+    for (const box of [...walls, ...ceilings]) {
+      for (let z = box.min[2] + 0.01; z < box.max[2]; z += 0.1) {
+        const covering = clearance.filter(
+          (cl) => cl.min[2] <= z && z <= cl.max[2],
+        );
+        expect(covering.length).toBeGreaterThan(0);
+        const yHi = Math.max(...covering.map((cl) => cl.max[1]));
+        const xHi = Math.max(...covering.map((cl) => cl.max[0]));
+        expect(box.max[1]).toBeLessThanOrEqual(yHi + 1e-6);
+        expect(box.max[0]).toBeLessThanOrEqual(xHi + 1e-6);
+        expect(box.min[0]).toBeGreaterThanOrEqual(-xHi - 1e-6);
+      }
     }
   }
 });
@@ -700,7 +754,7 @@ test("stair floors carry end aprons: the walking surface spans past both portal 
   for (let z = -0.5; z <= 0.5; z += 0.1) {
     expect(supported(z, 0)).toBe(true); // upper portal threshold
   }
-  for (let z = run - 0.5; z <= run + 0.5; z += 0.1) {
+  for (let z = run - LANDING_LEN; z <= run + 0.5; z += 0.1) {
     expect(supported(z, dh)).toBe(true); // lower portal threshold (the gate hole)
   }
 });

@@ -209,6 +209,9 @@ export function buildWorldGraph(seed: string): WorldGraph {
         bPortal: 0,
         lengthRange: [2, 6],
       },
+      // Ascending edges get NO landing (directional profile — the low end is a free-floor
+      // departure), so their pitch is measured over the FULL run: these ranges are the
+      // known-good Phase-A values. upperA stays a RAMP; upperB is forced stairs. GATE-TUNE.
       {
         a: "authored",
         b: "upperA",
@@ -230,12 +233,15 @@ export function buildWorldGraph(seed: string): WorldGraph {
       // (heightDelta b-above-a = -10). Seats landing in the void east of x=15. Marked
       // `open`: a guardrailed open-air stair descent — the visual gate exercises both
       // enclosure styles (every other edge defaults to the closed tube).
+      // Descending edges DO get an arrival landing, so min raised 8 → 10.5 to keep the
+      // worst-case climb-window walkable: run 10.5 → climb 8.5 (10.5 − LANDING_LEN 2.0) over
+      // 29 steps (ceil(10/0.35)) → ~0.29 m treads (was ~0.22 m at run 8). GATE-TUNE.
       {
         a: "upperA",
         b: "landing",
         aPortal: 1,
         bPortal: 0,
-        lengthRange: [8, 16],
+        lengthRange: [10.5, 16],
         heightDelta: -10,
         kind: "stairs",
         enclosure: "open",

@@ -47,7 +47,7 @@ const YAW_OFFSETS = [
 ];
 const MAX_ATTEMPTS = 10_000; // total candidate evaluations — GATE-TUNE
 const FACING_MIN = Math.cos(Math.PI / 3); // closing-edge portals must face within 60°
-const CLEARANCE_SEGMENT = 2; // m — climb clearance follows the slope in segments
+export const CLEARANCE_SEGMENT = 2; // m — climb clearance follows the slope in segments
 const PORTAL_EXEMPT_DEPTH = 2.5; // m — clearance-vs-solid exemption reach around a portal
 const PORTAL_EXEMPT_PAD = 0.3; // m — exemption box cross-section pad
 const PORTAL_EXEMPT_BELOW = 1; // m — exemption box reach below the portal floor

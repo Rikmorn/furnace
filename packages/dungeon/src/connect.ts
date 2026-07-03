@@ -160,6 +160,36 @@ export const RING_RISE = 0.25;
  *  construction. */
 export const ENCLOSURE_TOP_PAD = CEIL_T + RING_RISE;
 
+/** Flat-landing length at the LOW (arrival) end of a DESCENDING connector (m).
+ *  >= layout.ts CLEARANCE_SEGMENT — the arrival clearance segment must be flat by
+ *  construction; code bracket 0.76–1.83 m grounds the order of magnitude (IBC/OSHA
+ *  stairs, ADA ramps — see docs/research/2026-07-03-dungeon-2.2.5b-b1-built-interfaces.md
+ *  §2). Directional (user-authorized): only descending connectors get a landing — arriving
+ *  level through a normal door is the lintel-clip fix; an ascending connector's low end is
+ *  a free-floor departure where a landing only steepens the climb window. */
+export const LANDING_LEN = 2.0;
+/** Minimum climb-window run a DESCENDING connector needs beyond its arrival landing (m). */
+export const MIN_CLIMB_RUN = 1.0;
+
+/** THE reference walk-line profile: the y a walker's feet trace along a connector's local
+ *  +Z. Directional: ascending (and flat/degenerate) runs are LINEAR over the full run (no
+ *  landing — the low end is a departure); a DESCENDING run is linear from the high (z=0) end
+ *  to (run − LANDING_LEN, dh), then FLAT y=dh across the arrival landing to z=run.
+ *  `enclosureBoxes`' `floorAt` reads this profile directly, and `floorBoxes` builds walking
+ *  geometry that matches it by construction (ascending linear; descending landing). Clamps
+ *  outside [0, run]. */
+export function walkLineAt(dh: number, run: number, z: number): number {
+  const zc = Math.min(Math.max(z, 0), run);
+  if (run <= 1e-6) return 0;
+  const climb = run - LANDING_LEN;
+  // Descending arrivals get a flat landing at the LOW (z=run) end; everything else
+  // (ascending departures, flat corridors, degenerate climb window) is linear.
+  if (dh < -FLAT_EPS && climb > 1e-6) {
+    return zc >= climb ? dh : dh * (zc / climb);
+  }
+  return dh * (zc / run);
+}
+
 /** A connector's outer cross-section: outer width (clear walking width + shoulders)
  *  and vertical headroom. */
 export type ConnectorSection = { width: number; headroom: number };
@@ -181,10 +211,13 @@ const CONNECTOR_MATERIAL: MaterialDescriptor = {
   specular: [0.02, 0.02, 0.02, 8],
 };
 
-/** Pick the connector kind for a height delta over a horizontal run. */
+/** Pick the connector kind for a height delta over a horizontal run. Pitch is measured over
+ *  the EFFECTIVE climb window — the full run when ascending, `run − LANDING_LEN` when
+ *  descending (its arrival landing eats that length, steepening the remaining climb). */
 export function chooseKind(dh: number, run: number): ConnectorKind {
   if (Math.abs(dh) <= FLAT_EPS) return "corridor";
-  const pitch = Math.atan2(Math.abs(dh), Math.max(run, 1e-6));
+  const window = dh < -FLAT_EPS ? Math.max(run - LANDING_LEN, 1e-6) : run;
+  const pitch = Math.atan2(Math.abs(dh), window);
   return pitch <= SLOPE_LIMIT_RAD - RAMP_MARGIN ? "ramp" : "stairs";
 }
 
@@ -220,9 +253,83 @@ type ConnectorBox = Box & { rotation?: [number, number, number, number] };
  *  plane; a `tunnel-mouth` end extends SEAM_OVERLAP past it into the neighbour's rock. */
 type EndKinds = { from: Connection["kind"]; to: Connection["kind"] };
 
+/** One pitched ramp slab climbing `dh` over `climbRun` horizontal metres, centred at `zMid`
+ *  along Z, with SEAM_OVERLAP extensions past both ends. Throws setup-loud if the pitch
+ *  exceeds the walkable slope limit (|pitch| — a steep DESCENT throws like a steep ascent). */
+function pitchedRampSlab(
+  dh: number,
+  climbRun: number,
+  w: number,
+  zMid: number,
+): ConnectorBox {
+  const pitch = Math.atan2(dh, climbRun);
+  if (Math.abs(pitch) > SLOPE_LIMIT_RAD - RAMP_MARGIN) {
+    throw new Error(
+      `route: forced ramp pitch ${(pitch * 180) / Math.PI}° exceeds the slope limit`,
+    );
+  }
+  const rampLen = Math.hypot(dh, climbRun) + 2 * SEAM_OVERLAP;
+  const qPitch = quat.fromAxisAngle(
+    quat.create(),
+    vec3.fromValues(1, 0, 0),
+    -pitch,
+  );
+  const rot = [qPitch[0], qPitch[1], qPitch[2], qPitch[3]] as [
+    number,
+    number,
+    number,
+    number,
+  ];
+  const upY = Math.cos(pitch);
+  const upZ = -Math.sin(pitch);
+  return {
+    center: [
+      0,
+      dh / 2 - (FLOOR_THICK / 2) * upY,
+      zMid - (FLOOR_THICK / 2) * upZ,
+    ],
+    size: [w, FLOOR_THICK, rampLen],
+    rotation: rot,
+  };
+}
+
+/** Ascending stair treads (via box-room stepBoxes, +Z from y=0, tallest at frontZ=run) plus
+ *  a flat apron at each end. `bottomLen` is the low-end apron length: 0 for an ascending run
+ *  (a bare SEAM_OVERLAP apron), LANDING_LEN for a descending run (whose low apron becomes the
+ *  arrival landing once floorBoxes mirrors the boxes). The top apron is skipped when the top
+ *  tread already pokes >= SEAM_OVERLAP past the portal. */
+function stairBoxes(
+  rise: number,
+  run: number,
+  w: number,
+  treadDepth: number,
+  bottomLen: number,
+): Box[] {
+  const boxes: Box[] = stepBoxes(rise, run, w, treadDepth);
+  boxes.push({
+    center: [
+      0,
+      -FLOOR_THICK / 2,
+      (bottomLen + treadDepth / 2 - SEAM_OVERLAP) / 2,
+    ],
+    size: [w, FLOOR_THICK, bottomLen + treadDepth / 2 + SEAM_OVERLAP],
+  });
+  if (treadDepth / 2 < SEAM_OVERLAP) {
+    const z0 = run + treadDepth / 2;
+    const z1 = run + SEAM_OVERLAP;
+    boxes.push({
+      center: [0, rise - FLOOR_THICK / 2, (z0 + z1) / 2],
+      size: [w, FLOOR_THICK, z1 - z0],
+    });
+  }
+  return boxes;
+}
+
 /** The connector's walking surface for one kind, in LOCAL frame (climbing +Z from the
- *  origin portal to [0, dh, run]): corridor/ramp emit one slab, stairs emit stepBoxes
- *  (mirrored for descents). Enclosure walls/ceilings are added by enclosureBoxes. */
+ *  origin portal to [0, dh, run]): corridor emits one slab; ramp emits a pitched slab (plus
+ *  a flat arrival landing when descending); stairs emit stepBoxes + aprons (mirrored for
+ *  descents, with the low apron becoming the arrival landing). Enclosure walls/ceilings are
+ *  added by enclosureBoxes. */
 function floorBoxes(
   kind: ConnectorKind,
   w: number,
@@ -234,38 +341,23 @@ function floorBoxes(
     return [{ center, size: [w, FLOOR_THICK, run + 2 * SEAM_OVERLAP] }];
   }
   if (kind === "ramp") {
-    const pitch = Math.atan2(dh, run);
-    if (Math.abs(pitch) > SLOPE_LIMIT_RAD - RAMP_MARGIN) {
-      throw new Error(
-        `route: forced ramp pitch ${(pitch * 180) / Math.PI}° exceeds the slope limit`,
-      );
+    // Descending: pitched over the climb window [0, run − LANDING_LEN] plus a flat arrival
+    // landing at the LOW (z=run) end (the lintel-clip fix). Ascending (default): a single
+    // pitched slab over the FULL run — NO landing (the low end is a free-floor departure).
+    if (dh < -FLAT_EPS) {
+      const climb = run - LANDING_LEN;
+      const pitched = pitchedRampSlab(dh, climb, w, climb / 2);
+      // Flat landing slab spanning [run − LANDING_LEN, run + SEAM_OVERLAP] at y = dh; the
+      // pitched slab's own down-slope SEAM_OVERLAP extension covers the junction.
+      const landing: ConnectorBox = {
+        center: [0, dh - FLOOR_THICK / 2, (climb + run + SEAM_OVERLAP) / 2],
+        size: [w, FLOOR_THICK, run + SEAM_OVERLAP - climb],
+      };
+      return [pitched, landing]; // pitched FIRST — tests find the pitched slab at meshes[0]
     }
-    const rampLen = Math.hypot(dh, run) + 2 * SEAM_OVERLAP;
-    const qPitch = quat.fromAxisAngle(
-      quat.create(),
-      vec3.fromValues(1, 0, 0),
-      -pitch,
-    );
-    const rot = [qPitch[0], qPitch[1], qPitch[2], qPitch[3]] as [
-      number,
-      number,
-      number,
-      number,
-    ];
-    const upY = Math.cos(pitch);
-    const upZ = -Math.sin(pitch);
-    const center: Vec3 = [
-      0,
-      dh / 2 - (FLOOR_THICK / 2) * upY,
-      run / 2 - (FLOOR_THICK / 2) * upZ,
-    ];
-    return [{ center, size: [w, FLOOR_THICK, rampLen], rotation: rot }];
+    return [pitchedRampSlab(dh, run, w, run / 2)];
   }
   // stairs: reuse box-room stepBoxes (climbs +Z from y=0, tallest at frontZ=run).
-  // stepBoxes requires a positive `top`, so it's always built ascending on `rise`, then
-  // mirrored (z ↔ run−z, y shifted by dh) for the descending case: the tallest step —
-  // built adjacent to z=run — lands at z≈0 with its top flush with the `from` floor (y=0),
-  // and the shortest step lands near z=run, flush with the lower `to` floor (y=dh).
   const rise = Math.abs(dh);
   if (rise <= FLAT_EPS) {
     throw new Error(
@@ -273,37 +365,20 @@ function floorBoxes(
     );
   }
   const n = Math.ceil(rise / (STEP_HEIGHT - STEP_MARGIN));
-  const treadDepth = run / n;
-  // Treads cover z ∈ [treadDepth/2, run + treadDepth/2] (stepBoxes centres step i at
-  // frontZ − (n−1−i)·treadDepth), so one end always stops half a tread short of a
-  // portal plane — and unlike corridor/ramp slabs, steps carry no seam overlap. Flat
-  // apron slabs at each end (bottom at y=0, top at y=rise) extend the walking surface
-  // SEAM_OVERLAP past the portals like every other floor; the descending mirror below
-  // transforms them with the treads. Root cause of the 2.2.5b-A gate fall-through at
-  // the foot of the descending stair-run (treads-to-room-floor gap over void).
-  const boxes: Box[] = stepBoxes(rise, run, w, treadDepth);
-  boxes.push({
-    center: [0, -FLOOR_THICK / 2, (treadDepth / 2 - SEAM_OVERLAP) / 2],
-    size: [w, FLOOR_THICK, treadDepth / 2 + SEAM_OVERLAP],
-  });
-  if (treadDepth / 2 < SEAM_OVERLAP) {
-    // Skip when the top tread already pokes >= SEAM_OVERLAP past the portal itself.
-    const z0 = run + treadDepth / 2;
-    const z1 = run + SEAM_OVERLAP;
-    boxes.push({
-      center: [0, rise - FLOOR_THICK / 2, (z0 + z1) / 2],
-      size: [w, FLOOR_THICK, z1 - z0],
-    });
+  if (dh < -FLAT_EPS) {
+    // Descending: treads over the climb window [LANDING_LEN, run]; the low-end apron IS the
+    // LANDING_LEN landing. The mirror (z ↔ run−z, y shifted by dh) then lands that landing at
+    // the descent ARRIVAL (z=run), level with the lower `to` floor — the lintel-clip fix.
+    const climb = run - LANDING_LEN;
+    return stairBoxes(rise, run, w, climb / n, LANDING_LEN).map(
+      (b): Box => ({
+        center: [b.center[0], b.center[1] + dh, run - b.center[2]],
+        size: b.size,
+      }),
+    );
   }
-  return boxes.map(
-    (b): Box =>
-      dh >= 0
-        ? b
-        : {
-            center: [b.center[0], b.center[1] + dh, run - b.center[2]],
-            size: b.size,
-          },
-  );
+  // Ascending (default): original Phase-A — treads over the FULL run, bare aprons, no landing.
+  return stairBoxes(rise, run, w, run / n, 0);
 }
 
 /** Enclosure boxes — side walls + (tube-style) ceilings — as vertical-walled rings
@@ -322,12 +397,18 @@ function enclosureBoxes(
   const { width: w, headroom: h } = section;
   const z0 = ends.from === "tunnel-mouth" ? -SEAM_OVERLAP : 0;
   const z1 = run + (ends.to === "tunnel-mouth" ? SEAM_OVERLAP : 0);
-  const yMin = Math.min(0, dh);
-  const yMax = Math.max(0, dh);
-  const floorAt = (z: number): number =>
-    run > 1e-6 ? Math.min(yMax, Math.max(yMin, dh * (z / run))) : 0;
-  const slope = run > 1e-6 ? Math.abs(dh) / run : 0;
-  const nRings = Math.max(1, Math.ceil((slope * (z1 - z0)) / RING_RISE));
+  const floorAt = (z: number): number => walkLineAt(dh, run, z);
+  // Ring count follows the EFFECTIVE climb-window slope — ascending spreads the rise over the
+  // full run, a descent concentrates it in [0, run − LANDING_LEN] (its landing is flat). Using
+  // |dh|/run for a descent would under-count and break the seal invariant (per-ring rise <=
+  // RING_RISE < CEIL_T); the flat landing rings are level and get full headroom above portal.
+  const slopeClimb =
+    Math.abs(dh) <= FLAT_EPS
+      ? 0
+      : dh < -FLAT_EPS
+        ? Math.abs(dh) / Math.max(run - LANDING_LEN, 1e-6)
+        : Math.abs(dh) / run;
+  const nRings = Math.max(1, Math.ceil((slopeClimb * (z1 - z0)) / RING_RISE));
   const wallX = w / 2 - WALL_T / 2;
   const out: ConnectorBox[] = [];
   for (let i = 0; i < nRings; i++) {
@@ -385,7 +466,12 @@ function buildConnectorLocal(
  *  and overlaps both endpoints by >= 1 cell, and the connector is ENCLOSED — ringed side
  *  walls plus a ceiling (`opts.enclosure: "open"` swaps the tube for guardrail-height
  *  walls with no ceiling). Enclosure ends stop flush at `door` portal planes and embed
- *  SEAM_OVERLAP into the rock at `tunnel-mouth` ends. */
+ *  SEAM_OVERLAP into the rock at `tunnel-mouth` ends.
+ *
+ *  Direction-sensitive for descents: only a DESCENDING run (`to` below `from`) gets a flat
+ *  arrival landing at its low (`to`) end — an ascending run's low end is a free-floor
+ *  departure. The placer always routes edges a→b, so graph edge orientation deliberately
+ *  controls which end (if either) carries the landing. */
 export function route(
   from: Connection,
   to: Connection,
@@ -398,6 +484,11 @@ export function route(
   const dir: Vec3 =
     run > 1e-6 ? [dx / run, 0, dz / run] : [from.facing[0], 0, from.facing[2]];
   const kind = opts?.kind ?? chooseKind(dh, run);
+  if (dh < -FLAT_EPS && run < LANDING_LEN + MIN_CLIMB_RUN) {
+    throw new Error(
+      `route: descending connector needs run >= ${LANDING_LEN + MIN_CLIMB_RUN} m for its arrival landing (got ${run.toFixed(2)})`,
+    );
+  }
   const local = buildConnectorLocal(
     kind,
     connectorSection(from, to),
