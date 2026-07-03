@@ -4,7 +4,9 @@
 // asserting it actually CLIMBS (Y rises, Z advances) without wedging. The connector is
 // flanked by a flat bottom pad (ground under the spawn) and a flat top landing pad at the
 // connector's exit height — modelling how `route` connectors bridge two regions, so the
-// climb ends on real ground rather than walking off a void edge.
+// climb ends on real ground rather than walking off a void edge. Also probes the
+// connector ENCLOSURE with rays: a tube's ceiling blocks an upward cast, the "open"
+// style doesn't, and its guardrail blocks a sideways cast at rail height.
 import { expect, test } from "bun:test";
 import * as gpu from "@furnace/core/gpu";
 import * as physics from "@furnace/core/physics";

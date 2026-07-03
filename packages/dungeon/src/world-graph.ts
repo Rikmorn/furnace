@@ -32,7 +32,9 @@ export type WorldEdge = {
   kind?: ConnectorKind;
   /** Connector enclosure style (route opts pass-through); absent = fully enclosed tube
    *  (walls + ceiling). `"open"` = guardrail-height walls, no ceiling — an authored
-   *  open-air bridge. Never affects placement: clearance volumes are style-blind. */
+   *  open-air bridge. Never affects placement: clearance volumes are style-blind, and
+   *  the style-DEPENDENT enclosure solids sit inside the connector's committed
+   *  clearance air, which every later occupancy check already tests against. */
   enclosure?: "open";
   /** RESERVED for fall edges — validation throws if true (no fall verbs yet). */
   directed?: boolean;
