@@ -274,7 +274,28 @@ function floorBoxes(
   }
   const n = Math.ceil(rise / (STEP_HEIGHT - STEP_MARGIN));
   const treadDepth = run / n;
-  return stepBoxes(rise, run, w, treadDepth).map(
+  // Treads cover z ∈ [treadDepth/2, run + treadDepth/2] (stepBoxes centres step i at
+  // frontZ − (n−1−i)·treadDepth), so one end always stops half a tread short of a
+  // portal plane — and unlike corridor/ramp slabs, steps carry no seam overlap. Flat
+  // apron slabs at each end (bottom at y=0, top at y=rise) extend the walking surface
+  // SEAM_OVERLAP past the portals like every other floor; the descending mirror below
+  // transforms them with the treads. Root cause of the 2.2.5b-A gate fall-through at
+  // the foot of the descending stair-run (treads-to-room-floor gap over void).
+  const boxes: Box[] = stepBoxes(rise, run, w, treadDepth);
+  boxes.push({
+    center: [0, -FLOOR_THICK / 2, (treadDepth / 2 - SEAM_OVERLAP) / 2],
+    size: [w, FLOOR_THICK, treadDepth / 2 + SEAM_OVERLAP],
+  });
+  if (treadDepth / 2 < SEAM_OVERLAP) {
+    // Skip when the top tread already pokes >= SEAM_OVERLAP past the portal itself.
+    const z0 = run + treadDepth / 2;
+    const z1 = run + SEAM_OVERLAP;
+    boxes.push({
+      center: [0, rise - FLOOR_THICK / 2, (z0 + z1) / 2],
+      size: [w, FLOOR_THICK, z1 - z0],
+    });
+  }
+  return boxes.map(
     (b): Box =>
       dh >= 0
         ? b

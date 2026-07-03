@@ -621,7 +621,7 @@ test("descending forced stairs: ringed tube over the mirrored steps, no gap unde
     kind: "stairs",
   });
   const { walls, ceilings, floors, climbAt } = splitEnclosure(r, dh, run, 3);
-  expect(floors.length).toBe(6); // ceil(2 / (STEP_HEIGHT − STEP_MARGIN)) mirrored steps
+  expect(floors.length).toBe(8); // ceil(2 / (STEP_HEIGHT − STEP_MARGIN)) mirrored steps + 2 end aprons
   const nRings = Math.ceil(2 / RING_RISE); // 8
   expect(ceilings.length).toBe(nRings);
   expect(walls.length).toBe(2 * nRings);
@@ -679,5 +679,28 @@ test("enclosure stays inside the placer's grown clearance volume (containment co
       expect(box.max[0]).toBeLessThanOrEqual(xHi + 1e-6);
       expect(box.min[0]).toBeGreaterThanOrEqual(-xHi - 1e-6);
     }
+  }
+});
+
+test("stair floors carry end aprons: the walking surface spans past both portal planes", () => {
+  // The 2.2.5b-A gate fall-through shape: a long, shallow forced descent — treads end
+  // half a (large) tread short of the lower portal, and the room floor only starts half
+  // a wall-thickness past it. The aprons must close that band at both ends.
+  const dh = -10;
+  const run = 14;
+  const r = route(conn([0, 0, 0], [0, 0, 1]), conn([0, dh, run], [0, 0, -1]), {
+    kind: "stairs",
+  });
+  const { floors } = splitEnclosure(r, dh, run, 3);
+  const supported = (z: number, walkY: number): boolean =>
+    floors.some(
+      (b) =>
+        b.min[2] <= z && z <= b.max[2] && Math.abs(b.max[1] - walkY) <= 0.4,
+    );
+  for (let z = -0.5; z <= 0.5; z += 0.1) {
+    expect(supported(z, 0)).toBe(true); // upper portal threshold
+  }
+  for (let z = run - 0.5; z <= run + 0.5; z += 0.1) {
+    expect(supported(z, dh)).toBe(true); // lower portal threshold (the gate hole)
   }
 });
