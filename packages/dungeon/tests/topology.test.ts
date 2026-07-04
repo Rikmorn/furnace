@@ -226,3 +226,15 @@ test("generated topology reaches the placer; full placement blocked by the escal
     expect(() => layoutWorld(graph, seed)).toThrow(/could not place/);
   }
 });
+
+test("reserve guard: plan pass never throws across 2000 small-config seeds", () => {
+  // Pre-fix baseline: 131/2000 threw "no free portal pair to close the macro ring".
+  const cfg = {
+    ...DEFAULT_TOPOLOGY,
+    targetRooms: 8,
+    sectors: [3, 3] as [number, number],
+  };
+  for (let i = 0; i < 2000; i++) {
+    _planTopology("anchor", 0, `reserve-scan-${i}`, cfg);
+  }
+});

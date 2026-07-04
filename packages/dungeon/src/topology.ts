@@ -360,10 +360,23 @@ export function _planTopology(
       ) {
         theme = "pillarHall";
       }
-      const capacity =
+      const sampled =
         CAPACITY[theme] === 1
           ? 1
           : grow.derive(`c${j}`).int(2, CAPACITY[theme] + 1);
+      // Reserve floor (Lever B, 2026-07-04 investigation): the greatHall guard above only
+      // ever checks the FIXED capacity of a capacity-1 theme; a capacity>1 theme's SAMPLED
+      // value can still land too low to cover this sector's still-outstanding macro/ring
+      // duty once this is the LAST room the sector will grow (no later sibling can add more
+      // free capacity). Flooring only here — using the sector's ACTUAL accumulated free
+      // total, not a forecast — is exact: earlier rooms already resolved sectorFree(s).
+      const capacity =
+        roomsLeft === 0 && CAPACITY[theme] > 1
+          ? Math.min(
+              CAPACITY[theme],
+              Math.max(sampled, needAfter - freeAfterParent + 1),
+            )
+          : sampled;
       // Elevation: parent-relative, clamped to the sector band.
       const base = bases[s] as number;
       const parentElev = parent ? parent.elevation : anchorElevation;
