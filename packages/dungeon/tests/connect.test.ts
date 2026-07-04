@@ -898,6 +898,7 @@ test("route succeeds at exactly minWalkableRun for a grid of deltas and kinds", 
     [-10, "stairs"],
     [3, "ramp"],
     [-3, "ramp"],
+    [0.2, undefined], // small ascending dh → chooseKind auto-picks ramp at the short run
     [4, undefined],
     [-7, undefined],
   ];

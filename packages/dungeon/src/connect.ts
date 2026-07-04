@@ -12,11 +12,7 @@ import type {
 } from "./region.ts";
 import { GENERATOR_VERSION } from "./region.ts";
 import { type Box, stepBoxes } from "./themes/box-room.ts";
-import {
-  RAMP_MOUNT_LIMIT_RAD,
-  STEP_HEIGHT,
-  STEP_MARGIN,
-} from "./walkability.ts";
+import { RAMP_MOUNT_LIMIT_RAD, stepCount } from "./walkability.ts";
 
 /** A rigid placement: a yaw rotation about world-up, then a world translation. */
 export type Placement = { yaw: number; translation: Vec3 };
@@ -207,7 +203,7 @@ export function minWalkableRun(dh: number, kind?: ConnectorKind): number {
     throw new Error("minWalkableRun: a corridor cannot span a height delta");
   }
   const landing = dh < -FLAT_EPS ? LANDING_LEN : 0;
-  const steps = Math.ceil(rise / (STEP_HEIGHT - STEP_MARGIN));
+  const steps = stepCount(rise);
   const stairsMin = landing + steps * MIN_TREAD;
   const rampMin =
     landing + (rise / Math.tan(RAMP_MOUNT_LIMIT_RAD)) * (1 + RUN_EPS);
@@ -409,7 +405,7 @@ function floorBoxes(
       "route: forced stairs on a ~flat span (|dh| <= FLAT_EPS) would emit zero steps — use a corridor",
     );
   }
-  const n = Math.ceil(rise / (STEP_HEIGHT - STEP_MARGIN));
+  const n = stepCount(rise);
   if (dh < -FLAT_EPS) {
     // Descending: treads over the climb window [LANDING_LEN, run]; the low-end apron IS the
     // LANDING_LEN landing. The mirror (z ↔ run−z, y shifted by dh) then lands that landing at

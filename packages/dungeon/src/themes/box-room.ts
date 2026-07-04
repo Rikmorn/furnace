@@ -19,7 +19,7 @@ import {
 
 export { STEP_HEIGHT } from "../walkability.ts";
 
-import { STEP_HEIGHT, STEP_MARGIN } from "../walkability.ts";
+import { stepCount } from "../walkability.ts";
 
 /** Cardinal wall side. */
 export type Side = "N" | "S" | "E" | "W";
@@ -164,7 +164,7 @@ export function stepBoxes(
   width: number,
   treadDepth: number,
 ): Box[] {
-  const n = Math.ceil(top / (STEP_HEIGHT - STEP_MARGIN));
+  const n = stepCount(top);
   const rise = top / n;
   const out: Box[] = [];
   for (let i = 0; i < n; i++) {

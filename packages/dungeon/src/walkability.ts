@@ -14,6 +14,14 @@ export const STEP_HEIGHT = 0.4;
 /** Keep generated step rises strictly below STEP_HEIGHT by this margin. */
 export const STEP_MARGIN = 0.05;
 
+/** Number of equal risers a stair run of total height `rise` (m, non-negative) needs to
+ *  keep every riser strictly below STEP_HEIGHT (by STEP_MARGIN). THE single source for the
+ *  stair step-count — connect.ts (minWalkableRun + floorBoxes) and box-room.ts (stepBoxes)
+ *  all derive from this, so a STEP_HEIGHT/STEP_MARGIN tune can never desync them. */
+export function stepCount(rise: number): number {
+  return Math.ceil(rise / (STEP_HEIGHT - STEP_MARGIN));
+}
+
 /** Practical ramp-MOUNT ceiling (radians): the steepest ramp the CharacterMover can climb
  *  onto from a FLAT approach. Empirical (Slice 2.2.5b-B1 GPU traces): mounts 47.2°, stalls
  *  at 49.64°; 45° keeps a safe margin below the known-good mount. `connect.ts` reads this
