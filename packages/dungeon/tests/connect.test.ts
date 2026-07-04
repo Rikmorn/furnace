@@ -9,6 +9,9 @@ import {
   connectorSection,
   join,
   LANDING_LEN,
+  MIN_CORRIDOR_RUN,
+  MIN_TREAD,
+  minWalkableRun,
   placePiece,
   RING_RISE,
   route,
@@ -25,7 +28,11 @@ import type {
   RegionMesh,
   Vec3,
 } from "../src/region.ts";
-import { STEP_HEIGHT, STEP_MARGIN } from "../src/walkability.ts";
+import {
+  RAMP_MOUNT_LIMIT_RAD,
+  STEP_HEIGHT,
+  STEP_MARGIN,
+} from "../src/walkability.ts";
 
 /** A quaternion (x,y,z,w) for a rotation `theta` about an arbitrary (auto-normalized)
  *  axis. Surface-aligned scatter genuinely tilts off +Y, and — critically — a TILTED
@@ -338,7 +345,7 @@ test("route: forced STEEP DESCENDING ramp throws setup-loud", () => {
     height: 3,
     kind: "door",
   };
-  expect(() => route(from, to, { kind: "ramp" })).toThrow(/slope limit/);
+  expect(() => route(from, to, { kind: "ramp" })).toThrow(/mount limit/);
 });
 
 test("route: forced stairs on a ~flat span throws setup-loud (would emit zero steps)", () => {
@@ -825,5 +832,78 @@ test("threshold plate is DOOR-aligned at an oblique join (the 54° wedge repro)"
       );
     });
     expect(covered).toBe(true);
+  }
+});
+
+test("chooseKind ramp band tops out at the 45° mount limit, not the 52° slope band", () => {
+  // pitch just under 45° over a full ascending run -> ramp
+  expect(chooseKind(9.9, 10)).toBe("ramp");
+  // pitch in the old 45..52° band (previously "ramp") -> stairs now
+  expect(chooseKind(11, 10)).toBe("stairs"); // 47.7°
+  expect(chooseKind(12.5, 10)).toBe("stairs"); // 51.3°
+});
+
+test("forced ramp beyond the mount limit throws, both signs", () => {
+  const door = (y: number, z: number): Connection => ({
+    position: [0, y, z],
+    facing: [0, 0, z === 0 ? -1 : 1],
+    width: 2,
+    height: 2.8,
+    kind: "door",
+  });
+  // ascending 10 over 8 = 51.3° — legal under the OLD slope band, illegal now
+  expect(() => route(door(0, 0), door(10, 8), { kind: "ramp" })).toThrow(
+    /mount limit/,
+  );
+  // descending: climb window 8 − LANDING_LEN = 6 → 10/6 = 59° — throws on |pitch|
+  expect(() => route(door(10, 0), door(0, 8), { kind: "ramp" })).toThrow(
+    /mount limit/,
+  );
+});
+
+test("minWalkableRun: flat corridors, and sloped kinds reject flat spans", () => {
+  expect(minWalkableRun(0)).toBe(MIN_CORRIDOR_RUN);
+  expect(minWalkableRun(0.04)).toBe(MIN_CORRIDOR_RUN); // within FLAT_EPS
+  expect(() => minWalkableRun(0, "stairs")).toThrow(/height delta/);
+  expect(() => minWalkableRun(0, "ramp")).toThrow(/height delta/);
+  expect(() => minWalkableRun(3, "corridor")).toThrow(/corridor/);
+});
+
+test("minWalkableRun: stairs floor = steps × MIN_TREAD (+ landing when descending)", () => {
+  const steps = Math.ceil(10 / (STEP_HEIGHT - STEP_MARGIN)); // 29 for a 10 m rise
+  expect(minWalkableRun(10, "stairs")).toBeCloseTo(steps * MIN_TREAD, 9);
+  expect(minWalkableRun(-10, "stairs")).toBeCloseTo(2.0 + steps * MIN_TREAD, 9);
+});
+
+test("minWalkableRun: ramp floor keeps pitch at the mount limit", () => {
+  const run = minWalkableRun(5, "ramp");
+  expect(Math.atan2(5, run)).toBeLessThanOrEqual(RAMP_MOUNT_LIMIT_RAD);
+  const down = minWalkableRun(-5, "ramp"); // climb window excludes the landing
+  expect(Math.atan2(5, down - 2.0)).toBeLessThanOrEqual(RAMP_MOUNT_LIMIT_RAD);
+});
+
+test("route succeeds at exactly minWalkableRun for a grid of deltas and kinds", () => {
+  const door = (y: number, z: number, facing: -1 | 1): Connection => ({
+    position: [0, y, z],
+    facing: [0, 0, facing],
+    width: 2,
+    height: 2.8,
+    kind: "door",
+  });
+  const cases: [number, "ramp" | "stairs" | undefined][] = [
+    [0.5, "stairs"],
+    [3, "stairs"],
+    [10, "stairs"],
+    [-0.5, "stairs"],
+    [-10, "stairs"],
+    [3, "ramp"],
+    [-3, "ramp"],
+    [4, undefined],
+    [-7, undefined],
+  ];
+  for (const [dh, kind] of cases) {
+    const run = minWalkableRun(dh, kind);
+    const r = route(door(0, 0, -1), door(dh, run, 1), kind ? { kind } : {});
+    expect(r.colliders.length).toBeGreaterThan(0);
   }
 });

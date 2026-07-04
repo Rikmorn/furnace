@@ -13,3 +13,12 @@ export const SLOPE_LIMIT_COS = Math.cos(SLOPE_LIMIT_RAD);
 export const STEP_HEIGHT = 0.4;
 /** Keep generated step rises strictly below STEP_HEIGHT by this margin. */
 export const STEP_MARGIN = 0.05;
+
+/** Practical ramp-MOUNT ceiling (radians): the steepest ramp the CharacterMover can climb
+ *  onto from a FLAT approach. Empirical (Slice 2.2.5b-B1 GPU traces): mounts 47.2°, stalls
+ *  at 49.64°; 45° keeps a safe margin below the known-good mount. `connect.ts` reads this
+ *  for BOTH chooseKind's ramp band and route's forced-ramp guard — a ramp steeper than the
+ *  mount limit is a one-way slope in a walk-verb world (descending arrivals put a flat
+ *  landing at every ramp foot, so every ramp gets mounted from flat when walked back up).
+ *  SLOPE_LIMIT_RAD (55°) remains the physical stand-on/slide limit only. */
+export const RAMP_MOUNT_LIMIT_RAD = (45 * Math.PI) / 180;

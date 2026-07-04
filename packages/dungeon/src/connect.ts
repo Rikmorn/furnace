@@ -12,7 +12,11 @@ import type {
 } from "./region.ts";
 import { GENERATOR_VERSION } from "./region.ts";
 import { type Box, stepBoxes } from "./themes/box-room.ts";
-import { SLOPE_LIMIT_RAD, STEP_HEIGHT, STEP_MARGIN } from "./walkability.ts";
+import {
+  RAMP_MOUNT_LIMIT_RAD,
+  STEP_HEIGHT,
+  STEP_MARGIN,
+} from "./walkability.ts";
 
 /** A rigid placement: a yaw rotation about world-up, then a world translation. */
 export type Placement = { yaw: number; translation: Vec3 };
@@ -139,7 +143,6 @@ function buildPlacementMat(c: number, s: number, t: Vec3): Float32Array {
 export type ConnectorKind = "corridor" | "ramp" | "stairs";
 
 const FLAT_EPS = 0.05; // |Δh| below this → a flat corridor
-const RAMP_MARGIN = (3 * Math.PI) / 180; // keep ramp pitch this far below the slope limit
 const WALL_T = 0.3; // enclosure wall thickness; must stay <= SHOULDER (walls live in the shoulder band)
 const RAIL_H = 1.1; // "open" style guardrail height above the local floor
 const SEAM_OVERLAP = 0.6; // connector floor pokes past each portal by >= 1 cell (CELL 0.5)
@@ -170,6 +173,47 @@ export const ENCLOSURE_TOP_PAD = CEIL_T + RING_RISE;
 export const LANDING_LEN = 2.0;
 /** Minimum climb-window run a DESCENDING connector needs beyond its arrival landing (m). */
 export const MIN_CLIMB_RUN = 1.0;
+
+/** Minimum tread depth for generated stair runs (m). The B1 gate-verified descending
+ *  staircase used 0.29 m treads (the edge5 retune); applied to BOTH directions as one
+ *  conservative floor — narrower ascending treads are known to walk (upperB climbed
+ *  0.16 m treads) but a generator has no reason to emit them. */
+export const MIN_TREAD = 0.29;
+/** Minimum run for a flat corridor (m) — its slab already overshoots by SEAM_OVERLAP. */
+export const MIN_CORRIDOR_RUN = 1.0;
+/** Relative pad keeping derived ramp minimums strictly inside the mount-limit guard
+ *  (atan2/tan round-trips can tip an exact-equality pitch over by one ulp). */
+const RUN_EPS = 1e-6;
+
+/** The minimum run for which `route(from, to, {kind})` succeeds AND emits a walkable
+ *  connector, single-sourced with route's internals (LANDING_LEN / MIN_CLIMB_RUN /
+ *  stair-step math / the ramp mount limit) — the topology generator derives every
+ *  emitted `lengthRange` floor from this, so generated edges are walkable by
+ *  construction and can never trip route's throws. Absent `kind` = the auto-chosen
+ *  (`chooseKind`) minimum: the stairs floor, above which whichever kind chooseKind
+ *  picks at that run is walkable. Throws setup-loud on contradictions (a sloped kind
+ *  over a flat span, a corridor over a height delta). */
+export function minWalkableRun(dh: number, kind?: ConnectorKind): number {
+  const rise = Math.abs(dh);
+  if (rise <= FLAT_EPS) {
+    if (kind === "stairs" || kind === "ramp") {
+      throw new Error(
+        `minWalkableRun: kind "${kind}" needs a height delta (|dh| <= ${FLAT_EPS} is a corridor)`,
+      );
+    }
+    return MIN_CORRIDOR_RUN;
+  }
+  if (kind === "corridor") {
+    throw new Error("minWalkableRun: a corridor cannot span a height delta");
+  }
+  const landing = dh < -FLAT_EPS ? LANDING_LEN : 0;
+  const steps = Math.ceil(rise / (STEP_HEIGHT - STEP_MARGIN));
+  const stairsMin = landing + steps * MIN_TREAD;
+  const rampMin =
+    landing + (rise / Math.tan(RAMP_MOUNT_LIMIT_RAD)) * (1 + RUN_EPS);
+  const descentFloor = dh < -FLAT_EPS ? LANDING_LEN + MIN_CLIMB_RUN : 0;
+  return Math.max(kind === "ramp" ? rampMin : stairsMin, descentFloor);
+}
 
 const THRESH_SIDE = 0.3; // lateral margin past the door width (jamb-corner coverage)
 const THRESH_DEPTH = 0.6; // ROOM-SIDE reach past the portal plane: covers the thickest half-wall (0.25) + overlap; spans exactly a collar's embedded section
@@ -223,7 +267,7 @@ export function chooseKind(dh: number, run: number): ConnectorKind {
   if (Math.abs(dh) <= FLAT_EPS) return "corridor";
   const window = dh < -FLAT_EPS ? Math.max(run - LANDING_LEN, 1e-6) : run;
   const pitch = Math.atan2(Math.abs(dh), window);
-  return pitch <= SLOPE_LIMIT_RAD - RAMP_MARGIN ? "ramp" : "stairs";
+  return pitch <= RAMP_MOUNT_LIMIT_RAD ? "ramp" : "stairs";
 }
 
 function boxToMesh(
@@ -264,9 +308,9 @@ function pitchedRampSlab(
   zMid: number,
 ): ConnectorBox {
   const pitch = Math.atan2(dh, climbRun);
-  if (Math.abs(pitch) > SLOPE_LIMIT_RAD - RAMP_MARGIN) {
+  if (Math.abs(pitch) > RAMP_MOUNT_LIMIT_RAD) {
     throw new Error(
-      `route: forced ramp pitch ${(pitch * 180) / Math.PI}° exceeds the slope limit`,
+      `route: forced ramp pitch ${(pitch * 180) / Math.PI}° exceeds the ramp mount limit`,
     );
   }
   const rampLen = Math.hypot(dh, climbRun) + 2 * SEAM_OVERLAP;
