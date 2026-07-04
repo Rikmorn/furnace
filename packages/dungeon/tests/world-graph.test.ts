@@ -137,3 +137,22 @@ test("enclosure 'open' is a legal edge annotation (validation passes it through)
   };
   expect(() => validateGraph(g)).not.toThrow();
 });
+
+test("validateGraph rejects an edge wired to a non-door portal (built-interface doctrine)", () => {
+  const raw = enclosureRegion();
+  const region: RegionData = {
+    ...raw,
+    connections: raw.connections.map((c) => ({
+      ...c,
+      kind: "tunnel-mouth" as const,
+    })),
+  };
+  const graph: WorldGraph = {
+    nodes: [
+      { id: "a", region, pinned: { yaw: 0, translation: [0, 0, 0] } },
+      { id: "b", region: enclosureRegion() },
+    ],
+    edges: [{ a: "a", b: "b", aPortal: 0, bPortal: 0 }],
+  };
+  expect(() => validateGraph(graph)).toThrow(/door/);
+});

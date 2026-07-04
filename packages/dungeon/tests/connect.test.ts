@@ -569,6 +569,15 @@ const conn = (
   kind: Connection["kind"] = "door",
 ): Connection => ({ position, facing, width: 2, height: 3, kind });
 
+test("route throws setup-loud on a non-door end (built-interface doctrine)", () => {
+  expect(() =>
+    route(
+      conn([0, 0, 0], [0, 0, 1], "tunnel-mouth"),
+      conn([0, 0, 6], [0, 0, -1]),
+    ),
+  ).toThrow(/door-class/);
+});
+
 /** World AABB of one cuboid collider (rotation-aware via aabbOfBoxes). */
 function colliderAabb(c: RegionCollider): Aabb {
   if (!("cuboid" in c.shape)) throw new Error("expected cuboid collider");
@@ -651,18 +660,6 @@ test("corridor tube: floor + 2 walls + 1 ceiling, sealed, flush at door planes",
   expect(r.meshes.length).toBe(r.colliders.length); // mesh/collider parity
 });
 
-test("tunnel-mouth end extends the enclosure into the rock; door end stays flush", () => {
-  const r = route(
-    conn([0, 0, 0], [0, 0, 1], "tunnel-mouth"),
-    conn([0, 0, 6], [0, 0, -1]),
-  );
-  const { walls, ceilings } = splitEnclosure(r, 0, 6, 3);
-  for (const b of [...walls, ...ceilings]) {
-    expect(b.min[2]).toBeCloseTo(-0.6, 5); // SEAM_OVERLAP embed at the mouth
-    expect(b.max[2]).toBeCloseTo(6, 5); // flush at the door
-  }
-});
-
 test("ramp tube: ringed enclosure, interior >= headroom, ring ceilings overlap-sealed", () => {
   const dh = 2;
   const run = 8; // pitch ~14° → auto ramp
@@ -706,11 +703,8 @@ test("descending forced stairs: ringed tube over the mirrored steps, no gap unde
   }
 });
 
-test("tunnel-ended ramp: ring rise stays <= RING_RISE across the extended span (seal holds)", () => {
-  const r = route(
-    conn([0, 0, 0], [0, 0, 1], "tunnel-mouth"),
-    conn([0, 3, 7], [0, 0, -1], "tunnel-mouth"),
-  );
+test("climbing ramp ring rise stays <= RING_RISE across the span (seal holds)", () => {
+  const r = route(conn([0, 0, 0], [0, 0, 1]), conn([0, 3, 7], [0, 0, -1]));
   const { ceilings } = splitEnclosure(r, 3, 7, 3);
   const sorted = [...ceilings].sort((a, b) => a.min[2] - b.min[2]);
   for (let i = 1; i < sorted.length; i++) {

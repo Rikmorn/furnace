@@ -45,7 +45,8 @@ export type WorldEdge = {
 export type WorldGraph = { nodes: WorldNode[]; edges: WorldEdge[] };
 
 /** Setup-loud structural validation. Throws on: duplicate ids, dangling endpoints or
- *  portal indices, a portal used by more than one edge, no pinned node, a disconnected
+ *  portal indices, a non-door portal (built-interface doctrine — edges join door-class
+ *  portals only), a portal used by more than one edge, no pinned node, a disconnected
  *  graph, reserved edge features (`directed`, non-walk verbs). */
 export function validateGraph(graph: WorldGraph): void {
   const first = graph.nodes[0];
@@ -66,7 +67,13 @@ export function validateGraph(graph: WorldGraph): void {
         `world-graph: portal index ${portal} out of range on "${id}"`,
       );
     }
+    const conn = n.region.connections[portal];
     const key = `${id}:${portal}`;
+    if (conn && conn.kind !== "door") {
+      throw new Error(
+        `world-graph: edge portal ${key} is kind "${conn.kind}" — edges join door-class portals only (built-interface doctrine)`,
+      );
+    }
     if (usedPortals.has(key)) {
       throw new Error(
         `world-graph: portal ${key} already used by another edge`,

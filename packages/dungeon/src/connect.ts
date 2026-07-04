@@ -254,10 +254,6 @@ function boxToCollider(
 /** A local-frame connector box, optionally rotated (the ramp case pitches about X). */
 type ConnectorBox = Box & { rotation?: [number, number, number, number] };
 
-/** Which portal kind each connector end meets: a `door` end stops flush at the portal
- *  plane; a `tunnel-mouth` end extends SEAM_OVERLAP past it into the neighbour's rock. */
-type EndKinds = { from: Connection["kind"]; to: Connection["kind"] };
-
 /** One pitched ramp slab climbing `dh` over `climbRun` horizontal metres, centred at `zMid`
  *  along Z, with SEAM_OVERLAP extensions past both ends. Throws setup-loud if the pitch
  *  exceeds the walkable slope limit (|pitch| — a steep DESCENT throws like a steep ascent). */
@@ -446,21 +442,20 @@ function thresholdPlates(
 }
 
 /** Enclosure boxes — side walls + (tube-style) ceilings — as vertical-walled rings
- *  quantized along the climb (≤ RING_RISE floor rise per ring). Pitched slabs cannot
- *  end flush against a vertical door plane (their end faces lean along-climb), so every
- *  ring is axis-aligned: walls rise from the ring's floor MIN, the flat ceiling sits at
- *  the ring's floor MAX + headroom. Adjacent ring ceilings overlap vertically because
- *  RING_RISE < CEIL_T — sealed by construction. `open` = rail-top walls, no ceilings. */
+ *  quantized along the climb (≤ RING_RISE floor rise per ring). Both ends are ALWAYS
+ *  flush at the door planes (built-interface doctrine — `route` rejects non-door ends),
+ *  so the enclosure spans exactly `[0, run]`. Pitched slabs cannot end flush against a
+ *  vertical door plane (their end faces lean along-climb), so every ring is axis-aligned:
+ *  walls rise from the ring's floor MIN, the flat ceiling sits at the ring's floor MAX +
+ *  headroom. Adjacent ring ceilings overlap vertically because RING_RISE < CEIL_T —
+ *  sealed by construction. `open` = rail-top walls, no ceilings. */
 function enclosureBoxes(
   section: ConnectorSection,
   dh: number,
   run: number,
-  ends: EndKinds,
   open: boolean,
 ): ConnectorBox[] {
   const { width: w, headroom: h } = section;
-  const z0 = ends.from === "tunnel-mouth" ? -SEAM_OVERLAP : 0;
-  const z1 = run + (ends.to === "tunnel-mouth" ? SEAM_OVERLAP : 0);
   const floorAt = (z: number): number => walkLineAt(dh, run, z);
   // Ring count follows the EFFECTIVE climb-window slope — ascending spreads the rise over the
   // full run, a descent concentrates it in [0, run − LANDING_LEN] (its landing is flat). Using
@@ -472,12 +467,12 @@ function enclosureBoxes(
       : dh < -FLAT_EPS
         ? Math.abs(dh) / Math.max(run - LANDING_LEN, 1e-6)
         : Math.abs(dh) / run;
-  const nRings = Math.max(1, Math.ceil((slopeClimb * (z1 - z0)) / RING_RISE));
+  const nRings = Math.max(1, Math.ceil((slopeClimb * run) / RING_RISE));
   const wallX = w / 2 - WALL_T / 2;
   const out: ConnectorBox[] = [];
   for (let i = 0; i < nRings; i++) {
-    const zA = z0 + ((z1 - z0) * i) / nRings;
-    const zB = z0 + ((z1 - z0) * (i + 1)) / nRings;
+    const zA = (run * i) / nRings;
+    const zB = (run * (i + 1)) / nRings;
     const zc = (zA + zB) / 2;
     const len = zB - zA;
     const fLo = Math.min(floorAt(zA), floorAt(zB));
@@ -506,7 +501,6 @@ function buildConnectorLocal(
   section: ConnectorSection,
   dh: number,
   run: number,
-  ends: EndKinds,
   plates: PlateEnds,
   open: boolean,
 ): {
@@ -517,7 +511,7 @@ function buildConnectorLocal(
   const boxes = [
     ...floorBoxes(kind, section.width, dh, run),
     ...thresholdPlates(plates, dh, run),
-    ...enclosureBoxes(section, dh, run, ends, open),
+    ...enclosureBoxes(section, dh, run, open),
   ];
   return {
     meshes: boxes.map((b) => boxToMesh(b, b.rotation)),
@@ -531,8 +525,11 @@ function buildConnectorLocal(
  *  kind can't satisfy the walkability constraints). The connector floor spans the join
  *  and overlaps both endpoints by >= 1 cell, and the connector is ENCLOSED — ringed side
  *  walls plus a ceiling (`opts.enclosure: "open"` swaps the tube for guardrail-height
- *  walls with no ceiling). Enclosure ends stop flush at `door` portal planes and embed
- *  SEAM_OVERLAP into the rock at `tunnel-mouth` ends.
+ *  walls with no ceiling). Both ends stop flush at their `door` portal planes.
+ *
+ *  Built-interface doctrine: throws setup-loud unless BOTH ends are `door`-class — an
+ *  organic `tunnel-mouth` must be collared (built.ts mouthCollar) into a standardized
+ *  door before it can be routed, so every seam is the proven built↔built case.
  *
  *  Direction-sensitive for descents: only a DESCENDING run (`to` below `from`) gets a flat
  *  arrival landing at its low (`to`) end — an ascending run's low end is a free-floor
@@ -543,6 +540,11 @@ export function route(
   to: Connection,
   opts?: { kind?: ConnectorKind; enclosure?: "open" },
 ): RegionData {
+  if (from.kind !== "door" || to.kind !== "door") {
+    throw new Error(
+      `route: both ends must be door-class portals (got "${from.kind}"/"${to.kind}") — built-interface doctrine: collar organic mouths before routing`,
+    );
+  }
   const dx = to.position[0] - from.position[0];
   const dz = to.position[2] - from.position[2];
   const run = Math.hypot(dx, dz);
@@ -565,7 +567,6 @@ export function route(
     connectorSection(from, to),
     dh,
     run,
-    { from: from.kind, to: to.kind },
     {
       fromWidth: from.width,
       fromLocalFacing: localFacing(from.facing),

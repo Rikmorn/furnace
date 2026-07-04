@@ -111,6 +111,9 @@ export type Connection = {
   facing: Vec3; // OUTWARD unit normal; a join pairs facings that negate
   width: number;
   height: number;
+  /** `door` = a built, standardized portal (the only kind edges/route accept —
+   *  built-interface doctrine). `tunnel-mouth` = a RAW organic opening as emitted by a
+   *  field generator BEFORE collaring (built.ts mouthCollar) — never routed directly. */
   kind: "door" | "tunnel-mouth";
 };
 

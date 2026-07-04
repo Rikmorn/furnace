@@ -72,18 +72,17 @@ const SECOND_DOOR_HALL: DoorSpec = {
   width: 1.6,
   height: 2.8,
 };
-// `landing`'s two doors. The SEAT door (bPortal 0) receives the descending stairs; its
-// height 5 is deliberately >= the pillarHall max room height (3.5 + 1.5) so the door spans
-// the FULL wall (no lintel). A descending connector arrives ABOVE the room floor, so its
-// clearance headroom would clip a normal door's lintel/ceiling; a full-height seat door
-// removes the lintel and (via headroom = 5) lets the connector's portal-exemption reach the
-// ceiling, so the descent seats clean. The CLOSE door (bPortal 1) mates the flat corridor to
+// `landing`'s two doors. The SEAT door (bPortal 0) receives the descending stairs at a
+// NORMAL door height: the connector's flat low-end landing (connect.ts LANDING_LEN)
+// arrives level with full headroom inside its own tube, so nothing clips the lintel —
+// the 2.2.5a full-height-door workaround is retired (that clip class is fixed at the
+// geometry level, not per-door). The CLOSE door (bPortal 1) mates the flat corridor to
 // hallA. GATE-TUNE.
 const LANDING_SEAT_DOOR: DoorSpec = {
   side: "N",
   offset: 0,
   width: 2,
-  height: 5,
+  height: 2.8,
 };
 const LANDING_CLOSE_DOOR: DoorSpec = {
   side: "E",
