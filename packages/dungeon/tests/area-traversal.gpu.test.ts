@@ -45,10 +45,10 @@ test.skipIf(!bunWebGpuAvailable())(
       (r) => r.provenance.theme === "cave",
     ) as RegionData;
     const mouth = (caveRegion.connections.find(
-      (c) => c.kind === "tunnel-mouth" && c.facing[0] === 1,
+      (c) => c.kind === "door" && c.facing[0] === 1,
     ) ??
       caveRegion.connections.find(
-        (c) => c.kind === "tunnel-mouth" && c.facing[2] === 1,
+        (c) => c.kind === "door" && c.facing[2] === 1,
       )) as Connection;
 
     // start just inside the cave hub (at its PLACED origin — layoutWorld no longer

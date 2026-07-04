@@ -1,5 +1,7 @@
 import type { ShapeDescriptor } from "@furnace/core/physics";
 import { create as makeRng, type Rng } from "@furnace/core/rng";
+import { aabbUnion } from "../aabb.ts";
+import { mouthCollar } from "../built.ts";
 import {
   boxCavern,
   capsuleCavern,
@@ -13,7 +15,9 @@ import type {
   Aabb,
   Connection,
   MaterialDescriptor,
+  RegionCollider,
   RegionData,
+  RegionMesh,
   RegionParams,
   ScatterLayerSpec,
   Vec3,
@@ -49,6 +53,21 @@ const MATERIAL_SPECULAR: [number, number, number, number] = [
 ];
 const KEEPOUT_MIN_HALF_WIDTH = 1; // floor for a connection's half-width keep-out radius (m) — GATE-TUNE
 const KEEPOUT_PADDING = 0.6; // extra clearance added around every doorway/mouth (m) — GATE-TUNE
+
+// Built-interface doctrine: every organic mouth grows a masonry collar presenting a
+// standardized door-class portal, so heterogeneous cave↔room seams collapse to the
+// proven built↔built case.
+const DOOR_OPENING = { width: 2, height: 2.8 }; // standardized presented door — GATE-TUNE
+const BORE_ENVELOPE = {
+  width: 2 * TUNNEL_R + 2 * NOISE_AMP, // bore + noise: what the collar must mask
+  // height adds 1×NOISE_AMP (not 2×): the y-tapered noise pins the floor and only
+  // displaces the ceiling, so height spans a single (ceiling) rise, not two walls.
+  height: 2 * TUNNEL_R + NOISE_AMP,
+};
+const MASONRY_MATERIAL: MaterialDescriptor = {
+  color: [0.42, 0.42, 0.45, 1],
+  specular: [0.02, 0.02, 0.02, 8],
+};
 
 // Five scatter layers (2 lit + 3 emissive) spanning floor / wall / ceiling. The
 // material colours, spacing, and scale are GATE-TUNABLE starting values.
@@ -274,9 +293,12 @@ function gridWorldBounds(grid: GridConfig, origin: Vec3): Aabb {
 }
 
 /** Branching cave region: a hub chamber with 2–3 smooth-union capsule tunnels fanning
- *  out to mouths where rooms attach, roughened by Y-tapered noise. Produces a mesh,
- *  a voxel collision proxy, and a `Connection` for each tunnel mouth plus the
- *  entrance facing -Z (where the authored level attaches). */
+ *  out to mouths where rooms attach, roughened by Y-tapered noise. Produces the rock
+ *  mesh, a voxel collision proxy, and — per the built-interface doctrine — a masonry
+ *  COLLAR at every raw mouth (branches + the -Z entrance): each collar's boxes are
+ *  masonry meshes/cuboid colliders, and the region's `connections` are the collars'
+ *  door-class portals (entrance first, order preserved) at the collar mid-depth, so
+ *  every cave seam collapses to the proven built↔built (door) case. */
 export function cave(p: RegionParams): RegionData {
   const rng = makeRng(p.seed);
   const graph = buildGraph(rng.derive("graph"));
@@ -309,10 +331,14 @@ export function cave(p: RegionParams): RegionData {
     kind: "tunnel-mouth",
   };
 
+  // The RAW organic mouths (bore-sized), before collaring. Keep-outs and collars both
+  // derive from these same centres/facings.
+  const rawMouths = [entrance, ...branchConnections];
+
   // Scatter keep-outs: convert each WORLD connection centre back to the cave's
   // LOCAL frame (scatter samples the local mesh), with a generous radius so
   // doorways and tunnel mouths stay clear of decoration.
-  const keepOut: KeepOut[] = [entrance, ...branchConnections].map((c) => ({
+  const keepOut: KeepOut[] = rawMouths.map((c) => ({
     center: [
       c.position[0] - p.origin[0],
       c.position[1] - p.origin[1],
@@ -320,6 +346,13 @@ export function cave(p: RegionParams): RegionData {
     ] as Vec3,
     radius: Math.max(c.width / 2, KEEPOUT_MIN_HALF_WIDTH) + KEEPOUT_PADDING,
   }));
+
+  // Built-interface doctrine: grow a masonry collar at each raw mouth. Each presents a
+  // standardized door-class portal at the collar mid-depth; the cave's connections ARE
+  // these doors (entrance first, order preserved).
+  const collars = rawMouths.map((m) =>
+    mouthCollar(m, { opening: DOOR_OPENING, envelope: BORE_ENVELOPE }),
+  );
   // Materials start with the wall material at index 0 (the mesh references it);
   // each scatter layer appends its material at index >= 1. Bake WORLD transforms
   // (offset = origin) so instances align with the mesh rendered at local+origin.
@@ -335,14 +368,50 @@ export function cave(p: RegionParams): RegionData {
     p.origin,
   );
 
+  // Append the masonry material (after scatter has appended its own materials) and bake
+  // the collar sleeves as box meshes + cuboid colliders. The collar boxes are authored in
+  // the caller (world) frame by `mouthCollar`, so they need no origin offset here.
+  const masonryIndex = materials.length;
+  materials.push(MASONRY_MATERIAL);
+  const collarMeshes = collars.flatMap((cl) =>
+    cl.boxes.map((b) => {
+      const boxMesh: RegionMesh = {
+        geometry: { box: b.size },
+        material: masonryIndex,
+        position: b.center,
+      };
+      if (b.rotation) boxMesh.rotation = b.rotation;
+      return boxMesh;
+    }),
+  );
+  const collarColliders = collars.flatMap((cl) =>
+    cl.boxes.map((b) => {
+      const col: RegionCollider = {
+        shape: { cuboid: [b.size[0] / 2, b.size[1] / 2, b.size[2] / 2] },
+        position: b.center,
+      };
+      if (b.rotation) col.rotation = b.rotation;
+      return col;
+    }),
+  );
+
   return {
-    meshes: [{ geometry: { custom: mesh }, material: 0, position: p.origin }],
-    colliders: [{ shape, position: voxelProxyPosition(grid, p.origin) }],
+    meshes: [
+      { geometry: { custom: mesh }, material: 0, position: p.origin },
+      ...collarMeshes,
+    ],
+    colliders: [
+      { shape, position: voxelProxyPosition(grid, p.origin) },
+      ...collarColliders,
+    ],
     materials,
-    connections: [entrance, ...branchConnections],
+    connections: collars.map((cl) => cl.door), // order preserved: entrance first
     instances,
     origin: p.origin,
-    bounds: gridWorldBounds(grid, p.origin),
+    bounds: collars.reduce(
+      (acc, cl) => aabbUnion(acc, cl.bounds),
+      gridWorldBounds(grid, p.origin),
+    ),
     provenance: {
       generatorId: "dungeon",
       generatorVersion: 2,

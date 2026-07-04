@@ -119,15 +119,16 @@ function authoredPhantom(): RegionData {
 
 /** Resolve a cave's two branch mouths by FACING (position-independent, so it survives seed
  *  changes): the +X (east) mouth deterministically anchors the loop hall; the +Z (north)
- *  mouth carries hallB. The cave entrance is ALSO `kind:"tunnel-mouth"` (facing -Z), so
- *  mouths must be picked by facing, never by "first tunnel-mouth". Setup-loud if the seed's
- *  cave lacks a distinct +X and +Z mouth. */
+ *  mouth carries hallB. Cave mouths are collared `kind:"door"` portals (built-interface
+ *  doctrine), and the entrance is ALSO a door (facing -Z), so mouths must be picked by
+ *  facing, never by "first door". Setup-loud if the seed's cave lacks a distinct +X and
+ *  +Z mouth. */
 function caveMouths(caveRegion: RegionData): { east: number; north: number } {
   const east = caveRegion.connections.findIndex(
-    (c) => c.kind === "tunnel-mouth" && c.facing[0] === 1,
+    (c) => c.kind === "door" && c.facing[0] === 1,
   );
   const north = caveRegion.connections.findIndex(
-    (c) => c.kind === "tunnel-mouth" && c.facing[2] === 1,
+    (c) => c.kind === "door" && c.facing[2] === 1,
   );
   if (east < 0 || north < 0 || east === north) {
     throw new Error(

@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import type { RegionCollider, RegionData, RegionMesh } from "../src/region.ts";
+import type { RegionData, RegionMesh } from "../src/region.ts";
 import { cave } from "../src/themes/cave.ts";
 
 const params = {
@@ -16,18 +16,21 @@ function customPositions(r: RegionData): Float32Array {
   return geo.custom.positions;
 }
 
-test("cave produces a non-empty mesh, a voxel collider, and connections", () => {
+test("cave produces a mesh, a voxel collider, collar cuboids, and door connections", () => {
   const r = cave(params);
-  expect(r.meshes.length).toBe(1);
+  // custom rock mesh first, then 4 collar boxes per connection
+  expect(r.meshes.length).toBe(1 + 4 * r.connections.length);
   const m = r.meshes[0] as RegionMesh;
   expect("custom" in m.geometry).toBe(true);
   if ("custom" in m.geometry)
     expect(m.geometry.custom.positions.length).toBeGreaterThan(0);
-  expect(r.colliders.length).toBe(1);
-  expect("voxels" in (r.colliders[0] as RegionCollider).shape).toBe(true);
-  // 1 entrance + 2..3 branch-end connections
+  const voxels = r.colliders.filter((c) => "voxels" in c.shape);
+  const cuboids = r.colliders.filter((c) => "cuboid" in c.shape);
+  expect(voxels.length).toBe(1);
+  expect(cuboids.length).toBe(4 * r.connections.length);
+  // 1 entrance + 2..3 branch mouths — ALL collared to door-class (built-interface doctrine)
   expect(r.connections.length).toBeGreaterThanOrEqual(3);
-  expect(r.connections.some((c) => c.kind === "tunnel-mouth")).toBe(true);
+  expect(r.connections.every((c) => c.kind === "door")).toBe(true);
 });
 
 test("cave is deterministic for a fixed seed", () => {
@@ -45,12 +48,13 @@ test("a different seed yields a different cave", () => {
   expect(customPositions(a).length).not.toBe(customPositions(b).length);
 });
 
-test("every tunnel-mouth connection faces outward in the XZ plane", () => {
+test("every cave door faces outward in the XZ plane at the standard opening size", () => {
   const r = cave(params);
   for (const c of r.connections) {
-    if (c.kind !== "tunnel-mouth") continue;
-    expect(Math.hypot(c.facing[0], c.facing[2])).toBeGreaterThan(0.5); // a real lateral direction
-    expect(c.width).toBeGreaterThanOrEqual(0.7);
+    expect(c.kind).toBe("door");
+    expect(Math.hypot(c.facing[0], c.facing[2])).toBeGreaterThan(0.5);
+    expect(c.width).toBe(2);
+    expect(c.height).toBe(2.8);
   }
 });
 
@@ -62,10 +66,26 @@ test("cave branches fan only into the open +X/+Z quadrant (never back toward the
   for (const seed of ["cave-1", "A", "B", "wing-1", "walk-1"]) {
     const r = cave({ ...params, seed });
     for (const c of r.connections) {
-      if (c.kind !== "tunnel-mouth") continue;
+      if (c.kind !== "door") continue;
       const isEntrance = c.facing[0] === 0 && c.facing[2] === -1;
       if (isEntrance) continue;
       expect(c.facing[0] === 1 || c.facing[2] === 1).toBe(true); // +X or +Z only
+    }
+  }
+});
+
+test("cave bounds contain the collar boxes and a masonry material is appended", () => {
+  const r = cave(params);
+  const boxMeshes = r.meshes.filter((m) => "box" in m.geometry);
+  expect(boxMeshes.length).toBe(4 * r.connections.length);
+  const idx = boxMeshes[0]?.material as number;
+  expect(idx).toBeGreaterThan(0);
+  expect(boxMeshes.every((m) => m.material === idx)).toBe(true);
+  expect(r.materials[idx]?.color).toEqual([0.42, 0.42, 0.45, 1]);
+  for (const m of boxMeshes) {
+    for (let a = 0; a < 3; a++) {
+      expect(m.position[a]).toBeGreaterThanOrEqual(r.bounds.min[a]! - 3);
+      expect(m.position[a]).toBeLessThanOrEqual(r.bounds.max[a]! + 3);
     }
   }
 });

@@ -74,12 +74,12 @@ async function buildFullWorld() {
     (r) => r.provenance.theme === "cave",
   ) as RegionData;
   const entrance = placedCave.connections.find(
-    (c) => c.kind === "tunnel-mouth" && c.facing[0] === 0 && c.facing[2] === -1,
+    (c) => c.kind === "door" && c.facing[0] === 0 && c.facing[2] === -1,
   ) as Connection;
   // The +Z tunnel mouth (facing north) — the fuzz walks the hub band toward it. Anchoring
   // the progress bar to its PLACED position keeps the assertion placement-relative.
   const northMouth = placedCave.connections.find(
-    (c) => c.kind === "tunnel-mouth" && c.facing[2] === 1,
+    (c) => c.kind === "door" && c.facing[2] === 1,
   ) as Connection;
   return { ctx, world, entrance, northMouth };
 }
