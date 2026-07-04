@@ -17,6 +17,8 @@ always suffices. B2 should either (a) adopt this authoring convention when it em
 (b) promote "walledness" into the portal contract (a `Connection` flag) so the landing decision
 reads the flag directly instead of inferring it from the climb sign.
 
-**Reference.** `docs/superpowers/specs/2026-07-03-dungeon-epic2-slice2.2.5b-phase-b1-built-interfaces-design.md`
-§1.2 / §4.1–4.2; `packages/dungeon/src/connect.ts` (`walkLineAt`, `floorBoxes`, `LANDING_LEN`).
+**Reference.** `packages/dungeon/src/connect.ts` (`walkLineAt`, `floorBoxes`, `LANDING_LEN` —
+the directional profile + its TSDoc), `packages/dungeon/src/world.ts` (edge5, the descent whose
+walled arrival is today's only landing consumer), and the prior-art grounding in
+`docs/research/2026-07-03-dungeon-2.2.5b-b1-built-interfaces.md` §2.
 Surfaced during Slice 2.2.5b-B1 execution (2026-07-03).
