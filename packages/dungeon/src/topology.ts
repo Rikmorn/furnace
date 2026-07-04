@@ -8,7 +8,17 @@
 // counts and resolves portal indices.
 import { create as makeRng, type Rng } from "@furnace/core/rng";
 import { type ConnectorKind, minWalkableRun } from "./connect.ts";
-import type { ThemeName } from "./region.ts";
+import type { RegionData, ThemeName } from "./region.ts";
+import type { DoorSpec, Side } from "./themes/box-room.ts";
+import { cave } from "./themes/cave.ts";
+import { greatHall } from "./themes/great-hall.ts";
+import { pillarHall } from "./themes/pillar-hall.ts";
+import {
+  validateGraph,
+  type WorldEdge,
+  type WorldGraph,
+  type WorldNode,
+} from "./world-graph.ts";
 
 /** Sector archetype: the coarse identity biasing a sector's themes/heights/styles. */
 export type SectorArchetype = "warren" | "halls" | "works";
@@ -517,4 +527,79 @@ export function _planTopology(
     nodes,
     edges,
   };
+}
+
+const SIDES: readonly Side[] = ["S", "N", "E", "W"];
+const ROOM_DOOR = { width: 1.6, height: 2.8 };
+
+/** MATERIALIZE one abstract node: call its theme with exactly `used` portals so slot k
+ *  is portal k by construction (boxRoom emits connections in door order; cave emits its
+ *  usable collared mouths in bore order). */
+function materializeNode(n: AbstractNode): RegionData {
+  if (n.theme === "cave") {
+    return cave({
+      theme: "cave",
+      seed: n.seed,
+      origin: [0, 0, 0],
+      mouths: n.used,
+      capped: n.capped,
+    });
+  }
+  if (n.theme === "greatHall") {
+    // capacity 1 by construction — its single fixed S door is slot 0.
+    return greatHall({ theme: "greatHall", seed: n.seed, origin: [0, 0, 0] });
+  }
+  const sides = shuffled(makeRng(`${n.seed}/sides`), SIDES).slice(0, n.used);
+  const doors: DoorSpec[] = sides.map((side) => ({
+    side,
+    offset: 0,
+    width: ROOM_DOOR.width,
+    height: ROOM_DOOR.height,
+  }));
+  return pillarHall({
+    theme: "pillarHall",
+    seed: n.seed,
+    origin: [0, 0, 0],
+    doors,
+  });
+}
+
+/** Generate the full world graph off a pinned anchor: PLAN (see _planTopology), then
+ *  MATERIALIZE each node with exact door counts, then emit WorldEdges whose portal
+ *  indices are the plan's slot indices. Pure + deterministic; throws setup-loud on
+ *  config nonsense or a door-less anchor; self-checks with validateGraph before
+ *  returning. The entry edge joins anchor portal 0 to the entry warren's root cave. */
+export function generateWorldGraph(
+  anchor: WorldNode,
+  seed: string,
+  config?: Partial<TopologyConfig>,
+): WorldGraph {
+  const cfg: TopologyConfig = { ...DEFAULT_TOPOLOGY, ...config };
+  const entry = anchor.region.connections[0];
+  if (!entry || entry.kind !== "door") {
+    throw new Error(
+      "topology: anchor must expose a door-class portal at index 0",
+    );
+  }
+  const plan = _planTopology(anchor.id, entry.position[1], seed, cfg);
+  const nodes: WorldNode[] = [anchor];
+  for (const n of plan.nodes) {
+    nodes.push({ id: n.id, region: materializeNode(n), theme: n.theme });
+  }
+  const edges: WorldEdge[] = plan.edges.map((e) => {
+    const out: WorldEdge = {
+      a: e.a,
+      b: e.b,
+      aPortal: e.aSlot,
+      bPortal: e.bSlot,
+      lengthRange: e.lengthRange,
+    };
+    if (e.dh !== 0) out.heightDelta = e.dh;
+    if (e.kind) out.kind = e.kind;
+    if (e.enclosure) out.enclosure = e.enclosure;
+    return out;
+  });
+  const graph: WorldGraph = { nodes, edges };
+  validateGraph(graph);
+  return graph;
 }

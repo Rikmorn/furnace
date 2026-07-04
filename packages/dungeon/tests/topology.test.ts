@@ -1,12 +1,17 @@
 // Pure plan-pass tests: the abstract topology (sectors, rooms, edges) before any
 // RegionData exists. Cheap to run across many seeds.
 import { expect, test } from "bun:test";
+import { aabbOfBoxes } from "../src/aabb.ts";
 import { minWalkableRun } from "../src/connect.ts";
+import type { RegionData } from "../src/region.ts";
+import { GENERATOR_VERSION } from "../src/region.ts";
 import {
   _planTopology,
   DEFAULT_TOPOLOGY,
+  generateWorldGraph,
   type TopologyConfig,
 } from "../src/topology.ts";
+import { validateGraph, type WorldNode } from "../src/world-graph.ts";
 
 const CFG: TopologyConfig = { ...DEFAULT_TOPOLOGY };
 const SEEDS = Array.from({ length: 20 }, (_, i) => `plan-seed-${i}`);
@@ -127,4 +132,80 @@ test("setup-loud config errors", () => {
   expect(() => plan("x", { ...CFG, sectors: [0, 3] })).toThrow(/sectors/);
   expect(() => plan("x", { ...CFG, loopChance: 1.5 })).toThrow(/loopChance/);
   expect(() => plan("x", { ...CFG, attempts: 0 })).toThrow(/attempts/);
+});
+
+function testAnchor(): WorldNode {
+  const region: RegionData = {
+    meshes: [],
+    colliders: [{ shape: { cuboid: [5, 1, 5] }, position: [0, -1, 0] }],
+    materials: [],
+    connections: [
+      {
+        position: [0, 0, 5],
+        facing: [0, 0, 1],
+        width: 3,
+        height: 6,
+        kind: "door",
+      },
+    ],
+    instances: [],
+    origin: [0, 0, 0],
+    bounds: { min: [-5, -2, -5], max: [5, 0, 5] },
+    provenance: {
+      generatorId: "dungeon",
+      generatorVersion: GENERATOR_VERSION,
+      theme: "authored",
+      seed: "authored",
+    },
+  };
+  return {
+    id: "authored",
+    region,
+    pinned: { yaw: 0, translation: [0, 0, 0] },
+  };
+}
+
+test("generateWorldGraph: validates, deterministic, anchor first", () => {
+  const g1 = generateWorldGraph(testAnchor(), "gen-seed-1");
+  const g2 = generateWorldGraph(testAnchor(), "gen-seed-1");
+  expect(() => validateGraph(g1)).not.toThrow(); // also self-checked inside
+  expect(g1.nodes.length).toBe(DEFAULT_TOPOLOGY.targetRooms + 1);
+  expect(g1.nodes[0]!.id).toBe("authored");
+  expect(g1.edges.length).toBe(g2.edges.length);
+  for (let i = 0; i < g1.edges.length; i++) {
+    expect(g1.edges[i]).toEqual(g2.edges[i]!);
+  }
+});
+
+test("door counts match degrees; every edge portal is a door; heights ride edges", () => {
+  const g = generateWorldGraph(testAnchor(), "gen-seed-2");
+  const degree = new Map<string, number>();
+  for (const e of g.edges) {
+    degree.set(e.a, (degree.get(e.a) ?? 0) + 1);
+    degree.set(e.b, (degree.get(e.b) ?? 0) + 1);
+    expect(e.heightDelta ?? 0).toBeLessThanOrEqual(0); // universal descent
+    const an = g.nodes.find((n) => n.id === e.a)!;
+    const bn = g.nodes.find((n) => n.id === e.b)!;
+    expect(an.region.connections[e.aPortal]!.kind).toBe("door");
+    expect(bn.region.connections[e.bPortal]!.kind).toBe("door");
+  }
+  for (const n of g.nodes) {
+    if (n.id === "authored") continue;
+    expect(n.region.connections.length).toBe(degree.get(n.id) ?? 0);
+  }
+});
+
+test("small worlds generate too (config floor)", () => {
+  const g = generateWorldGraph(testAnchor(), "gen-small", {
+    targetRooms: 8,
+    sectors: [3, 3],
+  });
+  expect(g.nodes.length).toBe(9);
+  expect(() => validateGraph(g)).not.toThrow();
+});
+
+test("anchor without a door-class portal 0 throws setup-loud", () => {
+  const anchor = testAnchor();
+  anchor.region = { ...anchor.region, connections: [] };
+  expect(() => generateWorldGraph(anchor, "x")).toThrow(/anchor/);
 });
