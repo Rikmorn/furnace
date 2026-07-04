@@ -171,6 +171,10 @@ export const LANDING_LEN = 2.0;
 /** Minimum climb-window run a DESCENDING connector needs beyond its arrival landing (m). */
 export const MIN_CLIMB_RUN = 1.0;
 
+const THRESH_SIDE = 0.3; // lateral margin past the door width (jamb-corner coverage)
+const THRESH_DEPTH = 0.6; // ROOM-SIDE reach past the portal plane: covers the thickest half-wall (0.25) + overlap; spans exactly a collar's embedded section
+const THRESH_LIP = 0.015; // proud of portal floor — real threshold profile + kills coplanar z-fighting
+
 /** THE reference walk-line profile: the y a walker's feet trace along a connector's local
  *  +Z. Directional: ascending (and flat/degenerate) runs are LINEAR over the full run (no
  *  landing — the low end is a departure); a DESCENDING run is linear from the high (z=0) end
@@ -382,6 +386,65 @@ function floorBoxes(
   return stairBoxes(rise, run, w, run / n, 0);
 }
 
+/** Per-end threshold data: the portal's width and its TRUE (signed) facing direction
+ *  expressed in the connector's local frame. The signed facing is load-bearing — it is
+ *  what tells `thresholdPlates` which side of the portal plane is the room (a mod-π
+ *  normalization would flip room↔connector); the plate's own rotation re-normalizes it. */
+type PlateEnds = {
+  fromWidth: number;
+  fromLocalFacing: Vec3;
+  toWidth: number;
+  toLocalFacing: Vec3;
+};
+
+/** Door-aligned threshold plates: a flat slab reaching from each portal plane INTO the
+ *  ROOM (never over the connector floor), spanning the doorway footprint at ANY join
+ *  angle (aligned to the DOOR's wall plane, not the connector axis — the oblique-wedge
+ *  fix), its top a THRESH_LIP proud of portal floor level. Room-side-only by construction:
+ *  the oblique-join jamb wedge lives room-side (the room floor's inner edge recedes behind
+ *  the portal plane), while the connector-side jamb triangles are already covered by the
+ *  connector floors' own SEAM_OVERLAP overshoot past each portal plane — so a room-side
+ *  plate keeps full wedge coverage AND can never overhang the connector floor at a climbing
+ *  end (any pitch, either end, either direction). */
+function thresholdPlates(
+  plates: PlateEnds,
+  dh: number,
+  run: number,
+): ConnectorBox[] {
+  const mk = (width: number, lf: Vec3, portal: Vec3): ConnectorBox => {
+    // Offset the plate fully into the ROOM: −THRESH_DEPTH/2 along the TRUE (signed) local
+    // facing — the room side of the portal plane. y is unchanged (portal already carries it).
+    const half = THRESH_DEPTH / 2;
+    const box: ConnectorBox = {
+      center: [portal[0] - lf[0] * half, portal[1], portal[2] - lf[2] * half],
+      size: [width + 2 * THRESH_SIDE, FLOOR_THICK, THRESH_DEPTH],
+    };
+    // Rotate to the door's wall plane. The box is π-symmetric about its own centre, so the
+    // yaw is taken mod π (the sign lost here is irrelevant to the rotation, unlike the offset).
+    const psi = Math.atan2(lf[0], lf[2]);
+    const yaw = psi - Math.PI * Math.round(psi / Math.PI);
+    if (Math.abs(yaw) > 1e-9) {
+      const q = quat.fromAxisAngle(
+        quat.create(),
+        vec3.fromValues(0, 1, 0),
+        yaw,
+      );
+      box.rotation = [q[0], q[1], q[2], q[3]] as [
+        number,
+        number,
+        number,
+        number,
+      ];
+    }
+    return box;
+  };
+  const cy = THRESH_LIP - FLOOR_THICK / 2; // top at portalY + THRESH_LIP
+  return [
+    mk(plates.fromWidth, plates.fromLocalFacing, [0, cy, 0]),
+    mk(plates.toWidth, plates.toLocalFacing, [0, dh + cy, run]),
+  ];
+}
+
 /** Enclosure boxes — side walls + (tube-style) ceilings — as vertical-walled rings
  *  quantized along the climb (≤ RING_RISE floor rise per ring). Pitched slabs cannot
  *  end flush against a vertical door plane (their end faces lean along-climb), so every
@@ -444,6 +507,7 @@ function buildConnectorLocal(
   dh: number,
   run: number,
   ends: EndKinds,
+  plates: PlateEnds,
   open: boolean,
 ): {
   meshes: RegionMesh[];
@@ -452,6 +516,7 @@ function buildConnectorLocal(
 } {
   const boxes = [
     ...floorBoxes(kind, section.width, dh, run),
+    ...thresholdPlates(plates, dh, run),
     ...enclosureBoxes(section, dh, run, ends, open),
   ];
   return {
@@ -490,15 +555,25 @@ export function route(
       `route: descending connector needs run >= ${LANDING_LEN + MIN_CLIMB_RUN} m for its arrival landing (got ${run.toFixed(2)})`,
     );
   }
+  const yaw = Math.atan2(dir[0], dir[2]);
+  // The portal's TRUE (signed) facing in the connector's local frame — threads through to
+  // thresholdPlates, which needs the sign to offset each plate onto its room side.
+  const localFacing = (facing: Vec3): Vec3 =>
+    rotateY(facing, Math.cos(-yaw), Math.sin(-yaw));
   const local = buildConnectorLocal(
     kind,
     connectorSection(from, to),
     dh,
     run,
     { from: from.kind, to: to.kind },
+    {
+      fromWidth: from.width,
+      fromLocalFacing: localFacing(from.facing),
+      toWidth: to.width,
+      toLocalFacing: localFacing(to.facing),
+    },
     opts?.enclosure === "open",
   );
-  const yaw = Math.atan2(dir[0], dir[2]);
   const region: RegionData = {
     meshes: local.meshes,
     colliders: local.colliders,

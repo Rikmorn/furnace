@@ -221,7 +221,7 @@ test("ramp: descending gets a flat arrival landing; ascending has none (single p
     kind: "ramp",
   });
   const { floors: ascFloors } = splitEnclosure(asc, 2, 8, 3);
-  expect(ascFloors.length).toBe(1);
+  expect(ascFloors.length).toBe(3); // single pitched slab (no landing) + 2 threshold plates
 });
 
 /** True when a quaternion (x,y,z,w) is (numerically) the identity rotation. `placePiece`
@@ -582,6 +582,29 @@ function colliderAabb(c: RegionCollider): Aabb {
   ]);
 }
 
+/** Is world-space point p inside collider c (cuboid, optionally yaw-rotated)? */
+function pointInCollider(c: RegionCollider, p: Vec3): boolean {
+  if (!("cuboid" in c.shape)) return false;
+  const q = c.rotation ?? ([0, 0, 0, 1] as [number, number, number, number]);
+  const d: Vec3 = [
+    p[0] - c.position[0],
+    p[1] - c.position[1],
+    p[2] - c.position[2],
+  ];
+  // rotate d by conjugate(q) — yaw-only quats: q = [0, sinθ/2, 0, cosθ/2]
+  const theta = 2 * Math.atan2(q[1], q[3]);
+  const cos = Math.cos(-theta);
+  const sin = Math.sin(-theta);
+  const lx = d[0] * cos + d[2] * sin;
+  const lz = -d[0] * sin + d[2] * cos;
+  const h = c.shape.cuboid;
+  return (
+    Math.abs(lx) <= h[0] + 1e-9 &&
+    Math.abs(d[1]) <= h[1] + 1e-9 &&
+    Math.abs(lz) <= h[2] + 1e-9
+  );
+}
+
 /** Classify a +Z, from-at-origin connector's colliders. Walls hug the ±x edges;
  *  ceilings are centred boxes whose underside sits at/above the local climb line +
  *  headroom; everything else is floor (slab or steps). */
@@ -609,7 +632,7 @@ function splitEnclosure(
 test("corridor tube: floor + 2 walls + 1 ceiling, sealed, flush at door planes", () => {
   const r = route(conn([0, 0, 0], [0, 0, 1]), conn([0, 0, 6], [0, 0, -1]));
   const { walls, ceilings, floors } = splitEnclosure(r, 0, 6, 3);
-  expect(floors.length).toBe(1);
+  expect(floors.length).toBe(3); // corridor slab + 2 threshold plates
   expect(walls.length).toBe(2);
   expect(ceilings.length).toBe(1);
   const c = ceilings[0] as Aabb;
@@ -645,7 +668,7 @@ test("ramp tube: ringed enclosure, interior >= headroom, ring ceilings overlap-s
   const run = 8; // pitch ~14° → auto ramp
   const r = route(conn([0, 0, 0], [0, 0, 1]), conn([0, dh, run], [0, 0, -1]));
   const { walls, ceilings, floors } = splitEnclosure(r, dh, run, 3);
-  expect(floors.length).toBe(1); // single pitched slab — ascending has no landing
+  expect(floors.length).toBe(3); // single pitched slab (ascending, no landing) + 2 threshold plates
   const nRings = Math.ceil(dh / RING_RISE); // ascending: linear over the full run → dh/RING_RISE
   expect(ceilings.length).toBe(nRings);
   expect(walls.length).toBe(2 * nRings);
@@ -673,7 +696,7 @@ test("descending forced stairs: ringed tube over the mirrored steps, no gap unde
     kind: "stairs",
   });
   const { walls, ceilings, floors, climbAt } = splitEnclosure(r, dh, run, 3);
-  expect(floors.length).toBe(8); // 6 mirrored steps (ceil(2/(STEP_HEIGHT−STEP_MARGIN))) + landing + top apron
+  expect(floors.length).toBe(10); // 6 mirrored steps (ceil(2/(STEP_HEIGHT−STEP_MARGIN))) + landing + top apron + 2 threshold plates
   const nRings = Math.ceil(((2 / (run - LANDING_LEN)) * run) / RING_RISE); // (2/2.0)·4/0.25 = 16
   expect(ceilings.length).toBe(nRings);
   expect(walls.length).toBe(2 * nRings);
@@ -756,5 +779,57 @@ test("stair floors carry end aprons: the walking surface spans past both portal 
   }
   for (let z = run - LANDING_LEN; z <= run + 0.5; z += 0.1) {
     expect(supported(z, dh)).toBe(true); // lower portal threshold (the gate hole)
+  }
+});
+
+test("threshold plates: one per end, lipped above portal floor, sized door+margin", () => {
+  const r = route(P([0, 0, 0], [0, 0, 1]), P([0, 0, 6], [0, 0, -1]));
+  const { floors } = splitEnclosure(r, 0, 6, 3);
+  expect(floors.length).toBe(3); // corridor slab + 2 plates
+  // Plates sit THRESH_LIP (0.015) proud of the floor; 1e-6 floor-guards the corridor
+  // slab whose top is ~0 but a float32-epsilon positive (5.96e-9 via the gl-matrix aabb).
+  const plates = floors.filter((b) => b.max[1] > 1e-6 && b.max[1] < 0.1);
+  expect(plates.length).toBe(2);
+  for (const p of plates) {
+    expect(p.max[1]).toBeCloseTo(0.015, 5); // THRESH_LIP proud of the floor
+    expect(p.max[0] - p.min[0]).toBeCloseTo(2 + 0.6, 5); // door width + 2·THRESH_SIDE
+    expect(p.max[2] - p.min[2]).toBeCloseTo(0.6, 5); // THRESH_DEPTH
+  }
+  const zs = plates.map((p) => (p.min[2] + p.max[2]) / 2).sort((a, b) => a - b);
+  expect(zs[0]).toBeCloseTo(-0.3, 5); // offset THRESH_DEPTH/2 ROOM-SIDE of each portal plane
+  expect(zs[1]).toBeCloseTo(6.3, 5);
+});
+
+test("threshold plate is DOOR-aligned at an oblique join (the 54° wedge repro)", () => {
+  // `to` portal 54° off the connector axis (within the 60° facing gate).
+  const a = (54 * Math.PI) / 180;
+  const to: Connection = {
+    position: [0, 0, 6],
+    facing: [-Math.sin(a), 0, -Math.cos(a)],
+    width: 2,
+    height: 3,
+    kind: "door",
+  };
+  const r = route(P([0, 0, 0], [0, 0, 1]), to);
+  // The wedge points: just past each jamb corner ALONG THE WALL (perpendicular to the door
+  // facing), nudged 0.1 m ROOM-SIDE of the portal plane (−to.facing, since to.facing points
+  // INTO the connector) — the plate boundary now sits AT the plane, so sampling on it is
+  // boundary-fragile. A connector-axis-aligned plate misses one corner; a door-aligned one
+  // covers both.
+  const wall: Vec3 = [Math.cos(a), 0, -Math.sin(a)]; // ⟂ to facing, horizontal
+  for (const sgn of [1, -1]) {
+    const corner: Vec3 = [
+      to.position[0] + sgn * wall[0] * 0.9 - to.facing[0] * 0.1,
+      0,
+      to.position[2] + sgn * wall[2] * 0.9 - to.facing[2] * 0.1,
+    ];
+    const covered = r.colliders.some((c) => {
+      if (!("cuboid" in c.shape)) return false;
+      const top = c.position[1] + c.shape.cuboid[1];
+      return (
+        top > 0 && top < 0.1 && pointInCollider(c, [corner[0], 0, corner[2]])
+      );
+    });
+    expect(covered).toBe(true);
   }
 });
