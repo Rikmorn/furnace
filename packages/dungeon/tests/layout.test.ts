@@ -4,13 +4,14 @@ import {
   connectorSection,
   ENCLOSURE_TOP_PAD,
   LANDING_LEN,
+  walkLineAt,
 } from "../src/connect.ts";
 import {
   CLEARANCE_SEGMENT,
   clearanceBoxes,
   layoutWorld,
 } from "../src/layout.ts";
-import type { Connection, RegionData, Vec3 } from "../src/region.ts";
+import type { Aabb, Connection, RegionData, Vec3 } from "../src/region.ts";
 import type { WorldGraph } from "../src/world-graph.ts";
 
 /** A simple room: 8×3×8 solid-walled box with doors on given sides (door at wall centre,
@@ -261,6 +262,46 @@ test("clearanceBoxes: tops padded by ENCLOSURE_TOP_PAD above the climbing headro
   expect(top).toBeCloseTo(2 + 3 + ENCLOSURE_TOP_PAD, 5); // to.y + headroom + pad
   const halfW = Math.max(...boxes.map((b) => b.max[0]));
   expect(halfW).toBeCloseTo(connectorSection(from, to).width / 2, 5); // same footprint authority
+});
+
+test("clearanceBoxes: segments flatten over the low-end landing (the lintel fix)", () => {
+  const from: Connection = {
+    position: [0, 2, 0],
+    facing: [0, 0, 1],
+    width: 2,
+    height: 3,
+    kind: "door",
+  };
+  const to: Connection = {
+    position: [0, 0, 8],
+    facing: [0, 0, -1],
+    width: 2,
+    height: 3,
+    kind: "door",
+  };
+  const boxes = clearanceBoxes(from, to);
+  const last = boxes[boxes.length - 1] as Aabb; // z ∈ [6, 8] — the low-portal segment
+  // Its top must follow walkLineAt (flat at the portal), NOT the linear profile.
+  const expected =
+    2 +
+    Math.max(walkLineAt(-2, 8, 6), walkLineAt(-2, 8, 8)) +
+    3 +
+    ENCLOSURE_TOP_PAD;
+  expect(last.max[1]).toBeCloseTo(expected, 5);
+  // Strictly below the old linear top (2 + max(-1.5, -2) + 3 + PAD = 4.05):
+  expect(last.max[1]).toBeLessThan(
+    2 + -2 * (6 / 8) + 3 + ENCLOSURE_TOP_PAD + 1e-9,
+  );
+  // Floor side of the same fix: a mid-climb segment's floor dips BELOW the old linear
+  // model — the under-reservation the fix corrects. boxes[1] is the z∈[2,4] segment
+  // (CLEARANCE_SEGMENT=2, run=8 → 4 ascending-z segments); confirm via its shoulder-
+  // invariant z-centre (min[2]/max[2] carry the ±w/2 cross-section pad).
+  const mid = boxes[1] as Aabb;
+  expect((mid.min[2] + mid.max[2]) / 2).toBeCloseTo(3, 5); // the z ∈ [2, 4] segment
+  const midFloor = 2 + Math.min(walkLineAt(-2, 8, 2), walkLineAt(-2, 8, 4));
+  expect(mid.min[1]).toBeCloseTo(midFloor, 5); // follows walkLineAt, not the linear run
+  // Strictly below the old linear floor at that segment (2 + min(-0.5, -1.0) = 1.0):
+  expect(mid.min[1]).toBeLessThan(2 + Math.min(-2 * (2 / 8), -2 * (4 / 8)));
 });
 
 test("edge enclosure styles reach the connector: default tube has a ceiling, 'open' has rails only", () => {

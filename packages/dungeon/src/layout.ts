@@ -16,6 +16,7 @@ import {
   placePiece,
   route,
   SHOULDER,
+  walkLineAt,
 } from "./connect.ts";
 import { Occupancy, type Solid, voxelCellsOf } from "./occupancy.ts";
 import type {
@@ -114,9 +115,10 @@ function solidsOf(region: RegionData): Solid[] {
   });
 }
 
-/** The reserved walking air between two portals, as axis-aligned segments that follow
- *  the (possibly climbing) straight run — a headroom clearance volume, not just a floor
- *  slab. Cross-section comes from {@link connectorSection}, and the top is padded by
+/** The reserved walking air between two portals, as axis-aligned segments that follow the
+ *  connector's {@link walkLineAt} profile — landing included — so the reserved air matches the
+ *  built floor, NOT a straight linear run. A headroom clearance volume, not just a floor slab.
+ *  Cross-section comes from {@link connectorSection}, and the top is padded by
  *  ENCLOSURE_TOP_PAD so the reserved air covers the connector's enclosure (ceiling slab
  *  + ring quantization wobble). Exported: the layout↔connect containment contract is
  *  unit-tested against it. */
@@ -135,12 +137,11 @@ export function clearanceBoxes(from: Connection, to: Connection): Aabb[] {
     const x1 = from.position[0] + dx * t1;
     const z0 = from.position[2] + dz * t0;
     const z1 = from.position[2] + dz * t1;
-    const yLo = from.position[1] + Math.min(dh * t0, dh * t1);
+    const y0 = walkLineAt(dh, run, t0 * run);
+    const y1 = walkLineAt(dh, run, t1 * run);
+    const yLo = from.position[1] + Math.min(y0, y1);
     const yHi =
-      from.position[1] +
-      Math.max(dh * t0, dh * t1) +
-      headroom +
-      ENCLOSURE_TOP_PAD;
+      from.position[1] + Math.max(y0, y1) + headroom + ENCLOSURE_TOP_PAD;
     out.push({
       min: [Math.min(x0, x1) - w / 2, yLo, Math.min(z0, z1) - w / 2],
       max: [Math.max(x0, x1) + w / 2, yHi, Math.max(z0, z1) + w / 2],

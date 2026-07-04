@@ -175,9 +175,10 @@ export const MIN_CLIMB_RUN = 1.0;
  *  +Z. Directional: ascending (and flat/degenerate) runs are LINEAR over the full run (no
  *  landing — the low end is a departure); a DESCENDING run is linear from the high (z=0) end
  *  to (run − LANDING_LEN, dh), then FLAT y=dh across the arrival landing to z=run.
- *  `enclosureBoxes`' `floorAt` reads this profile directly, and `floorBoxes` builds walking
- *  geometry that matches it by construction (ascending linear; descending landing). Clamps
- *  outside [0, run]. */
+ *  `enclosureBoxes`' `floorAt` reads this profile directly, `floorBoxes` builds walking
+ *  geometry that matches it by construction (ascending linear; descending landing), and
+ *  layout.ts `clearanceBoxes` reserves its air along the same profile — so the built floor and
+ *  the placer's reserved air are single-sourced and cannot drift. Clamps outside [0, run]. */
 export function walkLineAt(dh: number, run: number, z: number): number {
   const zc = Math.min(Math.max(z, 0), run);
   if (run <= 1e-6) return 0;
