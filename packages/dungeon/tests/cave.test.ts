@@ -110,3 +110,62 @@ test("cave spires are a solid scatter layer with world-frame placements", () => 
   expect(p0?.position[0]).toBeCloseTo(spires?.transforms[12] as number, 5);
   expect(p0?.position[2]).toBeCloseTo(spires?.transforms[14] as number, 5);
 });
+
+test("explicit mouths: N usable collared doors, free cardinals, no legacy entrance", () => {
+  const region = cave({
+    theme: "cave",
+    seed: "b2-cave-1",
+    origin: [0, 0, 0],
+    mouths: 3,
+  });
+  expect(region.connections.length).toBe(3);
+  for (const c of region.connections) {
+    expect(c.kind).toBe("door");
+    expect(c.width).toBe(2);
+    expect(c.height).toBe(2.8);
+  }
+  const keys = region.connections.map((c) => `${c.facing[0]},${c.facing[2]}`);
+  expect(new Set(keys).size).toBe(3);
+  expect(region.meshes.length).toBe(1 + 4 * 3);
+});
+
+test("capped bores: plugged, excluded from connections, prefix-stable with the open twin", () => {
+  const open = cave({
+    theme: "cave",
+    seed: "b2-cave-2",
+    origin: [0, 0, 0],
+    mouths: 3,
+    capped: 0,
+  });
+  const capped = cave({
+    theme: "cave",
+    seed: "b2-cave-2",
+    origin: [0, 0, 0],
+    mouths: 2,
+    capped: 1,
+  });
+  expect(capped.connections.length).toBe(2);
+  expect(capped.connections[0]).toEqual(open.connections[0]!);
+  expect(capped.connections[1]).toEqual(open.connections[1]!);
+  expect(capped.meshes.length).toBe(1 + 4 * 3 + 1);
+  const plug = capped.colliders.find(
+    (c) =>
+      "cuboid" in c.shape &&
+      Math.abs(c.shape.cuboid[0] - 1) < 1e-9 &&
+      Math.abs(c.shape.cuboid[1] - 1.4) < 1e-9 &&
+      Math.abs(c.shape.cuboid[2] - 0.6) < 1e-9,
+  );
+  expect(plug).toBeDefined();
+  const third = open.connections[2]!;
+  expect(plug!.position[0]).toBeCloseTo(third.position[0], 6);
+  expect(plug!.position[2]).toBeCloseTo(third.position[2], 6);
+});
+
+test("mouths+capped beyond 4 cardinals throws setup-loud", () => {
+  expect(() =>
+    cave({ theme: "cave", seed: "s", origin: [0, 0, 0], mouths: 3, capped: 2 }),
+  ).toThrow(/cardinal/);
+  expect(() =>
+    cave({ theme: "cave", seed: "s", origin: [0, 0, 0], mouths: 0 }),
+  ).toThrow(/mouths/);
+});

@@ -21,6 +21,7 @@ import {
   GENERATOR_VERSION,
   type RegionData,
 } from "../src/region.ts";
+import { cave } from "../src/themes/cave.ts";
 import {
   bunWebGpuAvailable,
   ensureBunWebGpu,
@@ -242,6 +243,58 @@ test.skipIf(!bunWebGpuAvailable())(
     expect(intoJamb).not.toBeNull();
     expect(intoJamb ? intoJamb.point[0] : -1).toBeCloseTo(1.0, 2); // jamb inner face
     for (const r of [realized]) r.destroy();
+    cache.destroy();
+    physics.destroyWorld(ctx, world);
+    gpu.dispose(ctx);
+  },
+);
+
+test.skipIf(!bunWebGpuAvailable())(
+  "capped mouth: the plug blocks the bore a same-seed open cave passes",
+  async () => {
+    const canvas = await makeOffscreenCanvas();
+    const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
+    const world = await physics.createWorld(ctx, { gravity: [0, -9.81, 0] });
+    const cache = new MaterialCache(ctx);
+    const open = cave({
+      theme: "cave",
+      seed: "b2-cap-probe",
+      origin: [0, 0, 0],
+      mouths: 2,
+      capped: 0,
+    });
+    const capped = cave({
+      theme: "cave",
+      seed: "b2-cap-probe",
+      origin: [0, 0, 0],
+      mouths: 1,
+      capped: 1,
+    });
+    const realized = await realizeRegion(ctx, world, cache, capped);
+    physics.step(ctx, world, DT);
+    const door = open.connections[1]!;
+    const probe = physics.castRay(ctx, world, {
+      origin: [
+        door.position[0] + door.facing[0] * 1.0,
+        door.position[1] + 1.2,
+        door.position[2] + door.facing[2] * 1.0,
+      ],
+      dir: [-door.facing[0], 0, -door.facing[2]],
+      maxDistance: 4,
+    });
+    expect(probe).not.toBeNull();
+    const usable = capped.connections[0]!;
+    const through = physics.castRay(ctx, world, {
+      origin: [
+        usable.position[0] + usable.facing[0] * 0.9,
+        usable.position[1] + 1.2,
+        usable.position[2] + usable.facing[2] * 0.9,
+      ],
+      dir: [-usable.facing[0], 0, -usable.facing[2]],
+      maxDistance: 1.9,
+    });
+    expect(through).toBeNull();
+    realized.destroy();
     cache.destroy();
     physics.destroyWorld(ctx, world);
     gpu.dispose(ctx);

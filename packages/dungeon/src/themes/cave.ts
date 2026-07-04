@@ -1,7 +1,7 @@
 import type { ShapeDescriptor } from "@furnace/core/physics";
 import { create as makeRng, type Rng } from "@furnace/core/rng";
 import { aabbUnion } from "../aabb.ts";
-import { mouthCollar } from "../built.ts";
+import { mouthCap, mouthCollar } from "../built.ts";
 import {
   boxCavern,
   capsuleCavern,
@@ -135,13 +135,68 @@ type Node = { center: Vec3; half: Vec3 };
 type Branch = { mouth: Vec3; dir: Vec3 };
 type Graph = { hub: Node; branches: Branch[] };
 
+const ALL_DIRS: Vec3[] = [
+  [1, 0, 0],
+  [0, 0, 1],
+  [-1, 0, 0],
+  [0, 0, -1],
+];
+
+/** Params for the `cave` theme. Absent `mouths`/`capped` (both) selects the LEGACY
+ *  single-quadrant + hardcoded entrance path; either present selects the new
+ *  free-cardinal path. See `cave`'s TSDoc for the full contract. */
+export type CaveParams = RegionParams & {
+  /** Usable (door-presenting) mouths, 1..4. Absent (with `capped` absent) = legacy path. */
+  mouths?: number;
+  /** Extra sealed bores (collar + plug, excluded from connections). Default 0. */
+  capped?: number;
+};
+
+/** New-path graph builder: `total` bores fanned onto DISTINCT cardinals (all four, no
+ *  quadrant restriction). PREFIX-STABLE by construction: the cardinal pool is shuffled
+ *  once over ALL FOUR cardinals (the shuffle loop always runs `ALL_DIRS.length` times,
+ *  regardless of `total`) and each bore's length draws from a stream keyed by its INDEX
+ *  (`len${i}`, on the same parent rng — `Rng.derive` is a pure function of its label, so
+ *  it doesn't matter how many bores are ultimately requested). So the same seed with a
+ *  different `total` (or the same `total` split differently between usable/sealed by the
+ *  caller) reproduces an identical bore prefix — capping a bore never reshuffles the
+ *  others' geometry. */
+function buildGraphN(rng: Rng, total: number): Graph {
+  const hub: Node = { center: [0, FLOOR_Y + HUB_HALF[1], 0], half: HUB_HALF };
+  const chosen = rng.derive("dirs");
+  const pool: Vec3[] = [...ALL_DIRS];
+  const order: Vec3[] = [];
+  for (const _ of ALL_DIRS) {
+    const idx = chosen.int(0, pool.length);
+    order.push(pool[idx] as Vec3);
+    pool.splice(idx, 1);
+  }
+  const branches: Branch[] = [];
+  for (let i = 0; i < total; i++) {
+    const dir = order[i] as Vec3;
+    const len =
+      BRANCH_LEN_MIN + rng.derive(`len${i}`).float() * BRANCH_LEN_RANGE;
+    branches.push({
+      mouth: [
+        hub.center[0] + dir[0] * len,
+        FLOOR_Y,
+        hub.center[2] + dir[2] * len,
+      ],
+      dir,
+    });
+  }
+  return { hub, branches };
+}
+
+// MIGRATION (until B2 Task 9): legacy +X/+Z quadrant path for the hand-authored world;
+// delete once that world moves onto `buildGraphN`'s free-cardinal path.
 /** Seeded graph: a hub + 2..3 tunnels, each ending at a mouth where a room attaches.
  *  Branches are tunnels only (no branch-end chamber): the attached room IS the branch
  *  destination, so a cave chamber there would duplicate the room's footprint and bury
  *  the cave's solid far wall inside the walkable room — the dead-end the composed
  *  walk-probe stalled against. The cave therefore tapers out at the mouth and the room
  *  extends beyond it. */
-function buildGraph(rng: Rng): Graph {
+function buildGraphLegacy(rng: Rng): Graph {
   const hub: Node = { center: [0, FLOOR_Y + HUB_HALF[1], 0], half: HUB_HALF };
   // The wing attaches to the authored level on its -Z (entrance) and -X (the level
   // extends west of the attachment — corridor/main spine) sides, so branches fan only
@@ -183,7 +238,7 @@ function chamberField(n: Node): Field {
   );
 }
 
-function buildField(rng: Rng, graph: Graph): Field {
+function buildField(rng: Rng, graph: Graph, legacyEntrance: boolean): Field {
   // Route tunnels at floor height (axis Y = FLOOR_Y + TUNNEL_R) so the tube floor
   // (axis − TUNNEL_R) lands at FLOOR_Y, continuous with the hub floor (centre-height
   // routing left a ~1m floor hump the controller stalled on). The tunnel's far endpoint
@@ -213,18 +268,20 @@ function buildField(rng: Rng, graph: Graph): Field {
   // The entrance Connection alone is just metadata; without this the -Z wall is solid rock
   // (an invisible wall the player can't cross). Like a branch tunnel but toward -Z, no room —
   // it opens to the authored chamber through the cut doorway. Floor-routed (TUNNEL_Y) so the
-  // bore floor is continuous with the hub floor.
-  parts.push(
-    capsuleCavern(
-      graph.hub.center[0],
-      TUNNEL_Y,
-      graph.hub.center[2],
-      graph.hub.center[0],
-      TUNNEL_Y,
-      graph.hub.center[2] - HUB_HALF[2] - TUNNEL_OVERSHOOT,
-      TUNNEL_R,
-    ),
-  );
+  // bore floor is continuous with the hub floor. // MIGRATION (until B2 Task 9): legacy-only.
+  if (legacyEntrance) {
+    parts.push(
+      capsuleCavern(
+        graph.hub.center[0],
+        TUNNEL_Y,
+        graph.hub.center[2],
+        graph.hub.center[0],
+        TUNNEL_Y,
+        graph.hub.center[2] - HUB_HALF[2] - TUNNEL_OVERSHOOT,
+        TUNNEL_R,
+      ),
+    );
+  }
   const base = smoothUnion(BLEND, ...parts);
   return yTaperedNoiseDisplace(
     base,
@@ -292,17 +349,51 @@ function gridWorldBounds(grid: GridConfig, origin: Vec3): Aabb {
   };
 }
 
-/** Branching cave region: a hub chamber with 2–3 smooth-union capsule tunnels fanning
- *  out to mouths where rooms attach, roughened by Y-tapered noise. Produces the rock
- *  mesh, a voxel collision proxy, and — per the built-interface doctrine — a masonry
- *  COLLAR at every raw mouth (branches + the -Z entrance): each collar's boxes are
- *  masonry meshes/cuboid colliders, and the region's `connections` are the collars'
- *  door-class portals (entrance first, order preserved) at the collar mid-depth, so
- *  every cave seam collapses to the proven built↔built (door) case. */
-export function cave(p: RegionParams): RegionData {
+/** Branching cave region: a hub chamber with 2–4 smooth-union capsule tunnels fanning
+ *  out to mouths where rooms attach (or where a masonry cap seals an unused mouth),
+ *  roughened by Y-tapered noise. Produces the rock mesh, a voxel collision proxy, and —
+ *  per the built-interface doctrine — a masonry COLLAR at every raw mouth: each collar's
+ *  boxes are masonry meshes/cuboid colliders, and the region's `connections` are the
+ *  USABLE collars' door-class portals at the collar mid-depth, so every cave seam
+ *  collapses to the proven built↔built (door) case.
+ *
+ *  Two paths, selected by whether `mouths`/`capped` are given:
+ *  - **New path** (either present): `mouths + capped` bores on DISTINCT cardinals, chosen
+ *    from all four — the +X/+Z-only quadrant restriction was a property of the
+ *    hand-authored world this theme originally served, not of the theme itself. Every
+ *    bore is collared; the LAST `capped` collars are sealed with a `mouthCap` plug and
+ *    excluded from `connections`. There is no separate hardcoded entrance bore on this
+ *    path — every mouth is a branch-style bore.
+ *  - **Legacy path** (both absent): byte-identical to the original single-quadrant
+ *    (+X/+Z) + hardcoded -Z entrance behaviour.
+ *    // MIGRATION (until B2 Task 9): kept only for the hand-authored world; delete once
+ *    that world moves onto the new path.
+ *
+ *  PREFIX-STABILITY (new path): the cardinal pool is shuffled once over all four
+ *  cardinals and per-bore rng streams are keyed by bore INDEX (not by the usable/sealed
+ *  split), so the same seed with different `mouths`/`capped` counts sharing the same
+ *  total produces an identical bore prefix — capping a bore never reshuffles the
+ *  others' geometry.
+ *
+ * @throws if the new path's `mouths` is < 1, or `mouths + capped` exceeds the 4
+ *   available cardinals. */
+export function cave(p: CaveParams): RegionData {
   const rng = makeRng(p.seed);
-  const graph = buildGraph(rng.derive("graph"));
-  const field = buildField(rng, graph);
+  const legacy = p.mouths === undefined && p.capped === undefined; // MIGRATION (until B2 Task 9)
+  const mouths = p.mouths ?? 0;
+  const capped = p.capped ?? 0;
+  if (!legacy) {
+    if (mouths < 1) throw new Error("cave: mouths must be >= 1");
+    if (capped < 0 || mouths + capped > ALL_DIRS.length) {
+      throw new Error(
+        `cave: mouths + capped must fit the ${ALL_DIRS.length} distinct cardinals (got ${mouths}+${capped})`,
+      );
+    }
+  }
+  const graph = legacy
+    ? buildGraphLegacy(rng.derive("graph"))
+    : buildGraphN(rng.derive("graph"), mouths + capped);
+  const field = buildField(rng, graph, legacy);
   const grid = buildGrid(graph);
   const mesh = surfaceNets(field, grid);
   const vox = voxelsFromField(field, grid, [CELL, PROXY_VOXEL_Y, CELL]);
@@ -322,18 +413,24 @@ export function cave(p: RegionParams): RegionData {
     }),
   );
 
-  // Entrance: -Z mouth of the hub, where the area attaches to the authored level.
-  const entrance: Connection = {
-    position: [p.origin[0], p.origin[1] + FLOOR_Y, p.origin[2] - HUB_HALF[2]],
-    facing: [0, 0, -1],
-    width: ENTRANCE_WIDTH,
-    height: HUB_HALF[1] * 2,
-    kind: "tunnel-mouth",
-  };
-
   // The RAW organic mouths (bore-sized), before collaring. Keep-outs and collars both
-  // derive from these same centres/facings.
-  const rawMouths = [entrance, ...branchConnections];
+  // derive from these same centres/facings. Legacy prepends the hardcoded -Z entrance;
+  // the new path has no separate entrance — every mouth is a branch-style bore.
+  let rawMouths: Connection[];
+  if (legacy) {
+    // Entrance: -Z mouth of the hub, where the area attaches to the authored level.
+    // MIGRATION (until B2 Task 9): legacy-only.
+    const entrance: Connection = {
+      position: [p.origin[0], p.origin[1] + FLOOR_Y, p.origin[2] - HUB_HALF[2]],
+      facing: [0, 0, -1],
+      width: ENTRANCE_WIDTH,
+      height: HUB_HALF[1] * 2,
+      kind: "tunnel-mouth",
+    };
+    rawMouths = [entrance, ...branchConnections];
+  } else {
+    rawMouths = branchConnections;
+  }
 
   // Scatter keep-outs: convert each WORLD connection centre back to the cave's
   // LOCAL frame (scatter samples the local mesh), with a generous radius so
@@ -348,11 +445,13 @@ export function cave(p: RegionParams): RegionData {
   }));
 
   // Built-interface doctrine: grow a masonry collar at each raw mouth. Each presents a
-  // standardized door-class portal at the collar mid-depth; the cave's connections ARE
-  // these doors (entrance first, order preserved).
+  // standardized door-class portal at the collar mid-depth. On the new path, the LAST
+  // `capped` collars are sealed (plugged, excluded from connections); legacy has none.
   const collars = rawMouths.map((m) =>
     mouthCollar(m, { opening: DOOR_OPENING, envelope: BORE_ENVELOPE }),
   );
+  const usable = legacy ? collars : collars.slice(0, mouths);
+  const sealed = legacy ? [] : collars.slice(mouths);
   // Materials start with the wall material at index 0 (the mesh references it);
   // each scatter layer appends its material at index >= 1. Bake WORLD transforms
   // (offset = origin) so instances align with the mesh rendered at local+origin.
@@ -369,31 +468,30 @@ export function cave(p: RegionParams): RegionData {
   );
 
   // Append the masonry material (after scatter has appended its own materials) and bake
-  // the collar sleeves as box meshes + cuboid colliders. The collar boxes are authored in
-  // the caller (world) frame by `mouthCollar`, so they need no origin offset here.
+  // the collar sleeves + any seal plugs as box meshes + cuboid colliders. The collar/plug
+  // boxes are authored in the caller (world) frame by `mouthCollar`/`mouthCap`, so they
+  // need no origin offset here.
   const masonryIndex = materials.length;
   materials.push(MASONRY_MATERIAL);
-  const collarMeshes = collars.flatMap((cl) =>
-    cl.boxes.map((b) => {
-      const boxMesh: RegionMesh = {
-        geometry: { box: b.size },
-        material: masonryIndex,
-        position: b.center,
-      };
-      if (b.rotation) boxMesh.rotation = b.rotation;
-      return boxMesh;
-    }),
-  );
-  const collarColliders = collars.flatMap((cl) =>
-    cl.boxes.map((b) => {
-      const col: RegionCollider = {
-        shape: { cuboid: [b.size[0] / 2, b.size[1] / 2, b.size[2] / 2] },
-        position: b.center,
-      };
-      if (b.rotation) col.rotation = b.rotation;
-      return col;
-    }),
-  );
+  const plugBoxes = sealed.flatMap((cl) => mouthCap(cl.door).boxes);
+  const boxes = [...collars.flatMap((cl) => cl.boxes), ...plugBoxes];
+  const collarMeshes = boxes.map((b) => {
+    const boxMesh: RegionMesh = {
+      geometry: { box: b.size },
+      material: masonryIndex,
+      position: b.center,
+    };
+    if (b.rotation) boxMesh.rotation = b.rotation;
+    return boxMesh;
+  });
+  const collarColliders = boxes.map((b) => {
+    const col: RegionCollider = {
+      shape: { cuboid: [b.size[0] / 2, b.size[1] / 2, b.size[2] / 2] },
+      position: b.center,
+    };
+    if (b.rotation) col.rotation = b.rotation;
+    return col;
+  });
 
   return {
     meshes: [
@@ -405,7 +503,7 @@ export function cave(p: RegionParams): RegionData {
       ...collarColliders,
     ],
     materials,
-    connections: collars.map((cl) => cl.door), // order preserved: entrance first
+    connections: usable.map((cl) => cl.door), // order preserved
     instances,
     origin: p.origin,
     bounds: collars.reduce(
