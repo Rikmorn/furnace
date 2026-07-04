@@ -11,10 +11,16 @@ import { expect, test } from "bun:test";
 import * as gpu from "@furnace/core/gpu";
 import * as physics from "@furnace/core/physics";
 import { vec3 } from "@furnace/core/transform";
+import { aabbOfBoxes } from "../src/aabb.ts";
+import { mouthCollar } from "../src/built.ts";
 import { CharacterMover } from "../src/char-move.ts";
 import { route } from "../src/connect.ts";
 import { MaterialCache, realizeRegion } from "../src/realize.ts";
-import type { Connection } from "../src/region.ts";
+import {
+  type Connection,
+  GENERATOR_VERSION,
+  type RegionData,
+} from "../src/region.ts";
 import {
   bunWebGpuAvailable,
   ensureBunWebGpu,
@@ -162,6 +168,80 @@ test.skipIf(!bunWebGpuAvailable())(
     expect(sideOpen).not.toBeNull(); // the guardrail wall
     expect(sideOpen ? sideOpen.point[0] : -1).toBeCloseTo(21.1, 2); // inner face: w/2 − WALL_T = 1.1 out
     for (const r of realized) r.destroy();
+    cache.destroy();
+    physics.destroyWorld(ctx, world);
+    gpu.dispose(ctx);
+  },
+);
+
+test.skipIf(!bunWebGpuAvailable())(
+  "mouth collar: lintel blocks an upward cast, the opening passes a through cast",
+  async () => {
+    const canvas = await makeOffscreenCanvas();
+    const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
+    const world = await physics.createWorld(ctx, { gravity: [0, -9.81, 0] });
+    const cache = new MaterialCache(ctx);
+    const { boxes, door } = mouthCollar(
+      {
+        position: [0, 0, 0],
+        facing: [0, 0, 1],
+        width: 3.2,
+        height: 3.2,
+        kind: "tunnel-mouth",
+      },
+      {
+        opening: { width: 2, height: 2.8 },
+        envelope: { width: 4.2, height: 3.7 },
+      },
+    );
+    const region: RegionData = {
+      meshes: [],
+      colliders: boxes.map((b) => ({
+        shape: {
+          cuboid: [b.size[0] / 2, b.size[1] / 2, b.size[2] / 2] as [
+            number,
+            number,
+            number,
+          ],
+        },
+        position: b.center,
+        ...(b.rotation ? { rotation: b.rotation } : {}),
+      })),
+      materials: [],
+      connections: [door],
+      instances: [],
+      origin: [0, 0, 0],
+      bounds: aabbOfBoxes(boxes),
+      provenance: {
+        generatorId: "dungeon",
+        generatorVersion: GENERATOR_VERSION,
+        theme: "cave",
+        seed: "collar-probe",
+      },
+    };
+    const realized = await realizeRegion(ctx, world, cache, region);
+    physics.step(ctx, world, DT);
+    const upUnderLintel = physics.castRay(ctx, world, {
+      origin: [0, 1, -0.2],
+      dir: [0, 1, 0],
+      maxDistance: 10,
+    });
+    expect(upUnderLintel).not.toBeNull();
+    expect(upUnderLintel ? upUnderLintel.point[1] : -1).toBeCloseTo(2.8, 2); // lintel underside
+    const through = physics.castRay(ctx, world, {
+      origin: [0, 1.4, -3],
+      dir: [0, 0, 1],
+      maxDistance: 6,
+    });
+    expect(through).toBeNull(); // the opening prism is clear end to end
+    const intoJamb = physics.castRay(ctx, world, {
+      origin: [0, 1, -0.2],
+      dir: [1, 0, 0],
+      maxDistance: 10,
+    });
+    expect(intoJamb).not.toBeNull();
+    expect(intoJamb ? intoJamb.point[0] : -1).toBeCloseTo(1.0, 2); // jamb inner face
+    for (const r of [realized]) r.destroy();
     cache.destroy();
     physics.destroyWorld(ctx, world);
     gpu.dispose(ctx);
