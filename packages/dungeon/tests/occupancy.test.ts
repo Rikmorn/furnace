@@ -75,6 +75,51 @@ test("voxel solids respect body yaw (rotated grid queried in local frame)", () =
   ).toBeNull();
 });
 
+test("voxel solids at non-zero yaw: exact per-cell exemption (rotated door threading)", () => {
+  // A 90°-rotated wall: two jamb columns (local i=0, i=2) flanking a hollow bore/doorway
+  // (local i=1, no cells) — the "mouth collar" idiom (AGENTS.md) where a connector's
+  // clearance legitimately embeds into the jamb near the seam.
+  const coords: number[] = [];
+  for (const i of [0, 2]) for (const j of [0, 1]) coords.push(i, j, 0);
+  const solid = {
+    kind: "voxels" as const,
+    position: [0, 0, 0] as [number, number, number],
+    yaw: Math.PI / 2,
+    size: [1, 1, 1] as [number, number, number],
+    cells: voxelCellsOf(new Int32Array(coords)),
+  };
+  const occ = new Occupancy();
+  occ.addPiece("wall", box([-1, -1, -3], [2, 3, 0]), [solid]);
+  // Ry(90°) seats the jambs at world x∈[0,1], z∈[-1,0] (i=0) and z∈[-3,-2] (i=2); the
+  // doorway (air, i=1) is world z∈[-2,-1]. This clearance box threads the doorway and
+  // embeds 0.3m into each jamb.
+  const clearance = [box([-1, 0, -2.3], [2, 2, -0.7])];
+  const exempt = [box([-0.5, -0.5, -2.3], [1.5, 2.5, -0.7])];
+  // No exemption: the jamb embed is real rock outside any exemption — rejected.
+  expect(occ.checkClearance(clearance, ["wall", "y"], [])).not.toBeNull();
+  // A portal exemption covering the embed: passes (FAILS before the fix — the old
+  // `solid.yaw !== 0 → return true` shortcut never reaches the per-cell exemption test).
+  expect(occ.checkClearance(clearance, ["wall", "y"], exempt)).toBeNull();
+});
+
+test("voxel solids at 45° yaw: conservative per-cell AABB test (near-cell rejects, open air passes)", () => {
+  const solid = {
+    kind: "voxels" as const,
+    position: [0, 0, 0] as [number, number, number],
+    yaw: Math.PI / 4,
+    size: [1, 1, 1] as [number, number, number],
+    cells: voxelCellsOf(new Int32Array([0, 0, 0])),
+  };
+  const occ = new Occupancy();
+  occ.addPiece("rock", box([-1, -1, -1], [2, 2, 2]), [solid]);
+  // Ry(45°) envelopes local cell (0,0,0) to world x≈[0,1.41], z≈[-0.71,0.71] — exact only
+  // at cardinal yaws, conservative here. A query inside that envelope still rejects.
+  const nearCell = [box([0.3, 0, 0], [0.6, 1, 0.3])];
+  expect(occ.checkClearance(nearCell, ["rock", "y"], [])).not.toBeNull();
+  const openAir = [box([10, 0, 10], [11, 1, 11])];
+  expect(occ.checkClearance(openAir, ["rock", "y"], [])).toBeNull();
+});
+
 test("clearance vs envelopes: endpoint pieces exempt, third pieces reject", () => {
   const occ = new Occupancy();
   occ.addPiece("a", box([0, 0, 0], [4, 4, 4]), []);

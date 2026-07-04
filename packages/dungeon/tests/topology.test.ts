@@ -2,6 +2,7 @@
 // RegionData exists. Cheap to run across many seeds.
 import { expect, test } from "bun:test";
 import { minWalkableRun } from "../src/connect.ts";
+import { layoutWorld } from "../src/layout.ts";
 import type { RegionData } from "../src/region.ts";
 import { GENERATOR_VERSION } from "../src/region.ts";
 import {
@@ -207,4 +208,21 @@ test("anchor without a door-class portal 0 throws setup-loud", () => {
   const anchor = testAnchor();
   anchor.region = { ...anchor.region, connections: [] };
   expect(() => generateWorldGraph(anchor, "x")).toThrow(/anchor/);
+});
+
+// Pure integration smoke test: a generated topology graph fed end-to-end to the placer
+// (no GPU, no Rapier). Task 6a fixed the rotated-cave CLEARANCE false-reject (an unrotated-
+// only per-cell path that whole-grid-rejected every non-zero join yaw — see
+// occupancy.test.ts); a SEPARATE envelope-envelope blocker (BLOCK 2, escalated) still
+// prevents full placement, so this currently THROWS with a "could not place" /
+// envelope-envelope histogram. Flip to `.not.toThrow()` once BLOCK 2 lands — this keeps
+// the coverage gap visible and the suite honest.
+test("generated topology reaches the placer; full placement blocked by the escalated envelope bug (BLOCK 2)", () => {
+  for (const seed of ["world-b2-topology-0", "world-b2-topology-1"]) {
+    const graph = generateWorldGraph(testAnchor(), seed, {
+      targetRooms: 8,
+      sectors: [3, 3],
+    });
+    expect(() => layoutWorld(graph, seed)).toThrow(/could not place/);
+  }
 });

@@ -85,26 +85,55 @@ function voxelsIntersect(v: VoxelSolid, q: Aabb): boolean {
   return false;
 }
 
-/** The world AABB span of one voxel cell (unrotated fast path only). */
+/** The world AABB span of one voxel cell. Exact at yaw 0 (grid-aligned axes) and at any
+ *  cardinal (90°/180°/270°) yaw, which map axis-aligned cells to axis-aligned cells
+ *  exactly; a conservative axis-aligned over-cover of the rotated cell at oblique yaws.
+ *  Local→world matches `transformAabb`'s `Ry(θ)` convention: `wx = lx·cosθ + lz·sinθ`,
+ *  `wz = −lx·sinθ + lz·cosθ` (θ = `v.yaw`) — the inverse of `localEnvelope`'s world→local
+ *  rotation by `−yaw`. */
 function cellAabb(v: VoxelSolid, i: number, j: number, k: number): Aabb {
+  const minY = v.position[1] + j * v.size[1];
+  const maxY = v.position[1] + (j + 1) * v.size[1];
+  if (v.yaw === 0) {
+    return {
+      min: [v.position[0] + i * v.size[0], minY, v.position[2] + k * v.size[2]],
+      max: [
+        v.position[0] + (i + 1) * v.size[0],
+        maxY,
+        v.position[2] + (k + 1) * v.size[2],
+      ],
+    };
+  }
+  const c = Math.cos(v.yaw);
+  const s = Math.sin(v.yaw);
+  const lxs = [i * v.size[0], (i + 1) * v.size[0]];
+  const lzs = [k * v.size[2], (k + 1) * v.size[2]];
+  let minX = Infinity;
+  let maxX = -Infinity;
+  let minZ = Infinity;
+  let maxZ = -Infinity;
+  for (const lx of lxs) {
+    for (const lz of lzs) {
+      const wx = lx * c + lz * s;
+      const wz = -lx * s + lz * c;
+      if (wx < minX) minX = wx;
+      if (wx > maxX) maxX = wx;
+      if (wz < minZ) minZ = wz;
+      if (wz > maxZ) maxZ = wz;
+    }
+  }
   return {
-    min: [
-      v.position[0] + i * v.size[0],
-      v.position[1] + j * v.size[1],
-      v.position[2] + k * v.size[2],
-    ],
-    max: [
-      v.position[0] + (i + 1) * v.size[0],
-      v.position[1] + (j + 1) * v.size[1],
-      v.position[2] + (k + 1) * v.size[2],
-    ],
+    min: [minX + v.position[0], minY, minZ + v.position[2]],
+    max: [maxX + v.position[0], maxY, maxZ + v.position[2]],
   };
 }
 
 /** Does `solid` intersect `q` OUTSIDE all `exemptions`? A box solid is exempt when its
  *  intersection with `q` lies entirely inside one exemption box; a voxel solid is exempt
- *  per-cell. (Rotated voxel bodies take the conservative route: any hit cell counts
- *  unless the WHOLE query lies inside an exemption.) */
+ *  per-cell — enumerate present cells in the query's grid-frame range (any yaw), keep
+ *  only cells whose exact WORLD AABB (`cellAabb`) truly overlaps `q` (the grid-frame range
+ *  over-enumerates at non-cardinal yaws), and reject unless each such hit lies entirely
+ *  inside an exemption. */
 function solidHitsOutsideExemptions(
   solid: Solid,
   q: Aabb,
@@ -117,25 +146,19 @@ function solidHitsOutsideExemptions(
   }
   if (!voxelsIntersect(solid, q)) return false;
   if (exemptions.some((e) => aabbContains(e, q))) return false;
-  if (solid.yaw !== 0) return true; // conservative for rotated grids
 
-  const EPS = 1e-3;
-  const i0 = Math.floor((q.min[0] - solid.position[0] + EPS) / solid.size[0]);
-  const i1 =
-    Math.ceil((q.max[0] - solid.position[0] - EPS) / solid.size[0]) - 1;
-  const j0 = Math.floor((q.min[1] - solid.position[1] + EPS) / solid.size[1]);
-  const j1 =
-    Math.ceil((q.max[1] - solid.position[1] - EPS) / solid.size[1]) - 1;
-  const k0 = Math.floor((q.min[2] - solid.position[2] + EPS) / solid.size[2]);
-  const k1 =
-    Math.ceil((q.max[2] - solid.position[2] - EPS) / solid.size[2]) - 1;
+  const { min, max } = localEnvelope(solid, q);
+  const [i0, i1] = cellRange(min[0], max[0], solid.size[0]);
+  const [j0, j1] = cellRange(min[1], max[1], solid.size[1]);
+  const [k0, k1] = cellRange(min[2], max[2], solid.size[2]);
   for (let i = i0; i <= i1; i++) {
     for (let j = j0; j <= j1; j++) {
       for (let k = k0; k <= k1; k++) {
         if (!solid.cells.has(`${i},${j},${k}`)) continue;
         const ca = cellAabb(solid, i, j, k);
-        if (!exemptions.some((e) => aabbContains(e, aabbIntersection(ca, q))))
-          return true;
+        if (!aabbIntersects(ca, q)) continue; // over-enumerated, not a real hit
+        const hit = aabbIntersection(ca, q);
+        if (!exemptions.some((e) => aabbContains(e, hit))) return true;
       }
     }
   }
