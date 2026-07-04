@@ -108,8 +108,9 @@ const PROFILES: Record<SectorArchetype, ArchetypeProfile> = {
   },
 };
 
-/** Max portal count a theme can host (one per cardinal side / 4 cave bores). */
-const CAPACITY: Record<ThemeName, number> = {
+/** Max portal count a theme can host (one per cardinal side / 4 cave bores).
+ *  Exported for tests. */
+export const CAPACITY: Record<ThemeName, number> = {
   cave: 4,
   pillarHall: 4,
   greatHall: 1,

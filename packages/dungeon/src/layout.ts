@@ -150,14 +150,28 @@ export function clearanceBoxes(from: Connection, to: Connection): Aabb[] {
   return out;
 }
 
+// The exemption's vertical reach used to be `headroom + ENCLOSURE_TOP_PAD` — the
+// CONNECTOR's own clearance height. But the exemption answers a DIFFERENT question
+// ("how far does THIS portal's own built/organic structure reach above its floor"),
+// which is NOT bounded by the connector's headroom: a cave's rock overhang above a
+// mouth reaches the HUB's ceiling (~7m) and a greatHall's lintel reaches its own room
+// ceiling (up to 9m) — both far above a 2.8m door + 0.55m pad. Verified empirically
+// (2026-07-04 placement investigation): even a single-mouth cave's ENTRY edge, at
+// candidate yaw=0, rejected via `clearance-solid` against the cave's OWN rock or its
+// OWN collar lintel — candidate/yaw-INVARIANT. Floored at a constant covering every
+// current theme's worst case (greatHall height <= 9) with margin; never SMALLER than
+// the prior headroom-derived reach.
+const PORTAL_EXEMPT_ABOVE = 10; // m above portal floor — GATE-TUNE
+
 /** The exemption box around a portal — the connector is allowed to bore through its own
  *  endpoint pieces' solids here (a mouth necessarily pierces its own wall). The box
- *  reaches ENCLOSURE_TOP_PAD above the headroom (the connector may build its ceiling band
- *  there, and the padded clearance column must stay inside the exemption at the portal);
- *  PORTAL_EXEMPT_PAD is the LATERAL cross-section pad only. */
+ *  reaches at least PORTAL_EXEMPT_ABOVE above the portal floor — never less than the
+ *  connector's own headroom + ENCLOSURE_TOP_PAD, so its ceiling band always stays inside
+ *  the exemption at the portal; PORTAL_EXEMPT_PAD is the LATERAL cross-section pad only. */
 function portalExemption(portal: Connection, headroom: number): Aabb {
   const w = portal.width / 2 + SHOULDER + PORTAL_EXEMPT_PAD;
   const d = PORTAL_EXEMPT_DEPTH;
+  const above = Math.max(headroom + ENCLOSURE_TOP_PAD, PORTAL_EXEMPT_ABOVE);
   return {
     min: [
       portal.position[0] - w - d,
@@ -166,7 +180,7 @@ function portalExemption(portal: Connection, headroom: number): Aabb {
     ],
     max: [
       portal.position[0] + w + d,
-      portal.position[1] + headroom + ENCLOSURE_TOP_PAD,
+      portal.position[1] + above,
       portal.position[2] + w + d,
     ],
   };

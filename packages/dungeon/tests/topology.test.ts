@@ -7,6 +7,7 @@ import type { RegionData } from "../src/region.ts";
 import { GENERATOR_VERSION } from "../src/region.ts";
 import {
   _planTopology,
+  CAPACITY,
   DEFAULT_TOPOLOGY,
   generateWorldGraph,
   type TopologyConfig,
@@ -78,7 +79,6 @@ test("walkable by construction: every lengthRange floor ≥ minWalkableRun", () 
 });
 
 test("degree caps by construction: slot indices stay within theme capacity", () => {
-  const CAPACITY = { cave: 4, pillarHall: 4, greatHall: 1 } as const;
   for (const s of SEEDS) {
     const p = plan(s);
     const used = new Map<string, number>();
@@ -225,7 +225,10 @@ test("generated topology reaches the placer; full placement blocked by the escal
     });
     expect(() => layoutWorld(graph, seed)).toThrow(/could not place/);
   }
-});
+  // Task 0's A2 enlarged the portal exemption, so the bounded placer explores more
+  // candidates before exhausting on these still-unplaceable BLOCK-2 seeds (~5 s/seed):
+  // the throw is unchanged, only slower. Superseded when the B2c rebuild places these.
+}, 20_000);
 
 test("reserve guard: plan pass never throws across 2000 small-config seeds", () => {
   // Pre-fix baseline: 131/2000 threw "no free portal pair to close the macro ring".
