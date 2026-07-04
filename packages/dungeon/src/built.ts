@@ -97,3 +97,29 @@ export function mouthCollar(
     bounds: transformAabb(aabbOfBoxes(local), yaw, mouth.position),
   };
 }
+
+/** Seal a collared door with a full-depth masonry plug — the "cap" for a generated mouth
+ *  the topology didn't use (Warframe caps ≅ DunGen blockers). One box spanning exactly the
+ *  presented opening (the collar's jambs/lintel/sill already frame it) and the collar's
+ *  full sleeve depth, centred on the door portal (which sits at collar mid-depth). The
+ *  capped opening stops being a navigable Connection — the caller removes it from
+ *  `connections` and folds these boxes into the region's meshes + colliders. */
+export function mouthCap(door: Connection): { boxes: CollarBox[] } {
+  const depth = COLLAR_EMBED + COLLAR_PROUD;
+  const yaw = Math.atan2(door.facing[0], door.facing[2]);
+  let rotation: [number, number, number, number] | undefined;
+  if (Math.abs(yaw) > YAW_EPS) {
+    const q = quat.fromAxisAngle(quat.create(), vec3.fromValues(0, 1, 0), yaw);
+    rotation = [q[0], q[1], q[2], q[3]] as [number, number, number, number];
+  }
+  const box: CollarBox = {
+    center: [
+      door.position[0],
+      door.position[1] + door.height / 2,
+      door.position[2],
+    ],
+    size: [door.width, door.height, depth],
+  };
+  if (rotation) box.rotation = rotation;
+  return { boxes: [box] };
+}

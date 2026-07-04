@@ -1,7 +1,7 @@
 // The built-interface kit: a masonry collar at an organic mouth presents a
 // standardized door-class portal (built-interface doctrine). Pure geometry.
 import { expect, test } from "bun:test";
-import { mouthCollar } from "../src/built.ts";
+import { mouthCap, mouthCollar } from "../src/built.ts";
 import type { Connection, Vec3 } from "../src/region.ts";
 
 const OPTS = {
@@ -92,4 +92,40 @@ test("collar handles a non-cardinal facing (30°) with rotated boxes", () => {
 test("collar is a pure function (identical output for identical input)", () => {
   const m = mouth([1, 2, 3], [0, 0, -1]);
   expect(mouthCollar(m, OPTS)).toEqual(mouthCollar(m, OPTS));
+});
+
+test("mouthCap: one plug box filling the collared opening at the door plane", () => {
+  const door: Connection = {
+    position: [3, 1, -2],
+    facing: [0, 0, 1],
+    width: 2,
+    height: 2.8,
+    kind: "door",
+  };
+  const { boxes } = mouthCap(door);
+  expect(boxes.length).toBe(1);
+  const plug = boxes[0]!;
+  // spans the opening exactly, full collar depth (embed 0.8 + proud 0.4), centred on the door
+  expect(plug.size[0]).toBe(2);
+  expect(plug.size[1]).toBe(2.8);
+  expect(plug.size[2]).toBeCloseTo(1.2, 9); // depth = COLLAR_EMBED+COLLAR_PROUD; 0.8+0.4 is 1.2000000000000002 in IEEE-754
+  expect(plug.center[0]).toBeCloseTo(3, 9);
+  expect(plug.center[1]).toBeCloseTo(1 + 2.8 / 2, 9); // sits on the door's floor plane
+  expect(plug.center[2]).toBeCloseTo(-2, 9); // door is at collar mid-depth — plug centres there
+  expect(plug.rotation).toBeUndefined(); // cardinal facing → no quat
+});
+
+test("mouthCap: yawed facing carries a rotation and displaces along the facing axis", () => {
+  const f = Math.SQRT1_2;
+  const door: Connection = {
+    position: [0, 0, 0],
+    facing: [f, 0, f],
+    width: 2,
+    height: 2.8,
+    kind: "door",
+  };
+  const { boxes } = mouthCap(door);
+  expect(boxes[0]!.rotation).toBeDefined();
+  expect(boxes[0]!.center[0]).toBeCloseTo(0, 9); // centred on the door point
+  expect(boxes[0]!.center[2]).toBeCloseTo(0, 9);
 });
