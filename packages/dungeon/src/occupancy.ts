@@ -87,7 +87,9 @@ function voxelsIntersect(v: VoxelSolid, q: Aabb): boolean {
 
 /** The world AABB span of one voxel cell. Exact at yaw 0 (grid-aligned axes) and at any
  *  cardinal (90°/180°/270°) yaw, which map axis-aligned cells to axis-aligned cells
- *  exactly; a conservative axis-aligned over-cover of the rotated cell at oblique yaws.
+ *  exactly to floating-point precision (`cos(π/2) ≈ 6e-17`, not bit-zero — the EPS slack
+ *  elsewhere in this module absorbs it); a conservative axis-aligned over-cover of the
+ *  rotated cell at oblique yaws.
  *  Local→world matches `transformAabb`'s `Ry(θ)` convention: `wx = lx·cosθ + lz·sinθ`,
  *  `wz = −lx·sinθ + lz·cosθ` (θ = `v.yaw`) — the inverse of `localEnvelope`'s world→local
  *  rotation by `−yaw`. */
@@ -165,7 +167,7 @@ function solidHitsOutsideExemptions(
   return false;
 }
 
-type PieceEntry = { envelope: Aabb; solids: Solid[] };
+type PieceEntry = { envelopes: Aabb[]; solids: Solid[] };
 type ClearanceEntry = {
   boxes: Aabb[];
   endpoints: [string, string];
@@ -181,10 +183,11 @@ export class Occupancy {
   private readonly pieces = new Map<string, PieceEntry>();
   private readonly clearances = new Map<string, ClearanceEntry>();
 
-  /** Register a placed piece's envelope (rule 1/3 participant) and its solids (what
-   *  later clearances must not cross, barring a portal exemption). */
-  addPiece(id: string, envelope: Aabb, solids: Solid[]): void {
-    this.pieces.set(id, { envelope, solids });
+  /** Register a placed piece's claim boxes (rule 1/3 participant — a compound piece,
+   *  e.g. a cave, claims its carved features rather than its whole-grid `bounds`) and
+   *  its solids (what later clearances must not cross, barring a portal exemption). */
+  addPiece(id: string, envelopes: Aabb[], solids: Solid[]): void {
+    this.pieces.set(id, { envelopes, solids });
   }
 
   /** Commit a connector's reserved-air boxes. `slabSolids` (e.g. the floor slab) joins
@@ -206,15 +209,15 @@ export class Occupancy {
     this.clearances.delete(id);
   }
 
-  /** Rule 1 (+3 from the piece side): a candidate piece envelope vs placed envelopes and
-   *  vs committed clearance air. */
-  checkPieceEnvelope(env: Aabb): Rejection | null {
+  /** Rule 1 (+3 from the piece side): a candidate piece's claim boxes vs placed pieces'
+   *  claim boxes and vs committed clearance air — ANY box-pair intersecting rejects. */
+  checkPieceEnvelope(envs: Aabb[]): Rejection | null {
     for (const [id, p] of this.pieces) {
-      if (aabbIntersects(p.envelope, env))
+      if (p.envelopes.some((pe) => envs.some((e) => aabbIntersects(pe, e))))
         return { rule: "envelope-envelope", against: id };
     }
     for (const [id, c] of this.clearances) {
-      if (c.boxes.some((b) => aabbIntersects(b, env))) {
+      if (c.boxes.some((b) => envs.some((e) => aabbIntersects(b, e)))) {
         return { rule: "envelope-clearance", against: id };
       }
     }
@@ -235,7 +238,7 @@ export class Occupancy {
           }
         }
         const isEndpoint = id === endpoints[0] || id === endpoints[1];
-        if (!isEndpoint && aabbIntersects(p.envelope, q)) {
+        if (!isEndpoint && p.envelopes.some((e) => aabbIntersects(e, q))) {
           return { rule: "clearance-envelope", against: id };
         }
       }

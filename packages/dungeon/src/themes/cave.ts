@@ -53,6 +53,18 @@ const MATERIAL_SPECULAR: [number, number, number, number] = [
 ];
 const KEEPOUT_MIN_HALF_WIDTH = 1; // floor for a connection's half-width keep-out radius (m) — GATE-TUNE
 const KEEPOUT_PADDING = 0.6; // extra clearance added around every doorway/mouth (m) — GATE-TUNE
+// Tunnels route at floor height (axis Y) so the tube floor (axis − TUNNEL_R) lands at
+// FLOOR_Y, continuous with the hub floor. Module-level (not local to buildField) so
+// caveEnvelopes single-sources the same value for its bore slabs' vertical span.
+const TUNNEL_Y = FLOOR_Y + TUNNEL_R;
+// Compound-envelope claim padding: the voxelized shell (one CELL of quantization slop)
+// plus the noise-displacement amplitude (the field's surface can bulge by up to
+// NOISE_AMP in any direction away from the smooth-unioned math surface — see
+// yTaperedNoiseDisplace) — the worst-case distance a carved feature's real geometry can
+// reach beyond its nominal (HUB_HALF/TUNNEL_R) extent. BLOCK 2 (2026-07-04): caves claim
+// their real carved footprint via compound `envelopes` instead of the whole-grid
+// `bounds` (93–96% air), which over-claimed under placement Rule 1.
+const SHELL_PAD = CELL + NOISE_AMP;
 
 // Built-interface doctrine: every organic mouth grows a masonry collar presenting a
 // standardized door-class portal, so heterogeneous cave↔room seams collapse to the
@@ -246,7 +258,6 @@ function buildField(rng: Rng, graph: Graph, legacyEntrance: boolean): Field {
   // plane (the room attaches there) rather than tapering into the rounded capsule cap,
   // which would wall off the doorway. The overshoot cap lands just inside the room's
   // front, where the room's own floor/walls take over.
-  const TUNNEL_Y = FLOOR_Y + TUNNEL_R;
   const parts: Field[] = [chamberField(graph.hub)];
   for (const b of graph.branches) {
     const tipX = b.mouth[0] + b.dir[0] * TUNNEL_OVERSHOOT;
@@ -347,6 +358,67 @@ function gridWorldBounds(grid: GridConfig, origin: Vec3): Aabb {
       origin[2] + grid.min[2] + grid.dims[2] * grid.cellSize,
     ],
   };
+}
+
+/** BLOCK 2 (2026-07-04): the cave's compound placement claim — honest coverage of what
+ *  is actually carved, in place of `bounds` (the whole-grid AABB, measured 93–96% air).
+ *  Three box families, all padded by `SHELL_PAD` past their nominal (un-noised,
+ *  un-voxelized) extent:
+ *  - the **hub box**: `hub.center ± (hub.half + SHELL_PAD)`.
+ *  - **one slab per bore** (`mouths` — every branch, PLUS the legacy hardcoded −Z
+ *    entrance when present, since that is a real carved corridor too): from the hub
+ *    centre to the grid face along the bore's cardinal direction (cross-section half =
+ *    `TUNNEL_R + SHELL_PAD` around the perpendicular axis through the hub centre;
+ *    vertical span = the grid bottom to `TUNNEL_Y + TUNNEL_R + SHELL_PAD`). Starting the
+ *    along-axis span AT the hub centre (not the hub wall) deliberately overlaps the hub
+ *    box generously across the hub/bore seam (where `smoothUnion`'s blend can lift the
+ *    surface slightly past either shape's own boundary).
+ *  - each **collar's own `bounds`** (already an honest per-collar envelope; plug boxes
+ *    nest inside their collar's boxes, so no separate plug entry is needed).
+ *  `bounds` is UNCHANGED (still the coarse conservative cover — it already contains all
+ *  of this by construction, since it's a superset union of the same grid + collars). */
+function caveEnvelopes(
+  hub: Node,
+  mouths: Connection[],
+  gridBounds: Aabb,
+  origin: Vec3,
+  collarBounds: Aabb[],
+): Aabb[] {
+  const hubWorld: Vec3 = [
+    origin[0] + hub.center[0],
+    origin[1] + hub.center[1],
+    origin[2] + hub.center[2],
+  ];
+  const hubBox: Aabb = {
+    min: [
+      hubWorld[0] - (hub.half[0] + SHELL_PAD),
+      hubWorld[1] - (hub.half[1] + SHELL_PAD),
+      hubWorld[2] - (hub.half[2] + SHELL_PAD),
+    ],
+    max: [
+      hubWorld[0] + (hub.half[0] + SHELL_PAD),
+      hubWorld[1] + (hub.half[1] + SHELL_PAD),
+      hubWorld[2] + (hub.half[2] + SHELL_PAD),
+    ],
+  };
+  const crossHalf = TUNNEL_R + SHELL_PAD;
+  const yMin = gridBounds.min[1];
+  const yMax = origin[1] + TUNNEL_Y + TUNNEL_R + SHELL_PAD;
+  const boreSlabs: Aabb[] = mouths.map((m): Aabb => {
+    // Bores are always cardinal: exactly one horizontal facing component is non-zero.
+    const axis: 0 | 2 = m.facing[0] !== 0 ? 0 : 2;
+    const other: 0 | 2 = axis === 0 ? 2 : 0;
+    const sign = m.facing[axis];
+    const face = sign > 0 ? gridBounds.max[axis] : gridBounds.min[axis];
+    const min: Vec3 = [0, yMin, 0];
+    const max: Vec3 = [0, yMax, 0];
+    min[axis] = Math.min(hubWorld[axis], face);
+    max[axis] = Math.max(hubWorld[axis], face);
+    min[other] = hubWorld[other] - crossHalf;
+    max[other] = hubWorld[other] + crossHalf;
+    return { min, max };
+  });
+  return [hubBox, ...boreSlabs, ...collarBounds];
 }
 
 /** Branching cave region: a hub chamber with 2–4 smooth-union capsule tunnels fanning
@@ -493,6 +565,8 @@ export function cave(p: CaveParams): RegionData {
     return col;
   });
 
+  const gridBounds = gridWorldBounds(grid, p.origin);
+
   return {
     meshes: [
       { geometry: { custom: mesh }, material: 0, position: p.origin },
@@ -506,9 +580,13 @@ export function cave(p: CaveParams): RegionData {
     connections: usable.map((cl) => cl.door), // order preserved
     instances,
     origin: p.origin,
-    bounds: collars.reduce(
-      (acc, cl) => aabbUnion(acc, cl.bounds),
-      gridWorldBounds(grid, p.origin),
+    bounds: collars.reduce((acc, cl) => aabbUnion(acc, cl.bounds), gridBounds),
+    envelopes: caveEnvelopes(
+      graph.hub,
+      rawMouths,
+      gridBounds,
+      p.origin,
+      collars.map((cl) => cl.bounds),
     ),
     provenance: {
       generatorId: "dungeon",

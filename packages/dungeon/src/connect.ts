@@ -119,6 +119,7 @@ export function placePiece(region: RegionData, place: Placement): RegionData {
     instances,
     origin: xf(region.origin),
     bounds: transformAabb(region.bounds, yaw, t),
+    envelopes: region.envelopes?.map((e) => transformAabb(e, yaw, t)),
   };
 }
 

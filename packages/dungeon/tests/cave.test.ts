@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
-import type { RegionData, RegionMesh } from "../src/region.ts";
+import { aabbOfBoxes } from "../src/aabb.ts";
+import type { Aabb, RegionData, RegionMesh, Vec3 } from "../src/region.ts";
 import { cave } from "../src/themes/cave.ts";
 
 const params = {
@@ -168,4 +169,117 @@ test("mouths+capped beyond 4 cardinals throws setup-loud", () => {
   expect(() =>
     cave({ theme: "cave", seed: "s", origin: [0, 0, 0], mouths: 0 }),
   ).toThrow(/mouths/);
+});
+
+// BLOCK 2 (2026-07-04): the forcing invariant for compound `envelopes`. A cave's
+// `bounds` is measured 93–96% air (the whole-grid AABB), so placement Rule 1 must
+// instead check `envelopes` — tight compound claim boxes over what is ACTUALLY carved.
+// This property test is the gate on that claim's honesty: every voxel-proxy shell cell
+// and every collar/plug masonry box must lie inside the union of `envelopes`. If it
+// fails, the claim under-covers — grow the padding/extent, never weaken this test.
+
+/** All 8 corners of an AABB. */
+function corners(a: Aabb): Vec3[] {
+  const pts: Vec3[] = [];
+  for (let i = 0; i < 8; i++) {
+    pts.push([
+      i & 1 ? a.max[0] : a.min[0],
+      i & 2 ? a.max[1] : a.min[1],
+      i & 4 ? a.max[2] : a.min[2],
+    ]);
+  }
+  return pts;
+}
+
+const CONTAIN_EPS = 1e-6;
+
+function pointInAabb(p: Vec3, a: Aabb): boolean {
+  return (
+    p[0] >= a.min[0] - CONTAIN_EPS &&
+    p[0] <= a.max[0] + CONTAIN_EPS &&
+    p[1] >= a.min[1] - CONTAIN_EPS &&
+    p[1] <= a.max[1] + CONTAIN_EPS &&
+    p[2] >= a.min[2] - CONTAIN_EPS &&
+    p[2] <= a.max[2] + CONTAIN_EPS
+  );
+}
+
+/** Every corner of `box` lies inside AT LEAST ONE of `envelopes` — a box may legally
+ *  straddle the seam between two adjacent claim boxes, with different corners falling
+ *  in different envelope boxes; this is the "contained in the UNION" test. */
+function containedInUnion(box: Aabb, envelopes: Aabb[]): boolean {
+  return corners(box).every((p) => envelopes.some((e) => pointInAabb(p, e)));
+}
+
+/** Reconstruct every solid voxel cell's world AABB from a region's (single, un-placed —
+ *  yaw 0) voxel collider, matching `occupancy.ts`'s `cellAabb` yaw-0 branch. */
+function voxelCellAabbs(region: RegionData): Aabb[] {
+  const collider = region.colliders.find((c) => "voxels" in c.shape);
+  if (!collider || !("voxels" in collider.shape)) return [];
+  const { coords, size } = collider.shape.voxels;
+  const [px, py, pz] = collider.position;
+  const [sx, sy, sz] = size;
+  const out: Aabb[] = [];
+  for (let n = 0; n < coords.length; n += 3) {
+    const i = coords[n] as number;
+    const j = coords[n + 1] as number;
+    const k = coords[n + 2] as number;
+    out.push({
+      min: [px + i * sx, py + j * sy, pz + k * sz],
+      max: [px + (i + 1) * sx, py + (j + 1) * sy, pz + (k + 1) * sz],
+    });
+  }
+  return out;
+}
+
+function boxGeometry(m: RegionMesh): Vec3 {
+  if (!("box" in m.geometry)) throw new Error("expected a box mesh");
+  return m.geometry.box;
+}
+
+/** Every collar/plug masonry box mesh's world AABB. */
+function masonryBoxAabbs(region: RegionData): Aabb[] {
+  return region.meshes
+    .filter((m) => "box" in m.geometry)
+    .map((m) =>
+      aabbOfBoxes([
+        { center: m.position, size: boxGeometry(m), rotation: m.rotation },
+      ]),
+    );
+}
+
+function assertEnvelopesContainCarvedGeometry(r: RegionData): void {
+  expect(r.envelopes).toBeDefined();
+  const envelopes = r.envelopes as Aabb[];
+  for (const cell of voxelCellAabbs(r)) {
+    expect(containedInUnion(cell, envelopes)).toBe(true);
+  }
+  for (const b of masonryBoxAabbs(r)) {
+    expect(containedInUnion(b, envelopes)).toBe(true);
+  }
+}
+
+test("BLOCK 2: envelopes contain every voxel cell + masonry box (new path, several seeds)", () => {
+  for (const seed of ["b2-env-1", "b2-env-2", "b2-env-3"]) {
+    const r = cave({ theme: "cave", seed, origin: [3, -1, 5], mouths: 3 });
+    assertEnvelopesContainCarvedGeometry(r);
+  }
+});
+
+test("BLOCK 2: envelopes contain every voxel cell + masonry box (capped cave)", () => {
+  const r = cave({
+    theme: "cave",
+    seed: "b2-env-capped",
+    origin: [0, 0, 0],
+    mouths: 2,
+    capped: 1,
+  });
+  assertEnvelopesContainCarvedGeometry(r);
+});
+
+test("BLOCK 2: envelopes contain every voxel cell + masonry box (legacy path, several seeds)", () => {
+  for (const seed of ["cave-1", "A", "B", "wing-1", "walk-1"]) {
+    const r = cave({ ...params, seed });
+    assertEnvelopesContainCarvedGeometry(r);
+  }
 });

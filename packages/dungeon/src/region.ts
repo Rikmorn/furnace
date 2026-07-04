@@ -136,6 +136,15 @@ export type RegionData = {
   /** Envelope of all solid geometry (meshes + colliders) in the region's frame. The
    *  placement engine's piece-vs-piece broad-phase unit; `placePiece` transforms it. */
   bounds: Aabb;
+  /** The piece's honest claim boxes — what Rule 1 (piece-vs-piece interpenetration)
+   *  actually protects. Absent = `[bounds]` (box themes, whose `bounds` IS their real
+   *  footprint, are unaffected). A theme whose `bounds` is mostly air (e.g. a cave's
+   *  whole-grid AABB, 93–96% air) should instead emit tight compound boxes covering
+   *  its carved features, so Rule 1 doesn't reject on empty space. `bounds` still MUST
+   *  contain the union of `envelopes` — it stays the coarse conservative cover used
+   *  wherever a single box is needed. `placePiece` transforms each box exactly like
+   *  `bounds`, preserving absence. */
+  envelopes?: Aabb[];
   provenance: Provenance;
 };
 

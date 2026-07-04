@@ -283,7 +283,7 @@ export function layoutWorld(graph: WorldGraph, seed: string): LayoutResult {
     const placed = placePiece(n.region, n.pinned);
     placements.set(n.id, n.pinned);
     placedRegions.set(n.id, placed);
-    occ.addPiece(n.id, placed.bounds, solidsOf(placed));
+    occ.addPiece(n.id, placed.envelopes ?? [placed.bounds], solidsOf(placed));
   }
 
   const order = placementOrder(graph);
@@ -403,14 +403,15 @@ export function layoutWorld(graph: WorldGraph, seed: string): LayoutResult {
       };
       const placement = join(target, nodePortal);
       const placed = placePiece(node.region, placement);
-      const envRej = occ.checkPieceEnvelope(placed.bounds);
+      const envelopes = placed.envelopes ?? [placed.bounds];
+      const envRej = occ.checkPieceEnvelope(envelopes);
       if (envRej) {
         countFail(id, `${envRej.rule}:${envRej.against}`);
         continue;
       }
       placements.set(id, placement);
       placedRegions.set(id, placed);
-      occ.addPiece(id, placed.bounds, solidsOf(placed));
+      occ.addPiece(id, envelopes, solidsOf(placed));
       // Every edge whose OTHER endpoint is already placed must now close (tree seating + any
       // loop-closing edges to already-placed neighbours).
       const myEdges = graph.edges.filter(
