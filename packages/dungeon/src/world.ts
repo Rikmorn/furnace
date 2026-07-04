@@ -17,6 +17,7 @@
 // crossing on either hop.
 import { create as makeRng } from "@furnace/core/rng";
 import { aabbOfBoxes } from "./aabb.ts";
+import { type LayoutResult, layoutWorld } from "./layout.ts";
 import { CHAMBER_DOOR, LEVEL_BOXES } from "./level.ts";
 import type { Connection, RegionData } from "./region.ts";
 import { GENERATOR_VERSION } from "./region.ts";
@@ -24,9 +25,18 @@ import type { DoorSpec } from "./themes/box-room.ts";
 import { cave } from "./themes/cave.ts";
 import { greatHall } from "./themes/great-hall.ts";
 import { pillarHall } from "./themes/pillar-hall.ts";
-import type { WorldGraph } from "./world-graph.ts";
+import {
+  DEFAULT_TOPOLOGY,
+  generateWorldGraph,
+  type TopologyConfig,
+} from "./topology.ts";
+import type { WorldGraph, WorldNode } from "./world-graph.ts";
 
 export const WORLD_SEED = "world-1";
+/** Shipped seed — picked (B2 Task 6) as the first world-b2-N candidate that places on
+ *  attempt 0 AND carries the gate content: a ≥3 m descent, an open-enclosure connector,
+ *  and a capped cave bore. Re-pick by the same criteria if generator constants change. */
+export const GENERATED_SEED = "world-b2-0";
 
 // Elevated-room portals on the authored 2nd chamber's floor (x[5,15], z[-16,-4], open
 // top; east wall x=15 tops at y=6; the z=-10 detail wall spans x[5,15], y[3,9]).
@@ -217,6 +227,13 @@ export function buildWorldGraph(seed: string): WorldGraph {
         b: "upperA",
         aPortal: 1,
         bPortal: 0,
+        // Stays [8,13]: a min-10.5 retune to force a walkable ramp (rise 10, pitch < 45°)
+        // was measured to false-reject every seating via conservative rotated-AABB envelopes
+        // (envelope-envelope:authored) — the class Task 1's exact OBBs kill. So upperA can be
+        // EITHER walkable (run >= 10.5) OR placeable (run < 10) here, not both, until OBBs
+        // land. The "level↔wing seam" GPU walk stays the ONE known-accepted red carried since
+        // B2 Task 1's 45° ceiling (see docs/learnings/2026-07-04-dungeon-2.2.5b-b2-placement-
+        // wall.md); it heals when this hand graph is deleted in Task 12. GATE-TUNE.
         lengthRange: [8, 13],
         heightDelta: UPPER_HEIGHT,
       },
@@ -225,7 +242,10 @@ export function buildWorldGraph(seed: string): WorldGraph {
         b: "upperB",
         aPortal: 2,
         bPortal: 0,
-        lengthRange: [8, 13],
+        // [8,13] was BELOW minWalkableRun(17,"stairs") ≈ 14.2 m (49 risers × MIN_TREAD
+        // 0.29) — it only ever "worked" via an unrelated occupancy under-rejection (the A2
+        // exemption bug) that masked it. GATE-TUNE.
+        lengthRange: [14.5, 18],
         heightDelta: UPPER_HEIGHT_B,
         kind: "stairs",
       },
@@ -251,4 +271,48 @@ export function buildWorldGraph(seed: string): WorldGraph {
       { a: "landing", b: "hallA", aPortal: 1, bPortal: 1 },
     ],
   };
+}
+
+/** The generator's pinned anchor: the authored phantom exposing ONLY the chamber door
+ *  (the generated world's front door). The extra elevated portals the hand graph used
+ *  die with it in the B2 deletion pass. */
+function generatorAnchor(): WorldNode {
+  const region = authoredPhantom();
+  return {
+    id: "authored",
+    region: { ...region, connections: [CHAMBER_DOOR] },
+    pinned: { yaw: 0, translation: [0, 0, 0] },
+  };
+}
+
+/** Generate + place a world with bounded derived-seed retry: attempt k regenerates the
+ *  whole graph from `seed:k` and re-places. First success wins; exhausting the budget
+ *  throws setup-loud with every attempt's placer diagnostics (never retry-forever —
+ *  the research doc's named anti-pattern). Placement wall-time is logged per attempt
+ *  (perf is MEASURED, not gated — creaking at scale is prioritization signal). */
+export function buildWorld(
+  seed: string,
+  config?: Partial<TopologyConfig>,
+): { graph: WorldGraph; layout: LayoutResult; attempt: number } {
+  const cfg: TopologyConfig = { ...DEFAULT_TOPOLOGY, ...config };
+  const failures: string[] = [];
+  for (let k = 0; k < cfg.attempts; k++) {
+    const attemptSeed = k === 0 ? seed : `${seed}:${k}`;
+    const graph = generateWorldGraph(generatorAnchor(), attemptSeed, cfg);
+    try {
+      const t0 = performance.now();
+      const layout = layoutWorld(graph, attemptSeed);
+      console.info(
+        `[world] seed "${seed}" attempt ${k}: ${graph.nodes.length} nodes / ${graph.edges.length} edges placed in ${(performance.now() - t0).toFixed(0)} ms`,
+      );
+      return { graph, layout, attempt: k };
+    } catch (err) {
+      failures.push(
+        `attempt ${k} ("${attemptSeed}"): ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
+  throw new Error(
+    `world: seed "${seed}" failed all ${cfg.attempts} placement attempts —\n${failures.join("\n")}`,
+  );
 }
