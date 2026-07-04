@@ -72,3 +72,11 @@ planes, `SEAM_OVERLAP`-embedded ends at `tunnel-mouth` portals — with a per-ed
 tube's tunnel end still just embeds into the rock — nothing blends the isosurface to
 the tube mouth, and the room-side flush ends rely on the portal plane sitting inside
 the neighbour's wall thickness.
+
+**Phase B1 LANDED (2026-07-03, Slice 2.2.5b-B1).** Cave mouths now grow masonry
+COLLARS (`src/built.ts mouthCollar`, applied by `themes/cave.ts`) presenting
+standardized door-class portals; connectors flush-mate against the collar face and the
+irregular bore rim is masked by interpenetration. This entry now covers ONLY true
+isosurface↔built blending at the collar-to-rock contact (e.g. stamping a box SDF into
+the cave field at the mouth before meshing — the single-representation route the
+research doc §1 identifies as the only shipped blending pattern). Epic-3 territory.

@@ -33,14 +33,12 @@ Known rough edges feeding this:
 
 ## Trigger to revisit
 
-**Partially superseded.** Slice 2.2.4 replaced cardinal-snap placement + the `vestibule` bridge
-with the general `connect.ts join`/`route` primitive, and Slice 2.2.5a replaced `compose.ts`
-itself with `layout.ts`'s collision-aware graph placer (`compose.ts` is deleted). The
-"connection contract should be redesigned" half of this trigger has therefore already happened.
-What's still open is narrower: the cave-mouth/entrance-bore **aesthetics** (abrupt bore vs. a
-shaped opening) and the `cave.ts` branch-direction hard-constraint below — revisit when
-polishing generated-area visuals, or alongside `docs/backlog/dungeon/connector-geometry-stitching.md`
-(the general surface-stitching gap `route`/`join` still doesn't address).
+**Narrowed (2026-07-03, Slice 2.2.5b-B1):** the cave-mouth aesthetics half of this
+entry is RESOLVED — mouths now present built masonry collars (`src/built.ts`), so the
+"abrupt bore" look is gone. What remains open is only the `cave.ts` branch-direction
+hard-constraint (branches locked to the +X/+Z quadrant because the wing historically
+sat flush against the authored level) — revisit when the 2.2.5b-B2 generator wants
+caves placed in open space with free branch directions.
 
 ## Reference
 
