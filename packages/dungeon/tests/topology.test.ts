@@ -1,7 +1,6 @@
 // Pure plan-pass tests: the abstract topology (sectors, rooms, edges) before any
 // RegionData exists. Cheap to run across many seeds.
 import { expect, test } from "bun:test";
-import { aabbOfBoxes } from "../src/aabb.ts";
 import { minWalkableRun } from "../src/connect.ts";
 import type { RegionData } from "../src/region.ts";
 import { GENERATOR_VERSION } from "../src/region.ts";
