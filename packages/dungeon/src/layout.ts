@@ -23,7 +23,13 @@ import {
 } from "./connect.ts";
 import { LOCUS_SAMPLES, pairFeasible, sampleSeatLoci } from "./locus.ts";
 import { Occupancy, type Solid, voxelCellsOf } from "./occupancy.ts";
-import type { Aabb, Connection, RegionCollider, RegionData } from "./region.ts";
+import type {
+  Aabb,
+  Connection,
+  RegionCollider,
+  RegionData,
+  Vec3,
+} from "./region.ts";
 import {
   type NodeId,
   validateGraph,
@@ -36,6 +42,7 @@ const DEFAULT_LENGTH_RANGE: [number, number] = [2, 10];
 const MAX_ATTEMPTS = 25_000; // occupancy-checked candidates per restart — GATE-TUNE
 const MAX_RESTARTS = 8; // seeded restarts before the setup-loud throw — GATE-TUNE
 const MAX_UNIT_REVISIONS = 3; // re-seatings of a placed unit under backtracking — GATE-TUNE
+const MAX_BACKJUMP_POPS = 4; // units undone per blame-directed backjump — GATE-TUNE
 export const CLEARANCE_SEGMENT = 2; // m — climb clearance follows the slope in segments
 const PORTAL_EXEMPT_DEPTH = 2.5; // m — clearance-vs-solid exemption reach around a portal
 const PORTAL_EXEMPT_PAD = 0.3; // m — exemption box cross-section pad
@@ -318,6 +325,25 @@ const specMatch = (a: Connection, b: Connection): boolean =>
 function feasRange(e: WorldEdge): [number, number] {
   if (e.lengthRange) return e.lengthRange;
   return [DEFAULT_LENGTH_RANGE[0], Number.POSITIVE_INFINITY];
+}
+
+/** Midpoint of an edge's SEAT sampling window (not `feasRange`, whose default upper bound is
+ *  ∞) — the nominal connector length a steering estimate assumes. */
+function midLength(e: WorldEdge): number {
+  const [lo, hi] = e.lengthRange ?? DEFAULT_LENGTH_RANGE;
+  return (lo + hi) / 2;
+}
+
+/** Mean XZ half-extent of a region's local bounds — a rough radius used to space polygon
+ *  vertices so adjacent rooms don't overlap (each vertex sits ~one connector + both radii). */
+function extentXZ(region: RegionData): number {
+  const b = region.bounds;
+  return (b.max[0] - b.min[0] + (b.max[2] - b.min[2])) / 4;
+}
+
+/** Horizontal (XZ) distance between two world points. */
+function xzDist(a: Vec3, b: Vec3): number {
+  return Math.hypot(a[0] - b[0], a[2] - b[2]);
 }
 
 // ---------------------------------------------------------------------------------------
@@ -654,11 +680,55 @@ function forwardCheckOthers(
   return otherBinds;
 }
 
+/** Obligation points folded into a node's steering target: for each OTHER active edge, the
+ *  partner's nominal portal projected outward by a mid-length connector PLUS the node's own
+ *  radius — i.e. where the node's CENTRE would sit if it mated that partner. Kept in the same
+ *  room-centre space as the polygon target so the two average cleanly. Pulls a multi-edge node
+ *  toward satisfying all its partners at once. */
+function obligationPoints(
+  ctx: Ctx,
+  id: NodeId,
+  others: ActiveEdge[],
+  nodeHalf: number,
+): Vec3[] {
+  return others.map((oe): Vec3 => {
+    const e = oe.e;
+    const nodeIsA = e.a === id;
+    const partnerId = nodeIsA ? e.b : e.a;
+    const nomPartner = nodeIsA ? e.bPortal : e.aPortal;
+    const pp = placedPortal(
+      mustGet(ctx.placedRegions, partnerId, "placed region"),
+      nomPartner,
+    );
+    const reach = midLength(e) + nodeHalf;
+    return [
+      pp.position[0] + pp.facing[0] * reach,
+      pp.position[1] + pp.facing[1] * reach,
+      pp.position[2] + pp.facing[2] * reach,
+    ];
+  });
+}
+
+/** Component-wise mean of world points, or `undefined` for an empty set (no steering). */
+function averagePoint(pts: Vec3[]): Vec3 | undefined {
+  if (pts.length === 0) return undefined;
+  let x = 0;
+  let y = 0;
+  let z = 0;
+  for (const p of pts) {
+    x += p[0];
+    y += p[1];
+    z += p[2];
+  }
+  return [x / pts.length, y / pts.length, z / pts.length];
+}
+
 function placeNode(
   ctx: Ctx,
   id: NodeId,
   stream: string,
   explore = false,
+  polygonTarget?: Vec3,
 ): boolean {
   const node = mustGet(ctx.nodesById, id, "node");
   const active = activeEdges(ctx, id);
@@ -668,6 +738,19 @@ function placeNode(
   // structurally matches the [head, ...tail] tuple.
   const [seat, ...others] = active as [ActiveEdge, ...ActiveEdge[]];
   const r = ctx.rng.derive(`cand:${stream}`);
+
+  // The steering target: the polygon-target vertex (cycle members) averaged with the obligation
+  // points of every OTHER active edge. Absent for a plain tree node (single active edge, no
+  // polygon) — those keep the canonical align / explore shuffle below. Steering only REORDERS
+  // the candidate loci (canonical stays first); it never drops one, so completeness is preserved.
+  // All steering targets live in ROOM-CENTRE space (see `cycleAttachFrame`), so a candidate is
+  // ranked by the distance of its implied room centre — the seat portal projected outward by the
+  // node's radius — to the target.
+  const nodeHalf = extentXZ(node.region);
+  const steer = averagePoint([
+    ...(polygonTarget ? [polygonTarget] : []),
+    ...obligationPoints(ctx, id, others, nodeHalf),
+  ]);
 
   for (const seatBind of bindingCandidates(ctx, seat, id, r.derive("bind"))) {
     const parentPortal = boundParentPortal(ctx, seat, id, seatBind);
@@ -683,7 +766,31 @@ function placeNode(
       r.derive(`loci:${seatBind.parent}:${seatBind.node}`),
       LOCUS_SAMPLES,
     );
-    if (explore) {
+    if (steer && !explore) {
+      // Closure steering: bias the NON-canonical samples toward the steering target by stable
+      // XZ-distance sort (nearest-first), keeping the canonical sample FIRST. The candidate's
+      // implied room CENTRE (seat portal projected outward by the node's radius) is compared, so
+      // a centre-space target stays inside the reachable annulus. Replaces the shuffle/align for
+      // steered nodes; the explicit `idx` tiebreak keeps it deterministic regardless of sort
+      // stability. Reorders the SAME candidate set — never shrinks it.
+      // Boundary cast: sampleSeatLoci always returns the canonical sample at index 0.
+      const head = loci[0] as (typeof loci)[number];
+      const centreOf = (t: Connection): Vec3 => [
+        t.position[0] + t.facing[0] * nodeHalf,
+        t.position[1] + t.facing[1] * nodeHalf,
+        t.position[2] + t.facing[2] * nodeHalf,
+      ];
+      const ranked = loci
+        .slice(1)
+        .map((cand, idx) => ({
+          cand,
+          idx,
+          d: xzDist(centreOf(cand.target), steer),
+        }))
+        .sort((a, b) => a.d - b.d || a.idx - b.idx);
+      loci.length = 0;
+      loci.push(head, ...ranked.map((rk) => rk.cand));
+    } else if (explore) {
       shuffle(loci, r.derive(`explore:${seatBind.parent}:${seatBind.node}`));
     } else {
       // Canonical pass: prefer the STRAIGHTEST connectors (bearing nearest the parent
@@ -817,13 +924,173 @@ function cycleMemberOrder(ctx: Ctx, cyc: CycleUnit): NodeId[] {
   return order;
 }
 
+/** The attachment frame a cycle's polygon steers from: the walk-start member plus the world
+ *  position + outward heading of its already-placed parent portal. */
+type AttachFrame = { member: NodeId; pos: Vec3; heading: Vec3 };
+
+/** Order a cycle's members as the ring walk from `attach`, following member-to-member edges in
+ *  `cyc.edges`; each step records the graph-edge index taken (so the height chain can read its
+ *  `heightDelta`). Members the walk can't reach (degenerate adjacency) are appended in
+ *  `cyc.members` order — targets are a bias, so a partial ring still yields useful hints. */
+function cycleRingWalk(
+  cyc: CycleUnit,
+  edges: readonly WorldEdge[],
+  attach: NodeId,
+): { member: NodeId; viaEdge: number }[] {
+  const memberSet = new Set(cyc.members);
+  const adj = new Map<NodeId, { to: NodeId; edge: number }[]>();
+  // Process the tree edges before the closing edge, so each node's adjacency lists its tree
+  // neighbours first: the walk then follows the tree path (the SAME progression as the
+  // cycleMemberOrder placement) and treats the closing edge as the implicit wrap. Walking the
+  // closing edge first would traverse the ring in REVERSE of the placement direction, handing
+  // each member the polygon vertex on the wrong side — steering that fights the natural seat.
+  const ordered = [...cyc.edges].sort(
+    (a, b) => (a === cyc.closingEdge ? 1 : 0) - (b === cyc.closingEdge ? 1 : 0),
+  );
+  for (const ei of ordered) {
+    const e = edges[ei];
+    if (!e || !memberSet.has(e.a) || !memberSet.has(e.b)) continue;
+    adj.set(e.a, [...(adj.get(e.a) ?? []), { to: e.b, edge: ei }]);
+    adj.set(e.b, [...(adj.get(e.b) ?? []), { to: e.a, edge: ei }]);
+  }
+  const start = memberSet.has(attach) ? attach : (cyc.members[0] as NodeId);
+  const out: { member: NodeId; viaEdge: number }[] = [
+    { member: start, viaEdge: -1 },
+  ];
+  const visited = new Set<NodeId>([start]);
+  const usedEdges = new Set<number>();
+  let cur = start;
+  while (out.length < cyc.members.length) {
+    const next = (adj.get(cur) ?? []).find(
+      (nb) => !usedEdges.has(nb.edge) && !visited.has(nb.to),
+    );
+    if (!next) break;
+    usedEdges.add(next.edge);
+    visited.add(next.to);
+    out.push({ member: next.to, viaEdge: next.edge });
+    cur = next.to;
+  }
+  for (const m of cyc.members)
+    if (!visited.has(m)) out.push({ member: m, viaEdge: -1 });
+  return out;
+}
+
+/** Rough closure-steering targets: lay a cycle's members out as a regular closed n-gon so the
+ *  ring curls back toward its own closing window instead of drifting off. Ordered as the ring
+ *  walk from `attach.member`, the polygon starts one step out from `attach.pos` along
+ *  `attach.heading` and turns `curl · 2π/n` per vertex; per-member Y accumulates the signed edge
+ *  `heightDelta` chain. Uses the MEAN of the per-edge `distances` for EVERY step — a regular
+ *  n-gon closes to fp precision, whereas an irregular polygon under uniform turning would not —
+ *  so `distances` (keyed by cycle-edge index) only sets the overall scale. A BIAS on candidate
+ *  ORDER only, never a constraint on the candidate SET. Exported for the closure test. */
+export function _cycleTargets(
+  cyc: CycleUnit,
+  edges: readonly WorldEdge[],
+  attach: AttachFrame,
+  curl: number,
+  distances: Map<number, number>,
+): Map<NodeId, Vec3> {
+  const walk = cycleRingWalk(cyc, edges, attach.member);
+  const n = walk.length;
+  const targets = new Map<NodeId, Vec3>();
+  if (n === 0) return targets;
+  const ds = [...distances.values()];
+  const step = ds.length > 0 ? ds.reduce((a, b) => a + b, 0) / ds.length : 1;
+  const turn = (curl * 2 * Math.PI) / n;
+  const c = Math.cos(turn);
+  const s = Math.sin(turn);
+
+  const hLen = Math.hypot(attach.heading[0], attach.heading[2]) || 1;
+  let hx = attach.heading[0] / hLen;
+  let hz = attach.heading[2] / hLen;
+  let x = attach.pos[0] + hx * step;
+  let z = attach.pos[2] + hz * step;
+  let y = attach.pos[1];
+  // Boundary cast: n = walk.length > 0 (guarded above), so walk[0] exists.
+  const first = walk[0] as { member: NodeId; viaEdge: number };
+  targets.set(first.member, [x, y, z]);
+  for (let k = 1; k < n; k++) {
+    const nx = hx * c + hz * s;
+    const nz = -hx * s + hz * c;
+    hx = nx;
+    hz = nz;
+    x += hx * step;
+    z += hz * step;
+    // Boundary cast: k < n = walk.length, so walk[k] is in-bounds.
+    const seg = walk[k] as { member: NodeId; viaEdge: number };
+    if (seg.viaEdge >= 0) {
+      const e = edges[seg.viaEdge];
+      if (e) y += (e.heightDelta ?? 0) * (e.b === seg.member ? 1 : -1);
+    }
+    targets.set(seg.member, [x, y, z]);
+  }
+  return targets;
+}
+
+/** The polygon target scale per cycle edge: `mid(lengthRange) + extent(a) + extent(b)`, so
+ *  adjacent vertices sit roughly one connector plus both room radii apart. */
+function cycleDistances(ctx: Ctx, cyc: CycleUnit): Map<number, number> {
+  const out = new Map<number, number>();
+  for (const ei of cyc.edges) {
+    const e = ctx.graph.edges[ei];
+    if (!e) continue;
+    const ra = ctx.nodesById.get(e.a)?.region;
+    const rb = ctx.nodesById.get(e.b)?.region;
+    const ext = (ra ? extentXZ(ra) : 0) + (rb ? extentXZ(rb) : 0);
+    out.set(ei, midLength(e) + ext);
+  }
+  return out;
+}
+
+/** The attachment frame for a cycle whose members are about to place: the MRV-first member and
+ *  the seat parent's ROOM CENTRE + outward heading — the fixed point the steering polygon curls
+ *  away from. The centre (portal position pulled back behind the door by the parent's radius) is
+ *  used so the polygon walks CENTRE-to-CENTRE distances that stay inside each member's reachable
+ *  annulus; anchoring at the door would overshoot every vertex by a room radius, pushing every
+ *  seat to max length and inflating the ring. `null` if the first member has no placed neighbour
+ *  yet (no anchor — the caller then skips steering). */
+function cycleAttachFrame(
+  ctx: Ctx,
+  order: readonly NodeId[],
+): AttachFrame | null {
+  const member = order[0];
+  if (member === undefined) return null;
+  const seat = activeEdges(ctx, member)[0];
+  if (!seat) return null;
+  const parentId = seat.e.a === member ? seat.e.b : seat.e.a;
+  const parentRegion = ctx.placedRegions.get(parentId);
+  if (!parentRegion) return null;
+  const nomParent = seat.e.a === member ? seat.e.bPortal : seat.e.aPortal;
+  const portal = placedPortal(parentRegion, nomParent);
+  const half = extentXZ(parentRegion);
+  const pos: Vec3 = [
+    portal.position[0] - portal.facing[0] * half,
+    portal.position[1] - portal.facing[1] * half,
+    portal.position[2] - portal.facing[2] * half,
+  ];
+  return { member, pos, heading: portal.facing };
+}
+
 /** Place a whole cycle unit with bounded in-cycle backtracking over a frozen member order:
  *  place each member via `placeNode`; on a member failing, undo the previous member and
  *  retry it with a bumped sub-revision (up to MAX_UNIT_REVISIONS total re-seatings), else
  *  undo every member placed here and fail. `placeNode`'s forward checking + `commitEdges`
- *  close the cycle's loop edge when the last incident member is placed. */
+ *  close the cycle's loop edge when the last incident member is placed. Closure steering biases
+ *  each member toward its polygon-target vertex; `curl` flips per revision (the cheap second
+ *  hypothesis — an odd revision mirrors the ring). */
 function placeCycle(ctx: Ctx, cyc: CycleUnit, rev: number): boolean {
   const order = cycleMemberOrder(ctx, cyc);
+  const attach = cycleAttachFrame(ctx, order);
+  const curl = rev % 2 === 0 ? 1 : -1;
+  const targets = attach
+    ? _cycleTargets(
+        cyc,
+        ctx.graph.edges,
+        attach,
+        curl,
+        cycleDistances(ctx, cyc),
+      )
+    : new Map<NodeId, Vec3>();
   const placedHere: NodeId[] = [];
   const memberRev = new Map<NodeId, number>();
   let sweeps = 0;
@@ -844,6 +1111,7 @@ function placeCycle(ctx: Ctx, cyc: CycleUnit, rev: number): boolean {
       id,
       `c:${cyc.closingEdge}:${rev}:${id}:${mrev}`,
       explore,
+      targets.get(id),
     );
     if (ok) {
       placedHere.push(id);
@@ -898,6 +1166,90 @@ function fail(ctx: Ctx): { failing: NodeId; detail: string } {
   const detail =
     [...hist].map(([k, v]) => `${k}×${v}`).join(", ") || "no candidates";
   return { failing, detail };
+}
+
+/** Whether a node is a frozen pin — a backjump can never pop it. */
+function isPinned(ctx: Ctx, id: NodeId): boolean {
+  return ctx.nodesById.get(id)?.pinned !== undefined;
+}
+
+/** Resolve one fail-histogram key to the PLACED piece it blames, or null. An
+ *  `envelope-envelope:<id>` key blames `<id>`; an `edge[fwd]:*` / `edge[commit]:*` key blames the
+ *  placed partner of its trailing edge index (relative to `failing`). Other keys (clearance
+ *  rules against connectors, route throws) don't name a poppable piece. */
+function resolveBlame(ctx: Ctx, failing: NodeId, key: string): NodeId | null {
+  const EE = "envelope-envelope:";
+  if (key.startsWith(EE)) return key.slice(EE.length);
+  if (key.startsWith("edge[fwd]:") || key.startsWith("edge[commit]:")) {
+    const parts = key.split(":");
+    const ei = Number(parts[parts.length - 1]);
+    if (!Number.isInteger(ei)) return null;
+    const edge = ctx.graph.edges[ei];
+    if (!edge) return null;
+    return edge.a === failing ? edge.b : edge.a;
+  }
+  return null;
+}
+
+/** The most-blamed PLACED, non-pinned piece in a node's fail histogram — the conflict a
+ *  backjump should target — or null when no key resolves to a poppable placed piece. Ties break
+ *  by count, then id, so the choice is deterministic. */
+function blamePiece(ctx: Ctx, failing: NodeId): NodeId | null {
+  const hist = ctx.failCounts.get(failing);
+  if (!hist) return null;
+  let best: NodeId | null = null;
+  let bestCount = -1;
+  for (const [key, count] of hist) {
+    const blamed = resolveBlame(ctx, failing, key);
+    if (blamed === null || blamed === failing) continue;
+    if (!ctx.placements.has(blamed) || isPinned(ctx, blamed)) continue;
+    const better =
+      count > bestCount ||
+      (count === bestCount && (best === null || blamed < best));
+    if (better) {
+      bestCount = count;
+      best = blamed;
+    }
+  }
+  return best;
+}
+
+/** The node whose foreclosure a just-failed unit blames: a tree node's own id, or the cycle
+ *  member carrying the most accumulated candidate failures (deterministic id tiebreak). */
+function unitFailingNode(ctx: Ctx, unit: PlacedUnit): NodeId {
+  if (unit.kind === "node") return unit.id;
+  const members = unit.unit.members;
+  let best = members[0] ?? unit.unit.members.join("");
+  let bestTotal = -1;
+  for (const m of members) {
+    const total = [...(ctx.failCounts.get(m)?.values() ?? [])].reduce(
+      (a, b) => a + b,
+      0,
+    );
+    if (total > bestTotal) {
+      bestTotal = total;
+      best = m;
+    }
+  }
+  return best;
+}
+
+/** Whether a placed unit holds a given node id. */
+function unitHolds(u: PlacedUnit, id: NodeId): boolean {
+  return u.kind === "node" ? u.id === id : u.unit.members.includes(id);
+}
+
+/** The `unitHistory` index of the unit holding the piece most blamed for `unit`'s failure, or
+ *  -1 when nothing poppable is blamed — feeds blame-directed backjumping (jump straight back to
+ *  the conflict source instead of only popping the immediately-previous unit). */
+function blameUnitIndex(
+  ctx: Ctx,
+  unit: PlacedUnit,
+  history: PlacedUnit[],
+): number {
+  const blamed = blamePiece(ctx, unitFailingNode(ctx, unit));
+  if (blamed === null) return -1;
+  return history.findIndex((u) => unitHolds(u, blamed));
 }
 
 function assembleResult(ctx: Ctx): LayoutResult {
@@ -1032,9 +1384,28 @@ function tryLayout(
     }
 
     // Cross-unit backtracking: undo the previous unit and re-place it with a bumped revision
-    // stream, popping further when a unit's revisions exhaust.
+    // stream, popping further when a unit's revisions exhaust. Blame-directed backjumping: on
+    // the FIRST backtrack for this failure, if the piece most blamed for the foreclosure sits
+    // DEEPER in the history than the immediately-previous unit, pop the intervening units
+    // straight down to it (re-queuing them into pending) so the normal pop + bumped re-seat
+    // below moves the ACTUAL conflict source — a 1-step pop-previous can never reach a cross-unit
+    // foreclosure. Bounded to MAX_BACKJUMP_POPS undone units per failure (the deepest reached
+    // stays; the rest re-place fresh via the outer loop).
     let revised = false;
+    let firstBacktrack = true;
     while (unitHistory.length > 0 && !revised) {
+      if (firstBacktrack) {
+        firstBacktrack = false;
+        const target = blameUnitIndex(ctx, unit, unitHistory);
+        if (target >= 0 && target < unitHistory.length - 1) {
+          const above = unitHistory.length - 1 - target;
+          const intermediate = Math.min(above, MAX_BACKJUMP_POPS - 1);
+          for (let k = 0; k < intermediate; k++) {
+            // Boundary cast: k < intermediate <= unitHistory.length-1, so pop() returns a unit.
+            undoUnit(unitHistory.pop() as PlacedUnit);
+          }
+        }
+      }
       // Boundary cast: the `unitHistory.length > 0` loop guard proves `pop()` returns a unit.
       const prev = unitHistory.pop() as PlacedUnit;
       undoUnit(prev);

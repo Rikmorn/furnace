@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { aabbIntersects } from "../src/aabb.ts";
+import type { CycleUnit } from "../src/chains.ts";
 import {
   connectorSection,
   ENCLOSURE_TOP_PAD,
@@ -7,6 +8,7 @@ import {
   walkLineAt,
 } from "../src/connect.ts";
 import {
+  _cycleTargets,
   CLEARANCE_SEGMENT,
   clearanceBoxes,
   type LayoutResult,
@@ -14,7 +16,7 @@ import {
 } from "../src/layout.ts";
 import { pairFeasible } from "../src/locus.ts";
 import type { Aabb, Connection, RegionData, Vec3 } from "../src/region.ts";
-import type { NodeId, WorldGraph } from "../src/world-graph.ts";
+import type { NodeId, WorldEdge, WorldGraph } from "../src/world-graph.ts";
 
 /** A simple room: 8×3×8 solid-walled box with doors on given sides (door at wall centre,
  *  floor y=0). Solids = one collider per wall so clearance tests have real geometry. */
@@ -605,5 +607,140 @@ describe("cycle units", () => {
       const pb = regionPortal(result, g, e.b, bind.bPortal);
       expect(pairFeasible(pa, pb, e.lengthRange ?? [2, 10])).toBe(true);
     }
+  });
+});
+
+/** A pinned anchor plus an EIGHT-room ring (r0…r7, closing r7→r0), every room a spec-identical
+ *  4-door box, every edge a TIGHT [3, 6] window. Exercises closure steering end-to-end: the
+ *  cycle placer computes octagon polygon targets (`_cycleTargets`) and biases each member's
+ *  canonical seat toward its vertex. A regression guard that the ring still closes with steering
+ *  ACTIVE — steering is a candidate-order bias, so it stays outcome-neutral here (see the Task 7B
+ *  report: rigid 4-door boxes turn 90°±45°, so a regular octagon needs no steering to close). */
+function eightRingFixture(): WorldGraph {
+  const box = (): RegionData => room(["N", "S", "E", "W"]);
+  const L: [number, number] = [3, 6];
+  return {
+    nodes: [
+      {
+        id: "anchor",
+        region: room(["N"]),
+        pinned: { yaw: 0, translation: [0, 0, 0] },
+      },
+      { id: "r0", region: box() },
+      { id: "r1", region: box() },
+      { id: "r2", region: box() },
+      { id: "r3", region: box() },
+      { id: "r4", region: box() },
+      { id: "r5", region: box() },
+      { id: "r6", region: box() },
+      { id: "r7", region: box() },
+    ],
+    edges: [
+      { a: "anchor", b: "r0", aPortal: 0, bPortal: 0, lengthRange: L },
+      { a: "r0", b: "r1", aPortal: 1, bPortal: 0, lengthRange: L },
+      { a: "r1", b: "r2", aPortal: 1, bPortal: 0, lengthRange: L },
+      { a: "r2", b: "r3", aPortal: 1, bPortal: 0, lengthRange: L },
+      { a: "r3", b: "r4", aPortal: 1, bPortal: 0, lengthRange: L },
+      { a: "r4", b: "r5", aPortal: 1, bPortal: 0, lengthRange: L },
+      { a: "r5", b: "r6", aPortal: 1, bPortal: 0, lengthRange: L },
+      { a: "r6", b: "r7", aPortal: 1, bPortal: 0, lengthRange: L },
+      { a: "r7", b: "r0", aPortal: 1, bPortal: 2, lengthRange: L }, // closing
+    ],
+  };
+}
+
+/** Two spec-identical 3-cycles (a0…a2 closing a2→a0, b0…b2 closing b2→b0) bridged by ONE tree
+ *  edge a2→b0 with a NARROW length window — the mechanism-2 cross-unit shape. Cycle A places
+ *  first (off the pin), cycle B seats b0 across the narrow bridge; if that forecloses, the
+ *  blame-directed backtracker can reach BACK to re-seat cycle A. A regression guard that the
+ *  bridged two-cycle graph places (the blame path is exercised but, on this small graph,
+ *  outcome-neutral — pop-previous already reaches the adjacent-unit culprit; see the report). */
+function crossUnitBridgeFixture(): WorldGraph {
+  const box = (): RegionData => room(["N", "S", "E", "W"]);
+  const C: [number, number] = [3, 6];
+  const BRIDGE: [number, number] = [3, 4];
+  return {
+    nodes: [
+      {
+        id: "anchor",
+        region: room(["N"]),
+        pinned: { yaw: 0, translation: [0, 0, 0] },
+      },
+      { id: "a0", region: box() },
+      { id: "a1", region: box() },
+      { id: "a2", region: box() },
+      { id: "b0", region: box() },
+      { id: "b1", region: box() },
+      { id: "b2", region: box() },
+    ],
+    edges: [
+      { a: "anchor", b: "a0", aPortal: 0, bPortal: 0, lengthRange: C },
+      { a: "a0", b: "a1", aPortal: 1, bPortal: 0, lengthRange: C },
+      { a: "a1", b: "a2", aPortal: 1, bPortal: 0, lengthRange: C },
+      { a: "a2", b: "a0", aPortal: 1, bPortal: 2, lengthRange: C }, // closing A
+      { a: "a2", b: "b0", aPortal: 2, bPortal: 0, lengthRange: BRIDGE }, // bridge
+      { a: "b0", b: "b1", aPortal: 1, bPortal: 0, lengthRange: C },
+      { a: "b1", b: "b2", aPortal: 1, bPortal: 0, lengthRange: C },
+      { a: "b2", b: "b0", aPortal: 1, bPortal: 2, lengthRange: C }, // closing B
+    ],
+  };
+}
+
+describe("closure steering + blame-directed backjumping (Task 7B)", () => {
+  test("an 8-room ring with a tight closing window places (closure steering active)", () => {
+    const result = layoutWorld(eightRingFixture(), "eight-seed");
+    expect(result.placements.size).toBe(9);
+    expect(result.connectors.length).toBe(9);
+  });
+
+  test("two 3-cycles bridged by a narrow tree edge place (blame-backjump path active)", () => {
+    const result = layoutWorld(crossUnitBridgeFixture(), "bridge-seed");
+    expect(result.placements.size).toBe(7);
+    expect(result.connectors.length).toBe(8);
+  });
+
+  test("_cycleTargets: the polygon closes and the map is deterministic", () => {
+    // A synthetic 4-member ring m0→m1→m2→m3 with the closing edge m3→m0 (edge index 3
+    // first, matching deriveChains' [closing, ...treePath] ordering).
+    const cyc: CycleUnit = {
+      closingEdge: 3,
+      edges: [3, 0, 1, 2],
+      members: ["m0", "m1", "m2", "m3"],
+    };
+    const edges: WorldEdge[] = [
+      { a: "m0", b: "m1", aPortal: 0, bPortal: 0 },
+      { a: "m1", b: "m2", aPortal: 0, bPortal: 0 },
+      { a: "m2", b: "m3", aPortal: 0, bPortal: 0 },
+      { a: "m3", b: "m0", aPortal: 0, bPortal: 0 }, // closing
+    ];
+    const distances = new Map<number, number>([
+      [0, 5],
+      [1, 5],
+      [2, 5],
+      [3, 5],
+    ]);
+    const attach = {
+      member: "m0" as NodeId,
+      pos: [0, 0, 0] as Vec3,
+      heading: [0, 0, 1] as Vec3,
+    };
+    const targets = _cycleTargets(cyc, edges, attach, 1, distances);
+    expect(targets.size).toBe(4);
+
+    // The polygon closes: EVERY ring edge — including the closing m3→m0 — has the constructed
+    // step length (the walk returns to its start). If the eight/four turns did not sum to a
+    // full revolution, the closing edge's length would differ.
+    const order: NodeId[] = ["m0", "m1", "m2", "m3"];
+    const xz = (a: Vec3, b: Vec3): number =>
+      Math.hypot(a[0] - b[0], a[2] - b[2]);
+    for (let k = 0; k < order.length; k++) {
+      const p = targets.get(order[k]!) as Vec3;
+      const q = targets.get(order[(k + 1) % order.length]!) as Vec3;
+      expect(xz(p, q)).toBeCloseTo(5, 6);
+    }
+
+    // Deterministic: two identical calls return identical maps.
+    const again = _cycleTargets(cyc, edges, attach, 1, distances);
+    expect([...again.entries()]).toEqual([...targets.entries()]);
   });
 });
