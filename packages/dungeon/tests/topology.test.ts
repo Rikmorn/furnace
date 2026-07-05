@@ -242,3 +242,32 @@ test("reserve guard: plan pass never throws across 2000 small-config seeds", () 
     _planTopology("anchor", 0, `reserve-scan-${i}`, cfg);
   }
 });
+
+test("cycle hygiene: no node serves more than one cycle-closing edge (500 seeds, default + loopy configs)", () => {
+  const configs = [DEFAULT_TOPOLOGY, { ...DEFAULT_TOPOLOGY, loopChance: 0.9 }];
+  for (const cfg of configs) {
+    for (let i = 0; i < 250; i++) {
+      const plan = _planTopology("anchor", 0, `hyg-${i}`, cfg);
+      // union-find over plan edges in order; closing edges join already-connected nodes
+      const parent = new Map<string, string>();
+      const find = (x: string): string => {
+        let r = x;
+        while ((parent.get(r) ?? r) !== r) r = parent.get(r) as string;
+        return r;
+      };
+      const use = new Map<string, number>();
+      parent.set("anchor", "anchor");
+      for (const n of plan.nodes) parent.set(n.id, n.id);
+      for (const e of plan.edges) {
+        const ra = find(e.a);
+        const rb = find(e.b);
+        if (ra === rb) {
+          use.set(e.a, (use.get(e.a) ?? 0) + 1);
+          use.set(e.b, (use.get(e.b) ?? 0) + 1);
+        } else parent.set(ra, rb);
+      }
+      for (const [id, n] of use)
+        expect(n, `${id} serves ${n} cycle edges`).toBeLessThanOrEqual(1);
+    }
+  }
+});

@@ -432,6 +432,11 @@ export function _planTopology(
     }
   }
 
+  // Cycle hygiene: at most one cycle-closing edge per node — interconnected cycles
+  // (cycles sharing a room) are the one shape the cycles-first placer precedent
+  // (Ma-2014/Edgar) names as degrading; see the B2c research doc.
+  const cycleUsed = new Set<string>();
+
   // --- 4. Ring closing: one checked loop edge between the ring's end sectors ---
   if (ringSize >= 3) {
     const ends: [number, number] = [ringSize - 1, 0];
@@ -456,6 +461,8 @@ export function _planTopology(
     raw.push({ a: best[0].id, b: best[1].id, context: "inter", sector: sa });
     best[0].used += 1;
     best[1].used += 1;
+    cycleUsed.add(best[0].id);
+    cycleUsed.add(best[1].id);
     (reserved[sa] as number) -= 1;
     (reserved[sb] as number) -= 1;
   }
@@ -471,6 +478,7 @@ export function _planTopology(
       for (let j = i + 1; j < candidates.length; j++) {
         const na = candidates[i] as AbstractNode;
         const nb = candidates[j] as AbstractNode;
+        if (cycleUsed.has(na.id) || cycleUsed.has(nb.id)) continue;
         if (free(na) < 1 || free(nb) < 1) continue;
         if (connected(na.id, nb.id)) continue;
         if (Math.abs(na.elevation - nb.elevation) > LOOP_MAX_DROP) continue;
@@ -478,6 +486,8 @@ export function _planTopology(
           raw.push({ a: na.id, b: nb.id, context: "intra", sector: s });
           na.used += 1;
           nb.used += 1;
+          cycleUsed.add(na.id);
+          cycleUsed.add(nb.id);
         }
       }
     }
