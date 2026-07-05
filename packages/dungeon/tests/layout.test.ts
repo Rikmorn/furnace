@@ -744,3 +744,50 @@ describe("closure steering + blame-directed backjumping (Task 7B)", () => {
     expect([...again.entries()]).toEqual([...targets.entries()]);
   });
 });
+
+/** A 3-cycle (anchor pinned, r0, r1) whose closing edge r0.N→r1.E CANNOT mate straight. r0 seats
+ *  far east (a fixed 10 m arm off anchor.E) while r1 seats close north (a fixed 3 m arm off
+ *  anchor.N), so the closing chord runs mostly −X — more than 60° off r0's north-facing (+Z)
+ *  door: straight-infeasible by construction. The only closure is the dogleg (segment → corner
+ *  room-let → segment); the generous [3, 16] closing window lets its two straight legs fit. */
+function doglegClosureFixture(): WorldGraph {
+  return {
+    nodes: [
+      {
+        id: "anchor",
+        region: room(["E", "N"]),
+        pinned: { yaw: 0, translation: [0, 0, 0] },
+      },
+      { id: "r0", region: room(["W", "N"]) },
+      { id: "r1", region: room(["S", "E"]) },
+    ],
+    edges: [
+      { a: "anchor", b: "r0", aPortal: 0, bPortal: 0, lengthRange: [10, 10] },
+      { a: "anchor", b: "r1", aPortal: 1, bPortal: 0, lengthRange: [3, 3] },
+      { a: "r0", b: "r1", aPortal: 1, bPortal: 1, lengthRange: [3, 16] }, // closing
+    ],
+  };
+}
+
+describe("dogleg closure (Task 8)", () => {
+  test("a cycle whose closing edge cannot route straight closes via a dogleg (corner + two segments)", () => {
+    const result = layoutWorld(doglegClosureFixture(), "int-seed");
+    expect(result.placements.size).toBe(3); // it places
+    expect(result.expansions.size).toBe(1); // exactly one edge doglegged
+    // The one expansion's three pieces are real, distinct indices into `connectors`.
+    const exp = [...result.expansions.values()][0]!;
+    for (const idx of [exp.segA, exp.corner, exp.segB]) {
+      expect(result.connectors[idx]).toBeDefined();
+    }
+    expect(new Set([exp.segA, exp.corner, exp.segB]).size).toBe(3);
+    // The corner is a real box room-let (walls + slabs → many colliders); the segments route.
+    expect(result.connectors[exp.corner]!.colliders.length).toBeGreaterThan(4);
+  });
+
+  test("deterministic: the dogleg closure reproduces on the same seed", () => {
+    const a = layoutWorld(doglegClosureFixture(), "int-seed");
+    const b = layoutWorld(doglegClosureFixture(), "int-seed");
+    expect([...a.placements.entries()]).toEqual([...b.placements.entries()]);
+    expect([...a.expansions.entries()]).toEqual([...b.expansions.entries()]);
+  });
+});

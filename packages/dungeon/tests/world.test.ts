@@ -8,6 +8,9 @@ test("the proof world lays out: zero envelope overlaps, all nodes placed", () =>
   const r = layoutWorld(g, WORLD_SEED);
   expect(r.placements.size).toBe(g.nodes.length);
   expect(r.connectors.length).toBe(g.edges.length);
+  // Regression anchor: the hand world's cycle closes STRAIGHT — no dogleg expansion (one
+  // connector per edge). A dogleg here would push connectors.length past edges.length.
+  expect(r.expansions.size).toBe(0);
   for (let i = 0; i < r.regions.length; i++) {
     for (let j = i + 1; j < r.regions.length; j++) {
       expect(aabbIntersects(r.regions[i]!.bounds, r.regions[j]!.bounds)).toBe(

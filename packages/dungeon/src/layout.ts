@@ -21,6 +21,7 @@ import {
   SHOULDER,
   walkLineAt,
 } from "./connect.ts";
+import { buildDogleg, cornerCandidates, MIN_SEG_RUN } from "./dogleg.ts";
 import {
   LOCUS_SAMPLES,
   pairFeasible,
@@ -259,7 +260,6 @@ type Ctx = {
   portalUse: Map<NodeId, Set<number>>;
   edgeBindings: Map<number, EdgeBinding>;
   committedConnectors: Map<number, RegionData[]>;
-  expansions: Map<number, DoglegExpansion>;
   /** Edges committed while placing each node (for rollback). */
   nodeEdges: Map<NodeId, number[]>;
   attempts: number;
@@ -395,6 +395,92 @@ function realizeEdge(
   return { connector };
 }
 
+/** Remove every occupancy entry a committed edge may own — a straight connector's clearance
+ *  (`edge:i`) OR a dogleg's three (`edge:i:corner` piece + `edge:i:segA`/`:segB` clearances) —
+ *  plus its committed-connector + binding records. Non-existent ids no-op, so one call covers
+ *  both the straight and dogleg cases; callers that need the binding must read it FIRST. */
+function removeEdgeOccupancy(ctx: Ctx, ei: number): void {
+  ctx.occ.remove(`edge:${ei}`);
+  ctx.occ.remove(`edge:${ei}:corner`);
+  ctx.occ.remove(`edge:${ei}:segA`);
+  ctx.occ.remove(`edge:${ei}:segB`);
+  ctx.committedConnectors.delete(ei);
+  ctx.edgeBindings.delete(ei);
+}
+
+/** Route a cycle-closing edge that cannot mate straight through a corner room-let (`dogleg.ts`):
+ *  try each seeded corner seating; the first whose corner PIECE and both straight segment
+ *  CLEARANCES clear occupancy (portal-exempted at all four portals) registers the three pieces
+ *  (corner via `addPiece`, each segment's air via `addClearance`) and is returned. Every partial
+ *  occupancy add is rolled back before the next candidate, so a `fail` leaves the ledger clean. */
+function tryDogleg(
+  ctx: Ctx,
+  edgeIdx: number,
+  pa: Connection,
+  pb: Connection,
+  e: WorldEdge,
+): { pieces: RegionData[] } | { fail: string } {
+  const hi = (e.lengthRange ?? DEFAULT_LENGTH_RANGE)[1];
+  const cornerId = `edge:${edgeIdx}:corner`;
+  const cands = cornerCandidates(
+    pa,
+    pb,
+    [MIN_SEG_RUN, hi],
+    ctx.rng.derive(`dog:${edgeIdx}`),
+    24,
+  );
+  const opts: { enclosure?: "open" } = {};
+  if (e.enclosure) opts.enclosure = e.enclosure;
+  for (const cand of cands) {
+    let dog: ReturnType<typeof buildDogleg>;
+    try {
+      dog = buildDogleg(pa, pb, cand, opts);
+    } catch {
+      continue; // a corner whose segments route-throw (unwalkable pitch) — try the next
+    }
+    const cornerEnvs = envelopeObbs(dog.cornerLocal, cand.place);
+    if (ctx.occ.checkPieceEnvelope(cornerEnvs)) continue;
+    ctx.occ.addPiece(cornerId, cornerEnvs, solidsOf(dog.corner));
+
+    const door1 = placedPortal(dog.corner, 0);
+    const door2 = placedPortal(dog.corner, 1);
+    const clearA = clearanceBoxes(pa, door1);
+    const clearB = clearanceBoxes(door2, pb);
+    const hA = connectorSection(pa, door1).headroom;
+    const hB = connectorSection(door2, pb).headroom;
+    const exemptions = [
+      portalExemption(pa, hA),
+      portalExemption(door1, hA),
+      portalExemption(door2, hB),
+      portalExemption(pb, hB),
+    ];
+    // Both segments check against the SAME ledger state (corner added, neither segment clearance
+    // added yet) so their reserved air can't false-reject against each other at the corner seam.
+    const rejA = ctx.occ.checkClearance(clearA, [e.a, cornerId], exemptions);
+    const rejB = ctx.occ.checkClearance(clearB, [cornerId, e.b], exemptions);
+    if (rejA || rejB) {
+      ctx.occ.remove(cornerId);
+      continue;
+    }
+    ctx.occ.addClearance(
+      `edge:${edgeIdx}:segA`,
+      clearA,
+      [e.a, cornerId],
+      [],
+      solidsOf(dog.segA),
+    );
+    ctx.occ.addClearance(
+      `edge:${edgeIdx}:segB`,
+      clearB,
+      [cornerId, e.b],
+      [],
+      solidsOf(dog.segB),
+    );
+    return { pieces: [dog.segA, dog.corner, dog.segB] };
+  }
+  return { fail: "no-corner" };
+}
+
 /** Map a BindPair (parent/node portal) to an EdgeBinding (a/b portal) via edge orientation. */
 function toEdgeBinding(
   e: WorldEdge,
@@ -418,15 +504,12 @@ function commitEdges(
   seatBind: BindPair,
   others: ActiveEdge[],
   otherBinds: Map<number, EdgeBinding>,
+  doglegEdges: Set<number>,
 ): boolean {
   const committed: number[] = [];
   const usedPortals: [NodeId, number][] = [];
   const rollback = (): void => {
-    for (const ei of committed) {
-      ctx.occ.remove(`edge:${ei}`);
-      ctx.committedConnectors.delete(ei);
-      ctx.edgeBindings.delete(ei);
-    }
+    for (const ei of committed) removeEdgeOccupancy(ctx, ei);
     for (const [nid, p] of usedPortals) freePortal(ctx, nid, p);
     ctx.occ.remove(id);
     ctx.placements.delete(id);
@@ -451,20 +534,30 @@ function commitEdges(
     const bRegion = mustGet(ctx.placedRegions, e.b, "placed region");
     const pa = placedPortal(aRegion, bind.aPortal);
     const pb = placedPortal(bRegion, bind.bPortal);
-    const res = realizeEdge(ctx, e, pa, pb);
-    if ("fail" in res) {
-      countFail(ctx, id, `edge[commit]:${res.fail}:${ae.i}`);
-      rollback();
-      return false;
+    if (doglegEdges.has(ae.i)) {
+      const res = tryDogleg(ctx, ae.i, pa, pb, e);
+      if ("fail" in res) {
+        countFail(ctx, id, `dogleg:${res.fail}:${ae.i}`);
+        rollback();
+        return false;
+      }
+      ctx.committedConnectors.set(ae.i, res.pieces);
+    } else {
+      const res = realizeEdge(ctx, e, pa, pb);
+      if ("fail" in res) {
+        countFail(ctx, id, `edge[commit]:${res.fail}:${ae.i}`);
+        rollback();
+        return false;
+      }
+      ctx.occ.addClearance(
+        `edge:${ae.i}`,
+        clearanceBoxes(pa, pb),
+        [e.a, e.b],
+        [],
+        solidsOf(res.connector),
+      );
+      ctx.committedConnectors.set(ae.i, [res.connector]);
     }
-    ctx.occ.addClearance(
-      `edge:${ae.i}`,
-      clearanceBoxes(pa, pb),
-      [e.a, e.b],
-      [],
-      solidsOf(res.connector),
-    );
-    ctx.committedConnectors.set(ae.i, [res.connector]);
     ctx.edgeBindings.set(ae.i, bind);
     usePortal(ctx, e.a, bind.aPortal);
     usedPortals.push([e.a, bind.aPortal]);
@@ -617,6 +710,76 @@ function firstFeasibleBinding(
   return null;
 }
 
+/** The dogleg counterpart of {@link firstFeasibleBinding} for a CLOSING edge with no straight
+ *  binding: same free spec-matching portal enumeration, but a pair is "viable" when a corner
+ *  room-let can bridge it (`cornerCandidates` non-empty over `[MIN_SEG_RUN, edge-upper]`) rather
+ *  than when its facings mate straight. Pure existence trig — the actual corner is placed at
+ *  commit (`tryDogleg`). Same edge-orientation (a→b) as commit, so a viable forward-check pair
+ *  is the pair commit will try. */
+function firstDoglegBinding(
+  ctx: Ctx,
+  oe: ActiveEdge,
+  id: NodeId,
+  placement: Placement,
+  reservedNode: Set<number>,
+  reservedByPartner: Map<NodeId, Set<number>>,
+): { binding: EdgeBinding; nodePortal: number; partnerPortal: number } | null {
+  const e = oe.e;
+  const nodeIsA = e.a === id;
+  const partnerId = nodeIsA ? e.b : e.a;
+  const nomNode = nodeIsA ? e.aPortal : e.bPortal;
+  const nomPartner = nodeIsA ? e.bPortal : e.aPortal;
+  const partnerRegion = mustGet(ctx.placedRegions, partnerId, "placed region");
+  const nodeRegion = mustGet(ctx.nodesById, id, "node").region;
+  const partnerUse = ctx.portalUse.get(partnerId) ?? new Set<number>();
+  const nodeUse = ctx.portalUse.get(id) ?? new Set<number>();
+  const partnerReserved = reservedByPartner.get(partnerId) ?? new Set<number>();
+  const partnerNom = placedPortal(partnerRegion, nomPartner);
+  const nodeNom = placedPortal(nodeRegion, nomNode);
+  const hi = (e.lengthRange ?? DEFAULT_LENGTH_RANGE)[1];
+  const rng = ctx.rng.derive(`fwd-dog:${id}:${oe.i}`);
+
+  const partnerPorts = freePortals(
+    partnerRegion.connections,
+    partnerNom,
+    partnerUse,
+    partnerReserved,
+    nomPartner,
+  );
+  const nodePorts = freePortals(
+    nodeRegion.connections,
+    nodeNom,
+    nodeUse,
+    reservedNode,
+    nomNode,
+  );
+
+  for (const pj of nodePorts) {
+    const nodeWorld = placeConnection(placedPortal(nodeRegion, pj), placement);
+    for (const pp of partnerPorts) {
+      const partnerWorld = placedPortal(partnerRegion, pp);
+      const [pa, pb] = nodeIsA
+        ? [nodeWorld, partnerWorld]
+        : [partnerWorld, nodeWorld];
+      const viable =
+        cornerCandidates(
+          pa,
+          pb,
+          [MIN_SEG_RUN, hi],
+          rng.derive(`${pj}:${pp}`),
+          12,
+        ).length > 0;
+      if (viable) {
+        const binding: EdgeBinding = nodeIsA
+          ? { aPortal: pj, bPortal: pp }
+          : { aPortal: pp, bPortal: pj };
+        return { binding, nodePortal: pj, partnerPortal: pp };
+      }
+    }
+  }
+  return null;
+}
+
 // ---------------------------------------------------------------------------------------
 // Node placement
 // ---------------------------------------------------------------------------------------
@@ -666,14 +829,15 @@ function forwardCheckOthers(
   seatBind: BindPair,
   seatParentId: NodeId,
   others: ActiveEdge[],
-): Map<number, EdgeBinding> | null {
+): { binds: Map<number, EdgeBinding>; doglegEdges: Set<number> } | null {
   const reservedNode = new Set<number>([seatBind.node]);
   const reservedByPartner = new Map<NodeId, Set<number>>([
     [seatParentId, new Set<number>([seatBind.parent])],
   ]);
-  const otherBinds = new Map<number, EdgeBinding>();
+  const binds = new Map<number, EdgeBinding>();
+  const doglegEdges = new Set<number>();
   for (const oe of others) {
-    const found = firstFeasibleBinding(
+    let found = firstFeasibleBinding(
       ctx,
       oe,
       id,
@@ -681,18 +845,35 @@ function forwardCheckOthers(
       reservedNode,
       reservedByPartner,
     );
+    // Dogleg-aware forward-checking: a CLOSING edge that cannot mate straight does NOT fail the
+    // candidate if a corner room-let can bridge it (a pure-trig existence check) — without this
+    // the commit-time dogleg is unreachable (forward-checking would reject the candidate first).
+    // Only closing edges get this slack; every other edge stays straight-only.
+    let dogleg = false;
+    if (!found && ctx.closingEdges.has(oe.i)) {
+      found = firstDoglegBinding(
+        ctx,
+        oe,
+        id,
+        placement,
+        reservedNode,
+        reservedByPartner,
+      );
+      if (found) dogleg = true;
+    }
     if (!found) {
       countFail(ctx, id, `edge[fwd]:facing:${oe.i}`);
       return null;
     }
-    otherBinds.set(oe.i, found.binding);
+    binds.set(oe.i, found.binding);
+    if (dogleg) doglegEdges.add(oe.i);
     reservedNode.add(found.nodePortal);
     const partnerId = oe.e.a === id ? oe.e.b : oe.e.a;
     const set = reservedByPartner.get(partnerId) ?? new Set<number>();
     set.add(found.partnerPortal);
     reservedByPartner.set(partnerId, set);
   }
-  return otherBinds;
+  return { binds, doglegEdges };
 }
 
 /** Obligation points folded into a node's steering target: for each OTHER active edge, the
@@ -827,17 +1008,16 @@ function placeNode(
     }
 
     // Evaluate each candidate's placement + cheap geometric forward-check of the OTHER active
-    // edges (each must have >= 1 free spec-matching binding that is pairFeasible under this
-    // placement) ONCE, up front. Then INTERSECTION-BY-FILTRATION for a member with >= 2 active
-    // edges (a cycle-closing seat): a STABLE partition puts candidates feasible for ALL other
-    // edges first — the configuration-space intersection of both partners — before any that
-    // fail, in original (align/explore) order otherwise. This changes SEARCH EFFICIENCY ONLY,
-    // NOT which candidate commits nor the placement result: the loop below skips infeasible
-    // candidates via `continue` and returns on the first COMMITTABLE one, so a stable partition
-    // over an UNCHANGED candidate set cannot change the outcome — it only front-loads the
-    // committable candidate so it is reached in fewer wasted attempts on tight/closing members
-    // (that is precisely why it is not, and cannot be, a pass/fail lever — see the Task-5
-    // investigation). Single-edge members (`others` empty) keep their order untouched.
+    // edges (each must have >= 1 free spec-matching binding under this placement) ONCE, up front.
+    // Then a STABLE THREE-WAY partition for a member with >= 2 active edges (a cycle-closing seat):
+    //   1. candidates whose every other edge mates STRAIGHT (doglegEdges empty),
+    //   2. candidates that need a dogleg on some closing edge (doglegEdges non-empty),
+    //   3. candidates with no feasible binding at all,
+    // in original (align/explore) order within each band. Bands 1 vs 2 make STRAIGHT-FIRST a hard
+    // rule: a fully-straight closure is always committed before any dogleg is attempted, so a
+    // world that CAN close straight always does (`expansions` stays empty). Band 1 is bit-identical
+    // to the pre-dogleg feasible set/order, so the straight-closable regression anchor is preserved.
+    // Single-edge members (`others` empty) keep their order untouched.
     const evaluated = loci.map((cand) => {
       const target: Connection = {
         ...cand.target,
@@ -845,7 +1025,7 @@ function placeNode(
         height: nodePortalLocal.height,
       };
       const placement = join(target, nodePortalLocal);
-      const otherBinds = forwardCheckOthers(
+      const fc = forwardCheckOthers(
         ctx,
         id,
         placement,
@@ -853,19 +1033,20 @@ function placeNode(
         seatParentId,
         others,
       );
-      return { placement, otherBinds };
+      return { placement, fc };
     });
     const ordered =
       others.length > 0
         ? [
-            ...evaluated.filter((e) => e.otherBinds),
-            ...evaluated.filter((e) => !e.otherBinds),
+            ...evaluated.filter((e) => e.fc && e.fc.doglegEdges.size === 0),
+            ...evaluated.filter((e) => e.fc && e.fc.doglegEdges.size > 0),
+            ...evaluated.filter((e) => !e.fc),
           ]
         : evaluated;
 
-    for (const { placement, otherBinds } of ordered) {
+    for (const { placement, fc } of ordered) {
       if (++ctx.attempts > MAX_ATTEMPTS) return false;
-      if (!otherBinds) continue;
+      if (!fc) continue;
 
       const envs = envelopeObbs(node.region, placement);
       const envRej = ctx.occ.checkPieceEnvelope(envs);
@@ -879,27 +1060,28 @@ function placeNode(
       ctx.placements.set(id, placement);
       ctx.placedRegions.set(id, placed);
       ctx.occ.addPiece(id, envs, solidsOf(placed));
-      if (commitEdges(ctx, id, seat, seatBind, others, otherBinds)) return true;
+      if (
+        commitEdges(ctx, id, seat, seatBind, others, fc.binds, fc.doglegEdges)
+      )
+        return true;
       // commitEdges rolled back the speculative piece + any committed edges on failure.
     }
   }
   return false;
 }
 
-/** Reverse of a node's commit: drop its committed edges (clearance air + connectors +
- *  bindings + BOTH-endpoint portal uses + expansions), then the piece itself. */
+/** Reverse of a node's commit: drop its committed edges (clearance air + connectors + a dogleg's
+ *  corner piece + bindings + BOTH-endpoint portal uses), then the piece itself. The binding is
+ *  read BEFORE {@link removeEdgeOccupancy} clears it (freeing both endpoints' portals). */
 function undoNode(ctx: Ctx, id: NodeId): void {
   for (const ei of ctx.nodeEdges.get(id) ?? []) {
-    ctx.occ.remove(`edge:${ei}`);
-    ctx.committedConnectors.delete(ei);
-    ctx.expansions.delete(ei);
     const binding = ctx.edgeBindings.get(ei);
     const edge = ctx.graph.edges[ei];
     if (binding && edge) {
       freePortal(ctx, edge.a, binding.aPortal);
       freePortal(ctx, edge.b, binding.bPortal);
     }
-    ctx.edgeBindings.delete(ei);
+    removeEdgeOccupancy(ctx, ei);
   }
   ctx.nodeEdges.delete(id);
   ctx.occ.remove(id);
@@ -1281,9 +1463,16 @@ function assembleResult(ctx: Ctx): LayoutResult {
     mustGet(ctx.placedRegions, n.id, "placed region"),
   );
   const connectors: RegionData[] = [];
+  const expansions = new Map<number, DoglegExpansion>();
   for (const ei of [...ctx.committedConnectors.keys()].sort((a, b) => a - b)) {
-    for (const c of mustGet(ctx.committedConnectors, ei, "connector"))
-      connectors.push(c);
+    const pieces = mustGet(ctx.committedConnectors, ei, "connector");
+    const base = connectors.length;
+    for (const c of pieces) connectors.push(c);
+    // A dogleg edge contributes exactly its three pieces (segA, corner, segB, in that order) —
+    // record their flat indices into `connectors`. A straight edge contributes one.
+    if (pieces.length === 3) {
+      expansions.set(ei, { segA: base, corner: base + 1, segB: base + 2 });
+    }
   }
   const edgeBindings = ctx.graph.edges.map((_, i) =>
     mustGet(ctx.edgeBindings, i, "edge binding"),
@@ -1293,7 +1482,7 @@ function assembleResult(ctx: Ctx): LayoutResult {
     regions,
     connectors,
     edgeBindings,
-    expansions: ctx.expansions,
+    expansions,
   };
 }
 
@@ -1318,7 +1507,6 @@ function tryLayout(
     portalUse: new Map(),
     edgeBindings: new Map(),
     committedConnectors: new Map(),
-    expansions: new Map(),
     nodeEdges: new Map(),
     attempts: 0,
     failCounts: new Map(),
