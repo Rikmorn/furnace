@@ -195,6 +195,8 @@ export function buildDogleg(
     },
   };
   const corner = placePiece(cornerLocal, c.place);
+  // Boundary cast: boxRoom with 2 doors yields exactly 2 connections and placePiece
+  // preserves count/order, so connections[0]/[1] are defined.
   const d1 = corner.connections[0] as Connection;
   const d2 = corner.connections[1] as Connection;
   const segOpts = opts.enclosure ? { enclosure: opts.enclosure } : {};
