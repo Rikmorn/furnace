@@ -48,6 +48,30 @@ describe("deriveChains", () => {
     // tree nodes = everything not in a cycle
     expect(d.treeNodes).toEqual([]);
   });
+  test("smallest-first ordering: a larger cycle that closes earlier is still ordered after a smaller one", () => {
+    // Two disjoint rings. The 4-cycle (w-x-y-z) closes at a LOWER edge index than the
+    // 3-cycle (a-b-c), so index-order and size-order disagree — this fixture fails if
+    // the size sort is removed (cycles would come back in closing-edge-index order).
+    const g = graph(
+      ["p", "w", "x", "y", "z", "a", "b", "c"],
+      ["p"],
+      [
+        ["p", "w"],
+        ["w", "x"],
+        ["x", "y"],
+        ["y", "z"],
+        ["z", "w"], // 4-cycle, closes at index 4
+        ["p", "a"],
+        ["a", "b"],
+        ["b", "c"],
+        ["c", "a"], // 3-cycle, closes at index 8
+      ],
+    );
+    const d = deriveChains(g);
+    expect(d.cycles.length).toBe(2);
+    expect(d.cycles[0]?.members.length).toBe(3); // smaller cycle first
+    expect(d.cycles[1]?.members.length).toBe(4); // larger cycle second
+  });
   test("loop edge whose tree path passes through the pin: cycle excludes pinned nodes from members", () => {
     const g = graph(
       ["p", "a", "b"],

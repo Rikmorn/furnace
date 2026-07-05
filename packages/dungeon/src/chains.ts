@@ -7,6 +7,9 @@
 
 type ChainNode = { id: string; pinned?: unknown };
 type ChainEdge = { a: string; b: string };
+/** Minimal structural graph shape `deriveChains` reads — ids, pinned flag, and edge
+ *  endpoint pairs only (no regions, no portals); a real `WorldGraph` satisfies it
+ *  structurally, so callers pass one directly and fixtures stay tiny. */
 export type ChainGraph = { nodes: ChainNode[]; edges: ChainEdge[] };
 
 /** One cycle unit: the closing (non-tree) edge, every edge on the cycle (indices into
@@ -17,6 +20,8 @@ export type CycleUnit = {
   members: string[];
 };
 
+/** The cycles-first placement decomposition of a graph: its cycle units plus the
+ *  remaining tree nodes. */
 export type ChainDecomposition = {
   /** Cycle units, smallest member-count first (ties: lowest closing-edge index). */
   cycles: CycleUnit[];
@@ -24,14 +29,21 @@ export type ChainDecomposition = {
   treeNodes: string[];
 };
 
+/** Decompose a graph into placement chains via union-find: each edge that joins two
+ *  already-connected components is a cycle-closing edge whose cycle (that edge plus the
+ *  tree path between its endpoints) becomes a cycle unit; every other node is a tree
+ *  node. Cycles are returned smallest-member-count-first (cycles place before tree). */
 export function deriveChains(graph: ChainGraph): ChainDecomposition {
   const parent = new Map<string, string>();
   const find = (x: string): string => {
     let r = x;
+    // Boundary cast: `parent` is seeded with an entry for every node id, so
+    // parent.get(r) is never undefined while r ranges over reachable ids.
     while (parent.get(r) !== r) r = parent.get(r) as string;
     // path-compress
     let c = x;
     while (parent.get(c) !== r) {
+      // Boundary cast: same `parent`-has-every-id invariant as above.
       const next = parent.get(c) as string;
       parent.set(c, r);
       c = next;
@@ -67,6 +79,7 @@ export function deriveChains(graph: ChainGraph): ChainDecomposition {
     const q = [a];
     const seen = new Set([a]);
     while (q.length) {
+      // Boundary cast: the `while (q.length)` guard proves the queue is non-empty.
       const cur = q.shift() as string;
       if (cur === b) break;
       for (const { to, edge } of treeAdj.get(cur) ?? []) {
@@ -93,6 +106,8 @@ export function deriveChains(graph: ChainGraph): ChainDecomposition {
 
   const pinned = new Set(graph.nodes.filter((n) => n.pinned).map((n) => n.id));
   const cycles: CycleUnit[] = closing.map((ci) => {
+    // Boundary cast: `ci` comes from `closing`, which only collects valid indices
+    // into `graph.edges`, so the indexed read is never undefined.
     const e = graph.edges[ci] as ChainEdge;
     const path = treePath(e.a, e.b);
     return {
