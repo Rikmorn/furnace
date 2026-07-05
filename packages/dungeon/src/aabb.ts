@@ -123,6 +123,86 @@ export function aabbIntersection(a: Aabb, b: Aabb): Aabb {
   };
 }
 
+/** A yaw-about-Y oriented box: world center, half-extents in its own frame, yaw. The
+ *  pipeline never pitches pieces, so one yaw scalar is the full orientation. An AABB is
+ *  an Obb with yaw 0. Used by the placement engine for EXACT piece-envelope tests —
+ *  `transformAabb`'s conservative corner-envelope inflates rotated pieces by metres and
+ *  was a measured false-reject class (B2 placement wall). */
+export type Obb = { center: Vec3; half: Vec3; yaw: number };
+
+/** Wrap a world AABB as a yaw-0 Obb. */
+export function obbOfAabb(b: Aabb): Obb {
+  return {
+    center: [
+      (b.min[0] + b.max[0]) / 2,
+      (b.min[1] + b.max[1]) / 2,
+      (b.min[2] + b.max[2]) / 2,
+    ],
+    half: [
+      (b.max[0] - b.min[0]) / 2,
+      (b.max[1] - b.min[1]) / 2,
+      (b.max[2] - b.min[2]) / 2,
+    ],
+    yaw: 0,
+  };
+}
+
+/** The EXACT world Obb of a local-frame AABB under a yaw+translation placement (the
+ *  same `Ry(θ)` convention as `transformAabb`, without its conservative inflation). */
+export function obbFromLocalAabb(local: Aabb, yaw: number, t: Vec3): Obb {
+  const c = Math.cos(yaw);
+  const s = Math.sin(yaw);
+  const lc: Vec3 = [
+    (local.min[0] + local.max[0]) / 2,
+    (local.min[1] + local.max[1]) / 2,
+    (local.min[2] + local.max[2]) / 2,
+  ];
+  return {
+    center: [
+      lc[0] * c + lc[2] * s + t[0],
+      lc[1] + t[1],
+      -lc[0] * s + lc[2] * c + t[2],
+    ],
+    half: [
+      (local.max[0] - local.min[0]) / 2,
+      (local.max[1] - local.min[1]) / 2,
+      (local.max[2] - local.min[2]) / 2,
+    ],
+    yaw,
+  };
+}
+
+/** Exact overlap test for two yaw-about-Y boxes: Y-interval check + 2D SAT over the
+ *  four XZ face normals (two per box). Same EPS stance as `aabbIntersects`: overlap
+ *  must exceed EPS on every axis — exact touching is legal placement. */
+export function obbIntersects(a: Obb, b: Obb): boolean {
+  if (a.center[1] + a.half[1] <= b.center[1] - b.half[1] + EPS) return false;
+  if (b.center[1] + b.half[1] <= a.center[1] - a.half[1] + EPS) return false;
+  const dx = b.center[0] - a.center[0];
+  const dz = b.center[2] - a.center[2];
+  // Face normals in XZ. Under Ry(θ): local X̂ → [cosθ, −sinθ], local Ẑ → [sinθ, cosθ].
+  const axes: [number, number][] = [
+    [Math.cos(a.yaw), -Math.sin(a.yaw)],
+    [Math.sin(a.yaw), Math.cos(a.yaw)],
+    [Math.cos(b.yaw), -Math.sin(b.yaw)],
+    [Math.sin(b.yaw), Math.cos(b.yaw)],
+  ];
+  const project = (o: Obb, ax: [number, number]): number => {
+    const cA = Math.cos(o.yaw);
+    const sA = Math.sin(o.yaw);
+    // |proj of o's X half-axis| + |proj of o's Z half-axis|
+    return (
+      o.half[0] * Math.abs(ax[0] * cA + ax[1] * -sA) +
+      o.half[2] * Math.abs(ax[0] * sA + ax[1] * cA)
+    );
+  };
+  for (const ax of axes) {
+    const dist = Math.abs(dx * ax[0] + dz * ax[1]);
+    if (dist + EPS >= project(a, ax) + project(b, ax)) return false;
+  }
+  return true;
+}
+
 /** Conservative transform: yaw-rotate the 8 corners about the frame origin, re-envelope,
  *  translate — the same `Ry(θ)` convention as `connect.ts` (`Ry(θ)·[x,y,z] =
  *  [x·cosθ + z·sinθ, y, −x·sinθ + z·cosθ]`). */

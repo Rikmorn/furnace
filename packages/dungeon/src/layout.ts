@@ -6,7 +6,7 @@
 // (occupancy rules + closing-edge realizability) → bounded backtracking → throw
 // setup-loud. Pure: no GPU, no Rapier, no wall-clock.
 import { create as makeRng } from "@furnace/core/rng";
-import { aabbOfBoxes } from "./aabb.ts";
+import { aabbOfBoxes, type Obb, obbFromLocalAabb } from "./aabb.ts";
 import {
   type ConnectorKind,
   connectorSection,
@@ -113,6 +113,15 @@ function solidsOf(region: RegionData): Solid[] {
     }
     throw new Error("layout: unsupported collider shape on a placed region");
   });
+}
+
+/** Exact world Obbs of a piece's claim boxes under a placement — the LOCAL region's
+ *  envelopes (or bounds, if it declares no compound envelopes) transformed by the
+ *  placement's yaw+translation WITHOUT `transformAabb`'s conservative corner-envelope
+ *  inflation (a measured false-reject class for pieces yawed 30–45°). */
+function envelopeObbs(region: RegionData, place: Placement): Obb[] {
+  const locals = region.envelopes ?? [region.bounds];
+  return locals.map((e) => obbFromLocalAabb(e, place.yaw, place.translation));
 }
 
 /** The reserved walking air between two portals, as axis-aligned segments that follow the
@@ -297,7 +306,7 @@ export function layoutWorld(graph: WorldGraph, seed: string): LayoutResult {
     const placed = placePiece(n.region, n.pinned);
     placements.set(n.id, n.pinned);
     placedRegions.set(n.id, placed);
-    occ.addPiece(n.id, placed.envelopes ?? [placed.bounds], solidsOf(placed));
+    occ.addPiece(n.id, envelopeObbs(n.region, n.pinned), solidsOf(placed));
   }
 
   const order = placementOrder(graph);
@@ -417,7 +426,7 @@ export function layoutWorld(graph: WorldGraph, seed: string): LayoutResult {
       };
       const placement = join(target, nodePortal);
       const placed = placePiece(node.region, placement);
-      const envelopes = placed.envelopes ?? [placed.bounds];
+      const envelopes = envelopeObbs(node.region, placement);
       const envRej = occ.checkPieceEnvelope(envelopes);
       if (envRej) {
         countFail(id, `${envRej.rule}:${envRej.against}`);

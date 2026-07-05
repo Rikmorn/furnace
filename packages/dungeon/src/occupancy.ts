@@ -3,7 +3,14 @@
 // run BEFORE realize (no GPU, no Rapier). Three classes: piece ENVELOPES (pieces never
 // interpenetrate), piece SOLIDS (what connector air must not cross), and connector
 // CLEARANCE volumes (reserved walking air). See the 2.2.5a spec §2.
-import { aabbContains, aabbIntersection, aabbIntersects } from "./aabb.ts";
+import {
+  aabbContains,
+  aabbIntersection,
+  aabbIntersects,
+  type Obb,
+  obbIntersects,
+  obbOfAabb,
+} from "./aabb.ts";
 import type { Aabb, Vec3 } from "./region.ts";
 
 /** A solid obstacle: a conservative world AABB (cuboids, connector slabs) or an exact
@@ -167,7 +174,7 @@ function solidHitsOutsideExemptions(
   return false;
 }
 
-type PieceEntry = { envelopes: Aabb[]; solids: Solid[] };
+type PieceEntry = { envelopes: Obb[]; solids: Solid[] };
 type ClearanceEntry = {
   boxes: Aabb[];
   endpoints: [string, string];
@@ -178,15 +185,20 @@ type ClearanceEntry = {
 export type Rejection = { rule: string; against: string };
 
 /** The placement engine's occupancy ledger: registered piece envelopes/solids and
- *  committed connector clearances, checked pairwise per the 2.2.5a spec §2 rules. */
+ *  committed connector clearances, checked pairwise per the 2.2.5a spec §2 rules. Piece
+ *  envelopes are EXACT yaw-oriented Obbs (Task 1, B2c); clearances stay axis-aligned
+ *  AABBs (a connector's own yaw variation within one committed piece is out of scope
+ *  here — wrapped as a yaw-0 Obb when checked against an envelope). */
 export class Occupancy {
   private readonly pieces = new Map<string, PieceEntry>();
   private readonly clearances = new Map<string, ClearanceEntry>();
 
   /** Register a placed piece's claim boxes (rule 1/3 participant — a compound piece,
-   *  e.g. a cave, claims its carved features rather than its whole-grid `bounds`) and
-   *  its solids (what later clearances must not cross, barring a portal exemption). */
-  addPiece(id: string, envelopes: Aabb[], solids: Solid[]): void {
+   *  e.g. a cave, claims its carved features rather than its whole-grid `bounds`) as
+   *  EXACT yaw-oriented Obbs — not the conservative rotated-AABB cover, which inflates
+   *  a rotated piece by metres per side (a measured false-reject class) — and its
+   *  solids (what later clearances must not cross, barring a portal exemption). */
+  addPiece(id: string, envelopes: Obb[], solids: Solid[]): void {
     this.pieces.set(id, { envelopes, solids });
   }
 
@@ -210,14 +222,17 @@ export class Occupancy {
   }
 
   /** Rule 1 (+3 from the piece side): a candidate piece's claim boxes vs placed pieces'
-   *  claim boxes and vs committed clearance air — ANY box-pair intersecting rejects. */
-  checkPieceEnvelope(envs: Aabb[]): Rejection | null {
+   *  claim boxes (exact Obb-vs-Obb) and vs committed clearance air (axis-aligned,
+   *  wrapped as a yaw-0 Obb) — ANY box-pair intersecting rejects. */
+  checkPieceEnvelope(envs: Obb[]): Rejection | null {
     for (const [id, p] of this.pieces) {
-      if (p.envelopes.some((pe) => envs.some((e) => aabbIntersects(pe, e))))
+      if (p.envelopes.some((pe) => envs.some((e) => obbIntersects(pe, e))))
         return { rule: "envelope-envelope", against: id };
     }
     for (const [id, c] of this.clearances) {
-      if (c.boxes.some((b) => envs.some((e) => aabbIntersects(b, e)))) {
+      if (
+        c.boxes.some((b) => envs.some((e) => obbIntersects(obbOfAabb(b), e)))
+      ) {
         return { rule: "envelope-clearance", against: id };
       }
     }
@@ -238,7 +253,10 @@ export class Occupancy {
           }
         }
         const isEndpoint = id === endpoints[0] || id === endpoints[1];
-        if (!isEndpoint && p.envelopes.some((e) => aabbIntersects(e, q))) {
+        if (
+          !isEndpoint &&
+          p.envelopes.some((e) => obbIntersects(e, obbOfAabb(q)))
+        ) {
           return { rule: "clearance-envelope", against: id };
         }
       }
