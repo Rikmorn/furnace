@@ -23,6 +23,7 @@ import {
 } from "./connect.ts";
 import { buildDogleg, cornerCandidates, MIN_SEG_RUN } from "./dogleg.ts";
 import {
+  FACING_MIN,
   LOCUS_SAMPLES,
   pairFeasible,
   type SeatCandidate,
@@ -49,6 +50,16 @@ const MAX_ATTEMPTS = 25_000; // occupancy-checked candidates per restart — GAT
 const MAX_RESTARTS = 8; // seeded restarts before the setup-loud throw — GATE-TUNE
 const MAX_UNIT_REVISIONS = 3; // re-seatings of a placed unit under backtracking — GATE-TUNE
 const MAX_BACKJUMP_POPS = 4; // units undone per blame-directed backjump — GATE-TUNE
+const MAX_SA_LAYOUT_RESTARTS = 2; // SA-enabled whole-layout restarts after greedy fully fails — GATE-TUNE
+const MAX_SA_MOVES = 400; // best-response moves per SA restart (bounded — always terminates) — GATE-TUNE
+const MAX_SA_RESTARTS = 4; // seeded fresh-init restarts per SA call — GATE-TUNE
+const MAX_SA_FIRES_PER_CYCLE = 4; // SA calls per cycle per attempt (rev-0..3 seed diversity; caps
+// the cross-unit-backtracking re-fire multiplier that made a multi-cycle world's SA explode) — GATE-TUNE
+const SA_T_HI = 0.6; // SA start temperature — GATE-TUNE
+const SA_T_LO = 0.2; // SA end temperature — GATE-TUNE
+const SA_CLEARANCE_WEIGHT = 4; // energy per clearance-solid violation (m-equivalent) — GATE-TUNE
+const SA_FEASIBLE_EPS = 1e-2; // energy below which a state is heuristically feasible → try commit
+const SA_COINCIDENT_PENALTY = 1e3; // energy for a degenerate (near-coincident) portal pair
 export const CLEARANCE_SEGMENT = 2; // m — climb clearance follows the slope in segments
 const PORTAL_EXEMPT_DEPTH = 2.5; // m — clearance-vs-solid exemption reach around a portal
 const PORTAL_EXEMPT_PAD = 0.3; // m — exemption box cross-section pad
@@ -266,6 +277,15 @@ type Ctx = {
   failCounts: Map<NodeId, Map<string, number>>;
   adj: Map<NodeId, NodeId[]>;
   depth: Map<NodeId, number>;
+  /** Whether the SA cycle-repair fallback (Task 8B) may fire. FALSE for the pure-greedy
+   *  restarts (so any graph greedy can place returns byte-identical to the pre-8B placer);
+   *  TRUE only for the fallback restarts reached when greedy fully fails. */
+  saEnabled: boolean;
+  /** Per-cycle (closing-edge id → count) SA-call tally this attempt. Capped at
+   *  MAX_SA_FIRES_PER_CYCLE: the initial rev-0..3 fires get distinct seeds (real diversity —
+   *  the same cycle can close on a rev-1 seed when rev-0's search misses), but the unbounded
+   *  cross-unit-backtracking re-fires (which made a 30-room world's SA blow up) are cut off. */
+  saAttempted: Map<number, number>;
 };
 
 /** A schedulable unit and the revision stream that placed it — cycles carry their unit,
@@ -1276,6 +1296,532 @@ function cycleAttachFrame(
   return { member, pos, heading: portal.facing };
 }
 
+// ---------------------------------------------------------------------------------------
+// Joint chain repair — bounded seeded annealing per cycle unit (Task 8B)
+// ---------------------------------------------------------------------------------------
+//
+// Fired ONLY as a fallback when placeCycle's greedy+steering pass fails to place a cycle's
+// members (Gate A′ measured 0/8 default even with doglegs; the classified failures are cycle
+// members whose blame is facing + envelope-envelope + clearance-solid — none of which a
+// sequential first-accept greedy can escape when the members must JOINTLY orient to close).
+// SA searches the whole cycle's seatings at once; its energy is a heuristic to FIND a
+// zero-violation config, then the members commit through the REAL hard-rule occupancy path.
+
+/** A SA search state: the current world Placement of each cycle member. Portal bindings are
+ *  DERIVED at energy time (the best-mating spec-matching pair per edge), so the state stays
+ *  minimal and never has to be threaded through moves. */
+type SaState = Map<NodeId, Placement>;
+
+/** Run-invariant SA context: the frozen member order, the member set, the edges whose
+ *  violation the energy sums (every graph edge with BOTH endpoints seated — a member or an
+ *  already-placed fixed piece), the fixed pieces' exact envelope Obbs (they never move during
+ *  a repair, so precompute once), and the closure-steering targets. */
+type SaRun = {
+  ctx: Ctx;
+  order: readonly NodeId[];
+  memberSet: Set<NodeId>;
+  incident: ActiveEdge[];
+  fixedObbs: Obb[];
+  targets: Map<NodeId, Vec3>;
+};
+
+/** Penetration depth (m) of two yaw-about-Y OBBs: the minimum overlap across the SAT axes (the
+ *  Y interval + the four XZ face normals), 0 when separated. A smooth stand-in for the boolean
+ *  `obbIntersects` (same projection math) so the SA envelope-overlap term has a gradient that
+ *  guides members apart, not just a step. */
+function obbPenetration(a: Obb, b: Obb): number {
+  const yOverlap = a.half[1] + b.half[1] - Math.abs(a.center[1] - b.center[1]);
+  if (yOverlap <= 0) return 0;
+  const dx = b.center[0] - a.center[0];
+  const dz = b.center[2] - a.center[2];
+  const axes: [number, number][] = [
+    [Math.cos(a.yaw), -Math.sin(a.yaw)],
+    [Math.sin(a.yaw), Math.cos(a.yaw)],
+    [Math.cos(b.yaw), -Math.sin(b.yaw)],
+    [Math.sin(b.yaw), Math.cos(b.yaw)],
+  ];
+  const project = (o: Obb, ax: [number, number]): number => {
+    const cA = Math.cos(o.yaw);
+    const sA = Math.sin(o.yaw);
+    return (
+      o.half[0] * Math.abs(ax[0] * cA + ax[1] * -sA) +
+      o.half[2] * Math.abs(ax[0] * sA + ax[1] * cA)
+    );
+  };
+  let minPen = yOverlap;
+  for (const ax of axes) {
+    const dist = Math.abs(dx * ax[0] + dz * ax[1]);
+    const overlap = project(a, ax) + project(b, ax) - dist;
+    if (overlap <= 0) return 0;
+    if (overlap < minPen) minPen = overlap;
+  }
+  return minPen;
+}
+
+/** Continuous shortfall (m) by which two placed portals miss `pairFeasible`: the facing-cone
+ *  gap projected to metres (cosine gap × chord run) plus the range overshoot. Exactly 0 when
+ *  the pair is feasible (fa,fb ≥ FACING_MIN and run ∈ range) — so an all-edges-feasible state
+ *  contributes 0 to the energy. Heuristic only; the real commit re-checks with `pairFeasible`. */
+function edgeViolation(
+  a: Connection,
+  b: Connection,
+  range: [number, number],
+): number {
+  const dx = b.position[0] - a.position[0];
+  const dz = b.position[2] - a.position[2];
+  const run = Math.hypot(dx, dz);
+  if (run < 1e-6) return SA_COINCIDENT_PENALTY;
+  const dirX = dx / run;
+  const dirZ = dz / run;
+  const fa = a.facing[0] * dirX + a.facing[2] * dirZ;
+  const fb = -(b.facing[0] * dirX + b.facing[2] * dirZ);
+  const facingGap = Math.max(0, FACING_MIN - fa) + Math.max(0, FACING_MIN - fb);
+  const rangeGap = Math.max(0, range[0] - run) + Math.max(0, run - range[1]);
+  return run * facingGap + rangeGap;
+}
+
+/** Whether endpoint `id` currently has a seating the SA can read: a member already assigned a
+ *  placement in `state`, or a fixed piece (pin / earlier unit — always in `ctx.placements`,
+ *  never a member during a repair). */
+function isSeatedForSa(run: SaRun, state: SaState, id: NodeId): boolean {
+  return state.has(id) || run.ctx.placements.has(id);
+}
+
+/** The WORLD Connection of endpoint `id`'s portal `p` under the SA state: a member (by
+ *  `memberSet`) is its LOCAL portal transformed by its state placement; a fixed piece reads its
+ *  already-placed region. Only ever called for an already-seated endpoint. */
+function saWorldPortal(
+  run: SaRun,
+  state: SaState,
+  id: NodeId,
+  p: number,
+): Connection {
+  if (run.memberSet.has(id)) {
+    const region = mustGet(run.ctx.nodesById, id, "node").region;
+    // Boundary cast: saWorldPortal is only called for a member already seated in `state` (a
+    // moved member's neighbours, and every member at energy time), so `place` is defined.
+    return placeConnection(placedPortal(region, p), state.get(id) as Placement);
+  }
+  return placedPortal(mustGet(run.ctx.placedRegions, id, "placed region"), p);
+}
+
+/** The spec-matching portal indices of endpoint `id` (matching its nominal portal for an edge):
+ *  a member (by `memberSet`) offers ALL such portals off its LOCAL region — nothing of it is
+ *  committed during a repair, and this must work for the member being seated (not yet in state);
+ *  a fixed piece offers those on its placed region not already consumed by a committed binding. */
+function saPortals(run: SaRun, id: NodeId, nominal: number): number[] {
+  const isMember = run.memberSet.has(id);
+  const region = isMember
+    ? mustGet(run.ctx.nodesById, id, "node").region
+    : mustGet(run.ctx.placedRegions, id, "placed region");
+  const used = isMember
+    ? new Set<number>()
+    : (run.ctx.portalUse.get(id) ?? new Set<number>());
+  return matchingFreePortals(
+    region.connections,
+    placedPortal(region, nominal),
+    used,
+    new Set<number>(),
+  );
+}
+
+/** The min-violation spec-matching portal pair for an edge under the SA state, plus its two
+ *  WORLD portals — shared by the facing-violation term and the clearance term so both judge the
+ *  same (best) binding the real commit's portal freedom could pick. */
+function saBestMate(
+  run: SaRun,
+  state: SaState,
+  edge: WorldEdge,
+): { violation: number; pa: Connection; pb: Connection } {
+  const aPorts = saPortals(run, edge.a, edge.aPortal);
+  const bPorts = saPortals(run, edge.b, edge.bPortal);
+  const range = feasRange(edge);
+  // Boundary cast: an endpoint's nominal portal always spec-matches itself and (during a repair)
+  // is free, so both lists are non-empty and index 0 exists.
+  let pa = saWorldPortal(run, state, edge.a, aPorts[0] as number);
+  let pb = saWorldPortal(run, state, edge.b, bPorts[0] as number);
+  let violation = edgeViolation(pa, pb, range);
+  for (const ia of aPorts) {
+    const wa = saWorldPortal(run, state, edge.a, ia);
+    for (const ib of bPorts) {
+      const wb = saWorldPortal(run, state, edge.b, ib);
+      const v = edgeViolation(wa, wb, range);
+      if (v < violation) {
+        violation = v;
+        pa = wa;
+        pb = wb;
+      }
+    }
+  }
+  return { violation, pa, pb };
+}
+
+/** A per-member cache of world envelope Obbs, so a move recomputes only the moved member's. */
+type ObbCache = Map<NodeId, Obb[]>;
+
+/** One edge's energy under the state: its best-mate facing/range violation (m) plus, IF that
+ *  best mate is feasible, SA_CLEARANCE_WEIGHT when its connector clearance hits a fixed solid
+ *  (checked cheaply against fixed occupancy — members aren't registered during a repair). */
+function saEdgeEnergy(run: SaRun, state: SaState, e: WorldEdge): number {
+  const { violation, pa, pb } = saBestMate(run, state, e);
+  if (violation > SA_FEASIBLE_EPS) return violation;
+  const { headroom } = connectorSection(pa, pb);
+  const rej = run.ctx.occ.checkClearance(
+    clearanceBoxes(pa, pb),
+    [e.a, e.b],
+    [portalExemption(pa, headroom), portalExemption(pb, headroom)],
+  );
+  return rej ? violation + SA_CLEARANCE_WEIGHT : violation;
+}
+
+/** Total SA energy of a state: Σ edge facing/range violation (m) + Σ pairwise envelope
+ *  penetration depth (m — member×member and member×fixed) + SA_CLEARANCE_WEIGHT × (count of
+ *  otherwise-feasible edges whose connector clearance hits a fixed solid). A search heuristic:
+ *  0 ⇒ every edge mates, no envelopes overlap, and every clearance clears the fixed geometry.
+ *  The real commit is the hard arbiter — this only tells the search which way is downhill.
+ *  Full recompute: seeds the running total and re-syncs it (guarding incremental drift). */
+function saEnergy(run: SaRun, state: SaState, cache: ObbCache): number {
+  let energy = 0;
+  for (const { e } of run.incident) energy += saEdgeEnergy(run, state, e);
+  const ids = run.order;
+  // Boundary cast: i and j are loop-bounded < ids.length, so ids[i]/ids[j] are in-bounds.
+  for (let i = 0; i < ids.length; i++) {
+    const oi = mustGet(cache, ids[i] as NodeId, "obb cache");
+    for (let j = i + 1; j < ids.length; j++) {
+      for (const a of oi) {
+        for (const b of mustGet(cache, ids[j] as NodeId, "obb cache"))
+          energy += obbPenetration(a, b);
+      }
+    }
+    for (const a of oi) {
+      for (const f of run.fixedObbs) energy += obbPenetration(a, f);
+    }
+  }
+  return energy;
+}
+
+/** The energy contribution of member `id` (its envelope Obbs given as `idObbs`, its portals read
+ *  from `state`), holding the rest fixed: its incident edges' energy + its envelope penetration
+ *  against every OTHER seated member (via `cache`) and fixed piece. Endpoints/members not yet
+ *  seated are skipped (so this is safe during the incremental init). Because a move changes ONLY
+ *  `id`, ΔE = localEnergy(after) − localEnergy(before) is the exact total-energy delta — so
+ *  best-response moves anneal on cheap local recomputes instead of a full O(members²) sweep. */
+function saLocalEnergy(
+  run: SaRun,
+  state: SaState,
+  cache: ObbCache,
+  id: NodeId,
+  idObbs: Obb[],
+): number {
+  let energy = 0;
+  for (const { e } of run.incident) {
+    if (e.a !== id && e.b !== id) continue;
+    const other = e.a === id ? e.b : e.a;
+    if (isSeatedForSa(run, state, other)) energy += saEdgeEnergy(run, state, e);
+  }
+  for (const other of run.order) {
+    if (other === id) continue;
+    const oobbs = cache.get(other);
+    if (!oobbs) continue; // not yet seated (init) — no envelope pair yet
+    for (const a of idObbs) {
+      for (const b of oobbs) energy += obbPenetration(a, b);
+    }
+  }
+  for (const a of idObbs) {
+    for (const f of run.fixedObbs) energy += obbPenetration(a, f);
+  }
+  return energy;
+}
+
+/** The world envelope Obbs of member `id` under its state placement. */
+function saMemberObbs(run: SaRun, state: SaState, id: NodeId): Obb[] {
+  // Boundary cast: saInitialState seats every member, so each carries a state placement.
+  return envelopeObbs(
+    mustGet(run.ctx.nodesById, id, "node").region,
+    state.get(id) as Placement,
+  );
+}
+
+/** The candidate seatings of member `id` off `edge`'s already-seated OTHER endpoint: a seeded
+ *  spec-matching portal pair (which door of each mates), then the full reachable locus fan
+ *  (`sampleSeatLoci`) each `join`ed into a Placement. The MOVE evaluates every candidate and
+ *  best-responds; the INIT best-responds against already-seated members. `[]` if degenerate. */
+function saSeatCandidates(
+  run: SaRun,
+  state: SaState,
+  id: NodeId,
+  edge: WorldEdge,
+  rng: Rng,
+): Placement[] {
+  const nodeIsA = edge.a === id;
+  const nbId = nodeIsA ? edge.b : edge.a;
+  const nbPorts = saPortals(run, nbId, nodeIsA ? edge.bPortal : edge.aPortal);
+  const nodePorts = saPortals(run, id, nodeIsA ? edge.aPortal : edge.bPortal);
+  if (nbPorts.length === 0 || nodePorts.length === 0) return [];
+  const parentWorld = saWorldPortal(run, state, nbId, rng.pick(nbPorts));
+  const region = mustGet(run.ctx.nodesById, id, "node").region;
+  const nodeLocal = placedPortal(region, rng.pick(nodePorts));
+  const dhSigned = (edge.heightDelta ?? 0) * (nodeIsA ? -1 : 1);
+  const range = edge.lengthRange ?? DEFAULT_LENGTH_RANGE;
+  const loci = sampleSeatLoci(
+    parentWorld,
+    range,
+    dhSigned,
+    rng.derive("loci"),
+    LOCUS_SAMPLES,
+  );
+  return loci.map((cand) =>
+    join(
+      { ...cand.target, width: nodeLocal.width, height: nodeLocal.height },
+      nodeLocal,
+    ),
+  );
+}
+
+/** The first incident edge of `id` whose OTHER endpoint is already seated (a fixed piece, or an
+ *  earlier member) — the neighbour a seat/move samples loci off. `null` when none is seated yet. */
+function saSeatEdge(run: SaRun, state: SaState, id: NodeId): ActiveEdge[] {
+  return run.incident.filter(
+    ({ e }) =>
+      (e.a === id && isSeatedForSa(run, state, e.b)) ||
+      (e.b === id && isSeatedForSa(run, state, e.a)),
+  );
+}
+
+/** Pick, among `cands`, the placement of `id` minimising its local energy against the members
+ *  already in `state`/`cache` (ties → lowest index, deterministic). Returns the placement, its
+ *  world Obbs, and that local energy — the best-response step shared by init and move. */
+function saBestResponse(
+  run: SaRun,
+  state: SaState,
+  cache: ObbCache,
+  id: NodeId,
+  cands: Placement[],
+): { place: Placement; obbs: Obb[]; local: number } {
+  // Boundary cast: callers only pass a non-empty `cands`, so the loop runs and sets `best*`
+  // on its first iteration (bestLocal starts +∞); index 0 seeds `best` until then.
+  let best = cands[0] as Placement;
+  let bestObbs: Obb[] = [];
+  let bestLocal = Number.POSITIVE_INFINITY;
+  const scratch = new Map(state);
+  for (const c of cands) {
+    scratch.set(id, c);
+    const obbs = saMemberObbs(run, scratch, id);
+    const local = saLocalEnergy(run, scratch, cache, id, obbs);
+    if (local < bestLocal) {
+      bestLocal = local;
+      best = c;
+      bestObbs = obbs;
+    }
+  }
+  return { place: best, obbs: bestObbs, local: bestLocal };
+}
+
+/** Seed the SA by a greedy best-response construction: walk the member order, seating each off a
+ *  seeded neighbour at the candidate minimising its local energy against the members already
+ *  placed. No occupancy hard-checks — a strong start the annealing then refines. Returns the
+ *  state and its per-member Obb cache. */
+function saInitialState(
+  run: SaRun,
+  rng: Rng,
+): { state: SaState; cache: ObbCache } {
+  const state: SaState = new Map();
+  const cache: ObbCache = new Map();
+  for (const id of run.order) {
+    const seatEdges = saSeatEdge(run, state, id);
+    if (seatEdges.length === 0) continue; // order guarantees a seated neighbour — unreachable
+    // Boundary cast: the `length === 0` continue above proves seatEdges is non-empty.
+    const seat = seatEdges[0] as ActiveEdge;
+    const cands = saSeatCandidates(
+      run,
+      state,
+      id,
+      seat.e,
+      rng.derive(`init:${id}`),
+    );
+    if (cands.length === 0) continue;
+    const { place, obbs } = saBestResponse(run, state, cache, id, cands);
+    state.set(id, place);
+    cache.set(id, obbs);
+  }
+  return { state, cache };
+}
+
+/** One SA move (mutating `state`/`cache` on accept): re-seat a single seeded-random member — its
+ *  candidate loci off a seeded seated neighbour, best-responded to the min-local-energy placement
+ *  — then Metropolis-accept the change at temperature `t`. ΔE (= local after − before, the exact
+ *  total delta since only one member moves) is returned via the updated running `energy`. */
+function saMove(
+  run: SaRun,
+  state: SaState,
+  cache: ObbCache,
+  energy: number,
+  t: number,
+  rng: Rng,
+): number {
+  // Boundary cast: rng.int(0, n) returns an index in [0, n), so both reads are in-bounds
+  // (run.order is non-empty for any cycle; seatEdges is guarded non-empty just below).
+  const id = run.order[rng.int(0, run.order.length)] as NodeId;
+  const seatEdges = saSeatEdge(run, state, id);
+  if (seatEdges.length === 0) return energy;
+  const seat = seatEdges[rng.int(0, seatEdges.length)] as ActiveEdge;
+  const cands = saSeatCandidates(run, state, id, seat.e, rng.derive("cand"));
+  if (cands.length === 0) return energy;
+  const oldLocal = saLocalEnergy(
+    run,
+    state,
+    cache,
+    id,
+    mustGet(cache, id, "obb cache"),
+  );
+  const best = saBestResponse(run, state, cache, id, cands);
+  const dE = best.local - oldLocal;
+  if (dE <= 0 || rng.derive("accept").float() < Math.exp(-dE / t)) {
+    state.set(id, best.place);
+    cache.set(id, best.obbs);
+    return energy + dE;
+  }
+  return energy;
+}
+
+/** A parent/node portal binding for the seat edge feasible at `placement` — the SA state fixes
+ *  the member's position, so the real commit must find which spec-matching binding realizes it. */
+function findSeatBind(
+  ctx: Ctx,
+  node: WorldNode,
+  id: NodeId,
+  seat: ActiveEdge,
+  placement: Placement,
+): BindPair | null {
+  for (const cand of bindingCandidates(
+    ctx,
+    seat,
+    id,
+    ctx.rng.derive(`sa-seat:${id}`),
+  )) {
+    const parentWorld = boundParentPortal(ctx, seat, id, cand);
+    const nodeWorld = placeConnection(
+      placedPortal(node.region, cand.node),
+      placement,
+    );
+    const [aW, bW] =
+      seat.e.a === id ? [nodeWorld, parentWorld] : [parentWorld, nodeWorld];
+    if (pairFeasible(aW, bW, feasRange(seat.e))) return cand;
+  }
+  return null;
+}
+
+/** Commit ONE cycle member at its SA-found placement through the real occupancy path: find a
+ *  feasible seat binding, forward-check the other active edges, then addPiece + commitEdges
+ *  (which itself rolls back on any edge failing). Returns true only if every hard rule genuinely
+ *  passes — the SA energy was only a heuristic to FIND this seating, not a proof of legality. */
+function commitMemberAt(ctx: Ctx, id: NodeId, placement: Placement): boolean {
+  const node = mustGet(ctx.nodesById, id, "node");
+  const active = activeEdges(ctx, id);
+  if (active.length === 0) return false;
+  const [seat, ...others] = active as [ActiveEdge, ...ActiveEdge[]];
+  const seatParentId = seat.e.a === id ? seat.e.b : seat.e.a;
+  const seatBind = findSeatBind(ctx, node, id, seat, placement);
+  if (!seatBind) return false;
+  const fc = forwardCheckOthers(
+    ctx,
+    id,
+    placement,
+    seatBind,
+    seatParentId,
+    others,
+  );
+  if (!fc) return false;
+  const envs = envelopeObbs(node.region, placement);
+  if (ctx.occ.checkPieceEnvelope(envs)) return false;
+  const placed = placePiece(node.region, placement);
+  ctx.placements.set(id, placement);
+  ctx.placedRegions.set(id, placed);
+  ctx.occ.addPiece(id, envs, solidsOf(placed));
+  return commitEdges(ctx, id, seat, seatBind, others, fc.binds, fc.doglegEdges);
+}
+
+/** Realize a heuristically-feasible SA state through the real occupancy path, in the frozen
+ *  member order so each member's active edges see its already-committed predecessors. Rolls every
+ *  committed member back and returns false if any member's hard-rule commit fails (E can reach 0
+ *  on the heuristic yet miss a real rule — a member×member connector clip or a portal double-use
+ *  the energy under-models — in which case the caller keeps annealing). */
+function saCommit(ctx: Ctx, order: readonly NodeId[], state: SaState): boolean {
+  const committed: NodeId[] = [];
+  for (const id of order) {
+    const placement = state.get(id);
+    if (placement && commitMemberAt(ctx, id, placement)) {
+      committed.push(id);
+      continue;
+    }
+    for (const m of [...committed].reverse()) undoNode(ctx, m);
+    return false;
+  }
+  return true;
+}
+
+/** One SA restart: greedy best-response init, then MAX_SA_MOVES best-response moves under a
+ *  geometric SA_T_HI→SA_T_LO cooling. The running `energy` is maintained by exact per-move ΔE;
+ *  whenever it dips to feasible (≤ SA_FEASIBLE_EPS) a FULL recompute re-syncs it (guarding
+ *  incremental drift) and, if still feasible, the state commits through the REAL occupancy path
+ *  — succeeding only if every hard rule passes. Returns true iff a commit succeeded. */
+function saAnneal(run: SaRun, rng: Rng): boolean {
+  const { state, cache } = saInitialState(run, rng.derive("init"));
+  let energy = saEnergy(run, state, cache);
+  const tryFeasibleCommit = (): boolean => {
+    if (energy > SA_FEASIBLE_EPS) return false;
+    energy = saEnergy(run, state, cache); // re-sync against drift before trusting E≈0
+    return energy <= SA_FEASIBLE_EPS && saCommit(run.ctx, run.order, state);
+  };
+  if (tryFeasibleCommit()) return true;
+  for (let step = 0; step < MAX_SA_MOVES; step++) {
+    const t = SA_T_HI * (SA_T_LO / SA_T_HI) ** (step / MAX_SA_MOVES);
+    energy = saMove(run, state, cache, energy, t, rng.derive(`step:${step}`));
+    if (tryFeasibleCommit()) return true;
+  }
+  return false;
+}
+
+/** Joint chain repair (Task 8B): bounded, seeded, deterministic simulated annealing over the
+ *  whole cycle's member seatings, fired ONLY when placeCycle's greedy+steering pass fails. State
+ *  = each member's placement; a best-response move re-seats one member (candidate loci off a
+ *  seated neighbour → the min-local-energy one); energy = facing/range violation + envelope
+ *  penetration depth + clearance-solid count (a search heuristic). MAX_SA_RESTARTS seeded restarts
+ *  × MAX_SA_MOVES moves ⇒ always terminates; on reaching a feasible state it commits through the
+ *  REAL occupancy path (the hard arbiter). All randomness derives from `sa:${closingEdge}:${rev}`
+ *  so the SA never perturbs the greedy stream and same seed → identical result. */
+function repairCycleBySA(
+  ctx: Ctx,
+  cyc: CycleUnit,
+  rev: number,
+  order: readonly NodeId[],
+  targets: Map<NodeId, Vec3>,
+): boolean {
+  const memberSet = new Set(cyc.members);
+  const seatedStatic = (id: NodeId): boolean =>
+    memberSet.has(id) || ctx.placements.has(id);
+  const incident = ctx.graph.edges
+    .map((e, i): ActiveEdge => ({ e, i }))
+    .filter(
+      ({ e }) =>
+        (memberSet.has(e.a) || memberSet.has(e.b)) &&
+        seatedStatic(e.a) &&
+        seatedStatic(e.b),
+    );
+  const fixedObbs: Obb[] = [];
+  for (const [id, place] of ctx.placements) {
+    if (memberSet.has(id)) continue;
+    const region = ctx.nodesById.get(id)?.region;
+    if (region) for (const o of envelopeObbs(region, place)) fixedObbs.push(o);
+  }
+  const run: SaRun = { ctx, order, memberSet, incident, fixedObbs, targets };
+  const rng = ctx.rng.derive(`sa:${cyc.closingEdge}:${rev}`);
+  for (let restart = 0; restart < MAX_SA_RESTARTS; restart++) {
+    if (saAnneal(run, rng.derive(`restart:${restart}`))) return true;
+  }
+  return false;
+}
+
 /** Place a whole cycle unit with bounded in-cycle backtracking over a frozen member order:
  *  place each member via `placeNode`; on a member failing, undo the previous member and
  *  retry it with a bumped sub-revision (up to MAX_UNIT_REVISIONS total re-seatings), else
@@ -1329,6 +1875,16 @@ function placeCycle(ctx: Ctx, cyc: CycleUnit, rev: number): boolean {
       ctx.attempts > MAX_ATTEMPTS;
     if (stuck) {
       for (const m of [...placedHere].reverse()) undoNode(ctx, m);
+      // Fallback: joint chain repair by bounded seeded annealing (Task 8B). Gated on
+      // `ctx.saEnabled` — OFF for the pure-greedy restarts (so any graph greedy can place is
+      // byte-for-byte identical to the pre-8B placer), ON only for the fallback restarts reached
+      // when greedy fully fails — and capped at MAX_SA_FIRES_PER_CYCLE per cycle (`saAttempted`).
+      // SA searches all members' seatings jointly, then commits through the real occupancy path.
+      const fires = ctx.saAttempted.get(cyc.closingEdge) ?? 0;
+      if (ctx.saEnabled && fires < MAX_SA_FIRES_PER_CYCLE) {
+        ctx.saAttempted.set(cyc.closingEdge, fires + 1);
+        if (repairCycleBySA(ctx, cyc, rev, order, targets)) return true;
+      }
       return false;
     }
     sweeps++;
@@ -1495,6 +2051,7 @@ function tryLayout(
   decomposition: ReturnType<typeof deriveChains>,
   closingEdges: Set<number>,
   rng: Rng,
+  saEnabled: boolean,
 ): { result: LayoutResult } | { failing: NodeId; detail: string } {
   const ctx: Ctx = {
     graph,
@@ -1512,6 +2069,8 @@ function tryLayout(
     failCounts: new Map(),
     adj: buildAdjacency(graph),
     depth: depthFromPins(graph),
+    saEnabled,
+    saAttempted: new Map<number, number>(),
   };
 
   for (const n of graph.nodes) {
@@ -1643,9 +2202,11 @@ function tryLayout(
 
 /** Place a world graph: deterministic collision-aware incremental embedding (pins frozen →
  *  cycles-first, most-constrained order → continuous-loci candidates with portal freedom +
- *  forward checking → occupancy-hard-accept → unit backtracking → seeded restarts). Pure:
- *  no GPU, no Rapier, no wall-clock. Throws setup-loud with per-node diagnostics after
- *  exhausting all restarts. */
+ *  forward checking → occupancy-hard-accept → unit backtracking → seeded restarts). Two phases:
+ *  PURE-GREEDY restarts first (the pre-8B placer, byte-for-byte — so any graph greedy can place
+ *  is unchanged), then, ONLY if greedy fully fails AND the graph has cycles, SA-fallback restarts
+ *  (Task 8B joint chain repair) before the setup-loud throw. Pure: no GPU, no Rapier, no
+ *  wall-clock. Throws setup-loud with per-node diagnostics after exhausting all restarts. */
 export function layoutWorld(graph: WorldGraph, seed: string): LayoutResult {
   validateGraph(graph);
   const nodesById = new Map<NodeId, WorldNode>(
@@ -1655,22 +2216,35 @@ export function layoutWorld(graph: WorldGraph, seed: string): LayoutResult {
   // Consumed by Task 8's dogleg hook — a closing edge that fails straight routing gets
   // tryDogleg (via `ctx.closingEdges.has(i)`) before the node fails.
   const closingEdges = new Set(decomposition.cycles.map((c) => c.closingEdge));
-
-  for (let restart = 0; restart < MAX_RESTARTS; restart++) {
-    const rng = makeRng(seed).derive(`restart:${restart}`);
-    const attempt = tryLayout(
+  const attemptAt = (
+    stream: string,
+    saEnabled: boolean,
+  ): ReturnType<typeof tryLayout> =>
+    tryLayout(
       graph,
       nodesById,
       decomposition,
       closingEdges,
-      rng,
+      makeRng(seed).derive(stream),
+      saEnabled,
     );
+
+  let last: { failing: NodeId; detail: string } = { failing: "?", detail: "" };
+  for (let restart = 0; restart < MAX_RESTARTS; restart++) {
+    const attempt = attemptAt(`restart:${restart}`, false);
     if ("result" in attempt) return attempt.result;
-    if (restart === MAX_RESTARTS - 1) {
-      throw new Error(
-        `layout: could not place node "${attempt.failing}" after ${MAX_RESTARTS} restarts (${attempt.detail})`,
-      );
+    last = attempt;
+  }
+  // SA fallback — only reachable when every greedy restart failed. Skipped for cycle-free graphs
+  // (SA repairs cycles only), so a tree-only impossible graph throws without the extra passes.
+  if (decomposition.cycles.length > 0) {
+    for (let restart = 0; restart < MAX_SA_LAYOUT_RESTARTS; restart++) {
+      const attempt = attemptAt(`sa-restart:${restart}`, true);
+      if ("result" in attempt) return attempt.result;
+      last = attempt;
     }
   }
-  throw new Error("layout: unreachable");
+  throw new Error(
+    `layout: could not place node "${last.failing}" after ${MAX_RESTARTS} restarts (${last.detail})`,
+  );
 }

@@ -791,3 +791,73 @@ describe("dogleg closure (Task 8)", () => {
     expect([...a.expansions.entries()]).toEqual([...b.expansions.entries()]);
   });
 });
+
+/** A pinned anchor plus a TEN-room ring (r0…r9, closing r9→r0), every room a spec-identical
+ *  4-door box, every edge a FIXED [4, 4] length — a rigid, near-regular decagon. The greedy +
+ *  in-chain-repair + steering + restart pass CANNOT close this: a member's first-accept seat
+ *  routinely forecloses a later member's facing cone, and no sequential re-seat within the
+ *  greedy horizon jointly re-orients the ring. Only joint annealing over ALL members at once
+ *  (repairCycleBySA) finds a closing decagon. VERIFIED during Task 8B: with the SA fallback
+ *  disabled the base placer throws on `ring10-a` (`edge[fwd]:facing`); with SA it places. */
+function tenRingFixture(): WorldGraph {
+  const box = (): RegionData => room(["N", "S", "E", "W"]);
+  const L: [number, number] = [4, 4];
+  const rooms = Array.from({ length: 10 }, (_, i) => ({
+    id: `r${i}`,
+    region: box(),
+  }));
+  const ringEdges: WorldEdge[] = Array.from({ length: 9 }, (_, i) => ({
+    a: `r${i}`,
+    b: `r${i + 1}`,
+    aPortal: 1,
+    bPortal: 0,
+    lengthRange: L,
+  }));
+  return {
+    nodes: [
+      {
+        id: "anchor",
+        region: room(["N"]),
+        pinned: { yaw: 0, translation: [0, 0, 0] },
+      },
+      ...rooms,
+    ],
+    edges: [
+      { a: "anchor", b: "r0", aPortal: 0, bPortal: 0, lengthRange: L },
+      ...ringEdges,
+      { a: "r9", b: "r0", aPortal: 1, bPortal: 2, lengthRange: L }, // closing
+    ],
+  };
+}
+
+describe("joint chain repair — SA fallback (Task 8B)", () => {
+  test("a rigid 10-ring greedy+steering CANNOT close is rescued by SA annealing", () => {
+    // Pre-SA (fallback disabled) this fixture throws `edge[fwd]:facing` — the greedy pass cannot
+    // jointly orient the decagon. The SA repair places all 11 pieces and realizes all 11 edges.
+    const result = layoutWorld(tenRingFixture(), "ring10-a");
+    expect(result.placements.size).toBe(11); // anchor + 10 rooms
+    expect(result.connectors.length).toBe(11); // every edge realized (straight — no dogleg)
+    expect(result.expansions.size).toBe(0);
+  });
+
+  test("deterministic: the SA-rescued layout reproduces on the same seed", () => {
+    const a = layoutWorld(tenRingFixture(), "ring10-a");
+    const b = layoutWorld(tenRingFixture(), "ring10-a");
+    expect([...a.placements.entries()]).toEqual([...b.placements.entries()]);
+    expect(a.edgeBindings).toEqual(b.edgeBindings);
+  });
+
+  test("SA-rescued layout is valid: every edge mates within its cone + range", () => {
+    const result = layoutWorld(tenRingFixture(), "ring10-a");
+    const g = tenRingFixture();
+    for (const [i, e] of g.edges.entries()) {
+      const bind = result.edgeBindings[i] as {
+        aPortal: number;
+        bPortal: number;
+      };
+      const pa = regionPortal(result, g, e.a, bind.aPortal);
+      const pb = regionPortal(result, g, e.b, bind.bPortal);
+      expect(pairFeasible(pa, pb, e.lengthRange ?? [2, 10])).toBe(true);
+    }
+  });
+});
