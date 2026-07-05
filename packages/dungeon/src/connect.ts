@@ -47,6 +47,23 @@ export function join(a: Connection, b: Connection): Placement {
   };
 }
 
+/** Apply a Placement to a single Connection: its position rotated+translated and its
+ *  outward facing rotated by the placement yaw (both under the shared `Ry(θ)` convention).
+ *  Extracted so the placement engine can transform ONE local portal to world without
+ *  re-placing a whole region (forward checking), and reused inside {@link placePiece} so
+ *  the two share exactly one rotate+translate. */
+export function placeConnection(cn: Connection, place: Placement): Connection {
+  const { yaw, translation: t } = place;
+  const c = Math.cos(yaw);
+  const s = Math.sin(yaw);
+  const p = rotateY(cn.position, c, s);
+  return {
+    ...cn,
+    position: [p[0] + t[0], p[1] + t[1], p[2] + t[2]],
+    facing: rotateY(cn.facing, c, s),
+  };
+}
+
 /** Apply a Placement to a whole region: positions rotated+translated, per-piece rotation
  *  composed with the placement yaw, connection facings rotated, instance transforms +
  *  placements transformed. Generalizes the retired compose.ts placeRoom for ANY yaw. */
@@ -58,7 +75,6 @@ export function placePiece(region: RegionData, place: Placement): RegionData {
     const r = rotateY(p, c, s);
     return [r[0] + t[0], r[1] + t[1], r[2] + t[2]];
   };
-  const rotDir = (v: Vec3): Vec3 => rotateY(v, c, s);
   const qYaw = quat.fromAxisAngle(quat.create(), vec3.fromValues(0, 1, 0), yaw);
   const compose = (
     existing?: [number, number, number, number],
@@ -88,11 +104,9 @@ export function placePiece(region: RegionData, place: Placement): RegionData {
     position: xf(col.position),
     rotation: compose(col.rotation),
   }));
-  const connections: Connection[] = region.connections.map((cn) => ({
-    ...cn,
-    position: xf(cn.position),
-    facing: rotDir(cn.facing),
-  }));
+  const connections: Connection[] = region.connections.map((cn) =>
+    placeConnection(cn, place),
+  );
   const placementMat = buildPlacementMat(c, s, t);
   const scratch = mat4.create();
   const instances = region.instances.map((g) => {

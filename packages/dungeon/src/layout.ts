@@ -1,32 +1,29 @@
 // packages/dungeon/src/layout.ts
-// The collision-aware placement engine: deterministic incremental graph embedding
-// (the Ma-2014/Edgar shape — see docs/research/2026-07-01-dungeon-2.2.5-layout-
-// placement-and-megastructure.md). Pins frozen → most-constrained-first order →
-// candidates by portal-mating (join) at seeded lengths/yaw-offsets → hard accept
-// (occupancy rules + closing-edge realizability) → bounded backtracking → throw
-// setup-loud. Pure: no GPU, no Rapier, no wall-clock.
-import { create as makeRng } from "@furnace/core/rng";
+// The collision-aware placement engine (2.2.5b-B2c "toolbox placer"): a deterministic
+// incremental graph embedder rebuilt around CONTINUOUS seeded loci (locus.ts), PORTAL
+// freedom (permute spec-identical portals on both endpoints), FORWARD CHECKING (validate
+// every incident placed edge at candidate time), exact-OBB envelopes (aabb.ts), CHAIN
+// scheduling (cycles first — chains.ts), unit backtracking, and seeded restarts. Replaces
+// the B2-era 5-length × 7-yaw grid whose position poverty was the measured placement-wall
+// root cause. Pure: no GPU, no Rapier, no wall-clock (perf logging aside).
+import { create as makeRng, type Rng } from "@furnace/core/rng";
 import { aabbOfBoxes, type Obb, obbFromLocalAabb } from "./aabb.ts";
+import { type CycleUnit, deriveChains } from "./chains.ts";
 import {
   type ConnectorKind,
   connectorSection,
   ENCLOSURE_TOP_PAD,
   join,
   type Placement,
+  placeConnection,
   placePiece,
   route,
   SHOULDER,
   walkLineAt,
 } from "./connect.ts";
-import { FACING_MIN } from "./locus.ts";
+import { LOCUS_SAMPLES, pairFeasible, sampleSeatLoci } from "./locus.ts";
 import { Occupancy, type Solid, voxelCellsOf } from "./occupancy.ts";
-import type {
-  Aabb,
-  Connection,
-  RegionCollider,
-  RegionData,
-  Vec3,
-} from "./region.ts";
+import type { Aabb, Connection, RegionCollider, RegionData } from "./region.ts";
 import {
   type NodeId,
   validateGraph,
@@ -36,30 +33,36 @@ import {
 } from "./world-graph.ts";
 
 const DEFAULT_LENGTH_RANGE: [number, number] = [2, 10];
-const N_LENGTHS = 5; // candidate lengths sampled across lengthRange — GATE-TUNE
-// ±45° yaw jitter on the seating direction — lets a connector route AROUND an obstacle. GATE-TUNE
-const YAW_OFFSETS = [
-  0,
-  Math.PI / 12,
-  -Math.PI / 12,
-  Math.PI / 6,
-  -Math.PI / 6,
-  Math.PI / 4,
-  -Math.PI / 4,
-];
-const MAX_ATTEMPTS = 10_000; // total candidate evaluations — GATE-TUNE
+const MAX_ATTEMPTS = 25_000; // occupancy-checked candidates per restart — GATE-TUNE
+const MAX_RESTARTS = 8; // seeded restarts before the setup-loud throw — GATE-TUNE
+const MAX_UNIT_REVISIONS = 3; // re-seatings of a placed unit under backtracking — GATE-TUNE
 export const CLEARANCE_SEGMENT = 2; // m — climb clearance follows the slope in segments
 const PORTAL_EXEMPT_DEPTH = 2.5; // m — clearance-vs-solid exemption reach around a portal
 const PORTAL_EXEMPT_PAD = 0.3; // m — exemption box cross-section pad
 const PORTAL_EXEMPT_BELOW = 1; // m — exemption box reach below the portal floor
 const IDENTITY_QUAT: [number, number, number, number] = [0, 0, 0, 1];
 
+/** Final portal binding of one edge (indices into each region's `connections`) — the
+ *  placer may permute spec-identical portals, so the graph's nominal aPortal/bPortal
+ *  are a labelling, not geometry; THIS is what actually mated. */
+export type EdgeBinding = { aPortal: number; bPortal: number };
+
+/** A dogleg expansion: indices into `connectors` for the two straight segments and the
+ *  corner room-let a cycle-closing edge was routed through (Task 8; empty until then). */
+export type DoglegExpansion = { segA: number; corner: number; segB: number };
+
 /** The placer's output: the world placement per node, the placed regions (in graph-node
- *  order), and the committed connector pieces (in edge order). */
+ *  order), the committed connector pieces (in edge order), the final per-edge portal
+ *  bindings, and any dogleg expansions (edge index → its pieces; empty this slice). */
 export type LayoutResult = {
   placements: Map<NodeId, Placement>;
   regions: RegionData[];
+  /** ALL connector pieces in commit order (dogleg edges contribute 3 entries). */
   connectors: RegionData[];
+  /** Per-edge final binding, in graph.edges order. */
+  edgeBindings: EdgeBinding[];
+  /** Edge index → dogleg piece indices (absent = straight connector). */
+  expansions: Map<number, DoglegExpansion>;
 };
 
 function placedPortal(region: RegionData, index: number): Connection {
@@ -73,13 +76,6 @@ function mustGet<K, V>(map: Map<K, V>, key: K, ctx: string): V {
   if (v === undefined)
     throw new Error(`layout: ${ctx} "${String(key)}" not found`);
   return v;
-}
-
-/** Rotate a Vec3 by yaw θ about world-up: `Ry(θ)·[x,y,z]` (connect.ts convention). */
-function rotateY(v: Vec3, yaw: number): Vec3 {
-  const c = Math.cos(yaw);
-  const s = Math.sin(yaw);
-  return [v[0] * c + v[2] * s, v[1], -v[0] * s + v[2] * c];
 }
 
 /** Lower a placed region's colliders into occupancy `Solid`s — cuboids to conservative
@@ -195,316 +191,834 @@ function portalExemption(portal: Connection, headroom: number): Aabb {
   };
 }
 
-/** Do two portals face each other closely enough (within 60° of the line between them) for
- *  a straight connector to mate them? A cheap pre-filter before `route`. */
-function facingsCompatible(from: Connection, to: Connection): boolean {
-  const dx = to.position[0] - from.position[0];
-  const dz = to.position[2] - from.position[2];
-  const run = Math.hypot(dx, dz);
-  if (run < 1e-6) return false;
-  const dirX = dx / run;
-  const dirZ = dz / run;
-  const a = from.facing[0] * dirX + from.facing[2] * dirZ;
-  const b = -(to.facing[0] * dirX + to.facing[2] * dirZ);
-  return a >= FACING_MIN && b >= FACING_MIN;
+// ---------------------------------------------------------------------------------------
+// Scheduling primitives
+// ---------------------------------------------------------------------------------------
+
+/** Undirected adjacency (node id → neighbour ids, with edge multiplicity). */
+function buildAdjacency(graph: WorldGraph): Map<NodeId, NodeId[]> {
+  const adj = new Map<NodeId, NodeId[]>();
+  for (const e of graph.edges) {
+    adj.set(e.a, [...(adj.get(e.a) ?? []), e.b]);
+    adj.set(e.b, [...(adj.get(e.b) ?? []), e.a]);
+  }
+  return adj;
 }
 
-/** Most-constrained-first order over the NON-pinned nodes: BFS depth from the pinned set,
- *  then repeatedly pick the node with the most already-placed neighbours (ties broken by
- *  BFS depth, then id) — Edgar's placement order. Pinned nodes are pre-seated obstacles. */
-function placementOrder(graph: WorldGraph): NodeId[] {
-  const neighbours = new Map<NodeId, NodeId[]>();
-  for (const e of graph.edges) {
-    neighbours.set(e.a, [...(neighbours.get(e.a) ?? []), e.b]);
-    neighbours.set(e.b, [...(neighbours.get(e.b) ?? []), e.a]);
-  }
+/** BFS depth of every node from the pinned skeleton (pins = 0), for the placement-order
+ *  tie-break. Unreachable nodes never appear (the graph is validated connected). */
+function depthFromPins(graph: WorldGraph): Map<NodeId, number> {
+  const adj = buildAdjacency(graph);
   const pinned = graph.nodes.filter((n) => n.pinned).map((n) => n.id);
   const depth = new Map<NodeId, number>(pinned.map((id) => [id, 0]));
   const queue = [...pinned];
   while (queue.length) {
     const id = queue.shift() as NodeId;
-    for (const nb of neighbours.get(id) ?? []) {
+    for (const nb of adj.get(id) ?? []) {
       if (!depth.has(nb)) {
         depth.set(nb, mustGet(depth, id, "depth") + 1);
         queue.push(nb);
       }
     }
   }
-  const placed = new Set<NodeId>(pinned);
+  return depth;
+}
+
+// ---------------------------------------------------------------------------------------
+// Placer state
+// ---------------------------------------------------------------------------------------
+
+/** All mutable + precomputed state for ONE placement attempt (a restart is a clean slate).
+ *  `adj`/`depth` are precomputed immutable for the attempt; everything else mutates as the
+ *  scheduler places, backtracks, and rolls back. */
+type Ctx = {
+  graph: WorldGraph;
+  nodesById: Map<NodeId, WorldNode>;
+  closingEdges: Set<number>;
+  rng: Rng;
+  occ: Occupancy;
+  placements: Map<NodeId, Placement>;
+  placedRegions: Map<NodeId, RegionData>;
+  /** node id → portal indices consumed by committed edge bindings. */
+  portalUse: Map<NodeId, Set<number>>;
+  edgeBindings: Map<number, EdgeBinding>;
+  committedConnectors: Map<number, RegionData[]>;
+  expansions: Map<number, DoglegExpansion>;
+  /** Edges committed while placing each node (for rollback). */
+  nodeEdges: Map<NodeId, number[]>;
+  attempts: number;
+  failCounts: Map<NodeId, Map<string, number>>;
+  adj: Map<NodeId, NodeId[]>;
+  depth: Map<NodeId, number>;
+};
+
+/** A schedulable unit and the revision stream that placed it — cycles carry their unit,
+ *  tree nodes carry their id; `rev` reseeds the candidate stream under backtracking. */
+type PlacedUnit =
+  | { kind: "cycle"; unit: CycleUnit; rev: number }
+  | { kind: "node"; id: NodeId; rev: number };
+
+/** An edge one of whose endpoints is the node being placed, with its graph.edges index. */
+type ActiveEdge = { e: WorldEdge; i: number };
+
+/** A binding pair local to the node being placed: which PARENT-side portal (index into the
+ *  already-placed endpoint's connections) and which NODE-side portal serve the edge. */
+type BindPair = { parent: number; node: number };
+
+function neighbours(ctx: Ctx, id: NodeId): NodeId[] {
+  return ctx.adj.get(id) ?? [];
+}
+
+function countFail(ctx: Ctx, id: NodeId, key: string): void {
+  const m = ctx.failCounts.get(id) ?? new Map<string, number>();
+  m.set(key, (m.get(key) ?? 0) + 1);
+  ctx.failCounts.set(id, m);
+}
+
+function usePortal(ctx: Ctx, id: NodeId, portal: number): void {
+  const s = ctx.portalUse.get(id) ?? new Set<number>();
+  s.add(portal);
+  ctx.portalUse.set(id, s);
+}
+
+function freePortal(ctx: Ctx, id: NodeId, portal: number): void {
+  const s = ctx.portalUse.get(id);
+  if (!s) return;
+  s.delete(portal);
+  if (s.size === 0) ctx.portalUse.delete(id);
+}
+
+/** In-place Fisher–Yates shuffle over a seeded stream (int is inclusive-min, exclusive-max). */
+function shuffle<T>(arr: T[], rng: Rng): void {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = rng.int(0, i + 1);
+    const t = arr[i] as T;
+    arr[i] = arr[j] as T;
+    arr[j] = t;
+  }
+}
+
+const specMatch = (a: Connection, b: Connection): boolean =>
+  a.width === b.width && a.height === b.height && a.kind === b.kind;
+
+/** The length window a NOW-both-placed edge must satisfy to be realizable, distinct from the
+ *  SEAT sampling window (`e.lengthRange ?? DEFAULT`, which bounds where the seat samples
+ *  positions). An edge's `lengthRange` is a sampling window authored for the seat; for a
+ *  forward-checked / cycle-closing edge whose run is EMERGENT from two already-fixed pieces
+ *  (not sampled), an arbitrary DEFAULT upper cap would force needless backtracking (the hand
+ *  world's ~10 m flat closer). So: honour an EXPLICIT range fully, but when the edge relies
+ *  on the default, keep only the lower bound (route-buildability) and leave the upper open —
+ *  matching the pre-B2c closing-edge check, which never length-capped non-seat edges. */
+function feasRange(e: WorldEdge): [number, number] {
+  if (e.lengthRange) return e.lengthRange;
+  return [DEFAULT_LENGTH_RANGE[0], Number.POSITIVE_INFINITY];
+}
+
+// ---------------------------------------------------------------------------------------
+// Edge realizability + commit
+// ---------------------------------------------------------------------------------------
+
+/** Realizability of a NOW-both-placed edge with a chosen a/b portal binding: facings mate
+ *  within range (`pairFeasible`), `route` builds, and the connector's clearance volume is
+ *  unobstructed (portal-exempted at both ends). Returns the connector or a fail reason. */
+function realizeEdge(
+  ctx: Ctx,
+  e: WorldEdge,
+  pa: Connection,
+  pb: Connection,
+): { connector: RegionData } | { fail: string } {
+  if (!pairFeasible(pa, pb, feasRange(e))) return { fail: "facing" };
+  let connector: RegionData;
+  try {
+    const opts: { kind?: ConnectorKind; enclosure?: "open" } = {};
+    if (e.kind) opts.kind = e.kind;
+    if (e.enclosure) opts.enclosure = e.enclosure;
+    connector = route(pa, pb, opts);
+  } catch {
+    return { fail: "route-throw" };
+  }
+  const { headroom } = connectorSection(pa, pb);
+  const clearance = clearanceBoxes(pa, pb);
+  const exemptions = [
+    portalExemption(pa, headroom),
+    portalExemption(pb, headroom),
+  ];
+  const rej = ctx.occ.checkClearance(clearance, [e.a, e.b], exemptions);
+  if (rej) return { fail: `${rej.rule}:${rej.against}` };
+  return { connector };
+}
+
+/** Map a BindPair (parent/node portal) to an EdgeBinding (a/b portal) via edge orientation. */
+function toEdgeBinding(
+  e: WorldEdge,
+  nodeId: NodeId,
+  bind: BindPair,
+): EdgeBinding {
+  return e.a === nodeId
+    ? { aPortal: bind.node, bPortal: bind.parent }
+    : { aPortal: bind.parent, bPortal: bind.node };
+}
+
+/** Commit the seat edge and every other active edge of the just-placed node `id` using the
+ *  chosen bindings: each realizes via `route` + clearance and, on success, its clearance +
+ *  connector join the ledger and its portals + binding are recorded. On ANY edge failing,
+ *  the whole node placement (its committed edges, portal uses, and the speculative piece
+ *  already added by `placeNode`) rolls back and this returns false. */
+function commitEdges(
+  ctx: Ctx,
+  id: NodeId,
+  seat: ActiveEdge,
+  seatBind: BindPair,
+  others: ActiveEdge[],
+  otherBinds: Map<number, EdgeBinding>,
+): boolean {
+  const committed: number[] = [];
+  const usedPortals: [NodeId, number][] = [];
+  const rollback = (): void => {
+    for (const ei of committed) {
+      ctx.occ.remove(`edge:${ei}`);
+      ctx.committedConnectors.delete(ei);
+      ctx.edgeBindings.delete(ei);
+    }
+    for (const [nid, p] of usedPortals) freePortal(ctx, nid, p);
+    ctx.occ.remove(id);
+    ctx.placements.delete(id);
+    ctx.placedRegions.delete(id);
+  };
+
+  const plan: { ae: ActiveEdge; bind: EdgeBinding }[] = [
+    { ae: seat, bind: toEdgeBinding(seat.e, id, seatBind) },
+  ];
+  for (const oe of others) {
+    const bind = otherBinds.get(oe.i);
+    if (!bind) {
+      rollback();
+      return false;
+    }
+    plan.push({ ae: oe, bind });
+  }
+
+  for (const { ae, bind } of plan) {
+    const e = ae.e;
+    const aRegion = mustGet(ctx.placedRegions, e.a, "placed region");
+    const bRegion = mustGet(ctx.placedRegions, e.b, "placed region");
+    const pa = placedPortal(aRegion, bind.aPortal);
+    const pb = placedPortal(bRegion, bind.bPortal);
+    const res = realizeEdge(ctx, e, pa, pb);
+    if ("fail" in res) {
+      countFail(ctx, id, `edge[commit]:${res.fail}:${ae.i}`);
+      rollback();
+      return false;
+    }
+    ctx.occ.addClearance(
+      `edge:${ae.i}`,
+      clearanceBoxes(pa, pb),
+      [e.a, e.b],
+      [],
+      solidsOf(res.connector),
+    );
+    ctx.committedConnectors.set(ae.i, [res.connector]);
+    ctx.edgeBindings.set(ae.i, bind);
+    usePortal(ctx, e.a, bind.aPortal);
+    usedPortals.push([e.a, bind.aPortal]);
+    usePortal(ctx, e.b, bind.bPortal);
+    usedPortals.push([e.b, bind.bPortal]);
+    committed.push(ae.i);
+  }
+
+  ctx.nodeEdges.set(id, committed);
+  return true;
+}
+
+// ---------------------------------------------------------------------------------------
+// Candidate generation
+// ---------------------------------------------------------------------------------------
+
+/** All valid (parent-portal, node-portal) binding pairs for the SEAT edge of `id`:
+ *  parent-side = free portals on the placed endpoint spec-matching the edge's nominal
+ *  parent portal; node-side = free portals on `id` spec-matching the nominal node portal.
+ *  Ordered nominal-pair-first, the rest seeded-shuffled — so simple worlds stay stable and
+ *  retries explore. */
+function bindingCandidates(
+  ctx: Ctx,
+  ae: ActiveEdge,
+  id: NodeId,
+  rng: Rng,
+): BindPair[] {
+  const e = ae.e;
+  const nodeIsA = e.a === id;
+  const parentId = nodeIsA ? e.b : e.a;
+  const nomNode = nodeIsA ? e.aPortal : e.bPortal;
+  const nomParent = nodeIsA ? e.bPortal : e.aPortal;
+  const parentRegion = mustGet(ctx.placedRegions, parentId, "placed region");
+  const nodeRegion = mustGet(ctx.nodesById, id, "node").region;
+  const parentUse = ctx.portalUse.get(parentId) ?? new Set<number>();
+  const nodeUse = ctx.portalUse.get(id) ?? new Set<number>();
+  const parentNom = placedPortal(parentRegion, nomParent);
+  const nodeNom = nodeRegion.connections[nomNode] as Connection;
+
+  const parentPorts = parentRegion.connections
+    .map((c, i): [Connection, number] => [c, i])
+    .filter(([c, i]) => !parentUse.has(i) && specMatch(c, parentNom))
+    .map(([, i]) => i);
+  const nodePorts = nodeRegion.connections
+    .map((c, i): [Connection, number] => [c, i])
+    .filter(([c, i]) => !nodeUse.has(i) && specMatch(c, nodeNom))
+    .map(([, i]) => i);
+
+  const pairs: BindPair[] = [];
+  for (const p of parentPorts)
+    for (const n of nodePorts) pairs.push({ parent: p, node: n });
+  const isNominal = (b: BindPair): boolean =>
+    b.parent === nomParent && b.node === nomNode;
+  const nominal = pairs.filter(isNominal);
+  const rest = pairs.filter((b) => !isNominal(b));
+  shuffle(rest, rng);
+  return [...nominal, ...rest];
+}
+
+/** Free portal indices on a region spec-matching `nom` and not already used/reserved, ordered
+ *  nominal-index-first so the canonical binding is tried before alternatives. */
+function freePortals(
+  conns: readonly Connection[],
+  nom: Connection,
+  used: Set<number>,
+  reserved: Set<number>,
+  nomIndex: number,
+): number[] {
+  const idx = conns
+    .map((c, i): [Connection, number] => [c, i])
+    .filter(([c, i]) => !used.has(i) && !reserved.has(i) && specMatch(c, nom))
+    .map(([, i]) => i);
+  return [
+    ...idx.filter((i) => i === nomIndex),
+    ...idx.filter((i) => i !== nomIndex),
+  ];
+}
+
+/** Forward-check ONE other active edge of `id` at a candidate placement: find the first free
+ *  spec-matching (partner-portal, node-portal) binding whose two world portals are
+ *  `pairFeasible` within the edge's range, honouring portals already reserved by the seat
+ *  and earlier siblings. Returns the binding plus the two portal indices it consumes. */
+function firstFeasibleBinding(
+  ctx: Ctx,
+  oe: ActiveEdge,
+  id: NodeId,
+  placement: Placement,
+  reservedNode: Set<number>,
+  reservedByPartner: Map<NodeId, Set<number>>,
+): { binding: EdgeBinding; nodePortal: number; partnerPortal: number } | null {
+  const e = oe.e;
+  const nodeIsA = e.a === id;
+  const partnerId = nodeIsA ? e.b : e.a;
+  const nomNode = nodeIsA ? e.aPortal : e.bPortal;
+  const nomPartner = nodeIsA ? e.bPortal : e.aPortal;
+  const partnerRegion = mustGet(ctx.placedRegions, partnerId, "placed region");
+  const nodeRegion = mustGet(ctx.nodesById, id, "node").region;
+  const partnerUse = ctx.portalUse.get(partnerId) ?? new Set<number>();
+  const nodeUse = ctx.portalUse.get(id) ?? new Set<number>();
+  const partnerReserved = reservedByPartner.get(partnerId) ?? new Set<number>();
+  const partnerNom = placedPortal(partnerRegion, nomPartner);
+  const nodeNom = nodeRegion.connections[nomNode] as Connection;
+  const range = feasRange(e);
+
+  const partnerPorts = freePortals(
+    partnerRegion.connections,
+    partnerNom,
+    partnerUse,
+    partnerReserved,
+    nomPartner,
+  );
+  const nodePorts = freePortals(
+    nodeRegion.connections,
+    nodeNom,
+    nodeUse,
+    reservedNode,
+    nomNode,
+  );
+
+  for (const pj of nodePorts) {
+    const nodeWorld = placeConnection(
+      nodeRegion.connections[pj] as Connection,
+      placement,
+    );
+    for (const pp of partnerPorts) {
+      const partnerWorld = placedPortal(partnerRegion, pp);
+      const [aW, bW] = nodeIsA
+        ? [nodeWorld, partnerWorld]
+        : [partnerWorld, nodeWorld];
+      if (pairFeasible(aW, bW, range)) {
+        const binding: EdgeBinding = nodeIsA
+          ? { aPortal: pj, bPortal: pp }
+          : { aPortal: pp, bPortal: pj };
+        return { binding, nodePortal: pj, partnerPortal: pp };
+      }
+    }
+  }
+  return null;
+}
+
+// ---------------------------------------------------------------------------------------
+// Node placement
+// ---------------------------------------------------------------------------------------
+
+/** The active edges of `id` (each with the other endpoint already placed), in graph order. */
+function activeEdges(ctx: Ctx, id: NodeId): ActiveEdge[] {
+  return ctx.graph.edges
+    .map((e, i): ActiveEdge => ({ e, i }))
+    .filter(
+      ({ e }) =>
+        (e.a === id && ctx.placements.has(e.b)) ||
+        (e.b === id && ctx.placements.has(e.a)),
+    );
+}
+
+/** The WORLD Connection of the seat edge's already-placed parent under the chosen binding. */
+function boundParentPortal(
+  ctx: Ctx,
+  seat: ActiveEdge,
+  id: NodeId,
+  seatBind: BindPair,
+): Connection {
+  const parentId = seat.e.a === id ? seat.e.b : seat.e.a;
+  const parentRegion = mustGet(ctx.placedRegions, parentId, "placed region");
+  return placedPortal(parentRegion, seatBind.parent);
+}
+
+/** Seat one node against its already-placed neighbours. Its FIRST active edge is the seat
+ *  (drives position via continuous loci off the bound parent portal); every OTHER active
+ *  edge is forward-checked for a feasible binding BEFORE occupancy, then the piece is
+ *  speculatively committed and all edges realized. Tries binding permutations × loci samples
+ *  until one clears every rule; returns false when exhausted (the caller backtracks).
+ *
+ *  `explore` (a re-seating under backtracking) drops the canonical seat locus from the front
+ *  of the list and seeded-shuffles the whole locus set: a node whose OWN placement is never
+ *  blocked (only its unplaced descendants are) would otherwise re-take the exact canonical
+ *  seat every revision, so backtracking to it could never move it — the reseeded shuffle is
+ *  what actually lets an ancestor swing off-axis to clear a descendant. */
+function placeNode(
+  ctx: Ctx,
+  id: NodeId,
+  stream: string,
+  explore = false,
+): boolean {
+  const node = mustGet(ctx.nodesById, id, "node");
+  const active = activeEdges(ctx, id);
+  if (active.length === 0)
+    throw new Error(`layout: node "${id}" has no placed neighbour`);
+  const [seat, ...others] = active as [ActiveEdge, ...ActiveEdge[]];
+  const r = ctx.rng.derive(`cand:${stream}`);
+
+  for (const seatBind of bindingCandidates(ctx, seat, id, r.derive("bind"))) {
+    const parentPortal = boundParentPortal(ctx, seat, id, seatBind);
+    const nodePortalLocal = node.region.connections[
+      seatBind.node
+    ] as Connection;
+    const dhSigned = (seat.e.heightDelta ?? 0) * (seat.e.b === id ? 1 : -1);
+    const range = seat.e.lengthRange ?? DEFAULT_LENGTH_RANGE;
+    const seatParentId = seat.e.a === id ? seat.e.b : seat.e.a;
+
+    const loci = sampleSeatLoci(
+      parentPortal,
+      range,
+      dhSigned,
+      r.derive(`loci:${seatBind.parent}:${seatBind.node}`),
+      LOCUS_SAMPLES,
+    );
+    if (explore) {
+      shuffle(loci, r.derive(`explore:${seatBind.parent}:${seatBind.node}`));
+    } else {
+      // Canonical pass: prefer the STRAIGHTEST connectors (bearing nearest the parent
+      // portal's outward normal) first, so a node whose dead-ahead short seating is rejected
+      // (e.g. its envelope clips the parent near the seam) falls back to a straight LONGER
+      // seating before a yawed one — keeping tree rooms axis-aligned instead of cocked off at
+      // a bearing. `explore` still shuffles, so backtracking can escape a straight-only trap.
+      const align = (c: (typeof loci)[number]): number =>
+        c.target.facing[0] * parentPortal.facing[0] +
+        c.target.facing[2] * parentPortal.facing[2];
+      loci.sort((a, b) => align(b) - align(a));
+    }
+
+    for (const cand of loci) {
+      if (++ctx.attempts > MAX_ATTEMPTS) return false;
+      const target: Connection = {
+        ...cand.target,
+        width: nodePortalLocal.width,
+        height: nodePortalLocal.height,
+      };
+      const placement = join(target, nodePortalLocal);
+
+      // Cheap geometric forward-check of the OTHER active edges BEFORE occupancy: each must
+      // have >= 1 free spec-matching binding that is pairFeasible under this placement.
+      const reservedNode = new Set<number>([seatBind.node]);
+      const reservedByPartner = new Map<NodeId, Set<number>>([
+        [seatParentId, new Set<number>([seatBind.parent])],
+      ]);
+      const otherBinds = new Map<number, EdgeBinding>();
+      let geomOk = true;
+      for (const oe of others) {
+        const found = firstFeasibleBinding(
+          ctx,
+          oe,
+          id,
+          placement,
+          reservedNode,
+          reservedByPartner,
+        );
+        if (!found) {
+          countFail(ctx, id, `edge[fwd]:facing:${oe.i}`);
+          geomOk = false;
+          break;
+        }
+        otherBinds.set(oe.i, found.binding);
+        reservedNode.add(found.nodePortal);
+        const partnerId = oe.e.a === id ? oe.e.b : oe.e.a;
+        const set = reservedByPartner.get(partnerId) ?? new Set<number>();
+        set.add(found.partnerPortal);
+        reservedByPartner.set(partnerId, set);
+      }
+      if (!geomOk) continue;
+
+      const envs = envelopeObbs(node.region, placement);
+      const envRej = ctx.occ.checkPieceEnvelope(envs);
+      if (envRej) {
+        countFail(ctx, id, `${envRej.rule}:${envRej.against}`);
+        continue;
+      }
+
+      // Commit the piece speculatively, then realize every active edge (seat first).
+      const placed = placePiece(node.region, placement);
+      ctx.placements.set(id, placement);
+      ctx.placedRegions.set(id, placed);
+      ctx.occ.addPiece(id, envs, solidsOf(placed));
+      if (commitEdges(ctx, id, seat, seatBind, others, otherBinds)) return true;
+      // commitEdges rolled back the speculative piece + any committed edges on failure.
+    }
+  }
+  return false;
+}
+
+/** Reverse of a node's commit: drop its committed edges (clearance air + connectors +
+ *  bindings + BOTH-endpoint portal uses + expansions), then the piece itself. */
+function undoNode(ctx: Ctx, id: NodeId): void {
+  for (const ei of ctx.nodeEdges.get(id) ?? []) {
+    ctx.occ.remove(`edge:${ei}`);
+    ctx.committedConnectors.delete(ei);
+    ctx.expansions.delete(ei);
+    const binding = ctx.edgeBindings.get(ei);
+    const edge = ctx.graph.edges[ei];
+    if (binding && edge) {
+      freePortal(ctx, edge.a, binding.aPortal);
+      freePortal(ctx, edge.b, binding.bPortal);
+    }
+    ctx.edgeBindings.delete(ei);
+  }
+  ctx.nodeEdges.delete(id);
+  ctx.occ.remove(id);
+  ctx.placements.delete(id);
+  ctx.placedRegions.delete(id);
+}
+
+// ---------------------------------------------------------------------------------------
+// Cycle placement
+// ---------------------------------------------------------------------------------------
+
+/** MRV comparator: most placed neighbours first, ties by BFS depth from pins, then id.
+ *  `placed` is any set-of-ids membership test (a `Set` of ids, or the `placements` Map). */
+function compareMrv(
+  ctx: Ctx,
+  placed: { has(id: NodeId): boolean },
+  x: NodeId,
+  y: NodeId,
+): number {
+  const px = neighbours(ctx, x).filter((nb) => placed.has(nb)).length;
+  const py = neighbours(ctx, y).filter((nb) => placed.has(nb)).length;
+  if (px !== py) return py - px;
+  const dx = ctx.depth.get(x) ?? Number.POSITIVE_INFINITY;
+  const dy = ctx.depth.get(y) ?? Number.POSITIVE_INFINITY;
+  if (dx !== dy) return dx - dy;
+  return x < y ? -1 : 1;
+}
+
+/** Static placement order for a cycle's members: greedy most-already-placed-neighbours-first
+ *  (pinned + earlier-unit placements count), ties by BFS depth from pins, then id — the same
+ *  MRV comparator as the tree scheduler, frozen once so the in-cycle backtracking has a
+ *  stable order to walk. */
+function cycleMemberOrder(ctx: Ctx, cyc: CycleUnit): NodeId[] {
+  const placedSim = new Set<NodeId>(ctx.placements.keys());
   const order: NodeId[] = [];
-  const remaining = graph.nodes.filter((n) => !n.pinned).map((n) => n.id);
+  const remaining = [...cyc.members];
   while (remaining.length) {
-    remaining.sort((x, y) => {
-      const px = (neighbours.get(x) ?? []).filter((nb) =>
-        placed.has(nb),
-      ).length;
-      const py = (neighbours.get(y) ?? []).filter((nb) =>
-        placed.has(nb),
-      ).length;
-      if (px !== py) return py - px;
-      const dd = (depth.get(x) ?? Infinity) - (depth.get(y) ?? Infinity);
-      if (dd !== 0) return dd;
-      return x < y ? -1 : 1;
-    });
+    remaining.sort((x, y) => compareMrv(ctx, placedSim, x, y));
     const next = remaining.shift() as NodeId;
     order.push(next);
-    placed.add(next);
+    placedSim.add(next);
   }
   return order;
 }
 
-type Candidate = { len: number; yawOff: number };
-
-/** All (length, yaw-offset) candidates for seating a node on an edge, in a deterministic
- *  seeded order: the canonical candidate (shortest length, no yaw) first, the rest shuffled
- *  by a seed-derived stream so retries explore without ever using wall-clock randomness. */
-function candidatesFor(
-  id: NodeId,
-  e: WorldEdge,
-  rng: ReturnType<typeof makeRng>,
-): Candidate[] {
-  const [lo, hi] = e.lengthRange ?? DEFAULT_LENGTH_RANGE;
-  const lens = Array.from(
-    { length: N_LENGTHS },
-    (_, i) => lo + ((hi - lo) * i) / Math.max(1, N_LENGTHS - 1),
-  );
-  const pairs: Candidate[] = [];
-  for (const len of lens)
-    for (const yawOff of YAW_OFFSETS) pairs.push({ len, yawOff });
-  const [first, ...rest] = pairs;
-  const r = rng.derive(`cand:${id}`);
-  for (let i = rest.length - 1; i > 0; i--) {
-    const j = r.int(0, i + 1);
-    const tmp = rest[i] as Candidate;
-    rest[i] = rest[j] as Candidate;
-    rest[j] = tmp;
+/** Place a whole cycle unit with bounded in-cycle backtracking over a frozen member order:
+ *  place each member via `placeNode`; on a member failing, undo the previous member and
+ *  retry it with a bumped sub-revision (up to MAX_UNIT_REVISIONS total re-seatings), else
+ *  undo every member placed here and fail. `placeNode`'s forward checking + `commitEdges`
+ *  close the cycle's loop edge when the last incident member is placed. */
+function placeCycle(ctx: Ctx, cyc: CycleUnit, rev: number): boolean {
+  const order = cycleMemberOrder(ctx, cyc);
+  const placedHere: NodeId[] = [];
+  const memberRev = new Map<NodeId, number>();
+  let sweeps = 0;
+  let idx = 0;
+  while (idx < order.length) {
+    const id = order[idx] as NodeId;
+    const mrev = memberRev.get(id) ?? 0;
+    // The cycle ANCHOR (order[0], seated off a pin) does not explore under an OUTER
+    // revision: a cross-unit backtrack re-places the cycle to move a LATER member (e.g. an
+    // elevated room a tree node collides with), and yawing the whole subtree's root off its
+    // canonical pin seating to achieve that would move every unrelated descendant for
+    // nothing. It still explores when IN-CYCLE backtracking re-seats it (`mrev > 0`) — the
+    // case where the anchor genuinely must move to close the loop.
+    const explore = mrev > 0 || (rev > 0 && idx > 0);
+    const ok = placeNode(
+      ctx,
+      id,
+      `c:${cyc.closingEdge}:${rev}:${id}:${mrev}`,
+      explore,
+    );
+    if (ok) {
+      placedHere.push(id);
+      idx++;
+      continue;
+    }
+    const stuck =
+      placedHere.length === 0 ||
+      sweeps >= MAX_UNIT_REVISIONS ||
+      ctx.attempts > MAX_ATTEMPTS;
+    if (stuck) {
+      for (const m of [...placedHere].reverse()) undoNode(ctx, m);
+      return false;
+    }
+    sweeps++;
+    const prev = placedHere.pop() as NodeId;
+    undoNode(ctx, prev);
+    memberRev.set(prev, (memberRev.get(prev) ?? 0) + 1);
+    memberRev.set(id, 0); // the failed member retries fresh next time
+    idx = order.indexOf(prev);
   }
-  return [first as Candidate, ...rest];
+  return true;
 }
 
-/** The state a placement frame tracks so it can be revised (backtracked) later. */
-type Frame = {
-  id: NodeId;
-  candidates: Candidate[];
-  next: number;
-  committedEdges: number[];
-};
+// ---------------------------------------------------------------------------------------
+// Attempt driver
+// ---------------------------------------------------------------------------------------
 
-export function layoutWorld(graph: WorldGraph, seed: string): LayoutResult {
-  validateGraph(graph);
-  const rng = makeRng(seed);
-  const nodesById = new Map<NodeId, WorldNode>(
-    graph.nodes.map((n) => [n.id, n]),
+/** The most-constrained pending tree node (dynamic MRV over the current placement front). */
+function mostConstrainedTree(ctx: Ctx, pendingTree: Set<NodeId>): NodeId {
+  const ids = [...pendingTree];
+  ids.sort((x, y) => compareMrv(ctx, ctx.placements, x, y));
+  return ids[0] as NodeId;
+}
+
+/** The failing-node diagnostics: the node with the most accumulated candidate failures plus
+ *  its `reason×count` histogram (the `could not place` message the diagnostics tests read). */
+function fail(ctx: Ctx): { failing: NodeId; detail: string } {
+  let failing: NodeId = "?";
+  let max = -1;
+  for (const [id, m] of ctx.failCounts) {
+    const total = [...m.values()].reduce((a, b) => a + b, 0);
+    if (total > max) {
+      max = total;
+      failing = id;
+    }
+  }
+  const hist = ctx.failCounts.get(failing) ?? new Map<string, number>();
+  const detail =
+    [...hist].map(([k, v]) => `${k}×${v}`).join(", ") || "no candidates";
+  return { failing, detail };
+}
+
+function assembleResult(ctx: Ctx): LayoutResult {
+  const regions = ctx.graph.nodes.map((n) =>
+    mustGet(ctx.placedRegions, n.id, "placed region"),
   );
-  const occ = new Occupancy();
-  const placements = new Map<NodeId, Placement>();
-  const placedRegions = new Map<NodeId, RegionData>();
-  const committedConnectors = new Map<number, RegionData>();
+  const connectors: RegionData[] = [];
+  for (const ei of [...ctx.committedConnectors.keys()].sort((a, b) => a - b)) {
+    for (const c of mustGet(ctx.committedConnectors, ei, "connector"))
+      connectors.push(c);
+  }
+  const edgeBindings = ctx.graph.edges.map((_, i) =>
+    mustGet(ctx.edgeBindings, i, "edge binding"),
+  );
+  return {
+    placements: ctx.placements,
+    regions,
+    connectors,
+    edgeBindings,
+    expansions: ctx.expansions,
+  };
+}
+
+/** One placement attempt from a clean slate: seat the pins, then schedule cycles-first with
+ *  cross-unit backtracking (deterministic revision-by-reseeding, no snapshot machinery),
+ *  returning the result or the failing-node diagnostics. */
+function tryLayout(
+  graph: WorldGraph,
+  nodesById: Map<NodeId, WorldNode>,
+  decomposition: ReturnType<typeof deriveChains>,
+  closingEdges: Set<number>,
+  rng: Rng,
+): { result: LayoutResult } | { failing: NodeId; detail: string } {
+  const ctx: Ctx = {
+    graph,
+    nodesById,
+    closingEdges,
+    rng,
+    occ: new Occupancy(),
+    placements: new Map(),
+    placedRegions: new Map(),
+    portalUse: new Map(),
+    edgeBindings: new Map(),
+    committedConnectors: new Map(),
+    expansions: new Map(),
+    nodeEdges: new Map(),
+    attempts: 0,
+    failCounts: new Map(),
+    adj: buildAdjacency(graph),
+    depth: depthFromPins(graph),
+  };
 
   for (const n of graph.nodes) {
     if (!n.pinned) continue;
     const placed = placePiece(n.region, n.pinned);
-    placements.set(n.id, n.pinned);
-    placedRegions.set(n.id, placed);
-    occ.addPiece(n.id, envelopeObbs(n.region, n.pinned), solidsOf(placed));
+    ctx.placements.set(n.id, n.pinned);
+    ctx.placedRegions.set(n.id, placed);
+    ctx.occ.addPiece(n.id, envelopeObbs(n.region, n.pinned), solidsOf(placed));
   }
 
-  const order = placementOrder(graph);
-  const edgeIndex = (e: WorldEdge): number => graph.edges.indexOf(e);
+  const pendingCycles = [...decomposition.cycles];
+  const pendingTree = new Set(decomposition.treeNodes);
+  const unitHistory: PlacedUnit[] = [];
 
-  /** The already-placed edge this node seats onto (its parent link). */
-  function seatingEdge(id: NodeId): WorldEdge {
-    const es = graph.edges.filter(
-      (e) =>
-        (e.a === id && placements.has(e.b)) ||
-        (e.b === id && placements.has(e.a)),
+  const sortCycles = (): void => {
+    pendingCycles.sort(
+      (x, y) =>
+        x.members.length - y.members.length || x.closingEdge - y.closingEdge,
     );
-    if (es.length === 0) {
-      throw new Error(
-        `layout: node "${id}" has no placed neighbour when its turn came`,
-      );
+  };
+  const undoUnit = (prev: PlacedUnit): void => {
+    if (prev.kind === "node") {
+      undoNode(ctx, prev.id);
+      pendingTree.add(prev.id);
+    } else {
+      for (const m of prev.unit.members) undoNode(ctx, m);
+      pendingCycles.push(prev.unit);
+      sortCycles();
     }
-    return es[0] as WorldEdge;
-  }
-
-  /** Realizability check for a NOW-both-placed edge: facings mate, `route` builds, and the
-   *  connector's clearance volume is unobstructed. Returns the connector or a fail reason. */
-  function tryEdge(e: WorldEdge): { connector: RegionData } | { fail: string } {
-    const aRegion = mustGet(placedRegions, e.a, "placed region");
-    const bRegion = mustGet(placedRegions, e.b, "placed region");
-    const pa = placedPortal(aRegion, e.aPortal);
-    const pb = placedPortal(bRegion, e.bPortal);
-    if (!facingsCompatible(pa, pb)) return { fail: "facing" };
-    let connector: RegionData;
-    try {
-      const opts: { kind?: ConnectorKind; enclosure?: "open" } = {};
-      if (e.kind) opts.kind = e.kind;
-      if (e.enclosure) opts.enclosure = e.enclosure;
-      connector = route(pa, pb, opts);
-    } catch {
-      return { fail: "route-throw" };
+  };
+  const removeFromPending = (prev: PlacedUnit): void => {
+    if (prev.kind === "node") pendingTree.delete(prev.id);
+    else {
+      const i = pendingCycles.indexOf(prev.unit);
+      if (i >= 0) pendingCycles.splice(i, 1);
     }
-    const { headroom } = connectorSection(pa, pb);
-    const clearance = clearanceBoxes(pa, pb);
-    const exemptions = [
-      portalExemption(pa, headroom),
-      portalExemption(pb, headroom),
-    ];
-    const rej = occ.checkClearance(clearance, [e.a, e.b], exemptions);
-    if (rej) return { fail: `${rej.rule}:${rej.against}` };
-    return { connector };
-  }
-
-  /** Commit an accepted edge's clearance + connector floor into the occupancy ledger. */
-  function commitEdge(e: WorldEdge, connector: RegionData): void {
-    const aRegion = mustGet(placedRegions, e.a, "placed region");
-    const bRegion = mustGet(placedRegions, e.b, "placed region");
-    const pa = placedPortal(aRegion, e.aPortal);
-    const pb = placedPortal(bRegion, e.bPortal);
-    occ.addClearance(
-      `edge:${edgeIndex(e)}`,
-      clearanceBoxes(pa, pb),
-      [e.a, e.b],
-      [],
-      solidsOf(connector),
-    );
-    committedConnectors.set(edgeIndex(e), connector);
-  }
-
-  const failCounts = new Map<string, Map<string, number>>();
-  const countFail = (id: NodeId, reason: string): void => {
-    const m = failCounts.get(id) ?? new Map<string, number>();
-    m.set(reason, (m.get(reason) ?? 0) + 1);
-    failCounts.set(id, m);
   };
 
-  const stack: (Frame | undefined)[] = [];
-  let attempts = 0;
-  let cursor = 0;
-
-  while (cursor < order.length) {
-    const id = order[cursor] as NodeId;
-    const node = mustGet(nodesById, id, "node");
-    let frame = stack[cursor];
-    if (!frame) {
-      frame = {
-        id,
-        candidates: candidatesFor(id, seatingEdge(id), rng),
-        next: 0,
-        committedEdges: [],
-      };
-      stack[cursor] = frame;
-    }
-    const e = seatingEdge(id);
-    const parentId = placements.has(e.a) && e.a !== id ? e.a : e.b;
-    const parentRegion = mustGet(placedRegions, parentId, "placed region");
-    const parentPortal = placedPortal(
-      parentRegion,
-      e.a === parentId ? e.aPortal : e.bPortal,
+  while (pendingCycles.length > 0 || pendingTree.size > 0) {
+    if (ctx.attempts > MAX_ATTEMPTS) return fail(ctx);
+    const adjacent = pendingCycles.filter((c) =>
+      c.members.some((m) =>
+        neighbours(ctx, m).some((nb) => ctx.placements.has(nb)),
+      ),
     );
-    const nodePortalIndex = e.a === id ? e.aPortal : e.bPortal;
-    // heightDelta is "b above a"; when the node being placed IS `a`, the climb sign flips.
-    const dhSigned = (e.heightDelta ?? 0) * (e.b === id ? 1 : -1);
-
-    let placedThis = false;
-    while (frame.next < frame.candidates.length) {
-      if (++attempts > MAX_ATTEMPTS) break;
-      const cand = frame.candidates[frame.next] as Candidate;
-      frame.next++;
-      const facing = rotateY(parentPortal.facing, cand.yawOff);
-      const nodePortal = placedPortal(node.region, nodePortalIndex);
-      const target: Connection = {
-        position: [
-          parentPortal.position[0] + facing[0] * cand.len,
-          parentPortal.position[1] + dhSigned,
-          parentPortal.position[2] + facing[2] * cand.len,
-        ],
-        facing,
-        width: nodePortal.width,
-        height: nodePortal.height,
-        kind: "door",
-      };
-      const placement = join(target, nodePortal);
-      const placed = placePiece(node.region, placement);
-      const envelopes = envelopeObbs(node.region, placement);
-      const envRej = occ.checkPieceEnvelope(envelopes);
-      if (envRej) {
-        countFail(id, `${envRej.rule}:${envRej.against}`);
-        continue;
-      }
-      placements.set(id, placement);
-      placedRegions.set(id, placed);
-      occ.addPiece(id, envelopes, solidsOf(placed));
-      // Every edge whose OTHER endpoint is already placed must now close (tree seating + any
-      // loop-closing edges to already-placed neighbours).
-      const myEdges = graph.edges.filter(
-        (ed) =>
-          (ed.a === id && placements.has(ed.b) && ed.b !== id) ||
-          (ed.b === id && placements.has(ed.a) && ed.a !== id),
-      );
-      const committed: number[] = [];
-      let ok = true;
-      for (const ed of myEdges) {
-        const res = tryEdge(ed);
-        if ("fail" in res) {
-          countFail(id, `edge:${res.fail}`);
-          ok = false;
-          break;
-        }
-        commitEdge(ed, res.connector);
-        committed.push(edgeIndex(ed));
-      }
-      if (!ok) {
-        for (const ei of committed) {
-          occ.remove(`edge:${ei}`);
-          committedConnectors.delete(ei);
-        }
-        occ.remove(id);
-        placements.delete(id);
-        placedRegions.delete(id);
-        continue;
-      }
-      frame.committedEdges = committed;
-      placedThis = true;
-      break;
+    let placedOk: boolean;
+    let unit: PlacedUnit;
+    if (adjacent.length > 0) {
+      const cyc = adjacent[0] as CycleUnit; // pendingCycles is smallest-first
+      unit = { kind: "cycle", unit: cyc, rev: 0 };
+      placedOk = placeCycle(ctx, cyc, 0);
+      if (placedOk) pendingCycles.splice(pendingCycles.indexOf(cyc), 1);
+    } else if (pendingTree.size > 0) {
+      const id = mostConstrainedTree(ctx, pendingTree);
+      unit = { kind: "node", id, rev: 0 };
+      placedOk = placeNode(ctx, id, `n:${id}:0`);
+      if (placedOk) pendingTree.delete(id);
+    } else {
+      return fail(ctx); // only non-adjacent cycles remain — unreachable for valid inputs
     }
-
-    if (placedThis) {
-      cursor++;
+    // Exhaust the CURRENT unit's own revisions (fresh explore samples) before disturbing any
+    // ancestor — standard backtracking discipline. A node with a narrow feasible window
+    // (e.g. a tall stair connector threading past fixed authored walls) often just needs
+    // more samples at the SAME ancestor layout; re-placing an ancestor first would move
+    // already-good, unrelated pieces (yawing them off their canonical seatings) for nothing.
+    for (let rev = 1; rev <= MAX_UNIT_REVISIONS && !placedOk; rev++) {
+      if (ctx.attempts > MAX_ATTEMPTS) return fail(ctx);
+      placedOk =
+        unit.kind === "cycle"
+          ? placeCycle(ctx, unit.unit, rev)
+          : placeNode(ctx, unit.id, `n:${unit.id}:${rev}`, true);
+      if (placedOk) {
+        unit = { ...unit, rev };
+        removeFromPending(unit);
+      }
+    }
+    if (placedOk) {
+      unitHistory.push(unit);
       continue;
     }
-    if (attempts > MAX_ATTEMPTS) break;
-    // Exhausted this node's candidates: pop it and revise the PREVIOUS frame's choice.
-    stack[cursor] = undefined;
-    cursor--;
-    if (cursor < 0) break;
-    const prev = stack[cursor] as Frame;
-    for (const ei of prev.committedEdges) {
-      occ.remove(`edge:${ei}`);
-      committedConnectors.delete(ei);
+
+    // Cross-unit backtracking: undo the previous unit and re-place it with a bumped revision
+    // stream, popping further when a unit's revisions exhaust.
+    let revised = false;
+    while (unitHistory.length > 0 && !revised) {
+      const prev = unitHistory.pop() as PlacedUnit;
+      undoUnit(prev);
+      for (let rev = prev.rev + 1; rev <= MAX_UNIT_REVISIONS; rev++) {
+        const ok =
+          prev.kind === "cycle"
+            ? placeCycle(ctx, prev.unit, rev)
+            : placeNode(ctx, prev.id, `n:${prev.id}:${rev}`, true);
+        if (ok) {
+          unitHistory.push({ ...prev, rev });
+          removeFromPending(prev);
+          revised = true;
+          break;
+        }
+        if (ctx.attempts > MAX_ATTEMPTS) return fail(ctx);
+      }
     }
-    occ.remove(prev.id);
-    placements.delete(prev.id);
-    placedRegions.delete(prev.id);
+    if (!revised && unitHistory.length === 0) return fail(ctx);
   }
 
-  if (placements.size !== graph.nodes.length) {
-    const failing = order.find((id) => !placements.has(id)) ?? "?";
-    const detail = [...(failCounts.get(failing) ?? new Map<string, number>())]
-      .map(([k, v]) => `${k}×${v}`)
-      .join(", ");
-    throw new Error(
-      `layout: could not place node "${failing}" within ${attempts} attempts (${detail || "no candidates"})`,
+  return { result: assembleResult(ctx) };
+}
+
+/** Place a world graph: deterministic collision-aware incremental embedding (pins frozen →
+ *  cycles-first, most-constrained order → continuous-loci candidates with portal freedom +
+ *  forward checking → occupancy-hard-accept → unit backtracking → seeded restarts). Pure:
+ *  no GPU, no Rapier, no wall-clock. Throws setup-loud with per-node diagnostics after
+ *  exhausting all restarts. */
+export function layoutWorld(graph: WorldGraph, seed: string): LayoutResult {
+  validateGraph(graph);
+  const nodesById = new Map<NodeId, WorldNode>(
+    graph.nodes.map((n) => [n.id, n]),
+  );
+  const decomposition = deriveChains(graph);
+  const closingEdges = new Set(decomposition.cycles.map((c) => c.closingEdge));
+
+  for (let restart = 0; restart < MAX_RESTARTS; restart++) {
+    const rng = makeRng(seed).derive(`restart:${restart}`);
+    const attempt = tryLayout(
+      graph,
+      nodesById,
+      decomposition,
+      closingEdges,
+      rng,
     );
+    if ("result" in attempt) return attempt.result;
+    if (restart === MAX_RESTARTS - 1) {
+      throw new Error(
+        `layout: could not place node "${attempt.failing}" after ${MAX_RESTARTS} restarts (${attempt.detail})`,
+      );
+    }
   }
-
-  return {
-    placements,
-    regions: graph.nodes.map((n) =>
-      mustGet(placedRegions, n.id, "placed region"),
-    ),
-    connectors: [...committedConnectors.entries()]
-      .sort((x, y) => x[0] - y[0])
-      .map(([, r]) => r),
-  };
+  throw new Error("layout: unreachable");
 }

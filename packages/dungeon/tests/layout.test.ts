@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { aabbIntersects } from "../src/aabb.ts";
 import {
   connectorSection,
@@ -336,4 +336,156 @@ test("edge enclosure styles reach the connector: default tube has a ceiling, 'op
     );
   expect(tops(mk())).toBeGreaterThan(3); // tube: ceiling band above the 3 m headroom
   expect(tops(mk("open"))).toBeLessThan(2); // open: nothing above the ~1.1 m rails
+});
+
+/** A pinned envelope-only obstacle at a fixed world AABB (door-less; blocks placements it
+ *  overlaps). Mirrors the "fence" pattern in the existing tests. */
+function slab(bounds: Aabb): RegionData {
+  return { ...room([]), connections: [], bounds };
+}
+
+/** Anchor room with doors N + E (spec-identical) plus a slab dead ahead of N that blocks the
+ *  SHORT northward placement, and two children off the anchor: childA nominally on N (short —
+ *  cannot fit past the slab, must swap to E) and childB nominally on E (its nominal slot is
+ *  then consumed, so it swaps to N with a LONG length that clears the slab). The final anchor
+ *  bindings must be a portal permutation with no double-use. */
+function swapFixture(): WorldGraph {
+  return {
+    nodes: [
+      {
+        id: "anchor",
+        region: room(["N", "E"]),
+        pinned: { yaw: 0, translation: [0, 0, 0] },
+      },
+      {
+        id: "obstacle",
+        region: slab({ min: [3, -0.2, 6], max: [9, 4, 11] }),
+        pinned: { yaw: 0, translation: [0, 0, 0] },
+      },
+      { id: "childA", region: room(["S", "N"]) },
+      { id: "childB", region: room(["S", "N"]) },
+    ],
+    edges: [
+      { a: "anchor", b: "childA", aPortal: 0, bPortal: 0, lengthRange: [2, 4] },
+      {
+        a: "anchor",
+        b: "childB",
+        aPortal: 1,
+        bPortal: 0,
+        lengthRange: [8, 12],
+      },
+    ],
+  };
+}
+
+/** pin → r0, then a 4-cycle r0 → r1 → r2 → r3 with the closing edge r3 → r0. Every room is a
+ *  spec-identical 4-door box, every edge's length range is generous — the placer has full
+ *  portal freedom and must embed the square (the B2 placer failed this shape post-hoc). */
+function squareCycleFixture(): WorldGraph {
+  const box = (): RegionData => room(["N", "S", "E", "W"]);
+  const L: [number, number] = [3, 12];
+  return {
+    nodes: [
+      {
+        id: "anchor",
+        region: room(["N"]),
+        pinned: { yaw: 0, translation: [0, 0, 0] },
+      },
+      { id: "r0", region: box() },
+      { id: "r1", region: box() },
+      { id: "r2", region: box() },
+      { id: "r3", region: box() },
+    ],
+    edges: [
+      { a: "anchor", b: "r0", aPortal: 0, bPortal: 1, lengthRange: L },
+      { a: "r0", b: "r1", aPortal: 2, bPortal: 3, lengthRange: L },
+      { a: "r1", b: "r2", aPortal: 0, bPortal: 1, lengthRange: L },
+      { a: "r2", b: "r3", aPortal: 3, bPortal: 2, lengthRange: L },
+      { a: "r3", b: "r0", aPortal: 1, bPortal: 0, lengthRange: L }, // closing
+    ],
+  };
+}
+
+/** A pinned door-less slab straight ahead of the anchor's N door, a pinned anchor, and one
+ *  child whose straight (yaw-0) placements clip the slab — only a YAWED seating fits, and its
+ *  exact OBB clears where the conservative rotated-AABB cover would have (the B2 false-reject
+ *  class the exact-OBB envelopes kill). */
+function pinnedSlabFixture(): WorldGraph {
+  return {
+    nodes: [
+      {
+        id: "anchor",
+        region: room(["N"]),
+        pinned: { yaw: 0, translation: [0, 0, 0] },
+      },
+      {
+        id: "wall",
+        region: slab({ min: [-1.5, -0.2, 10], max: [1.5, 4, 26] }),
+        pinned: { yaw: 0, translation: [0, 0, 0] },
+      },
+      { id: "child", region: room(["S", "N"]) },
+    ],
+    edges: [
+      { a: "anchor", b: "child", aPortal: 0, bPortal: 0, lengthRange: [6, 9] },
+    ],
+  };
+}
+
+/** A child whose entire seating annulus is buried inside a pinned wall — unplaceable, so the
+ *  placer must exhaust its restarts and throw setup-loud naming the child. */
+function impossibleFixture(): WorldGraph {
+  return {
+    nodes: [
+      {
+        id: "anchor",
+        region: room(["N"]),
+        pinned: { yaw: 0, translation: [0, 0, 0] },
+      },
+      {
+        id: "wall",
+        region: slab({ min: [-30, -0.2, 4], max: [30, 12, 30] }),
+        pinned: { yaw: 0, translation: [0, 0, 0] },
+      },
+      { id: "child", region: room(["S"]) },
+    ],
+    edges: [
+      { a: "anchor", b: "child", aPortal: 0, bPortal: 0, lengthRange: [4, 5] },
+    ],
+  };
+}
+
+describe("B2c toolbox placer", () => {
+  test("portal-assignment freedom: two children seat off a 2-door parent even when nominal slots collide geometrically", () => {
+    const result = layoutWorld(swapFixture(), "swap-seed");
+    const edges = swapFixture().edges;
+    const used = new Set(
+      result.edgeBindings.map((b, i) => `${edges[i]?.a}:${b.aPortal}`),
+    );
+    expect(used.size).toBe(result.edgeBindings.length);
+    expect(result.placements.size).toBe(4);
+  });
+
+  test("forward checking: a cycle-closing edge is validated at candidate time (square cycle places)", () => {
+    const result = layoutWorld(squareCycleFixture(), "square-seed");
+    expect(result.placements.size).toBe(5);
+    expect(result.connectors.length).toBe(5);
+  });
+
+  test("deterministic: same graph + seed → identical placements", () => {
+    const a = layoutWorld(squareCycleFixture(), "det-seed");
+    const b = layoutWorld(squareCycleFixture(), "det-seed");
+    expect([...a.placements.entries()]).toEqual([...b.placements.entries()]);
+    expect(a.edgeBindings).toEqual(b.edgeBindings);
+  });
+
+  test("pinned-obstacle seating: a generated-style piece seats beside a pinned slab (the coexistence seam)", () => {
+    const result = layoutWorld(pinnedSlabFixture(), "slab-seed");
+    expect(result.placements.size).toBe(3);
+  });
+
+  test("throws setup-loud with per-node diagnostics after exhausting restarts", () => {
+    expect(() => layoutWorld(impossibleFixture(), "imp-seed")).toThrow(
+      /could not place/,
+    );
+  });
 });
