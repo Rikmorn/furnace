@@ -21,7 +21,12 @@ import {
   SHOULDER,
   walkLineAt,
 } from "./connect.ts";
-import { LOCUS_SAMPLES, pairFeasible, sampleSeatLoci } from "./locus.ts";
+import {
+  LOCUS_SAMPLES,
+  pairFeasible,
+  type SeatCandidate,
+  sampleSeatLoci,
+} from "./locus.ts";
 import { Occupancy, type Solid, voxelCellsOf } from "./occupancy.ts";
 import type {
   Aabb,
@@ -344,6 +349,16 @@ function extentXZ(region: RegionData): number {
 /** Horizontal (XZ) distance between two world points. */
 function xzDist(a: Vec3, b: Vec3): number {
   return Math.hypot(a[0] - b[0], a[2] - b[2]);
+}
+
+/** Project a point along a direction by a signed scalar: `base + dir · dist` (a negative
+ *  `dist` steps opposite the direction — e.g. a portal position back to its room centre). */
+function projectAlong(base: Vec3, dir: Vec3, dist: number): Vec3 {
+  return [
+    base[0] + dir[0] * dist,
+    base[1] + dir[1] * dist,
+    base[2] + dir[2] * dist,
+  ];
 }
 
 // ---------------------------------------------------------------------------------------
@@ -701,11 +716,7 @@ function obligationPoints(
       nomPartner,
     );
     const reach = midLength(e) + nodeHalf;
-    return [
-      pp.position[0] + pp.facing[0] * reach,
-      pp.position[1] + pp.facing[1] * reach,
-      pp.position[2] + pp.facing[2] * reach,
-    ];
+    return projectAlong(pp.position, pp.facing, reach);
   });
 }
 
@@ -721,6 +732,34 @@ function averagePoint(pts: Vec3[]): Vec3 | undefined {
     z += p[2];
   }
   return [x / pts.length, y / pts.length, z / pts.length];
+}
+
+/** Reorder a node's seat loci to bias the search toward a steering target: the canonical sample
+ *  (index 0) stays first; the rest are stable-sorted nearest-first by the XZ distance of their
+ *  implied room CENTRE (seat portal projected outward by the node's radius `nodeHalf`) to
+ *  `target` — a centre-space target so it stays inside the reachable annulus. The explicit `idx`
+ *  tiebreak keeps it deterministic regardless of sort stability. Mutates `loci` in place,
+ *  reordering the SAME set — never drops a candidate, so completeness is preserved. */
+function rankLociTowardTarget(
+  loci: SeatCandidate[],
+  target: Vec3,
+  nodeHalf: number,
+): void {
+  // Boundary cast: sampleSeatLoci always returns the canonical sample at index 0.
+  const head = loci[0] as SeatCandidate;
+  const ranked = loci
+    .slice(1)
+    .map((cand, idx) => ({
+      cand,
+      idx,
+      d: xzDist(
+        projectAlong(cand.target.position, cand.target.facing, nodeHalf),
+        target,
+      ),
+    }))
+    .sort((a, b) => a.d - b.d || a.idx - b.idx);
+  loci.length = 0;
+  loci.push(head, ...ranked.map((rk) => rk.cand));
 }
 
 function placeNode(
@@ -767,29 +806,12 @@ function placeNode(
       LOCUS_SAMPLES,
     );
     if (steer && !explore) {
-      // Closure steering: bias the NON-canonical samples toward the steering target by stable
-      // XZ-distance sort (nearest-first), keeping the canonical sample FIRST. The candidate's
-      // implied room CENTRE (seat portal projected outward by the node's radius) is compared, so
-      // a centre-space target stays inside the reachable annulus. Replaces the shuffle/align for
-      // steered nodes; the explicit `idx` tiebreak keeps it deterministic regardless of sort
-      // stability. Reorders the SAME candidate set — never shrinks it.
-      // Boundary cast: sampleSeatLoci always returns the canonical sample at index 0.
-      const head = loci[0] as (typeof loci)[number];
-      const centreOf = (t: Connection): Vec3 => [
-        t.position[0] + t.facing[0] * nodeHalf,
-        t.position[1] + t.facing[1] * nodeHalf,
-        t.position[2] + t.facing[2] * nodeHalf,
-      ];
-      const ranked = loci
-        .slice(1)
-        .map((cand, idx) => ({
-          cand,
-          idx,
-          d: xzDist(centreOf(cand.target), steer),
-        }))
-        .sort((a, b) => a.d - b.d || a.idx - b.idx);
-      loci.length = 0;
-      loci.push(head, ...ranked.map((rk) => rk.cand));
+      // Closure steering: bias the canonical first-try candidate order toward the steering
+      // target (see `rankLociTowardTarget`). Skipped on a backtracking (`explore`) re-seat
+      // BECAUSE the ranking is DETERMINISTIC: re-applying it reproduces the same locus order →
+      // the same foreclosure → no progress. The shuffle branch owns repair — its diversification
+      // is what escapes the trap.
+      rankLociTowardTarget(loci, steer, nodeHalf);
     } else if (explore) {
       shuffle(loci, r.derive(`explore:${seatBind.parent}:${seatBind.node}`));
     } else {
@@ -953,6 +975,7 @@ function cycleRingWalk(
     adj.set(e.a, [...(adj.get(e.a) ?? []), { to: e.b, edge: ei }]);
     adj.set(e.b, [...(adj.get(e.b) ?? []), { to: e.a, edge: ei }]);
   }
+  // Boundary cast: a CycleUnit always has >= 1 member, so members[0] is defined.
   const start = memberSet.has(attach) ? attach : (cyc.members[0] as NodeId);
   const out: { member: NodeId; viaEdge: number }[] = [
     { member: start, viaEdge: -1 },
@@ -1062,12 +1085,12 @@ function cycleAttachFrame(
   if (!parentRegion) return null;
   const nomParent = seat.e.a === member ? seat.e.bPortal : seat.e.aPortal;
   const portal = placedPortal(parentRegion, nomParent);
-  const half = extentXZ(parentRegion);
-  const pos: Vec3 = [
-    portal.position[0] - portal.facing[0] * half,
-    portal.position[1] - portal.facing[1] * half,
-    portal.position[2] - portal.facing[2] * half,
-  ];
+  // Room centre = portal pulled BACK behind its outward-facing door by the parent's radius.
+  const pos = projectAlong(
+    portal.position,
+    portal.facing,
+    -extentXZ(parentRegion),
+  );
   return { member, pos, heading: portal.facing };
 }
 
@@ -1215,11 +1238,12 @@ function blamePiece(ctx: Ctx, failing: NodeId): NodeId | null {
 }
 
 /** The node whose foreclosure a just-failed unit blames: a tree node's own id, or the cycle
- *  member carrying the most accumulated candidate failures (deterministic id tiebreak). */
+ *  member carrying the most accumulated candidate failures (ties keep the first member in ring
+ *  order). */
 function unitFailingNode(ctx: Ctx, unit: PlacedUnit): NodeId {
   if (unit.kind === "node") return unit.id;
   const members = unit.unit.members;
-  let best = members[0] ?? unit.unit.members.join("");
+  let best = members[0] ?? "";
   let bestTotal = -1;
   for (const m of members) {
     const total = [...(ctx.failCounts.get(m)?.values() ?? [])].reduce(
