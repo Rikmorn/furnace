@@ -66,6 +66,9 @@ export type LayoutResult = {
 };
 
 function placedPortal(region: RegionData, index: number): Connection {
+  // Boundary cast: every caller passes an index the graph validated in-range (validateGraph
+  // rejects out-of-range edge portals) or one derived from this same region's connections, so
+  // the read is never undefined under noUncheckedIndexedAccess.
   return region.connections[index] as Connection;
 }
 
@@ -213,6 +216,7 @@ function depthFromPins(graph: WorldGraph): Map<NodeId, number> {
   const depth = new Map<NodeId, number>(pinned.map((id) => [id, 0]));
   const queue = [...pinned];
   while (queue.length) {
+    // Boundary cast: the `while (queue.length)` guard proves the queue is non-empty.
     const id = queue.shift() as NodeId;
     for (const nb of adj.get(id) ?? []) {
       if (!depth.has(nb)) {
@@ -292,6 +296,8 @@ function freePortal(ctx: Ctx, id: NodeId, portal: number): void {
 function shuffle<T>(arr: T[], rng: Rng): void {
   for (let i = arr.length - 1; i > 0; i--) {
     const j = rng.int(0, i + 1);
+    // Boundary cast: i (loop-bounded < arr.length) and j (rng.int(0, i+1) ∈ [0, i]) are both
+    // valid indices of arr, so these reads are never undefined.
     const t = arr[i] as T;
     arr[i] = arr[j] as T;
     arr[j] = t;
@@ -434,6 +440,38 @@ function commitEdges(
 // Candidate generation
 // ---------------------------------------------------------------------------------------
 
+/** THE spec-match-free-portal enumeration: portal indices on a region spec-matching `nom`
+ *  and not already used or reserved, in connection (source) order. Shared by the seat binder
+ *  and the forward-check binder so the idiom lives in one place; the seat binder relies on the
+ *  source order (its downstream shuffle is order-sensitive). */
+function matchingFreePortals(
+  conns: readonly Connection[],
+  nom: Connection,
+  used: Set<number>,
+  reserved: Set<number>,
+): number[] {
+  return conns
+    .map((c, i): [Connection, number] => [c, i])
+    .filter(([c, i]) => !used.has(i) && !reserved.has(i) && specMatch(c, nom))
+    .map(([, i]) => i);
+}
+
+/** {@link matchingFreePortals} reordered nominal-index-first, so the canonical binding is
+ *  tried before its spec-identical alternatives. */
+function freePortals(
+  conns: readonly Connection[],
+  nom: Connection,
+  used: Set<number>,
+  reserved: Set<number>,
+  nomIndex: number,
+): number[] {
+  const idx = matchingFreePortals(conns, nom, used, reserved);
+  return [
+    ...idx.filter((i) => i === nomIndex),
+    ...idx.filter((i) => i !== nomIndex),
+  ];
+}
+
 /** All valid (parent-portal, node-portal) binding pairs for the SEAT edge of `id`:
  *  parent-side = free portals on the placed endpoint spec-matching the edge's nominal
  *  parent portal; node-side = free portals on `id` spec-matching the nominal node portal.
@@ -454,17 +492,19 @@ function bindingCandidates(
   const nodeRegion = mustGet(ctx.nodesById, id, "node").region;
   const parentUse = ctx.portalUse.get(parentId) ?? new Set<number>();
   const nodeUse = ctx.portalUse.get(id) ?? new Set<number>();
-  const parentNom = placedPortal(parentRegion, nomParent);
-  const nodeNom = nodeRegion.connections[nomNode] as Connection;
-
-  const parentPorts = parentRegion.connections
-    .map((c, i): [Connection, number] => [c, i])
-    .filter(([c, i]) => !parentUse.has(i) && specMatch(c, parentNom))
-    .map(([, i]) => i);
-  const nodePorts = nodeRegion.connections
-    .map((c, i): [Connection, number] => [c, i])
-    .filter(([c, i]) => !nodeUse.has(i) && specMatch(c, nodeNom))
-    .map(([, i]) => i);
+  const noReserve = new Set<number>();
+  const parentPorts = matchingFreePortals(
+    parentRegion.connections,
+    placedPortal(parentRegion, nomParent),
+    parentUse,
+    noReserve,
+  );
+  const nodePorts = matchingFreePortals(
+    nodeRegion.connections,
+    placedPortal(nodeRegion, nomNode),
+    nodeUse,
+    noReserve,
+  );
 
   const pairs: BindPair[] = [];
   for (const p of parentPorts)
@@ -475,25 +515,6 @@ function bindingCandidates(
   const rest = pairs.filter((b) => !isNominal(b));
   shuffle(rest, rng);
   return [...nominal, ...rest];
-}
-
-/** Free portal indices on a region spec-matching `nom` and not already used/reserved, ordered
- *  nominal-index-first so the canonical binding is tried before alternatives. */
-function freePortals(
-  conns: readonly Connection[],
-  nom: Connection,
-  used: Set<number>,
-  reserved: Set<number>,
-  nomIndex: number,
-): number[] {
-  const idx = conns
-    .map((c, i): [Connection, number] => [c, i])
-    .filter(([c, i]) => !used.has(i) && !reserved.has(i) && specMatch(c, nom))
-    .map(([, i]) => i);
-  return [
-    ...idx.filter((i) => i === nomIndex),
-    ...idx.filter((i) => i !== nomIndex),
-  ];
 }
 
 /** Forward-check ONE other active edge of `id` at a candidate placement: find the first free
@@ -519,7 +540,7 @@ function firstFeasibleBinding(
   const nodeUse = ctx.portalUse.get(id) ?? new Set<number>();
   const partnerReserved = reservedByPartner.get(partnerId) ?? new Set<number>();
   const partnerNom = placedPortal(partnerRegion, nomPartner);
-  const nodeNom = nodeRegion.connections[nomNode] as Connection;
+  const nodeNom = placedPortal(nodeRegion, nomNode);
   const range = feasRange(e);
 
   const partnerPorts = freePortals(
@@ -538,10 +559,7 @@ function firstFeasibleBinding(
   );
 
   for (const pj of nodePorts) {
-    const nodeWorld = placeConnection(
-      nodeRegion.connections[pj] as Connection,
-      placement,
-    );
+    const nodeWorld = placeConnection(placedPortal(nodeRegion, pj), placement);
     for (const pp of partnerPorts) {
       const partnerWorld = placedPortal(partnerRegion, pp);
       const [aW, bW] = nodeIsA
@@ -596,6 +614,46 @@ function boundParentPortal(
  *  blocked (only its unplaced descendants are) would otherwise re-take the exact canonical
  *  seat every revision, so backtracking to it could never move it — the reseeded shuffle is
  *  what actually lets an ancestor swing off-axis to clear a descendant. */
+/** Forward-check every OTHER active edge of `id` at a candidate placement: assign each a free
+ *  spec-matching binding that is `pairFeasible`, threading the reservations so no two edges
+ *  (including the seat) double-use a portal. Returns the per-edge bindings, or `null` the
+ *  moment any edge has no feasible binding (recording the `edge[fwd]:facing` diagnostic). */
+function forwardCheckOthers(
+  ctx: Ctx,
+  id: NodeId,
+  placement: Placement,
+  seatBind: BindPair,
+  seatParentId: NodeId,
+  others: ActiveEdge[],
+): Map<number, EdgeBinding> | null {
+  const reservedNode = new Set<number>([seatBind.node]);
+  const reservedByPartner = new Map<NodeId, Set<number>>([
+    [seatParentId, new Set<number>([seatBind.parent])],
+  ]);
+  const otherBinds = new Map<number, EdgeBinding>();
+  for (const oe of others) {
+    const found = firstFeasibleBinding(
+      ctx,
+      oe,
+      id,
+      placement,
+      reservedNode,
+      reservedByPartner,
+    );
+    if (!found) {
+      countFail(ctx, id, `edge[fwd]:facing:${oe.i}`);
+      return null;
+    }
+    otherBinds.set(oe.i, found.binding);
+    reservedNode.add(found.nodePortal);
+    const partnerId = oe.e.a === id ? oe.e.b : oe.e.a;
+    const set = reservedByPartner.get(partnerId) ?? new Set<number>();
+    set.add(found.partnerPortal);
+    reservedByPartner.set(partnerId, set);
+  }
+  return otherBinds;
+}
+
 function placeNode(
   ctx: Ctx,
   id: NodeId,
@@ -606,14 +664,14 @@ function placeNode(
   const active = activeEdges(ctx, id);
   if (active.length === 0)
     throw new Error(`layout: node "${id}" has no placed neighbour`);
+  // Boundary cast: the `active.length === 0` throw above proves `active` is non-empty, so it
+  // structurally matches the [head, ...tail] tuple.
   const [seat, ...others] = active as [ActiveEdge, ...ActiveEdge[]];
   const r = ctx.rng.derive(`cand:${stream}`);
 
   for (const seatBind of bindingCandidates(ctx, seat, id, r.derive("bind"))) {
     const parentPortal = boundParentPortal(ctx, seat, id, seatBind);
-    const nodePortalLocal = node.region.connections[
-      seatBind.node
-    ] as Connection;
+    const nodePortalLocal = placedPortal(node.region, seatBind.node);
     const dhSigned = (seat.e.heightDelta ?? 0) * (seat.e.b === id ? 1 : -1);
     const range = seat.e.lengthRange ?? DEFAULT_LENGTH_RANGE;
     const seatParentId = seat.e.a === id ? seat.e.b : seat.e.a;
@@ -650,34 +708,15 @@ function placeNode(
 
       // Cheap geometric forward-check of the OTHER active edges BEFORE occupancy: each must
       // have >= 1 free spec-matching binding that is pairFeasible under this placement.
-      const reservedNode = new Set<number>([seatBind.node]);
-      const reservedByPartner = new Map<NodeId, Set<number>>([
-        [seatParentId, new Set<number>([seatBind.parent])],
-      ]);
-      const otherBinds = new Map<number, EdgeBinding>();
-      let geomOk = true;
-      for (const oe of others) {
-        const found = firstFeasibleBinding(
-          ctx,
-          oe,
-          id,
-          placement,
-          reservedNode,
-          reservedByPartner,
-        );
-        if (!found) {
-          countFail(ctx, id, `edge[fwd]:facing:${oe.i}`);
-          geomOk = false;
-          break;
-        }
-        otherBinds.set(oe.i, found.binding);
-        reservedNode.add(found.nodePortal);
-        const partnerId = oe.e.a === id ? oe.e.b : oe.e.a;
-        const set = reservedByPartner.get(partnerId) ?? new Set<number>();
-        set.add(found.partnerPortal);
-        reservedByPartner.set(partnerId, set);
-      }
-      if (!geomOk) continue;
+      const otherBinds = forwardCheckOthers(
+        ctx,
+        id,
+        placement,
+        seatBind,
+        seatParentId,
+        others,
+      );
+      if (!otherBinds) continue;
 
       const envs = envelopeObbs(node.region, placement);
       const envRej = ctx.occ.checkPieceEnvelope(envs);
@@ -750,6 +789,7 @@ function cycleMemberOrder(ctx: Ctx, cyc: CycleUnit): NodeId[] {
   const remaining = [...cyc.members];
   while (remaining.length) {
     remaining.sort((x, y) => compareMrv(ctx, placedSim, x, y));
+    // Boundary cast: the `while (remaining.length)` guard proves it is non-empty.
     const next = remaining.shift() as NodeId;
     order.push(next);
     placedSim.add(next);
@@ -769,6 +809,7 @@ function placeCycle(ctx: Ctx, cyc: CycleUnit, rev: number): boolean {
   let sweeps = 0;
   let idx = 0;
   while (idx < order.length) {
+    // Boundary cast: the `idx < order.length` loop guard proves `order[idx]` is in-bounds.
     const id = order[idx] as NodeId;
     const mrev = memberRev.get(id) ?? 0;
     // The cycle ANCHOR (order[0], seated off a pin) does not explore under an OUTER
@@ -798,6 +839,8 @@ function placeCycle(ctx: Ctx, cyc: CycleUnit, rev: number): boolean {
       return false;
     }
     sweeps++;
+    // Boundary cast: `stuck` (checked+returned above) includes `placedHere.length === 0`, so
+    // reaching here proves `placedHere` is non-empty and `pop()` returns a real id.
     const prev = placedHere.pop() as NodeId;
     undoNode(ctx, prev);
     memberRev.set(prev, (memberRev.get(prev) ?? 0) + 1);
@@ -815,6 +858,7 @@ function placeCycle(ctx: Ctx, cyc: CycleUnit, rev: number): boolean {
 function mostConstrainedTree(ctx: Ctx, pendingTree: Set<NodeId>): NodeId {
   const ids = [...pendingTree];
   ids.sort((x, y) => compareMrv(ctx, ctx.placements, x, y));
+  // Boundary cast: the sole caller gates this on `pendingTree.size > 0`, so `ids[0]` exists.
   return ids[0] as NodeId;
 }
 
@@ -932,7 +976,9 @@ function tryLayout(
     let placedOk: boolean;
     let unit: PlacedUnit;
     if (adjacent.length > 0) {
-      const cyc = adjacent[0] as CycleUnit; // pendingCycles is smallest-first
+      // Boundary cast: the `adjacent.length > 0` branch guard proves `adjacent[0]` exists
+      // (and `pendingCycles` is smallest-first, so it is the smallest adjacent cycle).
+      const cyc = adjacent[0] as CycleUnit;
       unit = { kind: "cycle", unit: cyc, rev: 0 };
       placedOk = placeCycle(ctx, cyc, 0);
       if (placedOk) pendingCycles.splice(pendingCycles.indexOf(cyc), 1);
@@ -969,6 +1015,7 @@ function tryLayout(
     // stream, popping further when a unit's revisions exhaust.
     let revised = false;
     while (unitHistory.length > 0 && !revised) {
+      // Boundary cast: the `unitHistory.length > 0` loop guard proves `pop()` returns a unit.
       const prev = unitHistory.pop() as PlacedUnit;
       undoUnit(prev);
       for (let rev = prev.rev + 1; rev <= MAX_UNIT_REVISIONS; rev++) {
@@ -1002,6 +1049,8 @@ export function layoutWorld(graph: WorldGraph, seed: string): LayoutResult {
     graph.nodes.map((n) => [n.id, n]),
   );
   const decomposition = deriveChains(graph);
+  // Consumed by Task 8's dogleg hook — a closing edge that fails straight routing gets
+  // tryDogleg (via `ctx.closingEdges.has(i)`) before the node fails.
   const closingEdges = new Set(decomposition.cycles.map((c) => c.closingEdge));
 
   for (let restart = 0; restart < MAX_RESTARTS; restart++) {
