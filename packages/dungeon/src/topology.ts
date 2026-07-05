@@ -221,6 +221,7 @@ function treePathNodes(tree: RawEdge[], a: string, b: string): string[] {
   const seen = new Set([a]);
   const q = [a];
   while (q.length) {
+    // Boundary cast: the `while (q.length)` guard proves the queue is non-empty.
     const cur = q.shift() as string;
     if (cur === b) break;
     for (const next of adj.get(cur) ?? []) {
@@ -238,6 +239,9 @@ function treePathNodes(tree: RawEdge[], a: string, b: string): string[] {
   const path: string[] = [b];
   let cur = b;
   while (cur !== a) {
+    // Boundary cast: every enqueued non-source node had its `prev` entry set when it
+    // was enqueued; the walk starts at `b` (reachable, so enqueued) and follows `prev`
+    // back to `a`, so each visited `cur !== a` has a `prev` entry.
     const p = prev.get(cur) as string;
     path.push(p);
     cur = p;
