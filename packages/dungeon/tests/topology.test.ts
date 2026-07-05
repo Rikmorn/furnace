@@ -243,31 +243,86 @@ test("reserve guard: plan pass never throws across 2000 small-config seeds", () 
   }
 });
 
-test("cycle hygiene: no node serves more than one cycle-closing edge (500 seeds, default + loopy configs)", () => {
+/** Recover the fundamental cycles of a plan's edge list via union-find, exactly like
+ *  chains.ts deriveChains (reimplemented locally: deriveChains takes a WorldGraph shape,
+ *  but the plan's AbstractEdges already expose the same `.a`/`.b` endpoint pairs
+ *  deriveChains reads). An edge that joins two already-connected components is a
+ *  cycle-closing edge; its cycle is itself plus the TREE path between its endpoints
+ *  (BFS over only the non-closing "union" edges, in edge order) — never a shortcut
+ *  through an earlier closing edge, since closing edges are never added to the tree
+ *  adjacency. Returns each cycle's member node ids (endpoints included). */
+function recoverCycles(edges: { a: string; b: string }[]): string[][] {
+  const parent = new Map<string, string>();
+  const ensure = (id: string): void => {
+    if (!parent.has(id)) parent.set(id, id);
+  };
+  const find = (x: string): string => {
+    let r = x;
+    while ((parent.get(r) ?? r) !== r) r = parent.get(r) as string;
+    return r;
+  };
+  const treeAdj = new Map<string, string[]>();
+  const addAdj = (a: string, b: string): void => {
+    treeAdj.set(a, [...(treeAdj.get(a) ?? []), b]);
+    treeAdj.set(b, [...(treeAdj.get(b) ?? []), a]);
+  };
+  const closing: { a: string; b: string }[] = [];
+  for (const e of edges) {
+    ensure(e.a);
+    ensure(e.b);
+    const ra = find(e.a);
+    const rb = find(e.b);
+    if (ra === rb) closing.push(e);
+    else {
+      parent.set(ra, rb);
+      addAdj(e.a, e.b);
+    }
+  }
+  const treePath = (a: string, b: string): string[] => {
+    const prev = new Map<string, string>();
+    const seen = new Set([a]);
+    const q = [a];
+    while (q.length) {
+      const cur = q.shift() as string;
+      if (cur === b) break;
+      for (const next of treeAdj.get(cur) ?? []) {
+        if (seen.has(next)) continue;
+        seen.add(next);
+        prev.set(next, cur);
+        q.push(next);
+      }
+    }
+    const path: string[] = [b];
+    let cur = b;
+    while (cur !== a) {
+      const p = prev.get(cur);
+      if (p === undefined)
+        throw new Error(`recoverCycles: no tree path ${a} -> ${b}`);
+      path.push(p);
+      cur = p;
+    }
+    return path;
+  };
+  return closing.map((e) => treePath(e.a, e.b));
+}
+
+test("cycle hygiene: fundamental cycles are vertex-disjoint (500 seeds, default + loopy configs)", () => {
   const configs = [DEFAULT_TOPOLOGY, { ...DEFAULT_TOPOLOGY, loopChance: 0.9 }];
   for (const cfg of configs) {
     for (let i = 0; i < 250; i++) {
-      const plan = _planTopology("anchor", 0, `hyg-${i}`, cfg);
-      // union-find over plan edges in order; closing edges join already-connected nodes
-      const parent = new Map<string, string>();
-      const find = (x: string): string => {
-        let r = x;
-        while ((parent.get(r) ?? r) !== r) r = parent.get(r) as string;
-        return r;
-      };
-      const use = new Map<string, number>();
-      parent.set("anchor", "anchor");
-      for (const n of plan.nodes) parent.set(n.id, n.id);
-      for (const e of plan.edges) {
-        const ra = find(e.a);
-        const rb = find(e.b);
-        if (ra === rb) {
-          use.set(e.a, (use.get(e.a) ?? 0) + 1);
-          use.set(e.b, (use.get(e.b) ?? 0) + 1);
-        } else parent.set(ra, rb);
+      const p = _planTopology("anchor", 0, `hyg-${i}`, cfg);
+      const cycles = recoverCycles(p.edges);
+      for (let a = 0; a < cycles.length; a++) {
+        for (let b = a + 1; b < cycles.length; b++) {
+          const ca = cycles[a] as string[];
+          const cb = cycles[b] as string[];
+          const shared = ca.filter((id) => cb.includes(id));
+          expect(
+            shared,
+            `seed hyg-${i} (loopChance ${cfg.loopChance}): cycle ${a} (${ca.join(",")}) and cycle ${b} (${cb.join(",")}) share [${shared.join(",")}]`,
+          ).toEqual([]);
+        }
       }
-      for (const [id, n] of use)
-        expect(n, `${id} serves ${n} cycle edges`).toBeLessThanOrEqual(1);
     }
   }
 });

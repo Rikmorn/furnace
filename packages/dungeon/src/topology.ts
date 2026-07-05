@@ -203,6 +203,48 @@ type RawEdge = {
   sector: number;
 };
 
+/** BFS over a growth-tree edge list to recover the tree path between two nodes
+ *  (endpoints included). Mirrors chains.ts deriveChains' treePath construction — the
+ *  placer's own cycle-member recovery — so a cycle's "members" agree between the
+ *  generator's hygiene guard here and the placer's chain decomposition there: BFS only
+ *  ever walks `tree`, never a previously accepted closing edge, so it can't shortcut
+ *  into a shorter, different-membership path than deriveChains would recover for the
+ *  same edge. Throws (generator bug) if `b` is unreachable from `a` — the growth tree
+ *  spans every node by construction, so this should never fire on a passing pipeline. */
+function treePathNodes(tree: RawEdge[], a: string, b: string): string[] {
+  const adj = new Map<string, string[]>();
+  for (const e of tree) {
+    adj.set(e.a, [...(adj.get(e.a) ?? []), e.b]);
+    adj.set(e.b, [...(adj.get(e.b) ?? []), e.a]);
+  }
+  const prev = new Map<string, string>();
+  const seen = new Set([a]);
+  const q = [a];
+  while (q.length) {
+    const cur = q.shift() as string;
+    if (cur === b) break;
+    for (const next of adj.get(cur) ?? []) {
+      if (seen.has(next)) continue;
+      seen.add(next);
+      prev.set(next, cur);
+      q.push(next);
+    }
+  }
+  if (!seen.has(b)) {
+    throw new Error(
+      `topology: no growth-tree path ${a} → ${b} (generator bug — tree disconnected)`,
+    );
+  }
+  const path: string[] = [b];
+  let cur = b;
+  while (cur !== a) {
+    const p = prev.get(cur) as string;
+    path.push(p);
+    cur = p;
+  }
+  return path;
+}
+
 /** PLAN PASS. Pure and deterministic: sector skeleton (cycles-first macro ring over the
  *  sector graph, entry sector = warren, ≥1 works), per-sector tree growth with
  *  elevations assigned parent-relative (cycles close in height by construction),
@@ -432,10 +474,15 @@ export function _planTopology(
     }
   }
 
-  // Cycle hygiene: at most one cycle-closing edge per node — interconnected cycles
-  // (cycles sharing a room) are the one shape the cycles-first placer precedent
-  // (Ma-2014/Edgar) names as degrading; see the B2c research doc.
-  const cycleUsed = new Set<string>();
+  // Cycle hygiene: fundamental cycles are VERTEX-DISJOINT — cycles sharing rooms are
+  // the one shape the cycles-first precedent (Ma-2014/Edgar) degrades on, and the
+  // Gate-A block measured exactly that (interleaved 15/7/4-member cycle systems).
+  const cycleMembers = new Set<string>();
+  // Frozen growth-tree snapshot for cycle-path BFS below: sections 4/5 append CLOSING
+  // edges to `raw` (materialization needs them in growth order), but a cycle's members
+  // are its TREE path — snapshotting here, before any closing edge exists, means later
+  // treePathNodes calls can never shortcut through one (see treePathNodes' own doc).
+  const growthEdges = raw.slice();
 
   // --- 4. Ring closing: one checked loop edge between the ring's end sectors ---
   if (ringSize >= 3) {
@@ -458,11 +505,11 @@ export function _planTopology(
         "topology: no free portal pair to close the macro ring — reserve guard failed (generator bug)",
       );
     }
+    for (const id of treePathNodes(growthEdges, best[0].id, best[1].id))
+      cycleMembers.add(id);
     raw.push({ a: best[0].id, b: best[1].id, context: "inter", sector: sa });
     best[0].used += 1;
     best[1].used += 1;
-    cycleUsed.add(best[0].id);
-    cycleUsed.add(best[1].id);
     (reserved[sa] as number) -= 1;
     (reserved[sb] as number) -= 1;
   }
@@ -478,16 +525,16 @@ export function _planTopology(
       for (let j = i + 1; j < candidates.length; j++) {
         const na = candidates[i] as AbstractNode;
         const nb = candidates[j] as AbstractNode;
-        if (cycleUsed.has(na.id) || cycleUsed.has(nb.id)) continue;
         if (free(na) < 1 || free(nb) < 1) continue;
         if (connected(na.id, nb.id)) continue;
         if (Math.abs(na.elevation - nb.elevation) > LOOP_MAX_DROP) continue;
+        const path = treePathNodes(growthEdges, na.id, nb.id);
+        if (path.some((id) => cycleMembers.has(id))) continue;
         if (loopRng.derive(`${na.id}|${nb.id}`).float() < cfg.loopChance) {
           raw.push({ a: na.id, b: nb.id, context: "intra", sector: s });
           na.used += 1;
           nb.used += 1;
-          cycleUsed.add(na.id);
-          cycleUsed.add(nb.id);
+          for (const id of path) cycleMembers.add(id);
         }
       }
     }
