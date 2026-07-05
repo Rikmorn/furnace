@@ -9,10 +9,12 @@ import {
 import {
   CLEARANCE_SEGMENT,
   clearanceBoxes,
+  type LayoutResult,
   layoutWorld,
 } from "../src/layout.ts";
+import { pairFeasible } from "../src/locus.ts";
 import type { Aabb, Connection, RegionData, Vec3 } from "../src/region.ts";
-import type { WorldGraph } from "../src/world-graph.ts";
+import type { NodeId, WorldGraph } from "../src/world-graph.ts";
 
 /** A simple room: 8×3×8 solid-walled box with doors on given sides (door at wall centre,
  *  floor y=0). Solids = one collider per wall so clearance tests have real geometry. */
@@ -487,5 +489,121 @@ describe("B2c toolbox placer", () => {
     expect(() => layoutWorld(impossibleFixture(), "imp-seed")).toThrow(
       /could not place/,
     );
+  });
+});
+
+/** Read the WORLD-frame Connection actually mated on a node under a layout result: find the
+ *  node's index in graph order (= result.regions order), then read that placed region's
+ *  connection at `portal`. */
+function regionPortal(
+  result: LayoutResult,
+  g: WorldGraph,
+  nodeId: NodeId,
+  portal: number,
+): Connection {
+  const idx = g.nodes.findIndex((n) => n.id === nodeId);
+  return result.regions[idx]!.connections[portal]!;
+}
+
+/** A pinned anchor plus a SIX-room ring (r0…r5, closing r5→r0), every room a spec-identical
+ *  4-door box and every edge a TIGHT [3, 5] length window — tight enough that a greedy
+ *  first-accept seat of a cycle member routinely overshoots the closing member's reach, so
+ *  the ring only closes with in-chain repair + intersection-biased closing candidates. */
+function tightRingFixture(): WorldGraph {
+  const box = (): RegionData => room(["N", "S", "E", "W"]);
+  const L: [number, number] = [3, 5];
+  return {
+    nodes: [
+      {
+        id: "anchor",
+        region: room(["N"]),
+        pinned: { yaw: 0, translation: [0, 0, 0] },
+      },
+      { id: "r0", region: box() },
+      { id: "r1", region: box() },
+      { id: "r2", region: box() },
+      { id: "r3", region: box() },
+      { id: "r4", region: box() },
+      { id: "r5", region: box() },
+    ],
+    edges: [
+      { a: "anchor", b: "r0", aPortal: 0, bPortal: 0, lengthRange: L },
+      { a: "r0", b: "r1", aPortal: 1, bPortal: 0, lengthRange: L },
+      { a: "r1", b: "r2", aPortal: 1, bPortal: 0, lengthRange: L },
+      { a: "r2", b: "r3", aPortal: 1, bPortal: 0, lengthRange: L },
+      { a: "r3", b: "r4", aPortal: 1, bPortal: 0, lengthRange: L },
+      { a: "r4", b: "r5", aPortal: 1, bPortal: 0, lengthRange: L },
+      { a: "r5", b: "r0", aPortal: 1, bPortal: 2, lengthRange: L }, // closing
+    ],
+  };
+}
+
+/** A pinned 2-door anchor plus TWO room-disjoint 4-cycles (a0…a3 and b0…b3), one off each
+ *  anchor door — both cycles must close on a single seed. */
+function twoCycleFixture(): WorldGraph {
+  const box = (): RegionData => room(["N", "S", "E", "W"]);
+  const L: [number, number] = [3, 7];
+  return {
+    nodes: [
+      {
+        id: "anchor",
+        region: room(["N", "S"]),
+        pinned: { yaw: 0, translation: [0, 0, 0] },
+      },
+      { id: "a0", region: box() },
+      { id: "a1", region: box() },
+      { id: "a2", region: box() },
+      { id: "a3", region: box() },
+      { id: "b0", region: box() },
+      { id: "b1", region: box() },
+      { id: "b2", region: box() },
+      { id: "b3", region: box() },
+    ],
+    edges: [
+      { a: "anchor", b: "a0", aPortal: 0, bPortal: 0, lengthRange: L },
+      { a: "a0", b: "a1", aPortal: 1, bPortal: 0, lengthRange: L },
+      { a: "a1", b: "a2", aPortal: 1, bPortal: 0, lengthRange: L },
+      { a: "a2", b: "a3", aPortal: 1, bPortal: 0, lengthRange: L },
+      { a: "a3", b: "a0", aPortal: 1, bPortal: 2, lengthRange: L }, // closing A
+      { a: "anchor", b: "b0", aPortal: 1, bPortal: 0, lengthRange: L },
+      { a: "b0", b: "b1", aPortal: 1, bPortal: 0, lengthRange: L },
+      { a: "b1", b: "b2", aPortal: 1, bPortal: 0, lengthRange: L },
+      { a: "b2", b: "b3", aPortal: 1, bPortal: 0, lengthRange: L },
+      { a: "b3", b: "b0", aPortal: 1, bPortal: 2, lengthRange: L }, // closing B
+    ],
+  };
+}
+
+// CORRECTNESS / REGRESSION coverage — NOT a proof of any Task-5-only machinery. The Task-4
+// placer already delivered the cycle-as-unit behaviour these lock in: `placeNode`'s forward
+// checking (`forwardCheckOthers` + `commitEdges`) already enforces the two-partner
+// intersection as a HARD constraint (a closing candidate that fails either edge's cone/range
+// is never committed), and `placeCycle` already does in-chain repair. Task 5's
+// intersection-by-filtration ordering is a result-preserving efficiency change (a stable
+// partition over an unchanged candidate set), so it does NOT alter which of these pass — they
+// pass with or without it. Their job is to lock in that cycles CLOSE and the intersection
+// HOLDS, guarding against a future regression in either.
+describe("cycle units", () => {
+  test("a 6-room ring with tight length ranges closes (needs in-chain repair, not luck)", () => {
+    const result = layoutWorld(tightRingFixture(), "ring-seed");
+    expect(result.placements.size).toBe(7);
+    expect(result.expansions.size).toBe(0); // straight closure, no dogleg needed
+  });
+  test("two room-disjoint cycles both close on one seed", () => {
+    const result = layoutWorld(twoCycleFixture(), "two-seed");
+    expect(result.placements.size).toBe(9);
+  });
+  test("closing-member candidates come from the two-partner intersection: the closing room's two connectors both satisfy cones and ranges", () => {
+    const result = layoutWorld(tightRingFixture(), "ring-seed");
+    const g = tightRingFixture();
+    for (const [i, e] of g.edges.entries()) {
+      const bind = result.edgeBindings[i] as {
+        aPortal: number;
+        bPortal: number;
+      };
+      const pa = regionPortal(result, g, e.a, bind.aPortal);
+      const pb = regionPortal(result, g, e.b, bind.bPortal);
+      expect(pairFeasible(pa, pb, e.lengthRange ?? [2, 10])).toBe(true);
+    }
   });
 });

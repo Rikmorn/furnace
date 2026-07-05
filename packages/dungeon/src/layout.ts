@@ -697,17 +697,25 @@ function placeNode(
       loci.sort((a, b) => align(b) - align(a));
     }
 
-    for (const cand of loci) {
-      if (++ctx.attempts > MAX_ATTEMPTS) return false;
+    // Evaluate each candidate's placement + cheap geometric forward-check of the OTHER active
+    // edges (each must have >= 1 free spec-matching binding that is pairFeasible under this
+    // placement) ONCE, up front. Then INTERSECTION-BY-FILTRATION for a member with >= 2 active
+    // edges (a cycle-closing seat): a STABLE partition puts candidates feasible for ALL other
+    // edges first — the configuration-space intersection of both partners — before any that
+    // fail, in original (align/explore) order otherwise. This changes SEARCH EFFICIENCY ONLY,
+    // NOT which candidate commits nor the placement result: the loop below skips infeasible
+    // candidates via `continue` and returns on the first COMMITTABLE one, so a stable partition
+    // over an UNCHANGED candidate set cannot change the outcome — it only front-loads the
+    // committable candidate so it is reached in fewer wasted attempts on tight/closing members
+    // (that is precisely why it is not, and cannot be, a pass/fail lever — see the Task-5
+    // investigation). Single-edge members (`others` empty) keep their order untouched.
+    const evaluated = loci.map((cand) => {
       const target: Connection = {
         ...cand.target,
         width: nodePortalLocal.width,
         height: nodePortalLocal.height,
       };
       const placement = join(target, nodePortalLocal);
-
-      // Cheap geometric forward-check of the OTHER active edges BEFORE occupancy: each must
-      // have >= 1 free spec-matching binding that is pairFeasible under this placement.
       const otherBinds = forwardCheckOthers(
         ctx,
         id,
@@ -716,6 +724,18 @@ function placeNode(
         seatParentId,
         others,
       );
+      return { placement, otherBinds };
+    });
+    const ordered =
+      others.length > 0
+        ? [
+            ...evaluated.filter((e) => e.otherBinds),
+            ...evaluated.filter((e) => !e.otherBinds),
+          ]
+        : evaluated;
+
+    for (const { placement, otherBinds } of ordered) {
+      if (++ctx.attempts > MAX_ATTEMPTS) return false;
       if (!otherBinds) continue;
 
       const envs = envelopeObbs(node.region, placement);
