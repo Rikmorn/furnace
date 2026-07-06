@@ -8,11 +8,21 @@
 // bundling proof, not the export surface, is this file's 3.0 job.
 
 export {
+  type BakeFile,
+  bakeWing as bake,
+  WING_DIR,
+  type WingManifest,
+  type WingRegionEntry,
+} from "./bake.ts";
+export { placePiece } from "./connect.ts";
+export {
   DEFAULT_LAYOUT_BUDGET,
   type LayoutBudget,
   layoutWorld,
 } from "./layout.ts";
 export { MaterialCache, realizeRegion } from "./realize.ts";
+export { themes } from "./region.ts";
+export { caveDressing, caveProxy } from "./themes/cave.ts";
 export { DEFAULT_TOPOLOGY, generateWorldGraph } from "./topology.ts";
 export {
   buildWorld,
