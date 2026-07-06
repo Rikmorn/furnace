@@ -4,13 +4,14 @@
 //   bun packages/dungeon/scripts/measure-b2c.ts [N]        — per-config rate sweep (N seeds)
 //   bun packages/dungeon/scripts/measure-b2c.ts --frontier  — the per-sector capacity frontier
 //   bun packages/dungeon/scripts/measure-b2c.ts --retry     — the P1 retry-backed effective-rate probe
+//   bun packages/dungeon/scripts/measure-b2c.ts --retry-tight — P1 tail fix: tight budget × more attempts
 // Reports per-config rates + failure histograms + wall time. The Warframe pattern:
 // thousands of automated layouts, designers (us) tune kit/search until failures vanish.
 // The --frontier mode (Task 9A) measures the largest per-sector room count that places at
 // ≥90%, feeding SECTOR_ROOM_CAP — the clamp the hierarchical placer's inner solve relies on.
 import type { ShapeDescriptor } from "@furnace/core/physics";
 import { aabbOfBoxes } from "../src/aabb.ts";
-import { layoutWorld } from "../src/layout.ts";
+import { type LayoutBudget, layoutWorld } from "../src/layout.ts";
 import {
   GENERATOR_VERSION,
   type RegionCollider,
@@ -288,6 +289,103 @@ function runRetry(): void {
   }
 }
 
+// P1 tail-fix probe (3.1 brainstorm opener): the --retry baseline showed the 2/20
+// failing seeds at rooms=6 each exhaust the FULL default budget × 3 retries
+// (p95 = 461837 ms ≈ 92× the 5 s bar). Hypothesis (DunGen outer-loop shape): a TIGHT
+// per-attempt budget × more derived-seed attempts converts "grind one hard topology"
+// into "cheaply skip to a fresh topology". Same p1-* seeds as --retry → comparable.
+const TIGHT_TIERS: [string, Partial<LayoutBudget>, number][] = [
+  [
+    "ultra",
+    {
+      maxAttempts: 300,
+      maxRestarts: 1,
+      maxSaLayoutRestarts: 1,
+      maxSaMoves: 100,
+      maxSaRestarts: 1,
+    },
+    20,
+  ],
+  [
+    "tight",
+    {
+      maxAttempts: 2000,
+      maxRestarts: 2,
+      maxSaLayoutRestarts: 1,
+      maxSaMoves: 200,
+      maxSaRestarts: 2,
+    },
+    12,
+  ],
+  [
+    "mid",
+    {
+      maxAttempts: 5000,
+      maxRestarts: 3,
+      maxSaLayoutRestarts: 1,
+      maxSaMoves: 300,
+      maxSaRestarts: 3,
+    },
+    8,
+  ],
+  [
+    "loose",
+    {
+      maxAttempts: 10000,
+      maxRestarts: 4,
+      maxSaLayoutRestarts: 2,
+      maxSaMoves: 400,
+      maxSaRestarts: 4,
+    },
+    5,
+  ],
+];
+const TIGHT_ROOMS = 6; // the P1 bar config (rate ≥80%, p95 ≤5 s @6 rooms)
+const SLOW_MS = 5000;
+
+/** Sweep budget tiers at the bar config. Reports per-tier effective rate, wall p50/p95,
+ *  attempt-0 (single-shot) rate under the tightened budget, and per-seed SLOW lines —
+ *  enough to judge both the stop condition and the rate-vs-budget curve. */
+function runRetryTight(): void {
+  for (const [tier, budget, attempts] of TIGHT_TIERS) {
+    let ok = 0;
+    let firstShot = 0;
+    const times: number[] = [];
+    for (let i = 0; i < RETRY_SEEDS; i++) {
+      const seed = `p1-${TIGHT_ROOMS}-${i}`;
+      const t0 = performance.now();
+      let attempt = -1;
+      try {
+        const r = buildWorld(
+          seed,
+          { sectors: [1, 1], targetRooms: TIGHT_ROOMS, attempts },
+          budget,
+        );
+        ok++;
+        attempt = r.attempt;
+        if (attempt === 0) firstShot++;
+      } catch {
+        // miss; time still recorded (cost of failure matters)
+      }
+      const dt = performance.now() - t0;
+      times.push(dt);
+      if (dt > SLOW_MS) {
+        console.log(
+          `  SLOW tier=${tier} seed=${seed} t=${dt.toFixed(0)}ms attempt=${attempt}`,
+        );
+      }
+    }
+    const sorted = [...times].sort((a, b) => a - b);
+    const p = (q: number) =>
+      sorted[
+        Math.min(sorted.length - 1, Math.floor(q * sorted.length))
+      ]?.toFixed(0);
+    console.log(
+      `RETRYT tier=${tier} rooms=${TIGHT_ROOMS} attempts=${attempts} ok=${ok}/${RETRY_SEEDS} (${((100 * ok) / RETRY_SEEDS).toFixed(0)}%) firstShot=${firstShot} p50=${p(0.5)}ms p95=${p(0.95)}ms`,
+    );
+  }
+}
+
 if (process.argv[2] === "--frontier") {
   // Optional single-cell restriction for parallel collection: --frontier <rooms> <loop>.
   const roomFilter =
@@ -297,6 +395,8 @@ if (process.argv[2] === "--frontier") {
   runFrontier(roomFilter, loopFilter);
 } else if (process.argv[2] === "--retry") {
   runRetry();
+} else if (process.argv[2] === "--retry-tight") {
+  runRetryTight();
 } else {
   runConfigs(Number(process.argv[2] ?? 40));
 }
