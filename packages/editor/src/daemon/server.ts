@@ -32,11 +32,33 @@ const CONTENT_TYPES: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
   ".js": "text/javascript; charset=utf-8",
   ".css": "text/css; charset=utf-8",
+  ".json": "application/json",
   ".map": "application/json",
   ".svg": "image/svg+xml",
   ".png": "image/png",
   ".woff2": "font/woff2",
 };
+
+/** Resolve `pathname` to an existing regular file under `baseDir` ("/" → index.html),
+ *  or undefined when it escapes the base or doesn't exist. */
+function resolveFile(baseDir: string, pathname: string): string | undefined {
+  const rel = pathname === "/" ? "index.html" : pathname.slice(1);
+  const abs = normalize(join(baseDir, rel));
+  if (!abs.startsWith(normalize(baseDir))) return undefined;
+  if (!existsSync(abs) || !statSync(abs).isFile()) return undefined;
+  return abs;
+}
+
+function streamFile(abs: string, res: ServerResponse): void {
+  res.writeHead(200, {
+    "content-type": CONTENT_TYPES[extname(abs)] ?? "application/octet-stream",
+  });
+  const stream = createReadStream(abs);
+  // pipe() does not forward read errors; abort the response so the connection
+  // doesn't hang if the file errors mid-stream (headers are already sent).
+  stream.on("error", () => res.destroy());
+  stream.pipe(res);
+}
 
 function serveStatic(
   staticDir: string,
@@ -50,25 +72,42 @@ function serveStatic(
     );
     return;
   }
-  const rel = pathname === "/" ? "index.html" : pathname.slice(1);
-  const abs = normalize(join(staticDir, rel));
-  if (
-    !abs.startsWith(normalize(staticDir)) ||
-    !existsSync(abs) ||
-    !statSync(abs).isFile()
-  ) {
+  const abs = resolveFile(staticDir, pathname);
+  if (abs === undefined) {
     res.writeHead(404, { "content-type": "text/plain" });
     res.end(`not found: ${pathname}`);
     return;
   }
-  res.writeHead(200, {
-    "content-type": CONTENT_TYPES[extname(abs)] ?? "application/octet-stream",
-  });
-  const stream = createReadStream(abs);
-  // pipe() does not forward read errors; abort the response so the connection
-  // doesn't hang if the file errors mid-stream (headers are already sent).
-  stream.on("error", () => res.destroy());
-  stream.pipe(res);
+  streamFile(abs, res);
+}
+
+/** Serve a project file for a GET the chrome doesn't own. Scene documents reference
+ *  asset sidecars by root-absolute URL (e.g. the dungeon's `/regions/*.fmesh`), which
+ *  the browser-side loader fetches same-origin — the daemon mirrors the consumer dev
+ *  server's layout by mapping the path onto the project root (found live at the 3.0
+ *  gate: region-cavern's sidecar 404'd). Root-contained; dotfile segments and
+ *  node_modules are refused (the daemon is localhost single-user, but `.env` must
+ *  never be one GET away). Returns false when not served. */
+function serveProjectAsset(
+  root: string,
+  pathname: string,
+  res: ServerResponse,
+): boolean {
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(pathname);
+  } catch {
+    return false;
+  }
+  if (decoded === "/" || decoded === "") return false;
+  const segments = decoded.slice(1).split("/");
+  if (segments.some((s) => s.startsWith(".") || s === "node_modules")) {
+    return false;
+  }
+  const abs = resolveFile(root, decoded);
+  if (abs === undefined) return false;
+  streamFile(abs, res);
+  return true;
 }
 
 function readBody(req: IncomingMessage): Promise<string> {
@@ -168,7 +207,17 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
         return;
       }
       if (req.method === "GET") {
-        serveStatic(opts.staticDir ?? DEFAULT_STATIC_DIR, url.pathname, res);
+        const staticDir = opts.staticDir ?? DEFAULT_STATIC_DIR;
+        // Chrome wins ("/" + its assets); project files fill the misses so
+        // root-absolute sidecar URLs in scene docs (e.g. /regions/*.fmesh)
+        // resolve same-origin exactly as on the consumer's own dev server.
+        const chromeHit =
+          existsSync(staticDir) &&
+          resolveFile(staticDir, url.pathname) !== undefined;
+        if (!chromeHit && serveProjectAsset(opts.root, url.pathname, res)) {
+          return;
+        }
+        serveStatic(staticDir, url.pathname, res);
         return;
       }
       sendJson(res, 404, {
