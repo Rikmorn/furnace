@@ -609,20 +609,37 @@ const ROOM_DOOR = { width: 1.6, height: 2.8 };
 
 /** MATERIALIZE one abstract node: call its theme with exactly `used` portals so slot k
  *  is portal k by construction (boxRoom emits connections in door order; cave emits its
- *  usable collared mouths in bore order). */
-function materializeNode(n: AbstractNode): RegionData {
+ *  usable collared mouths in bore order). Also returns the EXTRA generator params the
+ *  call used (beyond RegionParams) — the caller records them on `WorldNode.themeParams`
+ *  so bake provenance can repeat this exact call at load. The params object is built
+ *  ONCE and passed to both the generator and the caller, so record and region cannot
+ *  drift (a bare re-run without them reproduces a DIFFERENT region — the 3.1-gate
+ *  blocked-doorways bug). */
+function materializeNode(n: AbstractNode): {
+  region: RegionData;
+  themeParams?: Record<string, unknown>;
+} {
   if (n.theme === "cave") {
-    return cave({
-      theme: "cave",
-      seed: n.seed,
-      origin: [0, 0, 0],
-      mouths: n.used,
-      capped: n.capped,
-    });
+    const themeParams = { mouths: n.used, capped: n.capped };
+    return {
+      region: cave({
+        theme: "cave",
+        seed: n.seed,
+        origin: [0, 0, 0],
+        ...themeParams,
+      }),
+      themeParams,
+    };
   }
   if (n.theme === "greatHall") {
     // capacity 1 by construction — its single fixed S door is slot 0.
-    return greatHall({ theme: "greatHall", seed: n.seed, origin: [0, 0, 0] });
+    return {
+      region: greatHall({
+        theme: "greatHall",
+        seed: n.seed,
+        origin: [0, 0, 0],
+      }),
+    };
   }
   const sides = shuffled(makeRng(`${n.seed}/sides`), SIDES).slice(0, n.used);
   const doors: DoorSpec[] = sides.map((side) => ({
@@ -631,12 +648,16 @@ function materializeNode(n: AbstractNode): RegionData {
     width: ROOM_DOOR.width,
     height: ROOM_DOOR.height,
   }));
-  return pillarHall({
-    theme: "pillarHall",
-    seed: n.seed,
-    origin: [0, 0, 0],
-    doors,
-  });
+  const themeParams = { doors };
+  return {
+    region: pillarHall({
+      theme: "pillarHall",
+      seed: n.seed,
+      origin: [0, 0, 0],
+      ...themeParams,
+    }),
+    themeParams,
+  };
 }
 
 /** Generate the full world graph off a pinned anchor: PLAN (see _planTopology), then
@@ -659,16 +680,9 @@ export function generateWorldGraph(
   const plan = _planTopology(anchor.id, entry.position[1], seed, cfg);
   const nodes: WorldNode[] = [anchor];
   for (const n of plan.nodes) {
-    const node: WorldNode = {
-      id: n.id,
-      region: materializeNode(n),
-      theme: n.theme,
-    };
-    // The materializer passes mouths=used/capped to cave(); record them so the bake
-    // manifest can re-derive this node's proxy/dressing via caveProxy/caveDressing.
-    if (n.theme === "cave") {
-      node.caveParams = { mouths: n.used, capped: n.capped };
-    }
+    const { region, themeParams } = materializeNode(n);
+    const node: WorldNode = { id: n.id, region, theme: n.theme };
+    if (themeParams) node.themeParams = themeParams;
     nodes.push(node);
   }
   const edges: WorldEdge[] = plan.edges.map((e) => {

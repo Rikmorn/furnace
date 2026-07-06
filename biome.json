@@ -20,6 +20,7 @@
       "!**/plugins/*/pkg",
       "!**/graphify-out",
       "!**/.claude",
+      "!**/regions/generated-wing",
       "!bun.lock"
     ]
   },

@@ -16,9 +16,12 @@ export type WorldNode = {
   pinned?: Placement;
   /** Annotation only in 2.2.5a (pass-through); gates generators in 2.2.5b. */
   theme?: string;
-  /** Present on generated cave nodes: the materializer's cave params, needed to
-   *  re-derive proxy/dressing from provenance (bake manifest). */
-  caveParams?: { mouths: number; capped: number };
+  /** Present on generated nodes whose materializer passed EXTRA generator params
+   *  beyond RegionParams (cave: mouths/capped; pillarHall: graph-derived doors).
+   *  Recorded so bake provenance can repeat the exact original generator call — a
+   *  bare {theme,seed,origin} re-run produces a DIFFERENT region (wrong doors →
+   *  wrong scatter keep-outs → dressing in doorways; found at the 3.1 gate). */
+  themeParams?: Record<string, unknown>;
 };
 
 export type WorldEdge = {

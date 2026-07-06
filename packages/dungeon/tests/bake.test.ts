@@ -55,7 +55,14 @@ describe("bakeWing", () => {
 
     const cave = manifest.regions.find((r) => r.theme === "cave");
     expect(cave).toBeDefined();
-    expect(cave?.caveParams).toBeDefined();
+    expect(cave?.themeParams).toBeDefined();
+    // pillarHall entries must carry their graph-derived doors — a bare re-run without
+    // them reproduces a DIFFERENT room (the 3.1-gate blocked-doorways bug).
+    for (const hall of manifest.regions.filter(
+      (r) => r.theme === "pillarHall",
+    )) {
+      expect(hall.themeParams?.["doors"]).toBeDefined();
+    }
 
     // Every region doc is render-only (no rigidBody component); manifest colliders are
     // cuboid-only (voxels regenerate at load, never serialize).

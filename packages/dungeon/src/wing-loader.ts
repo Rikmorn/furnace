@@ -20,9 +20,15 @@ import {
   type MaterialCache,
   realizeRegion,
 } from "./realize.ts";
-import type { RegionCollider, RegionData, ThemeName, Vec3 } from "./region.ts";
+import type {
+  RegionCollider,
+  RegionData,
+  RegionParams,
+  ThemeName,
+  Vec3,
+} from "./region.ts";
 import { GENERATOR_VERSION, themes } from "./region.ts";
-import { caveDressing, caveProxy } from "./themes/cave.ts";
+import { type CaveParams, caveDressing, caveProxy } from "./themes/cave.ts";
 
 /** The runtime handles of a loaded wing. Structurally identical to a `realizeRegion`
  *  result so it slots into `main.ts`'s `area` list beside live-realized regions. */
@@ -152,14 +158,18 @@ function createCaveProxyBody(
   r: WingRegionEntry,
 ): void {
   if (r.theme !== "cave") return;
-  if (!r.caveParams)
-    throw new Error(`wing: cave region ${r.id} lacks caveParams`);
+  if (!r.themeParams)
+    throw new Error(
+      `wing: cave region ${r.id} lacks themeParams — re-bake the wing`,
+    );
+  // Boundary cast: themeParams is the materializer's recorded cave call params
+  // (mouths/capped) from the manifest JSON; cave() itself validates them setup-loud.
   const local = caveProxy({
     theme: "cave",
     seed: r.seed,
     origin: LOCAL_ORIGIN,
-    ...r.caveParams,
-  });
+    ...r.themeParams,
+  } as CaveParams);
   // The proxy is LOCAL-frame; run it through `placePiece` (which rotates+translates a
   // collider's position and carries the yaw on its body rotation) so it lands exactly
   // where the placed meshes did. The voxel shape itself is placement-invariant.
@@ -184,15 +194,23 @@ function createCaveProxyBody(
  *  Returns null for a theme carrying no dressing. `placePiece` seats it in world after. */
 async function dressingFor(r: WingRegionEntry): Promise<RegionData | null> {
   if (r.theme === "cave") {
-    if (!r.caveParams)
-      throw new Error(`wing: cave region ${r.id} lacks caveParams`);
+    if (!r.themeParams)
+      throw new Error(
+        `wing: cave region ${r.id} lacks themeParams — re-bake the wing`,
+      );
     // The cave's baked isosurface (mesh index 0) sidecar — see bake.ts regionDoc.
     const buf = await (
       await fetchArtifact(`/${WING_DIR}/${r.id}-0.fmesh`)
     ).arrayBuffer();
     const surface = decodeMeshBlob(buf).render;
+    // Boundary cast: see createCaveProxyBody — recorded materializer params.
     const d = caveDressing(
-      { theme: "cave", seed: r.seed, origin: LOCAL_ORIGIN, ...r.caveParams },
+      {
+        theme: "cave",
+        seed: r.seed,
+        origin: LOCAL_ORIGIN,
+        ...r.themeParams,
+      } as CaveParams,
       surface,
     );
     return pieceRegion({ instances: d.instances, materials: d.materials });
@@ -203,11 +221,17 @@ async function dressingFor(r: WingRegionEntry): Promise<RegionData | null> {
   if (!Object.hasOwn(themes, r.theme)) return null;
   // Boundary cast: `Object.hasOwn(themes, r.theme)` proves the string is a live ThemeName key.
   const name = r.theme as ThemeName;
+  // Boundary cast + spread: themeParams is the materializer's recorded extra generator
+  // params (e.g. pillarHall's graph-derived multi-door specs). WITHOUT them the re-run
+  // falls back to theme defaults (single S door) → different scatter keep-outs → solid
+  // dressing lands in the real doorways (the 3.1-gate "blocked rooms" bug). The theme
+  // generator validates the params setup-loud.
   const full = themes[name]({
     theme: name,
     seed: r.seed,
     origin: LOCAL_ORIGIN,
-  });
+    ...(r.themeParams ?? {}),
+  } as RegionParams);
   return pieceRegion({ instances: full.instances, materials: full.materials });
 }
 

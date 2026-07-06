@@ -43,7 +43,10 @@ export type WingRegionEntry = {
   placement: Placement;
   /** Cuboid colliders in WORLD frame (voxels never serialize — cave proxy regens). */
   colliders: RegionCollider[];
-  caveParams?: { mouths: number; capped: number };
+  /** The materializer's extra generator params (cave: mouths/capped; pillarHall:
+   *  graph-derived doors) — REQUIRED to re-derive proxy/dressing exactly at load;
+   *  a bare {theme,seed,origin} re-run reproduces a different region. */
+  themeParams?: Record<string, unknown>;
 };
 
 /** The baked wing's index: provenance to regenerate, plus per-region + connector artifacts. */
@@ -108,7 +111,7 @@ export function bakeWing(
       seed: node.region.provenance.seed,
       placement,
       colliders: cuboidColliders(placed),
-      ...(node.caveParams ? { caveParams: node.caveParams } : {}),
+      ...(node.themeParams ? { themeParams: node.themeParams } : {}),
     });
   }
 
