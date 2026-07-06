@@ -60,7 +60,7 @@ esbuild builds this `platform: "node"` to a **uniquely-named** temp `.mjs` (`fur
 
 The registry loader exposes `reload()` (fresh build + import, used by `scene.open`) and `current()` (cached, building on first use — used by `scene.validate` / `scene.introspect` before any open).
 
-**Staleness model.** The browser bundle rebuilds on every browser refresh (each `GET /engine.js`). The registry rebuilds per `scene.open` (`reload()`). There is **no extension-file watching**: editing an extension's TypeScript does not auto-rebuild — re-opening the scene (registry) or refreshing the browser (engine bundle) picks up the change. This is a known gap carried from M3 (§9).
+**Staleness model.** The browser bundle rebuilds on every browser refresh (each `GET /engine.js`); the registry rebuilds per `scene.open` (`reload()`). Historically the browser had no way to *know* an extension's TypeScript had changed, so a refresh had to be manual. Slice 3.0 (§5, "Directory watching") closed that half: `server.ts` watches the extensions entry's directory and emits `bundle-outdated` over SSE, and the frontend reloads the page when the session isn't dirty — so `GET /engine.js` picks up the change automatically instead of waiting for a manual refresh. **The registry side is a narrower remaining gap, not closed by this**: a `bundle-outdated`-triggered page reload re-fetches the in-memory document via `scene.get` (`session.get()`), which does **not** call `registry.reload()` — only `session.open` (the `scene.open` command) does. So editing an extension's TypeScript is picked up by the browser engine bundle automatically, but the daemon-side registry (used by `scene.validate`/`scene.introspect`, and by `scene.open`'s own validation) still only refreshes when a scene is explicitly (re-)opened.
 
 ## 4. Command registry + document session
 
@@ -118,7 +118,7 @@ The mutation functions in `mutations.ts` (`addEntity`, `removeEntity`, `setCompo
 
 `src/daemon/events.ts` is the SSE broadcaster. Events are **notification-only dirty-bits** — there is no payload protocol beyond the event itself; consumers refetch `scene.get`, so a slow consumer naturally coalesces N changes into one refetch. Each subscriber gets a 15 s heartbeat comment (`: ping`); the heartbeat interval is `unref`'d so it never holds the process open.
 
-The event types are the `SessionEvent` union in `session.ts` (verified against the source):
+The feed carries `DaemonEvent = SessionEvent | { type: "bundle-outdated" }` (`src/daemon/events.ts`, verified against the source) — daemon-level events ride the same feed as the document-session's own `SessionEvent` union (`session.ts`):
 
 | Event `type` | Payload fields | Emitted when |
 | --- | --- | --- |
@@ -127,12 +127,19 @@ The event types are the `SessionEvent` union in `session.ts` (verified against t
 | `saved` | `revision` | `scene.save` writes the file. |
 | `file-conflict` | `path` | a disk change arrived while the session was dirty, or the watched file was deleted/became unreadable. |
 | `file-invalid` | `path`, `message` | a disk change left the file as invalid JSON or failed registry validation. |
+| `bundle-outdated` | none beyond `type` | a source file under the extensions entry's directory changed (§5, "Directory watching") — the browser should reload to pick up the freshly-rebuilt `/engine.js`. |
 
-The SSE wire frame is `event: <type>\ndata: <json>\n\n`.
+The SSE wire frame is `event: <type>\ndata: <json>\n\n` — `bundle-outdated` rides it generically, same as every other event.
 
 ### File watching
 
 `src/daemon/watch.ts` defines the `WatchFile` capability — `(path, onChange) => unwatch` — and its production adapter `chokidarWatchFile`, built on **chokidar v4** (pure JS over `node:fs`; v4 dropped the optional `fsevents` native dep). It watches one file with `ignoreInitial: true` and `awaitWriteFinish` (stability threshold 100 ms) so atomic-rename / burst saves settle before firing. Both `change` and `unlink` call `onChange`; the session re-reads and distinguishes by the read result. `WatchFile` is **injected** into the session as a capability so tests drive file-change semantics deterministically with a fake (the real chokidar is wired in only by `server.ts`).
+
+### Directory watching
+
+`src/daemon/watch.ts` also defines the `WatchDir` capability — `(dir, onChange) => unwatch` — and its production adapter `chokidarWatchDir`: a **chokidar v4 recursive watch** over `dir` (`node_modules` and `dist` paths ignored), firing `onChange` on any `add`/`change`/`unlink` beneath the tree (chokidar's `"all"` event, debounced by the same `awaitWriteFinish` settling as `WatchFile`). Like `WatchFile`, it is **injected** — `server.ts` takes an optional `watchDir` in `ServerOptions` for tests to fake, defaulting to the real `chokidarWatchDir` in production.
+
+`server.ts` wires this to close the inner-loop staleness gap (§3): when `config.extensions` is set, it watches `dirname(resolve(root, config.extensions))` — the consumer's extensions-entry directory — and emits `hub.emit({ type: "bundle-outdated" })` on any change. The frontend (`App.tsx`) reloads the page on that event when the session isn't dirty; if dirty, it leaves the reload to the user rather than risk losing unsaved edits.
 
 `session.onFileChanged` is the reload logic, and it encodes the conflict matrix:
 
@@ -190,7 +197,7 @@ If the file is absent, all editor settings fall back to defaults. Malformed JSON
 ## 9. Deferred
 
 - **AI bindings** — MCP mount, `viewport.capture`, embedded agent, and outbound editor→LLM were **descoped from M4** into a dedicated milestone: `docs/backlog/editor-and-tooling/editor-ai-integration-milestone.md`. Rationale: for an FS-capable agent, direct file editing beats mutation tools, so M4 made disk edits first-class (watch + reload + validate + introspect over plain HTTP) and shipped the transport-agnostic substrate; the bindings get designed together when appetite is there (slot after M5). The error contract and the `MCP/agent bindings` notes in `errors.ts` / `handlers.ts` are the forward-looking seam for that work.
-- **Extension-file watching** — editing an extension's TypeScript does not auto-rebuild the engine bundle or registry; re-open the scene / refresh the browser to pick up changes (§3). Known gap carried from M3.
+- **Registry staleness on extension edits** — the browser-engine-bundle half of this gap closed in Slice 3.0 (§3, §5: `bundle-outdated` SSE + auto-reload). The daemon-side **registry** still only rebuilds on an explicit `scene.open` (`reload()`); a `bundle-outdated`-driven page reload re-fetches the document via `scene.get`, which does not touch the registry. Editing an extension's TypeScript is still not reflected in `scene.validate`/`scene.introspect` (or in a currently-open session's validation) until the scene is re-opened.
 - **Remaining viewport/hierarchy work deferred from M5B** — resource live-preview (`rebuildResource` cascade), editor fly-camera (WASD), and hierarchy tree (requires scene-format parent decision). See `docs/backlog/editor-and-tooling/editor-M5B-viewport-interaction.md`.
 - **Session concurrent-open race hardening** — two await-point races in `session.ts` (`onFileChanged` / `apply` capturing stale `state` across an await) are benign under the single-user serialized-command model and deferred with a staleness-guard fix: `docs/backlog/editor-and-tooling/session-concurrent-open-race-hardening.md`. Becomes load-bearing when M5 adds continuous interactions or a second concurrent writer.
 
