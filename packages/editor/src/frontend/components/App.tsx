@@ -5,7 +5,7 @@ import {
 } from "dockview";
 import { useCallback, useEffect, useMemo, useReducer, useRef } from "react";
 import type { FunctionComponent } from "react";
-import type { ViewportHost } from "../../viewport-host/index.ts"; // type-only
+import type { PreviewHost, ViewportHost } from "../../viewport-host/index.ts"; // type-only
 import { ApiClientError, api, type ComponentEdit } from "../lib/api.ts";
 import { EngineBuildError, loadEngine } from "../lib/engine.ts";
 import { subscribeEvents } from "../lib/events.ts";
@@ -13,6 +13,7 @@ import { clickMode } from "../lib/selection.ts";
 import { initialState, reduce } from "../lib/state.ts";
 import { EditorContext, type EditorActions, type EditorContextValue } from "./editor-context.ts";
 import { EntitiesPanel } from "./EntitiesPanel.tsx";
+import { GenerationPanel } from "./GenerationPanel.tsx";
 import { InspectPanel } from "./InspectPanel.tsx";
 import { StatusBar } from "./StatusBar.tsx";
 import { Toolbar } from "./Toolbar.tsx";
@@ -26,11 +27,16 @@ const COMPONENTS: Record<string, FunctionComponent<IDockviewPanelProps>> = {
   entities: EntitiesPanel,
   viewport: Viewport,
   inspect: InspectPanel,
+  generation: GenerationPanel,
 };
 
 export function App() {
   const [state, dispatch] = useReducer(reduce, initialState);
   const hostRef = useRef<ViewportHost | undefined>(undefined);
+  // The cockpit preview host + the consumer generator surface, both created once the
+  // engine bundle loads and threaded to the GenerationPanel via context (Slice 3.1).
+  const previewHostRef = useRef<PreviewHost | undefined>(undefined);
+  const extensionsRef = useRef<Record<string, unknown>>({});
   const lastLoaded = useRef<{ path?: string; revision?: number }>({});
   // Mirrors state.dirty for the SSE onEvent closure below, whose effect only
   // re-subscribes on [state.status, refreshSession] — reading state.dirty
@@ -60,6 +66,10 @@ export function App() {
         const engine = await loadEngine();
         if (cancelled) return;
         hostRef.current = engine.createViewportHost();
+        // Slice 3.1: the preview host + the consumer's generator surface. Assigned
+        // BEFORE the engine-ready dispatch so both are live once the panels mount.
+        previewHostRef.current = engine.createPreviewHost();
+        extensionsRef.current = engine.extensions;
         hostRef.current.setCallbacks({
           onSelect: (entityId, mods) => {
             if (entityId === null) {
@@ -259,11 +269,24 @@ export function App() {
       title: "Inspect",
       position: { referencePanel: "viewport", direction: "right" },
     });
+    event.api.addPanel({
+      id: "generation",
+      component: "generation",
+      title: "Generation",
+      position: { referencePanel: "inspect", direction: "below" },
+    });
   }, []);
 
   // Fresh object each render — that is intentional: a new context value on every
   // state change is what forces the portaled panel consumers to re-render.
-  const ctxValue: EditorContextValue = { state, dispatch, hostRef, actions };
+  const ctxValue: EditorContextValue = {
+    state,
+    dispatch,
+    hostRef,
+    previewHostRef,
+    extensions: extensionsRef.current,
+    actions,
+  };
 
   return (
     <div className="flex h-screen flex-col">

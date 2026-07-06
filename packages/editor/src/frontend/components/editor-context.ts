@@ -1,6 +1,6 @@
 import type { RefObject } from "react";
 import { createContext, useContext } from "react";
-import type { ViewportHost } from "../../viewport-host/index.ts";
+import type { PreviewHost, ViewportHost } from "../../viewport-host/index.ts";
 import type { ComponentEdit } from "../lib/api.ts";
 import type { EditorEvent, EditorState } from "../lib/state.ts";
 
@@ -28,6 +28,12 @@ export type EditorContextValue = {
   state: EditorState;
   dispatch: (e: EditorEvent) => void;
   hostRef: RefObject<ViewportHost | undefined>;
+  /** The cockpit preview host (Slice 3.1) — the generation panel realizes into it. */
+  previewHostRef: RefObject<PreviewHost | undefined>;
+  /** The engine bundle's `extensions` namespace (the consumer's generator surface),
+   *  crossing the project-first bundle boundary as an untyped record. The generation
+   *  panel is the SINGLE seam that narrows it (with `// Boundary cast:` comments). */
+  extensions: Record<string, unknown>;
   actions: EditorActions;
 };
 

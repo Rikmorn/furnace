@@ -66,4 +66,10 @@ export const api = {
   undo: () => call<MutationResult>("scene.undo", {}),
   redo: () => call<MutationResult>("scene.redo", {}),
   save: () => call<MutationResult>("scene.save", {}),
+  // FALLBACK bake transport (Pr-2 determinism probe failed → the browser bakes and
+  // uploads the file set; the daemon validates root-containment, writes, and emits
+  // `generation-baked`). `contents` is text verbatim (utf8) or base64 (binary sidecars).
+  generationBake: (
+    files: { path: string; encoding: "utf8" | "base64"; contents: string }[],
+  ) => call<{ files: number }>("generation.bake", { files }),
 };

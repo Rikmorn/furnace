@@ -48,6 +48,14 @@ test("no-webgpu is its own state", () => {
   expect(s.status).toBe("no-webgpu");
 });
 
+test("generation-active toggles the preview-owns-viewport flag", () => {
+  expect(initialState.generationActive).toBe(false);
+  let s = reduce(initialState, { type: "generation-active", active: true });
+  expect(s.generationActive).toBe(true);
+  s = reduce(s, { type: "generation-active", active: false });
+  expect(s.generationActive).toBe(false);
+});
+
 test("scene load failure keeps the previous doc and surfaces the message", () => {
   let s: EditorState = reduce(reduce(initialState, { type: "engine-ready" }), {
     type: "scenes",
