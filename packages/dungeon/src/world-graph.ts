@@ -16,6 +16,9 @@ export type WorldNode = {
   pinned?: Placement;
   /** Annotation only in 2.2.5a (pass-through); gates generators in 2.2.5b. */
   theme?: string;
+  /** Present on generated cave nodes: the materializer's cave params, needed to
+   *  re-derive proxy/dressing from provenance (bake manifest). */
+  caveParams?: { mouths: number; capped: number };
 };
 
 export type WorldEdge = {

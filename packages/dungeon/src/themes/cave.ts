@@ -14,6 +14,7 @@ import { voxelProxyPosition, voxelsFromField } from "../proxy.ts";
 import type {
   Aabb,
   Connection,
+  InstanceGroup,
   MaterialDescriptor,
   RegionCollider,
   RegionData,
@@ -421,6 +422,134 @@ function caveEnvelopes(
   return [hubBox, ...boreSlabs, ...collarBounds];
 }
 
+/** Everything cave() computes before meshing — shared by the full generator and the
+ *  runtime proxy/dressing paths so the three cannot drift. Throws the same setup-loud
+ *  validation as `cave` on an invalid new-path `mouths`/`capped`. */
+function caveSkeleton(p: CaveParams): {
+  graph: Graph;
+  field: Field;
+  grid: GridConfig;
+  legacy: boolean;
+} {
+  const rng = makeRng(p.seed);
+  const legacy = p.mouths === undefined && p.capped === undefined; // MIGRATION (until B2 Task 9)
+  const mouths = p.mouths ?? 0;
+  const capped = p.capped ?? 0;
+  if (!legacy) {
+    if (mouths < 1) throw new Error("cave: mouths must be >= 1");
+    if (capped < 0 || mouths + capped > ALL_DIRS.length) {
+      throw new Error(
+        `cave: mouths + capped must fit the ${ALL_DIRS.length} distinct cardinals (got ${mouths}+${capped})`,
+      );
+    }
+  }
+  const graph = legacy
+    ? buildGraphLegacy(rng.derive("graph"))
+    : buildGraphN(rng.derive("graph"), mouths + capped);
+  const field = buildField(rng, graph, legacy);
+  const grid = buildGrid(graph);
+  return { graph, field, grid, legacy };
+}
+
+/** The RAW organic mouths (bore-sized, pre-collar) plus the scatter keep-outs derived
+ *  from them — extracted verbatim from cave() so the full generator and caveDressing
+ *  compute identical keep-outs. Legacy prepends the hardcoded -Z entrance; the new path
+ *  has no separate entrance (every mouth is a branch-style bore). */
+function caveMouthData(
+  graph: Graph,
+  legacy: boolean,
+  origin: Vec3,
+): { rawMouths: Connection[]; keepOut: KeepOut[] } {
+  const branchConnections: Connection[] = graph.branches.map(
+    (b): Connection => ({
+      position: [
+        origin[0] + b.mouth[0],
+        origin[1] + b.mouth[1],
+        origin[2] + b.mouth[2],
+      ],
+      facing: b.dir,
+      width: TUNNEL_R * 2,
+      height: TUNNEL_R * 2,
+      kind: "tunnel-mouth",
+    }),
+  );
+
+  // The RAW organic mouths (bore-sized), before collaring. Keep-outs and collars both
+  // derive from these same centres/facings. Legacy prepends the hardcoded -Z entrance;
+  // the new path has no separate entrance — every mouth is a branch-style bore.
+  let rawMouths: Connection[];
+  if (legacy) {
+    // Entrance: -Z mouth of the hub, where the area attaches to the authored level.
+    // MIGRATION (until B2 Task 9): legacy-only.
+    const entrance: Connection = {
+      position: [origin[0], origin[1] + FLOOR_Y, origin[2] - HUB_HALF[2]],
+      facing: [0, 0, -1],
+      width: ENTRANCE_WIDTH,
+      height: HUB_HALF[1] * 2,
+      kind: "tunnel-mouth",
+    };
+    rawMouths = [entrance, ...branchConnections];
+  } else {
+    rawMouths = branchConnections;
+  }
+
+  // Scatter keep-outs: convert each WORLD connection centre back to the cave's
+  // LOCAL frame (scatter samples the local mesh), with a generous radius so
+  // doorways and tunnel mouths stay clear of decoration.
+  const keepOut: KeepOut[] = rawMouths.map((c) => ({
+    center: [
+      c.position[0] - origin[0],
+      c.position[1] - origin[1],
+      c.position[2] - origin[2],
+    ] as Vec3,
+    radius: Math.max(c.width / 2, KEEPOUT_MIN_HALF_WIDTH) + KEEPOUT_PADDING,
+  }));
+  return { rawMouths, keepOut };
+}
+
+/** The field-derived voxel collision proxy + the world position to seat its body. Shared
+ *  by cave() and the runtime caveProxy path so the meshed and meshless proxies cannot
+ *  drift. */
+function caveVoxels(
+  field: Field,
+  grid: GridConfig,
+  origin: Vec3,
+): { shape: ShapeDescriptor; position: Vec3 } {
+  return {
+    shape: {
+      voxels: voxelsFromField(field, grid, [CELL, PROXY_VOXEL_Y, CELL]),
+    },
+    position: voxelProxyPosition(grid, origin),
+  };
+}
+
+/** The scatter dressing: the wall material at index 0 plus the GPU-instanced decoration
+ *  groups (each layer appends its material after the wall). Shared by cave() and the
+ *  runtime caveDressing path — the `derive("scatter")` stream is state-independent (core
+ *  rng.ts), so it reproduces from the seed alone regardless of the graph/field draws. */
+function caveScatter(
+  seed: string,
+  mesh: MeshData,
+  keepOut: KeepOut[],
+  origin: Vec3,
+): { instances: InstanceGroup[]; materials: MaterialDescriptor[] } {
+  // Materials start with the wall material at index 0 (the mesh references it); each
+  // scatter layer appends its material at index >= 1. Bake WORLD transforms (offset =
+  // origin) so instances align with the mesh rendered at local+origin.
+  const materials: MaterialDescriptor[] = [
+    { color: MATERIAL_COLOR, specular: MATERIAL_SPECULAR },
+  ];
+  const instances = instanceGroupsFromLayers(
+    meshSurface(mesh),
+    SCATTER_LAYERS,
+    makeRng(seed).derive("scatter"),
+    keepOut,
+    materials,
+    origin,
+  );
+  return { instances, materials };
+}
+
 /** Branching cave region: a hub chamber with 2–4 smooth-union capsule tunnels fanning
  *  out to mouths where rooms attach (or where a masonry cap seals an unused mouth),
  *  roughened by Y-tapered noise. Produces the rock mesh, a voxel collision proxy, and —
@@ -450,71 +579,12 @@ function caveEnvelopes(
  * @throws if the new path's `mouths` is < 1, or `mouths + capped` exceeds the 4
  *   available cardinals. */
 export function cave(p: CaveParams): RegionData {
-  const rng = makeRng(p.seed);
-  const legacy = p.mouths === undefined && p.capped === undefined; // MIGRATION (until B2 Task 9)
+  const { graph, field, grid, legacy } = caveSkeleton(p);
   const mouths = p.mouths ?? 0;
-  const capped = p.capped ?? 0;
-  if (!legacy) {
-    if (mouths < 1) throw new Error("cave: mouths must be >= 1");
-    if (capped < 0 || mouths + capped > ALL_DIRS.length) {
-      throw new Error(
-        `cave: mouths + capped must fit the ${ALL_DIRS.length} distinct cardinals (got ${mouths}+${capped})`,
-      );
-    }
-  }
-  const graph = legacy
-    ? buildGraphLegacy(rng.derive("graph"))
-    : buildGraphN(rng.derive("graph"), mouths + capped);
-  const field = buildField(rng, graph, legacy);
-  const grid = buildGrid(graph);
   const mesh = surfaceNets(field, grid);
-  const vox = voxelsFromField(field, grid, [CELL, PROXY_VOXEL_Y, CELL]);
-  const shape: ShapeDescriptor = { voxels: vox };
+  const { shape, position } = caveVoxels(field, grid, p.origin);
 
-  const branchConnections: Connection[] = graph.branches.map(
-    (b): Connection => ({
-      position: [
-        p.origin[0] + b.mouth[0],
-        p.origin[1] + b.mouth[1],
-        p.origin[2] + b.mouth[2],
-      ],
-      facing: b.dir,
-      width: TUNNEL_R * 2,
-      height: TUNNEL_R * 2,
-      kind: "tunnel-mouth",
-    }),
-  );
-
-  // The RAW organic mouths (bore-sized), before collaring. Keep-outs and collars both
-  // derive from these same centres/facings. Legacy prepends the hardcoded -Z entrance;
-  // the new path has no separate entrance — every mouth is a branch-style bore.
-  let rawMouths: Connection[];
-  if (legacy) {
-    // Entrance: -Z mouth of the hub, where the area attaches to the authored level.
-    // MIGRATION (until B2 Task 9): legacy-only.
-    const entrance: Connection = {
-      position: [p.origin[0], p.origin[1] + FLOOR_Y, p.origin[2] - HUB_HALF[2]],
-      facing: [0, 0, -1],
-      width: ENTRANCE_WIDTH,
-      height: HUB_HALF[1] * 2,
-      kind: "tunnel-mouth",
-    };
-    rawMouths = [entrance, ...branchConnections];
-  } else {
-    rawMouths = branchConnections;
-  }
-
-  // Scatter keep-outs: convert each WORLD connection centre back to the cave's
-  // LOCAL frame (scatter samples the local mesh), with a generous radius so
-  // doorways and tunnel mouths stay clear of decoration.
-  const keepOut: KeepOut[] = rawMouths.map((c) => ({
-    center: [
-      c.position[0] - p.origin[0],
-      c.position[1] - p.origin[1],
-      c.position[2] - p.origin[2],
-    ] as Vec3,
-    radius: Math.max(c.width / 2, KEEPOUT_MIN_HALF_WIDTH) + KEEPOUT_PADDING,
-  }));
+  const { rawMouths, keepOut } = caveMouthData(graph, legacy, p.origin);
 
   // Built-interface doctrine: grow a masonry collar at each raw mouth. Each presents a
   // standardized door-class portal at the collar mid-depth. On the new path, the LAST
@@ -524,20 +594,8 @@ export function cave(p: CaveParams): RegionData {
   );
   const usable = legacy ? collars : collars.slice(0, mouths);
   const sealed = legacy ? [] : collars.slice(mouths);
-  // Materials start with the wall material at index 0 (the mesh references it);
-  // each scatter layer appends its material at index >= 1. Bake WORLD transforms
-  // (offset = origin) so instances align with the mesh rendered at local+origin.
-  const materials: MaterialDescriptor[] = [
-    { color: MATERIAL_COLOR, specular: MATERIAL_SPECULAR },
-  ];
-  const instances = instanceGroupsFromLayers(
-    meshSurface(mesh),
-    SCATTER_LAYERS,
-    rng.derive("scatter"),
-    keepOut,
-    materials,
-    p.origin,
-  );
+
+  const { instances, materials } = caveScatter(p.seed, mesh, keepOut, p.origin);
 
   // Append the masonry material (after scatter has appended its own materials) and bake
   // the collar sleeves + any seal plugs as box meshes + cuboid colliders. The collar/plug
@@ -572,10 +630,7 @@ export function cave(p: CaveParams): RegionData {
       { geometry: { custom: mesh }, material: 0, position: p.origin },
       ...collarMeshes,
     ],
-    colliders: [
-      { shape, position: voxelProxyPosition(grid, p.origin) },
-      ...collarColliders,
-    ],
+    colliders: [{ shape, position }, ...collarColliders],
     materials,
     connections: usable.map((cl) => cl.door), // order preserved
     instances,
@@ -595,6 +650,42 @@ export function cave(p: CaveParams): RegionData {
       seed: p.seed,
     },
   };
+}
+
+/** Field-derived voxel collision proxy WITHOUT meshing — the wing-loader's collision
+ *  path (the `bakedCavernProxy` pattern generalized to the branching cave). Reproduces
+ *  cave()'s `colliders[0]` (shape + body position) byte-for-byte from the seed/params
+ *  alone, so a baked wing collides with exactly what it rendered.
+ *
+ * @throws if `p`'s new-path `mouths`/`capped` are invalid (same as {@link cave}). */
+export function caveProxy(p: CaveParams): {
+  shape: ShapeDescriptor;
+  position: Vec3;
+} {
+  // Re-runs caveSkeleton, rebuilding and discarding the graph it doesn't need —
+  // deliberate: single source of truth with cave() over micro-optimization (only paid
+  // on the load-time runtime path). Do NOT split caveSkeleton to save the graph draw.
+  const { field, grid } = caveSkeleton(p);
+  return caveVoxels(field, grid, p.origin);
+}
+
+/** Scatter re-expansion from an ALREADY-DECODED render mesh — no field, no meshing.
+ *  Sound because `rng.derive` is state-independent (core rng.ts): the `"scatter"` stream
+ *  reproduces from the seed alone. Returns the wall material + scatter-appended materials
+ *  (a strict prefix of cave()'s materials — cave() appends the masonry material AFTER),
+ *  reproducing cave()'s `instances` byte-for-byte from the baked `.fmesh`.
+ *
+ * @throws if `p`'s new-path `mouths`/`capped` are invalid (same as {@link cave}). */
+export function caveDressing(
+  p: CaveParams,
+  mesh: MeshData,
+): { instances: InstanceGroup[]; materials: MaterialDescriptor[] } {
+  // Re-runs caveSkeleton, rebuilding and discarding the field/grid it doesn't need —
+  // deliberate: single source of truth with cave() over micro-optimization (only paid
+  // on the load-time runtime path). Do NOT split caveSkeleton to save the field build.
+  const { graph, legacy } = caveSkeleton(p);
+  const { keepOut } = caveMouthData(graph, legacy, p.origin);
+  return caveScatter(p.seed, mesh, keepOut, p.origin);
 }
 
 // The preserved single-kind cavern from the retired generator.ts: a rounded-box pit

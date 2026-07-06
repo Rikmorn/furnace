@@ -659,7 +659,17 @@ export function generateWorldGraph(
   const plan = _planTopology(anchor.id, entry.position[1], seed, cfg);
   const nodes: WorldNode[] = [anchor];
   for (const n of plan.nodes) {
-    nodes.push({ id: n.id, region: materializeNode(n), theme: n.theme });
+    const node: WorldNode = {
+      id: n.id,
+      region: materializeNode(n),
+      theme: n.theme,
+    };
+    // The materializer passes mouths=used/capped to cave(); record them so the bake
+    // manifest can re-derive this node's proxy/dressing via caveProxy/caveDressing.
+    if (n.theme === "cave") {
+      node.caveParams = { mouths: n.used, capped: n.capped };
+    }
+    nodes.push(node);
   }
   const edges: WorldEdge[] = plan.edges.map((e) => {
     const out: WorldEdge = {
