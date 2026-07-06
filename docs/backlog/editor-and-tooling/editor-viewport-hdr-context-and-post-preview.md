@@ -1,6 +1,6 @@
 # Editor viewport HDR context + post-chain preview
 
-> Epic 3 disposition (2026-07-06): subsumed by the Slice 3.1 cockpit render host (imperative HDR host).
+> Epic 3 disposition (2026-07-06, corrected at the 3.1 seal): **NOT** subsumed — this entry stays OPEN. Slice 3.1 added a **separate** generation-session-only HDR preview host (`packages/editor/src/viewport-host/preview-host.ts`; editor-architecture.md §13.1) for the cockpit. That host does **not** change the main scene-editing viewport host (`renderLoaded` in `index.ts`), which is still non-HDR and still passes `effects: []`. This entry's gap — the scene's post chain in the *normal editing viewport* — is unchanged by 3.1.
 
 The editor viewport-host (`packages/editor/src/viewport-host/index.ts`, `renderLoaded`) now renders the scene's **lights** and **ambient** — the lit-viewport payoff — but passes `effects: []` to `frame.render`: the scene's **post chain is deferred**. The host's GPU context is **non-HDR** (`init()` requests the default `hdr: false`).
 
