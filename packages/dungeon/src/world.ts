@@ -234,6 +234,9 @@ export function buildWorldGraph(seed: string): WorldGraph {
         // land. The "level↔wing seam" GPU walk stays the ONE known-accepted red carried since
         // B2 Task 1's 45° ceiling (see docs/learnings/2026-07-04-dungeon-2.2.5b-b2-placement-
         // wall.md); it heals when this hand graph is deleted in Task 12. GATE-TUNE.
+        // RETRIED at the 2026-07-06 arc freeze with exact OBBs in: STILL unplaceable
+        // (layoutWorld throws) — the binding constraint is no longer (only) the AABB class.
+        // The red stays known-accepted until the re-plan retires or reseats this hand edge.
         lengthRange: [8, 13],
         heightDelta: UPPER_HEIGHT,
       },

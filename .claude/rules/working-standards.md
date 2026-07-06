@@ -24,6 +24,14 @@ These are general defaults. Where they conflict with a committed engine conventi
 - Do what was asked. If you think the scope should be larger, say so — don't silently expand it.
 - Before claiming work is done, verify it — at minimum a type check, ideally run the relevant tests. Match the verification to the scope of the change.
 
+## Planning
+
+From the placement-arc postmortem (`docs/learnings/2026-07-05-dungeon-placement-arc-postmortem.md` — four hard blocks in one arc, each a premise meeting reality late).
+
+- **No commitment without a measurement that predates it.** An acceptance bar, or a plan whose later tasks depend on a quantitative premise, must cite a probe taken BEFORE the commitment — cheapest flavour that can disconfirm: napkin arithmetic (some killing shapes are computable from the config on paper) → availability spike (does the API/mechanism work at all — binary) → capability spike (what rate/cost does it actually achieve — statistical) → demand spike (generate inputs at the real distribution and look at them before building what must satisfy them). Specs for solver/search/generator systems carry a **Premises table**: `premise | evidence today | probe | stop condition`. Probes are plan artifacts the planner owns — never discoveries left for the downstream executor at task N. Ambition sets the roadmap, never the current slice's gate.
+- **Precedent-fidelity check.** When a design adopts a published or shipped approach, list every deviation from the precedent's load-bearing mechanism and either justify why it can't bite here or schedule the probe that would catch it. Keeping a precedent's shape while dropping its mechanism is how it fails (Edgar's cycles-first ordering; Ma's joint chain optimization — both relaxed without a license, both billed later).
+- **Search systems get budgets on day one.** Any task that introduces a search/solve loop ships wall-clock/attempt ceilings with fail-fast semantics in that same task, not as later hardening — robustness lives in the outer retry loop, not in search depth (the DunGen/Warframe shape). Unbounded search cost discovered late makes measurement, retries, and the bars themselves intractable.
+
 ## Design
 - **Deletion pass before addition pass.** When evolving existing API surface, list deletion candidates before listing additions. For every existing export in the affected area, ask "if we add the new thing, could we delete this?" Removing surface is a first-class option, not a fallback.
 - **Single source of truth as a forcing function.** Two ways to spell the same thing — sugar fields alongside explicit fields, two parallel mutators, derived state that's also user-settable — is a smell. Pick one path and delete the other. Parallel paths force conflict-resolution rules (throw / warn / clear / silent) that are pure cost.
