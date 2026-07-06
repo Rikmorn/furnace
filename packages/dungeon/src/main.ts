@@ -14,6 +14,7 @@ import { buildMotes } from "./motes.ts";
 import { MaterialCache, realizeRegion } from "./realize.ts";
 import { bakedCavernProxy } from "./themes/cave.ts";
 import { Torch } from "./torch.ts";
+import { type LoadedWing, loadGeneratedWing } from "./wing-loader.ts";
 import { buildWorldGraph, WORLD_SEED } from "./world.ts";
 
 const PLAYER_CAPSULE_HALF_HEIGHT = 0.6;
@@ -72,23 +73,30 @@ async function main(): Promise<void> {
     shape: cavernProxy.proxy,
     position: cavernProxy.proxyPosition,
   });
-  // The generated world: a hand-written world GRAPH (authored chamber pinned as a
-  // collision phantom + cave wing + two ground rooms), placed by the collision-aware
-  // layout engine — no hand-tuned world positions.
+  // The generated world. When a baked wing is present (the cockpit froze + baked one),
+  // load it; otherwise fall back to live generation — a hand-written world GRAPH (authored
+  // chamber pinned as a collision phantom + cave wing + two ground rooms), placed by the
+  // collision-aware layout engine. The two paths produce the same runtime handle shape, so
+  // both slot into `area` and the render/update/dispose below is path-agnostic.
   const matCache = new MaterialCache(ctx);
-  const { regions: worldRegions, connectors } = layoutWorld(
-    buildWorldGraph(WORLD_SEED),
-    WORLD_SEED,
-  );
-  // Realize SEQUENTIALLY (MaterialCache is not concurrency-safe — see its TSDoc). The
-  // authored phantom is skipped: buildLevel above already realizes the authored level;
-  // the phantom exists so the placer sees it as an obstacle.
-  const area: Awaited<ReturnType<typeof realizeRegion>>[] = [];
-  for (const r of [
-    ...worldRegions.filter((r) => r.provenance.theme !== "authored"),
-    ...connectors,
-  ]) {
-    area.push(await realizeRegion(ctx, world, matCache, r));
+  const wing = await loadGeneratedWing(ctx, world, matCache);
+  const area: LoadedWing[] = [];
+  if (wing) {
+    area.push(wing);
+  } else {
+    const { regions: worldRegions, connectors } = layoutWorld(
+      buildWorldGraph(WORLD_SEED),
+      WORLD_SEED,
+    );
+    // Realize SEQUENTIALLY (MaterialCache is not concurrency-safe — see its TSDoc). The
+    // authored phantom is skipped: buildLevel above already realizes the authored level;
+    // the phantom exists so the placer sees it as an obstacle.
+    for (const r of [
+      ...worldRegions.filter((r) => r.provenance.theme !== "authored"),
+      ...connectors,
+    ]) {
+      area.push(await realizeRegion(ctx, world, matCache, r));
+    }
   }
   const areaMeshes = area.flatMap((a) => a.meshes);
   // Scattered decoration (rocks/crystals/glows) as instanced draws — one per region
