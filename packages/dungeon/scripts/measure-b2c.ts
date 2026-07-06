@@ -1,8 +1,9 @@
 // packages/dungeon/scripts/measure-b2c.ts
 // Placement-rate measurement harness (B2c Task 7 — MEASUREMENT GATE A, pre-dogleg).
-// Two modes:
+// Three modes:
 //   bun packages/dungeon/scripts/measure-b2c.ts [N]        — per-config rate sweep (N seeds)
 //   bun packages/dungeon/scripts/measure-b2c.ts --frontier  — the per-sector capacity frontier
+//   bun packages/dungeon/scripts/measure-b2c.ts --retry     — the P1 retry-backed effective-rate probe
 // Reports per-config rates + failure histograms + wall time. The Warframe pattern:
 // thousands of automated layouts, designers (us) tune kit/search until failures vanish.
 // The --frontier mode (Task 9A) measures the largest per-sector room count that places at
@@ -23,6 +24,7 @@ import {
   generateWorldGraph,
   type TopologyConfig,
 } from "../src/topology.ts";
+import { buildWorld } from "../src/world.ts";
 import type { WorldNode } from "../src/world-graph.ts";
 
 // INTERIM: replaced by world.ts gatehouse in Task 9 (this script then imports it).
@@ -251,6 +253,41 @@ function runConfigs(n: number): void {
   }
 }
 
+const RETRY_ROOMS = [6, 8, 12];
+const RETRY_SEEDS = 20;
+
+/** P1 probe (Epic 3 spec §4): retry-backed effective success + wall-clock at cockpit
+ *  configs. REPORTS numbers; the stop condition (p95 > 5 s or rate < 80% @6 rooms)
+ *  is judged by the orchestrator, not this script. */
+function runRetry(): void {
+  for (const rooms of RETRY_ROOMS) {
+    let ok = 0;
+    const times: number[] = [];
+    for (let i = 0; i < RETRY_SEEDS; i++) {
+      const t0 = performance.now();
+      try {
+        buildWorld(`p1-${rooms}-${i}`, {
+          sectors: [1, 1],
+          targetRooms: rooms,
+          attempts: 3,
+        });
+        ok++;
+      } catch {
+        // counted as a miss; time still recorded (cost of failure matters)
+      }
+      times.push(performance.now() - t0);
+    }
+    const sorted = [...times].sort((a, b) => a - b);
+    const p = (q: number) =>
+      sorted[
+        Math.min(sorted.length - 1, Math.floor(q * sorted.length))
+      ]?.toFixed(0);
+    console.log(
+      `RETRY rooms=${rooms} ok=${ok}/${RETRY_SEEDS} (${((100 * ok) / RETRY_SEEDS).toFixed(0)}%) p50=${p(0.5)}ms p95=${p(0.95)}ms`,
+    );
+  }
+}
+
 if (process.argv[2] === "--frontier") {
   // Optional single-cell restriction for parallel collection: --frontier <rooms> <loop>.
   const roomFilter =
@@ -258,6 +295,8 @@ if (process.argv[2] === "--frontier") {
   const loopFilter =
     process.argv[4] !== undefined ? Number(process.argv[4]) : undefined;
   runFrontier(roomFilter, loopFilter);
+} else if (process.argv[2] === "--retry") {
+  runRetry();
 } else {
   runConfigs(Number(process.argv[2] ?? 40));
 }

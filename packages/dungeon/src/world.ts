@@ -10,7 +10,7 @@
 // ramp/stairs/descent mechanisms stay covered by connect.test.ts / connect.gpu.test.ts fixtures.
 import { create as makeRng } from "@furnace/core/rng";
 import { aabbOfBoxes } from "./aabb.ts";
-import { type LayoutResult, layoutWorld } from "./layout.ts";
+import { type LayoutBudget, type LayoutResult, layoutWorld } from "./layout.ts";
 import { CHAMBER_DOOR, LEVEL_BOXES } from "./level.ts";
 import type { RegionData } from "./region.ts";
 import { GENERATOR_VERSION } from "./region.ts";
@@ -146,6 +146,7 @@ function generatorAnchor(): WorldNode {
 export function buildWorld(
   seed: string,
   config?: Partial<TopologyConfig>,
+  budget?: Partial<LayoutBudget>,
 ): { graph: WorldGraph; layout: LayoutResult; attempt: number } {
   const cfg: TopologyConfig = { ...DEFAULT_TOPOLOGY, ...config };
   const failures: string[] = [];
@@ -154,7 +155,7 @@ export function buildWorld(
     const graph = generateWorldGraph(generatorAnchor(), attemptSeed, cfg);
     try {
       const t0 = performance.now();
-      const layout = layoutWorld(graph, attemptSeed);
+      const layout = layoutWorld(graph, attemptSeed, budget);
       console.info(
         `[world] seed "${seed}" attempt ${k}: ${graph.nodes.length} nodes / ${graph.edges.length} edges placed in ${(performance.now() - t0).toFixed(0)} ms`,
       );
