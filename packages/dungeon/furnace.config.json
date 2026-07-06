@@ -1,0 +1,17 @@
+{
+  "identity": {
+    "name": "dungeon",
+    "bundleId": "com.furnace.dungeon",
+    "version": "0.0.0"
+  },
+  "source": "src/",
+  "entry": "index.html",
+  "dev": {
+    "serveCmd": "bun --hot serve.ts",
+    "port": 8766
+  },
+  "editor": {
+    "scenes": "regions/**/*.scene.json",
+    "extensions": "src/editor-extensions.ts"
+  }
+}

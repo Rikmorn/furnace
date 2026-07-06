@@ -7,12 +7,14 @@
     "dev": "bun --hot serve.ts",
     "build:web": "bun build src/index.html --outdir ../../dist/dungeon --minify --sourcemap=external",
     "test": "bun test",
-    "typecheck": "bunx tsc --noEmit"
+    "typecheck": "bunx tsc --noEmit",
+    "edit": "bun run --cwd ../editor build:frontend && bun ../editor/src/daemon/main.ts"
   },
   "dependencies": {
     "@furnace/core": "workspace:*"
   },
   "devDependencies": {
+    "@furnace/editor": "workspace:*",
     "bun-webgpu": "^0.1.0"
   }
 }
