@@ -27,8 +27,9 @@ export function Viewport() {
   }, [state.status, dispatch, hostRef]);
 
   // The cockpit preview host lives on its own canvas (Slice 3.1). It inits once at
-  // ready — even while hidden — so the generation panel can realize into it immediately;
-  // the host re-renders itself on resize when the canvas becomes visible (display swap).
+  // ready so the generation panel can realize into it immediately. Sound ONLY because
+  // the canvas keeps its layout box while invisible (visibility swap, see the JSX
+  // comment) — init on a zero-size canvas throws in core's bindToCanvas.
   useEffect(() => {
     const canvas = previewCanvasRef.current;
     const host = previewHostRef.current;
@@ -68,19 +69,22 @@ export function Viewport() {
       </div>
     );
   }
-  // Both canvases stay mounted; the display swap (not unmount) preserves each host's
-  // GPU context across toggles. The generation panel owns the preview canvas.
+  // Both canvases stay mounted AND laid out at all times: the swap toggles
+  // `visibility`, never `display` — a display:none canvas has zero client size, so
+  // core's bindToCanvas throws "width and height must be positive" at host init
+  // (found live at the 3.1 gate). visibility keeps the layout box, so both hosts
+  // init at boot with real dimensions and the swap needs no resize event.
   return (
     <div className="relative h-full w-full">
       <canvas
         ref={canvasRef}
-        className="h-full w-full"
-        style={{ display: state.generationActive ? "none" : "block" }}
+        className="absolute inset-0 h-full w-full"
+        style={{ visibility: state.generationActive ? "hidden" : "visible" }}
       />
       <canvas
         ref={previewCanvasRef}
-        className="h-full w-full"
-        style={{ display: state.generationActive ? "block" : "none" }}
+        className="absolute inset-0 h-full w-full"
+        style={{ visibility: state.generationActive ? "visible" : "hidden" }}
       />
       {state.generationActive && (
         <div className="pointer-events-none absolute left-2 top-2 rounded bg-amber-600/90 px-2 py-1 text-xs font-semibold text-white">
