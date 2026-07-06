@@ -19,13 +19,17 @@ What is **not** there yet:
   regions should be able to load in parallel without blocking the game loop.
 
 The current single-seam design is intentionally minimal (Slice 2.1 scope was
-"prove the round-trip"). The multi-region model is the foundation for Epic 3's "C"
-deliverable (open-world streaming / dungeon room generation on demand).
+"prove the round-trip"). The multi-region model is the foundation for the streaming
+deliverable — **Epic 4** after the 2026-07-06 renumber (the old "Epic 3 'C'":
+open-world streaming / dungeon room generation on demand). Note Epic 3 (Generation
+Cockpit) may fire the trigger earlier: Slice 3.3's generator entities expand baked
+sockets at load, and a world with several baked+socket regions active approaches
+the multi-region case.
 
-**Trigger to revisit:** Epic 3 "C" — the moment the dungeon needs more than one
-generated region active simultaneously, or needs to stream regions in/out as the
-player traverses.
+**Trigger to revisit:** the moment the dungeon needs more than one generated region
+active simultaneously (possibly Epic 3.3), or needs to stream regions in/out as the
+player traverses (Epic 4).
 
 **Reference:** Slice 2.1 `loadScene` implementation (`packages/core/src/scene/loader.ts`
-— `LoadSceneOptions.world` + `fragment` mode). Epic 3 design notes (memory
-`project_dungeon_epic2_procgen.md`, the slice ladder beyond 2.1).
+— `LoadSceneOptions.world` + `fragment` mode). Epic ladder: AGENTS.md `packages/dungeon`
+bullet (Epic 2 seal + Epic 3 opening).
