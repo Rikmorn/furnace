@@ -1,8 +1,10 @@
 # Editor Architecture
 
-The as-built `@furnace/editor` package, milestones **M3** (editor shell) + **M4** (command layer) + **M5A** (inspector) + **M5B** (viewport interaction), plus the **M1-slices** registration batch (the full built-in set + physics-from-data in the core loader). This is the reference — "how the editor IS today." The decision history that produced it lives in `docs/backlog/editor-and-tooling/editor-backend-architecture.md`; this doc describes the running system.
+The as-built `@furnace/editor` package, milestones **M3** (editor shell) + **M4** (command layer) + **M5A** (inspector) + **M5B** (viewport interaction), plus the **M1-slices** registration batch (the full built-in set + physics-from-data in the core loader), plus the **Epic 3 cockpit slices** — **3.0** (editor-openable dungeon, extensions-dir watch) and **3.1** (the generation loop: a preview host, the `generation.bake` command, and an ephemeral generation session; §13). This is the reference — "how the editor IS today." The decision history that produced it lives in `docs/backlog/editor-and-tooling/editor-backend-architecture.md`; this doc describes the running system.
 
 > **Epic status (2026-06-14): the editor epic is complete and paused.** M1→M5B + M1-slices landed and sealed. The originally-planned **M6** (behaviour runtime) and **M7** (porting + docs) are **dropped** — the project retargeted from the bowling demo to its actual application (a first-person dungeon crawler), so future editor work is driven by that app's **procedural-authoring** needs rather than the old milestone ladder. The known gaps a future editor pass must address are captured in `docs/backlog/editor-and-tooling/editor-interaction-model-redesign.md`.
+>
+> **Update (Epic 3, 2026-07-06):** the cockpit slices reopened editor work along exactly that procedural-authoring axis — the editor now generates, previews, curates, and bakes procedural world content (§13) — while keeping the editor engine-free (the consumer's generator arrives through the engine bundle's `extensions` namespace).
 
 ## 1. What the editor is
 
@@ -40,14 +42,17 @@ A **Node-portable** HTTP server. No `Bun.*` or `bun:*` anywhere in `src/` — en
 
 The daemon builds the consumer's engine code in **two** esbuild bundles, both resolving every import from the project root's `node_modules` so there is exactly **one** core / registry / zod instance (Branch A's instance-identity requirement).
 
-**(a) Browser engine bundle** — `src/daemon/bundle.ts`, served at `GET /engine.js`. A virtual stdin entry imports the consumer's extensions (for their registration side-effects) then re-exports the viewport host:
+**(a) Browser engine bundle** — `src/daemon/bundle.ts`, served at `GET /engine.js`. A virtual stdin entry imports the consumer's extensions (for their registration side-effects), re-exports the two engine hosts, and re-exports the consumer's extension module as a **namespace**:
 
 ```
-import "<root>/<extensionsEntry>";          // when configured
-export { createViewportHost } from "@furnace/editor/viewport-host";
+import "<root>/<extensionsEntry>";                          // registration side-effects, when configured
+export { createViewportHost, createPreviewHost } from "@furnace/editor/viewport-host";
+export * as extensions from "<root>/<extensionsEntry>";     // the consumer's public surface, when configured
 ```
 
 esbuild bundles this `format: "esm"`, `write: false`, `sourcemap: "inline"`, with `resolveDir: root`. The bundler context is **incremental**: each `GET /engine.js` calls `ctx.rebuild()`. Build failure returns `{ ok: false, error }` carrying esbuild's formatted diagnostics.
+
+`createPreviewHost` is the Slice 3.1 cockpit preview surface (§13.1). The `export * as extensions` is the **cockpit generator seam** (§13.2): it re-exports the same extension module the bare side-effect import already runs — so registration still fires exactly once — this time as a value namespace the Generation panel calls the consumer's generator through (`worldAttempts` / `bake` / `realizeRegion` / …). When no extensions entry is configured the bundle emits `export const extensions = {}`. `EngineModule` (`frontend/lib/engine.ts`, the `loadEngine()` return type) is correspondingly `{ createViewportHost, createPreviewHost, extensions }` with `extensions: Record<string, unknown>`.
 
 **(b) Node-platform registry bundle** — `src/daemon/registry-bundle.ts`. The daemon needs the *same* registry the engine bundle has, but on the Node side for validation. Its virtual entry imports the consumer's extensions then re-exports exactly three names from the consumer's `@furnace/core/scene`:
 
@@ -58,9 +63,9 @@ export { validateDocument, introspect, CURRENT_SCENE_VERSION } from "@furnace/co
 
 esbuild builds this `platform: "node"` to a **uniquely-named** temp `.mjs` (`furnace-editor-registry-<uuid>.mjs` in `os.tmpdir()`), which is then dynamically `import()`ed and immediately `rm`'d. The unique filename **is** the cache invalidation — Node caches module specifiers forever, so a fresh name forces a fresh import. (The temp path is canonicalized via `realpathSync` first: on macOS `os.tmpdir()` is a symlink and Bun's loader rejects a second `import()` of a fresh-UUID symlink path.) This is "the registry's third reader" — the editor reflects it, core's loader reads it at runtime, and now the daemon validates against it. Build or import failure throws `EditorError("extension-build-failed", …)`.
 
-The registry loader exposes `reload()` (fresh build + import, used by `scene.open`) and `current()` (cached, building on first use — used by `scene.validate` / `scene.introspect` before any open).
+The registry loader exposes `reload()` (fresh build + import, used by `scene.open`), `current()` (cached, building on first use — used by `scene.validate` / `scene.introspect` before any open), and `invalidate()` (drops the cached module so the next `current()` rebuilds — fired by the extensions-dir watch, §5).
 
-**Staleness model.** The browser bundle rebuilds on every browser refresh (each `GET /engine.js`); the registry rebuilds per `scene.open` (`reload()`). Historically the browser had no way to *know* an extension's TypeScript had changed, so a refresh had to be manual. Slice 3.0 (§5, "Directory watching") closed that half: `server.ts` watches the extensions entry's directory and emits `bundle-outdated` over SSE, and the frontend reloads the page when the session isn't dirty — so `GET /engine.js` picks up the change automatically instead of waiting for a manual refresh. **The registry side is a narrower remaining gap, not closed by this**: a `bundle-outdated`-triggered page reload re-fetches the in-memory document via `scene.get` (`session.get()`), which does **not** call `registry.reload()` — only `session.open` (the `scene.open` command) does. So editing an extension's TypeScript is picked up by the browser engine bundle automatically, but the daemon-side registry (used by `scene.validate`/`scene.introspect`, and by `scene.open`'s own validation) still only refreshes when a scene is explicitly (re-)opened.
+**Staleness model.** The browser bundle rebuilds on every browser refresh (each `GET /engine.js`); the registry rebuilds per `scene.open` (`reload()`), and on demand (`invalidate()`, below). Historically the browser had no way to *know* an extension's TypeScript had changed, so a refresh had to be manual. Slice 3.0 closed that half (§5, "Directory watching"): `server.ts` watches the extensions entry's directory and emits `bundle-outdated` over SSE, and the frontend reloads the page when the session isn't dirty — so `GET /engine.js` picks up the change automatically instead of waiting for a manual refresh. **Slice 3.1 closed the registry half**: the same extensions-dir watch now also calls `registry.invalidate()` (drops the cached module) *before* emitting `bundle-outdated`, so the next `current()` rebuilds. Editing an extension's TypeScript under the watched directory is therefore reflected in `scene.validate` / `scene.introspect` and in a running mutation's validation (`session.apply`) without waiting for an explicit `scene.open`.
 
 ## 4. Command registry + document session
 
@@ -92,6 +97,7 @@ Every client — the chrome, a curl, a future AI binding — funnels through `di
 | `scene.setSettings` | `{ settings: unknown }` | `{ revision, dirty }` — whole-object settings replace. |
 | `scene.undo` | `{}` | `{ revision, dirty }` |
 | `scene.redo` | `{}` | `{ revision, dirty }` |
+| `generation.bake` | `{ files: WireFile[] }` (each `{ path, encoding: "utf8"\|"base64", contents }`) | `{ files: <count written> }` — writes a browser-uploaded, root-contained wing file set and emits `generation-baked` (§13.3, Slice 3.1). |
 
 `SessionView` = `{ document, path, revision, dirty, conflict }`.
 
@@ -108,6 +114,8 @@ All input schemas are `z.strictObject(...)` (extra keys rejected). `scene.valida
 
 The mutation functions in `mutations.ts` (`addEntity`, `removeEntity`, `setComponent`, `removeComponent`, `setResource`, `removeResource`, `setSettings`) are **pure structural edits** that mutate the clone they are handed and enforce only target-existence preconditions; whole-document schema validation is the registry's job in step 3.
 
+**Concurrent-open await guards.** Both `session.apply` (across step 3's `registry.current()` await) and the watch-driven `onFileChanged` reload (across its `readFile` and `registry.current()` awaits) capture the open `state` into a local `s` and re-check `s !== state` after each await — a concurrent `scene.open` / `dispose` may have swapped the open document while the promise was pending. They diverge on what they owe the caller: `onFileChanged` **silently drops** the reload on a swap (file-reload events are notification-only dirty-bits — nothing is owed), while `apply` **throws `no-session`** ("session was replaced while the edit was validating") because it owes its caller an answer — the reroll-era client refetches via `scene.get` and retries if still relevant. Covered by `tests/session-race.test.ts`.
+
 **Snapshot undo/redo.** The committed document object itself is the snapshot — because commits *swap* the reference and never mutate in place, no extra clone is needed for the undo stack. `undoStack` is capped at `UNDO_CAP = 100` (oldest dropped via `shift()`). A new mutation clears the redo stack. `undo`/`redo` swap between the stacks and bump `revision`, emitting `document-changed`. Empty stacks throw `nothing-to-undo` / `nothing-to-redo`.
 
 **Dirty semantics — canonical `savedText`.** Dirtiness is defined as `serialize(document) !== savedText`, where `serialize` is the canonical form (`JSON.stringify(doc, null, 2)` + trailing newline) — *exactly the bytes `scene.save` writes*. `savedText` is reset on open, save, and clean reload. This single canonical-form comparison is what makes save-echo suppression (§5) and dirty detection share one definition; `scene.save` deliberately sets `savedText` **before** the write so a fast watcher echo already matches.
@@ -118,7 +126,7 @@ The mutation functions in `mutations.ts` (`addEntity`, `removeEntity`, `setCompo
 
 `src/daemon/events.ts` is the SSE broadcaster. Events are **notification-only dirty-bits** — there is no payload protocol beyond the event itself; consumers refetch `scene.get`, so a slow consumer naturally coalesces N changes into one refetch. Each subscriber gets a 15 s heartbeat comment (`: ping`); the heartbeat interval is `unref`'d so it never holds the process open.
 
-The feed carries `DaemonEvent = SessionEvent | { type: "bundle-outdated" }` (`src/daemon/events.ts`, verified against the source) — daemon-level events ride the same feed as the document-session's own `SessionEvent` union (`session.ts`):
+The feed carries `DaemonEvent = SessionEvent | { type: "bundle-outdated" } | { type: "generation-baked"; files: number }` (`src/daemon/events.ts`, verified against the source) — daemon-level events ride the same feed as the document-session's own `SessionEvent` union (`session.ts`):
 
 | Event `type` | Payload fields | Emitted when |
 | --- | --- | --- |
@@ -128,8 +136,9 @@ The feed carries `DaemonEvent = SessionEvent | { type: "bundle-outdated" }` (`sr
 | `file-conflict` | `path` | a disk change arrived while the session was dirty, or the watched file was deleted/became unreadable. |
 | `file-invalid` | `path`, `message` | a disk change left the file as invalid JSON or failed registry validation. |
 | `bundle-outdated` | none beyond `type` | a source file under the extensions entry's directory changed (§5, "Directory watching") — the browser should reload to pick up the freshly-rebuilt `/engine.js`. |
+| `generation-baked` | `files` (count written) | `generation.bake` wrote the browser-uploaded wing file set to the project root (§13.3, Slice 3.1). |
 
-The SSE wire frame is `event: <type>\ndata: <json>\n\n` — `bundle-outdated` rides it generically, same as every other event.
+The SSE wire frame is `event: <type>\ndata: <json>\n\n` — `bundle-outdated` and `generation-baked` ride it generically, same as every other event. The frontend `ServerEvent` union + `EVENT_TYPES` subscription list (`frontend/lib/events.ts`) mirror this daemon union and are kept in lockstep.
 
 ### File watching
 
@@ -139,7 +148,7 @@ The SSE wire frame is `event: <type>\ndata: <json>\n\n` — `bundle-outdated` ri
 
 `src/daemon/watch.ts` also defines the `WatchDir` capability — `(dir, onChange) => unwatch` — and its production adapter `chokidarWatchDir`: a **chokidar v4 recursive watch** over `dir` (`node_modules` and `dist` paths ignored), firing `onChange` on any `add`/`change`/`unlink` beneath the tree (chokidar's `"all"` event, debounced by the same `awaitWriteFinish` settling as `WatchFile`). Like `WatchFile`, it is **injected** — `server.ts` takes an optional `watchDir` in `ServerOptions` for tests to fake, defaulting to the real `chokidarWatchDir` in production.
 
-`server.ts` wires this to close the inner-loop staleness gap (§3): when `config.extensions` is set, it watches `dirname(resolve(root, config.extensions))` — the consumer's extensions-entry directory — and emits `hub.emit({ type: "bundle-outdated" })` on any change. The frontend (`App.tsx`) reloads the page on that event when the session isn't dirty; if dirty, it leaves the reload to the user rather than risk losing unsaved edits.
+`server.ts` wires this to close the inner-loop staleness gap (§3): when `config.extensions` is set, it watches `dirname(resolve(root, config.extensions))` — the consumer's extensions-entry directory — and on any change calls `registry.invalidate()` (Slice 3.1 — so the daemon-side registry rebuilds on the next command; §3, Staleness model) *then* emits `hub.emit({ type: "bundle-outdated" })`. The frontend (`App.tsx`) reloads the page on that event when the session isn't dirty; if dirty, it leaves the reload to the user rather than risk losing unsaved edits.
 
 `session.onFileChanged` is the reload logic, and it encodes the conflict matrix:
 
@@ -199,10 +208,7 @@ If the file is absent, all editor settings fall back to defaults. Malformed JSON
 - **AI bindings** — MCP mount, `viewport.capture`, embedded agent, and outbound editor→LLM were **descoped from M4** into a dedicated milestone: `docs/backlog/editor-and-tooling/editor-ai-integration-milestone.md`. Rationale: for an FS-capable agent, direct file editing beats mutation tools, so M4 made disk edits first-class (watch + reload + validate + introspect over plain HTTP) and shipped the transport-agnostic substrate; the bindings get designed together when appetite is there (slot after M5). The error contract and the `MCP/agent bindings` notes in `errors.ts` / `handlers.ts` are the forward-looking seam for that work.
 - **Remaining viewport/hierarchy work deferred from M5B** — resource live-preview (`rebuildResource` cascade), editor fly-camera (WASD), and hierarchy tree (requires scene-format parent decision). See `docs/backlog/editor-and-tooling/editor-M5B-viewport-interaction.md`.
 
-**Resolved in Slice 3.1 (2026-07-06):**
-
-- **Registry staleness on extension edits** — closed. The extensions-dir watch (`server.ts`) now calls `registry.invalidate()` (drops the cached module) before emitting `bundle-outdated`, so the next `current()` rebuilds. Editing an extension's TypeScript under the watched dir is reflected in `scene.validate`/`scene.introspect` and a running `apply`'s validation without waiting for a `scene.open` (browser-bundle half closed in Slice 3.0).
-- **Session concurrent-open race hardening** — closed. Two await-point races in `session.ts` (`onFileChanged` / `apply` capturing stale `state` across an await) now carry staleness guards after each await: `onFileChanged` silently drops the reload (`if (s !== state) return`, file-reload events being notification-only); `apply` throws `no-session` (the caller is owed an answer — the reroll-era client refetches). Covered by `tests/session-race.test.ts`.
+*(Two gaps this section previously listed as deferred were resolved in Slice 3.1 and are now documented inline as current behaviour: registry staleness on extension edits — §3, Staleness model + §5, Directory watching; and the session concurrent-open await races — §4, Concurrent-open await guards.)*
 
 ## 10. M5A — inspector, selection, live preview
 
@@ -401,3 +407,51 @@ The editor renders whatever the consumer's `@furnace/core` scene loader produces
 **Physics-from-data.** A `rigidBody` component instantiates against a lazily-created physics world; when an entity has both `rigidBody` and `meshRenderer`, the `meshRenderer` **defers** (returns no mesh) and the `rigidBody` builds a **rigidMesh composite** that owns the mesh and binds its transform to the body. The world and bodies are fully **instantiated but NOT stepped** — there is no fixed-step loop in the loader. **Driving the simulation is the consumer's game-loop concern** (the loader instantiates the world + bodies; a consumer fixed-step loop would call `world.step`). So a loaded physics scene shows the bodies at their authored rest pose; it does not simulate.
 
 **Viewport-host render path — lights + ambient on, post deferred.** `renderLoaded` (`packages/editor/src/viewport-host/index.ts`) passes the loaded scene's `lights` and `ambient` to `frame.render` — these don't depend on the context's HDR state, so the editor shows the real lit scene (the lit-viewport payoff). It passes **`effects: []`** — the post chain is deferred. The host's GPU context is **non-HDR** (`init()` requests the default `hdr: false`). The relevant `frame.render` contract (`packages/core/src/frame/render.ts`) throws **only** when `hdr === true` **and** the effect chain is **empty** (an `rgba16float` scene target with no pass to reach the LDR swap chain); a non-HDR context with effects does **not** throw. So the deferral is about **fidelity, not a crash**: a scene's post chain (`bloom → tonemap`) is authored for the consumer's HDR pipeline, where tonemap maps `rgba16float → LDR`; running that HDR-authored chain against the editor's LDR scene target would produce wrong output rather than the real preview. Post-preview lands when the editor viewport gains an HDR context (tracked in `docs/backlog/editor-and-tooling/editor-viewport-hdr-context-and-post-preview.md`). Note that authoring textures/effects resources via the editor's `scene.setResource` command is not yet wired — its `tableEnum` still covers only `geometries | shaders | materials` (§4); the new tables are loadable and validatable but not yet command-mutable.
+
+## 13. Slice 3.1 — the generation cockpit (Epic 3)
+
+Slice 3.1 ("the Loop") makes the editor **generate, preview, curate, and bake** procedural world content — while keeping the editor engine-free. The consumer's generator arrives through the engine bundle's `extensions` namespace (§3a) and is driven by a dockview **Generation panel**; the daemon carries **zero** generator knowledge (the bake path uploads a browser-produced file set — the Decision in §13.3). The build is dungeon-first (the generator is `packages/dungeon/src/editor-extensions.ts`), but nothing in the editor knows that — the seam is generic (see `docs/backlog/editor-and-tooling/generation-session-editor-facility.md` for the plan to make the session a per-project editor facility).
+
+### 13.1 Preview host — `src/viewport-host/preview-host.ts`
+
+A **second** engine-bundle-side host, alongside the viewport host, created via `createPreviewHost()`. It is the generation session's render surface: an HDR preview world the panel realizes consumer `RegionData` into. It is **generic** — it owns no generator knowledge; the panel calls the consumer's realize code (`realizeRegion`, `MaterialCache`) against the host's `ctx()`/`world()` and hands the resulting engine handles to `adopt()`.
+
+`init(canvas, gpuOptions?)` sets up a game-parity mood ("viewing policy, not generator knowledge"):
+- an **HDR + MSAA** context (`{ sampleCount: 4, hdr: true }` by default; overridable — headless tests pass `surfaceFormat: "linear"`),
+- a `bloom → tonemap` post chain (HDR requires a non-empty chain),
+- exponential distance **fog** + low **hemisphere ambient** mirroring the dungeon's `main.ts`,
+- an **orbit camera** reusing the same `viewport-host/camera-control.ts` pure-math state (orbit / pan / zoom + `frame(min, max)` to fit an AABB),
+- an **unstepped** preview physics world (for realize's collider creation — there is no game loop here),
+- a **camera-eye headlamp** (a point light carried at the eye, mirroring the torch) so lit content reads against the dark ambient.
+
+Lifecycle: `ctx()` / `world()` throw before `init`. `adopt(content)` is **leak-safe** — it destroys any prior content first, so the reroll loop can re-adopt without an intervening `clear()`. `clear()` frees adopted content and recreates the physics world (cheaper than tracking every realize-created body). `destroy()` tears down content, physics, both post effects, and disposes the context **last** (a clean shutdown is the leak check). The host is **generation-session-only** — it lives while the panel is active, separate from the normal scene-editing viewport (§11). The panel↔host boundary keeps engine handles **opaque**: `PreviewContent` stores meshes/instanced as `unknown[]`; the host casts to the concrete engine mesh types only at the `frame.render` boundary, sound because the panel realized them against *this* host's `ctx()`.
+
+### 13.2 Engine bundle widening — the `extensions` namespace
+
+The browser engine bundle (§3a) now exports `createViewportHost`, `createPreviewHost` (§13.1), and `export * as extensions from "<root>/<extensionsEntry>"` — the consumer's extension entry re-exported as a **value namespace** (the same module the bare side-effect import already runs, so registration fires once; `{}` when no entry is configured). `loadEngine()`'s `EngineModule` type widened to match.
+
+For the dungeon, that namespace is `packages/dungeon/src/editor-extensions.ts`, re-exporting `worldAttempts` / `bake` (as `bakeWing`) / `realizeRegion` / `MaterialCache` / `COCKPIT_CONFIG` / `COCKPIT_BUDGET` / etc. The Generation panel narrows this untyped namespace to the shapes it calls at **one** boundary cast (`GenerationPanel.tsx`); the engine owns the real types. This `bake() / worldAttempts / COCKPIT_* / realizeRegion` set is a **de-facto protocol** the cockpit consumes — for 3.1 it stays dungeon-owned (see the backlog note above).
+
+### 13.3 `generation.bake` — browser-uploads-payload
+
+**Decision — the browser produces the payload; the daemon only writes it.** A Pr-2 determinism probe found that regenerating the same seed under a *different JS engine* than the one that previewed it produces a **different world placement**: bun/JSC and node/V8 diverge on the transcendental `Math` (`cos` / `sin` / `atan2`) in the placement search + the `placePiece` join-yaw transform (root-cause detail in `docs/learnings/2026-07-06-cross-engine-placement-determinism.md`). So the plan's original "daemon regenerates from the seed" would bake a world that does **not** match what the user previewed. The slice adopted the spec §0.2 fallback: **the browser bakes the wing in its own engine** — regenerating from the winning derived seed in the SAME engine that previewed it, reproducing the preview exactly — and **uploads the produced file set**; the daemon validates + writes. There is **no** blocking-bake / daemon-regeneration caveat: the daemon holds zero generator knowledge.
+
+The command (`handlers.ts`): input `{ files: WireFile[] }`, `WireFile = { path: string (min 1), encoding: "utf8" | "base64", contents: string }`. `run`:
+1. resolves every `path` against the project root and rejects the **whole batch before any write** if any escapes the root or contains a dotfile segment (`outside-root`, 404 — the same posture and hidden-existence rationale as scene paths, §6);
+2. writes each file — `mkdir -p` the parent, base64-decode when `encoding === "base64"` (binary `.fmesh` sidecars ride as base64 in the JSON POST);
+3. emits `generation-baked` (`{ files: <count> }`) over SSE and returns `{ files: <count> }`.
+
+The `path` `.min(1)` guard is load-bearing: an empty path resolves to the root dir and would hit `writeFileSync(rootDir, …)` → `EISDIR` mid-batch (a partial write). The browser marshals binary sidecars via `toWireFiles` (`frontend/lib/generation.ts`, chunked base64 so a large sidecar can't blow the `String.fromCharCode` argument stack). This is the **first handler that emits an SSE event**, so `HandlerContext` gained an `emit(event: DaemonEvent)` field and `server.ts` passes `hub.emit` to both the session and the handlers.
+
+### 13.4 The Generation panel + ephemeral session
+
+The dockview **Generation panel** (`frontend/components/GenerationPanel.tsx`) drives the loop; its state is an **ephemeral generation session** (`frontend/lib/generation.ts`) held entirely in panel-local React state, **beside** the daemon's document session. The only daemon/FS crossing is freeze (the `generation.bake` upload) — everything else in `generation.ts` is pure and unit-tested without a DOM.
+
+- **Generate / Reroll** step the consumer's `worldAttempts` iterator **between paints** (`requestAnimationFrame` → `setTimeout(0)`), so a placement search that creaks doesn't freeze the cockpit; a `cancelRef` flips mid-loop to cancel. On the first placed attempt the panel realizes the layout into the preview host (dropping the `authored` phantom — it carries empty geometry, realized by the game's own `main.ts`), frames the camera on the union AABB (`layoutBounds`), and records a `done` status.
+- **Freeze & bake** reads **only** the `done`-status snapshot — the winning derived seed **and** the config that produced the on-screen preview — never the live knobs, then re-bakes in-browser via `ext.bake(...)` and uploads via `api.generationBake(toWireFiles(files))`. That snapshot is what makes "freeze bakes exactly what you previewed" hold even after a knob edit; editing a knob (or the seed) drops a `done` preview back to `idle` via `invalidateDonePreview`, so Freeze is only ever enabled for the world currently on screen.
+
+Because the session lives in React state and never touches `session.apply`, generation curation is **not undoable** and does not appear in the document session's history — a separate, ephemeral concern that crosses into the document/FS world only at the bake.
+
+### 13.5 Fragment-doc opening in the viewport host
+
+A baked region document is **camera-less** (no entity carries a `camera` component). The viewport host's `applyScene` (`src/viewport-host/index.ts`) now detects this — mirroring the loader's own throw condition exactly (`doc.entities.some(e => "camera" in e.components)`) — and, when no scene camera is present, loads with `scene.loadScene(c, doc, { fragment: true })` (suppressing the loader's no-camera throw) then frames the editor orbit camera on the **content bounds** (centroid + floored content radius, seated back along fixed framing factors) instead of seeding from a scene-camera pose. This fixes the 3.0-gate "no entity carries a camera component" error — opening a baked region fragment is the cockpit's acceptance case one. Camera-carrying docs are **unchanged** (still seed the orbit from the scene camera's eye, pivoting on the content centroid — §11.2).
