@@ -23,6 +23,8 @@ test("bundles the fixture project's extensions + viewport-host into one ESM stri
   if (!result.ok) throw new Error(result.error);
   expect(result.code).toContain("fixtureGlow"); // extension registration made it in
   expect(result.code).toContain("createViewportHost"); // host export made it in
+  expect(result.code).toContain("createPreviewHost"); // preview host export made it in
+  expect(result.code).toContain("extensions"); // consumer extensions namespace re-exported
   await bundler.dispose();
 });
 
@@ -50,6 +52,9 @@ test("no extensions entry: bundle still exports the host (built-ins only)", asyn
   const result = await bundler.build();
   if (!result.ok) throw new Error(result.error);
   expect(result.code).toContain("createViewportHost");
+  expect(result.code).toContain("createPreviewHost");
+  // No extensions entry → the bundle still exports an (empty) `extensions` const.
+  expect(result.code).toContain("extensions");
   expect(result.code).not.toContain("fixtureGlow");
   await bundler.dispose();
 });

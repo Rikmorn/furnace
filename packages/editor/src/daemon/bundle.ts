@@ -23,10 +23,18 @@ export async function createEngineBundler(
   root: string,
   extensionsEntry: string | undefined,
 ): Promise<EngineBundler> {
+  // The bare side-effect import runs the consumer's extension registration
+  // unambiguously; `export * as extensions` re-exports the same module's public
+  // surface (the consumer's realize code — the panel calls it against the preview
+  // host's ctx/world). Both name the same file, so registration runs once even if
+  // a bundler dedups the two differently.
   const importExtensions = extensionsEntry
     ? `import ${JSON.stringify(resolve(root, extensionsEntry))};\n`
     : "";
-  const contents = `${importExtensions}export { createViewportHost } from "@furnace/editor/viewport-host";\n`;
+  const exportExtensions = extensionsEntry
+    ? `export * as extensions from ${JSON.stringify(resolve(root, extensionsEntry))};\n`
+    : "export const extensions = {};\n";
+  const contents = `${importExtensions}export { createViewportHost, createPreviewHost } from "@furnace/editor/viewport-host";\n${exportExtensions}`;
 
   const ctx = await esbuild.context({
     stdin: {

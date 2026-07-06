@@ -29,6 +29,12 @@ import {
 } from "./gizmo.ts";
 import { classifyDrag, type DragAction } from "./input-map.ts";
 
+export {
+  createPreviewHost,
+  type PreviewContent,
+  type PreviewHost,
+} from "./preview-host.ts";
+
 /** Callbacks registered by the chrome via `ViewportHost.setCallbacks`. */
 export type ViewportCallbacks = {
   onSelect: (

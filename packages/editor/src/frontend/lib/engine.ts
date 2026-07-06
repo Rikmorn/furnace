@@ -1,4 +1,4 @@
-import type { ViewportHost } from "../../viewport-host/index.ts"; // type-only: erased
+import type { PreviewHost, ViewportHost } from "../../viewport-host/index.ts"; // type-only: erased
 
 export class EngineBuildError extends Error {
   constructor(diagnostics: string) {
@@ -7,7 +7,11 @@ export class EngineBuildError extends Error {
   }
 }
 
-type EngineModule = { createViewportHost: () => ViewportHost };
+type EngineModule = {
+  createViewportHost: () => ViewportHost;
+  createPreviewHost: () => PreviewHost;
+  extensions: Record<string, unknown>;
+};
 
 /**
  * Load the project-resolved engine bundle. fetch-first so a build failure
@@ -21,7 +25,9 @@ export async function loadEngine(): Promise<EngineModule> {
   // `: string` (not the literal type) so TS treats this as a dynamic runtime
   // specifier and does not try to resolve "/engine.js" as a module at typecheck.
   const url: string = "/engine.js";
-  // Boundary cast: the runtime-built bundle's shape is known by contract
-  // (it re-exports createViewportHost from @furnace/editor/viewport-host).
+  // Boundary cast: the runtime-built bundle's shape is known by contract (it
+  // re-exports createViewportHost + createPreviewHost from
+  // @furnace/editor/viewport-host and an `extensions` namespace of the consumer's
+  // registration module — see daemon/bundle.ts virtual entry).
   return (await import(url)) as EngineModule;
 }
