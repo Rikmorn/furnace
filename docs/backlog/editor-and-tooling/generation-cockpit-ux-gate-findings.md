@@ -22,6 +22,10 @@ gate only required the loop to be judgeable; these are the judged-and-deferred f
 - Fixed AT the gate (for the record, pattern to keep): fog toggle moved from the
   Generation panel to a viewport overlay — view flags belong to the viewport
   (UE/Unity show-flags); this is the seed of 3.2's viewport view-flags block.
+- **Baked-wing docs flood the scene list.** One doc per node/connector is the RIGHT
+  artifact granularity (per-region curation is 3.2's unit), but the editor's flat
+  scene list now shows ~25 generated docs beside the hand-authored ones — needs
+  grouping/collapsing (a "baked wing" tree node) in the 3.2 chrome rework.
 
 **Trigger to revisit:** the 3.2 chrome rework / the full editor UX pass (whichever
 lands first). The envelope probe is a prerequisite for whatever UI exposes bigger
