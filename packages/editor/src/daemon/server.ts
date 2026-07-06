@@ -13,12 +13,13 @@ import { createEventHub } from "./events.ts";
 import { createHandlers, dispatch, type Handlers } from "./handlers.ts";
 import { createRegistryLoader } from "./registry-bundle.ts";
 import { createSession } from "./session.ts";
-import { chokidarWatchFile } from "./watch.ts";
+import { chokidarWatchDir, chokidarWatchFile, type WatchDir } from "./watch.ts";
 
 export type ServerOptions = {
   root: string;
   port: number;
   staticDir?: string;
+  watchDir?: WatchDir;
 };
 export type RunningServer = { port: number; close(): void };
 
@@ -111,6 +112,16 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
     config.extensions,
   );
 
+  // Inner-loop staleness fix: /engine.js rebuilds per GET, but the browser must be
+  // TOLD the source changed. Watch the extensions entry's directory (the consumer's
+  // src/ by convention) and emit a dirty-bit; the frontend reloads when safe.
+  const watchDirFn = opts.watchDir ?? chokidarWatchDir;
+  const unwatchSource = config.extensions
+    ? watchDirFn(dirname(resolve(opts.root, config.extensions)), () =>
+        hub.emit({ type: "bundle-outdated" }),
+      )
+    : undefined;
+
   const server = createServer((req, res) => {
     void route(req, res);
   });
@@ -189,6 +200,7 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
     port,
     close() {
       server.close();
+      unwatchSource?.();
       session.dispose();
       hub.close();
       void bundler.dispose();

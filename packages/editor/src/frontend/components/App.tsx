@@ -32,6 +32,10 @@ export function App() {
   const [state, dispatch] = useReducer(reduce, initialState);
   const hostRef = useRef<ViewportHost | undefined>(undefined);
   const lastLoaded = useRef<{ path?: string; revision?: number }>({});
+  // Mirrors state.dirty for the SSE onEvent closure below, whose effect only
+  // re-subscribes on [state.status, refreshSession] — reading state.dirty
+  // directly there would see a stale value from subscribe time.
+  const dirtyRef = useRef(false);
 
   // Hoisted so both `actions.commitComponents`/`commitSettings` and the host
   // onTransformCommit callback can suppress their own SSE echoes identically.
@@ -171,10 +175,22 @@ export function App() {
   );
 
   useEffect(() => {
+    dirtyRef.current = state.dirty;
+  }, [state.dirty]);
+
+  useEffect(() => {
     if (state.status !== "ready") return;
     return subscribeEvents({
       onOpen: () => void refreshSession(),
       onEvent: (event) => {
+        if (event.type === "bundle-outdated") {
+          // Generator/extension source changed: the engine bundle is stale. Reload
+          // when no unsaved work is at risk; otherwise leave the choice to the user
+          // (the status bar shows dirty state — a stale engine is preferable to
+          // losing edits). 3.2's chrome rework owns a proper notice UX.
+          if (!dirtyRef.current) window.location.reload();
+          return;
+        }
         if (event.type === "file-invalid") {
           dispatch({ type: "file-invalid", message: event.message });
           return;

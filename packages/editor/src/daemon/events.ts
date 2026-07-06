@@ -3,13 +3,19 @@ import type { SessionEvent } from "./session.ts";
 
 const HEARTBEAT_MS = 15_000;
 
+/** Daemon-level events ride the same SSE feed as session events. `bundle-outdated`
+ *  = a source file under the extensions entry's directory changed; /engine.js will
+ *  serve the fresh bundle on next fetch (it rebuilds per GET) — the browser just
+ *  needs to know to reload. */
+export type DaemonEvent = SessionEvent | { type: "bundle-outdated" };
+
 /**
  * SSE broadcaster for session events. Events are notification-only dirty-bits:
  * consumers refetch scene.get, so a slow consumer naturally coalesces N
  * changes into one refetch. No payload protocol beyond the event itself.
  */
 export type EventHub = {
-  emit(event: SessionEvent): void;
+  emit(event: DaemonEvent): void;
   subscribe(res: ServerResponse): void;
   close(): void;
 };

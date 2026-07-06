@@ -1,12 +1,13 @@
 // packages/editor/src/frontend/lib/events.ts
 
-/** The daemon's SSE feed events (mirror of the daemon's SessionEvent union). */
+/** The daemon's SSE feed events (mirror of the daemon's DaemonEvent union). */
 export type ServerEvent =
   | { type: "scene-opened"; path: string; revision: number }
   | { type: "document-changed"; revision: number; command: string }
   | { type: "saved"; revision: number }
   | { type: "file-conflict"; path: string }
-  | { type: "file-invalid"; path: string; message: string };
+  | { type: "file-invalid"; path: string; message: string }
+  | { type: "bundle-outdated" };
 
 const EVENT_TYPES = [
   "scene-opened",
@@ -14,6 +15,7 @@ const EVENT_TYPES = [
   "saved",
   "file-conflict",
   "file-invalid",
+  "bundle-outdated",
 ] as const;
 
 /**
