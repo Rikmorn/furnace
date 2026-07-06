@@ -90,6 +90,12 @@ export type PreviewHost = {
   clear(): Promise<void>;
   /** Frame the orbit camera on an AABB (min/max world corners). */
   frame(min: [number, number, number], max: [number, number, number]): void;
+  /**
+   * Toggle the game-parity fog and re-render. Default OFF: at orbit framing
+   * distance the game's exponential fog (density 0.12) attenuates >95% of the
+   * signal — structure inspection needs a clear view; mood is judged in the walk.
+   */
+  setFog(enabled: boolean): void;
   render(): void;
   destroy(): void;
 };
@@ -112,6 +118,7 @@ export function createPreviewHost(): PreviewHost {
   let unbindCamera: (() => void) | undefined;
   let unbindResize: (() => void) | undefined;
   let canvasEl: HTMLCanvasElement | undefined;
+  let fogEnabled = false; // see setFog TSDoc — orbit distances defeat game fog
   let drag: { mode: "orbit" | "pan"; lastX: number; lastY: number } | null =
     null;
 
@@ -157,7 +164,8 @@ export function createPreviewHost(): PreviewHost {
       clearColor: CLEAR,
       lights: [headlamp],
       ambient: AMBIENT,
-      fog: FOG,
+      // Spread keeps `fog` absent (not explicitly undefined) when disabled.
+      ...(fogEnabled ? { fog: FOG } : {}),
       effects: [bloom, tonemap],
     });
   };
@@ -286,6 +294,10 @@ export function createPreviewHost(): PreviewHost {
         distance: Math.max(MIN_FRAME_DISTANCE, FRAME_FILL * radius),
       };
       applyOrbit();
+      renderFrame();
+    },
+    setFog(enabled) {
+      fogEnabled = enabled;
       renderFrame();
     },
     render: () => renderFrame(),

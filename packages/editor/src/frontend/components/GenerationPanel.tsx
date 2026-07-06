@@ -62,6 +62,9 @@ function statusText(s: GenerationStatus): string {
 export function GenerationPanel() {
   const { state, dispatch, previewHostRef, extensions } = useEditor();
   const [session, setSession] = useState<GenerationSession>(initialSession);
+  // Mirrors the host's fog flag (host default = off; see PreviewHost.setFog — game fog
+  // at orbit distance hides the structure the cockpit exists to show).
+  const [fogOn, setFogOn] = useState(false);
   // A ref (not state) so a mid-run flip is visible to the running loop synchronously.
   const cancelRef = useRef(false);
 
@@ -334,6 +337,21 @@ export function GenerationPanel() {
           Close preview
         </button>
       </div>
+
+      <label
+        className="flex items-center gap-2 text-neutral-400"
+        title="Preview the game's fog mood. Off = clear structural view (fog at orbit distance obscures the wing)."
+      >
+        <input
+          type="checkbox"
+          checked={fogOn}
+          onChange={(e) => {
+            setFogOn(e.target.checked);
+            previewHostRef.current?.setFog(e.target.checked);
+          }}
+        />
+        game fog
+      </label>
 
       <p className="text-neutral-400">{statusText(session.status)}</p>
 
