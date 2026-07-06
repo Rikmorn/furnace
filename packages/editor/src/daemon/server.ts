@@ -145,6 +145,7 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
     root: opts.root,
     scenesPattern: config.scenes,
     session,
+    emit: (event) => hub.emit(event),
   });
   const bundler: EngineBundler = await createEngineBundler(
     opts.root,

@@ -2,17 +2,14 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { cpSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
+import type { DaemonEvent } from "../src/daemon/events.ts";
 import {
   createHandlers,
   dispatch,
   type Handlers,
 } from "../src/daemon/handlers.ts";
 import { createRegistryLoader } from "../src/daemon/registry-bundle.ts";
-import {
-  createSession,
-  type Session,
-  type SessionEvent,
-} from "../src/daemon/session.ts";
+import { createSession, type Session } from "../src/daemon/session.ts";
 
 // biome-ignore lint/suspicious/noEmptyBlockStatements: intentional no-op stub — file-change semantics are session.test.ts's job
 const noopUnwatch = (): void => {};
@@ -24,7 +21,7 @@ const MINI = join(import.meta.dir, "fixtures", "mini-project");
 let root: string;
 let session: Session;
 let handlers: Handlers;
-const events: SessionEvent[] = [];
+const events: DaemonEvent[] = [];
 
 beforeAll(() => {
   root = mkdtempSync(join(import.meta.dir, "fixtures", "tmp-m4-"));
@@ -39,6 +36,7 @@ beforeAll(() => {
     root,
     scenesPattern: "**/*.scene.json",
     session,
+    emit: (e) => events.push(e),
   });
 });
 afterAll(() => {

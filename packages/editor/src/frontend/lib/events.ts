@@ -7,7 +7,8 @@ export type ServerEvent =
   | { type: "saved"; revision: number }
   | { type: "file-conflict"; path: string }
   | { type: "file-invalid"; path: string; message: string }
-  | { type: "bundle-outdated" };
+  | { type: "bundle-outdated" }
+  | { type: "generation-baked"; files: number };
 
 const EVENT_TYPES = [
   "scene-opened",
@@ -16,6 +17,7 @@ const EVENT_TYPES = [
   "file-conflict",
   "file-invalid",
   "bundle-outdated",
+  "generation-baked",
 ] as const;
 
 /**

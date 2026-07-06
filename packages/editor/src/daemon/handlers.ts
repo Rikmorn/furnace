@@ -1,6 +1,9 @@
 // packages/editor/src/daemon/handlers.ts
+import { mkdirSync, writeFileSync } from "node:fs";
+import { dirname, resolve, sep } from "node:path";
 import { z } from "zod";
 import { EditorError } from "./errors.ts";
+import type { DaemonEvent } from "./events.ts";
 import * as mutations from "./mutations.ts";
 import { listScenes, readScene } from "./scenes.ts";
 import type { Session } from "./session.ts";
@@ -17,6 +20,7 @@ export type HandlerContext = {
   root: string;
   scenesPattern: string;
   session: Session;
+  emit(event: DaemonEvent): void;
 };
 
 const componentsRecord = z.record(z.string(), z.unknown());
@@ -237,6 +241,66 @@ export function createHandlers(ctx: HandlerContext): Handlers {
     run: () => {
       const { revision, dirty } = session.redo();
       return Promise.resolve({ revision, dirty });
+    },
+  });
+
+  const wireFile = z.strictObject({
+    // .min(1): an empty-string path resolves to the root DIR, which would slip
+    // past root-containment and reach writeFileSync(rootDir, …) → EISDIR mid-loop
+    // (a partial write in a multi-file batch). Reject it at the zod boundary.
+    path: z.string().min(1),
+    encoding: z.enum(["utf8", "base64"]),
+    contents: z.string(),
+  });
+
+  // The browser bakes a wing (it owns generation — the daemon carries zero
+  // generator knowledge; see the slice's browser-uploads-payload fallback) and
+  // POSTs the file set here. Binary .fmesh sidecars ride as base64. The daemon
+  // validates root-containment for EVERY path first, then writes.
+  handlers.set("generation.bake", {
+    input: z.strictObject({ files: z.array(wireFile).min(1) }),
+    run: (input) => {
+      // Boundary cast: dispatch() validated input against this command's schema.
+      const { files } = input as {
+        files: {
+          path: string;
+          encoding: "utf8" | "base64";
+          contents: string;
+        }[];
+      };
+      const rootAbs = resolve(ctx.root);
+      // Validate ALL paths root-contained BEFORE writing ANY file (an escaping
+      // path must leave the FS untouched — the test asserts nothing was written).
+      const targets = files.map((f) => {
+        const abs = resolve(ctx.root, f.path);
+        const insideRoot = abs === rootAbs || abs.startsWith(rootAbs + sep);
+        if (!insideRoot) {
+          throw new EditorError(
+            "outside-root",
+            `bake path escapes the project root: ${f.path}`,
+          );
+        }
+        // A dotfile segment is inside the root but refused — keep the outside-root
+        // code (it uniformly hides existence) with a cause-accurate message.
+        const hasDotSegment = f.path.split("/").some((s) => s.startsWith("."));
+        if (hasDotSegment) {
+          throw new EditorError(
+            "outside-root",
+            `bake path refused (dotfile segment): ${f.path}`,
+          );
+        }
+        return { abs, file: f };
+      });
+      for (const { abs, file } of targets) {
+        mkdirSync(dirname(abs), { recursive: true });
+        const data =
+          file.encoding === "base64"
+            ? Buffer.from(file.contents, "base64")
+            : file.contents;
+        writeFileSync(abs, data);
+      }
+      ctx.emit({ type: "generation-baked", files: files.length });
+      return Promise.resolve({ files: files.length });
     },
   });
 
