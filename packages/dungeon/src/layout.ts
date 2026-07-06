@@ -46,13 +46,32 @@ import {
 } from "./world-graph.ts";
 
 const DEFAULT_LENGTH_RANGE: [number, number] = [2, 10];
-const MAX_ATTEMPTS = 25_000; // occupancy-checked candidates per restart — GATE-TUNE
-const MAX_RESTARTS = 8; // seeded restarts before the setup-loud throw — GATE-TUNE
+
+/** Deterministic search budgets for one layoutWorld call — all counts, no wall-clock
+ *  (layoutWorld stays pure). Exhaustion = the setup-loud throw (fail-fast, R7:
+ *  robustness lives in the caller's retry loop, not in search depth). Defaults are
+ *  the historical GATE-TUNE constants — default behavior is byte-identical. */
+export type LayoutBudget = {
+  /** Occupancy-checked candidates per restart. */
+  maxAttempts: number;
+  /** Pure-greedy seeded restarts before SA fallback / throw. */
+  maxRestarts: number;
+  /** SA-enabled whole-layout restarts after greedy fully fails (cyclic graphs only). */
+  maxSaLayoutRestarts: number;
+  /** Best-response moves per SA restart. */
+  maxSaMoves: number;
+  /** Seeded fresh-init restarts per SA call. */
+  maxSaRestarts: number;
+};
+export const DEFAULT_LAYOUT_BUDGET: LayoutBudget = {
+  maxAttempts: 25_000,
+  maxRestarts: 8,
+  maxSaLayoutRestarts: 2,
+  maxSaMoves: 400,
+  maxSaRestarts: 4,
+};
 const MAX_UNIT_REVISIONS = 3; // re-seatings of a placed unit under backtracking — GATE-TUNE
 const MAX_BACKJUMP_POPS = 4; // units undone per blame-directed backjump — GATE-TUNE
-const MAX_SA_LAYOUT_RESTARTS = 2; // SA-enabled whole-layout restarts after greedy fully fails — GATE-TUNE
-const MAX_SA_MOVES = 400; // best-response moves per SA restart (bounded — always terminates) — GATE-TUNE
-const MAX_SA_RESTARTS = 4; // seeded fresh-init restarts per SA call — GATE-TUNE
 const MAX_SA_FIRES_PER_CYCLE = 4; // SA calls per cycle per attempt (rev-0..3 seed diversity; caps
 // the cross-unit-backtracking re-fire multiplier that made a multi-cycle world's SA explode) — GATE-TUNE
 const SA_T_HI = 0.6; // SA start temperature — GATE-TUNE
@@ -263,6 +282,9 @@ type Ctx = {
   graph: WorldGraph;
   nodesById: Map<NodeId, WorldNode>;
   closingEdges: Set<number>;
+  /** Deterministic search budgets for this attempt (defaults = the historical GATE-TUNE
+   *  constants — see {@link DEFAULT_LAYOUT_BUDGET}). */
+  budget: LayoutBudget;
   rng: Rng;
   occ: Occupancy;
   placements: Map<NodeId, Placement>;
@@ -1065,7 +1087,7 @@ function placeNode(
         : evaluated;
 
     for (const { placement, fc } of ordered) {
-      if (++ctx.attempts > MAX_ATTEMPTS) return false;
+      if (++ctx.attempts > ctx.budget.maxAttempts) return false;
       if (!fc) continue;
 
       const envs = envelopeObbs(node.region, placement);
@@ -1760,12 +1782,13 @@ function saCommit(ctx: Ctx, order: readonly NodeId[], state: SaState): boolean {
   return true;
 }
 
-/** One SA restart: greedy best-response init, then MAX_SA_MOVES best-response moves under a
+/** One SA restart: greedy best-response init, then budget.maxSaMoves best-response moves under a
  *  geometric SA_T_HI→SA_T_LO cooling. The running `energy` is maintained by exact per-move ΔE;
  *  whenever it dips to feasible (≤ SA_FEASIBLE_EPS) a FULL recompute re-syncs it (guarding
  *  incremental drift) and, if still feasible, the state commits through the REAL occupancy path
  *  — succeeding only if every hard rule passes. Returns true iff a commit succeeded. */
 function saAnneal(run: SaRun, rng: Rng): boolean {
+  const moves = run.ctx.budget.maxSaMoves;
   const { state, cache } = saInitialState(run, rng.derive("init"));
   let energy = saEnergy(run, state, cache);
   const tryFeasibleCommit = (): boolean => {
@@ -1774,8 +1797,8 @@ function saAnneal(run: SaRun, rng: Rng): boolean {
     return energy <= SA_FEASIBLE_EPS && saCommit(run.ctx, run.order, state);
   };
   if (tryFeasibleCommit()) return true;
-  for (let step = 0; step < MAX_SA_MOVES; step++) {
-    const t = SA_T_HI * (SA_T_LO / SA_T_HI) ** (step / MAX_SA_MOVES);
+  for (let step = 0; step < moves; step++) {
+    const t = SA_T_HI * (SA_T_LO / SA_T_HI) ** (step / moves);
     energy = saMove(run, state, cache, energy, t, rng.derive(`step:${step}`));
     if (tryFeasibleCommit()) return true;
   }
@@ -1786,8 +1809,8 @@ function saAnneal(run: SaRun, rng: Rng): boolean {
  *  whole cycle's member seatings, fired ONLY when placeCycle's greedy+steering pass fails. State
  *  = each member's placement; a best-response move re-seats one member (candidate loci off a
  *  seated neighbour → the min-local-energy one); energy = facing/range violation + envelope
- *  penetration depth + clearance-solid count (a search heuristic). MAX_SA_RESTARTS seeded restarts
- *  × MAX_SA_MOVES moves ⇒ always terminates; on reaching a feasible state it commits through the
+ *  penetration depth + clearance-solid count (a search heuristic). budget.maxSaRestarts seeded restarts
+ *  × budget.maxSaMoves moves ⇒ always terminates; on reaching a feasible state it commits through the
  *  REAL occupancy path (the hard arbiter). All randomness derives from `sa:${closingEdge}:${rev}`
  *  so the SA never perturbs the greedy stream and same seed → identical result. */
 function repairCycleBySA(
@@ -1816,7 +1839,7 @@ function repairCycleBySA(
   }
   const run: SaRun = { ctx, order, memberSet, incident, fixedObbs, targets };
   const rng = ctx.rng.derive(`sa:${cyc.closingEdge}:${rev}`);
-  for (let restart = 0; restart < MAX_SA_RESTARTS; restart++) {
+  for (let restart = 0; restart < ctx.budget.maxSaRestarts; restart++) {
     if (saAnneal(run, rng.derive(`restart:${restart}`))) return true;
   }
   return false;
@@ -1872,7 +1895,7 @@ function placeCycle(ctx: Ctx, cyc: CycleUnit, rev: number): boolean {
     const stuck =
       placedHere.length === 0 ||
       sweeps >= MAX_UNIT_REVISIONS ||
-      ctx.attempts > MAX_ATTEMPTS;
+      ctx.attempts > ctx.budget.maxAttempts;
     if (stuck) {
       for (const m of [...placedHere].reverse()) undoNode(ctx, m);
       // Fallback: joint chain repair by bounded seeded annealing (Task 8B). Gated on
@@ -2052,11 +2075,13 @@ function tryLayout(
   closingEdges: Set<number>,
   rng: Rng,
   saEnabled: boolean,
+  budget: LayoutBudget,
 ): { result: LayoutResult } | { failing: NodeId; detail: string } {
   const ctx: Ctx = {
     graph,
     nodesById,
     closingEdges,
+    budget,
     rng,
     occ: new Occupancy(),
     placements: new Map(),
@@ -2110,7 +2135,7 @@ function tryLayout(
   };
 
   while (pendingCycles.length > 0 || pendingTree.size > 0) {
-    if (ctx.attempts > MAX_ATTEMPTS) return fail(ctx);
+    if (ctx.attempts > ctx.budget.maxAttempts) return fail(ctx);
     const adjacent = pendingCycles.filter((c) =>
       c.members.some((m) =>
         neighbours(ctx, m).some((nb) => ctx.placements.has(nb)),
@@ -2139,7 +2164,7 @@ function tryLayout(
     // more samples at the SAME ancestor layout; re-placing an ancestor first would move
     // already-good, unrelated pieces (yawing them off their canonical seatings) for nothing.
     for (let rev = 1; rev <= MAX_UNIT_REVISIONS && !placedOk; rev++) {
-      if (ctx.attempts > MAX_ATTEMPTS) return fail(ctx);
+      if (ctx.attempts > ctx.budget.maxAttempts) return fail(ctx);
       placedOk =
         unit.kind === "cycle"
           ? placeCycle(ctx, unit.unit, rev)
@@ -2191,7 +2216,7 @@ function tryLayout(
           revised = true;
           break;
         }
-        if (ctx.attempts > MAX_ATTEMPTS) return fail(ctx);
+        if (ctx.attempts > ctx.budget.maxAttempts) return fail(ctx);
       }
     }
     if (!revised && unitHistory.length === 0) return fail(ctx);
@@ -2207,7 +2232,12 @@ function tryLayout(
  *  is unchanged), then, ONLY if greedy fully fails AND the graph has cycles, SA-fallback restarts
  *  (Task 8B joint chain repair) before the setup-loud throw. Pure: no GPU, no Rapier, no
  *  wall-clock. Throws setup-loud with per-node diagnostics after exhausting all restarts. */
-export function layoutWorld(graph: WorldGraph, seed: string): LayoutResult {
+export function layoutWorld(
+  graph: WorldGraph,
+  seed: string,
+  budget?: Partial<LayoutBudget>,
+): LayoutResult {
+  const b: LayoutBudget = { ...DEFAULT_LAYOUT_BUDGET, ...budget };
   validateGraph(graph);
   const nodesById = new Map<NodeId, WorldNode>(
     graph.nodes.map((n) => [n.id, n]),
@@ -2227,10 +2257,11 @@ export function layoutWorld(graph: WorldGraph, seed: string): LayoutResult {
       closingEdges,
       makeRng(seed).derive(stream),
       saEnabled,
+      b,
     );
 
   let last: { failing: NodeId; detail: string } = { failing: "?", detail: "" };
-  for (let restart = 0; restart < MAX_RESTARTS; restart++) {
+  for (let restart = 0; restart < b.maxRestarts; restart++) {
     const attempt = attemptAt(`restart:${restart}`, false);
     if ("result" in attempt) return attempt.result;
     last = attempt;
@@ -2238,13 +2269,13 @@ export function layoutWorld(graph: WorldGraph, seed: string): LayoutResult {
   // SA fallback — only reachable when every greedy restart failed. Skipped for cycle-free graphs
   // (SA repairs cycles only), so a tree-only impossible graph throws without the extra passes.
   if (decomposition.cycles.length > 0) {
-    for (let restart = 0; restart < MAX_SA_LAYOUT_RESTARTS; restart++) {
+    for (let restart = 0; restart < b.maxSaLayoutRestarts; restart++) {
       const attempt = attemptAt(`sa-restart:${restart}`, true);
       if ("result" in attempt) return attempt.result;
       last = attempt;
     }
   }
   throw new Error(
-    `layout: could not place node "${last.failing}" after ${MAX_RESTARTS} restarts (${last.detail})`,
+    `layout: could not place node "${last.failing}" after ${b.maxRestarts} restarts (${last.detail})`,
   );
 }

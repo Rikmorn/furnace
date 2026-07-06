@@ -15,8 +15,21 @@ import {
   layoutWorld,
 } from "../src/layout.ts";
 import { pairFeasible } from "../src/locus.ts";
-import type { Aabb, Connection, RegionData, Vec3 } from "../src/region.ts";
-import type { NodeId, WorldEdge, WorldGraph } from "../src/world-graph.ts";
+import {
+  type Aabb,
+  type Connection,
+  GENERATOR_VERSION,
+  type RegionData,
+  type Vec3,
+} from "../src/region.ts";
+import { boxRoom } from "../src/themes/box-room.ts";
+import { DEFAULT_TOPOLOGY, generateWorldGraph } from "../src/topology.ts";
+import type {
+  NodeId,
+  WorldEdge,
+  WorldGraph,
+  WorldNode,
+} from "../src/world-graph.ts";
 
 /** A simple room: 8×3×8 solid-walled box with doors on given sides (door at wall centre,
  *  floor y=0). Solids = one collider per wall so clearance tests have real geometry. */
@@ -860,4 +873,70 @@ describe("joint chain repair — SA fallback (Task 8B)", () => {
       expect(pairFeasible(pa, pb, e.lengthRange ?? [2, 10])).toBe(true);
     }
   });
+});
+
+// A minimal pinned box room presenting one door-class portal at index 0 — the anchor
+// generateWorldGraph grows the whole topology from. `_seed` is unused in this interim
+// helper (a plain boxRoom carries no RNG-driven variation); copied verbatim from
+// scripts/measure-b2c.ts (the real Task 9 world.ts gatehouse will replace both call sites).
+function gatehouse(_seed: string): WorldNode {
+  const built = boxRoom(
+    {
+      width: 7,
+      depth: 7,
+      height: 3.2,
+      wallThick: 0.3,
+      floorThick: 0.3,
+      doors: [{ side: "S", offset: 0, width: 2, height: 2.8 }],
+    },
+    [],
+  );
+  const region: RegionData = {
+    meshes: built.meshes,
+    colliders: built.colliders,
+    materials: [
+      { color: [0.6, 0.6, 0.62, 1], specular: [0.05, 0.05, 0.05, 8] },
+    ],
+    connections: built.connections,
+    instances: [],
+    origin: [0, 0, 0],
+    bounds: built.bounds,
+    provenance: {
+      generatorId: "dungeon",
+      generatorVersion: GENERATOR_VERSION,
+      theme: "authored",
+      seed: "gatehouse",
+    },
+  };
+  return {
+    id: "gatehouse",
+    region,
+    pinned: { yaw: 0, translation: [0, 0, 0] },
+  };
+}
+
+test("layout budget: a tiny budget fails fast, deterministically, and names its restart count", () => {
+  // The default 30-room config is a known-unplaceable demand shape (placement-arc record) —
+  // perfect for asserting fail-FAST rather than fail-eventually.
+  const graph = generateWorldGraph(gatehouse("budget-probe"), "budget-probe", {
+    ...DEFAULT_TOPOLOGY,
+  });
+  const tiny = { maxAttempts: 50, maxRestarts: 1, maxSaLayoutRestarts: 0 };
+  const t0 = performance.now();
+  let msg1 = "";
+  try {
+    layoutWorld(graph, "budget-probe", tiny);
+  } catch (err) {
+    msg1 = err instanceof Error ? err.message : String(err);
+  }
+  const elapsed = performance.now() - t0;
+  expect(msg1).toContain("after 1 restarts"); // budget threaded into the throw
+  expect(elapsed).toBeLessThan(5_000); // fail-FAST (generous CI bound; uncapped = 30-110s class)
+  let msg2 = "";
+  try {
+    layoutWorld(graph, "budget-probe", tiny);
+  } catch (err) {
+    msg2 = err instanceof Error ? err.message : String(err);
+  }
+  expect(msg2).toBe(msg1); // deterministic under a budget
 });
