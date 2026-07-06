@@ -223,6 +223,28 @@ export function createViewportHost(): ViewportHost {
   const sceneContentCentroid = (): [number, number, number] | null =>
     centroidOf(committedDoc?.entities.map((e) => e.id) ?? []);
 
+  // Radius of the loaded content around `center`: the max distance from `center`
+  // to any loaded entity's AABB corner. Used to frame the orbit camera on a
+  // camera-LESS (fragment) doc — a baked region has no scene camera pose to seed
+  // the eye from, so we derive one from the content extent. Returns 0 when nothing
+  // renderable is loaded (the caller floors it with MIN_FRAME_RADIUS).
+  const contentRadius = (center: readonly [number, number, number]): number => {
+    if (!loaded) return 0;
+    let maxSq = 0;
+    for (const e of committedDoc?.entities ?? []) {
+      const c = loaded.entityBoxCorners(e.id);
+      if (!c) continue;
+      for (let k = 0; k < 8; k++) {
+        const dx = (c[k * 3] as number) - center[0];
+        const dy = (c[k * 3 + 1] as number) - center[1];
+        const dz = (c[k * 3 + 2] as number) - center[2];
+        const d2 = dx * dx + dy * dy + dz * dz;
+        if (d2 > maxSq) maxSq = d2;
+      }
+    }
+    return Math.sqrt(maxSq);
+  };
+
   // World length of the gizmo's screen-constant pixel size, so the handles stay
   // ~GIZMO_PX long regardless of camera distance. Uses the editor cam's FOV
   // (EDITOR_FOV_Y) and the canvas backing-store height.
@@ -314,6 +336,14 @@ export function createViewportHost(): ViewportHost {
     camera.setUp(editorCam, new Float32Array(up));
   };
 
+  // Framing factors for a camera-LESS (fragment) doc: seat the orbit eye back
+  // from the content centroid by these multiples of the content radius — diagonally
+  // back on X/Z and slightly up on Y — so the whole piece is in view. A floor on
+  // the radius keeps the framing sane for tiny/degenerate content.
+  const FRAGMENT_FRAME_BACK = 1.5;
+  const FRAGMENT_FRAME_UP = 1.05;
+  const MIN_FRAME_RADIUS = 1;
+
   // Applies a scene document assuming ctx is already set. Encapsulates the
   // destroy-before-build and resize/bind ordering that is load-critical (the M3
   // resize-blank fix depends on the specific sequence below — do not reorder).
@@ -331,7 +361,17 @@ export function createViewportHost(): ViewportHost {
     unbindResize = undefined;
     loaded?.destroy();
     loaded = undefined;
-    loaded = await scene.loadScene(c, doc);
+    // A camera-LESS doc (a baked region fragment) has no scene camera; load it in
+    // FRAGMENT mode so the loader's no-camera throw is suppressed, then frame the
+    // orbit on content bounds below. Detection mirrors the loader's own throw
+    // condition exactly: it throws when NO entity contributes a `camera` component.
+    // (The editor viewport owns no game world, so no `world` is injected.)
+    const hasSceneCamera = doc.entities.some((e) => "camera" in e.components);
+    loaded = await scene.loadScene(
+      c,
+      doc,
+      hasSceneCamera ? undefined : { fragment: true },
+    );
     committedDoc = doc;
     // The editor camera is recreated each reload (then rebound to the canvas
     // below), but the orbit STATE — what the user is actually looking at — is only
@@ -347,29 +387,47 @@ export function createViewportHost(): ViewportHost {
       far: 1000,
     });
     if (resetCamera || !orbitState) {
-      // Init at the scene camera's eye position, but pivot the orbit on the scene
-      // CONTENT centroid (not the scene camera's authored look-target, which the
-      // camera builtin places only ~1 unit ahead of the eye — a near point that
-      // makes the whole scene swing wildly when you orbit). Falling back to the
-      // authored target keeps a sane pivot for an empty scene. The scene camera
-      // entity stays independently editable in the inspector.
-      const sc = loaded.camera;
-      const eye = vec3.create();
-      camera.getPosition(eye, sc);
-      const tgt = vec3.create();
-      camera.getTarget(tgt, sc);
-      // vec3.create() returns Float32Array; index reads are number | undefined
-      // under noUncheckedIndexedAccess but indices 0-2 are always present on a
-      // vec3 — hot-path typed-array cast (documented in typescript.md).
-      const target = sceneContentCentroid() ?? [
-        tgt[0] as number,
-        tgt[1] as number,
-        tgt[2] as number,
-      ];
-      orbitState = fromEyeTarget(
-        [eye[0] as number, eye[1] as number, eye[2] as number],
-        target,
-      );
+      if (hasSceneCamera) {
+        // Init at the scene camera's eye position, but pivot the orbit on the scene
+        // CONTENT centroid (not the scene camera's authored look-target, which the
+        // camera builtin places only ~1 unit ahead of the eye — a near point that
+        // makes the whole scene swing wildly when you orbit). Falling back to the
+        // authored target keeps a sane pivot for an empty scene. The scene camera
+        // entity stays independently editable in the inspector.
+        const sc = loaded.camera;
+        const eye = vec3.create();
+        camera.getPosition(eye, sc);
+        const tgt = vec3.create();
+        camera.getTarget(tgt, sc);
+        // vec3.create() returns Float32Array; index reads are number | undefined
+        // under noUncheckedIndexedAccess but indices 0-2 are always present on a
+        // vec3 — hot-path typed-array cast (documented in typescript.md).
+        const target = sceneContentCentroid() ?? [
+          tgt[0] as number,
+          tgt[1] as number,
+          tgt[2] as number,
+        ];
+        orbitState = fromEyeTarget(
+          [eye[0] as number, eye[1] as number, eye[2] as number],
+          target,
+        );
+      } else {
+        // Camera-LESS (fragment) doc: no scene camera pose to seed from, so frame
+        // the orbit on the content bounds — pivot on the content centroid, eye
+        // seated back by the content radius (floored) along the framing factors.
+        const centroid: [number, number, number] = sceneContentCentroid() ?? [
+          0, 0, 0,
+        ];
+        const r = Math.max(MIN_FRAME_RADIUS, contentRadius(centroid));
+        orbitState = fromEyeTarget(
+          [
+            centroid[0] + r * FRAGMENT_FRAME_BACK,
+            centroid[1] + r * FRAGMENT_FRAME_UP,
+            centroid[2] + r * FRAGMENT_FRAME_BACK,
+          ],
+          centroid,
+        );
+      }
     }
     applyOrbit();
     // bindToCanvas applies the current canvas aspect immediately, then keeps it
