@@ -24,6 +24,10 @@ export type RegistryLoader = {
   reload(): Promise<RegistryModule>;
   /** Cached module, building on first use (scene.validate / scene.introspect before any open). */
   current(): Promise<RegistryModule>;
+  /** Drop the cached module so the next `current()` rebuilds — called on the
+   *  `bundle-outdated` extensions-dir watch signal so a running command sees
+   *  freshly-edited extensions without waiting for the next `scene.open`. */
+  invalidate(): void;
 };
 
 /**
@@ -103,6 +107,9 @@ export function createRegistryLoader(
     async current() {
       cached ??= await build();
       return cached;
+    },
+    invalidate() {
+      cached = undefined;
     },
   };
 }

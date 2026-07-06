@@ -28,6 +28,12 @@ export type SessionDeps = {
   watchFile: WatchFile;
   registry: RegistryLoader;
   emit(event: SessionEvent): void;
+  /**
+   * File reader for the watch-reload path. Defaults to `node:fs/promises`
+   * `readFile`; injected only so tests can control the mid-`await` interleaving
+   * that the `onFileChanged` staleness guards protect against.
+   */
+  readTextFile?: (path: string, encoding: "utf8") => Promise<string>;
 };
 
 export type Session = {
@@ -99,15 +105,23 @@ export function createSession(deps: SessionDeps): Session {
   async function onFileChanged(): Promise<void> {
     const s = state;
     if (!s) return;
+    const read = deps.readTextFile ?? readFile;
     let text: string;
     try {
-      text = await readFile(s.abs, "utf8");
+      text = await read(s.abs, "utf8");
     } catch {
+      // stale callback for a no-longer-open doc — drop (a file-conflict for the
+      // swapped-out path is notification-only anyway).
+      if (s !== state) return;
       // Deleted (or unreadable): the user decides — save restores, open moves on.
       s.conflict = true;
       deps.emit({ type: "file-conflict", path: s.path });
       return;
     }
+    // A concurrent open()/dispose() may have swapped `state` across the read
+    // await: `s` is now orphaned, so drop the reload. Silent is correct —
+    // file-reload events are notification-only dirty-bits (nothing is owed).
+    if (s !== state) return;
     let parsed: unknown;
     try {
       parsed = JSON.parse(text);
@@ -124,6 +138,8 @@ export function createSession(deps: SessionDeps): Session {
       return;
     }
     const registry = await deps.registry.current();
+    // Same guard after the registry await (see above): a swap here also orphans `s`.
+    if (s !== state) return;
     try {
       registry.validateDocument(parsed);
     } catch (err) {
@@ -198,6 +214,15 @@ export function createSession(deps: SessionDeps): Session {
       const next = structuredClone(s.document);
       edit(next); // may throw EditorError("validation-failed") on missing targets
       const registry = await deps.registry.current();
+      // A concurrent open()/dispose() may have swapped `state` across the
+      // validation await. Unlike a file-reload, apply() owes its caller an
+      // answer: throw no-session so the reroll-era client refetches and retries
+      // if still relevant (App.tsx's refreshSession already swallows this).
+      if (s !== state)
+        throw new EditorError(
+          "no-session",
+          "session was replaced while the edit was validating",
+        );
       try {
         registry.validateDocument(next);
       } catch (err) {

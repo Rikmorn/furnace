@@ -34,6 +34,18 @@ test("current() caches; reload() builds fresh", async () => {
   expect(await loader.reload()).not.toBe(a);
 });
 
+test("invalidate() drops the cache so the next current() rebuilds", async () => {
+  // The extensions-dir watch calls invalidate() on a source edit so a running
+  // command picks up fresh extensions. A fresh build yields a NEW module object,
+  // so reference-inequality proves the cache was dropped.
+  const loader = createRegistryLoader(FIXTURE, "src/editor-extensions.ts");
+  const a = await loader.current();
+  expect(await loader.current()).toBe(a); // cached
+  loader.invalidate();
+  const b = await loader.current();
+  expect(b).not.toBe(a); // rebuilt
+});
+
 test("a broken extensions entry fails with extension-build-failed and diagnostics", async () => {
   // In-workspace temp root so esbuild can resolve @furnace/core (workspace
   // node_modules) and then hit the genuinely-missing extension import — the

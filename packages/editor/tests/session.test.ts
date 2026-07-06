@@ -29,6 +29,8 @@ const fakeRegistry: RegistryModule = {
 const registry = {
   reload: () => Promise.resolve(fakeRegistry),
   current: () => Promise.resolve(fakeRegistry),
+  // biome-ignore lint/suspicious/noEmptyBlockStatements: no-op invalidate stub — cache lifecycle is registry-bundle.test.ts's job
+  invalidate: () => {},
 };
 
 type Watched = { path: string; trigger: () => Promise<void> };

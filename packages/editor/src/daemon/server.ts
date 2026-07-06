@@ -157,9 +157,10 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
   // src/ by convention) and emit a dirty-bit; the frontend reloads when safe.
   const watchDirFn = opts.watchDir ?? chokidarWatchDir;
   const unwatchSource = config.extensions
-    ? watchDirFn(dirname(resolve(opts.root, config.extensions)), () =>
-        hub.emit({ type: "bundle-outdated" }),
-      )
+    ? watchDirFn(dirname(resolve(opts.root, config.extensions)), () => {
+        registry.invalidate(); // next command sees fresh extensions — spec §6
+        hub.emit({ type: "bundle-outdated" });
+      })
     : undefined;
 
   const server = createServer((req, res) => {

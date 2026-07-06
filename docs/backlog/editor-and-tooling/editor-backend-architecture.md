@@ -94,7 +94,8 @@ layer" to **"command layer"** — MCP was descoped (below). What landed:
   decision-2 "three audiences for free" thesis still holds — it just becomes its own milestone
   rather than falling out of M4.
 - **Deferred from M4:** extension-file watching (known gap from M3); concurrent-open await races
-  (`session-concurrent-open-race-hardening.md`, benign under single-user); mutation UI → M5.
+  (resolved in Slice 3.1 — staleness guards after each await in `session.ts`, `tests/session-race.test.ts`);
+  mutation UI → M5.
 
 ## Epic execution order (resolved 2026-06-11; M1 slice-1/M2/M3 sealed by then)
 

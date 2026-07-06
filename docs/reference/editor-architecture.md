@@ -197,9 +197,12 @@ If the file is absent, all editor settings fall back to defaults. Malformed JSON
 ## 9. Deferred
 
 - **AI bindings** — MCP mount, `viewport.capture`, embedded agent, and outbound editor→LLM were **descoped from M4** into a dedicated milestone: `docs/backlog/editor-and-tooling/editor-ai-integration-milestone.md`. Rationale: for an FS-capable agent, direct file editing beats mutation tools, so M4 made disk edits first-class (watch + reload + validate + introspect over plain HTTP) and shipped the transport-agnostic substrate; the bindings get designed together when appetite is there (slot after M5). The error contract and the `MCP/agent bindings` notes in `errors.ts` / `handlers.ts` are the forward-looking seam for that work.
-- **Registry staleness on extension edits** — the browser-engine-bundle half of this gap closed in Slice 3.0 (§3, §5: `bundle-outdated` SSE + auto-reload). The daemon-side **registry** still only rebuilds on an explicit `scene.open` (`reload()`); a `bundle-outdated`-driven page reload re-fetches the document via `scene.get`, which does not touch the registry. Editing an extension's TypeScript is still not reflected in `scene.validate`/`scene.introspect` (or in a currently-open session's validation) until the scene is re-opened.
 - **Remaining viewport/hierarchy work deferred from M5B** — resource live-preview (`rebuildResource` cascade), editor fly-camera (WASD), and hierarchy tree (requires scene-format parent decision). See `docs/backlog/editor-and-tooling/editor-M5B-viewport-interaction.md`.
-- **Session concurrent-open race hardening** — two await-point races in `session.ts` (`onFileChanged` / `apply` capturing stale `state` across an await) are benign under the single-user serialized-command model and deferred with a staleness-guard fix: `docs/backlog/editor-and-tooling/session-concurrent-open-race-hardening.md`. Becomes load-bearing when M5 adds continuous interactions or a second concurrent writer.
+
+**Resolved in Slice 3.1 (2026-07-06):**
+
+- **Registry staleness on extension edits** — closed. The extensions-dir watch (`server.ts`) now calls `registry.invalidate()` (drops the cached module) before emitting `bundle-outdated`, so the next `current()` rebuilds. Editing an extension's TypeScript under the watched dir is reflected in `scene.validate`/`scene.introspect` and a running `apply`'s validation without waiting for a `scene.open` (browser-bundle half closed in Slice 3.0).
+- **Session concurrent-open race hardening** — closed. Two await-point races in `session.ts` (`onFileChanged` / `apply` capturing stale `state` across an await) now carry staleness guards after each await: `onFileChanged` silently drops the reload (`if (s !== state) return`, file-reload events being notification-only); `apply` throws `no-session` (the caller is owed an answer — the reroll-era client refetches). Covered by `tests/session-race.test.ts`.
 
 ## 10. M5A — inspector, selection, live preview
 
