@@ -8,7 +8,12 @@
 // provenance), and the cave's decorative scatter re-expands at load too. Custom
 // (Surface-Nets) meshes ship as `.fmesh` sidecars carrying LOCAL vertices; the entity
 // transform positions them in world (the 3.0 baker convention — avoids a double-offset).
-import { CURRENT_SCENE_VERSION, encodeMeshBlob } from "@furnace/core/scene";
+import {
+  CURRENT_SCENE_VERSION,
+  type EntityDoc,
+  encodeMeshBlob,
+  type SceneDocument,
+} from "@furnace/core/scene";
 import type { Placement } from "./connect.ts";
 import type { LayoutBudget } from "./layout.ts";
 import {
@@ -61,24 +66,24 @@ export type WingManifest = {
 /**
  * Bake one frozen wing to a file set.
  *
- * `seed` MUST be the winning derived seed: `bakeWing` forces a single placement attempt
- * and asserts it succeeds on attempt 0 (setup-loud otherwise — a wrong seed would bake a
- * DIFFERENT world than the one previewed). PURE: returns files, writes nothing.
+ * `seed` MUST be the winning derived seed: `bakeWing` forces a SINGLE placement attempt
+ * (`attempts: 1`), so `buildWorld` throws setup-loud if the seed does not reproduce the
+ * previewed world on attempt 0 (a wrong seed would bake a DIFFERENT world than the one
+ * previewed). PURE: returns files, writes nothing.
  *
- * @throws if the seed does not place on attempt 0, or a placed node is missing its
- *   layout entry / placement.
+ * @throws (via `buildWorld`) if the seed does not place on attempt 0; or if a placed node
+ *   is missing its layout entry / placement.
  */
 export function bakeWing(
   seed: string,
   config: Partial<TopologyConfig>,
   budget: Partial<LayoutBudget>,
 ): { files: BakeFile[] } {
-  const { graph, layout, attempt } = buildWorld(
+  const { graph, layout } = buildWorld(
     seed,
     { ...config, attempts: 1 },
     budget,
   );
-  if (attempt !== 0) throw new Error("bake: seed must place on attempt 0");
 
   const files: BakeFile[] = [];
   const regions: WingRegionEntry[] = [];
@@ -148,12 +153,12 @@ function cuboidColliders(r: RegionData): RegionCollider[] {
  * custom meshes as `.fmesh` sidecar resources (LOCAL vertices; world pose on the entity
  * transform — the 3.0 baker convention). Materials are the `standard` kind lit by `s_lit`;
  * the scene material schema carries only `color`, so `specular` is intentionally dropped
- * (matches the 3.0 baker — see this task's report / scatter-material-specular backlog).
+ * (matches the 3.0 baker — see docs/backlog/engine-architecture/scene-material-specular-param.md).
  */
 function regionDoc(
   id: string,
   r: RegionData,
-): { doc: unknown; sidecars: BakeFile[] } {
+): { doc: SceneDocument; sidecars: BakeFile[] } {
   const sidecars: BakeFile[] = [];
   const geometries: Record<string, unknown> = { g_cube: { kind: "cube" } };
   const materials = Object.fromEntries(
@@ -163,7 +168,7 @@ function regionDoc(
     ]),
   );
 
-  const entities: unknown[] = [];
+  const entities: EntityDoc[] = [];
   for (const [mi, m] of r.meshes.entries()) {
     const transform: Record<string, unknown> = { position: m.position };
     if (m.rotation) transform["rotation"] = m.rotation;

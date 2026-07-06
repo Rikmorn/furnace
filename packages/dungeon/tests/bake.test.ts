@@ -37,8 +37,16 @@ describe("bakeWing", () => {
     const a = bakeWing(SEED, CFG, {});
     const b = bakeWing(SEED, CFG, {});
     expect(a.files.map((f) => f.path)).toEqual(b.files.map((f) => f.path));
-    // Content determinism too (same engine → byte-identical), asserted on the manifest.
-    expect(manifestOf(a.files)).toEqual(manifestOf(b.files));
+    // Full content determinism (same engine → byte-identical): string docs/manifest
+    // compared as text, `.fmesh` compared as bytes. Catches a vertex-order or
+    // non-manifest-field regression the path/manifest-only checks would miss.
+    const normalize = (files: BakeFile[]) =>
+      files.map((f) => ({
+        path: f.path,
+        contents:
+          typeof f.contents === "string" ? f.contents : Array.from(f.contents),
+      }));
+    expect(normalize(a.files)).toEqual(normalize(b.files));
 
     const manifest = manifestOf(a.files);
     expect(manifest.version).toBe(1);
