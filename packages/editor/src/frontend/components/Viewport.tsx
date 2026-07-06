@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useEditor } from "./editor-context.ts";
 
 export function Viewport() {
@@ -7,6 +7,10 @@ export function Viewport() {
   const previewCanvasRef = useRef<HTMLCanvasElement>(null);
   const initialized = useRef(false);
   const previewInitialized = useRef(false);
+  // View flag, not a generation knob — fog on/off is a property of how you VIEW the
+  // world (the UE/Unity viewport show-flags pattern), so it lives on the viewport.
+  // Mirrors the preview host's flag (both default off).
+  const [fogOn, setFogOn] = useState(false);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -90,6 +94,22 @@ export function Viewport() {
         <div className="pointer-events-none absolute left-2 top-2 rounded bg-amber-600/90 px-2 py-1 text-xs font-semibold text-white">
           PREVIEW
         </div>
+      )}
+      {state.generationActive && (
+        <label
+          className="absolute right-2 top-2 flex items-center gap-1.5 rounded bg-neutral-900/80 px-2 py-1 text-xs text-neutral-300"
+          title="Preview the game's fog mood. Off = clear structural view (fog at orbit distance obscures the wing)."
+        >
+          <input
+            type="checkbox"
+            checked={fogOn}
+            onChange={(e) => {
+              setFogOn(e.target.checked);
+              previewHostRef.current?.setFog(e.target.checked);
+            }}
+          />
+          fog
+        </label>
       )}
     </div>
   );
