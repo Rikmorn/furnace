@@ -138,18 +138,25 @@ function generatorAnchor(): WorldNode {
   };
 }
 
-/** Generate + place a world with bounded derived-seed retry: attempt k regenerates the
- *  whole graph from `seed:k` and re-places. First success wins; exhausting the budget
- *  throws setup-loud with every attempt's placer diagnostics (never retry-forever —
- *  the research doc's named anti-pattern). Placement wall-time is logged per attempt
- *  (perf is MEASURED, not gated — creaking at scale is prioritization signal). */
-export function buildWorld(
+/** One generation attempt: a fresh topology from the derived seed, placed or failed. */
+export type WorldAttempt = {
+  attempt: number;
+  attemptSeed: string;
+  graph: WorldGraph;
+} & ({ ok: true; layout: LayoutResult } | { ok: false; error: string });
+
+/** The attempt loop as a pull-based iterator — the SINGLE owner of retry policy and
+ *  seed derivation (`seed:k`). `buildWorld` drains it; the cockpit steps it between
+ *  paints (cancel = stop iterating). Yields one result per attempt, ending after the
+ *  first success or when `cfg.attempts` is exhausted — never retry-forever (the research
+ *  doc's named anti-pattern). Placement wall-time is logged per attempt (perf is
+ *  MEASURED, not gated — creaking at scale is prioritization signal). */
+export function* worldAttempts(
   seed: string,
   config?: Partial<TopologyConfig>,
   budget?: Partial<LayoutBudget>,
-): { graph: WorldGraph; layout: LayoutResult; attempt: number } {
+): Generator<WorldAttempt, void, undefined> {
   const cfg: TopologyConfig = { ...DEFAULT_TOPOLOGY, ...config };
-  const failures: string[] = [];
   for (let k = 0; k < cfg.attempts; k++) {
     const attemptSeed = k === 0 ? seed : `${seed}:${k}`;
     const graph = generateWorldGraph(generatorAnchor(), attemptSeed, cfg);
@@ -159,14 +166,50 @@ export function buildWorld(
       console.info(
         `[world] seed "${seed}" attempt ${k}: ${graph.nodes.length} nodes / ${graph.edges.length} edges placed in ${(performance.now() - t0).toFixed(0)} ms`,
       );
-      return { graph, layout, attempt: k };
+      yield { attempt: k, attemptSeed, graph, ok: true, layout };
+      return;
     } catch (err) {
-      failures.push(
-        `attempt ${k} ("${attemptSeed}"): ${err instanceof Error ? err.message : String(err)}`,
-      );
+      yield {
+        attempt: k,
+        attemptSeed,
+        graph,
+        ok: false,
+        error: err instanceof Error ? err.message : String(err),
+      };
     }
   }
+}
+
+/** Generate + place a world with bounded derived-seed retry by draining `worldAttempts`:
+ *  attempt k regenerates the whole graph from `seed:k` and re-places. First success wins;
+ *  exhausting the budget throws setup-loud with every attempt's placer diagnostics. */
+export function buildWorld(
+  seed: string,
+  config?: Partial<TopologyConfig>,
+  budget?: Partial<LayoutBudget>,
+): { graph: WorldGraph; layout: LayoutResult; attempt: number } {
+  const failures: string[] = [];
+  for (const a of worldAttempts(seed, config, budget)) {
+    if (a.ok) return { graph: a.graph, layout: a.layout, attempt: a.attempt };
+    failures.push(`attempt ${a.attempt} ("${a.attemptSeed}"): ${a.error}`);
+  }
   throw new Error(
-    `world: seed "${seed}" failed all ${cfg.attempts} placement attempts —\n${failures.join("\n")}`,
+    `world: seed "${seed}" failed all ${failures.length} placement attempts —\n${failures.join("\n")}`,
   );
 }
+
+/** Cockpit defaults (Slice 3.1): single-sector wing at the P1 bar config. */
+export const COCKPIT_CONFIG: Partial<TopologyConfig> = {
+  sectors: [1, 1],
+  targetRooms: 6,
+  loopChance: 0.35,
+  attempts: 12,
+};
+/** Per-attempt search budget for interactive rerolls — Task 0's measured pick (tight). */
+export const COCKPIT_BUDGET: Partial<LayoutBudget> = {
+  maxAttempts: 2000,
+  maxRestarts: 2,
+  maxSaLayoutRestarts: 1,
+  maxSaMoves: 200,
+  maxSaRestarts: 2,
+};

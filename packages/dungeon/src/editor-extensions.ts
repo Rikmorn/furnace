@@ -14,4 +14,12 @@ export {
 } from "./layout.ts";
 export { MaterialCache, realizeRegion } from "./realize.ts";
 export { DEFAULT_TOPOLOGY, generateWorldGraph } from "./topology.ts";
-export { buildWorld, buildWorldGraph, WORLD_SEED } from "./world.ts";
+export {
+  buildWorld,
+  buildWorldGraph,
+  COCKPIT_BUDGET,
+  COCKPIT_CONFIG,
+  WORLD_SEED,
+  type WorldAttempt,
+  worldAttempts,
+} from "./world.ts";
