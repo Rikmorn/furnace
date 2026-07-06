@@ -1,5 +1,7 @@
 # Region-connection algorithm refinement (cave mouths + seams look off)
 
+> Re-homed 2026-07-06: Epic 3 — the ≥90% headless bar is retired with the placement arc (see docs/learnings/2026-07-05-dungeon-placement-arc-postmortem.md); the cave branch-direction constraint remains relevant to cockpit-era generation.
+
 ## Context
 
 Slice 2.2.2 shipped the theme-generator architecture with a working but visually-rough

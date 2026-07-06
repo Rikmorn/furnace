@@ -1,5 +1,7 @@
 # Dungeon: landing is scoped to descent arrivals — the true discriminator is a WALLED low portal
 
+> Re-homed 2026-07-06: Epic 3 (Generation Cockpit) — applies to the generator's cockpit-era iteration (topology orientation of walled-low-portal climbs).
+
 **Context.** In Slice 2.2.5b-B1 the flat low-end landing (`connect.ts` `walkLineAt`/
 `floorBoxes`, `LANDING_LEN`) was scoped **directionally** — emitted only on **descending**
 connectors. That direction is a *proxy* for the real condition. An ascending connector's low
@@ -19,6 +21,9 @@ reads the flag directly instead of inferring it from the climb sign.
 
 **Reference.** `packages/dungeon/src/connect.ts` (`walkLineAt`, `floorBoxes`, `LANDING_LEN` —
 the directional profile + its TSDoc), `packages/dungeon/src/world.ts` (edge5, the descent whose
-walled arrival is today's only landing consumer), and the prior-art grounding in
+walled arrival was, at the time this entry was filed, the only landing consumer — that
+hand-authored upper-level showcase, incl. edge5, was retired at the 2026-07-06 Epic 2 closure;
+`walkLineAt`/`floorBoxes`/`LANDING_LEN` remain live, just currently unexercised by any edge in
+`world.ts`), and the prior-art grounding in
 `docs/research/2026-07-03-dungeon-2.2.5b-b1-built-interfaces.md` §2.
 Surfaced during Slice 2.2.5b-B1 execution (2026-07-03).

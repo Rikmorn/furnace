@@ -73,8 +73,8 @@ async function main(): Promise<void> {
     position: cavernProxy.proxyPosition,
   });
   // The generated world: a hand-written world GRAPH (authored chamber pinned as a
-  // collision phantom + cave wing + ground rooms + two elevated rooms + one loop),
-  // placed by the collision-aware layout engine — no hand-tuned world positions.
+  // collision phantom + cave wing + two ground rooms), placed by the collision-aware
+  // layout engine — no hand-tuned world positions.
   const matCache = new MaterialCache(ctx);
   const { regions: worldRegions, connectors } = layoutWorld(
     buildWorldGraph(WORLD_SEED),

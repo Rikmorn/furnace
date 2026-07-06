@@ -1,5 +1,7 @@
 # Session concurrent-open race hardening (deferred from M4, 2026-06-11)
 
+> Epic 3 disposition (2026-07-06): promoted — load-bearing under Slice 3.1's reroll loop (ephemeral generation session).
+
 **Context.** `packages/editor/src/daemon/session.ts` (M4, Task 6) has two await-point races
 that a code-quality review surfaced:
 

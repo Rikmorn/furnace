@@ -1,5 +1,7 @@
 # Editor viewport HDR context + post-chain preview
 
+> Epic 3 disposition (2026-07-06): subsumed by the Slice 3.1 cockpit render host (imperative HDR host).
+
 The editor viewport-host (`packages/editor/src/viewport-host/index.ts`, `renderLoaded`) now renders the scene's **lights** and **ambient** — the lit-viewport payoff — but passes `effects: []` to `frame.render`: the scene's **post chain is deferred**. The host's GPU context is **non-HDR** (`init()` requests the default `hdr: false`).
 
 This is a **fidelity** deferral, not a crash workaround. A scene's post chain (e.g. `bloom → tonemap`) is authored for the *consumer's* HDR pipeline, where the renderer draws the scene into an `rgba16float` intermediate and the tonemap pass maps that HDR target down to the LDR swap chain. The `frame.render` HDR↔effects contract is (verified in `packages/core/src/frame/render.ts`): it throws **only on the inverse** — `hdr === true` **and** an empty effect chain (an `rgba16float` scene target with no pass to reach the LDR swap chain). A **non-HDR** context with effects does **not** throw. So the editor *could* pass `l.effects` against its LDR target without crashing — but the HDR-authored chain would run against an LDR scene target and produce **wrong output**, not the real preview. Hence `effects: []`.

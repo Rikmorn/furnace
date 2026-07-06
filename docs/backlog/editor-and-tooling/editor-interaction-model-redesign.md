@@ -1,5 +1,7 @@
 # Editor interaction model — back to the drawing board
 
+> Epic 3 disposition (2026-07-06): direct input to Slice 3.2 (chrome rework + curation verbs) — see docs/research/2026-07-06-editor-cockpit-audit.md.
+
 The M1-slices visual gate (run by the user in Safari, the primary browser) confirmed the editor **functions** but the interaction model is a prototype, not a tool. User verdict: the whole interaction model needs a redesign — driven by the **concrete target application's** real editing needs, **not** by the bowling demo. Until those needs are known, the editor is **shelved** — this entry captures the evidence so the redesign doesn't start cold; it is not a list of bugs to fix piecemeal.
 
 **Evidence from the gate (each is a symptom of a deeper model gap, noted alongside):**

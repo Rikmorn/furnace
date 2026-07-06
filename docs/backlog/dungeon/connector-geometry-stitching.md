@@ -1,5 +1,7 @@
 # Dungeon: connectors don't stitch/blend the joined geometries (no connection algorithm)
 
+> Re-homed 2026-07-06: Epic 3.4 organic arc ("built places, organic carves") is the earliest trigger; true isosurface↔built rim blending may still be Epic 4.
+
 **Context.** Slice 2.2.4 built the connection *primitive* as **placement + a floor bridge**:
 `connect.ts join` rigidly positions a piece so its door **Connection point** coincides with a
 target portal (positions meet, facings negate — it moves whole pieces, never touches their
