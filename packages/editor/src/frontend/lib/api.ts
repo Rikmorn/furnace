@@ -61,6 +61,8 @@ export const api = {
     call<MutationResult>("scene.setComponent", { entity, component, params }),
   setComponentMany: (edits: ComponentEdit[]) =>
     call<MutationResult>("scene.batch", { edits }),
+  removeEntity: (id: string) =>
+    call<MutationResult>("scene.removeEntity", { id }),
   setResource: (table: string, id: string, entry: Record<string, unknown>) =>
     call<MutationResult>("scene.setResource", { table, id, entry }),
   setSettings: (settings: unknown) =>

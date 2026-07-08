@@ -56,6 +56,11 @@ export function makeEditorContext(
     commitComponents: async () => {},
     commitResource: async () => {},
     commitSettings: async () => {},
+    save: async () => {},
+    undo: async () => {},
+    redo: async () => {},
+    deleteSelection: async () => {},
+    frameSelection: () => {},
     ...overrides.actions,
   };
   return {

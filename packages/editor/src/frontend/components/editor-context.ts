@@ -20,6 +20,15 @@ export type EditorActions = {
     entry: Record<string, unknown>,
   ): Promise<void>;
   commitSettings(settings: unknown): Promise<void>;
+  /** Persist the session to disk (⌘S / File▸Save). */
+  save(): Promise<void>;
+  /** Step the session's undo/redo history (⌘Z / ⇧⌘Z). SSE drives the reload. */
+  undo(): Promise<void>;
+  redo(): Promise<void>;
+  /** Remove the current selection, one daemon op per entity (each its own undo step). */
+  deleteSelection(): Promise<void>;
+  /** Frame the selection in the viewport. No-op until Task 10 lands the host method. */
+  frameSelection(): void;
 };
 
 /** Live editor state shared with the dockview panels through React context

@@ -16,6 +16,8 @@ const sessionUpdate = (over: Record<string, unknown> = {}) =>
     revision: 1,
     dirty: false,
     conflict: false,
+    canUndo: false,
+    canRedo: false,
     ...over,
   }) as Parameters<typeof reduce>[1];
 

@@ -3,14 +3,23 @@ import {
   type DockviewReadyEvent,
   type IDockviewPanelProps,
 } from "dockview";
-import { useCallback, useEffect, useMemo, useReducer, useRef } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useReducer,
+  useRef,
+  useState,
+} from "react";
 import type { FunctionComponent } from "react";
 import type { PreviewHost, ViewportHost } from "../../viewport-host/index.ts"; // type-only
 import { ApiClientError, api, type ComponentEdit } from "../lib/api.ts";
 import { EngineBuildError, loadEngine } from "../lib/engine.ts";
 import { subscribeEvents } from "../lib/events.ts";
+import { isTextInputTarget, matchBinding } from "../lib/keybindings.ts";
 import { clickMode } from "../lib/selection.ts";
 import { initialState, reduce } from "../lib/state.ts";
+import { ConfirmDialog, type ConfirmRequest } from "./ConfirmDialog.tsx";
 import { EditorContext, type EditorActions, type EditorContextValue } from "./editor-context.ts";
 import { EntitiesPanel } from "./EntitiesPanel.tsx";
 import { GenerationPanel } from "./GenerationPanel.tsx";
@@ -42,6 +51,46 @@ export function App() {
   // re-subscribes on [state.status, refreshSession] — reading state.dirty
   // directly there would see a stale value from subscribe time.
   const dirtyRef = useRef(false);
+  // The in-chrome confirm dialog (replaces window.confirm). `confirmRef` mirrors
+  // the state synchronously so BOTH: (a) `openConfirm` refuses to clobber an
+  // already-pending prompt, and the keydown listener suppresses every binding while
+  // one is open (a second prompt would strand the first's onCancel — e.g. the
+  // discard-scene prompt's refreshSession that clears `loading`); and (b)
+  // `resolveConfirm` fires each request's callback exactly once — the guard also
+  // absorbs a rapid double-click that lands while Radix's exit-animation `Presence`
+  // still has the dialog (and its buttons) mounted.
+  const [confirm, setConfirm] = useState<ConfirmRequest | null>(null);
+  const confirmRef = useRef<ConfirmRequest | null>(null);
+  // Latest selection + undo/redo availability, read by the window keydown listener
+  // (which binds once and must not close over stale state).
+  const latest = useRef<{
+    selection: string[];
+    canUndo: boolean;
+    canRedo: boolean;
+  }>({ selection: [], canUndo: false, canRedo: false });
+
+  const openConfirm = useCallback((request: ConfirmRequest) => {
+    if (confirmRef.current) return; // never clobber a pending prompt
+    confirmRef.current = request;
+    setConfirm(request);
+  }, []);
+
+  const resolveConfirm = useCallback((confirmed: boolean) => {
+    const request = confirmRef.current;
+    if (!request) return; // already settled — absorb a double-fire
+    confirmRef.current = null;
+    setConfirm(null);
+    if (confirmed) request.onConfirm();
+    else request.onCancel?.();
+  }, []);
+
+  // The single scene-error dispatch (extracted — used by every catch below).
+  const reportError = useCallback((err: unknown) => {
+    dispatch({
+      type: "scene-error",
+      message: err instanceof Error ? err.message : String(err),
+    });
+  }, []);
 
   // Hoisted so both `actions.commitComponents`/`commitSettings` and the host
   // onTransformCommit callback can suppress their own SSE echoes identically.
@@ -143,15 +192,14 @@ export function App() {
         revision: view.revision,
         dirty: view.dirty,
         conflict: view.conflict,
+        canUndo: view.canUndo,
+        canRedo: view.canRedo,
       });
     } catch (err) {
       if (err instanceof ApiClientError && err.code === "no-session") return;
-      dispatch({
-        type: "scene-error",
-        message: err instanceof Error ? err.message : String(err),
-      });
+      reportError(err);
     }
-  }, []);
+  }, [reportError]);
 
   const actions = useMemo<EditorActions>(
     () => ({
@@ -180,13 +228,140 @@ export function App() {
           const result = await api.setSettings(settings);
           suppressEcho(result);
         },
+        save: async () => {
+          try {
+            const result = await api.save();
+            // Save doesn't advance the revision (it persists + clears dirty), so
+            // suppressEcho is a formality; the direct refresh gives immediate
+            // dirty=false feedback without waiting for the `saved` SSE round-trip.
+            suppressEcho(result);
+            void refreshSession();
+          } catch (err) {
+            // ⌘S can fire with no scene open — swallow that, surface real failures.
+            if (err instanceof ApiClientError && err.code === "no-session") return;
+            reportError(err);
+          }
+        },
+        // undo/redo bump the revision and emit `document-changed`; the SSE echo
+        // funnels through refreshSession → loadScene, so they do NOT suppressEcho
+        // and do NOT refresh directly (that would double-apply or dedup-hide).
+        undo: async () => {
+          try {
+            await api.undo();
+          } catch (err) {
+            if (err instanceof ApiClientError && err.code === "nothing-to-undo")
+              return;
+            reportError(err);
+          }
+        },
+        redo: async () => {
+          try {
+            await api.redo();
+          } catch (err) {
+            if (err instanceof ApiClientError && err.code === "nothing-to-redo")
+              return;
+            reportError(err);
+          }
+        },
+        deleteSelection: async () => {
+          // One daemon op per entity so each removal is its own undo step. NO
+          // suppressEcho here: unlike a component commit, the viewport never
+          // previewed a removal, so the change must actually reload — the final
+          // refresh (and the SSE echoes) advance past lastLoaded → loadScene.
+          try {
+            for (const id of latest.current.selection) {
+              await api.removeEntity(id);
+            }
+          } catch (err) {
+            reportError(err);
+          }
+          dispatch({ type: "clear-selection" });
+          void refreshSession();
+        },
+        // Task 10 lands the host method; optional call is a no-op till then.
+        // Boundary cast: frameSelection is a forward-declared host member not yet
+        // on the ViewportHost type (Task 10) — remove the cast when it lands.
+        frameSelection: () =>
+          (
+            hostRef.current as { frameSelection?: () => void } | undefined
+          )?.frameSelection?.(),
       }),
-    [suppressEcho],
+    [suppressEcho, refreshSession, reportError],
   );
 
   useEffect(() => {
     dirtyRef.current = state.dirty;
   }, [state.dirty]);
+
+  useEffect(() => {
+    latest.current = {
+      selection: state.selectedEntities,
+      canUndo: state.canUndo,
+      canRedo: state.canRedo,
+    };
+  }, [state.selectedEntities, state.canUndo, state.canRedo]);
+
+  // Delete routing shared by the ⌫ keybinding and Edit▸Delete: >1 entity prompts
+  // (in-chrome confirm), a single entity deletes straight away, none is a no-op.
+  const requestDelete = useCallback(() => {
+    const selection = latest.current.selection;
+    if (selection.length === 0) return;
+    if (selection.length > 1) {
+      openConfirm({
+        title: "Delete entities?",
+        message: `Delete ${selection.length} selected entities? This can be undone.`,
+        confirmLabel: "Delete",
+        destructive: true,
+        onConfirm: () => void actions.deleteSelection(),
+      });
+      return;
+    }
+    void actions.deleteSelection();
+  }, [actions, openConfirm]);
+
+  // Global keybindings. Binds once (actions is stable) and reads live selection /
+  // undo-redo availability from `latest`. preventDefault fires on EVERY match so
+  // ⌘S never triggers the browser save-page — the whole point of the P0 fix.
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      // A confirm dialog is modal: suppress EVERY binding until it resolves, or a
+      // second openConfirm would strand the first (its onCancel never runs).
+      if (confirmRef.current) return;
+      const action = matchBinding(e, isTextInputTarget(e.target));
+      if (!action) return;
+      e.preventDefault();
+      switch (action) {
+        case "save":
+          void actions.save();
+          return;
+        case "undo":
+          if (latest.current.canUndo) void actions.undo();
+          return;
+        case "redo":
+          if (latest.current.canRedo) void actions.redo();
+          return;
+        case "frame":
+          actions.frameSelection();
+          return;
+        case "delete":
+          requestDelete();
+          return;
+        default:
+          // Exhaustiveness guard: a new BindingAction that isn't cased above is a
+          // compile error here (Tasks 6/9 add bindings).
+          action satisfies never;
+          return;
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [actions, requestDelete]);
+
+  useEffect(() => {
+    document.title = state.selectedScene
+      ? `${state.selectedScene}${state.dirty ? " ●" : ""} — furnace`
+      : "furnace editor";
+  }, [state.selectedScene, state.dirty]);
 
   useEffect(() => {
     if (state.status !== "ready") return;
@@ -228,27 +403,27 @@ export function App() {
         // the chrome rides the same change feed as every other client.
       } catch (err) {
         if (err instanceof ApiClientError && err.code === "unsaved-changes") {
-          if (window.confirm("The open scene has unsaved changes. Discard them?")) {
-            try {
-              await api.sceneOpen(path, true);
-            } catch (err2) {
-              dispatch({
-                type: "scene-error",
-                message: err2 instanceof Error ? err2.message : String(err2),
-              });
-            }
-          } else {
-            void refreshSession(); // clears `loading`, restores the current view
-          }
+          openConfirm({
+            title: "Discard unsaved changes?",
+            message: `The open scene has unsaved changes. Opening ${path} will discard them.`,
+            confirmLabel: "Discard & open",
+            destructive: true,
+            onConfirm: async () => {
+              try {
+                await api.sceneOpen(path, true);
+              } catch (err2) {
+                reportError(err2);
+              }
+            },
+            // clears `loading`, restores the current view
+            onCancel: () => void refreshSession(),
+          });
           return;
         }
-        dispatch({
-          type: "scene-error",
-          message: err instanceof Error ? err.message : String(err),
-        });
+        reportError(err);
       }
     },
-    [refreshSession],
+    [refreshSession, openConfirm, reportError],
   );
 
   const onReady = useCallback((event: DockviewReadyEvent) => {
@@ -290,7 +465,15 @@ export function App() {
 
   return (
     <div className="flex h-screen flex-col">
-      <Toolbar state={state} onSelectScene={selectScene} />
+      <Toolbar
+        state={state}
+        onSelectScene={selectScene}
+        onSave={actions.save}
+        onUndo={actions.undo}
+        onRedo={actions.redo}
+        onDelete={requestDelete}
+      />
+      <ConfirmDialog request={confirm} onResolve={resolveConfirm} />
       <EditorContext.Provider value={ctxValue}>
         <div className="min-h-0 flex-1">
           <DockviewReact

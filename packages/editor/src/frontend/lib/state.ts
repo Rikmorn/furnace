@@ -15,6 +15,10 @@ export type EditorState = {
   revision?: number;
   dirty: boolean;
   conflict: boolean;
+  /** Undo/redo availability from the session read-model (drives the Edit menu +
+   *  toolbar cluster). Both false until a scene is open. */
+  canUndo: boolean;
+  canRedo: boolean;
   /** Transient warning (e.g. the watched file became invalid on disk). */
   notice?: string;
   /** True while the generation panel owns the viewport (preview canvas shown). */
@@ -34,6 +38,8 @@ export type EditorEvent =
       revision: number;
       dirty: boolean;
       conflict: boolean;
+      canUndo: boolean;
+      canRedo: boolean;
     }
   | { type: "scene-error"; message: string }
   | { type: "file-invalid"; message: string }
@@ -48,6 +54,8 @@ export const initialState: EditorState = {
   loading: false,
   dirty: false,
   conflict: false,
+  canUndo: false,
+  canRedo: false,
   generationActive: false,
 };
 
@@ -75,6 +83,8 @@ export function reduce(s: EditorState, e: EditorEvent): EditorState {
         revision: e.revision,
         dirty: e.dirty,
         conflict: e.conflict,
+        canUndo: e.canUndo,
+        canRedo: e.canRedo,
         selectedEntities,
         selectionAnchor: ids.has(s.selectionAnchor ?? "")
           ? s.selectionAnchor
