@@ -1,4 +1,8 @@
-import type { PreviewHost, ViewportHost } from "../../viewport-host/index.ts"; // type-only: erased
+import type {
+  PreviewHost,
+  ViewportHost,
+  ViewportHostOptions,
+} from "../../viewport-host/index.ts"; // type-only: erased
 
 export class EngineBuildError extends Error {
   constructor(diagnostics: string) {
@@ -8,7 +12,7 @@ export class EngineBuildError extends Error {
 }
 
 type EngineModule = {
-  createViewportHost: () => ViewportHost;
+  createViewportHost: (opts?: ViewportHostOptions) => ViewportHost;
   createPreviewHost: () => PreviewHost;
   extensions: Record<string, unknown>;
 };

@@ -131,6 +131,23 @@ function toVec4(
   return rgba ? vec4.fromValues(rgba[0], rgba[1], rgba[2], rgba[3]) : undefined;
 }
 
+/** Options for {@link createViewportHost}. All colours are `[r, g, b]` in `[0, 1]`. */
+export type ViewportHostOptions = {
+  /**
+   * Selection highlight (AABB edge lines) accent — the ONE attention colour,
+   * resolved by the chrome from the `--primary` design token. Defaults to a
+   * steel-blue when omitted so a no-opts host renders a sensible highlight.
+   */
+  accentColor?: [number, number, number];
+  /**
+   * Default viewport clear colour, giving the 3D content area a tonal step of
+   * separation from the panel chrome. Used ONLY when the loaded scene authors
+   * no `clearColor` — an authored scene clear always wins. When omitted, the
+   * engine's own default clear is used (a no-opts host is unchanged).
+   */
+  viewportBackground?: [number, number, number];
+};
+
 /**
  * Create an uninitialized viewport host. `init` must be called before GPU
  * operations, but `loadScene` may be called before `init` — the document is
@@ -138,7 +155,7 @@ function toVec4(
  * load a scene before the canvas's async GPU init resolves (a common race on
  * browser boot / tab refresh when a session already exists).
  */
-export function createViewportHost(): ViewportHost {
+export function createViewportHost(opts?: ViewportHostOptions): ViewportHost {
   let ctx: Context | undefined;
   let loaded: LoadedScene | undefined;
   let committedDoc: SceneDocument | undefined;
@@ -186,7 +203,34 @@ export function createViewportHost(): ViewportHost {
     return ctx;
   };
 
-  const HILITE: [number, number, number, number] = [1, 0.6, 0, 1];
+  // Selection highlight edge-lines derive from the ONE attention token: the chrome
+  // resolves `--primary` and passes it as accentColor. The default matches theme.ts's
+  // steel-blue fallback so a no-opts host (GPU tests) still highlights sensibly.
+  // Alpha 1 = fully opaque edge lines.
+  const DEFAULT_ACCENT: [number, number, number] = [
+    92 / 255,
+    148 / 255,
+    204 / 255,
+  ];
+  const accent = opts?.accentColor ?? DEFAULT_ACCENT;
+  const HILITE: [number, number, number, number] = [
+    accent[0],
+    accent[1],
+    accent[2],
+    1,
+  ];
+  // Fallback clear (content-vs-chrome tonal separation), used only when the loaded
+  // scene authors no clearColor — an authored scene clear always wins over this.
+  // Undefined when the caller passed no viewportBackground, so frame.render's own
+  // default clear applies (keeps no-opts hosts byte-identical).
+  const viewportClear: Vec4 | undefined = opts?.viewportBackground
+    ? vec4.fromValues(
+        opts.viewportBackground[0],
+        opts.viewportBackground[1],
+        opts.viewportBackground[2],
+        1,
+      )
+    : undefined;
 
   // Centroid of the current selection's AABB corners — the gizmo origin and the
   // frame-selected target. null when nothing is loaded, the selection is empty,
@@ -303,7 +347,9 @@ export function createViewportHost(): ViewportHost {
     frame.render(c, {
       meshes: l.meshes,
       camera: cam,
-      clearColor: toVec4(l.settings.clearColor),
+      // Authored scene clear wins; the viewport tonal-separation clear is only the
+      // fallback (undefined → frame.render's own default when neither is set).
+      clearColor: toVec4(l.settings.clearColor) ?? viewportClear,
       // lights/ambient are always safe to pass — they don't depend on the
       // context's HDR state — so the editor viewport shows the real lit scene.
       lights: l.lights,

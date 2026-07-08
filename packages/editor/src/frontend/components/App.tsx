@@ -24,6 +24,7 @@ import { PANELS, type PanelId, panelTitle } from "../lib/panels.ts";
 import { createUiStore, pushRecent } from "../lib/persist.ts";
 import { clickMode } from "../lib/selection.ts";
 import { initialState, reduce } from "../lib/state.ts";
+import { resolveCssColor } from "../lib/theme.ts";
 import { ConfirmDialog, type ConfirmRequest } from "./ConfirmDialog.tsx";
 import { EditorContext, type EditorActions, type EditorContextValue } from "./editor-context.ts";
 import { EntitiesPanel } from "./EntitiesPanel.tsx";
@@ -171,7 +172,19 @@ export function App() {
       try {
         const engine = await loadEngine();
         if (cancelled) return;
-        hostRef.current = engine.createViewportHost();
+        // Resolve the design tokens to engine colours ONCE at engine-ready: the
+        // selection highlight derives from --primary (the single attention lane),
+        // and the viewport clear from --viewport-background (content-vs-chrome
+        // tonal separation). Both go through a canvas-2D readback (oklch→sRGB); the
+        // per-token fallbacks are the provisional token values, so a resolve miss
+        // degrades to a sensible steel-blue / near-black rather than a loud colour.
+        hostRef.current = engine.createViewportHost({
+          accentColor: resolveCssColor("--primary", [0.36, 0.58, 0.8]),
+          viewportBackground: resolveCssColor(
+            "--viewport-background",
+            [0.12, 0.12, 0.13],
+          ),
+        });
         // Slice 3.1: the preview host + the consumer's generator surface. Assigned
         // BEFORE the engine-ready dispatch so both are live once the panels mount.
         previewHostRef.current = engine.createPreviewHost();
