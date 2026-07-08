@@ -128,4 +128,89 @@ describe("generation.bake", () => {
       expect.objectContaining({ type: "generation-baked" }),
     );
   });
+
+  test("cleanDir removes a stale file from a prior larger bake before writing", async () => {
+    // seed a prior bake with an extra stale file (no cleanDir → just writes)
+    await dispatch(handlers, "generation.bake", {
+      files: [
+        {
+          path: "regions/w/stale.scene.json",
+          encoding: "utf8",
+          contents: "{}",
+        },
+        { path: "regions/w/manifest.json", encoding: "utf8", contents: "{}" },
+      ],
+    });
+    // re-bake a SMALLER set with cleanDir → the stale file must be gone
+    await dispatch(handlers, "generation.bake", {
+      cleanDir: "regions/w",
+      files: [
+        {
+          path: "regions/w/manifest.json",
+          encoding: "utf8",
+          contents: '{"v":2}',
+        },
+      ],
+    });
+    expect(existsSync(join(root, "regions/w/stale.scene.json"))).toBe(false);
+    expect(readFileSync(join(root, "regions/w/manifest.json"), "utf8")).toBe(
+      '{"v":2}',
+    );
+  });
+
+  test("cleanDir escaping the root is refused and the FS is untouched", async () => {
+    await expect(
+      dispatch(handlers, "generation.bake", {
+        cleanDir: "../outside",
+        files: [{ path: "regions/w/a.json", encoding: "utf8", contents: "{}" }],
+      }),
+    ).rejects.toMatchObject({ code: "outside-root" });
+    expect(existsSync(join(root, "regions/w/a.json"))).toBe(false);
+  });
+
+  test("a file outside cleanDir is refused before any delete or write", async () => {
+    // Seed a sentinel INSIDE the dir that would be wiped, so a premature rmSync
+    // (rm before the file-under-cleanDir check) would delete it — discriminating the ordering.
+    await dispatch(handlers, "generation.bake", {
+      files: [
+        { path: "regions/w/sentinel.json", encoding: "utf8", contents: "{}" },
+      ],
+    });
+    await expect(
+      dispatch(handlers, "generation.bake", {
+        cleanDir: "regions/w",
+        files: [
+          { path: "regions/other/a.json", encoding: "utf8", contents: "{}" },
+        ],
+      }),
+    ).rejects.toMatchObject({ code: "invalid-input" });
+    // Validation threw before rmSync(regions/w) → the sentinel inside cleanDir survives.
+    expect(existsSync(join(root, "regions/w/sentinel.json"))).toBe(true);
+    // And the offending payload file was never written.
+    expect(existsSync(join(root, "regions/other/a.json"))).toBe(false);
+  });
+
+  test("a cleanDir with a dotfile segment is refused", async () => {
+    // The payload file itself is clean (passes per-file validation); the cleanDir's
+    // dotfile segment is what must be refused.
+    await expect(
+      dispatch(handlers, "generation.bake", {
+        cleanDir: "regions/.hidden",
+        files: [
+          { path: "regions/ok/a.json", encoding: "utf8", contents: "{}" },
+        ],
+      }),
+    ).rejects.toMatchObject({ code: "outside-root" });
+  });
+
+  test("a sibling-prefix file (regions/w2 under cleanDir regions/w) is refused", async () => {
+    await expect(
+      dispatch(handlers, "generation.bake", {
+        cleanDir: "regions/w",
+        files: [
+          { path: "regions/w2/a.json", encoding: "utf8", contents: "{}" },
+        ],
+      }),
+    ).rejects.toMatchObject({ code: "invalid-input" });
+  });
 });

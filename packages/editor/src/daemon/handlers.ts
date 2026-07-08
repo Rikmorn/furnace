@@ -1,5 +1,5 @@
 // packages/editor/src/daemon/handlers.ts
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, resolve, sep } from "node:path";
 import { z } from "zod";
 import { EditorError } from "./errors.ts";
@@ -258,15 +258,19 @@ export function createHandlers(ctx: HandlerContext): Handlers {
   // POSTs the file set here. Binary .fmesh sidecars ride as base64. The daemon
   // validates root-containment for EVERY path first, then writes.
   handlers.set("generation.bake", {
-    input: z.strictObject({ files: z.array(wireFile).min(1) }),
+    input: z.strictObject({
+      files: z.array(wireFile).min(1),
+      cleanDir: z.string().min(1).optional(),
+    }),
     run: (input) => {
       // Boundary cast: dispatch() validated input against this command's schema.
-      const { files } = input as {
+      const { files, cleanDir } = input as {
         files: {
           path: string;
           encoding: "utf8" | "base64";
           contents: string;
         }[];
+        cleanDir?: string;
       };
       const rootAbs = resolve(ctx.root);
       // Validate ALL paths root-contained BEFORE writing ANY file (an escaping
@@ -291,6 +295,37 @@ export function createHandlers(ctx: HandlerContext): Handlers {
         }
         return { abs, file: f };
       });
+      // Optional clean-previous-bake: rm -rf cleanDir BEFORE writing, so a
+      // smaller bake leaves no orphans from a prior larger one. Validate
+      // everything (containment + no dotfile + every file lands inside
+      // cleanDir) BEFORE any delete — a mismatched payload leaves the FS
+      // untouched.
+      if (cleanDir !== undefined) {
+        const cleanAbs = resolve(ctx.root, cleanDir);
+        // cleanAbs !== rootAbs: the project root itself is never a valid cleanDir.
+        const insideRoot =
+          cleanAbs !== rootAbs && cleanAbs.startsWith(rootAbs + sep);
+        const hasDotSegment = cleanDir
+          .split("/")
+          .some((s) => s.startsWith("."));
+        if (!insideRoot || hasDotSegment) {
+          throw new EditorError(
+            "outside-root",
+            `bake cleanDir refused: ${cleanDir}`,
+          );
+        }
+        // Every file must land inside cleanDir — refuse wiping one dir while
+        // writing another.
+        for (const { abs, file } of targets) {
+          if (!abs.startsWith(cleanAbs + sep)) {
+            throw new EditorError(
+              "invalid-input",
+              `bake file outside cleanDir (${cleanDir}): ${file.path}`,
+            );
+          }
+        }
+        rmSync(cleanAbs, { recursive: true, force: true });
+      }
       for (const { abs, file } of targets) {
         mkdirSync(dirname(abs), { recursive: true });
         const data =
