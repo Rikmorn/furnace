@@ -37,6 +37,12 @@ For deeper context: `docs/reference/packaging-and-distribution.md` (publish mode
 
 **Before committing:** run `bun run check` and `bun run typecheck`. Fix anything flagged.
 
+## Agent skills & `.claude` structure
+
+- **Root `.claude/` holds only truly shared config and skills** (currently `playwright-cli`, `teach`). Package-specific skills live in that package's own `.claude/skills/` — today: `packages/editor/.claude/skills/{impeccable, shadcn, vercel-react-best-practices, vercel-react-view-transitions}` (the editor is the repo's only React surface).
+- **Start the session inside the package you're working on** (e.g. `packages/editor` for editor work). Skills load from the session-start directory plus its parents: a package session sees both package and root skills; a root-started session sees only root skills (verified CC 2.1.204, 2026-07-08). Root sessions are for planning / cross-package work — by design they don't load package skills.
+- Third-party skills (impeccable, shadcn, vercel-react-*) are **never edited in place** — updates overwrite them. Scoping/behaviour notes belong here or in package guidance, not in skill files.
+
 ## What we ship to consumers
 
 The published artifacts must work outside the furnace workspace, without our internal toolchain.
