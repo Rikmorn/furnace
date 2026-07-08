@@ -1,4 +1,5 @@
 import { Redo2, Save, Undo2 } from "lucide-react";
+import type { ViewFlags } from "../../viewport-host/index.ts"; // type-only: erased
 import type { PanelId } from "../lib/panels.ts";
 import type { EditorState } from "../lib/state.ts";
 import { MenuBar } from "./MenuBar.tsx";
@@ -22,6 +23,8 @@ export function Toolbar({
   onTogglePanel,
   onResetLayout,
   recentScenes,
+  viewFlags,
+  onToggleViewFlag,
 }: {
   state: EditorState;
   onSelectScene: (p: string) => void;
@@ -33,6 +36,8 @@ export function Toolbar({
   onTogglePanel: (id: PanelId) => void;
   onResetLayout: () => void;
   recentScenes: string[];
+  viewFlags: ViewFlags;
+  onToggleViewFlag: (key: keyof ViewFlags, value: boolean) => void;
 }) {
   // Natural-sort the scene list so e.g. "scene2" precedes "scene10".
   const sortedScenes = [...state.scenes].sort((a, b) =>
@@ -58,6 +63,8 @@ export function Toolbar({
         onResetLayout={onResetLayout}
         recentScenes={recentScenes}
         onSelectScene={onSelectScene}
+        viewFlags={viewFlags}
+        onToggleViewFlag={onToggleViewFlag}
       />
       <div className="ml-2 flex items-center gap-0.5">
         <Button

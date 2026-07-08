@@ -1,6 +1,10 @@
 import type { Dispatch, RefObject, SetStateAction } from "react";
 import { createContext, useContext } from "react";
-import type { PreviewHost, ViewportHost } from "../../viewport-host/index.ts";
+import type {
+  PreviewHost,
+  ViewFlags,
+  ViewportHost,
+} from "../../viewport-host/index.ts";
 import type { ComponentEdit } from "../lib/api.ts";
 import type { GenerationSession } from "../lib/generation.ts";
 import type { UiStore } from "../lib/persist.ts";
@@ -64,6 +68,11 @@ export type EditorContextValue = {
   actions: EditorActions;
   /** The lifted generation session (Slice 3.2.2 Task 6) the GenerationPanel consumes. */
   generation: GenerationControl;
+  /** Viewport view flags (Task 9), App-level so the overlay popover and the View▸View-flags
+   *  menu share one source. `axes` gates the corner triad; the rest gate host rendering. */
+  viewFlags: ViewFlags;
+  /** Toggle one view flag: updates App state, persists it, and pushes to the viewport host. */
+  setViewFlag: (key: keyof ViewFlags, value: boolean) => void;
   /** Per-project UI persistence store (Task 6). Undefined when the project root couldn't
    *  be resolved (persistence best-effort). The inspector reads/writes `inspectorCollapse`
    *  through it to remember each section's open state. */

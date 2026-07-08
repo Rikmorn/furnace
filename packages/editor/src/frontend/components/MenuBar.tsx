@@ -1,7 +1,9 @@
 import { useState } from "react";
+import type { ViewFlags } from "../../viewport-host/index.ts"; // type-only: erased
 import type { BindingAction } from "../lib/keybindings.ts";
 import { PANELS, type PanelId } from "../lib/panels.ts";
 import type { EditorState } from "../lib/state.ts";
+import { VIEW_FLAG_ITEMS } from "../lib/view-flags.ts";
 import {
   Dialog,
   DialogContent,
@@ -23,8 +25,8 @@ import {
   MenubarTrigger,
 } from "./ui/menubar.tsx";
 
-/** The document-control menu bar. File▸Save/Recent, Edit, and View▸Panels/Reset are wired;
- *  View▸View-flags renders DISABLED (owned by Task 9). */
+/** The document-control menu bar. File▸Save/Recent, Edit, View▸Panels/Reset, and
+ *  View▸View-flags (Task 9) are wired. */
 export type MenuBarProps = {
   state: EditorState;
   onSave: () => void;
@@ -38,6 +40,10 @@ export type MenuBarProps = {
   /** Recently opened scenes, most-recent-first (File▸Recent). */
   recentScenes: string[];
   onSelectScene: (path: string) => void;
+  /** Viewport view flags + toggle (Task 9). Mirrored with the viewport overlay popover —
+   *  both read/write the same App-level state. */
+  viewFlags: ViewFlags;
+  onToggleViewFlag: (key: keyof ViewFlags, value: boolean) => void;
 };
 
 /** The keyboard bindings surfaced in Help. Keyed by `BindingAction` so a new
@@ -61,6 +67,8 @@ export function MenuBar({
   onResetLayout,
   recentScenes,
   onSelectScene,
+  viewFlags,
+  onToggleViewFlag,
 }: MenuBarProps) {
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const hasSelection = state.selectedEntities.length > 0;
@@ -142,10 +150,22 @@ export function MenuBar({
               </MenubarSubContent>
             </MenubarSub>
             <MenubarSub>
-              {/* wired in Task 9 */}
-              <MenubarSubTrigger disabled>View flags</MenubarSubTrigger>
+              <MenubarSubTrigger>View flags</MenubarSubTrigger>
               <MenubarSubContent>
-                <MenubarItem disabled>Fog</MenubarItem>
+                {VIEW_FLAG_ITEMS.map(({ key, label }) => (
+                  <MenubarCheckboxItem
+                    key={key}
+                    checked={viewFlags[key]}
+                    // preventDefault keeps the submenu open so several flags can be toggled
+                    // in one visit; toggle against the live flag value.
+                    onSelect={(e) => {
+                      e.preventDefault();
+                      onToggleViewFlag(key, !viewFlags[key]);
+                    }}
+                  >
+                    {label}
+                  </MenubarCheckboxItem>
+                ))}
               </MenubarSubContent>
             </MenubarSub>
             <MenubarSeparator />

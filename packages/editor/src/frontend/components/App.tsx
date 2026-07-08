@@ -14,14 +14,18 @@ import {
   useState,
 } from "react";
 import type { FunctionComponent } from "react";
-import type { PreviewHost, ViewportHost } from "../../viewport-host/index.ts"; // type-only
+import type {
+  PreviewHost,
+  ViewFlags,
+  ViewportHost,
+} from "../../viewport-host/index.ts"; // type-only
 import { ApiClientError, api, type ComponentEdit } from "../lib/api.ts";
 import { EngineBuildError, loadEngine } from "../lib/engine.ts";
 import { subscribeEvents } from "../lib/events.ts";
 import { initialSession } from "../lib/generation.ts";
 import { isTextInputTarget, matchBinding } from "../lib/keybindings.ts";
 import { PANELS, type PanelId, panelTitle } from "../lib/panels.ts";
-import { createUiStore, pushRecent } from "../lib/persist.ts";
+import { createUiStore, DEFAULT_VIEW_FLAGS, pushRecent } from "../lib/persist.ts";
 import { clickMode, SETTINGS_SELECTION } from "../lib/selection.ts";
 import { initialState, reduce } from "../lib/state.ts";
 import { resolveCssColor } from "../lib/theme.ts";
@@ -117,6 +121,11 @@ export function App() {
   // store-ready render can't overwrite a persisted history with the pre-seed empty array.
   const [historyHydrated, setHistoryHydrated] = useState(false);
 
+  // Viewport view flags (Task 9), App-level so the overlay popover and the View▸View-flags
+  // menu are a single source. Seeded from the persisted blob (below); pushed to the host by
+  // a dedicated effect so the initial value and every change take one code path.
+  const [viewFlags, setViewFlags] = useState<ViewFlags>(DEFAULT_VIEW_FLAGS);
+
   // The generation session lifted out of GenerationPanel (Task 6): App owns it so it
   // survives the panel being closed/reopened and an in-flight run keeps updating it after
   // the panel unmounts. See editor-context.ts GenerationControl for the full rationale.
@@ -184,6 +193,9 @@ export function App() {
             "--viewport-background",
             [0.12, 0.12, 0.13],
           ),
+          // Reference-grid neutral from a muted token; major lines use it, minor lines
+          // are drawn dimmer by the host. Exact shade is a Task 12 live-tuning concern.
+          gridColor: resolveCssColor("--muted-foreground", [0.42, 0.42, 0.46]),
         });
         // Slice 3.1: the preview host + the consumer's generator surface. Assigned
         // BEFORE the engine-ready dispatch so both are live once the panels mount.
@@ -262,8 +274,30 @@ export function App() {
     if (storedHistory && storedHistory.length > 0) {
       setGeneration((g) => ({ ...g, history: storedHistory }));
     }
+    // Merge persisted flags over the defaults so a partial/older blob still yields a full set.
+    const storedFlags = store.get("viewFlags");
+    if (storedFlags) {
+      setViewFlags({ ...DEFAULT_VIEW_FLAGS, ...storedFlags });
+    }
     setHistoryHydrated(true);
   }, [store]);
+
+  // Single sync path for view flags: push to the host AND persist on ready and on every
+  // change (so the persisted-seeded value lands too). Keeping the store write here — not in
+  // the setViewFlag handler — leaves the state updater pure. store.set doesn't re-render, so
+  // this doesn't loop; the seed-from-store below runs once and lands one idempotent write.
+  // Runs before any scene loads; render() no-ops until one is loaded, so an early push is safe.
+  useEffect(() => {
+    if (state.status !== "ready") return;
+    hostRef.current?.setViewFlags(viewFlags);
+    store?.set("viewFlags", viewFlags);
+  }, [state.status, viewFlags, store]);
+
+  // Toggle one view flag (mirrored by overlay + menu). Pure functional updater — the host
+  // push + persistence live in the effect above, so there is one sync path.
+  const setViewFlag = useCallback((key: keyof ViewFlags, value: boolean) => {
+    setViewFlags((prev) => ({ ...prev, [key]: value }));
+  }, []);
 
   // Persist reroll history (capped) whenever it changes — bounded so a long session can't
   // bloat the stored blob. Gated on hydration so it never runs before the seed above.
@@ -289,6 +323,13 @@ export function App() {
         await hostRef.current?.loadScene(view.document, {
           resetCamera: isNewScene,
         });
+        // On a NEW scene, prefer a persisted per-doc camera pose over the host's default
+        // framing (restore after loadScene, which framed the content). A same-scene
+        // revision bump keeps the user's current orbit (resetCamera=false above).
+        if (isNewScene) {
+          const storedPose = store?.get("cameraByDoc")?.[view.path];
+          if (storedPose) hostRef.current?.setCameraPose(storedPose);
+        }
         // Assign AFTER the await so a genuine loadScene failure does not poison
         // the dedup cache — the next SSE event will retry rather than skip.
         lastLoaded.current = { path: view.path, revision: view.revision };
@@ -311,7 +352,7 @@ export function App() {
       if (err instanceof ApiClientError && err.code === "no-session") return;
       reportError(err);
     }
-  }, [reportError]);
+  }, [reportError, store]);
 
   const actions = useMemo<EditorActions>(
     () => ({
@@ -697,6 +738,8 @@ export function App() {
       setWingName,
       cancelRef: generationCancelRef,
     },
+    viewFlags,
+    setViewFlag,
     store,
   };
 
@@ -713,6 +756,8 @@ export function App() {
         onTogglePanel={togglePanel}
         onResetLayout={resetLayout}
         recentScenes={recentScenes}
+        viewFlags={viewFlags}
+        onToggleViewFlag={setViewFlag}
       />
       <ConfirmDialog request={confirm} onResolve={resolveConfirm} />
       <EditorContext.Provider value={ctxValue}>

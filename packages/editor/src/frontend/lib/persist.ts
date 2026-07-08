@@ -1,3 +1,5 @@
+import type { ViewFlags } from "../../viewport-host/index.ts"; // type-only: erased
+
 // Per-project UI persistence: one JSON blob per project root under a versioned key,
 // so the editor's chrome (dockview layout, last scene, seed history…) survives a
 // restart. Pure and DOM-free — takes a `Storage` (localStorage in the browser, a fake
@@ -26,17 +28,24 @@ export type UiState = {
       pitch: number;
     }
   >;
-  viewFlags?: {
-    grid?: boolean;
-    axes?: boolean;
-    headlamp?: boolean;
-    fog?: boolean;
-  };
+  // Partial: the store is schema-tolerant and a pre-existing/older blob may carry a subset;
+  // App merges over DEFAULT_VIEW_FLAGS on read. Partial states what's actually guaranteed.
+  viewFlags?: Partial<ViewFlags>;
   inspectorCollapse?: Record<string, boolean>;
   /** Generation reroll history (most recent first); caller caps at 50 before writing. */
   seedHistory?: { attemptSeed: string; baseSeed: string }[];
   /** Recently opened scenes (most recent first); caller caps at 8 before writing. */
   recentScenes?: string[];
+};
+
+/** Viewport view-flag defaults: grid/axes/headlamp ON, fog OFF (a near-black unlit scene
+ *  reads as broken otherwise). Seeds App state before the persisted blob is read; the host
+ *  carries its own identical internal default for no-opts callers (the GPU tests). */
+export const DEFAULT_VIEW_FLAGS: ViewFlags = {
+  grid: true,
+  axes: true,
+  headlamp: true,
+  fog: false,
 };
 
 /** Prepend `item` to a most-recent-first list, dropping any prior occurrence and capping

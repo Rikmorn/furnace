@@ -20,11 +20,10 @@ test("namespaced, versioned, schema-tolerant", () => {
   const backing = new Map<string, string>();
   const fake = fakeStorage(backing);
   const store = createUiStore(fake, "/proj/root");
-  store.set("viewFlags", { grid: false });
+  const flags = { grid: false, axes: true, headlamp: true, fog: false };
+  store.set("viewFlags", flags);
   // A fresh store over the same storage + root reads the persisted value.
-  expect(createUiStore(fake, "/proj/root").get("viewFlags")).toEqual({
-    grid: false,
-  });
+  expect(createUiStore(fake, "/proj/root").get("viewFlags")).toEqual(flags);
   // A different project root is isolated (per-project namespacing).
   expect(createUiStore(fake, "/other").get("viewFlags")).toBeUndefined();
   // Corrupt the blob → the store reads it as empty rather than throwing.

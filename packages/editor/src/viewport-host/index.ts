@@ -28,12 +28,27 @@ import {
   type Ray,
 } from "./gizmo.ts";
 import { classifyDrag, type DragAction } from "./input-map.ts";
+import { buildGridLines, segmentsToBatch } from "./reference-grid.ts";
 
+export type { OrbitState } from "./camera-control.ts";
 export {
   createPreviewHost,
   type PreviewContent,
   type PreviewHost,
 } from "./preview-host.ts";
+
+/**
+ * Viewport reference-layer + rendering toggles. `grid`, `headlamp`, and `fog` gate what
+ * this host renders; `axes` gates the chrome's corner triad overlay (carried here so all
+ * four share one type and one persisted blob). Defaults: grid/axes/headlamp ON, fog OFF —
+ * a near-black unlit scene reads as broken without the grid + lamp.
+ */
+export type ViewFlags = {
+  grid: boolean;
+  axes: boolean;
+  headlamp: boolean;
+  fog: boolean;
+};
 
 /** Callbacks registered by the chrome via `ViewportHost.setCallbacks`. */
 export type ViewportCallbacks = {
@@ -113,6 +128,35 @@ export type ViewportHost = {
    * a single undo entry (Tasks 13+14 depend on this shape).
    */
   setCallbacks(cb: ViewportCallbacks): void;
+  /**
+   * Toggle the viewport reference layer + rendering flags and re-render. `grid`/`headlamp`/
+   * `fog` change what this host draws; `axes` is consumed by the chrome's corner triad, not
+   * here. A no-opts host defaults to grid/axes/headlamp ON, fog OFF, so callers that never
+   * call this (the GPU tests) still render a grounded, lit scene.
+   */
+  setViewFlags(flags: ViewFlags): void;
+  /**
+   * The current editor orbit pose (target/distance/yaw/pitch), or `null` before a scene
+   * loads (the camera is created on load). Returns a copy — mutating it does not affect the
+   * host. Consumed by the corner triad and per-doc camera-pose persistence.
+   */
+  getCameraPose(): OrbitState | null;
+  /**
+   * Restore an orbit pose (e.g. a persisted per-doc camera) onto the editor camera and
+   * re-render. No-op before a scene loads. Does NOT notify camera subscribers — a
+   * programmatic restore is not a user gesture and must not trigger a persistence write.
+   */
+  setCameraPose(pose: OrbitState): void;
+  /**
+   * Subscribe to editor-camera changes (orbit/pan/zoom/frame). `phase` is `"move"` during a
+   * drag — fires per pointer-move frame, for a live overlay only — and `"end"` on release,
+   * wheel zoom, or frame-selection: persist there, never on `"move"` (a per-frame
+   * whole-blob write is the anti-pattern this split exists to prevent). Returns an
+   * unsubscribe function.
+   */
+  subscribeCameraPose(
+    cb: (pose: OrbitState, phase: "move" | "end") => void,
+  ): () => void;
   introspect(): SceneSchemaReflection;
   destroy(): void;
 };
@@ -146,6 +190,12 @@ export type ViewportHostOptions = {
    * engine's own default clear is used (a no-opts host is unchanged).
    */
   viewportBackground?: [number, number, number];
+  /**
+   * Reference-grid neutral colour, applied to the major lines; minor lines are drawn
+   * dimmer. Resolved by the chrome from a neutral design token. Defaults to a mid grey so
+   * a no-opts host still shows a sensible grid.
+   */
+  gridColor?: [number, number, number];
 };
 
 /**
@@ -231,6 +281,89 @@ export function createViewportHost(opts?: ViewportHostOptions): ViewportHost {
         1,
       )
     : undefined;
+
+  // Reference grid: neutral major lines from the token, minor lines dimmed for a cheap
+  // two-tone depth cue. The grid is world-static, so both batches are built ONCE here and
+  // re-used every render (202 lines default) rather than rebuilt per frame.
+  const DEFAULT_GRID: [number, number, number] = [0.42, 0.42, 0.46];
+  const gridBase = opts?.gridColor ?? DEFAULT_GRID;
+  const GRID_MINOR_DIM = 0.5;
+  const gridSegments = buildGridLines();
+  const gridMinor = segmentsToBatch(gridSegments.minorSegments, [
+    gridBase[0] * GRID_MINOR_DIM,
+    gridBase[1] * GRID_MINOR_DIM,
+    gridBase[2] * GRID_MINOR_DIM,
+    1,
+  ]);
+  const gridMajor = segmentsToBatch(gridSegments.majorSegments, [
+    gridBase[0],
+    gridBase[1],
+    gridBase[2],
+    1,
+  ]);
+
+  // View flags default grid/axes/headlamp ON, fog OFF: a no-opts host (the GPU tests, which
+  // never call setViewFlags) then renders a grounded, lit scene and never blanks.
+  let viewFlags: ViewFlags = {
+    grid: true,
+    axes: true,
+    headlamp: true,
+    fog: false,
+  };
+
+  // Neutral camera-carried point light (the preview host's pattern) for near-black unlit
+  // scenes. Intensity scales with orbit distance² and range with distance so the framed
+  // content stays lit at ANY scale — a fixed lamp vanishes for a large scene framed far
+  // away. Calibrated to ~parity with the preview host at its default 10u framing
+  // (0.06 · 10² ≈ 6, range 40) using the shader's windowed inverse-square falloff.
+  const HEADLAMP_COLOR: [number, number, number] = [1, 1, 1];
+  const HEADLAMP_ILLUM = 0.06;
+  const HEADLAMP_RANGE_FACTOR = 4;
+
+  // Fog (view flag, default off): a gentle exponential depth cue fading to the viewport
+  // clear — far weaker than the game's density (0.12), which at orbit distance would
+  // swallow the whole scene (the 3.1 preview-host lesson).
+  const VIEWPORT_FOG_DENSITY = 0.02;
+  const fogColor: [number, number, number] = opts?.viewportBackground ?? [
+    0.1, 0.1, 0.11,
+  ];
+
+  // Camera-pose subscribers (chrome corner triad + per-doc persistence). Notified on every
+  // user camera gesture; see subscribeCameraPose for the "move"/"end" phase contract.
+  const cameraSubscribers = new Set<
+    (pose: OrbitState, phase: "move" | "end") => void
+  >();
+
+  // A defensive copy of an orbit pose so a returned/notified pose can't alias (and let a
+  // subscriber mutate) the host's live state. Annotated return type contextually types the
+  // target literal as the V3 tuple.
+  const clonePose = (s: OrbitState): OrbitState => ({
+    target: [s.target[0], s.target[1], s.target[2]],
+    distance: s.distance,
+    yaw: s.yaw,
+    pitch: s.pitch,
+  });
+
+  const notifyCamera = (phase: "move" | "end"): void => {
+    if (!orbitState || cameraSubscribers.size === 0) return;
+    const pose = clonePose(orbitState);
+    for (const cb of cameraSubscribers) cb(pose, phase);
+  };
+
+  // The neutral headlamp for the current orbit pose, or null when the flag is off / no
+  // camera yet. Position = eye; intensity/range track orbit distance (see constants above).
+  const makeHeadlamp = (): frame.PointLight | null => {
+    if (!orbitState) return null;
+    const { eye } = toEyeTarget(orbitState);
+    const d = orbitState.distance;
+    return {
+      type: "point",
+      position: eye,
+      color: HEADLAMP_COLOR,
+      intensity: HEADLAMP_ILLUM * d * d,
+      range: d * HEADLAMP_RANGE_FACTOR,
+    };
+  };
 
   // Centroid of the current selection's AABB corners — the gizmo origin and the
   // frame-selected target. null when nothing is loaded, the selection is empty,
@@ -344,6 +477,7 @@ export function createViewportHost(opts?: ViewportHostOptions): ViewportHost {
 
   const renderLoaded = (c: Context, l: LoadedScene): void => {
     const cam = editorCam ?? l.camera;
+    const headlamp = viewFlags.headlamp ? makeHeadlamp() : null;
     frame.render(c, {
       meshes: l.meshes,
       camera: cam,
@@ -352,8 +486,14 @@ export function createViewportHost(opts?: ViewportHostOptions): ViewportHost {
       clearColor: toVec4(l.settings.clearColor) ?? viewportClear,
       // lights/ambient are always safe to pass — they don't depend on the
       // context's HDR state — so the editor viewport shows the real lit scene.
-      lights: l.lights,
+      // The neutral headlamp (when on) is appended so an unlit scene still reads.
+      lights: headlamp ? [...l.lights, headlamp] : l.lights,
       ambient: l.ambient,
+      // Fog is a VIEW FLAG here (default off): spread keeps `fog` absent — not
+      // explicitly undefined — when disabled, matching the preview host's pattern.
+      ...(viewFlags.fog
+        ? { fog: { color: fogColor, density: VIEWPORT_FOG_DENSITY } }
+        : {}),
       // effects (post chain) are DEFERRED. This host's GPU context is non-HDR
       // (init() requests the default `hdr: false`). A scene's post chain
       // (bloom→tonemap) is authored for the consumer's HDR pipeline, where
@@ -364,6 +504,22 @@ export function createViewportHost(opts?: ViewportHostOptions): ViewportHost {
       // editor viewport supports an HDR context (then pass l.effects here).
       effects: [],
     });
+    // Reference grid: depth-tested (occlude:true) so solid geometry hides it, drawn every
+    // render like the AABB highlight. Minor batch first, then the brighter majors on top.
+    if (viewFlags.grid) {
+      frame.drawLines(c, {
+        vertices: gridMinor.vertices,
+        colors: gridMinor.colors,
+        camera: cam,
+        occlude: true,
+      });
+      frame.drawLines(c, {
+        vertices: gridMajor.vertices,
+        colors: gridMajor.colors,
+        camera: cam,
+        occlude: true,
+      });
+    }
     for (const id of selection) {
       const corners = l.entityBoxCorners(id);
       if (!corners) continue;
@@ -506,6 +662,7 @@ export function createViewportHost(opts?: ViewportHostOptions): ViewportHost {
     orbitState = { ...orbitState, target: centroid };
     applyOrbit();
     if (ctx) renderLoaded(ctx, loaded);
+    notifyCamera("end"); // a completed gesture — persist the new pose
   };
 
   // Marshal an engine `screenToRay` result into the gizmo's plain-tuple Ray.
@@ -732,6 +889,7 @@ export function createViewportHost(opts?: ViewportHostOptions): ViewportHost {
     }
     applyOrbit();
     renderLoaded(ctx, loaded);
+    notifyCamera("move"); // live overlay update; persistence waits for "end"
   };
 
   const onPointerUp = (e: PointerEvent): void => {
@@ -743,6 +901,7 @@ export function createViewportHost(opts?: ViewportHostOptions): ViewportHost {
     if (!drag) return;
     canvasEl?.releasePointerCapture(e.pointerId);
     drag = null;
+    notifyCamera("end"); // orbit/pan released — persist the resting pose
   };
 
   const onWheel = (e: WheelEvent): void => {
@@ -751,6 +910,7 @@ export function createViewportHost(opts?: ViewportHostOptions): ViewportHost {
     orbitState = zoom(orbitState, Math.sign(e.deltaY));
     applyOrbit();
     renderLoaded(ctx, loaded);
+    notifyCamera("end"); // discrete zoom step — no separate release event
   };
 
   const onKeyDown = (e: KeyboardEvent): void => {
@@ -852,6 +1012,25 @@ export function createViewportHost(opts?: ViewportHostOptions): ViewportHost {
     setCallbacks(cb) {
       callbacks = cb;
     },
+    setViewFlags(flags) {
+      viewFlags = flags;
+      if (ctx && loaded) renderLoaded(ctx, loaded);
+    },
+    getCameraPose() {
+      return orbitState ? clonePose(orbitState) : null;
+    },
+    setCameraPose(pose) {
+      if (!editorCam || !orbitState) return;
+      orbitState = clonePose(pose);
+      applyOrbit();
+      if (ctx && loaded) renderLoaded(ctx, loaded);
+    },
+    subscribeCameraPose(cb) {
+      cameraSubscribers.add(cb);
+      return () => {
+        cameraSubscribers.delete(cb);
+      };
+    },
     introspect: () => scene.introspect(),
     destroy() {
       if (canvasEl) {
@@ -873,6 +1052,7 @@ export function createViewportHost(opts?: ViewportHostOptions): ViewportHost {
       editorCam = undefined;
       orbitState = undefined;
       callbacks = undefined;
+      cameraSubscribers.clear();
       drag = null;
       gizmoDrag = null;
       if (ctx) gpu.dispose(ctx);

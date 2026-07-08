@@ -28,6 +28,7 @@ const st = (over: Partial<EditorState> = {}): EditorState => ({
 });
 
 const noop = () => {};
+const VIEW_FLAGS = { grid: true, axes: true, headlamp: true, fog: false };
 const menuBarProps = {
   onSave: noop,
   onUndo: noop,
@@ -38,6 +39,8 @@ const menuBarProps = {
   onResetLayout: noop,
   recentScenes: [] as string[],
   onSelectScene: noop,
+  viewFlags: VIEW_FLAGS,
+  onToggleViewFlag: noop,
 };
 
 function openMenu(label: string) {
@@ -144,6 +147,8 @@ function renderToolbar(state: EditorState, onSave = noop) {
       onTogglePanel={noop}
       onResetLayout={noop}
       recentScenes={[]}
+      viewFlags={VIEW_FLAGS}
+      onToggleViewFlag={noop}
     />,
   );
 }

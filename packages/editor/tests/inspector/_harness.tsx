@@ -24,7 +24,7 @@ import {
   type GenerationControl,
 } from "../../src/frontend/components/editor-context.ts";
 import { initialSession } from "../../src/frontend/lib/generation.ts";
-import type { UiStore } from "../../src/frontend/lib/persist.ts";
+import { DEFAULT_VIEW_FLAGS, type UiStore } from "../../src/frontend/lib/persist.ts";
 import { initialState, type EditorState } from "../../src/frontend/lib/state.ts";
 
 const {
@@ -98,6 +98,8 @@ export function makeEditorContext(
     extensions: overrides.extensions ?? {},
     actions,
     generation,
+    viewFlags: DEFAULT_VIEW_FLAGS,
+    setViewFlag: () => {},
     store: overrides.store,
   };
 }
