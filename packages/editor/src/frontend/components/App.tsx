@@ -1,7 +1,9 @@
 import {
+  type DockviewApi,
   DockviewReact,
   type DockviewReadyEvent,
   type IDockviewPanelProps,
+  type SerializedDockview,
 } from "dockview";
 import {
   useCallback,
@@ -16,7 +18,10 @@ import type { PreviewHost, ViewportHost } from "../../viewport-host/index.ts"; /
 import { ApiClientError, api, type ComponentEdit } from "../lib/api.ts";
 import { EngineBuildError, loadEngine } from "../lib/engine.ts";
 import { subscribeEvents } from "../lib/events.ts";
+import { initialSession } from "../lib/generation.ts";
 import { isTextInputTarget, matchBinding } from "../lib/keybindings.ts";
+import { PANELS, type PanelId, panelTitle } from "../lib/panels.ts";
+import { createUiStore, pushRecent } from "../lib/persist.ts";
 import { clickMode } from "../lib/selection.ts";
 import { initialState, reduce } from "../lib/state.ts";
 import { ConfirmDialog, type ConfirmRequest } from "./ConfirmDialog.tsx";
@@ -37,6 +42,25 @@ const COMPONENTS: Record<string, FunctionComponent<IDockviewPanelProps>> = {
   viewport: Viewport,
   inspect: InspectPanel,
   generation: GenerationPanel,
+};
+
+// Persisted-list caps: the File▸Recent menu and the seed-history write-back stay bounded
+// so a long session can't bloat the per-project localStorage blob (a critique finding).
+const RECENT_SCENES_CAP = 8;
+const SEED_HISTORY_CAP = 50;
+// Trailing-debounce the layout write: onDidLayoutChange fires per pointermove frame during a
+// splitter drag, but each write JSON-stringifies the whole UiState blob — persist once settled.
+const LAYOUT_SAVE_DEBOUNCE_MS = 200;
+
+// The default layout's dockview positions per panel — the one piece that legitimately isn't
+// in PANELS (which owns id/title/component). The first panel has none; the rest anchor to the
+// previously-added panel. Iterating PANELS + this table keeps the initial layout in sync with
+// the View▸Panels toggles from a single PANELS edit.
+type PanelPosition = { referencePanel: PanelId; direction: "right" | "below" };
+const DEFAULT_PANEL_POSITION: Partial<Record<PanelId, PanelPosition>> = {
+  viewport: { referencePanel: "entities", direction: "right" },
+  inspect: { referencePanel: "viewport", direction: "right" },
+  generation: { referencePanel: "inspect", direction: "below" },
 };
 
 export function App() {
@@ -68,6 +92,39 @@ export function App() {
     canUndo: boolean;
     canRedo: boolean;
   }>({ selection: [], canUndo: false, canRedo: false });
+
+  // Per-project UI persistence. The project root comes from the daemon (project.get);
+  // `storeResolved` gates the dockview render so onReady sees the store (and, if project.get
+  // fails, still mounts dockview with persistence disabled rather than a blank editor).
+  const [projectRoot, setProjectRoot] = useState<string | undefined>(undefined);
+  const [storeResolved, setStoreResolved] = useState(false);
+  const store = useMemo(
+    () =>
+      projectRoot ? createUiStore(window.localStorage, projectRoot) : undefined,
+    [projectRoot],
+  );
+  const dockApiRef = useRef<DockviewApi | undefined>(undefined);
+  // Trailing-debounce timer for the layout write (cleared on unmount).
+  const layoutSaveTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(
+    undefined,
+  );
+  // Which panels are currently in the layout + the recent-scenes list — mirrored into
+  // React state so the View▸Panels checkmarks and File▸Recent menu re-render on change.
+  const [panelIds, setPanelIds] = useState<string[]>([]);
+  const [recentScenes, setRecentScenes] = useState<string[]>([]);
+  // Gate the seed-history write-back until the store has been read once, so the first
+  // store-ready render can't overwrite a persisted history with the pre-seed empty array.
+  const [historyHydrated, setHistoryHydrated] = useState(false);
+
+  // The generation session lifted out of GenerationPanel (Task 6): App owns it so it
+  // survives the panel being closed/reopened and an in-flight run keeps updating it after
+  // the panel unmounts. See editor-context.ts GenerationControl for the full rationale.
+  const [generation, setGeneration] = useState(initialSession);
+  const [wingName, setWingName] = useState("generated-wing");
+  const generationCancelRef = useRef(false);
+  // Mirrors whether a run/bake is in flight for the SSE bundle-outdated guard (that closure
+  // re-subscribes only on [state.status, refreshSession], so it can't read live generation).
+  const generationBusyRef = useRef(false);
 
   const openConfirm = useCallback((request: ConfirmRequest) => {
     if (confirmRef.current) return; // never clobber a pending prompt
@@ -159,6 +216,48 @@ export function App() {
       cancelled = true;
     };
   }, []);
+
+  // Fetch the project root (fast local call, independent of the engine bundle) to key the
+  // persistence store. `storeResolved` flips on both success and failure so the dockview
+  // render un-gates either way.
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .projectGet()
+      .then(({ root }) => {
+        if (!cancelled) setProjectRoot(root);
+      })
+      .catch(() => {
+        // Persistence is best-effort: without a root the store stays disabled.
+      })
+      .finally(() => {
+        if (!cancelled) setStoreResolved(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Seed the persisted UI slices into state once the store is available. Setting
+  // `historyHydrated` here (rather than a ref) keeps the write-back below from firing on
+  // this same commit — it reads a still-false flag and skips, so the persisted history is
+  // never clobbered by the pre-seed empty array.
+  useEffect(() => {
+    if (!store) return;
+    setRecentScenes(store.get("recentScenes") ?? []);
+    const storedHistory = store.get("seedHistory");
+    if (storedHistory && storedHistory.length > 0) {
+      setGeneration((g) => ({ ...g, history: storedHistory }));
+    }
+    setHistoryHydrated(true);
+  }, [store]);
+
+  // Persist reroll history (capped) whenever it changes — bounded so a long session can't
+  // bloat the stored blob. Gated on hydration so it never runs before the seed above.
+  useEffect(() => {
+    if (!store || !historyHydrated) return;
+    store.set("seedHistory", generation.history.slice(0, SEED_HISTORY_CAP));
+  }, [store, historyHydrated, generation.history]);
 
   // The single doc-refresh path: pull the read model, reload the viewport only
   // when (path, revision) actually advanced. Every SSE event and every locally
@@ -294,6 +393,11 @@ export function App() {
   }, [state.dirty]);
 
   useEffect(() => {
+    const phase = generation.status.phase;
+    generationBusyRef.current = phase === "running" || phase === "baking";
+  }, [generation.status]);
+
+  useEffect(() => {
     latest.current = {
       selection: state.selectedEntities,
       canUndo: state.canUndo,
@@ -372,8 +476,12 @@ export function App() {
           // Generator/extension source changed: the engine bundle is stale. Reload
           // when no unsaved work is at risk; otherwise leave the choice to the user
           // (the status bar shows dirty state — a stale engine is preferable to
-          // losing edits). 3.2's chrome rework owns a proper notice UX.
-          if (!dirtyRef.current) window.location.reload();
+          // losing edits). Also refuse the auto-reload while a generation run/bake is
+          // in flight — a hard reload would kill it mid-run. 3.2's chrome rework owns a
+          // proper notice UX.
+          if (!dirtyRef.current && !generationBusyRef.current) {
+            window.location.reload();
+          }
           return;
         }
         if (event.type === "file-invalid") {
@@ -394,11 +502,33 @@ export function App() {
     hostRef.current?.setSelection(state.selectedEntities);
   }, [state.selectedEntities]);
 
+  // Record a scene open into the persistence store: `lastScene` (restored on next launch)
+  // and the recent-scenes list (most-recent-first, deduped, capped). Reads the current list
+  // from the store rather than closing over state, so it stays correct without a dep churn.
+  const recordSceneVisit = useCallback(
+    (path: string) => {
+      if (!store) return;
+      store.set("lastScene", path);
+      const next = pushRecent(
+        store.get("recentScenes") ?? [],
+        path,
+        RECENT_SCENES_CAP,
+      );
+      store.set("recentScenes", next);
+      setRecentScenes(next);
+    },
+    [store],
+  );
+
   const selectScene = useCallback(
     async (path: string) => {
       dispatch({ type: "scene-loading", path });
       try {
         await api.sceneOpen(path);
+        // Record ONLY after a confirmed successful open — never at the top. A cancelled
+        // discard prompt or a failed open must not write lastScene/recentScenes, or the
+        // next-launch restore would silently reopen a scene the user declined to open.
+        recordSceneVisit(path);
         // No loadScene here: the scene-opened SSE event drives refreshSession —
         // the chrome rides the same change feed as every other client.
       } catch (err) {
@@ -411,6 +541,7 @@ export function App() {
             onConfirm: async () => {
               try {
                 await api.sceneOpen(path, true);
+                recordSceneVisit(path); // only after the forced open succeeds
               } catch (err2) {
                 reportError(err2);
               }
@@ -423,34 +554,112 @@ export function App() {
         reportError(err);
       }
     },
-    [refreshSession, openConfirm, reportError],
+    [refreshSession, openConfirm, reportError, recordSceneVisit],
   );
 
-  const onReady = useCallback((event: DockviewReadyEvent) => {
-    event.api.addPanel({
-      id: "entities",
-      component: "entities",
-      title: "Entities",
-    });
-    event.api.addPanel({
-      id: "viewport",
-      component: "viewport",
-      title: "Viewport",
-      position: { referencePanel: "entities", direction: "right" },
-    });
-    event.api.addPanel({
-      id: "inspect",
-      component: "inspect",
-      title: "Inspect",
-      position: { referencePanel: "viewport", direction: "right" },
-    });
-    event.api.addPanel({
-      id: "generation",
-      component: "generation",
-      title: "Generation",
-      position: { referencePanel: "inspect", direction: "below" },
-    });
+  // Reflect the live dockview panel set into React state so the View▸Panels menu tracks it.
+  // Bails out (returns the same array ref) when the ordered id set is unchanged, so a
+  // per-frame resize fire during a splitter drag doesn't re-render Toolbar/MenuBar — only an
+  // actual panel add/remove does.
+  const syncPanels = useCallback(() => {
+    const ids = dockApiRef.current?.panels.map((p) => p.id) ?? [];
+    setPanelIds((prev) =>
+      prev.length === ids.length && prev.every((id, i) => id === ids[i])
+        ? prev
+        : ids,
+    );
   }, []);
+
+  // The default layout (Entities | Viewport | Inspect / Generation-below), built by iterating
+  // PANELS so a title/id edit there flows to the initial layout, the toggle menu, and re-add.
+  const addDefaultLayout = useCallback((dockApi: DockviewApi) => {
+    for (const { id, title } of PANELS) {
+      const position = DEFAULT_PANEL_POSITION[id];
+      dockApi.addPanel({
+        id,
+        component: id,
+        title,
+        ...(position ? { position } : {}),
+      });
+    }
+  }, []);
+
+  const onReady = useCallback(
+    (event: DockviewReadyEvent) => {
+      dockApiRef.current = event.api;
+      const saved = store?.get("layout");
+      let restored = false;
+      if (saved) {
+        try {
+          // Boundary cast: the store holds `unknown`; toJSON() produced a SerializedDockview
+          // and fromJSON round-trips it. A corrupt/incompatible blob throws → default layout.
+          event.api.fromJSON(saved as SerializedDockview);
+          restored = true;
+        } catch {
+          // fall through to the default layout below
+        }
+      }
+      if (!restored) addDefaultLayout(event.api);
+      syncPanels();
+      // Keep the panel-set mirror current on every change (cheap, bail-out guarded), but
+      // trailing-debounce the expensive whole-blob layout write so a drag persists once when
+      // it settles. Subscribed AFTER the initial build so the multi-addPanel setup doesn't
+      // write intermediate states.
+      event.api.onDidLayoutChange(() => {
+        syncPanels();
+        if (layoutSaveTimerRef.current !== undefined) {
+          clearTimeout(layoutSaveTimerRef.current);
+        }
+        layoutSaveTimerRef.current = setTimeout(() => {
+          store?.set("layout", event.api.toJSON());
+        }, LAYOUT_SAVE_DEBOUNCE_MS);
+      });
+    },
+    [store, addDefaultLayout, syncPanels],
+  );
+
+  // Clear any pending debounced layout write on unmount.
+  useEffect(
+    () => () => {
+      if (layoutSaveTimerRef.current !== undefined) {
+        clearTimeout(layoutSaveTimerRef.current);
+      }
+    },
+    [],
+  );
+
+  // View▸Panels toggle: remove a present panel, or re-add a missing one (no saved position —
+  // dockview places it in a default group; the user can re-dock). onDidLayoutChange re-syncs.
+  const togglePanel = useCallback((id: PanelId) => {
+    const dockApi = dockApiRef.current;
+    if (!dockApi) return;
+    const existing = dockApi.getPanel(id);
+    if (existing) {
+      dockApi.removePanel(existing);
+    } else {
+      dockApi.addPanel({ id, component: id, title: panelTitle(id) });
+    }
+  }, []);
+
+  // View▸Reset layout: drop the persisted layout and reload so onReady rebuilds the default.
+  const resetLayout = useCallback(() => {
+    store?.set("layout", undefined);
+    window.location.reload();
+  }, [store]);
+
+  // Restore the last-opened scene on launch: once the store, scene list, and engine are all
+  // ready, open the persisted lastScene if it still exists and nothing is open yet. Guarded
+  // to fire at most once so it never fights a subsequent user selection.
+  const lastSceneRestoredRef = useRef(false);
+  useEffect(() => {
+    if (lastSceneRestoredRef.current) return;
+    if (!store || state.status !== "ready" || state.scenes.length === 0) return;
+    lastSceneRestoredRef.current = true;
+    const last = store.get("lastScene");
+    if (last && !state.selectedScene && state.scenes.includes(last)) {
+      void selectScene(last);
+    }
+  }, [store, state.status, state.scenes, state.selectedScene, selectScene]);
 
   // Fresh object each render — that is intentional: a new context value on every
   // state change is what forces the portaled panel consumers to re-render.
@@ -461,6 +670,13 @@ export function App() {
     previewHostRef,
     extensions: extensionsRef.current,
     actions,
+    generation: {
+      session: generation,
+      setSession: setGeneration,
+      wingName,
+      setWingName,
+      cancelRef: generationCancelRef,
+    },
   };
 
   return (
@@ -472,15 +688,23 @@ export function App() {
         onUndo={actions.undo}
         onRedo={actions.redo}
         onDelete={requestDelete}
+        openPanelIds={panelIds}
+        onTogglePanel={togglePanel}
+        onResetLayout={resetLayout}
+        recentScenes={recentScenes}
       />
       <ConfirmDialog request={confirm} onResolve={resolveConfirm} />
       <EditorContext.Provider value={ctxValue}>
         <div className="min-h-0 flex-1">
-          <DockviewReact
-            className="dockview-theme-dark h-full"
-            components={COMPONENTS}
-            onReady={onReady}
-          />
+          {/* Gated on storeResolved so onReady sees the persistence store (layout restore).
+              If project.get fails, storeResolved still flips → dockview mounts without it. */}
+          {storeResolved && (
+            <DockviewReact
+              className="dockview-theme-dark h-full"
+              components={COMPONENTS}
+              onReady={onReady}
+            />
+          )}
         </div>
       </EditorContext.Provider>
       <StatusBar state={state} />

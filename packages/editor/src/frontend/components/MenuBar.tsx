@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { BindingAction } from "../lib/keybindings.ts";
+import { PANELS, type PanelId } from "../lib/panels.ts";
 import type { EditorState } from "../lib/state.ts";
 import {
   Dialog,
@@ -10,6 +11,7 @@ import {
 } from "./ui/dialog.tsx";
 import {
   Menubar,
+  MenubarCheckboxItem,
   MenubarContent,
   MenubarItem,
   MenubarMenu,
@@ -21,14 +23,21 @@ import {
   MenubarTrigger,
 } from "./ui/menubar.tsx";
 
-/** The document-control menu bar. File/Edit are wired this task; View panels/flags
- *  and File▸Open/Recent render DISABLED (owned by Tasks 6 & 9). */
+/** The document-control menu bar. File▸Save/Recent, Edit, and View▸Panels/Reset are wired;
+ *  View▸View-flags renders DISABLED (owned by Task 9). */
 export type MenuBarProps = {
   state: EditorState;
   onSave: () => void;
   onUndo: () => void;
   onRedo: () => void;
   onDelete: () => void;
+  /** dockview panel ids currently in the layout (drives the View▸Panels checkmarks). */
+  openPanelIds: string[];
+  onTogglePanel: (id: PanelId) => void;
+  onResetLayout: () => void;
+  /** Recently opened scenes, most-recent-first (File▸Recent). */
+  recentScenes: string[];
+  onSelectScene: (path: string) => void;
 };
 
 /** The keyboard bindings surfaced in Help. Keyed by `BindingAction` so a new
@@ -41,7 +50,18 @@ const SHORTCUTS: Record<BindingAction, { label: string; keys: string }> = {
   delete: { label: "Delete selection", keys: "⌫" },
 };
 
-export function MenuBar({ state, onSave, onUndo, onRedo, onDelete }: MenuBarProps) {
+export function MenuBar({
+  state,
+  onSave,
+  onUndo,
+  onRedo,
+  onDelete,
+  openPanelIds,
+  onTogglePanel,
+  onResetLayout,
+  recentScenes,
+  onSelectScene,
+}: MenuBarProps) {
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const hasSelection = state.selectedEntities.length > 0;
 
@@ -57,13 +77,23 @@ export function MenuBar({ state, onSave, onUndo, onRedo, onDelete }: MenuBarProp
               <MenubarShortcut>⌘S</MenubarShortcut>
             </MenubarItem>
             <MenubarSeparator />
-            {/* wired in Task 6 */}
+            {/* Open-scene… (a file picker) is deferred; the Toolbar scene dropdown +
+                Recent cover opening for now. */}
             <MenubarItem disabled>Open scene…</MenubarItem>
             <MenubarSub>
-              {/* wired in Task 6 */}
-              <MenubarSubTrigger disabled>Recent</MenubarSubTrigger>
+              <MenubarSubTrigger disabled={recentScenes.length === 0}>
+                Recent
+              </MenubarSubTrigger>
               <MenubarSubContent>
-                <MenubarItem disabled>No recent scenes</MenubarItem>
+                {recentScenes.length === 0 ? (
+                  <MenubarItem disabled>No recent scenes</MenubarItem>
+                ) : (
+                  recentScenes.map((path) => (
+                    <MenubarItem key={path} onSelect={() => onSelectScene(path)}>
+                      {path}
+                    </MenubarItem>
+                  ))
+                )}
               </MenubarSubContent>
             </MenubarSub>
           </MenubarContent>
@@ -92,10 +122,23 @@ export function MenuBar({ state, onSave, onUndo, onRedo, onDelete }: MenuBarProp
           <MenubarTrigger>View</MenubarTrigger>
           <MenubarContent>
             <MenubarSub>
-              {/* wired in Task 6 */}
-              <MenubarSubTrigger disabled>Panels</MenubarSubTrigger>
+              <MenubarSubTrigger>Panels</MenubarSubTrigger>
               <MenubarSubContent>
-                <MenubarItem disabled>Entities</MenubarItem>
+                {PANELS.map((panel) => (
+                  <MenubarCheckboxItem
+                    key={panel.id}
+                    checked={openPanelIds.includes(panel.id)}
+                    // preventDefault keeps the submenu open so several panels can be
+                    // toggled in one visit; the callback ignores the boolean and reads
+                    // the live dockview state.
+                    onSelect={(e) => {
+                      e.preventDefault();
+                      onTogglePanel(panel.id);
+                    }}
+                  >
+                    {panel.title}
+                  </MenubarCheckboxItem>
+                ))}
               </MenubarSubContent>
             </MenubarSub>
             <MenubarSub>
@@ -106,8 +149,7 @@ export function MenuBar({ state, onSave, onUndo, onRedo, onDelete }: MenuBarProp
               </MenubarSubContent>
             </MenubarSub>
             <MenubarSeparator />
-            {/* wired in Task 6 */}
-            <MenubarItem disabled>Reset layout</MenubarItem>
+            <MenubarItem onSelect={onResetLayout}>Reset layout</MenubarItem>
           </MenubarContent>
         </MenubarMenu>
 

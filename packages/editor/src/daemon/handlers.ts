@@ -35,6 +35,13 @@ export function createHandlers(ctx: HandlerContext): Handlers {
   // unknown) signature erases the per-command schema; dispatch() validated the
   // input against this command's schema immediately before invoking run.
 
+  // The project root the daemon serves — the frontend keys its per-project UI
+  // persistence store on it (chrome layout, last scene, seed history survive a restart).
+  handlers.set("project.get", {
+    input: z.strictObject({}),
+    run: () => Promise.resolve({ root: ctx.root }),
+  });
+
   handlers.set("scene.list", {
     input: z.strictObject({}),
     run: async () => ({

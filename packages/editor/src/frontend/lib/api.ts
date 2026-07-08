@@ -49,6 +49,8 @@ export type ComponentEdit = {
 };
 
 export const api = {
+  // The project root the daemon serves — used to key per-project UI persistence.
+  projectGet: () => call<{ root: string }>("project.get", {}),
   sceneList: () => call<{ scenes: string[] }>("scene.list", {}),
   sceneOpen: (path: string, force = false) =>
     call<SessionView>("scene.open", { path, force }),

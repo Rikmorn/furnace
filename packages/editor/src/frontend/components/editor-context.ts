@@ -1,7 +1,8 @@
-import type { RefObject } from "react";
+import type { Dispatch, RefObject, SetStateAction } from "react";
 import { createContext, useContext } from "react";
 import type { PreviewHost, ViewportHost } from "../../viewport-host/index.ts";
 import type { ComponentEdit } from "../lib/api.ts";
+import type { GenerationSession } from "../lib/generation.ts";
 import type { EditorEvent, EditorState } from "../lib/state.ts";
 
 /** Preview/commit actions the inspector drives; implemented in App (owns host + dedup). */
@@ -31,6 +32,22 @@ export type EditorActions = {
   frameSelection(): void;
 };
 
+/** The generation session lifted to App level so it survives the Generation panel being
+ *  closed and reopened (dockview unmounts a removed panel). The panel is a pure CONSUMER:
+ *  it reads `session`/`wingName` and drives them through these App-owned setters. Because
+ *  the setters are App state (stable identity), an in-flight run's async setter calls land
+ *  in App state even after the panel unmounts. `cancelRef` is App-owned for the same reason
+ *  — a panel-local ref would be recreated on remount, orphaning the running loop. */
+export type GenerationControl = {
+  session: GenerationSession;
+  setSession: Dispatch<SetStateAction<GenerationSession>>;
+  /** The bake destination (regions/<name>) — independent of generation config. */
+  wingName: string;
+  setWingName: Dispatch<SetStateAction<string>>;
+  /** In-flight run cancel flag; App-owned so Cancel works across a panel close/reopen. */
+  cancelRef: RefObject<boolean>;
+};
+
 /** Live editor state shared with the dockview panels through React context
  *  (panels are portaled, so closure props can't carry live state — see App). */
 export type EditorContextValue = {
@@ -44,6 +61,8 @@ export type EditorContextValue = {
    *  panel is the SINGLE seam that narrows it (with `// Boundary cast:` comments). */
   extensions: Record<string, unknown>;
   actions: EditorActions;
+  /** The lifted generation session (Slice 3.2.2 Task 6) the GenerationPanel consumes. */
+  generation: GenerationControl;
 };
 
 export const EditorContext = createContext<EditorContextValue | null>(null);

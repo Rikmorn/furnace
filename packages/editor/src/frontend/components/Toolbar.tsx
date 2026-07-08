@@ -1,4 +1,5 @@
 import { Redo2, Save, Undo2 } from "lucide-react";
+import type { PanelId } from "../lib/panels.ts";
 import type { EditorState } from "../lib/state.ts";
 import { MenuBar } from "./MenuBar.tsx";
 import { Button } from "./ui/button.tsx";
@@ -17,6 +18,10 @@ export function Toolbar({
   onUndo,
   onRedo,
   onDelete,
+  openPanelIds,
+  onTogglePanel,
+  onResetLayout,
+  recentScenes,
 }: {
   state: EditorState;
   onSelectScene: (p: string) => void;
@@ -24,7 +29,15 @@ export function Toolbar({
   onUndo: () => void;
   onRedo: () => void;
   onDelete: () => void;
+  openPanelIds: string[];
+  onTogglePanel: (id: PanelId) => void;
+  onResetLayout: () => void;
+  recentScenes: string[];
 }) {
+  // Natural-sort the scene list so e.g. "scene2" precedes "scene10".
+  const sortedScenes = [...state.scenes].sort((a, b) =>
+    a.localeCompare(b, undefined, { numeric: true }),
+  );
   return (
     <header className="flex items-center gap-1 border-b border-border px-3 py-1.5">
       {/* The wordmark shrinks to a compact mark; the menu + controls own the left. */}
@@ -40,6 +53,11 @@ export function Toolbar({
         onUndo={onUndo}
         onRedo={onRedo}
         onDelete={onDelete}
+        openPanelIds={openPanelIds}
+        onTogglePanel={onTogglePanel}
+        onResetLayout={onResetLayout}
+        recentScenes={recentScenes}
+        onSelectScene={onSelectScene}
       />
       <div className="ml-2 flex items-center gap-0.5">
         <Button
@@ -96,7 +114,7 @@ export function Toolbar({
             />
           </SelectTrigger>
           <SelectContent>
-            {state.scenes.map((s) => (
+            {sortedScenes.map((s) => (
               <SelectItem key={s} value={s}>
                 {s}
               </SelectItem>

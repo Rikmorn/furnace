@@ -28,7 +28,17 @@ const st = (over: Partial<EditorState> = {}): EditorState => ({
 });
 
 const noop = () => {};
-const menuBarProps = { onSave: noop, onUndo: noop, onRedo: noop, onDelete: noop };
+const menuBarProps = {
+  onSave: noop,
+  onUndo: noop,
+  onRedo: noop,
+  onDelete: noop,
+  openPanelIds: ["entities", "viewport", "inspect", "generation"],
+  onTogglePanel: noop,
+  onResetLayout: noop,
+  recentScenes: [] as string[],
+  onSelectScene: noop,
+};
 
 function openMenu(label: string) {
   const trigger = screen.getByText(label);
@@ -93,6 +103,32 @@ test("File▸Save is disabled when the document is not dirty", () => {
   expect(menuItem(/Save/).hasAttribute("data-disabled")).toBe(true);
 });
 
+// --- Task 6: View▸Reset layout + File▸Recent (trigger-level; submenu open is browser-gated) ---
+
+test("View▸Reset layout fires onResetLayout", () => {
+  const onResetLayout = mock(noop);
+  render(<MenuBar state={st()} {...menuBarProps} onResetLayout={onResetLayout} />);
+  openMenu("View");
+  const reset = menuItem(/Reset layout/);
+  expect(reset.hasAttribute("data-disabled")).toBe(false);
+  fireEvent.click(reset);
+  expect(onResetLayout).toHaveBeenCalledTimes(1);
+});
+
+test("File▸Recent is disabled with no recent scenes, enabled with some", () => {
+  const { rerender } = render(<MenuBar state={st()} {...menuBarProps} />);
+  openMenu("File");
+  expect(menuItem(/Recent/).hasAttribute("data-disabled")).toBe(true);
+  rerender(
+    <MenuBar
+      state={st()}
+      {...menuBarProps}
+      recentScenes={["scenes/a.scene.json"]}
+    />,
+  );
+  expect(menuItem(/Recent/).hasAttribute("data-disabled")).toBe(false);
+});
+
 // --- Toolbar cluster (always-in-DOM, no overlay) ---
 
 function renderToolbar(state: EditorState, onSave = noop) {
@@ -104,6 +140,10 @@ function renderToolbar(state: EditorState, onSave = noop) {
       onUndo={noop}
       onRedo={noop}
       onDelete={noop}
+      openPanelIds={["entities", "viewport", "inspect", "generation"]}
+      onTogglePanel={noop}
+      onResetLayout={noop}
+      recentScenes={[]}
     />,
   );
 }

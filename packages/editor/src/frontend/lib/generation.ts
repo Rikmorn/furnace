@@ -1,7 +1,8 @@
-// The ephemeral generation session (Slice 3.1 spec §3): plain state + helpers the
-// GenerationPanel drives. NO document-session contact — the session lives entirely in
-// panel-local React state; the ONLY daemon crossing is freeze (an api call that uploads
-// the browser-produced file set). Everything here is pure and unit-tested without a DOM.
+// The ephemeral generation session (Slice 3.1 spec §3; lifted to App level in 3.2.2): plain
+// state + helpers. NO document-session contact — App owns the session/wingName/cancelRef (so
+// it survives the panel closing) and the GenerationPanel drives them as a context consumer;
+// the ONLY daemon crossing is freeze (an api call that uploads the browser-produced file set).
+// Everything here is pure and unit-tested without a DOM.
 import type { PreviewContent } from "../../viewport-host/index.ts"; // type-only: erased
 
 /** The generation session's lifecycle, one variant per user-visible phase. The `done`

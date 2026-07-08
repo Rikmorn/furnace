@@ -44,6 +44,10 @@ afterAll(() => {
   rmSync(root, { recursive: true, force: true });
 });
 
+test("project.get returns the served root", async () => {
+  expect(await dispatch(handlers, "project.get", {})).toEqual({ root });
+});
+
 test("scene.list and scene.read still work", async () => {
   expect(await dispatch(handlers, "scene.list", {})).toEqual({
     scenes: ["scenes/cube.scene.json"],

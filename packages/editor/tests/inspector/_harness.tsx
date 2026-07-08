@@ -21,7 +21,9 @@ import {
   EditorContext,
   type EditorActions,
   type EditorContextValue,
+  type GenerationControl,
 } from "../../src/frontend/components/editor-context.ts";
+import { initialSession } from "../../src/frontend/lib/generation.ts";
 import { initialState, type EditorState } from "../../src/frontend/lib/state.ts";
 
 const {
@@ -43,6 +45,7 @@ type EditorContextOverrides = {
   previewHostRef?: EditorContextValue["previewHostRef"];
   extensions?: Record<string, unknown>;
   actions?: Partial<EditorActions>;
+  generation?: Partial<GenerationControl>;
 };
 
 /** Build a mock EditorContextValue with no-op defaults; override any slice. */
@@ -63,6 +66,14 @@ export function makeEditorContext(
     frameSelection: () => {},
     ...overrides.actions,
   };
+  const generation: GenerationControl = {
+    session: initialSession(),
+    setSession: () => {},
+    wingName: "generated-wing",
+    setWingName: () => {},
+    cancelRef: { current: false },
+    ...overrides.generation,
+  };
   return {
     state: { ...initialState, status: "ready", ...overrides.state },
     dispatch: overrides.dispatch ?? (() => {}),
@@ -70,6 +81,7 @@ export function makeEditorContext(
     previewHostRef: overrides.previewHostRef ?? { current: undefined },
     extensions: overrides.extensions ?? {},
     actions,
+    generation,
   };
 }
 

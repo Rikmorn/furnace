@@ -1,11 +1,9 @@
-import { useRef, useState } from "react";
 import type { PreviewHost } from "../../viewport-host/index.ts"; // type-only: erased
 import { api } from "../lib/api.ts";
 import { cn } from "../lib/cn.ts";
 import {
   type GenerationSession,
   type GenerationStatus,
-  initialSession,
   invalidateDonePreview,
   isValidWingName,
   layoutBounds,
@@ -63,13 +61,14 @@ function statusText(s: GenerationStatus): string {
 }
 
 export function GenerationPanel() {
-  const { state, dispatch, previewHostRef, extensions } = useEditor();
-  const [session, setSession] = useState<GenerationSession>(initialSession);
-  // The bake DESTINATION (regions/<name>) — plain independent state. NOT generation
-  // config, so editing it must NOT invalidate a `done` preview (freeze reads it live).
-  const [wingName, setWingName] = useState("generated-wing");
-  // A ref (not state) so a mid-run flip is visible to the running loop synchronously.
-  const cancelRef = useRef(false);
+  const { state, dispatch, previewHostRef, extensions, generation } =
+    useEditor();
+  // The session, the bake destination (wingName), and the run's cancel flag are all owned
+  // by App (context slice) — NOT local state. That is the lift: closing the panel unmounts
+  // this component, but an in-flight run's async setter calls target App state through these
+  // stable setters, so the run keeps advancing and the session is intact on reopen. cancelRef
+  // is App-owned too, so Cancel flips the SAME flag the running loop reads across a reopen.
+  const { session, setSession, wingName, setWingName, cancelRef } = generation;
 
   // Boundary cast: `extensions` is the engine bundle's untyped `extensions` namespace —
   // the dungeon's editor-extensions re-exports, crossing the project-first bundle boundary
