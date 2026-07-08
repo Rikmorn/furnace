@@ -38,14 +38,14 @@ export function InspectPanel() {
   return (
     <InspectorOptionsContext.Provider value={options}>
       <div className="flex h-full flex-col">
-        <div className="flex gap-1 border-b border-neutral-800 p-1">
+        <div className="flex gap-1 border-b border-border p-1">
           {(["entity", "schemas"] as const).map((t) => (
             <button
               key={t}
               type="button"
               className={cn(
                 "rounded px-2 py-1 text-xs",
-                tab === t ? "bg-neutral-800" : "text-neutral-500",
+                tab === t ? "bg-muted" : "text-muted-foreground",
               )}
               onClick={() => setTab(t)}
             >
@@ -55,7 +55,7 @@ export function InspectPanel() {
         </div>
         <div className="min-h-0 flex-1 overflow-auto p-2">
           {state.error && (
-            <p className="mb-2 whitespace-pre-wrap font-mono text-xs text-red-400">
+            <p className="mb-2 whitespace-pre-wrap font-mono text-xs text-destructive">
               {state.error}
             </p>
           )}
@@ -85,7 +85,7 @@ export function InspectPanel() {
             (reflection ? (
               <JsonView label="registry" value={reflection} />
             ) : (
-              <p className="text-sm text-neutral-500">engine not loaded</p>
+              <p className="text-sm text-muted-foreground">engine not loaded</p>
             ))}
         </div>
       </div>
@@ -108,7 +108,7 @@ function ResourcesInspector({
   if (tables.length === 0) return null;
   return (
     <section>
-      <h3 className="mb-1 text-xs font-semibold text-neutral-300">resources</h3>
+      <h3 className="mb-1 text-xs font-semibold text-foreground">resources</h3>
       <div className="flex flex-col gap-2">
         {tables.map(([table, entries]) =>
           Object.entries(entries ?? {}).map(([id, entry]) => {
@@ -119,9 +119,9 @@ function ResourcesInspector({
             const schema = reflection.resources[table]?.[kind];
             if (!schema) return null;
             return (
-              <div key={`${table}:${id}`} className="rounded border border-neutral-800 p-1">
-                <p className="text-xs text-neutral-500">
-                  {table}/{id} <span className="text-neutral-600">({kind})</span>
+              <div key={`${table}:${id}`} className="rounded border border-border p-1">
+                <p className="text-xs text-muted-foreground">
+                  {table}/{id} <span className="text-muted-foreground/60">({kind})</span>
                 </p>
                 <SchemaForm
                   schema={schema}
@@ -164,10 +164,10 @@ function EntityInspector({
   if (selected.length === 0)
     return (
       <div className="flex flex-col gap-3">
-        <p className="text-sm text-neutral-500">select an entity</p>
+        <p className="text-sm text-muted-foreground">select an entity</p>
         {settingsSchema && (
           <section>
-            <h3 className="mb-1 text-xs font-semibold text-neutral-300">settings</h3>
+            <h3 className="mb-1 text-xs font-semibold text-foreground">settings</h3>
             <SchemaForm
               schema={settingsSchema}
               values={[settingsValue]}
@@ -187,7 +187,7 @@ function EntityInspector({
   const ids = selected.map((e) => e.id);
   return (
     <div className="flex flex-col gap-3">
-      <p className="text-xs text-neutral-500">
+      <p className="text-xs text-muted-foreground">
         {ids.length === 1 ? ids[0] : `${ids.length} selected`}
       </p>
       {names.map((name) => {
@@ -195,7 +195,7 @@ function EntityInspector({
         if (!schema) return null;
         return (
           <section key={name}>
-            <h3 className="mb-1 text-xs font-semibold text-neutral-300">{name}</h3>
+            <h3 className="mb-1 text-xs font-semibold text-foreground">{name}</h3>
             <SchemaForm
               schema={schema}
               values={selected.map((e) => e.components[name] ?? {})}

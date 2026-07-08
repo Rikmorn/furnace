@@ -236,7 +236,7 @@ export function GenerationPanel() {
 
   if (state.status !== "ready") {
     return (
-      <p className="p-3 text-sm text-neutral-500">
+      <p className="p-3 text-sm text-muted-foreground">
         generation waits for the engine bundle…
       </p>
     );
@@ -253,7 +253,7 @@ export function GenerationPanel() {
   return (
     <div className="flex h-full flex-col gap-3 overflow-auto p-3 text-sm">
       <label className="flex flex-col gap-1">
-        <span className="text-neutral-400">seed</span>
+        <span className="text-muted-foreground">seed</span>
         <input
           type="text"
           value={session.baseSeed}
@@ -262,12 +262,12 @@ export function GenerationPanel() {
               invalidateDonePreview({ ...s, baseSeed: e.target.value }),
             )
           }
-          className="rounded border border-neutral-700 bg-neutral-900 px-2 py-1"
+          className="rounded border border-input bg-input px-2 py-1"
         />
       </label>
 
       <label className="flex flex-col gap-1">
-        <span className="text-neutral-400">wing name</span>
+        <span className="text-muted-foreground">wing name</span>
         <input
           type="text"
           value={wingName}
@@ -275,15 +275,15 @@ export function GenerationPanel() {
           disabled={isRunning || isBaking}
           aria-invalid={!wingNameValid}
           className={cn(
-            "rounded border bg-neutral-900 px-2 py-1",
-            wingNameValid ? "border-neutral-700" : "border-red-700",
+            "rounded border bg-input px-2 py-1",
+            wingNameValid ? "border-input" : "border-destructive",
           )}
         />
       </label>
 
       <div className="flex gap-3">
         <label className="flex flex-1 flex-col gap-1">
-          <span className="text-neutral-400">rooms</span>
+          <span className="text-muted-foreground">rooms</span>
           <input
             type="number"
             min={MIN_ROOMS}
@@ -293,11 +293,11 @@ export function GenerationPanel() {
               const v = Number(e.target.value);
               if (Number.isFinite(v)) patchConfig({ targetRooms: v });
             }}
-            className="rounded border border-neutral-700 bg-neutral-900 px-2 py-1"
+            className="rounded border border-input bg-input px-2 py-1"
           />
         </label>
         <label className="flex flex-1 flex-col gap-1">
-          <span className="text-neutral-400">loop</span>
+          <span className="text-muted-foreground">loop</span>
           <input
             type="number"
             min={0}
@@ -308,7 +308,7 @@ export function GenerationPanel() {
               const v = Number(e.target.value);
               if (Number.isFinite(v)) patchConfig({ loopChance: v });
             }}
-            className="rounded border border-neutral-700 bg-neutral-900 px-2 py-1"
+            className="rounded border border-input bg-input px-2 py-1"
           />
         </label>
       </div>
@@ -318,7 +318,7 @@ export function GenerationPanel() {
           type="button"
           disabled={isRunning || isBaking}
           onClick={() => void runGeneration(session.baseSeed)}
-          className="rounded bg-emerald-700 px-3 py-1 font-medium text-white disabled:opacity-40"
+          className="rounded bg-primary px-3 py-1 font-medium text-primary-foreground disabled:bg-muted disabled:text-muted-foreground disabled:cursor-not-allowed"
         >
           Generate
         </button>
@@ -330,7 +330,7 @@ export function GenerationPanel() {
               nextRerollSeed(session.baseSeed, session.history.length),
             )
           }
-          className="rounded bg-neutral-700 px-3 py-1 font-medium text-white disabled:opacity-40"
+          className="rounded bg-muted px-3 py-1 font-medium text-foreground disabled:bg-muted disabled:text-muted-foreground disabled:cursor-not-allowed"
         >
           Reroll
         </button>
@@ -340,7 +340,7 @@ export function GenerationPanel() {
           onClick={() => {
             cancelRef.current = true;
           }}
-          className="rounded bg-neutral-800 px-3 py-1 text-neutral-300 disabled:opacity-40"
+          className="rounded bg-muted px-3 py-1 text-muted-foreground disabled:bg-muted disabled:text-muted-foreground disabled:cursor-not-allowed"
         >
           Cancel
         </button>
@@ -351,7 +351,7 @@ export function GenerationPanel() {
           type="button"
           disabled={done === undefined || !wingNameValid}
           onClick={() => done !== undefined && void freeze(done)}
-          className="rounded bg-amber-700 px-3 py-1 font-medium text-white disabled:opacity-40"
+          className="rounded bg-success px-3 py-1 font-medium text-success-foreground disabled:bg-muted disabled:text-muted-foreground disabled:cursor-not-allowed"
         >
           Freeze &amp; bake
         </button>
@@ -359,17 +359,17 @@ export function GenerationPanel() {
           type="button"
           disabled={!state.generationActive}
           onClick={() => dispatch({ type: "generation-active", active: false })}
-          className="rounded bg-neutral-800 px-3 py-1 text-neutral-300 disabled:opacity-40"
+          className="rounded bg-muted px-3 py-1 text-muted-foreground disabled:bg-muted disabled:text-muted-foreground disabled:cursor-not-allowed"
         >
           Close preview
         </button>
       </div>
 
-      <p className="text-neutral-400">{statusText(session.status)}</p>
+      <p className="text-muted-foreground">{statusText(session.status)}</p>
 
       {session.history.length > 0 && (
         <div className="flex min-h-0 flex-col gap-1">
-          <span className="text-neutral-500">history</span>
+          <span className="text-muted-foreground">history</span>
           <ul className="flex flex-col gap-1">
             {session.history.map((h, i) => (
               <li key={`${h.attemptSeed}-${i}`}>
@@ -378,9 +378,9 @@ export function GenerationPanel() {
                   disabled={isRunning || isBaking}
                   onClick={() => void runGeneration(h.attemptSeed, 1)}
                   className={cn(
-                    "w-full rounded px-2 py-1 text-left font-mono text-xs hover:bg-neutral-800 disabled:opacity-40",
+                    "w-full rounded px-2 py-1 text-left font-mono text-xs hover:bg-muted disabled:opacity-40",
                     done?.attemptSeed === h.attemptSeed &&
-                      "bg-neutral-800 text-emerald-300",
+                      "bg-primary/20 text-primary",
                   )}
                 >
                   {h.attemptSeed}

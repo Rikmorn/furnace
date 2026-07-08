@@ -20,21 +20,21 @@ function sessionLabel(state: EditorState): string | undefined {
 
 export function StatusBar({ state }: { state: EditorState }) {
   return (
-    <footer className="flex gap-4 border-t border-neutral-800 px-3 py-1 text-xs text-neutral-500">
+    <footer className="flex gap-4 border-t border-border px-3 py-1 text-xs text-muted-foreground">
       <span>{engineLabel(state)}</span>
       <span>{sceneLabel(state)}</span>
       {sessionLabel(state) && <span>{sessionLabel(state)}</span>}
       {state.conflict && (
-        <span className="text-amber-400">
+        <span className="text-warning">
           file changed on disk — save to keep this session, re-open to accept
           disk
         </span>
       )}
       {state.notice && (
-        <span className="truncate text-amber-400">{state.notice}</span>
+        <span className="truncate text-warning">{state.notice}</span>
       )}
       {state.error && (
-        <span className="truncate text-red-400">{state.error}</span>
+        <span className="truncate text-destructive">{state.error}</span>
       )}
     </footer>
   );

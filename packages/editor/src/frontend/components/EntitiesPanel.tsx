@@ -5,7 +5,7 @@ import { useEditor } from "./editor-context.ts";
 export function EntitiesPanel() {
   const { state, dispatch } = useEditor();
   if (!state.doc)
-    return <p className="p-3 text-sm text-neutral-500">no scene loaded</p>;
+    return <p className="p-3 text-sm text-muted-foreground">no scene loaded</p>;
   return (
     <ul className="p-2">
       {state.doc.entities.map((e) => (
@@ -13,9 +13,9 @@ export function EntitiesPanel() {
           <button
             type="button"
             className={cn(
-              "w-full rounded px-2 py-1 text-left text-sm hover:bg-neutral-800",
+              "w-full rounded px-2 py-1 text-left text-sm hover:bg-muted",
               state.selectedEntities.includes(e.id) &&
-                "bg-neutral-800 text-emerald-300",
+                "bg-primary/20 text-primary",
             )}
             onClick={(ev) =>
               dispatch({ type: "select-entity", id: e.id, mode: clickMode(ev) })

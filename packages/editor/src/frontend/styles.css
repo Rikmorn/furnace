@@ -1,9 +1,118 @@
 @import "tailwindcss";
 @import "dockview/dist/styles/dockview.css";
 
-/* shadcn-convention theme variables — minimal dark baseline; M5 extends. */
+/* Self-hosted (no CDN in a local tool). Latin subsets copied from
+   @fontsource-variable/inter@5.2.8 + @fontsource/jetbrains-mono@5.2.8.
+   Provisional families — Task 12's live pass owns the finals and re-procures. */
+@font-face {
+	font-family: "Inter Variable";
+	font-style: normal;
+	font-display: swap;
+	font-weight: 100 900;
+	src: url("./fonts/inter-variable-latin.woff2") format("woff2");
+}
+@font-face {
+	font-family: "JetBrains Mono";
+	font-style: normal;
+	font-display: swap;
+	font-weight: 400;
+	src: url("./fonts/jetbrains-mono-latin-400.woff2") format("woff2");
+}
+
 :root {
-	--background: oklch(0.145 0 0);
-	--foreground: oklch(0.85 0 0);
-	--border: oklch(0.3 0 0);
+	color-scheme: dark;
+	/* neutral ramp — provisional; live pass picks finals */
+	--background: oklch(0.16 0.005 250);
+	--card: oklch(0.19 0.005 250); /* panel/toolbar chrome layer */
+	--popover: oklch(0.21 0.005 250);
+	--border: oklch(0.3 0.005 250);
+	--input: oklch(0.26 0.005 250);
+	--muted: oklch(0.23 0.005 250);
+	--muted-foreground: oklch(0.65 0.01 250);
+	--foreground: oklch(0.87 0.005 250);
+	/* the attention lane — ONE hue: selection, primary action, generation-active, focus */
+	--primary: oklch(0.62 0.11 240); /* steel-blue, provisional */
+	--primary-foreground: oklch(0.15 0.02 240);
+	--ring: var(--primary);
+	/* semantic, desaturated for the dark base — *-foreground provisional, Task 12 owns finals */
+	--destructive: oklch(0.55 0.14 25);
+	--warning: oklch(0.65 0.12 80);
+	--warning-foreground: oklch(0.16 0.02 80);
+	--success: oklch(0.6 0.1 155);
+	--success-foreground: oklch(0.16 0.02 155);
+	/* JSON syntax colour — deliberately SEPARATE from the app accent lanes so the
+     inspector's data view never reads as a primary/success/warning signal. Applies to
+     ALL JSON leaf types (strings, numbers, booleans, null), hence -value not -string. */
+	--syntax-value: oklch(0.72 0.05 160);
+	/* type */
+	--font-sans:
+		"Inter Variable", ui-sans-serif, system-ui, sans-serif; /* provisional */
+	--font-mono:
+		"JetBrains Mono", ui-monospace, "SF Mono", monospace; /* provisional */
+	/* radius */
+	--radius: 0.25rem;
+}
+
+@theme inline {
+	/* expose the vars to Tailwind 4 utilities: bg-background, text-foreground, etc. */
+	--color-background: var(--background);
+	--color-foreground: var(--foreground);
+	--color-card: var(--card);
+	--color-popover: var(--popover);
+	--color-border: var(--border);
+	--color-input: var(--input);
+	--color-muted: var(--muted);
+	--color-muted-foreground: var(--muted-foreground);
+	--color-primary: var(--primary);
+	--color-primary-foreground: var(--primary-foreground);
+	--color-ring: var(--ring);
+	--color-destructive: var(--destructive);
+	--color-warning: var(--warning);
+	--color-warning-foreground: var(--warning-foreground);
+	--color-success: var(--success);
+	--color-success-foreground: var(--success-foreground);
+	--color-syntax-value: var(--syntax-value);
+	--radius-sm: calc(var(--radius) - 4px);
+	--radius-md: calc(var(--radius) - 2px);
+	--radius-lg: var(--radius);
+	--radius-xl: calc(var(--radius) + 4px);
+	--font-sans: var(--font-sans);
+	--font-mono: var(--font-mono);
+}
+
+/* Flat-Dock Rule: docked chrome is flat; dockview maps onto the same tokens.
+   Chrome (tab strip) = card, content = background; tonal layers, never shadows.
+   Real --dv-* names verified against node_modules/dockview/dist/styles/dockview.css. */
+.dockview-theme-dark {
+	--dv-group-view-background-color: var(--background);
+	--dv-tabs-and-actions-container-background-color: var(--card);
+	--dv-activegroup-visiblepanel-tab-background-color: var(--background);
+	--dv-activegroup-hiddenpanel-tab-background-color: var(--card);
+	--dv-inactivegroup-visiblepanel-tab-background-color: var(--background);
+	--dv-inactivegroup-hiddenpanel-tab-background-color: var(--card);
+	--dv-tab-divider-color: var(--border);
+	--dv-separator-border: var(--border);
+	--dv-paneview-header-border-color: var(--border);
+	--dv-activegroup-visiblepanel-tab-color: var(--foreground);
+	--dv-activegroup-hiddenpanel-tab-color: var(--muted-foreground);
+	--dv-inactivegroup-visiblepanel-tab-color: var(--muted-foreground);
+	--dv-inactivegroup-hiddenpanel-tab-color: var(--muted-foreground);
+	--dv-paneview-active-outline-color: var(--primary);
+	--dv-drag-over-background-color: color-mix(
+		in oklab,
+		var(--primary) 30%,
+		transparent
+	);
+	--dv-icon-hover-background-color: var(--muted);
+}
+
+@media (prefers-reduced-motion: reduce) {
+	*,
+	*::before,
+	*::after {
+		/* biome-ignore lint/complexity/noImportantStyles: reduced-motion a11y override must win the cascade over component-level durations */
+		animation-duration: 0.01ms !important;
+		/* biome-ignore lint/complexity/noImportantStyles: reduced-motion a11y override must win the cascade over component-level durations */
+		transition-duration: 0.01ms !important;
+	}
 }

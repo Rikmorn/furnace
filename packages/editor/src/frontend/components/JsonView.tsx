@@ -5,9 +5,9 @@ export function JsonView({ label, value, depth = 0 }: JsonViewProps) {
     const entries = Object.entries(value as Record<string, unknown>);
     return (
       <details open={depth < 2} className="ml-2">
-        <summary className="cursor-pointer select-none text-neutral-400">
+        <summary className="cursor-pointer select-none text-muted-foreground">
           {label}{" "}
-          <span className="text-neutral-600">
+          <span className="text-muted-foreground/60">
             {Array.isArray(value) ? `[${entries.length}]` : ""}
           </span>
         </summary>
@@ -19,8 +19,8 @@ export function JsonView({ label, value, depth = 0 }: JsonViewProps) {
   }
   return (
     <div className="ml-4 font-mono text-sm">
-      <span className="text-neutral-400">{label}:</span>{" "}
-      <span className="text-emerald-300">{JSON.stringify(value)}</span>
+      <span className="text-muted-foreground">{label}:</span>{" "}
+      <span className="text-syntax-value">{JSON.stringify(value)}</span>
     </div>
   );
 }

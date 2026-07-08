@@ -55,7 +55,7 @@ export function Viewport() {
 
   if (state.status === "no-webgpu") {
     return (
-      <div className="grid h-full place-items-center p-6 text-center text-neutral-400">
+      <div className="grid h-full place-items-center p-6 text-center text-muted-foreground">
         WebGPU unavailable — Safari 26+ or Chrome 113+ required. The rest of the
         editor still works.
       </div>
@@ -64,10 +64,10 @@ export function Viewport() {
   if (state.status === "engine-error") {
     return (
       <div className="h-full overflow-auto p-4">
-        <p className="mb-2 text-red-400">
+        <p className="mb-2 text-destructive">
           engine bundle failed to build — fix the extension and refresh:
         </p>
-        <pre className="whitespace-pre-wrap font-mono text-xs text-red-300">
+        <pre className="whitespace-pre-wrap font-mono text-xs text-destructive">
           {state.error}
         </pre>
       </div>
@@ -91,13 +91,13 @@ export function Viewport() {
         style={{ visibility: state.generationActive ? "visible" : "hidden" }}
       />
       {state.generationActive && (
-        <div className="pointer-events-none absolute left-2 top-2 rounded bg-amber-600/90 px-2 py-1 text-xs font-semibold text-white">
+        <div className="pointer-events-none absolute left-2 top-2 rounded bg-warning/90 px-2 py-1 text-xs font-semibold text-warning-foreground">
           PREVIEW
         </div>
       )}
       {state.generationActive && (
         <label
-          className="absolute right-2 top-2 flex items-center gap-1.5 rounded bg-neutral-900/80 px-2 py-1 text-xs text-neutral-300"
+          className="absolute right-2 top-2 flex items-center gap-1.5 rounded bg-popover/80 px-2 py-1 text-xs text-foreground"
           title="Preview the game's fog mood. Off = clear structural view (fog at orbit distance obscures the wing)."
         >
           <input

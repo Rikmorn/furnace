@@ -19,7 +19,7 @@ class RowErrorBoundary extends Component<
   override render() {
     if (this.state.error)
       return (
-        <p className="py-1 font-mono text-xs text-red-400">
+        <p className="py-1 font-mono text-xs text-destructive">
           {this.props.path}: {this.state.error.message}
         </p>
       );

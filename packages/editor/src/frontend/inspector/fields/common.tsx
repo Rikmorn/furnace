@@ -17,7 +17,7 @@ export function FieldRow({
   labelPointerProps?: LabelPointerProps;
 }) {
   const labelSpanCls = [
-    "shrink-0 text-xs text-neutral-400",
+    "shrink-0 text-xs text-muted-foreground",
     labelPointerProps ? "cursor-ew-resize select-none" : "",
   ]
     .filter(Boolean)
@@ -35,4 +35,4 @@ export function FieldRow({
 
 export const MIXED = "—";
 export const inputCls =
-  "w-full min-w-0 rounded border border-neutral-700 bg-neutral-900 px-1 py-0.5 text-right text-xs focus:outline-none focus:ring-1 focus:ring-neutral-500";
+  "w-full min-w-0 rounded border border-input bg-input px-1 py-0.5 text-right text-xs focus:outline-none focus:ring-1 focus:ring-ring";
