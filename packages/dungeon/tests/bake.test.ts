@@ -100,4 +100,17 @@ describe("bakeWing", () => {
   test("throws when the seed does not place on attempt 0", () => {
     expect(() => bakeWing("bake-fail-0", CFG, { maxAttempts: 50 })).toThrow();
   });
+
+  test("bakes under regions/<name> when a wing name is given", () => {
+    const { files } = bakeWing(SEED, CFG, {}, "my-wing");
+    expect(files.every((f) => f.path.startsWith("regions/my-wing/"))).toBe(
+      true,
+    );
+  });
+
+  test("rejects a path-hostile wing name setup-loud", () => {
+    expect(() => bakeWing(SEED, CFG, {}, "../escape")).toThrow(/wing name/);
+    expect(() => bakeWing(SEED, CFG, {}, "")).toThrow(/wing name/);
+    expect(() => bakeWing(SEED, CFG, {}, "has space")).toThrow(/wing name/);
+  });
 });

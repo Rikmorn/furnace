@@ -24,8 +24,17 @@ import {
 import type { TopologyConfig } from "./topology.ts";
 import { buildWorld } from "./world.ts";
 
-/** Project-root-relative directory the wing's artifacts write to. */
-export const WING_DIR = "regions/generated-wing";
+/** Default wing name — the game's loader reads this well-known wing. */
+export const DEFAULT_WING_NAME = "generated-wing";
+
+/** Project-root-relative artifact dir for a named wing. */
+export const wingDir = (name: string): string => `regions/${name}`;
+
+/** MIGRATION-free compat: the default wing's dir (loader + existing tests). */
+export const WING_DIR = wingDir(DEFAULT_WING_NAME);
+
+// Filesystem- and URL-safe; also guarantees daemon root-containment can't be tricked.
+const WING_NAME_RE = /^[a-z0-9][a-z0-9_-]*$/i;
 
 /** One file the caller (daemon/test) writes: JSON docs/manifest as text, `.fmesh` as bytes. */
 export type BakeFile = { path: string; contents: string | Uint8Array };
@@ -81,7 +90,13 @@ export function bakeWing(
   seed: string,
   config: Partial<TopologyConfig>,
   budget: Partial<LayoutBudget>,
+  name: string = DEFAULT_WING_NAME,
 ): { files: BakeFile[] } {
+  if (!WING_NAME_RE.test(name)) {
+    throw new Error(`bake: invalid wing name "${name}"`);
+  }
+  const dir = wingDir(name);
+
   const { graph, layout } = buildWorld(
     seed,
     { ...config, attempts: 1 },
@@ -98,8 +113,8 @@ export function bakeWing(
     const placement = layout.placements.get(node.id);
     if (!placement) throw new Error(`bake: node ${node.id} has no placement`);
 
-    const file = `${WING_DIR}/region-${node.id}.scene.json`;
-    const { doc, sidecars } = regionDoc(node.id, placed);
+    const file = `${dir}/region-${node.id}.scene.json`;
+    const { doc, sidecars } = regionDoc(node.id, placed, dir);
     files.push(
       { path: file, contents: JSON.stringify(doc, null, 2) },
       ...sidecars,
@@ -117,8 +132,8 @@ export function bakeWing(
 
   const connectors: WingManifest["connectors"] = [];
   for (const [i, c] of layout.connectors.entries()) {
-    const file = `${WING_DIR}/connector-${i}.scene.json`;
-    const { doc } = regionDoc(`connector-${i}`, c);
+    const file = `${dir}/connector-${i}.scene.json`;
+    const { doc } = regionDoc(`connector-${i}`, c, dir);
     files.push({ path: file, contents: JSON.stringify(doc, null, 2) });
     connectors.push({ file, colliders: cuboidColliders(c) });
   }
@@ -140,7 +155,7 @@ export function bakeWing(
     connectors,
   };
   files.push({
-    path: `${WING_DIR}/manifest.json`,
+    path: `${dir}/manifest.json`,
     contents: JSON.stringify(manifest, null, 2),
   });
   return { files };
@@ -161,6 +176,7 @@ function cuboidColliders(r: RegionData): RegionCollider[] {
 function regionDoc(
   id: string,
   r: RegionData,
+  dir: string,
 ): { doc: SceneDocument; sidecars: BakeFile[] } {
   const sidecars: BakeFile[] = [];
   const geometries: Record<string, unknown> = { g_cube: { kind: "cube" } };
@@ -177,7 +193,7 @@ function regionDoc(
     if (m.rotation) transform["rotation"] = m.rotation;
     let geoRef = "g_cube";
     if ("custom" in m.geometry) {
-      const sidecarPath = `${WING_DIR}/${id}-${mi}.fmesh`;
+      const sidecarPath = `${dir}/${id}-${mi}.fmesh`;
       sidecars.push({
         path: sidecarPath,
         contents: new Uint8Array(encodeMeshBlob({ render: m.geometry.custom })),
