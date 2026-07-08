@@ -17,6 +17,8 @@ export type SessionView = {
   revision: number;
   dirty: boolean;
   conflict: boolean;
+  canUndo: boolean;
+  canRedo: boolean;
 };
 
 type ErrorBody = { error?: { code?: string; message?: string } };

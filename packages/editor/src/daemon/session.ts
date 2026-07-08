@@ -21,6 +21,8 @@ export type SessionView = {
   revision: number;
   dirty: boolean;
   conflict: boolean;
+  canUndo: boolean;
+  canRedo: boolean;
 };
 
 export type SessionDeps = {
@@ -93,6 +95,8 @@ export function createSession(deps: SessionDeps): Session {
     revision: s.revision,
     dirty: isDirty(s),
     conflict: s.conflict,
+    canUndo: s.undoStack.length > 0,
+    canRedo: s.redoStack.length > 0,
   });
 
   const pushUndo = (s: OpenState): void => {

@@ -314,3 +314,13 @@ test("introspect proxies the registry", async () => {
   const { session } = harness();
   expect(await session.introspect()).toEqual({ fake: true });
 });
+
+test("view exposes canUndo/canRedo mirroring the stacks", async () => {
+  const { session } = harness();
+  await session.open("scenes/a.scene.json", false);
+  expect(session.get()).toMatchObject({ canUndo: false, canRedo: false });
+  await bump(session);
+  expect(session.get()).toMatchObject({ canUndo: true, canRedo: false });
+  session.undo();
+  expect(session.get()).toMatchObject({ canUndo: false, canRedo: true });
+});
