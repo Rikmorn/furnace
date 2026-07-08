@@ -128,13 +128,18 @@ sector, 6 rooms) + `COCKPIT_BUDGET` (tight tier — measured 2026-07-06: 100% @6
 
 ## 5. Bake & load (the 3.1 pipeline)
 
-- **`bake.ts bakeWing(seed, config, budget)`** — PURE, returns `{files}`; the seed must
-  be the winning derived seed (places on attempt 0). Emits render-only region/connector
-  scene docs (box entities; NO rigidBody — the scene rigidBody path ignores
-  `transform.scale`), `.fmesh` sidecars for custom meshes (LOCAL vertices; world pose on
-  the entity transform), and `manifest.json`: provenance `{seed, config, budget,
-  generatorVersion}`, per-region `{file, theme, seed, placement, cuboid colliders,
-  themeParams}` + connector entries. Voxel shapes NEVER serialize.
+- **`bake.ts bakeWing(seed, config, budget, name?)`** — PURE, returns `{files}`; the seed
+  must be the winning derived seed (places on attempt 0). Emits ONE merged render-only
+  `wing.scene.json` (ALL regions AND connectors in a single doc; box entities, NO
+  rigidBody — the scene rigidBody path ignores `transform.scale`; resource keys are
+  piece-prefixed so pieces don't collide), `.fmesh` sidecars for custom meshes (LOCAL
+  vertices; world pose on the entity transform), and `manifest.json`: a top-level `scene`
+  path + provenance `{seed, config, budget, generatorVersion}`, per-region `{theme, seed,
+  placement, cuboid colliders, themeParams}` (NO per-entry `file`) + connector collider
+  entries. `manifest.json` is the LAST file written — the crash-safety contract (an
+  interrupted bake leaves no manifest, so `loadGeneratedWing` returns null and the game
+  falls back to live generation; a torn wing never loads). `name` (default
+  `generated-wing`) parameterizes the dir → `regions/<name>/`. Voxel shapes NEVER serialize.
 - **Who bakes: THE BROWSER** (it re-generates its own preview exactly and uploads the
   file set to `generation.bake`, which only validates root-containment and writes).
   This is load-bearing, not a convenience: **JSC and V8 diverge on transcendental
@@ -142,20 +147,26 @@ sector, 6 rooms) + `COCKPIT_BUDGET` (tight tier — measured 2026-07-06: 100% @6
   local-frame geometry (mesh bytes, scatter, voxel membership) is cross-engine
   identical — never regenerate PLACEMENT in a different engine than the one that
   previewed it (`docs/learnings/2026-07-06-cross-engine-placement-determinism.md`).
-- **`wing-loader.ts loadGeneratedWing`** — manifest present → fragment-load the docs
-  (`loadScene({world, fragment: true})`), create static bodies from manifest cuboids,
-  regenerate each cave's voxel proxy (`caveProxy` from `themeParams`, `placePiece`-
-  seated), re-expand dressing deterministically (`caveDressing` over the DECODED baked
-  mesh; box themes re-run with `themeParams`) and realize it; returns the same handle
-  shape as `realizeRegion`. 404 → `null` → live path. This load-time re-expansion is
-  deliberately the embryo of 3.3's generator-entity socket.
+- **`wing-loader.ts loadGeneratedWing`** — manifest present → fragment-load the ONE merged
+  doc (`loadScene({world, fragment: true})`), create static bodies from the manifest
+  cuboids per piece, regenerate each cave's voxel proxy (`caveProxy` from `themeParams`,
+  `placePiece`-seated), re-expand dressing deterministically (`caveDressing` over the
+  DECODED baked mesh; box themes re-run with `themeParams`) and realize it; returns the
+  same handle shape as `realizeRegion`. 404 → `null` → live path. Stale-bake guard: a
+  pre-consolidation manifest (no `scene` field) throws ("re-bake"). This load-time
+  re-expansion is deliberately the embryo of 3.3's generator-entity socket.
 - **Parity is guarded placement-level** (`tests/bake-dressing-parity.test.ts`): full
   cuboid/proxy/dressing byte-parity live-vs-baked on the 3.1 gate's own seed.
   Count-level assertions are known to lie (they passed while placements differed).
-- Baked output (`regions/generated-wing/`) is user-generated content: gitignored AND
-  biome-ignored. Known gap: re-bake overwrites but does not clean stale files from a
-  larger earlier bake; artifact consolidation to a single `wing.scene.json` is DECIDED
-  for 3.2+ (`docs/backlog/editor-and-tooling/generation-cockpit-ux-gate-findings.md`).
+- Baked output (`regions/<name>/`, default `generated-wing/` — wings are nameable) is
+  user-generated content. Only the DEFAULT `regions/generated-wing/` is gitignored AND
+  biome-ignored (both globs hardcode that name); a non-default `regions/<name>/` is
+  user-generated content too but is NOT yet ignore-scoped — generalizing the globs to all
+  baked wings is deferred with the worlds-index work
+  (`docs/backlog/dungeon/worlds-index-manifest.md`). Consolidated in 3.2.1 to a single
+  `wing.scene.json` (+ `manifest.json` + `.fmesh` sidecars); a smaller re-bake leaves no
+  orphans because the daemon's `generation.bake` `rm -rf`s the previous bake dir
+  (`cleanDir`) before writing.
 
 ## 6. Testing posture
 

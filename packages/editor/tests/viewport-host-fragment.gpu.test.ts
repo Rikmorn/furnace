@@ -11,7 +11,7 @@ import { createViewportHost } from "../src/viewport-host/index.ts";
 await ensureBunWebGpu();
 
 // A camera-LESS region-style doc, mirroring the render-only shape the dungeon
-// baker emits (bake.ts regionDoc): a lit-shaded box with NO camera component on
+// baker emits (bake.ts appendPiece): a lit-shaded box with NO camera component on
 // any entity. This is the 3.0-gate case — before the fix the core loader throws
 // "no entity carries a camera component"; after, it loads in fragment mode.
 const FRAGMENT_SCENE = {

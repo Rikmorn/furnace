@@ -22,17 +22,6 @@ gate only required the loop to be judgeable; these are the judged-and-deferred f
 - Fixed AT the gate (for the record, pattern to keep): fog toggle moved from the
   Generation panel to a viewport overlay — view flags belong to the viewport
   (UE/Unity show-flags); this is the seed of 3.2's viewport view-flags block.
-- **Baked-wing artifact consolidates to a single doc (DECIDED direction, user call
-  at the gate, deferred to 3.2+).** Today's bake emits ~27 files (one doc per node
-  AND per connector — the per-connector docs also deviate from the 3.1 spec's single
-  `connectors.scene.json`) and floods the editor's flat scene list. Target shape:
-  ONE `wing.scene.json` carrying every region's entities (ids are already
-  region-prefixed → 3.2 per-region selection works within the doc) + `manifest.json`
-  (runtime index: provenance/colliders/dressing) + `.fmesh` binary sidecars
-  (~7 files). The camera-less fragment-open fix already renders such a combined doc
-  whole in the viewport. Do this BEFORE 3.2 curation verbs bind to the artifact
-  shape; also add clean-previous-bake semantics (stale docs from a larger earlier
-  bake currently linger unreferenced).
 
 **Trigger to revisit:** the 3.2 chrome rework / the full editor UX pass (whichever
 lands first). The envelope probe is a prerequisite for whatever UI exposes bigger
