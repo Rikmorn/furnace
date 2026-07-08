@@ -56,6 +56,11 @@ export function invalidateDonePreview(
     : session;
 }
 
+/** UI-boundary mirror of bake.ts's WING_NAME_RE — refuse before burning a bake. */
+export function isValidWingName(name: string): boolean {
+  return /^[a-z0-9][a-z0-9_-]*$/i.test(name);
+}
+
 /** FALLBACK bake transport: one file for the JSON POST — text verbatim, binary base64'd. */
 export type WireFile = {
   path: string;

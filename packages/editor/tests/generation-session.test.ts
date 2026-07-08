@@ -3,6 +3,7 @@ import {
   type GenerationSession,
   initialSession,
   invalidateDonePreview,
+  isValidWingName,
   layoutBounds,
   mergeContents,
   nextRerollSeed,
@@ -134,6 +135,14 @@ test("invalidateDonePreview: a non-done phase is returned unchanged (same refere
   expect(invalidateDonePreview(running)).toBe(running);
   const idle = initialSession();
   expect(invalidateDonePreview(idle)).toBe(idle);
+});
+
+test("isValidWingName", () => {
+  expect(isValidWingName("generated-wing")).toBe(true);
+  expect(isValidWingName("My_Wing2")).toBe(true);
+  expect(isValidWingName("")).toBe(false);
+  expect(isValidWingName("../x")).toBe(false);
+  expect(isValidWingName("a b")).toBe(false);
 });
 
 test("mergeContents: a result with no update() is skipped without throwing", () => {

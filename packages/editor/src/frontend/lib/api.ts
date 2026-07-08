@@ -71,5 +71,10 @@ export const api = {
   // `generation-baked`). `contents` is text verbatim (utf8) or base64 (binary sidecars).
   generationBake: (
     files: { path: string; encoding: "utf8" | "base64"; contents: string }[],
-  ) => call<{ files: number }>("generation.bake", { files }),
+    cleanDir?: string,
+  ) =>
+    call<{ files: number }>("generation.bake", {
+      files,
+      ...(cleanDir ? { cleanDir } : {}),
+    }),
 };

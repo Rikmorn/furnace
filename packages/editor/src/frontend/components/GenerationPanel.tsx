@@ -7,6 +7,7 @@ import {
   type GenerationStatus,
   initialSession,
   invalidateDonePreview,
+  isValidWingName,
   layoutBounds,
   mergeContents,
   nextRerollSeed,
@@ -62,6 +63,9 @@ function statusText(s: GenerationStatus): string {
 export function GenerationPanel() {
   const { state, dispatch, previewHostRef, extensions } = useEditor();
   const [session, setSession] = useState<GenerationSession>(initialSession);
+  // The bake DESTINATION (regions/<name>) — plain independent state. NOT generation
+  // config, so editing it must NOT invalidate a `done` preview (freeze reads it live).
+  const [wingName, setWingName] = useState("generated-wing");
   // A ref (not state) so a mid-run flip is visible to the running loop synchronously.
   const cancelRef = useRef(false);
 
@@ -88,7 +92,9 @@ export function GenerationPanel() {
       seed: string,
       config: Record<string, unknown>,
       budget: Record<string, unknown>,
+      name: string,
     ) => { files: { path: string; contents: string | Uint8Array }[] };
+    wingDir: (name: string) => string;
   };
 
   const setStatus = (status: GenerationStatus): void =>
@@ -209,8 +215,16 @@ export function GenerationPanel() {
     setStatus({ phase: "baking" });
     try {
       const config = { ...ext.COCKPIT_CONFIG, ...done.config, attempts: 1 };
-      const { files } = ext.bake(done.attemptSeed, config, ext.COCKPIT_BUDGET);
-      const result = await api.generationBake(toWireFiles(files));
+      const { files } = ext.bake(
+        done.attemptSeed,
+        config,
+        ext.COCKPIT_BUDGET,
+        wingName,
+      );
+      const result = await api.generationBake(
+        toWireFiles(files),
+        ext.wingDir(wingName),
+      );
       setStatus({ phase: "baked", files: result.files });
     } catch (err) {
       setStatus({
@@ -234,6 +248,7 @@ export function GenerationPanel() {
   // is on screen to freeze. Freeze reads this exclusively — never live session.config.
   const done =
     session.status.phase === "done" ? session.status : undefined;
+  const wingNameValid = isValidWingName(wingName);
 
   return (
     <div className="flex h-full flex-col gap-3 overflow-auto p-3 text-sm">
@@ -248,6 +263,21 @@ export function GenerationPanel() {
             )
           }
           className="rounded border border-neutral-700 bg-neutral-900 px-2 py-1"
+        />
+      </label>
+
+      <label className="flex flex-col gap-1">
+        <span className="text-neutral-400">wing name</span>
+        <input
+          type="text"
+          value={wingName}
+          onChange={(e) => setWingName(e.target.value)}
+          disabled={isRunning || isBaking}
+          aria-invalid={!wingNameValid}
+          className={cn(
+            "rounded border bg-neutral-900 px-2 py-1",
+            wingNameValid ? "border-neutral-700" : "border-red-700",
+          )}
         />
       </label>
 
@@ -319,7 +349,7 @@ export function GenerationPanel() {
       <div className="flex flex-wrap gap-2">
         <button
           type="button"
-          disabled={done === undefined}
+          disabled={done === undefined || !wingNameValid}
           onClick={() => done !== undefined && void freeze(done)}
           className="rounded bg-amber-700 px-3 py-1 font-medium text-white disabled:opacity-40"
         >
