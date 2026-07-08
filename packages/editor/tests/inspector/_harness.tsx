@@ -24,6 +24,7 @@ import {
   type GenerationControl,
 } from "../../src/frontend/components/editor-context.ts";
 import { initialSession } from "../../src/frontend/lib/generation.ts";
+import type { UiStore } from "../../src/frontend/lib/persist.ts";
 import { initialState, type EditorState } from "../../src/frontend/lib/state.ts";
 
 const {
@@ -46,7 +47,22 @@ type EditorContextOverrides = {
   extensions?: Record<string, unknown>;
   actions?: Partial<EditorActions>;
   generation?: Partial<GenerationControl>;
+  store?: UiStore;
 };
+
+/** A Map-backed fake UiStore for tests: reads/writes an in-memory record so a test can
+ *  seed persisted UI state and assert what the inspector wrote back. */
+export function fakeUiStore(initial: Record<string, unknown> = {}): UiStore {
+  const data: Record<string, unknown> = { ...initial };
+  return {
+    // Boundary cast: the fake is a permissive Map over the UiState keys; tests only
+    // exercise a subset, so we widen get/set to the generic contract here.
+    get: ((key: string) => data[key]) as UiStore["get"],
+    set: ((key: string, value: unknown) => {
+      data[key] = value;
+    }) as UiStore["set"],
+  };
+}
 
 /** Build a mock EditorContextValue with no-op defaults; override any slice. */
 export function makeEditorContext(
@@ -82,6 +98,7 @@ export function makeEditorContext(
     extensions: overrides.extensions ?? {},
     actions,
     generation,
+    store: overrides.store,
   };
 }
 

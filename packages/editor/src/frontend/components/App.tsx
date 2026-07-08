@@ -22,7 +22,7 @@ import { initialSession } from "../lib/generation.ts";
 import { isTextInputTarget, matchBinding } from "../lib/keybindings.ts";
 import { PANELS, type PanelId, panelTitle } from "../lib/panels.ts";
 import { createUiStore, pushRecent } from "../lib/persist.ts";
-import { clickMode } from "../lib/selection.ts";
+import { clickMode, SETTINGS_SELECTION } from "../lib/selection.ts";
 import { initialState, reduce } from "../lib/state.ts";
 import { resolveCssColor } from "../lib/theme.ts";
 import { ConfirmDialog, type ConfirmRequest } from "./ConfirmDialog.tsx";
@@ -382,6 +382,7 @@ export function App() {
           // refresh (and the SSE echoes) advance past lastLoaded → loadScene.
           try {
             for (const id of latest.current.selection) {
+              if (id === SETTINGS_SELECTION) continue; // sentinel is not a doc entity
               await api.removeEntity(id);
             }
           } catch (err) {
@@ -421,7 +422,10 @@ export function App() {
   // Delete routing shared by the ⌫ keybinding and Edit▸Delete: >1 entity prompts
   // (in-chrome confirm), a single entity deletes straight away, none is a no-op.
   const requestDelete = useCallback(() => {
-    const selection = latest.current.selection;
+    // The World/settings sentinel is not deletable — drop it before counting.
+    const selection = latest.current.selection.filter(
+      (id) => id !== SETTINGS_SELECTION,
+    );
     if (selection.length === 0) return;
     if (selection.length > 1) {
       openConfirm({
@@ -510,9 +514,12 @@ export function App() {
   }, [state.status, refreshSession]);
 
   // Keep the host's selection in sync so highlight boxes and the gizmo origin
-  // always track the chrome selection state.
+  // always track the chrome selection state. The World/settings sentinel has no 3D
+  // presence, so it never reaches the viewport.
   useEffect(() => {
-    hostRef.current?.setSelection(state.selectedEntities);
+    hostRef.current?.setSelection(
+      state.selectedEntities.filter((id) => id !== SETTINGS_SELECTION),
+    );
   }, [state.selectedEntities]);
 
   // Record a scene open into the persistence store: `lastScene` (restored on next launch)
@@ -690,6 +697,7 @@ export function App() {
       setWingName,
       cancelRef: generationCancelRef,
     },
+    store,
   };
 
   return (

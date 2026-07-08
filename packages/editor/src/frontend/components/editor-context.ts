@@ -3,6 +3,7 @@ import { createContext, useContext } from "react";
 import type { PreviewHost, ViewportHost } from "../../viewport-host/index.ts";
 import type { ComponentEdit } from "../lib/api.ts";
 import type { GenerationSession } from "../lib/generation.ts";
+import type { UiStore } from "../lib/persist.ts";
 import type { EditorEvent, EditorState } from "../lib/state.ts";
 
 /** Preview/commit actions the inspector drives; implemented in App (owns host + dedup). */
@@ -63,6 +64,10 @@ export type EditorContextValue = {
   actions: EditorActions;
   /** The lifted generation session (Slice 3.2.2 Task 6) the GenerationPanel consumes. */
   generation: GenerationControl;
+  /** Per-project UI persistence store (Task 6). Undefined when the project root couldn't
+   *  be resolved (persistence best-effort). The inspector reads/writes `inspectorCollapse`
+   *  through it to remember each section's open state. */
+  store: UiStore | undefined;
 };
 
 export const EditorContext = createContext<EditorContextValue | null>(null);

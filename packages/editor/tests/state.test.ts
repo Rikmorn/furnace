@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { SETTINGS_SELECTION } from "../src/frontend/lib/selection.ts";
 import {
   type EditorState,
   initialState,
@@ -143,6 +144,39 @@ test("toggle adds then removes without losing the rest", () => {
   expect(s.selectedEntities.sort()).toEqual(["a", "c"]);
   s = reduce(s, { type: "select-entity", id: "a", mode: "toggle" });
   expect(s.selectedEntities).toEqual(["c"]);
+});
+
+test("$settings is exclusively single-select: entity toggle drops it, and vice-versa", () => {
+  let s = reduce(
+    initialState,
+    sessionUpdate({
+      doc: {
+        version: 1,
+        entities: [
+          { id: "a", components: {} },
+          { id: "b", components: {} },
+        ],
+      },
+    }),
+  );
+  // Select World, then cmd/ctrl-click an entity → the sentinel is dropped (not appended).
+  s = reduce(s, {
+    type: "select-entity",
+    id: SETTINGS_SELECTION,
+    mode: "replace",
+  });
+  expect(s.selectedEntities).toEqual([SETTINGS_SELECTION]);
+  s = reduce(s, { type: "select-entity", id: "a", mode: "toggle" });
+  expect(s.selectedEntities).toEqual(["a"]);
+  // Now select two entities, then click World → it replaces the whole selection.
+  s = reduce(s, { type: "select-entity", id: "b", mode: "toggle" });
+  expect(s.selectedEntities.sort()).toEqual(["a", "b"]);
+  s = reduce(s, {
+    type: "select-entity",
+    id: SETTINGS_SELECTION,
+    mode: "toggle",
+  });
+  expect(s.selectedEntities).toEqual([SETTINGS_SELECTION]);
 });
 
 test("range selects the inclusive span from anchor to target in doc order", () => {

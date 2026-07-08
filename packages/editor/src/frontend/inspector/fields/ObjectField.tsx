@@ -6,8 +6,11 @@ import type { FieldProps, JsonSchemaNode } from "../types.ts";
 export function ObjectField({ schema, values, onPreview, onCommit, onCancel, path }: FieldProps) {
   const properties = (schema.properties ?? {}) as Record<string, JsonSchemaNode>;
   return (
-    <fieldset className="rounded border border-border px-2 py-1">
-      <legend className="px-1 text-xs text-muted-foreground">{path.split(".").at(-1)}</legend>
+    // Flattened (Task 8 sub-change 2): a nested object is an indented, labeled group —
+    // a thin left rule as a nesting guide, NOT a bordered/rounded card (the critique's
+    // named-ban "nested-cards" structure).
+    <div className="border-l border-border/60 pl-2">
+      <p className="py-0.5 text-xs text-muted-foreground">{path.split(".").at(-1)}</p>
       {Object.entries(properties).map(([key, fieldSchema]) => {
         const kind = resolveKind(fieldSchema);
         const Renderer = registry[kind] ?? fallbackRenderer;
@@ -26,6 +29,6 @@ export function ObjectField({ schema, values, onPreview, onCommit, onCancel, pat
           />
         );
       })}
-    </fieldset>
+    </div>
   );
 }

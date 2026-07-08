@@ -1,21 +1,43 @@
 import { cn } from "../lib/cn.ts";
-import { clickMode } from "../lib/selection.ts";
+import { clickMode, SETTINGS_SELECTION } from "../lib/selection.ts";
 import { useEditor } from "./editor-context.ts";
 
 export function EntitiesPanel() {
   const { state, dispatch } = useEditor();
   if (!state.doc)
     return <p className="p-3 text-sm text-muted-foreground">no scene loaded</p>;
+  const rowCls = (selected: boolean) =>
+    cn(
+      "w-full rounded px-2 py-1 text-left text-sm hover:bg-muted",
+      selected && "bg-primary/20 text-primary",
+    );
+  const worldSelected = state.selectedEntities.includes(SETTINGS_SELECTION);
   return (
     <ul className="p-2">
+      {/* Pinned World row: a virtual single-select of the settings sentinel, visually set
+          apart from the entity list by a divider + medium weight. */}
+      <li className="mb-1 border-b border-border pb-1">
+        <button
+          type="button"
+          className={cn(rowCls(worldSelected), "font-medium")}
+          onClick={() =>
+            dispatch({
+              type: "select-entity",
+              id: SETTINGS_SELECTION,
+              mode: "replace",
+            })
+          }
+        >
+          World
+        </button>
+      </li>
       {state.doc.entities.map((e) => (
         <li key={e.id}>
           <button
             type="button"
             className={cn(
-              "w-full rounded px-2 py-1 text-left text-sm hover:bg-muted",
-              state.selectedEntities.includes(e.id) &&
-                "bg-primary/20 text-primary",
+              rowCls(state.selectedEntities.includes(e.id)),
+              "font-mono",
             )}
             onClick={(ev) =>
               dispatch({ type: "select-entity", id: e.id, mode: clickMode(ev) })

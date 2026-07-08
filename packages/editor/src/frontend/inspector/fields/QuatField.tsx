@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from "react";
+import { commitIfChanged } from "../lib/commit-guard.ts";
 import { eulerDegToQuat, quatToEulerDeg } from "../lib/euler.ts";
 import { isMixed } from "../lib/mixed.ts";
 import type { FieldProps } from "../types.ts";
 import { Input } from "../../components/ui/input.tsx";
-import { FieldRow, denseInputCls } from "./common.tsx";
+import { AxisChip, denseNumericInputCls, FieldRow } from "./common.tsx";
 
 const LABELS = ["x°", "y°", "z°"];
 
@@ -18,10 +19,19 @@ export function QuatField({ schema, values, onPreview, onCommit, onCancel, path 
   // "90", making decimals untypeable. Parse only when emitting preview/commit.
   const [text, setText] = useState<string[]>(seed);
   const focusedRef = useRef(false);
-  useEffect(() => {
-    if (!focusedRef.current) setText(euler0.map(String));
-  }, [JSON.stringify(q0)]);
   const mixed = isMixed(values);
+  // Per-euler-component committed baseline for the blur dirty-check (NaN when the quat is
+  // mixed across the selection → always commit). Synced only while UNfocused so it holds the
+  // pre-edit value, not the live-previewed draft (mirrors NumberField / the text seed).
+  const committedAt = (): number[] =>
+    euler0.map((v) => (mixed ? Number.NaN : Number(v)));
+  const committedRef = useRef<number[]>(committedAt());
+  useEffect(() => {
+    if (!focusedRef.current) {
+      setText(euler0.map(String));
+      committedRef.current = committedAt();
+    }
+  }, [JSON.stringify(q0)]);
 
   // Emit a single euler component change: each target converts its own quat to euler,
   // sets component i, then converts back — preserving each target's other euler components.
@@ -45,38 +55,43 @@ export function QuatField({ schema, values, onPreview, onCommit, onCancel, path 
   return (
     <FieldRow path={path}>
       {LABELS.map((label, i) => (
-        <Input
-          key={label}
-          className={denseInputCls}
-          inputMode="decimal"
-          title={label}
-          placeholder={mixed ? "—" : undefined}
-          value={mixed && text[i] === seed[i] ? "" : (text[i] ?? "")}
-          onFocus={() => {
-            focusedRef.current = true;
-          }}
-          onChange={(e) => setComp(i, e.target.value, false)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              (e.target as HTMLInputElement).blur();
-            } else if (e.key === "Escape") {
-              onCancel();
-              setText(euler0.map(String));
-            }
-          }}
-          onBlur={(e) => {
-            focusedRef.current = false;
-            const raw = e.target.value;
-            // Invalid leftover on blur: revert just this component to committed.
-            if (raw.trim() === "" || !Number.isFinite(Number(raw))) {
-              const next = text.slice();
-              next[i] = seed[i] ?? "";
-              setText(next);
-            } else {
-              setComp(i, raw, true);
-            }
-          }}
-        />
+        <span key={label} className="flex min-w-0 items-center gap-0.5">
+          <AxisChip>{label}</AxisChip>
+          <Input
+            className={denseNumericInputCls}
+            inputMode="decimal"
+            title={label}
+            placeholder={mixed ? "—" : undefined}
+            value={mixed && text[i] === seed[i] ? "" : (text[i] ?? "")}
+            onFocus={() => {
+              focusedRef.current = true;
+            }}
+            onChange={(e) => setComp(i, e.target.value, false)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                (e.target as HTMLInputElement).blur();
+              } else if (e.key === "Escape") {
+                onCancel();
+                setText(euler0.map(String));
+              }
+            }}
+            onBlur={(e) => {
+              focusedRef.current = false;
+              const raw = e.target.value;
+              // Invalid leftover on blur: revert just this component to committed.
+              if (raw.trim() === "" || !Number.isFinite(Number(raw))) {
+                const next = text.slice();
+                next[i] = seed[i] ?? "";
+                setText(next);
+              } else {
+                // Dirty check: commit this euler component only if it changed vs baseline.
+                commitIfChanged(committedRef.current[i] ?? Number.NaN, Number(raw), () =>
+                  setComp(i, raw, true),
+                );
+              }
+            }}
+          />
+        </span>
       ))}
     </FieldRow>
   );

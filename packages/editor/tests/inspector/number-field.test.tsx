@@ -64,15 +64,23 @@ test("Escape reverts to the seeded text and does NOT commit", () => {
   expect(input.value).toBe("3");
 });
 
-test("KNOWN-ISSUE: an unchanged blur still commits (no dirty check)", () => {
+test("an unchanged blur does NOT commit (dirty check — Task 8 fix)", () => {
   const { input, onCommit } = renderNumberField();
   input.focus();
-  // No edit — just focus then blur. Current code commits anyway because the text is
-  // non-empty and finite; there is no compare-against-initial guard.
+  // No edit — just focus then blur. The onBlur guard compares the parsed value to the
+  // committed value and skips the commit when they match (Task 8 flipped the old
+  // KNOWN-ISSUE where a focus+blur committed a spurious no-op edit / revision bump).
   fireEvent.blur(input);
-  // KNOWN-ISSUE (flipped in Task 8): commits even when the value is unchanged.
-  expect(onCommit).toHaveBeenCalledTimes(1);
-  expect(onCommit).toHaveBeenLastCalledWith([3]);
+  expect(onCommit).not.toHaveBeenCalled();
+});
+
+test("typing the SAME value then blur does NOT commit (dirty check)", () => {
+  const { input, onCommit } = renderNumberField();
+  input.focus();
+  // Re-typing the committed value "3" leaves the field clean → no commit on blur.
+  fireEvent.change(input, { target: { value: "3" } });
+  fireEvent.blur(input);
+  expect(onCommit).not.toHaveBeenCalled();
 });
 
 test("blurring an empty/invalid value reverts and does NOT commit", () => {

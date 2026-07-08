@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from "react";
+import { commitIfChanged } from "../lib/commit-guard.ts";
 import { isMixed } from "../lib/mixed.ts";
 import { scrubValue } from "../lib/scrub.ts";
 import type { FieldProps } from "../types.ts";
 import { Input } from "../../components/ui/input.tsx";
-import { FieldRow, denseInputCls, MIXED } from "./common.tsx";
+import { FieldRow, denseNumericInputCls, MIXED } from "./common.tsx";
 
 /** Pixels of horizontal drag per unit change (normal speed). */
 const SCRUB_SENSITIVITY = 0.05;
@@ -18,10 +19,24 @@ export function NumberField({ schema, values, onPreview, onCommit, onCancel, pat
   const [text, setText] = useState(initial);
   const focusedRef = useRef(false);
   const scrub = useRef<{ startX: number; startVal: number } | null>(null);
+  // The committed numeric value to dirty-check a blur against — held in a ref because
+  // `values` tracks the LIVE-PREVIEWED draft while editing (onChange fans a preview that
+  // re-renders us with the new value), so comparing to `values[0]` at blur would see the
+  // preview, not the pre-edit commit. NaN encodes a mixed selection (always commits a
+  // concrete entry). Synced only while UNfocused, so it holds the focus-time value across
+  // preview re-renders (same guard as the text re-seed below).
+  const committedNum = (): number =>
+    mixed ? Number.NaN : Number((values[0] as number) ?? def);
+  const committedRef = useRef(committedNum());
 
   // Re-seed when committed values change externally (e.g. SSE / selection change),
   // but never clobber text the user is actively typing.
-  useEffect(() => { if (!focusedRef.current) setText(initial); }, [initial]);
+  useEffect(() => {
+    if (!focusedRef.current) {
+      setText(initial);
+      committedRef.current = committedNum();
+    }
+  }, [initial]);
 
   const fanout = (n: number) => values.map(() => n);
 
@@ -52,7 +67,7 @@ export function NumberField({ schema, values, onPreview, onCommit, onCancel, pat
   return (
     <FieldRow path={path} labelPointerProps={{ onPointerDown: onScrubDown, onPointerMove: onScrubMove, onPointerUp: onScrubUp, onPointerCancel: onScrubUp }}>
       <Input
-        className={denseInputCls}
+        className={denseNumericInputCls}
         inputMode="decimal"
         placeholder={mixed ? MIXED : undefined}
         value={text}
@@ -74,8 +89,14 @@ export function NumberField({ schema, values, onPreview, onCommit, onCancel, pat
         onBlur={() => {
           focusedRef.current = false;
           const n = Number(text);
-          if (text.trim() !== "" && Number.isFinite(n)) onCommit(fanout(n));
-          else setText(initial);
+          if (text.trim() === "" || !Number.isFinite(n)) {
+            setText(initial);
+            return;
+          }
+          // Dirty check (shared with Vec/Quat): commit only when the value actually
+          // changed vs the committed baseline, so a focus+blur (or re-typing the same
+          // value) never fires a spurious no-op commit / revision bump.
+          commitIfChanged(committedRef.current, n, () => onCommit(fanout(n)));
         }}
       />
     </FieldRow>

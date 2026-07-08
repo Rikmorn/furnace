@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from "react";
+import { commitIfChanged } from "../lib/commit-guard.ts";
 import { isMixed } from "../lib/mixed.ts";
 import { fanComponent } from "../lib/vec-fan.ts";
 import type { FieldProps } from "../types.ts";
 import { Input } from "../../components/ui/input.tsx";
-import { FieldRow, denseInputCls } from "./common.tsx";
+import { AxisChip, denseNumericInputCls, FieldRow } from "./common.tsx";
 
 const LABELS = ["x", "y", "z", "w"];
 
@@ -17,10 +18,21 @@ export function makeVecField(n: number) {
     // "1", making decimals untypeable. Parse only when emitting preview/commit.
     const [text, setText] = useState<string[]>(seed);
     const focusedRef = useRef(false);
-    useEffect(() => {
-      if (!focusedRef.current) setText(vec0.slice(0, n).map(String));
-    }, [JSON.stringify(vec0)]);
     const mixedAt = (i: number) => isMixed(values.map((v) => (v as number[])?.[i]));
+    // Per-component committed baseline for the blur dirty-check (NaN = that component is
+    // mixed across the selection → always commit). Synced only while UNfocused so it holds
+    // the pre-edit value, not the live-previewed draft (mirrors NumberField / the text seed).
+    const committedAt = (): number[] =>
+      Array.from({ length: n }, (_, i) =>
+        mixedAt(i) ? Number.NaN : Number((vec0[i] as number) ?? 0),
+      );
+    const committedRef = useRef<number[]>(committedAt());
+    useEffect(() => {
+      if (!focusedRef.current) {
+        setText(vec0.slice(0, n).map(String));
+        committedRef.current = committedAt();
+      }
+    }, [JSON.stringify(vec0)]);
 
     // Emit a single component change: preserves every target's own other components.
     const emitComp = (i: number, raw: string, commit: boolean) => {
@@ -36,38 +48,43 @@ export function makeVecField(n: number) {
     return (
       <FieldRow path={path}>
         {Array.from({ length: n }, (_, i) => (
-          <Input
-            key={LABELS[i]}
-            className={denseInputCls}
-            inputMode="decimal"
-            title={LABELS[i]}
-            placeholder={mixedAt(i) ? "—" : undefined}
-            value={mixedAt(i) && text[i] === seed[i] ? "" : (text[i] ?? "")}
-            onFocus={() => {
-              focusedRef.current = true;
-            }}
-            onChange={(e) => setComp(i, e.target.value, false)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                (e.target as HTMLInputElement).blur();
-              } else if (e.key === "Escape") {
-                onCancel();
-                setText(vec0.slice(0, n).map(String));
-              }
-            }}
-            onBlur={(e) => {
-              focusedRef.current = false;
-              const raw = e.target.value;
-              // Invalid leftover on blur: revert just this component to committed.
-              if (raw.trim() === "" || !Number.isFinite(Number(raw))) {
-                const next = text.slice();
-                next[i] = seed[i] ?? "";
-                setText(next);
-              } else {
-                setComp(i, raw, true);
-              }
-            }}
-          />
+          <span key={LABELS[i]} className="flex min-w-0 items-center gap-0.5">
+            <AxisChip>{LABELS[i]}</AxisChip>
+            <Input
+              className={denseNumericInputCls}
+              inputMode="decimal"
+              title={LABELS[i]}
+              placeholder={mixedAt(i) ? "—" : undefined}
+              value={mixedAt(i) && text[i] === seed[i] ? "" : (text[i] ?? "")}
+              onFocus={() => {
+                focusedRef.current = true;
+              }}
+              onChange={(e) => setComp(i, e.target.value, false)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  (e.target as HTMLInputElement).blur();
+                } else if (e.key === "Escape") {
+                  onCancel();
+                  setText(vec0.slice(0, n).map(String));
+                }
+              }}
+              onBlur={(e) => {
+                focusedRef.current = false;
+                const raw = e.target.value;
+                // Invalid leftover on blur: revert just this component to committed.
+                if (raw.trim() === "" || !Number.isFinite(Number(raw))) {
+                  const next = text.slice();
+                  next[i] = seed[i] ?? "";
+                  setText(next);
+                } else {
+                  // Dirty check: commit this component only if it changed vs its baseline.
+                  commitIfChanged(committedRef.current[i] ?? Number.NaN, Number(raw), () =>
+                    setComp(i, raw, true),
+                  );
+                }
+              }}
+            />
+          </span>
         ))}
       </FieldRow>
     );

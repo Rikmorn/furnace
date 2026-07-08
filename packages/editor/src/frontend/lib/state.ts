@@ -1,4 +1,5 @@
 import type { SceneDocument } from "@furnace/core/scene";
+import { SETTINGS_SELECTION } from "./selection.ts";
 
 export type EditorStatus = "booting" | "engine-error" | "no-webgpu" | "ready";
 
@@ -74,7 +75,11 @@ export function reduce(s: EditorState, e: EditorEvent): EditorState {
       return { ...s, loading: true, selectedScene: e.path, error: undefined };
     case "session-updated": {
       const ids = new Set(e.doc.entities.map((entity) => entity.id));
-      const selectedEntities = s.selectedEntities.filter((id) => ids.has(id));
+      // The World/settings sentinel is a virtual selection, not a doc entity — preserve
+      // it across a refresh so a settings edit + its SSE echo keeps World selected.
+      const selectedEntities = s.selectedEntities.filter(
+        (id) => id === SETTINGS_SELECTION || ids.has(id),
+      );
       return {
         ...s,
         loading: false,
@@ -98,13 +103,22 @@ export function reduce(s: EditorState, e: EditorEvent): EditorState {
     case "file-invalid":
       return { ...s, notice: e.message };
     case "select-entity": {
+      // The World/settings sentinel is exclusively single-select — it never coexists with
+      // real entities on any path, so selecting it always replaces the selection.
+      if (e.id === SETTINGS_SELECTION)
+        return { ...s, selectedEntities: [e.id], selectionAnchor: e.id };
       if (e.mode === "toggle") {
-        const has = s.selectedEntities.includes(e.id);
+        // Drop the sentinel before toggling a real entity so World + an entity are never
+        // both highlighted (mutually exclusive selection).
+        const base = s.selectedEntities.filter(
+          (id) => id !== SETTINGS_SELECTION,
+        );
+        const has = base.includes(e.id);
         return {
           ...s,
           selectedEntities: has
-            ? s.selectedEntities.filter((id) => id !== e.id)
-            : [...s.selectedEntities, e.id],
+            ? base.filter((id) => id !== e.id)
+            : [...base, e.id],
           selectionAnchor: e.id,
         };
       }

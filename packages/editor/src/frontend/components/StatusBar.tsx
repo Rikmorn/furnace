@@ -22,8 +22,12 @@ export function StatusBar({ state }: { state: EditorState }) {
   return (
     <footer className="flex gap-4 border-t border-border px-3 py-1 text-xs text-muted-foreground">
       <span>{engineLabel(state)}</span>
-      <span>{sceneLabel(state)}</span>
-      {sessionLabel(state) && <span>{sessionLabel(state)}</span>}
+      {/* Data-Is-Mono: the scene path + entity count and the revision counter read as
+          data — mono, tabular figures so the rev number doesn't jitter as it ticks. */}
+      <span className="font-mono tabular-nums">{sceneLabel(state)}</span>
+      {sessionLabel(state) && (
+        <span className="font-mono tabular-nums">{sessionLabel(state)}</span>
+      )}
       {state.conflict && (
         <span className="text-warning">
           file changed on disk — save to keep this session, re-open to accept
