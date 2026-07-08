@@ -10,9 +10,11 @@
 export {
   type BakeFile,
   bakeWing as bake,
+  DEFAULT_WING_NAME,
   WING_DIR,
   type WingManifest,
   type WingRegionEntry,
+  wingDir,
 } from "./bake.ts";
 export { placePiece } from "./connect.ts";
 export {
