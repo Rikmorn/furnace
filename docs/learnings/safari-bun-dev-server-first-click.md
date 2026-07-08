@@ -4,7 +4,7 @@
 
 ## The bug
 
-Bun 1.3.14. Open the cookbook menu in a fresh Safari window (`bun run dev:cookbook` → http://localhost:8766/), click any demo card the first time → network activity but the page sticks on the menu. Click the same card again → navigates fine. One wasted click per cold demo. Chrome doesn't reproduce. Safari is the project's primary browser, so this matters.
+Bun 1.3.14. Open the cookbook menu in a fresh Safari window (`bun run cookbook:dev` → http://localhost:8766/), click any demo card the first time → network activity but the page sticks on the menu. Click the same card again → navigates fine. One wasted click per cold demo. Chrome doesn't reproduce. Safari is the project's primary browser, so this matters.
 
 ## Root cause (with what evidence we have)
 
@@ -30,7 +30,7 @@ Cost: ~200ms one-time at server startup. Benefit: bug eliminated.
 ## Reproducing it (if it ever comes back)
 
 1. Revert the prewarm block in `packages/cookbook/serve.ts`.
-2. `bun run dev:cookbook` — log shows "Serving 9 demo(s)" with no "Bundled page" lines yet.
+2. `bun run cookbook:dev` — log shows "Serving 9 demo(s)" with no "Bundled page" lines yet.
 3. Fresh Safari Private window → http://localhost:8766/ → click any card.
 4. First click: page stays on menu, Safari Web Inspector → Console shows "Failed to load HMR script". Simultaneously the dev-server log emits "Bundled page in Xms: ..." for that demo.
 5. Click the same card again → navigates fine.

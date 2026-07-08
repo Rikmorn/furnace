@@ -69,7 +69,7 @@ An empty bind group carries no resources, so output is byte-identical for materi
 
 Because the headless suite can't reproduce this, the fix needed an independent strict-WebGPU check before handing the Safari gate to the user. Chrome's WebGPU (Dawn) enforces the same spec rule. Driving it via the Playwright MCP against the live dev servers gave that confirmation:
 
-1. `bun run dev:web` (hello-world, port 8765) and the cookbook dev server (port 8766).
+1. `bun run hello-world:dev` (hello-world, port 8765) and the cookbook dev server (port 8766).
 2. `browser_navigate` to each failing demo; `browser_console_messages` scanned for `[furnace/gpu]` device errors.
 3. Post-fix, both rendered at 120 fps with a clean console (only an unrelated favicon 404).
 
