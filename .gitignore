@@ -53,6 +53,9 @@ Cargo.lock.bak
 # Superpowers tool output — implementation context only, not canonical reference
 docs/superpowers/
 
+# impeccable skill working state (live-mode config/sessions, critique snapshots) — local tool state, not project source
+.impeccable/
+
 # sidekick — local working state (managed by `sidekick init`)
 .sidekick/cache/
 .sidekick/state/
