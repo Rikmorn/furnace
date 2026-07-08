@@ -284,3 +284,46 @@ test.skipIf(!bunWebGpuAvailable())(
     }
   },
 );
+
+// The stale-bake guard (D6): a pre-consolidation manifest (no top-level `scene` field) must
+// be REJECTED with a re-bake error, not opaquely 404 on a per-piece doc that no longer exists.
+// `assertCompatible` throws synchronously after the manifest fetch and before any GPU work, so
+// this only exercises the fetch stub + guard — but the loader signature needs a real
+// ctx/world/matCache, built exactly as the main test does (guarded by skipIf).
+test.skipIf(!bunWebGpuAvailable())(
+  "throws a re-bake error on a pre-consolidation manifest (no scene field)",
+  async () => {
+    const { files } = bakeWing(SEED, CFG, {});
+    // Strip the top-level `scene` field to simulate a pre-3.2.1 (per-piece-doc) manifest.
+    const stale = files.map((f) => {
+      if (!f.path.endsWith("manifest.json")) return f;
+      const parsed = JSON.parse(f.contents as string) as Record<
+        string,
+        unknown
+      >;
+      const { scene: _scene, ...withoutScene } = parsed;
+      return { ...f, contents: JSON.stringify(withoutScene) };
+    });
+    const restore = stubFetch(stale);
+    let ctx: gpu.Context | null = null;
+    let world: physics.World | null = null;
+    try {
+      const canvas = await makeOffscreenCanvas();
+      ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
+      world = await physics.createWorld(ctx, {
+        gravity: [0, -9.81, 0],
+        lengthUnit: 1,
+      });
+      const matCache = new MaterialCache(ctx);
+
+      const { loadGeneratedWing } = await import("../src/wing-loader.ts");
+      await expect(loadGeneratedWing(ctx, world, matCache)).rejects.toThrow(
+        /no scene/,
+      );
+    } finally {
+      if (ctx && world) physics.destroyWorld(ctx, world);
+      if (ctx) gpu.dispose(ctx);
+      restore();
+    }
+  },
+);

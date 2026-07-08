@@ -1,13 +1,18 @@
 // packages/dungeon/src/bake.ts
-// The wing-writer (Slice 3.1 spec §4): regenerate the frozen world from its winning
-// derived seed and emit the baked artifact set. PURE — no FS; the editor daemon (or a
-// test) owns the writes. Dungeon-owned so the editor carries zero generator knowledge.
+// The wing-writer (Slice 3.1 spec §4, consolidated in 3.2.1): regenerate the frozen world
+// from its winning derived seed and emit the baked artifact set. PURE — no FS; the editor
+// daemon (or a test) owns the writes. Dungeon-owned so the editor carries zero generator
+// knowledge.
 //
-// Docs are RENDER-ONLY (no rigidBody components): colliders ride the manifest as cuboid
-// lists (voxel shapes never serialize — the cave's voxel proxy re-expands at load from
-// provenance), and the cave's decorative scatter re-expands at load too. Custom
+// The WHOLE wing bakes to ONE render-only `wing.scene.json` (all regions AND connectors
+// merged into a single SceneDocument; resource keys are piece-prefixed so pieces can't
+// collide). It carries NO rigidBody components: colliders ride the manifest as per-piece
+// cuboid lists (voxel shapes never serialize — the cave's voxel proxy re-expands at load
+// from provenance), and the cave's decorative scatter re-expands at load too. Custom
 // (Surface-Nets) meshes ship as `.fmesh` sidecars carrying LOCAL vertices; the entity
 // transform positions them in world (the 3.0 baker convention — avoids a double-offset).
+// The manifest is written LAST (crash-safety: an interrupted bake leaves no manifest, so
+// the loader falls back to live generation and a torn wing never loads).
 import {
   CURRENT_SCENE_VERSION,
   type EntityDoc,
@@ -40,11 +45,10 @@ const WING_NAME_RE = /^[a-z0-9][a-z0-9_-]*$/i;
 export type BakeFile = { path: string; contents: string | Uint8Array };
 
 /** A baked region's manifest entry — enough to re-expand its runtime-only parts (cave
- *  voxel proxy + dressing) at load from provenance, plus its render-only doc + colliders. */
+ *  voxel proxy + dressing) at load from provenance, plus its world-frame cuboid colliders.
+ *  Its render-only meshes live in the wing's single merged `scene` doc, not here. */
 export type WingRegionEntry = {
   id: string;
-  /** Doc file, relative to the project root. */
-  file: string;
   theme: string;
   /** Provenance seed of the region (theme-level, NOT the world seed). */
   seed: string;
@@ -58,7 +62,8 @@ export type WingRegionEntry = {
   themeParams?: Record<string, unknown>;
 };
 
-/** The baked wing's index: provenance to regenerate, plus per-region + connector artifacts. */
+/** The baked wing's index: provenance to regenerate, the single merged render-only doc,
+ *  plus per-region + connector colliders (their meshes live in that one doc). */
 export type WingManifest = {
   version: 1;
   provenance: {
@@ -70,9 +75,11 @@ export type WingManifest = {
     budget: Partial<LayoutBudget>;
   };
   attach: { node: "authored"; note: string };
+  /** The single merged render-only doc for the whole wing, project-root-relative. */
+  scene: string;
   regions: WingRegionEntry[];
-  /** Connector docs carry no dressing; colliders only. */
-  connectors: { file: string; colliders: RegionCollider[] }[];
+  /** Connectors carry no dressing; world-frame cuboid colliders only. */
+  connectors: { colliders: RegionCollider[] }[];
 };
 
 /**
@@ -105,6 +112,12 @@ export function bakeWing(
 
   const files: BakeFile[] = [];
   const regions: WingRegionEntry[] = [];
+  const merged: MergedDoc = {
+    geometries: { g_cube: { kind: "cube" } },
+    materials: {},
+    entities: [],
+    sidecars: [],
+  };
 
   for (const [i, node] of graph.nodes.entries()) {
     if (node.region.provenance.theme === "authored") continue; // the pinned phantom
@@ -113,15 +126,9 @@ export function bakeWing(
     const placement = layout.placements.get(node.id);
     if (!placement) throw new Error(`bake: node ${node.id} has no placement`);
 
-    const file = `${dir}/region-${node.id}.scene.json`;
-    const { doc, sidecars } = regionDoc(node.id, placed, dir);
-    files.push(
-      { path: file, contents: JSON.stringify(doc, null, 2) },
-      ...sidecars,
-    );
+    appendPiece(merged, dir, node.id, placed);
     regions.push({
       id: node.id,
-      file,
       theme: node.region.provenance.theme,
       seed: node.region.provenance.seed,
       placement,
@@ -132,11 +139,26 @@ export function bakeWing(
 
   const connectors: WingManifest["connectors"] = [];
   for (const [i, c] of layout.connectors.entries()) {
-    const file = `${dir}/connector-${i}.scene.json`;
-    const { doc } = regionDoc(`connector-${i}`, c, dir);
-    files.push({ path: file, contents: JSON.stringify(doc, null, 2) });
-    connectors.push({ file, colliders: cuboidColliders(c) });
+    appendPiece(merged, dir, `connector-${i}`, c);
+    connectors.push({ colliders: cuboidColliders(c) });
   }
+
+  // Sidecars first, then the ONE merged scene doc; the manifest is pushed LAST (below).
+  const scenePath = `${dir}/wing.scene.json`;
+  const doc: SceneDocument = {
+    version: CURRENT_SCENE_VERSION,
+    settings: {},
+    resources: {
+      geometries: merged.geometries,
+      shaders: { s_lit: { kind: "lit" } },
+      materials: merged.materials,
+    },
+    entities: merged.entities,
+  };
+  files.push(...merged.sidecars, {
+    path: scenePath,
+    contents: JSON.stringify(doc, null, 2),
+  });
 
   const manifest: WingManifest = {
     version: 1,
@@ -151,9 +173,12 @@ export function bakeWing(
       node: "authored",
       note: "wing grows from the authored chamber door; regions are already world-placed",
     },
+    scene: scenePath,
     regions,
     connectors,
   };
+  // LAST — the crash-safety contract: an interrupted bake leaves no manifest, so the loader
+  // falls back to live generation and a torn wing never loads.
   files.push({
     path: `${dir}/manifest.json`,
     contents: JSON.stringify(manifest, null, 2),
@@ -166,62 +191,61 @@ function cuboidColliders(r: RegionData): RegionCollider[] {
   return r.colliders.filter((c) => "cuboid" in c.shape);
 }
 
+/** The merged wing doc under construction: one resource pool + entity list for the whole
+ *  wing, plus the `.fmesh` sidecars its custom-mesh geometries reference. `appendPiece`
+ *  folds each placed piece in; the caller seals it into a single `SceneDocument`. */
+type MergedDoc = {
+  geometries: Record<string, unknown>;
+  materials: Record<string, unknown>;
+  entities: EntityDoc[];
+  sidecars: BakeFile[];
+};
+
 /**
- * A render-only scene doc for one placed piece: box meshes as scaled unit-cube entities,
- * custom meshes as `.fmesh` sidecar resources (LOCAL vertices; world pose on the entity
- * transform — the 3.0 baker convention). Materials are the `standard` kind lit by `s_lit`;
- * the scene material schema carries only `color`, so `specular` is intentionally dropped
- * (matches the 3.0 baker — see docs/backlog/engine-architecture/scene-material-specular-param.md).
+ * Append one placed piece's render-only entities into the merged wing doc. Resource keys
+ * are piece-prefixed (`<id>-m<i>` materials, `<id>-g_mesh_<mi>` custom geometries) so pieces
+ * merged into one doc can't collide; `g_cube`/`s_lit` stay shared singletons. Box meshes
+ * render as scaled unit cubes; custom (Surface-Nets) meshes ship as `.fmesh` sidecars with
+ * LOCAL vertices, world-posed on the entity transform (the 3.0 baker convention). Materials
+ * are lit by `s_lit`; the scene material schema carries only `color`, so `specular` is
+ * intentionally dropped (see docs/backlog/engine-architecture/scene-material-specular-param.md).
  */
-function regionDoc(
+function appendPiece(
+  out: MergedDoc,
+  dir: string,
   id: string,
   r: RegionData,
-  dir: string,
-): { doc: SceneDocument; sidecars: BakeFile[] } {
-  const sidecars: BakeFile[] = [];
-  const geometries: Record<string, unknown> = { g_cube: { kind: "cube" } };
-  const materials = Object.fromEntries(
-    r.materials.map((m, i) => [
-      `m_${i}`,
-      { shader: "s_lit", params: { color: m.color } },
-    ]),
-  );
-
-  const entities: EntityDoc[] = [];
+): void {
+  for (const [i, m] of r.materials.entries()) {
+    out.materials[`${id}-m${i}`] = {
+      shader: "s_lit",
+      params: { color: m.color },
+    };
+  }
   for (const [mi, m] of r.meshes.entries()) {
     const transform: Record<string, unknown> = { position: m.position };
     if (m.rotation) transform["rotation"] = m.rotation;
     let geoRef = "g_cube";
     if ("custom" in m.geometry) {
       const sidecarPath = `${dir}/${id}-${mi}.fmesh`;
-      sidecars.push({
+      out.sidecars.push({
         path: sidecarPath,
         contents: new Uint8Array(encodeMeshBlob({ render: m.geometry.custom })),
       });
-      geoRef = `g_mesh_${mi}`;
-      geometries[geoRef] = { kind: "mesh", src: `/${sidecarPath}` };
+      geoRef = `${id}-g_mesh_${mi}`;
+      out.geometries[geoRef] = { kind: "mesh", src: `/${sidecarPath}` };
       // realize.ts applies m.scale to a CUSTOM mesh only (box meshes use geometry.box).
       if (m.scale) transform["scale"] = m.scale;
     } else {
       // Mirror realize.ts: a box mesh renders as a unit cube scaled by geometry.box.
       transform["scale"] = m.geometry.box;
     }
-    entities.push({
+    out.entities.push({
       id: `${id}-m${mi}`,
       components: {
         transform,
-        meshRenderer: { geometry: geoRef, material: `m_${m.material}` },
+        meshRenderer: { geometry: geoRef, material: `${id}-m${m.material}` },
       },
     });
   }
-
-  return {
-    doc: {
-      version: CURRENT_SCENE_VERSION,
-      settings: {},
-      resources: { geometries, shaders: { s_lit: { kind: "lit" } }, materials },
-      entities,
-    },
-    sidecars,
-  };
 }

@@ -25,7 +25,7 @@ function docOf(
   files: BakeFile[],
   file: string,
 ): {
-  entities: { components: Record<string, unknown> }[];
+  entities: { id: string; components: Record<string, unknown> }[];
   resources: { geometries: Record<string, { kind: string }> };
 } {
   const f = files.find((x) => x.path === file);
@@ -33,7 +33,7 @@ function docOf(
 }
 
 describe("bakeWing", () => {
-  test("emits manifest + one doc per non-authored region + connectors, deterministically", () => {
+  test("emits ONE merged wing.scene.json + manifest (manifest LAST), deterministically", () => {
     const a = bakeWing(SEED, CFG, {});
     const b = bakeWing(SEED, CFG, {});
     expect(a.files.map((f) => f.path)).toEqual(b.files.map((f) => f.path));
@@ -64,24 +64,41 @@ describe("bakeWing", () => {
       expect(hall.themeParams?.["doors"]).toBeDefined();
     }
 
-    // Every region doc is render-only (no rigidBody component); manifest colliders are
-    // cuboid-only (voxels regenerate at load, never serialize).
-    for (const r of manifest.regions) {
-      const doc = docOf(a.files, r.file);
-      for (const e of doc.entities) {
-        expect(e.components["rigidBody"]).toBeUndefined();
-      }
-      for (const c of r.colliders) expect("cuboid" in c.shape).toBe(true);
-    }
+    // ONE scene doc for the whole wing, referenced from the manifest.
+    expect(manifest.scene).toBe(`${WING_DIR}/wing.scene.json`);
+    const sceneDocs = a.files.filter((f) => f.path.endsWith(".scene.json"));
+    expect(sceneDocs.length).toBe(1);
+    expect(sceneDocs[0]?.path).toBe(manifest.scene);
 
-    // The cave's custom (Surface-Nets) isosurface is doc-entity index 0 → the
-    // `<id>-0.fmesh` sidecar assumption Task 6's wing-loader depends on.
-    const caveDoc = docOf(a.files, cave?.file as string);
-    const firstGeoRef = (
-      caveDoc.entities[0]?.components["meshRenderer"] as { geometry: string }
-    ).geometry;
-    expect(firstGeoRef).toBe("g_mesh_0");
-    expect(caveDoc.resources.geometries["g_mesh_0"]?.kind).toBe("mesh");
+    // manifest.json is the LAST file — the crash-safety contract (spec §2.2):
+    // an interrupted write leaves no manifest → loader falls back to live gen.
+    expect(a.files[a.files.length - 1]?.path).toBe(`${WING_DIR}/manifest.json`);
+
+    // Per-entry file fields are gone (v1 shape change, D6 — no version bump).
+    expect("file" in (manifest.regions[0] as object)).toBe(false);
+
+    const doc = docOf(a.files, manifest.scene);
+    // Every baked entity is render-only (no rigidBody component); manifest colliders are
+    // cuboid-only (voxels regenerate at load, never serialize).
+    for (const e of doc.entities) {
+      expect(e.components["rigidBody"]).toBeUndefined();
+    }
+    for (const r of manifest.regions)
+      for (const c of r.colliders) expect("cuboid" in c.shape).toBe(true);
+
+    // Resource keys are piece-prefixed → no collisions in the merged doc.
+    const geoKeys = Object.keys(doc.resources.geometries);
+    expect(new Set(geoKeys).size).toBe(geoKeys.length);
+    // Entities from BOTH regions and connectors live in the one doc.
+    const ids = doc.entities.map((e) => e.id);
+    expect(ids.some((i) => i.startsWith("connector-"))).toBe(true);
+    for (const r of manifest.regions) {
+      expect(ids.some((i) => i.startsWith(`${r.id}-m`))).toBe(true);
+    }
+    expect(new Set(ids).size).toBe(ids.length);
+    // The cave's isosurface geometry ref is piece-prefixed now; its `.fmesh` sidecar path
+    // is UNCHANGED (`<id>-0.fmesh`) — the wing-loader depends on it (mesh index 0).
+    expect(doc.resources.geometries[`${cave?.id}-g_mesh_0`]?.kind).toBe("mesh");
     expect(
       a.files.some((f) => f.path === `${WING_DIR}/${cave?.id}-0.fmesh`),
     ).toBe(true);
