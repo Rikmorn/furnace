@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { isMixed } from "../lib/mixed.ts";
 import { scrubValue } from "../lib/scrub.ts";
 import type { FieldProps } from "../types.ts";
-import { FieldRow, inputCls, MIXED } from "./common.tsx";
+import { Input } from "../../components/ui/input.tsx";
+import { FieldRow, denseInputCls, MIXED } from "./common.tsx";
 
 /** Pixels of horizontal drag per unit change (normal speed). */
 const SCRUB_SENSITIVITY = 0.05;
@@ -50,8 +51,8 @@ export function NumberField({ schema, values, onPreview, onCommit, onCancel, pat
 
   return (
     <FieldRow path={path} labelPointerProps={{ onPointerDown: onScrubDown, onPointerMove: onScrubMove, onPointerUp: onScrubUp, onPointerCancel: onScrubUp }}>
-      <input
-        className={inputCls}
+      <Input
+        className={denseInputCls}
         inputMode="decimal"
         placeholder={mixed ? MIXED : undefined}
         value={text}

@@ -34,5 +34,19 @@ export function FieldRow({
 }
 
 export const MIXED = "—";
-export const inputCls =
-  "w-full min-w-0 rounded border border-input bg-input px-1 py-0.5 text-right text-xs focus:outline-none focus:ring-1 focus:ring-ring";
+
+// Dense-inspector overrides for the shadcn <Input>. The shadcn defaults (h-9,
+// text-base/md:text-sm, px-3, bg-transparent, shadow-sm) are sized for standalone
+// forms; a property inspector row needs the compact, filled, right-aligned look the
+// old raw inputCls had. tailwind-merge resolves each conflicting utility last-wins,
+// so we only list the deltas. The focus ring is intentionally NOT set here — <Input>
+// already brings the unified focus-visible:ring-ring (--ring), replacing inputCls's
+// old focus:ring so there is ONE focus-ring system.
+export const denseInputCls =
+  "h-auto min-w-0 bg-input px-1 py-0.5 text-right text-xs md:text-xs shadow-none";
+
+// Same dense treatment for the shadcn <SelectTrigger> (defaults h-9/text-sm/px-3/
+// bg-transparent/shadow-sm). Alignment stays trigger-default (value left, chevron
+// right via the component's justify-between).
+export const denseTriggerCls =
+  "h-auto min-w-0 bg-input px-1 py-0.5 text-xs shadow-none";

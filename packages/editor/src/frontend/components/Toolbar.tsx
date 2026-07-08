@@ -1,4 +1,11 @@
 import type { EditorState } from "../lib/state.ts";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "./ui/select.tsx";
 
 export function Toolbar({
   state,
@@ -10,24 +17,31 @@ export function Toolbar({
   return (
     <header className="flex items-center gap-3 border-b border-border px-3 py-2">
       <span className="font-semibold">furnace editor</span>
-      <label className="ml-auto flex items-center gap-2 text-sm">
-        scene:
-        <select
-          className="rounded border border-input bg-input px-2 py-1"
-          value={state.selectedScene ?? ""}
+      <div className="ml-auto flex items-center gap-2 text-sm">
+        <span className="text-muted-foreground">scene:</span>
+        {/* Radix Select: undefined value shows the placeholder; onValueChange fires
+            only for a real item pick (so the old `e.target.value &&` guard is gone). */}
+        <Select
+          value={state.selectedScene ?? undefined}
           disabled={state.status !== "ready" || state.loading}
-          onChange={(e) => e.target.value && onSelectScene(e.target.value)}
+          onValueChange={onSelectScene}
         >
-          <option value="" disabled>
-            {state.scenes.length ? "pick a scene" : "no scenes found"}
-          </option>
-          {state.scenes.map((s) => (
-            <option key={s} value={s}>
-              {s}
-            </option>
-          ))}
-        </select>
-      </label>
+          <SelectTrigger className="h-8 w-56">
+            <SelectValue
+              placeholder={
+                state.scenes.length ? "pick a scene" : "no scenes found"
+              }
+            />
+          </SelectTrigger>
+          <SelectContent>
+            {state.scenes.map((s) => (
+              <SelectItem key={s} value={s}>
+                {s}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
     </header>
   );
 }

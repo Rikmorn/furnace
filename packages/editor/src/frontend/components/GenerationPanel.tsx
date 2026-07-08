@@ -15,6 +15,8 @@ import {
   toWireFiles,
 } from "../lib/generation.ts";
 import { useEditor } from "./editor-context.ts";
+import { Button } from "./ui/button.tsx";
+import { Input } from "./ui/input.tsx";
 
 // The generation config knobs' UI bounds. targetRooms brackets a single-sector wing;
 // loopChance stays below the point where the placer struggles to satisfy cycles.
@@ -254,7 +256,7 @@ export function GenerationPanel() {
     <div className="flex h-full flex-col gap-3 overflow-auto p-3 text-sm">
       <label className="flex flex-col gap-1">
         <span className="text-muted-foreground">seed</span>
-        <input
+        <Input
           type="text"
           value={session.baseSeed}
           onChange={(e) =>
@@ -262,29 +264,25 @@ export function GenerationPanel() {
               invalidateDonePreview({ ...s, baseSeed: e.target.value }),
             )
           }
-          className="rounded border border-input bg-input px-2 py-1"
         />
       </label>
 
       <label className="flex flex-col gap-1">
         <span className="text-muted-foreground">wing name</span>
-        <input
+        <Input
           type="text"
           value={wingName}
           onChange={(e) => setWingName(e.target.value)}
           disabled={isRunning || isBaking}
           aria-invalid={!wingNameValid}
-          className={cn(
-            "rounded border bg-input px-2 py-1",
-            wingNameValid ? "border-input" : "border-destructive",
-          )}
+          className={cn(!wingNameValid && "border-destructive")}
         />
       </label>
 
       <div className="flex gap-3">
         <label className="flex flex-1 flex-col gap-1">
           <span className="text-muted-foreground">rooms</span>
-          <input
+          <Input
             type="number"
             min={MIN_ROOMS}
             max={MAX_ROOMS}
@@ -293,12 +291,11 @@ export function GenerationPanel() {
               const v = Number(e.target.value);
               if (Number.isFinite(v)) patchConfig({ targetRooms: v });
             }}
-            className="rounded border border-input bg-input px-2 py-1"
           />
         </label>
         <label className="flex flex-1 flex-col gap-1">
           <span className="text-muted-foreground">loop</span>
-          <input
+          <Input
             type="number"
             min={0}
             max={MAX_LOOP}
@@ -308,61 +305,66 @@ export function GenerationPanel() {
               const v = Number(e.target.value);
               if (Number.isFinite(v)) patchConfig({ loopChance: v });
             }}
-            className="rounded border border-input bg-input px-2 py-1"
           />
         </label>
       </div>
 
       <div className="flex flex-wrap gap-2">
-        <button
+        <Button
           type="button"
+          size="sm"
           disabled={isRunning || isBaking}
           onClick={() => void runGeneration(session.baseSeed)}
-          className="rounded bg-primary px-3 py-1 font-medium text-primary-foreground disabled:bg-muted disabled:text-muted-foreground disabled:cursor-not-allowed"
         >
           Generate
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
+          variant="secondary"
+          size="sm"
           disabled={isRunning || isBaking}
           onClick={() =>
             void runGeneration(
               nextRerollSeed(session.baseSeed, session.history.length),
             )
           }
-          className="rounded bg-muted px-3 py-1 font-medium text-foreground disabled:bg-muted disabled:text-muted-foreground disabled:cursor-not-allowed"
         >
           Reroll
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
+          variant="secondary"
+          size="sm"
           disabled={!isRunning}
           onClick={() => {
             cancelRef.current = true;
           }}
-          className="rounded bg-muted px-3 py-1 text-muted-foreground disabled:bg-muted disabled:text-muted-foreground disabled:cursor-not-allowed"
         >
           Cancel
-        </button>
+        </Button>
       </div>
 
       <div className="flex flex-wrap gap-2">
-        <button
+        {/* Freeze keeps the distinct success semantic (commit-to-disk); tailwind-merge
+            lets the className override the default primary fill. */}
+        <Button
           type="button"
+          size="sm"
           disabled={done === undefined || !wingNameValid}
           onClick={() => done !== undefined && void freeze(done)}
-          className="rounded bg-success px-3 py-1 font-medium text-success-foreground disabled:bg-muted disabled:text-muted-foreground disabled:cursor-not-allowed"
+          className="bg-success text-success-foreground hover:bg-success/90"
         >
           Freeze &amp; bake
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
+          variant="secondary"
+          size="sm"
           disabled={!state.generationActive}
           onClick={() => dispatch({ type: "generation-active", active: false })}
-          className="rounded bg-muted px-3 py-1 text-muted-foreground disabled:bg-muted disabled:text-muted-foreground disabled:cursor-not-allowed"
         >
           Close preview
-        </button>
+        </Button>
       </div>
 
       <p className="text-muted-foreground">{statusText(session.status)}</p>
@@ -373,18 +375,20 @@ export function GenerationPanel() {
           <ul className="flex flex-col gap-1">
             {session.history.map((h, i) => (
               <li key={`${h.attemptSeed}-${i}`}>
-                <button
+                <Button
                   type="button"
+                  variant="ghost"
+                  size="sm"
                   disabled={isRunning || isBaking}
                   onClick={() => void runGeneration(h.attemptSeed, 1)}
                   className={cn(
-                    "w-full rounded px-2 py-1 text-left font-mono text-xs hover:bg-muted disabled:opacity-40",
+                    "w-full justify-start px-2 text-left font-mono",
                     done?.attemptSeed === h.attemptSeed &&
                       "bg-primary/20 text-primary",
                   )}
                 >
                   {h.attemptSeed}
-                </button>
+                </Button>
               </li>
             ))}
           </ul>

@@ -1,7 +1,14 @@
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "../../components/ui/select.tsx";
 import { isMixed } from "../lib/mixed.ts";
 import { useInspectorOptions } from "../options.ts";
 import type { FieldProps } from "../types.ts";
-import { FieldRow, inputCls } from "./common.tsx";
+import { denseTriggerCls, FieldRow, MIXED } from "./common.tsx";
 
 export function ResourceRefField({ schema, values, onCommit, path }: FieldProps) {
   const table = String(schema.furnace?.table ?? "");
@@ -10,18 +17,21 @@ export function ResourceRefField({ schema, values, onCommit, path }: FieldProps)
   const mixed = isMixed(values);
   return (
     <FieldRow path={path}>
-      <select
-        className={inputCls}
-        value={mixed ? "" : String(values[0] ?? "")}
-        onChange={(e) => onCommit(values.map(() => e.target.value))}
+      <Select
+        value={mixed ? undefined : String(values[0] ?? "")}
+        onValueChange={(v) => onCommit(values.map(() => v))}
       >
-        {mixed && <option value="">—</option>}
-        {ids.map((id) => (
-          <option key={id} value={id}>
-            {id}
-          </option>
-        ))}
-      </select>
+        <SelectTrigger className={denseTriggerCls}>
+          <SelectValue placeholder={MIXED} />
+        </SelectTrigger>
+        <SelectContent>
+          {ids.map((id) => (
+            <SelectItem key={id} value={id}>
+              {id}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
     </FieldRow>
   );
 }

@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { isMixed } from "../lib/mixed.ts";
 import { fanComponent } from "../lib/vec-fan.ts";
 import type { FieldProps } from "../types.ts";
-import { FieldRow, inputCls } from "./common.tsx";
+import { Input } from "../../components/ui/input.tsx";
+import { FieldRow, denseInputCls } from "./common.tsx";
 
 const LABELS = ["x", "y", "z", "w"];
 
@@ -35,9 +36,9 @@ export function makeVecField(n: number) {
     return (
       <FieldRow path={path}>
         {Array.from({ length: n }, (_, i) => (
-          <input
+          <Input
             key={LABELS[i]}
-            className={inputCls}
+            className={denseInputCls}
             inputMode="decimal"
             title={LABELS[i]}
             placeholder={mixedAt(i) ? "—" : undefined}

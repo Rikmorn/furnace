@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { eulerDegToQuat, quatToEulerDeg } from "../lib/euler.ts";
 import { isMixed } from "../lib/mixed.ts";
 import type { FieldProps } from "../types.ts";
-import { FieldRow, inputCls } from "./common.tsx";
+import { Input } from "../../components/ui/input.tsx";
+import { FieldRow, denseInputCls } from "./common.tsx";
 
 const LABELS = ["x°", "y°", "z°"];
 
@@ -44,9 +45,9 @@ export function QuatField({ schema, values, onPreview, onCommit, onCancel, path 
   return (
     <FieldRow path={path}>
       {LABELS.map((label, i) => (
-        <input
+        <Input
           key={label}
-          className={inputCls}
+          className={denseInputCls}
           inputMode="decimal"
           title={label}
           placeholder={mixed ? "—" : undefined}

@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { isMixed } from "../lib/mixed.ts";
 import type { FieldProps } from "../types.ts";
-import { FieldRow, inputCls, MIXED } from "./common.tsx";
+import { Input } from "../../components/ui/input.tsx";
+import { FieldRow, denseInputCls, MIXED } from "./common.tsx";
 
 export function StringField({ values, onCommit, onCancel, path }: FieldProps) {
   const mixed = isMixed(values);
@@ -10,8 +11,8 @@ export function StringField({ values, onCommit, onCancel, path }: FieldProps) {
   useEffect(() => setText(initial), [initial]);
   return (
     <FieldRow path={path}>
-      <input
-        className={inputCls}
+      <Input
+        className={denseInputCls}
         placeholder={mixed ? MIXED : undefined}
         value={text}
         onChange={(e) => setText(e.target.value)}
