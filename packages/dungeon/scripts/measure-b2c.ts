@@ -5,6 +5,7 @@
 //   bun packages/dungeon/scripts/measure-b2c.ts --frontier  — the per-sector capacity frontier
 //   bun packages/dungeon/scripts/measure-b2c.ts --retry     — the P1 retry-backed effective-rate probe
 //   bun packages/dungeon/scripts/measure-b2c.ts --retry-tight — P1 tail fix: tight budget × more attempts
+//   bun packages/dungeon/scripts/measure-b2c.ts --envelope [rooms] [loop] — 3.2.3 MAX_ROOMS envelope
 // Reports per-config rates + failure histograms + wall time. The Warframe pattern:
 // thousands of automated layouts, designers (us) tune kit/search until failures vanish.
 // The --frontier mode (Task 9A) measures the largest per-sector room count that places at
@@ -25,7 +26,7 @@ import {
   generateWorldGraph,
   type TopologyConfig,
 } from "../src/topology.ts";
-import { buildWorld } from "../src/world.ts";
+import { buildWorld, COCKPIT_BUDGET, COCKPIT_CONFIG } from "../src/world.ts";
 import type { WorldNode } from "../src/world-graph.ts";
 
 // INTERIM: replaced by world.ts gatehouse in Task 9 (this script then imports it).
@@ -386,7 +387,76 @@ function runRetryTight(): void {
   }
 }
 
-if (process.argv[2] === "--frontier") {
+// Envelope probe (3.2.3 charter opener): single-shot rate + give-up cost per rooms
+// count under COCKPIT_BUDGET — the data that sets the cockpit's MAX_ROOMS
+// (GenerationPanel's 12 is an unmeasured guess; only rooms=6 was ever measured, at
+// the P1 bar). Single-shot (attempts: 1) isolates the per-attempt economics the
+// stepper exposes to the user: a success costs ~sp50; a FAILED attempt costs
+// gp50–gp95 of blocked UI before the next derived seed. proj12 = 1-(1-rate)^12
+// projects the cockpit's 12-attempt loop from the single-shot rate. REPORTS numbers;
+// the envelope judgment (which rooms values stay in the UI) is the 3.2.3 brainstorm's.
+const ENVELOPE_ROOMS = [6, 8, 10, 12];
+const ENVELOPE_SEEDS = 20;
+
+/** q-quantile of an UNSORTED sample; undefined on an empty sample. */
+function quantile(xs: number[], q: number): number | undefined {
+  if (xs.length === 0) return undefined;
+  const sorted = [...xs].sort((a, b) => a - b);
+  return sorted[Math.min(sorted.length - 1, Math.floor(q * sorted.length))];
+}
+
+/** Sweep single-shot cells at cockpit config × COCKPIT_BUDGET. `roomFilter`/`loopFilter`
+ *  restrict to one cell so cells can run as separate sequential invocations (timing is
+ *  wall-clock — cells must NOT run concurrently). */
+function runEnvelope(roomFilter?: number, loopFilter?: number): void {
+  const rooms = roomFilter !== undefined ? [roomFilter] : ENVELOPE_ROOMS;
+  const loop = loopFilter ?? COCKPIT_CONFIG.loopChance ?? 0.35;
+  for (const R of rooms) {
+    const succTimes: number[] = [];
+    const failTimes: number[] = [];
+    for (let i = 0; i < ENVELOPE_SEEDS; i++) {
+      const seed = `env-${R}-${loop}-${i}`;
+      const t0 = performance.now();
+      let placed = false;
+      try {
+        buildWorld(
+          seed,
+          { ...COCKPIT_CONFIG, targetRooms: R, loopChance: loop, attempts: 1 },
+          COCKPIT_BUDGET,
+        );
+        placed = true;
+      } catch {
+        // single-shot miss — its wall time IS the give-up cost being measured
+      }
+      const dt = performance.now() - t0;
+      (placed ? succTimes : failTimes).push(dt);
+      if (dt > SLOW_MS) {
+        console.log(
+          `  SLOW rooms=${R} loop=${loop} seed=${seed} t=${dt.toFixed(0)}ms placed=${placed}`,
+        );
+      }
+    }
+    const fmt = (v: number | undefined) =>
+      v === undefined ? "-" : v.toFixed(0);
+    const rate = succTimes.length / ENVELOPE_SEEDS;
+    const proj12 = 1 - (1 - rate) ** 12;
+    console.log(
+      `ENVELOPE rooms=${R} loop=${loop} ok=${succTimes.length}/${ENVELOPE_SEEDS} (${(100 * rate).toFixed(0)}%) ` +
+        `succ_p50=${fmt(quantile(succTimes, 0.5))}ms succ_p95=${fmt(quantile(succTimes, 0.95))}ms ` +
+        `giveup_p50=${fmt(quantile(failTimes, 0.5))}ms giveup_p95=${fmt(quantile(failTimes, 0.95))}ms ` +
+        `proj12=${(100 * proj12).toFixed(1)}%`,
+    );
+  }
+}
+
+if (process.argv[2] === "--envelope") {
+  // Optional single-cell restriction (sequential collection): --envelope <rooms> <loop>.
+  const roomFilter =
+    process.argv[3] !== undefined ? Number(process.argv[3]) : undefined;
+  const loopFilter =
+    process.argv[4] !== undefined ? Number(process.argv[4]) : undefined;
+  runEnvelope(roomFilter, loopFilter);
+} else if (process.argv[2] === "--frontier") {
   // Optional single-cell restriction for parallel collection: --frontier <rooms> <loop>.
   const roomFilter =
     process.argv[3] !== undefined ? Number(process.argv[3]) : undefined;
