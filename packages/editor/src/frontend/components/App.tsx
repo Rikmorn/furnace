@@ -432,13 +432,7 @@ export function App() {
           dispatch({ type: "clear-selection" });
           void refreshSession();
         },
-        // Task 10 lands the host method; optional call is a no-op till then.
-        // Boundary cast: frameSelection is a forward-declared host member not yet
-        // on the ViewportHost type (Task 10) — remove the cast when it lands.
-        frameSelection: () =>
-          (
-            hostRef.current as { frameSelection?: () => void } | undefined
-          )?.frameSelection?.(),
+        frameSelection: () => hostRef.current?.frameSelection(),
       }),
     [suppressEcho, refreshSession, reportError],
   );

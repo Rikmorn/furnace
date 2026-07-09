@@ -13,12 +13,15 @@ import type { Vec4 } from "@furnace/core/transform";
 import { vec3, vec4 } from "@furnace/core/transform";
 import { boxEdges } from "./box-edges.ts";
 import {
+  flyLook,
+  flyMove,
   fromEyeTarget,
   type OrbitState,
   orbit,
   pan,
   toEyeTarget,
   zoom,
+  zoomToward,
 } from "./camera-control.ts";
 import {
   AXIS_DIR,
@@ -157,6 +160,14 @@ export type ViewportHost = {
   subscribeCameraPose(
     cb: (pose: OrbitState, phase: "move" | "end") => void,
   ): () => void;
+  /**
+   * Frame the current selection: re-centre the orbit pivot on the selection's AABB
+   * centroid — keeping the current viewing angle and distance — and re-render.
+   * No-op when nothing is selected or no scene is loaded. Drives the chrome's `F`
+   * key and Frame-Selection menu action; emits an `"end"` camera-pose notification
+   * so the framed pose persists.
+   */
+  frameSelection(): void;
   introspect(): SceneSchemaReflection;
   destroy(): void;
 };
@@ -246,6 +257,32 @@ export function createViewportHost(opts?: ViewportHostOptions): ViewportHost {
 
   const ORBIT_SPEED = 0.01;
   const PAN_SPEED = 0.002;
+  const TRACKPAD_PAN_SPEED = 0.002; // two-finger trackpad scroll → pan
+
+  // Fly-through (RMB-hold): a requestAnimationFrame loop runs ONLY while `flying`,
+  // reading held WASD/QE keys + accumulated pointer look-deltas each frame. It is
+  // the host's ONLY continuous-render path; stopFly (RMB-up / dispose) cancels it
+  // so the host returns to render-on-demand.
+  // MIGRATION (until Task 12): the fly/look sensitivities below are provisional —
+  // tune them at the live gate.
+  const LOOK_SPEED = 0.005; // radians per pixel of RMB-drag
+  const FLY_SPEED_DEFAULT = 6; // world units / second at base speed
+  const FLY_SPEED_MIN = 0.25;
+  const FLY_SPEED_MAX = 200;
+  const FLY_SPEED_STEP = 0.2; // per-scroll-notch speed multiplier (exp)
+  const FLY_BOOST = 3; // Shift → ×3 speed
+  const MAX_FLY_DT = 0.05; // clamp the frame gap so a stall can't lurch the camera
+  const FLY_KEYS = new Set(["w", "a", "s", "d", "q", "e"]);
+  const heldKeys = new Set<string>();
+  let flying = false;
+  let flyRaf: number | null = null;
+  let flyLastT = 0;
+  let flySpeed = FLY_SPEED_DEFAULT;
+  let flyYawAccum = 0; // pointer look-delta accumulated between fly frames
+  let flyPitchAccum = 0;
+  // The pointer that started the current fly gesture; fly-stop keys off THIS id,
+  // not the shared `drag` slot (which a chorded second button could overwrite).
+  let flyPointerId: number | null = null;
 
   const requireCtx = (): Context => {
     if (!ctx)
@@ -655,15 +692,20 @@ export function createViewportHost(opts?: ViewportHostOptions): ViewportHost {
     return [x, y];
   };
 
-  const frameSelected = (): void => {
+  // Re-centre the orbit pivot on the centroid of `ids` (keeping the current view
+  // angle + distance) and render. Shared by F/frameSelection (the current
+  // selection) and double-click (a single picked entity).
+  const frameIds = (ids: readonly string[]): void => {
     if (!loaded || !orbitState) return;
-    const centroid = selectionCentroid();
+    const centroid = centroidOf(ids);
     if (!centroid) return;
     orbitState = { ...orbitState, target: centroid };
     applyOrbit();
     if (ctx) renderLoaded(ctx, loaded);
     notifyCamera("end"); // a completed gesture — persist the new pose
   };
+
+  const frameSelected = (): void => frameIds(selection);
 
   // Marshal an engine `screenToRay` result into the gizmo's plain-tuple Ray.
   // Returns null when there is no editor camera, or when the view-projection is
@@ -827,6 +869,65 @@ export function createViewportHost(opts?: ViewportHostOptions): ViewportHost {
     renderLoaded(ctx, loaded);
   };
 
+  // Held keys → move axes: W/S forward, A/D right, Q/E up. Read fresh each frame.
+  const readFlyMove = (): { f: number; r: number; u: number } => ({
+    f: (heldKeys.has("w") ? 1 : 0) - (heldKeys.has("s") ? 1 : 0),
+    r: (heldKeys.has("d") ? 1 : 0) - (heldKeys.has("a") ? 1 : 0),
+    u: (heldKeys.has("e") ? 1 : 0) - (heldKeys.has("q") ? 1 : 0),
+  });
+
+  // One fly frame: consume accumulated look-deltas, apply held-key movement, and
+  // render — but ONLY when something actually changed (an idle fly frame skips the
+  // GPU and just re-schedules). `dt` is clamped so a stall can't lurch the camera.
+  const flyFrame = (now: number): void => {
+    if (!flying) return;
+    const dt = Math.min((now - flyLastT) / 1000, MAX_FLY_DT);
+    flyLastT = now;
+    if (orbitState && editorCam && ctx && loaded) {
+      let changed = false;
+      if (flyYawAccum !== 0 || flyPitchAccum !== 0) {
+        orbitState = flyLook(orbitState, flyYawAccum, flyPitchAccum);
+        flyYawAccum = 0;
+        flyPitchAccum = 0;
+        changed = true;
+      }
+      const move = readFlyMove();
+      if (move.f !== 0 || move.r !== 0 || move.u !== 0) {
+        const boost = heldKeys.has("shift") ? FLY_BOOST : 1;
+        orbitState = flyMove(orbitState, move, flySpeed * boost * dt);
+        changed = true;
+      }
+      if (changed) {
+        applyOrbit();
+        renderLoaded(ctx, loaded);
+        notifyCamera("move"); // live overlay; persistence waits for stopFly's "end"
+      }
+    }
+    flyRaf = requestAnimationFrame(flyFrame);
+  };
+
+  const startFly = (pointerId: number): void => {
+    if (flying) return;
+    flying = true;
+    flyPointerId = pointerId;
+    flyYawAccum = 0;
+    flyPitchAccum = 0;
+    flyLastT = performance.now();
+    flyRaf = requestAnimationFrame(flyFrame);
+  };
+
+  const stopFly = (): void => {
+    if (!flying) return;
+    flying = false;
+    flyPointerId = null;
+    if (flyRaf !== null) {
+      cancelAnimationFrame(flyRaf);
+      flyRaf = null;
+    }
+    heldKeys.clear();
+    notifyCamera("end"); // fly gesture settled — persist the resting pose
+  };
+
   const onPointerDown = (e: PointerEvent): void => {
     if (!ctx || !loaded || !editorCam) return;
     // Give the canvas keyboard focus so F/Escape keydowns reach it. Safari does
@@ -854,8 +955,35 @@ export function createViewportHost(opts?: ViewportHostOptions): ViewportHost {
       });
       return;
     }
+    if (action === "fly") {
+      startFly(e.pointerId);
+    } else if (action === "orbit") {
+      // Orbit-around-selection: reseat the pivot on the selection centroid while
+      // holding the EYE fixed (fromEyeTarget re-aims the view; a bare target swap
+      // would teleport the eye by target−pivot). No-op when nothing is selected,
+      // so orbit then falls back to the last-framed pivot.
+      const pivot = selectionCentroid();
+      if (pivot && orbitState) {
+        const { eye } = toEyeTarget(orbitState);
+        orbitState = fromEyeTarget(eye, pivot);
+        applyOrbit();
+        renderLoaded(ctx, loaded);
+      }
+    }
     drag = { action, lastX: e.clientX, lastY: e.clientY };
     canvasEl?.setPointerCapture(e.pointerId);
+  };
+
+  // World-space camera right/up axes: the view matrix is world→view, so its rows
+  // are the camera basis in world space. Shared by pointer-pan + trackpad-pan.
+  const cameraRightUp = (
+    cam: Camera,
+  ): { right: [number, number, number]; up: [number, number, number] } => {
+    const m = camera.getMatrices(cam).view;
+    return {
+      right: [m[0] as number, m[4] as number, m[8] as number],
+      up: [m[1] as number, m[5] as number, m[9] as number],
+    };
   };
 
   const onPointerMove = (e: PointerEvent): void => {
@@ -869,22 +997,19 @@ export function createViewportHost(opts?: ViewportHostOptions): ViewportHost {
     const dy = e.clientY - drag.lastY;
     drag.lastX = e.clientX;
     drag.lastY = e.clientY;
+    if (drag.action === "fly") {
+      // Accumulate look; the rAF fly loop consumes it (don't render here). Signs
+      // give non-inverted FPS look — drag right → look right, drag down → look down.
+      // MIGRATION (until Task 12): look sensitivity/inversion tuned live at the gate.
+      flyYawAccum += -dx * LOOK_SPEED;
+      flyPitchAccum += dy * LOOK_SPEED;
+      return;
+    }
     if (drag.action === "orbit") {
       // Negate so a rightward/downward drag orbits the camera the intuitive way (drag the world, not the camera).
       orbitState = orbit(orbitState, -dx * ORBIT_SPEED, -dy * ORBIT_SPEED);
     } else if (drag.action === "pan") {
-      // view matrix is world→view; its rows give the camera basis in world space.
-      const m = camera.getMatrices(editorCam).view;
-      const right: [number, number, number] = [
-        m[0] as number,
-        m[4] as number,
-        m[8] as number,
-      ];
-      const up: [number, number, number] = [
-        m[1] as number,
-        m[5] as number,
-        m[9] as number,
-      ];
+      const { right, up } = cameraRightUp(editorCam);
       orbitState = pan(orbitState, dx, dy, right, up, PAN_SPEED);
     }
     applyOrbit();
@@ -898,6 +1023,16 @@ export function createViewportHost(opts?: ViewportHostOptions): ViewportHost {
       commitGizmoDrag();
       return;
     }
+    // Fly-stop is decoupled from the shared `drag` slot: the fly pointer's release
+    // (or pointercancel — both route here) ALWAYS stops the loop, even if `drag`
+    // was overwritten or nulled by another button interaction mid-fly. Keying off
+    // `drag.action` instead would leak the rAF loop forever if that happened.
+    if (flying && e.pointerId === flyPointerId) {
+      canvasEl?.releasePointerCapture(e.pointerId);
+      drag = null;
+      stopFly(); // stops the rAF loop, clears held keys, and notifies "end"
+      return;
+    }
     if (!drag) return;
     canvasEl?.releasePointerCapture(e.pointerId);
     drag = null;
@@ -905,9 +1040,44 @@ export function createViewportHost(opts?: ViewportHostOptions): ViewportHost {
   };
 
   const onWheel = (e: WheelEvent): void => {
-    if (!orbitState || !ctx || !loaded) return;
+    if (!orbitState || !ctx || !loaded || !editorCam) return;
     e.preventDefault();
-    orbitState = zoom(orbitState, Math.sign(e.deltaY));
+    // While flying, the wheel trims fly speed (exponential notches) — no camera move.
+    if (flying) {
+      const factor = Math.exp(-Math.sign(e.deltaY) * FLY_SPEED_STEP);
+      flySpeed = Math.max(
+        FLY_SPEED_MIN,
+        Math.min(FLY_SPEED_MAX, flySpeed * factor),
+      );
+      return;
+    }
+    // Trackpad two-finger pan heuristic: a no-button wheel with BOTH axes present
+    // and no pinch (ctrlKey).
+    // MIGRATION (until Task 12): trackpad pan/zoom feel verified in Safari at the gate.
+    const isTrackpadPan =
+      !e.ctrlKey && e.buttons === 0 && e.deltaX !== 0 && e.deltaY !== 0;
+    if (isTrackpadPan) {
+      const { right, up } = cameraRightUp(editorCam);
+      orbitState = pan(
+        orbitState,
+        e.deltaX,
+        -e.deltaY,
+        right,
+        up,
+        TRACKPAD_PAN_SPEED,
+      );
+      applyOrbit();
+      renderLoaded(ctx, loaded);
+      notifyCamera("end");
+      return;
+    }
+    // Zoom toward the cursor ray (mouse wheel or trackpad pinch = ctrlKey-wheel);
+    // fall back to a plain distance zoom when the ray is unavailable (singular VP).
+    const ray = rayFromCursor(e.clientX, e.clientY);
+    const delta = Math.sign(e.deltaY);
+    orbitState = ray
+      ? zoomToward(orbitState, delta, ray.dir)
+      : zoom(orbitState, delta);
     applyOrbit();
     renderLoaded(ctx, loaded);
     notifyCamera("end"); // discrete zoom step — no separate release event
@@ -918,7 +1088,48 @@ export function createViewportHost(opts?: ViewportHostOptions): ViewportHost {
       cancelGizmoDrag();
       return;
     }
+    // While flying, WASD/QE (+ Shift boost) are held-key movement: track and
+    // swallow them so they don't leak to browser/chrome shortcuts. The rAF loop
+    // reads `heldKeys` each frame; these handlers only maintain the set.
+    if (flying) {
+      const k = e.key.toLowerCase();
+      if (FLY_KEYS.has(k)) {
+        heldKeys.add(k);
+        e.preventDefault();
+        return;
+      }
+      if (e.key === "Shift") {
+        heldKeys.add("shift");
+        return;
+      }
+    }
     if (e.key === "f" || e.key === "F") frameSelected();
+  };
+
+  const onKeyUp = (e: KeyboardEvent): void => {
+    const k = e.key.toLowerCase();
+    heldKeys.delete(k);
+    if (e.key === "Shift") heldKeys.delete("shift");
+  };
+
+  // RMB-drag fly must not pop the browser context menu over the canvas.
+  const onContextMenu = (e: Event): void => {
+    e.preventDefault();
+  };
+
+  // Double-click an entity to focus it: pick, select (replace), and frame.
+  const onDblClick = (e: MouseEvent): void => {
+    if (!ctx || !loaded || !editorCam) return;
+    const [nx, ny] = toNdc(e.clientX, e.clientY);
+    void loaded.pick(ctx, editorCam, nx, ny).then((id) => {
+      if (!id) return;
+      callbacks?.onSelect(id, {
+        metaKey: false,
+        ctrlKey: false,
+        shiftKey: false,
+      });
+      frameIds([id]);
+    });
   };
 
   return {
@@ -934,8 +1145,11 @@ export function createViewportHost(opts?: ViewportHostOptions): ViewportHost {
         canvas.addEventListener("pointerup", onPointerUp);
         canvas.addEventListener("pointercancel", onPointerUp);
         canvas.addEventListener("wheel", onWheel, { passive: false });
+        canvas.addEventListener("contextmenu", onContextMenu);
+        canvas.addEventListener("dblclick", onDblClick);
         canvas.tabIndex = 0; // so the canvas can receive key events
         canvas.addEventListener("keydown", onKeyDown);
+        canvas.addEventListener("keyup", onKeyUp);
       }
       // Flush any scene queued before init resolved (SSE-driven load race).
       if (pendingDoc !== undefined) {
@@ -1031,15 +1245,24 @@ export function createViewportHost(opts?: ViewportHostOptions): ViewportHost {
         cameraSubscribers.delete(cb);
       };
     },
+    frameSelection() {
+      frameSelected();
+    },
     introspect: () => scene.introspect(),
     destroy() {
+      // Cancel any live fly rAF loop first so no frame runs against a torn-down
+      // context (stopFly no-ops when not flying).
+      stopFly();
       if (canvasEl) {
         canvasEl.removeEventListener("pointerdown", onPointerDown);
         canvasEl.removeEventListener("pointermove", onPointerMove);
         canvasEl.removeEventListener("pointerup", onPointerUp);
         canvasEl.removeEventListener("pointercancel", onPointerUp);
         canvasEl.removeEventListener("wheel", onWheel);
+        canvasEl.removeEventListener("contextmenu", onContextMenu);
+        canvasEl.removeEventListener("dblclick", onDblClick);
         canvasEl.removeEventListener("keydown", onKeyDown);
+        canvasEl.removeEventListener("keyup", onKeyUp);
         canvasEl = undefined;
       }
       unbindCamera?.();
