@@ -8,7 +8,7 @@ export function EntitiesPanel() {
     return <p className="p-3 text-sm text-muted-foreground">no scene loaded</p>;
   const rowCls = (selected: boolean) =>
     cn(
-      "w-full rounded px-2 py-1 text-left text-sm hover:bg-muted",
+      "w-full rounded px-2 py-1 text-left text-sm transition-colors duration-150 ease-out hover:bg-muted",
       selected && "bg-primary/20 text-primary",
     );
   const worldSelected = state.selectedEntities.includes(SETTINGS_SELECTION);

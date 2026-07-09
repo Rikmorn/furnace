@@ -25,11 +25,13 @@ export function CollapsibleSection({
 }) {
   return (
     <Collapsible defaultOpen={defaultOpen} onOpenChange={onOpenChange}>
-      <CollapsibleTrigger className="group flex w-full items-center gap-1 rounded py-0.5 text-left text-xs font-semibold text-foreground hover:bg-muted/50">
-        <ChevronRight className="h-3 w-3 shrink-0 text-muted-foreground transition-transform group-data-[state=open]:rotate-90" />
+      <CollapsibleTrigger className="group flex w-full items-center gap-1 rounded py-0.5 text-left text-xs font-semibold text-foreground transition-colors duration-150 ease-out hover:bg-muted/50">
+        <ChevronRight className="h-3 w-3 shrink-0 text-muted-foreground transition-transform duration-200 ease-out group-data-[state=open]:rotate-90" />
         <span className="min-w-0 flex-1 truncate">{title}</span>
       </CollapsibleTrigger>
-      <CollapsibleContent className="pt-1 pl-1">{children}</CollapsibleContent>
+      <CollapsibleContent className="overflow-hidden pt-1 pl-1 data-[state=closed]:animate-[furnace-collapse-up_200ms_ease-out] data-[state=open]:animate-[furnace-collapse-down_200ms_ease-out]">
+        {children}
+      </CollapsibleContent>
     </Collapsible>
   );
 }

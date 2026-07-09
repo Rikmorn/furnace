@@ -3,7 +3,8 @@
 
 /* Self-hosted (no CDN in a local tool). Latin subsets copied from
    @fontsource-variable/inter@5.2.8 + @fontsource/jetbrains-mono@5.2.8.
-   Provisional families — Task 12's live pass owns the finals and re-procures. */
+   Committed families (3.2.2 live pass): Inter Variable (UI) + JetBrains Mono
+   (data). Iterate as the tool is used. */
 @font-face {
 	font-family: "Inter Variable";
 	font-style: normal;
@@ -21,12 +22,12 @@
 
 :root {
 	color-scheme: dark;
-	/* neutral ramp — provisional; live pass picks finals */
+	/* neutral ramp — committed 3.2.2 live pass; iterate as the tool is used */
 	--background: oklch(0.16 0.005 250);
 	/* viewport 3D content surface — one tonal step DARKER than --background so the
 	   content area reads as distinct from the panel chrome. Consumed by the viewport
 	   host's default clear via resolveCssColor (NOT a Tailwind utility → no @theme
-	   entry). PROVISIONAL — Task 12's live pass owns the final. */
+	   entry). Committed 3.2.2 live pass; iterate as the tool is used. */
 	--viewport-background: oklch(0.12 0.005 250);
 	--card: oklch(0.19 0.005 250); /* panel/toolbar chrome layer */
 	--popover: oklch(0.21 0.005 250);
@@ -36,17 +37,17 @@
 	--muted-foreground: oklch(0.65 0.01 250);
 	--foreground: oklch(0.87 0.005 250);
 	/* the attention lane — ONE hue: selection, primary action, generation-active, focus */
-	--primary: oklch(0.62 0.11 240); /* steel-blue, provisional */
+	--primary: oklch(0.62 0.11 240); /* steel-blue, committed 3.2.2 live pass */
 	--primary-foreground: oklch(0.15 0.02 240);
 	--ring: var(--primary);
-	/* semantic, desaturated for the dark base — *-foreground provisional, Task 12 owns finals */
+	/* semantic, desaturated for the dark base — committed 3.2.2 live pass; iterate as the tool is used */
 	--destructive: oklch(0.55 0.14 25);
 	--warning: oklch(0.65 0.12 80);
 	--warning-foreground: oklch(0.16 0.02 80);
 	--success: oklch(0.6 0.1 155);
 	--success-foreground: oklch(0.16 0.02 155);
-	/* shadcn component tokens — PROVISIONAL raised-neutral surfaces + readable
-	   foregrounds on the existing ramp (Task 12's live pass owns the finals).
+	/* shadcn component tokens — committed 3.2.2 live pass: raised-neutral surfaces +
+	   readable foregrounds on the existing ramp (iterate as the tool is used).
 	   secondary/accent are raised neutrals near --muted (accent lifts a touch more so
 	   hover/highlight reads); their *-foreground sit near --foreground; the "on a
 	   coloured fill" foreground (destructive) is light; popover-foreground reads on
@@ -63,9 +64,9 @@
 	--syntax-value: oklch(0.72 0.05 160);
 	/* type */
 	--font-sans:
-		"Inter Variable", ui-sans-serif, system-ui, sans-serif; /* provisional */
+		"Inter Variable", ui-sans-serif, system-ui, sans-serif; /* committed 3.2.2 live pass */
 	--font-mono:
-		"JetBrains Mono", ui-monospace, "SF Mono", monospace; /* provisional */
+		"JetBrains Mono", ui-monospace, "SF Mono", monospace; /* committed 3.2.2 live pass */
 	/* radius */
 	--radius: 0.25rem;
 }
@@ -88,7 +89,7 @@
 	--color-warning-foreground: var(--warning-foreground);
 	--color-success: var(--success);
 	--color-success-foreground: var(--success-foreground);
-	/* shadcn component tokens (provisional — Task 12 owns finals) */
+	/* shadcn component tokens (committed 3.2.2 live pass) */
 	--color-secondary: var(--secondary);
 	--color-secondary-foreground: var(--secondary-foreground);
 	--color-accent: var(--accent);
@@ -128,6 +129,85 @@
 		transparent
 	);
 	--dv-icon-hover-background-color: var(--muted);
+}
+
+/* ── Motion (3.2.2 live pass) ───────────────────────────────────────────────
+   State-feedback only: 150–250ms, ease-out, no choreography. All durations are
+   zeroed by the prefers-reduced-motion block below (it wins with !important).
+
+   Radix portal surfaces (menu/popover/select/dialog/tooltip) mount already in the
+   `open` state, so a CSS *transition* never fires on enter — the correct mechanism
+   is a keyframe animation that runs on mount, which Radix's Presence also awaits on
+   exit before unmount. These are the same primitives tailwindcss-animate ships, but
+   this build has no such plugin (the shadcn `animate-in`/`fade-*`/`zoom-*` utilities
+   are no-ops here), so we hand-author the minimal set. Applied per component via
+   arbitrary `animate-[…]` utilities. */
+@keyframes furnace-fade-in {
+	from {
+		opacity: 0;
+	}
+	to {
+		opacity: 1;
+	}
+}
+@keyframes furnace-fade-out {
+	from {
+		opacity: 1;
+	}
+	to {
+		opacity: 0;
+	}
+}
+@keyframes furnace-pop-in {
+	from {
+		opacity: 0;
+		transform: scale(0.97);
+	}
+	to {
+		opacity: 1;
+		transform: scale(1);
+	}
+}
+@keyframes furnace-pop-out {
+	from {
+		opacity: 1;
+		transform: scale(1);
+	}
+	to {
+		opacity: 0;
+		transform: scale(0.97);
+	}
+}
+/* Inspector collapsible: grow/shrink is the open/close state signal. Radix sets
+   --radix-collapsible-content-height on the content element. */
+@keyframes furnace-collapse-down {
+	from {
+		height: 0;
+		opacity: 0;
+	}
+	to {
+		height: var(--radix-collapsible-content-height);
+		opacity: 1;
+	}
+}
+@keyframes furnace-collapse-up {
+	from {
+		height: var(--radix-collapsible-content-height);
+		opacity: 1;
+	}
+	to {
+		height: 0;
+		opacity: 0;
+	}
+}
+
+/* Dockview tabs: the active↔inactive (and hover) background/text swap is driven by
+   the --dv-* var mapping above, which changes instantly. Ease the colour change on
+   the tab element itself so panel/group focus reads as a transition, not a jump. */
+.dockview-theme-dark .dv-tab {
+	transition:
+		background-color 150ms ease-out,
+		color 150ms ease-out;
 }
 
 @media (prefers-reduced-motion: reduce) {
