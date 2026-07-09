@@ -25,11 +25,6 @@ wired to it. The cascade implication: an entity that references the previewed re
 be rebuilt (its bound material/shader/geometry changes). This is a non-trivial dependency-graph
 traversal.
 
-**7. Editor fly-camera (WASD)** — WASD + mouse-look navigation of the viewport when the
-viewport panel has focus. The host's orbit camera and the `render()` seam are the starting
-point. Requires a per-frame update loop (rAF) driven by the viewport panel, paused when the
-panel loses focus. The orbit camera would need to coexist with or switch to a fly mode.
-
 **8. Hierarchy tree** — a tree view of entities (parent→children) in the entities panel. M5B's
 `EntitiesPanel` is a flat list. The scene document's entity model is also flat today (no parent
 field); the hierarchy view may require either an entity-parenting field in the scene format or
@@ -171,10 +166,11 @@ tranche (a future editor-redesign pass). Worth doing before more field types are
 
 ## Trigger to revisit (remaining fenced items)
 
-Items 6–8 become actionable when the next editor milestone targets them:
+Items 6 and 8 become actionable when the next editor milestone targets them:
 - Item 6 (`rebuildResource`) — when resource live-preview is prioritized (a future editor-redesign pass or later).
-- Item 7 (fly-camera) — when the orbit model limits navigation in practice.
 - Item 8 (hierarchy tree) — when entity-parenting is added to the scene format.
+
+(Item 7, editor fly-camera/WASD, **landed in Slice 3.2** — RMB-hold + WASD/QE fly with wheel speed-trim; `viewport-host/camera-control.ts` `flyLook`/`flyMove`.)
 
 ## Reference
 

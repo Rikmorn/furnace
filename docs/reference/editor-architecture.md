@@ -1,6 +1,6 @@
 # Editor Architecture
 
-The as-built `@furnace/editor` package, milestones **M3** (editor shell) + **M4** (command layer) + **M5A** (inspector) + **M5B** (viewport interaction), plus the **M1-slices** registration batch (the full built-in set + physics-from-data in the core loader), plus the **Epic 3 cockpit slices** — **3.0** (editor-openable dungeon, extensions-dir watch) and **3.1** (the generation loop: a preview host, the `generation.bake` command, and an ephemeral generation session; §13). This is the reference — "how the editor IS today." The decision history that produced it lives in `docs/backlog/editor-and-tooling/editor-backend-architecture.md`; this doc describes the running system.
+The as-built `@furnace/editor` package, milestones **M3** (editor shell) + **M4** (command layer) + **M5A** (inspector) + **M5B** (viewport interaction), plus the **M1-slices** registration batch (the full built-in set + physics-from-data in the core loader), plus the **Epic 3 cockpit slices** — **3.0** (editor-openable dungeon, extensions-dir watch) and **3.1** (the generation loop: a preview host, the `generation.bake` command, and an ephemeral generation session; §13), and **3.2** (the editor foundation pass — design-system tokens, menu bar + global keybindings, UI persistence, viewport reference layer + dolly navigation, inspector IA + humanized labels; §14). This is the reference — "how the editor IS today." The decision history that produced it lives in `docs/backlog/editor-and-tooling/editor-backend-architecture.md`; this doc describes the running system.
 
 > **Epic status (2026-06-14): the editor epic is complete and paused.** M1→M5B + M1-slices landed and sealed. The originally-planned **M6** (behaviour runtime) and **M7** (porting + docs) are **dropped** — the project retargeted from the bowling demo to its actual application (a first-person dungeon crawler), so future editor work is driven by that app's **procedural-authoring** needs rather than the old milestone ladder. The known gaps a future editor pass must address are captured in `docs/backlog/editor-and-tooling/editor-interaction-model-redesign.md`.
 >
@@ -97,9 +97,10 @@ Every client — the chrome, a curl, a future AI binding — funnels through `di
 | `scene.setSettings` | `{ settings: unknown }` | `{ revision, dirty }` — whole-object settings replace. |
 | `scene.undo` | `{}` | `{ revision, dirty }` |
 | `scene.redo` | `{}` | `{ revision, dirty }` |
+| `project.get` | `{}` | `{ root }` — the absolute project root; the chrome scopes its persistence store by it (§14.3). |
 | `generation.bake` | `{ files: WireFile[], cleanDir?: string }` (each file `{ path, encoding: "utf8"\|"base64", contents }`) | `{ files: <count written> }` — writes a browser-uploaded, root-contained wing file set and emits `generation-baked`; when `cleanDir` is given, `rm -rf`s that (validated: root-contained, no dotfile segments, every payload file under it) BEFORE writing (§13.3, Slice 3.1/3.2.1). |
 
-`SessionView` = `{ document, path, revision, dirty, conflict }`.
+`SessionView` = `{ document, path, revision, dirty, conflict, canUndo, canRedo }` (the last two drive the Edit-menu + toolbar undo/redo enabled state; §14.2).
 
 All input schemas are `z.strictObject(...)` (extra keys rejected). `scene.validate` additionally `.refine`s that **exactly one** of `path`/`document` is provided.
 
@@ -446,7 +447,7 @@ The `path` `.min(1)` guard is load-bearing: an empty path resolves to the root d
 
 ### 13.4 The Generation panel + ephemeral session
 
-The dockview **Generation panel** (`frontend/components/GenerationPanel.tsx`) drives the loop; its state is an **ephemeral generation session** (`frontend/lib/generation.ts`) held entirely in panel-local React state, **beside** the daemon's document session. The only daemon/FS crossing is freeze (the `generation.bake` upload) — everything else in `generation.ts` is pure and unit-tested without a DOM.
+The dockview **Generation panel** (`frontend/components/GenerationPanel.tsx`) drives the loop; its state is an **ephemeral generation session** (`frontend/lib/generation.ts`) held **App-owned** (lifted out of the panel in Slice 3.2 so the session survives the panel closing/reopening; §14.3), **beside** the daemon's document session. The only daemon/FS crossing is freeze (the `generation.bake` upload) — everything else in `generation.ts` is pure and unit-tested without a DOM.
 
 - **Generate / Reroll** step the consumer's `worldAttempts` iterator **between paints** (`requestAnimationFrame` → `setTimeout(0)`), so a placement search that creaks doesn't freeze the cockpit; a `cancelRef` flips mid-loop to cancel. On the first placed attempt the panel realizes the layout into the preview host (dropping the `authored` phantom — it carries empty geometry, realized by the game's own `main.ts`), frames the camera on the union AABB (`layoutBounds`), and records a `done` status.
 - **Freeze & bake** reads **only** the `done`-status snapshot — the winning derived seed **and** the config that produced the on-screen preview — never the live knobs, then re-bakes in-browser via `ext.bake(…, wingName)` (a Generation-panel wing-name field names the wing) and uploads via `api.generationBake(toWireFiles(files), ext.wingDir(wingName))` (the upload's `cleanDir` = `regions/<name>`, so the daemon clears the prior bake). That snapshot is what makes "freeze bakes exactly what you previewed" hold even after a knob edit; editing a knob (or the seed) drops a `done` preview back to `idle` via `invalidateDonePreview`, so Freeze is only ever enabled for the world currently on screen.
@@ -456,3 +457,31 @@ Because the session lives in React state and never touches `session.apply`, gene
 ### 13.5 Fragment-doc opening in the viewport host
 
 A baked region document is **camera-less** (no entity carries a `camera` component). The viewport host's `applyScene` (`src/viewport-host/index.ts`) now detects this — mirroring the loader's own throw condition exactly (`doc.entities.some(e => "camera" in e.components)`) — and, when no scene camera is present, loads with `scene.loadScene(c, doc, { fragment: true })` (suppressing the loader's no-camera throw) then frames the editor orbit camera on the **content bounds** (centroid + floored content radius, seated back along fixed framing factors) instead of seeding from a scene-camera pose. This fixes the 3.0-gate "no entity carries a camera component" error — opening a baked region fragment is the cockpit's acceptance case one. Camera-carrying docs are **unchanged** (still seed the orbit from the scene camera's eye, pivoting on the content centroid — §11.2).
+
+## 14. Slice 3.2 — editor foundation pass (Epic 3)
+
+The foundation pass that turned the M3–3.1 prototype into a usable tool, driven by an `/impeccable` critique (20/40 → 31/40; the baseline's 1×P0 + 3×P1 all resolved). **Browser-chrome only — no `@furnace/core` change.** The daemon gained one read command (`project.get`, §4) and two `SessionView` fields (`canUndo`/`canRedo`).
+
+### 14.1 Design system + tokens
+
+`frontend/styles.css` carries a committed OKLCH token set (`@theme inline`, mapped onto `.dockview-theme-dark`): a single steel-blue `--primary` (`oklch(0.62 0.11 240)`), a hue-250 neutral ramp, a desaturated semantic set, self-hosted **Inter Variable** (UI) + **JetBrains Mono** (data — numbers/IDs/paths), `color-scheme: dark`, one tokenized focus ring, and a `@media (prefers-reduced-motion: reduce)` block. Controls are shadcn/ui (new-york) over Radix; `frontend/lib/cn.ts` is the class-merge (the shadcn CLI's bare alias is relativized on every generated component — a bare alias breaks repo-root typecheck). The committed design intent lives in `packages/editor/DESIGN.md`.
+
+### 14.2 Menu bar + global keybindings + in-chrome confirm
+
+`frontend/components/MenuBar.tsx` is a Radix Menubar (File/Edit/View/Help) whose items dispatch through the App's document-control handlers; `frontend/lib/keybindings.ts` + `hooks/useGlobalKeybindings.ts` bind ⌘S / ⌘Z / ⇧⌘Z / F / ⌫ with focus-aware guards (bare keys ignored while typing in a field). Save/Undo/Redo call `scene.save`/`scene.undo`/`scene.redo`; their enabled state reads `SessionView.canUndo`/`canRedo`. Destructive actions route through an in-chrome `ConfirmDialog` (Radix), never `window.confirm`. **Radix Presence caveat (found at the 3.2 gate):** menu-family exit animations must NOT use a `forwards`-fill `data-[state=closed]` keyframe — it wedges Radix `Presence` so a menubar/dropdown sibling-switch closes the open menu but never opens the next; the fix keeps only the enter (open-state) animation on `menubar.tsx` + `dropdown-menu.tsx`.
+
+### 14.3 UI persistence + generation-session lift
+
+`frontend/lib/persist.ts` persists dockview layout + view flags + inspector section open-state, scoped by the project root from `project.get`. Closed panels reopen via **View ▸ Panels** — the `PANELS` registry (`frontend/lib/panels.ts`) is the single source for the default layout, the toggle menu, and single-panel re-add. The **ephemeral generation session was lifted out of `GenerationPanel` into App-owned state** so it survives the panel closing/reopening (correcting §13.4's original panel-local design); the wing-name field's state moved with it.
+
+### 14.4 Viewport reference layer + navigation
+
+`frontend/viewport-host/reference-grid.ts` adds a depth-tested grid; a corner axis triad (`AxisTriad.tsx`) and a neutral headlamp make an opened scene read as a scene, not a black void. `ViewFlags` (`grid`/`axes`/`headlamp`/`fog`) are a viewport concern (default grid/axes/headlamp **ON**, fog **OFF**), mirrored between a viewport overlay popover and View ▸ View-flags. **Navigation (`viewport-host/camera-control.ts`):** Alt+LMB orbit, **MMB pan**, RMB-hold + WASD/QE fly (wheel trims fly speed), and **scroll = `dolly` forward** — a scale-aware, floored forward `flyMove` that travels through the scene rather than orbit-zooming toward the pivot (distance-scaled orbit zoom asymptotes to a dead stop); `F` frames the selection. The prior `zoomToward` cursor-zoom was deleted.
+
+### 14.5 Inspector IA, humanized labels, number formatting
+
+Component sections are collapsible (`CollapsibleSection`); resources default collapsed and filter to the selection. Field/section labels are humanized (`frontend/lib/humanize.ts` — `castShadow` → "Cast Shadow"), applied in `FieldRow`, component headers, and object-group headers; the Generation panel matches (Title Case). Numeric display is rounded on the data surface: `inspector/lib/format.ts` `roundForDisplay` strips IEEE-754 noise (`1.2000000000000002` → `1.2`) in `NumberField` + `VecField` (`QuatField` already rounded euler degrees) — **full precision stays in the document**, and because the rounded value is ALSO the blur dirty-check baseline, a focus+blur with no edit never commits a truncation. Vec/Quat show x/y/z(/w) axis chips; numeric labels carry a drag-scrub affordance. The seed-History re-preview no longer duplicates rows (dedup by `attemptSeed`, found at the 3.2 gate).
+
+### 14.6 Selection color single-source + test harness
+
+The viewport selection highlight derives from the `--primary` CSS variable at runtime via `frontend/lib/theme.ts` `resolveCssColor` — a 1×1 canvas-2D `getImageData` resolve, NOT `getComputedStyle().color` (which preserves `oklch()` under CSS Color 4 and returns garbage). A happy-dom + `@testing-library/react` harness (`tests/inspector/`) renders fields/panels and exercises the `onChange → onPreview → onCommit` chain — the field-render coverage the M5B ColorField regression exposed as missing. **DOM tests live in `tests/` SUBDIRS** (never bare `tests/`) so happy-dom's `navigator`/`fetch` mutation can't clobber the GPU + daemon-HTTP suites earlier in bun's single-process file walk (`docs/backlog/editor-and-tooling/test-harness-process-sharing-fragility.md`).

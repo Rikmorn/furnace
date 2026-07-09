@@ -18,7 +18,7 @@ The M1-slices visual gate (run by the user in Safari, the primary browser) confi
 
 6. **No per-type / domain-aware representations.** Everything renders as generic fields. No direction-as-gizmo, no labeled-axis vectors, no bounded sliders, no enum affordances where they'd help. The reflection-driven inspector's strength (auto-forms from schema) is also its ceiling: it can only render what the schema's `furnace.kind` taxonomy already knows.
 
-7. **Can't reopen closed panels.** The dockview chrome has no "add view / restore panel" affordance; closing a panel requires a full page refresh to recover it.
+7. **Can't reopen closed panels.** ~~The dockview chrome has no "add view / restore panel" affordance; closing a panel requires a full page refresh to recover it.~~ **RESOLVED in Slice 3.2** — View▸Panels re-add + persisted dockview layout (`frontend/lib/panels.ts` + `persist.ts`).
 
 **What a redesign has to decide (the actual drawing-board questions):**
 
