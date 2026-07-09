@@ -31,6 +31,7 @@ import {
   type Ray,
 } from "./gizmo.ts";
 import { classifyDrag, type DragAction } from "./input-map.ts";
+import { transformEditNeedsRebuild } from "./preview-gate.ts";
 import { buildGridLines, segmentsToBatch } from "./reference-grid.ts";
 
 export type { OrbitState } from "./camera-control.ts";
@@ -1176,8 +1177,16 @@ export function createViewportHost(opts?: ViewportHostOptions): ViewportHost {
     },
     previewEntity(entityId, component, params) {
       if (!ctx || !loaded || !committedDoc) return;
-      if (component === "transform") {
+      if (
+        component === "transform" &&
+        !transformEditNeedsRebuild(committedDoc, entityId)
+      ) {
         // Fast path: poke the mesh transform directly — no clone, no rebuild.
+        // UNSAFE for light/camera entities: their direction is transform-DERIVED
+        // (−Z rotated by the transform quaternion at build time) and refreshed
+        // ONLY by rebuildEntity — setEntityTransform pokes meshes alone. Those
+        // entities fall through to the clone+rebuild path below, which rebuilds
+        // the light/camera with the new rotation → correct direction preview.
         loaded.setEntityTransform(
           entityId,
           params as {
