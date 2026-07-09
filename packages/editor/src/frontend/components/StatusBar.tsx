@@ -18,6 +18,17 @@ function sessionLabel(state: EditorState): string | undefined {
   return `rev ${state.revision}${state.dirty ? " ●" : ""}`;
 }
 
+const CONFLICT_MESSAGE =
+  "file changed on disk — save to keep this session, re-open to accept disk";
+
+/** The transient conflict/notice/error text as ONE string for the sr-only live region
+ *  (empty when nothing is showing). Mirrors whatever the visible spans convey. */
+function liveMessage(state: EditorState): string {
+  return [state.conflict ? CONFLICT_MESSAGE : "", state.notice ?? "", state.error ?? ""]
+    .filter(Boolean)
+    .join(" ");
+}
+
 export function StatusBar({ state }: { state: EditorState }) {
   return (
     <footer className="flex gap-4 border-t border-border px-3 py-1 text-xs text-muted-foreground">
@@ -28,18 +39,21 @@ export function StatusBar({ state }: { state: EditorState }) {
       {sessionLabel(state) && (
         <span className="font-mono tabular-nums">{sessionLabel(state)}</span>
       )}
-      {state.conflict && (
-        <span className="text-warning">
-          file changed on disk — save to keep this session, re-open to accept
-          disk
-        </span>
-      )}
+      {/* Visible transient messages as normal footer flex items (unchanged layout). */}
+      {state.conflict && <span className="text-warning">{CONFLICT_MESSAGE}</span>}
       {state.notice && (
         <span className="truncate text-warning">{state.notice}</span>
       )}
       {state.error && (
         <span className="truncate text-destructive">{state.error}</span>
       )}
+      {/* Robust announcement: ONE persistent, visually-hidden live region that always
+          exists in the a11y tree (`sr-only` clips it without display:none/contents, so
+          VoiceOver/Safari can't strip its role). Its text changing is what announces —
+          decoupled from the conditional visible spans above. */}
+      <div className="sr-only" aria-live="polite">
+        {liveMessage(state)}
+      </div>
     </footer>
   );
 }

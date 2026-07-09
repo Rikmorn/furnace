@@ -23,13 +23,14 @@ import { ApiClientError, api, type ComponentEdit } from "../lib/api.ts";
 import { EngineBuildError, loadEngine } from "../lib/engine.ts";
 import { subscribeEvents } from "../lib/events.ts";
 import { initialSession } from "../lib/generation.ts";
-import { isTextInputTarget, matchBinding } from "../lib/keybindings.ts";
 import { PANELS, type PanelId, panelTitle } from "../lib/panels.ts";
 import { createUiStore, DEFAULT_VIEW_FLAGS, pushRecent } from "../lib/persist.ts";
 import { clickMode, SETTINGS_SELECTION } from "../lib/selection.ts";
 import { initialState, reduce } from "../lib/state.ts";
 import { resolveCssColor } from "../lib/theme.ts";
-import { ConfirmDialog, type ConfirmRequest } from "./ConfirmDialog.tsx";
+import { useConfirmDialog } from "../hooks/useConfirmDialog.ts";
+import { useGlobalKeybindings } from "../hooks/useGlobalKeybindings.ts";
+import { ConfirmDialog } from "./ConfirmDialog.tsx";
 import { EditorContext, type EditorActions, type EditorContextValue } from "./editor-context.ts";
 import { EntitiesPanel } from "./EntitiesPanel.tsx";
 import { GenerationPanel } from "./GenerationPanel.tsx";
@@ -80,18 +81,17 @@ export function App() {
   // re-subscribes on [state.status, refreshSession] — reading state.dirty
   // directly there would see a stale value from subscribe time.
   const dirtyRef = useRef(false);
-  // The in-chrome confirm dialog (replaces window.confirm). `confirmRef` mirrors
-  // the state synchronously so BOTH: (a) `openConfirm` refuses to clobber an
-  // already-pending prompt, and the keydown listener suppresses every binding while
-  // one is open (a second prompt would strand the first's onCancel — e.g. the
-  // discard-scene prompt's refreshSession that clears `loading`); and (b)
-  // `resolveConfirm` fires each request's callback exactly once — the guard also
-  // absorbs a rapid double-click that lands while Radix's exit-animation `Presence`
-  // still has the dialog (and its buttons) mounted.
-  const [confirm, setConfirm] = useState<ConfirmRequest | null>(null);
-  const confirmRef = useRef<ConfirmRequest | null>(null);
-  // Latest selection + undo/redo availability, read by the window keydown listener
-  // (which binds once and must not close over stale state).
+  // The in-chrome confirm dialog (replaces window.confirm) — its full state machine
+  // (open no-clobber guard, exactly-once resolve) lives in useConfirmDialog. `confirmRef`
+  // is threaded to useGlobalKeybindings so the keydown listener suppresses every binding
+  // while a prompt is open.
+  const { confirm, confirmRef, openConfirm, resolveConfirm } = useConfirmDialog();
+  // Latest selection + undo/redo availability, read by the window keydown listener (which
+  // binds once and must not close over stale state) AND by actions.deleteSelection below.
+  // `latest` stays in App — not useGlobalKeybindings — to break a dependency cycle: the
+  // hook takes `actions` as INPUT, but actions.deleteSelection must read `latest`, so if
+  // the hook owned `latest` App's actions memo couldn't reach it (chicken-and-egg).
+  // Passing `latest` INTO the hook resolves it. App syncs the ref; the hook only reads it.
   const latest = useRef<{
     selection: string[];
     canUndo: boolean;
@@ -135,21 +135,6 @@ export function App() {
   // Mirrors whether a run/bake is in flight for the SSE bundle-outdated guard (that closure
   // re-subscribes only on [state.status, refreshSession], so it can't read live generation).
   const generationBusyRef = useRef(false);
-
-  const openConfirm = useCallback((request: ConfirmRequest) => {
-    if (confirmRef.current) return; // never clobber a pending prompt
-    confirmRef.current = request;
-    setConfirm(request);
-  }, []);
-
-  const resolveConfirm = useCallback((confirmed: boolean) => {
-    const request = confirmRef.current;
-    if (!request) return; // already settled — absorb a double-fire
-    confirmRef.current = null;
-    setConfirm(null);
-    if (confirmed) request.onConfirm();
-    else request.onCancel?.();
-  }, []);
 
   // The single scene-error dispatch (extracted — used by every catch below).
   const reportError = useCallback((err: unknown) => {
@@ -454,64 +439,15 @@ export function App() {
     };
   }, [state.selectedEntities, state.canUndo, state.canRedo]);
 
-  // Delete routing shared by the ⌫ keybinding and Edit▸Delete: >1 entity prompts
-  // (in-chrome confirm), a single entity deletes straight away, none is a no-op.
-  const requestDelete = useCallback(() => {
-    // The World/settings sentinel is not deletable — drop it before counting.
-    const selection = latest.current.selection.filter(
-      (id) => id !== SETTINGS_SELECTION,
-    );
-    if (selection.length === 0) return;
-    if (selection.length > 1) {
-      openConfirm({
-        title: "Delete entities?",
-        message: `Delete ${selection.length} selected entities? This can be undone.`,
-        confirmLabel: "Delete",
-        destructive: true,
-        onConfirm: () => void actions.deleteSelection(),
-      });
-      return;
-    }
-    void actions.deleteSelection();
-  }, [actions, openConfirm]);
-
-  // Global keybindings. Binds once (actions is stable) and reads live selection /
-  // undo-redo availability from `latest`. preventDefault fires on EVERY match so
-  // ⌘S never triggers the browser save-page — the whole point of the P0 fix.
-  useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      // A confirm dialog is modal: suppress EVERY binding until it resolves, or a
-      // second openConfirm would strand the first (its onCancel never runs).
-      if (confirmRef.current) return;
-      const action = matchBinding(e, isTextInputTarget(e.target));
-      if (!action) return;
-      e.preventDefault();
-      switch (action) {
-        case "save":
-          void actions.save();
-          return;
-        case "undo":
-          if (latest.current.canUndo) void actions.undo();
-          return;
-        case "redo":
-          if (latest.current.canRedo) void actions.redo();
-          return;
-        case "frame":
-          actions.frameSelection();
-          return;
-        case "delete":
-          requestDelete();
-          return;
-        default:
-          // Exhaustiveness guard: a new BindingAction that isn't cased above is a
-          // compile error here (Tasks 6/9 add bindings).
-          action satisfies never;
-          return;
-      }
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [actions, requestDelete]);
+  // Global keybindings + the delete-routing shared by ⌫ and Edit▸Delete. The listener
+  // binds once and reads live selection / undo-redo availability through `latest`; App
+  // wires the returned requestDelete to the Toolbar/Edit▸Delete affordance.
+  const { requestDelete } = useGlobalKeybindings({
+    actions,
+    openConfirm,
+    confirmRef,
+    latest,
+  });
 
   useEffect(() => {
     document.title = state.selectedScene

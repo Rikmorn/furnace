@@ -170,7 +170,8 @@ export function GenerationPanel() {
     const total = typeof config["attempts"] === "number" ? config["attempts"] : 1;
 
     const it = ext.worldAttempts(baseSeed, config, ext.COCKPIT_BUDGET);
-    setStatus({ phase: "running", attempt: 0, totalAttempts: total });
+    // 1-based attempt counter throughout: the first attempt about to run is "attempt 1".
+    setStatus({ phase: "running", attempt: 1, totalAttempts: total });
 
     while (!cancelRef.current) {
       await paintGap();
@@ -190,11 +191,14 @@ export function GenerationPanel() {
         totalAttempts: total,
       });
       if (attempt.ok && attempt.layout) {
+        // `attempt.attempt + 1`: the done snapshot uses the SAME 1-based counter as the
+        // running status above (the iterator yields a 0-based index), so "previewing …
+        // (attempt N)" matches the "attempt N/total" the user just watched.
         await previewLayout(
           host,
           attempt.layout,
           attempt.attemptSeed,
-          attempt.attempt,
+          attempt.attempt + 1,
           runConfig,
         );
         return;
@@ -366,7 +370,11 @@ export function GenerationPanel() {
         </Button>
       </div>
 
-      <p className="text-muted-foreground">{statusText(session.status)}</p>
+      {/* Always-rendered STABLE aria-live region so each phase change (generating →
+          previewing → baked/failed) is announced to assistive tech. */}
+      <p className="text-muted-foreground" aria-live="polite">
+        {statusText(session.status)}
+      </p>
 
       {session.history.length > 0 && (
         <div className="flex min-h-0 flex-col gap-1">

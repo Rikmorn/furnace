@@ -149,11 +149,13 @@ export function Viewport() {
     <div className="relative h-full w-full">
       <canvas
         ref={canvasRef}
+        aria-label="scene viewport"
         className="absolute inset-0 h-full w-full"
         style={{ visibility: state.generationActive ? "hidden" : "visible" }}
       />
       <canvas
         ref={previewCanvasRef}
+        aria-label="generation preview"
         className="absolute inset-0 h-full w-full"
         style={{ visibility: state.generationActive ? "visible" : "hidden" }}
       />

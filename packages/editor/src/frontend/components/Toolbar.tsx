@@ -1,5 +1,7 @@
-import { Redo2, Save, Undo2 } from "lucide-react";
+import { type LucideIcon, Redo2, Save, Undo2 } from "lucide-react";
+import type { ReactNode } from "react";
 import type { ViewFlags } from "../../viewport-host/index.ts"; // type-only: erased
+import { cn } from "../lib/cn.ts";
 import type { PanelId } from "../lib/panels.ts";
 import type { EditorState } from "../lib/state.ts";
 import { MenuBar } from "./MenuBar.tsx";
@@ -11,6 +13,42 @@ import {
   SelectTrigger,
   SelectValue,
 } from "./ui/select.tsx";
+
+/** One icon-only toolbar action (Save/Undo/Redo share this shape). `aria-label` is the
+ *  button's accessible name (the toolbar tests query by it); `children` carries extra
+ *  overlay content (Save's dirty dot). */
+function ToolbarIconButton({
+  icon: Icon,
+  label,
+  title,
+  disabled,
+  onClick,
+  className,
+  children,
+}: {
+  icon: LucideIcon;
+  label: string;
+  title: string;
+  disabled: boolean;
+  onClick: () => void;
+  className?: string;
+  children?: ReactNode;
+}) {
+  return (
+    <Button
+      size="icon"
+      variant="ghost"
+      className={cn("h-8 w-8", className)}
+      title={title}
+      aria-label={label}
+      disabled={disabled}
+      onClick={onClick}
+    >
+      <Icon />
+      {children}
+    </Button>
+  );
+}
 
 export function Toolbar({
   state,
@@ -67,42 +105,32 @@ export function Toolbar({
         onToggleViewFlag={onToggleViewFlag}
       />
       <div className="ml-2 flex items-center gap-0.5">
-        <Button
-          size="icon"
-          variant="ghost"
-          className="relative h-8 w-8"
+        <ToolbarIconButton
+          icon={Save}
+          label="Save"
           title="Save (⌘S)"
-          aria-label="Save"
           disabled={!state.dirty}
           onClick={onSave}
+          className="relative"
         >
-          <Save />
           {state.dirty && (
             <span className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-primary" />
           )}
-        </Button>
-        <Button
-          size="icon"
-          variant="ghost"
-          className="h-8 w-8"
+        </ToolbarIconButton>
+        <ToolbarIconButton
+          icon={Undo2}
+          label="Undo"
           title="Undo (⌘Z)"
-          aria-label="Undo"
           disabled={!state.canUndo}
           onClick={onUndo}
-        >
-          <Undo2 />
-        </Button>
-        <Button
-          size="icon"
-          variant="ghost"
-          className="h-8 w-8"
+        />
+        <ToolbarIconButton
+          icon={Redo2}
+          label="Redo"
           title="Redo (⇧⌘Z)"
-          aria-label="Redo"
           disabled={!state.canRedo}
           onClick={onRedo}
-        >
-          <Redo2 />
-        </Button>
+        />
       </div>
       <div className="ml-auto flex items-center gap-2 text-sm">
         <span className="text-muted-foreground">scene:</span>

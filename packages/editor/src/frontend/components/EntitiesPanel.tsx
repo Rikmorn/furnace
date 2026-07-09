@@ -19,6 +19,7 @@ export function EntitiesPanel() {
       <li className="mb-1 border-b border-border pb-1">
         <button
           type="button"
+          aria-pressed={worldSelected}
           className={cn(rowCls(worldSelected), "font-medium")}
           onClick={() =>
             dispatch({
@@ -35,6 +36,7 @@ export function EntitiesPanel() {
         <li key={e.id}>
           <button
             type="button"
+            aria-pressed={state.selectedEntities.includes(e.id)}
             className={cn(
               rowCls(state.selectedEntities.includes(e.id)),
               "font-mono",
