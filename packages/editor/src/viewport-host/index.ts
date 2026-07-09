@@ -13,6 +13,7 @@ import type { Vec4 } from "@furnace/core/transform";
 import { vec3, vec4 } from "@furnace/core/transform";
 import { boxEdges } from "./box-edges.ts";
 import {
+  dolly,
   flyLook,
   flyMove,
   fromEyeTarget,
@@ -20,8 +21,6 @@ import {
   orbit,
   pan,
   toEyeTarget,
-  zoom,
-  zoomToward,
 } from "./camera-control.ts";
 import {
   AXIS_DIR,
@@ -1072,13 +1071,10 @@ export function createViewportHost(opts?: ViewportHostOptions): ViewportHost {
       notifyCamera("end");
       return;
     }
-    // Zoom toward the cursor ray (mouse wheel or trackpad pinch = ctrlKey-wheel);
-    // fall back to a plain distance zoom when the ray is unavailable (singular VP).
-    const ray = rayFromCursor(e.clientX, e.clientY);
-    const delta = Math.sign(e.deltaY);
-    orbitState = ray
-      ? zoomToward(orbitState, delta, ray.dir)
-      : zoom(orbitState, delta);
+    // Scroll dollies the whole rig along the view direction — travel through the
+    // scene, not orbit-zoom toward the pivot (which asymptotes to a dead stop and
+    // whose speed swings with the hidden pivot distance). Wheel-up (deltaY<0) = forward.
+    orbitState = dolly(orbitState, -Math.sign(e.deltaY));
     applyOrbit();
     renderLoaded(ctx, loaded);
     notifyCamera("end"); // discrete zoom step — no separate release event

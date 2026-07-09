@@ -43,7 +43,7 @@ test("the nested group still shows its label and inner field", () => {
       onCancel={() => {}}
     />,
   );
-  // Group label ("bounds") + the inner numeric field are both still present.
-  expect(screen.getByText("bounds")).toBeTruthy();
+  // Group label ("bounds" → humanized "Bounds") + the inner numeric field are both present.
+  expect(screen.getByText("Bounds")).toBeTruthy();
   expect(screen.getByRole("textbox")).toBeTruthy();
 });

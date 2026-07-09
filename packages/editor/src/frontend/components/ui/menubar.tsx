@@ -92,7 +92,7 @@ const MenubarSubContent = React.forwardRef<
   <MenubarPrimitive.SubContent
     ref={ref}
     className={cn(
-      "z-50 min-w-[8rem] overflow-hidden rounded-md border bg-popover p-1 text-popover-foreground shadow-lg origin-[--radix-menubar-content-transform-origin] data-[state=closed]:animate-[furnace-pop-out_140ms_ease-out_forwards] data-[state=open]:animate-[furnace-pop-in_180ms_ease-out]",
+      "z-50 min-w-[8rem] overflow-hidden rounded-md border bg-popover p-1 text-popover-foreground shadow-lg origin-[--radix-menubar-content-transform-origin] data-[state=open]:animate-[furnace-pop-in_180ms_ease-out]",
       className
     )}
     {...props}
@@ -115,7 +115,7 @@ const MenubarContent = React.forwardRef<
         alignOffset={alignOffset}
         sideOffset={sideOffset}
         className={cn(
-          "z-50 min-w-[12rem] overflow-hidden rounded-md border bg-popover p-1 text-popover-foreground shadow-md origin-[--radix-menubar-content-transform-origin] data-[state=closed]:animate-[furnace-pop-out_140ms_ease-out_forwards] data-[state=open]:animate-[furnace-pop-in_180ms_ease-out]",
+          "z-50 min-w-[12rem] overflow-hidden rounded-md border bg-popover p-1 text-popover-foreground shadow-md origin-[--radix-menubar-content-transform-origin] data-[state=open]:animate-[furnace-pop-in_180ms_ease-out]",
           className
         )}
         {...props}

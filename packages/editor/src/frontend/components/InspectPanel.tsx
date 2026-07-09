@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { cn } from "../lib/cn.ts";
+import { humanizeLabel } from "../lib/humanize.ts";
 import { SchemaForm } from "../inspector/index.tsx";
 import { commonComponents } from "../inspector/lib/common-components.ts";
 import { referencedResourceKeys } from "../inspector/lib/resource-refs.ts";
@@ -163,7 +164,7 @@ function ResourcesInspector({
   if (rows.length === 0) return null;
   return (
     <section>
-      <h3 className="mb-1 text-xs font-semibold text-foreground">resources</h3>
+      <h3 className="mb-1 text-xs font-semibold text-foreground">Resources</h3>
       <div className="flex flex-col gap-0.5">
         {rows.map(({ table, id, entry }) => {
           const { kind, params } = splitResourceEntry(
@@ -229,7 +230,7 @@ function SettingsInspector({
 
   return (
     <CollapsibleSection
-      title="settings"
+      title="Settings"
       defaultOpen={collapse.isOpen(key, true)}
       onOpenChange={(open) => collapse.setOpen(key, open)}
     >
@@ -272,7 +273,7 @@ function EntityInspector({
         return (
           <CollapsibleSection
             key={name}
-            title={name}
+            title={humanizeLabel(name)}
             // Components default OPEN — they're the focus of a selection.
             defaultOpen={collapse.isOpen(key, true)}
             onOpenChange={(open) => collapse.setOpen(key, open)}

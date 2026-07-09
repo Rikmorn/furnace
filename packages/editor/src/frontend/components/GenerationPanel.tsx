@@ -141,7 +141,12 @@ export function GenerationPanel() {
     host.render();
     setSession((s) => ({
       ...s,
-      history: [{ attemptSeed, baseSeed: s.baseSeed }, ...s.history],
+      // Each attempt seed is unique per session (rerolls derive distinct seeds), so an
+      // already-present seed means this is a re-preview from a history click — don't
+      // re-prepend it (that duplicated the row every click).
+      history: s.history.some((h) => h.attemptSeed === attemptSeed)
+        ? s.history
+        : [{ attemptSeed, baseSeed: s.baseSeed }, ...s.history],
       // Snapshot the config that PRODUCED this preview — freeze bakes from here, so a
       // later knob edit can't change what freeze produces (the slice's core guarantee).
       status: { phase: "done", attemptSeed, attempt, config },
@@ -258,7 +263,7 @@ export function GenerationPanel() {
   return (
     <div className="flex h-full flex-col gap-3 overflow-auto p-3 text-sm">
       <label className="flex flex-col gap-1">
-        <span className="text-muted-foreground">seed</span>
+        <span className="text-muted-foreground">Seed</span>
         <Input
           type="text"
           value={session.baseSeed}
@@ -271,7 +276,7 @@ export function GenerationPanel() {
       </label>
 
       <label className="flex flex-col gap-1">
-        <span className="text-muted-foreground">wing name</span>
+        <span className="text-muted-foreground">Wing Name</span>
         <Input
           type="text"
           value={wingName}
@@ -284,7 +289,7 @@ export function GenerationPanel() {
 
       <div className="flex gap-3">
         <label className="flex flex-1 flex-col gap-1">
-          <span className="text-muted-foreground">rooms</span>
+          <span className="text-muted-foreground">Rooms</span>
           <Input
             type="number"
             min={MIN_ROOMS}
@@ -297,7 +302,7 @@ export function GenerationPanel() {
           />
         </label>
         <label className="flex flex-1 flex-col gap-1">
-          <span className="text-muted-foreground">loop</span>
+          <span className="text-muted-foreground">Loop</span>
           <Input
             type="number"
             min={0}
@@ -378,7 +383,7 @@ export function GenerationPanel() {
 
       {session.history.length > 0 && (
         <div className="flex min-h-0 flex-col gap-1">
-          <span className="text-muted-foreground">history</span>
+          <span className="text-muted-foreground">History</span>
           <ul className="flex flex-col gap-1">
             {session.history.map((h, i) => (
               <li key={`${h.attemptSeed}-${i}`}>

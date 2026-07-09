@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import {
+  dolly,
   flyLook,
   flyMove,
   fromEyeTarget,
@@ -8,7 +9,6 @@ import {
   pan,
   toEyeTarget,
   zoom,
-  zoomToward,
 } from "../../src/viewport-host/camera-control.ts";
 
 const base: OrbitState = { target: [0, 0, 0], distance: 10, yaw: 0, pitch: 0 };
@@ -45,25 +45,21 @@ test("fromEyeTarget → toEyeTarget round-trips eye position", () => {
   expect(eye[2]).toBeCloseTo(5, 5);
 });
 
-test("zoomToward moves target toward the cursor ray as distance shrinks", () => {
-  const rayDir: [number, number, number] = [0, 0, -1];
-  const inward = zoomToward(base, -1, rayDir);
-  expect(inward.distance).toBeLessThan(base.distance);
-  // target pulled along +rayDir (−z) by (oldDist − newDist) * pull
-  expect(inward.target[2]).toBeLessThan(0);
-  // zooming out pushes the target back along −rayDir (+z)
-  const outward = zoomToward(base, 1, rayDir);
-  expect(outward.distance).toBeGreaterThan(base.distance);
-  expect(outward.target[2]).toBeGreaterThan(0);
-  // pull is purely along the ray: no drift off the z axis for an axis-aligned ray
-  expect(inward.target[0]).toBeCloseTo(0, 6);
-  expect(inward.target[1]).toBeCloseTo(0, 6);
+test("dolly forward translates the whole rig along view-forward; distance preserved", () => {
+  const eyeBefore = toEyeTarget(base).eye;
+  const fwd = dolly(base, 1); // +1 = forward; at yaw0/pitch0 view-forward is −z
+  expect(fwd.target[2]).toBeLessThan(0);
+  expect(fwd.distance).toBe(base.distance);
+  const eyeAfter = toEyeTarget(fwd).eye;
+  expect(eyeAfter[2]).toBeLessThan(eyeBefore[2]); // the eye travelled forward too
+  expect(dolly(base, -1).target[2]).toBeGreaterThan(0); // back is the mirror
 });
 
-test("zoomToward normalizes the ray; a zero-length ray is a plain zoom", () => {
-  const z = zoomToward(base, -1, [0, 0, 0]);
-  expect(z.target).toEqual(base.target); // no pull
-  expect(z.distance).toBeCloseTo(zoom(base, -1).distance, 6);
+test("dolly step scales with distance but is floored so it never crawls to zero", () => {
+  const farStep = Math.abs(dolly({ ...base, distance: 100 }, 1).target[2]);
+  const nearStep = Math.abs(dolly({ ...base, distance: 0.1 }, 1).target[2]);
+  expect(farStep).toBeGreaterThan(nearStep); // scale-aware
+  expect(nearStep).toBeCloseTo(0.15, 6); // floored to DOLLY_MIN_STEP — never stops
 });
 
 test("flyLook rotates the view with the eye held fixed", () => {

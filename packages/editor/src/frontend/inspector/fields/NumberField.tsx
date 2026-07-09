@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { commitIfChanged } from "../lib/commit-guard.ts";
+import { roundForDisplay } from "../lib/format.ts";
 import { isMixed } from "../lib/mixed.ts";
 import { scrubValue } from "../lib/scrub.ts";
 import type { FieldProps } from "../types.ts";
@@ -15,7 +16,9 @@ const SCRUB_ROUND = 1000;
 export function NumberField({ schema, values, onPreview, onCommit, onCancel, path }: FieldProps) {
   const mixed = isMixed(values);
   const def = typeof schema.default === "number" ? schema.default : 0;
-  const initial = mixed ? "" : String((values[0] as number) ?? def);
+  const initial = mixed
+    ? ""
+    : String(roundForDisplay(Number((values[0] as number) ?? def)));
   const [text, setText] = useState(initial);
   const focusedRef = useRef(false);
   const scrub = useRef<{ startX: number; startVal: number } | null>(null);
@@ -26,7 +29,7 @@ export function NumberField({ schema, values, onPreview, onCommit, onCancel, pat
   // concrete entry). Synced only while UNfocused, so it holds the focus-time value across
   // preview re-renders (same guard as the text re-seed below).
   const committedNum = (): number =>
-    mixed ? Number.NaN : Number((values[0] as number) ?? def);
+    mixed ? Number.NaN : roundForDisplay(Number((values[0] as number) ?? def));
   const committedRef = useRef(committedNum());
 
   // Re-seed when committed values change externally (e.g. SSE / selection change),

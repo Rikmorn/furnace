@@ -1,4 +1,5 @@
 import type { PointerEventHandler, ReactNode } from "react";
+import { humanizeLabel } from "../../lib/humanize.ts";
 
 interface LabelPointerProps {
   onPointerDown: PointerEventHandler<HTMLSpanElement>;
@@ -30,7 +31,7 @@ export function FieldRow({
   return (
     <label className="flex items-center justify-between gap-2 py-0.5">
       <span className={labelSpanCls} {...labelPointerProps}>
-        {path.split(".").at(-1)}
+        {humanizeLabel(path.split(".").at(-1) ?? path)}
       </span>
       <span className="flex min-w-0 flex-1 justify-end gap-1">{children}</span>
     </label>

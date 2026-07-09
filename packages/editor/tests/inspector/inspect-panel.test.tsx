@@ -95,7 +95,7 @@ test("resource sections render COLLAPSED by default (content not mounted)", () =
   expect(resTrigger(/materials\/m1/)).toBeTruthy();
   expect(resTrigger(/geometries\/g_cube/)).toBeTruthy();
   // …but collapsed, so no resource field body is mounted (no "intensity" field label).
-  expect(screen.queryByText("intensity")).toBeNull();
+  expect(screen.queryByText("Intensity")).toBeNull();
 });
 
 test("component sections are OPEN by default; resources FILTER to the selection", () => {
@@ -108,7 +108,7 @@ test("component sections are OPEN by default; resources FILTER to the selection"
   expect(resTrigger(/geometries\/g_cube/)).toBeTruthy();
   expect(resTrigger(/materials\/m0/)).toBeNull();
   // The referenced material section is still collapsed by default (no body).
-  expect(screen.queryByText("intensity")).toBeNull();
+  expect(screen.queryByText("Intensity")).toBeNull();
 });
 
 test("toggling a resource section opens it AND persists open-state to the store", () => {
@@ -119,7 +119,7 @@ test("toggling a resource section opens it AND persists open-state to the store"
   if (!trigger) throw new Error("no m1 trigger");
   fireEvent.click(trigger);
   // Now the section body is mounted…
-  expect(screen.queryByText("intensity")).toBeTruthy();
+  expect(screen.queryByText("Intensity")).toBeTruthy();
   // …and the open state is persisted under the section key.
   const collapse = store.get("inspectorCollapse") as Record<string, boolean> | undefined;
   expect(collapse?.["resource:materials:m1"]).toBe(true);
@@ -129,13 +129,13 @@ test("a persisted open-state (from the store) is read on mount", () => {
   const store = fakeUiStore({ inspectorCollapse: { "resource:materials:m1": true } });
   renderWithEditor(<InspectPanel />, ctx({ selectedEntities: ["box"], store }));
   // m1 starts OPEN because the store says so → its body is mounted immediately.
-  expect(screen.queryByText("intensity")).toBeTruthy();
+  expect(screen.queryByText("Intensity")).toBeTruthy();
 });
 
 test("selecting World ($settings) shows the settings form, not the nothing-selected hint", () => {
   renderWithEditor(<InspectPanel />, ctx({ selectedEntities: [SETTINGS_SELECTION] }));
   // The settings section is open by default → the `ambient` field is present.
-  expect(screen.queryByText("ambient")).toBeTruthy();
+  expect(screen.queryByText("Ambient")).toBeTruthy();
   expect(screen.queryByText(/nothing selected/i)).toBeNull();
 });
 
@@ -143,5 +143,5 @@ test("empty selection shows a quiet nothing-selected hint (no settings form)", (
   renderWithEditor(<InspectPanel />, ctx({ selectedEntities: [] }));
   expect(screen.queryByText(/nothing selected/i)).toBeTruthy();
   // Settings form is behind the World row now, so `ambient` is not shown here.
-  expect(screen.queryByText("ambient")).toBeNull();
+  expect(screen.queryByText("Ambient")).toBeNull();
 });

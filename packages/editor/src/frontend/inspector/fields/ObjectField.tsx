@@ -1,4 +1,5 @@
 import { useId } from "react";
+import { humanizeLabel } from "../../lib/humanize.ts";
 import { resolveKind } from "../kind.ts";
 import { getAtPath, setAtPath } from "../lib/paths.ts";
 import { fallbackRenderer, registry } from "../registry.tsx";
@@ -16,7 +17,7 @@ export function ObjectField({ schema, values, onPreview, onCommit, onCancel, pat
     // named-ban "nested-cards" structure).
     <div role="group" aria-labelledby={labelId} className="border-l border-border/60 pl-2">
       <p id={labelId} className="py-0.5 text-xs text-muted-foreground">
-        {path.split(".").at(-1)}
+        {humanizeLabel(path.split(".").at(-1) ?? path)}
       </p>
       {Object.entries(properties).map(([key, fieldSchema]) => {
         const kind = resolveKind(fieldSchema);

@@ -11,11 +11,12 @@ export type OrbitState = {
 const MIN_DISTANCE = 0.05;
 const PITCH_LIMIT = Math.PI / 2 - 0.01; // avoid pole flip
 const ZOOM_SCALE = 0.1;
-// Fraction of the distance change re-applied as a target pull along the cursor
-// ray, giving category-standard zoom-to-cursor. 1 would hold a frontal cursor
-// point exactly fixed.
-// MIGRATION (until Task 12): 0.8 is a provisional softened default — tune live.
-const ZOOM_TOWARD_PULL = 0.8;
+// Dolly (scroll-travel) step per wheel notch: a fraction of the current view
+// distance so it scales with the scene, floored so a tight framing still travels —
+// it never crawls to a stop the way distance-scaled orbit zoom does.
+// MIGRATION (until Task 12): provisional feel — tune live at the Safari gate.
+const DOLLY_FRACTION = 0.15;
+const DOLLY_MIN_STEP = 0.15;
 
 /** Clamp a pitch to just inside ±90° so the spherical rig never reaches the pole. */
 function clampPitch(pitch: number): number {
@@ -49,28 +50,16 @@ export function zoom(s: OrbitState, delta: number): OrbitState {
 }
 
 /**
- * Zoom toward a world-space ray (the cursor): scales distance exactly like
- * {@link zoom} AND pulls the target along `rayDir` so the point under the cursor
- * stays roughly put (category-standard zoom-to-cursor). `rayDir` need not be unit
- * — it is normalized internally; a zero-length ray degrades to a plain distance
- * zoom with the target unchanged.
+ * Dolly the whole rig along the view direction — travel forward/back through the
+ * scene rather than orbit-zooming toward the pivot (which asymptotes to a dead
+ * stop and whose speed swings with the hidden pivot distance). `direction` is +1
+ * forward (into the scene) / −1 back. The per-notch step scales with the current
+ * distance (scale-aware) but is floored, so it never crawls to zero. Distance and
+ * orientation are preserved; only the rig translates (a forward {@link flyMove}).
  */
-export function zoomToward(
-  s: OrbitState,
-  delta: number,
-  rayDir: V3,
-): OrbitState {
-  const zoomed = zoom(s, delta);
-  const dir = normalized(rayDir);
-  // Zoom in (distance shrinks) pulls the target forward along +dir toward the
-  // cursor point; zoom out pushes it back along −dir, so the point recedes too.
-  const pull = (s.distance - zoomed.distance) * ZOOM_TOWARD_PULL;
-  const target: V3 = [
-    s.target[0] + dir[0] * pull,
-    s.target[1] + dir[1] * pull,
-    s.target[2] + dir[2] * pull,
-  ];
-  return { ...zoomed, target };
+export function dolly(s: OrbitState, direction: number): OrbitState {
+  const step = Math.max(DOLLY_MIN_STEP, s.distance * DOLLY_FRACTION);
+  return flyMove(s, { f: direction, r: 0, u: 0 }, step);
 }
 
 /**

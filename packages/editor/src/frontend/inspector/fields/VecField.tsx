@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { commitIfChanged } from "../lib/commit-guard.ts";
+import { roundForDisplay } from "../lib/format.ts";
 import { isMixed } from "../lib/mixed.ts";
 import { fanComponent } from "../lib/vec-fan.ts";
 import type { FieldProps } from "../types.ts";
@@ -13,7 +14,7 @@ export function makeVecField(n: number) {
   return function VecField({ schema, values, onPreview, onCommit, onCancel, path }: FieldProps) {
     const fallback = (Array.isArray(schema.default) ? schema.default : new Array(n).fill(0)) as number[];
     const vec0 = (values[0] as number[]) ?? fallback;
-    const seed = vec0.slice(0, n).map(String);
+    const seed = vec0.slice(0, n).map((v) => String(roundForDisplay(Number(v ?? 0))));
     // Raw per-component text: storing parsed numbers would round-trip "1." back to
     // "1", making decimals untypeable. Parse only when emitting preview/commit.
     const [text, setText] = useState<string[]>(seed);
@@ -24,12 +25,12 @@ export function makeVecField(n: number) {
     // the pre-edit value, not the live-previewed draft (mirrors NumberField / the text seed).
     const committedAt = (): number[] =>
       Array.from({ length: n }, (_, i) =>
-        mixedAt(i) ? Number.NaN : Number((vec0[i] as number) ?? 0),
+        mixedAt(i) ? Number.NaN : roundForDisplay(Number((vec0[i] as number) ?? 0)),
       );
     const committedRef = useRef<number[]>(committedAt());
     useEffect(() => {
       if (!focusedRef.current) {
-        setText(vec0.slice(0, n).map(String));
+        setText(seed);
         committedRef.current = committedAt();
       }
     }, [JSON.stringify(vec0)]);
@@ -65,7 +66,7 @@ export function makeVecField(n: number) {
                   (e.target as HTMLInputElement).blur();
                 } else if (e.key === "Escape") {
                   onCancel();
-                  setText(vec0.slice(0, n).map(String));
+                  setText(seed);
                 }
               }}
               onBlur={(e) => {

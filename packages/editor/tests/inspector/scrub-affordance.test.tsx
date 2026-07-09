@@ -22,7 +22,7 @@ test("a scrubbable NumberField label shows the ew-resize + hover-underline affor
       path="intensity"
     />,
   );
-  const label = screen.getByText("intensity");
+  const label = screen.getByText("Intensity");
   expect(label.className).toContain("cursor-ew-resize");
   expect(label.className).toContain("hover:underline");
 });
@@ -38,6 +38,6 @@ test("a non-scrubbable StringField label has no scrub affordance", () => {
       path="note"
     />,
   );
-  const label = screen.getByText("note");
+  const label = screen.getByText("Note");
   expect(label.className).not.toContain("cursor-ew-resize");
 });
