@@ -9,7 +9,13 @@ import tailwind from "bun-plugin-tailwind";
 process.env.NODE_ENV = "production";
 
 const result = await Bun.build({
-  entrypoints: ["src/frontend/index.html"],
+  entrypoints: [
+    "src/frontend/index.html",
+    // The generation worker ships as its own module bundle: the chrome spawns it
+    // by URL (new Worker("/generation-worker.js", {type:"module"})), so it cannot
+    // ride the html entry's graph.
+    "src/frontend/generation-worker.ts",
+  ],
   outdir: "dist/frontend",
   minify: true,
   sourcemap: "linked",
