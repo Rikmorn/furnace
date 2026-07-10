@@ -1,5 +1,9 @@
 import { expect, test } from "bun:test";
 import {
+  clampLoop,
+  clampRooms,
+  type EnvelopeRow,
+  envelopeRowFor,
   type GenerationSession,
   initialSession,
   invalidateDonePreview,
@@ -8,6 +12,7 @@ import {
   mergeContents,
   nextRerollSeed,
   type RealizeResult,
+  reliabilityText,
   toWireFiles,
 } from "../src/frontend/lib/generation.ts";
 
@@ -151,4 +156,40 @@ test("mergeContents: a result with no update() is skipped without throwing", () 
     { destroy: () => undefined },
   );
   expect(() => merged.update?.()).not.toThrow();
+});
+
+const ENVELOPE: EnvelopeRow[] = [
+  { rooms: 2, singleShot: 0.9, attempts: 4, projected: 0.9999 },
+  { rooms: 3, singleShot: 0.7, attempts: 4, projected: 0.9919 },
+  { rooms: 4, singleShot: 0.3, attempts: 9, projected: 0.9596 },
+  { rooms: 5, singleShot: 0.05, attempts: 30, projected: 0.7854 },
+];
+
+test("envelopeRowFor finds the exact row; off-table is undefined", () => {
+  expect(envelopeRowFor(ENVELOPE, 3)?.attempts).toBe(4);
+  expect(envelopeRowFor(ENVELOPE, 99)).toBeUndefined();
+});
+
+test("clampRooms clamps to the table's range and rounds to an integer", () => {
+  expect(clampRooms(ENVELOPE, 15)).toBe(5);
+  expect(clampRooms(ENVELOPE, 0)).toBe(2);
+  expect(clampRooms(ENVELOPE, 3.6)).toBe(4);
+  expect(clampRooms(ENVELOPE, 3)).toBe(3);
+});
+
+test("clampLoop clamps to [0, 0.6] and snaps to the 0.05 step", () => {
+  expect(clampLoop(0.9)).toBe(0.6);
+  expect(clampLoop(-0.2)).toBe(0);
+  expect(clampLoop(0.33)).toBe(0.35);
+  expect(clampLoop(0.35)).toBe(0.35);
+});
+
+test("reliabilityText reads the row; low-yield sizes say so; no row → empty", () => {
+  expect(reliabilityText(ENVELOPE[3])).toBe(
+    "5 rooms: ~79% within 30 attempts (measured) — low-yield size",
+  );
+  expect(reliabilityText(ENVELOPE[0])).toBe(
+    "2 rooms: ~100% within 4 attempts (measured)",
+  );
+  expect(reliabilityText(undefined)).toBe("");
 });

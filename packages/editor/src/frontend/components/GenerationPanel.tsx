@@ -1,32 +1,33 @@
+import { useState } from "react";
 import type { PreviewHost } from "../../viewport-host/index.ts"; // type-only: erased
 import { api } from "../lib/api.ts";
 import { cn } from "../lib/cn.ts";
 import {
+  clampLoop,
+  clampRooms,
+  type EnvelopeRow,
+  envelopeRowFor,
   type GenerationSession,
   type GenerationStatus,
   invalidateDonePreview,
   isValidWingName,
   layoutBounds,
+  MAX_LOOP,
   mergeContents,
   nextRerollSeed,
   type RealizeResult,
+  reliabilityText,
   toWireFiles,
 } from "../lib/generation.ts";
 import { useEditor } from "./editor-context.ts";
 import { Button } from "./ui/button.tsx";
 import { Input } from "./ui/input.tsx";
 
-// The generation config knobs' UI bounds. targetRooms brackets a single-sector wing;
-// loopChance stays below the point where the placer struggles to satisfy cycles.
-const MIN_ROOMS = 2;
-const MAX_ROOMS = 12;
-const MAX_LOOP = 0.6;
-const LOOP_STEP = 0.05;
-
-// The minimal structural shape of ONE worldAttempts yield the panel reads. Declared
-// locally (the frontend can't import the dungeon's WorldAttempt by value); narrowed at
-// the `ext` boundary cast below. Region `bounds` feed layoutBounds; `provenance.theme`
-// filters the authored phantom (empty geometry) out of the realize set.
+// The minimal structural shape of ONE placed layout the panel realizes. Declared locally
+// (the frontend can't import the dungeon's LayoutResult by value); narrowed at the `ext`
+// boundary cast below. Region `bounds` feed layoutBounds; `provenance.theme` filters the
+// authored phantom (empty geometry) out of the realize set. The worker streams `layout`
+// opaquely — only this seam reads inside it.
 type Vec3 = [number, number, number];
 type PreviewRegion = {
   provenance: { theme: string };
@@ -34,11 +35,10 @@ type PreviewRegion = {
   bounds: { min: Vec3; max: Vec3 };
 };
 type PreviewAttempt = {
-  ok: boolean;
-  attempt: number;
-  attemptSeed: string;
-  error?: string;
-  layout?: { regions: PreviewRegion[]; connectors: { bounds: { min: Vec3; max: Vec3 } }[] };
+  layout?: {
+    regions: PreviewRegion[];
+    connectors: { bounds: { min: Vec3; max: Vec3 } }[];
+  };
 };
 
 function statusText(s: GenerationStatus): string {
@@ -63,23 +63,21 @@ function statusText(s: GenerationStatus): string {
 export function GenerationPanel() {
   const { state, dispatch, previewHostRef, extensions, generation } =
     useEditor();
-  // The session, the bake destination (wingName), and the run's cancel flag are all owned
-  // by App (context slice) — NOT local state. That is the lift: closing the panel unmounts
-  // this component, but an in-flight run's async setter calls target App state through these
-  // stable setters, so the run keeps advancing and the session is intact on reopen. cancelRef
-  // is App-owned too, so Cancel flips the SAME flag the running loop reads across a reopen.
-  const { session, setSession, wingName, setWingName, cancelRef } = generation;
+  // The session, the bake destination (wingName), and the worker client are all owned by
+  // App (context slice) — NOT local state. That is the lift: closing the panel unmounts this
+  // component, but an in-flight run's async setter calls target App state through these
+  // stable setters, so the run keeps advancing and the session is intact on reopen. The
+  // client is App-owned too, so Cancel terminates the SAME worker the run drives across a
+  // reopen (Slice 3.2.3: run/bake on a worker; cancel = terminate, instant mid-attempt).
+  const { session, setSession, wingName, setWingName, client } = generation;
 
   // Boundary cast: `extensions` is the engine bundle's untyped `extensions` namespace —
   // the dungeon's editor-extensions re-exports, crossing the project-first bundle boundary
   // as Record<string, unknown>. This is the SINGLE panel seam that narrows the generator
-  // surface to the shapes the cockpit calls; the engine owns their real types.
+  // surface to the shapes the cockpit calls; the engine owns their real types. worldAttempts
+  // and bake now run WORKER-side (via `client`); the panel only realizes/frames on the main
+  // thread (GPU ctx) and reads the measured envelope.
   const ext = extensions as {
-    worldAttempts: (
-      seed: string,
-      config?: Record<string, unknown>,
-      budget?: Record<string, unknown>,
-    ) => Iterator<PreviewAttempt>;
     realizeRegion: (
       ctx: unknown,
       world: unknown,
@@ -89,14 +87,17 @@ export function GenerationPanel() {
     MaterialCache: new (ctx: unknown) => { destroy: () => void };
     COCKPIT_CONFIG: Record<string, unknown>;
     COCKPIT_BUDGET: Record<string, unknown>;
-    bake: (
-      seed: string,
-      config: Record<string, unknown>,
-      budget: Record<string, unknown>,
-      name: string,
-    ) => { files: { path: string; contents: string | Uint8Array }[] };
+    COCKPIT_ENVELOPE: EnvelopeRow[];
     wingDir: (name: string) => string;
   };
+  const envelope = ext.COCKPIT_ENVELOPE;
+
+  // Draft state for the clamped knobs: hold the raw text while typing, clamp on commit
+  // (blur/Enter) so a mid-edit keystroke isn't clamped out from under the caret. A committed
+  // out-of-envelope value surfaces a one-line note (setup-loud, never fail-slow-searched).
+  const [roomsDraft, setRoomsDraft] = useState<string | undefined>(undefined);
+  const [loopDraft, setLoopDraft] = useState<string | undefined>(undefined);
+  const [clampNote, setClampNote] = useState<string | undefined>(undefined);
 
   const setStatus = (status: GenerationStatus): void =>
     setSession((s) => ({ ...s, status }));
@@ -108,13 +109,45 @@ export function GenerationPanel() {
       invalidateDonePreview({ ...s, config: { ...s.config, ...patch } }),
     );
 
-  // Wait one paint before stepping the attempt iterator, so a placement search that
-  // creaks doesn't freeze the whole cockpit (rAF → the browser paints; setTimeout(0)
-  // → yields the macrotask so React can flush the "generating…" status first).
-  const paintGap = (): Promise<void> =>
-    new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)));
+  const commitRooms = (): void => {
+    if (roomsDraft === undefined) return;
+    const raw = roomsDraft.trim();
+    setRoomsDraft(undefined);
+    setClampNote(undefined); // every commit clears any prior note
+    if (raw === "") return; // empty field → revert to the committed value, no note
+    const v = Number(raw);
+    if (!Number.isFinite(v)) return;
+    const clamped = clampRooms(envelope, v);
+    const first = envelope[0]?.rooms ?? clamped;
+    const last = envelope[envelope.length - 1]?.rooms ?? clamped;
+    // Note ONLY when genuinely out of range — a non-integer in range is just rounded
+    // to the nearest knob value, which needs no "outside the envelope" note.
+    if (v < first || v > last) {
+      setClampNote(
+        `rooms ${v} is outside the measured envelope — clamped to ${clamped}`,
+      );
+    }
+    patchConfig({ targetRooms: clamped });
+  };
 
-  // Realize a placed layout into the preview host and frame the camera on it.
+  const commitLoop = (): void => {
+    if (loopDraft === undefined) return;
+    const raw = loopDraft.trim();
+    setLoopDraft(undefined);
+    setClampNote(undefined);
+    if (raw === "") return;
+    const v = Number(raw);
+    if (!Number.isFinite(v)) return;
+    const clamped = clampLoop(v);
+    // Note only when out of [0, MAX_LOOP] — snapping to the 0.05 step is expected.
+    if (v < 0 || v > MAX_LOOP) {
+      setClampNote(`loop ${v} clamped to ${clamped}`);
+    }
+    patchConfig({ loopChance: clamped });
+  };
+
+  // Realize a placed layout into the preview host and frame the camera on it. Main-thread:
+  // needs the preview host's GPU ctx, so this stays here even though the search runs worker-side.
   const previewLayout = async (
     host: PreviewHost,
     layout: NonNullable<PreviewAttempt["layout"]>,
@@ -153,95 +186,124 @@ export function GenerationPanel() {
     }));
   };
 
-  // Step worldAttempts between paints until the first placed attempt (previewed) or the
-  // budget is exhausted (failed). `attemptsOverride` = 1 re-previews one exact seed.
-  const runGeneration = async (
-    baseSeed: string,
-    attemptsOverride?: number,
-  ): Promise<void> => {
+  // Run generation on the worker (Slice 3.2.3): the client streams attempt results; the
+  // panel's only main-thread work is realizing the ONE winning layout. Attempts come from
+  // the measured envelope row (attemptsOverride = 1 re-previews one exact seed from history).
+  const runGeneration = (baseSeed: string, attemptsOverride?: number): void => {
     const host = previewHostRef.current;
     if (!host) return;
-    cancelRef.current = false;
     dispatch({ type: "generation-active", active: true });
 
     // Snapshot the knob values THIS run uses, so the winning preview's `done` status
     // records exactly what produced it (freeze reads this snapshot, never live knobs).
+    // Belt-and-braces clamp: programmatic state can bypass the input commit handlers.
     const runConfig = {
-      targetRooms: session.config.targetRooms,
-      loopChance: session.config.loopChance,
+      targetRooms: clampRooms(envelope, session.config.targetRooms),
+      loopChance: clampLoop(session.config.loopChance),
     };
-    const config: Record<string, unknown> = { ...ext.COCKPIT_CONFIG, ...runConfig };
-    if (attemptsOverride !== undefined) config["attempts"] = attemptsOverride;
-    const total = typeof config["attempts"] === "number" ? config["attempts"] : 1;
+    const attempts =
+      attemptsOverride ??
+      envelopeRowFor(envelope, runConfig.targetRooms)?.attempts ??
+      1;
+    const config: Record<string, unknown> = {
+      ...ext.COCKPIT_CONFIG,
+      ...runConfig,
+      attempts,
+    };
+    setStatus({ phase: "running", attempt: 1, totalAttempts: attempts });
 
-    const it = ext.worldAttempts(baseSeed, config, ext.COCKPIT_BUDGET);
-    // 1-based attempt counter throughout: the first attempt about to run is "attempt 1".
-    setStatus({ phase: "running", attempt: 1, totalAttempts: total });
-
-    while (!cancelRef.current) {
-      await paintGap();
-      if (cancelRef.current) break; // cancelled during the paint gap — don't step
-      const res = it.next();
-      if (res.done) {
-        setStatus({
-          phase: "failed",
-          error: `no placement in ${total} attempt(s)`,
-        });
-        return;
-      }
-      const attempt = res.value;
-      setStatus({
-        phase: "running",
-        attempt: attempt.attempt + 1,
-        totalAttempts: total,
-      });
-      if (attempt.ok && attempt.layout) {
-        // `attempt.attempt + 1`: the done snapshot uses the SAME 1-based counter as the
-        // running status above (the iterator yields a 0-based index), so "previewing …
-        // (attempt N)" matches the "attempt N/total" the user just watched.
-        await previewLayout(
-          host,
-          attempt.layout,
-          attempt.attemptSeed,
-          attempt.attempt + 1,
-          runConfig,
-        );
-        return;
-      }
-    }
-    setStatus({ phase: "cancelled" });
+    // The most recent attempt's failure text — surfaces WHY the run died in the
+    // failed status (a deadline give-up reads differently from search exhaustion).
+    let lastError: string | undefined;
+    client.run(
+      { baseSeed, config, budget: ext.COCKPIT_BUDGET },
+      {
+        onAttempt: (a) => {
+          if (a.ok && a.layout !== undefined) {
+            // Boundary cast: the layout crossed the worker boundary opaquely; this
+            // is the same engine-bundle shape previewLayout always consumed.
+            void previewLayout(
+              host,
+              a.layout as NonNullable<PreviewAttempt["layout"]>,
+              a.attemptSeed,
+              a.k + 1,
+              runConfig,
+            ).catch((err) => {
+              // Main-thread realize (GPU) failure surfaces honestly, not a wedge at
+              // "running" (mirrors freeze's onBaked error path; D5 setup-loud extends
+              // to realize).
+              setStatus({
+                phase: "failed",
+                error: err instanceof Error ? err.message : String(err),
+              });
+            });
+          } else {
+            lastError = a.error;
+            setStatus({
+              phase: "running",
+              attempt: Math.min(a.k + 2, attempts), // 1-based next; never exceed total
+              totalAttempts: attempts,
+            });
+          }
+        },
+        onDone: (outcome) => {
+          if (outcome === "exhausted") {
+            setStatus({
+              phase: "failed",
+              error:
+                `no placement in ${attempts} attempt(s)` +
+                (lastError !== undefined ? ` (last: ${lastError})` : "") +
+                " — Reroll tries new seeds",
+            });
+          }
+          // "placed": previewLayout's own setSession already recorded the done status.
+        },
+        onError: (message) => setStatus({ phase: "failed", error: message }),
+      },
+    );
   };
 
-  // Freeze & bake (the FALLBACK): re-bake the frozen wing from its winning derived seed
-  // IN THIS BROWSER (same engine that previewed it → reproduces it exactly), then upload
-  // the produced file set to the daemon, which validates + writes + emits generation-baked.
+  // Freeze & bake: re-bake the frozen wing from its winning derived seed ON THE WORKER (same
+  // engine that previewed it → reproduces it exactly), then upload the produced file set to
+  // the daemon (main-thread api call), which validates + writes + emits generation-baked.
   // Reads ONLY the `done`-status snapshot (seed + the config that produced the preview) —
-  // NEVER live `session.config` — so freeze bakes exactly what is on screen even if the
-  // user has since edited the knobs.
-  const freeze = async (done: {
+  // NEVER live `session.config` — so freeze bakes exactly what is on screen even if the user
+  // has since edited the knobs.
+  const freeze = (done: {
     attemptSeed: string;
     config: { targetRooms: number; loopChance: number };
-  }): Promise<void> => {
+  }): void => {
     setStatus({ phase: "baking" });
-    try {
-      const config = { ...ext.COCKPIT_CONFIG, ...done.config, attempts: 1 };
-      const { files } = ext.bake(
-        done.attemptSeed,
+    const config = { ...ext.COCKPIT_CONFIG, ...done.config, attempts: 1 };
+    client.bake(
+      // COCKPIT_BUDGET carries deadlineMs, but bakeWing strips it dungeon-side
+      // (D4): the bake replay is counted-only deterministic.
+      {
+        attemptSeed: done.attemptSeed,
         config,
-        ext.COCKPIT_BUDGET,
+        budget: ext.COCKPIT_BUDGET,
         wingName,
-      );
-      const result = await api.generationBake(
-        toWireFiles(files),
-        ext.wingDir(wingName),
-      );
-      setStatus({ phase: "baked", files: result.files });
-    } catch (err) {
-      setStatus({
-        phase: "failed",
-        error: err instanceof Error ? err.message : String(err),
-      });
-    }
+      },
+      {
+        onBaked: (files) => {
+          void (async () => {
+            try {
+              const result = await api.generationBake(
+                toWireFiles(files),
+                ext.wingDir(wingName),
+              );
+              setStatus({ phase: "baked", files: result.files });
+            } catch (err) {
+              setStatus({
+                phase: "failed",
+                error: err instanceof Error ? err.message : String(err),
+              });
+            }
+          })();
+        },
+        onError: (message) => setStatus({ phase: "failed", error: message }),
+      },
+    );
   };
 
   if (state.status !== "ready") {
@@ -256,8 +318,7 @@ export function GenerationPanel() {
   const isBaking = session.status.phase === "baking";
   // The current previewed world (seed + its config snapshot), or undefined when nothing
   // is on screen to freeze. Freeze reads this exclusively — never live session.config.
-  const done =
-    session.status.phase === "done" ? session.status : undefined;
+  const done = session.status.phase === "done" ? session.status : undefined;
   const wingNameValid = isValidWingName(wingName);
 
   return (
@@ -292,12 +353,11 @@ export function GenerationPanel() {
           <span className="text-muted-foreground">Rooms</span>
           <Input
             type="number"
-            min={MIN_ROOMS}
-            max={MAX_ROOMS}
-            value={session.config.targetRooms}
-            onChange={(e) => {
-              const v = Number(e.target.value);
-              if (Number.isFinite(v)) patchConfig({ targetRooms: v });
+            value={roomsDraft ?? String(session.config.targetRooms)}
+            onChange={(e) => setRoomsDraft(e.target.value)}
+            onBlur={commitRooms}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") commitRooms();
             }}
           />
         </label>
@@ -305,24 +365,31 @@ export function GenerationPanel() {
           <span className="text-muted-foreground">Loop</span>
           <Input
             type="number"
-            min={0}
-            max={MAX_LOOP}
-            step={LOOP_STEP}
-            value={session.config.loopChance}
-            onChange={(e) => {
-              const v = Number(e.target.value);
-              if (Number.isFinite(v)) patchConfig({ loopChance: v });
+            step={0.05}
+            value={loopDraft ?? String(session.config.loopChance)}
+            onChange={(e) => setLoopDraft(e.target.value)}
+            onBlur={commitLoop}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") commitLoop();
             }}
           />
         </label>
       </div>
+
+      {/* The measured reliability line under the knobs — honest about low-yield sizes. */}
+      <p className="text-xs text-muted-foreground">
+        {reliabilityText(envelopeRowFor(envelope, session.config.targetRooms))}
+      </p>
+      {clampNote !== undefined && (
+        <p className="text-xs text-muted-foreground">{clampNote}</p>
+      )}
 
       <div className="flex flex-wrap gap-2">
         <Button
           type="button"
           size="sm"
           disabled={isRunning || isBaking}
-          onClick={() => void runGeneration(session.baseSeed)}
+          onClick={() => runGeneration(session.baseSeed)}
         >
           Generate
         </Button>
@@ -332,7 +399,7 @@ export function GenerationPanel() {
           size="sm"
           disabled={isRunning || isBaking}
           onClick={() =>
-            void runGeneration(
+            runGeneration(
               nextRerollSeed(session.baseSeed, session.history.length),
             )
           }
@@ -345,7 +412,8 @@ export function GenerationPanel() {
           size="sm"
           disabled={!isRunning}
           onClick={() => {
-            cancelRef.current = true;
+            client.cancel();
+            setStatus({ phase: "cancelled" });
           }}
         >
           Cancel
@@ -359,7 +427,9 @@ export function GenerationPanel() {
           type="button"
           size="sm"
           disabled={done === undefined || !wingNameValid}
-          onClick={() => done !== undefined && void freeze(done)}
+          onClick={() => {
+            if (done !== undefined) freeze(done);
+          }}
           className="bg-success text-success-foreground hover:bg-success/90"
         >
           Freeze &amp; bake
@@ -392,7 +462,7 @@ export function GenerationPanel() {
                   variant="ghost"
                   size="sm"
                   disabled={isRunning || isBaking}
-                  onClick={() => void runGeneration(h.attemptSeed, 1)}
+                  onClick={() => runGeneration(h.attemptSeed, 1)}
                   className={cn(
                     "w-full justify-start px-2 text-left font-mono",
                     done?.attemptSeed === h.attemptSeed &&

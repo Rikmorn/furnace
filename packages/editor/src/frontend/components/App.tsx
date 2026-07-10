@@ -22,6 +22,7 @@ import type {
 import { ApiClientError, api, type ComponentEdit } from "../lib/api.ts";
 import { EngineBuildError, loadEngine } from "../lib/engine.ts";
 import { subscribeEvents } from "../lib/events.ts";
+import { GenerationWorkerClient } from "../lib/generation-client.ts";
 import { initialSession } from "../lib/generation.ts";
 import { PANELS, type PanelId, panelTitle } from "../lib/panels.ts";
 import { createUiStore, DEFAULT_VIEW_FLAGS, pushRecent } from "../lib/persist.ts";
@@ -131,7 +132,13 @@ export function App() {
   // the panel unmounts. See editor-context.ts GenerationControl for the full rationale.
   const [generation, setGeneration] = useState(initialSession);
   const [wingName, setWingName] = useState("generated-wing");
-  const generationCancelRef = useRef(false);
+  // The generation worker client (Slice 3.2.3) — one per App lifetime. useState's
+  // lazy initializer keeps it stable across renders; the worker itself spawns on
+  // first run. A page reload kills it with the page, which is exactly the
+  // bundle-outdated story: reloading refreshes worker AND main thread together, so
+  // both sides always run the SAME engine bundle (never respawn the worker alone —
+  // that would version-split worker-side generation from main-thread realize/bake).
+  const [generationClient] = useState(() => new GenerationWorkerClient());
   // Mirrors whether a run/bake is in flight for the SSE bundle-outdated guard (that closure
   // re-subscribes only on [state.status, refreshSession], so it can't read live generation).
   const generationBusyRef = useRef(false);
@@ -466,7 +473,9 @@ export function App() {
           // (the status bar shows dirty state — a stale engine is preferable to
           // losing edits). Also refuse the auto-reload while a generation run/bake is
           // in flight — a hard reload would kill it mid-run. 3.2's chrome rework owns a
-          // proper notice UX.
+          // proper notice UX. The generation worker is deliberately NOT respawned here:
+          // a page reload refreshes worker + main thread together, so when the page
+          // stays stale (dirty doc) the worker must stay stale WITH it (Slice 3.2.3).
           if (!dirtyRef.current && !generationBusyRef.current) {
             window.location.reload();
           }
@@ -666,7 +675,7 @@ export function App() {
       setSession: setGeneration,
       wingName,
       setWingName,
-      cancelRef: generationCancelRef,
+      client: generationClient,
     },
     viewFlags,
     setViewFlag,

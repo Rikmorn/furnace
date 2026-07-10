@@ -1,8 +1,8 @@
 // The ephemeral generation session (Slice 3.1 spec §3; lifted to App level in 3.2.2): plain
-// state + helpers. NO document-session contact — App owns the session/wingName/cancelRef (so
-// it survives the panel closing) and the GenerationPanel drives them as a context consumer;
-// the ONLY daemon crossing is freeze (an api call that uploads the browser-produced file set).
-// Everything here is pure and unit-tested without a DOM.
+// state + helpers. NO document-session contact — App owns the session/wingName/worker client
+// (so it survives the panel closing) and the GenerationPanel drives them as a context
+// consumer; the ONLY daemon crossing is freeze (an api call that uploads the worker-produced
+// file set). Everything here is pure and unit-tested without a DOM.
 import type { PreviewContent } from "../../viewport-host/index.ts"; // type-only: erased
 
 /** The generation session's lifecycle, one variant per user-visible phase. The `done`
@@ -161,4 +161,58 @@ export function layoutBounds(regions: Bounded[]): [Vec3, Vec3] {
     [minX, minY, minZ],
     [maxX, maxY, maxZ],
   ];
+}
+
+/** One measured envelope row (structural mirror of the dungeon's CockpitEnvelopeRow —
+ *  the panel reads the table off the untyped `ext` seam). */
+export type EnvelopeRow = {
+  rooms: number;
+  singleShot: number;
+  attempts: number;
+  projected: number;
+};
+
+/** The measured row for a rooms value; undefined off-table (callers clamp first). */
+export function envelopeRowFor(
+  envelope: readonly EnvelopeRow[],
+  rooms: number,
+): EnvelopeRow | undefined {
+  return envelope.find((r) => r.rooms === rooms);
+}
+
+/** Clamp a typed rooms value to the measured envelope: integer, within the table's
+ *  [first, last] range (setup-loud UI boundary — out-of-envelope is refused at
+ *  commit, never fail-slow-searched). Assumes a CONTIGUOUS table (every integer in
+ *  [first, last] is a real row — enforced by COCKPIT_ENVELOPE's shape test), so a
+ *  clamped in-range value always resolves to an actual measured row. */
+export function clampRooms(
+  envelope: readonly EnvelopeRow[],
+  v: number,
+): number {
+  const first = envelope[0];
+  const last = envelope[envelope.length - 1];
+  const n = Math.round(v);
+  if (!first || !last) return n;
+  return Math.min(Math.max(n, first.rooms), last.rooms);
+}
+
+/** Loop-chance UI bound: above this the placer struggles to satisfy cycles (the
+ *  pre-3.2.3 panel constant, now beside the clamp that enforces it). */
+export const MAX_LOOP = 0.6;
+const LOOP_SNAP = 0.05;
+
+/** Clamp a typed loop-chance to [0, MAX_LOOP], snapped to the 0.05 knob step
+ *  (two-decimal rounding kills float noise like 0.35000000000000003). */
+export function clampLoop(v: number): number {
+  const snapped = Math.round(v / LOOP_SNAP) * LOOP_SNAP;
+  const clamped = Math.min(Math.max(snapped, 0), MAX_LOOP);
+  return Number(clamped.toFixed(2));
+}
+
+/** The reliability line under the Rooms knob — honest, measured, low-yield-aware. */
+export function reliabilityText(row: EnvelopeRow | undefined): string {
+  if (!row) return "";
+  const pct = Math.round(row.projected * 100);
+  const base = `${row.rooms} rooms: ~${pct}% within ${row.attempts} attempts (measured)`;
+  return row.projected < 0.9 ? `${base} — low-yield size` : base;
 }

@@ -7,6 +7,7 @@ import type {
 } from "../../viewport-host/index.ts";
 import type { ComponentEdit } from "../lib/api.ts";
 import type { GenerationSession } from "../lib/generation.ts";
+import type { GenerationWorkerClient } from "../lib/generation-client.ts";
 import type { UiStore } from "../lib/persist.ts";
 import type { EditorEvent, EditorState } from "../lib/state.ts";
 
@@ -41,16 +42,17 @@ export type EditorActions = {
  *  closed and reopened (dockview unmounts a removed panel). The panel is a pure CONSUMER:
  *  it reads `session`/`wingName` and drives them through these App-owned setters. Because
  *  the setters are App state (stable identity), an in-flight run's async setter calls land
- *  in App state even after the panel unmounts. `cancelRef` is App-owned for the same reason
- *  — a panel-local ref would be recreated on remount, orphaning the running loop. */
+ *  in App state even after the panel unmounts. `client` is App-owned for the same reason —
+ *  a panel-local worker client would be recreated on remount, orphaning the running worker
+ *  (Slice 3.2.3: run/bake on a worker; cancel = terminate, instant mid-attempt). */
 export type GenerationControl = {
   session: GenerationSession;
   setSession: Dispatch<SetStateAction<GenerationSession>>;
   /** The bake destination (regions/<name>) — independent of generation config. */
   wingName: string;
   setWingName: Dispatch<SetStateAction<string>>;
-  /** In-flight run cancel flag; App-owned so Cancel works across a panel close/reopen. */
-  cancelRef: RefObject<boolean>;
+  /** The App-owned generation worker client (Slice 3.2.3): run/bake/cancel. */
+  client: GenerationWorkerClient;
 };
 
 /** Live editor state shared with the dockview panels through React context

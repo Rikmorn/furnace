@@ -23,6 +23,7 @@ import {
   type EditorContextValue,
   type GenerationControl,
 } from "../../src/frontend/components/editor-context.ts";
+import { GenerationWorkerClient } from "../../src/frontend/lib/generation-client.ts";
 import { initialSession } from "../../src/frontend/lib/generation.ts";
 import { DEFAULT_VIEW_FLAGS, type UiStore } from "../../src/frontend/lib/persist.ts";
 import { initialState, type EditorState } from "../../src/frontend/lib/state.ts";
@@ -87,7 +88,14 @@ export function makeEditorContext(
     setSession: () => {},
     wingName: "generated-wing",
     setWingName: () => {},
-    cancelRef: { current: false },
+    // A real client over an inert fake Worker — spawn is lazy (only on run/bake),
+    // so inspector tests that never generate never touch it.
+    client: new GenerationWorkerClient(() => ({
+      postMessage: () => {},
+      terminate: () => {},
+      onmessage: null,
+      onerror: null,
+    })),
     ...overrides.generation,
   };
   return {
