@@ -5,7 +5,7 @@
 //   bun packages/dungeon/scripts/measure-b2c.ts --frontier  — the per-sector capacity frontier
 //   bun packages/dungeon/scripts/measure-b2c.ts --retry     — the P1 retry-backed effective-rate probe
 //   bun packages/dungeon/scripts/measure-b2c.ts --retry-tight — P1 tail fix: tight budget × more attempts
-//   bun packages/dungeon/scripts/measure-b2c.ts --envelope [rooms] [loop] — 3.2.3 MAX_ROOMS envelope
+//   bun packages/dungeon/scripts/measure-b2c.ts --envelope [rooms|-] [loop|-] [deadlineMs] — 3.2.3 envelope (deadline optional)
 // Reports per-config rates + failure histograms + wall time. The Warframe pattern:
 // thousands of automated layouts, designers (us) tune kit/search until failures vanish.
 // The --frontier mode (Task 9A) measures the largest per-sector room count that places at
@@ -396,7 +396,12 @@ function runRetryTight(): void {
 // projects the cockpit's 12-attempt loop from the single-shot rate. REPORTS numbers;
 // the envelope judgment (which rooms values stay in the UI) is the 3.2.3 brainstorm's.
 const ENVELOPE_ROOMS = [6, 8, 10, 12];
+/** Full knob range for the deadline sweep — one row per Rooms value the UI offers. */
+const ENVELOPE_ROOMS_FULL = [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
 const ENVELOPE_SEEDS = 20;
+const TARGET_MISS = 0.05; // recommend attempts for ~95% projected reliability
+const ATTEMPTS_FLOOR = 4; // headroom for ±10pp sampling noise at n=20
+const WORST_CASE_MS = 60_000; // cap: ~60 s of fail-fast attempts (spec §1.2 stop condition)
 
 /** q-quantile of an UNSORTED sample; undefined on an empty sample. */
 function quantile(xs: number[], q: number): number | undefined {
@@ -405,12 +410,47 @@ function quantile(xs: number[], q: number): number | undefined {
   return sorted[Math.min(sorted.length - 1, Math.floor(q * sorted.length))];
 }
 
-/** Sweep single-shot cells at cockpit config × COCKPIT_BUDGET. `roomFilter`/`loopFilter`
- *  restrict to one cell so cells can run as separate sequential invocations (timing is
- *  wall-clock — cells must NOT run concurrently). */
-function runEnvelope(roomFilter?: number, loopFilter?: number): void {
-  const rooms = roomFilter !== undefined ? [roomFilter] : ENVELOPE_ROOMS;
+/** Attempts for ~(1-TARGET_MISS) projected reliability at a measured single-shot rate,
+ *  floored for sampling noise and capped so the worst-case wall time stays ~WORST_CASE_MS.
+ *  The cap divides by the MEASURED worst-case per-attempt cost (give-up p95), NOT the
+ *  nominal deadline: layoutWorld can overrun a tight deadline (its checks aren't perfectly
+ *  preemptive), so the nominal deadline understates real per-attempt cost and would let the
+ *  cap recommend more attempts than the ~60 s bar actually allows. A rate of 0 returns the
+ *  cap (the row prints honestly as low-yield). ATTEMPTS_FLOOR also floors the cap so the
+ *  final clamp can't invert. */
+function recommendAttempts(rate: number, attemptCostMs: number): number {
+  const cap = Math.max(
+    ATTEMPTS_FLOOR,
+    Math.ceil(WORST_CASE_MS / Math.min(attemptCostMs, WORST_CASE_MS)),
+  );
+  if (rate <= 0) return cap;
+  if (rate >= 1) return ATTEMPTS_FLOOR;
+  const n = Math.ceil(Math.log(TARGET_MISS) / Math.log(1 - rate));
+  return Math.min(Math.max(n, ATTEMPTS_FLOOR), cap);
+}
+
+/** Sweep single-shot cells at cockpit config × COCKPIT_BUDGET (+ optional deadline).
+ *  `roomFilter`/`loopFilter` restrict to one cell so cells can run as separate
+ *  sequential invocations (timing is wall-clock — cells must NOT run concurrently).
+ *  With a deadline and no room filter, sweeps the FULL knob range (2–12): the
+ *  deadline caps every cell at ~ENVELOPE_SEEDS × deadline, so the sweep is cheap. */
+function runEnvelope(
+  roomFilter?: number,
+  loopFilter?: number,
+  deadlineMs?: number,
+): void {
+  const rooms =
+    roomFilter !== undefined
+      ? [roomFilter]
+      : deadlineMs !== undefined
+        ? ENVELOPE_ROOMS_FULL
+        : ENVELOPE_ROOMS;
   const loop = loopFilter ?? COCKPIT_CONFIG.loopChance ?? 0.35;
+  const budget: Partial<LayoutBudget> =
+    deadlineMs !== undefined
+      ? { ...COCKPIT_BUDGET, deadlineMs }
+      : COCKPIT_BUDGET;
+  const pasteRows: string[] = [];
   for (const R of rooms) {
     const succTimes: number[] = [];
     const failTimes: number[] = [];
@@ -422,7 +462,7 @@ function runEnvelope(roomFilter?: number, loopFilter?: number): void {
         buildWorld(
           seed,
           { ...COCKPIT_CONFIG, targetRooms: R, loopChance: loop, attempts: 1 },
-          COCKPIT_BUDGET,
+          budget,
         );
         placed = true;
       } catch {
@@ -440,22 +480,41 @@ function runEnvelope(roomFilter?: number, loopFilter?: number): void {
       v === undefined ? "-" : v.toFixed(0);
     const rate = succTimes.length / ENVELOPE_SEEDS;
     const proj12 = 1 - (1 - rate) ** 12;
+    const giveupP95 = quantile(failTimes, 0.95);
     console.log(
-      `ENVELOPE rooms=${R} loop=${loop} ok=${succTimes.length}/${ENVELOPE_SEEDS} (${(100 * rate).toFixed(0)}%) ` +
+      `ENVELOPE rooms=${R} loop=${loop} deadline=${deadlineMs ?? "-"} ok=${succTimes.length}/${ENVELOPE_SEEDS} (${(100 * rate).toFixed(0)}%) ` +
         `succ_p50=${fmt(quantile(succTimes, 0.5))}ms succ_p95=${fmt(quantile(succTimes, 0.95))}ms ` +
-        `giveup_p50=${fmt(quantile(failTimes, 0.5))}ms giveup_p95=${fmt(quantile(failTimes, 0.95))}ms ` +
+        `giveup_p50=${fmt(quantile(failTimes, 0.5))}ms giveup_p95=${fmt(giveupP95)}ms ` +
         `proj12=${(100 * proj12).toFixed(1)}%`,
     );
+    if (deadlineMs !== undefined) {
+      // Worst-case per-attempt cost = measured give-up p95 (a run grinds through failing
+      // attempts until one places); fall back to the nominal deadline when a cell had zero
+      // failures (then rate === 1 and the cap is unused anyway).
+      const attempts = recommendAttempts(rate, giveupP95 ?? deadlineMs);
+      const projected = 1 - (1 - rate) ** attempts;
+      pasteRows.push(
+        `  { rooms: ${R}, singleShot: ${rate.toFixed(2)}, attempts: ${attempts}, projected: ${projected.toFixed(3)} },`,
+      );
+    }
+  }
+  if (pasteRows.length > 0) {
+    console.log("\nCOCKPIT_ENVELOPE rows (paste into world.ts):");
+    for (const row of pasteRows) console.log(row);
   }
 }
 
 if (process.argv[2] === "--envelope") {
-  // Optional single-cell restriction (sequential collection): --envelope <rooms> <loop>.
-  const roomFilter =
-    process.argv[3] !== undefined ? Number(process.argv[3]) : undefined;
-  const loopFilter =
-    process.argv[4] !== undefined ? Number(process.argv[4]) : undefined;
-  runEnvelope(roomFilter, loopFilter);
+  // --envelope [rooms|-] [loop|-] [deadlineMs] — `-` skips a filter so the deadline
+  // can apply to the full sweep. Cells run sequentially (wall-clock timing).
+  const arg = (i: number): string | undefined =>
+    process.argv[i] === undefined || process.argv[i] === "-"
+      ? undefined
+      : process.argv[i];
+  const roomFilter = arg(3) !== undefined ? Number(arg(3)) : undefined;
+  const loopFilter = arg(4) !== undefined ? Number(arg(4)) : undefined;
+  const deadlineMs = arg(5) !== undefined ? Number(arg(5)) : undefined;
+  runEnvelope(roomFilter, loopFilter, deadlineMs);
 } else if (process.argv[2] === "--frontier") {
   // Optional single-cell restriction for parallel collection: --frontier <rooms> <loop>.
   const roomFilter =
