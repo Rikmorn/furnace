@@ -24,6 +24,7 @@ import {
 } from "../src/region.ts";
 import { boxRoom } from "../src/themes/box-room.ts";
 import { DEFAULT_TOPOLOGY, generateWorldGraph } from "../src/topology.ts";
+import { buildWorldGraph, WORLD_SEED } from "../src/world.ts";
 import type {
   NodeId,
   WorldEdge,
@@ -939,4 +940,27 @@ test("layout budget: a tiny budget fails fast, deterministically, and names its 
     msg2 = err instanceof Error ? err.message : String(err);
   }
   expect(msg2).toBe(msg1); // deterministic under a budget
+});
+
+describe("LayoutBudget.deadlineMs", () => {
+  test("deadlineMs: 0 fails fast with the distinct deadline message", () => {
+    const graph = buildWorldGraph(WORLD_SEED);
+    expect(() => layoutWorld(graph, WORLD_SEED, { deadlineMs: 0 })).toThrow(
+      /deadline 0ms exceeded/,
+    );
+  });
+
+  test("default budget (no deadline) still places the shipped hand world", () => {
+    const graph = buildWorldGraph(WORLD_SEED);
+    expect(() => layoutWorld(graph, WORLD_SEED)).not.toThrow();
+  });
+
+  test("SA rescue is deadline-gated, not counted-gated: a low maxAttempts (no deadline) still lets SA close a rigid ring", () => {
+    // tenRingFixture forces SA (a rigid 10-room cycle greedy can't place); a low
+    // maxAttempts pushes SA to fire AFTER greedy exhaustion. With no deadline the SA
+    // fallback must still run its full budget — byte-identical to pre-deadline behavior.
+    expect(() =>
+      layoutWorld(tenRingFixture(), "ring10-a", { maxAttempts: 4000 }),
+    ).not.toThrow();
+  });
 });

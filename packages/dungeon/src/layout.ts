@@ -5,7 +5,8 @@
 // every incident placed edge at candidate time), exact-OBB envelopes (aabb.ts), CHAIN
 // scheduling (cycles first — chains.ts), unit backtracking, and seeded restarts. Replaces
 // the B2-era 5-length × 7-yaw grid whose position poverty was the measured placement-wall
-// root cause. Pure: no GPU, no Rapier, no wall-clock (perf logging aside).
+// root cause. Pure: no GPU, no Rapier; wall-clock consulted only when an OPTIONAL
+// LayoutBudget.deadlineMs is finite (perf logging aside).
 import { create as makeRng, type Rng } from "@furnace/core/rng";
 import { aabbOfBoxes, type Obb, obbFromLocalAabb } from "./aabb.ts";
 import { type CycleUnit, deriveChains } from "./chains.ts";
@@ -47,8 +48,8 @@ import {
 
 const DEFAULT_LENGTH_RANGE: [number, number] = [2, 10];
 
-/** Deterministic search budgets for one layoutWorld call — all counts, no wall-clock
- *  (layoutWorld stays pure). Exhaustion = the setup-loud throw (fail-fast, R7:
+/** Deterministic search budgets for one layoutWorld call — counted ceilings plus an
+ *  OPTIONAL wall-clock deadline. Exhaustion = the setup-loud throw (fail-fast, R7:
  *  robustness lives in the caller's retry loop, not in search depth). Defaults are
  *  the historical GATE-TUNE constants — default behavior is byte-identical. */
 export type LayoutBudget = {
@@ -62,6 +63,12 @@ export type LayoutBudget = {
   maxSaMoves: number;
   /** Seeded fresh-init restarts per SA call. */
   maxSaRestarts: number;
+  /** Wall-clock ceiling for ONE layoutWorld call (all restarts included), in ms.
+   *  SEARCH-TIME ONLY: lets an interactive caller fail-fast to its next derived seed.
+   *  Bake/replay paths must strip it (machine-speed-dependent — it can only PREVENT
+   *  successes, never create them, so a success found under it re-runs identically
+   *  without it). Default Infinity = counted budgets only, byte-identical behavior. */
+  deadlineMs: number;
 };
 export const DEFAULT_LAYOUT_BUDGET: LayoutBudget = {
   maxAttempts: 25_000,
@@ -69,6 +76,7 @@ export const DEFAULT_LAYOUT_BUDGET: LayoutBudget = {
   maxSaLayoutRestarts: 2,
   maxSaMoves: 400,
   maxSaRestarts: 4,
+  deadlineMs: Number.POSITIVE_INFINITY,
 };
 const MAX_UNIT_REVISIONS = 3; // re-seatings of a placed unit under backtracking — GATE-TUNE
 const MAX_BACKJUMP_POPS = 4; // units undone per blame-directed backjump — GATE-TUNE
@@ -285,6 +293,8 @@ type Ctx = {
   /** Deterministic search budgets for this attempt (defaults = the historical GATE-TUNE
    *  constants — see {@link DEFAULT_LAYOUT_BUDGET}). */
   budget: LayoutBudget;
+  /** Absolute performance.now() timestamp the whole layoutWorld call must not outlive. */
+  deadlineAt: number;
   rng: Rng;
   occ: Occupancy;
   placements: Map<NodeId, Placement>;
@@ -309,6 +319,26 @@ type Ctx = {
    *  cross-unit-backtracking re-fires (which made a 30-room world's SA blow up) are cut off. */
   saAttempted: Map<number, number>;
 };
+
+/** Greedy-search exhaustion test: the counted budget OR the wall-clock deadline. Used
+ *  at every GREEDY site that consults maxAttempts (a per-candidate performance.now() is
+ *  ~ns against a candidate's occupancy work — measured stance, not gated). The SA
+ *  fallback loops use {@link deadlineExpired} instead — see there for why. */
+function searchExpired(ctx: Ctx): boolean {
+  return (
+    ctx.attempts > ctx.budget.maxAttempts || performance.now() > ctx.deadlineAt
+  );
+}
+
+/** Deadline-only exhaustion (no counted-budget component). The SA fallback loops use
+ *  THIS, not searchExpired: SA fires only after greedy is stuck (attempts may already
+ *  exceed maxAttempts), so gating SA on the counted budget would starve the rescue it
+ *  exists to perform — the counted budget is greedy's alone. A finite deadline still
+ *  kills a grinding SA phase (the reason the SA loops are guarded at all); the default
+ *  Infinity deadline never fires, keeping SA behavior byte-identical. */
+function deadlineExpired(ctx: Ctx): boolean {
+  return performance.now() > ctx.deadlineAt;
+}
 
 /** A schedulable unit and the revision stream that placed it — cycles carry their unit,
  *  tree nodes carry their id; `rev` reseeds the candidate stream under backtracking. */
@@ -1087,7 +1117,8 @@ function placeNode(
         : evaluated;
 
     for (const { placement, fc } of ordered) {
-      if (++ctx.attempts > ctx.budget.maxAttempts) return false;
+      ctx.attempts++;
+      if (searchExpired(ctx)) return false;
       if (!fc) continue;
 
       const envs = envelopeObbs(node.region, placement);
@@ -1798,6 +1829,7 @@ function saAnneal(run: SaRun, rng: Rng): boolean {
   };
   if (tryFeasibleCommit()) return true;
   for (let step = 0; step < moves; step++) {
+    if (deadlineExpired(run.ctx)) break;
     const t = SA_T_HI * (SA_T_LO / SA_T_HI) ** (step / moves);
     energy = saMove(run, state, cache, energy, t, rng.derive(`step:${step}`));
     if (tryFeasibleCommit()) return true;
@@ -1840,6 +1872,7 @@ function repairCycleBySA(
   const run: SaRun = { ctx, order, memberSet, incident, fixedObbs, targets };
   const rng = ctx.rng.derive(`sa:${cyc.closingEdge}:${rev}`);
   for (let restart = 0; restart < ctx.budget.maxSaRestarts; restart++) {
+    if (deadlineExpired(ctx)) break;
     if (saAnneal(run, rng.derive(`restart:${restart}`))) return true;
   }
   return false;
@@ -1895,7 +1928,7 @@ function placeCycle(ctx: Ctx, cyc: CycleUnit, rev: number): boolean {
     const stuck =
       placedHere.length === 0 ||
       sweeps >= MAX_UNIT_REVISIONS ||
-      ctx.attempts > ctx.budget.maxAttempts;
+      searchExpired(ctx);
     if (stuck) {
       for (const m of [...placedHere].reverse()) undoNode(ctx, m);
       // Fallback: joint chain repair by bounded seeded annealing (Task 8B). Gated on
@@ -2076,12 +2109,14 @@ function tryLayout(
   rng: Rng,
   saEnabled: boolean,
   budget: LayoutBudget,
+  deadlineAt: number,
 ): { result: LayoutResult } | { failing: NodeId; detail: string } {
   const ctx: Ctx = {
     graph,
     nodesById,
     closingEdges,
     budget,
+    deadlineAt,
     rng,
     occ: new Occupancy(),
     placements: new Map(),
@@ -2135,7 +2170,7 @@ function tryLayout(
   };
 
   while (pendingCycles.length > 0 || pendingTree.size > 0) {
-    if (ctx.attempts > ctx.budget.maxAttempts) return fail(ctx);
+    if (searchExpired(ctx)) return fail(ctx);
     const adjacent = pendingCycles.filter((c) =>
       c.members.some((m) =>
         neighbours(ctx, m).some((nb) => ctx.placements.has(nb)),
@@ -2164,7 +2199,7 @@ function tryLayout(
     // more samples at the SAME ancestor layout; re-placing an ancestor first would move
     // already-good, unrelated pieces (yawing them off their canonical seatings) for nothing.
     for (let rev = 1; rev <= MAX_UNIT_REVISIONS && !placedOk; rev++) {
-      if (ctx.attempts > ctx.budget.maxAttempts) return fail(ctx);
+      if (searchExpired(ctx)) return fail(ctx);
       placedOk =
         unit.kind === "cycle"
           ? placeCycle(ctx, unit.unit, rev)
@@ -2216,7 +2251,7 @@ function tryLayout(
           revised = true;
           break;
         }
-        if (ctx.attempts > ctx.budget.maxAttempts) return fail(ctx);
+        if (searchExpired(ctx)) return fail(ctx);
       }
     }
     if (!revised && unitHistory.length === 0) return fail(ctx);
@@ -2230,14 +2265,17 @@ function tryLayout(
  *  forward checking → occupancy-hard-accept → unit backtracking → seeded restarts). Two phases:
  *  PURE-GREEDY restarts first (the pre-8B placer, byte-for-byte — so any graph greedy can place
  *  is unchanged), then, ONLY if greedy fully fails AND the graph has cycles, SA-fallback restarts
- *  (Task 8B joint chain repair) before the setup-loud throw. Pure: no GPU, no Rapier, no
- *  wall-clock. Throws setup-loud with per-node diagnostics after exhausting all restarts. */
+ *  (Task 8B joint chain repair) before the setup-loud throw. Pure: no GPU, no Rapier; wall-clock
+ *  consulted only when `budget.deadlineMs` is finite. Throws setup-loud with per-node diagnostics
+ *  after exhausting all restarts (or the deadline, distinctly worded, if it expires first). */
 export function layoutWorld(
   graph: WorldGraph,
   seed: string,
   budget?: Partial<LayoutBudget>,
 ): LayoutResult {
   const b: LayoutBudget = { ...DEFAULT_LAYOUT_BUDGET, ...budget };
+  // Infinity-safe: now + Infinity === Infinity, so the default never expires.
+  const deadlineAt = performance.now() + b.deadlineMs;
   validateGraph(graph);
   const nodesById = new Map<NodeId, WorldNode>(
     graph.nodes.map((n) => [n.id, n]),
@@ -2258,13 +2296,22 @@ export function layoutWorld(
       makeRng(seed).derive(stream),
       saEnabled,
       b,
+      deadlineAt,
     );
 
   let last: { failing: NodeId; detail: string } = { failing: "?", detail: "" };
+  // Distinct deadline-exceeded throw, shared by both restart loops so the two messages
+  // can't drift. `restart` is the 0-based loop index — `restart + 1` is the count run.
+  const deadlineError = (restart: number): Error =>
+    new Error(
+      `layout: deadline ${b.deadlineMs}ms exceeded after ${restart + 1} restart(s) ` +
+        `(last: could not place node "${last.failing}" — ${last.detail})`,
+    );
   for (let restart = 0; restart < b.maxRestarts; restart++) {
     const attempt = attemptAt(`restart:${restart}`, false);
     if ("result" in attempt) return attempt.result;
     last = attempt;
+    if (performance.now() > deadlineAt) throw deadlineError(restart);
   }
   // SA fallback — only reachable when every greedy restart failed. Skipped for cycle-free graphs
   // (SA repairs cycles only), so a tree-only impossible graph throws without the extra passes.
@@ -2273,6 +2320,7 @@ export function layoutWorld(
       const attempt = attemptAt(`sa-restart:${restart}`, true);
       if ("result" in attempt) return attempt.result;
       last = attempt;
+      if (performance.now() > deadlineAt) throw deadlineError(restart);
     }
   }
   throw new Error(
