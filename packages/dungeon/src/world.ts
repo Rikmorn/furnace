@@ -212,4 +212,40 @@ export const COCKPIT_BUDGET: Partial<LayoutBudget> = {
   maxSaLayoutRestarts: 1,
   maxSaMoves: 200,
   maxSaRestarts: 2,
+  deadlineMs: 2000, // the Task 4 Stage-A pick; search-tier only (bakeWing strips it)
 };
+
+/** One measured row of the cockpit envelope: the single-shot success rate under
+ *  COCKPIT_BUDGET (deadline included), the attempt count the cockpit runs at that
+ *  size, and the projected reliability 1-(1-singleShot)^attempts the UI displays. */
+export type CockpitEnvelopeRow = {
+  rooms: number;
+  singleShot: number;
+  attempts: number;
+  projected: number;
+};
+
+/** The measured cockpit envelope — knob bounds, per-size attempt counts, and the
+ *  reliability line all derive from THIS table (never hand-edit a row: re-run the
+ *  probe when generator constants OR `COCKPIT_BUDGET` (esp. `deadlineMs`) change —
+ *  the table is measured at the current budget).
+ *  Provenance: measure-b2c.ts `--envelope - - 2000`, run 2026-07-10,
+ *  n=20 seeds/cell, loop=0.35, deadlineMs=2000, sequential cells, unloaded
+ *  machine; rates carry ±~10pp sampling noise (e.g. the rooms 7<8 inversion).
+ *  attempts = ~95%-target (TARGET_MISS 0.05), floor 4, cap = ~60 s worst case
+ *  divided by the measured give-up p95 (see recommendAttempts). rooms 12 is a
+ *  measured low-yield size (projected 0.693 at the ~60 s cap) — honest, not a bug. */
+export const COCKPIT_ENVELOPE: readonly CockpitEnvelopeRow[] = [
+  { rooms: 2, singleShot: 0.75, attempts: 4, projected: 0.996 },
+  { rooms: 3, singleShot: 0.65, attempts: 4, projected: 0.985 },
+  { rooms: 4, singleShot: 0.55, attempts: 4, projected: 0.959 },
+  { rooms: 5, singleShot: 0.45, attempts: 6, projected: 0.972 },
+  { rooms: 6, singleShot: 0.35, attempts: 7, projected: 0.951 },
+  { rooms: 7, singleShot: 0.25, attempts: 11, projected: 0.958 },
+  { rooms: 8, singleShot: 0.3, attempts: 9, projected: 0.96 },
+  { rooms: 9, singleShot: 0.15, attempts: 19, projected: 0.954 },
+  { rooms: 10, singleShot: 0.1, attempts: 24, projected: 0.92 },
+  { rooms: 11, singleShot: 0.1, attempts: 24, projected: 0.92 },
+  // biome-ignore lint/suspicious/noApproximativeNumericConstant: measured probe output (1-(1-0.05)^23), coincidentally close to Math.LN2 — not a math-constant reference.
+  { rooms: 12, singleShot: 0.05, attempts: 23, projected: 0.693 },
+];

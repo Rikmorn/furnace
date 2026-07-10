@@ -31,6 +31,8 @@ export {
   buildWorldGraph,
   COCKPIT_BUDGET,
   COCKPIT_CONFIG,
+  COCKPIT_ENVELOPE,
+  type CockpitEnvelopeRow,
   WORLD_SEED,
   type WorldAttempt,
   worldAttempts,
