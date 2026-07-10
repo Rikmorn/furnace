@@ -1,6 +1,6 @@
 # Editor Architecture
 
-The as-built `@furnace/editor` package, milestones **M3** (editor shell) + **M4** (command layer) + **M5A** (inspector) + **M5B** (viewport interaction), plus the **M1-slices** registration batch (the full built-in set + physics-from-data in the core loader), plus the **Epic 3 cockpit slices** — **3.0** (editor-openable dungeon, extensions-dir watch) and **3.1** (the generation loop: a preview host, the `generation.bake` command, and an ephemeral generation session; §13), and **3.2** (the editor foundation pass — design-system tokens, menu bar + global keybindings, UI persistence, viewport reference layer + dolly navigation, inspector IA + humanized labels; §14). This is the reference — "how the editor IS today." The decision history that produced it lives in `docs/backlog/editor-and-tooling/editor-backend-architecture.md`; this doc describes the running system.
+The as-built `@furnace/editor` package, milestones **M3** (editor shell) + **M4** (command layer) + **M5A** (inspector) + **M5B** (viewport interaction), plus the **M1-slices** registration batch (the full built-in set + physics-from-data in the core loader), plus the **Epic 3 cockpit slices** — **3.0** (editor-openable dungeon, extensions-dir watch) and **3.1** (the generation loop: a preview host, the `generation.bake` command, and an ephemeral generation session; §13), **3.2** (the editor foundation pass — design-system tokens, menu bar + global keybindings, UI persistence, viewport reference layer + dolly navigation, inspector IA + humanized labels; §14), and **3.2.3** (cockpit hardening — the generation search moved onto a worker with instant mid-attempt cancel, envelope-clamped knobs; §13.6). This is the reference — "how the editor IS today." The decision history that produced it lives in `docs/backlog/editor-and-tooling/editor-backend-architecture.md`; this doc describes the running system.
 
 > **Epic status (2026-06-14): the editor epic is complete and paused.** M1→M5B + M1-slices landed and sealed. The originally-planned **M6** (behaviour runtime) and **M7** (porting + docs) are **dropped** — the project retargeted from the bowling demo to its actual application (a first-person dungeon crawler), so future editor work is driven by that app's **procedural-authoring** needs rather than the old milestone ladder. The known gaps a future editor pass must address are captured in `docs/backlog/editor-and-tooling/editor-interaction-model-redesign.md`.
 >
@@ -431,7 +431,7 @@ Lifecycle: `ctx()` / `world()` throw before `init`. `adopt(content)` is **leak-s
 
 The browser engine bundle (§3a) now exports `createViewportHost`, `createPreviewHost` (§13.1), and `export * as extensions from "<root>/<extensionsEntry>"` — the consumer's extension entry re-exported as a **value namespace** (the same module the bare side-effect import already runs, so registration fires once; `{}` when no entry is configured). `loadEngine()`'s `EngineModule` type widened to match.
 
-For the dungeon, that namespace is `packages/dungeon/src/editor-extensions.ts`, re-exporting `worldAttempts` / `bake` (as `bakeWing`, now 4-arg — `…, name`) / `realizeRegion` / `MaterialCache` / `COCKPIT_CONFIG` / `COCKPIT_BUDGET` / `wingDir` / `DEFAULT_WING_NAME` / etc. The Generation panel narrows this untyped namespace to the shapes it calls at **one** boundary cast (`GenerationPanel.tsx`); the engine owns the real types. This `bake() / worldAttempts / COCKPIT_* / realizeRegion` set is a **de-facto protocol** the cockpit consumes — for 3.1 it stays dungeon-owned (see the backlog note above).
+For the dungeon, that namespace is `packages/dungeon/src/editor-extensions.ts`, re-exporting `worldAttempts` / `bake` (as `bakeWing`, now 4-arg — `…, name`) / `realizeRegion` / `MaterialCache` / `COCKPIT_CONFIG` / `COCKPIT_BUDGET` / `COCKPIT_ENVELOPE` / `wingDir` / `DEFAULT_WING_NAME` / etc. The Generation panel narrows this untyped namespace to the shapes it calls at **one** boundary cast (`GenerationPanel.tsx`); the engine owns the real types. This `bake() / worldAttempts / COCKPIT_* / realizeRegion` set is a **de-facto protocol** the cockpit consumes — for 3.1 it stays dungeon-owned (see the backlog note above). `COCKPIT_ENVELOPE` (Slice 3.2.3, `docs/reference/dungeon-architecture.md` §4) is the measured knob-bounds/reliability table the panel clamps against and displays — see §13.6.
 
 ### 13.3 `generation.bake` — browser-uploads-payload
 
@@ -449,14 +449,59 @@ The `path` `.min(1)` guard is load-bearing: an empty path resolves to the root d
 
 The dockview **Generation panel** (`frontend/components/GenerationPanel.tsx`) drives the loop; its state is an **ephemeral generation session** (`frontend/lib/generation.ts`) held **App-owned** (lifted out of the panel in Slice 3.2 so the session survives the panel closing/reopening; §14.3), **beside** the daemon's document session. The only daemon/FS crossing is freeze (the `generation.bake` upload) — everything else in `generation.ts` is pure and unit-tested without a DOM.
 
-- **Generate / Reroll** step the consumer's `worldAttempts` iterator **between paints** (`requestAnimationFrame` → `setTimeout(0)`), so a placement search that creaks doesn't freeze the cockpit; a `cancelRef` flips mid-loop to cancel. On the first placed attempt the panel realizes the layout into the preview host (dropping the `authored` phantom — it carries empty geometry, realized by the game's own `main.ts`), frames the camera on the union AABB (`layoutBounds`), and records a `done` status.
-- **Freeze & bake** reads **only** the `done`-status snapshot — the winning derived seed **and** the config that produced the on-screen preview — never the live knobs, then re-bakes in-browser via `ext.bake(…, wingName)` (a Generation-panel wing-name field names the wing) and uploads via `api.generationBake(toWireFiles(files), ext.wingDir(wingName))` (the upload's `cleanDir` = `regions/<name>`, so the daemon clears the prior bake). That snapshot is what makes "freeze bakes exactly what you previewed" hold even after a knob edit; editing a knob (or the seed) drops a `done` preview back to `idle` via `invalidateDonePreview`, so Freeze is only ever enabled for the world currently on screen.
+- **Generate / Reroll** run the consumer's `worldAttempts` iterator on a **generation worker** (Slice 3.2.3 — the paint-gap stepper that used to step it between paints is deleted; §13.6), so a placement search that creaks never blocks the main thread and Cancel kills it INSTANTLY, mid-attempt. On the first placed attempt the panel realizes the layout into the preview host, main-thread (dropping the `authored` phantom — it carries empty geometry, realized by the game's own `main.ts`), frames the camera on the union AABB (`layoutBounds`), and records a `done` status.
+- **Freeze & bake** reads **only** the `done`-status snapshot — the winning derived seed **and** the config that produced the on-screen preview — never the live knobs, then re-bakes on the SAME worker via `ext.bake(…, wingName)` (a Generation-panel wing-name field names the wing; §13.6) and uploads via `api.generationBake(toWireFiles(files), ext.wingDir(wingName))` (a main-thread daemon call; the upload's `cleanDir` = `regions/<name>`, so the daemon clears the prior bake). That snapshot is what makes "freeze bakes exactly what you previewed" hold even after a knob edit; editing a knob (or the seed) drops a `done` preview back to `idle` via `invalidateDonePreview`, so Freeze is only ever enabled for the world currently on screen.
 
 Because the session lives in React state and never touches `session.apply`, generation curation is **not undoable** and does not appear in the document session's history — a separate, ephemeral concern that crosses into the document/FS world only at the bake.
 
 ### 13.5 Fragment-doc opening in the viewport host
 
 A baked region document is **camera-less** (no entity carries a `camera` component). The viewport host's `applyScene` (`src/viewport-host/index.ts`) now detects this — mirroring the loader's own throw condition exactly (`doc.entities.some(e => "camera" in e.components)`) — and, when no scene camera is present, loads with `scene.loadScene(c, doc, { fragment: true })` (suppressing the loader's no-camera throw) then frames the editor orbit camera on the **content bounds** (centroid + floored content radius, seated back along fixed framing factors) instead of seeding from a scene-camera pose. This fixes the 3.0-gate "no entity carries a camera component" error — opening a baked region fragment is the cockpit's acceptance case one. Camera-carrying docs are **unchanged** (still seed the orbit from the scene camera's eye, pivoting on the content centroid — §11.2).
+
+### 13.6 Generation worker host (Slice 3.2.3)
+
+The generation search moved off the main thread onto a dedicated **module worker**:
+`frontend/generation-worker.ts`, built as its OWN entry (`scripts/build-frontend.ts`
+— a page-loaded worker is reached by URL, not by riding the html entry's import
+graph) to `/generation-worker.js`. It imports the same same-origin `/engine.js` the
+main-thread chrome loads — same browser, same JS engine — so worker-side placement
+is identical to main-thread placement (the cross-engine determinism rule is
+JSC-vs-V8, `docs/learnings/2026-07-06-cross-engine-placement-determinism.md`, not
+thread-vs-thread).
+
+- **Protocol (`frontend/lib/generation-protocol.ts`)**: runId-disciplined typed
+  messages. Requests: `init` / `run` / `bake`; responses: `ready` / `init-error` /
+  `attempt` / `done` / `baked`. `createWorkerHandler` is a **pure factory over
+  injected deps** (`loadEngine` + `post`), unit-testable without a real `Worker`
+  (`bun:test` spawns none); `generation-worker.ts` is a thin shell wiring it to the
+  real dynamic `import()` + `self.postMessage`. Every failure path posts a typed
+  message rather than throwing (a worker-side throw surfaces as a generic
+  `ErrorEvent` with no runId). Success attempts and baked files transfer their
+  typed-array buffers (`collectTransferables` dedupes views that alias one buffer —
+  a duplicate transferable is a `DataCloneError`). `wantSuccesses` MUST be 1 this
+  slice (a setup-loud refusal of any other value) — reserved for 3.2.5's contact
+  sheet (multiple simultaneous successes).
+- **`GenerationWorkerClient` (`frontend/lib/generation-client.ts`)**: App-owned (one
+  per App lifetime, alongside the generation session — §14.3), so it survives the
+  Generation panel unmounting. `run` / `bake` / `cancel`. **Cancel = `terminate()` +
+  lazy respawn** — instant, mid-attempt, no cooperation needed from the search. A
+  bumped `runId` PLUS a worker-identity guard (`this.worker !== w`) drop late
+  messages from a dead or superseded worker, including the no-runId `ready` /
+  `init-error` / `onerror` (`terminate()` does not dequeue a worker's
+  already-posted messages). A spawn or init failure is setup-loud through
+  `onError` — no silent fallback path exists; the old paint-gap stepper (§13.4,
+  pre-3.2.3) is deleted outright.
+- **What stays main-thread**: `previewLayout` (realize into the preview host) needs
+  the host's GPU context, so it runs once on the winning attempt, main-thread; the
+  daemon upload (`api.generationBake`) is a main-thread fetch. Everything else —
+  draining `worldAttempts`, running `bake()` — moved into the worker.
+- **`bundle-outdated` stance**: the client is App-owned via `useState`'s lazy
+  initializer (one instance for the App's lifetime). A page reload refreshes the
+  worker AND the main thread together — both then run the SAME engine bundle. The
+  worker is **never respawned alone** on a `bundle-outdated` SSE event; doing so
+  would version-split worker-side generation from main-thread realize/bake against
+  two different bundle builds. When the page deliberately stays stale (a dirty
+  document blocks the reload prompt), the worker stays stale WITH it.
 
 ## 14. Slice 3.2 — editor foundation pass (Epic 3)
 

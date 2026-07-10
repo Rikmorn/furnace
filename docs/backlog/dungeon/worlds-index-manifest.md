@@ -16,5 +16,4 @@ wiring — not needed while only the default wing is loadable.
 curation needing to list/switch named wings.
 
 **Reference:** `packages/dungeon/src/bake.ts` (`wingDir`, `DEFAULT_WING_NAME`),
-`packages/dungeon/src/wing-loader.ts`, spec D7 (local:
-docs/superpowers/specs/2026-07-08-epic3-slice3.2-seeing-and-curating-design.md).
+`packages/dungeon/src/wing-loader.ts`.

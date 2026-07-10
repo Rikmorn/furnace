@@ -121,10 +121,33 @@ outer retry, not search depth).
 **Retry orchestration (`world.ts`)**: **`worldAttempts(seed, config?, budget?)`** — a
 pull-based iterator, the SINGLE owner of retry policy and `seed:k` derivation; attempt
 k regenerates the WHOLE topology from the derived seed (a retry is "roll a new
-dungeon", not "search harder"); first success wins. `buildWorld` drains it; the cockpit
-steps it between paints (cancellable between attempts). `COCKPIT_CONFIG` (single
-sector, 6 rooms) + `COCKPIT_BUDGET` (tight tier — measured 2026-07-06: 100% @6 rooms ×
-12 attempts, p50 ≈ 1.2 s, tail 20–73 s ∝ give-up cost, surfaced behind progress+cancel).
+dungeon", not "search harder"); first success wins. `buildWorld` drains it; the editor
+cockpit drains it inside its generation worker (Slice 3.2.3 — `docs/reference/editor-architecture.md`
+§13.6), so a search that creaks never blocks the main thread. `COCKPIT_CONFIG` (single
+sector, 6 rooms) + `COCKPIT_BUDGET` (tight tier; `deadlineMs: 2000` — search-tier only,
+`bakeWing` strips it, see below).
+
+**`LayoutBudget.deadlineMs`** (Slice 3.2.3): an OPTIONAL wall-clock ceiling for one
+`layoutWorld` call, default `Number.POSITIVE_INFINITY` (counted budgets only —
+byte-identical to pre-slice behavior). The greedy guard sites use `searchExpired`
+(counted budget OR deadline); the SA-fallback loops use `deadlineExpired` (deadline
+ONLY — the counted budget is greedy's alone, so gating SA on it would starve the SA
+rescue that fires precisely after greedy exhausts). Exhaustion is the same setup-loud
+throw, now with a distinct `"layout: deadline <n>ms exceeded"` message. **D4 invariant:**
+`bakeWing` forces `deadlineMs: Infinity` before calling `buildWorld` — bake replay is
+counted-only deterministic, because a deadline is machine-speed-dependent and can only
+PREVENT a success, never create one (a previewed success re-runs identically without it).
+
+**`COCKPIT_ENVELOPE`** (`world.ts`): the measured cockpit envelope, one row per knob
+value (rooms 2–12: `{rooms, singleShot, attempts, projected}`) — knob bounds,
+per-size attempt counts, and the cockpit's reliability line all derive from this table.
+Provenance: `scripts/measure-b2c.ts --envelope - - 2000`, run 2026-07-10, n=20
+seeds/cell, loop=0.35, `deadlineMs=2000`, sequential cells on an unloaded machine
+(rates carry ±~10 pp sampling noise). Per-row `attempts` targets ~95% projected
+reliability at the measured single-shot rate, floored at 4, capped by a ~60 s worst
+case ÷ the measured give-up p95; rooms 12 is a measured low-yield size (projected
+0.693 at the cap — honest, not a bug). Regenerate the table when generator constants
+OR `COCKPIT_BUDGET` (esp. `deadlineMs`) change.
 
 ## 5. Bake & load (the 3.1 pipeline)
 
