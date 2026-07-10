@@ -90,6 +90,10 @@ export type WingManifest = {
  * previewed world on attempt 0 (a wrong seed would bake a DIFFERENT world than the one
  * previewed). PURE: returns files, writes nothing.
  *
+ * `budget.deadlineMs` is ignored (forced to Infinity): a bake must deterministically
+ * reproduce the previewed success, and a wall-clock deadline can only prevent successes,
+ * never create them (D4).
+ *
  * @throws (via `buildWorld`) if the seed does not place on attempt 0; or if a placed node
  *   is missing its layout entry / placement.
  */
@@ -107,7 +111,11 @@ export function bakeWing(
   const { graph, layout } = buildWorld(
     seed,
     { ...config, attempts: 1 },
-    budget,
+    // deadlineMs is a SEARCH-TIME knob and never reaches a bake: it is
+    // machine-speed-dependent, while a bake must deterministically reproduce the
+    // previewed success — counted budgets alone re-run identically (a deadline can
+    // only PREVENT successes, never create them).
+    { ...budget, deadlineMs: Number.POSITIVE_INFINITY },
   );
 
   const files: BakeFile[] = [];

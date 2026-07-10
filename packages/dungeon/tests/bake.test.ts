@@ -130,4 +130,10 @@ describe("bakeWing", () => {
     expect(() => bakeWing(SEED, CFG, {}, "")).toThrow(/wing name/);
     expect(() => bakeWing(SEED, CFG, {}, "has space")).toThrow(/wing name/);
   });
+
+  test("a deadline in the budget never reaches the bake (replay is counted-only)", () => {
+    // deadlineMs: 0 would fail ANY placement instantly if it reached buildWorld.
+    const { files } = bakeWing(SEED, CFG, { deadlineMs: 0 });
+    expect(files.length).toBeGreaterThan(0);
+  });
 });
