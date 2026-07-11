@@ -34,6 +34,12 @@ export type BakeHandlers = {
   onError(message: string): void;
 };
 
+/** W1 world-realize handlers: one deterministic payload (no attempt stream), or an error. */
+export type WorldRunHandlers = {
+  onWorld(payload: unknown): void;
+  onError(message: string): void;
+};
+
 const defaultSpawn = (): WorkerLike =>
   // Boundary cast: the DOM Worker satisfies WorkerLike structurally; the alias
   // exists only so tests can inject a fake.
@@ -44,7 +50,11 @@ const defaultSpawn = (): WorkerLike =>
 export class GenerationWorkerClient {
   private worker: WorkerLike | undefined;
   private runId = 0;
-  private handlers: { run?: RunHandlers; bake?: BakeHandlers } = {};
+  private handlers: {
+    run?: RunHandlers;
+    bake?: BakeHandlers;
+    worldRun?: WorldRunHandlers;
+  } = {};
   private readonly spawn: () => WorkerLike;
   private readonly engineUrl: string;
 
@@ -94,6 +104,23 @@ export class GenerationWorkerClient {
     this.worker?.postMessage({ kind: "bake", runId, ...params });
   }
 
+  /** W1: realize a declarative world spec (deterministic — one payload, no attempt stream).
+   *  Same reentrancy precondition as run/bake: cancel() any live work first. */
+  runWorld(spec: unknown, handlers: WorldRunHandlers): void {
+    const runId = ++this.runId;
+    this.handlers = { worldRun: handlers };
+    if (!this.ensure(handlers.onError)) return;
+    this.worker?.postMessage({ kind: "runWorld", runId, spec });
+  }
+
+  /** W1: bake a declarative world spec to a file set (reuses the `baked` response). */
+  bakeWorld(spec: unknown, name: string, handlers: BakeHandlers): void {
+    const runId = ++this.runId;
+    this.handlers = { bake: handlers };
+    if (!this.ensure(handlers.onError)) return;
+    this.worker?.postMessage({ kind: "bakeWorld", runId, spec, name });
+  }
+
   /** Kill any in-flight work INSTANTLY (mid-attempt included). Lazy respawn. */
   cancel(): void {
     this.runId++;
@@ -131,7 +158,11 @@ export class GenerationWorkerClient {
   }
 
   private activeError(message: string): void {
-    (this.handlers.run ?? this.handlers.bake)?.onError(message);
+    (
+      this.handlers.run ??
+      this.handlers.bake ??
+      this.handlers.worldRun
+    )?.onError(message);
   }
 
   private route(msg: WorkerResponse): void {
@@ -153,6 +184,9 @@ export class GenerationWorkerClient {
         return;
       case "baked":
         this.handlers.bake?.onBaked(msg.files);
+        return;
+      case "world-run":
+        this.handlers.worldRun?.onWorld(msg.payload);
         return;
       case "done":
         if (msg.outcome === "error") {

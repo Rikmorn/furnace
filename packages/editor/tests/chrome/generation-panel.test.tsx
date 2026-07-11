@@ -1,8 +1,10 @@
-// Harness tests for the Generation panel (Slice 3.2.3): the measured reliability line,
-// the envelope clamp-at-commit note, and the run/cancel button gating. Lives under
-// tests/chrome/ (like tests/inspector/) so happy-dom registration stays scoped and never
-// pollutes the daemon HTTP suites. Renders only the panel inside a mock EditorContext with
-// a FAKE client (mockable run/bake/cancel) — the real worker never spawns in bun test.
+// Harness tests for the Generation panel (Epic 3 W1 world flow): the world knobs (World
+// Name + two cave seeds), the run/bake button gating, and the Generate→runWorld call.
+// Lives under tests/chrome/ (like tests/inspector/) so happy-dom registration stays scoped
+// and never pollutes the daemon HTTP suites. Renders only the panel inside a mock
+// EditorContext with a FAKE client (mockable runWorld/bakeWorld) — the real worker never
+// spawns in bun test. A stub PreviewHost lets Generate reach the client (the mock never
+// invokes onWorld, so previewWorld's GPU path is not exercised).
 import { cleanup, fireEvent, render, screen } from "../inspector/_harness.tsx";
 import { afterEach, expect, mock, test } from "bun:test";
 import {
@@ -11,47 +13,59 @@ import {
 } from "../../src/frontend/components/editor-context.ts";
 import { GenerationPanel } from "../../src/frontend/components/GenerationPanel.tsx";
 import type { GenerationWorkerClient } from "../../src/frontend/lib/generation-client.ts";
-import { initialSession } from "../../src/frontend/lib/generation.ts";
+import {
+  initialWorldSession,
+  type WorldGenSession,
+} from "../../src/frontend/lib/generation.ts";
 import { initialState } from "../../src/frontend/lib/state.ts";
 
 afterEach(cleanup);
 
-const ENVELOPE = [
-  { rooms: 2, singleShot: 0.9, attempts: 4, projected: 0.9999 },
-  { rooms: 3, singleShot: 0.8, attempts: 4, projected: 0.9984 },
-  { rooms: 4, singleShot: 0.6, attempts: 5, projected: 0.9898 },
-  { rooms: 5, singleShot: 0.4, attempts: 6, projected: 0.9533 },
-  { rooms: 6, singleShot: 0.3, attempts: 9, projected: 0.9596 },
-];
+// A structural DEFAULT_WORLD template (two caves through one tunnel), like the dungeon's.
+const DEFAULT_WORLD = {
+  name: "default",
+  startRegion: "cave-a",
+  regions: [
+    { id: "cave-a", seed: "world-default:a", params: { mouths: 1 } },
+    { id: "cave-b", seed: "world-default:b", params: { mouths: 1 } },
+  ],
+  connectors: [{ id: "tunnel-1", seed: "world-default:t1" }],
+};
 
 function makeCtx(overrides?: {
-  session?: Partial<ReturnType<typeof initialSession>>;
+  session?: Partial<WorldGenSession>;
+  worldName?: string;
 }): {
   ctx: EditorContextValue;
   client: {
-    run: ReturnType<typeof mock>;
-    bake: ReturnType<typeof mock>;
+    runWorld: ReturnType<typeof mock>;
+    bakeWorld: ReturnType<typeof mock>;
     cancel: ReturnType<typeof mock>;
   };
 } {
-  const client = { run: mock(), bake: mock(), cancel: mock() };
-  const session = { ...initialSession(), ...overrides?.session };
+  const client = { runWorld: mock(), bakeWorld: mock(), cancel: mock() };
+  const session = { ...initialWorldSession(), ...overrides?.session };
   const ctx = {
     state: { ...initialState, status: "ready", generationActive: true },
     dispatch: () => {},
     hostRef: { current: undefined },
-    previewHostRef: { current: undefined },
+    // A stub host: Generate's synchronous path only needs it non-undefined (the mock
+    // runWorld never calls onWorld, so previewWorld's methods are never reached).
+    previewHostRef: { current: {} as unknown },
     extensions: {
-      COCKPIT_ENVELOPE: ENVELOPE,
-      COCKPIT_CONFIG: {},
-      COCKPIT_BUDGET: {},
+      DEFAULT_WORLD,
+      realizeRegion: () => Promise.resolve({}),
+      MaterialCache: class {
+        destroy(): void {}
+      },
+      worldDir: (name: string) => `worlds/${name}`,
     },
     actions: {},
     generation: {
       session,
       setSession: () => {},
-      wingName: "generated-wing",
-      setWingName: () => {},
+      worldName: overrides?.worldName ?? "default",
+      setWorldName: () => {},
       client: client as unknown as GenerationWorkerClient,
     },
     viewFlags: {},
@@ -71,37 +85,69 @@ function renderPanel(overrides?: Parameters<typeof makeCtx>[0]) {
   return { client };
 }
 
-test("shows the measured reliability line for the current rooms value", () => {
+test("renders the world knobs: World Name and the two cave seeds", () => {
   renderPanel();
-  expect(
-    screen.getByText("6 rooms: ~96% within 9 attempts (measured)"),
-  ).toBeTruthy();
+  expect(screen.getByLabelText("World Name")).toBeTruthy();
+  expect(screen.getByLabelText("Cave A seed")).toBeTruthy();
+  expect(screen.getByLabelText("Cave B seed")).toBeTruthy();
 });
 
-test("an out-of-envelope typed rooms value is clamped at commit with a note", () => {
-  renderPanel();
-  const rooms = screen.getByLabelText("Rooms") as HTMLInputElement;
-  fireEvent.change(rooms, { target: { value: "15" } });
-  fireEvent.blur(rooms);
-  expect(
-    screen.getByText(
-      /rooms 15 is outside the measured envelope — clamped to 6/,
-    ),
-  ).toBeTruthy();
+test("Generate calls client.runWorld with a spec carrying the (template-default) seeds", () => {
+  const { client } = renderPanel();
+  fireEvent.click(screen.getByRole("button", { name: "Generate" }));
+  expect(client.runWorld).toHaveBeenCalled();
+  // Boundary: the mock records the exact spec the panel built.
+  const spec = client.runWorld.mock.calls[0]?.[0] as {
+    regions: { seed: string }[];
+  };
+  expect(spec.regions.map((r) => r.seed)).toEqual([
+    "world-default:a",
+    "world-default:b",
+  ]);
 });
 
-test("Generate is disabled while running; Cancel enabled and terminates the run", () => {
-  const { client } = renderPanel({
-    session: { status: { phase: "running", attempt: 2, totalAttempts: 9 } },
-  });
+test("Generate is disabled while generating", () => {
+  renderPanel({ session: { status: { phase: "generating" } } });
   expect(
     (screen.getByRole("button", { name: "Generate" }) as HTMLButtonElement)
       .disabled,
   ).toBe(true);
-  const cancel = screen.getByRole("button", {
-    name: "Cancel",
-  }) as HTMLButtonElement;
-  expect(cancel.disabled).toBe(false);
-  fireEvent.click(cancel);
-  expect(client.cancel).toHaveBeenCalled();
+});
+
+test("Freeze & bake is disabled until a world is previewed", () => {
+  renderPanel();
+  expect(
+    (
+      screen.getByRole("button", {
+        name: "Freeze & bake",
+      }) as HTMLButtonElement
+    ).disabled,
+  ).toBe(true);
+});
+
+test("Freeze & bake is enabled once previewing with a valid world name", () => {
+  renderPanel({
+    session: { status: { phase: "previewing", seeds: ["a", "b"] } },
+  });
+  expect(
+    (
+      screen.getByRole("button", {
+        name: "Freeze & bake",
+      }) as HTMLButtonElement
+    ).disabled,
+  ).toBe(false);
+});
+
+test("Freeze & bake stays disabled when the world name is invalid, even while previewing", () => {
+  renderPanel({
+    session: { status: { phase: "previewing", seeds: ["a", "b"] } },
+    worldName: "../escape",
+  });
+  expect(
+    (
+      screen.getByRole("button", {
+        name: "Freeze & bake",
+      }) as HTMLButtonElement
+    ).disabled,
+  ).toBe(true);
 });

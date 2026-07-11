@@ -83,6 +83,64 @@ describe("generation.bake", () => {
     expect(events).toContainEqual({ type: "generation-baked", files: 2 });
   });
 
+  test("a worlds/<name> bake (W1) is accepted and written, cleanDir clears the prior", async () => {
+    // The handler is destination-agnostic (root-containment + no-dotfile only, no regions/
+    // restriction), so the W1 world flow's worlds/<name>/ destination needs no daemon change.
+    const bytes = new Uint8Array([9, 8, 7]);
+    const b64 = Buffer.from(bytes).toString("base64");
+    // Seed a prior bake with a stale sidecar so cleanDir has something to remove.
+    await dispatch(handlers, "generation.bake", {
+      files: [
+        {
+          path: "worlds/myworld/stale.fmesh",
+          encoding: "base64",
+          contents: b64,
+        },
+        {
+          path: "worlds/myworld/manifest.json",
+          encoding: "utf8",
+          contents: "{}",
+        },
+      ],
+    });
+
+    const scene = JSON.stringify({ version: 1, entities: [] });
+    const result = (await dispatch(handlers, "generation.bake", {
+      cleanDir: "worlds/myworld",
+      files: [
+        {
+          path: "worlds/myworld/world.scene.json",
+          encoding: "utf8",
+          contents: scene,
+        },
+        {
+          path: "worlds/myworld/cave-a-0.fmesh",
+          encoding: "base64",
+          contents: b64,
+        },
+        {
+          path: "worlds/myworld/manifest.json",
+          encoding: "utf8",
+          contents: '{"version":1}',
+        },
+      ],
+    })) as { files: number };
+
+    expect(result).toEqual({ files: 3 });
+    // The world doc + sidecar landed under worlds/<name>/.
+    expect(
+      readFileSync(join(root, "worlds", "myworld", "world.scene.json"), "utf8"),
+    ).toBe(scene);
+    expect([
+      ...new Uint8Array(
+        readFileSync(join(root, "worlds", "myworld", "cave-a-0.fmesh")),
+      ),
+    ]).toEqual([...bytes]);
+    // cleanDir removed the prior bake's stale sidecar.
+    expect(existsSync(join(root, "worlds/myworld/stale.fmesh"))).toBe(false);
+    expect(events).toContainEqual({ type: "generation-baked", files: 3 });
+  });
+
   test("a path escaping the root → outside-root, and NOTHING is written", async () => {
     await expect(
       dispatch(handlers, "generation.bake", {

@@ -23,7 +23,7 @@ import { ApiClientError, api, type ComponentEdit } from "../lib/api.ts";
 import { EngineBuildError, loadEngine } from "../lib/engine.ts";
 import { subscribeEvents } from "../lib/events.ts";
 import { GenerationWorkerClient } from "../lib/generation-client.ts";
-import { initialSession } from "../lib/generation.ts";
+import { initialWorldSession } from "../lib/generation.ts";
 import { PANELS, type PanelId, panelTitle } from "../lib/panels.ts";
 import { createUiStore, DEFAULT_VIEW_FLAGS, pushRecent } from "../lib/persist.ts";
 import { clickMode, SETTINGS_SELECTION } from "../lib/selection.ts";
@@ -51,10 +51,9 @@ const COMPONENTS: Record<string, FunctionComponent<IDockviewPanelProps>> = {
   generation: GenerationPanel,
 };
 
-// Persisted-list caps: the File▸Recent menu and the seed-history write-back stay bounded
-// so a long session can't bloat the per-project localStorage blob (a critique finding).
+// Persisted-list cap: the File▸Recent menu stays bounded so a long session can't bloat the
+// per-project localStorage blob (a critique finding).
 const RECENT_SCENES_CAP = 8;
-const SEED_HISTORY_CAP = 50;
 // Trailing-debounce the layout write: onDidLayoutChange fires per pointermove frame during a
 // splitter drag, but each write JSON-stringifies the whole UiState blob — persist once settled.
 const LAYOUT_SAVE_DEBOUNCE_MS = 200;
@@ -118,9 +117,6 @@ export function App() {
   // React state so the View▸Panels checkmarks and File▸Recent menu re-render on change.
   const [panelIds, setPanelIds] = useState<string[]>([]);
   const [recentScenes, setRecentScenes] = useState<string[]>([]);
-  // Gate the seed-history write-back until the store has been read once, so the first
-  // store-ready render can't overwrite a persisted history with the pre-seed empty array.
-  const [historyHydrated, setHistoryHydrated] = useState(false);
 
   // Viewport view flags (Task 9), App-level so the overlay popover and the View▸View-flags
   // menu are a single source. Seeded from the persisted blob (below); pushed to the host by
@@ -130,8 +126,10 @@ export function App() {
   // The generation session lifted out of GenerationPanel (Task 6): App owns it so it
   // survives the panel being closed/reopened and an in-flight run keeps updating it after
   // the panel unmounts. See editor-context.ts GenerationControl for the full rationale.
-  const [generation, setGeneration] = useState(initialSession);
-  const [wingName, setWingName] = useState("generated-wing");
+  const [generation, setGeneration] = useState(initialWorldSession);
+  // The bake destination. Defaults to "default" so Freeze&bake overwrites worlds/default —
+  // the world the committed worlds/index.json points at — and the game reloads it directly.
+  const [worldName, setWorldName] = useState("default");
   // The generation worker client (Slice 3.2.3) — one per App lifetime. useState's
   // lazy initializer keeps it stable across renders; the worker itself spawns on
   // first run. A page reload kills it with the page, which is exactly the
@@ -255,23 +253,15 @@ export function App() {
     };
   }, []);
 
-  // Seed the persisted UI slices into state once the store is available. Setting
-  // `historyHydrated` here (rather than a ref) keeps the write-back below from firing on
-  // this same commit — it reads a still-false flag and skips, so the persisted history is
-  // never clobbered by the pre-seed empty array.
+  // Seed the persisted UI slices into state once the store is available.
   useEffect(() => {
     if (!store) return;
     setRecentScenes(store.get("recentScenes") ?? []);
-    const storedHistory = store.get("seedHistory");
-    if (storedHistory && storedHistory.length > 0) {
-      setGeneration((g) => ({ ...g, history: storedHistory }));
-    }
     // Merge persisted flags over the defaults so a partial/older blob still yields a full set.
     const storedFlags = store.get("viewFlags");
     if (storedFlags) {
       setViewFlags({ ...DEFAULT_VIEW_FLAGS, ...storedFlags });
     }
-    setHistoryHydrated(true);
   }, [store]);
 
   // Single sync path for view flags: push to the host AND persist on ready and on every
@@ -291,12 +281,6 @@ export function App() {
     setViewFlags((prev) => ({ ...prev, [key]: value }));
   }, []);
 
-  // Persist reroll history (capped) whenever it changes — bounded so a long session can't
-  // bloat the stored blob. Gated on hydration so it never runs before the seed above.
-  useEffect(() => {
-    if (!store || !historyHydrated) return;
-    store.set("seedHistory", generation.history.slice(0, SEED_HISTORY_CAP));
-  }, [store, historyHydrated, generation.history]);
 
   // The single doc-refresh path: pull the read model, reload the viewport only
   // when (path, revision) actually advanced. Every SSE event and every locally
@@ -435,7 +419,7 @@ export function App() {
 
   useEffect(() => {
     const phase = generation.status.phase;
-    generationBusyRef.current = phase === "running" || phase === "baking";
+    generationBusyRef.current = phase === "generating" || phase === "baking";
   }, [generation.status]);
 
   useEffect(() => {
@@ -673,8 +657,8 @@ export function App() {
     generation: {
       session: generation,
       setSession: setGeneration,
-      wingName,
-      setWingName,
+      worldName,
+      setWorldName,
       client: generationClient,
     },
     viewFlags,

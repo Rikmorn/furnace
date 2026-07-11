@@ -6,14 +6,19 @@ import {
   envelopeRowFor,
   type GenerationSession,
   initialSession,
+  initialWorldSession,
   invalidateDonePreview,
+  invalidateWorldPreview,
   isValidWingName,
   layoutBounds,
   mergeContents,
   nextRerollSeed,
   type RealizeResult,
   reliabilityText,
+  rerollSeeds,
   toWireFiles,
+  type WorldGenSession,
+  worldSpecWithSeeds,
 } from "../src/frontend/lib/generation.ts";
 
 test("initialSession is a fresh idle session at the P1-bar defaults", () => {
@@ -192,4 +197,71 @@ test("reliabilityText reads the row; low-yield sizes say so; no row → empty", 
     "2 rooms: ~100% within 4 attempts (measured)",
   );
   expect(reliabilityText(undefined)).toBe("");
+});
+
+// ── W1 world flow ──────────────────────────────────────────────────────────────
+
+test("initialWorldSession is a fresh idle session with empty seeds", () => {
+  const s = initialWorldSession();
+  expect(s.seeds).toEqual(["", ""]);
+  expect(s.status).toEqual({ phase: "idle" });
+  expect(initialWorldSession()).not.toBe(s); // fresh object each call
+});
+
+test("worldSpecWithSeeds substitutes region seeds and preserves every other field", () => {
+  const template = {
+    name: "default",
+    startRegion: "cave-a",
+    connectors: [{ id: "t1", seed: "keep" }],
+    regions: [
+      { id: "cave-a", seed: "old-a", params: { mouths: 1 } },
+      { id: "cave-b", seed: "old-b", params: { mouths: 1 } },
+    ],
+  };
+  const next = worldSpecWithSeeds(template, ["new-a", "new-b"]);
+  expect(next.regions.map((r) => r.seed)).toEqual(["new-a", "new-b"]);
+  // Non-seed region fields survive.
+  expect(next.regions[0]?.["id"]).toBe("cave-a");
+  expect(next.regions[0]?.["params"]).toEqual({ mouths: 1 });
+  // Top-level fields survive by spread.
+  expect(next["name"]).toBe("default");
+  expect(next["startRegion"]).toBe("cave-a");
+  expect(next["connectors"]).toEqual([{ id: "t1", seed: "keep" }]);
+  // The template is not mutated.
+  expect(template.regions[0]?.seed).toBe("old-a");
+});
+
+test("worldSpecWithSeeds keeps the template seed where the input seed is empty", () => {
+  const template = { regions: [{ seed: "keep-a" }, { seed: "keep-b" }] };
+  const next = worldSpecWithSeeds(template, ["", "new-b"]);
+  expect(next.regions.map((r) => r.seed)).toEqual(["keep-a", "new-b"]);
+});
+
+test("rerollSeeds bumps a trailing -N, else appends -2", () => {
+  expect(rerollSeeds(["world-default:a", "world-default:b"])).toEqual([
+    "world-default:a-2",
+    "world-default:b-2",
+  ]);
+  expect(rerollSeeds(["world-default:a-2", "x-9"])).toEqual([
+    "world-default:a-3",
+    "x-10",
+  ]);
+});
+
+test("invalidateWorldPreview resets a previewing session to idle; other phases unchanged", () => {
+  const previewing: WorldGenSession = {
+    seeds: ["a", "b"],
+    status: { phase: "previewing", seeds: ["a", "b"] },
+  };
+  const reset = invalidateWorldPreview(previewing);
+  expect(reset.status).toEqual({ phase: "idle" });
+  expect(reset.seeds).toEqual(["a", "b"]);
+
+  const idle = initialWorldSession();
+  expect(invalidateWorldPreview(idle)).toBe(idle); // same reference
+  const baking: WorldGenSession = {
+    seeds: ["a", "b"],
+    status: { phase: "baking" },
+  };
+  expect(invalidateWorldPreview(baking)).toBe(baking);
 });

@@ -18,6 +18,12 @@ export type WorkerEngine = {
     budget: Record<string, unknown>,
     name: string,
   ) => { files: BakeFileLike[] };
+  /** W1 world seam: realize a declarative world spec for preview. DETERMINISTIC (no
+   *  search/attempts) — one call, one payload. The payload passes through opaquely (only
+   *  the panel reads inside it), mirroring how `worldAttempts` yields `layout`. */
+  runWorld: (spec: unknown) => unknown;
+  /** W1 world seam: bake a declarative world to a file set (uploaded via `generation.bake`). */
+  bakeWorldFiles: (spec: unknown, name: string) => BakeFileLike[];
 };
 
 /** One worldAttempts yield as the worker sees it (structural mirror of the dungeon's
@@ -50,7 +56,10 @@ export type WorkerRequest =
       config: Record<string, unknown>;
       budget: Record<string, unknown>;
       wingName: string;
-    };
+    }
+  // W1 world flow — deterministic realize + bake of a declarative world spec.
+  | { kind: "runWorld"; runId: number; spec: unknown }
+  | { kind: "bakeWorld"; runId: number; spec: unknown; name: string };
 
 export type WorkerResponse =
   | { kind: "ready" }
@@ -70,7 +79,10 @@ export type WorkerResponse =
       outcome: "placed" | "exhausted" | "error";
       message?: string;
     }
-  | { kind: "baked"; runId: number; files: BakeFileLike[] };
+  | { kind: "baked"; runId: number; files: BakeFileLike[] }
+  // W1 world realize result — the DETERMINISTIC single payload (no attempt/exhausted
+  // machinery). `bakeWorld` reuses `baked` above (its response shape is identical).
+  | { kind: "world-run"; runId: number; payload: unknown };
 
 /** Collect the distinct ArrayBuffers under a value for a postMessage transfer list.
  *  Typed-array views may ALIAS one buffer (mesh streams can share a backing store) —
@@ -201,6 +213,34 @@ export function createWorkerHandler(deps: {
           runId: msg.runId,
           outcome: placed ? "placed" : "exhausted",
         });
+      } catch (err) {
+        postError(errText(err));
+      }
+      return;
+    }
+
+    if (msg.kind === "runWorld") {
+      // Deterministic: one realize, one payload — no attempt loop. A throw (invalid spec,
+      // generator failure) surfaces as a typed done-error carrying the runId, mirroring run/bake.
+      try {
+        const payload = ext.runWorld(msg.spec);
+        deps.post(
+          { kind: "world-run", runId: msg.runId, payload },
+          collectTransferables(payload),
+        );
+      } catch (err) {
+        postError(errText(err));
+      }
+      return;
+    }
+
+    if (msg.kind === "bakeWorld") {
+      try {
+        const files = ext.bakeWorldFiles(msg.spec, msg.name);
+        deps.post(
+          { kind: "baked", runId: msg.runId, files },
+          collectTransferables(files),
+        );
       } catch (err) {
         postError(errText(err));
       }

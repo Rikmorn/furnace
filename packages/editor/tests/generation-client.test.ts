@@ -133,6 +133,56 @@ test("bake routes baked files to onBaked", () => {
   expect(baked).toEqual([1]);
 });
 
+test("runWorld inits, posts the spec, and routes world-run to onWorld", () => {
+  const { w, posts, emit, lastRunId } = fakeWorker();
+  const client = new GenerationWorkerClient(() => w);
+  const payloads: unknown[] = [];
+  client.runWorld(
+    { name: "w", seeds: ["a", "b"] },
+    { onWorld: (p) => void payloads.push(p), onError: noop },
+  );
+  expect(posts[0]).toEqual({ kind: "init", engineUrl: "/engine.js" });
+  expect(posts[1]).toMatchObject({
+    kind: "runWorld",
+    spec: { name: "w", seeds: ["a", "b"] },
+  });
+  emit({ kind: "world-run", runId: lastRunId(), payload: { regions: [] } });
+  expect(payloads).toEqual([{ regions: [] }]);
+});
+
+test("bakeWorld posts the spec + name and routes baked to onBaked", () => {
+  const { w, posts, emit, lastRunId } = fakeWorker();
+  const client = new GenerationWorkerClient(() => w);
+  const baked: number[] = [];
+  client.bakeWorld({ name: "w" }, "myworld", {
+    onBaked: (files) => void baked.push(files.length),
+    onError: noop,
+  });
+  expect(posts[1]).toMatchObject({
+    kind: "bakeWorld",
+    spec: { name: "w" },
+    name: "myworld",
+  });
+  emit({
+    kind: "baked",
+    runId: lastRunId(),
+    files: [{ path: "worlds/myworld/world.scene.json", contents: "{}" }],
+  });
+  expect(baked).toEqual([1]);
+});
+
+test("a world-run done error routes to the world handler's onError", () => {
+  const { w, emit, lastRunId } = fakeWorker();
+  const client = new GenerationWorkerClient(() => w);
+  const errors: string[] = [];
+  client.runWorld(
+    { name: "w" },
+    { onWorld: noop, onError: (m) => void errors.push(m) },
+  );
+  emit({ kind: "done", runId: lastRunId(), outcome: "error", message: "boom" });
+  expect(errors).toEqual(["boom"]);
+});
+
 test("a spawn failure is setup-loud through onError, and run() never throws (D5)", () => {
   const client = new GenerationWorkerClient(() => {
     throw new Error("worker script 404");

@@ -6,7 +6,7 @@ import type {
   ViewportHost,
 } from "../../viewport-host/index.ts";
 import type { ComponentEdit } from "../lib/api.ts";
-import type { GenerationSession } from "../lib/generation.ts";
+import type { WorldGenSession } from "../lib/generation.ts";
 import type { GenerationWorkerClient } from "../lib/generation-client.ts";
 import type { UiStore } from "../lib/persist.ts";
 import type { EditorEvent, EditorState } from "../lib/state.ts";
@@ -40,18 +40,19 @@ export type EditorActions = {
 
 /** The generation session lifted to App level so it survives the Generation panel being
  *  closed and reopened (dockview unmounts a removed panel). The panel is a pure CONSUMER:
- *  it reads `session`/`wingName` and drives them through these App-owned setters. Because
+ *  it reads `session`/`worldName` and drives them through these App-owned setters. Because
  *  the setters are App state (stable identity), an in-flight run's async setter calls land
  *  in App state even after the panel unmounts. `client` is App-owned for the same reason —
  *  a panel-local worker client would be recreated on remount, orphaning the running worker
- *  (Slice 3.2.3: run/bake on a worker; cancel = terminate, instant mid-attempt). */
+ *  (Slice 3.2.3: run/bake on a worker; cancel = terminate, instant mid-attempt). W1: the
+ *  cockpit drives the WORLD flow (runWorld/bakeWorld); the wing session/bake modules stay. */
 export type GenerationControl = {
-  session: GenerationSession;
-  setSession: Dispatch<SetStateAction<GenerationSession>>;
-  /** The bake destination (regions/<name>) — independent of generation config. */
-  wingName: string;
-  setWingName: Dispatch<SetStateAction<string>>;
-  /** The App-owned generation worker client (Slice 3.2.3): run/bake/cancel. */
+  session: WorldGenSession;
+  setSession: Dispatch<SetStateAction<WorldGenSession>>;
+  /** The bake destination (worlds/<name>) — independent of the generator seeds. */
+  worldName: string;
+  setWorldName: Dispatch<SetStateAction<string>>;
+  /** The App-owned generation worker client (Slice 3.2.3): runWorld/bakeWorld/cancel. */
   client: GenerationWorkerClient;
 };
 
