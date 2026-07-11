@@ -156,6 +156,12 @@ Non-issue.
 
 ## Probe register (predates any plan commitment — working-standards §Planning)
 
+> **EXECUTED 2026-07-10/11.** P0–P2 ran as the S2 substrate spike plus a
+> seam-closure extension; all premises held (one tracked dependency: carved-rim
+> traversal). Results, mechanisms, and the charter carry-list:
+> `docs/research/2026-07-11-voxel-substrate-spike-findings.md`. The Manifold
+> shelf spike was not needed (S2 validated).
+
 - **P0 (napkin):** existing kit dimensions (door 2.0×2.8, wall thicknesses, corridor
   widths, RING_RISE 0.25) vs candidate coarse-grid sizes; pick the architecture-grid
   resolution on paper.
