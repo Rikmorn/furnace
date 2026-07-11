@@ -4,22 +4,16 @@ import * as gpu from "@furnace/core/gpu";
 import * as input from "@furnace/core/input";
 import * as physics from "@furnace/core/physics";
 import * as post from "@furnace/core/post";
-import { loadScene } from "@furnace/core/scene";
 import { vec3, vec4 } from "@furnace/core/transform";
 import { CharacterMover, shoveDynamicBodies } from "./char-move.ts";
 import { FpController } from "./fp-controller.ts";
-import { layoutWorld } from "./layout.ts";
-import { buildGlows, buildLevel } from "./level.ts";
 import { buildMotes } from "./motes.ts";
-import { MaterialCache, realizeRegion } from "./realize.ts";
-import { bakedCavernProxy } from "./themes/cave.ts";
+import { MaterialCache } from "./realize.ts";
 import { Torch } from "./torch.ts";
-import { type LoadedWing, loadGeneratedWing } from "./wing-loader.ts";
-import { buildWorldGraph, WORLD_SEED } from "./world.ts";
+import { type LoadedWorld, loadWorld } from "./world-loader.ts";
 
 const PLAYER_CAPSULE_HALF_HEIGHT = 0.6;
 const PLAYER_CAPSULE_RADIUS = 0.3;
-const PLAYER_SPAWN: [number, number, number] = [0, 1.1, -2];
 const NOCLIP_FLY_SPEED = 6; // m/s vertical fly rate in noclip (dev tool)
 const SHOVE_SPEED = 3; // m/s push imparted to dynamic props
 const SHOVE_REACH = 0.6; // forward distance to detect a shovable prop
@@ -44,60 +38,19 @@ async function main(): Promise<void> {
   });
   const unbindCamera = camera.bindToCanvas(ctx, cam);
 
-  const level = await buildLevel(ctx);
-  const glows = await buildGlows(ctx);
   const motes = await buildMotes(ctx);
 
   const world = await physics.createWorld(ctx, {
     gravity: [0, -9.81, 0],
     lengthUnit: 1,
   });
-  // Static colliders: one fixed cuboid per level box (size/2 = half-extents).
-  for (const b of level.boxes) {
-    physics.createBody(ctx, world, {
-      type: "static",
-      shape: { cuboid: [b.size[0] / 2, b.size[1] / 2, b.size[2] / 2] },
-      position: [b.center[0], b.center[1], b.center[2]],
-    });
-  }
-  const baked = await loadScene(
-    ctx,
-    await (await fetch("/regions/region-cavern.scene.json")).json(),
-    { world, fragment: true },
-  );
-  // Cavern renders from the baked .fmesh (render-only scene); collision is a
-  // field-derived voxel proxy regenerated here (seed/origin match the bake).
-  const cavernProxy = bakedCavernProxy("cavern-1", [0, 0, -24]);
-  physics.createBody(ctx, world, {
-    type: "static",
-    shape: cavernProxy.proxy,
-    position: cavernProxy.proxyPosition,
-  });
-  // The generated world. When a baked wing is present (the cockpit froze + baked one),
-  // load it; otherwise fall back to live generation — a hand-written world GRAPH (authored
-  // chamber pinned as a collision phantom + cave wing + two ground rooms), placed by the
-  // collision-aware layout engine. The two paths produce the same runtime handle shape, so
-  // both slot into `area` and the render/update/dispose below is path-agnostic.
+  // The baked default WORLD (Epic 3 W1): the committed `worlds/default` fixture — two caves
+  // joined by an organic tunnel. `loadWorld` fragment-loads the merged render doc, re-expands
+  // every voxel proxy + dressing from provenance, and hands back the baked player spawn.
+  // Setup-loud: a missing index/manifest is a broken clone, not a fallback path.
   const matCache = new MaterialCache(ctx);
-  const wing = await loadGeneratedWing(ctx, world, matCache);
-  const area: LoadedWing[] = [];
-  if (wing) {
-    area.push(wing);
-  } else {
-    const { regions: worldRegions, connectors } = layoutWorld(
-      buildWorldGraph(WORLD_SEED),
-      WORLD_SEED,
-    );
-    // Realize SEQUENTIALLY (MaterialCache is not concurrency-safe — see its TSDoc). The
-    // authored phantom is skipped: buildLevel above already realizes the authored level;
-    // the phantom exists so the placer sees it as an obstacle.
-    for (const r of [
-      ...worldRegions.filter((r) => r.provenance.theme !== "authored"),
-      ...connectors,
-    ]) {
-      area.push(await realizeRegion(ctx, world, matCache, r));
-    }
-  }
+  const loadedWorld = await loadWorld(ctx, world, matCache);
+  const area: LoadedWorld[] = [loadedWorld];
   const areaMeshes = area.flatMap((a) => a.meshes);
   // Scattered decoration (rocks/crystals/glows) as instanced draws — one per region
   // variant group. Drawn after the opaque region meshes; emissive groups glow through
@@ -115,7 +68,7 @@ async function main(): Promise<void> {
         radius: PLAYER_CAPSULE_RADIUS,
       },
     },
-    position: PLAYER_SPAWN,
+    position: loadedWorld.playerStart,
   });
   const mover = new CharacterMover(
     { halfHeight: PLAYER_CAPSULE_HALF_HEIGHT, radius: PLAYER_CAPSULE_RADIUS },
@@ -144,6 +97,7 @@ async function main(): Promise<void> {
 
   input.attach(canvas);
   const player = new FpController();
+  player.yaw = loadedWorld.playerYaw; // face the direction the bake spawned us toward
   player.attachMouse(canvas);
   const torch = new Torch();
   const bodyPos = vec3.create();
@@ -210,13 +164,7 @@ async function main(): Promise<void> {
 
     const lights: frame.Light[] = [torch.light(playerPos, dt)];
     frame.render(ctx, {
-      meshes: [
-        ...level.meshes,
-        ...baked.meshes,
-        ...areaMeshes,
-        ...glows.meshes,
-        ...motes.meshes,
-      ],
+      meshes: [...areaMeshes, ...motes.meshes],
       instanced: areaInstanced,
       camera: cam,
       clearColor: CLEAR_COLOR,
@@ -237,9 +185,6 @@ async function main(): Promise<void> {
     input.detach();
     unbindCamera();
     motes.destroy();
-    glows.destroy();
-    level.destroy();
-    baked.destroy();
     // Order matters: each region's destroy() frees meshes/geometries that reference
     // matCache's materials, so it must run BEFORE matCache frees those materials.
     for (const a of area) a.destroy();
