@@ -19,13 +19,21 @@ clean; both off-centre wall-hug lanes cross the seams without wedge/launch. Prob
 
 ## Follow-ups
 
-- **ACTIONABLE — re-bake the committed world fixture.** `packages/dungeon/worlds/default/manifest.json`
-  still records `connectors[].radius: 0.95`, and the game loader (`world-loader.ts`
-  `createConnectorProxyBody`) re-expands the connector proxy from that BAKED radius, NOT the
-  constant. So the shipped game still loads a 0.95 tunnel and still wedges — only the in-memory
-  probe sees 1.6. The fixture must be re-baked (via the proper browser-bake path — cross-engine
-  noise/placement determinism, per the Pr-2 lesson) before the W1 world is walkable in-game.
-  **Trigger:** before gating/shipping the W1 world in the game (Task 9/10 or a dedicated re-bake).
+- **RESOLVED — committed world fixture re-baked (commit 564bbd2).** The committed
+  `packages/dungeon/worlds/default/manifest.json` had baked `connectors[].radius: 0.95`, and the
+  game loader (`world-loader.ts` `createConnectorProxyBody`) re-expands the connector proxy from
+  that BAKED radius, not the constant — so the shipped game would have kept loading a 0.95 tunnel
+  and wedging. Re-baked at 1.6 via `scripts/bake-default-world.ts` (a deterministic BUN bake), NOT
+  the browser path. **Pr-2 does not apply here**: the game LOADS the baked placement and never
+  recomputes it, and the connector COLLISION proxy re-expands in-engine at load from the manifest's
+  `radius`/`overshoot` (`organicTunnel(c.a, c.b, c.seed, {radius: c.radius, overshoot: c.overshoot})`)
+  via the same `capsuleCavern`/`voxelsFromField` sign-test path the caves already use. The only
+  V8-baked connector artifact is the render mesh (`tunnel-1-0.fmesh`), which is render-only — no
+  cross-engine PLACEMENT regeneration is involved. Same provenance class as the committed
+  `region-cavern.*` fixture, so a bun bake is correct. **Residual:** the connector proxy has only
+  been walked headless in V8 (bun-webgpu); a Safari in-engine walk is owed at the user's browser
+  gate — low risk, as it is the same sign-test collision path the caves have used, Safari-stable
+  since 2.2.1.
 
 - **DURABLE (charter) — overlapping voxel proxies pinch.** Radius-matching is a mitigation, not
   the invariant fix. Two independently-voxelised organic proxies co-existing at a seam will pinch

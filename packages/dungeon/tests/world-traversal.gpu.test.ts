@@ -115,8 +115,9 @@ type WalkOpts = {
 };
 
 /** Drive the real `CharacterMover` along one lane on the loaded world, asserting EVERY frame:
- *  no wedge/stall (`stalls < MAX_STALL_FRAMES`), no ghost-launch/teleport (single-frame
- *  displacement `< MAX_FRAME_DISP`), no fall-through / launch in Y (`minY`/`maxY` bounds).
+ *  no wedge/stall (`stalls < MAX_STALL_FRAMES`), no teleport (single-frame horizontal step
+ *  `< MAX_FRAME_HORIZ`), no upward ghost-launch (single-frame rise `< MAX_FRAME_RISE`, above one
+ *  legitimate step-up), no fall-through / launch in Y (`minY`/`maxY` bounds).
  *  Creates + destroys its own capsule body so lanes can share one loaded world. */
 function runWalk(
   ctx: Context,
