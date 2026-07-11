@@ -102,6 +102,13 @@ export async function loadWorld(
   // Boundary cast: the manifest is external JSON; assertCompatible validates it.
   const manifest = (await manifestRes.json()) as WorldManifest;
   assertCompatible(manifest);
+  // Dev-facing load banner: which bake is this? (bakedAt is deliberately absent —
+  // re-bakes are byte-deterministic — so the seeds ARE the bake's identity.)
+  console.info(
+    `world "${index.default}" loaded: ${manifest.regions.length} region(s) [${manifest.regions
+      .map((r) => `${r.id}:${r.seed}`)
+      .join(", ")}], ${manifest.connectors.length} connector(s)`,
+  );
 
   // 1) The ONE merged render-only doc → meshes (regions AND connectors, resource-key-prefixed).
   // Boundary cast: the merged scene doc is external JSON; loadScene validates it.
