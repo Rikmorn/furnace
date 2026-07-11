@@ -20,14 +20,24 @@ import {
   type SceneDocument,
 } from "@furnace/core/scene";
 import type { Placement } from "./connect.ts";
+import { TUNNEL_OVERSHOOT, TUNNEL_RADIUS } from "./connector.ts";
 import type { LayoutBudget } from "./layout.ts";
 import {
+  type Connection,
   GENERATOR_VERSION,
   type RegionCollider,
   type RegionData,
+  type Vec3,
 } from "./region.ts";
 import type { TopologyConfig } from "./topology.ts";
 import { buildWorld } from "./world.ts";
+import { type RealizedWorld, realizeWorldSpec } from "./world-build.ts";
+import type {
+  WorldConnectorSpec,
+  WorldPlacement,
+  WorldRegionSpec,
+  WorldSpec,
+} from "./world-spec.ts";
 
 /** Default wing name — the game's loader reads this well-known wing. */
 export const DEFAULT_WING_NAME = "generated-wing";
@@ -37,6 +47,9 @@ export const wingDir = (name: string): string => `regions/${name}`;
 
 /** MIGRATION-free compat: the default wing's dir (loader + existing tests). */
 export const WING_DIR = wingDir(DEFAULT_WING_NAME);
+
+/** Project-root-relative artifact dir for a named world (W1 declarative worlds). */
+export const worldDir = (name: string): string => `worlds/${name}`;
 
 // Filesystem- and URL-safe; also guarantees daemon root-containment can't be tricked.
 const WING_NAME_RE = /^[a-z0-9][a-z0-9_-]*$/i;
@@ -192,6 +205,197 @@ export function bakeWing(
     contents: JSON.stringify(manifest, null, 2),
   });
   return { files };
+}
+
+/** A baked world region's manifest entry: its provenance params + resolved placement to
+ *  re-generate + re-place the region at load, plus its world-frame cuboid colliders. Its
+ *  render-only mesh lives in the world's single merged `scene` doc, not here. */
+export type WorldRegionEntry = {
+  id: string;
+  class: "field-organic";
+  algorithm: "cave";
+  /** Single-sourced from the spec so it can't drift if `params` gains a field. */
+  params: WorldRegionSpec["params"];
+  seed: string;
+  placement: WorldPlacement;
+  /** Cuboid colliders in WORLD frame (voxels never serialize — proxies regen). */
+  cuboids: RegionCollider[];
+};
+
+/** A baked connector's manifest entry: the exact PLACED world-frame portals + tunnel opts
+ *  it was built from, so the loader re-expands the identical bore (organicTunnel is pure in
+ *  these inputs). Its mesh lives in the merged `scene` doc; its voxel proxy regenerates. */
+export type WorldConnectorEntry = {
+  id: string;
+  kind: "organic-tunnel";
+  seed: string;
+  /** The exact world-frame portals + opts the tunnel was built from (re-expansion inputs). */
+  a: Connection;
+  b: Connection;
+  radius: number;
+  overshoot: number;
+};
+
+/** The baked world's index: the single merged render-only doc, the player spawn, and the
+ *  per-region + connector re-expansion entries. `bakedAt` is intentionally OMITTED by
+ *  `bakeWorld` (a timestamp would break deterministic re-bake); a daemon may stamp it later. */
+export type WorldManifest = {
+  version: 1;
+  /** The single merged render-only doc for the whole world, project-root-relative. */
+  scene: string;
+  playerStart: Vec3;
+  playerYaw: number;
+  regions: WorldRegionEntry[];
+  connectors: WorldConnectorEntry[];
+  provenance: { generatorVersion: number; bakedAt?: string };
+};
+
+/**
+ * Bake one declarative world to a file set. Mirrors `bakeWing`'s merged-doc / sidecar /
+ * manifest-LAST shape, but sources geometry from the deterministic (search-free)
+ * `realizeWorldSpec` rather than a placement search, so no seed/attempt/deadline knobs apply.
+ *
+ * PURE and DETERMINISTIC: returns files, writes nothing, and emits no timestamp (the manifest
+ * omits `bakedAt`) — two calls with the same spec produce a byte-identical file set. Regions
+ * and connectors fold into ONE render-only `world.scene.json` (resource keys piece-prefixed);
+ * colliders ride the manifest as cuboid lists (voxel proxies regenerate at load), and each
+ * connector entry carries its placed portals + tunnel opts so the bore re-expands exactly.
+ *
+ * @param name Defaults to `spec.name`. Validated with `WING_NAME_RE` (FS/URL-safe).
+ * @throws if `name` is path-hostile; or if a region/connector/portal is missing from the
+ *   realized world (setup-loud, mirroring `bakeWing`).
+ */
+export function bakeWorld(
+  spec: WorldSpec,
+  name: string = spec.name,
+): BakeFile[] {
+  if (!WING_NAME_RE.test(name)) {
+    throw new Error(`bake: invalid world name "${name}"`);
+  }
+  const dir = worldDir(name);
+  const realized = realizeWorldSpec(spec);
+
+  const merged: MergedDoc = {
+    geometries: { g_cube: { kind: "cube" } },
+    materials: {},
+    entities: [],
+    sidecars: [],
+  };
+
+  const regions: WorldRegionEntry[] = [];
+  for (const [i, region] of spec.regions.entries()) {
+    const placed = realized.regions.get(region.id);
+    if (!placed) {
+      throw new Error(`bake: region ${region.id} missing from realized world`);
+    }
+    const resolved = realized.spec.regions[i];
+    if (!resolved) {
+      throw new Error(`bake: region ${region.id} has no resolved placement`);
+    }
+    // Order-lock: `resolved` is paired to `region` by array position (resolveSpec preserves
+    // order 1:1). Guard it so a future reorder/filter can't silently attach the wrong
+    // region's placement to the wrong id — it would fail loud here instead.
+    if (resolved.id !== region.id) {
+      throw new Error(`bake: resolved region order mismatch at ${region.id}`);
+    }
+    appendPiece(merged, dir, region.id, placed);
+    regions.push({
+      id: region.id,
+      class: region.class,
+      algorithm: region.algorithm,
+      params: region.params,
+      seed: region.seed,
+      // The RESOLVED placement — cave-b's is join-derived, NOT the [0,0,0] placeholder.
+      placement: resolved.placement,
+      cuboids: cuboidColliders(placed),
+    });
+  }
+
+  const connectors: WorldConnectorEntry[] = [];
+  for (const connector of spec.connectors) {
+    const placed = realized.connectors.get(connector.id);
+    if (!placed) {
+      throw new Error(
+        `bake: connector ${connector.id} missing from realized world`,
+      );
+    }
+    appendPiece(merged, dir, connector.id, placed);
+    connectors.push(worldConnectorEntry(connector, realized));
+  }
+
+  // Sidecars first, then the ONE merged scene doc; the manifest is pushed LAST (below).
+  const scenePath = `${dir}/world.scene.json`;
+  const doc: SceneDocument = {
+    version: CURRENT_SCENE_VERSION,
+    settings: {},
+    resources: {
+      geometries: merged.geometries,
+      shaders: { s_lit: { kind: "lit" } },
+      materials: merged.materials,
+    },
+    entities: merged.entities,
+  };
+  const files: BakeFile[] = [
+    ...merged.sidecars,
+    { path: scenePath, contents: JSON.stringify(doc, null, 2) },
+  ];
+
+  const manifest: WorldManifest = {
+    version: 1,
+    scene: scenePath,
+    playerStart: realized.playerStart,
+    playerYaw: realized.playerYaw,
+    regions,
+    connectors,
+    // No bakedAt — a timestamp would break the deterministic re-bake contract.
+    provenance: { generatorVersion: GENERATOR_VERSION },
+  };
+  // LAST — the crash-safety contract (as bakeWing): an interrupted bake leaves no manifest,
+  // so the loader falls back to live generation and a torn world never loads.
+  files.push({
+    path: `${dir}/manifest.json`,
+    contents: JSON.stringify(manifest, null, 2),
+  });
+  return files;
+}
+
+/** Reconstruct a connector's re-expansion entry: its PLACED world-frame portals (the exact
+ *  `Connection`s the tunnel was built from) plus the default tunnel opts Task 3 used. */
+function worldConnectorEntry(
+  connector: WorldConnectorSpec,
+  realized: RealizedWorld,
+): WorldConnectorEntry {
+  return {
+    id: connector.id,
+    kind: connector.kind,
+    seed: connector.seed,
+    a: placedPortal(realized, connector.a, connector.id),
+    b: placedPortal(realized, connector.b, connector.id),
+    radius: TUNNEL_RADIUS,
+    overshoot: TUNNEL_OVERSHOOT,
+  };
+}
+
+/** The placed portal a connector endpoint `[regionId, portalIndex]` resolves to. Setup-loud
+ *  (mirrors `bakeWing`'s missing-layout throws) — the realized world must contain it. */
+function placedPortal(
+  realized: RealizedWorld,
+  [regionId, portalIndex]: [string, number],
+  connectorId: string,
+): Connection {
+  const region = realized.regions.get(regionId);
+  if (!region) {
+    throw new Error(
+      `bake: connector ${connectorId} references missing region ${regionId}`,
+    );
+  }
+  const portal = region.connections[portalIndex];
+  if (!portal) {
+    throw new Error(
+      `bake: connector ${connectorId} references missing portal ${regionId}:${portalIndex}`,
+    );
+  }
+  return portal;
 }
 
 /** Cuboid-only collider list (voxel shapes are regenerated at load, never serialized). */
