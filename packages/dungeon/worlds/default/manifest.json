@@ -242,7 +242,7 @@
         "height": 2.8,
         "kind": "door"
       },
-      "radius": 0.95,
+      "radius": 1.6,
       "overshoot": 1.2
     }
   ],
