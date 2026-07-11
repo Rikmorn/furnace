@@ -20,3 +20,7 @@ This is the only package in the workspace that produces a binary.
 ## Design
 
 See `docs/reference/packaging-and-distribution.md` for the architecture (Tauri 2-style shell, wasm plugins, runtime contract) and §6 for the distribution model summary.
+
+## Packaging architecture
+
+The engine/harness principle, the npm distribution model (biome-style shim + binary), and what ships vs what stays internal: `docs/reference/packaging-and-distribution.md`. Only this package produces binaries — everything else in the workspace is TypeScript or wasm.
