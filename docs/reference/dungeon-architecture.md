@@ -15,16 +15,19 @@ The cockpit loop shipped in 3.1: generate → reroll → freeze & bake → walk.
 
 ## 2. The game (`main.ts`)
 
-- Hand-authored level from `LEVEL_BOXES` (`level.ts`; static cuboid colliders), the
-  baked cavern (render-only scene fragment + runtime voxel proxy, §5 pattern), torch
-  point light, motes, HDR `bloom→tonemap` + exponential fog (density 0.12, clear color
-  = fog color).
-- **The wing at the chamber door**: if `regions/generated-wing/manifest.json` exists,
-  `wing-loader.ts` loads the BAKED wing and live generation is skipped; otherwise the
-  live path `layoutWorld(buildWorldGraph(WORLD_SEED))` places the hand graph (authored
-  phantom + cave + two halls) at startup. The authored level participates in placement
-  as a pinned collision phantom (real colliders/bounds, empty meshes — `main.ts` owns
-  the visuals).
+- **The game boots a WORLD (3.3 W1):** `world-loader.ts loadWorld` reads
+  `worlds/index.json` → the named world's `manifest.json` → fragment-loads the ONE
+  merged `world.scene.json`, creates manifest cuboid bodies, re-expands voxel proxies
+  (caves via `caveProxy`, the tunnel connector via `organicTunnel` from its manifest
+  entry) + dressing deterministically, and spawns the player at the manifest's
+  `playerStart`/`playerYaw`. A missing index/manifest is a setup-loud throw (no live
+  fallback) — the DEFAULT world ships as committed fixtures (`worlds/default/`, the
+  `region-cavern.*` posture). A dev load banner logs world name + region seeds (the
+  bake's identity — `bakedAt` is deliberately absent for byte-deterministic re-bakes).
+- The hand-authored level (`level.ts`) and the wing path are RETIRED from `main.ts`
+  (3.3 W1); their modules and tests remain in-tree until the W4 clean-cut sweep.
+- Torch point light, motes, HDR `bloom→tonemap` + exponential fog (density 0.12,
+  clear color = fog color).
 - Player: Rapier capsule (`kinematicPosition`) driven by the custom `CharacterMover`;
   noclip dev toggle (V); shoving via `shoveDynamicBodies`.
 
@@ -189,6 +192,46 @@ OR `COCKPIT_BUDGET` (esp. `deadlineMs`) change.
   `wing.scene.json` (+ `manifest.json` + `.fmesh` sidecars); a smaller re-bake leaves no
   orphans because the daemon's `generation.bake` `rm -rf`s the previous bake dir
   (`cleanDir`) before writing.
+
+## 5b. Worlds (3.3 W1 — the go-forward model; wings above retire at W4)
+
+- **`world-spec.ts`** — `WorldSpec`: declarative regions (`class` — `field-organic`
+  this slice; `algorithm`; exact `params`; `seed`; `placement {translation, yaw}`),
+  connectors (`organic-tunnel`, joining `[regionId, portalIndex]` ends), `startRegion`.
+  `validateWorldSpec` enforces the charter rule: no region isolated (connectivity over
+  the portal graph). `DEFAULT_WORLD` = two caves + one tunnel; regions with a zeroed
+  placement that sit at a connector's `b` end get their placement DERIVED from the `a`
+  portal via `join` at `DEFAULT_TUNNEL_LENGTH` (search-free; the derived literal bakes).
+- **`connector.ts organicTunnel(a, b, seed, opts)`** — the organic↔organic connector
+  OWNS its own volume: a lattice-aligned grid around the portal segment, rock except a
+  floor-routed capsule bore overshooting both portal planes (burial seals the seams, no
+  CSG); grid CLIPPED at the door planes so bore end-caps never voxelize inside cave air
+  (locking test). **`TUNNEL_RADIUS = 1.6` MUST match the cave bore** — the W1 probe
+  found overlapping air volumes collapse the walkable envelope to their INTERSECTION
+  (0.95 tube inside a 1.6 bore = voxel ceiling pinch, wedge); radius-match is the
+  mitigation, shared-lattice/carve-union composition is the durable fix
+  (`docs/backlog/dungeon/world-connector-bore-and-overlap.md`).
+- **`world-build.ts realizeWorldSpec`** — validate → run algorithms → `placePiece` →
+  derive placements → build connectors from PLACED portals → compute `playerStart`
+  (2 m inward of the start region's portal 0, +1.1 y) — deterministic in the spec.
+- **`bake.ts bakeWorld(spec, name?)`** → `BakeFile[]` under `worlds/<name>/`: ONE
+  merged `world.scene.json` (region-id-prefixed resource keys) + `.fmesh` sidecars +
+  `WorldManifest` LAST (crash-safety, same tested contract as wings). Manifest carries
+  per-region `{class, algorithm, params, seed, placement, cuboids}` (the provenance
+  contract — voxels never serialize, proxies re-expand) + per-connector re-expansion
+  inputs `{a, b, seed, radius, overshoot}` + `playerStart`/`playerYaw`. Byte-
+  deterministic re-bake (no `bakedAt`). Browser-bakes rule unchanged (placement bakes;
+  only local-frame ops re-expand — the committed fixture is a bun bake, sound under
+  the same rule). Parity: `world-loader.gpu.test.ts` guards placement-LEVEL dressing
+  parity for the world path (mirroring `bake-dressing-parity.test.ts`).
+- **The probe of record:** `tests/world-traversal.gpu.test.ts` walks the real
+  `CharacterMover` across the FULL default-world collider set (via `loadWorld` on an
+  in-memory bake — never a subset): A→tunnel→B, reverse, wall-hug lanes across both
+  seams.
+- Editor: the Generation panel drives the WORLD flow (worker `runWorld`/`bakeWorld` —
+  deterministic, no attempts machinery; daemon `generation.bake` writes `worlds/<name>/`
+  with the same root-contained + `cleanDir` posture). Index-switching is a manual
+  `worlds/index.json` edit until W3's assembly UX.
 
 ## 6. Testing posture
 

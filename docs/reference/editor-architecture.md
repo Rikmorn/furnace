@@ -503,6 +503,21 @@ thread-vs-thread).
   two different bundle builds. When the page deliberately stays stale (a dirty
   document blocks the reload prompt), the worker stays stale WITH it.
 
+### 13.7 World flow (3.3 W1)
+
+The panel drives the WORLD flow, not the wing flow (wings retired from the shipped
+path in 3.3 W1). The protocol gained `runWorld`/`bakeWorld` request kinds (same
+runId discipline, handled by `createWorkerHandler` branches calling the consumer's
+`extensions` seam — `runWorld(spec)`/`bakeWorldFiles(spec, name)` from
+`packages/dungeon/src/editor-extensions.ts`); the client mirrors them. The world
+path is DETERMINISTIC (no attempts/envelope machinery — construction-guaranteed
+per the 3.3 charter's field-only W1 world), so the run response is a distinct
+no-attempts shape; bake reuses the baked response + the unchanged daemon upload.
+Panel knobs this slice: the two cave seeds + world name; the daemon's
+`generation.bake` was already destination-agnostic (root-contained + `cleanDir`),
+so `worlds/<name>/` destinations needed a test, not a change. Which-world-loads
+is `worlds/index.json` (manual edit until W3's assembly UX).
+
 ## 14. Slice 3.2 — editor foundation pass (Epic 3)
 
 The foundation pass that turned the M3–3.1 prototype into a usable tool, driven by an `/impeccable` critique (20/40 → 31/40; the baseline's 1×P0 + 3×P1 all resolved). **Browser-chrome only — no `@furnace/core` change.** The daemon gained one read command (`project.get`, §4) and two `SessionView` fields (`canUndo`/`canRedo`).
