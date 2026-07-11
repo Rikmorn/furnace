@@ -21,6 +21,8 @@
       "!**/graphify-out",
       "!**/.claude",
       "!**/regions/generated-wing",
+      "!**/worlds/*",
+      "**/worlds/index.json",
       "!bun.lock"
     ]
   },
