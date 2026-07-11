@@ -35,7 +35,19 @@ export type OrganicTunnelOpts = {
   overshoot?: number;
 };
 
-export const TUNNEL_RADIUS = 0.95;
+// Bore radius. Sized to MATCH the cave bore it joins (themes/cave.ts TUNNEL_R = 1.6, "sized for
+// capsule + step-up headroom"), NOT the narrower door-standard opening. The W1 world-traversal
+// probe (tests/world-traversal.gpu.test.ts) proved why: a connector and the cave it joins each
+// voxelize their own bore, and their proxies OVERLAP for several metres where the cave's mouth
+// bore overshoots into the gap. In that overlap the capsule needs air in BOTH proxies, so the
+// walkable cross-section collapses to the NARROWER of the two bores. At the old 0.95 the connector
+// bore — barely taller than the 1.8 m capsule and, once voxelised on the 0.5 m lattice, shorter
+// than it — pinched the capsule against the ceiling and wedged it at the seam, even though the
+// cave (1.6) and the connector each walked fine in isolation. Matching the cave bore keeps the
+// overlap intersection at the cave's proven width. (The seam still leans on two independently
+// voxelised proxies co-existing; a shared-lattice / carve-union composition is the durable fix —
+// tracked for the world/region charter.)
+export const TUNNEL_RADIUS = 1.6;
 export const TUNNEL_OVERSHOOT = 1.2;
 
 /** The bore's own field volume plus the grid bounding it, derived from two WORLD-frame
