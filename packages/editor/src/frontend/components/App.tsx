@@ -281,7 +281,6 @@ export function App() {
     setViewFlags((prev) => ({ ...prev, [key]: value }));
   }, []);
 
-
   // The single doc-refresh path: pull the read model, reload the viewport only
   // when (path, revision) actually advanced. Every SSE event and every locally
   // initiated change funnels through here — one code path, every client.

@@ -184,9 +184,8 @@ OR `COCKPIT_BUDGET` (esp. `deadlineMs`) change.
 - Baked output (`regions/<name>/`, default `generated-wing/` — wings are nameable) is
   user-generated content. Only the DEFAULT `regions/generated-wing/` is gitignored AND
   biome-ignored (both globs hardcode that name); a non-default `regions/<name>/` is
-  user-generated content too but is NOT yet ignore-scoped — generalizing the globs to all
-  baked wings is deferred with the worlds-index work
-  (`docs/backlog/dungeon/worlds-index-manifest.md`). Consolidated in 3.2.1 to a single
+  user-generated content too but is NOT yet ignore-scoped (the worlds-index landed in W1;
+  generalizing the wing globs remains a W4 cleanup). Consolidated in 3.2.1 to a single
   `wing.scene.json` (+ `manifest.json` + `.fmesh` sidecars); a smaller re-bake leaves no
   orphans because the daemon's `generation.bake` `rm -rf`s the previous bake dir
   (`cleanDir`) before writing.

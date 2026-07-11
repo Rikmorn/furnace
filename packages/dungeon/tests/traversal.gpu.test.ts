@@ -1,12 +1,15 @@
-// Traversal regression / fuzz harness. Builds the FULL main.ts collider world
+// Traversal regression / fuzz harness. Builds the OLD wing/live-generation collider world
 // (every LEVEL_BOXES cuboid + the baked-cavern voxel proxy + the placed world graph's
-// cave/connector/room colliders) and WALKS a capsule across it from real start
+// cave/connector/room colliders — retired from main.ts in W1, which rewired the game to
+// load worlds; this harness is self-contained and still covers that path, W4 retires it
+// with the wing path) and WALKS a capsule across it from real start
 // points, asserting the invariants the 2.2.1 gate rounds kept violating: never
 // permanently wedged on walkable floor, and no fall-through outside the designed
 // pits. The hard lesson baked in: the bug is WALK-IN only (dropping a capsule rests
 // it on top and hides the wedge), so this drives the real CharacterMover along real
 // paths — not place-and-probe. The world graph seats onto the authored level via its
-// pinned phantom node + layoutWorld, exactly as main.ts does.
+// pinned phantom node + layoutWorld, as the retired live-generation path did (main.ts
+// now loads baked worlds instead — this harness keeps exercising the old path until W4).
 import { expect, test } from "bun:test";
 import * as gpu from "@furnace/core/gpu";
 import * as physics from "@furnace/core/physics";
@@ -30,12 +33,13 @@ const SPEED = 3; // m/s walk speed, matching the game
 const MAX_STALL = 45; // ~0.75s of zero horizontal progress = a wedge
 type V3 = [number, number, number];
 
-/** The exact collider set main.ts builds: authored cuboids + the render-only cavern's
- *  regenerated voxel proxy + every collider the placed world graph emits (cave voxels +
- *  connector/room cuboids + the authored-seam corridor; the authored phantom node is
- *  skipped — LEVEL_BOXES already covers it). No GPU meshes — this is a collision-only
- *  harness. Returns the placed cave entrance so the fuzz can anchor to it. Kept in sync
- *  with main.ts. */
+/** The exact OLD collider set main.ts used to build (retired from main.ts in W1 — this
+ *  harness is self-contained and now covers only the retired wing/live-generation path,
+ *  W4 retires the test): authored cuboids + the render-only cavern's regenerated voxel
+ *  proxy + every collider the placed world graph emits (cave voxels + connector/room
+ *  cuboids + the authored-seam corridor; the authored phantom node is skipped —
+ *  LEVEL_BOXES already covers it). No GPU meshes — this is a collision-only harness.
+ *  Returns the placed cave entrance so the fuzz can anchor to it. */
 async function buildFullWorld() {
   const canvas = await makeOffscreenCanvas();
   const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });

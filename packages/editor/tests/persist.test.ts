@@ -35,27 +35,8 @@ test("keys are independent — setting one preserves the others", () => {
   const store = createUiStore(fakeStorage(), "/p");
   store.set("lastScene", "scenes/a.scene.json");
   store.set("recentScenes", ["scenes/a.scene.json"]);
-  store.set("seedHistory", [{ attemptSeed: "wing-1", baseSeed: "wing-1" }]);
   expect(store.get("lastScene")).toBe("scenes/a.scene.json");
   expect(store.get("recentScenes")).toEqual(["scenes/a.scene.json"]);
-  expect(store.get("seedHistory")).toEqual([
-    { attemptSeed: "wing-1", baseSeed: "wing-1" },
-  ]);
-});
-
-test("seedHistory round-trips through the store (the lifted session's durable slice)", () => {
-  const store = createUiStore(fakeStorage(), "/p");
-  const long = Array.from({ length: 60 }, (_, i) => ({
-    attemptSeed: `wing-1#${i}`,
-    baseSeed: "wing-1",
-  }));
-  // The App write site caps at 50 before persisting; the store stores exactly that.
-  store.set("seedHistory", long.slice(0, 50));
-  expect(store.get("seedHistory")).toHaveLength(50);
-  expect(store.get("seedHistory")?.[0]).toEqual({
-    attemptSeed: "wing-1#0",
-    baseSeed: "wing-1",
-  });
 });
 
 test("a missing key reads as undefined", () => {

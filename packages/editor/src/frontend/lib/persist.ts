@@ -12,7 +12,7 @@ import type { ViewFlags } from "../../viewport-host/index.ts"; // type-only: era
 const VERSION = 1;
 
 /** The full persisted UI state. Fields are independent — each caller reads/writes its
- *  own key. Some are wired in Task 6 (layout, lastScene, seedHistory, recentScenes);
+ *  own key. Some are wired in Task 6 (layout, lastScene, recentScenes);
  *  cameraByDoc/viewFlags/inspectorCollapse are declared here so the store contract is
  *  complete, but their read/write points land in later tasks (8/9/10). */
 export type UiState = {
@@ -32,8 +32,6 @@ export type UiState = {
   // App merges over DEFAULT_VIEW_FLAGS on read. Partial states what's actually guaranteed.
   viewFlags?: Partial<ViewFlags>;
   inspectorCollapse?: Record<string, boolean>;
-  /** Generation reroll history (most recent first); caller caps at 50 before writing. */
-  seedHistory?: { attemptSeed: string; baseSeed: string }[];
   /** Recently opened scenes (most recent first); caller caps at 8 before writing. */
   recentScenes?: string[];
 };
