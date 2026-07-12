@@ -26,7 +26,10 @@ export const PIECE_BOX: Record<PieceId, [number, number, number]> = {
   ceilTile: [CELL - 2 * PANEL_REVEAL, PANEL_PROUD, CELL - 2 * PANEL_REVEAL],
   post: [0.1, CELL, 0.1],
   jamb: [0.1, 3.0, 0.1],
-  lintel: [2.0 + 0.2, 0.1, 0.1],
+  // Door width + jamb cover on local +Z, like `tread`: FACE_YAW seats a piece's
+  // local +X onto the door NORMAL, so a lintel spanning its own local +X would
+  // skewer the doorway instead of bridging it.
+  lintel: [0.1, 0.1, 2.0 + 0.2],
   tread: [CELL, 0.25, 2.0], // one stair step: 0.5 run x 0.25 rise x door width
   rimPostV: [COLLAR_SECTION, CELL, COLLAR_SECTION],
   rimEdgeH: [CELL, COLLAR_SECTION, COLLAR_SECTION],
