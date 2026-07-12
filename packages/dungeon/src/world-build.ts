@@ -8,6 +8,7 @@
 // and register mutations (open-door / carve) on the regions they touch; each grid region
 // then rasterizes → carves → skins → collars → patches → collides into its final
 // RegionData and is placed. Cave regions keep the W1 single-step path (place at generate).
+import { create as makeRng } from "@furnace/core/rng";
 import { join, placeConnection, placePiece } from "./connect.ts";
 import { organicTunnel } from "./connector.ts";
 import {
@@ -24,9 +25,11 @@ import type {
   MaterialDescriptor,
   RegionData,
   RegionMesh,
+  ScatterLayerSpec,
   Vec3,
 } from "./region.ts";
 import { GENERATOR_VERSION } from "./region.ts";
+import { instanceGroupsFromLayers, rectsSurface } from "./scatter.ts";
 import type { CarveVolume } from "./substrate/carve.ts";
 import { prepareCarve } from "./substrate/carve.ts";
 import { collarInstances } from "./substrate/collar.ts";
@@ -65,8 +68,53 @@ const PATCH_ROCK: MaterialDescriptor = {
   color: [0.5, 0.5, 0.52, 1],
   specular: [0.02, 0.02, 0.02, 8],
 };
-export const SUBSTRATE_MATERIALS = [...KIT_MATERIALS, PATCH_ROCK];
+/** Dressing stock: a shovable crate (dynamic) and floor rubble (ghost). Two materials,
+ *  mirroring the cave's lit-floor posture split. */
+const DRESSING_CRATE: MaterialDescriptor = {
+  color: [0.45, 0.4, 0.35, 1],
+  specular: [0.05, 0.05, 0.05, 16],
+};
+const DRESSING_RUBBLE: MaterialDescriptor = {
+  color: [0.4, 0.38, 0.34, 1],
+  specular: [0.03, 0.03, 0.03, 10],
+};
+export const SUBSTRATE_MATERIALS = [
+  ...KIT_MATERIALS,
+  PATCH_ROCK,
+  DRESSING_CRATE,
+  DRESSING_RUBBLE,
+];
 export const MAT_PATCH_ROCK = KIT_MATERIALS.length;
+export const MAT_DRESSING_CRATE = KIT_MATERIALS.length + 1;
+export const MAT_DRESSING_RUBBLE = KIT_MATERIALS.length + 2;
+
+/** Hall floor dressing (Task 13): sparse SHOVABLE crates + dense ghost rubble, scattered
+ *  over the stamp's anchors (interior minus pillar surrounds minus door lanes — the lanes
+ *  keep every walk-through path clear of a dynamic body). `scatter()` reads `spacing.min`
+ *  as the blue-noise radius. */
+const HALL_DRESSING_LAYERS: ScatterLayerSpec[] = [
+  {
+    name: "hallCrates",
+    geometry: { primitive: "cube" },
+    posture: "lit",
+    material: DRESSING_CRATE,
+    target: "floor",
+    collision: "dynamic",
+    spacing: { min: 1.6, max: 2.6 },
+    scale: { min: 0.35, max: 0.6 },
+    tint: { rgb: [0.5, 0.45, 0.38], jitter: 0.1 },
+  },
+  {
+    name: "hallRubble",
+    geometry: { primitive: "cube" },
+    posture: "lit",
+    material: DRESSING_RUBBLE,
+    target: "floor",
+    spacing: { min: 0.9, max: 1.6 },
+    scale: { min: 0.1, max: 0.25 },
+    tint: { rgb: [0.5, 0.46, 0.4], jitter: 0.12 },
+  },
+];
 
 /** Coincidence tolerance for an aperture's two portals (m) and their anti-parallel facings. */
 const APERTURE_COINCIDE_EPS = 1e-6;
@@ -158,9 +206,25 @@ export function expandGridRegion(
     const [i, j, k] = parseCellKey(cellKey);
     for (let f = 0; f < 6; f++) suppressed.add(faceKey(i, j, k, f));
   }
+  // Per-call material table. `instanceGroupsFromLayers` APPENDS to the array it is given
+  // (deduping by descriptor). Today the dressing descriptors are already in
+  // SUBSTRATE_MATERIALS, so they dedupe onto MAT_DRESSING_CRATE / MAT_DRESSING_RUBBLE and
+  // nothing is actually appended — but the copy keeps every RegionData.materials from
+  // ALIASING the shared module const, and stays correct if a future layer ever introduces
+  // an unregistered descriptor (which WOULD append, and would corrupt the shared table).
+  const materials = [...SUBSTRATE_MATERIALS];
   const instances = [
     ...skinGrid(coarse, doors, seed, suppressed),
     ...(suppressed.size > 0 ? [collarInstances(coarse, suppressed, seed)] : []),
+    // Dressing rides on the FINISHED shell: anchors are the stamp's dressable floor
+    // (interior minus pillar surrounds minus door lanes), scattered with the region seed.
+    ...instanceGroupsFromLayers(
+      rectsSurface(stamp.anchors),
+      HALL_DRESSING_LAYERS,
+      makeRng(seed).derive("dressing"),
+      [],
+      materials,
+    ),
   ];
   const meshes: RegionMesh[] = carve.patch
     ? [
@@ -180,7 +244,7 @@ export function expandGridRegion(
         position: voxelProxyPosition(cfg, [0, 0, 0]),
       },
     ],
-    materials: SUBSTRATE_MATERIALS,
+    materials,
     connections: stamp.portals,
     instances,
     origin: [0, 0, 0],

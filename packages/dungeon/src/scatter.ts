@@ -78,18 +78,23 @@ export function meshSurface(md: MeshData): SampleableSurface {
   };
 }
 
-/** A flat axis-aligned floor rectangle as a `SampleableSurface` — for box-room
- *  themes that scatter on a plane instead of a Surface-Nets mesh. Samples
- *  uniformly across the rect at height `y`; the surface normal is always +Y so
- *  `scatter`'s floor slope-mask accepts it. The XZ-extent is `[minX,maxX] ×
- *  [z0,z1]`. */
-export function rectSurface(rect: {
+/** A flat axis-aligned floor rectangle: the XZ-extent `[minX,maxX] × [z0,z1]` at
+ *  height `y`. The scatter anchor primitive for flat-floored themes (box rooms,
+ *  grid halls) — see {@link rectSurface} / {@link rectsSurface}. */
+export type FloorRect = {
   minX: number;
   maxX: number;
   z0: number;
   z1: number;
   y: number;
-}): SampleableSurface {
+};
+
+/** A flat axis-aligned floor rectangle as a `SampleableSurface` — for box-room
+ *  themes that scatter on a plane instead of a Surface-Nets mesh. Samples
+ *  uniformly across the rect at height `y`; the surface normal is always +Y so
+ *  `scatter`'s floor slope-mask accepts it. The XZ-extent is `[minX,maxX] ×
+ *  [z0,z1]`. */
+export function rectSurface(rect: FloorRect): SampleableSurface {
   const w = rect.maxX - rect.minX;
   const d = rect.z1 - rect.z0;
   const halfArea = (w * d) / 2;
@@ -100,6 +105,26 @@ export function rectSurface(rect: {
       position: [rect.minX + r1 * w, rect.y, rect.z0 + r2 * d],
       normal: [0, 1, 0],
     }),
+  };
+}
+
+/** A SET of disjoint floor rects as ONE area-weighted `SampleableSurface` (each rect
+ *  contributes the two triangles of {@link rectSurface}, so the area CDF spreads
+ *  samples across the rects in proportion to their area). Grid halls scatter over an
+ *  anchor set — the interior minus pillar surrounds minus door lanes — not a single
+ *  floor rect. An empty set is a zero-triangle surface (`scatter` returns no
+ *  instances). */
+export function rectsSurface(rects: FloorRect[]): SampleableSurface {
+  const surfs = rects.map(rectSurface);
+  const at = (t: number): SampleableSurface => {
+    const s = surfs[t >> 1];
+    if (!s) throw new Error(`scatter: rect surface ${t >> 1} out of range`);
+    return s;
+  };
+  return {
+    triCount: 2 * surfs.length,
+    area: (t) => at(t).area(t & 1),
+    sample: (t, r1, r2) => at(t).sample(t & 1, r1, r2),
   };
 }
 

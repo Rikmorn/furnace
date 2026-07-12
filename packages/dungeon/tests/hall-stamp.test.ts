@@ -1,7 +1,20 @@
 // tests/hall-stamp.test.ts
 import { expect, test } from "bun:test";
+import { TUNNEL_RADIUS } from "../src/connector.ts";
+import { CARVE_DEPTH } from "../src/connector-built.ts";
+import type { FloorRect } from "../src/scatter.ts";
 import { AIR, CELL, coarseGet, MASONRY } from "../src/substrate/grid.ts";
-import { HALL_PRESETS, type HallParams, hall } from "../src/themes/hall.ts";
+import {
+  DOOR_LANE_DEPTH,
+  HALL_PRESETS,
+  type HallParams,
+  hall,
+} from "../src/themes/hall.ts";
+import {
+  expandGridRegion,
+  MAT_DRESSING_CRATE,
+  MAT_DRESSING_RUBBLE,
+} from "../src/world-build.ts";
 
 const P: HallParams = {
   size: [8, 8, 12], // interior cells w(x) x h(y) x d(z) = 4m x 4m x 6m
@@ -84,4 +97,81 @@ test("determinism: same params+seed → byte-identical stamp", () => {
   const a = hall(P, "same");
   const b = hall(P, "same");
   expect([...a.coarse.cells]).toEqual([...b.coarse.cells]);
+});
+
+// --- Task 13: floor dressing (anchors + scatter layers) ---------------------
+
+/** A 12x12-cell interior on a spacing-4 pillar lattice, with one south door at
+ *  offset 4. Grid pillars land on coarse (i,k) ∈ {4,8}²; the door's cells are
+ *  i∈[5,8] on the k=0 shell, so its portal centre is x=3.5 on the z=0 plane. */
+const DRESSED: HallParams = {
+  size: [12, 8, 12],
+  pillars: { kind: "grid", spacing: 4 },
+  doors: [{ wall: "south", offset: 4 }],
+};
+
+const inAnchor = (anchors: FloorRect[], x: number, z: number): boolean =>
+  anchors.some((r) => x >= r.minX && x <= r.maxX && z >= r.z0 && z <= r.z1);
+
+test("anchors: on the floor plane, avoid pillar surrounds and door lanes", () => {
+  const s = hall(DRESSED, "dress");
+  expect(s.anchors.length).toBeGreaterThan(0);
+  for (const r of s.anchors) {
+    expect(r.y).toBe(0); // floor top
+    expect(r.maxX).toBeGreaterThan(r.minX);
+    expect(r.z1).toBeGreaterThan(r.z0);
+  }
+  // A cell centre one cell away from the (4,4) pillar (its 1-cell surround):
+  expect(inAnchor(s.anchors, 2.75, 2.25)).toBe(false); // cell (5,4)
+  expect(inAnchor(s.anchors, 2.25, 2.75)).toBe(false); // cell (4,5)
+  // The pillar cell itself:
+  expect(inAnchor(s.anchors, 2.25, 2.25)).toBe(false); // cell (4,4)
+  // A point in the south door's lane (2.0 m wide about x=3.5, 3.0 m inward of z=0):
+  expect(inAnchor(s.anchors, 3.5, 1.5)).toBe(false);
+  // …but open floor clear of both IS anchored (cell (2,2)).
+  expect(inAnchor(s.anchors, 1.25, 1.25)).toBe(true);
+});
+
+test("dressing: expandGridRegion emits crate + rubble layers over the anchors", () => {
+  const s = hall(DRESSED, "dress");
+  const region = expandGridRegion(s, [0], [], "dress");
+  const crates = region.instances.filter(
+    (g) => g.material === MAT_DRESSING_CRATE,
+  );
+  const rubble = region.instances.filter(
+    (g) => g.material === MAT_DRESSING_RUBBLE,
+  );
+  expect(crates.length).toBe(1);
+  expect(rubble.length).toBe(1);
+  const crate = crates[0];
+  const rub = rubble[0];
+  if (!crate || !rub) throw new Error("no dressing group");
+  expect(crate.collision).toBe("dynamic"); // shovable
+  expect(crate.transforms.length).toBeGreaterThan(0); // non-vacuous: crates were placed
+  expect(crate.placements?.length).toBe(crate.transforms.length / 16);
+  expect(rub.collision).toBeUndefined(); // ghost
+  expect(rub.transforms.length).toBeGreaterThan(0);
+});
+
+test("door lane clears the collar-bore carve reach (no dressing over carved void)", () => {
+  // Anchors are computed PRE-carve, so a door's dressing-free lane is the ONLY thing
+  // keeping crates off floor that a collar-bore later carves away. The bore reaches
+  // CARVE_DEPTH + TUNNEL_RADIUS inward of the door plane; the lane must cover at least
+  // that, or a crate could spawn over the void. These constants live in three files with
+  // nothing else tying them together — this is that tie.
+  expect(DOOR_LANE_DEPTH).toBeGreaterThanOrEqual(CARVE_DEPTH + TUNNEL_RADIUS);
+});
+
+test("dressing determinism: same params+seed → byte-identical transforms", () => {
+  const a = expandGridRegion(hall(DRESSED, "dress"), [0], [], "dress");
+  const b = expandGridRegion(hall(DRESSED, "dress"), [0], [], "dress");
+  const dressing = (r: typeof a) =>
+    r.instances
+      .filter(
+        (g) =>
+          g.material === MAT_DRESSING_CRATE ||
+          g.material === MAT_DRESSING_RUBBLE,
+      )
+      .map((g) => [...g.transforms]);
+  expect(dressing(a)).toEqual(dressing(b));
 });

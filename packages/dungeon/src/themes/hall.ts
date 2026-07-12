@@ -4,10 +4,12 @@
 // consume — D-W2-9), flat floor, pillar lattice, door-class portals on the
 // OUTER shell plane with EXACT cardinal facings (integer/lattice math only).
 import type { Connection, Vec3 } from "../region.ts";
+import type { FloorRect } from "../scatter.ts";
 import {
   AIR,
   CELL,
   type CoarseGrid,
+  coarseGet,
   coarseSet,
   createCoarse,
   MASONRY,
@@ -29,10 +31,26 @@ export type HallStamp = {
    *  pairs with doorSpecs[i]. */
   portals: Connection[];
   doorSpecs: DoorSpec[];
+  /** Dressable floor: the interior floor plane (LOCAL frame, world units, y=0) MINUS
+   *  every solid column's 1-cell surround (pillars AND the shell wall ring) MINUS each
+   *  door's walk lane. `world-build.ts` scatters the hall's dressing layers over these
+   *  (see {@link floorAnchors}). */
+  anchors: FloorRect[];
 };
 
 export const DOOR_W_CELLS = 4; // 2.0 m
 export const DOOR_H_CELLS = 6; // 3.0 m
+
+/** How far inward of a door's outer shell plane its dressing-free walk lane runs (m). */
+export const DOOR_LANE_DEPTH = 3.0;
+/** How wide that lane is (m) — the door opening (`DOOR_W_CELLS * CELL`). */
+const DOOR_LANE_WIDTH = DOOR_W_CELLS * CELL;
+/** The interior floor plane in local frame: coarse j=0 is the floor slab (min.y = -CELL),
+ *  so the first interior cell layer (j=1) rests at y=0. */
+const FLOOR_Y = 0;
+/** The coarse height layer the anchor scan reads: the first interior layer above the
+ *  floor, i.e. what a crate standing on the floor would occupy. */
+const FLOOR_LAYER_J = 1;
 
 /** Exact outward normals per wall — no trig, no dust. */
 const WALL_NORMAL: Record<HallWall, Vec3> = {
@@ -69,7 +87,93 @@ export function hall(params: HallParams, seed: string): HallStamp {
     doorSpecs.push(spec);
   }
   void seed; // structure is params-determined; seed feeds skin variants later
-  return { coarse, portals, doorSpecs };
+  return {
+    coarse,
+    portals,
+    doorSpecs,
+    anchors: floorAnchors(coarse, [w, d], portals),
+  };
+}
+
+/** An XZ rectangle in the hall's local frame — the door-lane footprint a cell is tested
+ *  against. */
+type Lane = { x0: number; x1: number; z0: number; z1: number };
+
+/** One door's walk lane: `DOOR_LANE_WIDTH` across the portal's lateral axis, running
+ *  `DOOR_LANE_DEPTH` INWARD (against the portal's outward facing) from its outer shell
+ *  plane. Cardinal facings only (exact ±1 components) — no trig, no dust. */
+function doorLane(p: Connection): Lane {
+  const half = DOOR_LANE_WIDTH / 2;
+  const [px, , pz] = p.position;
+  if (p.facing[2] !== 0) {
+    const inward = pz - p.facing[2] * DOOR_LANE_DEPTH;
+    return {
+      x0: px - half,
+      x1: px + half,
+      z0: Math.min(pz, inward),
+      z1: Math.max(pz, inward),
+    };
+  }
+  const inward = px - p.facing[0] * DOOR_LANE_DEPTH;
+  return {
+    x0: Math.min(px, inward),
+    x1: Math.max(px, inward),
+    z0: pz - half,
+    z1: pz + half,
+  };
+}
+
+/** Whether coarse column `(i,k)` is dressable: its floor-layer cell and all eight of its
+ *  floor-layer neighbours are AIR. Off-grid reads MASONRY (grid.ts), so this excludes the
+ *  1-cell surround of every pillar AND the wall-hugging ring — a crate's half-extent (up
+ *  to 0.3 m) can then never spawn inside masonry. */
+function columnFree(g: CoarseGrid, i: number, k: number): boolean {
+  for (let dk = -1; dk <= 1; dk++)
+    for (let di = -1; di <= 1; di++)
+      if (coarseGet(g, i + di, FLOOR_LAYER_J, k + dk) !== AIR) return false;
+  return true;
+}
+
+/** Whether coarse column `(i,k)`'s floor footprint overlaps any door lane (touching edges
+ *  do not count — the lane is a half-open footprint). */
+function inAnyLane(i: number, k: number, lanes: Lane[]): boolean {
+  const x0 = i * CELL;
+  const x1 = x0 + CELL;
+  const z0 = k * CELL;
+  const z1 = z0 + CELL;
+  return lanes.some((l) => x0 < l.x1 && x1 > l.x0 && z0 < l.z1 && z1 > l.z0);
+}
+
+/** The dressable floor rectangles of a stamped hall: scan the interior columns at the
+ *  floor layer, keep the ones that are {@link columnFree} and clear of every door lane,
+ *  and merge each row's contiguous run of keepers into one rect (fewer, larger rects →
+ *  a cheaper area CDF for `scatter`). Deterministic: pure integer/lattice math. */
+function floorAnchors(
+  g: CoarseGrid,
+  interior: [number, number],
+  portals: Connection[],
+): FloorRect[] {
+  const [w, d] = interior;
+  const lanes = portals.map(doorLane);
+  const out: FloorRect[] = [];
+  for (let k = 1; k <= d; k++) {
+    let runStart = -1;
+    for (let i = 1; i <= w + 1; i++) {
+      const keep = i <= w && columnFree(g, i, k) && !inAnyLane(i, k, lanes);
+      if (keep && runStart < 0) runStart = i;
+      if (!keep && runStart >= 0) {
+        out.push({
+          minX: runStart * CELL,
+          maxX: i * CELL,
+          z0: k * CELL,
+          z1: (k + 1) * CELL,
+          y: FLOOR_Y,
+        });
+        runStart = -1;
+      }
+    }
+  }
+  return out;
 }
 
 function stampPillars(g: CoarseGrid, p: HallParams): void {
