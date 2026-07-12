@@ -1,9 +1,10 @@
 // packages/dungeon/tests/world-build.test.ts
 import { expect, test } from "bun:test";
 import { forwardVector } from "../src/fp-controller.ts";
-import type { Aabb, Vec3 } from "../src/region.ts";
+import type { Aabb, RegionData, Vec3 } from "../src/region.ts";
 import { realizeWorldSpec } from "../src/world-build.ts";
 import { DEFAULT_TUNNEL_LENGTH, DEFAULT_WORLD } from "../src/world-spec.ts";
+import { HALL_CAVE, TWO_HALLS } from "./_helpers/world-fixtures.ts";
 
 const sub = (a: Vec3, b: Vec3): Vec3 => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
 const dot = (a: Vec3, b: Vec3): number =>
@@ -88,4 +89,58 @@ test("player faces the tunnel (playerYaw looks along the start portal's outward 
   if (!doorA) throw new Error("missing placed cave-a door");
 
   expect(dot(forwardVector(w.playerYaw, 0), doorA.facing)).toBeCloseTo(1, 6);
+});
+
+test("realize hall↔cave: hall has kit instances, patch mesh, voxel collider", () => {
+  const w = realizeWorldSpec(HALL_CAVE);
+  const hall = w.regions.get("hall-a");
+  if (!hall) throw new Error("hall missing");
+  expect(hall.instances.length).toBeGreaterThan(0); // kit skin + collar
+  expect(hall.meshes.length).toBe(1); // the carve patch
+  expect(hall.colliders.some((c) => "voxels" in c.shape)).toBe(true);
+  expect(w.connectors.get("bore-1")?.colliders.length).toBe(1);
+  // The cave's derived placement was written back (not the placeholder):
+  const resolved = w.spec.regions.find((r) => r.id === "cave-b");
+  expect(resolved?.placement.translation).not.toEqual([0, 0, 0]);
+});
+
+test("realize is deterministic: two runs byte-identical", () => {
+  const a = realizeWorldSpec(HALL_CAVE);
+  const b = realizeWorldSpec(HALL_CAVE);
+  const hallA = a.regions.get("hall-a");
+  const hallB = b.regions.get("hall-a");
+  expect(JSON.stringify(a.spec)).toBe(JSON.stringify(b.spec));
+  expect([...(hallA?.instances[0]?.transforms ?? [])]).toEqual([
+    ...(hallB?.instances[0]?.transforms ?? []),
+  ]);
+});
+
+test("corridor world: derived placement lattice-snapped, doors opened, tube collides", () => {
+  const w = realizeWorldSpec(TWO_HALLS);
+  const resolved = w.spec.regions.find((r) => r.id === "hall-b");
+  if (!resolved) throw new Error("hall-b missing");
+  for (const t of resolved.placement.translation) {
+    expect(t).toBe(Math.round(t / 0.5) * 0.5);
+  }
+  expect(resolved.placement.yaw % (Math.PI / 2)).toBe(0);
+  expect(resolved.placement.translation[1]).toBeCloseTo(1.5, 10); // deltaY carried
+  const corr = w.connectors.get("corr-1");
+  expect(corr?.colliders.some((c) => "voxels" in c.shape)).toBe(true);
+  // Both halls' shells were OPENED (open-door at finalize): the same hall-a
+  // expanded with its portal left SEALED (no connectors) skins a different count.
+  const first = TWO_HALLS.regions[0];
+  // Narrow to the grid variant so the spread below keeps the class↔params
+  // correlation (a bare union spread loses it). hall-a IS grid-built — never throws.
+  if (!first || first.class !== "grid-built") throw new Error("fixture broken");
+  const sealed = realizeWorldSpec({
+    name: "sealed-control",
+    regions: [{ ...first, params: { ...first.params } }],
+    connectors: [],
+    startRegion: "hall-a",
+  });
+  const count = (r?: RegionData): number =>
+    (r?.instances ?? []).reduce((n, g) => n + g.transforms.length / 16, 0);
+  expect(count(w.regions.get("hall-a"))).not.toBe(
+    count(sealed.regions.get("hall-a")),
+  );
 });
