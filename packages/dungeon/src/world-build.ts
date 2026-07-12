@@ -122,6 +122,10 @@ const HALL_DRESSING_LAYERS: ScatterLayerSpec[] = [
 const APERTURE_COINCIDE_EPS = 1e-6;
 const APERTURE_FACING_EPS = 1e-6;
 
+/** Dust tolerance for region-volume overlap (m): flush faces (an aperture pair
+ *  shares exactly a plane) pass; anything past dust on ALL three axes throws. */
+const REGION_OVERLAP_EPS = 1e-6;
+
 /** The fully realized world: the resolved spec (derived placements baked in), the placed
  *  region + connector geometry, and where/which-way the player starts. */
 export type RealizedWorld = {
@@ -629,6 +633,8 @@ export function realizeWorldSpec(spec: WorldSpec): RealizedWorld {
     placed.set(region.id, placePiece(local, resolved));
   }
 
+  assertDisjointRegionVolumes(placed);
+
   const startPlaced = placed.get(spec.startRegion);
   const pStart = startPlaced?.connections[0];
   if (!pStart) {
@@ -668,5 +674,41 @@ function assertApertureSeam(id: string, pA: Connection, pB: Connection): void {
     throw new Error(
       `world: aperture ${id} portals are not anti-parallel (dot ${facingDot.toFixed(4)})`,
     );
+  }
+}
+
+/** Charter §2.2 world validation: region volumes are DISJOINT (AABB-level). Runs on
+ *  the PLACED RegionData bounds — placePiece owns the placement math, so this stays
+ *  single-sourced with how regions actually land (W3 plan refinement 1). Flush
+ *  contact is legal; interior overlap beyond dust on all three axes is a spec error.
+ *  Connector volumes are exempt: they interpenetrate regions by design (extendA,
+ *  bore overshoot). */
+function assertDisjointRegionVolumes(placed: Map<string, RegionData>): void {
+  const entries = [...placed];
+  for (let i = 0; i < entries.length; i++) {
+    for (let j = i + 1; j < entries.length; j++) {
+      const [idA, a] = entries[i] as [string, RegionData];
+      const [idB, b] = entries[j] as [string, RegionData];
+      const ox =
+        Math.min(a.bounds.max[0], b.bounds.max[0]) -
+        Math.max(a.bounds.min[0], b.bounds.min[0]);
+      const oy =
+        Math.min(a.bounds.max[1], b.bounds.max[1]) -
+        Math.max(a.bounds.min[1], b.bounds.min[1]);
+      const oz =
+        Math.min(a.bounds.max[2], b.bounds.max[2]) -
+        Math.max(a.bounds.min[2], b.bounds.min[2]);
+      if (
+        ox > REGION_OVERLAP_EPS &&
+        oy > REGION_OVERLAP_EPS &&
+        oz > REGION_OVERLAP_EPS
+      ) {
+        throw new Error(
+          `world: regions ${idA} and ${idB} overlap ` +
+            `(${ox.toFixed(3)}×${oy.toFixed(3)}×${oz.toFixed(3)} m interpenetration) — ` +
+            `move a placement or shorten a connector`,
+        );
+      }
+    }
   }
 }

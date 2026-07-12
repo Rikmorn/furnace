@@ -2,6 +2,7 @@
 import { expect, test } from "bun:test";
 import { forwardVector } from "../src/fp-controller.ts";
 import type { Aabb, RegionData, Vec3 } from "../src/region.ts";
+import { HALL_PRESETS } from "../src/themes/hall.ts";
 import { realizeWorldSpec } from "../src/world-build.ts";
 import {
   DEFAULT_TUNNEL_LENGTH,
@@ -193,6 +194,59 @@ test("aperture derivation seats the derived region FLUSH: portals coincide (D-W3
   const hallB = realized.spec.regions.find((r) => r.id === "hall-b");
   expect(hallB?.placement.translation).toEqual([-5, 0, 1.5]);
   expect(hallB?.placement.yaw).toBe(0);
+});
+
+test("disjoint volumes: overlapping regions throw setup-loud, naming the pair", () => {
+  // A hall and a cave EXPLICITLY placed on top of each other, joined by a bore
+  // (the bore builds fine between any two portals — only the volume check objects).
+  const overlapping: WorldSpec = {
+    name: "overlap",
+    regions: [
+      {
+        id: "hall-a",
+        class: "grid-built",
+        algorithm: "hall",
+        params: {
+          ...HALL_PRESETS.boxRoom,
+          doors: [{ wall: "east", offset: 2 }],
+        },
+        seed: "t:ov-h",
+        placement: { translation: [0, 0, 0], yaw: 0 },
+      },
+      {
+        id: "cave-b",
+        class: "field-organic",
+        algorithm: "cave",
+        params: { mouths: 1 },
+        seed: "t:ov-c",
+        placement: { translation: [1, 0, 0], yaw: 0 }, // dead on top of the hall
+      },
+    ],
+    connectors: [
+      {
+        id: "bore-1",
+        kind: "collar-bore",
+        a: ["hall-a", 0],
+        b: ["cave-b", 0],
+        seed: "t:ov-b",
+      },
+    ],
+    startRegion: "hall-a",
+  };
+  expect(() => realizeWorldSpec(overlapping)).toThrow(
+    /hall-a and cave-b overlap/,
+  );
+});
+
+test("disjoint volumes: the flush aperture pair passes (zero interior overlap)", () => {
+  const realized = realizeWorldSpec(MAZE_APERTURE); // must NOT throw
+  const a = realized.regions.get("maze-a");
+  const b = realized.regions.get("hall-b");
+  if (!a || !b) throw new Error("fixture regions missing");
+  const overlapX =
+    Math.min(a.bounds.max[0], b.bounds.max[0]) -
+    Math.max(a.bounds.min[0], b.bounds.min[0]);
+  expect(overlapX).toBeCloseTo(0, 9); // they share exactly the door plane
 });
 
 test("W3 plug point: a maze region realizes through the same grid pipeline as halls", () => {
