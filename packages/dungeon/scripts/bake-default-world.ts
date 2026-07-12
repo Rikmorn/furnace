@@ -1,6 +1,7 @@
 // packages/dungeon/scripts/bake-default-world.ts
-// Bake the committed default WORLD fixture (Epic 3 W1): the two-cave-plus-tunnel
-// DEFAULT_WORLD → the tracked `worlds/default/` file set the game boots at runtime.
+// Bake the committed default WORLD fixture (Epic 3 W1): the phase-gate DEFAULT_WORLD
+// (halls + stair corridor + maze + aperture + collar-bore cave) → the tracked
+// `worlds/default/` file set the game boots at runtime.
 // `bakeWorld` is PURE + DETERMINISTIC (no timestamp), so re-running this writes
 // byte-identical files — a `git status` diff after a re-bake is a determinism bug.
 // Run (from packages/dungeon): bun scripts/bake-default-world.ts

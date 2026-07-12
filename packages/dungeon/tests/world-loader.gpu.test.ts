@@ -25,10 +25,12 @@ import { HALL_CAVE } from "./_helpers/world-fixtures.ts";
 // W1 Task 6: the GAME-side world loader mirrors wing-loader against the world manifest.
 // The core NEW behaviour vs wings: a connector carries NO cuboids, so its collision is a VOXEL
 // PROXY re-expanded at load — a bore from (a, b, seed, radius, overshoot), a corridor from
-// `buildCorridor(a, b, seed)`. As of W2 Task 14 `DEFAULT_WORLD` is the GATE WORLD (two grid halls
-// + a cave, joined by a stair corridor and a collar-bore), so the gpu round-trip asserts exactly
-// 5 voxel bodies (hall-a, hall-b, cave-c, corridor-1, bore-1 — every one re-expanded, none
-// serialized). The non-skipped parity test guards CAVE dressing re-derivation at PLACEMENT level
+// `buildCorridor(a, b, seed)`. As of W3 Task 10 `DEFAULT_WORLD` is the PHASE-GATE WORLD (two grid
+// halls + a maze + a cave, joined by a stair corridor, a collar-bore and an aperture), so the gpu
+// round-trip asserts exactly 6 voxel bodies (hall-a, maze-1, hall-b, cave-c, corridor-1, bore-1 —
+// every one re-expanded, none serialized). The APERTURE contributes NO body at all: it is a pure
+// hole, geometry-free by contract, so a regression that gave it a volume shows up here as 7.
+// The non-skipped parity test guards CAVE dressing re-derivation at PLACEMENT level
 // (the 3.1 lesson: count-level parity passed while placements differed); grid dressing is not
 // baked at all, so it has nothing to re-derive against.
 
@@ -81,7 +83,7 @@ const isRecord = (v: unknown): v is Record<string, unknown> =>
   typeof v === "object" && v !== null;
 
 test.skipIf(!bunWebGpuAvailable())(
-  "loadWorld: fragment scene + deterministic re-expansion (5 voxel proxies) + baked spawn + setup-loud throws",
+  "loadWorld: fragment scene + deterministic re-expansion (6 voxel proxies) + baked spawn + setup-loud throws",
   async () => {
     const canvas = await makeOffscreenCanvas();
     const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
@@ -120,13 +122,14 @@ test.skipIf(!bunWebGpuAvailable())(
       expect(loaded.playerStart).toEqual(manifest.playerStart);
       expect(loaded.playerYaw).toBe(manifest.playerYaw);
 
-      // (c) EXACTLY 5 voxel bodies for the gate world — one per region + one per volumetric
-      // connector, none of them serialized: hall-a + hall-b (grid proxies re-expanded through
-      // `expandGridRegionFromEntry`), cave-c (field proxy re-expanded from params/seed),
-      // corridor-1 (tube re-expanded via `buildCorridor`) and bore-1 (bore re-expanded from its
-      // placed portals + radius/overshoot). A dropped re-expansion shows up here as 4.
+      // (c) EXACTLY 6 voxel bodies for the gate world — one per region + one per VOLUMETRIC
+      // connector, none of them serialized: hall-a + maze-1 + hall-b (grid proxies re-expanded
+      // through `expandGridRegionFromEntry` — both grid vocabularies), cave-c (field proxy
+      // re-expanded from params/seed), corridor-1 (tube re-expanded via `buildCorridor`) and
+      // bore-1 (bore re-expanded from its placed portals + radius/overshoot). aperture-1 is a
+      // pure hole and contributes NONE. A dropped re-expansion shows up here as 5.
       const voxelBodies = shapes.filter((s) => isRecord(s) && "voxels" in s);
-      expect(voxelBodies.length).toBe(5);
+      expect(voxelBodies.length).toBe(6);
 
       loaded.destroy();
 

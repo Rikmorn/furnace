@@ -192,19 +192,19 @@ export function validateWorldSpec(spec: WorldSpec): void {
  *  from cave A's mouth via join-math at this distance (world-build.ts). */
 export const DEFAULT_TUNNEL_LENGTH = 8;
 
-/** THE GATE WORLD (W2 Task 14) — the committed default the game boots and the
- *  player walks. It exercises BOTH region classes and BOTH built connector kinds
- *  in one graph: a grid-built pillar hall (the start) climbs a stair corridor
- *  into a small box room, and bores sideways through a collar into a
- *  field-organic cave.
+/** THE GATE WORLD (W3) — the committed default the game boots and the PHASE-GATE bar
+ *  walks: hall → stair corridor → maze → collar-bore → cave, plus a box room flush
+ *  against the maze through the aperture (its first shipped use). Exercises BOTH
+ *  region classes, BOTH grid vocabularies, and ALL THREE built connector kinds.
  *
- *  Portal indexing follows `params.doors` order: `hall-a` portal 0 is its NORTH
- *  door (consumed by `corridor-1`), portal 1 its EAST door (consumed by `bore-1`).
+ *  Portal indexing follows `params.doors` order. maze-1: portal 0 = south (corridor-1),
+ *  portal 1 = east (bore-1), portal 2 = west (aperture-1).
  *
- *  `hall-b` and `cave-c` carry PLACEHOLDER (all-zero) placements — world-build.ts
- *  derives each from the connector that reaches it (deterministic, no search:
- *  the corridor carries `length`/`deltaY`, the bore its axis). The DERIVED
- *  placements are what bake into the manifest. */
+ *  Derived placements (hand-checked lattice math, baked into the manifest):
+ *  maze-1 [-1, 1.5, 15] (via corridor-1: 6 m, +1.5 m stairs), hall-b [-6, 1.5, 19]
+ *  (via aperture-1 at length 0 — flush), cave-c derived 8 m off maze-1's east door.
+ *  Connector ORDER matters: derivation resolves in insertion order, so corridor-1
+ *  (which places maze-1) precedes the two connectors that derive off maze-1. */
 export const DEFAULT_WORLD: WorldSpec = {
   name: "default",
   regions: [
@@ -214,16 +214,26 @@ export const DEFAULT_WORLD: WorldSpec = {
       algorithm: "hall",
       params: {
         ...HALL_PRESETS.pillarHall,
-        doors: [
-          { wall: "north", offset: 3 }, // portal 0 — corridor-1
-          // Offset 5 seats the door centre at z=4.0, BETWEEN the colonnade's
-          // pillar slots (k=3,6,9,…): offset 6 put a pillar dead on the bore
-          // axis — rejected by the stamper's door-lane validation.
-          { wall: "east", offset: 5 }, // portal 1 — bore-1
-        ],
+        doors: [{ wall: "north", offset: 3 }], // portal 0 — corridor-1
       },
       seed: "world-default:a",
       placement: { translation: [0, 0, 0], yaw: 0 },
+    },
+    {
+      id: "maze-1",
+      class: "grid-built",
+      algorithm: "maze",
+      params: {
+        cells: [4, 4],
+        braid: 0.15,
+        doors: [
+          { wall: "south", offset: 1 }, // portal 0 — corridor-1 (from hall-a)
+          { wall: "east", offset: 2 }, // portal 1 — bore-1 (to cave-c)
+          { wall: "west", offset: 2 }, // portal 2 — aperture-1 (to hall-b)
+        ],
+      },
+      seed: "world-default:m",
+      placement: { translation: [0, 0, 0], yaw: 0 }, // derived via corridor-1
     },
     {
       id: "hall-b",
@@ -231,10 +241,10 @@ export const DEFAULT_WORLD: WorldSpec = {
       algorithm: "hall",
       params: {
         ...HALL_PRESETS.boxRoom,
-        doors: [{ wall: "south", offset: 2 }],
+        doors: [{ wall: "east", offset: 2 }],
       },
       seed: "world-default:b",
-      placement: { translation: [0, 0, 0], yaw: 0 }, // derived via corridor-1
+      placement: { translation: [0, 0, 0], yaw: 0 }, // derived via aperture-1
     },
     {
       id: "cave-c",
@@ -250,16 +260,23 @@ export const DEFAULT_WORLD: WorldSpec = {
       id: "corridor-1",
       kind: "corridor",
       a: ["hall-a", 0],
-      b: ["hall-b", 0],
+      b: ["maze-1", 0],
       seed: "world-default:t1",
-      params: { length: 6, deltaY: 1.5 }, // Task 12 proved this flight walks up AND down
+      params: { length: 6, deltaY: 1.5 }, // the W2-proven flight
     },
     {
       id: "bore-1",
       kind: "collar-bore",
-      a: ["hall-a", 1],
+      a: ["maze-1", 1],
       b: ["cave-c", 0],
       seed: "world-default:t2",
+    },
+    {
+      id: "aperture-1",
+      kind: "aperture",
+      a: ["maze-1", 2],
+      b: ["hall-b", 0],
+      seed: "world-default:t3",
     },
   ],
   startRegion: "hall-a",

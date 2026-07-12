@@ -107,13 +107,13 @@ describe("bakeWorld", () => {
     if (!hallA) throw new Error("missing placed hall-a");
     expect(insideAabb(hallA.bounds, manifest.playerStart)).toBe(true);
 
-    expect(manifest.regions.length).toBe(3);
+    expect(manifest.regions.length).toBe(4);
     const byClass = (c: string) =>
       manifest.regions.filter((r) => r.class === c);
     // Precondition teeth: the gate world really does carry both classes, so neither loop below
     // can pass vacuously.
     expect(byClass("field-organic").length).toBe(1);
-    expect(byClass("grid-built").length).toBe(2);
+    expect(byClass("grid-built").length).toBe(3); // hall-a, maze-1, hall-b
     for (const r of byClass("field-organic")) {
       expect(r.cuboids.length).toBeGreaterThan(0);
     }
@@ -132,8 +132,10 @@ describe("bakeWorld", () => {
     const manifest = manifestOf(bakeWorld(DEFAULT_WORLD));
     const realized = realizeWorldSpec(DEFAULT_WORLD);
 
-    // hall-b's and cave-c's placements are join-derived, NOT the [0,0,0] spec placeholders.
-    for (const id of ["hall-b", "cave-c"]) {
+    // maze-1's, hall-b's and cave-c's placements are join-derived, NOT the [0,0,0] spec
+    // placeholders (hall-b's comes through the length-0 APERTURE, so "derived" here also
+    // means "flush against the maze", not "8 m away").
+    for (const id of ["maze-1", "hall-b", "cave-c"]) {
       const baked = manifest.regions.find((r) => r.id === id);
       const derived = realized.spec.regions.find((r) => r.id === id);
       if (!baked || !derived) throw new Error(`missing ${id} entry`);
@@ -144,19 +146,27 @@ describe("bakeWorld", () => {
     // Each connector's a/b are the PLACED world-frame portals its volume was built from.
     const corridor = manifest.connectors.find((c) => c.id === "corridor-1");
     const bore = manifest.connectors.find((c) => c.id === "bore-1");
-    if (!corridor || !bore) throw new Error("missing connector entries");
+    const aperture = manifest.connectors.find((c) => c.id === "aperture-1");
+    if (!corridor || !bore || !aperture) {
+      throw new Error("missing connector entries");
+    }
     expect(corridor.a).toEqual(placedPortal(realized, "hall-a", 0));
-    expect(corridor.b).toEqual(placedPortal(realized, "hall-b", 0));
-    expect(bore.a).toEqual(placedPortal(realized, "hall-a", 1));
+    expect(corridor.b).toEqual(placedPortal(realized, "maze-1", 0));
+    expect(bore.a).toEqual(placedPortal(realized, "maze-1", 1));
     expect(bore.b).toEqual(placedPortal(realized, "cave-c", 0));
+    expect(aperture.a).toEqual(placedPortal(realized, "maze-1", 2));
+    expect(aperture.b).toEqual(placedPortal(realized, "hall-b", 0));
 
-    // Kind union: the collar-bore carries the TUNNEL_* opts it was built with; the corridor,
-    // a pure grid join, carries no bore opts at all.
+    // Kind union: the collar-bore carries the TUNNEL_* opts it was built with; the corridor
+    // and the aperture, pure grid joins, carry no bore opts at all.
     expect(bore.kind).toBe("collar-bore");
     expect(corridor.kind).toBe("corridor");
+    expect(aperture.kind).toBe("aperture");
     expectBoreOpts(bore);
-    expect("radius" in corridor).toBe(false);
-    expect("overshoot" in corridor).toBe(false);
+    for (const c of [corridor, aperture]) {
+      expect("radius" in c).toBe(false);
+      expect("overshoot" in c).toBe(false);
+    }
   });
 
   // (vii) ORGANIC-TUNNEL bake entry (TWO_CAVES). The gate world has no organic tunnel, but

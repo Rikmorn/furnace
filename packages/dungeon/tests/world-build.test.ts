@@ -107,26 +107,27 @@ test("player faces the start portal (playerYaw looks along its outward facing)",
   expect(dot(forwardVector(w.playerYaw, 0), door.facing)).toBeCloseTo(1, 6);
 });
 
-// GATE WORLD shape-lock: the committed default composes BOTH region classes and BOTH built
-// connector kinds, and the player starts in the grid-built hall. If a future edit quietly
-// reduced it back to a single class, the traversal probe would still pass while the world the
-// player boots stopped exercising the seam this slice exists to prove.
-test("DEFAULT_WORLD (gate world) realizes both classes + both built connector kinds", () => {
+// GATE WORLD shape-lock (W3): the committed default composes BOTH region classes, BOTH grid
+// vocabularies and ALL THREE built connector kinds, and the player starts in the grid-built
+// hall. If a future edit quietly reduced it, the traversal probe would still pass while the
+// world the player boots stopped exercising the seams this slice exists to prove.
+test("DEFAULT_WORLD (gate world) realizes both classes, both grid vocabularies, all three built connectors", () => {
   const w = realizeWorldSpec(DEFAULT_WORLD);
-  expect(
-    w.regions.get("hall-a")?.colliders.some((c) => "voxels" in c.shape),
-  ).toBe(true);
-  expect(
-    w.regions.get("hall-b")?.colliders.some((c) => "voxels" in c.shape),
-  ).toBe(true);
-  expect(
-    w.regions.get("cave-c")?.colliders.some((c) => "voxels" in c.shape),
-  ).toBe(true);
-  // Both built connectors carry real collision (the corridor tube + the bore).
+  for (const id of ["hall-a", "maze-1", "hall-b", "cave-c"]) {
+    expect(w.regions.get(id)?.colliders.some((c) => "voxels" in c.shape)).toBe(
+      true,
+    );
+  }
+  // Both VOLUMETRIC built connectors carry real collision (the corridor tube + the bore).
   expect(w.connectors.get("corridor-1")?.colliders.length).toBeGreaterThan(0);
   expect(w.connectors.get("bore-1")?.colliders.length).toBeGreaterThan(0);
-  // The stair corridor's deltaY landed hall-b a storey up (Task 12's proven flight).
+  // The aperture is a pure hole: it opens both doors and builds NO volume of its own.
+  expect(w.connectors.has("aperture-1")).toBe(false);
+  // The stair corridor's deltaY landed maze-1 a storey up (W2 Task 12's proven flight), and
+  // the length-0 aperture seats hall-b FLUSH against it — same storey, no second climb.
+  const maze = w.spec.regions.find((r) => r.id === "maze-1");
   const hallB = w.spec.regions.find((r) => r.id === "hall-b");
+  expect(maze?.placement.translation[1]).toBeCloseTo(1.5, 10);
   expect(hallB?.placement.translation[1]).toBeCloseTo(1.5, 10);
 });
 

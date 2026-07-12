@@ -26,10 +26,6 @@
           {
             "wall": "north",
             "offset": 3
-          },
-          {
-            "wall": "east",
-            "offset": 5
           }
         ]
       },
@@ -39,6 +35,42 @@
           0,
           0,
           0
+        ],
+        "yaw": 0
+      },
+      "cuboids": []
+    },
+    {
+      "id": "maze-1",
+      "class": "grid-built",
+      "algorithm": "maze",
+      "params": {
+        "cells": [
+          4,
+          4
+        ],
+        "braid": 0.15,
+        "doors": [
+          {
+            "wall": "south",
+            "offset": 1
+          },
+          {
+            "wall": "east",
+            "offset": 2
+          },
+          {
+            "wall": "west",
+            "offset": 2
+          }
+        ]
+      },
+      "seed": "world-default:m",
+      "placement": {
+        "translation": [
+          -1,
+          1.5,
+          15
         ],
         "yaw": 0
       },
@@ -59,7 +91,7 @@
         },
         "doors": [
           {
-            "wall": "south",
+            "wall": "east",
             "offset": 2
           }
         ]
@@ -67,9 +99,9 @@
       "seed": "world-default:b",
       "placement": {
         "translation": [
-          0.5,
+          -6,
           1.5,
-          15
+          19
         ],
         "yaw": 0
       },
@@ -85,9 +117,9 @@
       "seed": "world-default:c",
       "placement": {
         "translation": [
-          22.880397150479258,
-          2,
-          4.000000000000001
+          26.380397150479258,
+          3.5,
+          21.5
         ],
         "yaw": 3.141592653589793
       },
@@ -101,9 +133,9 @@
             ]
           },
           "position": [
-            14,
-            2,
-            2.3
+            17.5,
+            3.5,
+            19.799999999999997
           ],
           "rotation": [
             0,
@@ -121,9 +153,9 @@
             ]
           },
           "position": [
-            14,
-            2,
-            5.699999999999999
+            17.5,
+            3.5,
+            23.2
           ],
           "rotation": [
             0,
@@ -141,9 +173,9 @@
             ]
           },
           "position": [
-            14,
-            3.4,
-            4
+            17.5,
+            4.9,
+            21.5
           ],
           "rotation": [
             0,
@@ -161,9 +193,9 @@
             ]
           },
           "position": [
-            14,
-            -0.1499999999999999,
-            4
+            17.5,
+            1.35,
+            21.5
           ],
           "rotation": [
             0,
@@ -214,7 +246,7 @@
         0
       ],
       "bRef": [
-        "hall-b",
+        "maze-1",
         0
       ],
       "kind": "corridor"
@@ -224,9 +256,9 @@
       "seed": "world-default:t2",
       "a": {
         "position": [
-          6,
-          0,
-          4
+          9.5,
+          1.5,
+          21.5
         ],
         "facing": [
           1,
@@ -239,9 +271,9 @@
       },
       "b": {
         "position": [
-          14,
-          0,
-          4
+          17.5,
+          1.5,
+          21.5
         ],
         "facing": [
           -1,
@@ -253,7 +285,7 @@
         "kind": "door"
       },
       "aRef": [
-        "hall-a",
+        "maze-1",
         1
       ],
       "bRef": [
@@ -264,6 +296,49 @@
       "radius": 1.6,
       "overshoot": 1.2,
       "extendA": 0.5
+    },
+    {
+      "id": "aperture-1",
+      "seed": "world-default:t3",
+      "a": {
+        "position": [
+          -1,
+          1.5,
+          21.5
+        ],
+        "facing": [
+          -1,
+          0,
+          0
+        ],
+        "width": 2,
+        "height": 3,
+        "kind": "door"
+      },
+      "b": {
+        "position": [
+          -1,
+          1.5,
+          21.5
+        ],
+        "facing": [
+          1,
+          0,
+          0
+        ],
+        "width": 2,
+        "height": 3,
+        "kind": "door"
+      },
+      "aRef": [
+        "maze-1",
+        2
+      ],
+      "bRef": [
+        "hall-b",
+        0
+      ],
+      "kind": "aperture"
     }
   ],
   "provenance": {
