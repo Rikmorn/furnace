@@ -21,6 +21,7 @@ import {
 } from "@furnace/core/scene";
 import type { Placement } from "./connect.ts";
 import { TUNNEL_OVERSHOOT, TUNNEL_RADIUS } from "./connector.ts";
+import { BORE_SHELL_EXTENSION } from "./connector-built.ts";
 import type { LayoutBudget } from "./layout.ts";
 import {
   type Connection,
@@ -256,13 +257,17 @@ type WorldConnectorEntryBase = {
 };
 
 /** An organic-tunnel (cave↔cave) or collar-bore (grid↔cave) connector: both re-expand
- *  their voxel proxy from `organicTunnel(a, b, seed, {radius, overshoot})` at load (which is
- *  symmetric in a/b), so both carry the explicit bore opts. Their render mesh rides the
- *  merged `scene` doc as W1's organic-tunnel does. */
+ *  their voxel proxy from `organicTunnel(a, b, seed, {radius, overshoot, extendA})` at load
+ *  (symmetric in a/b except `extendA`, which extends the A end only), so both carry the
+ *  explicit bore opts — recorded, not re-derived from constants, so a bake re-expands
+ *  faithfully even if a default later changes. `extendA` is the collar-bore's built-shell
+ *  band extension (0 for organic-tunnel); its A end is ALWAYS the door-side portal. Their
+ *  render mesh rides the merged `scene` doc as W1's organic-tunnel does. */
 export type WorldBoreConnectorEntry = WorldConnectorEntryBase & {
   kind: "organic-tunnel" | "collar-bore";
   radius: number;
   overshoot: number;
+  extendA: number;
 };
 
 /** A corridor or aperture connector: pure grid joins with NO bore opts. A corridor
@@ -447,6 +452,7 @@ function worldConnectorEntry(
       kind: connector.kind,
       radius: TUNNEL_RADIUS,
       overshoot: TUNNEL_OVERSHOOT,
+      extendA: connector.kind === "collar-bore" ? BORE_SHELL_EXTENSION : 0,
     };
   }
   return { ...base, kind: connector.kind };

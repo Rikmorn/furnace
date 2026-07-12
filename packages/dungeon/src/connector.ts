@@ -33,6 +33,16 @@ export type OrganicTunnelOpts = {
   radius?: number;
   /** How far the bore overshoots past each portal plane into the neighbour (m). */
   overshoot?: number;
+  /** Metres the GRID (render mesh AND proxy) extends past the A-end portal plane
+   *  INTO the A region. Default 0 — at an organic mouth the NEIGHBOUR's own mesh
+   *  owns that side and interpenetration seals the seam. A collar-bore sets the
+   *  BUILT shell thickness (0.5): the tube wall then renders THROUGH the wall
+   *  band and buries into the hall's carve patch, sealing the seam ring the W2
+   *  gate saw as a gap (two smoothed SN rims meeting edge-to-edge at the door
+   *  plane never line up vertex-for-vertex). MUST NOT exceed the wall thickness:
+   *  beyond it the tunnel's rock-outside-tube voxels would intrude into the
+   *  region's interior air as invisible collision. */
+  extendA?: number;
 };
 
 // Bore radius. Sized to MATCH the cave bore it joins (themes/cave.ts TUNNEL_R = 1.6, "sized for
@@ -80,12 +90,17 @@ export function tunnelGeometry(
   );
   // The grid bounds the door-plane-to-door-plane bore: the raised (un-overshot) door centres,
   // clipped at the doors along the bore axis and padded on the two perpendicular axes.
-  const grid = tunnelGrid(
-    raisedCenter(a, radius),
-    raisedCenter(b, radius),
-    radius,
-    boreAxis(a),
-  );
+  // `extendA` pushes the A-end grid bound PAST the door plane into the A region (see
+  // OrganicTunnelOpts) — the field's 1.2 m overshoot keeps the tube full-radius there, and
+  // the rounded end-cap (a further `radius` beyond the overshoot) stays outside the grid.
+  const axis = boreAxis(a);
+  const rA = raisedCenter(a, radius);
+  const rB = raisedCenter(b, radius);
+  const extendA = opts.extendA ?? 0;
+  if (extendA > 0) {
+    rA[axis] += Math.sign(rA[axis] - rB[axis]) * extendA;
+  }
+  const grid = tunnelGrid(rA, rB, radius, axis);
   return { field, grid };
 }
 

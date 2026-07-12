@@ -40,6 +40,15 @@ export const CARVE_DEPTH = 0.7;
  *  cylinder through the region's grid edge so the patch field's off-grid
  *  inside-the-carve rule reads the opening as continuing air (no lid). */
 export const CARVE_OUTER = 0.5;
+/** How far the collar-bore TUNNEL's grid extends past the door plane into the
+ *  built shell band (m) = exactly the 0.5 wall: the tube wall renders through
+ *  the wall thickness and buries into the carve patch (interpenetration seals
+ *  the seam ring — the W1 mouth pattern applied to the built side). Exactly the
+ *  shell and no more: in that band the tunnel's rock-outside-tube coincides
+ *  with hall masonry (or the carved opening, whose cylinder radius equals the
+ *  tube's on the same lattice), so no invisible collision and no W1-class
+ *  pinch; one cell further would put tunnel rock inside interior room air. */
+export const BORE_SHELL_EXTENSION = 0.5;
 /** The proven riser height (m) = one FINE cell — the tread render box caps
  *  exactly `lift` fine cells of collision fill, so the riser MUST be FINE. */
 export const STAIR_RISE = FINE;
@@ -282,6 +291,10 @@ export function collarBore(
 ): { tunnel: RegionData; carve: CarveVolume } {
   const radius = opts.radius ?? TUNNEL_RADIUS;
   const overshoot = opts.overshoot ?? TUNNEL_OVERSHOOT;
-  const tunnel = organicTunnel(doorPortal, mouth, seed, { radius, overshoot });
+  const tunnel = organicTunnel(doorPortal, mouth, seed, {
+    radius,
+    overshoot,
+    extendA: BORE_SHELL_EXTENSION,
+  });
   return { tunnel, carve: collarBoreCarve(doorPortal, { radius }) };
 }

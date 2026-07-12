@@ -262,7 +262,8 @@
       ],
       "kind": "collar-bore",
       "radius": 1.6,
-      "overshoot": 1.2
+      "overshoot": 1.2,
+      "extendA": 0.5
     }
   ],
   "provenance": {

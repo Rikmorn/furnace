@@ -165,5 +165,9 @@ describe("bakeWorld (grid class)", () => {
     // Connector entries carry endpoint refs for load-side mutation grouping:
     const bore = manifest.connectors.find((c) => c.id === "bore-1");
     expect(bore?.aRef).toEqual(["hall-a", 0]);
+    // Recorded re-expansion inputs (never re-derived from constants at load):
+    // the collar-bore carries its built-shell band extension; organic tunnels
+    // stay clipped at both planes.
+    expect(bore?.kind === "collar-bore" && bore.extendA).toBe(0.5);
   });
 });

@@ -316,6 +316,7 @@ function createConnectorProxyBody(
   const tunnel = organicTunnel(c.a, c.b, c.seed, {
     radius: c.radius,
     overshoot: c.overshoot,
+    extendA: c.extendA,
   });
   const col = tunnel.colliders[0];
   if (!col) {

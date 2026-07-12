@@ -1,6 +1,8 @@
 // tests/connector-built.test.ts
 import { expect, test } from "bun:test";
+import { organicTunnel } from "../src/connector.ts";
 import {
+  BORE_SHELL_EXTENSION,
   buildCorridor,
   CARVE_DEPTH,
   CARVE_OUTER,
@@ -140,4 +142,40 @@ test("stair treads seat their 2.0m door-width ACROSS the corridor (yaw not inver
     for (let i = 0; i < g.transforms.length; i += 16)
       localZOnWorldX.push(Math.abs(g.transforms[i + 8] as number));
   expect(localZOnWorldX.some((x) => Math.abs(x - 2.0) < 1e-3)).toBe(true);
+});
+
+// W2 gate round 2: the collar-bore tunnel's grid extends into the built shell
+// band so its tube wall renders THROUGH the wall thickness and buries into the
+// carve patch (interpenetration seals the seam ring — the W1 mouth pattern).
+// Exactly the shell (BORE_SHELL_EXTENSION = 0.5) and no further: past it the
+// tunnel's rock-outside-tube would intrude into interior room air.
+test("collarBore tunnel mesh enters the shell band; plain organicTunnel stays clipped", () => {
+  const d = door([0, 0, 0], [0, 0, -1]); // door plane z=0, hall interior is +Z
+  const mouth: Connection = {
+    position: [0, 0, -8],
+    facing: [0, 0, 1],
+    width: 3.2,
+    height: 3.2,
+    kind: "tunnel-mouth",
+  };
+  const maxZ = (r: {
+    meshes: { geometry: { custom?: { positions: Float32Array } } | object }[];
+  }): number => {
+    let m = Number.NEGATIVE_INFINITY;
+    for (const mesh of r.meshes) {
+      if (!("custom" in mesh.geometry) || !mesh.geometry.custom) continue;
+      const pos = mesh.geometry.custom.positions;
+      for (let i = 2; i < pos.length; i += 3) m = Math.max(m, pos[i] as number);
+    }
+    return m;
+  };
+  const { tunnel } = collarBore(d, mouth, "t1");
+  const collarBoreMax = maxZ(tunnel);
+  // INTO the band (past the door plane toward the hall interior)…
+  expect(collarBoreMax).toBeGreaterThan(0.05);
+  // …but never past the shell into room air.
+  expect(collarBoreMax).toBeLessThanOrEqual(BORE_SHELL_EXTENSION + 1e-6);
+  // The plain organic tunnel (no extendA) keeps the W1 door-plane clip.
+  const plain = organicTunnel(d, mouth, "t1");
+  expect(maxZ(plain)).toBeLessThanOrEqual(1e-6);
 });
