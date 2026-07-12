@@ -138,9 +138,14 @@ function carvePlan(
  *  ones can appear. The probability draw is an exact power-of-two division of the
  *  integer stream — no float noise; the divisor is 0x1000000, NOT 0xFFFFFF, so the
  *  draw is half-open [0, 1): that is precisely what makes braid=1 open EVERY dead
- *  end (a draw can never reach 1.0 and skip one). The guard is `!(braid > 0)`, not
- *  `braid <= 0`, so a NaN braid fails SAFE to a perfect maze instead of full-braiding
- *  (every NaN comparison is false, so `>= braid` would never skip). */
+ *  end (a draw can never reach 1.0 and skip one).
+ *
+ *  The guard is `!(braid > 0)`, not `braid <= 0`: under a NaN braid every comparison is
+ *  false, so `>= braid` would never skip and the maze would FULL-braid — `!(braid > 0)`
+ *  fails safe to a perfect maze instead. That is a module-internal fail-safe, NOT the
+ *  public contract: {@link maze} REJECTS a non-finite braid setup-loud before `braidPass`
+ *  is ever reached, so a NaN can only arrive here via `carvePlanForTest`, which bypasses
+ *  that validation. The public contract is "NaN braid → throw". */
 function braidPass(
   open: Set<EdgeKey>,
   mx: number,
