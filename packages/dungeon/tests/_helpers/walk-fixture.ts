@@ -1,9 +1,11 @@
 // Shared GPU walk harness (W2 Task 10) — the constants, bake/fetch plumbing, per-frame
 // drive loop, and world-loading fixture that world-traversal.gpu.test.ts and the W2 interior
 // / seam probes share. Lifted VERBATIM from world-traversal.gpu.test.ts so the forward-lane
-// semantics (no wedge/stall, no teleport, no ghost-launch, no fall-through) are byte-identical;
-// `withLoadedWorld` is the one generalization — it now bakes ANY `WorldSpec` (was
-// DEFAULT_WORLD-only) so a probe can load its own fixture world.
+// semantics (no wedge/stall, no teleport, no ghost-launch, no fall-through) are byte-identical.
+// Two generalizations for the probes: `withLoadedWorld` bakes ANY `WorldSpec` (was
+// DEFAULT_WORLD-only), and `runWalk` gains an `expectStop` into-obstacle mode (drives the full
+// budget WITHOUT the stall assert / early break, keeping the per-frame teleport/launch/
+// fall-through guards) so a lane can drive INTO a wall and assert the stop.
 import { expect } from "bun:test";
 import type { Context } from "@furnace/core/gpu";
 import * as gpu from "@furnace/core/gpu";
@@ -91,8 +93,9 @@ export type WalkOpts = {
   /** Unit horizontal direction the capsule walks. */
   dir: Vec3;
   /** `pos·dir` past which the lane stops early (well beyond the target, so per-frame asserts
-   *  cover the whole seam without walking into a far wall). */
-  stopAlong: number;
+   *  cover the whole seam without walking into a far wall). Omit for `expectStop` lanes (they
+   *  drive the full budget) — defaults to no early break. */
+  stopAlong?: number;
   /** Floor guard: `minY` must stay above this (no fall-through). */
   floorY: number;
   /** Ceiling guard: `maxY` must stay below this (no launch up). */
@@ -100,12 +103,19 @@ export type WalkOpts = {
   /** Iteration budget (default `MAX_ITERS`). Off-centre lanes grind slowly through the cave's
    *  shovable dressing, so they need a larger budget than the centre lanes. */
   maxIters?: number;
+  /** A lane that walks straight INTO an obstacle SHOULD stall (the wall stopping it is the
+   *  point). When set, `runWalk` drives the full `maxIters` budget WITHOUT the no-stall assert
+   *  and ignores `stopAlong`; the per-frame teleport / ghost-launch / fall-through guards still
+   *  hold. The caller asserts where the mover settled (`res.pos` / `res.advanced`). */
+  expectStop?: boolean;
 };
 
 /** Drive the real `CharacterMover` along one lane on the loaded world, asserting EVERY frame:
  *  no wedge/stall (`stalls < MAX_STALL_FRAMES`), no teleport (single-frame horizontal step
  *  `< MAX_FRAME_HORIZ`), no upward ghost-launch (single-frame rise `< MAX_FRAME_RISE`, above one
- *  legitimate step-up), no fall-through / launch in Y (`minY`/`maxY` bounds).
+ *  legitimate step-up), no fall-through / launch in Y (`minY`/`maxY` bounds). With
+ *  `opts.expectStop`, the no-stall assert + the `stopAlong` early-break are skipped so a lane
+ *  can walk into a wall and settle (the caller asserts the stop); the other guards still hold.
  *  Creates + destroys its own capsule body so lanes can share one loaded world. */
 export function runWalk(
   ctx: Context,
@@ -150,11 +160,17 @@ export function runWalk(
     maxY = Math.max(maxY, pos[1]);
     expect(minY).toBeGreaterThan(opts.floorY); // (c) no fall-through
     expect(maxY).toBeLessThan(opts.ceilY); // (c) no launch up
-    const progressed = horizStep > 0.005;
-    stalls = progressed ? 0 : stalls + 1;
-    expect(stalls).toBeLessThan(MAX_STALL_FRAMES); // (a) never wedged
+    // A lane walking INTO a wall legitimately stalls; expectStop lanes drive the full budget
+    // and let the caller assert where the mover settled. Forward lanes keep the exact
+    // no-stall + stopAlong-break semantics.
+    if (!opts.expectStop) {
+      const progressed = horizStep > 0.005;
+      stalls = progressed ? 0 : stalls + 1;
+      expect(stalls).toBeLessThan(MAX_STALL_FRAMES); // (a) never wedged
 
-    if (along(pos, dir) > opts.stopAlong) break;
+      if (opts.stopAlong !== undefined && along(pos, dir) > opts.stopAlong)
+        break;
+    }
   }
   physics.destroyBody(ctx, body);
   return { pos, minY, maxY, advanced: along(pos, dir), frames };
