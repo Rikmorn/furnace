@@ -78,15 +78,15 @@ type WorldsIndex = { version: number; default: string };
  * player spawn.
  *
  * Renders from the single merged doc for the cave + collar-bore/organic-tunnel meshes,
- * plus RE-EXPANDED render for the grid class: each `hall` region rebuilds its patch mesh +
- * kit instances + voxel collider via `expandGridRegion`, and each `corridor` re-expands its
- * tube — neither bakes scene entities (D-W2-6). Collides against the manifest's world-frame
+ * plus RE-EXPANDED render for the grid class: each `hall`/`maze` region rebuilds its patch
+ * mesh + kit instances + voxel collider via `expandGridRegion`, and each `corridor` re-expands
+ * its tube — neither bakes scene entities (D-W2-6). Collides against the manifest's world-frame
  * cuboids, a voxel proxy per cave and per organic-tunnel/collar-bore connector, and the
  * re-expanded grid/corridor voxel proxies. Cave scatter re-expands from the seed.
  *
  * @throws if the worlds index or the default world's manifest is missing (a broken clone —
  *   commit or bake a default world); if the manifest version is unknown or was baked by a
- *   different `generatorVersion`; or if a region algorithm is not `cave`/`hall` or a
+ *   different `generatorVersion`; or if a region algorithm is not `cave`/`hall`/`maze` or a
  *   connector kind is not one of the four W2 kinds (a stale/foreign bake).
  */
 export async function loadWorld(
@@ -135,8 +135,8 @@ export async function loadWorld(
   const realized: Awaited<ReturnType<typeof realizeRegion>>[] = [];
 
   // 2) Regions dispatched by class. Cave: manifest cuboids → static bodies, voxel proxy +
-  // dressing re-expanded from provenance. Hall: ONE `realizeRegion` builds its patch mesh,
-  // kit instances AND voxel collider from the re-expanded local RegionData (D-W2-6).
+  // dressing re-expanded from provenance. Grid (hall|maze): ONE `realizeRegion` builds its
+  // patch mesh, kit instances AND voxel collider from the re-expanded local RegionData (D-W2-6).
   for (const r of manifest.regions) {
     if (r.class === "field-organic") {
       createColliderBodies(ctx, world, r.cuboids);
@@ -152,7 +152,7 @@ export async function loadWorld(
       );
       continue;
     }
-    // grid-built (hall): re-expand its local RegionData from params/seed + the touching
+    // grid-built (hall | maze): re-expand its local RegionData from params/seed + the touching
     // connectors (grouped by aRef/bRef), then place it. `realizeRegion` creates the voxel
     // body + patch mesh + kit instances in one call — no separate cuboids/proxy/dressing.
     const touching = manifest.connectors.filter(
@@ -218,14 +218,14 @@ function assertCompatible(manifest: WorldManifest): void {
   if (typeof (manifest as { scene?: unknown }).scene !== "string") {
     throw new Error("world: malformed bake (manifest has no scene) — re-bake");
   }
-  // Content validation BEFORE loadScene: cave + hall regions and all four connector kinds
-  // exist as of W2, so anything else is a stale/foreign bake — throw here, not mid-loop after
-  // GPU alloc.
+  // Content validation BEFORE loadScene: cave + hall + maze regions and all four connector
+  // kinds exist as of W3, so anything else is a stale/foreign bake — throw here, not mid-loop
+  // after GPU alloc.
   for (const r of manifest.regions) {
     // The manifest is external JSON: widen `algorithm` to `string` so an unknown value from a
     // stale/foreign bake is caught here rather than exhausting the typed union to `never`.
     const algorithm: string = r.algorithm;
-    if (algorithm !== "cave" && algorithm !== "hall") {
+    if (algorithm !== "cave" && algorithm !== "hall" && algorithm !== "maze") {
       throw new Error(
         `world: unsupported region algorithm "${algorithm}" — re-bake`,
       );

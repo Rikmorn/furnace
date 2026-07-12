@@ -48,7 +48,7 @@ import { carvedCells, suppressedFaces } from "./substrate/suppress.ts";
 import { cave } from "./themes/cave.ts";
 import type { GridStamp } from "./themes/grid-stamp.ts";
 import { type HallParams, hall } from "./themes/hall.ts";
-import { maze } from "./themes/maze.ts";
+import { type MazeParams, maze } from "./themes/maze.ts";
 import {
   DEFAULT_TUNNEL_LENGTH,
   snapGridPlacement,
@@ -286,18 +286,35 @@ type TouchingConnector = {
   radius?: number;
 };
 
-/** The loader's grid re-expansion (Task 9): rebuild a baked hall's LOCAL RegionData from
- *  its manifest entry plus the connector entries touching it — the SAME `expandGridRegion`
- *  bake's finalize runs, so load reproduces the live geometry byte-for-byte. Corridor/
- *  aperture ends contribute an OPEN door; each collar-bore end re-derives its cut through
- *  the shared {@link collarBoreCarve} (single-sourced with bake finalize's carve; NO drift),
- *  transformed WORLD→local by the region's placement. The caller places the result. */
+/** The loader's grid re-expansion (Task 9): rebuild a baked grid region's (hall or maze)
+ *  LOCAL RegionData from its manifest entry plus the connector entries touching it — the
+ *  SAME `expandGridRegion` bake's finalize runs, so load reproduces the live geometry
+ *  byte-for-byte. Only the STAMP line dispatches on `algorithm` (the W3 plug point);
+ *  everything after it is vocabulary-agnostic. Corridor/aperture ends contribute an OPEN
+ *  door; each collar-bore end re-derives its cut through the shared {@link collarBoreCarve}
+ *  (single-sourced with bake finalize's carve; NO drift), transformed WORLD→local by the
+ *  region's placement. The caller places the result. */
 export function expandGridRegionFromEntry(
-  entry: { params: HallParams; seed: string; placement: WorldPlacement },
+  entry:
+    | {
+        algorithm: "hall";
+        params: HallParams;
+        seed: string;
+        placement: WorldPlacement;
+      }
+    | {
+        algorithm: "maze";
+        params: MazeParams;
+        seed: string;
+        placement: WorldPlacement;
+      },
   touching: TouchingConnector[],
   regionId: string,
 ): RegionData {
-  const stamp = hall(entry.params, entry.seed);
+  const stamp =
+    entry.algorithm === "hall"
+      ? hall(entry.params, entry.seed)
+      : maze(entry.params, entry.seed);
   const open: number[] = [];
   const carves: CarveVolume[] = [];
   for (const c of touching) {

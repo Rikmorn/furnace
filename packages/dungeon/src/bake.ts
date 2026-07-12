@@ -31,6 +31,7 @@ import {
   type Vec3,
 } from "./region.ts";
 import type { HallParams } from "./themes/hall.ts";
+import type { MazeParams } from "./themes/maze.ts";
 import type { TopologyConfig } from "./topology.ts";
 import { buildWorld } from "./world.ts";
 import { type RealizedWorld, realizeWorldSpec } from "./world-build.ts";
@@ -240,8 +241,21 @@ export type WorldHallRegionEntry = WorldRegionEntryBase & {
   cuboids: [];
 };
 
-/** A baked world region's manifest entry — a union over region class. */
-export type WorldRegionEntry = WorldCaveRegionEntry | WorldHallRegionEntry;
+/** A baked grid-built MAZE region (W3): exactly the hall entry's posture — nothing in
+ *  the merged scene doc, no sidecars, `cuboids: []`; the loader re-expands render +
+ *  collider through `expandGridRegionFromEntry`'s maze dispatch. */
+export type WorldMazeRegionEntry = WorldRegionEntryBase & {
+  class: "grid-built";
+  algorithm: "maze";
+  params: MazeParams;
+  cuboids: [];
+};
+
+/** A baked world region's manifest entry — a union over class + grid algorithm. */
+export type WorldRegionEntry =
+  | WorldCaveRegionEntry
+  | WorldHallRegionEntry
+  | WorldMazeRegionEntry;
 
 /** Fields every baked connector entry carries: its seed, the exact PLACED world-frame
  *  portals it was built from (`a`/`b` — the loader re-expands its proxy/tube from these),
@@ -360,28 +374,32 @@ export function bakeWorld(
       });
       continue;
     }
-    // W3 boundary: the maze vocabulary realizes live (world-build's grid pipeline) but is
-    // NOT in the manifest schema yet — `WorldHallRegionEntry` is hall-only and the loader's
-    // `assertCompatible` rejects any algorithm but cave/hall. Fail setup-loud here rather
-    // than emit an entry the loader would reject at boot. Lifts when the maze gets its
-    // manifest entry + loader re-expansion.
-    if (region.algorithm !== "hall") {
-      throw new Error(
-        `bake: region ${region.id} algorithm "${region.algorithm}" is not bakeable yet`,
-      );
-    }
-    // grid-built (hall): NO scene entities, NO `.fmesh` sidecars, `cuboids: []`. Its render
-    // (patch mesh + kit instances) and voxel collider re-expand at load (D-W2-6) from
-    // `params`/`seed` + the touching connectors — the loader owns that geometry, not the bake.
-    regions.push({
-      id: region.id,
-      class: region.class,
-      algorithm: region.algorithm,
-      params: region.params,
-      seed: region.seed,
-      placement: resolved.placement,
-      cuboids: [],
-    });
+    // grid-built (hall | maze): NO scene entities, NO `.fmesh` sidecars, `cuboids: []`.
+    // Render (patch mesh + kit instances) and voxel collider re-expand at load (D-W2-6)
+    // from `params`/`seed` + the touching connectors — the loader owns that geometry.
+    // Constructed per algorithm because TS cannot correlate `algorithm` with `params`
+    // through the 2-variant union in one object literal.
+    regions.push(
+      region.algorithm === "hall"
+        ? {
+            id: region.id,
+            class: "grid-built",
+            algorithm: "hall",
+            params: region.params,
+            seed: region.seed,
+            placement: resolved.placement,
+            cuboids: [],
+          }
+        : {
+            id: region.id,
+            class: "grid-built",
+            algorithm: "maze",
+            params: region.params,
+            seed: region.seed,
+            placement: resolved.placement,
+            cuboids: [],
+          },
+    );
   }
 
   const connectors: WorldConnectorEntry[] = [];

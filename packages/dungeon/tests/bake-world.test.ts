@@ -7,11 +7,15 @@ import {
   type WorldManifest,
   worldDir,
 } from "../src/bake.ts";
+import { placePiece } from "../src/connect.ts";
 import { TUNNEL_OVERSHOOT, TUNNEL_RADIUS } from "../src/connector.ts";
 import type { Aabb, Connection, Vec3 } from "../src/region.ts";
-import { realizeWorldSpec } from "../src/world-build.ts";
+import {
+  expandGridRegionFromEntry,
+  realizeWorldSpec,
+} from "../src/world-build.ts";
 import { DEFAULT_WORLD } from "../src/world-spec.ts";
-import { TWO_CAVES } from "./_helpers/world-fixtures.ts";
+import { MAZE_APERTURE, TWO_CAVES } from "./_helpers/world-fixtures.ts";
 
 // The REAL manifest type, not a hand-rolled local mirror: the gate world's manifest is a
 // discriminated union (region `class`, connector `kind`), and a local copy silently drifts out
@@ -177,5 +181,65 @@ describe("bakeWorld", () => {
   test("rejects a path-hostile world name setup-loud", () => {
     expect(() => bakeWorld(DEFAULT_WORLD, "../evil")).toThrow(/world name/);
     expect(() => bakeWorld(DEFAULT_WORLD, "has space")).toThrow(/world name/);
+  });
+
+  // (viii) W3 — the MAZE entry rides the same grid-built posture as the hall: params + the
+  // DERIVED placement, nothing in the merged doc, no sidecars, `cuboids: []`. The aperture's
+  // derived hall-b placement is asserted alongside it (length-0 seat, D-W3-4).
+  test("maze bake: manifest carries the maze entry (params + derived placement, no cuboids)", () => {
+    const manifest = manifestOf(bakeWorld(MAZE_APERTURE));
+    const entry = manifest.regions.find((r) => r.id === "maze-a");
+    if (!entry || entry.class !== "grid-built" || entry.algorithm !== "maze") {
+      throw new Error("maze-a entry missing or mis-typed");
+    }
+    expect(entry.params.cells).toEqual([3, 3]);
+    expect(entry.params.braid).toBe(0);
+    expect(entry.cuboids).toEqual([]);
+    const hallEntry = manifest.regions.find((r) => r.id === "hall-b");
+    expect(hallEntry?.placement.translation).toEqual([-5, 0, 1.5]);
+  });
+
+  // (ix) W3 load parity — the W2 bar, now for the second grid vocabulary: re-expanding the
+  // maze from its MANIFEST ENTRY (params/seed + the touching connector entries) reproduces
+  // the live realized region's instance groups exactly. `expandGridRegionFromEntry` is the
+  // loader's own entry point, so this is the bake→load round-trip in a headless test.
+  test("maze load parity: expandGridRegionFromEntry reproduces the realized maze exactly", () => {
+    const realized = realizeWorldSpec(MAZE_APERTURE);
+    const manifest = manifestOf(bakeWorld(MAZE_APERTURE));
+    const entry = manifest.regions.find((r) => r.id === "maze-a");
+    if (!entry || entry.class !== "grid-built" || entry.algorithm !== "maze") {
+      throw new Error("maze-a entry missing");
+    }
+    const touching = manifest.connectors.filter(
+      (c) => c.aRef[0] === "maze-a" || c.bRef[0] === "maze-a",
+    );
+    // PLACE the re-expansion exactly as world-loader.ts does — `placePiece(data, r.placement)`.
+    // Comparing the LOCAL re-expansion against the PLACED live region would compare two
+    // different code paths: `placePiece`'s f32 matmul normalizes a `-0` transform component to
+    // `+0` even at maze-a's identity placement, so local != placed BITWISE. Running both sides
+    // through the same placement isolates what this test is actually about (the re-expansion).
+    const fromEntry = placePiece(
+      expandGridRegionFromEntry(entry, touching, "maze-a"),
+      entry.placement,
+    );
+    const live = realized.regions.get("maze-a");
+    if (!live) throw new Error("maze-a not realized");
+    // Instance groups must match COUNT and BYTES (the W2 load-parity bar).
+    expect(fromEntry.instances.length).toBe(live.instances.length);
+    expect(fromEntry.instances.length).toBeGreaterThan(0); // no vacuous pass
+    for (let g = 0; g < fromEntry.instances.length; g++) {
+      expect([...(fromEntry.instances[g]?.transforms ?? [])]).toEqual([
+        ...(live.instances[g]?.transforms ?? []),
+      ]);
+    }
+  });
+
+  // (x) The determinism contract holds for the maze world too — its integer-only RNG is
+  // seeded content, so two bakes are byte-identical (paths AND contents).
+  test("maze world bake is byte-deterministic (bake twice, compare every file)", () => {
+    const f1 = bakeWorld(MAZE_APERTURE);
+    const f2 = bakeWorld(MAZE_APERTURE);
+    expect(f1.map((f) => f.path)).toEqual(f2.map((f) => f.path));
+    expect(normalize(f1)).toEqual(normalize(f2));
   });
 });
