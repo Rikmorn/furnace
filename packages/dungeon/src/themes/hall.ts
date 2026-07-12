@@ -24,15 +24,6 @@ import {
   validateDoorApproach,
 } from "./grid-stamp.ts";
 
-// Re-exports: this was hall.ts's public surface before the W3 extraction —
-// existing consumers keep their import paths.
-export {
-  DOOR_H_CELLS,
-  DOOR_LANE_DEPTH,
-  DOOR_W_CELLS,
-  type HallWall,
-} from "./grid-stamp.ts";
-
 export type HallParams = {
   /** INTERIOR size in coarse cells: [w(x), h(y), d(z)]. h must be >= DOOR_H_CELLS (3.0 m door). */
   size: [number, number, number];
@@ -40,10 +31,7 @@ export type HallParams = {
   doors: GridDoor[];
 };
 
-/** The hall's stamp IS the shared grid-stamp shape (the W3 plug point). */
-export type HallStamp = GridStamp;
-
-export function hall(params: HallParams, seed: string): HallStamp {
+export function hall(params: HallParams, seed: string): GridStamp {
   const [w, h, d] = params.size;
   if (h < DOOR_H_CELLS) {
     throw new Error(

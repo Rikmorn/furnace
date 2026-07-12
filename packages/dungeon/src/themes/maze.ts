@@ -34,7 +34,7 @@ export type MazeParams = {
 };
 
 /** Passage height in coarse cells — fixed at the door standard (3.0 m), not a knob. */
-export const MAZE_H_CELLS = DOOR_H_CELLS;
+const MAZE_H_CELLS = DOOR_H_CELLS;
 
 /** Passage width/depth in coarse cells — the door width (2.0 m), so a door always
  *  opens onto a full-width passage column.

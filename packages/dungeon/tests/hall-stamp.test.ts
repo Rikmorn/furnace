@@ -4,12 +4,8 @@ import { TUNNEL_RADIUS } from "../src/connector.ts";
 import { CARVE_DEPTH } from "../src/connector-built.ts";
 import type { FloorRect } from "../src/scatter.ts";
 import { AIR, CELL, coarseGet, MASONRY } from "../src/substrate/grid.ts";
-import {
-  DOOR_LANE_DEPTH,
-  HALL_PRESETS,
-  type HallParams,
-  hall,
-} from "../src/themes/hall.ts";
+import { DOOR_LANE_DEPTH } from "../src/themes/grid-stamp.ts";
+import { HALL_PRESETS, type HallParams, hall } from "../src/themes/hall.ts";
 import {
   expandGridRegion,
   MAT_DRESSING_CRATE,

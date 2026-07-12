@@ -13,11 +13,13 @@ import type { FloorRect } from "../scatter.ts";
 import { AIR, CELL, type CoarseGrid, coarseGet } from "../substrate/grid.ts";
 import type { DoorSpec } from "../substrate/skin.ts";
 
-export type HallWall = "north" | "south" | "east" | "west";
+/** Which wall of a grid stamp's rectangular shell a door sits on. SHARED by every grid
+ *  vocabulary (hall, maze, …) — not a hall concept. */
+export type GridWall = "north" | "south" | "east" | "west";
 
 /** A grid door request: which wall, and an offset along it. The offset UNIT is the
  *  stamper's own (hall: coarse cells; maze: maze cells — it converts before doorAt). */
-export type GridDoor = { wall: HallWall; offset: number };
+export type GridDoor = { wall: GridWall; offset: number };
 
 /** The stamp shape EVERY grid-built interior algorithm emits (the W3 plug point):
  *  a sealed coarse shell, door-class portal metadata (portal i pairs with
@@ -53,13 +55,13 @@ const FLOOR_Y = 0;
 const FLOOR_LAYER_J = 1;
 
 /** Exact outward normals per wall — no trig, no dust. */
-const WALL_NORMAL: Record<HallWall, Vec3> = {
+const WALL_NORMAL: Record<GridWall, Vec3> = {
   east: [1, 0, 0],
   west: [-1, 0, 0],
   north: [0, 0, 1],
   south: [0, 0, -1],
 };
-const WALL_FACE: Record<HallWall, DoorSpec["face"]> = {
+const WALL_FACE: Record<GridWall, DoorSpec["face"]> = {
   east: 0,
   west: 1,
   north: 4,
