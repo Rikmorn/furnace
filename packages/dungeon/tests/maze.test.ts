@@ -43,3 +43,41 @@ test("carve plan at braid 0 is a PERFECT maze: connected spanning tree (cells−
   }
   expect(seen.size).toBe(mx * mz);
 });
+
+/** Dead-end count of a carve plan: cells with exactly one open edge. */
+function deadEnds(open: Set<string>, mx: number, mz: number): number {
+  let count = 0;
+  for (let cell = 0; cell < mx * mz; cell++) {
+    const a = cell % mx;
+    const b = (cell - a) / mx;
+    const around = [
+      `h:${a},${b}`,
+      `h:${a - 1},${b}`,
+      `v:${a},${b}`,
+      `v:${a},${b - 1}`,
+    ];
+    const degree = around.filter((k) => open.has(k)).length;
+    if (degree === 1) count++;
+  }
+  return count;
+}
+
+test("braid 1 opens EVERY dead end (none remain); braid 0 leaves the tree untouched", () => {
+  const mx = 6;
+  const mz = 6;
+  const tree = carvePlanForTest(mx, mz, 0, "braid-seed");
+  expect(deadEnds(tree, mx, mz)).toBeGreaterThan(0); // a real tree has dead ends
+  const braided = carvePlanForTest(mx, mz, 1, "braid-seed");
+  expect(deadEnds(braided, mx, mz)).toBe(0);
+  // Braiding only ADDS edges — the tree is a subset of the braided plan.
+  for (const k of tree) expect(braided.has(k)).toBe(true);
+});
+
+test("braid 0.5 lands strictly between the tree and full braid (same seed)", () => {
+  const mx = 8;
+  const mz = 8;
+  const d0 = deadEnds(carvePlanForTest(mx, mz, 0, "braid-mid"), mx, mz);
+  const dHalf = deadEnds(carvePlanForTest(mx, mz, 0.5, "braid-mid"), mx, mz);
+  expect(dHalf).toBeLessThan(d0);
+  expect(dHalf).toBeGreaterThan(0);
+});

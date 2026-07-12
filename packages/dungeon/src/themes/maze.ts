@@ -97,7 +97,11 @@ function carvePlan(
   return open;
 }
 
-/** Braid pass — implemented in Task 3 (no-op until then). */
+/** Open a wall from each ORIGINAL dead end with probability `braid`. The dead-end
+ *  list is computed ONCE, before any opening, and scanned in cell-index order
+ *  (z-major) — deterministic. Opening only ADDS edges (degree never drops), so
+ *  braid=1 leaves zero dead ends and can create no new ones. The probability draw
+ *  is an exact power-of-two division of the integer stream — no float noise. */
 function braidPass(
   open: Set<EdgeKey>,
   mx: number,
@@ -105,11 +109,20 @@ function braidPass(
   braid: number,
   rng: () => number,
 ): void {
-  void open;
-  void mx;
-  void mz;
-  void braid;
-  void rng;
+  if (braid <= 0) return;
+  const cellCount = mx * mz;
+  const isDeadEnd = (cell: number): boolean =>
+    edgesOf(cell, mx, mz).filter((e) => open.has(e.edge)).length === 1;
+  const originalDeadEnds: number[] = [];
+  for (let cell = 0; cell < cellCount; cell++)
+    if (isDeadEnd(cell)) originalDeadEnds.push(cell);
+  for (const cell of originalDeadEnds) {
+    if ((rng() >>> 8) / 0x1000000 >= braid) continue;
+    const closed = edgesOf(cell, mx, mz).filter((e) => !open.has(e.edge));
+    if (closed.length === 0) continue;
+    const pick = closed[rng() % closed.length] as { edge: EdgeKey };
+    open.add(pick.edge);
+  }
 }
 
 /** TEST-ONLY window onto the carve plan (the maze's structural core) so the tree/braid
