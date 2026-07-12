@@ -48,6 +48,7 @@ import { carvedCells, suppressedFaces } from "./substrate/suppress.ts";
 import { cave } from "./themes/cave.ts";
 import type { GridStamp } from "./themes/grid-stamp.ts";
 import { type HallParams, hall } from "./themes/hall.ts";
+import { maze } from "./themes/maze.ts";
 import {
   DEFAULT_TUNNEL_LENGTH,
   snapGridPlacement,
@@ -149,7 +150,8 @@ type Pending =
 type RegionMutation = { openPortals: number[]; carves: CarveVolume[] };
 
 /** Generate a region's unplaced (local-frame, origin [0,0,0]) phase-1 output from its
- *  spec: field-organic → the final cave RegionData; grid-built → a sealed hall stamp. */
+ *  spec: field-organic → the final cave RegionData; grid-built → a sealed GridStamp
+ *  from that region's interior algorithm (hall or maze). */
 function generateRegion(region: WorldRegionSpec): Pending {
   if (region.class === "field-organic") {
     return {
@@ -163,7 +165,15 @@ function generateRegion(region: WorldRegionSpec): Pending {
       }),
     };
   }
-  return { kind: "grid", stamp: hall(region.params, region.seed) };
+  // The W3 plug point: hall and maze emit the same GridStamp; everything
+  // downstream (expandGridRegion, connectors, skin, collide) is shared.
+  return {
+    kind: "grid",
+    stamp:
+      region.algorithm === "hall"
+        ? hall(region.params, region.seed)
+        : maze(region.params, region.seed),
+  };
 }
 
 /** The local (unplaced) portals of a phase-1 output — a cave's connections or a hall
@@ -385,13 +395,17 @@ function resolveSpec(
       // Reconstruct per-variant so the discriminated union survives the clone (a single
       // {...region} spread merges the class variants and loses the class↔params
       // correlation). The cave branch's `{ ...region.params }` is a full clone
-      // (primitives); the hall branch is a shallow clone (HallParams has nested
-      // size/pillars/doors that stay aliased) — harmless: nothing downstream mutates a
-      // region's params (expandGridRegion mutates the derived coarse stamp, not params).
+      // (primitives); the grid branches are shallow clones (Hall/MazeParams have nested
+      // size/pillars/cells/doors that stay aliased) — harmless: nothing downstream mutates
+      // a region's params (expandGridRegion mutates the derived coarse stamp, not params).
       if (region.class === "field-organic") {
         return { ...region, params: { ...region.params }, placement };
       }
-      return { ...region, params: { ...region.params }, placement };
+      // Narrow per grid algorithm: a single spread of the hall|maze union would
+      // decorrelate `algorithm` from `params` in the rebuilt object type.
+      return region.algorithm === "hall"
+        ? { ...region, params: { ...region.params }, placement }
+        : { ...region, params: { ...region.params }, placement };
     }),
     connectors: spec.connectors.map(
       (connector): WorldConnectorSpec => ({

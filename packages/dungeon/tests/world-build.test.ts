@@ -3,7 +3,11 @@ import { expect, test } from "bun:test";
 import { forwardVector } from "../src/fp-controller.ts";
 import type { Aabb, RegionData, Vec3 } from "../src/region.ts";
 import { realizeWorldSpec } from "../src/world-build.ts";
-import { DEFAULT_TUNNEL_LENGTH, DEFAULT_WORLD } from "../src/world-spec.ts";
+import {
+  DEFAULT_TUNNEL_LENGTH,
+  DEFAULT_WORLD,
+  type WorldSpec,
+} from "../src/world-spec.ts";
 import { HALL_CAVE, TWO_CAVES, TWO_HALLS } from "./_helpers/world-fixtures.ts";
 
 const sub = (a: Vec3, b: Vec3): Vec3 => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
@@ -158,9 +162,12 @@ test("corridor world: derived placement lattice-snapped, doors opened, tube coll
   // Both halls' shells were OPENED (open-door at finalize): the same hall-a
   // expanded with its portal left SEALED (no connectors) skins a different count.
   const first = TWO_HALLS.regions[0];
-  // Narrow to the grid variant so the spread below keeps the class↔params
-  // correlation (a bare union spread loses it). hall-a IS grid-built — never throws.
-  if (!first || first.class !== "grid-built") throw new Error("fixture broken");
+  // Narrow to the HALL variant so the spread below keeps the algorithm↔params
+  // correlation (a bare union spread loses it — `grid-built` is hall|maze as of W3).
+  // hall-a IS a grid-built hall — never throws.
+  if (!first || first.class !== "grid-built" || first.algorithm !== "hall") {
+    throw new Error("fixture broken");
+  }
   const sealed = realizeWorldSpec({
     name: "sealed-control",
     regions: [{ ...first, params: { ...first.params } }],
@@ -172,4 +179,38 @@ test("corridor world: derived placement lattice-snapped, doors opened, tube coll
   expect(count(w.regions.get("hall-a"))).not.toBe(
     count(sealed.regions.get("hall-a")),
   );
+});
+
+test("W3 plug point: a maze region realizes through the same grid pipeline as halls", () => {
+  const spec: WorldSpec = {
+    name: "solo-maze",
+    regions: [
+      {
+        id: "maze-a",
+        class: "grid-built",
+        algorithm: "maze",
+        params: {
+          cells: [4, 4],
+          braid: 0,
+          doors: [{ wall: "south", offset: 1 }],
+        },
+        seed: "t:solo",
+        placement: { translation: [0, 0, 0], yaw: 0 },
+      },
+    ],
+    connectors: [],
+    startRegion: "maze-a",
+  };
+  const realized = realizeWorldSpec(spec);
+  const data = realized.regions.get("maze-a");
+  if (!data) throw new Error("maze-a not realized");
+  // Kit skin + rubble dressing came out of the SHARED expandGridRegion path.
+  expect(data.instances.length).toBeGreaterThan(0);
+  // One voxel-proxy collider, like every grid region.
+  expect(data.colliders.length).toBe(1);
+  // The door portal survives as metadata (no connector consumed it).
+  expect(data.connections.length).toBe(1);
+  // Footprint: [4,4] cells → interior 9.5 m + two 0.5 m shells = 10.5 m square.
+  expect(data.bounds.max[0] - data.bounds.min[0]).toBeCloseTo(10.5, 5);
+  expect(data.bounds.max[2] - data.bounds.min[2]).toBeCloseTo(10.5, 5);
 });

@@ -360,6 +360,16 @@ export function bakeWorld(
       });
       continue;
     }
+    // W3 boundary: the maze vocabulary realizes live (world-build's grid pipeline) but is
+    // NOT in the manifest schema yet — `WorldHallRegionEntry` is hall-only and the loader's
+    // `assertCompatible` rejects any algorithm but cave/hall. Fail setup-loud here rather
+    // than emit an entry the loader would reject at boot. Lifts when the maze gets its
+    // manifest entry + loader re-expansion.
+    if (region.algorithm !== "hall") {
+      throw new Error(
+        `bake: region ${region.id} algorithm "${region.algorithm}" is not bakeable yet`,
+      );
+    }
     // grid-built (hall): NO scene entities, NO `.fmesh` sidecars, `cuboids: []`. Its render
     // (patch mesh + kit instances) and voxel collider re-expand at load (D-W2-6) from
     // `params`/`seed` + the touching connectors — the loader owns that geometry, not the bake.

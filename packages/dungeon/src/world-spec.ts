@@ -4,6 +4,7 @@
 // and four connector kinds.
 import type { Vec3 } from "./region.ts";
 import { HALL_PRESETS, type HallParams } from "./themes/hall.ts";
+import type { MazeParams } from "./themes/maze.ts";
 
 /** Placement of a region in the world: translation + yaw (radians about +Y). */
 export type WorldPlacement = { translation: Vec3; yaw: number };
@@ -33,8 +34,20 @@ export type HallRegionSpec = {
   placement: WorldPlacement;
 };
 
-/** A region in the world — discriminated by `class` (and its paired `algorithm`). */
-export type WorldRegionSpec = CaveRegionSpec | HallRegionSpec;
+/** A grid-built maze region (W3): the second grid vocabulary — same lattice rules,
+ *  same stamp contract, different interior algorithm. */
+export type MazeRegionSpec = {
+  /** Unique id within the world (also the resource-key prefix in the merged doc). */
+  id: string;
+  class: "grid-built";
+  algorithm: "maze";
+  params: MazeParams;
+  seed: string;
+  placement: WorldPlacement;
+};
+
+/** A region in the world — discriminated by `class` + `algorithm`. */
+export type WorldRegionSpec = CaveRegionSpec | HallRegionSpec | MazeRegionSpec;
 
 /** How two portals are joined. `organic-tunnel` = the SDF capsule bore (caves);
  *  `corridor`/`aperture`/`collar-bore` = grid-built joins (halls and mixed seams). */
