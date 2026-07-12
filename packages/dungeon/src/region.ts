@@ -12,7 +12,7 @@ export type ThemeName = "cave" | "pillarHall" | "greatHall";
 
 /** A region's origin kind: a generatable theme, a structural connector piece, or the
  *  authored level participating in placement as a pinned obstacle. */
-export type RegionKind = ThemeName | "connector" | "authored";
+export type RegionKind = ThemeName | "hall" | "connector" | "authored";
 
 /** Axis-aligned box in the region's frame: component-wise min/max corners. */
 export type Aabb = { min: Vec3; max: Vec3 };
