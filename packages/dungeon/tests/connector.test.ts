@@ -115,3 +115,30 @@ test("geometry is seed-independent — different seeds produce an identical bore
   );
   expect([...voxelProxy(a).coords]).toEqual([...voxelProxy(b).coords]);
 });
+
+test("boreAxis survives join float dust on the A-end facing (backlog fix)", () => {
+  // A join-rotated portal facing carries dust: [6.12e-17, 0, -1] is a Z facing.
+  const dusty: Connection = {
+    position: [0, 0, 0],
+    facing: [6.12e-17, 0, -1],
+    width: 3.2,
+    height: 3.2,
+    kind: "tunnel-mouth",
+  };
+  const clean: Connection = {
+    position: [0, 0, -8],
+    facing: [0, 0, 1],
+    width: 3.2,
+    height: 3.2,
+    kind: "tunnel-mouth",
+  };
+  const { grid } = tunnelGeometry(dusty, clean);
+  // Bore axis is Z → the grid CLIPS (no pad) along Z to the 8 m door-plane span,
+  // while the perpendicular X axis carries the pad (> 2 radii). The buggy `!== 0`
+  // boreAxis misreads the dust as an X bore, which would instead pad Z (~15 m) and
+  // clip X to zero — so these two extents pin the axis choice both ways.
+  const xExtent = grid.dims[0] * grid.cellSize;
+  const zExtent = grid.dims[2] * grid.cellSize;
+  expect(zExtent).toBe(8); // Z clipped to the door-plane span (unpadded bore axis)
+  expect(xExtent).toBeGreaterThan(2 * TUNNEL_RADIUS); // X padded (perpendicular)
+});

@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import {
   DEFAULT_WORLD,
+  snapGridPlacement,
   validateWorldSpec,
   type WorldSpec,
 } from "../src/world-spec.ts";
@@ -113,5 +114,29 @@ test("validateWorldSpec: a connector whose two ends share one portal throws", ()
   };
   expect(() => validateWorldSpec(spec)).toThrow(
     /portal cave-a:0 is claimed by more than one connector/,
+  );
+});
+
+test("grid-built region spec validates: lattice translation + quarter yaw", () => {
+  const snapped = snapGridPlacement({
+    translation: [1.5, 0, -3],
+    yaw: Math.PI / 2,
+  });
+  expect(snapped.translation).toEqual([1.5, 0, -3]);
+  expect(snapped.yaw).toBe(Math.PI / 2);
+});
+
+test("snapGridPlacement: float dust snaps; real misalignment throws", () => {
+  const dusty = snapGridPlacement({
+    translation: [1.5000000001, 0, -2.9999999999],
+    yaw: Math.PI / 2 + 1e-9,
+  });
+  expect(dusty.translation).toEqual([1.5, 0, -3]);
+  expect(dusty.yaw).toBe(Math.PI / 2);
+  expect(() => snapGridPlacement({ translation: [1.3, 0, 0], yaw: 0 })).toThrow(
+    /lattice/,
+  );
+  expect(() => snapGridPlacement({ translation: [0, 0, 0], yaw: 0.3 })).toThrow(
+    /quarter/,
   );
 });

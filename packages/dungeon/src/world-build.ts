@@ -35,9 +35,14 @@ export type RealizedWorld = {
 };
 
 /** Generate a region's unplaced (local-frame, origin [0,0,0]) RegionData from its spec.
- *  Only the "cave" algorithm exists this slice — the spec type restricts `algorithm` to it;
- *  add a dispatch here when a second interior algorithm lands. */
+ *  Field-organic (cave) is the only class realized this slice; grid-built (hall) regions
+ *  throw here until Task 8 adds the per-class dispatch. */
 function generateRegion(region: WorldRegionSpec): RegionData {
+  if (region.class !== "field-organic") {
+    throw new Error(
+      `world: region ${region.id} class "${region.class}" is not yet generatable`,
+    );
+  }
   return cave({
     theme: "cave",
     seed: region.seed,
@@ -85,6 +90,15 @@ function resolveSpec(
     regions: spec.regions.map((region): WorldRegionSpec => {
       const placement = resolvedPlacements.get(region.id);
       if (!placement) throw new Error(`world: unplaced region ${region.id}`);
+      // Reconstruct per-variant so the discriminated union survives the clone (a single
+      // {...region} spread merges the class variants and loses the class↔params correlation).
+      // The cave branch's `{ ...region.params }` is a full clone (primitives); the hall
+      // branch is a shallow clone (HallParams has nested size/pillars/doors that stay
+      // aliased) — harmless while grid regions throw in generateRegion.
+      // MIGRATION (until Task 8): replaced by a real per-class dispatch.
+      if (region.class === "field-organic") {
+        return { ...region, params: { ...region.params }, placement };
+      }
       return { ...region, params: { ...region.params }, placement };
     }),
     connectors: spec.connectors.map(

@@ -284,6 +284,13 @@ export function bakeWorld(
 
   const regions: WorldRegionEntry[] = [];
   for (const [i, region] of spec.regions.entries()) {
+    // Cave-only manifest entries this slice — grid-built regions bake in Task 9. Guard also
+    // narrows the union to the cave variant so `class`/`algorithm`/`params` fit the entry type.
+    if (region.class !== "field-organic") {
+      throw new Error(
+        `bake: region ${region.id} class "${region.class}" is not yet bakeable`,
+      );
+    }
     const placed = realized.regions.get(region.id);
     if (!placed) {
       throw new Error(`bake: region ${region.id} missing from realized world`);
@@ -365,6 +372,13 @@ function worldConnectorEntry(
   connector: WorldConnectorSpec,
   realized: RealizedWorld,
 ): WorldConnectorEntry {
+  // Organic-tunnel-only manifest entries this slice — built connectors bake in Task 7. Guard
+  // also narrows `kind` to the tunnel literal so it fits the entry type.
+  if (connector.kind !== "organic-tunnel") {
+    throw new Error(
+      `bake: connector ${connector.id} kind "${connector.kind}" is not yet bakeable`,
+    );
+  }
   return {
     id: connector.id,
     kind: connector.kind,

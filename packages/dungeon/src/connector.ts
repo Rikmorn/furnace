@@ -111,10 +111,12 @@ function extendEndpoint(
   ];
 }
 
-/** The bore's horizontal axis: the cardinal a door faces along (X=0 or Z=2). Both portals
- *  face anti-parallel along the same cardinal, so either portal's facing determines it. */
+/** The bore's horizontal axis: the DOMINANT cardinal of the door facing (join-
+ *  placed portals carry float dust in the near-zero component — `!== 0` would
+ *  misread [6e-17, 0, -1] as an X bore; dominant-component is exact for clean
+ *  cardinals and robust to dust). */
 function boreAxis(portal: Connection): 0 | 2 {
-  return portal.facing[0] !== 0 ? 0 : 2;
+  return Math.abs(portal.facing[0]) > Math.abs(portal.facing[2]) ? 0 : 2;
 }
 
 /** Grid box for the door-plane-to-door-plane bore, from the two raised (un-overshot) door

@@ -1,16 +1,18 @@
-// World spec (W1): a declarative, search-free description of a world — regions with
+// World spec (W2): a declarative, search-free description of a world — regions with
 // explicit placements, connectors joining named portals, and a player-start hint.
-// Charter contract v2, field-organic class only this slice.
+// Charter contract v2: two region classes (field-organic caves, grid-built halls)
+// and four connector kinds.
 import type { Vec3 } from "./region.ts";
+import type { HallParams } from "./themes/hall.ts";
 
 /** Placement of a region in the world: translation + yaw (radians about +Y). */
 export type WorldPlacement = { translation: Vec3; yaw: number };
 
-export type WorldRegionSpec = {
+/** A field-organic region (SDF cave): exact cave() provenance params. */
+export type CaveRegionSpec = {
   /** Unique id within the world (also the resource-key prefix in the merged doc). */
   id: string;
   class: "field-organic";
-  /** Interior algorithm id — this slice: "cave". */
   algorithm: "cave";
   /** Exact generator params (the provenance contract): everything cave() takes
    *  beyond {theme, seed, origin}. */
@@ -19,14 +21,39 @@ export type WorldRegionSpec = {
   placement: WorldPlacement;
 };
 
+/** A grid-built region (masonry hall): lattice-snapped placement; interior from
+ *  the hall stamper's parameters. */
+export type HallRegionSpec = {
+  /** Unique id within the world (also the resource-key prefix in the merged doc). */
+  id: string;
+  class: "grid-built";
+  algorithm: "hall";
+  params: HallParams;
+  seed: string;
+  placement: WorldPlacement;
+};
+
+/** A region in the world — discriminated by `class` (and its paired `algorithm`). */
+export type WorldRegionSpec = CaveRegionSpec | HallRegionSpec;
+
+/** How two portals are joined. `organic-tunnel` = the SDF capsule bore (caves);
+ *  `corridor`/`aperture`/`collar-bore` = grid-built joins (halls and mixed seams). */
+export type WorldConnectorKind =
+  | "organic-tunnel"
+  | "corridor"
+  | "aperture"
+  | "collar-bore";
+
 export type WorldConnectorSpec = {
   id: string;
-  kind: "organic-tunnel";
+  kind: WorldConnectorKind;
   /** [regionId, portalIndex] at each end — portal indices index the region's
    *  RegionData.connections AFTER placement. */
   a: [string, number];
   b: [string, number];
   seed: string;
+  /** corridor/collar-bore derivation knobs; lattice-snapped where grid-facing. */
+  params?: { length?: number; deltaY?: number };
 };
 
 export type WorldSpec = {
@@ -38,6 +65,47 @@ export type WorldSpec = {
   startRegion: string;
 };
 
+/** Dust tolerance for join-derived grid placements (spec D-W2-10). */
+const GRID_SNAP_TOL = 1e-6;
+/** The lattice cell size grid placements snap to (m). */
+const GRID_LATTICE = 0.5;
+const QUARTER = Math.PI / 2;
+
+/** Snap one translation component to the `GRID_LATTICE` lattice, throwing
+ *  setup-loud if it sits further than dust off a lattice node. */
+function snapLatticeAxis(t: number): number {
+  const snapped = Math.round(t / GRID_LATTICE) * GRID_LATTICE;
+  if (Math.abs(snapped - t) > GRID_SNAP_TOL) {
+    throw new Error(
+      `world: grid placement off the ${GRID_LATTICE} lattice (${t})`,
+    );
+  }
+  return snapped;
+}
+
+/** Snap a grid-built placement to the exact lattice: translations to 0.5
+ *  multiples, yaw to an exact quarter-turn. Setup-loud beyond dust tolerance —
+ *  a non-cardinal join into a grid region is a spec error, not a rounding job. */
+export function snapGridPlacement(p: WorldPlacement): WorldPlacement {
+  const translation: Vec3 = [
+    snapLatticeAxis(p.translation[0]),
+    snapLatticeAxis(p.translation[1]),
+    snapLatticeAxis(p.translation[2]),
+  ];
+  const yaw = Math.round(p.yaw / QUARTER) * QUARTER;
+  if (Math.abs(yaw - p.yaw) > GRID_SNAP_TOL) {
+    throw new Error(`world: grid yaw ${p.yaw} is not a quarter-turn`);
+  }
+  return { translation, yaw };
+}
+
+/** A `grid-built` region whose translation is all-zero AND yaw is 0 is the
+ *  derived-placement placeholder: its real placement is computed at realize time,
+ *  so it must NOT be lattice-checked yet. */
+function isZeroTranslationPlaceholder(p: WorldPlacement): boolean {
+  return p.translation.every((t) => t === 0) && p.yaw === 0;
+}
+
 /** Throws unless the spec is non-empty, every region is reachable from the first
  *  via connectors (charter rule: no region isolated), all connector endpoints
  *  resolve, and no portal is claimed by more than one connector (portal reuse
@@ -48,6 +116,14 @@ export function validateWorldSpec(spec: WorldSpec): void {
   const ids = new Set(spec.regions.map((r) => r.id));
   if (ids.size !== spec.regions.length) {
     throw new Error("world: duplicate region ids");
+  }
+  for (const r of spec.regions) {
+    if (
+      r.class === "grid-built" &&
+      !isZeroTranslationPlaceholder(r.placement)
+    ) {
+      snapGridPlacement(r.placement); // throws setup-loud off-lattice
+    }
   }
   if (!ids.has(spec.startRegion)) {
     throw new Error(`world: startRegion ${spec.startRegion} is not a region`);
