@@ -51,3 +51,23 @@ clean; both off-centre wall-hug lanes cross the seams without wedge/launch. Prob
 **Reference:** `packages/dungeon/src/connector.ts` (`TUNNEL_RADIUS` comment),
 `packages/dungeon/tests/world-traversal.gpu.test.ts`, `connector-geometry-stitching.md`,
 `generated-wing-traversal-quality.md`.
+
+---
+
+**W2 update (2026-07-12).** The BUILT side of this class is now **resolved by construction**.
+D-W2-4 gives a grid-built region ONE authoritative fine occupancy grid, and a `collar-bore`
+into it does not overlap a second proxy — it CARVES that grid (`prepareCarve` →
+`suppressedFaces` → patch → `fineProxy`), so the overlapping-proxy pinch is structurally
+impossible on the built side. The W2 premise probe (`tests/collar-bore.gpu.test.ts`) walks the
+carve-opening ↔ bore seam clean on-axis, reversed, and off-centre.
+
+The **organic↔organic** mitigation stance is unchanged and still stands (radius-match
+`TUNNEL_RADIUS` = the cave bore + overshoot interpenetration). The remaining **carve-union**
+direction therefore now applies to **organic seams only** — a shared-lattice union between two
+field regions, which W2 deliberately did not attempt (approach C, phase-scale).
+
+Separately, W2 measured an off-axis organic-cave-INTERIOR floor undulation (~0.80 m, > the
+0.4 m step-up) that trips the traversal launch guard — filed as
+`organic-cave-mouth-offaxis-rimride.md`. It is the tracked voxel-KCC-on-organic-terrain class,
+not a connector-overlap defect (a capsule spawned inside the bore crosses the very same mouth
+clean).
