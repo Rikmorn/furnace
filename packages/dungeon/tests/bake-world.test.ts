@@ -1,30 +1,24 @@
 // packages/dungeon/tests/bake-world.test.ts
 import { describe, expect, test } from "bun:test";
-import { type BakeFile, bakeWorld, worldDir } from "../src/bake.ts";
+import {
+  type BakeFile,
+  bakeWorld,
+  type WorldConnectorEntry,
+  type WorldManifest,
+  worldDir,
+} from "../src/bake.ts";
 import { TUNNEL_OVERSHOOT, TUNNEL_RADIUS } from "../src/connector.ts";
 import type { Aabb, Connection, Vec3 } from "../src/region.ts";
 import { realizeWorldSpec } from "../src/world-build.ts";
 import { DEFAULT_WORLD } from "../src/world-spec.ts";
+import { TWO_CAVES } from "./_helpers/world-fixtures.ts";
 
-type WorldManifestJson = {
-  playerStart: Vec3;
-  playerYaw: number;
-  regions: {
-    id: string;
-    placement: { translation: Vec3; yaw: number };
-    cuboids: unknown[];
-  }[];
-  connectors: {
-    id: string;
-    a: Connection;
-    b: Connection;
-    radius: number;
-    overshoot: number;
-  }[];
-};
-
-const manifestOf = (files: BakeFile[]): WorldManifestJson =>
-  JSON.parse(files[files.length - 1]?.contents as string) as WorldManifestJson;
+// The REAL manifest type, not a hand-rolled local mirror: the gate world's manifest is a
+// discriminated union (region `class`, connector `kind`), and a local copy silently drifts out
+// of sync with bake.ts — it did, which is how the connector `kind` field went untested until
+// Task 14 needed it.
+const manifestOf = (files: BakeFile[]): WorldManifest =>
+  JSON.parse(files[files.length - 1]?.contents as string) as WorldManifest;
 
 const DIR = worldDir(DEFAULT_WORLD.name); // "worlds/default"
 
@@ -37,6 +31,28 @@ function insideAabb(box: Aabb, p: Vec3): boolean {
     p[2] >= box.min[2] &&
     p[2] <= box.max[2]
   );
+}
+
+/** The realized world's placed portal at `[regionId, portalIndex]` — the oracle a baked
+ *  connector's `a`/`b` must equal. Throws (rather than yielding `undefined`, which `toEqual`
+ *  would happily compare against a missing baked field) if the portal is not there. */
+function placedPortal(
+  realized: ReturnType<typeof realizeWorldSpec>,
+  regionId: string,
+  portalIndex: number,
+): Connection {
+  const portal = realized.regions.get(regionId)?.connections[portalIndex];
+  if (!portal) throw new Error(`no placed portal ${regionId}:${portalIndex}`);
+  return portal;
+}
+
+/** Assert a connector entry is a BORE kind carrying the `TUNNEL_*` opts it was built with.
+ *  The `"radius" in c` check is what narrows `WorldConnectorEntry` to its bore branch: testing
+ *  `c.kind !== "collar-bore"` cannot, since an `organic-tunnel` is also a bore. */
+function expectBoreOpts(c: WorldConnectorEntry): void {
+  if (!("radius" in c)) throw new Error(`connector ${c.id} baked no bore opts`);
+  expect(c.radius).toBe(TUNNEL_RADIUS);
+  expect(c.overshoot).toBe(TUNNEL_OVERSHOOT);
 }
 
 // Byte-comparable view of a file set: strings as-is, `.fmesh` bytes as number arrays.
@@ -76,47 +92,85 @@ describe("bakeWorld", () => {
     expect("bakedAt" in manifest.provenance).toBe(false);
   });
 
-  // (iii) playerStart lands inside cave-a's placed bounds, and both region entries carry
-  // real (non-empty) cuboid colliders (the caves' collar/plug boxes; voxels never serialize).
-  test("manifest playerStart is inside cave-a's placed bounds; regions carry cuboids", () => {
+  // (iii) playerStart lands inside the start region's (hall-a's) placed bounds, and the
+  // per-class cuboid contract holds: a FIELD-ORGANIC region bakes its collar/plug boxes as
+  // world-frame cuboids, while a GRID-BUILT region bakes NONE (`cuboids: []` by contract —
+  // its collider IS the voxel proxy the loader re-expands, and voxels never serialize).
+  test("manifest playerStart is inside hall-a's placed bounds; cuboids follow the class contract", () => {
     const manifest = manifestOf(bakeWorld(DEFAULT_WORLD));
 
-    const caveA = realizeWorldSpec(DEFAULT_WORLD).regions.get("cave-a");
-    if (!caveA) throw new Error("missing placed cave-a");
-    expect(insideAabb(caveA.bounds, manifest.playerStart)).toBe(true);
+    const hallA = realizeWorldSpec(DEFAULT_WORLD).regions.get("hall-a");
+    if (!hallA) throw new Error("missing placed hall-a");
+    expect(insideAabb(hallA.bounds, manifest.playerStart)).toBe(true);
 
-    expect(manifest.regions.length).toBe(2);
-    for (const r of manifest.regions) {
+    expect(manifest.regions.length).toBe(3);
+    const byClass = (c: string) =>
+      manifest.regions.filter((r) => r.class === c);
+    // Precondition teeth: the gate world really does carry both classes, so neither loop below
+    // can pass vacuously.
+    expect(byClass("field-organic").length).toBe(1);
+    expect(byClass("grid-built").length).toBe(2);
+    for (const r of byClass("field-organic")) {
       expect(r.cuboids.length).toBeGreaterThan(0);
+    }
+    for (const r of byClass("grid-built")) {
+      expect(r.cuboids.length).toBe(0);
     }
   });
 
-  // (v) Contract lock: the manifest bakes the DERIVED region placement and the PLACED connector
+  // (v) Contract lock: the manifest bakes the DERIVED region placements and the PLACED connector
   // portals — not the raw spec placeholders / unplaced local portals. This is exactly the data
-  // Task 6 re-expands from, so it is asserted against `realizeWorldSpec` as the oracle. It fails
-  // if bakeWorld regresses to `region.placement` (cave-b's [0,0,0]) or unplaced portals.
-  test("bakes cave-b's DERIVED placement + the connector's PLACED portals + tunnel opts", () => {
+  // the loader re-expands from, so it is asserted against `realizeWorldSpec` as the oracle. It
+  // fails if bakeWorld regresses to `region.placement` (the [0,0,0] placeholders) or to unplaced
+  // portals. Also locks the connector-entry KIND UNION: a bore kind carries `radius`/`overshoot`,
+  // a corridor carries neither.
+  test("bakes the DERIVED placements + each connector's PLACED portals + bore-only tunnel opts", () => {
     const manifest = manifestOf(bakeWorld(DEFAULT_WORLD));
     const realized = realizeWorldSpec(DEFAULT_WORLD);
 
-    // cave-b's placement is join-derived, NOT the [0,0,0] spec placeholder.
-    const caveB = manifest.regions.find((r) => r.id === "cave-b");
-    const derivedB = realized.spec.regions.find((r) => r.id === "cave-b");
-    if (!caveB || !derivedB) throw new Error("missing cave-b entry");
-    expect(caveB.placement.translation).not.toEqual([0, 0, 0]);
-    expect(caveB.placement).toEqual(derivedB.placement);
+    // hall-b's and cave-c's placements are join-derived, NOT the [0,0,0] spec placeholders.
+    for (const id of ["hall-b", "cave-c"]) {
+      const baked = manifest.regions.find((r) => r.id === id);
+      const derived = realized.spec.regions.find((r) => r.id === id);
+      if (!baked || !derived) throw new Error(`missing ${id} entry`);
+      expect(baked.placement.translation).not.toEqual([0, 0, 0]);
+      expect(baked.placement).toEqual(derived.placement);
+    }
 
-    // The one connector's a/b are the PLACED world-frame portals (what organicTunnel consumed),
-    // and its opts are the TUNNEL_* defaults Task 3 built it with.
+    // Each connector's a/b are the PLACED world-frame portals its volume was built from.
+    const corridor = manifest.connectors.find((c) => c.id === "corridor-1");
+    const bore = manifest.connectors.find((c) => c.id === "bore-1");
+    if (!corridor || !bore) throw new Error("missing connector entries");
+    expect(corridor.a).toEqual(placedPortal(realized, "hall-a", 0));
+    expect(corridor.b).toEqual(placedPortal(realized, "hall-b", 0));
+    expect(bore.a).toEqual(placedPortal(realized, "hall-a", 1));
+    expect(bore.b).toEqual(placedPortal(realized, "cave-c", 0));
+
+    // Kind union: the collar-bore carries the TUNNEL_* opts it was built with; the corridor,
+    // a pure grid join, carries no bore opts at all.
+    expect(bore.kind).toBe("collar-bore");
+    expect(corridor.kind).toBe("corridor");
+    expectBoreOpts(bore);
+    expect("radius" in corridor).toBe(false);
+    expect("overshoot" in corridor).toBe(false);
+  });
+
+  // (vii) ORGANIC-TUNNEL bake entry (TWO_CAVES). The gate world has no organic tunnel, but
+  // `bakeWorld` still routes that kind through the bore branch (merged-doc mesh + radius/overshoot).
+  // Without this, promoting the gate world would silently drop the only bake coverage of it.
+  test("bakes an organic-tunnel world: bore opts + a merged-doc tunnel mesh sidecar", () => {
+    const files = bakeWorld(TWO_CAVES);
+    const manifest = manifestOf(files);
+    const realized = realizeWorldSpec(TWO_CAVES);
+
     const conn = manifest.connectors[0];
-    const placedA = realized.regions.get("cave-a")?.connections[0];
-    const placedB = realized.regions.get("cave-b")?.connections[0];
-    if (!conn || !placedA || !placedB)
-      throw new Error("missing connector data");
-    expect(conn.a).toEqual(placedA);
-    expect(conn.b).toEqual(placedB);
-    expect(conn.radius).toBe(TUNNEL_RADIUS);
-    expect(conn.overshoot).toBe(TUNNEL_OVERSHOOT);
+    if (!conn) throw new Error("missing connector entry");
+    expect(conn.kind).toBe("organic-tunnel");
+    expect(conn.a).toEqual(placedPortal(realized, "cave-a", 0));
+    expect(conn.b).toEqual(placedPortal(realized, "cave-b", 0));
+    expectBoreOpts(conn);
+    // A bore kind contributes its Surface-Nets tube to the merged doc as a `.fmesh` sidecar.
+    expect(files.some((f) => f.path.endsWith("tunnel-1-0.fmesh"))).toBe(true);
   });
 
   // (vi) A path-hostile name is refused setup-loud (FS/URL-safety + daemon root-containment).

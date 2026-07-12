@@ -3,7 +3,7 @@
 // Charter contract v2: two region classes (field-organic caves, grid-built halls)
 // and four connector kinds.
 import type { Vec3 } from "./region.ts";
-import type { HallParams } from "./themes/hall.ts";
+import { HALL_PRESETS, type HallParams } from "./themes/hall.ts";
 
 /** Placement of a region in the world: translation + yaw (radians about +Y). */
 export type WorldPlacement = { translation: Vec3; yaw: number };
@@ -176,38 +176,72 @@ export function validateWorldSpec(spec: WorldSpec): void {
  *  from cave A's mouth via join-math at this distance (world-build.ts). */
 export const DEFAULT_TUNNEL_LENGTH = 8;
 
-/** The default world: two caves facing each other through one organic tunnel.
- *  Cave B's placement translation is a PLACEHOLDER (zeros) — world-build.ts
- *  derives it from cave A's realized mouth (deterministic, no search); the
- *  DERIVED placement is what bakes into world.json. */
+/** THE GATE WORLD (W2 Task 14) — the committed default the game boots and the
+ *  player walks. It exercises BOTH region classes and BOTH built connector kinds
+ *  in one graph: a grid-built pillar hall (the start) climbs a stair corridor
+ *  into a small box room, and bores sideways through a collar into a
+ *  field-organic cave.
+ *
+ *  Portal indexing follows `params.doors` order: `hall-a` portal 0 is its NORTH
+ *  door (consumed by `corridor-1`), portal 1 its EAST door (consumed by `bore-1`).
+ *
+ *  `hall-b` and `cave-c` carry PLACEHOLDER (all-zero) placements — world-build.ts
+ *  derives each from the connector that reaches it (deterministic, no search:
+ *  the corridor carries `length`/`deltaY`, the bore its axis). The DERIVED
+ *  placements are what bake into the manifest. */
 export const DEFAULT_WORLD: WorldSpec = {
   name: "default",
   regions: [
     {
-      id: "cave-a",
-      class: "field-organic",
-      algorithm: "cave",
-      params: { mouths: 1 },
+      id: "hall-a",
+      class: "grid-built",
+      algorithm: "hall",
+      params: {
+        ...HALL_PRESETS.pillarHall,
+        doors: [
+          { wall: "north", offset: 3 }, // portal 0 — corridor-1
+          { wall: "east", offset: 6 }, // portal 1 — bore-1
+        ],
+      },
       seed: "world-default:a",
       placement: { translation: [0, 0, 0], yaw: 0 },
     },
     {
-      id: "cave-b",
+      id: "hall-b",
+      class: "grid-built",
+      algorithm: "hall",
+      params: {
+        ...HALL_PRESETS.boxRoom,
+        doors: [{ wall: "south", offset: 2 }],
+      },
+      seed: "world-default:b",
+      placement: { translation: [0, 0, 0], yaw: 0 }, // derived via corridor-1
+    },
+    {
+      id: "cave-c",
       class: "field-organic",
       algorithm: "cave",
       params: { mouths: 1 },
-      seed: "world-default:b",
-      placement: { translation: [0, 0, 0], yaw: 0 }, // derived — see world-build.ts
+      seed: "world-default:c",
+      placement: { translation: [0, 0, 0], yaw: 0 }, // derived via bore-1
     },
   ],
   connectors: [
     {
-      id: "tunnel-1",
-      kind: "organic-tunnel",
-      a: ["cave-a", 0],
-      b: ["cave-b", 0],
+      id: "corridor-1",
+      kind: "corridor",
+      a: ["hall-a", 0],
+      b: ["hall-b", 0],
       seed: "world-default:t1",
+      params: { length: 6, deltaY: 1.5 }, // Task 12 proved this flight walks up AND down
+    },
+    {
+      id: "bore-1",
+      kind: "collar-bore",
+      a: ["hall-a", 1],
+      b: ["cave-c", 0],
+      seed: "world-default:t2",
     },
   ],
-  startRegion: "cave-a",
+  startRegion: "hall-a",
 };

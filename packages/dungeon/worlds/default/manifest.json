@@ -2,18 +2,36 @@
   "version": 1,
   "scene": "worlds/default/world.scene.json",
   "playerStart": [
-    5.546153780259192,
-    -0.8999999999999999,
-    -1.2246467991473533e-17
+    3,
+    1.1,
+    7
   ],
-  "playerYaw": -1.5707963267948966,
+  "playerYaw": -3.141592653589793,
   "regions": [
     {
-      "id": "cave-a",
-      "class": "field-organic",
-      "algorithm": "cave",
+      "id": "hall-a",
+      "class": "grid-built",
+      "algorithm": "hall",
       "params": {
-        "mouths": 1
+        "size": [
+          10,
+          7,
+          16
+        ],
+        "pillars": {
+          "kind": "colonnade",
+          "spacing": 3
+        },
+        "doors": [
+          {
+            "wall": "north",
+            "offset": 3
+          },
+          {
+            "wall": "east",
+            "offset": 6
+          }
+        ]
       },
       "seed": "world-default:a",
       "placement": {
@@ -24,104 +42,54 @@
         ],
         "yaw": 0
       },
-      "cuboids": [
-        {
-          "shape": {
-            "cuboid": [
-              0.7,
-              2,
-              0.6000000000000001
-            ]
-          },
-          "position": [
-            7.546153780259192,
-            0,
-            1.7
-          ],
-          "rotation": [
-            0,
-            0.7071067690849304,
-            0,
-            0.7071067690849304
-          ]
-        },
-        {
-          "shape": {
-            "cuboid": [
-              0.7,
-              2,
-              0.6000000000000001
-            ]
-          },
-          "position": [
-            7.546153780259192,
-            0,
-            -1.7
-          ],
-          "rotation": [
-            0,
-            0.7071067690849304,
-            0,
-            0.7071067690849304
-          ]
-        },
-        {
-          "shape": {
-            "cuboid": [
-              2.4,
-              0.6000000000000001,
-              0.6000000000000001
-            ]
-          },
-          "position": [
-            7.546153780259192,
-            1.4,
-            -1.2246467991473533e-17
-          ],
-          "rotation": [
-            0,
-            0.7071067690849304,
-            0,
-            0.7071067690849304
-          ]
-        },
-        {
-          "shape": {
-            "cuboid": [
-              2.4,
-              0.15,
-              0.6000000000000001
-            ]
-          },
-          "position": [
-            7.546153780259192,
-            -2.15,
-            -1.2246467991473533e-17
-          ],
-          "rotation": [
-            0,
-            0.7071067690849304,
-            0,
-            0.7071067690849304
-          ]
-        }
-      ]
+      "cuboids": []
     },
     {
-      "id": "cave-b",
+      "id": "hall-b",
+      "class": "grid-built",
+      "algorithm": "hall",
+      "params": {
+        "size": [
+          8,
+          6,
+          8
+        ],
+        "pillars": {
+          "kind": "none"
+        },
+        "doors": [
+          {
+            "wall": "south",
+            "offset": 2
+          }
+        ]
+      },
+      "seed": "world-default:b",
+      "placement": {
+        "translation": [
+          0.5,
+          1.5,
+          15
+        ],
+        "yaw": 0
+      },
+      "cuboids": []
+    },
+    {
+      "id": "cave-c",
       "class": "field-organic",
       "algorithm": "cave",
       "params": {
         "mouths": 1
       },
-      "seed": "world-default:b",
+      "seed": "world-default:c",
       "placement": {
         "translation": [
-          22.043151843734087,
-          0,
-          1.1812327143836884e-15
+          22.880397150479258,
+          2,
+          4.500000000000001
         ],
-        "yaw": 4.71238898038469
+        "yaw": 3.141592653589793
       },
       "cuboids": [
         {
@@ -133,9 +101,9 @@
             ]
           },
           "position": [
-            15.546153780259193,
-            0,
-            -1.7
+            14,
+            2,
+            2.8
           ],
           "rotation": [
             0,
@@ -153,9 +121,9 @@
             ]
           },
           "position": [
-            15.546153780259193,
-            0,
-            1.7
+            14,
+            2,
+            6.199999999999999
           ],
           "rotation": [
             0,
@@ -173,9 +141,9 @@
             ]
           },
           "position": [
-            15.546153780259193,
-            1.4,
-            -1.2246467991473554e-17
+            14,
+            3.4,
+            4.5
           ],
           "rotation": [
             0,
@@ -193,9 +161,9 @@
             ]
           },
           "position": [
-            15.546153780259193,
-            -2.15,
-            -1.2246467991473554e-17
+            14,
+            -0.1499999999999999,
+            4.5
           ],
           "rotation": [
             0,
@@ -209,14 +177,56 @@
   ],
   "connectors": [
     {
-      "id": "tunnel-1",
-      "kind": "organic-tunnel",
+      "id": "corridor-1",
       "seed": "world-default:t1",
       "a": {
         "position": [
-          7.546153780259192,
-          -2,
-          -1.2246467991473533e-17
+          3,
+          0,
+          9
+        ],
+        "facing": [
+          0,
+          0,
+          1
+        ],
+        "width": 2,
+        "height": 3,
+        "kind": "door"
+      },
+      "b": {
+        "position": [
+          3,
+          1.5,
+          15
+        ],
+        "facing": [
+          0,
+          0,
+          -1
+        ],
+        "width": 2,
+        "height": 3,
+        "kind": "door"
+      },
+      "aRef": [
+        "hall-a",
+        0
+      ],
+      "bRef": [
+        "hall-b",
+        0
+      ],
+      "kind": "corridor"
+    },
+    {
+      "id": "bore-1",
+      "seed": "world-default:t2",
+      "a": {
+        "position": [
+          6,
+          0,
+          4.5
         ],
         "facing": [
           1,
@@ -224,24 +234,33 @@
           0
         ],
         "width": 2,
-        "height": 2.8,
+        "height": 3,
         "kind": "door"
       },
       "b": {
         "position": [
-          15.546153780259193,
-          -2,
-          -1.2246467991473554e-17
+          14,
+          0,
+          4.5
         ],
         "facing": [
           -1,
           0,
-          -1.8369701987210297e-16
+          -1.2246467991473532e-16
         ],
         "width": 2,
         "height": 2.8,
         "kind": "door"
       },
+      "aRef": [
+        "hall-a",
+        1
+      ],
+      "bRef": [
+        "cave-c",
+        0
+      ],
+      "kind": "collar-bore",
       "radius": 1.6,
       "overshoot": 1.2
     }

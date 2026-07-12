@@ -16,18 +16,18 @@ test("validateWorldSpec: an isolated region throws, naming it", () => {
     regions: [
       ...DEFAULT_WORLD.regions,
       {
-        id: "cave-c",
+        id: "cave-lost",
         class: "field-organic",
         algorithm: "cave",
         params: { mouths: 1 },
-        seed: "world-default:c",
-        placement: { translation: [20, 0, 0], yaw: 0 },
+        seed: "world-default:lost",
+        placement: { translation: [40, 0, 0], yaw: 0 },
       },
     ],
-    connectors: DEFAULT_WORLD.connectors,
-    startRegion: "cave-a",
+    connectors: DEFAULT_WORLD.connectors, // reach hall-b + cave-c, but never cave-lost
+    startRegion: "hall-a",
   };
-  expect(() => validateWorldSpec(spec)).toThrow(/isolated region.*cave-c/);
+  expect(() => validateWorldSpec(spec)).toThrow(/isolated region.*cave-lost/);
 });
 
 test("validateWorldSpec: a connector referencing an unknown region throws", () => {
@@ -36,26 +36,26 @@ test("validateWorldSpec: a connector referencing an unknown region throws", () =
     regions: DEFAULT_WORLD.regions,
     connectors: [
       {
-        id: "tunnel-1",
-        kind: "organic-tunnel",
-        a: ["cave-a", 0],
-        b: ["cave-ghost", 0],
+        id: "corridor-1",
+        kind: "corridor",
+        a: ["hall-a", 0],
+        b: ["hall-ghost", 0],
         seed: "world-default:t1",
       },
     ],
-    startRegion: "cave-a",
+    startRegion: "hall-a",
   };
-  expect(() => validateWorldSpec(spec)).toThrow(/unknown region cave-ghost/);
+  expect(() => validateWorldSpec(spec)).toThrow(/unknown region hall-ghost/);
 });
 
 test("validateWorldSpec: duplicate region ids throw", () => {
-  const [caveA] = DEFAULT_WORLD.regions;
-  if (!caveA) throw new Error("fixture: DEFAULT_WORLD has no regions");
+  const [hallA] = DEFAULT_WORLD.regions;
+  if (!hallA) throw new Error("fixture: DEFAULT_WORLD has no regions");
   const spec: WorldSpec = {
     name: "dupes",
-    regions: [caveA, caveA],
+    regions: [hallA, hallA],
     connectors: [],
-    startRegion: "cave-a",
+    startRegion: "hall-a",
   };
   expect(() => validateWorldSpec(spec)).toThrow(/duplicate region ids/);
 });
@@ -76,24 +76,24 @@ test("validateWorldSpec: a portal claimed by two connectors throws, naming it", 
     regions: DEFAULT_WORLD.regions,
     connectors: [
       {
-        id: "tunnel-1",
-        kind: "organic-tunnel",
-        a: ["cave-a", 0],
-        b: ["cave-b", 0],
+        id: "corridor-1",
+        kind: "corridor",
+        a: ["hall-a", 0],
+        b: ["hall-b", 0],
         seed: "world-default:t1",
       },
       {
-        id: "tunnel-2",
-        kind: "organic-tunnel",
-        a: ["cave-a", 0], // reuses cave-a:0
-        b: ["cave-b", 1],
+        id: "corridor-2",
+        kind: "corridor",
+        a: ["hall-a", 0], // reuses hall-a:0
+        b: ["cave-c", 0],
         seed: "world-default:t2",
       },
     ],
-    startRegion: "cave-a",
+    startRegion: "hall-a",
   };
   expect(() => validateWorldSpec(spec)).toThrow(
-    /portal cave-a:0 is claimed by more than one connector/,
+    /portal hall-a:0 is claimed by more than one connector/,
   );
 });
 
@@ -103,17 +103,17 @@ test("validateWorldSpec: a connector whose two ends share one portal throws", ()
     regions: DEFAULT_WORLD.regions,
     connectors: [
       {
-        id: "tunnel-1",
-        kind: "organic-tunnel",
-        a: ["cave-a", 0],
-        b: ["cave-a", 0], // same [region, portal] on both ends
+        id: "corridor-1",
+        kind: "corridor",
+        a: ["hall-a", 0],
+        b: ["hall-a", 0], // same [region, portal] on both ends
         seed: "world-default:t1",
       },
     ],
-    startRegion: "cave-a",
+    startRegion: "hall-a",
   };
   expect(() => validateWorldSpec(spec)).toThrow(
-    /portal cave-a:0 is claimed by more than one connector/,
+    /portal hall-a:0 is claimed by more than one connector/,
   );
 });
 

@@ -21,7 +21,12 @@ So the 0.80 m spikes are organic-cave-INTERIOR floor undulations, hit at variabl
 ±0.55 sides depending on the approach — not a wedge at the bore↔cave mouth (which crosses clean
 from a bore-spawn) and not the carve seam. The collar-bore's bore is literally `organicTunnel`;
 the cave floor bumps belong to the cave (seed `t:c`), which happens to undulate more off-axis than
-DEFAULT_WORLD's cave seeds (whose ±0.55 wall-hug lanes pass in `world-traversal.gpu.test.ts`).
+the two-cave world's seeds did (whose ±0.55 wall-hug lanes passed in `world-traversal.gpu.test.ts`
+while `DEFAULT_WORLD` was still two caves + a tunnel). NOTE (W2 Task 14): `DEFAULT_WORLD` is now
+the GATE WORLD, and `world-traversal.gpu.test.ts`'s lanes are ALL ON-AXIS precisely because of
+this entry — the off-axis cave-interior evidence now lives in `collar-bore.gpu.test.ts` (whose
+off-centre lanes stop short of the mouth for the same reason). The retired two-cave world survives
+as the `TWO_CAVES` fixture in `tests/_helpers/world-fixtures.ts`.
 Earlier attribution attempts were confounded — a two-cave organic-tunnel control measured the
 WRONG cave's mouth, and a "0.40 vs 0.80 via connector type" comparison was confounded by the
 derived cave orientation; the bore-spawn isolation above is the clean measurement.

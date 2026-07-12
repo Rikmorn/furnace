@@ -23,11 +23,14 @@ import {
 import { HALL_CAVE } from "./_helpers/world-fixtures.ts";
 
 // W1 Task 6: the GAME-side world loader mirrors wing-loader against the world manifest.
-// The core NEW behaviour vs wings: the connector carries NO cuboids, so its collision is a
-// VOXEL PROXY re-expanded at load from (a, b, seed, radius, overshoot). The gpu round-trip
-// asserts exactly 3 voxel bodies are created (2 cave proxies + 1 connector proxy); the
-// non-skipped parity test guards dressing re-derivation at PLACEMENT level (the 3.1 lesson:
-// count-level parity passed while placements differed).
+// The core NEW behaviour vs wings: a connector carries NO cuboids, so its collision is a VOXEL
+// PROXY re-expanded at load — a bore from (a, b, seed, radius, overshoot), a corridor from
+// `buildCorridor(a, b, seed)`. As of W2 Task 14 `DEFAULT_WORLD` is the GATE WORLD (two grid halls
+// + a cave, joined by a stair corridor and a collar-bore), so the gpu round-trip asserts exactly
+// 5 voxel bodies (hall-a, hall-b, cave-c, corridor-1, bore-1 — every one re-expanded, none
+// serialized). The non-skipped parity test guards CAVE dressing re-derivation at PLACEMENT level
+// (the 3.1 lesson: count-level parity passed while placements differed); grid dressing is not
+// baked at all, so it has nothing to re-derive against.
 
 // @furnace/core/scene auto-registers built-ins at module import (side-effect in
 // scene/index.ts). No explicit registerBuiltins() call is needed.
@@ -78,7 +81,7 @@ const isRecord = (v: unknown): v is Record<string, unknown> =>
   typeof v === "object" && v !== null;
 
 test.skipIf(!bunWebGpuAvailable())(
-  "loadWorld: fragment scene + deterministic re-expansion (3 voxel proxies) + baked spawn + setup-loud throws",
+  "loadWorld: fragment scene + deterministic re-expansion (5 voxel proxies) + baked spawn + setup-loud throws",
   async () => {
     const canvas = await makeOffscreenCanvas();
     const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
@@ -117,10 +120,13 @@ test.skipIf(!bunWebGpuAvailable())(
       expect(loaded.playerStart).toEqual(manifest.playerStart);
       expect(loaded.playerYaw).toBe(manifest.playerYaw);
 
-      // (c) EXACTLY 3 voxel bodies: 2 cave proxies + 1 connector proxy (the new behaviour —
-      // the connector's collision re-expanded from its portals, carrying no serialized cuboids).
+      // (c) EXACTLY 5 voxel bodies for the gate world — one per region + one per volumetric
+      // connector, none of them serialized: hall-a + hall-b (grid proxies re-expanded through
+      // `expandGridRegionFromEntry`), cave-c (field proxy re-expanded from params/seed),
+      // corridor-1 (tube re-expanded via `buildCorridor`) and bore-1 (bore re-expanded from its
+      // placed portals + radius/overshoot). A dropped re-expansion shows up here as 4.
       const voxelBodies = shapes.filter((s) => isRecord(s) && "voxels" in s);
-      expect(voxelBodies.length).toBe(3);
+      expect(voxelBodies.length).toBe(5);
 
       loaded.destroy();
 
@@ -210,13 +216,22 @@ test("baked world dressing re-derivation reproduces the live world exactly (plac
   const files = bakeWorld(DEFAULT_WORLD);
   const manifest = manifestOf(files);
 
-  expect(manifest.regions.length).toBeGreaterThanOrEqual(1);
+  // CAVE regions only: a grid-built region bakes NO `.fmesh` sidecar and NO scene entities —
+  // its dressing re-expands wholesale through `expandGridRegionFromEntry` at load (D-W2-6), so
+  // there is no baked-vs-live re-derivation to compare here. This test owns the FIELD-ORGANIC
+  // scatter contract (scatter re-derived over the DECODED baked isosurface).
+  const caveRegions = manifest.regions.filter(
+    (r) => r.class === "field-organic",
+  );
+  // PRECONDITION teeth: the gate world must actually contain a cave, or the loop below would
+  // pass vacuously.
+  expect(caveRegions.length).toBeGreaterThanOrEqual(1);
   // PRECONDITION teeth: a running tally of every compared instance. If a future config
   // zeroed cave scatter, the per-group deep-equals would pass vacuously — the tally assert
   // at the end catches that (mirrors bake-dressing-parity's multi-door precondition).
   let comparedTransforms = 0;
 
-  for (const mr of manifest.regions) {
+  for (const mr of caveRegions) {
     const fm = files.find((f) => f.path.endsWith(`${mr.id}-0.fmesh`));
     if (!fm) throw new Error(`no fmesh sidecar for ${mr.id}`);
     const u8 = fm.contents as Uint8Array;

@@ -2,6 +2,44 @@
 import { HALL_PRESETS } from "../../src/themes/hall.ts";
 import type { WorldSpec } from "../../src/world-spec.ts";
 
+/** Two caves facing each other through one ORGANIC TUNNEL — the world that WAS `DEFAULT_WORLD`
+ *  until W2 Task 14 promoted the gate world (halls + stair corridor + collar-bore cave) into that
+ *  slot. Kept as a fixture because it is the ONLY `organic-tunnel` world under test: the
+ *  cave↔cave join math (tunnel-length derivation off cave A's mouth, the phantom-facing
+ *  correction that makes the two mouths face each other) is a live invariant of `world-build.ts`
+ *  that the gate world no longer exercises. Cave B's placement is the derived-from-A placeholder. */
+export const TWO_CAVES: WorldSpec = {
+  name: "two-caves",
+  regions: [
+    {
+      id: "cave-a",
+      class: "field-organic",
+      algorithm: "cave",
+      params: { mouths: 1 },
+      seed: "world-default:a",
+      placement: { translation: [0, 0, 0], yaw: 0 },
+    },
+    {
+      id: "cave-b",
+      class: "field-organic",
+      algorithm: "cave",
+      params: { mouths: 1 },
+      seed: "world-default:b",
+      placement: { translation: [0, 0, 0], yaw: 0 }, // derived — see world-build.ts
+    },
+  ],
+  connectors: [
+    {
+      id: "tunnel-1",
+      kind: "organic-tunnel",
+      a: ["cave-a", 0],
+      b: ["cave-b", 0],
+      seed: "world-default:t1",
+    },
+  ],
+  startRegion: "cave-a",
+};
+
 /** hall-a (pillarHall + south door) ↔ derived cave via a collar-bore. */
 export const HALL_CAVE: WorldSpec = {
   name: "hall-cave",

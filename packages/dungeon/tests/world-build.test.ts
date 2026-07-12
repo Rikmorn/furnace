@@ -4,7 +4,7 @@ import { forwardVector } from "../src/fp-controller.ts";
 import type { Aabb, RegionData, Vec3 } from "../src/region.ts";
 import { realizeWorldSpec } from "../src/world-build.ts";
 import { DEFAULT_TUNNEL_LENGTH, DEFAULT_WORLD } from "../src/world-spec.ts";
-import { HALL_CAVE, TWO_HALLS } from "./_helpers/world-fixtures.ts";
+import { HALL_CAVE, TWO_CAVES, TWO_HALLS } from "./_helpers/world-fixtures.ts";
 
 const sub = (a: Vec3, b: Vec3): Vec3 => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
 const dot = (a: Vec3, b: Vec3): number =>
@@ -27,22 +27,28 @@ test("realizeWorldSpec is deterministic (derived placements + playerStart)", () 
   const a = realizeWorldSpec(DEFAULT_WORLD);
   const b = realizeWorldSpec(DEFAULT_WORLD);
 
-  // Every resolved placement (cave-b's is the derived one) is exactly reproduced.
+  // Every resolved placement (hall-b's and cave-c's are the derived ones) is exactly reproduced.
   const placementsOf = (spec: typeof a.spec) =>
     spec.regions.map((r) => r.placement);
   expect(placementsOf(a.spec)).toEqual(placementsOf(b.spec));
-  // And the derivation is not a no-op: cave-b moved off the zero placeholder.
-  const caveB = a.spec.regions.find((r) => r.id === "cave-b");
-  expect(caveB?.placement.translation).not.toEqual([0, 0, 0]);
+  // And the derivation is not a no-op: BOTH derived regions moved off the zero placeholder.
+  // Looked up by index (not `.find`, which returns undefined on a renamed id and would let this
+  // pass VACUOUSLY — exactly how the two-cave version silently lost its teeth at Task 14).
+  for (const id of ["hall-b", "cave-c"]) {
+    const derived = a.spec.regions.find((r) => r.id === id);
+    if (!derived) throw new Error(`missing derived region ${id}`);
+    expect(derived.placement.translation).not.toEqual([0, 0, 0]);
+  }
 
   expect(a.playerStart).toEqual(b.playerStart);
   expect(a.playerYaw).toEqual(b.playerYaw);
 });
 
-// (ii) cave-b's derived door is DEFAULT_TUNNEL_LENGTH from cave-a's door, along cave-a's
-// portal facing.
+// (ii) ORGANIC-TUNNEL join math (TWO_CAVES — the gate world has no organic tunnel, but the
+// cave↔cave derivation is still live in world-build.ts): cave-b's derived door is
+// DEFAULT_TUNNEL_LENGTH from cave-a's door, along cave-a's portal facing.
 test("derived cave-b door is one tunnel-length out along cave-a's facing", () => {
-  const w = realizeWorldSpec(DEFAULT_WORLD);
+  const w = realizeWorldSpec(TWO_CAVES);
   const doorA = w.regions.get("cave-a")?.connections[0];
   const doorB = w.regions.get("cave-b")?.connections[0];
   if (!doorA || !doorB) throw new Error("missing placed doors");
@@ -63,7 +69,7 @@ test("derived cave-b door is one tunnel-length out along cave-a's facing", () =>
 // (iii) The two placed portals face each other: dot(fA, fB) ≈ −1 (the phantom-facing
 // correction — building the phantom with −pA.facing would give +1 here and fail).
 test("placed cave-a and cave-b portals face each other (dot ≈ −1)", () => {
-  const w = realizeWorldSpec(DEFAULT_WORLD);
+  const w = realizeWorldSpec(TWO_CAVES);
   const doorA = w.regions.get("cave-a")?.connections[0];
   const doorB = w.regions.get("cave-b")?.connections[0];
   if (!doorA || !doorB) throw new Error("missing placed doors");
@@ -71,24 +77,47 @@ test("placed cave-a and cave-b portals face each other (dot ≈ −1)", () => {
   expect(dot(doorA.facing, doorB.facing)).toBeCloseTo(-1, 6);
 });
 
-// (iv) playerStart is inside cave-a's placed bounds AABB.
+// (iv) playerStart is inside the start region's (hall-a's) placed bounds AABB.
 test("playerStart is inside the start region's placed bounds", () => {
   const w = realizeWorldSpec(DEFAULT_WORLD);
-  const caveA = w.regions.get("cave-a");
-  if (!caveA) throw new Error("missing placed cave-a");
+  const start = w.regions.get(DEFAULT_WORLD.startRegion);
+  if (!start) throw new Error("missing placed start region");
 
-  expect(insideAabb(caveA.bounds, w.playerStart)).toBe(true);
+  expect(insideAabb(start.bounds, w.playerStart)).toBe(true);
 });
 
 // Direction-lock: playerYaw orients the player to look OUT along the start portal's facing
-// (into the tunnel), not into the cave wall. Locks the sign of the yaw math the same way
+// (into the corridor), not into the hall wall. Locks the sign of the yaw math the same way
 // test (iii) locks the phantom facing — dropping the negations would fail this at dot ≈ −1.
-test("player faces the tunnel (playerYaw looks along the start portal's outward facing)", () => {
+test("player faces the start portal (playerYaw looks along its outward facing)", () => {
   const w = realizeWorldSpec(DEFAULT_WORLD);
-  const doorA = w.regions.get("cave-a")?.connections[0];
-  if (!doorA) throw new Error("missing placed cave-a door");
+  const door = w.regions.get(DEFAULT_WORLD.startRegion)?.connections[0];
+  if (!door) throw new Error("missing placed start portal");
 
-  expect(dot(forwardVector(w.playerYaw, 0), doorA.facing)).toBeCloseTo(1, 6);
+  expect(dot(forwardVector(w.playerYaw, 0), door.facing)).toBeCloseTo(1, 6);
+});
+
+// GATE WORLD shape-lock: the committed default composes BOTH region classes and BOTH built
+// connector kinds, and the player starts in the grid-built hall. If a future edit quietly
+// reduced it back to a single class, the traversal probe would still pass while the world the
+// player boots stopped exercising the seam this slice exists to prove.
+test("DEFAULT_WORLD (gate world) realizes both classes + both built connector kinds", () => {
+  const w = realizeWorldSpec(DEFAULT_WORLD);
+  expect(
+    w.regions.get("hall-a")?.colliders.some((c) => "voxels" in c.shape),
+  ).toBe(true);
+  expect(
+    w.regions.get("hall-b")?.colliders.some((c) => "voxels" in c.shape),
+  ).toBe(true);
+  expect(
+    w.regions.get("cave-c")?.colliders.some((c) => "voxels" in c.shape),
+  ).toBe(true);
+  // Both built connectors carry real collision (the corridor tube + the bore).
+  expect(w.connectors.get("corridor-1")?.colliders.length).toBeGreaterThan(0);
+  expect(w.connectors.get("bore-1")?.colliders.length).toBeGreaterThan(0);
+  // The stair corridor's deltaY landed hall-b a storey up (Task 12's proven flight).
+  const hallB = w.spec.regions.find((r) => r.id === "hall-b");
+  expect(hallB?.placement.translation[1]).toBeCloseTo(1.5, 10);
 });
 
 test("realize hall↔cave: hall has kit instances, patch mesh, voxel collider", () => {
