@@ -14,13 +14,31 @@ import {
   SUB,
 } from "./grid.ts";
 
-export type CarveVolume = {
-  kind: "capsule";
-  /** Segment endpoints in the GRID's local frame. a === b degenerates to a sphere. */
-  a: Vec3;
-  b: Vec3;
-  radius: number;
-};
+export type CarveVolume =
+  | {
+      kind: "capsule";
+      /** Segment endpoints in the GRID's local frame. a === b degenerates to a sphere. */
+      a: Vec3;
+      b: Vec3;
+      radius: number;
+    }
+  | {
+      kind: "cylinder";
+      /** Axis endpoints in the GRID's local frame — must be AXIS-ALIGNED (cardinal).
+       *  FLAT ends (no spherical caps): the punch-a-wall primitive. A capsule's
+       *  spherical end sweeps `radius` beyond the segment and eats interior
+       *  content (pillars, floor) far from the wall band — the W2 gate blob. */
+      a: Vec3;
+      b: Vec3;
+      radius: number;
+      /** Cells whose entire box lies at or below this Y are never carved (and
+       *  points below it are never inside the volume): a door-plane opening must
+       *  not groove the floor beneath its threshold. */
+      clipBelowY?: number;
+    };
+
+type CapsuleVolume = Extract<CarveVolume, { kind: "capsule" }>;
+type CylinderVolume = Extract<CarveVolume, { kind: "cylinder" }>;
 
 /** Patch-box margin in fine cells beyond the carved AABB: SUB+2 (spec D-W2 /
  *  findings E2 — SUB+1 measured ~0.05 m slack near corner/door pieces). */
@@ -46,7 +64,10 @@ export function prepareCarve(
     cells: new Uint8Array(input.cells),
   };
   const carved = new Set<number>();
-  for (const v of volumes) carveCapsule(fine, v, carved);
+  for (const v of volumes) {
+    if (v.kind === "capsule") carveCapsule(fine, v, carved);
+    else carveCylinder(fine, v, carved);
+  }
   if (carved.size === 0) return { fine, carved, patch: null, patchBox: null };
   const cellBox = carvedCellBounds(fine, carved);
   const lo: [number, number, number] = [
@@ -72,12 +93,25 @@ export function prepareCarve(
     ],
   };
   // Binary field over the carved occupancy (±0.5; air-positive like the caves).
-  // Sampled by CONTAINING CELL; off-grid solid — matches fineGet.
+  // Sampled by CONTAINING CELL. OFF-GRID: solid EXCEPT inside a carve volume —
+  // a carve that exits through the grid boundary (a collar-bore through the
+  // region's outer shell face) genuinely CONTINUES beyond the grid as the bore;
+  // reading off-grid as unconditionally solid made Surface-Nets manufacture a
+  // closing lid across the opening at the last cell layer (the W2 gate's
+  // "carved opening shows as closed").
+  const inBounds = (i: number, j: number, k: number): boolean =>
+    i >= 0 &&
+    i < fine.dims[0] &&
+    j >= 0 &&
+    j < fine.dims[1] &&
+    k >= 0 &&
+    k < fine.dims[2];
   const field = (x: number, y: number, z: number): number => {
     const i = Math.floor((x - fine.min[0]) / FINE);
     const j = Math.floor((y - fine.min[1]) / FINE);
     const k = Math.floor((z - fine.min[2]) / FINE);
-    return fineGet(fine, i, j, k) === 1 ? -0.5 : 0.5;
+    if (inBounds(i, j, k)) return fineGet(fine, i, j, k) === 1 ? -0.5 : 0.5;
+    return volumes.some((v) => insideVolume(v, x, y, z)) ? 0.5 : -0.5;
   };
   const patch = surfaceNets(field, {
     min: patchBox.min,
@@ -92,7 +126,7 @@ export function prepareCarve(
  *  is removed too; nothing solid pokes into the swept bore the collider follows.
  *  The scan window is the segment AABB dilated by the radius plus a one-cell
  *  guard, so a cell whose far corner just grazes the radius is not missed. */
-function carveCapsule(f: FineGrid, v: CarveVolume, out: Set<number>): void {
+function carveCapsule(f: FineGrid, v: CapsuleVolume, out: Set<number>): void {
   const r2 = v.radius * v.radius;
   const lo: [number, number, number] = [
     Math.floor((Math.min(v.a[0], v.b[0]) - v.radius - f.min[0]) / FINE) - 1,
@@ -122,6 +156,120 @@ function carveCapsule(f: FineGrid, v: CarveVolume, out: Set<number>): void {
         fineSet(f, i, j, k, 0);
         out.add(fineIndex(f, i, j, k));
       }
+}
+
+/** The two axes perpendicular to each cardinal axis. */
+const PERP: Record<0 | 1 | 2, [0 | 1 | 2, 0 | 1 | 2]> = {
+  0: [1, 2],
+  1: [0, 2],
+  2: [0, 1],
+};
+
+/** The cylinder's cardinal axis. Setup-loud on a non-axis-aligned segment —
+ *  the substrate only emits cardinal carves (quarter-turn placements preserve
+ *  axis-alignment), and the flat-end overlap test below relies on it. */
+function cylinderAxis(v: CylinderVolume): 0 | 1 | 2 {
+  const d: Vec3 = [
+    Math.abs(v.b[0] - v.a[0]),
+    Math.abs(v.b[1] - v.a[1]),
+    Math.abs(v.b[2] - v.a[2]),
+  ];
+  const axis: 0 | 1 | 2 =
+    d[0] >= d[1] && d[0] >= d[2] ? 0 : d[1] >= d[2] ? 1 : 2;
+  const [p, q] = PERP[axis];
+  if (d[p] > 1e-9 || d[q] > 1e-9) {
+    throw new Error("carve: cylinder volume must be axis-aligned");
+  }
+  return axis;
+}
+
+/** Turn every solid fine cell whose cube overlaps the FLAT-ended cylinder to
+ *  air: the cell's axial span must truly overlap the segment span (no
+ *  spherical reach past the ends — the punch-a-wall primitive), and its box
+ *  must lie within `radius` of the axis line on the two perpendicular axes.
+ *  `clipBelowY` protects the floor beneath a door-plane opening. */
+function carveCylinder(f: FineGrid, v: CylinderVolume, out: Set<number>): void {
+  const axis = cylinderAxis(v);
+  const [p, q] = PERP[axis];
+  const axLo = Math.min(v.a[axis], v.b[axis]);
+  const axHi = Math.max(v.a[axis], v.b[axis]);
+  const r2 = v.radius * v.radius;
+  const lo: [number, number, number] = [
+    Math.floor((Math.min(v.a[0], v.b[0]) - v.radius - f.min[0]) / FINE) - 1,
+    Math.floor((Math.min(v.a[1], v.b[1]) - v.radius - f.min[1]) / FINE) - 1,
+    Math.floor((Math.min(v.a[2], v.b[2]) - v.radius - f.min[2]) / FINE) - 1,
+  ];
+  const hi: [number, number, number] = [
+    Math.ceil((Math.max(v.a[0], v.b[0]) + v.radius - f.min[0]) / FINE) + 1,
+    Math.ceil((Math.max(v.a[1], v.b[1]) + v.radius - f.min[1]) / FINE) + 1,
+    Math.ceil((Math.max(v.a[2], v.b[2]) + v.radius - f.min[2]) / FINE) + 1,
+  ];
+  for (let k = Math.max(0, lo[2]); k < Math.min(f.dims[2], hi[2]); k++)
+    for (let j = Math.max(0, lo[1]); j < Math.min(f.dims[1], hi[1]); j++)
+      for (let i = Math.max(0, lo[0]); i < Math.min(f.dims[0], hi[0]); i++) {
+        if (fineGet(f, i, j, k) !== 1) continue;
+        const cellLo: Vec3 = [
+          f.min[0] + i * FINE,
+          f.min[1] + j * FINE,
+          f.min[2] + k * FINE,
+        ];
+        const cellHi: Vec3 = [
+          cellLo[0] + FINE,
+          cellLo[1] + FINE,
+          cellLo[2] + FINE,
+        ];
+        if (v.clipBelowY !== undefined && cellHi[1] <= v.clipBelowY) continue;
+        if (cellHi[axis] <= axLo || cellLo[axis] >= axHi) continue; // flat ends
+        const dp = gap(v.a[p], cellLo[p], cellHi[p]);
+        const dq = gap(v.a[q], cellLo[q], cellHi[q]);
+        if (dp * dp + dq * dq > r2) continue;
+        fineSet(f, i, j, k, 0);
+        out.add(fineIndex(f, i, j, k));
+      }
+}
+
+/** Is the POINT inside the carve volume? The patch field's off-grid rule: a
+ *  carve exiting through the grid boundary continues beyond it as open air. */
+function insideVolume(
+  v: CarveVolume,
+  x: number,
+  y: number,
+  z: number,
+): boolean {
+  const r2 = v.radius * v.radius;
+  if (v.kind === "capsule") return pointSegDist2([x, y, z], v.a, v.b) <= r2;
+  if (v.clipBelowY !== undefined && y <= v.clipBelowY) return false;
+  const axis = cylinderAxis(v);
+  const [p, q] = PERP[axis];
+  const pt: Vec3 = [x, y, z];
+  if (pt[axis] < Math.min(v.a[axis], v.b[axis])) return false;
+  if (pt[axis] > Math.max(v.a[axis], v.b[axis])) return false;
+  const dp = pt[p] - v.a[p];
+  const dq = pt[q] - v.a[q];
+  return dp * dp + dq * dq <= r2;
+}
+
+/** Squared distance from point `pt` to segment ab. */
+function pointSegDist2(pt: Vec3, a: Vec3, b: Vec3): number {
+  const ab: Vec3 = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+  const abLen2 = ab[0] * ab[0] + ab[1] * ab[1] + ab[2] * ab[2];
+  const t =
+    abLen2 === 0
+      ? 0
+      : Math.max(
+          0,
+          Math.min(
+            1,
+            ((pt[0] - a[0]) * ab[0] +
+              (pt[1] - a[1]) * ab[1] +
+              (pt[2] - a[2]) * ab[2]) /
+              abLen2,
+          ),
+        );
+  const dx = pt[0] - (a[0] + ab[0] * t);
+  const dy = pt[1] - (a[1] + ab[1] * t);
+  const dz = pt[2] - (a[2] + ab[2] * t);
+  return dx * dx + dy * dy + dz * dz;
 }
 
 /** Squared distance from segment ab to the AABB [lo,hi]. Exact for a === b

@@ -32,8 +32,14 @@ import type { WorldPlacement } from "./world-spec.ts";
 /** Default corridor length (m) when a derived placement needs one. */
 export const CORRIDOR_DEFAULT_LENGTH = 6;
 /** How far the collar-bore carve punches INTO the built region past the door
- *  plane (m): the 0.5 shell + proud pieces + margin. */
-export const CARVE_DEPTH = 1.0;
+ *  plane (m): the 0.5 shell + proud pieces (0.06 panels / 0.14 collar) + margin.
+ *  FLAT-ended (cylinder), so this is the TOTAL interior reach — at the gate-failed
+ *  1.0 the old capsule's spherical end swept `radius` further and ate pillars. */
+export const CARVE_DEPTH = 0.7;
+/** How far the carve extends OUTWARD past the door plane (m): pushes the
+ *  cylinder through the region's grid edge so the patch field's off-grid
+ *  inside-the-carve rule reads the opening as continuing air (no lid). */
+export const CARVE_OUTER = 0.5;
 /** The proven riser height (m) = one FINE cell — the tread render box caps
  *  exactly `lift` fine cells of collision fill, so the riser MUST be FINE. */
 export const STAIR_RISE = FINE;
@@ -207,12 +213,17 @@ function treadEmit(
   };
 }
 
-/** The world-frame carve capsule a collar-bore punches into the built region's fine
- *  grid: a `CARVE_DEPTH`-deep capsule centred `radius` above the door threshold, boring
- *  INWARD along −facing (into the hall). Depends ONLY on the door portal + radius (NOT
- *  the mouth or seed), so bake (world-build finalize) and load (world-loader re-expand)
- *  compute the IDENTICAL carve from the same door portal + radius and cannot drift — the
- *  W2 byte-determinism contract. `collarBore` builds its tunnel then calls this. */
+/** The world-frame carve a collar-bore punches into the built region's fine grid: a
+ *  FLAT-ended CYLINDER centred `radius` above the door threshold, spanning from
+ *  `CARVE_OUTER` past the door plane (through the region's grid edge, so the patch
+ *  field's off-grid rule keeps the opening open — no manufactured lid) to `CARVE_DEPTH`
+ *  inward (just past the 0.5 shell + proud pieces — flat end, so it cannot sweep
+ *  `radius` into the room and eat pillars/floor the way the gate-failed capsule did).
+ *  `clipBelowY` at the threshold keeps the floor un-grooved. Depends ONLY on the door
+ *  portal + radius (NOT the mouth or seed), so bake (world-build finalize) and load
+ *  (world-loader re-expand) compute the IDENTICAL carve from the same door portal +
+ *  radius and cannot drift — the W2 byte-determinism contract. `collarBore` builds its
+ *  tunnel then calls this. */
 export function collarBoreCarve(
   doorPortal: Connection,
   opts: { radius?: number } = {},
@@ -223,12 +234,39 @@ export function collarBoreCarve(
     doorPortal.position[1] + radius,
     doorPortal.position[2],
   ];
+  const outward: Vec3 = [
+    centre[0] + doorPortal.facing[0] * CARVE_OUTER,
+    centre[1],
+    centre[2] + doorPortal.facing[2] * CARVE_OUTER,
+  ];
   const inward: Vec3 = [
     centre[0] - doorPortal.facing[0] * CARVE_DEPTH,
     centre[1],
     centre[2] - doorPortal.facing[2] * CARVE_DEPTH,
   ];
-  return { kind: "capsule", a: centre, b: inward, radius };
+  return {
+    kind: "cylinder",
+    a: outward,
+    b: inward,
+    radius,
+    clipBelowY: doorPortal.position[1],
+  };
+}
+
+/** A carve volume transformed into a region's LOCAL frame (exact for the
+ *  quarter-turn placements grid regions allow). Single source for BOTH
+ *  localization sites (bake finalize + loader re-expand): yaw is about +Y and
+ *  translation is subtracted, so the Y-clip translates by −t[1]. */
+export function carveToLocal(
+  v: CarveVolume,
+  placement: WorldPlacement,
+): CarveVolume {
+  const a = worldToLocal(v.a, placement);
+  const b = worldToLocal(v.b, placement);
+  if (v.kind === "cylinder" && v.clipBelowY !== undefined) {
+    return { ...v, a, b, clipBelowY: v.clipBelowY - placement.translation[1] };
+  }
+  return { ...v, a, b };
 }
 
 /** Built↔organic (D-W2-4): the W1 bore between the door and the mouth (floor

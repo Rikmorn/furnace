@@ -2,7 +2,11 @@
 import { expect, test } from "bun:test";
 import {
   buildCorridor,
+  CARVE_DEPTH,
+  CARVE_OUTER,
+  carveToLocal,
   collarBore,
+  collarBoreCarve,
   worldToLocal,
 } from "../src/connector-built.ts";
 import type { Connection } from "../src/region.ts";
@@ -81,7 +85,7 @@ test("corridor needs MORE run cells than risers (flush-landing guard)", () => {
   ).not.toThrow();
 });
 
-test("collarBore: tunnel RegionData + a carve capsule entering the built side", () => {
+test("collarBore: tunnel RegionData + a FLAT-ended cylinder carve spanning the wall band", () => {
   const d = door([0, 0, 0], [0, 0, -1]); // hall door faces -Z (outward)
   const mouth: Connection = {
     position: [0, 0, -8],
@@ -92,11 +96,31 @@ test("collarBore: tunnel RegionData + a carve capsule entering the built side", 
   };
   const { tunnel, carve } = collarBore(d, mouth, "t1");
   expect(tunnel.colliders.length).toBe(1); // the bore proxy (W1 organicTunnel)
-  // The carve runs INWARD from the door plane (+Z into the hall), radius = bore.
+  // Cylinder, not capsule: a capsule's spherical end sweeps `radius` past the
+  // segment into the room and eats pillars/floor (the W2 gate blob).
+  expect(carve.kind).toBe("cylinder");
   expect(carve.radius).toBeCloseTo(1.6, 5);
-  expect(carve.a[2]).toBeCloseTo(0, 5);
-  expect(carve.b[2]).toBeGreaterThan(0);
+  // Spans CARVE_OUTER past the door plane (through the grid edge — keeps the
+  // patch field's off-grid rule reading the opening as continuing air, no lid)
+  // to CARVE_DEPTH inward (+Z into the hall).
+  expect(carve.a[2]).toBeCloseTo(-CARVE_OUTER, 5);
+  expect(carve.b[2]).toBeCloseTo(CARVE_DEPTH, 5);
   expect(carve.a[1]).toBeCloseTo(1.6, 5); // centreline raised bore-floor-flush
+  // The floor beneath the threshold is protected (no groove at the door).
+  if (carve.kind !== "cylinder") throw new Error("unreachable");
+  expect(carve.clipBelowY).toBe(0);
+});
+
+test("carveToLocal: quarter-turn placement transforms endpoints AND the Y-clip", () => {
+  const carve = collarBoreCarve(door([4, 1, -2], [0, 0, -1]));
+  const local = carveToLocal(carve, {
+    yaw: Math.PI / 2,
+    translation: [4, 1, -2],
+  });
+  // Y is preserved by the yaw and shifted by −t[1]; the clip must follow it.
+  expect(local.a[1]).toBeCloseTo(carve.a[1] - 1, 10);
+  if (local.kind !== "cylinder") throw new Error("kind changed");
+  expect(local.clipBelowY).toBeCloseTo(0, 10); // door y (1) − t[1] (1)
 });
 
 test("stair treads seat their 2.0m door-width ACROSS the corridor (yaw not inverted)", () => {

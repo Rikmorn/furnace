@@ -83,6 +83,7 @@ export function hall(params: HallParams, seed: string): HallStamp {
   const doorSpecs: DoorSpec[] = [];
   for (const door of params.doors) {
     const { portal, spec } = doorAt(dims, door);
+    validateDoorApproach(coarse, params, door, spec);
     portals.push(portal);
     doorSpecs.push(spec);
   }
@@ -174,6 +175,47 @@ function floorAnchors(
     }
   }
   return out;
+}
+
+/** How deep (coarse cells) a door's centre walk-lane must be clear of pillars. */
+const DOOR_CLEARANCE_DEPTH_CELLS = 4; // 2.0 m — the player-spawn / probe inset
+
+/** Traversability by construction (charter §2.2): a door whose CENTRE walk lane
+ *  (the middle 2 of its 4 width cells × `DOOR_CLEARANCE_DEPTH_CELLS` inward ×
+ *  full door height) is blocked by a pillar is invalid content — throw at stamp
+ *  time, setup-loud. The W2 gate found exactly this: a colonnade pillar dead on
+ *  a door's approach axis, masked until then by an over-carving connector that
+ *  had been eating the pillar. Door-EDGE cells may still pass close to pillars
+ *  (atmospheric); only the centre capsule lane is guaranteed. */
+function validateDoorApproach(
+  g: CoarseGrid,
+  params: HallParams,
+  door: { wall: HallWall; offset: number },
+  spec: DoorSpec,
+): void {
+  const alongX = door.wall === "north" || door.wall === "south";
+  const [w, , d] = params.size;
+  // Middle 2 lateral cells of the 4-cell door span:
+  const latLo = (alongX ? spec.min[0] : spec.min[2]) + 1;
+  // Interior depth cells, from the wall inward:
+  const depth: number[] = [];
+  for (let step = 1; step <= DOOR_CLEARANCE_DEPTH_CELLS; step++) {
+    if (door.wall === "east") depth.push(w + 1 - step);
+    else if (door.wall === "west") depth.push(step);
+    else if (door.wall === "north") depth.push(d + 1 - step);
+    else depth.push(step);
+  }
+  for (const dc of depth)
+    for (let lat = latLo; lat < latLo + 2; lat++)
+      for (let j = 1; j <= DOOR_H_CELLS; j++) {
+        const [i, k] = alongX ? [lat, dc] : [dc, lat];
+        if (coarseGet(g, i, j, k) !== AIR) {
+          throw new Error(
+            `hall: door on ${door.wall} at offset ${door.offset} has a blocked walk lane ` +
+              `(pillar at cell ${i},${j},${k}) — move the door or adjust the pillar lattice`,
+          );
+        }
+      }
 }
 
 function stampPillars(g: CoarseGrid, p: HallParams): void {

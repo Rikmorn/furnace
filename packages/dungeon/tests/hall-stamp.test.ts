@@ -175,3 +175,21 @@ test("dressing determinism: same params+seed → byte-identical transforms", () 
       .map((g) => [...g.transforms]);
   expect(dressing(a)).toEqual(dressing(b));
 });
+
+// W2 gate regression: a door whose CENTRE walk lane is blocked by a pillar is
+// invalid content — the stamper rejects it setup-loud (traversability by
+// construction). Offset 6 on pillarHall's east wall puts a colonnade pillar
+// (row i=8, slot k=9) dead on the door axis; offset 5 seats the lane between
+// pillar slots.
+test("door-lane validation: pillar on the centre lane throws; clear lane passes", () => {
+  const blocked = {
+    ...HALL_PRESETS.pillarHall,
+    doors: [{ wall: "east" as const, offset: 6 }],
+  };
+  expect(() => hall(blocked, "h")).toThrow(/blocked walk lane/);
+  const clear = {
+    ...HALL_PRESETS.pillarHall,
+    doors: [{ wall: "east" as const, offset: 5 }],
+  };
+  expect(() => hall(clear, "h")).not.toThrow();
+});

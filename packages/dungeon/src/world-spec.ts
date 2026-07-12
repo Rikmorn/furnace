@@ -200,7 +200,10 @@ export const DEFAULT_WORLD: WorldSpec = {
         ...HALL_PRESETS.pillarHall,
         doors: [
           { wall: "north", offset: 3 }, // portal 0 — corridor-1
-          { wall: "east", offset: 6 }, // portal 1 — bore-1
+          // Offset 5 seats the door centre at z=4.0, BETWEEN the colonnade's
+          // pillar slots (k=3,6,9,…): offset 6 put a pillar dead on the bore
+          // axis — rejected by the stamper's door-lane validation.
+          { wall: "east", offset: 5 }, // portal 1 — bore-1
         ],
       },
       seed: "world-default:a",

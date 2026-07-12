@@ -40,7 +40,12 @@ export const TWO_CAVES: WorldSpec = {
   startRegion: "cave-a",
 };
 
-/** hall-a (pillarHall + south door) ↔ derived cave via a collar-bore. */
+/** hall-a (pillar-FREE hall + south door) ↔ derived cave via a collar-bore.
+ *  Pillars are deliberately OFF: this fixture isolates the collar-bore SEAM,
+ *  and its off-centre (±0.55) probe lanes must be clear of interior obstacles
+ *  by design — pillar collision is `hall-walk.gpu.test.ts`'s job. (The old
+ *  over-carving capsule had been EATING the pillar in these lanes' path, which
+ *  is why they ever passed with a colonnade here.) */
 export const HALL_CAVE: WorldSpec = {
   name: "hall-cave",
   regions: [
@@ -50,6 +55,7 @@ export const HALL_CAVE: WorldSpec = {
       algorithm: "hall",
       params: {
         ...HALL_PRESETS.pillarHall,
+        pillars: { kind: "none" },
         doors: [{ wall: "south", offset: 3 }],
       },
       seed: "t:h",

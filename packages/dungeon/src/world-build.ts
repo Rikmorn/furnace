@@ -14,9 +14,9 @@ import { organicTunnel } from "./connector.ts";
 import {
   buildCorridor,
   CORRIDOR_DEFAULT_LENGTH,
+  carveToLocal,
   collarBore,
   collarBoreCarve,
-  worldToLocal,
 } from "./connector-built.ts";
 import { voxelProxyPosition } from "./proxy.ts";
 import type {
@@ -295,11 +295,7 @@ export function expandGridRegionFromEntry(
       if (c.kind === "collar-bore") {
         const door = end === "aRef" ? c.a : c.b;
         const carve = collarBoreCarve(door, { radius: c.radius });
-        carves.push({
-          ...carve,
-          a: worldToLocal(carve.a, entry.placement),
-          b: worldToLocal(carve.b, entry.placement),
-        });
+        carves.push(carveToLocal(carve, entry.placement));
       }
     }
   }
@@ -603,13 +599,7 @@ export function realizeWorldSpec(spec: WorldSpec): RealizedWorld {
       continue;
     }
     const m = mutations.get(region.id) ?? { openPortals: [], carves: [] };
-    const localCarves = m.carves.map(
-      (carve): CarveVolume => ({
-        ...carve,
-        a: worldToLocal(carve.a, resolved),
-        b: worldToLocal(carve.b, resolved),
-      }),
-    );
+    const localCarves = m.carves.map((carve) => carveToLocal(carve, resolved));
     const local = expandGridRegion(
       p.stamp,
       m.openPortals,
