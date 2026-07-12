@@ -1,6 +1,6 @@
 # Grid dressing material literals are copy-pasted between `maze.ts` and `world-build.ts`
 
-**Context.** Surfaced in the W3 Task 4 review (the maze stamper). `MAZE_DRESSING_LAYERS`'
+**Context:** Surfaced in the W3 Task 4 review (the maze stamper). `MAZE_DRESSING_LAYERS`'
 `mazeRubble` layer in `packages/dungeon/src/themes/maze.ts` copy-pastes the material literal
 of `DRESSING_RUBBLE` in `packages/dungeon/src/world-build.ts`: same colour `[0.4, 0.38, 0.34, 1]`,
 same specular `[0.03, 0.03, 0.03, 10]`, same `spacing`/`scale`/`tint`. They currently collapse
@@ -17,11 +17,11 @@ Proposed fix: move `DRESSING_CRATE` / `DRESSING_RUBBLE` into a shared leaf modul
 (`packages/dungeon/src/themes/dressing.ts`) that both `world-build.ts` and the stampers import —
 a leaf has no cycle. Single source of truth for the dressing palette.
 
-**Trigger to revisit.** The next time either dressing literal is edited (colour/spec/scale tuning
+**Trigger to revisit:** The next time either dressing literal is edited (colour/spec/scale tuning
 in a dressing pass), or when a third grid vocabulary lands and copies the literal a third time —
 whichever comes first. Two occurrences is the tolerate-duplication threshold; a third is not.
 
-**Reference.** `packages/dungeon/src/themes/maze.ts` (`MAZE_DRESSING_LAYERS`),
+**Reference:** `packages/dungeon/src/themes/maze.ts` (`MAZE_DRESSING_LAYERS`),
 `packages/dungeon/src/world-build.ts` (`DRESSING_CRATE` / `DRESSING_RUBBLE` /
 `HALL_DRESSING_LAYERS` / `SUBSTRATE_MATERIALS`), `packages/dungeon/src/scatter.ts`
 (`instanceGroupsFromLayers`' stringify-based material dedupe). Filed 2026-07-12 from the W3

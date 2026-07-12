@@ -1,6 +1,6 @@
 # `maze()` size + the stringly-typed carve-plan seam (and hall's missing door validation)
 
-**Context.** Surfaced in the W3 Task 4 review. Two related shape problems in
+**Context:** Surfaced in the W3 Task 4 review. Two related shape problems in
 `packages/dungeon/src/themes/maze.ts`, plus an asymmetry the shared stamp contract now makes
 visible.
 
@@ -25,12 +25,12 @@ visible.
    checks arguably belong in `grid-stamp.ts` so both vocabularies inherit them and a third gets
    them for free.
 
-**Trigger to revisit.** The next change to the maze carve internals (any edit inside
+**Trigger to revisit:** The next change to the maze carve internals (any edit inside
 `carvePlan` / `braidPass` / the `maze()` carve loops), or when a third grid vocabulary lands —
 which is also the point at which item 3's shared-validation question must be answered rather
 than deferred.
 
-**Reference.** `packages/dungeon/src/themes/maze.ts` (`maze`, `carvePlan`, `braidPass`),
+**Reference:** `packages/dungeon/src/themes/maze.ts` (`maze`, `carvePlan`, `braidPass`),
 `packages/dungeon/src/themes/hall.ts` (`hall` — the 28-line comparator, no door validation),
 `packages/dungeon/src/themes/grid-stamp.ts` (`doorAt`'s clamp, `validateDoorApproach`).
 Filed 2026-07-12 from the W3 Task 4 review.
