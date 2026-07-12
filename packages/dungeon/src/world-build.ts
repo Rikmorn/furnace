@@ -14,6 +14,7 @@ import {
   buildCorridor,
   CORRIDOR_DEFAULT_LENGTH,
   collarBore,
+  collarBoreCarve,
   worldToLocal,
 } from "./connector-built.ts";
 import { voxelProxyPosition } from "./proxy.ts";
@@ -42,11 +43,12 @@ import { KIT_MATERIALS } from "./substrate/pieces.ts";
 import { type DoorSpec, faceKey, skinGrid } from "./substrate/skin.ts";
 import { carvedCells, suppressedFaces } from "./substrate/suppress.ts";
 import { cave } from "./themes/cave.ts";
-import { type HallStamp, hall } from "./themes/hall.ts";
+import { type HallParams, type HallStamp, hall } from "./themes/hall.ts";
 import {
   DEFAULT_TUNNEL_LENGTH,
   snapGridPlacement,
   validateWorldSpec,
+  type WorldConnectorKind,
   type WorldConnectorSpec,
   type WorldPlacement,
   type WorldRegionSpec,
@@ -190,6 +192,54 @@ export function expandGridRegion(
       seed,
     },
   };
+}
+
+/** A baked connector entry as seen by the loader's grid re-expansion: the fields
+ *  {@link expandGridRegionFromEntry} needs off `WorldConnectorEntry` (kept structural so
+ *  world-build stays free of a bake.ts manifest-type import). `radius` is optional — only
+ *  the bore kinds carry it; a collar-bore always does. */
+type TouchingConnector = {
+  kind: WorldConnectorKind;
+  aRef: [string, number];
+  bRef: [string, number];
+  a: Connection;
+  b: Connection;
+  radius?: number;
+};
+
+/** The loader's grid re-expansion (Task 9): rebuild a baked hall's LOCAL RegionData from
+ *  its manifest entry plus the connector entries touching it — the SAME `expandGridRegion`
+ *  bake's finalize runs, so load reproduces the live geometry byte-for-byte. Corridor/
+ *  aperture ends contribute an OPEN door; each collar-bore end re-derives its cut through
+ *  the shared {@link collarBoreCarve} (single-sourced with bake finalize's carve; NO drift),
+ *  transformed WORLD→local by the region's placement. The caller places the result. */
+export function expandGridRegionFromEntry(
+  entry: { params: HallParams; seed: string; placement: WorldPlacement },
+  touching: TouchingConnector[],
+  regionId: string,
+): RegionData {
+  const stamp = hall(entry.params, entry.seed);
+  const open: number[] = [];
+  const carves: CarveVolume[] = [];
+  for (const c of touching) {
+    for (const end of ["aRef", "bRef"] as const) {
+      const [rid, portalIndex] = c[end];
+      if (rid !== regionId) continue;
+      if (c.kind === "corridor" || c.kind === "aperture") {
+        open.push(portalIndex);
+      }
+      if (c.kind === "collar-bore") {
+        const door = end === "aRef" ? c.a : c.b;
+        const carve = collarBoreCarve(door, { radius: c.radius });
+        carves.push({
+          ...carve,
+          a: worldToLocal(carve.a, entry.placement),
+          b: worldToLocal(carve.b, entry.placement),
+        });
+      }
+    }
+  }
+  return expandGridRegion(stamp, open, carves, entry.seed);
 }
 
 /** Parse a `i,j,k` cell key (from carvedCells) into coarse ints. Mirrors collar.ts's

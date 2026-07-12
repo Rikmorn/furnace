@@ -29,13 +29,14 @@ import {
   type RegionData,
   type Vec3,
 } from "./region.ts";
+import type { HallParams } from "./themes/hall.ts";
 import type { TopologyConfig } from "./topology.ts";
 import { buildWorld } from "./world.ts";
 import { type RealizedWorld, realizeWorldSpec } from "./world-build.ts";
 import type {
+  CaveRegionSpec,
   WorldConnectorSpec,
   WorldPlacement,
-  WorldRegionSpec,
   WorldSpec,
 } from "./world-spec.ts";
 
@@ -207,34 +208,74 @@ export function bakeWing(
   return { files };
 }
 
-/** A baked world region's manifest entry: its provenance params + resolved placement to
- *  re-generate + re-place the region at load, plus its world-frame cuboid colliders. Its
- *  render-only mesh lives in the world's single merged `scene` doc, not here. */
-export type WorldRegionEntry = {
+/** Fields every baked region entry carries regardless of class. */
+type WorldRegionEntryBase = {
   id: string;
+  seed: string;
+  placement: WorldPlacement;
+};
+
+/** A baked field-organic (cave) region: its provenance params + resolved placement to
+ *  re-generate + re-place the region at load, plus its world-frame cuboid colliders. Its
+ *  render-only isosurface mesh lives in the world's single merged `scene` doc, and its voxel
+ *  proxy + dressing re-expand at load from `params`/`seed`. */
+export type WorldCaveRegionEntry = WorldRegionEntryBase & {
   class: "field-organic";
   algorithm: "cave";
   /** Single-sourced from the spec so it can't drift if `params` gains a field. */
-  params: WorldRegionSpec["params"];
-  seed: string;
-  placement: WorldPlacement;
+  params: CaveRegionSpec["params"];
   /** Cuboid colliders in WORLD frame (voxels never serialize — proxies regen). */
   cuboids: RegionCollider[];
 };
 
-/** A baked connector's manifest entry: the exact PLACED world-frame portals + tunnel opts
- *  it was built from, so the loader re-expands the identical bore (organicTunnel is pure in
- *  these inputs). Its mesh lives in the merged `scene` doc; its voxel proxy regenerates. */
-export type WorldConnectorEntry = {
+/** A baked grid-built (hall) region: its hall params + resolved placement. Contributes
+ *  NOTHING to the merged scene doc and NO `.fmesh` sidecars — the loader re-expands its
+ *  patch mesh + kit instances + voxel collider through `expandGridRegionFromEntry`. `cuboids`
+ *  is always `[]` (the collider IS the re-expanded voxel proxy, never a serialized cuboid). */
+export type WorldHallRegionEntry = WorldRegionEntryBase & {
+  class: "grid-built";
+  algorithm: "hall";
+  params: HallParams;
+  cuboids: [];
+};
+
+/** A baked world region's manifest entry — a union over region class. */
+export type WorldRegionEntry = WorldCaveRegionEntry | WorldHallRegionEntry;
+
+/** Fields every baked connector entry carries: its seed, the exact PLACED world-frame
+ *  portals it was built from (`a`/`b` — the loader re-expands its proxy/tube from these),
+ *  and the spec endpoint refs (`aRef`/`bRef` = `[regionId, portalIndex]`) the loader groups
+ *  each region's door-open / carve mutations by. */
+type WorldConnectorEntryBase = {
   id: string;
-  kind: "organic-tunnel";
   seed: string;
-  /** The exact world-frame portals + opts the tunnel was built from (re-expansion inputs). */
   a: Connection;
   b: Connection;
+  aRef: [string, number];
+  bRef: [string, number];
+};
+
+/** An organic-tunnel (cave↔cave) or collar-bore (grid↔cave) connector: both re-expand
+ *  their voxel proxy from `organicTunnel(a, b, seed, {radius, overshoot})` at load (which is
+ *  symmetric in a/b), so both carry the explicit bore opts. Their render mesh rides the
+ *  merged `scene` doc as W1's organic-tunnel does. */
+export type WorldBoreConnectorEntry = WorldConnectorEntryBase & {
+  kind: "organic-tunnel" | "collar-bore";
   radius: number;
   overshoot: number;
 };
+
+/** A corridor or aperture connector: pure grid joins with NO bore opts. A corridor
+ *  re-expands its world-frame tube via `buildCorridor(a, b, seed)` at load; an aperture is a
+ *  pure hole (no volume, no proxy). Neither bakes any scene entities. */
+export type WorldGridConnectorEntry = WorldConnectorEntryBase & {
+  kind: "corridor" | "aperture";
+};
+
+/** A baked connector's manifest entry — a union over connector kind. */
+export type WorldConnectorEntry =
+  | WorldBoreConnectorEntry
+  | WorldGridConnectorEntry;
 
 /** The baked world's index: the single merged render-only doc, the player spawn, and the
  *  per-region + connector re-expansion entries. `bakedAt` is intentionally OMITTED by
@@ -284,17 +325,6 @@ export function bakeWorld(
 
   const regions: WorldRegionEntry[] = [];
   for (const [i, region] of spec.regions.entries()) {
-    // Cave-only manifest entries this slice — grid-built regions bake in Task 9. Guard also
-    // narrows the union to the cave variant so `class`/`algorithm`/`params` fit the entry type.
-    if (region.class !== "field-organic") {
-      throw new Error(
-        `bake: region ${region.id} class "${region.class}" is not yet bakeable`,
-      );
-    }
-    const placed = realized.regions.get(region.id);
-    if (!placed) {
-      throw new Error(`bake: region ${region.id} missing from realized world`);
-    }
     const resolved = realized.spec.regions[i];
     if (!resolved) {
       throw new Error(`bake: region ${region.id} has no resolved placement`);
@@ -305,28 +335,57 @@ export function bakeWorld(
     if (resolved.id !== region.id) {
       throw new Error(`bake: resolved region order mismatch at ${region.id}`);
     }
-    appendPiece(merged, dir, region.id, placed);
+    if (region.class === "field-organic") {
+      const placed = realized.regions.get(region.id);
+      if (!placed) {
+        throw new Error(
+          `bake: region ${region.id} missing from realized world`,
+        );
+      }
+      appendPiece(merged, dir, region.id, placed);
+      regions.push({
+        id: region.id,
+        class: region.class,
+        algorithm: region.algorithm,
+        params: region.params,
+        seed: region.seed,
+        // The RESOLVED placement — cave-b's is join-derived, NOT the [0,0,0] placeholder.
+        placement: resolved.placement,
+        cuboids: cuboidColliders(placed),
+      });
+      continue;
+    }
+    // grid-built (hall): NO scene entities, NO `.fmesh` sidecars, `cuboids: []`. Its render
+    // (patch mesh + kit instances) and voxel collider re-expand at load (D-W2-6) from
+    // `params`/`seed` + the touching connectors — the loader owns that geometry, not the bake.
     regions.push({
       id: region.id,
       class: region.class,
       algorithm: region.algorithm,
       params: region.params,
       seed: region.seed,
-      // The RESOLVED placement — cave-b's is join-derived, NOT the [0,0,0] placeholder.
       placement: resolved.placement,
-      cuboids: cuboidColliders(placed),
+      cuboids: [],
     });
   }
 
   const connectors: WorldConnectorEntry[] = [];
   for (const connector of spec.connectors) {
-    const placed = realized.connectors.get(connector.id);
-    if (!placed) {
-      throw new Error(
-        `bake: connector ${connector.id} missing from realized world`,
-      );
+    // Only the BORE kinds contribute a render mesh to the merged scene doc (organicTunnel's
+    // Surface-Nets tube). Corridor re-expands its tube via `buildCorridor` at load and aperture
+    // is a pure hole — both bake NO scene entities and NO sidecars.
+    if (
+      connector.kind === "organic-tunnel" ||
+      connector.kind === "collar-bore"
+    ) {
+      const placed = realized.connectors.get(connector.id);
+      if (!placed) {
+        throw new Error(
+          `bake: connector ${connector.id} missing from realized world`,
+        );
+      }
+      appendPiece(merged, dir, connector.id, placed);
     }
-    appendPiece(merged, dir, connector.id, placed);
     connectors.push(worldConnectorEntry(connector, realized));
   }
 
@@ -366,28 +425,31 @@ export function bakeWorld(
   return files;
 }
 
-/** Reconstruct a connector's re-expansion entry: its PLACED world-frame portals (the exact
- *  `Connection`s the tunnel was built from) plus the default tunnel opts Task 3 used. */
+/** Reconstruct a connector's re-expansion entry (kind-union): its PLACED world-frame portals
+ *  (`a`/`b` — the exact `Connection`s the volume was built from) plus its spec endpoint refs
+ *  (`aRef`/`bRef`, which the loader groups region mutations by). Bore kinds also carry the
+ *  tunnel opts Task 3 built them with; corridor/aperture carry nothing extra. */
 function worldConnectorEntry(
   connector: WorldConnectorSpec,
   realized: RealizedWorld,
 ): WorldConnectorEntry {
-  // Organic-tunnel-only manifest entries this slice — built connectors bake in Task 7. Guard
-  // also narrows `kind` to the tunnel literal so it fits the entry type.
-  if (connector.kind !== "organic-tunnel") {
-    throw new Error(
-      `bake: connector ${connector.id} kind "${connector.kind}" is not yet bakeable`,
-    );
-  }
-  return {
+  const base: WorldConnectorEntryBase = {
     id: connector.id,
-    kind: connector.kind,
     seed: connector.seed,
     a: placedPortal(realized, connector.a, connector.id),
     b: placedPortal(realized, connector.b, connector.id),
-    radius: TUNNEL_RADIUS,
-    overshoot: TUNNEL_OVERSHOOT,
+    aRef: connector.a,
+    bRef: connector.b,
   };
+  if (connector.kind === "organic-tunnel" || connector.kind === "collar-bore") {
+    return {
+      ...base,
+      kind: connector.kind,
+      radius: TUNNEL_RADIUS,
+      overshoot: TUNNEL_OVERSHOOT,
+    };
+  }
+  return { ...base, kind: connector.kind };
 }
 
 /** The placed portal a connector endpoint `[regionId, portalIndex]` resolves to. Setup-loud

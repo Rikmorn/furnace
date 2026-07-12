@@ -19,13 +19,14 @@ import {
   type SceneDocument,
 } from "@furnace/core/scene";
 import {
-  type WorldConnectorEntry,
+  type WorldBoreConnectorEntry,
+  type WorldCaveRegionEntry,
   type WorldManifest,
-  type WorldRegionEntry,
   worldDir,
 } from "./bake.ts";
 import { placePiece } from "./connect.ts";
 import { organicTunnel } from "./connector.ts";
+import { buildCorridor } from "./connector-built.ts";
 import {
   type DynamicProp,
   type MaterialCache,
@@ -38,6 +39,7 @@ import {
   type Vec3,
 } from "./region.ts";
 import { type CaveParams, caveDressing, caveProxy } from "./themes/cave.ts";
+import { expandGridRegionFromEntry } from "./world-build.ts";
 
 /** The runtime handles of a loaded world. The `LoadedWing` shape plus the player spawn the
  *  manifest bakes — so `main.ts` reads its spawn from the same object that carries the draws. */
@@ -59,6 +61,13 @@ const SUPPORTED_MANIFEST_VERSION = 1;
 const LOCAL_ORIGIN: Vec3 = [0, 0, 0];
 /** The well-known worlds index: `{ version, default }` — names the default world to load. */
 const WORLDS_INDEX_PATH = "/worlds/index.json";
+/** The connector kinds a W2 manifest may declare (assertCompatible rejects the rest). */
+const KNOWN_CONNECTOR_KINDS = new Set([
+  "organic-tunnel",
+  "corridor",
+  "aperture",
+  "collar-bore",
+]);
 
 /** External-JSON shape of the worlds index (validated at the fetch boundary). */
 type WorldsIndex = { version: number; default: string };
@@ -68,15 +77,17 @@ type WorldsIndex = { version: number; default: string };
  * doc + deterministic re-expansion of every voxel proxy and dressing group, plus the baked
  * player spawn.
  *
- * Renders from the single merged doc, collides against the manifest's world-frame cuboids
- * plus a voxel proxy per cave (regenerated from `params`/`seed`) and per connector
- * (regenerated from its placed portals + tunnel opts), and re-expands each cave's decorative
- * scatter from the seed.
+ * Renders from the single merged doc for the cave + collar-bore/organic-tunnel meshes,
+ * plus RE-EXPANDED render for the grid class: each `hall` region rebuilds its patch mesh +
+ * kit instances + voxel collider via `expandGridRegion`, and each `corridor` re-expands its
+ * tube — neither bakes scene entities (D-W2-6). Collides against the manifest's world-frame
+ * cuboids, a voxel proxy per cave and per organic-tunnel/collar-bore connector, and the
+ * re-expanded grid/corridor voxel proxies. Cave scatter re-expands from the seed.
  *
  * @throws if the worlds index or the default world's manifest is missing (a broken clone —
  *   commit or bake a default world); if the manifest version is unknown or was baked by a
- *   different `generatorVersion`; or if a region declares an algorithm other than "cave"
- *   (only cave exists this slice).
+ *   different `generatorVersion`; or if a region algorithm is not `cave`/`hall` or a
+ *   connector kind is not one of the four W2 kinds (a stale/foreign bake).
  */
 export async function loadWorld(
   ctx: Context,
@@ -117,33 +128,65 @@ export async function loadWorld(
   ).json()) as SceneDocument;
   const scene = await loadScene(ctx, doc, { world, fragment: true });
 
-  // 2) Region cuboids → static bodies; each cave's voxel proxy re-expanded from provenance.
-  for (const r of manifest.regions) {
-    createColliderBodies(ctx, world, r.cuboids);
-    createCaveProxyBody(ctx, world, r);
-  }
-  // 3) Each connector's voxel proxy re-expanded from its placed portals + tunnel opts. The
-  // connector carries NO cuboids — this bore IS its collision (the core new W1 behaviour).
-  for (const c of manifest.connectors) createConnectorProxyBody(ctx, world, c);
-
-  // 4) Dressing re-expanded from the seed + the decoded `.fmesh` → GPU-instanced draws (no
-  // colliders, no meshes). The sidecars live beside the merged scene doc — derive their dir.
+  // The sidecars (cave `.fmesh`) live beside the merged scene doc — derive their base dir.
   const dir = manifest.scene.slice(0, manifest.scene.lastIndexOf("/"));
+  // Every re-expanded region/connector `realizeRegion` result: grid regions + corridors bake
+  // NO scene entities, so their meshes/instances come back HERE, not from the merged doc.
   const realized: Awaited<ReturnType<typeof realizeRegion>>[] = [];
+
+  // 2) Regions dispatched by class. Cave: manifest cuboids → static bodies, voxel proxy +
+  // dressing re-expanded from provenance. Hall: ONE `realizeRegion` builds its patch mesh,
+  // kit instances AND voxel collider from the re-expanded local RegionData (D-W2-6).
   for (const r of manifest.regions) {
-    const dressing = await dressingFor(r, dir);
+    if (r.class === "field-organic") {
+      createColliderBodies(ctx, world, r.cuboids);
+      createCaveProxyBody(ctx, world, r);
+      const dressing = await dressingFor(r, dir);
+      realized.push(
+        await realizeRegion(
+          ctx,
+          world,
+          matCache,
+          placePiece(dressing, r.placement),
+        ),
+      );
+      continue;
+    }
+    // grid-built (hall): re-expand its local RegionData from params/seed + the touching
+    // connectors (grouped by aRef/bRef), then place it. `realizeRegion` creates the voxel
+    // body + patch mesh + kit instances in one call — no separate cuboids/proxy/dressing.
+    const touching = manifest.connectors.filter(
+      (c) => c.aRef[0] === r.id || c.bRef[0] === r.id,
+    );
+    const data = expandGridRegionFromEntry(r, touching, r.id);
     realized.push(
-      await realizeRegion(
-        ctx,
-        world,
-        matCache,
-        placePiece(dressing, r.placement),
-      ),
+      await realizeRegion(ctx, world, matCache, placePiece(data, r.placement)),
     );
   }
 
+  // 3) Connectors dispatched by kind. organic-tunnel / collar-bore: voxel proxy re-expanded
+  // from its placed portals + tunnel opts (its render mesh came from the merged doc). corridor:
+  // re-expand its world-frame tube via `realizeRegion` (already world-frame — NO placePiece).
+  // aperture: a pure hole (no proxy, no render).
+  for (const c of manifest.connectors) {
+    if (c.kind === "organic-tunnel" || c.kind === "collar-bore") {
+      createConnectorProxyBody(ctx, world, c);
+    } else if (c.kind === "corridor") {
+      realized.push(
+        await realizeRegion(
+          ctx,
+          world,
+          matCache,
+          buildCorridor(c.a, c.b, c.seed),
+        ),
+      );
+    }
+  }
+
   return {
-    meshes: scene.meshes,
+    // Grid-region + corridor meshes re-expand HERE (not in the merged doc); cave +
+    // collar-bore/organic-tunnel meshes stay in `scene.meshes`.
+    meshes: [...scene.meshes, ...realized.flatMap((a) => a.meshes)],
     instanced: realized.flatMap((a) => a.instanced),
     dynamicProps: realized.flatMap((a) => a.dynamicProps),
     update: () => {
@@ -175,20 +218,23 @@ function assertCompatible(manifest: WorldManifest): void {
   if (typeof (manifest as { scene?: unknown }).scene !== "string") {
     throw new Error("world: malformed bake (manifest has no scene) — re-bake");
   }
-  // Content validation BEFORE loadScene: only cave/organic-tunnel exist this slice, so an
-  // unknown algorithm/kind is a stale/foreign bake — throw here, not mid-loop after GPU alloc.
+  // Content validation BEFORE loadScene: cave + hall regions and all four connector kinds
+  // exist as of W2, so anything else is a stale/foreign bake — throw here, not mid-loop after
+  // GPU alloc.
   for (const r of manifest.regions) {
-    if (r.algorithm !== "cave") {
+    // The manifest is external JSON: widen `algorithm` to `string` so an unknown value from a
+    // stale/foreign bake is caught here rather than exhausting the typed union to `never`.
+    const algorithm: string = r.algorithm;
+    if (algorithm !== "cave" && algorithm !== "hall") {
       throw new Error(
-        `world: unsupported region algorithm "${r.algorithm}" — re-bake`,
+        `world: unsupported region algorithm "${algorithm}" — re-bake`,
       );
     }
   }
   for (const c of manifest.connectors) {
-    if (c.kind !== "organic-tunnel") {
-      throw new Error(
-        `world: unsupported connector kind "${c.kind}" — re-bake`,
-      );
+    const kind: string = c.kind;
+    if (!KNOWN_CONNECTOR_KINDS.has(kind)) {
+      throw new Error(`world: unsupported connector kind "${kind}" — re-bake`);
     }
   }
 }
@@ -223,18 +269,13 @@ function createColliderBodies(
 }
 
 /** Re-expand a cave region's field-derived voxel proxy from its recorded `params`/`seed` and
- *  seat it in world via the same placement its meshes went through. Setup-loud on any
- *  algorithm but "cave" — the only interior algorithm this slice (world-build.ts). */
+ *  seat it in world via the same placement its meshes went through. Cave-only by type — the
+ *  loader dispatches on `class` and routes grid regions elsewhere (`expandGridRegionFromEntry`). */
 function createCaveProxyBody(
   ctx: Context,
   world: physics.World,
-  r: WorldRegionEntry,
+  r: WorldCaveRegionEntry,
 ): void {
-  if (r.algorithm !== "cave") {
-    throw new Error(
-      `world: region ${r.id} has unsupported algorithm "${r.algorithm}" — only "cave" exists this slice`,
-    );
-  }
   // `theme: "cave"` widens to ThemeName; `params` is the recorded (typed) cave call params.
   const local = caveProxy({
     theme: "cave",
@@ -261,21 +302,17 @@ function createCaveProxyBody(
   });
 }
 
-/** Re-expand a connector's field-derived voxel proxy from its placed portals + EXPLICIT
- *  tunnel opts (the manifest records `radius`/`overshoot`, so a future non-default connector
- *  re-expands faithfully rather than snapping back to `organicTunnel`'s internal defaults).
- *  `organicTunnel`'s proxy is ALREADY world-frame (its portals are world-frame) — no
- *  `placePiece`. Setup-loud: the connector carries no cuboids, so this bore IS its collision. */
+/** Re-expand a BORE connector's (organic-tunnel or collar-bore) field-derived voxel proxy
+ *  from its placed portals + EXPLICIT tunnel opts (the manifest records `radius`/`overshoot`,
+ *  so a non-default bore re-expands faithfully rather than snapping back to `organicTunnel`'s
+ *  internal defaults). `organicTunnel` is symmetric in `a`/`b` and its proxy is ALREADY
+ *  world-frame (its portals are world-frame) — no `placePiece`. Setup-loud: the connector
+ *  carries no cuboids, so this bore IS its collision. */
 function createConnectorProxyBody(
   ctx: Context,
   world: physics.World,
-  c: WorldConnectorEntry,
+  c: WorldBoreConnectorEntry,
 ): void {
-  if (c.kind !== "organic-tunnel") {
-    throw new Error(
-      `world: connector ${c.id} has unsupported kind "${c.kind}" — only "organic-tunnel" exists this slice`,
-    );
-  }
   const tunnel = organicTunnel(c.a, c.b, c.seed, {
     radius: c.radius,
     overshoot: c.overshoot,
@@ -296,10 +333,10 @@ function createConnectorProxyBody(
 
 /** Local-frame dressing for a baked cave region: scatter re-derived over its DECODED baked
  *  mesh (sidecar index 0), reproducing the live scatter byte-for-byte from the seed.
- *  `placePiece` seats it in world after. Cave-only — createCaveProxyBody already gated the
- *  algorithm setup-loud, so this is only reached for caves. */
+ *  `placePiece` seats it in world after. Cave-only by type — the loader dispatches on `class`
+ *  and only routes field-organic regions here. */
 async function dressingFor(
-  r: WorldRegionEntry,
+  r: WorldCaveRegionEntry,
   dir: string,
 ): Promise<RegionData> {
   // The cave's baked isosurface (mesh index 0) sidecar — see bake.ts appendPiece; it lives

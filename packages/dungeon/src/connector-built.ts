@@ -207,19 +207,17 @@ function treadEmit(
   };
 }
 
-/** Built↔organic (D-W2-4): the W1 bore between the door and the mouth (floor
- *  flush at the door threshold via organicTunnel's raisedCenter) PLUS the
- *  world-frame carve capsule that opens the built region's fine grid — the
- *  carve IS the opening (no door stamp; the collar frames the cut). */
-export function collarBore(
+/** The world-frame carve capsule a collar-bore punches into the built region's fine
+ *  grid: a `CARVE_DEPTH`-deep capsule centred `radius` above the door threshold, boring
+ *  INWARD along −facing (into the hall). Depends ONLY on the door portal + radius (NOT
+ *  the mouth or seed), so bake (world-build finalize) and load (world-loader re-expand)
+ *  compute the IDENTICAL carve from the same door portal + radius and cannot drift — the
+ *  W2 byte-determinism contract. `collarBore` builds its tunnel then calls this. */
+export function collarBoreCarve(
   doorPortal: Connection,
-  mouth: Connection,
-  seed: string,
-  opts: { radius?: number; overshoot?: number } = {},
-): { tunnel: RegionData; carve: CarveVolume } {
+  opts: { radius?: number } = {},
+): CarveVolume {
   const radius = opts.radius ?? TUNNEL_RADIUS;
-  const overshoot = opts.overshoot ?? TUNNEL_OVERSHOOT;
-  const tunnel = organicTunnel(doorPortal, mouth, seed, { radius, overshoot });
   const centre: Vec3 = [
     doorPortal.position[0],
     doorPortal.position[1] + radius,
@@ -230,5 +228,22 @@ export function collarBore(
     centre[1],
     centre[2] - doorPortal.facing[2] * CARVE_DEPTH,
   ];
-  return { tunnel, carve: { kind: "capsule", a: centre, b: inward, radius } };
+  return { kind: "capsule", a: centre, b: inward, radius };
+}
+
+/** Built↔organic (D-W2-4): the W1 bore between the door and the mouth (floor
+ *  flush at the door threshold via organicTunnel's raisedCenter) PLUS the
+ *  world-frame carve capsule that opens the built region's fine grid — the
+ *  carve IS the opening (no door stamp; the collar frames the cut). The carve is
+ *  single-sourced with the loader via {@link collarBoreCarve}. */
+export function collarBore(
+  doorPortal: Connection,
+  mouth: Connection,
+  seed: string,
+  opts: { radius?: number; overshoot?: number } = {},
+): { tunnel: RegionData; carve: CarveVolume } {
+  const radius = opts.radius ?? TUNNEL_RADIUS;
+  const overshoot = opts.overshoot ?? TUNNEL_OVERSHOOT;
+  const tunnel = organicTunnel(doorPortal, mouth, seed, { radius, overshoot });
+  return { tunnel, carve: collarBoreCarve(doorPortal, { radius }) };
 }

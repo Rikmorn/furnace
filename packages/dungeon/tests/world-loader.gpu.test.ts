@@ -20,6 +20,7 @@ import {
   ensureBunWebGpu,
   makeOffscreenCanvas,
 } from "./_helpers/gpu-fixture.ts";
+import { HALL_CAVE } from "./_helpers/world-fixtures.ts";
 
 // W1 Task 6: the GAME-side world loader mirrors wing-loader against the world manifest.
 // The core NEW behaviour vs wings: the connector carries NO cuboids, so its collision is a
@@ -134,6 +135,39 @@ test.skipIf(!bunWebGpuAvailable())(
       await expect(loadWorld(ctx, world, matCache)).rejects.toThrow(
         /manifest missing/,
       );
+    } finally {
+      globalThis.fetch = orig;
+    }
+
+    matCache.destroy();
+    physics.destroyWorld(ctx, world);
+    gpu.dispose(ctx);
+  },
+);
+
+// W2 Task 9: a MIXED world (grid-built hall + field-organic cave + collar-bore) loads —
+// the grid region re-expands its patch mesh + kit instances + voxel collider through
+// `realizeRegion` at load (nothing baked to the scene doc), the collar-bore's proxy
+// re-expands from its portals, and the hall-floor spawn round-trips.
+test.skipIf(!bunWebGpuAvailable())(
+  "loadWorld mixed world (hall + cave + collar-bore): grid re-expands kit instances, hall-floor spawn, no throw",
+  async () => {
+    const canvas = await makeOffscreenCanvas();
+    const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
+    const world = await physics.createWorld(ctx, { gravity: [0, -9.81, 0] });
+    const matCache = new MaterialCache(ctx);
+
+    // Bake under "default" so it matches the fetch stub's synthesized index (default: "default").
+    const files = bakeWorld(HALL_CAVE, "default");
+    const orig = globalThis.fetch;
+    try {
+      globalThis.fetch = bakedFetchStub(files);
+      const loaded = await loadWorld(ctx, world, matCache);
+      // Grid region re-expanded its kit skin/collar groups via realizeRegion.
+      expect(loaded.instanced.length).toBeGreaterThan(0);
+      // hall-a's floor top sits at y=0; the player spawns PLAYER_SPAWN_RISE (1.1 m) above it.
+      expect(loaded.playerStart[1]).toBeCloseTo(1.1, 5);
+      loaded.destroy();
     } finally {
       globalThis.fetch = orig;
     }
