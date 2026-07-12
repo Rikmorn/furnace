@@ -46,7 +46,8 @@ import { KIT_MATERIALS } from "./substrate/pieces.ts";
 import { type DoorSpec, faceKey, skinGrid } from "./substrate/skin.ts";
 import { carvedCells, suppressedFaces } from "./substrate/suppress.ts";
 import { cave } from "./themes/cave.ts";
-import { type HallParams, type HallStamp, hall } from "./themes/hall.ts";
+import type { GridStamp } from "./themes/grid-stamp.ts";
+import { type HallParams, hall } from "./themes/hall.ts";
 import {
   DEFAULT_TUNNEL_LENGTH,
   snapGridPlacement,
@@ -140,7 +141,7 @@ export type RealizedWorld = {
  *  connectors' mutations are known. */
 type Pending =
   | { kind: "field"; data: RegionData }
-  | { kind: "grid"; stamp: HallStamp };
+  | { kind: "grid"; stamp: GridStamp };
 
 /** A connector's pending effect on a joined region, collected in the connect pass and
  *  applied when the region finalizes. `openPortals` index the region's local portals;
@@ -176,7 +177,7 @@ function localPortals(p: Pending): Connection[] {
  *  places the result. Exported for the loader (Task 9) — bake and load MUST run
  *  this same function (single source, D-W2-6/7). */
 export function expandGridRegion(
-  stamp: HallStamp,
+  stamp: GridStamp,
   openPortals: number[],
   carves: CarveVolume[], // already LOCAL frame
   seed: string,
@@ -220,7 +221,7 @@ export function expandGridRegion(
     // (interior minus pillar surrounds minus door lanes), scattered with the region seed.
     ...instanceGroupsFromLayers(
       rectsSurface(stamp.anchors),
-      HALL_DRESSING_LAYERS,
+      stamp.dressingLayers ?? HALL_DRESSING_LAYERS,
       makeRng(seed).derive("dressing"),
       [],
       materials,
