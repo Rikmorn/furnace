@@ -282,4 +282,20 @@ test("W3 plug point: a maze region realizes through the same grid pipeline as ha
   // Footprint: [4,4] cells → interior 9.5 m + two 0.5 m shells = 10.5 m square.
   expect(data.bounds.max[0] - data.bounds.min[0]).toBeCloseTo(10.5, 5);
   expect(data.bounds.max[2] - data.bounds.min[2]).toBeCloseTo(10.5, 5);
+  // …and it self-reports as a MAZE, not as a hall (see the provenance test below).
+  expect(data.provenance.theme).toBe("maze");
+});
+
+// A grid region's provenance names the vocabulary that STAMPED it. `expandGridRegion` is
+// vocabulary-agnostic by design, so the theme rides on the stamp (`GridStamp.theme`) and the
+// expand path just copies it. Before this was fixed the theme was the hard-coded literal
+// "hall", so a realized maze claimed to BE a hall — and `RegionKind` had no `"maze"` member,
+// so a maze could not have reported correctly even if the code had tried. Existing consumers
+// already dispatch on `provenance.theme` (traversal.gpu, area-traversal.gpu,
+// bake-dressing-parity), and TypeScript would have raised nothing.
+test("grid provenance names the stamping vocabulary (hall → hall, maze → maze)", () => {
+  const w = realizeWorldSpec(DEFAULT_WORLD);
+  expect(w.regions.get("hall-a")?.provenance.theme).toBe("hall");
+  expect(w.regions.get("hall-b")?.provenance.theme).toBe("hall");
+  expect(w.regions.get("maze-1")?.provenance.theme).toBe("maze");
 });

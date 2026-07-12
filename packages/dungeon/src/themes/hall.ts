@@ -66,6 +66,7 @@ export function hall(params: HallParams, seed: string): HallStamp {
   }
   void seed; // structure is params-determined; seed feeds skin variants later
   return {
+    theme: "hall",
     coarse,
     portals,
     doorSpecs,

@@ -3,7 +3,12 @@
 // door construction / door-approach validation / floor-anchor scanning. Extracted
 // VERBATIM from hall.ts so hall AND maze consume one implementation. Integer/lattice
 // math only — no trig, no dust, no RNG (stampers own their randomness).
-import type { Connection, ScatterLayerSpec, Vec3 } from "../region.ts";
+import type {
+  Connection,
+  RegionKind,
+  ScatterLayerSpec,
+  Vec3,
+} from "../region.ts";
 import type { FloorRect } from "../scatter.ts";
 import { AIR, CELL, type CoarseGrid, coarseGet } from "../substrate/grid.ts";
 import type { DoorSpec } from "../substrate/skin.ts";
@@ -20,6 +25,12 @@ export type GridDoor = { wall: HallWall; offset: number };
  *  overrides the hall-default dressing set (absent = hall defaults) — the maze
  *  ships rubble-only (dynamic crates in 2.0 m passages are wedge-bait). */
 export type GridStamp = {
+  /** WHICH grid vocabulary stamped this — each stamper sets its own (`hall()` → `"hall"`,
+   *  `maze()` → `"maze"`). `expandGridRegion` copies it straight into the realized region's
+   *  `provenance.theme`, so a maze region self-reports as a maze. Carried on the STAMP (not
+   *  hard-coded downstream) because the expand path is vocabulary-agnostic by design: the only
+   *  place that knows the vocabulary is the stamper itself. */
+  theme: RegionKind;
   coarse: CoarseGrid;
   portals: Connection[];
   doorSpecs: DoorSpec[];

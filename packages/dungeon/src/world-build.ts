@@ -267,7 +267,9 @@ export function expandGridRegion(
     provenance: {
       generatorId: "dungeon",
       generatorVersion: GENERATOR_VERSION,
-      theme: "hall",
+      // The stamp's OWN vocabulary — a maze region must not self-report as a hall.
+      // This function is vocabulary-agnostic; only the stamper knows which it is.
+      theme: stamp.theme,
       seed,
     },
   };

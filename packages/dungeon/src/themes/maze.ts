@@ -289,6 +289,7 @@ export function maze(params: MazeParams, seed: string): GridStamp {
   }
 
   return {
+    theme: "maze",
     coarse,
     portals,
     doorSpecs,
