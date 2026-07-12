@@ -12,11 +12,12 @@ Browser-first; imports core via the workspace symlink; owns `index.html` + `serv
 - `bun run dungeon:editor` — open the editor on the dungeon (or `bun run edit` inside the package)
 - `bun test packages/dungeon` — package tests (`.gpu.test.ts` files run real WebGPU via bun-webgpu)
 
-## Current state (Epic 3 · 3.3 Worlds — W1 landed 2026-07-11)
+## Current state (Epic 3 · 3.3 Worlds — W2 landed 2026-07-12)
 
 Epics 1–2 CLOSED; Epic 3 recharted 2026-07-11 as **3.3 Worlds**.
 
-- **The game boots the baked default WORLD**: `world-loader.ts` reads `worlds/index.json` → the world's manifest → ONE merged `world.scene.json`, re-expands proxies/dressing deterministically, spawns at the manifest `playerStart` (setup-loud if missing; `worlds/default/` ships as committed fixtures). The hand-authored level + wing path are RETIRED from `main.ts`; their modules stay in-tree until the W4 sweep.
+- **The game boots the baked default WORLD** — since W2 the gate world: hall-A ↔ stair corridor ↔ hall-B (+1.5 m), hall-A ↔ collar-bore ↔ cave-C. `world-loader.ts` reads `worlds/index.json` → the world's manifest → ONE merged `world.scene.json`, re-expands proxies/dressing deterministically AND the whole grid class (halls/corridors re-expand render + collision at load via `expandGridRegion` — zero baked sidecars), spawns at the manifest `playerStart` (setup-loud if missing; `worlds/default/` ships as committed fixtures). The hand-authored level + wing path are RETIRED from `main.ts`; their modules stay in-tree until the W4 sweep.
+- **The substrate is real (W2)**: `src/substrate/` — coarse 0.5 m architecture grid + fine 0.25 m occupancy (per-region dense, accessor-sealed), per-face instanced kit skin, `prepareCarve` single-source carve/patch/suppression, 2-piece rim collar, fine→voxel-proxy collision. `themes/hall.ts` is the one parameterized grid stamper (sealed shells, exact-cardinal door portals, door-lane validation, dressing anchors); `connector-built.ts` implements aperture / stair-corridor / collar-bore (connectors may mutate joined grids; the bore CARVES the built shell — one authoritative grid on the built side). Post-mortem rules from the W2 gate (headless mesh-topology tests; new boundary = new premise): `docs/learnings/2026-07-12-w2-render-collision-divergence.md`.
 - **Player**: a Rapier capsule driven by the custom `CharacterMover` (collide-and-slide on core casts); generated/organic geometry collides against field-derived VOXEL PROXIES — the confirmed ghost-free bridge; Jolt endgame in backlog (`docs/backlog/engine-architecture/jolt-backend-swap.md`).
 - **Rendering**: HDR `bloom→tonemap` + exponential fog + torch + instanced scatter dressing.
 
@@ -35,7 +36,7 @@ Editor-time generation may use search-class algorithms — a human with reroll, 
 3.0–3.2.3 ✅ → **3.3 Worlds** — worlds = graphs of REGIONS (per-class native interior algorithms: grid-built on the validated two-resolution voxel substrate, field-organic) + CONNECTORS ("open a passage", implemented per class-pair; substrate evidence: `docs/research/2026-07-11-voxel-substrate-spike-findings.md`):
 
 - **W1 world model ✅** (field-only, user-gated 2026-07-11)
-- **W2** substrate + grid-built halls
+- **W2 substrate + grid-built halls ✅** (user-gated 2026-07-12, two gate rounds — see seal-log)
 - **W3** maze + World-panel assembly (= the phase gate)
 - **W4** clean-cut sweep (mesh generators + free-space placer + mesh connector kit delete)
 

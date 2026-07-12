@@ -15,15 +15,20 @@ The cockpit loop shipped in 3.1: generate → reroll → freeze & bake → walk.
 
 ## 2. The game (`main.ts`)
 
-- **The game boots a WORLD (3.3 W1):** `world-loader.ts loadWorld` reads
+- **The game boots a WORLD (3.3 W1+W2):** `world-loader.ts loadWorld` reads
   `worlds/index.json` → the named world's `manifest.json` → fragment-loads the ONE
-  merged `world.scene.json`, creates manifest cuboid bodies, re-expands voxel proxies
-  (caves via `caveProxy`, the tunnel connector via `organicTunnel` from its manifest
-  entry) + dressing deterministically, and spawns the player at the manifest's
+  merged `world.scene.json` (cave + bore meshes), creates manifest cuboid bodies,
+  re-expands voxel proxies (caves via `caveProxy`, bore connectors via `organicTunnel`
+  from their manifest entries) + dressing deterministically, and — since W2 —
+  RE-EXPANDS the grid class entirely (each `hall` region rebuilds patch mesh + kit
+  instances + voxel collider via `expandGridRegion`; each `corridor` rebuilds its
+  tube; neither bakes scene entities). Spawns at the manifest's
   `playerStart`/`playerYaw`. A missing index/manifest is a setup-loud throw (no live
   fallback) — the DEFAULT world ships as committed fixtures (`worlds/default/`, the
-  `region-cavern.*` posture). A dev load banner logs world name + region seeds (the
-  bake's identity — `bakedAt` is deliberately absent for byte-deterministic re-bakes).
+  `region-cavern.*` posture): since W2 it IS the gate world — hall-A ↔ stair
+  corridor ↔ hall-B (+1.5 m), hall-A ↔ collar-bore ↔ cave-C. A dev load banner logs
+  world name + region seeds (the bake's identity — `bakedAt` is deliberately absent
+  for byte-deterministic re-bakes).
 - The hand-authored level (`level.ts`) and the wing path are RETIRED from `main.ts`
   (3.3 W1); their modules and tests remain in-tree until the W4 clean-cut sweep.
 - Torch point light, motes, HDR `bloom→tonemap` + exponential fog (density 0.12,
@@ -193,45 +198,99 @@ OR `COCKPIT_BUDGET` (esp. `deadlineMs`) change.
   orphans because the daemon's `generation.bake` `rm -rf`s the previous bake dir
   (`cleanDir`) before writing.
 
-## 5b. Worlds (3.3 W1 — the go-forward model; wings above retire at W4)
+## 5b. Worlds (3.3 W1+W2 — the go-forward model; wings above retire at W4)
 
-- **`world-spec.ts`** — `WorldSpec`: declarative regions (`class` — `field-organic`
-  this slice; `algorithm`; exact `params`; `seed`; `placement {translation, yaw}`),
-  connectors (`organic-tunnel`, joining `[regionId, portalIndex]` ends), `startRegion`.
-  `validateWorldSpec` enforces the charter rule: no region isolated (connectivity over
-  the portal graph). `DEFAULT_WORLD` = two caves + one tunnel; regions with a zeroed
-  placement that sit at a connector's `b` end get their placement DERIVED from the `a`
-  portal via `join` at `DEFAULT_TUNNEL_LENGTH` (search-free; the derived literal bakes).
-- **`connector.ts organicTunnel(a, b, seed, opts)`** — the organic↔organic connector
-  OWNS its own volume: a lattice-aligned grid around the portal segment, rock except a
-  floor-routed capsule bore overshooting both portal planes (burial seals the seams, no
-  CSG); grid CLIPPED at the door planes so bore end-caps never voxelize inside cave air
-  (locking test). **`TUNNEL_RADIUS = 1.6` MUST match the cave bore** — the W1 probe
-  found overlapping air volumes collapse the walkable envelope to their INTERSECTION
-  (0.95 tube inside a 1.6 bore = voxel ceiling pinch, wedge); radius-match is the
-  mitigation, shared-lattice/carve-union composition is the durable fix
-  (`docs/backlog/dungeon/world-connector-bore-and-overlap.md`).
-- **`world-build.ts realizeWorldSpec`** — validate → run algorithms → `placePiece` →
-  derive placements → build connectors from PLACED portals → compute `playerStart`
-  (2 m inward of the start region's portal 0, +1.1 y) — deterministic in the spec.
+- **`world-spec.ts`** — `WorldSpec`: declarative regions as a discriminated union
+  (`{class:"field-organic", algorithm:"cave"}` | `{class:"grid-built",
+  algorithm:"hall"}`, each with exact `params`, `seed`, `placement {translation,
+  yaw}`), connectors (`organic-tunnel | corridor | aperture | collar-bore`, joining
+  `[regionId, portalIndex]` ends, optional `params {length, deltaY}`), `startRegion`.
+  `validateWorldSpec`: no region isolated (portal-graph connectivity), no portal
+  double-claim, and grid-built placements EXACT on the lattice —
+  `snapGridPlacement` snaps 0.5-multiples + quarter-yaws within dust tolerance
+  (1e-6) and throws beyond it. `DEFAULT_WORLD` = the W2 gate world (two halls +
+  stair corridor + collar-bored cave); zero-placement `b`-end regions get their
+  placement DERIVED from the `a` portal via `join` (search-free; the derived
+  literal bakes; grid-built derivations snap).
+- **`substrate/` (W2 — the two-resolution voxel substrate, spike mechanisms as
+  production):** `grid.ts` coarse 0.5 m AIR/MASONRY cells → `rasterize` → fine
+  0.25 m occupancy (`SUB=2`), dense per-region arrays behind accessors (the region
+  IS the chunk; palette/RLE deferred behind the seam); `pieces.ts` procedural kit
+  box catalog + seeded FNV variant hash; `skin.ts` per-face kit skin → cube-
+  primitive `InstanceGroup`s with baked TRS mat4s (panels 0.06 proud + reveals;
+  door frames from door METADATA, never occupancy); `carve.ts prepareCarve` — the
+  single carve source: ONE call returns {carved fine grid, carved set, Surface-Nets
+  patch + the box it meshed (`SUB+2` margin)}, consumed by suppression AND collider
+  so render/collision cannot diverge; `CarveVolume` = capsule | FLAT-ended cylinder
+  (wall openings use the cylinder + threshold Y-clip — a capsule's spherical end
+  sweeps `radius` into rooms); the patch field reads off-grid-INSIDE-a-carve as
+  air (a carve exiting the grid edge continues as the bore — else SN manufactures
+  a lid: the W2 gate round-1 bug); `suppress.ts` E1 face-layer suppression;
+  `collar.ts` 2-piece rim collar at suppressed↔kept junctions (incl. floor-rim);
+  `collider.ts` fine occupancy → voxel-proxy shell (off-grid-as-solid rule).
+- **`themes/hall.ts`** — ONE parameterized grid stamper (mesh-trio presets):
+  sealed shell + AIR interior + pillar lattice (`none|grid|colonnade`), flat floor,
+  door-class portals on the OUTER shell plane with EXACT cardinal facings (portals
+  are metadata — a connector opens the cells on consume), dressing anchors
+  (interior minus pillar surrounds minus door lanes → `rectsSurface` scatter), and
+  **door-lane validation**: a door whose centre walk lane is blocked by a pillar
+  throws at stamp time (traversability by construction — the W2 gate found a
+  pillar dead on a door axis, masked until then by an over-carving bug).
+- **`connector.ts organicTunnel(a, b, seed, opts)`** — a bore connector OWNS its
+  own volume: lattice-aligned grid, rock except a floor-routed capsule bore
+  overshooting both portal planes (burial seals organic seams, no CSG); grid
+  CLIPPED at the door planes so end-caps never voxelize inside cave air (locking
+  test). `opts.extendA` (W2) extends the GRID past the A-end plane INTO the built
+  shell band — collar-bores set exactly the 0.5 wall so the tube renders THROUGH
+  the band and buries into the carve patch (interpenetration seals the seam ring;
+  capped by test — further would put tunnel rock in room air). **`TUNNEL_RADIUS =
+  1.6` MUST match the cave bore** — the W1 probe: overlapping air volumes collapse
+  walkable space to their INTERSECTION; radius-match is the mitigation on organic
+  seams, carve-union the durable fix (`world-connector-bore-and-overlap.md`; the
+  BUILT side is already carve-union by construction, below). `boreAxis` reads the
+  DOMINANT facing component (join float-dust safe).
+- **`connector-built.ts` (W2)** — connectors may MUTATE joined regions' grids:
+  `aperture` (door AIR through two abutting shells — pure mutation); `corridor`
+  (own world-frame kit-skinned tube; portal ΔY ≠ 0 derives a fine-grid staircase —
+  0.25 rise per 0.5 run + tread render capping the collision fill, riser-fit
+  validated); `collarBore` (the W1 bore + `collarBoreCarve`: a flat cylinder carve
+  through the built shell — ONE authoritative fine grid on the built side, the
+  overlap-pinch class impossible there by construction; the collar frames the cut,
+  no door stamp). `carveToLocal` single-sources world→local carve transforms
+  (exact quarter-turns, Y-clip included) for bake AND load.
+- **`world-build.ts realizeWorldSpec` — TWO-PHASE (W2):** (1) stamp + place
+  (algorithms emit stamps/fields + portals; placements resolve, grid ones snap);
+  (2) connect + finalize (connectors build volumes + register mutations; each grid
+  region then rasterizes → carves → skins → collars → patches → collides via
+  **`expandGridRegion` — the SHARED bake/load seam** — and places). Field regions
+  keep the W1 single-step path. `playerStart` = 2 m inward of the start region's
+  portal 0, +1.1 y. Deterministic in the spec (byte-identical runs, tested).
 - **`bake.ts bakeWorld(spec, name?)`** → `BakeFile[]` under `worlds/<name>/`: ONE
-  merged `world.scene.json` (region-id-prefixed resource keys) + `.fmesh` sidecars +
-  `WorldManifest` LAST (crash-safety, same tested contract as wings). Manifest carries
-  per-region `{class, algorithm, params, seed, placement, cuboids}` (the provenance
-  contract — voxels never serialize, proxies re-expand) + per-connector re-expansion
-  inputs `{a, b, seed, radius, overshoot}` + `playerStart`/`playerYaw`. Byte-
-  deterministic re-bake (no `bakedAt`). Browser-bakes rule unchanged (placement bakes;
-  only local-frame ops re-expand — the committed fixture is a bun bake, sound under
-  the same rule). Parity: `world-loader.gpu.test.ts` guards placement-LEVEL dressing
-  parity for the world path (mirroring `bake-dressing-parity.test.ts`).
-- **The probe of record:** `tests/world-traversal.gpu.test.ts` walks the real
-  `CharacterMover` across the FULL default-world collider set (via `loadWorld` on an
-  in-memory bake — never a subset): A→tunnel→B, reverse, wall-hug lanes across both
-  seams.
-- Editor: the Generation panel drives the WORLD flow (worker `runWorld`/`bakeWorld` —
-  deterministic, no attempts machinery; daemon `generation.bake` writes `worlds/<name>/`
-  with the same root-contained + `cleanDir` posture). Index-switching is a manual
-  `worlds/index.json` edit until W3's assembly UX.
+  merged `world.scene.json` + `.fmesh` sidecars + `WorldManifest` LAST (crash-
+  safety). GRID content bakes NO scene entities and NO sidecars — it re-expands at
+  load (the dressing posture). Manifest: per-region `{class, algorithm, params,
+  seed, placement, cuboids}` + per-connector entries as a kind union — bore kinds
+  carry `{a, b, seed, radius, overshoot, extendA}` (recorded, never re-derived
+  from constants) and ALL kinds carry `aRef`/`bRef` so the loader groups mutations
+  by region. Byte-deterministic re-bake (no `bakedAt`); browser-bakes rule
+  unchanged (grid re-expansion is integer/lattice + sqrt-only — the Pr-2 class is
+  structurally absent; the committed fixture is a bun bake, sound).
+- **Probes of record (FULL collider set via `loadWorld` on in-memory bakes, never
+  subsets):** `world-traversal.gpu.test.ts` (gate world end-to-end: stairs up/down
+  + bore, all on-axis), `hall-walk.gpu.test.ts` (interior: aisle, cross-aisle,
+  pillar stop, sealed-door stop), `stair-corridor.gpu.test.ts` (up/down + flat
+  control, teeth-verified), `collar-bore.gpu.test.ts` (THE W2 premise: the
+  carve↔bore seam, both directions + off-centre; off-axis lanes stop short of the
+  cave interior — the pre-existing organic-KCC class,
+  `organic-cave-mouth-offaxis-rimride.md`). Mesh-TOPOLOGY regressions are
+  headless geometric tests (sightline probe in `substrate-carve.test.ts`; shell-
+  band overlap in `connector-built.test.ts`) — see
+  `docs/learnings/2026-07-12-w2-render-collision-divergence.md`.
+- Editor: ZERO editor code in W2 (the extensions bundle picks the new classes up
+  from dungeon source). The Generation panel drives the WORLD flow (worker
+  `runWorld`/`bakeWorld`; daemon `generation.bake` root-contained + `cleanDir`).
+  Index-switching is a manual `worlds/index.json` edit until W3's assembly UX;
+  the panel's "Cave A/B seed" fields predate multi-class worlds (W3 rebuilds).
 
 ## 6. Testing posture
 
