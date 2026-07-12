@@ -443,18 +443,29 @@ function derivationMetrics(connector: WorldConnectorSpec): {
   length: number;
   deltaY: number;
 } {
-  if (connector.kind === "corridor") {
-    return {
-      length: connector.params?.length ?? CORRIDOR_DEFAULT_LENGTH,
-      deltaY: connector.params?.deltaY ?? 0,
-    };
+  switch (connector.kind) {
+    case "corridor":
+      return {
+        length: connector.params?.length ?? CORRIDOR_DEFAULT_LENGTH,
+        deltaY: connector.params?.deltaY ?? 0,
+      };
+    // An aperture is ADJACENCY: the derived end seats its door outer plane ONTO the
+    // parent's (portals coincide, anti-parallel — assertApertureSeam's contract).
+    // The pre-W3 fallthrough handed it the 8 m tunnel default, which no fixture
+    // exercised and which cannot ever pass the seam assert.
+    case "aperture":
+      return { length: 0, deltaY: 0 };
+    case "organic-tunnel":
+    case "collar-bore":
+      return { length: DEFAULT_TUNNEL_LENGTH, deltaY: 0 };
+    default: {
+      // Exhaustiveness guard (phase-2a precedent): a new WorldConnectorKind must state
+      // its derivation here, not silently inherit the tunnel default — the very bug the
+      // `aperture` case above had to fix.
+      const _never: never = connector.kind;
+      throw new Error(`world: unhandled connector kind ${String(_never)}`);
+    }
   }
-  // An aperture is ADJACENCY: the derived end seats its door outer plane ONTO the
-  // parent's (portals coincide, anti-parallel — assertApertureSeam's contract).
-  // The pre-W3 fallthrough handed it the 8 m tunnel default, which no fixture
-  // exercised and which cannot ever pass the seam assert.
-  if (connector.kind === "aperture") return { length: 0, deltaY: 0 };
-  return { length: DEFAULT_TUNNEL_LENGTH, deltaY: 0 };
 }
 
 /** The player spawn + yaw from the (placed) start portal: stepped `PLAYER_START_INSET`

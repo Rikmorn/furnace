@@ -65,7 +65,10 @@ export type WorldConnectorSpec = {
   a: [string, number];
   b: [string, number];
   seed: string;
-  /** corridor/collar-bore derivation knobs; lattice-snapped where grid-facing. */
+  /** CORRIDOR derivation knobs (the only kind that reads them — see `derivationMetrics`):
+   *  the run length and vertical rise its derived `b`-end is seated at; lattice-snapped
+   *  where grid-facing. An aperture seats flush (length 0) and the bore kinds take the
+   *  default tunnel length, so all three ignore this field. */
   params?: { length?: number; deltaY?: number };
 };
 

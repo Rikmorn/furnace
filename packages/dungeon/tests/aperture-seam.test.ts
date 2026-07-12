@@ -7,6 +7,7 @@
 // (plan refinement 4). Instance AABBs are exact for our quarter-turn TRS mats.
 import { expect, test } from "bun:test";
 import type { RegionData, Vec3 } from "../src/region.ts";
+import { CELL } from "../src/substrate/grid.ts";
 import { realizeWorldSpec } from "../src/world-build.ts";
 import { MAZE_APERTURE } from "./_helpers/world-fixtures.ts";
 
@@ -81,18 +82,32 @@ function segHitsBox(p0: Vec3, p1: Vec3, box: Box): boolean {
 // axis-aligned lane whose (y, z) lands in a gap threads the skin ANYWHERE — sealed wall
 // included — so it can neither prove clearance nor ever be blocked: a VACUOUS assertion.
 // The two obvious "centre" picks are exactly the two worst: y = 1.50 is a y-gap, and the
-// door-centre z = 4.00 is a z-gap. Both lane sets below therefore sit at phase 0.25 of a
-// cell on both cross-axes, strictly inside a panel band. Verified by sabotage: with the
+// door-centre z = 4.00 is a z-gap.
+//
+// The invariant that makes a lane SAFE is not a lucky decimal: a lane on a CELL CENTRE is
+// inside the panel band for any PANEL_REVEAL < CELL/2, since the band is the cell minus a
+// symmetric per-side reveal. So the lanes below are DERIVED — cell INDICES (the honest free
+// parameter) through `cellCentre` off the lattice origin — and a change to CELL or
+// PANEL_REVEAL cannot silently re-vacuum this probe. Verified by sabotage: with the
 // aperture's two `openPortals.push` lines commented out the doorway lanes are BLOCKED and
 // this test fails — which is the only reason to believe it when it passes.
-const LANE_HEIGHTS = [0.6, 1.25, 1.75]; // ankle, waist, head — each inside a panel row
-/** Lanes through the OPEN doorway: inside the door span (z 3..5) and inside a panel band. */
-const DOORWAY_LANE_Z = [3.75, 4.25];
-/** The CONTROL lane: past the door span, still inside both interiors, so it crosses
+
+/** Centre of cell `j` on an axis whose lattice starts at `origin`. A grid region's
+ *  `bounds.min` IS that origin (gridStampBounds = the coarse grid's corner), and both
+ *  regions share ONE lattice — hall-b's derived placement is snapped to it. */
+const cellCentre = (origin: number, j: number): number =>
+  origin + (j + 0.5) * CELL;
+
+/** Lane heights, as y-cell indices off the lattice: knee, waist, head. */
+const LANE_Y_CELLS = [2, 3, 4];
+/** Lanes through the OPEN doorway: the two MIDDLE z-cells of the 4-cell door span (z 3..5,
+ *  i.e. cells 6..9) — inside the opening with a full cell of margin either side. */
+const DOORWAY_LANE_Z_CELLS = [7, 8];
+/** The CONTROL lane: a z-cell PAST the door span, still inside both interiors, so it crosses
  *  hall-b's east shell face and maze-a's west shell face where both are SEALED. (Panels sit
  *  PROUD of the masonry — in the air beside it — so a lane through the wall interior would
  *  miss every AABB; the control must cross the faces that meet interior air.) */
-const SEALED_LANE_Z = 5.75;
+const SEALED_LANE_Z_CELL = 11;
 
 test("aperture doorway: sightlines at three heights clear BOTH shells; the sealed wall blocks", () => {
   const realized = realizeWorldSpec(MAZE_APERTURE);
@@ -101,18 +116,23 @@ test("aperture doorway: sightlines at three heights clear BOTH shells; the seale
   if (!mazeA || !hallB) throw new Error("fixture regions missing");
   const boxes = [...instanceAabbs(mazeA), ...instanceAabbs(hallB)];
   expect(boxes.length).toBeGreaterThan(0);
+  const laneYs = LANE_Y_CELLS.map((j) => cellCentre(mazeA.bounds.min[1], j));
+  const doorwayZs = DOORWAY_LANE_Z_CELLS.map((j) =>
+    cellCentre(mazeA.bounds.min[2], j),
+  );
+  const sealedZ = cellCentre(mazeA.bounds.min[2], SEALED_LANE_Z_CELL);
   // (a) Through the doorway: hall-b interior (x −2) → maze passage (x +2), inside both
   // doors' dressing-free walk lanes. Clear at every height × every doorway lane.
-  for (const z of DOORWAY_LANE_Z) {
-    for (const y of LANE_HEIGHTS) {
+  for (const z of doorwayZs) {
+    for (const y of laneYs) {
       const hit = boxes.some((b) => segHitsBox([-2, y, z], [2, y, z], b));
       expect(hit).toBe(false);
     }
   }
   // (b) The control: the SAME lane geometry, moved onto the sealed wall — blocked.
-  for (const y of LANE_HEIGHTS) {
+  for (const y of laneYs) {
     const blocked = boxes.some((b) =>
-      segHitsBox([-2, y, SEALED_LANE_Z], [2, y, SEALED_LANE_Z], b),
+      segHitsBox([-2, y, sealedZ], [2, y, sealedZ], b),
     );
     expect(blocked).toBe(true);
   }
