@@ -121,3 +121,40 @@ export const TWO_HALLS: WorldSpec = {
   ],
   startRegion: "hall-a",
 };
+
+/** A maze flush against a box room through one APERTURE — the FIRST aperture fixture
+ *  (the connector was implemented in W2 with zero coverage). hall-b derives at length 0
+ *  (D-W3-4): its east door outer plane seats ONTO maze-a's west door plane → back-to-back
+ *  shells, a 1.0 m doorway. Geometry (derived): maze-a west portal [0, 0, 4] facing
+ *  [-1,0,0]; hall-b placement [-5, 0, 1.5]. */
+export const MAZE_APERTURE: WorldSpec = {
+  name: "maze-aperture",
+  regions: [
+    {
+      id: "maze-a",
+      class: "grid-built",
+      algorithm: "maze",
+      params: { cells: [3, 3], braid: 0, doors: [{ wall: "west", offset: 1 }] },
+      seed: "t:mz",
+      placement: { translation: [0, 0, 0], yaw: 0 },
+    },
+    {
+      id: "hall-b",
+      class: "grid-built",
+      algorithm: "hall",
+      params: { ...HALL_PRESETS.boxRoom, doors: [{ wall: "east", offset: 2 }] },
+      seed: "t:hb",
+      placement: { translation: [0, 0, 0], yaw: 0 }, // derived via ap-1 at length 0
+    },
+  ],
+  connectors: [
+    {
+      id: "ap-1",
+      kind: "aperture",
+      a: ["maze-a", 0],
+      b: ["hall-b", 0],
+      seed: "t:ap",
+    },
+  ],
+  startRegion: "maze-a",
+};

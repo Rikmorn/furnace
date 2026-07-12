@@ -8,7 +8,12 @@ import {
   DEFAULT_WORLD,
   type WorldSpec,
 } from "../src/world-spec.ts";
-import { HALL_CAVE, TWO_CAVES, TWO_HALLS } from "./_helpers/world-fixtures.ts";
+import {
+  HALL_CAVE,
+  MAZE_APERTURE,
+  TWO_CAVES,
+  TWO_HALLS,
+} from "./_helpers/world-fixtures.ts";
 
 const sub = (a: Vec3, b: Vec3): Vec3 => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
 const dot = (a: Vec3, b: Vec3): number =>
@@ -179,6 +184,15 @@ test("corridor world: derived placement lattice-snapped, doors opened, tube coll
   expect(count(w.regions.get("hall-a"))).not.toBe(
     count(sealed.regions.get("hall-a")),
   );
+});
+
+test("aperture derivation seats the derived region FLUSH: portals coincide (D-W3-4)", () => {
+  // Pre-fix, derivationMetrics hands the aperture the 8 m tunnel default and
+  // assertApertureSeam throws "portals do not coincide" — this test IS the bug repro.
+  const realized = realizeWorldSpec(MAZE_APERTURE);
+  const hallB = realized.spec.regions.find((r) => r.id === "hall-b");
+  expect(hallB?.placement.translation).toEqual([-5, 0, 1.5]);
+  expect(hallB?.placement.yaw).toBe(0);
 });
 
 test("W3 plug point: a maze region realizes through the same grid pipeline as halls", () => {

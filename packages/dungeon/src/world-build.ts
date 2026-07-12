@@ -433,8 +433,8 @@ function phantomTarget(pA: Connection, length: number, deltaY = 0): Connection {
 }
 
 /** The tunnel length + vertical rise a connector seats its derived `b`-end at: a corridor
- *  reads its `params` (defaulting to CORRIDOR_DEFAULT_LENGTH / flat); every other kind
- *  uses the default tunnel length, flat. */
+ *  reads its `params` (defaulting to CORRIDOR_DEFAULT_LENGTH / flat); an aperture seats
+ *  FLUSH (length 0); every other kind uses the default tunnel length, flat. */
 function derivationMetrics(connector: WorldConnectorSpec): {
   length: number;
   deltaY: number;
@@ -445,6 +445,11 @@ function derivationMetrics(connector: WorldConnectorSpec): {
       deltaY: connector.params?.deltaY ?? 0,
     };
   }
+  // An aperture is ADJACENCY: the derived end seats its door outer plane ONTO the
+  // parent's (portals coincide, anti-parallel — assertApertureSeam's contract).
+  // The pre-W3 fallthrough handed it the 8 m tunnel default, which no fixture
+  // exercised and which cannot ever pass the seam assert.
+  if (connector.kind === "aperture") return { length: 0, deltaY: 0 };
   return { length: DEFAULT_TUNNEL_LENGTH, deltaY: 0 };
 }
 
