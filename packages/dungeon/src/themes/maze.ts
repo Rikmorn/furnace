@@ -37,8 +37,13 @@ export type MazeParams = {
 export const MAZE_H_CELLS = DOOR_H_CELLS;
 
 /** Passage width/depth in coarse cells — the door width (2.0 m), so a door always
- *  opens onto a full-width passage column. */
-const PASSAGE_CELLS = 4;
+ *  opens onto a full-width passage column.
+ *
+ *  COUPLED to `grid-stamp.ts`'s `DOOR_CLEARANCE_DEPTH_CELLS`: this must be `>=` it, or a
+ *  door's centre approach lane reaches past its passage block into the wall band beyond and
+ *  `validateDoorApproach` starts rejecting valid mazes. They are equal today — the invariant
+ *  is pinned by a test in `maze.test.ts`, not by luck. */
+export const PASSAGE_CELLS = 4;
 /** Maze-cell pitch in coarse cells: a `PASSAGE_CELLS` passage block plus the 1-cell
  *  (0.5 m) internal wall band that separates it from the next block. */
 const PITCH = PASSAGE_CELLS + 1;
@@ -216,7 +221,8 @@ export function maze(params: MazeParams, seed: string): GridStamp {
   const dims: [number, number, number] = [w + 2, MAZE_H_CELLS + 2, d + 2];
   const coarse = createCoarse([0, -CELL, 0], dims, MASONRY);
 
-  // Passage blocks: maze cell (a,b) owns the PASSAGE_CELLS³ column at (1+5a, 1+5b).
+  // Passage blocks: maze cell (a,b) owns the PASSAGE_CELLS × MAZE_H_CELLS × PASSAGE_CELLS
+  // (4×6×4) block whose floor-layer XZ corner is (1 + PITCH·a, 1 + PITCH·b).
   for (let b = 0; b < mz; b++)
     for (let a = 0; a < mx; a++)
       carveBlock(

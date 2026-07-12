@@ -1,6 +1,19 @@
 import { expect, test } from "bun:test";
 import { AIR, CELL, coarseGet, MASONRY } from "../src/substrate/grid.ts";
-import { carvePlanForTest, maze } from "../src/themes/maze.ts";
+import { DOOR_CLEARANCE_DEPTH_CELLS } from "../src/themes/grid-stamp.ts";
+import { carvePlanForTest, maze, PASSAGE_CELLS } from "../src/themes/maze.ts";
+
+// ── the knife-edge constant coupling ─────────────────────────────────────────
+
+// The maze's passage depth and the shared door-approach clearance depth are tuned
+// INDEPENDENTLY in two modules, and today they are EQUAL (4 cells / 2.0 m). If the
+// clearance ever grows past the passage, `validateDoorApproach`'s centre lane reaches
+// past a door's passage block into the wall band beyond it and throws on structurally
+// valid mazes (measured: DOOR_CLEARANCE_DEPTH_CELLS=5 rejects 19 of 40 seeds of a valid
+// cells:[4,4] maze). This is a tripwire, not a bug fix — nothing is broken today.
+test("PASSAGE_CELLS >= DOOR_CLEARANCE_DEPTH_CELLS (door approach fits inside a passage)", () => {
+  expect(PASSAGE_CELLS).toBeGreaterThanOrEqual(DOOR_CLEARANCE_DEPTH_CELLS);
+});
 
 // ── carve plan (the spanning tree + braid, Tasks 2–3) ────────────────────────
 

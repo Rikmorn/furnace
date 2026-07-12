@@ -136,8 +136,13 @@ export function floorAnchors(
   return out;
 }
 
-/** How deep (coarse cells) a door's centre walk-lane must be clear of solids. */
-const DOOR_CLEARANCE_DEPTH_CELLS = 4; // 2.0 m — the player-spawn / probe inset
+/** How deep (coarse cells) a door's centre walk-lane must be clear of solids.
+ *
+ *  KNIFE-EDGE COUPLING: every grid stamper's door-adjacent passage depth must be
+ *  `>= DOOR_CLEARANCE_DEPTH_CELLS`, or {@link validateDoorApproach}'s centre lane reaches
+ *  past that passage into the solid band beyond it and rejects structurally valid content.
+ *  The maze sits exactly on the edge (`PASSAGE_CELLS` = 4 = this) and pins it in a test. */
+export const DOOR_CLEARANCE_DEPTH_CELLS = 4; // 2.0 m — the player-spawn / probe inset
 
 /** Traversability by construction (charter §2.2): a door whose CENTRE walk lane
  *  (the middle 2 of its 4 width cells × `DOOR_CLEARANCE_DEPTH_CELLS` inward ×
