@@ -1,10 +1,11 @@
 // The ephemeral generation session (Slice 3.1 spec §3; lifted to App level in 3.2.2): plain
-// state + helpers. NO document-session contact — App owns the session/worldName/worker client
-// (so it survives the panel closing) and the GenerationPanel drives them as a context
-// consumer; the ONLY daemon crossing is freeze (an api call that uploads the worker-produced
-// file set). Everything here is pure and unit-tested without a DOM. The wing session model
-// (below) stays for W4; the W1 WORLD flow (further below) is the active cockpit.
+// state + helpers. NO document-session contact — App owns the session + worker client (so it
+// survives the panel closing) and the WorldPanel drives them as a context consumer; the ONLY
+// daemon crossing is freeze (api calls that upload the worker-produced file set). Everything
+// here is pure and unit-tested without a DOM. The wing session model (below) stays for W4;
+// the W3 WORLD flow (further below) is the active cockpit.
 import type { PreviewContent } from "../../viewport-host/index.ts"; // type-only: erased
+import type { WorldDraft, WorldSpecLike } from "./world-draft.ts"; // type-only: erased
 
 /** The generation session's lifecycle, one variant per user-visible phase. The `done`
  *  variant SNAPSHOTS the config that produced the on-screen preview: freeze bakes from
@@ -64,38 +65,42 @@ export function isValidWingName(name: string): boolean {
   return /^[a-z0-9][a-z0-9_-]*$/i.test(name);
 }
 
-// ── W1 world flow (the active cockpit) ─────────────────────────────────────────
-// The wing session model above stays for W4; the world flow is what the cockpit drives
-// now. DETERMINISTIC (realizeWorldSpec — no search), so it carries no attempt/envelope
-// semantics: one Generate → one payload → preview.
+// ── W3 world flow (the active cockpit) ─────────────────────────────────────────
+// The panel assembles a WorldDraft (world-draft.ts); realize stays DETERMINISTIC
+// (realizeWorldSpec — no search), so it carries no attempt/envelope semantics: one
+// Generate → one payload → preview. `previewing` snapshots the FULL SPEC that produced
+// the on-screen world (D-W3-11): freeze bakes exactly that snapshot, so a draft edit
+// after generating can never change what freeze produces.
 
-/** The world generation session's lifecycle. `previewing` SNAPSHOTS the two seeds that
- *  produced the on-screen world so Freeze bakes exactly what was previewed even if the
- *  seed fields are edited afterwards. No `running`-with-count phase — realize is one call. */
 export type WorldGenStatus =
   | { phase: "idle" }
   | { phase: "generating" }
-  | { phase: "previewing"; seeds: [string, string] }
+  | { phase: "previewing"; spec: WorldSpecLike }
   | { phase: "baking" }
-  | { phase: "baked"; files: number }
+  | { phase: "baked"; files: number; madeDefault: boolean }
   | { phase: "failed"; error: string };
 
-/** The world cockpit's ephemeral state: the two cave seeds ("" = fall back to the engine's
- *  DEFAULT_WORLD template seed) and the current status. Lifted to App like the wing session. */
+/** The world cockpit's ephemeral state: the draft under assembly, the make-this-the-
+ *  game's-world toggle (D-W3-9, default ON), and the current status. App-lifted so it
+ *  survives the panel being closed (an in-flight run keeps updating it). */
 export type WorldGenSession = {
-  seeds: [string, string];
+  draft: WorldDraft;
+  makeDefault: boolean;
   status: WorldGenStatus;
 };
 
-/** A fresh idle world session. Seeds start empty — the panel fills them from the engine's
- *  DEFAULT_WORLD once the bundle is ready (the editor can't import the spec by value). */
+/** A fresh idle world session: an EMPTY draft (D-W3-12 — assembly starts from scratch;
+ *  no spec→draft import until 3.5 needs one). The name defaults to "default" so a
+ *  Freeze&bake overwrites worlds/default — the world the committed worlds/index.json
+ *  already points at. */
 export const initialWorldSession = (): WorldGenSession => ({
-  seeds: ["", ""],
+  draft: { name: "default", regions: [], startRegionId: "" },
+  makeDefault: true,
   status: { phase: "idle" },
 });
 
-/** Drop a `previewing` world back to `idle` because a seed/name edit made the on-screen
- *  world no longer match the controls — so Freeze only ever bakes what is previewed. Any
+/** Drop a `previewing` world back to `idle` because a draft edit made the on-screen world
+ *  no longer match the controls — Freeze only ever bakes what is previewed. Any
  *  non-`previewing` phase is returned unchanged (same reference). */
 export function invalidateWorldPreview(s: WorldGenSession): WorldGenSession {
   return s.status.phase === "previewing"
@@ -103,43 +108,35 @@ export function invalidateWorldPreview(s: WorldGenSession): WorldGenSession {
     : s;
 }
 
-/** Structural mirror of the dungeon's WorldSpec — the panel narrows the engine's real
- *  DEFAULT_WORLD to this shape off the `ext` seam. Only `regions[].seed` is read here; the
- *  index signatures pass every other field through opaquely (the client/worker take the spec
- *  as `unknown`; only the dungeon's realizeWorldSpec/bakeWorld consume the full type). */
-export type WorldRegionLike = { seed: string; [key: string]: unknown };
-export type WorldSpecLike = {
-  regions: WorldRegionLike[];
-  [key: string]: unknown;
-};
-
-/** Rebuild a world spec from a template, substituting the per-region seeds (empty seed →
- *  keep the template's). Every other spec field (name, connectors, startRegion, placements)
- *  passes through by spread, so the panel feeds the engine's DEFAULT_WORLD and gets back a
- *  spec differing only in the cave seeds. */
-export function worldSpecWithSeeds(
-  template: WorldSpecLike,
-  seeds: readonly string[],
-): WorldSpecLike {
-  return {
-    ...template,
-    regions: template.regions.map((r, i) => ({
-      ...r,
-      seed: seeds[i] || r.seed,
-    })),
-  };
-}
-
-/** Reroll the two cave seeds: bump (or add) a trailing "-N" on each so a fresh world
- *  generates while the seed stays legible and reproducible (pure — no RNG, unit-testable). */
-export function rerollSeeds(seeds: readonly string[]): [string, string] {
-  return [bumpSeed(seeds[0] ?? ""), bumpSeed(seeds[1] ?? "")];
-}
-
-const SEED_COUNTER_RE = /^(.*)-(\d+)$/;
-function bumpSeed(seed: string): string {
-  const m = SEED_COUNTER_RE.exec(seed);
-  return m ? `${m[1]}-${Number(m[2]) + 1}` : `${seed}-2`;
+/** The daemon upload sequence for a world bake (D-W3-9): the world's own file set,
+ *  cleanDir'd to its directory (a re-bake never leaves orphans) — then, when the user
+ *  asked to make it the game's world, ONE more root-contained write of
+ *  worlds/index.json with NO cleanDir (it lives outside the world dir, and the daemon
+ *  validates every file against cleanDir when one is set). Pure — the panel executes the
+ *  calls in order. */
+export function bakeUploadCalls(
+  files: WireFile[],
+  worldDirPath: string,
+  worldName: string,
+  makeDefault: boolean,
+): { files: WireFile[]; cleanDir?: string }[] {
+  const calls: { files: WireFile[]; cleanDir?: string }[] = [
+    { files, cleanDir: worldDirPath },
+  ];
+  if (makeDefault) {
+    calls.push({
+      files: [
+        {
+          path: "worlds/index.json",
+          encoding: "utf8",
+          // Byte-identical to the committed packages/dungeon/worlds/index.json (2-space
+          // JSON + trailing newline), so re-defaulting "default" is a no-op diff.
+          contents: `${JSON.stringify({ version: 1, default: worldName }, null, 2)}\n`,
+        },
+      ],
+    });
+  }
+  return calls;
 }
 
 /** FALLBACK bake transport: one file for the JSON POST — text verbatim, binary base64'd. */

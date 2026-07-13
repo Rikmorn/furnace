@@ -5,7 +5,7 @@
 
 /** The generator surface the worker consumes off the engine bundle's `extensions`
  *  namespace (structural — the bundle crosses the project-first boundary untyped;
- *  the worker narrows it once, mirroring the GenerationPanel's main-thread seam). */
+ *  the worker narrows it once, mirroring the WorldPanel's main-thread seam). */
 export type WorkerEngine = {
   worldAttempts: (
     seed: string,

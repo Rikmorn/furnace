@@ -38,20 +38,18 @@ export type EditorActions = {
   frameSelection(): void;
 };
 
-/** The generation session lifted to App level so it survives the Generation panel being
+/** The generation session lifted to App level so it survives the World panel being
  *  closed and reopened (dockview unmounts a removed panel). The panel is a pure CONSUMER:
- *  it reads `session`/`worldName` and drives them through these App-owned setters. Because
- *  the setters are App state (stable identity), an in-flight run's async setter calls land
- *  in App state even after the panel unmounts. `client` is App-owned for the same reason —
+ *  it reads `session` and drives it through these App-owned setters. Because the setters
+ *  are App state (stable identity), an in-flight run's async setter calls land in App
+ *  state even after the panel unmounts. `client` is App-owned for the same reason —
  *  a panel-local worker client would be recreated on remount, orphaning the running worker
  *  (Slice 3.2.3: run/bake on a worker; cancel = terminate, instant mid-attempt). W1: the
- *  cockpit drives the WORLD flow (runWorld/bakeWorld); the wing session/bake modules stay. */
+ *  cockpit drives the WORLD flow (runWorld/bakeWorld); the wing session/bake modules stay.
+ *  W3: the bake destination rides IN the session (the draft's own `name`). */
 export type GenerationControl = {
   session: WorldGenSession;
   setSession: Dispatch<SetStateAction<WorldGenSession>>;
-  /** The bake destination (worlds/<name>) — independent of the generator seeds. */
-  worldName: string;
-  setWorldName: Dispatch<SetStateAction<string>>;
   /** The App-owned generation worker client (Slice 3.2.3): runWorld/bakeWorld/cancel. */
   client: GenerationWorkerClient;
 };
@@ -65,11 +63,11 @@ export type EditorContextValue = {
   /** The cockpit preview host (Slice 3.1) — the generation panel realizes into it. */
   previewHostRef: RefObject<PreviewHost | undefined>;
   /** The engine bundle's `extensions` namespace (the consumer's generator surface),
-   *  crossing the project-first bundle boundary as an untyped record. The generation
-   *  panel is the SINGLE seam that narrows it (with `// Boundary cast:` comments). */
+   *  crossing the project-first bundle boundary as an untyped record. The World panel
+   *  is the SINGLE seam that narrows it (with `// Boundary cast:` comments). */
   extensions: Record<string, unknown>;
   actions: EditorActions;
-  /** The lifted generation session (Slice 3.2.2 Task 6) the GenerationPanel consumes. */
+  /** The lifted generation session (Slice 3.2.2 Task 6) the WorldPanel consumes. */
   generation: GenerationControl;
   /** Viewport view flags (Task 9), App-level so the overlay popover and the View▸View-flags
    *  menu share one source. `axes` gates the corner triad; the rest gate host rendering. */

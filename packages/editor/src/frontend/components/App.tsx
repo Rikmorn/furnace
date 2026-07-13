@@ -34,11 +34,11 @@ import { useGlobalKeybindings } from "../hooks/useGlobalKeybindings.ts";
 import { ConfirmDialog } from "./ConfirmDialog.tsx";
 import { EditorContext, type EditorActions, type EditorContextValue } from "./editor-context.ts";
 import { EntitiesPanel } from "./EntitiesPanel.tsx";
-import { GenerationPanel } from "./GenerationPanel.tsx";
 import { InspectPanel } from "./InspectPanel.tsx";
 import { StatusBar } from "./StatusBar.tsx";
 import { Toolbar } from "./Toolbar.tsx";
 import { Viewport } from "./Viewport.tsx";
+import { WorldPanel } from "./WorldPanel.tsx";
 
 // Module-level so its identity is stable across App renders: dockview reads the
 // factory only at panel construction, so a fresh map per render would freeze the
@@ -48,7 +48,9 @@ const COMPONENTS: Record<string, FunctionComponent<IDockviewPanelProps>> = {
   entities: EntitiesPanel,
   viewport: Viewport,
   inspect: InspectPanel,
-  generation: GenerationPanel,
+  // Key UNCHANGED ("generation"): it is the dockview id in persisted layouts (D-W3-10) —
+  // the panel behind it is now the World panel.
+  generation: WorldPanel,
 };
 
 // Persisted-list cap: the File▸Recent menu stays bounded so a long session can't bloat the
@@ -73,7 +75,7 @@ export function App() {
   const [state, dispatch] = useReducer(reduce, initialState);
   const hostRef = useRef<ViewportHost | undefined>(undefined);
   // The cockpit preview host + the consumer generator surface, both created once the
-  // engine bundle loads and threaded to the GenerationPanel via context (Slice 3.1).
+  // engine bundle loads and threaded to the WorldPanel via context (Slice 3.1).
   const previewHostRef = useRef<PreviewHost | undefined>(undefined);
   const extensionsRef = useRef<Record<string, unknown>>({});
   const lastLoaded = useRef<{ path?: string; revision?: number }>({});
@@ -123,13 +125,12 @@ export function App() {
   // a dedicated effect so the initial value and every change take one code path.
   const [viewFlags, setViewFlags] = useState<ViewFlags>(DEFAULT_VIEW_FLAGS);
 
-  // The generation session lifted out of GenerationPanel (Task 6): App owns it so it
-  // survives the panel being closed/reopened and an in-flight run keeps updating it after
-  // the panel unmounts. See editor-context.ts GenerationControl for the full rationale.
+  // The generation session lifted out of the panel (Task 6): App owns it so it survives
+  // the panel being closed/reopened and an in-flight run keeps updating it after the panel
+  // unmounts. See editor-context.ts GenerationControl for the full rationale. The bake
+  // destination rides IN the session (draft.name, "default" by default — the world the
+  // committed worlds/index.json points at), so there is no separate worldName state.
   const [generation, setGeneration] = useState(initialWorldSession);
-  // The bake destination. Defaults to "default" so Freeze&bake overwrites worlds/default —
-  // the world the committed worlds/index.json points at — and the game reloads it directly.
-  const [worldName, setWorldName] = useState("default");
   // The generation worker client (Slice 3.2.3) — one per App lifetime. useState's
   // lazy initializer keeps it stable across renders; the worker itself spawns on
   // first run. A page reload kills it with the page, which is exactly the
@@ -656,8 +657,6 @@ export function App() {
     generation: {
       session: generation,
       setSession: setGeneration,
-      worldName,
-      setWorldName,
       client: generationClient,
     },
     viewFlags,

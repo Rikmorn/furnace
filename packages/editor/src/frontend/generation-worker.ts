@@ -17,7 +17,7 @@ async function loadEngine(engineUrl: string): Promise<WorkerEngine> {
   const mod = (await import(url)) as { extensions: Record<string, unknown> };
   // Boundary cast: the engine bundle's `extensions` namespace crosses the
   // project-first bundle boundary untyped; the worker narrows it ONCE here (the
-  // GenerationPanel does the same narrowing on the main thread).
+  // WorldPanel does the same narrowing on the main thread).
   return mod.extensions as unknown as WorkerEngine;
 }
 

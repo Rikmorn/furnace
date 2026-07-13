@@ -86,8 +86,6 @@ export function makeEditorContext(
   const generation: GenerationControl = {
     session: initialWorldSession(),
     setSession: () => {},
-    worldName: "default",
-    setWorldName: () => {},
     // A real client over an inert fake Worker — spawn is lazy (only on run/bake),
     // so inspector tests that never generate never touch it.
     client: new GenerationWorkerClient(() => ({
