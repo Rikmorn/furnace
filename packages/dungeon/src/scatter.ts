@@ -13,8 +13,8 @@ import type { MeshData } from "./surface-nets.ts";
 export type Sample = { position: Vec3; normal: Vec3 };
 
 /** A surface that scatter can area-weight-sample: a triangle count, a per-triangle
- *  area, and a barycentric point+normal sampler. One code path for caves
- *  (mesh triangles) and rooms (a flat rect adapter — Task 10). */
+ *  area, and a barycentric point+normal sampler. One code path for caves (mesh
+ *  triangles) and grid halls (a flat rect adapter — see {@link rectsSurface}). */
 export type SampleableSurface = {
   triCount: number;
   /** Area of triangle `t`, in world units squared. */

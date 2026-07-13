@@ -1,4 +1,5 @@
 // packages/dungeon/src/built.ts
+// Masonry collar/cap builders for organic cave mouths (the built↔organic seam's built side).
 // The built-interface kit (Slice 2.2.5b-B1). Doctrine: organic pieces PRESENT built
 // door-class portals, so every seam collapses to the proven built↔built case. A collar
 // is 4 oversized masonry boxes forming a rectangular sleeve whose edges bury themselves
@@ -6,7 +7,6 @@
 // isosurface knowledge beyond "the bore fits inside `envelope`". Mining engineering
 // grounds the idiom AND the names: a "portal" is the built structure at a tunnel mouth,
 // a "collar" its framing (docs/research/2026-07-03-dungeon-2.2.5b-b1-built-interfaces.md §1).
-// Masonry collar/cap builders for organic cave mouths (the built↔organic seam's built side).
 import { quat, vec3 } from "@furnace/core/transform";
 import { aabbOfBoxes, type Box, transformAabb } from "./aabb.ts";
 import type { Aabb, Connection, Vec3 } from "./region.ts";

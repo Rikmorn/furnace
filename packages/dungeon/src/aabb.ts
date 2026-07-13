@@ -3,8 +3,7 @@ import { quat, vec3 } from "@furnace/core/transform";
 import type { Aabb, Vec3 } from "./region.ts";
 
 /** A center+size box in some local frame. The dungeon's shared box-geometry unit —
- *  built.ts collars and connector slabs are authored as these; `aabbOfBoxes`
- *  envelopes them. */
+ *  built.ts's collars and caps are authored as these; `aabbOfBoxes` envelopes them. */
 export type Box = { center: Vec3; size: Vec3 };
 
 /** A Box that may carry a world-orientation quaternion (contributes its 8 rotated

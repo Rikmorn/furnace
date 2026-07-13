@@ -277,7 +277,7 @@ function createCaveProxyBody(
   world: physics.World,
   r: WorldCaveRegionEntry,
 ): void {
-  // `theme: "cave"` widens to ThemeName; `params` is the recorded (typed) cave call params.
+  // `params` is the recorded (typed) cave call params, spread over the base RegionParams.
   const local = caveProxy({
     theme: "cave",
     seed: r.seed,

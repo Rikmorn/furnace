@@ -26,11 +26,13 @@ test("aabbOfBoxes accounts for a rotated box (pitch about X widens Y/Z)", () => 
 });
 
 test("aabbUnion covers both inputs", () => {
+  // Six distinct components, and each row draws from BOTH inputs (min: x from b,
+  // y+z from a; max: x from a, y+z from b) — so a min/max flip OR an axis swap fails.
   const u = aabbUnion(
-    { min: [0, 0, 0], max: [2, 2, 2] },
+    { min: [0, -2, -5], max: [2, 2, 2] },
     { min: [-1, 1, 3], max: [1, 4, 5] },
   );
-  expect(u.min).toEqual([-1, 0, 0]);
+  expect(u.min).toEqual([-1, -2, -5]);
   expect(u.max).toEqual([2, 4, 5]);
 });
 
