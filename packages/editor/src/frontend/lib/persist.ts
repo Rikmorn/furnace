@@ -1,7 +1,7 @@
 import type { ViewFlags } from "../../viewport-host/index.ts"; // type-only: erased
 
 // Per-project UI persistence: one JSON blob per project root under a versioned key,
-// so the editor's chrome (dockview layout, last scene, seed history…) survives a
+// so the editor's chrome (dockview layout, last scene, view flags…) survives a
 // restart. Pure and DOM-free — takes a `Storage` (localStorage in the browser, a fake
 // Map-backed Storage in tests). Schema-tolerant by design: a corrupt or missing blob
 // reads as an empty state rather than throwing, and a bump of VERSION namespaces a new
