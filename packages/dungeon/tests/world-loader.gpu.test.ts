@@ -22,8 +22,8 @@ import {
 } from "./_helpers/gpu-fixture.ts";
 import { HALL_CAVE } from "./_helpers/world-fixtures.ts";
 
-// W1 Task 6: the GAME-side world loader mirrors wing-loader against the world manifest.
-// The core NEW behaviour vs wings: a connector carries NO cuboids, so its collision is a VOXEL
+// W1 Task 6: the GAME-side world loader reads the world manifest. The load-time behaviour
+// under test: a connector carries NO cuboids, so its collision is a VOXEL
 // PROXY re-expanded at load — a bore from (a, b, seed, radius, overshoot), a corridor from
 // `buildCorridor(a, b, seed)`. As of W3 Task 10 `DEFAULT_WORLD` is the PHASE-GATE WORLD (two grid
 // halls + a maze + a cave, joined by a stair corridor, a collar-bore and an aperture), so the gpu
@@ -134,7 +134,7 @@ test.skipIf(!bunWebGpuAvailable())(
       loaded.destroy();
 
       // (d) setup-loud: a broken clone (missing index or manifest) throws a fix-it message,
-      // NOT a silent live-generation fallback (wing-loader's null-return retires here).
+      // NOT a silent live-generation fallback.
       globalThis.fetch = brokenCloneFetchStub(false); // index itself 404s
       await expect(loadWorld(ctx, world, matCache)).rejects.toThrow(
         /worlds index missing/,

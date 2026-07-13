@@ -652,10 +652,10 @@ export function cave(p: CaveParams): RegionData {
   };
 }
 
-/** Field-derived voxel collision proxy WITHOUT meshing — the wing-loader's collision
- *  path (the `bakedCavernProxy` pattern generalized to the branching cave). Reproduces
+/** Field-derived voxel collision proxy WITHOUT meshing — the load-time collision path
+ *  (the `bakedCavernProxy` pattern generalized to the branching cave). Reproduces
  *  cave()'s `colliders[0]` (shape + body position) byte-for-byte from the seed/params
- *  alone, so a baked wing collides with exactly what it rendered.
+ *  alone, so a baked region collides with exactly what it rendered.
  *
  * @throws if `p`'s new-path `mouths`/`capped` are invalid (same as {@link cave}). */
 export function caveProxy(p: CaveParams): {

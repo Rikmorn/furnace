@@ -1,15 +1,15 @@
 // packages/dungeon/src/world-loader.ts
-// Load a baked declarative world (Epic 3 W1): the GAME-side mirror of `wing-loader.ts`
-// against the world manifest. Reads the worlds index → the default world's manifest,
+// Load a baked declarative world (Epic 3 W1): the GAME-side loader for the world
+// manifest. Reads the worlds index → the default world's manifest,
 // fragment-loads the ONE merged render-only doc, creates static bodies from the manifest's
 // per-region cuboid lists, re-expands each cave's voxel proxy + dressing from provenance,
 // and — the new W1 behaviour — re-expands each CONNECTOR's voxel proxy from its placed
 // portals + tunnel opts (the connector carries no cuboids: its collision IS the bore).
 //
-// SETUP-LOUD, no live-generation fallback (unlike wing-loader's null-on-404): a healthy
-// clone commits the default world's fixtures, so a missing index/manifest is a broken
-// checkout, not a "nothing baked yet" state — throw with a fix-it message rather than
-// silently degrade.
+// SETUP-LOUD: a missing index/manifest THROWS with a fix-it message — there is no
+// live-generation fallback. A healthy clone commits the default world's fixtures, so an
+// absent index/manifest is a broken checkout, not a "nothing baked yet" state; failing
+// loudly beats silently degrading.
 import type { Context } from "@furnace/core/gpu";
 import type * as mesh from "@furnace/core/mesh";
 import * as physics from "@furnace/core/physics";
