@@ -1,4 +1,4 @@
-# `cave.ts`'s legacy graph path is dead in production — retiring it is a public-contract change
+# `cave.ts`'s legacy cluster (graph path, grotto bake, `regions/` fixtures) is dead in production — retiring it is a public-contract change
 
 **Context.** Surfaced at the W4 sweep. `themes/cave.ts`'s `buildGraphLegacy` has **no
 production caller**. The selector (`caveSkeleton`, `cave.ts:446`) is:
@@ -22,6 +22,25 @@ required on the exported `CaveParams`, which is a public-contract change**. Plus
 the tests that rely on it: `cave.test.ts` (its shared no-`mouths` `params` fixture plus the
 spire test), `scatter.test.ts`, `scatter-realize.gpu.test.ts`, and `cave-entrance.gpu.test.ts`,
 whose entire subject IS the legacy `-Z` entrance bore.
+
+**The cluster is wider than `buildGraphLegacy` (widened post-gate, 2026-07-13).** The same
+retirement should sweep the rest of the Epic-2.1 "field→baked region" remnant, which is
+one cluster with this decision:
+- `cave.ts` legacy exports **`bakeCavernMesh`** + **`bakedCavernProxy`** (the old
+  hand-level grotto — seed `cavern-1`, origin `[0,0,-24]`); consumed ONLY by the pieces
+  below, never by the live `cave()`/world path.
+- **`packages/dungeon/regions/`** — the tracked `region-cavern.fmesh` / `.scene.json`
+  fixtures (baked by the self-described "throwaway one-shot baker"
+  `scripts/bake-region.ts`, which also dies).
+- Tests: `tests/baked-region.gpu.test.ts` (the only reader of `regions/`),
+  `tests/cavern-proxy.test.ts` — their contracts (fmesh/render-only fragment loading;
+  field-derived proxy collision) are covered at world level by
+  `world-loader.gpu.test.ts` + the world walk-probes.
+- The dead **`/regions/` route in `serve.ts`** (nothing fetches it — the game boots via
+  `loadWorld` only).
+- Comment references to `region-cavern` in `packages/editor/src/daemon/server.ts` +
+  `packages/editor/tests/project-assets.test.ts` (history in comments — reword, the
+  tests themselves use their own temp fixtures).
 
 **Also record:**
 - **Five `// MIGRATION (until B2 Task 9)` markers in `cave.ts` are PAST DUE** (B2 is closed) —
