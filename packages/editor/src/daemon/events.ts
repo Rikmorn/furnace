@@ -7,7 +7,7 @@ const HEARTBEAT_MS = 15_000;
  *  = a source file under the extensions entry's directory changed; /engine.js will
  *  serve the fresh bundle on next fetch (it rebuilds per GET) — the browser just
  *  needs to know to reload. `generation-baked` = the browser uploaded a freshly
- *  baked wing file set (via generation.bake) and the daemon wrote it to the project
+ *  baked world file set (via generation.bake) and the daemon wrote it to the project
  *  root; `files` is how many were written. */
 export type DaemonEvent =
   | SessionEvent

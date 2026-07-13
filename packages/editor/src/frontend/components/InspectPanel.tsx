@@ -63,7 +63,7 @@ export function InspectPanel() {
 
   // Resources shown in the panel: filtered to the ids the selection (transitively)
   // references, or ALL when no entity is selected (keeps the panel scannable at the
-  // single-wing-doc scale — a bake carries dozens of materials).
+  // single-world-doc scale — a bake carries dozens of materials).
   const referenced =
     reflection && doc && selectedEntities.length > 0
       ? referencedResourceKeys(selectedEntities, reflection, doc.resources)

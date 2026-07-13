@@ -167,7 +167,7 @@ export function Viewport() {
       {state.generationActive && (
         <label
           className="absolute right-2 top-2 flex items-center gap-1.5 rounded bg-popover/80 px-2 py-1 text-xs text-foreground"
-          title="Preview the game's fog mood. Off = clear structural view (fog at orbit distance obscures the wing)."
+          title="Preview the game's fog mood. Off = clear structural view (fog at orbit distance obscures the world)."
         >
           <input
             type="checkbox"

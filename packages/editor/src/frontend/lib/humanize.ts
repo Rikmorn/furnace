@@ -2,7 +2,7 @@
  * Turn a schema/component key into a human-readable label: split camelCase,
  * snake_case, and kebab-case into words and Title-Case each one.
  * `"castShadow"` → `"Cast Shadow"`, `"target_rooms"` → `"Target Rooms"`,
- * `"wing name"` → `"Wing Name"`. Already-spaced input is title-cased word by word.
+ * `"world name"` → `"World Name"`. Already-spaced input is title-cased word by word.
  * Category-standard for a 3D-editor inspector (Unity/Unreal/Blender all Title-Case
  * their property labels).
  */

@@ -1,6 +1,6 @@
 // Which resources a selection references — drives the inspector's resource FILTER: with
 // an entity selected, only the resources it (transitively) uses are shown, so the panel
-// stays scannable at the single-wing-doc scale (a bake has dozens of materials).
+// stays scannable at the single-world-doc scale (a bake has dozens of materials).
 //
 // A "reference" is a resource-kind schema field (t.resource(table) → furnace.kind
 // "resource" + table) holding a resource id. References close transitively: an entity's

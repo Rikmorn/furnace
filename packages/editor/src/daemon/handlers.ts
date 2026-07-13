@@ -260,7 +260,7 @@ export function createHandlers(ctx: HandlerContext): Handlers {
     contents: z.string(),
   });
 
-  // The browser bakes a wing (it owns generation — the daemon carries zero
+  // The browser bakes a world (it owns generation — the daemon carries zero
   // generator knowledge; see the slice's browser-uploads-payload fallback) and
   // POSTs the file set here. Binary .fmesh sidecars ride as base64. The daemon
   // validates root-containment for EVERY path first, then writes.

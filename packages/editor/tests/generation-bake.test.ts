@@ -59,23 +59,23 @@ describe("generation.bake", () => {
     const result = (await dispatch(handlers, "generation.bake", {
       files: [
         {
-          path: "regions/wing.scene.json",
+          path: "regions/a.scene.json",
           encoding: "utf8",
           contents: sceneText,
         },
-        { path: "regions/wing.fmesh", encoding: "base64", contents: b64 },
+        { path: "regions/a.fmesh", encoding: "base64", contents: b64 },
       ],
     })) as { files: number };
 
     expect(result).toEqual({ files: 2 });
 
     // utf8 file written verbatim.
-    expect(readFileSync(join(root, "regions", "wing.scene.json"), "utf8")).toBe(
+    expect(readFileSync(join(root, "regions", "a.scene.json"), "utf8")).toBe(
       sceneText,
     );
     // base64 file decoded back to the exact bytes.
     const wroteBytes = new Uint8Array(
-      readFileSync(join(root, "regions", "wing.fmesh")),
+      readFileSync(join(root, "regions", "a.fmesh")),
     );
     expect([...wroteBytes]).toEqual([...bytes]);
 
