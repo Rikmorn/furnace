@@ -18,8 +18,13 @@ test.skipIf(!bunWebGpuAvailable())(
     const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
     const world = await physics.createWorld(ctx, { gravity: [0, -9.81, 0] });
     const cache = new MaterialCache(ctx);
-    // Minimal hand-built region: one box mesh + one matching cuboid collider — realize's
-    // subject is the upload/instantiate/destroy path, not any generator.
+    // Hand-built region — realize's subject is the upload/instantiate/destroy path, not any
+    // generator. Two meshes, deliberately: a floor slab (top face at y=0, under the down-ray,
+    // with the only collider) and a wall slab standing beside it, CLEAR of the ray. The second
+    // mesh is what gives the mesh-count assertion its teeth — with one mesh it would read
+    // `1 === 1` and a partial-drop regression in realize's mesh loop would sail through. The
+    // wall is render-only on purpose: the unequal array lengths (2 meshes, 1 collider) also
+    // catch a mesh/collider list mix-up that a 1:1 fixture would hide.
     const data: RegionData = {
       meshes: [
         {
@@ -27,6 +32,7 @@ test.skipIf(!bunWebGpuAvailable())(
           material: 0,
           position: [0, -0.15, 0],
         },
+        { geometry: { box: [0.3, 2, 4] }, material: 0, position: [2.15, 1, 0] },
       ],
       colliders: [{ shape: { cuboid: [2, 0.15, 2] }, position: [0, -0.15, 0] }],
       materials: [
@@ -35,7 +41,8 @@ test.skipIf(!bunWebGpuAvailable())(
       connections: [],
       instances: [],
       origin: [0, 0, 0],
-      bounds: { min: [-2, -0.3, -2], max: [2, 0, 2] },
+      // Covers the union: floor x/z ∈ [−2, 2], y ∈ [−0.3, 0]; wall x ∈ [2.0, 2.3], y ∈ [0, 2].
+      bounds: { min: [-2, -0.3, -2], max: [2.3, 2, 2] },
       provenance: {
         generatorId: "dungeon",
         generatorVersion: GENERATOR_VERSION,
