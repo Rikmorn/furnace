@@ -97,6 +97,20 @@ export const DEFAULT_KNOBS: {
   cave: { mouths: 1 },
 };
 
+// Both tables hand out SHARED references (DEFAULT_KNOBS.hall IS pillarHall, and the
+// nested size/pillars ride along), so every region seeded from them aliases one object.
+// Freezing turns an in-place knob edit — which would silently resize every hall in the
+// world AND corrupt the preset for the rest of the session — into a TypeError at the
+// mutation site (ES modules are strict). Editors must REPLACE knobs, never mutate them.
+for (const knobs of Object.values(HALL_PRESET_KNOBS)) {
+  Object.freeze(knobs.size);
+  Object.freeze(knobs.pillars);
+  Object.freeze(knobs);
+}
+Object.freeze(DEFAULT_KNOBS.maze.cells);
+Object.freeze(DEFAULT_KNOBS.maze);
+Object.freeze(DEFAULT_KNOBS.cave);
+
 /** The connector kinds that can join parent → child, by algorithm pair. The empty
  *  cave→grid cell is deliberate (W3 plan refinement 2): the collar must ride the
  *  connector's a-end (the grid side) but derivation only places b-ends, so a grid
@@ -114,13 +128,21 @@ export function legalKinds(
   return [];
 }
 
+/** Literal id patterns per algorithm — a table, not an interpolated `new RegExp`, so a
+ *  draft that arrives with a cast/deserialized `algorithm` can never compile a pattern. */
+const REGION_ID_RE: Record<DraftAlgorithm, RegExp> = {
+  hall: /^hall-(\d+)$/,
+  maze: /^maze-(\d+)$/,
+  cave: /^cave-(\d+)$/,
+};
+
 /** The next free `${algorithm}-N` id — max existing suffix + 1, so removals never
  *  resurrect an id. */
 export function nextRegionId(
   draft: WorldDraft,
   algorithm: DraftAlgorithm,
 ): string {
-  const re = new RegExp(`^${algorithm}-(\\d+)$`);
+  const re = REGION_ID_RE[algorithm];
   let max = 0;
   for (const r of draft.regions) {
     const m = re.exec(r.id);
@@ -166,14 +188,25 @@ export function addRegion(draft: WorldDraft, region: DraftRegion): WorldDraft {
   };
 }
 
-/** A region is removable iff nothing attaches to it (a LEAF of the tree). */
+const has = (draft: WorldDraft, id: string): boolean =>
+  draft.regions.some((r) => r.id === id);
+
+/** A region is removable iff it EXISTS and nothing attaches to it (a LEAF of the tree).
+ *  An unknown id is not removable — a stale selection must read as "no", never as a
+ *  vacuous yes that then no-ops. */
 export function canRemove(draft: WorldDraft, id: string): boolean {
-  return !draft.regions.some((r) => r.attachment?.parentId === id);
+  return (
+    has(draft, id) && !draft.regions.some((r) => r.attachment?.parentId === id)
+  );
 }
 
 /** Remove a leaf region; the start falls back to the first region if it pointed at
- *  the removed one. Throws on non-leaves (setup-loud; the panel disables the button). */
+ *  the removed one. Throws on unknown ids and on non-leaves (setup-loud; the panel
+ *  disables the button rather than relying on the throw). */
 export function removeRegion(draft: WorldDraft, id: string): WorldDraft {
+  // Existence FIRST: a tightened canRemove() also returns false for unknown ids, so the
+  // leaf message would otherwise misfire on a region that was never there.
+  if (!has(draft, id)) throw new Error(`world draft: unknown region ${id}`);
   if (!canRemove(draft, id)) {
     throw new Error(
       `world draft: ${id} has attached regions — remove its leaves first`,
@@ -194,8 +227,10 @@ export function bumpSeed(seed: string): string {
 }
 
 /** Per-region reroll (D-W3-8): bump ONE region's seed; the caller re-realizes the
- *  whole world (deterministic + cheap at gate scale). */
+ *  whole world (deterministic + cheap at gate scale). Throws on an unknown id — a
+ *  reroll that silently rerolls nothing is the worst failure this panel can have. */
 export function bumpRegionSeed(draft: WorldDraft, id: string): WorldDraft {
+  if (!has(draft, id)) throw new Error(`world draft: unknown region ${id}`);
   return {
     ...draft,
     regions: draft.regions.map((r) =>
@@ -211,18 +246,18 @@ const zeroPlacement = () => ({ translation: [0, 0, 0], yaw: 0 });
 
 /** The per-region door lists + the claimed-portal set, assembled as `draftToSpec`
  *  walks the attachments. */
-type DoorAssembly = {
+type PortalLedger = {
   doors: Map<string, { wall: WallName; offset: number }[]>;
   claimed: Set<string>;
 };
 
-/** Resolve one attachment end to the portal INDEX the connector will reference,
- *  appending to the owning grid region's door list on the way (append order IS portal
- *  indexing); cave mouths are already indices and pass straight through. Throws
- *  setup-loud on a spot the wrong class can't hold, an out-of-range mouth, or a spot
- *  already claimed by another connector. */
-function portalIndexOf(
-  asm: DoorAssembly,
+/** CLAIM one attachment end (a command, not a query — it mutates the ledger) and return
+ *  the portal INDEX the connector will reference: a grid spot is appended to the owning
+ *  region's door list, and its append position IS the portal index; a cave mouth is
+ *  already an index and passes straight through. Throws setup-loud on a spot the
+ *  region's class can't hold, an out-of-range mouth, or a spot already claimed. */
+function claimPortalIndex(
+  ledger: PortalLedger,
   region: DraftRegion,
   spot: PortalSpot,
 ): number {
@@ -230,10 +265,10 @@ function portalIndexOf(
     "mouth" in spot
       ? `${region.id}:m${spot.mouth}`
       : `${region.id}:${spot.wall}:${spot.offset}`;
-  if (asm.claimed.has(key)) {
+  if (ledger.claimed.has(key)) {
     throw new Error(`world draft: portal ${key} used twice`);
   }
-  asm.claimed.add(key);
+  ledger.claimed.add(key);
 
   if (region.algorithm === "cave") {
     if (!("mouth" in spot)) {
@@ -257,16 +292,16 @@ function portalIndexOf(
       `world draft: ${region.id} is grid-built — pick a wall door`,
     );
   }
-  const list = asm.doors.get(region.id) ?? [];
+  const list = ledger.doors.get(region.id) ?? [];
   list.push({ wall: spot.wall, offset: spot.offset });
-  asm.doors.set(region.id, list);
+  ledger.doors.set(region.id, list);
   return list.length - 1;
 }
 
 /** Emit the region row for the spec, reading its assembled doors (grid classes only). */
 function regionSpec(
   region: DraftRegion,
-  asm: DoorAssembly,
+  ledger: PortalLedger,
 ): Record<string, unknown> {
   const common = {
     id: region.id,
@@ -281,7 +316,7 @@ function regionSpec(
       params: { mouths: region.knobs.mouths },
     };
   }
-  const doors = asm.doors.get(region.id) ?? [];
+  const doors = ledger.doors.get(region.id) ?? [];
   if (region.algorithm === "hall") {
     return {
       ...common,
@@ -305,8 +340,18 @@ function regionSpec(
  * indexing, and connectors are emitted in the same walk, so indices can never drift.
  * Connector `a` = parent, `b` = child (the derivable end).
  *
- * Throws setup-loud on structural errors (duplicate spots, bad mouths, missing parents,
- * illegal kinds, empty draft, dangling start).
+ * BOTH walk orders are load-bearing, not incidental. Emitted CONNECTOR order is a
+ * contract with the engine: `world-build.ts` Phase 1b derives each `b`-end placement
+ * from an ALREADY-PLACED `a`-end in connector insertion order, and throws
+ * ("cannot derive … its a-end … is not placed yet") otherwise. Walking regions in
+ * draft order — with the `parent must precede` guard below — is exactly what makes the
+ * engine's derivation resolvable. Do NOT sort or group the connectors (e.g. "corridors
+ * first"): it would break `realizeWorldSpec` with no local test failure.
+ *
+ * Throws setup-loud on structural errors: empty draft, dangling start, unknown parent,
+ * a parent that does not precede its child, an illegal kind for the class pair, a spot
+ * of the wrong class for its region (mouth on a grid region or wall door on a cave), an
+ * out-of-range mouth, and a portal spot claimed twice.
  *
  * KNOWN LIMITATION (acceptable at W3): a single UNATTACHED grid anchor assembles no
  * doors → no portal 0 → the engine's spawn derivation fails loud at generate time
@@ -322,40 +367,51 @@ export function draftToSpec(draft: WorldDraft): WorldSpecLike {
     );
   }
   const byId = new Map(draft.regions.map((r) => [r.id, r]));
-  const order = new Map(draft.regions.map((r, i) => [r.id, i]));
-  const asm: DoorAssembly = { doors: new Map(), claimed: new Set() };
+  const ledger: PortalLedger = { doors: new Map(), claimed: new Set() };
+  // Regions whose attachment (if any) has already been walked — i.e. the ones an
+  // attachment is allowed to name as its parent.
+  const walked = new Set<string>();
 
   const connectors: Record<string, unknown>[] = [];
   for (const region of draft.regions) {
     const att = region.attachment;
-    if (!att) continue;
-    const parent = byId.get(att.parentId);
-    if (!parent) throw new Error(`world draft: unknown parent ${att.parentId}`);
-    if ((order.get(att.parentId) ?? 0) >= (order.get(region.id) ?? 0)) {
-      throw new Error(
-        `world draft: parent ${att.parentId} must precede ${region.id}`,
-      );
+    if (att) {
+      const parent = byId.get(att.parentId);
+      if (!parent) {
+        throw new Error(
+          `world draft: ${region.id} attaches to unknown parent ${att.parentId}`,
+        );
+      }
+      if (!walked.has(att.parentId)) {
+        throw new Error(
+          `world draft: parent ${att.parentId} must precede ${region.id}`,
+        );
+      }
+      if (!legalKinds(parent.algorithm, region.algorithm).includes(att.kind)) {
+        throw new Error(
+          `world draft: ${att.kind} cannot join ${parent.algorithm} -> ${region.algorithm}`,
+        );
+      }
+      const aIdx = claimPortalIndex(ledger, parent, att.parentPortal);
+      const bIdx = claimPortalIndex(ledger, region, att.childPortal);
+      connectors.push({
+        id: `${region.id}-join`,
+        kind: att.kind,
+        a: [att.parentId, aIdx],
+        b: [region.id, bIdx],
+        seed: `${draft.name}:${region.id}-join`,
+        ...(att.kind === "corridor" && att.params
+          ? { params: att.params }
+          : {}),
+      });
     }
-    if (!legalKinds(parent.algorithm, region.algorithm).includes(att.kind)) {
-      throw new Error(
-        `world draft: ${att.kind} cannot join ${parent.algorithm} -> ${region.algorithm}`,
-      );
-    }
-    const aIdx = portalIndexOf(asm, parent, att.parentPortal);
-    const bIdx = portalIndexOf(asm, region, att.childPortal);
-    connectors.push({
-      id: `${region.id}-join`,
-      kind: att.kind,
-      a: [att.parentId, aIdx],
-      b: [region.id, bIdx],
-      seed: `${draft.name}:${region.id}-join`,
-      ...(att.kind === "corridor" && att.params ? { params: att.params } : {}),
-    });
+    walked.add(region.id);
   }
 
   return {
     name: draft.name,
-    regions: draft.regions.map((r) => regionSpec(r, asm)),
+    // Regions AFTER the walk — regionSpec reads the doors the walk assembled.
+    regions: draft.regions.map((r) => regionSpec(r, ledger)),
     connectors,
     startRegion: draft.startRegionId,
   };
