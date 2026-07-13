@@ -1,7 +1,7 @@
-// World spec (W2): a declarative, search-free description of a world — regions with
-// explicit placements, connectors joining named portals, and a player-start hint.
-// Charter contract v2: two region classes (field-organic caves, grid-built halls)
-// and four connector kinds.
+// World spec (W2, maze added W3): a declarative, search-free description of a world —
+// regions with explicit placements, connectors joining named portals, and a
+// player-start hint. Charter contract v2: two region classes (field-organic caves;
+// grid-built halls AND mazes) and four connector kinds.
 import type { Vec3 } from "./region.ts";
 import { HALL_PRESETS, type HallParams } from "./themes/hall.ts";
 import type { MazeParams } from "./themes/maze.ts";

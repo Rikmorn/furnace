@@ -389,7 +389,7 @@ function runRetryTight(): void {
 
 // Envelope probe (3.2.3 charter opener): single-shot rate + give-up cost per rooms
 // count under COCKPIT_BUDGET — the data that sets the cockpit's MAX_ROOMS
-// (GenerationPanel's 12 is an unmeasured guess; only rooms=6 was ever measured, at
+// (the cockpit's 12 was an unmeasured guess; only rooms=6 was ever measured, at
 // the P1 bar). Single-shot (attempts: 1) isolates the per-attempt economics the
 // stepper exposes to the user: a success costs ~sp50; a FAILED attempt costs
 // gp50–gp95 of blocked UI before the next derived seed. proj12 = 1-(1-rate)^12

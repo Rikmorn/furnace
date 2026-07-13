@@ -1,7 +1,7 @@
 # Dungeon architecture — as built
 
-The `packages/dungeon` demo as it IS (post Epic 2 closure + Epic 3 Slices 3.0–3.1,
-2026-07-06). Chronological seal history: `docs/learnings/seal-log.md`. Deferred work:
+The `packages/dungeon` demo as it IS (post Epic 2 closure + Epic 3 through 3.3 W3,
+2026-07-13). Chronological seal history: `docs/learnings/seal-log.md`. Deferred work:
 `docs/backlog/dungeon/`. This doc is current-state; when it disagrees with source, the
 source wins — update this doc in the same change.
 
@@ -15,18 +15,20 @@ The cockpit loop shipped in 3.1: generate → reroll → freeze & bake → walk.
 
 ## 2. The game (`main.ts`)
 
-- **The game boots a WORLD (3.3 W1+W2):** `world-loader.ts loadWorld` reads
+- **The game boots a WORLD (3.3 W1–W3):** `world-loader.ts loadWorld` reads
   `worlds/index.json` → the named world's `manifest.json` → fragment-loads the ONE
   merged `world.scene.json` (cave + bore meshes), creates manifest cuboid bodies,
   re-expands voxel proxies (caves via `caveProxy`, bore connectors via `organicTunnel`
   from their manifest entries) + dressing deterministically, and — since W2 —
-  RE-EXPANDS the grid class entirely (each `hall` region rebuilds patch mesh + kit
-  instances + voxel collider via `expandGridRegion`; each `corridor` rebuilds its
+  RE-EXPANDS the grid class entirely (each grid region — `hall` or `maze` (W3) —
+  rebuilds patch mesh + kit instances + voxel collider via `expandGridRegion`
+  dispatched by algorithm; each `corridor` rebuilds its
   tube; neither bakes scene entities). Spawns at the manifest's
   `playerStart`/`playerYaw`. A missing index/manifest is a setup-loud throw (no live
   fallback) — the DEFAULT world ships as committed fixtures (`worlds/default/`, the
-  `region-cavern.*` posture): since W2 it IS the gate world — hall-A ↔ stair
-  corridor ↔ hall-B (+1.5 m), hall-A ↔ collar-bore ↔ cave-C. A dev load banner logs
+  `region-cavern.*` posture): since W3 it IS the PHASE-GATE world — pillar hall
+  ↔ stair corridor (+1.5 m) ↔ maze; maze ↔ aperture ↔ box room; maze ↔
+  collar-bore ↔ cave. A dev load banner logs
   world name + region seeds (the bake's identity — `bakedAt` is deliberately absent
   for byte-deterministic re-bakes).
 - The hand-authored level (`level.ts`) and the wing path are RETIRED from `main.ts`
@@ -198,20 +200,24 @@ OR `COCKPIT_BUDGET` (esp. `deadlineMs`) change.
   orphans because the daemon's `generation.bake` `rm -rf`s the previous bake dir
   (`cleanDir`) before writing.
 
-## 5b. Worlds (3.3 W1+W2 — the go-forward model; wings above retire at W4)
+## 5b. Worlds (3.3 W1–W3 — the go-forward model; wings above retire at W4)
 
 - **`world-spec.ts`** — `WorldSpec`: declarative regions as a discriminated union
   (`{class:"field-organic", algorithm:"cave"}` | `{class:"grid-built",
-  algorithm:"hall"}`, each with exact `params`, `seed`, `placement {translation,
-  yaw}`), connectors (`organic-tunnel | corridor | aperture | collar-bore`, joining
+  algorithm:"hall"}` | `{class:"grid-built", algorithm:"maze"}` (W3), each with
+  exact `params`, `seed`, `placement {translation, yaw}`), connectors (`organic-tunnel | corridor | aperture | collar-bore`, joining
   `[regionId, portalIndex]` ends, optional `params {length, deltaY}`), `startRegion`.
   `validateWorldSpec`: no region isolated (portal-graph connectivity), no portal
   double-claim, and grid-built placements EXACT on the lattice —
   `snapGridPlacement` snaps 0.5-multiples + quarter-yaws within dust tolerance
-  (1e-6) and throws beyond it. `DEFAULT_WORLD` = the W2 gate world (two halls +
-  stair corridor + collar-bored cave); zero-placement `b`-end regions get their
+  (1e-6) and throws beyond it. `DEFAULT_WORLD` = the W3 PHASE-GATE world (pillar
+  hall ↔ stair corridor ↔ maze, + aperture box room + collar-bored cave off the
+  maze); zero-placement `b`-end regions get their
   placement DERIVED from the `a` portal via `join` (search-free; the derived
-  literal bakes; grid-built derivations snap).
+  literal bakes; grid-built derivations snap). Derivation lengths: corridors read
+  their `params`; an APERTURE derives at length 0 — adjacency, back-to-back
+  shells (W3 fixed the 8 m-default gap that made derived apertures impossible);
+  bores at the 8 m default.
 - **`substrate/` (W2 — the two-resolution voxel substrate, spike mechanisms as
   production):** `grid.ts` coarse 0.5 m AIR/MASONRY cells → `rasterize` → fine
   0.25 m occupancy (`SUB=2`), dense per-region arrays behind accessors (the region
@@ -228,7 +234,13 @@ OR `COCKPIT_BUDGET` (esp. `deadlineMs`) change.
   a lid: the W2 gate round-1 bug); `suppress.ts` E1 face-layer suppression;
   `collar.ts` 2-piece rim collar at suppressed↔kept junctions (incl. floor-rim);
   `collider.ts` fine occupancy → voxel-proxy shell (off-grid-as-solid rule).
-- **`themes/hall.ts`** — ONE parameterized grid stamper (mesh-trio presets):
+- **`themes/grid-stamp.ts` (W3)** — the shared grid-vocabulary contract: the
+  `GridStamp` shape every grid stamper emits (sealed coarse shell + door-portal
+  metadata + doorSpecs + dressable anchors + optional stamp-owned
+  `dressingLayers`), plus the extracted door construction (`doorAt`), door-lane
+  validation, and floor-anchor scan — ONE implementation consumed by hall AND
+  maze.
+- **`themes/hall.ts`** — the hall stamper (mesh-trio presets):
   sealed shell + AIR interior + pillar lattice (`none|grid|colonnade`), flat floor,
   door-class portals on the OUTER shell plane with EXACT cardinal facings (portals
   are metadata — a connector opens the cells on consume), dressing anchors
@@ -236,6 +248,16 @@ OR `COCKPIT_BUDGET` (esp. `deadlineMs`) change.
   **door-lane validation**: a door whose centre walk lane is blocked by a pillar
   throws at stamp time (traversability by construction — the W2 gate found a
   pillar dead on a door axis, masked until then by an over-carving bug).
+- **`themes/maze.ts` (W3)** — the second grid vocabulary, THE plug-point proof
+  (one spec variant + dispatch arms; zero changes downstream of the stamp):
+  growing-tree perfect maze + probabilistic braid (per-ORIGINAL-dead-end draw;
+  braid 1 ⇒ zero dead ends) over an mx×mz cell lattice; passages 2.0 m, internal
+  walls 0.5 m, height 3.0 m (pitch 5 coarse cells); door offsets in MAZE-CELL
+  units index passage columns only, so the door-lane validation holds by
+  construction; rubble-only dressing via stamp-owned `dressingLayers` (no
+  shovable crates in 2.0 m passages). INTEGER-ONLY RNG (FNV-1a → `Math.imul`
+  mixer + exact power-of-two division) — the grid class stays grep-auditably
+  transcendental-free.
 - **`connector.ts organicTunnel(a, b, seed, opts)`** — a bore connector OWNS its
   own volume: lattice-aligned grid, rock except a floor-routed capsule bore
   overshooting both portal planes (burial seals organic seams, no CSG); grid
@@ -250,7 +272,8 @@ OR `COCKPIT_BUDGET` (esp. `deadlineMs`) change.
   BUILT side is already carve-union by construction, below). `boreAxis` reads the
   DOMINANT facing component (join float-dust safe).
 - **`connector-built.ts` (W2)** — connectors may MUTATE joined regions' grids:
-  `aperture` (door AIR through two abutting shells — pure mutation); `corridor`
+  `aperture` (door AIR through two abutting shells — pure mutation; first
+  fixtured + walked in W3); `corridor`
   (own world-frame kit-skinned tube; portal ΔY ≠ 0 derives a fine-grid staircase —
   0.25 rise per 0.5 run + tread render capping the collision fill, riser-fit
   validated); `collarBore` (the W1 bore + `collarBoreCarve`: a flat cylinder carve
@@ -265,6 +288,11 @@ OR `COCKPIT_BUDGET` (esp. `deadlineMs`) change.
   **`expandGridRegion` — the SHARED bake/load seam** — and places). Field regions
   keep the W1 single-step path. `playerStart` = 2 m inward of the start region's
   portal 0, +1.1 y. Deterministic in the spec (byte-identical runs, tested).
+  **`assertDisjointRegionVolumes` (W3, charter §2.2):** placed region AABB
+  interiors must be disjoint (flush faces — the aperture pair — pass; overlap
+  past 1e-6 dust on all three axes throws naming the pair; connector volumes
+  exempt, they interpenetrate by design). AABB-level is deliberately
+  conservative (`disjoint-region-check-is-aabb-conservative.md`).
 - **`bake.ts bakeWorld(spec, name?)`** → `BakeFile[]` under `worlds/<name>/`: ONE
   merged `world.scene.json` + `.fmesh` sidecars + `WorldManifest` LAST (crash-
   safety). GRID content bakes NO scene entities and NO sidecars — it re-expands at
@@ -276,21 +304,29 @@ OR `COCKPIT_BUDGET` (esp. `deadlineMs`) change.
   unchanged (grid re-expansion is integer/lattice + sqrt-only — the Pr-2 class is
   structurally absent; the committed fixture is a bun bake, sound).
 - **Probes of record (FULL collider set via `loadWorld` on in-memory bakes, never
-  subsets):** `world-traversal.gpu.test.ts` (gate world end-to-end: stairs up/down
-  + bore, all on-axis), `hall-walk.gpu.test.ts` (interior: aisle, cross-aisle,
+  subsets):** `world-traversal.gpu.test.ts` (the PHASE-GATE world end-to-end,
+  7 lanes since W3: stairs up/down, bore both ways, aperture both ways, and a
+  BFS-solved maze-interior passage path walked leg by leg — the
+  maze-walkability probe), `hall-walk.gpu.test.ts` (interior: aisle, cross-aisle,
   pillar stop, sealed-door stop), `stair-corridor.gpu.test.ts` (up/down + flat
   control, teeth-verified), `collar-bore.gpu.test.ts` (THE W2 premise: the
   carve↔bore seam, both directions + off-centre; off-axis lanes stop short of the
   cave interior — the pre-existing organic-KCC class,
   `organic-cave-mouth-offaxis-rimride.md`). Mesh-TOPOLOGY regressions are
   headless geometric tests (sightline probe in `substrate-carve.test.ts`; shell-
-  band overlap in `connector-built.test.ts`) — see
+  band overlap in `connector-built.test.ts`; aperture doorway sightlines +
+  flush-plane in `aperture-seam.test.ts` (W3) — its lanes are CELL-CENTRE-derived
+  because the skin's grout gaps swallow any lattice-aligned lane, and even door
+  widths centre doors ON cell boundaries; maze structure/braid/door units in
+  `maze.test.ts`) — see
   `docs/learnings/2026-07-12-w2-render-collision-divergence.md`.
-- Editor: ZERO editor code in W2 (the extensions bundle picks the new classes up
-  from dungeon source). The Generation panel drives the WORLD flow (worker
-  `runWorld`/`bakeWorld`; daemon `generation.bake` root-contained + `cleanDir`).
-  Index-switching is a manual `worlds/index.json` edit until W3's assembly UX;
-  the panel's "Cave A/B seed" fields predate multi-class worlds (W3 rebuilds).
+- Editor (W3): the **World panel** (`docs/reference/editor-architecture.md`
+  §13.4) assembles a draft world (attach-on-add tree; connectors own doors),
+  previews via worker `runWorld`, freeze-bakes a full-spec snapshot via
+  `bakeWorld` + `generation.bake` (`cleanDir`), and optionally retargets
+  `worlds/index.json` with a second cleanDir-free upload ("make this the game's
+  world") — the manual index edit is gone. The engine seam is unchanged
+  (extensions bundle; zero dungeon imports by value in the editor).
 
 ## 6. Testing posture
 

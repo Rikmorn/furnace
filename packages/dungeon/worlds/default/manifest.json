@@ -9,7 +9,7 @@
   "playerYaw": -3.141592653589793,
   "regions": [
     {
-      "id": "hall-a",
+      "id": "hall-1",
       "class": "grid-built",
       "algorithm": "hall",
       "params": {
@@ -29,7 +29,7 @@
           }
         ]
       },
-      "seed": "world-default:a",
+      "seed": "hall-1",
       "placement": {
         "translation": [
           0,
@@ -58,14 +58,10 @@
           {
             "wall": "east",
             "offset": 2
-          },
-          {
-            "wall": "west",
-            "offset": 2
           }
         ]
       },
-      "seed": "world-default:m",
+      "seed": "maze-1",
       "placement": {
         "translation": [
           -1,
@@ -77,7 +73,7 @@
       "cuboids": []
     },
     {
-      "id": "hall-b",
+      "id": "hall-2",
       "class": "grid-built",
       "algorithm": "hall",
       "params": {
@@ -92,125 +88,26 @@
         "doors": [
           {
             "wall": "east",
-            "offset": 2
+            "offset": 1
           }
         ]
       },
-      "seed": "world-default:b",
+      "seed": "hall-2",
       "placement": {
         "translation": [
-          -6,
+          14.5,
           1.5,
-          19
-        ],
-        "yaw": 0
-      },
-      "cuboids": []
-    },
-    {
-      "id": "cave-c",
-      "class": "field-organic",
-      "algorithm": "cave",
-      "params": {
-        "mouths": 1
-      },
-      "seed": "world-default:c",
-      "placement": {
-        "translation": [
-          26.380397150479258,
-          3.5,
-          21.5
+          23.5
         ],
         "yaw": 3.141592653589793
       },
-      "cuboids": [
-        {
-          "shape": {
-            "cuboid": [
-              0.7,
-              2,
-              0.6000000000000001
-            ]
-          },
-          "position": [
-            17.5,
-            3.5,
-            19.799999999999997
-          ],
-          "rotation": [
-            0,
-            0.7071067690849304,
-            0,
-            -0.7071067690849304
-          ]
-        },
-        {
-          "shape": {
-            "cuboid": [
-              0.7,
-              2,
-              0.6000000000000001
-            ]
-          },
-          "position": [
-            17.5,
-            3.5,
-            23.2
-          ],
-          "rotation": [
-            0,
-            0.7071067690849304,
-            0,
-            -0.7071067690849304
-          ]
-        },
-        {
-          "shape": {
-            "cuboid": [
-              2.4,
-              0.6000000000000001,
-              0.6000000000000001
-            ]
-          },
-          "position": [
-            17.5,
-            4.9,
-            21.5
-          ],
-          "rotation": [
-            0,
-            0.7071067690849304,
-            0,
-            -0.7071067690849304
-          ]
-        },
-        {
-          "shape": {
-            "cuboid": [
-              2.4,
-              0.15,
-              0.6000000000000001
-            ]
-          },
-          "position": [
-            17.5,
-            1.35,
-            21.5
-          ],
-          "rotation": [
-            0,
-            0.7071067690849304,
-            0,
-            -0.7071067690849304
-          ]
-        }
-      ]
+      "cuboids": []
     }
   ],
   "connectors": [
     {
-      "id": "corridor-1",
-      "seed": "world-default:t1",
+      "id": "maze-1-join",
+      "seed": "default:maze-1-join",
       "a": {
         "position": [
           3,
@@ -242,7 +139,7 @@
         "kind": "door"
       },
       "aRef": [
-        "hall-a",
+        "hall-1",
         0
       ],
       "bRef": [
@@ -252,8 +149,8 @@
       "kind": "corridor"
     },
     {
-      "id": "bore-1",
-      "seed": "world-default:t2",
+      "id": "hall-2-join",
+      "seed": "default:hall-2-join",
       "a": {
         "position": [
           9.5,
@@ -271,7 +168,7 @@
       },
       "b": {
         "position": [
-          17.5,
+          9.5,
           1.5,
           21.5
         ],
@@ -281,7 +178,7 @@
           -1.2246467991473532e-16
         ],
         "width": 2,
-        "height": 2.8,
+        "height": 3,
         "kind": "door"
       },
       "aRef": [
@@ -289,53 +186,7 @@
         1
       ],
       "bRef": [
-        "cave-c",
-        0
-      ],
-      "kind": "collar-bore",
-      "radius": 1.6,
-      "overshoot": 1.2,
-      "extendA": 0.5
-    },
-    {
-      "id": "aperture-1",
-      "seed": "world-default:t3",
-      "a": {
-        "position": [
-          -1,
-          1.5,
-          21.5
-        ],
-        "facing": [
-          -1,
-          0,
-          0
-        ],
-        "width": 2,
-        "height": 3,
-        "kind": "door"
-      },
-      "b": {
-        "position": [
-          -1,
-          1.5,
-          21.5
-        ],
-        "facing": [
-          1,
-          0,
-          0
-        ],
-        "width": 2,
-        "height": 3,
-        "kind": "door"
-      },
-      "aRef": [
-        "maze-1",
-        2
-      ],
-      "bRef": [
-        "hall-b",
+        "hall-2",
         0
       ],
       "kind": "aperture"

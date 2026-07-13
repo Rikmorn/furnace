@@ -44,9 +44,11 @@ async function main(): Promise<void> {
     gravity: [0, -9.81, 0],
     lengthUnit: 1,
   });
-  // The baked default WORLD (Epic 3 W1): the committed `worlds/default` fixture — two caves
-  // joined by an organic tunnel. `loadWorld` fragment-loads the merged render doc, re-expands
-  // every voxel proxy + dressing from provenance, and hands back the baked player spawn.
+  // The baked default WORLD (Epic 3 W1–W3): whatever `worlds/index.json` names — the
+  // committed fixture is the W3 phase-gate world (hall ↔ stair corridor ↔ maze, + aperture
+  // box room + collar-bored cave), and the editor's World panel can retarget the index at
+  // bake. `loadWorld` fragment-loads the merged render doc, re-expands every voxel proxy +
+  // grid region + dressing from provenance, and hands back the baked player spawn.
   // Setup-loud: a missing index/manifest is a broken clone, not a fallback path.
   const matCache = new MaterialCache(ctx);
   const loadedWorld = await loadWorld(ctx, world, matCache);
