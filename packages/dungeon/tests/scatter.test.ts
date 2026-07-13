@@ -13,7 +13,7 @@ import {
   _sampleSurface,
   instanceGroupsFromLayers,
   meshSurface,
-  rectSurface,
+  rectsSurface,
   scatter,
 } from "../src/scatter.ts";
 import type { MeshData } from "../src/surface-nets.ts";
@@ -144,8 +144,8 @@ test("scatter slope mask rejects off-target surfaces", () => {
   expect(out.length).toBe(0); // floor target, wall normal → all rejected
 });
 
-test("rectSurface scatters within the floor rect on the floor plane", () => {
-  const surf = rectSurface({ minX: 0, maxX: 4, z0: 0, z1: 6, y: 2 }); // a 4x6 floor at y=2
+test("rectsSurface scatters within the floor rect on the floor plane", () => {
+  const surf = rectsSurface([{ minX: 0, maxX: 4, z0: 0, z1: 6, y: 2 }]); // a 4x6 floor at y=2
   const pts = scatter(
     surf,
     { ...floorSpec, spacing: { min: 0.4, max: 0.4 } },
@@ -160,6 +160,32 @@ test("rectSurface scatters within the floor rect on the floor plane", () => {
     expect(d.position[2]).toBeLessThanOrEqual(6.1);
     expect(Math.abs(d.position[1] - 2)).toBeLessThan(0.1); // floor plane (minus the 0.05 embed)
   }
+});
+
+test("rectsSurface spreads samples across a rect SET in proportion to area", () => {
+  // Two disjoint rects on the same plane: a 1x1 at x<0 and a 3x3 (9x the area) at x>0.
+  const surf = rectsSurface([
+    { minX: -1, maxX: 0, z0: 0, z1: 1, y: 0 },
+    { minX: 2, maxX: 5, z0: 0, z1: 3, y: 0 },
+  ]);
+  expect(surf.triCount).toBe(4); // two triangles per rect
+
+  const pts = _sampleSurface(surf, 400, makeRng("rs"));
+  expect(pts.length).toBe(400);
+
+  // Every sample lands inside ONE of the rects (never the gap between them).
+  for (const p of pts) {
+    const inSmall = p.position[0] >= -1 && p.position[0] <= 0;
+    const inBig = p.position[0] >= 2 && p.position[0] <= 5;
+    expect(inSmall || inBig).toBe(true);
+    expect(p.position[1]).toBeCloseTo(0, 6);
+    expect(p.normal).toEqual([0, 1, 0]);
+  }
+
+  // Area-weighted CDF: the 9x-area rect should take ~90% of the samples.
+  const big = pts.filter((p) => (p.position[0] as number) >= 2).length;
+  expect(big / pts.length).toBeGreaterThan(0.82);
+  expect(big / pts.length).toBeLessThan(0.96);
 });
 
 test("cave theme emits scatter instance groups, grouped by variant, doorways clear", () => {
@@ -216,7 +242,7 @@ const BASE_LAYER: ScatterLayerSpec = {
 };
 
 test("collision posture is carried onto the group with placements, and consumes no RNG", () => {
-  const surf = rectSurface({ minX: -2, maxX: 2, z0: -2, z1: 2, y: 0 });
+  const surf = rectsSurface([{ minX: -2, maxX: 2, z0: -2, z1: 2, y: 0 }]);
   const matsGhost: MaterialDescriptor[] = [];
   const matsSolid: MaterialDescriptor[] = [];
   const ghost = instanceGroupsFromLayers(
@@ -255,7 +281,7 @@ test("collision posture is carried onto the group with placements, and consumes 
 });
 
 test("dynamic posture lifts the spawn to rest on the surface; ghost sinks; XZ unchanged", () => {
-  const surf = rectSurface({ minX: -2, maxX: 2, z0: -2, z1: 2, y: 0 });
+  const surf = rectsSurface([{ minX: -2, maxX: 2, z0: -2, z1: 2, y: 0 }]);
   const layer: ScatterLayerSpec = {
     ...BASE_LAYER,
     name: "crates",

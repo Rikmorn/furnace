@@ -79,8 +79,8 @@ export function meshSurface(md: MeshData): SampleableSurface {
 }
 
 /** A flat axis-aligned floor rectangle: the XZ-extent `[minX,maxX] × [z0,z1]` at
- *  height `y`. The scatter anchor primitive for flat-floored themes (box rooms,
- *  grid halls) — see {@link rectSurface} / {@link rectsSurface}. */
+ *  height `y`. The scatter anchor primitive for flat-floored themes (grid halls) —
+ *  see {@link rectsSurface}. */
 export type FloorRect = {
   minX: number;
   maxX: number;
@@ -89,11 +89,10 @@ export type FloorRect = {
   y: number;
 };
 
-/** A flat axis-aligned floor rectangle as a `SampleableSurface` — for themes that
- *  scatter on a plane instead of a Surface-Nets mesh. Samples uniformly across the
- *  rect at height `y`; the surface normal is always +Y so `scatter`'s floor
- *  slope-mask accepts it. The XZ-extent is `[minX,maxX] × [z0,z1]`. */
-export function rectSurface(rect: FloorRect): SampleableSurface {
+/** One flat floor rect as a `SampleableSurface` — the per-rect building block
+ *  {@link rectsSurface} composes. Samples uniformly across the rect at height `y`;
+ *  the surface normal is always +Y so `scatter`'s floor slope-mask accepts it. */
+function rectSurface(rect: FloorRect): SampleableSurface {
   const w = rect.maxX - rect.minX;
   const d = rect.z1 - rect.z0;
   const halfArea = (w * d) / 2;
