@@ -60,7 +60,7 @@ function room(door: Connection): RegionData {
     provenance: {
       generatorId: "dungeon",
       generatorVersion: 2,
-      theme: "pillarHall",
+      theme: "cave",
       seed: "x",
     },
   };

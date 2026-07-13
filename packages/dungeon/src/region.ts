@@ -4,13 +4,14 @@ import type { MeshData } from "./surface-nets.ts";
 /** World-space 3-component vector as a tuple. */
 export type Vec3 = [number, number, number];
 
-/** The set of named theme generators available in the dungeon. */
-export type ThemeName = "cave" | "pillarHall" | "greatHall";
+/** The named field-organic theme generator (grid vocabularies self-report via their
+ *  stamps — see `themes/grid-stamp.ts`). */
+export type ThemeName = "cave";
 
 /** A region's origin kind: a generatable theme, a grid-built vocabulary (`hall` | `maze`
- *  — every grid stamper self-reports its own, see `themes/grid-stamp.ts`), a structural
- *  connector piece, or the authored level participating in placement as a pinned obstacle. */
-export type RegionKind = ThemeName | "hall" | "maze" | "connector" | "authored";
+ *  — every grid stamper self-reports its own, see `themes/grid-stamp.ts`), or a
+ *  structural connector piece. */
+export type RegionKind = ThemeName | "hall" | "maze" | "connector";
 
 /** Axis-aligned box in the region's frame: component-wise min/max corners. */
 export type Aabb = { min: Vec3; max: Vec3 };
@@ -109,9 +110,10 @@ export type Connection = {
   facing: Vec3; // OUTWARD unit normal; a join pairs facings that negate
   width: number;
   height: number;
-  /** `door` = a built, standardized portal (the only kind edges/route accept —
-   *  built-interface doctrine). `tunnel-mouth` = a RAW organic opening as emitted by a
-   *  field generator BEFORE collaring (built.ts mouthCollar) — never routed directly. */
+  /** `door` = a built, standardized portal — the only kind a world seam joins
+   *  (built-interface doctrine). `tunnel-mouth` = a RAW organic opening as emitted by a
+   *  field generator BEFORE collaring (built.ts mouthCollar); a theme collars its own
+   *  mouths, so only the resulting doors reach its `connections`. */
   kind: "door" | "tunnel-mouth";
 };
 
@@ -131,14 +133,12 @@ export type RegionData = {
   connections: Connection[];
   instances: InstanceGroup[];
   origin: Vec3;
-  /** Envelope of all solid geometry (meshes + colliders) in the region's frame. The
-   *  placement engine's piece-vs-piece broad-phase unit; `placePiece` transforms it. */
+  /** Envelope of all solid geometry (meshes + colliders) in the region's frame.
+   *  `placePiece` transforms it with the region. */
   bounds: Aabb;
-  /** The piece's honest claim boxes — what Rule 1 (piece-vs-piece interpenetration)
-   *  actually protects. Absent = `[bounds]` (box themes, whose `bounds` IS their real
-   *  footprint, are unaffected). A theme whose `bounds` is mostly air (e.g. a cave's
-   *  whole-grid AABB, 93–96% air) should instead emit tight compound boxes covering
-   *  its carved features, so Rule 1 doesn't reject on empty space. `bounds` still MUST
+  /** The piece's honest claim boxes for overlap-style checks. Absent = `[bounds]`. A
+   *  theme whose `bounds` is mostly air (a cave's whole-grid AABB, 93–96% air) emits
+   *  tight compound boxes covering its carved features instead. `bounds` still MUST
    *  contain the union of `envelopes` — it stays the coarse conservative cover used
    *  wherever a single box is needed. `placePiece` transforms each box exactly like
    *  `bounds`, preserving absence. */
@@ -148,9 +148,6 @@ export type RegionData = {
 
 /** Parameters passed to every theme generator. */
 export type RegionParams = { theme: ThemeName; seed: string; origin: Vec3 };
-
-/** Signature all theme generators must satisfy. */
-export type ThemeGenerator = (params: RegionParams) => RegionData;
 
 /** Monotonically increasing schema version stamped into every region's provenance. */
 export const GENERATOR_VERSION = 2;
