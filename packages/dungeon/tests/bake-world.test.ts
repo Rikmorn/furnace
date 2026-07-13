@@ -8,8 +8,8 @@ import {
   type WorldManifest,
   worldDir,
 } from "../src/bake.ts";
-import { placePiece } from "../src/connect.ts";
 import { TUNNEL_OVERSHOOT, TUNNEL_RADIUS } from "../src/connector.ts";
+import { placePiece } from "../src/placement.ts";
 import type { Aabb, Connection, Vec3 } from "../src/region.ts";
 import {
   expandGridRegionFromEntry,

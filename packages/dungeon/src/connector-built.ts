@@ -68,7 +68,7 @@ export function worldToLocal(p: Vec3, placement: WorldPlacement): Vec3 {
   const x = p[0] - t[0];
   const y = p[1] - t[1];
   const z = p[2] - t[2];
-  // Ry(-yaw): [x·c - z·s, y, x·s + z·c]  (inverse of connect.ts rotateY)
+  // Ry(-yaw): [x·c - z·s, y, x·s + z·c]  (inverse of placement.ts rotateY)
   return [x * c - z * s, y, x * s + z * c];
 }
 

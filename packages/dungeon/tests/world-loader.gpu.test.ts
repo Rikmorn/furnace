@@ -3,7 +3,7 @@ import * as gpu from "@furnace/core/gpu";
 import * as physics from "@furnace/core/physics";
 import { decodeMeshBlob } from "@furnace/core/scene";
 import { type BakeFile, bakeWorld, type WorldManifest } from "../src/bake.ts";
-import { placePiece } from "../src/connect.ts";
+import { placePiece } from "../src/placement.ts";
 import { MaterialCache } from "../src/realize.ts";
 import {
   GENERATOR_VERSION,

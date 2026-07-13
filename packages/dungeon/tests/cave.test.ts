@@ -212,7 +212,8 @@ function containedInUnion(box: Aabb, envelopes: Aabb[]): boolean {
 }
 
 /** Reconstruct every solid voxel cell's world AABB from a region's (single, un-placed —
- *  yaw 0) voxel collider, matching `occupancy.ts`'s `cellAabb` yaw-0 branch. */
+ *  yaw 0) voxel collider: each cell's AABB is its integer coord scaled by the voxel
+ *  size and offset by the collider's position. */
 function voxelCellAabbs(region: RegionData): Aabb[] {
   const collider = region.colliders.find((c) => "voxels" in c.shape);
   if (!collider || !("voxels" in collider.shape)) return [];

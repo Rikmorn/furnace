@@ -1,8 +1,8 @@
-// packages/dungeon/tests/connect.test.ts
+// packages/dungeon/tests/placement.test.ts
 import { expect, test } from "bun:test";
 import { mat4, quat, vec3 } from "@furnace/core/transform";
 import { aabbOfBoxes } from "../src/aabb.ts";
-import { join, placePiece } from "../src/connect.ts";
+import { join, placePiece } from "../src/placement.ts";
 import type {
   Connection,
   InstanceData,
@@ -199,7 +199,7 @@ test("placePiece transforms a group's placements into world frame, consistent wi
   const { yaw, translation: t } = place;
   const c = Math.cos(yaw);
   const s = Math.sin(yaw);
-  // Independent ground truth (connect.ts's rotateY convention: Ry(θ)·[x,y,z] =
+  // Independent ground truth (placement.ts's rotateY convention: Ry(θ)·[x,y,z] =
   // [x·c + z·s, y, −x·s + z·c]). Pins BOTH paths to the expected world transform, so a
   // no-op regression (placements/transforms left in local frame) fails here too.
   const expectWorldPos = (p: Vec3): Vec3 => [

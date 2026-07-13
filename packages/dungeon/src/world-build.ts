@@ -9,7 +9,6 @@
 // then rasterizes → carves → skins → collars → patches → collides into its final
 // RegionData and is placed. Cave regions keep the W1 single-step path (place at generate).
 import { create as makeRng } from "@furnace/core/rng";
-import { join, placeConnection, placePiece } from "./connect.ts";
 import { organicTunnel } from "./connector.ts";
 import {
   buildCorridor,
@@ -18,6 +17,7 @@ import {
   collarBore,
   collarBoreCarve,
 } from "./connector-built.ts";
+import { join, placeConnection, placePiece } from "./placement.ts";
 import { voxelProxyPosition } from "./proxy.ts";
 import type {
   Aabb,

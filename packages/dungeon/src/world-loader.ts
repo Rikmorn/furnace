@@ -24,9 +24,9 @@ import {
   type WorldManifest,
   worldDir,
 } from "./bake.ts";
-import { placePiece } from "./connect.ts";
 import { organicTunnel } from "./connector.ts";
 import { buildCorridor } from "./connector-built.ts";
+import { placePiece } from "./placement.ts";
 import {
   type DynamicProp,
   type MaterialCache,
@@ -251,8 +251,9 @@ async function fetchArtifact(path: string): Promise<Response> {
   return res;
 }
 
-/** Build a region's manifest cuboid colliders as static bodies (the `LEVEL_BOXES` pattern).
- *  A region's render-only meshes live in the world's single merged scene doc, loaded once. */
+/** Build a region's manifest cuboid colliders as static bodies — one static body per
+ *  manifest cuboid. A region's render-only meshes live in the world's single merged
+ *  scene doc, loaded once. */
 function createColliderBodies(
   ctx: Context,
   world: physics.World,
