@@ -41,8 +41,9 @@ import {
 import { type CaveParams, caveDressing, caveProxy } from "./themes/cave.ts";
 import { expandGridRegionFromEntry } from "./world-build.ts";
 
-/** The runtime handles of a loaded world. The `LoadedWing` shape plus the player spawn the
- *  manifest bakes — so `main.ts` reads its spawn from the same object that carries the draws. */
+/** The runtime handles of a loaded world: its draws (region + dressing meshes, dynamic props)
+ *  and per-frame/teardown hooks, plus the player spawn the manifest bakes — so `main.ts` reads
+ *  its spawn from the same object that carries the draws. */
 export type LoadedWorld = {
   meshes: mesh.Mesh[];
   instanced: mesh.InstancedMesh[];
