@@ -1,6 +1,6 @@
 # Editor Architecture
 
-The as-built `@furnace/editor` package, milestones **M3** (editor shell) + **M4** (command layer) + **M5A** (inspector) + **M5B** (viewport interaction), plus the **M1-slices** registration batch (the full built-in set + physics-from-data in the core loader), plus the **Epic 3 cockpit slices** — **3.0** (editor-openable dungeon, extensions-dir watch) and **3.1** (the generation loop: a preview host, the `generation.bake` command, and an ephemeral generation session; §13), **3.2** (the editor foundation pass — design-system tokens, menu bar + global keybindings, UI persistence, viewport reference layer + dolly navigation, inspector IA + humanized labels; §14), and **3.2.3** (cockpit hardening — the generation search moved onto a worker with instant mid-attempt cancel, envelope-clamped knobs; §13.6). This is the reference — "how the editor IS today." The decision history that produced it lives in `docs/backlog/editor-and-tooling/editor-backend-architecture.md`; this doc describes the running system.
+The as-built `@furnace/editor` package, milestones **M3** (editor shell) + **M4** (command layer) + **M5A** (inspector) + **M5B** (viewport interaction), plus the **M1-slices** registration batch (the full built-in set + physics-from-data in the core loader), plus the **Epic 3 cockpit slices** — **3.0** (editor-openable dungeon, extensions-dir watch) and **3.1** (the generation loop: a preview host, the `generation.bake` command, and an ephemeral generation session; §13), **3.2** (the editor foundation pass — design-system tokens, menu bar + global keybindings, UI persistence, viewport reference layer + dolly navigation, inspector IA + humanized labels; §14), and **3.2.3** (cockpit hardening — generation moved onto a worker, with instant mid-run cancel; §13.6). This is the reference — "how the editor IS today." The decision history that produced it lives in `docs/backlog/editor-and-tooling/editor-backend-architecture.md`; this doc describes the running system.
 
 > **Epic status (2026-06-14): the editor epic is complete and paused.** M1→M5B + M1-slices landed and sealed. The originally-planned **M6** (behaviour runtime) and **M7** (porting + docs) are **dropped** — the project retargeted from the bowling demo to its actual application (a first-person dungeon crawler), so future editor work is driven by that app's **procedural-authoring** needs rather than the old milestone ladder. The known gaps a future editor pass must address are captured in `docs/backlog/editor-and-tooling/editor-interaction-model-redesign.md`.
 >
@@ -52,7 +52,7 @@ export * as extensions from "<root>/<extensionsEntry>";     // the consumer's pu
 
 esbuild bundles this `format: "esm"`, `write: false`, `sourcemap: "inline"`, with `resolveDir: root`. The bundler context is **incremental**: each `GET /engine.js` calls `ctx.rebuild()`. Build failure returns `{ ok: false, error }` carrying esbuild's formatted diagnostics.
 
-`createPreviewHost` is the Slice 3.1 cockpit preview surface (§13.1). The `export * as extensions` is the **cockpit generator seam** (§13.2): it re-exports the same extension module the bare side-effect import already runs — so registration still fires exactly once — this time as a value namespace the Generation panel calls the consumer's generator through (`worldAttempts` / `bake` / `realizeRegion` / …). When no extensions entry is configured the bundle emits `export const extensions = {}`. `EngineModule` (`frontend/lib/engine.ts`, the `loadEngine()` return type) is correspondingly `{ createViewportHost, createPreviewHost, extensions }` with `extensions: Record<string, unknown>`.
+`createPreviewHost` is the Slice 3.1 cockpit preview surface (§13.1). The `export * as extensions` is the **cockpit generator seam** (§13.2): it re-exports the same extension module the bare side-effect import already runs — so registration still fires exactly once — this time as a value namespace the World panel and the generation worker call the consumer's generator through (`runWorld` / `bakeWorldFiles` / `realizeRegion` / `MaterialCache` / `worldDir` — §13.2). When no extensions entry is configured the bundle emits `export const extensions = {}`. `EngineModule` (`frontend/lib/engine.ts`, the `loadEngine()` return type) is correspondingly `{ createViewportHost, createPreviewHost, extensions }` with `extensions: Record<string, unknown>`.
 
 **(b) Node-platform registry bundle** — `src/daemon/registry-bundle.ts`. The daemon needs the *same* registry the engine bundle has, but on the Node side for validation. Its virtual entry imports the consumer's extensions then re-exports exactly three names from the consumer's `@furnace/core/scene`:
 
@@ -98,7 +98,7 @@ Every client — the chrome, a curl, a future AI binding — funnels through `di
 | `scene.undo` | `{}` | `{ revision, dirty }` |
 | `scene.redo` | `{}` | `{ revision, dirty }` |
 | `project.get` | `{}` | `{ root }` — the absolute project root; the chrome scopes its persistence store by it (§14.3). |
-| `generation.bake` | `{ files: WireFile[], cleanDir?: string }` (each file `{ path, encoding: "utf8"\|"base64", contents }`) | `{ files: <count written> }` — writes a browser-uploaded, root-contained wing file set and emits `generation-baked`; when `cleanDir` is given, `rm -rf`s that (validated: root-contained, no dotfile segments, every payload file under it) BEFORE writing (§13.3, Slice 3.1/3.2.1). |
+| `generation.bake` | `{ files: WireFile[], cleanDir?: string }` (each file `{ path, encoding: "utf8"\|"base64", contents }`) | `{ files: <count written> }` — writes a browser-uploaded, root-contained file set and emits `generation-baked`; when `cleanDir` is given, `rm -rf`s that (validated: root-contained, no dotfile segments, every payload file under it) BEFORE writing (§13.3, Slice 3.1/3.2.1). |
 
 `SessionView` = `{ document, path, revision, dirty, conflict, canUndo, canRedo }` (the last two drive the Edit-menu + toolbar undo/redo enabled state; §14.2).
 
@@ -137,7 +137,7 @@ The feed carries `DaemonEvent = SessionEvent | { type: "bundle-outdated" } | { t
 | `file-conflict` | `path` | a disk change arrived while the session was dirty, or the watched file was deleted/became unreadable. |
 | `file-invalid` | `path`, `message` | a disk change left the file as invalid JSON or failed registry validation. |
 | `bundle-outdated` | none beyond `type` | a source file under the extensions entry's directory changed (§5, "Directory watching") — the browser should reload to pick up the freshly-rebuilt `/engine.js`. |
-| `generation-baked` | `files` (count written) | `generation.bake` wrote the browser-uploaded wing file set to the project root (§13.3, Slice 3.1). |
+| `generation-baked` | `files` (count written) | `generation.bake` wrote the browser-uploaded file set to the project root (§13.3, Slice 3.1). |
 
 The SSE wire frame is `event: <type>\ndata: <json>\n\n` — `bundle-outdated` and `generation-baked` ride it generically, same as every other event. The frontend `ServerEvent` union + `EVENT_TYPES` subscription list (`frontend/lib/events.ts`) mirror this daemon union and are kept in lockstep.
 
@@ -411,7 +411,7 @@ The editor renders whatever the consumer's `@furnace/core` scene loader produces
 
 ## 13. Slice 3.1 — the generation cockpit (Epic 3)
 
-Slice 3.1 ("the Loop") makes the editor **generate, preview, curate, and bake** procedural world content — while keeping the editor engine-free. The consumer's generator arrives through the engine bundle's `extensions` namespace (§3a) and is driven by a dockview **Generation panel**; the daemon carries **zero** generator knowledge (the bake path uploads a browser-produced file set — the Decision in §13.3). The build is dungeon-first (the generator is `packages/dungeon/src/editor-extensions.ts`), but nothing in the editor knows that — the seam is generic (see `docs/backlog/editor-and-tooling/generation-session-editor-facility.md` for the plan to make the session a per-project editor facility).
+Slice 3.1 ("the Loop") makes the editor **generate, preview, curate, and bake** procedural world content — while keeping the editor engine-free. The consumer's generator arrives through the engine bundle's `extensions` namespace (§3a) and is driven by a dockview **World panel** (§13.4); the daemon carries **zero** generator knowledge (the bake path uploads a browser-produced file set — the Decision in §13.3). The build is dungeon-first (the generator is `packages/dungeon/src/editor-extensions.ts`), but nothing in the editor knows that — the seam is generic (see `docs/backlog/editor-and-tooling/generation-session-editor-facility.md` for the plan to make the session a per-project editor facility).
 
 ### 13.1 Preview host — `src/viewport-host/preview-host.ts`
 
@@ -431,13 +431,23 @@ Lifecycle: `ctx()` / `world()` throw before `init`. `adopt(content)` is **leak-s
 
 The browser engine bundle (§3a) now exports `createViewportHost`, `createPreviewHost` (§13.1), and `export * as extensions from "<root>/<extensionsEntry>"` — the consumer's extension entry re-exported as a **value namespace** (the same module the bare side-effect import already runs, so registration fires once; `{}` when no entry is configured). `loadEngine()`'s `EngineModule` type widened to match.
 
-For the dungeon, that namespace is `packages/dungeon/src/editor-extensions.ts`, re-exporting `worldAttempts` / `bake` (as `bakeWing`, now 4-arg — `…, name`) / `realizeRegion` / `MaterialCache` / `COCKPIT_CONFIG` / `COCKPIT_BUDGET` / `COCKPIT_ENVELOPE` / `wingDir` / `DEFAULT_WING_NAME` / etc. The World panel narrows this untyped namespace to the shapes it calls at **one** boundary cast (`WorldPanel.tsx` since W3; the worker does the same narrowing on its side); the engine owns the real types. This `bake() / worldAttempts / COCKPIT_* / realizeRegion` set is a **de-facto protocol** the cockpit consumes — for 3.1 it stays dungeon-owned (see the backlog note above). `COCKPIT_ENVELOPE` (Slice 3.2.3, `docs/reference/dungeon-architecture.md` §4) is the measured knob-bounds/reliability table the panel clamps against and displays — see §13.6.
+For the dungeon, that namespace is `packages/dungeon/src/editor-extensions.ts`. The cockpit consumes **five** members off it — a **de-facto protocol**, dungeon-owned for now (see the backlog note above):
+
+| Member | Consumed by | What it does |
+| --- | --- | --- |
+| `runWorld(spec)` | worker (`generation-protocol.ts`) | Realize a world spec → one payload (regions + connectors as placed `{ id, data }`). |
+| `bakeWorldFiles(spec, name)` | worker (`generation-protocol.ts`) | Bake a world spec → the file set the panel uploads. |
+| `realizeRegion(ctx, world, cache, region)` | main thread (`WorldPanel.tsx`) | Realize one placed piece into the preview host's GPU context. |
+| `MaterialCache` | main thread (`WorldPanel.tsx`) | The shared material cache a realize pass runs against. |
+| `worldDir(name)` | main thread (`WorldPanel.tsx`) | The project-relative artifact dir (`worlds/<name>`) — the upload's `cleanDir`. |
+
+The namespace crosses the project-first boundary **untyped** (`Record<string, unknown>`), so each side narrows it at exactly **one** boundary cast — `WorldPanel.tsx`'s `ext` for the main-thread three, the worker's `WorkerEngine` type for its two; the engine owns the real types. The module re-exports more than these five (bake-shape types, the cave theme functions, `DEFAULT_WORLD` / `validateWorldSpec`); the editor reads none of them, and the engine bundle may tree-shake what nothing imports.
 
 ### 13.3 `generation.bake` — browser-uploads-payload
 
-**Decision — the browser produces the payload; the daemon only writes it.** A Pr-2 determinism probe found that regenerating the same seed under a *different JS engine* than the one that previewed it produces a **different world placement**: bun/JSC and node/V8 diverge on the transcendental `Math` (`cos` / `sin` / `atan2`) in the placement search + the `placePiece` join-yaw transform (root-cause detail in `docs/learnings/2026-07-06-cross-engine-placement-determinism.md`). So the plan's original "daemon regenerates from the seed" would bake a world that does **not** match what the user previewed. The slice adopted the spec §0.2 fallback: **the browser bakes the wing in its own engine** — regenerating from the winning derived seed in the SAME engine that previewed it, reproducing the preview exactly — and **uploads the produced file set**; the daemon validates + writes. There is **no** blocking-bake / daemon-regeneration caveat: the daemon holds zero generator knowledge.
+**Decision — the browser produces the payload; the daemon only writes it.** A Pr-2 determinism probe found that regenerating the same seed under a *different JS engine* than the one that previewed it produces a **different world placement**: bun/JSC and node/V8 diverge on the transcendental `Math` (`cos` / `sin` / `atan2`) used to place pieces (root-cause detail in `docs/learnings/2026-07-06-cross-engine-placement-determinism.md`). So the plan's original "daemon regenerates from the seed" would bake a world that does **not** match what the user previewed. The slice adopted the spec §0.2 fallback: **the browser bakes the world in its own engine** — from the same spec, in the SAME engine that previewed it, reproducing the preview exactly — and **uploads the produced file set**; the daemon validates + writes. There is **no** blocking-bake / daemon-regeneration caveat: the daemon holds zero generator knowledge.
 
-The command (`handlers.ts`): input `{ files: WireFile[], cleanDir?: string }`, `WireFile = { path: string (min 1), encoding: "utf8" | "base64", contents: string }`. The browser uploads the whole consolidated wing — ONE merged `wing.scene.json` + `manifest.json` + `.fmesh` sidecars (3.2.1; previously ~27 per-node/per-connector docs). `run`:
+The command (`handlers.ts`): input `{ files: WireFile[], cleanDir?: string }`, `WireFile = { path: string (min 1), encoding: "utf8" | "base64", contents: string }`. The browser uploads the whole consolidated world — ONE merged `world.scene.json` + `manifest.json` + `.fmesh` sidecars, all under `worlds/<name>/` (`bakeWorld`, `packages/dungeon/src/bake.ts`). `run`:
 1. resolves every `path` against the project root and rejects the **whole batch before any write** if any escapes the root or contains a dotfile segment (`outside-root`, 404 — the same posture and hidden-existence rationale as scene paths, §6);
 2. when `cleanDir` is given, validates it (root-contained, never the root itself, no dotfile segment, and **every** payload file resolves under it) and `rm -rf`s it BEFORE any write — clean-previous-bake, so a smaller re-bake leaves no orphans from a larger earlier one; a mismatched payload throws and leaves the FS untouched;
 3. writes each file — `mkdir -p` the parent, base64-decode when `encoding === "base64"` (binary `.fmesh` sidecars ride as base64 in the JSON POST);
@@ -445,14 +455,14 @@ The command (`handlers.ts`): input `{ files: WireFile[], cleanDir?: string }`, `
 
 The `path` `.min(1)` guard is load-bearing: an empty path resolves to the root dir and would hit `writeFileSync(rootDir, …)` → `EISDIR` mid-batch (a partial write). The browser marshals binary sidecars via `toWireFiles` (`frontend/lib/generation.ts`, chunked base64 so a large sidecar can't blow the `String.fromCharCode` argument stack). This is the **first handler that emits an SSE event**, so `HandlerContext` gained an `emit(event: DaemonEvent)` field and `server.ts` passes `hub.emit` to both the session and the handlers.
 
-### 13.4 The World panel + ephemeral session (the Generation panel until 3.3 W3)
+### 13.4 The World panel + ephemeral session
 
 The dockview **World panel** (`frontend/components/WorldPanel.tsx` + `world-panel/` sub-components; panel id stays `generation` — it is baked into persisted dockview layouts — title "World") drives the loop; its state is an **ephemeral world session** (`frontend/lib/generation.ts`) held **App-owned** (lifted out of the panel in Slice 3.2 so the session survives the panel closing/reopening; §14.3), **beside** the daemon's document session. The only daemon/FS crossing is freeze (the `generation.bake` upload) — everything else in `generation.ts` / `world-draft.ts` is pure and unit-tested without a DOM.
 
-**W3 — assembly (charter §2.4):** the panel assembles a **`WorldDraft`** (`frontend/lib/world-draft.ts`): attach-on-add — region 0 anchors at the origin and every later region enters WITH the connector tying it to an earlier region, so the world is a TREE by construction and grid regions' doors are ASSEMBLED from attachments (`draftToSpec` — portal indices cannot drift; connector `a` = parent, `b` = the derivable child; `legalKinds` filters the class-pair matrix, and a cave parent cannot take a grid child — the collar must ride the grid-side `a`-end while only `b`-ends derive). Region rows carry per-algorithm knobs, a seed field, per-region **Reroll** (bump that region's seed, re-realize the whole world on the worker — deterministic, instant cancel), and leaf-only **Remove**. `previewing` snapshots the FULL SPEC that produced the on-screen world; **Freeze & bake** bakes exactly that snapshot (`bakeWorld` on the worker → `generation.bake` upload with `cleanDir`), and the **"Make this the game's world"** checkbox (default on) retargets `worlds/index.json` via a second cleanDir-FREE `generation.bake` call (`bakeUploadCalls` — byte-parity with the committed index, so re-defaulting "default" is a no-op diff). The draft starts EMPTY (no spec→draft import until 3.5 needs one); the wing-flow session code below stays only until the W4 sweep. Gate-observed assembly-UX findings are consolidated in `docs/backlog/editor-and-tooling/world-panel-w3-gate-ux-findings.md` (3.5 inputs).
+**W3 — assembly (charter §2.4):** the panel assembles a **`WorldDraft`** (`frontend/lib/world-draft.ts`): attach-on-add — region 0 anchors at the origin and every later region enters WITH the connector tying it to an earlier region, so the world is a TREE by construction and grid regions' doors are ASSEMBLED from attachments (`draftToSpec` — portal indices cannot drift; connector `a` = parent, `b` = the derivable child; `legalKinds` filters the class-pair matrix, and a cave parent cannot take a grid child — the collar must ride the grid-side `a`-end while only `b`-ends derive). Region rows carry per-algorithm knobs, a seed field, per-region **Reroll** (bump that region's seed, re-realize the whole world on the worker — deterministic, instant cancel), and leaf-only **Remove**. `previewing` snapshots the FULL SPEC that produced the on-screen world; **Freeze & bake** bakes exactly that snapshot (`bakeWorld` on the worker → `generation.bake` upload with `cleanDir`), and the **"Make this the game's world"** checkbox (default on) retargets `worlds/index.json` via a second cleanDir-FREE `generation.bake` call (`bakeUploadCalls` — byte-parity with the committed index, so re-defaulting "default" is a no-op diff). The draft starts EMPTY (no spec→draft import until 3.5 needs one). Gate-observed assembly-UX findings are consolidated in `docs/backlog/editor-and-tooling/world-panel-w3-gate-ux-findings.md` (3.5 inputs).
 
-- **Generate / Reroll** run the consumer's `worldAttempts` iterator on a **generation worker** (Slice 3.2.3 — the paint-gap stepper that used to step it between paints is deleted; §13.6), so a placement search that creaks never blocks the main thread and Cancel kills it INSTANTLY, mid-attempt. On the first placed attempt the panel realizes the layout into the preview host, main-thread (dropping the `authored` phantom — it carries empty geometry, realized by the game's own `main.ts`), frames the camera on the union AABB (`layoutBounds`), and records a `done` status.
-- **Freeze & bake** reads **only** the `done`-status snapshot — the winning derived seed **and** the config that produced the on-screen preview — never the live knobs, then re-bakes on the SAME worker via `ext.bake(…, wingName)` (a Generation-panel wing-name field names the wing; §13.6) and uploads via `api.generationBake(toWireFiles(files), ext.wingDir(wingName))` (a main-thread daemon call; the upload's `cleanDir` = `regions/<name>`, so the daemon clears the prior bake). That snapshot is what makes "freeze bakes exactly what you previewed" hold even after a knob edit; editing a knob (or the seed) drops a `done` preview back to `idle` via `invalidateDonePreview`, so Freeze is only ever enabled for the world currently on screen.
+- **Generate / Reroll** run the consumer's `runWorld(spec)` on the **generation worker** (§13.6), so realize never blocks the main thread and Cancel kills it INSTANTLY, mid-run. Generation is **deterministic** — one call, one `world-run` payload. On that payload the panel realizes every placed piece (regions + connectors) into the preview host **main-thread** (`ext.realizeRegion` against the host's GPU context, sequentially — the shared `MaterialCache` is not concurrency-safe), frames the camera on the union AABB (`layoutBounds`), and snapshots the spec as a `previewing` status.
+- **Freeze & bake** reads **only** the `previewing` snapshot's spec — never the live draft — re-bakes it on the SAME worker (`client.bakeWorld(spec, name)` → the consumer's `bakeWorldFiles`), and uploads via `api.generationBake` (a main-thread daemon call; the upload's `cleanDir` is `ext.worldDir(name)` = `worlds/<name>`, so the daemon clears the prior bake). That snapshot is what makes "freeze bakes exactly what you previewed" hold even after a draft edit: any draft write drops a `previewing` status back to `idle` (`invalidateWorldPreview`), so Freeze is only ever enabled for the world currently on screen.
 
 Because the session lives in React state and never touches `session.apply`, generation curation is **not undoable** and does not appear in the document session's history — a separate, ephemeral concern that crosses into the document/FS world only at the bake.
 
@@ -472,31 +482,31 @@ JSC-vs-V8, `docs/learnings/2026-07-06-cross-engine-placement-determinism.md`, no
 thread-vs-thread).
 
 - **Protocol (`frontend/lib/generation-protocol.ts`)**: runId-disciplined typed
-  messages. Requests: `init` / `run` / `bake`; responses: `ready` / `init-error` /
-  `attempt` / `done` / `baked`. `createWorkerHandler` is a **pure factory over
-  injected deps** (`loadEngine` + `post`), unit-testable without a real `Worker`
-  (`bun:test` spawns none); `generation-worker.ts` is a thin shell wiring it to the
-  real dynamic `import()` + `self.postMessage`. Every failure path posts a typed
-  message rather than throwing (a worker-side throw surfaces as a generic
-  `ErrorEvent` with no runId). Success attempts and baked files transfer their
-  typed-array buffers (`collectTransferables` dedupes views that alias one buffer —
-  a duplicate transferable is a `DataCloneError`). `wantSuccesses` MUST be 1 this
-  slice (a setup-loud refusal of any other value) — reserved for 3.2.5's contact
-  sheet (multiple simultaneous successes).
+  messages. Requests: `init` / `runWorld` / `bakeWorld`; responses: `ready` /
+  `init-error` / `world-run` / `baked` / `done`. `done` is a **pure failure
+  channel** (`outcome: "error"`) — success rides `world-run` (ONE payload per
+  `runWorld`, carrying the whole realized world) or `baked` (the file set).
+  `createWorkerHandler` is a **pure factory over injected deps** (`loadEngine` +
+  `post`), unit-testable without a real `Worker` (`bun:test` spawns none);
+  `generation-worker.ts` is a thin shell wiring it to the real dynamic `import()` +
+  `self.postMessage`. Every failure path posts a typed message rather than throwing
+  (a worker-side throw surfaces as a generic `ErrorEvent` with no runId). The
+  realized world and the baked files transfer their typed-array buffers
+  (`collectTransferables` dedupes views that alias one buffer — a duplicate
+  transferable is a `DataCloneError`).
 - **`GenerationWorkerClient` (`frontend/lib/generation-client.ts`)**: App-owned (one
   per App lifetime, alongside the generation session — §14.3), so it survives the
-  Generation panel unmounting. `run` / `bake` / `cancel`. **Cancel = `terminate()` +
-  lazy respawn** — instant, mid-attempt, no cooperation needed from the search. A
-  bumped `runId` PLUS a worker-identity guard (`this.worker !== w`) drop late
-  messages from a dead or superseded worker, including the no-runId `ready` /
-  `init-error` / `onerror` (`terminate()` does not dequeue a worker's
+  World panel unmounting. `runWorld` / `bakeWorld` / `cancel`. **Cancel =
+  `terminate()` + lazy respawn** — instant, mid-run, no cooperation needed from the
+  work in flight. A bumped `runId` PLUS a worker-identity guard (`this.worker !== w`)
+  drop late messages from a dead or superseded worker, including the no-runId
+  `ready` / `init-error` / `onerror` (`terminate()` does not dequeue a worker's
   already-posted messages). A spawn or init failure is setup-loud through
-  `onError` — no silent fallback path exists; the old paint-gap stepper (§13.4,
-  pre-3.2.3) is deleted outright.
-- **What stays main-thread**: `previewLayout` (realize into the preview host) needs
-  the host's GPU context, so it runs once on the winning attempt, main-thread; the
+  `onError` — no silent fallback path exists.
+- **What stays main-thread**: `previewWorld` (realize into the preview host) needs
+  the host's GPU context, so it runs once on the realized payload, main-thread; the
   daemon upload (`api.generationBake`) is a main-thread fetch. Everything else —
-  draining `worldAttempts`, running `bake()` — moved into the worker.
+  running `runWorld` / `bakeWorldFiles` — moved into the worker.
 - **`bundle-outdated` stance**: the client is App-owned via `useState`'s lazy
   initializer (one instance for the App's lifetime). A page reload refreshes the
   worker AND the main thread together — both then run the SAME engine bundle. The
@@ -505,20 +515,18 @@ thread-vs-thread).
   two different bundle builds. When the page deliberately stays stale (a dirty
   document blocks the reload prompt), the worker stays stale WITH it.
 
-### 13.7 World flow (3.3 W1)
+### 13.7 World flow — which world the game loads
 
-The panel drives the WORLD flow, not the wing flow (wings retired from the shipped
-path in 3.3 W1). The protocol gained `runWorld`/`bakeWorld` request kinds (same
-runId discipline, handled by `createWorkerHandler` branches calling the consumer's
-`extensions` seam — `runWorld(spec)`/`bakeWorldFiles(spec, name)` from
-`packages/dungeon/src/editor-extensions.ts`); the client mirrors them. The world
-path is DETERMINISTIC (no attempts/envelope machinery — construction-guaranteed
-per the 3.3 charter's field-only W1 world), so the run response is a distinct
-no-attempts shape; bake reuses the baked response + the unchanged daemon upload.
-Panel knobs this slice: the two cave seeds + world name; the daemon's
-`generation.bake` was already destination-agnostic (root-contained + `cleanDir`),
-so `worlds/<name>/` destinations needed a test, not a change. Which-world-loads
-is `worlds/index.json` (manual edit until W3's assembly UX).
+The panel's shipped path is the world flow end to end: `runWorld` / `bakeWorld` on
+the worker (§13.6) against the consumer's `extensions` seam (§13.2), realize + upload
+on the main thread (§13.4). Generation is **deterministic** — the same spec always
+yields the same world — so there is no search and no retry machinery on either side
+of the worker boundary.
+
+The daemon's `generation.bake` is destination-agnostic (root-contained + `cleanDir`),
+so `worlds/<name>/` destinations needed a test, not a change. Which world the game
+loads is `worlds/index.json`; the panel's "make this the game's world" checkbox
+retargets it at bake time via a second, `cleanDir`-free upload (§13.4).
 
 ## 14. Slice 3.2 — editor foundation pass (Epic 3)
 
@@ -534,7 +542,7 @@ The foundation pass that turned the M3–3.1 prototype into a usable tool, drive
 
 ### 14.3 UI persistence + generation-session lift
 
-`frontend/lib/persist.ts` persists dockview layout + view flags + inspector section open-state, scoped by the project root from `project.get`. Closed panels reopen via **View ▸ Panels** — the `PANELS` registry (`frontend/lib/panels.ts`) is the single source for the default layout, the toggle menu, and single-panel re-add. The **ephemeral generation session was lifted out of the panel (today `WorldPanel`) into App-owned state** so it survives the panel closing/reopening (correcting §13.4's original panel-local design); the separate wing-name field merged into the draft's own `name` in W3.
+`frontend/lib/persist.ts` persists dockview layout + view flags + inspector section open-state, scoped by the project root from `project.get`. Closed panels reopen via **View ▸ Panels** — the `PANELS` registry (`frontend/lib/panels.ts`) is the single source for the default layout, the toggle menu, and single-panel re-add. The **ephemeral generation session was lifted out of the panel (today `WorldPanel`) into App-owned state** so it survives the panel closing/reopening (correcting §13.4's original panel-local design); the bake destination is the draft's own `name` (§13.4).
 
 ### 14.4 Viewport reference layer + navigation
 
@@ -542,7 +550,7 @@ The foundation pass that turned the M3–3.1 prototype into a usable tool, drive
 
 ### 14.5 Inspector IA, humanized labels, number formatting
 
-Component sections are collapsible (`CollapsibleSection`); resources default collapsed and filter to the selection. Field/section labels are humanized (`frontend/lib/humanize.ts` — `castShadow` → "Cast Shadow"), applied in `FieldRow`, component headers, and object-group headers; the Generation panel matches (Title Case). Numeric display is rounded on the data surface: `inspector/lib/format.ts` `roundForDisplay` strips IEEE-754 noise (`1.2000000000000002` → `1.2`) in `NumberField` + `VecField` (`QuatField` already rounded euler degrees) — **full precision stays in the document**, and because the rounded value is ALSO the blur dirty-check baseline, a focus+blur with no edit never commits a truncation. Vec/Quat show x/y/z(/w) axis chips; numeric labels carry a drag-scrub affordance. The seed-History re-preview no longer duplicates rows (dedup by `attemptSeed`, found at the 3.2 gate).
+Component sections are collapsible (`CollapsibleSection`); resources default collapsed and filter to the selection. Field/section labels are humanized (`frontend/lib/humanize.ts` — `castShadow` → "Cast Shadow"), applied in `FieldRow`, component headers, and object-group headers; the World panel matches (Title Case). Numeric display is rounded on the data surface: `inspector/lib/format.ts` `roundForDisplay` strips IEEE-754 noise (`1.2000000000000002` → `1.2`) in `NumberField` + `VecField` (`QuatField` already rounded euler degrees) — **full precision stays in the document**, and because the rounded value is ALSO the blur dirty-check baseline, a focus+blur with no edit never commits a truncation. Vec/Quat show x/y/z(/w) axis chips; numeric labels carry a drag-scrub affordance.
 
 ### 14.6 Selection color single-source + test harness
 
