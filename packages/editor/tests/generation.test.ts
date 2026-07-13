@@ -1,41 +1,15 @@
 import { expect, test } from "bun:test";
 import {
   bakeUploadCalls,
-  clampLoop,
-  clampRooms,
-  type EnvelopeRow,
-  envelopeRowFor,
-  type GenerationSession,
-  initialSession,
   initialWorldSession,
-  invalidateDonePreview,
   invalidateWorldPreview,
-  isValidWingName,
+  isValidWorldName,
   layoutBounds,
   mergeContents,
-  nextRerollSeed,
   type RealizeResult,
-  reliabilityText,
   toWireFiles,
   type WireFile,
 } from "../src/frontend/lib/generation.ts";
-
-test("initialSession is a fresh idle session at the P1-bar defaults", () => {
-  const s = initialSession();
-  expect(s.baseSeed).toBe("wing-1");
-  expect(s.config).toEqual({ targetRooms: 6, loopChance: 0.35 });
-  expect(s.history).toEqual([]);
-  expect(s.status).toEqual({ phase: "idle" });
-  // Fresh object each call (no shared mutable state between panels).
-  expect(initialSession()).not.toBe(s);
-});
-
-test("nextRerollSeed: base first, then #2, #3, … as history grows", () => {
-  expect(nextRerollSeed("wing-1", 0)).toBe("wing-1");
-  expect(nextRerollSeed("wing-1", 1)).toBe("wing-1#2");
-  expect(nextRerollSeed("wing-1", 2)).toBe("wing-1#3");
-  expect(nextRerollSeed("cavern", 5)).toBe("cavern#6");
-});
 
 test("toWireFiles: utf8 passes through, binary base64 round-trips exactly", () => {
   const bytes = new Uint8Array([0, 1, 2, 3, 254, 255, 128, 42]);
@@ -114,44 +88,12 @@ test("mergeContents: flattens meshes/instanced and destroy tears down every resu
   expect(calls.slice(2)).toEqual(["a:destroy", "b:destroy", "cache:destroy"]);
 });
 
-test("invalidateDonePreview: a done preview resets to idle, other fields untouched", () => {
-  const session: GenerationSession = {
-    baseSeed: "wing-1",
-    config: { targetRooms: 10, loopChance: 0.5 },
-    history: [{ attemptSeed: "wing-1:4", baseSeed: "wing-1" }],
-    // The done snapshot carries the config that PRODUCED the preview (rooms 6), which
-    // deliberately differs from the live config above (rooms 10) — the exact drift the
-    // reset guards against.
-    status: {
-      phase: "done",
-      attemptSeed: "wing-1:4",
-      attempt: 4,
-      config: { targetRooms: 6, loopChance: 0.35 },
-    },
-  };
-  const next = invalidateDonePreview(session);
-  expect(next.status).toEqual({ phase: "idle" });
-  expect(next.baseSeed).toBe("wing-1");
-  expect(next.config).toEqual({ targetRooms: 10, loopChance: 0.5 });
-  expect(next.history).toBe(session.history);
-});
-
-test("invalidateDonePreview: a non-done phase is returned unchanged (same reference)", () => {
-  const running: GenerationSession = {
-    ...initialSession(),
-    status: { phase: "running", attempt: 2, totalAttempts: 12 },
-  };
-  expect(invalidateDonePreview(running)).toBe(running);
-  const idle = initialSession();
-  expect(invalidateDonePreview(idle)).toBe(idle);
-});
-
-test("isValidWingName", () => {
-  expect(isValidWingName("generated-wing")).toBe(true);
-  expect(isValidWingName("My_Wing2")).toBe(true);
-  expect(isValidWingName("")).toBe(false);
-  expect(isValidWingName("../x")).toBe(false);
-  expect(isValidWingName("a b")).toBe(false);
+test("isValidWorldName", () => {
+  expect(isValidWorldName("default")).toBe(true);
+  expect(isValidWorldName("My_World2")).toBe(true);
+  expect(isValidWorldName("")).toBe(false);
+  expect(isValidWorldName("../x")).toBe(false);
+  expect(isValidWorldName("a b")).toBe(false);
 });
 
 test("mergeContents: a result with no update() is skipped without throwing", () => {
@@ -162,43 +104,7 @@ test("mergeContents: a result with no update() is skipped without throwing", () 
   expect(() => merged.update?.()).not.toThrow();
 });
 
-const ENVELOPE: EnvelopeRow[] = [
-  { rooms: 2, singleShot: 0.9, attempts: 4, projected: 0.9999 },
-  { rooms: 3, singleShot: 0.7, attempts: 4, projected: 0.9919 },
-  { rooms: 4, singleShot: 0.3, attempts: 9, projected: 0.9596 },
-  { rooms: 5, singleShot: 0.05, attempts: 30, projected: 0.7854 },
-];
-
-test("envelopeRowFor finds the exact row; off-table is undefined", () => {
-  expect(envelopeRowFor(ENVELOPE, 3)?.attempts).toBe(4);
-  expect(envelopeRowFor(ENVELOPE, 99)).toBeUndefined();
-});
-
-test("clampRooms clamps to the table's range and rounds to an integer", () => {
-  expect(clampRooms(ENVELOPE, 15)).toBe(5);
-  expect(clampRooms(ENVELOPE, 0)).toBe(2);
-  expect(clampRooms(ENVELOPE, 3.6)).toBe(4);
-  expect(clampRooms(ENVELOPE, 3)).toBe(3);
-});
-
-test("clampLoop clamps to [0, 0.6] and snaps to the 0.05 step", () => {
-  expect(clampLoop(0.9)).toBe(0.6);
-  expect(clampLoop(-0.2)).toBe(0);
-  expect(clampLoop(0.33)).toBe(0.35);
-  expect(clampLoop(0.35)).toBe(0.35);
-});
-
-test("reliabilityText reads the row; low-yield sizes say so; no row → empty", () => {
-  expect(reliabilityText(ENVELOPE[3])).toBe(
-    "5 rooms: ~79% within 30 attempts (measured) — low-yield size",
-  );
-  expect(reliabilityText(ENVELOPE[0])).toBe(
-    "2 rooms: ~100% within 4 attempts (measured)",
-  );
-  expect(reliabilityText(undefined)).toBe("");
-});
-
-// ── W3 world flow ──────────────────────────────────────────────────────────────
+// ── The world flow ─────────────────────────────────────────────────────────────
 
 test("initialWorldSession: empty draft, makeDefault on, idle", () => {
   const s = initialWorldSession();

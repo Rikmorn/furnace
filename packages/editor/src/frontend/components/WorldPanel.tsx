@@ -9,7 +9,7 @@ import { cn } from "../lib/cn.ts";
 import {
   bakeUploadCalls,
   invalidateWorldPreview,
-  isValidWingName,
+  isValidWorldName,
   layoutBounds,
   mergeContents,
   type RealizeResult,
@@ -225,7 +225,7 @@ export function WorldPanel() {
   const previewing =
     session.status.phase === "previewing" ? session.status : undefined;
   const failed = session.status.phase === "failed";
-  const nameValid = isValidWingName(draft.name);
+  const nameValid = isValidWorldName(draft.name);
 
   return (
     <div className="flex h-full flex-col gap-3 overflow-auto p-3 text-sm">

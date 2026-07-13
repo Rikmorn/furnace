@@ -1,71 +1,12 @@
-// The ephemeral generation session (Slice 3.1 spec §3; lifted to App level in 3.2.2): plain
-// state + helpers. NO document-session contact — App owns the session + worker client (so it
-// survives the panel closing) and the WorldPanel drives them as a context consumer; the ONLY
-// daemon crossing is freeze (api calls that upload the worker-produced file set). Everything
-// here is pure and unit-tested without a DOM. The wing session model (below) stays for W4;
-// the W3 WORLD flow (further below) is the active cockpit.
+// The ephemeral world-generation session (Epic 3; lifted to App level in 3.2.2): plain
+// state + helpers. NO document-session contact — App owns the session + worker client (so
+// it survives the panel closing) and the WorldPanel drives them as a context consumer; the
+// ONLY daemon crossing is freeze (api calls that upload the worker-produced file set).
+// Everything here is pure and unit-tested without a DOM.
 import type { PreviewContent } from "../../viewport-host/index.ts"; // type-only: erased
 import type { WorldDraft, WorldSpecLike } from "./world-draft.ts"; // type-only: erased
 
-/** The generation session's lifecycle, one variant per user-visible phase. The `done`
- *  variant SNAPSHOTS the config that produced the on-screen preview: freeze bakes from
- *  this snapshot, never from live knobs, so "freeze bakes exactly what you previewed"
- *  holds even if the user edits the config afterwards. */
-export type GenerationStatus =
-  | { phase: "idle" }
-  | { phase: "running"; attempt: number; totalAttempts: number }
-  | {
-      phase: "done";
-      attemptSeed: string;
-      attempt: number;
-      config: { targetRooms: number; loopChance: number };
-    }
-  | { phase: "baking" }
-  | { phase: "baked"; files: number }
-  | { phase: "failed"; error: string }
-  | { phase: "cancelled" };
-
-/** The ephemeral session state: the seed + generator knobs, the reroll history (most
- *  recent first), and the current status. Held in panel-local React state. */
-export type GenerationSession = {
-  baseSeed: string;
-  config: { targetRooms: number; loopChance: number };
-  history: { attemptSeed: string; baseSeed: string }[];
-  status: GenerationStatus;
-};
-
-/** A fresh session at the P1-bar defaults (see world.ts COCKPIT_CONFIG). */
-export const initialSession = (): GenerationSession => ({
-  baseSeed: "wing-1",
-  config: { targetRooms: 6, loopChance: 0.35 },
-  history: [],
-  status: { phase: "idle" },
-});
-
-/** The seed for the next reroll. Deterministic-ish naming keeps history legible:
- *  wing-1, wing-1#2, wing-1#3… (the first generate uses the base seed unchanged). */
-export function nextRerollSeed(base: string, historyLen: number): string {
-  return historyLen === 0 ? base : `${base}#${historyLen + 1}`;
-}
-
-/** Drop a `done` preview back to `idle` because an edit (seed or a config knob) made the
- *  on-screen world no longer match the controls — so the Freeze button is only ever enabled
- *  for the world currently previewed. Any non-`done` phase is returned unchanged (same ref). */
-export function invalidateDonePreview(
-  session: GenerationSession,
-): GenerationSession {
-  return session.status.phase === "done"
-    ? { ...session, status: { phase: "idle" } }
-    : session;
-}
-
-/** UI-boundary mirror of bake.ts's WING_NAME_RE — refuse before burning a bake. Reused by
- *  the world flow for the world-name field (same FS/URL-safe rule). */
-export function isValidWingName(name: string): boolean {
-  return /^[a-z0-9][a-z0-9_-]*$/i.test(name);
-}
-
-// ── W3 world flow (the active cockpit) ─────────────────────────────────────────
+// ── The world flow ─────────────────────────────────────────────────────────────
 // The panel assembles a WorldDraft (world-draft.ts); realize stays DETERMINISTIC
 // (realizeWorldSpec — no search), so it carries no attempt/envelope semantics: one
 // Generate → one payload → preview. `previewing` snapshots the FULL SPEC that produced
@@ -106,6 +47,11 @@ export function invalidateWorldPreview(s: WorldGenSession): WorldGenSession {
   return s.status.phase === "previewing"
     ? { ...s, status: { phase: "idle" } }
     : s;
+}
+
+/** UI-boundary mirror of bake.ts's WORLD_NAME_RE — refuse before burning a bake. */
+export function isValidWorldName(name: string): boolean {
+  return /^[a-z0-9][a-z0-9_-]*$/i.test(name);
 }
 
 /** The daemon upload sequence for a world bake (D-W3-9): the world's own file set,
@@ -240,58 +186,4 @@ export function layoutBounds(regions: Bounded[]): [Vec3, Vec3] {
     [minX, minY, minZ],
     [maxX, maxY, maxZ],
   ];
-}
-
-/** One measured envelope row (structural mirror of the dungeon's CockpitEnvelopeRow —
- *  the panel reads the table off the untyped `ext` seam). */
-export type EnvelopeRow = {
-  rooms: number;
-  singleShot: number;
-  attempts: number;
-  projected: number;
-};
-
-/** The measured row for a rooms value; undefined off-table (callers clamp first). */
-export function envelopeRowFor(
-  envelope: readonly EnvelopeRow[],
-  rooms: number,
-): EnvelopeRow | undefined {
-  return envelope.find((r) => r.rooms === rooms);
-}
-
-/** Clamp a typed rooms value to the measured envelope: integer, within the table's
- *  [first, last] range (setup-loud UI boundary — out-of-envelope is refused at
- *  commit, never fail-slow-searched). Assumes a CONTIGUOUS table (every integer in
- *  [first, last] is a real row — enforced by COCKPIT_ENVELOPE's shape test), so a
- *  clamped in-range value always resolves to an actual measured row. */
-export function clampRooms(
-  envelope: readonly EnvelopeRow[],
-  v: number,
-): number {
-  const first = envelope[0];
-  const last = envelope[envelope.length - 1];
-  const n = Math.round(v);
-  if (!first || !last) return n;
-  return Math.min(Math.max(n, first.rooms), last.rooms);
-}
-
-/** Loop-chance UI bound: above this the placer struggles to satisfy cycles (the
- *  pre-3.2.3 panel constant, now beside the clamp that enforces it). */
-export const MAX_LOOP = 0.6;
-const LOOP_SNAP = 0.05;
-
-/** Clamp a typed loop-chance to [0, MAX_LOOP], snapped to the 0.05 knob step
- *  (two-decimal rounding kills float noise like 0.35000000000000003). */
-export function clampLoop(v: number): number {
-  const snapped = Math.round(v / LOOP_SNAP) * LOOP_SNAP;
-  const clamped = Math.min(Math.max(snapped, 0), MAX_LOOP);
-  return Number(clamped.toFixed(2));
-}
-
-/** The reliability line under the Rooms knob — honest, measured, low-yield-aware. */
-export function reliabilityText(row: EnvelopeRow | undefined): string {
-  if (!row) return "";
-  const pct = Math.round(row.projected * 100);
-  const base = `${row.rooms} rooms: ~${pct}% within ${row.attempts} attempts (measured)`;
-  return row.projected < 0.9 ? `${base} — low-yield size` : base;
 }
