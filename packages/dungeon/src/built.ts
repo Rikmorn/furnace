@@ -6,10 +6,10 @@
 // isosurface knowledge beyond "the bore fits inside `envelope`". Mining engineering
 // grounds the idiom AND the names: a "portal" is the built structure at a tunnel mouth,
 // a "collar" its framing (docs/research/2026-07-03-dungeon-2.2.5b-b1-built-interfaces.md §1).
+// Masonry collar/cap builders for organic cave mouths (the built↔organic seam's built side).
 import { quat, vec3 } from "@furnace/core/transform";
-import { aabbOfBoxes, transformAabb } from "./aabb.ts";
+import { aabbOfBoxes, type Box, transformAabb } from "./aabb.ts";
 import type { Aabb, Connection, Vec3 } from "./region.ts";
-import type { Box } from "./themes/box-room.ts";
 
 const COLLAR_EMBED = 0.8; // depth sunk into the bore, along −facing (m) — GATE-TUNE
 const COLLAR_PROUD = 0.4; // depth proud of the rock face, along +facing (m) — GATE-TUNE

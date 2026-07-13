@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { aabbIntersects, aabbOfBoxes, transformAabb } from "../src/aabb.ts";
+import { aabbOfBoxes, aabbUnion, transformAabb } from "../src/aabb.ts";
 
 test("aabbOfBoxes envelopes unrotated boxes", () => {
   const b = aabbOfBoxes([
@@ -25,17 +25,13 @@ test("aabbOfBoxes accounts for a rotated box (pitch about X widens Y/Z)", () => 
   expect(b.max[0]).toBeCloseTo(0.5, 5); // X untouched by X-pitch
 });
 
-test("aabbIntersects: overlap yes, touch/eps no, disjoint no", () => {
-  const a = {
-    min: [0, 0, 0] as [number, number, number],
-    max: [2, 2, 2] as [number, number, number],
-  };
-  expect(aabbIntersects(a, { min: [1, 1, 1], max: [3, 3, 3] })).toBe(true);
-  expect(aabbIntersects(a, { min: [2, 0, 0], max: [4, 2, 2] })).toBe(false); // exact touch
-  expect(aabbIntersects(a, { min: [2.0005, 0, 0], max: [4, 2, 2] })).toBe(
-    false,
-  ); // within EPS
-  expect(aabbIntersects(a, { min: [5, 5, 5], max: [6, 6, 6] })).toBe(false);
+test("aabbUnion covers both inputs", () => {
+  const u = aabbUnion(
+    { min: [0, 0, 0], max: [2, 2, 2] },
+    { min: [-1, 1, 3], max: [1, 4, 5] },
+  );
+  expect(u.min).toEqual([-1, 0, 0]);
+  expect(u.max).toEqual([2, 4, 5]);
 });
 
 test("transformAabb rotates about Y then translates (conservative)", () => {

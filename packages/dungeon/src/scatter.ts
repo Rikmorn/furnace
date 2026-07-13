@@ -89,11 +89,10 @@ export type FloorRect = {
   y: number;
 };
 
-/** A flat axis-aligned floor rectangle as a `SampleableSurface` — for box-room
- *  themes that scatter on a plane instead of a Surface-Nets mesh. Samples
- *  uniformly across the rect at height `y`; the surface normal is always +Y so
- *  `scatter`'s floor slope-mask accepts it. The XZ-extent is `[minX,maxX] ×
- *  [z0,z1]`. */
+/** A flat axis-aligned floor rectangle as a `SampleableSurface` — for themes that
+ *  scatter on a plane instead of a Surface-Nets mesh. Samples uniformly across the
+ *  rect at height `y`; the surface normal is always +Y so `scatter`'s floor
+ *  slope-mask accepts it. The XZ-extent is `[minX,maxX] × [z0,z1]`. */
 export function rectSurface(rect: FloorRect): SampleableSurface {
   const w = rect.maxX - rect.minX;
   const d = rect.z1 - rect.z0;
