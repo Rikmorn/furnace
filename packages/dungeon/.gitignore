@@ -1,6 +1,3 @@
-# Baked generated wings are user-generated content (cockpit output), never committed.
-regions/generated-wing/
-
 # Baked worlds are cockpit output. The committed default world (worlds/default/)
 # and the worlds index (worlds/index.json) are fixtures; other worlds/<name>/ are
 # local user bakes, never committed.
