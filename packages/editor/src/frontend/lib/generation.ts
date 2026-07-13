@@ -210,7 +210,9 @@ export function mergeContents(
   };
 }
 
-type Vec3 = [number, number, number];
+/** A world-frame point. The ONE spelling the cockpit uses — the panel's preview pieces
+ *  and layoutBounds' AABBs are the same triple. */
+export type Vec3 = [number, number, number];
 type Bounded = { bounds: { min: Vec3; max: Vec3 } };
 
 // A sane unit box when there is nothing to frame (an all-connectors-only edge case).

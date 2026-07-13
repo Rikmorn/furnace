@@ -1,9 +1,8 @@
 // The World panel (W3): the Generation panel generalized into world ASSEMBLY (charter
 // §2.4). Region list (attach-on-add, per-region reroll/remove), start picker, name +
 // Generate / Freeze&bake + make-default. All structure lives in the pure world-draft
-// model; this component is the thin React shell + the two engine seams (preview realize
-// on the main thread, runWorld/bakeWorld on the worker).
-import { useState } from "react";
+// model; this file is the shell — the four flows (previewWorld / generateFrom /
+// rerollRegion / freeze) plus layout. The rows and the add-form live in ./world-panel/.
 import type { PreviewHost } from "../../viewport-host/index.ts"; // type-only: erased
 import { api } from "../lib/api.ts";
 import { cn } from "../lib/cn.ts";
@@ -15,59 +14,31 @@ import {
   mergeContents,
   type RealizeResult,
   toWireFiles,
+  type Vec3,
   type WorldGenStatus,
 } from "../lib/generation.ts";
 import {
   addRegion,
   bumpRegionSeed,
   canRemove,
-  type ConnectorKindDraft,
-  DEFAULT_KNOBS,
-  type DraftAlgorithm,
-  type DraftAttachment,
-  type DraftRegion,
   draftToSpec,
-  HALL_PRESET_KNOBS,
-  legalKinds,
-  nextRegionId,
-  type PortalSpot,
   removeRegion,
-  type WallName,
   type WorldDraft,
   type WorldSpecLike,
 } from "../lib/world-draft.ts";
 import { useEditor } from "./editor-context.ts";
 import { Button } from "./ui/button.tsx";
 import { Input } from "./ui/input.tsx";
+import { AddRegionForm } from "./world-panel/AddRegionForm.tsx";
+import { errorMessage, Field, SELECT_CLASS } from "./world-panel/fields.tsx";
+import { RegionRow } from "./world-panel/RegionRow.tsx";
 
 // The minimal structural shape of ONE placed piece the panel realizes. The world payload
 // crosses the worker boundary opaquely (only this seam reads inside it): each piece is a
 // placed RegionData whose `bounds` feed layoutBounds and whose whole `data` passes to
 // realizeRegion (typed `unknown` at the ext cast).
-type Vec3 = [number, number, number];
 type PreviewPiece = { id: string; data: { bounds: { min: Vec3; max: Vec3 } } };
 type WorldRunPayload = { regions: PreviewPiece[]; connectors: PreviewPiece[] };
-
-type HallPreset = keyof typeof HALL_PRESET_KNOBS;
-type HallRegion = Extract<DraftRegion, { algorithm: "hall" }>;
-type MazeRegion = Extract<DraftRegion, { algorithm: "maze" }>;
-type CaveRegion = Extract<DraftRegion, { algorithm: "cave" }>;
-
-const WALLS: WallName[] = ["north", "south", "east", "west"];
-// Derived from the table (not a hand-written literal) so a new preset in world-draft.ts
-// shows up here without an edit. Object.keys() is typed `string[]` because a runtime
-// object may carry extra keys; this one is a closed Record literal, so the keys ARE its
-// keyof — the assertion states what the table's type already proves.
-const HALL_PRESETS = Object.keys(HALL_PRESET_KNOBS) as HallPreset[];
-// The hall's three size axes, carried with LITERAL tuple indices so knob edits index the
-// [number, number, number] without a widened `number` (noUncheckedIndexedAccess).
-const HALL_AXES = [
-  { label: "w (cells)", axis: 0 },
-  { label: "h (cells)", axis: 1 },
-  { label: "d (cells)", axis: 2 },
-] as const;
-
-const SELECT_CLASS = "h-8 rounded-md border border-input bg-transparent px-2";
 
 function statusText(s: WorldGenStatus): string {
   switch (s.phase) {
@@ -87,9 +58,6 @@ function statusText(s: WorldGenStatus): string {
       return `failed: ${s.error}`;
   }
 }
-
-const errorMessage = (err: unknown): string =>
-  err instanceof Error ? err.message : String(err);
 
 export function WorldPanel() {
   const { state, dispatch, previewHostRef, extensions, generation } =
@@ -145,9 +113,20 @@ export function WorldPanel() {
       (p) => p.data,
     );
     const results: RealizeResult[] = [];
-    // Sequential (`for … await`): the MaterialCache is not concurrency-safe (its TSDoc).
-    for (const r of pieces) {
-      results.push(await ext.realizeRegion(host.ctx(), host.world(), cache, r));
+    try {
+      // Sequential (`for … await`): the MaterialCache is not concurrency-safe (its TSDoc).
+      for (const r of pieces) {
+        results.push(
+          await ext.realizeRegion(host.ctx(), host.world(), cache, r),
+        );
+      }
+    } catch (err) {
+      // The host only frees what it has ADOPTED, and adopt() is below — so a throw partway
+      // through would strand every already-realized region's GPU buffers plus the cache,
+      // unreachable, once per failed generate. Free them here, then let the failure surface.
+      for (const r of results) r.destroy();
+      cache.destroy();
+      throw err;
     }
     host.adopt(mergeContents(results, cache));
     const [min, max] = layoutBounds(pieces);
@@ -215,6 +194,9 @@ export function WorldPanel() {
             }
             setStatus({
               phase: "baked",
+              // Call 0 only: that is the WORLD's file set — what the user made. The
+              // optional second call writes worlds/index.json, which is bookkeeping and
+              // would otherwise inflate the count by one.
               files: results[0]?.files ?? 0,
               madeDefault: makeDefault,
             });
@@ -242,12 +224,12 @@ export function WorldPanel() {
   // screen to freeze. Freeze reads this exclusively — never the live draft.
   const previewing =
     session.status.phase === "previewing" ? session.status : undefined;
+  const failed = session.status.phase === "failed";
   const nameValid = isValidWingName(draft.name);
 
   return (
     <div className="flex h-full flex-col gap-3 overflow-auto p-3 text-sm">
-      <label className="flex flex-col gap-1">
-        <span className="text-muted-foreground">World Name</span>
+      <Field label="World Name">
         <Input
           type="text"
           value={draft.name}
@@ -256,7 +238,7 @@ export function WorldPanel() {
           aria-invalid={!nameValid}
           className={cn(!nameValid && "border-destructive")}
         />
-      </label>
+      </Field>
 
       {draft.regions.map((r) => (
         <RegionRow
@@ -281,8 +263,7 @@ export function WorldPanel() {
         onAdd={(region) => applyDraft(addRegion(draft, region))}
       />
 
-      <label className="flex flex-col gap-1">
-        <span className="text-muted-foreground">Player start</span>
+      <Field label="Player start">
         <select
           className={SELECT_CLASS}
           value={draft.startRegionId}
@@ -297,7 +278,7 @@ export function WorldPanel() {
             </option>
           ))}
         </select>
-      </label>
+      </Field>
 
       <div className="flex flex-wrap items-center gap-2">
         <Button
@@ -346,501 +327,17 @@ export function WorldPanel() {
         </span>
       </label>
 
-      {/* Always-rendered STABLE aria-live region so each phase change (generating →
-          previewing → baked/failed) is announced to assistive tech. */}
-      <p className="text-muted-foreground" aria-live="polite">
+      {/* ONE always-rendered live region, so every phase change (generating → previewing →
+          baked/failed) is announced. A failure is not a status hint — it reads destructive
+          and escalates to assertive, because the two reachable failures (an unattached grid
+          anchor; two children on one portal) leave the preview canvas BLANK, and a grey
+          line beside an empty viewport says nothing. */}
+      <p
+        className={cn(failed ? "text-destructive" : "text-muted-foreground")}
+        aria-live={failed ? "assertive" : "polite"}
+      >
         {statusText(session.status)}
       </p>
-    </div>
-  );
-}
-
-// ── Region row: seed, per-algorithm knobs, reroll/remove ───────────────────────
-
-/** A number field's value, falling back when the field is mid-edit (empty / "-" / NaN). */
-const num = (v: string, fallback: number): number => {
-  const n = Number(v);
-  return Number.isFinite(n) ? n : fallback;
-};
-
-function RegionRow(props: {
-  region: DraftRegion;
-  removable: boolean;
-  busy: boolean;
-  onEdit: (next: DraftRegion) => void;
-  onReroll: () => void;
-  onRemove: () => void;
-}) {
-  const { region: r, removable, busy, onEdit, onReroll, onRemove } = props;
-  return (
-    <div className="flex flex-col gap-2 rounded-md border border-border p-2">
-      <div className="flex items-center justify-between">
-        <span className="font-medium">
-          {r.id} <span className="text-muted-foreground">({r.algorithm})</span>
-        </span>
-        <div className="flex gap-1">
-          <Button
-            type="button"
-            variant="secondary"
-            size="sm"
-            disabled={busy}
-            onClick={onReroll}
-          >
-            Reroll
-          </Button>
-          <Button
-            type="button"
-            variant="secondary"
-            size="sm"
-            disabled={busy || !removable}
-            title={
-              removable
-                ? undefined
-                : "has attached regions — remove its leaves first"
-            }
-            onClick={onRemove}
-          >
-            Remove
-          </Button>
-        </div>
-      </div>
-      <label className="flex flex-col gap-1">
-        <span className="text-muted-foreground">{r.id} seed</span>
-        <Input
-          type="text"
-          value={r.seed}
-          disabled={busy}
-          onChange={(e) => onEdit({ ...r, seed: e.target.value })}
-        />
-      </label>
-      {/* Knobs are REPLACED, never mutated: the preset tables are deep-frozen, and a
-          region seeded from one would otherwise alias it (world-draft.ts). */}
-      {r.algorithm === "hall" && (
-        <HallKnobFields region={r} busy={busy} onEdit={onEdit} />
-      )}
-      {r.algorithm === "maze" && (
-        <MazeKnobFields region={r} busy={busy} onEdit={onEdit} />
-      )}
-      {r.algorithm === "cave" && (
-        <CaveKnobFields region={r} busy={busy} onEdit={onEdit} />
-      )}
-    </div>
-  );
-}
-
-function HallKnobFields(props: {
-  region: HallRegion;
-  busy: boolean;
-  onEdit: (next: HallRegion) => void;
-}) {
-  const { region: r, busy, onEdit } = props;
-  const withAxis = (axis: 0 | 1 | 2, value: number): HallRegion["knobs"] => {
-    const size: [number, number, number] = [...r.knobs.size];
-    size[axis] = value;
-    return { ...r.knobs, size };
-  };
-  return (
-    <div className="flex gap-2">
-      {HALL_AXES.map(({ label, axis }) => (
-        <label key={label} className="flex flex-col gap-1">
-          <span className="text-muted-foreground">{label}</span>
-          <Input
-            type="number"
-            value={r.knobs.size[axis]}
-            disabled={busy}
-            onChange={(e) =>
-              onEdit({
-                ...r,
-                knobs: withAxis(
-                  axis,
-                  num(e.target.value, r.knobs.size[axis]),
-                ),
-              })
-            }
-          />
-        </label>
-      ))}
-    </div>
-  );
-}
-
-function MazeKnobFields(props: {
-  region: MazeRegion;
-  busy: boolean;
-  onEdit: (next: MazeRegion) => void;
-}) {
-  const { region: r, busy, onEdit } = props;
-  const [cellsX, cellsZ] = r.knobs.cells;
-  return (
-    <div className="flex gap-2">
-      <label className="flex flex-col gap-1">
-        <span className="text-muted-foreground">cells x</span>
-        <Input
-          type="number"
-          value={cellsX}
-          disabled={busy}
-          onChange={(e) =>
-            onEdit({
-              ...r,
-              knobs: {
-                ...r.knobs,
-                cells: [num(e.target.value, cellsX), cellsZ],
-              },
-            })
-          }
-        />
-      </label>
-      <label className="flex flex-col gap-1">
-        <span className="text-muted-foreground">cells z</span>
-        <Input
-          type="number"
-          value={cellsZ}
-          disabled={busy}
-          onChange={(e) =>
-            onEdit({
-              ...r,
-              knobs: {
-                ...r.knobs,
-                cells: [cellsX, num(e.target.value, cellsZ)],
-              },
-            })
-          }
-        />
-      </label>
-      <label className="flex flex-col gap-1">
-        <span className="text-muted-foreground">braid</span>
-        <Input
-          type="number"
-          step="0.05"
-          value={r.knobs.braid}
-          disabled={busy}
-          onChange={(e) =>
-            onEdit({
-              ...r,
-              knobs: { ...r.knobs, braid: num(e.target.value, r.knobs.braid) },
-            })
-          }
-        />
-      </label>
-    </div>
-  );
-}
-
-function CaveKnobFields(props: {
-  region: CaveRegion;
-  busy: boolean;
-  onEdit: (next: CaveRegion) => void;
-}) {
-  const { region: r, busy, onEdit } = props;
-  return (
-    <label className="flex flex-col gap-1">
-      <span className="text-muted-foreground">mouths</span>
-      <Input
-        type="number"
-        value={r.knobs.mouths}
-        disabled={busy}
-        onChange={(e) =>
-          onEdit({
-            ...r,
-            knobs: { mouths: num(e.target.value, r.knobs.mouths) },
-          })
-        }
-      />
-    </label>
-  );
-}
-
-// ── Add-region form: algorithm + knob defaults + the ATTACHMENT (D-W3-7) ───────
-
-/** Both ends of a candidate attachment are edited as ONE row of fields; which of them the
- *  region's class actually reads (wall+offset, or mouth) is decided at submit. */
-type SpotState = { wall: WallName; offset: number; mouth: number };
-
-const spotFor = (algorithm: DraftAlgorithm, s: SpotState): PortalSpot =>
-  algorithm === "cave"
-    ? { mouth: s.mouth }
-    : { wall: s.wall, offset: s.offset };
-
-function SpotFields(props: {
-  label: string;
-  algorithm: DraftAlgorithm | undefined;
-  spot: SpotState;
-  setSpot: (s: SpotState) => void;
-  busy: boolean;
-}) {
-  const { label, algorithm, spot, setSpot, busy } = props;
-  if (algorithm === "cave") {
-    return (
-      <label className="flex flex-col gap-1">
-        <span className="text-muted-foreground">{label} mouth</span>
-        <Input
-          type="number"
-          value={spot.mouth}
-          disabled={busy}
-          onChange={(e) =>
-            setSpot({ ...spot, mouth: num(e.target.value, spot.mouth) })
-          }
-        />
-      </label>
-    );
-  }
-  return (
-    <>
-      <label className="flex flex-col gap-1">
-        <span className="text-muted-foreground">{label} wall</span>
-        <select
-          className={SELECT_CLASS}
-          value={spot.wall}
-          disabled={busy}
-          onChange={(e) =>
-            // Boundary cast: a <select>'s value is a plain string; its options are exactly
-            // the WallName union, so the DOM's wider type narrows back to it here.
-            setSpot({ ...spot, wall: e.target.value as WallName })
-          }
-        >
-          {WALLS.map((w) => (
-            <option key={w} value={w}>
-              {w}
-            </option>
-          ))}
-        </select>
-      </label>
-      <label className="flex flex-col gap-1">
-        <span className="text-muted-foreground">{label} offset</span>
-        <Input
-          type="number"
-          value={spot.offset}
-          disabled={busy}
-          onChange={(e) =>
-            setSpot({ ...spot, offset: num(e.target.value, spot.offset) })
-          }
-        />
-      </label>
-    </>
-  );
-}
-
-function AddRegionForm(props: {
-  draft: WorldDraft;
-  busy: boolean;
-  onAdd: (region: DraftRegion) => void;
-}) {
-  const { draft, busy, onAdd } = props;
-  const [algorithm, setAlgorithm] = useState<DraftAlgorithm>("hall");
-  const [preset, setPreset] = useState<HallPreset>("pillarHall");
-  const [parentId, setParentId] = useState("");
-  const [kind, setKind] = useState<ConnectorKindDraft | "">("");
-  const [parentSpot, setParentSpot] = useState<SpotState>({
-    wall: "north",
-    offset: 2,
-    mouth: 0,
-  });
-  const [childSpot, setChildSpot] = useState<SpotState>({
-    wall: "south",
-    offset: 2,
-    mouth: 0,
-  });
-  const [corridor, setCorridor] = useState({ length: 6, deltaY: 0 });
-  // addRegion is setup-loud (e.g. "corridor cannot join hall -> cave"). The form disables
-  // the illegal choices it knows about, but a stale/edge selection must SAY so — never a
-  // silently dropped click.
-  const [error, setError] = useState("");
-
-  const first = draft.regions.length === 0;
-  const parent = draft.regions.find(
-    (r) => r.id === (parentId || draft.regions[0]?.id),
-  );
-  const kinds = parent ? legalKinds(parent.algorithm, algorithm) : [];
-  const effectiveKind = kind !== "" && kinds.includes(kind) ? kind : kinds[0];
-
-  // Each region OWNS its knobs: a fresh deep copy of the preset, never the (deep-frozen)
-  // table reference — an aliased knob edit would resize every hall in the world.
-  const freshRegion = (id: string, attachment?: DraftAttachment): DraftRegion => {
-    if (algorithm === "hall") {
-      return {
-        id,
-        algorithm: "hall",
-        knobs: structuredClone(HALL_PRESET_KNOBS[preset]),
-        seed: id,
-        attachment,
-      };
-    }
-    if (algorithm === "maze") {
-      return {
-        id,
-        algorithm: "maze",
-        knobs: structuredClone(DEFAULT_KNOBS.maze),
-        seed: id,
-        attachment,
-      };
-    }
-    return {
-      id,
-      algorithm: "cave",
-      knobs: structuredClone(DEFAULT_KNOBS.cave),
-      seed: id,
-      attachment,
-    };
-  };
-
-  const submit = (): void => {
-    const id = nextRegionId(draft, algorithm);
-    let attachment: DraftAttachment | undefined;
-    if (!first) {
-      if (!parent || !effectiveKind) return;
-      attachment = {
-        kind: effectiveKind,
-        parentId: parent.id,
-        parentPortal: spotFor(parent.algorithm, parentSpot),
-        childPortal: spotFor(algorithm, childSpot),
-        ...(effectiveKind === "corridor" ? { params: corridor } : {}),
-      };
-    }
-    try {
-      onAdd(freshRegion(id, attachment));
-      setError("");
-    } catch (err) {
-      setError(errorMessage(err));
-    }
-  };
-
-  return (
-    <div className="flex flex-col gap-2 rounded-md border border-dashed border-border p-2">
-      <span className="font-medium">Add region</span>
-      <div className="flex flex-wrap gap-2">
-        <label className="flex flex-col gap-1">
-          <span className="text-muted-foreground">algorithm</span>
-          <select
-            className={SELECT_CLASS}
-            value={algorithm}
-            disabled={busy}
-            // Boundary cast: the options are exactly the DraftAlgorithm union.
-            onChange={(e) => setAlgorithm(e.target.value as DraftAlgorithm)}
-          >
-            <option value="hall">hall</option>
-            <option value="maze">maze</option>
-            <option value="cave">cave</option>
-          </select>
-        </label>
-        {algorithm === "hall" && (
-          <label className="flex flex-col gap-1">
-            <span className="text-muted-foreground">preset</span>
-            <select
-              className={SELECT_CLASS}
-              value={preset}
-              disabled={busy}
-              // Boundary cast: the options are exactly HALL_PRESET_KNOBS' keys.
-              onChange={(e) => setPreset(e.target.value as HallPreset)}
-            >
-              {HALL_PRESETS.map((p) => (
-                <option key={p} value={p}>
-                  {p}
-                </option>
-              ))}
-            </select>
-          </label>
-        )}
-      </div>
-
-      {!first && (
-        <div className="flex flex-wrap gap-2">
-          <label className="flex flex-col gap-1">
-            <span className="text-muted-foreground">attach to</span>
-            <select
-              className={SELECT_CLASS}
-              value={parent?.id ?? ""}
-              disabled={busy}
-              onChange={(e) => setParentId(e.target.value)}
-            >
-              {draft.regions.map((r) => (
-                <option key={r.id} value={r.id}>
-                  {r.id}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="flex flex-col gap-1">
-            <span className="text-muted-foreground">connector</span>
-            <select
-              className={SELECT_CLASS}
-              value={effectiveKind ?? ""}
-              disabled={busy || kinds.length === 0}
-              // Boundary cast: the options are exactly the legal kinds for this pair.
-              onChange={(e) => setKind(e.target.value as ConnectorKindDraft)}
-            >
-              {kinds.map((k) => (
-                <option key={k} value={k}>
-                  {k}
-                </option>
-              ))}
-            </select>
-          </label>
-          <SpotFields
-            label="parent"
-            algorithm={parent?.algorithm}
-            spot={parentSpot}
-            setSpot={setParentSpot}
-            busy={busy}
-          />
-          <SpotFields
-            label="child"
-            algorithm={algorithm}
-            spot={childSpot}
-            setSpot={setChildSpot}
-            busy={busy}
-          />
-          {effectiveKind === "corridor" && (
-            <>
-              <label className="flex flex-col gap-1">
-                <span className="text-muted-foreground">length (m)</span>
-                <Input
-                  type="number"
-                  value={corridor.length}
-                  disabled={busy}
-                  onChange={(e) =>
-                    setCorridor({
-                      ...corridor,
-                      length: num(e.target.value, corridor.length),
-                    })
-                  }
-                />
-              </label>
-              <label className="flex flex-col gap-1">
-                <span className="text-muted-foreground">rise (m)</span>
-                <Input
-                  type="number"
-                  step="0.25"
-                  value={corridor.deltaY}
-                  disabled={busy}
-                  onChange={(e) =>
-                    setCorridor({
-                      ...corridor,
-                      deltaY: num(e.target.value, corridor.deltaY),
-                    })
-                  }
-                />
-              </label>
-            </>
-          )}
-        </div>
-      )}
-
-      <div>
-        <Button
-          type="button"
-          size="sm"
-          variant="secondary"
-          disabled={busy || (!first && (!parent || kinds.length === 0))}
-          onClick={submit}
-        >
-          Add region
-        </Button>
-      </div>
-      {error !== "" && (
-        <p className="text-destructive" role="alert">
-          {error}
-        </p>
-      )}
     </div>
   );
 }
