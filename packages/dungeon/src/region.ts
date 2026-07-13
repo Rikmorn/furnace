@@ -1,8 +1,5 @@
 import type { ShapeDescriptor } from "@furnace/core/physics";
 import type { MeshData } from "./surface-nets.ts";
-import { cave } from "./themes/cave.ts";
-import { greatHall } from "./themes/great-hall.ts";
-import { pillarHall } from "./themes/pillar-hall.ts";
 
 /** World-space 3-component vector as a tuple. */
 export type Vec3 = [number, number, number];
@@ -157,12 +154,3 @@ export type ThemeGenerator = (params: RegionParams) => RegionData;
 
 /** Monotonically increasing schema version stamped into every region's provenance. */
 export const GENERATOR_VERSION = 2;
-
-/** Map from theme name to its generator function.
- *  All three entries are always present; stub generators return empty RegionData
- *  until their respective Tasks replace them with real implementations. */
-export const themes: Record<ThemeName, ThemeGenerator> = {
-  cave,
-  pillarHall,
-  greatHall,
-};
