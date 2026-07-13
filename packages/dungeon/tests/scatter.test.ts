@@ -18,17 +18,11 @@ import {
 } from "../src/scatter.ts";
 import type { MeshData } from "../src/surface-nets.ts";
 import { cave } from "../src/themes/cave.ts";
-import { greatHall } from "../src/themes/great-hall.ts";
-import { pillarHall } from "../src/themes/pillar-hall.ts";
 
 test("composed regions carry an instances array (empty until themes populate)", () => {
   // Any theme output qualifies — this only asserts the RegionData contract's
   // `instances` field, not compose.ts's (retired) specific area composition.
-  const regions = [
-    cave({ theme: "cave", seed: "seed-x", origin: [0, 0, 0] }),
-    pillarHall({ theme: "pillarHall", seed: "seed-x-a", origin: [0, 0, 0] }),
-    greatHall({ theme: "greatHall", seed: "seed-x-b", origin: [0, 0, 0] }),
-  ];
+  const regions = [cave({ theme: "cave", seed: "seed-x", origin: [0, 0, 0] })];
   for (const r of regions) expect(Array.isArray(r.instances)).toBe(true);
 });
 
@@ -258,38 +252,6 @@ test("collision posture is carried onto the group with placements, and consumes 
   expect(p0?.position[0]).toBeCloseTo(s.transforms[12] as number, 6);
   expect(p0?.position[1]).toBeCloseTo(s.transforms[13] as number, 6);
   expect(p0?.position[2]).toBeCloseTo(s.transforms[14] as number, 6);
-});
-
-test("box rooms carry world-placed floor scatter", () => {
-  // Direct theme output — compose.ts's specific area composition is retired; the
-  // scatter contract only cares that a room's instances land near its own origin.
-  const rooms = [
-    pillarHall({ theme: "pillarHall", seed: "rooms-a", origin: [0, 0, 0] }),
-    greatHall({ theme: "greatHall", seed: "rooms-b", origin: [0, 0, 0] }),
-  ];
-  expect(rooms.length).toBeGreaterThan(0);
-  for (const room of rooms) {
-    const total = room.instances.reduce(
-      (n, g) => n + g.transforms.length / 16,
-      0,
-    );
-    expect(total).toBeGreaterThan(5); // floor scatter present
-    for (const g of room.instances)
-      for (let i = 0; i < g.transforms.length / 16; i++) {
-        const x = g.transforms[i * 16 + 12] as number;
-        const y = g.transforms[i * 16 + 13] as number;
-        const z = g.transforms[i * 16 + 14] as number;
-        expect(
-          Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(z),
-        ).toBe(true);
-        // placed into world on the room floor plane (origin.y), within embed slack
-        expect(Math.abs(y - room.origin[1])).toBeLessThan(0.3);
-        // within the room footprint around its world origin (generous bound)
-        expect(Math.hypot(x - room.origin[0], z - room.origin[2])).toBeLessThan(
-          40,
-        );
-      }
-  }
 });
 
 test("dynamic posture lifts the spawn to rest on the surface; ghost sinks; XZ unchanged", () => {

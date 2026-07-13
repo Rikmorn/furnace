@@ -290,9 +290,9 @@ test("W3 plug point: a maze region realizes through the same grid pipeline as ha
 // vocabulary-agnostic by design, so the theme rides on the stamp (`GridStamp.theme`) and the
 // expand path just copies it. Before this was fixed the theme was the hard-coded literal
 // "hall", so a realized maze claimed to BE a hall — and `RegionKind` had no `"maze"` member,
-// so a maze could not have reported correctly even if the code had tried. Existing consumers
-// already dispatch on `provenance.theme` (traversal.gpu, area-traversal.gpu,
-// bake-dressing-parity), and TypeScript would have raised nothing.
+// so a maze could not have reported correctly even if the code had tried. Provenance is the
+// region's own self-report and nothing type-checks it against the stamp that produced it, so
+// this test is what holds the two together.
 test("grid provenance names the stamping vocabulary (hall → hall, maze → maze)", () => {
   const w = realizeWorldSpec(DEFAULT_WORLD);
   expect(w.regions.get("hall-a")?.provenance.theme).toBe("hall");
