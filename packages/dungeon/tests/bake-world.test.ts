@@ -1,5 +1,6 @@
 // packages/dungeon/tests/bake-world.test.ts
 import { describe, expect, test } from "bun:test";
+import { validateDocument } from "@furnace/core/scene";
 import {
   type BakeFile,
   bakeWorld,
@@ -68,8 +69,12 @@ const normalize = (files: BakeFile[]) =>
   }));
 
 describe("bakeWorld", () => {
-  // (i) manifest is LAST; every other emitted path lives under worlds/<name>/.
-  test("emits under worlds/<name>/ with manifest.json LAST", () => {
+  // (i) manifest is LAST; every other emitted path lives under worlds/<name>/; and the
+  // merged doc validates against the core loader schema. That last check runs OFF the GPU
+  // lane on purpose: at load the schema is only enforced implicitly inside `loadScene`,
+  // reached solely from the WebGPU-gated world-loader test — so without this assertion a
+  // schema-invalid `appendPiece` output would ship unnoticed on any lane lacking bun-webgpu.
+  test("emits under worlds/<name>/ with manifest.json LAST; merged doc is schema-valid", () => {
     const files = bakeWorld(DEFAULT_WORLD);
     expect(files.length).toBeGreaterThan(0);
     for (const f of files) expect(f.path.startsWith(`${DIR}/`)).toBe(true);
@@ -79,6 +84,14 @@ describe("bakeWorld", () => {
     // The manifest is the ONLY manifest, and it is genuinely last (crash-safety contract).
     const manifestPaths = files.filter((f) => f.path.endsWith("manifest.json"));
     expect(manifestPaths.length).toBe(1);
+
+    // @furnace/core/scene auto-registers built-ins on import, and validateDocument does no
+    // fetch, so the `.fmesh` sidecar refs validate here without touching the filesystem.
+    const scene = files.find((f) => f.path.endsWith("world.scene.json"));
+    expect(scene).toBeDefined();
+    expect(() =>
+      validateDocument(JSON.parse(scene?.contents as string)),
+    ).not.toThrow();
   });
 
   // (ii) Re-bake parity — deterministic: two calls produce byte-identical file sets (same

@@ -1,17 +1,18 @@
 // packages/dungeon/src/bake.ts
-// The world-writer (Epic 3 W1, generalized from the retired wing baker): regenerate a
-// declarative world from its spec and emit the baked artifact set. PURE — no FS; the
-// editor daemon (or a test) owns the writes.
+// The world-writer (Epic 3 W1): regenerate a declarative world from its spec and emit
+// the baked artifact set. PURE — no FS; the editor daemon (or a test) owns the writes.
 //
 // The WHOLE world bakes to ONE render-only `world.scene.json` (all regions AND
 // connectors merged into a single SceneDocument; resource keys are piece-prefixed so
-// pieces can't collide). It carries NO rigidBody components: colliders re-expand at
-// load from provenance (voxel shapes never serialize — proxies re-expand; grid
-// regions re-expand render + collision wholesale). Custom (Surface-Nets) meshes ship
-// as `.fmesh` sidecars carrying LOCAL vertices; the entity transform positions them
-// in world (the 3.0 baker convention — avoids a double-offset). The manifest is
-// written LAST (crash-safety: an interrupted bake leaves no manifest, so a torn
-// world never loads).
+// pieces can't collide). That doc carries NO rigidBody components — collision rides
+// the MANIFEST instead, per region class: a field-organic (cave) region ships a
+// world-frame cuboid list plus a voxel proxy re-expanded at load from its provenance,
+// while a grid-built (hall|maze) region ships `cuboids: []` and re-expands render AND
+// collision wholesale at load. Voxel shapes themselves never serialize. Custom
+// (Surface-Nets) meshes ship as `.fmesh` sidecars carrying LOCAL vertices; the entity
+// transform positions them in world (the 3.0 baker convention — avoids a
+// double-offset). The manifest is written LAST (crash-safety: an interrupted bake
+// leaves no manifest, so a torn world never loads).
 import {
   CURRENT_SCENE_VERSION,
   type EntityDoc,
@@ -147,9 +148,9 @@ export type WorldManifest = {
 };
 
 /**
- * Bake one declarative world to a file set. Merged-doc / sidecar / manifest-LAST conventions:
- * geometry is sourced from the deterministic (search-free) `realizeWorldSpec` rather than a
- * placement search, so no seed/attempt/deadline knobs apply.
+ * Bake one declarative world to a file set: `realizeWorldSpec` resolves the spec into placed
+ * geometry, which this folds into the merged doc + sidecars and indexes from a manifest
+ * written LAST.
  *
  * PURE and DETERMINISTIC: returns files, writes nothing, and emits no timestamp (the manifest
  * omits `bakedAt`) — two calls with the same spec produce a byte-identical file set. Regions
@@ -285,8 +286,8 @@ export function bakeWorld(
     // No bakedAt — a timestamp would break the deterministic re-bake contract.
     provenance: { generatorVersion: GENERATOR_VERSION },
   };
-  // LAST — the crash-safety contract: an interrupted bake leaves no manifest,
-  // so the loader falls back to live generation and a torn world never loads.
+  // LAST — the crash-safety contract: an interrupted bake leaves no manifest, and the
+  // loader throws on a missing manifest, so a torn world never loads.
   files.push({
     path: `${dir}/manifest.json`,
     contents: JSON.stringify(manifest, null, 2),
@@ -297,7 +298,7 @@ export function bakeWorld(
 /** Reconstruct a connector's re-expansion entry (kind-union): its PLACED world-frame portals
  *  (`a`/`b` — the exact `Connection`s the volume was built from) plus its spec endpoint refs
  *  (`aRef`/`bRef`, which the loader groups region mutations by). Bore kinds also carry the
- *  tunnel opts Task 3 built them with; corridor/aperture carry nothing extra. */
+ *  tunnel opts their volume was built with; corridor/aperture carry nothing extra. */
 function worldConnectorEntry(
   connector: WorldConnectorSpec,
   realized: RealizedWorld,
