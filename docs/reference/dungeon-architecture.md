@@ -1,6 +1,6 @@
 # Dungeon architecture — as built
 
-The `packages/dungeon` demo as it IS (post Epic 2 closure + Epic 3 through 3.3 W3,
+The `packages/dungeon` demo as it IS (post Epic 2 closure + Epic 3 through 3.3,
 2026-07-13). Chronological seal history: `docs/learnings/seal-log.md`. Deferred work:
 `docs/backlog/dungeon/`. This doc is current-state; when it disagrees with source, the
 source wins — update this doc in the same change.
@@ -10,8 +10,8 @@ source wins — update this doc in the same change.
 Editor-time generation may use search-class algorithms — a human with reroll, caps, and
 curation tools absorbs failure. Runtime generation is restricted to
 construction-guaranteed or degrade-never-fail vocabularies via generator entities; the
-guarantee class is an explicit, setup-loud field on the (future, 3.3) socket contract.
-The cockpit loop shipped in 3.1: generate → reroll → freeze & bake → walk.
+guarantee class is an explicit, setup-loud field on the (future) socket contract.
+The editor cockpit's loop shipped in 3.1: generate → reroll → freeze & bake → walk.
 
 ## 2. The game (`main.ts`)
 
@@ -31,8 +31,8 @@ The cockpit loop shipped in 3.1: generate → reroll → freeze & bake → walk.
   collar-bore ↔ cave. A dev load banner logs
   world name + region seeds (the bake's identity — `bakedAt` is deliberately absent
   for byte-deterministic re-bakes).
-- The hand-authored level (`level.ts`) and the wing path are RETIRED from `main.ts`
-  (3.3 W1); their modules and tests remain in-tree until the W4 clean-cut sweep.
+- **`loadWorld` is the ONLY boot path.** There is no hand-authored level and no
+  live-generation fallback: the game is exactly what the baked world says it is.
 - Torch point light, motes, HDR `bloom→tonemap` + exponential fog (density 0.12,
   clear color = fog color).
 - Player: Rapier capsule (`kinematicPosition`) driven by the custom `CharacterMover`;
@@ -54,10 +54,11 @@ The cockpit loop shipped in 3.1: generate → reroll → freeze & bake → walk.
   limit. Voxels are a confirmed BRIDGE around Rapier trimesh ghost collisions; endgame
   = collide the render mesh on Jolt (`docs/backlog/engine-architecture/jolt-backend-swap.md`,
   `docs/learnings/jolt-mesh-collision-spike.md`).
-- **Walkability is single-sourced** in `walkability.ts` (`STEP_HEIGHT` 0.4,
-  `STEP_MARGIN`, `SLOPE_LIMIT_RAD`, `RAMP_MOUNT_LIMIT_RAD` 45° — caps `chooseKind`'s
-  ramp band below the empirical mount ceiling) — read by `char-move.ts`,
-  `themes/box-room.ts`, and the router, so connectors are walkable by construction
+- **Walkability is single-sourced** in `walkability.ts` — `STEP_HEIGHT` 0.4 (the
+  auto-step ceiling; sizes the step-up sweep and the ground-snap reach) and
+  `SLOPE_LIMIT_COS` (55°, which normals count as ground). `char-move.ts` reads both;
+  the voxel grids size their anisotropic Y cell below `STEP_HEIGHT`, and the built
+  stair rise (0.25) sits under it, so climbable-by-construction holds
   (`GROUND_SNAP >= STEP_HEIGHT` is unit-asserted).
 
 ## 4. The generator library (the cockpit consumes it; the game and scripts too)
@@ -65,16 +66,22 @@ The cockpit loop shipped in 3.1: generate → reroll → freeze & bake → walk.
 **Region contract (`region.ts`)** — themes are pure `(RegionParams) → RegionData`:
 meshes + colliders + materials + `Connection`s + instanced dressing + `bounds`
 (+ optional tight `envelopes` for mostly-air pieces) + provenance. `Connection.kind`:
-`door` (built, standardized — the only kind edges/route accept) vs `tunnel-mouth`
-(raw organic, pre-collar). Doors standardize at **2.0 × 2.8** and sit at the CENTRE of
-their wall's thickness (flush tube ends bury half a wall — sealed by construction).
+`door` (built, standardized — the only kind a world connector joins) vs `tunnel-mouth`
+(raw organic, pre-collar). A door sits at the CENTRE of its wall's thickness (flush tube
+ends bury half a wall — sealed by construction). Two door sizes are live: the grid class
+presents **2.0 × 3.0** (the grid standard below), the organic collar **2.0 × 2.8**
+(`themes/cave.ts DOOR_OPENING` — the legacy opening; the bore passes both).
+
+**Placement (`placement.ts`)** — rigid yaw-about-Y + translation `Placement`s and the
+three operations the world pipeline runs on them: `join(a,b)` (the placement that seats
+portal B onto portal A — continuous yaw + height), `placeConnection` (transform one
+portal), `placePiece` (transform a whole `RegionData`:
+meshes/colliders/bounds/connections/instances/placements).
 
 **Frames convention**: the cave bakes WORLD-frame instance transforms (local scatter
-offset by region origin — generated caves use origin `[0,0,0]`, so local ≡ pre-place);
-box rooms bake LOCAL transforms. `placePiece` (`connect.ts`) transforms a whole
-`RegionData` (meshes/colliders/bounds/connections/instances/placements) by a
-`Placement {yaw, translation}`. Custom mesh vertex data stays LOCAL; world pose rides
-the mesh/entity transform (the `.fmesh` convention).
+offset by region origin — generated caves use origin `[0,0,0]`, so local ≡ pre-place).
+Custom mesh vertex data stays LOCAL; world pose rides the mesh/entity transform (the
+`.fmesh` convention). Grid content bakes no transforms at all — it re-expands at load.
 
 **Themes**: `themes/cave.ts` — SDF graph (hub + floor-routed capsule tunnels,
 `field.ts` primitives), Surface-Nets meshed, voxel-proxy collided; every raw mouth gets
@@ -84,8 +91,7 @@ are sealed with `mouthCap` plugs. Internals are split for runtime re-derivation:
 `caveSkeleton` (rng → graph → field → grid) feeds `cave()` AND the exported
 **`caveProxy`** (field-only voxelization, no meshing) + **`caveDressing`** (scatter over
 an already-decoded mesh — sound because core `rng.derive(label)` is state-independent).
-`themes/box-room.ts` builds `pillarHall`/`greatHall` (walls/doorways/pillars/dais;
-`doors: DoorSpec[]`, ≥1, one per cardinal side max).
+The grid vocabularies (`themes/hall.ts`, `themes/maze.ts`) are described in §5.
 
 **Dressing (`scatter.ts`)**: area-weighted surface sampling (mesh triangles or
 `rectSurface`), slope/density/keep-out masks, blue-noise spacing, surface-aligned
@@ -97,110 +103,7 @@ consumes no RNG). `realize.ts` (`realizeRegion` + `MaterialCache` — NOT
 concurrency-safe, realize sequentially) turns `RegionData` into GPU meshes, instanced
 draws, static bodies, and shovable `DynamicProp`s with per-frame sync.
 
-**Connectors (`connect.ts`)**: `join(a,b)` mates portal B onto portal A (continuous
-yaw + height); `route(from,to)` emits a walkable-by-construction connector — corridor /
-ramp / stairs chosen from the height delta (both ends MUST be door-class, setup-loud).
-Floors overshoot both portals by `SEAM_OVERLAP`; stair floors emit flat end aprons.
-Enclosures are vertical-walled rings quantized along the climb (`RING_RISE` 0.25 <
-`CEIL_T` 0.3 → adjacent ring ceilings always overlap — sealed by construction); per-edge
-`enclosure: "open"` = guardrails, no ceiling. DESCENDING connectors flatten for
-`LANDING_LEN` 2.0 m (≥ `CLEARANCE_SEGMENT`, unit-asserted) before the lower portal so a
-normal door works at a descent foot; ascending stays linear. Every end emits a
-room-side threshold plate (0.6 deep, 0.015 proud lip) covering the receding floor-jamb
-wedge at any join angle. `walkLineAt` single-sources the walk profile for geometry AND
-the placer's clearance math (containment is unit-tested: enclosure ⊆ grown clearance).
-
-**Topology (`topology.ts`)**: `generateWorldGraph(anchor, seed, config)` — plan
-(sectors/rooms/loops per `TopologyConfig`; loop = cycle-closing edge between open
-portals, the placement-hard part) then materialize each node.
-**`materializeNode` builds the node's extra generator params ONCE and returns them**
-(cave `mouths`/`capped`, pillarHall graph-derived `doors`), recorded as
-`WorldNode.themeParams` — the provenance contract that lets bake/load repeat the exact
-generator call (a bare `{theme,seed,origin}` re-run produces a DIFFERENT region; found
-live at the 3.1 gate as scatter blocking doorways).
-
-**Placer (`layout.ts` + `locus.ts`/`chains.ts`/`occupancy.ts`/`aabb.ts`)**:
-deterministic collision-aware incremental graph embedding (Ma/Edgar shape) — pins
-first, most-constrained-first order, seeded candidate seatings (`join` at sampled
-lengths × yaw offsets), occupancy acceptance (piece envelopes, exact voxel-cell solids
-for caves, segmented connector clearance air, portal exemptions), bounded backtracking
-+ SA repair for cycles, setup-loud diagnostics on exhaustion. **All search is
-`LayoutBudget`-bounded** (`DEFAULT_LAYOUT_BUDGET`; fail-fast — robustness lives in the
-outer retry, not search depth).
-
-**Retry orchestration (`world.ts`)**: **`worldAttempts(seed, config?, budget?)`** — a
-pull-based iterator, the SINGLE owner of retry policy and `seed:k` derivation; attempt
-k regenerates the WHOLE topology from the derived seed (a retry is "roll a new
-dungeon", not "search harder"); first success wins. `buildWorld` drains it; the editor
-cockpit drains it inside its generation worker (Slice 3.2.3 — `docs/reference/editor-architecture.md`
-§13.6), so a search that creaks never blocks the main thread. `COCKPIT_CONFIG` (single
-sector, 6 rooms) + `COCKPIT_BUDGET` (tight tier; `deadlineMs: 2000` — search-tier only,
-`bakeWing` strips it, see below).
-
-**`LayoutBudget.deadlineMs`** (Slice 3.2.3): an OPTIONAL wall-clock ceiling for one
-`layoutWorld` call, default `Number.POSITIVE_INFINITY` (counted budgets only —
-byte-identical to pre-slice behavior). The greedy guard sites use `searchExpired`
-(counted budget OR deadline); the SA-fallback loops use `deadlineExpired` (deadline
-ONLY — the counted budget is greedy's alone, so gating SA on it would starve the SA
-rescue that fires precisely after greedy exhausts). Exhaustion is the same setup-loud
-throw, now with a distinct `"layout: deadline <n>ms exceeded"` message. **D4 invariant:**
-`bakeWing` forces `deadlineMs: Infinity` before calling `buildWorld` — bake replay is
-counted-only deterministic, because a deadline is machine-speed-dependent and can only
-PREVENT a success, never create one (a previewed success re-runs identically without it).
-
-**`COCKPIT_ENVELOPE`** (`world.ts`): the measured cockpit envelope, one row per knob
-value (rooms 2–12: `{rooms, singleShot, attempts, projected}`) — knob bounds,
-per-size attempt counts, and the cockpit's reliability line all derive from this table.
-Provenance: `scripts/measure-b2c.ts --envelope - - 2000`, run 2026-07-10, n=20
-seeds/cell, loop=0.35, `deadlineMs=2000`, sequential cells on an unloaded machine
-(rates carry ±~10 pp sampling noise). Per-row `attempts` targets ~95% projected
-reliability at the measured single-shot rate, floored at 4, capped by a ~60 s worst
-case ÷ the measured give-up p95; rooms 12 is a measured low-yield size (projected
-0.693 at the cap — honest, not a bug). Regenerate the table when generator constants
-OR `COCKPIT_BUDGET` (esp. `deadlineMs`) change.
-
-## 5. Bake & load (the 3.1 pipeline)
-
-- **`bake.ts bakeWing(seed, config, budget, name?)`** — PURE, returns `{files}`; the seed
-  must be the winning derived seed (places on attempt 0). Emits ONE merged render-only
-  `wing.scene.json` (ALL regions AND connectors in a single doc; box entities, NO
-  rigidBody — the scene rigidBody path ignores `transform.scale`; resource keys are
-  piece-prefixed so pieces don't collide), `.fmesh` sidecars for custom meshes (LOCAL
-  vertices; world pose on the entity transform), and `manifest.json`: a top-level `scene`
-  path + provenance `{seed, config, budget, generatorVersion}`, per-region `{theme, seed,
-  placement, cuboid colliders, themeParams}` (NO per-entry `file`) + connector collider
-  entries. `manifest.json` is the LAST file written — the crash-safety contract (an
-  interrupted bake leaves no manifest, so `loadGeneratedWing` returns null and the game
-  falls back to live generation; a torn wing never loads). `name` (default
-  `generated-wing`) parameterizes the dir → `regions/<name>/`. Voxel shapes NEVER serialize.
-- **Who bakes: THE BROWSER** (it re-generates its own preview exactly and uploads the
-  file set to `generation.bake`, which only validates root-containment and writes).
-  This is load-bearing, not a convenience: **JSC and V8 diverge on transcendental
-  `Math` in placement** (join-yaw transforms + search accept/reject flips), while
-  local-frame geometry (mesh bytes, scatter, voxel membership) is cross-engine
-  identical — never regenerate PLACEMENT in a different engine than the one that
-  previewed it (`docs/learnings/2026-07-06-cross-engine-placement-determinism.md`).
-- **`wing-loader.ts loadGeneratedWing`** — manifest present → fragment-load the ONE merged
-  doc (`loadScene({world, fragment: true})`), create static bodies from the manifest
-  cuboids per piece, regenerate each cave's voxel proxy (`caveProxy` from `themeParams`,
-  `placePiece`-seated), re-expand dressing deterministically (`caveDressing` over the
-  DECODED baked mesh; box themes re-run with `themeParams`) and realize it; returns the
-  same handle shape as `realizeRegion`. 404 → `null` → live path. Stale-bake guard: a
-  pre-consolidation manifest (no `scene` field) throws ("re-bake"). This load-time
-  re-expansion is deliberately the embryo of 3.3's generator-entity socket.
-- **Parity is guarded placement-level** (`tests/bake-dressing-parity.test.ts`): full
-  cuboid/proxy/dressing byte-parity live-vs-baked on the 3.1 gate's own seed.
-  Count-level assertions are known to lie (they passed while placements differed).
-- Baked output (`regions/<name>/`, default `generated-wing/` — wings are nameable) is
-  user-generated content. Only the DEFAULT `regions/generated-wing/` is gitignored AND
-  biome-ignored (both globs hardcode that name); a non-default `regions/<name>/` is
-  user-generated content too but is NOT yet ignore-scoped (the worlds-index landed in W1;
-  generalizing the wing globs remains a W4 cleanup). Consolidated in 3.2.1 to a single
-  `wing.scene.json` (+ `manifest.json` + `.fmesh` sidecars); a smaller re-bake leaves no
-  orphans because the daemon's `generation.bake` `rm -rf`s the previous bake dir
-  (`cleanDir`) before writing.
-
-## 5b. Worlds (3.3 W1–W3 — the go-forward model; wings above retire at W4)
+## 5. Worlds (3.3 — the world model)
 
 - **`world-spec.ts`** — `WorldSpec`: declarative regions as a discriminated union
   (`{class:"field-organic", algorithm:"cave"}` | `{class:"grid-built",
@@ -303,6 +206,16 @@ OR `COCKPIT_BUDGET` (esp. `deadlineMs`) change.
   by region. Byte-deterministic re-bake (no `bakedAt`); browser-bakes rule
   unchanged (grid re-expansion is integer/lattice + sqrt-only — the Pr-2 class is
   structurally absent; the committed fixture is a bun bake, sound).
+- **Who bakes: THE BROWSER** (it re-generates its own preview exactly and uploads
+  the file set to `generation.bake`, which only validates root-containment and
+  writes). This is load-bearing, not a convenience: **JSC and V8 diverge on
+  transcendental `Math` in placement** (join-yaw transforms), while local-frame
+  geometry (mesh bytes, scatter, voxel membership) is cross-engine identical —
+  never regenerate PLACEMENT in a different engine than the one that previewed it
+  (`docs/learnings/2026-07-06-cross-engine-placement-determinism.md`).
+- **Live-vs-baked parity is guarded placement-level** (`world-loader.gpu.test.ts`):
+  a baked world's re-derived dressing must reproduce the live world exactly.
+  Count-level assertions are known to lie (they passed while placements differed).
 - **Probes of record (FULL collider set via `loadWorld` on in-memory bakes, never
   subsets):** `world-traversal.gpu.test.ts` (the PHASE-GATE world end-to-end,
   7 lanes since W3: stairs up/down, bore both ways, aperture both ways, and a
@@ -328,13 +241,35 @@ OR `COCKPIT_BUDGET` (esp. `deadlineMs`) change.
   world") — the manual index edit is gone. The engine seam is unchanged
   (extensions bundle; zero dungeon imports by value in the editor).
 
+### Grid standards (decided at the 3.3 charter, recorded at W4)
+
+Built content targets grid-friendly dimensions on the two-resolution substrate
+(coarse 0.5 m cells on the global world lattice; fine 0.25 m occupancy —
+`substrate/grid.ts` `CELL` / `FINE` / `SUB`):
+
+- **Door opening: 2.0 w × 3.0 h m** (4 × 6 coarse cells — `themes/grid-stamp.ts`
+  `DOOR_W_CELLS` / `DOOR_H_CELLS`) — the door-class portal every BUILT connector
+  joins. (The organic collar still presents the legacy 2.0 × 2.8 opening.)
+- **Wall thickness: 0.5 m** (1 coarse cell) — the hall/maze shell band and the
+  maze's internal walls.
+- **Pillar section: 0.5 m** (1 coarse cell — the only section the hall stamper
+  emits; the lattice admits 1.0 m, nothing builds it today).
+- **Stair rise: 0.25 m** (= one fine cell — `connector-built.ts` `STAIR_RISE =
+  FINE`, per 0.5 m of run; the traversal-proven rise against `walkability.ts`
+  `STEP_HEIGHT` 0.4).
+- **Grid placements** snap translations to the 0.5 lattice and yaw to exact
+  quarter-turns (`world-spec.ts snapGridPlacement`, setup-loud beyond 1e-6 dust).
+
+Rationale (charter): a finer coarse grid to preserve the legacy 2.8 m door buys
+nothing perceptible and costs case-table resolution everywhere.
+
 ## 6. Testing posture
 
 Pure math and contracts get unit tests; anything that walks, collides, or renders gets
 `.gpu.test.ts` (bun-webgpu; tests must RUN, not skip — a skip is a failure); look/feel
 is gated visually in Safari AND Chrome (renders-clean GPU tests cannot catch
 wrong-output — the shadow-mapping lesson). Traversal repros must use the FULL collider
-set and WALK (subset repros hide wedges — the 2.2.1 lesson). Gate artifacts:
-`wing-roundtrip.gpu.test.ts` (bake→load→walk), `traversal.gpu.test.ts` (fuzz lanes),
-`area-traversal.gpu.test.ts`, `world-seams.test.ts` (no capsule-scale unsupported disc
-along any edge walk line).
+set and WALK (subset repros hide wedges — the 2.2.1 lesson). Gate artifacts: the
+probes of record in §5 (`world-traversal.gpu.test.ts` is the bake→load→walk end-to-end
+over the world the player boots) plus `cave-entrance.gpu.test.ts` and the
+`char-move-*.gpu.test.ts` locomotion probes.
