@@ -24,11 +24,13 @@ reproduce it. Two related levers:
   On no-headroom, fall back to the flat slide instead of committing to the raised height. This
   is the robust, theme-agnostic fix.
 - **(b) Wider walkable through-passage at the geometry layer.** The wedge band is narrow partly
-  because the bore narrows AND the mouth necks into the branch room's 1.6 m-wide door
-  (`box-room.ts` `DoorSpec`), so the funnel is ~±0.75 m of the tunnel axis. Widening only
-  the tunnel bore (`TUNNEL_R`) does **not** open the through-passage — the 1.6 m door caps it.
-  Tunnel-bore radius + matching door width would have to move together (theme / connection
-  geometry — see the sibling deferral).
+  because the bore narrows AND the mouth necks into the room's door, so the funnel is only a
+  fraction of the tunnel bore. Widening only the tunnel bore (`TUNNEL_R`) does **not** open the
+  through-passage — the door caps it. Tunnel-bore radius + matching door width have to move
+  together. *(The 1.6 m-wide `box-room.ts` door that originally capped this funnel retired with
+  the mesh room generators at the W4 sweep; the live door standard is `themes/grid-stamp.ts`'s
+  `DOOR_W_CELLS` = 4 cells = 2.0 m, and `DoorSpec` now lives in `substrate/skin.ts`. The lever
+  is unchanged — the numbers moved.)*
 
 The shipped 2.2.2 cave is walkable through its **designed** band (the `traversal.gpu.test.ts`
 cave-hub fuzz sweeps every lane in x[9.25,10.75] and passes); this entry tracks the underlying
@@ -49,5 +51,6 @@ collider backend.
   `footOffset`).
 - `packages/dungeon/src/themes/cave.ts` — `TUNNEL_R` and the round-bore `capsuleCavern` tunnel
   whose narrowing produced the wedge.
-- Sibling deferrals: `docs/backlog/dungeon/region-connection-algorithm-refinement.md`
-  (mouth/door geometry), `docs/backlog/dungeon/traversal-verbs-on-character-mover.md`.
+- Sibling deferrals: `docs/backlog/dungeon/traversal-verbs-on-character-mover.md`,
+  `docs/backlog/dungeon/walkability-analyzer-requirements.md` (the wedge corpus this class
+  belongs to — the mouth/door-geometry entry it used to cite retired at the W4 sweep).

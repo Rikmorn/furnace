@@ -4,8 +4,10 @@
 
 Slice 2.2.3a added a decorative scatter system (`packages/dungeon/src/scatter.ts`) that
 GPU-instances props across the generated regions — a 5-layer cave showcase (rubble,
-crystal-spires, glow-fungus, wall-crystals, ceiling glow-worms) plus a box-room floor
-scatter. To ship the slice the **archetypes are uniform-scaled unit primitives**
+crystal-spires, glow-fungus, wall-crystals, ceiling glow-worms) plus a floor scatter on the
+built rooms (then the box-room theme's, retired at the W4 sweep; grid regions now carry the
+same layers as `GridStamp.dressingLayers`). To ship the slice the **archetypes are
+uniform-scaled unit primitives**
 (cube / sphere / cylinder), so a "glow-worm" is a stretched-by-uniform-scale cylinder and a
 "crystal spire" is a uniform cube/cylinder — the *placement* (slope/density masks, blue-noise
 spacing, surface-aligned orientation, ceiling-hang) reads correctly, but the **silhouette**

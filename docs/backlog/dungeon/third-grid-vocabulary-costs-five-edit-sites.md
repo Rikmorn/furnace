@@ -29,8 +29,9 @@ union is narrowed in exactly one place. Note this is a leak in the TYPE PLUMBING
 claim — the fix is a refactor of how the discriminated union is threaded, not a change to the
 generation model.
 
-**Trigger to revisit:** When a third grid vocabulary lands (the branches stop being copy-paste and
-start being a combinatorial edit at that point).
+**Trigger to revisit:** When a third grid vocabulary lands, OR at the field-charter brainstorm — the
+one-field direction turns stampers into brushes, which changes the plug-point shape these five sites
+serve (docs/research/2026-07-13-one-field-direction.md §6).
 
 **Reference:** `packages/dungeon/src/world-build.ts` (`generateRegion`, `expandGridRegionFromEntry`,
 `resolveSpec`), `packages/dungeon/src/bake.ts` (`bakeWorld`'s grid-region branch),

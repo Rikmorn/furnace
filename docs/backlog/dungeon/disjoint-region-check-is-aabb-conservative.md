@@ -26,7 +26,10 @@ Two candidate resolutions, and the editor tasks should PICK one rather than disc
 `envelopes`-vs-`envelopes` test would reject only real interpenetration (more work; also makes the bake
 bar less conservative, which needs a deliberate call).
 
-**Trigger to revisit:** BEFORE the World panel ships region placement (W3 editor half, Tasks 11+).
+**Trigger to revisit:** interactive region placement in the editor (dragging placements), OR the
+field-charter brainstorm — one-field composition likely dissolves the check entirely
+(docs/research/2026-07-13-one-field-direction.md §6). Until then it correctly guards hand-authored
+bakes.
 
 **Reference:** `packages/dungeon/src/world-build.ts` (`assertDisjointRegionVolumes`,
 `REGION_OVERLAP_EPS`), `packages/dungeon/src/region.ts` (`RegionData.bounds` vs `RegionData.envelopes` —
