@@ -1,4 +1,4 @@
-// The generation worker (Slice 3.2.3): owns the attempt loop off the main thread.
+// The generation worker: runs world realize + bake off the main thread.
 // It imports the SAME same-origin /engine.js the chrome loads — same browser, same
 // JS engine, so worker-side placement is identical to main-thread placement (the
 // cross-engine determinism rule is JSC-vs-V8, not thread-vs-thread). All logic

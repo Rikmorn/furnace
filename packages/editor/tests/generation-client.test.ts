@@ -23,11 +23,10 @@ function fakeWorker() {
   };
   const emit = (m: WorkerResponse): void =>
     w.onmessage?.({ data: m } as MessageEvent<WorkerResponse>);
-  /** The runId the client stamped on its most recent run/bake post. */
+  /** The runId the client stamped on its most recent request post. */
   const lastRunId = (): number => {
     const last = posts.at(-1);
-    if (!last || last.kind === "init")
-      throw new Error("no run/bake posted yet");
+    if (!last || last.kind === "init") throw new Error("no request posted yet");
     return last.runId;
   };
   return { w, posts, emit, state, lastRunId };
@@ -36,48 +35,9 @@ function fakeWorker() {
 // biome-ignore lint/suspicious/noEmptyBlockStatements: no-op handler for tests that don't assert on this callback
 const noop = (): void => {};
 
-function noopRun() {
-  return { onAttempt: noop, onDone: noop, onError: noop };
+function noopWorld() {
+  return { onWorld: noop, onError: noop };
 }
-
-test("run spawns lazily, inits, then posts the run with wantSuccesses 1", () => {
-  const { w, posts } = fakeWorker();
-  const client = new GenerationWorkerClient(() => w);
-  client.run({ baseSeed: "s", config: { a: 1 }, budget: { b: 2 } }, noopRun());
-  expect(posts[0]).toEqual({ kind: "init", engineUrl: "/engine.js" });
-  expect(posts[1]).toMatchObject({
-    kind: "run",
-    baseSeed: "s",
-    config: { a: 1 },
-    budget: { b: 2 },
-    wantSuccesses: 1,
-  });
-});
-
-test("routes attempt/done to the live run's handlers", () => {
-  const { w, emit, lastRunId } = fakeWorker();
-  const client = new GenerationWorkerClient(() => w);
-  const seen: string[] = [];
-  client.run(
-    { baseSeed: "s", config: {}, budget: {} },
-    {
-      onAttempt: (a) => void seen.push(`attempt:${a.k}:${a.ok}`),
-      onDone: (outcome) => void seen.push(`done:${outcome}`),
-      onError: (m) => void seen.push(`error:${m}`),
-    },
-  );
-  const runId = lastRunId();
-  emit({
-    kind: "attempt",
-    runId,
-    k: 0,
-    attemptSeed: "s",
-    ok: false,
-    error: "e",
-  });
-  emit({ kind: "done", runId, outcome: "exhausted" });
-  expect(seen).toEqual(["attempt:0:false", "done:exhausted"]);
-});
 
 test("cancel terminates, drops late messages, and respawns on the next run", () => {
   const first = fakeWorker();
@@ -87,50 +47,55 @@ test("cancel terminates, drops late messages, and respawns on the next run", () 
     spawned++ === 0 ? first.w : second.w,
   );
   const seen: string[] = [];
-  client.run(
-    { baseSeed: "s", config: {}, budget: {} },
+  client.runWorld(
+    { name: "w" },
     {
-      onAttempt: () => void seen.push("attempt"),
-      onDone: () => void seen.push("done"),
+      onWorld: () => void seen.push("world"),
       onError: () => void seen.push("error"),
     },
   );
   const staleId = first.lastRunId();
   client.cancel();
   expect(first.state.terminated).toBe(true);
-  first.emit({ kind: "done", runId: staleId, outcome: "placed" }); // late message from the dead run
-  expect(seen).toEqual([]); // dropped — runId bumped by cancel
-  client.run({ baseSeed: "s2", config: {}, budget: {} }, noopRun());
+  first.emit({ kind: "world-run", runId: staleId, payload: {} }); // late message from the dead run
+  expect(seen).toEqual([]); // dropped — cancel cleared the handlers and dereferenced the worker
+  client.runWorld({ name: "w2" }, noopWorld());
   expect(spawned).toBe(2); // lazy respawn
+});
+
+test("a superseded run's late payload is dropped by the runId guard (live worker)", () => {
+  const { w, emit, lastRunId } = fakeWorker();
+  const client = new GenerationWorkerClient(() => w);
+  const seen: string[] = [];
+  client.runWorld(
+    { name: "w" },
+    { onWorld: () => void seen.push("first"), onError: noop },
+  );
+  const staleId = lastRunId();
+  // No cancel: the SAME worker stays live and the new run installs its own handlers, so
+  // neither the identity guard nor the handler reset can help here — the bumped runId is
+  // the only thing standing between the abandoned run's payload and the new run's onWorld.
+  client.runWorld(
+    { name: "w2" },
+    { onWorld: () => void seen.push("second"), onError: noop },
+  );
+  emit({ kind: "world-run", runId: staleId, payload: {} });
+  expect(seen).toEqual([]);
+  emit({ kind: "world-run", runId: lastRunId(), payload: {} });
+  expect(seen).toEqual(["second"]); // the live run still lands
 });
 
 test("done error routes to onError; init-error reaches the active handler", () => {
   const { w, emit, lastRunId } = fakeWorker();
   const client = new GenerationWorkerClient(() => w);
   const errors: string[] = [];
-  client.run(
-    { baseSeed: "s", config: {}, budget: {} },
-    { onAttempt: noop, onDone: noop, onError: (m) => void errors.push(m) },
+  client.runWorld(
+    { name: "w" },
+    { onWorld: noop, onError: (m) => void errors.push(m) },
   );
   emit({ kind: "init-error", message: "bundle broke" });
   emit({ kind: "done", runId: lastRunId(), outcome: "error", message: "boom" });
   expect(errors).toEqual(["bundle broke", "boom"]);
-});
-
-test("bake routes baked files to onBaked", () => {
-  const { w, emit, lastRunId } = fakeWorker();
-  const client = new GenerationWorkerClient(() => w);
-  const baked: number[] = [];
-  client.bake(
-    { attemptSeed: "s:1", config: {}, budget: {}, wingName: "w" },
-    { onBaked: (files) => void baked.push(files.length), onError: noop },
-  );
-  emit({
-    kind: "baked",
-    runId: lastRunId(),
-    files: [{ path: "p", contents: "{}" }],
-  });
-  expect(baked).toEqual([1]);
 });
 
 test("runWorld inits, posts the spec, and routes world-run to onWorld", () => {
@@ -183,15 +148,15 @@ test("a world-run done error routes to the world handler's onError", () => {
   expect(errors).toEqual(["boom"]);
 });
 
-test("a spawn failure is setup-loud through onError, and run() never throws (D5)", () => {
+test("a spawn failure is setup-loud through onError, and runWorld() never throws (D5)", () => {
   const client = new GenerationWorkerClient(() => {
     throw new Error("worker script 404");
   });
   const errors: string[] = [];
   expect(() =>
-    client.run(
-      { baseSeed: "s", config: {}, budget: {} },
-      { onAttempt: noop, onDone: noop, onError: (m) => void errors.push(m) },
+    client.runWorld(
+      { name: "w" },
+      { onWorld: noop, onError: (m) => void errors.push(m) },
     ),
   ).not.toThrow();
   expect(errors).toEqual(["worker script 404"]);
@@ -204,15 +169,15 @@ test("a stale init-error from a cancelled worker never reaches a later run's onE
   const client = new GenerationWorkerClient(() =>
     spawned++ === 0 ? first.w : second.w,
   );
-  client.run({ baseSeed: "s", config: {}, budget: {} }, noopRun());
+  client.runWorld({ name: "w" }, noopWorld());
   client.cancel();
   // Worker A is terminated + dereferenced; a queued message from it must not touch
   // the NEW run's handlers (init-error carries no runId, so only the identity guard
   // stops it).
   const errors: string[] = [];
-  client.run(
-    { baseSeed: "s2", config: {}, budget: {} },
-    { onAttempt: noop, onDone: noop, onError: (m) => void errors.push(m) },
+  client.runWorld(
+    { name: "w2" },
+    { onWorld: noop, onError: (m) => void errors.push(m) },
   );
   first.emit({ kind: "init-error", message: "stale from dead worker A" });
   expect(errors).toEqual([]);

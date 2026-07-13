@@ -1,6 +1,6 @@
 // The chrome-side client for the generation worker (Slice 3.2.3). One persistent
-// module worker; cancel (incl. MID-attempt) = terminate + lazy respawn — the layout
-// search needs no cooperation to die. A bumped runId makes any late message from a
+// module worker; cancel (mid-run included) = terminate + lazy respawn — a realize/bake
+// needs no cooperation to die. A bumped runId makes any late message from a
 // dead or superseded run fall on the floor (the document session's await-race
 // discipline, applied to worker messages).
 import type {
@@ -15,18 +15,6 @@ export type WorkerLike = {
   terminate(): void;
   onmessage: ((e: MessageEvent<WorkerResponse>) => void) | null;
   onerror: ((e: ErrorEvent) => void) | null;
-};
-
-export type RunHandlers = {
-  onAttempt(a: {
-    k: number;
-    attemptSeed: string;
-    ok: boolean;
-    error?: string;
-    layout?: unknown;
-  }): void;
-  onDone(outcome: "placed" | "exhausted"): void;
-  onError(message: string): void;
 };
 
 export type BakeHandlers = {
@@ -50,11 +38,7 @@ const defaultSpawn = (): WorkerLike =>
 export class GenerationWorkerClient {
   private worker: WorkerLike | undefined;
   private runId = 0;
-  private handlers: {
-    run?: RunHandlers;
-    bake?: BakeHandlers;
-    worldRun?: WorldRunHandlers;
-  } = {};
+  private handlers: { bake?: BakeHandlers; worldRun?: WorldRunHandlers } = {};
   private readonly spawn: () => WorkerLike;
   private readonly engineUrl: string;
 
@@ -66,46 +50,11 @@ export class GenerationWorkerClient {
     this.engineUrl = engineUrl;
   }
 
-  // Reentrancy precondition (covers bake too): the caller must cancel() before
+  /** W1: realize a declarative world spec (deterministic — one payload, no attempt stream). */
+  // Reentrancy precondition (covers bakeWorld too): the caller must cancel() before
   // starting new work if a prior run may still be live. runId drops the abandoned
   // run's results, but the worker keeps grinding it until it finishes — the panel's
   // disabled-during-run gating is the real enforcement.
-  run(
-    params: {
-      baseSeed: string;
-      config: Record<string, unknown>;
-      budget: Record<string, unknown>;
-    },
-    handlers: RunHandlers,
-  ): void {
-    const runId = ++this.runId;
-    this.handlers = { run: handlers };
-    if (!this.ensure(handlers.onError)) return;
-    this.worker?.postMessage({
-      kind: "run",
-      runId,
-      ...params,
-      wantSuccesses: 1,
-    });
-  }
-
-  bake(
-    params: {
-      attemptSeed: string;
-      config: Record<string, unknown>;
-      budget: Record<string, unknown>;
-      wingName: string;
-    },
-    handlers: BakeHandlers,
-  ): void {
-    const runId = ++this.runId;
-    this.handlers = { bake: handlers };
-    if (!this.ensure(handlers.onError)) return;
-    this.worker?.postMessage({ kind: "bake", runId, ...params });
-  }
-
-  /** W1: realize a declarative world spec (deterministic — one payload, no attempt stream).
-   *  Same reentrancy precondition as run/bake: cancel() any live work first. */
   runWorld(spec: unknown, handlers: WorldRunHandlers): void {
     const runId = ++this.runId;
     this.handlers = { worldRun: handlers };
@@ -121,7 +70,7 @@ export class GenerationWorkerClient {
     this.worker?.postMessage({ kind: "bakeWorld", runId, spec, name });
   }
 
-  /** Kill any in-flight work INSTANTLY (mid-attempt included). Lazy respawn. */
+  /** Kill any in-flight work INSTANTLY (mid-run included). Lazy respawn. */
   cancel(): void {
     this.runId++;
     this.handlers = {};
@@ -158,11 +107,7 @@ export class GenerationWorkerClient {
   }
 
   private activeError(message: string): void {
-    (
-      this.handlers.run ??
-      this.handlers.bake ??
-      this.handlers.worldRun
-    )?.onError(message);
+    (this.handlers.bake ?? this.handlers.worldRun)?.onError(message);
   }
 
   private route(msg: WorkerResponse): void {
@@ -173,15 +118,6 @@ export class GenerationWorkerClient {
     }
     if (msg.runId !== this.runId) return; // stale run — dropped, no state writes
     switch (msg.kind) {
-      case "attempt":
-        this.handlers.run?.onAttempt({
-          k: msg.k,
-          attemptSeed: msg.attemptSeed,
-          ok: msg.ok,
-          error: msg.error,
-          layout: msg.layout,
-        });
-        return;
       case "baked":
         this.handlers.bake?.onBaked(msg.files);
         return;
@@ -189,11 +125,7 @@ export class GenerationWorkerClient {
         this.handlers.worldRun?.onWorld(msg.payload);
         return;
       case "done":
-        if (msg.outcome === "error") {
-          this.activeError(msg.message ?? "generation failed");
-        } else {
-          this.handlers.run?.onDone(msg.outcome);
-        }
+        this.activeError(msg.message ?? "generation failed");
         return;
     }
   }

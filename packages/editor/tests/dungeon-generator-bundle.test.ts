@@ -5,7 +5,7 @@ import { createEngineBundler } from "../src/daemon/bundle.ts";
 const DUNGEON_ROOT = resolve(import.meta.dir, "../../dungeon");
 
 describe("P3: project-first bundling reaches the dungeon's generators", () => {
-  test("the dungeon's editor-extensions entry (importing world-build/realize) bundles browser-clean", async () => {
+  test("the dungeon's editor-extensions entry (importing the world pipeline + realize) bundles browser-clean", async () => {
     const bundler = await createEngineBundler(
       DUNGEON_ROOT,
       "src/editor-extensions.ts",
@@ -13,8 +13,9 @@ describe("P3: project-first bundling reaches the dungeon's generators", () => {
     try {
       const result = await bundler.build();
       // The probe's claim: esbuild resolves + transforms the generator import graph
-      // (editor-extensions.ts → world-build/bake/realize/themes → @furnace/core) from the
-      // dungeon root with zero browser-incompatible imports. A resolve/parse failure => ok:false.
+      // (editor-extensions.ts → world-build/bake → substrate/themes/realize → @furnace/core)
+      // from the dungeon root with zero browser-incompatible imports. A resolve/parse
+      // failure => ok:false.
       expect(result).toEqual({ ok: true, code: expect.any(String) });
     } finally {
       await bundler.dispose();
