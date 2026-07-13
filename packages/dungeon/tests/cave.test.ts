@@ -59,11 +59,13 @@ test("every cave door faces outward in the XZ plane at the standard opening size
   }
 });
 
-// Regression (gate fix): a -X or -Z branch drives a room back into the authored level
-// the wing attaches to (the level sits to the wing's -X corridor / -Z entrance sides),
-// which overlapped the spawn corridor. Branches must fan ONLY into the open +X/+Z
-// quadrant; -Z is the entrance alone. Verified across several seeds.
-test("cave branches fan only into the open +X/+Z quadrant (never back toward the level)", () => {
+// Pins the quadrant restriction on the no-`mouths` path (see `buildGraphLegacy`): branch doors
+// face +X or +Z only, and -Z belongs to the hardcoded entrance bore alone. -Z is genuinely
+// reserved — the entrance is carved through that wall. The -X half of the restriction is
+// vestigial (it was closed off for a hand-authored level that no longer exists); this test pins
+// it because the path's geometry is frozen, not because anything still needs -X shut.
+// Checked across several seeds.
+test("no-`mouths` cave: branch doors fan only into +X/+Z, and -Z is the entrance alone", () => {
   for (const seed of ["cave-1", "A", "B", "wing-1", "walk-1"]) {
     const r = cave({ ...params, seed });
     for (const c of r.connections) {

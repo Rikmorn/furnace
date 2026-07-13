@@ -201,9 +201,23 @@ function buildGraphN(rng: Rng, total: number): Graph {
   return { hub, branches };
 }
 
-// MIGRATION (until B2 Task 9): legacy +X/+Z quadrant path for the hand-authored world;
-// delete once that world moves onto `buildGraphN`'s free-cardinal path.
-/** Seeded graph: a hub + 2..3 tunnels, each ending at a mouth where a room attaches.
+// MIGRATION (until B2 Task 9): the no-`mouths` path — selected when `cave()` is called with
+// neither `mouths` nor `capped` (see `caveSkeleton`). NO PRODUCTION CALLER reaches it: `mouths`
+// is REQUIRED on `CaveRegionSpec.params` (world-spec.ts), so `world-build.ts` always passes it
+// and the loader spreads it back from the baked manifest. Only tests that omit the param land
+// here. Retiring it means making `mouths` required on the exported `CaveParams` — a
+// public-contract change — so it stays for now.
+/** Seeded graph for that path: a hub + exactly 2 tunnels, each ending at a mouth where a
+ *  room attaches. The +X/+Z restriction is half real, half vestigial:
+ *  - **-Z is reserved**: this path carves a hardcoded entrance bore through the hub's -Z wall
+ *    (`buildField`) and emits it as the entrance mouth (`caveMouthData`), so a -Z branch would
+ *    land on top of it.
+ *  - **-X is vestigial**: it was closed off for a hand-authored level that no longer exists.
+ *    Nothing here depends on it — only `cave.test.ts`'s quadrant test pins it.
+ *
+ *  With two open cardinals the `rng.int(2, 4)` draw (max EXCLUSIVE) always clamps to 2, so the
+ *  branch count is FIXED at 2; `buildGraphN` is the path whose fan actually varies.
+ *
  *  Branches are tunnels only (no branch-end chamber): the attached room IS the branch
  *  destination, so a cave chamber there would duplicate the room's footprint and bury
  *  the cave's solid far wall inside the walkable room — the dead-end the composed
@@ -211,16 +225,12 @@ function buildGraphN(rng: Rng, total: number): Graph {
  *  extends beyond it. */
 function buildGraphLegacy(rng: Rng): Graph {
   const hub: Node = { center: [0, FLOOR_Y + HUB_HALF[1], 0], half: HUB_HALF };
-  // The wing attaches to the authored level on its -Z (entrance) and -X (the level
-  // extends west of the attachment — corridor/main spine) sides, so branches fan only
-  // into the OPEN quadrant +X / +Z. A -X or -Z branch would drive a room back into the
-  // authored level (overlapping the spawn corridor → colliding geometry). Only two
-  // cardinals are open here, so the wing carries two branches.
+  // +X/+Z only — see the TSDoc: -Z carries this path's hardcoded entrance bore; -X is vestigial.
   const DIRS: Vec3[] = [
     [1, 0, 0],
     [0, 0, 1],
   ];
-  const count = Math.min(rng.int(2, 4), DIRS.length); // branches, capped to open dirs
+  const count = Math.min(rng.int(2, 4), DIRS.length); // always 2 — only two open cardinals
   const chosen = rng.derive("dirs");
   const pool: Vec3[] = [...DIRS];
   const branches: Branch[] = [];
@@ -276,11 +286,12 @@ function buildField(rng: Rng, graph: Graph, legacyEntrance: boolean): Field {
       ),
     );
   }
-  // Entrance bore: carve the hub's -Z wall so the cave is ENTERABLE from the authored level.
-  // The entrance Connection alone is just metadata; without this the -Z wall is solid rock
-  // (an invisible wall the player can't cross). Like a branch tunnel but toward -Z, no room —
-  // it opens to the authored chamber through the cut doorway. Floor-routed (TUNNEL_Y) so the
-  // bore floor is continuous with the hub floor. // MIGRATION (until B2 Task 9): legacy-only.
+  // Entrance bore: carve the hub's -Z wall so the cave is ENTERABLE from outside. The entrance
+  // Connection alone is just metadata; without this the -Z wall is solid rock (an invisible wall
+  // the player can't cross). Like a branch tunnel but toward -Z, and no room attaches — it just
+  // opens the wall. Floor-routed (TUNNEL_Y) so the bore floor is continuous with the hub floor.
+  // Reserving -Z is why `buildGraphLegacy` fans its branches into +X/+Z only.
+  // MIGRATION (until B2 Task 9): no-`mouths` path only.
   if (legacyEntrance) {
     parts.push(
       capsuleCavern(
@@ -479,8 +490,8 @@ function caveMouthData(
   // the new path has no separate entrance — every mouth is a branch-style bore.
   let rawMouths: Connection[];
   if (legacy) {
-    // Entrance: -Z mouth of the hub, where the area attaches to the authored level.
-    // MIGRATION (until B2 Task 9): legacy-only.
+    // Entrance: the -Z mouth of the hub, fronting the hardcoded -Z bore `buildField` carves.
+    // MIGRATION (until B2 Task 9): no-`mouths` path only.
     const entrance: Connection = {
       position: [origin[0], origin[1] + FLOOR_Y, origin[2] - HUB_HALF[2]],
       facing: [0, 0, -1],
@@ -550,7 +561,7 @@ function caveScatter(
   return { instances, materials };
 }
 
-/** Branching cave region: a hub chamber with 2–4 smooth-union capsule tunnels fanning
+/** Branching cave region: a hub chamber with 1–4 smooth-union capsule tunnels fanning
  *  out to mouths where rooms attach (or where a masonry cap seals an unused mouth),
  *  roughened by Y-tapered noise. Produces the rock mesh, a voxel collision proxy, and —
  *  per the built-interface doctrine — a masonry COLLAR at every raw mouth: each collar's
@@ -559,16 +570,17 @@ function caveScatter(
  *  collapses to the proven built↔built (door) case.
  *
  *  Two paths, selected by whether `mouths`/`capped` are given:
- *  - **New path** (either present): `mouths + capped` bores on DISTINCT cardinals, chosen
- *    from all four — the +X/+Z-only quadrant restriction was a property of the
- *    hand-authored world this theme originally served, not of the theme itself. Every
- *    bore is collared; the LAST `capped` collars are sealed with a `mouthCap` plug and
- *    excluded from `connections`. There is no separate hardcoded entrance bore on this
- *    path — every mouth is a branch-style bore.
- *  - **Legacy path** (both absent): byte-identical to the original single-quadrant
- *    (+X/+Z) + hardcoded -Z entrance behaviour.
- *    // MIGRATION (until B2 Task 9): kept only for the hand-authored world; delete once
- *    that world moves onto the new path.
+ *  - **Free-cardinal path** (either present) — the ONLY path any production caller takes:
+ *    `mouths + capped` bores on DISTINCT cardinals, chosen from all four. Every bore is
+ *    collared; the LAST `capped` collars are sealed with a `mouthCap` plug and excluded
+ *    from `connections`. There is no separate hardcoded entrance bore here — every mouth
+ *    is a branch-style bore.
+ *  - **No-`mouths` path** (both absent): a fixed 2 branches restricted to +X/+Z, plus a
+ *    hardcoded -Z entrance bore. Reached only by tests that omit the param — `mouths` is
+ *    required on `CaveRegionSpec.params`, so every world spec supplies it. See
+ *    `buildGraphLegacy` for why +X/+Z (and which half of that is vestigial).
+ *    // MIGRATION (until B2 Task 9): retiring it means making `mouths` required on
+ *    `CaveParams` — a public-contract change.
  *
  *  PREFIX-STABILITY (new path): the cardinal pool is shuffled once over all four
  *  cardinals and per-bore rng streams are keyed by bore INDEX (not by the usable/sealed
