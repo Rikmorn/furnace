@@ -14,19 +14,19 @@ import {
 test("toWireFiles: utf8 passes through, binary base64 round-trips exactly", () => {
   const bytes = new Uint8Array([0, 1, 2, 3, 254, 255, 128, 42]);
   const wire = toWireFiles([
-    { path: "regions/wing.scene.json", contents: '{"version":1}' },
-    { path: "regions/wing.fmesh", contents: bytes },
+    { path: "worlds/default/world.scene.json", contents: '{"version":1}' },
+    { path: "worlds/default/cave-a.fmesh", contents: bytes },
   ]);
 
   expect(wire[0]).toEqual({
-    path: "regions/wing.scene.json",
+    path: "worlds/default/world.scene.json",
     encoding: "utf8",
     contents: '{"version":1}',
   });
 
   const binary = wire[1];
   expect(binary?.encoding).toBe("base64");
-  expect(binary?.path).toBe("regions/wing.fmesh");
+  expect(binary?.path).toBe("worlds/default/cave-a.fmesh");
   // Decode the base64 back to the exact bytes (the daemon does the same).
   const decoded = new Uint8Array(Buffer.from(binary?.contents ?? "", "base64"));
   expect([...decoded]).toEqual([...bytes]);
@@ -34,7 +34,9 @@ test("toWireFiles: utf8 passes through, binary base64 round-trips exactly", () =
 
 test("toWireFiles: base64 survives a > one-chunk buffer (no fromCharCode overflow)", () => {
   const big = new Uint8Array(0x8000 * 2 + 7).map((_, i) => i % 256);
-  const wire = toWireFiles([{ path: "regions/big.fmesh", contents: big }]);
+  const wire = toWireFiles([
+    { path: "worlds/default/big.fmesh", contents: big },
+  ]);
   const decoded = new Uint8Array(
     Buffer.from(wire[0]?.contents ?? "", "base64"),
   );

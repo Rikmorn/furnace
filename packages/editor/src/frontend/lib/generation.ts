@@ -7,11 +7,11 @@ import type { PreviewContent } from "../../viewport-host/index.ts"; // type-only
 import type { WorldDraft, WorldSpecLike } from "./world-draft.ts"; // type-only: erased
 
 // ── The world flow ─────────────────────────────────────────────────────────────
-// The panel assembles a WorldDraft (world-draft.ts); realize stays DETERMINISTIC
-// (realizeWorldSpec — no search), so it carries no attempt/envelope semantics: one
-// Generate → one payload → preview. `previewing` snapshots the FULL SPEC that produced
-// the on-screen world (D-W3-11): freeze bakes exactly that snapshot, so a draft edit
-// after generating can never change what freeze produces.
+// The panel assembles a WorldDraft (world-draft.ts); realizeWorldSpec is DETERMINISTIC —
+// the same spec always yields the same world, so one Generate → one payload → preview.
+// `previewing` snapshots the FULL SPEC that produced the on-screen world (D-W3-11): freeze
+// bakes exactly that snapshot, so a draft edit after generating can never change what
+// freeze produces.
 
 export type WorldGenStatus =
   | { phase: "idle" }

@@ -22,7 +22,8 @@ export type BakeHandlers = {
   onError(message: string): void;
 };
 
-/** W1 world-realize handlers: one deterministic payload (no attempt stream), or an error. */
+/** W1 world-realize handlers: `onWorld` fires ONCE with the whole realized world, or
+ *  `onError` fires instead. */
 export type WorldRunHandlers = {
   onWorld(payload: unknown): void;
   onError(message: string): void;
@@ -50,7 +51,8 @@ export class GenerationWorkerClient {
     this.engineUrl = engineUrl;
   }
 
-  /** W1: realize a declarative world spec (deterministic — one payload, no attempt stream). */
+  /** W1: realize a declarative world spec — deterministic; `onWorld` lands once with the
+   *  finished world. */
   // Reentrancy precondition (covers bakeWorld too): the caller must cancel() before
   // starting new work if a prior run may still be live. runId drops the abandoned
   // run's results, but the worker keeps grinding it until it finishes — the panel's

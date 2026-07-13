@@ -7,9 +7,9 @@
  *  namespace (structural — the bundle crosses the project-first boundary untyped;
  *  the worker narrows it once, mirroring the WorldPanel's main-thread seam). */
 export type WorkerEngine = {
-  /** Realize a declarative world spec for preview. DETERMINISTIC (no search/attempts)
-   *  — one call, one payload. The payload passes through opaquely (only the panel
-   *  reads inside it). */
+  /** Realize a declarative world spec for preview. DETERMINISTIC — the same spec always
+   *  yields the same world, in one call returning one payload. The payload passes through
+   *  opaquely (only the panel reads inside it). */
   runWorld: (spec: unknown) => unknown;
   /** Bake a declarative world to a file set (uploaded via `generation.bake`). */
   bakeWorldFiles: (spec: unknown, name: string) => BakeFileLike[];
@@ -28,7 +28,7 @@ export type WorkerResponse =
   /** Failure channel: every non-init error posts here with the runId. */
   | { kind: "done"; runId: number; outcome: "error"; message?: string }
   | { kind: "baked"; runId: number; files: BakeFileLike[] }
-  /** The deterministic single realize payload (no attempt machinery). */
+  /** The realized world: ONE payload per runWorld, carrying the whole result. */
   | { kind: "world-run"; runId: number; payload: unknown };
 
 /** Collect the distinct ArrayBuffers under a value for a postMessage transfer list.
@@ -106,8 +106,8 @@ export function createWorkerHandler(deps: {
     }
 
     if (msg.kind === "runWorld") {
-      // Deterministic: one realize, one payload — no attempt loop. A throw (invalid spec,
-      // generator failure) surfaces as a typed done-error carrying the runId.
+      // One realize, one payload. A throw (invalid spec, generator failure) surfaces as a
+      // typed done-error carrying the runId.
       try {
         const payload = ext.runWorld(msg.spec);
         deps.post(

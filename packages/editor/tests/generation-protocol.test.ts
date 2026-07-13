@@ -63,9 +63,9 @@ test("collectTransferables dedupes views aliasing one buffer", () => {
   expect(t).toContain(buf);
 });
 
-// ── W1 world flow (deterministic — one payload, no attempt machinery) ──────────
+// ── W1 world flow (deterministic — one call, one payload) ──────────────────────
 
-test("runWorld posts a single world-run payload with the runId (no attempts)", async () => {
+test("runWorld posts a single world-run payload with the runId", async () => {
   const payload = {
     regions: [{ id: "cave-a", data: { p: new Float32Array([1, 2]) } }],
     connectors: [],

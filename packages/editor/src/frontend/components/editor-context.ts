@@ -44,9 +44,9 @@ export type EditorActions = {
  *  are App state (stable identity), an in-flight run's async setter calls land in App
  *  state even after the panel unmounts. `client` is App-owned for the same reason —
  *  a panel-local worker client would be recreated on remount, orphaning the running worker
- *  (Slice 3.2.3: run/bake on a worker; cancel = terminate, instant mid-attempt). W1: the
- *  cockpit drives the WORLD flow (runWorld/bakeWorld); the wing session/bake modules stay.
- *  W3: the bake destination rides IN the session (the draft's own `name`). */
+ *  (Slice 3.2.3: the worker owns realize + bake; cancel = terminate, instant mid-run). The
+ *  cockpit drives the WORLD flow (runWorld/bakeWorld/cancel). W3: the bake destination rides
+ *  IN the session (the draft's own `name`). */
 export type GenerationControl = {
   session: WorldGenSession;
   setSession: Dispatch<SetStateAction<WorldGenSession>>;
