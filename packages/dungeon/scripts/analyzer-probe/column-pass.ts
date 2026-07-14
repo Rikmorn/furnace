@@ -15,7 +15,10 @@ export type FlagKind = "lip-near-wall" | "ledge" | "low-clearance" | "narrow";
 
 export type Flag = {
   kind: FlagKind;
-  /** Grid cell of the walkable floor cell the flag attaches to. */
+  /** The floor cell of interest. NOT guaranteed to be in `walkable`:
+   *  `low-clearance` anchors on the offending NEIGHBOUR cell, which by
+   *  construction failed the walkable clearance test. Stage 2 must not assume
+   *  `flags[].cell` is a subset of `walkable`. */
   cell: [number, number, number];
   /** World-space centre of that floor surface. */
   world: [number, number, number];
@@ -29,6 +32,18 @@ export type ColumnPassResult = {
 
 const CAPSULE_HEIGHT_M = 1.8; // 2*(halfHeight 0.6 + radius 0.3), main.ts capsule
 const CAPSULE_RADIUS_M = 0.3;
+/** Height above the floor at which the `narrow` filter probes for walls. */
+const TORSO_PROBE_M = 0.5;
+/** A "wall" beside a lip = solid within this height above the lip's floor. */
+const WALL_PROBE_M = 1.0;
+
+/** The 4 cardinal XZ neighbours. */
+const DIRS = [
+  [1, 0],
+  [-1, 0],
+  [0, 1],
+  [0, -1],
+] as const;
 
 /** Walkable-column pass. Filters (Recast's set, over voxel columns):
  *  - clearance: air run above a floor >= capsule height, else low-clearance
@@ -46,7 +61,7 @@ export function columnPass(occ: Occupancy): ColumnPassResult {
 
   const clearCells = Math.ceil(CAPSULE_HEIGHT_M / sy);
   const wallCellsXZ = Math.ceil(CAPSULE_RADIUS_M / Math.min(sx, sz));
-  const wallProbeUp = Math.ceil(1.0 / sy); // "wall" = solid within 1 m above floor
+  const wallProbeUp = Math.ceil(WALL_PROBE_M / sy);
 
   // Walkable = an air cell directly above solid, with a capsule-height air run.
   const walkable = new Set<string>();
@@ -68,7 +83,16 @@ export function columnPass(occ: Occupancy): ColumnPassResult {
     occ.origin[1] + y * sy,
     occ.origin[2] + (z + 0.5) * sz,
   ];
+  // Deduped by (kind, cell): the rise checks run once per direction but key the
+  // CENTRE cell, so a cell with rises on two sides would otherwise emit the same
+  // flag twice. `Flag` carries no direction, so a duplicate holds zero extra
+  // information — it would only double stage 2's expensive real-mover sweeps and
+  // inflate the report's counts. Stage 2 sweeps all 4 directions itself.
+  const seen = new Set<string>();
   const push = (kind: FlagKind, x: number, y: number, z: number): void => {
+    const key = `${kind}@${x},${y},${z}`;
+    if (seen.has(key)) return;
+    seen.add(key);
     flags.push({ kind, cell: [x, y, z], world: world(x, y, z) });
   };
 
@@ -77,12 +101,7 @@ export function columnPass(occ: Occupancy): ColumnPassResult {
     const [x, y, z] = key.split(",").map(Number) as [number, number, number];
     // low-clearance flag: bounded air run above (already excluded from
     // walkable) is flagged from the adjacent walkable side.
-    for (const [dx, dz] of [
-      [1, 0],
-      [-1, 0],
-      [0, 1],
-      [0, -1],
-    ] as const) {
+    for (const [dx, dz] of DIRS) {
       const ax = x + dx;
       const az = z + dz;
       if (!inb(ax, y, az)) continue;
@@ -116,18 +135,22 @@ export function columnPass(occ: Occupancy): ColumnPassResult {
         }
       }
     }
-    // narrow: solid within capsule radius at torso height on both sides
+    // narrow: solid within capsule radius at torso height on two+ sides.
+    // Scans EVERY offset out to wallCellsXZ, not just the cell at exactly that
+    // distance — probing only the far cell skips intermediate solids at finer
+    // XZ sizes, and a missed hazard is the one failure mode this probe exists
+    // to rule out. (At the production [0.5, _, 0.5], wallCellsXZ === 1, so this
+    // is the same single probe.)
+    const torsoY = y + Math.ceil(TORSO_PROBE_M / sy);
     let sides = 0;
-    for (const [dx, dz] of [
-      [1, 0],
-      [-1, 0],
-      [0, 1],
-      [0, -1],
-    ] as const) {
-      const px = x + dx * wallCellsXZ;
-      const pz = z + dz * wallCellsXZ;
-      const py = y + Math.ceil(0.5 / sy);
-      if (inb(px, py, pz) && at(px, py, pz) === 1) sides++;
+    for (const [dx, dz] of DIRS) {
+      let hit = false;
+      for (let d = 1; d <= wallCellsXZ && !hit; d++) {
+        const px = x + dx * d;
+        const pz = z + dz * d;
+        if (inb(px, torsoY, pz) && at(px, torsoY, pz) === 1) hit = true;
+      }
+      if (hit) sides++;
     }
     if (sides >= 2) push("narrow", x, y, z);
   }

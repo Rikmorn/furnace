@@ -15,7 +15,13 @@ export type Occupancy = {
 
 /** Builds a dense occupancy grid from a corner-anchored voxels proxy.
  *  `bodyPosition` is the physics body's world position (proxy.ts convention:
- *  coords are grid ints, corner-anchored, HALF_VOXEL = 0). */
+ *  coords are grid ints, corner-anchored, HALF_VOXEL = 0).
+ *
+ *  PRECONDITION — the body is AXIS-ALIGNED. This takes a position but no
+ *  rotation, so a proxy placed with a non-zero yaw is mapped as if unrotated,
+ *  which silently misplaces its cells. This is not hypothetical: `cave-c` in
+ *  the baked default world has `yaw = π`. A caller with rotated bodies must
+ *  resolve rotation before calling (see the F0 report; unresolved as of stage 1). */
 export function occupancyFromProxy(
   proxy: VoxelsProxy,
   bodyPosition: [number, number, number],
@@ -62,8 +68,21 @@ export function occupancyFromProxy(
   return { solid, dims, size: [...proxy.size], origin };
 }
 
+/** Tolerance (in cells) for the lattice-alignment check. */
+const LATTICE_EPS = 1e-6;
+
 /** Merges several occupancies (e.g. all voxel bodies of a loaded world) into
- *  one grid. All inputs must share the same cell size. */
+ *  one grid.
+ *
+ *  Preconditions (setup-path, so both THROW rather than degrade — a silent
+ *  mis-merge would corrupt every downstream flag):
+ *  - all inputs share the same cell size;
+ *  - every origin lies on the shared cell lattice. The merge reconstructs each
+ *    body's grid offset as `origin / size`, so an origin that is not a whole
+ *    number of cells would be rounded — displacing that body's every solid cell
+ *    by up to half a cell. `voxelProxyPosition` (src/proxy.ts) does NOT
+ *    guarantee alignment: it returns `regionOrigin + grid.min`, which is only
+ *    on-lattice if the caller's region origin happens to be. */
 export function mergeOccupancies(list: Occupancy[]): Occupancy {
   const first = list[0];
   if (first === undefined) throw new Error("mergeOccupancies: empty");
@@ -71,6 +90,13 @@ export function mergeOccupancies(list: Occupancy[]): Occupancy {
   for (const o of list) {
     if (o.size[0] !== size[0] || o.size[1] !== size[1] || o.size[2] !== size[2])
       throw new Error("mergeOccupancies: mixed cell sizes");
+    for (let a = 0; a < 3; a++) {
+      const cells = (o.origin[a] as number) / (o.size[a] as number);
+      if (Math.abs(cells - Math.round(cells)) > LATTICE_EPS)
+        throw new Error(
+          `mergeOccupancies: off-lattice origin on axis ${a} — ${o.origin[a]} is not a whole number of ${o.size[a]}m cells (${cells} cells)`,
+        );
+    }
   }
   const min = [
     Number.POSITIVE_INFINITY,
