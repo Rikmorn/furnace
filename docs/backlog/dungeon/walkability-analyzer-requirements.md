@@ -49,14 +49,35 @@ is a one-way slope in a walk-verb world (descending arrivals put a flat landing 
 ramp foot, so every ramp gets mounted from flat when walked back up). SLOPE_LIMIT_RAD
 (55°) remains the physical stand-on/slide limit only."*
 
-**Requirement.** Statically detectable from field geometry + these constants — no
-mover simulation. Probe (pre-charter): run over KNOWN-BAD (spike carved patch, 2.2.1
-repro shapes) and KNOWN-GOOD (every W2/W3 walked lane); must flag all of the former,
-stay quiet on the latter. GPU fuzz-walks remain the backstop. Stop condition: a missed
-known wedge → flag-and-fix is unsafe → Jolt returns to the critical path.
+**Requirement (REVISED 2026-07-14 — pure static analysis refuted by precedent
+research).** The five-lane precedent sweep
+(`docs/research/2026-07-14-field-precedent-research.md`, headline verdict 2) found no
+precedent for a pure walkable-column analyzer achieving low false negatives on
+capsule-scale traps: sub-cell features are structurally invisible, the column model has
+no two-contact wedge concept (a lip below step height beside a steep face passes
+Recast's filters by design), and solver artifacts are invisible to any geometric
+predicate. The design under test is therefore the **hybrid**:
+- Stage 1: walkable-column flags (slope/step/headroom/radius) over the **runtime
+  collider geometry** (never the source field), cells well under capsule radius,
+  thresholds strictly tighter than the controller's real capability, borderline-within-ε
+  flags rather than passes.
+- Stage 2: swept-capsule probes **executing the real controller move routine**
+  headlessly along flagged floor edges (the UE/Unity nav-link shape; Walk Monster's
+  "test the code, not the data"). Donor harnesses: the 2.2.1 GPU fuzz-walker + the Jolt
+  spike's headless walker.
+- The solver-artifact class (internal-edge ghosting) is owned by collider-bake edge
+  classification, explicitly outside the analyzer's contract.
 
-**Trigger to revisit:** the field-charter brainstorm (the probe runs BEFORE
-chartering).
+Probe (One Field charter F0): run the hybrid over KNOWN-BAD (spike carved patch, 2.2.1
+repro shapes) and KNOWN-GOOD (every W2/W3 walked lane); must flag all of the former,
+stay quiet on the latter; the measured miss rate is the gate. GPU fuzz-walks remain the
+backstop. Fallback ladder on a miss: exhaustive local flood-fill (Walk-Monster style,
+offline) → only if that also misses the bar does a physics-engine upgrade return to the
+critical path.
+
+**Trigger to revisit:** One Field phase F0 (chartered 2026-07-14; no F4 "seeing"
+commitment predates this probe).
 
 **Reference:** `docs/research/2026-07-13-one-field-direction.md` (§3, §5),
+`docs/research/2026-07-14-field-precedent-research.md`,
 `packages/dungeon/src/walkability.ts`, `docs/learnings/jolt-mesh-collision-spike.md`.
