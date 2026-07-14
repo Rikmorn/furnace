@@ -9,7 +9,7 @@
 // SOURCE geometry (where a coarse grid aliases the true surface) — which we
 // deliberately do not do here.
 import { STEP_HEIGHT } from "../../src/walkability.ts";
-import type { Occupancy } from "./occupancy.ts";
+import { cellFloorWorld, type Occupancy } from "./occupancy.ts";
 
 export type FlagKind = "lip-near-wall" | "ledge" | "low-clearance" | "narrow";
 
@@ -78,11 +78,6 @@ export function columnPass(occ: Occupancy): ColumnPassResult {
       }
 
   const flags: Flag[] = [];
-  const world = (x: number, y: number, z: number): [number, number, number] => [
-    occ.origin[0] + (x + 0.5) * sx,
-    occ.origin[1] + y * sy,
-    occ.origin[2] + (z + 0.5) * sz,
-  ];
   // Deduped by (kind, cell): the rise checks run once per direction but key the
   // CENTRE cell, so a cell with rises on two sides would otherwise emit the same
   // flag twice. `Flag` carries no direction, so a duplicate holds zero extra
@@ -93,7 +88,7 @@ export function columnPass(occ: Occupancy): ColumnPassResult {
     const key = `${kind}@${x},${y},${z}`;
     if (seen.has(key)) return;
     seen.add(key);
-    flags.push({ kind, cell: [x, y, z], world: world(x, y, z) });
+    flags.push({ kind, cell: [x, y, z], world: cellFloorWorld(occ, x, y, z) });
   };
 
   const stepCells = Math.floor(STEP_HEIGHT / sy); // rise <= this is "steppable"

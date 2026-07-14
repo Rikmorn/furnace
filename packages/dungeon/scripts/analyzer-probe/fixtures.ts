@@ -346,6 +346,55 @@ export function fixtures(): Fixture[] {
   return [rim, pocket, corner, lintel];
 }
 
+// ── stage-2 CONTROL geometries ───────────────────────────────────────────────────
+// Not hazards, and deliberately NOT part of `fixtures()` — the four-class corpus is a
+// known-bad set and these are known-GOOD (and known-BROKEN-MOVER) geometry. They exist to
+// test STAGE 2 itself, which the corpus cannot: every fixture above is threshold-visible to
+// stage 1, so the corpus alone cannot tell "stage 1 alone" from "stage 1 + stage 2".
+
+/** The stage-2 control corridor: `ceiling` m of air above the floor, and a `rise` m step up
+ *  at x >= 0 that runs to the far wall (the carved-rim shape, with both numbers dialled). */
+function ledgeCorridor(ceiling: number, rise: number): Field {
+  const corridor = boxCavern(0, ceiling / 2, 0, CORRIDOR_HX, ceiling / 2, 2);
+  return intersect(
+    corridor,
+    outside(box(0, CORRIDOR_HX, BELOW_GRID, rise, -BEYOND_Z, BEYOND_Z)),
+  );
+}
+
+/** THE FALSE POSITIVE. A 0.5 m rise sits INSIDE the mover's measured walk-anyway band: above
+ *  stage 1's `ledge` threshold (STEP_HEIGHT 0.4) and below the mover's real climb ceiling
+ *  (~0.7 m — see `RIM_H`, where 0.5 m was measured NOT to trap and the rim had to go to
+ *  0.75 m). So stage 1 flags it `ledge` and the real mover walks straight up it.
+ *
+ *  This is stage 2's ONLY evidence of value. Stage 2 is no longer a detector of an invisible
+ *  class (Task 2 measured that class out of existence) — it is a FILTER that clears stage-1
+ *  false positives, and a filter that cannot clear a measured false positive adds nothing to
+ *  the flags stage 1 already emits. */
+export const WALKABLE_RISE = 0.5;
+export function walkableLedgeGeometry(): { field: Field; grid: GridConfig } {
+  return { field: ledgeCorridor(4, WALKABLE_RISE), grid: GRID };
+}
+
+/** THE LEVITATION TRAP — the same 0.5 m rise under a 2.0 m ceiling, which is the shipped
+ *  `char-move.ts` rest-sweep bug's exact firing condition (`applyGravity` lifts the capsule to
+ *  `pos.y + STEP_HEIGHT` before sweeping down, so it needs CAPSULE_HEIGHT + STEP_HEIGHT =
+ *  2.2 m of headroom, not the 1.8 m stage 1 checks). The capsule spawns legally (crown 1.9 m,
+ *  clear of the 2.0 m ceiling), then climbs 0.4 m per frame WHILE REPORTING GROUNDED.
+ *
+ *  It is here because a levitating capsule still advances horizontally: undetected, it drifts
+ *  past the flag and is recorded as a CLEAR — a MISS, the one outcome F0 exists to rule out.
+ *  A levitation detector with no geometry that fires it is not a verified detector, and the
+ *  corpus above never fires it (all four hazards stop the capsule short of their low
+ *  ceilings, by design — see the header note). This geometry is what proves the guard works. */
+export const LOW_HEADROOM_CEILING = 2.0;
+export function lowHeadroomLedgeGeometry(): { field: Field; grid: GridConfig } {
+  return {
+    field: ledgeCorridor(LOW_HEADROOM_CEILING, WALKABLE_RISE),
+    grid: GRID,
+  };
+}
+
 /** The voxel collision proxy for a fixture's HAZARD geometry, at the production cave
  *  voxel size — the same `voxelsFromField` call the cave theme makes, so the collider
  *  under test is the one the game would ship. */

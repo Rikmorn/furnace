@@ -68,6 +68,23 @@ export function occupancyFromProxy(
   return { solid, dims, size: [...proxy.size], origin };
 }
 
+/** World-space centre of the FLOOR SURFACE a capsule standing in cell (x,y,z) rests on:
+ *  the cell's XZ centre, and the Y of its BOTTOM face (= the top of the solid cell below).
+ *  Shared by stage 1 (flag positions) and stage 2 (spawn placement) so the two stages
+ *  cannot drift apart on the one mapping they both depend on. */
+export function cellFloorWorld(
+  occ: Occupancy,
+  x: number,
+  y: number,
+  z: number,
+): [number, number, number] {
+  return [
+    occ.origin[0] + (x + 0.5) * occ.size[0],
+    occ.origin[1] + y * occ.size[1],
+    occ.origin[2] + (z + 0.5) * occ.size[2],
+  ];
+}
+
 /** Tolerance (in cells) for the lattice-alignment check. */
 const LATTICE_EPS = 1e-6;
 
