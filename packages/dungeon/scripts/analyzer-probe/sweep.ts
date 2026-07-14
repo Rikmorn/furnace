@@ -35,7 +35,12 @@ import { type Capsule, CharacterMover } from "../../src/char-move.ts";
 import type { Vec3 } from "../../src/region.ts";
 import { STEP_HEIGHT } from "../../src/walkability.ts";
 import type { Flag } from "./column-pass.ts";
-import { cellFloorWorld, type Occupancy } from "./occupancy.ts";
+import {
+  cellFloorWorld,
+  type Occupancy,
+  volumeFloorY,
+  worldToColumn,
+} from "./occupancy.ts";
 
 /** The game capsule (`main.ts`, and `tests/_helpers/walk-fixture.ts` CAPSULE). */
 export const SWEEP_CAPSULE: Capsule = { halfHeight: 0.6, radius: 0.3 };
@@ -243,28 +248,32 @@ function nearestWalkableY(
   return levelDiff <= MAX_LEVEL_DIFF_M ? best : null;
 }
 
-/** The cell column containing a world XZ point. */
-function columnAt(occ: Occupancy, wx: number, wz: number): [number, number] {
-  return [
-    Math.floor((wx - occ.origin[0]) / occ.size[0]),
-    Math.floor((wz - occ.origin[2]) / occ.size[2]),
-  ];
+/** How far past a flag the exit column sits (m): a capsule radius, rounded UP to a whole
+ *  number of XZ cells so the probe always lands in a DIFFERENT column than the flag's. Both
+ *  production lattices are square in XZ (cave [0.5, _, 0.5], grid 0.25³), so the coarser axis
+ *  is the only one that matters. */
+function exitStepM(occ: Occupancy): number {
+  const cell = Math.max(occ.size[0], occ.size[2]);
+  return Math.max(1, Math.ceil(SWEEP_CAPSULE.radius / cell)) * cell;
 }
 
 /** A lane needs somewhere to GO. The column a capsule radius past the flag must hold walkable
  *  floor at a comparable level; if it is solid rock, the capsule walking into it and stopping
  *  says nothing about the flag — it is the wall stopping it. Without this gate every flag
  *  against a wall would "trap" in the direction of that wall, and stage 2 would confirm
- *  everything, which is the same as confirming nothing. */
-function hasExit(
-  scene: SweepScene,
-  flag: Flag,
-  cell: readonly [number, number],
-): boolean {
-  const size = cell[0] !== 0 ? scene.occ.size[0] : scene.occ.size[2];
-  const n = Math.max(1, Math.ceil(SWEEP_CAPSULE.radius / size));
-  const x = flag.cell[0] + cell[0] * n;
-  const z = flag.cell[2] + cell[1] * n;
+ *  everything, which is the same as confirming nothing.
+ *
+ *  Probed in WORLD space and mapped back through `worldToColumn`, not by cell arithmetic on
+ *  `dir`: the lane directions are world-cardinal and the body may be YAWED (`cave-c` is at
+ *  yaw π), so a world +x lane steps −x through that body's cells. Stepping in cell space with
+ *  a world direction would read the column on the WRONG SIDE of the flag. */
+function hasExit(scene: SweepScene, flag: Flag, dir: Vec3): boolean {
+  const d = exitStepM(scene.occ);
+  const [x, z] = worldToColumn(
+    scene.occ,
+    flag.world[0] + dir[0] * d,
+    flag.world[2] + dir[2] * d,
+  );
   return nearestWalkableY(scene, x, z, flag.cell[1]) !== null;
 }
 
@@ -294,7 +303,7 @@ function findSpawn(
     for (const off of LATERAL_M) {
       const wx = flag.world[0] - dir[0] * back + side[0] * off;
       const wz = flag.world[2] - dir[2] * back + side[2] * off;
-      const [cx, cz] = columnAt(occ, wx, wz);
+      const [cx, cz] = worldToColumn(occ, wx, wz);
       const cy = nearestWalkableY(scene, cx, cz, flag.cell[1]);
       if (cy === null) continue;
       const floorY = cellFloorWorld(occ, cx, cy, cz)[1];
@@ -321,7 +330,7 @@ function runLane(
   flag: Flag,
   dir: Vec3,
 ): Lane {
-  if (!hasExit(scene, flag, cellOf(dir)))
+  if (!hasExit(scene, flag, dir))
     return { dir, outcome: "no-lane", progressed: 0, frames: 0 };
   const spawn = findSpawn(ctx, world, scene, flag, dir);
   if (spawn === null)
@@ -331,7 +340,7 @@ function runLane(
   const flagAlong = along(flag.world, dir);
   const clearBar = flagAlong + CLEAR_AT_FLAG_CENTRE;
   const reachBar = flagAlong - REACH_TOL;
-  const volumeFloorY = scene.occ.origin[1];
+  const floorY = volumeFloorY(scene.occ);
 
   const body = physics.createBody(ctx, world, {
     type: "kinematicPosition",
@@ -368,7 +377,7 @@ function runLane(
         outcome = "levitating";
         break;
       }
-      if (pos[1] < volumeFloorY) {
+      if (pos[1] < floorY) {
         outcome = "fell";
         break;
       }
@@ -394,11 +403,6 @@ function runLane(
     progressed: maxAlong - startAlong,
     frames,
   };
-}
-
-/** The cell-space direction of a world sweep dir. */
-function cellOf(dir: Vec3): readonly [number, number] {
-  return [dir[0], dir[2]] as const;
 }
 
 /** A flag is TRAPPED if any lane reached it and stalled — one blocked approach is a hazard,
