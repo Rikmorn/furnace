@@ -27,6 +27,7 @@ import * as gpu from "@furnace/core/gpu";
 import * as physics from "@furnace/core/physics";
 import { columnPass } from "../scripts/analyzer-probe/column-pass.ts";
 import {
+  deepPitGeometry,
   FIXTURE_VOXEL_SIZE,
   type Fixture,
   fixtureControlProxy,
@@ -34,6 +35,7 @@ import {
   fixtureProxyPosition,
   fixtures,
   lowHeadroomLedgeGeometry,
+  tallRimGeometry,
   walkableLedgeGeometry,
 } from "../scripts/analyzer-probe/fixtures.ts";
 import {
@@ -207,6 +209,33 @@ test.skipIf(!bunWebGpuAvailable())(
     });
   },
 );
+
+// ── the stage-1 blind spot above the old scan cap (a real MISS class, now closed) ─────────
+// The rise scan used to stop at `stepCells + 2` = 0.75 m, so a rise TALLER than that emitted no
+// `ledge` at all — while stalling the mover just as hard. RIM_H and POCKET_D are both 0.75 m,
+// i.e. the corpus passed by sitting exactly on the last value the cap could see; one cell more
+// and it saw nothing. These two geometries are the corpus's taller siblings and they FAIL
+// against the capped scan (zero flags), which is the only reason they are worth having.
+for (const [name, geom] of [
+  ["tall rim 1.0 m", tallRimGeometry()],
+  ["deep pit 1.0 m", deepPitGeometry()],
+] as const) {
+  test.skipIf(!bunWebGpuAvailable())(
+    `${name} (above the old 0.75 m scan cap): stage 1 flags \`ledge\`, stage 2 CONFIRMS the trap`,
+    async () => {
+      const { proxy, position } = controlProxy(geom);
+      const { scene, flags } = stage1(proxy, position);
+      const ledges = flags.filter((f) => f.kind === "ledge");
+      expect(ledges.length).toBeGreaterThan(0); // zero here is the MISS the cap used to cause
+      await withFixtureWorld(proxy, position, (w) => {
+        // Swept from the LEDGE flags alone: the incidental `narrow` flags at the corridor
+        // corners must not be what rescues this, or the blind spot would still be open.
+        const verdicts = sweepFlags(w.ctx, w.world, scene, ledges);
+        expect(confirmedTraps(verdicts).length).toBeGreaterThan(0);
+      });
+    },
+  );
+}
 
 test.skipIf(!bunWebGpuAvailable())(
   "the levitation guard: a sub-2.2 m-headroom floor is INCONCLUSIVE, never CLEAR",

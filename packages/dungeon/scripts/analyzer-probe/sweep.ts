@@ -76,8 +76,20 @@ const APPROACH_STEP_M = 0.25;
  *  a half cell so the nudged capsule (0.6 m wide) still covers the flag's own column: a bigger
  *  nudge could route the mover AROUND the hazard and manufacture a false CLEAR. */
 const LATERAL_M = [0, 0.25, -0.25];
-/** CLEARED = the capsule's CENTRE got past the flag's own centre, grounded and lift-free. It
- *  has then physically traversed the flagged cell, which is the question stage 1 asked.
+/** CLEARED = the capsule's CENTRE got past the flag's own centre, grounded and lift-free.
+ *
+ *  READ THAT LITERALLY. It proves the capsule REACHED the flagged cell's centre under its own
+ *  power, on ground it could hold — it does NOT prove the capsule ended up somewhere good. Two
+ *  corpus lanes score `clear` while the mover is in real trouble: `floor-pocket`'s +x lane
+ *  clears while the capsule is walking along the floor of the inescapable pit, and
+ *  `carved-rim`'s -x lane spawns on TOP of the rim and walks off it. Both flags are still
+ *  correctly reported `trapped`, but ONLY because `verdictOf` gives trap-precedence and the
+ *  opposing lane traps.
+ *
+ *  So flag-level miss-safety rests on TRAP-PRECEDENCE ACROSS THE 4 LANES, not on any one lane
+ *  being sound. A future change that lets the TRAPPING lane degrade to `no-lane` (a stricter
+ *  exit gate, a spawn search that gives up sooner) while a DESCENDING lane still clears would
+ *  turn a trap into a CLEAR — a MISS. Guard that invariant before touching lane selection.
  *
  *  The F0 plan's draft bar — a radius + margin PAST the flag — is unreachable and produced a
  *  false TRAP on the first run: a capsule stops radius + SKIN (0.38 m) short of ANY wall, so a
@@ -394,7 +406,12 @@ function cellOf(dir: Vec3): readonly [number, number] {
  *  walked through and none trapped. Everything else — a levitating lane, no lane at all — is
  *  INCONCLUSIVE: silence is not a clear, and a flag with no evidence keeps its stage-1 status.
  *  A levitating lane cannot be traded for a clear, but it does not override a trap found by a
- *  different lane (that trap is real evidence in its own right). */
+ *  different lane (that trap is real evidence in its own right).
+ *
+ *  THE TRAP-PRECEDENCE ORDER IS THE MISS-SAFETY GUARANTEE, not a tie-break convenience: a
+ *  single lane's `clear` is a weaker claim than it looks (see `CLEAR_AT_FLAG_CENTRE`), and on
+ *  two corpus fixtures the only thing standing between a real trap and a false CLEAR is that
+ *  the trapping lane outvotes a clearing one. Do not reorder these checks. */
 function verdictOf(lanes: Lane[]): SweepOutcome {
   if (lanes.some((l) => l.outcome === "trap")) return "trapped";
   if (lanes.some((l) => l.outcome === "levitating")) return "inconclusive";

@@ -92,8 +92,18 @@ export function columnPass(occ: Occupancy): ColumnPassResult {
   };
 
   const stepCells = Math.floor(STEP_HEIGHT / sy); // rise <= this is "steppable"
+
+  /** The first solid cell above a walkable cell = the CEILING of the air volume it stands in
+   *  (`ny` when the column is open to the top of the grid). */
+  const ceilingAbove = (x: number, y: number, z: number): number => {
+    let cy = y + 1;
+    while (cy < ny && at(x, cy, z) === 0) cy++;
+    return cy;
+  };
+
   for (const key of walkable) {
     const [x, y, z] = key.split(",").map(Number) as [number, number, number];
+    const ceiling = ceilingAbove(x, y, z);
     // low-clearance flag: bounded air run above (already excluded from
     // walkable) is flagged from the adjacent walkable side.
     for (const [dx, dz] of DIRS) {
@@ -107,8 +117,22 @@ export function columnPass(occ: Occupancy): ColumnPassResult {
         if (y + clear < ny && clear < clearCells)
           push("low-clearance", ax, y, az);
       }
-      // rise: find neighbour's floor above our y
-      for (let ry = 1; ry <= stepCells + 2 && y + ry < ny; ry++) {
+      // Rise: the neighbour's FIRST floor surface above ours, searched all the way up to OUR
+      // OWN CEILING. `ledge` means "there is floor over there that you cannot reach" — how far
+      // above it sits is irrelevant, since anything past the mover's ~0.7 m climb ceiling is
+      // equally unreachable. An earlier cap of `stepCells + 2` (3 cells = 0.75 m) made every
+      // rise TALLER than that — strictly HARDER for the mover — invisible: a 1.0 m or 1.5 m rim
+      // stalls the capsule and emitted NO flag at all. That is a false negative, the one class
+      // this probe exists to rule out, and the corpus passed only because RIM_H / POCKET_D sit
+      // exactly on the last value the cap could see.
+      //
+      // The bound is the CEILING, not the grid top, and that is load-bearing. `voxelsFromField`
+      // is shellOnly: enclosed rock is DROPPED, so in this occupancy a wall is HOLLOW — solid
+      // where it borders air, then nothing. Scanning past our ceiling finds the top of that
+      // shell ("solid below, air above"), reads it as reachable-looking floor 4 m up, and flags
+      // a `ledge` on every wall-adjacent cell in the map. A rise only concerns us if it stands
+      // in the air volume we are standing in; above our ceiling is another volume, or rock.
+      for (let ry = 1; y + ry < ceiling; ry++) {
         if (at(ax, y + ry - 1, az) === 1 && at(ax, y + ry, az) === 0) {
           if (ry > stepCells) {
             push("ledge", x, y, z);

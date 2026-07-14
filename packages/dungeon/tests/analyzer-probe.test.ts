@@ -95,6 +95,46 @@ describe("columnPass", () => {
     expect(kindsOf(res.flags)).toContain("ledge");
   });
 
+  test("a rise FAR above step height still flags ledge (the scan has no cap)", () => {
+    // THE BLIND SPOT. The rise scan used to stop at `stepCells + 2` (3 cells = 0.75 m), so a
+    // rise TALLER than that — strictly HARDER for the mover, which stalls dead at a 1.0 m or
+    // 1.5 m rim — matched nothing and emitted NO flag at all. A false negative, and the corpus
+    // hid it by sitting exactly on the last value the cap could see (RIM_H = POCKET_D = 0.75).
+    const occ = room();
+    // A 6-cell rise (1.5 m) at x>=3, well clear of the old cap.
+    for (let z = 0; z < 6; z++)
+      for (let x = 3; x < 6; x++)
+        for (let y = 1; y <= 6; y++) occ.solid[idx(occ, x, y, z)] = 1;
+    const res = columnPass(occ);
+    const ledges = res.flags.filter((f) => f.kind === "ledge");
+    expect(ledges.length).toBeGreaterThan(0);
+    // Anchored on the LOW cell, at the foot of the rise — that is where the mover stands.
+    for (const f of ledges) expect(f.cell[0]).toBe(2);
+  });
+
+  test("a HOLLOW wall (the shellOnly artifact) is not a ledge — the scan stops at our ceiling", () => {
+    // The other half of the fix, and the reason the scan is bounded by OUR CEILING rather than
+    // simply uncapped. `voxelsFromField` is shellOnly: rock whose 6 neighbours are all rock is
+    // DROPPED, so in a real occupancy a wall is HOLLOW — solid exactly where it borders the air
+    // volume, and nothing above that. Reproduced faithfully here: the wall runs to the ceiling
+    // (y=1..10) and its capping ceiling cell at y=11 is ABSENT, as the shell pass would leave
+    // it. A naive uncapped scan reads "solid at y=10, air at y=11" as reachable floor 2.5 m up
+    // and flags a `ledge` on every wall-adjacent cell in the map — tens of them per room, all
+    // unsweepable. Bounding at our own ceiling excludes it, because the shell ends exactly
+    // where the air volume does.
+    const occ = room();
+    for (let z = 0; z < 6; z++) {
+      for (let y = 1; y <= 10; y++) occ.solid[idx(occ, 3, y, z)] = 1; // wall, floor to ceiling
+      occ.solid[idx(occ, 3, 11, z)] = 0; // enclosed rock above it: dropped by the shell pass
+    }
+    // The hollow top IS "solid below, air above" — the exact shape of a floor surface.
+    expect(occ.solid[idx(occ, 3, 10, 0)]).toBe(1);
+    expect(occ.solid[idx(occ, 3, 11, 0)]).toBe(0);
+    const res = columnPass(occ);
+    // ...but it sits at the ceiling of the volume the mover stands in, so it is not our rise.
+    expect(kindsOf(res.flags)).not.toContain("ledge");
+  });
+
   test("headroom below capsule height flags low-clearance", () => {
     const occ = room();
     // Low ceiling at y=6 over x in [2,3]: clearance 5 cells * 0.25 = 1.25 m < 1.8 m.

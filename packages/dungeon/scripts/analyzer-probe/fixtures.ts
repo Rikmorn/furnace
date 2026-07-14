@@ -384,13 +384,46 @@ export function walkableLedgeGeometry(): { field: Field; grid: GridConfig } {
  *
  *  It is here because a levitating capsule still advances horizontally: undetected, it drifts
  *  past the flag and is recorded as a CLEAR — a MISS, the one outcome F0 exists to rule out.
- *  A levitation detector with no geometry that fires it is not a verified detector, and the
- *  corpus above never fires it (all four hazards stop the capsule short of their low
- *  ceilings, by design — see the header note). This geometry is what proves the guard works. */
+ *  This geometry fires the guard on EVERY lane, which is what pins the guard's behaviour down.
+ *
+ *  The corpus fires it too, just not from a ceiling: `floor-pocket` trips it on 4 lanes, where
+ *  a capsule straddling the pit rim has its LIFTED pose penetrate the rim SIDEWAYS. The bug is
+ *  not "headroom < 2.2 m" — it is "the lifted pose overlaps rock", in any direction. */
 export const LOW_HEADROOM_CEILING = 2.0;
 export function lowHeadroomLedgeGeometry(): { field: Field; grid: GridConfig } {
   return {
     field: ledgeCorridor(LOW_HEADROOM_CEILING, WALKABLE_RISE),
+    grid: GRID,
+  };
+}
+
+// ── stage-1 BLIND-SPOT regressions ───────────────────────────────────────────────
+// Both of these stall the real mover and, until the rise scan was bounded by the ceiling
+// instead of by `stepCells + 2` (3 cells = 0.75 m), BOTH emitted zero `ledge` flags. They are
+// the taller — i.e. strictly HARDER — siblings of `carved-rim` and `floor-pocket`, whose
+// RIM_H / POCKET_D of 0.75 m sit exactly on the last value the old cap could see. That is what
+// a false negative looks like: the corpus passed by sitting on the edge of the blind spot.
+
+/** A rim above the old scan cap. Same class as `carved-rim`, 0.25 m taller. */
+export const TALL_RIM_H = 1.0;
+export function tallRimGeometry(): { field: Field; grid: GridConfig } {
+  return {
+    field: intersect(
+      CORRIDOR,
+      outside(box(0, RIM_W, BELOW_GRID, TALL_RIM_H, -BEYOND_Z, BEYOND_Z)),
+    ),
+    grid: GRID,
+  };
+}
+
+/** A pit deeper than the old scan cap. Same class as `floor-pocket`, 0.25 m deeper. */
+export const DEEP_PIT_D = 1.0;
+export function deepPitGeometry(): { field: Field; grid: GridConfig } {
+  return {
+    field: union(
+      CORRIDOR,
+      box(-POCKET_W / 2, POCKET_W / 2, -DEEP_PIT_D, 0, -2, 2),
+    ),
     grid: GRID,
   };
 }
