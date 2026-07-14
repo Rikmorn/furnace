@@ -81,3 +81,22 @@ commitment predates this probe).
 **Reference:** `docs/research/2026-07-13-one-field-direction.md` (§3, §5),
 `docs/research/2026-07-14-field-precedent-research.md`,
 `packages/dungeon/src/walkability.ts`, `docs/learnings/jolt-mesh-collision-spike.md`.
+
+**F0 VERDICT (2026-07-15):** The hybrid records ZERO false-negative misses on the
+known-bad corpus (every fixture that traps the real mover is flagged by stage 1 and
+confirmed by stage 2) — the P1 stop condition is met on the corpus. BUT 2 of the 4
+specified classes are non-reproducible against the current mover (incl. the sub-step-height
+two-contact wedge that justified stage 2's existence, always climbed; and sub-capsule
+pockets, closed by slice 2.2.1 — the corpus substitutes above-step-height and supra-capsule
+geometry that does trap), the mover's real climb ceiling is ~0.7 m not `STEP_HEIGHT` 0.4 (so
+`ledge` over-flags the 0.4–0.7 m band), and on the shipped `DEFAULT_WORLD` the false-positive
+load is 540 stage-1 flags / 32 confirmed traps (ALL harness artifacts, zero genuine — 22
+phantom shell-tops + 10 residual) / 246 inconclusive, with a ~7-minute per-flag world sweep.
+The brief's zero-traps known-good gate `expect(confirmedTraps).toEqual([])` was reframed to
+miss-safe characterization assertions, NOT passed. A shipped levitation bug was surfaced
+(`char-move.ts:124-132` rest sweep + `query.ts:157` stopAtPenetration → +0.4 m/frame while
+reporting grounded on sub-2.2 m-clearance floors; filed for the user, and directly relevant
+to F1's low tunnels). The hybrid is NOT ready to gate F4 unaided; F4 must add capsule-aware
+navigability (fall-aware reachability, spawn validation, seam adjacency) before
+self-certification — the offline flood-fill / physics-upgrade rungs sit below that.
+See `docs/learnings/2026-07-15-analyzer-corpus-probe.md`.
