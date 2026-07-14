@@ -1,0 +1,27 @@
+export {
+  AIR,
+  CHUNK_DIM,
+  CHUNK_SAMPLES,
+  chunkKey,
+  createFieldStore,
+  DEFAULT_CELL_SIZE,
+  DENSITY_SCALE,
+  extractApron,
+  getDensity,
+  parseChunkKey,
+  SOLID,
+  sampleToWorld,
+  setDensity,
+  voxelChunk,
+  worldToVoxel,
+} from "./chunks.ts";
+export type {
+  ChunkCollider,
+  ChunkKey,
+  ChunkMesh,
+  DigOp,
+  FieldManifest,
+  FieldStore,
+  OpInverse,
+  OpLog,
+} from "./types.ts";
