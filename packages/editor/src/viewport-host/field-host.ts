@@ -123,11 +123,15 @@ export function createFieldHost(): FieldHost {
 
   // Fly camera: start a few metres up looking down at the grid origin, so the
   // blank-canvas bootstrap digs the first hole at the ground-grid centre.
+  // POSITIVE pitch puts the eye ABOVE the target (toEyeTarget: eye.y = target.y +
+  // distance·sin(pitch)); at distance 6 this seats the eye at y ≈ 3.9 (matches
+  // preview-host's positive-pitch DEFAULT_ORBIT). A negative pitch would sink it
+  // below the y=0 grid looking up.
   let orbitState: OrbitState = {
     target: [0, 1, 0],
     distance: 6,
     yaw: 0.6,
-    pitch: -0.3,
+    pitch: 0.5,
   };
   const keys = new Set<string>();
   // RMB-drag look state (null when not looking).
@@ -273,8 +277,8 @@ export function createFieldHost(): FieldHost {
   };
 
   // Dig a sphere where the cursor ray meets rock. In virgin (all-solid) space
-  // the raycast may miss within range — bootstrap by digging a fixed distance
-  // ahead of the eye so the first stroke always opens the world.
+  // the centre depends on where the eye sits relative to rock (see the branch
+  // below: raycastField can't be trusted to find a wall when the eye is embedded).
   const dig = (clientX: number, clientY: number): void => {
     if (!cam) return;
     const [nx, ny] = toNdc(clientX, clientY);
@@ -292,14 +296,28 @@ export function createFieldHost(): FieldHost {
     if (Math.hypot(dx, dy, dz) < 1e-8) return; // singular VP → no valid ray
     const origin: Vec3T = [ox, oy, oz];
     const direction: Vec3T = [dx, dy, dz];
-    const hit = field.raycastField(store, origin, direction, DIG_RANGE_M);
-    const at: Vec3T = hit
-      ? hit.point
-      : [
-          ox + dx * FIRST_DIG_DISTANCE_M,
-          oy + dy * FIRST_DIG_DISTANCE_M,
-          oz + dz * FIRST_DIG_DISTANCE_M,
-        ];
+    const ahead: Vec3T = [
+      ox + dx * FIRST_DIG_DISTANCE_M,
+      oy + dy * FIRST_DIG_DISTANCE_M,
+      oz + dz * FIRST_DIG_DISTANCE_M,
+    ];
+    // If the eye is embedded in rock (virgin world or buried), raycastField would
+    // hit the origin's OWN voxel at t=0 (raycast.ts: "a start inside rock hits its
+    // own voxel at t=0") and carve a sphere around the camera — there is no visible
+    // wall to aim at, so dig ahead. Otherwise dig where the ray meets rock, or
+    // ahead when it reaches maxDist through only air (a cavity aimed at open space).
+    const cs = store.cellSize;
+    const eyeInRock =
+      field.getDensity(
+        store,
+        field.worldToVoxel(ox, cs),
+        field.worldToVoxel(oy, cs),
+        field.worldToVoxel(oz, cs),
+      ) < 0;
+    const hit = eyeInRock
+      ? null
+      : field.raycastField(store, origin, direction, DIG_RANGE_M);
+    const at: Vec3T = hit ? hit.point : ahead;
     const dirtied = field.logApply(store, log, {
       id: 0,
       kind: "dig",
@@ -491,6 +509,7 @@ export function createFieldHost(): FieldHost {
   return {
     async init(canvas) {
       if (ctx) throw new Error("field-host: already initialized");
+      disposed = false; // clear a prior dispose() so a re-init'd instance lives
       ctx = await gpu.requestContext(canvas, { sampleCount: 4 });
       cam = camera.perspective({
         fovYRad: EDITOR_FOV_Y,
@@ -534,11 +553,21 @@ export function createFieldHost(): FieldHost {
       resetWorld();
     },
     loadWorld(data) {
+      // Setup-loud: the store's cellSize is fixed at construction and captured by
+      // the closures above, so it can't be cheaply rebuilt. A world baked at a
+      // different scale would decode at the wrong size silently — refuse it.
+      if (data.manifest.cellSize !== store.cellSize) {
+        throw new Error(
+          `FieldHost.loadWorld: world cellSize ${data.manifest.cellSize} != host ${store.cellSize} (multi-cellSize load not supported in v0)`,
+        );
+      }
       resetWorld();
       for (const { key, bytes } of data.chunks)
         store.chunks.set(key, field.decodeChunkFile(bytes));
       for (const op of data.ops) log.ops.push(op);
       log.nextId = data.ops.reduce((max, o) => Math.max(max, o.id), 0) + 1;
+      // v0: manifest.playerStart/playerYaw are the dungeon runtime spawn — the
+      // editor keeps its current fly pose on load (not applied to the camera here).
       for (const key of store.chunks.keys()) dirty.add(key);
     },
     setDigRadius(r) {
