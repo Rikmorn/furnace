@@ -1,6 +1,7 @@
 import { Layers } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { OrbitState } from "../../viewport-host/index.ts"; // type-only: erased
+import { initWhenSized } from "../lib/init-when-sized.ts";
 import { VIEW_FLAG_ITEMS } from "../lib/view-flags.ts";
 import { AxisTriad } from "./AxisTriad.tsx";
 import { useEditor } from "./editor-context.ts";
@@ -38,22 +39,26 @@ export function Viewport() {
     if (!canvas || !host || initialized.current || state.status !== "ready")
       return;
     initialized.current = true;
-    host.init(canvas).catch((err) => {
-      dispatch({
-        type: "engine-error",
-        diagnostics: `viewport init failed: ${String(err)}`,
+    return initWhenSized(canvas, () => {
+      host.init(canvas).catch((err) => {
+        dispatch({
+          type: "engine-error",
+          diagnostics: `viewport init failed: ${String(err)}`,
+        });
       });
     });
     // The host owns resize-rendering (it re-renders itself via gpu.onResize,
     // ordered after the backing-store resize). The chrome must NOT add a
-    // competing ResizeObserver here — one that fires before the backing-store
-    // resize blanks the viewport.
+    // competing ResizeObserver for RENDERING — initWhenSized only gates the
+    // one-shot init and disconnects the moment it fires.
   }, [state.status, dispatch, hostRef]);
 
-  // The cockpit preview host lives on its own canvas (Slice 3.1). It inits once at
-  // ready so the generation panel can realize into it immediately. Sound ONLY because
-  // the canvas keeps its layout box while invisible (visibility swap, see the JSX
-  // comment) — init on a zero-size canvas throws in core's bindToCanvas.
+  // The cockpit preview host lives on its own canvas (Slice 3.1). It inits at ready —
+  // immediately when the canvas has its layout box (the visibility swap keeps it boxed
+  // while invisible, see the JSX comment), DEFERRED to first nonzero measure when the
+  // panel mounts zero-sized (hidden behind another tab, e.g. the Field tab active in
+  // the group — the F1-gate "preview init failed: width and height must be positive"
+  // class, which previously latched broken until a manual tab-close + refresh).
   useEffect(() => {
     const canvas = previewCanvasRef.current;
     const host = previewHostRef.current;
@@ -65,10 +70,12 @@ export function Viewport() {
     )
       return;
     previewInitialized.current = true;
-    host.init(canvas).catch((err) => {
-      dispatch({
-        type: "engine-error",
-        diagnostics: `preview init failed: ${String(err)}`,
+    return initWhenSized(canvas, () => {
+      host.init(canvas).catch((err) => {
+        dispatch({
+          type: "engine-error",
+          diagnostics: `preview init failed: ${String(err)}`,
+        });
       });
     });
   }, [state.status, dispatch, previewHostRef]);

@@ -13,6 +13,7 @@ import type {
 import { api } from "../lib/api.ts";
 import { cn } from "../lib/cn.ts";
 import { bakeUploadCalls, toWireFiles } from "../lib/generation.ts";
+import { initWhenSized } from "../lib/init-when-sized.ts";
 import { useEditor } from "./editor-context.ts";
 import { Button } from "./ui/button.tsx";
 import { Input } from "./ui/input.tsx";
@@ -50,19 +51,23 @@ export function FieldPanel() {
   const nameValid = NAME_RE.test(name);
 
   // Run-once init (the Viewport idiom): grab the canvas once the engine is ready and the
-  // App-owned host exists. NO dispose in cleanup — the host outlives this panel (App owns
-  // it), exactly like the viewport host. Init failure is reported LOCALLY (not a global
-  // engine-error dispatch) so a Field-panel failure can't blank the whole editor: this is
-  // optional chrome. Panel-reopen re-init throws "already initialized" (host bound to the
-  // prior canvas) — a v0 limitation surfaced here, tracked for Task 12.
+  // App-owned host exists. Deferred to the first nonzero canvas measure (initWhenSized)
+  // so mounting hidden behind another tab can't latch a zero-size init failure. NO
+  // dispose in cleanup — the host outlives this panel (App owns it), exactly like the
+  // viewport host. Init failure is reported LOCALLY (not a global engine-error dispatch)
+  // so a Field-panel failure can't blank the whole editor: this is optional chrome.
+  // Panel-reopen re-init throws "already initialized" (host bound to the prior canvas)
+  // — a v0 limitation surfaced here, tracked for Task 12.
   useEffect(() => {
     const canvas = canvasRef.current;
     const host = fieldHostRef.current;
     if (!canvas || !host || initialized.current || state.status !== "ready")
       return;
     initialized.current = true;
-    host.init(canvas).catch((err) => {
-      setStatus(`field host init failed: ${errorMessage(err)}`);
+    return initWhenSized(canvas, () => {
+      host.init(canvas).catch((err) => {
+        setStatus(`field host init failed: ${errorMessage(err)}`);
+      });
     });
   }, [state.status, fieldHostRef]);
 
