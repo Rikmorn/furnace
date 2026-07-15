@@ -15,6 +15,10 @@ export {
   voxelChunk,
   worldToVoxel,
 } from "./chunks.ts";
+/** Derives one chunk's shell voxel collider (solid samples adjacent to air),
+ *  corner-anchored in the physics `voxels` shape; null when the chunk has no
+ *  shell. */
+export { chunkColliders } from "./collider.ts";
 export { meshChunkApron } from "./mesher.ts";
 export {
   applyOp,
