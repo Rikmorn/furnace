@@ -1,3 +1,12 @@
+export type { BakedFile, BakeFieldWorldOptions } from "./artifact.ts";
+export {
+  bakeFieldWorld,
+  chunkFilePath,
+  decodeChunkFile,
+  encodeChunkFile,
+  parseOps,
+  serializeOps,
+} from "./artifact.ts";
 export {
   AIR,
   CHUNK_DIM,
