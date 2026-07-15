@@ -24,6 +24,8 @@ export {
   redo,
   undo,
 } from "./ops.ts";
+export type { FieldHit } from "./raycast.ts";
+export { raycastField } from "./raycast.ts";
 export type {
   ChunkCollider,
   ChunkKey,
