@@ -14,20 +14,34 @@ const ENGINE = String.raw`["']@furnace\/core`;
 // so it is forbidden from non-exempt files too. Any specifier ending in
 // `field-protocol` (`./field-protocol.ts`, `./lib/field-protocol.ts`).
 const PROTOCOL = String.raw`["'][^"']*field-protocol`;
+// viewport-host/index.ts is the ENGINE BARREL — it value-imports @furnace/core/*
+// (it re-exports the hosts). A value-import of it into any chrome file would
+// transitively pull core into the main bundle just as surely as an @furnace/core
+// import, and — before this rule — no test would fail: the two rules above match
+// only `@furnace/core` and `field-protocol` specifiers, not `viewport-host`. The
+// invariant held solely by manual discipline (every chrome import of the barrel is
+// kept `import type`). Machine-enforce it. Any specifier ending in `viewport-host`
+// (`../../viewport-host/index.ts`, `./viewport-host`).
+const VIEWPORT_HOST = String.raw`["'][^"']*viewport-host`;
 
-// Both rule-sets exempt the SAME files: the dedicated field remesh worker is its
-// OWN bundle (/field-worker.js), spawned by URL into an isolated Worker realm
-// that NEVER loads /engine.js. It has no extension surface, so it consumes stock
-// engine mesher code (@furnace/core/field) directly. The hazard this invariant
-// guards — a duplicate core instance next to the engine bundle in the SAME realm
-// — cannot arise there: that realm has no engine bundle at all. Exempt files may
-// (1) value-import @furnace/core AND (2) value-import the core-carrying
-// field-protocol module — they ARE that bundle (field-worker.ts value-imports
-// createFieldWorkerHandler; field-protocol.ts value-imports the mesher). Every
-// non-exempt chrome file may do NEITHER: the main-thread field client
-// (field-client.ts) imports the protocol TYPE-ONLY, and rule (2) is what now
-// machine-enforces that — without it, core could re-enter the chrome via a
-// relative import with no test failing.
+// All three rule-sets (@furnace/core, field-protocol, viewport-host) exempt the
+// SAME files: the dedicated field remesh worker is its OWN bundle (/field-worker.js),
+// spawned by URL into an isolated Worker realm that NEVER loads /engine.js. It has no
+// extension surface, so it consumes stock engine mesher code (@furnace/core/field)
+// directly. The hazard this invariant guards — a duplicate core instance next to the
+// engine bundle in the SAME realm — cannot arise there: that realm has no engine bundle
+// at all. Exempt files may (1) value-import @furnace/core AND (2) value-import the
+// core-carrying field-protocol module — they ARE that bundle (field-worker.ts
+// value-imports createFieldWorkerHandler; field-protocol.ts value-imports the mesher).
+// The viewport-host rule is a no-op for them: the worker files don't import the barrel
+// at all, so exempting them changes nothing while the rule catches any CHROME file that
+// value-imports it. Every non-exempt chrome file may do NONE of the three: it may import
+// @furnace/core, field-protocol, AND viewport-host only TYPE-ONLY (erased). The
+// main-thread field client (field-client.ts) imports the protocol TYPE-ONLY, and the
+// hosts (FieldHost/PreviewHost/ViewportHost) reach the chrome ONLY via the /engine.js
+// runtime channel — never a static value import — which the viewport-host rule now
+// machine-enforces; without it core could re-enter the chrome via the barrel with no
+// test failing.
 const ENGINE_DIRECT_WORKER = new Set([
   "field-worker.ts",
   join("lib", "field-protocol.ts"),
@@ -42,7 +56,11 @@ const valueImportRules = (specifier: string): RegExp[] => [
   new RegExp(String.raw`^export\s+(?!type\b)[^;]*?from\s+${specifier}`, "m"), // value re-export
 ];
 
-const FORBIDDEN = [...valueImportRules(ENGINE), ...valueImportRules(PROTOCOL)];
+const FORBIDDEN = [
+  ...valueImportRules(ENGINE),
+  ...valueImportRules(PROTOCOL),
+  ...valueImportRules(VIEWPORT_HOST),
+];
 
 function walk(dir: string): string[] {
   return readdirSync(dir).flatMap((name) => {
