@@ -4,7 +4,7 @@
 // is created ONCE at engine-ready (App) and reached ONLY through the /engine.js runtime
 // channel (a context ref) — the chrome never value-imports engine code (the project-first
 // invariant). This file type-imports FieldHost + the field artifact types (all erased).
-import type { DigOp, FieldManifest } from "@furnace/core/field"; // type-only: erased
+import type { BrushOp, FieldManifest } from "@furnace/core/field"; // type-only: erased
 import { useEffect, useRef, useState } from "react";
 import type {
   FieldHost,
@@ -161,7 +161,7 @@ export function FieldPanel() {
           key: c.key,
           bytes: base64ToBytes(c.data),
         })),
-        ops: res.oplog ? (JSON.parse(res.oplog) as DigOp[]) : [],
+        ops: res.oplog ? (JSON.parse(res.oplog) as BrushOp[]) : [],
       });
       setStatus(`loaded ${name} (${res.chunks.length} chunks)`);
     } catch (err) {

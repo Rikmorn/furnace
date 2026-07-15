@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { FieldManifest } from "@furnace/core/field";
 import {
+  BUILTIN_TABLE,
   bakeFieldWorld,
   createFieldStore,
   createOpLog,
@@ -25,7 +26,8 @@ describe("field artifact", () => {
     const ops = [
       {
         id: 1,
-        kind: "dig" as const,
+        kind: "brush" as const,
+        effect: "dig" as const,
         shape: {
           kind: "sphere" as const,
           center: [1, 2, 3] as [number, number, number],
@@ -39,11 +41,17 @@ describe("field artifact", () => {
   test("bakeFieldWorld emits manifest + a chunk file + a mesh per carved chunk", () => {
     const s = createFieldStore();
     const log = createOpLog();
-    logApply(s, log, {
-      id: 0,
-      kind: "dig",
-      shape: { kind: "sphere", center: [2, 2, 2], radius: 1.4 },
-    });
+    logApply(
+      s,
+      log,
+      {
+        id: 0,
+        kind: "brush",
+        effect: "dig",
+        shape: { kind: "sphere", center: [2, 2, 2], radius: 1.4 },
+      },
+      BUILTIN_TABLE,
+    );
     const files = bakeFieldWorld(s, log, {
       name: "scratch",
       playerStart: [2, 2, 2],

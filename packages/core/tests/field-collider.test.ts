@@ -17,7 +17,8 @@ describe("chunkColliders", () => {
     const s = createFieldStore();
     applyOp(s, {
       id: 1,
-      kind: "dig",
+      kind: "brush",
+      effect: "dig",
       shape: { kind: "sphere", center: [2, 2, 2], radius: 1.4 },
     });
     const col = chunkColliders(s, chunkKey(0, 0, 0));

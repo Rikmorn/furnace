@@ -39,6 +39,7 @@ export {
 export { meshChunkApron } from "./mesher.ts";
 export {
   applyOp,
+  assertOpValid,
   createOpLog,
   logApply,
   opBounds,
@@ -48,12 +49,15 @@ export {
 export type { FieldHit } from "./raycast.ts";
 export { raycastField } from "./raycast.ts";
 export type {
+  BrushOp,
+  BrushShape,
   ChunkCollider,
   ChunkKey,
   ChunkMaterials,
   ChunkMesh,
-  DigOp,
+  ChunkSnapshot,
   FieldManifest,
+  FieldOp,
   FieldStore,
   KitStyle,
   MaterialClass,

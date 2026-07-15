@@ -16,7 +16,8 @@ function boundarySphereStore() {
   const s = createFieldStore();
   applyOp(s, {
     id: 1,
-    kind: "dig",
+    kind: "brush",
+    effect: "dig",
     shape: { kind: "sphere", center: [4.0, 1.5, 1.5], radius: 1.2 },
   }); // 4.0 m = sample 16 = the +x boundary of chunk 0
   return s;
@@ -48,7 +49,8 @@ describe("chunked surface nets", () => {
     // allocate a chunk without opening any air
     applyOp(s, {
       id: 1,
-      kind: "dig",
+      kind: "brush",
+      effect: "dig",
       shape: { kind: "sphere", center: [100, 100, 100], radius: 0.5 },
     });
     const m = meshOf(s, chunkKey(0, 0, 0));
@@ -59,7 +61,8 @@ describe("chunked surface nets", () => {
     const s = createFieldStore();
     applyOp(s, {
       id: 1,
-      kind: "dig",
+      kind: "brush",
+      effect: "dig",
       shape: { kind: "sphere", center: [2, 2, 2], radius: 1.2 },
     });
     const m = meshOf(s, chunkKey(0, 0, 0));
@@ -86,7 +89,8 @@ describe("chunked surface nets", () => {
     const s = createFieldStore();
     applyOp(s, {
       id: 1,
-      kind: "dig",
+      kind: "brush",
+      effect: "dig",
       shape: { kind: "sphere", center: [2, 2, 2], radius: 1.2 },
     });
     const m = meshOf(s, chunkKey(0, 0, 0));

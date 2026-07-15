@@ -65,29 +65,51 @@ export type ChunkMaterials =
   | { kind: "uniform"; classId: number }
   | { kind: "indexed"; palette: Uint8Array; bits: number; packed: Uint8Array };
 
-/** One dig operation — the only way the field mutates. Bounds are implied
- *  by the shape (every op has bounded spatial influence by construction). */
-export type DigOp = {
+/** A brush's spatial extent — the bounded influence, implied by the shape. */
+export type BrushShape =
+  | { kind: "sphere"; center: [number, number, number]; radius: number }
+  | {
+      kind: "box";
+      center: [number, number, number];
+      halfExtents: [number, number, number];
+    };
+
+/** One brush operation — the only way the field mutates. Bounded influence by
+ *  construction. `effect` selects the channel work: `dig` opens air (density
+ *  only), `fill` solidifies AND writes `material` on solid interior cells
+ *  (cells solid after the fill — including ambient rock it leaves unchanged),
+ *  `paint` retints solid cells inside the shape without changing density.
+ *  `material` is the class fill writes / paint applies (defaults {@link
+ *  MAT_ROCK} for fill; ignored by dig). */
+export type BrushOp = {
   id: number;
-  kind: "dig";
-  shape:
-    | { kind: "sphere"; center: [number, number, number]; radius: number }
-    | {
-        kind: "box";
-        center: [number, number, number];
-        halfExtents: [number, number, number];
-      };
+  kind: "brush";
+  effect: "dig" | "fill" | "paint";
+  shape: BrushShape;
+  material?: number;
 };
 
-/** Inverse deltas for one applied op: full pre-images of every chunk the op
- *  touched, keyed by chunk. Chunk-keyed undo per the charter. */
-export type OpInverse = Map<ChunkKey, Int8Array>;
+/** The field-op union (entity ops join in F2b). */
+export type FieldOp = BrushOp;
+
+/** Pre-image of one touched chunk's BOTH channels, captured before the op's
+ *  first write to that chunk. `density: null` = the chunk was unallocated;
+ *  `materials: null` = the chunk had no material entry (uniform {@link
+ *  MAT_ROCK}). Undo restores each channel or deletes the map entry on null. */
+export type ChunkSnapshot = {
+  density: Int8Array | null;
+  materials: ChunkMaterials | null;
+};
+
+/** Inverse deltas for one applied op: two-channel pre-images of every chunk the
+ *  op touched, keyed by chunk. Chunk-keyed undo per the charter. */
+export type OpInverse = Map<ChunkKey, ChunkSnapshot>;
 
 /** Append-only op log with chunk-keyed undo and replay-based redo. */
 export type OpLog = {
-  ops: DigOp[];
-  undoStack: { op: DigOp; inverse: OpInverse }[];
-  redoStack: DigOp[];
+  ops: BrushOp[];
+  undoStack: { op: BrushOp; inverse: OpInverse }[];
+  redoStack: BrushOp[];
   nextId: number;
 };
 

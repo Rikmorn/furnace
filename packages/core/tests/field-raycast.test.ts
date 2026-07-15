@@ -6,7 +6,8 @@ describe("raycastField", () => {
     const s = createFieldStore();
     applyOp(s, {
       id: 1,
-      kind: "dig",
+      kind: "brush",
+      effect: "dig",
       shape: { kind: "sphere", center: [2, 2, 2], radius: 1.5 },
     });
     const hit = raycastField(s, [2, 2, 2], [1, 0, 0], 10);
@@ -22,7 +23,8 @@ describe("raycastField", () => {
     expect(raycastField(s, [50, 50, 50], [1, 0, 0], 5)).not.toBeNull();
     applyOp(s, {
       id: 1,
-      kind: "dig",
+      kind: "brush",
+      effect: "dig",
       shape: { kind: "box", center: [2, 2, 2], halfExtents: [1.5, 1.5, 1.5] },
     });
     expect(raycastField(s, [2, 2, 2], [1, 0, 0], 0.5)).toBeNull();

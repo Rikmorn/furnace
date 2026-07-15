@@ -7,8 +7,9 @@ import {
 } from "./chunks.ts";
 import { meshChunkApron } from "./mesher.ts";
 import type {
+  BrushOp,
+  BrushShape,
   ChunkKey,
-  DigOp,
   FieldManifest,
   FieldStore,
   OpLog,
@@ -61,11 +62,21 @@ export function decodeChunkFile(bytes: Uint8Array): Int8Array {
   ).slice();
 }
 
-/** Serializes the op list (the authoring truth) as a JSON string. */
-export const serializeOps = (ops: DigOp[]): string => JSON.stringify(ops);
+/** A pre-F2 dig op literal (`kind:"dig"`) as F1 baked it — mapped to a
+ *  brush/dig op on parse. */
+type LegacyDigOp = { id: number; kind: "dig"; shape: BrushShape };
 
-/** Parses an oplog JSON string back into the op list. */
-export const parseOps = (text: string): DigOp[] => JSON.parse(text) as DigOp[];
+/** Serializes the op list (the authoring truth) as a JSON string. */
+export const serializeOps = (ops: BrushOp[]): string => JSON.stringify(ops);
+
+/** Parses an oplog JSON string back into the op list; F1 logs (`kind:"dig"`)
+ *  map forward to brush/dig ops. */
+export const parseOps = (text: string): BrushOp[] =>
+  (JSON.parse(text) as (BrushOp | LegacyDigOp)[]).map((o) =>
+    o.kind === "dig"
+      ? { id: o.id, kind: "brush", effect: "dig", shape: o.shape }
+      : o,
+  );
 
 /** File-name-safe key segment ("cx,cy,cz" → "cx_cy_cz"). */
 const keyToFileName = (key: ChunkKey): string => key.replaceAll(",", "_");

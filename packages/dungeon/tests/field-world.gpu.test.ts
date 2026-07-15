@@ -31,11 +31,17 @@ describe("field world: bake -> load -> walk", () => {
       const store = field.createFieldStore();
       const log = field.createOpLog();
       for (let x = 1; x <= 7; x += 0.5) {
-        field.logApply(store, log, {
-          id: 0,
-          kind: "dig",
-          shape: { kind: "sphere", center: [x, 1.4, 1.5], radius: 1.4 },
-        });
+        field.logApply(
+          store,
+          log,
+          {
+            id: 0,
+            kind: "brush",
+            effect: "dig",
+            shape: { kind: "sphere", center: [x, 1.4, 1.5], radius: 1.4 },
+          },
+          field.BUILTIN_TABLE,
+        );
       }
       const files = field.bakeFieldWorld(store, log, {
         name: "tunnel",

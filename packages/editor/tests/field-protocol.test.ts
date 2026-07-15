@@ -13,7 +13,8 @@ describe("field worker protocol", () => {
     const s = createFieldStore();
     applyOp(s, {
       id: 1,
-      kind: "dig",
+      kind: "brush",
+      effect: "dig",
       shape: { kind: "sphere", center: [2, 2, 2], radius: 1.2 },
     });
     const posts: { msg: FieldWorkerResponse; transfer: Transferable[] }[] = [];

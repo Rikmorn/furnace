@@ -37,7 +37,7 @@ export type FieldHost = {
   loadWorld(data: {
     manifest: field.FieldManifest;
     chunks: { key: string; bytes: Uint8Array }[];
-    ops: field.DigOp[];
+    ops: field.BrushOp[];
   }): void;
   setDigRadius(r: number): void;
   setShading(mode: FieldHostShading): void;
@@ -318,11 +318,20 @@ export function createFieldHost(): FieldHost {
       ? null
       : field.raycastField(store, origin, direction, DIG_RANGE_M);
     const at: Vec3T = hit ? hit.point : ahead;
-    const dirtied = field.logApply(store, log, {
-      id: 0,
-      kind: "dig",
-      shape: { kind: "sphere", center: at, radius: digRadius },
-    });
+    // MIGRATION (until Task 10): BUILTIN_TABLE stands in for the project's real
+    // material table (threaded through then); dig writes no material, so
+    // validation is a no-op regardless of table today.
+    const dirtied = field.logApply(
+      store,
+      log,
+      {
+        id: 0,
+        kind: "brush",
+        effect: "dig",
+        shape: { kind: "sphere", center: at, radius: digRadius },
+      },
+      field.BUILTIN_TABLE,
+    );
     markDirtyWithNeighbors(dirtied);
   };
 
