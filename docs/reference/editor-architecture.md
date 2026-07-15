@@ -555,3 +555,35 @@ Component sections are collapsible (`CollapsibleSection`); resources default col
 ### 14.6 Selection color single-source + test harness
 
 The viewport selection highlight derives from the `--primary` CSS variable at runtime via `frontend/lib/theme.ts` `resolveCssColor` — a 1×1 canvas-2D `getImageData` resolve, NOT `getComputedStyle().color` (which preserves `oklch()` under CSS Color 4 and returns garbage). A happy-dom + `@testing-library/react` harness (`tests/inspector/`) renders fields/panels and exercises the `onChange → onPreview → onCommit` chain — the field-render coverage the M5B ColorField regression exposed as missing. **DOM tests live in `tests/` SUBDIRS** (never bare `tests/`) so happy-dom's `navigator`/`fetch` mutation can't clobber the GPU + daemon-HTTP suites earlier in bun's single-process file walk (`docs/backlog/editor-and-tooling/test-harness-process-sharing-fragility.md`).
+
+## 15. One Field F1 — the Field panel + FieldHost (2026-07-15)
+
+- **`FieldHost`** (`viewport-host/field-host.ts`) — a PreviewHost-class host (own
+  canvas/context/camera/rAF loop) owning the F1 dig loop: a `@furnace/core/field`
+  store + op log (undo/redo = chunk-keyed inverse deltas, ⌘Z/⇧⌘Z), LMB dig strokes
+  (voxel-DDA targeting; an eye embedded in rock digs a fixed distance ahead — feel
+  items tracked in `docs/backlog/editor-and-tooling/field-dig-tool-feel.md`), RMB
+  fly-look + WASD/QE (camera-control reuse), a **flat-shaded** (`shader.normalColor`,
+  unlit normal-distinct) vs **headlamp** (lit + camera point light) toggle, ground
+  grid + origin marker (blank-canvas bootstrap). Threaded to the chrome through the
+  `/engine.js` runtime channel exactly like PreviewHost — the chrome never
+  value-imports engine code; `tests/frontend-no-engine-leakage.test.ts` now
+  machine-enforces the ban against `@furnace/core`, `field-protocol`, AND
+  `viewport-host` value-imports (each proven to bite during F1).
+- **Remesh worker** (`frontend/field-worker.ts` + `lib/field-protocol.ts` /
+  `lib/field-client.ts`) — a third frontend bundle entry that imports core's mesher
+  DIRECTLY (engine code; the project `/engine.js` is not involved). 18³ apron in,
+  mesh buffers out, everything transferable; dirty-SET coalescing lives host-side.
+  Measured ~1.1 ms median per 16³ chunk (M1, bun/JSC — in-browser number is a gate
+  observation).
+- **FieldPanel** (panel id `field`) — deliberately thin chrome: world name **empty by
+  default** (explicit name required — the W3/W4 gate-clobber fix), dig radius,
+  shading toggle, New/Load/Save/Bake+make-default. Saves/bakes ride the existing
+  destination-agnostic `generation.bake`; loading uses the ONE new daemon command
+  **`field.load`** (root-contained read: manifest + base64 chunks + oplog). Host
+  lifecycle is v0: panel-reopen re-init throws and is surfaced as a panel status.
+- **Init robustness** (`lib/init-when-sized.ts`): all three hosts (viewport, preview,
+  field) defer init to the first NONZERO canvas measure via a one-shot ResizeObserver
+  — dockview panels mounting hidden (e.g. behind the Field tab) previously latched
+  core's "width and height must be positive" throw until a manual tab-close +
+  refresh. Distinct from resize-RENDERING, which hosts own via `gpu.onResize`.

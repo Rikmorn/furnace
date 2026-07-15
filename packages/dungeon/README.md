@@ -12,13 +12,14 @@ Browser-first; imports core via the workspace symlink; owns `index.html` + `serv
 - `bun run dungeon:editor` — open the editor on the dungeon (or `bun run edit` inside the package)
 - `bun test packages/dungeon` — package tests (`.gpu.test.ts` files run real WebGPU via bun-webgpu)
 
-## Current state (Epic 3 · 3.3 Worlds — SEALED 2026-07-13)
+## Current state (Epic 3 · One Field F0+F1 — SEALED 2026-07-15)
 
-Epics 1–2 CLOSED; Epic 3 recharted 2026-07-11 as **3.3 Worlds**, and 3.3 is now sealed: W3 met the charter's phase bar (a world assembled from scratch in the editor's World panel, baked, made the game's default, and walked in game rendering), and W4 swept the retired mesh-era machinery out of the tree. 3.4 (Seeing) and 3.5 (Curating) are **pending-recharter** against `docs/research/2026-07-13-one-field-direction.md`.
+Epics 1–2 CLOSED; 3.3 Worlds SEALED 2026-07-13 (W3 met the phase bar, W4 swept the mesh era out). The 3.4+ **recharter is DONE**: the **One Field phase** (charter 2026-07-14; F0–F6) makes the world ONE sparse chunked voxel field in `@furnace/core/field` with everything else as entities. **F0** (hybrid walkability-analyzer corpus probe — zero misses, but the analyzer cannot self-certify F4; surfaced + led to fixing a shipped mover levitation bug) and **F1** ("the medium": dig in the editor's Field panel → bake → the game walks the v2 field world) are sealed and merged. As-built: `docs/reference/dungeon-architecture.md` §7. Next: F2 "tools & materials".
 
 - **The game boots the baked default WORLD** — since W3 the PHASE-GATE world: pillar hall ↔ stair corridor (+1.5 m) ↔ maze; maze ↔ aperture ↔ box room; maze ↔ collar-bore ↔ cave. `world-loader.ts` reads `worlds/index.json` (the World panel's bake can retarget it) → the world's manifest → ONE merged `world.scene.json`, re-expands proxies/dressing deterministically AND the whole grid class (halls/mazes/corridors re-expand render + collision at load via `expandGridRegion`, dispatched by algorithm — zero baked sidecars), spawns at the manifest `playerStart` (setup-loud if missing; `worlds/default/` ships as committed fixtures). The hand-authored level + wing path are fully deleted (W4).
 - **The substrate is real (W2)**: `src/substrate/` — coarse 0.5 m architecture grid + fine 0.25 m occupancy (per-region dense, accessor-sealed), per-face instanced kit skin, `prepareCarve` single-source carve/patch/suppression, 2-piece rim collar, fine→voxel-proxy collision. **Two grid vocabularies (W3)** emit the shared `GridStamp` contract (`themes/grid-stamp.ts` — door construction, door-lane validation, anchor scan): `themes/hall.ts` (mesh-trio presets, pillar lattices) and `themes/maze.ts` (growing-tree + braid, integer-only RNG, rubble-only dressing) — the plug-point proof: adding the maze changed nothing downstream of the stamp. `connector-built.ts` implements aperture / stair-corridor / collar-bore (connectors may mutate joined grids; the bore CARVES the built shell; the aperture derives at length 0 = back-to-back shells, first fixtured + walked in W3). Realize also enforces disjoint region volumes (AABB-level, flush passes). Post-mortem rules from the W2 gate (headless mesh-topology tests; new boundary = new premise): `docs/learnings/2026-07-12-w2-render-collision-divergence.md`.
-- **Player**: a Rapier capsule driven by the custom `CharacterMover` (collide-and-slide on core casts); generated/organic geometry collides against field-derived VOXEL PROXIES — the confirmed ghost-free bridge; Jolt endgame in backlog (`docs/backlog/engine-architecture/jolt-backend-swap.md`).
+- **Field worlds (One Field F1)**: `world-loader.ts` branches on manifest **version 2** (`kind:"field"`) → `field-world.ts` — baked per-chunk `.fmesh` render meshes + collision derived AT LOAD from the shipped chunk density files (`@furnace/core/field chunkColliders`); v1 region worlds untouched. Authored in the editor's Field panel; artifact = `worlds/<name>/` manifest v2 + `chunks/` + `oplog.json` + `meshes/`.
+- **Player**: a Rapier capsule driven by the custom `CharacterMover` (collide-and-slide on core casts; since 2026-07-15 the ground pass probes free headroom and rests `REST_GAP` above support — no levitation, no flat-voxel-floor stalls); generated/organic geometry collides against field-derived VOXEL PROXIES — the confirmed ghost-free bridge; Jolt endgame in backlog (`docs/backlog/engine-architecture/jolt-backend-swap.md`).
 - **Rendering**: HDR `bloom→tonemap` + exponential fog + torch + instanced scatter dressing.
 
 ## The generator library (pure; the editor cockpit consumes it)
@@ -40,4 +41,10 @@ Editor-time generation may use search-class algorithms — a human with reroll, 
 - **W3** maze + World-panel assembly ✅ (the phase gate — met 2026-07-13)
 - **W4** clean-cut sweep ✅ (2026-07-13 — mesh generators + free-space placer + mesh connector kit deleted)
 
-**3.4 Seeing** and **3.5 Curating** are **pending-recharter** against `docs/research/2026-07-13-one-field-direction.md` (they run AFTER 3.3, against the world model). **3.6 JIT regions** is unchanged (backlogged: `docs/backlog/dungeon/jit-runtime-regions.md`), as is the deep-gen/streaming/LLM **Epic 4**.
+**The 3.4+ recharter (2026-07-14): the One Field phase** — `docs/research/2026-07-13-one-field-direction.md` + `docs/research/2026-07-14-field-precedent-research.md`; the flag layer is 3.4-seeing reborn (F4), the brush editor 3.5-curating reborn (F2/F3):
+
+- **F0 analyzer corpus probe ✅** (2026-07-15 — hybrid, zero misses; cannot self-certify F4 unaided)
+- **F1 the medium ✅** (2026-07-15, user-gated — dig → bake → walk; `@furnace/core/field` + Field panel + v2 loader)
+- **F2** tools & materials → **F3** smart objects & the cave → **F4** seeing → **F5** scale → **F6** clean cut + seal
+
+**3.6 JIT regions** is unchanged (backlogged: `docs/backlog/dungeon/jit-runtime-regions.md`), as is the deep-gen/streaming/LLM **Epic 4**.

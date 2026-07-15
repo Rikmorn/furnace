@@ -776,6 +776,25 @@ The scene format: a text-JSON document (`SceneDocument`) with typed resource tab
 
 ---
 
+## `@furnace/core/field`
+
+**v0 (One Field F1, 2026-07-15) — the surface is deliberately minimal and UNSTABLE; the
+per-export documentation pass + cookbook demo land at F2 when the API stabilizes (a One
+Field charter decision — this row exists so the module is not invisible here).**
+
+The chunked sparse voxel density field: 16³ Int8 chunks (air-positive, solid-by-default,
+uniform chunks elided — untouched world costs nothing). Store + coords
+(`createFieldStore`, `getDensity`/`setDensity`, `extractApron`), dig ops + op log with
+chunk-keyed undo/redo (`applyOp`, `logApply`, `undo`, `redo`), chunked Surface Nets over
+18³ aprons with owned-crossing quads (`meshChunkApron` — watertight seams by
+construction), voxel DDA (`raycastField`), per-chunk shell colliders (`chunkColliders`,
+physics `voxels`-descriptor shaped), and the v0 artifact
+(`encodeChunkFile`/`decodeChunkFile`, oplog serialize/parse, `bakeFieldWorld` — pure).
+TSDoc on every export (`check:tsdoc` covers the module automatically). Consumers today:
+the editor's FieldHost + remesh worker, and the dungeon's v2 field-world loader.
+
+---
+
 ## Tier 1 surface NOT in the public API
 
 These appear in module source files but are NOT exported, OR are exported with a leading `_` to mark them internal-only:

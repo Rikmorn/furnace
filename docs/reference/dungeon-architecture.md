@@ -1,7 +1,7 @@
 # Dungeon architecture — as built
 
-The `packages/dungeon` demo as it IS (post Epic 2 closure + Epic 3 through 3.3,
-2026-07-13). Chronological seal history: `docs/learnings/seal-log.md`. Deferred work:
+The `packages/dungeon` demo as it IS (post Epic 2 closure + Epic 3 through 3.3 and
+One Field F0+F1, 2026-07-15). Chronological seal history: `docs/learnings/seal-log.md`. Deferred work:
 `docs/backlog/dungeon/`. This doc is current-state; when it disagrees with source, the
 source wins — update this doc in the same change.
 
@@ -42,7 +42,12 @@ The editor cockpit's loop shipped in 3.1: generate → reroll → freeze & bake 
 
 - **`CharacterMover` (`char-move.ts`)** — custom collide-and-slide on core
   `physics.castRay`/`castShape`: horizontal shapecast slide pass, downward-shapecast
-  ground pass (rim-riding: rests on the highest support in the capsule footprint),
+  ground pass (rim-riding: rests on the highest support in the capsule footprint — the
+  rest sweep's lift is capped at the UPWARD-PROBED free headroom and the body rests
+  `REST_GAP` 2 cm above support so no cast ever starts penetrating; fixed 2026-07-15
+  after the F0 probe surfaced +0.4 m/frame levitation-while-grounded on
+  sub-2.2 m-clearance floors, and the repro exposed a second exact-contact stall class
+  on flat voxel floors — `tests/char-move-levitation.gpu.test.ts` guards both),
   explicit step-up, camera eye-height smoothing. Rapier's built-in KCC stays in core,
   unused. `physics.castRay` returns null until `physics.step` populates the broadphase.
 - **Collision representation**: generated/organic geometry collides against
@@ -273,3 +278,41 @@ set and WALK (subset repros hide wedges — the 2.2.1 lesson). Gate artifacts: t
 probes of record in §5 (`world-traversal.gpu.test.ts` is the bake→load→walk end-to-end
 over the world the player boots) plus `cave-entrance.gpu.test.ts` and the
 `char-move-*.gpu.test.ts` locomotion probes.
+
+## 7. One Field (the 3.4+ recharter) — F1 "the medium", as-built
+
+- **Charter (2026-07-14, One Field F0–F6):** the world becomes ONE sparse chunked voxel
+  field in `@furnace/core/field`; everything else is entities; two tool contracts
+  (immediate brushes vs staged region-scoped generators that commit as reconfigurable
+  entities); ops are the only mutation path — coordinate-keyed, bounded influence, the
+  runtime NEVER replays (it loads a derived bake); mega-world invariants day one
+  (chunk-local integer coords, no whole-world-in-memory assumption, pay-only-for-dirty).
+  Grounded in `docs/research/2026-07-13-one-field-direction.md` +
+  `docs/research/2026-07-14-field-precedent-research.md` (the five-lane precedent sweep
+  that REFUTED the pure static walkability analyzer pre-commitment). De-bias rule: no
+  design cites "we already have X" — existing code is donor material.
+- **F0 (hybrid analyzer corpus probe, 2026-07-15):** zero false-negative misses on the
+  validity-proven trap corpus, but the premise was disconfirmed in richer ways — 2 of 4
+  specified classes don't reproduce against the current mover (the real climb ceiling is
+  ~0.7 m, not `STEP_HEIGHT` 0.4), and the known-good false-positive load is unaffordable
+  as-is: the analyzer CANNOT self-certify F4 (needs capsule-aware navigability on top).
+  Report: `docs/learnings/2026-07-15-analyzer-corpus-probe.md`; requirements + F4 notes:
+  `docs/backlog/dungeon/walkability-analyzer-requirements.md`; harness kept at
+  `scripts/analyzer-probe/` (seeds F4). Surfaced the shipped mover levitation bug —
+  fixed pre-gate (§3).
+- **F1 field worlds:** `src/field-world.ts` loads manifest **version 2**
+  (`kind: "field"`) — `world-loader.ts` branches BEFORE `assertCompatible`, leaving the
+  v1 region-world path byte-identical. Render = baked per-chunk `.fmesh` meshes
+  (`decodeMeshBlob` → geometry/mesh placed at chunk origins; positions stay
+  chunk-local). Collision = per-chunk shell voxel colliders derived AT LOAD from the
+  shipped `chunks/*.bin` density files via `field.chunkColliders` — colliders never
+  serialize, the same posture as the v1 proxies. Spawn = manifest
+  `playerStart`/`playerYaw` (v0: the bake-time editor camera pose). Gate walked
+  2026-07-15 (dig → bake → spawn inside → walk, Safari).
+- **The artifact** (`worlds/<name>/`): `manifest.json` (v2) + `chunks/` (Int8 density,
+  authoring truth) + `oplog.json` + `meshes/*.fmesh` (derived bake). `bakeFieldWorld`
+  in core is PURE and shared by the editor's export and the headless GPU walk test
+  (`tests/field-world.gpu.test.ts` — dig a tunnel in memory, bake, load through the
+  real loader, walk through it). The editor authoring surface is the Field panel
+  (`editor-architecture.md` §15); dig-tool feel items are tracked for F2
+  (`docs/backlog/editor-and-tooling/field-dig-tool-feel.md`).
