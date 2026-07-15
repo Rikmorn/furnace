@@ -26,6 +26,7 @@ import {
 } from "./bake.ts";
 import { organicTunnel } from "./connector.ts";
 import { buildCorridor } from "./connector-built.ts";
+import { isFieldManifest, loadFieldWorld } from "./field-world.ts";
 import { placePiece } from "./placement.ts";
 import {
   type DynamicProp,
@@ -111,8 +112,21 @@ export async function loadWorld(
       `world: manifest missing at ${manifestPath} — commit or bake a default world`,
     );
   }
-  // Boundary cast: the manifest is external JSON; assertCompatible validates it.
-  const manifest = (await manifestRes.json()) as WorldManifest;
+  // Boundary cast: the manifest is external JSON — inspect it as `unknown` so the v2 field-world
+  // gate can branch off it BEFORE the v1 `assertCompatible`. A v2 field manifest has none of the
+  // v1 fields (provenance, scene, regions), so it MUST NOT reach `assertCompatible`.
+  const manifestJson = (await manifestRes.json()) as unknown;
+  if (isFieldManifest(manifestJson)) {
+    return loadFieldWorld(
+      ctx,
+      world,
+      matCache,
+      manifestJson,
+      `/${worldDir(index.default)}`,
+    );
+  }
+  // Boundary cast: past the v2 gate this is a v1 region-world manifest; assertCompatible validates it.
+  const manifest = manifestJson as WorldManifest;
   assertCompatible(manifest);
   // Dev-facing load banner: which bake is this? (bakedAt is deliberately absent —
   // re-bakes are byte-deterministic — so the seeds ARE the bake's identity.)
