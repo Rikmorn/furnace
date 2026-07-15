@@ -15,6 +15,10 @@ const result = await Bun.build({
     // by URL (new Worker("/generation-worker.js", {type:"module"})), so it cannot
     // ride the html entry's graph.
     "src/frontend/generation-worker.ts",
+    // The field remesh worker likewise ships as its own bundle, spawned by URL
+    // (new Worker("/field-worker.js", {type:"module"})). It runs engine code
+    // (@furnace/core/field) directly — no /engine.js, no extension surface.
+    "src/frontend/field-worker.ts",
   ],
   outdir: "dist/frontend",
   minify: true,

@@ -2,6 +2,7 @@ import { CHUNK_DIM } from "./chunks.ts";
 import type { ChunkMesh } from "./types.ts";
 
 const N = CHUNK_DIM + 2; // apron edge (18 samples: -1..16)
+const APRON_LEN = N * N * N; // 18³ = 5832 samples per apron
 const CELL_MIN = -1; // cells span samples c..c+1; c in [-1..15]
 const CELL_COUNT = CHUNK_DIM + 1; // 17 cells per axis
 
@@ -44,6 +45,13 @@ const apronAt = (a: Int8Array, x: number, y: number, z: number): number =>
  * @returns Positions/normals/uvs/indices for the chunk (empty when uniform).
  */
 export function meshChunkApron(apron: Int8Array, cellSize: number): ChunkMesh {
+  // Setup-loud guard: a malformed apron would read out of bounds and mesh
+  // garbage (undefined→NaN via the fixed-index casts). Throw so callers with a
+  // try/catch (the editor remesh worker) get a typed failure instead.
+  if (apron.length !== APRON_LEN)
+    throw new Error(
+      `meshChunkApron: apron must be ${APRON_LEN} samples (18³), got ${apron.length}`,
+    );
   const cellVert = new Int32Array(CELL_COUNT * CELL_COUNT * CELL_COUNT).fill(
     -1,
   );
