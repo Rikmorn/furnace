@@ -79,6 +79,75 @@ describe("chunked surface nets", () => {
     }
   });
 
+  test("WINDING: triangle face normals (from index order) point air-side", () => {
+    // Guards face orientation, which vertex-normal tests can't: those normals
+    // come from the gradient and are independent of triangle index order, so a
+    // flipped winding renders the cave inside-out yet passes every other test.
+    const s = createFieldStore();
+    applyOp(s, {
+      id: 1,
+      kind: "dig",
+      shape: { kind: "sphere", center: [2, 2, 2], radius: 1.2 },
+    });
+    const m = meshOf(s, chunkKey(0, 0, 0));
+    const center = [2, 2, 2] as const;
+    let checked = 0;
+    for (let t = 0; t < m.indices.length; t += 3) {
+      const i0 = (m.indices[t] as number) * 3;
+      const i1 = (m.indices[t + 1] as number) * 3;
+      const i2 = (m.indices[t + 2] as number) * 3;
+      const v0 = [
+        m.positions[i0] as number,
+        m.positions[i0 + 1] as number,
+        m.positions[i0 + 2] as number,
+      ];
+      const v1 = [
+        m.positions[i1] as number,
+        m.positions[i1 + 1] as number,
+        m.positions[i1 + 2] as number,
+      ];
+      const v2 = [
+        m.positions[i2] as number,
+        m.positions[i2 + 1] as number,
+        m.positions[i2 + 2] as number,
+      ];
+      // Geometric face normal from winding order: (v1 - v0) x (v2 - v0).
+      const e1 = [
+        (v1[0] as number) - (v0[0] as number),
+        (v1[1] as number) - (v0[1] as number),
+        (v1[2] as number) - (v0[2] as number),
+      ];
+      const e2 = [
+        (v2[0] as number) - (v0[0] as number),
+        (v2[1] as number) - (v0[1] as number),
+        (v2[2] as number) - (v0[2] as number),
+      ];
+      const nx =
+        (e1[1] as number) * (e2[2] as number) -
+        (e1[2] as number) * (e2[1] as number);
+      const ny =
+        (e1[2] as number) * (e2[0] as number) -
+        (e1[0] as number) * (e2[2] as number);
+      const nz =
+        (e1[0] as number) * (e2[1] as number) -
+        (e1[1] as number) * (e2[0] as number);
+      const nlen = Math.hypot(nx, ny, nz);
+      if (nlen < 1e-9) continue; // skip degenerate triangles (there should be none)
+      // Face centroid -> cavity center is the air direction for a dug sphere.
+      const gx =
+        ((v0[0] as number) + (v1[0] as number) + (v2[0] as number)) / 3;
+      const gy =
+        ((v0[1] as number) + (v1[1] as number) + (v2[1] as number)) / 3;
+      const gz =
+        ((v0[2] as number) + (v1[2] as number) + (v2[2] as number)) / 3;
+      const dot =
+        nx * (center[0] - gx) + ny * (center[1] - gy) + nz * (center[2] - gz);
+      expect(dot).toBeGreaterThan(0);
+      checked++;
+    }
+    expect(checked).toBeGreaterThan(0);
+  });
+
   test("SEAM: quad count across two chunks equals the analytic crossing count", () => {
     const s = boundarySphereStore();
     const keys = [chunkKey(0, 0, 0), chunkKey(1, 0, 0)];
