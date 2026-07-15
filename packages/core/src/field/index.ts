@@ -15,6 +15,7 @@ export {
   voxelChunk,
   worldToVoxel,
 } from "./chunks.ts";
+export { meshChunkApron } from "./mesher.ts";
 export {
   applyOp,
   createOpLog,
