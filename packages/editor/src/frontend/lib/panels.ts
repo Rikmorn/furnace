@@ -11,6 +11,7 @@ export const PANELS = [
   { id: "viewport", title: "Viewport" },
   { id: "inspect", title: "Inspect" },
   { id: "generation", title: "World" },
+  { id: "field", title: "Field" },
 ] as const;
 
 export type PanelId = (typeof PANELS)[number]["id"];

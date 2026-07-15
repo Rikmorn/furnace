@@ -83,4 +83,13 @@ export const api = {
       files,
       ...(cleanDir ? { cleanDir } : {}),
     }),
+  // Read a saved field world (F1): the daemon returns the v2 manifest, every
+  // chunk's density bytes base64-encoded, and the oplog JSON (null when absent).
+  // The Field panel decodes the chunks and hands them to FieldHost.loadWorld.
+  fieldLoad: (name: string) =>
+    call<{
+      manifest: unknown;
+      chunks: { key: string; data: string }[];
+      oplog: string | null;
+    }>("field.load", { name }),
 };

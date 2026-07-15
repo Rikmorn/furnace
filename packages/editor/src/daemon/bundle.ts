@@ -34,7 +34,7 @@ export async function createEngineBundler(
   const exportExtensions = extensionsEntry
     ? `export * as extensions from ${JSON.stringify(resolve(root, extensionsEntry))};\n`
     : "export const extensions = {};\n";
-  const contents = `${importExtensions}export { createViewportHost, createPreviewHost } from "@furnace/editor/viewport-host";\n${exportExtensions}`;
+  const contents = `${importExtensions}export { createViewportHost, createPreviewHost, createFieldHost } from "@furnace/editor/viewport-host";\n${exportExtensions}`;
 
   const ctx = await esbuild.context({
     stdin: {

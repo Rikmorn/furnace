@@ -45,6 +45,7 @@ type EditorContextOverrides = {
   dispatch?: EditorContextValue["dispatch"];
   hostRef?: EditorContextValue["hostRef"];
   previewHostRef?: EditorContextValue["previewHostRef"];
+  fieldHostRef?: EditorContextValue["fieldHostRef"];
   extensions?: Record<string, unknown>;
   actions?: Partial<EditorActions>;
   generation?: Partial<GenerationControl>;
@@ -101,6 +102,7 @@ export function makeEditorContext(
     dispatch: overrides.dispatch ?? (() => {}),
     hostRef: overrides.hostRef ?? { current: undefined },
     previewHostRef: overrides.previewHostRef ?? { current: undefined },
+    fieldHostRef: overrides.fieldHostRef ?? { current: undefined },
     extensions: overrides.extensions ?? {},
     actions,
     generation,

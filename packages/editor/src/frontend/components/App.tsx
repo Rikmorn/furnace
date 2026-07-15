@@ -15,6 +15,7 @@ import {
 } from "react";
 import type { FunctionComponent } from "react";
 import type {
+  FieldHost,
   PreviewHost,
   ViewFlags,
   ViewportHost,
@@ -34,6 +35,7 @@ import { useGlobalKeybindings } from "../hooks/useGlobalKeybindings.ts";
 import { ConfirmDialog } from "./ConfirmDialog.tsx";
 import { EditorContext, type EditorActions, type EditorContextValue } from "./editor-context.ts";
 import { EntitiesPanel } from "./EntitiesPanel.tsx";
+import { FieldPanel } from "./FieldPanel.tsx";
 import { InspectPanel } from "./InspectPanel.tsx";
 import { StatusBar } from "./StatusBar.tsx";
 import { Toolbar } from "./Toolbar.tsx";
@@ -51,6 +53,7 @@ const COMPONENTS: Record<string, FunctionComponent<IDockviewPanelProps>> = {
   // Key UNCHANGED ("generation"): it is the dockview id in persisted layouts (D-W3-10) —
   // the panel behind it is now the World panel.
   generation: WorldPanel,
+  field: FieldPanel,
 };
 
 // Persisted-list cap: the File▸Recent menu stays bounded so a long session can't bloat the
@@ -69,6 +72,10 @@ const DEFAULT_PANEL_POSITION: Partial<Record<PanelId, PanelPosition>> = {
   viewport: { referencePanel: "entities", direction: "right" },
   inspect: { referencePanel: "viewport", direction: "right" },
   generation: { referencePanel: "inspect", direction: "below" },
+  // The Field dig surface gets its OWN group under the viewport (its own canvas needs
+  // real estate + a non-zero client box at init — a stacked/inactive tab inits at zero
+  // size, which core's bindToCanvas rejects). Position is a Task 12 live-tuning concern.
+  field: { referencePanel: "viewport", direction: "below" },
 };
 
 export function App() {
@@ -77,6 +84,9 @@ export function App() {
   // The cockpit preview host + the consumer generator surface, both created once the
   // engine bundle loads and threaded to the WorldPanel via context (Slice 3.1).
   const previewHostRef = useRef<PreviewHost | undefined>(undefined);
+  // The F1 field dig host, created once with the other hosts and threaded to the Field
+  // panel via context. App-owned so it survives the panel closing/reopening.
+  const fieldHostRef = useRef<FieldHost | undefined>(undefined);
   const extensionsRef = useRef<Record<string, unknown>>({});
   const lastLoaded = useRef<{ path?: string; revision?: number }>({});
   // Mirrors state.dirty for the SSE onEvent closure below, whose effect only
@@ -191,6 +201,7 @@ export function App() {
         // Slice 3.1: the preview host + the consumer's generator surface. Assigned
         // BEFORE the engine-ready dispatch so both are live once the panels mount.
         previewHostRef.current = engine.createPreviewHost();
+        fieldHostRef.current = engine.createFieldHost();
         extensionsRef.current = engine.extensions;
         hostRef.current.setCallbacks({
           onSelect: (entityId, mods) => {
@@ -652,6 +663,7 @@ export function App() {
     dispatch,
     hostRef,
     previewHostRef,
+    fieldHostRef,
     extensions: extensionsRef.current,
     actions,
     generation: {

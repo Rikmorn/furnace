@@ -1,6 +1,12 @@
 // packages/editor/src/daemon/handlers.ts
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { dirname, resolve, sep } from "node:path";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { dirname, join, resolve, sep } from "node:path";
 import { z } from "zod";
 import { EditorError } from "./errors.ts";
 import type { DaemonEvent } from "./events.ts";
@@ -343,6 +349,49 @@ export function createHandlers(ctx: HandlerContext): Handlers {
       }
       ctx.emit({ type: "generation-baked", files: files.length });
       return Promise.resolve({ files: files.length });
+    },
+  });
+
+  // Read a saved field world (F1) so the Field panel can reload it into the
+  // FieldHost. Reads only the density files (the authoring truth) + the oplog —
+  // the .fmesh render meshes are re-derived on load. Every chunk path is
+  // re-validated root-contained (a manifest is on-disk data, not trusted input).
+  handlers.set("field.load", {
+    input: z.strictObject({
+      name: z.string().regex(/^[a-z0-9][a-z0-9_-]*$/i),
+    }),
+    run: (input) => {
+      const { name } = input as { name: string };
+      const rootAbs = resolve(ctx.root);
+      const dir = resolve(ctx.root, "worlds", name);
+      if (!(dir === rootAbs || dir.startsWith(rootAbs + sep))) {
+        throw new EditorError(
+          "outside-root",
+          `world escapes the project root: ${name}`,
+        );
+      }
+      const manifestPath = join(dir, "manifest.json");
+      if (!existsSync(manifestPath)) {
+        throw new EditorError("not-found", `world "${name}" has no manifest`);
+      }
+      const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as {
+        chunks?: { key: string; file: string }[];
+      };
+      const chunks = (manifest.chunks ?? []).map((c) => {
+        const abs = resolve(dir, c.file);
+        if (!abs.startsWith(rootAbs + sep)) {
+          throw new EditorError(
+            "outside-root",
+            `chunk path escapes root: ${c.file}`,
+          );
+        }
+        return { key: c.key, data: readFileSync(abs).toString("base64") };
+      });
+      const oplogPath = join(dir, "oplog.json");
+      const oplog = existsSync(oplogPath)
+        ? readFileSync(oplogPath, "utf8")
+        : null;
+      return Promise.resolve({ manifest, chunks, oplog });
     },
   });
 

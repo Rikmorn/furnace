@@ -1,6 +1,7 @@
 import type { Dispatch, RefObject, SetStateAction } from "react";
 import { createContext, useContext } from "react";
 import type {
+  FieldHost,
   PreviewHost,
   ViewFlags,
   ViewportHost,
@@ -62,6 +63,9 @@ export type EditorContextValue = {
   hostRef: RefObject<ViewportHost | undefined>;
   /** The cockpit preview host (Slice 3.1) — the generation panel realizes into it. */
   previewHostRef: RefObject<PreviewHost | undefined>;
+  /** The field dig-loop host (F1) — the Field panel mounts its canvas + drives dig/save/bake.
+   *  App-owned (created once at engine-ready) so it survives the panel being closed/reopened. */
+  fieldHostRef: RefObject<FieldHost | undefined>;
   /** The engine bundle's `extensions` namespace (the consumer's generator surface),
    *  crossing the project-first bundle boundary as an untyped record. The World panel
    *  is the SINGLE seam that narrows it (with `// Boundary cast:` comments). */
