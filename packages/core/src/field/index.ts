@@ -15,6 +15,14 @@ export {
   voxelChunk,
   worldToVoxel,
 } from "./chunks.ts";
+export {
+  applyOp,
+  createOpLog,
+  logApply,
+  opBounds,
+  redo,
+  undo,
+} from "./ops.ts";
 export type {
   ChunkCollider,
   ChunkKey,
