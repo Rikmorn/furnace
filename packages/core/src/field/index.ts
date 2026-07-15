@@ -28,6 +28,14 @@ export {
  *  corner-anchored in the physics `voxels` shape; null when the chunk has no
  *  shell. */
 export { chunkColliders } from "./collider.ts";
+export {
+  BUILTIN_TABLE,
+  classOf,
+  cloneChunkMaterials,
+  getMaterial,
+  setMaterial,
+  validateMaterialTable,
+} from "./materials.ts";
 export { meshChunkApron } from "./mesher.ts";
 export {
   applyOp,
@@ -42,10 +50,16 @@ export { raycastField } from "./raycast.ts";
 export type {
   ChunkCollider,
   ChunkKey,
+  ChunkMaterials,
   ChunkMesh,
   DigOp,
   FieldManifest,
   FieldStore,
+  KitStyle,
+  MaterialClass,
+  MaterialKind,
+  MaterialTable,
   OpInverse,
   OpLog,
 } from "./types.ts";
+export { MAT_ROCK } from "./types.ts";

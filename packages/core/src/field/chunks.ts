@@ -30,7 +30,7 @@ export const voxelChunk = (v: number): number => Math.floor(v / CHUNK_DIM);
 export function createFieldStore(
   cellSize: number = DEFAULT_CELL_SIZE,
 ): FieldStore {
-  return { cellSize, chunks: new Map() };
+  return { cellSize, chunks: new Map(), materials: new Map() };
 }
 
 const localIndex = (x: number, y: number, z: number): number => {
