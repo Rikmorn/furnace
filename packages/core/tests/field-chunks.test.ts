@@ -4,10 +4,12 @@ import {
   CHUNK_DIM,
   chunkKey,
   createFieldStore,
-  extractApron,
+  extractFieldAprons,
   getDensity,
+  MAT_ROCK,
   SOLID,
   setDensity,
+  setMaterial,
   voxelChunk,
 } from "@furnace/core/field";
 
@@ -37,19 +39,28 @@ describe("field chunk store", () => {
     expect(s.chunks.has(chunkKey(-1, -1, -1))).toBe(true);
   });
 
-  test("extractApron samples [-1..16] of the chunk, neighbors included", () => {
+  test("extractFieldAprons samples [-2..17] of BOTH channels, neighbors included", () => {
     const s = createFieldStore();
     // chunk (0,0,0); its -x apron plane comes from chunk (-1,0,0) sample x=-1
     setDensity(s, -1, 0, 0, 17);
     setDensity(s, 16, 0, 0, 23); // +x apron plane, from chunk (1,0,0)
     setDensity(s, 0, 0, 0, 5);
-    const a = extractApron(s, chunkKey(0, 0, 0));
-    const N = CHUNK_DIM + 2; // 18
+    setMaterial(s, -1, 0, 0, 3); // -x apron material plane, from chunk (-1,0,0)
+    const a = extractFieldAprons(s, chunkKey(0, 0, 0));
+    const N = CHUNK_DIM + 4; // 20
+    expect(a.density.length).toBe(N * N * N); // 8000
+    expect(a.materials.length).toBe(N * N * N);
     const at = (x: number, y: number, z: number) =>
-      a[x + 1 + N * (y + 1 + N * (z + 1))]; // apron index of sample coord
+      a.density[x + 2 + N * (y + 2 + N * (z + 2))]; // apron index of sample coord
+    const atMat = (x: number, y: number, z: number) =>
+      a.materials[x + 2 + N * (y + 2 + N * (z + 2))];
     expect(at(-1, 0, 0)).toBe(17);
     expect(at(0, 0, 0)).toBe(5);
     expect(at(16, 0, 0)).toBe(23);
     expect(at(8, 8, 8)).toBe(SOLID);
+    // The wider ±2 layer is present: sample -2 reads the (-1,..) chunk's rock.
+    expect(at(-2, 0, 0)).toBe(SOLID);
+    expect(atMat(-1, 0, 0)).toBe(3); // painted neighbor class pulled in
+    expect(atMat(0, 0, 0)).toBe(MAT_ROCK); // untouched sample reads rock
   });
 });

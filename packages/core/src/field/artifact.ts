@@ -2,10 +2,11 @@ import { encodeMeshBlob } from "@furnace/core/scene";
 import {
   CHUNK_DIM,
   CHUNK_SAMPLES,
-  extractApron,
+  extractFieldAprons,
   parseChunkKey,
 } from "./chunks.ts";
-import { meshChunkApron } from "./mesher.ts";
+import { BUILTIN_TABLE } from "./materials.ts";
+import { meshChunkField } from "./mesher.ts";
 import type {
   BrushOp,
   BrushShape,
@@ -14,6 +15,7 @@ import type {
   FieldStore,
   OpLog,
 } from "./types.ts";
+import { MAT_ROCK } from "./types.ts";
 
 const CHUNK_MAGIC = 0x46_46_43_31; // "FFC1"
 const CHUNK_FILE_VERSION = 1;
@@ -133,8 +135,21 @@ export function bakeFieldWorld(
       contents: encodeChunkFile(chunk),
     });
 
-    const mesh = meshChunkApron(extractApron(store, key), store.cellSize);
-    if (mesh.indices.length === 0) continue;
+    // MIGRATION (until Task 7): BUILTIN_TABLE + the class-0 organic bucket bake
+    // an F1-equivalent one-rock-world mesh. This is a hard ordering constraint,
+    // not a soft default — meshChunkField → classOf THROWS (never falls back) on
+    // any non-rock class, so this stopgap holds only while the field is rock
+    // alone. Task 7 threads the project's real material table (a new param) and
+    // bakes one mesh file per class bucket.
+    const meshes = meshChunkField(
+      extractFieldAprons(store, key),
+      BUILTIN_TABLE,
+      store.cellSize,
+    );
+    const mesh =
+      meshes.buckets.find((b) => b.classId === MAT_ROCK && !b.backing)?.mesh ??
+      meshes.buckets[0]?.mesh;
+    if (mesh === undefined || mesh.indices.length === 0) continue;
 
     const [cx, cy, cz] = parseChunkKey(key);
     const meshFile = meshRelPath(key);

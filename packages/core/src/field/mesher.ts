@@ -1,9 +1,16 @@
 import { CHUNK_DIM } from "./chunks.ts";
-import type { ChunkMesh } from "./types.ts";
+import { classOf } from "./materials.ts";
+import type {
+  ChunkMesh,
+  FieldAprons,
+  FieldChunkMeshes,
+  MaterialTable,
+  MeshBucket,
+} from "./types.ts";
 
-const N = CHUNK_DIM + 2; // apron edge (18 samples: -1..16)
-const APRON_LEN = N * N * N; // 18³ = 5832 samples per apron
-const CELL_MIN = -1; // cells span samples c..c+1; c in [-1..15]
+const N = CHUNK_DIM + 4; // apron edge (20 samples: −2..17)
+const APRON_LEN = N * N * N; // 20³ = 8000 samples per channel
+const CELL_MIN = -1; // cells span samples c..c+1; c in [−1..15]
 const CELL_COUNT = CHUNK_DIM + 1; // 17 cells per axis
 
 // Flat endpoint pairs for the 12 cube edges (was a [number,number][]; flattened
@@ -24,34 +31,105 @@ const AXIS_X = new Int8Array([1, 0, 0]);
 const AXIS_Y = new Int8Array([0, 1, 0]);
 const AXIS_Z = new Int8Array([0, 0, 1]);
 
-/** Density at sample coords (x,y,z) with x,y,z in [-1..16]. */
-const apronAt = (a: Int8Array, x: number, y: number, z: number): number =>
-  a[x + 1 + N * (y + 1 + N * (z + 1))] as number;
+/** Sample value at coords (x,y,z) with x,y,z in [−2..17], for either channel
+ *  (the +2 offset maps the −2 apron origin to index 0). */
+const apronAt = (
+  a: Int8Array | Uint8Array,
+  x: number,
+  y: number,
+  z: number,
+): number => a[x + 2 + N * (y + 2 + N * (z + 2))] as number;
+
+/** Accumulates one per-class bucket's owned-crossing indices into the shared
+ *  vertex pool; compacted into a standalone {@link ChunkMesh} at the end. */
+type BucketAccum = { classId: number; backing: boolean; idx: number[] };
 
 /**
- * Meshes one chunk from its 18³ apron (samples −1..16) via Surface Nets,
- * returning chunk-LOCAL vertex positions (metres). Density is air-positive
- * (>0 air, <0 rock, surface at 0).
+ * Compacts one bucket's index list (referencing the shared pass-1 vertex pool)
+ * into a standalone mesh: only the vertices this bucket references are kept,
+ * remapped to a dense 0..k id space. Positions/normals/uvs are copied in
+ * first-seen order so the returned buffers are self-contained.
+ */
+function compactBucket(
+  positions: number[],
+  normals: number[],
+  uvs: number[],
+  idx: number[],
+): ChunkMesh {
+  const remap = new Map<number, number>();
+  const p: number[] = [];
+  const n: number[] = [];
+  const u: number[] = [];
+  const out = new Uint32Array(idx.length);
+  for (let i = 0; i < idx.length; i++) {
+    const v = idx[i] as number;
+    let r = remap.get(v);
+    if (r === undefined) {
+      r = remap.size;
+      remap.set(v, r);
+      p.push(
+        positions[v * 3] as number,
+        positions[v * 3 + 1] as number,
+        positions[v * 3 + 2] as number,
+      );
+      n.push(
+        normals[v * 3] as number,
+        normals[v * 3 + 1] as number,
+        normals[v * 3 + 2] as number,
+      );
+      u.push(uvs[v * 2] as number, uvs[v * 2 + 1] as number);
+    }
+    out[i] = r;
+  }
+  return {
+    positions: Float32Array.from(p),
+    normals: Float32Array.from(n),
+    uvs: Float32Array.from(u),
+    indices: out,
+  };
+}
+
+/**
+ * Meshes one chunk from its 20³ apron pair (samples −2..17) via Surface Nets,
+ * partitioning the surface into per-class buckets. Density is air-positive
+ * (>0 air, <0 rock, surface at 0); each owned crossing is assigned to the
+ * material class of its SOLID side (the wall's own material, not the air).
  *
- * Watertight seams come from two rules working together:
+ * Watertight seams come from two rules working together, unchanged from the
+ * single-mesh mesher:
  * - a vertex is placed for every sign-changing cell in −1..15, so boundary
  *   vertices are duplicated at identical world positions by adjacent chunks;
  * - a crossing quad is emitted only when the crossing edge's base sample lies
- *   in this chunk's own 16³ (the 3-of-6 ownership rule), so every crossing is
- *   emitted by exactly one chunk world-wide.
+ *   in this chunk's own 16³ (the ownership rule), so every crossing is emitted
+ *   by exactly one chunk world-wide.
  *
- * @param apron - 18³ density window (`extractApron` output) for one chunk.
+ * The wider 20³ window (vs the mesher's own −1..16 reach) exists only so the
+ * Task-4 skinner can share the same input; the owned-crossing rule is identical.
+ * A kit-class crossing's raw Surface-Nets surface is the class's BACKING bucket
+ * (`backing: true`); organic classes yield a single non-backing bucket each.
+ *
+ * @param aprons - 20³ density + material window ({@link extractFieldAprons}).
+ * @param table - resolved material table, for the class kind (organic vs kit).
  * @param cellSize - sample spacing in metres.
- * @returns Positions/normals/uvs/indices for the chunk (empty when uniform).
+ * @returns Per-class mesh buckets (empty `buckets` when the chunk is uniform).
+ * @throws {@link Error} if either apron channel is not 8000 samples (20³).
  */
-export function meshChunkApron(apron: Int8Array, cellSize: number): ChunkMesh {
+export function meshChunkField(
+  aprons: FieldAprons,
+  table: MaterialTable,
+  cellSize: number,
+): FieldChunkMeshes {
   // Setup-loud guard: a malformed apron would read out of bounds and mesh
   // garbage (undefined→NaN via the fixed-index casts). Throw so callers with a
   // try/catch (the editor remesh worker) get a typed failure instead.
-  if (apron.length !== APRON_LEN)
+  if (
+    aprons.density.length !== APRON_LEN ||
+    aprons.materials.length !== APRON_LEN
+  )
     throw new Error(
-      `meshChunkApron: apron must be ${APRON_LEN} samples (18³), got ${apron.length}`,
+      `meshChunkField: each apron channel must be ${APRON_LEN} samples (20³), got density ${aprons.density.length}, materials ${aprons.materials.length}`,
     );
+  const density = aprons.density;
   const cellVert = new Int32Array(CELL_COUNT * CELL_COUNT * CELL_COUNT).fill(
     -1,
   );
@@ -63,14 +141,14 @@ export function meshChunkApron(apron: Int8Array, cellSize: number): ChunkMesh {
   const uvs: number[] = [];
   const corners = new Array<number>(8);
 
-  // Pass 1: one vertex per sign-changing cell.
+  // Pass 1: one vertex per sign-changing cell (shared pool across all buckets).
   for (let z = CELL_MIN; z < CELL_MIN + CELL_COUNT; z++)
     for (let y = CELL_MIN; y < CELL_MIN + CELL_COUNT; y++)
       for (let x = CELL_MIN; x < CELL_MIN + CELL_COUNT; x++) {
         let mask = 0;
         for (let c = 0; c < 8; c++) {
           const d = apronAt(
-            apron,
+            density,
             x + (CORNER_X[c] as number),
             y + (CORNER_Y[c] as number),
             z + (CORNER_Z[c] as number),
@@ -125,16 +203,26 @@ export function meshChunkApron(apron: Int8Array, cellSize: number): ChunkMesh {
         uvs.push(px, pz);
       }
 
-  // Pass 2: owned crossings -> quads. A crossing is owned when its base sample
-  // lies in this chunk's own 16³ (0..15).
-  const indices: number[] = [];
+  // Pass 2: owned crossings -> quads, dispatched to per-class buckets. A
+  // crossing is owned when its base sample lies in this chunk's own 16³ (0..15);
+  // its owning class is the material of the SOLID side of the crossing.
+  const buckets = new Map<string, BucketAccum>();
+  const bucketFor = (classId: number, backing: boolean): number[] => {
+    const key = `${classId}:${backing ? 1 : 0}`;
+    let b = buckets.get(key);
+    if (b === undefined) {
+      b = { classId, backing, idx: [] };
+      buckets.set(key, b);
+    }
+    return b.idx;
+  };
   for (let z = 0; z < CHUNK_DIM; z++)
     for (let y = 0; y < CHUNK_DIM; y++)
       for (let x = 0; x < CHUNK_DIM; x++) {
-        const d0 = apronAt(apron, x, y, z);
+        const d0 = apronAt(density, x, y, z);
         for (let a = 0; a < 3; a++) {
           const d1 = apronAt(
-            apron,
+            density,
             x + (AXIS_X[a] as number),
             y + (AXIS_Y[a] as number),
             z + (AXIS_Z[a] as number),
@@ -158,17 +246,30 @@ export function meshChunkApron(apron: Int8Array, cellSize: number): ChunkMesh {
           const v11 = cellVert[cellIdx(x, y, z)] as number;
           if (v00 < 0 || v01 < 0 || v10 < 0 || v11 < 0) continue;
 
+          // Owning class = the material of the crossing's SOLID sample (d<0).
+          const solidIsBase = d0 < 0;
+          const sx = solidIsBase ? x : x + (AXIS_X[a] as number);
+          const sy = solidIsBase ? y : y + (AXIS_Y[a] as number);
+          const sz = solidIsBase ? z : z + (AXIS_Z[a] as number);
+          const classId = apronAt(aprons.materials, sx, sy, sz);
+          const backing = classOf(table, classId).kind === "kit";
+          const bucket = bucketFor(classId, backing);
+
           // Wind so the face points toward the air side: base air (d0 >= 0) ->
           // face −axis; base rock -> face +axis.
-          if (d0 >= 0) indices.push(v00, v01, v11, v00, v11, v10);
-          else indices.push(v00, v10, v11, v00, v11, v01);
+          if (d0 >= 0) bucket.push(v00, v01, v11, v00, v11, v10);
+          else bucket.push(v00, v10, v11, v00, v11, v01);
         }
       }
 
-  return {
-    positions: Float32Array.from(positions),
-    normals: Float32Array.from(normals),
-    uvs: Float32Array.from(uvs),
-    indices: Uint32Array.from(indices),
-  };
+  const out: MeshBucket[] = [];
+  for (const b of buckets.values()) {
+    if (b.idx.length === 0) continue;
+    out.push({
+      classId: b.classId,
+      backing: b.backing,
+      mesh: compactBucket(positions, normals, uvs, b.idx),
+    });
+  }
+  return { buckets: out };
 }

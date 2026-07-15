@@ -1,4 +1,5 @@
-import type { ChunkKey, FieldStore } from "./types.ts";
+import { getMaterial } from "./materials.ts";
+import type { ChunkKey, FieldAprons, FieldStore } from "./types.ts";
 
 /** Samples per chunk edge. */
 export const CHUNK_DIM = 16;
@@ -73,22 +74,36 @@ export function setDensity(
   return key;
 }
 
-/** Copies samples [-1..16]³ of the chunk (18³, neighbors supplying the
- *  border planes) — the mesher's input window. */
-export function extractApron(store: FieldStore, key: ChunkKey): Int8Array {
+/** The 20³ apron edge (samples −2..17): the shared mesher + skinner window. */
+export const FIELD_APRON_DIM = CHUNK_DIM + 4;
+
+/**
+ * Copies samples [−2..17]³ of the chunk for BOTH channels — the mesher's and
+ * skinner's shared input window. The ±2 layer is wider than the mesher needs
+ * (it reads −1..16) so the skinner's coarse-neighbour reads have their halo in
+ * the same window, keeping the remesh worker stateless. Materials are resolved
+ * to GLOBAL class ids (the per-chunk palette encoding never crosses the wire).
+ */
+export function extractFieldAprons(
+  store: FieldStore,
+  key: ChunkKey,
+): FieldAprons {
   const [cx, cy, cz] = parseChunkKey(key);
-  const N = CHUNK_DIM + 2;
-  const out = new Int8Array(N * N * N);
+  const N = FIELD_APRON_DIM;
+  const density = new Int8Array(N * N * N);
+  const materials = new Uint8Array(N * N * N);
   const bx = cx * CHUNK_DIM;
   const by = cy * CHUNK_DIM;
   const bz = cz * CHUNK_DIM;
   let i = 0;
-  for (let z = -1; z <= CHUNK_DIM; z++)
-    for (let y = -1; y <= CHUNK_DIM; y++)
-      for (let x = -1; x <= CHUNK_DIM; x++) {
-        out[i++] = getDensity(store, bx + x, by + y, bz + z);
+  for (let z = -2; z <= CHUNK_DIM + 1; z++)
+    for (let y = -2; y <= CHUNK_DIM + 1; y++)
+      for (let x = -2; x <= CHUNK_DIM + 1; x++) {
+        density[i] = getDensity(store, bx + x, by + y, bz + z);
+        materials[i] = getMaterial(store, bx + x, by + y, bz + z);
+        i++;
       }
-  return out;
+  return { density, materials };
 }
 
 /** World position of a sample index along one axis. */

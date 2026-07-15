@@ -1,13 +1,21 @@
 import { describe, expect, test } from "bun:test";
-import type { ChunkKey, ChunkMesh } from "@furnace/core/field";
+import type {
+  ChunkKey,
+  ChunkMesh,
+  FieldChunkMeshes,
+  MaterialTable,
+} from "@furnace/core/field";
 import {
   applyOp,
+  BUILTIN_TABLE,
   CHUNK_DIM,
   chunkKey,
   createFieldStore,
-  extractApron,
+  createOpLog,
+  extractFieldAprons,
   getDensity,
-  meshChunkApron,
+  logApply,
+  meshChunkField,
   parseChunkKey,
 } from "@furnace/core/field";
 
@@ -23,11 +31,25 @@ function boundarySphereStore() {
   return s;
 }
 
+const EMPTY_MESH: ChunkMesh = {
+  positions: new Float32Array(0),
+  normals: new Float32Array(0),
+  uvs: new Float32Array(0),
+  indices: new Uint32Array(0),
+};
+
+/** Meshes a chunk all-rock (single organic class) and returns its one bucket's
+ *  mesh — an F1-equivalent single mesh — or an empty mesh for a uniform chunk. */
 function meshOf(
   s: ReturnType<typeof createFieldStore>,
   key: ChunkKey,
 ): ChunkMesh {
-  return meshChunkApron(extractApron(s, key), s.cellSize);
+  const r = meshChunkField(
+    extractFieldAprons(s, key),
+    BUILTIN_TABLE,
+    s.cellSize,
+  );
+  return r.buckets[0]?.mesh ?? EMPTY_MESH;
 }
 
 /** World-space vertex positions of a chunk mesh. */
@@ -210,5 +232,124 @@ describe("chunked surface nets", () => {
       );
       expect(match).toBe(true);
     }
+  });
+});
+
+// Local 3-class table (each test file owns its copy — no shared fixture).
+const TABLE: MaterialTable = {
+  classes: [
+    { id: 0, name: "rock", kind: "organic", color: [0.6, 0.6, 0.6, 1] },
+    { id: 1, name: "dirt", kind: "organic", color: [0.4, 0.3, 0.2, 1] },
+    {
+      id: 2,
+      name: "masonry",
+      kind: "kit",
+      color: [0.5, 0.5, 0.5, 1],
+      kit: {
+        panelProud: 0.06,
+        panelReveal: 0.02,
+        collarSection: 0.14,
+        backingColor: [0.4, 0.4, 0.4, 1],
+        pieceColors: {
+          panel: [0.55, 0.53, 0.5, 1],
+          floor: [0.42, 0.4, 0.38, 1],
+          trim: [0.35, 0.33, 0.3, 1],
+          collar: [0.3, 0.28, 0.26, 1],
+        },
+      },
+    },
+  ],
+};
+
+describe("per-class bucketing", () => {
+  test("bucketing partitions the surface without adding or dropping quads", () => {
+    const mk = (paint: boolean): FieldChunkMeshes => {
+      const s = createFieldStore();
+      const log = createOpLog();
+      logApply(
+        s,
+        log,
+        {
+          id: 0,
+          kind: "brush",
+          effect: "dig",
+          shape: { kind: "sphere", center: [2, 2, 2], radius: 1.5 },
+        },
+        TABLE,
+      );
+      if (paint)
+        logApply(
+          s,
+          log,
+          {
+            id: 0,
+            kind: "brush",
+            effect: "paint",
+            material: 1,
+            shape: {
+              kind: "box",
+              center: [2, 0.75, 2],
+              halfExtents: [2, 0.4, 2],
+            },
+          },
+          TABLE,
+        );
+      return meshChunkField(
+        extractFieldAprons(s, chunkKey(0, 0, 0)),
+        TABLE,
+        s.cellSize,
+      );
+    };
+    const plain = mk(false);
+    const painted = mk(true);
+    // The load-bearing invariant: re-partitioning the SAME geometry by owning
+    // class must neither add nor drop a quad — total index count is preserved.
+    const total = (r: FieldChunkMeshes): number =>
+      r.buckets.reduce((n, b) => n + b.mesh.indices.length, 0);
+    expect(total(painted)).toBe(total(plain));
+    // Painting class 1 (organic dirt) onto part of the sphere's solid rim splits
+    // the surface across two organic buckets (rock + dirt), no kit backing yet.
+    expect(painted.buckets.length).toBeGreaterThan(1);
+  });
+
+  test("kit fill produces a backing bucket (its raw surface is class-owned)", () => {
+    const s = createFieldStore();
+    const log = createOpLog();
+    // Open a room, then fill a lattice-snapped masonry (kit, class 2) cube
+    // inside it. The cube's solid↔air surface is owned by its solid (masonry)
+    // side, and masonry is a kit class, so those crossings must land in a
+    // BACKING bucket — the "stone inside the wall" surface Task 4's skinner
+    // reskins. `assertOpValid` requires kit writes to be lattice-snapped boxes,
+    // so the fill box faces (0.5 / 1.5 m) sit on the 0.5 m built-kit lattice.
+    logApply(
+      s,
+      log,
+      {
+        id: 0,
+        kind: "brush",
+        effect: "dig",
+        shape: { kind: "box", center: [1, 1, 1], halfExtents: [1, 1, 1] },
+      },
+      TABLE,
+    );
+    logApply(
+      s,
+      log,
+      {
+        id: 0,
+        kind: "brush",
+        effect: "fill",
+        material: 2,
+        shape: { kind: "box", center: [1, 1, 1], halfExtents: [0.5, 0.5, 0.5] },
+      },
+      TABLE,
+    );
+    const result = meshChunkField(
+      extractFieldAprons(s, chunkKey(0, 0, 0)),
+      TABLE,
+      s.cellSize,
+    );
+    expect(result.buckets.some((b) => b.backing === true)).toBe(true);
+    expect(result.buckets.some((b) => b.classId === 2 && b.backing)).toBe(true);
   });
 });

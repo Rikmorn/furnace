@@ -121,6 +121,20 @@ export type ChunkMesh = {
   indices: Uint32Array;
 };
 
+/** The 20³ (samples −2..17) apron pair — the mesher's + skinner's shared input
+ *  window. `materials` holds GLOBAL class ids (the per-chunk palette encoding
+ *  never crosses the wire). */
+export type FieldAprons = { density: Int8Array; materials: Uint8Array };
+
+/** One per-class chunk mesh bucket. `backing` marks kit-owned surface (the
+ *  mortar / "stone inside the wall" surface behind proud kit pieces); it is
+ *  false for every organic class. */
+export type MeshBucket = { classId: number; backing: boolean; mesh: ChunkMesh };
+
+/** The per-class partition of one chunk's surface: the mesher's owned crossings
+ *  split into render buckets by the owning (solid-side) material class. */
+export type FieldChunkMeshes = { buckets: MeshBucket[] };
+
 /** Voxel collider for one chunk: corner-anchored local grid ints + cell
  *  size, matching the physics `voxels` shape descriptor. */
 export type ChunkCollider = {

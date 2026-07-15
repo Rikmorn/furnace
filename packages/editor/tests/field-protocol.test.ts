@@ -3,7 +3,7 @@ import {
   applyOp,
   chunkKey,
   createFieldStore,
-  extractApron,
+  extractFieldAprons,
 } from "@furnace/core/field";
 import type { FieldWorkerResponse } from "../src/frontend/lib/field-protocol.ts";
 import { createFieldWorkerHandler } from "../src/frontend/lib/field-protocol.ts";
@@ -21,12 +21,13 @@ describe("field worker protocol", () => {
     const handler = createFieldWorkerHandler((msg, transfer) =>
       posts.push({ msg, transfer }),
     );
-    const apron = extractApron(s, chunkKey(0, 0, 0));
+    const aprons = extractFieldAprons(s, chunkKey(0, 0, 0));
     handler({
       kind: "mesh",
       jobId: 7,
       key: "0,0,0",
-      apron: apron.buffer as ArrayBuffer,
+      density: aprons.density.buffer as ArrayBuffer,
+      materials: aprons.materials.buffer as ArrayBuffer,
       cellSize: 0.25,
     });
     expect(posts.length).toBe(1);
@@ -45,7 +46,8 @@ describe("field worker protocol", () => {
       kind: "mesh",
       jobId: 1,
       key: "0,0,0",
-      apron: new ArrayBuffer(3),
+      density: new ArrayBuffer(3),
+      materials: new ArrayBuffer(3),
       cellSize: 0.25,
     });
     expect(posts[0]?.kind).toBe("mesh-error");

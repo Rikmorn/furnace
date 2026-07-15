@@ -1,3 +1,4 @@
+import type { FieldAprons } from "@furnace/core/field";
 import type {
   FieldWorkerRequest,
   FieldWorkerResponse,
@@ -43,20 +44,22 @@ export class FieldWorkerClient {
     return w;
   }
 
-  mesh(key: string, apron: Int8Array, cellSize: number) {
+  mesh(key: string, aprons: FieldAprons, cellSize: number) {
     const jobId = ++this.jobId;
-    const buf = apron.buffer as ArrayBuffer;
+    const density = aprons.density.buffer as ArrayBuffer;
+    const materials = aprons.materials.buffer as ArrayBuffer;
     const req: FieldWorkerRequest = {
       kind: "mesh",
       jobId,
       key,
-      apron: buf,
+      density,
+      materials,
       cellSize,
     };
     return new Promise<Extract<FieldWorkerResponse, { kind: "meshed" }>>(
       (resolve, reject) => {
         this.pending.set(jobId, { resolve, reject });
-        this.ensure().postMessage(req, [buf]);
+        this.ensure().postMessage(req, [density, materials]);
       },
     );
   }

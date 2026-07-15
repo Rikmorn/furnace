@@ -1,10 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import {
   applyOp,
+  BUILTIN_TABLE,
   chunkKey,
   createFieldStore,
-  extractApron,
-  meshChunkApron,
+  extractFieldAprons,
+  meshChunkField,
 } from "@furnace/core/field";
 
 // Charter P2: v0 ceiling 5 ms per 16³ chunk on the M1 (measured band of the
@@ -23,18 +24,18 @@ describe("field mesher budget", () => {
     });
     const key = chunkKey(0, 0, 0);
     for (let i = 0; i < 10; i++)
-      meshChunkApron(extractApron(s, key), s.cellSize);
+      meshChunkField(extractFieldAprons(s, key), BUILTIN_TABLE, s.cellSize);
     const times: number[] = [];
     for (let i = 0; i < 50; i++) {
-      const apron = extractApron(s, key);
+      const aprons = extractFieldAprons(s, key);
       const t0 = performance.now();
-      meshChunkApron(apron, s.cellSize);
+      meshChunkField(aprons, BUILTIN_TABLE, s.cellSize);
       times.push(performance.now() - t0);
     }
     times.sort((a, b) => a - b);
     const median = times[25] as number;
     console.log(
-      `[f1-budget] meshChunkApron 16³ median ${median.toFixed(3)} ms (ceiling ${CEILING_MS})`,
+      `[f1-budget] meshChunkField 16³ median ${median.toFixed(3)} ms (ceiling ${CEILING_MS})`,
     );
     expect(median).toBeLessThan(CEILING_MS);
   });

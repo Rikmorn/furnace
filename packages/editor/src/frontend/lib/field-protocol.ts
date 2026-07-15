@@ -4,14 +4,16 @@
 // over an injected `post` so the protocol is unit-testable without a real
 // Worker (bun test spawns none): the worker entry wires post = self.postMessage;
 // tests wire a collector.
-import { meshChunkApron } from "@furnace/core/field";
+import { BUILTIN_TABLE, meshChunkField } from "@furnace/core/field";
 
 export type FieldWorkerRequest = {
   kind: "mesh";
   jobId: number;
   key: string;
-  /** 18³ Int8 apron, transferred. */
-  apron: ArrayBuffer;
+  /** 20³ Int8 density apron, transferred. */
+  density: ArrayBuffer;
+  /** 20³ Uint8 material apron (global class ids), transferred. */
+  materials: ArrayBuffer;
   cellSize: number;
 };
 
@@ -36,11 +38,30 @@ export function createFieldWorkerHandler(
   return (msg: FieldWorkerRequest): void => {
     if (msg.kind !== "mesh") return;
     try {
-      const m = meshChunkApron(new Int8Array(msg.apron), msg.cellSize);
-      const positions = m.positions.buffer as ArrayBuffer;
-      const normals = m.normals.buffer as ArrayBuffer;
-      const uvs = m.uvs.buffer as ArrayBuffer;
-      const indices = m.indices.buffer as ArrayBuffer;
+      // MIGRATION (until Task 9/10): the F2a host renders only bucket 0 (the
+      // class-0 organic surface); BUILTIN_TABLE stands in for the project's
+      // material table until Task 9 threads it over the wire. This is a hard
+      // dependency, not a soft default — meshChunkField → classOf THROWS on any
+      // non-rock class (surfacing here as a mesh-error), so the field must stay
+      // rock-only until the real table arrives. Full per-class bucket transfer
+      // lands with the Task-9 v2 protocol. A uniform chunk has no buckets, so
+      // post empty (fresh, transferable) buffers.
+      const result = meshChunkField(
+        {
+          density: new Int8Array(msg.density),
+          materials: new Uint8Array(msg.materials),
+        },
+        BUILTIN_TABLE,
+        msg.cellSize,
+      );
+      const m = result.buckets[0]?.mesh;
+      const positions = (m ? m.positions : new Float32Array(0))
+        .buffer as ArrayBuffer;
+      const normals = (m ? m.normals : new Float32Array(0))
+        .buffer as ArrayBuffer;
+      const uvs = (m ? m.uvs : new Float32Array(0)).buffer as ArrayBuffer;
+      const indices = (m ? m.indices : new Uint32Array(0))
+        .buffer as ArrayBuffer;
       post(
         {
           kind: "meshed",

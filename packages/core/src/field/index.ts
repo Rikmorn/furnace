@@ -15,7 +15,8 @@ export {
   createFieldStore,
   DEFAULT_CELL_SIZE,
   DENSITY_SCALE,
-  extractApron,
+  extractFieldAprons,
+  FIELD_APRON_DIM,
   getDensity,
   parseChunkKey,
   SOLID,
@@ -36,7 +37,7 @@ export {
   setMaterial,
   validateMaterialTable,
 } from "./materials.ts";
-export { meshChunkApron } from "./mesher.ts";
+export { meshChunkField } from "./mesher.ts";
 export {
   applyOp,
   assertOpValid,
@@ -56,6 +57,8 @@ export type {
   ChunkMaterials,
   ChunkMesh,
   ChunkSnapshot,
+  FieldAprons,
+  FieldChunkMeshes,
   FieldManifest,
   FieldOp,
   FieldStore,
@@ -63,6 +66,7 @@ export type {
   MaterialClass,
   MaterialKind,
   MaterialTable,
+  MeshBucket,
   OpInverse,
   OpLog,
 } from "./types.ts";

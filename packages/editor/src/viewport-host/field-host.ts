@@ -241,10 +241,10 @@ export function createFieldHost(): FieldHost {
   const remeshOne = async (key: string): Promise<void> => {
     const c = ctx;
     if (!c) return;
-    const apron = field.extractApron(store, key);
+    const aprons = field.extractFieldAprons(store, key);
     const t0 = performance.now();
     try {
-      const res = await worker.mesh(key, apron, store.cellSize);
+      const res = await worker.mesh(key, aprons, store.cellSize);
       lastRemeshMs = performance.now() - t0;
       if (disposed) return;
       applyMesh(c, key, res);
