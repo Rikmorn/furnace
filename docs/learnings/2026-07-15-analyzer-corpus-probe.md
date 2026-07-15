@@ -251,6 +251,11 @@ must inherit — stated plainly, not hidden.
 
 ## Surfaced shipped-code bug: applyGravity levitation (out of F0 scope, filed for the user)
 
+> **RESOLVED 2026-07-15 (pre-gate, branch `one-field-f0-f1`):** headroom-probed lift +
+> `REST_GAP` contact offset in `char-move.ts`; repro + regression in
+> `tests/char-move-levitation.gpu.test.ts`. The analysis below is the historical record of
+> the pre-fix mechanism; the probe's numbers in this report measured the PRE-fix world.
+
 A live gameplay defect was surfaced (outside the F0 charter; filed as task
 "SURFACE: char-move.ts levitation bug"). `applyGravity`'s rest sweep
 (`char-move.ts:124-132`) lifts the capsule to `pos.y + STEP_HEIGHT` before the down-sweep:

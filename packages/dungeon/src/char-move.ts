@@ -33,6 +33,16 @@ const GRAVITY = -9.81;
 export const GROUND_SNAP = 0.45;
 const STALL_GAIN = 0.6; // horizontal-progress fraction below which we try a step-up
 const SHOVE_LIFT = 0.1; // raise the shove probe off the floor so it doesn't graze the resting surface
+/** Clearance margin kept below the measured free headroom when lifting the rest sweep's
+ *  start pose: castShape is stopAtPenetration, so the start MUST be strictly
+ *  non-penetrating for its TOI to mean anything. */
+const LIFT_MARGIN = 0.02;
+/** Rest clearance kept between the capsule and its support (the standard KCC contact
+ *  offset). Resting at EXACT contact makes every later stopAtPenetration cast — the
+ *  horizontal slide, the headroom probe — start "already touching" at numeric whim:
+ *  toi 0 with an arbitrary contact normal, which stalls the slide dead on flat voxel
+ *  floors (F1's dug spaces). Invisible at 2 cm; keeps every cast's start pose clear. */
+const REST_GAP = 0.02;
 
 export type Capsule = { halfHeight: number; radius: number };
 
@@ -99,9 +109,13 @@ export class CharacterMover {
   /** Resolve the vertical pass from `pos`. The slope gate uses a centre down-RAY
    *  for the TRUE surface normal (a shape sweep picks up corrupted trimesh
    *  internal-edge normals). The rest HEIGHT, however, comes from a downward
-   *  capsule SWEEP from STEP_HEIGHT above: it rests the body on the highest
+   *  capsule SWEEP from the highest NON-PENETRATING lift above (free headroom
+   *  probed upward first, capped at STEP_HEIGHT): it rests the body on the highest
    *  support within its footprint instead of letting a single ray sink it into a
-   *  voxel pocket narrower than the capsule (where it would wedge and stick). On a
+   *  voxel pocket narrower than the capsule (where it would wedge and stick). At
+   *  zero free headroom the body holds its height (never lifts, never sinks) —
+   *  lifting blind from inside rock read stopAtPenetration's toi 0 as "support at
+   *  lift height" and levitated on sub-(capsule+STEP_HEIGHT)-clearance floors. On a
    *  smooth surface the sweep and the ray agree, so trimesh behaviour is unchanged.
    *  Grounded/walkable only when the ground passes the slope gate; otherwise
    *  integrate gravity so the player slides/falls off too-steep surfaces. */
@@ -121,15 +135,37 @@ export class CharacterMover {
     if (ray !== null && isWalkable(ray.normal, SLOPE_LIMIT_COS)) {
       this.vVel = 0;
       // Rest on the highest support under the footprint (rim-riding, no pocket sink).
-      const sweep = physics.castShape(ctx, world, {
+      // A swept TOI is only meaningful from a NON-PENETRATING start pose: castShape is
+      // stopAtPenetration, so sweeping down from a pose already inside rock returns
+      // toi 0 ("start invalid"), which read as "support at lift height" levitated the
+      // capsule +STEP_HEIGHT per frame while grounded on any floor with less than
+      // capsule-height + STEP_HEIGHT of clearance (the F0-surfaced bug). Probe the free
+      // headroom upward first and lift only that far; at zero headroom, hold height.
+      const up = physics.castShape(ctx, world, {
         shape: { capsule: this.capsule },
-        position: [pos[0], pos[1] + STEP_HEIGHT, pos[2]],
-        dir: [0, -1, 0],
-        maxDistance: STEP_HEIGHT + GROUND_SNAP,
+        position: [pos[0], pos[1], pos[2]],
+        dir: [0, 1, 0],
+        maxDistance: STEP_HEIGHT,
         excludeBody: this.body,
       });
+      const lift =
+        up === null ? STEP_HEIGHT : Math.max(0, up.toi - LIFT_MARGIN);
+      const sweep =
+        lift > 0
+          ? physics.castShape(ctx, world, {
+              shape: { capsule: this.capsule },
+              position: [pos[0], pos[1] + lift, pos[2]],
+              dir: [0, -1, 0],
+              maxDistance: lift + GROUND_SNAP,
+              excludeBody: this.body,
+            })
+          : null;
       const restY =
-        sweep !== null ? pos[1] + STEP_HEIGHT - sweep.toi : ray.point[1] + foot;
+        sweep !== null
+          ? pos[1] + lift - sweep.toi + REST_GAP
+          : lift > 0
+            ? ray.point[1] + foot + REST_GAP
+            : pos[1]; // zero free headroom: hold height — never lift, never sink
       return { pos: [pos[0], restY, pos[2]], grounded: true };
     }
     // No ground, or too steep to stand on → fall/slide.

@@ -87,6 +87,13 @@ narrow, documented, realm-isolation exemption (their bundle never loads `/engine
    with < 2.2 m clearance in some direction. **Directly relevant to F1: it digs low tunnels.** The F1
    walk test was sized to > 2.2 m clearance to stay clear of it. Surfaced by F0; the clean fix is the
    mover. (Filed as the "SURFACE: char-move.ts levitation bug" task.)
+   **RESOLVED (2026-07-15, pre-gate, on this branch):** `applyGravity` now probes free headroom
+   upward and lifts only that far (a penetrating start pose can no longer read as "support at
+   lift height"), and rests the capsule `REST_GAP` (2 cm) above its support — exact-contact rest
+   was a second latent stall (touching poses made the horizontal slide's stopAtPenetration casts
+   return toi 0 with arbitrary normals on flat voxel floors, F1's new normal). Repro + regression:
+   `tests/char-move-levitation.gpu.test.ts` (sub-2.2 m room: stands stable AND walks). Full
+   dungeon suite green post-fix; probe guards retained as regression insurance.
 2. **Mesher degenerate triangles on symmetric surfaces** — harmless to render, relevant to the future
    field→mesh→Jolt collision path. Filed: `docs/backlog/dungeon/field-mesher-degenerate-triangles.md`.
 3. **Daemon `field.load` per-chunk containment is a textual `startsWith`, not symlink-resolving.** A

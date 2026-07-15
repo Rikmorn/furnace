@@ -100,3 +100,11 @@ to F1's low tunnels). The hybrid is NOT ready to gate F4 unaided; F4 must add ca
 navigability (fall-aware reachability, spawn validation, seam adjacency) before
 self-certification — the offline flood-fill / physics-upgrade rungs sit below that.
 See `docs/learnings/2026-07-15-analyzer-corpus-probe.md`.
+
+**Levitation bug RESOLVED (2026-07-15, pre-gate, branch `one-field-f0-f1`):** headroom-probed
+lift + `REST_GAP` contact offset in `char-move.ts` (a second latent defect — exact-contact rest
+stalling the slide on flat voxel floors — fell out of the same fix). Repro:
+`tests/char-move-levitation.gpu.test.ts`. F4 NOTE: the probe's `liftPenetrates` clear-guard is
+now over-conservative (sub-2.2 m-clearance poses are holdable post-fix but still never graded
+CLEAR) — re-measure the false-positive load against the fixed mover before designing F4's
+affordability bar; the pre-fix numbers above overstate it.

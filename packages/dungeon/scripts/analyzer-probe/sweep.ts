@@ -16,13 +16,16 @@
 //   - a false TRAP is noise — the analyzer keeps a flag it could have dropped. It costs the
 //     filter its value but never ships a broken floor.
 //
-// THE LEVITATION BUG IS THE MOST DANGEROUS FAILURE MODE HERE (`char-move.ts:124-132`, a
-// SHIPPED defect, not a probe artifact). `applyGravity`'s rest sweep lifts the capsule to
-// `pos.y + STEP_HEIGHT` BEFORE sweeping down. Started inside rock, `castShape`
-// (stopAtPenetration) returns `toi: 0`, which reads as "ground at the lift height" — so the
-// capsule climbs STEP_HEIGHT per frame while REPORTING GROUNDED. It fires on any floor with
-// less than CAPSULE_HEIGHT + STEP_HEIGHT = 2.2 m of headroom, and stage 1 calls a floor
-// walkable at 1.8 m — so the sweep spawns capsules into it by construction. A levitating
+// THE LEVITATION BUG WAS THE MOST DANGEROUS FAILURE MODE HERE (`char-move.ts` rest sweep, a
+// SHIPPED defect this probe surfaced — FIXED 2026-07-15: the lift is now capped at the
+// upward-probed free headroom + a REST_GAP contact offset, so the sweep never starts
+// penetrating). The historical mechanism: the rest sweep lifted the capsule to
+// `pos.y + STEP_HEIGHT` BEFORE sweeping down; started inside rock, `castShape`
+// (stopAtPenetration) returned `toi: 0`, read as "ground at the lift height" — the capsule
+// climbed STEP_HEIGHT per frame while REPORTING GROUNDED, on any floor with less than
+// CAPSULE_HEIGHT + STEP_HEIGHT = 2.2 m of headroom (stage 1 calls a floor walkable at
+// 1.8 m, so the sweep spawned capsules into it by construction). The guards below STAY as
+// regression insurance — over-conservative in the safe direction: a levitating
 // capsule still advances horizontally, so left undetected it would drift past a flag and be
 // recorded as a CLEAR: a MISS. Two independent guards below refuse that:
 //   1. per-frame: a GROUNDED frame that rises more than LEVITATION_RISE_M while the pose has
@@ -150,7 +153,9 @@ export type LaneOutcome =
   | "no-lane"
   /** The capsule stopped well short of the flag — something else blocked it. No evidence. */
   | "blocked-upstream"
-  /** The shipped rest-sweep bug fired (header). The pose is not trustworthy. No evidence. */
+  /** The rest-sweep levitation class fired (bug fixed 2026-07-15; guard retained as
+   *  regression insurance — deliberately over-conservative: sub-2.2 m-clearance poses
+   *  are never trusted for a CLEAR). No evidence. */
   | "levitating"
   /** The capsule left the analysed volume downward. No evidence. */
   | "fell";
