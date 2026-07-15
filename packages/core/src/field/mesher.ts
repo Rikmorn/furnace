@@ -5,37 +5,23 @@ const N = CHUNK_DIM + 2; // apron edge (18 samples: -1..16)
 const CELL_MIN = -1; // cells span samples c..c+1; c in [-1..15]
 const CELL_COUNT = CHUNK_DIM + 1; // 17 cells per axis
 
-const CUBE_EDGES: [number, number][] = [
-  [0, 1],
-  [1, 3],
-  [2, 3],
-  [0, 2],
-  [4, 5],
-  [5, 7],
-  [6, 7],
-  [4, 6],
-  [0, 4],
-  [1, 5],
-  [2, 6],
-  [3, 7],
-];
+// Flat endpoint pairs for the 12 cube edges (was a [number,number][]; flattened
+// so the pass-1 edge loop indexes plain arrays instead of allocating an iterator
+// + destructuring a tuple each step). Same 12 edges, same order.
+const CUBE_EDGE_A = new Int8Array([0, 1, 2, 0, 4, 5, 6, 4, 0, 1, 2, 3]);
+const CUBE_EDGE_B = new Int8Array([1, 3, 3, 2, 5, 7, 7, 6, 4, 5, 6, 7]);
 
-const CORNER: [number, number, number][] = [
-  [0, 0, 0],
-  [1, 0, 0],
-  [0, 1, 0],
-  [1, 1, 0],
-  [0, 0, 1],
-  [1, 0, 1],
-  [0, 1, 1],
-  [1, 1, 1],
-];
+// Flat per-axis corner offsets (was a [number,number,number][]; flattened so the
+// hot loops read CORNER_{X,Y,Z}[c] instead of destructuring CORNER[c] per
+// iteration). Same 8 corners in the same order.
+const CORNER_X = new Int8Array([0, 1, 0, 1, 0, 1, 0, 1]);
+const CORNER_Y = new Int8Array([0, 0, 1, 1, 0, 0, 1, 1]);
+const CORNER_Z = new Int8Array([0, 0, 0, 0, 1, 1, 1, 1]);
 
-const AXES: [number, number, number][] = [
-  [1, 0, 0],
-  [0, 1, 0],
-  [0, 0, 1],
-];
+// Flat axis unit vectors (was a [number,number,number][]). Same 3 axes.
+const AXIS_X = new Int8Array([1, 0, 0]);
+const AXIS_Y = new Int8Array([0, 1, 0]);
+const AXIS_Z = new Int8Array([0, 0, 1]);
 
 /** Density at sample coords (x,y,z) with x,y,z in [-1..16]. */
 const apronAt = (a: Int8Array, x: number, y: number, z: number): number =>
@@ -75,8 +61,12 @@ export function meshChunkApron(apron: Int8Array, cellSize: number): ChunkMesh {
       for (let x = CELL_MIN; x < CELL_MIN + CELL_COUNT; x++) {
         let mask = 0;
         for (let c = 0; c < 8; c++) {
-          const [ox, oy, oz] = CORNER[c] as [number, number, number];
-          const d = apronAt(apron, x + ox, y + oy, z + oz);
+          const d = apronAt(
+            apron,
+            x + (CORNER_X[c] as number),
+            y + (CORNER_Y[c] as number),
+            z + (CORNER_Z[c] as number),
+          );
           corners[c] = d;
           if (d >= 0) mask |= 1 << c;
         }
@@ -86,16 +76,19 @@ export function meshChunkApron(apron: Int8Array, cellSize: number): ChunkMesh {
         let vy = 0;
         let vz = 0;
         let n = 0;
-        for (const [a, b] of CUBE_EDGES) {
+        for (let e = 0; e < 12; e++) {
+          const a = CUBE_EDGE_A[e] as number;
+          const b = CUBE_EDGE_B[e] as number;
           const da = corners[a] as number;
           const db = corners[b] as number;
           if (da >= 0 === db >= 0) continue;
           const t = da / (da - db);
-          const [ax, ay, az] = CORNER[a] as [number, number, number];
-          const [bx, by, bz] = CORNER[b] as [number, number, number];
-          vx += ax + (bx - ax) * t;
-          vy += ay + (by - ay) * t;
-          vz += az + (bz - az) * t;
+          const ax = CORNER_X[a] as number;
+          const ay = CORNER_Y[a] as number;
+          const az = CORNER_Z[a] as number;
+          vx += ax + ((CORNER_X[b] as number) - ax) * t;
+          vy += ay + ((CORNER_Y[b] as number) - ay) * t;
+          vz += az + ((CORNER_Z[b] as number) - az) * t;
           n++;
         }
         vx /= n;
@@ -108,11 +101,10 @@ export function meshChunkApron(apron: Int8Array, cellSize: number): ChunkMesh {
         let gy = 0;
         let gz = 0;
         for (let c = 0; c < 8; c++) {
-          const [ox, oy, oz] = CORNER[c] as [number, number, number];
           const d = corners[c] as number;
-          gx += d * (ox === 1 ? 1 : -1);
-          gy += d * (oy === 1 ? 1 : -1);
-          gz += d * (oz === 1 ? 1 : -1);
+          gx += d * ((CORNER_X[c] as number) === 1 ? 1 : -1);
+          gy += d * ((CORNER_Y[c] as number) === 1 ? 1 : -1);
+          gz += d * ((CORNER_Z[c] as number) === 1 ? 1 : -1);
         }
         const glen = Math.hypot(gx, gy, gz) || 1;
 
@@ -133,13 +125,23 @@ export function meshChunkApron(apron: Int8Array, cellSize: number): ChunkMesh {
       for (let x = 0; x < CHUNK_DIM; x++) {
         const d0 = apronAt(apron, x, y, z);
         for (let a = 0; a < 3; a++) {
-          const [dx, dy, dz] = AXES[a] as [number, number, number];
-          const d1 = apronAt(apron, x + dx, y + dy, z + dz);
+          const d1 = apronAt(
+            apron,
+            x + (AXIS_X[a] as number),
+            y + (AXIS_Y[a] as number),
+            z + (AXIS_Z[a] as number),
+          );
           if (d0 >= 0 === d1 >= 0) continue;
 
           // The four cells sharing this edge (p offset by the two axes ⟂ a).
-          const [ex, ey, ez] = AXES[(a + 1) % 3] as [number, number, number];
-          const [fx, fy, fz] = AXES[(a + 2) % 3] as [number, number, number];
+          const a1 = (a + 1) % 3;
+          const a2 = (a + 2) % 3;
+          const ex = AXIS_X[a1] as number;
+          const ey = AXIS_Y[a1] as number;
+          const ez = AXIS_Z[a1] as number;
+          const fx = AXIS_X[a2] as number;
+          const fy = AXIS_Y[a2] as number;
+          const fz = AXIS_Z[a2] as number;
           const v00 = cellVert[
             cellIdx(x - ex - fx, y - ey - fy, z - ez - fz)
           ] as number;
