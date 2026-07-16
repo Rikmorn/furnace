@@ -221,12 +221,19 @@ export function createFieldHost(): FieldHost {
       geometry.destroy(c, old.g);
       chunkMeshes.delete(key);
     }
-    const indices = new Uint32Array(res.indices);
+    // MIGRATION (until Task 10): the v2 worker returns per-class buckets + kit
+    // instances; the F2a host still renders only bucket 0 (organic rock, the
+    // dig-only store) as a single mesh and ignores kit. Task 10 does the real
+    // per-class render + kit instancing. An empty `buckets` (uniform/re-buried
+    // chunk) destroys the stale mesh and creates none.
+    const bucket = res.buckets[0];
+    if (!bucket) return;
+    const indices = new Uint32Array(bucket.indices);
     if (indices.length === 0) return;
     const g = geometry.create(c, {
-      positions: new Float32Array(res.positions),
-      normals: new Float32Array(res.normals),
-      uvs: new Float32Array(res.uvs),
+      positions: new Float32Array(bucket.positions),
+      normals: new Float32Array(bucket.normals),
+      uvs: new Float32Array(bucket.uvs),
       indices,
     });
     const m = mesh.create(c, { geometry: g, material: currentMat() });
@@ -244,7 +251,15 @@ export function createFieldHost(): FieldHost {
     const aprons = field.extractFieldAprons(store, key);
     const t0 = performance.now();
     try {
-      const res = await worker.mesh(key, aprons, store.cellSize);
+      // MIGRATION (until Task 10): BUILTIN_TABLE (rock-only) — the dig-only
+      // store is all class 0, so the mesher's class dispatch never sees a
+      // non-rock class. Task 10 threads the project's real material table here.
+      const res = await worker.mesh(
+        key,
+        aprons,
+        field.BUILTIN_TABLE,
+        store.cellSize,
+      );
       lastRemeshMs = performance.now() - t0;
       if (disposed) return;
       applyMesh(c, key, res);

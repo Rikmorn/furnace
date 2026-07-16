@@ -1,4 +1,4 @@
-import type { FieldAprons } from "@furnace/core/field";
+import type { FieldAprons, MaterialTable } from "@furnace/core/field";
 import type {
   FieldWorkerRequest,
   FieldWorkerResponse,
@@ -44,7 +44,12 @@ export class FieldWorkerClient {
     return w;
   }
 
-  mesh(key: string, aprons: FieldAprons, cellSize: number) {
+  mesh(
+    key: string,
+    aprons: FieldAprons,
+    table: MaterialTable,
+    cellSize: number,
+  ) {
     const jobId = ++this.jobId;
     const density = aprons.density.buffer as ArrayBuffer;
     const materials = aprons.materials.buffer as ArrayBuffer;
@@ -54,6 +59,7 @@ export class FieldWorkerClient {
       key,
       density,
       materials,
+      table,
       cellSize,
     };
     return new Promise<Extract<FieldWorkerResponse, { kind: "meshed" }>>(
