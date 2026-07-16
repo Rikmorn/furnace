@@ -1,10 +1,15 @@
 import { describe, expect, test } from "bun:test";
-import type { BrushOp, MaterialTable } from "@furnace/core/field";
+import type {
+  BrushOp,
+  MaterialTable,
+  SelectionSpec,
+} from "@furnace/core/field";
 import {
   applyOp,
   createFieldStore,
   createOpLog,
   logApply,
+  MAX_SELECTION_BUDGET,
   materializeSelection,
   selectionHas,
 } from "@furnace/core/field";
@@ -50,6 +55,7 @@ describe("field selection", () => {
     applyOp(s, digBox([6, 1, 1], [1, 1, 1]));
     const chunksBefore = s.chunks.size;
     const materialsBefore = s.materials.size;
+    const chunk0Before = Int8Array.from(s.chunks.get("0,0,0") as Int8Array);
     const sel = materializeSelection(s, {
       kind: "flood-void",
       seed: [4, 4, 4], // inside room A
@@ -62,9 +68,85 @@ describe("field selection", () => {
     expect(sel.bounds).toEqual({ min: [0, 0, 0], max: [8, 8, 8] });
     expect(selectionHas(sel, 4, 4, 4, s.cellSize)).toBe(true); // room A
     expect(selectionHas(sel, 24, 4, 4, s.cellSize)).toBe(false); // room B (sample 24 = 6m)
-    // pure query: the store is never mutated
+    // pure query: the store is never mutated — sizes AND the bytes of an
+    // allocated chunk the flood traversed
     expect(s.chunks.size).toBe(chunksBefore);
     expect(s.materials.size).toBe(materialsBefore);
+    expect(s.chunks.get("0,0,0")).toEqual(chunk0Before);
+  });
+
+  test("budget exact-fit (all reachable cells === budget) is NOT truncated", () => {
+    const s = createFieldStore();
+    applyOp(s, digBox([1, 1, 1], [1, 1, 1])); // room A: exactly 729 air cells
+    const sel = materializeSelection(s, {
+      kind: "flood-void",
+      seed: [4, 4, 4],
+      budget: 729,
+    });
+    if (sel.kind !== "cells") throw new Error("expected cells");
+    expect(sel.count).toBe(729);
+    expect(sel.truncated).toBe(false);
+  });
+
+  test("cells bitsets use the documented lx + 16*(ly + 16*lz) layout", () => {
+    const s = createFieldStore();
+    // Distinct per-axis extents: the selected SET must be asymmetric under
+    // coordinate transposition, not just the probed sample — a cubic room's
+    // bitset is transposition-INVARIANT (every swapped index is also selected)
+    // and would mask a transposed writer. Air set: x 0..8, y 2..6, z 1..7.
+    applyOp(s, digBox([1, 1, 1], [1, 0.5, 0.75]));
+    const sel = materializeSelection(s, {
+      kind: "flood-void",
+      seed: [4, 4, 4],
+      budget: 100000,
+    });
+    if (sel.kind !== "cells") throw new Error("expected cells");
+    expect(sel.count).toBe(9 * 5 * 7);
+    // Direct bitset read — deliberately NOT via selectionHas, which shares its
+    // index formula with the writer (a self-consistent transposition would pass
+    // every probe-based assert). Sample (8,2,1) is selected; under a transposed
+    // layout, bit 296 would belong to an unselected cell (e.g. (1,2,8)).
+    const bits = sel.chunks.get("0,0,0") as Uint8Array;
+    const bit = 8 + 16 * (2 + 16 * 1); // = 296
+    expect(((bits[bit >> 3] as number) >> (bit & 7)) & 1).toBe(1);
+  });
+
+  test("setup-loud validation: non-integer flood seeds throw", () => {
+    const s = createFieldStore();
+    expect(() =>
+      materializeSelection(s, {
+        kind: "flood-void",
+        seed: [0.5, 0, 0],
+        budget: 10,
+      }),
+    ).toThrow(/seed/);
+    expect(() =>
+      materializeSelection(s, {
+        kind: "flood-material",
+        seed: [0, 0, 2.25],
+        classId: 0,
+        budget: 10,
+      }),
+    ).toThrow(/seed/);
+  });
+
+  test("setup-loud validation: budget must be an integer in [1, MAX_SELECTION_BUDGET]", () => {
+    const s = createFieldStore();
+    const at = (budget: number): SelectionSpec => ({
+      kind: "flood-void",
+      seed: [0, 0, 0],
+      budget,
+    });
+    expect(() => materializeSelection(s, at(0))).toThrow(/budget/);
+    expect(() => materializeSelection(s, at(-5))).toThrow(/budget/);
+    expect(() => materializeSelection(s, at(10.5))).toThrow(/budget/);
+    expect(() => materializeSelection(s, at(MAX_SELECTION_BUDGET + 1))).toThrow(
+      /budget/,
+    );
+    expect(() =>
+      materializeSelection(s, at(MAX_SELECTION_BUDGET)),
+    ).not.toThrow();
+    expect(() => materializeSelection(s, at(1))).not.toThrow();
   });
 
   test("flood budget caps loudly (truncated, count === budget)", () => {
@@ -119,15 +201,23 @@ describe("field selection", () => {
   });
 
   test("region selection is a pure predicate over world metres", () => {
-    const sel = materializeSelection(createFieldStore(), {
+    const spec: SelectionSpec = {
       kind: "region",
       min: [0, 0, 0],
       max: [1, 1, 1],
-    });
+    };
+    const sel = materializeSelection(createFieldStore(), spec);
     expect(sel.kind).toBe("region");
     expect(selectionHas(sel, 2, 2, 2, 0.25)).toBe(true); // sample (2,2,2) = 0.5m
     expect(selectionHas(sel, 0, 0, 0, 0.25)).toBe(true); // min edge is inclusive
     expect(selectionHas(sel, 4, 2, 2, 0.25)).toBe(false); // 1.0m — exactly max (half-open)
     expect(selectionHas(sel, 8, 2, 2, 0.25)).toBe(false); // 2m — outside
+    // the materialized selection COPIES the spec's bounds — a host mutating its
+    // spec afterwards (drag-resize) must not retroactively change the selection
+    if (spec.kind !== "region") throw new Error("unreachable");
+    spec.max[0] = 100;
+    spec.min[1] = -100;
+    expect(selectionHas(sel, 8, 2, 2, 0.25)).toBe(false); // still outside
+    expect(selectionHas(sel, 2, -2, 2, 0.25)).toBe(false); // still below min
   });
 });

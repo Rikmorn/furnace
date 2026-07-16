@@ -1,6 +1,6 @@
 // packages/core/src/field/materials.ts — the material channel behind an
 // accessor wall (the encoding is the swappable part; substrate-storage lesson).
-import { CHUNK_DIM, CHUNK_SAMPLES, chunkKey, voxelChunk } from "./chunks.ts";
+import { CHUNK_SAMPLES, chunkKey, localIndex, voxelChunk } from "./chunks.ts";
 import type {
   ChunkKey,
   ChunkMaterials,
@@ -11,13 +11,6 @@ import type {
 import { MAT_ROCK } from "./types.ts";
 
 const MAX_PALETTE = 32; // far above the ≤8-class F2 reality; setup-loud beyond
-
-const localIndex = (x: number, y: number, z: number): number => {
-  const lx = x - voxelChunk(x) * CHUNK_DIM;
-  const ly = y - voxelChunk(y) * CHUNK_DIM;
-  const lz = z - voxelChunk(z) * CHUNK_DIM;
-  return lx + CHUNK_DIM * (ly + CHUNK_DIM * lz);
-};
 
 const bitsFor = (paletteLen: number): number =>
   Math.max(1, Math.ceil(Math.log2(paletteLen)));

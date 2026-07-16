@@ -1,10 +1,10 @@
 // packages/core/src/field/selection.ts — selection specs materialized against
 // the CURRENT field state: deterministic, budgeted, core-side (F2b).
 import {
-  CHUNK_DIM,
   CHUNK_SAMPLES,
   chunkKey,
-  getDensity,
+  localIndex,
+  SOLID,
   sampleToWorld,
   voxelChunk,
 } from "./chunks.ts";
@@ -17,96 +17,98 @@ import type {
 } from "./types.ts";
 
 /** Hard ceiling on any selection flood's `budget` — 64 chunks' worth of cells
- *  (64 × 16³). Specs embedded in ops must stay at or below it: an op carrying
- *  an unbounded flood would break replay budgets. */
+ *  (64 × 16³). {@link materializeSelection} rejects budgets above it: an op
+ *  carrying an unbounded flood would break replay budgets. */
 export const MAX_SELECTION_BUDGET = 262144;
-
-const STEPS: readonly (readonly [number, number, number])[] = [
-  [1, 0, 0],
-  [-1, 0, 0],
-  [0, 1, 0],
-  [0, -1, 0],
-  [0, 0, 1],
-  [0, 0, -1],
-];
-
-const localBit = (x: number, y: number, z: number): number => {
-  const lx = x - voxelChunk(x) * CHUNK_DIM;
-  const ly = y - voxelChunk(y) * CHUNK_DIM;
-  const lz = z - voxelChunk(z) * CHUNK_DIM;
-  return lx + CHUNK_DIM * (ly + CHUNK_DIM * lz);
-};
-
-const voidWants =
-  (store: FieldStore) =>
-  (x: number, y: number, z: number): boolean =>
-    getDensity(store, x, y, z) >= 0;
-
-const materialWants =
-  (store: FieldStore, classId: number) =>
-  (x: number, y: number, z: number): boolean =>
-    getDensity(store, x, y, z) < 0 && getMaterial(store, x, y, z) === classId;
-
-/** Sets sample (x,y,z)'s bit in its chunk's bitset, allocating on first touch. */
-function mark(
-  chunks: Map<ChunkKey, Uint8Array>,
-  x: number,
-  y: number,
-  z: number,
-): void {
-  const key = chunkKey(voxelChunk(x), voxelChunk(y), voxelChunk(z));
-  let bits = chunks.get(key);
-  if (bits === undefined) {
-    bits = new Uint8Array(CHUNK_SAMPLES / 8);
-    chunks.set(key, bits);
-  }
-  const bit = localBit(x, y, z);
-  bits[bit >> 3] = (bits[bit >> 3] as number) | (1 << (bit & 7));
-}
 
 /**
  * Materializes a selection spec against the CURRENT field state. Regions pass
- * through as pure predicates. Floods are 6-connected BFS from the seed —
- * `flood-void` selects density ≥ 0 (the surface's exact-zero samples count as
- * void), `flood-material` selects solid cells (density < 0) of exactly
- * `classId` — capped at `budget` selected cells (`truncated` = true when the
- * cap fired — surface it, never silent). Pure query — the store is never
- * mutated.
+ * through as pure predicates (bounds copied — never aliased to the spec's
+ * arrays). Floods are 6-connected BFS from the seed — `flood-void` selects
+ * density ≥ 0 (the surface's exact-zero samples count as void),
+ * `flood-material` selects solid cells (density < 0) of exactly `classId` —
+ * capped at `budget` selected cells. `truncated` is true exactly when a
+ * further matching cell would exceed the budget (surface it, never silent);
+ * an exact fit stays untruncated. Pure query — the store is never mutated.
+ *
+ * @throws {@link Error} if a flood seed coordinate is not an integer, or the
+ *   flood budget is not an integer in [1, {@link MAX_SELECTION_BUDGET}]
+ *   (setup-loud — selections are user-action-frequency, not per-frame).
  */
 export function materializeSelection(
   store: FieldStore,
   spec: SelectionSpec,
 ): MaterializedSelection {
   if (spec.kind === "region")
-    return { kind: "region", min: spec.min, max: spec.max };
-  const wants =
-    spec.kind === "flood-void"
-      ? voidWants(store)
-      : materialWants(store, spec.classId);
-  const chunks = new Map<ChunkKey, Uint8Array>();
-  const seen = new Set<string>();
-  const queue: [number, number, number][] = [];
+    return { kind: "region", min: [...spec.min], max: [...spec.max] };
   const [sx, sy, sz] = spec.seed;
-  if (wants(sx, sy, sz)) {
-    seen.add(`${sx},${sy},${sz}`);
-    queue.push([sx, sy, sz]);
-  }
-  let head = 0; // index cursor — queue.shift() would be O(n)
+  if (!Number.isInteger(sx) || !Number.isInteger(sy) || !Number.isInteger(sz))
+    throw new Error(
+      "field selection: flood seed must be integer sample coordinates",
+    );
+  const budget = spec.budget;
+  if (!Number.isInteger(budget) || budget < 1 || budget > MAX_SELECTION_BUDGET)
+    throw new Error(
+      `field selection: flood budget must be an integer in [1, ${MAX_SELECTION_BUDGET}]`,
+    );
+  const isVoid = spec.kind === "flood-void";
+  const classId = isVoid ? 0 : spec.classId;
+  const chunks = new Map<ChunkKey, Uint8Array>();
+  // Mark-at-enqueue BFS, tuned for the full-budget flood (262144 cells,
+  // ~1.6M neighbour probes) to stay well under the editor's 100ms interaction
+  // ceiling: the chunk bitsets double as the visited set (no seen-set), the
+  // queue is three flat number arrays (no per-cell tuples), and a one-entry
+  // chunk cache elides the per-probe chunkKey string + Map lookups — density
+  // is read straight off the cached store chunk (FieldStore's density layout
+  // is public surface; materials stay behind their accessor wall).
+  const qx: number[] = [];
+  const qy: number[] = [];
+  const qz: number[] = [];
   let count = 0;
   let truncated = false;
   let bounds: {
     min: [number, number, number];
     max: [number, number, number];
   } | null = null;
-  while (head < queue.length) {
-    if (count >= spec.budget) {
-      truncated = true;
-      break;
+  let lastCx = 0.5; // non-integer sentinel: never matches a real chunk coord
+  let lastCy = 0.5;
+  let lastCz = 0.5;
+  let lastKey: ChunkKey = "";
+  let lastBits: Uint8Array | undefined;
+  let lastDensity: Int8Array | undefined;
+  const visit = (x: number, y: number, z: number): void => {
+    if (truncated) return;
+    const cx = voxelChunk(x);
+    const cy = voxelChunk(y);
+    const cz = voxelChunk(z);
+    if (cx !== lastCx || cy !== lastCy || cz !== lastCz) {
+      lastCx = cx;
+      lastCy = cy;
+      lastCz = cz;
+      lastKey = chunkKey(cx, cy, cz);
+      lastBits = chunks.get(lastKey);
+      lastDensity = store.chunks.get(lastKey);
     }
-    const cell = queue[head++];
-    if (cell === undefined) break; // unreachable: head < queue.length
-    const [x, y, z] = cell;
-    mark(chunks, x, y, z);
+    const bit = localIndex(x, y, z);
+    const byte = bit >> 3;
+    const mask = 1 << (bit & 7);
+    if (lastBits !== undefined && ((lastBits[byte] as number) & mask) !== 0)
+      return; // already selected
+    const d = lastDensity === undefined ? SOLID : (lastDensity[bit] as number);
+    if (isVoid) {
+      if (d < 0) return; // rock — flood-void stops at walls
+    } else if (d >= 0 || getMaterial(store, x, y, z) !== classId) {
+      return; // air, or a different material class
+    }
+    if (count >= budget) {
+      truncated = true; // a matching cell exists beyond the cap — never silent
+      return;
+    }
+    if (lastBits === undefined) {
+      lastBits = new Uint8Array(CHUNK_SAMPLES / 8);
+      chunks.set(lastKey, lastBits);
+    }
+    lastBits[byte] = (lastBits[byte] as number) | mask;
     count++;
     if (bounds === null) {
       bounds = { min: [x, y, z], max: [x, y, z] };
@@ -118,15 +120,22 @@ export function materializeSelection(
       if (y > bounds.max[1]) bounds.max[1] = y;
       if (z > bounds.max[2]) bounds.max[2] = z;
     }
-    for (const [dx, dy, dz] of STEPS) {
-      const nx = x + dx;
-      const ny = y + dy;
-      const nz = z + dz;
-      const k = `${nx},${ny},${nz}`;
-      if (seen.has(k) || !wants(nx, ny, nz)) continue;
-      seen.add(k);
-      queue.push([nx, ny, nz]);
-    }
+    qx.push(x);
+    qy.push(y);
+    qz.push(z);
+  };
+  visit(sx, sy, sz);
+  for (let head = 0; head < qx.length && !truncated; head++) {
+    const x = qx[head];
+    const y = qy[head];
+    const z = qz[head];
+    if (x === undefined || y === undefined || z === undefined) break; // unreachable: head < length
+    visit(x + 1, y, z);
+    visit(x - 1, y, z);
+    visit(x, y + 1, z);
+    visit(x, y - 1, z);
+    visit(x, y, z + 1);
+    visit(x, y, z - 1);
   }
   return { kind: "cells", chunks, count, truncated, bounds };
 }
@@ -159,6 +168,6 @@ export function selectionHas(
     chunkKey(voxelChunk(x), voxelChunk(y), voxelChunk(z)),
   );
   if (bits === undefined) return false;
-  const bit = localBit(x, y, z);
+  const bit = localIndex(x, y, z);
   return ((bits[bit >> 3] as number) & (1 << (bit & 7))) !== 0;
 }

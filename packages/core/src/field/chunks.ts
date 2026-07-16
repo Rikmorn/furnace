@@ -34,7 +34,10 @@ export function createFieldStore(
   return { cellSize, chunks: new Map(), materials: new Map() };
 }
 
-const localIndex = (x: number, y: number, z: number): number => {
+/** Index of sample (x,y,z) within its chunk's flat per-cell storage — the
+ *  x-fastest layout `lx + CHUNK_DIM * (ly + CHUNK_DIM * lz)` shared by density
+ *  arrays, packed material indices, and selection bitsets. */
+export const localIndex = (x: number, y: number, z: number): number => {
   const lx = x - voxelChunk(x) * CHUNK_DIM;
   const ly = y - voxelChunk(y) * CHUNK_DIM;
   const lz = z - voxelChunk(z) * CHUNK_DIM;
