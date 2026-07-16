@@ -15,8 +15,13 @@ import * as material from "@furnace/core/material";
 import * as mesh from "@furnace/core/mesh";
 import * as shader from "@furnace/core/shader";
 import { mat4, vec4 } from "@furnace/core/transform";
+import {
+  computeBrushCenter,
+  snappedKitBox,
+} from "../frontend/lib/field-brush.ts";
 import { FieldWorkerClient } from "../frontend/lib/field-client.ts";
 import type { WireBucket } from "../frontend/lib/field-protocol.ts";
+import { boxEdges } from "./box-edges.ts";
 import {
   flyLook,
   flyMove,
@@ -81,7 +86,6 @@ type ChunkRender = {
 const REMESH_PER_FRAME = 2; // dirty-set drain budget per rAF
 const STROKE_MIN_MS = 40; // stroke throttle (pointermove-while-digging)
 const DIG_RANGE_M = 30;
-const FIRST_DIG_DISTANCE_M = 4; // virgin world: dig this far ahead of the eye
 const EDITOR_FOV_Y = Math.PI / 3;
 const FLY_SPEED = 6; // m/s
 const FLY_BOOST = 3; // shift-held multiplier
@@ -89,8 +93,14 @@ const MAX_FRAME_DT = 0.1; // clamp dt so a stall can't lurch the camera
 // MIGRATION (until Task 12): provisional look/dig feel — tune at the Safari gate.
 const LOOK_SPEED = 0.005; // rad per pixel of RMB drag
 const RADIUS_MIN = 0.25;
-const RADIUS_MAX = 3;
+const RADIUS_MAX = 4;
 const RADIUS_WHEEL_STEP = 0.1;
+
+// The ghost target ring/box preview colour — hologram-blue (research convention),
+// drawn occlude:false so it reads through solid geometry.
+const GHOST_COLOR: [number, number, number, number] = [0.4, 0.8, 1, 1];
+// Ghost sphere preview: two great-circle rings (XZ + XY), this many segments each.
+const GHOST_RING_SEGMENTS = 16;
 
 const CLEAR = vec4.fromValues(0.03, 0.03, 0.045, 1);
 const HEADLAMP_COLOR: Vec3T = [1, 0.95, 0.85];
@@ -115,8 +125,6 @@ const GRID_MINOR_DIM = 0.5; // minors dimmed vs majors (two-tone depth cue)
 // Shared specular for every lit bucket / kit material (color-only variation).
 const LIT_SPECULAR: [number, number, number, number] = [0.06, 0.06, 0.06, 16];
 
-// Built-kit fills snap to this lattice so assertOpValid accepts them.
-const KIT_LATTICE = 0.5;
 // Per-piece tint jitter (deterministic from the instance variant): scale RGB by
 // KIT_TINT_JITTER_BASE + KIT_TINT_JITTER_SPAN·variant.
 const KIT_TINT_JITTER_BASE = 0.92;
@@ -199,9 +207,12 @@ export function createFieldHost(): FieldHost {
   let table: field.MaterialTable = field.BUILTIN_TABLE;
   let tool: FieldTool = { effect: "dig", materialId: 0 };
 
-  let digRadius = 0.75;
+  let digRadius = 1.25;
   let digging = false;
   let lastStroke = 0;
+  // Last cursor position over the viewport (null when the pointer has left), so
+  // the ghost target marker can preview where the next stroke lands each frame.
+  let lastPointer: { x: number; y: number } | null = null;
   let lastRemeshMs = 0;
   let statsCb: ((s: { chunks: number; lastRemeshMs: number }) => void) | null =
     null;
@@ -504,38 +515,11 @@ export function createFieldHost(): FieldHost {
     radius,
   });
 
-  // MIGRATION (until Task 11): the target math (raycast + eyeInRock branch) and
-  // the lattice snap live inline here. Task 11 extracts computeBrushCenter +
-  // snappedKitBox into the pure frontend/lib/field-brush.ts module (adding the
-  // bite / carve-from-eye feel, the ghost marker, and radius defaults).
-
-  // Snap one box-face axis onto the 0.5 m lattice: given the box centre coord and
-  // half-side, round the min corner to the lattice and re-derive the centre so
-  // both faces land on it (assertOpValid requires this for kit-class fills).
-  const snapAxis = (c: number, half: number): number =>
-    Math.round((c - half) / KIT_LATTICE) * KIT_LATTICE + half;
-
-  const snappedKitBox = (center: Vec3T, radius: number): field.BrushShape => {
-    const side = Math.max(
-      KIT_LATTICE,
-      Math.round((2 * radius) / KIT_LATTICE) * KIT_LATTICE,
-    );
-    const half = side / 2;
-    return {
-      kind: "box",
-      center: [
-        snapAxis(center[0], half),
-        snapAxis(center[1], half),
-        snapAxis(center[2], half),
-      ],
-      halfExtents: [half, half, half],
-    };
-  };
-
   // Build the brush op for the active tool at a world centre. A kit-class FILL
-  // snaps to a lattice box; organic fill and all paint use a sphere; dig is a
-  // material-free sphere. `classOf` throws on an unknown material id (caught by
-  // applyTool), so a stray tool selection can't corrupt the field.
+  // snaps to a lattice box (field-brush.snappedKitBox); organic fill and all paint
+  // use a sphere; dig is a material-free sphere. `classOf` throws on an unknown
+  // material id (caught by applyTool), so a stray tool selection can't corrupt the
+  // field.
   const toolOp = (center: Vec3T): field.BrushOp => {
     if (tool.effect === "dig") {
       return {
@@ -560,12 +544,24 @@ export function createFieldHost(): FieldHost {
     };
   };
 
-  // Apply the active tool where the cursor ray meets rock. In virgin (all-solid)
-  // space the centre depends on where the eye sits relative to rock (see the
-  // branch below: raycastField can't be trusted to find a wall when the eye is
-  // embedded).
-  const applyTool = (clientX: number, clientY: number): void => {
-    if (!cam) return;
+  // Whether the active tool fills a kit class — its ghost + op use the snapped
+  // lattice box, not a sphere. Guards classOf's unknown-id throw (setup-loud) so
+  // the per-frame ghost can't crash on a stray selection; returns false instead.
+  const isKitFillTool = (): boolean => {
+    if (tool.effect !== "fill") return false;
+    try {
+      return field.classOf(table, tool.materialId).kind === "kit";
+    } catch {
+      return false;
+    }
+  };
+
+  // The world-space brush centre for a cursor position under the dig-feel contract
+  // (field-brush.computeBrushCenter). The eye-in-rock probe + field raycast live
+  // HERE — they need the field + camera — while the pure module does the arithmetic.
+  // Returns null when there is no camera or the view is singular.
+  const computeTarget = (clientX: number, clientY: number): Vec3T | null => {
+    if (!cam) return null;
     const [nx, ny] = toNdc(clientX, clientY);
     const r = camera.screenToRay(cam, nx, ny);
     // Boundary cast: screenToRay returns Vec3 (Float32Array); fixed indices
@@ -578,18 +574,13 @@ export function createFieldHost(): FieldHost {
     const dx = r.dir[0] as number;
     const dy = r.dir[1] as number;
     const dz = r.dir[2] as number;
-    if (Math.hypot(dx, dy, dz) < 1e-8) return; // singular VP → no valid ray
+    if (Math.hypot(dx, dy, dz) < 1e-8) return null; // singular VP → no valid ray
     const origin: Vec3T = [ox, oy, oz];
-    const direction: Vec3T = [dx, dy, dz];
-    const ahead: Vec3T = [
-      ox + dx * FIRST_DIG_DISTANCE_M,
-      oy + dy * FIRST_DIG_DISTANCE_M,
-      oz + dz * FIRST_DIG_DISTANCE_M,
-    ];
+    const dir: Vec3T = [dx, dy, dz];
     // If the eye is embedded in rock (virgin world or buried), raycastField would
     // hit the origin's OWN voxel at t=0 (raycast.ts: "a start inside rock hits its
-    // own voxel at t=0") and carve a sphere around the camera — there is no visible
-    // wall to aim at, so aim ahead. Otherwise apply where the ray meets rock, or
+    // own voxel at t=0"), so we pass eyeInRock and the pure module mines forward
+    // from the eye. When the eye is in air, apply where the ray meets rock, or dig
     // ahead when it reaches maxDist through only air (a cavity aimed at open space).
     const cs = store.cellSize;
     const eyeInRock =
@@ -599,10 +590,20 @@ export function createFieldHost(): FieldHost {
         field.worldToVoxel(oy, cs),
         field.worldToVoxel(oz, cs),
       ) < 0;
-    const hit = eyeInRock
+    const rc = eyeInRock
       ? null
-      : field.raycastField(store, origin, direction, DIG_RANGE_M);
-    const at: Vec3T = hit ? hit.point : ahead;
+      : field.raycastField(store, origin, dir, DIG_RANGE_M);
+    return computeBrushCenter(
+      { origin, dir, eyeInRock, hit: rc ? rc.point : null },
+      digRadius,
+    );
+  };
+
+  // Apply the active tool at a cursor position: compute the dig-feel centre, build
+  // the op, log-apply it, and mark the touched chunks (+ apron neighbours) dirty.
+  const applyTool = (clientX: number, clientY: number): void => {
+    const at = computeTarget(clientX, clientY);
+    if (!at) return;
     try {
       const dirtied = field.logApply(store, log, toolOp(at), table);
       markDirtyWithNeighbors(dirtied);
@@ -644,6 +645,97 @@ export function createFieldHost(): FieldHost {
         ]
       : [];
 
+  // --- ghost target marker ------------------------------------------------
+
+  // One point on a ring: centre + radius·(cosθ·u + sinθ·v) for orthonormal plane
+  // axes u, v. Pure — feeds the sphere-brush preview rings.
+  const ringPoint = (
+    center: Vec3T,
+    radius: number,
+    u: Vec3T,
+    v: Vec3T,
+    theta: number,
+  ): Vec3T => {
+    const cs = Math.cos(theta);
+    const sn = Math.sin(theta);
+    return [
+      center[0] + radius * (cs * u[0] + sn * v[0]),
+      center[1] + radius * (cs * u[1] + sn * v[1]),
+      center[2] + radius * (cs * u[2] + sn * v[2]),
+    ];
+  };
+
+  // The sphere-brush ghost: two great-circle rings (XZ + XY planes) as a flat line
+  // batch, via segmentsToBatch (same path as the grid / AABB highlight).
+  const sphereGhostBatch = (
+    center: Vec3T,
+    radius: number,
+  ): { vertices: Float32Array; colors: Float32Array } => {
+    const planes: [Vec3T, Vec3T][] = [
+      [
+        [1, 0, 0],
+        [0, 0, 1],
+      ], // XZ ring
+      [
+        [1, 0, 0],
+        [0, 1, 0],
+      ], // XY ring
+    ];
+    const segments: [Vec3T, Vec3T][] = [];
+    for (const [u, v] of planes)
+      for (let i = 0; i < GHOST_RING_SEGMENTS; i++) {
+        const a = (2 * Math.PI * i) / GHOST_RING_SEGMENTS;
+        const b = (2 * Math.PI * (i + 1)) / GHOST_RING_SEGMENTS;
+        segments.push([
+          ringPoint(center, radius, u, v, a),
+          ringPoint(center, radius, u, v, b),
+        ]);
+      }
+    return segmentsToBatch(segments, GHOST_COLOR);
+  };
+
+  // The 8 world corners of a centre+halfExtents box in boxEdges' bit-layout order
+  // (bit0=x, bit1=y, bit2=z), as a length-24 Float32Array.
+  const boxCorners = (center: Vec3T, half: Vec3T): Float32Array => {
+    const out = new Float32Array(24);
+    for (let i = 0; i < 8; i++) {
+      out[i * 3] = (i & 1) === 0 ? center[0] - half[0] : center[0] + half[0];
+      out[i * 3 + 1] =
+        (i & 2) === 0 ? center[1] - half[1] : center[1] + half[1];
+      out[i * 3 + 2] =
+        (i & 4) === 0 ? center[2] - half[2] : center[2] + half[2];
+    }
+    return out;
+  };
+
+  // The ghost line batch for the active tool at a centre: kit fills preview their
+  // snapped lattice box's 12 edges; every sphere tool previews the two brush rings.
+  const ghostBatch = (
+    center: Vec3T,
+  ): { vertices: Float32Array; colors: Float32Array } => {
+    if (isKitFillTool()) {
+      const box = snappedKitBox(center, digRadius);
+      return boxEdges(boxCorners(box.center, box.halfExtents), GHOST_COLOR);
+    }
+    return sphereGhostBatch(center, digRadius);
+  };
+
+  // Draw the ghost target preview at the last cursor position, occlude:false so it
+  // reads through solid rock. Skipped when the pointer isn't over the viewport
+  // (lastPointer null) or the view can't produce a target.
+  const renderGhost = (c: Context, view: camera.Camera): void => {
+    if (!lastPointer) return;
+    const center = computeTarget(lastPointer.x, lastPointer.y);
+    if (!center) return;
+    const batch = ghostBatch(center);
+    frame.drawLines(c, {
+      vertices: batch.vertices,
+      colors: batch.colors,
+      camera: view,
+      occlude: false,
+    });
+  };
+
   const renderScene = (c: Context, view: camera.Camera): void => {
     const meshes: mesh.Mesh[] = [];
     const instanced: mesh.InstancedMesh[] = [];
@@ -676,6 +768,8 @@ export function createFieldHost(): FieldHost {
       camera: view,
       occlude: true,
     });
+    // Ghost target preview last so it draws over the scene + grid (occlude:false).
+    renderGhost(c, view);
   };
 
   const tick = (now: number): void => {
@@ -698,6 +792,7 @@ export function createFieldHost(): FieldHost {
   // --- input handlers -----------------------------------------------------
 
   const onPointerDown = (e: PointerEvent): void => {
+    lastPointer = { x: e.clientX, y: e.clientY }; // feeds the per-frame ghost
     if (e.button === 0) {
       digging = true;
       applyTool(e.clientX, e.clientY);
@@ -709,6 +804,7 @@ export function createFieldHost(): FieldHost {
   };
 
   const onPointerMove = (e: PointerEvent): void => {
+    lastPointer = { x: e.clientX, y: e.clientY }; // feeds the per-frame ghost
     if (look) {
       const dx = e.clientX - look.lastX;
       const dy = e.clientY - look.lastY;
@@ -729,6 +825,11 @@ export function createFieldHost(): FieldHost {
     digging = false;
     look = null;
     canvasEl?.releasePointerCapture(e.pointerId);
+  };
+
+  // Pointer left the viewport → drop the ghost so it doesn't hang at a stale spot.
+  const onPointerLeave = (): void => {
+    lastPointer = null;
   };
 
   const onWheel = (e: WheelEvent): void => {
@@ -768,6 +869,7 @@ export function createFieldHost(): FieldHost {
     canvas.addEventListener("pointermove", onPointerMove);
     canvas.addEventListener("pointerup", onPointerUp);
     canvas.addEventListener("pointercancel", onPointerUp);
+    canvas.addEventListener("pointerleave", onPointerLeave);
     canvas.addEventListener("wheel", onWheel, { passive: false });
     canvas.addEventListener("contextmenu", onContextMenu);
     canvas.addEventListener("keydown", onKeyDown);
@@ -780,6 +882,7 @@ export function createFieldHost(): FieldHost {
     canvasEl.removeEventListener("pointermove", onPointerMove);
     canvasEl.removeEventListener("pointerup", onPointerUp);
     canvasEl.removeEventListener("pointercancel", onPointerUp);
+    canvasEl.removeEventListener("pointerleave", onPointerLeave);
     canvasEl.removeEventListener("wheel", onWheel);
     canvasEl.removeEventListener("contextmenu", onContextMenu);
     canvasEl.removeEventListener("keydown", onKeyDown);
