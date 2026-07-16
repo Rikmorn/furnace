@@ -1,5 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import type { BrushOp, MaterialTable } from "@furnace/core/field";
+import type {
+  BrushOp,
+  EntityOp,
+  FieldOp,
+  MaterialTable,
+} from "@furnace/core/field";
 import {
   applyOp,
   assertOpValid,
@@ -14,6 +19,7 @@ import {
   parseOps,
   redo,
   SOLID,
+  serializeOps,
   undo,
 } from "@furnace/core/field";
 
@@ -22,6 +28,16 @@ const sphere = (id: number): BrushOp => ({
   kind: "brush",
   effect: "dig",
   shape: { kind: "sphere", center: [2, 2, 2], radius: 1.5 },
+});
+
+const digSphere = (
+  center: [number, number, number],
+  radius: number,
+): BrushOp => ({
+  id: 0,
+  kind: "brush",
+  effect: "dig",
+  shape: { kind: "sphere", center, radius },
 });
 
 const TABLE: MaterialTable = {
@@ -365,5 +381,102 @@ describe("brush ops", () => {
       effect: "dig",
       shape: { kind: "sphere", center: [1, 2, 3], radius: 0.75 },
     });
+  });
+});
+
+describe("op-list undo entries + the FieldOp union (F2b)", () => {
+  test("undo entries are op lists; a single brush op round-trips as [op]", () => {
+    const s = createFieldStore();
+    const log = createOpLog();
+    logApply(s, log, digSphere([1, 1, 1], 1), TABLE);
+    expect(log.undoStack[0]?.ops.length).toBe(1);
+    undo(s, log);
+    expect(log.ops.length).toBe(0);
+    expect(redo(s, log).size).toBeGreaterThan(0);
+    expect(log.ops.length).toBe(1);
+  });
+
+  test("serializeOps/parseOps round-trip the FieldOp union (entity ops included)", () => {
+    const entity: EntityOp = {
+      id: 3,
+      kind: "entity",
+      action: "place",
+      entity: {
+        entityId: 1,
+        type: "generator",
+        generator: "hall",
+        params: { width: 8 },
+        seed: 42,
+        region: { min: [0, 0, 0], max: [4, 2, 4] },
+        opSpan: [1, 2],
+      },
+    };
+    const ops: FieldOp[] = [digSphere([1, 1, 1], 1), entity];
+    expect(parseOps(serializeOps(ops))).toEqual(ops);
+  });
+
+  // A hand-built two-op undo entry (the generator-commit shape Task 6 will
+  // produce): undo must revert the WHOLE span, redo must re-apply it AND merge
+  // the per-op inverses first-touch-wins so a second undo still reverts fully.
+  test("multi-op undo entry reverts and redoes the whole span as one unit", () => {
+    const s = createFieldStore();
+    const log = createOpLog();
+    const a: BrushOp = {
+      id: 1,
+      kind: "brush",
+      effect: "dig",
+      shape: { kind: "sphere", center: [1, 1, 1], radius: 1.2 },
+    };
+    const b: BrushOp = {
+      id: 2,
+      kind: "brush",
+      effect: "fill",
+      material: 1,
+      shape: { kind: "sphere", center: [1, 1, 1], radius: 0.6 },
+    };
+    const e: EntityOp = {
+      id: 3,
+      kind: "entity",
+      action: "place",
+      entity: {
+        entityId: 1,
+        type: "generator",
+        generator: "hall",
+        params: {},
+        seed: 7,
+        region: { min: [0, 0, 0], max: [2, 2, 2] },
+        opSpan: [1, 2],
+      },
+    };
+    const ra = applyOp(s, a);
+    const rb = applyOp(s, b);
+    // Both ops touch chunk (0,0,0) — the overlap that makes first-touch-wins
+    // observable (a's pre-image is virgin rock; b's already contains a's dig).
+    expect([...ra.inverse.keys()].some((k) => rb.inverse.has(k))).toBe(true);
+    const inverse = new Map(ra.inverse);
+    for (const [k, pre] of rb.inverse) if (!inverse.has(k)) inverse.set(k, pre);
+    log.ops.push(a, b, e);
+    log.undoStack.push({ ops: [a, b, e], inverse });
+    log.nextId = 4;
+    const dAfter = getDensity(s, 4, 4, 4);
+    const mAfter = getMaterial(s, 4, 4, 4);
+    expect(mAfter).toBe(1); // the fill actually claimed the probed cell
+
+    undo(s, log);
+    expect(log.ops.length).toBe(0);
+    expect(s.chunks.size).toBe(0); // whole span reverted to virgin rock
+    expect(s.materials.size).toBe(0);
+
+    expect(redo(s, log).size).toBeGreaterThan(0);
+    expect(log.ops.length).toBe(3); // ALL ops re-appended, entity op included
+    expect(log.ops[2]).toEqual(e);
+    expect(getDensity(s, 4, 4, 4)).toBe(dAfter);
+    expect(getMaterial(s, 4, 4, 4)).toBe(mAfter);
+
+    // Undo AFTER redo exercises redo's merged inverse: last-touch-wins would
+    // restore b's pre-image (which contains a's dig) and leave chunks behind.
+    undo(s, log);
+    expect(s.chunks.size).toBe(0);
+    expect(s.materials.size).toBe(0);
   });
 });

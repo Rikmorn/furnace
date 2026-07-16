@@ -8,8 +8,8 @@
 // type-imports FieldHost + the field artifact types (all erased) and value-imports the
 // catalog parser from a frontend lib that itself only type-imports core.
 import type {
-  BrushOp,
   FieldManifest,
+  FieldOp,
   MaterialTable,
 } from "@furnace/core/field"; // type-only: erased
 import { useEffect, useRef, useState } from "react";
@@ -266,7 +266,7 @@ export function FieldPanel() {
           key: m.key,
           bytes: base64ToBytes(m.data),
         })),
-        ops: res.oplog ? (JSON.parse(res.oplog) as BrushOp[]) : [],
+        ops: res.oplog ? (JSON.parse(res.oplog) as FieldOp[]) : [],
       });
       setStatus(`loaded ${name} (${res.chunks.length} chunks)`);
     } catch (err) {

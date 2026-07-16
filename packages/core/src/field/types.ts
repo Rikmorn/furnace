@@ -111,8 +111,30 @@ export type BrushOp = {
   material?: number;
 };
 
-/** The field-op union (entity ops join in F2b). */
-export type FieldOp = BrushOp;
+/** One committed generator application — the log's smart-object record (L4).
+ *  `opSpan` = [firstOpId, lastOpId] of the brush ops the commit appended.
+ *  Reconfigure/re-evaluate is F3; F2b records full provenance. */
+export type GeneratorEntity = {
+  entityId: number;
+  type: "generator";
+  generator: string;
+  params: Record<string, unknown>;
+  seed: number;
+  region: { min: [number, number, number]; max: [number, number, number] };
+  opSpan: [number, number];
+};
+
+/** An entity operation in the one log (charter §2.2 — one log, one ordering,
+ *  one undo system). F2b ships `place` for generator entities only. */
+export type EntityOp = {
+  id: number;
+  kind: "entity";
+  action: "place";
+  entity: GeneratorEntity;
+};
+
+/** The field-op union: brush strokes and entity ops share the log. */
+export type FieldOp = BrushOp | EntityOp;
 
 /** Pre-image of one touched chunk's BOTH channels, captured before the op's
  *  first write to that chunk. `density: null` = the chunk was unallocated;
@@ -127,11 +149,13 @@ export type ChunkSnapshot = {
  *  op touched, keyed by chunk. Chunk-keyed undo per the charter. */
 export type OpInverse = Map<ChunkKey, ChunkSnapshot>;
 
-/** Append-only op log with chunk-keyed undo and replay-based redo. */
+/** Append-only op log. An undo entry covers an op LIST — a single brush op, or
+ *  a generator commit's whole span + its entity op (one ⌘Z per commit,
+ *  charter §2.3). */
 export type OpLog = {
-  ops: BrushOp[];
-  undoStack: { op: BrushOp; inverse: OpInverse }[];
-  redoStack: BrushOp[];
+  ops: FieldOp[];
+  undoStack: { ops: FieldOp[]; inverse: OpInverse }[];
+  redoStack: FieldOp[][];
   nextId: number;
 };
 

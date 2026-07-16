@@ -16,6 +16,7 @@ import type {
   BrushOp,
   BrushShape,
   ChunkKey,
+  FieldOp,
   FieldStore,
   MaterialTable,
   OpInverse,
@@ -100,6 +101,10 @@ function snapshot(store: FieldStore, inverse: OpInverse, key: ChunkKey): void {
   });
 }
 
+/** Narrows a {@link FieldOp} to a brush op — the only member {@link applyOp}
+ *  executes; entity ops record provenance and never touch the field. */
+export const isBrushOp = (op: FieldOp): op is BrushOp => op.kind === "brush";
+
 /** Applies a brush op over its bounds (+1 sample margin so the surface crosses
  *  cleanly). `dig` opens air (`density := max(density, quantize(sdf))`), `fill`
  *  solidifies (`density := min(density, quantize(-sdf))`) AND writes the
@@ -177,14 +182,15 @@ export function logApply(
   const stamped: BrushOp = { ...op, id: log.nextId++ };
   const { dirty, inverse } = applyOp(store, stamped);
   log.ops.push(stamped);
-  log.undoStack.push({ op: stamped, inverse });
+  log.undoStack.push({ ops: [stamped], inverse });
   log.redoStack.length = 0;
   return dirty;
 }
 
-/** Undoes the last op by restoring both channels of its chunk pre-images (or
- *  deleting the entry when a channel's pre-image was null). Returns the dirty
- *  chunk set (empty when there is nothing to undo). */
+/** Undoes the last undo entry — its WHOLE op list (one ⌘Z per commit) — by
+ *  restoring both channels of its chunk pre-images (or deleting the entry when
+ *  a channel's pre-image was null). Returns the dirty chunk set (empty when
+ *  there is nothing to undo). */
 export function undo(store: FieldStore, log: OpLog): Set<ChunkKey> {
   const entry = log.undoStack.pop();
   if (entry === undefined) return new Set();
@@ -196,18 +202,28 @@ export function undo(store: FieldStore, log: OpLog): Set<ChunkKey> {
     else store.materials.set(key, cloneChunkMaterials(pre.materials));
     dirty.add(key);
   }
-  log.ops.pop();
-  log.redoStack.push(entry.op);
+  log.ops.length -= entry.ops.length;
+  log.redoStack.push(entry.ops);
   return dirty;
 }
 
-/** Redoes the most recently undone op by re-applying it (deterministic; already
- *  validated at first apply, so no re-validation). */
+/** Redoes the most recently undone op list by re-applying its BRUSH members in
+ *  order (entity ops never touch the field) — deterministic; already validated
+ *  at first apply, so no re-validation. Per-op inverses merge first-touch-wins
+ *  (the earliest pre-image of each chunk is the entry's pre-image). */
 export function redo(store: FieldStore, log: OpLog): Set<ChunkKey> {
-  const op = log.redoStack.pop();
-  if (op === undefined) return new Set();
-  const { dirty, inverse } = applyOp(store, op);
-  log.ops.push(op);
-  log.undoStack.push({ op, inverse });
+  const ops = log.redoStack.pop();
+  if (ops === undefined) return new Set();
+  const dirty = new Set<ChunkKey>();
+  const inverse: OpInverse = new Map();
+  for (const op of ops) {
+    if (!isBrushOp(op)) continue;
+    const r = applyOp(store, op);
+    for (const key of r.dirty) dirty.add(key);
+    for (const [key, pre] of r.inverse)
+      if (!inverse.has(key)) inverse.set(key, pre);
+  }
+  log.ops.push(...ops);
+  log.undoStack.push({ ops, inverse });
   return dirty;
 }

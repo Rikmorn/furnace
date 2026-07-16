@@ -52,7 +52,7 @@ export type FieldHost = {
     chunks: { key: string; bytes: Uint8Array }[];
     /** Material sibling files — optional so an F1 (rock-only) world still loads. */
     materials?: { key: string; bytes: Uint8Array }[];
-    ops: field.BrushOp[];
+    ops: field.FieldOp[];
   }): void;
   setDigRadius(r: number): void;
   setShading(mode: FieldHostShading): void;

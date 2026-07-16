@@ -8,11 +8,11 @@ import {
 import { meshChunkField } from "./mesher.ts";
 import { skinChunkKit } from "./skin.ts";
 import type {
-  BrushOp,
   BrushShape,
   ChunkKey,
   ChunkMaterials,
   FieldManifest,
+  FieldOp,
   FieldStore,
   MaterialTable,
   OpLog,
@@ -156,13 +156,14 @@ export function decodeMaterialFile(bytes: Uint8Array): ChunkMaterials {
  *  brush/dig op on parse. */
 type LegacyDigOp = { id: number; kind: "dig"; shape: BrushShape };
 
-/** Serializes the op list (the authoring truth) as a JSON string. */
-export const serializeOps = (ops: BrushOp[]): string => JSON.stringify(ops);
+/** Serializes the op list (the authoring truth — brush AND entity ops) as a
+ *  JSON string. */
+export const serializeOps = (ops: FieldOp[]): string => JSON.stringify(ops);
 
 /** Parses an oplog JSON string back into the op list; F1 logs (`kind:"dig"`)
- *  map forward to brush/dig ops. */
-export const parseOps = (text: string): BrushOp[] =>
-  (JSON.parse(text) as (BrushOp | LegacyDigOp)[]).map((o) =>
+ *  map forward to brush/dig ops; entity ops pass through. */
+export const parseOps = (text: string): FieldOp[] =>
+  (JSON.parse(text) as (FieldOp | LegacyDigOp)[]).map((o) =>
     o.kind === "dig"
       ? { id: o.id, kind: "brush", effect: "dig", shape: o.shape }
       : o,
