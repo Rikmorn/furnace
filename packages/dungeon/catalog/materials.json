@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "classes": [
+    {
+      "id": 0,
+      "name": "rock",
+      "kind": "organic",
+      "color": [0.62, 0.6, 0.58, 1]
+    },
+    {
+      "id": 1,
+      "name": "dirt",
+      "kind": "organic",
+      "color": [0.45, 0.36, 0.26, 1]
+    },
+    {
+      "id": 2,
+      "name": "moss-stone",
+      "kind": "organic",
+      "color": [0.38, 0.52, 0.42, 1]
+    },
+    {
+      "id": 3,
+      "name": "masonry",
+      "kind": "kit",
+      "color": [0.55, 0.53, 0.5, 1],
+      "kit": {
+        "panelProud": 0.06,
+        "panelReveal": 0.02,
+        "collarSection": 0.14,
+        "backingColor": [0.34, 0.32, 0.3, 1],
+        "pieceColors": {
+          "panel": [0.55, 0.53, 0.5, 1],
+          "floor": [0.42, 0.4, 0.38, 1],
+          "trim": [0.35, 0.33, 0.3, 1],
+          "collar": [0.3, 0.28, 0.26, 1]
+        }
+      }
+    }
+  ]
+}
