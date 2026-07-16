@@ -136,6 +136,46 @@ export type EntityOp = {
 /** The field-op union: brush strokes and entity ops share the log. */
 export type FieldOp = BrushOp | EntityOp;
 
+/** A selection's DEFINITION — deterministic and replay-safe: floods re-evaluate
+ *  against the replayed field state, so an op embedding a spec replays
+ *  identically (the mask contract). Region coords are world metres; flood
+ *  seeds are voxel sample ints. */
+export type SelectionSpec =
+  | {
+      kind: "region";
+      min: [number, number, number];
+      max: [number, number, number];
+    }
+  | {
+      kind: "flood-material";
+      seed: [number, number, number];
+      classId: number;
+      budget: number;
+    }
+  | { kind: "flood-void"; seed: [number, number, number]; budget: number };
+
+/** A materialized selection: region kinds stay predicates (no cell storage);
+ *  floods carry chunk-keyed bitsets (4096 bits per chunk, bit index
+ *  lx + 16·(ly + 16·lz)). `count` = selected cells; `truncated` = the budget
+ *  capped the flood (surfaced in the UI — never silent). `bounds` are SAMPLE
+ *  ints (callers convert to metres via cellSize); null when nothing selected. */
+export type MaterializedSelection =
+  | {
+      kind: "region";
+      min: [number, number, number];
+      max: [number, number, number];
+    }
+  | {
+      kind: "cells";
+      chunks: Map<ChunkKey, Uint8Array>;
+      count: number;
+      truncated: boolean;
+      bounds: {
+        min: [number, number, number];
+        max: [number, number, number];
+      } | null;
+    };
+
 /** Pre-image of one touched chunk's BOTH channels, captured before the op's
  *  first write to that chunk. `density: null` = the chunk was unallocated;
  *  `materials: null` = the chunk had no material entry (uniform {@link

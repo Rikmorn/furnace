@@ -52,6 +52,11 @@ export {
 } from "./ops.ts";
 export type { FieldHit } from "./raycast.ts";
 export { raycastField } from "./raycast.ts";
+export {
+  MAX_SELECTION_BUDGET,
+  materializeSelection,
+  selectionHas,
+} from "./selection.ts";
 export { skinChunkKit, variantHash } from "./skin.ts";
 export type {
   BrushOp,
@@ -72,10 +77,12 @@ export type {
   KitPieceId,
   KitStyle,
   MaterialClass,
+  MaterializedSelection,
   MaterialKind,
   MaterialTable,
   MeshBucket,
   OpInverse,
   OpLog,
+  SelectionSpec,
 } from "./types.ts";
 export { MAT_ROCK } from "./types.ts";

@@ -1,0 +1,133 @@
+import { describe, expect, test } from "bun:test";
+import type { BrushOp, MaterialTable } from "@furnace/core/field";
+import {
+  applyOp,
+  createFieldStore,
+  createOpLog,
+  logApply,
+  materializeSelection,
+  selectionHas,
+} from "@furnace/core/field";
+
+// File-local op helpers (the field-ops.test.ts digSphere idiom): literals with
+// id: 0 — applyOp takes ops as-is; logApply stamps real ids.
+const digBox = (
+  center: [number, number, number],
+  halfExtents: [number, number, number],
+): BrushOp => ({
+  id: 0,
+  kind: "brush",
+  effect: "dig",
+  shape: { kind: "box", center, halfExtents },
+});
+
+const paintBox = (
+  center: [number, number, number],
+  halfExtents: [number, number, number],
+  material: number,
+): BrushOp => ({
+  id: 0,
+  kind: "brush",
+  effect: "paint",
+  material,
+  shape: { kind: "box", center, halfExtents },
+});
+
+const TABLE: MaterialTable = {
+  classes: [
+    { id: 0, name: "rock", kind: "organic", color: [0.6, 0.6, 0.6, 1] },
+    { id: 1, name: "dirt", kind: "organic", color: [0.4, 0.3, 0.2, 1] },
+  ],
+};
+
+describe("field selection", () => {
+  test("flood-void selects exactly one room and stops at walls", () => {
+    const s = createFieldStore();
+    // two 2m rooms separated by solid rock: air spans samples 0..8 (room A)
+    // and 20..28 (room B) per dug axis — the dig's boundary samples land at
+    // exactly density 0, which counts as void.
+    applyOp(s, digBox([1, 1, 1], [1, 1, 1]));
+    applyOp(s, digBox([6, 1, 1], [1, 1, 1]));
+    const chunksBefore = s.chunks.size;
+    const materialsBefore = s.materials.size;
+    const sel = materializeSelection(s, {
+      kind: "flood-void",
+      seed: [4, 4, 4], // inside room A
+      budget: 100000,
+    });
+    expect(sel.kind).toBe("cells");
+    if (sel.kind !== "cells") return;
+    expect(sel.truncated).toBe(false);
+    expect(sel.count).toBe(729); // room A = 9³ air samples (0..8 per axis)
+    expect(sel.bounds).toEqual({ min: [0, 0, 0], max: [8, 8, 8] });
+    expect(selectionHas(sel, 4, 4, 4, s.cellSize)).toBe(true); // room A
+    expect(selectionHas(sel, 24, 4, 4, s.cellSize)).toBe(false); // room B (sample 24 = 6m)
+    // pure query: the store is never mutated
+    expect(s.chunks.size).toBe(chunksBefore);
+    expect(s.materials.size).toBe(materialsBefore);
+  });
+
+  test("flood budget caps loudly (truncated, count === budget)", () => {
+    const s = createFieldStore();
+    applyOp(s, digBox([4, 1, 4], [4, 1, 4])); // a big slab of air (9801 cells)
+    const sel = materializeSelection(s, {
+      kind: "flood-void",
+      seed: [16, 4, 16],
+      budget: 50,
+    });
+    if (sel.kind !== "cells") throw new Error("expected cells");
+    expect(sel.truncated).toBe(true);
+    expect(sel.count).toBe(50);
+  });
+
+  test("flood seeded in a non-matching cell yields an empty selection", () => {
+    const s = createFieldStore(); // virgin store: uniform solid rock
+    const sel = materializeSelection(s, {
+      kind: "flood-void",
+      seed: [4, 4, 4],
+      budget: 100,
+    });
+    if (sel.kind !== "cells") throw new Error("expected cells");
+    expect(sel.count).toBe(0);
+    expect(sel.truncated).toBe(false);
+    expect(sel.bounds).toBeNull();
+    expect(selectionHas(sel, 4, 4, 4, s.cellSize)).toBe(false);
+  });
+
+  test("flood-material follows one class only", () => {
+    const s = createFieldStore();
+    const log = createOpLog();
+    logApply(s, log, digBox([2, 2, 2], [2, 2, 2]), TABLE);
+    // Paint only retints SOLID cells, so the class-1 band sits in the rock
+    // UNDER the room's floor (y ∈ (-0.8, -0.2)m → samples -3..-1; x,z strictly
+    // inside (1, 3)m → samples 5..11): 7×3×7 = 147 painted cells.
+    logApply(s, log, paintBox([2, -0.5, 2], [1, 0.3, 1], 1), TABLE);
+    const sel = materializeSelection(s, {
+      kind: "flood-material",
+      seed: [8, -2, 8], // (2, -0.5, 2)m — inside the painted band
+      classId: 1,
+      budget: 100000,
+    });
+    if (sel.kind !== "cells") throw new Error("expected cells");
+    expect(sel.truncated).toBe(false);
+    expect(sel.count).toBe(147); // exactly the painted band, nothing else
+    expect(selectionHas(sel, 8, -2, 8, s.cellSize)).toBe(true);
+    // a rock (class 0) sample outside the painted band is NOT selected
+    expect(selectionHas(sel, 8, 30, 8, s.cellSize)).toBe(false);
+    // an air sample inside the room above the band is NOT selected
+    expect(selectionHas(sel, 8, 4, 8, s.cellSize)).toBe(false);
+  });
+
+  test("region selection is a pure predicate over world metres", () => {
+    const sel = materializeSelection(createFieldStore(), {
+      kind: "region",
+      min: [0, 0, 0],
+      max: [1, 1, 1],
+    });
+    expect(sel.kind).toBe("region");
+    expect(selectionHas(sel, 2, 2, 2, 0.25)).toBe(true); // sample (2,2,2) = 0.5m
+    expect(selectionHas(sel, 0, 0, 0, 0.25)).toBe(true); // min edge is inclusive
+    expect(selectionHas(sel, 4, 2, 2, 0.25)).toBe(false); // 1.0m — exactly max (half-open)
+    expect(selectionHas(sel, 8, 2, 2, 0.25)).toBe(false); // 2m — outside
+  });
+});
