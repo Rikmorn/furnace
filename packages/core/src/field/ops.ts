@@ -71,20 +71,28 @@ export function opBounds(op: BrushOp): {
 
 /** Mask leg of {@link assertOpValid}: class-mask ids (and an embedded
  *  flood-material spec's class id) must resolve in the table; embedded
- *  selection specs must pass assertSelectionSpecValid. */
+ *  selection specs must pass assertSelectionSpecValid. Throws carry "field op
+ *  mask" context so a bad mask id is distinguishable from a bad
+ *  `op.material` (whose classOf throw says "material table"). */
 function assertMaskValid(
   mask: BrushMask | undefined,
   table: MaterialTable,
 ): void {
   if (mask === undefined) return;
   if (mask.kind === "class") {
-    classOf(table, mask.classId); // throws "unknown class id" (setup-loud)
+    if (table.classes[mask.classId] === undefined)
+      throw new Error(`field op mask: unknown class id ${mask.classId}`);
     return;
   }
   if (mask.kind === "selection") {
     assertSelectionSpecValid(mask.selection);
-    if (mask.selection.kind === "flood-material")
-      classOf(table, mask.selection.classId);
+    if (
+      mask.selection.kind === "flood-material" &&
+      table.classes[mask.selection.classId] === undefined
+    )
+      throw new Error(
+        `field op mask: unknown selection class id ${mask.selection.classId}`,
+      );
   }
 }
 
@@ -141,14 +149,15 @@ export const isBrushOp = (op: FieldOp): op is BrushOp => op.kind === "brush";
  *  material on solid interior cells (cells solid after the fill — including
  *  ambient rock the fill leaves unchanged), `paint` retints solid cells inside
  *  the shape. `op.mask` filters cells cross-cuttingly after each effect's own
- *  guards — `table` resolves the class-kind masks, and a selection mask is
- *  materialized ONCE against pre-op state, so a replayed op re-selects
- *  identically. Returns the dirty chunk set and the two-channel inverse (the
- *  undo unit).
+ *  guards — `table` resolves the class-kind masks (a cell whose stored
+ *  material id is missing from `table` fails the mask CLOSED — skipped, never
+ *  a mid-application throw), and a selection mask is materialized ONCE against
+ *  pre-op state, so a replayed op re-selects identically. Returns the dirty
+ *  chunk set and the two-channel inverse (the undo unit).
  *
- *  @throws {@link Error} if a mask embeds an invalid selection spec or
- *    references a class id missing from `table` ({@link logApply} validates
- *    first via {@link assertOpValid}, so logged ops never throw here). */
+ *  @throws {@link Error} if a mask embeds an invalid selection spec
+ *    ({@link logApply} validates first via {@link assertOpValid}, so logged
+ *    ops never throw here). */
 export function applyOp(
   store: FieldStore,
   op: BrushOp,
@@ -171,15 +180,21 @@ export function applyOp(
     op.mask?.kind === "selection"
       ? materializeSelection(store, op.mask.selection)
       : null;
-  // One mask gate shared by every effect branch (Task 4's smooth joins it);
-  // `d` is the cell's pre-write density.
+  // One mask gate shared by every effect branch; `d` is the cell's pre-write
+  // density.
   const maskPasses = (x: number, y: number, z: number, d: number): boolean => {
     const m = op.mask;
     if (m === undefined) return true;
     if (m.kind === "solid-only") return d < 0;
     if (m.kind === "selection")
       return sel !== null && selectionHas(sel, x, y, z, store.cellSize);
-    const cls = classOf(table, getMaterial(store, x, y, z));
+    // Fail CLOSED on a cell whose STORED material id is missing from `table`
+    // (reachable after a catalog swap to a smaller table): skip the cell
+    // rather than throw mid-application — a mid-loop throw would discard the
+    // local inverse and leave a partial mutation untracked by undo. Setup-loud
+    // classOf stays in assertMaskValid; applyOp is total (runtime-quiet).
+    const cls = table.classes[getMaterial(store, x, y, z)];
+    if (cls === undefined) return false;
     if (m.kind === "organic-only") return cls.kind === "organic";
     if (m.kind === "kit-only") return cls.kind === "kit";
     return cls.id === m.classId;

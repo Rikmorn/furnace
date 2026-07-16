@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type {
+  BrushMask,
   BrushOp,
   EntityOp,
   FieldOp,
@@ -652,10 +653,13 @@ describe("brush masks (F2b)", () => {
     const s = createFieldStore();
     const log = createOpLog();
     logApply(s, log, digBox([2, 2, 2], [2, 2, 2]), TABLE);
-    logApply(s, log, paintBox([2, -0.5, 2], [1, 0.3, 1], 1), TABLE); // 147 dirt cells
+    // dirt band, x/z-ASYMMETRIC (x 5..11 × z 7..9 — a transposed x↔z at the
+    // selectionHas call site selects a different cell set and fails below):
+    // x ∈ (1,3)m → 5..11; y ∈ (−0.8,−0.2)m → −3..−1; z ∈ (1.5,2.5)m → 7..9.
+    logApply(s, log, paintBox([2, -0.5, 2], [1, 0.3, 0.5], 1), TABLE); // 63 dirt cells
     // retint the dirt flood to moss. A mid-loop re-materialization repaints
     // the seed cell, breaks the flood (seed is no longer class 1), and strands
-    // the band's tail as dirt — materialize-once retints ALL 147 cells.
+    // the band's tail as dirt — materialize-once retints ALL 63 cells.
     logApply(
       s,
       log,
@@ -677,7 +681,7 @@ describe("brush masks (F2b)", () => {
       },
       TABLE,
     );
-    for (let z = 5; z <= 11; z++)
+    for (let z = 7; z <= 9; z++)
       for (let y = -3; y <= -1; y++)
         for (let x = 5; x <= 11; x++) expect(getMaterial(s, x, y, z)).toBe(3);
     // solid rock inside the shape but OUTSIDE the flood stays rock
@@ -772,5 +776,128 @@ describe("brush masks (F2b)", () => {
     expect(log.undoStack.length).toBe(0);
     expect(s.chunks.size).toBe(0);
     expect(s.materials.size).toBe(0);
+  });
+
+  test("class-kind masks fail CLOSED on a cell material missing from the table", () => {
+    // A store painted under a 4-class table, then edited under a 2-class one
+    // (the setMaterialTable catalog-swap path): cells holding the now-unknown
+    // class must be SKIPPED — never a mid-application throw, which would leave
+    // a partial mutation untracked by undo (the local inverse is discarded).
+    const SMALL: MaterialTable = {
+      classes: [
+        { id: 0, name: "rock", kind: "organic", color: [0.6, 0.6, 0.6, 1] },
+        { id: 1, name: "dirt", kind: "organic", color: [0.4, 0.3, 0.2, 1] },
+      ],
+    };
+    const s = createFieldStore();
+    const log = createOpLog();
+    logApply(s, log, digBox([2, 2, 2], [2, 2, 2]), TABLE);
+    // moss (class 3, unknown to SMALL) band in the rock below the floor
+    logApply(s, log, paintBox([2, -0.5, 2], [1, 0.3, 0.5], 3), TABLE);
+    expect(getMaterial(s, 8, -2, 8)).toBe(3);
+    // organic-only repaint under the SMALL table, covering the moss band
+    expect(() =>
+      logApply(
+        s,
+        log,
+        {
+          id: 0,
+          kind: "brush",
+          effect: "paint",
+          material: 1,
+          mask: { kind: "organic-only" },
+          shape: { kind: "box", center: [2, -1, 2], halfExtents: [2, 2, 2] },
+        },
+        SMALL,
+      ),
+    ).not.toThrow();
+    // the unknown-class cell was skipped (mask failed closed)…
+    expect(getMaterial(s, 8, -2, 8)).toBe(3);
+    // …while the REST of the op applied: rock cells processed BEFORE and
+    // AFTER the moss band in loop order (z outer, then y, then x) retinted
+    expect(getMaterial(s, 8, -5, 8)).toBe(1); // y −5 < band rows (−3..−1)
+    expect(getMaterial(s, 8, -2, 10)).toBe(1); // z 10 > band planes (7..9)
+  });
+
+  // Shared fixture for the organic-only / kit-only tests: two x/z-ASYMMETRIC
+  // bands in the rock below a dug room (a transposed x↔z at the mask's
+  // getMaterial call site reads a different cell's class and fails these).
+  // masonry (kit, 2): x 5..7 × y −5..−3 × z 5..11 — painted via a
+  // lattice-snapped box (faces at 1/2, −1.5/−0.5, 1/3 m), kit discipline.
+  // dirt (organic, 1): x 9..11 × y −5..−3 × z 5..11.
+  const kindMaskFixture = (): {
+    s: ReturnType<typeof createFieldStore>;
+    log: ReturnType<typeof createOpLog>;
+  } => {
+    const s = createFieldStore();
+    const log = createOpLog();
+    logApply(s, log, digBox([2, 2, 2], [2, 2, 2]), TABLE);
+    logApply(s, log, paintBox([1.5, -1, 2], [0.5, 0.5, 1], 2), TABLE);
+    logApply(s, log, paintBox([2.5, -1, 2], [0.5, 0.5, 1], 1), TABLE);
+    return { s, log };
+  };
+  const kindMaskPaint = (mask: BrushMask): BrushOp => ({
+    id: 0,
+    kind: "brush",
+    effect: "paint",
+    material: 3,
+    mask,
+    shape: { kind: "box", center: [2, -1, 2], halfExtents: [2, 1, 2] },
+  });
+
+  test("kit-only mask retints kit cells only", () => {
+    const { s, log } = kindMaskFixture();
+    logApply(s, log, kindMaskPaint({ kind: "kit-only" }), TABLE);
+    for (let z = 5; z <= 11; z++)
+      for (let y = -5; y <= -3; y++) {
+        for (let x = 5; x <= 7; x++) expect(getMaterial(s, x, y, z)).toBe(3); // masonry → moss
+        for (let x = 9; x <= 11; x++) expect(getMaterial(s, x, y, z)).toBe(1); // dirt kept
+      }
+    expect(getMaterial(s, 2, -4, 8)).toBe(0); // ambient rock kept
+  });
+
+  test("organic-only mask retints organic cells only", () => {
+    const { s, log } = kindMaskFixture();
+    logApply(s, log, kindMaskPaint({ kind: "organic-only" }), TABLE);
+    for (let z = 5; z <= 11; z++)
+      for (let y = -5; y <= -3; y++) {
+        for (let x = 5; x <= 7; x++) expect(getMaterial(s, x, y, z)).toBe(2); // masonry kept
+        for (let x = 9; x <= 11; x++) expect(getMaterial(s, x, y, z)).toBe(3); // dirt → moss
+      }
+    expect(getMaterial(s, 2, -4, 8)).toBe(3); // ambient rock (organic) → moss
+  });
+
+  test("fill + flood-void mask solidifies the cavity; the solid shell keeps its material", () => {
+    const s = createFieldStore();
+    const log = createOpLog();
+    logApply(s, log, digBox([2, 2, 2], [1, 1, 1]), TABLE); // room: air 4..12, −8 ring at 3/13
+    // a dirt patch ON the solid shell, inside the fill shape but outside the
+    // flood: x = 3 only (0.75 m), y,z 7..9
+    logApply(s, log, paintBox([0.75, 2, 2], [0.2, 0.5, 0.5], 1), TABLE);
+    expect(getMaterial(s, 3, 8, 8)).toBe(1);
+    logApply(
+      s,
+      log,
+      {
+        id: 0,
+        kind: "brush",
+        effect: "fill",
+        material: 3,
+        mask: {
+          kind: "selection",
+          selection: { kind: "flood-void", seed: [8, 8, 8], budget: 10000 },
+        },
+        shape: { kind: "box", center: [2, 2, 2], halfExtents: [1.5, 1.5, 1.5] },
+      },
+      TABLE,
+    );
+    // formerly-air flood cells solidified AND took the fill material
+    expect(getDensity(s, 8, 8, 8)).toBe(-48); // centre: −sdf(1.5 m)·32
+    expect(getMaterial(s, 8, 8, 8)).toBe(3);
+    expect(getDensity(s, 4, 8, 8)).toBe(-16); // room boundary (was 0, in the flood)
+    expect(getMaterial(s, 4, 8, 8)).toBe(3);
+    // the pre-existing solid shell inside the shape kept density AND material
+    expect(getDensity(s, 3, 8, 8)).toBe(-8);
+    expect(getMaterial(s, 3, 8, 8)).toBe(1);
   });
 });

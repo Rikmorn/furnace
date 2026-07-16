@@ -102,7 +102,9 @@ export type BrushShape =
  *  {@link SelectionSpec}, re-materialized against pre-op state at each
  *  application. `solid-only` is the keep-existing-air merge policy's building
  *  block; the class kinds resolve against the material table the op is
- *  applied with. */
+ *  applied with, and fail CLOSED on a cell whose stored material id is
+ *  missing from that table (the cell is skipped — never a mid-application
+ *  throw). */
 export type BrushMask =
   | { kind: "organic-only" }
   | { kind: "kit-only" }
