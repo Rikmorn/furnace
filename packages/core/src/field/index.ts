@@ -85,5 +85,6 @@ export type {
   OpInverse,
   OpLog,
   SelectionSpec,
+  SmoothParams,
 } from "./types.ts";
-export { MAT_ROCK } from "./types.ts";
+export { MAT_ROCK, SMOOTH_DEFAULTS } from "./types.ts";

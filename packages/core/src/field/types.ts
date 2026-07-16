@@ -112,21 +112,44 @@ export type BrushMask =
   | { kind: "solid-only" }
   | { kind: "selection"; selection: SelectionSpec };
 
+/** Smooth-effect parameters (research: the shipped voxel-plugin pattern).
+ *  `strength` = MAX density delta per iteration per sample (int8 units,
+ *  integer 1..64) — the max-delta clamp that doubles as the thin-wall-erosion
+ *  guard. `iterations` (integer 1..4) re-runs the blur within the one
+ *  application. `mode`: `erode` = remove bumps only (density may only rise
+ *  toward air), `fill` = fill depressions only (density may only fall toward
+ *  solid), `both` = unrestricted. */
+export type SmoothParams = {
+  strength: number;
+  iterations: number;
+  mode: "both" | "erode" | "fill";
+};
+
+/** The default {@link SmoothParams} — a gentle single-pass smooth. */
+export const SMOOTH_DEFAULTS: SmoothParams = {
+  strength: 16,
+  iterations: 1,
+  mode: "both",
+};
+
 /** One brush operation — the only way the field mutates. Bounded influence by
  *  construction. `effect` selects the channel work: `dig` opens air (density
  *  only), `fill` solidifies AND writes `material` on solid interior cells
  *  (cells solid after the fill — including ambient rock it leaves unchanged),
- *  `paint` retints solid cells inside the shape without changing density.
- *  `material` is the class fill writes / paint applies (defaults {@link
- *  MAT_ROCK} for fill; ignored by dig). `mask` filters the affected cells
- *  cross-cuttingly ({@link BrushMask}). */
+ *  `paint` retints solid cells inside the shape without changing density,
+ *  `smooth` relaxes the density field toward its local 3³ mean inside the
+ *  shape (density only; requires `smooth` params). `material` is the class
+ *  fill writes / paint applies (defaults {@link MAT_ROCK} for fill; ignored by
+ *  dig and smooth). `mask` filters the affected cells cross-cuttingly
+ *  ({@link BrushMask}). */
 export type BrushOp = {
   id: number;
   kind: "brush";
-  effect: "dig" | "fill" | "paint";
+  effect: "dig" | "fill" | "paint" | "smooth";
   shape: BrushShape;
   material?: number;
   mask?: BrushMask;
+  smooth?: SmoothParams;
 };
 
 /** One committed generator application — the log's smart-object record (L4).

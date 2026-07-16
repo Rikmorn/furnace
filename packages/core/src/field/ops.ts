@@ -24,9 +24,11 @@ import type {
   ChunkKey,
   FieldOp,
   FieldStore,
+  MaterializedSelection,
   MaterialTable,
   OpInverse,
   OpLog,
+  SmoothParams,
 } from "./types.ts";
 import { MAT_ROCK } from "./types.ts";
 
@@ -96,21 +98,63 @@ function assertMaskValid(
   }
 }
 
+/** Per-application ceiling on {@link SmoothParams} `strength` (int8 units). */
+const SMOOTH_MAX_STRENGTH = 64;
+/** Per-application ceiling on {@link SmoothParams} `iterations`. */
+const SMOOTH_MAX_ITERATIONS = 4;
+
+/** Smooth leg of {@link assertOpValid}: params must be PRESENT (an op record
+ *  is explicit — validation never defaults them), with integer strength in
+ *  [1, SMOOTH_MAX_STRENGTH], integer iterations in
+ *  [1, SMOOTH_MAX_ITERATIONS], and a known mode (op records may arrive from
+ *  parsed JSON, so the mode is checked at runtime too). */
+function assertSmoothValid(p: SmoothParams | undefined): void {
+  if (p === undefined)
+    throw new Error("field op: smooth effect requires smooth params");
+  if (
+    !Number.isInteger(p.strength) ||
+    p.strength < 1 ||
+    p.strength > SMOOTH_MAX_STRENGTH
+  )
+    throw new Error(
+      `field op: smooth strength must be an integer in [1, ${SMOOTH_MAX_STRENGTH}]`,
+    );
+  if (
+    !Number.isInteger(p.iterations) ||
+    p.iterations < 1 ||
+    p.iterations > SMOOTH_MAX_ITERATIONS
+  )
+    throw new Error(
+      `field op: smooth iterations must be an integer in [1, ${SMOOTH_MAX_ITERATIONS}]`,
+    );
+  if (p.mode !== "both" && p.mode !== "erode" && p.mode !== "fill")
+    throw new Error(`field op: unknown smooth mode "${String(p.mode)}"`);
+}
+
 /**
  * Setup-loud per-op validation — also the replay / LLM-stream guard. Validates
  * the mask when present (class ids must exist in the table; an embedded
- * selection spec must be well-formed, so a bad op never enters the log), then
- * the material: the class id must exist in the table, and kit-class writes
- * must be lattice-snapped boxes (kit pieces stay grid-locked to the 0.5 m
- * built-kit lattice). Material-free, mask-free ops (plain dig) are a no-op.
+ * selection spec must be well-formed, so a bad op never enters the log). A
+ * smooth op then validates its {@link SmoothParams} (present, integer strength
+ * 1..64, integer iterations 1..4, known mode) and SKIPS the material leg —
+ * smooth never writes the material channel, so `material` is ignored and not
+ * validated. Every other effect validates the material: the class id must
+ * exist in the table, and kit-class writes must be lattice-snapped boxes (kit
+ * pieces stay grid-locked to the 0.5 m built-kit lattice). Material-free,
+ * mask-free ops (plain dig) are a no-op.
  *
  * @throws {@link Error} if a class id (material, class mask, or embedded
  *   flood-material spec) is unknown, an embedded selection spec has a
- *   non-integer flood seed or an out-of-range budget, or a kit-class write is
- *   not an axis-lattice-aligned box.
+ *   non-integer flood seed or an out-of-range budget, a smooth op's params are
+ *   absent or out of range, or a kit-class write is not an
+ *   axis-lattice-aligned box.
  */
 export function assertOpValid(op: BrushOp, table: MaterialTable): void {
   assertMaskValid(op.mask, table);
+  if (op.effect === "smooth") {
+    assertSmoothValid(op.smooth);
+    return;
+  }
   if (op.material === undefined) return;
   const cls = classOf(table, op.material); // throws "unknown class id" (setup-loud)
   if (cls.kind !== "kit") return;
@@ -125,6 +169,56 @@ export function assertOpValid(op: BrushOp, table: MaterialTable): void {
     if (!onLattice(lo) || !onLattice(hi))
       throw new Error("field op: kit-class box must sit on the 0.5 m lattice");
   }
+}
+
+/** Sample-loop bounds of an op: its world bounds in samples, +1 margin per
+ *  side so the surface crosses cleanly — the one margin convention shared by
+ *  every effect branch. */
+function opSampleBounds(
+  op: BrushOp,
+  h: number,
+): { x0: number; y0: number; z0: number; x1: number; y1: number; z1: number } {
+  const { min, max } = opBounds(op);
+  return {
+    x0: worldToVoxel(min[0], h) - 1,
+    y0: worldToVoxel(min[1], h) - 1,
+    z0: worldToVoxel(min[2], h) - 1,
+    x1: worldToVoxel(max[0], h) + 1,
+    y1: worldToVoxel(max[1], h) + 1,
+    z1: worldToVoxel(max[2], h) + 1,
+  };
+}
+
+/** The per-sample mask predicate shared by every effect branch; `d` is the
+ *  cell's pre-write density. */
+type MaskGate = (x: number, y: number, z: number, d: number) => boolean;
+
+/** Builds the mask gate for one application. `sel` is the op's selection mask
+ *  materialized ONCE against pre-op state (null for every other mask kind), so
+ *  a replayed op re-selects identically. A cell whose STORED material id is
+ *  missing from `table` fails CLOSED (reachable after a catalog swap to a
+ *  smaller table): the cell is skipped rather than throwing mid-application —
+ *  a mid-loop throw would discard the local inverse and leave a partial
+ *  mutation untracked by undo. Setup-loud id validation lives in
+ *  assertMaskValid (direct table indexing); application stays total
+ *  (runtime-quiet). */
+function makeMaskGate(
+  store: FieldStore,
+  table: MaterialTable,
+  mask: BrushMask | undefined,
+  sel: MaterializedSelection | null,
+): MaskGate {
+  return (x, y, z, d) => {
+    if (mask === undefined) return true;
+    if (mask.kind === "solid-only") return d < 0;
+    if (mask.kind === "selection")
+      return sel !== null && selectionHas(sel, x, y, z, store.cellSize);
+    const cls = table.classes[getMaterial(store, x, y, z)];
+    if (cls === undefined) return false;
+    if (mask.kind === "organic-only") return cls.kind === "organic";
+    if (mask.kind === "kit-only") return cls.kind === "kit";
+    return cls.id === mask.classId;
+  };
 }
 
 /** Snapshots a chunk's BOTH channels into the inverse once, before the op's
@@ -148,29 +242,26 @@ export const isBrushOp = (op: FieldOp): op is BrushOp => op.kind === "brush";
  *  solidifies (`density := min(density, quantize(-sdf))`) AND writes the
  *  material on solid interior cells (cells solid after the fill — including
  *  ambient rock the fill leaves unchanged), `paint` retints solid cells inside
- *  the shape. `op.mask` filters cells cross-cuttingly after each effect's own
- *  guards — `table` resolves the class-kind masks (a cell whose stored
- *  material id is missing from `table` fails the mask CLOSED — skipped, never
- *  a mid-application throw), and a selection mask is materialized ONCE against
- *  pre-op state, so a replayed op re-selects identically. Returns the dirty
- *  chunk set and the two-channel inverse (the undo unit).
+ *  the shape, `smooth` relaxes the density channel toward its local 3³ mean
+ *  inside the shape (density only — never the material channel; see
+ *  {@link SmoothParams}). `op.mask` filters cells cross-cuttingly after each
+ *  effect's own guards — `table` resolves the class-kind masks (a cell whose
+ *  stored material id is missing from `table` fails the mask CLOSED — skipped,
+ *  never a mid-application throw), and a selection mask is materialized ONCE
+ *  against pre-op state (before smooth's first iteration), so a replayed op
+ *  re-selects identically. Returns the dirty chunk set and the two-channel
+ *  inverse (the undo unit).
  *
- *  @throws {@link Error} if a mask embeds an invalid selection spec
- *    ({@link logApply} validates first via {@link assertOpValid}, so logged
- *    ops never throw here). */
+ *  @throws {@link Error} if a mask embeds an invalid selection spec or a
+ *    smooth op lacks its `smooth` params ({@link logApply} validates first via
+ *    {@link assertOpValid}, so logged ops never throw here). */
 export function applyOp(
   store: FieldStore,
   op: BrushOp,
   table: MaterialTable,
 ): { dirty: Set<ChunkKey>; inverse: OpInverse } {
-  const { min, max } = opBounds(op);
   const h = store.cellSize;
-  const x0 = worldToVoxel(min[0], h) - 1;
-  const y0 = worldToVoxel(min[1], h) - 1;
-  const z0 = worldToVoxel(min[2], h) - 1;
-  const x1 = worldToVoxel(max[0], h) + 1;
-  const y1 = worldToVoxel(max[1], h) + 1;
-  const z1 = worldToVoxel(max[2], h) + 1;
+  const { x0, y0, z0, x1, y1, z1 } = opSampleBounds(op, h);
   const dirty = new Set<ChunkKey>();
   const inverse: OpInverse = new Map();
   const mat = op.material ?? MAT_ROCK;
@@ -180,25 +271,11 @@ export function applyOp(
     op.mask?.kind === "selection"
       ? materializeSelection(store, op.mask.selection)
       : null;
-  // One mask gate shared by every effect branch; `d` is the cell's pre-write
-  // density.
-  const maskPasses = (x: number, y: number, z: number, d: number): boolean => {
-    const m = op.mask;
-    if (m === undefined) return true;
-    if (m.kind === "solid-only") return d < 0;
-    if (m.kind === "selection")
-      return sel !== null && selectionHas(sel, x, y, z, store.cellSize);
-    // Fail CLOSED on a cell whose STORED material id is missing from `table`
-    // (reachable after a catalog swap to a smaller table): skip the cell
-    // rather than throw mid-application — a mid-loop throw would discard the
-    // local inverse and leave a partial mutation untracked by undo. Setup-loud
-    // classOf stays in assertMaskValid; applyOp is total (runtime-quiet).
-    const cls = table.classes[getMaterial(store, x, y, z)];
-    if (cls === undefined) return false;
-    if (m.kind === "organic-only") return cls.kind === "organic";
-    if (m.kind === "kit-only") return cls.kind === "kit";
-    return cls.id === m.classId;
-  };
+  const maskPasses = makeMaskGate(store, table, op.mask, sel);
+  if (op.effect === "smooth") {
+    applySmooth(store, op, dirty, inverse, maskPasses);
+    return { dirty, inverse };
+  }
   for (let z = z0; z <= z1; z++)
     for (let y = y0; y <= y1; y++)
       for (let x = x0; x <= x1; x++) {
@@ -225,7 +302,7 @@ export function applyOp(
           if (writeD) setDensity(store, x, y, z, nd);
           if (writeM) setMaterial(store, x, y, z, mat);
           dirty.add(key);
-        } else {
+        } else if (op.effect === "paint") {
           // paint: material only, on solid cells inside the shape (no-op on air)
           if (sdf <= 0 || d >= 0) continue;
           if (op.material === undefined) continue;
@@ -238,6 +315,90 @@ export function applyOp(
         }
       }
   return { dirty, inverse };
+}
+
+/** 3³ box-blur kernel size (samples per neighborhood). */
+const NEIGHBORHOOD = 27;
+
+/** Smooth branch of {@link applyOp}: a double-buffered 3³ box blur of the
+ *  density channel over the shape's interior (`sdf > 0`; the +1-margin ring is
+ *  read, never written). Each iteration snapshots the whole region+margin once
+ *  and reads from the snapshot while writes go to the store — order-independent
+ *  within an iteration (the determinism-friendly convolution shape). Reads
+ *  outside the buffered region fall back to the live store: those samples are
+ *  never written by this op, so live == snapshot there. The per-sample delta is
+ *  clamped to ±strength, scaled by an SDF falloff toward the shape boundary
+ *  (the thin-wall-erosion guard); `erode` keeps only density-raising deltas
+ *  (toward air), `fill` only density-lowering ones. Writes quantize via
+ *  clampInt8's round-to-nearest — the store-wide convention (never Int8Array
+ *  truncation), which preserves the mode monotonicity and the integer strength
+ *  bound exactly. NEVER touches the material channel. */
+function applySmooth(
+  store: FieldStore,
+  op: BrushOp,
+  dirty: Set<ChunkKey>,
+  inverse: OpInverse,
+  maskPasses: MaskGate,
+): void {
+  const p = op.smooth;
+  if (p === undefined)
+    throw new Error("field op: smooth effect requires smooth params");
+  const h = store.cellSize;
+  const { x0, y0, z0, x1, y1, z1 } = opSampleBounds(op, h);
+  const nx = x1 - x0 + 1;
+  const ny = y1 - y0 + 1;
+  const nz = z1 - z0 + 1;
+  // Falloff reference: the shape's smallest half-dimension, so cap → 0 at the
+  // boundary and reaches full strength only in the deep interior.
+  const sdfRef =
+    op.shape.kind === "sphere"
+      ? op.shape.radius
+      : Math.min(
+          op.shape.halfExtents[0],
+          op.shape.halfExtents[1],
+          op.shape.halfExtents[2],
+        );
+  for (let iter = 0; iter < p.iterations; iter++) {
+    const buf = new Int8Array(nx * ny * nz);
+    for (let z = z0; z <= z1; z++)
+      for (let y = y0; y <= y1; y++)
+        for (let x = x0; x <= x1; x++)
+          buf[x - x0 + nx * (y - y0 + ny * (z - z0))] = getDensity(
+            store,
+            x,
+            y,
+            z,
+          );
+    const at = (x: number, y: number, z: number): number => {
+      if (x < x0 || x > x1 || y < y0 || y > y1 || z < z0 || z > z1)
+        return getDensity(store, x, y, z);
+      return buf[x - x0 + nx * (y - y0 + ny * (z - z0))] as number;
+    };
+    for (let z = z0 + 1; z <= z1 - 1; z++)
+      for (let y = y0 + 1; y <= y1 - 1; y++)
+        for (let x = x0 + 1; x <= x1 - 1; x++) {
+          const sdf = shapeSdf(op.shape, x * h, y * h, z * h);
+          if (sdf <= 0) continue;
+          const cur = at(x, y, z);
+          if (!maskPasses(x, y, z, cur)) continue;
+          let sum = 0;
+          for (let dz = -1; dz <= 1; dz++)
+            for (let dy = -1; dy <= 1; dy++)
+              for (let dx = -1; dx <= 1; dx++)
+                sum += at(x + dx, y + dy, z + dz);
+          let delta = sum / NEIGHBORHOOD - cur;
+          if (p.mode === "erode") delta = Math.max(0, delta);
+          if (p.mode === "fill") delta = Math.min(0, delta);
+          const cap = p.strength * Math.min(1, sdf / sdfRef);
+          delta = Math.max(-cap, Math.min(cap, delta));
+          const nd = clampInt8(cur + delta);
+          if (nd === cur) continue;
+          const key = chunkKey(voxelChunk(x), voxelChunk(y), voxelChunk(z));
+          snapshot(store, inverse, key);
+          setDensity(store, x, y, z, nd);
+          dirty.add(key);
+        }
+  }
 }
 
 /** Creates an empty op log. */
