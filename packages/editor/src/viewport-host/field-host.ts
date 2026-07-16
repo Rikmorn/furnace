@@ -851,7 +851,7 @@ export function createFieldHost(): FieldHost {
     if ((e.metaKey || e.ctrlKey) && k === "z") {
       e.preventDefault();
       const dirtied = e.shiftKey
-        ? field.redo(store, log)
+        ? field.redo(store, log, table)
         : field.undo(store, log);
       markDirtyWithNeighbors(dirtied);
       return;

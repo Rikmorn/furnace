@@ -51,8 +51,8 @@ describe("field selection", () => {
     // two 2m rooms separated by solid rock: air spans samples 0..8 (room A)
     // and 20..28 (room B) per dug axis — the dig's boundary samples land at
     // exactly density 0, which counts as void.
-    applyOp(s, digBox([1, 1, 1], [1, 1, 1]));
-    applyOp(s, digBox([6, 1, 1], [1, 1, 1]));
+    applyOp(s, digBox([1, 1, 1], [1, 1, 1]), TABLE);
+    applyOp(s, digBox([6, 1, 1], [1, 1, 1]), TABLE);
     const chunksBefore = s.chunks.size;
     const materialsBefore = s.materials.size;
     const chunk0Before = Int8Array.from(s.chunks.get("0,0,0") as Int8Array);
@@ -77,7 +77,7 @@ describe("field selection", () => {
 
   test("budget exact-fit (all reachable cells === budget) is NOT truncated", () => {
     const s = createFieldStore();
-    applyOp(s, digBox([1, 1, 1], [1, 1, 1])); // room A: exactly 729 air cells
+    applyOp(s, digBox([1, 1, 1], [1, 1, 1]), TABLE); // room A: exactly 729 air cells
     const sel = materializeSelection(s, {
       kind: "flood-void",
       seed: [4, 4, 4],
@@ -94,7 +94,7 @@ describe("field selection", () => {
     // coordinate transposition, not just the probed sample — a cubic room's
     // bitset is transposition-INVARIANT (every swapped index is also selected)
     // and would mask a transposed writer. Air set: x 0..8, y 2..6, z 1..7.
-    applyOp(s, digBox([1, 1, 1], [1, 0.5, 0.75]));
+    applyOp(s, digBox([1, 1, 1], [1, 0.5, 0.75]), TABLE);
     const sel = materializeSelection(s, {
       kind: "flood-void",
       seed: [4, 4, 4],
@@ -151,7 +151,7 @@ describe("field selection", () => {
 
   test("flood budget caps loudly (truncated, count === budget)", () => {
     const s = createFieldStore();
-    applyOp(s, digBox([4, 1, 4], [4, 1, 4])); // a big slab of air (9801 cells)
+    applyOp(s, digBox([4, 1, 4], [4, 1, 4]), TABLE); // a big slab of air (9801 cells)
     const sel = materializeSelection(s, {
       kind: "flood-void",
       seed: [16, 4, 16],

@@ -80,12 +80,16 @@ const bucketBuffers = (
 describe("field worker protocol", () => {
   test("mesh request posts a meshed response with transferable bucket buffers", () => {
     const s = createFieldStore();
-    applyOp(s, {
-      id: 1,
-      kind: "brush",
-      effect: "dig",
-      shape: { kind: "sphere", center: [2, 2, 2], radius: 1.2 },
-    });
+    applyOp(
+      s,
+      {
+        id: 1,
+        kind: "brush",
+        effect: "dig",
+        shape: { kind: "sphere", center: [2, 2, 2], radius: 1.2 },
+      },
+      TABLE,
+    );
     const posts: { msg: FieldWorkerResponse; transfer: Transferable[] }[] = [];
     const handler = createFieldWorkerHandler((msg, transfer) =>
       posts.push({ msg, transfer }),

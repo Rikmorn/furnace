@@ -96,19 +96,35 @@ export type BrushShape =
       halfExtents: [number, number, number];
     };
 
+/** A brush op's cross-cutting cell filter, evaluated per sample during
+ *  application after the effect's own guards. Part of the OP RECORD: a masked
+ *  op replays identically — a selection mask embeds its deterministic
+ *  {@link SelectionSpec}, re-materialized against pre-op state at each
+ *  application. `solid-only` is the keep-existing-air merge policy's building
+ *  block; the class kinds resolve against the material table the op is
+ *  applied with. */
+export type BrushMask =
+  | { kind: "organic-only" }
+  | { kind: "kit-only" }
+  | { kind: "class"; classId: number }
+  | { kind: "solid-only" }
+  | { kind: "selection"; selection: SelectionSpec };
+
 /** One brush operation — the only way the field mutates. Bounded influence by
  *  construction. `effect` selects the channel work: `dig` opens air (density
  *  only), `fill` solidifies AND writes `material` on solid interior cells
  *  (cells solid after the fill — including ambient rock it leaves unchanged),
  *  `paint` retints solid cells inside the shape without changing density.
  *  `material` is the class fill writes / paint applies (defaults {@link
- *  MAT_ROCK} for fill; ignored by dig). */
+ *  MAT_ROCK} for fill; ignored by dig). `mask` filters the affected cells
+ *  cross-cuttingly ({@link BrushMask}). */
 export type BrushOp = {
   id: number;
   kind: "brush";
   effect: "dig" | "fill" | "paint";
   shape: BrushShape;
   material?: number;
+  mask?: BrushMask;
 };
 
 /** One committed generator application — the log's smart-object record (L4).

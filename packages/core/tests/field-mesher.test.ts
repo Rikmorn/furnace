@@ -22,12 +22,16 @@ import {
 /** Digs a sphere that straddles the (0,0,0)/(1,0,0) chunk boundary. */
 function boundarySphereStore() {
   const s = createFieldStore();
-  applyOp(s, {
-    id: 1,
-    kind: "brush",
-    effect: "dig",
-    shape: { kind: "sphere", center: [4.0, 1.5, 1.5], radius: 1.2 },
-  }); // 4.0 m = sample 16 = the +x boundary of chunk 0
+  applyOp(
+    s,
+    {
+      id: 1,
+      kind: "brush",
+      effect: "dig",
+      shape: { kind: "sphere", center: [4.0, 1.5, 1.5], radius: 1.2 },
+    },
+    BUILTIN_TABLE,
+  ); // 4.0 m = sample 16 = the +x boundary of chunk 0
   return s;
 }
 
@@ -69,24 +73,32 @@ describe("chunked surface nets", () => {
   test("an all-solid chunk meshes to nothing", () => {
     const s = createFieldStore();
     // allocate a chunk without opening any air
-    applyOp(s, {
-      id: 1,
-      kind: "brush",
-      effect: "dig",
-      shape: { kind: "sphere", center: [100, 100, 100], radius: 0.5 },
-    });
+    applyOp(
+      s,
+      {
+        id: 1,
+        kind: "brush",
+        effect: "dig",
+        shape: { kind: "sphere", center: [100, 100, 100], radius: 0.5 },
+      },
+      BUILTIN_TABLE,
+    );
     const m = meshOf(s, chunkKey(0, 0, 0));
     expect(m.indices.length).toBe(0);
   });
 
   test("a dug sphere yields a closed-ish shell with inward-air normals", () => {
     const s = createFieldStore();
-    applyOp(s, {
-      id: 1,
-      kind: "brush",
-      effect: "dig",
-      shape: { kind: "sphere", center: [2, 2, 2], radius: 1.2 },
-    });
+    applyOp(
+      s,
+      {
+        id: 1,
+        kind: "brush",
+        effect: "dig",
+        shape: { kind: "sphere", center: [2, 2, 2], radius: 1.2 },
+      },
+      BUILTIN_TABLE,
+    );
     const m = meshOf(s, chunkKey(0, 0, 0));
     expect(m.indices.length).toBeGreaterThan(0);
     expect(m.positions.length / 3).toBe(m.normals.length / 3);
@@ -109,12 +121,16 @@ describe("chunked surface nets", () => {
     // come from the gradient and are independent of triangle index order, so a
     // flipped winding renders the cave inside-out yet passes every other test.
     const s = createFieldStore();
-    applyOp(s, {
-      id: 1,
-      kind: "brush",
-      effect: "dig",
-      shape: { kind: "sphere", center: [2, 2, 2], radius: 1.2 },
-    });
+    applyOp(
+      s,
+      {
+        id: 1,
+        kind: "brush",
+        effect: "dig",
+        shape: { kind: "sphere", center: [2, 2, 2], radius: 1.2 },
+      },
+      BUILTIN_TABLE,
+    );
     const m = meshOf(s, chunkKey(0, 0, 0));
     const center = [2, 2, 2] as const;
     let checked = 0;

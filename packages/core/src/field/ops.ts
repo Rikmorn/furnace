@@ -12,7 +12,13 @@ import {
   getMaterial,
   setMaterial,
 } from "./materials.ts";
+import {
+  assertSelectionSpecValid,
+  materializeSelection,
+  selectionHas,
+} from "./selection.ts";
 import type {
+  BrushMask,
   BrushOp,
   BrushShape,
   ChunkKey,
@@ -63,16 +69,40 @@ export function opBounds(op: BrushOp): {
   };
 }
 
+/** Mask leg of {@link assertOpValid}: class-mask ids (and an embedded
+ *  flood-material spec's class id) must resolve in the table; embedded
+ *  selection specs must pass assertSelectionSpecValid. */
+function assertMaskValid(
+  mask: BrushMask | undefined,
+  table: MaterialTable,
+): void {
+  if (mask === undefined) return;
+  if (mask.kind === "class") {
+    classOf(table, mask.classId); // throws "unknown class id" (setup-loud)
+    return;
+  }
+  if (mask.kind === "selection") {
+    assertSelectionSpecValid(mask.selection);
+    if (mask.selection.kind === "flood-material")
+      classOf(table, mask.selection.classId);
+  }
+}
+
 /**
- * Setup-loud per-op validation — also the replay / LLM-stream guard. A no-op
- * for material-free ops (dig). For ops that write a material: the class id must
- * exist in the table, and kit-class writes must be lattice-snapped boxes (kit
- * pieces stay grid-locked to the 0.5 m built-kit lattice).
+ * Setup-loud per-op validation — also the replay / LLM-stream guard. Validates
+ * the mask when present (class ids must exist in the table; an embedded
+ * selection spec must be well-formed, so a bad op never enters the log), then
+ * the material: the class id must exist in the table, and kit-class writes
+ * must be lattice-snapped boxes (kit pieces stay grid-locked to the 0.5 m
+ * built-kit lattice). Material-free, mask-free ops (plain dig) are a no-op.
  *
- * @throws {@link Error} if the material class id is unknown, or a kit-class
- *   write is not an axis-lattice-aligned box.
+ * @throws {@link Error} if a class id (material, class mask, or embedded
+ *   flood-material spec) is unknown, an embedded selection spec has a
+ *   non-integer flood seed or an out-of-range budget, or a kit-class write is
+ *   not an axis-lattice-aligned box.
  */
 export function assertOpValid(op: BrushOp, table: MaterialTable): void {
+  assertMaskValid(op.mask, table);
   if (op.material === undefined) return;
   const cls = classOf(table, op.material); // throws "unknown class id" (setup-loud)
   if (cls.kind !== "kit") return;
@@ -110,11 +140,19 @@ export const isBrushOp = (op: FieldOp): op is BrushOp => op.kind === "brush";
  *  solidifies (`density := min(density, quantize(-sdf))`) AND writes the
  *  material on solid interior cells (cells solid after the fill — including
  *  ambient rock the fill leaves unchanged), `paint` retints solid cells inside
- *  the shape. Returns the dirty chunk set and the two-channel inverse (the undo
- *  unit). */
+ *  the shape. `op.mask` filters cells cross-cuttingly after each effect's own
+ *  guards — `table` resolves the class-kind masks, and a selection mask is
+ *  materialized ONCE against pre-op state, so a replayed op re-selects
+ *  identically. Returns the dirty chunk set and the two-channel inverse (the
+ *  undo unit).
+ *
+ *  @throws {@link Error} if a mask embeds an invalid selection spec or
+ *    references a class id missing from `table` ({@link logApply} validates
+ *    first via {@link assertOpValid}, so logged ops never throw here). */
 export function applyOp(
   store: FieldStore,
   op: BrushOp,
+  table: MaterialTable,
 ): { dirty: Set<ChunkKey>; inverse: OpInverse } {
   const { min, max } = opBounds(op);
   const h = store.cellSize;
@@ -127,6 +165,25 @@ export function applyOp(
   const dirty = new Set<ChunkKey>();
   const inverse: OpInverse = new Map();
   const mat = op.material ?? MAT_ROCK;
+  // Materialize a selection mask ONCE, before any write — the flood evaluates
+  // against pre-op state, so replay re-selects the same cells deterministically.
+  const sel =
+    op.mask?.kind === "selection"
+      ? materializeSelection(store, op.mask.selection)
+      : null;
+  // One mask gate shared by every effect branch (Task 4's smooth joins it);
+  // `d` is the cell's pre-write density.
+  const maskPasses = (x: number, y: number, z: number, d: number): boolean => {
+    const m = op.mask;
+    if (m === undefined) return true;
+    if (m.kind === "solid-only") return d < 0;
+    if (m.kind === "selection")
+      return sel !== null && selectionHas(sel, x, y, z, store.cellSize);
+    const cls = classOf(table, getMaterial(store, x, y, z));
+    if (m.kind === "organic-only") return cls.kind === "organic";
+    if (m.kind === "kit-only") return cls.kind === "kit";
+    return cls.id === m.classId;
+  };
   for (let z = z0; z <= z1; z++)
     for (let y = y0; y <= y1; y++)
       for (let x = x0; x <= x1; x++) {
@@ -135,6 +192,7 @@ export function applyOp(
         if (op.effect === "dig") {
           const nd = clampInt8(sdf * DENSITY_SCALE);
           if (nd <= d) continue;
+          if (!maskPasses(x, y, z, d)) continue;
           const key = chunkKey(voxelChunk(x), voxelChunk(y), voxelChunk(z));
           snapshot(store, inverse, key);
           setDensity(store, x, y, z, nd);
@@ -146,6 +204,7 @@ export function applyOp(
           const writeM =
             sdf > 0 && solidAfter && getMaterial(store, x, y, z) !== mat;
           if (!writeD && !writeM) continue;
+          if (!maskPasses(x, y, z, d)) continue;
           const key = chunkKey(voxelChunk(x), voxelChunk(y), voxelChunk(z));
           snapshot(store, inverse, key);
           if (writeD) setDensity(store, x, y, z, nd);
@@ -156,6 +215,7 @@ export function applyOp(
           if (sdf <= 0 || d >= 0) continue;
           if (op.material === undefined) continue;
           if (getMaterial(store, x, y, z) === op.material) continue;
+          if (!maskPasses(x, y, z, d)) continue;
           const key = chunkKey(voxelChunk(x), voxelChunk(y), voxelChunk(z));
           snapshot(store, inverse, key);
           setMaterial(store, x, y, z, op.material);
@@ -180,7 +240,7 @@ export function logApply(
 ): Set<ChunkKey> {
   assertOpValid(op, table);
   const stamped: BrushOp = { ...op, id: log.nextId++ };
-  const { dirty, inverse } = applyOp(store, stamped);
+  const { dirty, inverse } = applyOp(store, stamped, table);
   log.ops.push(stamped);
   log.undoStack.push({ ops: [stamped], inverse });
   log.redoStack.length = 0;
@@ -209,16 +269,21 @@ export function undo(store: FieldStore, log: OpLog): Set<ChunkKey> {
 
 /** Redoes the most recently undone op list by re-applying its BRUSH members in
  *  order (entity ops never touch the field) — deterministic; already validated
- *  at first apply, so no re-validation. Per-op inverses merge first-touch-wins
- *  (the earliest pre-image of each chunk is the entry's pre-image). */
-export function redo(store: FieldStore, log: OpLog): Set<ChunkKey> {
+ *  at first apply, so no re-validation. `table` resolves class-kind masks
+ *  during re-application. Per-op inverses merge first-touch-wins (the earliest
+ *  pre-image of each chunk is the entry's pre-image). */
+export function redo(
+  store: FieldStore,
+  log: OpLog,
+  table: MaterialTable,
+): Set<ChunkKey> {
   const ops = log.redoStack.pop();
   if (ops === undefined) return new Set();
   const dirty = new Set<ChunkKey>();
   const inverse: OpInverse = new Map();
   for (const op of ops) {
     if (!isBrushOp(op)) continue;
-    const r = applyOp(store, op);
+    const r = applyOp(store, op, table);
     for (const key of r.dirty) dirty.add(key);
     for (const [key, pre] of r.inverse)
       if (!inverse.has(key)) inverse.set(key, pre);

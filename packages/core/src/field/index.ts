@@ -59,6 +59,7 @@ export {
 } from "./selection.ts";
 export { skinChunkKit, variantHash } from "./skin.ts";
 export type {
+  BrushMask,
   BrushOp,
   BrushShape,
   ChunkCollider,

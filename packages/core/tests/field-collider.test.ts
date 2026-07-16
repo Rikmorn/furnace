@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   applyOp,
+  BUILTIN_TABLE,
   chunkColliders,
   chunkKey,
   createFieldStore,
@@ -15,12 +16,16 @@ describe("chunkColliders", () => {
 
   test("a dug chunk yields shell voxels only, all adjacent to air", () => {
     const s = createFieldStore();
-    applyOp(s, {
-      id: 1,
-      kind: "brush",
-      effect: "dig",
-      shape: { kind: "sphere", center: [2, 2, 2], radius: 1.4 },
-    });
+    applyOp(
+      s,
+      {
+        id: 1,
+        kind: "brush",
+        effect: "dig",
+        shape: { kind: "sphere", center: [2, 2, 2], radius: 1.4 },
+      },
+      BUILTIN_TABLE,
+    );
     const col = chunkColliders(s, chunkKey(0, 0, 0));
     expect(col).not.toBeNull();
     const c = col as NonNullable<typeof col>;

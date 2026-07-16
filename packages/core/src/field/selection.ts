@@ -22,25 +22,18 @@ import type {
 export const MAX_SELECTION_BUDGET = 262144;
 
 /**
- * Materializes a selection spec against the CURRENT field state. Regions pass
- * through as pure predicates (bounds copied — never aliased to the spec's
- * arrays). Floods are 6-connected BFS from the seed — `flood-void` selects
- * density ≥ 0 (the surface's exact-zero samples count as void),
- * `flood-material` selects solid cells (density < 0) of exactly `classId` —
- * capped at `budget` selected cells. `truncated` is true exactly when a
- * further matching cell would exceed the budget (surface it, never silent);
- * an exact fit stays untruncated. Pure query — the store is never mutated.
+ * Setup-loud validation of a selection spec: flood seeds must be integer
+ * sample coordinates and flood budgets integers in
+ * [1, {@link MAX_SELECTION_BUDGET}]; region specs are always valid. Shared by
+ * {@link materializeSelection} and the op-embedded mask validation in
+ * assertOpValid, so a bad spec never enters the op log and both paths throw
+ * the same messages.
  *
  * @throws {@link Error} if a flood seed coordinate is not an integer, or the
- *   flood budget is not an integer in [1, {@link MAX_SELECTION_BUDGET}]
- *   (setup-loud — selections are user-action-frequency, not per-frame).
+ *   flood budget is not an integer in [1, {@link MAX_SELECTION_BUDGET}].
  */
-export function materializeSelection(
-  store: FieldStore,
-  spec: SelectionSpec,
-): MaterializedSelection {
-  if (spec.kind === "region")
-    return { kind: "region", min: [...spec.min], max: [...spec.max] };
+export function assertSelectionSpecValid(spec: SelectionSpec): void {
+  if (spec.kind === "region") return;
   const [sx, sy, sz] = spec.seed;
   if (!Number.isInteger(sx) || !Number.isInteger(sy) || !Number.isInteger(sz))
     throw new Error(
@@ -51,6 +44,30 @@ export function materializeSelection(
     throw new Error(
       `field selection: flood budget must be an integer in [1, ${MAX_SELECTION_BUDGET}]`,
     );
+}
+
+/**
+ * Materializes a selection spec against the CURRENT field state. Regions pass
+ * through as pure predicates (bounds copied — never aliased to the spec's
+ * arrays). Floods are 6-connected BFS from the seed — `flood-void` selects
+ * density ≥ 0 (the surface's exact-zero samples count as void),
+ * `flood-material` selects solid cells (density < 0) of exactly `classId` —
+ * capped at `budget` selected cells. `truncated` is true exactly when a
+ * further matching cell would exceed the budget (surface it, never silent);
+ * an exact fit stays untruncated. Pure query — the store is never mutated.
+ *
+ * @throws {@link Error} if the spec fails {@link assertSelectionSpecValid}
+ *   (setup-loud — selections are user-action-frequency, not per-frame).
+ */
+export function materializeSelection(
+  store: FieldStore,
+  spec: SelectionSpec,
+): MaterializedSelection {
+  assertSelectionSpecValid(spec);
+  if (spec.kind === "region")
+    return { kind: "region", min: [...spec.min], max: [...spec.max] };
+  const [sx, sy, sz] = spec.seed;
+  const budget = spec.budget;
   const isVoid = spec.kind === "flood-void";
   const classId = isVoid ? 0 : spec.classId;
   const chunks = new Map<ChunkKey, Uint8Array>();

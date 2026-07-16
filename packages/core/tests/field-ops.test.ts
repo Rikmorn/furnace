@@ -16,6 +16,7 @@ import {
   getMaterial,
   logApply,
   MAT_ROCK,
+  MAX_SELECTION_BUDGET,
   parseOps,
   redo,
   SOLID,
@@ -40,6 +41,28 @@ const digSphere = (
   shape: { kind: "sphere", center, radius },
 });
 
+const digBox = (
+  center: [number, number, number],
+  halfExtents: [number, number, number],
+): BrushOp => ({
+  id: 0,
+  kind: "brush",
+  effect: "dig",
+  shape: { kind: "box", center, halfExtents },
+});
+
+const paintBox = (
+  center: [number, number, number],
+  halfExtents: [number, number, number],
+  material: number,
+): BrushOp => ({
+  id: 0,
+  kind: "brush",
+  effect: "paint",
+  material,
+  shape: { kind: "box", center, halfExtents },
+});
+
 const TABLE: MaterialTable = {
   classes: [
     { id: 0, name: "rock", kind: "organic", color: [0.6, 0.6, 0.6, 1] },
@@ -62,13 +85,14 @@ const TABLE: MaterialTable = {
         },
       },
     },
+    { id: 3, name: "moss", kind: "organic", color: [0.3, 0.5, 0.3, 1] },
   ],
 };
 
 describe("field ops", () => {
   test("dig sphere opens air at the center, leaves rock outside", () => {
     const s = createFieldStore();
-    applyOp(s, sphere(1));
+    applyOp(s, sphere(1), BUILTIN_TABLE);
     expect(getDensity(s, 8, 8, 8)).toBeGreaterThan(0); // center (2m/0.25)
     expect(getDensity(s, 50, 8, 8)).toBe(SOLID);
   });
@@ -106,7 +130,7 @@ describe("field ops", () => {
       [...s.chunks].map(([k, v]) => [k, Int8Array.from(v)]),
     );
     undo(s, log);
-    redo(s, log);
+    redo(s, log, BUILTIN_TABLE);
     for (const [k, v] of after) expect(s.chunks.get(k)).toEqual(v);
   });
 
@@ -322,7 +346,7 @@ describe("brush ops", () => {
     expect(getMaterial(s, 4, 4, 4)).toBe(mBefore);
 
     // redo replays the fill deterministically — BOTH channels back to post-fill.
-    redo(s, log);
+    redo(s, log, TABLE);
     expect(encodeChunkFile(s.chunks.get("0,0,0") as Int8Array)).toEqual(
       dAfterFill,
     );
@@ -392,7 +416,7 @@ describe("op-list undo entries + the FieldOp union (F2b)", () => {
     expect(log.undoStack[0]?.ops.length).toBe(1);
     undo(s, log);
     expect(log.ops.length).toBe(0);
-    expect(redo(s, log).size).toBeGreaterThan(0);
+    expect(redo(s, log, TABLE).size).toBeGreaterThan(0);
     expect(log.ops.length).toBe(1);
   });
 
@@ -448,8 +472,8 @@ describe("op-list undo entries + the FieldOp union (F2b)", () => {
         opSpan: [1, 2],
       },
     };
-    const ra = applyOp(s, a);
-    const rb = applyOp(s, b);
+    const ra = applyOp(s, a, TABLE);
+    const rb = applyOp(s, b, TABLE);
     // Both ops touch chunk (0,0,0) — the overlap that makes first-touch-wins
     // observable (a's pre-image is virgin rock; b's already contains a's dig).
     expect([...ra.inverse.keys()].some((k) => rb.inverse.has(k))).toBe(true);
@@ -467,7 +491,7 @@ describe("op-list undo entries + the FieldOp union (F2b)", () => {
     expect(s.chunks.size).toBe(0); // whole span reverted to virgin rock
     expect(s.materials.size).toBe(0);
 
-    expect(redo(s, log).size).toBeGreaterThan(0);
+    expect(redo(s, log, TABLE).size).toBeGreaterThan(0);
     expect(log.ops.length).toBe(3); // ALL ops re-appended, entity op included
     expect(log.ops[2]).toEqual(e);
     expect(getDensity(s, 4, 4, 4)).toBe(dAfter);
@@ -476,6 +500,276 @@ describe("op-list undo entries + the FieldOp union (F2b)", () => {
     // Undo AFTER redo exercises redo's merged inverse: last-touch-wins would
     // restore b's pre-image (which contains a's dig) and leave chunks behind.
     undo(s, log);
+    expect(s.chunks.size).toBe(0);
+    expect(s.materials.size).toBe(0);
+  });
+});
+
+// Literal derivations at cellSize 0.25 (sample = metres × 4). Box dig SDF is
+// min-per-axis of halfExtent − |w − center|: strictly-inside samples go
+// positive (air), exact-boundary samples land at density 0, and the op's
+// +1-sample margin loop writes small NEGATIVE densities one ring beyond the
+// shape (e.g. sdf −0.25 m → −8) — still solid. Paint retints SOLID cells only,
+// so painted fixtures put their bands in the rock BELOW a dug room's floor
+// (the Task 2 lesson: a band inside the room is all air and paints nothing).
+describe("brush masks (F2b)", () => {
+  test("the replace idiom: mask class-1 + paint retints exactly the dirt band", () => {
+    const s = createFieldStore();
+    const log = createOpLog();
+    logApply(s, log, digBox([2, 2, 2], [2, 2, 2]), TABLE); // room: air samples 0..16
+    // dirt band: x,z ∈ (1,3)m → samples 5..11; y ∈ (−0.8,−0.2)m → −3..−1 (147 cells)
+    logApply(s, log, paintBox([2, -0.5, 2], [1, 0.3, 1], 1), TABLE);
+    // moss band: same x,z; y ∈ (−1.8,−1.2)m → samples −7..−5 (147 cells)
+    logApply(s, log, paintBox([2, -1.5, 2], [1, 0.3, 1], 3), TABLE);
+    expect(getMaterial(s, 8, -2, 8)).toBe(1); // a dirt cell
+    expect(getMaterial(s, 8, -6, 8)).toBe(3); // a moss cell
+    // replace: only-dirt → rock, over a box covering BOTH bands + ambient rock
+    logApply(
+      s,
+      log,
+      {
+        id: 0,
+        kind: "brush",
+        effect: "paint",
+        material: 0,
+        mask: { kind: "class", classId: 1 },
+        shape: { kind: "box", center: [2, -1, 2], halfExtents: [2, 2, 2] },
+      },
+      TABLE,
+    );
+    // every former dirt cell is rock now; every moss cell is untouched — the
+    // mask restricted the repaint to class 1 exactly
+    for (let z = 5; z <= 11; z++)
+      for (let x = 5; x <= 11; x++) {
+        for (let y = -3; y <= -1; y++) expect(getMaterial(s, x, y, z)).toBe(0);
+        for (let y = -7; y <= -5; y++) expect(getMaterial(s, x, y, z)).toBe(3);
+      }
+  });
+
+  test("solid-only mask makes fill respect existing air", () => {
+    const s = createFieldStore();
+    const log = createOpLog();
+    logApply(s, log, digBox([2, 2, 2], [1, 1, 1]), TABLE); // room: air samples 4..12
+    // masonry (kit) fill: box faces at 0.5/3.5 m sit on the 0.5 m lattice
+    logApply(
+      s,
+      log,
+      {
+        id: 0,
+        kind: "brush",
+        effect: "fill",
+        material: 2,
+        mask: { kind: "solid-only" },
+        shape: { kind: "box", center: [2, 2, 2], halfExtents: [1.5, 1.5, 1.5] },
+      },
+      TABLE,
+    );
+    // room centre (sample 8 = 2 m, density 32 after the dig): the mask made
+    // fill keep the existing air (an unmasked fill writes −48 here)
+    expect(getDensity(s, 8, 8, 8)).toBeGreaterThanOrEqual(0);
+    // beyond the fill shape's boundary: virgin rock, untouched
+    expect(getDensity(s, 2, 8, 8)).toBeLessThan(0);
+    // the already-solid shell INSIDE the shape (sample 3 = 0.75 m, dig margin
+    // −8) passes the mask, so fill still claims it for masonry
+    expect(getMaterial(s, 3, 8, 8)).toBe(2);
+  });
+
+  test("selection mask (flood-void) + paint composes to a no-op", () => {
+    // paint's own domain is SOLID cells; a flood-void selection is AIR cells —
+    // the intersection is empty, and that IS the correct composition semantics.
+    const s = createFieldStore();
+    const log = createOpLog();
+    logApply(s, log, digBox([2, 2, 2], [1, 1, 1]), TABLE);
+    const before = encodeChunkFile(s.chunks.get("0,0,0") as Int8Array);
+    logApply(
+      s,
+      log,
+      {
+        id: 0,
+        kind: "brush",
+        effect: "paint",
+        material: 1,
+        mask: {
+          kind: "selection",
+          selection: { kind: "flood-void", seed: [8, 8, 8], budget: 10000 },
+        },
+        shape: { kind: "box", center: [2, 2, 2], halfExtents: [3, 3, 3] },
+      },
+      TABLE,
+    );
+    // no cell painted (an unmasked paint claims the room's solid shell), and
+    // the density channel is untouched
+    expect(s.materials.size).toBe(0);
+    expect(encodeChunkFile(s.chunks.get("0,0,0") as Int8Array)).toEqual(before);
+  });
+
+  test("selection mask replays identically; dig + flood-void changes cells", () => {
+    const build = () => {
+      const s = createFieldStore();
+      const log = createOpLog();
+      logApply(s, log, digBox([2, 2, 2], [1, 1, 1]), TABLE);
+      // a wider dig masked to the room's void flood: only cells the flood
+      // selected (density ≥ 0) may open further — rock outside stays rock
+      logApply(
+        s,
+        log,
+        {
+          id: 0,
+          kind: "brush",
+          effect: "dig",
+          mask: {
+            kind: "selection",
+            selection: { kind: "flood-void", seed: [8, 8, 8], budget: 10000 },
+          },
+          shape: {
+            kind: "box",
+            center: [2, 2, 2],
+            halfExtents: [1.5, 1.5, 1.5],
+          },
+        },
+        TABLE,
+      );
+      return s;
+    };
+    const a = build();
+    // the masked dig DID change cells: the room-boundary sample (4 = 1 m,
+    // density 0 after the room dig, IN the flood) opened to sdf 0.5 m → 16
+    expect(getDensity(a, 4, 8, 8)).toBe(16);
+    // …but the solid sample one ring out (3 = 0.75 m, density −8, NOT in the
+    // flood) stayed put — an unmasked dig would write sdf 0.25 m → 8 there
+    expect(getDensity(a, 3, 8, 8)).toBe(-8);
+    // replay determinism: the op RECORD embeds the spec; a fresh replay
+    // re-evaluates the flood against the same pre-op state → identical bytes
+    const b = build();
+    expect([...a.chunks.keys()].sort()).toEqual([...b.chunks.keys()].sort());
+    for (const k of a.chunks.keys())
+      expect(encodeChunkFile(a.chunks.get(k) as Int8Array)).toEqual(
+        encodeChunkFile(b.chunks.get(k) as Int8Array),
+      );
+  });
+
+  test("a selection mask materializes ONCE, against pre-op state", () => {
+    const s = createFieldStore();
+    const log = createOpLog();
+    logApply(s, log, digBox([2, 2, 2], [2, 2, 2]), TABLE);
+    logApply(s, log, paintBox([2, -0.5, 2], [1, 0.3, 1], 1), TABLE); // 147 dirt cells
+    // retint the dirt flood to moss. A mid-loop re-materialization repaints
+    // the seed cell, breaks the flood (seed is no longer class 1), and strands
+    // the band's tail as dirt — materialize-once retints ALL 147 cells.
+    logApply(
+      s,
+      log,
+      {
+        id: 0,
+        kind: "brush",
+        effect: "paint",
+        material: 3,
+        mask: {
+          kind: "selection",
+          selection: {
+            kind: "flood-material",
+            seed: [8, -2, 8],
+            classId: 1,
+            budget: 10000,
+          },
+        },
+        shape: { kind: "box", center: [2, -0.5, 2], halfExtents: [2, 1, 2] },
+      },
+      TABLE,
+    );
+    for (let z = 5; z <= 11; z++)
+      for (let y = -3; y <= -1; y++)
+        for (let x = 5; x <= 11; x++) expect(getMaterial(s, x, y, z)).toBe(3);
+    // solid rock inside the shape but OUTSIDE the flood stays rock
+    expect(getMaterial(s, 8, -5, 8)).toBe(0);
+  });
+
+  test("assertOpValid rejects bad masks setup-loud; a bad op never enters the log", () => {
+    const base: BrushOp = {
+      id: 0,
+      kind: "brush",
+      effect: "paint",
+      material: 0,
+      shape: { kind: "box", center: [1, 1, 1], halfExtents: [1, 1, 1] },
+    };
+    expect(() =>
+      assertOpValid({ ...base, mask: { kind: "class", classId: 99 } }, TABLE),
+    ).toThrow(/unknown/);
+    expect(() =>
+      assertOpValid(
+        {
+          ...base,
+          mask: {
+            kind: "selection",
+            selection: { kind: "flood-void", seed: [0.5, 0, 0], budget: 10 },
+          },
+        },
+        TABLE,
+      ),
+    ).toThrow(/seed/);
+    expect(() =>
+      assertOpValid(
+        {
+          ...base,
+          mask: {
+            kind: "selection",
+            selection: { kind: "flood-void", seed: [0, 0, 0], budget: 0 },
+          },
+        },
+        TABLE,
+      ),
+    ).toThrow(/budget/);
+    expect(() =>
+      assertOpValid(
+        {
+          ...base,
+          mask: {
+            kind: "selection",
+            selection: {
+              kind: "flood-void",
+              seed: [0, 0, 0],
+              budget: MAX_SELECTION_BUDGET + 1,
+            },
+          },
+        },
+        TABLE,
+      ),
+    ).toThrow(/budget/);
+    // an op-embedded flood-material spec validates its class id too
+    expect(() =>
+      assertOpValid(
+        {
+          ...base,
+          mask: {
+            kind: "selection",
+            selection: {
+              kind: "flood-material",
+              seed: [0, 0, 0],
+              classId: 99,
+              budget: 10,
+            },
+          },
+        },
+        TABLE,
+      ),
+    ).toThrow(/unknown/);
+    expect(() =>
+      assertOpValid({ ...base, mask: { kind: "solid-only" } }, TABLE),
+    ).not.toThrow();
+    // the validation path throws BEFORE any store mutation: a bad masked op
+    // via logApply leaves the log and the store untouched
+    const s = createFieldStore();
+    const log = createOpLog();
+    expect(() =>
+      logApply(
+        s,
+        log,
+        { ...base, mask: { kind: "class", classId: 99 } },
+        TABLE,
+      ),
+    ).toThrow(/unknown/);
+    expect(log.ops.length).toBe(0);
+    expect(log.undoStack.length).toBe(0);
     expect(s.chunks.size).toBe(0);
     expect(s.materials.size).toBe(0);
   });
