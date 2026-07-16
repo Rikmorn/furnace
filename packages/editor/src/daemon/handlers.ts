@@ -352,10 +352,11 @@ export function createHandlers(ctx: HandlerContext): Handlers {
     },
   });
 
-  // Read a saved field world (F1) so the Field panel can reload it into the
-  // FieldHost. Reads only the density files (the authoring truth) + the oplog —
-  // the .fmesh render meshes are re-derived on load. Every chunk path is
-  // re-validated root-contained (a manifest is on-disk data, not trusted input).
+  // Read a saved field world (F1/F2) so the Field panel can reload it into the
+  // FieldHost. Reads the density files (the authoring truth) + the material
+  // siblings (per-chunk class assignment) + the oplog — the .fmesh render meshes
+  // are re-derived on load. Every sibling path is re-validated root-contained (a
+  // manifest is on-disk data, not trusted input).
   handlers.set("field.load", {
     input: z.strictObject({
       name: z.string().regex(/^[a-z0-9][a-z0-9_-]*$/i),
@@ -376,22 +377,32 @@ export function createHandlers(ctx: HandlerContext): Handlers {
       }
       const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as {
         chunks?: { key: string; file: string }[];
+        materials?: { key: string; file: string }[];
       };
-      const chunks = (manifest.chunks ?? []).map((c) => {
-        const abs = resolve(dir, c.file);
-        if (!abs.startsWith(rootAbs + sep)) {
-          throw new EditorError(
-            "outside-root",
-            `chunk path escapes root: ${c.file}`,
-          );
-        }
-        return { key: c.key, data: readFileSync(abs).toString("base64") };
-      });
+      // One root-contained base64 reader for both sibling kinds (chunks + .mat
+      // materials), so the containment guard is applied identically — a copy for
+      // each kind risks the guard drifting on one path.
+      const readSiblings = (
+        entries: { key: string; file: string }[],
+        kind: string,
+      ): { key: string; data: string }[] =>
+        entries.map((e) => {
+          const abs = resolve(dir, e.file);
+          if (!abs.startsWith(rootAbs + sep)) {
+            throw new EditorError(
+              "outside-root",
+              `${kind} path escapes root: ${e.file}`,
+            );
+          }
+          return { key: e.key, data: readFileSync(abs).toString("base64") };
+        });
+      const chunks = readSiblings(manifest.chunks ?? [], "chunk");
+      const materials = readSiblings(manifest.materials ?? [], "material");
       const oplogPath = join(dir, "oplog.json");
       const oplog = existsSync(oplogPath)
         ? readFileSync(oplogPath, "utf8")
         : null;
-      return Promise.resolve({ manifest, chunks, oplog });
+      return Promise.resolve({ manifest, chunks, materials, oplog });
     },
   });
 

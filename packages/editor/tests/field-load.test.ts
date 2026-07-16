@@ -79,6 +79,60 @@ describe("field.load", () => {
     expect(result.oplog).toBeNull();
   });
 
+  test("returns base64 material siblings alongside chunks", async () => {
+    const dir = join(root, "worlds", "painted");
+    mkdirSync(join(dir, "chunks"), { recursive: true });
+    mkdirSync(join(dir, "materials"), { recursive: true });
+    const manifest = {
+      version: 2,
+      kind: "field",
+      cellSize: 0.25,
+      playerStart: [0, 0, 0],
+      playerYaw: 0,
+      chunks: [{ key: "0,0,0", file: "chunks/0_0_0.bin" }],
+      meshes: [],
+      materials: [{ key: "0,0,0", file: "materials/0_0_0.mat" }],
+    };
+    writeFileSync(join(dir, "manifest.json"), JSON.stringify(manifest));
+    writeFileSync(join(dir, "chunks", "0_0_0.bin"), new Uint8Array(8 + 4096));
+    const matBytes = new Uint8Array([1, 2, 3, 4, 5]);
+    writeFileSync(join(dir, "materials", "0_0_0.mat"), matBytes);
+
+    const result = (await dispatch(handlers, "field.load", {
+      name: "painted",
+    })) as {
+      chunks: { key: string; data: string }[];
+      materials: { key: string; data: string }[];
+    };
+
+    expect(result.materials.length).toBe(1);
+    expect(result.materials[0]?.key).toBe("0,0,0");
+    expect([...Buffer.from(result.materials[0]?.data ?? "", "base64")]).toEqual(
+      [1, 2, 3, 4, 5],
+    );
+  });
+
+  test("a world with no material siblings → empty materials array", async () => {
+    const dir = join(root, "worlds", "rockonly");
+    mkdirSync(join(dir, "chunks"), { recursive: true });
+    const manifest = {
+      version: 2,
+      kind: "field",
+      cellSize: 0.25,
+      playerStart: [0, 0, 0],
+      playerYaw: 0,
+      chunks: [{ key: "0,0,0", file: "chunks/0_0_0.bin" }],
+      meshes: [],
+    };
+    writeFileSync(join(dir, "manifest.json"), JSON.stringify(manifest));
+    writeFileSync(join(dir, "chunks", "0_0_0.bin"), new Uint8Array(8 + 4096));
+
+    const result = (await dispatch(handlers, "field.load", {
+      name: "rockonly",
+    })) as { materials: { key: string; data: string }[] };
+    expect(result.materials).toEqual([]);
+  });
+
   test("returns the oplog JSON when present", async () => {
     const dir = join(root, "worlds", "withops");
     mkdirSync(dir, { recursive: true });
@@ -114,5 +168,53 @@ describe("field.load", () => {
     await expect(
       dispatch(handlers, "field.load", { name: "../escape" }),
     ).rejects.toMatchObject({ code: "invalid-input" });
+  });
+
+  // The manifest is on-disk data, not trusted input: a `file` field can carry a
+  // `../` traversal even when the world NAME is clean. readSiblings' root-containment
+  // guard (abs.startsWith(rootAbs + sep)) is the real path-traversal control on the
+  // file-serving path — these two tests drive it directly (one per call site) so
+  // deleting the guard fails loudly instead of opening a traversal hole. The escaped
+  // path is never read: the guard throws before readFileSync, so the fixture target
+  // need not (and does not) exist.
+  const TRAVERSAL_FILE = "../../../../../../../../etc/passwd";
+
+  test("refuses a manifest chunk path that escapes the root", async () => {
+    const dir = join(root, "worlds", "evilchunk");
+    mkdirSync(dir, { recursive: true });
+    const manifest = {
+      version: 2,
+      kind: "field",
+      cellSize: 0.25,
+      playerStart: [0, 0, 0],
+      playerYaw: 0,
+      chunks: [{ key: "0,0,0", file: TRAVERSAL_FILE }],
+      meshes: [],
+    };
+    writeFileSync(join(dir, "manifest.json"), JSON.stringify(manifest));
+
+    await expect(
+      dispatch(handlers, "field.load", { name: "evilchunk" }),
+    ).rejects.toMatchObject({ code: "outside-root" });
+  });
+
+  test("refuses a manifest material sibling path that escapes the root", async () => {
+    const dir = join(root, "worlds", "evilmat");
+    mkdirSync(dir, { recursive: true });
+    const manifest = {
+      version: 2,
+      kind: "field",
+      cellSize: 0.25,
+      playerStart: [0, 0, 0],
+      playerYaw: 0,
+      chunks: [],
+      meshes: [],
+      materials: [{ key: "0,0,0", file: TRAVERSAL_FILE }],
+    };
+    writeFileSync(join(dir, "manifest.json"), JSON.stringify(manifest));
+
+    await expect(
+      dispatch(handlers, "field.load", { name: "evilmat" }),
+    ).rejects.toMatchObject({ code: "outside-root" });
   });
 });
