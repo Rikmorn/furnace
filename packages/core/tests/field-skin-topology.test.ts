@@ -157,3 +157,168 @@ test("P4-A: backing quads cover every kit crossing (nothing unrendered)", () => 
     m.buckets.reduce((n, b) => n + b.mesh.indices.length, 0);
   expect(total(r)).toBe(total(twin()));
 });
+
+test("P4-B: digging through the wall suppresses panels and rings the hole with collar", () => {
+  const { s, log } = wallFixture();
+  // punch a hole: sphere r=0.6 at the wall mid-plane (x=2.25) — flips the
+  // centre samples of the middle coarse cells → suppressed-kit
+  logApply(
+    s,
+    log,
+    {
+      id: 0,
+      kind: "brush",
+      effect: "dig",
+      shape: { kind: "sphere", center: [2.25, 1.5, 2], radius: 0.6 },
+    },
+    TABLE,
+  );
+  const kit = skin(s, "0,0,0");
+  const panels = kit.filter((k) => k.piece === "panel");
+  expect(panels.length).toBeLessThan(40); // fixture A count
+  const collar = kit.filter(
+    (k) => k.piece === "rimPostV" || k.piece === "rimEdgeH",
+  );
+  expect(collar.length).toBeGreaterThan(0);
+  // collar pieces sit within one cell of the hole
+  for (const c of collar) {
+    expect(
+      Math.hypot(
+        (c.position[0] as number) - 2,
+        (c.position[1] as number) - 1.5,
+        (c.position[2] as number) - 2,
+      ),
+    ).toBeLessThan(1.5);
+  }
+});
+
+test("P4-C: a wall spanning a chunk boundary neither duplicates nor gaps pieces", () => {
+  const s = createFieldStore();
+  const log = createOpLog();
+  // room + wall straddling x = 4 m (the 0,0,0 / 1,0,0 chunk boundary)
+  logApply(
+    s,
+    log,
+    {
+      id: 0,
+      kind: "brush",
+      effect: "dig",
+      shape: { kind: "box", center: [4, 2, 2], halfExtents: [3, 1.5, 2] },
+    },
+    TABLE,
+  );
+  logApply(
+    s,
+    log,
+    {
+      id: 0,
+      kind: "brush",
+      effect: "fill",
+      material: 2,
+      shape: {
+        kind: "box",
+        center: [4, 1.5, 2.25],
+        halfExtents: [1.5, 1, 0.25],
+      },
+    },
+    TABLE,
+  );
+  const a = skin(s, "0,0,0");
+  const b = skin(s, "1,0,0");
+  const world = (k: KitInstance, key: string): string => {
+    const [cx, cy, cz] = key.split(",").map(Number) as [number, number, number];
+    return `${k.piece}:${(k.position[0] as number) + cx * 4},${(k.position[1] as number) + cy * 4},${(k.position[2] as number) + cz * 4}:${k.yaw.toFixed(3)}`;
+  };
+  const all = [
+    ...a.map((k) => world(k, "0,0,0")),
+    ...b.map((k) => world(k, "1,0,0")),
+  ];
+  expect(new Set(all).size).toBe(all.length); // no duplicates
+  // no gap: total panel count matches the analytic count for a 6-coarse-wide wall
+  const panels = [...a, ...b].filter((k) => k.piece === "panel").length;
+  // wall: x 2.5..5.5 (6 coarse), y 0.5..2.5 (4), z 2.0..2.5 (1)
+  // exposed: ±z 2×(6×4)=48, ±x ends 2×(4×1)=8 → 56
+  expect(panels).toBe(56);
+});
+
+test("P4-D: a hole through a seam-straddling wall rings collar with no cross-chunk duplicates", () => {
+  const s = createFieldStore();
+  const log = createOpLog();
+  // fixture C's seam-straddling wall (x = 4 m is the 0,0,0 / 1,0,0 boundary)
+  logApply(
+    s,
+    log,
+    {
+      id: 0,
+      kind: "brush",
+      effect: "dig",
+      shape: { kind: "box", center: [4, 2, 2], halfExtents: [3, 1.5, 2] },
+    },
+    TABLE,
+  );
+  logApply(
+    s,
+    log,
+    {
+      id: 0,
+      kind: "brush",
+      effect: "fill",
+      material: 2,
+      shape: {
+        kind: "box",
+        center: [4, 1.5, 2.25],
+        halfExtents: [1.5, 1, 0.25],
+      },
+    },
+    TABLE,
+  );
+  // punch a hole centred ON the seam (x=4) so suppressed-kit cells land in BOTH
+  // chunk 0 (world coarse I=7) and chunk 1 (world coarse I=8) — the boundary
+  // condition the collar pass depends on, which fixtures A/B/C never exercise
+  logApply(
+    s,
+    log,
+    {
+      id: 0,
+      kind: "brush",
+      effect: "dig",
+      shape: { kind: "sphere", center: [4, 1.5, 2.25], radius: 0.6 },
+    },
+    TABLE,
+  );
+  const a = skin(s, "0,0,0");
+  const b = skin(s, "1,0,0");
+  const isCollar = (k: KitInstance): boolean =>
+    k.piece === "rimPostV" || k.piece === "rimEdgeH";
+  // both chunks must own collar → the hole suppressed cells on BOTH sides of the
+  // seam, and each side's chunk emitted its own collar (can't pass on zero)
+  expect(a.filter(isCollar).length).toBeGreaterThan(0);
+  expect(b.filter(isCollar).length).toBeGreaterThan(0);
+  const world = (k: KitInstance, key: string): string => {
+    const [cx, cy, cz] = key.split(",").map(Number) as [number, number, number];
+    return `${k.piece}:${(k.position[0] as number) + cx * 4},${(k.position[1] as number) + cy * 4},${(k.position[2] as number) + cz * 4}:${k.yaw.toFixed(3)}`;
+  };
+  const all = [
+    ...a.map((k) => world(k, "0,0,0")),
+    ...b.map((k) => world(k, "1,0,0")),
+  ];
+  // no world-space duplicate over ALL pieces (incl. collar): each seam piece is
+  // owned by exactly one chunk — no double-emission, no gap
+  expect(new Set(all).size).toBe(all.length);
+});
+
+test("P4: the derived-view skin is deterministic (replay-stable)", () => {
+  const { s, log } = wallFixture();
+  logApply(
+    s,
+    log,
+    {
+      id: 0,
+      kind: "brush",
+      effect: "dig",
+      shape: { kind: "sphere", center: [2.25, 1.5, 2], radius: 0.6 },
+    },
+    TABLE,
+  );
+  expect(skin(s, "0,0,0")).toEqual(skin(s, "0,0,0"));
+});
