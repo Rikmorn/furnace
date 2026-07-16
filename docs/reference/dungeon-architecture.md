@@ -279,7 +279,7 @@ probes of record in §5 (`world-traversal.gpu.test.ts` is the bake→load→walk
 over the world the player boots) plus `cave-entrance.gpu.test.ts` and the
 `char-move-*.gpu.test.ts` locomotion probes.
 
-## 7. One Field (the 3.4+ recharter) — F1 "the medium", as-built
+## 7. One Field (the 3.4+ recharter) — F1 "the medium" + F2a "the material field", as-built
 
 - **Charter (2026-07-14, One Field F0–F6):** the world becomes ONE sparse chunked voxel
   field in `@furnace/core/field`; everything else is entities; two tool contracts
@@ -314,5 +314,19 @@ over the world the player boots) plus `cave-entrance.gpu.test.ts` and the
   in core is PURE and shared by the editor's export and the headless GPU walk test
   (`tests/field-world.gpu.test.ts` — dig a tunnel in memory, bake, load through the
   real loader, walk through it). The editor authoring surface is the Field panel
-  (`editor-architecture.md` §15); dig-tool feel items are tracked for F2
-  (`docs/backlog/editor-and-tooling/field-dig-tool-feel.md`).
+  (`editor-architecture.md` §15).
+- **F2a materials (2026-07-16, user-gated):** the field carries a per-cell material
+  class (charter §2.1 made real — see `core-modules.md` §field). The dungeon supplies
+  the catalog's world-materials half as DATA: `catalog/materials.json` (rock/dirt/
+  moss-stone organic + masonry kit, the kit style ported out of `substrate/pieces.ts`
+  constants). `field-world.ts` reads the manifest's **embedded material table**
+  (artifact self-containment — the game never reads the editor catalog): per-class
+  organic sub-meshes + the kit **backing** surface get per-class materials, and kit
+  pieces (panels/tiles/posts/collar) load from per-chunk `kit/*.json` instance lists
+  into ONE instanced draw per chunk (the realize.ts instancing pattern; tint = piece
+  color × variant jitter). F1-shape manifests (no material fields) still load on the
+  single-STONE path — back-compat tested. **Collision is untouched**: masonry blocks
+  the player purely because it is solid density (walk probe: through the gap, blocked
+  by the wall — `tests/field-world.gpu.test.ts`). Kit writes are lattice-disciplined
+  at the op layer (`assertOpValid`: box shapes on the 0.5 m lattice only — charter P4's
+  grid-locked-kit posture, enforced setup-loud and re-checked on replay).

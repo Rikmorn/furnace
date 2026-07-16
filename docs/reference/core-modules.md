@@ -778,18 +778,26 @@ The scene format: a text-JSON document (`SceneDocument`) with typed resource tab
 
 ## `@furnace/core/field`
 
-**v0 (One Field F1, 2026-07-15) — the surface is deliberately minimal and UNSTABLE; the
-per-export documentation pass + cookbook demo land at F2 when the API stabilizes (a One
-Field charter decision — this row exists so the module is not invisible here).**
+**v0 (One Field F1+F2a, 2026-07-16) — the surface is deliberately minimal and UNSTABLE;
+the per-export documentation pass + cookbook demo land at F2b when the API stabilizes (a
+One Field charter decision — this row exists so the module is not invisible here).**
 
-The chunked sparse voxel density field: 16³ Int8 chunks (air-positive, solid-by-default,
-uniform chunks elided — untouched world costs nothing). Store + coords
-(`createFieldStore`, `getDensity`/`setDensity`, `extractApron`), dig ops + op log with
-chunk-keyed undo/redo (`applyOp`, `logApply`, `undo`, `redo`), chunked Surface Nets over
-18³ aprons with owned-crossing quads (`meshChunkApron` — watertight seams by
-construction), voxel DDA (`raycastField`), per-chunk shell colliders (`chunkColliders`,
-physics `voxels`-descriptor shaped), and the v0 artifact
-(`encodeChunkFile`/`decodeChunkFile`, oplog serialize/parse, `bakeFieldWorld` — pure).
+The chunked sparse voxel field: 16³ Int8 density chunks (air-positive, solid-by-default,
+uniform chunks elided — untouched world costs nothing) plus a per-chunk **material
+channel** (uniform|indexed palette encoding behind accessors — `getMaterial` /
+`setMaterial`, `MAT_ROCK` default; `MaterialTable` from the project catalog,
+`BUILTIN_TABLE` rock-only fallback, `validateMaterialTable`/`classOf`). Store + coords
+(`createFieldStore`, `getDensity`/`setDensity`, `extractFieldAprons` — the 20³
+density+material window), **brush ops** dig/fill/paint with kit lattice validation
+(`BrushOp`, `assertOpValid`, `applyOp`, `logApply`, two-channel chunk-keyed undo/redo),
+chunked Surface Nets over the 20³ aprons with owned-crossing quads bucketed per
+owning-cell class incl. the kit **backing** surface (`meshChunkField` — watertight seams
+by construction), the generic **kit skinner** on the derived coarse view (`skinChunkKit`
+— panels/tiles/posts/collar from catalog kit-style data), voxel DDA (`raycastField`),
+per-chunk shell colliders (`chunkColliders` — density-only, material classes never
+affect collision), and the artifact (`encodeChunkFile`/`decodeChunkFile`,
+`encodeMaterialFile`/`decodeMaterialFile`, oplog serialize/parse with F1 legacy-op
+mapping, `bakeFieldWorld` — pure; the manifest embeds the resolved material table).
 TSDoc on every export (`check:tsdoc` covers the module automatically). Consumers today:
 the editor's FieldHost + remesh worker, and the dungeon's v2 field-world loader.
 

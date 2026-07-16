@@ -556,32 +556,54 @@ Component sections are collapsible (`CollapsibleSection`); resources default col
 
 The viewport selection highlight derives from the `--primary` CSS variable at runtime via `frontend/lib/theme.ts` `resolveCssColor` — a 1×1 canvas-2D `getImageData` resolve, NOT `getComputedStyle().color` (which preserves `oklch()` under CSS Color 4 and returns garbage). A happy-dom + `@testing-library/react` harness (`tests/inspector/`) renders fields/panels and exercises the `onChange → onPreview → onCommit` chain — the field-render coverage the M5B ColorField regression exposed as missing. **DOM tests live in `tests/` SUBDIRS** (never bare `tests/`) so happy-dom's `navigator`/`fetch` mutation can't clobber the GPU + daemon-HTTP suites earlier in bun's single-process file walk (`docs/backlog/editor-and-tooling/test-harness-process-sharing-fragility.md`).
 
-## 15. One Field F1 — the Field panel + FieldHost (2026-07-15)
+## 15. One Field F1+F2a — the Field panel + FieldHost (2026-07-16)
 
 - **`FieldHost`** (`viewport-host/field-host.ts`) — a PreviewHost-class host (own
-  canvas/context/camera/rAF loop) owning the F1 dig loop: a `@furnace/core/field`
-  store + op log (undo/redo = chunk-keyed inverse deltas, ⌘Z/⇧⌘Z), LMB dig strokes
-  (voxel-DDA targeting; an eye embedded in rock digs a fixed distance ahead — feel
-  items tracked in `docs/backlog/editor-and-tooling/field-dig-tool-feel.md`), RMB
-  fly-look + WASD/QE (camera-control reuse), a **flat-shaded** (`shader.normalColor`,
-  unlit normal-distinct) vs **headlamp** (lit + camera point light) toggle, ground
-  grid + origin marker (blank-canvas bootstrap). Threaded to the chrome through the
-  `/engine.js` runtime channel exactly like PreviewHost — the chrome never
-  value-imports engine code; `tests/frontend-no-engine-leakage.test.ts` now
-  machine-enforces the ban against `@furnace/core`, `field-protocol`, AND
-  `viewport-host` value-imports (each proven to bite during F1).
+  canvas/context/camera/rAF loop) owning the field authoring loop: a
+  `@furnace/core/field` store + op log (undo/redo = chunk-keyed two-channel inverse
+  deltas, ⌘Z/⇧⌘Z), LMB tool strokes, RMB fly-look + WASD/QE (camera-control reuse), a
+  **flat-shaded** (`shader.normalColor`, unlit normal-distinct — material classes
+  deliberately indistinct here) vs **headlamp** (lit + camera point light, per-class
+  colors visible) toggle, ground grid + origin marker (blank-canvas bootstrap).
+  Threaded to the chrome through the `/engine.js` runtime channel exactly like
+  PreviewHost — the chrome never value-imports engine code;
+  `tests/frontend-no-engine-leakage.test.ts` machine-enforces the ban against
+  `@furnace/core`, `field-protocol`, AND `viewport-host` value-imports.
+- **Tools (F2a)** — `setTool({effect, materialId})` over dig/fill/paint;
+  `setMaterialTable` (re-marks all chunks dirty — a table swap re-buckets the world).
+  Targeting is the pure `lib/field-brush.ts`: surface hits bite 0.7·radius INTO rock,
+  an embedded eye mines radius-deep ahead, kit fills snap to the 0.5 m lattice
+  (`snappedKitBox` — the host constructs only valid kit ops by design). A
+  hologram-blue **ghost marker** (ring for spheres, box edges for kit fills) shows the
+  target every frame. Default radius 1.25 m (max 4). Rendering: per-class organic
+  sub-meshes + kit backing (lit materials from the table) and ONE instanced kit draw
+  per chunk (white litInstanced material; piece color × variant jitter rides the
+  per-instance tint). F1's dig-feel backlog entry resolved here; the F2b feel register
+  is `docs/backlog/editor-and-tooling/fill-tool-solid-volume-surprise.md`.
 - **Remesh worker** (`frontend/field-worker.ts` + `lib/field-protocol.ts` /
-  `lib/field-client.ts`) — a third frontend bundle entry that imports core's mesher
-  DIRECTLY (engine code; the project `/engine.js` is not involved). 18³ apron in,
-  mesh buffers out, everything transferable; dirty-SET coalescing lives host-side.
-  Measured ~1.1 ms median per 16³ chunk (M1, bun/JSC — in-browser number is a gate
-  observation).
-- **FieldPanel** (panel id `field`) — deliberately thin chrome: world name **empty by
-  default** (explicit name required — the W3/W4 gate-clobber fix), dig radius,
-  shading toggle, New/Load/Save/Bake+make-default. Saves/bakes ride the existing
-  destination-agnostic `generation.bake`; loading uses the ONE new daemon command
-  **`field.load`** (root-contained read: manifest + base64 chunks + oplog). Host
-  lifecycle is v0: panel-reopen re-init throws and is surfaced as a panel status.
+  `lib/field-client.ts`) — a third frontend bundle entry that imports core's mesher +
+  skinner DIRECTLY (engine code; the project `/engine.js` is not involved). v2
+  protocol: 20³ density+material apron pair + the material table in, per-class mesh
+  buckets + kit instance lists out, buffers transferable both ways; dirty-SET
+  coalescing lives host-side. Measured 0.71 ms median per 16³ chunk WITH dispatch +
+  skinning (M1, bun/JSC; 5 ms ceiling asserted in tests).
+- **Catalog (F2a)** — the project→editor world-materials contract, DATA only: the
+  panel fetches `/catalog/materials.json` off the daemon's project-root GET mapping
+  (no new command), parses it with the setup-loud `lib/catalog.ts` hand validator
+  (typed `CatalogError` naming the offending path; type-only core imports — leakage
+  guard clean), and applies it via `setMaterialTable`. Absent file → builtin rock-only
+  + status note. Catalog-wins semantics vs the artifact's embedded table (the
+  embedded table is the GAME's snapshot); Load-until-catalog-settles hardening is an
+  F2b carry-over (`docs/backlog/editor-and-tooling/field-f2a-carryover-for-f2b.md`).
+- **FieldPanel** (panel id `field`) — thin chrome: world name **empty by default**
+  (explicit name required — the W3/W4 gate-clobber fix), tool radios (Dig/Fill/Paint)
+  + material dropdown (all classes for Fill, organic-only for Paint, hidden for Dig —
+  conditional axes), radius slider, shading toggle, New/Load/Save/Bake+make-default.
+  Saves/bakes ride the existing destination-agnostic `generation.bake`; loading uses
+  the ONE daemon command **`field.load`** (root-contained read via the shared
+  `readSiblings` helper — manifest + base64 chunks + material siblings + oplog; a
+  dedicated path-traversal rejection test guards it). Host lifecycle is v0:
+  panel-reopen re-init throws and is surfaced as a panel status.
 - **Init robustness** (`lib/init-when-sized.ts`): all three hosts (viewport, preview,
   field) defer init to the first NONZERO canvas measure via a one-shot ResizeObserver
   — dockview panels mounting hidden (e.g. behind the Field tab) previously latched
