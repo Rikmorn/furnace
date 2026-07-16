@@ -151,7 +151,9 @@ export type OpInverse = Map<ChunkKey, ChunkSnapshot>;
 
 /** Append-only op log. An undo entry covers an op LIST — a single brush op, or
  *  a generator commit's whole span + its entity op (one ⌘Z per commit,
- *  charter §2.3). */
+ *  charter §2.3). Invariant: undo entries cover the tail of `ops` in order —
+ *  every `ops` append must pair with an undoStack push, so undo can peel the
+ *  tail by entry length. */
 export type OpLog = {
   ops: FieldOp[];
   undoStack: { ops: FieldOp[]; inverse: OpInverse }[];

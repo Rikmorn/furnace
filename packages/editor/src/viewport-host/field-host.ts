@@ -52,7 +52,10 @@ export type FieldHost = {
     chunks: { key: string; bytes: Uint8Array }[];
     /** Material sibling files — optional so an F1 (rock-only) world still loads. */
     materials?: { key: string; bytes: Uint8Array }[];
-    ops: field.FieldOp[];
+    /** Raw oplog.json text (null when the world has none). Parsed inside the
+     *  host via field.parseOps so legacy F1 `kind:"dig"` ops map forward to
+     *  brush/dig — the chrome can't call parseOps itself (type-only imports). */
+    oplog: string | null;
   }): void;
   setDigRadius(r: number): void;
   setShading(mode: FieldHostShading): void;
@@ -962,8 +965,9 @@ export function createFieldHost(): FieldHost {
         store.chunks.set(key, field.decodeChunkFile(bytes));
       for (const { key, bytes } of data.materials ?? [])
         store.materials.set(key, field.decodeMaterialFile(bytes));
-      for (const op of data.ops) log.ops.push(op);
-      log.nextId = data.ops.reduce((max, o) => Math.max(max, o.id), 0) + 1;
+      const ops = data.oplog === null ? [] : field.parseOps(data.oplog);
+      for (const op of ops) log.ops.push(op);
+      log.nextId = ops.reduce((max, o) => Math.max(max, o.id), 0) + 1;
       // v0: manifest.playerStart/playerYaw are the dungeon runtime spawn — the
       // editor keeps its current fly pose on load (not applied to the camera here).
       for (const key of store.chunks.keys()) dirty.add(key);

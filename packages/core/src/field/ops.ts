@@ -190,7 +190,7 @@ export function logApply(
 /** Undoes the last undo entry — its WHOLE op list (one ⌘Z per commit) — by
  *  restoring both channels of its chunk pre-images (or deleting the entry when
  *  a channel's pre-image was null). Returns the dirty chunk set (empty when
- *  there is nothing to undo). */
+ *  there is nothing to undo or the entry touched no chunks). */
 export function undo(store: FieldStore, log: OpLog): Set<ChunkKey> {
   const entry = log.undoStack.pop();
   if (entry === undefined) return new Set();
@@ -223,7 +223,9 @@ export function redo(store: FieldStore, log: OpLog): Set<ChunkKey> {
     for (const [key, pre] of r.inverse)
       if (!inverse.has(key)) inverse.set(key, pre);
   }
-  log.ops.push(...ops);
+  // Loop push, not spread: spread hits JS-engine argument-count ceilings
+  // (~65k in JSC) on mega commit spans.
+  for (const op of ops) log.ops.push(op);
   log.undoStack.push({ ops, inverse });
   return dirty;
 }

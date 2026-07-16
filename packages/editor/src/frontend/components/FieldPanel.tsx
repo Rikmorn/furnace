@@ -7,11 +7,7 @@
 // — the chrome never value-imports engine code (the project-first invariant). This file
 // type-imports FieldHost + the field artifact types (all erased) and value-imports the
 // catalog parser from a frontend lib that itself only type-imports core.
-import type {
-  FieldManifest,
-  FieldOp,
-  MaterialTable,
-} from "@furnace/core/field"; // type-only: erased
+import type { FieldManifest, MaterialTable } from "@furnace/core/field"; // type-only: erased
 import { useEffect, useRef, useState } from "react";
 import type {
   FieldHost,
@@ -266,7 +262,9 @@ export function FieldPanel() {
           key: m.key,
           bytes: base64ToBytes(m.data),
         })),
-        ops: res.oplog ? (JSON.parse(res.oplog) as FieldOp[]) : [],
+        // Raw oplog text — the HOST parses it (field.parseOps maps legacy F1
+        // `kind:"dig"` ops forward; the chrome can't value-import parseOps).
+        oplog: res.oplog,
       });
       setStatus(`loaded ${name} (${res.chunks.length} chunks)`);
     } catch (err) {
