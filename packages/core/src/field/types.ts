@@ -37,6 +37,28 @@ export type KitStyle = {
   };
 };
 
+/** The kit-piece kinds the skinner emits: wall `panel`, `floorTile` (an
+ *  exposed +y face) / `ceilTile` (exposed −y face), corner `post`, and the
+ *  collar `rimPostV` / `rimEdgeH` at suppressed↔kept junctions (Task 5). */
+export type KitPieceId =
+  | "panel"
+  | "floorTile"
+  | "ceilTile"
+  | "post"
+  | "rimPostV"
+  | "rimEdgeH";
+
+/** One kit piece instance, CHUNK-LOCAL position (metres), exact quarter-turn
+ *  yaw, box dims from the kit style, deterministic variant value in [0,1). */
+export type KitInstance = {
+  piece: KitPieceId;
+  classId: number;
+  position: [number, number, number];
+  yaw: number;
+  box: [number, number, number];
+  variant: number;
+};
+
 /** One resolved material class: an organic (raw-surface) class or a kit
  *  (skinned) class carrying its {@link KitStyle} catalog data. */
 export type MaterialClass =

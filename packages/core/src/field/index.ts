@@ -49,6 +49,7 @@ export {
 } from "./ops.ts";
 export type { FieldHit } from "./raycast.ts";
 export { raycastField } from "./raycast.ts";
+export { skinChunkKit, variantHash } from "./skin.ts";
 export type {
   BrushOp,
   BrushShape,
@@ -62,6 +63,8 @@ export type {
   FieldManifest,
   FieldOp,
   FieldStore,
+  KitInstance,
+  KitPieceId,
   KitStyle,
   MaterialClass,
   MaterialKind,
