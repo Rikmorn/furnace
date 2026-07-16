@@ -224,6 +224,99 @@ describe("smooth effect (F2b)", () => {
     }
   });
 
+  test("iterations re-run the blur: two passes move further than one", () => {
+    const build = (iterations: number) => {
+      const { s, log } = pockedWall();
+      logApply(
+        s,
+        log,
+        smoothSphere([2.9, 2, 2], 1, {
+          strength: 24,
+          iterations,
+          mode: "both",
+        }),
+        TABLE,
+      );
+      return s;
+    };
+    const one = build(1);
+    const two = build(2);
+    // same chunk footprint (writes stay inside the sdf > 0 region either way)…
+    expect([...one.chunks.keys()].sort()).toEqual(
+      [...two.chunks.keys()].sort(),
+    );
+    // …but the second pass keeps relaxing: at least one byte must differ
+    // (near the pock's density cliffs the capped delta re-applies each pass)
+    let differs = 0;
+    for (const k of one.chunks.keys()) {
+      const a = one.chunks.get(k) as Int8Array;
+      const b = two.chunks.get(k) as Int8Array;
+      for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) differs++;
+    }
+    expect(differs).toBeGreaterThan(0);
+  });
+
+  test("box-shaped smooth: deterministic, capped, uses the halfExtents falloff", () => {
+    const build = () => {
+      const s = createFieldStore();
+      const log = createOpLog();
+      logApply(s, log, digBox([2, 2, 2], [2, 2, 2]), TABLE); // floor at y = 0 m
+      logApply(
+        s,
+        log,
+        {
+          id: 0,
+          kind: "brush",
+          effect: "smooth",
+          smooth: { strength: 6, iterations: 1, mode: "both" },
+          shape: {
+            kind: "box",
+            center: [2, 0, 2],
+            halfExtents: [1, 0.75, 1],
+          },
+        },
+        TABLE,
+      );
+      return s;
+    };
+    const a = build();
+    const b = build();
+    for (const k of a.chunks.keys())
+      expect(encodeChunkFile(a.chunks.get(k) as Int8Array)).toEqual(
+        encodeChunkFile(b.chunks.get(k) as Int8Array),
+      );
+    // Sample (8,−1,8) = (2,−0.25,2) m, the −8 margin ring below the floor:
+    // neighborhood 9×(−127) at y=−2, 9×(−8), 9×0 → mean −45, raw delta −37.
+    // Box smooth sdf = min(1−0, 0.75−0.25, 1−0) = 0.5; sdfRef = min halfExtent
+    // = 0.75 (the box branch), falloff 0.5/0.75; cap 6 × 0.6667 = 4 →
+    // round(−8 − 4) = −12. (A max-halfExtent sdfRef would give −11.)
+    expect(getDensity(a, 8, -1, 8)).toBe(-12);
+    expect(Math.abs(getDensity(a, 8, -1, 8) - -8)).toBeLessThanOrEqual(6); // the strength cap held
+  });
+
+  test("smooth over uniform rock is a true no-op: no writes, no allocation", () => {
+    const s = createFieldStore();
+    const log = createOpLog();
+    const dirty = logApply(
+      s,
+      log,
+      smoothSphere([2, 2, 2], 1.5, {
+        strength: 64,
+        iterations: 4,
+        mode: "both",
+      }),
+      TABLE,
+    );
+    // every neighborhood mean equals the uniform density → delta 0 everywhere:
+    // the nd === cur continue path must avoid ALL writes (empty dirty set → no
+    // spurious remesh; empty inverse → an empty undo entry; getDensity reads
+    // never allocate chunks)
+    expect(dirty.size).toBe(0);
+    expect(s.chunks.size).toBe(0);
+    expect(s.materials.size).toBe(0);
+    expect(log.undoStack[0]?.inverse.size).toBe(0);
+  });
+
   test("smooth requires params and validates ranges", () => {
     const bare: BrushOp = {
       id: 0,

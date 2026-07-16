@@ -322,17 +322,18 @@ const NEIGHBORHOOD = 27;
 
 /** Smooth branch of {@link applyOp}: a double-buffered 3³ box blur of the
  *  density channel over the shape's interior (`sdf > 0`; the +1-margin ring is
- *  read, never written). Each iteration snapshots the whole region+margin once
- *  and reads from the snapshot while writes go to the store — order-independent
- *  within an iteration (the determinism-friendly convolution shape). Reads
- *  outside the buffered region fall back to the live store: those samples are
- *  never written by this op, so live == snapshot there. The per-sample delta is
- *  clamped to ±strength, scaled by an SDF falloff toward the shape boundary
- *  (the thin-wall-erosion guard); `erode` keeps only density-raising deltas
- *  (toward air), `fill` only density-lowering ones. Writes quantize via
- *  clampInt8's round-to-nearest — the store-wide convention (never Int8Array
- *  truncation), which preserves the mode monotonicity and the integer strength
- *  bound exactly. NEVER touches the material channel. */
+ *  read, never written). Each iteration refills one region+margin snapshot
+ *  buffer and reads from it while writes go to the store — order-independent
+ *  within an iteration (the determinism-friendly convolution shape). Kernel
+ *  reads never leave the buffered region: writes are interior-only
+ *  ([x0+1, x1−1] per axis), so every ±1 kernel reach lands inside [x0, x1].
+ *  The per-sample delta is clamped to ±strength, scaled by an SDF falloff
+ *  toward the shape boundary (the thin-wall-erosion guard); `erode` keeps only
+ *  density-raising deltas (toward air), `fill` only density-lowering ones.
+ *  Writes quantize via clampInt8's round-to-nearest — the store-wide
+ *  convention (never Int8Array truncation), which preserves the mode
+ *  monotonicity and the integer strength bound exactly. NEVER touches the
+ *  material channel. */
 function applySmooth(
   store: FieldStore,
   op: BrushOp,
@@ -358,8 +359,13 @@ function applySmooth(
           op.shape.halfExtents[1],
           op.shape.halfExtents[2],
         );
+  // One buffer for all iterations (refilled per iteration). Every read the
+  // write loop performs stays inside it: writes span [x0+1, x1−1] per axis, so
+  // kernel reach ±1 lands in [x0, x1] exactly.
+  const buf = new Int8Array(nx * ny * nz);
+  const at = (x: number, y: number, z: number): number =>
+    buf[x - x0 + nx * (y - y0 + ny * (z - z0))] as number;
   for (let iter = 0; iter < p.iterations; iter++) {
-    const buf = new Int8Array(nx * ny * nz);
     for (let z = z0; z <= z1; z++)
       for (let y = y0; y <= y1; y++)
         for (let x = x0; x <= x1; x++)
@@ -369,11 +375,6 @@ function applySmooth(
             y,
             z,
           );
-    const at = (x: number, y: number, z: number): number => {
-      if (x < x0 || x > x1 || y < y0 || y > y1 || z < z0 || z > z1)
-        return getDensity(store, x, y, z);
-      return buf[x - x0 + nx * (y - y0 + ny * (z - z0))] as number;
-    };
     for (let z = z0 + 1; z <= z1 - 1; z++)
       for (let y = y0 + 1; y <= y1 - 1; y++)
         for (let x = x0 + 1; x <= x1 - 1; x++) {
