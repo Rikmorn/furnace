@@ -3,7 +3,9 @@ export {
   bakeFieldWorld,
   chunkFilePath,
   decodeChunkFile,
+  decodeMaterialFile,
   encodeChunkFile,
+  encodeMaterialFile,
   parseOps,
   serializeOps,
 } from "./artifact.ts";

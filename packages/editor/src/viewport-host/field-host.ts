@@ -590,7 +590,12 @@ export function createFieldHost(): FieldHost {
       for (const [, e] of chunkMeshes) mesh.setMaterial(c, e.m, m);
     },
     exportArtifact(name) {
-      return field.bakeFieldWorld(store, log, {
+      // MIGRATION (until Task 10): BUILTIN_TABLE (rock-only) stands in for the
+      // project's real material table (threaded through then). Safe today: the
+      // editor only DIGS (no fill/paint), so every store is rock-only and the
+      // mesher/skinner class dispatch never sees a non-rock class. Once the
+      // editor paints, this must pass the project table or classOf will throw.
+      return field.bakeFieldWorld(store, log, field.BUILTIN_TABLE, {
         name,
         playerStart: cameraEye(), // v0 spawn = current camera position
         playerYaw: orbitState.yaw,

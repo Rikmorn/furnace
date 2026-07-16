@@ -166,7 +166,11 @@ export type ChunkCollider = {
   position: [number, number, number];
 };
 
-/** v2 field-world manifest (kind discriminates from the v1 region world). */
+/** v2 field-world manifest (kind discriminates from the v1 region world). The
+ *  material fields are ADDITIVE within version 2: all optional, so a manifest
+ *  that omits them (mesh entries without `classId`/`backing`, no `materials` /
+ *  `kit` / `materialTable`) is a valid F1-shaped bake — the loader defaults an
+ *  absent `classId` to {@link MAT_ROCK}. */
 export type FieldManifest = {
   version: 2;
   kind: "field";
@@ -174,5 +178,22 @@ export type FieldManifest = {
   playerStart: [number, number, number];
   playerYaw: number;
   chunks: { key: ChunkKey; file: string }[];
-  meshes: { key: ChunkKey; file: string; origin: [number, number, number] }[];
+  meshes: {
+    key: ChunkKey;
+    file: string;
+    origin: [number, number, number];
+    /** Solid-side material class of this bucket. Absent (F1 bake) = organic
+     *  {@link MAT_ROCK}. */
+    classId?: number;
+    /** True for a kit BACKING bucket (the raw surface behind proud kit pieces);
+     *  absent/false for organic classes. */
+    backing?: boolean;
+  }[];
+  /** Material sibling files — only chunks with a real non-rock material
+   *  presence (a uniform-rock chunk emits none). */
+  materials?: { key: ChunkKey; file: string }[];
+  /** Kit instance files — only chunks that hold kit pieces. */
+  kit?: { key: ChunkKey; file: string }[];
+  /** The resolved material table, embedded so the artifact is self-contained. */
+  materialTable?: MaterialTable;
 };

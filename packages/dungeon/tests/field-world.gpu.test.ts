@@ -43,7 +43,7 @@ describe("field world: bake -> load -> walk", () => {
           field.BUILTIN_TABLE,
         );
       }
-      const files = field.bakeFieldWorld(store, log, {
+      const files = field.bakeFieldWorld(store, log, field.BUILTIN_TABLE, {
         name: "tunnel",
         playerStart: [1.5, 1.5, 1.5],
         playerYaw: 0,
