@@ -36,6 +36,7 @@ import { buildGridLines, segmentsToBatch } from "./reference-grid.ts";
 export type { OrbitState } from "./camera-control.ts";
 export {
   createFieldHost,
+  type FieldGeneratorInfo,
   type FieldHost,
   type FieldHostShading,
   type FieldLayers,

@@ -102,6 +102,16 @@ export type SelectionInfo = {
   aabb: { min: [number, number, number]; max: [number, number, number] } | null;
 };
 
+/** One registry generator as the panel sees it ({@link FieldHost.listGenerators}):
+ *  core's GeneratorDef minus its evaluate. `paramSchema` feeds the stamp form
+ *  (Task 15); `defaults` seed its initial params. */
+export type FieldGeneratorInfo = {
+  id: string;
+  name: string;
+  paramSchema: Record<string, unknown>;
+  defaults: Record<string, unknown>;
+};
+
 /** Per-layer render visibility (all default true). `field` = the per-class
  *  bucket surface meshes; `kit` = the instanced kit pieces; `ghost` = the
  *  brush ghost (cube + lines) + the stamp session's hologram preview;
@@ -198,6 +208,12 @@ export type FieldHost = {
   /** Swaps the project's resolved material table (the panel calls this once
    *  after catalog load, Task 12). Re-buckets and re-meshes every chunk. */
   setMaterialTable(table: field.MaterialTable): void;
+  /** The registry's staged generators (id/name/param schema/defaults) for the
+   *  panel's palette + stamp form — surfaced through the host because the
+   *  chrome cannot value-import core's FIELD_GENERATORS. Schema/defaults are
+   *  CLONED per call (plain-data records), so the panel never holds registry
+   *  state. */
+  listGenerators(): FieldGeneratorInfo[];
   /** Opens a stamp session for a registry generator, its region the CURRENT
    *  selection's AABB snapped OUTWARD to the 0.5 m lattice, its seed a fresh
    *  random uint16, its params the generator's schema defaults — and fires
@@ -2124,6 +2140,14 @@ export function createFieldHost(): FieldHost {
           console.warn(`field-host: material table swap failed: ${message}`);
         }
       })();
+    },
+    listGenerators() {
+      return field.FIELD_GENERATORS.map((g) => ({
+        id: g.id,
+        name: g.name,
+        paramSchema: structuredClone(g.paramSchema),
+        defaults: structuredClone(g.defaults),
+      }));
     },
     startStamp(generator) {
       const sel = selection;

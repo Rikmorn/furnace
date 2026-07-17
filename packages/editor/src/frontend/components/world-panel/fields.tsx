@@ -1,6 +1,8 @@
 // Leaf helpers shared by the World panel's three pieces (WorldPanel.tsx, RegionRow.tsx,
 // AddRegionForm.tsx): the label scaffolding every knob repeats, the number-input parser,
-// and the error-to-string helper. Nothing here holds state or knows about the draft.
+// and the error-to-string helper. SELECT_CLASS + ReasonTip are also reused by the Field
+// panel (FieldPanel.tsx, field/BrushInspector.tsx). Nothing here holds state or knows
+// about the draft.
 //
 // These panels use the NATIVE <select>, not the package's ui/select.tsx (Radix) — a
 // deliberate deviation from the primitive four other files use. The World panel's selects
