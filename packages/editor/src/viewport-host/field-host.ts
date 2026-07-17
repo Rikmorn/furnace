@@ -14,7 +14,7 @@ import * as gpu from "@furnace/core/gpu";
 import * as material from "@furnace/core/material";
 import * as mesh from "@furnace/core/mesh";
 import * as shader from "@furnace/core/shader";
-import { mat4, vec4 } from "@furnace/core/transform";
+import { vec4 } from "@furnace/core/transform";
 import {
   computeBrushCenter,
   snappedKitBox,
@@ -28,6 +28,8 @@ import {
   type OrbitState,
   toEyeTarget,
 } from "./camera-control.ts";
+import { boxCorners, GHOST_COLOR, sphereGhostSegments } from "./field-ghost.ts";
+import { packKitMatrices, pieceColor } from "./field-kit-render.ts";
 import { buildGridLines, segmentsToBatch } from "./reference-grid.ts";
 
 /** Shading toggle: `flat` = unlit normal-colour (structure legibility); `headlamp` =
@@ -99,12 +101,6 @@ const RADIUS_MIN = 0.25;
 const RADIUS_MAX = 4;
 const RADIUS_WHEEL_STEP = 0.1;
 
-// The ghost target ring/box preview colour — hologram-blue (research convention),
-// drawn occlude:false so it reads through solid geometry.
-const GHOST_COLOR: [number, number, number, number] = [0.4, 0.8, 1, 1];
-// Ghost sphere preview: two great-circle rings (XZ + XY), this many segments each.
-const GHOST_RING_SEGMENTS = 16;
-
 const CLEAR = vec4.fromValues(0.03, 0.03, 0.045, 1);
 const HEADLAMP_COLOR: Vec3T = [1, 0.95, 0.85];
 const HEADLAMP_INTENSITY = 6;
@@ -128,49 +124,8 @@ const GRID_MINOR_DIM = 0.5; // minors dimmed vs majors (two-tone depth cue)
 // Shared specular for every lit bucket / kit material (color-only variation).
 const LIT_SPECULAR: [number, number, number, number] = [0.06, 0.06, 0.06, 16];
 
-// Per-piece tint jitter (deterministic from the instance variant): scale RGB by
-// KIT_TINT_JITTER_BASE + KIT_TINT_JITTER_SPAN·variant.
-const KIT_TINT_JITTER_BASE = 0.92;
-const KIT_TINT_JITTER_SPAN = 0.16;
-
-// Exact quarter-turn yaw quaternions (rotation about +Y): (0, sin(θ/2), 0,
-// cos(θ/2)). No trig — the donor skin.ts pattern (yaws are always {0, ±π/2, π}).
-const S = Math.SQRT1_2;
-const YAW_ZERO = new Float32Array([0, 0, 0, 1]); // 0°
-const YAW_PLUS_90 = new Float32Array([0, S, 0, S]); // +90°
-const YAW_180 = new Float32Array([0, 1, 0, 0]); // 180°
-const YAW_MINUS_90 = new Float32Array([0, -S, 0, S]); // -90° / 270°
-
-// Kit piece kind → its KitStyle.pieceColors bucket.
-const PIECE_COLOR_KEY: Record<
-  field.KitPieceId,
-  keyof field.KitStyle["pieceColors"]
-> = {
-  panel: "panel",
-  floorTile: "floor",
-  ceilTile: "floor",
-  post: "trim",
-  rimPostV: "collar",
-  rimEdgeH: "collar",
-};
-
 const clampRadius = (r: number): number =>
   Math.max(RADIUS_MIN, Math.min(RADIUS_MAX, r));
-
-/** Exact yaw quaternion for a quarter-turn rotation about +Y (yaw ∈ {0, ±π/2, π}). */
-const yawQuat = (yaw: number): Float32Array => {
-  const q = ((Math.round(yaw / (Math.PI / 2)) % 4) + 4) % 4;
-  switch (q) {
-    case 1:
-      return YAW_PLUS_90;
-    case 2:
-      return YAW_180;
-    case 3:
-      return YAW_MINUS_90;
-    default:
-      return YAW_ZERO;
-  }
-};
 
 /**
  * Create an uninitialized field host. `init(canvas)` must run before any GPU
@@ -361,21 +316,9 @@ export function createFieldHost(): FieldHost {
       cz * field.CHUNK_DIM * store.cellSize,
     ]);
 
-  // Per-instance tint for a kit piece: the class's KitStyle piece colour, jittered
-  // by the instance variant (RGB only; alpha carried through).
-  const pieceColor = (
-    k: field.KitInstance,
-  ): [number, number, number, number] => {
-    const cls = field.classOf(table, k.classId);
-    if (cls.kind !== "kit") return [1, 1, 1, 1];
-    const base = cls.kit.pieceColors[PIECE_COLOR_KEY[k.piece]];
-    const j = KIT_TINT_JITTER_BASE + KIT_TINT_JITTER_SPAN * k.variant;
-    return [base[0] * j, base[1] * j, base[2] * j, base[3]];
-  };
-
   // Build one chunk's instanced kit mesh: a unit cube drawn once per piece, each
   // transformed by its (yaw · box) matrix at its world position, tinted per piece.
-  // Accumulates ONE packed matrix array and uploads it in a single bulk call.
+  // Matrix packing + tinting live in field-kit-render.ts; only GPU calls here.
   const buildKit = (
     c: Context,
     key: string,
@@ -397,25 +340,12 @@ export function createFieldHost(): FieldHost {
     });
     const [cx, cy, cz] = field.parseChunkKey(key);
     const dim = field.CHUNK_DIM * store.cellSize;
-    const ox = cx * dim;
-    const oy = cy * dim;
-    const oz = cz * dim;
-    const packed = new Float32Array(16 * kit.length);
-    const m = mat4.create();
-    const t = new Float32Array(3);
-    const s = new Float32Array(3);
-    kit.forEach((k, i) => {
-      t[0] = k.position[0] + ox;
-      t[1] = k.position[1] + oy;
-      t[2] = k.position[2] + oz;
-      s[0] = k.box[0];
-      s[1] = k.box[1];
-      s[2] = k.box[2];
-      mat4.fromRotationTranslationScale(m, yawQuat(k.yaw), t, s);
-      packed.set(m, i * 16);
-    });
-    mesh.setInstanceMatrices(c, im, packed);
-    kit.forEach((k, i) => mesh.setInstanceTint(c, im, i, pieceColor(k)));
+    mesh.setInstanceMatrices(
+      c,
+      im,
+      packKitMatrices(kit, [cx * dim, cy * dim, cz * dim]),
+    );
+    kit.forEach((k, i) => mesh.setInstanceTint(c, im, i, pieceColor(table, k)));
     return { im, g };
   };
 
@@ -650,69 +580,9 @@ export function createFieldHost(): FieldHost {
 
   // --- ghost target marker ------------------------------------------------
 
-  // One point on a ring: centre + radius·(cosθ·u + sinθ·v) for orthonormal plane
-  // axes u, v. Pure — feeds the sphere-brush preview rings.
-  const ringPoint = (
-    center: Vec3T,
-    radius: number,
-    u: Vec3T,
-    v: Vec3T,
-    theta: number,
-  ): Vec3T => {
-    const cs = Math.cos(theta);
-    const sn = Math.sin(theta);
-    return [
-      center[0] + radius * (cs * u[0] + sn * v[0]),
-      center[1] + radius * (cs * u[1] + sn * v[1]),
-      center[2] + radius * (cs * u[2] + sn * v[2]),
-    ];
-  };
-
-  // The sphere-brush ghost: two great-circle rings (XZ + XY planes) as a flat line
-  // batch, via segmentsToBatch (same path as the grid / AABB highlight).
-  const sphereGhostBatch = (
-    center: Vec3T,
-    radius: number,
-  ): { vertices: Float32Array; colors: Float32Array } => {
-    const planes: [Vec3T, Vec3T][] = [
-      [
-        [1, 0, 0],
-        [0, 0, 1],
-      ], // XZ ring
-      [
-        [1, 0, 0],
-        [0, 1, 0],
-      ], // XY ring
-    ];
-    const segments: [Vec3T, Vec3T][] = [];
-    for (const [u, v] of planes)
-      for (let i = 0; i < GHOST_RING_SEGMENTS; i++) {
-        const a = (2 * Math.PI * i) / GHOST_RING_SEGMENTS;
-        const b = (2 * Math.PI * (i + 1)) / GHOST_RING_SEGMENTS;
-        segments.push([
-          ringPoint(center, radius, u, v, a),
-          ringPoint(center, radius, u, v, b),
-        ]);
-      }
-    return segmentsToBatch(segments, GHOST_COLOR);
-  };
-
-  // The 8 world corners of a centre+halfExtents box in boxEdges' bit-layout order
-  // (bit0=x, bit1=y, bit2=z), as a length-24 Float32Array.
-  const boxCorners = (center: Vec3T, half: Vec3T): Float32Array => {
-    const out = new Float32Array(24);
-    for (let i = 0; i < 8; i++) {
-      out[i * 3] = (i & 1) === 0 ? center[0] - half[0] : center[0] + half[0];
-      out[i * 3 + 1] =
-        (i & 2) === 0 ? center[1] - half[1] : center[1] + half[1];
-      out[i * 3 + 2] =
-        (i & 4) === 0 ? center[2] - half[2] : center[2] + half[2];
-    }
-    return out;
-  };
-
   // The ghost line batch for the active tool at a centre: kit fills preview their
-  // snapped lattice box's 12 edges; every sphere tool previews the two brush rings.
+  // snapped lattice box's 12 edges; every sphere tool previews the two brush
+  // rings. Corner/ring math lives in field-ghost.ts; batching stays here.
   const ghostBatch = (
     center: Vec3T,
   ): { vertices: Float32Array; colors: Float32Array } => {
@@ -720,7 +590,7 @@ export function createFieldHost(): FieldHost {
       const box = snappedKitBox(center, digRadius);
       return boxEdges(boxCorners(box.center, box.halfExtents), GHOST_COLOR);
     }
-    return sphereGhostBatch(center, digRadius);
+    return segmentsToBatch(sphereGhostSegments(center, digRadius), GHOST_COLOR);
   };
 
   // Draw the ghost target preview at the last cursor position, occlude:false so it

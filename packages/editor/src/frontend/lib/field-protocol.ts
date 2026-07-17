@@ -57,7 +57,11 @@ export type FieldWorkerRequest =
       table: MaterialTable;
       cellSize: number;
       /** Snapshot of the region's chunks (missing = uniform solid, matching the
-       *  store default). Density buffers transferred; materials structured-cloned. */
+       *  store default). Caller completeness contract: include EVERY allocated
+       *  chunk intersecting the region PLUS its 26-halo — omitting a carved
+       *  chunk silently diverges preview from commit under keep-existing-air;
+       *  omitting a halo chunk yields one-sided ghost seams. Density buffers
+       *  transferred; materials structured-cloned. */
       chunks: {
         key: string;
         density: ArrayBuffer;
@@ -166,8 +170,10 @@ function handleStampPreview(
 ): void {
   const def = generatorById(msg.generator); // setup-loud on unknown ids
   const store = createFieldStore(msg.cellSize);
-  // Snapshot install: views over the transferred (worker-owned) buffers — the
-  // scratch store may mutate them freely; nothing else references them.
+  // Snapshot install: views over the request's buffers, which the caller
+  // relinquishes — the scratch store mutates them in place. Production
+  // transfers detach the sender's copy; in-realm callers (tests wire the
+  // handler directly) must not reuse the buffers they passed.
   for (const c of msg.chunks) {
     store.chunks.set(c.key, new Int8Array(c.density));
     if (c.materials !== null) store.materials.set(c.key, c.materials);
