@@ -970,6 +970,14 @@ export function createFieldHost(): FieldHost {
     return { origin: [ox, oy, oz], dir: [dx, dy, dz], eyeInRock };
   };
 
+  // Slice-coherence (F2b Task 15 disposition): EVERY cursor-driven field
+  // raycast passes the slice clip, not just computeTarget — an eyedrop, a
+  // box-select corner, or a flood seed under an active slice must land on the
+  // sliced surface the user SEES, never on rock the display hides (what you
+  // see is what you target). The four gesture sites below share this helper.
+  const sliceOpts = (): { maxY: number } | undefined =>
+    sliceY === null ? undefined : { maxY: sliceY };
+
   // The world-space brush centre for a cursor position under the dig-feel contract
   // (field-brush.computeBrushCenter). The eye-in-rock probe + field raycast live
   // HERE — they need the field + camera — while the pure module does the arithmetic.
@@ -995,13 +1003,7 @@ export function createFieldHost(): FieldHost {
       (sliceY === null || field.worldToVoxel(origin[1], cs) * cs < sliceY);
     const rc = eyeInRock
       ? null
-      : field.raycastField(
-          store,
-          origin,
-          dir,
-          DIG_RANGE_M,
-          sliceY === null ? undefined : { maxY: sliceY },
-        );
+      : field.raycastField(store, origin, dir, DIG_RANGE_M, sliceOpts());
     return computeBrushCenter(
       { origin, dir, eyeInRock, hit: rc ? rc.point : null },
       digRadius,
@@ -1024,7 +1026,15 @@ export function createFieldHost(): FieldHost {
         field.worldToVoxel(ray.origin[2], cs),
       ];
     } else {
-      const rc = field.raycastField(store, ray.origin, ray.dir, DIG_RANGE_M);
+      // Slice-coherent (sliceOpts): sample the class at the VISIBLE sliced
+      // surface, never at hidden rock above the plane.
+      const rc = field.raycastField(
+        store,
+        ray.origin,
+        ray.dir,
+        DIG_RANGE_M,
+        sliceOpts(),
+      );
       if (!rc) return;
       voxel = rc.voxel;
     }
@@ -1179,7 +1189,15 @@ export function createFieldHost(): FieldHost {
     const ray = cursorRay(clientX, clientY);
     if (!ray) return null;
     if (!ray.eyeInRock) {
-      const rc = field.raycastField(store, ray.origin, ray.dir, DIG_RANGE_M);
+      // Slice-coherent (sliceOpts): a corner clicked under an active slice
+      // sits ON the sliced surface shown, not on a hidden wall above it.
+      const rc = field.raycastField(
+        store,
+        ray.origin,
+        ray.dir,
+        DIG_RANGE_M,
+        sliceOpts(),
+      );
       if (rc) return rc.point;
     }
     return computeTarget(clientX, clientY);
@@ -1210,7 +1228,15 @@ export function createFieldHost(): FieldHost {
         field.worldToVoxel(ray.origin[1], cs),
         field.worldToVoxel(ray.origin[2], cs),
       ];
-    const rc = field.raycastField(store, ray.origin, ray.dir, DIG_RANGE_M);
+    // Slice-coherent (sliceOpts): the flood seed is the first VISIBLE solid
+    // under the cursor — the flood itself then runs on the real field.
+    const rc = field.raycastField(
+      store,
+      ray.origin,
+      ray.dir,
+      DIG_RANGE_M,
+      sliceOpts(),
+    );
     if (!rc) {
       reportToolError("material select: no rock under the cursor within range");
       return null;
@@ -1234,7 +1260,17 @@ export function createFieldHost(): FieldHost {
       );
       return null;
     }
-    const rc = field.raycastField(store, ray.origin, ray.dir, DIG_RANGE_M);
+    // Slice-coherent (sliceOpts): `prev` then precedes the first VISIBLE rock
+    // hit. Under an active slice it can be a display-air voxel that is rock in
+    // the real field — the flood then finds no air there and reports "no
+    // matching cells" instead of selecting a pocket the display hides.
+    const rc = field.raycastField(
+      store,
+      ray.origin,
+      ray.dir,
+      DIG_RANGE_M,
+      sliceOpts(),
+    );
     if (rc) return rc.prev;
     const target = computeTarget(clientX, clientY);
     if (!target) return null;
@@ -1382,6 +1418,10 @@ export function createFieldHost(): FieldHost {
   // Build the ghost render state from a preview response: one mesh per
   // non-empty bucket, ALL under the one stamp-ghost material (shape only —
   // classes/kit appear on commit), at chunk origins.
+  // Deliberate v0 (slice-coherence disposition, F2b Task 15): the stamp ghost
+  // renders FULL-HEIGHT even over a sliced field — the preview evaluate never
+  // sees sliceY, so "see what you're stamping" wins over slice consistency.
+  // The commit's real chunk meshes then re-clip through the slice as usual.
   const applyStampGhost = (
     chunks: { key: string; buckets: WireBucket[] }[],
   ): void => {
@@ -1480,6 +1520,13 @@ export function createFieldHost(): FieldHost {
   // runs: a subscriber may synchronously cancel/update the session from
   // inside the "previewing" notification (re-entrancy), so nothing here
   // re-reads `stamp` after notifying.
+  // Known v0 divergence window (F2b Task 15 disposition): a ⌘Z or a brush
+  // stroke DURING a live session mutates the store this preview snapshotted,
+  // so a keep-existing-air ghost can differ from what commit later builds
+  // (commit re-evaluates against the then-current field). Contrived today —
+  // the session flow invites Enter/Esc before more digging — so it is
+  // documented here rather than fixed with cancel-on-undo. See also
+  // commitStampSession.
   const previewStamp = (): void => {
     if (stamp === null) return;
     stamp = toPreviewing(stamp);
@@ -1497,7 +1544,8 @@ export function createFieldHost(): FieldHost {
   // Commit the previewed stamp: ONE undo entry, ONE entity op. Preview and
   // commit run the SAME pure evaluate (charter §2.2 determinism), so the
   // committed field reproduces the ghost exactly — the ghost is not an
-  // approximation.
+  // approximation. Exception: the store changed since the last preview (⌘Z or
+  // a stroke mid-session) — see the divergence note on previewStamp.
   const commitStampSession = (): void => {
     const s = stamp;
     if (s === null || s.phase !== "ready") return;

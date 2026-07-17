@@ -71,7 +71,9 @@ export function BrushInspector(props: {
           step={RADIUS_STEP}
           value={props.radius}
           onChange={(e) => props.onRadius(Number(e.target.value))}
-          aria-label="dig radius"
+          // Accessible name contains the visible "brush" label text (the
+          // label-in-name rule) — voice-control users say what they see.
+          aria-label="brush radius"
         />
         <span className="w-8 tabular-nums">{props.radius.toFixed(2)}</span>
       </label>
@@ -166,6 +168,16 @@ export function BrushInspector(props: {
                 onChange={(e) => {
                   const n = Number(e.target.value);
                   if (Number.isFinite(n)) onChange({ ...tool, hollow: n });
+                }}
+                onBlur={() => {
+                  // Display honesty (F2b rider): the HOST clamps hollow to
+                  // ≥ HOLLOW_MIN_M on setTool, so a settled sub-floor value
+                  // here would display 0.2 while strokes carve 0.5. Clamp on
+                  // BLUR, not per keystroke — a mid-typing clamp would fight
+                  // entering "0.75" — so the settled display always matches
+                  // what the host applies.
+                  if (tool.hollow !== null && tool.hollow < HOLLOW_MIN_M)
+                    onChange({ ...tool, hollow: HOLLOW_MIN_M });
                 }}
                 aria-label="hollow thickness"
                 className="h-8 w-16"

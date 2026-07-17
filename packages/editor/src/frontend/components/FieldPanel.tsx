@@ -11,14 +11,21 @@
 // engine code (the project-first invariant). This file type-imports the field
 // host + artifact types (all erased) and value-imports the catalog parser
 // from a frontend lib that itself only type-imports core.
-import type { FieldManifest, MaterialTable } from "@furnace/core/field"; // type-only: erased
-import { useEffect, useRef, useState } from "react";
 import type {
+  FieldManifest,
+  GeneratorEntity,
+  MaterialTable,
+} from "@furnace/core/field"; // type-only: erased
+import { useCallback, useEffect, useRef, useState } from "react";
+import type {
+  FieldGeneratorInfo,
   FieldHostShading,
+  FieldLayers,
   FieldMaskChoice,
   FieldTool,
   SelectionInfo,
   SelectionMode,
+  StampSession,
 } from "../../viewport-host/index.ts"; // type-only: erased
 import { api } from "../lib/api.ts";
 // catalog.ts type-imports core only (erased), so value-importing it here does NOT
@@ -29,7 +36,10 @@ import { bakeUploadCalls, toWireFiles } from "../lib/generation.ts";
 import { initWhenSized } from "../lib/init-when-sized.ts";
 import { useEditor } from "./editor-context.ts";
 import { BrushInspector } from "./field/BrushInspector.tsx";
+import { EntitiesList } from "./field/EntitiesList.tsx";
+import { LayersRow } from "./field/LayersRow.tsx";
 import { MaterialSwatches } from "./field/MaterialSwatches.tsx";
+import { StampInspector } from "./field/StampInspector.tsx";
 import { ToolPalette } from "./field/ToolPalette.tsx";
 import { Button } from "./ui/button.tsx";
 import { Input } from "./ui/input.tsx";
@@ -65,6 +75,21 @@ const ROCK_ONLY_TABLE: MaterialTable = {
   ],
 };
 
+// Panel-side layer defaults — mirror the host's own all-true default (a local
+// literal for the same reason as DEFAULT_TOOL: the chrome cannot value-import
+// the host). Pushed to the host at engine-ready so both start in agreement.
+const DEFAULT_LAYERS: FieldLayers = {
+  field: true,
+  kit: true,
+  ghost: true,
+  selection: true,
+  grid: true,
+};
+
+// Slice defaults: OFF, plane parked at 8 m — mid-range of the slider (LayersRow
+// owns the −8…+24 range), high enough to cut a typical kit hall when enabled.
+const SLICE_DEFAULT_Y = 8;
+
 type FieldStats = { chunks: number; lastRemeshMs: number };
 
 const errorMessage = (err: unknown): string =>
@@ -81,14 +106,42 @@ const masksEqual = (a: FieldMaskChoice, b: FieldMaskChoice): boolean =>
     ? a.classId === b.classId
     : a.kind === b.kind;
 
-const toolsEqual = (a: FieldTool, b: FieldTool): boolean =>
-  a.effect === b.effect &&
-  a.materialId === b.materialId &&
-  a.hollow === b.hollow &&
-  masksEqual(a.mask, b.mask) &&
-  a.smooth.strength === b.smooth.strength &&
-  a.smooth.iterations === b.smooth.iterations &&
-  a.smooth.mode === b.smooth.mode;
+const toolsEqual = (a: FieldTool, b: FieldTool): boolean => {
+  // Compiler backstop (F2b rider): destructure EVERY FieldTool field — a
+  // future field lands in `rest` and fails the never-check, forcing this
+  // comparator to learn it. A missed field would silently WEAKEN the
+  // subscribeTool echo guard: differing tools would compare equal and the
+  // mirror would drop host-initiated changes.
+  const { effect, materialId, hollow, mask, smooth, ...rest } = a;
+  void (rest satisfies Record<string, never>);
+  return (
+    effect === b.effect &&
+    materialId === b.materialId &&
+    hollow === b.hollow &&
+    masksEqual(mask, b.mask) &&
+    smooth.strength === b.smooth.strength &&
+    smooth.iterations === b.smooth.iterations &&
+    smooth.mode === b.smooth.mode
+  );
+};
+
+// Entity-list identity for the refresh guard: id + opSpan. Params/seed are
+// immutable post-commit (reconfigure is F3), so a matching signature means
+// the same rows and the previous array reference can be kept (no re-render).
+const sameEntities = (
+  a: GeneratorEntity[],
+  b: GeneratorEntity[],
+): boolean =>
+  a.length === b.length &&
+  a.every((e, i) => {
+    const o = b[i];
+    return (
+      o !== undefined &&
+      e.entityId === o.entityId &&
+      e.opSpan[0] === o.opSpan[0] &&
+      e.opSpan[1] === o.opSpan[1]
+    );
+  });
 
 export function FieldPanel() {
   const { state, fieldHostRef } = useEditor();
@@ -103,9 +156,12 @@ export function FieldPanel() {
     null,
   );
   const [selection, setSelection] = useState<SelectionInfo | null>(null);
-  const [generators, setGenerators] = useState<{ id: string; name: string }[]>(
-    [],
-  );
+  // Full registry info — paramSchema/defaults feed the stamp inspector's form.
+  const [generators, setGenerators] = useState<FieldGeneratorInfo[]>([]);
+  const [stamp, setStamp] = useState<StampSession | null>(null);
+  const [entities, setEntities] = useState<GeneratorEntity[]>([]);
+  const [layers, setLayers] = useState<FieldLayers>(DEFAULT_LAYERS);
+  const [slice, setSlice] = useState({ enabled: false, y: SLICE_DEFAULT_Y });
   // Range floors until the host-constants effect reads the real core ceilings.
   const [smoothLimits, setSmoothLimits] = useState({
     maxStrength: 1,
@@ -193,7 +249,7 @@ export function FieldPanel() {
     const host = fieldHostRef.current;
     if (!host || state.status !== "ready") return;
     setSmoothLimits(host.getSmoothLimits());
-    setGenerators(host.listGenerators().map((g) => ({ id: g.id, name: g.name })));
+    setGenerators(host.listGenerators());
   }, [state.status, fieldHostRef]);
 
   // Mirror HOST-initiated tool changes (Alt-click eyedropper, momentary
@@ -220,6 +276,57 @@ export function FieldPanel() {
     if (!host || state.status !== "ready") return;
     return host.subscribeSelection(setSelection);
   }, [state.status, fieldHostRef]);
+
+  // Stamp-session mirror. subscribeStamp pushes CLONES plus the current state
+  // on subscribe, so a panel remount mid-session recovers the live form.
+  useEffect(() => {
+    const host = fieldHostRef.current;
+    if (!host || state.status !== "ready") return;
+    return host.subscribeStamp(setStamp);
+  }, [state.status, fieldHostRef]);
+
+  // Push the panel's layer/slice view defaults to the host at engine-ready,
+  // and drop any entity-highlight box when the panel unmounts. The host
+  // outlives the panel (App owns it) and has no layers/slice/highlight
+  // subscription seam, so a REMOUNT resets all three to the panel defaults —
+  // honest (the controls always show what the host uses) at the cost of
+  // forgetting the toggles across tab switches; the same v0 trade as the
+  // one-way radius seam below. The highlight clear keeps a remounted list
+  // (expansion state reset) from standing next to a box no row claims.
+  useEffect(() => {
+    const host = fieldHostRef.current;
+    if (!host || state.status !== "ready") return;
+    host.setLayers(DEFAULT_LAYERS);
+    host.setSlice(null);
+    return () => host.highlightEntity(null);
+  }, [state.status, fieldHostRef]);
+
+  // Entities refresh strategy (Task 15): re-read listEntities when
+  // (a) the STAMP session changes — a commit ends the session with a null
+  //     push, which lands the new entity here;
+  // (b) the STATS readout changes — any field mutation (including a ⌘Z
+  //     undo/redo of an entity commit) dirties chunks, whose remesh bumps
+  //     lastRemeshMs, so an undone entity disappears within a frame or two;
+  // (c) the Entities section OPENS (EntitiesList onOpen) — manual catch-up.
+  // The id+opSpan signature guard keeps the no-change reads (every plain dig
+  // stroke hits (b)) from re-rendering the panel.
+  const refreshEntities = useCallback((): void => {
+    const host = fieldHostRef.current;
+    if (!host) return;
+    setEntities((prev) => {
+      const next = host.listEntities();
+      return sameEntities(prev, next) ? prev : next;
+    });
+  }, [fieldHostRef]);
+
+  useEffect(() => {
+    if (state.status !== "ready") return;
+    // `stamp` + `stats` are deliberate TRIGGER deps — triggers (a) and (b) of
+    // the refresh strategy above; their values are read via listEntities.
+    void stamp;
+    void stats;
+    refreshEntities();
+  }, [state.status, refreshEntities, stamp, stats]);
 
   // User-facing tool problems (selection-mask misuse, swallowed stroke
   // failures, "select a region first") surface on the status line.
@@ -258,6 +365,16 @@ export function FieldPanel() {
     setHeadlamp(on);
     const mode: FieldHostShading = on ? "headlamp" : "flat";
     fieldHostRef.current?.setShading(mode);
+  };
+
+  const onLayers = (next: FieldLayers): void => {
+    setLayers(next);
+    fieldHostRef.current?.setLayers(next);
+  };
+
+  const onSlice = (next: { enabled: boolean; y: number }): void => {
+    setSlice(next);
+    fieldHostRef.current?.setSlice(next.enabled ? next.y : null);
   };
 
   // The one funnel for every tool change: adopt locally + push to the host.
@@ -385,6 +502,14 @@ export function FieldPanel() {
   }
 
   const nameInvalid = name !== "" && !nameValid;
+  // The live session's registry info (its paramSchema feeds the form). The
+  // find can only miss if the registry changed under a live session —
+  // impossible today (FIELD_GENERATORS is static); the guard simply hides
+  // the inspector rather than crash on a schema-less form.
+  const stampDef =
+    stamp === null
+      ? undefined
+      : generators.find((g) => g.id === stamp.generator);
 
   return (
     <div className="flex h-full flex-col">
@@ -487,6 +612,36 @@ export function FieldPanel() {
             onChange={pushTool}
           />
         )}
+        {/* The stamp inspector rides the session's existence, independent of
+            the brush/selection state — the brush stays live during a session
+            (its strokes are the documented divergence window). */}
+        {stamp !== null && stampDef !== undefined && (
+          <StampInspector
+            session={stamp}
+            def={stampDef}
+            onUpdate={(params, seed, policy) =>
+              fieldHostRef.current?.updateStamp(params, seed, policy)
+            }
+            onReroll={() => fieldHostRef.current?.rerollStamp()}
+            onCommit={() => fieldHostRef.current?.commitStamp()}
+            onCancel={() => fieldHostRef.current?.cancelStamp()}
+          />
+        )}
+      </div>
+      <div className="border-b border-border p-2 text-sm">
+        <LayersRow
+          layers={layers}
+          slice={slice}
+          onLayers={onLayers}
+          onSlice={onSlice}
+        />
+      </div>
+      <div className="border-b border-border px-2 py-1 text-sm">
+        <EntitiesList
+          entities={entities}
+          onHighlight={(id) => fieldHostRef.current?.highlightEntity(id)}
+          onOpen={refreshEntities}
+        />
       </div>
       {/* The FieldHost renders into this canvas. tabIndex makes it focusable so the WASD/QE
           fly + ⌘Z undo keydowns the host attaches actually reach it (Task 9 review flagged
