@@ -38,7 +38,9 @@ export const PIECE_COLOR_KEY: Record<
   rimEdgeH: "collar",
 };
 
-/** Exact yaw quaternion for a quarter-turn rotation about +Y (yaw ∈ {0, ±π/2, π}). */
+/** Exact yaw quaternion for a quarter-turn rotation about +Y (yaw ∈ {0, ±π/2, π}).
+ *  Returns SHARED module-level Float32Array instances — consumers must not
+ *  mutate the result (Object.freeze is not viable on typed arrays). */
 export const yawQuat = (yaw: number): Float32Array => {
   const q = ((Math.round(yaw / (Math.PI / 2)) % 4) + 4) % 4;
   switch (q) {

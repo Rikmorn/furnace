@@ -12,6 +12,7 @@ import { useEffect, useRef, useState } from "react";
 import type {
   FieldHost,
   FieldHostShading,
+  FieldTool,
 } from "../../viewport-host/index.ts"; // type-only: erased
 import { api } from "../lib/api.ts";
 // catalog.ts type-imports core only (erased), so value-importing it here does NOT
@@ -43,6 +44,17 @@ const TOOL_LABELS: Record<ToolEffect, string> = {
   dig: "Dig",
   fill: "Fill",
   paint: "Paint",
+};
+
+// MIGRATION (until Task 14): the v0 panel exposes no mask/smooth/hollow UI, so
+// every setTool call carries these Task-10 chassis defaults. The smooth values
+// mirror core's SMOOTH_DEFAULTS as a literal — the chrome cannot value-import
+// core (frontend-no-engine-leakage). The Task 14 panel rewrite owns real
+// controls (and reads the ceilings via host.getSmoothLimits()).
+const TOOL_DEFAULTS: Pick<FieldTool, "mask" | "smooth" | "hollow"> = {
+  mask: { kind: "none" },
+  smooth: { strength: 16, iterations: 1, mode: "both" },
+  hollow: null,
 };
 
 // Dropdown fallback before the catalog resolves and when there is none (404): rock
@@ -183,12 +195,20 @@ export function FieldPanel() {
       nextMaterial = table.classes.find((c) => c.kind === "organic")?.id ?? 0;
       setMaterialId(nextMaterial);
     }
-    fieldHostRef.current?.setTool({ effect, materialId: nextMaterial });
+    fieldHostRef.current?.setTool({
+      effect,
+      materialId: nextMaterial,
+      ...TOOL_DEFAULTS,
+    });
   };
 
   const onMaterial = (id: number): void => {
     setMaterialId(id);
-    fieldHostRef.current?.setTool({ effect: tool, materialId: id });
+    fieldHostRef.current?.setTool({
+      effect: tool,
+      materialId: id,
+      ...TOOL_DEFAULTS,
+    });
   };
 
   const onNew = (): void => {

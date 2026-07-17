@@ -98,10 +98,16 @@ function assertMaskValid(
   }
 }
 
-/** Per-application ceiling on {@link SmoothParams} `strength` (int8 units). */
-const SMOOTH_MAX_STRENGTH = 64;
-/** Per-application ceiling on {@link SmoothParams} `iterations`. */
-const SMOOTH_MAX_ITERATIONS = 4;
+/** Per-application ceiling on {@link SmoothParams} `strength` (int8 units).
+ *  {@link assertOpValid} rejects ops beyond it. Exported so tool chassis / UI
+ *  can surface the valid range `[1, SMOOTH_MAX_STRENGTH]` without hardcoding
+ *  it. */
+export const SMOOTH_MAX_STRENGTH = 64;
+/** Per-application ceiling on {@link SmoothParams} `iterations`.
+ *  {@link assertOpValid} rejects ops beyond it. Exported so tool chassis / UI
+ *  can surface the valid range `[1, SMOOTH_MAX_ITERATIONS]` without
+ *  hardcoding it. */
+export const SMOOTH_MAX_ITERATIONS = 4;
 
 /** Smooth leg of {@link assertOpValid}: params must be PRESENT (an op record
  *  is explicit — validation never defaults them), with integer strength in

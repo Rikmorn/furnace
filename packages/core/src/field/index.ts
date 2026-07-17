@@ -53,6 +53,8 @@ export {
   logApply,
   opBounds,
   redo,
+  SMOOTH_MAX_ITERATIONS,
+  SMOOTH_MAX_STRENGTH,
   undo,
 } from "./ops.ts";
 export type { FieldHit } from "./raycast.ts";

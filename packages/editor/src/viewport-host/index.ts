@@ -38,6 +38,8 @@ export {
   createFieldHost,
   type FieldHost,
   type FieldHostShading,
+  type FieldMaskChoice,
+  type FieldTool,
 } from "./field-host.ts";
 export {
   createPreviewHost,

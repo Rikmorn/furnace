@@ -36,12 +36,35 @@ import { buildGridLines, segmentsToBatch } from "./reference-grid.ts";
  *  the game-parity lit material under a camera-carried point light (mood preview). */
 export type FieldHostShading = "flat" | "headlamp";
 
+/** The panel's mask choice for the active brush — maps onto a core BrushMask
+ *  at op-build time. `none` = unmasked; `selection` embeds the host's current
+ *  selection spec (Task 11 — until then the choice is dropped with a console
+ *  warning). Mirrors {@link field.BrushMask} minus `solid-only` (a merge-policy
+ *  building block, not a user-facing brush mask). */
+export type FieldMaskChoice =
+  | { kind: "none" }
+  | { kind: "organic-only" }
+  | { kind: "kit-only" }
+  | { kind: "class"; classId: number }
+  | { kind: "selection" };
+
 /** Which brush the pointer applies: `dig` opens air, `fill` solidifies + writes
- *  a material, `paint` retints solid cells. `materialId` is the class fill/paint
- *  write (ignored by dig). */
+ *  a material, `paint` retints solid cells, `smooth` relaxes the density field
+ *  (material-free). `materialId` is the class fill/paint write (ignored by dig
+ *  and smooth). `mask` filters affected cells; `smooth` carries the smooth
+ *  effect's params (present on every tool, used only when effect is smooth);
+ *  `hollow` is the fill-only shell-band thickness in metres (`null` = solid
+ *  fill). */
 export type FieldTool = {
-  effect: "dig" | "fill" | "paint";
+  effect: "dig" | "fill" | "paint" | "smooth";
   materialId: number;
+  mask: FieldMaskChoice;
+  smooth: {
+    strength: number;
+    iterations: number;
+    mode: "both" | "erode" | "fill";
+  };
+  hollow: number | null;
 };
 
 export type FieldHost = {
@@ -61,8 +84,22 @@ export type FieldHost = {
   }): void;
   setDigRadius(r: number): void;
   setShading(mode: FieldHostShading): void;
-  /** Selects the active brush (effect + material class). Default dig/rock. */
+  /** Selects the active brush (effect + material class + mask + smooth params
+   *  + hollow). Default dig/rock, unmasked, solid fill. The chassis is the
+   *  enforcement point for parameter ranges: smooth strength/iterations are
+   *  clamped to the core ceilings and `hollow` is clamped to ≥ 0.5 m (core
+   *  accepts any hollow > 0 — it cannot clamp against cellSize — but a
+   *  sub-cell shell band on organic shapes can produce holey shells, and 0.5
+   *  matches the UI's step). */
   setTool(tool: FieldTool): void;
+  /** Subscribes to HOST-initiated tool changes (eyedropper, momentary
+   *  Shift/Ctrl enter/leave) so the panel can mirror them. NOT fired for the
+   *  panel's own setTool calls. Single subscriber (the panel); returns an
+   *  unsubscribe. */
+  subscribeTool(cb: (tool: FieldTool) => void): () => void;
+  /** The core smooth-parameter ceilings (strength 1..max, iterations 1..max),
+   *  surfaced through the host because the panel cannot value-import core. */
+  getSmoothLimits(): { maxStrength: number; maxIterations: number };
   /** Swaps the project's resolved material table (the panel calls this once
    *  after catalog load, Task 12). Re-buckets and re-meshes every chunk. */
   setMaterialTable(table: field.MaterialTable): void;
@@ -124,8 +161,64 @@ const GRID_MINOR_DIM = 0.5; // minors dimmed vs majors (two-tone depth cue)
 // Shared specular for every lit bucket / kit material (color-only variation).
 const LIT_SPECULAR: [number, number, number, number] = [0.06, 0.06, 0.06, 16];
 
+// Kit-fill ghost cube opacity: translucent enough to read the field through
+// the hologram volume, solid enough to make "fill writes this whole box"
+// unmistakable (the fill-tool-solid-volume-surprise fix).
+const GHOST_CUBE_ALPHA = 0.25;
+
 const clampRadius = (r: number): number =>
   Math.max(RADIUS_MIN, Math.min(RADIUS_MAX, r));
+
+const clampIntRange = (v: number, lo: number, hi: number): number =>
+  Math.max(lo, Math.min(hi, Math.round(v)));
+
+// Fill-only shell-band floor (metres). Core accepts any hollow > 0 (it cannot
+// clamp against cellSize); the CHASSIS enforces the floor because a sub-cell
+// shell thickness on organic shapes can produce holey shells, and 0.5 matches
+// the UI's step + the kit lattice.
+const HOLLOW_MIN_M = 0.5;
+
+// Default tool: dig/rock, unmasked, SMOOTH_DEFAULTS-equivalent literal (a
+// fresh object per call — never an alias of core's shared SMOOTH_DEFAULTS).
+function defaultTool(): FieldTool {
+  return {
+    effect: "dig",
+    materialId: 0,
+    mask: { kind: "none" },
+    smooth: { ...field.SMOOTH_DEFAULTS },
+    hollow: null,
+  };
+}
+
+// Deep-enough copy so host state never aliases panel-held (or panel-handed)
+// objects: mask + smooth are the only nested fields.
+function cloneTool(t: FieldTool): FieldTool {
+  return {
+    effect: t.effect,
+    materialId: t.materialId,
+    mask: { ...t.mask },
+    smooth: { ...t.smooth },
+    hollow: t.hollow,
+  };
+}
+
+// The chassis-side parameter clamp applied on every setTool (see the FieldHost
+// TSDoc for why the chassis is the enforcement point).
+function clampTool(t: FieldTool): FieldTool {
+  const c = cloneTool(t);
+  c.smooth.strength = clampIntRange(
+    c.smooth.strength,
+    1,
+    field.SMOOTH_MAX_STRENGTH,
+  );
+  c.smooth.iterations = clampIntRange(
+    c.smooth.iterations,
+    1,
+    field.SMOOTH_MAX_ITERATIONS,
+  );
+  if (c.hollow !== null) c.hollow = Math.max(HOLLOW_MIN_M, c.hollow);
+  return c;
+}
 
 /**
  * Create an uninitialized field host. `init(canvas)` must run before any GPU
@@ -158,18 +251,41 @@ export function createFieldHost(): FieldHost {
   // carries the piece colour).
   let kitMat: material.Material | null = null;
   let kitBind: binding.Binding | null = null;
+  // Filled kit-fill ghost: ONE unit cube + ONE translucent hologram-blue
+  // material, positioned + scaled to the snapped box per frame (mesh.setScale
+  // exists — no per-size rebuild needed) and pushed into the render list only
+  // while a kit-fill ghost is live.
+  let ghostMat: material.Material | null = null;
+  let ghostBind: binding.Binding | null = null;
+  let ghostCube: mesh.Mesh | null = null;
+  let ghostCubeGeo: geometry.Geometry | null = null;
   let shading: FieldHostShading = "flat";
 
   // The project's resolved material table — drives the mesher's bucket split,
   // logApply validation, and the bake. Defaults rock-only until setMaterialTable.
   let table: field.MaterialTable = field.BUILTIN_TABLE;
-  let tool: FieldTool = { effect: "dig", materialId: 0 };
+  let tool: FieldTool = defaultTool();
+  // Momentary tool overrides (Shift = smooth, Ctrl = dig↔fill invert). ONE
+  // saved slot: the pre-momentary tool, saved when the FIRST modifier engages
+  // and restored when BOTH are released. The effective tool is DERIVED, not
+  // stacked — a pure function of (saved, shiftHeld, ctrlHeld), so any
+  // press/release order restores the original tool (see deriveMomentary).
+  let momentarySaved: FieldTool | null = null;
+  let momentaryShift = false;
+  let momentaryCtrl = false;
+  // Panel mirror for host-initiated tool changes (eyedropper, momentary).
+  let toolCb: ((t: FieldTool) => void) | null = null;
 
   let digRadius = 1.25;
   let digging = false;
   let lastStroke = 0;
-  // Last cursor position over the viewport (null when the pointer has left), so
-  // the ghost target marker can preview where the next stroke lands each frame.
+  // Last cursor position over the viewport, so the ghost target marker can
+  // preview where the next stroke lands each frame. DELIBERATELY NOT cleared
+  // on pointer-leave (spec §3.7 size-preview): the ghost keeps rendering at
+  // the last hover target while the mouse is over the panel, so panel-slider
+  // radius drags preview live in the viewport (renderGhost recomputes from
+  // this + the CURRENT radius per frame). The ghost lingering while the mouse
+  // is off-canvas is that feature's accepted trade-off.
   let lastPointer: { x: number; y: number } | null = null;
   let lastRemeshMs = 0;
   let statsCb: ((s: { chunks: number; lastRemeshMs: number }) => void) | null =
@@ -265,6 +381,27 @@ export function createFieldHost(): FieldHost {
     // White base color — per-instance tint carries the piece colour.
     binding.set(c, kitBind, { color: [1, 1, 1, 1], specular: LIT_SPECULAR });
     kitMat = await material.create(c, { shader: kitShd, binding: kitBind });
+    // Kit-fill ghost cube: GHOST_COLOR's hologram-blue as a premultiplied
+    // translucent volume (unlit; color = rgb·a so blend.premultiplied
+    // composes correctly), depth write OFF so it never occludes the field.
+    const ghostShd = await shader.unlit(c);
+    ghostBind = binding.create(c, ghostShd);
+    binding.set(c, ghostBind, {
+      color: [
+        GHOST_COLOR[0] * GHOST_CUBE_ALPHA,
+        GHOST_COLOR[1] * GHOST_CUBE_ALPHA,
+        GHOST_COLOR[2] * GHOST_CUBE_ALPHA,
+        GHOST_CUBE_ALPHA,
+      ],
+    });
+    ghostMat = await material.create(c, {
+      shader: ghostShd,
+      binding: ghostBind,
+      blend: material.blend.premultiplied,
+      depth: { write: false },
+    });
+    ghostCubeGeo = geometry.cube(c, { size: 1 });
+    ghostCube = mesh.create(c, { geometry: ghostCubeGeo, material: ghostMat });
     await buildLitMaterials(c);
   };
 
@@ -448,32 +585,58 @@ export function createFieldHost(): FieldHost {
     radius,
   });
 
-  // Build the brush op for the active tool at a world centre. A kit-class FILL
-  // snaps to a lattice box (field-brush.snappedKitBox); organic fill and all paint
-  // use a sphere; dig is a material-free sphere. `classOf` throws on an unknown
-  // material id (caught by applyTool), so a stray tool selection can't corrupt the
-  // field.
-  const toolOp = (center: Vec3T): field.BrushOp => {
-    if (tool.effect === "dig") {
-      return {
-        id: 0,
-        kind: "brush",
-        effect: "dig",
-        shape: sphereShape(center, digRadius),
-      };
+  // The host's current selection spec for a selection-mask op. Task 11 wires
+  // this to the selection subsystem; until then there IS no selection state,
+  // so it returns null and toolMask drops the mask (with a console.warn — the
+  // user-facing subscribeToolError channel also arrives with Task 11).
+  const currentSelectionSpec = (): field.SelectionSpec | null => null;
+
+  // The active tool's mask choice as a core BrushMask (undefined = unmasked).
+  // The organic/kit/class choices are structurally the core mask variants; the
+  // selection choice embeds the current selection spec.
+  const toolMask = (): field.BrushMask | undefined => {
+    const m = tool.mask;
+    if (m.kind === "none") return undefined;
+    if (m.kind === "selection") {
+      const spec = currentSelectionSpec();
+      if (spec === null) {
+        console.warn(
+          "field-host: selection mask active but there is no selection — stroke applies unmasked",
+        );
+        return undefined;
+      }
+      return { kind: "selection", selection: spec };
     }
+    return m;
+  };
+
+  // Build the brush op for the active tool at a world centre. A kit-class FILL
+  // snaps to a lattice box (field-brush.snappedKitBox); organic fill, paint,
+  // and smooth use a sphere; dig and smooth are material-free. A fill with a
+  // non-null `hollow` becomes a shell-band fill. `classOf` throws on an
+  // unknown material id (caught by applyTool), so a stray tool selection can't
+  // corrupt the field.
+  const toolOp = (center: Vec3T): field.BrushOp => {
+    const mask = toolMask();
+    const base = {
+      id: 0,
+      kind: "brush",
+      shape: sphereShape(center, digRadius),
+      ...(mask !== undefined && { mask }),
+    } as const;
+    if (tool.effect === "dig") return { ...base, effect: "dig" };
+    if (tool.effect === "smooth")
+      return { ...base, effect: "smooth", smooth: { ...tool.smooth } };
     const kitFill =
       tool.effect === "fill" &&
       field.classOf(table, tool.materialId).kind === "kit";
-    const shape = kitFill
-      ? snappedKitBox(center, digRadius)
-      : sphereShape(center, digRadius);
     return {
-      id: 0,
-      kind: "brush",
+      ...base,
       effect: tool.effect,
       material: tool.materialId,
-      shape,
+      ...(kitFill && { shape: snappedKitBox(center, digRadius) }),
+      ...(tool.effect === "fill" &&
+        tool.hollow !== null && { hollow: tool.hollow }),
     };
   };
 
@@ -489,11 +652,13 @@ export function createFieldHost(): FieldHost {
     }
   };
 
-  // The world-space brush centre for a cursor position under the dig-feel contract
-  // (field-brush.computeBrushCenter). The eye-in-rock probe + field raycast live
-  // HERE — they need the field + camera — while the pure module does the arithmetic.
-  // Returns null when there is no camera or the view is singular.
-  const computeTarget = (clientX: number, clientY: number): Vec3T | null => {
+  // Cursor → world ray + the eye-in-rock probe, shared by computeTarget and
+  // the eyedropper. Returns null when there is no camera or the view is
+  // singular.
+  const cursorRay = (
+    clientX: number,
+    clientY: number,
+  ): { origin: Vec3T; dir: Vec3T; eyeInRock: boolean } | null => {
     if (!cam) return null;
     const [nx, ny] = toNdc(clientX, clientY);
     const r = camera.screenToRay(cam, nx, ny);
@@ -508,13 +673,6 @@ export function createFieldHost(): FieldHost {
     const dy = r.dir[1] as number;
     const dz = r.dir[2] as number;
     if (Math.hypot(dx, dy, dz) < 1e-8) return null; // singular VP → no valid ray
-    const origin: Vec3T = [ox, oy, oz];
-    const dir: Vec3T = [dx, dy, dz];
-    // If the eye is embedded in rock (virgin world or buried), raycastField would
-    // hit the origin's OWN voxel at t=0 (raycast.ts: "a start inside rock hits its
-    // own voxel at t=0"), so we pass eyeInRock and the pure module mines forward
-    // from the eye. When the eye is in air, apply where the ray meets rock, or dig
-    // ahead when it reaches maxDist through only air (a cavity aimed at open space).
     const cs = store.cellSize;
     const eyeInRock =
       field.getDensity(
@@ -523,6 +681,22 @@ export function createFieldHost(): FieldHost {
         field.worldToVoxel(oy, cs),
         field.worldToVoxel(oz, cs),
       ) < 0;
+    return { origin: [ox, oy, oz], dir: [dx, dy, dz], eyeInRock };
+  };
+
+  // The world-space brush centre for a cursor position under the dig-feel contract
+  // (field-brush.computeBrushCenter). The eye-in-rock probe + field raycast live
+  // HERE — they need the field + camera — while the pure module does the arithmetic.
+  // Returns null when there is no camera or the view is singular.
+  const computeTarget = (clientX: number, clientY: number): Vec3T | null => {
+    const ray = cursorRay(clientX, clientY);
+    if (!ray) return null;
+    const { origin, dir, eyeInRock } = ray;
+    // If the eye is embedded in rock (virgin world or buried), raycastField would
+    // hit the origin's OWN voxel at t=0 (raycast.ts: "a start inside rock hits its
+    // own voxel at t=0"), so we pass eyeInRock and the pure module mines forward
+    // from the eye. When the eye is in air, apply where the ray meets rock, or dig
+    // ahead when it reaches maxDist through only air (a cavity aimed at open space).
     const rc = eyeInRock
       ? null
       : field.raycastField(store, origin, dir, DIG_RANGE_M);
@@ -530,6 +704,37 @@ export function createFieldHost(): FieldHost {
       { origin, dir, eyeInRock, hit: rc ? rc.point : null },
       digRadius,
     );
+  };
+
+  // Alt-click eyedropper: read the material class at the TARGET voxel — the
+  // SOLID voxel the cursor ray hits (raycastField's `voxel`, never the pre-hit
+  // air voxel), or the eye's own voxel when embedded in rock — into the active
+  // tool. A miss (open air to max range) changes nothing. Never strokes.
+  const eyedropper = (clientX: number, clientY: number): void => {
+    const ray = cursorRay(clientX, clientY);
+    if (!ray) return;
+    const cs = store.cellSize;
+    let voxel: [number, number, number];
+    if (ray.eyeInRock) {
+      voxel = [
+        field.worldToVoxel(ray.origin[0], cs),
+        field.worldToVoxel(ray.origin[1], cs),
+        field.worldToVoxel(ray.origin[2], cs),
+      ];
+    } else {
+      const rc = field.raycastField(store, ray.origin, ray.dir, DIG_RANGE_M);
+      if (!rc) return;
+      voxel = rc.voxel;
+    }
+    const id = field.getMaterial(store, voxel[0], voxel[1], voxel[2]);
+    if (id === tool.materialId) return;
+    // Immutable replacement (never in-place mutation) so the effective tool
+    // can't alias the momentary-saved slot; the saved base picks up the same
+    // material so a later momentary release keeps the eyedropped class.
+    tool = { ...tool, materialId: id };
+    if (momentarySaved !== null)
+      momentarySaved = { ...momentarySaved, materialId: id };
+    notifyTool();
   };
 
   // Apply the active tool at a cursor position: compute the dig-feel centre, build
@@ -547,6 +752,39 @@ export function createFieldHost(): FieldHost {
       const message = err instanceof Error ? err.message : String(err);
       console.warn(`field-host: tool apply failed: ${message}`);
     }
+  };
+
+  // --- momentary tool overrides -------------------------------------------
+
+  // Mirror a host-initiated tool change to the panel (cloned — the panel must
+  // never hold a reference into host state).
+  const notifyTool = (): void => {
+    toolCb?.(cloneTool(tool));
+  };
+
+  // Recompute the effective tool from (saved base, held modifiers). DERIVED,
+  // not stacked: Shift (momentary smooth) wins over Ctrl (dig↔fill invert),
+  // and Ctrl inverts only dig/fill (paint/smooth pass through). Because the
+  // result is a pure function of the base + the two flags, any press/release
+  // interleaving restores the ORIGINAL tool once both are released.
+  // macOS caveat: Ctrl+CLICK is synthesized as a right-click (button 2), so a
+  // fresh Ctrl+LMB press starts a look there — the invert still applies to a
+  // stroke already in progress (LMB down, then hold Ctrl) and on Win/Linux.
+  const deriveMomentary = (): void => {
+    if (!momentaryShift && !momentaryCtrl) {
+      if (momentarySaved === null) return;
+      tool = momentarySaved;
+      momentarySaved = null;
+      notifyTool();
+      return;
+    }
+    if (momentarySaved === null) momentarySaved = tool;
+    let effect = momentarySaved.effect;
+    if (momentaryCtrl && effect === "dig") effect = "fill";
+    else if (momentaryCtrl && effect === "fill") effect = "dig";
+    if (momentaryShift) effect = "smooth";
+    tool = { ...momentarySaved, effect };
+    notifyTool();
   };
 
   // --- render loop --------------------------------------------------------
@@ -580,27 +818,39 @@ export function createFieldHost(): FieldHost {
 
   // --- ghost target marker ------------------------------------------------
 
-  // The ghost line batch for the active tool at a centre: kit fills preview their
-  // snapped lattice box's 12 edges; every sphere tool previews the two brush
-  // rings. Corner/ring math lives in field-ghost.ts; batching stays here.
-  const ghostBatch = (
-    center: Vec3T,
-  ): { vertices: Float32Array; colors: Float32Array } => {
-    if (isKitFillTool()) {
-      const box = snappedKitBox(center, digRadius);
-      return boxEdges(boxCorners(box.center, box.halfExtents), GHOST_COLOR);
-    }
-    return segmentsToBatch(sphereGhostSegments(center, digRadius), GHOST_COLOR);
+  // Scratch vectors for the ghost cube's per-frame pose (setPosition/setScale
+  // copy, so reuse is safe — no per-frame allocation).
+  const ghostPos = new Float32Array(3);
+  const ghostScale = new Float32Array(3);
+
+  // This frame's ghost preview state: the brush centre under the last cursor
+  // position + the snapped lattice box when the active tool is a kit fill
+  // (null centre = nothing to preview). Computed ONCE per frame — shared by
+  // the translucent cube (inside frame.render) and the edge/ring lines
+  // (drawn after it).
+  type GhostState = {
+    center: Vec3T;
+    kitBox: ReturnType<typeof snappedKitBox> | null;
+  };
+  const ghostState = (): GhostState | null => {
+    if (!lastPointer) return null;
+    const center = computeTarget(lastPointer.x, lastPointer.y);
+    if (!center) return null;
+    const kitBox = isKitFillTool() ? snappedKitBox(center, digRadius) : null;
+    return { center, kitBox };
   };
 
-  // Draw the ghost target preview at the last cursor position, occlude:false so it
-  // reads through solid rock. Skipped when the pointer isn't over the viewport
-  // (lastPointer null) or the view can't produce a target.
-  const renderGhost = (c: Context, view: camera.Camera): void => {
-    if (!lastPointer) return;
-    const center = computeTarget(lastPointer.x, lastPointer.y);
-    if (!center) return;
-    const batch = ghostBatch(center);
+  // Draw the ghost preview lines, occlude:false so they read through solid
+  // rock: a kit fill previews its snapped box's 12 edges; every sphere tool
+  // previews the two brush rings. Corner/ring math lives in field-ghost.ts.
+  const renderGhostLines = (
+    c: Context,
+    view: camera.Camera,
+    g: GhostState,
+  ): void => {
+    const batch = g.kitBox
+      ? boxEdges(boxCorners(g.kitBox.center, g.kitBox.halfExtents), GHOST_COLOR)
+      : segmentsToBatch(sphereGhostSegments(g.center, digRadius), GHOST_COLOR);
     frame.drawLines(c, {
       vertices: batch.vertices,
       colors: batch.colors,
@@ -615,6 +865,23 @@ export function createFieldHost(): FieldHost {
     for (const cm of chunkMeshes.values()) {
       for (const e of cm.entries) meshes.push(e.m);
       if (cm.kit) instanced.push(cm.kit);
+    }
+    // Filled kit ghost (the fill-tool-solid-volume-surprise fix): pose the ONE
+    // translucent unit cube at the snapped box and draw it LAST in the mesh
+    // list so it blends over the already-drawn opaque field (no depth write).
+    // When there is no kit-fill ghost this frame the mesh is simply not drawn.
+    // Known limit: frame.render records `instanced` AFTER `meshes`, so nearby
+    // kit pieces overdraw the hologram (it doesn't write depth) — the box edge
+    // lines still outline the volume there; accepted v0 artifact.
+    const ghost = ghostState();
+    if (ghost?.kitBox && ghostCube) {
+      ghostPos.set(ghost.kitBox.center);
+      ghostScale[0] = ghost.kitBox.halfExtents[0] * 2;
+      ghostScale[1] = ghost.kitBox.halfExtents[1] * 2;
+      ghostScale[2] = ghost.kitBox.halfExtents[2] * 2;
+      mesh.setPosition(c, ghostCube, ghostPos);
+      mesh.setScale(c, ghostCube, ghostScale);
+      meshes.push(ghostCube);
     }
     // Kit instances always render with the lit-instanced material, even in flat
     // mode — there is no flat-instanced variant; FLAT_AMBIENT (full white) makes
@@ -642,7 +909,7 @@ export function createFieldHost(): FieldHost {
       occlude: true,
     });
     // Ghost target preview last so it draws over the scene + grid (occlude:false).
-    renderGhost(c, view);
+    if (ghost) renderGhostLines(c, view, ghost);
   };
 
   const tick = (now: number): void => {
@@ -666,6 +933,10 @@ export function createFieldHost(): FieldHost {
 
   const onPointerDown = (e: PointerEvent): void => {
     lastPointer = { x: e.clientX, y: e.clientY }; // feeds the per-frame ghost
+    if (e.button === 0 && e.altKey) {
+      eyedropper(e.clientX, e.clientY); // Alt-click samples a material — never strokes
+      return;
+    }
     if (e.button === 0) {
       digging = true;
       applyTool(e.clientX, e.clientY);
@@ -700,10 +971,9 @@ export function createFieldHost(): FieldHost {
     canvasEl?.releasePointerCapture(e.pointerId);
   };
 
-  // Pointer left the viewport → drop the ghost so it doesn't hang at a stale spot.
-  const onPointerLeave = (): void => {
-    lastPointer = null;
-  };
+  // NOTE: no pointer-leave handler on purpose — lastPointer survives the
+  // pointer leaving the canvas so the ghost previews panel-driven size changes
+  // (see the lastPointer declaration comment).
 
   const onWheel = (e: WheelEvent): void => {
     e.preventDefault();
@@ -718,6 +988,10 @@ export function createFieldHost(): FieldHost {
 
   const onKeyDown = (e: KeyboardEvent): void => {
     const k = e.key.toLowerCase();
+    // ⌘Z/⇧⌘Z (and ctrl+z) guard FIRST — the shortcut branches below must
+    // never swallow undo/redo. (On non-mac, holding Ctrl for ctrl+z briefly
+    // engages the momentary invert via its own "control" keydown; the tool
+    // restores on release — accepted, undo itself is untouched.)
     if ((e.metaKey || e.ctrlKey) && k === "z") {
       e.preventDefault();
       const dirtied = e.shiftKey
@@ -726,11 +1000,38 @@ export function createFieldHost(): FieldHost {
       markDirtyWithNeighbors(dirtied);
       return;
     }
+    // [ / ] step the brush radius (same clamp as the wheel); key-repeat is the
+    // hold-to-resize behaviour.
+    if (k === "[" || k === "]") {
+      const step = k === "]" ? RADIUS_WHEEL_STEP : -RADIUS_WHEEL_STEP;
+      digRadius = clampRadius(digRadius + step);
+      return;
+    }
+    // Momentary modifiers (repeat-guarded). Shift ALSO lands in `keys` below
+    // for the fly boost — the boost only applies while a move key is held,
+    // momentary smooth only changes what LMB does; they don't conflict.
+    if (k === "shift" && !momentaryShift) {
+      momentaryShift = true;
+      deriveMomentary();
+    }
+    if (k === "control" && !momentaryCtrl) {
+      momentaryCtrl = true;
+      deriveMomentary();
+    }
     keys.add(k);
   };
 
   const onKeyUp = (e: KeyboardEvent): void => {
-    keys.delete(e.key.toLowerCase());
+    const k = e.key.toLowerCase();
+    keys.delete(k);
+    if (k === "shift" && momentaryShift) {
+      momentaryShift = false;
+      deriveMomentary();
+    }
+    if (k === "control" && momentaryCtrl) {
+      momentaryCtrl = false;
+      deriveMomentary();
+    }
   };
 
   const attachListeners = (canvas: HTMLCanvasElement): void => {
@@ -742,7 +1043,6 @@ export function createFieldHost(): FieldHost {
     canvas.addEventListener("pointermove", onPointerMove);
     canvas.addEventListener("pointerup", onPointerUp);
     canvas.addEventListener("pointercancel", onPointerUp);
-    canvas.addEventListener("pointerleave", onPointerLeave);
     canvas.addEventListener("wheel", onWheel, { passive: false });
     canvas.addEventListener("contextmenu", onContextMenu);
     canvas.addEventListener("keydown", onKeyDown);
@@ -755,7 +1055,6 @@ export function createFieldHost(): FieldHost {
     canvasEl.removeEventListener("pointermove", onPointerMove);
     canvasEl.removeEventListener("pointerup", onPointerUp);
     canvasEl.removeEventListener("pointercancel", onPointerUp);
-    canvasEl.removeEventListener("pointerleave", onPointerLeave);
     canvasEl.removeEventListener("wheel", onWheel);
     canvasEl.removeEventListener("contextmenu", onContextMenu);
     canvasEl.removeEventListener("keydown", onKeyDown);
@@ -808,12 +1107,20 @@ export function createFieldHost(): FieldHost {
         destroyLitMaterials(c);
         if (kitMat) material.destroy(c, kitMat);
         if (kitBind) binding.destroy(c, kitBind);
+        if (ghostCube) mesh.destroy(c, ghostCube);
+        if (ghostCubeGeo) geometry.destroy(c, ghostCubeGeo);
+        if (ghostMat) material.destroy(c, ghostMat);
+        if (ghostBind) binding.destroy(c, ghostBind);
         unbindCamera?.();
         gpu.dispose(c); // LAST — a clean shutdown is the leak check.
       }
       flatMat = null;
       kitMat = null;
       kitBind = null;
+      ghostCube = null;
+      ghostCubeGeo = null;
+      ghostMat = null;
+      ghostBind = null;
       unbindCamera = null;
       cam = null;
       ctx = null;
@@ -854,7 +1161,28 @@ export function createFieldHost(): FieldHost {
           mesh.setMaterial(c, e.m, bucketMaterial(e.classId, e.backing));
     },
     setTool(next) {
-      tool = next;
+      const clamped = clampTool(next); // chassis-side range enforcement
+      if (momentarySaved !== null) {
+        // Panel change while a momentary modifier is held: adopt it as the
+        // BASE the momentary derives from (and restores to), so releasing the
+        // modifier lands on the panel's latest choice, not a stale save.
+        momentarySaved = clamped;
+        deriveMomentary();
+        return;
+      }
+      tool = clamped;
+    },
+    subscribeTool(cb) {
+      toolCb = cb;
+      return () => {
+        toolCb = null;
+      };
+    },
+    getSmoothLimits() {
+      return {
+        maxStrength: field.SMOOTH_MAX_STRENGTH,
+        maxIterations: field.SMOOTH_MAX_ITERATIONS,
+      };
     },
     setMaterialTable(next) {
       table = next;
