@@ -31,7 +31,11 @@ export {
  *  corner-anchored in the physics `voxels` shape; null when the chunk has no
  *  shell. */
 export { chunkColliders } from "./collider.ts";
-export { FIELD_GENERATORS, generatorById } from "./generators.ts";
+export {
+  commitGenerator,
+  FIELD_GENERATORS,
+  generatorById,
+} from "./generators.ts";
 export {
   BUILTIN_TABLE,
   classOf,

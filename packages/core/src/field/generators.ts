@@ -1,15 +1,23 @@
 // packages/core/src/field/generators.ts — staged stamp generators (F2b).
-// The hall is ported from the dungeon donors (themes/hall.ts + the shared
-// doorAt/validateDoorApproach machinery in themes/grid-stamp.ts — W3) onto a
-// core-local mini coarse grid; evaluate() compiles the grid into a span of
-// lattice-snapped brush ops. The registry is the ONE plug point (resolves the
-// third-grid-vocabulary dispatch tax); the maze joins in Task 6.
-import { assertOpValid } from "./ops.ts";
+// The hall and the maze are ported from the dungeon donors (themes/hall.ts,
+// themes/maze.ts + the shared doorAt/validateDoorApproach machinery in
+// themes/grid-stamp.ts — W3) onto a core-local mini coarse grid; evaluate()
+// compiles the grid into a span of lattice-snapped brush ops. The registry is
+// the ONE plug point (resolves the third-grid-vocabulary dispatch tax), and
+// commitGenerator owns the entity semantics: one commit = one undo entry.
+import { applyOp, assertOpValid } from "./ops.ts";
 import type {
   BrushOp,
+  ChunkKey,
+  EntityOp,
+  FieldOp,
+  FieldStore,
   GeneratorDef,
+  GeneratorEntity,
   MaterialTable,
   MergePolicy,
+  OpInverse,
+  OpLog,
 } from "./types.ts";
 
 const CELL = 0.5;
@@ -166,6 +174,75 @@ function openDoor(
       }
 }
 
+/** Integer param in the schema property's [minimum, maximum] — setup-loud.
+ *  `label` names the generator in the error ("hall" / "maze"). */
+function intParam(
+  label: string,
+  params: Record<string, unknown>,
+  key: string,
+  range: { minimum: number; maximum: number },
+): number {
+  const v = params[key];
+  if (
+    typeof v !== "number" ||
+    !Number.isInteger(v) ||
+    v < range.minimum ||
+    v > range.maximum
+  )
+    throw new Error(
+      `${label}: ${key} must be an integer in [${range.minimum}, ${range.maximum}], got ${JSON.stringify(v)}`,
+    );
+  return v;
+}
+
+/** Finite number param in the schema property's [minimum, maximum] —
+ *  setup-loud; unlike {@link intParam} it admits fractional values (the
+ *  maze's braid is a real-valued probability, NOT an integer). */
+function numParam(
+  label: string,
+  params: Record<string, unknown>,
+  key: string,
+  range: { minimum: number; maximum: number },
+): number {
+  const v = params[key];
+  if (
+    typeof v !== "number" ||
+    !Number.isFinite(v) ||
+    v < range.minimum ||
+    v > range.maximum
+  )
+    throw new Error(
+      `${label}: ${key} must be a number in [${range.minimum}, ${range.maximum}], got ${JSON.stringify(v)}`,
+    );
+  return v;
+}
+
+/** Boolean param — setup-loud. `label` names the generator in the error. */
+function boolParam(
+  label: string,
+  params: Record<string, unknown>,
+  key: string,
+): boolean {
+  const v = params[key];
+  if (typeof v !== "boolean")
+    throw new Error(
+      `${label}: ${key} must be a boolean, got ${JSON.stringify(v)}`,
+    );
+  return v;
+}
+
+/** The first kit class in the table — the stamp's masonry. Setup-loud when the
+ *  catalog has none (stamps REQUIRE a kit class; the builtin rock-only table
+ *  cannot stamp). */
+function kitClassId(table: MaterialTable): number {
+  const kit = table.classes.find((c) => c.kind === "kit");
+  if (!kit)
+    throw new Error(
+      "stamp generators need a kit material class in the catalog",
+    );
+  return kit.id;
+}
+
 /** The hall's pillar vocabularies — ONE spelling feeding the schema enum, the
  *  narrowed param type, and the runtime check (no drift between the three). */
 const PILLAR_KINDS = ["none", "grid", "colonnade"] as const;
@@ -205,41 +282,6 @@ const HALL_SCHEMA = {
 const HALL_DEFAULTS: Record<string, unknown> = Object.fromEntries(
   Object.entries(HALL_SCHEMA.properties).map(([k, p]) => [k, p.default]),
 );
-
-/** Integer param in the schema property's [minimum, maximum] — setup-loud.
- *  `label` names the generator in the error ("hall" / "maze"). */
-function intParam(
-  label: string,
-  params: Record<string, unknown>,
-  key: string,
-  range: { minimum: number; maximum: number },
-): number {
-  const v = params[key];
-  if (
-    typeof v !== "number" ||
-    !Number.isInteger(v) ||
-    v < range.minimum ||
-    v > range.maximum
-  )
-    throw new Error(
-      `${label}: ${key} must be an integer in [${range.minimum}, ${range.maximum}], got ${JSON.stringify(v)}`,
-    );
-  return v;
-}
-
-/** Boolean param — setup-loud. `label` names the generator in the error. */
-function boolParam(
-  label: string,
-  params: Record<string, unknown>,
-  key: string,
-): boolean {
-  const v = params[key];
-  if (typeof v !== "boolean")
-    throw new Error(
-      `${label}: ${key} must be a boolean, got ${JSON.stringify(v)}`,
-    );
-  return v;
-}
 
 /** Narrows + range-validates hall params (ranges from HALL_SCHEMA), throwing
  *  setup-loud on a missing, mistyped, or out-of-range field. */
@@ -286,18 +328,6 @@ function stampPillars(g: MiniGrid, p: HallParams): void {
       for (let j = 1; j <= h; j++) gridSet(g, i, j, k, SOLID);
 }
 
-/** The first kit class in the table — the stamp's masonry. Setup-loud when the
- *  catalog has none (stamps REQUIRE a kit class; the builtin rock-only table
- *  cannot stamp). */
-function kitClassId(table: MaterialTable): number {
-  const kit = table.classes.find((c) => c.kind === "kit");
-  if (!kit)
-    throw new Error(
-      "stamp generators need a kit material class in the catalog",
-    );
-  return kit.id;
-}
-
 /** The hall generator: interior width×height×depth coarse cells inside a
  *  dims+2 masonry shell, optional pillar lattice (`grid` | `colonnade`), and
  *  auto-centred doorways per wall boolean — the donor hall.ts port. Evaluation
@@ -335,13 +365,370 @@ const hallGenerator: GeneratorDef = {
   },
 };
 
+// ——— the maze (donor: packages/dungeon/src/themes/maze.ts — W3) ———
+// The RNG (fnv1a + makeIntRng), carvePlan, and braidPass port VERBATIM: any
+// change to the mixer changes every maze in existence. INTEGER-ONLY
+// randomness (FNV-1a seed hash → Math.imul mixer) — no transcendentals.
+
+/** Passage height in coarse cells — fixed at the door standard (3.0 m), not a
+ *  knob (the donor MAZE_H_CELLS contract). */
+const MAZE_H_CELLS = DOOR_H_CELLS;
+
+/** Passage width/depth in coarse cells — the door width (2.0 m), so a door
+ *  always opens onto a full-width passage column. Must stay
+ *  `>= DOOR_CLEARANCE_DEPTH_CELLS`, or a door's centre approach lane reaches
+ *  past its passage block into the wall band beyond and the openDoor lane
+ *  check starts rejecting valid mazes (the donor coupling, equal today). */
+const PASSAGE_CELLS = 4;
+/** Maze-cell pitch in coarse cells: a `PASSAGE_CELLS` passage block plus the
+ *  1-cell (0.5 m) internal wall band that separates it from the next block. */
+const PITCH = PASSAGE_CELLS + 1;
+
+/** FNV-1a 32-bit over the seed string (the donor pieces.ts variant-hash
+ *  pattern) — VERBATIM donor port. */
+function fnv1a(s: string): number {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return h >>> 0;
+}
+
+/** mulberry32-shape uint32 stream: Math.imul + shifts only. Every operation is
+ *  integer (spec-exact in JS on every engine) — the Pr-2-safe RNG for grid
+ *  content. VERBATIM donor port. */
+function makeIntRng(seedWord: number): () => number {
+  let state = seedWord >>> 0;
+  return () => {
+    state = (state + 0x6d2b79f5) >>> 0;
+    let t = state;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t = (t + Math.imul(t ^ (t >>> 7), t | 61)) ^ t;
+    return (t ^ (t >>> 14)) >>> 0;
+  };
+}
+
+/** An open-edge key: `h:a,b` = wall between (a,b)-(a+1,b); `v:a,b` = (a,b)-(a,b+1). */
+type EdgeKey = string;
+
+/** The in-bounds edges around `cell`, paired with the neighbour they cross to. */
+function edgesOf(
+  cell: number,
+  mx: number,
+  mz: number,
+): { edge: EdgeKey; next: number }[] {
+  const a = cell % mx;
+  const b = (cell - a) / mx;
+  const out: { edge: EdgeKey; next: number }[] = [];
+  if (a + 1 < mx) out.push({ edge: `h:${a},${b}`, next: cell + 1 });
+  if (a - 1 >= 0) out.push({ edge: `h:${a - 1},${b}`, next: cell - 1 });
+  if (b + 1 < mz) out.push({ edge: `v:${a},${b}`, next: cell + mx });
+  if (b - 1 >= 0) out.push({ edge: `v:${a},${b - 1}`, next: cell - mx });
+  return out;
+}
+
+/** The maze's open-edge plan: a growing-tree (backtracker) spanning maze, then
+ *  the braid pass. Deterministic per (mx, mz, braid, seed). VERBATIM donor
+ *  port. */
+function carvePlan(
+  mx: number,
+  mz: number,
+  braid: number,
+  seed: string,
+): Set<EdgeKey> {
+  const rng = makeIntRng(fnv1a(seed));
+  const cellCount = mx * mz;
+  const visited = new Uint8Array(cellCount);
+  const open = new Set<EdgeKey>();
+  const first = rng() % cellCount;
+  const stack: number[] = [first];
+  visited[first] = 1;
+  while (stack.length > 0) {
+    // Index is proven in-bounds for a non-empty stack; noUncheckedIndexedAccess
+    // widens the element to number|undefined, so narrow it back.
+    const cur = stack[stack.length - 1] as number;
+    const candidates = edgesOf(cur, mx, mz).filter(
+      (e) => visited[e.next] !== 1,
+    );
+    if (candidates.length === 0) {
+      stack.pop();
+      continue;
+    }
+    // Index is proven in-bounds (rng() % length on a non-empty array); the flag
+    // widens the element, so narrow it back.
+    const pick = candidates[rng() % candidates.length] as {
+      edge: EdgeKey;
+      next: number;
+    };
+    open.add(pick.edge);
+    visited[pick.next] = 1;
+    stack.push(pick.next);
+  }
+  braidPass(open, mx, mz, braid, rng);
+  return open;
+}
+
+/** Open a wall from each ORIGINAL dead end with probability `braid`. The
+ *  dead-end list is computed ONCE, before any opening, and scanned in
+ *  cell-index order (z-major) — deterministic. Opening only ADDS edges (degree
+ *  never drops), so at braid=1 zero dead ends remain (for the mx,mz >= 2
+ *  footprints mazeParams admits) and no new ones can appear. The probability
+ *  draw is an exact power-of-two division of the integer stream — no float
+ *  noise; the divisor is 0x1000000, NOT 0xFFFFFF, so the draw is half-open
+ *  [0, 1): that is precisely what makes braid=1 open EVERY dead end (a draw
+ *  can never reach 1.0 and skip one).
+ *
+ *  The guard is `!(braid > 0)`, not `braid <= 0`: under a NaN braid every
+ *  comparison is false, so `>= braid` would never skip and the maze would
+ *  FULL-braid — `!(braid > 0)` fails safe to a perfect maze instead. That is a
+ *  module-internal fail-safe, NOT the public contract: mazeParams REJECTS a
+ *  non-finite braid setup-loud before this is ever reached. VERBATIM donor
+ *  port. */
+function braidPass(
+  open: Set<EdgeKey>,
+  mx: number,
+  mz: number,
+  braid: number,
+  rng: () => number,
+): void {
+  if (!(braid > 0)) return;
+  const cellCount = mx * mz;
+  const isDeadEnd = (cell: number): boolean =>
+    edgesOf(cell, mx, mz).filter((e) => open.has(e.edge)).length === 1;
+  const originalDeadEnds: number[] = [];
+  for (let cell = 0; cell < cellCount; cell++)
+    if (isDeadEnd(cell)) originalDeadEnds.push(cell);
+  for (const cell of originalDeadEnds) {
+    if ((rng() >>> 8) / 0x1000000 >= braid) continue;
+    const closed = edgesOf(cell, mx, mz).filter((e) => !open.has(e.edge));
+    if (closed.length === 0) continue;
+    // Index is proven in-bounds (rng() % length on a non-empty array); the flag
+    // widens the element, so narrow it back.
+    const pick = closed[rng() % closed.length] as { edge: EdgeKey };
+    open.add(pick.edge);
+  }
+}
+
+/** Carve one AIR block: `wCells × MAZE_H_CELLS × dCells` starting at coarse
+ *  (i0, 1, k0) — the donor carveBlock loops onto MiniGrid. */
+function carveBlock(
+  g: MiniGrid,
+  i0: number,
+  k0: number,
+  wCells: number,
+  dCells: number,
+): void {
+  for (let k = k0; k < k0 + dCells; k++)
+    for (let j = 1; j <= MAZE_H_CELLS; j++)
+      for (let i = i0; i < i0 + wCells; i++) gridSet(g, i, j, k, AIR);
+}
+
+const MAZE_SCHEMA = {
+  type: "object",
+  properties: {
+    cellsX: { type: "number", minimum: 2, maximum: 8, default: 3 },
+    cellsZ: { type: "number", minimum: 2, maximum: 8, default: 3 },
+    braid: { type: "number", minimum: 0, maximum: 1, default: 0.25 },
+    doorNorth: { type: "boolean", default: true },
+    doorSouth: { type: "boolean", default: false },
+    doorEast: { type: "boolean", default: false },
+    doorWest: { type: "boolean", default: false },
+  },
+} as const;
+
+/** The schema's per-property defaults, DERIVED (never restated) — the
+ *  HALL_DEFAULTS pattern. */
+const MAZE_DEFAULTS: Record<string, unknown> = Object.fromEntries(
+  Object.entries(MAZE_SCHEMA.properties).map(([k, p]) => [k, p.default]),
+);
+
+/** The maze's narrowed, range-validated params. `doors` is the resolved wall
+ *  list from the four per-wall booleans. */
+type MazeParams = {
+  cellsX: number;
+  cellsZ: number;
+  braid: number;
+  doors: Wall[];
+};
+
+/** Narrows + range-validates maze params (ranges from MAZE_SCHEMA), throwing
+ *  setup-loud on a missing, mistyped, or out-of-range field. Braid is a REAL
+ *  number in [0, 1] (numParam); the cell counts are integers. */
+function mazeParams(params: Record<string, unknown>): MazeParams {
+  const p = MAZE_SCHEMA.properties;
+  const doors: Wall[] = [];
+  if (boolParam("maze", params, "doorNorth")) doors.push("north");
+  if (boolParam("maze", params, "doorSouth")) doors.push("south");
+  if (boolParam("maze", params, "doorEast")) doors.push("east");
+  if (boolParam("maze", params, "doorWest")) doors.push("west");
+  return {
+    cellsX: intParam("maze", params, "cellsX", p.cellsX),
+    cellsZ: intParam("maze", params, "cellsZ", p.cellsZ),
+    braid: numParam("maze", params, "braid", p.braid),
+    doors,
+  };
+}
+
+/** The maze generator: a cellsX×cellsZ growing-tree spanning maze (seeded,
+ *  integer-only donor RNG) with a probabilistic braid pass (dead ends opened
+ *  into loops), 2.0 m passages, 0.5 m internal walls, 3.0 m passage height —
+ *  the donor maze.ts port. Doors auto-centre on the passage column at
+ *  maze-cell floor(cells/2) — coarse offset PITCH·cell, so a door can never
+ *  land on an internal wall band (offset AUTHORING returns in F3).
+ *  Module-local: the registry is the one access path. */
+const mazeGenerator: GeneratorDef = {
+  id: "maze",
+  name: "Maze",
+  paramSchema: MAZE_SCHEMA,
+  defaults: MAZE_DEFAULTS,
+  evaluate(params, seed, region, table, policy) {
+    const p = mazeParams(params); // narrow + range-validate, setup-loud
+    const w = PITCH * p.cellsX - 1;
+    const d = PITCH * p.cellsZ - 1;
+    const dims: [number, number, number] = [w + 2, MAZE_H_CELLS + 2, d + 2];
+    const grid = createGrid(dims, SOLID);
+    // Passage blocks: maze cell (a,b) owns the PASSAGE_CELLS × MAZE_H_CELLS ×
+    // PASSAGE_CELLS block whose floor-layer XZ corner is (1+PITCH·a, 1+PITCH·b).
+    for (let b = 0; b < p.cellsZ; b++)
+      for (let a = 0; a < p.cellsX; a++)
+        carveBlock(
+          grid,
+          1 + PITCH * a,
+          1 + PITCH * b,
+          PASSAGE_CELLS,
+          PASSAGE_CELLS,
+        );
+    // Open walls per the carve plan: a 1-cell band across the shared wall.
+    // The GeneratorDef seed is a NUMBER; the donor hashes a seed STRING —
+    // fnv1a(String(seed)) keeps donor bit-parity with the string spelling.
+    for (const key of carvePlan(p.cellsX, p.cellsZ, p.braid, String(seed))) {
+      const m = /^([hv]):(\d+),(\d+)$/.exec(key);
+      if (!m) throw new Error(`maze: bad edge key ${key}`);
+      const a = Number(m[2]);
+      const b = Number(m[3]);
+      if (m[1] === "h") {
+        carveBlock(
+          grid,
+          1 + PITCH * a + PASSAGE_CELLS,
+          1 + PITCH * b,
+          1,
+          PASSAGE_CELLS,
+        );
+      } else {
+        carveBlock(
+          grid,
+          1 + PITCH * a,
+          1 + PITCH * b + PASSAGE_CELLS,
+          PASSAGE_CELLS,
+          1,
+        );
+      }
+    }
+    for (const wall of p.doors) {
+      const alongCells =
+        wall === "north" || wall === "south" ? p.cellsX : p.cellsZ;
+      openDoor(grid, wall, "maze", PITCH * Math.floor(alongCells / 2));
+    }
+    const origin: [number, number, number] = [
+      snapDown(region.min[0]),
+      snapDown(region.min[1]),
+      snapDown(region.min[2]),
+    ];
+    const ops = gridToOps(grid, origin, kitClassId(table), policy);
+    // lattice-snapped by construction; assert it stays true at the source
+    for (const op of ops) assertOpValid(op, table);
+    return ops;
+  },
+};
+
 /** The staged-generator registry — the one plug point (a new vocabulary = one
  *  entry here; nothing downstream dispatches on generator identity). */
-export const FIELD_GENERATORS: readonly GeneratorDef[] = [hallGenerator];
+export const FIELD_GENERATORS: readonly GeneratorDef[] = [
+  hallGenerator,
+  mazeGenerator,
+];
 
 /** Registry lookup, setup-loud on unknown ids. */
 export function generatorById(id: string): GeneratorDef {
   const def = FIELD_GENERATORS.find((g) => g.id === id);
   if (!def) throw new Error(`unknown field generator "${id}"`);
   return def;
+}
+
+/** Applies a generator's evaluated span to the store and records the log's
+ *  first entity-op class: span ops + ONE `entity/place` op, all under ONE undo
+ *  entry (⌘Z removes the whole commit — charter §2.3). The WHOLE evaluated
+ *  span re-validates through {@link assertOpValid} (the applier-side check)
+ *  BEFORE the first write — validate-all-then-apply, so a bad op leaves the
+ *  store, the log, and the id counter untouched (the setup-loud-before-
+ *  mutation posture; a single pass would strand earlier ops applied but
+ *  unlogged). Per-chunk inverse merge is FIRST-wins: each chunk's first
+ *  snapshot is its PRE-COMMIT state, so undo restores the field exactly.
+ *  Returns the commit's dirty chunk set and the recorded
+ *  {@link GeneratorEntity} — whose `entityId` intentionally equals the entity
+ *  op's log id (the same log.nextId slot).
+ *
+ *  @throws {@link Error} if the generator's own param validation rejects
+ *    `opts.params` or any evaluated op fails {@link assertOpValid} — in both
+ *    cases before any mutation. */
+export function commitGenerator(
+  store: FieldStore,
+  log: OpLog,
+  def: GeneratorDef,
+  opts: {
+    params: Record<string, unknown>;
+    seed: number;
+    region: { min: [number, number, number]; max: [number, number, number] };
+    policy: MergePolicy;
+    table: MaterialTable;
+  },
+): { dirty: Set<ChunkKey>; entity: GeneratorEntity } {
+  const evaluated = def.evaluate(
+    opts.params,
+    opts.seed,
+    opts.region,
+    opts.table,
+    opts.policy,
+  );
+  // Pass 1 — stamp real ids and validate the WHOLE span before any write.
+  const firstId = log.nextId;
+  let nextId = firstId;
+  const span: BrushOp[] = [];
+  for (const op of evaluated) {
+    const s: BrushOp = { ...op, id: nextId++ };
+    assertOpValid(s, opts.table);
+    span.push(s);
+  }
+  // Pass 2 — apply; merge per-chunk inverses FIRST-wins (pre-commit state).
+  const dirty = new Set<ChunkKey>();
+  const inverse: OpInverse = new Map();
+  for (const s of span) {
+    const r = applyOp(store, s, opts.table);
+    for (const k of r.dirty) dirty.add(k);
+    for (const [k, pre] of r.inverse) if (!inverse.has(k)) inverse.set(k, pre);
+  }
+  const entity: GeneratorEntity = {
+    entityId: nextId,
+    type: "generator",
+    generator: def.id,
+    params: opts.params,
+    seed: opts.seed,
+    region: opts.region,
+    opSpan: [firstId, nextId - 1],
+  };
+  const entityOp: EntityOp = {
+    id: nextId++,
+    kind: "entity",
+    action: "place",
+    entity,
+  };
+  log.nextId = nextId;
+  const stamped: FieldOp[] = [...span, entityOp];
+  // Loop push, not arguments-spread: fn(...arr) hits JS-engine argument-count
+  // ceilings (~65k in JSC) on mega commit spans.
+  for (const op of stamped) log.ops.push(op);
+  log.undoStack.push({ ops: stamped, inverse });
+  log.redoStack.length = 0;
+  return { dirty, entity };
 }

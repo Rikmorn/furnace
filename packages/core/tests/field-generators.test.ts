@@ -1,14 +1,24 @@
 import { describe, expect, test } from "bun:test";
-import type { MaterialTable } from "@furnace/core/field";
+import type {
+  FieldStore,
+  GeneratorDef,
+  MaterialTable,
+} from "@furnace/core/field";
 import {
   applyOp,
   assertOpValid,
   BUILTIN_TABLE,
+  commitGenerator,
   createFieldStore,
+  createOpLog,
+  encodeChunkFile,
+  encodeMaterialFile,
   FIELD_GENERATORS,
   generatorById,
   getDensity,
   getMaterial,
+  redo,
+  undo,
 } from "@furnace/core/field";
 
 const TABLE: MaterialTable = {
@@ -248,5 +258,271 @@ describe("field generators — the hall", () => {
     expect(run({ pillars: "spiral" })).toThrow(/pillars/); // unknown enum
     expect(run({ pillarSpacing: 1 })).toThrow(/pillarSpacing/);
     expect(run({ doorNorth: 1 })).toThrow(/doorNorth/); // non-boolean
+  });
+});
+
+// REGION_MAZE derivation: 3×3 maze cells at PITCH 5 (a 4-cell passage block +
+// a 1-cell internal wall band, the donor maze.ts constants) → interior
+// w = d = 5·3 − 1 = 14 coarse cells; grid dims = [w+2, 6+2, d+2] = [16,8,16]
+// with the shell. At CELL 0.5 m the stamp AABB is 8 × 4 × 8 m from the
+// snapped origin — REGION_MAZE spans exactly that.
+const REGION_MAZE = {
+  min: [0, 0, 0] as [number, number, number],
+  max: [8, 4, 8] as [number, number, number],
+};
+const MAZE_PARAMS = {
+  cellsX: 3,
+  cellsZ: 3,
+  braid: 0.3,
+  doorNorth: true,
+  doorSouth: false,
+  doorEast: false,
+  doorWest: false,
+};
+
+// Maze sample math at cellSize 0.25 (sample = metres × 4), origin [0,0,0]:
+// maze cell (a,b) owns the passage block at coarse i ∈ [1+5a, 4+5a],
+// k ∈ [1+5b, 4+5b], j ∈ [1,6]. The block-centre probe is the mid of its
+// second coarse cell: x = (2+5a)·0.5 + 0.25 = 1.25 + 2.5a m → sample 5+10a
+// (likewise z), y = 1.25 m (j=2 mid) → sample 5.
+describe("field generators — the maze", () => {
+  test("registry: the maze joins the hall", () => {
+    expect(FIELD_GENERATORS.map((g) => g.id)).toEqual(["hall", "maze"]);
+    expect(generatorById("maze").name).toBe("Maze");
+  });
+
+  test("maze: same seed → identical ops; different seed → different plan", () => {
+    const mz = generatorById("maze");
+    const a = mz.evaluate(MAZE_PARAMS, 11, REGION_MAZE, TABLE, "replace");
+    expect(a).toEqual(
+      mz.evaluate(MAZE_PARAMS, 11, REGION_MAZE, TABLE, "replace"),
+    );
+    expect(a).not.toEqual(
+      mz.evaluate(MAZE_PARAMS, 12, REGION_MAZE, TABLE, "replace"),
+    );
+  });
+
+  test("maze ops apply to a connected interior (BFS over air reaches every passage block)", () => {
+    const mz = generatorById("maze");
+    const ops = mz.evaluate(MAZE_PARAMS, 11, REGION_MAZE, TABLE, "replace");
+    for (const op of ops) expect(() => assertOpValid(op, TABLE)).not.toThrow();
+    const s = createFieldStore();
+    for (const op of ops) applyOp(s, { ...op, id: 1 }, TABLE);
+    // BFS 6-connected air from cell (0,0)'s block centre, bounded to the
+    // stamp's samples (x,z ∈ [0,32], y ∈ [0,16]). Air = density ≥ 0: each
+    // (j,k) row is its OWN dig box, so shared box faces quantize to exactly 0
+    // (the hall suite's "air-ish" convention) and a > 0 predicate would strand
+    // the BFS inside one row. Solid stays strictly negative everywhere — a
+    // closed wall band's mid samples read −8 via the dig margin — so ≥ 0
+    // never leaks through a wall.
+    const key = (x: number, y: number, z: number) => `${x},${y},${z}`;
+    const start: [number, number, number] = [5, 5, 5];
+    expect(getDensity(s, ...start)).toBeGreaterThan(0);
+    const seen = new Set<string>([key(...start)]);
+    const queue: [number, number, number][] = [start];
+    const steps: [number, number, number][] = [
+      [1, 0, 0],
+      [-1, 0, 0],
+      [0, 1, 0],
+      [0, -1, 0],
+      [0, 0, 1],
+      [0, 0, -1],
+    ];
+    // for-of over the growing queue: JS array iterators visit pushed elements
+    for (const [x, y, z] of queue) {
+      for (const [dx, dy, dz] of steps) {
+        const nx = x + dx;
+        const ny = y + dy;
+        const nz = z + dz;
+        if (nx < 0 || ny < 0 || nz < 0 || nx > 32 || ny > 16 || nz > 32)
+          continue;
+        const k = key(nx, ny, nz);
+        if (seen.has(k) || getDensity(s, nx, ny, nz) < 0) continue;
+        seen.add(k);
+        queue.push([nx, ny, nz]);
+      }
+    }
+    // the growing tree SPANS — every maze cell's block centre is reached
+    for (let b = 0; b < 3; b++)
+      for (let a = 0; a < 3; a++)
+        expect(seen.has(key(5 + 10 * a, 5, 5 + 10 * b))).toBe(true);
+  });
+
+  test("the north door opens on the centre passage column through the shell", () => {
+    // Auto-centred door at maze cell floor(3/2)=1 → coarse offset 5 → door
+    // cells i ∈ [6,9] → x ∈ (3,5) m on shell row k=15 (z mid-sample 31 =
+    // 7.75 m). Mid-cell probes 15/17 (3.75/4.25 m) are air; the flanking
+    // shell cells i=5 (sample 11) and i=10 (sample 21) stay solid masonry —
+    // a ±1 maze-cell drift moves the door ±10 samples and fails the flanks.
+    const mz = generatorById("maze");
+    const ops = mz.evaluate(MAZE_PARAMS, 11, REGION_MAZE, TABLE, "replace");
+    const s = createFieldStore();
+    for (const op of ops) applyOp(s, { ...op, id: 1 }, TABLE);
+    expect(getDensity(s, 15, 5, 31)).toBeGreaterThan(0);
+    expect(getDensity(s, 17, 5, 31)).toBeGreaterThan(0);
+    expect(getDensity(s, 11, 5, 31)).toBeLessThan(0);
+    expect(getDensity(s, 21, 5, 31)).toBeLessThan(0);
+    expect(getMaterial(s, 11, 5, 31)).toBe(KIT_CLASS_ID);
+  });
+
+  test("braid opens loops: braid 1 differs from braid 0 at the same seed", () => {
+    const mz = generatorById("maze");
+    const perfect = mz.evaluate(
+      { ...MAZE_PARAMS, braid: 0 },
+      11,
+      REGION_MAZE,
+      TABLE,
+      "replace",
+    );
+    const full = mz.evaluate(
+      { ...MAZE_PARAMS, braid: 1 },
+      11,
+      REGION_MAZE,
+      TABLE,
+      "replace",
+    );
+    // a 3×3 spanning tree always has dead ends; braid 1 opens every one
+    expect(perfect).not.toEqual(full);
+  });
+
+  test("maze defaults are schema-derived and evaluate clean", () => {
+    const mz = generatorById("maze");
+    expect(() =>
+      mz.evaluate(mz.defaults, 7, REGION_MAZE, TABLE, "replace"),
+    ).not.toThrow();
+  });
+
+  test("mazeParams validates setup-loud: range, integer, and number violations throw", () => {
+    const mz = generatorById("maze");
+    const run = (over: Record<string, unknown>) => () =>
+      mz.evaluate(
+        { ...MAZE_PARAMS, ...over },
+        11,
+        REGION_MAZE,
+        TABLE,
+        "replace",
+      );
+    expect(run({ cellsX: 1 })).toThrow(/cellsX/); // below minimum 2
+    expect(run({ cellsZ: 9 })).toThrow(/cellsZ/); // above maximum 8
+    expect(run({ cellsX: 2.5 })).toThrow(/cellsX/); // non-integer
+    expect(run({ braid: -0.1 })).toThrow(/braid/); // below 0
+    expect(run({ braid: 1.5 })).toThrow(/braid/); // above 1
+    expect(run({ braid: Number.NaN })).toThrow(/braid/); // non-finite
+    expect(run({ braid: "high" })).toThrow(/braid/); // non-number
+    expect(run({ doorNorth: 1 })).toThrow(/doorNorth/); // non-boolean
+  });
+});
+
+/** Byte-level store snapshot: every chunk through encodeChunkFile + every
+ *  material entry through encodeMaterialFile, sorted by key. */
+function snapshotBytes(s: FieldStore): [string, number[]][] {
+  const rows: [string, number[]][] = [];
+  for (const [k, chunk] of s.chunks)
+    rows.push([`d:${k}`, Array.from(encodeChunkFile(chunk))]);
+  for (const [k, m] of s.materials)
+    rows.push([`m:${k}`, Array.from(encodeMaterialFile(m))]);
+  return rows.sort((a, b) => (a[0] < b[0] ? -1 : 1));
+}
+
+describe("field generators — commitGenerator", () => {
+  test("commitGenerator: one undo entry covers span + entity; undo/redo round-trips", () => {
+    const s = createFieldStore();
+    const log = createOpLog();
+    const res = commitGenerator(s, log, generatorById("hall"), {
+      params: HALL_PARAMS,
+      seed: 7,
+      region: REGION,
+      policy: "replace",
+      table: TABLE,
+    });
+    expect(res.dirty.size).toBeGreaterThan(0);
+    const entity = log.ops[log.ops.length - 1];
+    expect(entity?.kind).toBe("entity");
+    if (entity?.kind !== "entity") return;
+    expect(entity.entity.opSpan[1] - entity.entity.opSpan[0]).toBe(
+      log.ops.length - 2,
+    );
+    expect(entity.entity.entityId).toBe(entity.id); // same log.nextId slot
+    expect(log.undoStack.length).toBe(1); // ONE entry for the whole commit
+    const opCount = log.ops.length;
+    const bytesBefore = snapshotBytes(s);
+    undo(s, log);
+    expect(log.ops.length).toBe(0);
+    // first-wins inverse merge: the hall's fill + digs touch the same chunks,
+    // so a last-wins merge would restore MID-commit state here, not fresh rock
+    expect(s.chunks.size).toBe(0); // fresh store fully restored
+    expect(s.materials.size).toBe(0);
+    redo(s, log, TABLE);
+    expect(snapshotBytes(s)).toEqual(bytesBefore);
+    expect(log.ops.length).toBe(opCount);
+    expect(log.undoStack.length).toBe(1);
+  });
+
+  test("a new commit clears the redo stack", () => {
+    const s = createFieldStore();
+    const log = createOpLog();
+    const opts = {
+      params: HALL_PARAMS,
+      seed: 7,
+      region: REGION,
+      policy: "replace" as const,
+      table: TABLE,
+    };
+    commitGenerator(s, log, generatorById("hall"), opts);
+    undo(s, log);
+    expect(log.redoStack.length).toBe(1);
+    commitGenerator(s, log, generatorById("hall"), opts);
+    expect(log.redoStack.length).toBe(0);
+  });
+
+  test("an invalid evaluated span leaves store, log, and id counter untouched", () => {
+    // Validate-all-then-apply: the SECOND op is invalid (unknown class id), so
+    // a single-pass commit would have applied the first fill before throwing.
+    const s = createFieldStore();
+    const log = createOpLog();
+    const badDef: GeneratorDef = {
+      id: "bad",
+      name: "Bad",
+      paramSchema: {},
+      defaults: {},
+      evaluate: () => [
+        {
+          id: 0,
+          kind: "brush",
+          effect: "fill",
+          material: KIT_CLASS_ID,
+          shape: {
+            kind: "box",
+            center: [1, 1, 1],
+            halfExtents: [0.5, 0.5, 0.5],
+          },
+        },
+        {
+          id: 0,
+          kind: "brush",
+          effect: "fill",
+          material: 99,
+          shape: {
+            kind: "box",
+            center: [1, 1, 1],
+            halfExtents: [0.5, 0.5, 0.5],
+          },
+        },
+      ],
+    };
+    expect(() =>
+      commitGenerator(s, log, badDef, {
+        params: {},
+        seed: 1,
+        region: REGION,
+        policy: "replace",
+        table: TABLE,
+      }),
+    ).toThrow(/unknown class/);
+    expect(s.chunks.size).toBe(0);
+    expect(s.materials.size).toBe(0);
+    expect(log.ops.length).toBe(0);
+    expect(log.undoStack.length).toBe(0);
+    expect(log.nextId).toBe(1);
   });
 });
