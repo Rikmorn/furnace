@@ -161,6 +161,28 @@ export type BrushOp = {
   hollow?: number;
 };
 
+/** How a stamp treats pre-existing air in its footprint: `replace` overwrites
+ *  (default); `keep-existing-air` masks the shell fill solid-only so user
+ *  carvings survive (compiles into the op record — replay-safe). */
+export type MergePolicy = "replace" | "keep-existing-air";
+
+/** One staged generator: JSON-Schema params (SchemaForm-compatible plain data —
+ *  no array-typed fields, the form renders those as fallback), defaults, and a
+ *  pure evaluate to a span of lattice-snapped brush ops (world coords). */
+export type GeneratorDef = {
+  id: string;
+  name: string;
+  paramSchema: Record<string, unknown>;
+  defaults: Record<string, unknown>;
+  evaluate(
+    params: Record<string, unknown>,
+    seed: number,
+    region: { min: [number, number, number]; max: [number, number, number] },
+    table: MaterialTable,
+    policy: MergePolicy,
+  ): BrushOp[];
+};
+
 /** One committed generator application — the log's smart-object record (L4).
  *  `opSpan` = [firstOpId, lastOpId] of the brush ops the commit appended.
  *  Reconfigure/re-evaluate is F3; F2b records full provenance. */
