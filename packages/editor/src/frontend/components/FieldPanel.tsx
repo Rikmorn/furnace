@@ -229,6 +229,21 @@ export function FieldPanel() {
     return host.subscribeToolError(setStatus);
   }, [state.status, fieldHostRef]);
 
+  // Live chunk / remesh-time readout. The host fires this every rAF; the functional guard
+  // returns the SAME reference when nothing changed, so an idle field (no dig in flight)
+  // does not re-render the panel 60×/second.
+  useEffect(() => {
+    const host = fieldHostRef.current;
+    if (!host || state.status !== "ready") return;
+    return host.subscribeStats((s) =>
+      setStats((prev) =>
+        prev.chunks === s.chunks && prev.lastRemeshMs === s.lastRemeshMs
+          ? prev
+          : s,
+      ),
+    );
+  }, [state.status, fieldHostRef]);
+
   // Panel radius → host, DELIBERATELY one-way: the host's wheel and [ / ]
   // keys also step its radius and there is NO host→panel radius seam
   // (FieldTool does not carry radius; no subscription does), so the readout
