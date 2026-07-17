@@ -112,3 +112,36 @@ export function withPreviewError(
   if (run !== s.run) return null;
   return { ...s, phase: "configuring", opCount: null, error: message };
 }
+
+/** A latest-wins in-flight latch for preview jobs (the worker client is a
+ *  plain request pipe — callers own coalescing). `request()` fires
+ *  immediately when idle; while a job is in flight, any number of further
+ *  requests collapse into ONE queued flag. `settle()` — which the job's
+ *  owner must call on EVERY settlement (result or error, stale or not) —
+ *  releases the latch and re-fires exactly once if anything queued. `fire`
+ *  returns whether a job was actually posted; false (e.g. the session is
+ *  gone by fire time) leaves the latch idle instead of wedging it. Pure so
+ *  the collapse semantics unit-test without a worker; latest-wins comes from
+ *  the fire callback reading the CURRENT session state at fire time. */
+export function createPreviewCoalescer(fire: () => boolean): {
+  request(): void;
+  settle(): void;
+} {
+  let inFlight = false;
+  let queued = false;
+  return {
+    request(): void {
+      if (inFlight) {
+        queued = true;
+        return;
+      }
+      inFlight = fire();
+    },
+    settle(): void {
+      inFlight = false;
+      if (!queued) return;
+      queued = false;
+      inFlight = fire();
+    },
+  };
+}

@@ -6,6 +6,7 @@ import { describe, expect, test } from "bun:test";
 import type { FieldWorkerResponse } from "../src/frontend/lib/field-protocol.ts";
 import { createFieldWorkerHandler } from "../src/frontend/lib/field-protocol.ts";
 import {
+  createPreviewCoalescer,
   startSession,
   toPreviewing,
   withParams,
@@ -352,4 +353,50 @@ test("listEntities returns CLONED entity ops from a loaded oplog, brush ops filt
   // Clones: mutating the returned record must never rewrite the log.
   (list[0] as GeneratorEntity).seed = 999;
   expect((host.listEntities()[0] as GeneratorEntity).seed).toBe(5);
+});
+
+// ——— preview coalescing (latest-wins in-flight latch) ———
+
+describe("preview coalescer", () => {
+  test("rapid requests while in flight collapse to exactly ONE queued re-fire", () => {
+    let fires = 0;
+    const c = createPreviewCoalescer(() => {
+      fires++;
+      return true;
+    });
+    c.request(); // idle → fires the in-flight job
+    c.request(); // in flight → queued
+    c.request(); // still ONE queued flag, not a queue
+    expect(fires).toBe(1);
+    c.settle(); // the queue collapses into a single re-fire
+    expect(fires).toBe(2);
+    c.settle(); // nothing queued — no fire
+    expect(fires).toBe(2);
+  });
+
+  test("a declined fire releases the latch instead of wedging it", () => {
+    let allow = false;
+    let fires = 0;
+    const c = createPreviewCoalescer(() => {
+      fires++;
+      return allow;
+    });
+    c.request(); // declined (no session) — must NOT stick in-flight
+    expect(fires).toBe(1);
+    allow = true;
+    c.request(); // would queue forever if the declined fire wedged the latch
+    expect(fires).toBe(2);
+  });
+
+  test("a queued re-fire that declines (session cancelled at settle) leaves the latch idle", () => {
+    const results = [true, false];
+    let fires = 0;
+    const c = createPreviewCoalescer(() => results[fires++] ?? true);
+    c.request(); // fires (true)
+    c.request(); // queued
+    c.settle(); // re-fire declines (session gone)
+    expect(fires).toBe(2);
+    c.request(); // latch must be idle again — fires immediately
+    expect(fires).toBe(3);
+  });
 });

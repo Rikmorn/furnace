@@ -33,6 +33,7 @@ import {
 import { boxCorners, GHOST_COLOR, sphereGhostSegments } from "./field-ghost.ts";
 import { packKitMatrices, pieceColor } from "./field-kit-render.ts";
 import {
+  createPreviewCoalescer,
   type StampSession,
   startSession,
   toPreviewing,
@@ -1395,17 +1396,14 @@ export function createFieldHost(): FieldHost {
     }
   };
 
-  // Fire a ghost preview for the current session state. Guarded two ways on
-  // response: the session RUN (the pure module drops superseded runs) and the
-  // session GENERATION (run restarts at 0 per session, so a previous
-  // session's response could otherwise land on a fresh session's run 0).
-  const previewStamp = (): void => {
-    if (stamp === null) return;
-    stamp = toPreviewing(stamp);
-    notifyStamp();
-    const s = stamp;
-    const gen = stampGen;
-    const run = s.run;
+  // Post ONE preview job for a session state captured at fire time. Response
+  // processing is guarded two ways: the session RUN (the pure module drops
+  // superseded runs) and the session GENERATION (run restarts at 0 per
+  // session, so a previous session's response could otherwise land on a fresh
+  // session's run 0). The coalescer's settle() runs on EVERY settlement —
+  // result or error, stale or foreign-generation alike — so the latch always
+  // releases and a queued re-fire is never lost.
+  const sendPreviewJob = (s: StampSession, gen: number, run: number): void => {
     worker
       .stampPreview({
         generator: s.generator,
@@ -1419,26 +1417,58 @@ export function createFieldHost(): FieldHost {
       })
       .then(
         (res) => {
-          if (disposed || gen !== stampGen || stamp === null) return;
-          const next = withPreviewResult(stamp, run, res.opCount);
-          if (next === null) return; // superseded — a newer preview owns the ghost
-          stamp = next;
-          applyStampGhost(res.chunks);
-          notifyStamp();
+          if (!disposed && gen === stampGen && stamp !== null) {
+            const next = withPreviewResult(stamp, run, res.opCount);
+            // null = superseded — a newer preview owns the ghost.
+            if (next !== null) {
+              stamp = next;
+              applyStampGhost(res.chunks);
+              notifyStamp();
+            }
+          }
+          previewCoalescer.settle();
         },
         (err) => {
-          if (disposed || gen !== stampGen || stamp === null) return;
-          const message = err instanceof Error ? err.message : String(err);
-          const next = withPreviewError(stamp, run, message);
-          if (next === null) return;
-          // The session's error field is the panel's channel; console keeps
-          // the developer trail (mirrors remeshOne).
-          console.warn(`field-host: stamp preview failed: ${message}`);
-          stamp = next;
-          destroyStampGhosts();
-          notifyStamp();
+          if (!disposed && gen === stampGen && stamp !== null) {
+            const message = err instanceof Error ? err.message : String(err);
+            const next = withPreviewError(stamp, run, message);
+            if (next !== null) {
+              // The session's error field is the panel's channel; console
+              // keeps the developer trail (mirrors remeshOne).
+              console.warn(`field-host: stamp preview failed: ${message}`);
+              stamp = next;
+              destroyStampGhosts();
+              notifyStamp();
+            }
+          }
+          previewCoalescer.settle();
         },
       );
+  };
+
+  // Latest-wins in-flight coalescing: the worker client is a plain request
+  // pipe ("callers own coalescing", field-client.ts), so the HOST collapses
+  // preview bursts — while one job runs, any number of previewStamp calls
+  // queue ONE re-fire against the session state CURRENT at settle. A slider
+  // drag costs at most one trailing job instead of a 30-60Hz queue of
+  // snapshot copies + ~100ms worker evaluates. Fire declines (false) when
+  // the session vanished by fire time, leaving the latch idle.
+  const previewCoalescer = createPreviewCoalescer((): boolean => {
+    if (disposed || stamp === null) return false;
+    sendPreviewJob(stamp, stampGen, stamp.run);
+    return true;
+  });
+
+  // Fire (or queue) a ghost preview for the current session. Session-state
+  // captures happen inside the coalescer's fire callback, BEFORE notifyStamp
+  // runs: a subscriber may synchronously cancel/update the session from
+  // inside the "previewing" notification (re-entrancy), so nothing here
+  // re-reads `stamp` after notifying.
+  const previewStamp = (): void => {
+    if (stamp === null) return;
+    stamp = toPreviewing(stamp);
+    previewCoalescer.request();
+    notifyStamp();
   };
 
   const cancelStampSession = (): void => {
@@ -1785,7 +1815,7 @@ export function createFieldHost(): FieldHost {
     // Stamp session keys (after the undo guard, before every fallthrough):
     // Enter commits the READY ghost, Esc discards the session. Neither is a
     // fly key, so returning here never starves the keys set; without a
-    // session both fall through unused.
+    // session both are swallowed unused (no preventDefault).
     if (k === "enter" || k === "escape") {
       if (stamp !== null) {
         e.preventDefault();
@@ -2065,6 +2095,12 @@ export function createFieldHost(): FieldHost {
       };
     },
     setMaterialTable(next) {
+      // A table swap invalidates a live stamp session outright: evaluate
+      // depends on the table (kitClassId, class split), so the previewed
+      // ghost no longer describes what commit would build — cancel rather
+      // than let ghost and commit silently diverge (the resetWorld
+      // precedent).
+      cancelStampSession();
       table = next;
       const c = ctx;
       if (!c) return;
