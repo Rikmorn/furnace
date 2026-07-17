@@ -518,6 +518,29 @@ describe("field generators — commitGenerator", () => {
     expect(res.entity.params["width"]).toBe(8); // returned record too
   });
 
+  test("a non-cloneable extra params value throws BEFORE any store write", () => {
+    // Unknown keys survive param validation, so a function value reaches the
+    // provenance structuredClone — which must run before pass 2's writes, or
+    // the DataCloneError strands a mutated store with no undo entry (the exact
+    // state two-pass validation exists to prevent).
+    const s = createFieldStore();
+    const log = createOpLog();
+    expect(() =>
+      commitGenerator(s, log, generatorById("hall"), {
+        params: { ...HALL_PARAMS, onDone: () => undefined },
+        seed: 7,
+        region: REGION,
+        policy: "replace",
+        table: TABLE,
+      }),
+    ).toThrow();
+    expect(s.chunks.size).toBe(0);
+    expect(s.materials.size).toBe(0);
+    expect(log.ops.length).toBe(0);
+    expect(log.undoStack.length).toBe(0);
+    expect(log.nextId).toBe(1);
+  });
+
   test("an empty evaluated span throws setup-loud; store and log untouched", () => {
     const s = createFieldStore();
     const log = createOpLog();

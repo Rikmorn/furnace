@@ -36,12 +36,22 @@ const axisBoundaryT = (
 
 /** Amanatides–Woo DDA over the sample lattice (voxel (i,j,k) spans world
  *  [i·h,(i+1)·h)). Rock = density < 0. Returns null if no rock within
- *  `maxDist` metres. A start inside rock hits its own voxel at t=0. */
+ *  `maxDist` metres. A start inside rock hits its own voxel at t=0.
+ *
+ *  `opts.maxY` is the slice view's DISPLAY clip (world metres): every voxel
+ *  whose base sample world y (`iy·cellSize`) is at/above the clip reads as
+ *  air — the ray passes through clipped rock (including an eye's own rock
+ *  voxel above the clip, which suppresses the t=0 start-in-rock hit) and
+ *  lands on the first sub-clip rock voxel, matching what the sliced render
+ *  shows. `prev` semantics are unchanged: the last voxel traversed before
+ *  the hit, which under a clip can be a clipped (rock-but-reads-air) voxel.
+ *  Omitting `opts` is byte-identical to the unclipped contract. */
 export function raycastField(
   store: FieldStore,
   origin: [number, number, number],
   dir: [number, number, number],
   maxDist: number,
+  opts?: { maxY?: number },
 ): FieldHit | null {
   const h = store.cellSize;
   const len = Math.hypot(dir[0], dir[1], dir[2]) || 1;
@@ -69,9 +79,13 @@ export function raycastField(
     axisBoundaryT(iy, origin[1], d[1], step[1], h),
     axisBoundaryT(iz, origin[2], d[2], step[2], h),
   ];
+  const maxY = opts?.maxY;
   let t = 0;
   for (let stepsTaken = 0; stepsTaken < MAX_STEPS; stepsTaken++) {
-    if (getDensity(store, ix, iy, iz) < 0) {
+    // The loop's density read is the function's ONLY hit test (it covers the
+    // start voxel too), so clipping here clips every read consistently.
+    const clipped = maxY !== undefined && iy * h >= maxY;
+    if (!clipped && getDensity(store, ix, iy, iz) < 0) {
       return {
         voxel: [ix, iy, iz],
         prev,

@@ -675,8 +675,10 @@ export function generatorById(id: string): GeneratorDef {
  *
  *  @throws {@link Error} if the generator's own param validation rejects
  *    `opts.params`, the evaluated span is EMPTY (a generator must emit at
- *    least one op), or any evaluated op fails {@link assertOpValid} — in all
- *    cases before any mutation. */
+ *    least one op), or any evaluated op fails {@link assertOpValid}; a
+ *    `DataCloneError` if `opts.params`/`opts.region` hold structured-clone-
+ *    incompatible values (e.g. a function in an unknown key) — in all cases
+ *    before any mutation. */
 export function commitGenerator(
   store: FieldStore,
   log: OpLog,
@@ -700,6 +702,13 @@ export function commitGenerator(
     throw new Error(
       `commitGenerator: generator "${def.id}" evaluated to an empty op span`,
     );
+  // Provenance clones run BEFORE any store write: the entity is an
+  // append-only provenance record (a caller mutating a reused params/region
+  // object must never rewrite the log), and a non-cloneable value (unknown
+  // keys survive param validation) must throw HERE — cloning after pass 2
+  // would strand a mutated store with no undo entry.
+  const params = structuredClone(opts.params);
+  const region = structuredClone(opts.region);
   // Pass 1 — stamp real ids and validate the WHOLE span before any write.
   const firstId = log.nextId;
   let nextId = firstId;
@@ -721,11 +730,9 @@ export function commitGenerator(
     entityId: nextId,
     type: "generator",
     generator: def.id,
-    // Deep-cloned: the entity is an append-only provenance record — a caller
-    // mutating a reused params/region object must never rewrite the log.
-    params: structuredClone(opts.params),
+    params,
     seed: opts.seed,
-    region: structuredClone(opts.region),
+    region,
     opSpan: [firstId, nextId - 1],
   };
   const entityOp: EntityOp = {
