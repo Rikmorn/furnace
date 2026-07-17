@@ -38,9 +38,9 @@ export type FieldHostShading = "flat" | "headlamp";
 
 /** The panel's mask choice for the active brush — maps onto a core BrushMask
  *  at op-build time. `none` = unmasked; `selection` embeds the host's current
- *  selection spec (Task 11 — until then the choice is dropped with a console
- *  warning). Mirrors {@link field.BrushMask} minus `solid-only` (a merge-policy
- *  building block, not a user-facing brush mask). */
+ *  selection spec (no selection → the mask is dropped and reported via
+ *  subscribeToolError once per stroke). Mirrors {@link field.BrushMask} minus
+ *  `solid-only` (a merge-policy building block, not a user-facing brush mask). */
 export type FieldMaskChoice =
   | { kind: "none" }
   | { kind: "organic-only" }
@@ -65,6 +65,30 @@ export type FieldTool = {
     mode: "both" | "erode" | "fill";
   };
   hollow: number | null;
+};
+
+/** Which selection gesture LMB performs while a selection mode is armed:
+ *  `box` = two clicks spanning a lattice-snapped region; `material` = flood
+ *  the same-class solid from the hit voxel; `void` = flood the air pocket the
+ *  cursor ray crosses just before its hit. */
+export type SelectionMode = "box" | "material" | "void";
+
+/** The panel's view of the host's current selection. `spec` is the replayable
+ *  selection spec (the same object shape a selection-masked op embeds);
+ *  `count` = selected cells for flood kinds, and for a `region` the number of
+ *  sample lattice points inside the metre AABB (min-inclusive/max-exclusive
+ *  per axis — the exact set core's selectionHas region test admits);
+ *  `truncated` = the flood hit SELECTION_UI_BUDGET (always false for regions);
+ *  `aabb` = metre bounds enclosing the selection (a flood's cell bounds
+ *  expanded to whole voxel volumes, a region's own min/max), null when the
+ *  selection is empty. Count/aabb are a CLICK-TIME snapshot — ops re-
+ *  materialize the spec against pre-op state, so later field edits can drift
+ *  from the displayed numbers until the next selection. */
+export type SelectionInfo = {
+  spec: field.SelectionSpec;
+  count: number;
+  truncated: boolean;
+  aabb: { min: [number, number, number]; max: [number, number, number] } | null;
 };
 
 export type FieldHost = {
@@ -100,6 +124,30 @@ export type FieldHost = {
    *  must value-compare against its own state before re-pushing (echo guard).
    *  Single subscriber (the panel); returns an unsubscribe. */
   subscribeTool(cb: (tool: FieldTool) => void): () => void;
+  /** Subscribes to user-facing tool problems: swallowed stroke failures (kit
+   *  fill off the lattice, unknown material class — F2a buried these in
+   *  console.warn; the console trail stays) and the selection-mask-without-a-
+   *  selection drop (reported once per pointer-down stroke, re-armed on the
+   *  next stroke, so a drag can't spam at stroke rate). Single subscriber
+   *  (the panel status line); returns an unsubscribe. */
+  subscribeToolError(cb: (msg: string) => void): () => void;
+  /** Arms LMB selection gestures (`box`/`material`/`void`); `null` returns
+   *  LMB to the brush. The mode governs only the GESTURE — an existing
+   *  selection persists across mode changes (it keeps masking ops until
+   *  cleared). Any pending box anchor is dropped on a mode change. No
+   *  keyboard shortcuts on purpose: Esc/Enter belong to the stamp session
+   *  (Task 13) — selection clear is the panel button. */
+  setSelectionMode(mode: SelectionMode | null): void;
+  /** Clears the current selection into the Reselect slot (and drops a pending
+   *  box anchor); subscribers are notified with null. */
+  clearSelection(): void;
+  /** Photoshop Reselect: swaps the current selection with the one-deep
+   *  previous slot — restores what the last clear/replace displaced; pressing
+   *  again toggles back. No-op when the slot is empty. */
+  reselect(): void;
+  /** Subscribes to selection changes (null = no selection). Single subscriber
+   *  (the panel); returns an unsubscribe. */
+  subscribeSelection(cb: (info: SelectionInfo | null) => void): () => void;
   /** The core smooth-parameter ceilings (strength 1..max, iterations 1..max),
    *  surfaced through the host because the panel cannot value-import core. */
   getSmoothLimits(): { maxStrength: number; maxIterations: number };
@@ -114,6 +162,18 @@ export type FieldHost = {
 };
 
 type Vec3T = [number, number, number];
+
+/** The host's stored selection: the replayable spec + its click-time
+ *  materialization. The materialization feeds UI info + the overlay ONLY —
+ *  a selection-masked op embeds the SPEC and core re-materializes it against
+ *  pre-op state at each application (replay-safe by construction). */
+type SelectionState = {
+  spec: field.SelectionSpec;
+  materialized: field.MaterializedSelection;
+};
+
+/** A prebuilt drawLines batch (vertices + per-vertex colors). */
+type LineBatch = { vertices: Float32Array; colors: Float32Array };
 
 /** One chunk's GPU render state: per-class surface/backing bucket meshes plus an
  *  optional instanced kit mesh (one draw call for all its kit pieces). */
@@ -180,6 +240,19 @@ const clampIntRange = (v: number, lo: number, hi: number): number =>
 // shell thickness on organic shapes can produce holey shells, and 0.5 matches
 // the UI's step + the kit lattice.
 const HOLLOW_MIN_M = 0.5;
+
+// Selection flood budget for the click gestures — under core's
+// MAX_SELECTION_BUDGET (262144) so a UI selection never rides the op-replay
+// ceiling exactly; truncation at this cap surfaces via SelectionInfo.
+const SELECTION_UI_BUDGET = 200_000;
+// Selection overlay colour — amber, deliberately distinct from the
+// hologram-blue brush ghost (GHOST_COLOR).
+const SELECTION_COLOR: [number, number, number, number] = [1, 0.75, 0.3, 1];
+// The 0.5 m built-kit lattice box-select regions snap OUTWARD to (matches
+// HOLLOW_MIN_M and field-brush's kit lattice).
+const SELECTION_LATTICE = 0.5;
+// Box-select anchor cross: half-length of each of the three axis strokes (m).
+const ANCHOR_CROSS_HALF_M = 0.25;
 
 // Default tool: dig/rock, unmasked, SMOOTH_DEFAULTS-equivalent literal (a
 // fresh object per call — never an alias of core's shared SMOOTH_DEFAULTS).
@@ -278,6 +351,24 @@ export function createFieldHost(): FieldHost {
   let momentaryCtrl = false;
   // Panel mirror for host-initiated tool changes (eyedropper, momentary).
   let toolCb: ((t: FieldTool) => void) | null = null;
+  // User-facing tool-problem channel (panel status line, Task 14).
+  let toolErrorCb: ((msg: string) => void) | null = null;
+  // Once-per-stroke guard for the "selection mask but no selection" report —
+  // re-armed at pointer-down so a 40ms-throttled drag can't spam it.
+  let maskDropReported = false;
+
+  // --- selection state (armed mode, current + Reselect slot, overlay) -----
+  let selectionMode: SelectionMode | null = null;
+  // Pending box-select anchor: the first click's world point (null = none).
+  let boxAnchor: Vec3T | null = null;
+  let selection: SelectionState | null = null;
+  // The Reselect slot: the one previous selection (clear/replace park it here).
+  let lastSelection: SelectionState | null = null;
+  let selectionCb: ((info: SelectionInfo | null) => void) | null = null;
+  // Overlay line batches, rebuilt on selection/anchor CHANGE — never per frame
+  // (materializeSelection cost lives on the click; the overlay is stored).
+  let selectionBatch: LineBatch | null = null;
+  let anchorBatch: LineBatch | null = null;
 
   let digRadius = 1.25;
   let digging = false;
@@ -588,11 +679,19 @@ export function createFieldHost(): FieldHost {
     radius,
   });
 
-  // The host's current selection spec for a selection-mask op. Task 11 wires
-  // this to the selection subsystem; until then there IS no selection state,
-  // so it returns null and toolMask drops the mask (with a console.warn — the
-  // user-facing subscribeToolError channel also arrives with Task 11).
-  const currentSelectionSpec = (): field.SelectionSpec | null => null;
+  // Report a user-facing tool problem: console (developer trail, the F2a
+  // behaviour kept) + the panel subscriber.
+  const reportToolError = (msg: string): void => {
+    console.warn(`field-host: ${msg}`);
+    toolErrorCb?.(msg);
+  };
+
+  // The host's current selection spec for a selection-mask op (null = no
+  // selection — toolMask drops the mask and reports once per stroke). The
+  // stored spec is never mutated in place (selections replace wholesale), so
+  // embedding it into ops without a copy is aliasing-safe.
+  const currentSelectionSpec = (): field.SelectionSpec | null =>
+    selection?.spec ?? null;
 
   // The active tool's mask choice as a core BrushMask (undefined = unmasked).
   // The organic/kit/class choices are structurally the core mask variants; the
@@ -603,9 +702,12 @@ export function createFieldHost(): FieldHost {
     if (m.kind === "selection") {
       const spec = currentSelectionSpec();
       if (spec === null) {
-        console.warn(
-          "field-host: selection mask active but there is no selection — stroke applies unmasked",
-        );
+        if (!maskDropReported) {
+          maskDropReported = true;
+          reportToolError(
+            "selection mask active but there is no selection — stroke applies unmasked",
+          );
+        }
         return undefined;
       }
       return { kind: "selection", selection: spec };
@@ -761,10 +863,266 @@ export function createFieldHost(): FieldHost {
     } catch (err) {
       // A kit fill off the lattice or an unknown material class throws here
       // (assertOpValid / classOf, setup-loud) — swallow so a bad brush can't
-      // escape the pointer handler; the stroke is simply dropped.
+      // escape the pointer handler; the stroke is simply dropped. Reported
+      // per occurrence (the message replaces itself on the status line) —
+      // only the mask-drop report above is once-per-stroke.
       const message = err instanceof Error ? err.message : String(err);
-      console.warn(`field-host: tool apply failed: ${message}`);
+      reportToolError(`tool apply failed: ${message}`);
     }
+  };
+
+  // --- selection gestures + overlay ---------------------------------------
+
+  // Metre AABB of a stored selection: a region's own bounds; a flood's cell
+  // bounds expanded to enclose whole voxel volumes (sample i spans
+  // [i·h, (i+1)·h) — bounds×h alone would give a single cell zero volume).
+  const selectionAabb = (
+    s: SelectionState,
+  ): { min: Vec3T; max: Vec3T } | null => {
+    if (s.materialized.kind === "region")
+      return { min: [...s.materialized.min], max: [...s.materialized.max] };
+    const b = s.materialized.bounds;
+    if (b === null) return null;
+    const h = store.cellSize;
+    return {
+      min: [b.min[0] * h, b.min[1] * h, b.min[2] * h],
+      max: [(b.max[0] + 1) * h, (b.max[1] + 1) * h, (b.max[2] + 1) * h],
+    };
+  };
+
+  // Sample lattice points inside a region AABB — min-inclusive/max-exclusive
+  // per axis, the exact set core's selectionHas region test admits.
+  const regionSampleCount = (min: Vec3T, max: Vec3T): number => {
+    const h = store.cellSize;
+    const axis = (lo: number, hi: number): number =>
+      Math.max(0, Math.ceil(hi / h) - Math.ceil(lo / h));
+    return axis(min[0], max[0]) * axis(min[1], max[1]) * axis(min[2], max[2]);
+  };
+
+  // Clone a spec so the panel (via SelectionInfo) never holds references into
+  // host selection state.
+  const cloneSelectionSpec = (s: field.SelectionSpec): field.SelectionSpec => {
+    if (s.kind === "region")
+      return { kind: "region", min: [...s.min], max: [...s.max] };
+    if (s.kind === "flood-material")
+      return {
+        kind: "flood-material",
+        seed: [...s.seed],
+        classId: s.classId,
+        budget: s.budget,
+      };
+    return { kind: "flood-void", seed: [...s.seed], budget: s.budget };
+  };
+
+  const selectionInfo = (s: SelectionState): SelectionInfo => ({
+    spec: cloneSelectionSpec(s.spec),
+    count:
+      s.materialized.kind === "cells"
+        ? s.materialized.count
+        : regionSampleCount(s.materialized.min, s.materialized.max),
+    truncated: s.materialized.kind === "cells" && s.materialized.truncated,
+    aabb: selectionAabb(s),
+  });
+
+  const notifySelection = (): void => {
+    selectionCb?.(selection === null ? null : selectionInfo(selection));
+  };
+
+  const rebuildSelectionBatch = (): void => {
+    const aabb = selection === null ? null : selectionAabb(selection);
+    if (aabb === null) {
+      selectionBatch = null;
+      return;
+    }
+    const center: Vec3T = [
+      (aabb.min[0] + aabb.max[0]) / 2,
+      (aabb.min[1] + aabb.max[1]) / 2,
+      (aabb.min[2] + aabb.max[2]) / 2,
+    ];
+    const half: Vec3T = [
+      (aabb.max[0] - aabb.min[0]) / 2,
+      (aabb.max[1] - aabb.min[1]) / 2,
+      (aabb.max[2] - aabb.min[2]) / 2,
+    ];
+    selectionBatch = boxEdges(boxCorners(center, half), SELECTION_COLOR);
+  };
+
+  const setBoxAnchor = (p: Vec3T | null): void => {
+    boxAnchor = p;
+    if (p === null) {
+      anchorBatch = null;
+      return;
+    }
+    const [x, y, z] = p;
+    const r = ANCHOR_CROSS_HALF_M;
+    anchorBatch = segmentsToBatch(
+      [
+        [
+          [x - r, y, z],
+          [x + r, y, z],
+        ],
+        [
+          [x, y - r, z],
+          [x, y + r, z],
+        ],
+        [
+          [x, y, z - r],
+          [x, y, z + r],
+        ],
+      ],
+      SELECTION_COLOR,
+    );
+  };
+
+  // Install a new current selection (null = clear): park the displaced one in
+  // the Reselect slot, rebuild the overlay, notify the panel.
+  const setSelection = (next: SelectionState | null): void => {
+    if (selection !== null) lastSelection = selection;
+    selection = next;
+    rebuildSelectionBatch();
+    notifySelection();
+  };
+
+  // The surface point for a box-select click: the RAW raycast hit point — NOT
+  // computeTarget's brush-offset centre (a region corner must sit ON the wall,
+  // not bitten past it). Falls back to the dig-feel target when the ray misses
+  // everything or the eye is buried, so a click into open air still anchors.
+  const selectionPoint = (clientX: number, clientY: number): Vec3T | null => {
+    const ray = cursorRay(clientX, clientY);
+    if (!ray) return null;
+    if (!ray.eyeInRock) {
+      const rc = field.raycastField(store, ray.origin, ray.dir, DIG_RANGE_M);
+      if (rc) return rc.point;
+    }
+    return computeTarget(clientX, clientY);
+  };
+
+  // One axis span of the two box points, snapped OUTWARD to the 0.5 m lattice.
+  // A degenerate span (both points on the same lattice plane — e.g. two clicks
+  // on one flat wall) would select nothing under the min-inclusive/
+  // max-exclusive region test, so it widens to one lattice step.
+  const snapSpan = (a: number, b: number): [number, number] => {
+    const lo =
+      Math.floor(Math.min(a, b) / SELECTION_LATTICE) * SELECTION_LATTICE;
+    let hi = Math.ceil(Math.max(a, b) / SELECTION_LATTICE) * SELECTION_LATTICE;
+    if (hi === lo) hi = lo + SELECTION_LATTICE;
+    return [lo, hi];
+  };
+
+  const boxRegionSpec = (a: Vec3T, b: Vec3T): field.SelectionSpec => {
+    const [x0, x1] = snapSpan(a[0], b[0]);
+    const [y0, y1] = snapSpan(a[1], b[1]);
+    const [z0, z1] = snapSpan(a[2], b[2]);
+    return { kind: "region", min: [x0, y0, z0], max: [x1, y1, z1] };
+  };
+
+  // Material-select seed: the SOLID voxel under the cursor — the raycast hit
+  // voxel, or the eye's own voxel when embedded in rock (eyedropper parity).
+  // A miss (open air to max range) reports and yields null.
+  const materialSeedVoxel = (
+    clientX: number,
+    clientY: number,
+  ): Vec3T | null => {
+    const ray = cursorRay(clientX, clientY);
+    if (!ray) return null;
+    const cs = store.cellSize;
+    if (ray.eyeInRock)
+      return [
+        field.worldToVoxel(ray.origin[0], cs),
+        field.worldToVoxel(ray.origin[1], cs),
+        field.worldToVoxel(ray.origin[2], cs),
+      ];
+    const rc = field.raycastField(store, ray.origin, ray.dir, DIG_RANGE_M);
+    if (!rc) {
+      reportToolError("material select: no rock under the cursor within range");
+      return null;
+    }
+    return rc.voxel;
+  };
+
+  // Void-select seed: the last AIR voxel the ray traverses before its rock
+  // hit (FieldHit.prev — guaranteed air here: with the eye in air, every
+  // pre-hit voxel the DDA crossed was non-rock). A miss (all air to max
+  // range) falls back to the brush TARGET's voxel — computeTarget's
+  // open-space point, itself in air on an all-air ray. An eye embedded in
+  // rock has no air on the ray at all (the cast self-hits at t=0), so that
+  // reports and bails instead of yielding an empty flood.
+  const voidSeedVoxel = (clientX: number, clientY: number): Vec3T | null => {
+    const ray = cursorRay(clientX, clientY);
+    if (!ray) return null;
+    if (ray.eyeInRock) {
+      reportToolError(
+        "void select: the eye is inside rock — aim from open air",
+      );
+      return null;
+    }
+    const rc = field.raycastField(store, ray.origin, ray.dir, DIG_RANGE_M);
+    if (rc) return rc.prev;
+    const target = computeTarget(clientX, clientY);
+    if (!target) return null;
+    const cs = store.cellSize;
+    return [
+      field.worldToVoxel(target[0], cs),
+      field.worldToVoxel(target[1], cs),
+      field.worldToVoxel(target[2], cs),
+    ];
+  };
+
+  // Materialize a gesture-built spec into the current selection. Runs on the
+  // CLICK only (never per frame — full-budget floods cost ~60-80ms). A flood
+  // can legitimately come up empty (nothing matched); that reports instead of
+  // silently displacing the current selection.
+  const commitSelectionSpec = (spec: field.SelectionSpec): void => {
+    let materialized: field.MaterializedSelection;
+    try {
+      materialized = field.materializeSelection(store, spec);
+    } catch (err) {
+      // Setup-loud spec validation (integer seeds, budget range) — gesture-
+      // built specs shouldn't trip it; swallow so a bug can't escape the
+      // pointer handler.
+      const message = err instanceof Error ? err.message : String(err);
+      reportToolError(`selection failed: ${message}`);
+      return;
+    }
+    if (materialized.kind === "cells" && materialized.count === 0) {
+      reportToolError("selection found no matching cells at the click point");
+      return;
+    }
+    setSelection({ spec, materialized });
+  };
+
+  // One LMB click while a selection mode is armed (applyTool is bypassed).
+  const selectionClick = (clientX: number, clientY: number): void => {
+    if (selectionMode === "box") {
+      const p = selectionPoint(clientX, clientY);
+      if (!p) return;
+      if (boxAnchor === null) {
+        setBoxAnchor(p); // first corner — the amber cross previews it
+        return;
+      }
+      const spec = boxRegionSpec(boxAnchor, p);
+      setBoxAnchor(null);
+      commitSelectionSpec(spec);
+      return;
+    }
+    if (selectionMode === "material") {
+      const seed = materialSeedVoxel(clientX, clientY);
+      if (!seed) return;
+      commitSelectionSpec({
+        kind: "flood-material",
+        seed,
+        classId: field.getMaterial(store, seed[0], seed[1], seed[2]),
+        budget: SELECTION_UI_BUDGET,
+      });
+      return;
+    }
+    const seed = voidSeedVoxel(clientX, clientY);
+    if (!seed) return;
+    commitSelectionSpec({
+      kind: "flood-void",
+      seed,
+      budget: SELECTION_UI_BUDGET,
+    });
   };
 
   // --- momentary tool overrides -------------------------------------------
@@ -921,6 +1279,24 @@ export function createFieldHost(): FieldHost {
       camera: view,
       occlude: true,
     });
+    // Selection overlay: amber AABB + pending box-select anchor cross, both
+    // occlude:false so a selection reads through rock. Batches are prebuilt on
+    // selection change — nothing is materialized per frame.
+    // Task 12 gates this via layers.selection — unconditional until then.
+    if (selectionBatch)
+      frame.drawLines(c, {
+        vertices: selectionBatch.vertices,
+        colors: selectionBatch.colors,
+        camera: view,
+        occlude: false,
+      });
+    if (anchorBatch)
+      frame.drawLines(c, {
+        vertices: anchorBatch.vertices,
+        colors: anchorBatch.colors,
+        camera: view,
+        occlude: false,
+      });
     // Ghost target preview last so it draws over the scene + grid (occlude:false).
     if (ghost) renderGhostLines(c, view, ghost);
   };
@@ -947,11 +1323,21 @@ export function createFieldHost(): FieldHost {
   const onPointerDown = (e: PointerEvent): void => {
     lastPointer = { x: e.clientX, y: e.clientY }; // feeds the per-frame ghost
     if (e.button === 0 && e.altKey) {
-      eyedropper(e.clientX, e.clientY); // Alt-click samples a material — never strokes
+      // Alt-click samples a material — never strokes, so it stays live in
+      // selection mode too (a brush affordance the gestures don't collide with).
+      eyedropper(e.clientX, e.clientY);
+      return;
+    }
+    if (e.button === 0 && selectionMode !== null) {
+      // Selection gestures BYPASS applyTool entirely: no stroke, no digging
+      // flag, no pointer capture (single clicks, nothing drags). RMB look
+      // below stays live in selection mode.
+      selectionClick(e.clientX, e.clientY);
       return;
     }
     if (e.button === 0) {
       digging = true;
+      maskDropReported = false; // re-arm the once-per-stroke mask-drop report
       applyTool(e.clientX, e.clientY);
       canvasEl?.setPointerCapture(e.pointerId);
     } else if (e.button === 2) {
@@ -1076,7 +1462,11 @@ export function createFieldHost(): FieldHost {
     canvasEl = null;
   };
 
-  // Reset the field session + free every GPU chunk render. Shared by newWorld/loadWorld.
+  // Reset the field session + free every GPU chunk render + drop the whole
+  // selection state (a different world invalidates it — Reselect slot too).
+  // Shared by newWorld/loadWorld. dispose() deliberately does NOT clear
+  // selection state: like the tool/radius/camera pose, it is CPU-only session
+  // state that survives a dispose/re-init on the same store.
   const resetWorld = (): void => {
     store.chunks.clear();
     store.materials.clear();
@@ -1088,6 +1478,11 @@ export function createFieldHost(): FieldHost {
     const c = ctx;
     if (c) for (const [, cm] of chunkMeshes) destroyChunkRender(c, cm);
     chunkMeshes.clear();
+    setBoxAnchor(null);
+    selection = null;
+    lastSelection = null;
+    selectionBatch = null;
+    notifySelection(); // null — the panel must not show a stale selection
   };
 
   return {
@@ -1192,6 +1587,35 @@ export function createFieldHost(): FieldHost {
         // Guard: a STALE unsubscribe (kept past a later subscribe) must not
         // null the successor's callback.
         if (toolCb === cb) toolCb = null;
+      };
+    },
+    subscribeToolError(cb) {
+      toolErrorCb = cb;
+      return () => {
+        if (toolErrorCb === cb) toolErrorCb = null;
+      };
+    },
+    setSelectionMode(mode) {
+      selectionMode = mode;
+      setBoxAnchor(null); // a pending anchor never survives a mode change
+    },
+    clearSelection() {
+      setBoxAnchor(null);
+      setSelection(null); // parks the current selection in the Reselect slot
+    },
+    reselect() {
+      if (lastSelection === null) return;
+      // Manual swap — setSelection would overwrite the slot being restored.
+      const restored = lastSelection;
+      lastSelection = selection; // may be null: the swap keeps toggle symmetry
+      selection = restored;
+      rebuildSelectionBatch();
+      notifySelection();
+    },
+    subscribeSelection(cb) {
+      selectionCb = cb;
+      return () => {
+        if (selectionCb === cb) selectionCb = null;
       };
     },
     getSmoothLimits() {

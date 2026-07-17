@@ -40,6 +40,8 @@ export {
   type FieldHostShading,
   type FieldMaskChoice,
   type FieldTool,
+  type SelectionInfo,
+  type SelectionMode,
 } from "./field-host.ts";
 export {
   createPreviewHost,
