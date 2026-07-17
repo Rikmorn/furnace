@@ -141,7 +141,8 @@ export const SMOOTH_DEFAULTS: SmoothParams = {
  *  shape (density only; requires `smooth` params). `material` is the class
  *  fill writes / paint applies (defaults {@link MAT_ROCK} for fill; ignored by
  *  dig and smooth). `mask` filters the affected cells cross-cuttingly
- *  ({@link BrushMask}). */
+ *  ({@link BrushMask}); `hollow` restricts a fill to a shell band (see the
+ *  field). */
 export type BrushOp = {
   id: number;
   kind: "brush";
@@ -150,6 +151,14 @@ export type BrushOp = {
   material?: number;
   mask?: BrushMask;
   smooth?: SmoothParams;
+  /** Shell-band thickness in metres — FILL-effect only. A hollow fill writes
+   *  only samples within `hollow` of the shape surface (positive-inside sdf in
+   *  `(0, hollow]`); samples deeper inside are SKIPPED, never dug — the
+   *  variant is NON-destructive. In air the result is a shell with an air
+   *  interior (the cave use-case); over existing rock the interior rock stays
+   *  (harmless, revealed only if dug). Kit-class fills require a positive
+   *  multiple of 0.5 m so the shell's INNER faces land on lattice planes too. */
+  hollow?: number;
 };
 
 /** One committed generator application — the log's smart-object record (L4).

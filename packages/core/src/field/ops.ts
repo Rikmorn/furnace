@@ -134,23 +134,33 @@ function assertSmoothValid(p: SmoothParams | undefined): void {
 /**
  * Setup-loud per-op validation — also the replay / LLM-stream guard. Validates
  * the mask when present (class ids must exist in the table; an embedded
- * selection spec must be well-formed, so a bad op never enters the log). A
- * smooth op then validates its {@link SmoothParams} (present, integer strength
- * 1..64, integer iterations 1..4, known mode) and SKIPS the material leg —
- * smooth never writes the material channel, so `material` is ignored and not
- * validated. Every other effect validates the material: the class id must
- * exist in the table, and kit-class writes must be lattice-snapped boxes (kit
- * pieces stay grid-locked to the 0.5 m built-kit lattice). Material-free,
- * mask-free ops (plain dig) are a no-op.
+ * selection spec must be well-formed, so a bad op never enters the log), then
+ * `hollow` when present (fill-effect only — every other effect rejects it —
+ * and a positive thickness in metres). A smooth op then validates its
+ * {@link SmoothParams} (present, integer strength 1..64, integer iterations
+ * 1..4, known mode) and SKIPS the material leg — smooth never writes the
+ * material channel, so `material` is ignored and not validated. Every other
+ * effect validates the material: the class id must exist in the table, and
+ * kit-class writes must be lattice-snapped boxes (kit pieces stay grid-locked
+ * to the 0.5 m built-kit lattice) whose `hollow`, when present, is a multiple
+ * of 0.5 m — the shell's INNER faces must land on lattice planes too.
+ * Material-free, mask-free ops (plain dig) are a no-op.
  *
  * @throws {@link Error} if a class id (material, class mask, or embedded
  *   flood-material spec) is unknown, an embedded selection spec has a
- *   non-integer flood seed or an out-of-range budget, a smooth op's params are
+ *   non-integer flood seed or an out-of-range budget, `hollow` rides a
+ *   non-fill effect or is not a positive thickness, a smooth op's params are
  *   absent or out of range, or a kit-class write is not an
- *   axis-lattice-aligned box.
+ *   axis-lattice-aligned box (with a lattice-multiple `hollow` when present).
  */
 export function assertOpValid(op: BrushOp, table: MaterialTable): void {
   assertMaskValid(op.mask, table);
+  if (op.hollow !== undefined) {
+    if (op.effect !== "fill")
+      throw new Error("field op: hollow is a fill-effect parameter");
+    if (!(op.hollow > 0))
+      throw new Error("field op: hollow must be a positive thickness (metres)");
+  }
   if (op.effect === "smooth") {
     assertSmoothValid(op.smooth);
     return;
@@ -169,6 +179,10 @@ export function assertOpValid(op: BrushOp, table: MaterialTable): void {
     if (!onLattice(lo) || !onLattice(hi))
       throw new Error("field op: kit-class box must sit on the 0.5 m lattice");
   }
+  if (op.hollow !== undefined && !onLattice(op.hollow))
+    throw new Error(
+      "field op: kit-class hollow must be a multiple of 0.5 m (the shell's inner faces stay on the lattice)",
+    );
 }
 
 /** Sample-loop bounds of an op: its world bounds in samples, +1 margin per
@@ -241,7 +255,10 @@ export const isBrushOp = (op: FieldOp): op is BrushOp => op.kind === "brush";
  *  cleanly). `dig` opens air (`density := max(density, quantize(sdf))`), `fill`
  *  solidifies (`density := min(density, quantize(-sdf))`) AND writes the
  *  material on solid interior cells (cells solid after the fill — including
- *  ambient rock the fill leaves unchanged), `paint` retints solid cells inside
+ *  ambient rock the fill leaves unchanged); a `hollow` fill SKIPS samples
+ *  deeper than `hollow` metres inside the shape — non-destructive: the deep
+ *  interior is never written, so existing air stays air and existing rock
+ *  stays rock ({@link BrushOp}.hollow). `paint` retints solid cells inside
  *  the shape, `smooth` relaxes the density channel toward its local 3³ mean
  *  inside the shape (density only — never the material channel; see
  *  {@link SmoothParams}). `op.mask` filters cells cross-cuttingly after each
@@ -290,6 +307,9 @@ export function applyOp(
           setDensity(store, x, y, z, nd);
           dirty.add(key);
         } else if (op.effect === "fill") {
+          // hollow: shell-band fill — deep-interior samples (beyond `hollow`
+          // of the surface) are skipped outright, NEVER dug (non-destructive)
+          if (op.hollow !== undefined && sdf > op.hollow) continue;
           const nd = clampInt8(-sdf * DENSITY_SCALE);
           const writeD = nd < d;
           const solidAfter = Math.min(d, nd) < 0;

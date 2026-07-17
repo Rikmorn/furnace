@@ -436,7 +436,16 @@ describe("op-list undo entries + the FieldOp union (F2b)", () => {
         opSpan: [1, 2],
       },
     };
-    const ops: FieldOp[] = [digSphere([1, 1, 1], 1), entity];
+    // hollow rides the JSON pass-through — the shell-band fill replays intact
+    const hollowFill: BrushOp = {
+      id: 2,
+      kind: "brush",
+      effect: "fill",
+      material: 1,
+      hollow: 0.5,
+      shape: { kind: "box", center: [1, 1, 1], halfExtents: [0.5, 0.5, 0.5] },
+    };
+    const ops: FieldOp[] = [digSphere([1, 1, 1], 1), hollowFill, entity];
     expect(parseOps(serializeOps(ops))).toEqual(ops);
   });
 
@@ -899,5 +908,134 @@ describe("brush masks (F2b)", () => {
     // the pre-existing solid shell inside the shape kept density AND material
     expect(getDensity(s, 3, 8, 8)).toBe(-8);
     expect(getMaterial(s, 3, 8, 8)).toBe(1);
+  });
+});
+
+// Literal derivations at cellSize 0.25 (sample = metres × 4, DENSITY_SCALE 32).
+// Room dig digBox([2,2,2],[2,2,2]) leaves air density sdf·32: sample (5,8,8) =
+// (1.25,2,2) m → sdf 1.25 → 40; (6,8,8) → 48; (7,8,8) → 56; centre (8,8,8) →
+// 64. The hollow-fill box he [1,1,1] (faces 1..3 m) has box sdf 0.25 at sample
+// 5 (nd −8), 0.5 at sample 6 (nd −16), 0.75 at sample 7 — beyond hollow 0.5,
+// so the non-destructive skip leaves it untouched.
+describe("hollow fill (F2b)", () => {
+  test("hollow fill in open air builds a shell; the interior stays air", () => {
+    const s = createFieldStore();
+    const log = createOpLog();
+    logApply(s, log, digBox([2, 2, 2], [2, 2, 2]), TABLE); // room: air 0..16
+    logApply(
+      s,
+      log,
+      {
+        id: 0,
+        kind: "brush",
+        effect: "fill",
+        material: 1,
+        hollow: 0.5,
+        shape: { kind: "box", center: [2, 2, 2], halfExtents: [1, 1, 1] },
+      },
+      TABLE,
+    );
+    // shell band (0 < sdf ≤ 0.5): solidified with the op's material
+    expect(getDensity(s, 5, 8, 8)).toBe(-8); // sdf 0.25 (was air 40)
+    expect(getDensity(s, 6, 8, 8)).toBe(-16); // sdf 0.5 (was air 48)
+    expect(getMaterial(s, 5, 8, 8)).toBe(1);
+    expect(getMaterial(s, 6, 8, 8)).toBe(1);
+    // interior (sdf > hollow): SKIPPED — the room's air survives untouched
+    expect(getDensity(s, 7, 8, 8)).toBe(56); // first interior sample
+    expect(getDensity(s, 8, 8, 8)).toBe(64); // box centre still air
+    expect(getMaterial(s, 8, 8, 8)).toBe(MAT_ROCK);
+  });
+
+  test("hollow fill over existing solid: interior bytes unchanged (non-destructive)", () => {
+    const s = createFieldStore();
+    const log = createOpLog();
+    logApply(s, log, digBox([2, 2, 2], [2, 2, 2]), TABLE); // room: air 0..16
+    // re-solidify a dirt block (faces 0.5..3.5 m — samples 2..14) so the
+    // hollow op below runs entirely inside EXISTING solid
+    logApply(
+      s,
+      log,
+      {
+        id: 0,
+        kind: "brush",
+        effect: "fill",
+        material: 1,
+        shape: { kind: "box", center: [2, 2, 2], halfExtents: [1.5, 1.5, 1.5] },
+      },
+      TABLE,
+    );
+    const before = new Map(
+      [...s.chunks].map(([k, v]) => [k, Int8Array.from(v)]),
+    );
+    logApply(
+      s,
+      log,
+      {
+        id: 0,
+        kind: "brush",
+        effect: "fill",
+        material: 3,
+        hollow: 0.25,
+        shape: { kind: "box", center: [2, 2, 2], halfExtents: [1, 1, 1] },
+      },
+      TABLE,
+    );
+    // the op DID apply: the shell band (sdf 0.25) retinted to moss…
+    expect(getMaterial(s, 5, 8, 8)).toBe(3);
+    // …but the deep interior was never dug OR retinted (skipped, not filled)…
+    expect(getMaterial(s, 8, 8, 8)).toBe(1);
+    // …and the density channel is byte-unchanged store-wide: every shell
+    // sample sits > 0.5 m inside the dirt block (d ≤ −24), deeper than the
+    // shell band's own −8, so a non-destructive hollow fill writes no density
+    expect(s.chunks.size).toBe(before.size);
+    for (const [k, v] of before) expect(s.chunks.get(k)).toEqual(v);
+  });
+
+  test("assertOpValid: hollow is fill-only, positive, and lattice-true for kit fills", () => {
+    const fillBoxOp = (material: number, hollow: number): BrushOp => ({
+      id: 0,
+      kind: "brush",
+      effect: "fill",
+      material,
+      hollow,
+      shape: { kind: "box", center: [1, 1, 1], halfExtents: [0.5, 0.5, 0.5] },
+    });
+    // hollow on a non-fill effect is rejected for EVERY effect — dig, paint,
+    // AND smooth (whose validation leg returns early; the hollow check must
+    // run before it)
+    expect(() =>
+      assertOpValid({ ...digBox([1, 1, 1], [1, 1, 1]), hollow: 0.5 }, TABLE),
+    ).toThrow(/hollow/);
+    expect(() =>
+      assertOpValid(
+        { ...paintBox([1, 1, 1], [1, 1, 1], 1), hollow: 0.5 },
+        TABLE,
+      ),
+    ).toThrow(/hollow/);
+    expect(() =>
+      assertOpValid(
+        {
+          id: 0,
+          kind: "brush",
+          effect: "smooth",
+          hollow: 0.5,
+          smooth: { strength: 16, iterations: 1, mode: "both" },
+          shape: { kind: "sphere", center: [1, 1, 1], radius: 1 },
+        },
+        TABLE,
+      ),
+    ).toThrow(/hollow/);
+    // non-positive thickness rejected (fill effect, organic material)
+    expect(() => assertOpValid(fillBoxOp(1, 0), TABLE)).toThrow(/hollow/);
+    expect(() => assertOpValid(fillBoxOp(1, -0.5), TABLE)).toThrow(/hollow/);
+    // kit-class fills: the shell's INNER faces must land on lattice planes,
+    // so the thickness must be a positive multiple of 0.5 m
+    expect(() => assertOpValid(fillBoxOp(2, 0.25), TABLE)).toThrow(/lattice/);
+    expect(() => assertOpValid(fillBoxOp(2, 0.3), TABLE)).toThrow(/lattice/);
+    expect(() => assertOpValid(fillBoxOp(2, 0.5), TABLE)).not.toThrow();
+    expect(() => assertOpValid(fillBoxOp(2, 1), TABLE)).not.toThrow();
+    // organic fills take any positive thickness
+    expect(() => assertOpValid(fillBoxOp(1, 0.3), TABLE)).not.toThrow();
+    expect(() => assertOpValid(fillBoxOp(3, 0.5), TABLE)).not.toThrow();
   });
 });
