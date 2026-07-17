@@ -38,6 +38,7 @@ export {
   createFieldHost,
   type FieldHost,
   type FieldHostShading,
+  type FieldLayers,
   type FieldMaskChoice,
   type FieldTool,
   type SelectionInfo,

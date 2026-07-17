@@ -91,6 +91,20 @@ export type SelectionInfo = {
   aabb: { min: [number, number, number]; max: [number, number, number] } | null;
 };
 
+/** Per-layer render visibility (all default true). `field` = the per-class
+ *  bucket surface meshes; `kit` = the instanced kit pieces; `ghost` = the
+ *  brush ghost (cube + lines; stamp ghosts join in Task 13); `selection` =
+ *  the amber selection overlay + pending box anchor; `grid` = the reference
+ *  grid (minor + major). Display-only — hiding a layer never affects
+ *  targeting, ops, or bakes. */
+export type FieldLayers = {
+  field: boolean;
+  kit: boolean;
+  ghost: boolean;
+  selection: boolean;
+  grid: boolean;
+};
+
 export type FieldHost = {
   init(canvas: HTMLCanvasElement): Promise<void>;
   dispose(): void;
@@ -142,12 +156,30 @@ export type FieldHost = {
    *  box anchor); subscribers are notified with null. */
   clearSelection(): void;
   /** Photoshop Reselect: swaps the current selection with the one-deep
-   *  previous slot — restores what the last clear/replace displaced; pressing
-   *  again toggles back. No-op when the slot is empty. */
+   *  previous slot — restores what the last clear/replace displaced. After a
+   *  REPLACE, pressing again toggles between the two selections; after a
+   *  CLEAR, the swap parks null in the slot, so a second press is a no-op
+   *  (there is no cleared state to toggle back to). No-op when the slot is
+   *  empty. */
   reselect(): void;
-  /** Subscribes to selection changes (null = no selection). Single subscriber
-   *  (the panel); returns an unsubscribe. */
+  /** Subscribes to selection changes (null = no selection). Immediately
+   *  pushes the CURRENT state on subscribe, so a panel that (re)mounts while
+   *  a selection exists never shows "no selection" beside a visible overlay.
+   *  Single subscriber (the panel); returns an unsubscribe. */
   subscribeSelection(cb: (info: SelectionInfo | null) => void): () => void;
+  /** Toggles per-layer render visibility (see {@link FieldLayers}; default
+   *  all true). Layer flags are view state like shading — they survive
+   *  world loads and dispose/re-init. */
+  setLayers(layers: FieldLayers): void;
+  /** Sets the slice-view clip plane (world metres; `null` = off). DISPLAY
+   *  only: every chunk re-meshes through the worker's slice clamp (samples
+   *  at/above the plane read as air) and brush TARGETING respects the same
+   *  plane — the target raycast passes the clip and an eye at/above the
+   *  plane counts as in-air even inside rock, so strokes land on the sliced
+   *  surface the user sees. The field, the oplog, and bakes are untouched.
+   *  Like the layer flags, the plane survives world loads (the load's
+   *  full remesh re-applies it). */
+  setSlice(y: number | null): void;
   /** The core smooth-parameter ceilings (strength 1..max, iterations 1..max),
    *  surfaced through the host because the panel cannot value-import core. */
   getSmoothLimits(): { maxStrength: number; maxIterations: number };
@@ -369,6 +401,18 @@ export function createFieldHost(): FieldHost {
   // (materializeSelection cost lives on the click; the overlay is stored).
   let selectionBatch: LineBatch | null = null;
   let anchorBatch: LineBatch | null = null;
+
+  // --- view state (layers + slice plane) ----------------------------------
+  let layers: FieldLayers = {
+    field: true,
+    kit: true,
+    ghost: true,
+    selection: true,
+    grid: true,
+  };
+  // Slice-view clip plane (world metres; null = off). Display + targeting
+  // only — never read by logApply, the oplog, or bakeFieldWorld.
+  let sliceY: number | null = null;
 
   let digRadius = 1.25;
   let digging = false;
@@ -641,7 +685,13 @@ export function createFieldHost(): FieldHost {
     const aprons = field.extractFieldAprons(store, key);
     const t0 = performance.now();
     try {
-      const res = await worker.mesh(key, aprons, table, store.cellSize);
+      const res = await worker.mesh(
+        key,
+        aprons,
+        table,
+        store.cellSize,
+        sliceY ?? undefined,
+      );
       lastRemeshMs = performance.now() - t0;
       if (disposed) return;
       applyMesh(c, key, res.buckets, res.kit);
@@ -806,15 +856,25 @@ export function createFieldHost(): FieldHost {
   const computeTarget = (clientX: number, clientY: number): Vec3T | null => {
     const ray = cursorRay(clientX, clientY);
     if (!ray) return null;
-    const { origin, dir, eyeInRock } = ray;
+    const { origin, dir } = ray;
     // If the eye is embedded in rock (virgin world or buried), raycastField would
     // hit the origin's OWN voxel at t=0 (raycast.ts: "a start inside rock hits its
     // own voxel at t=0"), so we pass eyeInRock and the pure module mines forward
     // from the eye. When the eye is in air, apply where the ray meets rock, or dig
     // ahead when it reaches maxDist through only air (a cavity aimed at open space).
+    // Slice view: an eye at/above the clip plane sits in DISPLAY air even when
+    // the field there is rock — treat it as in-air (the raycast's maxY clip
+    // suppresses the t=0 self-hit) so strokes land on the sliced surface shown.
+    const eyeInRock = ray.eyeInRock && (sliceY === null || origin[1] < sliceY);
     const rc = eyeInRock
       ? null
-      : field.raycastField(store, origin, dir, DIG_RANGE_M);
+      : field.raycastField(
+          store,
+          origin,
+          dir,
+          DIG_RANGE_M,
+          sliceY === null ? undefined : { maxY: sliceY },
+        );
     return computeBrushCenter(
       { origin, dir, eyeInRock, hit: rc ? rc.point : null },
       digRadius,
@@ -1231,11 +1291,15 @@ export function createFieldHost(): FieldHost {
   };
 
   const renderScene = (c: Context, view: camera.Camera): void => {
+    // Layer gating happens HERE, at draw-list build time: the host has no
+    // per-mesh visibility flag — it reconstructs the frame.render lists (and
+    // issues the drawLines calls) every frame, so a hidden layer is simply
+    // never pushed/drawn. GPU chunk state stays resident either way.
     const meshes: mesh.Mesh[] = [];
     const instanced: mesh.InstancedMesh[] = [];
     for (const cm of chunkMeshes.values()) {
-      for (const e of cm.entries) meshes.push(e.m);
-      if (cm.kit) instanced.push(cm.kit);
+      if (layers.field) for (const e of cm.entries) meshes.push(e.m);
+      if (layers.kit && cm.kit) instanced.push(cm.kit);
     }
     // Filled kit ghost (the fill-tool-solid-volume-surprise fix): pose the ONE
     // translucent unit cube at the snapped box and draw it LAST in the mesh
@@ -1244,7 +1308,11 @@ export function createFieldHost(): FieldHost {
     // Known limit: frame.render records `instanced` AFTER `meshes`, so nearby
     // kit pieces overdraw the hologram (it doesn't write depth) — the box edge
     // lines still outline the volume there; accepted v0 artifact.
-    const ghost = ghostState();
+    // Two independent ghost gates: the LAYER flag is user intent; the
+    // selection-mode suppression is mode coherence — while a selection mode is
+    // armed LMB doesn't stroke, so a brush preview would promise an action
+    // that won't happen. Stamp ghosts (Task 13) gate on layers.ghost here too.
+    const ghost = layers.ghost && selectionMode === null ? ghostState() : null;
     if (ghost?.kitBox && ghostCube) {
       ghostPos.set(ghost.kitBox.center);
       ghostScale[0] = ghost.kitBox.halfExtents[0] * 2;
@@ -1267,36 +1335,41 @@ export function createFieldHost(): FieldHost {
       effects: [],
     });
     // Depth-tested grid (occlude:true): solid geometry hides it. Minors, then majors.
-    frame.drawLines(c, {
-      vertices: gridMinor.vertices,
-      colors: gridMinor.colors,
-      camera: view,
-      occlude: true,
-    });
-    frame.drawLines(c, {
-      vertices: gridMajor.vertices,
-      colors: gridMajor.colors,
-      camera: view,
-      occlude: true,
-    });
+    if (layers.grid) {
+      frame.drawLines(c, {
+        vertices: gridMinor.vertices,
+        colors: gridMinor.colors,
+        camera: view,
+        occlude: true,
+      });
+      frame.drawLines(c, {
+        vertices: gridMajor.vertices,
+        colors: gridMajor.colors,
+        camera: view,
+        occlude: true,
+      });
+    }
     // Selection overlay: amber AABB + pending box-select anchor cross, both
     // occlude:false so a selection reads through rock. Batches are prebuilt on
-    // selection change — nothing is materialized per frame.
-    // Task 12 gates this via layers.selection — unconditional until then.
-    if (selectionBatch)
-      frame.drawLines(c, {
-        vertices: selectionBatch.vertices,
-        colors: selectionBatch.colors,
-        camera: view,
-        occlude: false,
-      });
-    if (anchorBatch)
-      frame.drawLines(c, {
-        vertices: anchorBatch.vertices,
-        colors: anchorBatch.colors,
-        camera: view,
-        occlude: false,
-      });
+    // selection change — nothing is materialized per frame. Hiding the layer
+    // hides the DISPLAY only: the selection itself stays live (it keeps
+    // masking ops and the panel keeps its info).
+    if (layers.selection) {
+      if (selectionBatch)
+        frame.drawLines(c, {
+          vertices: selectionBatch.vertices,
+          colors: selectionBatch.colors,
+          camera: view,
+          occlude: false,
+        });
+      if (anchorBatch)
+        frame.drawLines(c, {
+          vertices: anchorBatch.vertices,
+          colors: anchorBatch.colors,
+          camera: view,
+          occlude: false,
+        });
+    }
     // Ghost target preview last so it draws over the scene + grid (occlude:false).
     if (ghost) renderGhostLines(c, view, ghost);
   };
@@ -1596,6 +1669,7 @@ export function createFieldHost(): FieldHost {
       };
     },
     setSelectionMode(mode) {
+      if (mode === selectionMode) return; // re-arming the same mode must not drop a pending box anchor
       selectionMode = mode;
       setBoxAnchor(null); // a pending anchor never survives a mode change
     },
@@ -1614,9 +1688,24 @@ export function createFieldHost(): FieldHost {
     },
     subscribeSelection(cb) {
       selectionCb = cb;
+      // Initial push: a panel (re)mounting while a selection exists must not
+      // render "no selection" next to a visible amber overlay.
+      cb(selection === null ? null : selectionInfo(selection));
       return () => {
         if (selectionCb === cb) selectionCb = null;
       };
+    },
+    setLayers(next) {
+      layers = { ...next }; // copy — host state never aliases panel objects
+    },
+    setSlice(y) {
+      if (y === sliceY) return; // slider-drag repeats of the same value are free
+      sliceY = y;
+      // Re-mesh EVERYTHING through the new clip. Plain adds, not
+      // markDirtyWithNeighbors: every allocated chunk is being re-marked
+      // anyway, so each chunk's 26-neighbourhood is in the set by
+      // construction. The throttled drain (REMESH_PER_FRAME) paces the burst.
+      for (const key of store.chunks.keys()) dirty.add(key);
     },
     getSmoothLimits() {
       return {

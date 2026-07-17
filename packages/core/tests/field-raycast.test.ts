@@ -76,4 +76,16 @@ describe("raycastField — maxY slice clip", () => {
     const s = createFieldStore();
     expect(raycastField(s, [2, 3, 2], [1, 0, 0], 5, { maxY: 1 })).toBeNull();
   });
+
+  test("clip active but the ray fully below it: unclipped behaviour, own rock voxel at t=0", () => {
+    // The everyday slice-view configuration (Task 12): the clip plane sits
+    // ABOVE the ray — sub-clip voxels must be untouched by the clamp, so a
+    // start inside sub-clip rock still self-hits at t=0.
+    const s = createFieldStore(); // virgin rock everywhere
+    const hit = raycastField(s, [2, 0.5, 2], [1, 0, 0], 5, { maxY: 1 });
+    expect(hit).not.toBeNull();
+    if (hit === null) return;
+    expect(hit.voxel).toEqual([8, 2, 8]); // 0.5 / cellSize 0.25 = iy 2, base y 0.5 < 1
+    expect(hit.point).toEqual([2, 0.5, 2]); // t=0 → the origin itself
+  });
 });
