@@ -116,17 +116,26 @@ function gridToOps(
 
 type Wall = "north" | "south" | "east" | "west";
 
-/** Open one auto-centred doorway through the shell + validate its walk lane
- *  (the donor validateDoorApproach rule: the centre 2 of the 4 width cells ×
+/** Open one doorway through the shell + validate its walk lane (the donor
+ *  validateDoorApproach rule: the centre 2 of the 4 width cells ×
  *  DOOR_CLEARANCE_DEPTH_CELLS inward × full door height must be AIR —
- *  setup-loud, the W2 colonnade-on-the-door-axis lesson). F2b fixes the door
- *  offset at the wall's centre; the full GridDoor offset authoring returns
- *  in F3. */
-function openDoor(grid: MiniGrid, wall: Wall, label: string): void {
+ *  setup-loud, the W2 colonnade-on-the-door-axis lesson). `offset` is the
+ *  door's lateral offset in coarse cells along the wall, clamped to the wall
+ *  span (the donor doorAt contract); omitted = auto-centred. The hall always
+ *  centres; the maze's passage-column doors (Task 6) pass explicit offsets —
+ *  full GridDoor offset AUTHORING returns in F3. */
+function openDoor(
+  grid: MiniGrid,
+  wall: Wall,
+  label: string,
+  offset?: number,
+): void {
   const [nx, , nz] = grid.dims;
   const alongX = wall === "north" || wall === "south";
   const interiorLen = (alongX ? nx : nz) - 2;
-  const lo = 1 + Math.max(0, Math.floor((interiorLen - DOOR_W_CELLS) / 2));
+  const centred = Math.floor((interiorLen - DOOR_W_CELLS) / 2);
+  const lo =
+    1 + Math.max(0, Math.min(offset ?? centred, interiorLen - DOOR_W_CELLS));
   const shellIdx =
     wall === "north"
       ? nz - 1
@@ -157,13 +166,20 @@ function openDoor(grid: MiniGrid, wall: Wall, label: string): void {
       }
 }
 
+/** The hall's pillar vocabularies — ONE spelling feeding the schema enum, the
+ *  narrowed param type, and the runtime check (no drift between the three). */
+const PILLAR_KINDS = ["none", "grid", "colonnade"] as const;
+type PillarKind = (typeof PILLAR_KINDS)[number];
+const isPillarKind = (v: unknown): v is PillarKind =>
+  PILLAR_KINDS.some((k) => k === v);
+
 /** The hall's narrowed, range-validated params. `doors` is the resolved wall
  *  list from the four per-wall booleans. */
 type HallParams = {
   width: number;
   height: number;
   depth: number;
-  pillars: "none" | "grid" | "colonnade";
+  pillars: PillarKind;
   pillarSpacing: number;
   doors: Wall[];
 };
@@ -174,7 +190,7 @@ const HALL_SCHEMA = {
     width: { type: "number", minimum: 4, maximum: 24, default: 8 },
     height: { type: "number", minimum: 6, maximum: 12, default: 6 },
     depth: { type: "number", minimum: 4, maximum: 32, default: 8 },
-    pillars: { enum: ["none", "grid", "colonnade"], default: "none" },
+    pillars: { enum: PILLAR_KINDS, default: "none" },
     pillarSpacing: { type: "number", minimum: 2, maximum: 8, default: 3 },
     doorNorth: { type: "boolean", default: true },
     doorSouth: { type: "boolean", default: false },
@@ -183,8 +199,17 @@ const HALL_SCHEMA = {
   },
 } as const;
 
-/** Integer param in the schema property's [minimum, maximum] — setup-loud. */
+/** The schema's per-property defaults, DERIVED (never restated) — the one
+ *  source both the session seed (defaults) and the rendered form (paramSchema)
+ *  agree on. */
+const HALL_DEFAULTS: Record<string, unknown> = Object.fromEntries(
+  Object.entries(HALL_SCHEMA.properties).map(([k, p]) => [k, p.default]),
+);
+
+/** Integer param in the schema property's [minimum, maximum] — setup-loud.
+ *  `label` names the generator in the error ("hall" / "maze"). */
 function intParam(
+  label: string,
   params: Record<string, unknown>,
   key: string,
   range: { minimum: number; maximum: number },
@@ -197,15 +222,22 @@ function intParam(
     v > range.maximum
   )
     throw new Error(
-      `hall: ${key} must be an integer in [${range.minimum}, ${range.maximum}]`,
+      `${label}: ${key} must be an integer in [${range.minimum}, ${range.maximum}], got ${JSON.stringify(v)}`,
     );
   return v;
 }
 
-/** Boolean param — setup-loud. */
-function boolParam(params: Record<string, unknown>, key: string): boolean {
+/** Boolean param — setup-loud. `label` names the generator in the error. */
+function boolParam(
+  label: string,
+  params: Record<string, unknown>,
+  key: string,
+): boolean {
   const v = params[key];
-  if (typeof v !== "boolean") throw new Error(`hall: ${key} must be a boolean`);
+  if (typeof v !== "boolean")
+    throw new Error(
+      `${label}: ${key} must be a boolean, got ${JSON.stringify(v)}`,
+    );
   return v;
 }
 
@@ -214,21 +246,21 @@ function boolParam(params: Record<string, unknown>, key: string): boolean {
 function hallParams(params: Record<string, unknown>): HallParams {
   const p = HALL_SCHEMA.properties;
   const pillars = params["pillars"];
-  if (pillars !== "none" && pillars !== "grid" && pillars !== "colonnade")
+  if (!isPillarKind(pillars))
     throw new Error(
-      'hall: pillars must be one of "none" | "grid" | "colonnade"',
+      `hall: pillars must be one of ${PILLAR_KINDS.map((k) => `"${k}"`).join(" | ")}, got ${JSON.stringify(pillars)}`,
     );
   const doors: Wall[] = [];
-  if (boolParam(params, "doorNorth")) doors.push("north");
-  if (boolParam(params, "doorSouth")) doors.push("south");
-  if (boolParam(params, "doorEast")) doors.push("east");
-  if (boolParam(params, "doorWest")) doors.push("west");
+  if (boolParam("hall", params, "doorNorth")) doors.push("north");
+  if (boolParam("hall", params, "doorSouth")) doors.push("south");
+  if (boolParam("hall", params, "doorEast")) doors.push("east");
+  if (boolParam("hall", params, "doorWest")) doors.push("west");
   return {
-    width: intParam(params, "width", p.width),
-    height: intParam(params, "height", p.height),
-    depth: intParam(params, "depth", p.depth),
+    width: intParam("hall", params, "width", p.width),
+    height: intParam("hall", params, "height", p.height),
+    depth: intParam("hall", params, "depth", p.depth),
     pillars,
-    pillarSpacing: intParam(params, "pillarSpacing", p.pillarSpacing),
+    pillarSpacing: intParam("hall", params, "pillarSpacing", p.pillarSpacing),
     doors,
   };
 }
@@ -270,22 +302,13 @@ function kitClassId(table: MaterialTable): number {
  *  dims+2 masonry shell, optional pillar lattice (`grid` | `colonnade`), and
  *  auto-centred doorways per wall boolean — the donor hall.ts port. Evaluation
  *  is params-determined (the seed is reserved for skin variants); a blocked
- *  door walk lane throws setup-loud. */
-export const hallGenerator: GeneratorDef = {
+ *  door walk lane throws setup-loud. Module-local: the registry is the one
+ *  access path. */
+const hallGenerator: GeneratorDef = {
   id: "hall",
   name: "Hall",
   paramSchema: HALL_SCHEMA,
-  defaults: {
-    width: 8,
-    height: 6,
-    depth: 8,
-    pillars: "none",
-    pillarSpacing: 3,
-    doorNorth: true,
-    doorSouth: false,
-    doorEast: false,
-    doorWest: false,
-  },
+  defaults: HALL_DEFAULTS,
   evaluate(params, seed, region, table, policy) {
     void seed; // hall structure is params-determined (donor contract)
     const p = hallParams(params); // narrow + range-validate, setup-loud

@@ -172,6 +172,64 @@ describe("field generators — the hall", () => {
     expect(getDensity(s, 19, 9, 15)).toBeGreaterThan(0);
   });
 
+  test("a blocked EAST door lane throws via the alongX=false path", () => {
+    // Donor colonnade math for w=8: centre = floor(8/2)+1 = 5 → rows i ∈ {3,7};
+    // spacing 2 → k ∈ {2,4,6}. The east door (alongX=false) sits on shell
+    // i=9 at lo=3; its checked lane is depth i ∈ {8,7,6,5} × lat k ∈ {4,5} ×
+    // j 1..6 — the colonnade pillar at (7, j, 4) is in the lane, so
+    // evaluation must throw through the east/west branch of openDoor.
+    const hall = generatorById("hall");
+    const blocked = {
+      ...HALL_PARAMS,
+      doorNorth: false,
+      doorEast: true,
+      pillars: "colonnade",
+      pillarSpacing: 2,
+    };
+    expect(() => hall.evaluate(blocked, 7, REGION, TABLE, "replace")).toThrow(
+      /east door/,
+    );
+  });
+
+  test("a WEST door opens through the west shell (alongX=false carve + lane)", () => {
+    // West wall: shell cells i=0 → x ∈ [2, 2.5] m (mid-sample 9 = 2.25 m).
+    // lo = 3 → door cells k ∈ [3,6] → z ∈ (3.5, 5.5) m, j 1..6 → y ∈ (0.5,3.5).
+    // The door's lateral axis is z, where each dig row is its OWN box, so
+    // probes use z CELL MIDS (z = 4.5 m sits on a box boundary → sdf 0):
+    // samples 15/17/21 = 3.75/4.25/5.25 m. Each door row merges shell +
+    // interior into box(0,j,k,9,1,1) (x ∈ [2, 6.5], center 4.25): sdf at
+    // (2.25, 2.25, cell mid) = min(0.25, 0.25, 0.25) → density 8.
+    const hall = generatorById("hall");
+    const ops = hall.evaluate(
+      { ...HALL_PARAMS, doorNorth: false, doorWest: true },
+      7,
+      REGION,
+      TABLE,
+      "replace",
+    );
+    const s = createFieldStore();
+    for (const op of ops) applyOp(s, { ...op, id: 1 }, TABLE);
+    // air through the west shell across the door span …
+    expect(getDensity(s, 9, 9, 15)).toBeGreaterThan(0);
+    expect(getDensity(s, 9, 9, 17)).toBeGreaterThan(0);
+    expect(getDensity(s, 9, 9, 21)).toBeGreaterThan(0);
+    // … and the shell flanking the door span (k=2 mid z=3.25 m → sample 13,
+    // k=7 mid z=5.75 m → sample 23) stays solid masonry — pins the centring
+    expect(getDensity(s, 9, 9, 13)).toBeLessThan(0);
+    expect(getDensity(s, 9, 9, 23)).toBeLessThan(0);
+    expect(getMaterial(s, 9, 9, 13)).toBe(KIT_CLASS_ID);
+    // the north shell has NO door in this config: its former door-centre
+    // sample (18, 9, 27) stays solid
+    expect(getDensity(s, 18, 9, 27)).toBeLessThan(0);
+  });
+
+  test("defaults are schema-derived and evaluate clean", () => {
+    const hall = generatorById("hall");
+    expect(() =>
+      hall.evaluate(hall.defaults, 7, REGION, TABLE, "replace"),
+    ).not.toThrow();
+  });
+
   test("stamps require a kit class: the builtin rock-only table throws setup-loud", () => {
     const hall = generatorById("hall");
     expect(() =>
@@ -183,7 +241,7 @@ describe("field generators — the hall", () => {
     const hall = generatorById("hall");
     const run = (over: Record<string, unknown>) => () =>
       hall.evaluate({ ...HALL_PARAMS, ...over }, 7, REGION, TABLE, "replace");
-    expect(run({ width: 2 })).toThrow(/width/); // below schema minimum 4
+    expect(run({ width: 2 })).toThrow(/width.*got 2/); // below minimum 4, value echoed
     expect(run({ width: 40 })).toThrow(/width/); // above schema maximum 24
     expect(run({ height: 4 })).toThrow(/height/); // below door height
     expect(run({ depth: 8.5 })).toThrow(/depth/); // non-integer

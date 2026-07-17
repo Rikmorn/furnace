@@ -168,7 +168,9 @@ export type MergePolicy = "replace" | "keep-existing-air";
 
 /** One staged generator: JSON-Schema params (SchemaForm-compatible plain data —
  *  no array-typed fields, the form renders those as fallback), defaults, and a
- *  pure evaluate to a span of lattice-snapped brush ops (world coords). */
+ *  pure evaluate to a span of lattice-snapped brush ops (world coords).
+ *  Emitted ops carry the placeholder id 0 — the committer assigns real log
+ *  ids when the span is applied through the op log. */
 export type GeneratorDef = {
   id: string;
   name: string;
