@@ -141,8 +141,8 @@ export const SMOOTH_DEFAULTS: SmoothParams = {
  *  shape (density only; requires `smooth` params). `material` is the class
  *  fill writes / paint applies (defaults {@link MAT_ROCK} for fill; ignored by
  *  dig and smooth). `mask` filters the affected cells cross-cuttingly
- *  ({@link BrushMask}); `hollow` restricts a fill to a shell band (see the
- *  field). */
+ *  ({@link BrushMask}); `hollow` restricts a fill to a shell band (see
+ *  `hollow` below). */
 export type BrushOp = {
   id: number;
   kind: "brush";
