@@ -77,6 +77,20 @@ describe("raycastField — maxY slice clip", () => {
     expect(raycastField(s, [2, 3, 2], [1, 0, 0], 5, { maxY: 1 })).toBeNull();
   });
 
+  test("a non-lattice-aligned maxY clips by voxel BASE: a straddling voxel still hits", () => {
+    const s = createFieldStore(); // virgin rock everywhere
+    // maxY 0.9 is between voxel 3's base (0.75) and top (1.0): base semantics
+    // keep iy 3 SOLID (0.75 < 0.9) while iy ≥ 4 is clipped (1.0 ≥ 0.9) — a
+    // continuous interpretation would treat the straddling voxel's upper band
+    // as air. The hit point (its top face, y = 1) lies ABOVE the clip plane,
+    // which is exactly what pins the by-base contract.
+    const hit = raycastField(s, [2, 3, 2], [0, -1, 0], 10, { maxY: 0.9 });
+    expect(hit).not.toBeNull();
+    if (hit === null) return;
+    expect(hit.voxel).toEqual([8, 3, 8]);
+    expect(hit.point[1]).toBeCloseTo(1, 5);
+  });
+
   test("clip active but the ray fully below it: unclipped behaviour, own rock voxel at t=0", () => {
     // The everyday slice-view configuration (Task 12): the clip plane sits
     // ABOVE the ray — sub-clip voxels must be untouched by the clamp, so a

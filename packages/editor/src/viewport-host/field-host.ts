@@ -17,7 +17,9 @@ import * as shader from "@furnace/core/shader";
 import { vec4 } from "@furnace/core/transform";
 import {
   computeBrushCenter,
+  regionSampleCount,
   snappedKitBox,
+  snapSpan,
 } from "../frontend/lib/field-brush.ts";
 import { FieldWorkerClient } from "../frontend/lib/field-client.ts";
 import type { WireBucket } from "../frontend/lib/field-protocol.ts";
@@ -30,6 +32,14 @@ import {
 } from "./camera-control.ts";
 import { boxCorners, GHOST_COLOR, sphereGhostSegments } from "./field-ghost.ts";
 import { packKitMatrices, pieceColor } from "./field-kit-render.ts";
+import {
+  type StampSession,
+  startSession,
+  toPreviewing,
+  withParams,
+  withPreviewError,
+  withPreviewResult,
+} from "./field-stamp.ts";
 import { buildGridLines, segmentsToBatch } from "./reference-grid.ts";
 
 /** Shading toggle: `flat` = unlit normal-colour (structure legibility); `headlamp` =
@@ -93,10 +103,11 @@ export type SelectionInfo = {
 
 /** Per-layer render visibility (all default true). `field` = the per-class
  *  bucket surface meshes; `kit` = the instanced kit pieces; `ghost` = the
- *  brush ghost (cube + lines; stamp ghosts join in Task 13); `selection` =
- *  the amber selection overlay + pending box anchor; `grid` = the reference
- *  grid (minor + major). Display-only — hiding a layer never affects
- *  targeting, ops, or bakes. */
+ *  brush ghost (cube + lines) + the stamp session's hologram preview;
+ *  `selection` = the amber selection overlay + pending box anchor + the
+ *  amber-dim entity highlight box; `grid` = the reference grid (minor +
+ *  major). Display-only — hiding a layer never affects targeting, ops, or
+ *  bakes. */
 export type FieldLayers = {
   field: boolean;
   kit: boolean;
@@ -150,7 +161,7 @@ export type FieldHost = {
    *  selection persists across mode changes (it keeps masking ops until
    *  cleared). Any pending box anchor is dropped on a mode change. No
    *  keyboard shortcuts on purpose: Esc/Enter belong to the stamp session
-   *  (Task 13) — selection clear is the panel button. */
+   *  — selection clear is the panel button. */
   setSelectionMode(mode: SelectionMode | null): void;
   /** Clears the current selection into the Reselect slot (and drops a pending
    *  box anchor); subscribers are notified with null. */
@@ -167,7 +178,7 @@ export type FieldHost = {
    *  a selection exists never shows "no selection" beside a visible overlay.
    *  Single subscriber (the panel); returns an unsubscribe. */
   subscribeSelection(cb: (info: SelectionInfo | null) => void): () => void;
-  /** Toggles per-layer render visibility (see {@link FieldLayers}; default
+  /** Sets per-layer render visibility (see {@link FieldLayers}; default
    *  all true). Layer flags are view state like shading — they survive
    *  world loads and dispose/re-init. */
   setLayers(layers: FieldLayers): void;
@@ -186,6 +197,46 @@ export type FieldHost = {
   /** Swaps the project's resolved material table (the panel calls this once
    *  after catalog load, Task 12). Re-buckets and re-meshes every chunk. */
   setMaterialTable(table: field.MaterialTable): void;
+  /** Opens a stamp session for a registry generator, its region the CURRENT
+   *  selection's AABB snapped OUTWARD to the 0.5 m lattice, its seed a fresh
+   *  random uint16, its params the generator's schema defaults — and fires
+   *  the first ghost preview. No selection → subscribeToolError ("select a
+   *  region first"), no session. A truncated-flood selection carries
+   *  `truncatedSelection` into the session so the stamp UI can surface that
+   *  the region under-covers the flood. Replaces any existing session (its
+   *  ghost is destroyed; in-flight previews are dropped). */
+  startStamp(generator: string): void;
+  /** Re-parameterizes the live session (params/seed/policy) and re-previews.
+   *  Any in-flight preview is superseded (its response is dropped). No-op
+   *  without a session. */
+  updateStamp(
+    params: Record<string, unknown>,
+    seed: number,
+    policy: field.MergePolicy,
+  ): void;
+  /** Re-previews the live session under a fresh random seed (params/policy
+   *  unchanged). No-op without a session. */
+  rerollStamp(): void;
+  /** Commits the previewed stamp as ONE undo entry + ONE entity op (Enter).
+   *  Ready-phase only — a configuring/previewing session is a no-op. Preview
+   *  and commit run the SAME pure evaluate, so the committed field matches
+   *  the ghost exactly. On success the session ends (subscribers get null —
+   *  the panel re-reads listEntities on that). */
+  commitStamp(): void;
+  /** Discards the session + its ghost (Esc). No-op without a session. */
+  cancelStamp(): void;
+  /** Subscribes to stamp-session changes (null = no session). Immediately
+   *  pushes the CURRENT state on subscribe (the subscribeSelection remount
+   *  rationale); sessions are CLONED — the panel never holds host state.
+   *  Single subscriber (the panel); returns an unsubscribe. */
+  subscribeStamp(cb: (s: StampSession | null) => void): () => void;
+  /** The committed generator entities, in log order (CLONES — read from the
+   *  op log's entity ops, so undo/redo and world loads stay accurate). */
+  listEntities(): field.GeneratorEntity[];
+  /** Shows the amber-dim region box of one committed entity (null = hide;
+   *  unknown ids hide too — runtime-quiet). Display-only, under the
+   *  `selection` layer gate. */
+  highlightEntity(entityId: number | null): void;
   /** Bakes the current field to the artifact file set (pure, for upload). */
   exportArtifact(name: string): field.BakedFile[];
   subscribeStats(
@@ -261,6 +312,11 @@ const LIT_SPECULAR: [number, number, number, number] = [0.06, 0.06, 0.06, 16];
 // unmistakable (the fill-tool-solid-volume-surprise fix).
 const GHOST_CUBE_ALPHA = 0.25;
 
+// Stamp-ghost surface opacity — a touch denser than the kit-fill cube: the
+// ghost is a real surface mesh (walls occlude walls), so it needs presence to
+// read as "this is what commit builds" while the field stays visible through it.
+const STAMP_GHOST_ALPHA = 0.35;
+
 const clampRadius = (r: number): number =>
   Math.max(RADIUS_MIN, Math.min(RADIUS_MAX, r));
 
@@ -280,9 +336,11 @@ const SELECTION_UI_BUDGET = 200_000;
 // Selection overlay colour — amber, deliberately distinct from the
 // hologram-blue brush ghost (GHOST_COLOR).
 const SELECTION_COLOR: [number, number, number, number] = [1, 0.75, 0.3, 1];
-// The 0.5 m built-kit lattice box-select regions snap OUTWARD to (matches
-// HOLLOW_MIN_M and field-brush's kit lattice).
-const SELECTION_LATTICE = 0.5;
+// Entity-highlight box colour: the selection amber DIMMED, so a highlighted
+// entity region reads as related to but distinct from the live selection.
+const ENTITY_HIGHLIGHT_COLOR: [number, number, number, number] = [
+  0.55, 0.41, 0.17, 1,
+];
 // Box-select anchor cross: half-length of each of the three axis strokes (m).
 const ANCHOR_CROSS_HALF_M = 0.25;
 
@@ -414,6 +472,28 @@ export function createFieldHost(): FieldHost {
   // only — never read by logApply, the oplog, or bakeFieldWorld.
   let sliceY: number | null = null;
 
+  // --- stamp session (ghost preview → commit) -----------------------------
+  let stamp: StampSession | null = null;
+  // Session generation: the pure module's run counter restarts at 0 on every
+  // startSession, so run alone cannot tell a stale PREVIOUS session's response
+  // from the current session's run-0 job. Bumped on every startStamp; preview
+  // handlers drop responses whose captured generation is stale.
+  let stampGen = 0;
+  // Panel mirror for stamp-session changes (Task 15).
+  let stampCb: ((s: StampSession | null) => void) | null = null;
+  // Ghost render state: one entry per previewed chunk, every bucket drawn with
+  // the ONE translucent stamp-ghost material. Rebuilt per preview response;
+  // destroyed on cancel/commit/re-preview/world-reset + dispose.
+  const ghostMeshes = new Map<
+    string,
+    { m: mesh.Mesh; g: geometry.Geometry }[]
+  >();
+  let stampGhostMat: material.Material | null = null;
+  let stampGhostBind: binding.Binding | null = null;
+  // Entity-highlight overlay (highlightEntity): prebuilt on the call, drawn
+  // under the selection layer gate. CPU-only line batch.
+  let entityHighlightBatch: LineBatch | null = null;
+
   let digRadius = 1.25;
   let digging = false;
   let lastStroke = 0;
@@ -540,7 +620,31 @@ export function createFieldHost(): FieldHost {
     });
     ghostCubeGeo = geometry.cube(c, { size: 1 });
     ghostCube = mesh.create(c, { geometry: ghostCubeGeo, material: ghostMat });
+    // Stamp-ghost material: the same premultiplied hologram-blue recipe as the
+    // kit-fill cube, denser (STAMP_GHOST_ALPHA), shared by ALL ghost buckets —
+    // the ghost shows the stamp's SHAPE; classes/kit appear on commit.
+    stampGhostBind = binding.create(c, ghostShd);
+    binding.set(c, stampGhostBind, {
+      color: [
+        GHOST_COLOR[0] * STAMP_GHOST_ALPHA,
+        GHOST_COLOR[1] * STAMP_GHOST_ALPHA,
+        GHOST_COLOR[2] * STAMP_GHOST_ALPHA,
+        STAMP_GHOST_ALPHA,
+      ],
+    });
+    stampGhostMat = await material.create(c, {
+      shader: ghostShd,
+      binding: stampGhostBind,
+      blend: material.blend.premultiplied,
+      depth: { write: false },
+    });
     await buildLitMaterials(c);
+  };
+
+  const stampGhostMaterial = (): material.Material => {
+    if (!stampGhostMat)
+      throw new Error("field-host: stamp ghost material not initialized");
+    return stampGhostMat;
   };
 
   // Material for one surface/backing bucket under the current shading mode. Flat
@@ -865,7 +969,13 @@ export function createFieldHost(): FieldHost {
     // Slice view: an eye at/above the clip plane sits in DISPLAY air even when
     // the field there is rock — treat it as in-air (the raycast's maxY clip
     // suppresses the t=0 self-hit) so strokes land on the sliced surface shown.
-    const eyeInRock = ray.eyeInRock && (sliceY === null || origin[1] < sliceY);
+    // Quantized to the eye's VOXEL BASE (worldToVoxel·cellSize), because the
+    // raycast clips whole voxels by base — a continuous origin[1] compare
+    // disagrees for a non-lattice-aligned sliceY inside the eye's own voxel.
+    const cs = store.cellSize;
+    const eyeInRock =
+      ray.eyeInRock &&
+      (sliceY === null || field.worldToVoxel(origin[1], cs) * cs < sliceY);
     const rc = eyeInRock
       ? null
       : field.raycastField(
@@ -950,15 +1060,6 @@ export function createFieldHost(): FieldHost {
     };
   };
 
-  // Sample lattice points inside a region AABB — min-inclusive/max-exclusive
-  // per axis, the exact set core's selectionHas region test admits.
-  const regionSampleCount = (min: Vec3T, max: Vec3T): number => {
-    const h = store.cellSize;
-    const axis = (lo: number, hi: number): number =>
-      Math.max(0, Math.ceil(hi / h) - Math.ceil(lo / h));
-    return axis(min[0], max[0]) * axis(min[1], max[1]) * axis(min[2], max[2]);
-  };
-
   // Clone a spec so the panel (via SelectionInfo) never holds references into
   // host selection state.
   const cloneSelectionSpec = (s: field.SelectionSpec): field.SelectionSpec => {
@@ -979,7 +1080,11 @@ export function createFieldHost(): FieldHost {
     count:
       s.materialized.kind === "cells"
         ? s.materialized.count
-        : regionSampleCount(s.materialized.min, s.materialized.max),
+        : regionSampleCount(
+            s.materialized.min,
+            s.materialized.max,
+            store.cellSize,
+          ),
     truncated: s.materialized.kind === "cells" && s.materialized.truncated,
     aabb: selectionAabb(s),
   });
@@ -988,12 +1093,12 @@ export function createFieldHost(): FieldHost {
     selectionCb?.(selection === null ? null : selectionInfo(selection));
   };
 
-  const rebuildSelectionBatch = (): void => {
-    const aabb = selection === null ? null : selectionAabb(selection);
-    if (aabb === null) {
-      selectionBatch = null;
-      return;
-    }
+  // The 12-edge line batch of a metre AABB — the selection overlay and the
+  // entity highlight share it.
+  const aabbEdgeBatch = (
+    aabb: { min: Vec3T; max: Vec3T },
+    color: [number, number, number, number],
+  ): LineBatch => {
     const center: Vec3T = [
       (aabb.min[0] + aabb.max[0]) / 2,
       (aabb.min[1] + aabb.max[1]) / 2,
@@ -1004,7 +1109,13 @@ export function createFieldHost(): FieldHost {
       (aabb.max[1] - aabb.min[1]) / 2,
       (aabb.max[2] - aabb.min[2]) / 2,
     ];
-    selectionBatch = boxEdges(boxCorners(center, half), SELECTION_COLOR);
+    return boxEdges(boxCorners(center, half), color);
+  };
+
+  const rebuildSelectionBatch = (): void => {
+    const aabb = selection === null ? null : selectionAabb(selection);
+    selectionBatch =
+      aabb === null ? null : aabbEdgeBatch(aabb, SELECTION_COLOR);
   };
 
   const setBoxAnchor = (p: Vec3T | null): void => {
@@ -1057,18 +1168,8 @@ export function createFieldHost(): FieldHost {
     return computeTarget(clientX, clientY);
   };
 
-  // One axis span of the two box points, snapped OUTWARD to the 0.5 m lattice.
-  // A degenerate span (both points on the same lattice plane — e.g. two clicks
-  // on one flat wall) would select nothing under the min-inclusive/
-  // max-exclusive region test, so it widens to one lattice step.
-  const snapSpan = (a: number, b: number): [number, number] => {
-    const lo =
-      Math.floor(Math.min(a, b) / SELECTION_LATTICE) * SELECTION_LATTICE;
-    let hi = Math.ceil(Math.max(a, b) / SELECTION_LATTICE) * SELECTION_LATTICE;
-    if (hi === lo) hi = lo + SELECTION_LATTICE;
-    return [lo, hi];
-  };
-
+  // The outward-0.5 lattice snap lives in field-brush.ts (snapSpan) — shared
+  // with the stamp session's selection→region derivation.
   const boxRegionSpec = (a: Vec3T, b: Vec3T): field.SelectionSpec => {
     const [x0, x1] = snapSpan(a[0], b[0]);
     const [y0, y1] = snapSpan(a[1], b[1]);
@@ -1183,6 +1284,202 @@ export function createFieldHost(): FieldHost {
       seed,
       budget: SELECTION_UI_BUDGET,
     });
+  };
+
+  // --- stamp session (ghost preview → commit) -----------------------------
+
+  // A fresh small random seed per session/reroll (uint16 keeps it readable in
+  // the panel's seed field).
+  const randomStampSeed = (): number => {
+    const u = new Uint16Array(1);
+    crypto.getRandomValues(u);
+    return u[0] ?? 0;
+  };
+
+  // Panel mirror: sessions are CLONED so the panel never holds references
+  // into host state (params/region are mutable records).
+  const notifyStamp = (): void => {
+    stampCb?.(stamp === null ? null : structuredClone(stamp));
+  };
+
+  const destroyStampGhosts = (): void => {
+    const c = ctx;
+    if (c)
+      for (const entries of ghostMeshes.values())
+        for (const e of entries) {
+          mesh.destroy(c, e.m);
+          geometry.destroy(c, e.g);
+        }
+    ghostMeshes.clear();
+  };
+
+  // The stamp-preview snapshot: density COPIES + cloned materials of every
+  // allocated chunk in the region's chunk box grown by one (the protocol's
+  // completeness contract — every allocated chunk intersecting the region +
+  // its 26-halo; the grown box over-includes by at most one boundary chunk,
+  // harmless since completeness is a floor). The COPY is load-bearing: the
+  // client TRANSFERS density buffers to the worker — sending the store's live
+  // buffers would detach them and destroy the field. Known limit (protocol
+  // TSDoc): a generator whose params overflow the region past the one-chunk
+  // halo can preview against solid where the store is carved — the region-vs-
+  // params mismatch is the stamp UI's to surface.
+  const snapshotChunks = (region: {
+    min: Vec3T;
+    max: Vec3T;
+  }): {
+    key: string;
+    density: ArrayBuffer;
+    materials: field.ChunkMaterials | null;
+  }[] => {
+    const dim = field.CHUNK_DIM * store.cellSize;
+    const lo: Vec3T = [
+      Math.floor(region.min[0] / dim) - 1,
+      Math.floor(region.min[1] / dim) - 1,
+      Math.floor(region.min[2] / dim) - 1,
+    ];
+    const hi: Vec3T = [
+      Math.floor(region.max[0] / dim) + 1,
+      Math.floor(region.max[1] / dim) + 1,
+      Math.floor(region.max[2] / dim) + 1,
+    ];
+    const out: {
+      key: string;
+      density: ArrayBuffer;
+      materials: field.ChunkMaterials | null;
+    }[] = [];
+    for (const [key, density] of store.chunks) {
+      const [cx, cy, cz] = field.parseChunkKey(key);
+      if (cx < lo[0] || cx > hi[0]) continue;
+      if (cy < lo[1] || cy > hi[1]) continue;
+      if (cz < lo[2] || cz > hi[2]) continue;
+      const mats = store.materials.get(key);
+      out.push({
+        key,
+        density: density.slice().buffer as ArrayBuffer,
+        materials: mats === undefined ? null : field.cloneChunkMaterials(mats),
+      });
+    }
+    return out;
+  };
+
+  // Build the ghost render state from a preview response: one mesh per
+  // non-empty bucket, ALL under the one stamp-ghost material (shape only —
+  // classes/kit appear on commit), at chunk origins.
+  const applyStampGhost = (
+    chunks: { key: string; buckets: WireBucket[] }[],
+  ): void => {
+    const c = ctx;
+    if (!c) return;
+    destroyStampGhosts();
+    for (const { key, buckets } of chunks) {
+      const [cx, cy, cz] = field.parseChunkKey(key);
+      const origin = chunkOrigin(cx, cy, cz);
+      const entries: { m: mesh.Mesh; g: geometry.Geometry }[] = [];
+      for (const bucket of buckets) {
+        const indices = new Uint32Array(bucket.indices);
+        if (indices.length === 0) continue;
+        const g = geometry.create(c, {
+          positions: new Float32Array(bucket.positions),
+          normals: new Float32Array(bucket.normals),
+          uvs: new Float32Array(bucket.uvs),
+          indices,
+        });
+        const m = mesh.create(c, {
+          geometry: g,
+          material: stampGhostMaterial(),
+        });
+        mesh.setPosition(c, m, origin);
+        entries.push({ m, g });
+      }
+      if (entries.length > 0) ghostMeshes.set(key, entries);
+    }
+  };
+
+  // Fire a ghost preview for the current session state. Guarded two ways on
+  // response: the session RUN (the pure module drops superseded runs) and the
+  // session GENERATION (run restarts at 0 per session, so a previous
+  // session's response could otherwise land on a fresh session's run 0).
+  const previewStamp = (): void => {
+    if (stamp === null) return;
+    stamp = toPreviewing(stamp);
+    notifyStamp();
+    const s = stamp;
+    const gen = stampGen;
+    const run = s.run;
+    worker
+      .stampPreview({
+        generator: s.generator,
+        params: structuredClone(s.params),
+        seed: s.seed,
+        region: structuredClone(s.region),
+        policy: s.policy,
+        table,
+        cellSize: store.cellSize,
+        chunks: snapshotChunks(s.region),
+      })
+      .then(
+        (res) => {
+          if (disposed || gen !== stampGen || stamp === null) return;
+          const next = withPreviewResult(stamp, run, res.opCount);
+          if (next === null) return; // superseded — a newer preview owns the ghost
+          stamp = next;
+          applyStampGhost(res.chunks);
+          notifyStamp();
+        },
+        (err) => {
+          if (disposed || gen !== stampGen || stamp === null) return;
+          const message = err instanceof Error ? err.message : String(err);
+          const next = withPreviewError(stamp, run, message);
+          if (next === null) return;
+          // The session's error field is the panel's channel; console keeps
+          // the developer trail (mirrors remeshOne).
+          console.warn(`field-host: stamp preview failed: ${message}`);
+          stamp = next;
+          destroyStampGhosts();
+          notifyStamp();
+        },
+      );
+  };
+
+  const cancelStampSession = (): void => {
+    if (stamp === null) return;
+    stamp = null;
+    destroyStampGhosts();
+    notifyStamp();
+  };
+
+  // Commit the previewed stamp: ONE undo entry, ONE entity op. Preview and
+  // commit run the SAME pure evaluate (charter §2.2 determinism), so the
+  // committed field reproduces the ghost exactly — the ghost is not an
+  // approximation.
+  const commitStampSession = (): void => {
+    const s = stamp;
+    if (s === null || s.phase !== "ready") return;
+    try {
+      const { dirty: committed } = field.commitGenerator(
+        store,
+        log,
+        field.generatorById(s.generator),
+        {
+          params: s.params, // commitGenerator clones for provenance
+          seed: s.seed,
+          region: s.region,
+          policy: s.policy,
+          table,
+        },
+      );
+      markDirtyWithNeighbors(committed);
+    } catch (err) {
+      // Ready-phase commits share the preview's validated inputs, but the
+      // material table can change between the two — setup-loud core throws
+      // land here; the session stays ready so the user can cancel or retry.
+      const message = err instanceof Error ? err.message : String(err);
+      reportToolError(`stamp commit failed: ${message}`);
+      return;
+    }
+    stamp = null;
+    destroyStampGhosts();
+    notifyStamp(); // null — the panel re-reads listEntities on this
   };
 
   // --- momentary tool overrides -------------------------------------------
@@ -1311,7 +1608,7 @@ export function createFieldHost(): FieldHost {
     // Two independent ghost gates: the LAYER flag is user intent; the
     // selection-mode suppression is mode coherence — while a selection mode is
     // armed LMB doesn't stroke, so a brush preview would promise an action
-    // that won't happen. Stamp ghosts (Task 13) gate on layers.ghost here too.
+    // that won't happen.
     const ghost = layers.ghost && selectionMode === null ? ghostState() : null;
     if (ghost?.kitBox && ghostCube) {
       ghostPos.set(ghost.kitBox.center);
@@ -1322,6 +1619,12 @@ export function createFieldHost(): FieldHost {
       mesh.setScale(c, ghostCube, ghostScale);
       meshes.push(ghostCube);
     }
+    // Stamp ghosts share the ghost LAYER gate only (no selection-mode
+    // suppression — the session, not LMB, owns their promise) and draw after
+    // the opaque field like the kit-fill cube (premultiplied, no depth write).
+    if (layers.ghost)
+      for (const entries of ghostMeshes.values())
+        for (const e of entries) meshes.push(e.m);
     // Kit instances always render with the lit-instanced material, even in flat
     // mode — there is no flat-instanced variant; FLAT_AMBIENT (full white) makes
     // them readable headlamp-independently. A deliberate v0 choice.
@@ -1366,6 +1669,13 @@ export function createFieldHost(): FieldHost {
         frame.drawLines(c, {
           vertices: anchorBatch.vertices,
           colors: anchorBatch.colors,
+          camera: view,
+          occlude: false,
+        });
+      if (entityHighlightBatch)
+        frame.drawLines(c, {
+          vertices: entityHighlightBatch.vertices,
+          colors: entityHighlightBatch.colors,
           camera: view,
           occlude: false,
         });
@@ -1472,6 +1782,18 @@ export function createFieldHost(): FieldHost {
       markDirtyWithNeighbors(dirtied);
       return;
     }
+    // Stamp session keys (after the undo guard, before every fallthrough):
+    // Enter commits the READY ghost, Esc discards the session. Neither is a
+    // fly key, so returning here never starves the keys set; without a
+    // session both fall through unused.
+    if (k === "enter" || k === "escape") {
+      if (stamp !== null) {
+        e.preventDefault();
+        if (k === "escape") cancelStampSession();
+        else commitStampSession(); // ready-phase only — else a no-op
+      }
+      return;
+    }
     // [ / ] step the brush radius (same clamp as the wheel); key-repeat is the
     // hold-to-resize behaviour. Chord-guarded: ⌘[/⌘] (and ctrl+[/]) are the
     // browser's back/forward — never intercept those.
@@ -1507,6 +1829,19 @@ export function createFieldHost(): FieldHost {
     }
   };
 
+  // Focus loss strands keydown state: a key released while focus is elsewhere
+  // never keyups here, leaving fly movement running or a momentary tool stuck.
+  // Clear the fly set + both momentary flags (deriveMomentary restores the
+  // saved tool when both drop).
+  const onBlur = (): void => {
+    keys.clear();
+    if (momentaryShift || momentaryCtrl) {
+      momentaryShift = false;
+      momentaryCtrl = false;
+      deriveMomentary();
+    }
+  };
+
   const attachListeners = (canvas: HTMLCanvasElement): void => {
     // Guard: headless mocks (OffscreenCanvas cast as HTMLCanvasElement) don't
     // expose addEventListener — only attach in real browser environments.
@@ -1520,6 +1855,7 @@ export function createFieldHost(): FieldHost {
     canvas.addEventListener("contextmenu", onContextMenu);
     canvas.addEventListener("keydown", onKeyDown);
     canvas.addEventListener("keyup", onKeyUp);
+    canvas.addEventListener("blur", onBlur);
   };
 
   const detachListeners = (): void => {
@@ -1532,6 +1868,7 @@ export function createFieldHost(): FieldHost {
     canvasEl.removeEventListener("contextmenu", onContextMenu);
     canvasEl.removeEventListener("keydown", onKeyDown);
     canvasEl.removeEventListener("keyup", onKeyUp);
+    canvasEl.removeEventListener("blur", onBlur);
     canvasEl = null;
   };
 
@@ -1556,6 +1893,10 @@ export function createFieldHost(): FieldHost {
     lastSelection = null;
     selectionBatch = null;
     notifySelection(); // null — the panel must not show a stale selection
+    // A different world invalidates the stamp session (its region + snapshot
+    // describe the old field) and any entity highlight (log entity ids reset).
+    cancelStampSession();
+    entityHighlightBatch = null;
   };
 
   return {
@@ -1585,6 +1926,7 @@ export function createFieldHost(): FieldHost {
       if (c) {
         for (const [, cm] of chunkMeshes) destroyChunkRender(c, cm);
         chunkMeshes.clear();
+        destroyStampGhosts();
         if (flatMat) material.destroy(c, flatMat);
         destroyLitMaterials(c);
         if (kitMat) material.destroy(c, kitMat);
@@ -1593,6 +1935,8 @@ export function createFieldHost(): FieldHost {
         if (ghostCubeGeo) geometry.destroy(c, ghostCubeGeo);
         if (ghostMat) material.destroy(c, ghostMat);
         if (ghostBind) binding.destroy(c, ghostBind);
+        if (stampGhostMat) material.destroy(c, stampGhostMat);
+        if (stampGhostBind) binding.destroy(c, stampGhostBind);
         unbindCamera?.();
         gpu.dispose(c); // LAST — a clean shutdown is the leak check.
       }
@@ -1603,6 +1947,13 @@ export function createFieldHost(): FieldHost {
       ghostCubeGeo = null;
       ghostMat = null;
       ghostBind = null;
+      stampGhostMat = null;
+      stampGhostBind = null;
+      // Unlike the selection (CPU-only, survives dispose), the stamp session
+      // dies with its GPU ghost: a "ready" session with no ghost after a
+      // re-init would promise a commit the user can no longer see. Silent (no
+      // notify) — a remounting panel gets null pushed on re-subscribe.
+      stamp = null;
       unbindCamera = null;
       cam = null;
       ctx = null;
@@ -1737,6 +2088,85 @@ export function createFieldHost(): FieldHost {
           console.warn(`field-host: material table swap failed: ${message}`);
         }
       })();
+    },
+    startStamp(generator) {
+      const sel = selection;
+      const aabb = sel === null ? null : selectionAabb(sel);
+      if (sel === null || aabb === null) {
+        reportToolError("select a region first");
+        return;
+      }
+      let def: field.GeneratorDef;
+      try {
+        def = field.generatorById(generator); // setup-loud on unknown ids
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        reportToolError(message);
+        return;
+      }
+      // The selection's AABB snapped OUTWARD to the 0.5 m lattice — the same
+      // snap box-select regions get (a region selection is already snapped;
+      // flood AABBs land on the voxel grid and widen out).
+      const [x0, x1] = snapSpan(aabb.min[0], aabb.max[0]);
+      const [y0, y1] = snapSpan(aabb.min[1], aabb.max[1]);
+      const [z0, z1] = snapSpan(aabb.min[2], aabb.max[2]);
+      cancelStampSession(); // a live session (+ ghost) never survives a restart
+      stampGen++;
+      stamp = startSession(
+        generator,
+        structuredClone(def.defaults),
+        { min: [x0, y0, z0], max: [x1, y1, z1] },
+        randomStampSeed(),
+        sel.materialized.kind === "cells" && sel.materialized.truncated,
+      );
+      previewStamp();
+    },
+    updateStamp(params, seed, policy) {
+      if (stamp === null) return;
+      // Clone at the boundary — session params must never alias panel state.
+      stamp = withParams(stamp, structuredClone(params), seed, policy);
+      previewStamp();
+    },
+    rerollStamp() {
+      if (stamp === null) return;
+      stamp = withParams(stamp, stamp.params, randomStampSeed(), stamp.policy);
+      previewStamp();
+    },
+    commitStamp() {
+      commitStampSession();
+    },
+    cancelStamp() {
+      cancelStampSession();
+    },
+    subscribeStamp(cb) {
+      stampCb = cb;
+      // Initial push: a panel (re)mounting mid-session must not render "no
+      // stamp" beside a visible ghost (the subscribeSelection rationale).
+      cb(stamp === null ? null : structuredClone(stamp));
+      return () => {
+        if (stampCb === cb) stampCb = null;
+      };
+    },
+    listEntities() {
+      const out: field.GeneratorEntity[] = [];
+      for (const op of log.ops)
+        if (op.kind === "entity") out.push(structuredClone(op.entity));
+      return out;
+    },
+    highlightEntity(entityId) {
+      if (entityId === null) {
+        entityHighlightBatch = null;
+        return;
+      }
+      const hit = log.ops.find(
+        (op): op is field.EntityOp =>
+          op.kind === "entity" && op.entity.entityId === entityId,
+      );
+      // Unknown id (undone, stale panel row): hide, runtime-quiet.
+      entityHighlightBatch =
+        hit === undefined
+          ? null
+          : aabbEdgeBatch(hit.entity.region, ENTITY_HIGHLIGHT_COLOR);
     },
     exportArtifact(name) {
       return field.bakeFieldWorld(store, log, table, {

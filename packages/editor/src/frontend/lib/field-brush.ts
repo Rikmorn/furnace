@@ -1,7 +1,9 @@
-// Pure dig-feel math for the field host. No engine imports — plain arithmetic on
-// plain tuples so it unit-tests without a GPU. The host owns the raycast + the
-// eye-in-rock probe (they need the field + camera); this module only turns those
-// inputs into a brush centre, and snaps a kit-fill box to the lattice.
+// Pure dig-feel + lattice math for the field host. No engine imports — plain
+// arithmetic on plain tuples so it unit-tests without a GPU. The host owns the
+// raycast + the eye-in-rock probe (they need the field + camera); this module
+// turns those inputs into a brush centre, snaps a kit-fill box to the lattice,
+// and owns the shared 0.5 m region snap (box-select spans, stamp regions) +
+// the region sample count.
 
 /** How far a surface hit bites INTO the rock, as a fraction of the brush radius:
  *  the centre sits `BITE_FACTOR·radius` past the hit along the ray, so the sphere
@@ -59,6 +61,44 @@ function brushDepth(t: BrushTargetInput, radius: number): number {
 }
 
 const LATTICE = 0.5;
+
+/**
+ * One axis span of two world coords, snapped OUTWARD to the 0.5 m built-kit
+ * lattice — the shared region snap for box-select spans and stamp regions. A
+ * degenerate span (both points on the same lattice plane — e.g. two clicks on
+ * one flat wall) would select nothing under the min-inclusive/max-exclusive
+ * region test, so it widens to one lattice step.
+ *
+ * @param a - One endpoint of the span in metres (either order).
+ * @param b - The other endpoint in metres.
+ * @returns `[lo, hi]` on the lattice with `hi > lo` guaranteed.
+ */
+export function snapSpan(a: number, b: number): [number, number] {
+  const lo = Math.floor(Math.min(a, b) / LATTICE) * LATTICE;
+  let hi = Math.ceil(Math.max(a, b) / LATTICE) * LATTICE;
+  if (hi === lo) hi = lo + LATTICE;
+  return [lo, hi];
+}
+
+/**
+ * Sample lattice points inside a region AABB — min-inclusive/max-exclusive per
+ * axis, the exact set core's `selectionHas` region test admits (sample i sits
+ * at world `i·cellSize`).
+ *
+ * @param min - The region's min corner in metres.
+ * @param max - The region's max corner in metres (exclusive).
+ * @param cellSize - The field's sample spacing in metres.
+ * @returns The number of admitted sample points (0 for an empty/inverted span).
+ */
+export function regionSampleCount(
+  min: [number, number, number],
+  max: [number, number, number],
+  cellSize: number,
+): number {
+  const axis = (lo: number, hi: number): number =>
+    Math.max(0, Math.ceil(hi / cellSize) - Math.ceil(lo / cellSize));
+  return axis(min[0], max[0]) * axis(min[1], max[1]) * axis(min[2], max[2]);
+}
 
 /**
  * A kit-fill box snapped to the 0.5 m built-kit lattice so the field's op

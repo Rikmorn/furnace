@@ -44,6 +44,11 @@ export {
   type SelectionInfo,
   type SelectionMode,
 } from "./field-host.ts";
+export type {
+  StampPhase,
+  StampRegion,
+  StampSession,
+} from "./field-stamp.ts";
 export {
   createPreviewHost,
   type PreviewContent,

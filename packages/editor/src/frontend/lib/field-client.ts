@@ -85,7 +85,15 @@ export class FieldWorkerClient {
           },
           reject,
         });
-        this.ensure().postMessage(req, [density, materials]);
+        // A synchronous postMessage throw (bad transferable, dead worker) must
+        // not strand the pending entry; rethrowing inside the executor rejects
+        // the returned promise with the original error.
+        try {
+          this.ensure().postMessage(req, [density, materials]);
+        } catch (err) {
+          this.pending.delete(jobId);
+          throw err;
+        }
       },
     );
   }
@@ -115,10 +123,17 @@ export class FieldWorkerClient {
         },
         reject,
       });
-      this.ensure().postMessage(
-        full,
-        req.chunks.map((c) => c.density),
-      );
+      // The mesh() twin: a synchronous postMessage throw must not strand the
+      // pending entry.
+      try {
+        this.ensure().postMessage(
+          full,
+          req.chunks.map((c) => c.density),
+        );
+      } catch (err) {
+        this.pending.delete(jobId);
+        throw err;
+      }
     });
   }
 

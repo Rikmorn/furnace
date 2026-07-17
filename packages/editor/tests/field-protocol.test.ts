@@ -7,7 +7,10 @@ import {
   createFieldStore,
   createOpLog,
   extractFieldAprons,
+  generatorById,
+  getDensity,
   logApply,
+  meshChunkField,
   SOLID,
 } from "@furnace/core/field";
 import { FieldWorkerClient } from "../src/frontend/lib/field-client.ts";
@@ -412,5 +415,152 @@ describe("field worker protocol", () => {
     const msg = (sent[0] as (typeof sent)[0]).msg;
     expect(msg.kind).toBe("mesh");
     if (msg.kind === "mesh") expect(msg.sliceY).toBe(1.5);
+  });
+
+  test("client mesh rejects a wrong-kind reply loud (protocol bug, not a cast)", async () => {
+    const { worker, sent } = fakeWorker();
+    const client = new FieldWorkerClient(() => worker);
+    const aprons = extractFieldAprons(createFieldStore(), chunkKey(0, 0, 0));
+    const p = client.mesh("0,0,0", aprons, TABLE, 0.25);
+    const jobId = (sent[0] as (typeof sent)[0]).msg.jobId;
+    worker.onmessage?.({
+      data: {
+        kind: "stamp-previewed",
+        jobId,
+        chunks: [],
+        opCount: 0,
+        evalMs: 0,
+      },
+    } as MessageEvent);
+    await expect(p).rejects.toThrow("expected meshed, got stamp-previewed");
+  });
+
+  test("client stampPreview rejects on a worker mesh-error reply", async () => {
+    const { worker, sent } = fakeWorker();
+    const client = new FieldWorkerClient(() => worker);
+    const p = client.stampPreview({
+      generator: "hall",
+      params: HALL_PARAMS,
+      seed: 1,
+      region: HALL_REGION,
+      policy: "replace",
+      table: TABLE,
+      cellSize: 0.25,
+      chunks: [],
+    });
+    const jobId = (sent[0] as (typeof sent)[0]).msg.jobId;
+    worker.onmessage?.({
+      data: { kind: "mesh-error", jobId, key: "hall", message: "boom" },
+    } as MessageEvent);
+    await expect(p).rejects.toThrow("boom");
+  });
+
+  test("a synchronous postMessage throw rejects the call and clears its pending entry", async () => {
+    const worker = {
+      onmessage: null as ((e: MessageEvent) => void) | null,
+      postMessage(): void {
+        throw new Error("detached");
+      },
+      terminate(): void {
+        // fake worker: nothing to tear down
+      },
+    };
+    const client = new FieldWorkerClient(() => worker);
+    const aprons = extractFieldAprons(createFieldStore(), chunkKey(0, 0, 0));
+    await expect(client.mesh("0,0,0", aprons, TABLE, 0.25)).rejects.toThrow(
+      "detached",
+    );
+    // The pending map is clean: dispose() rejects only STRANDED entries, and
+    // the settled promise above is the only one this client ever issued.
+    client.dispose();
+  });
+
+  test("stamp-preview keeps snapshot-carved air open under keep-existing-air (the completeness contract, end-to-end)", () => {
+    // A pocket dug into the default hall's south shell (z 0..0.5): voxel
+    // (10,6,1) is air pre-stamp. Under keep-existing-air the shell fill is
+    // masked solid-only, so the ghost must keep the pocket open — but ONLY
+    // when the caller honoured the completeness contract and snapshotted the
+    // carved chunk (missing chunks read uniform solid and the carve vanishes).
+    const carved = createFieldStore();
+    applyOp(
+      carved,
+      {
+        id: 1,
+        kind: "brush",
+        effect: "dig",
+        shape: {
+          kind: "box",
+          center: [2.5, 1.5, 0.25],
+          halfExtents: [0.5, 0.5, 0.25],
+        },
+      },
+      TABLE,
+    );
+    const snapshot = () =>
+      [...carved.chunks].map(([key, density]) => ({
+        key,
+        density: density.slice().buffer as ArrayBuffer,
+        materials: null,
+      }));
+    const run = (chunks: ReturnType<typeof snapshot>) => {
+      const posts = runHandler({
+        kind: "stamp-preview",
+        jobId: 21,
+        generator: "hall",
+        params: HALL_PARAMS,
+        seed: 3,
+        region: HALL_REGION,
+        policy: "keep-existing-air",
+        table: TABLE,
+        cellSize: carved.cellSize,
+        chunks,
+      });
+      const msg = (posts[0] as (typeof posts)[0]).msg;
+      if (msg.kind !== "stamp-previewed")
+        throw new Error(`expected stamp-previewed, got ${msg.kind}`);
+      return msg;
+    };
+    const withSnapshot = run(snapshot());
+    const withoutSnapshot = run([]);
+
+    // Local reconstruction of the scratch result: same snapshot, same
+    // evaluate — the pocket voxel stays air and the wire buckets for its
+    // chunk are byte-identical to a local remesh.
+    const scratch = createFieldStore();
+    for (const c of snapshot())
+      scratch.chunks.set(c.key, new Int8Array(c.density));
+    let id = 1;
+    for (const op of generatorById("hall").evaluate(
+      HALL_PARAMS,
+      3,
+      HALL_REGION,
+      TABLE,
+      "keep-existing-air",
+    ))
+      applyOp(scratch, { ...op, id: id++ }, TABLE);
+    expect(getDensity(scratch, 10, 6, 1)).toBeGreaterThan(0); // still open
+    const wire = withSnapshot.chunks.find((c) => c.key === "0,0,0");
+    expect(wire).toBeDefined();
+    if (wire === undefined) return;
+    const local = meshChunkField(
+      extractFieldAprons(scratch, "0,0,0"),
+      TABLE,
+      scratch.cellSize,
+    ).buckets;
+    expect(wire.buckets.length).toBe(local.length);
+    for (let i = 0; i < local.length; i++) {
+      const g = wire.buckets[i] as WireBucket;
+      const l = local[i] as (typeof local)[0];
+      expect(l.mesh.positions).toEqual(new Float32Array(g.positions));
+    }
+
+    // The contract's teeth: omitting the carved chunk closes the pocket —
+    // the same chunk meshes differently.
+    const bare = withoutSnapshot.chunks.find((c) => c.key === "0,0,0");
+    expect(bare).toBeDefined();
+    if (bare === undefined) return;
+    const flat = (buckets: WireBucket[]) =>
+      buckets.flatMap((b) => [...new Float32Array(b.positions)]);
+    expect(flat(wire.buckets)).not.toEqual(flat(bare.buckets));
   });
 });
