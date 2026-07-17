@@ -25,7 +25,7 @@ import { EngineBuildError, loadEngine } from "../lib/engine.ts";
 import { subscribeEvents } from "../lib/events.ts";
 import { GenerationWorkerClient } from "../lib/generation-client.ts";
 import { initialWorldSession } from "../lib/generation.ts";
-import { PANELS, type PanelId, panelTitle } from "../lib/panels.ts";
+import { type PanelId, panelTitle } from "../lib/panels.ts";
 import { createUiStore, DEFAULT_VIEW_FLAGS, pushRecent } from "../lib/persist.ts";
 import { clickMode, SETTINGS_SELECTION } from "../lib/selection.ts";
 import { initialState, reduce } from "../lib/state.ts";
@@ -63,19 +63,22 @@ const RECENT_SCENES_CAP = 8;
 // splitter drag, but each write JSON-stringifies the whole UiState blob — persist once settled.
 const LAYOUT_SAVE_DEBOUNCE_MS = 200;
 
-// The default layout's dockview positions per panel — the one piece that legitimately isn't
-// in PANELS (which owns id/title/component). The first panel has none; the rest anchor to the
-// previously-added panel. Iterating PANELS + this table keeps the initial layout in sync with
-// the View▸Panels toggles from a single PANELS edit.
-type PanelPosition = { referencePanel: PanelId; direction: "right" | "below" };
+// The DEFAULT layout is the field-first subset (spec §3.7): Field dominant in the centre
+// (the slot the scene Viewport used to hold), Entities left, Inspect right. The World panel
+// (id "generation") and the scene Viewport leave the DEFAULT set only — PANELS still owns
+// id/title/component, so both stay one click away via the View▸Panels toggles and
+// single-panel re-add. Build order matters: the first id is the dockview root (no
+// position); the rest anchor to it. Rooting Field also guarantees its dig canvas an
+// always-visible group with a non-zero client box at init (a stacked/inactive tab inits
+// at zero size, which core's bindToCanvas rejects).
+const DEFAULT_LAYOUT_PANELS: readonly PanelId[] = ["field", "entities", "inspect"];
+type PanelPosition = {
+  referencePanel: PanelId;
+  direction: "left" | "right" | "below";
+};
 const DEFAULT_PANEL_POSITION: Partial<Record<PanelId, PanelPosition>> = {
-  viewport: { referencePanel: "entities", direction: "right" },
-  inspect: { referencePanel: "viewport", direction: "right" },
-  generation: { referencePanel: "inspect", direction: "below" },
-  // The Field dig surface gets its OWN group under the viewport (its own canvas needs
-  // real estate + a non-zero client box at init — a stacked/inactive tab inits at zero
-  // size, which core's bindToCanvas rejects). Position is a Task 12 live-tuning concern.
-  field: { referencePanel: "viewport", direction: "below" },
+  entities: { referencePanel: "field", direction: "left" },
+  inspect: { referencePanel: "field", direction: "right" },
 };
 
 export function App() {
@@ -565,15 +568,16 @@ export function App() {
     );
   }, []);
 
-  // The default layout (Entities | Viewport | Inspect / Generation-below), built by iterating
-  // PANELS so a title/id edit there flows to the initial layout, the toggle menu, and re-add.
+  // The default layout (Entities | Field | Inspect — field-first, spec §3.7), built by
+  // iterating DEFAULT_LAYOUT_PANELS with titles resolved through PANELS (panelTitle) so a
+  // title edit there still flows to the initial layout, the toggle menu, and re-add.
   const addDefaultLayout = useCallback((dockApi: DockviewApi) => {
-    for (const { id, title } of PANELS) {
+    for (const id of DEFAULT_LAYOUT_PANELS) {
       const position = DEFAULT_PANEL_POSITION[id];
       dockApi.addPanel({
         id,
         component: id,
-        title,
+        title: panelTitle(id),
         ...(position ? { position } : {}),
       });
     }

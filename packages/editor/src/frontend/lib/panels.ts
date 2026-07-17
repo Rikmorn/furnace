@@ -1,6 +1,7 @@
 // The dockview panels the editor manages. `id` doubles as the COMPONENTS registry key
-// and the panel's dockview id; `title` is the tab label. Single source for the default
-// layout (App onReady), the View▸Panels toggles (MenuBar), and single-panel re-add.
+// and the panel's dockview id; `title` is the tab label. Single source for the View▸Panels
+// toggles (MenuBar) and single-panel re-add; the DEFAULT layout builds from the field-first
+// subset in App's DEFAULT_LAYOUT_PANELS (titles still resolve through panelTitle here).
 //
 // The World panel keeps the id "generation" (D-W3-10): the id is baked into every
 // persisted dockview layout, so renaming it would strand the panel in existing projects.
