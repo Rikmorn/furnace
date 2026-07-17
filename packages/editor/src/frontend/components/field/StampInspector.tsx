@@ -91,6 +91,12 @@ export function StampInspector(props: {
                 if (Number.isInteger(n) && n >= 0)
                   onUpdate(session.params, n, session.policy);
               }}
+              onBlur={(e) => {
+                // Settled-display re-sync (the hollow blur-clamp pattern): a
+                // cleared/rejected value never commits, so the DOM can end up
+                // diverged from session.seed — snap it back once typing settles.
+                e.target.value = String(session.seed);
+              }}
               aria-label="stamp seed"
               className="h-8 w-20"
             />

@@ -42,8 +42,8 @@ export type FieldWorkerRequest =
        *  mesher's per-class bucket split and the skinner's kit dispatch. */
       table: MaterialTable;
       cellSize: number;
-      /** Display-side slice clip (spec §3.6): samples at/above this world Y read
-       *  as air (density AIR, material MAT_ROCK) before mesh + skin. */
+      /** Display-side slice clip: samples at/above this world Y read as air
+       *  (density AIR, material MAT_ROCK) before mesh + skin. */
       sliceY?: number;
     }
   | {

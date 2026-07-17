@@ -19,15 +19,12 @@ import { bakeUploadCalls, toWireFiles } from "../../lib/generation.ts";
 import { useEditor } from "../editor-context.ts";
 import { Button } from "../ui/button.tsx";
 import { Input } from "../ui/input.tsx";
-import { ReasonTip } from "../world-panel/fields.tsx";
+import { errorMessage, ReasonTip } from "../world-panel/fields.tsx";
 
 // Mirrors the daemon field.load name regex AND FieldHost's clamp range. Name is EMPTY by
 // default and never prefilled (the W3/W4 gate-clobber lesson: a stale default silently
 // overwrites the game's world on Save/Bake).
 const NAME_RE = /^[a-z0-9][a-z0-9_-]*$/i;
-
-const errorMessage = (err: unknown): string =>
-  err instanceof Error ? err.message : String(err);
 
 // base64 → bytes: the inverse of toWireFiles' encoder, decoding the density chunk files
 // the daemon returns. Per-chunk atob is fine for v0 sizes (each chunk is a 4KiB file).
@@ -35,7 +32,9 @@ const base64ToBytes = (b64: string): Uint8Array =>
   Uint8Array.from(atob(b64), (ch) => ch.charCodeAt(0));
 
 export function FieldToolbar(props: {
+  /** The panel's headlamp state — the toolbar renders the toggle, the panel owns it. */
   headlamp: boolean;
+  /** Flip the host's shading mode (headlamp on/off). */
   onShading: (on: boolean) => void;
   /** Adopt the parsed catalog table (drives the panel's swatches + mask options). */
   onTable: (table: MaterialTable) => void;

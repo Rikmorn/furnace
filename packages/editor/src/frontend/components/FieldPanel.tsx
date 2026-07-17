@@ -34,6 +34,7 @@ import { MaterialSwatches } from "./field/MaterialSwatches.tsx";
 import { StampInspector } from "./field/StampInspector.tsx";
 import { ToolPalette } from "./field/ToolPalette.tsx";
 import { Button } from "./ui/button.tsx";
+import { errorMessage } from "./world-panel/fields.tsx";
 
 // Mirror FieldHost's default digRadius (the range lives in BrushInspector).
 const DEFAULT_RADIUS = 1.25;
@@ -75,9 +76,6 @@ const DEFAULT_LAYERS: FieldLayers = {
 // Slice defaults: OFF, plane parked at 8 m — mid-range of the slider (LayersRow
 // owns the −8…+24 range), high enough to cut a typical kit hall when enabled.
 const SLICE_DEFAULT_Y = 8;
-
-const errorMessage = (err: unknown): string =>
-  err instanceof Error ? err.message : String(err);
 
 // Value-equality for the subscribeTool echo guard (see the mirror effect).
 const masksEqual = (a: FieldMaskChoice, b: FieldMaskChoice): boolean =>
