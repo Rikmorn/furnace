@@ -41,6 +41,7 @@ export {
   type FieldHostShading,
   type FieldLayers,
   type FieldMaskChoice,
+  type FieldStats,
   type FieldTool,
   type SelectionInfo,
   type SelectionMode,

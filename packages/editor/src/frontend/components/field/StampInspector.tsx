@@ -82,6 +82,11 @@ export function StampInspector(props: {
               step={1}
               value={session.seed}
               onChange={(e) => {
+                // An empty field is MID-EDIT, not a commit: Number("") is 0,
+                // so without this guard clearing the field would stamp seed 0
+                // (the hollow blur-clamp philosophy — never fight typing;
+                // the settled value is what matters).
+                if (e.target.value === "") return;
                 const n = Number(e.target.value);
                 if (Number.isInteger(n) && n >= 0)
                   onUpdate(session.params, n, session.policy);
@@ -126,7 +131,11 @@ export function StampInspector(props: {
         )}
       </p>
       {session.error !== null && (
-        <p className="text-xs text-destructive">{session.error}</p>
+        // role="alert": a failed evaluate must reach screen readers — the
+        // ghost silently vanishing is the only other signal.
+        <p role="alert" className="text-xs text-destructive">
+          {session.error}
+        </p>
       )}
       {session.truncatedSelection && (
         <p className="text-xs text-warning">

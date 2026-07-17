@@ -112,6 +112,18 @@ export type FieldGeneratorInfo = {
   defaults: Record<string, unknown>;
 };
 
+/** The host's live stats readout ({@link FieldHost.subscribeStats}, pushed
+ *  every rAF). `remeshVersion` is a monotonic counter bumped on every remesh
+ *  COMPLETION — the panel's entity-refresh trigger keys on it because
+ *  `lastRemeshMs` is a clock read (Safari clamps `performance.now()` to
+ *  ~1 ms, so consecutive remeshes can quantize identically and a
+ *  value-equality guard would miss them). */
+export type FieldStats = {
+  chunks: number;
+  lastRemeshMs: number;
+  remeshVersion: number;
+};
+
 /** Per-layer render visibility (all default true). `field` = the per-class
  *  bucket surface meshes; `kit` = the instanced kit pieces; `ghost` = the
  *  brush ghost (cube + lines) + the stamp session's hologram preview;
@@ -256,9 +268,9 @@ export type FieldHost = {
   highlightEntity(entityId: number | null): void;
   /** Bakes the current field to the artifact file set (pure, for upload). */
   exportArtifact(name: string): field.BakedFile[];
-  subscribeStats(
-    cb: (s: { chunks: number; lastRemeshMs: number }) => void,
-  ): () => void;
+  /** Subscribes to the live stats readout ({@link FieldStats}), pushed every
+   *  rAF. Single subscriber (the panel); returns an unsubscribe. */
+  subscribeStats(cb: (s: FieldStats) => void): () => void;
 };
 
 type Vec3T = [number, number, number];
@@ -516,15 +528,18 @@ export function createFieldHost(): FieldHost {
   let lastStroke = 0;
   // Last cursor position over the viewport, so the ghost target marker can
   // preview where the next stroke lands each frame. DELIBERATELY NOT cleared
-  // on pointer-leave (spec §3.7 size-preview): the ghost keeps rendering at
+  // on pointer-leave (the size-preview affordance): the ghost keeps rendering at
   // the last hover target while the mouse is over the panel, so panel-slider
   // radius drags preview live in the viewport (renderGhost recomputes from
   // this + the CURRENT radius per frame). The ghost lingering while the mouse
   // is off-canvas is that feature's accepted trade-off.
   let lastPointer: { x: number; y: number } | null = null;
   let lastRemeshMs = 0;
-  let statsCb: ((s: { chunks: number; lastRemeshMs: number }) => void) | null =
-    null;
+  // Monotonic remesh counter (see the FieldStats TSDoc): bumped once per
+  // remesh completion so the panel's entity refresh has an event-driven
+  // trigger that Safari's ~1 ms performance.now() clamp can't alias.
+  let remeshVersion = 0;
+  let statsCb: ((s: FieldStats) => void) | null = null;
   let raf = 0;
   let lastFrameT = 0;
   let disposed = false;
@@ -814,6 +829,7 @@ export function createFieldHost(): FieldHost {
         sliceY ?? undefined,
       );
       lastRemeshMs = performance.now() - t0;
+      remeshVersion++;
       if (disposed) return;
       applyMesh(c, key, res.buckets, res.kit);
     } catch (err) {
@@ -938,9 +954,19 @@ export function createFieldHost(): FieldHost {
     }
   };
 
-  // Cursor → world ray + the eye-in-rock probe, shared by computeTarget and
-  // the eyedropper. Returns null when there is no camera or the view is
-  // singular.
+  // Cursor → world ray + the eye-in-rock probe, shared by computeTarget, the
+  // eyedropper, and the selection-gesture seeds. Returns null when there is
+  // no camera or the view is singular.
+  //
+  // `eyeInRock` is the DISPLAY-space probe (slice coherence, F2b sweep): with
+  // an active slice, an eye at/above the clip plane sits in DISPLAY air even
+  // when the field there is rock — the slice hides that rock and the
+  // raycast's maxY clip suppresses its t=0 self-hit — so it reports false and
+  // EVERY gesture site then raycasts onto the sliced surface the user sees
+  // (what you see is what you target). Quantized to the eye's VOXEL BASE
+  // (worldToVoxel·cellSize) because the raycast clips whole voxels by base —
+  // a continuous origin-Y compare disagrees for a non-lattice-aligned sliceY
+  // inside the eye's own voxel.
   const cursorRay = (
     clientX: number,
     clientY: number,
@@ -960,13 +986,15 @@ export function createFieldHost(): FieldHost {
     const dz = r.dir[2] as number;
     if (Math.hypot(dx, dy, dz) < 1e-8) return null; // singular VP → no valid ray
     const cs = store.cellSize;
-    const eyeInRock =
+    const buried =
       field.getDensity(
         store,
         field.worldToVoxel(ox, cs),
         field.worldToVoxel(oy, cs),
         field.worldToVoxel(oz, cs),
       ) < 0;
+    const eyeInRock =
+      buried && (sliceY === null || field.worldToVoxel(oy, cs) * cs < sliceY);
     return { origin: [ox, oy, oz], dir: [dx, dy, dz], eyeInRock };
   };
 
@@ -985,22 +1013,15 @@ export function createFieldHost(): FieldHost {
   const computeTarget = (clientX: number, clientY: number): Vec3T | null => {
     const ray = cursorRay(clientX, clientY);
     if (!ray) return null;
-    const { origin, dir } = ray;
+    const { origin, dir, eyeInRock } = ray;
     // If the eye is embedded in rock (virgin world or buried), raycastField would
     // hit the origin's OWN voxel at t=0 (raycast.ts: "a start inside rock hits its
     // own voxel at t=0"), so we pass eyeInRock and the pure module mines forward
-    // from the eye. When the eye is in air, apply where the ray meets rock, or dig
-    // ahead when it reaches maxDist through only air (a cavity aimed at open space).
-    // Slice view: an eye at/above the clip plane sits in DISPLAY air even when
-    // the field there is rock — treat it as in-air (the raycast's maxY clip
-    // suppresses the t=0 self-hit) so strokes land on the sliced surface shown.
-    // Quantized to the eye's VOXEL BASE (worldToVoxel·cellSize), because the
-    // raycast clips whole voxels by base — a continuous origin[1] compare
-    // disagrees for a non-lattice-aligned sliceY inside the eye's own voxel.
-    const cs = store.cellSize;
-    const eyeInRock =
-      ray.eyeInRock &&
-      (sliceY === null || field.worldToVoxel(origin[1], cs) * cs < sliceY);
+    // from the eye. When the eye is in (display) air, apply where the ray meets
+    // rock, or dig ahead when it reaches maxDist through only air (a cavity aimed
+    // at open space). Under an active slice, cursorRay's display-space probe
+    // already treats a buried eye at/above the plane as in-air, so strokes land
+    // on the sliced surface shown.
     const rc = eyeInRock
       ? null
       : field.raycastField(store, origin, dir, DIG_RANGE_M, sliceOpts());
@@ -1039,6 +1060,17 @@ export function createFieldHost(): FieldHost {
       voxel = rc.voxel;
     }
     const id = field.getMaterial(store, voxel[0], voxel[1], voxel[2]);
+    // Paint is organic-only: the swatch strip disables kit classes while
+    // paint is armed (a kit materialId arms a stroke core rejects every
+    // time) — mirror that rule here, so a kit-cell Alt-click under paint
+    // adopts nothing, like a miss. Guarded lookup, not classOf: an id
+    // missing from the table keeps the pre-existing adopt-as-is behaviour
+    // (the stroke path owns that setup-loud throw).
+    if (
+      tool.effect === "paint" &&
+      table.classes.find((c) => c.id === id)?.kind === "kit"
+    )
+      return;
     if (id === tool.materialId) return;
     // Immutable replacement (never in-place mutation) so the effective tool
     // can't alias the momentary-saved slot; the saved base picks up the same
@@ -1789,7 +1821,7 @@ export function createFieldHost(): FieldHost {
       lastFrameT = now;
       applyFlyMove(dt);
       drainDirty();
-      statsCb?.({ chunks: store.chunks.size, lastRemeshMs });
+      statsCb?.({ chunks: store.chunks.size, lastRemeshMs, remeshVersion });
       renderScene(c, cam);
     }
     raf = requestAnimationFrame(tick);

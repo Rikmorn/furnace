@@ -1,54 +1,40 @@
 // The Field panel (F1/F2b): the dig-loop chrome. It mounts a <canvas> the
 // App-owned FieldHost renders into (LMB applies the tool or a selection
 // gesture, RMB looks, WASD/QE flies, wheel/[ ] size the brush, ⌘Z undoes) and
-// exposes name + the tool palette (brush effects, selection gestures, stamp
+// exposes the tool palette (brush effects, selection gestures, stamp
 // generators) + the persistent material swatches + the brush inspector
-// (radius/mask/smooth/hollow) + shading, plus Save / Load / Bake-as-default.
-// On engine-ready it loads the project's materials catalog (F2) and installs
-// the resolved table on the host; Load is gated until the catalog settles.
+// (radius/mask/smooth/hollow) + shading. The persistence concern — world
+// name, Save / Load / Bake-as-default, and the run-once catalog fetch that
+// gates Load — lives in FieldToolbar (extracted, F2b sweep); the panel keeps
+// the table (swatches) and the status line the toolbar reports into.
 // The host is created ONCE at engine-ready (App) and reached ONLY through the
 // /engine.js runtime channel (a context ref) — the chrome never value-imports
 // engine code (the project-first invariant). This file type-imports the field
-// host + artifact types (all erased) and value-imports the catalog parser
-// from a frontend lib that itself only type-imports core.
-import type {
-  FieldManifest,
-  GeneratorEntity,
-  MaterialTable,
-} from "@furnace/core/field"; // type-only: erased
+// host + artifact types (all erased).
+import type { GeneratorEntity, MaterialTable } from "@furnace/core/field"; // type-only: erased
 import { useCallback, useEffect, useRef, useState } from "react";
 import type {
   FieldGeneratorInfo,
   FieldHostShading,
   FieldLayers,
   FieldMaskChoice,
+  FieldStats,
   FieldTool,
   SelectionInfo,
   SelectionMode,
   StampSession,
 } from "../../viewport-host/index.ts"; // type-only: erased
-import { api } from "../lib/api.ts";
-// catalog.ts type-imports core only (erased), so value-importing it here does NOT
-// pull core into the chrome bundle — the project-first invariant holds.
-import { CatalogError, parseMaterialsCatalog } from "../lib/catalog.ts";
-import { cn } from "../lib/cn.ts";
-import { bakeUploadCalls, toWireFiles } from "../lib/generation.ts";
 import { initWhenSized } from "../lib/init-when-sized.ts";
 import { useEditor } from "./editor-context.ts";
 import { BrushInspector } from "./field/BrushInspector.tsx";
 import { EntitiesList } from "./field/EntitiesList.tsx";
+import { FieldToolbar } from "./field/FieldToolbar.tsx";
 import { LayersRow } from "./field/LayersRow.tsx";
 import { MaterialSwatches } from "./field/MaterialSwatches.tsx";
 import { StampInspector } from "./field/StampInspector.tsx";
 import { ToolPalette } from "./field/ToolPalette.tsx";
 import { Button } from "./ui/button.tsx";
-import { Input } from "./ui/input.tsx";
-import { ReasonTip } from "./world-panel/fields.tsx";
 
-// Mirrors the daemon field.load name regex AND FieldHost's clamp range. Name is EMPTY by
-// default and never prefilled (the W3/W4 gate-clobber lesson: a stale default silently
-// overwrites the game's world on Save/Bake).
-const NAME_RE = /^[a-z0-9][a-z0-9_-]*$/i;
 // Mirror FieldHost's default digRadius (the range lives in BrushInspector).
 const DEFAULT_RADIUS = 1.25;
 
@@ -90,15 +76,8 @@ const DEFAULT_LAYERS: FieldLayers = {
 // owns the −8…+24 range), high enough to cut a typical kit hall when enabled.
 const SLICE_DEFAULT_Y = 8;
 
-type FieldStats = { chunks: number; lastRemeshMs: number };
-
 const errorMessage = (err: unknown): string =>
   err instanceof Error ? err.message : String(err);
-
-// base64 → bytes: the inverse of toWireFiles' encoder, decoding the density chunk files
-// the daemon returns. Per-chunk atob is fine for v0 sizes (each chunk is a 4KiB file).
-const base64ToBytes = (b64: string): Uint8Array =>
-  Uint8Array.from(atob(b64), (ch) => ch.charCodeAt(0));
 
 // Value-equality for the subscribeTool echo guard (see the mirror effect).
 const masksEqual = (a: FieldMaskChoice, b: FieldMaskChoice): boolean =>
@@ -114,20 +93,25 @@ const toolsEqual = (a: FieldTool, b: FieldTool): boolean => {
   // mirror would drop host-initiated changes.
   const { effect, materialId, hollow, mask, smooth, ...rest } = a;
   void (rest satisfies Record<string, never>);
+  // The same backstop one level down: `smooth` is a nested shape whose future
+  // fields would slip past the top-level destructure unseen.
+  const { strength, iterations, mode, ...smoothRest } = smooth;
+  void (smoothRest satisfies Record<string, never>);
   return (
     effect === b.effect &&
     materialId === b.materialId &&
     hollow === b.hollow &&
     masksEqual(mask, b.mask) &&
-    smooth.strength === b.smooth.strength &&
-    smooth.iterations === b.smooth.iterations &&
-    smooth.mode === b.smooth.mode
+    strength === b.smooth.strength &&
+    iterations === b.smooth.iterations &&
+    mode === b.smooth.mode
   );
 };
 
-// Entity-list identity for the refresh guard: id + opSpan. Params/seed are
-// immutable post-commit (reconfigure is F3), so a matching signature means
-// the same rows and the previous array reference can be kept (no re-render).
+// Entity-list identity for the refresh guard: id + generator + seed + opSpan
+// (everything a ROW displays). Params are immutable post-commit (reconfigure
+// is F3) and share the commit's identity, so a matching signature means the
+// same rows and the previous array reference can be kept (no re-render).
 const sameEntities = (
   a: GeneratorEntity[],
   b: GeneratorEntity[],
@@ -138,6 +122,8 @@ const sameEntities = (
     return (
       o !== undefined &&
       e.entityId === o.entityId &&
+      e.generator === o.generator &&
+      e.seed === o.seed &&
       e.opSpan[0] === o.opSpan[0] &&
       e.opSpan[1] === o.opSpan[1]
     );
@@ -147,8 +133,6 @@ export function FieldPanel() {
   const { state, fieldHostRef } = useEditor();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const initialized = useRef(false);
-  const catalogLoaded = useRef(false);
-  const [name, setName] = useState("");
   const [radius, setRadius] = useState(DEFAULT_RADIUS);
   const [headlamp, setHeadlamp] = useState(false);
   const [tool, setToolState] = useState<FieldTool>(DEFAULT_TOOL);
@@ -168,16 +152,12 @@ export function FieldPanel() {
     maxIterations: 1,
   });
   const [table, setTable] = useState<MaterialTable>(ROCK_ONLY_TABLE);
-  // True once the catalog fetch reached ANY outcome (success / 404 / error) —
-  // Load waits for it so a world never remeshes against the wrong table
-  // (carry-over #2: the settle can land before OR after engine init; both
-  // orders converge, but a Load racing the fetch would not).
-  const [catalogSettled, setCatalogSettled] = useState(false);
-  const [stats, setStats] = useState<FieldStats>({ chunks: 0, lastRemeshMs: 0 });
+  const [stats, setStats] = useState<FieldStats>({
+    chunks: 0,
+    lastRemeshMs: 0,
+    remeshVersion: 0,
+  });
   const [status, setStatus] = useState("dig into the rock, then Save");
-  const [busy, setBusy] = useState(false);
-
-  const nameValid = NAME_RE.test(name);
 
   // Run-once init (the Viewport idiom): grab the canvas once the engine is ready and the
   // App-owned host exists. Deferred to the first nonzero canvas measure (initWhenSized)
@@ -198,48 +178,6 @@ export function FieldPanel() {
         setStatus(`field host init failed: ${errorMessage(err)}`);
       });
     });
-  }, [state.status, fieldHostRef]);
-
-  // Catalog load, run-once on engine-ready. Fetches the project's materials catalog
-  // (the daemon maps this chrome-miss GET onto the project root) and installs the
-  // resolved table on the host — BEFORE any world Load, so a v2 world baked against
-  // this same catalog remeshes with the right classes. A 404 leaves the host on its
-  // rock-only BUILTIN_TABLE default; a CatalogError is setup-loud (its JSON path
-  // shows in the status line so a mistyped catalog is diagnosable here). The host
-  // may not be GPU-init'd yet — setMaterialTable then just stores the table (no
-  // rebuild) and init() picks it up; if init ran first, the swap re-meshes. Either
-  // order converges. fieldHostRef.current is assigned before engine-ready (App), so
-  // it is present whenever state.status === "ready". EVERY outcome settles the
-  // catalog (finally) — the Load gate must never wedge shut on a failed fetch.
-  useEffect(() => {
-    const host = fieldHostRef.current;
-    if (!host || state.status !== "ready" || catalogLoaded.current) return;
-    catalogLoaded.current = true;
-    void (async () => {
-      try {
-        const res = await fetch("/catalog/materials.json");
-        if (res.status === 404) {
-          setStatus("no catalog — rock only");
-          return;
-        }
-        if (!res.ok) {
-          setStatus(`catalog fetch failed (${res.status})`);
-          return;
-        }
-        const parsed = parseMaterialsCatalog(await res.text());
-        host.setMaterialTable(parsed);
-        setTable(parsed);
-        setStatus(`materials: ${parsed.classes.length} classes`);
-      } catch (err) {
-        if (err instanceof CatalogError) {
-          setStatus(`catalog error at "${err.path || "(root)"}": ${err.message}`);
-          return;
-        }
-        setStatus(`catalog load failed: ${errorMessage(err)}`);
-      } finally {
-        setCatalogSettled(true);
-      }
-    })();
   }, [state.status, fieldHostRef]);
 
   // Host-surfaced constants, read once at engine-ready: the smooth ceilings
@@ -304,12 +242,16 @@ export function FieldPanel() {
   // Entities refresh strategy (Task 15): re-read listEntities when
   // (a) the STAMP session changes — a commit ends the session with a null
   //     push, which lands the new entity here;
-  // (b) the STATS readout changes — any field mutation (including a ⌘Z
-  //     undo/redo of an entity commit) dirties chunks, whose remesh bumps
-  //     lastRemeshMs, so an undone entity disappears within a frame or two;
+  // (b) the remesh COUNTER advances — any field mutation (including a ⌘Z
+  //     undo/redo of an entity commit) dirties chunks, whose remesh
+  //     completion bumps stats.remeshVersion, so an undone entity disappears
+  //     within a frame or two. The counter, NOT lastRemeshMs: that is a
+  //     clock read Safari clamps to ~1 ms, so consecutive remeshes can
+  //     quantize identically and a value compare would miss the ⌘Z (F2b
+  //     sweep) — the counter makes (b) event-driven per remesh completion;
   // (c) the Entities section OPENS (EntitiesList onOpen) — manual catch-up.
-  // The id+opSpan signature guard keeps the no-change reads (every plain dig
-  // stroke hits (b)) from re-rendering the panel.
+  // The signature guard (sameEntities) keeps the no-change reads (every plain
+  // dig stroke hits (b)) from re-rendering the panel.
   const refreshEntities = useCallback((): void => {
     const host = fieldHostRef.current;
     if (!host) return;
@@ -321,12 +263,13 @@ export function FieldPanel() {
 
   useEffect(() => {
     if (state.status !== "ready") return;
-    // `stamp` + `stats` are deliberate TRIGGER deps — triggers (a) and (b) of
-    // the refresh strategy above; their values are read via listEntities.
+    // `stamp` + `stats.remeshVersion` are deliberate TRIGGER deps — triggers
+    // (a) and (b) of the refresh strategy above; their values are read via
+    // listEntities.
     void stamp;
-    void stats;
+    void stats.remeshVersion;
     refreshEntities();
-  }, [state.status, refreshEntities, stamp, stats]);
+  }, [state.status, refreshEntities, stamp, stats.remeshVersion]);
 
   // User-facing tool problems (selection-mask misuse, swallowed stroke
   // failures, "select a region first") surface on the status line.
@@ -344,7 +287,9 @@ export function FieldPanel() {
     if (!host || state.status !== "ready") return;
     return host.subscribeStats((s) =>
       setStats((prev) =>
-        prev.chunks === s.chunks && prev.lastRemeshMs === s.lastRemeshMs
+        prev.chunks === s.chunks &&
+        prev.lastRemeshMs === s.lastRemeshMs &&
+        prev.remeshVersion === s.remeshVersion
           ? prev
           : s,
       ),
@@ -410,89 +355,6 @@ export function FieldPanel() {
 
   const onMaterial = (id: number): void => pushTool({ ...tool, materialId: id });
 
-  const onNew = (): void => {
-    fieldHostRef.current?.newWorld();
-    setStatus("new world — all solid rock");
-  };
-
-  const onSave = async (): Promise<void> => {
-    const host = fieldHostRef.current;
-    if (!host || !nameValid) return;
-    setBusy(true);
-    setStatus(`saving ${name}…`);
-    try {
-      const files = toWireFiles(host.exportArtifact(name));
-      const res = await api.generationBake(files, `worlds/${name}`);
-      setStatus(`saved ${res.files} files → worlds/${name}`);
-    } catch (err) {
-      setStatus(`save failed: ${errorMessage(err)}`);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const onBakeDefault = async (): Promise<void> => {
-    const host = fieldHostRef.current;
-    if (!host || !nameValid) return;
-    setBusy(true);
-    setStatus(`baking ${name} as the game's world…`);
-    try {
-      // Reuse the world flow's upload sequence: the world's file set (cleanDir'd to its own
-      // dir so a re-bake leaves no orphans), then worlds/index.json pointed at it
-      // (byte-identical to the committed format). Ordered — index.json never names a world
-      // not yet on disk.
-      const calls = bakeUploadCalls(
-        toWireFiles(host.exportArtifact(name)),
-        `worlds/${name}`,
-        name,
-        true,
-      );
-      const results: { files: number }[] = [];
-      for (const call of calls) {
-        results.push(await api.generationBake(call.files, call.cleanDir));
-      }
-      setStatus(`baked ${results[0]?.files ?? 0} files — now the game's world`);
-    } catch (err) {
-      setStatus(`bake failed: ${errorMessage(err)}`);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const onLoad = async (): Promise<void> => {
-    const host = fieldHostRef.current;
-    if (!host || !nameValid) return;
-    setBusy(true);
-    setStatus(`loading ${name}…`);
-    try {
-      const res = await api.fieldLoad(name);
-      host.loadWorld({
-        // Boundary cast: field.load returns the manifest as opaque JSON; it is the
-        // v2 FieldManifest the host wrote (bakeFieldWorld) — loadWorld re-validates cellSize.
-        manifest: res.manifest as FieldManifest,
-        chunks: res.chunks.map((c) => ({
-          key: c.key,
-          bytes: base64ToBytes(c.data),
-        })),
-        // Material siblings decode the same way (base64 → bytes); empty for a
-        // rock-only world. Threading them reaches store.materials so a painted/
-        // filled world renders with its classes in the editor.
-        materials: res.materials.map((m) => ({
-          key: m.key,
-          bytes: base64ToBytes(m.data),
-        })),
-        // Raw oplog text — the HOST parses it (field.parseOps maps legacy F1
-        // `kind:"dig"` ops forward; the chrome can't value-import parseOps).
-        oplog: res.oplog,
-      });
-      setStatus(`loaded ${name} (${res.chunks.length} chunks)`);
-    } catch (err) {
-      setStatus(`load failed: ${errorMessage(err)}`);
-    } finally {
-      setBusy(false);
-    }
-  };
-
   if (state.status !== "ready") {
     return (
       <p className="p-3 text-sm text-muted-foreground">
@@ -501,7 +363,6 @@ export function FieldPanel() {
     );
   }
 
-  const nameInvalid = name !== "" && !nameValid;
   // The live session's registry info (its paramSchema feeds the form). The
   // find can only miss if the registry changed under a live session —
   // impossible today (FIELD_GENERATORS is static); the guard simply hides
@@ -513,73 +374,12 @@ export function FieldPanel() {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex flex-wrap items-center gap-2 border-b border-border p-2 text-sm">
-        <Input
-          type="text"
-          value={name}
-          placeholder="world name"
-          onChange={(e) => setName(e.target.value)}
-          disabled={busy}
-          aria-invalid={nameInvalid}
-          aria-label="world name"
-          className={cn("h-8 w-36", nameInvalid && "border-destructive")}
-        />
-        <Button
-          type="button"
-          size="sm"
-          variant="secondary"
-          disabled={busy}
-          onClick={onNew}
-        >
-          New
-        </Button>
-        {/* ReasonTip, not a bare title: the Button's disabled:pointer-events-none
-            would swallow the tooltip that explains the catalog gate. */}
-        <ReasonTip
-          reason={
-            catalogSettled
-              ? undefined
-              : "waiting for the materials catalog — Load resolves world classes against it"
-          }
-        >
-          <Button
-            type="button"
-            size="sm"
-            variant="secondary"
-            disabled={busy || !nameValid || !catalogSettled}
-            onClick={() => void onLoad()}
-          >
-            Load
-          </Button>
-        </ReasonTip>
-        <Button
-          type="button"
-          size="sm"
-          disabled={busy || !nameValid}
-          onClick={() => void onSave()}
-        >
-          Save
-        </Button>
-        {/* Bake keeps the World panel's commit-to-disk success colour (tailwind-merge lets
-            the className override the default primary fill). */}
-        <Button
-          type="button"
-          size="sm"
-          disabled={busy || !nameValid}
-          onClick={() => void onBakeDefault()}
-          className="bg-success text-success-foreground hover:bg-success/90"
-        >
-          Bake &amp; make default
-        </Button>
-        <label className="flex items-center gap-1.5 text-muted-foreground">
-          <input
-            type="checkbox"
-            checked={headlamp}
-            onChange={(e) => onShading(e.target.checked)}
-          />
-          headlamp
-        </label>
-      </div>
+      <FieldToolbar
+        headlamp={headlamp}
+        onShading={onShading}
+        onTable={setTable}
+        onStatus={setStatus}
+      />
       <div className="flex flex-col gap-2 border-b border-border p-2 text-sm">
         <ToolPalette
           effect={tool.effect}

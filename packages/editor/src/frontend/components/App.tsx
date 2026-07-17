@@ -63,7 +63,7 @@ const RECENT_SCENES_CAP = 8;
 // splitter drag, but each write JSON-stringifies the whole UiState blob — persist once settled.
 const LAYOUT_SAVE_DEBOUNCE_MS = 200;
 
-// The DEFAULT layout is the field-first subset (spec §3.7): Field dominant in the centre
+// The DEFAULT layout is the field-first subset: Field dominant in the centre
 // (the slot the scene Viewport used to hold), Entities left, Inspect right. The World panel
 // (id "generation") and the scene Viewport leave the DEFAULT set only — PANELS still owns
 // id/title/component, so both stay one click away via the View▸Panels toggles and
@@ -568,7 +568,7 @@ export function App() {
     );
   }, []);
 
-  // The default layout (Entities | Field | Inspect — field-first, spec §3.7), built by
+  // The default layout (Entities | Field | Inspect — field-first), built by
   // iterating DEFAULT_LAYOUT_PANELS with titles resolved through PANELS (panelTitle) so a
   // title edit there still flows to the initial layout, the toggle menu, and re-add.
   const addDefaultLayout = useCallback((dockApi: DockviewApi) => {

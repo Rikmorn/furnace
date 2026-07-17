@@ -1,7 +1,8 @@
 // Budget ceilings for the F2b search/generate loops (premise P-F2-5's core
 // half): generator evaluation and selection floods carry wall-clock ceilings
 // from day one — the working-standards §Planning rule. These are MEASUREMENTS,
-// not behaviour tests: median-of-20 with warmup (robust to CI/slow machines);
+// not behaviour tests: median-of-20 with warmup (medians shrug off transient
+// CI load spikes; uniformly slower hardware is the ceilings' slack to absorb);
 // every scenario logs a `[f2b-budget]` line the tranche report collects.
 import { describe, expect, test } from "bun:test";
 import type { BrushOp, MaterialTable } from "@furnace/core/field";
@@ -16,12 +17,22 @@ import {
 const CEILING_EVAL_MS = 50;
 const CEILING_FLOOD_MS = 100;
 
+// Vacuity floors for the evaluate scenarios (the flood scenarios assert exact
+// counts instead): a degenerate/empty op span would pass any ceiling, so each
+// timed evaluate first proves it emits a real span. Measured minima over
+// seeds 0–24: hall 337 (seed-independent), both maze scenarios ≥ 757.
+const FLOOR_HALL_OPS = 300;
+const FLOOR_MAZE_OPS = 500;
+
 const WARMUP_RUNS = 5;
 const TIMED_RUNS = 20;
 
-/** Median-of-20 with warmup — the accepted robust-timing shape. `run` gets the
- *  iteration index (generator scenarios feed it as the seed so the measurement
- *  spans distinct plans, not one cached shape). */
+/** Median-of-20 with warmup. The median is robust to TRANSIENT load spikes
+ *  (GC pauses, CI neighbours) — uniformly slower hardware shifts the whole
+ *  distribution and is the ceilings' slack to absorb, not the median's job.
+ *  `run` gets the iteration index; the MAZE scenarios feed it as the seed so
+ *  their measurements span distinct plans (the hall voids its seed — its
+ *  structure is params-determined, so its runs repeat one shape). */
 function medianMs(run: (i: number) => void): number {
   for (let i = 0; i < WARMUP_RUNS; i++) run(i);
   const times: number[] = [];
@@ -102,6 +113,10 @@ describe("field budgets — generator evaluate", () => {
       doorEast: false,
       doorWest: false,
     };
+    // Vacuity guard: the timed evaluate must emit a real op span.
+    expect(
+      hall.evaluate(params, 0, REGION_BIG, TABLE, "replace").length,
+    ).toBeGreaterThanOrEqual(FLOOR_HALL_OPS);
     const median = medianMs((i) =>
       hall.evaluate(params, i, REGION_BIG, TABLE, "replace"),
     );
@@ -122,6 +137,10 @@ describe("field budgets — generator evaluate", () => {
       doorEast: false,
       doorWest: false,
     };
+    // Vacuity guard: the timed evaluate must emit a real op span.
+    expect(
+      mz.evaluate(params, 0, REGION_MAZE_MAX, TABLE, "replace").length,
+    ).toBeGreaterThanOrEqual(FLOOR_MAZE_OPS);
     const median = medianMs((i) =>
       mz.evaluate(params, i, REGION_MAZE_MAX, TABLE, "replace"),
     );
@@ -142,6 +161,10 @@ describe("field budgets — generator evaluate", () => {
       doorEast: true,
       doorWest: true,
     };
+    // Vacuity guard: the timed evaluate must emit a real op span.
+    expect(
+      mz.evaluate(params, 0, REGION_MAZE_MAX, TABLE, "replace").length,
+    ).toBeGreaterThanOrEqual(FLOOR_MAZE_OPS);
     const median = medianMs((i) =>
       mz.evaluate(params, i, REGION_MAZE_MAX, TABLE, "replace"),
     );
