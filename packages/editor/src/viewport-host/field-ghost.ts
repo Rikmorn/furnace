@@ -30,8 +30,8 @@ const ringPoint = (
 };
 
 /** The sphere-brush ghost as line segments: two great-circle rings (XZ then XY
- *  plane), 16 segments each. The host feeds the result to segmentsToBatch
- *  (same path as the grid / AABB highlight). */
+ *  plane), GHOST_RING_SEGMENTS (16) segments each. The host feeds the result
+ *  to segmentsToBatch (same path as the grid / AABB highlight). */
 export const sphereGhostSegments = (
   center: Vec3T,
   radius: number,

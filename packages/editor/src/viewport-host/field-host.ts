@@ -93,9 +93,12 @@ export type FieldHost = {
    *  matches the UI's step). */
   setTool(tool: FieldTool): void;
   /** Subscribes to HOST-initiated tool changes (eyedropper, momentary
-   *  Shift/Ctrl enter/leave) so the panel can mirror them. NOT fired for the
-   *  panel's own setTool calls. Single subscriber (the panel); returns an
-   *  unsubscribe. */
+   *  Shift/Ctrl enter/leave) so the panel can mirror them. NOT fired for a
+   *  plain panel setTool — EXCEPT when the panel's setTool lands while a
+   *  momentary modifier is held: that re-derives the effective tool and DOES
+   *  fire, carrying the DERIVED tool (not what the panel set), so the panel
+   *  must value-compare against its own state before re-pushing (echo guard).
+   *  Single subscriber (the panel); returns an unsubscribe. */
   subscribeTool(cb: (tool: FieldTool) => void): () => void;
   /** The core smooth-parameter ceilings (strength 1..max, iterations 1..max),
    *  surfaced through the host because the panel cannot value-import core. */
@@ -630,13 +633,23 @@ export function createFieldHost(): FieldHost {
     const kitFill =
       tool.effect === "fill" &&
       field.classOf(table, tool.materialId).kind === "kit";
+    // Kit-class hollow snaps to the 0.5 m lattice (floored) — core REJECTS
+    // non-multiples (the shell's inner faces must land on lattice planes).
+    const hollow =
+      tool.effect === "fill" && tool.hollow !== null
+        ? kitFill
+          ? Math.max(
+              HOLLOW_MIN_M,
+              Math.round(tool.hollow / HOLLOW_MIN_M) * HOLLOW_MIN_M,
+            )
+          : tool.hollow
+        : null;
     return {
       ...base,
       effect: tool.effect,
       material: tool.materialId,
       ...(kitFill && { shape: snappedKitBox(center, digRadius) }),
-      ...(tool.effect === "fill" &&
-        tool.hollow !== null && { hollow: tool.hollow }),
+      ...(hollow !== null && { hollow }),
     };
   };
 
@@ -1001,8 +1014,9 @@ export function createFieldHost(): FieldHost {
       return;
     }
     // [ / ] step the brush radius (same clamp as the wheel); key-repeat is the
-    // hold-to-resize behaviour.
-    if (k === "[" || k === "]") {
+    // hold-to-resize behaviour. Chord-guarded: ⌘[/⌘] (and ctrl+[/]) are the
+    // browser's back/forward — never intercept those.
+    if ((k === "[" || k === "]") && !e.metaKey && !e.ctrlKey) {
       const step = k === "]" ? RADIUS_WHEEL_STEP : -RADIUS_WHEEL_STEP;
       digRadius = clampRadius(digRadius + step);
       return;
@@ -1175,7 +1189,9 @@ export function createFieldHost(): FieldHost {
     subscribeTool(cb) {
       toolCb = cb;
       return () => {
-        toolCb = null;
+        // Guard: a STALE unsubscribe (kept past a later subscribe) must not
+        // null the successor's callback.
+        if (toolCb === cb) toolCb = null;
       };
     },
     getSmoothLimits() {
