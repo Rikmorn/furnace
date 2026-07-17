@@ -17,6 +17,7 @@ import {
   generatorById,
   getDensity,
   getMaterial,
+  logApply,
   redo,
   undo,
 } from "@furnace/core/field";
@@ -385,6 +386,18 @@ describe("field generators — the maze", () => {
     expect(perfect).not.toEqual(full);
   });
 
+  test("keep-existing-air masks the maze shell fill solid-only", () => {
+    const mz = generatorById("maze");
+    const ops = mz.evaluate(
+      MAZE_PARAMS,
+      11,
+      REGION_MAZE,
+      TABLE,
+      "keep-existing-air",
+    );
+    expect(ops[0]?.mask).toEqual({ kind: "solid-only" });
+  });
+
   test("maze defaults are schema-derived and evaluate clean", () => {
     const mz = generatorById("maze");
     expect(() =>
@@ -473,6 +486,105 @@ describe("field generators — commitGenerator", () => {
     expect(log.redoStack.length).toBe(1);
     commitGenerator(s, log, generatorById("hall"), opts);
     expect(log.redoStack.length).toBe(0);
+  });
+
+  test("commit provenance is CLONED: caller mutations never rewrite the logged entity", () => {
+    // The log is append-only provenance (serialized ops file, F3 reconfigure):
+    // a host reusing a live params/region object across commits must not
+    // rewrite history through the alias.
+    const s = createFieldStore();
+    const log = createOpLog();
+    const params: Record<string, unknown> = { ...HALL_PARAMS };
+    const region = {
+      min: [2, 0, 2] as [number, number, number],
+      max: [10, 6, 10] as [number, number, number],
+    };
+    const res = commitGenerator(s, log, generatorById("hall"), {
+      params,
+      seed: 7,
+      region,
+      policy: "replace",
+      table: TABLE,
+    });
+    params["width"] = 999;
+    region.min[0] = 99;
+    region.max[2] = -5;
+    const entity = log.ops[log.ops.length - 1];
+    expect(entity?.kind).toBe("entity");
+    if (entity?.kind !== "entity") return;
+    expect(entity.entity.params["width"]).toBe(8);
+    expect(entity.entity.region.min[0]).toBe(2);
+    expect(entity.entity.region.max[2]).toBe(10);
+    expect(res.entity.params["width"]).toBe(8); // returned record too
+  });
+
+  test("an empty evaluated span throws setup-loud; store and log untouched", () => {
+    const s = createFieldStore();
+    const log = createOpLog();
+    const emptyDef: GeneratorDef = {
+      id: "empty",
+      name: "Empty",
+      paramSchema: {},
+      defaults: {},
+      evaluate: () => [],
+    };
+    expect(() =>
+      commitGenerator(s, log, emptyDef, {
+        params: {},
+        seed: 1,
+        region: REGION,
+        policy: "replace",
+        table: TABLE,
+      }),
+    ).toThrow(/empty/);
+    expect(s.chunks.size).toBe(0);
+    expect(log.ops.length).toBe(0);
+    expect(log.undoStack.length).toBe(0);
+    expect(log.nextId).toBe(1);
+  });
+
+  test("commit into a non-fresh log: ids continue; undo peels commit then brush", () => {
+    // The mixed-entry tail invariant: a logApply brush entry followed by a
+    // commit entry — ids continue contiguously from the non-1 nextId, and two
+    // undos peel commit-then-brush back to a fresh store.
+    const s = createFieldStore();
+    const log = createOpLog();
+    const dug = logApply(
+      s,
+      log,
+      {
+        id: 0,
+        kind: "brush",
+        effect: "dig",
+        shape: { kind: "sphere", center: [4.5, 2, 4.5], radius: 1 },
+      },
+      TABLE,
+    );
+    expect(dug.size).toBeGreaterThan(0);
+    expect(log.nextId).toBe(2);
+    const afterBrush = snapshotBytes(s);
+    commitGenerator(s, log, generatorById("hall"), {
+      params: HALL_PARAMS,
+      seed: 7,
+      region: REGION,
+      policy: "replace",
+      table: TABLE,
+    });
+    const entity = log.ops[log.ops.length - 1];
+    expect(entity?.kind).toBe("entity");
+    if (entity?.kind !== "entity") return;
+    // span ids 2..(ops.length−1), entity id = ops.length — contiguous from 1
+    expect(entity.entity.opSpan[0]).toBe(2);
+    expect(entity.entity.opSpan[1]).toBe(log.ops.length - 1);
+    expect(entity.id).toBe(log.ops.length);
+    expect(log.undoStack.length).toBe(2);
+    undo(s, log);
+    expect(log.ops.length).toBe(1); // the brush entry remains
+    expect(snapshotBytes(s)).toEqual(afterBrush); // pre-commit state restored
+    undo(s, log);
+    expect(log.ops.length).toBe(0);
+    expect(s.chunks.size).toBe(0);
+    expect(s.materials.size).toBe(0);
   });
 
   test("an invalid evaluated span leaves store, log, and id counter untouched", () => {

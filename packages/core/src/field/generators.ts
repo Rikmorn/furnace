@@ -667,10 +667,15 @@ export function generatorById(id: string): GeneratorDef {
  *  snapshot is its PRE-COMMIT state, so undo restores the field exactly.
  *  Returns the commit's dirty chunk set and the recorded
  *  {@link GeneratorEntity} — whose `entityId` intentionally equals the entity
- *  op's log id (the same log.nextId slot).
+ *  op's log id (the same log.nextId slot). The entity's `params`/`region` are
+ *  CLONED (deep): the log is append-only provenance, so a caller reusing a
+ *  live object across commits can never rewrite it. Commit RE-EVALUATES the
+ *  generator; it relies on evaluate's determinism (pure, same-input-twice —
+ *  the charter §2.2 contract) to reproduce a previewed span exactly.
  *
  *  @throws {@link Error} if the generator's own param validation rejects
- *    `opts.params` or any evaluated op fails {@link assertOpValid} — in both
+ *    `opts.params`, the evaluated span is EMPTY (a generator must emit at
+ *    least one op), or any evaluated op fails {@link assertOpValid} — in all
  *    cases before any mutation. */
 export function commitGenerator(
   store: FieldStore,
@@ -691,6 +696,10 @@ export function commitGenerator(
     opts.table,
     opts.policy,
   );
+  if (evaluated.length === 0)
+    throw new Error(
+      `commitGenerator: generator "${def.id}" evaluated to an empty op span`,
+    );
   // Pass 1 — stamp real ids and validate the WHOLE span before any write.
   const firstId = log.nextId;
   let nextId = firstId;
@@ -712,9 +721,11 @@ export function commitGenerator(
     entityId: nextId,
     type: "generator",
     generator: def.id,
-    params: opts.params,
+    // Deep-cloned: the entity is an append-only provenance record — a caller
+    // mutating a reused params/region object must never rewrite the log.
+    params: structuredClone(opts.params),
     seed: opts.seed,
-    region: opts.region,
+    region: structuredClone(opts.region),
     opSpan: [firstId, nextId - 1],
   };
   const entityOp: EntityOp = {
