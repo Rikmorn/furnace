@@ -12,17 +12,17 @@ import { makeVecField } from "./fields/VecField.tsx";
 import type { FieldKind, FieldRenderer } from "./types.ts";
 
 export const registry: Partial<Record<FieldKind, FieldRenderer>> = {
-  number: NumberField,
-  string: StringField,
-  boolean: BooleanField,
-  enum: EnumField,
-  vec2: makeVecField(2),
-  vec3: makeVecField(3),
-  vec4: makeVecField(4),
-  color: ColorField,
-  quat: QuatField,
-  resource: ResourceRefField,
-  ref: EntityRefField,
-  object: ObjectField,
+	number: NumberField,
+	string: StringField,
+	boolean: BooleanField,
+	enum: EnumField,
+	vec2: makeVecField(2),
+	vec3: makeVecField(3),
+	vec4: makeVecField(4),
+	color: ColorField,
+	quat: QuatField,
+	resource: ResourceRefField,
+	ref: EntityRefField,
+	object: ObjectField,
 };
 export const fallbackRenderer: FieldRenderer = DefaultField;

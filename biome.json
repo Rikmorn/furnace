@@ -9,6 +9,7 @@
     "ignoreUnknown": true,
     "includes": [
       "**/*.ts",
+      "**/*.tsx",
       "**/*.json",
       "**/*.html",
       "**/*.css",

@@ -10,162 +10,182 @@
 // mock.module-ing frontend api.ts, also trips the fetch pollution). The window-keydown
 // listener (⌘S preventDefault, the undo/redo gate) is covered by the pure
 // keybindings.test.ts classifier + the browser gate.
-import { cleanup, fireEvent, render, screen } from "../inspector/_harness.tsx";
+
 import { afterEach, expect, mock, test } from "bun:test";
 import { MenuBar } from "../../src/frontend/components/MenuBar.tsx";
 import { Toolbar } from "../../src/frontend/components/Toolbar.tsx";
 import { isTextInputTarget } from "../../src/frontend/lib/keybindings.ts";
-import { type EditorState, initialState } from "../../src/frontend/lib/state.ts";
+import {
+	type EditorState,
+	initialState,
+} from "../../src/frontend/lib/state.ts";
+import { cleanup, fireEvent, render, screen } from "../inspector/_harness.tsx";
 
 afterEach(cleanup);
 
 const st = (over: Partial<EditorState> = {}): EditorState => ({
-  ...initialState,
-  status: "ready",
-  selectedScene: "a.scene.json",
-  revision: 0,
-  ...over,
+	...initialState,
+	status: "ready",
+	selectedScene: "a.scene.json",
+	revision: 0,
+	...over,
 });
 
+// biome-ignore lint/suspicious/noEmptyBlockStatements: inert test no-op
 const noop = () => {};
 const VIEW_FLAGS = { grid: true, axes: true, headlamp: true, fog: false };
 const menuBarProps = {
-  onSave: noop,
-  onUndo: noop,
-  onRedo: noop,
-  onDelete: noop,
-  openPanelIds: ["entities", "viewport", "inspect", "generation"],
-  onTogglePanel: noop,
-  onResetLayout: noop,
-  recentScenes: [] as string[],
-  onSelectScene: noop,
-  viewFlags: VIEW_FLAGS,
-  onToggleViewFlag: noop,
+	onSave: noop,
+	onUndo: noop,
+	onRedo: noop,
+	onDelete: noop,
+	openPanelIds: ["entities", "viewport", "inspect", "generation"],
+	onTogglePanel: noop,
+	onResetLayout: noop,
+	recentScenes: [] as string[],
+	onSelectScene: noop,
+	viewFlags: VIEW_FLAGS,
+	onToggleViewFlag: noop,
 };
 
 function openMenu(label: string) {
-  const trigger = screen.getByText(label);
-  fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false });
-  fireEvent.click(trigger);
+	const trigger = screen.getByText(label);
+	fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false });
+	fireEvent.click(trigger);
 }
 
 const menuItem = (name: RegExp): HTMLElement =>
-  screen.getByRole("menuitem", { name });
+	screen.getByRole("menuitem", { name });
 
 // --- isTextInputTarget (needs a real HTMLElement) ---
 
 test("isTextInputTarget recognises inputs, textareas and contentEditable", () => {
-  const input = document.createElement("input");
-  const textarea = document.createElement("textarea");
-  const div = document.createElement("div");
-  const editable = document.createElement("div");
-  editable.contentEditable = "true";
-  expect(isTextInputTarget(input)).toBe(true);
-  expect(isTextInputTarget(textarea)).toBe(true);
-  expect(isTextInputTarget(editable)).toBe(true);
-  expect(isTextInputTarget(div)).toBe(false);
-  expect(isTextInputTarget(null)).toBe(false);
+	const input = document.createElement("input");
+	const textarea = document.createElement("textarea");
+	const div = document.createElement("div");
+	const editable = document.createElement("div");
+	editable.contentEditable = "true";
+	expect(isTextInputTarget(input)).toBe(true);
+	expect(isTextInputTarget(textarea)).toBe(true);
+	expect(isTextInputTarget(editable)).toBe(true);
+	expect(isTextInputTarget(div)).toBe(false);
+	expect(isTextInputTarget(null)).toBe(false);
 });
 
 // --- MenuBar enable/disable ---
 
 test("MenuBar renders the File/Edit/View/Help menus", () => {
-  render(<MenuBar state={st()} {...menuBarProps} />);
-  expect(screen.getByText("File")).toBeTruthy();
-  expect(screen.getByText("Edit")).toBeTruthy();
-  expect(screen.getByText("View")).toBeTruthy();
-  expect(screen.getByText("Help")).toBeTruthy();
+	render(<MenuBar state={st()} {...menuBarProps} />);
+	expect(screen.getByText("File")).toBeTruthy();
+	expect(screen.getByText("Edit")).toBeTruthy();
+	expect(screen.getByText("View")).toBeTruthy();
+	expect(screen.getByText("Help")).toBeTruthy();
 });
 
 test("Edit▸Undo/Redo are disabled when the session cannot undo/redo", () => {
-  render(<MenuBar state={st({ canUndo: false, canRedo: false })} {...menuBarProps} />);
-  openMenu("Edit");
-  expect(menuItem(/Undo/).hasAttribute("data-disabled")).toBe(true);
-  expect(menuItem(/Redo/).hasAttribute("data-disabled")).toBe(true);
+	render(
+		<MenuBar
+			state={st({ canUndo: false, canRedo: false })}
+			{...menuBarProps}
+		/>,
+	);
+	openMenu("Edit");
+	expect(menuItem(/Undo/).hasAttribute("data-disabled")).toBe(true);
+	expect(menuItem(/Redo/).hasAttribute("data-disabled")).toBe(true);
 });
 
 test("Edit▸Undo enabled fires onUndo on select", () => {
-  const onUndo = mock(noop);
-  render(<MenuBar state={st({ canUndo: true })} {...menuBarProps} onUndo={onUndo} />);
-  openMenu("Edit");
-  const undo = menuItem(/Undo/);
-  expect(undo.hasAttribute("data-disabled")).toBe(false);
-  fireEvent.click(undo);
-  expect(onUndo).toHaveBeenCalledTimes(1);
+	const onUndo = mock(noop);
+	render(
+		<MenuBar state={st({ canUndo: true })} {...menuBarProps} onUndo={onUndo} />,
+	);
+	openMenu("Edit");
+	const undo = menuItem(/Undo/);
+	expect(undo.hasAttribute("data-disabled")).toBe(false);
+	fireEvent.click(undo);
+	expect(onUndo).toHaveBeenCalledTimes(1);
 });
 
 test("Edit▸Delete is disabled when nothing is selected", () => {
-  render(<MenuBar state={st({ selectedEntities: [] })} {...menuBarProps} />);
-  openMenu("Edit");
-  expect(menuItem(/Delete/).hasAttribute("data-disabled")).toBe(true);
+	render(<MenuBar state={st({ selectedEntities: [] })} {...menuBarProps} />);
+	openMenu("Edit");
+	expect(menuItem(/Delete/).hasAttribute("data-disabled")).toBe(true);
 });
 
 test("File▸Save is disabled when the document is not dirty", () => {
-  render(<MenuBar state={st({ dirty: false })} {...menuBarProps} />);
-  openMenu("File");
-  expect(menuItem(/Save/).hasAttribute("data-disabled")).toBe(true);
+	render(<MenuBar state={st({ dirty: false })} {...menuBarProps} />);
+	openMenu("File");
+	expect(menuItem(/Save/).hasAttribute("data-disabled")).toBe(true);
 });
 
 // --- Task 6: View▸Reset layout + File▸Recent (trigger-level; submenu open is browser-gated) ---
 
 test("View▸Reset layout fires onResetLayout", () => {
-  const onResetLayout = mock(noop);
-  render(<MenuBar state={st()} {...menuBarProps} onResetLayout={onResetLayout} />);
-  openMenu("View");
-  const reset = menuItem(/Reset layout/);
-  expect(reset.hasAttribute("data-disabled")).toBe(false);
-  fireEvent.click(reset);
-  expect(onResetLayout).toHaveBeenCalledTimes(1);
+	const onResetLayout = mock(noop);
+	render(
+		<MenuBar state={st()} {...menuBarProps} onResetLayout={onResetLayout} />,
+	);
+	openMenu("View");
+	const reset = menuItem(/Reset layout/);
+	expect(reset.hasAttribute("data-disabled")).toBe(false);
+	fireEvent.click(reset);
+	expect(onResetLayout).toHaveBeenCalledTimes(1);
 });
 
 test("File▸Recent is disabled with no recent scenes, enabled with some", () => {
-  const { rerender } = render(<MenuBar state={st()} {...menuBarProps} />);
-  openMenu("File");
-  expect(menuItem(/Recent/).hasAttribute("data-disabled")).toBe(true);
-  rerender(
-    <MenuBar
-      state={st()}
-      {...menuBarProps}
-      recentScenes={["scenes/a.scene.json"]}
-    />,
-  );
-  expect(menuItem(/Recent/).hasAttribute("data-disabled")).toBe(false);
+	const { rerender } = render(<MenuBar state={st()} {...menuBarProps} />);
+	openMenu("File");
+	expect(menuItem(/Recent/).hasAttribute("data-disabled")).toBe(true);
+	rerender(
+		<MenuBar
+			state={st()}
+			{...menuBarProps}
+			recentScenes={["scenes/a.scene.json"]}
+		/>,
+	);
+	expect(menuItem(/Recent/).hasAttribute("data-disabled")).toBe(false);
 });
 
 // --- Toolbar cluster (always-in-DOM, no overlay) ---
 
 function renderToolbar(state: EditorState, onSave = noop) {
-  render(
-    <Toolbar
-      state={state}
-      onSelectScene={noop}
-      onSave={onSave}
-      onUndo={noop}
-      onRedo={noop}
-      onDelete={noop}
-      openPanelIds={["entities", "viewport", "inspect", "generation"]}
-      onTogglePanel={noop}
-      onResetLayout={noop}
-      recentScenes={[]}
-      viewFlags={VIEW_FLAGS}
-      onToggleViewFlag={noop}
-    />,
-  );
+	render(
+		<Toolbar
+			state={state}
+			onSelectScene={noop}
+			onSave={onSave}
+			onUndo={noop}
+			onRedo={noop}
+			onDelete={noop}
+			openPanelIds={["entities", "viewport", "inspect", "generation"]}
+			onTogglePanel={noop}
+			onResetLayout={noop}
+			recentScenes={[]}
+			viewFlags={VIEW_FLAGS}
+			onToggleViewFlag={noop}
+		/>,
+	);
 }
 
 test("toolbar Save/Undo/Redo buttons reflect session availability", () => {
-  renderToolbar(st({ dirty: false, canUndo: true, canRedo: false }));
-  const save = screen.getByRole("button", { name: "Save" }) as HTMLButtonElement;
-  const undo = screen.getByRole("button", { name: "Undo" }) as HTMLButtonElement;
-  const redo = screen.getByRole("button", { name: "Redo" }) as HTMLButtonElement;
-  expect(save.disabled).toBe(true); // not dirty → save disabled
-  expect(undo.disabled).toBe(false); // canUndo → enabled
-  expect(redo.disabled).toBe(true); // !canRedo → disabled
+	renderToolbar(st({ dirty: false, canUndo: true, canRedo: false }));
+	const save = screen.getByRole("button", {
+		name: "Save",
+	}) as HTMLButtonElement;
+	const undo = screen.getByRole("button", {
+		name: "Undo",
+	}) as HTMLButtonElement;
+	const redo = screen.getByRole("button", {
+		name: "Redo",
+	}) as HTMLButtonElement;
+	expect(save.disabled).toBe(true); // not dirty → save disabled
+	expect(undo.disabled).toBe(false); // canUndo → enabled
+	expect(redo.disabled).toBe(true); // !canRedo → disabled
 });
 
 test("toolbar Save button fires onSave when dirty", () => {
-  const onSave = mock(noop);
-  renderToolbar(st({ dirty: true }), onSave);
-  fireEvent.click(screen.getByRole("button", { name: "Save" }));
-  expect(onSave).toHaveBeenCalledTimes(1);
+	const onSave = mock(noop);
+	renderToolbar(st({ dirty: true }), onSave);
+	fireEvent.click(screen.getByRole("button", { name: "Save" }));
+	expect(onSave).toHaveBeenCalledTimes(1);
 });

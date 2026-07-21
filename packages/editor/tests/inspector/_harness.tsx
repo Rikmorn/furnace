@@ -18,104 +18,110 @@ import "./_register.ts";
 
 import type { ReactElement } from "react";
 import {
-  EditorContext,
-  type EditorActions,
-  type EditorContextValue,
-  type GenerationControl,
+	type EditorActions,
+	EditorContext,
+	type EditorContextValue,
+	type GenerationControl,
 } from "../../src/frontend/components/editor-context.ts";
-import { GenerationWorkerClient } from "../../src/frontend/lib/generation-client.ts";
 import { initialWorldSession } from "../../src/frontend/lib/generation.ts";
-import { DEFAULT_VIEW_FLAGS, type UiStore } from "../../src/frontend/lib/persist.ts";
-import { initialState, type EditorState } from "../../src/frontend/lib/state.ts";
+import { GenerationWorkerClient } from "../../src/frontend/lib/generation-client.ts";
+import {
+	DEFAULT_VIEW_FLAGS,
+	type UiStore,
+} from "../../src/frontend/lib/persist.ts";
+import {
+	type EditorState,
+	initialState,
+} from "../../src/frontend/lib/state.ts";
 
-const {
-  render,
-  screen,
-  fireEvent,
-  cleanup,
-  within,
-  waitFor,
-  act,
-} = await import("@testing-library/react");
+const { render, screen, fireEvent, cleanup, within, waitFor, act } =
+	await import("@testing-library/react");
 
-export { render, screen, fireEvent, cleanup, within, waitFor, act };
+export { act, cleanup, fireEvent, render, screen, waitFor, within };
+
+// biome-ignore lint/suspicious/noEmptyBlockStatements: shared inert test no-op
+const noop = () => {};
+// biome-ignore lint/suspicious/noEmptyBlockStatements: shared inert async test no-op
+const asyncNoop = async () => {};
 
 type EditorContextOverrides = {
-  state?: Partial<EditorState>;
-  dispatch?: EditorContextValue["dispatch"];
-  hostRef?: EditorContextValue["hostRef"];
-  previewHostRef?: EditorContextValue["previewHostRef"];
-  fieldHostRef?: EditorContextValue["fieldHostRef"];
-  extensions?: Record<string, unknown>;
-  actions?: Partial<EditorActions>;
-  generation?: Partial<GenerationControl>;
-  store?: UiStore;
+	state?: Partial<EditorState>;
+	dispatch?: EditorContextValue["dispatch"];
+	hostRef?: EditorContextValue["hostRef"];
+	previewHostRef?: EditorContextValue["previewHostRef"];
+	fieldHostRef?: EditorContextValue["fieldHostRef"];
+	extensions?: Record<string, unknown>;
+	actions?: Partial<EditorActions>;
+	generation?: Partial<GenerationControl>;
+	store?: UiStore;
 };
 
 /** A Map-backed fake UiStore for tests: reads/writes an in-memory record so a test can
  *  seed persisted UI state and assert what the inspector wrote back. */
 export function fakeUiStore(initial: Record<string, unknown> = {}): UiStore {
-  const data: Record<string, unknown> = { ...initial };
-  return {
-    // Boundary cast: the fake is a permissive Map over the UiState keys; tests only
-    // exercise a subset, so we widen get/set to the generic contract here.
-    get: ((key: string) => data[key]) as UiStore["get"],
-    set: ((key: string, value: unknown) => {
-      data[key] = value;
-    }) as UiStore["set"],
-  };
+	const data: Record<string, unknown> = { ...initial };
+	return {
+		// Boundary cast: the fake is a permissive Map over the UiState keys; tests only
+		// exercise a subset, so we widen get/set to the generic contract here.
+		get: ((key: string) => data[key]) as UiStore["get"],
+		set: ((key: string, value: unknown) => {
+			data[key] = value;
+		}) as UiStore["set"],
+	};
 }
 
 /** Build a mock EditorContextValue with no-op defaults; override any slice. */
 export function makeEditorContext(
-  overrides: EditorContextOverrides = {},
+	overrides: EditorContextOverrides = {},
 ): EditorContextValue {
-  const actions: EditorActions = {
-    previewEntity: () => {},
-    previewSettings: () => {},
-    revertEntity: () => {},
-    commitComponents: async () => {},
-    commitResource: async () => {},
-    commitSettings: async () => {},
-    save: async () => {},
-    undo: async () => {},
-    redo: async () => {},
-    deleteSelection: async () => {},
-    frameSelection: () => {},
-    ...overrides.actions,
-  };
-  const generation: GenerationControl = {
-    session: initialWorldSession(),
-    setSession: () => {},
-    // A real client over an inert fake Worker — spawn is lazy (only on run/bake),
-    // so inspector tests that never generate never touch it.
-    client: new GenerationWorkerClient(() => ({
-      postMessage: () => {},
-      terminate: () => {},
-      onmessage: null,
-      onerror: null,
-    })),
-    ...overrides.generation,
-  };
-  return {
-    state: { ...initialState, status: "ready", ...overrides.state },
-    dispatch: overrides.dispatch ?? (() => {}),
-    hostRef: overrides.hostRef ?? { current: undefined },
-    previewHostRef: overrides.previewHostRef ?? { current: undefined },
-    fieldHostRef: overrides.fieldHostRef ?? { current: undefined },
-    extensions: overrides.extensions ?? {},
-    actions,
-    generation,
-    viewFlags: DEFAULT_VIEW_FLAGS,
-    setViewFlag: () => {},
-    store: overrides.store,
-  };
+	const actions: EditorActions = {
+		previewEntity: noop,
+		previewSettings: noop,
+		revertEntity: noop,
+		commitComponents: asyncNoop,
+		commitResource: asyncNoop,
+		commitSettings: asyncNoop,
+		save: asyncNoop,
+		undo: asyncNoop,
+		redo: asyncNoop,
+		deleteSelection: asyncNoop,
+		frameSelection: noop,
+		...overrides.actions,
+	};
+	const generation: GenerationControl = {
+		session: initialWorldSession(),
+		setSession: noop,
+		// A real client over an inert fake Worker — spawn is lazy (only on run/bake),
+		// so inspector tests that never generate never touch it.
+		client: new GenerationWorkerClient(() => ({
+			postMessage: noop,
+			terminate: noop,
+			onmessage: null,
+			onerror: null,
+		})),
+		...overrides.generation,
+	};
+	return {
+		state: { ...initialState, status: "ready", ...overrides.state },
+		dispatch: overrides.dispatch ?? noop,
+		hostRef: overrides.hostRef ?? { current: undefined },
+		previewHostRef: overrides.previewHostRef ?? { current: undefined },
+		fieldHostRef: overrides.fieldHostRef ?? { current: undefined },
+		extensions: overrides.extensions ?? {},
+		actions,
+		generation,
+		viewFlags: DEFAULT_VIEW_FLAGS,
+		setViewFlag: noop,
+		store: overrides.store,
+	};
 }
 
 /** Render `ui` inside a mock EditorContext.Provider (for panels that read the context). */
 export function renderWithEditor(
-  ui: ReactElement,
-  ctx: EditorContextValue,
+	ui: ReactElement,
+	ctx: EditorContextValue,
 ): ReturnType<typeof render> {
-  return render(<EditorContext.Provider value={ctx}>{ui}</EditorContext.Provider>);
+	return render(
+		<EditorContext.Provider value={ctx}>{ui}</EditorContext.Provider>,
+	);
 }
