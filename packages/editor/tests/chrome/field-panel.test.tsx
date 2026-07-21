@@ -140,6 +140,7 @@ function makeStubHost(opts: { generators?: FieldGeneratorInfo[] } = {}) {
 		highlightEntity: mock(),
 		startStamp: mock(),
 		updateStamp: mock(),
+		nudgeStamp: mock(),
 		rerollStamp: mock(),
 		commitStamp: mock(),
 		cancelStamp: mock(),
@@ -183,6 +184,7 @@ function makeStubHost(opts: { generators?: FieldGeneratorInfo[] } = {}) {
 		listGenerators: () => opts.generators ?? [],
 		startStamp: calls.startStamp,
 		updateStamp: calls.updateStamp,
+		nudgeStamp: calls.nudgeStamp,
 		rerollStamp: calls.rerollStamp,
 		commitStamp: calls.commitStamp,
 		cancelStamp: calls.cancelStamp,
@@ -372,6 +374,36 @@ test("Commit is disabled until the stamp session reaches ready", async () => {
 	expect(button("Commit").disabled).toBe(false);
 	fireEvent.click(button("Commit"));
 	expect(stub.calls.commitStamp).toHaveBeenCalledTimes(1);
+});
+
+test("the stamp nudge buttons drive host.nudgeStamp in whole lattice STEPS", async () => {
+	fetch404();
+	const stub = makeStubHost({ generators: [HALL_GEN] });
+	await renderPanel(stub);
+	act(() => {
+		stub.fire.stamp(makeSession());
+	});
+	// World axes, one step per press — the button twins of ←/→, ⇧↓/⇧↑, ↑/↓.
+	const pressed: [string, [number, number, number]][] = [
+		["nudge minus X", [-1, 0, 0]],
+		["nudge plus X", [1, 0, 0]],
+		["nudge minus Y", [0, -1, 0]],
+		["nudge plus Y", [0, 1, 0]],
+		["nudge minus Z", [0, 0, -1]],
+		["nudge plus Z", [0, 0, 1]],
+	];
+	for (const [label] of pressed) fireEvent.click(screen.getByLabelText(label));
+	expect(stub.calls.nudgeStamp.mock.calls).toEqual(pressed.map(([, s]) => s));
+	// The hint line names the keyboard twins (the canvas must be focused for
+	// them to land, so the buttons are not redundant).
+	expect(screen.getByText(/←\/→ move X/)).toBeTruthy();
+});
+
+test("no stamp session means no nudge cluster", async () => {
+	fetch404();
+	const stub = makeStubHost({ generators: [HALL_GEN] });
+	await renderPanel(stub);
+	expect(screen.queryByLabelText("nudge plus X")).toBeNull();
 });
 
 // --- (g) slice wiring -------------------------------------------------------

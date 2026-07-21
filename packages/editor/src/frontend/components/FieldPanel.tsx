@@ -1,12 +1,13 @@
 // The Field panel (F1/F2b): the dig-loop chrome. It mounts a <canvas> the
 // App-owned FieldHost renders into (LMB applies the tool or a selection
-// gesture, RMB looks, WASD/QE flies, wheel/[ ] size the brush, ⌘Z undoes) and
-// exposes the tool palette (brush effects, selection gestures, stamp
-// generators) + the persistent material swatches + the brush inspector
-// (radius/mask/smooth/hollow) + shading. The persistence concern — world
-// name, Save / Load / Bake-as-default, and the run-once catalog fetch that
-// gates Load — lives in FieldToolbar (extracted, F2b sweep); the panel keeps
-// the table (swatches) and the status line the toolbar reports into.
+// gesture, RMB looks, WASD/QE flies, wheel/[ ] size the brush, ⌘Z undoes, and
+// the arrows nudge a pending stamp's region) and exposes the tool palette
+// (brush effects, selection gestures, stamp generators) + the persistent
+// material swatches + the brush inspector (radius/mask/smooth/hollow) +
+// shading. The persistence concern — world name, Save / Load / Bake-as-default,
+// and the run-once catalog fetch that gates Load — lives in FieldToolbar
+// (extracted, F2b sweep); the panel keeps the table (swatches) and the status
+// line the toolbar reports into.
 // The host is created ONCE at engine-ready (App) and reached ONLY through the
 // /engine.js runtime channel (a context ref) — the chrome never value-imports
 // engine code (the project-first invariant). This file type-imports the field
@@ -429,6 +430,9 @@ export function FieldPanel() {
 							def={stampDef}
 							onUpdate={(params, seed, policy) =>
 								fieldHostRef.current?.updateStamp(params, seed, policy)
+							}
+							onNudge={(dx, dy, dz) =>
+								fieldHostRef.current?.nudgeStamp(dx, dy, dz)
 							}
 							onReroll={() => fieldHostRef.current?.rerollStamp()}
 							onCommit={() => fieldHostRef.current?.commitStamp()}

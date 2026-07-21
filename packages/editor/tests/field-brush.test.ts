@@ -6,6 +6,7 @@ import {
 } from "@furnace/core/field";
 import {
   computeBrushCenter,
+  nudgeRegion,
   regionSampleCount,
   snappedKitBox,
   snapSpan,
@@ -55,6 +56,64 @@ test("snapSpan snaps OUTWARD to the 0.5 lattice in either endpoint order", () =>
 test("a degenerate span (one lattice plane) widens to one lattice step", () => {
   expect(snapSpan(1.5, 1.5)).toEqual([1.5, 2]);
   expect(snapSpan(1.6, 1.9)).toEqual([1.5, 2]); // both inside one cell
+});
+
+test("nudgeRegion translates BOTH corners one lattice step per unit", () => {
+  const region = {
+    min: [1, 0.5, -2] as [number, number, number],
+    max: [3, 2, -0.5] as [number, number, number],
+  };
+  expect(nudgeRegion(region, [1, 0, 0])).toEqual({
+    min: [1.5, 0.5, -2],
+    max: [3.5, 2, -0.5],
+  });
+  expect(nudgeRegion(region, [0, -1, 0])).toEqual({
+    min: [1, 0, -2],
+    max: [3, 1.5, -0.5],
+  });
+  expect(nudgeRegion(region, [0, 0, 2])).toEqual({
+    min: [1, 0.5, -1],
+    max: [3, 2, 0.5],
+  });
+  // The input is never mutated — the host swaps the returned region in.
+  expect(region).toEqual({ min: [1, 0.5, -2], max: [3, 2, -0.5] });
+});
+
+test("nudgeRegion preserves the region's SIZE, whatever the steps", () => {
+  const region = {
+    min: [0, 0, 0] as [number, number, number],
+    max: [4, 2.5, 6] as [number, number, number],
+  };
+  const size = (r: {
+    min: [number, number, number];
+    max: [number, number, number];
+  }) => [r.max[0] - r.min[0], r.max[1] - r.min[1], r.max[2] - r.min[2]];
+  expect(size(nudgeRegion(region, [-3, 5, -7]))).toEqual(size(region));
+});
+
+test("nudgeRegion keeps a lattice-snapped region ON the lattice", () => {
+  // 0.5 is exactly representable, so repeated ±n·0.5 never drifts off-grid —
+  // generators anchor at min, so an off-lattice corner would break kit determinism.
+  let region = {
+    min: [-0.5, 0, 1.5] as [number, number, number],
+    max: [2, 1.5, 4] as [number, number, number],
+  };
+  for (let i = 0; i < 40; i++) region = nudgeRegion(region, [1, -1, 3]);
+  expect(region.min).toEqual([19.5, -20, 61.5]);
+  expect(region.max).toEqual([22, -18.5, 64]);
+  for (const v of [...region.min, ...region.max])
+    expect(v / 0.5).toBe(Math.round(v / 0.5));
+});
+
+test("nudgeRegion rounds fractional steps — the lattice invariant is the point", () => {
+  const region = {
+    min: [0, 0, 0] as [number, number, number],
+    max: [1, 1, 1] as [number, number, number],
+  };
+  expect(nudgeRegion(region, [0.4, 0.6, -1.4])).toEqual({
+    min: [0, 0.5, -0.5],
+    max: [1, 1.5, 0.5],
+  });
 });
 
 test("regionSampleCount matches brute-force selectionHas over a small store", () => {

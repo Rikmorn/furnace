@@ -2,8 +2,8 @@
 // arithmetic on plain tuples so it unit-tests without a GPU. The host owns the
 // raycast + the eye-in-rock probe (they need the field + camera); this module
 // turns those inputs into a brush centre, snaps a kit-fill box to the lattice,
-// and owns the shared 0.5 m region snap (box-select spans, stamp regions) +
-// the region sample count.
+// and owns the shared 0.5 m region snap (box-select spans, stamp regions), the
+// lattice-step region nudge, and the region sample count.
 
 /** How far a surface hit bites INTO the rock, as a fraction of the brush radius:
  *  the centre sits `BITE_FACTOR·radius` past the hit along the ray, so the sphere
@@ -78,6 +78,44 @@ export function snapSpan(a: number, b: number): [number, number] {
   let hi = Math.ceil(Math.max(a, b) / LATTICE) * LATTICE;
   if (hi === lo) hi = lo + LATTICE;
   return [lo, hi];
+}
+
+/** A region AABB in world metres — the shape {@link snapSpan} builds and
+ *  {@link nudgeRegion} moves (structurally the stamp session's `StampRegion`,
+ *  spelled locally so this module keeps its zero imports). */
+export type RegionBox = {
+  min: [number, number, number];
+  max: [number, number, number];
+};
+
+/**
+ * Translate a region AABB by whole 0.5 m lattice steps — the stamp's nudge
+ * (arrow keys / the inspector's buttons). BOTH corners move, so the region
+ * keeps its size and stays on the lattice {@link snapSpan} put it on:
+ * generators anchor at `min`, and an off-lattice anchor forfeits the built-kit
+ * determinism the snap buys. Steps are rounded to whole numbers for the same
+ * reason — the lattice invariant is the point, not the caller's arithmetic.
+ *
+ * Exactness: 0.5 is representable, so an already-snapped corner plus `n·0.5`
+ * is exact for every magnitude a world reaches.
+ *
+ * @param region - The region to move, in metres (not mutated).
+ * @param steps - Whole lattice steps per WORLD axis `[x, y, z]`; negative moves toward −axis.
+ * @returns A new region translated by `steps · 0.5 m`.
+ */
+export function nudgeRegion(
+  region: RegionBox,
+  steps: [number, number, number],
+): RegionBox {
+  const d: [number, number, number] = [
+    Math.round(steps[0]) * LATTICE,
+    Math.round(steps[1]) * LATTICE,
+    Math.round(steps[2]) * LATTICE,
+  ];
+  return {
+    min: [region.min[0] + d[0], region.min[1] + d[1], region.min[2] + d[2]],
+    max: [region.max[0] + d[0], region.max[1] + d[1], region.max[2] + d[2]],
+  };
 }
 
 /**

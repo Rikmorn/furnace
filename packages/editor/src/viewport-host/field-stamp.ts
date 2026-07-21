@@ -85,6 +85,22 @@ export function withParams(
   };
 }
 
+/** A region change (the placement nudge): the SAME supersession semantics as
+ *  {@link withParams} — back to `configuring`, run bumped (any in-flight
+ *  preview is invalidated), last preview outcome cleared. The region is stored
+ *  as given; the caller owns the aliasing (the host's nudge builds a fresh
+ *  region per press, so nothing is shared). */
+export function withRegion(s: StampSession, region: StampRegion): StampSession {
+  return {
+    ...s,
+    region,
+    phase: "configuring",
+    run: s.run + 1,
+    opCount: null,
+    error: null,
+  };
+}
+
 /** Marks a preview in flight for the session's CURRENT run. */
 export function toPreviewing(s: StampSession): StampSession {
   return { ...s, phase: "previewing" };

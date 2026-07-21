@@ -17,6 +17,7 @@ import * as shader from "@furnace/core/shader";
 import { vec4 } from "@furnace/core/transform";
 import {
   computeBrushCenter,
+  nudgeRegion,
   regionSampleCount,
   snappedKitBox,
   snapSpan,
@@ -40,6 +41,7 @@ import {
   withParams,
   withPreviewError,
   withPreviewResult,
+  withRegion,
 } from "./field-stamp.ts";
 import { buildGridLines, segmentsToBatch } from "./reference-grid.ts";
 
@@ -243,6 +245,20 @@ export type FieldHost = {
     seed: number,
     policy: field.MergePolicy,
   ): void;
+  /** Moves the live session's placement region and re-previews. Arguments are
+   *  whole LATTICE STEPS, not metres — one step is 0.5 m — applied on WORLD
+   *  axes (+Y is up), never on camera axes. Both corners translate, so the
+   *  region keeps its size and stays on the lattice the selection snap put it
+   *  on.
+   *
+   *  Camera-relative mapping is deliberately NOT v0: world axes stay
+   *  predictable whatever the fly camera is doing and match the region numbers
+   *  everything else in the field surfaces. The viewport binds ←/→ to ∓X,
+   *  ↑/↓ to ∓Z and ⇧↑/⇧↓ to ±Y; the inspector's buttons call the same seam.
+   *
+   *  Supersedes any in-flight preview (its response is dropped — the run
+   *  bumps like a params change). No-op without a session. */
+  nudgeStamp(dx: number, dy: number, dz: number): void;
   /** Re-previews the live session under a fresh random seed (params/policy
    *  unchanged). No-op without a session. */
   rerollStamp(): void;
@@ -312,6 +328,18 @@ const LOOK_SPEED = 0.005; // rad per pixel of RMB drag
 const RADIUS_MIN = 0.25;
 const RADIUS_MAX = 4;
 const RADIUS_WHEEL_STEP = 0.1;
+
+// Arrow-key stamp nudge, in whole lattice steps on WORLD axes: ←/→ = ∓X,
+// ↑/↓ = ∓Z, and with Shift held ↑/↓ become ±Y (a four-key pad has no third
+// pair, so the vertical axis rides the modifier). Left/right ignore Shift —
+// there is no second horizontal axis to promote them to. Keys are the
+// lowercased `KeyboardEvent.key` the handler already computes.
+const ARROW_NUDGE: Record<string, { plain: Vec3T; shift: Vec3T }> = {
+  arrowleft: { plain: [-1, 0, 0], shift: [-1, 0, 0] },
+  arrowright: { plain: [1, 0, 0], shift: [1, 0, 0] },
+  arrowup: { plain: [0, 0, -1], shift: [0, 1, 0] },
+  arrowdown: { plain: [0, 0, 1], shift: [0, -1, 0] },
+};
 
 const CLEAR = vec4.fromValues(0.03, 0.03, 0.045, 1);
 const HEADLAMP_COLOR: Vec3T = [1, 0.95, 0.85];
@@ -1595,6 +1623,17 @@ export function createFieldHost(): FieldHost {
     notifyStamp();
   };
 
+  // Move the session's placement region by whole lattice steps and re-preview
+  // — the ONE path behind both the arrow keys and the inspector's buttons.
+  // Region changes supersede like params changes (withRegion bumps the run),
+  // so an in-flight ghost for the old placement is dropped on arrival, and
+  // sendPreviewJob re-snapshots chunks off the NEW region by itself.
+  const nudgeStampRegion = (steps: Vec3T): void => {
+    if (stamp === null) return;
+    stamp = withRegion(stamp, nudgeRegion(stamp.region, steps));
+    previewStamp();
+  };
+
   const cancelStampSession = (): void => {
     if (stamp === null) return;
     stamp = null;
@@ -1754,12 +1793,11 @@ export function createFieldHost(): FieldHost {
       if (layers.kit && cm.kit) instanced.push(cm.kit);
     }
     // Filled kit ghost (the fill-tool-solid-volume-surprise fix): pose the ONE
-    // translucent unit cube at the snapped box and draw it LAST in the mesh
-    // list so it blends over the already-drawn opaque field (no depth write).
+    // translucent unit cube at the snapped box and push it into the mesh list.
     // When there is no kit-fill ghost this frame the mesh is simply not drawn.
-    // Known limit: frame.render records `instanced` AFTER `meshes`, so nearby
-    // kit pieces overdraw the hologram (it doesn't write depth) — the box edge
-    // lines still outline the volume there; accepted v0 artifact.
+    // Its position in this list no longer decides compositing: frame.render
+    // records every BLENDED draw after every opaque one, so the hologram (no
+    // depth write) survives the opaque field AND the instanced kit pieces.
     // Two independent ghost gates: the LAYER flag is user intent; the
     // selection-mode suppression is mode coherence — while a selection mode is
     // armed LMB doesn't stroke, so a brush preview would promise an action
@@ -1960,6 +1998,28 @@ export function createFieldHost(): FieldHost {
         e.preventDefault();
         if (k === "escape") cancelStampSession();
         else commitStampSession(); // ready-phase only — else a no-op
+      }
+      return;
+    }
+    // Arrow keys nudge the STAMP REGION one 0.5 m lattice step on WORLD axes
+    // (see ARROW_NUDGE). Sits between Enter/Esc and every fallthrough for the
+    // same reason they do — it is session-scoped, and neither the fly set nor
+    // [ / ] claims an arrow. Without a session the branch declines exactly as
+    // Enter/Esc does: no preventDefault, so the browser keeps its own arrow
+    // behaviour (scroll/caret) on a canvas that isn't running a placement.
+    // Key REPEAT is the hold-to-nudge behaviour ([ / ] precedent); each repeat
+    // supersedes the last, and the preview coalescer collapses the burst into
+    // one in-flight job plus at most one trailing re-fire.
+    // Chord-guarded: ⌘←/⌘→ are the browser's back/forward and ⌘↑/⌘↓ are
+    // document home/end — never intercept those (the [ / ] precedent).
+    // Shift note: ⇧ ALSO arrives as its own "shift" keydown, which engages
+    // momentary smooth below. That only changes what LMB does and restores on
+    // release, so a ⇧-arrow vertical nudge is unaffected by it.
+    const arrow = ARROW_NUDGE[k];
+    if (arrow !== undefined && !e.metaKey && !e.ctrlKey) {
+      if (stamp !== null) {
+        e.preventDefault();
+        nudgeStampRegion(e.shiftKey ? arrow.shift : arrow.plain);
       }
       return;
     }
@@ -2309,6 +2369,9 @@ export function createFieldHost(): FieldHost {
       // Clone at the boundary — session params must never alias panel state.
       stamp = withParams(stamp, structuredClone(params), seed, policy);
       previewStamp();
+    },
+    nudgeStamp(dx, dy, dz) {
+      nudgeStampRegion([dx, dy, dz]); // no-ops without a session
     },
     rerollStamp() {
       if (stamp === null) return;

@@ -35,6 +35,37 @@ const PHASE_LABEL: Record<StampSession["phase"], string> = {
 	ready: "ready",
 };
 
+/** Whole lattice steps per WORLD axis — what host.nudgeStamp takes (STEPS, not
+ *  metres; one step is 0.5 m). */
+type NudgeSteps = [number, number, number];
+
+// The placement nudges as axis PAIRS, so the cluster reads as three axes
+// rather than six loose buttons. World axes, matching the viewport's arrow
+// keys — camera-relative nudging is deliberately not v0.
+const NUDGE_AXES: {
+	axis: string;
+	minus: { steps: NudgeSteps; key: string };
+	plus: { steps: NudgeSteps; key: string };
+}[] = [
+	{
+		axis: "X",
+		minus: { steps: [-1, 0, 0], key: "←" },
+		plus: { steps: [1, 0, 0], key: "→" },
+	},
+	{
+		axis: "Y",
+		minus: { steps: [0, -1, 0], key: "⇧↓" },
+		plus: { steps: [0, 1, 0], key: "⇧↑" },
+	},
+	{
+		axis: "Z",
+		minus: { steps: [0, 0, -1], key: "↑" },
+		plus: { steps: [0, 0, 1], key: "↓" },
+	},
+];
+
+const NUDGE_BUTTON_CLASS = "h-6 px-2 font-mono";
+
 export function StampInspector(props: {
 	session: StampSession;
 	/** The session generator's registry info — its paramSchema feeds the form. */
@@ -44,11 +75,14 @@ export function StampInspector(props: {
 		seed: number,
 		policy: MergePolicy,
 	) => void;
+	/** Move the pending region by whole lattice steps on world axes (0.5 m per
+	 *  step) — the button twin of the viewport's arrow keys. */
+	onNudge: (dx: number, dy: number, dz: number) => void;
 	onReroll: () => void;
 	onCommit: () => void;
 	onCancel: () => void;
 }) {
-	const { session, def, onUpdate } = props;
+	const { session, def, onUpdate, onNudge } = props;
 	const apply = (next: unknown[]): void =>
 		// Boundary cast: SchemaForm emits unknown[] drafts; draft 0 is this
 		// session's params record (values={[session.params]}).
@@ -135,6 +169,42 @@ export function StampInspector(props: {
 					</select>
 				</label>
 			</div>
+			{/* Placement: the region moves, the params don't — one 0.5 m lattice
+			    step per press, both corners, so the size never changes. The
+			    viewport's arrow keys are the same seam; the hint below names them
+			    because the canvas has to be focused for them to land. */}
+			<div className="flex flex-wrap items-center gap-3">
+				<span className={LABEL_CLASS}>nudge</span>
+				{NUDGE_AXES.map(({ axis, minus, plus }) => (
+					<span key={axis} className="flex items-center gap-1">
+						<Button
+							type="button"
+							size="sm"
+							variant="secondary"
+							className={NUDGE_BUTTON_CLASS}
+							title={`move the region 0.5 m along −${axis} (${minus.key} in the viewport)`}
+							aria-label={`nudge minus ${axis}`}
+							onClick={() => onNudge(...minus.steps)}
+						>
+							−{axis}
+						</Button>
+						<Button
+							type="button"
+							size="sm"
+							variant="secondary"
+							className={NUDGE_BUTTON_CLASS}
+							title={`move the region 0.5 m along +${axis} (${plus.key} in the viewport)`}
+							aria-label={`nudge plus ${axis}`}
+							onClick={() => onNudge(...plus.steps)}
+						>
+							+{axis}
+						</Button>
+					</span>
+				))}
+			</div>
+			<p className="text-xs text-muted-foreground">
+				in the viewport: ←/→ move X, ↑/↓ move Z, ⇧↑/⇧↓ move Y — 0.5 m a press
+			</p>
 			<p className="text-xs text-muted-foreground">
 				{PHASE_LABEL[session.phase]}
 				{session.opCount !== null && (

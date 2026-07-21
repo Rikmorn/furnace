@@ -3,6 +3,7 @@
 // scratch store (ghost) and in commitGenerator (commit), so the committed
 // chunks must mesh byte-identically to the previewed ghost buckets.
 import { describe, expect, test } from "bun:test";
+import { nudgeRegion } from "../src/frontend/lib/field-brush.ts";
 import type { FieldWorkerResponse } from "../src/frontend/lib/field-protocol.ts";
 import { createFieldWorkerHandler } from "../src/frontend/lib/field-protocol.ts";
 import {
@@ -12,6 +13,7 @@ import {
   withParams,
   withPreviewError,
   withPreviewResult,
+  withRegion,
 } from "../src/viewport-host/field-stamp.ts";
 
 const REGION = {
@@ -54,6 +56,48 @@ describe("stamp session transitions", () => {
     expect(s1.generator).toBe("hall");
     expect(s1.region).toEqual(REGION);
     expect(s1.truncatedSelection).toBe(false);
+  });
+
+  test("withRegion replaces the region, bumps run, clears result state", () => {
+    const s0 = withPreviewResult(toPreviewing(fresh()), 0, 9);
+    expect(s0).not.toBeNull();
+    if (s0 === null) return;
+    const s1 = withRegion(s0, { min: [1, 1, 1], max: [6, 5, 6] });
+    expect(s1.region).toEqual({ min: [1, 1, 1], max: [6, 5, 6] });
+    expect(s1.phase).toBe("configuring");
+    expect(s1.run).toBe(1);
+    expect(s1.opCount).toBeNull();
+    expect(s1.error).toBeNull();
+    // params/seed/policy/identity are untouched — only the placement moved.
+    expect(s1.params).toEqual(DEFAULTS);
+    expect(s1.seed).toBe(42);
+    expect(s1.policy).toBe("replace");
+    expect(s1.generator).toBe("hall");
+  });
+
+  test("a region nudge invalidates the in-flight preview", () => {
+    const inFlight = toPreviewing(fresh()); // run 0 owns the in-flight job
+    const nudged = withRegion(
+      inFlight,
+      nudgeRegion(inFlight.region, [1, 0, 0]),
+    );
+    expect(withPreviewResult(nudged, 0, 55)).toBeNull(); // run-0 reply: stale
+    const live = withPreviewResult(toPreviewing(nudged), 1, 55);
+    expect(live?.phase).toBe("ready");
+  });
+
+  test("ONE nudge press moves the region exactly one lattice step and bumps run", () => {
+    // The host's composition: nudgeRegion (whole 0.5 m steps, both corners)
+    // fed through withRegion (supersession).
+    let s = fresh();
+    s = withRegion(s, nudgeRegion(s.region, [0, 0, -1])); // ↑ = −Z
+    expect(s.region).toEqual({ min: [0, 0, -0.5], max: [5, 4, 4.5] });
+    expect(s.run).toBe(1);
+    s = withRegion(s, nudgeRegion(s.region, [0, 1, 0])); // ⇧↑ = +Y
+    expect(s.region).toEqual({ min: [0, 0.5, -0.5], max: [5, 4.5, 4.5] });
+    expect(s.run).toBe(2);
+    // The origin region is untouched — every press builds a fresh one.
+    expect(REGION).toEqual({ min: [0, 0, 0], max: [5, 4, 5] });
   });
 
   test("toPreviewing marks the phase only", () => {
@@ -102,6 +146,7 @@ describe("stamp session transitions", () => {
     const snapshot = structuredClone(s0);
     toPreviewing(s0);
     withParams(s0, { width: 9 }, 1, "keep-existing-air");
+    withRegion(s0, { min: [9, 9, 9], max: [10, 10, 10] });
     withPreviewResult(toPreviewing(s0), 0, 3);
     withPreviewError(toPreviewing(s0), 0, "x");
     expect(s0).toEqual(snapshot);
