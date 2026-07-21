@@ -11,7 +11,11 @@ import {
   _recordDestroy,
   _recordDraw,
 } from "../stats/internal.ts";
-import { _ensureCameraBuffer, _ensureDepthTexture } from "./render.ts";
+import {
+  _ensureCameraBuffer,
+  _ensureDepthTexture,
+  _ensureSceneColorTarget,
+} from "./render.ts";
 
 const FLOATS_PER_POINT = 3; // xyz
 const POINT_STRIDE_BYTES = 12; // 3 × f32
@@ -85,6 +89,10 @@ function makeLinePipeline(
     fragment: {
       module,
       entryPoint: "fs_main",
+      // `ctx.format` (not `workingColorFormat`): on the no-MSAA path the pass
+      // targets the swap chain directly, and on the MSAA path it targets the
+      // scene colour target — whose format IS `ctx.format` whenever `hdr` is
+      // false. HDR + MSAA + drawLines is unsupported (see `drawLines`).
       targets: [{ format: ctx.format }],
     },
     primitive: { topology: "line-list" },
@@ -93,6 +101,10 @@ function makeLinePipeline(
       depthWriteEnabled: false,
       depthCompare,
     },
+    // Must match the pass's attachments. A Context's sample count is fixed at
+    // `requestContext` and never mutated, so baking it into the per-context
+    // pipeline cache (`lineResByCtx`) can never hand a 1× pipeline to a 4× pass.
+    multisample: { count: ctx._internal.sampleCount },
   });
 }
 
@@ -211,10 +223,23 @@ export type DrawLinesOptions = {
  * Draw a `line-list` overlay on top of the current frame — an immediate,
  * raw-buffer primitive (distinct from the managed, Mesh-based {@link render}).
  *
- * Runs a second render pass over the current swap-chain texture (`loadOp:
- * "load"`, so it does not clear) and against the engine's scene depth texture.
+ * Runs a second render pass over the frame's colour target (`loadOp: "load"`,
+ * so it does not clear) and against the engine's scene depth texture.
  * **Call after `frame.render` in the same frame** so the depth/colour it reads
  * are present.
+ *
+ * On a `sampleCount: 1` context the colour target is the swap-chain texture
+ * directly. On an MSAA context (`sampleCount: 4`) it is the multisampled scene
+ * colour target `frame.render` drew into — the engine-managed depth texture is
+ * multisampled too, and WebGPU requires every attachment in a pass to share a
+ * sample count — and the pass resolves over the swap chain. Repeated calls in
+ * one frame compose (each loads the accumulated colour and re-resolves).
+ *
+ * **Limitation — MSAA + `effects`/`hdr` is unsupported.** With a post chain the
+ * swap chain holds the chain's output, and this pass's per-call resolve of the
+ * raw scene colour would clobber it (under `hdr` the formats do not even match,
+ * so the pass is rejected and the lines silently do not appear). Use a
+ * `sampleCount: 1` context when combining line overlays with post effects.
  *
  * Depth behaviour is controlled by `opts.occlude` (default `true`):
  * - `true` (default) — `depthCompare: "less-equal"`, no depth write: lines are
@@ -270,10 +295,26 @@ export function drawLines(ctx: Context, opts: DrawLinesOptions): void {
     opts.occlude === false ? res.pipelineOverlay : res.pipelineOcclude;
   const cameraBuffer = _ensureCameraBuffer(ctx, opts.camera);
   const depth = _ensureDepthTexture(ctx);
-  const colorView = gpu.getCurrentTextureView(ctx);
+  const singleSampleDest = gpu.getCurrentTextureView(ctx);
+  // The shared depth texture is allocated at the context's sample count, and
+  // every attachment in a pass must agree on it. On an MSAA context the swap
+  // chain view (always 1×) therefore cannot be the colour attachment: the pass
+  // renders into the same multisampled scene colour target `frame.render` used
+  // (which stores, not discards, so "load" picks up the rendered frame) and
+  // resolves the result over the swap chain. Repeated calls in one frame
+  // compose: each loads the accumulated multisampled colour, adds its lines,
+  // stores, and re-resolves the superset over the swap chain.
+  const msaa = _ensureSceneColorTarget(ctx);
   const encoder = ctx.device.createCommandEncoder();
   const pass = encoder.beginRenderPass({
-    colorAttachments: [{ view: colorView, loadOp: "load", storeOp: "store" }],
+    colorAttachments: [
+      {
+        view: msaa ? msaa.view : singleSampleDest,
+        resolveTarget: msaa ? singleSampleDest : undefined,
+        loadOp: "load",
+        storeOp: "store",
+      },
+    ],
     depthStencilAttachment: {
       view: depth.view,
       depthLoadOp: "load",

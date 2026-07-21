@@ -153,9 +153,11 @@ function _disposeDepth(ctx: Context): void {
  * multisampled color target that the scene renders into, resolving into the
  * single-sample destination after the pass. Returns `null` when
  * `sampleCount === 1` — the scene renders directly into the destination.
- * Module-private: used only by `render`; exercised via `frame.render`.
+ * Engine-internal: used by `render` and by `drawLines` (which must attach the
+ * same multisampled colour target to match the shared depth texture's sample
+ * count); exercised via `frame.render` / `frame.drawLines`.
  */
-function _ensureSceneColorTarget(ctx: Context): SceneColorEntry | null {
+export function _ensureSceneColorTarget(ctx: Context): SceneColorEntry | null {
   const sampleCount = ctx._internal.sampleCount;
   if (sampleCount === 1) return null;
 
@@ -532,22 +534,28 @@ function beginRenderPass(
   resolveTarget?: GPUTextureView,
 ): GPURenderPassEncoder {
   const [r = 0, g = 0, b = 0, a = 1] = clearColor;
-  const msaa = resolveTarget !== undefined;
+  // Both attachments store unconditionally, including under MSAA where the
+  // resolve alone would otherwise let us discard them. `frame.drawLines` runs a
+  // second pass after this one that loads BOTH the multisampled colour and the
+  // depth (it must attach the multisampled colour so its sample count matches
+  // the shared depth texture). Discarding either would feed that pass garbage.
+  // The trade is the bandwidth of writing back the multisampled colour + depth
+  // on MSAA contexts — paid every frame, whether or not lines follow.
   return encoder.beginRenderPass({
     colorAttachments: [
       {
         view: colorView,
-        resolveTarget: msaa ? resolveTarget : undefined,
+        resolveTarget,
         clearValue: { r, g, b, a },
         loadOp: "clear",
-        storeOp: msaa ? "discard" : "store",
+        storeOp: "store",
       },
     ],
     depthStencilAttachment: {
       view: depthView,
       depthClearValue: clearDepth,
       depthLoadOp: "clear",
-      depthStoreOp: msaa ? "discard" : "store",
+      depthStoreOp: "store",
     },
   });
 }
