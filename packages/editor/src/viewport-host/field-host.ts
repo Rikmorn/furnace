@@ -43,6 +43,7 @@ import {
   withPreviewResult,
   withRegion,
 } from "./field-stamp.ts";
+import { arrowNudgeSteps } from "./input-map.ts";
 import { buildGridLines, segmentsToBatch } from "./reference-grid.ts";
 
 /** Shading toggle: `flat` = unlit normal-colour (structure legibility); `headlamp` =
@@ -328,18 +329,6 @@ const LOOK_SPEED = 0.005; // rad per pixel of RMB drag
 const RADIUS_MIN = 0.25;
 const RADIUS_MAX = 4;
 const RADIUS_WHEEL_STEP = 0.1;
-
-// Arrow-key stamp nudge, in whole lattice steps on WORLD axes: ←/→ = ∓X,
-// ↑/↓ = ∓Z, and with Shift held ↑/↓ become ±Y (a four-key pad has no third
-// pair, so the vertical axis rides the modifier). Left/right ignore Shift —
-// there is no second horizontal axis to promote them to. Keys are the
-// lowercased `KeyboardEvent.key` the handler already computes.
-const ARROW_NUDGE: Record<string, { plain: Vec3T; shift: Vec3T }> = {
-  arrowleft: { plain: [-1, 0, 0], shift: [-1, 0, 0] },
-  arrowright: { plain: [1, 0, 0], shift: [1, 0, 0] },
-  arrowup: { plain: [0, 0, -1], shift: [0, 1, 0] },
-  arrowdown: { plain: [0, 0, 1], shift: [0, -1, 0] },
-};
 
 const CLEAR = vec4.fromValues(0.03, 0.03, 0.045, 1);
 const HEADLAMP_COLOR: Vec3T = [1, 0.95, 0.85];
@@ -1795,9 +1784,13 @@ export function createFieldHost(): FieldHost {
     // Filled kit ghost (the fill-tool-solid-volume-surprise fix): pose the ONE
     // translucent unit cube at the snapped box and push it into the mesh list.
     // When there is no kit-fill ghost this frame the mesh is simply not drawn.
-    // Its position in this list no longer decides compositing: frame.render
-    // records every BLENDED draw after every opaque one, so the hologram (no
-    // depth write) survives the opaque field AND the instanced kit pieces.
+    // Its position in this list no longer decides compositing against OPAQUES:
+    // frame.render records every blended draw after every opaque one, so the
+    // hologram (no depth write) survives the field AND the instanced kit
+    // pieces. Order still matters WITHIN the blended group — submission order
+    // is preserved there — so this cube's position relative to the stamp
+    // ghosts below (also premultiplied, also no depth write) is what decides
+    // how those two translucents composite against each other.
     // Two independent ghost gates: the LAYER flag is user intent; the
     // selection-mode suppression is mode coherence — while a selection mode is
     // armed LMB doesn't stroke, so a brush preview would promise an action
@@ -2001,25 +1994,33 @@ export function createFieldHost(): FieldHost {
       }
       return;
     }
-    // Arrow keys nudge the STAMP REGION one 0.5 m lattice step on WORLD axes
-    // (see ARROW_NUDGE). Sits between Enter/Esc and every fallthrough for the
-    // same reason they do — it is session-scoped, and neither the fly set nor
-    // [ / ] claims an arrow. Without a session the branch declines exactly as
-    // Enter/Esc does: no preventDefault, so the browser keeps its own arrow
-    // behaviour (scroll/caret) on a canvas that isn't running a placement.
+    // Arrow keys nudge the STAMP REGION one 0.5 m lattice step on WORLD axes.
+    // The sign table itself lives in input-map.ts (arrowNudgeSteps) so it is
+    // unit-testable — a flipped sign is this feature's likeliest defect and
+    // nothing reachable from bun:test drives THIS handler (attachListeners
+    // only runs after a real GPU init).
+    // Sits between Enter/Esc and every fallthrough for the same reason they do
+    // — it is session-scoped, and neither the fly set nor [ / ] claims an
+    // arrow. Without a session the branch declines exactly as Enter/Esc does:
+    // no preventDefault, so the browser keeps its own arrow behaviour
+    // (scroll/caret) on a canvas that isn't running a placement.
     // Key REPEAT is the hold-to-nudge behaviour ([ / ] precedent); each repeat
     // supersedes the last, and the preview coalescer collapses the burst into
     // one in-flight job plus at most one trailing re-fire.
-    // Chord-guarded: ⌘←/⌘→ are the browser's back/forward and ⌘↑/⌘↓ are
-    // document home/end — never intercept those (the [ / ] precedent).
+    // Chord-guarded on THREE modifiers, one more than the [ / ] precedent:
+    // ⌘←/⌘→ are back/forward and ⌘↑/⌘↓ are document home/end on macOS, and
+    // ALT+←/→ is back/forward on Windows and Linux. [ / ] needs no alt guard
+    // because Alt+[ is not a navigation chord anywhere — the precedent simply
+    // doesn't cover this key, so correctness wins over symmetry. Alt is
+    // otherwise the pointer-path eyedropper, which no arrow touches.
     // Shift note: ⇧ ALSO arrives as its own "shift" keydown, which engages
     // momentary smooth below. That only changes what LMB does and restores on
     // release, so a ⇧-arrow vertical nudge is unaffected by it.
-    const arrow = ARROW_NUDGE[k];
-    if (arrow !== undefined && !e.metaKey && !e.ctrlKey) {
+    const arrowSteps = arrowNudgeSteps(e);
+    if (arrowSteps !== null && !e.metaKey && !e.ctrlKey && !e.altKey) {
       if (stamp !== null) {
         e.preventDefault();
-        nudgeStampRegion(e.shiftKey ? arrow.shift : arrow.plain);
+        nudgeStampRegion(arrowSteps);
       }
       return;
     }
