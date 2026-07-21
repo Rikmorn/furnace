@@ -376,69 +376,81 @@ export function FieldPanel() {
 				onTable={setTable}
 				onStatus={setStatus}
 			/>
-			<div className="flex flex-col gap-2 border-b border-border p-2 text-sm">
-				<ToolPalette
-					effect={tool.effect}
-					selectionMode={selectionMode}
-					generators={generators}
-					onBrush={onBrush}
-					onSelectionMode={onSelectionModePick}
-					onGenerator={(id) => fieldHostRef.current?.startStamp(id)}
-				/>
-				{/* The persistent swatch strip: rendered whenever the catalog has more
-            than one class, independent of the active tool (the eyedropper can
-            change the material under ANY tool — the ring must track it). */}
-				{table.classes.length > 1 && (
-					<MaterialSwatches
-						classes={table.classes}
-						activeId={tool.materialId}
-						disableKit={tool.effect === "paint"}
-						onSelect={onMaterial}
+			{/* The controls stack (palette + swatches + inspectors + layers + entities)
+          is BOUNDED and scrolls inside itself. Unbounded it grew with its tallest
+          section — a Hall/Maze StampInspector form starved the canvas below to a
+          sliver (F2b gate reject). max-h-[45%] caps it at 45% of the panel (the
+          root is h-full inside a definite-height dockview panel, so the percentage
+          resolves); the box still sizes to CONTENT under the cap, so a collapsed
+          stack leaves no dead space. min-h-0 (redundant with the auto min-size an
+          overflow!=visible flex item already gets, kept explicit) lets it shrink
+          instead of pushing the canvas out, and overflow-y-auto puts the scroll
+          HERE rather than on the panel. */}
+			<div className="max-h-[45%] min-h-0 overflow-y-auto">
+				<div className="flex flex-col gap-2 border-b border-border p-2 text-sm">
+					<ToolPalette
+						effect={tool.effect}
+						selectionMode={selectionMode}
+						generators={generators}
+						onBrush={onBrush}
+						onSelectionMode={onSelectionModePick}
+						onGenerator={(id) => fieldHostRef.current?.startStamp(id)}
 					/>
-				)}
-				{/* Brush inspector only while LMB actually brushes — an armed selection
-            gesture makes radius/mask/smooth/hollow promises LMB won't keep. */}
-				{selectionMode === null && (
-					<BrushInspector
-						tool={tool}
-						radius={radius}
-						smoothLimits={smoothLimits}
-						classes={table.classes}
-						onRadius={onRadius}
-						onChange={pushTool}
+					{/* The persistent swatch strip: rendered whenever the catalog has more
+              than one class, independent of the active tool (the eyedropper can
+              change the material under ANY tool — the ring must track it). */}
+					{table.classes.length > 1 && (
+						<MaterialSwatches
+							classes={table.classes}
+							activeId={tool.materialId}
+							disableKit={tool.effect === "paint"}
+							onSelect={onMaterial}
+						/>
+					)}
+					{/* Brush inspector only while LMB actually brushes — an armed selection
+              gesture makes radius/mask/smooth/hollow promises LMB won't keep. */}
+					{selectionMode === null && (
+						<BrushInspector
+							tool={tool}
+							radius={radius}
+							smoothLimits={smoothLimits}
+							classes={table.classes}
+							onRadius={onRadius}
+							onChange={pushTool}
+						/>
+					)}
+					{/* The stamp inspector rides the session's existence, independent of
+              the brush/selection state — the brush stays live during a session
+              (its strokes are the documented divergence window). */}
+					{stamp !== null && stampDef !== undefined && (
+						<StampInspector
+							session={stamp}
+							def={stampDef}
+							onUpdate={(params, seed, policy) =>
+								fieldHostRef.current?.updateStamp(params, seed, policy)
+							}
+							onReroll={() => fieldHostRef.current?.rerollStamp()}
+							onCommit={() => fieldHostRef.current?.commitStamp()}
+							onCancel={() => fieldHostRef.current?.cancelStamp()}
+						/>
+					)}
+				</div>
+				<div className="border-b border-border p-2 text-sm">
+					<LayersRow
+						layers={layers}
+						slice={slice}
+						ghostSuppressed={selectionMode !== null && stamp === null}
+						onLayers={onLayers}
+						onSlice={onSlice}
 					/>
-				)}
-				{/* The stamp inspector rides the session's existence, independent of
-            the brush/selection state — the brush stays live during a session
-            (its strokes are the documented divergence window). */}
-				{stamp !== null && stampDef !== undefined && (
-					<StampInspector
-						session={stamp}
-						def={stampDef}
-						onUpdate={(params, seed, policy) =>
-							fieldHostRef.current?.updateStamp(params, seed, policy)
-						}
-						onReroll={() => fieldHostRef.current?.rerollStamp()}
-						onCommit={() => fieldHostRef.current?.commitStamp()}
-						onCancel={() => fieldHostRef.current?.cancelStamp()}
+				</div>
+				<div className="border-b border-border px-2 py-1 text-sm">
+					<EntitiesList
+						entities={entities}
+						onHighlight={(id) => fieldHostRef.current?.highlightEntity(id)}
+						onOpen={refreshEntities}
 					/>
-				)}
-			</div>
-			<div className="border-b border-border p-2 text-sm">
-				<LayersRow
-					layers={layers}
-					slice={slice}
-					ghostSuppressed={selectionMode !== null && stamp === null}
-					onLayers={onLayers}
-					onSlice={onSlice}
-				/>
-			</div>
-			<div className="border-b border-border px-2 py-1 text-sm">
-				<EntitiesList
-					entities={entities}
-					onHighlight={(id) => fieldHostRef.current?.highlightEntity(id)}
-					onOpen={refreshEntities}
-				/>
+				</div>
 			</div>
 			{/* The FieldHost renders into this canvas. tabIndex makes it focusable so the WASD/QE
           fly + ⌘Z undo keydowns the host attaches actually reach it (Task 9 review flagged

@@ -409,3 +409,53 @@ test("the footer shows the selection count + the truncation warning; Clear reach
 	fireEvent.click(button("Clear"));
 	expect(stub.calls.clearSelection).toHaveBeenCalledTimes(1);
 });
+
+// --- (i) bounded controls / canvas priority ---------------------------------
+
+/** The two boxes the panel's height budget is split between: the controls
+ *  container and the canvas cell that follows it. Throws (rather than
+ *  soft-failing an assertion) if the panel's shape changed — every assertion
+ *  below is meaningless without it. */
+function layoutBoxes(): { controls: HTMLElement; canvas: HTMLElement } {
+	const canvas = screen.getByLabelText("field dig surface").parentElement;
+	const controls = canvas?.previousElementSibling;
+	if (!(canvas instanceof HTMLElement) || !(controls instanceof HTMLElement))
+		throw new Error(
+			"field panel shape changed: expected the canvas cell to follow a controls container",
+		);
+	return { controls, canvas };
+}
+
+test("the control sections share ONE bounded scroll container; the canvas cell is its sibling", async () => {
+	fetch404();
+	const stub = makeStubHost({ generators: [HALL_GEN] });
+	await renderPanel(stub);
+	// happy-dom runs NO layout (getBoundingClientRect is all zeros — the same
+	// reason host.init never fires here), so the pixel outcome is not assertable.
+	// What IS assertable is the structure that produces it: the controls stack
+	// capped + self-scrolling, the canvas cell OUTSIDE that cap taking the rest.
+	// Unbounded, a tall StampInspector crushed the canvas to a sliver.
+	const { controls, canvas } = layoutBoxes();
+	for (const cls of ["max-h-[45%]", "min-h-0", "overflow-y-auto"])
+		expect(controls.classList.contains(cls)).toBe(true);
+	// All three control sections live inside the cap…
+	expect(controls.contains(button("Dig"))).toBe(true); // palette
+	expect(controls.contains(screen.getByLabelText("slice view"))).toBe(true); // layers
+	expect(controls.contains(screen.getByText("Entities (0)"))).toBe(true); // entities
+	// …the persistence toolbar does NOT (it stays pinned above the scroll)…
+	expect(controls.contains(screen.getByLabelText("world name"))).toBe(false);
+	// …and neither does the canvas, which grows into whatever the cap leaves.
+	expect(controls.contains(canvas)).toBe(false);
+	for (const cls of ["flex-1", "min-h-0"])
+		expect(canvas.classList.contains(cls)).toBe(true);
+	// The tall extreme: a stamp session adds the generator form to the stack —
+	// it lands INSIDE the bounded container, so the canvas cell is untouched.
+	act(() => {
+		stub.fire.stamp(makeSession({ phase: "configuring" }));
+	});
+	const tall = layoutBoxes();
+	expect(tall.controls).toBe(controls);
+	expect(tall.canvas).toBe(canvas);
+	expect(controls.contains(button("Commit"))).toBe(true);
+	expect(controls.contains(canvas)).toBe(false);
+});
