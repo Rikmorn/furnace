@@ -485,9 +485,15 @@ export function createFieldHost(): FieldHost {
   let lastSelection: SelectionState | null = null;
   let selectionCb: ((info: SelectionInfo | null) => void) | null = null;
   // Overlay line batches, rebuilt on selection/anchor CHANGE — never per frame
-  // (materializeSelection cost lives on the click; the overlay is stored).
+  // (materializeSelection cost lives on the click; the overlay is stored). The
+  // box preview below is the one exception to "on change": it rebuilds on
+  // pointer MOVE while a box anchor is pending — still never per frame.
   let selectionBatch: LineBatch | null = null;
   let anchorBatch: LineBatch | null = null;
+  // The snapped-region AABB the pending anchor + cursor would commit, rebuilt on
+  // pointer MOVE (never per frame). Null unless a box anchor is pending; cleared
+  // with the anchor (setBoxAnchor(null)).
+  let boxPreviewBatch: LineBatch | null = null;
 
   // --- view state (layers + slice plane) ----------------------------------
   let layers: FieldLayers = {
@@ -1181,6 +1187,7 @@ export function createFieldHost(): FieldHost {
     boxAnchor = p;
     if (p === null) {
       anchorBatch = null;
+      boxPreviewBatch = null; // the pending-region preview dies with its anchor
       return;
     }
     const [x, y, z] = p;
@@ -1242,6 +1249,28 @@ export function createFieldHost(): FieldHost {
     const [y0, y1] = snapSpan(a[1], b[1]);
     const [z0, z1] = snapSpan(a[2], b[2]);
     return { kind: "region", min: [x0, y0, z0], max: [x1, y1, z1] };
+  };
+
+  // Box-select live preview: the amber AABB of the SNAPPED region the second
+  // click would commit (boxRegionSpec of anchor→cursor), rebuilt on pointer
+  // MOVE while a box anchor is pending. A region spec's min/max ARE its metre
+  // AABB, so build the edge batch directly (no materializeSelection). A cursor
+  // that resolves to no surface point leaves the last preview untouched — a
+  // transient miss must not flicker the box off.
+  const updateBoxPreview = (clientX: number, clientY: number): void => {
+    if (boxAnchor === null) return;
+    const p = selectionPoint(clientX, clientY);
+    if (!p) return;
+    const spec = boxRegionSpec(boxAnchor, p);
+    // boxRegionSpec only ever builds a region; this kind check narrows the
+    // field.SelectionSpec union so min/max are accessible (cf. cloneSelectionSpec).
+    if (spec.kind !== "region") return;
+    // spec.min/max are fresh tuples nothing else aliases, and aabbEdgeBatch
+    // reads them without retaining a reference — pass them directly (no copy).
+    boxPreviewBatch = aabbEdgeBatch(
+      { min: spec.min, max: spec.max },
+      SELECTION_COLOR,
+    );
   };
 
   // Material-select seed: the SOLID voxel under the cursor — the raycast hit
@@ -1778,11 +1807,12 @@ export function createFieldHost(): FieldHost {
         occlude: true,
       });
     }
-    // Selection overlay: amber AABB + pending box-select anchor cross, both
-    // occlude:false so a selection reads through rock. Batches are prebuilt on
-    // selection change — nothing is materialized per frame. Hiding the layer
-    // hides the DISPLAY only: the selection itself stays live (it keeps
-    // masking ops and the panel keeps its info).
+    // Selection overlay: amber AABB + pending box-select anchor cross + the
+    // pending-region preview, all occlude:false so a selection reads through
+    // rock. Batches are prebuilt on selection change (the box preview on pointer
+    // move) — nothing is materialized per frame. Hiding the layer hides the
+    // DISPLAY only: the selection itself stays live (it keeps masking ops and
+    // the panel keeps its info).
     if (layers.selection) {
       if (selectionBatch)
         frame.drawLines(c, {
@@ -1795,6 +1825,13 @@ export function createFieldHost(): FieldHost {
         frame.drawLines(c, {
           vertices: anchorBatch.vertices,
           colors: anchorBatch.colors,
+          camera: view,
+          occlude: false,
+        });
+      if (boxPreviewBatch)
+        frame.drawLines(c, {
+          vertices: boxPreviewBatch.vertices,
+          colors: boxPreviewBatch.colors,
           camera: view,
           occlude: false,
         });
@@ -1864,6 +1901,12 @@ export function createFieldHost(): FieldHost {
       look.lastY = e.clientY;
       orbitState = flyLook(orbitState, -dx * LOOK_SPEED, -dy * LOOK_SPEED);
       applyOrbit();
+      return;
+    }
+    // Box-select live preview: while a box anchor is pending, keep the amber
+    // region the second click would commit updated as the cursor moves.
+    if (selectionMode === "box" && boxAnchor !== null) {
+      updateBoxPreview(e.clientX, e.clientY);
       return;
     }
     if (!digging) return;
