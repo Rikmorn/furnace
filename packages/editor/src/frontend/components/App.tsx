@@ -63,21 +63,20 @@ const RECENT_SCENES_CAP = 8;
 // splitter drag, but each write JSON-stringifies the whole UiState blob — persist once settled.
 const LAYOUT_SAVE_DEBOUNCE_MS = 200;
 
-// The DEFAULT layout is the field-first subset: Field dominant in the centre
-// (the slot the scene Viewport used to hold), Entities left, Inspect right. The World panel
-// (id "generation") and the scene Viewport leave the DEFAULT set only — PANELS still owns
-// id/title/component, so both stay one click away via the View▸Panels toggles and
+// The DEFAULT layout is the field-first subset: Field dominant on the left
+// (the slot the scene Viewport used to hold), Inspect right. The Entities panel, the World
+// panel (id "generation"), and the scene Viewport leave the DEFAULT set only — PANELS still
+// owns id/title/component, so all three stay one click away via the View▸Panels toggles and
 // single-panel re-add. Build order matters: the first id is the dockview root (no
 // position); the rest anchor to it. Rooting Field also guarantees its dig canvas an
 // always-visible group with a non-zero client box at init (a stacked/inactive tab inits
 // at zero size, which core's bindToCanvas rejects).
-const DEFAULT_LAYOUT_PANELS: readonly PanelId[] = ["field", "entities", "inspect"];
+const DEFAULT_LAYOUT_PANELS: readonly PanelId[] = ["field", "inspect"];
 type PanelPosition = {
   referencePanel: PanelId;
   direction: "left" | "right" | "below";
 };
 const DEFAULT_PANEL_POSITION: Partial<Record<PanelId, PanelPosition>> = {
-  entities: { referencePanel: "field", direction: "left" },
   inspect: { referencePanel: "field", direction: "right" },
 };
 
@@ -568,7 +567,7 @@ export function App() {
     );
   }, []);
 
-  // The default layout (Entities | Field | Inspect — field-first), built by
+  // The default layout (Field | Inspect — field-first), built by
   // iterating DEFAULT_LAYOUT_PANELS with titles resolved through PANELS (panelTitle) so a
   // title edit there still flows to the initial layout, the toggle menu, and re-add.
   const addDefaultLayout = useCallback((dockApi: DockviewApi) => {
