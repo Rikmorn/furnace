@@ -3,6 +3,7 @@ import { _onDispose } from "../gpu/dispose-cascade.ts";
 import { FurnaceGpuError } from "../gpu/errors.ts";
 import type { Context } from "../gpu/index.ts";
 import * as gpu from "../gpu/index.ts";
+import { warn } from "../log/internal.ts";
 import { _ENGINE_DEPTH_FORMAT } from "../material/material.ts";
 import { _cameraBinding } from "../shader/preamble.ts";
 import { toWgsl } from "../shader/source.ts";
@@ -15,6 +16,7 @@ import {
   _ensureCameraBuffer,
   _ensureDepthTexture,
   _ensureSceneColorTarget,
+  _lastRenderUsedPostChain,
 } from "./render.ts";
 
 const FLOATS_PER_POINT = 3; // xyz
@@ -64,6 +66,7 @@ const bindGroupByPipeline = new WeakMap<
   GPURenderPipeline,
   WeakMap<GPUBuffer, GPUBindGroup>
 >();
+let warnedMsaaPostChain = false;
 
 function makeLinePipeline(
   ctx: Context,
@@ -235,11 +238,18 @@ export type DrawLinesOptions = {
  * sample count — and the pass resolves over the swap chain. Repeated calls in
  * one frame compose (each loads the accumulated colour and re-resolves).
  *
- * **Limitation — MSAA + `effects`/`hdr` is unsupported.** With a post chain the
- * swap chain holds the chain's output, and this pass's per-call resolve of the
- * raw scene colour would clobber it (under `hdr` the formats do not even match,
- * so the pass is rejected and the lines silently do not appear). Use a
- * `sampleCount: 1` context when combining line overlays with post effects.
+ * **MSAA + a post chain draws nothing.** When `ctx` is multisampled AND the
+ * frame's most recent {@link render} routed the scene through `effects` (which
+ * `hdr` always implies), the swap chain holds the chain's output and this
+ * pass's resolve would overwrite it with the raw, pre-post scene colour. Rather
+ * than corrupt the frame, the call is skipped and a once-only `warn` is routed
+ * to the engine log helper (see `@furnace/core/log`); the frame renders
+ * correctly, just without the overlay. It does NOT throw — this is a per-frame
+ * render-path call, so it follows the runtime-quiet half of
+ * `engine-conventions.md` §"Failure policy". Use a `sampleCount: 1` context to
+ * combine line overlays with post effects. The same skip applies before the
+ * first {@link render} on a multisampled context, where there is no scene
+ * colour to load.
  *
  * Depth behaviour is controlled by `opts.occlude` (default `true`):
  * - `true` (default) — `depthCompare: "less-equal"`, no depth write: lines are
@@ -267,6 +277,28 @@ export function drawLines(ctx: Context, opts: DrawLinesOptions): void {
     throw new FurnaceGpuError("drawLines: vertices and colors are required");
   }
   if (opts.vertices.length === 0) return;
+
+  // MSAA + a post chain is unsupported. The swap chain holds the chain's
+  // output; this pass must attach the multisampled scene colour to match the
+  // depth texture's sample count, and its resolve would overwrite that output
+  // with the raw, pre-post scene colour. Skipping leaves the frame intact and
+  // the lines absent.
+  //
+  // Runtime-quiet rather than throwing, per `engine-conventions.md` §Failure
+  // policy: this is a per-frame render-path call, and hello-world's bowling
+  // demo genuinely runs 4x + hdr + effects + drawLines on its MSAA toggle — a
+  // throw would turn a missing overlay into a per-frame crash. The warn-once
+  // makes the absence discoverable without flooding the log.
+  if (ctx._internal.sampleCount > 1 && _lastRenderUsedPostChain(ctx)) {
+    if (!warnedMsaaPostChain) {
+      warnedMsaaPostChain = true;
+      warn(
+        "frame",
+        "drawLines: skipped — line overlays are unsupported on a multisampled context whose frame was rendered through a post-process chain (the overlay's resolve would overwrite the chain's output). Use a sampleCount:1 context to combine line overlays with effects. This warning fires once.",
+      );
+    }
+    return;
+  }
 
   const res = ensureLineResources(ctx);
   const posBytes = opts.vertices.byteLength;

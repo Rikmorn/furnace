@@ -76,6 +76,9 @@ type SceneColorEntry = {
 
 const depthByCtx = new WeakMap<Context, DepthEntry>();
 const sceneColorByCtx = new WeakMap<Context, SceneColorEntry>();
+// Whether the most recent `render` on a context routed the scene colour through
+// a post chain. Read by `drawLines` — see `_lastRenderUsedPostChain`.
+const postChainByCtx = new WeakMap<Context, boolean>();
 const cameraBuffers = new WeakMap<Context, Map<Camera, GPUBuffer>>();
 // cameraBufferHandles deleted — every camera buffer is CAMERA_UNIFORM_SIZE bytes;
 // the constant is in scope at destroy time, no per-instance lookup needed.
@@ -210,6 +213,21 @@ function _disposeSceneColor(ctx: Context): void {
   entry.texture.destroy();
   _recordDestroy(ctx, "texture", sceneColorEntryBytes(entry));
   sceneColorByCtx.delete(ctx);
+}
+
+/**
+ * Engine-internal: `true` when the most recent {@link render} on `ctx` routed
+ * the scene colour through a post chain — meaning the swap chain holds the
+ * chain's output, not the scene pass's. `drawLines` reads this to refuse the
+ * unsupported MSAA + effects combination rather than resolving the raw scene
+ * colour over the post output.
+ *
+ * Defaults to `true` for a context that has never been rendered: with no scene
+ * pass behind it there is no engine-rendered multisampled colour to load, so
+ * the conservative answer is "do not touch the swap chain".
+ */
+export function _lastRenderUsedPostChain(ctx: Context): boolean {
+  return postChainByCtx.get(ctx) ?? true;
 }
 
 export function _ensureCameraBuffer(ctx: Context, cam: Camera): GPUBuffer {
@@ -525,22 +543,23 @@ export const _frameRenderInternals = {
   _firstDepthDisagreement: firstDepthDisagreement,
 };
 
+/**
+ * Record the scene pass's attachments. `storeOp` applies to BOTH the colour and
+ * the depth attachment — they are always retained or dropped together, since
+ * the only thing that reads either of them afterwards is `frame.drawLines`,
+ * which loads both. The caller decides, because only it knows whether a post
+ * chain consumed the frame.
+ */
 function beginRenderPass(
   encoder: GPUCommandEncoder,
   colorView: GPUTextureView,
   depthView: GPUTextureView,
   clearColor: Vec4,
   clearDepth: number,
-  resolveTarget?: GPUTextureView,
+  resolveTarget: GPUTextureView | undefined,
+  storeOp: GPUStoreOp,
 ): GPURenderPassEncoder {
   const [r = 0, g = 0, b = 0, a = 1] = clearColor;
-  // Both attachments store unconditionally, including under MSAA where the
-  // resolve alone would otherwise let us discard them. `frame.drawLines` runs a
-  // second pass after this one that loads BOTH the multisampled colour and the
-  // depth (it must attach the multisampled colour so its sample count matches
-  // the shared depth texture). Discarding either would feed that pass garbage.
-  // The trade is the bandwidth of writing back the multisampled colour + depth
-  // on MSAA contexts — paid every frame, whether or not lines follow.
   return encoder.beginRenderPass({
     colorAttachments: [
       {
@@ -548,14 +567,14 @@ function beginRenderPass(
         resolveTarget,
         clearValue: { r, g, b, a },
         loadOp: "clear",
-        storeOp: "store",
+        storeOp,
       },
     ],
     depthStencilAttachment: {
       view: depthView,
       depthClearValue: clearDepth,
       depthLoadOp: "clear",
-      depthStoreOp: "store",
+      depthStoreOp: storeOp,
     },
   });
 }
@@ -802,7 +821,8 @@ function recordScenePass(
   sceneBuffer: GPUBuffer,
   clearColor: Vec4,
   clearDepth: number,
-  resolveTarget?: GPUTextureView,
+  resolveTarget: GPUTextureView | undefined,
+  storeOp: GPUStoreOp,
 ): void {
   const pass = beginRenderPass(
     encoder,
@@ -811,6 +831,7 @@ function recordScenePass(
     clearColor,
     clearDepth,
     resolveTarget,
+    storeOp,
   );
   let lastPipeline: GPURenderPipeline | null = null;
   for (const resolved of draw) {
@@ -950,6 +971,9 @@ export function render(ctx: Context, opts: RenderOptions): void {
   // so the main scene pass can sample them. No-op when there are no casters.
   _recordShadowPasses(ctx, encoder, casters, resolvedDraws);
 
+  // Record which path this frame took, for `drawLines` to read back.
+  postChainByCtx.set(ctx, effects.length > 0);
+
   if (effects.length === 0) {
     const singleSampleDest = gpu.getCurrentTextureView(ctx);
     const sceneColorView = msaa ? msaa.view : singleSampleDest;
@@ -965,6 +989,12 @@ export function render(ctx: Context, opts: RenderOptions): void {
       clearColor,
       clearDepth,
       resolveTarget,
+      // Retain both attachments: `frame.drawLines` may run a second pass this
+      // frame that loads the colour AND the depth, and discarding either would
+      // feed it garbage. On an MSAA context this costs the write-back of the
+      // multisampled targets even when no lines follow — the price of keeping
+      // post-render line overlays available on the path that supports them.
+      "store",
     );
   } else {
     // Free any pool targets left at a stale canvas size (resize) before this
@@ -991,6 +1021,13 @@ export function render(ctx: Context, opts: RenderOptions): void {
       clearColor,
       clearDepth,
       resolveTarget,
+      // Under MSAA nothing reads these after the pass: the chain samples only
+      // the resolved single-sample `sceneTarget`, and `drawLines` refuses this
+      // combination outright (see `render-lines.ts`). Discarding keeps the
+      // multisampled colour + depth in tile memory on TBDR GPUs. Without MSAA
+      // the scene renders DIRECTLY into `sceneTarget`, which the chain does
+      // sample — so it must be stored.
+      msaa ? "discard" : "store",
     );
     _evaluateChain(
       ctx,
