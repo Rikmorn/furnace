@@ -579,7 +579,9 @@ The viewport selection highlight derives from the `--primary` CSS variable at ru
   sub-meshes + kit backing (lit materials from the table) and ONE instanced kit draw
   per chunk (white litInstanced material; piece color × variant jitter rides the
   per-instance tint). F1's dig-feel backlog entry resolved here; the F2b feel register
-  is `docs/backlog/editor-and-tooling/fill-tool-solid-volume-surprise.md`.
+  (`fill-tool-solid-volume-surprise.md`) was resolved in F2b — stamps + hollow fill +
+  the filled kit ghost (§16); the deferred remainder is
+  `docs/backlog/editor-and-tooling/field-f2b-gate-ux-findings.md`.
 - **Remesh worker** (`frontend/field-worker.ts` + `lib/field-protocol.ts` /
   `lib/field-client.ts`) — a third frontend bundle entry that imports core's mesher +
   skinner DIRECTLY (engine code; the project `/engine.js` is not involved). v2
@@ -594,7 +596,7 @@ The viewport selection highlight derives from the `--primary` CSS variable at ru
   guard clean), and applies it via `setMaterialTable`. Absent file → builtin rock-only
   + status note. Catalog-wins semantics vs the artifact's embedded table (the
   embedded table is the GAME's snapshot); Load-until-catalog-settles hardening is an
-  F2b carry-over (`docs/backlog/editor-and-tooling/field-f2a-carryover-for-f2b.md`).
+  F2b carry-over (resolved in F2b — see §16's module extractions).
 - **FieldPanel** (panel id `field`) — thin chrome: world name **empty by default**
   (explicit name required — the W3/W4 gate-clobber fix), tool radios (Dig/Fill/Paint)
   + material dropdown (all classes for Fill, organic-only for Paint, hidden for Dig —
@@ -609,3 +611,74 @@ The viewport selection highlight derives from the `--primary` CSS variable at ru
   — dockview panels mounting hidden (e.g. behind the Field tab) previously latched
   core's "width and height must be positive" throw until a manual tab-close +
   refresh. Distinct from resize-RENDERING, which hosts own via `gpu.onResize`.
+
+## 16. One Field F2b — the palette (2026-07-21)
+
+The tool system over F2a's material field. Three Safari gate rounds (the third
+accepted); two rounds were consumed by ONE pre-existing core bug — `frame.drawLines`
+built an invalid pass on MSAA contexts, so every field-viewport line overlay (grid,
+dig ring, selection) had rendered NOTHING since F1. Record + rules:
+`docs/learnings/2026-07-21-invisible-line-overlays.md`.
+
+- **Brush chassis** — `FieldTool { effect: dig|fill|paint|smooth, materialId, mask,
+  smooth, hollow }`; masks map to core `BrushMask` (selection choice embeds the host's
+  current `SelectionSpec`; no selection → mask dropped + reported). Shortcuts: `[`/`]`
+  + wheel = radius, **Alt-click eyedropper** (samples the aimed cell's class),
+  **Shift-held = momentary Smooth**, **Ctrl-held = momentary Dig**; `subscribeTool`
+  mirrors host-initiated changes into the panel. The kit-fill ghost renders as a
+  translucent solid cube (rebuilt per snapped-size change) plus edges; the brush ghost
+  persists off-canvas so panel-slider size drags preview live.
+- **Selection (a tool class, not an op)** — `setSelectionMode("box"|"material"|"void")`
+  arms LMB gestures (applyTool bypassed): box = two clicks with an anchor cross + a
+  LIVE snapped-region preview following the cursor (fix round 1); material/void =
+  one-click floods seeded from the raycast hit / its last-air `prev` voxel,
+  `SELECTION_UI_BUDGET = 200_000` under core's ceiling, truncation surfaced in the
+  panel. Amber AABB overlay (occlude:false), `reselect()` one-slot restore,
+  `subscribeSelection` + `subscribeToolError` feed the panel footer. Cell-level
+  display is deferred to F4 (`field-f2b-gate-ux-findings.md`).
+- **Layers + slice** — `FieldLayers { field, kit, ghost, selection, grid }` gate the
+  render lists per frame (display-only; a hidden selection keeps masking ops). The
+  Ghost checkbox is DISABLED with a hint while a selection tool is armed and no stamp
+  session runs (suppression honesty — the brush ghost is mode-suppressed but the stamp
+  hologram is not). Slice = **remesh clip**: the worker clamps aprons at/above `sliceY`
+  (density→air, material→rock) before mesh+skin, yielding capped cuts for free;
+  `raycastField { maxY }` makes ALL gesture raycasts + the buried-eye probe
+  slice-coherent ("what you see is what you target" — an executor extension of the
+  spec's targeting rule, adopted).
+- **Stamp sessions** — `field-stamp.ts` pure session transitions (run-counter
+  supersession; stale previews dropped) + host `startStamp` (region = current
+  selection, snapped outward) / `updateStamp` / `rerollStamp` (crypto uint16 seeds) /
+  `nudgeStamp(dx,dy,dz)` in 0.5 m lattice steps (panel buttons + arrow keys, world
+  axes, ⇧↑/⇧↓ = ±Y; known focus trap: a nudge-button click moves focus off-canvas —
+  gate-findings item 6) / `commitStamp` (core `commitGenerator` — one undo entry,
+  entity op recorded) / `cancelStamp`; Enter/Esc. Preview = scratch-store evaluation
+  in the worker (`stamp-preview` protocol v3 request; region+halo chunk snapshot,
+  density buffers COPIED then transferred), meshed via the same path and rendered as a
+  hologram-blue translucent ghost — surface buckets only, no kit pieces (documented
+  v0). Ghost-vs-commit divergence window: strokes/⌘Z during a live keep-existing-air
+  session (documented, accepted at gate).
+- **Panel restructure** — `components/field/`: ToolPalette (brush + selection tools +
+  one button per generator from `listGenerators()`), MaterialSwatches (persistent
+  strip, eyedropper-tracked active ring), BrushInspector (radius/mask/smooth/hollow —
+  plain controls, NOT SchemaForm), StampInspector (SchemaForm over the generator's
+  paramSchema + visible hand-editable seed + ⚄ re-roll + merge policy +
+  Commit/Cancel), EntitiesList (▦ rows → region highlight + read-only params; editing
+  is F3), LayersRow + slice slider, FieldToolbar. The controls stack is bounded
+  (scrollable) and the canvas cell floors at `min-h-24` — it can never reach zero
+  (measured fix; the unclamped-resize core hop is
+  `docs/backlog/engine-architecture/resize-unclamped-zero-size-canvas.md`).
+- **Field-first default layout** — `DEFAULT_LAYOUT_PANELS = ["field", "inspect"]`
+  (World + scene Viewport + Entities leave the DEFAULT only; `PANELS` still owns
+  View▸Panels re-add). Persisted layouts unaffected; View▸Reset lands on the new
+  default.
+- **Load gating (F2a carry-over closed)** — Load stays disabled until the catalog
+  settles (success or 404-fallback); catalog-wins semantics stand.
+- **Host extractions (F2a carry-over closed)** — pure modules with tests:
+  `field-kit-render.ts` (yawQuat/pieceColor/packKitMatrices), `field-ghost.ts`
+  (ring/box batch math), `field-stamp.ts`, `input-map.ts` additions; FieldHost keeps
+  the GPU calls.
+- **Core underneath (see `core-modules.md`)** — the FieldOp union + op-list undo,
+  masks, smooth, hollow fill, selection, the generator registry (hall + maze) +
+  `commitGenerator`, raycast `maxY`; and the two F2b frame fixes: drawLines
+  MSAA-awareness and blend-partitioned draw order (translucent ghosts now draw over
+  instanced kit).

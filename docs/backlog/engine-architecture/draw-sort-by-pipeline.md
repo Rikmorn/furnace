@@ -7,7 +7,12 @@ The standard fix is to sort draws by pipeline before iterating, minimizing trans
 Implementation sketch: inside `frame.render`, before the loop, sort a shallow-copied draw array by `mesh.material.pipelineKey` (already computed by tranche 4 for the cache). Same-pipeline draws cluster together. Optional further sort by other state (cull mode, depth state) to share more.
 
 Open design questions:
-- Is sort stability important for layered/translucent rendering? (Yes — transparency requires back-to-front ordering, which a pipeline sort would break.)
+- Is sort stability important for layered/translucent rendering? **Partially answered
+  (F2b fix round 2, 2026-07-21):** `frame.render` now PARTITIONS draws — opaque meshes →
+  opaque instanced → blended meshes → blended instanced (`MaterialSlot.blended`),
+  submission order preserved within each group (`render-draw-order.test.ts` pins it).
+  Any future pipeline sort must sort WITHIN those groups; the opaque groups are free to
+  reorder, the blended groups are painter's-order and must stay stable.
 - Should the consumer opt out per `frame.render` call (`{ sortByPipeline: false }`)?
 - Does this matter once instancing lands? Instancing reduces draw count by orders of magnitude.
 

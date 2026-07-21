@@ -73,8 +73,8 @@ The reference is "what the engine IS today." If it's stale, it's broken.
 | `loop` | `(ctx: Context, onFrame: (info: FrameInfo) => void, options?: LoopOptions) => FrameLoopHandle` | RAF wrapper. Records `_frameStart`/`_frameEnd` around the callback. Auto-pauses on `document.hidden` by default. |
 | `fixedClock` | `(opts: { fixedDtMs: number; maxCatchupTicks?: number }) => FixedClock` | A separable fixed-step accumulator (no `ctx` — pure timing state, like an emitter). `advance(deltaMs, onTick) → alpha` runs `onTick(dtSeconds)` zero-or-more times (catch-up capped by `maxCatchupTicks`, default 8, spiral-of-death guarded) and returns `alpha ∈ [0,1)`; `setFixedDtMs` changes the step at runtime. Drive it from inside any render loop. |
 | `FixedClock` | `{ advance(deltaMs, onTick): number; setFixedDtMs(fixedDtMs): void; readonly fixedDtMs: number }` | Returned by `fixedClock`. No lifecycle (plain GC'd timing state). Cold-path throws on non-positive `fixedDtMs` / non-integer `maxCatchupTicks`. |
-| `render` | `(ctx: Context, opts: RenderOptions) => void` | One-shot render pass. Allocates a depth texture and per-camera uniform buffer lazily, sets up `group(0)`, iterates `opts.meshes`, then draws each `opts.instanced` group (after `meshes`, in the same scene pass) as **one** instanced draw call sourcing per-instance model matrix + tint from its instance vertex buffers, and (if `opts.effects` non-empty) evaluates the flattened post chain through pool-backed transient targets to the swap chain. |
-| `drawLines` | `(ctx: Context, opts: DrawLinesOptions) => void` | Immediate `line-list` overlay (Command). Draws `opts.vertices` (flat xyz line-list) colored per-vertex by `opts.colors` (RGBA), transformed by `opts.camera`, as a second pass over the current swap-chain texture (`loadOp:"load"`), against the scene depth with no depth write. Depth mode is set by `opts.occlude` (default `true`): `true` → `depthCompare:"less-equal"` (occluded behind nearer meshes — physics wireframes, AABB highlights); `false` → `depthCompare:"always"` (always-on-top — gizmos). Call after `frame.render` in the same frame. Two pipelines (one per depth mode) + grow-on-demand buffers are engine-owned per context. Warm-path-validate: throws on disposed ctx / null camera / null arrays; empty `vertices` → no-op. |
+| `render` | `(ctx: Context, opts: RenderOptions) => void` | One-shot render pass. Allocates a depth texture and per-camera uniform buffer lazily, sets up `group(0)`, and records draws in a fixed **blend-partitioned order** (F2b): opaque `meshes` → opaque `instanced` groups → blended `meshes` → blended `instanced` (blended = the material carries a `blend` state; submission order preserved within each group — painter's order for translucents, no per-depth sorting). Each `instanced` group is **one** instanced draw call sourcing per-instance model matrix + tint from its instance vertex buffers. If `opts.effects` is non-empty, evaluates the flattened post chain through pool-backed transient targets to the swap chain. |
+| `drawLines` | `(ctx: Context, opts: DrawLinesOptions) => void` | Immediate `line-list` overlay (Command). Draws `opts.vertices` (flat xyz line-list) colored per-vertex by `opts.colors` (RGBA), transformed by `opts.camera`, as a second pass composited over the current frame against the scene depth with no depth write. **MSAA-aware (F2b):** on a `sampleCount: 1` context it targets the swap-chain view directly (`loadOp:"load"`); on a `sampleCount: 4` context it renders into the stored MSAA scene color target and resolves to the swap chain (the effects-less scene pass stores its MSAA color + depth for exactly this — pre-F2b this combination built an invalid pass and every line overlay was silently dropped, see `docs/learnings/2026-07-21-invisible-line-overlays.md`). **Documented limitation:** MSAA + a non-empty post chain + `drawLines` is unsupported — the resolve would clobber post output — and is a once-per-context warn + skip, never frame corruption. Depth mode is set by `opts.occlude` (default `true`): `true` → `depthCompare:"less-equal"` (occluded behind nearer meshes — physics wireframes, AABB highlights); `false` → `depthCompare:"always"` (always-on-top — gizmos). Call after `frame.render` in the same frame. Pipelines (per depth mode, at the context's multisample count) + grow-on-demand buffers are engine-owned per context. Warm-path-validate: throws on disposed ctx / null camera / null arrays; empty `vertices` → no-op. |
 | `renderToTexture` | `(ctx: Context, opts: RenderToTextureOptions) => void` | Like `render`, but the color target is a consumer-supplied `GPUTexture`. Draws `opts.meshes` then each `opts.instanced` group (one instanced draw per group, after `meshes`) into the off-screen target. No post-effects chain. Depth presence must agree with each drawn material's depth state; a mismatch (or a color-target format ≠ the working color format, or a supplied `depthTexture` format ≠ `depth24plus`, or an MSAA context) throws `FurnaceGpuError`. |
 | `encode` | `(ctx: Context, callback: (encoder: GPUCommandEncoder) => void) => void` | Low-level escape hatch: creates a command encoder, hands it to the callback, finishes and submits. Bypasses scene-pass / camera / mesh bookkeeping. Throws if `ctx` is disposed. |
 | `FrameInfo` | `Readonly<{ elapsedMs: number; deltaMs: number }>` | `deltaMs` is capped by `LoopOptions.maxDeltaMs` (default 100). |
@@ -778,28 +778,57 @@ The scene format: a text-JSON document (`SceneDocument`) with typed resource tab
 
 ## `@furnace/core/field`
 
-**v0 (One Field F1+F2a, 2026-07-16) — the surface is deliberately minimal and UNSTABLE;
-the per-export documentation pass + cookbook demo land at F2b when the API stabilizes (a
-One Field charter decision — this row exists so the module is not invisible here).**
+**Graduated at the F2b seal (2026-07-21): documented surface** — TSDoc on every export
+(`check:tsdoc` enforced) is the per-export contract; this section is the grouped map.
+The cookbook `field` demo (`packages/cookbook/src/demos/field/`) proves the public API
+stands alone: dig + paint + snapped masonry fill → mesh buckets + kit skin, rendered
+with no editor imports. Consumers today: the editor's FieldHost + remesh worker, the
+dungeon's v2 field-world loader, and the cookbook demo.
 
 The chunked sparse voxel field: 16³ Int8 density chunks (air-positive, solid-by-default,
 uniform chunks elided — untouched world costs nothing) plus a per-chunk **material
 channel** (uniform|indexed palette encoding behind accessors — `getMaterial` /
 `setMaterial`, `MAT_ROCK` default; `MaterialTable` from the project catalog,
-`BUILTIN_TABLE` rock-only fallback, `validateMaterialTable`/`classOf`). Store + coords
-(`createFieldStore`, `getDensity`/`setDensity`, `extractFieldAprons` — the 20³
-density+material window), **brush ops** dig/fill/paint with kit lattice validation
-(`BrushOp`, `assertOpValid`, `applyOp`, `logApply`, two-channel chunk-keyed undo/redo),
-chunked Surface Nets over the 20³ aprons with owned-crossing quads bucketed per
-owning-cell class incl. the kit **backing** surface (`meshChunkField` — watertight seams
-by construction), the generic **kit skinner** on the derived coarse view (`skinChunkKit`
-— panels/tiles/posts/collar from catalog kit-style data), voxel DDA (`raycastField`),
-per-chunk shell colliders (`chunkColliders` — density-only, material classes never
-affect collision), and the artifact (`encodeChunkFile`/`decodeChunkFile`,
-`encodeMaterialFile`/`decodeMaterialFile`, oplog serialize/parse with F1 legacy-op
-mapping, `bakeFieldWorld` — pure; the manifest embeds the resolved material table).
-TSDoc on every export (`check:tsdoc` covers the module automatically). Consumers today:
-the editor's FieldHost + remesh worker, and the dungeon's v2 field-world loader.
+`BUILTIN_TABLE` rock-only fallback, `validateMaterialTable`/`classOf`).
+
+- **Store + coords** — `createFieldStore`, `getDensity`/`setDensity`,
+  `extractFieldAprons` (the 20³ density+material window), `chunkKey`/`parseChunkKey`,
+  `voxelChunk`, `worldToVoxel`/`sampleToWorld`, `AIR`/`SOLID`.
+- **The op log (F2b: one log, op-list undo)** — the `FieldOp` union = `BrushOp |
+  EntityOp` (`isBrushOp` narrows). **Brush effects**: dig / fill / paint / **smooth**
+  (`SmoothParams` — max-delta-clamp strength doubling as the thin-wall guard,
+  iterations, both|erode|fill modes, `SMOOTH_DEFAULTS`; density-only, never materials).
+  Fill takes an optional **`hollow`** shell-band thickness (non-destructive: interior
+  skipped, never dug; kit shells validate to 0.5 m multiples). **Masks** (`BrushMask`:
+  organic-only / kit-only / class / solid-only / selection-embedding) evaluate per
+  sample and ride the op record — a masked op replays identically; `solid-only` is the
+  keep-existing-air building block. Kit lattice validation is per-op and re-checked by
+  the applier (`assertOpValid`). `applyOp`, `logApply`, `undo`/`redo` (undo entries are
+  op LISTS — one entry per generator commit), `opBounds`, `createOpLog`.
+- **Selection** — `SelectionSpec` (region | flood-material | flood-void) →
+  `materializeSelection` (6-connected BFS, budget-capped LOUDLY via `truncated`, ceiling
+  `MAX_SELECTION_BUDGET`; pure query) + `selectionHas`; `MaterializedSelection` keeps
+  regions as predicates and floods as chunk-keyed bitsets. Deterministic and embeddable
+  in op masks (floods re-evaluate against replayed state).
+- **Staged generators (F2b: the first entity ops)** — `FIELD_GENERATORS` registry
+  (`generatorById`, setup-loud): data-parameterized hall + maze (`GeneratorDef` — plain
+  JSON-Schema params; integer-only maze RNG, donor bit-parity), `evaluate` → a span of
+  lattice-snapped brush ops with a `MergePolicy` (replace | keep-existing-air).
+  `commitGenerator` applies the span + records the `EntityOp`
+  (`GeneratorEntity`: generator id, params, seed, region, opSpan — full provenance;
+  reconfigure is F3) under ONE undo entry. The runtime ignores entity ops until F3.
+- **Mesh + skin** — chunked Surface Nets over the 20³ aprons with owned-crossing quads
+  bucketed per owning-cell class incl. the kit **backing** surface (`meshChunkField` —
+  watertight seams by construction); the generic **kit skinner** on the derived coarse
+  view (`skinChunkKit` — panels/tiles/posts/collar from catalog kit-style data,
+  `variantHash` tint jitter).
+- **Raycast + collision** — voxel DDA (`raycastField`, optional `maxY` display-slice
+  clip — cells at/above read as air for targeting); per-chunk shell colliders
+  (`chunkColliders` — density-only, material classes never affect collision).
+- **Artifact** — `encodeChunkFile`/`decodeChunkFile`,
+  `encodeMaterialFile`/`decodeMaterialFile`, oplog serialize/parse (the `FieldOp` union;
+  F1 legacy-op mapping), `bakeFieldWorld` (pure; the manifest embeds the resolved
+  material table).
 
 ---
 

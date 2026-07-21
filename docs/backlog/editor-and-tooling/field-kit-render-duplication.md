@@ -11,8 +11,15 @@ When it lands, extract a shared `@furnace/core/field` kit-render helper — whic
 unifies the litInstanced normal-shortcut invariant (uniform-scale precondition comment
 currently duplicated) and a shared unit-cube geometry.
 
-**Trigger to revisit:** a third kit-render consumer, OR any F2b task touching kit
-rendering — whichever fires first.
+**F2b update (2026-07-21):** the third consumer did NOT materialize — stamp ghosts
+render surface buckets only (no kit pieces, a documented v0 choice), and F2b's Task 9
+extracted the editor's copy into a testable module
+(`packages/editor/src/viewport-host/field-kit-render.ts`) without crossing packages.
+Still two consumers (editor module + dungeon `field-world.ts`); the rule holds, entry
+stands.
+
+**Trigger to revisit:** a third kit-render consumer — first candidates: kit pieces in
+stamp ghosts (F3 reconfigure era) or the F2b cookbook field demo growing a kit skin.
 
 **Reference:** `packages/editor/src/viewport-host/field-host.ts` (buildKit path),
 `packages/dungeon/src/field-world.ts` (kit instance loading), executor flag #2 in the

@@ -399,10 +399,10 @@ function renderFrame(
   });
 
   // Collider overlay draws directly onto the swap chain after the post chain's
-  // final pass wrote the tonemapped image. NOTE (Safari gate): under MSAA the
-  // drawLines pipeline is single-sample but the engine depth texture is 4×,
-  // which is a sample-count mismatch — see the report. Functions cleanly with
-  // MSAA off; flag for the gate.
+  // final pass wrote the tonemapped image. Under MSAA + a post chain, drawLines
+  // is a documented warn-once SKIP (the resolve would clobber post output —
+  // F2b fix, see core-modules.md drawLines row): overlay absent, image correct.
+  // Functions fully with MSAA off.
   if (debugControls.showColliders) {
     const dl = physics.getDebugLines(ctx, state.world);
     frame.drawLines(ctx, {
