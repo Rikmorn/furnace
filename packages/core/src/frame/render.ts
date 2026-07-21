@@ -317,7 +317,9 @@ function _writeSceneBuffer(
 /** Internal — shared fields of the render commands. Not a public export. */
 export type RenderPassBase = {
   /** Meshes to render, in order. The engine submits them as one render pass
-   *  with no automatic sorting — caller controls draw order. */
+   *  and never depth-sorts — the caller controls draw order. `frame.render`
+   *  additionally records blended (translucent) materials after every opaque
+   *  draw; see its draw-order note. */
   meshes: Mesh[];
   /** Camera whose view/projection matrices populate `@group(0) @binding(0)`
    *  for each draw (see `engine-conventions.md` §"Binding contract"). */
@@ -338,15 +340,17 @@ export type RenderPassBase = {
  * Options accepted by {@link render}.
  *
  * - `meshes`: meshes to render, in order. The engine submits them as one render
- *   pass with no automatic sorting — caller controls draw order.
+ *   pass and never depth-sorts — the caller controls draw order, except that
+ *   materials carrying a `blend` state are recorded after every opaque draw
+ *   (see {@link render}'s draw-order note).
  * - `camera`: camera whose view/projection matrices populate `@group(0)
  *   @binding(0)` for each mesh (see `engine-conventions.md` §"Binding
  *   contract").
- * - `instanced`: optional instanced draw groups, recorded after `meshes` in
- *   the same scene pass. Each is drawn as one instanced draw call sourcing its
- *   per-instance model matrix + tint from the instance vertex buffers (slots
- *   1/2). Resolved against the dedicated instanced-mesh pool — never inferred
- *   from a shared handle.
+ * - `instanced`: optional instanced draw groups, recorded after `meshes`
+ *   within their opaque/blended group in the same scene pass. Each is drawn
+ *   as one instanced draw call sourcing its per-instance model matrix + tint
+ *   from the instance vertex buffers (slots 1/2). Resolved against the
+ *   dedicated instanced-mesh pool — never inferred from a shared handle.
  * - `effects`: optional post-process chain. When non-empty the scene is
  *   rendered to a pool-backed off-screen target and evaluated through the
  *   effects' passes (a flattened linear sequence) to the swap chain. Each
@@ -364,10 +368,11 @@ export type RenderPassBase = {
  */
 export type RenderOptions = RenderPassBase & {
   effects?: Effect[];
-  /** Instanced draw groups, recorded after `meshes` in the same scene pass.
-   *  Each is drawn as one instanced draw call (per-instance transform + tint
-   *  from the instance vertex buffers). Emissive groups flow through the post
-   *  chain like any other drawable. */
+  /** Instanced draw groups, recorded after `meshes` within their
+   *  opaque/blended group in the same scene pass. Each is drawn as one
+   *  instanced draw call (per-instance transform + tint from the instance
+   *  vertex buffers). Emissive groups flow through the post chain like any
+   *  other drawable. */
   instanced?: InstancedMesh[];
   /** Per-frame lights. Omitted/empty → ambient-only. Clamped to `MAX_LIGHTS`
    *  (16) with a once-only `log.warn` (never throws — render hot path). */
@@ -541,6 +546,7 @@ export const _frameRenderInternals = {
   _validateInstancedDraw: validateInstancedDraw,
   _recordInstancedDraw: recordInstancedDraw,
   _firstDepthDisagreement: firstDepthDisagreement,
+  _partitionBlendedLast: partitionBlendedLast,
 };
 
 /**
@@ -811,6 +817,59 @@ function firstDepthDisagreement(
   return -1;
 }
 
+/**
+ * Reorder resolved draws into scene-pass record order: every opaque draw
+ * before every blended one, in four groups — opaque meshes, opaque instanced,
+ * blended meshes, blended instanced ("blended" = the draw's material was
+ * created with a `blend` state, see `MaterialSlot.blended`).
+ *
+ * Why: a translucent draw usually disables depth write, so it leaves nothing
+ * in the depth buffer to reject the fragments of anything recorded after it —
+ * an opaque draw that follows simply overdraws it. Recording all opaques first
+ * is what makes a translucent overlay survive the geometry around it.
+ *
+ * Stable: submission order is preserved inside each group. v0 — explicitly NOT
+ * depth-sorted; two overlapping translucent surfaces still composite in the
+ * order the caller supplied them.
+ *
+ * Query only — mutates nothing. Returns the input array itself when no draw is
+ * blended, so an opaque-only frame records in exactly its submission order at
+ * no allocation cost.
+ */
+function partitionBlendedLast(
+  resolvedDraws: readonly ResolvedDraw[],
+): readonly ResolvedDraw[] {
+  let anyBlended = false;
+  for (const draw of resolvedDraws) {
+    if (draw.material.blended) {
+      anyBlended = true;
+      break;
+    }
+  }
+  if (!anyBlended) return resolvedDraws;
+
+  const opaqueMeshes: ResolvedDraw[] = [];
+  const opaqueInstanced: ResolvedDraw[] = [];
+  const blendedMeshes: ResolvedDraw[] = [];
+  const blendedInstanced: ResolvedDraw[] = [];
+  for (const draw of resolvedDraws) {
+    if (draw.material.blended) {
+      if (draw.kind === "instanced") blendedInstanced.push(draw);
+      else blendedMeshes.push(draw);
+    } else if (draw.kind === "instanced") {
+      opaqueInstanced.push(draw);
+    } else {
+      opaqueMeshes.push(draw);
+    }
+  }
+  return [
+    ...opaqueMeshes,
+    ...opaqueInstanced,
+    ...blendedMeshes,
+    ...blendedInstanced,
+  ];
+}
+
 function recordScenePass(
   ctx: Context,
   encoder: GPUCommandEncoder,
@@ -880,6 +939,17 @@ function recordScenePass(
  *   true })`); pipelines that don't never see it, so their group-0 bind group
  *   has only binding 0.
  *
+ * Draw order — the scene pass records in four groups: opaque meshes, opaque
+ * instanced, then blended meshes, blended instanced (a draw is "blended" when
+ * its material was created with a `blend` state). Submission order is
+ * preserved inside each group. Blended draws go last because they typically
+ * disable depth write, leaving nothing to reject the fragments of an opaque
+ * draw recorded after them. There is deliberately NO depth sorting in v0 — two
+ * overlapping translucent surfaces composite in the order supplied, so a
+ * caller that needs back-to-front must order them itself. Shadow passes are
+ * unaffected: they consume the submission-order list (depth-only, so record
+ * order does not change their result).
+ *
  * Setup-loud per the foreground failure policy. The draw and effects
  * lists are validated up front; `validateDraw` resolves each mesh's
  * material and geometry slots in the same pass so the per-draw loop
@@ -933,6 +1003,8 @@ export function render(ctx: Context, opts: RenderOptions): void {
     ...validateDraw(ctx, opts.meshes),
     ...validateInstancedDraw(ctx, opts.instanced ?? []),
   ];
+  // Depth agreement is checked on the SUBMISSION-order list so the reported
+  // index still points at the caller's own ordering.
   const depthMismatch = firstDepthDisagreement(resolvedDraws, true);
   if (depthMismatch !== -1) {
     throw new FurnaceGpuError(
@@ -940,6 +1012,9 @@ export function render(ctx: Context, opts: RenderOptions): void {
         `depth-less materials can only be drawn via renderToTexture without a depthTexture`,
     );
   }
+  // Scene-pass record order: all opaques, then all blended draws (see
+  // partitionBlendedLast). Identical to `resolvedDraws` when nothing blends.
+  const scenePassDraws = partitionBlendedLast(resolvedDraws);
   const effects = opts.effects ?? [];
   const resolvedEffects = validateEffects(ctx, effects);
 
@@ -969,6 +1044,11 @@ export function render(ctx: Context, opts: RenderOptions): void {
   const encoder = ctx.device.createCommandEncoder();
   // Depth-only caster passes run first, into the per-slot shadow array layers,
   // so the main scene pass can sample them. No-op when there are no casters.
+  // Deliberately fed the SUBMISSION-order list, not `scenePassDraws`: a
+  // depth-only pass keeps the nearest fragment regardless of record order, so
+  // partitioning it would change nothing but the recording. Blended meshes
+  // still cast (unchanged behaviour — whether a translucent draw should cast
+  // an opaque shadow is a separate decision, not this fix's).
   _recordShadowPasses(ctx, encoder, casters, resolvedDraws);
 
   // Record which path this frame took, for `drawLines` to read back.
@@ -983,7 +1063,7 @@ export function render(ctx: Context, opts: RenderOptions): void {
       encoder,
       sceneColorView,
       depth.view,
-      resolvedDraws,
+      scenePassDraws,
       cameraBuffer,
       sceneBuffer,
       clearColor,
@@ -1015,7 +1095,7 @@ export function render(ctx: Context, opts: RenderOptions): void {
       encoder,
       sceneColorView,
       depth.view,
-      resolvedDraws,
+      scenePassDraws,
       cameraBuffer,
       sceneBuffer,
       clearColor,

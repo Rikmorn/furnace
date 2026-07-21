@@ -389,6 +389,9 @@ export async function create<L extends LayoutSchema = LayoutSchema>(
     depthWrite,
     depthCompare,
     depthEnabled,
+    // `!= null` mirrors `_blendSignature`'s falsy check, so a material that
+    // keys as "no blend" in the pipeline cache is never classified as blended.
+    blended: descriptor.blend != null,
     usesScene,
     usesShadows,
     userCount: 0,

@@ -82,6 +82,12 @@ export type MaterialSlot = {
   depthWrite: boolean;
   depthCompare: GPUCompareFunction;
   depthEnabled: boolean;
+  /** `true` when the material was created with a `MaterialDescriptor.blend`
+   *  state. A built `GPURenderPipeline` exposes nothing about its blend state,
+   *  so this mirror is the only render-time-readable signal that a draw is
+   *  translucent — `frame.render` uses it to record blended draws after every
+   *  opaque one (see `frame.render`'s draw-order note). */
+  blended: boolean;
   /** Mirror of the shader's `usesScene` — the render path binds the Scene UBO
    *  at `@group(0) @binding(1)` for this material's pipeline when true. */
   usesScene: boolean;
