@@ -51,6 +51,7 @@ export type {
   StampRegion,
   StampSession,
 } from "./field-stamp.ts";
+export type { NudgeSteps } from "./input-map.ts";
 export {
   createPreviewHost,
   type PreviewContent,

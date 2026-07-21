@@ -3,12 +3,14 @@
 // its callbacks funnel into ONE host.updateStamp — the viewport's stamp ghost
 // IS the preview (there is no separate commit target until Enter), and the
 // host's coalescer collapses drag bursts. Below the form: the hand-editable
-// seed + the ⚄ re-roll, the merge-policy select, the phase/opCount/error
-// status (+ the truncated-selection warning), and Commit/Cancel — whose
-// keyboard twins (Enter/Esc) live on the CANVAS keydown, so the titles say so.
+// seed + the ⚄ re-roll, the merge-policy select, the placement nudge cluster,
+// the phase/opCount/error status (+ the truncated-selection warning), and
+// Commit/Cancel — whose keyboard twins (Enter/Esc, and the arrows for the
+// nudges) live on the CANVAS keydown, so the titles say so.
 import type { MergePolicy } from "@furnace/core/field"; // type-only: erased
 import type {
 	FieldGeneratorInfo,
+	NudgeSteps,
 	StampSession,
 } from "../../../viewport-host/index.ts"; // type-only: erased
 import { SchemaForm } from "../../inspector/index.tsx";
@@ -35,13 +37,10 @@ const PHASE_LABEL: Record<StampSession["phase"], string> = {
 	ready: "ready",
 };
 
-/** Whole lattice steps per WORLD axis — what host.nudgeStamp takes (STEPS, not
- *  metres; one step is 0.5 m). */
-type NudgeSteps = [number, number, number];
-
 // The placement nudges as axis PAIRS, so the cluster reads as three axes
-// rather than six loose buttons. World axes, matching the viewport's arrow
-// keys — camera-relative nudging is deliberately not v0.
+// rather than six loose buttons. The steps and their key twins mirror
+// arrowNudgeSteps (input-map.ts), which is the canonical binding — these are
+// its button labels, not a second source of truth.
 const NUDGE_AXES: {
 	axis: string;
 	minus: { steps: NudgeSteps; key: string };
@@ -64,6 +63,11 @@ const NUDGE_AXES: {
 	},
 ];
 
+// 24px, below the panel's 32px (size="sm") norm: six of these sit in ONE row
+// as a compact d-pad, and at 32px they read as six peers of Commit rather than
+// as one control cluster. The only Button height override in this directory —
+// deliberate, and scoped to this cluster. font-mono keeps −X/+X from shifting
+// width between the sign glyphs.
 const NUDGE_BUTTON_CLASS = "h-6 px-2 font-mono";
 
 export function StampInspector(props: {
@@ -170,10 +174,16 @@ export function StampInspector(props: {
 				</label>
 			</div>
 			{/* Placement: the region moves, the params don't — one 0.5 m lattice
-			    step per press, both corners, so the size never changes. The
-			    viewport's arrow keys are the same seam; the hint below names them
-			    because the canvas has to be focused for them to land. */}
-			<div className="flex flex-wrap items-center gap-3">
+			    step per press, both corners, so the size never changes. The key
+			    hint rides INSIDE this row rather than as its own paragraph: as a
+			    second muted line it stacked against the phase/opCount line below
+			    and made the card's only LIVE text read as boilerplate. */}
+			{/* biome-ignore lint/a11y/useSemanticElements: role="group" is the intended ARIA grouping for this control row; a native <fieldset>/<legend> would force the boxed-card look this flat UI deliberately avoids */}
+			<div
+				className="flex flex-wrap items-center gap-3"
+				role="group"
+				aria-label="nudge the stamp region"
+			>
 				<span className={LABEL_CLASS}>nudge</span>
 				{NUDGE_AXES.map(({ axis, minus, plus }) => (
 					<span key={axis} className="flex items-center gap-1">
@@ -201,10 +211,10 @@ export function StampInspector(props: {
 						</Button>
 					</span>
 				))}
+				<span className="text-xs text-muted-foreground">
+					in the viewport: ←/→ move X, ↑/↓ move Z, ⇧↑/⇧↓ move Y — 0.5 m a press
+				</span>
 			</div>
-			<p className="text-xs text-muted-foreground">
-				in the viewport: ←/→ move X, ↑/↓ move Z, ⇧↑/⇧↓ move Y — 0.5 m a press
-			</p>
 			<p className="text-xs text-muted-foreground">
 				{PHASE_LABEL[session.phase]}
 				{session.opCount !== null && (

@@ -81,6 +81,17 @@ test("arrowNudgeSteps: non-arrow keys return null (the handler falls through)", 
     expect(arrowNudgeSteps({ key, shiftKey: false })).toBeNull();
 });
 
+test("arrowNudgeSteps: Object.prototype member names return null, not garbage", () => {
+  // The lookup key is caller-supplied. Against a plain object literal these
+  // names resolve through the prototype chain to a truthy non-entry, so the
+  // undefined check passes and the caller nudges by garbage (the host's
+  // `!== null` guard would admit it and nudgeRegion would throw). A Map has
+  // no chain to inherit through. Unreachable from a real KeyboardEvent.key —
+  // this pins the hardening, not a live bug.
+  for (const key of ["constructor", "valueOf", "toString", "__proto__"])
+    expect(arrowNudgeSteps({ key, shiftKey: false })).toBeNull();
+});
+
 test("arrowNudgeSteps: case-insensitive — the raw KeyboardEvent.key works", () => {
   // The host hands it the event directly; other branches lowercase separately.
   expect(arrowNudgeSteps({ key: "arrowup", shiftKey: false })).toEqual(

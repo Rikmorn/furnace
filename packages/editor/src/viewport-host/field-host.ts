@@ -254,8 +254,8 @@ export type FieldHost = {
    *
    *  Camera-relative mapping is deliberately NOT v0: world axes stay
    *  predictable whatever the fly camera is doing and match the region numbers
-   *  everything else in the field surfaces. The viewport binds ←/→ to ∓X,
-   *  ↑/↓ to ∓Z and ⇧↑/⇧↓ to ±Y; the inspector's buttons call the same seam.
+   *  everything else in the field surfaces. The viewport's arrow bindings live
+   *  in `arrowNudgeSteps`; the inspector's buttons call this same seam.
    *
    *  Supersedes any in-flight preview (its response is dropped — the run
    *  bumps like a params change). No-op without a session. */
@@ -1994,19 +1994,7 @@ export function createFieldHost(): FieldHost {
       }
       return;
     }
-    // Arrow keys nudge the STAMP REGION one 0.5 m lattice step on WORLD axes.
-    // The sign table itself lives in input-map.ts (arrowNudgeSteps) so it is
-    // unit-testable — a flipped sign is this feature's likeliest defect and
-    // nothing reachable from bun:test drives THIS handler (attachListeners
-    // only runs after a real GPU init).
-    // Sits between Enter/Esc and every fallthrough for the same reason they do
-    // — it is session-scoped, and neither the fly set nor [ / ] claims an
-    // arrow. Without a session the branch declines exactly as Enter/Esc does:
-    // no preventDefault, so the browser keeps its own arrow behaviour
-    // (scroll/caret) on a canvas that isn't running a placement.
-    // Key REPEAT is the hold-to-nudge behaviour ([ / ] precedent); each repeat
-    // supersedes the last, and the preview coalescer collapses the burst into
-    // one in-flight job plus at most one trailing re-fire.
+    // Arrow keys nudge the stamp region (bindings: arrowNudgeSteps).
     // Chord-guarded on THREE modifiers, one more than the [ / ] precedent:
     // ⌘←/⌘→ are back/forward and ⌘↑/⌘↓ are document home/end on macOS, and
     // ALT+←/→ is back/forward on Windows and Linux. [ / ] needs no alt guard

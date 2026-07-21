@@ -91,10 +91,14 @@ export type RegionBox = {
 /**
  * Translate a region AABB by whole 0.5 m lattice steps — the stamp's nudge
  * (arrow keys / the inspector's buttons). BOTH corners move, so the region
- * keeps its size and stays on the lattice {@link snapSpan} put it on:
- * generators anchor at `min`, and an off-lattice anchor forfeits the built-kit
- * determinism the snap buys. Steps are rounded to whole numbers for the same
- * reason — the lattice invariant is the point, not the caller's arithmetic.
+ * keeps its size and stays on the lattice {@link snapSpan} put it on. Steps
+ * are rounded to whole numbers to hold that invariant.
+ *
+ * What an off-lattice `min` would actually cost is CORRESPONDENCE, not
+ * determinism: generators floor their own anchor (core's `snapDown`), and
+ * preview and commit run the same evaluate, so an off-lattice region still
+ * builds reproducibly — it just builds up to 0.5 m from where the region box
+ * says it will, silently.
  *
  * Exactness: 0.5 is representable, so an already-snapped corner plus `n·0.5`
  * is exact for every magnitude a world reaches.

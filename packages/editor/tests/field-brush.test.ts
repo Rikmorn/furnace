@@ -92,8 +92,9 @@ test("nudgeRegion preserves the region's SIZE, whatever the steps", () => {
 });
 
 test("nudgeRegion keeps a lattice-snapped region ON the lattice", () => {
-  // 0.5 is exactly representable, so repeated ±n·0.5 never drifts off-grid —
-  // generators anchor at min, so an off-lattice corner would break kit determinism.
+  // 0.5 is exactly representable, so repeated ±n·0.5 never drifts off-grid.
+  // Drift wouldn't break determinism (generators floor their own anchor) — it
+  // would silently build up to 0.5 m off from the region the user placed.
   let region = {
     min: [-0.5, 0, 1.5] as [number, number, number],
     max: [2, 1.5, 4] as [number, number, number],
