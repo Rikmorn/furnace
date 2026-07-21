@@ -446,8 +446,14 @@ test("the control sections share ONE bounded scroll container; the canvas cell i
 	expect(controls.contains(screen.getByLabelText("world name"))).toBe(false);
 	// …and neither does the canvas, which grows into whatever the cap leaves.
 	expect(controls.contains(canvas)).toBe(false);
-	for (const cls of ["flex-1", "min-h-0"])
+	for (const cls of ["flex-1", "min-h-24"])
 		expect(canvas.classList.contains(cls)).toBe(true);
+	// The floor is NOT interchangeable with min-h-0, which reads like one but is
+	// its absence. Below ~287px of panel the cap alone leaves the cell at zero,
+	// and a zero CSS box post-init reaches core's unclamped resize path
+	// (canvas.width = 0 → createTexture 0×0). Pinned so a future "min-h-0 is the
+	// flex idiom" cleanup trips here instead of faulting the device at runtime.
+	expect(canvas.classList.contains("min-h-0")).toBe(false);
 	// The tall extreme: a stamp session adds the generator form to the stack —
 	// it lands INSIDE the bounded container, so the canvas cell is untouched.
 	act(() => {

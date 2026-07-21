@@ -455,8 +455,17 @@ export function FieldPanel() {
 			{/* The FieldHost renders into this canvas. tabIndex makes it focusable so the WASD/QE
           fly + ⌘Z undo keydowns the host attaches actually reach it (Task 9 review flagged
           this as a Task 10 responsibility). Absolute-fill inside a positioned flex cell so
-          the canvas always has a non-zero client box at GPU init (bindToCanvas rejects zero). */}
-			<div className="relative min-h-0 flex-1">
+          the canvas always has a non-zero client box at GPU init (bindToCanvas rejects zero).
+          min-h-24 is that "non-zero" as a HARD floor, not an aspiration — flex never shrinks
+          an item below its min-height, so the cell keeps a 96px box at ANY panel height. It is
+          load-bearing POST-init too: core's resize path floors the backing store straight off
+          the CSS box (gpu/resize.ts computeResizeEvent → canvas.width = 0) and the next frame
+          hands that 0 to createTexture (frame/render.ts _ensureDepthTexture) — neither clamps,
+          so a panel dragged short would fault the device, not merely hide the view. NOT min-h-0:
+          that reads like a floor but is the ABSENCE of one. The cell has no in-flow content (the
+          canvas is absolute), so the floor is the only thing between it and zero, and it costs
+          nothing above ~287px panel height, where the controls cap binds first. */}
+			<div className="relative min-h-24 flex-1">
 				<canvas
 					ref={canvasRef}
 					tabIndex={0}
