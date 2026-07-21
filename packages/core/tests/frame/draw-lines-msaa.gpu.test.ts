@@ -64,14 +64,15 @@ function spyOnRenderPasses(ctx: gpu.Context): EncoderSpy {
 }
 
 /**
- * The scene pass is the only one that resolves — post-chain passes render
- * straight into single-sample targets, so a non-undefined `resolveTarget`
- * identifies it on a multisampled context in either render branch.
+ * The scene pass is the only one carrying BOTH a colour and a depth attachment:
+ * post-chain passes are colour-only, and shadow-caster passes are depth-only
+ * (`colorAttachments: []`). That holds on 1x and 4x contexts alike — unlike
+ * `resolveTarget`, which only ever exists when multisampled.
  */
 function findScenePass(descriptors: readonly GPURenderPassDescriptor[]) {
   for (const descriptor of descriptors) {
     const color = [...descriptor.colorAttachments][0];
-    if (color != null && color.resolveTarget !== undefined) {
+    if (color != null && descriptor.depthStencilAttachment !== undefined) {
       return { color, depth: descriptor.depthStencilAttachment };
     }
   }
@@ -150,6 +151,7 @@ test.skipIf(!bunWebGpuAvailable())(
 
     const scene = findScenePass(spy.descriptors);
     expect(scene).not.toBeNull();
+    expect(scene?.color.resolveTarget).toBeDefined();
     expect(scene?.color.storeOp).toBe("store");
     expect(scene?.depth?.depthStoreOp).toBe("store");
 
@@ -174,8 +176,48 @@ test.skipIf(!bunWebGpuAvailable())(
     // combination outright (asserted below).
     const scene = findScenePass(spy.descriptors);
     expect(scene).not.toBeNull();
+    expect(scene?.color.resolveTarget).toBeDefined();
     expect(scene?.color.storeOp).toBe("discard");
     expect(scene?.depth?.depthStoreOp).toBe("discard");
+
+    post.destroy(ctx, fx);
+    gpu.dispose(ctx);
+  },
+);
+
+test.skipIf(!bunWebGpuAvailable())(
+  "sampleCount:1 scene pass with a post chain stores — the chain samples it directly",
+  async () => {
+    const canvas = await makeOffscreenCanvas();
+    const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
+    const { material } = await makeUnlitMaterial(
+      ctx,
+      vec4.fromValues(1, 0, 0, 1),
+    );
+    const mesh = meshMod.create(ctx, {
+      geometry: geometry.cube(ctx),
+      material,
+    });
+    const cam = camera.perspective({
+      aspect: 1,
+      position: vec3.fromValues(0, 0, 3),
+    });
+    const fx = await post.create(ctx, {
+      shader: await shader.create(ctx, PASSTHROUGH_WGSL),
+    });
+
+    const spy = spyOnRenderPasses(ctx);
+    render(ctx, { meshes: [mesh], camera: cam, effects: [fx] });
+    spy.restore();
+
+    // Without MSAA there is no resolve: the scene renders STRAIGHT into the
+    // pool target the chain samples, so discarding it would feed the chain
+    // undefined contents. This is bowling's shipped config with MSAA off.
+    const scene = findScenePass(spy.descriptors);
+    expect(scene).not.toBeNull();
+    expect(scene?.color.resolveTarget).toBeUndefined();
+    expect(scene?.color.storeOp).toBe("store");
+    expect(scene?.depth?.depthStoreOp).toBe("store");
 
     post.destroy(ctx, fx);
     gpu.dispose(ctx);
