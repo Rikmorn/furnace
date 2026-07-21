@@ -1,10 +1,12 @@
 import { expect, test } from "bun:test";
+import * as binding from "../../src/binding/index.ts";
 import * as camera from "../../src/camera/index.ts";
 import { render } from "../../src/frame/render.ts";
 import * as geometry from "../../src/geometry/index.ts";
 import * as gpu from "../../src/gpu/index.ts";
 import { create } from "../../src/material/material.ts";
 import * as mesh from "../../src/mesh/index.ts";
+import * as shader from "../../src/shader/index.ts";
 import { create as createShader } from "../../src/shader/shader.ts";
 import {
   bunWebGpuAvailable,
@@ -47,6 +49,40 @@ test.skipIf(!bunWebGpuAvailable())(
     expect(() => render(ctx, { meshes: [m], camera: cam })).toThrow(
       /depthEnabled:false/,
     );
+    gpu.dispose(ctx);
+  },
+);
+
+test.skipIf(!bunWebGpuAvailable())(
+  "frame.render names the offending INSTANCED group, not a mesh index",
+  async () => {
+    // The check runs on the concatenated meshes ++ instanced list, so the
+    // index must be translated back to the caller's own array before it is
+    // reported — otherwise `instanced[0]` after one mesh reads as `meshes[1]`.
+    const ctx = await gpu.requestContext(await makeOffscreenCanvas(), {
+      surfaceFormat: "linear",
+    });
+    const cam = camera.perspective({ aspect: 1 });
+    const ok = await meshWith(ctx, true);
+
+    const instShader = await shader.unlitInstanced(ctx);
+    const bind = binding.create(ctx, instShader);
+    binding.set(ctx, bind, { color: [1, 1, 1, 1] });
+    const instMat = await create(ctx, {
+      shader: instShader,
+      binding: bind,
+      depth: false,
+    });
+    const geo = geometry.cube(ctx);
+    const im = mesh.createInstanced(ctx, {
+      geometry: geo,
+      material: instMat,
+      count: 1,
+    });
+
+    expect(() =>
+      render(ctx, { meshes: [ok], instanced: [im], camera: cam }),
+    ).toThrow(/instanced\[0\] was created with depthEnabled:false/);
     gpu.dispose(ctx);
   },
 );

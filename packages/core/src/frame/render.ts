@@ -547,6 +547,7 @@ export const _frameRenderInternals = {
   _recordInstancedDraw: recordInstancedDraw,
   _firstDepthDisagreement: firstDepthDisagreement,
   _partitionBlendedLast: partitionBlendedLast,
+  _drawLabel: drawLabel,
 };
 
 /**
@@ -818,15 +819,42 @@ function firstDepthDisagreement(
 }
 
 /**
+ * Name a draw index from the concatenated `meshes ++ instanced` list as the
+ * caller's own slot: `meshes[i]` below `meshCount`, `instanced[j]` above it.
+ * Diagnostics run on the concatenated list, so without this an offending
+ * instanced group is reported as a mesh index the caller cannot resolve.
+ */
+function drawLabel(index: number, meshCount: number): string {
+  return index < meshCount
+    ? `meshes[${index}]`
+    : `instanced[${index - meshCount}]`;
+}
+
+/**
  * Reorder resolved draws into scene-pass record order: every opaque draw
  * before every blended one, in four groups — opaque meshes, opaque instanced,
  * blended meshes, blended instanced ("blended" = the draw's material was
  * created with a `blend` state, see `MaterialSlot.blended`).
  *
- * Why: a translucent draw usually disables depth write, so it leaves nothing
- * in the depth buffer to reject the fragments of anything recorded after it —
- * an opaque draw that follows simply overdraws it. Recording all opaques first
- * is what makes a translucent overlay survive the geometry around it.
+ * Why: a blended draw usually disables depth write, so it leaves nothing in
+ * the depth buffer to reject the fragments of anything recorded after it — an
+ * opaque draw that follows simply overdraws it. Recording all opaques first is
+ * what makes a translucent overlay survive the geometry around it.
+ *
+ * The predicate is BLEND, not depth-write, which is how shipped engines queue:
+ * a blend state is the declaration "this draw composites with what is behind
+ * it". Two consequences are deliberate — an opaque-equivalent blend state
+ * (`src=one, dst=zero`) still sorts as blended, and an opaque material that
+ * merely sets `depth: { write: false }` exhibits the same hazard but is NOT
+ * moved. Widening the predicate to depth-write would drag depth-only tricks
+ * (decals, skyboxes) into the translucent group.
+ *
+ * The mesh/instanced axis is currently a NO-OP: `render` builds its list as
+ * `[...meshes, ...instanced]`, so every mesh draw already precedes every
+ * instanced one and a stable two-group partition would produce byte-identical
+ * output. It is spelled out anyway so `RenderOptions.instanced`'s "recorded
+ * after `meshes` within their group" promise holds LOCALLY here, rather than
+ * depending on how the caller happened to concatenate the list.
  *
  * Stable: submission order is preserved inside each group. v0 — explicitly NOT
  * depth-sorted; two overlapping translucent surfaces still composite in the
@@ -944,11 +972,13 @@ function recordScenePass(
  * its material was created with a `blend` state). Submission order is
  * preserved inside each group. Blended draws go last because they typically
  * disable depth write, leaving nothing to reject the fragments of an opaque
- * draw recorded after them. There is deliberately NO depth sorting in v0 — two
- * overlapping translucent surfaces composite in the order supplied, so a
- * caller that needs back-to-front must order them itself. Shadow passes are
- * unaffected: they consume the submission-order list (depth-only, so record
- * order does not change their result).
+ * draw recorded after them — but the predicate is the blend state itself, so
+ * an opaque material that merely sets `depth: { write: false }` is NOT moved.
+ * There is deliberately NO depth sorting in v0 — two overlapping translucent
+ * surfaces composite in the order supplied, so a caller that needs
+ * back-to-front must order them itself. Shadow passes are unaffected: they
+ * consume the submission-order list (depth-only, so record order does not
+ * change their result).
  *
  * Setup-loud per the foreground failure policy. The draw and effects
  * lists are validated up front; `validateDraw` resolves each mesh's
@@ -1008,7 +1038,7 @@ export function render(ctx: Context, opts: RenderOptions): void {
   const depthMismatch = firstDepthDisagreement(resolvedDraws, true);
   if (depthMismatch !== -1) {
     throw new FurnaceGpuError(
-      `render: meshes[${depthMismatch}] was created with depthEnabled:false but frame.render always renders with a depth attachment; ` +
+      `render: ${drawLabel(depthMismatch, opts.meshes.length)} was created with depthEnabled:false but frame.render always renders with a depth attachment; ` +
         `depth-less materials can only be drawn via renderToTexture without a depthTexture`,
     );
   }

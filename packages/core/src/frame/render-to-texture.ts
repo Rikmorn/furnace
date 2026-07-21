@@ -42,6 +42,14 @@ import { trianglesForTopology } from "./triangles-for-topology.ts";
  *   Must be format `depth24plus` when supplied; any other format throws
  *   `FurnaceGpuError`.
  *
+ * **Strict submission order — no blend partitioning.** Unlike `frame.render`,
+ * which records blended materials after every opaque draw, this pass records
+ * `meshes` then `instanced` exactly as supplied. A translucent draw submitted
+ * before opaque geometry is therefore overdrawn by it. Deliberate: the
+ * off-screen path serves ID/data passes (e.g. GPU picking) where a reordering
+ * the caller did not ask for is a hazard, not a fix. A consumer that needs
+ * translucent overlays composited here must order its own list opaques-first.
+ *
  * **MSAA contexts not supported:** `renderToTexture` renders a single-sample
  * off-screen pass. When the context was created with `sampleCount: 4`, every
  * material pipeline is multisampled and cannot be drawn in this single-sample
@@ -62,9 +70,10 @@ export type RenderToTextureOptions = RenderPassBase & {
   texture: GPUTexture;
   depthTexture?: GPUTexture;
   /** Instanced draw groups, recorded after `meshes` in the same off-screen
-   *  pass. Each is drawn as one instanced draw call (per-instance transform +
-   *  tint from the instance vertex buffers). Resolved against the dedicated
-   *  instanced-mesh pool. Same invalid-handle semantics as `meshes`. */
+   *  pass — strict submission order, with no blend partitioning (unlike
+   *  `frame.render`). Each is drawn as one instanced draw call (per-instance
+   *  transform + tint from the instance vertex buffers). Resolved against the
+   *  dedicated instanced-mesh pool. Same invalid-handle semantics as `meshes`. */
   instanced?: InstancedMesh[];
 };
 
@@ -244,10 +253,14 @@ export function renderToTexture(
     passHasDepth,
   );
   if (depthMismatch !== -1) {
+    const at = _frameRenderInternals._drawLabel(
+      depthMismatch,
+      opts.meshes.length,
+    );
     throw new FurnaceGpuError(
       passHasDepth
-        ? `renderToTexture: meshes[${depthMismatch}] was created with depthEnabled:false but a depthTexture was provided; omit it or set depthEnabled:true`
-        : `renderToTexture: meshes[${depthMismatch}] uses a depth-enabled material but no depthTexture was provided; pass a depthTexture or set depthEnabled:false`,
+        ? `renderToTexture: ${at} was created with depthEnabled:false but a depthTexture was provided; omit it or set depthEnabled:true`
+        : `renderToTexture: ${at} uses a depth-enabled material but no depthTexture was provided; pass a depthTexture or set depthEnabled:false`,
     );
   }
   // (4) consumer depthTexture must match the format material pipelines declare.

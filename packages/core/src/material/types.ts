@@ -84,9 +84,11 @@ export type MaterialSlot = {
   depthEnabled: boolean;
   /** `true` when the material was created with a `MaterialDescriptor.blend`
    *  state. A built `GPURenderPipeline` exposes nothing about its blend state,
-   *  so this mirror is the only render-time-readable signal that a draw is
-   *  translucent — `frame.render` uses it to record blended draws after every
-   *  opaque one (see `frame.render`'s draw-order note). */
+   *  so this mirror is the only render-time-readable one — `frame.render` uses
+   *  it to record blended draws after every opaque one (see `frame.render`'s
+   *  draw-order note). Strictly "has a blend state", NOT "is translucent":
+   *  an opaque-equivalent blend (`src=one, dst=zero`) reads `true`, and an
+   *  opaque material with `depth: { write: false }` reads `false`. */
   blended: boolean;
   /** Mirror of the shader's `usesScene` — the render path binds the Scene UBO
    *  at `@group(0) @binding(1)` for this material's pipeline when true. */
