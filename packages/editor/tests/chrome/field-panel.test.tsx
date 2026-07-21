@@ -412,18 +412,27 @@ test("the footer shows the selection count + the truncation warning; Clear reach
 
 // --- (i) bounded controls / canvas priority ---------------------------------
 
-/** The two boxes the panel's height budget is split between: the controls
- *  container and the canvas cell that follows it. Throws (rather than
+/** The panel root plus the two boxes its height budget is split between: the
+ *  controls container and the canvas cell that follows it. Throws (rather than
  *  soft-failing an assertion) if the panel's shape changed — every assertion
  *  below is meaningless without it. */
-function layoutBoxes(): { controls: HTMLElement; canvas: HTMLElement } {
+function layoutBoxes(): {
+	root: HTMLElement;
+	controls: HTMLElement;
+	canvas: HTMLElement;
+} {
 	const canvas = screen.getByLabelText("field dig surface").parentElement;
 	const controls = canvas?.previousElementSibling;
-	if (!(canvas instanceof HTMLElement) || !(controls instanceof HTMLElement))
+	const root = canvas?.parentElement;
+	if (
+		!(canvas instanceof HTMLElement) ||
+		!(controls instanceof HTMLElement) ||
+		!(root instanceof HTMLElement)
+	)
 		throw new Error(
 			"field panel shape changed: expected the canvas cell to follow a controls container",
 		);
-	return { controls, canvas };
+	return { root, controls, canvas };
 }
 
 test("the control sections share ONE bounded scroll container; the canvas cell is its sibling", async () => {
@@ -435,8 +444,16 @@ test("the control sections share ONE bounded scroll container; the canvas cell i
 	// What IS assertable is the structure that produces it: the controls stack
 	// capped + self-scrolling, the canvas cell OUTSIDE that cap taking the rest.
 	// Unbounded, a tall StampInspector crushed the canvas to a sliver.
-	const { controls, canvas } = layoutBoxes();
-	for (const cls of ["max-h-[45%]", "min-h-0", "overflow-y-auto"])
+	const { root, controls, canvas } = layoutBoxes();
+	// h-full is the last hop of the containing block chain that makes the cap's
+	// percentage resolve — and the only hop this component owns (the rest is
+	// App/dockview). Without a definite-height parent max-height:45% computes to
+	// none and the cap silently stops existing, with every other assertion green.
+	expect(root.classList.contains("h-full")).toBe(true);
+	// min-h-0 on the container is deliberately NOT pinned: the source calls it
+	// redundant (an overflow!=visible flex item already gets an auto min-size of
+	// 0), so a cleanup dropping it must not fail a test.
+	for (const cls of ["max-h-[45%]", "overflow-y-auto"])
 		expect(controls.classList.contains(cls)).toBe(true);
 	// All three control sections live inside the cap…
 	expect(controls.contains(button("Dig"))).toBe(true); // palette
@@ -448,11 +465,12 @@ test("the control sections share ONE bounded scroll container; the canvas cell i
 	expect(controls.contains(canvas)).toBe(false);
 	for (const cls of ["flex-1", "min-h-24"])
 		expect(canvas.classList.contains(cls)).toBe(true);
-	// The floor is NOT interchangeable with min-h-0, which reads like one but is
-	// its absence. Below ~287px of panel the cap alone leaves the cell at zero,
-	// and a zero CSS box post-init reaches core's unclamped resize path
-	// (canvas.width = 0 → createTexture 0×0). Pinned so a future "min-h-0 is the
-	// flex idiom" cleanup trips here instead of faulting the device at runtime.
+	// The floor is not interchangeable with min-h-0 (mechanism: the canvas-cell
+	// comment in FieldPanel.tsx — kept in ONE place). Both halves are pinned: the
+	// floor present, and min-h-0 ABSENT rather than merely outranked. The absence
+	// is belt-and-braces — emitted CSS orders .min-h-0 before .min-h-24, so both
+	// present already resolves to 96px — but it fails loudly on exactly the
+	// "min-h-0 is the flex idiom" edit it names.
 	expect(canvas.classList.contains("min-h-0")).toBe(false);
 	// The tall extreme: a stamp session adds the generator form to the stack —
 	// it lands INSIDE the bounded container, so the canvas cell is untouched.

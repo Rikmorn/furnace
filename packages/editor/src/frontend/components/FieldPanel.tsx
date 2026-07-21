@@ -379,13 +379,14 @@ export function FieldPanel() {
 			{/* The controls stack (palette + swatches + inspectors + layers + entities)
           is BOUNDED and scrolls inside itself. Unbounded it grew with its tallest
           section — a Hall/Maze StampInspector form starved the canvas below to a
-          sliver (F2b gate reject). max-h-[45%] caps it at 45% of the panel (the
-          root is h-full inside a definite-height dockview panel, so the percentage
-          resolves); the box still sizes to CONTENT under the cap, so a collapsed
-          stack leaves no dead space. min-h-0 (redundant with the auto min-size an
-          overflow!=visible flex item already gets, kept explicit) lets it shrink
-          instead of pushing the canvas out, and overflow-y-auto puts the scroll
-          HERE rather than on the panel. */}
+          sliver (F2b gate reject). max-h-[45%] caps it at 45% of the panel — 45 and
+          not 50 so the canvas keeps the MAJORITY of the height whatever the controls
+          do (the root is h-full inside a definite-height dockview panel, so the
+          percentage resolves); the box still sizes to CONTENT under the cap, so a
+          collapsed stack leaves no dead space. min-h-0 (redundant with the auto
+          min-size an overflow!=visible flex item already gets, kept explicit) lets
+          it shrink instead of pushing the canvas out, and overflow-y-auto puts the
+          scroll HERE rather than on the panel. */}
 			<div className="max-h-[45%] min-h-0 overflow-y-auto">
 				<div className="flex flex-col gap-2 border-b border-border p-2 text-sm">
 					<ToolPalette
@@ -460,8 +461,10 @@ export function FieldPanel() {
           an item below its min-height, so the cell keeps a 96px box at ANY panel height. It is
           load-bearing POST-init too: core's resize path floors the backing store straight off
           the CSS box (gpu/resize.ts computeResizeEvent → canvas.width = 0) and the next frame
-          hands that 0 to createTexture (frame/render.ts _ensureDepthTexture) — neither clamps,
-          so a panel dragged short would fault the device, not merely hide the view. NOT min-h-0:
+          hands that 0 to createTexture (frame/render.ts _ensureDepthTexture) — neither clamps.
+          That is a WebGPU VALIDATION error, not device loss: an invalid texture makes an
+          invalid encoder, so frames break and uncaptured errors spam until the panel grows
+          back, where _ensureDepthTexture's size check reallocates cleanly. NOT min-h-0:
           that reads like a floor but is the ABSENCE of one. The cell has no in-flow content (the
           canvas is absolute), so the floor is the only thing between it and zero, and it costs
           nothing above ~287px panel height, where the controls cap binds first. */}
