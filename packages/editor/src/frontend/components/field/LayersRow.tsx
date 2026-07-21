@@ -25,9 +25,13 @@ const SLICE_STEP = 0.25;
 
 const LABEL_CLASS = "flex items-center gap-1 text-muted-foreground";
 
+const GHOST_SUPPRESSED_TITLE =
+  "brush ghost is hidden while a selection tool is active";
+
 export function LayersRow(props: {
   layers: FieldLayers;
   slice: { enabled: boolean; y: number };
+  ghostSuppressed: boolean;
   onLayers: (next: FieldLayers) => void;
   onSlice: (next: { enabled: boolean; y: number }) => void;
 }) {
@@ -39,18 +43,33 @@ export function LayersRow(props: {
         aria-label="layer visibility"
       >
         layers
-        {LAYERS.map((l) => (
-          <label key={l.key} title={l.title} className={LABEL_CLASS}>
-            <input
-              type="checkbox"
-              checked={props.layers[l.key]}
-              onChange={(e) =>
-                props.onLayers({ ...props.layers, [l.key]: e.target.checked })
-              }
-            />
-            {l.label}
-          </label>
-        ))}
+        {LAYERS.map((l) => {
+          // The ghost layer gates two host paths: the brush/kit-fill ghost
+          // (hidden while a selection tool is armed) AND the stamp hologram
+          // (stays live during a stamp session, no selection-mode gate). So the
+          // checkbox is only truly inert when a selection tool is armed and no
+          // stamp session is active — which is exactly `ghostSuppressed`. Show
+          // it disabled then, instead of letting it read as dead. Presentational
+          // only; the host still owns the actual suppression.
+          const suppressed = l.key === "ghost" && props.ghostSuppressed;
+          return (
+            <label
+              key={l.key}
+              title={suppressed ? GHOST_SUPPRESSED_TITLE : l.title}
+              className={LABEL_CLASS}
+            >
+              <input
+                type="checkbox"
+                checked={props.layers[l.key]}
+                disabled={suppressed}
+                onChange={(e) =>
+                  props.onLayers({ ...props.layers, [l.key]: e.target.checked })
+                }
+              />
+              {l.label}
+            </label>
+          );
+        })}
       </span>
       <label className={LABEL_CLASS}>
         <input

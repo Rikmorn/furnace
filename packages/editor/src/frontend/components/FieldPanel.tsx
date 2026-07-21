@@ -430,6 +430,7 @@ export function FieldPanel() {
         <LayersRow
           layers={layers}
           slice={slice}
+          ghostSuppressed={selectionMode !== null && stamp === null}
           onLayers={onLayers}
           onSlice={onSlice}
         />
