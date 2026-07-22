@@ -152,7 +152,10 @@ function makeStubHost(opts: { generators?: FieldGeneratorInfo[] } = {}) {
 		nudgeStamp: mock(),
 		rerollStamp: mock(),
 		commitStamp: mock(),
+		commitSession: mock(),
 		cancelStamp: mock(),
+		undo: mock(),
+		redo: mock(),
 		clearSelection: mock(),
 		reselect: mock(),
 		newWorld: mock(),
@@ -200,7 +203,10 @@ function makeStubHost(opts: { generators?: FieldGeneratorInfo[] } = {}) {
 		nudgeStamp: calls.nudgeStamp,
 		rerollStamp: calls.rerollStamp,
 		commitStamp: calls.commitStamp,
+		commitSession: calls.commitSession,
 		cancelStamp: calls.cancelStamp,
+		undo: calls.undo,
+		redo: calls.redo,
 		subscribeStamp: (cb) => {
 			cbs.stamp = cb;
 			cb(null);
@@ -263,10 +269,12 @@ function pushEntities(
 	});
 }
 
-/** The one row of a single-entity list (every F3a row test seeds exactly one),
- *  scoped so a label like "Freeze" cannot resolve against another row. */
-const rowButton = (name: string): HTMLButtonElement =>
-	screen.getByRole("button", { name }) as HTMLButtonElement;
+/** One row's action button, resolved by the aria-label that names BOTH the verb
+ *  and the entity — the visible text ("Freeze", "Bake…") repeats on every row,
+ *  so it identifies nothing once a list has two. Genuinely row-scoped: this is
+ *  writable against a multi-row list, which a visible-text lookup was not. */
+const rowButton = (verb: string, entityId: number): HTMLButtonElement =>
+	screen.getByLabelText(`${verb} entity ${entityId}`) as HTMLButtonElement;
 
 /** Render the panel and flush the toolbar's catalog fetch inside act — its
  *  settle (status + Load-gate setState) otherwise lands between assertions as
@@ -429,36 +437,59 @@ test("a frozen row badges its state and refuses Open; a baked row does both too"
 	await showEntities(stub, [FROZEN, BAKED]);
 	expect(screen.getByText("frozen")).toBeTruthy();
 	expect(screen.getByText("baked")).toBeTruthy();
+	// A blocked Open's accessible name carries the reason too (see its own
+	// test), so these match by prefix.
 	const frozenOpen = screen.getByLabelText(
-		"open entity 2",
+		/^open entity 2\b/,
 	) as HTMLButtonElement;
-	const bakedOpen = screen.getByLabelText("open entity 3") as HTMLButtonElement;
+	const bakedOpen = screen.getByLabelText(
+		/^open entity 3\b/,
+	) as HTMLButtonElement;
 	expect(frozenOpen.disabled).toBe(true);
 	expect(bakedOpen.disabled).toBe(true);
 	fireEvent.click(frozenOpen);
 	expect(stub.calls.openEntity).not.toHaveBeenCalled();
 });
 
-test("the row freezes a plain entity and unfreezes a frozen one", async () => {
+test("each row's verbs address ITS OWN entity in a multi-row list", async () => {
 	fetch404();
 	const stub = makeStubHost({ generators: [HALL_GEN] });
-	await showEntities(stub, [ENTITY]);
-	fireEvent.click(rowButton("Freeze"));
-	expect(stub.calls.setEntityFrozen.mock.calls).toEqual([[1, true]]);
-	// The same row, now frozen: the button flips to Unfreeze and asks for false.
-	// This is also the sameEntities guard's test — a flag-only change is the one
-	// the F2b signature (id/generator/seed/opSpan) could not see.
-	pushEntities(stub, [{ ...ENTITY, frozen: true }]);
-	fireEvent.click(rowButton("Unfreeze"));
-	expect(stub.calls.setEntityFrozen.mock.calls.at(-1)).toEqual([1, false]);
+	const second: GeneratorEntity = { ...ENTITY, entityId: 7 };
+	// TWO rows: "Freeze" as visible text is ambiguous here — only the id-bearing
+	// accessible name distinguishes them, which is the whole point of the label
+	// convention (a screen-reader user picking between identical buttons).
+	await showEntities(stub, [ENTITY, second]);
+	fireEvent.click(rowButton("freeze", 7));
+	expect(stub.calls.setEntityFrozen.mock.calls).toEqual([[7, true]]);
+	fireEvent.click(rowButton("bake", 1));
+	expect(stub.calls.bakeEntity).not.toHaveBeenCalled(); // routed to the confirm
+
+	// The frozen row's button flips to Unfreeze and asks for false. This is also
+	// the sameEntities guard's test — a flag-only change is the one the F2b
+	// signature (id/generator/seed/opSpan) could not see.
+	pushEntities(stub, [ENTITY, { ...second, frozen: true }]);
+	fireEvent.click(rowButton("unfreeze", 7));
+	expect(stub.calls.setEntityFrozen.mock.calls.at(-1)).toEqual([7, false]);
 });
 
 test("a baked row disables both verbs — core would refuse them anyway", async () => {
 	fetch404();
 	const stub = makeStubHost({ generators: [HALL_GEN] });
 	await showEntities(stub, [BAKED]);
-	expect(rowButton("Freeze").disabled).toBe(true);
-	expect(rowButton("Bake…").disabled).toBe(true);
+	expect(rowButton("freeze", 3).disabled).toBe(true);
+	expect(rowButton("bake", 3).disabled).toBe(true);
+});
+
+test("a blocked Open carries its reason in the accessible name, not only a title", async () => {
+	fetch404();
+	const stub = makeStubHost({ generators: [HALL_GEN] });
+	await showEntities(stub, [FROZEN]);
+	// The title sits on a non-focusable wrapper span (a disabled button eats
+	// pointer events), so the accessible name is the only channel a screen
+	// reader or keyboard user actually gets.
+	expect(
+		screen.getByLabelText("open entity 2 (frozen — unfreeze it to edit)"),
+	).toBeTruthy();
 });
 
 test("Bake confirms before severing the recipe — cancelling never reaches the host", async () => {
@@ -480,7 +511,7 @@ test("Bake confirms before severing the recipe — cancelling never reaches the 
 	});
 	pushEntities(stub, [ENTITY]);
 	fireEvent.click(screen.getByText("Entities (1)"));
-	fireEvent.click(rowButton("Bake…"));
+	fireEvent.click(rowButton("bake", 1));
 	// The click alone must not bake: the panel routed it into the App confirm.
 	expect(stub.calls.bakeEntity).not.toHaveBeenCalled();
 	const pending = request as ConfirmRequest | null;
@@ -494,7 +525,7 @@ test("Bake confirms before severing the recipe — cancelling never reaches the 
 	expect(stub.calls.bakeEntity.mock.calls).toEqual([[1]]);
 });
 
-test("a reconfigure session commits through applyReconfigure, not commitStamp", async () => {
+test("the commit button reads its mode and routes through the ONE host verb", async () => {
 	fetch404();
 	const stub = makeStubHost({ generators: [HALL_GEN] });
 	await renderPanel(stub);
@@ -506,14 +537,18 @@ test("a reconfigure session commits through applyReconfigure, not commitStamp", 
 	// The card names its destination: the entity, not a fresh stamp.
 	expect(screen.getByText("reconfigure: Hall #1")).toBeTruthy();
 	fireEvent.click(button("Apply"));
-	expect(stub.calls.applyReconfigure).toHaveBeenCalledTimes(1);
+	// The panel does NOT re-derive mode→verb: the host owns that mapping (it
+	// already owns it for Enter), so both labels reach the same seam.
+	expect(stub.calls.commitSession).toHaveBeenCalledTimes(1);
+	expect(stub.calls.applyReconfigure).not.toHaveBeenCalled();
 	expect(stub.calls.commitStamp).not.toHaveBeenCalled();
-	// The stamp path still reads Commit and still routes to commitStamp.
+	// The stamp path still reads Commit, through the same verb.
 	act(() => {
 		stub.fire.stamp(makeSession({ phase: "ready" }));
 	});
 	fireEvent.click(button("Commit"));
-	expect(stub.calls.commitStamp).toHaveBeenCalledTimes(1);
+	expect(stub.calls.commitSession).toHaveBeenCalledTimes(2);
+	expect(stub.calls.commitStamp).not.toHaveBeenCalled();
 });
 
 // --- (f) Commit ready-gating ------------------------------------------------
@@ -531,7 +566,7 @@ test("Commit is disabled until the stamp session reaches ready", async () => {
 	});
 	expect(button("Commit").disabled).toBe(false);
 	fireEvent.click(button("Commit"));
-	expect(stub.calls.commitStamp).toHaveBeenCalledTimes(1);
+	expect(stub.calls.commitSession).toHaveBeenCalledTimes(1);
 });
 
 test("the stamp nudge buttons drive host.nudgeStamp in whole lattice STEPS", async () => {

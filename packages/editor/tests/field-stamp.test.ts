@@ -688,26 +688,115 @@ test("bakeEntity severs the recipe, cancels a live session on it, and refuses a 
   }
 });
 
-test("applyReconfigure is ready-phase + reconfigure-mode only", async () => {
+test("applyReconfigure before the ghost settles is a no-op (and a no-op with no session)", async () => {
+  // The mode half of the guard is NOT exercised here and cannot be headlessly:
+  // reaching a ready STAMP session needs startStamp, which needs a pointer-made
+  // selection. It is also defensive today — a stamp session carries
+  // `entityId: null`, which the same guard line already catches — and the
+  // reachable half (commitStamp on a reconfigure session) has its own test.
   const uninstall = installFakeWorker();
   try {
     const host = createFieldHost();
     const { entityId, ops } = loadCommittedHall(host);
+    const committedSpan = (ops.at(-1) as { entity: GeneratorEntity }).entity
+      .opSpan;
     // No session at all.
     expect(() => host.applyReconfigure()).not.toThrow();
-    expect(host.listEntities()[0]?.opSpan).toEqual(
-      // unchanged: the same span the commit wrote
-      (ops.at(-1) as { entity: GeneratorEntity }).entity.opSpan,
-    );
-    // A session mid-preview (configuring, before the ghost settles) is a no-op:
-    // applying it would commit params the user has not seen evaluated.
+    expect(host.listEntities()[0]?.opSpan).toEqual(committedSpan);
+
+    // A session whose ghost has NOT settled: open it, then CHANGE a param so a
+    // wrongly-landing apply would be visible. Applying here would write params
+    // the user has not seen evaluated.
     host.openEntity(entityId);
-    host.applyReconfigure(); // still previewing — swallowed
+    host.updateStamp({ ...hallParams(), width: 20 }, 7, "replace");
+    host.applyReconfigure(); // phase is `previewing` — swallowed
     await settle();
+    // Two independent witnesses, because the params alone are not enough: a
+    // session opened from provenance holds the SAME params it would write back,
+    // so an apply that wrongly lands is invisible in `params` unless they were
+    // changed first (they were), and invisible in `opSpan` never — every apply
+    // takes a FRESH span from log.nextId.
     expect(host.listEntities()[0]?.params).toEqual(hallParams());
+    expect(host.listEntities()[0]?.opSpan).toEqual(committedSpan);
+
+    // The session itself is intact and now ready — the apply was swallowed, not
+    // consumed — so the same call lands once the ghost has settled.
+    host.applyReconfigure();
+    expect(host.listEntities()[0]?.params).toEqual({
+      ...hallParams(),
+      width: 20,
+    });
+    expect(host.listEntities()[0]?.opSpan).not.toEqual(committedSpan);
   } finally {
     uninstall();
   }
+});
+
+// NOT asserted here (no seam): the same step rebuilds the entity-highlight box,
+// which is GPU-drawn line state with no reader. Verified by construction —
+// stepHistory calls rebuildEntityHighlight, the one function that owns it.
+test("undo/redo step the field's history: the entity is restored and the panel is ticked", async () => {
+  const uninstall = installFakeWorker();
+  try {
+    const host = createFieldHost();
+    const { entityId, params, ops } = loadCommittedHall(host);
+    const committedSpan = (ops.at(-1) as { entity: GeneratorEntity }).entity
+      .opSpan;
+    let ticks = 0;
+    host.subscribeEntities(() => {
+      ticks++;
+    });
+
+    // Reconfigure to a WIDER hall, which also moves the recorded region…
+    host.openEntity(entityId);
+    await settle();
+    host.updateStamp({ ...params, width: 20 }, 7, "replace");
+    await settle();
+    host.applyReconfigure();
+    const reconfigured = host.listEntities()[0];
+    expect(reconfigured?.params).toEqual({ ...params, width: 20 });
+    expect(reconfigured?.opSpan).not.toEqual(committedSpan); // a fresh span
+    const ticksAfterApply = ticks;
+
+    // …and ⌘Z puts every part of it back under ONE step.
+    host.undo();
+    const restored = host.listEntities()[0];
+    expect(restored?.params).toEqual(params);
+    // The span the COMMIT wrote, not the fresh one the apply took: undo
+    // restores the spliced-out ops, it does not re-evaluate.
+    expect(restored?.opSpan).toEqual(committedSpan);
+    expect(restored?.entityId).toBe(entityId); // the id never moves
+    // The tick is the panel's ONLY signal here — an entity-record step can
+    // dirty nothing at all, so no remesh follows it.
+    expect(ticks).toBe(ticksAfterApply + 1);
+
+    // ⇧⌘Z re-applies it.
+    host.redo();
+    expect(host.listEntities()[0]?.params).toEqual({ ...params, width: 20 });
+    expect(ticks).toBe(ticksAfterApply + 2);
+  } finally {
+    uninstall();
+  }
+});
+
+// No fake worker here on purpose: nothing in this flow previews, so nothing
+// spawns one — freeze and its undo touch the log alone.
+test("a freeze/unfreeze step ticks the panel even though it dirties NO chunk", () => {
+  const host = createFieldHost();
+  const { entityId } = loadCommittedHall(host);
+  let ticks = 0;
+  host.subscribeEntities(() => {
+    ticks++;
+  });
+  host.setEntityFrozen(entityId, true);
+  expect(host.listEntities()[0]?.frozen).toBe(true);
+  const ticksAfterFreeze = ticks;
+
+  // The undo entry for a freeze carries an EMPTY dirty set, so nothing
+  // remeshes and the tick is the only way the badge can ever come off.
+  host.undo();
+  expect(host.listEntities()[0]?.frozen).toBeUndefined();
+  expect(ticks).toBe(ticksAfterFreeze + 1);
 });
 
 // ——— preview coalescing (latest-wins in-flight latch) ———

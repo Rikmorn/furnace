@@ -91,9 +91,9 @@ export function StampInspector(props: {
 	 *  step) — the button twin of the viewport's arrow keys. */
 	onNudge: (dx: number, dy: number, dz: number) => void;
 	onReroll: () => void;
-	/** Ends the session: `commitStamp` for a stamp, `applyReconfigure` for a
-	 *  reconfigure — the PANEL routes on the session's mode, so this stays one
-	 *  button with one meaning ("land what the ghost shows"). */
+	/** Ends the session with whichever verb its mode calls for — one button with
+	 *  one meaning ("land what the ghost shows"). The HOST owns that mapping
+	 *  (`commitSession`); nothing here re-derives it from `session.mode`. */
 	onCommit: () => void;
 	onCancel: () => void;
 }) {
@@ -251,7 +251,11 @@ export function StampInspector(props: {
 			    previewed against the field as it stands now while Apply rewinds
 			    this stamp's chunks first. */}
 			{reconfiguring && (
-				<p className="text-xs text-muted-foreground/70">
+				// Full body-muted, NOT muted/70: these two clauses qualify an edit
+				// that rewrites already-committed geometry, so they must read as
+				// text the user is meant to finish — dimmer than the rest of the
+				// card is exactly the treatment that says "boilerplate, skip me".
+				<p className="text-xs text-muted-foreground">
 					merge policy isn't recorded — this opens at Replace; the ghost
 					previews against the current field, Apply rewinds this stamp's chunks
 					first
@@ -267,7 +271,9 @@ export function StampInspector(props: {
             would swallow the tooltip explaining the ready gate. */}
 				<ReasonTip
 					reason={
-						ready ? undefined : "the ghost preview must settle before commit"
+						ready
+							? undefined
+							: `the ghost preview must settle before ${commitLabel.toLowerCase()}`
 					}
 				>
 					<Button

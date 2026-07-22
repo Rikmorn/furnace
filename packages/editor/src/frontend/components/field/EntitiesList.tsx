@@ -12,9 +12,19 @@
 // on HEAD — tests/chrome/menubar.test.tsx fails 6/10 for exactly that reason),
 // so a menu here would ship the two destructive-ish verbs with no test at all.
 // Row density is F4's problem; unverifiable behaviour is this task's.
+//
+// a11y convention for the row: the three ACTION buttons all carry an aria-label
+// naming their verb AND the entity id, because their visible text ("Open",
+// "Freeze", "Bake…") repeats identically on every row — a screen-reader user
+// choosing between six identically-named buttons cannot tell which stamp they
+// are about to sever. The expand button is the exception and needs no label: its
+// visible text already names the stamp it belongs to.
 import type { GeneratorEntity } from "@furnace/core/field"; // type-only: erased
 import { Fragment, useEffect, useState } from "react";
 import { cn } from "../../lib/cn.ts";
+// The shared host/chrome rule for what blocks a reconfigure. A chrome-side lib
+// module on purpose (see its header): the host imports it, never the reverse.
+import { openBlockedReason } from "../../lib/field-entity.ts";
 import { CollapsibleSection } from "../CollapsibleSection.tsx";
 import { Button } from "../ui/button.tsx";
 
@@ -25,14 +35,6 @@ const opCount = (e: GeneratorEntity): number => e.opSpan[1] - e.opSpan[0] + 1;
  *  object branch is a robustness fallback, not an expected shape. */
 const formatParam = (v: unknown): string =>
 	typeof v === "object" && v !== null ? JSON.stringify(v) : String(v);
-
-/** Why Open is unavailable, or undefined when it is available. Both flags are
- *  `true`-or-absent core-side, so the checks read the presence, never `=== false`. */
-const openBlockedReason = (e: GeneratorEntity): string | undefined => {
-	if (e.baked === true) return "baked — the recipe was severed, permanently";
-	if (e.frozen === true) return "frozen — unfreeze it to edit";
-	return undefined;
-};
 
 const ROW_BUTTON_CLASS = "h-5 px-1.5 text-xs";
 
@@ -48,9 +50,12 @@ function StateBadge({ label }: { label: string }) {
 
 export function EntitiesList(props: {
 	entities: GeneratorEntity[];
+	/** The entity a reconfigure session is currently open on (null = none) —
+	 *  read only to warn that Freeze would discard that session's edits. */
+	openEntityId: number | null;
 	onHighlight: (id: number | null) => void;
 	/** Open a reconfigure session on this entity (host.openEntity). */
-	onOpen: (id: number) => void;
+	onReconfigure: (id: number) => void;
 	/** Flip the entity's frozen flag (host.setEntityFrozen). */
 	onFreeze: (id: number, frozen: boolean) => void;
 	/** Request a bake. The PANEL owns the confirmation — this list never severs
@@ -114,16 +119,23 @@ export function EntitiesList(props: {
 									{baked && <StateBadge label="baked" />}
 								</button>
 								{/* A bare title (not ReasonTip): a DISABLED button swallows
-								    pointer events, so the tooltip rides the wrapper span. */}
+								    pointer events, so the mouse tooltip rides the wrapper span.
+								    The reason is ALSO in the aria-label, because that span is
+								    not focusable and a title on it reaches neither a screen
+								    reader reliably nor a keyboard user at all. */}
 								<span title={blocked ?? "reconfigure this stamp"}>
 									<Button
 										type="button"
 										size="sm"
 										variant="ghost"
 										className={ROW_BUTTON_CLASS}
-										disabled={blocked !== undefined}
-										aria-label={`open entity ${e.entityId}`}
-										onClick={() => props.onOpen(e.entityId)}
+										disabled={blocked !== null}
+										aria-label={
+											blocked === null
+												? `open entity ${e.entityId}`
+												: `open entity ${e.entityId} (${blocked})`
+										}
+										onClick={() => props.onReconfigure(e.entityId)}
 									>
 										Open
 									</Button>
@@ -140,8 +152,11 @@ export function EntitiesList(props: {
 									title={
 										e.frozen === true
 											? "allow this stamp to be reconfigured again"
-											: "protect this stamp from reconfigure"
+											: props.openEntityId === e.entityId
+												? "protect this stamp from reconfigure — DISCARDS the session open on it"
+												: "protect this stamp from reconfigure"
 									}
+									aria-label={`${e.frozen === true ? "unfreeze" : "freeze"} entity ${e.entityId}`}
 									onClick={() => props.onFreeze(e.entityId, e.frozen !== true)}
 								>
 									{e.frozen === true ? "Unfreeze" : "Freeze"}
@@ -153,6 +168,7 @@ export function EntitiesList(props: {
 									className={cn(ROW_BUTTON_CLASS, "text-destructive")}
 									disabled={baked}
 									title="sever this stamp's recipe — permanent"
+									aria-label={`bake entity ${e.entityId}`}
 									onClick={() => props.onBake(e.entityId)}
 								>
 									Bake…

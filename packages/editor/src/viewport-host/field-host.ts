@@ -23,6 +23,7 @@ import {
   snapSpan,
 } from "../frontend/lib/field-brush.ts";
 import { FieldWorkerClient } from "../frontend/lib/field-client.ts";
+import { openBlockedReason } from "../frontend/lib/field-entity.ts";
 import type { WireBucket } from "../frontend/lib/field-protocol.ts";
 import { boxEdges } from "./box-edges.ts";
 import {
@@ -282,8 +283,32 @@ export type FieldHost = {
    *  original survived. {@link applyReconfigure} is that session's verb; Enter
    *  in the viewport routes to whichever the mode calls for. */
   commitStamp(): void;
+  /** Ends the live session with whichever verb its MODE calls for —
+   *  {@link commitStamp} for a stamp, {@link applyReconfigure} for a
+   *  reconfigure. Enter in the viewport is this; a panel commit button should
+   *  be this too, so the mode→verb mapping lives in ONE place instead of being
+   *  re-derived from the session the panel mirrors. Ready-phase only (both
+   *  verbs are); no-op without a session. */
+  commitSession(): void;
   /** Discards the session + its ghost (Esc). No-op without a session. */
   cancelStamp(): void;
+  /** Steps the field's own undo/redo history — the ⌘Z / ⇧⌘Z twins, and the
+   *  seam any panel affordance for them must call.
+   *
+   *  This is a SEPARATE history from the scene document's (`EditorActions.undo`
+   *  drives the daemon); the field's lives entirely in the host's op log. The
+   *  keyboard binding is on the CANVAS, so it only fires while the canvas holds
+   *  focus — clicking any panel control takes focus away and silently stops it
+   *  working (the standing F2b gate finding about the nudge buttons). That is
+   *  why this is public API and not merely an internal helper.
+   *
+   *  Remeshes what the step dirtied, refreshes the entity highlight (a
+   *  reconfigure step moves the region it outlines) and ticks
+   *  {@link subscribeEntities} — freeze/bake/reconfigure entries dirty no chunk
+   *  or none of interest, so the tick is the only signal they happened. Empty
+   *  stacks are a quiet no-op. */
+  undo(): void;
+  redo(): void;
   /** Subscribes to stamp-session changes (null = no session). Immediately
    *  pushes the CURRENT state on subscribe (the subscribeSelection remount
    *  rationale); sessions are CLONED — the panel never holds host state.
@@ -326,7 +351,16 @@ export type FieldHost = {
    *  only — a stamp session, or a configuring/previewing one, is a no-op. A core
    *  rejection (the entity was frozen or undone from under the session) reports
    *  through {@link subscribeToolError} and LEAVES the session standing so the
-   *  user can retry or cancel. */
+   *  user can retry or cancel.
+   *
+   *  COST — this blocks the main thread, and the stall grows with the LOG, not
+   *  with the edit. The host passes no snapshot records, so core takes its
+   *  full-prefix restore route: every op below the entity's span is replayed
+   *  into a scratch store before the new span is applied. Measured (core's
+   *  P-F3-2 bench, JSC): ~310 ms at 2137 ops. Reconfiguring an old entity in a
+   *  long session is therefore a visible freeze on Enter, with no progress
+   *  signal — surfacing or shrinking that is not v0 (records are the lever;
+   *  `captureDueSnapshots` exists and is unwired here). */
   applyReconfigure(): void;
   /** Freezes/unfreezes a committed entity — cheap reversible protection:
    *  {@link openEntity} refuses a frozen entity until it is unfrozen. Touches
@@ -646,6 +680,13 @@ export function createFieldHost(): FieldHost {
   let stampGhostBind: binding.Binding | null = null;
   // Entity-highlight overlay (highlightEntity): prebuilt on the call, drawn
   // under the selection layer gate. CPU-only line batch.
+  //
+  // The ID is tracked BESIDE the batch because a committed region is no longer
+  // immutable: F3a's reconfigure can move it (the card offers nudge), and undo
+  // can move it back — so the batch has to be rebuildable from the id rather
+  // than only from the call that first drew it. Before F3a the box could not go
+  // stale, which is why the id was not kept.
+  let highlightedEntityId: number | null = null;
   let entityHighlightBatch: LineBatch | null = null;
 
   let digRadius = 1.25;
@@ -1558,6 +1599,22 @@ export function createFieldHost(): FieldHost {
     return hit === undefined ? null : hit.entity;
   };
 
+  // Re-derive the highlight box from the CURRENT record. Every path that can
+  // move or remove a committed region calls this: a reconfigure apply (the
+  // region is an editable field of the session) and undo/redo (which restores
+  // the previous record). An entity that left the log clears the box and the
+  // id, so an undone commit cannot leave an amber ghost floating over nothing.
+  const rebuildEntityHighlight = (): void => {
+    if (highlightedEntityId === null) return;
+    const record = entityRecord(highlightedEntityId);
+    if (record === null) {
+      highlightedEntityId = null;
+      entityHighlightBatch = null;
+      return;
+    }
+    entityHighlightBatch = aabbEdgeBatch(record.region, ENTITY_HIGHLIGHT_COLOR);
+  };
+
   const destroyStampGhosts = (): void => {
     const c = ctx;
     if (c)
@@ -1807,12 +1864,11 @@ export function createFieldHost(): FieldHost {
       reportToolError(`entity ${entityId} is no longer in the log`);
       return;
     }
-    if (record.frozen === true) {
-      reportToolError(`entity ${entityId} is frozen — unfreeze it to edit`);
-      return;
-    }
-    if (record.baked === true) {
-      reportToolError(`entity ${entityId} is baked — its recipe was severed`);
+    // ONE rule, shared with the row's Open button (field-entity.ts): a state
+    // the UI disables for and a state the host refuses can never drift apart.
+    const blocked = openBlockedReason(record);
+    if (blocked !== null) {
+      reportToolError(`entity ${entityId} is ${blocked}`);
       return;
     }
     try {
@@ -1862,6 +1918,9 @@ export function createFieldHost(): FieldHost {
         table,
       );
       markDirtyWithNeighbors(result.dirty);
+      // The region is an editable field of this session (the nudge cluster), so
+      // the highlight box this entity may be wearing can be stale as of now.
+      rebuildEntityHighlight();
       // A clean apply CLEARS the previous report: leaving it up would attribute
       // stale findings to the edit the user just made.
       drift = result.drift.length === 0 ? null : result.drift;
@@ -1882,10 +1941,29 @@ export function createFieldHost(): FieldHost {
 
   // Enter's ONE commit path: the session's mode picks the verb. Both are
   // ready-phase-only, so a configuring/previewing session swallows the key.
+  // Public as commitSession — the panel's button calls THIS rather than
+  // re-deriving the same mapping from the session it mirrors.
   const commitActiveSession = (): void => {
     if (stamp === null) return;
     if (stamp.mode === "reconfigure") applyReconfigureSession();
     else commitStampSession();
+  };
+
+  // --- history ------------------------------------------------------------
+
+  // ONE undo/redo step, shared by the canvas ⌘Z/⇧⌘Z binding and the public
+  // undo()/redo(). Everything a step can move is refreshed here, not at the
+  // call sites: the chunks it dirtied, the entity list (a commit, a reconfigure
+  // splice and a freeze/bake record swap all ride these stacks — and the last
+  // two dirty NOTHING, so a remesh cannot be the panel's signal), and the
+  // highlight box (a reconfigure can have moved the region it outlines).
+  const stepHistory = (redo: boolean): void => {
+    const dirtied = redo
+      ? field.redo(store, log, table)
+      : field.undo(store, log);
+    markDirtyWithNeighbors(dirtied);
+    rebuildEntityHighlight();
+    notifyEntities();
   };
 
   // --- momentary tool overrides -------------------------------------------
@@ -2199,14 +2277,7 @@ export function createFieldHost(): FieldHost {
     // restores on release — accepted, undo itself is untouched.)
     if ((e.metaKey || e.ctrlKey) && k === "z") {
       e.preventDefault();
-      const dirtied = e.shiftKey
-        ? field.redo(store, log, table)
-        : field.undo(store, log);
-      markDirtyWithNeighbors(dirtied);
-      // An entity commit, a reconfigure splice and a freeze/bake record swap
-      // all ride the same stacks — and the last two dirty NOTHING, so the
-      // remesh they don't cause cannot be the panel's signal.
-      notifyEntities();
+      stepHistory(e.shiftKey);
       return;
     }
     // Stamp session keys (after the undo guard, before every fallthrough):
@@ -2343,6 +2414,7 @@ export function createFieldHost(): FieldHost {
     // describe the old field), any entity highlight (log entity ids reset) and
     // any drift report (its findings name op ids the new log does not have).
     cancelStampSession();
+    highlightedEntityId = null;
     entityHighlightBatch = null;
     drift = null;
     notifyDrift();
@@ -2605,8 +2677,17 @@ export function createFieldHost(): FieldHost {
     commitStamp() {
       commitStampSession();
     },
+    commitSession() {
+      commitActiveSession();
+    },
     cancelStamp() {
       cancelStampSession();
+    },
+    undo() {
+      stepHistory(false);
+    },
+    redo() {
+      stepHistory(true);
     },
     subscribeStamp(cb) {
       stampCb = cb;
@@ -2678,15 +2759,13 @@ export function createFieldHost(): FieldHost {
     },
     highlightEntity(entityId) {
       if (entityId === null) {
+        highlightedEntityId = null;
         entityHighlightBatch = null;
         return;
       }
-      const record = entityRecord(entityId);
-      // Unknown id (undone, stale panel row): hide, runtime-quiet.
-      entityHighlightBatch =
-        record === null
-          ? null
-          : aabbEdgeBatch(record.region, ENTITY_HIGHLIGHT_COLOR);
+      // Unknown id (undone, stale panel row): rebuild clears both, runtime-quiet.
+      highlightedEntityId = entityId;
+      rebuildEntityHighlight();
     },
     exportArtifact(name) {
       return field.bakeFieldWorld(store, log, table, {

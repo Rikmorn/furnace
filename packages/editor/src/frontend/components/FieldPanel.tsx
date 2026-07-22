@@ -447,14 +447,10 @@ export function FieldPanel() {
 								fieldHostRef.current?.nudgeStamp(dx, dy, dz)
 							}
 							onReroll={() => fieldHostRef.current?.rerollStamp()}
-							// The session's MODE picks the verb (the host's own Enter
-							// routing): a reconfigure re-evaluates a committed entity in
-							// place, a stamp appends a new one.
-							onCommit={() =>
-								stamp.mode === "reconfigure"
-									? fieldHostRef.current?.applyReconfigure()
-									: fieldHostRef.current?.commitStamp()
-							}
+							// ONE verb: the host maps mode→commit/apply for Enter already,
+							// and the panel calling the same seam is what keeps that mapping
+							// from existing in two places that can disagree.
+							onCommit={() => fieldHostRef.current?.commitSession()}
 							onCancel={() => fieldHostRef.current?.cancelStamp()}
 						/>
 					)}
@@ -471,8 +467,9 @@ export function FieldPanel() {
 				<div className="border-b border-border px-2 py-1 text-sm">
 					<EntitiesList
 						entities={entities}
+						openEntityId={stamp?.mode === "reconfigure" ? stamp.entityId : null}
 						onHighlight={(id) => fieldHostRef.current?.highlightEntity(id)}
-						onOpen={(id) => fieldHostRef.current?.openEntity(id)}
+						onReconfigure={(id) => fieldHostRef.current?.openEntity(id)}
 						onFreeze={(id, frozen) =>
 							fieldHostRef.current?.setEntityFrozen(id, frozen)
 						}
