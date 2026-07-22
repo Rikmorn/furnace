@@ -35,6 +35,7 @@ export {
   commitGenerator,
   FIELD_GENERATORS,
   generatorById,
+  MAZE_PITCH_CELLS,
 } from "./generators.ts";
 export type { CompactOptions, LogStats } from "./maintenance.ts";
 export { compactRuns, logStats } from "./maintenance.ts";

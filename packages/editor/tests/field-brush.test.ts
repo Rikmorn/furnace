@@ -10,6 +10,7 @@ import {
   regionSampleCount,
   snappedKitBox,
   snapSpan,
+  spanCells,
 } from "../src/frontend/lib/field-brush.ts";
 
 test("surface hit bites INTO the rock along the ray", () => {
@@ -56,6 +57,16 @@ test("snapSpan snaps OUTWARD to the 0.5 lattice in either endpoint order", () =>
 test("a degenerate span (one lattice plane) widens to one lattice step", () => {
   expect(snapSpan(1.5, 1.5)).toEqual([1.5, 2]);
   expect(snapSpan(1.6, 1.9)).toEqual([1.5, 2]); // both inside one cell
+});
+
+test("spanCells counts whole 0.5 m lattice cells across a snapped span", () => {
+  expect(spanCells(0, 12)).toBe(24); // 12 m / 0.5 = 24 coarse cells
+  expect(spanCells(1.5, 2)).toBe(1); // one lattice step
+  expect(spanCells(-0.5, 1)).toBe(3);
+  expect(spanCells(4, 4)).toBe(0); // empty span
+  // Composes with snapSpan: an off-lattice selection widens then counts whole.
+  const [lo, hi] = snapSpan(0.2, 5.9);
+  expect(spanCells(lo, hi)).toBe(12); // [0, 6] → 12 cells
 });
 
 test("nudgeRegion translates BOTH corners one lattice step per unit", () => {

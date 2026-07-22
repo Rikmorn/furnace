@@ -6,6 +6,7 @@ import { describe, expect, test } from "bun:test";
 import { nudgeRegion } from "../src/frontend/lib/field-brush.ts";
 import type { FieldWorkerResponse } from "../src/frontend/lib/field-protocol.ts";
 import { createFieldWorkerHandler } from "../src/frontend/lib/field-protocol.ts";
+import { deriveSizeDefaults } from "../src/frontend/lib/field-size.ts";
 import {
   createPreviewCoalescer,
   startReconfigureSession,
@@ -201,6 +202,100 @@ describe("stamp session transitions", () => {
   });
 });
 
+// ——— selection-derived stamp size defaults (spec D-F3-13, Task 10) ———
+//
+// The pure derivation is tested directly, against the REAL generator schema
+// bounds (read the same clone seam the host does) so the clamp cases stay
+// single-sourced to core: a schema-bound change moves both the production
+// behaviour and the expected value here together. The startStamp WIRING (snap →
+// spanCells → deriveSizeDefaults → session params) is NOT exercised here — it
+// needs a pointer-made selection, which the headless host exposes no seam for
+// (the same limit the reconfigure suite notes); it is verified by construction.
+
+/** The real schema `properties` map for a generator, the derivation's clamp
+ *  source. Cast: paramSchema is typed Record<string, unknown> at the core edge. */
+const schemaProps = (id: string): Record<string, unknown> =>
+  generatorById(id).paramSchema["properties"] as Record<string, unknown>;
+
+describe("deriveSizeDefaults (selection-fit stamp size defaults)", () => {
+  test("hall seeds width/height/depth = extent − 2 cells, clamped to schema", () => {
+    // A 12×8×20 m selection = [24, 16, 40] coarse cells. width fits in-range;
+    // height (16−2=14 → 12) and depth (40−2=38 → 32) clamp DOWN to the schema.
+    expect(
+      deriveSizeDefaults("hall", [24, 16, 40], schemaProps("hall"), 5),
+    ).toEqual({ width: 22, height: 12, depth: 32 });
+  });
+
+  test("maze seeds the largest cell fit floor((extent − 1) / pitch), clamped", () => {
+    // Same [24, 16, 40] selection at the REAL pitch. This pins the maze-formula
+    // CORRECTION: the fitting inverse of the footprint pitch·cells+1 is
+    // floor((extent−1)/pitch), NOT the plan's floor((extent+1)/pitch).
+    //   x: floor((24−1)/5) = 4  (footprint 5·4+1 = 21 ≤ 24 fits; 5 → 26 overflows)
+    //   z: floor((40−1)/5) = 7  (footprint 5·7+1 = 36 ≤ 40)
+    const derived = deriveSizeDefaults(
+      "maze",
+      [24, 16, 40],
+      schemaProps("maze"),
+      MAZE_PITCH_CELLS,
+    );
+    expect(derived).toEqual({ cellsX: 4, cellsZ: 7 });
+    // The fitted maze's footprint (pitch·cells + 1) never exceeds the extent:
+    // x = 5·4+1 = 21 ≤ 24, z = 5·7+1 = 36 ≤ 40.
+    expect(MAZE_PITCH_CELLS * 4 + 1).toBeLessThanOrEqual(24);
+    expect(MAZE_PITCH_CELLS * 7 + 1).toBeLessThanOrEqual(40);
+    // The plan's +1 formula would have overflowed the X extent (5·5+1 = 26 > 24).
+    expect(MAZE_PITCH_CELLS * Math.floor((24 + 1) / 5) + 1).toBeGreaterThan(24);
+  });
+
+  test("out-of-range extents CLAMP up rather than throw (a 1 m selection)", () => {
+    // [2, 2, 2] cells → every derived interior underflows the schema minimum.
+    expect(() =>
+      deriveSizeDefaults("hall", [2, 2, 2], schemaProps("hall"), 5),
+    ).not.toThrow();
+    expect(
+      deriveSizeDefaults("hall", [2, 2, 2], schemaProps("hall"), 5),
+    ).toEqual({ width: 4, height: 6, depth: 4 });
+    expect(
+      deriveSizeDefaults(
+        "maze",
+        [2, 2, 2],
+        schemaProps("maze"),
+        MAZE_PITCH_CELLS,
+      ),
+    ).toEqual({ cellsX: 2, cellsZ: 2 }); // floor(1/5)=0 → clamps to min 2
+  });
+
+  test("huge extents clamp DOWN to the schema maximum", () => {
+    expect(
+      deriveSizeDefaults("hall", [200, 200, 200], schemaProps("hall"), 5),
+    ).toEqual({ width: 24, height: 12, depth: 32 });
+    expect(
+      deriveSizeDefaults(
+        "maze",
+        [200, 200, 200],
+        schemaProps("maze"),
+        MAZE_PITCH_CELLS,
+      ),
+    ).toEqual({ cellsX: 8, cellsZ: 8 });
+  });
+
+  test("the maze fit is exact at a footprint-aligned extent", () => {
+    // extent 26 = pitch·5 + 1 exactly → 5 cells fit; 25 drops to 4.
+    const at = (n: number) =>
+      deriveSizeDefaults("maze", [n, 16, n], schemaProps("maze"), 5)["cellsX"];
+    expect(at(26)).toBe(5);
+    expect(at(25)).toBe(4);
+  });
+
+  test("MAZE_PITCH_CELLS is the exported pitch the derivation inverts", () => {
+    expect(MAZE_PITCH_CELLS).toBe(5); // PASSAGE_CELLS 4 + 1 wall band
+  });
+
+  test("a generator with no derivable size params seeds nothing", () => {
+    expect(deriveSizeDefaults("nonesuch", [10, 10, 10], {}, 5)).toEqual({});
+  });
+});
+
 // ——— preview→commit determinism (the fake-client handler round) ———
 
 import type { FieldStore, MaterialTable } from "@furnace/core/field";
@@ -213,6 +308,7 @@ import {
   extractFieldAprons,
   generatorById,
   getDensity,
+  MAZE_PITCH_CELLS,
   meshChunkField,
 } from "@furnace/core/field";
 import { FieldWorkerClient } from "../src/frontend/lib/field-client.ts";

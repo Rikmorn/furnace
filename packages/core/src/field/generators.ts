@@ -673,9 +673,19 @@ const MAZE_H_CELLS = DOOR_H_CELLS;
  *  past its passage block into the wall band beyond and the openDoor lane
  *  check starts rejecting valid mazes (the donor coupling, equal today). */
 const PASSAGE_CELLS = 4;
-/** Maze-cell pitch in coarse cells: a `PASSAGE_CELLS` passage block plus the
- *  1-cell (0.5 m) internal wall band that separates it from the next block. */
-const PITCH = PASSAGE_CELLS + 1;
+/** Maze-cell pitch in coarse cells (0.5 m each): one `PASSAGE_CELLS`-wide
+ *  passage block plus the single internal wall band that separates it from the
+ *  next block. A `cellsX × cellsZ` maze occupies `MAZE_PITCH_CELLS · cells + 1`
+ *  coarse cells per horizontal axis (the passage blocks plus the outer shell),
+ *  so the largest maze that fits an extent of `n` coarse cells on an axis has
+ *  `floor((n − 1) / MAZE_PITCH_CELLS)` cells there — the inverse the editor's
+ *  selection-fit size defaults read, keeping the footprint math single-sourced
+ *  to this generator. */
+export const MAZE_PITCH_CELLS = PASSAGE_CELLS + 1;
+/** Terse internal alias of {@link MAZE_PITCH_CELLS} — keeps the VERBATIM donor
+ *  carve loops (`1 + PITCH · a`) readable while the public name carries the
+ *  contract. ONE source: the arithmetic lives only on the export. */
+const PITCH = MAZE_PITCH_CELLS;
 
 /** FNV-1a 32-bit over the seed string (the donor pieces.ts variant-hash
  *  pattern) — VERBATIM donor port. */

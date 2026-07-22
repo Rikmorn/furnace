@@ -21,10 +21,12 @@ import {
   regionSampleCount,
   snappedKitBox,
   snapSpan,
+  spanCells,
 } from "../frontend/lib/field-brush.ts";
 import { FieldWorkerClient } from "../frontend/lib/field-client.ts";
 import { openBlockedReason } from "../frontend/lib/field-entity.ts";
 import type { WireBucket } from "../frontend/lib/field-protocol.ts";
+import { deriveSizeDefaults } from "../frontend/lib/field-size.ts";
 import { boxEdges } from "./box-edges.ts";
 import {
   flyLook,
@@ -610,6 +612,23 @@ function clampTool(t: FieldTool): FieldTool {
   );
   if (c.hollow !== null) c.hollow = Math.max(HOLLOW_MIN_M, c.hollow);
   return c;
+}
+
+/** The generator's JSON-Schema `properties` map, narrowed off the loosely-typed
+ *  `paramSchema` — the single clamp-bound source {@link deriveSizeDefaults}
+ *  reads. Setup-loud on a schema without a properties object (a registry bug). */
+function generatorSchemaProperties(
+  def: field.GeneratorDef,
+): Record<string, unknown> {
+  const props = def.paramSchema["properties"];
+  if (typeof props !== "object" || props === null)
+    throw new Error(
+      `field-host: generator "${def.id}" schema is missing its properties`,
+    );
+  // Boundary cast: GeneratorDef.paramSchema is typed Record<string, unknown>;
+  // every registered generator's schema is a JSON-Schema object whose
+  // `properties` is an object (asserted non-null above). Reads yield unknown.
+  return props as Record<string, unknown>;
 }
 
 /**
@@ -2818,11 +2837,21 @@ export function createFieldHost(): FieldHost {
       const [x0, x1] = snapSpan(aabb.min[0], aabb.max[0]);
       const [y0, y1] = snapSpan(aabb.min[1], aabb.max[1]);
       const [z0, z1] = snapSpan(aabb.min[2], aabb.max[2]);
+      // Seed the size params from the selection extent (spec D-F3-13): the
+      // region already fits, and the generator's size knobs default to fill it
+      // (clamped to their schema range). A sensible default the user overrides
+      // with any subsequent updateStamp edit.
+      const sizes = deriveSizeDefaults(
+        generator,
+        [spanCells(x0, x1), spanCells(y0, y1), spanCells(z0, z1)],
+        generatorSchemaProperties(def),
+        field.MAZE_PITCH_CELLS,
+      );
       cancelStampSession(); // a live session (+ ghost) never survives a restart
       stampGen++;
       stamp = startSession(
         generator,
-        structuredClone(def.defaults),
+        { ...structuredClone(def.defaults), ...sizes },
         { min: [x0, y0, z0], max: [x1, y1, z1] },
         randomStampSeed(),
         sel.materialized.kind === "cells" && sel.materialized.truncated,

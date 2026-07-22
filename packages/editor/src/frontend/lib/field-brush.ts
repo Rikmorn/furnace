@@ -80,6 +80,21 @@ export function snapSpan(a: number, b: number): [number, number] {
   return [lo, hi];
 }
 
+/**
+ * How many 0.5 m lattice cells a snapped span covers — `(hi − lo) / LATTICE`,
+ * rounded to guard float residue. A coarse generator cell IS one lattice cell,
+ * so this is the per-axis extent-in-cells a stamp's selection-fit size defaults
+ * read. Feed it a lattice-aligned span (as {@link snapSpan} returns); an
+ * off-lattice span yields the nearest whole cell count.
+ *
+ * @param lo - The span's low endpoint in metres (lattice-aligned).
+ * @param hi - The span's high endpoint in metres (lattice-aligned, `hi >= lo`).
+ * @returns The whole number of lattice cells between the endpoints.
+ */
+export function spanCells(lo: number, hi: number): number {
+  return Math.round((hi - lo) / LATTICE);
+}
+
 /** A region AABB in world metres — the shape {@link snapSpan} builds and
  *  {@link nudgeRegion} moves (structurally the stamp session's `StampRegion`,
  *  spelled locally so this module keeps its zero imports). */
