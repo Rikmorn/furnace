@@ -733,8 +733,9 @@ test("applyReconfigure before the ghost settles is a no-op (and a no-op with no 
 });
 
 // NOT asserted here (no seam): the same step rebuilds the entity-highlight box,
-// which is GPU-drawn line state with no reader. Verified by construction —
-// stepHistory calls rebuildEntityHighlight, the one function that owns it.
+// which is host-private CPU state ({vertices, colors} from aabbEdgeBatch) with
+// no reader. Verified by construction — stepHistory calls
+// rebuildEntityHighlight, the one function that owns it.
 test("undo/redo step the field's history: the entity is restored and the panel is ticked", async () => {
   const uninstall = installFakeWorker();
   try {
@@ -843,4 +844,41 @@ describe("preview coalescer", () => {
     c.request(); // latch must be idle again — fires immediately
     expect(fires).toBe(3);
   });
+});
+
+// The try in applyReconfigureSession wraps the core call and nothing else, so a
+// failure in the post-success work — most plausibly a SUBSCRIBER, which Task 9
+// wires to subscribeDrift — cannot be reported as a reconfigure failure. This
+// bites: widening the try back over notifyDrift makes it fail.
+test("a throwing drift subscriber cannot make a landed apply report as failed", async () => {
+  const uninstall = installFakeWorker();
+  try {
+    const host = createFieldHost();
+    const { entityId, params } = loadCommittedHall(host);
+    const errors: string[] = [];
+    host.subscribeToolError((m) => errors.push(m));
+    let pushes = 0;
+    host.subscribeDrift(() => {
+      // Not on the initial subscribe push — only on the apply's.
+      if (pushes++ > 0) throw new Error("subscriber blew up");
+    });
+    host.openEntity(entityId);
+    await settle();
+    host.updateStamp({ ...params, width: 12 }, 7, "replace");
+    await settle();
+    const sessions: (StampSession | null)[] = [];
+    host.subscribeStamp((x) => sessions.push(x));
+
+    // The subscriber's throw propagates — it is the subscriber's bug and the
+    // host does not swallow it…
+    expect(() => host.applyReconfigure()).toThrow("subscriber blew up");
+    // …but the apply LANDED, and was not reported as a failure.
+    expect(host.listEntities()[0]?.params).toEqual({ ...params, width: 12 });
+    expect(errors).toEqual([]);
+    // …and the session teardown reached the panel BEFORE drift did, so the
+    // chrome is never left showing a card for a session that already applied.
+    expect(sessions.at(-1)).toBeNull();
+  } finally {
+    uninstall();
+  }
 });

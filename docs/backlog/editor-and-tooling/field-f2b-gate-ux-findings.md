@@ -33,6 +33,12 @@ the standing editor-UX debt: `world-panel-w3-gate-ux-findings.md` +
    container; arrow keys then scroll instead of nudging (keydown is canvas-bound).
    User hit it live ("keyboard didn't seem to work, buttons were fine"). Small fix:
    refocus the canvas after nudge-button clicks, or lift the key handling.
+   **⌘Z has the identical failure mode and now has a seam ready for it** (F3a):
+   field undo/redo is canvas-bound too, so the same lost focus silently disables it.
+   `FieldHost.undo()` / `.redo()` exist for exactly this fix — a panel affordance (or
+   whatever refocus/lift approach wins) should call them rather than re-deriving the
+   step. They have no production caller until then, deliberately, in the same sense as
+   `generation-cancel-has-no-caller.md`.
 
 **→ F3 (placement pain — mostly already-chartered features):**
 

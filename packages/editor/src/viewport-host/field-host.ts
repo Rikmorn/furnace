@@ -295,12 +295,18 @@ export type FieldHost = {
   /** Steps the field's own undo/redo history — the ⌘Z / ⇧⌘Z twins, and the
    *  seam any panel affordance for them must call.
    *
-   *  This is a SEPARATE history from the scene document's (`EditorActions.undo`
-   *  drives the daemon); the field's lives entirely in the host's op log. The
-   *  keyboard binding is on the CANVAS, so it only fires while the canvas holds
-   *  focus — clicking any panel control takes focus away and silently stops it
-   *  working (the standing F2b gate finding about the nudge buttons). That is
-   *  why this is public API and not merely an internal helper.
+   *  A SEPARATE history from the scene document's (`EditorActions.undo` drives
+   *  the daemon): the field's lives entirely in this host's op log, and the two
+   *  never step together. The canvas binding enforces that by stopping the
+   *  event from reaching the editor's window-level ⌘Z — so while the field
+   *  canvas holds focus, ⌘Z is the FIELD's undo and only that.
+   *
+   *  Which is also why this is public API rather than an internal helper: that
+   *  binding lives on the CANVAS, so it fires only while the canvas has focus,
+   *  and clicking any panel control takes focus away and silently stops it
+   *  working (the standing F2b gate finding about the nudge buttons —
+   *  `docs/backlog/editor-and-tooling/field-f2b-gate-ux-findings.md` #6). A
+   *  panel affordance is the fix, and it calls this.
    *
    *  Remeshes what the step dirtied, refreshes the entity highlight (a
    *  reconfigure step moves the region it outlines) and ticks
@@ -308,6 +314,11 @@ export type FieldHost = {
    *  or none of interest, so the tick is the only signal they happened. Empty
    *  stacks are a quiet no-op. */
   undo(): void;
+  /** Re-applies the last undone step ({@link undo}'s ⇧⌘Z twin) — same refresh
+   *  set, same quiet no-op on an empty stack. How core replays depends on the
+   *  entry: a reconfigure or a freeze/bake restores the RECORDED record and
+   *  images (byte-identical to what the undo took away), while a stroke or a
+   *  stamp commit re-executes its ops against current state. */
   redo(): void;
   /** Subscribes to stamp-session changes (null = no session). Immediately
    *  pushes the CURRENT state on subscribe (the subscribeSelection remount
@@ -1904,8 +1915,17 @@ export function createFieldHost(): FieldHost {
     const s = stamp;
     if (s === null || s.mode !== "reconfigure" || s.entityId === null) return;
     if (s.phase !== "ready") return;
+    // The try wraps the core call and NOTHING else — the catch's claim (the
+    // store and the log are untouched) is true of `reconfigureGenerator`
+    // validating before its first write, and of nothing below it. Anything
+    // further inside would report "reconfigure failed" for a reconfigure that
+    // LANDED, and skip the session teardown on the way out. That matters most
+    // for notifyDrift: it invokes a SUBSCRIBER, and a subscriber that throws is
+    // an ordinary React failure mode, not a hypothetical. Same shape as
+    // commitStampSession's try, deliberately.
+    let result: ReturnType<typeof field.reconfigureGenerator>;
     try {
-      const result = field.reconfigureGenerator(
+      result = field.reconfigureGenerator(
         store,
         log,
         s.entityId,
@@ -1917,14 +1937,6 @@ export function createFieldHost(): FieldHost {
         },
         table,
       );
-      markDirtyWithNeighbors(result.dirty);
-      // The region is an editable field of this session (the nudge cluster), so
-      // the highlight box this entity may be wearing can be stale as of now.
-      rebuildEntityHighlight();
-      // A clean apply CLEARS the previous report: leaving it up would attribute
-      // stale findings to the edit the user just made.
-      drift = result.drift.length === 0 ? null : result.drift;
-      notifyDrift();
     } catch (err) {
       // Core validates before its first write, so a rejection here left the
       // store and the log untouched — the session stays open to retry or
@@ -1933,10 +1945,29 @@ export function createFieldHost(): FieldHost {
       reportToolError(`reconfigure failed: ${message}`);
       return;
     }
+    markDirtyWithNeighbors(result.dirty);
+    // The region is an editable field of this session (the nudge cluster), so
+    // the highlight box this entity may be wearing can be stale as of now.
+    rebuildEntityHighlight();
+    // A clean apply CLEARS the previous report: leaving it up would attribute
+    // stale findings to the edit the user just made.
+    drift = result.drift.length === 0 ? null : result.drift;
     stamp = null;
     destroyStampGhosts();
+    // The three notifications LAST, once every piece of host state the apply
+    // moved has settled: a subscriber may read the host back synchronously from
+    // inside any of them (the panel does — subscribeEntities' callback calls
+    // listEntities), so none may observe a half-applied session.
+    //
+    // Drift goes last of the three because a throwing subscriber aborts the
+    // rest: session-ended and list-changed keep the UI CONSISTENT with a store
+    // that has already been written, while a dropped drift report only costs
+    // the report. None of them is wrapped — a subscriber that throws is the
+    // subscriber's bug, and swallowing it here would hide it — so the order is
+    // what decides how much a buggy one can break.
     notifyStamp();
     notifyEntities();
+    notifyDrift();
   };
 
   // Enter's ONE commit path: the session's mode picks the verb. Both are
@@ -2277,6 +2308,23 @@ export function createFieldHost(): FieldHost {
     // restores on release — accepted, undo itself is untouched.)
     if ((e.metaKey || e.ctrlKey) && k === "z") {
       e.preventDefault();
+      // stopPropagation, not just preventDefault: the editor ALSO binds ⌘Z on
+      // `window` for the scene document (useGlobalKeybindings), and that
+      // listener's only target guard is isTextInputTarget — which matches
+      // INPUT/TEXTAREA/contentEditable and NOT a focusable <canvas>. Extending
+      // that guard would not help either: matchBinding classifies a ⌘-chord
+      // BEFORE consulting it, deliberately (pinned in keybindings.test.ts).
+      // So without this line one ⌘Z over the field canvas stepped BOTH
+      // histories — the field op log here and the scene document at the daemon.
+      //
+      // Scoped to THIS branch on purpose. The canvas owns the ⌘Z chord and
+      // nothing else the global listener binds: ⌘S (save) should still reach it
+      // while the field has focus, and the bare-key bindings (F, ⌫) are not
+      // handled here at all — blanket-stopping would silently change three
+      // behaviours to fix one. (Those two bare keys DO reach the scene from a
+      // focused field canvas, which is its own pre-existing leak, filed rather
+      // than folded in here.)
+      e.stopPropagation();
       stepHistory(e.shiftKey);
       return;
     }
