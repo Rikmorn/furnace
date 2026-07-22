@@ -25,6 +25,7 @@ import type {
   BrushOp,
   BrushShape,
   ChunkKey,
+  ChunkSnapshot,
   FieldOp,
   FieldStore,
   LogEntry,
@@ -247,16 +248,38 @@ function makeMaskGate(
   };
 }
 
+/** One chunk's two-channel image, deep-copied out of the store. A null channel
+ *  marks an ABSENT map entry (unallocated density = uniform SOLID; no material
+ *  record = uniform {@link MAT_ROCK}), which {@link restoreImages} restores by
+ *  deleting the entry. The ONE place these clone/null rules live. */
+function chunkImage(store: FieldStore, key: ChunkKey): ChunkSnapshot {
+  const density = store.chunks.get(key);
+  const materials = store.materials.get(key);
+  return {
+    density: density ? Int8Array.from(density) : null,
+    materials: materials ? cloneChunkMaterials(materials) : null,
+  };
+}
+
 /** Snapshots a chunk's BOTH channels into the inverse once, before the op's
  *  first write to that chunk (idempotent per key). */
 function snapshot(store: FieldStore, inverse: OpInverse, key: ChunkKey): void {
   if (inverse.has(key)) return;
-  const density = store.chunks.get(key);
-  const materials = store.materials.get(key);
-  inverse.set(key, {
-    density: density ? Int8Array.from(density) : null,
-    materials: materials ? cloneChunkMaterials(materials) : null,
-  });
+  inverse.set(key, chunkImage(store, key));
+}
+
+/** Full CURRENT images of `keys` — the {@link restoreImages} input shape,
+ *  captured eagerly instead of lazily on first write (the `splice` entry's
+ *  `before`/`after` pair, which must cover chunks a replay may leave
+ *  untouched). Deliberately NOT on the public field index, like
+ *  {@link spliceOps}: in-core producer surface. */
+export function imagesOf(
+  store: FieldStore,
+  keys: Iterable<ChunkKey>,
+): OpInverse {
+  const images: OpInverse = new Map();
+  for (const key of keys) images.set(key, chunkImage(store, key));
+  return images;
 }
 
 /** Narrows a {@link FieldOp} to a brush op — the only member {@link applyOp}
@@ -435,9 +458,11 @@ function applySmooth(
 }
 
 /** Mask bytes per {@link PatchChunk} slice: one bit per chunk sample (512).
- *  Deliberately NOT on the public field index — like {@link spliceOps}, it is
- *  in-core producer surface (compaction, procedural emitters) rather than
- *  consumer API. */
+ *  Kept off the public field index even though the patch surface around it
+ *  ({@link PatchChunk}, {@link PatchOp}, {@link applyPatchOp},
+ *  {@link logApplyPatch}, {@link assertPatchValid}) is all public: the value is
+ *  derivable from the exported {@link CHUNK_SAMPLES}, so publishing it would
+ *  give the format constant a second home to drift from. */
 export const PATCH_MASK_BYTES = CHUNK_SAMPLES / 8;
 
 /** The normalized "writes no material" value array, so the write loop carries
@@ -901,10 +926,13 @@ function replayEntry(
   }
 }
 
-/** Re-executes ONE op, or returns null for a kind that touches no field state.
- *  Total over {@link FieldOp}, so a new member fails to type-check until it
- *  declares how redo replays it. */
-function reapplyOne(
+/** Executes ONE op of any kind, or returns null for a kind that touches no
+ *  field state (entity ops). Total over {@link FieldOp}, so a new member fails
+ *  to type-check until it declares how it applies — the ONE dispatch every
+ *  replay path (redo, reconfigure's prefix restore and downstream replay) goes
+ *  through, so that totality guarantee is never duplicated. Deliberately NOT on
+ *  the public field index, like {@link spliceOps}: in-core replay surface. */
+export function applyFieldOp(
   store: FieldStore,
   op: FieldOp,
   table: MaterialTable,
@@ -931,7 +959,7 @@ function reapplyOps(
   const dirty = new Set<ChunkKey>();
   const inverse: OpInverse = new Map();
   for (const op of ops) {
-    const r = reapplyOne(store, op, table);
+    const r = applyFieldOp(store, op, table);
     if (r === null) continue;
     for (const key of r.dirty) dirty.add(key);
     for (const [key, pre] of r.inverse)

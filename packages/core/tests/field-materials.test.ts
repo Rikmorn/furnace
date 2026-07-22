@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import type { FieldStore } from "@furnace/core/field";
 import {
   CHUNK_DIM,
   type ChunkMaterials,
@@ -9,6 +10,13 @@ import {
   MAT_ROCK,
   setMaterial,
 } from "@furnace/core/field";
+// materialsEqual is deliberately NOT on the public index — in-core surface the
+// reconfigure drift comparator consumes.
+import { materialsEqual } from "../src/field/materials.ts";
+
+/** Any non-rock class id; this file has no material TABLE (the accessors never
+ *  resolve ids), so the value only has to differ from MAT_ROCK. */
+const MASONRY = 2;
 
 describe("field material channel", () => {
   test("unallocated space reads MAT_ROCK", () => {
@@ -87,5 +95,42 @@ describe("field material channel", () => {
     const clonePacked0 = clone.packed[0] as number;
     original.packed[0] = (origPacked0 ^ 0x0f) & 0xff;
     expect(clone.packed[0]).toBe(clonePacked0);
+  });
+});
+
+// The drift report's material leg. The SAME logical content has several
+// storage spellings (absent entry / uniform rock / an indexed chunk whose every
+// cell resolves to rock), so a structural compare would invent drift findings a
+// user cannot act on.
+describe("materialsEqual — representation-independent comparison", () => {
+  /** All-rock content in the INDEXED spelling: diverge, then converge back. */
+  const indexedRock = (store: FieldStore): ChunkMaterials => {
+    setMaterial(store, 0, 0, 0, MASONRY);
+    setMaterial(store, 0, 0, 0, MAT_ROCK);
+    const m = store.materials.get("0,0,0");
+    if (m === undefined) throw new Error("test: expected a material entry");
+    return m;
+  };
+
+  test("absent, uniform-rock and all-rock-indexed chunks all compare equal", () => {
+    const indexed = indexedRock(createFieldStore());
+    expect(indexed.kind).toBe("indexed"); // otherwise the case is vacuous
+    const uniform: ChunkMaterials = { kind: "uniform", classId: MAT_ROCK };
+    expect(materialsEqual(undefined, uniform)).toBe(true);
+    expect(materialsEqual(undefined, indexed)).toBe(true);
+    expect(materialsEqual(uniform, indexed)).toBe(true);
+    expect(materialsEqual(null, undefined)).toBe(true);
+  });
+
+  test("a single differing cell compares unequal", () => {
+    const store = createFieldStore();
+    setMaterial(store, 3, 4, 5, MASONRY);
+    const painted = store.materials.get("0,0,0");
+    expect(
+      materialsEqual(painted, { kind: "uniform", classId: MAT_ROCK }),
+    ).toBe(false);
+    expect(materialsEqual(painted, undefined)).toBe(false);
+    expect(materialsEqual(painted, painted)).toBe(true);
+    expect(getMaterial(store, 3, 4, 5)).toBe(MASONRY);
   });
 });

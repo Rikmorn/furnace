@@ -109,6 +109,24 @@ export function extractFieldAprons(
   return { density, materials };
 }
 
+const isSolid = (v: number): boolean => v === SOLID;
+
+/** SEMANTIC equality of two chunks' density channels, either side of which may
+ *  be ABSENT (`null` as a captured image spells it, `undefined` as a missing map
+ *  entry does). An absent chunk is uniform {@link SOLID} by this module's
+ *  elision rule, so an allocated all-solid chunk compares EQUAL to an
+ *  unallocated one — the representation-independence `materialsEqual` gives the
+ *  material channel, for the channel whose elision rule lives here. */
+export function densityEqual(
+  a: Int8Array | null | undefined,
+  b: Int8Array | null | undefined,
+): boolean {
+  if (a === null || a === undefined)
+    return b === null || b === undefined || b.every(isSolid);
+  if (b === null || b === undefined) return a.every(isSolid);
+  return a.length === b.length && a.every((v, i) => v === b[i]);
+}
+
 /** World position of a sample index along one axis. */
 export const sampleToWorld = (v: number, cellSize: number): number =>
   v * cellSize;

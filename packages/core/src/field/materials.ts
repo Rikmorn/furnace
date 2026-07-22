@@ -118,6 +118,47 @@ export function setMaterial(
   return key;
 }
 
+/** A chunk's material record as the store may hold it: `undefined` = no map
+ *  entry; `null` = the same absence as a captured chunk image spells it. Both
+ *  mean uniform {@link MAT_ROCK}. */
+type StoredMaterials = ChunkMaterials | null | undefined;
+
+/** The class id at flat cell index `i`, absent record = {@link MAT_ROCK}. */
+function classAt(m: StoredMaterials, i: number): number {
+  if (m === null || m === undefined) return MAT_ROCK;
+  if (m.kind === "uniform") return m.classId;
+  return m.palette[readPacked(m.packed, m.bits, i)] ?? MAT_ROCK;
+}
+
+/** The one class every cell of `m` resolves to, or null when it is indexed
+ *  (which does not by itself prove divergence — see {@link materialsEqual}). */
+function uniformClass(m: StoredMaterials): number | null {
+  if (m === null || m === undefined) return MAT_ROCK;
+  return m.kind === "uniform" ? m.classId : null;
+}
+
+/** SEMANTIC equality of two chunks' material channels: true when every cell
+ *  resolves to the same class id, whatever the storage spelling. The encoding
+ *  is representation-REDUNDANT — an all-rock chunk can be an absent map entry,
+ *  `{uniform, MAT_ROCK}`, or an indexed chunk whose palette merely GREW past a
+ *  class that was later overwritten — so a structural byte-compare reports
+ *  inequality for identical content. That matters where the answer is
+ *  user-facing (the reconfigure drift report): a false "this op drifted" is a
+ *  finding nobody can act on. Uniform-vs-uniform (the common case, including
+ *  two absent records) short-circuits; otherwise the comparison resolves all
+ *  {@link CHUNK_SAMPLES} cells, which is cold-path work by design. */
+export function materialsEqual(
+  a: StoredMaterials,
+  b: StoredMaterials,
+): boolean {
+  const ua = uniformClass(a);
+  const ub = uniformClass(b);
+  if (ua !== null && ub !== null) return ua === ub;
+  for (let i = 0; i < CHUNK_SAMPLES; i++)
+    if (classAt(a, i) !== classAt(b, i)) return false;
+  return true;
+}
+
 /** Deep copy of a chunk's material storage, for undo snapshots. */
 export function cloneChunkMaterials(m: ChunkMaterials): ChunkMaterials {
   return m.kind === "uniform"

@@ -665,9 +665,11 @@ export function generatorById(id: string): GeneratorDef {
  *  mutation posture; a single pass would strand earlier ops applied but
  *  unlogged). Per-chunk inverse merge is FIRST-wins: each chunk's first
  *  snapshot is its PRE-COMMIT state, so undo restores the field exactly.
- *  Returns the commit's dirty chunk set and the recorded
+ *  Returns the commit's dirty chunk set and a COPY of the recorded
  *  {@link GeneratorEntity} — whose `entityId` intentionally equals the entity
- *  op's log id (the same log.nextId slot). The entity's `params`/`region` are
+ *  op's log id (the same log.nextId slot). The copy is deliberate and matches
+ *  {@link reconfigureGenerator}: mutating the returned record cannot rewrite the
+ *  log, so provenance only ever changes through a verb that logs an undo entry. The entity's `params`/`region` are
  *  CLONED (deep): the log owns its copy of the record, so a caller reusing a
  *  live object across commits can never rewrite it. Commit RE-EVALUATES the
  *  generator; it relies on evaluate's determinism (pure, same-input-twice —
@@ -748,5 +750,8 @@ export function commitGenerator(
   for (const op of stamped) log.ops.push(op);
   log.undoStack.push({ kind: "ops", ops: stamped, inverse });
   log.redoStack.length = 0;
-  return { dirty, entity };
+  // A COPY, matching reconfigureGenerator: handing back the live record makes a
+  // caller that edits it (an inspector binding straight to the returned object)
+  // rewrite history with no undo entry and no dirty set.
+  return { dirty, entity: structuredClone(entity) };
 }

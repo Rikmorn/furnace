@@ -2,11 +2,8 @@ import { describe, expect, test } from "bun:test";
 import type {
   BrushMask,
   BrushOp,
-  ChunkKey,
-  ChunkMaterials,
   EntityOp,
   FieldOp,
-  FieldStore,
   MaterialTable,
   OpInverse,
 } from "@furnace/core/field";
@@ -14,7 +11,6 @@ import {
   applyOp,
   assertOpValid,
   BUILTIN_TABLE,
-  cloneChunkMaterials,
   createFieldStore,
   createOpLog,
   encodeChunkFile,
@@ -29,10 +25,12 @@ import {
   serializeOps,
   undo,
 } from "@furnace/core/field";
-// spliceOps is deliberately NOT on the public index (Tasks 3/5 import it
-// in-core); the guard's rejected cases are unreachable through undo/redo, so
-// they are tested against the source module directly.
-import { spliceOps } from "../src/field/ops.ts";
+// Deliberately NOT on the public index (reconfigure imports them in-core):
+// spliceOps, whose rejected cases are unreachable through undo/redo and so are
+// tested against the source module directly, and imagesOf — the ONE place the
+// chunk-image clone/null rules live (a test-local copy would be a third).
+import { imagesOf, spliceOps } from "../src/field/ops.ts";
+import { snapshotAll } from "./_helpers/field-store.ts";
 
 const sphere = (id: number): BrushOp => ({
   id,
@@ -1052,35 +1050,6 @@ describe("hollow fill (F2b)", () => {
     expect(() => assertOpValid(fillBoxOp(3, 0.5), TABLE)).not.toThrow();
   });
 });
-
-type StoreSnapshot = {
-  chunks: Map<ChunkKey, Int8Array>;
-  materials: Map<ChunkKey, ChunkMaterials>;
-};
-
-/** A deep copy of the WHOLE store — the reference for "undo left nothing
- *  behind" (a leaked chunk or material entry fails the comparison). */
-const snapshotAll = (s: FieldStore): StoreSnapshot => ({
-  chunks: new Map([...s.chunks].map(([k, v]) => [k, Int8Array.from(v)])),
-  materials: new Map(
-    [...s.materials].map(([k, v]) => [k, cloneChunkMaterials(v)]),
-  ),
-});
-
-/** Current images of the given chunks, under the same clone/null rules as the
- *  private `snapshot()` in ops.ts (absent channel → null). */
-const imagesOf = (s: FieldStore, keys: Iterable<ChunkKey>): OpInverse => {
-  const images: OpInverse = new Map();
-  for (const key of keys) {
-    const density = s.chunks.get(key);
-    const materials = s.materials.get(key);
-    images.set(key, {
-      density: density ? Int8Array.from(density) : null,
-      materials: materials ? cloneChunkMaterials(materials) : null,
-    });
-  }
-  return images;
-};
 
 describe("spliceOps (F3a)", () => {
   const ids = (ops: FieldOp[]): number[] => ops.map((o) => o.id);

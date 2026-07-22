@@ -14,7 +14,6 @@ import {
   assertPatchValid,
   CHUNK_DIM,
   CHUNK_SAMPLES,
-  cloneChunkMaterials,
   createFieldStore,
   createOpLog,
   fieldOpChunks,
@@ -31,6 +30,8 @@ import {
 // PATCH_MASK_BYTES is deliberately NOT on the public index (the spliceOps
 // precedent — in-core producer surface), so it comes from the source module.
 import { PATCH_MASK_BYTES } from "../src/field/ops.ts";
+import type { StoreSnapshot } from "./_helpers/field-store.ts";
+import { snapshotAll } from "./_helpers/field-store.ts";
 
 const TABLE: MaterialTable = {
   classes: [
@@ -104,18 +105,6 @@ const digSphere = (
   kind: "brush",
   effect: "dig",
   shape: { kind: "sphere", center, radius },
-});
-
-type StoreSnapshot = {
-  chunks: Map<ChunkKey, Int8Array>;
-  materials: Map<ChunkKey, ChunkMaterials>;
-};
-
-const snapshotAll = (s: FieldStore): StoreSnapshot => ({
-  chunks: new Map([...s.chunks].map(([k, v]) => [k, Int8Array.from(v)])),
-  materials: new Map(
-    [...s.materials].map(([k, v]) => [k, cloneChunkMaterials(v)]),
-  ),
 });
 
 const expectStoreEquals = (s: FieldStore, snap: StoreSnapshot): void => {
@@ -258,24 +247,41 @@ describe("field patch op", () => {
   });
 
   test("is byte-exact on re-application and across stores (replay)", () => {
+    // The material-only bit sits BETWEEN the two density bits, so the two value
+    // cursors must advance independently: a shared cursor burns a density value
+    // on it and then reads both arrays off their ends. Self-comparison alone
+    // cannot see that (the same wrong bytes are produced every time), so the
+    // expected VALUES are asserted too — that is what makes the dual-cursor
+    // property load-bearing here, where the format defines it.
     const build = (): PatchOp =>
       patch([
         slice({
           densityMask: maskOf(bitOf(0, 0, 0), bitOf(8, 8, 8)),
           density: Int8Array.from([-3, 99]),
-          materialMask: maskOf(bitOf(8, 8, 8)),
-          materials: Uint8Array.from([MOSS]),
+          materialMask: maskOf(bitOf(4, 0, 0), bitOf(8, 8, 8)),
+          materials: Uint8Array.from([DIRT, MOSS]),
         }),
         densitySlice("0,1,0", [bitOf(0, 0, 0)], [4]),
       ]);
+    const expectPatched = (s: FieldStore): void => {
+      expect(getDensity(s, 0, 0, 0)).toBe(-3);
+      expect(getDensity(s, 8, 8, 8)).toBe(99);
+      expect(getDensity(s, 0, CHUNK_DIM, 0)).toBe(4);
+      expect(getDensity(s, 4, 0, 0)).toBe(SOLID); // material-only cell
+      expect(getMaterial(s, 4, 0, 0)).toBe(DIRT);
+      expect(getMaterial(s, 8, 8, 8)).toBe(MOSS);
+    };
     const a = createFieldStore();
     applyPatchOp(a, build());
+    expectPatched(a);
     const once = snapshotAll(a);
     applyPatchOp(a, build()); // absolute writes — idempotent
     expectStoreEquals(a, once);
+    expectPatched(a);
     const b = createFieldStore();
     applyPatchOp(b, build());
     expectStoreEquals(b, once);
+    expectPatched(b);
   });
 
   test("interleaves with brush ops under LIFO undo/redo", () => {

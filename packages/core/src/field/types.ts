@@ -164,7 +164,7 @@ export type BrushOp = {
 /** One chunk's slice of a {@link PatchOp} — the cells it writes IN THAT CHUNK
  *  and nothing else. Masks are 4096-bit sets (512 bytes = `CHUNK_SAMPLES / 8`),
  *  bit index `lx + CHUNK_DIM·(ly + CHUNK_DIM·lz)` — the same x-fastest cell
- *  layout {@link localIndex} defines for every other per-cell array.
+ *  layout `localIndex` (in `chunks.ts`) defines for every other per-cell array.
  *  `density` holds one Int8 per SET `densityMask` bit, in ascending bit order;
  *  `materials` one GLOBAL class id per set `materialMask` bit, likewise — each
  *  value array tracks its OWN mask, so the two channels need not agree on which
@@ -186,9 +186,8 @@ export type PatchChunk = {
  *  instead of re-deriving them). NOTE: those typed arrays have no WIRE encoding
  *  yet — `serializeOps` is still JSON, which mangles them; a compact on-disk
  *  form is a follow-up (see the MIGRATION note in `artifact.ts`). Bounded
- *  influence =
- *  exactly its masked cells, which is what makes replay byte-exact by
- *  construction: unlike a brush op it derives nothing from surrounding state,
+ *  influence = exactly its masked cells, which is what makes replay byte-exact
+ *  by construction: unlike a brush op it derives nothing from surrounding state,
  *  so it never bakes context in and never drifts when an UPSTREAM op is
  *  reconfigured. */
 export type PatchOp = { id: number; kind: "patch"; chunks: PatchChunk[] };
@@ -218,8 +217,12 @@ export type GeneratorDef = {
 };
 
 /** One committed generator application — the log's smart-object record (L4).
- *  `opSpan` = [firstOpId, lastOpId] of the brush ops the commit appended.
- *  Reconfigure/re-evaluate is F3; F2b records full provenance. */
+ *  `opSpan` = [firstOpId, lastOpId] of the brush ops the commit appended, which
+ *  sit immediately BEFORE the entity op in `log.ops` with sequential ids — the
+ *  contiguity invariant `reconfigureGenerator` locates the span by and
+ *  preserves. `entityId` equals the entity op's own log id and survives
+ *  reconfigure unchanged (the span's ids do not: a reconfigured span takes fresh
+ *  ones). */
 export type GeneratorEntity = {
   entityId: number;
   type: "generator";
@@ -228,6 +231,31 @@ export type GeneratorEntity = {
   seed: number;
   region: { min: [number, number, number]; max: [number, number, number] };
   opSpan: [number, number];
+  /** Frozen: reconfigure is blocked until unfrozen (cheap protection). The type
+   *  is `true`, not `boolean`, so ABSENT is the only way to spell "not frozen" —
+   *  unfreezing must `delete` the field; `frozen = false` does not type-check.
+   *  MIGRATION (until F3a Task 4): reconfigure honours the flag, but no verb
+   *  sets it yet — freeze/unfreeze/bake ship next. */
+  frozen?: true;
+  /** Baked: the recipe is severed — reconfigure is gone permanently; the span
+   *  ops are plain history eligible for compaction. `true`-not-`boolean` for the
+   *  same reason as `frozen`, though baking is one-way so nothing clears it.
+   *  MIGRATION (until F3a Task 4): reconfigure honours the flag, but no verb
+   *  sets it yet — freeze/unfreeze/bake ship next. */
+  baked?: true;
+};
+
+/** One drifted/orphaned finding from a reconfigure replay (spec D-F3-4).
+ *  `drifted` = the op replayed onto changed context, so its outcome differs from
+ *  before the reconfigure; `orphaned` = the op replayed and wrote NOTHING at
+ *  all. Orphaned wins when both would apply. */
+export type DriftFinding = {
+  opId: number;
+  kind: "drifted" | "orphaned";
+  /** Chunk-quantized location for jump-to-bounds UI: the op's written chunks
+   *  ({@link FieldOp} bounded influence), every one of which is in the
+   *  reconfigure's affected set. */
+  chunks: ChunkKey[];
 };
 
 /** An entity operation in the one log (charter §2.2 — one log, one ordering,

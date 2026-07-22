@@ -835,8 +835,41 @@ channel** (uniform|indexed palette encoding behind accessors — `getMaterial` /
   JSON-Schema params; integer-only maze RNG, donor bit-parity), `evaluate` → a span of
   lattice-snapped brush ops with a `MergePolicy` (replace | keep-existing-air).
   `commitGenerator` applies the span + records the `EntityOp`
-  (`GeneratorEntity`: generator id, params, seed, region, opSpan — full provenance;
-  reconfigure is F3) under ONE undo entry. The runtime ignores entity ops until F3.
+  (`GeneratorEntity`: generator id, params, seed, region, opSpan — full provenance)
+  under ONE undo entry. **Layout invariant:** a live entity's span ops sit immediately
+  BEFORE its entity op in `log.ops` with sequential ids matching `opSpan`, and
+  `entityId` is the entity op's own log id.
+- **Smart objects — reconfigure (F3a)** — `reconfigureGenerator(store, log, entityId,
+  changes, table)` re-evaluates a committed generator IN PLACE: the old span is spliced
+  out, a freshly evaluated one takes new ids from `log.nextId`, and the downstream ops
+  the change can reach are replayed. `ReconfigureChanges` = `{params?, seed?, region?,
+  policy?}`, each falling back to the recorded provenance — `params` is the COMPLETE
+  replacement set, never a patch. `entityId` (and the entity op's id) survive unchanged;
+  the span stays contiguous. Replay is CULLED to the affected set (old span's chunks ∪
+  the new evaluation's, closed transitively over downstream ops that intersect it); an
+  op whose mask embeds a FLOOD selection reads outside its own writes, so it is included
+  unconditionally. Returns `{dirty, entity, drift}`: `dirty` is the whole affected set
+  (a restored-but-unrewritten chunk still needs a remesh), `entity` is a COPY of the new
+  record, and `drift` is a `DriftFinding[]` in log order — `orphaned` (the replayed op
+  wrote nothing) or `drifted` (its chunks read differently than before), each with
+  chunk-quantized `chunks` for jump-to-bounds UI. Drift is chunk-granular and does not
+  attribute cause — a place worth a look, not a proof an op misbehaved. One `splice`
+  undo entry, redo cleared; undo/redo restore images and never re-execute the span, and
+  `log.nextId` is not rolled back (ids are handed out once). Setup-loud: unknown
+  entityId, a `frozen`/`baked` entity, an unknown recorded generator id, a corrupt span
+  layout, rejected params or an empty evaluation all throw with NOTHING mutated.
+  **Known gap (provenance):** `GeneratorEntity` does not record the commit's
+  `MergePolicy`, so an omitted `changes.policy` falls back to `"replace"`.
+  **Known gap (flood reads):** culling rewinds only the affected chunks, so every other
+  chunk keeps its END-OF-LOG bytes. That is exact for ops whose reads stay inside their
+  own bounded influence (all four brush effects, class-kind masks, region selections,
+  and patch ops, which read nothing), but a FLOOD selection's read set is unbounded, so
+  a replayed flood can traverse un-rewound chunks and see edits made by ops that
+  originally ran AFTER it — from-scratch equivalence does not hold for such a log. The
+  op is always replayed and lands in `drift` when its output differs from the
+  PRE-RECONFIGURE bytes (the drift baseline is old-final, not from-scratch), so it is
+  loud in practice; the report just cannot say the new output is wrong.
+  Tracked in `docs/backlog/engine-architecture/field-reconfigure-flood-read-set.md`.
 - **Mesh + skin** — chunked Surface Nets over the 20³ aprons with owned-crossing quads
   bucketed per owning-cell class incl. the kit **backing** surface (`meshChunkField` —
   watertight seams by construction); the generic **kit skinner** on the derived coarse
