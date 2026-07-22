@@ -249,12 +249,20 @@ function diffToPatch(before: FieldStore, after: FieldStore): PatchChunk[] {
  *  inherits the duty to validate what it splices, or `applyPatchOp`'s
  *  chunk-key parse becomes reachable again from a later replay.
  *
- *  With a correct diff neither throw can fire; they are the assertion that keeps
- *  "correct" from being an assumption, at the one moment history is about to be
- *  destroyed.
+ *  The two `storesEqual` legs cannot fire with a correct diff — they are the
+ *  assertion that keeps "correct" from being an assumption, at the one moment
+ *  history is about to be destroyed. The {@link assertPatchValid} leg IS
+ *  reachable through the public API: a diff carries the class ids the ops WROTE,
+ *  which need not resolve in the table compaction is called with. Replay a fill
+ *  of class 2 under a catalog that has since dropped it and the patch is
+ *  rejected here rather than becoming an op whose material ids nothing can
+ *  resolve — the same fail-closed stance `makeMaskGate` takes for a stored id
+ *  missing from the table.
  *
  *  @throws {@link Error} if the patch fails {@link assertPatchValid}, or if
- *    applying it to the pre-state does not reproduce the post-state. */
+ *    applying it to the pre-state does not reproduce the post-state. Both name
+ *    `field compaction:` and the run, so a rejection arriving at an editor's
+ *    error surface without a stack frame still says where it came from. */
 function verifyFold(
   before: FieldStore,
   after: FieldStore,
@@ -271,7 +279,17 @@ function verifyFold(
   }
   // Id 0 — the probe patch is never logged; the spliced op carries a real one.
   const patch: PatchOp = { id: 0, kind: "patch", chunks };
-  assertPatchValid(patch, table);
+  try {
+    assertPatchValid(patch, table);
+  } catch (failure) {
+    // classOf's "unknown class id" says nothing about compaction. Re-throw with
+    // the run that produced it, keeping the original as `cause`.
+    const reason = failure instanceof Error ? failure.message : String(failure);
+    throw new Error(
+      `field compaction: the patch folded from ${span} is not a valid op (${reason}) — nothing was discarded`,
+      { cause: failure },
+    );
+  }
   const check = copyStore(before);
   applyPatchOp(check, patch);
   if (storesEqual(check, after)) return;
@@ -305,6 +323,13 @@ function planFolds(
     const before = copyStore(scratch);
     for (const op of log.ops.slice(run.start, run.end))
       applyFieldOp(scratch, op, table);
+    // The scratch carries the run's own writes forward rather than being reset:
+    // ops between two runs are applied ONCE, from here. That is only equivalent
+    // to a per-run replay because today's four brush effects are idempotent
+    // pointwise operators, so re-applying them would land on the same bytes —
+    // the same property `restoreSeeds`' window-start guard leans on. A
+    // non-idempotent effect makes the cursor load-bearing rather than an
+    // optimisation, and must be verified against a per-run replay.
     cursor = run.end;
     const chunks = diffToPatch(before, scratch);
     verifyFold(before, scratch, chunks, table, run);
@@ -345,6 +370,13 @@ function assertQuiescentHistory(log: OpLog): void {
  * already satisfies it: `serializeOps` persists `log.ops` and never the stacks,
  * so a freshly loaded project has no history to invalidate — compact on open,
  * edit after.
+ *
+ * The rule is strictly CONSERVATIVE, not minimal. A stack of ONLY `ops` entries
+ * carries no index at all, and folding below the tail those entries cover is
+ * safe — the shape "open a project, edit a little, then compact the loaded
+ * prefix" is refused here for simplicity rather than for correctness. The
+ * demonstration, and the two real fixes, are in
+ * `docs/backlog/engine-architecture/field-log-entries-anchored-by-index.md`.
  *
  * Eligibility (see {@link CompactOptions} for `keepIds`): a brush op with a
  * cell-local effect — `dig`, `fill`, `paint`, with any mask but a FLOOD

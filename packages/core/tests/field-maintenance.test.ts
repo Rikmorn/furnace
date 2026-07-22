@@ -62,6 +62,14 @@ const TABLE: MaterialTable = {
   ],
 };
 const DIRT_CLASS_ID = 1;
+const KIT_CLASS_ID = 2;
+
+/** The same catalog after class 2 was dropped — a project whose material table
+ *  shrank between the session that wrote the ops and the one compacting them.
+ *  `applyOp` never resolves `op.material` against the table (only masks do, and
+ *  those fail CLOSED), so the ops still replay; it is the PATCH synthesized from
+ *  them that carries an id nothing can resolve. */
+const SHRUNK_TABLE: MaterialTable = { classes: TABLE.classes.slice(0, 2) };
 
 const HALL = generatorById("hall");
 
@@ -337,6 +345,74 @@ describe("compactRuns — semantic compaction", () => {
     expect(snapshotLog(log)).toEqual(before);
   });
 
+  test("REGION-masked ops fold — the mask reads position, not the field", () => {
+    const { store, log } = makeWorld();
+    // A region selection is materialized without touching the store
+    // (selection.ts: the spec's bounds are copied), so it replays identically
+    // from absolute cell values. A FLOOD in the same slot would not.
+    for (let i = 0; i < 8; i++)
+      logApply(
+        store,
+        log,
+        {
+          ...digSphere([i * 0.5, 1, 1], 0.6),
+          mask: {
+            kind: "selection",
+            selection: { kind: "region", min: [0, 0, 0], max: [2, 4, 4] },
+          },
+        },
+        TABLE,
+      );
+    dropHistory(log);
+    const bytes = snapshotAll(store);
+    expect(store.chunks.size).toBeGreaterThan(0);
+
+    expect(compactRuns(store, log, TABLE, NO_KEPT_IDS()).folded).toBe(8);
+
+    expect(log.ops.map((o) => o.kind)).toEqual(["patch"]);
+    expect(snapshotAll(store)).toEqual(bytes);
+    expect(snapshotAll(replayAll(log, TABLE, store.cellSize))).toEqual(bytes);
+  });
+
+  test("the discard guard REFUSES a fold whose class ids no longer resolve", () => {
+    const { store, log } = makeWorld();
+    // Fills of the kit class, lattice-aligned so assertOpValid accepts them.
+    for (let i = 0; i < 5; i++)
+      logApply(
+        store,
+        log,
+        {
+          id: 0,
+          kind: "brush",
+          effect: "fill",
+          material: KIT_CLASS_ID,
+          shape: {
+            kind: "box",
+            center: [1 + i * 0.5, 1, 1],
+            halfExtents: [0.5, 0.5, 0.5],
+          },
+        },
+        TABLE,
+      );
+    dropHistory(log);
+    const beforeStore = snapshotAll(store);
+    const beforeLog = snapshotLog(log);
+
+    // The catalog has since dropped class 2: the diff would carry an id the
+    // table cannot resolve, so the run must NOT be discarded.
+    expect(() => compactRuns(store, log, SHRUNK_TABLE, NO_KEPT_IDS())).toThrow(
+      /field compaction/,
+    );
+    expect(() => compactRuns(store, log, SHRUNK_TABLE, NO_KEPT_IDS())).toThrow(
+      /unknown class id 2/,
+    );
+
+    expect(snapshotLog(log)).toEqual(beforeLog);
+    expect(snapshotAll(store)).toEqual(beforeStore);
+    // and the SAME log still folds under the table its ops were written with
+    expect(compactRuns(store, log, TABLE, NO_KEPT_IDS()).folded).toBe(5);
+  });
+
   test("a run whose net effect is NOTHING is removed outright", () => {
     const { store, log } = makeWorld();
     // Class-masked digs that match no cell: legal, eligible, and they write
@@ -570,6 +646,95 @@ describe("snapshot records — the reconfigure restore fast path", () => {
     expect([...recorded].filter((key) => !smoothed.has(key)).length).toBe(
       seeds.size,
     );
+  });
+
+  test("a FLOOD-masked op over a chunk disqualifies it — the read set is unbounded", () => {
+    const { store, log } = makeWorld();
+    digRun(store, log, [16, 1, 16], 12);
+    const records = maintainSnapshots(store, log, [], 2);
+    // A flood re-materializes against replayed state and walks wherever the
+    // void goes — across chunks a per-chunk rebuild does not have. Forcing it
+    // through the culled route is a wrong-BYTES defect, not a slow one.
+    const flood: BrushOp = {
+      id: 0,
+      kind: "brush",
+      effect: "paint",
+      material: DIRT_CLASS_ID,
+      shape: { kind: "box", center: [18, 1, 16], halfExtents: [4, 2, 4] },
+      mask: {
+        kind: "selection",
+        selection: { kind: "flood-void", seed: [64, 4, 64], budget: 4096 },
+      },
+    };
+    logApply(store, log, flood, TABLE);
+    const entity = commitHall(store, log, [16, 0, 16]);
+    const spanStart = spanStartOf(log, entity);
+    const recorded = new Set(records.map((r) => r.key));
+
+    const seeds = restoreSeeds(
+      log,
+      spanStart,
+      recorded,
+      records,
+      store.cellSize,
+    );
+
+    const touched = fieldOpChunks(flood, store.cellSize);
+    expect([...recorded].some((key) => touched.has(key))).toBe(true);
+    for (const key of touched) expect(seeds.has(key)).toBe(false);
+  });
+
+  test("a REGION-masked op in the window keeps its chunk on the fast path", () => {
+    const { store, log } = makeWorld();
+    digRun(store, log, [16, 1, 16], 12);
+    const records = maintainSnapshots(store, log, [], 2);
+    // The other side of the same rule: a region mask is a position predicate,
+    // so the chunk stays rebuildable alone — and the rebuild must MATCH.
+    const regional: BrushOp = {
+      id: 0,
+      kind: "brush",
+      effect: "paint",
+      material: DIRT_CLASS_ID,
+      shape: { kind: "box", center: [18, 1, 16], halfExtents: [4, 2, 4] },
+      mask: {
+        kind: "selection",
+        selection: { kind: "region", min: [16, 0, 15], max: [20, 3, 18] },
+      },
+    };
+    const regionalId = log.nextId; // logApply stamps a COPY — match by id
+    logApply(store, log, regional, TABLE);
+    const entity = commitHall(store, log, [16, 0, 16]);
+    const spanStart = spanStartOf(log, entity);
+    const recorded = new Set(records.map((r) => r.key));
+
+    const seeds = restoreSeeds(
+      log,
+      spanStart,
+      recorded,
+      records,
+      store.cellSize,
+    );
+
+    const touched = fieldOpChunks(regional, store.cellSize);
+    const shared = [...recorded].filter((key) => touched.has(key));
+    expect(shared.length).toBeGreaterThan(0);
+    const reference = createFieldStore(store.cellSize);
+    for (const op of log.ops.slice(0, spanStart))
+      applyFieldOp(reference, op, TABLE);
+    for (const key of shared) {
+      const seed = seeds.get(key);
+      if (seed === undefined) throw new Error(`test: no seed for ${key}`);
+      expect(seed.ops.some((op) => op.id === regionalId)).toBe(true);
+      const scratch = createFieldStore(store.cellSize);
+      restoreImages(scratch, new Map([[key, seed.image]]));
+      for (const op of seed.ops) applyFieldOp(scratch, op, TABLE);
+      expect(scratch.chunks.get(key) ?? null).toEqual(
+        reference.chunks.get(key) ?? null,
+      );
+      expect(scratch.materials.get(key) ?? null).toEqual(
+        reference.materials.get(key) ?? null,
+      );
+    }
   });
 
   test("a record ahead of the restore position is ignored", () => {
