@@ -618,6 +618,39 @@ test("openEntity refuses a frozen entity — no session, an explained tool error
     host.openEntity(entityId);
     await settle();
     expect(sessions.at(-1)?.mode).toBe("reconfigure");
+
+    // Freezing the entity a session is OPEN on ends that session: the list sits
+    // beside the reconfigure card, so this is one click away, and core would
+    // refuse the Apply it was offering.
+    host.setEntityFrozen(entityId, true);
+    expect(sessions.at(-1)).toBeNull();
+  } finally {
+    uninstall();
+  }
+});
+
+test("commitStamp refuses a reconfigure session — it would append a SECOND entity", async () => {
+  const uninstall = installFakeWorker();
+  try {
+    const host = createFieldHost();
+    const { entityId } = loadCommittedHall(host);
+    const sessions: (StampSession | null)[] = [];
+    host.subscribeStamp((s) => sessions.push(s));
+
+    host.openEntity(entityId);
+    await settle();
+    expect(sessions.at(-1)?.phase).toBe("ready"); // the commit gate is OPEN
+
+    // The wrong verb for this session: a stamp commit here would run
+    // commitGenerator and leave two entities over one region.
+    host.commitStamp();
+    expect(host.listEntities()).toHaveLength(1);
+    expect(sessions.at(-1)?.mode).toBe("reconfigure"); // the session survives
+
+    // The right verb still lands.
+    host.applyReconfigure();
+    expect(host.listEntities()).toHaveLength(1);
+    expect(sessions.at(-1)).toBeNull();
   } finally {
     uninstall();
   }

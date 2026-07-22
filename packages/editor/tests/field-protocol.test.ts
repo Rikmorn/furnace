@@ -107,19 +107,18 @@ function runHandler(req: FieldWorkerRequest) {
   return posts;
 }
 
-/** The hall generator's full param set (schema defaults spelled out — param
- *  narrowing is setup-loud, so every field must be present). */
-const HALL_PARAMS: Record<string, unknown> = {
-  width: 8,
-  height: 6,
-  depth: 8,
-  pillars: "none",
-  pillarSpacing: 3,
-  doorNorth: true,
-  doorSouth: false,
-  doorEast: false,
-  doorWest: false,
-};
+/** The hall generator's param set, read from the registry's own schema
+ *  defaults. Deliberately NOT restated as a literal: F3a added `rotation` and
+ *  the four `door*Offset` keys as OPTIONAL params (generators.ts
+ *  OPTIONAL_PARAM_KEYS) so pre-F3a saves still load, which means a hand-written
+ *  set silently stops covering every key it predates — absent still evaluates,
+ *  so the gap is invisible. Reading the defaults is what exercises that path.
+ *  CLONED: `generatorById` hands back the registry's live def, and these params
+ *  cross a worker-protocol boundary that structured-clones — a test mutating a
+ *  shared registry object would poison every later test in the process. */
+const HALL_PARAMS: Record<string, unknown> = structuredClone(
+  generatorById("hall").defaults,
+);
 
 /** The default hall's stamp AABB: 10×8×10 coarse cells = 5×4×5 m at origin. */
 const HALL_REGION = {

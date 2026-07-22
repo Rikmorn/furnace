@@ -274,8 +274,13 @@ export type FieldHost = {
   /** Commits the previewed stamp as ONE undo entry + ONE entity op (Enter).
    *  Ready-phase only — a configuring/previewing session is a no-op. Preview
    *  and commit run the SAME pure evaluate, so the committed field matches
-   *  the ghost exactly. On success the session ends (subscribers get null —
-   *  the panel re-reads listEntities on that). */
+   *  the ghost exactly. On success the session ends (subscribers get null) and
+   *  {@link subscribeEntities} ticks.
+   *
+   *  STAMP-mode only: a live RECONFIGURE session is a no-op here, because
+   *  committing one would append a SECOND entity over the same region while the
+   *  original survived. {@link applyReconfigure} is that session's verb; Enter
+   *  in the viewport routes to whichever the mode calls for. */
   commitStamp(): void;
   /** Discards the session + its ghost (Esc). No-op without a session. */
   cancelStamp(): void;
@@ -327,7 +332,11 @@ export type FieldHost = {
    *  {@link openEntity} refuses a frozen entity until it is unfrozen. Touches
    *  no chunk, so nothing remeshes; ONE undo entry per REAL change (a redundant
    *  call is a no-op core does not log). A baked entity has nothing left to
-   *  protect and reports through {@link subscribeToolError}. */
+   *  protect and reports through {@link subscribeToolError}.
+   *
+   *  FREEZING cancels a live reconfigure session on that same entity — core
+   *  would refuse its Apply, so the session has nothing left to offer.
+   *  Unfreezing never cancels anything (a frozen entity has no session). */
   setEntityFrozen(entityId: number, frozen: boolean): void;
   /** Severs a committed entity's recipe — PERMANENT (no unbake; the caller
    *  confirms before calling). The record keeps its provenance for history, but
@@ -340,9 +349,12 @@ export type FieldHost = {
   bakeEntity(entityId: number): void;
   /** Subscribes to the latest reconfigure drift report: the downstream ops the
    *  last {@link applyReconfigure} replayed whose outcome moved (`drifted`) or
-   *  vanished (`orphaned`). Pushed on every apply — null when that apply found
-   *  nothing, so a clean reconfigure clears the previous report — and null on
-   *  world reset/load (a report names op ids the new log does not have).
+   *  vanished (`orphaned`). Pushed on every apply that LANDS — null when that
+   *  apply found nothing, so a clean reconfigure clears the previous report —
+   *  and null on world reset/load (a report names op ids the new log does not
+   *  have). An apply core REJECTS pushes nothing at all: it changed no op, so
+   *  the standing report still describes the log as it is, and clearing it
+   *  would destroy findings on behalf of an edit that never happened.
    *  Reports are CLONED and the CURRENT one is pushed immediately on subscribe
    *  (the {@link subscribeStamp} remount rationale); dismissal is the UI's own
    *  state (the host holds the last report until the next apply). NOT cleared
@@ -1751,6 +1763,11 @@ export function createFieldHost(): FieldHost {
   const commitStampSession = (): void => {
     const s = stamp;
     if (s === null || s.phase !== "ready") return;
+    // Mode guard, symmetric with applyReconfigureSession's: committing a
+    // RECONFIGURE session would append a second entity over the same region and
+    // leave the original standing. commitActiveSession already routes Enter by
+    // mode, so this guards the PUBLIC commitStamp against the same mistake.
+    if (s.mode !== "stamp") return;
     try {
       const { dirty: committed } = field.commitGenerator(
         store,
@@ -2614,9 +2631,14 @@ export function createFieldHost(): FieldHost {
         reportToolError(message);
         return;
       }
-      // A freeze cannot invalidate a live session: openEntity refuses frozen
-      // entities, so a session on THIS entity predates the freeze and its Apply
-      // would now be refused by core — loudly, through subscribeToolError.
+      // A freeze DOES reach a live session: the entities list stays visible
+      // beside the reconfigure card, so Open #1 → Freeze #1 is one click away,
+      // and core refuses the Apply that session is offering. Leaving it up would
+      // mean an enabled Apply that can only ever fail — so freezing ends it, the
+      // way baking does. Unfreezing (frozen=false) cannot orphan anything: no
+      // session exists on a frozen entity to begin with, and the id check makes
+      // it a no-op for every other session.
+      if (frozen && stamp?.entityId === entityId) cancelStampSession();
       notifyEntities();
     },
     bakeEntity(entityId) {
