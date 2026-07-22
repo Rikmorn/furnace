@@ -668,8 +668,9 @@ export function generatorById(id: string): GeneratorDef {
  *  Returns the commit's dirty chunk set and a COPY of the recorded
  *  {@link GeneratorEntity} — whose `entityId` intentionally equals the entity
  *  op's log id (the same log.nextId slot). The copy is deliberate and matches
- *  {@link reconfigureGenerator}: mutating the returned record cannot rewrite the
- *  log, so provenance only ever changes through a verb that logs an undo entry. The entity's `params`/`region` are
+ *  {@link reconfigureGenerator}: mutating the returned record cannot rewrite
+ *  the log, so provenance only ever changes through a verb that logs an undo
+ *  entry. The entity's `params`/`region` are
  *  CLONED (deep): the log owns its copy of the record, so a caller reusing a
  *  live object across commits can never rewrite it. Commit RE-EVALUATES the
  *  generator; it relies on evaluate's determinism (pure, same-input-twice —

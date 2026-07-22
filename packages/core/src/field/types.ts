@@ -231,17 +231,16 @@ export type GeneratorEntity = {
   seed: number;
   region: { min: [number, number, number]; max: [number, number, number] };
   opSpan: [number, number];
-  /** Frozen: reconfigure is blocked until unfrozen (cheap protection). The type
-   *  is `true`, not `boolean`, so ABSENT is the only way to spell "not frozen" —
-   *  unfreezing must `delete` the field; `frozen = false` does not type-check.
-   *  MIGRATION (until F3a Task 4): reconfigure honours the flag, but no verb
-   *  sets it yet — freeze/unfreeze/bake ship next. */
+  /** Frozen: reconfigure is blocked until unfrozen (cheap protection). Written
+   *  by `setGeneratorFrozen`. The type is `true`, not `boolean`, so ABSENT is
+   *  the only way to spell "not frozen" — unfreezing must `delete` the field;
+   *  `frozen = false` does not type-check. */
   frozen?: true;
   /** Baked: the recipe is severed — reconfigure is gone permanently; the span
-   *  ops are plain history eligible for compaction. `true`-not-`boolean` for the
-   *  same reason as `frozen`, though baking is one-way so nothing clears it.
-   *  MIGRATION (until F3a Task 4): reconfigure honours the flag, but no verb
-   *  sets it yet — freeze/unfreeze/bake ship next. */
+   *  ops are plain history eligible for compaction. Written by
+   *  `bakeGeneratorEntity`, which also clears `frozen`. `true`-not-`boolean`
+   *  for the same reason as `frozen`; no verb clears it, and only undo of the
+   *  bake entry reverses it. */
   baked?: true;
 };
 

@@ -146,7 +146,10 @@ function uniformClass(m: StoredMaterials): number | null {
  *  user-facing (the reconfigure drift report): a false "this op drifted" is a
  *  finding nobody can act on. Uniform-vs-uniform (the common case, including
  *  two absent records) short-circuits; otherwise the comparison resolves all
- *  {@link CHUNK_SAMPLES} cells, which is cold-path work by design. */
+ *  {@link CHUNK_SAMPLES} cells, which is cold-path work by design.
+ *
+ *  Deliberately NOT on the public field index: in-core comparator surface, the
+ *  material-channel twin of `densityEqual`. */
 export function materialsEqual(
   a: StoredMaterials,
   b: StoredMaterials,

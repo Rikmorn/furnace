@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   AIR,
   CHUNK_DIM,
+  CHUNK_SAMPLES,
   chunkKey,
   createFieldStore,
   extractFieldAprons,
@@ -12,6 +13,10 @@ import {
   setMaterial,
   voxelChunk,
 } from "@furnace/core/field";
+// densityEqual is deliberately NOT on the public index — in-core surface the
+// reconfigure drift comparator consumes, the density-channel twin of
+// materialsEqual (whose own block lives in field-materials.test.ts).
+import { densityEqual } from "../src/field/chunks.ts";
 
 describe("field chunk store", () => {
   test("untouched world is uniformly solid and allocates nothing", () => {
@@ -62,5 +67,59 @@ describe("field chunk store", () => {
     expect(at(-2, 0, 0)).toBe(SOLID);
     expect(atMat(-1, 0, 0)).toBe(3); // painted neighbor class pulled in
     expect(atMat(0, 0, 0)).toBe(MAT_ROCK); // untouched sample reads rock
+  });
+});
+
+describe("densityEqual — elision-aware comparison", () => {
+  const allSolid = (): Int8Array => new Int8Array(CHUNK_SAMPLES).fill(SOLID);
+
+  test("both sides absent compares equal, in every spelling", () => {
+    // `null` spells an absent CAPTURED image, `undefined` a missing map entry
+    expect(densityEqual(null, null)).toBe(true);
+    expect(densityEqual(undefined, undefined)).toBe(true);
+    expect(densityEqual(null, undefined)).toBe(true);
+    expect(densityEqual(undefined, null)).toBe(true);
+  });
+
+  // The branch the elision rule turns on, and the one a byte-compare gets
+  // wrong: an unallocated chunk IS uniform SOLID, so allocating it without
+  // writing anything must not read as a change.
+  test("an allocated all-SOLID chunk equals an unallocated one, both ways", () => {
+    expect(densityEqual(allSolid(), undefined)).toBe(true);
+    expect(densityEqual(undefined, allSolid())).toBe(true);
+    expect(densityEqual(allSolid(), null)).toBe(true);
+    expect(densityEqual(null, allSolid())).toBe(true);
+  });
+
+  test("one non-solid cell makes an allocated chunk differ from an absent one", () => {
+    const dug = allSolid();
+    dug[CHUNK_SAMPLES - 1] = AIR; // the LAST cell: a short scan would miss it
+    expect(densityEqual(dug, undefined)).toBe(false);
+    expect(densityEqual(undefined, dug)).toBe(false);
+  });
+
+  test("two allocated chunks compare cell by cell", () => {
+    const a = allSolid();
+    const b = allSolid();
+    a[100] = AIR;
+    expect(densityEqual(a, b)).toBe(false);
+    b[100] = AIR;
+    expect(densityEqual(a, b)).toBe(true);
+    // a value that merely rounds to the same sign is still a difference
+    b[100] = AIR - 1;
+    expect(densityEqual(a, b)).toBe(false);
+  });
+
+  test("arrays of different lengths are never equal", () => {
+    expect(densityEqual(allSolid(), new Int8Array(4).fill(SOLID))).toBe(false);
+  });
+
+  test("a real store's chunk compares equal to its own snapshot", () => {
+    const s = createFieldStore();
+    setDensity(s, 5, 5, 5, AIR);
+    const key = chunkKey(0, 0, 0);
+    const live = s.chunks.get(key);
+    expect(densityEqual(live, Int8Array.from(live ?? []))).toBe(true);
+    expect(densityEqual(live, s.chunks.get(chunkKey(9, 9, 9)))).toBe(false);
   });
 });

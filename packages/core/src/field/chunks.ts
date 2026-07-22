@@ -77,6 +77,29 @@ export function setDensity(
   return key;
 }
 
+const isSolid = (v: number): boolean => v === SOLID;
+
+/** SEMANTIC equality of two chunks' density channels, either side of which may
+ *  be ABSENT (`null` as a captured image spells it, `undefined` as a missing map
+ *  entry does). An absent chunk is uniform {@link SOLID} by the elision rule
+ *  {@link getDensity}/{@link setDensity} implement directly above, so an
+ *  allocated all-solid chunk compares EQUAL to an unallocated one — the
+ *  representation-independence `materialsEqual` gives the material channel, for
+ *  the channel whose elision rule lives here.
+ *
+ *  Deliberately NOT on the public field index, unlike nearly everything else
+ *  this module exports: in-core comparator surface, consumed by the reconfigure
+ *  drift report. */
+export function densityEqual(
+  a: Int8Array | null | undefined,
+  b: Int8Array | null | undefined,
+): boolean {
+  if (a === null || a === undefined)
+    return b === null || b === undefined || b.every(isSolid);
+  if (b === null || b === undefined) return a.every(isSolid);
+  return a.length === b.length && a.every((v, i) => v === b[i]);
+}
+
 /** The 20³ apron edge (samples −2..17): the shared mesher + skinner window. */
 export const FIELD_APRON_DIM = CHUNK_DIM + 4;
 
@@ -107,24 +130,6 @@ export function extractFieldAprons(
         i++;
       }
   return { density, materials };
-}
-
-const isSolid = (v: number): boolean => v === SOLID;
-
-/** SEMANTIC equality of two chunks' density channels, either side of which may
- *  be ABSENT (`null` as a captured image spells it, `undefined` as a missing map
- *  entry does). An absent chunk is uniform {@link SOLID} by this module's
- *  elision rule, so an allocated all-solid chunk compares EQUAL to an
- *  unallocated one — the representation-independence `materialsEqual` gives the
- *  material channel, for the channel whose elision rule lives here. */
-export function densityEqual(
-  a: Int8Array | null | undefined,
-  b: Int8Array | null | undefined,
-): boolean {
-  if (a === null || a === undefined)
-    return b === null || b === undefined || b.every(isSolid);
-  if (b === null || b === undefined) return a.every(isSolid);
-  return a.length === b.length && a.every((v, i) => v === b[i]);
 }
 
 /** World position of a sample index along one axis. */

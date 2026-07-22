@@ -9,6 +9,7 @@ import type {
   OpLog,
 } from "@furnace/core/field";
 import {
+  bakeGeneratorEntity,
   CHUNK_DIM,
   commitGenerator,
   createFieldStore,
@@ -19,6 +20,7 @@ import {
   logApplyPatch,
   reconfigureGenerator,
   redo,
+  setGeneratorFrozen,
   undo,
 } from "@furnace/core/field";
 // In-core helpers, deliberately NOT on the public index (the spliceOps
@@ -154,6 +156,10 @@ const entityOpOf = (log: OpLog, entityId: number): EntityOp => {
 const spanLengthOf = (e: GeneratorEntity): number =>
   e.opSpan[1] - e.opSpan[0] + 1;
 
+/** A record carrying a field no verb in this module has an opinion about —
+ *  stand-in for whatever the wire format and later slices add next. */
+type Labelled = GeneratorEntity & { label?: string };
+
 /** Id of the op just appended — narrowed, so assertions compare numbers. */
 const lastOpId = (log: OpLog): number => {
   const id = log.ops.at(-1)?.id;
@@ -280,8 +286,9 @@ describe("reconfigureGenerator — re-evaluate + replay", () => {
   // absorption and left holding neither op's writes. Every other test in this
   // file has at most a one-hop chain.
   test("the affected set closes TRANSITIVELY over a backwards-ordered chain", () => {
-    // bar chunk ranges (probe-measured, cy = cz = 0): A cx 0..3, B cx 3..6,
-    // C cx 6..9. The hall reaches cx 0..1, so it touches A and nothing else.
+    // bar chunk ranges (probe-measured, cy = cz = 0): touchesTheHall cx 0..3,
+    // middle cx 3..6, farFromTheHall cx 6..9. The hall reaches cx 0..1, so it
+    // touches the first bar and nothing else.
     const bar = (y: number, x0: number, x1: number): BrushOp => ({
       id: 0,
       kind: "brush",
@@ -296,7 +303,7 @@ describe("reconfigureGenerator — re-evaluate + replay", () => {
     const touchesTheHall = bar(1.25, 3, 15);
     const middle = bar(2.25, 13, 27);
     const farFromTheHall = bar(3.25, 25, 39);
-    // …appended FAREST-FIRST, so a forward scan can absorb only one per pass
+    // …appended FARTHEST-FIRST, so a forward scan can absorb only one per pass
     const CHAIN = [farFromTheHall, middle, touchesTheHall];
     const build = (depth: number, world = makeWorld()) => {
       const e = commitHall(world.store, world.log, { depth });
@@ -423,16 +430,14 @@ describe("reconfigureGenerator — re-evaluate + replay", () => {
   });
 
   // The rebuilt record is a SPREAD of the recorded one, so a field reconfigure
-  // has no opinion about survives. Task 4 adds exactly such fields (frozen is
-  // already one, but it rejects before it could be copied) — rebuild the record
-  // field-by-field instead and every one of them is silently dropped, with
-  // nothing else in the suite to notice.
+  // has no opinion about survives — `frozen`/`baked` do not exercise it (both
+  // reject before the copy). Rebuild the record field-by-field instead and
+  // every such field is silently dropped, with nothing else in the suite to
+  // notice.
   test("a field the reconfigure has no opinion about survives on the record", () => {
     const { store, log } = makeWorld();
     const e = commitHall(store, log);
-    const record = entityOpOf(log, e.entityId).entity;
-    // stand-in for whatever Task 4 and the wire format add next
-    const tagged = record as GeneratorEntity & { label?: string };
+    const tagged = entityOpOf(log, e.entityId).entity as Labelled;
     tagged.label = "west wing";
 
     const r = reconfigureGenerator(
@@ -443,13 +448,9 @@ describe("reconfigureGenerator — re-evaluate + replay", () => {
       TABLE,
     );
 
-    const after = entityOpOf(log, e.entityId).entity as GeneratorEntity & {
-      label?: string;
-    };
+    const after = entityOpOf(log, e.entityId).entity as Labelled;
     expect(after.label).toBe("west wing");
-    expect((r.entity as GeneratorEntity & { label?: string }).label).toBe(
-      "west wing",
-    );
+    expect((r.entity as Labelled).label).toBe("west wing");
     // …and the fields reconfigure DOES own were still replaced
     expect(after.params["depth"]).toBe(12);
   });
@@ -734,7 +735,11 @@ describe("reconfigureGenerator — setup-loud guards", () => {
   };
 
   const CASES: ThrowCase[] = [
-    { name: "unknown entity id", entityId: 999, message: /unknown entity/ },
+    {
+      name: "unknown entity id",
+      entityId: 999,
+      message: /^reconfigureGenerator: unknown entity 999$/,
+    },
     {
       name: "frozen entity",
       arrange: (log, id) => {
@@ -835,7 +840,292 @@ describe("reconfigureGenerator — setup-loud guards", () => {
     expect(snapshotLog(log)).toEqual(beforeLog);
   });
 
+  // The return value is cloned BEFORE the splice, so a record carrying an
+  // unknown non-cloneable field is a VALIDATION failure like every other case
+  // above. Measured before that fix: the clone threw at `return` with the log
+  // already rewritten — nextId 57 → 112, an undo entry pushed, redo cleared —
+  // and the caller saw only the exception. Unknown fields are precisely the
+  // ones whose cloneability the type system does not vouch for, and the spread
+  // exists to carry them.
+  test("a non-cloneable field on the RECORD throws with NOTHING mutated", () => {
+    const { store, log } = makeWorld();
+    const e = commitHall(store, log);
+    const hooked = entityOpOf(log, e.entityId).entity as GeneratorEntity & {
+      hook?: unknown;
+    };
+    hooked.hook = () => 1;
+    const beforeStore = snapshotAll(store);
+    const beforeLog = snapshotLog(log);
+
+    expect(() =>
+      reconfigureGenerator(store, log, e.entityId, { seed: 9 }, TABLE),
+    ).toThrow(/cloned/);
+
+    expect(snapshotAll(store)).toEqual(beforeStore);
+    expect(snapshotLog(log)).toEqual(beforeLog);
+  });
+
   // The empty-evaluation leg is DEFENSIVE: every registered generator emits at
   // least its shell fill, so no params reach it — the same unreachable guard
   // commitGenerator carries. It is left untested rather than faked.
+});
+
+describe("setGeneratorFrozen / bakeGeneratorEntity — the protection verbs", () => {
+  test("freeze blocks reconfigure, unfreeze re-enables it, and each undoes cleanly", () => {
+    const { store, log } = makeWorld();
+    const e = commitHall(store, log);
+
+    const frozen = setGeneratorFrozen(log, e.entityId, true);
+    expect(frozen.frozen).toBe(true);
+    expect(entityOpOf(log, e.entityId).entity.frozen).toBe(true);
+    expect(() =>
+      reconfigureGenerator(store, log, e.entityId, {}, TABLE),
+    ).toThrow(/frozen/);
+
+    // unfreeze DELETES the field — `frozen: false` is not a spelling of it
+    const thawed = setGeneratorFrozen(log, e.entityId, false);
+    expect("frozen" in thawed).toBe(false);
+    expect("frozen" in entityOpOf(log, e.entityId).entity).toBe(false);
+    expect(() =>
+      reconfigureGenerator(store, log, e.entityId, { seed: 9 }, TABLE),
+    ).not.toThrow();
+
+    // …and ⌘Z back through each verb restores the record it swapped out
+    undo(store, log); // the reconfigure
+    undo(store, log); // the unfreeze
+    expect(entityOpOf(log, e.entityId).entity.frozen).toBe(true);
+    undo(store, log); // the freeze
+    expect("frozen" in entityOpOf(log, e.entityId).entity).toBe(false);
+    // …and redo walks the same two record swaps forward again
+    redo(store, log, TABLE);
+    expect(entityOpOf(log, e.entityId).entity.frozen).toBe(true);
+    redo(store, log, TABLE);
+    expect("frozen" in entityOpOf(log, e.entityId).entity).toBe(false);
+  });
+
+  test("bake severs the recipe; undo is the ONLY thing that puts it back", () => {
+    const { store, log } = makeWorld();
+    const e = commitHall(store, log);
+
+    const baked = bakeGeneratorEntity(log, e.entityId);
+
+    expect(baked.baked).toBe(true);
+    // provenance is RETAINED for history — bake severs the recipe, not the record
+    expect(baked.generator).toBe("hall");
+    expect(baked.params).toEqual(e.params);
+    expect(baked.seed).toBe(e.seed);
+    expect(baked.region).toEqual(e.region);
+    expect(baked.opSpan).toEqual(e.opSpan);
+    expect(() =>
+      reconfigureGenerator(store, log, e.entityId, {}, TABLE),
+    ).toThrow(/baked/);
+    // no VERB reverses it: neither protection verb will touch a baked entity
+    expect(() => setGeneratorFrozen(log, e.entityId, false)).toThrow(/baked/);
+    expect(() => bakeGeneratorEntity(log, e.entityId)).toThrow(/already baked/);
+
+    // …but the undo ENTRY does, for exactly as long as it is on the stack
+    undo(store, log);
+    expect("baked" in entityOpOf(log, e.entityId).entity).toBe(false);
+    expect(() =>
+      reconfigureGenerator(store, log, e.entityId, { seed: 9 }, TABLE),
+    ).not.toThrow();
+  });
+
+  test("bake CLEARS frozen — a severed entity is not also protected", () => {
+    const { store, log } = makeWorld();
+    const e = commitHall(store, log);
+    setGeneratorFrozen(log, e.entityId, true);
+
+    const baked = bakeGeneratorEntity(log, e.entityId);
+
+    expect(baked.baked).toBe(true);
+    expect("frozen" in baked).toBe(false);
+    expect("frozen" in entityOpOf(log, e.entityId).entity).toBe(false);
+    // …and undo restores the FROZEN record, not a bare one
+    undo(store, log);
+    expect(entityOpOf(log, e.entityId).entity.frozen).toBe(true);
+  });
+
+  test("neither verb touches a chunk — at negative chunk coordinates either", () => {
+    const { store, log } = makeWorld();
+    const e = commitHall(store, log, {}, [-8, -4, -8]);
+    expect([...store.chunks.keys()].every((k) => k.startsWith("-"))).toBe(true);
+    const beforeStore = snapshotAll(store);
+
+    setGeneratorFrozen(log, e.entityId, true);
+    bakeGeneratorEntity(log, e.entityId);
+    expect(snapshotAll(store)).toEqual(beforeStore);
+
+    // an in-place record swap has NOTHING to remesh, in either direction
+    expect(undo(store, log).size).toBe(0);
+    expect(undo(store, log).size).toBe(0);
+    expect(redo(store, log, TABLE).size).toBe(0);
+    expect(redo(store, log, TABLE).size).toBe(0);
+    expect(snapshotAll(store)).toEqual(beforeStore);
+  });
+
+  test("each verb pushes exactly ONE entity-update entry and clears redo", () => {
+    const { store, log } = makeWorld();
+    const e = commitHall(store, log);
+    reconfigureGenerator(store, log, e.entityId, { seed: 9 }, TABLE);
+    undo(store, log); // park a live redo entry
+    const depth = log.undoStack.length;
+    expect(log.redoStack.length).toBe(1);
+
+    setGeneratorFrozen(log, e.entityId, true);
+    expect(log.undoStack.length).toBe(depth + 1);
+    expect(log.undoStack.at(-1)?.kind).toBe("entity-update");
+    expect(log.redoStack.length).toBe(0);
+
+    bakeGeneratorEntity(log, e.entityId);
+    expect(log.undoStack.length).toBe(depth + 2);
+    expect(log.undoStack.at(-1)?.kind).toBe("entity-update");
+  });
+
+  test("both verbs return a COPY, and carry fields they have no opinion about", () => {
+    const { store, log } = makeWorld();
+    const e = commitHall(store, log);
+    (entityOpOf(log, e.entityId).entity as Labelled).label = "west wing";
+
+    const frozen = setGeneratorFrozen(log, e.entityId, true) as Labelled;
+    expect(frozen.label).toBe("west wing");
+    frozen.seed = 999;
+    frozen.params["depth"] = 999;
+    expect(entityOpOf(log, e.entityId).entity.seed).toBe(e.seed);
+    expect(entityOpOf(log, e.entityId).entity.params["depth"]).toBe(8);
+
+    const baked = bakeGeneratorEntity(log, e.entityId) as Labelled;
+    expect(baked.label).toBe("west wing");
+    expect((entityOpOf(log, e.entityId).entity as Labelled).label).toBe(
+      "west wing",
+    );
+  });
+
+  // Why findEntityOp is split from verifySpanLayout: these verbs write the
+  // RECORD and read no span, and being unable to protect — or retire — a
+  // corrupt entity is the wrong failure mode. Bake matters most here: it is the
+  // escape hatch that demotes an unreconfigurable entity to plain history.
+  test("both verbs reach an entity whose SPAN layout is corrupt", () => {
+    const { store, log } = makeWorld();
+    const e = commitHall(store, log);
+    entityOpOf(log, e.entityId).entity.opSpan = [900, 999];
+    expect(() =>
+      reconfigureGenerator(store, log, e.entityId, {}, TABLE),
+    ).toThrow(/span/);
+
+    expect(setGeneratorFrozen(log, e.entityId, true).frozen).toBe(true);
+    setGeneratorFrozen(log, e.entityId, false);
+    expect(bakeGeneratorEntity(log, e.entityId).baked).toBe(true);
+  });
+});
+
+describe("setGeneratorFrozen / bakeGeneratorEntity — no-ops and setup-loud guards", () => {
+  // A no-op that still burns an undo slot AND clears the redo stack is a bad
+  // ⌘Z: the redo entry it destroys is unrecoverable, for a call that changed
+  // nothing. `setGeneratorFrozen` is a SETTER — "after this call the entity is
+  // frozen" — so a redundant call is a well-formed request already satisfied,
+  // not bad input. (Contrast the empty patch, which is a malformed OP.)
+  test("a redundant unfreeze changes nothing — and spares a live redo entry", () => {
+    const { store, log } = makeWorld();
+    const e = commitHall(store, log);
+    reconfigureGenerator(store, log, e.entityId, { seed: 9 }, TABLE);
+    undo(store, log);
+    const before = snapshotLog(log);
+    expect(before.redoDepth).toBe(1); // the entry a no-op entry would destroy
+
+    const record = setGeneratorFrozen(log, e.entityId, false);
+
+    expect("frozen" in record).toBe(false);
+    expect(snapshotLog(log)).toEqual(before);
+  });
+
+  test("a redundant freeze changes nothing and still returns a COPY", () => {
+    const { store, log } = makeWorld();
+    const e = commitHall(store, log);
+    setGeneratorFrozen(log, e.entityId, true);
+    const before = snapshotLog(log);
+
+    const record = setGeneratorFrozen(log, e.entityId, true);
+
+    expect(record.frozen).toBe(true);
+    expect(snapshotLog(log)).toEqual(before);
+    record.seed = 999;
+    expect(entityOpOf(log, e.entityId).entity.seed).toBe(e.seed);
+  });
+
+  type VerbCase = {
+    name: string;
+    /** Flags the committed record before the call under test. */
+    arrange?: (log: OpLog, entityId: number) => void;
+    call: (log: OpLog, entityId: number) => void;
+    message: RegExp;
+  };
+
+  const CASES: VerbCase[] = [
+    {
+      // the throw names the PUBLIC verb, not the shared locator: these strings
+      // reach an editor's error surface with no stack frame attached
+      name: "freeze of an unknown entity",
+      call: (log) => {
+        setGeneratorFrozen(log, 42, true);
+      },
+      message: /^setGeneratorFrozen: unknown entity 42$/,
+    },
+    {
+      name: "bake of an unknown entity",
+      call: (log) => {
+        bakeGeneratorEntity(log, 42);
+      },
+      message: /^bakeGeneratorEntity: unknown entity 42$/,
+    },
+    {
+      name: "freeze of a baked entity",
+      arrange: (log, id) => {
+        bakeGeneratorEntity(log, id);
+      },
+      call: (log, id) => {
+        setGeneratorFrozen(log, id, true);
+      },
+      message: /baked/,
+    },
+    {
+      name: "unfreeze of a baked entity",
+      arrange: (log, id) => {
+        bakeGeneratorEntity(log, id);
+      },
+      call: (log, id) => {
+        setGeneratorFrozen(log, id, false);
+      },
+      message: /baked/,
+    },
+    // Bake is the one IRREVERSIBLE verb, so it is NOT an idempotent setter: a
+    // second bake would push an entry whose before === after, a ⌘Z that
+    // visibly does nothing (the shape assertPatchValid rejects for the empty
+    // patch), and would silence a UI that believes it just severed something.
+    {
+      name: "bake of an already-baked entity",
+      arrange: (log, id) => {
+        bakeGeneratorEntity(log, id);
+      },
+      call: (log, id) => {
+        bakeGeneratorEntity(log, id);
+      },
+      message: /already baked/,
+    },
+  ];
+
+  for (const c of CASES) {
+    test(`${c.name} throws with NOTHING mutated`, () => {
+      const { store, log } = makeWorld();
+      const e = commitHall(store, log);
+      c.arrange?.(log, e.entityId);
+      const beforeStore = snapshotAll(store);
+      const beforeLog = snapshotLog(log);
+
+      expect(() => c.call(log, e.entityId)).toThrow(c.message);
+
+      expect(snapshotAll(store)).toEqual(beforeStore);
+      expect(snapshotLog(log)).toEqual(beforeLog);
+    });
+  }
 });

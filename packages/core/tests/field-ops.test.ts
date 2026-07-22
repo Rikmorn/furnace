@@ -4,8 +4,10 @@ import type {
   BrushOp,
   EntityOp,
   FieldOp,
+  FieldStore,
   MaterialTable,
   OpInverse,
+  OpLog,
 } from "@furnace/core/field";
 import {
   applyOp,
@@ -1099,6 +1101,23 @@ describe("spliceOps (F3a)", () => {
 // 3 (reconfigureGenerator) ships the verb that produces splice entries, Task 4
 // the one that produces entity-update entries.
 describe("splice + entity-update log entries (F3a)", () => {
+  /** A hall entity op at log id 7, distinguishable by `width` — so a swap to
+   *  the wrong slot is detectable by VALUE and not only by the array's shape. */
+  const hallOf = (width: number): EntityOp => ({
+    id: 7,
+    kind: "entity",
+    action: "place",
+    entity: {
+      entityId: 7,
+      type: "generator",
+      generator: "hall",
+      params: { width },
+      seed: 1,
+      region: { min: [0, 0, 0], max: [4, 2, 4] },
+      opSpan: [1, 1],
+    },
+  });
+
   test("a splice entry restores the ops array positionally and the store byte-exactly", () => {
     const s = createFieldStore();
     const log = createOpLog();
@@ -1172,20 +1191,6 @@ describe("splice + entity-update log entries (F3a)", () => {
     const s = createFieldStore();
     const log = createOpLog();
     logApply(s, log, digSphere([1, 1, 1], 1), TABLE);
-    const hallOf = (width: number): EntityOp => ({
-      id: 7,
-      kind: "entity",
-      action: "place",
-      entity: {
-        entityId: 7,
-        type: "generator",
-        generator: "hall",
-        params: { width },
-        seed: 1,
-        region: { min: [0, 0, 0], max: [4, 2, 4] },
-        opSpan: [1, 1],
-      },
-    });
     const before = hallOf(4);
     const after = hallOf(8);
     log.ops.push(after);
@@ -1202,5 +1207,114 @@ describe("splice + entity-update log entries (F3a)", () => {
     expect(log.ops.length).toBe(2);
     expect(log.ops[opIndex]).toBe(after);
     expect(snapshotAll(s)).toEqual(store);
+  });
+
+  // `opIndex` is a STORED value, and the swap used to be a bare
+  // `log.ops[opIndex] = …`. Measured before the guard: index 5000 on a 1-op log
+  // GREW the array to 5001 with 4999 holes and returned an empty dirty set, and
+  // index -1 installed a non-index string property nothing reads back — silent
+  // log corruption in both directions, either side of the spliceOps guard that
+  // sits three lines away.
+  describe("entity-update index guard", () => {
+    // `message` pins the KIND the guard reports finding — the fact that says
+    // whether the index missed the array or hit the wrong op.
+    type IndexCase = { name: string; opIndex: number; message: RegExp };
+    const CASES: IndexCase[] = [
+      { name: "past the end", opIndex: 5000, message: /found "nothing"/ },
+      {
+        name: "exactly one past the end",
+        opIndex: 2,
+        message: /found "nothing"/,
+      },
+      { name: "negative", opIndex: -1, message: /found "nothing"/ },
+      { name: "not an integer", opIndex: 1.5, message: /found "nothing"/ },
+      { name: "addressing a BRUSH op", opIndex: 0, message: /found "brush"/ },
+    ];
+
+    /** A log of [brush, entity] plus the entry under test on `stack`, over the
+     *  same distinguishable {@link hallOf} pair the swap test uses. */
+    const withEntry = (
+      stack: "undoStack" | "redoStack",
+      opIndex: number,
+    ): { s: FieldStore; log: OpLog; before: EntityOp; after: EntityOp } => {
+      const s = createFieldStore();
+      const log = createOpLog();
+      logApply(s, log, digSphere([1, 1, 1], 1), TABLE);
+      const before = hallOf(4);
+      const after = hallOf(8);
+      log.ops.push(after);
+      log[stack].push({ kind: "entity-update", opIndex, before, after });
+      return { s, log, before, after };
+    };
+
+    /** The ops array seen as a plain object — the view a negative or fractional
+     *  index writes THROUGH, and which array indexing never reads back. */
+    const asRecord = (log: OpLog): Record<string, unknown> =>
+      log.ops as unknown as Record<string, unknown>;
+
+    /** Depths + ops + store, so "mutating nothing" covers every stack too. */
+    const stateOf = (s: FieldStore, log: OpLog) => ({
+      ops: [...log.ops],
+      store: snapshotAll(s),
+      undoDepth: log.undoStack.length,
+      redoDepth: log.redoStack.length,
+    });
+
+    for (const c of CASES) {
+      test(`undo rejects an index ${c.name}, mutating nothing`, () => {
+        const { s, log } = withEntry("undoStack", c.opIndex);
+        const state = stateOf(s, log);
+
+        expect(() => undo(s, log)).toThrow(/entity-update/);
+        expect(() => undo(s, log)).toThrow(c.message);
+
+        // the entry stays put — never stranded on the far stack
+        expect(stateOf(s, log)).toEqual(state);
+      });
+
+      test(`redo rejects an index ${c.name}, mutating nothing`, () => {
+        const { s, log } = withEntry("redoStack", c.opIndex);
+        const state = stateOf(s, log);
+
+        expect(() => redo(s, log, TABLE)).toThrow(/entity-update/);
+        expect(() => redo(s, log, TABLE)).toThrow(c.message);
+
+        expect(stateOf(s, log)).toEqual(state);
+      });
+    }
+
+    // The integer and lower-bound clauses are NOT subsumed by the kind clause,
+    // though on a clean array they look it: `ops[1.5]` and `ops[-1]` read
+    // undefined there, so kind alone rejects both. But `log.ops` is public and
+    // mutable, and a non-index property is exactly what an unguarded write of
+    // this shape installs — measured before the guard: index −1 put a "-1"
+    // property on the array. Given one, the kind clause ACCEPTS the index and
+    // writes a second.
+    const STRAY_CASES: { name: string; opIndex: number; key: string }[] = [
+      { name: "fractional", opIndex: 1.5, key: "1.5" },
+      { name: "negative", opIndex: -1, key: "-1" },
+    ];
+
+    for (const c of STRAY_CASES) {
+      test(`a ${c.name} index is rejected even when a matching property exists`, () => {
+        const { s, log, after } = withEntry("undoStack", c.opIndex);
+        asRecord(log)[c.key] = after;
+        const state = stateOf(s, log);
+
+        expect(() => undo(s, log)).toThrow(/entity-update/);
+
+        expect(stateOf(s, log)).toEqual(state);
+        // …and nothing was written THROUGH the stray slot either: undo would
+        // have put `before` there, which is a DIFFERENT record
+        expect(asRecord(log)[c.key]).toBe(after);
+      });
+    }
+
+    test("the in-range entity-op index the guard must ACCEPT", () => {
+      const { s, log, before } = withEntry("undoStack", 1);
+      expect(undo(s, log).size).toBe(0);
+      expect(log.ops[1]).toBe(before);
+      expect(log.ops.length).toBe(2);
+    });
   });
 });

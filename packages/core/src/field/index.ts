@@ -65,7 +65,11 @@ export {
 export type { FieldHit } from "./raycast.ts";
 export { raycastField } from "./raycast.ts";
 export type { ReconfigureChanges } from "./reconfigure.ts";
-export { reconfigureGenerator } from "./reconfigure.ts";
+export {
+  bakeGeneratorEntity,
+  reconfigureGenerator,
+  setGeneratorFrozen,
+} from "./reconfigure.ts";
 export {
   MAX_SELECTION_BUDGET,
   materializeSelection,

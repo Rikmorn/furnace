@@ -30,8 +30,7 @@ import {
 // PATCH_MASK_BYTES is deliberately NOT on the public index (the spliceOps
 // precedent — in-core producer surface), so it comes from the source module.
 import { PATCH_MASK_BYTES } from "../src/field/ops.ts";
-import type { StoreSnapshot } from "./_helpers/field-store.ts";
-import { snapshotAll } from "./_helpers/field-store.ts";
+import { type StoreSnapshot, snapshotAll } from "./_helpers/field-store.ts";
 
 const TABLE: MaterialTable = {
   classes: [

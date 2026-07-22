@@ -808,9 +808,11 @@ channel** (uniform|indexed palette encoding behind accessors — `getMaterial` /
   `createOpLog`. An undo/redo unit is a `LogEntry`: `ops` (an appended op LIST — one
   entry per generator commit), `splice` (an in-place span replacement — `before`/`after`
   chunk images are RESTORED on undo/redo, the span is never re-executed), or
-  `entity-update` (an in-place entity-record swap that touches no chunks).
-  `restoreImages` is the shared image→store writer (both channels; a null channel
-  deletes). Both stacks are strictly LIFO.
+  `entity-update` (an in-place entity-record swap that touches no chunks; its
+  `opIndex` is validated to address a real entity op before either direction writes,
+  so a hand-built entry cannot grow `log.ops` with holes or install a non-index
+  property). `restoreImages` is the shared image→store writer (both channels; a null
+  channel deletes). Both stacks are strictly LIFO.
 - **Patch ops (F3a)** — `PatchOp` = ABSOLUTE masked per-cell writes, one `PatchChunk`
   slice per chunk: 512-byte density/material bitmasks (bit `lx + 16·(ly + 16·lz)`) plus
   one value per set bit in ascending bit order, each channel tracking its own mask.
@@ -870,6 +872,31 @@ channel** (uniform|indexed palette encoding behind accessors — `getMaterial` /
   PRE-RECONFIGURE bytes (the drift baseline is old-final, not from-scratch), so it is
   loud in practice; the report just cannot say the new output is wrong.
   Tracked in `docs/backlog/engine-architecture/field-reconfigure-flood-read-set.md`.
+- **Smart objects — freeze / bake (F3a)** — the two protection verbs, both
+  `(log, entityId, …)` and deliberately WITHOUT `store`: each writes only the entity
+  RECORD, so no chunk changes and there is no `dirty` set to return. Each records one
+  `entity-update` undo entry and clears redo; undo swaps the previous record back and
+  reports an empty dirty set. Neither verifies the entity's span layout — being unable
+  to protect or retire a corrupt entity would be the wrong failure mode — so a
+  compactor must derive span eligibility from LIVE (non-baked) entity spans, which
+  reconfigure does verify. Both return a COPY of the record, carrying fields they have
+  no opinion about verbatim.
+  `setGeneratorFrozen(log, entityId, frozen)` blocks/unblocks `reconfigureGenerator`.
+  It is a SETTER, not a toggle: a redundant call (freeze what is frozen, unfreeze what
+  is not) does nothing at all — no undo entry and no redo CLEAR, which would otherwise
+  destroy a live redo entry for a call that changed nothing. Unfreezing DELETES the
+  field (`GeneratorEntity.frozen` is a literal-`true` optional). Setup-loud on an
+  unknown entityId or a BAKED entity (nothing left to protect).
+  `bakeGeneratorEntity(log, entityId)` severs the recipe — the one irreversible verb.
+  Provenance (generator, params, seed, region, `opSpan`) is RETAINED for history;
+  `frozen` is cleared; reconfigure refuses the entity permanently and its span ops
+  become plain history eligible for compaction. **"Permanent" = no VERB reverses it**
+  — there is no unbake, and a second bake throws rather than repeating (a one-way
+  transition is not an idempotent setter, and logging it would push a before === after
+  entry: a ⌘Z that visibly does nothing). ⌘Z still undoes it for as long as the entry
+  is on the undo stack; past that — stack discarded, or a save/reload, since
+  `serializeOps` writes `log.ops` only and never the stacks — it is baked for good.
+  Setup-loud on an unknown entityId or an already-baked entity.
 - **Mesh + skin** — chunked Surface Nets over the 20³ aprons with owned-crossing quads
   bucketed per owning-cell class incl. the kit **backing** surface (`meshChunkField` —
   watertight seams by construction); the generic **kit skinner** on the derived coarse

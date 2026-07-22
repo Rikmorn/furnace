@@ -1,8 +1,15 @@
-// packages/core/src/field/reconfigure.ts — the smart-object verb (F3 spec §2.1,
-// D-F3-2..5). A committed generator entity re-evaluates IN PLACE: its span is
-// spliced out of the ONE linear log and replaced, and only the downstream ops
-// whose bounded influence touches the change are replayed. Bounded influence is
-// what buys that culling — it is the whole reason charter §2.2 demands it.
+// packages/core/src/field/reconfigure.ts — the three smart-object verbs, which
+// share one locator over the ONE linear log.
+//
+// reconfigureGenerator (F3 spec §2.1, D-F3-2..5) re-evaluates a committed
+// generator IN PLACE: its span is spliced out and replaced, and only the
+// downstream ops whose bounded influence touches the change are replayed.
+// Bounded influence is what buys that culling — the whole reason charter §2.2
+// demands it.
+//
+// setGeneratorFrozen and bakeGeneratorEntity (§2.2) re-evaluate NOTHING. They
+// swap the entity RECORD in place under one entity-update entry, touching no
+// chunk and no span: protection (reversible) and severing (not).
 import { createFieldStore, densityEqual } from "./chunks.ts";
 import { generatorById } from "./generators.ts";
 import { materialsEqual } from "./materials.ts";
@@ -90,21 +97,30 @@ function intersects(a: Set<ChunkKey>, b: Set<ChunkKey>): boolean {
 }
 
 /** Finds the entity op carrying `entityId` and where it sits. Deliberately says
- *  NOTHING about the op's span: a verb that only edits the record (freeze,
- *  unfreeze, bake) must be able to reach a corrupt entity — being unable to
- *  freeze a broken one is the wrong failure mode.
+ *  NOTHING about the op's span: {@link setGeneratorFrozen} and
+ *  {@link bakeGeneratorEntity} write only the record and must be able to reach
+ *  a corrupt entity — being unable to protect, or retire, a broken one is the
+ *  wrong failure mode. {@link reconfigureGenerator}, which REWRITES the span,
+ *  pairs this with {@link verifySpanLayout} (as {@link locateSpan}).
+ *
+ *  `verb` prefixes the throw with the PUBLIC verb the caller is implementing,
+ *  matching every other throw those verbs emit. These strings reach an editor's
+ *  error surface without a stack frame attached, so a shared helper naming
+ *  itself — or naming nothing — would leave the reader without the one fact
+ *  that identifies the call.
  *
  *  @throws {@link Error} if no entity op carries `entityId`. */
 function findEntityOp(
   log: OpLog,
   entityId: number,
+  verb: string,
 ): { entityIdx: number; entityOp: EntityOp } {
   const entityIdx = log.ops.findIndex(
     (o) => o.kind === "entity" && o.entity.entityId === entityId,
   );
   const entityOp = entityIdx < 0 ? undefined : log.ops[entityIdx];
   if (entityOp === undefined || entityOp.kind !== "entity")
-    throw new Error(`reconfigureGenerator: unknown entity ${entityId}`);
+    throw new Error(`${verb}: unknown entity ${entityId}`);
   return { entityIdx, entityOp };
 }
 
@@ -139,7 +155,8 @@ function verifySpanLayout(
 }
 
 /** {@link findEntityOp} then {@link verifySpanLayout} — what a verb that
- *  REWRITES the span needs, as one call. */
+ *  REWRITES the span needs, as one call. Only {@link reconfigureGenerator}
+ *  does, which is why both legs name it in their throws. */
 function locateSpan(
   log: OpLog,
   entityId: number,
@@ -149,7 +166,11 @@ function locateSpan(
   spanStartIdx: number;
   spanOps: FieldOp[];
 } {
-  const { entityIdx, entityOp } = findEntityOp(log, entityId);
+  const { entityIdx, entityOp } = findEntityOp(
+    log,
+    entityId,
+    "reconfigureGenerator",
+  );
   return {
     entityIdx,
     entityOp,
@@ -402,13 +423,17 @@ const stampSpan = (ops: readonly BrushOp[], firstId: number): BrushOp[] =>
  * such a log. The fix — forcing the affected set to the whole store when a
  * downstream op reads unboundedly — is a design decision, not made here.
  *
- * Every finding in `drift` is loud, never silent (D-F3-4): `orphaned` = the op
- * replayed and wrote nothing at all; `drifted` = the chunks it touches read
- * differently than before the reconfigure. Drift is CHUNK-granular and does not
- * attribute cause — an op is flagged when its chunks changed, including when the
- * generator itself changed them rather than the op behaving differently. That is
- * the v0 contract: a jump-to-here list of places worth a human look, not a proof
- * that an op misbehaved.
+ * A replayed op whose outcome moved is REPORTED, never silently dropped
+ * (D-F3-4): `orphaned` = the op replayed and wrote nothing at all; `drifted` =
+ * the chunks it touches read differently than before the reconfigure. For a
+ * bounded-read op that is loud by construction. For a flood-masked one it is
+ * loud only in PRACTICE — per the gap above, the baseline is the old-final
+ * bytes rather than a from-scratch build, so an op that replays against the
+ * wrong state and happens to land on the same bytes reports nothing. Drift is
+ * CHUNK-granular and does not attribute cause — an op is flagged when its
+ * chunks changed, including when the generator itself changed them rather than
+ * the op behaving differently. That is the v0 contract: a jump-to-here list of
+ * places worth a human look, not a proof that an op misbehaved.
  *
  * `dirty` is the whole affected set, not just the chunks whose bytes moved:
  * a chunk restored to its pre-span state and never rewritten still needs a
@@ -424,7 +449,8 @@ const stampSpan = (ops: readonly BrushOp[], firstId: number): BrushOp[] =>
  *   `frozen` or `baked`, its recorded generator id is unknown, the log does not
  *   hold its span where the record says, the generator rejects the merged
  *   params, the evaluation is empty, or an evaluated op fails
- *   {@link assertOpValid}; a `DataCloneError` if `changes.params`/`region` hold
+ *   {@link assertOpValid}; a `DataCloneError` if `changes.params`/`region` — or
+ *   any field the RECORD itself carries, which the spread copies forward — hold
  *   structured-clone-incompatible values. Every one of those is a VALIDATION
  *   failure and fires before the first write, leaving the store, `log.ops`,
  *   `log.nextId` and both stacks untouched. That is the guarantee: this function
@@ -454,14 +480,23 @@ export function reconfigureGenerator(
     );
   const def = generatorById(recorded.generator);
 
-  // 2 — evaluate + validate the replacement. This is the last leg that
-  // VALIDATES: every rejection the contract names has fired by the end of it,
-  // and the store, the log and both stacks are still untouched. Steps 3-7 are
-  // unwind-free — not because nothing in them CAN throw, but because each
-  // remaining failure is unreachable: spliceOps' range guard is discharged by
-  // verifySpanLayout, and setMaterial's palette ceiling by any table of at most
-  // MAX_PALETTE classes. Adding a step below that can genuinely fail breaks
-  // that, and the entry pushed at step 7 is the only unwind there is.
+  // 2 — evaluate + validate the replacement. Every rejection the contract names
+  // has fired by the end of this step but ONE: the record clone at the top of
+  // step 5, which is still above the first write. Past that clone nothing is
+  // unwound — not because nothing below CAN throw, but because each remaining
+  // failure is unreachable:
+  //   - spliceOps' range guard: discharged by verifySpanLayout in step 1.
+  //   - setMaterial's palette ceiling: discharged by any table of at most
+  //     MAX_PALETTE classes.
+  //   - applyPatchOp's parsePatchKey, on a non-canonical chunk key carried by a
+  //     downstream PATCH op — reached from BOTH restorePreState and
+  //     applyAndReport. Discharged today only because assertPatchValid gates
+  //     every path into log.ops (logApplyPatch). A producer that SPLICES
+  //     synthesized patch ops straight into log.ops — the compaction pass —
+  //     bypasses that gate and makes this reachable, so it inherits the
+  //     obligation to validate what it splices.
+  // Adding a step below that can genuinely fail breaks this, and the entry
+  // pushed at step 7 is the only unwind there is.
   const provenance = mergeProvenance(recorded, changes);
   const evaluated = evaluateSpan(def, provenance, table);
 
@@ -490,6 +525,12 @@ export function reconfigureGenerator(
     region: provenance.region,
     opSpan: [firstId, firstId + newSpan.length - 1],
   };
+  // The returned COPY is built HERE, above the splice, not at `return`. The
+  // spread's whole purpose is carrying fields this function has no opinion
+  // about, and an unknown field is exactly the one whose cloneability the type
+  // system does not vouch for — cloning after the splice made a DataCloneError
+  // the one failure that threw with the log already rewritten.
+  const returned = structuredClone(entity);
   const removed: FieldOp[] = [...spanOps, entityOp];
   const inserted: FieldOp[] = [...newSpan, { ...entityOp, entity }];
   spliceOps(log.ops, spanStartIdx, removed.length, inserted);
@@ -513,5 +554,160 @@ export function reconfigureGenerator(
   // Every write above lands in an affected chunk by construction, and a
   // restored-but-unrewritten chunk still needs a remesh — so the dirty set IS
   // the affected set, handed over rather than copied.
-  return { dirty: affected, entity: structuredClone(entity), drift };
+  return { dirty: affected, entity: returned, drift };
+}
+
+/** Swaps one entity op's record in place under a single `entity-update` undo
+ *  entry: the op keeps its id and its position, so `entityId` and the span
+ *  layout are untouched and no chunk changes. `next` must already be the log's
+ *  own copy — this hands it straight to `log.ops`.
+ *
+ *  Every caller validates FIRST: the push and the redo clear happen together,
+ *  after the last thing that can reject. */
+function updateEntityOp(
+  log: OpLog,
+  entityIdx: number,
+  entityOp: EntityOp,
+  next: GeneratorEntity,
+): void {
+  const after: EntityOp = { ...entityOp, entity: next };
+  log.ops[entityIdx] = after;
+  log.undoStack.push({
+    kind: "entity-update",
+    opIndex: entityIdx,
+    before: entityOp,
+    after,
+  });
+  log.redoStack.length = 0;
+}
+
+/**
+ * Freezes or unfreezes a committed generator entity (F3 spec §2.2) — cheap,
+ * reversible protection: {@link reconfigureGenerator} refuses a frozen entity
+ * until it is unfrozen. Nothing else is affected; a frozen entity's span is
+ * still plain history that later ops write over, and undo/redo still cross it.
+ *
+ * Freeze does NOT block {@link bakeGeneratorEntity}: the irreversible verb
+ * ignores the flag and clears it, because baking is the escape hatch for an
+ * entity that can no longer be reconfigured. Freeze protects the recipe from
+ * EDITS, not from retirement — a lock button wired to this verb should not be
+ * read as protecting the entity from every verb.
+ *
+ * Takes `log` but NOT `store`, unlike {@link reconfigureGenerator}: this writes
+ * only the entity RECORD, so there is no field state to change, nothing to
+ * remesh, and no `dirty` set to return. That asymmetry is the contract, not an
+ * oversight. For the same reason it does not verify the entity's span layout —
+ * being unable to protect a corrupt entity would be the wrong failure mode (see
+ * {@link findEntityOp}).
+ *
+ * A SETTER, not a toggle: the post-condition is "the entity's frozen state is
+ * `frozen`". A redundant call — freezing what is already frozen, unfreezing
+ * what is not — is therefore a well-formed request that is already satisfied,
+ * and it does nothing at all: no undo entry, and critically no redo CLEAR,
+ * which would otherwise destroy a live redo entry on behalf of a call that
+ * changed nothing. It still returns the current record.
+ *
+ * That no-op is INVISIBLE in the return value: both paths hand back a record
+ * whose `frozen` state is the one requested, so nothing in it distinguishes
+ * "pushed an entry" from "pushed nothing". A caller that offers "undo this"
+ * must compare `log.undoStack.length` across the call, or check the entity's
+ * prior `frozen` state — ⌘Z after a redundant call undoes whatever came before
+ * it, which is correct but is not what such a prompt would be promising.
+ *
+ * Records exactly ONE `entity-update` undo entry per real change and clears the
+ * redo stack; undo swaps the previous record back and reports an empty dirty
+ * set. Unfreezing DELETES the field rather than setting it false —
+ * {@link GeneratorEntity}.frozen is a literal-`true` optional, so absent is the
+ * only spelling of "not frozen". The returned record is a COPY, so mutating it
+ * cannot rewrite the log, and it carries any field this verb has no opinion
+ * about verbatim.
+ *
+ * @throws {@link Error} if no entity op carries `entityId`, or the entity is
+ *   `baked` — a severed recipe has nothing left to protect, and the flag would
+ *   be unreadable state. A `DataCloneError` if the record holds
+ *   structured-clone-incompatible values. Both fire before any mutation.
+ */
+export function setGeneratorFrozen(
+  log: OpLog,
+  entityId: number,
+  frozen: boolean,
+): GeneratorEntity {
+  const { entityIdx, entityOp } = findEntityOp(
+    log,
+    entityId,
+    "setGeneratorFrozen",
+  );
+  const recorded = entityOp.entity;
+  if (recorded.baked === true)
+    throw new Error(
+      `setGeneratorFrozen: entity ${entityId} is baked — its recipe was severed`,
+    );
+  // Both sides normalized to a plain boolean: absent spells "not frozen".
+  const alreadyInTheRequestedState = (recorded.frozen === true) === frozen;
+  if (alreadyInTheRequestedState) return structuredClone(recorded);
+  const next: GeneratorEntity = structuredClone(recorded);
+  if (frozen) next.frozen = true;
+  else delete next.frozen;
+  const returned = structuredClone(next);
+  updateEntityOp(log, entityIdx, entityOp, next);
+  return returned;
+}
+
+/**
+ * Severs a committed generator entity's recipe (F3 spec §2.2, charter §2.2) —
+ * the ONE irreversible verb.
+ *
+ * Provenance is RETAINED: the record keeps its generator id, params, seed,
+ * region and `opSpan`, so history still reads back. What goes is the ability to
+ * re-evaluate — {@link reconfigureGenerator} refuses a baked entity permanently
+ * — and with it the protection the span enjoyed: its ops become plain history,
+ * eligible for compaction. `frozen` is cleared, since a severed recipe has
+ * nothing left to protect.
+ *
+ * **"Permanent" means no VERB reverses it.** There is no unbake, and baking
+ * twice throws rather than repeating. It is still a logged mutation, so ⌘Z
+ * undoes it like any other — for exactly as long as the entry sits on the undo
+ * stack. Past that (the stack discarded, or a save/reload: `serializeOps`
+ * writes `log.ops` only, never the stacks) the record is baked for good.
+ *
+ * Takes `log` but NOT `store` — see {@link setGeneratorFrozen} for why, and for
+ * why the span layout is not verified. Baking is in fact the escape hatch for
+ * an entity whose span IS corrupt: it retires a record that can no longer be
+ * reconfigured. Note the consequence for a compactor: a baked entity's `opSpan`
+ * was never re-verified, so span-based eligibility must be derived from the
+ * spans of LIVE (non-baked) entities, which reconfigure does verify.
+ *
+ * Records exactly ONE `entity-update` undo entry and clears the redo stack;
+ * undo swaps the pre-bake record back — including its `frozen` state — and
+ * reports an empty dirty set, because no chunk changes. The returned record is
+ * a COPY and carries any field this verb has no opinion about verbatim.
+ *
+ * @throws {@link Error} if no entity op carries `entityId`, or the entity is
+ *   ALREADY baked. The second is deliberate rather than an idempotent no-op:
+ *   this is a one-way transition, not a setter, so a second call is a category
+ *   error — and logging it would push an entry whose before and after are the
+ *   same record, a ⌘Z that visibly does nothing (the shape
+ *   {@link assertPatchValid} rejects for the empty patch) while silencing a
+ *   caller that believes it just severed a recipe. A `DataCloneError` if the
+ *   record holds structured-clone-incompatible values. Both fire before any
+ *   mutation.
+ */
+export function bakeGeneratorEntity(
+  log: OpLog,
+  entityId: number,
+): GeneratorEntity {
+  const { entityIdx, entityOp } = findEntityOp(
+    log,
+    entityId,
+    "bakeGeneratorEntity",
+  );
+  const recorded = entityOp.entity;
+  if (recorded.baked === true)
+    throw new Error(`bakeGeneratorEntity: entity ${entityId} is already baked`);
+  const next: GeneratorEntity = structuredClone(recorded);
+  delete next.frozen;
+  next.baked = true;
+  const returned = structuredClone(next);
+  updateEntityOp(log, entityIdx, entityOp, next);
+  return returned;
 }

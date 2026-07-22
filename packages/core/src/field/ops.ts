@@ -821,6 +821,49 @@ export function spliceOps(
   for (const op of tail) ops.push(op);
 }
 
+/** Guards an `entity-update` entry's target the way {@link spliceOps} guards a
+ *  span, and for the same reason: `opIndex` is a STORED value, and the bare
+ *  `ops[opIndex] = …` it protects corrupts the log SILENTLY in three
+ *  directions. Measured before this guard existed: index 5000 on a 1-op log
+ *  grew `ops` to 5001 entries with 4999 holes and reported an empty dirty set;
+ *  index −1 installed a non-index string property nothing ever reads back. The
+ *  KIND clause covers the third: swapping an entity record over a brush op
+ *  deletes that op and duplicates the record — same object, same id, twice —
+ *  which survives into replay, serialization and bake.
+ *
+ *  Under the LIFO rule the index is correct by construction (a splice below it
+ *  on the stack is undone FIRST, restoring the layout the index was taken in),
+ *  so this is reachable only for a hand-built entry — both stacks are public
+ *  and mutable, the caveat {@link spliceOps}' guard carries too.
+ *
+ *  The `< ops.length` bound is DELIBERATELY not separately tested, and is not
+ *  dead either. It is the upper bound mirroring {@link spliceOps}'
+ *  `at + deleteCount <= ops.length`; on a plain array the kind clause happens to
+ *  reject every index past the end too, because the read is `undefined`. Pulling
+ *  the two apart needs an entity op reachable at an out-of-range index, and the
+ *  ONLY route is a poisoned prototype — `defineProperty` grows `length`, and
+ *  truncating `length` deletes the element. No code path, no deserializer
+ *  (`parseOps` builds a fresh array) and no browser API produces that state, so
+ *  it is left untested rather than faked, the stance the empty-evaluation guard
+ *  in `reconfigure.ts` already takes. Do not delete the clause as dead, and do
+ *  not write the fixture. The `>= 0` and integer clauses ARE separately tested:
+ *  a stray non-index property is what an unguarded write of that shape installs,
+ *  which is reachable.
+ *
+ *  @throws {@link Error} if `opIndex` is not an in-range integer or does not
+ *    address an entity op. */
+function assertEntityUpdateTarget(ops: FieldOp[], opIndex: number): void {
+  const targetsAnEntityOp =
+    Number.isInteger(opIndex) &&
+    opIndex >= 0 &&
+    opIndex < ops.length &&
+    ops[opIndex]?.kind === "entity";
+  if (!targetsAnEntityOp)
+    throw new Error(
+      `entity-update: index ${opIndex} does not address an entity op in ${ops.length} ops (found "${ops[opIndex]?.kind ?? "nothing"}")`,
+    );
+}
+
 /** Undoes the last log entry and moves it to the redo stack. An `ops` entry
  *  reverts its WHOLE op list (one ⌘Z per commit) by restoring the list's chunk
  *  pre-images and peeling the tail; a `splice` entry puts the removed span back
@@ -830,9 +873,11 @@ export function spliceOps(
  *  (empty when there is nothing to undo or the entry touched no chunks).
  *
  *  @throws {@link Error} if a `splice` entry's span is invalid for the current
- *    `log.ops` (see {@link spliceOps}) — `log.ops`, the store and both stacks
- *    are left untouched, and the entry stays on the undo stack. Reachable only
- *    for a hand-built entry: `log.undoStack` is public and mutable. */
+ *    `log.ops` (see {@link spliceOps}) or an `entity-update` entry's `opIndex`
+ *    does not address an entity op (see {@link assertEntityUpdateTarget}) —
+ *    `log.ops`, the store and both stacks are left untouched, and the entry
+ *    stays on the undo stack. Reachable only for a hand-built entry:
+ *    `log.undoStack` is public and mutable. */
 export function undo(store: FieldStore, log: OpLog): Set<ChunkKey> {
   const entry = log.undoStack.at(-1);
   if (entry === undefined) return new Set();
@@ -867,6 +912,7 @@ function revertEntry(
       spliceOps(log.ops, entry.at, entry.inserted.length, entry.removed);
       return restoreImages(store, entry.before);
     case "entity-update":
+      assertEntityUpdateTarget(log.ops, entry.opIndex);
       log.ops[entry.opIndex] = entry.before;
       return new Set();
   }
@@ -882,9 +928,11 @@ function revertEntry(
  *  restored byte-for-byte, and the entity record is swapped forward again.
  *
  *  @throws {@link Error} if a `splice` entry's span is invalid for the current
- *    `log.ops` (see {@link spliceOps}) — `log.ops`, the store and both stacks
- *    are left untouched, and the entry stays on the redo stack. Reachable only
- *    for a hand-built entry: `log.redoStack` is public and mutable. */
+ *    `log.ops` (see {@link spliceOps}) or an `entity-update` entry's `opIndex`
+ *    does not address an entity op (see {@link assertEntityUpdateTarget}) —
+ *    `log.ops`, the store and both stacks are left untouched, and the entry
+ *    stays on the redo stack. Reachable only for a hand-built entry:
+ *    `log.redoStack` is public and mutable. */
 export function redo(
   store: FieldStore,
   log: OpLog,
@@ -921,6 +969,7 @@ function replayEntry(
       spliceOps(log.ops, entry.at, entry.removed.length, entry.inserted);
       return { entry, dirty: restoreImages(store, entry.after) };
     case "entity-update":
+      assertEntityUpdateTarget(log.ops, entry.opIndex);
       log.ops[entry.opIndex] = entry.after;
       return { entry, dirty: new Set() };
   }
