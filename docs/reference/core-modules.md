@@ -842,7 +842,7 @@ channel** (uniform|indexed palette encoding behind accessors — `getMaterial` /
   BEFORE its entity op in `log.ops` with sequential ids matching `opSpan`, and
   `entityId` is the entity op's own log id.
 - **Smart objects — reconfigure (F3a)** — `reconfigureGenerator(store, log, entityId,
-  changes, table)` re-evaluates a committed generator IN PLACE: the old span is spliced
+  changes, table, snapshots?)` re-evaluates a committed generator IN PLACE: the old span is spliced
   out, a freshly evaluated one takes new ids from `log.nextId`, and the downstream ops
   the change can reach are replayed. `ReconfigureChanges` = `{params?, seed?, region?,
   policy?}`, each falling back to the recorded provenance — `params` is the COMPLETE
@@ -859,7 +859,10 @@ channel** (uniform|indexed palette encoding behind accessors — `getMaterial` /
   undo entry, redo cleared; undo/redo restore images and never re-execute the span, and
   `log.nextId` is not rolled back (ids are handed out once). Setup-loud: unknown
   entityId, a `frozen`/`baked` entity, an unknown recorded generator id, a corrupt span
-  layout, rejected params or an empty evaluation all throw with NOTHING mutated.
+  layout, rejected params or an empty evaluation all throw with NOTHING mutated — in
+  that ORDER, so a baked entity whose span was compacted away reports what it is rather
+  than a corrupt layout. The optional `snapshots` (see Log hygiene) is a cost lever only:
+  the bytes are identical with or without it.
   **Known gap (provenance):** `GeneratorEntity` does not record the commit's
   `MergePolicy`, so an omitted `changes.policy` falls back to `"replace"`.
   **Known gap (flood reads):** culling rewinds only the affected chunks, so every other
@@ -897,6 +900,43 @@ channel** (uniform|indexed palette encoding behind accessors — `getMaterial` /
   is on the undo stack; past that — stack discarded, or a save/reload, since
   `serializeOps` writes `log.ops` only and never the stacks — it is baked for good.
   Setup-loud on an unknown entityId or an already-baked entity.
+- **Log hygiene — stats, compaction, snapshots (F3a)** — `logStats(log, opts?)` is the
+  op-cost readout (D-F3-16): `totalOps`, `liveGenerators` (recipes still intact —
+  `frozenGenerators` is a SUBSET of it, `bakedGenerators` the disjoint remainder),
+  `compactableOps`, `undoDepth`/`redoDepth`. Pure query; no store parameter. Passing the
+  caller's real `CompactOptions` makes `compactableOps` agree with what a fold would
+  remove; omitting them reports the ceiling.
+  `compactRuns(store, log, table, opts)` folds runs of plain cell-local brush ops
+  (`dig`/`fill`/`paint`, any mask but a FLOOD selection) into ONE `PatchOp` each — the log
+  shrinks, the field does not move. `smooth` breaks a run (it reads its neighbourhood, so
+  absolute cell values cannot stand in for it); so do patch and entity ops. Ops inside a
+  LIVE entity's span are excluded, as are `opts.keepIds`; runs shorter than 4 ops are left
+  alone; a run whose net effect is nothing is removed outright. `store` is read for
+  `cellSize` ONLY — no chunk is read or written. Every fold is verified against a real
+  from-scratch replay of the log's own prefix BEFORE anything is discarded (the charter
+  §2.3 discard guard) and the synthesized patch passes `assertPatchValid`, so a producer
+  that splices straight into `log.ops` still cannot plant an op a later replay chokes on.
+  **Requires a quiescent history — both stacks empty, setup-loud otherwise**: undo entries
+  address `log.ops` positionally (tail length / `at` / `opIndex`) and a fold shifts every
+  position after it, which no id-based opt-out can fix. `serializeOps` never persists the
+  stacks, so a freshly loaded project satisfies it for free — compact on open, edit after.
+  **What a fold gives up:** a patch replays ABSOLUTE values, so folded ops stop adapting
+  to an upstream reconfigure
+  (`docs/backlog/engine-architecture/field-compaction-downstream-of-live-entity.md`;
+  the index-anchoring alternative to the quiescence rule is
+  `docs/backlog/engine-architecture/field-log-entries-anchored-by-index.md`).
+  `maintainSnapshots(store, log, records, tailBudgetOps)` captures a `SnapshotRecord`
+  (`{key, position, density, materials}`) for every chunk whose replay tail has outgrown
+  the budget, and RETURNS them rather than appending — the caller owns the list, its
+  persistence (D-F3-7 sibling files) and its lifetime. Passing records to
+  `reconfigureGenerator`'s optional sixth argument shortens the rewind: an affected chunk
+  is rebuilt ALONE from its newest usable record forward, valid exactly while every op in
+  that window touching it is cell-local. The choice is all-or-nothing — if one affected
+  chunk is disqualified the full-prefix replay happens anyway, so it is used for all of
+  them. Measured on a 2850-op log (`packages/core/scripts/field-replay-bench.ts`):
+  346 ms full-prefix (the F3a behaviour) → 83 ms culled with NO records → 8 ms with a
+  2-op tail budget. **A record is bound to the log that produced it** and nothing detects
+  staleness: `docs/backlog/engine-architecture/field-snapshot-record-lifecycle.md`.
 - **Mesh + skin** — chunked Surface Nets over the 20³ aprons with owned-crossing quads
   bucketed per owning-cell class incl. the kit **backing** surface (`meshChunkField` —
   watertight seams by construction); the generic **kit skinner** on the derived coarse

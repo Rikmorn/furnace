@@ -36,6 +36,12 @@ export {
   FIELD_GENERATORS,
   generatorById,
 } from "./generators.ts";
+export type {
+  CompactOptions,
+  LogStats,
+  SnapshotRecord,
+} from "./maintenance.ts";
+export { compactRuns, logStats, maintainSnapshots } from "./maintenance.ts";
 export {
   BUILTIN_TABLE,
   classOf,

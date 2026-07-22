@@ -712,6 +712,34 @@ export function fieldOpChunks(op: FieldOp, cellSize: number): Set<ChunkKey> {
   return keys;
 }
 
+/** True when an op's effect on any cell depends ONLY on that cell's own
+ *  pre-state and the op's own record — never on a neighbouring cell, and never
+ *  on state outside the chunks it writes.
+ *
+ *  Verified member by member against the appliers above. `dig`, `fill` and
+ *  `paint` read the sample's own density and material and nothing else; the
+ *  `solid-only` and class-kind masks read that same sample too
+ *  ({@link makeMaskGate}); a REGION selection is a pure position predicate
+ *  (`materializeSelection` copies its bounds without touching the store). A
+ *  {@link PatchOp} reads nothing at all, and an entity op writes nothing at all.
+ *  The two members that are NOT cell-local: `smooth`, whose 3³ kernel reads the
+ *  neighbourhood (which crosses into adjacent chunks at a chunk's rim), and a
+ *  FLOOD selection, whose read set is unbounded by construction.
+ *
+ *  Two callers rest on this. Compaction folds only cell-local runs — an op that
+ *  reads context cannot be replaced by absolute cell values without baking that
+ *  context in (spec D-F3-6, "smooth breaks a run"). And the snapshot-seeded
+ *  restore replays one chunk at a time into a scratch store where every OTHER
+ *  chunk is missing, which is sound exactly for cell-local ops. Deliberately NOT
+ *  on the public field index, like {@link spliceOps}: in-core replay surface. */
+export function isCellLocalOp(op: FieldOp): boolean {
+  if (op.kind !== "brush") return true;
+  if (op.effect === "smooth") return false;
+  const mask = op.mask;
+  if (mask === undefined || mask.kind !== "selection") return true;
+  return mask.selection.kind === "region";
+}
+
 /** Creates an empty op log. */
 export function createOpLog(): OpLog {
   return { ops: [], undoStack: [], redoStack: [], nextId: 1 };

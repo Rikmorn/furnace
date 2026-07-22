@@ -123,8 +123,13 @@ export function setMaterial(
  *  mean uniform {@link MAT_ROCK}. */
 type StoredMaterials = ChunkMaterials | null | undefined;
 
-/** The class id at flat cell index `i`, absent record = {@link MAT_ROCK}. */
-function classAt(m: StoredMaterials, i: number): number {
+/** The class id at flat cell index `i` (the {@link localIndex} layout), absent
+ *  record = {@link MAT_ROCK}. The per-CELL twin of {@link getMaterial}, which
+ *  resolves a chunk key from world sample coords on every call — this one takes
+ *  the chunk's record and a local index, which is what a whole-chunk sweep
+ *  (compaction's diff) already has in hand. Deliberately NOT on the public field
+ *  index: in-core accessor surface, like {@link materialsEqual} beside it. */
+export function classAt(m: StoredMaterials, i: number): number {
   if (m === null || m === undefined) return MAT_ROCK;
   if (m.kind === "uniform") return m.classId;
   return m.palette[readPacked(m.packed, m.bits, i)] ?? MAT_ROCK;

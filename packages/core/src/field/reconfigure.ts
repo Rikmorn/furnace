@@ -12,6 +12,8 @@
 // chunk and no span: protection (reversible) and severing (not).
 import { createFieldStore, densityEqual } from "./chunks.ts";
 import { generatorById } from "./generators.ts";
+import type { SnapshotRecord } from "./maintenance.ts";
+import { restoreSeeds } from "./maintenance.ts";
 import { materialsEqual } from "./materials.ts";
 import {
   applyFieldOp,
@@ -101,7 +103,8 @@ function intersects(a: Set<ChunkKey>, b: Set<ChunkKey>): boolean {
  *  {@link bakeGeneratorEntity} write only the record and must be able to reach
  *  a corrupt entity — being unable to protect, or retire, a broken one is the
  *  wrong failure mode. {@link reconfigureGenerator}, which REWRITES the span,
- *  pairs this with {@link verifySpanLayout} (as {@link locateSpan}).
+ *  pairs this with {@link verifySpanLayout}, in that order and with the record's
+ *  own guards between them (see its body).
  *
  *  `verb` prefixes the throw with the PUBLIC verb the caller is implementing,
  *  matching every other throw those verbs emit. These strings reach an editor's
@@ -152,30 +155,6 @@ function verifySpanLayout(
       `reconfigureGenerator: entity ${entityOp.entity.entityId}'s span [${firstId}, ${lastId}] is not the ${spanLength} op(s) immediately before its entity op — the log layout is corrupt`,
     );
   return { spanStartIdx, spanOps };
-}
-
-/** {@link findEntityOp} then {@link verifySpanLayout} — what a verb that
- *  REWRITES the span needs, as one call. Only {@link reconfigureGenerator}
- *  does, which is why both legs name it in their throws. */
-function locateSpan(
-  log: OpLog,
-  entityId: number,
-): {
-  entityIdx: number;
-  entityOp: EntityOp;
-  spanStartIdx: number;
-  spanOps: FieldOp[];
-} {
-  const { entityIdx, entityOp } = findEntityOp(
-    log,
-    entityId,
-    "reconfigureGenerator",
-  );
-  return {
-    entityIdx,
-    entityOp,
-    ...verifySpanLayout(log, entityIdx, entityOp),
-  };
 }
 
 /** `changes` merged over the recorded provenance, cloned before anything is
@@ -293,21 +272,52 @@ function closeOverDownstream(
  *  copies ONLY those chunks back — every other chunk in the store is left
  *  exactly as it is.
  *
- *  Three phases, in order: seed a scratch store, replay the prefix into it,
- *  copy the affected chunks across. The scratch starts PRISTINE and replays the
- *  whole prefix (measured by P-F3-2 and accepted for F3a); a snapshot record
- *  changes only the first two lines — what the scratch is seeded with and where
- *  the replay starts. */
+ *  Two routes to the same bytes. The CULLED route rebuilds each affected chunk
+ *  ALONE, in a scratch store holding nothing else, replaying only the ops that
+ *  touch it from the starting point `restoreSeeds` found — a snapshot record, or
+ *  the empty pre-op-0 state every chunk has for free. The FULL-PREFIX route
+ *  replays the whole prefix into one scratch and copies the affected chunks off
+ *  it; it is exact for any log, and it is what F3a shipped.
+ *
+ *  The choice is all-or-nothing, and measured rather than assumed (the extended
+ *  P-F3-2 bench). The culled route runs only when EVERY affected chunk is
+ *  cell-local back to its seed AND the ops it would replay are fewer than the
+ *  prefix it replaces. One disqualified chunk means the prefix replay happens
+ *  anyway, at which point the per-chunk work is pure overhead: reconfiguring a
+ *  stamp at the top of a 2850-op log, mixing the routes measured 348 ms against
+ *  the prefix's own 347 ms. All-culled measured 83 ms with no records at all,
+ *  and 8 ms with records on a 2-op tail budget.
+ *
+ *  The `culledOps < pos` half is a real budget, not a formality: the culled
+ *  route replays per CHUNK, so ops shared by many affected chunks are paid for
+ *  many times, and a wide affected set can cost more than the single prefix
+ *  replay it replaces. */
 function restorePreState(
   store: FieldStore,
   log: OpLog,
   pos: number,
   affected: Set<ChunkKey>,
   table: MaterialTable,
+  snapshots: readonly SnapshotRecord[],
 ): void {
-  const scratch = createFieldStore(store.cellSize);
-  for (const op of log.ops.slice(0, pos)) applyFieldOp(scratch, op, table);
-  restoreImages(store, imagesOf(scratch, affected));
+  const seeds = restoreSeeds(log, pos, affected, snapshots, store.cellSize);
+  const culledOps = [...seeds.values()].reduce((n, s) => n + s.ops.length, 0);
+  const culledIsCheaper = seeds.size === affected.size && culledOps < pos;
+  if (!culledIsCheaper) {
+    const scratch = createFieldStore(store.cellSize);
+    for (const op of log.ops.slice(0, pos)) applyFieldOp(scratch, op, table);
+    restoreImages(store, imagesOf(scratch, affected));
+    return;
+  }
+  const images: OpInverse = new Map();
+  for (const [key, seed] of seeds) {
+    const scratch = createFieldStore(store.cellSize);
+    restoreImages(scratch, new Map([[key, seed.image]]));
+    for (const op of seed.ops) applyFieldOp(scratch, op, table);
+    for (const [rebuilt, image] of imagesOf(scratch, [key]))
+      images.set(rebuilt, image);
+  }
+  restoreImages(store, images);
 }
 
 /** True when any of `chunks` reads differently now than it did in `before` (the
@@ -402,6 +412,16 @@ const stampSpan = (ops: readonly BrushOp[], firstId: number): BrushOp[] =>
  * Ops outside it are never re-applied. An op whose mask embeds a FLOOD selection
  * reads state outside the cells it writes, so it joins the set unconditionally.
  *
+ * `snapshots` is OPTIONAL and purely a cost lever — the output is the same with
+ * or without them, and both are verified against each other in
+ * `field-maintenance.test.ts`. A {@link SnapshotRecord} at or before the span
+ * start lets the rewind start there instead of at the beginning of the log; a
+ * chunk without one starts from empty, which is still cheaper than the shared
+ * full-prefix replay whenever the rewind can be culled at all (see
+ * `restorePreState` for when it cannot). Records must belong to THIS log — a
+ * record whose position sits above an edit made since it was captured is stale,
+ * and only its owner can know that ({@link SnapshotRecord}).
+ *
  * **Known gap — a flood-masked downstream op can replay against the wrong
  * state.** Culling rewinds only the affected chunks; every other chunk keeps its
  * END-OF-LOG bytes. That is exact for an op whose reads are inside its own
@@ -463,11 +483,17 @@ export function reconfigureGenerator(
   entityId: number,
   changes: ReconfigureChanges,
   table: MaterialTable,
+  snapshots: readonly SnapshotRecord[] = [],
 ): { dirty: Set<ChunkKey>; entity: GeneratorEntity; drift: DriftFinding[] } {
-  // 1 — locate + guards
-  const { entityIdx, entityOp, spanStartIdx, spanOps } = locateSpan(
+  // 1 — locate + guards. The RECORD's own guards come before the layout check,
+  // deliberately: a baked entity's span is compaction-eligible, so a compacted
+  // log holds baked records whose `opSpan` names ids that no longer exist. Those
+  // must report what they ARE — baked — not "the log layout is corrupt", which
+  // is a different diagnosis pointing at a different (imaginary) bug.
+  const { entityIdx, entityOp } = findEntityOp(
     log,
     entityId,
+    "reconfigureGenerator",
   );
   const recorded = entityOp.entity;
   if (recorded.frozen === true)
@@ -479,6 +505,7 @@ export function reconfigureGenerator(
       `reconfigureGenerator: entity ${entityId} is baked — its recipe was severed`,
     );
   const def = generatorById(recorded.generator);
+  const { spanStartIdx, spanOps } = verifySpanLayout(log, entityIdx, entityOp);
 
   // 2 — evaluate + validate the replacement. Every rejection the contract names
   // has fired by the end of this step but ONE: the record clone at the top of
@@ -538,7 +565,7 @@ export function reconfigureGenerator(
   log.nextId = firstId + newSpan.length;
 
   // 6 — rewind the affected chunks, then re-apply forward
-  restorePreState(store, log, spanStartIdx, affected, table);
+  restorePreState(store, log, spanStartIdx, affected, table, snapshots);
   const drift = applyAndReport(store, newSpan, replay, before, table);
 
   // 7 — after-images + the ONE undo entry
@@ -589,10 +616,14 @@ function updateEntityOp(
  * still plain history that later ops write over, and undo/redo still cross it.
  *
  * Freeze does NOT block {@link bakeGeneratorEntity}: the irreversible verb
- * ignores the flag and clears it, because baking is the escape hatch for an
- * entity that can no longer be reconfigured. Freeze protects the recipe from
- * EDITS, not from retirement — a lock button wired to this verb should not be
- * read as protecting the entity from every verb.
+ * ignores the flag and clears it. Freeze guards against an ACCIDENTAL edit, and
+ * baking is never accidental — it is the one irreversible verb, and the caller
+ * that offers it is expected to confirm it — so demanding unfreeze-then-bake
+ * would add friction to a deliberate one-way action without protecting anything.
+ * (It would not deadlock either: unfreezing is always available, since this verb
+ * does not verify the span layout.) Freeze protects the recipe from EDITS, not
+ * from retirement — a lock button wired to this verb should not be read as
+ * protecting the entity from every verb.
  *
  * Takes `log` but NOT `store`, unlike {@link reconfigureGenerator}: this writes
  * only the entity RECORD, so there is no field state to change, nothing to
@@ -612,8 +643,11 @@ function updateEntityOp(
  * whose `frozen` state is the one requested, so nothing in it distinguishes
  * "pushed an entry" from "pushed nothing". A caller that offers "undo this"
  * must compare `log.undoStack.length` across the call, or check the entity's
- * prior `frozen` state — ⌘Z after a redundant call undoes whatever came before
- * it, which is correct but is not what such a prompt would be promising.
+ * prior `frozen` state (today that means scanning `log.ops` yourself; there is
+ * no public reader for an entity record by id —
+ * `docs/backlog/engine-architecture/field-entity-record-reader.md`) — ⌘Z after a
+ * redundant call undoes whatever came before it, which is correct but is not
+ * what such a prompt would be promising.
  *
  * Records exactly ONE `entity-update` undo entry per real change and clears the
  * redo stack; undo swaps the previous record back and reports an empty dirty

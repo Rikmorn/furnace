@@ -19,6 +19,8 @@ import {
   generatorById,
   isBrushOp,
   logApply,
+  maintainSnapshots,
+  reconfigureGenerator,
 } from "@furnace/core/field";
 import { create as createRng } from "@furnace/core/rng";
 
@@ -162,3 +164,89 @@ for (const frac of REPLAY_FRACTIONS) {
   console.log(`prefix replay ${upTo} ops: ${ms.toFixed(1)} ms`);
 }
 console.log(`total ops: ${log.ops.length}, chunks: ${store.chunks.size}`);
+
+// ── Task 5: what a RECONFIGURE at the end of that log costs ──────────────────
+// P-F3-2 measured the prefix replay in isolation. This measures the verb that
+// pays for it — `reconfigureGenerator` on a stamp committed AFTER the whole
+// hand-edit tail, the worst realistic rewind position — as the snapshot record
+// set gets denser. The row that is NOT printed here is the F3a behaviour this
+// replaced: a full-prefix rewind of the same reconfigure, 346.6 ms on this
+// machine, against the 83.0 ms the same call costs with no records at all.
+
+/** Where the late stamp lands: inside the hand-stroke box, so its chunks are
+ *  ones the strokes really touched — a stamp dropped in virgin rock would have
+ *  no replay tail to shorten and would measure nothing. */
+const LATE_STAMP_MIN: [number, number, number] = [70, 0, 4];
+const LATE_STAMP_DEPTH = 8;
+const RECONFIGURED_DEPTH = 12;
+/** Per-chunk replay-tail budgets to sweep: none, then coarse, then fine. */
+const SNAPSHOT_TAIL_BUDGETS = [16, 2];
+
+type DeepWorld = { store: FieldStore; log: OpLog };
+
+/** The full bench log with one more stamp on top — rebuilt per configuration,
+ *  because a reconfigure mutates both the store and the log. */
+function buildDeepWorld(): DeepWorld {
+  const deepStore = createFieldStore(DEFAULT_CELL_SIZE);
+  const deepLog = createOpLog();
+  commitStamps(deepStore, deepLog);
+  applyHandStrokes(deepStore, deepLog);
+  return { store: deepStore, log: deepLog };
+}
+
+function commitLateStamp(world: DeepWorld): number {
+  const def = generatorById("hall");
+  return commitGenerator(world.store, world.log, def, {
+    params: { ...structuredClone(def.defaults), depth: LATE_STAMP_DEPTH },
+    seed: 11,
+    region: {
+      min: LATE_STAMP_MIN,
+      max: [
+        LATE_STAMP_MIN[0] + STAMP_REGION_SPAN[0],
+        STAMP_REGION_SPAN[1],
+        STAMP_REGION_SPAN[2],
+      ],
+    },
+    policy: "replace",
+    table: BENCH_TABLE,
+  }).entity.entityId;
+}
+
+/** One reconfigure of the late stamp under records swept at `tailBudgetOps`
+ *  (null = no records at all). The sweep runs BEFORE the stamp is committed:
+ *  a record above the rewind position can never be used. */
+function timeReconfigure(tailBudgetOps: number | null): void {
+  const world = buildDeepWorld();
+  const sweepStarted = performance.now();
+  const records =
+    tailBudgetOps === null
+      ? []
+      : maintainSnapshots(world.store, world.log, [], tailBudgetOps);
+  const sweepMs = performance.now() - sweepStarted;
+  const entityId = commitLateStamp(world);
+  const started = performance.now();
+  const { dirty } = reconfigureGenerator(
+    world.store,
+    world.log,
+    entityId,
+    {
+      params: {
+        ...structuredClone(generatorById("hall").defaults),
+        depth: RECONFIGURED_DEPTH,
+      },
+    },
+    BENCH_TABLE,
+    records,
+  );
+  const label =
+    tailBudgetOps === null
+      ? "no records"
+      : `tail budget ${tailBudgetOps} → ${records.length} records, sweep ${sweepMs.toFixed(1)} ms`;
+  console.log(
+    `reconfigure @ end of log (${dirty.size} affected chunks) — ${label}: ` +
+      `${(performance.now() - started).toFixed(1)} ms`,
+  );
+}
+
+timeReconfigure(null);
+for (const budget of SNAPSHOT_TAIL_BUDGETS) timeReconfigure(budget);
