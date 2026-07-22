@@ -841,6 +841,25 @@ channel** (uniform|indexed palette encoding behind accessors — `getMaterial` /
   under ONE undo entry. **Layout invariant:** a live entity's span ops sit immediately
   BEFORE its entity op in `log.ops` with sequential ids matching `opSpan`, and
   `entityId` is the entity op's own log id.
+- **Stamp placement authoring (F3a: D-F3-13)** — ONE authoring convention across every
+  generator. `rotation` is a quarter turn about +Y, spelled as the STRING enum
+  `"0" | "90" | "180" | "270"` (default `"0"`), applied to the finished mini-grid after
+  doors are carved and lane-validated — so it is lattice-exact, integer-only, and the
+  door walk-lane guarantee is rotation-invariant. Rotation is about the stamp's min
+  corner (`snapDown(region.min)`), so a 90/270 stamp on a region that is not square in
+  XZ occupies a different world AABB than its unrotated form and may extend past the
+  recorded `region`: `region` is the stamp's ANCHOR, not a clip box — the same
+  region-vs-params mismatch the editor's field host already documents for oversized
+  params. Four per-wall `door<Wall>Offset` knobs place each doorway laterally, `-1` =
+  auto-centre. Units are per-generator: the hall counts COARSE CELLS, the maze counts
+  MAZE CELLS (multiplied by the pitch internally, which is what keeps a door on a
+  passage column and off an internal wall band). Out-of-range offsets THROW with the
+  wall's legal range rather than silently clamping. **The five new keys are OPTIONAL on
+  input** — absent means rotation 0 and auto-centred doors — because `GeneratorEntity.params`
+  is persisted and `reconfigureGenerator` re-evaluates from the recorded set, so entities
+  written before F3a must keep evaluating. `GeneratorDef.defaults` still carries all five
+  explicitly; optionality is a backward-compatibility allowance for recorded params, not
+  the normal path. The nine pre-existing hall keys and seven maze keys remain REQUIRED.
 - **Smart objects — reconfigure (F3a)** — `reconfigureGenerator(store, log, entityId,
   changes, table, snapshots?)` re-evaluates a committed generator IN PLACE: the old span is spliced
   out, a freshly evaluated one takes new ids from `log.nextId`, and the downstream ops

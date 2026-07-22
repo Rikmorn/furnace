@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type {
+  BrushOp,
   FieldStore,
   GeneratorDef,
   MaterialTable,
@@ -47,6 +48,9 @@ const TABLE: MaterialTable = {
   ],
 };
 const KIT_CLASS_ID = 2;
+/** The generators' coarse cell size in metres (generators.ts CELL) — the unit
+ *  every mini-grid index in these tests is expressed in. */
+const CELL_M = 0.5;
 
 const REGION = {
   min: [2, 0, 2] as [number, number, number],
@@ -659,5 +663,540 @@ describe("field generators — commitGenerator", () => {
     expect(log.ops.length).toBe(0);
     expect(log.undoStack.length).toBe(0);
     expect(log.nextId).toBe(1);
+  });
+});
+
+// ——— Task 7 (D-F3-13): quarter-turn rotation + door-offset authoring ———
+// One authoring convention across both generators. Rotation is a STRING enum
+// (see the ROTATIONS TSDoc in generators.ts for why); the four per-wall
+// `door<Wall>Offset` knobs take -1 = auto-centre. The new keys are OPTIONAL on
+// input — recorded params written before F3a carry none of them and must keep
+// evaluating exactly as they did.
+
+/** The stamp's coarse dims, read back from the leading fill box: gridToOps
+ *  emits ONE fill spanning the whole grid, so halfExtents = dims · CELL / 2. */
+function stampDims(ops: BrushOp[]): [number, number, number] {
+  const fill = ops[0];
+  if (fill === undefined || fill.effect !== "fill")
+    throw new Error("stampDims: op 0 is not the shell fill");
+  const h = fill.shape.kind === "box" ? fill.shape.halfExtents : null;
+  if (h === null) throw new Error("stampDims: the shell fill is not a box");
+  return [(h[0] * 2) / CELL_M, (h[1] * 2) / CELL_M, (h[2] * 2) / CELL_M];
+}
+
+/** Metres → coarse-cell index, EXACT: origins and box corners are all dyadic
+ *  rationals at CELL 0.5 m, so the division is lossless. A non-integral result
+ *  means the op span drifted off the lattice — fail loudly rather than round. */
+function cellIndex(metres: number, origin: number): number {
+  const n = (metres - origin) / CELL_M;
+  if (!Number.isInteger(n))
+    throw new Error(`cellIndex: ${metres} is not a lattice cell (got ${n})`);
+  return n;
+}
+
+/** Every AIR cell of a stamp, reconstructed exactly from its dig boxes.
+ *  gridToOps emits one dig box per x-run of air at wj = wk = 1, so each box
+ *  maps back to a unique cell run with no ambiguity. Keys are "i,j,k" in grid
+ *  space relative to the snapped origin. */
+function airCells(
+  ops: BrushOp[],
+  origin: [number, number, number],
+): Set<string> {
+  const out = new Set<string>();
+  for (const op of ops) {
+    if (op.effect !== "dig") continue;
+    if (op.shape.kind !== "box") throw new Error("airCells: non-box dig");
+    const { center: c, halfExtents: h } = op.shape;
+    const i0 = cellIndex(c[0] - h[0], origin[0]);
+    const j0 = cellIndex(c[1] - h[1], origin[1]);
+    const k0 = cellIndex(c[2] - h[2], origin[2]);
+    const wi = (h[0] * 2) / CELL_M;
+    for (let t = 0; t < wi; t++) out.add(`${i0 + t},${j0},${k0}`);
+  }
+  return out;
+}
+
+/** rotateGrid's cell map for a source grid of dims [nx, _, nz], as an
+ *  INDEPENDENT restatement (the test must not import the implementation's
+ *  algebra, or a sign error would cancel out on both sides). */
+function rotCell(
+  i: number,
+  k: number,
+  turns: number,
+  nx: number,
+  nz: number,
+): [number, number] {
+  if (turns === 1) return [k, nx - 1 - i];
+  if (turns === 2) return [nx - 1 - i, nz - 1 - k];
+  if (turns === 3) return [nz - 1 - k, i];
+  return [i, k];
+}
+
+/** FULL-VOLUME rotated equivalence — every air cell, not a sample. Proves the
+ *  dims transform, and that mapping the unrotated air set through rotCell
+ *  yields the rotated air set EXACTLY (equal sets ⇒ a bijection, so neither
+ *  lost nor invented cells). */
+function expectRotatedEquivalence(
+  ops0: BrushOp[],
+  opsR: BrushOp[],
+  origin: [number, number, number],
+  turns: number,
+): void {
+  const [nx, ny, nz] = stampDims(ops0);
+  expect(stampDims(opsR)).toEqual(
+    turns === 1 || turns === 3 ? [nz, ny, nx] : [nx, ny, nz],
+  );
+  const a0 = airCells(ops0, origin);
+  expect(a0.size).toBeGreaterThan(0); // vacuity floor
+  const mapped = new Set<string>();
+  for (const key of a0) {
+    const [i = 0, j = 0, k = 0] = key.split(",").map(Number);
+    const [ri, rk] = rotCell(i, k, turns, nx, nz);
+    mapped.add(`${ri},${j},${rk}`);
+  }
+  expect([...mapped].sort()).toEqual([...airCells(opsR, origin)].sort());
+}
+
+/** The lateral cell span [lo, hi] of a wall's doorway, read back from the air
+ *  cells sitting on that wall's shell row — null when the wall is closed. */
+function doorSpan(
+  ops: BrushOp[],
+  origin: [number, number, number],
+  wall: "north" | "south" | "east" | "west",
+): [number, number] | null {
+  const [nx, , nz] = stampDims(ops);
+  const alongX = wall === "north" || wall === "south";
+  const shellIdx =
+    wall === "north"
+      ? nz - 1
+      : wall === "south"
+        ? 0
+        : wall === "east"
+          ? nx - 1
+          : 0;
+  const lats: number[] = [];
+  for (const key of airCells(ops, origin)) {
+    const [i = 0, , k = 0] = key.split(",").map(Number);
+    if (alongX && k === shellIdx) lats.push(i);
+    if (!alongX && i === shellIdx) lats.push(k);
+  }
+  if (lats.length === 0) return null;
+  return [Math.min(...lats), Math.max(...lats)];
+}
+
+const ORIGIN_REGION: [number, number, number] = [2, 0, 2];
+const ORIGIN_MAZE: [number, number, number] = [0, 0, 0];
+/** A region whose min is negative and OFF the 0.5 m lattice, so snapDown of a
+ *  negative metre is genuinely exercised (floor, not trunc: −6.25 → −6.5). */
+const REGION_NEG = {
+  min: [-6.25, -3.75, -8.5] as [number, number, number],
+  max: [8, 6, 8] as [number, number, number],
+};
+const ORIGIN_NEG: [number, number, number] = [-6.5, -4, -8.5];
+
+describe("field generators — rotation + door-offset authoring (D-F3-13)", () => {
+  test("both schemas expose rotation + the four wall offsets, with identity defaults", () => {
+    for (const id of ["hall", "maze"]) {
+      const def = generatorById(id);
+      const props = (def.paramSchema as { properties: Record<string, unknown> })
+        .properties;
+      expect(props["rotation"]).toMatchObject({
+        enum: ["0", "90", "180", "270"],
+        default: "0",
+      });
+      expect(def.defaults["rotation"]).toBe("0");
+      for (const wall of ["North", "South", "East", "West"]) {
+        expect(props[`door${wall}Offset`]).toMatchObject({
+          minimum: -1,
+          default: -1,
+        });
+        expect(def.defaults[`door${wall}Offset`]).toBe(-1);
+      }
+    }
+  });
+
+  // ——— backward compatibility: the reason the new keys are optional ———
+
+  test("params with NONE of the new keys evaluate byte-identically to the defaults spelled out", () => {
+    // GeneratorEntity.params is PERSISTED and reconfigureGenerator re-evaluates
+    // from the recorded set, so params written before F3a carry none of these
+    // keys. Absent MUST mean rotation 0 + auto-centred doors, exactly.
+    const cases: [string, Record<string, unknown>, typeof REGION, number][] = [
+      ["hall", HALL_PARAMS, REGION, 7],
+      ["maze", MAZE_PARAMS, REGION_MAZE, 11],
+    ];
+    for (const [id, legacy, region, seed] of cases) {
+      const def = generatorById(id);
+      expect(legacy["rotation"]).toBeUndefined(); // the fixture really is legacy
+      const spelled = {
+        ...legacy,
+        rotation: "0",
+        doorNorthOffset: -1,
+        doorSouthOffset: -1,
+        doorEastOffset: -1,
+        doorWestOffset: -1,
+      };
+      const a = def.evaluate(legacy, seed, region, TABLE, "replace");
+      const b = def.evaluate(spelled, seed, region, TABLE, "replace");
+      expect(JSON.stringify(a)).toBe(JSON.stringify(b));
+    }
+  });
+
+  test("the -1 sentinel, an absent key, and today's centring are the SAME door", () => {
+    // Three routes to auto-centre must not drift — they share one branch.
+    const hall = generatorById("hall");
+    const legacy = hall.evaluate(HALL_PARAMS, 7, REGION, TABLE, "replace");
+    const sentinel = hall.evaluate(
+      { ...HALL_PARAMS, doorNorthOffset: -1 },
+      7,
+      REGION,
+      TABLE,
+      "replace",
+    );
+    expect(JSON.stringify(sentinel)).toBe(JSON.stringify(legacy));
+    // and it is the CENTRED span the pre-F3a hall produced: interiorLen 8,
+    // DOOR_W_CELLS 4 → lo = 1 + floor((8−4)/2) = 3 → cells [3,6]
+    expect(doorSpan(legacy, ORIGIN_REGION, "north")).toEqual([3, 6]);
+  });
+
+  // ——— rotation ———
+
+  test("rotation 90 maps the hall's north door to the east wall, cell-exact", () => {
+    // The door is deliberately OFF-CENTRE. A centred door on the square default
+    // footprint makes the whole grid mirror-symmetric in x, under which
+    // (i,k) → (k, nx−1−i) and the sign-flipped (i,k) → (k, i) agree — so a
+    // centred fixture cannot tell a correct 90° from a mirrored one. Verified:
+    // with the centred door this test passes under the rotateGrid sign
+    // sabotage; with offset 0 it fails, which is the point.
+    const hall = generatorById("hall");
+    const base = { ...HALL_PARAMS, doorNorthOffset: 0 };
+    const ops0 = hall.evaluate(base, 1, REGION, TABLE, "replace");
+    const ops90 = hall.evaluate(
+      { ...base, rotation: "90" },
+      1,
+      REGION,
+      TABLE,
+      "replace",
+    );
+    expectRotatedEquivalence(ops0, ops90, ORIGIN_REGION, 1);
+    // North door at offset 0 → cells i ∈ [1,4] on the shell row k = nz−1 = 9.
+    expect(doorSpan(ops0, ORIGIN_REGION, "north")).toEqual([1, 4]);
+    // Under (i,k) → (k, nx−1−i) with nx = 10 those cells land at i = 9 —
+    // the EAST shell — spanning k = 9−4 … 9−1 = [5, 8]. A mirrored rotation
+    // would put them at [1, 4] instead, which this pins.
+    expect(doorSpan(ops90, ORIGIN_REGION, "east")).toEqual([5, 8]);
+    // … and the north wall of the rotated stamp is now CLOSED
+    expect(doorSpan(ops90, ORIGIN_REGION, "north")).toBeNull();
+  });
+
+  test("all four rotations are full-volume equivalent, for BOTH generators", () => {
+    const cases: [
+      string,
+      Record<string, unknown>,
+      typeof REGION,
+      [number, number, number],
+      number,
+    ][] = [
+      ["hall", { ...HALL_PARAMS, depth: 12 }, REGION, ORIGIN_REGION, 3],
+      [
+        "maze",
+        { ...MAZE_PARAMS, cellsX: 4, cellsZ: 2 },
+        REGION_MAZE,
+        ORIGIN_MAZE,
+        5,
+      ],
+    ];
+    for (const [id, base, region, origin, seed] of cases) {
+      const def = generatorById(id);
+      const ops0 = def.evaluate(base, seed, region, TABLE, "replace");
+      // a NON-square footprint, so a dims swap cannot hide
+      const [nx, , nz] = stampDims(ops0);
+      expect(nx).not.toBe(nz);
+      for (const [rot, turns] of [
+        ["90", 1],
+        ["180", 2],
+        ["270", 3],
+      ] as const) {
+        const opsR = def.evaluate(
+          { ...base, rotation: rot },
+          seed,
+          region,
+          TABLE,
+          "replace",
+        );
+        expectRotatedEquivalence(ops0, opsR, origin, turns);
+        for (const op of opsR)
+          expect(() => assertOpValid(op, TABLE)).not.toThrow();
+      }
+    }
+  });
+
+  test('rotation "0" is the identity — byte-identical to omitting it', () => {
+    for (const [id, base, region, seed] of [
+      ["hall", HALL_PARAMS, REGION, 7],
+      ["maze", MAZE_PARAMS, REGION_MAZE, 11],
+    ] as const) {
+      const def = generatorById(id);
+      expect(
+        JSON.stringify(
+          def.evaluate(
+            { ...base, rotation: "0" },
+            seed,
+            region,
+            TABLE,
+            "replace",
+          ),
+        ),
+      ).toBe(
+        JSON.stringify(def.evaluate(base, seed, region, TABLE, "replace")),
+      );
+    }
+  });
+
+  test("rotation validates setup-loud — including the NUMBER 90 (the enum is strings)", () => {
+    const hall = generatorById("hall");
+    const run = (rotation: unknown) => () =>
+      hall.evaluate({ ...HALL_PARAMS, rotation }, 7, REGION, TABLE, "replace");
+    expect(run(90)).toThrow(/rotation/); // number, not the string "90"
+    expect(run("45")).toThrow(/rotation/); // not a quarter turn
+    expect(run("")).toThrow(/rotation/);
+    expect(run(null)).toThrow(/rotation/);
+    expect(run("0")).not.toThrow();
+  });
+
+  test("a rotated stamp with a blocked door lane STILL throws (the lane invariant survives rotation)", () => {
+    // Doors are carved and validated in the UNROTATED frame, so rotation must
+    // not launder a blocked lane into a passing one.
+    const hall = generatorById("hall");
+    const blocked = { ...HALL_PARAMS, pillars: "grid", pillarSpacing: 2 };
+    for (const rotation of ["0", "90", "180", "270"])
+      expect(() =>
+        hall.evaluate({ ...blocked, rotation }, 7, REGION, TABLE, "replace"),
+      ).toThrow(/blocked walk lane/);
+  });
+
+  // ——— door offsets ———
+
+  test("hall door offsets count COARSE CELLS and move the door, cell-exact, on every wall", () => {
+    const hall = generatorById("hall");
+    // width 8 / depth 8 → both interiorLens are 8 → legal offsets 0..4
+    for (const [wall, key] of [
+      ["north", "doorNorthOffset"],
+      ["south", "doorSouthOffset"],
+      ["east", "doorEastOffset"],
+      ["west", "doorWestOffset"],
+    ] as const) {
+      for (const offset of [0, 1, 4]) {
+        const ops = hall.evaluate(
+          {
+            ...HALL_PARAMS,
+            doorNorth: false,
+            [`door${wall[0]?.toUpperCase()}${wall.slice(1)}`]: true,
+            [key]: offset,
+          },
+          7,
+          REGION,
+          TABLE,
+          "replace",
+        );
+        // lo = 1 + offset; the door is DOOR_W_CELLS = 4 wide
+        expect(doorSpan(ops, ORIGIN_REGION, wall)).toEqual([
+          1 + offset,
+          4 + offset,
+        ]);
+      }
+    }
+  });
+
+  test("maze door offsets count MAZE CELLS — a door never lands on a wall band", () => {
+    const mz = generatorById("maze");
+    // cellsX 4 → PITCH 5 → interior 19 cells; passage columns at [1+5o, 4+5o],
+    // internal wall bands at i ∈ {5, 10, 15}. Offsets are MAZE cells 0..3.
+    const params = { ...MAZE_PARAMS, cellsX: 4, cellsZ: 3 };
+    const region = {
+      min: [0, 0, 0] as [number, number, number],
+      max: [24, 4, 24] as [number, number, number],
+    };
+    for (const offset of [0, 1, 2, 3]) {
+      const ops = mz.evaluate(
+        { ...params, doorNorthOffset: offset },
+        3,
+        region,
+        TABLE,
+        "replace",
+      );
+      expect(ops.length).toBeGreaterThan(0);
+      const span = doorSpan(ops, ORIGIN_MAZE, "north");
+      if (span === null) throw new Error("the north wall should carry a door");
+      // the PITCH mapping: maze cell o ⇒ coarse [1+5o, 4+5o]
+      expect(span).toEqual([1 + 5 * offset, 4 + 5 * offset]);
+      // and never overlaps an internal wall band
+      const [lo, hi] = span;
+      for (const band of [5, 10, 15]) expect(band < lo || band > hi).toBe(true);
+    }
+  });
+
+  test("an AUTO-CENTRED maze door uses the maze's own centring, at EVEN cell counts too", () => {
+    // Found by sabotage: the maze centres on maze cell floor(cells/2) —
+    // coarse PITCH·cell — which is NOT openDoor's coarse centring
+    // floor((interiorLen − DOOR_W_CELLS) / 2). The two COINCIDE at odd cell
+    // counts (c=3 → 5, c=5 → 10) and diverge at every even one (c=2 → 5 vs 2,
+    // c=4 → 10 vs 7), so a fixture at cellsX 3 alone cannot tell them apart.
+    // At c=4 openDoor's centring would put the door at coarse [8,11] — astride
+    // the internal wall band at 10 — which is exactly what PITCH prevents.
+    const mz = generatorById("maze");
+    const region = {
+      min: [0, 0, 0] as [number, number, number],
+      max: [24, 4, 24] as [number, number, number],
+    };
+    for (const cellsX of [2, 4, 6]) {
+      const ops = mz.evaluate(
+        { ...MAZE_PARAMS, cellsX, cellsZ: 2 },
+        3,
+        region,
+        TABLE,
+        "replace",
+      );
+      const centreCell = Math.floor(cellsX / 2);
+      expect(doorSpan(ops, ORIGIN_MAZE, "north")).toEqual([
+        1 + 5 * centreCell,
+        4 + 5 * centreCell,
+      ]);
+    }
+  });
+
+  test("an out-of-range door offset THROWS with the wall's legal range (never silently clamps)", () => {
+    const hall = generatorById("hall");
+    // interiorLen 8, door 4 wide → legal 0..4
+    expect(() =>
+      hall.evaluate(
+        { ...HALL_PARAMS, doorNorthOffset: 5 },
+        7,
+        REGION,
+        TABLE,
+        "replace",
+      ),
+    ).toThrow(/doorNorthOffset.*0\.\.4/s);
+    expect(() =>
+      hall.evaluate(
+        { ...HALL_PARAMS, doorNorthOffset: -2 },
+        7,
+        REGION,
+        TABLE,
+        "replace",
+      ),
+    ).toThrow(/doorNorthOffset/);
+    expect(() =>
+      hall.evaluate(
+        { ...HALL_PARAMS, doorNorthOffset: 1.5 },
+        7,
+        REGION,
+        TABLE,
+        "replace",
+      ),
+    ).toThrow(/doorNorthOffset/);
+    const mz = generatorById("maze");
+    // cellsX 3 → maze-cell offsets 0..2
+    expect(() =>
+      mz.evaluate(
+        { ...MAZE_PARAMS, doorNorthOffset: 3 },
+        3,
+        REGION_MAZE,
+        TABLE,
+        "replace",
+      ),
+    ).toThrow(/doorNorthOffset.*0\.\.2/s);
+    // the boundary value is LEGAL — the range is inclusive, not off-by-one
+    expect(() =>
+      mz.evaluate(
+        { ...MAZE_PARAMS, doorNorthOffset: 2 },
+        3,
+        REGION_MAZE,
+        TABLE,
+        "replace",
+      ),
+    ).not.toThrow();
+    expect(() =>
+      hall.evaluate(
+        { ...HALL_PARAMS, doorNorthOffset: 4 },
+        7,
+        REGION,
+        TABLE,
+        "replace",
+      ),
+    ).not.toThrow();
+  });
+
+  test("an offset that walks a door onto a pillar throws /blocked walk lane/ — offset is the CAUSE", () => {
+    // Teeth-verified pair on the SAME pillar config: grid pillars at spacing 3
+    // sit at i,k ∈ {3,6}. The centred north door (offset 2 → lat cells {4,5})
+    // clears them; offset 3 (lat {5,6}) puts lane cell (6, j, 6) on a pillar.
+    const hall = generatorById("hall");
+    const pillared = { ...HALL_PARAMS, pillars: "grid", pillarSpacing: 3 };
+    expect(() =>
+      hall.evaluate(
+        { ...pillared, doorNorthOffset: 2 },
+        7,
+        REGION,
+        TABLE,
+        "replace",
+      ),
+    ).not.toThrow(); // CONTROL: the config alone is fine
+    expect(() =>
+      hall.evaluate(
+        { ...pillared, doorNorthOffset: 3 },
+        7,
+        REGION,
+        TABLE,
+        "replace",
+      ),
+    ).toThrow(/blocked walk lane/); // only the offset changed
+  });
+
+  // ——— determinism + negative coordinates ———
+
+  test("rotation and offsets are deterministic (same-input-twice), both generators", () => {
+    for (const [id, base, region, seed] of [
+      ["hall", HALL_PARAMS, REGION, 5],
+      ["maze", MAZE_PARAMS, REGION_MAZE, 5],
+    ] as const) {
+      const def = generatorById(id);
+      const p = { ...base, rotation: "270", doorNorthOffset: 1 };
+      const a = def.evaluate(p, seed, region, TABLE, "replace");
+      const b = def.evaluate(p, seed, region, TABLE, "replace");
+      expect(a).toEqual(b);
+      expect(JSON.stringify(a)).toBe(JSON.stringify(b));
+    }
+  });
+
+  test("rotation + offsets hold on a NEGATIVE, off-lattice region (snapDown floors)", () => {
+    const hall = generatorById("hall");
+    const base = { ...HALL_PARAMS, depth: 12, doorNorthOffset: 1 };
+    const ops0 = hall.evaluate(base, 7, REGION_NEG, TABLE, "replace");
+    // the stamp really is anchored at the FLOORED origin, not the raw min
+    const fill0 = ops0[0];
+    if (fill0?.shape.kind !== "box") throw new Error("expected a box fill");
+    expect(fill0.shape.center[0] - fill0.shape.halfExtents[0]).toBe(
+      ORIGIN_NEG[0],
+    );
+    expect(fill0.shape.center[1] - fill0.shape.halfExtents[1]).toBe(
+      ORIGIN_NEG[1],
+    );
+    for (const [rot, turns] of [
+      ["90", 1],
+      ["180", 2],
+      ["270", 3],
+    ] as const) {
+      const opsR = hall.evaluate(
+        { ...base, rotation: rot },
+        7,
+        REGION_NEG,
+        TABLE,
+        "replace",
+      );
+      expectRotatedEquivalence(ops0, opsR, ORIGIN_NEG, turns);
+      for (const op of opsR)
+        expect(() => assertOpValid(op, TABLE)).not.toThrow();
+    }
   });
 });
