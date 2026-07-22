@@ -1,7 +1,10 @@
 import {
+  CHUNK_DIM,
+  CHUNK_SAMPLES,
   chunkKey,
   DENSITY_SCALE,
   getDensity,
+  parseChunkKey,
   setDensity,
   voxelChunk,
   worldToVoxel,
@@ -29,6 +32,8 @@ import type {
   MaterialTable,
   OpInverse,
   OpLog,
+  PatchChunk,
+  PatchOp,
   SmoothParams,
 } from "./types.ts";
 import { MAT_ROCK } from "./types.ts";
@@ -429,6 +434,238 @@ function applySmooth(
   }
 }
 
+/** Mask bytes per {@link PatchChunk} slice: one bit per chunk sample (512).
+ *  Deliberately NOT on the public field index — like {@link spliceOps}, it is
+ *  in-core producer surface (compaction, procedural emitters) rather than
+ *  consumer API. */
+export const PATCH_MASK_BYTES = CHUNK_SAMPLES / 8;
+
+/** The normalized "writes no material" value array, so the write loop carries
+ *  no per-cell null check. Never read: its mask is normalized to null too. */
+const NO_MATERIALS = new Uint8Array(0);
+
+/** Set bits in a mask — the length a slice's matching value array must have. */
+function popcount(mask: Uint8Array): number {
+  let n = 0;
+  for (const byte of mask) {
+    let b = byte;
+    while (b !== 0) {
+      n += b & 1;
+      b >>= 1;
+    }
+  }
+  return n;
+}
+
+/** One mask byte, or 0 for an absent mask / an index past its end. */
+const maskByte = (mask: Uint8Array | null, i: number): number =>
+  mask === null ? 0 : (mask[i] ?? 0);
+
+/** Chunk-key parse for patch slices. {@link parseChunkKey} is TOTAL — a
+ *  malformed key yields NaNs, and a NaN chunk origin would silently write to a
+ *  garbage chunk — so patch demands the CANONICAL encoding: three integers that
+ *  round-trip through {@link chunkKey} (which also rules out two spellings of
+ *  the same chunk defeating the duplicate-key check). Kept local to patch
+ *  rather than hardening `parseChunkKey`, whose failure policy is public
+ *  surface with unrelated callers.
+ *
+ *  @throws {@link Error} if `key` is not a canonical chunk key. */
+function parsePatchKey(key: ChunkKey): [number, number, number] {
+  const [cx, cy, cz] = parseChunkKey(key);
+  const canonical =
+    Number.isInteger(cx) &&
+    Number.isInteger(cy) &&
+    Number.isInteger(cz) &&
+    chunkKey(cx, cy, cz) === key;
+  if (!canonical) throw new Error(`field patch: malformed chunk key "${key}"`);
+  return [cx, cy, cz];
+}
+
+/** Masked material cells in a slice — 0 when it writes no material. */
+const materialCells = (c: PatchChunk): number =>
+  c.materialMask === null ? 0 : popcount(c.materialMask);
+
+/** Material leg of {@link assertPatchValid} for one slice: a present
+ *  `materialMask` needs the right byte length, a non-null `materials` of
+ *  exactly its popcount, and every id resolvable in the table; an absent one
+ *  forbids `materials`. Kit class ids are ACCEPTED: the lattice rule in
+ *  {@link assertOpValid} constrains a box SHAPE, and a patch has no shape — its
+ *  cells are already resolved (typically by compacting a lattice-valid fill). */
+function assertPatchMaterialsValid(c: PatchChunk, table: MaterialTable): void {
+  if (c.materialMask === null) {
+    if (c.materials !== null)
+      throw new Error(
+        `field patch: materials present without materialMask (chunk "${c.key}")`,
+      );
+    return;
+  }
+  if (c.materialMask.length !== PATCH_MASK_BYTES)
+    throw new Error(
+      `field patch: materialMask must be ${PATCH_MASK_BYTES} bytes (chunk "${c.key}")`,
+    );
+  if (c.materials === null)
+    throw new Error(
+      `field patch: materialMask is set but materials is null (chunk "${c.key}")`,
+    );
+  const cells = materialCells(c);
+  if (c.materials.length !== cells)
+    throw new Error(
+      `field patch: materials length ${c.materials.length} != materialMask popcount ${cells} (chunk "${c.key}")`,
+    );
+  for (const id of c.materials) classOf(table, id); // throws unknown class id
+}
+
+/** Per-slice leg of {@link assertPatchValid}. */
+function assertPatchChunkValid(c: PatchChunk, table: MaterialTable): void {
+  if (c.densityMask.length !== PATCH_MASK_BYTES)
+    throw new Error(
+      `field patch: densityMask must be ${PATCH_MASK_BYTES} bytes (chunk "${c.key}")`,
+    );
+  const densityCells = popcount(c.densityMask);
+  if (c.density.length !== densityCells)
+    throw new Error(
+      `field patch: density length ${c.density.length} != densityMask popcount ${densityCells} (chunk "${c.key}")`,
+    );
+  assertPatchMaterialsValid(c, table);
+  if (densityCells + materialCells(c) === 0)
+    throw new Error(`field patch: chunk "${c.key}" masks no cells`);
+}
+
+/**
+ * Setup-loud patch validation — the {@link assertOpValid} analogue, and the
+ * same replay / stream guard. Each slice must carry a CANONICAL chunk key
+ * (unique across the op: one slice per chunk, so every cell has exactly one
+ * value and the inverse's one-snapshot-per-chunk rule is unambiguous),
+ * {@link PATCH_MASK_BYTES}-sized masks, value arrays exactly as long as their
+ * own mask's popcount, and material ids that resolve in `table`. A slice that
+ * masks NO cells is rejected: a patch's declared chunks are its written chunks
+ * (see {@link fieldOpChunks}), and an empty slice would over-declare.
+ *
+ * A patch with NO slices is rejected too — the {@link commitGenerator} stance
+ * that a mutation verb must actually mutate. Logged, it would burn an id, clear
+ * the redo stack and push an undo entry that reverts nothing: a ⌘Z that
+ * visibly does nothing.
+ *
+ * @throws {@link Error} if the op has no slices, a chunk key is malformed or
+ *   duplicated, a mask is not {@link PATCH_MASK_BYTES} bytes, a value array's
+ *   length does not match its mask's popcount (including `materials` present
+ *   without `materialMask` or vice versa), a material class id is unknown, or a
+ *   slice masks no cells.
+ */
+export function assertPatchValid(op: PatchOp, table: MaterialTable): void {
+  if (op.chunks.length === 0)
+    throw new Error("field patch: op writes no chunks");
+  const seen = new Set<ChunkKey>();
+  for (const c of op.chunks) {
+    parsePatchKey(c.key);
+    if (seen.has(c.key))
+      throw new Error(`field patch: duplicate chunk key "${c.key}"`);
+    seen.add(c.key);
+    assertPatchChunkValid(c, table);
+  }
+}
+
+/** Writes one slice's masked cells absolutely, snapshotting the chunk before
+ *  the first write. The two value arrays are consumed in ascending bit order,
+ *  each advancing only on ITS OWN mask's bits, and each falls back to a defined
+ *  value (`0` density, {@link MAT_ROCK} material) if it runs short of its mask
+ *  — {@link assertPatchValid} rejects that shape, and inside the applier a
+ *  wrong VALUE in a correctly declared and snapshotted cell (which undo still
+ *  restores) beats a mid-slice throw that would strand a partial write.
+ *
+ *  The material channel is normalized ONCE, up front: a slice missing EITHER
+ *  half of the pair writes no material at all (validation rejects that shape
+ *  too), so neither loop below carries a null check. */
+function writePatchChunk(
+  store: FieldStore,
+  c: PatchChunk,
+  origin: [number, number, number],
+  dirty: Set<ChunkKey>,
+  inverse: OpInverse,
+): void {
+  const [cx, cy, cz] = origin;
+  const density = c.density;
+  const materials = c.materials ?? NO_MATERIALS;
+  const materialMask = c.materials === null ? null : c.materialMask;
+  let di = 0;
+  let mi = 0;
+  let touched = false;
+  for (let byte = 0; byte < PATCH_MASK_BYTES; byte++) {
+    const dByte = maskByte(c.densityMask, byte);
+    const mByte = maskByte(materialMask, byte);
+    if ((dByte | mByte) === 0) continue;
+    if (!touched) {
+      // Once per slice, on its first set mask byte. The slice is dirtied
+      // WITHOUT comparing values first — deliberately unlike the brush effects
+      // (`getMaterial(...) !== mat` and friends), which skip no-op writes. It
+      // is what makes a validated patch's dirty set EXACTLY fieldOpChunks(op),
+      // the exactness reconfigure and compaction both rest on. A patch that
+      // happens to rewrite identical bytes costs one redundant remesh: that is
+      // the price of the invariant, not an oversight to optimise away.
+      snapshot(store, inverse, c.key);
+      dirty.add(c.key);
+      touched = true;
+    }
+    for (let b = 0; b < 8; b++) {
+      const dSet = ((dByte >> b) & 1) === 1;
+      const mSet = ((mByte >> b) & 1) === 1;
+      if (!dSet && !mSet) continue;
+      const bit = byte * 8 + b;
+      const x = cx * CHUNK_DIM + (bit % CHUNK_DIM);
+      const y = cy * CHUNK_DIM + (Math.floor(bit / CHUNK_DIM) % CHUNK_DIM);
+      const z = cz * CHUNK_DIM + Math.floor(bit / (CHUNK_DIM * CHUNK_DIM));
+      if (dSet) setDensity(store, x, y, z, density[di++] ?? 0);
+      if (mSet) setMaterial(store, x, y, z, materials[mi++] ?? MAT_ROCK);
+    }
+  }
+}
+
+/** Applies a patch op: ABSOLUTE writes to exactly the masked cells, and nothing
+ *  else — the op reads no surrounding state, so re-applying it to any store
+ *  produces the same bytes (the byte-exact-replay property compaction and
+ *  procedural emission both rest on). Same return contract as {@link applyOp}:
+ *  the dirty chunk set plus the two-channel inverse (the undo unit).
+ *
+ *  Every slice's key is parsed BEFORE the first write — the ONE malformation
+ *  this bare applier refuses rather than trusts, because a NaN chunk origin
+ *  writes OUTSIDE the op's declared influence, into a chunk the inverse (keyed
+ *  by the slice's own key) never snapshotted: unbounded, un-undoable
+ *  corruption. Mask/value-length mismatches are trusted instead — they only
+ *  mis-value a declared, snapshotted cell (see {@link writePatchChunk}).
+ *
+ *  @throws {@link Error} if a slice's chunk key is not canonical, with the
+ *    store untouched rather than half-applied ({@link logApplyPatch} validates
+ *    first via {@link assertPatchValid}, so logged ops never throw here). */
+export function applyPatchOp(
+  store: FieldStore,
+  op: PatchOp,
+): { dirty: Set<ChunkKey>; inverse: OpInverse } {
+  const slices = op.chunks.map((c) => ({ c, origin: parsePatchKey(c.key) }));
+  const dirty = new Set<ChunkKey>();
+  const inverse: OpInverse = new Map();
+  for (const { c, origin } of slices)
+    writePatchChunk(store, c, origin, dirty, inverse);
+  return { dirty, inverse };
+}
+
+/** The chunks an op may WRITE — its bounded influence, chunk-quantized. Entity
+ *  ops write nothing. A patch DECLARES its chunks and writes all of them
+ *  (validation rejects empty slices), so its set is exact. A brush op's set is
+ *  derived from its sample bounds (+1 margin per side, the applier's own loop
+ *  bounds) and is therefore a superset: cells its effect guards or `mask`
+ *  reject are counted in. */
+export function fieldOpChunks(op: FieldOp, cellSize: number): Set<ChunkKey> {
+  if (op.kind === "entity") return new Set();
+  if (op.kind === "patch") return new Set(op.chunks.map((c) => c.key));
+  const { x0, y0, z0, x1, y1, z1 } = opSampleBounds(op, cellSize);
+  const keys = new Set<ChunkKey>();
+  for (let cz = voxelChunk(z0); cz <= voxelChunk(z1); cz++)
+    for (let cy = voxelChunk(y0); cy <= voxelChunk(y1); cy++)
+      for (let cx = voxelChunk(x0); cx <= voxelChunk(x1); cx++)
+        keys.add(chunkKey(cx, cy, cz));
+  return keys;
+}
+
 /** Creates an empty op log. */
 export function createOpLog(): OpLog {
   return { ops: [], undoStack: [], redoStack: [], nextId: 1 };
@@ -445,6 +682,48 @@ export function logApply(
   assertOpValid(op, table);
   const stamped: BrushOp = { ...op, id: log.nextId++ };
   const { dirty, inverse } = applyOp(store, stamped, table);
+  log.ops.push(stamped);
+  log.undoStack.push({ kind: "ops", ops: [stamped], inverse });
+  log.redoStack.length = 0;
+  return dirty;
+}
+
+/** Deep copy of one patch slice — the log's own buffers (see
+ *  {@link logApplyPatch}). */
+const clonePatchChunk = (c: PatchChunk): PatchChunk => ({
+  key: c.key,
+  densityMask: Uint8Array.from(c.densityMask),
+  density: Int8Array.from(c.density),
+  materialMask:
+    c.materialMask === null ? null : Uint8Array.from(c.materialMask),
+  materials: c.materials === null ? null : Uint8Array.from(c.materials),
+});
+
+/** Validates then applies a patch op through the log — the {@link logApply}
+ *  analogue (assigns the id, records the two-channel inverse, clears redo).
+ *  Returns the dirty chunk set.
+ *
+ *  The slices are CLONED (masks and value arrays both) before the first store
+ *  write, the {@link commitGenerator} provenance posture: the log owns its copy
+ *  of the record, so a caller reusing scratch buffers across patches — the
+ *  natural shape for a compactor or a procedural emitter — can never rewrite
+ *  history and desynchronise replay from the live store.
+ *
+ *  @throws {@link Error} if `op` fails {@link assertPatchValid} — before any
+ *    mutation of the store, the log, or the id counter. */
+export function logApplyPatch(
+  store: FieldStore,
+  log: OpLog,
+  op: PatchOp,
+  table: MaterialTable,
+): Set<ChunkKey> {
+  assertPatchValid(op, table);
+  const stamped: PatchOp = {
+    id: log.nextId++,
+    kind: "patch",
+    chunks: op.chunks.map(clonePatchChunk),
+  };
+  const { dirty, inverse } = applyPatchOp(store, stamped);
   log.ops.push(stamped);
   log.undoStack.push({ kind: "ops", ops: [stamped], inverse });
   log.redoStack.length = 0;
@@ -509,7 +788,7 @@ export function spliceOps(
     at + deleteCount <= ops.length;
   if (!spanInRange)
     throw new Error(
-      `spliceOps: span [${at}, ${at + deleteCount}) out of range for ${ops.length} ops`,
+      `spliceOps: invalid span [${at}, ${at + deleteCount}) for ${ops.length} ops`,
     );
   const tail = ops.slice(at + deleteCount);
   ops.length = at;
@@ -523,21 +802,26 @@ export function spliceOps(
  *  at its index and restores the affected chunks' `before` images (bytes — the
  *  span is never re-executed); an `entity-update` entry swaps the entity op's
  *  previous record back in and touches no chunks. Returns the dirty chunk set
- *  (empty when there is nothing to undo or the entry touched no chunks). */
+ *  (empty when there is nothing to undo or the entry touched no chunks).
+ *
+ *  @throws {@link Error} if a `splice` entry's span is invalid for the current
+ *    `log.ops` (see {@link spliceOps}) — `log.ops`, the store and both stacks
+ *    are left untouched, and the entry stays on the undo stack. Reachable only
+ *    for a hand-built entry: `log.undoStack` is public and mutable. */
 export function undo(store: FieldStore, log: OpLog): Set<ChunkKey> {
   const entry = log.undoStack.at(-1);
   if (entry === undefined) return new Set();
   // Revert first, move the entry second: spliceOps validates before it writes,
-  // so a malformed splice entry throws with both stacks and the store untouched
-  // rather than stranding an entry on the wrong stack.
+  // so a malformed splice entry throws with both stacks, `log.ops` and the
+  // store untouched rather than stranding an entry on the wrong stack.
   const dirty = revertEntry(store, log, entry);
   log.undoStack.pop();
   // ONE transfer per pop, in ONE place. The WHOLE entry moves across — the
   // deliberate price of symmetric stacks (splice/entity-update need their
   // records to replay forward). An `ops` entry's inverse therefore sits unread
-  // on the redo stack until the next mutation clears it: peak memory is
-  // unchanged (the undo stack already held it), but memory that used to be
-  // released at undo no longer is.
+  // on the redo stack until a redo pops it or the next mutation clears it: peak
+  // memory is unchanged (the undo stack already held it), but memory that used
+  // to be released at undo no longer is.
   log.redoStack.push(entry);
   return dirty;
 }
@@ -565,12 +849,17 @@ function revertEntry(
 
 /** Redoes the most recently undone entry and moves it — or, for `ops`, a
  *  freshly captured equivalent — back to the undo stack. An `ops` entry is
- *  re-applied by re-executing its BRUSH members in order (entity ops never
- *  touch the field) — deterministic, and already validated at first apply, so
- *  no re-validation; `table` resolves class-kind masks during re-application.
- *  `splice` and `entity-update` entries are replayed from their records
- *  instead: the span goes back in at its index with the `after` images restored
- *  byte-for-byte, and the entity record is swapped forward again. */
+ *  re-applied by re-executing its BRUSH and PATCH members in order (entity ops
+ *  never touch the field) — deterministic, and already validated at first
+ *  apply, so no re-validation; `table` resolves class-kind masks during
+ *  re-application. `splice` and `entity-update` entries are replayed from their
+ *  records instead: the span goes back in at its index with the `after` images
+ *  restored byte-for-byte, and the entity record is swapped forward again.
+ *
+ *  @throws {@link Error} if a `splice` entry's span is invalid for the current
+ *    `log.ops` (see {@link spliceOps}) — `log.ops`, the store and both stacks
+ *    are left untouched, and the entry stays on the redo stack. Reachable only
+ *    for a hand-built entry: `log.redoStack` is public and mutable. */
 export function redo(
   store: FieldStore,
   log: OpLog,
@@ -612,6 +901,24 @@ function replayEntry(
   }
 }
 
+/** Re-executes ONE op, or returns null for a kind that touches no field state.
+ *  Total over {@link FieldOp}, so a new member fails to type-check until it
+ *  declares how redo replays it. */
+function reapplyOne(
+  store: FieldStore,
+  op: FieldOp,
+  table: MaterialTable,
+): { dirty: Set<ChunkKey>; inverse: OpInverse } | null {
+  switch (op.kind) {
+    case "brush":
+      return applyOp(store, op, table);
+    case "patch":
+      return applyPatchOp(store, op);
+    case "entity":
+      return null;
+  }
+}
+
 /** Re-executes an undone op list and re-appends it to the tail of `log.ops`.
  *  Per-op inverses merge first-touch-wins, so the returned inverse holds each
  *  chunk's earliest pre-image (the pre-list state). */
@@ -624,8 +931,8 @@ function reapplyOps(
   const dirty = new Set<ChunkKey>();
   const inverse: OpInverse = new Map();
   for (const op of ops) {
-    if (!isBrushOp(op)) continue;
-    const r = applyOp(store, op, table);
+    const r = reapplyOne(store, op, table);
+    if (r === null) continue;
     for (const key of r.dirty) dirty.add(key);
     for (const [key, pre] of r.inverse)
       if (!inverse.has(key)) inverse.set(key, pre);

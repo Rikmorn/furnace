@@ -161,6 +161,38 @@ export type BrushOp = {
   hollow?: number;
 };
 
+/** One chunk's slice of a {@link PatchOp} — the cells it writes IN THAT CHUNK
+ *  and nothing else. Masks are 4096-bit sets (512 bytes = `CHUNK_SAMPLES / 8`),
+ *  bit index `lx + CHUNK_DIM·(ly + CHUNK_DIM·lz)` — the same x-fastest cell
+ *  layout {@link localIndex} defines for every other per-cell array.
+ *  `density` holds one Int8 per SET `densityMask` bit, in ascending bit order;
+ *  `materials` one GLOBAL class id per set `materialMask` bit, likewise — each
+ *  value array tracks its OWN mask, so the two channels need not agree on which
+ *  cells they write. A null `materialMask` (with null `materials`) = this slice
+ *  writes no material. Validation rejects a slice whose masks are both empty,
+ *  so a slice's key is always a chunk the op really writes. */
+export type PatchChunk = {
+  key: ChunkKey;
+  densityMask: Uint8Array;
+  density: Int8Array;
+  materialMask: Uint8Array | null;
+  materials: Uint8Array | null;
+};
+
+/** A patch op: ABSOLUTE masked per-cell writes — the semantic-compaction
+ *  primitive (a run of plain dig/fill/paint ops folds into one patch without
+ *  changing the field) and a procedural generator's emission form (the noise
+ *  math stays in `evaluate`; the log keeps flat per-cell arrays in memory
+ *  instead of re-deriving them). NOTE: those typed arrays have no WIRE encoding
+ *  yet — `serializeOps` is still JSON, which mangles them; a compact on-disk
+ *  form is a follow-up (see the MIGRATION note in `artifact.ts`). Bounded
+ *  influence =
+ *  exactly its masked cells, which is what makes replay byte-exact by
+ *  construction: unlike a brush op it derives nothing from surrounding state,
+ *  so it never bakes context in and never drifts when an UPSTREAM op is
+ *  reconfigured. */
+export type PatchOp = { id: number; kind: "patch"; chunks: PatchChunk[] };
+
 /** How a stamp treats pre-existing air in its footprint: `replace` overwrites
  *  (default); `keep-existing-air` masks the shell fill solid-only so user
  *  carvings survive (compiles into the op record — replay-safe). */
@@ -207,8 +239,8 @@ export type EntityOp = {
   entity: GeneratorEntity;
 };
 
-/** The field-op union: brush strokes and entity ops share the log. */
-export type FieldOp = BrushOp | EntityOp;
+/** The field-op union: brush strokes, entity ops and patches share the log. */
+export type FieldOp = BrushOp | EntityOp | PatchOp;
 
 /** A selection's DEFINITION — deterministic and replay-safe: floods re-evaluate
  *  against the replayed field state, so an op embedding a spec replays

@@ -156,12 +156,21 @@ export function decodeMaterialFile(bytes: Uint8Array): ChunkMaterials {
  *  brush/dig op on parse. */
 type LegacyDigOp = { id: number; kind: "dig"; shape: BrushShape };
 
+// MIGRATION (until Task 6): `patch` ops have NO wire encoding yet. They are
+// members of FieldOp, so they type-check into these functions, but JSON round-
+// tripping mangles their typed arrays into index-keyed objects (~8× larger, and
+// no longer Uint8Array/Int8Array) — assertPatchValid rejects the result while
+// applyPatchOp silently accepts it. Nothing PRODUCES a patch op until the
+// compaction verb lands, so no bake can contain one today; Task 6 replaces this
+// pair with a patch-aware codec. Do not bake a log holding patch ops before it.
+
 /** Serializes the op list (the authoring truth — brush AND entity ops) as a
- *  JSON string. */
+ *  JSON string. Patch ops are not yet encodable — see the MIGRATION note above. */
 export const serializeOps = (ops: FieldOp[]): string => JSON.stringify(ops);
 
 /** Parses an oplog JSON string back into the op list; F1 logs (`kind:"dig"`)
- *  map forward to brush/dig ops; entity ops pass through. */
+ *  map forward to brush/dig ops; entity ops pass through. Patch ops are not yet
+ *  decodable — see the MIGRATION note above. */
 export const parseOps = (text: string): FieldOp[] =>
   (JSON.parse(text) as (FieldOp | LegacyDigOp)[]).map((o) =>
     o.kind === "dig"

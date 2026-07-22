@@ -1084,7 +1084,7 @@ const imagesOf = (s: FieldStore, keys: Iterable<ChunkKey>): OpInverse => {
 
 describe("spliceOps (F3a)", () => {
   const ids = (ops: FieldOp[]): number[] => ops.map((o) => o.id);
-  const four = (): FieldOp[] => [1, 2, 3, 4].map((id) => ({ ...sphere(id) }));
+  const four = (): FieldOp[] => [1, 2, 3, 4].map((id) => sphere(id));
 
   test("replaces a mid-array span and keeps the tail in order", () => {
     const ops = four();
@@ -1103,7 +1103,7 @@ describe("spliceOps (F3a)", () => {
   // spliceOps refuses instead. A negative deleteCount is the dangerous one: it
   // re-pushes ops it never removed, so the SAME op object lands in the log
   // twice under one id and survives into replay, serialization and bake.
-  test("throws on an out-of-range span instead of mangling the log", () => {
+  test("throws on an invalid span instead of mangling the log", () => {
     for (const [at, deleteCount] of [
       [-2, 1],
       [1.5, 1],
@@ -1114,7 +1114,7 @@ describe("spliceOps (F3a)", () => {
     ] as const) {
       const ops = four();
       expect(() => spliceOps(ops, at, deleteCount, [sphere(9)])).toThrow(
-        /out of range/,
+        /invalid span/,
       );
       expect(ids(ops)).toEqual([1, 2, 3, 4]); // rejected BEFORE any mutation
     }

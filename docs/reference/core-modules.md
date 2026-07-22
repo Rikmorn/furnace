@@ -794,9 +794,9 @@ channel** (uniform|indexed palette encoding behind accessors — `getMaterial` /
 - **Store + coords** — `createFieldStore`, `getDensity`/`setDensity`,
   `extractFieldAprons` (the 20³ density+material window), `chunkKey`/`parseChunkKey`,
   `voxelChunk`, `worldToVoxel`/`sampleToWorld`, `AIR`/`SOLID`.
-- **The op log (F2b: one log, op-list undo; F3a: splice-safe entries)** — the
-  `FieldOp` union = `BrushOp | EntityOp` (`isBrushOp` narrows).
-  **Brush effects**: dig / fill / paint / **smooth**
+- **The op log (F2b: one log, op-list undo; F3a: splice-safe entries + patches)** — the
+  `FieldOp` union = `BrushOp | EntityOp | PatchOp` (`isBrushOp` narrows to the brush
+  member). **Brush effects**: dig / fill / paint / **smooth**
   (`SmoothParams` — max-delta-clamp strength doubling as the thin-wall guard,
   iterations, both|erode|fill modes, `SMOOTH_DEFAULTS`; density-only, never materials).
   Fill takes an optional **`hollow`** shell-band thickness (non-destructive: interior
@@ -811,6 +811,20 @@ channel** (uniform|indexed palette encoding behind accessors — `getMaterial` /
   `entity-update` (an in-place entity-record swap that touches no chunks).
   `restoreImages` is the shared image→store writer (both channels; a null channel
   deletes). Both stacks are strictly LIFO.
+- **Patch ops (F3a)** — `PatchOp` = ABSOLUTE masked per-cell writes, one `PatchChunk`
+  slice per chunk: 512-byte density/material bitmasks (bit `lx + 16·(ly + 16·lz)`) plus
+  one value per set bit in ascending bit order, each channel tracking its own mask.
+  Bounded influence = exactly the masked cells, so a patch reads no surrounding state
+  and replays byte-exactly — the primitive for semantic compaction (fold a run of
+  dig/fill/paint into one patch) and for procedural emission (the noise math stays in
+  the generator; the log stays compact data). `assertPatchValid` is setup-loud
+  (canonical + unique chunk keys, mask sizes, value-array lengths == popcount, known
+  class ids, no empty slice); `logApplyPatch` validates, CLONES the slice buffers (the
+  log owns its copy) and applies; `applyPatchOp` is the bare applier, with the same
+  dirty+inverse return as `applyOp`. Kit class ids are accepted — the lattice rule
+  constrains a box shape, which a patch does not have. `fieldOpChunks(op, cellSize)`
+  gives any op's written chunks (exact for patches, entity ops write none, brush ops
+  quantize their +1-margin sample bounds).
 - **Selection** — `SelectionSpec` (region | flood-material | flood-void) →
   `materializeSelection` (6-connected BFS, budget-capped LOUDLY via `truncated`, ceiling
   `MAX_SELECTION_BUDGET`; pure query) + `selectionHas`; `MaterializedSelection` keeps
@@ -832,9 +846,12 @@ channel** (uniform|indexed palette encoding behind accessors — `getMaterial` /
   clip — cells at/above read as air for targeting); per-chunk shell colliders
   (`chunkColliders` — density-only, material classes never affect collision).
 - **Artifact** — `encodeChunkFile`/`decodeChunkFile`,
-  `encodeMaterialFile`/`decodeMaterialFile`, oplog serialize/parse (the `FieldOp` union;
-  F1 legacy-op mapping), `bakeFieldWorld` (pure; the manifest embeds the resolved
-  material table).
+  `encodeMaterialFile`/`decodeMaterialFile`, oplog serialize/parse (brush + entity ops,
+  plus F1 legacy-op mapping), `bakeFieldWorld` (pure; the manifest embeds the resolved
+  material table). **Gap:** `PatchOp` is a `FieldOp` member but has NO wire encoding yet
+  — `serializeOps` is `JSON.stringify`, which turns its typed arrays into index-keyed
+  objects that `assertPatchValid` then rejects. Harmless today (nothing produces a patch
+  op yet); a patch-aware codec is the follow-up.
 
 ---
 

@@ -47,10 +47,14 @@ export {
 export { meshChunkField } from "./mesher.ts";
 export {
   applyOp,
+  applyPatchOp,
   assertOpValid,
+  assertPatchValid,
   createOpLog,
+  fieldOpChunks,
   isBrushOp,
   logApply,
+  logApplyPatch,
   opBounds,
   redo,
   restoreImages,
@@ -95,6 +99,8 @@ export type {
   MeshBucket,
   OpInverse,
   OpLog,
+  PatchChunk,
+  PatchOp,
   SelectionSpec,
   SmoothParams,
 } from "./types.ts";
