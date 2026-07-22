@@ -185,11 +185,10 @@ export type PatchChunk = {
  *  math stays in `evaluate`; the log keeps flat per-cell arrays in memory
  *  instead of re-deriving them). Those typed arrays ride the wire as base64
  *  inside the v2 oplog envelope (`serializeOps`/`parseOps` in `artifact.ts`), so
- *  a patch survives a bake byte-for-byte. Bounded
- *  influence = exactly its masked cells, which is what makes replay byte-exact
- *  by construction: unlike a brush op it derives nothing from surrounding state,
- *  so it never bakes context in and never drifts when an UPSTREAM op is
- *  reconfigured. */
+ *  a patch survives a bake byte-for-byte. Bounded influence = exactly its masked
+ *  cells, which is what makes replay byte-exact by construction: unlike a brush
+ *  op it derives nothing from surrounding state, so it never bakes context in
+ *  and never drifts when an UPSTREAM op is reconfigured. */
 export type PatchOp = { id: number; kind: "patch"; chunks: PatchChunk[] };
 
 /** How a stamp treats pre-existing air in its footprint: `replace` overwrites

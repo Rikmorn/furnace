@@ -13,6 +13,7 @@ import type {
   BrushShape,
   ChunkKey,
   ChunkMaterials,
+  EntityOp,
   FieldManifest,
   FieldOp,
   FieldStore,
@@ -243,12 +244,19 @@ const isRecord = (v: unknown): v is Record<string, unknown> =>
   typeof v === "object" && v !== null && !Array.isArray(v);
 
 /** What an unexpected JSON value IS, for the error message — `typeof` alone
- *  calls both `null` and `[]` "object". */
+ *  calls both `null` and `[]` "object". Use where the VALUE could be large
+ *  (a whole op, the whole file). */
 function typeTag(v: unknown): string {
   if (v === null) return "null";
   if (Array.isArray(v)) return "array";
   return typeof v;
 }
+
+/** The offending value itself, quoted, for the error message — use where it is
+ *  small and naming it is the whole point (a bad `kind`, `effect`, `version`).
+ *  `JSON.stringify` returns the VALUE `undefined` for `undefined`, so absence
+ *  would otherwise vanish from the message instead of reading as "undefined". */
+const jsonTag = (v: unknown): string => JSON.stringify(v) ?? "undefined";
 
 /** Decodes one required base64 field of a patch slice.
  *
@@ -307,14 +315,9 @@ function decodePatchChunk(raw: unknown): PatchChunk {
   };
 }
 
-/** @throws {@link Error} if the op has no numeric id or no chunks array, or if
- *   the reconstructed patch fails {@link assertPatchStructure}. */
-function decodePatchOp(raw: Record<string, unknown>): PatchOp {
-  const id = raw["id"];
-  if (typeof id !== "number")
-    throw new Error(
-      `field oplog: patch op id must be a number, got ${typeTag(id)}`,
-    );
+/** @throws {@link Error} if the op has no chunks array, or if the reconstructed
+ *   patch fails {@link assertPatchStructure}. */
+function decodePatchOp(raw: Record<string, unknown>, id: number): PatchOp {
   const chunks = raw["chunks"];
   if (!Array.isArray(chunks))
     throw new Error(`field oplog: patch op ${id} has no chunks array`);
@@ -327,43 +330,111 @@ function decodePatchOp(raw: Record<string, unknown>): PatchOp {
   return op;
 }
 
-/** Maps a pre-F2 dig literal (`kind:"dig"`, as F1 baked it) forward to a
- *  brush/dig op.
+/** The CLOSED string unions an op's wire form must land in. Every one of them
+ *  is table-INDEPENDENT — the same license {@link assertPatchStructure} runs on
+ *  for patch slices — so the decoder checks them here rather than deferring to
+ *  an applier that trusts its input by contract.
  *
- *  @throws {@link Error} if it has no numeric id or no shape object. */
-function upgradeLegacyDig(raw: Record<string, unknown>): BrushOp {
-  const id = raw["id"];
-  if (typeof id !== "number")
-    throw new Error(
-      `field oplog: legacy dig op id must be a number, got ${typeTag(id)}`,
-    );
-  const shape = raw["shape"];
+ *  `satisfies` binds each table to its union, so RENAMING or removing a member
+ *  in `types.ts` breaks the build here. It cannot catch an ADDED member —
+ *  widening a union without extending the table below makes the decoder reject
+ *  the new spelling at load. Extend both together. */
+const BRUSH_EFFECTS = [
+  "dig",
+  "fill",
+  "paint",
+  "smooth",
+] as const satisfies readonly BrushOp["effect"][];
+const SHAPE_KINDS = [
+  "sphere",
+  "box",
+] as const satisfies readonly BrushShape["kind"][];
+const ENTITY_ACTIONS = [
+  "place",
+] as const satisfies readonly EntityOp["action"][];
+
+/** @throws {@link Error} if `value` is not one of `allowed`. */
+function assertOneOf(
+  value: unknown,
+  allowed: readonly string[],
+  what: string,
+  id: number,
+): void {
+  if (typeof value === "string" && allowed.includes(value)) return;
+  throw new Error(
+    `field oplog: op ${id} ${what} must be one of ${allowed.join("|")}, got ${jsonTag(value)}`,
+  );
+}
+
+/** The shape leg shared by a brush op and the legacy-dig upgrade; `kindLabel`
+ *  names which for the message.
+ *
+ *  @throws {@link Error} if the shape is absent or its `kind` is off-contract. */
+function assertShapeWire(shape: unknown, id: number, kindLabel: string): void {
   if (!isRecord(shape))
-    throw new Error(`field oplog: legacy dig op ${id} has no shape`);
-  // Boundary cast: the shape's INTERIOR is not validated here — `assertOpValid`
-  // owns brush-op semantics and needs a MaterialTable this parser has not got.
+    throw new Error(`field oplog: ${kindLabel} op ${id} has no shape object`);
+  assertOneOf(shape["kind"], SHAPE_KINDS, "shape.kind", id);
+}
+
+/** @throws {@link Error} if a brush op's `effect` or `shape.kind` is
+ *   off-contract, or it carries no shape object. */
+function assertBrushWire(raw: Record<string, unknown>, id: number): void {
+  assertOneOf(raw["effect"], BRUSH_EFFECTS, "effect", id);
+  assertShapeWire(raw["shape"], id, "brush");
+}
+
+/** @throws {@link Error} if an entity op's `action` is off-contract or its
+ *   `entity` is not a record. */
+function assertEntityWire(raw: Record<string, unknown>, id: number): void {
+  assertOneOf(raw["action"], ENTITY_ACTIONS, "action", id);
+  if (!isRecord(raw["entity"]))
+    throw new Error(`field oplog: entity op ${id} has no entity record`);
+}
+
+/** Maps a pre-F2 dig literal (`kind:"dig"`, as F1 baked it) forward to a
+ *  brush/dig op — `effect` is supplied here, so only the shape is read.
+ *
+ *  @throws {@link Error} if it has no shape object or an off-contract
+ *    `shape.kind`. */
+function upgradeLegacyDig(raw: Record<string, unknown>, id: number): BrushOp {
+  const shape = raw["shape"];
+  assertShapeWire(shape, id, "legacy dig");
+  // Boundary cast: `shape.kind` is checked above; its NUMERIC interior is not —
+  // see {@link parseOps} for what stays trusted and why.
   return { id, kind: "brush", effect: "dig", shape: shape as BrushShape };
 }
 
 /** One op from either envelope version — `kind:"dig"` is a v1 spelling, but
  *  accepting it in a v2 envelope too keeps ONE decode path.
  *
- *  @throws {@link Error} if the op is not an object or its `kind` is unknown. */
+ *  @throws {@link Error} if the op is not an object, has no integer `id`, or
+ *    fails its kind's wire guards. */
 function decodeOp(raw: unknown): FieldOp {
   if (!isRecord(raw))
     throw new Error(
       `field oplog: every op must be a JSON object, got ${typeTag(raw)}`,
     );
-  const kind = raw["kind"];
-  if (kind === "patch") return decodePatchOp(raw);
-  if (kind === "dig") return upgradeLegacyDig(raw);
-  if (kind !== "brush" && kind !== "entity")
+  const id = raw["id"];
+  // Every kind needs this, so it is checked ONCE, before the dispatch. Without
+  // it the editor's `ops.reduce((max, o) => Math.max(max, o.id), 0) + 1` yields
+  // NaN, every op authored afterwards is stamped `id: NaN`, and JSON.stringify
+  // writes those back to disk as `null` — a corrupt log made plausible.
+  if (typeof id !== "number" || !Number.isInteger(id))
     throw new Error(
-      `field oplog: op of unknown kind ${JSON.stringify(kind) ?? "undefined"}`,
+      `field oplog: op id must be an integer, got ${jsonTag(id)}`,
     );
-  // Boundary cast: brush and entity ops ride through as plain JSON. Their
-  // INTERIORS are unvalidated — `assertOpValid` (brush) and the entity readers
-  // own those contracts, and both need context this parser does not take.
+  const kind = raw["kind"];
+  if (kind === "patch") return decodePatchOp(raw, id);
+  if (kind === "dig") return upgradeLegacyDig(raw, id);
+  if (kind === "brush") assertBrushWire(raw, id);
+  else if (kind === "entity") assertEntityWire(raw, id);
+  else throw new Error(`field oplog: op of unknown kind ${jsonTag(kind)}`);
+  // Boundary cast: every CLOSED union on the wire has now been checked — the
+  // op's `kind` and `id`, a brush's `effect` and `shape.kind`, an entity's
+  // `action`. What stays trusted is the NUMERIC interior (shape centres, radii,
+  // extents, material ids, mask/smooth params, the entity record's fields),
+  // which needs a MaterialTable or the applier's bounds maths — see
+  // {@link parseOps}.
   return raw as FieldOp;
 }
 
@@ -374,7 +445,23 @@ function versionError(version: unknown): Error {
     return new Error(
       `field oplog: version ${version} is newer than this build (max ${OPLOG_VERSION})`,
     );
-  return new Error(`field oplog: unknown version ${String(version)}`);
+  // jsonTag, not String(): a STRING "2" must not report `unknown version 2`,
+  // which reads as "2 is unknown" when 2 is the supported version.
+  return new Error(`field oplog: unknown version ${jsonTag(version)}`);
+}
+
+/** `JSON.parse` with this module's locator on the failure — the field load path
+ *  reads `manifest.json`, `oplog.json` and `kit/*.json` beside each other, and a
+ *  bare "JSON Parse error" says nothing about which one broke.
+ *
+ *  @throws {@link Error} if `text` is not valid JSON. */
+function parseOplogJson(text: string): unknown {
+  try {
+    return JSON.parse(text) as unknown;
+  } catch (e) {
+    const detail = e instanceof Error ? e.message : String(e);
+    throw new Error(`field oplog: not valid JSON — ${detail}`);
+  }
 }
 
 /**
@@ -384,24 +471,36 @@ function versionError(version: unknown): Error {
  * unambiguous: a JSON array is never a JSON object.
  *
  * Setup-loud on an unreadable log — a corrupt oplog must never become a
- * plausible-looking one. WHAT IS CHECKED: the envelope's shape and version;
- * that every op is an object with a known `kind`; and, for patch ops, the full
- * table-independent structure ({@link assertPatchStructure} — canonical unique
- * chunk keys, 512-byte masks, value arrays exactly as long as their mask's
- * popcount), so a truncated or garbage base64 payload is rejected rather than
- * mis-applied. WHAT IS NOT: the interiors of brush and entity ops, and patch
- * material class ids — both need a {@link MaterialTable} this function does not
- * take, and both are re-checked where the op is applied.
+ * plausible-looking one.
+ *
+ * WHAT IS CHECKED — everything decidable WITHOUT a {@link MaterialTable}: the
+ * envelope's shape and version; that every op is an object carrying an INTEGER
+ * `id` and a known `kind`; every CLOSED string union on the wire (a brush's
+ * `effect` and `shape.kind`, an entity's `action`); that an entity op carries a
+ * record; and, for patch ops, the full table-independent structure
+ * ({@link assertPatchStructure} — canonical unique chunk keys, 512-byte masks,
+ * value arrays exactly as long as their mask's popcount), so a truncated or
+ * garbage base64 payload is rejected rather than mis-applied.
+ *
+ * WHAT IS NOT — the NUMERIC interior: a shape's centre/radius/half-extents, a
+ * brush's `material`/`mask`/`smooth` params, an entity record's fields, and a
+ * patch slice's material class ids. Those need either a {@link MaterialTable}
+ * (which this function does not take) or the applier's own bounds maths.
+ * Nothing downstream re-checks them either: loaded ops are pushed straight into
+ * `log.ops` and never pass through {@link logApply}/{@link logApplyPatch}, and
+ * {@link applyOp}/{@link applyPatchOp} trust their input by contract. A bad
+ * class id therefore surfaces late, at mesh time.
  *
  * @param text - the oplog file's contents.
  * @returns freshly built ops; no input buffer is aliased.
  * @throws {@link Error} on invalid JSON, a non-array non-object payload, an
  *   unknown or future envelope version, a v2 envelope with no `ops` array, an
- *   op of unknown `kind`, or a patch op whose payload does not decode to a
- *   structurally valid patch (those messages carry the `field patch:` prefix).
+ *   op with a non-integer `id`, an unknown `kind` or an off-contract union
+ *   field, or a patch op whose payload does not decode to a structurally valid
+ *   patch (those messages carry the `field patch:` prefix).
  */
 export function parseOps(text: string): FieldOp[] {
-  const parsed: unknown = JSON.parse(text);
+  const parsed = parseOplogJson(text);
   if (Array.isArray(parsed)) return parsed.map(decodeOp); // v1 bare array
   if (!isRecord(parsed))
     throw new Error(

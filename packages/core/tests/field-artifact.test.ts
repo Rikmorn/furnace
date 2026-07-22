@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type {
+  BrushOp,
+  BrushShape,
   ChunkKey,
   ChunkMaterials,
   EntityOp,
@@ -262,18 +264,29 @@ describe("field oplog v2 codec", () => {
     return m;
   };
 
+  /** A minimal VALID slice (one density cell), with any field overridden — so
+   *  each case shows only the field under test. Mirrors field-patch.test.ts's
+   *  helper; each test file owns its copy. */
+  const slice = (over: Partial<PatchChunk> = {}): PatchChunk => ({
+    key: "0,0,0",
+    densityMask: maskOf(bitOf(0, 0, 0)),
+    density: Int8Array.from([1]),
+    materialMask: null,
+    materials: null,
+    ...over,
+  });
+
   /** A density-only slice: `bits` ascending, one Int8 per bit. */
   const densitySlice = (
     key: ChunkKey,
     bits: number[],
     values: number[],
-  ): PatchChunk => ({
-    key,
-    densityMask: maskOf(...bits),
-    density: Int8Array.from(values),
-    materialMask: null,
-    materials: null,
-  });
+  ): PatchChunk =>
+    slice({
+      key,
+      densityMask: maskOf(...bits),
+      density: Int8Array.from(values),
+    });
 
   const patch = (id: number, chunks: PatchChunk[]): PatchOp => ({
     id,
@@ -339,13 +352,10 @@ describe("field oplog v2 codec", () => {
         id: 2,
         kind: "patch",
         chunks: [
-          {
-            key: "0,0,0",
+          slice({
             densityMask: mask,
             density: Int8Array.from(Array.from({ length: 8 }, (_, i) => i - 4)),
-            materialMask: null,
-            materials: null,
-          },
+          }),
         ],
       },
       {
@@ -407,20 +417,20 @@ describe("field oplog v2 codec", () => {
 
   test("a multi-chunk patch with BOTH channels and a negative key round-trips", () => {
     const op = patch(4, [
-      {
+      slice({
         key: "-1,-1,-1",
         densityMask: maskOf(bitOf(15, 15, 15), bitOf(0, 0, 0)),
         density: Int8Array.from([-128, 127]),
         materialMask: maskOf(bitOf(0, 0, 0)),
         materials: Uint8Array.from([1]),
-      },
-      {
+      }),
+      slice({
         key: "2,-3,4",
         densityMask: maskOf(bitOf(8, 8, 8)),
         density: Int8Array.from([0]),
         materialMask: maskOf(bitOf(8, 8, 8), bitOf(9, 8, 8)),
         materials: Uint8Array.from([2, 0]),
-      },
+      }),
     ]);
     const back = patchAt(parseOps(serializeOps([op])), 0);
     expect(back.chunks.map((c) => c.key)).toEqual(["-1,-1,-1", "2,-3,4"]);
@@ -495,13 +505,12 @@ describe("field oplog v2 codec", () => {
       s,
       log,
       patch(0, [
-        {
-          key: "0,0,0",
+        slice({
           densityMask: maskOf(bitOf(4, 4, 4), bitOf(5, 4, 4)),
           density: Int8Array.from([-30, 40]),
           materialMask: maskOf(bitOf(4, 4, 4)),
           materials: Uint8Array.from([1]),
-        },
+        }),
       ]),
       TABLE,
     );
@@ -523,12 +532,121 @@ describe("field oplog v2 codec", () => {
       /unknown version 1/,
     );
     expect(() => parseOps("{}")).toThrow(/unknown version undefined/);
+    // A STRING "2" is not version 2. `String(version)` would report
+    // `unknown version 2`, which reads as "2 is unknown" — quote it.
+    expect(() => parseOps(JSON.stringify({ version: "2", ops: [] }))).toThrow(
+      /unknown version "2"/,
+    );
+    // Malformed JSON gets the module's locator too: the load path reads
+    // manifest.json, oplog.json and kit/*.json, so a bare "JSON Parse error"
+    // leaves the user guessing which file broke.
+    expect(() => parseOps("{not json")).toThrow(/field oplog: not valid JSON/);
+    expect(() => parseOps("")).toThrow(/field oplog: not valid JSON/);
     expect(() => parseOps("null")).toThrow(/expected a v2 envelope/);
     expect(() => parseOps('"oplog"')).toThrow(/expected a v2 envelope/);
     expect(() => parseOps("42")).toThrow(/expected a v2 envelope/);
     expect(() => parseOps(JSON.stringify({ version: 2 }))).toThrow(/ops array/);
     expect(() => parseOps(JSON.stringify({ version: 2, ops: {} }))).toThrow(
       /ops array/,
+    );
+  });
+
+  /** A v1 bare array holding one hand-written op — the shortest route to the
+   *  decoder for a shape `serializeOps` would never emit. */
+  const oneOp = (op: Record<string, unknown>): string => JSON.stringify([op]);
+  const SPHERE: BrushShape = { kind: "sphere", center: [1, 2, 3], radius: 1 };
+
+  test("parseOps demands an integer id on EVERY op kind", () => {
+    // The measured consequence of NOT checking: the editor's loadWorld does
+    // `ops.reduce((max, o) => Math.max(max, o.id), 0) + 1`, so one id-less op
+    // makes nextId NaN, every later op is stamped `id: NaN`, and JSON.stringify
+    // writes those back to disk as `null` — a corrupt oplog become a
+    // plausible-looking one, which is exactly what parseOps promises to prevent.
+    for (const op of [
+      { kind: "brush", effect: "dig", shape: SPHERE },
+      { kind: "entity", action: "place", entity: {} },
+      { kind: "dig", shape: SPHERE },
+      { kind: "patch", chunks: [] },
+      { id: "1", kind: "brush", effect: "dig", shape: SPHERE },
+      { id: null, kind: "brush", effect: "dig", shape: SPHERE },
+      { id: 1.5, kind: "brush", effect: "dig", shape: SPHERE },
+    ])
+      expect(() => parseOps(oneOp(op))).toThrow(/op id must be an integer/);
+
+    // …and the positive half: a parsed log always yields a finite nextId.
+    const ops = parseOps(
+      oneOp({ id: 7, kind: "brush", effect: "dig", shape: SPHERE }),
+    );
+    const nextId = ops.reduce((max, o) => Math.max(max, o.id), 0) + 1;
+    expect(nextId).toBe(8);
+  });
+
+  test("parseOps rejects off-contract brush/entity fields (the closed unions)", () => {
+    // `effect` is a 4-value union and `shape.kind` a 2-value union — both
+    // table-INDEPENDENT, so the decoder can check them for the same reason
+    // assertPatchStructure checks a patch's shape. Measured when it did not:
+    // effect:"carve" parsed, then applyOp returned dirty.size 0 and the
+    // replayed world silently diverged from the baked one; shape:{kind:"torus"}
+    // parsed, then replay died with a raw TypeError inside opBounds, far from
+    // the corrupt file.
+    expect(() =>
+      parseOps(oneOp({ id: 1, kind: "brush", effect: "carve", shape: SPHERE })),
+    ).toThrow(/effect must be one of/);
+    expect(() =>
+      parseOps(
+        oneOp({
+          id: 1,
+          kind: "brush",
+          effect: "dig",
+          shape: { kind: "torus" },
+        }),
+      ),
+    ).toThrow(/shape\.kind must be one of/);
+    expect(() =>
+      parseOps(oneOp({ id: 1, kind: "brush", effect: "dig" })),
+    ).toThrow(/brush op 1 has no shape object/);
+    // The legacy-dig upgrade writes `effect` itself, but still reads the shape.
+    expect(() =>
+      parseOps(oneOp({ id: 1, kind: "dig", shape: { kind: "torus" } })),
+    ).toThrow(/shape\.kind must be one of/);
+    // Entity: `action` is a single literal, and `entity` must be a record.
+    expect(() =>
+      parseOps(
+        oneOp({ id: 1, kind: "entity", action: "detonate", entity: {} }),
+      ),
+    ).toThrow(/action must be one of/);
+    expect(() =>
+      parseOps(oneOp({ id: 1, kind: "entity", action: "place", entity: 42 })),
+    ).toThrow(/entity op 1 has no entity record/);
+    // Every legal spelling still passes.
+    for (const effect of ["dig", "fill", "paint", "smooth"])
+      expect(() =>
+        parseOps(oneOp({ id: 1, kind: "brush", effect, shape: SPHERE })),
+      ).not.toThrow();
+    expect(() =>
+      parseOps(
+        oneOp({
+          id: 1,
+          kind: "brush",
+          effect: "fill",
+          shape: { kind: "box", center: [0, 0, 0], halfExtents: [1, 1, 1] },
+        }),
+      ),
+    ).not.toThrow();
+  });
+
+  test("a legacy dig op decodes the same inside a v2 envelope as in a v1 array", () => {
+    // The "one decode path" claim, exercised on the v2 side too.
+    const dig = { id: 1, kind: "dig", shape: SPHERE };
+    const want: BrushOp = {
+      id: 1,
+      kind: "brush",
+      effect: "dig",
+      shape: SPHERE,
+    };
+    expect(parseOps(oneOp(dig))[0]).toEqual(want);
+    expect(parseOps(JSON.stringify({ version: 2, ops: [dig] }))[0]).toEqual(
+      want,
     );
   });
 
@@ -545,17 +663,12 @@ describe("field oplog v2 codec", () => {
     expect(() => parseOps(JSON.stringify([{ id: 1 }]))).toThrow(
       /unknown kind undefined/,
     );
-    // The legacy-dig upgrade reads two fields; both are guarded.
-    expect(() =>
-      parseOps(JSON.stringify([{ kind: "dig", shape: {} }])),
-    ).toThrow(/legacy dig op id must be a number/);
+    // The legacy-dig upgrade supplies `effect` but still reads the shape (the
+    // id is guarded once, up in decodeOp — see the id test above).
     expect(() => parseOps(JSON.stringify([{ id: 1, kind: "dig" }]))).toThrow(
       /legacy dig op 1 has no shape/,
     );
     // Patch-op envelope fields, before any payload decode.
-    expect(() =>
-      parseOps(JSON.stringify({ version: 2, ops: [{ kind: "patch" }] })),
-    ).toThrow(/patch op id must be a number/);
     expect(() =>
       parseOps(JSON.stringify({ version: 2, ops: [{ id: 5, kind: "patch" }] })),
     ).toThrow(/patch op 5 has no chunks array/);
@@ -608,5 +721,14 @@ describe("field oplog v2 codec", () => {
     expect(() => parseOps(halfMaterials)).toThrow(
       /materials present without materialMask/,
     );
+
+    // A MISSING nullable field is not an implicit null: `serializeOps` always
+    // writes the key, so its absence is corruption, not an older spelling.
+    for (const name of ["materials", "materialMask"]) {
+      const dropped = corruptFirstSlice(text, (c) => {
+        delete c[name];
+      });
+      expect(() => parseOps(dropped)).toThrow(/must be a base64 string/);
+    }
   });
 });
