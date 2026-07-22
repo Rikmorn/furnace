@@ -716,9 +716,15 @@ function airCells(
   return out;
 }
 
-/** rotateGrid's cell map for a source grid of dims [nx, _, nz], as an
- *  INDEPENDENT restatement (the test must not import the implementation's
- *  algebra, or a sign error would cancel out on both sides). */
+/** rotateGrid's cell map for a source grid of dims [nx, _, nz].
+ *
+ *  This is a TEXTUAL COPY of the implementation's formulas, not an independent
+ *  derivation: a sign error made identically in both would cancel here. It
+ *  earns its place by checking STRUCTURE the implementation does not restate —
+ *  that the mapping is a bijection over the full volume and that dims swap —
+ *  while the real independent anchor is the hand-computed wall-and-span table
+ *  in "each rotation carries the north door to the hand-computed wall", which
+ *  touches neither this helper nor the implementation's formulas. */
 function rotCell(
   i: number,
   k: number,
@@ -794,9 +800,48 @@ const REGION_NEG = {
 };
 const ORIGIN_NEG: [number, number, number] = [-6.5, -4, -8.5];
 
+/** [wall, enable key, offset key] per wall — spelled out, mirroring the source's
+ *  WALLS table. Never re-derive these from the wall name. */
+const DOOR_KEYS = [
+  ["north", "doorNorth", "doorNorthOffset"],
+  ["south", "doorSouth", "doorSouthOffset"],
+  ["east", "doorEast", "doorEastOffset"],
+  ["west", "doorWest", "doorWestOffset"],
+] as const satisfies readonly [
+  "north" | "south" | "east" | "west",
+  string,
+  string,
+][];
+
+/** The five params that postdate persisted data and are OPTIONAL on input. */
+const OPTIONAL_KEYS = [
+  "rotation",
+  ...DOOR_KEYS.map(([, , offsetKey]) => offsetKey),
+];
+
+/** A curried `() => evaluate(...)` thunk for setup-loud assertions: the shape
+ *  every `expect(...).toThrow(...)` in this block needs, spelled once. */
+const evalWith =
+  (
+    def: GeneratorDef,
+    base: Record<string, unknown>,
+    region: typeof REGION,
+    seed = 7,
+  ) =>
+  (over: Record<string, unknown>) =>
+  () =>
+    def.evaluate({ ...base, ...over }, seed, region, TABLE, "replace");
+
 describe("field generators — rotation + door-offset authoring (D-F3-13)", () => {
-  test("both schemas expose rotation + the four wall offsets, with identity defaults", () => {
-    for (const id of ["hall", "maze"]) {
+  test("both schemas expose rotation + the four wall offsets, with identity defaults and EXACT suprema", () => {
+    // `maximum` is pinned, not just `minimum`/`default`: the deviation from the
+    // plan's shared 30 is licensed ONLY by these being exact suprema over each
+    // generator's admissible geometries (hall: depth max 32 − DOOR_W_CELLS 4;
+    // maze: cells max 8 − 1). Without pinning them, 28→30 and 7→28 both pass.
+    for (const [id, maximum] of [
+      ["hall", 28],
+      ["maze", 7],
+    ] as const) {
       const def = generatorById(id);
       const props = (def.paramSchema as { properties: Record<string, unknown> })
         .properties;
@@ -805,13 +850,103 @@ describe("field generators — rotation + door-offset authoring (D-F3-13)", () =
         default: "0",
       });
       expect(def.defaults["rotation"]).toBe("0");
-      for (const wall of ["North", "South", "East", "West"]) {
-        expect(props[`door${wall}Offset`]).toMatchObject({
+      for (const [, , offsetKey] of DOOR_KEYS) {
+        expect(props[offsetKey]).toMatchObject({
           minimum: -1,
+          maximum,
           default: -1,
         });
-        expect(def.defaults[`door${wall}Offset`]).toBe(-1);
+        expect(def.defaults[offsetKey]).toBe(-1);
       }
+    }
+  });
+
+  test("each schema maximum is ATTAINABLE — the largest legal geometry reaches it, one past throws", () => {
+    // Pins the suprema as exact rather than arbitrary: the bound is reachable
+    // (so it is not too small) and one past it is rejected (so it is not too
+    // large). A bound nobody can reach would satisfy the toMatchObject above.
+    const hall = generatorById("hall");
+    const bigHall = {
+      ...HALL_PARAMS,
+      depth: 32,
+      doorNorth: false,
+      doorEast: true,
+    };
+    const hallRun = evalWith(hall, bigHall, REGION);
+    expect(hallRun({ doorEastOffset: 28 })).not.toThrow(); // depth 32 − 4 = 28
+    expect(hallRun({ doorEastOffset: 29 })).toThrow(/doorEastOffset/);
+
+    const mz = generatorById("maze");
+    const bigMaze = { ...MAZE_PARAMS, cellsX: 8, cellsZ: 2 };
+    const mazeRun = evalWith(mz, bigMaze, REGION_MAZE, 3);
+    expect(mazeRun({ doorNorthOffset: 7 })).not.toThrow(); // cellsX 8 − 1 = 7
+    expect(mazeRun({ doorNorthOffset: 8 })).toThrow(/doorNorthOffset/);
+  });
+
+  test("every param is either REQUIRED or a declared post-F3a optional — no third bucket", () => {
+    // Binds the next contributor: adding a property fails here until it is
+    // consciously placed in one bucket. `required` is DERIVED in the source as
+    // "properties minus the optional list", so this also pins that derivation.
+    for (const id of ["hall", "maze"]) {
+      const schema = generatorById(id).paramSchema as {
+        properties: Record<string, unknown>;
+        required: string[];
+      };
+      expect(schema.required).toBeDefined();
+      expect([...schema.required, ...OPTIONAL_KEYS].sort()).toEqual(
+        Object.keys(schema.properties).sort(),
+      );
+      for (const k of OPTIONAL_KEYS) expect(schema.required).not.toContain(k);
+    }
+  });
+
+  test("`required` is load-bearing: dropping a required key throws, dropping an optional one does not", () => {
+    for (const [id, base, region, seed] of [
+      ["hall", HALL_PARAMS, REGION, 7],
+      ["maze", MAZE_PARAMS, REGION_MAZE, 11],
+    ] as const) {
+      const def = generatorById(id);
+      const schema = def.paramSchema as { required: string[] };
+      const full: Record<string, unknown> = {
+        ...structuredClone(def.defaults),
+        ...base,
+      };
+      const dropping = (key: string): Record<string, unknown> => {
+        const without = { ...full };
+        delete without[key];
+        return without;
+      };
+      expect(schema.required.length).toBeGreaterThan(0); // vacuity floor
+      for (const key of schema.required)
+        expect(() =>
+          def.evaluate(dropping(key), seed, region, TABLE, "replace"),
+        ).toThrow(new RegExp(key));
+      for (const key of OPTIONAL_KEYS)
+        expect(() =>
+          def.evaluate(dropping(key), seed, region, TABLE, "replace"),
+        ).not.toThrow();
+    }
+  });
+
+  test("a DISABLED door's malformed offset is still rejected (no garbage into persisted params)", () => {
+    // GeneratorEntity.params is persisted and reconfigureGenerator re-evaluates
+    // it as a COMPLETE replacement set, so an unvalidated value on a switched-off
+    // door survives round-trips and detonates when the user later toggles that
+    // door on — an error about a value they never touched. Every sibling knob
+    // validates unconditionally; doors are not an exception.
+    for (const [id, base, region] of [
+      ["hall", HALL_PARAMS, REGION],
+      ["maze", MAZE_PARAMS, REGION_MAZE],
+    ] as const) {
+      const run = evalWith(generatorById(id), base, region, 3);
+      expect(run({ doorSouth: false, doorSouthOffset: "banana" })).toThrow(
+        /doorSouthOffset/,
+      );
+      expect(run({ doorWest: false, doorWestOffset: 1.5 })).toThrow(
+        /doorWestOffset/,
+      );
+      // an ENABLED door with a good offset is of course still fine
+      expect(run({ doorSouth: false, doorSouthOffset: 1 })).not.toThrow();
     }
   });
 
@@ -887,6 +1022,41 @@ describe("field generators — rotation + door-offset authoring (D-F3-13)", () =
     expect(doorSpan(ops90, ORIGIN_REGION, "east")).toEqual([5, 8]);
     // … and the north wall of the rotated stamp is now CLOSED
     expect(doorSpan(ops90, ORIGIN_REGION, "north")).toBeNull();
+  });
+
+  test("each rotation carries the north door to the hand-computed wall and span", () => {
+    // The independent anchor for the whole rotation block: every number below
+    // is derived BY HAND from the cell map, and the check reads only door
+    // positions — it never calls rotCell and never restates the implementation's
+    // formulas, so a sign error shared by helper and implementation cannot hide.
+    // Square 10×10 default footprint, north door at offset 0 → cells i ∈ [1,4]
+    // on shell row k = 9:
+    //   90°  (i,k) → (k, 9−i)  ⇒ i' = 9 (EAST),  k' ∈ [5,8]
+    //   180° (i,k) → (9−i, 9−k) ⇒ k' = 0 (SOUTH), i' ∈ [5,8]
+    //   270° (i,k) → (9−k, i)  ⇒ i' = 0 (WEST),  k' ∈ [1,4]
+    const hall = generatorById("hall");
+    const base = { ...HALL_PARAMS, doorNorthOffset: 0 };
+    const expected = [
+      ["0", "north", [1, 4]],
+      ["90", "east", [5, 8]],
+      ["180", "south", [5, 8]],
+      ["270", "west", [1, 4]],
+    ] as const;
+    for (const [rotation, wall, span] of expected) {
+      const ops = hall.evaluate(
+        { ...base, rotation },
+        1,
+        REGION,
+        TABLE,
+        "replace",
+      );
+      expect(doorSpan(ops, ORIGIN_REGION, wall)).toEqual([...span]);
+      // exactly ONE wall carries a door in every rotation
+      const open = (["north", "south", "east", "west"] as const).filter(
+        (w) => doorSpan(ops, ORIGIN_REGION, w) !== null,
+      );
+      expect(open).toEqual([wall]);
+    }
   });
 
   test("all four rotations are full-volume equivalent, for BOTH generators", () => {
@@ -979,21 +1149,14 @@ describe("field generators — rotation + door-offset authoring (D-F3-13)", () =
 
   test("hall door offsets count COARSE CELLS and move the door, cell-exact, on every wall", () => {
     const hall = generatorById("hall");
-    // width 8 / depth 8 → both interiorLens are 8 → legal offsets 0..4
-    for (const [wall, key] of [
-      ["north", "doorNorthOffset"],
-      ["south", "doorSouthOffset"],
-      ["east", "doorEastOffset"],
-      ["west", "doorWestOffset"],
-    ] as const) {
+    // width 8 / depth 8 → both interiorLens are 8 → legal offsets 0..4.
+    // Enable + offset keys are spelled out per row, never re-derived from the
+    // wall name by string surgery — that is the drift the source's WALLS table
+    // exists to prevent, and a test that re-derives them defeats the point.
+    for (const [wall, enable, key] of DOOR_KEYS) {
       for (const offset of [0, 1, 4]) {
         const ops = hall.evaluate(
-          {
-            ...HALL_PARAMS,
-            doorNorth: false,
-            [`door${wall[0]?.toUpperCase()}${wall.slice(1)}`]: true,
-            [key]: offset,
-          },
+          { ...HALL_PARAMS, doorNorth: false, [enable]: true, [key]: offset },
           7,
           REGION,
           TABLE,

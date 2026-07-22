@@ -859,7 +859,15 @@ channel** (uniform|indexed palette encoding behind accessors — `getMaterial` /
   is persisted and `reconfigureGenerator` re-evaluates from the recorded set, so entities
   written before F3a must keep evaluating. `GeneratorDef.defaults` still carries all five
   explicitly; optionality is a backward-compatibility allowance for recorded params, not
-  the normal path. The nine pre-existing hall keys and seven maze keys remain REQUIRED.
+  the normal path. The nine pre-existing hall keys and seven maze keys remain REQUIRED,
+  and each `paramSchema` now carries a JSON-Schema `required` array — DERIVED as "every
+  property that is not one of the five post-F3a optionals", so a newly added param is
+  required by default. **The standing rule for future params:** anything added after
+  entities exist in the wild must be optional with an identity default, or every
+  previously-saved entity becomes un-reconfigurable; anything present since a generator's
+  first release stays required. Door offsets are validated for EVERY wall, including walls
+  whose door is switched off — otherwise a malformed offset on a disabled door would ride
+  along in the persisted params and only throw once the user toggled that door on.
 - **Smart objects — reconfigure (F3a)** — `reconfigureGenerator(store, log, entityId,
   changes, table, snapshots?)` re-evaluates a committed generator IN PLACE: the old span is spliced
   out, a freshly evaluated one takes new ids from `log.nextId`, and the downstream ops

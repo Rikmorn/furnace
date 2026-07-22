@@ -5,9 +5,10 @@ strings: it builds options as `(schema.enum ?? []).map(String)` and commits with
 `onValueChange={(v) => onCommit(values.map(() => v))}`, where `v` is the option STRING.
 Nothing downstream converts it back to the member's original type — `StampInspector`'s
 `apply` is a bare `as Record<string, unknown>` boundary cast straight into the stamp
-session's params, and from there into `evaluate`. Its sibling fields (`NumberField`,
-`VecField`, `QuatField`, `ColorField`) all parse with `Number(...)`; the enum path is the
-only one that does not.
+session's params, and from there into `evaluate`. Every sibling field parses its string
+back to the schema's type before committing — `NumberField`, `VecField` and `QuatField`
+via `Number(...)`, `ColorField` via `parseInt(h.slice(…), 16) / 255` — and the enum path
+is the only one that does not.
 
 Consequence: a schema property declared as `{ enum: [0, 90, 180, 270] }` round-trips out of
 the inspector as the string `"90"`. A generator that validates its enum by identity against

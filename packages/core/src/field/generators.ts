@@ -124,10 +124,19 @@ function gridToOps(
 
 type Wall = "north" | "south" | "east" | "west";
 
-/** The per-wall param spellings — ONE table feeding both schemas' door
- *  properties, the enable lookup and the offset lookup, so the three cannot
- *  drift (the PILLAR_KINDS pattern applied to walls). Iteration order is the
- *  door-carving and door-validation order for BOTH generators. */
+/** A param key BOTH generator schemas declare. Used to PIN the key strings the
+ *  parsers look up ({@link WALLS}, {@link ROTATION_KEY}) to the schemas that
+ *  actually declare them: rename or drop one of those properties on either
+ *  schema and the `satisfies` below stops compiling. It pins existence, not
+ *  role — it cannot tell a door key from a rotation key. */
+type SharedParamKey = keyof typeof HALL_SCHEMA.properties &
+  keyof typeof MAZE_SCHEMA.properties;
+
+/** The per-wall param spellings — ONE table feeding the enable lookup, the
+ *  offset lookup, and the carve/validate order for BOTH generators (so the two
+ *  report door errors in the same order). Each schema still writes its own
+ *  eight door properties as literals; `SharedParamKey` is what keeps those
+ *  literals and these in step. */
 const WALLS = [
   { wall: "north", enable: "doorNorth", offsetKey: "doorNorthOffset" },
   { wall: "south", enable: "doorSouth", offsetKey: "doorSouthOffset" },
@@ -135,9 +144,14 @@ const WALLS = [
   { wall: "west", enable: "doorWest", offsetKey: "doorWestOffset" },
 ] as const satisfies readonly {
   wall: Wall;
-  enable: string;
-  offsetKey: string;
+  enable: SharedParamKey;
+  offsetKey: SharedParamKey;
 }[];
+
+/** Whether a wall runs along X (north/south) rather than Z (east/west) — the
+ *  axis the door carve, the lane check and the offset bound all switch on.
+ *  ONE spelling of a predicate that was open-coded at four call sites. */
+const runsAlongX = (w: Wall): boolean => w === "north" || w === "south";
 
 /** One enabled doorway: its wall, the param key its offset came from (for
  *  error messages) and the resolved lateral offset — `undefined` = auto-centre.
@@ -148,6 +162,32 @@ type DoorSpec = { wall: Wall; offsetKey: string; offset: number | undefined };
 /** The `-1` sentinel: both the schema default and the value a form user picks
  *  to mean "auto-centre this door". */
 const AUTO_CENTRE = -1;
+
+/** The rotation param key, pinned to both schemas the same way {@link WALLS}
+ *  pins the door keys. */
+const ROTATION_KEY = "rotation" satisfies SharedParamKey;
+
+/** The params that POSTDATE persisted data and are therefore optional on input.
+ *
+ *  THE RULE, for every future param addition: `GeneratorEntity.params` is
+ *  persisted, and `reconfigureGenerator` re-evaluates from the recorded set as a
+ *  COMPLETE replacement. So a param added after entities exist in the wild MUST
+ *  be optional with an identity default, or every previously-saved entity
+ *  becomes un-reconfigurable. A param present since a generator's first release
+ *  stays REQUIRED — missing it is a caller bug, not old data.
+ *
+ *  This list is the machine-readable half of that rule: each schema's `required`
+ *  is DERIVED as "every property not named here", so a newly added property is
+ *  required by default and making it optional is a conscious edit here. */
+const OPTIONAL_PARAM_KEYS: readonly string[] = [
+  ROTATION_KEY,
+  ...WALLS.map((w) => w.offsetKey),
+];
+
+/** A schema's `required` list: every property except the post-hoc optional ones
+ *  ({@link OPTIONAL_PARAM_KEYS}). Derived, never restated. */
+const requiredKeys = (props: Record<string, unknown>): string[] =>
+  Object.keys(props).filter((k) => !OPTIONAL_PARAM_KEYS.includes(k));
 
 /** The quarter-turn rotations, as STRINGS — ONE spelling feeding the schema
  *  enum, the narrowed type and the runtime check, so the three cannot drift.
@@ -239,7 +279,7 @@ function openDoor(
   offset?: number,
 ): void {
   const [nx, , nz] = grid.dims;
-  const alongX = wall === "north" || wall === "south";
+  const alongX = runsAlongX(wall);
   const interiorLen = (alongX ? nx : nz) - 2;
   const centred = Math.floor((interiorLen - DOOR_W_CELLS) / 2);
   const lo =
@@ -350,7 +390,7 @@ function boolParam(
  *    {@link ROTATIONS} strings — including the NUMBER `90`, which is not a
  *    member (see the ROTATIONS TSDoc for why the enum is spelled in strings). */
 function rotParam(label: string, params: Record<string, unknown>): QuarterTurn {
-  const v = params["rotation"];
+  const v = params[ROTATION_KEY];
   if (v === undefined) return 0;
   if (!isRotation(v))
     throw new Error(
@@ -384,20 +424,30 @@ function doorOffsetParam(
 }
 
 /** The enabled doorways with their resolved offsets, in {@link WALLS} order —
- *  the ONE door-authoring convention both generators parse through. */
+ *  the ONE door-authoring convention both generators parse through.
+ *
+ *  EVERY wall's offset is parsed, including walls whose door is switched off,
+ *  and only the enabled ones are returned. Validating just the enabled walls
+ *  would let a malformed offset on a disabled door slip through into the
+ *  persisted `GeneratorEntity.params` (which `reconfigureGenerator` re-evaluates
+ *  as a COMPLETE replacement set), and detonate later when the user toggles that
+ *  door on — an error about a value they never touched. Every other knob in this
+ *  module validates unconditionally; doors are not an exception.
+ *
+ *  @throws {@link Error} if any wall's enable flag is not a boolean, or any
+ *    wall's offset is present but not an integer in `offsetRange` — whether or
+ *    not that wall's door is enabled. */
 function doorsParam(
   label: string,
   params: Record<string, unknown>,
   offsetRange: { minimum: number; maximum: number },
 ): DoorSpec[] {
   const doors: DoorSpec[] = [];
-  for (const w of WALLS)
+  for (const w of WALLS) {
+    const offset = doorOffsetParam(label, params, w.offsetKey, offsetRange);
     if (boolParam(label, params, w.enable))
-      doors.push({
-        wall: w.wall,
-        offsetKey: w.offsetKey,
-        offset: doorOffsetParam(label, params, w.offsetKey, offsetRange),
-      });
+      doors.push({ wall: w.wall, offsetKey: w.offsetKey, offset });
+  }
   return doors;
 }
 
@@ -447,8 +497,10 @@ type PillarKind = (typeof PILLAR_KINDS)[number];
 const isPillarKind = (v: unknown): v is PillarKind =>
   PILLAR_KINDS.some((k) => k === v);
 
-/** The hall's narrowed, range-validated params. `doors` is the resolved wall
- *  list from the four per-wall booleans. */
+/** The hall's narrowed, range-validated params. `doors` holds one
+ *  {@link DoorSpec} per ENABLED wall — wall, offset param key, and resolved
+ *  lateral offset in coarse cells (`undefined` = auto-centre) — in
+ *  {@link WALLS} order. `rotation` is the stamp's quarter turn about +Y. */
 type HallParams = {
   width: number;
   height: number;
@@ -470,24 +522,27 @@ const HALL_OFFSET_RANGE = {
   default: AUTO_CENTRE,
 } as const;
 
+const HALL_PROPERTIES = {
+  width: { type: "number", minimum: 4, maximum: 24, default: 8 },
+  height: { type: "number", minimum: 6, maximum: 12, default: 6 },
+  depth: { type: "number", minimum: 4, maximum: 32, default: 8 },
+  pillars: { enum: PILLAR_KINDS, default: "none" },
+  pillarSpacing: { type: "number", minimum: 2, maximum: 8, default: 3 },
+  rotation: { enum: ROTATIONS, default: "0" },
+  doorNorth: { type: "boolean", default: true },
+  doorSouth: { type: "boolean", default: false },
+  doorEast: { type: "boolean", default: false },
+  doorWest: { type: "boolean", default: false },
+  doorNorthOffset: HALL_OFFSET_RANGE,
+  doorSouthOffset: HALL_OFFSET_RANGE,
+  doorEastOffset: HALL_OFFSET_RANGE,
+  doorWestOffset: HALL_OFFSET_RANGE,
+} as const;
+
 const HALL_SCHEMA = {
   type: "object",
-  properties: {
-    width: { type: "number", minimum: 4, maximum: 24, default: 8 },
-    height: { type: "number", minimum: 6, maximum: 12, default: 6 },
-    depth: { type: "number", minimum: 4, maximum: 32, default: 8 },
-    pillars: { enum: PILLAR_KINDS, default: "none" },
-    pillarSpacing: { type: "number", minimum: 2, maximum: 8, default: 3 },
-    rotation: { enum: ROTATIONS, default: "0" },
-    doorNorth: { type: "boolean", default: true },
-    doorSouth: { type: "boolean", default: false },
-    doorEast: { type: "boolean", default: false },
-    doorWest: { type: "boolean", default: false },
-    doorNorthOffset: HALL_OFFSET_RANGE,
-    doorSouthOffset: HALL_OFFSET_RANGE,
-    doorEastOffset: HALL_OFFSET_RANGE,
-    doorWestOffset: HALL_OFFSET_RANGE,
-  },
+  properties: HALL_PROPERTIES,
+  required: requiredKeys(HALL_PROPERTIES),
 } as const;
 
 /** The schema's per-property defaults, DERIVED (never restated) — the one
@@ -512,11 +567,11 @@ function hallParams(params: Record<string, unknown>): HallParams {
   const doors = doorsParam("hall", params, HALL_OFFSET_RANGE);
   // A hall offset counts COARSE CELLS along its wall, so the wall's interior
   // length bounds it: north/south run along width, east/west along depth.
-  for (const d of doors) {
-    const alongX = d.wall === "north" || d.wall === "south";
+  for (const door of doors) {
+    const alongX = runsAlongX(door.wall);
     assertDoorOffsetFits(
       "hall",
-      d,
+      door,
       (alongX ? width : depth) - DOOR_W_CELLS,
       "coarse cells",
     );
@@ -586,7 +641,7 @@ const hallGenerator: GeneratorDef = {
       for (let j = 1; j <= p.height; j++)
         for (let i = 1; i <= p.width; i++) gridSet(grid, i, j, k, AIR);
     stampPillars(grid, p);
-    for (const d of p.doors) openDoor(grid, d.wall, "hall", d.offset);
+    for (const door of p.doors) openDoor(grid, door.wall, "hall", door.offset);
     // Rotation LAST: doors are carved and lane-validated in the unrotated
     // frame, and rotateGrid is a bijection on cells, so a blocked lane can
     // never be laundered into a passing one by rotating.
@@ -772,22 +827,25 @@ const MAZE_OFFSET_RANGE = {
   default: AUTO_CENTRE,
 } as const;
 
+const MAZE_PROPERTIES = {
+  cellsX: { type: "number", minimum: 2, maximum: 8, default: 3 },
+  cellsZ: { type: "number", minimum: 2, maximum: 8, default: 3 },
+  braid: { type: "number", minimum: 0, maximum: 1, default: 0.25 },
+  rotation: { enum: ROTATIONS, default: "0" },
+  doorNorth: { type: "boolean", default: true },
+  doorSouth: { type: "boolean", default: false },
+  doorEast: { type: "boolean", default: false },
+  doorWest: { type: "boolean", default: false },
+  doorNorthOffset: MAZE_OFFSET_RANGE,
+  doorSouthOffset: MAZE_OFFSET_RANGE,
+  doorEastOffset: MAZE_OFFSET_RANGE,
+  doorWestOffset: MAZE_OFFSET_RANGE,
+} as const;
+
 const MAZE_SCHEMA = {
   type: "object",
-  properties: {
-    cellsX: { type: "number", minimum: 2, maximum: 8, default: 3 },
-    cellsZ: { type: "number", minimum: 2, maximum: 8, default: 3 },
-    braid: { type: "number", minimum: 0, maximum: 1, default: 0.25 },
-    rotation: { enum: ROTATIONS, default: "0" },
-    doorNorth: { type: "boolean", default: true },
-    doorSouth: { type: "boolean", default: false },
-    doorEast: { type: "boolean", default: false },
-    doorWest: { type: "boolean", default: false },
-    doorNorthOffset: MAZE_OFFSET_RANGE,
-    doorSouthOffset: MAZE_OFFSET_RANGE,
-    doorEastOffset: MAZE_OFFSET_RANGE,
-    doorWestOffset: MAZE_OFFSET_RANGE,
-  },
+  properties: MAZE_PROPERTIES,
+  required: requiredKeys(MAZE_PROPERTIES),
 } as const;
 
 /** The schema's per-property defaults, DERIVED (never restated) — the
@@ -796,8 +854,10 @@ const MAZE_DEFAULTS: Record<string, unknown> = Object.fromEntries(
   Object.entries(MAZE_SCHEMA.properties).map(([k, p]) => [k, p.default]),
 );
 
-/** The maze's narrowed, range-validated params. `doors` is the resolved wall
- *  list from the four per-wall booleans. */
+/** The maze's narrowed, range-validated params. `doors` holds one
+ *  {@link DoorSpec} per ENABLED wall — wall, offset param key, and resolved
+ *  lateral offset in MAZE CELLS (`undefined` = auto-centre) — in
+ *  {@link WALLS} order. `rotation` is the stamp's quarter turn about +Y. */
 type MazeParams = {
   cellsX: number;
   cellsZ: number;
@@ -816,10 +876,9 @@ function mazeParams(params: Record<string, unknown>): MazeParams {
   const doors = doorsParam("maze", params, MAZE_OFFSET_RANGE);
   // A maze offset counts MAZE CELLS, so the wall's cell count bounds it:
   // north/south run along cellsX, east/west along cellsZ.
-  for (const d of doors) {
-    const alongCells =
-      d.wall === "north" || d.wall === "south" ? cellsX : cellsZ;
-    assertDoorOffsetFits("maze", d, alongCells - 1, "maze cells");
+  for (const door of doors) {
+    const alongCells = runsAlongX(door.wall) ? cellsX : cellsZ;
+    assertDoorOffsetFits("maze", door, alongCells - 1, "maze cells");
   }
   return {
     cellsX,
@@ -898,16 +957,15 @@ const mazeGenerator: GeneratorDef = {
         );
       }
     }
-    for (const d of p.doors) {
-      const alongCells =
-        d.wall === "north" || d.wall === "south" ? p.cellsX : p.cellsZ;
+    for (const door of p.doors) {
+      const alongCells = runsAlongX(door.wall) ? p.cellsX : p.cellsZ;
       // The offset is in MAZE CELLS; PITCH maps it to the coarse cell openDoor
       // wants, which is what guarantees a door always lands on a passage
       // column and never on an internal wall band. Auto-centre is the maze's
       // OWN centring (maze cell floor(cells/2)), not openDoor's coarse
       // centring — the two differ, and this is the donor's rule.
-      const cell = d.offset ?? Math.floor(alongCells / 2);
-      openDoor(grid, d.wall, "maze", PITCH * cell);
+      const cell = door.offset ?? Math.floor(alongCells / 2);
+      openDoor(grid, door.wall, "maze", PITCH * cell);
     }
     // Rotation LAST — see the hall's note and the rotateGrid TSDoc.
     const finalGrid = rotateGrid(grid, p.rotation);
