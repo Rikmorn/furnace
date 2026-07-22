@@ -87,6 +87,20 @@ const HALL_GEN: FieldGeneratorInfo = {
 	defaults: { width: 4 },
 };
 
+function makeStats(overrides: Partial<FieldStats> = {}): FieldStats {
+	return {
+		chunks: 0,
+		lastRemeshMs: 0,
+		remeshVersion: 0,
+		totalOps: 0,
+		liveGenerators: 0,
+		compactableOps: 0,
+		undoDepth: 0,
+		lastReconfigureMs: 0,
+		...overrides,
+	};
+}
+
 function makeSession(overrides: Partial<StampSession> = {}): StampSession {
 	return {
 		generator: "hall",
@@ -163,6 +177,8 @@ function makeStubHost(opts: { generators?: FieldGeneratorInfo[] } = {}) {
 		applyReconfigure: mock(),
 		setEntityFrozen: mock(),
 		bakeEntity: mock(),
+		dismissDrift: mock(),
+		frameChunks: mock(),
 	};
 	const host: FieldHost = {
 		init: () => Promise.resolve(),
@@ -223,6 +239,8 @@ function makeStubHost(opts: { generators?: FieldGeneratorInfo[] } = {}) {
 			// biome-ignore lint/suspicious/noEmptyBlockStatements: inert unsubscribe no-op
 			return () => {};
 		},
+		dismissDrift: calls.dismissDrift,
+		frameChunks: calls.frameChunks,
 		subscribeEntities: (cb) => {
 			cbs.entities = cb;
 			cb(); // the real host's initial catch-up tick
@@ -402,9 +420,84 @@ test("an undone commit disappears on the entity tick — no session change, no r
 	// stats push carrying a fresh counter reads no entities back.
 	stub.setEntities([ENTITY]);
 	act(() => {
-		stub.fire.stats({ chunks: 4, lastRemeshMs: 1, remeshVersion: 9 });
+		stub.fire.stats(
+			makeStats({ chunks: 4, lastRemeshMs: 1, remeshVersion: 9 }),
+		);
 	});
 	expect(screen.getByText("Entities (0)")).toBeTruthy();
+});
+
+// --- (j) op-cost meter + drift report (Task 9) ------------------------------
+
+test("the footer meter renders the logStats op-cost fields the host pushes", async () => {
+	fetch404();
+	const stub = makeStubHost();
+	await renderPanel(stub);
+	act(() => {
+		stub.fire.stats(
+			makeStats({
+				chunks: 4,
+				lastRemeshMs: 1,
+				totalOps: 128,
+				liveGenerators: 3,
+				compactableOps: 40,
+				undoDepth: 5,
+				lastReconfigureMs: 12,
+			}),
+		);
+	});
+	// One span, many interpolated text nodes — assert against its textContent so
+	// the split nodes don't defeat a whole-string matcher.
+	const meter = screen.getByText(/chunks · remesh/);
+	expect(meter.textContent).toContain("ops 128");
+	expect(meter.textContent).toContain("live gens 3");
+	expect(meter.textContent).toContain("compactable 40");
+	expect(meter.textContent).toContain("undo 5");
+	expect(meter.textContent).toContain("last reconfigure 12 ms");
+});
+
+test("last reconfigure reads — until a reconfigure lands (0 is not 0 ms)", async () => {
+	fetch404();
+	const stub = makeStubHost();
+	await renderPanel(stub);
+	act(() => {
+		stub.fire.stats(makeStats({ lastReconfigureMs: 0 }));
+	});
+	const meter = screen.getByText(/chunks · remesh/);
+	expect(meter.textContent).toContain("last reconfigure —");
+	expect(meter.textContent).not.toContain("0 ms");
+});
+
+const FINDINGS: DriftFinding[] = [
+	{ opId: 12, kind: "drifted", chunks: ["0,0,0", "1,0,0"] },
+	{ opId: 15, kind: "orphaned", chunks: ["2,0,0"] },
+];
+
+test("the drift report renders findings, frames a click, and dismisses through the host", async () => {
+	fetch404();
+	const stub = makeStubHost();
+	await renderPanel(stub);
+	// Non-modal: nothing renders on a clean apply (the subscribe push is null).
+	expect(screen.queryByText(/drifted|orphaned/)).toBeNull();
+
+	act(() => {
+		stub.fire.drift(FINDINGS);
+	});
+	expect(screen.getByText("op 12 drifted")).toBeTruthy();
+	expect(screen.getByText("op 15 orphaned")).toBeTruthy();
+
+	// A row click frames that finding's chunk bounds.
+	fireEvent.click(screen.getByLabelText("frame op 12 (drifted)"));
+	expect(stub.calls.frameChunks.mock.calls).toEqual([[["0,0,0", "1,0,0"]]]);
+
+	// Dismiss clears through the host (the report is host state)…
+	fireEvent.click(screen.getByLabelText("dismiss drift report"));
+	expect(stub.calls.dismissDrift).toHaveBeenCalledTimes(1);
+	// …and the host's null echo removes the list.
+	act(() => {
+		stub.fire.drift(null);
+	});
+	expect(screen.queryByText("op 12 drifted")).toBeNull();
 });
 
 // --- (d2) F3a: the smart-object verbs on a committed row --------------------

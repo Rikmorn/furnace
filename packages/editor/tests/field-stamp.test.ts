@@ -460,10 +460,11 @@ test("listEntities returns CLONED entity ops from a loaded oplog, brush ops filt
 // installs a fake Worker global over the REAL protocol handler (the same
 // handler the fake-client round above drives), which answers synchronously.
 
-import type { FieldOp } from "@furnace/core/field";
+import type { BrushOp, DriftFinding, FieldOp } from "@furnace/core/field";
 import {
   encodeChunkFile,
   encodeMaterialFile,
+  logApply,
   serializeOps,
 } from "@furnace/core/field";
 import type { FieldWorkerRequest } from "../src/frontend/lib/field-protocol.ts";
@@ -878,6 +879,84 @@ test("a throwing drift subscriber cannot make a landed apply report as failed", 
     // …and the session teardown reached the panel BEFORE drift did, so the
     // chrome is never left showing a card for a session that already applied.
     expect(sessions.at(-1)).toBeNull();
+  } finally {
+    uninstall();
+  }
+});
+
+// The drift REPORT itself (Task 9's meter/list feed), driven through the host:
+// the core reconfigure suite's proven recipe (a downstream dig straddling the
+// hall's depth-8 north shell → depth 12 turns that band into interior air, so
+// the dig replays onto changed context and is reported drifted) reaches the
+// panel through subscribeDrift. An 8-deep region gives the depth-12 hall room.
+const DRIFT_REGION = {
+  min: [0, 0, 0] as [number, number, number],
+  max: [8, 8, 8] as [number, number, number],
+};
+const DRIFT_DIG: BrushOp = {
+  id: 0, // logApply assigns the real id
+  kind: "brush",
+  effect: "dig",
+  shape: { kind: "sphere", center: [2, 2, 4.6], radius: 0.8 },
+};
+const lastOpId = (ops: FieldOp[]): number => {
+  const id = ops.at(-1)?.id;
+  if (id === undefined) throw new Error("test: the log is empty");
+  return id;
+};
+
+test("a drift-producing reconfigure pushes non-empty findings to subscribeDrift", async () => {
+  const uninstall = installFakeWorker();
+  try {
+    const host = createFieldHost();
+    // Build the committed hall + the overlapping downstream dig with core, then
+    // hand the whole log to the host through loadWorld (the headless route to a
+    // committed entity with real downstream history).
+    const store = createFieldStore();
+    const log = createOpLog();
+    const params = hallParams();
+    const { entity } = commitGenerator(store, log, generatorById("hall"), {
+      params,
+      seed: 7,
+      region: DRIFT_REGION,
+      policy: "replace",
+      table: TABLE,
+    });
+    logApply(store, log, DRIFT_DIG, TABLE);
+    const digId = lastOpId(log.ops);
+    host.setMaterialTable(TABLE);
+    host.loadWorld({
+      manifest: MANIFEST,
+      chunks: [...store.chunks].map(([key, density]) => ({
+        key,
+        bytes: encodeChunkFile(density),
+      })),
+      materials: [...store.materials].map(([key, m]) => ({
+        key,
+        bytes: encodeMaterialFile(m),
+      })),
+      oplog: serializeOps(log.ops),
+    });
+
+    const reports: (DriftFinding[] | null)[] = [];
+    host.subscribeDrift((r) => reports.push(r));
+    // The subscribe push is null — no reconfigure has run yet.
+    expect(reports).toEqual([null]);
+
+    host.openEntity(entity.entityId);
+    await settle();
+    host.updateStamp({ ...params, depth: 12 }, 7, "replace");
+    await settle();
+    host.applyReconfigure();
+
+    const report = reports.at(-1);
+    expect(report).not.toBeNull();
+    expect(report?.length).toBeGreaterThan(0);
+    // The dig is drifted, and its finding carries the chunk-quantized location
+    // the click-to-frame seam needs.
+    const dig = report?.find((d) => d.opId === digId);
+    expect(dig?.kind).toBe("drifted");
+    expect(dig?.chunks.length).toBeGreaterThan(0);
   } finally {
     uninstall();
   }

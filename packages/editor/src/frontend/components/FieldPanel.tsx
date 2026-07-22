@@ -12,7 +12,11 @@
 // /engine.js runtime channel (a context ref) — the chrome never value-imports
 // engine code (the project-first invariant). This file type-imports the field
 // host + artifact types (all erased).
-import type { GeneratorEntity, MaterialTable } from "@furnace/core/field"; // type-only: erased
+import type {
+	DriftFinding,
+	GeneratorEntity,
+	MaterialTable,
+} from "@furnace/core/field"; // type-only: erased
 import { useCallback, useEffect, useRef, useState } from "react";
 import type {
 	FieldGeneratorInfo,
@@ -28,6 +32,7 @@ import type {
 import { initWhenSized } from "../lib/init-when-sized.ts";
 import { useEditor } from "./editor-context.ts";
 import { BrushInspector } from "./field/BrushInspector.tsx";
+import { DriftReport } from "./field/DriftReport.tsx";
 import { EntitiesList } from "./field/EntitiesList.tsx";
 import { FieldToolbar } from "./field/FieldToolbar.tsx";
 import { LayersRow } from "./field/LayersRow.tsx";
@@ -130,6 +135,36 @@ const sameEntities = (a: GeneratorEntity[], b: GeneratorEntity[]): boolean =>
 		);
 	});
 
+// Value-equality for the subscribeStats push guard (the host fires it every rAF;
+// an idle field must not re-render the panel 60×/s). The destructure is the
+// toolsEqual backstop: a future FieldStats field lands in `rest`, fails the
+// never-check and forces this comparator to learn it — a missed field would
+// silently WEAKEN the guard (a changed value comparing equal → a stale meter).
+const statsEqual = (a: FieldStats, b: FieldStats): boolean => {
+	const {
+		chunks,
+		lastRemeshMs,
+		remeshVersion,
+		totalOps,
+		liveGenerators,
+		compactableOps,
+		undoDepth,
+		lastReconfigureMs,
+		...rest
+	} = a;
+	void (rest satisfies Record<string, never>);
+	return (
+		chunks === b.chunks &&
+		lastRemeshMs === b.lastRemeshMs &&
+		remeshVersion === b.remeshVersion &&
+		totalOps === b.totalOps &&
+		liveGenerators === b.liveGenerators &&
+		compactableOps === b.compactableOps &&
+		undoDepth === b.undoDepth &&
+		lastReconfigureMs === b.lastReconfigureMs
+	);
+};
+
 export function FieldPanel() {
 	const { state, fieldHostRef, openConfirm } = useEditor();
 	const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -157,7 +192,15 @@ export function FieldPanel() {
 		chunks: 0,
 		lastRemeshMs: 0,
 		remeshVersion: 0,
+		totalOps: 0,
+		liveGenerators: 0,
+		compactableOps: 0,
+		undoDepth: 0,
+		lastReconfigureMs: 0,
 	});
+	// The last reconfigure's drift report (null = clean / none). Non-modal: it
+	// renders (via DriftReport) only while findings exist.
+	const [drift, setDrift] = useState<DriftFinding[] | null>(null);
 	const [status, setStatus] = useState("dig into the rock, then Save");
 
 	// Run-once init (the Viewport idiom): grab the canvas once the engine is ready and the
@@ -271,21 +314,27 @@ export function FieldPanel() {
 		return host.subscribeToolError(setStatus);
 	}, [state.status, fieldHostRef]);
 
-	// Live chunk / remesh-time readout. The host fires this every rAF; the functional guard
-	// returns the SAME reference when nothing changed, so an idle field (no dig in flight)
-	// does not re-render the panel 60×/second.
+	// Live chunk / remesh-time / op-cost readout. The host fires this every rAF; the
+	// functional guard returns the SAME reference when nothing changed, so an idle field
+	// (no dig in flight) does not re-render the panel 60×/second. The op-cost fields the
+	// host adds are gated host-side to only move when the log does, so an idle field keeps
+	// comparing equal here too.
 	useEffect(() => {
 		const host = fieldHostRef.current;
 		if (!host || state.status !== "ready") return;
 		return host.subscribeStats((s) =>
-			setStats((prev) =>
-				prev.chunks === s.chunks &&
-				prev.lastRemeshMs === s.lastRemeshMs &&
-				prev.remeshVersion === s.remeshVersion
-					? prev
-					: s,
-			),
+			setStats((prev) => (statsEqual(prev, s) ? prev : s)),
 		);
+	}, [state.status, fieldHostRef]);
+
+	// The reconfigure drift report. subscribeDrift pushes clones + the current
+	// report on subscribe (a panel remount after an apply keeps its findings);
+	// dismiss/reset/load push null through the same seam, so setDrift is the
+	// whole mirror.
+	useEffect(() => {
+		const host = fieldHostRef.current;
+		if (!host || state.status !== "ready") return;
+		return host.subscribeDrift(setDrift);
 	}, [state.status, fieldHostRef]);
 
 	// Panel radius → host, DELIBERATELY one-way: the host's wheel and [ / ]
@@ -476,6 +525,14 @@ export function FieldPanel() {
 						onBake={requestBake}
 					/>
 				</div>
+				{/* The reconfigure drift report — renders (DriftReport → null when
+            empty) only while findings exist, beside the entities it describes.
+            Owns its own border, so no empty section shows on a clean apply. */}
+				<DriftReport
+					findings={drift ?? []}
+					onFrame={(f) => fieldHostRef.current?.frameChunks(f.chunks)}
+					onDismiss={() => fieldHostRef.current?.dismissDrift()}
+				/>
 			</div>
 			{/* The FieldHost renders into this canvas. tabIndex makes it focusable so the WASD/QE
           fly + ⌘Z undo keydowns the host attaches actually reach it (Task 9 review flagged
@@ -501,8 +558,17 @@ export function FieldPanel() {
 				/>
 			</div>
 			<div className="flex items-center justify-between gap-2 border-t border-border px-2 py-1 text-xs text-muted-foreground">
+				{/* The op-cost meter (spec D-F3-16): render stats (chunks · remesh) +
+            log stats (ops · live gens · compactable · undo · last reconfigure).
+            `last reconfigure` shows "—" until one lands, so a 0 never reads as
+            an instantaneous reconfigure that never happened. */}
 				<span className="tabular-nums">
-					{stats.chunks} chunks · remesh {stats.lastRemeshMs.toFixed(1)}ms
+					{stats.chunks} chunks · remesh {stats.lastRemeshMs.toFixed(1)}ms · ops{" "}
+					{stats.totalOps} · live gens {stats.liveGenerators} · compactable{" "}
+					{stats.compactableOps} · undo {stats.undoDepth} · last reconfigure{" "}
+					{stats.lastReconfigureMs > 0
+						? `${stats.lastReconfigureMs.toFixed(0)} ms`
+						: "—"}
 				</span>
 				<span className="flex items-center gap-1.5">
 					{selection && (

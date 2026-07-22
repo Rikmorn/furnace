@@ -134,6 +134,22 @@ export type FieldStats = {
   chunks: number;
   lastRemeshMs: number;
   remeshVersion: number;
+  /** Op-cost meter fields (spec D-F3-16), lifted from core's
+   *  {@link field.logStats}: `totalOps` = the whole log's length;
+   *  `liveGenerators` = entities whose recipe is intact; `compactableOps` = what
+   *  the NEXT world-load compaction would fold (the ceiling — nothing pinned,
+   *  matching the load-time call's empty `keepIds`); `undoDepth` = the history
+   *  that compaction requires empty. Recomputed only when the log changed (an
+   *  O(ops) scan is not a per-frame cost) — see the tick's log-signature gate. */
+  totalOps: number;
+  liveGenerators: number;
+  compactableOps: number;
+  undoDepth: number;
+  /** Wall-clock of the last LANDED {@link FieldHost.applyReconfigure}, ms
+   *  (0 = none has run this session; a reconfigure core REJECTED does not update
+   *  it). The reconfigure stall grows with the LOG, so this is the meter's
+   *  honest read on how heavy the recipe has become. */
+  lastReconfigureMs: number;
 };
 
 /** Per-layer render visibility (all default true). `field` = the per-class
@@ -401,12 +417,27 @@ export type FieldHost = {
    *  the standing report still describes the log as it is, and clearing it
    *  would destroy findings on behalf of an edit that never happened.
    *  Reports are CLONED and the CURRENT one is pushed immediately on subscribe
-   *  (the {@link subscribeStamp} remount rationale); dismissal is the UI's own
-   *  state (the host holds the last report until the next apply). NOT cleared
-   *  by ⌘Z: undoing a reconfigure leaves its findings standing, still addressed
-   *  by op id and chunk, describing an edit that is no longer applied. Single
-   *  subscriber (the panel); returns an unsubscribe. */
+   *  (the {@link subscribeStamp} remount rationale). Dismissal is a HOST verb
+   *  ({@link dismissDrift}) that nulls the report and notifies, not the UI's own
+   *  state — so a panel remount after a dismiss re-subscribes to null rather
+   *  than resurrecting a cleared report. NOT cleared by ⌘Z: undoing a
+   *  reconfigure leaves its findings standing, still addressed by op id and
+   *  chunk, describing an edit that is no longer applied. Single subscriber (the
+   *  panel); returns an unsubscribe. */
   subscribeDrift(cb: (report: field.DriftFinding[] | null) => void): () => void;
+  /** Clears the standing drift report: nulls it and notifies
+   *  {@link subscribeDrift}. The verb behind the report's Dismiss button —
+   *  the report is host state, so this is how the UI discards it. Idempotent:
+   *  dismissing an already-null report re-pushes null and is otherwise inert. */
+  dismissDrift(): void;
+  /** Re-points the fly camera at a set of chunks — moves the orbit pivot (and
+   *  with it the eye, offset from the pivot by the unchanged distance/yaw/pitch)
+   *  to the centre of the chunks' world-space AABB, then re-renders next frame.
+   *  The drift report's click-to-frame seam: the caller passes a finding's
+   *  `chunks`. Empty set is a no-op; a re-centre, not a cinematic fit (angle and
+   *  distance are kept). No-op on the camera before init (no `cam` yet), but it
+   *  still moves the stored orbit target so the first frame lands framed. */
+  frameChunks(chunks: readonly field.ChunkKey[]): void;
   /** Subscribes to "the entity list may have changed" — a bare TICK, not a
    *  value: the subscriber re-reads {@link listEntities} itself (the records are
    *  clones; pushing them would clone on every fire whether or not anything
@@ -529,6 +560,12 @@ const ENTITY_HIGHLIGHT_COLOR: [number, number, number, number] = [
 ];
 // Box-select anchor cross: half-length of each of the three axis strokes (m).
 const ANCHOR_CROSS_HALF_M = 0.25;
+
+// Load-time compaction fires only when the loaded log carries MORE than this
+// many foldable ops (spec D-F3-16). Named, not inlined: the meter's
+// `compactable N` reads against the SAME logStats ceiling, so a user watches
+// the number climb toward the point where the next load will fold it.
+const COMPACT_THRESHOLD_OPS = 200;
 
 // Default tool: dig/rock, unmasked, SMOOTH_DEFAULTS-equivalent literal (a
 // fresh object per call — never an alias of core's shared SMOOTH_DEFAULTS).
@@ -717,6 +754,22 @@ export function createFieldHost(): FieldHost {
   // trigger that Safari's ~1 ms performance.now() clamp can't alias.
   let remeshVersion = 0;
   let statsCb: ((s: FieldStats) => void) | null = null;
+  // Last LANDED applyReconfigure wall-clock (ms); 0 until the first one lands.
+  let lastReconfigureMs = 0;
+  // logStats cache: recomputing it every rAF is an O(ops) scan that allocates
+  // per frame, but the readout only moves when the LOG does. The signature is
+  // the three lengths logStats reads structurally (ops + both undo stacks) —
+  // every log mutation (a stroke, a commit/reconfigure, freeze/bake, ⌘Z/⇧⌘Z, a
+  // load-time compaction) moves at least one of them, so a matched signature
+  // proves the numbers are unchanged. The one gap it tolerates — several
+  // mutations within ONE frame that net all three lengths back (undo, then a
+  // fresh op) — is unreachable from single-event-per-frame input and self-heals
+  // on the next mutation; a hint meter can carry that. Trackers start at -1 to
+  // force the first read to compute.
+  let cachedLogStats: field.LogStats = field.logStats(log);
+  let statsOpsLen = -1;
+  let statsUndoLen = -1;
+  let statsRedoLen = -1;
   let raf = 0;
   let lastFrameT = 0;
   let disposed = false;
@@ -1924,6 +1977,11 @@ export function createFieldHost(): FieldHost {
     // an ordinary React failure mode, not a hypothetical. Same shape as
     // commitStampSession's try, deliberately.
     let result: ReturnType<typeof field.reconfigureGenerator>;
+    // Bracket JUST the core call for the op-cost meter's `last reconfigure` —
+    // the same narrowing the try keeps (start read before, duration read after,
+    // neither inside the try). A rejected apply returns before the read, so it
+    // never overwrites the last landed duration.
+    const reconfigureStart = performance.now();
     try {
       result = field.reconfigureGenerator(
         store,
@@ -1945,6 +2003,7 @@ export function createFieldHost(): FieldHost {
       reportToolError(`reconfigure failed: ${message}`);
       return;
     }
+    lastReconfigureMs = performance.now() - reconfigureStart;
     markDirtyWithNeighbors(result.dirty);
     // The region is an editable field of this session (the nudge cluster), so
     // the highlight box this entity may be wearing can be stale as of now.
@@ -2210,6 +2269,23 @@ export function createFieldHost(): FieldHost {
     if (ghost) renderGhostLines(c, view, ghost);
   };
 
+  // logStats, recomputed only when the log signature moved (see the cache
+  // decls) — called once per tick to feed the op-cost meter without a per-frame
+  // full-log scan.
+  const currentLogStats = (): field.LogStats => {
+    if (
+      log.ops.length !== statsOpsLen ||
+      log.undoStack.length !== statsUndoLen ||
+      log.redoStack.length !== statsRedoLen
+    ) {
+      cachedLogStats = field.logStats(log);
+      statsOpsLen = log.ops.length;
+      statsUndoLen = log.undoStack.length;
+      statsRedoLen = log.redoStack.length;
+    }
+    return cachedLogStats;
+  };
+
   const tick = (now: number): void => {
     if (disposed) return;
     const c = ctx;
@@ -2221,7 +2297,17 @@ export function createFieldHost(): FieldHost {
       lastFrameT = now;
       applyFlyMove(dt);
       drainDirty();
-      statsCb?.({ chunks: store.chunks.size, lastRemeshMs, remeshVersion });
+      const ls = currentLogStats();
+      statsCb?.({
+        chunks: store.chunks.size,
+        lastRemeshMs,
+        remeshVersion,
+        totalOps: ls.totalOps,
+        liveGenerators: ls.liveGenerators,
+        compactableOps: ls.compactableOps,
+        undoDepth: ls.undoDepth,
+        lastReconfigureMs,
+      });
       renderScene(c, cam);
     }
     raf = requestAnimationFrame(tick);
@@ -2468,6 +2554,34 @@ export function createFieldHost(): FieldHost {
     notifyDrift();
   };
 
+  // World-load compaction (spec D-F3-16 / D-F3-6): fold aged brush runs into
+  // patches when the loaded log carries more than COMPACT_THRESHOLD_OPS foldable
+  // ops. Load is the ONLY safe moment — compactRuns REQUIRES both undo stacks
+  // empty (its entries address log.ops POSITIONALLY, which folding shifts), and
+  // a freshly loaded log has none by construction: serializeOps persists
+  // log.ops and never the stacks, and resetWorld cleared them just above. No
+  // mid-session auto-compact, no button — compaction is for history that has
+  // aged out of an edit session, which is exactly what a load carries.
+  // `keepIds` is empty: nothing in the editor references an op id across a load,
+  // and the meter's `compactableOps` reads the same empty-pinned ceiling so it
+  // predicts this fold. DEFENSIVE: a fold can throw (a catalog that dropped a
+  // class id the ops recorded — see compactRuns' TSDoc), and a failed
+  // compaction is never worth failing a load; compactRuns validates before its
+  // first write, so a throw leaves the log exactly as parsed. The world loads
+  // uncompacted and the reason surfaces on the status line rather than blanking
+  // the panel (the optional-chrome failure stance).
+  const compactLoadedLog = (): void => {
+    if (field.logStats(log).compactableOps <= COMPACT_THRESHOLD_OPS) return;
+    try {
+      field.compactRuns(store, log, table, { keepIds: new Set() });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      reportToolError(
+        `world loaded, but log compaction was skipped: ${message}`,
+      );
+    }
+  };
+
   return {
     async init(canvas) {
       if (ctx) throw new Error("field-host: already initialized");
@@ -2551,6 +2665,10 @@ export function createFieldHost(): FieldHost {
       // v0: manifest.playerStart/playerYaw are the dungeon runtime spawn — the
       // editor keeps its current fly pose on load (not applied to the camera here).
       for (const key of store.chunks.keys()) dirty.add(key);
+      // Fold aged brush runs before the panel reads the log: quiescent history
+      // is guaranteed here (see compactLoadedLog), and it never touches entity
+      // ops, so the entity list below is unaffected either way.
+      compactLoadedLog();
       // AFTER the ops land, not inside resetWorld: the tick must carry the
       // loaded world's entities, not the empty log the reset left behind.
       notifyEntities();
@@ -2791,6 +2909,34 @@ export function createFieldHost(): FieldHost {
       return () => {
         if (driftCb === cb) driftCb = null;
       };
+    },
+    dismissDrift() {
+      drift = null;
+      notifyDrift();
+    },
+    frameChunks(chunks) {
+      if (chunks.length === 0) return;
+      const dim = field.CHUNK_DIM * store.cellSize;
+      let minX = Number.POSITIVE_INFINITY;
+      let minY = Number.POSITIVE_INFINITY;
+      let minZ = Number.POSITIVE_INFINITY;
+      let maxX = Number.NEGATIVE_INFINITY;
+      let maxY = Number.NEGATIVE_INFINITY;
+      let maxZ = Number.NEGATIVE_INFINITY;
+      for (const key of chunks) {
+        const [cx, cy, cz] = field.parseChunkKey(key);
+        minX = Math.min(minX, cx * dim);
+        maxX = Math.max(maxX, (cx + 1) * dim);
+        minY = Math.min(minY, cy * dim);
+        maxY = Math.max(maxY, (cy + 1) * dim);
+        minZ = Math.min(minZ, cz * dim);
+        maxZ = Math.max(maxZ, (cz + 1) * dim);
+      }
+      orbitState = {
+        ...orbitState,
+        target: [(minX + maxX) / 2, (minY + maxY) / 2, (minZ + maxZ) / 2],
+      };
+      applyOrbit(); // no-op before init (guards on cam); target still moved
     },
     subscribeEntities(cb) {
       entitiesCb = cb;
