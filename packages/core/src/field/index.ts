@@ -36,12 +36,8 @@ export {
   FIELD_GENERATORS,
   generatorById,
 } from "./generators.ts";
-export type {
-  CompactOptions,
-  LogStats,
-  SnapshotRecord,
-} from "./maintenance.ts";
-export { compactRuns, logStats, maintainSnapshots } from "./maintenance.ts";
+export type { CompactOptions, LogStats } from "./maintenance.ts";
+export { compactRuns, logStats } from "./maintenance.ts";
 export {
   BUILTIN_TABLE,
   classOf,
@@ -82,6 +78,8 @@ export {
   selectionHas,
 } from "./selection.ts";
 export { skinChunkKit, variantHash } from "./skin.ts";
+export type { SnapshotRecord } from "./snapshots.ts";
+export { captureDueSnapshots } from "./snapshots.ts";
 export type {
   BrushMask,
   BrushOp,

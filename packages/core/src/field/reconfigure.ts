@@ -12,8 +12,6 @@
 // chunk and no span: protection (reversible) and severing (not).
 import { createFieldStore, densityEqual } from "./chunks.ts";
 import { generatorById } from "./generators.ts";
-import type { SnapshotRecord } from "./maintenance.ts";
-import { restoreSeeds } from "./maintenance.ts";
 import { materialsEqual } from "./materials.ts";
 import {
   applyFieldOp,
@@ -23,6 +21,8 @@ import {
   restoreImages,
   spliceOps,
 } from "./ops.ts";
+import type { SnapshotRecord } from "./snapshots.ts";
+import { restoreSeeds } from "./snapshots.ts";
 import type {
   BrushOp,
   ChunkKey,
@@ -301,9 +301,10 @@ function restorePreState(
   snapshots: readonly SnapshotRecord[],
 ): void {
   const seeds = restoreSeeds(log, pos, affected, snapshots, store.cellSize);
+  const everyChunkCulled = seeds.size === affected.size;
   const culledOps = [...seeds.values()].reduce((n, s) => n + s.ops.length, 0);
-  const culledIsCheaper = seeds.size === affected.size && culledOps < pos;
-  if (!culledIsCheaper) {
+  const takeCulledRoute = everyChunkCulled && culledOps < pos;
+  if (!takeCulledRoute) {
     const scratch = createFieldStore(store.cellSize);
     for (const op of log.ops.slice(0, pos)) applyFieldOp(scratch, op, table);
     restoreImages(store, imagesOf(scratch, affected));
@@ -420,7 +421,10 @@ const stampSpan = (ops: readonly BrushOp[], firstId: number): BrushOp[] =>
  * full-prefix replay whenever the rewind can be culled at all (see
  * `restorePreState` for when it cannot). Records must belong to THIS log — a
  * record whose position sits above an edit made since it was captured is stale,
- * and only its owner can know that ({@link SnapshotRecord}).
+ * and only its owner can know that ({@link SnapshotRecord}). Passing a stale one
+ * is SILENT: the rewind produces bytes a from-scratch replay would not, with no
+ * throw and no warning, and `drift` cannot surface it either — its baseline is
+ * the pre-reconfigure bytes, not a rebuild.
  *
  * **Known gap — a flood-masked downstream op can replay against the wrong
  * state.** Culling rewinds only the affected chunks; every other chunk keeps its

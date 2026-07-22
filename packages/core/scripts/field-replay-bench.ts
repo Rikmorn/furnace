@@ -12,6 +12,7 @@ import type {
   OpLog,
 } from "@furnace/core/field";
 import {
+  captureDueSnapshots,
   commitGenerator,
   createFieldStore,
   createOpLog,
@@ -19,7 +20,6 @@ import {
   generatorById,
   isBrushOp,
   logApply,
-  maintainSnapshots,
   reconfigureGenerator,
 } from "@furnace/core/field";
 import { create as createRng } from "@furnace/core/rng";
@@ -75,8 +75,11 @@ const STROKE_SPAN_M: [number, number, number] = [
   STAMP_REGION_SPAN[1],
   STAMP_REGION_SPAN[2],
 ];
-/** Replay positions as a fraction of the finished log. */
-const REPLAY_FRACTIONS = [0.25, 0.5, 0.75];
+/** Replay positions as a fraction of the finished log. `1` is load-bearing, not
+ *  a rounding-out: the whole-prefix row is the baseline the restore redesign
+ *  below is justified against, and a justification nobody can re-run is
+ *  folklore. */
+const REPLAY_FRACTIONS = [0.25, 0.5, 0.75, 1];
 
 function commitStamps(store: FieldStore, log: OpLog): void {
   for (let i = 0; i < STAMP_COUNT; i++) {
@@ -169,9 +172,13 @@ console.log(`total ops: ${log.ops.length}, chunks: ${store.chunks.size}`);
 // P-F3-2 measured the prefix replay in isolation. This measures the verb that
 // pays for it — `reconfigureGenerator` on a stamp committed AFTER the whole
 // hand-edit tail, the worst realistic rewind position — as the snapshot record
-// set gets denser. The row that is NOT printed here is the F3a behaviour this
-// replaced: a full-prefix rewind of the same reconfigure, 346.6 ms on this
-// machine, against the 83.0 ms the same call costs with no records at all.
+// set gets denser.
+//
+// The BASELINE the restore redesign is justified against is the whole-prefix row
+// printed above (`REPLAY_FRACTIONS` ends at 1): before the culled route, a
+// reconfigure here paid that cost plus its own replay. Read the two together —
+// the "no records" row below should sit far under the whole-prefix row, and that
+// gap IS the redesign.
 
 /** Where the late stamp lands: inside the hand-stroke box, so its chunks are
  *  ones the strokes really touched — a stamp dropped in virgin rock would have
@@ -221,7 +228,7 @@ function timeReconfigure(tailBudgetOps: number | null): void {
   const records =
     tailBudgetOps === null
       ? []
-      : maintainSnapshots(world.store, world.log, [], tailBudgetOps);
+      : captureDueSnapshots(world.store, world.log, [], tailBudgetOps);
   const sweepMs = performance.now() - sweepStarted;
   const entityId = commitLateStamp(world);
   const started = performance.now();

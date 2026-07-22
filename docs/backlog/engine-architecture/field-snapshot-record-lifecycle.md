@@ -1,6 +1,6 @@
 # field: snapshot records have no invalidation or pruning story
 
-`maintainSnapshots` (`packages/core/src/field/maintenance.ts`) captures a chunk's bytes as
+`captureDueSnapshots` (`packages/core/src/field/snapshots.ts`) captures a chunk's bytes as
 of a log POSITION and returns the records; `reconfigureGenerator` accepts them and rebuilds
 affected chunks from the newest usable one instead of replaying the whole prefix (measured:
 83 ms → 8 ms on a 2850-op log, `packages/core/scripts/field-replay-bench.ts`). Core owns
@@ -33,7 +33,7 @@ wiring snapshots to sibling files per D-F3-7, or a daemon that sweeps in the bac
 Whichever lands first must bring the invalidation rule with it; the pruning policy can
 follow, since unbounded growth degrades memory rather than correctness.
 
-**Reference:** `packages/core/src/field/maintenance.ts` (`SnapshotRecord` — the binding to
-a log, `maintainSnapshots`, `restoreSeeds`); `packages/core/src/field/reconfigure.ts`
+**Reference:** `packages/core/src/field/snapshots.ts` (`SnapshotRecord` — the binding to
+a log, `captureDueSnapshots`, `restoreSeeds`); `packages/core/src/field/reconfigure.ts`
 (`restorePreState` — the route decision); `packages/core/scripts/field-replay-bench.ts`
 (the budget sweep); F3 spec D-F3-7.

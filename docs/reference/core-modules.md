@@ -944,10 +944,11 @@ channel** (uniform|indexed palette encoding behind accessors — `getMaterial` /
   (`docs/backlog/engine-architecture/field-compaction-downstream-of-live-entity.md`;
   the index-anchoring alternative to the quiescence rule is
   `docs/backlog/engine-architecture/field-log-entries-anchored-by-index.md`).
-  `maintainSnapshots(store, log, records, tailBudgetOps)` captures a `SnapshotRecord`
+  `captureDueSnapshots(store, log, records, tailBudgetOps)` captures a `SnapshotRecord`
   (`{key, position, density, materials}`) for every chunk whose replay tail has outgrown
-  the budget, and RETURNS them rather than appending — the caller owns the list, its
-  persistence (D-F3-7 sibling files) and its lifetime. Passing records to
+  the budget, and RETURNS them rather than appending — a pure query that mutates nothing,
+  whose captured channels are COPIES rather than views onto the store. The caller owns the
+  list, its persistence (D-F3-7 sibling files) and its lifetime. Passing records to
   `reconfigureGenerator`'s optional sixth argument shortens the rewind: an affected chunk
   is rebuilt ALONE from its newest usable record forward, valid exactly while every op in
   that window touching it is cell-local. The choice is all-or-nothing — if one affected
@@ -955,7 +956,11 @@ channel** (uniform|indexed palette encoding behind accessors — `getMaterial` /
   them. Measured on a 2850-op log (`packages/core/scripts/field-replay-bench.ts`):
   346 ms full-prefix (the F3a behaviour) → 83 ms culled with NO records → 8 ms with a
   2-op tail budget. **A record is bound to the log that produced it** and nothing detects
-  staleness: `docs/backlog/engine-architecture/field-snapshot-record-lifecycle.md`.
+  staleness — any edit below its `position` (an undo, a reconfigure splice, a compaction
+  fold) makes the restore silently produce bytes a from-scratch replay would NOT, with no
+  throw, no warning, and no `drift` attribution (drift's baseline is the pre-reconfigure
+  bytes, not a rebuild). Dropping stale records is the record owner's job:
+  `docs/backlog/engine-architecture/field-snapshot-record-lifecycle.md`.
 - **Mesh + skin** — chunked Surface Nets over the 20³ aprons with owned-crossing quads
   bucketed per owning-cell class incl. the kit **backing** surface (`meshChunkField` —
   watertight seams by construction); the generic **kit skinner** on the derived coarse

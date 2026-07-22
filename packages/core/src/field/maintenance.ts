@@ -1,6 +1,8 @@
 // packages/core/src/field/maintenance.ts — log hygiene over the ONE linear log:
-// the op-cost readout (spec D-F3-16), semantic compaction (D-F3-6), and the
-// chunk snapshot records the reconfigure restore seeds from (D-F3-7).
+// the op-cost readout (spec D-F3-16) and semantic compaction (D-F3-6). The
+// snapshot records the reconfigure restore seeds from are their own module
+// (`snapshots.ts`, D-F3-7): they change what a rebuild COSTS, never what the log
+// says, which is the opposite of what compaction does.
 //
 // Compaction NEVER writes the store. It rewrites `log.ops` so that a
 // from-scratch replay still produces the bytes it produced before — proven per
@@ -17,7 +19,6 @@ import {
   applyFieldOp,
   applyPatchOp,
   assertPatchValid,
-  fieldOpChunks,
   imagesOf,
   isCellLocalOp,
   PATCH_MASK_BYTES,
@@ -26,8 +27,6 @@ import {
 } from "./ops.ts";
 import type {
   ChunkKey,
-  ChunkMaterials,
-  ChunkSnapshot,
   FieldOp,
   FieldStore,
   MaterialTable,
@@ -323,13 +322,13 @@ function planFolds(
     const before = copyStore(scratch);
     for (const op of log.ops.slice(run.start, run.end))
       applyFieldOp(scratch, op, table);
-    // The scratch carries the run's own writes forward rather than being reset:
-    // ops between two runs are applied ONCE, from here. That is only equivalent
-    // to a per-run replay because today's four brush effects are idempotent
-    // pointwise operators, so re-applying them would land on the same bytes —
-    // the same property `restoreSeeds`' window-start guard leans on. A
-    // non-idempotent effect makes the cursor load-bearing rather than an
-    // optimisation, and must be verified against a per-run replay.
+    // The cursor makes the scratch carry forward instead of being rebuilt per
+    // run. NO op is ever applied twice: every index below `run.end` has now been
+    // applied exactly once, in log order, so `scratch` holds precisely what a
+    // fresh `slice(0, run.end)` replay would. Purely an optimisation over that
+    // slice — it rests on nothing about the effects themselves, and `before` is
+    // a true deep copy (copyStore → imagesOf → chunkImage), so the run's writes
+    // below cannot reach it.
     cursor = run.end;
     const chunks = diffToPatch(before, scratch);
     verifyFold(before, scratch, chunks, table, run);
@@ -378,6 +377,11 @@ function assertQuiescentHistory(log: OpLog): void {
  * demonstration, and the two real fixes, are in
  * `docs/backlog/engine-architecture/field-log-entries-anchored-by-index.md`.
  *
+ * `opts` is REQUIRED here and defaulted on {@link logStats} — deliberate
+ * friction, not an oversight. Reading a stat with nothing pinned is a fair
+ * question; destroying history with nothing pinned should be something the
+ * caller wrote down.
+ *
  * Eligibility (see {@link CompactOptions} for `keepIds`): a brush op with a
  * cell-local effect — `dig`, `fill`, `paint`, with any mask but a FLOOD
  * selection — that the caller has not pinned and that does not sit inside a LIVE
@@ -407,10 +411,13 @@ function assertQuiescentHistory(log: OpLog): void {
  *
  * @returns the number of ops the log no longer carries individually — the ops
  *   folded into patches PLUS the ops in runs that were removed outright.
- * @throws {@link Error} if either undo stack is non-empty, or if a fold fails to
- *   reproduce its run byte-exactly ({@link verifyFold}). Both fire before the
- *   first write to `log.ops`: a failed compaction leaves the log, the store and
- *   `log.nextId` exactly as they were.
+ * @throws {@link Error} if the undo or redo stack is non-empty; if a fold
+ *   carries a material class id that `table` does not resolve — reachable
+ *   whenever the catalog has shrunk since the ops were written, since a fold
+ *   replays the ids the OPS recorded and `applyOp` never resolves them; or if a
+ *   fold fails to reproduce its run byte-exactly ({@link verifyFold}). All three
+ *   fire before the first write to `log.ops`: a failed compaction leaves the
+ *   log, the store and `log.nextId` exactly as they were.
  */
 export function compactRuns(
   store: FieldStore,
@@ -434,164 +441,11 @@ export function compactRuns(
     planned.push({ run: fold.run, insert });
   }
   // Back to front: an earlier run's indices are untouched by a later splice.
-  for (const { run, insert } of [...planned].reverse())
+  planned.reverse();
+  for (const { run, insert } of planned)
     spliceOps(log.ops, run.start, run.end - run.start, insert);
   log.nextId = nextId;
   return {
     folded: folds.reduce((n, f) => n + (f.run.end - f.run.start), 0),
   };
-}
-
-/** One chunk's two channels as of a log POSITION — the state produced by
- *  `log.ops[0 .. position)`, in the same null-means-absent spelling
- *  {@link ChunkSnapshot} uses. Written by {@link maintainSnapshots}; read by the
- *  reconfigure restore, which replays forward from it instead of from pristine.
- *
- *  A record is bound to the log that produced it: any edit BELOW its `position`
- *  — an undo, a reconfigure's splice, a compaction fold — invalidates it, and
- *  nothing in the record detects that. The owner of the record list is
- *  responsible for dropping records at or after an edit position, the same way
- *  it is responsible for persisting them. */
-export type SnapshotRecord = {
-  key: ChunkKey;
-  position: number;
-  density: Int8Array | null;
-  materials: ChunkMaterials | null;
-};
-
-/**
- * The adaptive snapshot sweep (spec D-F3-7): captures the CURRENT state of every
- * chunk whose replay tail — the ops written since that chunk's newest record —
- * has grown past `tailBudgetOps`. A chunk nobody has touched since its last
- * record is never re-captured, and a chunk with no record at all counts its tail
- * from the start of the log.
- *
- * The captured records are RETURNED, not appended: this reads `records` and
- * never mutates it, so the caller decides where the list lives (memory, a
- * sibling file per D-F3-7) and when to prune it. Every record in one sweep
- * carries the same `position` — `log.ops.length`, the state the store is in
- * right now.
- *
- * The tail is counted from {@link fieldOpChunks}, which over-approximates a
- * brush op's written chunks, so a chunk can be snapshotted slightly early. That
- * is the safe direction: a record is never captured late.
- *
- * @throws {@link Error} if `tailBudgetOps` is not a positive integer — a
- *   zero or fractional budget would snapshot every chunk on every sweep.
- */
-export function maintainSnapshots(
-  store: FieldStore,
-  log: OpLog,
-  records: readonly SnapshotRecord[],
-  tailBudgetOps: number,
-): SnapshotRecord[] {
-  if (!Number.isInteger(tailBudgetOps) || tailBudgetOps < 1)
-    throw new Error(
-      `maintainSnapshots: tail budget must be a positive integer (got ${tailBudgetOps})`,
-    );
-  const newest = new Map<ChunkKey, number>();
-  for (const record of records)
-    newest.set(
-      record.key,
-      Math.max(newest.get(record.key) ?? 0, record.position),
-    );
-  const tails = new Map<ChunkKey, number>();
-  for (const [index, op] of log.ops.entries())
-    for (const key of fieldOpChunks(op, store.cellSize)) {
-      if (index < (newest.get(key) ?? 0)) continue;
-      tails.set(key, (tails.get(key) ?? 0) + 1);
-    }
-  const position = log.ops.length;
-  const captured: SnapshotRecord[] = [];
-  for (const [key, tail] of tails) {
-    if (tail <= tailBudgetOps) continue;
-    const image = imagesOf(store, [key]).get(key) ?? EMPTY_IMAGE;
-    captured.push({ key, position, ...image });
-  }
-  return captured;
-}
-
-/** Absent in both channels — the image of a chunk the store does not carry, and
- *  equally the state of EVERY chunk before op 0 (nothing exists yet), which is
- *  the free starting point {@link restoreSeeds} falls back to. */
-const EMPTY_IMAGE: ChunkSnapshot = { density: null, materials: null };
-
-/** A per-chunk plan for rebuilding its state as of a log position: the state to
- *  start from, plus the ops that must replay onto it, in log order. */
-export type RestoreSeed = { image: ChunkSnapshot; ops: readonly FieldOp[] };
-
-/**
- * Plans, per requested chunk, how to rebuild it as of log position `pos` WITHOUT
- * replaying the whole prefix: start from the newest usable {@link
- * SnapshotRecord} at or before `pos` — or from the pristine empty state at
- * position 0, which every chunk has for free — and replay only the ops in that
- * window which touch the chunk.
- *
- * A chunk is planned only when EVERY op in its window that touches it is
- * {@link isCellLocalOp}. That is what lets the caller replay those ops into a
- * scratch store holding this chunk ALONE: a cell-local op's effect on a cell
- * depends on that cell and the op record, so the missing neighbourhood cannot
- * change the answer. One smooth op — or one flood-masked op — over the chunk in
- * that window disqualifies it, and it is left OUT of the result for the caller
- * to rebuild the slow way. A record therefore buys two things: fewer ops to
- * replay, and a window short enough that an old smooth op falls out of it.
- *
- * Each window starts at ITS OWN chunk's record, never at the earliest one: that
- * is what keeps a record's window as short as the record made it. It also keeps
- * the result independent of whether re-applying an op the record already
- * contains happens to be idempotent — it is for today's four brush effects, all
- * of which are pointwise clamp/set operators, but that is a property of the
- * current effect set, not a rule a future op kind inherits.
- *
- * Records for chunks outside `keys`, and records ahead of `pos`, are ignored, so
- * a caller may hand over its whole list. The returned images are the RECORDS'
- * own arrays — `restoreImages` copies them into a store, so a record is never
- * aliased into one, but a caller that mutates them corrupts its own snapshots.
- *
- * Deliberately NOT on the public field index: in-core restore surface, consumed
- * by `reconfigureGenerator`, which owns the decision of whether the plan is
- * worth executing (see its `restorePreState`).
- */
-export function restoreSeeds(
-  log: OpLog,
-  pos: number,
-  keys: Iterable<ChunkKey>,
-  records: readonly SnapshotRecord[],
-  cellSize: number,
-): Map<ChunkKey, RestoreSeed> {
-  type Candidate = { position: number; image: ChunkSnapshot; ops: FieldOp[] };
-  const candidates = new Map<ChunkKey, Candidate>();
-  for (const key of keys)
-    candidates.set(key, { position: 0, image: EMPTY_IMAGE, ops: [] });
-  for (const record of records) {
-    const current = candidates.get(record.key);
-    if (current === undefined || record.position > pos) continue;
-    if (record.position <= current.position) continue;
-    candidates.set(record.key, {
-      position: record.position,
-      image: { density: record.density, materials: record.materials },
-      ops: [],
-    });
-  }
-  if (candidates.size === 0) return new Map();
-  const from = [...candidates.values()].reduce(
-    (lowest, candidate) => Math.min(lowest, candidate.position),
-    pos,
-  );
-  for (const [offset, op] of log.ops.slice(from, pos).entries()) {
-    const index = from + offset;
-    const cellLocal = isCellLocalOp(op);
-    for (const key of fieldOpChunks(op, cellSize)) {
-      const candidate = candidates.get(key);
-      if (candidate === undefined || index < candidate.position) continue;
-      if (cellLocal) candidate.ops.push(op);
-      else candidates.delete(key);
-    }
-  }
-  return new Map(
-    [...candidates].map(([key, candidate]) => [
-      key,
-      { image: candidate.image, ops: candidate.ops },
-    ]),
-  );
 }

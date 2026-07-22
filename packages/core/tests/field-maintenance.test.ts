@@ -9,6 +9,7 @@ import type {
 } from "@furnace/core/field";
 import {
   bakeGeneratorEntity,
+  captureDueSnapshots,
   commitGenerator,
   compactRuns,
   createFieldStore,
@@ -17,21 +18,20 @@ import {
   generatorById,
   logApply,
   logStats,
-  maintainSnapshots,
   reconfigureGenerator,
   redo,
   restoreImages,
   setGeneratorFrozen,
   undo,
 } from "@furnace/core/field";
-import { restoreSeeds } from "../src/field/maintenance.ts";
 // In-core surfaces, deliberately NOT on the public index (the spliceOps
 // precedent): `applyFieldOp` is what a from-scratch rebuild of a log looks like
 // — the reference every compaction assertion below is measured against — and
-// `snapshotSeeds` is the restore fast path's own decision, tested directly
+// `restoreSeeds` is the restore fast path's own decision, tested directly
 // because an equal-bytes assertion downstream of it passes whether or not the
 // path was ever taken.
 import { applyFieldOp } from "../src/field/ops.ts";
+import { restoreSeeds } from "../src/field/snapshots.ts";
 import { snapshotAll } from "./_helpers/field-store.ts";
 
 // Own copy of the 3-class fixture (rock / dirt / kit masonry) — stamps REQUIRE
@@ -374,6 +374,34 @@ describe("compactRuns — semantic compaction", () => {
     expect(snapshotAll(replayAll(log, TABLE, store.cellSize))).toEqual(bytes);
   });
 
+  test("a run of FLOOD-masked ops is refused — length alone would not refuse it", () => {
+    const { store, log } = makeWorld();
+    logApply(store, log, digSphere([2, 1, 1], 2), TABLE); // give the flood a void
+    // Four in a row: long enough to clear MIN_FOLD_RUN, so the refusal is
+    // eligibility and not arithmetic. (The mixed-op case elsewhere has exactly
+    // one flood op, where a length-1 run would be refused either way.)
+    for (let i = 0; i < 4; i++)
+      logApply(
+        store,
+        log,
+        {
+          ...digSphere([1 + i * 0.5, 1, 1], 0.6),
+          mask: {
+            kind: "selection",
+            selection: { kind: "flood-void", seed: [8, 4, 4], budget: 512 },
+          },
+        },
+        TABLE,
+      );
+    dropHistory(log);
+    const idsBefore = idsOf(log);
+
+    expect(compactRuns(store, log, TABLE, NO_KEPT_IDS()).folded).toBe(0);
+
+    expect(idsOf(log)).toEqual(idsBefore);
+    expect(logStats(log).compactableOps).toBe(0);
+  });
+
   test("the discard guard REFUSES a fold whose class ids no longer resolve", () => {
     const { store, log } = makeWorld();
     // Fills of the kit class, lattice-aligned so assertOpValid accepts them.
@@ -567,7 +595,7 @@ describe("snapshot records — the reconfigure restore fast path", () => {
     digRun(store, log, [16, 1, 16], 12);
     for (let i = 0; i < 4; i++)
       logApply(store, log, fillSphere([16 + i * 0.5, 1, 16], 0.7, 1), TABLE);
-    const records = maintainSnapshots(store, log, [], 2);
+    const records = captureDueSnapshots(store, log, [], 2);
     digRun(store, log, [16, 1, 17], 6);
     const entity = commitHall(store, log, [16, 0, 16]);
     return { store, log, entity, records, spanStart: spanStartOf(log, entity) };
@@ -576,18 +604,18 @@ describe("snapshot records — the reconfigure restore fast path", () => {
   test("records a chunk whose replay tail exceeds the budget", () => {
     const { store, log } = buildWorld();
 
-    const records = maintainSnapshots(store, log, [], 4);
+    const records = captureDueSnapshots(store, log, [], 4);
 
     expect(records.length).toBeGreaterThan(0);
     for (const r of records) expect(r.position).toBe(log.ops.length);
     // a second sweep against those records finds nothing new — the tail reset
-    expect(maintainSnapshots(store, log, records, 4)).toHaveLength(0);
+    expect(captureDueSnapshots(store, log, records, 4)).toHaveLength(0);
   });
 
   test("rejects a non-positive or non-integer budget", () => {
     const { store, log } = buildWorld();
-    expect(() => maintainSnapshots(store, log, [], 0)).toThrow(/budget/);
-    expect(() => maintainSnapshots(store, log, [], 1.5)).toThrow(/budget/);
+    expect(() => captureDueSnapshots(store, log, [], 0)).toThrow(/budget/);
+    expect(() => captureDueSnapshots(store, log, [], 1.5)).toThrow(/budget/);
   });
 
   test("a seeded per-chunk rebuild equals the full-prefix replay, culled", () => {
@@ -624,7 +652,7 @@ describe("snapshot records — the reconfigure restore fast path", () => {
   test("a smooth op over a chunk disqualifies that chunk's record", () => {
     const { store, log } = makeWorld();
     digRun(store, log, [16, 1, 16], 12);
-    const records = maintainSnapshots(store, log, [], 2);
+    const records = captureDueSnapshots(store, log, [], 2);
     const smooth = smoothSphere([16, 1, 16]);
     logApply(store, log, smooth, TABLE);
     const entity = commitHall(store, log, [16, 0, 16]);
@@ -651,7 +679,7 @@ describe("snapshot records — the reconfigure restore fast path", () => {
   test("a FLOOD-masked op over a chunk disqualifies it — the read set is unbounded", () => {
     const { store, log } = makeWorld();
     digRun(store, log, [16, 1, 16], 12);
-    const records = maintainSnapshots(store, log, [], 2);
+    const records = captureDueSnapshots(store, log, [], 2);
     // A flood re-materializes against replayed state and walks wherever the
     // void goes — across chunks a per-chunk rebuild does not have. Forcing it
     // through the culled route is a wrong-BYTES defect, not a slow one.
@@ -687,7 +715,7 @@ describe("snapshot records — the reconfigure restore fast path", () => {
   test("a REGION-masked op in the window keeps its chunk on the fast path", () => {
     const { store, log } = makeWorld();
     digRun(store, log, [16, 1, 16], 12);
-    const records = maintainSnapshots(store, log, [], 2);
+    const records = captureDueSnapshots(store, log, [], 2);
     // The other side of the same rule: a region mask is a position predicate,
     // so the chunk stays rebuildable alone — and the rebuild must MATCH.
     const regional: BrushOp = {
@@ -821,7 +849,7 @@ describe("snapshot records — the reconfigure restore fast path", () => {
     // instead of falling back would leave the old stamp behind, visibly.
     const { store, log } = makeWorld();
     digRun(store, log, [16, 1, 16], 8);
-    const records = maintainSnapshots(store, log, [], 2);
+    const records = captureDueSnapshots(store, log, [], 2);
     logApply(store, log, smoothSphere([16, 1, 16]), TABLE);
     const entity = commitHall(store, log, [16, 0, 16]);
 
@@ -851,7 +879,7 @@ describe("snapshot records — the reconfigure restore fast path", () => {
   test("a stale record whose window hides a smooth op still restores exactly", () => {
     const { store, log } = makeWorld();
     digRun(store, log, [16, 1, 16], 8);
-    const records = maintainSnapshots(store, log, [], 2);
+    const records = captureDueSnapshots(store, log, [], 2);
     logApply(store, log, smoothSphere([16, 1, 16]), TABLE);
     const entity = commitHall(store, log, [16, 0, 16]);
 
