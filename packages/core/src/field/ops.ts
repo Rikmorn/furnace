@@ -510,13 +510,12 @@ function parsePatchKey(key: ChunkKey): [number, number, number] {
 const materialCells = (c: PatchChunk): number =>
   c.materialMask === null ? 0 : popcount(c.materialMask);
 
-/** Material leg of {@link assertPatchValid} for one slice: a present
- *  `materialMask` needs the right byte length, a non-null `materials` of
- *  exactly its popcount, and every id resolvable in the table; an absent one
- *  forbids `materials`. Kit class ids are ACCEPTED: the lattice rule in
- *  {@link assertOpValid} constrains a box SHAPE, and a patch has no shape — its
- *  cells are already resolved (typically by compacting a lattice-valid fill). */
-function assertPatchMaterialsValid(c: PatchChunk, table: MaterialTable): void {
+/** Material leg of {@link assertPatchStructure} for one slice: a present
+ *  `materialMask` needs the right byte length and a non-null `materials` of
+ *  exactly its popcount; an absent one forbids `materials`. The ids themselves
+ *  are NOT resolved here — that is the table-dependent half, in
+ *  {@link assertPatchValid}. */
+function assertPatchMaterialsStructure(c: PatchChunk): void {
   if (c.materialMask === null) {
     if (c.materials !== null)
       throw new Error(
@@ -537,11 +536,10 @@ function assertPatchMaterialsValid(c: PatchChunk, table: MaterialTable): void {
     throw new Error(
       `field patch: materials length ${c.materials.length} != materialMask popcount ${cells} (chunk "${c.key}")`,
     );
-  for (const id of c.materials) classOf(table, id); // throws unknown class id
 }
 
-/** Per-slice leg of {@link assertPatchValid}. */
-function assertPatchChunkValid(c: PatchChunk, table: MaterialTable): void {
+/** Per-slice leg of {@link assertPatchStructure}. */
+function assertPatchChunkStructure(c: PatchChunk): void {
   if (c.densityMask.length !== PATCH_MASK_BYTES)
     throw new Error(
       `field patch: densityMask must be ${PATCH_MASK_BYTES} bytes (chunk "${c.key}")`,
@@ -551,9 +549,36 @@ function assertPatchChunkValid(c: PatchChunk, table: MaterialTable): void {
     throw new Error(
       `field patch: density length ${c.density.length} != densityMask popcount ${densityCells} (chunk "${c.key}")`,
     );
-  assertPatchMaterialsValid(c, table);
+  assertPatchMaterialsStructure(c);
   if (densityCells + materialCells(c) === 0)
     throw new Error(`field patch: chunk "${c.key}" masks no cells`);
+}
+
+/**
+ * The TABLE-INDEPENDENT half of {@link assertPatchValid}: everything a patch's
+ * SHAPE must satisfy, with no opinion on what its material ids mean. Split out
+ * for the oplog decoder (`parseOps` in `artifact.ts`), which reconstructs
+ * slices from an untrusted file and has no {@link MaterialTable} to hand —
+ * without it a truncated payload would become a plausible-looking op. Kept off
+ * the public field index for the {@link PATCH_MASK_BYTES} reason: in-core
+ * producer surface, and external producers already have the full check.
+ *
+ * @throws {@link Error} if the op has no slices, a chunk key is malformed or
+ *   duplicated, a mask is not {@link PATCH_MASK_BYTES} bytes, a value array's
+ *   length does not match its mask's popcount (including `materials` present
+ *   without `materialMask` or vice versa), or a slice masks no cells.
+ */
+export function assertPatchStructure(op: PatchOp): void {
+  if (op.chunks.length === 0)
+    throw new Error("field patch: op writes no chunks");
+  const seen = new Set<ChunkKey>();
+  for (const c of op.chunks) {
+    parsePatchKey(c.key);
+    if (seen.has(c.key))
+      throw new Error(`field patch: duplicate chunk key "${c.key}"`);
+    seen.add(c.key);
+    assertPatchChunkStructure(c);
+  }
 }
 
 /**
@@ -571,23 +596,19 @@ function assertPatchChunkValid(c: PatchChunk, table: MaterialTable): void {
  * the redo stack and push an undo entry that reverts nothing: a ⌘Z that
  * visibly does nothing.
  *
- * @throws {@link Error} if the op has no slices, a chunk key is malformed or
- *   duplicated, a mask is not {@link PATCH_MASK_BYTES} bytes, a value array's
- *   length does not match its mask's popcount (including `materials` present
- *   without `materialMask` or vice versa), a material class id is unknown, or a
- *   slice masks no cells.
+ * Kit class ids are ACCEPTED: the lattice rule in {@link assertOpValid}
+ * constrains a box SHAPE, and a patch has no shape — its cells are already
+ * resolved (typically by compacting a lattice-valid fill).
+ *
+ * @throws {@link Error} for anything {@link assertPatchStructure} rejects, or
+ *   if a material class id is unknown to `table`. Structure is checked FIRST,
+ *   across every slice, so a patch with both kinds of fault reports the
+ *   structural one.
  */
 export function assertPatchValid(op: PatchOp, table: MaterialTable): void {
-  if (op.chunks.length === 0)
-    throw new Error("field patch: op writes no chunks");
-  const seen = new Set<ChunkKey>();
-  for (const c of op.chunks) {
-    parsePatchKey(c.key);
-    if (seen.has(c.key))
-      throw new Error(`field patch: duplicate chunk key "${c.key}"`);
-    seen.add(c.key);
-    assertPatchChunkValid(c, table);
-  }
+  assertPatchStructure(op);
+  for (const c of op.chunks)
+    for (const id of c.materials ?? []) classOf(table, id); // unknown id throws
 }
 
 /** Writes one slice's masked cells absolutely, snapshotting the chunk before

@@ -19,15 +19,21 @@ const MANIFEST: FieldManifest = {
   meshes: [],
 };
 
-/** The baked oplog.json contents as RAW parsed JSON — deliberately NOT via
+/** The baked oplog's op list as RAW parsed JSON — deliberately NOT via
  *  parseOps, which would re-map legacy ops and mask a loadWorld that skipped
- *  the mapping. */
+ *  the mapping. `oplog.json` is a v2 envelope (`{ version, ops }`), so the raw
+ *  read unwraps `ops` itself rather than laundering it through the codec. */
 const bakedOplog = (host: ReturnType<typeof createFieldHost>): unknown => {
   const file = host
     .exportArtifact("t")
     .find((f) => f.path === "worlds/t/oplog.json");
   expect(typeof file?.contents).toBe("string");
-  return JSON.parse(file?.contents as string);
+  const envelope = JSON.parse(file?.contents as string) as {
+    version: number;
+    ops: unknown;
+  };
+  expect(envelope.version).toBe(2);
+  return envelope.ops;
 };
 
 test('loadWorld parses raw oplog text: legacy kind:"dig" maps to brush/dig', () => {

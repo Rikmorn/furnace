@@ -490,11 +490,12 @@ export function reconfigureGenerator(
   //     MAX_PALETTE classes.
   //   - applyPatchOp's parsePatchKey, on a non-canonical chunk key carried by a
   //     downstream PATCH op — reached from BOTH restorePreState and
-  //     applyAndReport. Discharged today only because assertPatchValid gates
-  //     every path into log.ops (logApplyPatch). A producer that SPLICES
-  //     synthesized patch ops straight into log.ops — the compaction pass —
-  //     bypasses that gate and makes this reachable, so it inherits the
-  //     obligation to validate what it splices.
+  //     applyAndReport. Discharged today because BOTH paths into log.ops
+  //     validate the key: logApplyPatch via assertPatchValid, and the oplog
+  //     decoder (parseOps, whose ops the editor pushes straight in) via
+  //     assertPatchStructure. A producer that SPLICES synthesized patch ops in
+  //     without either — the compaction pass — makes this reachable again, so
+  //     it inherits the obligation to validate what it splices.
   // Adding a step below that can genuinely fail breaks this, and the entry
   // pushed at step 7 is the only unwind there is.
   const provenance = mergeProvenance(recorded, changes);

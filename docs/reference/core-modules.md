@@ -906,12 +906,26 @@ channel** (uniform|indexed palette encoding behind accessors — `getMaterial` /
   clip — cells at/above read as air for targeting); per-chunk shell colliders
   (`chunkColliders` — density-only, material classes never affect collision).
 - **Artifact** — `encodeChunkFile`/`decodeChunkFile`,
-  `encodeMaterialFile`/`decodeMaterialFile`, oplog serialize/parse (brush + entity ops,
-  plus F1 legacy-op mapping), `bakeFieldWorld` (pure; the manifest embeds the resolved
-  material table). **Gap:** `PatchOp` is a `FieldOp` member but has NO wire encoding yet
-  — `serializeOps` is `JSON.stringify`, which turns its typed arrays into index-keyed
-  objects that `assertPatchValid` then rejects. Harmless today (nothing produces a patch
-  op yet); a patch-aware codec is the follow-up.
+  `encodeMaterialFile`/`decodeMaterialFile`, oplog serialize/parse, `bakeFieldWorld`
+  (pure; the manifest embeds the resolved material table).
+- **The oplog wire format (F3a)** — `oplog.json` is a **v2 envelope**,
+  `{ version: 2, ops: [...] }`. Every `FieldOp` member round-trips: brush and entity ops
+  are plain JSON (so an entity's `frozen`/`baked` flags persist, and ABSENCE stays
+  absence — the literal-`true` optionals never materialize as `false`); a patch op's
+  four typed arrays per slice encode as **base64** strings. Plain `JSON.stringify` would
+  render them as index-keyed objects (~8× the bytes, and no longer typed arrays coming
+  back) — the reason the envelope exists. `parseOps` also reads **v1**, a BARE JSON
+  array with no envelope (every world baked before F3a), including F1's `kind:"dig"`
+  literals, which map forward to brush/dig ops; a JSON array is never a JSON object, so
+  the two versions cannot be confused. It is **setup-loud** — an unknown or FUTURE
+  version, a non-array `ops`, an op of unknown `kind`, or a patch payload that is not
+  decodable base64 all throw rather than yielding a plausible-looking op. Patch ops are
+  additionally checked against the full table-independent structure (canonical unique
+  chunk keys, 512-byte masks, value arrays exactly as long as their mask's popcount), so
+  a TRUNCATED payload is rejected at parse. Not checked: the interiors of brush/entity
+  ops and patch material class ids — both need a `MaterialTable` `parseOps` does not
+  take, and both are re-checked where the op is applied. The writer trusts its input
+  (`logApplyPatch` already validated everything in the log); the reader does not.
 
 ---
 

@@ -6,8 +6,10 @@ import {
   parseChunkKey,
 } from "./chunks.ts";
 import { meshChunkField } from "./mesher.ts";
+import { assertPatchStructure } from "./ops.ts";
 import { skinChunkKit } from "./skin.ts";
 import type {
+  BrushOp,
   BrushShape,
   ChunkKey,
   ChunkMaterials,
@@ -16,6 +18,8 @@ import type {
   FieldStore,
   MaterialTable,
   OpLog,
+  PatchChunk,
+  PatchOp,
 } from "./types.ts";
 import { MAT_ROCK } from "./types.ts";
 
@@ -152,31 +156,264 @@ export function decodeMaterialFile(bytes: Uint8Array): ChunkMaterials {
   return { kind: "indexed", palette, bits, packed };
 }
 
-/** A pre-F2 dig op literal (`kind:"dig"`) as F1 baked it — mapped to a
- *  brush/dig op on parse. */
-type LegacyDigOp = { id: number; kind: "dig"; shape: BrushShape };
+/** Oplog envelope version. v1 was a BARE JSON array of ops (no envelope) and is
+ *  still read; v2 wraps the list so patch ops can carry base64 payloads. */
+const OPLOG_VERSION = 2;
 
-// MIGRATION (until Task 6): `patch` ops have NO wire encoding yet. They are
-// members of FieldOp, so they type-check into these functions, but JSON round-
-// tripping mangles their typed arrays into index-keyed objects (~8× larger, and
-// no longer Uint8Array/Int8Array) — assertPatchValid rejects the result while
-// applyPatchOp silently accepts it. Nothing PRODUCES a patch op until the
-// compaction verb lands, so no bake can contain one today; Task 6 replaces this
-// pair with a patch-aware codec. Do not bake a log holding patch ops before it.
+/** Bytes per binary-string step in {@link u8ToB64} — bounds the transient char
+ *  array at 32K entries whatever the payload's size (a compaction patch over a
+ *  large span runs to megabytes, and an unchunked pass allocates one entry per
+ *  byte). NOT an argument-count ceiling: nothing here spreads. The usual
+ *  `String.fromCharCode(...bytes)` idiom is the one this module's neighbours
+ *  already refuse for caller-sized data (`spliceOps`, `commitGenerator` in
+ *  `ops.ts`/`generators.ts`), and measured on JSC it is also SLOWER here than
+ *  the array+join below. */
+const B64_CHUNK_BYTES = 0x8000;
 
-/** Serializes the op list (the authoring truth — brush AND entity ops) as a
- *  JSON string. Patch ops are not yet encodable — see the MIGRATION note above. */
-export const serializeOps = (ops: FieldOp[]): string => JSON.stringify(ops);
+/** Bytes → base64, in bounded steps. */
+function u8ToB64(bytes: Uint8Array): string {
+  const parts: string[] = [];
+  for (let i = 0; i < bytes.length; i += B64_CHUNK_BYTES) {
+    const end = Math.min(i + B64_CHUNK_BYTES, bytes.length);
+    const chars = new Array<string>(end - i);
+    for (let j = i; j < end; j++)
+      chars[j - i] = String.fromCharCode(bytes[j] ?? 0);
+    parts.push(chars.join(""));
+  }
+  return btoa(parts.join(""));
+}
 
-/** Parses an oplog JSON string back into the op list; F1 logs (`kind:"dig"`)
- *  map forward to brush/dig ops; entity ops pass through. Patch ops are not yet
- *  decodable — see the MIGRATION note above. */
-export const parseOps = (text: string): FieldOp[] =>
-  (JSON.parse(text) as (FieldOp | LegacyDigOp)[]).map((o) =>
-    o.kind === "dig"
-      ? { id: o.id, kind: "brush", effect: "dig", shape: o.shape }
-      : o,
-  );
+/** Base64 → a FRESH, exactly-sized byte buffer.
+ *
+ *  @throws {@link Error} (a DOM `InvalidCharacterError`) on non-base64 input —
+ *    {@link decodeSliceBytes} is what turns that into a located message. */
+function b64ToU8(b64: string): Uint8Array {
+  const binary = atob(b64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes;
+}
+
+/** A byte view over a typed array, whatever its element type — Int8 and Uint8
+ *  share their byte representation, so density rides the same encoder. */
+const bytesOf = (a: Int8Array | Uint8Array): Uint8Array =>
+  new Uint8Array(a.buffer, a.byteOffset, a.byteLength);
+
+/** Wire form of one {@link PatchChunk}: the four typed arrays as base64 (a
+ *  nulled material pair stays null). */
+type WirePatchChunk = {
+  key: ChunkKey;
+  densityMask: string;
+  density: string;
+  materialMask: string | null;
+  materials: string | null;
+};
+
+const encodePatchChunk = (c: PatchChunk): WirePatchChunk => ({
+  key: c.key,
+  densityMask: u8ToB64(c.densityMask),
+  density: u8ToB64(bytesOf(c.density)),
+  materialMask: c.materialMask === null ? null : u8ToB64(c.materialMask),
+  materials: c.materials === null ? null : u8ToB64(c.materials),
+});
+
+/**
+ * Serializes the op list (the authoring truth — brush, entity AND patch ops) as
+ * a v2 envelope: `{ version, ops }`, with each patch slice's typed arrays as
+ * base64 strings. Plain `JSON.stringify` would render them as index-keyed
+ * objects (`{"0":…}`) — ~8× the bytes, and no longer typed arrays on the way
+ * back.
+ *
+ * The writer TRUSTS its input: `logApplyPatch` validated every patch on the way
+ * into the log, so re-checking here would only re-do work. {@link parseOps},
+ * which reads a file the process did not write, does not.
+ */
+export const serializeOps = (ops: FieldOp[]): string =>
+  JSON.stringify({
+    version: OPLOG_VERSION,
+    ops: ops.map((op) =>
+      op.kind === "patch"
+        ? { ...op, chunks: op.chunks.map(encodePatchChunk) }
+        : op,
+    ),
+  });
+
+/** Non-null, non-array object narrowing for the untrusted JSON tree. */
+const isRecord = (v: unknown): v is Record<string, unknown> =>
+  typeof v === "object" && v !== null && !Array.isArray(v);
+
+/** What an unexpected JSON value IS, for the error message — `typeof` alone
+ *  calls both `null` and `[]` "object". */
+function typeTag(v: unknown): string {
+  if (v === null) return "null";
+  if (Array.isArray(v)) return "array";
+  return typeof v;
+}
+
+/** Decodes one required base64 field of a patch slice.
+ *
+ *  @throws {@link Error} if it is absent, not a string, or not valid base64 —
+ *    named by chunk key and field, since a bad oplog gives no other context. */
+function decodeSliceBytes(
+  slice: Record<string, unknown>,
+  name: string,
+  key: string,
+): Uint8Array {
+  const raw = slice[name];
+  if (typeof raw !== "string")
+    throw new Error(
+      `field oplog: chunk "${key}" ${name} must be a base64 string`,
+    );
+  try {
+    return b64ToU8(raw);
+  } catch {
+    throw new Error(`field oplog: chunk "${key}" ${name} is not valid base64`);
+  }
+}
+
+/** {@link decodeSliceBytes} for the nullable material pair. A MISSING field is
+ *  not the same as an explicit `null` — it falls through and is rejected. */
+const decodeSliceBytesOrNull = (
+  slice: Record<string, unknown>,
+  name: string,
+  key: string,
+): Uint8Array | null =>
+  slice[name] === null ? null : decodeSliceBytes(slice, name, key);
+
+/** @throws {@link Error} if the slice is not an object, has no string key, or
+ *   carries a payload that is not decodable base64. */
+function decodePatchChunk(raw: unknown): PatchChunk {
+  if (!isRecord(raw))
+    throw new Error("field oplog: a patch chunk is not a JSON object");
+  const key = raw["key"];
+  if (typeof key !== "string")
+    throw new Error(
+      `field oplog: patch chunk key must be a string, got ${typeTag(key)}`,
+    );
+  const densityMask = decodeSliceBytes(raw, "densityMask", key);
+  const density = decodeSliceBytes(raw, "density", key);
+  return {
+    key,
+    densityMask,
+    // Three-arg view rather than `density.buffer`: correct even if b64ToU8 ever
+    // returns a view INTO a larger buffer instead of a fresh exact-sized one.
+    density: new Int8Array(
+      density.buffer,
+      density.byteOffset,
+      density.byteLength,
+    ),
+    materialMask: decodeSliceBytesOrNull(raw, "materialMask", key),
+    materials: decodeSliceBytesOrNull(raw, "materials", key),
+  };
+}
+
+/** @throws {@link Error} if the op has no numeric id or no chunks array, or if
+ *   the reconstructed patch fails {@link assertPatchStructure}. */
+function decodePatchOp(raw: Record<string, unknown>): PatchOp {
+  const id = raw["id"];
+  if (typeof id !== "number")
+    throw new Error(
+      `field oplog: patch op id must be a number, got ${typeTag(id)}`,
+    );
+  const chunks = raw["chunks"];
+  if (!Array.isArray(chunks))
+    throw new Error(`field oplog: patch op ${id} has no chunks array`);
+  const op: PatchOp = {
+    id,
+    kind: "patch",
+    chunks: chunks.map(decodePatchChunk),
+  };
+  assertPatchStructure(op);
+  return op;
+}
+
+/** Maps a pre-F2 dig literal (`kind:"dig"`, as F1 baked it) forward to a
+ *  brush/dig op.
+ *
+ *  @throws {@link Error} if it has no numeric id or no shape object. */
+function upgradeLegacyDig(raw: Record<string, unknown>): BrushOp {
+  const id = raw["id"];
+  if (typeof id !== "number")
+    throw new Error(
+      `field oplog: legacy dig op id must be a number, got ${typeTag(id)}`,
+    );
+  const shape = raw["shape"];
+  if (!isRecord(shape))
+    throw new Error(`field oplog: legacy dig op ${id} has no shape`);
+  // Boundary cast: the shape's INTERIOR is not validated here — `assertOpValid`
+  // owns brush-op semantics and needs a MaterialTable this parser has not got.
+  return { id, kind: "brush", effect: "dig", shape: shape as BrushShape };
+}
+
+/** One op from either envelope version — `kind:"dig"` is a v1 spelling, but
+ *  accepting it in a v2 envelope too keeps ONE decode path.
+ *
+ *  @throws {@link Error} if the op is not an object or its `kind` is unknown. */
+function decodeOp(raw: unknown): FieldOp {
+  if (!isRecord(raw))
+    throw new Error(
+      `field oplog: every op must be a JSON object, got ${typeTag(raw)}`,
+    );
+  const kind = raw["kind"];
+  if (kind === "patch") return decodePatchOp(raw);
+  if (kind === "dig") return upgradeLegacyDig(raw);
+  if (kind !== "brush" && kind !== "entity")
+    throw new Error(
+      `field oplog: op of unknown kind ${JSON.stringify(kind) ?? "undefined"}`,
+    );
+  // Boundary cast: brush and entity ops ride through as plain JSON. Their
+  // INTERIORS are unvalidated — `assertOpValid` (brush) and the entity readers
+  // own those contracts, and both need context this parser does not take.
+  return raw as FieldOp;
+}
+
+/** Distinguishes a FUTURE oplog (a later furnace wrote it) from an
+ *  unrecognised one (corrupt, or not an oplog at all). */
+function versionError(version: unknown): Error {
+  if (typeof version === "number" && version > OPLOG_VERSION)
+    return new Error(
+      `field oplog: version ${version} is newer than this build (max ${OPLOG_VERSION})`,
+    );
+  return new Error(`field oplog: unknown version ${String(version)}`);
+}
+
+/**
+ * Parses an oplog back into the op list. Reads BOTH the v2 envelope
+ * {@link serializeOps} writes and a v1 BARE array (an F1/F2 bake), including
+ * F1's `kind:"dig"` literals, which map forward to brush/dig ops. The two are
+ * unambiguous: a JSON array is never a JSON object.
+ *
+ * Setup-loud on an unreadable log — a corrupt oplog must never become a
+ * plausible-looking one. WHAT IS CHECKED: the envelope's shape and version;
+ * that every op is an object with a known `kind`; and, for patch ops, the full
+ * table-independent structure ({@link assertPatchStructure} — canonical unique
+ * chunk keys, 512-byte masks, value arrays exactly as long as their mask's
+ * popcount), so a truncated or garbage base64 payload is rejected rather than
+ * mis-applied. WHAT IS NOT: the interiors of brush and entity ops, and patch
+ * material class ids — both need a {@link MaterialTable} this function does not
+ * take, and both are re-checked where the op is applied.
+ *
+ * @param text - the oplog file's contents.
+ * @returns freshly built ops; no input buffer is aliased.
+ * @throws {@link Error} on invalid JSON, a non-array non-object payload, an
+ *   unknown or future envelope version, a v2 envelope with no `ops` array, an
+ *   op of unknown `kind`, or a patch op whose payload does not decode to a
+ *   structurally valid patch (those messages carry the `field patch:` prefix).
+ */
+export function parseOps(text: string): FieldOp[] {
+  const parsed: unknown = JSON.parse(text);
+  if (Array.isArray(parsed)) return parsed.map(decodeOp); // v1 bare array
+  if (!isRecord(parsed))
+    throw new Error(
+      `field oplog: expected a v2 envelope or a v1 op array, got ${typeTag(parsed)}`,
+    );
+  const version = parsed["version"];
+  if (version !== OPLOG_VERSION) throw versionError(version);
+  const ops = parsed["ops"];
+  if (!Array.isArray(ops))
+    throw new Error("field oplog: v2 envelope has no ops array");
+  return ops.map(decodeOp);
+}
 
 /** File-name-safe key segment ("cx,cy,cz" → "cx_cy_cz"). */
 const keyToFileName = (key: ChunkKey): string => key.replaceAll(",", "_");

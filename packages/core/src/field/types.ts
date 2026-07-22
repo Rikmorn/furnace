@@ -183,9 +183,9 @@ export type PatchChunk = {
  *  primitive (a run of plain dig/fill/paint ops folds into one patch without
  *  changing the field) and a procedural generator's emission form (the noise
  *  math stays in `evaluate`; the log keeps flat per-cell arrays in memory
- *  instead of re-deriving them). NOTE: those typed arrays have no WIRE encoding
- *  yet — `serializeOps` is still JSON, which mangles them; a compact on-disk
- *  form is a follow-up (see the MIGRATION note in `artifact.ts`). Bounded
+ *  instead of re-deriving them). Those typed arrays ride the wire as base64
+ *  inside the v2 oplog envelope (`serializeOps`/`parseOps` in `artifact.ts`), so
+ *  a patch survives a bake byte-for-byte. Bounded
  *  influence = exactly its masked cells, which is what makes replay byte-exact
  *  by construction: unlike a brush op it derives nothing from surrounding state,
  *  so it never bakes context in and never drifts when an UPSTREAM op is
