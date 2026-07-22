@@ -7,6 +7,14 @@
 // the phase/opCount/error status (+ the truncated-selection warning), and
 // Commit/Cancel — whose keyboard twins (Enter/Esc, and the arrows for the
 // nudges) live on the CANVAS keydown, so the titles say so.
+//
+// F3a: the same card serves a RECONFIGURE session (host.openEntity on a
+// committed row) — identical controls, because a reconfigure IS a re-run of the
+// same staged evaluate. Only the framing changes: the title names the entity
+// and the commit reads Apply, so the destination is never ambiguous. Frozen and
+// baked entities never reach this card at all (the host refuses to open one),
+// which is why there is no read-only mode here — the entities row keeps its
+// read-only params <dl> and owns the Unfreeze affordance.
 import type { MergePolicy } from "@furnace/core/field"; // type-only: erased
 import type {
 	FieldGeneratorInfo,
@@ -83,6 +91,9 @@ export function StampInspector(props: {
 	 *  step) — the button twin of the viewport's arrow keys. */
 	onNudge: (dx: number, dy: number, dz: number) => void;
 	onReroll: () => void;
+	/** Ends the session: `commitStamp` for a stamp, `applyReconfigure` for a
+	 *  reconfigure — the PANEL routes on the session's mode, so this stays one
+	 *  button with one meaning ("land what the ghost shows"). */
 	onCommit: () => void;
 	onCancel: () => void;
 }) {
@@ -92,9 +103,15 @@ export function StampInspector(props: {
 		// session's params record (values={[session.params]}).
 		onUpdate(next[0] as Record<string, unknown>, session.seed, session.policy);
 	const ready = session.phase === "ready";
+	const reconfiguring = session.mode === "reconfigure";
+	const commitLabel = reconfiguring ? "Apply" : "Commit";
 	return (
 		<div className="flex flex-col gap-2 rounded-md border border-border p-2">
-			<p className="text-xs font-semibold">stamp: {def.name}</p>
+			<p className="text-xs font-semibold">
+				{reconfiguring
+					? `reconfigure: ${def.name} #${session.entityId}`
+					: `stamp: ${def.name}`}
+			</p>
 			<SchemaForm
 				// Boundary cast: the host surfaces paramSchema as an opaque plain-data
 				// record (it cannot type it — the chrome can't value-import core); it
@@ -228,6 +245,18 @@ export function StampInspector(props: {
 					{session.error}
 				</p>
 			)}
+			{/* The two v0 caveats a reconfigure carries, stated once rather than
+			    left to surprise at Apply (host.openEntity's contract owns both):
+			    the merge policy is not recorded provenance, and the ghost is
+			    previewed against the field as it stands now while Apply rewinds
+			    this stamp's chunks first. */}
+			{reconfiguring && (
+				<p className="text-xs text-muted-foreground/70">
+					merge policy isn't recorded — this opens at Replace; the ghost
+					previews against the current field, Apply rewinds this stamp's chunks
+					first
+				</p>
+			)}
 			{session.truncatedSelection && (
 				<p className="text-xs text-warning">
 					the selection flood hit its budget — the stamp region under-covers it
@@ -245,17 +274,25 @@ export function StampInspector(props: {
 						type="button"
 						size="sm"
 						disabled={!ready}
-						title="commit the stamp (Enter in the viewport)"
+						title={
+							reconfiguring
+								? "re-evaluate this stamp in place (Enter in the viewport)"
+								: "commit the stamp (Enter in the viewport)"
+						}
 						onClick={props.onCommit}
 					>
-						Commit
+						{commitLabel}
 					</Button>
 				</ReasonTip>
 				<Button
 					type="button"
 					size="sm"
 					variant="secondary"
-					title="discard the session (Esc in the viewport)"
+					title={
+						reconfiguring
+							? "discard these changes — the committed stamp is untouched (Esc in the viewport)"
+							: "discard the session (Esc in the viewport)"
+					}
 					onClick={props.onCancel}
 				>
 					Cancel

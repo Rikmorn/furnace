@@ -9,8 +9,10 @@ import {
 /**
  * A titled, collapsible inspector section (the IA unit for a component / resource /
  * settings block). Presentational: the caller owns the open-state default and the
- * onOpenChange side effect (persistence), so this stays a dumb wrapper. The chevron
- * rotates with the trigger's data-state.
+ * onOpenChange side effect (persistence), so this stays a dumb wrapper — and
+ * `onOpenChange` is OPTIONAL for the same reason: a section whose open state drives
+ * nothing should not have to invent a callback to say so. The chevron rotates with
+ * the trigger's data-state.
  */
 export function CollapsibleSection({
 	title,
@@ -20,7 +22,7 @@ export function CollapsibleSection({
 }: {
 	title: ReactNode;
 	defaultOpen: boolean;
-	onOpenChange: (open: boolean) => void;
+	onOpenChange?: (open: boolean) => void;
 	children: ReactNode;
 }) {
 	return (

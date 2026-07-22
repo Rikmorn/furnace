@@ -18,6 +18,14 @@ export type StampRegion = {
   max: [number, number, number];
 };
 
+/** What a session commits to: `stamp` = a NEW generator application (the host
+ *  commits it with `commitGenerator`); `reconfigure` = a re-parameterization of
+ *  the COMMITTED entity named by {@link StampSession.entityId} (the host applies
+ *  it with `reconfigureGenerator`). Every transition below is mode-agnostic —
+ *  the two modes differ only in where the session came from and which verb ends
+ *  it. */
+export type StampMode = "stamp" | "reconfigure";
+
 /** One staged-stamp session. `run` is the supersession counter: every
  *  params/seed/policy change bumps it and a preview response carrying an older
  *  run is DROPPED ({@link withPreviewResult}/{@link withPreviewError} return
@@ -38,9 +46,16 @@ export type StampSession = {
   opCount: number | null;
   error: string | null;
   truncatedSelection: boolean;
+  mode: StampMode;
+  /** The committed entity a `reconfigure` session rewrites; ALWAYS null in
+   *  `stamp` mode (there is no entity until the commit creates one). A plain
+   *  field rather than a discriminated union: every transition here spreads the
+   *  session wholesale, and a union would distribute through each spread for
+   *  a fact only the two terminal verbs read. */
+  entityId: number | null;
 };
 
-/** Opens a session in `configuring` at run 0 with the generator's schema
+/** Opens a `stamp` session in `configuring` at run 0 with the generator's schema
  *  defaults and the default `replace` policy. The caller owns aliasing:
  *  `defaults`/`region` are stored as given (the host clones at its boundary). */
 export function startSession(
@@ -61,6 +76,45 @@ export function startSession(
     opCount: null,
     error: null,
     truncatedSelection,
+    mode: "stamp",
+    entityId: null,
+  };
+}
+
+/** A committed entity's recorded provenance, as a reconfigure session opens on
+ *  it. `policy` is NOT provenance — `GeneratorEntity` does not record the merge
+ *  policy its commit used — so the caller supplies the one the session (and
+ *  therefore the ghost, and therefore the apply) will run under. */
+export type ReconfigureTarget = {
+  entityId: number;
+  generator: string;
+  params: Record<string, unknown>;
+  seed: number;
+  region: StampRegion;
+  policy: MergePolicy;
+};
+
+/** Opens a `reconfigure` session on a committed entity: {@link startSession}'s
+ *  state machine seeded from recorded provenance instead of schema defaults, so
+ *  every transition, the supersession counter and the ghost flow behave
+ *  identically. `truncatedSelection` is false by construction — the region comes
+ *  from the record, not from a flood. The caller owns aliasing (the host clones
+ *  the record's `params`/`region` at its boundary). */
+export function startReconfigureSession(
+  target: ReconfigureTarget,
+): StampSession {
+  const base = startSession(
+    target.generator,
+    target.params,
+    target.region,
+    target.seed,
+    false,
+  );
+  return {
+    ...base,
+    policy: target.policy,
+    mode: "reconfigure",
+    entityId: target.entityId,
   };
 }
 

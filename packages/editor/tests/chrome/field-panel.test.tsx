@@ -5,12 +5,15 @@
 // panel's initWhenSized defers host.init until the canvas measures nonzero,
 // and a happy-dom canvas never does — so every behaviour under test is pure
 // chrome↔host protocol: the paint organic-clamp, the catalog Load gate, the
-// subscribeTool echo guard, the entity-refresh triggers (commit push + the
-// stats remeshVersion counter — the Safari performance.now() quantization
-// fix), stamp commit gating, slice wiring, and the selection footer.
+// subscribeTool echo guard, the entity-refresh tick (F3a — the ONE trigger,
+// which replaced the F2b commit-push + remeshVersion-counter pair), the F3a
+// row verbs (Open / Freeze / Bake-behind-a-confirm) and the reconfigure
+// session's Apply routing, stamp commit gating, slice wiring, and the
+// selection footer.
 
 import { afterEach, expect, mock, test } from "bun:test";
-import type { GeneratorEntity } from "@furnace/core/field";
+import type { DriftFinding, GeneratorEntity } from "@furnace/core/field";
+import type { ConfirmRequest } from "../../src/frontend/components/ConfirmDialog.tsx";
 import { FieldPanel } from "../../src/frontend/components/FieldPanel.tsx";
 import type {
 	FieldGeneratorInfo,
@@ -96,6 +99,8 @@ function makeSession(overrides: Partial<StampSession> = {}): StampSession {
 		opCount: null,
 		error: null,
 		truncatedSelection: false,
+		mode: "stamp",
+		entityId: null,
 		...overrides,
 	};
 }
@@ -122,12 +127,16 @@ function makeStubHost(opts: { generators?: FieldGeneratorInfo[] } = {}) {
 		stats: ((s: FieldStats) => void) | null;
 		selection: ((i: SelectionInfo | null) => void) | null;
 		toolError: ((msg: string) => void) | null;
+		entities: (() => void) | null;
+		drift: ((r: DriftFinding[] | null) => void) | null;
 	} = {
 		tool: null,
 		stamp: null,
 		stats: null,
 		selection: null,
 		toolError: null,
+		entities: null,
+		drift: null,
 	};
 	const calls = {
 		setTool: mock(),
@@ -147,6 +156,10 @@ function makeStubHost(opts: { generators?: FieldGeneratorInfo[] } = {}) {
 		clearSelection: mock(),
 		reselect: mock(),
 		newWorld: mock(),
+		openEntity: mock(),
+		applyReconfigure: mock(),
+		setEntityFrozen: mock(),
+		bakeEntity: mock(),
 	};
 	const host: FieldHost = {
 		init: () => Promise.resolve(),
@@ -194,6 +207,22 @@ function makeStubHost(opts: { generators?: FieldGeneratorInfo[] } = {}) {
 			// biome-ignore lint/suspicious/noEmptyBlockStatements: inert unsubscribe no-op
 			return () => {};
 		},
+		openEntity: calls.openEntity,
+		applyReconfigure: calls.applyReconfigure,
+		setEntityFrozen: calls.setEntityFrozen,
+		bakeEntity: calls.bakeEntity,
+		subscribeDrift: (cb) => {
+			cbs.drift = cb;
+			cb(null);
+			// biome-ignore lint/suspicious/noEmptyBlockStatements: inert unsubscribe no-op
+			return () => {};
+		},
+		subscribeEntities: (cb) => {
+			cbs.entities = cb;
+			cb(); // the real host's initial catch-up tick
+			// biome-ignore lint/suspicious/noEmptyBlockStatements: inert unsubscribe no-op
+			return () => {};
+		},
 		listEntities: () => entities.map((e) => structuredClone(e)),
 		highlightEntity: calls.highlightEntity,
 		exportArtifact: () => [],
@@ -212,12 +241,32 @@ function makeStubHost(opts: { generators?: FieldGeneratorInfo[] } = {}) {
 			stamp: (s: StampSession | null) => cbs.stamp?.(s),
 			stats: (s: FieldStats) => cbs.stats?.(s),
 			selection: (i: SelectionInfo | null) => cbs.selection?.(i),
+			/** The entity-list change TICK (the real host's only entity signal). */
+			entities: () => cbs.entities?.(),
+			drift: (r: DriftFinding[] | null) => cbs.drift?.(r),
 		},
 		setEntities: (next: GeneratorEntity[]) => {
 			entities = next;
 		},
 	};
 }
+
+/** Seed the list with `next` and fire the host's entity tick, as the real host
+ *  does after a commit / apply / freeze / bake / ⌘Z. */
+function pushEntities(
+	stub: ReturnType<typeof makeStubHost>,
+	next: GeneratorEntity[],
+): void {
+	stub.setEntities(next);
+	act(() => {
+		stub.fire.entities();
+	});
+}
+
+/** The one row of a single-entity list (every F3a row test seeds exactly one),
+ *  scoped so a label like "Freeze" cannot resolve against another row. */
+const rowButton = (name: string): HTMLButtonElement =>
+	screen.getByRole("button", { name }) as HTMLButtonElement;
 
 /** Render the panel and flush the toolbar's catalog fetch inside act — its
  *  settle (status + Load-gate setState) otherwise lands between assertions as
@@ -310,7 +359,7 @@ test("a host-initiated tool push is adopted without re-pushing to host.setTool",
 
 // --- (d) commit lands the entity row ----------------------------------------
 
-test("a stamp commit (session → null push) surfaces the new entity row", async () => {
+test("a stamp commit (the host's entity tick) surfaces the new entity row", async () => {
 	fetch404();
 	const stub = makeStubHost({ generators: [HALL_GEN] });
 	await renderPanel(stub);
@@ -318,44 +367,153 @@ test("a stamp commit (session → null push) surfaces the new entity row", async
 	act(() => {
 		stub.fire.stamp(makeSession({ phase: "ready", opCount: 3 }));
 	});
-	// The commit appends the entity op and ends the session with a null push.
-	stub.setEntities([ENTITY]);
+	// The commit appends the entity op, ends the session and ticks the list.
 	act(() => {
 		stub.fire.stamp(null);
 	});
+	pushEntities(stub, [ENTITY]);
 	expect(screen.getByText("Entities (1)")).toBeTruthy();
 	fireEvent.click(screen.getByText("Entities (1)"));
 	expect(screen.getByText("hall · seed 7 · 3 ops")).toBeTruthy();
 });
 
-// --- (e) ⌘Z-equivalent: the stats counter drives the refresh ----------------
+// --- (e) the entity tick is the ONLY refresh trigger ------------------------
 
-test("an undone commit disappears on a remeshVersion bump even when lastRemeshMs quantizes identically", async () => {
+test("an undone commit disappears on the entity tick — no session change, no remesh", async () => {
 	fetch404();
 	const stub = makeStubHost({ generators: [HALL_GEN] });
 	await renderPanel(stub);
-	// A first remesh readout (Safari-style whole-ms clock value).
-	act(() => {
-		stub.fire.stats({ chunks: 4, lastRemeshMs: 1, remeshVersion: 1 });
-	});
-	// Commit an entity (the (d) flow).
-	act(() => {
-		stub.fire.stamp(makeSession({ phase: "ready", opCount: 3 }));
-	});
+	pushEntities(stub, [ENTITY]);
+	expect(screen.getByText("Entities (1)")).toBeTruthy();
+	// ⌘Z with NOTHING else moving: no stamp session was open (so no null push)
+	// and a freeze/bake undo dirties no chunk (so the remesh counter never
+	// advances). The F2b trigger pair would have missed this entirely.
+	pushEntities(stub, []);
+	expect(screen.getByText("Entities (0)")).toBeTruthy();
+	// The proxies the tick replaced must NOT be refresh triggers any more: a
+	// stats push carrying a fresh counter reads no entities back.
 	stub.setEntities([ENTITY]);
 	act(() => {
-		stub.fire.stamp(null);
-	});
-	expect(screen.getByText("Entities (1)")).toBeTruthy();
-	// ⌘Z: the entity op is undone (listEntities shrinks) and the redig's remesh
-	// completes with an IDENTICAL clock read — chunks and lastRemeshMs match the
-	// previous push exactly (Safari clamps performance.now() to ~1 ms). Only
-	// the monotonic counter differs; it alone must drive the refresh.
-	stub.setEntities([]);
-	act(() => {
-		stub.fire.stats({ chunks: 4, lastRemeshMs: 1, remeshVersion: 2 });
+		stub.fire.stats({ chunks: 4, lastRemeshMs: 1, remeshVersion: 9 });
 	});
 	expect(screen.getByText("Entities (0)")).toBeTruthy();
+});
+
+// --- (d2) F3a: the smart-object verbs on a committed row --------------------
+
+const FROZEN: GeneratorEntity = { ...ENTITY, entityId: 2, frozen: true };
+const BAKED: GeneratorEntity = { ...ENTITY, entityId: 3, baked: true };
+
+/** Expand the Entities section (rows render inside a collapsed section by
+ *  default) after seeding `next`. */
+async function showEntities(
+	stub: ReturnType<typeof makeStubHost>,
+	next: GeneratorEntity[],
+): Promise<void> {
+	await renderPanel(stub);
+	pushEntities(stub, next);
+	fireEvent.click(screen.getByText(`Entities (${next.length})`));
+}
+
+test("Open on a plain row starts a reconfigure session through the host", async () => {
+	fetch404();
+	const stub = makeStubHost({ generators: [HALL_GEN] });
+	await showEntities(stub, [ENTITY]);
+	fireEvent.click(screen.getByLabelText("open entity 1"));
+	expect(stub.calls.openEntity.mock.calls).toEqual([[1]]);
+});
+
+test("a frozen row badges its state and refuses Open; a baked row does both too", async () => {
+	fetch404();
+	const stub = makeStubHost({ generators: [HALL_GEN] });
+	await showEntities(stub, [FROZEN, BAKED]);
+	expect(screen.getByText("frozen")).toBeTruthy();
+	expect(screen.getByText("baked")).toBeTruthy();
+	const frozenOpen = screen.getByLabelText(
+		"open entity 2",
+	) as HTMLButtonElement;
+	const bakedOpen = screen.getByLabelText("open entity 3") as HTMLButtonElement;
+	expect(frozenOpen.disabled).toBe(true);
+	expect(bakedOpen.disabled).toBe(true);
+	fireEvent.click(frozenOpen);
+	expect(stub.calls.openEntity).not.toHaveBeenCalled();
+});
+
+test("the row freezes a plain entity and unfreezes a frozen one", async () => {
+	fetch404();
+	const stub = makeStubHost({ generators: [HALL_GEN] });
+	await showEntities(stub, [ENTITY]);
+	fireEvent.click(rowButton("Freeze"));
+	expect(stub.calls.setEntityFrozen.mock.calls).toEqual([[1, true]]);
+	// The same row, now frozen: the button flips to Unfreeze and asks for false.
+	// This is also the sameEntities guard's test — a flag-only change is the one
+	// the F2b signature (id/generator/seed/opSpan) could not see.
+	pushEntities(stub, [{ ...ENTITY, frozen: true }]);
+	fireEvent.click(rowButton("Unfreeze"));
+	expect(stub.calls.setEntityFrozen.mock.calls.at(-1)).toEqual([1, false]);
+});
+
+test("a baked row disables both verbs — core would refuse them anyway", async () => {
+	fetch404();
+	const stub = makeStubHost({ generators: [HALL_GEN] });
+	await showEntities(stub, [BAKED]);
+	expect(rowButton("Freeze").disabled).toBe(true);
+	expect(rowButton("Bake…").disabled).toBe(true);
+});
+
+test("Bake confirms before severing the recipe — cancelling never reaches the host", async () => {
+	fetch404();
+	const stub = makeStubHost({ generators: [HALL_GEN] });
+	let request: ConfirmRequest | null = null;
+	renderWithEditor(
+		<FieldPanel />,
+		makeEditorContext({
+			fieldHostRef: { current: stub.host },
+			openConfirm: (r) => {
+				request = r;
+			},
+		}),
+	);
+	await act(async () => {
+		await Promise.resolve();
+		await Promise.resolve();
+	});
+	pushEntities(stub, [ENTITY]);
+	fireEvent.click(screen.getByText("Entities (1)"));
+	fireEvent.click(rowButton("Bake…"));
+	// The click alone must not bake: the panel routed it into the App confirm.
+	expect(stub.calls.bakeEntity).not.toHaveBeenCalled();
+	const pending = request as ConfirmRequest | null;
+	if (pending === null) throw new Error("Bake did not open a confirmation");
+	expect(pending.destructive).toBe(true);
+	expect(pending.message).toMatch(/severs the recipe permanently/);
+	// Confirming is what severs it.
+	act(() => {
+		pending.onConfirm();
+	});
+	expect(stub.calls.bakeEntity.mock.calls).toEqual([[1]]);
+});
+
+test("a reconfigure session commits through applyReconfigure, not commitStamp", async () => {
+	fetch404();
+	const stub = makeStubHost({ generators: [HALL_GEN] });
+	await renderPanel(stub);
+	act(() => {
+		stub.fire.stamp(
+			makeSession({ mode: "reconfigure", entityId: 1, phase: "ready" }),
+		);
+	});
+	// The card names its destination: the entity, not a fresh stamp.
+	expect(screen.getByText("reconfigure: Hall #1")).toBeTruthy();
+	fireEvent.click(button("Apply"));
+	expect(stub.calls.applyReconfigure).toHaveBeenCalledTimes(1);
+	expect(stub.calls.commitStamp).not.toHaveBeenCalled();
+	// The stamp path still reads Commit and still routes to commitStamp.
+	act(() => {
+		stub.fire.stamp(makeSession({ phase: "ready" }));
+	});
+	fireEvent.click(button("Commit"));
+	expect(stub.calls.commitStamp).toHaveBeenCalledTimes(1);
 });
 
 // --- (f) Commit ready-gating ------------------------------------------------

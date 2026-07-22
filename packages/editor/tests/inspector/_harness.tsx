@@ -53,6 +53,7 @@ type EditorContextOverrides = {
 	extensions?: Record<string, unknown>;
 	actions?: Partial<EditorActions>;
 	generation?: Partial<GenerationControl>;
+	openConfirm?: EditorContextValue["openConfirm"];
 	store?: UiStore;
 };
 
@@ -112,6 +113,7 @@ export function makeEditorContext(
 		generation,
 		viewFlags: DEFAULT_VIEW_FLAGS,
 		setViewFlag: noop,
+		openConfirm: overrides.openConfirm ?? noop,
 		store: overrides.store,
 	};
 }

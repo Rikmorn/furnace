@@ -107,10 +107,13 @@ const toolsEqual = (a: FieldTool, b: FieldTool): boolean => {
 	);
 };
 
-// Entity-list identity for the refresh guard: id + generator + seed + opSpan
-// (everything a ROW displays). Params are immutable post-commit (reconfigure
-// is F3) and share the commit's identity, so a matching signature means the
-// same rows and the previous array reference can be kept (no re-render).
+// Entity-list identity for the refresh guard: everything a ROW can display —
+// id + generator + seed + opSpan + the two state flags. Params are NOT compared
+// and do not need to be: a reconfigure re-evaluates the span with fresh op ids
+// (core takes them from log.nextId, which only ever grows), so any param change
+// that reaches the log moves opSpan with it. The flags DO need their own
+// comparison — freeze and bake rewrite the record and nothing else, so without
+// them a frozen badge would never appear.
 const sameEntities = (a: GeneratorEntity[], b: GeneratorEntity[]): boolean =>
 	a.length === b.length &&
 	a.every((e, i) => {
@@ -121,12 +124,14 @@ const sameEntities = (a: GeneratorEntity[], b: GeneratorEntity[]): boolean =>
 			e.generator === o.generator &&
 			e.seed === o.seed &&
 			e.opSpan[0] === o.opSpan[0] &&
-			e.opSpan[1] === o.opSpan[1]
+			e.opSpan[1] === o.opSpan[1] &&
+			e.frozen === o.frozen &&
+			e.baked === o.baked
 		);
 	});
 
 export function FieldPanel() {
-	const { state, fieldHostRef } = useEditor();
+	const { state, fieldHostRef, openConfirm } = useEditor();
 	const canvasRef = useRef<HTMLCanvasElement>(null);
 	const initialized = useRef(false);
 	const [radius, setRadius] = useState(DEFAULT_RADIUS);
@@ -235,19 +240,14 @@ export function FieldPanel() {
 		return () => host.highlightEntity(null);
 	}, [state.status, fieldHostRef]);
 
-	// Entities refresh strategy (Task 15): re-read listEntities when
-	// (a) the STAMP session changes — a commit ends the session with a null
-	//     push, which lands the new entity here;
-	// (b) the remesh COUNTER advances — any field mutation (including a ⌘Z
-	//     undo/redo of an entity commit) dirties chunks, whose remesh
-	//     completion bumps stats.remeshVersion, so an undone entity disappears
-	//     within a frame or two. The counter, NOT lastRemeshMs: that is a
-	//     clock read Safari clamps to ~1 ms, so consecutive remeshes can
-	//     quantize identically and a value compare would miss the ⌘Z (F2b
-	//     sweep) — the counter makes (b) event-driven per remesh completion;
-	// (c) the Entities section OPENS (EntitiesList onOpen) — manual catch-up.
-	// The signature guard (sameEntities) keeps the no-change reads (every plain
-	// dig stroke hits (b)) from re-rendering the panel.
+	// Entities refresh strategy (F3a): ONE host-pushed trigger. The host fires
+	// subscribeEntities from every path that can add, remove or rewrite an
+	// entity record — commit, reconfigure apply, freeze/unfreeze, bake, ⌘Z/⇧⌘Z,
+	// world new/load — plus once on subscribe. It REPLACES the F2b trigger pair
+	// (the stamp-session null push + the remesh counter): both were proxies for
+	// "the log changed", and neither could see freeze or bake, which dirty no
+	// chunk and end no session. The signature guard (sameEntities) keeps a tick
+	// that changed nothing from re-rendering the panel.
 	const refreshEntities = useCallback((): void => {
 		const host = fieldHostRef.current;
 		if (!host) return;
@@ -258,14 +258,10 @@ export function FieldPanel() {
 	}, [fieldHostRef]);
 
 	useEffect(() => {
-		if (state.status !== "ready") return;
-		// `stamp` + `stats.remeshVersion` are deliberate TRIGGER deps — triggers
-		// (a) and (b) of the refresh strategy above; their values are read via
-		// listEntities.
-		void stamp;
-		void stats.remeshVersion;
-		refreshEntities();
-	}, [state.status, refreshEntities, stamp, stats.remeshVersion]);
+		const host = fieldHostRef.current;
+		if (!host || state.status !== "ready") return;
+		return host.subscribeEntities(refreshEntities);
+	}, [state.status, fieldHostRef, refreshEntities]);
 
 	// User-facing tool problems (selection-mask misuse, swallowed stroke
 	// failures, "select a region first") surface on the status line.
@@ -352,6 +348,22 @@ export function FieldPanel() {
 	const onMaterial = (id: number): void =>
 		pushTool({ ...tool, materialId: id });
 
+	// Bake is the ONE irreversible field verb (it severs the recipe), so it goes
+	// through the App-owned confirm — the same prompt the destructive scene
+	// actions use, which also suppresses the global keybindings while it is open.
+	// The panel owns this, not EntitiesList: a list that can sever a recipe on
+	// its own click has no seam left to put a confirmation in.
+	const requestBake = (id: number): void => {
+		openConfirm({
+			title: `Bake stamp #${id}?`,
+			message:
+				"Baking severs the recipe permanently: this stamp can never be reconfigured again, and its ops become plain history. Only ⌘Z reverses it, and only until the undo stack is discarded or the world is saved and reloaded.",
+			confirmLabel: "Bake",
+			destructive: true,
+			onConfirm: () => fieldHostRef.current?.bakeEntity(id),
+		});
+	};
+
 	if (state.status !== "ready") {
 		return (
 			<p className="p-3 text-sm text-muted-foreground">
@@ -435,7 +447,14 @@ export function FieldPanel() {
 								fieldHostRef.current?.nudgeStamp(dx, dy, dz)
 							}
 							onReroll={() => fieldHostRef.current?.rerollStamp()}
-							onCommit={() => fieldHostRef.current?.commitStamp()}
+							// The session's MODE picks the verb (the host's own Enter
+							// routing): a reconfigure re-evaluates a committed entity in
+							// place, a stamp appends a new one.
+							onCommit={() =>
+								stamp.mode === "reconfigure"
+									? fieldHostRef.current?.applyReconfigure()
+									: fieldHostRef.current?.commitStamp()
+							}
 							onCancel={() => fieldHostRef.current?.cancelStamp()}
 						/>
 					)}
@@ -453,7 +472,11 @@ export function FieldPanel() {
 					<EntitiesList
 						entities={entities}
 						onHighlight={(id) => fieldHostRef.current?.highlightEntity(id)}
-						onOpen={refreshEntities}
+						onOpen={(id) => fieldHostRef.current?.openEntity(id)}
+						onFreeze={(id, frozen) =>
+							fieldHostRef.current?.setEntityFrozen(id, frozen)
+						}
+						onBake={requestBake}
 					/>
 				</div>
 			</div>

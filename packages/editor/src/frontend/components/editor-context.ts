@@ -11,6 +11,7 @@ import type { WorldGenSession } from "../lib/generation.ts";
 import type { GenerationWorkerClient } from "../lib/generation-client.ts";
 import type { UiStore } from "../lib/persist.ts";
 import type { EditorEvent, EditorState } from "../lib/state.ts";
+import type { ConfirmRequest } from "./ConfirmDialog.tsx";
 
 /** Preview/commit actions the inspector drives; implemented in App (owns host + dedup). */
 export type EditorActions = {
@@ -78,6 +79,12 @@ export type EditorContextValue = {
   viewFlags: ViewFlags;
   /** Toggle one view flag: updates App state, persists it, and pushes to the viewport host. */
   setViewFlag: (key: keyof ViewFlags, value: boolean) => void;
+  /** Open the ONE in-chrome confirm dialog (App-owned, `useConfirmDialog`) — the
+   *  only prompt seam a panel may use; `window.confirm` is banned. App's state
+   *  machine refuses to clobber a pending prompt and fires each request's
+   *  callbacks exactly once, and its `confirmRef` suppresses every global
+   *  keybinding while one is open — none of which a panel-local dialog would get. */
+  openConfirm: (request: ConfirmRequest) => void;
   /** Per-project UI persistence store (Task 6). Undefined when the project root couldn't
    *  be resolved (persistence best-effort). The inspector reads/writes `inspectorCollapse`
    *  through it to remember each section's open state. */

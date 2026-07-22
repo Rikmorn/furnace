@@ -36,6 +36,7 @@ import { packKitMatrices, pieceColor } from "./field-kit-render.ts";
 import {
   createPreviewCoalescer,
   type StampSession,
+  startReconfigureSession,
   startSession,
   toPreviewing,
   withParams,
@@ -117,10 +118,17 @@ export type FieldGeneratorInfo = {
 
 /** The host's live stats readout ({@link FieldHost.subscribeStats}, pushed
  *  every rAF). `remeshVersion` is a monotonic counter bumped on every remesh
- *  COMPLETION — the panel's entity-refresh trigger keys on it because
- *  `lastRemeshMs` is a clock read (Safari clamps `performance.now()` to
+ *  COMPLETION: an event-driven "a remesh landed" signal that survives
+ *  `lastRemeshMs` being a clock read (Safari clamps `performance.now()` to
  *  ~1 ms, so consecutive remeshes can quantize identically and a
- *  value-equality guard would miss them). */
+ *  value-equality guard would miss them).
+ *
+ *  It was introduced as the panel's entity-refresh trigger and NO LONGER HAS
+ *  that consumer — F3a moved entity refresh onto {@link
+ *  FieldHost.subscribeEntities}, a real signal rather than a proxy. The counter
+ *  is kept because it is the only honest "the field changed" tick the stats
+ *  carry; whoever next touches this readout should either give it a consumer or
+ *  delete it. */
 export type FieldStats = {
   chunks: number;
   lastRemeshMs: number;
@@ -276,6 +284,81 @@ export type FieldHost = {
    *  rationale); sessions are CLONED — the panel never holds host state.
    *  Single subscriber (the panel); returns an unsubscribe. */
   subscribeStamp(cb: (s: StampSession | null) => void): () => void;
+  /** Opens a RECONFIGURE session on a committed entity (F3a): the SAME staged
+   *  session {@link startStamp} opens — ghost preview, nudges, re-roll — seeded
+   *  from the entity's recorded provenance (params/seed/region) instead of the
+   *  schema defaults, ended by {@link applyReconfigure} rather than
+   *  {@link commitStamp}. Replaces any existing session (its ghost is
+   *  destroyed; in-flight previews are dropped).
+   *
+   *  The session opens at the `replace` merge policy WHATEVER the original
+   *  commit used: `GeneratorEntity` does not record the policy, so it is not
+   *  recoverable (core's `reconfigureGenerator` falls back the same way). The
+   *  policy select re-previews and the apply honours it, so the ghost never
+   *  lies about what Apply will build — but a stamp committed under
+   *  `keep-existing-air` reconfigures under `replace` unless the user re-picks
+   *  it.
+   *
+   *  Known v0 limit — the ghost previews against CURRENT field state, not
+   *  against the state the entity was committed into: the preview snapshot is
+   *  the store as it stands (everything dug/stamped since included), so the
+   *  ghost shows the new SHAPE correctly but its merge against existing air can
+   *  differ from what the apply produces (the apply rewinds the affected chunks
+   *  to their pre-span state first). Exactness needs worker-side restore —
+   *  backlogged:
+   *  `docs/backlog/editor-and-tooling/field-reconfigure-ghost-exactness.md`.
+   *
+   *  Runtime-quiet on everything it can refuse: an unknown id, a FROZEN or
+   *  BAKED entity, and an entity whose recorded generator has left the registry
+   *  all report through {@link subscribeToolError} and open no session. */
+  openEntity(entityId: number): void;
+  /** Applies the live RECONFIGURE session (its Enter twin): re-evaluates the
+   *  entity's span in place through core's `reconfigureGenerator`, remeshes the
+   *  affected chunks, pushes the replay's drift report to
+   *  {@link subscribeDrift} and ends the session. ONE undo entry.
+   *
+   *  Ready-phase only (the {@link commitStamp} discipline) and reconfigure-mode
+   *  only — a stamp session, or a configuring/previewing one, is a no-op. A core
+   *  rejection (the entity was frozen or undone from under the session) reports
+   *  through {@link subscribeToolError} and LEAVES the session standing so the
+   *  user can retry or cancel. */
+  applyReconfigure(): void;
+  /** Freezes/unfreezes a committed entity — cheap reversible protection:
+   *  {@link openEntity} refuses a frozen entity until it is unfrozen. Touches
+   *  no chunk, so nothing remeshes; ONE undo entry per REAL change (a redundant
+   *  call is a no-op core does not log). A baked entity has nothing left to
+   *  protect and reports through {@link subscribeToolError}. */
+  setEntityFrozen(entityId: number, frozen: boolean): void;
+  /** Severs a committed entity's recipe — PERMANENT (no unbake; the caller
+   *  confirms before calling). The record keeps its provenance for history, but
+   *  reconfigure is gone for good and the span becomes plain history. ONE undo
+   *  entry, which is the only way back and only until it leaves the stack. An
+   *  already-baked entity reports through {@link subscribeToolError}.
+   *
+   *  A live reconfigure session on that entity is CANCELLED — its Apply could
+   *  no longer land. */
+  bakeEntity(entityId: number): void;
+  /** Subscribes to the latest reconfigure drift report: the downstream ops the
+   *  last {@link applyReconfigure} replayed whose outcome moved (`drifted`) or
+   *  vanished (`orphaned`). Pushed on every apply — null when that apply found
+   *  nothing, so a clean reconfigure clears the previous report — and null on
+   *  world reset/load (a report names op ids the new log does not have).
+   *  Reports are CLONED and the CURRENT one is pushed immediately on subscribe
+   *  (the {@link subscribeStamp} remount rationale); dismissal is the UI's own
+   *  state (the host holds the last report until the next apply). NOT cleared
+   *  by ⌘Z: undoing a reconfigure leaves its findings standing, still addressed
+   *  by op id and chunk, describing an edit that is no longer applied. Single
+   *  subscriber (the panel); returns an unsubscribe. */
+  subscribeDrift(cb: (report: field.DriftFinding[] | null) => void): () => void;
+  /** Subscribes to "the entity list may have changed" — a bare TICK, not a
+   *  value: the subscriber re-reads {@link listEntities} itself (the records are
+   *  clones; pushing them would clone on every fire whether or not anything
+   *  moved). Fires on commit, apply, freeze/unfreeze, bake, ⌘Z/⇧⌘Z, world
+   *  new/load, and ONCE immediately on subscribe (a panel that mounts after the
+   *  world loaded must not render an empty list). Freeze and bake dirty NO
+   *  chunk, so this is the only signal that carries them — the remesh counter
+   *  never moves. Single subscriber (the panel); returns an unsubscribe. */
+  subscribeEntities(cb: () => void): () => void;
   /** The committed generator entities, in log order (CLONES — read from the
    *  op log's entity ops, so undo/redo and world loads stay accurate). */
   listEntities(): field.GeneratorEntity[];
@@ -533,6 +616,13 @@ export function createFieldHost(): FieldHost {
   let stampGen = 0;
   // Panel mirror for stamp-session changes (Task 15).
   let stampCb: ((s: StampSession | null) => void) | null = null;
+  // The last reconfigure's drift report (null = the last apply was clean, or
+  // none has run) + its panel subscriber.
+  let drift: field.DriftFinding[] | null = null;
+  let driftCb: ((report: field.DriftFinding[] | null) => void) | null = null;
+  // Entity-list change tick (freeze/bake dirty no chunk, so the remesh counter
+  // cannot carry them — see subscribeEntities).
+  let entitiesCb: (() => void) | null = null;
   // Ghost render state: one entry per previewed chunk, every bucket drawn with
   // the ONE translucent stamp-ghost material. Rebuilt per preview response;
   // destroyed on cancel/commit/re-preview/world-reset + dispose.
@@ -1433,6 +1523,29 @@ export function createFieldHost(): FieldHost {
     stampCb?.(stamp === null ? null : structuredClone(stamp));
   };
 
+  // The entity-list tick. Fired by every path that can add, remove or rewrite
+  // an entity RECORD — including the two (freeze, bake) that dirty no chunk and
+  // would otherwise reach the panel through nothing at all.
+  const notifyEntities = (): void => {
+    entitiesCb?.();
+  };
+
+  // Cloned like the session: a drift report is plain data the panel keeps.
+  const notifyDrift = (): void => {
+    driftCb?.(drift === null ? null : structuredClone(drift));
+  };
+
+  // The LIVE entity record for an id (not a clone — callers that hand it on
+  // clone at their own boundary), or null when no entity op carries it. The one
+  // lookup behind the highlight box, the reconfigure session and the verbs.
+  const entityRecord = (entityId: number): field.GeneratorEntity | null => {
+    const hit = log.ops.find(
+      (op): op is field.EntityOp =>
+        op.kind === "entity" && op.entity.entityId === entityId,
+    );
+    return hit === undefined ? null : hit.entity;
+  };
+
   const destroyStampGhosts = (): void => {
     const c = ctx;
     if (c)
@@ -1662,7 +1775,100 @@ export function createFieldHost(): FieldHost {
     }
     stamp = null;
     destroyStampGhosts();
-    notifyStamp(); // null — the panel re-reads listEntities on this
+    notifyStamp();
+    notifyEntities();
+  };
+
+  // --- reconfigure (open a committed entity → apply) ----------------------
+
+  // Open a reconfigure session on a committed entity. Every refusal is
+  // runtime-quiet (report + no session): the ids come from a panel list that
+  // can lag the log, and the flags are exactly what the user is asking about.
+  const openEntitySession = (entityId: number): void => {
+    const record = entityRecord(entityId);
+    if (record === null) {
+      reportToolError(`entity ${entityId} is no longer in the log`);
+      return;
+    }
+    if (record.frozen === true) {
+      reportToolError(`entity ${entityId} is frozen — unfreeze it to edit`);
+      return;
+    }
+    if (record.baked === true) {
+      reportToolError(`entity ${entityId} is baked — its recipe was severed`);
+      return;
+    }
+    try {
+      field.generatorById(record.generator); // setup-loud on a retired id
+    } catch (err) {
+      // Fail HERE rather than opening a session whose every preview errors and
+      // whose Apply can never land (startStamp's precedent).
+      const message = err instanceof Error ? err.message : String(err);
+      reportToolError(message);
+      return;
+    }
+    cancelStampSession(); // a live session (+ ghost) never survives a re-open
+    stampGen++;
+    stamp = startReconfigureSession({
+      entityId,
+      generator: record.generator,
+      // Clone at the boundary: the session must never alias the log's record.
+      params: structuredClone(record.params),
+      seed: record.seed,
+      region: structuredClone(record.region),
+      // Not provenance — see the openEntity contract.
+      policy: "replace",
+    });
+    previewStamp();
+  };
+
+  // Apply the live reconfigure session: ONE undo entry, the entity id and every
+  // reference to it preserved. Unlike commitStampSession this does NOT re-run
+  // the ghost's evaluate against the ghost's inputs — core rewinds the affected
+  // chunks to their pre-span state first, which is what makes the result
+  // independent of what the ghost previewed against (the openEntity limit).
+  const applyReconfigureSession = (): void => {
+    const s = stamp;
+    if (s === null || s.mode !== "reconfigure" || s.entityId === null) return;
+    if (s.phase !== "ready") return;
+    try {
+      const result = field.reconfigureGenerator(
+        store,
+        log,
+        s.entityId,
+        {
+          params: s.params, // reconfigureGenerator clones for provenance
+          seed: s.seed,
+          region: s.region,
+          policy: s.policy,
+        },
+        table,
+      );
+      markDirtyWithNeighbors(result.dirty);
+      // A clean apply CLEARS the previous report: leaving it up would attribute
+      // stale findings to the edit the user just made.
+      drift = result.drift.length === 0 ? null : result.drift;
+      notifyDrift();
+    } catch (err) {
+      // Core validates before its first write, so a rejection here left the
+      // store and the log untouched — the session stays open to retry or
+      // cancel (commitStampSession's stance).
+      const message = err instanceof Error ? err.message : String(err);
+      reportToolError(`reconfigure failed: ${message}`);
+      return;
+    }
+    stamp = null;
+    destroyStampGhosts();
+    notifyStamp();
+    notifyEntities();
+  };
+
+  // Enter's ONE commit path: the session's mode picks the verb. Both are
+  // ready-phase-only, so a configuring/previewing session swallows the key.
+  const commitActiveSession = (): void => {
+    if (stamp === null) return;
+    if (stamp.mode === "reconfigure") applyReconfigureSession();
+    else commitStampSession();
   };
 
   // --- momentary tool overrides -------------------------------------------
@@ -1980,17 +2186,22 @@ export function createFieldHost(): FieldHost {
         ? field.redo(store, log, table)
         : field.undo(store, log);
       markDirtyWithNeighbors(dirtied);
+      // An entity commit, a reconfigure splice and a freeze/bake record swap
+      // all ride the same stacks — and the last two dirty NOTHING, so the
+      // remesh they don't cause cannot be the panel's signal.
+      notifyEntities();
       return;
     }
     // Stamp session keys (after the undo guard, before every fallthrough):
-    // Enter commits the READY ghost, Esc discards the session. Neither is a
-    // fly key, so returning here never starves the keys set; without a
-    // session both are swallowed unused (no preventDefault).
+    // Enter commits the READY ghost (or applies a reconfigure — same key, the
+    // session's mode decides), Esc discards the session. Neither is a fly key,
+    // so returning here never starves the keys set; without a session both are
+    // swallowed unused (no preventDefault).
     if (k === "enter" || k === "escape") {
       if (stamp !== null) {
         e.preventDefault();
         if (k === "escape") cancelStampSession();
-        else commitStampSession(); // ready-phase only — else a no-op
+        else commitActiveSession(); // ready-phase only — else a no-op
       }
       return;
     }
@@ -2112,9 +2323,12 @@ export function createFieldHost(): FieldHost {
     selectionBatch = null;
     notifySelection(); // null — the panel must not show a stale selection
     // A different world invalidates the stamp session (its region + snapshot
-    // describe the old field) and any entity highlight (log entity ids reset).
+    // describe the old field), any entity highlight (log entity ids reset) and
+    // any drift report (its findings name op ids the new log does not have).
     cancelStampSession();
     entityHighlightBatch = null;
+    drift = null;
+    notifyDrift();
   };
 
   return {
@@ -2178,6 +2392,7 @@ export function createFieldHost(): FieldHost {
     },
     newWorld() {
       resetWorld();
+      notifyEntities();
     },
     loadWorld(data) {
       // Setup-loud: the store's cellSize is fixed at construction and captured by
@@ -2199,6 +2414,9 @@ export function createFieldHost(): FieldHost {
       // v0: manifest.playerStart/playerYaw are the dungeon runtime spawn — the
       // editor keeps its current fly pose on load (not applied to the camera here).
       for (const key of store.chunks.keys()) dirty.add(key);
+      // AFTER the ops land, not inside resetWorld: the tick must carry the
+      // loaded world's entities, not the empty log the reset left behind.
+      notifyEntities();
     },
     setDigRadius(r) {
       digRadius = clampRadius(r);
@@ -2382,6 +2600,54 @@ export function createFieldHost(): FieldHost {
         if (stampCb === cb) stampCb = null;
       };
     },
+    openEntity(entityId) {
+      openEntitySession(entityId);
+    },
+    applyReconfigure() {
+      applyReconfigureSession();
+    },
+    setEntityFrozen(entityId, frozen) {
+      try {
+        field.setGeneratorFrozen(log, entityId, frozen);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        reportToolError(message);
+        return;
+      }
+      // A freeze cannot invalidate a live session: openEntity refuses frozen
+      // entities, so a session on THIS entity predates the freeze and its Apply
+      // would now be refused by core — loudly, through subscribeToolError.
+      notifyEntities();
+    },
+    bakeEntity(entityId) {
+      try {
+        field.bakeGeneratorEntity(log, entityId);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        reportToolError(message);
+        return;
+      }
+      // Unlike freeze, baking is permanent: a live session on this entity can
+      // never land, so end it rather than leave a ghost promising an Apply.
+      if (stamp?.entityId === entityId) cancelStampSession();
+      notifyEntities();
+    },
+    subscribeDrift(cb) {
+      driftCb = cb;
+      // Initial push (the subscribeStamp/subscribeSelection remount rationale):
+      // a panel remounting after a reconfigure must not drop its report.
+      cb(drift === null ? null : structuredClone(drift));
+      return () => {
+        if (driftCb === cb) driftCb = null;
+      };
+    },
+    subscribeEntities(cb) {
+      entitiesCb = cb;
+      cb(); // initial catch-up: the world may already hold entities
+      return () => {
+        if (entitiesCb === cb) entitiesCb = null;
+      };
+    },
     listEntities() {
       const out: field.GeneratorEntity[] = [];
       for (const op of log.ops)
@@ -2393,15 +2659,12 @@ export function createFieldHost(): FieldHost {
         entityHighlightBatch = null;
         return;
       }
-      const hit = log.ops.find(
-        (op): op is field.EntityOp =>
-          op.kind === "entity" && op.entity.entityId === entityId,
-      );
+      const record = entityRecord(entityId);
       // Unknown id (undone, stale panel row): hide, runtime-quiet.
       entityHighlightBatch =
-        hit === undefined
+        record === null
           ? null
-          : aabbEdgeBatch(hit.entity.region, ENTITY_HIGHLIGHT_COLOR);
+          : aabbEdgeBatch(record.region, ENTITY_HIGHLIGHT_COLOR);
     },
     exportArtifact(name) {
       return field.bakeFieldWorld(store, log, table, {

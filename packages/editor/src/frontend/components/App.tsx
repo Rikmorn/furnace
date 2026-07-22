@@ -695,6 +695,7 @@ export function App() {
 		},
 		viewFlags,
 		setViewFlag,
+		openConfirm,
 		store,
 	};
 
