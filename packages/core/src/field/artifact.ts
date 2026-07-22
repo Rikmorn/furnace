@@ -9,6 +9,7 @@ import { meshChunkField } from "./mesher.ts";
 import { assertPatchStructure } from "./ops.ts";
 import { skinChunkKit } from "./skin.ts";
 import type {
+  BrushMask,
   BrushOp,
   BrushShape,
   ChunkKey,
@@ -17,10 +18,13 @@ import type {
   FieldManifest,
   FieldOp,
   FieldStore,
+  GeneratorEntity,
   MaterialTable,
   OpLog,
   PatchChunk,
   PatchOp,
+  SelectionSpec,
+  SmoothParams,
 } from "./types.ts";
 import { MAT_ROCK } from "./types.ts";
 
@@ -335,60 +339,140 @@ function decodePatchOp(raw: Record<string, unknown>, id: number): PatchOp {
  *  for patch slices — so the decoder checks them here rather than deferring to
  *  an applier that trusts its input by contract.
  *
- *  `satisfies` binds each table to its union, so RENAMING or removing a member
- *  in `types.ts` breaks the build here. It cannot catch an ADDED member —
- *  widening a union without extending the table below makes the decoder reject
- *  the new spelling at load. Extend both together. */
-const BRUSH_EFFECTS = [
-  "dig",
-  "fill",
-  "paint",
-  "smooth",
-] as const satisfies readonly BrushOp["effect"][];
-const SHAPE_KINDS = [
-  "sphere",
-  "box",
-] as const satisfies readonly BrushShape["kind"][];
-const ENTITY_ACTIONS = [
-  "place",
-] as const satisfies readonly EntityOp["action"][];
+ *  KEYED RECORDS, not arrays: `satisfies Record<Union, true>` is exhaustive in
+ *  BOTH directions. Renaming or removing a member in `types.ts` breaks the build
+ *  here (TS2353), and so does ADDING one (TS1360) — without which the engine
+ *  could emit an op its own parser refuses at load, with nothing in CI to say
+ *  so. A `readonly Union[]` array with `satisfies` catches only the first. */
+const BRUSH_EFFECTS = {
+  dig: true,
+  fill: true,
+  paint: true,
+  smooth: true,
+} as const satisfies Record<BrushOp["effect"], true>;
+const SHAPE_KINDS = {
+  sphere: true,
+  box: true,
+} as const satisfies Record<BrushShape["kind"], true>;
+const ENTITY_ACTIONS = {
+  place: true,
+} as const satisfies Record<EntityOp["action"], true>;
+const ENTITY_TYPES = {
+  generator: true,
+} as const satisfies Record<GeneratorEntity["type"], true>;
+const MASK_KINDS = {
+  "organic-only": true,
+  "kit-only": true,
+  class: true,
+  "solid-only": true,
+  selection: true,
+} as const satisfies Record<BrushMask["kind"], true>;
+const SELECTION_KINDS = {
+  region: true,
+  "flood-material": true,
+  "flood-void": true,
+} as const satisfies Record<SelectionSpec["kind"], true>;
+const SMOOTH_MODES = {
+  both: true,
+  erode: true,
+  fill: true,
+} as const satisfies Record<SmoothParams["mode"], true>;
 
-/** @throws {@link Error} if `value` is not one of `allowed`. */
+/** @throws {@link Error} if `value` is not a key of `allowed`. */
 function assertOneOf(
   value: unknown,
-  allowed: readonly string[],
+  allowed: Record<string, true>,
   what: string,
   id: number,
 ): void {
-  if (typeof value === "string" && allowed.includes(value)) return;
+  // hasOwn, not `in`: `"toString" in allowed` is true for every object.
+  if (typeof value === "string" && Object.hasOwn(allowed, value)) return;
   throw new Error(
-    `field oplog: op ${id} ${what} must be one of ${allowed.join("|")}, got ${jsonTag(value)}`,
+    `field oplog: op ${id} ${what} must be one of ${Object.keys(allowed).join("|")}, got ${jsonTag(value)}`,
   );
+}
+
+/** An OPTIONAL sub-record of an op. Absent is legal; present-but-not-a-record
+ *  is not — unguarded it sails past every field check below it (measured: a
+ *  `mask: 42` parsed, then applied zero cells).
+ *
+ *  @throws {@link Error} if `name` is present and not a JSON object. */
+function optionalRecord(
+  raw: Record<string, unknown>,
+  name: string,
+  id: number,
+): Record<string, unknown> | undefined {
+  const value = raw[name];
+  if (value === undefined) return undefined;
+  if (!isRecord(value))
+    throw new Error(
+      `field oplog: op ${id} ${name} must be an object, got ${typeTag(value)}`,
+    );
+  return value;
+}
+
+/** The mask leg: its own discriminator, plus an embedded selection's. Class ids
+ *  (`mask.classId`, `selection.classId`) need a MaterialTable and stay
+ *  unchecked — the DISCRIMINATORS do not.
+ *
+ *  @throws {@link Error} if `mask` is present and not a record, its `kind` is
+ *    off-contract, or a selection mask's `selection` is absent/off-contract. */
+function assertMaskWire(raw: Record<string, unknown>, id: number): void {
+  const mask = optionalRecord(raw, "mask", id);
+  if (mask === undefined) return;
+  assertOneOf(mask["kind"], MASK_KINDS, "mask.kind", id);
+  if (mask["kind"] !== "selection") return;
+  const selection = mask["selection"];
+  if (!isRecord(selection))
+    throw new Error(
+      `field oplog: op ${id} mask.selection must be an object, got ${typeTag(selection)}`,
+    );
+  assertOneOf(selection["kind"], SELECTION_KINDS, "mask.selection.kind", id);
+}
+
+/** The smooth leg — its `mode` only. `strength`/`iterations` are numeric and
+ *  stay unchecked here (see {@link parseOps}).
+ *
+ *  @throws {@link Error} if `smooth` is present and not a record, or its `mode`
+ *    is off-contract. */
+function assertSmoothWire(raw: Record<string, unknown>, id: number): void {
+  const smooth = optionalRecord(raw, "smooth", id);
+  if (smooth === undefined) return;
+  assertOneOf(smooth["mode"], SMOOTH_MODES, "smooth.mode", id);
 }
 
 /** The shape leg shared by a brush op and the legacy-dig upgrade; `kindLabel`
  *  names which for the message.
  *
  *  @throws {@link Error} if the shape is absent or its `kind` is off-contract. */
-function assertShapeWire(shape: unknown, id: number, kindLabel: string): void {
+function assertShapeWire(
+  shape: unknown,
+  id: number,
+  kindLabel: "brush" | "legacy dig",
+): void {
   if (!isRecord(shape))
     throw new Error(`field oplog: ${kindLabel} op ${id} has no shape object`);
   assertOneOf(shape["kind"], SHAPE_KINDS, "shape.kind", id);
 }
 
 /** @throws {@link Error} if a brush op's `effect` or `shape.kind` is
- *   off-contract, or it carries no shape object. */
+ *   off-contract, it carries no shape object, or its OPTIONAL `mask`/`smooth`
+ *   legs are off-contract. */
 function assertBrushWire(raw: Record<string, unknown>, id: number): void {
   assertOneOf(raw["effect"], BRUSH_EFFECTS, "effect", id);
   assertShapeWire(raw["shape"], id, "brush");
+  assertMaskWire(raw, id);
+  assertSmoothWire(raw, id);
 }
 
-/** @throws {@link Error} if an entity op's `action` is off-contract or its
- *   `entity` is not a record. */
+/** @throws {@link Error} if an entity op's `action` is off-contract, its
+ *   `entity` is not a record, or that record's `type` is off-contract. */
 function assertEntityWire(raw: Record<string, unknown>, id: number): void {
   assertOneOf(raw["action"], ENTITY_ACTIONS, "action", id);
-  if (!isRecord(raw["entity"]))
+  const entity = raw["entity"];
+  if (!isRecord(entity))
     throw new Error(`field oplog: entity op ${id} has no entity record`);
+  assertOneOf(entity["type"], ENTITY_TYPES, "entity.type", id);
 }
 
 /** Maps a pre-F2 dig literal (`kind:"dig"`, as F1 baked it) forward to a
@@ -429,12 +513,14 @@ function decodeOp(raw: unknown): FieldOp {
   if (kind === "brush") assertBrushWire(raw, id);
   else if (kind === "entity") assertEntityWire(raw, id);
   else throw new Error(`field oplog: op of unknown kind ${jsonTag(kind)}`);
-  // Boundary cast: every CLOSED union on the wire has now been checked — the
-  // op's `kind` and `id`, a brush's `effect` and `shape.kind`, an entity's
-  // `action`. What stays trusted is the NUMERIC interior (shape centres, radii,
-  // extents, material ids, mask/smooth params, the entity record's fields),
-  // which needs a MaterialTable or the applier's bounds maths — see
-  // {@link parseOps}.
+  // Boundary cast: every closed STRING union on the wire has now been checked —
+  // the op's `kind` and integer `id`, a brush's `effect`, `shape.kind`,
+  // `mask.kind` and `mask.selection.kind`, its `smooth.mode`, an entity's
+  // `action` and `entity.type`. What stays trusted is every NUMERIC field
+  // (shape centres/radii/extents, `mask.classId`, `smooth.strength`/
+  // `iterations`, a flood's `seed`/`budget`, the entity record's `entityId`/
+  // `seed`/`region`/`opSpan`) — see {@link parseOps} for which of those need a
+  // MaterialTable and which are simply deferred.
   return raw as FieldOp;
 }
 
@@ -473,20 +559,26 @@ function parseOplogJson(text: string): unknown {
  * Setup-loud on an unreadable log — a corrupt oplog must never become a
  * plausible-looking one.
  *
- * WHAT IS CHECKED — everything decidable WITHOUT a {@link MaterialTable}: the
- * envelope's shape and version; that every op is an object carrying an INTEGER
- * `id` and a known `kind`; every CLOSED string union on the wire (a brush's
- * `effect` and `shape.kind`, an entity's `action`); that an entity op carries a
- * record; and, for patch ops, the full table-independent structure
- * ({@link assertPatchStructure} — canonical unique chunk keys, 512-byte masks,
- * value arrays exactly as long as their mask's popcount), so a truncated or
- * garbage base64 payload is rejected rather than mis-applied.
+ * WHAT IS CHECKED — the envelope's shape and version; that every op is an
+ * object carrying an INTEGER `id` and a known `kind`; EVERY closed STRING union
+ * that reaches the wire — a brush's `effect`, `shape.kind`, `mask.kind` and an
+ * embedded `mask.selection.kind`, its `smooth.mode`, an entity's `action` and
+ * `entity.type`; that an entity op carries a record and that a present optional
+ * `mask`/`smooth` is one; and, for patch ops, the full table-independent
+ * structure ({@link assertPatchStructure} — canonical unique chunk keys,
+ * 512-byte masks, value arrays exactly as long as their mask's popcount), so a
+ * truncated or garbage base64 payload is rejected rather than mis-applied.
  *
- * WHAT IS NOT — the NUMERIC interior: a shape's centre/radius/half-extents, a
- * brush's `material`/`mask`/`smooth` params, an entity record's fields, and a
- * patch slice's material class ids. Those need either a {@link MaterialTable}
- * (which this function does not take) or the applier's own bounds maths.
- * Nothing downstream re-checks them either: loaded ops are pushed straight into
+ * WHAT IS NOT — every NUMERIC field: a shape's centre/radius/half-extents, a
+ * brush's `material` and `mask.classId`, `smooth.strength`/`iterations`, a
+ * flood selection's `seed`/`budget`, an entity record's
+ * `entityId`/`seed`/`region`/`opSpan`, and a patch slice's material class ids.
+ * Some of those need a {@link MaterialTable} (the class ids), which this
+ * function does not take; the rest are simply deferred — note that
+ * `assertSmoothValid` and {@link assertSelectionSpecValid} already own the right
+ * predicates and are merely not wired to this path.
+ *
+ * Nothing downstream re-checks any of it: loaded ops are pushed straight into
  * `log.ops` and never pass through {@link logApply}/{@link logApplyPatch}, and
  * {@link applyOp}/{@link applyPatchOp} trust their input by contract. A bad
  * class id therefore surfaces late, at mesh time.

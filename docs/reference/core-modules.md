@@ -990,24 +990,32 @@ channel** (uniform|indexed palette encoding behind accessors — `getMaterial` /
   array with no envelope (every world baked before F3a), including F1's `kind:"dig"`
   literals, which map forward to brush/dig ops; a JSON array is never a JSON object, so
   the two versions cannot be confused.
-  It is **setup-loud**, and the line it draws is *decidable without a `MaterialTable`*.
+  It is **setup-loud**, and the line it draws is **strings vs numbers**: every closed
+  string union that reaches the wire is checked; every numeric field is not.
   **Checked:** malformed JSON (wrapped with the `field oplog:` locator — three JSON files
   sit side by side in a world dir); an unknown or FUTURE envelope version; a non-array
   `ops`; an INTEGER `id` on every op (unchecked, one id-less op makes the editor's
   `nextId` reduce `NaN`, every later op is stamped `id: NaN`, and `JSON.stringify` writes
-  those back as `null` — a corrupt log made plausible); a known `kind`; every CLOSED
-  string union on the wire — a brush's `effect` and `shape.kind`, an entity's `action`;
-  and, for patch ops, the full table-independent structure (canonical unique chunk keys,
-  512-byte masks, value arrays exactly as long as their mask's popcount), so a TRUNCATED
-  payload is rejected at parse.
-  **Not checked — the NUMERIC interior:** a shape's centre/radius/half-extents, a brush's
-  `material`/`mask`/`smooth` params, an entity record's fields, and a patch slice's
-  material class ids. Those need either a `MaterialTable` (`parseOps` takes none) or the
-  applier's own bounds maths. **Nothing downstream re-checks them:** loaded ops are pushed
-  straight into `log.ops` and never pass through `logApply`/`logApplyPatch`, and
-  `applyOp`/`applyPatchOp` trust their input by contract — so a bad class id surfaces late,
-  at mesh time. The writer trusts its input (`logApplyPatch` already validated everything
-  in the log); the reader does not.
+  those back as `null` — a corrupt log made plausible); a known `kind`; **every** closed
+  string union — a brush's `effect`, `shape.kind`, `mask.kind` and an embedded
+  `mask.selection.kind`, its `smooth.mode`, an entity's `action` and `entity.type`; that a
+  present optional `mask`/`smooth` is actually a record; and, for patch ops, the full
+  table-independent structure (canonical unique chunk keys, 512-byte masks, value arrays
+  exactly as long as their mask's popcount), so a TRUNCATED payload is rejected at parse.
+  The union tables are `satisfies Record<Union, true>` keyed records, exhaustive in BOTH
+  directions — adding a member to a union in `types.ts` without extending the table is a
+  compile error (TS1360), not an op the engine emits and its own parser refuses.
+  **Not checked — every NUMERIC field:** a shape's centre/radius/half-extents, a brush's
+  `material` and `mask.classId`, `smooth.strength`/`iterations`, a flood selection's
+  `seed`/`budget`, an entity record's `entityId`/`seed`/`region`/`opSpan`, and a patch
+  slice's material class ids. The class ids need a `MaterialTable` (`parseOps` takes none);
+  the rest are deferred — `assertSmoothValid` and `assertSelectionSpecValid` already own
+  the right predicates and are simply not wired to this path.
+  **Nothing downstream re-checks any of it:** loaded ops are pushed straight into
+  `log.ops` and never pass through `logApply`/`logApplyPatch`, and `applyOp`/`applyPatchOp`
+  trust their input by contract — so a bad class id surfaces late, at mesh time. The writer
+  trusts its input (`logApplyPatch` already validated everything in the log); the reader
+  does not.
 
 ---
 

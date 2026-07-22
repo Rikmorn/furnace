@@ -635,6 +635,186 @@ describe("field oplog v2 codec", () => {
     ).not.toThrow();
   });
 
+  test("union membership is OWN-key only — Object.prototype names are not members", () => {
+    // The union tables are plain objects, so `"toString" in table` is TRUE for
+    // every one of them. Only Object.hasOwn distinguishes a real member from an
+    // inherited Object.prototype name, and nothing else in this file would
+    // notice the difference — verified by sabotage (swapping hasOwn for `in`
+    // left every other test green).
+    for (const inherited of [
+      "toString",
+      "constructor",
+      "valueOf",
+      "hasOwnProperty",
+      "__proto__",
+    ]) {
+      expect(() =>
+        parseOps(
+          oneOp({ id: 1, kind: "brush", effect: inherited, shape: SPHERE }),
+        ),
+      ).toThrow(/effect must be one of/);
+      expect(() =>
+        parseOps(
+          oneOp({
+            id: 1,
+            kind: "brush",
+            effect: "dig",
+            shape: { kind: inherited },
+          }),
+        ),
+      ).toThrow(/shape\.kind must be one of/);
+      expect(() =>
+        parseOps(
+          oneOp({
+            id: 1,
+            kind: "entity",
+            action: "place",
+            entity: { type: inherited },
+          }),
+        ),
+      ).toThrow(/entity\.type must be one of/);
+    }
+  });
+
+  /** A dig op carrying one extra field — the optional `mask`/`smooth` legs. */
+  const withField = (field: string, value: unknown): string =>
+    oneOp({
+      id: 1,
+      kind: "brush",
+      effect: "dig",
+      shape: SPHERE,
+      [field]: value,
+    });
+
+  test("parseOps rejects off-contract mask + selection discriminators", () => {
+    // Measured before these guards existed: mask:{kind:"bogus"} parsed, and
+    // applyOp then wrote 0 cells where the identical UNMASKED op writes 7 —
+    // makeMaskGate falls through to the class branch and compares against an
+    // undefined classId. The same silent-divergence mode as effect:"carve".
+    expect(() => parseOps(withField("mask", { kind: "bogus" }))).toThrow(
+      /mask\.kind must be one of/,
+    );
+    // `mask` is OPTIONAL, so present-but-not-a-record must throw too —
+    // otherwise it sails past every field guard below it (measured: 0 cells).
+    for (const bad of [42, "solid-only", null, []])
+      expect(() => parseOps(withField("mask", bad))).toThrow(
+        /mask must be an object/,
+      );
+    // An embedded selection carries its OWN discriminator. Measured: a bogus
+    // one parsed, then replay died with `TypeError: … 'spec.seed'` inside
+    // assertSelectionSpecValid — the raw-TypeError mode, one level down.
+    expect(() =>
+      parseOps(
+        withField("mask", { kind: "selection", selection: { kind: "bogus" } }),
+      ),
+    ).toThrow(/mask\.selection\.kind must be one of/);
+    expect(() =>
+      parseOps(withField("mask", { kind: "selection", selection: 42 })),
+    ).toThrow(/mask\.selection must be an object/);
+    // Every legal spelling still passes, including absence.
+    expect(() =>
+      parseOps(oneOp({ id: 1, kind: "brush", effect: "dig", shape: SPHERE })),
+    ).not.toThrow();
+    for (const kind of ["organic-only", "kit-only", "solid-only"])
+      expect(() => parseOps(withField("mask", { kind }))).not.toThrow();
+    expect(() =>
+      parseOps(withField("mask", { kind: "class", classId: 1 })),
+    ).not.toThrow();
+    for (const kind of ["region", "flood-material", "flood-void"])
+      expect(() =>
+        parseOps(withField("mask", { kind: "selection", selection: { kind } })),
+      ).not.toThrow();
+  });
+
+  test("parseOps rejects an off-contract smooth mode and entity type", () => {
+    // applySmooth special-cases only erode/fill, so an unknown mode silently
+    // behaves as `both`. assertSmoothValid already owns the right predicate —
+    // it is simply never reached for a loaded op.
+    expect(() =>
+      parseOps(withField("smooth", { strength: 16, iterations: 1, mode: "x" })),
+    ).toThrow(/smooth\.mode must be one of/);
+    for (const bad of [42, "both", null, []])
+      expect(() => parseOps(withField("smooth", bad))).toThrow(
+        /smooth must be an object/,
+      );
+    for (const mode of ["both", "erode", "fill"])
+      expect(() =>
+        parseOps(withField("smooth", { strength: 16, iterations: 1, mode })),
+      ).not.toThrow();
+
+    // GeneratorEntity.type is a single literal — a closed union like the rest.
+    expect(() =>
+      parseOps(
+        oneOp({
+          id: 1,
+          kind: "entity",
+          action: "place",
+          entity: { type: "bogus" },
+        }),
+      ),
+    ).toThrow(/entity\.type must be one of/);
+    expect(() =>
+      parseOps(
+        oneOp({
+          id: 1,
+          kind: "entity",
+          action: "place",
+          entity: { type: "generator" },
+        }),
+      ),
+    ).not.toThrow();
+  });
+
+  test("a fully-populated brush op survives the round-trip (what the engine emits)", () => {
+    // No oplog on disk carries mask/smooth TODAY, but generators.ts emits
+    // `mask:{kind:"solid-only"}` into logged brush ops under keep-existing-air,
+    // so masks WILL appear in bakes going forward. This pins that the new wire
+    // guards accept everything the engine actually produces — typed as BrushOp,
+    // so a union widened in types.ts fails here as well as at the guard tables.
+    const ops: FieldOp[] = [
+      {
+        id: 1,
+        kind: "brush",
+        effect: "fill",
+        material: 2,
+        hollow: 0.5,
+        mask: { kind: "solid-only" },
+        shape: { kind: "box", center: [1, 1, 1], halfExtents: [0.5, 0.5, 0.5] },
+      },
+      {
+        id: 2,
+        kind: "brush",
+        effect: "smooth",
+        smooth: { strength: 16, iterations: 2, mode: "erode" },
+        shape: { kind: "sphere", center: [1, 1, 1], radius: 1 },
+      },
+      {
+        id: 3,
+        kind: "brush",
+        effect: "paint",
+        material: 1,
+        mask: {
+          kind: "selection",
+          selection: {
+            kind: "flood-material",
+            seed: [1, 2, 3],
+            classId: 0,
+            budget: 1000,
+          },
+        },
+        shape: { kind: "sphere", center: [2, 2, 2], radius: 2 },
+      },
+      {
+        id: 4,
+        kind: "brush",
+        effect: "dig",
+        mask: { kind: "class", classId: 1 },
+        shape: { kind: "sphere", center: [0, 0, 0], radius: 1 },
+      },
+    ];
+    expect(parseOps(serializeOps(ops))).toEqual(ops);
+  });
+
   test("a legacy dig op decodes the same inside a v2 envelope as in a v1 array", () => {
     // The "one decode path" claim, exercised on the v2 side too.
     const dig = { id: 1, kind: "dig", shape: SPHERE };
