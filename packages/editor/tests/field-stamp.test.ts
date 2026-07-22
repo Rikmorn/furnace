@@ -462,9 +462,11 @@ test("listEntities returns CLONED entity ops from a loaded oplog, brush ops filt
 
 import type { BrushOp, DriftFinding, FieldOp } from "@furnace/core/field";
 import {
+  CHUNK_DIM,
   encodeChunkFile,
   encodeMaterialFile,
   logApply,
+  parseOps,
   serializeOps,
 } from "@furnace/core/field";
 import type { FieldWorkerRequest } from "../src/frontend/lib/field-protocol.ts";
@@ -905,45 +907,55 @@ const lastOpId = (ops: FieldOp[]): number => {
   return id;
 };
 
+/** Build the committed hall + the overlapping downstream dig with core, then
+ *  hand the whole log to the host through loadWorld (the headless route to a
+ *  committed entity carrying real downstream history). Returns the ids a drift
+ *  scenario needs. */
+function loadDriftedWorld(host: ReturnType<typeof createFieldHost>): {
+  entityId: number;
+  digId: number;
+  params: Record<string, unknown>;
+} {
+  const store = createFieldStore();
+  const log = createOpLog();
+  const params = hallParams();
+  const { entity } = commitGenerator(store, log, generatorById("hall"), {
+    params,
+    seed: 7,
+    region: DRIFT_REGION,
+    policy: "replace",
+    table: TABLE,
+  });
+  logApply(store, log, DRIFT_DIG, TABLE);
+  const digId = lastOpId(log.ops);
+  host.setMaterialTable(TABLE);
+  host.loadWorld({
+    manifest: MANIFEST,
+    chunks: [...store.chunks].map(([key, density]) => ({
+      key,
+      bytes: encodeChunkFile(density),
+    })),
+    materials: [...store.materials].map(([key, m]) => ({
+      key,
+      bytes: encodeMaterialFile(m),
+    })),
+    oplog: serializeOps(log.ops),
+  });
+  return { entityId: entity.entityId, digId, params };
+}
+
 test("a drift-producing reconfigure pushes non-empty findings to subscribeDrift", async () => {
   const uninstall = installFakeWorker();
   try {
     const host = createFieldHost();
-    // Build the committed hall + the overlapping downstream dig with core, then
-    // hand the whole log to the host through loadWorld (the headless route to a
-    // committed entity with real downstream history).
-    const store = createFieldStore();
-    const log = createOpLog();
-    const params = hallParams();
-    const { entity } = commitGenerator(store, log, generatorById("hall"), {
-      params,
-      seed: 7,
-      region: DRIFT_REGION,
-      policy: "replace",
-      table: TABLE,
-    });
-    logApply(store, log, DRIFT_DIG, TABLE);
-    const digId = lastOpId(log.ops);
-    host.setMaterialTable(TABLE);
-    host.loadWorld({
-      manifest: MANIFEST,
-      chunks: [...store.chunks].map(([key, density]) => ({
-        key,
-        bytes: encodeChunkFile(density),
-      })),
-      materials: [...store.materials].map(([key, m]) => ({
-        key,
-        bytes: encodeMaterialFile(m),
-      })),
-      oplog: serializeOps(log.ops),
-    });
+    const { entityId, digId, params } = loadDriftedWorld(host);
 
     const reports: (DriftFinding[] | null)[] = [];
     host.subscribeDrift((r) => reports.push(r));
     // The subscribe push is null — no reconfigure has run yet.
     expect(reports).toEqual([null]);
 
-    host.openEntity(entity.entityId);
+    host.openEntity(entityId);
     await settle();
     host.updateStamp({ ...params, depth: 12 }, 7, "replace");
     await settle();
@@ -960,4 +972,166 @@ test("a drift-producing reconfigure pushes non-empty findings to subscribeDrift"
   } finally {
     uninstall();
   }
+});
+
+test("dismissDrift nulls the standing report and re-notifies subscribeDrift", async () => {
+  const uninstall = installFakeWorker();
+  try {
+    const host = createFieldHost();
+    const { entityId, params } = loadDriftedWorld(host);
+    const reports: (DriftFinding[] | null)[] = [];
+    host.subscribeDrift((r) => reports.push(r));
+
+    host.openEntity(entityId);
+    await settle();
+    host.updateStamp({ ...params, depth: 12 }, 7, "replace");
+    await settle();
+    host.applyReconfigure();
+    // A real report is standing (guards the dismiss test against vacuity).
+    expect(reports.at(-1)?.length).toBeGreaterThan(0);
+    const pushesBefore = reports.length;
+
+    host.dismissDrift();
+    // It NULLED the report and RE-NOTIFIED — one more push, carrying null.
+    expect(reports.length).toBe(pushesBefore + 1);
+    expect(reports.at(-1)).toBeNull();
+  } finally {
+    uninstall();
+  }
+});
+
+// ——— frameChunks (headless: pose read back through the artifact manifest) ———
+//
+// The host exposes no direct camera-target seam, but exportArtifact bakes
+// playerStart = cameraEye() into the manifest, and toEyeTarget makes the eye a
+// FIXED spherical offset from the target (eye = target + distance·dir(yaw,pitch)
+// — see camera-control.ts). frameChunks changes only the target, so the eye
+// moves by exactly Δtarget: recovering the framed target from
+// eyeAfter − eyeBefore + defaultTarget pins the centroid math without new host
+// surface. defaultTarget is the host's documented initial orbit pivot.
+const FIELD_DEFAULT_TARGET: [number, number, number] = [0, 1, 0];
+
+/** Read cameraEye() back out of the artifact manifest (playerStart). */
+function readCameraEye(
+  host: ReturnType<typeof createFieldHost>,
+): [number, number, number] {
+  const files = host.exportArtifact("probe");
+  const manifestFile = files.find(
+    (f) => f.path === "worlds/probe/manifest.json",
+  );
+  if (manifestFile === undefined || typeof manifestFile.contents !== "string")
+    throw new Error("test: no manifest.json in the artifact");
+  return (
+    JSON.parse(manifestFile.contents) as {
+      playerStart: [number, number, number];
+    }
+  ).playerStart;
+}
+
+test("frameChunks re-points the orbit target to the chunk-set centroid", () => {
+  const host = createFieldHost();
+  const eyeBefore = readCameraEye(host); // target = FIELD_DEFAULT_TARGET
+  host.frameChunks(["0,0,0", "1,0,0"]);
+  const eyeAfter = readCameraEye(host); // target = the framed centroid
+
+  // The eye is target + a fixed offset (distance/yaw/pitch unchanged), so the
+  // framed target is eyeAfter − eyeBefore + defaultTarget.
+  const recoveredTarget = [
+    eyeAfter[0] - eyeBefore[0] + FIELD_DEFAULT_TARGET[0],
+    eyeAfter[1] - eyeBefore[1] + FIELD_DEFAULT_TARGET[1],
+    eyeAfter[2] - eyeBefore[2] + FIELD_DEFAULT_TARGET[2],
+  ];
+  // Centroid of the AABB over chunks (0,0,0)+(1,0,0): x ∈ [0, 2·dim], y,z ∈
+  // [0, dim] → [dim, dim/2, dim/2]. The MAX corner is (c+1)·dim — computed here
+  // from CHUNK_DIM·cellSize so the test pins that off-by-one.
+  const dim = CHUNK_DIM * DEFAULT_CELL_SIZE;
+  const expected = [dim, dim / 2, dim / 2];
+  for (let i = 0; i < 3; i++)
+    expect(recoveredTarget[i]).toBeCloseTo(expected[i] ?? 0, 6);
+});
+
+// ——— load-time compaction glue (spec D-F3-16) ———
+//
+// Core's compactRuns is well-covered; these pin the EDITOR glue: the
+// > COMPACT_THRESHOLD_OPS direction, the after-resetWorld placement, and the
+// defensive try/catch. Logs are built through the same serializeOps/parseOps
+// path loadWorld actually uses.
+
+/** A loadWorld payload of `n` consecutive foldable brush ops (one run), built
+ *  with core so the chunks match the ops. `fill` ops carry `material` (so a
+ *  fold's patch records that class); `dig` ops carry none. */
+function buildBrushWorld(
+  n: number,
+  effect: "dig" | "fill",
+  material: number,
+): Parameters<ReturnType<typeof createFieldHost>["loadWorld"]>[0] {
+  const store = createFieldStore();
+  const log = createOpLog();
+  for (let i = 0; i < n; i++) {
+    const shape = {
+      kind: "sphere" as const,
+      center: [i * 0.5, 2, 2] as [number, number, number],
+      radius: 0.6,
+    };
+    const op: BrushOp =
+      effect === "fill"
+        ? { id: 0, kind: "brush", effect: "fill", material, shape }
+        : { id: 0, kind: "brush", effect: "dig", shape };
+    logApply(store, log, op, TABLE);
+  }
+  return {
+    manifest: MANIFEST,
+    chunks: [...store.chunks].map(([key, density]) => ({
+      key,
+      bytes: encodeChunkFile(density),
+    })),
+    materials: [...store.materials].map(([key, m]) => ({
+      key,
+      bytes: encodeMaterialFile(m),
+    })),
+    oplog: serializeOps(log.ops),
+  };
+}
+
+/** Read log.ops length back out of the artifact (oplog.json = serializeOps of
+ *  the CURRENT log — post-compaction after a load). */
+function readOplogLength(host: ReturnType<typeof createFieldHost>): number {
+  const files = host.exportArtifact("probe");
+  const oplogFile = files.find((f) => f.path === "worlds/probe/oplog.json");
+  if (oplogFile === undefined || typeof oplogFile.contents !== "string")
+    throw new Error("test: no oplog.json in the artifact");
+  return parseOps(oplogFile.contents).length;
+}
+
+// One over the threshold makes a single foldable run cross the gate.
+const OVER_THRESHOLD_OPS = 201;
+const UNDER_THRESHOLD_OPS = 50;
+
+test("loadWorld folds a log above COMPACT_THRESHOLD_OPS (the log shrinks)", () => {
+  const host = createFieldHost();
+  host.loadWorld(buildBrushWorld(OVER_THRESHOLD_OPS, "dig", 0));
+  // A run of 201 foldable ops (> 200) is compacted into far fewer.
+  expect(readOplogLength(host)).toBeLessThan(OVER_THRESHOLD_OPS);
+});
+
+test("loadWorld leaves a log at/below the threshold uncompacted (the log is unchanged)", () => {
+  const host = createFieldHost();
+  host.loadWorld(buildBrushWorld(UNDER_THRESHOLD_OPS, "dig", 0));
+  // 50 foldable ops (≤ 200) fall under the gate — every op is kept.
+  expect(readOplogLength(host)).toBe(UNDER_THRESHOLD_OPS);
+});
+
+test("a load-time compaction that throws is caught: the world still loads and the skip reason surfaces", () => {
+  const host = createFieldHost();
+  // Fill ops recording class 1 (dirt), built with the 3-class TABLE, but loaded
+  // into a host on the default rock-only BUILTIN_TABLE (no setMaterialTable):
+  // the fold's patch carries a class id the table cannot resolve, so compactRuns
+  // throws (verifyFold → assertPatchValid). loadWorld must swallow it.
+  const errors: string[] = [];
+  host.subscribeToolError((m) => errors.push(m));
+  const world = buildBrushWorld(OVER_THRESHOLD_OPS, "fill", 1);
+  // The load itself must not throw…
+  expect(() => host.loadWorld(world)).not.toThrow();
+  // …and the skip reason reached the status line (not swallowed silently).
+  expect(errors.some((m) => /compaction/i.test(m))).toBe(true);
 });

@@ -137,10 +137,13 @@ export type FieldStats = {
   /** Op-cost meter fields (spec D-F3-16), lifted from core's
    *  {@link field.logStats}: `totalOps` = the whole log's length;
    *  `liveGenerators` = entities whose recipe is intact; `compactableOps` = what
-   *  the NEXT world-load compaction would fold (the ceiling — nothing pinned,
-   *  matching the load-time call's empty `keepIds`); `undoDepth` = the history
-   *  that compaction requires empty. Recomputed only when the log changed (an
-   *  O(ops) scan is not a per-frame cost) — see the tick's log-signature gate. */
+   *  the next load's compaction COULD fold once `compactableOps` crosses
+   *  `COMPACT_THRESHOLD_OPS` (the ceiling — nothing pinned, matching the
+   *  load-time call's empty `keepIds`; below the threshold the next load folds
+   *  nothing while this stays non-zero, which is the meter climbing toward that
+   *  point); `undoDepth` = the history that compaction requires empty.
+   *  Recomputed only when the log changed (an O(ops) scan is not a per-frame
+   *  cost) — see the tick's log-signature gate. */
   totalOps: number;
   liveGenerators: number;
   compactableOps: number;
