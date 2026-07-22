@@ -263,15 +263,48 @@ export type ChunkSnapshot = {
  *  op touched, keyed by chunk. Chunk-keyed undo per the charter. */
 export type OpInverse = Map<ChunkKey, ChunkSnapshot>;
 
-/** Append-only op log. An undo entry covers an op LIST — a single brush op, or
- *  a generator commit's whole span + its entity op (one ⌘Z per commit,
- *  charter §2.3). Invariant: undo entries cover the tail of `ops` in order —
- *  every `ops` append must pair with an undoStack push, so undo can peel the
- *  tail by entry length. */
+/** One undo/redo unit.
+ *
+ *  `ops` = an op LIST appended to the tail — a single brush op, or a generator
+ *  commit's whole span + its entity op (one ⌘Z per commit, charter §2.3) —
+ *  with the chunk pre-images taken before the list applied.
+ *
+ *  `splice` = an in-place span replacement (reconfigure): `at` is the index in
+ *  `ops` where `removed` sat, and `before`/`after` are the affected chunks'
+ *  FULL pre/post images. Undo and redo restore those bytes — they never
+ *  re-execute the span.
+ *
+ *  `entity-update` = an in-place swap of one entity op's record at `opIndex`
+ *  (freeze/bake); it touches no chunks, so it carries no images. */
+export type LogEntry =
+  | { kind: "ops"; ops: FieldOp[]; inverse: OpInverse }
+  | {
+      kind: "splice";
+      at: number;
+      removed: FieldOp[];
+      inserted: FieldOp[];
+      before: OpInverse;
+      after: OpInverse;
+    }
+  | {
+      kind: "entity-update";
+      opIndex: number;
+      before: EntityOp;
+      after: EntityOp;
+    };
+
+/** The op log — `ops` in replay order, plus the two entry stacks.
+ *
+ *  Undo/redo are strictly LIFO: an entry's images assume the state produced by
+ *  everything below it on the stack, so entries are only ever applied in stack
+ *  order. `ops` entries cover the tail of `ops` when pushed — and, by the LIFO
+ *  rule above, still do when undone (every append pairs with an undoStack push,
+ *  so undo peels the tail by entry length); splice and entity-update entries
+ *  restore positionally. */
 export type OpLog = {
   ops: FieldOp[];
-  undoStack: { ops: FieldOp[]; inverse: OpInverse }[];
-  redoStack: FieldOp[][];
+  undoStack: LogEntry[];
+  redoStack: LogEntry[];
   nextId: number;
 };
 

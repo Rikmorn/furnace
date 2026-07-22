@@ -24,6 +24,7 @@ import type {
   ChunkKey,
   FieldOp,
   FieldStore,
+  LogEntry,
   MaterializedSelection,
   MaterialTable,
   OpInverse,
@@ -445,43 +446,181 @@ export function logApply(
   const stamped: BrushOp = { ...op, id: log.nextId++ };
   const { dirty, inverse } = applyOp(store, stamped, table);
   log.ops.push(stamped);
-  log.undoStack.push({ ops: [stamped], inverse });
+  log.undoStack.push({ kind: "ops", ops: [stamped], inverse });
   log.redoStack.length = 0;
   return dirty;
 }
 
-/** Undoes the last undo entry — its WHOLE op list (one ⌘Z per commit) — by
- *  restoring both channels of its chunk pre-images (or deleting the entry when
- *  a channel's pre-image was null). Returns the dirty chunk set (empty when
- *  there is nothing to undo or the entry touched no chunks). */
-export function undo(store: FieldStore, log: OpLog): Set<ChunkKey> {
-  const entry = log.undoStack.pop();
-  if (entry === undefined) return new Set();
+/** **Escape hatch.** Writes chunk images straight into the store, BOTH channels
+ *  per key: a null channel deletes the store's entry (the chunk was unallocated
+ *  / had no material record when the image was taken), a non-null one is copied
+ *  in. Mutates `store`; the images are left untouched, so the same map can be
+ *  restored repeatedly (undo → redo → undo).
+ *
+ *  There is NO log coupling: this writes bytes and nothing else. The CALLER
+ *  owns keeping `log` consistent with what it wrote — restoring images without
+ *  the matching `log.ops` change desynchronises the store from its replay
+ *  history, and nothing downstream detects it (a re-bake from the log silently
+ *  produces different bytes). The managed path is {@link undo}/{@link redo};
+ *  reach for this only when driving the store and the log together yourself.
+ *
+ *  @returns the keys the restore touched — the caller's dirty set. */
+export function restoreImages(
+  store: FieldStore,
+  images: OpInverse,
+): Set<ChunkKey> {
   const dirty = new Set<ChunkKey>();
-  for (const [key, pre] of entry.inverse) {
+  for (const [key, pre] of images) {
     if (pre.density === null) store.chunks.delete(key);
     else store.chunks.set(key, Int8Array.from(pre.density));
     if (pre.materials === null) store.materials.delete(key);
     else store.materials.set(key, cloneChunkMaterials(pre.materials));
     dirty.add(key);
   }
-  log.ops.length -= entry.ops.length;
-  log.redoStack.push(entry.ops);
   return dirty;
 }
 
-/** Redoes the most recently undone op list by re-applying its BRUSH members in
- *  order (entity ops never touch the field) — deterministic; already validated
- *  at first apply, so no re-validation. `table` resolves class-kind masks
- *  during re-application. Per-op inverses merge first-touch-wins (the earliest
- *  pre-image of each chunk is the entry's pre-image). */
+/** `Array.prototype.splice` without arguments-spread: `ops.splice(at, n,
+ *  ...insert)` hits JS-engine argument-count ceilings (~65k in JSC) on the
+ *  mega spans a generator can emit. Mutates `ops` in place.
+ *
+ *  Cold path (at most one call per user gesture — undo/redo, reconfigure,
+ *  compaction), so the span is VALIDATED, not trusted: callers derive
+ *  `at`/`deleteCount` from stored values like an entity's `opSpan`, and a span
+ *  left stale by an earlier edit is exactly how an out-of-range value arises.
+ *  Unlike `Array.prototype.splice` there is no clamping and no count-from-the-
+ *  end: every out-of-range span throws rather than silently mangling the log
+ *  (untrapped, a negative `deleteCount` DUPLICATES ops — same object, same id,
+ *  twice in the log — which survives into replay, serialization and bake).
+ *
+ *  @throws {@link Error} if `at` or `deleteCount` is not a non-negative
+ *    integer, or `[at, at + deleteCount)` runs past the end of `ops`. */
+export function spliceOps(
+  ops: FieldOp[],
+  at: number,
+  deleteCount: number,
+  insert: FieldOp[],
+): void {
+  const spanInRange =
+    Number.isInteger(at) &&
+    Number.isInteger(deleteCount) &&
+    at >= 0 &&
+    deleteCount >= 0 &&
+    at + deleteCount <= ops.length;
+  if (!spanInRange)
+    throw new Error(
+      `spliceOps: span [${at}, ${at + deleteCount}) out of range for ${ops.length} ops`,
+    );
+  const tail = ops.slice(at + deleteCount);
+  ops.length = at;
+  for (const op of insert) ops.push(op);
+  for (const op of tail) ops.push(op);
+}
+
+/** Undoes the last log entry and moves it to the redo stack. An `ops` entry
+ *  reverts its WHOLE op list (one ⌘Z per commit) by restoring the list's chunk
+ *  pre-images and peeling the tail; a `splice` entry puts the removed span back
+ *  at its index and restores the affected chunks' `before` images (bytes — the
+ *  span is never re-executed); an `entity-update` entry swaps the entity op's
+ *  previous record back in and touches no chunks. Returns the dirty chunk set
+ *  (empty when there is nothing to undo or the entry touched no chunks). */
+export function undo(store: FieldStore, log: OpLog): Set<ChunkKey> {
+  const entry = log.undoStack.at(-1);
+  if (entry === undefined) return new Set();
+  // Revert first, move the entry second: spliceOps validates before it writes,
+  // so a malformed splice entry throws with both stacks and the store untouched
+  // rather than stranding an entry on the wrong stack.
+  const dirty = revertEntry(store, log, entry);
+  log.undoStack.pop();
+  // ONE transfer per pop, in ONE place. The WHOLE entry moves across — the
+  // deliberate price of symmetric stacks (splice/entity-update need their
+  // records to replay forward). An `ops` entry's inverse therefore sits unread
+  // on the redo stack until the next mutation clears it: peak memory is
+  // unchanged (the undo stack already held it), but memory that used to be
+  // released at undo no longer is.
+  log.redoStack.push(entry);
+  return dirty;
+}
+
+/** Reverts one entry off the store + `log.ops`, leaving the stacks to
+ *  {@link undo}. Mirror of {@link replayEntry}; every kind is total, so a new
+ *  {@link LogEntry} member fails to type-check until it is handled here. */
+function revertEntry(
+  store: FieldStore,
+  log: OpLog,
+  entry: LogEntry,
+): Set<ChunkKey> {
+  switch (entry.kind) {
+    case "ops":
+      log.ops.length -= entry.ops.length;
+      return restoreImages(store, entry.inverse);
+    case "splice":
+      spliceOps(log.ops, entry.at, entry.inserted.length, entry.removed);
+      return restoreImages(store, entry.before);
+    case "entity-update":
+      log.ops[entry.opIndex] = entry.before;
+      return new Set();
+  }
+}
+
+/** Redoes the most recently undone entry and moves it — or, for `ops`, a
+ *  freshly captured equivalent — back to the undo stack. An `ops` entry is
+ *  re-applied by re-executing its BRUSH members in order (entity ops never
+ *  touch the field) — deterministic, and already validated at first apply, so
+ *  no re-validation; `table` resolves class-kind masks during re-application.
+ *  `splice` and `entity-update` entries are replayed from their records
+ *  instead: the span goes back in at its index with the `after` images restored
+ *  byte-for-byte, and the entity record is swapped forward again. */
 export function redo(
   store: FieldStore,
   log: OpLog,
   table: MaterialTable,
 ): Set<ChunkKey> {
-  const ops = log.redoStack.pop();
-  if (ops === undefined) return new Set();
+  const popped = log.redoStack.at(-1);
+  if (popped === undefined) return new Set();
+  // Replay first, move the entry second — same reason as undo.
+  const replayed = replayEntry(store, log, popped, table);
+  log.redoStack.pop();
+  // ONE transfer per pop, in ONE place: a future entry kind cannot type-check
+  // its way into silently losing a redo step.
+  log.undoStack.push(replayed.entry);
+  return replayed.dirty;
+}
+
+/** Replays one entry forward onto the store + `log.ops`, leaving the stacks to
+ *  {@link redo}. Returns the entry {@link redo} must push onto the undo stack:
+ *  the SAME object for the byte-restoring kinds, and for `ops` a fresh entry
+ *  over the same op list, because re-execution recaptures the inverse against
+ *  current state. */
+function replayEntry(
+  store: FieldStore,
+  log: OpLog,
+  entry: LogEntry,
+  table: MaterialTable,
+): { entry: LogEntry; dirty: Set<ChunkKey> } {
+  switch (entry.kind) {
+    case "ops": {
+      const { dirty, inverse } = reapplyOps(store, log, entry.ops, table);
+      return { entry: { kind: "ops", ops: entry.ops, inverse }, dirty };
+    }
+    case "splice":
+      spliceOps(log.ops, entry.at, entry.removed.length, entry.inserted);
+      return { entry, dirty: restoreImages(store, entry.after) };
+    case "entity-update":
+      log.ops[entry.opIndex] = entry.after;
+      return { entry, dirty: new Set() };
+  }
+}
+
+/** Re-executes an undone op list and re-appends it to the tail of `log.ops`.
+ *  Per-op inverses merge first-touch-wins, so the returned inverse holds each
+ *  chunk's earliest pre-image (the pre-list state). */
+function reapplyOps(
+  store: FieldStore,
+  log: OpLog,
+  ops: FieldOp[],
+  table: MaterialTable,
+): { dirty: Set<ChunkKey>; inverse: OpInverse } {
   const dirty = new Set<ChunkKey>();
   const inverse: OpInverse = new Map();
   for (const op of ops) {
@@ -494,6 +633,5 @@ export function redo(
   // Loop push, not spread: spread hits JS-engine argument-count ceilings
   // (~65k in JSC) on mega commit spans.
   for (const op of ops) log.ops.push(op);
-  log.undoStack.push({ ops, inverse });
-  return dirty;
+  return { dirty, inverse };
 }

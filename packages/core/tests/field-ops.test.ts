@@ -2,14 +2,19 @@ import { describe, expect, test } from "bun:test";
 import type {
   BrushMask,
   BrushOp,
+  ChunkKey,
+  ChunkMaterials,
   EntityOp,
   FieldOp,
+  FieldStore,
   MaterialTable,
+  OpInverse,
 } from "@furnace/core/field";
 import {
   applyOp,
   assertOpValid,
   BUILTIN_TABLE,
+  cloneChunkMaterials,
   createFieldStore,
   createOpLog,
   encodeChunkFile,
@@ -24,6 +29,10 @@ import {
   serializeOps,
   undo,
 } from "@furnace/core/field";
+// spliceOps is deliberately NOT on the public index (Tasks 3/5 import it
+// in-core); the guard's rejected cases are unreachable through undo/redo, so
+// they are tested against the source module directly.
+import { spliceOps } from "../src/field/ops.ts";
 
 const sphere = (id: number): BrushOp => ({
   id,
@@ -410,14 +419,18 @@ describe("brush ops", () => {
 });
 
 describe("op-list undo entries + the FieldOp union (F2b)", () => {
-  test("undo entries are op lists; a single brush op round-trips as [op]", () => {
+  test('undo entries carry kind "ops"; a single brush op round-trips as [op]', () => {
     const s = createFieldStore();
     const log = createOpLog();
     logApply(s, log, digSphere([1, 1, 1], 1), TABLE);
-    expect(log.undoStack[0]?.ops.length).toBe(1);
-    undo(s, log);
+    const entry = log.undoStack[0];
+    if (entry?.kind !== "ops")
+      throw new Error(`expected an "ops" entry, got ${entry?.kind}`);
+    expect(entry.ops.length).toBe(1);
+    const dirty = undo(s, log);
+    expect(dirty.size).toBeGreaterThan(0);
     expect(log.ops.length).toBe(0);
-    expect(redo(s, log, TABLE).size).toBeGreaterThan(0);
+    expect(redo(s, log, TABLE).size).toBe(dirty.size);
     expect(log.ops.length).toBe(1);
   });
 
@@ -490,7 +503,7 @@ describe("op-list undo entries + the FieldOp union (F2b)", () => {
     const inverse = new Map(ra.inverse);
     for (const [k, pre] of rb.inverse) if (!inverse.has(k)) inverse.set(k, pre);
     log.ops.push(a, b, e);
-    log.undoStack.push({ ops: [a, b, e], inverse });
+    log.undoStack.push({ kind: "ops", ops: [a, b, e], inverse });
     log.nextId = 4;
     const dAfter = getDensity(s, 4, 4, 4);
     const mAfter = getMaterial(s, 4, 4, 4);
@@ -1037,5 +1050,188 @@ describe("hollow fill (F2b)", () => {
     // organic fills take any positive thickness
     expect(() => assertOpValid(fillBoxOp(1, 0.3), TABLE)).not.toThrow();
     expect(() => assertOpValid(fillBoxOp(3, 0.5), TABLE)).not.toThrow();
+  });
+});
+
+type StoreSnapshot = {
+  chunks: Map<ChunkKey, Int8Array>;
+  materials: Map<ChunkKey, ChunkMaterials>;
+};
+
+/** A deep copy of the WHOLE store — the reference for "undo left nothing
+ *  behind" (a leaked chunk or material entry fails the comparison). */
+const snapshotAll = (s: FieldStore): StoreSnapshot => ({
+  chunks: new Map([...s.chunks].map(([k, v]) => [k, Int8Array.from(v)])),
+  materials: new Map(
+    [...s.materials].map(([k, v]) => [k, cloneChunkMaterials(v)]),
+  ),
+});
+
+/** Current images of the given chunks, under the same clone/null rules as the
+ *  private `snapshot()` in ops.ts (absent channel → null). */
+const imagesOf = (s: FieldStore, keys: Iterable<ChunkKey>): OpInverse => {
+  const images: OpInverse = new Map();
+  for (const key of keys) {
+    const density = s.chunks.get(key);
+    const materials = s.materials.get(key);
+    images.set(key, {
+      density: density ? Int8Array.from(density) : null,
+      materials: materials ? cloneChunkMaterials(materials) : null,
+    });
+  }
+  return images;
+};
+
+describe("spliceOps (F3a)", () => {
+  const ids = (ops: FieldOp[]): number[] => ops.map((o) => o.id);
+  const four = (): FieldOp[] => [1, 2, 3, 4].map((id) => ({ ...sphere(id) }));
+
+  test("replaces a mid-array span and keeps the tail in order", () => {
+    const ops = four();
+    const tail = ops[3];
+    spliceOps(ops, 1, 2, [sphere(9), sphere(10)]);
+    expect(ids(ops)).toEqual([1, 9, 10, 4]);
+    expect(ops[3]).toBe(tail); // the tail is re-pushed, not rebuilt
+    // insert and delete counts need not match — that is the whole point
+    spliceOps(ops, 1, 2, []);
+    expect(ids(ops)).toEqual([1, 4]);
+    spliceOps(ops, 2, 0, [sphere(5)]);
+    expect(ids(ops)).toEqual([1, 4, 5]);
+  });
+
+  // Native splice CLAMPS these (and reads a negative `at` from the end);
+  // spliceOps refuses instead. A negative deleteCount is the dangerous one: it
+  // re-pushes ops it never removed, so the SAME op object lands in the log
+  // twice under one id and survives into replay, serialization and bake.
+  test("throws on an out-of-range span instead of mangling the log", () => {
+    for (const [at, deleteCount] of [
+      [-2, 1],
+      [1.5, 1],
+      [1, -1],
+      [1, 0.5],
+      [5, 0],
+      [2, 3],
+    ] as const) {
+      const ops = four();
+      expect(() => spliceOps(ops, at, deleteCount, [sphere(9)])).toThrow(
+        /out of range/,
+      );
+      expect(ids(ops)).toEqual([1, 2, 3, 4]); // rejected BEFORE any mutation
+    }
+    // the exact boundary is allowed: a span ending at the last op
+    const ops = four();
+    spliceOps(ops, 2, 2, [sphere(9)]);
+    expect(ids(ops)).toEqual([1, 2, 9]);
+  });
+});
+
+// F3a reconfigure replaces a span in the MIDDLE of the log, which a
+// tail-peeling entry cannot represent. Both entries are hand-built here — Task
+// 3 (reconfigureGenerator) ships the verb that produces splice entries, Task 4
+// the one that produces entity-update entries.
+describe("splice + entity-update log entries (F3a)", () => {
+  test("a splice entry restores the ops array positionally and the store byte-exactly", () => {
+    const s = createFieldStore();
+    const log = createOpLog();
+    logApply(s, log, digSphere([1, 1, 1], 1), TABLE);
+    // a DOWNSTREAM op: the span is spliced out of the middle, so the tail must
+    // survive both directions with its order and identity intact
+    logApply(s, log, digSphere([20, 1, 1], 1), TABLE);
+    const removed = log.ops.slice(0, 1);
+    const tail = log.ops.slice(1);
+    const beforeStore = snapshotAll(s);
+
+    // The replacement span: a dig that reaches chunks the removed op never
+    // touched (undo must DELETE those) plus a fill that claims the material
+    // channel (undo must drop that entry too).
+    const inserted: BrushOp[] = [
+      { ...digSphere([3, 1, 1], 1), id: log.nextId++ },
+      {
+        id: log.nextId++,
+        kind: "brush",
+        effect: "fill",
+        material: 1,
+        shape: { kind: "sphere", center: [3, 1, 1], radius: 0.6 },
+      },
+    ];
+    const before: OpInverse = new Map();
+    for (const op of inserted) {
+      const r = applyOp(s, op, TABLE);
+      for (const [k, pre] of r.inverse) if (!before.has(k)) before.set(k, pre);
+    }
+    // the span really did allocate fresh chunks and fresh material entries —
+    // otherwise "undo deletes what the span created" would be vacuous
+    expect([...before.values()].some((img) => img.density === null)).toBe(true);
+    expect([...before.values()].some((img) => img.materials === null)).toBe(
+      true,
+    );
+    expect(s.materials.size).toBeGreaterThan(0);
+
+    // An edit that is NOT in `inserted`, folded into the affected images the
+    // way reconfigure folds a whole replayed downstream: redo restores BYTES,
+    // so this must reappear even though no logged op can explain it.
+    const rw = applyOp(s, { ...digSphere([9, 9, 9], 1), id: 99 }, TABLE);
+    for (const [k, pre] of rw.inverse) if (!before.has(k)) before.set(k, pre);
+    const after = imagesOf(s, before.keys());
+
+    log.ops.splice(0, removed.length, ...inserted);
+    log.undoStack.push({
+      kind: "splice",
+      at: 0,
+      removed,
+      inserted,
+      before,
+      after,
+    });
+
+    expect(undo(s, log).size).toBe(before.size);
+    expect(log.ops).toEqual([...removed, ...tail]); // positional restore
+    expect(log.ops[0]).toBe(removed[0]); // …of the same op objects
+    expect(log.ops[1]).toBe(tail[0]);
+    expect(snapshotAll(s)).toEqual(beforeStore);
+
+    expect(redo(s, log, TABLE).size).toBe(after.size);
+    expect(log.ops).toEqual([...inserted, ...tail]);
+    expect(log.ops[2]).toBe(tail[0]);
+    expect(imagesOf(s, after.keys())).toEqual(after);
+    // …including the out-of-span edit: nothing in `log.ops` opens air at
+    // (9,9,9), so redo replayed bytes rather than re-executing the span
+    expect(getDensity(s, 36, 36, 36)).toBeGreaterThan(0);
+  });
+
+  test("an entity-update entry swaps one entity op in place and touches no chunks", () => {
+    const s = createFieldStore();
+    const log = createOpLog();
+    logApply(s, log, digSphere([1, 1, 1], 1), TABLE);
+    const hallOf = (width: number): EntityOp => ({
+      id: 7,
+      kind: "entity",
+      action: "place",
+      entity: {
+        entityId: 7,
+        type: "generator",
+        generator: "hall",
+        params: { width },
+        seed: 1,
+        region: { min: [0, 0, 0], max: [4, 2, 4] },
+        opSpan: [1, 1],
+      },
+    });
+    const before = hallOf(4);
+    const after = hallOf(8);
+    log.ops.push(after);
+    const opIndex = log.ops.length - 1;
+    const store = snapshotAll(s);
+    log.undoStack.push({ kind: "entity-update", opIndex, before, after });
+
+    expect(undo(s, log).size).toBe(0);
+    expect(log.ops.length).toBe(2); // an in-place swap, never a pop
+    expect(log.ops[opIndex]).toBe(before);
+    expect(snapshotAll(s)).toEqual(store);
+
+    expect(redo(s, log, TABLE).size).toBe(0);
+    expect(log.ops.length).toBe(2);
+    expect(log.ops[opIndex]).toBe(after);
+    expect(snapshotAll(s)).toEqual(store);
   });
 });

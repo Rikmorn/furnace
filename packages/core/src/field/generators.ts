@@ -668,7 +668,7 @@ export function generatorById(id: string): GeneratorDef {
  *  Returns the commit's dirty chunk set and the recorded
  *  {@link GeneratorEntity} — whose `entityId` intentionally equals the entity
  *  op's log id (the same log.nextId slot). The entity's `params`/`region` are
- *  CLONED (deep): the log is append-only provenance, so a caller reusing a
+ *  CLONED (deep): the log owns its copy of the record, so a caller reusing a
  *  live object across commits can never rewrite it. Commit RE-EVALUATES the
  *  generator; it relies on evaluate's determinism (pure, same-input-twice —
  *  the charter §2.2 contract) to reproduce a previewed span exactly.
@@ -702,11 +702,11 @@ export function commitGenerator(
     throw new Error(
       `commitGenerator: generator "${def.id}" evaluated to an empty op span`,
     );
-  // Provenance clones run BEFORE any store write: the entity is an
-  // append-only provenance record (a caller mutating a reused params/region
-  // object must never rewrite the log), and a non-cloneable value (unknown
-  // keys survive param validation) must throw HERE — cloning after pass 2
-  // would strand a mutated store with no undo entry.
+  // Provenance clones run BEFORE any store write: the log owns its copy of the
+  // record (a caller mutating a reused params/region object must never rewrite
+  // it), and a non-cloneable value (unknown keys survive param validation) must
+  // throw HERE — cloning after pass 2 would strand a mutated store with no
+  // undo entry.
   const params = structuredClone(opts.params);
   const region = structuredClone(opts.region);
   // Pass 1 — stamp real ids and validate the WHOLE span before any write.
@@ -746,7 +746,7 @@ export function commitGenerator(
   // Loop push, not arguments-spread: fn(...arr) hits JS-engine argument-count
   // ceilings (~65k in JSC) on mega commit spans.
   for (const op of stamped) log.ops.push(op);
-  log.undoStack.push({ ops: stamped, inverse });
+  log.undoStack.push({ kind: "ops", ops: stamped, inverse });
   log.redoStack.length = 0;
   return { dirty, entity };
 }

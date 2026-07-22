@@ -314,7 +314,10 @@ describe("smooth effect (F2b)", () => {
     expect(dirty.size).toBe(0);
     expect(s.chunks.size).toBe(0);
     expect(s.materials.size).toBe(0);
-    expect(log.undoStack[0]?.inverse.size).toBe(0);
+    const entry = log.undoStack[0];
+    if (entry?.kind !== "ops")
+      throw new Error(`expected an "ops" entry, got ${entry?.kind}`);
+    expect(entry.inverse.size).toBe(0);
   });
 
   test("smooth requires params and validates ranges", () => {

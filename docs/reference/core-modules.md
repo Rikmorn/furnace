@@ -794,8 +794,9 @@ channel** (uniform|indexed palette encoding behind accessors — `getMaterial` /
 - **Store + coords** — `createFieldStore`, `getDensity`/`setDensity`,
   `extractFieldAprons` (the 20³ density+material window), `chunkKey`/`parseChunkKey`,
   `voxelChunk`, `worldToVoxel`/`sampleToWorld`, `AIR`/`SOLID`.
-- **The op log (F2b: one log, op-list undo)** — the `FieldOp` union = `BrushOp |
-  EntityOp` (`isBrushOp` narrows). **Brush effects**: dig / fill / paint / **smooth**
+- **The op log (F2b: one log, op-list undo; F3a: splice-safe entries)** — the
+  `FieldOp` union = `BrushOp | EntityOp` (`isBrushOp` narrows).
+  **Brush effects**: dig / fill / paint / **smooth**
   (`SmoothParams` — max-delta-clamp strength doubling as the thin-wall guard,
   iterations, both|erode|fill modes, `SMOOTH_DEFAULTS`; density-only, never materials).
   Fill takes an optional **`hollow`** shell-band thickness (non-destructive: interior
@@ -803,8 +804,13 @@ channel** (uniform|indexed palette encoding behind accessors — `getMaterial` /
   organic-only / kit-only / class / solid-only / selection-embedding) evaluate per
   sample and ride the op record — a masked op replays identically; `solid-only` is the
   keep-existing-air building block. Kit lattice validation is per-op and re-checked by
-  the applier (`assertOpValid`). `applyOp`, `logApply`, `undo`/`redo` (undo entries are
-  op LISTS — one entry per generator commit), `opBounds`, `createOpLog`.
+  the applier (`assertOpValid`). `applyOp`, `logApply`, `undo`/`redo`, `opBounds`,
+  `createOpLog`. An undo/redo unit is a `LogEntry`: `ops` (an appended op LIST — one
+  entry per generator commit), `splice` (an in-place span replacement — `before`/`after`
+  chunk images are RESTORED on undo/redo, the span is never re-executed), or
+  `entity-update` (an in-place entity-record swap that touches no chunks).
+  `restoreImages` is the shared image→store writer (both channels; a null channel
+  deletes). Both stacks are strictly LIFO.
 - **Selection** — `SelectionSpec` (region | flood-material | flood-void) →
   `materializeSelection` (6-connected BFS, budget-capped LOUDLY via `truncated`, ceiling
   `MAX_SELECTION_BUDGET`; pure query) + `selectionHas`; `MaterializedSelection` keeps
