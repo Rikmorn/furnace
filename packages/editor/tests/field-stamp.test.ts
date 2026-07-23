@@ -1157,6 +1157,37 @@ test("dismissDrift nulls the standing report and re-notifies subscribeDrift", as
   }
 });
 
+test("stepping history clears the standing drift report (F3a gate finding)", async () => {
+  const uninstall = installFakeWorker();
+  try {
+    const host = createFieldHost();
+    const { entityId, params } = loadDriftedWorld(host);
+    const reports: (DriftFinding[] | null)[] = [];
+    host.subscribeDrift((r) => reports.push(r));
+
+    host.openEntity(entityId);
+    await settle();
+    host.updateStamp({ ...params, depth: 12 }, 7, "replace");
+    await settle();
+    host.applyReconfigure();
+    expect(reports.at(-1)?.length).toBeGreaterThan(0);
+
+    // ⌘Z rewinds the reconfigure the report describes — the report must go
+    // with it (its findings name a replay the log no longer contains).
+    host.undo();
+    expect(reports.at(-1)).toBeNull();
+    const pushesAfterUndo = reports.length;
+
+    // Redo does NOT resurrect it: the report is cleared, never recomputed —
+    // and an already-null report is not re-notified.
+    host.redo();
+    expect(reports.at(-1)).toBeNull();
+    expect(reports.length).toBe(pushesAfterUndo);
+  } finally {
+    uninstall();
+  }
+});
+
 // ——— frameChunks (headless: pose read back through the artifact manifest) ———
 //
 // The host exposes no direct camera-target seam, but exportArtifact bakes

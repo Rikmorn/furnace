@@ -1,7 +1,11 @@
 // Ghost target-marker math for the field host — pure, GPU-free, extracted from
 // field-host.ts so the formulas are unit-testable (the F2a carry-over): the
-// sphere-brush preview ring segments and the box-ghost corner layout. The host
+// sphere-brush preview ring segments, the box-ghost corner layout, and the
+// committed-generator footprint behind the entity-highlight box. The host
 // wraps these in segmentsToBatch / boxEdges and draws occlude:false.
+
+import type { FieldOp, GeneratorEntity } from "@furnace/core/field";
+import { CHUNK_DIM, opBounds, parseChunkKey } from "@furnace/core/field";
 
 type Vec3T = [number, number, number];
 
@@ -69,4 +73,51 @@ export const boxCorners = (center: Vec3T, half: Vec3T): Float32Array => {
     out[i * 3 + 2] = (i & 4) === 0 ? center[2] - half[2] : center[2] + half[2];
   }
   return out;
+};
+
+/** The stamped FOOTPRINT of a committed generator: the union AABB of its
+ *  span's field-writing ops, read from the live log. The recorded `region` is
+ *  the SELECTION the user drew — a stamp anchors at the region's snapped min
+ *  corner with its size from params, so an oversized region can badly
+ *  over-draw the actual content (the F3a gate finding: the highlight boxed
+ *  mostly-empty space). Brush ops contribute their declared bounds; patch ops
+ *  contribute their chunks' extents. Null when the span holds no
+ *  field-writing ops — the caller falls back to the region. */
+export const generatorFootprint = (
+  ops: readonly FieldOp[],
+  entity: GeneratorEntity,
+  cellSize: number,
+): { min: Vec3T; max: Vec3T } | null => {
+  let box: { min: Vec3T; max: Vec3T } | null = null;
+  const grow = (lo: Vec3T, hi: Vec3T): void => {
+    if (box === null) {
+      box = { min: [...lo], max: [...hi] };
+      return;
+    }
+    box.min[0] = Math.min(box.min[0], lo[0]);
+    box.min[1] = Math.min(box.min[1], lo[1]);
+    box.min[2] = Math.min(box.min[2], lo[2]);
+    box.max[0] = Math.max(box.max[0], hi[0]);
+    box.max[1] = Math.max(box.max[1], hi[1]);
+    box.max[2] = Math.max(box.max[2], hi[2]);
+  };
+  const [spanFirst, spanLast] = entity.opSpan;
+  for (const op of ops) {
+    if (op.kind === "entity") continue;
+    if (op.id < spanFirst || op.id > spanLast) continue;
+    if (op.kind === "brush") {
+      const b = opBounds(op);
+      grow(b.min, b.max);
+      continue;
+    }
+    for (const chunk of op.chunks) {
+      const [cx, cy, cz] = parseChunkKey(chunk.key);
+      const extent = CHUNK_DIM * cellSize;
+      grow(
+        [cx * extent, cy * extent, cz * extent],
+        [(cx + 1) * extent, (cy + 1) * extent, (cz + 1) * extent],
+      );
+    }
+  }
+  return box;
 };

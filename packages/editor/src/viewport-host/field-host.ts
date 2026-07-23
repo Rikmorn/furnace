@@ -34,7 +34,12 @@ import {
   type OrbitState,
   toEyeTarget,
 } from "./camera-control.ts";
-import { boxCorners, GHOST_COLOR, sphereGhostSegments } from "./field-ghost.ts";
+import {
+  boxCorners,
+  GHOST_COLOR,
+  generatorFootprint,
+  sphereGhostSegments,
+} from "./field-ghost.ts";
 import { packKitMatrices, pieceColor } from "./field-kit-render.ts";
 import {
   createPreviewCoalescer,
@@ -455,8 +460,10 @@ export type FieldHost = {
   /** The committed generator entities, in log order (CLONES — read from the
    *  op log's entity ops, so undo/redo and world loads stay accurate). */
   listEntities(): field.GeneratorEntity[];
-  /** Shows the amber-dim region box of one committed entity (null = hide;
-   *  unknown ids hide too — runtime-quiet). Display-only, under the
+  /** Shows the amber-dim box of one committed entity's stamped FOOTPRINT —
+   *  the union of its span's op bounds, falling back to the recorded
+   *  selection region only when the span holds no field-writing ops (null =
+   *  hide; unknown ids hide too — runtime-quiet). Display-only, under the
    *  `selection` layer gate. */
   highlightEntity(entityId: number | null): void;
   /** Bakes the current field to the artifact file set (pure, for upload). */
@@ -1690,6 +1697,9 @@ export function createFieldHost(): FieldHost {
   // region is an editable field of the session) and undo/redo (which restores
   // the previous record). An entity that left the log clears the box and the
   // id, so an undone commit cannot leave an amber ghost floating over nothing.
+  // The box outlines the stamped FOOTPRINT (union of the span's op bounds),
+  // not the recorded selection region — an oversized region boxed mostly-empty
+  // space (F3a gate finding); the region is only the no-span fallback.
   const rebuildEntityHighlight = (): void => {
     if (highlightedEntityId === null) return;
     const record = entityRecord(highlightedEntityId);
@@ -1698,7 +1708,11 @@ export function createFieldHost(): FieldHost {
       entityHighlightBatch = null;
       return;
     }
-    entityHighlightBatch = aabbEdgeBatch(record.region, ENTITY_HIGHLIGHT_COLOR);
+    const footprint = generatorFootprint(log.ops, record, store.cellSize);
+    entityHighlightBatch = aabbEdgeBatch(
+      footprint ?? record.region,
+      ENTITY_HIGHLIGHT_COLOR,
+    );
   };
 
   const destroyStampGhosts = (): void => {
@@ -2075,6 +2089,15 @@ export function createFieldHost(): FieldHost {
       : field.undo(store, log);
     markDirtyWithNeighbors(dirtied);
     rebuildEntityHighlight();
+    // A standing drift report describes the LAST reconfigure's replay against
+    // a log this step just rewrote — stale in either direction (F3a gate
+    // finding: ⌘Z left the list up). Cleared, never recomputed; the load-path
+    // clear (loadWorld) shares the rationale. An already-null report is not
+    // re-notified.
+    if (drift !== null) {
+      drift = null;
+      notifyDrift();
+    }
     notifyEntities();
   };
 
