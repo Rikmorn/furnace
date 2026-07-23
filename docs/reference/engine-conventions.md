@@ -452,11 +452,11 @@ they just don't fire until DOM listeners are installed.
 - **Stuck-key behavior**: on `window` blur the engine clears `keysDown` and
   pointer button state. `onKeyUp` events are *not* synthesized for the cleared
   keys; consumers requiring symmetric event streams subscribe to a future
-  `onBlur` (backlog: `input-stuck-key-recovery.md`).
+  `onBlur` (backlog: `input-module-pass.md`, *Stuck-key recovery* section).
 - **Default browser behaviors are not suppressed**: arrows scroll, right-click
   opens the context menu, Cmd+S opens save. Hello-world's full-viewport canvas
   is unaffected; embedded consumers need the future config option tracked in
-  `input-prevent-default-config.md`.
+  `input-module-pass.md` (*Configurable `preventDefault`* section).
 
 ## Instrumentation
 
