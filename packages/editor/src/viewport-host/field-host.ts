@@ -615,19 +615,19 @@ function clampTool(t: FieldTool): FieldTool {
 }
 
 /** The generator's JSON-Schema `properties` map, narrowed off the loosely-typed
- *  `paramSchema` — the single clamp-bound source {@link deriveSizeDefaults}
- *  reads. Setup-loud on a schema without a properties object (a registry bug). */
+ *  `paramSchema` — the clamp-bound source {@link deriveSizeDefaults} reads. A
+ *  schema without a properties object yields `{}`, not a throw: a size-less
+ *  generator derives nothing, so the empty map flows to deriveSizeDefaults'
+ *  no-op branch untouched (setup-loud stays with `boundOf`, which fires only for
+ *  a generator that DOES derive but is missing a specific numeric bound). */
 function generatorSchemaProperties(
   def: field.GeneratorDef,
 ): Record<string, unknown> {
   const props = def.paramSchema["properties"];
-  if (typeof props !== "object" || props === null)
-    throw new Error(
-      `field-host: generator "${def.id}" schema is missing its properties`,
-    );
+  if (typeof props !== "object" || props === null) return {};
   // Boundary cast: GeneratorDef.paramSchema is typed Record<string, unknown>;
-  // every registered generator's schema is a JSON-Schema object whose
-  // `properties` is an object (asserted non-null above). Reads yield unknown.
+  // the runtime check above proves `properties` is a non-null object, which is
+  // always index-readable as Record<string, unknown> (values stay unknown).
   return props as Record<string, unknown>;
 }
 

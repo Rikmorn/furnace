@@ -3,7 +3,7 @@
 // scratch store (ghost) and in commitGenerator (commit), so the committed
 // chunks must mesh byte-identically to the previewed ghost buckets.
 import { describe, expect, test } from "bun:test";
-import { nudgeRegion } from "../src/frontend/lib/field-brush.ts";
+import { nudgeRegion, spanCells } from "../src/frontend/lib/field-brush.ts";
 import type { FieldWorkerResponse } from "../src/frontend/lib/field-protocol.ts";
 import { createFieldWorkerHandler } from "../src/frontend/lib/field-protocol.ts";
 import { deriveSizeDefaults } from "../src/frontend/lib/field-size.ts";
@@ -308,8 +308,10 @@ import {
   extractFieldAprons,
   generatorById,
   getDensity,
+  isBrushOp,
   MAZE_PITCH_CELLS,
   meshChunkField,
+  opBounds,
 } from "@furnace/core/field";
 import { FieldWorkerClient } from "../src/frontend/lib/field-client.ts";
 
@@ -456,6 +458,65 @@ test("preview and commit run the SAME evaluate: committed chunks mesh byte-ident
       expect(l.mesh.positions).toEqual(new Float32Array(g.positions));
       expect(l.mesh.normals).toEqual(new Float32Array(g.normals));
       expect(l.mesh.indices).toEqual(new Uint32Array(g.indices));
+    }
+  }
+});
+
+// The editor's size-fit inverts core's FORWARD footprint (hall `dims+2`, maze
+// `PITCH·cells+1`) but re-encodes the shell offsets editor-side; only the pitch
+// is imported. Prose keeps them in sync, and the deriveSizeDefaults unit tests
+// re-encode the `+1`/`+2` as their own literals — so if core's footprint formula
+// ever changed, the derivation would silently start overflowing the selection
+// with nothing red. This runs the REAL generator at the derived sizes and
+// asserts the committed op footprint fits inside the selection box — a machine
+// coupling that breaks (not the feature) if the two formulas drift apart. In-
+// range extents only: the fit is the invariant just where clamp-up can't force
+// a min-size stamp larger than a deliberately-undersized selection.
+test("derived sizes commit to a real-generator footprint that fits the selection", () => {
+  const cases: {
+    id: string;
+    region: { min: [number, number, number]; max: [number, number, number] };
+  }[] = [
+    // hall: extent [14, 10, 20] cells → width 12, height 8, depth 18 (in-range),
+    // footprint = dims exactly = the selection. maze: extent [24, 10, 40] cells
+    // → cellsX 4, cellsZ 7, footprint 21×36 coarse cells inside 24×40.
+    { id: "hall", region: { min: [0, 0, 0], max: [7, 5, 10] } },
+    { id: "maze", region: { min: [0, 0, 0], max: [12, 5, 20] } },
+  ];
+  const EPS = 1e-9;
+  for (const { id, region } of cases) {
+    const extentCells = [
+      spanCells(region.min[0], region.max[0]),
+      spanCells(region.min[1], region.max[1]),
+      spanCells(region.min[2], region.max[2]),
+    ] as const;
+    const sizes = deriveSizeDefaults(
+      id,
+      extentCells,
+      schemaProps(id),
+      MAZE_PITCH_CELLS,
+    );
+    const store = createFieldStore();
+    const log = createOpLog();
+    const { entity } = commitGenerator(store, log, generatorById(id), {
+      params: { ...generatorById(id).defaults, ...sizes },
+      seed: 7,
+      region,
+      policy: "replace",
+      table: TABLE,
+    });
+    // Union AABB of the committed brush span — core's actual emitted footprint.
+    const bounds = [];
+    for (const op of log.ops) {
+      const inSpan = op.id >= entity.opSpan[0] && op.id <= entity.opSpan[1];
+      if (inSpan && isBrushOp(op)) bounds.push(opBounds(op));
+    }
+    expect(bounds.length).toBeGreaterThan(0);
+    for (const a of [0, 1, 2] as const) {
+      const lo = Math.min(...bounds.map((b) => b.min[a]));
+      const hi = Math.max(...bounds.map((b) => b.max[a]));
+      expect(lo).toBeGreaterThanOrEqual(region.min[a] - EPS);
+      expect(hi).toBeLessThanOrEqual(region.max[a] + EPS);
     }
   }
 });
