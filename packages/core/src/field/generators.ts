@@ -5,6 +5,7 @@
 // compiles the grid into a span of lattice-snapped brush ops. The registry is
 // the ONE plug point (resolves the third-grid-vocabulary dispatch tax), and
 // commitGenerator owns the entity semantics: one commit = one undo entry.
+import { caveGenerator } from "./cave.ts";
 import {
   applyFieldOp,
   assertOpValid,
@@ -984,6 +985,7 @@ const mazeGenerator: GeneratorDef = {
 export const FIELD_GENERATORS: readonly GeneratorDef[] = [
   hallGenerator,
   mazeGenerator,
+  caveGenerator,
 ];
 
 /** Registry lookup, setup-loud on unknown ids. */

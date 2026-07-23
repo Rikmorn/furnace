@@ -15,8 +15,24 @@
 // edge cannot fail to connect. Verticality is EXPLICIT edge types with a
 // per-segment grade budget (D-F3-11 bias), never emergent worm pitch.
 
-import { DEFAULT_CELL_SIZE } from "./chunks.ts";
+import {
+  CHUNK_DIM,
+  chunkKey,
+  DEFAULT_CELL_SIZE,
+  DENSITY_SCALE,
+  SOLID,
+  voxelChunk,
+  worldToVoxel,
+} from "./chunks.ts";
+import { PATCH_MASK_BYTES } from "./ops.ts";
 import { fnv1a, makeIntRng } from "./rng.ts";
+import type {
+  GeneratorDef,
+  GeneratorResult,
+  MergePolicy,
+  PatchChunk,
+  PatchOp,
+} from "./types.ts";
 
 // ─── tuning constants ───
 // Exported for the test suite (imported via the relative source path) so the
@@ -749,3 +765,651 @@ export function buildCaveSkeleton(
   }
   return { chambers, passages, mouths };
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CARVE (Task 3): compile the skeleton into ABSOLUTE patch ops. Pr-2 discipline
+// governs everything below — this runs in the browser AND is the replay
+// contract, so the ONLY float math is `+ - * /`, sqrt, abs/min/max/floor/round,
+// and Math.imul. The donor `packages/dungeon/src/field.ts` is PORTED (not
+// imported — core cannot depend on the dungeon): its `smax` polynomial is
+// mined verbatim; its float-SEEDED 256-entry noise perm table (field.ts:74) is
+// REWRITTEN to an integer-hash-direct value lookup (no table, no transcendental).
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** The store cell size the patch cells are indexed at. A {@link PatchOp} lives
+ *  in SAMPLE coordinates (`world = sample · cellSize`), so it bakes a cell size
+ *  — the field is 0.25 m everywhere (createFieldStore's default, the proven
+ *  collision resolution), and {@link RISER} == this is what lands every
+ *  quantized floor exactly on a sample plane. */
+const CARVE_CELL = DEFAULT_CELL_SIZE;
+
+// ─── carve tuning (metres) ───
+/** Half-width of a passage cross-section — a 2.0 m walkway (the door-width
+ *  standard the hall/maze also carry). */
+const PASSAGE_HALF_WIDTH = 1.0;
+/** Passage ceiling height above its floor — 3.0 m of headroom (the door-height
+ *  standard), so the floorY+0.5..+2.5 m walk band always clears. */
+const PASSAGE_HEIGHT = 3.0;
+/** Organic (round) passage tube radius; its flat floor is clamped separately. */
+const PASSAGE_ROUND_R = 1.5;
+/** Smooth-union blend thickness for a chamber's blobs (>= cell size, or the
+ *  fillet degrades to a hard max — the donor `smoothUnion` contract). */
+const CHAMBER_SMOOTH_K = 1.0;
+/** Height above a floor within which wall/ceiling noise is fully SUPPRESSED —
+ *  the protected floor band (the research "structure-then-paint, protected
+ *  floor" shape). Noise ramps in over {@link NOISE_FADE} above this. */
+const FLOOR_BAND = 1.0;
+/** Ramp distance (m) over which noise fades from 0 (at the band top) to full. */
+const NOISE_FADE = 0.5;
+/** Peak organic chamber wall/ceiling displacement (m) at `roughness = 1`. */
+const CHAMBER_NOISE_AMP = 0.6;
+/** Peak organic passage displacement (m) at `roughness = 1`. */
+const PASSAGE_NOISE_AMP = 0.3;
+/** Value-noise spatial frequency (cycles per metre). */
+const NOISE_FREQ = 0.6;
+/** How far (m) a feature's influence reaches before density saturates to
+ *  {@link SOLID}: 127/DENSITY_SCALE ≈ 4 m of signed distance, plus the noise
+ *  amplitude and a cell of slack. A chunk no feature reaches within this is
+ *  ALL solid — the fast path skips its per-cell SDF entirely. */
+const INFLUENCE_MARGIN = 5.0;
+
+/** Clamp to the store's int8 density range — the {@link applyOp}/`clampInt8`
+ *  convention (round-to-nearest, never Int8Array truncation). */
+const clampInt8 = (v: number): number =>
+  Math.max(-127, Math.min(127, Math.round(v)));
+
+/** Smoothstep, clamped to [0,1] — the Hermite `3t²−2t³`. Pure polynomial (Pr-2
+ *  safe); reused for the noise floor-taper and the value-noise interpolation. */
+const smoothstep01 = (t: number): number => {
+  const x = t < 0 ? 0 : t > 1 ? 1 : t;
+  return x * x * (3 - 2 * x);
+};
+
+/** Quilez smooth-max (air-positive smooth-union): mined VERBATIM from the donor
+ *  `smax` (`packages/dungeon/src/field.ts`). `k > 0` always here
+ *  ({@link CHAMBER_SMOOTH_K}), so the `/(4k)` never divides by zero. */
+const smax = (a: number, b: number, k: number): number => {
+  const h = Math.max(k - Math.abs(a - b), 0);
+  return Math.max(a, b) + (h * h) / (4 * k);
+};
+
+// ─── integer-hash value noise (Pr-2 rewrite of the donor's float-seeded table) ─
+/** Avalanche multiplier for the lattice hash mixer. */
+const NOISE_MIX = 0x2545f491;
+
+/** A deterministic value in [-1, 1] at integer lattice point (xi,yi,zi), folded
+ *  with `seed`. INTEGER-ONLY until the final normalize: the donor's lattice hash
+ *  `(xi·73856093) ^ (yi·19349663) ^ (zi·83492791)` (field.ts:74) is kept, but
+ *  `Math.imul` replaces the float `*` (exact int32, no precision loss for large
+ *  coords), and the float-seeded 256-entry perm table is REPLACED by hashing
+ *  straight to the value — no table, no `rng.float()`, so it is byte-identical
+ *  across engines (Pr-2). */
+const latticeValue = (
+  xi: number,
+  yi: number,
+  zi: number,
+  seed: number,
+): number => {
+  let h =
+    (Math.imul(xi, 73856093) ^
+      Math.imul(yi, 19349663) ^
+      Math.imul(zi, 83492791) ^
+      (seed | 0)) |
+    0;
+  h = Math.imul(h ^ (h >>> 15), NOISE_MIX) | 0;
+  h = (h ^ (h >>> 13)) | 0;
+  return ((h >>> 9) / 0x7fffff) * 2 - 1; // 23-bit → [0,1] → [-1,1]
+};
+
+/** Trilinear value noise in [-1, 1] — the donor `makeValueNoise` shape with the
+ *  integer-hash lookup above in place of the perm table. */
+function valueNoise(x: number, y: number, z: number, seed: number): number {
+  const xi = Math.floor(x);
+  const yi = Math.floor(y);
+  const zi = Math.floor(z);
+  const tx = smoothstep01(x - xi);
+  const ty = smoothstep01(y - yi);
+  const tz = smoothstep01(z - zi);
+  const c = (dx: number, dy: number, dz: number): number =>
+    latticeValue(xi + dx, yi + dy, zi + dz, seed);
+  const x00 = lerp(c(0, 0, 0), c(1, 0, 0), tx);
+  const x10 = lerp(c(0, 1, 0), c(1, 1, 0), tx);
+  const x01 = lerp(c(0, 0, 1), c(1, 0, 1), tx);
+  const x11 = lerp(c(0, 1, 1), c(1, 1, 1), tx);
+  return lerp(lerp(x00, x10, ty), lerp(x01, x11, ty), tz);
+}
+
+// ─── themes ───
+const CAVE_THEMES = ["mined", "organic", "mixed"] as const;
+type CaveTheme = (typeof CAVE_THEMES)[number];
+/** A feature's carve style: `mined` = crisp (square passages / no chamber
+ *  noise); `organic` = round passages / displaced chamber walls. */
+type CaveStyle = "mined" | "organic";
+
+/** Per-feature styles a theme selects. `mixed` is the user's image: mined
+ *  passages threading organic chambers. */
+function stylesFor(theme: CaveTheme): {
+  passage: CaveStyle;
+  chamber: CaveStyle;
+} {
+  if (theme === "mined") return { passage: "mined", chamber: "mined" };
+  if (theme === "organic") return { passage: "organic", chamber: "organic" };
+  return { passage: "mined", chamber: "organic" };
+}
+
+// ─── per-feature air SDF (air-positive: > 0 = carved space) ───
+/** Noise floor-taper: 0 within {@link FLOOR_BAND} of `floorY`, ramping to 1 over
+ *  {@link NOISE_FADE} above it — so displacement never touches the walked floor. */
+const floorTaper = (y: number, floorY: number): number =>
+  smoothstep01((y - floorY - FLOOR_BAND) / NOISE_FADE);
+
+/** Chamber air SDF: smooth-union of its blob spheres, optional wall/ceiling
+ *  noise ABOVE the floor band, then a flat protected floor clamp at the
+ *  chamber's quantized floor plane. */
+function chamberAir(
+  px: number,
+  py: number,
+  pz: number,
+  c: CaveChamber,
+  style: CaveStyle,
+  roughness: number,
+  seed: number,
+): number {
+  let a = Number.NEGATIVE_INFINITY;
+  for (const b of c.blobs) {
+    const s =
+      b.radius -
+      dist3(
+        [px, py, pz],
+        [
+          c.center[0] + b.offset[0],
+          c.center[1] + b.offset[1],
+          c.center[2] + b.offset[2],
+        ],
+      );
+    a = smax(a, s, CHAMBER_SMOOTH_K);
+  }
+  const floorY = c.center[1] - c.radii[1];
+  if (style === "organic" && roughness > 0)
+    a +=
+      CHAMBER_NOISE_AMP *
+      roughness *
+      floorTaper(py, floorY) *
+      valueNoise(px * NOISE_FREQ, py * NOISE_FREQ, pz * NOISE_FREQ, seed);
+  return Math.min(a, py - floorY); // flat protected floor at floorY
+}
+
+/** Passage air SDF: sweep a flat-floored profile along the polyline. Mined =
+ *  square cross-section (Chebyshev-style box of walls/floor/ceiling); organic =
+ *  round tube with a flat floor and light tapered noise. The floor CLAMPS at the
+ *  stepped, quantized local floor (cells below it stay solid — the tread is flat
+ *  by construction). */
+function passageAir(
+  px: number,
+  py: number,
+  pz: number,
+  p: CavePassage,
+  style: CaveStyle,
+  roughness: number,
+  seed: number,
+): number {
+  let best = Number.NEGATIVE_INFINITY;
+  const wps = p.waypoints;
+  for (let i = 0; i + 1 < wps.length; i++) {
+    const A = at(wps, i);
+    const B = at(wps, i + 1);
+    const dx = B[0] - A[0];
+    const dz = B[2] - A[2];
+    const len2 = dx * dx + dz * dz;
+    const t =
+      len2 > 1e-9
+        ? clamp(((px - A[0]) * dx + (pz - A[2]) * dz) / len2, 0, 1)
+        : 0;
+    const hd = horizDist([px, pz], [A[0] + t * dx, A[2] + t * dz]);
+    const floorY = quantize(lerp(A[1], B[1], t)); // stepped 0.25 m tread
+    const dFloor = py - floorY;
+    let air: number;
+    if (style === "mined") {
+      air = Math.min(PASSAGE_HALF_WIDTH - hd, dFloor, PASSAGE_HEIGHT - dFloor);
+    } else {
+      const vy = py - (floorY + PASSAGE_ROUND_R);
+      air = Math.min(PASSAGE_ROUND_R - Math.sqrt(hd * hd + vy * vy), dFloor);
+      if (roughness > 0) {
+        air +=
+          PASSAGE_NOISE_AMP *
+          roughness *
+          floorTaper(py, floorY) *
+          valueNoise(px * NOISE_FREQ, py * NOISE_FREQ, pz * NOISE_FREQ, seed);
+        air = Math.min(air, dFloor); // re-protect the floor after displacement
+      }
+    }
+    best = Math.max(best, air);
+  }
+  return best;
+}
+
+/** The region-local air SDF at a point: the hard union (max) of every RELEVANT
+ *  chamber and passage. Flat floors survive a plain max (each feature protects
+ *  its own floor); smooth-union lives INSIDE a chamber's blobs only. */
+function caveSdf(
+  px: number,
+  py: number,
+  pz: number,
+  chambers: CaveChamber[],
+  passages: CavePassage[],
+  styles: { passage: CaveStyle; chamber: CaveStyle },
+  roughness: number,
+  seed: number,
+): number {
+  let sdf = Number.NEGATIVE_INFINITY;
+  for (const c of chambers)
+    sdf = Math.max(
+      sdf,
+      chamberAir(px, py, pz, c, styles.chamber, roughness, seed),
+    );
+  for (const p of passages)
+    sdf = Math.max(
+      sdf,
+      passageAir(px, py, pz, p, styles.passage, roughness, seed),
+    );
+  return sdf;
+}
+
+// ─── emission (walk region cells → ascending-bit-order patch chunks) ───
+type Box = { lo: [number, number, number]; hi: [number, number, number] };
+
+const boxesOverlap = (a: Box, b: Box): boolean =>
+  a.lo[0] <= b.hi[0] &&
+  a.hi[0] >= b.lo[0] &&
+  a.lo[1] <= b.hi[1] &&
+  a.hi[1] >= b.lo[1] &&
+  a.lo[2] <= b.hi[2] &&
+  a.hi[2] >= b.lo[2];
+
+/** A chamber's influence AABB (local coords): all blobs stay within ±radii by
+ *  construction, expanded by the saturation margin. */
+const chamberBox = (c: CaveChamber): Box => ({
+  lo: [
+    c.center[0] - c.radii[0] - INFLUENCE_MARGIN,
+    c.center[1] - c.radii[1] - INFLUENCE_MARGIN,
+    c.center[2] - c.radii[2] - INFLUENCE_MARGIN,
+  ],
+  hi: [
+    c.center[0] + c.radii[0] + INFLUENCE_MARGIN,
+    c.center[1] + c.radii[1] + INFLUENCE_MARGIN,
+    c.center[2] + c.radii[2] + INFLUENCE_MARGIN,
+  ],
+});
+
+/** A passage's influence AABB: its waypoint bbox, expanded by the profile reach
+ *  horizontally, the ceiling height up, and the saturation margin all round. */
+function passageBox(p: CavePassage): Box {
+  const lo: [number, number, number] = [
+    Number.POSITIVE_INFINITY,
+    Number.POSITIVE_INFINITY,
+    Number.POSITIVE_INFINITY,
+  ];
+  const hi: [number, number, number] = [
+    Number.NEGATIVE_INFINITY,
+    Number.NEGATIVE_INFINITY,
+    Number.NEGATIVE_INFINITY,
+  ];
+  for (const w of p.waypoints)
+    for (const ax of [0, 1, 2] as const) {
+      lo[ax] = Math.min(lo[ax], w[ax]);
+      hi[ax] = Math.max(hi[ax], w[ax]);
+    }
+  const reach =
+    Math.max(PASSAGE_HALF_WIDTH, PASSAGE_ROUND_R) + INFLUENCE_MARGIN;
+  return {
+    lo: [lo[0] - reach, lo[1] - INFLUENCE_MARGIN, lo[2] - reach],
+    hi: [
+      hi[0] + reach,
+      hi[1] + PASSAGE_HEIGHT + INFLUENCE_MARGIN,
+      hi[2] + reach,
+    ],
+  };
+}
+
+type SampleBounds = {
+  x0: number;
+  y0: number;
+  z0: number;
+  x1: number;
+  y1: number;
+  z1: number;
+};
+
+/** One chunk's slice, or null when it masks nothing (its cells all fall outside
+ *  the region, or under keep-existing-air none are carved). Cells are visited in
+ *  ascending bit order (`lx + 16·ly + 256·lz`) so `density` matches the
+ *  `applyPatchOp` contract without a later sort. */
+function emitChunk(
+  ccx: number,
+  ccy: number,
+  ccz: number,
+  sb: SampleBounds,
+  min: [number, number, number],
+  chambers: CaveChamber[],
+  passages: CavePassage[],
+  styles: { passage: CaveStyle; chamber: CaveStyle },
+  roughness: number,
+  seed: number,
+  policy: MergePolicy,
+): PatchChunk | null {
+  const allSolid = chambers.length === 0 && passages.length === 0;
+  // No feature reaches this chunk: every cell is deep rock. keep-existing-air
+  // masks only carved cells, so it writes nothing here; replace overwrites the
+  // region cells with SOLID (the point of "replace" — clear pre-existing air).
+  if (allSolid && policy === "keep-existing-air") return null;
+  const mask = new Uint8Array(PATCH_MASK_BYTES);
+  const density: number[] = [];
+  const bx = ccx * CHUNK_DIM;
+  const by = ccy * CHUNK_DIM;
+  const bz = ccz * CHUNK_DIM;
+  let bit = 0;
+  for (let lz = 0; lz < CHUNK_DIM; lz++)
+    for (let ly = 0; ly < CHUNK_DIM; ly++)
+      for (let lx = 0; lx < CHUNK_DIM; lx++, bit++) {
+        const sx = bx + lx;
+        const sy = by + ly;
+        const sz = bz + lz;
+        if (
+          sx < sb.x0 ||
+          sx > sb.x1 ||
+          sy < sb.y0 ||
+          sy > sb.y1 ||
+          sz < sb.z0 ||
+          sz > sb.z1
+        )
+          continue; // outside the region
+        let d: number;
+        if (allSolid) {
+          d = SOLID;
+        } else {
+          const sdf = caveSdf(
+            sx * CARVE_CELL - min[0],
+            sy * CARVE_CELL - min[1],
+            sz * CARVE_CELL - min[2],
+            chambers,
+            passages,
+            styles,
+            roughness,
+            seed,
+          );
+          if (policy === "keep-existing-air" && !(sdf > 0)) continue;
+          d = clampInt8(sdf * DENSITY_SCALE);
+        }
+        const byteIdx = bit >> 3;
+        mask[byteIdx] = (mask[byteIdx] ?? 0) | (1 << (bit & 7));
+        density.push(d);
+      }
+  if (density.length === 0) return null;
+  return {
+    key: chunkKey(ccx, ccy, ccz),
+    densityMask: mask,
+    density: Int8Array.from(density),
+    materialMask: null, // v1: rock default renders; a theme material param is a backlog item
+    materials: null,
+  };
+}
+
+/** Compile a skeleton into ONE patch op over the region. Per chunk, pre-filters
+ *  the chambers/passages whose influence reaches it (deep-rock chunks take the
+ *  constant-SOLID fast path), then walks the chunk's region cells. */
+function emitCave(
+  sk: CaveSkeleton,
+  region: { min: [number, number, number]; max: [number, number, number] },
+  seed: number,
+  theme: CaveTheme,
+  roughness: number,
+  policy: MergePolicy,
+): PatchOp {
+  const { min } = region;
+  const sb: SampleBounds = {
+    x0: worldToVoxel(region.min[0], CARVE_CELL),
+    y0: worldToVoxel(region.min[1], CARVE_CELL),
+    z0: worldToVoxel(region.min[2], CARVE_CELL),
+    x1: worldToVoxel(region.max[0], CARVE_CELL),
+    y1: worldToVoxel(region.max[1], CARVE_CELL),
+    z1: worldToVoxel(region.max[2], CARVE_CELL),
+  };
+  const styles = stylesFor(theme);
+  const chamberBoxes = sk.chambers.map(chamberBox);
+  const passageBoxes = sk.passages.map(passageBox);
+  const chunks: PatchChunk[] = [];
+  for (let ccz = voxelChunk(sb.z0); ccz <= voxelChunk(sb.z1); ccz++)
+    for (let ccy = voxelChunk(sb.y0); ccy <= voxelChunk(sb.y1); ccy++)
+      for (let ccx = voxelChunk(sb.x0); ccx <= voxelChunk(sb.x1); ccx++) {
+        const cbox: Box = {
+          lo: [
+            ccx * CHUNK_DIM * CARVE_CELL - min[0],
+            ccy * CHUNK_DIM * CARVE_CELL - min[1],
+            ccz * CHUNK_DIM * CARVE_CELL - min[2],
+          ],
+          hi: [
+            (ccx * CHUNK_DIM + CHUNK_DIM - 1) * CARVE_CELL - min[0],
+            (ccy * CHUNK_DIM + CHUNK_DIM - 1) * CARVE_CELL - min[1],
+            (ccz * CHUNK_DIM + CHUNK_DIM - 1) * CARVE_CELL - min[2],
+          ],
+        };
+        const chambers = sk.chambers.filter((_, i) =>
+          boxesOverlap(cbox, at(chamberBoxes, i)),
+        );
+        const passages = sk.passages.filter((_, i) =>
+          boxesOverlap(cbox, at(passageBoxes, i)),
+        );
+        const slice = emitChunk(
+          ccx,
+          ccy,
+          ccz,
+          sb,
+          min,
+          chambers,
+          passages,
+          styles,
+          roughness,
+          seed,
+          policy,
+        );
+        if (slice !== null) chunks.push(slice);
+      }
+  return { id: 0, kind: "patch", chunks };
+}
+
+// ─── the caveGenerator def (strict, setup-loud param validation) ───
+
+/** Static supremum for a mouth's lateral offset (metres). The real per-region
+ *  bound is the skeleton's internal clamp (`mouthXZ`), so this is a schema
+ *  supremum like the hall/maze offset ranges — generous enough for the regions
+ *  the editor's selection produces. */
+const CAVE_OFFSET_RANGE = {
+  type: "number",
+  minimum: AUTO_CENTRE,
+  maximum: 62,
+  default: AUTO_CENTRE,
+} as const;
+
+/** The per-wall param spellings — the door-authoring convention the skeleton's
+ *  `readCaveParams` already parses, restated here for the schema/validator. */
+const CAVE_WALLS = [
+  { enable: "doorNorth", offsetKey: "doorNorthOffset" },
+  { enable: "doorSouth", offsetKey: "doorSouthOffset" },
+  { enable: "doorEast", offsetKey: "doorEastOffset" },
+  { enable: "doorWest", offsetKey: "doorWestOffset" },
+] as const;
+
+const CAVE_PROPERTIES = {
+  theme: { enum: CAVE_THEMES, default: "mixed" },
+  chambers: { type: "number", minimum: 2, maximum: 6, default: 3 },
+  chamberRadius: { type: "number", minimum: 3, maximum: 8, default: 5 },
+  verticality: { type: "number", minimum: 0, maximum: 1, default: 0.5 },
+  roughness: { type: "number", minimum: 0, maximum: 1, default: 0.5 },
+  extraLoops: { type: "number", minimum: 0, maximum: 3, default: 1 },
+  doorNorth: { type: "boolean", default: true },
+  doorSouth: { type: "boolean", default: false },
+  doorEast: { type: "boolean", default: false },
+  doorWest: { type: "boolean", default: false },
+  doorNorthOffset: CAVE_OFFSET_RANGE,
+  doorSouthOffset: CAVE_OFFSET_RANGE,
+  doorEastOffset: CAVE_OFFSET_RANGE,
+  doorWestOffset: CAVE_OFFSET_RANGE,
+} as const;
+
+/** The params that POSTDATE persisted data (optional on input) — the four door
+ *  offsets. The cave has NO `rotation` param (mirrored from the hall/maze
+ *  optional list, minus rotation): its skeleton is seeded isotropically in the
+ *  region, with no lattice grid to quarter-turn (stated in the schema
+ *  description so the absence reads as a decision). */
+const CAVE_OPTIONAL_KEYS: readonly string[] = CAVE_WALLS.map(
+  (w) => w.offsetKey,
+);
+
+const CAVE_SCHEMA = {
+  type: "object",
+  description:
+    "An organic cave — floor-anchored chambers joined by winding passages with quantized, stepped floors. Seeded isotropically in the region: there is deliberately NO rotation param (unlike the hall/maze, the cave has no lattice grid to quarter-turn).",
+  properties: CAVE_PROPERTIES,
+  required: Object.keys(CAVE_PROPERTIES).filter(
+    (k) => !CAVE_OPTIONAL_KEYS.includes(k),
+  ),
+} as const;
+
+/** The schema's per-property defaults, DERIVED (never restated) — the
+ *  HALL_DEFAULTS pattern. */
+const CAVE_DEFAULTS: Record<string, unknown> = Object.fromEntries(
+  Object.entries(CAVE_SCHEMA.properties).map(([k, p]) => [k, p.default]),
+);
+
+/** Setup-loud number param in `[minimum, maximum]` (admits fractional). */
+function numParam(
+  params: Record<string, unknown>,
+  key: string,
+  range: { minimum: number; maximum: number },
+): number {
+  const v = params[key];
+  if (
+    typeof v !== "number" ||
+    !Number.isFinite(v) ||
+    v < range.minimum ||
+    v > range.maximum
+  )
+    throw new Error(
+      `cave: ${key} must be a number in [${range.minimum}, ${range.maximum}], got ${JSON.stringify(v)}`,
+    );
+  return v;
+}
+
+/** Setup-loud integer param in `[minimum, maximum]`. */
+function intParam(
+  params: Record<string, unknown>,
+  key: string,
+  range: { minimum: number; maximum: number },
+): number {
+  const v = params[key];
+  if (
+    typeof v !== "number" ||
+    !Number.isInteger(v) ||
+    v < range.minimum ||
+    v > range.maximum
+  )
+    throw new Error(
+      `cave: ${key} must be an integer in [${range.minimum}, ${range.maximum}], got ${JSON.stringify(v)}`,
+    );
+  return v;
+}
+
+/** Setup-loud boolean param. */
+function assertBoolParam(params: Record<string, unknown>, key: string): void {
+  if (typeof params[key] !== "boolean")
+    throw new Error(
+      `cave: ${key} must be a boolean, got ${JSON.stringify(params[key])}`,
+    );
+}
+
+/** Setup-loud door offset: absent (auto-centre) or an integer in range. Every
+ *  wall's offset is validated, enabled or not — the hall/maze stance (a bad
+ *  offset on a disabled door must not lurk in persisted params). */
+function assertOffsetParam(params: Record<string, unknown>, key: string): void {
+  const v = params[key];
+  if (v === undefined) return;
+  if (
+    typeof v !== "number" ||
+    !Number.isInteger(v) ||
+    v < CAVE_OFFSET_RANGE.minimum ||
+    v > CAVE_OFFSET_RANGE.maximum
+  )
+    throw new Error(
+      `cave: ${key} must be an integer in [${CAVE_OFFSET_RANGE.minimum}, ${CAVE_OFFSET_RANGE.maximum}] or absent, got ${JSON.stringify(v)}`,
+    );
+}
+
+/** Narrows + range-validates the cave's carve params setup-loud (mirrors
+ *  hall/maze). Returns the two the carver needs beyond the skeleton (`theme`,
+ *  `roughness`); the skeleton params are validated here and re-read tolerantly
+ *  by {@link buildCaveSkeleton}. */
+function caveParams(params: Record<string, unknown>): {
+  theme: CaveTheme;
+  roughness: number;
+} {
+  const P = CAVE_SCHEMA.properties;
+  const theme = params["theme"];
+  if (!CAVE_THEMES.some((t) => t === theme))
+    throw new Error(
+      `cave: theme must be one of ${CAVE_THEMES.map((t) => `"${t}"`).join(" | ")}, got ${JSON.stringify(theme)}`,
+    );
+  intParam(params, "chambers", P.chambers);
+  numParam(params, "chamberRadius", P.chamberRadius);
+  numParam(params, "verticality", P.verticality);
+  const roughness = numParam(params, "roughness", P.roughness);
+  intParam(params, "extraLoops", P.extraLoops);
+  for (const w of CAVE_WALLS) {
+    assertBoolParam(params, w.enable);
+    assertOffsetParam(params, w.offsetKey);
+  }
+  return { theme: theme as CaveTheme, roughness };
+}
+
+/** The cave generator: build the deterministic macro skeleton (chambers,
+ *  connected passages, mouths), then STAMP it into ONE absolute patch op —
+ *  smooth-union chamber blobs, swept flat-floored passage profiles, protected
+ *  quantized floors, and (organic) integer-hash value-noise wall/ceiling
+ *  displacement above a floor band. Three themes dial the passage/chamber
+ *  styles: `mined` (crisp), `organic` (rough), `mixed` (mined passages threading
+ *  organic chambers — the default). `contextFree`: the carve is pure in
+ *  `(params, seed, region, policy)` and reads no field state.
+ *
+ *  Emission is Pr-2-exact: only `+ - * /`, sqrt, abs/min/max/floor/round and
+ *  `Math.imul` — no transcendentals, no float-seeded tables — so the browser
+ *  carve and the replay contract produce byte-identical patches. Under
+ *  `replace` every region cell is written (air = the signed distance, elsewhere
+ *  rock), overwriting pre-existing air; under `keep-existing-air` ONLY carved
+ *  (air) cells enter the mask, so pre-existing air survives.
+ *
+ *  There is NO `rotation` param — the skeleton is seeded isotropically in the
+ *  region (see the schema description).
+ *
+ *  @throws {@link Error} if any param is missing, mistyped, or out of its schema
+ *    range (setup-loud, before any emission). */
+export const caveGenerator: GeneratorDef = {
+  id: "cave",
+  name: "Cave",
+  paramSchema: CAVE_SCHEMA,
+  defaults: CAVE_DEFAULTS,
+  contextFree: true, // seeded-but-pure; no field reads
+  evaluate(params, seed, region, table, policy): GeneratorResult {
+    void table; // the cave emits rock (materialMask null) — no kit class needed
+    const { theme, roughness } = caveParams(params); // narrow + validate, setup-loud
+    const extent: [number, number, number] = [
+      region.max[0] - region.min[0],
+      region.max[1] - region.min[1],
+      region.max[2] - region.min[2],
+    ];
+    const sk = buildCaveSkeleton(params, seed, extent);
+    const patch = emitCave(sk, region, seed, theme, roughness, policy);
+    // A degenerate (sub-cell) region can carve nothing under keep-existing-air;
+    // hand back an empty result so commitGenerator gives the clean "empty"
+    // error rather than assertPatchValid's "op writes no chunks".
+    return { ops: patch.chunks.length > 0 ? [patch] : [], placements: [] };
+  },
+};

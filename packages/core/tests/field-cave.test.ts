@@ -1,6 +1,27 @@
 import { describe, expect, test } from "bun:test";
-import type { CaveSkeleton } from "@furnace/core/field";
-import { buildCaveSkeleton } from "@furnace/core/field";
+import type {
+  BrushOp,
+  CaveChamber,
+  CavePassage,
+  CaveSkeleton,
+  FieldOp,
+  FieldStore,
+  MergePolicy,
+  PatchOp,
+} from "@furnace/core/field";
+import {
+  applyOp,
+  applyPatchOp,
+  BUILTIN_TABLE,
+  buildCaveSkeleton,
+  commitGenerator,
+  createFieldStore,
+  createOpLog,
+  DEFAULT_CELL_SIZE,
+  generatorById,
+  getDensity,
+  serializeOps,
+} from "@furnace/core/field";
 import {
   BOUNDS_MARGIN,
   MAX_GRADE,
@@ -409,5 +430,439 @@ describe("cave skeleton — mouths honor the door convention", () => {
     const e = sk.mouths.find((m) => m.face === "east")!;
     expect(e.at[2]).toBeCloseTo(4, 6);
     expect(e.at[0]).toBeCloseTo(EXT[0] - MARGIN, 6); // on the +X face
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CARVE (Task 3): the caveGenerator compiles the skeleton into patch ops. These
+// evaluate a cave into a fresh store (apply its patch ops) and read the DENSITY
+// field back — never lattice freebies; each assertion samples the carved field.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const H = DEFAULT_CELL_SIZE; // 0.25 m sample spacing
+type Region = { min: Vec3; max: Vec3 };
+const CAVE_REGION: Region = { min: [0, 0, 0], max: [20, 10, 20] };
+const CAVE = generatorById("cave");
+
+/** Full params from the schema defaults (the editor form seeds evaluate from
+ *  these) merged with overrides — evaluate is strict, like hall/maze. */
+const withDefaults = (
+  params: Record<string, unknown>,
+): Record<string, unknown> => ({
+  ...CAVE.defaults,
+  ...params,
+});
+
+/** Evaluate a cave and apply its patch ops into a fresh (or supplied) store. */
+function carve(
+  params: Record<string, unknown>,
+  seed: number,
+  policy: MergePolicy,
+  region: Region = CAVE_REGION,
+  store: FieldStore = createFieldStore(),
+): FieldStore {
+  const { ops } = CAVE.evaluate(
+    withDefaults(params),
+    seed,
+    region,
+    BUILTIN_TABLE,
+    policy,
+  );
+  for (const op of ops)
+    if (op.kind === "patch") applyPatchOp(store, op as PatchOp);
+  return store;
+}
+
+/** Density at a WORLD point (nearest sample). Region min is [0,0,0] in every
+ *  carve test so world == region-local. */
+const dAt = (s: FieldStore, wx: number, wy: number, wz: number): number =>
+  getDensity(s, Math.round(wx / H), Math.round(wy / H), Math.round(wz / H));
+
+const chamberFloorY = (c: CaveChamber): number => c.center[1] - c.radii[1];
+
+/** Population variance of a sample set. */
+function variance(xs: number[]): number {
+  const mean = xs.reduce((a, b) => a + b, 0) / xs.length;
+  return xs.reduce((a, b) => a + (b - mean) * (b - mean), 0) / xs.length;
+}
+
+/** March a ray from `o` along unit `(ux,uy,uz)` and return the distance to the
+ *  first air→rock surface crossing (linearly interpolated), or null. `o` must
+ *  start in air. A surface-ROUGHNESS probe: the variance of crossing distances
+ *  over a fan of rays measures how bumpy that surface is. Uses cos/sin/hypot
+ *  freely (a test, not the Pr-2-constrained carver). */
+function rayHitDist(
+  s: FieldStore,
+  o: Vec3,
+  ux: number,
+  uy: number,
+  uz: number,
+  rMax: number,
+): number | null {
+  let prev = dAt(s, o[0], o[1], o[2]);
+  for (let step = 1; step * H <= rMax; step++) {
+    const r = step * H;
+    const cur = dAt(s, o[0] + ux * r, o[1] + uy * r, o[2] + uz * r);
+    if (prev >= 0 && cur < 0) return r - H + (H * prev) / (prev - cur);
+    prev = cur;
+  }
+  return null;
+}
+
+/** Surface-crossing radii from a chamber's centre, on a fixed-elevation fan
+ *  (45° above centre — the wall/ceiling band, clear of floor-anchored passages).
+ *  Fixed elevation holds the ellipsoid cross-section constant, so the variance
+ *  isolates AZIMUTHAL surface roughness (the noise dial), not the chamber's
+ *  base shape. */
+function chamberSurfaceRadii(s: FieldStore, c: CaveChamber): number[] {
+  const rMax = Math.max(c.radii[0], c.radii[1], c.radii[2]) + 3;
+  const el = Math.PI / 4;
+  const out: number[] = [];
+  for (let i = 0; i < 48; i++) {
+    const az = (i / 48) * 2 * Math.PI;
+    const r = rayHitDist(
+      s,
+      c.center,
+      Math.cos(el) * Math.cos(az),
+      Math.sin(el),
+      Math.cos(el) * Math.sin(az),
+      rMax,
+    );
+    if (r !== null) out.push(r);
+  }
+  return out;
+}
+
+/** Perpendicular wall-crossing distances along a passage at walk height — the
+ *  passage-profile ROUGHNESS probe. Mined (square) walls sit at a constant
+ *  half-width (low variance); organic (round + noise) walls wobble. */
+function passageWallDists(s: FieldStore, p: CavePassage): number[] {
+  const out: number[] = [];
+  for (let i = 1; i + 1 < p.waypoints.length; i++) {
+    const a = p.waypoints[i - 1]!;
+    const b = p.waypoints[i + 1]!;
+    const w = p.waypoints[i]!;
+    const tx = b[0] - a[0];
+    const tz = b[2] - a[2];
+    const tl = Math.hypot(tx, tz) || 1;
+    const px = -tz / tl;
+    const pz = tx / tl;
+    const o: Vec3 = [w[0], w[1] + 1.5, w[2]]; // walk-height centre of the tube
+    // Cap at 2 m: a true passage wall sits ~1 m out; a ray that finds no wall
+    // within 2 m has run into a merged chamber (no crisp wall there) and is
+    // excluded, so this measures ONLY the passage's own profile.
+    for (const sgn of [-1, 1] as const) {
+      const r = rayHitDist(s, o, sgn * px, 0, sgn * pz, 2);
+      if (r !== null) out.push(r);
+    }
+  }
+  return out;
+}
+
+/** The solid→air crossing height in a vertical column at (wx,wz), scanning
+ *  [yLo,yHi] and linearly interpolating the first sign change (Surface-Nets
+ *  style). null if the column never crosses. */
+function columnCrossing(
+  s: FieldStore,
+  wx: number,
+  wz: number,
+  yLo: number,
+  yHi: number,
+): number | null {
+  const sx = Math.round(wx / H);
+  const sz = Math.round(wz / H);
+  const yi0 = Math.round(yLo / H);
+  const yi1 = Math.round(yHi / H);
+  let prev = getDensity(s, sx, yi0, sz);
+  for (let yi = yi0 + 1; yi <= yi1; yi++) {
+    const cur = getDensity(s, sx, yi, sz);
+    if (prev < 0 && cur >= 0) {
+      const t = (0 - prev) / (cur - prev);
+      return (yi - 1 + t) * H;
+    }
+    prev = cur;
+  }
+  return null;
+}
+
+describe("cave carve — walk-height clearance (default cave)", () => {
+  const WALK_HEIGHTS = [0.5, 1.0, 1.5, 2.0, 2.5];
+
+  test("air at every chamber centre and passage waypoint, floorY+0.5..+2.5", () => {
+    const store = carve({}, 1, "replace");
+    const sk = buildCaveSkeleton({}, 1, CAVE_REGION.max);
+    for (const c of sk.chambers) {
+      const fy = chamberFloorY(c);
+      for (const h of WALK_HEIGHTS)
+        expect(dAt(store, c.center[0], fy + h, c.center[2])).toBeGreaterThan(0);
+    }
+    for (const p of sk.passages)
+      for (const w of p.waypoints)
+        for (const h of WALK_HEIGHTS)
+          expect(dAt(store, w[0], w[1] + h, w[2])).toBeGreaterThan(0);
+  });
+});
+
+describe("cave carve — replace fills rock outside carved space", () => {
+  test("pre-existing air outside the carve becomes rock under replace", () => {
+    // Teeth: pre-fill the whole region with air, then a replace cave must
+    // overwrite the uncarved cells with rock (not leave them air).
+    const store = createFieldStore();
+    applyOp(
+      store,
+      {
+        id: 0,
+        kind: "brush",
+        effect: "dig",
+        shape: { kind: "box", center: [10, 5, 10], halfExtents: [10, 5, 10] },
+      } satisfies BrushOp,
+      BUILTIN_TABLE,
+    );
+    carve({}, 1, "replace", CAVE_REGION, store);
+    // Count rock vs air over the region interior.
+    let rock = 0;
+    let total = 0;
+    for (let sx = 1; sx < 80; sx += 2)
+      for (let sy = 1; sy < 40; sy += 2)
+        for (let sz = 1; sz < 80; sz += 2) {
+          total++;
+          if (getDensity(store, sx, sy, sz) < 0) rock++;
+        }
+    // A cave carves a minority of its bounding volume; most of the region is
+    // rock after replace. Sabotage (skip solid emission) → rock ≈ 0 → fails.
+    expect(rock / total).toBeGreaterThan(0.4);
+  });
+});
+
+describe("cave carve — keep-existing-air masks only carved cells", () => {
+  test("pre-existing air survives where the cave did not carve", () => {
+    const store = createFieldStore();
+    applyOp(
+      store,
+      {
+        id: 0,
+        kind: "brush",
+        effect: "dig",
+        shape: { kind: "box", center: [10, 5, 10], halfExtents: [10, 5, 10] },
+      } satisfies BrushOp,
+      BUILTIN_TABLE,
+    );
+    carve({}, 1, "keep-existing-air", CAVE_REGION, store);
+    // Under keep-existing-air the patch masks ONLY carved (air) cells, so it can
+    // never turn a cell to rock. The pre-filled region stays entirely air.
+    let rock = 0;
+    for (let sx = 1; sx < 80; sx += 2)
+      for (let sy = 1; sy < 40; sy += 2)
+        for (let sz = 1; sz < 80; sz += 2)
+          if (getDensity(store, sx, sy, sz) < 0) rock++;
+    expect(rock).toBe(0);
+  });
+
+  test("contrast: the SAME cave under replace does turn cells to rock", () => {
+    const air = createFieldStore();
+    const box: BrushOp = {
+      id: 0,
+      kind: "brush",
+      effect: "dig",
+      shape: { kind: "box", center: [10, 5, 10], halfExtents: [10, 5, 10] },
+    };
+    applyOp(air, box, BUILTIN_TABLE);
+    carve({}, 1, "replace", CAVE_REGION, air);
+    let rock = 0;
+    for (let sx = 1; sx < 80; sx += 4)
+      for (let sy = 1; sy < 40; sy += 4)
+        for (let sz = 1; sz < 80; sz += 4)
+          if (getDensity(air, sx, sy, sz) < 0) rock++;
+    expect(rock).toBeGreaterThan(0);
+  });
+});
+
+describe("cave carve — protected stepped floors (0.25 m quanta)", () => {
+  // A vertical, roomy config that produces genuinely STEPPED passages so the
+  // floor quantization is exercised (a level passage would be vacuous).
+  const STEP_PARAMS = {
+    theme: "mined",
+    chambers: 4,
+    verticality: 1,
+    chamberRadius: 5,
+    extraLoops: 0,
+  };
+  const STEP_SEED = 7;
+
+  test("passage floor crossings quantize to 0.25 m at waypoints AND midpoints", () => {
+    const store = carve(STEP_PARAMS, STEP_SEED, "replace");
+    const sk = buildCaveSkeleton(STEP_PARAMS, STEP_SEED, CAVE_REGION.max);
+    const stepped = sk.passages.filter((p: CavePassage) =>
+      p.floorY.some((y, i) => i > 0 && Math.abs(y - p.floorY[i - 1]!) > EPS),
+    );
+    expect(stepped.length).toBeGreaterThan(0); // the config really does step
+    let checked = 0;
+    for (const p of stepped) {
+      for (let i = 0; i + 1 < p.waypoints.length; i++) {
+        const a = p.waypoints[i]!;
+        const b = p.waypoints[i + 1]!;
+        // Sample the waypoint and the segment midpoint — the midpoint is where
+        // an un-quantized (raw-lerp) floor would land off the 0.25 grid.
+        for (const [wx, wz] of [
+          [a[0], a[2]],
+          [(a[0] + b[0]) / 2, (a[2] + b[2]) / 2],
+        ] as const) {
+          const fy = Math.max(a[1], b[1]);
+          const cross = columnCrossing(store, wx, wz, fy - 2, fy + 3);
+          if (cross === null) continue;
+          const q = cross / RISER;
+          expect(Math.abs(q - Math.round(q))).toBeLessThan(0.06); // within 0.06·0.25
+          checked++;
+        }
+      }
+    }
+    expect(checked).toBeGreaterThan(0);
+  });
+});
+
+describe("cave carve — themes (noise dial)", () => {
+  const THEME_PARAMS = {
+    chambers: 3,
+    chamberRadius: 6,
+    verticality: 0.4,
+    roughness: 1,
+    extraLoops: 1,
+  };
+  const THEME_SEED = 4;
+
+  /** Variance of chamber 0's surface-crossing radii (its wall roughness). */
+  function chamberWallVar(theme: string): number {
+    const store = carve({ ...THEME_PARAMS, theme }, THEME_SEED, "replace");
+    const sk = buildCaveSkeleton(THEME_PARAMS, THEME_SEED, CAVE_REGION.max);
+    return variance(chamberSurfaceRadii(store, sk.chambers[0]!));
+  }
+
+  test("organic chamber walls are rougher (higher radius variance) than mined", () => {
+    const mined = chamberWallVar("mined");
+    const organic = chamberWallVar("organic");
+    expect(organic).toBeGreaterThan(mined);
+  });
+
+  test("mixed: chambers get organic noise, passages stay mined-crisp", () => {
+    const mixed = carve(
+      { ...THEME_PARAMS, theme: "mixed" },
+      THEME_SEED,
+      "replace",
+    );
+    const minedAll = carve(
+      { ...THEME_PARAMS, theme: "mined" },
+      THEME_SEED,
+      "replace",
+    );
+    const sk = buildCaveSkeleton(THEME_PARAMS, THEME_SEED, CAVE_REGION.max);
+    const c = sk.chambers[0]!;
+    const mixedChamberVar = variance(chamberSurfaceRadii(mixed, c));
+    // (a) mixed chambers ARE displaced — rougher than the all-mined cave's SAME
+    // chamber (isolates the organic noise the mixed theme routes to chambers).
+    expect(mixedChamberVar).toBeGreaterThan(
+      variance(chamberSurfaceRadii(minedAll, c)),
+    );
+    // (b) mixed passages stay crisp — their wall roughness sits well below the
+    // (organic) chamber's.
+    const p = sk.passages.find((q: CavePassage) => q.waypoints.length >= 3)!;
+    expect(variance(passageWallDists(mixed, p))).toBeLessThan(mixedChamberVar);
+  });
+});
+
+describe("cave carve — determinism (byte-exact patch)", () => {
+  test("same (params, seed, region, policy) → identical serialized ops", () => {
+    for (const policy of ["replace", "keep-existing-air"] as MergePolicy[]) {
+      const a = CAVE.evaluate(
+        withDefaults({}),
+        3,
+        CAVE_REGION,
+        BUILTIN_TABLE,
+        policy,
+      );
+      const b = CAVE.evaluate(
+        withDefaults({}),
+        3,
+        CAVE_REGION,
+        BUILTIN_TABLE,
+        policy,
+      );
+      expect(serializeOps(a.ops as FieldOp[])).toBe(
+        serializeOps(b.ops as FieldOp[]),
+      );
+    }
+  });
+
+  test("a different theme changes the bytes (the theme dial reaches emission)", () => {
+    const mined = CAVE.evaluate(
+      withDefaults({ theme: "mined" }),
+      3,
+      CAVE_REGION,
+      BUILTIN_TABLE,
+      "replace",
+    );
+    const organic = CAVE.evaluate(
+      withDefaults({ theme: "organic" }),
+      3,
+      CAVE_REGION,
+      BUILTIN_TABLE,
+      "replace",
+    );
+    expect(serializeOps(mined.ops as FieldOp[])).not.toBe(
+      serializeOps(organic.ops as FieldOp[]),
+    );
+  });
+});
+
+describe("cave carve — non-zero region origin", () => {
+  test("air lands at the offset chamber centres (region.min applied)", () => {
+    const region: Region = { min: [10, 2, 6], max: [30, 12, 26] };
+    const store = carve({}, 5, "replace", region);
+    const sk = buildCaveSkeleton({}, 5, [20, 10, 20]); // extent = max − min
+    for (const c of sk.chambers) {
+      const wx = c.center[0] + region.min[0];
+      const wy = chamberFloorY(c) + 1.0 + region.min[1];
+      const wz = c.center[2] + region.min[2];
+      expect(dAt(store, wx, wy, wz)).toBeGreaterThan(0);
+    }
+  });
+});
+
+describe("cave carve — registry & result shape", () => {
+  test("evaluate returns exactly one patch op and no placements", () => {
+    const { ops, placements } = CAVE.evaluate(
+      withDefaults({}),
+      1,
+      CAVE_REGION,
+      BUILTIN_TABLE,
+      "replace",
+    );
+    expect(placements).toEqual([]);
+    const patches = ops.filter((o) => o.kind === "patch");
+    expect(patches.length).toBe(1);
+    expect(ops.length).toBe(1);
+  });
+
+  test("the cave has no rotation param (isotropic seeding — a decision)", () => {
+    const schema = CAVE.paramSchema as { properties: Record<string, unknown> };
+    expect(schema.properties["rotation"]).toBeUndefined();
+  });
+
+  test("commits through commitGenerator: patch validates, one undo entry, provenance", () => {
+    // The real editor path (assertPatchValid + entity provenance), not just a
+    // bare applyPatchOp — a malformed slice would throw setup-loud here.
+    const store = createFieldStore();
+    const log = createOpLog();
+    const { dirty, entity } = commitGenerator(store, log, CAVE, {
+      params: CAVE.defaults,
+      seed: 1,
+      region: CAVE_REGION,
+      policy: "replace",
+      table: BUILTIN_TABLE,
+    });
+    expect(dirty.size).toBeGreaterThan(0);
+    expect(entity.generator).toBe("cave");
+    expect(log.undoStack).toHaveLength(1); // one commit = one undo entry
+    // The span is [patch op, entity op] — the emitter contributes ONE field op.
+    expect(log.ops.map((o) => o.kind)).toEqual(["patch", "entity"]);
   });
 });

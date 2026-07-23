@@ -311,7 +311,7 @@ const MAZE_PARAMS = {
 // (likewise z), y = 1.25 m (j=2 mid) → sample 5.
 describe("field generators — the maze", () => {
   test("registry: the maze joins the hall", () => {
-    expect(FIELD_GENERATORS.map((g) => g.id)).toEqual(["hall", "maze"]);
+    expect(FIELD_GENERATORS.map((g) => g.id)).toEqual(["hall", "maze", "cave"]);
     expect(generatorById("maze").name).toBe("Maze");
   });
 

@@ -842,9 +842,9 @@ channel** (uniform|indexed palette encoding behind accessors — `getMaterial` /
   `MAX_SELECTION_BUDGET`; pure query) + `selectionHas`; `MaterializedSelection` keeps
   regions as predicates and floods as chunk-keyed bitsets. Deterministic and embeddable
   in op masks (floods re-evaluate against replayed state).
-- **Staged generators (F2b: the first entity ops; F3b: the evaluate widening)** —
-  `FIELD_GENERATORS` registry (`generatorById`, setup-loud): data-parameterized hall +
-  maze (`GeneratorDef` — plain JSON-Schema params; integer-only maze RNG, donor
+- **Staged generators (F2b: the first entity ops; F3b: the evaluate widening + the cave)** —
+  `FIELD_GENERATORS` registry (`generatorById`, setup-loud): data-parameterized hall,
+  maze, and **cave** (`GeneratorDef` — plain JSON-Schema params; integer-only maze RNG, donor
   bit-parity). `evaluate` → a **`GeneratorResult`** = `{ ops, placements }` (D-F3-8): `ops`
   are lattice-snapped brush AND patch ops, `placements` are explicit `PlacementRecord`s;
   a `MergePolicy` (replace | keep-existing-air) rides in. Each `GeneratorDef` declares
@@ -857,6 +857,21 @@ channel** (uniform|indexed palette encoding behind accessors — `getMaterial` /
   rejected setup-loud. **Layout invariant:** a live entity's span ops sit immediately
   BEFORE its entity op in `log.ops` with sequential ids matching `opSpan`, and `entityId`
   is the entity op's own log id.
+- **The cave generator (F3b)** — the first PATCH-emitting generator: a deterministic
+  macro skeleton (floor-anchored chamber blob clusters, a connected passage graph, boundary
+  mouths) stamped into ONE absolute `PatchOp`. Chambers are smooth-unioned blobs (Quilez
+  `smax`); passages sweep flat-floored profiles along the polylines (square/mined vs
+  round/organic), with the floor CLAMPED at each waypoint's quantized `RISER` (0.25 m) tread
+  — cells below stay solid, so floors are flat and stepped by construction. Organic
+  wall/ceiling roughness is integer-hash value noise, suppressed within a floor band so the
+  walked floor stays clean. Three `theme`s dial the styles: `mined`, `organic`, `mixed`
+  (mined passages threading organic chambers — the default). Density matches the dig
+  encoding exactly (`clampInt8(sdf · DENSITY_SCALE)`); under `replace` every region cell is
+  written (rock elsewhere, overwriting pre-existing air), under `keep-existing-air` only
+  carved cells enter the mask. `contextFree`, `materialMask: null` (rock default renders),
+  and Pr-2-exact (no transcendentals, no float-seeded tables — the donor's noise perm table
+  is rewritten to a hash-direct lookup). There is deliberately NO `rotation` param: the
+  skeleton is seeded isotropically in the region.
 - **Stamp placement authoring (F3a: D-F3-13)** — ONE authoring convention across every
   generator. `rotation` is a quarter turn about +Y, spelled as the STRING enum
   `"0" | "90" | "180" | "270"` (default `"0"`), applied to the finished mini-grid after
