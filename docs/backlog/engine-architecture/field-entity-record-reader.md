@@ -33,3 +33,8 @@ freeze / bake; Staged generators, for the layout invariant);
 `packages/core/src/field/reconfigure.ts` (`findEntityOp` — the in-core locator a
 consumer would be duplicating); `packages/core/src/field/types.ts`
 (`GeneratorEntity.frozen` / `.baked`).
+
+**Status check (2026-07-23, F3a seal):** core did NOT gain the public reader; the editor
+host re-derives (host-internal `entityRecord` + `listEntities`, plus the panel-side
+`lib/field-entity.ts`) — the predicted duplication now has two consumers. The trigger
+(a third consumer, or F3b's placement work needing entity iteration in core) stands.

@@ -34,3 +34,9 @@ need to be formalised.
 `project_dungeon_epic2_procgen.md` (the 2.1 brainstorm + slice ladder). The
 `settings.region` provenance block in `@furnace/core/scene` (`SceneSettings`) is the
 partial materialisation of this model in the scene format.
+
+**Disposition note (2026-07-23, F3a seal):** the One Field era realizes this idea for
+the FIELD (the op log + generator provenance IS recipe-as-truth — `@furnace/core/field`
+serializeOps/parseOps + GeneratorEntity). The old `.fmesh`/`RegionData` model this entry
+targets retires at F6's clean cut — review there: either this entry dies with it, or a
+residual (non-field regions, if any survive) gets restated against the field model.

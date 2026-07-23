@@ -25,7 +25,7 @@ Dependency order: **scene representation → serialization / loader (the interch
 
 Scene-model cluster this keystone draws from:
 - `engine-architecture/scene-graph-helpers.md` — runtime hierarchy / world-matrix composition (the *structure*).
-- `engine-architecture/scene-serialization-interchange.md` — the save/load format + core loader (the *interchange contract*; the linchpin of dual-mode — created from this exploration because it was previously untracked).
+- the save/load format + core loader (the *interchange contract*; the linchpin of dual-mode — created from this exploration, SHIPPED at M1 and now canonical in `docs/reference/editor-architecture.md` + `core-modules.md`; its backlog entry is deleted).
 - `engine-architecture/scene-based-resource-ownership.md` — `Scene` as the ownership / teardown root.
 - `engine-architecture/component-schemas.md` / `engine-architecture/ecs-data-oriented-soa-layout.md` — component definitions / data-oriented storage (heavier; not required to start).
 
