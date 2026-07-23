@@ -15,7 +15,7 @@ overlap with what F3's cave/connection generators may cover natively.
 **Trigger to revisit:** the F3 brainstorm (cave + connections arc), or the first
 post-F2b field-tool feel round — whichever fires first.
 
-**Reference:** F2 spec §3.1 brush chassis (`docs/superpowers/specs/2026-07-15-epic3-one-field-f2-tools-and-materials-design.md`,
-local/gitignored); `packages/editor/src/frontend/lib/field-brush.ts`;
+**Reference:** F2 spec §3.1 brush chassis (local/gitignored design spec);
+`packages/editor/src/frontend/lib/field-brush.ts`;
 `packages/core/src/field/ops.ts` (brush op shape kinds). Precedent note: WorldEdit
 `//line` / Axiom path tools are the shipped analogues if design research is wanted.

@@ -296,17 +296,21 @@ describe("cave skeleton — endpoint delivery (Δy)", () => {
     }
   });
 
-  test("over-budget regions under-deliver by a BOUNDED amount (0 ≤ gap ≤ intended Δy)", () => {
-    // A clamped passage delivers a PREFIX of the climb: its shortfall is at most
-    // the whole intended Δy and never negative (never overshoots). The residual
-    // is explicit and tested — the visible D-F3-11 limitation, not a silent
-    // disconnect. See docs/backlog/dungeon/cave-chamber-floor-reconciliation.md.
+  test("over-budget regions under-deliver by a BOUNDED amount (no overshoot, gap ≤ intended Δy)", () => {
+    // A clamped passage delivers a PREFIX of the climb: it never climbs MORE
+    // than intended (no overshoot), so its shortfall is at most the whole
+    // intended Δy. The residual is explicit and tested — the visible D-F3-11
+    // limitation, not a silent disconnect. See
+    // docs/backlog/dungeon/cave-chamber-floor-reconciliation.md.
     for (const c of CONFIGS) {
       const sk = buildCaveSkeleton(c.params, c.seed, c.extent);
       for (const pass of sk.passages) {
-        const gap = endpointGap(sk, pass);
-        expect(gap).toBeGreaterThanOrEqual(-EPS);
-        expect(gap).toBeLessThanOrEqual(intendedDy(sk, pass) + EPS);
+        const deliveredDy = Math.abs(
+          pass.floorY[pass.floorY.length - 1]! - pass.floorY[0]!,
+        );
+        const intended = intendedDy(sk, pass);
+        expect(deliveredDy).toBeLessThanOrEqual(intended + EPS); // never overshoots
+        expect(endpointGap(sk, pass)).toBeLessThanOrEqual(intended + EPS);
       }
     }
   });

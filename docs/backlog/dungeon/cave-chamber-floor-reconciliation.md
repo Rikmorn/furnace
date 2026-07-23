@@ -36,4 +36,4 @@ budget), (b) rejecting extreme-aspect regions at the generator's schema layer
 (setup-loud, Task 3's job), or (c) accepting the discontinuity and papering it in
 the carve/mesh (a small ramp/blend at the seam).
 
-**Reference.** Spec D-F3-11 (`docs/superpowers/specs/2026-07-21-epic3-one-field-f3-smart-objects-and-cave-design.md` §2 — bias + probe visibility, never a repair loop); the F3b Task 2 code-quality review finding (switchback endpoint under-delivery); `buildCaveSkeleton`/`CavePassage` TSDoc in `packages/core/src/field/cave.ts`.
+**Reference.** Spec decision D-F3-11 (bias + probe visibility, never a repair loop); the F3b Task 2 code-quality review finding (switchback endpoint under-delivery); `buildCaveSkeleton`/`CavePassage` TSDoc in `packages/core/src/field/cave.ts`.
