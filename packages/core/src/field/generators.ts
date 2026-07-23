@@ -11,6 +11,7 @@ import {
   assertPatchValid,
   assertPlacementsValid,
 } from "./ops.ts";
+import { fnv1a, makeIntRng } from "./rng.ts";
 import type {
   BrushOp,
   ChunkKey,
@@ -668,9 +669,11 @@ const hallGenerator: GeneratorDef = {
 };
 
 // ——— the maze (donor: packages/dungeon/src/themes/maze.ts — W3) ———
-// The RNG (fnv1a + makeIntRng), carvePlan, and braidPass port VERBATIM: any
-// change to the mixer changes every maze in existence. INTEGER-ONLY
-// randomness (FNV-1a seed hash → Math.imul mixer) — no transcendentals.
+// carvePlan and braidPass port VERBATIM: any change to the mixer changes every
+// maze in existence. INTEGER-ONLY randomness (FNV-1a seed hash → Math.imul
+// mixer) — no transcendentals. The RNG primitives (fnv1a + makeIntRng) moved
+// to ./rng.ts (F3b Task 2) so the cave/scatter generators share them without a
+// generators.ts import cycle.
 
 /** Passage height in coarse cells — fixed at the door standard (3.0 m), not a
  *  knob (the donor MAZE_H_CELLS contract). */
@@ -695,31 +698,6 @@ export const MAZE_PITCH_CELLS = PASSAGE_CELLS + 1;
  *  carve loops (`1 + PITCH · a`) readable while the public name carries the
  *  contract. ONE source: the arithmetic lives only on the export. */
 const PITCH = MAZE_PITCH_CELLS;
-
-/** FNV-1a 32-bit over the seed string (the donor pieces.ts variant-hash
- *  pattern) — VERBATIM donor port. */
-function fnv1a(s: string): number {
-  let h = 0x811c9dc5;
-  for (let i = 0; i < s.length; i++) {
-    h ^= s.charCodeAt(i);
-    h = Math.imul(h, 0x01000193);
-  }
-  return h >>> 0;
-}
-
-/** mulberry32-shape uint32 stream: Math.imul + shifts only. Every operation is
- *  integer (spec-exact in JS on every engine) — the Pr-2-safe RNG for grid
- *  content. VERBATIM donor port. */
-function makeIntRng(seedWord: number): () => number {
-  let state = seedWord >>> 0;
-  return () => {
-    state = (state + 0x6d2b79f5) >>> 0;
-    let t = state;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t = (t + Math.imul(t ^ (t >>> 7), t | 61)) ^ t;
-    return (t ^ (t >>> 14)) >>> 0;
-  };
-}
 
 /** An open-edge key: `h:a,b` = wall between (a,b)-(a+1,b); `v:a,b` = (a,b)-(a,b+1). */
 type EdgeKey = string;

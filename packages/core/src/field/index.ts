@@ -9,6 +9,14 @@ export {
   parseOps,
   serializeOps,
 } from "./artifact.ts";
+export type {
+  CaveChamber,
+  CaveMouth,
+  CavePassage,
+  CavePassageKind,
+  CaveSkeleton,
+} from "./cave.ts";
+export { buildCaveSkeleton } from "./cave.ts";
 export {
   AIR,
   CHUNK_DIM,
