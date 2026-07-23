@@ -30,7 +30,7 @@ by Phase 2; the trigger refines to "when extending the `Light` union" (with the 
 masks, flashlight gobos), OR when Stage-4 shadows land the light-space-projection + per-light-texture
 infrastructure that cookies would reuse — whichever comes first. Build on that infra, not before it.
 
-**Reference:** `advanced-shadows-cascades-and-point.md` + the Stage-4 shadow-
+**Reference:** `shadow-follow-ons.md` (*Advanced shadows* section) + the Stage-4 shadow-
 modeling decision (shared light-space-projection machinery); the Visual Fidelity epic.
 
 **Update (Stage 4, 2026-06-08):** Shadows landed, and with them the light-space-projection machinery

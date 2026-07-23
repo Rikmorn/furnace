@@ -47,5 +47,5 @@ pass (clustered forward+ vs deferred) before any implementation.
 - 2.2.3a brainstorm (emissive glow scatter — the trigger that surfaced this).
 - `packages/core/src/frame/lights.ts:150` (`MAX_LIGHTS = 16`); forward render
   path `packages/core/src/frame/render.ts`.
-- Related: `pbr-material-pipeline.md`, `advanced-shadows-cascades-and-point.md`,
-  `area-and-ies-lights.md`, `post-render-graph.md`.
+- Related: `pbr-material-pipeline.md`, `shadow-follow-ons.md` (*Advanced shadows*
+  section), `area-and-ies-lights.md`, `post-render-graph.md`.
