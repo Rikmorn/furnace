@@ -662,8 +662,9 @@ dig ring, selection) had rendered NOTHING since F1. Record + rules:
   strip, eyedropper-tracked active ring), BrushInspector (radius/mask/smooth/hollow —
   plain controls, NOT SchemaForm), StampInspector (SchemaForm over the generator's
   paramSchema + visible hand-editable seed + ⚄ re-roll + merge policy +
-  Commit/Cancel), EntitiesList (▦ rows → region highlight + read-only params; editing
-  is F3), LayersRow + slice slider, FieldToolbar. The controls stack is bounded
+  Commit/Cancel), EntitiesList (▦ rows → footprint highlight; F3a made rows the
+  smart-object surface — Open/Freeze/Bake, §17), LayersRow + slice slider,
+  FieldToolbar. The controls stack is bounded
   (scrollable) and the canvas cell floors at `min-h-24` — it can never reach zero
   (measured fix; the unclamped-resize core hop is
   `docs/backlog/engine-architecture/resize-unclamped-zero-size-canvas.md`).
@@ -682,3 +683,50 @@ dig ring, selection) had rendered NOTHING since F1. Record + rules:
   `commitGenerator`, raycast `maxY`; and the two F2b frame fixes: drawLines
   MSAA-awareness and blend-partitioned draw order (translucent ghosts now draw over
   instanced kit).
+
+## 17. One Field F3a — smart objects (2026-07-23)
+
+Committed generators became reconfigurable smart objects; the editor half rides the
+F2b stamp-session machinery end to end.
+
+- **Reconfigure session** — an EntitiesList row's Open starts a stamp-mode session
+  seeded from recorded provenance (`startReconfigureSession`; params/seed/region;
+  merge policy is NOT recorded — opens at core's `"replace"` fallback, surfaced in the
+  inspector). Same ghost-preview worker path (known v0 limit: the ghost previews
+  against CURRENT field state — `field-reconfigure-ghost-exactness.md`); StampInspector
+  relabels commit as **Apply** → `applyReconfigure` runs core `reconfigureGenerator`
+  (in-place span splice, affected-set-culled downstream replay), remeshes the dirty
+  set, ONE undo entry. Frozen entities refuse Open at the row (badge + reason);
+  freezing cancels a live session on that entity.
+- **Freeze / Bake verbs** — row buttons (inline, not a menu — Radix portals don't
+  render under the happy-dom harness; backlogged) through core `setGeneratorFrozen` /
+  `bakeGeneratorEntity`; bake confirms through the App-owned `useConfirmDialog` (stays
+  inside the no-clobber + keybinding-suppression guards). `subscribeEntities` ticks the
+  panel on entity-record changes that dirty no chunk (freeze/bake/undo of either).
+- **Drift report** — `applyReconfigure` pushes core's drifted/orphaned findings to
+  `subscribeDrift`; `DriftReport` renders a dismissible list, click → `frameChunks`
+  (fly-camera orbit-target re-center on the chunk-set centroid). The report clears on
+  ANY history step (undo/redo — an F3a gate fix) and on world load; never recomputed.
+- **Op-cost meter** — `logStats` fields appended to the field footer line, pushed with
+  the rAF stats under a log-signature dedup (ops/undo/redo lengths). Compaction runs
+  at WORLD LOAD only (`COMPACT_THRESHOLD_OPS` 200): core's `compactRuns` requires a
+  quiescent history (both stacks empty — its splice/entity-update entries address
+  `log.ops` by position; durable fix backlogged as
+  `field-log-entries-anchored-by-index.md`). A failed fold never fails a load.
+- **Entity highlight = stamped footprint** (F3a gate fix) — the amber-dim box outlines
+  `generatorFootprint(log.ops, entity, cellSize)` (union of the span's op bounds,
+  patch-op aware; pure, in `field-ghost.ts`), falling back to the recorded selection
+  region only when the span holds no field-writing ops. The recorded region routinely
+  over-draws the content (stamps anchor at the snapped min corner, size from params).
+- **Stamp ergonomics** — `deriveSizeDefaults` seeds hall w/h/d and maze cellsX/Z from
+  the active selection's extent (clamped to schema bounds; maze fit =
+  `floor((extentCells − 1) / MAZE_PITCH_CELLS)`, the pitch now a public core
+  constant); quarter-turn `rotation` + per-wall door offsets ride the generator
+  schemas (core F3a) straight into the SchemaForm.
+- **Field undo/redo as host API** — `FieldHost.undo()/redo()` (the field log is a
+  SEPARATE history from the scene document's); the canvas ⌘Z handler now
+  `stopPropagation()` (it was ALSO stepping the scene undo — pre-existing, fixed;
+  F/Delete still leak by design pending a semantics decision, noted at the fix site).
+- **Deferred UX set** → `docs/backlog/editor-and-tooling/field-f3a-gate-ux-findings.md`
+  (mouse-driven region move, in-viewport pointer/select tool, box/wand selection feel
+  — slotted to the F4 recharter with the F2b set).

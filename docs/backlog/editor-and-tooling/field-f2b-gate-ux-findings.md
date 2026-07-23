@@ -42,14 +42,15 @@ the standing editor-UX debt: `world-panel-w3-gate-ux-findings.md` +
 
 **→ F3 (placement pain — mostly already-chartered features):**
 
-7. **Stamp-vs-selection mismatch** — the stamp anchors at the selection's snapped MIN
-   corner and takes its SIZE from params; a maze "looks offset to the selection" and
-   ignores the selected extent. Candidates: params default from the selection's size,
-   or region-fills-selection semantics — design alongside F3's reconfigure + door
-   offsets (+ rotation, which the user asked for and belongs with reconfigure).
-   `field-two-point-tunnel-brush.md` rides the same arc.
+7. ~~**Stamp-vs-selection mismatch**~~ — **RESOLVED in F3a (2026-07-23):** size params
+   now derive from the active selection's extent (`deriveSizeDefaults`, clamped to
+   schema bounds; region-fills-selection rejected — legal sizes are quantized),
+   quarter-turn `rotation` + per-wall door offsets shipped on both stamp schemas, and
+   the entity highlight boxes the stamped FOOTPRINT rather than the recorded region.
+   `field-two-point-tunnel-brush.md` still rides the F3b cave arc (spec D-F3-14).
 
-**Trigger to revisit:** the F3 brainstorm (item 7) and the F4 recharter (items 1–6).
+**Trigger to revisit:** the F4 recharter (items 1–6; joined by
+`field-f3a-gate-ux-findings.md`).
 
 **Reference:** F2 spec §3 + §3.7 (local/gitignored); seal-log F2b entry;
 `docs/learnings/2026-07-21-invisible-line-overlays.md`;
