@@ -852,9 +852,15 @@ channel** (uniform|indexed palette encoding behind accessors — `getMaterial` /
   region-vs-params mismatch the editor's field host already documents for oversized
   params. Four per-wall `door<Wall>Offset` knobs place each doorway laterally, `-1` =
   auto-centre. Units are per-generator: the hall counts COARSE CELLS, the maze counts
-  MAZE CELLS (multiplied by the pitch internally, which is what keeps a door on a
-  passage column and off an internal wall band). Out-of-range offsets THROW with the
-  wall's legal range rather than silently clamping. **The five new keys are OPTIONAL on
+  MAZE CELLS (multiplied internally by the exported `MAZE_PITCH_CELLS` — 5 coarse
+  cells, one passage block plus the single internal wall band that follows it —
+  which is what keeps a door on a passage column and off an internal wall band).
+  Out-of-range offsets THROW with the wall's legal range rather than silently
+  clamping. A `cellsX × cellsZ` maze therefore spans `MAZE_PITCH_CELLS · cells + 1`
+  coarse cells per horizontal axis (the passage blocks plus the outer shell), and
+  the editor's selection-fit size defaults read the inverse
+  `floor((n − 1) / MAZE_PITCH_CELLS)` from this one export — the footprint math is
+  single-sourced to the generator. **The five new keys are OPTIONAL on
   input** — absent means rotation 0 and auto-centred doors — because `GeneratorEntity.params`
   is persisted and `reconfigureGenerator` re-evaluates from the recorded set, so entities
   written before F3a must keep evaluating. `GeneratorDef.defaults` still carries all five
