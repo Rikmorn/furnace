@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { CaveSkeleton } from "@furnace/core/field";
 import { buildCaveSkeleton } from "@furnace/core/field";
 import {
+  BOUNDS_MARGIN,
   MAX_GRADE,
   MAX_SWITCHBACKS,
   MIN_TREAD,
@@ -107,7 +108,7 @@ function assertGradeBudget(sk: CaveSkeleton): void {
 }
 
 // ─── bounds ───
-const MARGIN = 0.25; // DEFAULT_CELL_SIZE — the 1-cell inset
+const MARGIN = BOUNDS_MARGIN; // derived, not hardcoded — the 1-cell inset
 
 function assertInBounds(sk: CaveSkeleton, extent: Extent): void {
   const within = (v: Vec3, r: number): void => {
@@ -245,10 +246,99 @@ describe("cave skeleton — grade budget", () => {
   });
 });
 
+// ─── endpoint delivery (Δy): the residual switchback/clamp gap is bounded and
+//     visible, so Task 4 gets a clean signal instead of a silent disconnect ───
+describe("cave skeleton — endpoint delivery (Δy)", () => {
+  const chamberFloorY = (c: CaveSkeleton["chambers"][number]): number =>
+    c.center[1] - c.radii[1];
+
+  // How far a passage's last floorY lands from the floor it should reach.
+  // Straight passages and fully-fitted switchbacks land EXACTLY; only an
+  // over-budget switchback/clamp (extreme aspect ratio) lands short.
+  const endpointGap = (
+    sk: CaveSkeleton,
+    pass: CaveSkeleton["passages"][number],
+  ): number => {
+    const endY = pass.floorY[pass.floorY.length - 1]!;
+    if (pass.to >= 0)
+      return Math.abs(endY - chamberFloorY(sk.chambers[pass.to]!));
+    return Math.abs(endY - pass.floorY[0]!); // mouth passages are level
+  };
+
+  // The full climb the passage was asked to deliver (from-floor → to-floor).
+  const intendedDy = (
+    sk: CaveSkeleton,
+    pass: CaveSkeleton["passages"][number],
+  ): number => {
+    const fromFloor = chamberFloorY(sk.chambers[pass.from]!); // from is always ≥ 0
+    if (pass.to < 0) return 0; // mouth passages are level
+    return Math.abs(chamberFloorY(sk.chambers[pass.to]!) - fromFloor);
+  };
+
+  test("start waypoint always sits on the from-chamber floor", () => {
+    for (const c of CONFIGS) {
+      const sk = buildCaveSkeleton(c.params, c.seed, c.extent);
+      for (const pass of sk.passages)
+        expect(pass.floorY[0]!).toBeCloseTo(
+          chamberFloorY(sk.chambers[pass.from]!),
+          6,
+        );
+    }
+  });
+
+  test("realistic (roomy) regions deliver the FULL climb (endpoint on the far floor)", () => {
+    for (const c of CONFIGS) {
+      const roomy = c.extent[0] >= 10 && c.extent[2] >= 10;
+      if (!roomy) continue;
+      const sk = buildCaveSkeleton(c.params, c.seed, c.extent);
+      for (const pass of sk.passages)
+        expect(endpointGap(sk, pass)).toBeLessThan(EPS);
+    }
+  });
+
+  test("over-budget regions under-deliver by a BOUNDED amount (0 ≤ gap ≤ intended Δy)", () => {
+    // A clamped passage delivers a PREFIX of the climb: its shortfall is at most
+    // the whole intended Δy and never negative (never overshoots). The residual
+    // is explicit and tested — the visible D-F3-11 limitation, not a silent
+    // disconnect. See docs/backlog/dungeon/cave-chamber-floor-reconciliation.md.
+    for (const c of CONFIGS) {
+      const sk = buildCaveSkeleton(c.params, c.seed, c.extent);
+      for (const pass of sk.passages) {
+        const gap = endpointGap(sk, pass);
+        expect(gap).toBeGreaterThanOrEqual(-EPS);
+        expect(gap).toBeLessThanOrEqual(intendedDy(sk, pass) + EPS);
+      }
+    }
+  });
+
+  test("the tall-narrow region is the one that clamps (the bound isn't vacuous)", () => {
+    const sk = buildCaveSkeleton(
+      { chambers: 2, verticality: 1, chamberRadius: 3, extraLoops: 0 },
+      3,
+      [6, 20, 6],
+    );
+    const maxGap = Math.max(...sk.passages.map((p) => endpointGap(sk, p)));
+    expect(maxGap).toBeGreaterThan(EPS); // ≥ 1 passage genuinely lands short
+  });
+});
+
 describe("cave skeleton — bounds", () => {
   test("every chamber blob and waypoint stays inside extent − 1 cell", () => {
     for (const c of CONFIGS)
       assertInBounds(buildCaveSkeleton(c.params, c.seed, c.extent), c.extent);
+  });
+
+  test("holds unconditionally, even for a sub-margin extent", () => {
+    // The carver relies on "never writes outside the region", so radii shrink
+    // to fit ANY extent. This bites only when extent/2 − margin < the radius
+    // floor: a [1,1,1] m box (half-extent 0.5, in-bounds room 0.25) is the
+    // smallest that must still not overhang — [2,2,2] leaves 0.75 m and would
+    // pass even unfixed (sabotage-verified: [1,1,1] is the one with teeth).
+    for (const tiny of [
+      [1, 1, 1],
+      [1.4, 1.4, 1.4],
+    ] as Extent[])
+      assertInBounds(buildCaveSkeleton({ chambers: 3 }, 9, tiny), tiny);
   });
 });
 

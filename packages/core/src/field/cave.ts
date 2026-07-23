@@ -39,18 +39,20 @@ export const MAX_SWITCHBACKS = 4;
  *  search budget, never loop-until-fit). */
 export const MAX_DART_ATTEMPTS = 32;
 
-/** |Δfloor| at or below this makes a passage `level` (else `stepped` or
- *  `switchback`). */
-const LEVEL_DY = MIN_TREAD;
 /** One-cell inset (m) the carver must respect — the skeleton keeps every blob
- *  and waypoint this far inside the extent so the carve never writes outside. */
-const BOUNDS_MARGIN = DEFAULT_CELL_SIZE;
+ *  and waypoint this far inside the extent so the carve never writes outside.
+ *  Exported so the bounds test derives its margin from the same source. */
+export const BOUNDS_MARGIN = DEFAULT_CELL_SIZE;
 /** Max lateral waypoint jitter (m) on straight passages (clamped to the
  *  in-bounds room per waypoint, so it never pushes a waypoint outside). */
 const JITTER = 0.4;
 /** A switchback leg's perp swing as a multiple of its forward advance. Being
  *  > 1 guarantees consecutive legs point > 90° apart (the required reversal). */
 const SWITCHBACK_AMP_FACTOR = 1.25;
+/** A hair of extra leg run (m) beyond the exact tread boundary, so `floor(legLen
+ *  / MIN_TREAD)` keeps full capacity instead of losing a riser to sqrt rounding
+ *  at the boundary — negligible geometrically, only ever makes a step gentler. */
+const TREAD_SLOP = 1e-6;
 /** Target straight-passage segment length (m) — subdivides long passages so
  *  jitter reads as a winding tunnel, never below the grade-safe cap. */
 const SEG_TARGET = 2.0;
@@ -58,7 +60,7 @@ const SEG_TARGET = 2.0;
 // ─── param ranges + defaults (single-sourced here; Task 3's schema mirrors) ───
 const CHAMBERS_RANGE = { min: 2, max: 6, def: 3 } as const;
 const RADIUS_RANGE = { min: 3, max: 8, def: 5 } as const;
-const UNIT_RANGE = { min: 0, max: 1 } as const;
+const VERTICALITY_RANGE = { min: 0, max: 1, def: 0.5 } as const;
 const LOOPS_RANGE = { min: 0, max: 3, def: 1 } as const;
 /** The `-1` auto-centre sentinel — mirrors the hall/maze door convention. */
 const AUTO_CENTRE = -1;
@@ -84,7 +86,16 @@ export type CavePassageKind = "level" | "stepped" | "switchback";
 
 /** One graph edge, realized as a floor polyline. Floor heights are ALREADY
  *  quantized to {@link RISER} risers with `>= MIN_TREAD` run between risers, so
- *  the carver just protects them. */
+ *  the carver just protects them.
+ *
+ *  A passage's first waypoint always sits at its `from` chamber's floor. Its
+ *  last waypoint reaches the `to` chamber's floor EXCEPT for a `switchback` (or
+ *  the straight clamp fallback) in an extreme-aspect-ratio region where the Δy
+ *  cannot fit the grade budget even at {@link MAX_SWITCHBACKS} legs: there the
+ *  passage delivers a prefix of the climb and lands SHORT of the far chamber
+ *  floor — a bias, not a guarantee (D-F3-11), never under-delivering by more
+ *  than the intended Δy. See `docs/backlog/dungeon/cave-chamber-floor-
+ *  reconciliation.md`. */
 export type CavePassage = {
   /** Source chamber index, or `-1` for a mouth terminal. */
   from: number;
@@ -242,9 +253,9 @@ function readCaveParams(params: Record<string, unknown>): CaveParams {
     ),
     verticality: numOr(
       params["verticality"],
-      0.5,
-      UNIT_RANGE.min,
-      UNIT_RANGE.max,
+      VERTICALITY_RANGE.def,
+      VERTICALITY_RANGE.min,
+      VERTICALITY_RANGE.max,
     ),
     extraLoops: intOr(
       params["extraLoops"],
@@ -323,10 +334,13 @@ function buildChambers(
   extent: [number, number, number],
 ): CaveChamber[] {
   const chambers: CaveChamber[] = [];
-  // Radii fit the extent so a chamber never overhangs the in-bounds box.
-  const maxRx = Math.max(0.5, extent[0] / 2 - BOUNDS_MARGIN);
-  const maxRy = Math.max(0.5, extent[1] / 2 - BOUNDS_MARGIN);
-  const maxRz = Math.max(0.5, extent[2] / 2 - BOUNDS_MARGIN);
+  // Radii fit the extent so a chamber never overhangs the in-bounds box — for
+  // ALL extents (Task 3's carver relies on "never writes outside the region").
+  // Floored at 0 (not a comfort minimum): a tiny extent yields a tiny chamber,
+  // never one that spills past the margin.
+  const maxRx = Math.max(0, extent[0] / 2 - BOUNDS_MARGIN);
+  const maxRy = Math.max(0, extent[1] / 2 - BOUNDS_MARGIN);
+  const maxRz = Math.max(0, extent[2] / 2 - BOUNDS_MARGIN);
   for (let i = 0; i < p.chambers; i++) {
     // Prefix-stable per-chamber stream (donor buildGraphN per-bore keying):
     // adding/removing a chamber never reshuffles an earlier one's geometry.
@@ -482,7 +496,8 @@ function straightPassage(
   const dy = b[1] - a[1];
   const sign = dy >= 0 ? 1 : -1;
   const risers = Math.round(Math.abs(dy) / RISER);
-  const kind: CavePassageKind = Math.abs(dy) <= LEVEL_DY ? "level" : "stepped";
+  // `level` means genuinely flat (no risers); any climb is `stepped`.
+  const kind: CavePassageKind = risers === 0 ? "level" : "stepped";
   // Segment count: enough to place every riser one-per-segment, subdivided
   // toward SEG_TARGET for winding, capped so each segment run stays >= MIN_TREAD.
   const capBySeg = Math.max(1, Math.floor(L / MIN_TREAD));
@@ -512,6 +527,12 @@ function straightPassage(
   }
   return { from, to, kind, waypoints, floorY };
 }
+
+/** How many risers one switchback leg can carry at `>= MIN_TREAD` per riser —
+ *  the grade-legal cap. Shared by the fit decision and the assembly so they
+ *  cannot disagree. */
+const legCapacity = (fstep: number, amp: number): number =>
+  Math.floor(Math.sqrt(fstep * fstep + amp * amp) / MIN_TREAD);
 
 /** Spread `total` risers across `legs` legs, at most `perLegCap` each, extras
  *  on the earliest legs — deterministic. */
@@ -546,8 +567,7 @@ function assembleSwitchback(
   fstep: number,
   amp: number,
 ): CavePassage {
-  const legLen = Math.sqrt(fstep * fstep + amp * amp);
-  const perLegCap = Math.max(1, Math.floor(legLen / MIN_TREAD));
+  const perLegCap = Math.max(1, legCapacity(fstep, amp));
   const per = distributeRisers(risers, legs, perLegCap);
   const waypoints: [number, number, number][] = [[a[0], a[1], a[2]]];
   const floorY: number[] = [a[1]];
@@ -587,7 +607,6 @@ function trySwitchback(
   const dy = b[1] - a[1];
   const sign = dy >= 0 ? 1 : -1;
   const risers = Math.round(Math.abs(dy) / RISER);
-  const needed = risers * MIN_TREAD; // total path run to fit the risers at MAX_GRADE
   const fwd = horizDir(A, B);
   const perp = perpOf(fwd);
   // Pick the perp side with more room (measured at the endpoints — the min of a
@@ -602,14 +621,18 @@ function trySwitchback(
   for (const legs of [2, 4]) {
     if (legs - 1 > MAX_SWITCHBACKS) continue;
     const fstep = L / legs;
-    const ampForRun = Math.sqrt(
-      Math.max(0, (needed / legs) * (needed / legs) - fstep * fstep),
+    // Size legs to carry EVERY riser: the busiest leg holds ceil(risers/legs)
+    // risers, needing that many treads of run. Solve for the perp swing that
+    // reaches that leg length (the +TREAD_SLOP keeps floor() off the boundary).
+    const maxPerLeg = Math.ceil(risers / legs);
+    const legLenForRisers = maxPerLeg * MIN_TREAD + TREAD_SLOP;
+    const ampForRisers = Math.sqrt(
+      Math.max(0, legLenForRisers * legLenForRisers - fstep * fstep),
     );
-    const ampWanted = Math.max(ampForRun, fstep * SWITCHBACK_AMP_FACTOR);
+    const ampWanted = Math.max(ampForRisers, fstep * SWITCHBACK_AMP_FACTOR);
     const amp = Math.min(ampWanted, budget);
     if (amp <= fstep) continue; // no reversal possible at this leg count/budget
-    const legLen = Math.sqrt(fstep * fstep + amp * amp);
-    const fit = Math.min(risers, legs * Math.floor(legLen / MIN_TREAD));
+    const fit = Math.min(risers, legs * legCapacity(fstep, amp));
     if (fit < 1) continue;
     return assembleSwitchback(
       from,
@@ -669,7 +692,10 @@ function buildPassage(
  *  `extraLoops` near-pair edges, and every mouth wires to its nearest chamber,
  *  so every chamber is reachable from every mouth. Verticality is delivered as
  *  explicit passage kinds under a per-segment grade budget ({@link MAX_GRADE}),
- *  with floors quantized to {@link RISER} risers.
+ *  with floors quantized to {@link RISER} risers. Bounds hold for ALL extents:
+ *  every blob and waypoint stays a {@link BOUNDS_MARGIN} inset inside the extent.
+ *  In an extreme-aspect-ratio region a steep passage may land short of its far
+ *  chamber floor — see {@link CavePassage} (bias, not guarantee — D-F3-11).
  *
  *  Params are read tolerantly with defaults (the `caveGenerator` def does the
  *  strict, setup-loud schema validation before calling in): `chambers` (2–6),
