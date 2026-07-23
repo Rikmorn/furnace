@@ -48,4 +48,5 @@ pass (clustered forward+ vs deferred) before any implementation.
 - `packages/core/src/frame/lights.ts:150` (`MAX_LIGHTS = 16`); forward render
   path `packages/core/src/frame/render.ts`.
 - Related: `pbr-material-pipeline.md`, `shadow-follow-ons.md` (*Advanced shadows*
-  section), `area-and-ies-lights.md`, `post-render-graph.md`.
+  section), `area-and-ies-lights.md`, `post-chain-follow-ons.md` (*runtime
+  render-graph / FrameGraph (T3)* section).
