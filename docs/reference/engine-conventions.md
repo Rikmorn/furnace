@@ -172,7 +172,7 @@ After both cascades complete, `gpu.dispose` reads `stats.resources.counts.{meshe
 
 Branded handle types (`MeshHandle`, `MaterialHandle`, `GeometryHandle`, `EffectHandle`, `ShaderHandle`, `BindingHandle`, `AnyResourceHandle`) and the `ResourceKind` discriminator are re-exported from this module for type-level use.
 
-For per-kind live counts and memory totals, see `stats.snapshot(ctx).resources.*` and `stats.snapshot(ctx).memory.*`. RM-4 deleted the prior `resources.summary`, `resources.list`, and `resources.snapshot` exports because no consumer used them; restoration is tracked in `docs/backlog/engine-architecture/resources-introspection-restore.md` for any future external consumer trigger.
+For per-kind live counts and memory totals, see `stats.snapshot(ctx).resources.*` and `stats.snapshot(ctx).memory.*`. RM-4 deleted the prior `resources.summary`, `resources.list`, and `resources.snapshot` exports because no consumer used them; restoration is tracked in `docs/backlog/engine-architecture/resource-manager-follow-ons.md` (*Resources introspection restore* section) for any future external consumer trigger.
 
 ### Stats relationship
 
@@ -184,7 +184,7 @@ A `Binding` slot owns one `GPUBuffer`; its byte size is recorded at `createBuffe
 
 Stats's snapshot reads these two registries — counts and memory — and surfaces them at `stats.snapshot(ctx).resources.*` and `stats.snapshot(ctx).memory.*`.
 
-**The principle:** internal-to-core consumers use sync direct calls. Events are reserved for external-consumer subscription channels with a real consumer trigger. RM-4 considered an events-based decoupling between the manager and stats and rejected it as speculative scaffolding — both modules ship in the same package, both evolve together, and no external consumer of resource lifecycle events exists. See `docs/backlog/engine-architecture/resource-lifecycle-events-external-consumer.md` for the trigger that would re-open the question.
+**The principle:** internal-to-core consumers use sync direct calls. Events are reserved for external-consumer subscription channels with a real consumer trigger. RM-4 considered an events-based decoupling between the manager and stats and rejected it as speculative scaffolding — both modules ship in the same package, both evolve together, and no external consumer of resource lifecycle events exists. See `docs/backlog/engine-architecture/resource-manager-follow-ons.md` (*Resource lifecycle events* section) for the trigger that would re-open the question.
 
 ### Failure-policy alignment
 
