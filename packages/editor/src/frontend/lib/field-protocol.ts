@@ -13,10 +13,12 @@ import type {
   MaterialTable,
   MergePolicy,
   MeshBucket,
+  PlacementRecord,
 } from "@furnace/core/field";
 import {
   AIR,
   applyOp,
+  applyPatchOp,
   CHUNK_DIM,
   chunkKey,
   createFieldStore,
@@ -96,6 +98,10 @@ export type FieldWorkerResponse =
       chunks: { key: string; buckets: WireBucket[] }[];
       opCount: number;
       evalMs: number;
+      /** Explicit placed instances the generator emitted (D-F3-8). Additive: the
+       *  ghost preview does not render them yet — the editor's placement tranche
+       *  consumes this; until then the host ignores it. */
+      placements: PlacementRecord[];
     }
   | { kind: "mesh-error"; jobId: number; key: string; message: string };
 
@@ -179,6 +185,8 @@ function handleStampPreview(
     if (c.materials !== null) store.materials.set(c.key, c.materials);
   }
   const t0 = performance.now();
+  // Preview path evaluates hall/maze (both contextFree) — no EvaluateContext is
+  // threaded here; a context-reading generator's preview arrives with scatter.
   const evaluated = def.evaluate(
     msg.params,
     msg.seed,
@@ -189,8 +197,13 @@ function handleStampPreview(
   const evalMs = performance.now() - t0;
   const dirty = new Set<string>();
   let nextId = 1;
-  for (const op of evaluated) {
-    const r = applyOp(store, { ...op, id: nextId++ }, msg.table);
+  for (const op of evaluated.ops) {
+    const id = nextId++;
+    // Placements write no cells and are returned unmeshed in the response.
+    const r =
+      op.kind === "patch"
+        ? applyPatchOp(store, { ...op, id })
+        : applyOp(store, { ...op, id }, msg.table);
     for (const k of r.dirty) dirty.add(k);
   }
   // Watertight ghost seams follow the host's rule: a border write dirties the
@@ -223,8 +236,9 @@ function handleStampPreview(
       kind: "stamp-previewed",
       jobId: msg.jobId,
       chunks,
-      opCount: evaluated.length,
+      opCount: evaluated.ops.length,
       evalMs,
+      placements: evaluated.placements,
     },
     transfer,
   );

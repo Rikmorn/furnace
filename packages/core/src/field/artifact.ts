@@ -6,7 +6,7 @@ import {
   parseChunkKey,
 } from "./chunks.ts";
 import { meshChunkField } from "./mesher.ts";
-import { assertPatchStructure } from "./ops.ts";
+import { assertPatchStructure, assertPlacementsValid } from "./ops.ts";
 import { skinChunkKit } from "./skin.ts";
 import type {
   BrushMask,
@@ -23,6 +23,8 @@ import type {
   OpLog,
   PatchChunk,
   PatchOp,
+  PlacementOp,
+  PlacementRecord,
   SelectionSpec,
   SmoothParams,
 } from "./types.ts";
@@ -162,8 +164,11 @@ export function decodeMaterialFile(bytes: Uint8Array): ChunkMaterials {
 }
 
 /** Oplog envelope version. v1 was a BARE JSON array of ops (no envelope) and is
- *  still read; v2 wraps the list so patch ops can carry base64 payloads. */
-const OPLOG_VERSION = 2;
+ *  still read; v2 wraps the list so patch ops can carry base64 payloads; v3
+ *  adds placement ops (literal JSON — no binary payload). {@link parseOps} reads
+ *  all three (a v2 file carries no placement ops by construction); the writer
+ *  always emits the current version. */
+const OPLOG_VERSION = 3;
 
 /** Bytes per binary-string step in {@link u8ToB64} — bounds the transient char
  *  array at 32K entries whatever the payload's size (a compaction patch over a
@@ -223,11 +228,12 @@ const encodePatchChunk = (c: PatchChunk): WirePatchChunk => ({
 });
 
 /**
- * Serializes the op list (the authoring truth — brush, entity AND patch ops) as
- * a v2 envelope: `{ version, ops }`, with each patch slice's typed arrays as
- * base64 strings. Plain `JSON.stringify` would render them as index-keyed
- * objects (`{"0":…}`) — ~8× the bytes, and no longer typed arrays on the way
- * back.
+ * Serializes the op list (the authoring truth — brush, entity, patch AND
+ * placement ops) as the current envelope: `{ version, ops }`, with each patch
+ * slice's typed arrays as base64 strings. Plain `JSON.stringify` would render
+ * them as index-keyed objects (`{"0":…}`) — ~8× the bytes, and no longer typed
+ * arrays on the way back. Placement ops are plain JSON, so they ride the
+ * envelope literally (the `: op` pass-through below).
  *
  * The writer TRUSTS its input: `logApplyPatch` validated every patch on the way
  * into the log, so re-checking here would only re-do work. {@link parseOps},
@@ -331,6 +337,91 @@ function decodePatchOp(raw: Record<string, unknown>, id: number): PatchOp {
     chunks: chunks.map(decodePatchChunk),
   };
   assertPatchStructure(op);
+  return op;
+}
+
+/** Narrows an untrusted JSON value to exactly `len` numbers — the shape half of
+ *  a placement record's vector fields; {@link assertPlacementsValid} checks the
+ *  values (finite, unit quat).
+ *
+ *  @throws {@link Error} if it is not an array of `len` numbers. */
+function numberArray(
+  raw: unknown,
+  len: number,
+  id: number,
+  what: string,
+): number[] {
+  if (
+    !Array.isArray(raw) ||
+    raw.length !== len ||
+    raw.some((n) => typeof n !== "number")
+  )
+    throw new Error(
+      `field oplog: placement op ${id} ${what} must be an array of ${len} numbers`,
+    );
+  return raw;
+}
+
+/** Narrows one JSON value to a {@link PlacementRecord}: `archetypeId` string,
+ *  `position`/`scale` 3-number arrays, `quat` a 4-number array, `variantIndex` a
+ *  number. Shape only — {@link assertPlacementsValid} validates the VALUES.
+ *
+ *  @throws {@link Error} if the record is not an object or a field has the wrong
+ *    JSON shape. */
+function decodePlacementRecord(raw: unknown, id: number): PlacementRecord {
+  if (!isRecord(raw))
+    throw new Error(`field oplog: placement op ${id} record is not an object`);
+  const archetypeId = raw["archetypeId"];
+  if (typeof archetypeId !== "string")
+    throw new Error(
+      `field oplog: placement op ${id} archetypeId must be a string`,
+    );
+  const variantIndex = raw["variantIndex"];
+  if (typeof variantIndex !== "number")
+    throw new Error(
+      `field oplog: placement op ${id} variantIndex must be a number`,
+    );
+  // Boundary cast: numberArray verified length + element types at runtime just
+  // above; the fixed-length tuple shapes the type system cannot recover from a
+  // length check.
+  return {
+    archetypeId,
+    position: numberArray(raw["position"], 3, id, "position") as [
+      number,
+      number,
+      number,
+    ],
+    quat: numberArray(raw["quat"], 4, id, "quat") as [
+      number,
+      number,
+      number,
+      number,
+    ],
+    scale: numberArray(raw["scale"], 3, id, "scale") as [
+      number,
+      number,
+      number,
+    ],
+    variantIndex,
+  };
+}
+
+/** @throws {@link Error} if the op has no records array, a record has a bad JSON
+ *   shape ({@link decodePlacementRecord}), or a record's values are invalid
+ *   ({@link assertPlacementsValid} — non-unit quat, non-finite vector, etc.). */
+function decodePlacementOp(
+  raw: Record<string, unknown>,
+  id: number,
+): PlacementOp {
+  const records = raw["records"];
+  if (!Array.isArray(records))
+    throw new Error(`field oplog: placement op ${id} has no records array`);
+  const op: PlacementOp = {
+    id,
+    kind: "placement",
+    records: records.map((r) => decodePlacementRecord(r, id)),
+  };
+  assertPlacementsValid(op.records);
   return op;
 }
 
@@ -509,6 +600,7 @@ function decodeOp(raw: unknown): FieldOp {
     );
   const kind = raw["kind"];
   if (kind === "patch") return decodePatchOp(raw, id);
+  if (kind === "placement") return decodePlacementOp(raw, id);
   if (kind === "dig") return upgradeLegacyDig(raw, id);
   if (kind === "brush") assertBrushWire(raw, id);
   else if (kind === "entity") assertEntityWire(raw, id);
@@ -551,10 +643,11 @@ function parseOplogJson(text: string): unknown {
 }
 
 /**
- * Parses an oplog back into the op list. Reads BOTH the v2 envelope
- * {@link serializeOps} writes and a v1 BARE array (an F1/F2 bake), including
- * F1's `kind:"dig"` literals, which map forward to brush/dig ops. The two are
- * unambiguous: a JSON array is never a JSON object.
+ * Parses an oplog back into the op list. Reads the v2 AND v3 envelopes
+ * {@link serializeOps} writes (v3 adds placement ops; a v2 file carries none)
+ * and a v1 BARE array (an F1/F2 bake), including F1's `kind:"dig"` literals,
+ * which map forward to brush/dig ops. The two forms are unambiguous: a JSON
+ * array is never a JSON object.
  *
  * Setup-loud on an unreadable log — a corrupt oplog must never become a
  * plausible-looking one.
@@ -567,7 +660,10 @@ function parseOplogJson(text: string): unknown {
  * `mask`/`smooth` is one; and, for patch ops, the full table-independent
  * structure ({@link assertPatchStructure} — canonical unique chunk keys,
  * 512-byte masks, value arrays exactly as long as their mask's popcount), so a
- * truncated or garbage base64 payload is rejected rather than mis-applied.
+ * truncated or garbage base64 payload is rejected rather than mis-applied; and,
+ * for placement ops, each record's shape ({@link PlacementRecord} fields) AND
+ * values ({@link assertPlacementsValid} — finite vectors, unit quat,
+ * non-negative integer variant).
  *
  * WHAT IS NOT — every NUMERIC field: a shape's centre/radius/half-extents, a
  * brush's `material` and `mask.classId`, `smooth.strength`/`iterations`, a
@@ -586,23 +682,27 @@ function parseOplogJson(text: string): unknown {
  * @param text - the oplog file's contents.
  * @returns freshly built ops; no input buffer is aliased.
  * @throws {@link Error} on invalid JSON, a non-array non-object payload, an
- *   unknown or future envelope version, a v2 envelope with no `ops` array, an
+ *   unknown or future envelope version, an envelope with no `ops` array, an
  *   op with a non-integer `id`, an unknown `kind` or an off-contract union
- *   field, or a patch op whose payload does not decode to a structurally valid
- *   patch (those messages carry the `field patch:` prefix).
+ *   field, a patch op whose payload does not decode to a structurally valid
+ *   patch (those messages carry the `field patch:` prefix), or a placement op
+ *   whose records are malformed (`field placement:`/`field oplog:` prefix).
  */
 export function parseOps(text: string): FieldOp[] {
   const parsed = parseOplogJson(text);
   if (Array.isArray(parsed)) return parsed.map(decodeOp); // v1 bare array
   if (!isRecord(parsed))
     throw new Error(
-      `field oplog: expected a v2 envelope or a v1 op array, got ${typeTag(parsed)}`,
+      `field oplog: expected a versioned envelope or a v1 op array, got ${typeTag(parsed)}`,
     );
   const version = parsed["version"];
-  if (version !== OPLOG_VERSION) throw versionError(version);
+  // Every envelope version this build reads: v2 (patches) and v3 (placements).
+  // A v2 file simply carries no placement ops. versionError distinguishes a
+  // FUTURE version (> OPLOG_VERSION) from a corrupt/unknown one.
+  if (version !== 2 && version !== 3) throw versionError(version);
   const ops = parsed["ops"];
   if (!Array.isArray(ops))
-    throw new Error("field oplog: v2 envelope has no ops array");
+    throw new Error("field oplog: envelope has no ops array");
   return ops.map(decodeOp);
 }
 

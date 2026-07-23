@@ -5,19 +5,27 @@
 // compiles the grid into a span of lattice-snapped brush ops. The registry is
 // the ONE plug point (resolves the third-grid-vocabulary dispatch tax), and
 // commitGenerator owns the entity semantics: one commit = one undo entry.
-import { applyOp, assertOpValid } from "./ops.ts";
+import {
+  applyFieldOp,
+  assertOpValid,
+  assertPatchValid,
+  assertPlacementsValid,
+} from "./ops.ts";
 import type {
   BrushOp,
   ChunkKey,
   EntityOp,
+  EvaluateContext,
   FieldOp,
   FieldStore,
   GeneratorDef,
   GeneratorEntity,
+  GeneratorResult,
   MaterialTable,
   MergePolicy,
   OpInverse,
   OpLog,
+  PlacementOp,
 } from "./types.ts";
 
 const CELL = 0.5;
@@ -628,6 +636,7 @@ const hallGenerator: GeneratorDef = {
   name: "Hall",
   paramSchema: HALL_SCHEMA,
   defaults: HALL_DEFAULTS,
+  contextFree: true, // params-determined; no field reads
   evaluate(params, seed, region, table, policy) {
     void seed; // hall structure is params-determined (donor contract)
     const p = hallParams(params); // narrow + range-validate, setup-loud
@@ -654,7 +663,7 @@ const hallGenerator: GeneratorDef = {
     const ops = gridToOps(finalGrid, origin, kitClassId(table), policy);
     // lattice-snapped by construction; assert it stays true at the source
     for (const op of ops) assertOpValid(op, table);
-    return ops;
+    return { ops, placements: [] };
   },
 };
 
@@ -924,6 +933,7 @@ const mazeGenerator: GeneratorDef = {
   name: "Maze",
   paramSchema: MAZE_SCHEMA,
   defaults: MAZE_DEFAULTS,
+  contextFree: true, // seeded-but-pure; no field reads
   evaluate(params, seed, region, table, policy) {
     const p = mazeParams(params); // narrow + range-validate, setup-loud
     const w = PITCH * p.cellsX - 1;
@@ -987,7 +997,7 @@ const mazeGenerator: GeneratorDef = {
     const ops = gridToOps(finalGrid, origin, kitClassId(table), policy);
     // lattice-snapped by construction; assert it stays true at the source
     for (const op of ops) assertOpValid(op, table);
-    return ops;
+    return { ops, placements: [] };
   },
 };
 
@@ -1005,8 +1015,32 @@ export function generatorById(id: string): GeneratorDef {
   return def;
 }
 
-/** Applies a generator's evaluated span to the store and records the log's
- *  first entity-op class: span ops + ONE `entity/place` op, all under ONE undo
+/** Calls a generator's `evaluate`, enforcing the {@link EvaluateContext}
+ *  contract: a context-reading def (`contextFree === false`) MUST be given a
+ *  `ctx`, or it is a caller bug (setup-loud). A context-free def ignores any
+ *  `ctx` passed. The ONE evaluate call site guard, shared by
+ *  {@link commitGenerator} and `reconfigureGenerator`.
+ *
+ *  @throws {@link Error} if `def.contextFree === false` and `ctx` is undefined. */
+export function evaluateGenerator(
+  def: GeneratorDef,
+  params: Record<string, unknown>,
+  seed: number,
+  region: { min: [number, number, number]; max: [number, number, number] },
+  table: MaterialTable,
+  policy: MergePolicy,
+  ctx: EvaluateContext | undefined,
+): GeneratorResult {
+  if (def.contextFree === false && ctx === undefined)
+    throw new Error(
+      `generator "${def.id}": contextFree is false but evaluate was called without an EvaluateContext`,
+    );
+  return def.evaluate(params, seed, region, table, policy, ctx);
+}
+
+/** Applies a generator's evaluated result to the store and records the log's
+ *  first entity-op class: span ops (field ops + an optional placement op) + ONE
+ *  `entity/place` op, all under ONE undo
  *  entry (⌘Z removes the whole commit — charter §2.3). The WHOLE evaluated
  *  span re-validates through {@link assertOpValid} (the applier-side check)
  *  BEFORE the first write — validate-all-then-apply, so a bad op leaves the
@@ -1026,9 +1060,10 @@ export function generatorById(id: string): GeneratorDef {
  *  the charter §2.2 contract) to reproduce a previewed span exactly.
  *
  *  @throws {@link Error} if the generator's own param validation rejects
- *    `opts.params`, the evaluated span is EMPTY (a generator must emit at
- *    least one op), or any evaluated op fails {@link assertOpValid}; a
- *    `DataCloneError` if `opts.params`/`opts.region` hold structured-clone-
+ *    `opts.params`, the evaluated result is EMPTY (no ops AND no placements — a
+ *    generator must emit something), or any evaluated op/placement fails
+ *    {@link assertOpValid}/{@link assertPatchValid}/{@link assertPlacementsValid};
+ *    a `DataCloneError` if `opts.params`/`opts.region` hold structured-clone-
  *    incompatible values (e.g. a function in an unknown key) — in all cases
  *    before any mutation. */
 export function commitGenerator(
@@ -1043,16 +1078,20 @@ export function commitGenerator(
     table: MaterialTable;
   },
 ): { dirty: Set<ChunkKey>; entity: GeneratorEntity } {
-  const evaluated = def.evaluate(
+  const ctx: EvaluateContext | undefined =
+    def.contextFree === false ? { store } : undefined;
+  const { ops, placements } = evaluateGenerator(
+    def,
     opts.params,
     opts.seed,
     opts.region,
     opts.table,
     opts.policy,
+    ctx,
   );
-  if (evaluated.length === 0)
+  if (ops.length + placements.length === 0)
     throw new Error(
-      `commitGenerator: generator "${def.id}" evaluated to an empty op span`,
+      `commitGenerator: generator "${def.id}" evaluated to an empty result (no ops, no placements)`,
     );
   // Provenance clones run BEFORE any store write: the log owns its copy of the
   // record (a caller mutating a reused params/region object must never rewrite
@@ -1064,17 +1103,32 @@ export function commitGenerator(
   // Pass 1 — stamp real ids and validate the WHOLE span before any write.
   const firstId = log.nextId;
   let nextId = firstId;
-  const span: BrushOp[] = [];
-  for (const op of evaluated) {
-    const s: BrushOp = { ...op, id: nextId++ };
-    assertOpValid(s, opts.table);
+  const span: FieldOp[] = [];
+  for (const op of ops) {
+    const s = { ...op, id: nextId++ };
+    if (s.kind === "patch") assertPatchValid(s, opts.table);
+    else assertOpValid(s, opts.table);
     span.push(s);
   }
-  // Pass 2 — apply; merge per-chunk inverses FIRST-wins (pre-commit state).
+  // Placements ride the span as ONE placement op appended AFTER the field ops,
+  // still inside opSpan — validated setup-loud like every other span member.
+  if (placements.length > 0) {
+    assertPlacementsValid(placements);
+    const placementOp: PlacementOp = {
+      id: nextId++,
+      kind: "placement",
+      records: placements,
+    };
+    span.push(placementOp);
+  }
+  // Pass 2 — apply; merge per-chunk inverses FIRST-wins (pre-commit state). A
+  // placement op writes no cells (applyFieldOp returns null), so it contributes
+  // nothing to dirty/inverse but stays in the log's span.
   const dirty = new Set<ChunkKey>();
   const inverse: OpInverse = new Map();
   for (const s of span) {
-    const r = applyOp(store, s, opts.table);
+    const r = applyFieldOp(store, s, opts.table);
+    if (r === null) continue;
     for (const k of r.dirty) dirty.add(k);
     for (const [k, pre] of r.inverse) if (!inverse.has(k)) inverse.set(k, pre);
   }

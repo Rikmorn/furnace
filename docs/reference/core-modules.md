@@ -794,9 +794,10 @@ channel** (uniform|indexed palette encoding behind accessors — `getMaterial` /
 - **Store + coords** — `createFieldStore`, `getDensity`/`setDensity`,
   `extractFieldAprons` (the 20³ density+material window), `chunkKey`/`parseChunkKey`,
   `voxelChunk`, `worldToVoxel`/`sampleToWorld`, `AIR`/`SOLID`.
-- **The op log (F2b: one log, op-list undo; F3a: splice-safe entries + patches)** — the
-  `FieldOp` union = `BrushOp | EntityOp | PatchOp` (`isBrushOp` narrows to the brush
-  member). **Brush effects**: dig / fill / paint / **smooth**
+- **The op log (F2b: one log, op-list undo; F3a: splice-safe entries + patches; F3b:
+  placement ops)** — the `FieldOp` union = `BrushOp | EntityOp | PatchOp | PlacementOp`
+  (`isBrushOp` narrows to the brush member). **Brush effects**: dig / fill / paint /
+  **smooth**
   (`SmoothParams` — max-delta-clamp strength doubling as the thin-wall guard,
   iterations, both|erode|fill modes, `SMOOTH_DEFAULTS`; density-only, never materials).
   Fill takes an optional **`hollow`** shell-band thickness (non-destructive: interior
@@ -825,22 +826,37 @@ channel** (uniform|indexed palette encoding behind accessors — `getMaterial` /
   log owns its copy) and applies; `applyPatchOp` is the bare applier, with the same
   dirty+inverse return as `applyOp`. Kit class ids are accepted — the lattice rule
   constrains a box shape, which a patch does not have. `fieldOpChunks(op, cellSize)`
-  gives any op's written chunks (exact for patches, entity ops write none, brush ops
-  quantize their +1-margin sample bounds).
+  gives any op's written chunks (exact for patches, entity AND placement ops write none,
+  brush ops quantize their +1-margin sample bounds).
+- **Placement ops (F3b: D-F3-8)** — `PlacementOp` = a set of `PlacementRecord`s (each an
+  `archetypeId`, world `position`, unit `quat`, per-axis `scale`, `variantIndex`), no
+  field-cell writes. Orientation resolves at PLACEMENT time — the quat is baked in, so
+  the recorded op replays as context-free data. It rides the log like an entity op:
+  replay-ordered, undoable, skipped by every store-mutating replay path (`applyFieldOp`
+  returns null, `fieldOpChunks` returns empty, cell-local trivially). `assertPlacementsValid`
+  is setup-loud (non-empty `archetypeId`, finite `position`/`scale`, unit-length `quat`
+  within 1e-3, non-negative integer `variantIndex`) — the commit and the oplog decoder
+  both run it.
 - **Selection** — `SelectionSpec` (region | flood-material | flood-void) →
   `materializeSelection` (6-connected BFS, budget-capped LOUDLY via `truncated`, ceiling
   `MAX_SELECTION_BUDGET`; pure query) + `selectionHas`; `MaterializedSelection` keeps
   regions as predicates and floods as chunk-keyed bitsets. Deterministic and embeddable
   in op masks (floods re-evaluate against replayed state).
-- **Staged generators (F2b: the first entity ops)** — `FIELD_GENERATORS` registry
-  (`generatorById`, setup-loud): data-parameterized hall + maze (`GeneratorDef` — plain
-  JSON-Schema params; integer-only maze RNG, donor bit-parity), `evaluate` → a span of
-  lattice-snapped brush ops with a `MergePolicy` (replace | keep-existing-air).
-  `commitGenerator` applies the span + records the `EntityOp`
-  (`GeneratorEntity`: generator id, params, seed, region, opSpan — full provenance)
-  under ONE undo entry. **Layout invariant:** a live entity's span ops sit immediately
-  BEFORE its entity op in `log.ops` with sequential ids matching `opSpan`, and
-  `entityId` is the entity op's own log id.
+- **Staged generators (F2b: the first entity ops; F3b: the evaluate widening)** —
+  `FIELD_GENERATORS` registry (`generatorById`, setup-loud): data-parameterized hall +
+  maze (`GeneratorDef` — plain JSON-Schema params; integer-only maze RNG, donor
+  bit-parity). `evaluate` → a **`GeneratorResult`** = `{ ops, placements }` (D-F3-8): `ops`
+  are lattice-snapped brush AND patch ops, `placements` are explicit `PlacementRecord`s;
+  a `MergePolicy` (replace | keep-existing-air) rides in. Each `GeneratorDef` declares
+  `contextFree: boolean` — `true` = pure in (params, seed, region), so the recorded span
+  replays == re-evaluates (hall/maze/cave); `false` = evaluate reads the field through an
+  `EvaluateContext` ({ store }), passed only then. `commitGenerator` applies the field ops
+  and, if any, wraps `placements` in ONE placement op appended after them (inside `opSpan`),
+  then records the `EntityOp` (`GeneratorEntity`: generator id, params, seed, region, opSpan
+  — full provenance) under ONE undo entry; an empty result (no ops AND no placements) is
+  rejected setup-loud. **Layout invariant:** a live entity's span ops sit immediately
+  BEFORE its entity op in `log.ops` with sequential ids matching `opSpan`, and `entityId`
+  is the entity op's own log id.
 - **Stamp placement authoring (F3a: D-F3-13)** — ONE authoring convention across every
   generator. `rotation` is a quarter turn about +Y, spelled as the STRING enum
   `"0" | "90" | "180" | "270"` (default `"0"`), applied to the finished mini-grid after
@@ -986,16 +1002,18 @@ channel** (uniform|indexed palette encoding behind accessors — `getMaterial` /
 - **Artifact** — `encodeChunkFile`/`decodeChunkFile`,
   `encodeMaterialFile`/`decodeMaterialFile`, oplog serialize/parse, `bakeFieldWorld`
   (pure; the manifest embeds the resolved material table).
-- **The oplog wire format (F3a)** — `oplog.json` is a **v2 envelope**,
-  `{ version: 2, ops: [...] }`. Every `FieldOp` member round-trips: brush and entity ops
-  are plain JSON (so an entity's `frozen`/`baked` flags persist, and ABSENCE stays
-  absence — the literal-`true` optionals never materialize as `false`); a patch op's
-  four typed arrays per slice encode as **base64** strings. Plain `JSON.stringify` would
-  render them as index-keyed objects (~8× the bytes, and no longer typed arrays coming
-  back) — the reason the envelope exists. `parseOps` also reads **v1**, a BARE JSON
-  array with no envelope (every world baked before F3a), including F1's `kind:"dig"`
-  literals, which map forward to brush/dig ops; a JSON array is never a JSON object, so
-  the two versions cannot be confused.
+- **The oplog wire format (F3a: v2; F3b: v3)** — `oplog.json` is a **v3 envelope**,
+  `{ version: 3, ops: [...] }`. Every `FieldOp` member round-trips: brush, entity AND
+  placement ops are plain JSON (so an entity's `frozen`/`baked` flags persist, and ABSENCE
+  stays absence — the literal-`true` optionals never materialize as `false`; a placement
+  op's records are small literal JSON, no binary payload); a patch op's four typed arrays
+  per slice encode as **base64** strings. Plain `JSON.stringify` would render them as
+  index-keyed objects (~8× the bytes, and no longer typed arrays coming back) — the reason
+  the envelope exists. `parseOps` reads **v3 AND v2** envelopes (a v2 file carries no
+  placement ops by construction; the version gate rejects anything > 3 as a FUTURE build)
+  and **v1**, a BARE JSON array with no envelope (every world baked before F3a), including
+  F1's `kind:"dig"` literals, which map forward to brush/dig ops; a JSON array is never a
+  JSON object, so envelope and bare-array cannot be confused.
   It is **setup-loud**, and the line it draws is **strings vs numbers**: every closed
   string union that reaches the wire is checked; every numeric field is not.
   **Checked:** malformed JSON (wrapped with the `field oplog:` locator — three JSON files
@@ -1005,9 +1023,12 @@ channel** (uniform|indexed palette encoding behind accessors — `getMaterial` /
   those back as `null` — a corrupt log made plausible); a known `kind`; **every** closed
   string union — a brush's `effect`, `shape.kind`, `mask.kind` and an embedded
   `mask.selection.kind`, its `smooth.mode`, an entity's `action` and `entity.type`; that a
-  present optional `mask`/`smooth` is actually a record; and, for patch ops, the full
+  present optional `mask`/`smooth` is actually a record; for patch ops, the full
   table-independent structure (canonical unique chunk keys, 512-byte masks, value arrays
-  exactly as long as their mask's popcount), so a TRUNCATED payload is rejected at parse.
+  exactly as long as their mask's popcount), so a TRUNCATED payload is rejected at parse;
+  and, for placement ops, each record's shape (the vector field lengths + primitive types)
+  AND values (`assertPlacementsValid` — non-empty id, finite vectors, unit quat, valid
+  variant).
   The union tables are `satisfies Record<Union, true>` keyed records, exhaustive in BOTH
   directions — adding a member to a union in `types.ts` without extending the table is a
   compile error (TS1360), not an op the engine emits and its own parser refuses.

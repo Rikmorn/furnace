@@ -110,6 +110,12 @@ export const generatorFootprint = (
       grow(b.min, b.max);
       continue;
     }
+    if (op.kind === "placement") {
+      // MIGRATION (until Task 5): placement ops carry no field cells; a span's
+      // AABB should grow by each record's world bounds. No committed span emits
+      // placement ops until scatter arrives, so skip for now.
+      continue;
+    }
     for (const chunk of op.chunks) {
       const [cx, cy, cz] = parseChunkKey(chunk.key);
       const extent = CHUNK_DIM * cellSize;

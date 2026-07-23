@@ -35,6 +35,7 @@ import type {
   OpLog,
   PatchChunk,
   PatchOp,
+  PlacementRecord,
   SmoothParams,
 } from "./types.ts";
 import { MAT_ROCK } from "./types.ts";
@@ -611,6 +612,51 @@ export function assertPatchValid(op: PatchOp, table: MaterialTable): void {
     for (const id of c.materials ?? []) classOf(table, id); // unknown id throws
 }
 
+/** Max deviation of `|q|²` from 1 that still counts as a unit quaternion — the
+ *  slack a producer's normalization rounding is allowed. */
+const QUAT_NORM_TOLERANCE = 1e-3;
+
+/**
+ * Setup-loud placement validation — the {@link assertOpValid}/
+ * {@link assertPatchValid} analogue for a {@link PlacementOp}'s records, and the
+ * same replay / stream guard. Records may arrive from a parsed oplog, so every
+ * field is checked at runtime. Each record needs a non-empty `archetypeId`,
+ * finite `position` and `scale`, a `quat` whose squared norm is within
+ * {@link QUAT_NORM_TOLERANCE} of 1 (orientation bakes in at placement time — a
+ * non-unit quat is a producer bug, not something to silently re-normalize), and
+ * an integer `variantIndex >= 0`. Shape (array lengths, primitive types) is the
+ * decoder's job on the parse path ({@link PlacementRecord} is typed on the
+ * commit path); this validates the VALUES.
+ *
+ * @throws {@link Error} if any record has an empty `archetypeId`, a non-finite
+ *   `position`/`scale`, a `quat` that is not unit-length, or a `variantIndex`
+ *   that is not a non-negative integer.
+ */
+export function assertPlacementsValid(
+  records: readonly PlacementRecord[],
+): void {
+  for (const r of records) {
+    if (r.archetypeId.length === 0)
+      throw new Error(
+        "field placement: archetypeId must be a non-empty string",
+      );
+    if (!r.position.every((n) => Number.isFinite(n)))
+      throw new Error("field placement: position must be three finite numbers");
+    if (!r.scale.every((n) => Number.isFinite(n)))
+      throw new Error("field placement: scale must be three finite numbers");
+    const [qx, qy, qz, qw] = r.quat;
+    const norm2 = qx * qx + qy * qy + qz * qz + qw * qw;
+    if (!Number.isFinite(norm2) || Math.abs(norm2 - 1) > QUAT_NORM_TOLERANCE)
+      throw new Error(
+        `field placement: quat must be unit-length (|q|² = ${norm2}, tolerance ${QUAT_NORM_TOLERANCE})`,
+      );
+    if (!Number.isInteger(r.variantIndex) || r.variantIndex < 0)
+      throw new Error(
+        "field placement: variantIndex must be a non-negative integer",
+      );
+  }
+}
+
 /** Writes one slice's masked cells absolutely, snapshotting the chunk before
  *  the first write. The two value arrays are consumed in ascending bit order,
  *  each advancing only on ITS OWN mask's bits, and each falls back to a defined
@@ -702,6 +748,7 @@ export function applyPatchOp(
  *  reject are counted in. */
 export function fieldOpChunks(op: FieldOp, cellSize: number): Set<ChunkKey> {
   if (op.kind === "entity") return new Set();
+  if (op.kind === "placement") return new Set(); // explicit instances, no cells
   if (op.kind === "patch") return new Set(op.chunks.map((c) => c.key));
   const { x0, y0, z0, x1, y1, z1 } = opSampleBounds(op, cellSize);
   const keys = new Set<ChunkKey>();
@@ -721,7 +768,8 @@ export function fieldOpChunks(op: FieldOp, cellSize: number): Set<ChunkKey> {
  *  `solid-only` and class-kind masks read that same sample too
  *  ({@link makeMaskGate}); a REGION selection is a pure position predicate
  *  (`materializeSelection` copies its bounds without touching the store). A
- *  {@link PatchOp} reads nothing at all, and an entity op writes nothing at all.
+ *  {@link PatchOp} reads nothing at all, and entity + placement ops write
+ *  nothing at all (both cell-local via the non-brush guard).
  *  The two members that are NOT cell-local: `smooth`, whose 3³ kernel reads the
  *  neighbourhood (which crosses into adjacent chunks at a chunk's rim), and a
  *  FLOOD selection, whose read set is unbounded by construction.
@@ -1041,6 +1089,8 @@ export function applyFieldOp(
     case "patch":
       return applyPatchOp(store, op);
     case "entity":
+      return null;
+    case "placement":
       return null;
   }
 }

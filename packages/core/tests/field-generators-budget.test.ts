@@ -115,7 +115,7 @@ describe("field budgets — generator evaluate", () => {
     };
     // Vacuity guard: the timed evaluate must emit a real op span.
     expect(
-      hall.evaluate(params, 0, REGION_BIG, TABLE, "replace").length,
+      hall.evaluate(params, 0, REGION_BIG, TABLE, "replace").ops.length,
     ).toBeGreaterThanOrEqual(FLOOR_HALL_OPS);
     const median = medianMs((i) =>
       hall.evaluate(params, i, REGION_BIG, TABLE, "replace"),
@@ -139,7 +139,7 @@ describe("field budgets — generator evaluate", () => {
     };
     // Vacuity guard: the timed evaluate must emit a real op span.
     expect(
-      mz.evaluate(params, 0, REGION_MAZE_MAX, TABLE, "replace").length,
+      mz.evaluate(params, 0, REGION_MAZE_MAX, TABLE, "replace").ops.length,
     ).toBeGreaterThanOrEqual(FLOOR_MAZE_OPS);
     const median = medianMs((i) =>
       mz.evaluate(params, i, REGION_MAZE_MAX, TABLE, "replace"),
@@ -163,7 +163,7 @@ describe("field budgets — generator evaluate", () => {
     };
     // Vacuity guard: the timed evaluate must emit a real op span.
     expect(
-      mz.evaluate(params, 0, REGION_MAZE_MAX, TABLE, "replace").length,
+      mz.evaluate(params, 0, REGION_MAZE_MAX, TABLE, "replace").ops.length,
     ).toBeGreaterThanOrEqual(FLOOR_MAZE_OPS);
     const median = medianMs((i) =>
       mz.evaluate(params, i, REGION_MAZE_MAX, TABLE, "replace"),

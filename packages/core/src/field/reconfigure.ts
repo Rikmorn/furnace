@@ -11,11 +11,12 @@
 // swap the entity RECORD in place under one entity-update entry, touching no
 // chunk and no span: protection (reversible) and severing (not).
 import { createFieldStore, densityEqual } from "./chunks.ts";
-import { generatorById } from "./generators.ts";
+import { evaluateGenerator, generatorById } from "./generators.ts";
 import { materialsEqual } from "./materials.ts";
 import {
   applyFieldOp,
   assertOpValid,
+  assertPatchValid,
   fieldOpChunks,
   imagesOf,
   restoreImages,
@@ -28,6 +29,7 @@ import type {
   ChunkKey,
   DriftFinding,
   EntityOp,
+  EvaluateContext,
   FieldOp,
   FieldStore,
   GeneratorDef,
@@ -36,6 +38,7 @@ import type {
   MergePolicy,
   OpInverse,
   OpLog,
+  PatchOp,
 } from "./types.ts";
 
 /** The merge policy a reconfigure assumes when the caller does not supply one.
@@ -176,27 +179,43 @@ function mergeProvenance(
 
 /** Evaluates the generator with the merged provenance and validates the WHOLE
  *  result — the {@link commitGenerator} validate-all-then-apply posture, and the
- *  last leg of a reconfigure that can throw.
+ *  last leg of a reconfigure that can throw. Returns the field OPS (brush /
+ *  patch); placements are not spliced into a reconfigured span yet.
  *
  *  @throws {@link Error} if the generator rejects the params, evaluates to an
- *    empty span, or emits an op {@link assertOpValid} rejects. */
+ *    empty result, or emits an op {@link assertOpValid}/{@link assertPatchValid}
+ *    rejects. */
 function evaluateSpan(
   def: GeneratorDef,
+  store: FieldStore,
   provenance: Provenance,
   table: MaterialTable,
-): BrushOp[] {
-  const ops = def.evaluate(
+): (BrushOp | PatchOp)[] {
+  // MIGRATION (until Task 5): a context-reading reconfigure must re-cook
+  // against pre-span SCRATCH state, not the live store; this placeholder passes
+  // the live store. Today every reconfigure-able generator is contextFree, so
+  // this ctx is never actually consumed — the guard just wires the call shape.
+  const ctx: EvaluateContext | undefined =
+    def.contextFree === false ? { store } : undefined;
+  const { ops, placements } = evaluateGenerator(
+    def,
     provenance.params,
     provenance.seed,
     provenance.region,
     table,
     provenance.policy,
+    ctx,
   );
-  if (ops.length === 0)
+  if (ops.length + placements.length === 0)
     throw new Error(
-      `reconfigureGenerator: generator "${def.id}" evaluated to an empty op span`,
+      `reconfigureGenerator: generator "${def.id}" evaluated to an empty result`,
     );
-  for (const op of ops) assertOpValid(op, table);
+  for (const op of ops) {
+    if (op.kind === "patch") assertPatchValid(op, table);
+    else assertOpValid(op, table);
+  }
+  // MIGRATION (until Task 5): placements are not yet spliced into the
+  // reconfigured span — only scatter emits them, and it arrives in Task 5.
   return ops;
 }
 
@@ -380,8 +399,10 @@ function applyAndReport(
 
 /** Stamps a span with consecutive ids from `firstId`, leaving the ops otherwise
  *  untouched. */
-const stampSpan = (ops: readonly BrushOp[], firstId: number): BrushOp[] =>
-  ops.map((op, i) => ({ ...op, id: firstId + i }));
+const stampSpan = (
+  ops: readonly (BrushOp | PatchOp)[],
+  firstId: number,
+): (BrushOp | PatchOp)[] => ops.map((op, i) => ({ ...op, id: firstId + i }));
 
 /**
  * Re-evaluates a committed generator entity IN PLACE and replays the downstream
@@ -530,7 +551,7 @@ export function reconfigureGenerator(
   // Adding a step below that can genuinely fail breaks this, and the entry
   // pushed at step 7 is the only unwind there is.
   const provenance = mergeProvenance(recorded, changes);
-  const evaluated = evaluateSpan(def, provenance, table);
+  const evaluated = evaluateSpan(def, store, provenance, table);
 
   // 3 — the affected set, closed over the downstream ops that intersect it
   const cellSize = store.cellSize;

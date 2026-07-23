@@ -3,11 +3,14 @@ import type {
   BrushOp,
   FieldStore,
   GeneratorDef,
+  GeneratorResult,
   MaterialTable,
+  PlacementRecord,
 } from "@furnace/core/field";
 import {
   applyOp,
   assertOpValid,
+  assertPlacementsValid,
   BUILTIN_TABLE,
   commitGenerator,
   createFieldStore,
@@ -52,6 +55,18 @@ const KIT_CLASS_ID = 2;
  *  every mini-grid index in these tests is expressed in. */
 const CELL_M = 0.5;
 
+/** Narrows a {@link GeneratorResult}'s widened `(BrushOp | PatchOp)[]` ops to
+ *  the `BrushOp[]` these hall/maze assertions read. Both generators emit ONLY
+ *  brush ops today; a patch op here is a real regression, so this THROWS rather
+ *  than casts. */
+function brushOps(result: GeneratorResult): BrushOp[] {
+  return result.ops.map((op) => {
+    if (op.kind !== "brush")
+      throw new Error(`expected only brush ops, got "${op.kind}"`);
+    return op;
+  });
+}
+
 const REGION = {
   min: [2, 0, 2] as [number, number, number],
   max: [10, 6, 10] as [number, number, number],
@@ -88,7 +103,9 @@ describe("field generators — the hall", () => {
 
   test("hall evaluates to a fill shell + air digs + a doorway, all lattice-valid", () => {
     const hall = generatorById("hall");
-    const ops = hall.evaluate(HALL_PARAMS, 7, REGION, TABLE, "replace");
+    const ops = brushOps(
+      hall.evaluate(HALL_PARAMS, 7, REGION, TABLE, "replace"),
+    );
     expect(ops.length).toBeGreaterThan(2);
     for (const op of ops) expect(() => assertOpValid(op, TABLE)).not.toThrow();
     const fills = ops.filter((o) => o.effect === "fill");
@@ -126,12 +143,8 @@ describe("field generators — the hall", () => {
 
   test("keep-existing-air masks the shell fill solid-only", () => {
     const hall = generatorById("hall");
-    const ops = hall.evaluate(
-      HALL_PARAMS,
-      7,
-      REGION,
-      TABLE,
-      "keep-existing-air",
+    const ops = brushOps(
+      hall.evaluate(HALL_PARAMS, 7, REGION, TABLE, "keep-existing-air"),
     );
     expect(ops[0]?.mask).toEqual({ kind: "solid-only" });
   });
@@ -153,12 +166,14 @@ describe("field generators — the hall", () => {
     // Pillar (3,j,3) occupies x,z ∈ (3.5,4) m: mid-sample (15, 9, 15) is solid
     // masonry after apply; the digs split around it.
     const hall = generatorById("hall");
-    const ops = hall.evaluate(
-      { ...HALL_PARAMS, pillars: "grid", pillarSpacing: 3 },
-      7,
-      REGION,
-      TABLE,
-      "replace",
+    const ops = brushOps(
+      hall.evaluate(
+        { ...HALL_PARAMS, pillars: "grid", pillarSpacing: 3 },
+        7,
+        REGION,
+        TABLE,
+        "replace",
+      ),
     );
     const s = createFieldStore();
     for (const op of ops) applyOp(s, { ...op, id: 1 }, TABLE);
@@ -173,12 +188,14 @@ describe("field generators — the hall", () => {
     // spacing 3 → k ∈ {3,6}. Pillar (3,j,3) solid at mid-sample (15,9,15);
     // aisle cell i=5 at k=3 → x 4.75 m, z 3.75 m → samples (19,9,15) open.
     const hall = generatorById("hall");
-    const ops = hall.evaluate(
-      { ...HALL_PARAMS, pillars: "colonnade", pillarSpacing: 3 },
-      7,
-      REGION,
-      TABLE,
-      "replace",
+    const ops = brushOps(
+      hall.evaluate(
+        { ...HALL_PARAMS, pillars: "colonnade", pillarSpacing: 3 },
+        7,
+        REGION,
+        TABLE,
+        "replace",
+      ),
     );
     const s = createFieldStore();
     for (const op of ops) applyOp(s, { ...op, id: 1 }, TABLE);
@@ -215,12 +232,14 @@ describe("field generators — the hall", () => {
     // interior into box(0,j,k,9,1,1) (x ∈ [2, 6.5], center 4.25): sdf at
     // (2.25, 2.25, cell mid) = min(0.25, 0.25, 0.25) → density 8.
     const hall = generatorById("hall");
-    const ops = hall.evaluate(
-      { ...HALL_PARAMS, doorNorth: false, doorWest: true },
-      7,
-      REGION,
-      TABLE,
-      "replace",
+    const ops = brushOps(
+      hall.evaluate(
+        { ...HALL_PARAMS, doorNorth: false, doorWest: true },
+        7,
+        REGION,
+        TABLE,
+        "replace",
+      ),
     );
     const s = createFieldStore();
     for (const op of ops) applyOp(s, { ...op, id: 1 }, TABLE);
@@ -309,7 +328,9 @@ describe("field generators — the maze", () => {
 
   test("maze ops apply to a connected interior (BFS over air reaches every passage block)", () => {
     const mz = generatorById("maze");
-    const ops = mz.evaluate(MAZE_PARAMS, 11, REGION_MAZE, TABLE, "replace");
+    const ops = brushOps(
+      mz.evaluate(MAZE_PARAMS, 11, REGION_MAZE, TABLE, "replace"),
+    );
     for (const op of ops) expect(() => assertOpValid(op, TABLE)).not.toThrow();
     const s = createFieldStore();
     for (const op of ops) applyOp(s, { ...op, id: 1 }, TABLE);
@@ -360,7 +381,9 @@ describe("field generators — the maze", () => {
     // shell cells i=5 (sample 11) and i=10 (sample 21) stay solid masonry —
     // a ±1 maze-cell drift moves the door ±10 samples and fails the flanks.
     const mz = generatorById("maze");
-    const ops = mz.evaluate(MAZE_PARAMS, 11, REGION_MAZE, TABLE, "replace");
+    const ops = brushOps(
+      mz.evaluate(MAZE_PARAMS, 11, REGION_MAZE, TABLE, "replace"),
+    );
     const s = createFieldStore();
     for (const op of ops) applyOp(s, { ...op, id: 1 }, TABLE);
     expect(getDensity(s, 15, 5, 31)).toBeGreaterThan(0);
@@ -392,12 +415,8 @@ describe("field generators — the maze", () => {
 
   test("keep-existing-air masks the maze shell fill solid-only", () => {
     const mz = generatorById("maze");
-    const ops = mz.evaluate(
-      MAZE_PARAMS,
-      11,
-      REGION_MAZE,
-      TABLE,
-      "keep-existing-air",
+    const ops = brushOps(
+      mz.evaluate(MAZE_PARAMS, 11, REGION_MAZE, TABLE, "keep-existing-air"),
     );
     expect(ops[0]?.mask).toEqual({ kind: "solid-only" });
   });
@@ -553,7 +572,8 @@ describe("field generators — commitGenerator", () => {
       name: "Empty",
       paramSchema: {},
       defaults: {},
-      evaluate: () => [],
+      contextFree: true,
+      evaluate: () => ({ ops: [], placements: [] }),
     };
     expect(() =>
       commitGenerator(s, log, emptyDef, {
@@ -624,30 +644,34 @@ describe("field generators — commitGenerator", () => {
       name: "Bad",
       paramSchema: {},
       defaults: {},
-      evaluate: () => [
-        {
-          id: 0,
-          kind: "brush",
-          effect: "fill",
-          material: KIT_CLASS_ID,
-          shape: {
-            kind: "box",
-            center: [1, 1, 1],
-            halfExtents: [0.5, 0.5, 0.5],
+      contextFree: true,
+      evaluate: () => ({
+        ops: [
+          {
+            id: 0,
+            kind: "brush",
+            effect: "fill",
+            material: KIT_CLASS_ID,
+            shape: {
+              kind: "box",
+              center: [1, 1, 1],
+              halfExtents: [0.5, 0.5, 0.5],
+            },
           },
-        },
-        {
-          id: 0,
-          kind: "brush",
-          effect: "fill",
-          material: 99,
-          shape: {
-            kind: "box",
-            center: [1, 1, 1],
-            halfExtents: [0.5, 0.5, 0.5],
+          {
+            id: 0,
+            kind: "brush",
+            effect: "fill",
+            material: 99,
+            shape: {
+              kind: "box",
+              center: [1, 1, 1],
+              halfExtents: [0.5, 0.5, 0.5],
+            },
           },
-        },
-      ],
+        ],
+        placements: [],
+      }),
     };
     expect(() =>
       commitGenerator(s, log, badDef, {
@@ -663,6 +687,172 @@ describe("field generators — commitGenerator", () => {
     expect(log.ops.length).toBe(0);
     expect(log.undoStack.length).toBe(0);
     expect(log.nextId).toBe(1);
+  });
+});
+
+// ——— F3b (D-F3-8): the evaluate widening — placements + the placement op ———
+
+/** One valid placement record, reused across the widening tests. */
+const RECORD: PlacementRecord = {
+  archetypeId: "torch",
+  position: [3, 1, 3],
+  quat: [0, 0, 0, 1],
+  scale: [1, 1, 1],
+  variantIndex: 0,
+};
+
+/** A minimal generator whose evaluate returns exactly `result` — the seam for
+ *  exercising the placement/ops-empty paths without a real generator. */
+const placingDef = (result: Partial<GeneratorResult>): GeneratorDef => ({
+  id: "placer",
+  name: "Placer",
+  paramSchema: {},
+  defaults: {},
+  contextFree: true,
+  evaluate: () => ({ ops: [], placements: [], ...result }),
+});
+
+describe("field generators — evaluate widening (D-F3-8)", () => {
+  test("hall and maze evaluate return { ops, placements: [] }", () => {
+    for (const [id, params, region] of [
+      ["hall", HALL_PARAMS, REGION],
+      ["maze", MAZE_PARAMS, REGION_MAZE],
+    ] as const) {
+      const result = generatorById(id).evaluate(
+        params,
+        7,
+        region,
+        TABLE,
+        "replace",
+      );
+      expect(result.ops.length).toBeGreaterThan(0);
+      expect(result.placements).toEqual([]);
+    }
+  });
+
+  test("commitGenerator wraps placements in ONE placement op inside the span; undo removes span + placement + entity", () => {
+    const s = createFieldStore();
+    const log = createOpLog();
+    const fill: BrushOp = {
+      id: 0,
+      kind: "brush",
+      effect: "fill",
+      material: KIT_CLASS_ID,
+      shape: { kind: "box", center: [1, 1, 1], halfExtents: [0.5, 0.5, 0.5] },
+    };
+    const def = placingDef({ ops: [fill], placements: [RECORD] });
+    const res = commitGenerator(s, log, def, {
+      params: {},
+      seed: 1,
+      region: REGION,
+      policy: "replace",
+      table: TABLE,
+    });
+    // tail: fill (id 1), placement (id 2), entity (id 3)
+    expect(log.ops.length).toBe(3);
+    const placement = log.ops[1];
+    expect(placement?.kind).toBe("placement");
+    if (placement?.kind !== "placement") return;
+    expect(placement.records).toEqual([RECORD]);
+    const entity = log.ops[2];
+    expect(entity?.kind).toBe("entity");
+    if (entity?.kind !== "entity") return;
+    // opSpan covers BOTH the field op AND the placement op
+    expect(entity.entity.opSpan).toEqual([1, 2]);
+    expect(entity.entity.entityId).toBe(entity.id);
+    expect(entity.id).toBe(3);
+    expect(log.undoStack.length).toBe(1); // ONE entry for the whole commit
+    expect(res.dirty.size).toBeGreaterThan(0); // the fill; the placement none
+    undo(s, log);
+    expect(log.ops.length).toBe(0); // span + placement + entity all peeled
+    expect(s.chunks.size).toBe(0);
+    expect(s.materials.size).toBe(0);
+  });
+
+  test("commitGenerator accepts a pure scatter (ops EMPTY, placements present)", () => {
+    // The widened empty check: ops.length + placements.length === 0 is the
+    // rejection, so ops:[] with a placement is a legitimate commit.
+    const s = createFieldStore();
+    const log = createOpLog();
+    const def = placingDef({
+      ops: [],
+      placements: [RECORD, { ...RECORD, position: [5, 1, 5] }],
+    });
+    const res = commitGenerator(s, log, def, {
+      params: {},
+      seed: 1,
+      region: REGION,
+      policy: "replace",
+      table: TABLE,
+    });
+    // tail: placement (id 1), entity (id 2) — no field ops at all
+    expect(log.ops.length).toBe(2);
+    const placement = log.ops[0];
+    expect(placement?.kind).toBe("placement");
+    if (placement?.kind !== "placement") return;
+    expect(placement.records.length).toBe(2);
+    const entity = log.ops[1];
+    expect(entity?.kind).toBe("entity");
+    if (entity?.kind !== "entity") return;
+    expect(entity.entity.opSpan).toEqual([1, 1]); // just the placement op
+    expect(entity.entity.entityId).toBe(2);
+    expect(res.dirty.size).toBe(0); // no field cells written
+    expect(s.chunks.size).toBe(0);
+    undo(s, log);
+    expect(log.ops.length).toBe(0);
+  });
+
+  test("commitGenerator rejects invalid placements setup-loud, before any write", () => {
+    const s = createFieldStore();
+    const log = createOpLog();
+    const def = placingDef({
+      placements: [{ ...RECORD, quat: [0, 0, 0, 0] }], // not unit-length
+    });
+    expect(() =>
+      commitGenerator(s, log, def, {
+        params: {},
+        seed: 1,
+        region: REGION,
+        policy: "replace",
+        table: TABLE,
+      }),
+    ).toThrow(/unit-length/);
+    expect(s.chunks.size).toBe(0);
+    expect(log.ops.length).toBe(0);
+    expect(log.undoStack.length).toBe(0);
+    expect(log.nextId).toBe(1);
+  });
+
+  test("assertPlacementsValid: setup-loud on empty id, non-finite, non-unit quat, bad variant", () => {
+    expect(() => assertPlacementsValid([RECORD])).not.toThrow();
+    const bad = (over: Partial<PlacementRecord>): PlacementRecord[] => [
+      { ...RECORD, ...over },
+    ];
+    expect(() => assertPlacementsValid(bad({ archetypeId: "" }))).toThrow(
+      /archetypeId/,
+    );
+    expect(() =>
+      assertPlacementsValid(bad({ position: [0, Number.NaN, 0] })),
+    ).toThrow(/position/);
+    expect(() =>
+      assertPlacementsValid(bad({ scale: [1, Number.POSITIVE_INFINITY, 1] })),
+    ).toThrow(/scale/);
+    expect(() => assertPlacementsValid(bad({ quat: [0, 0, 0, 0.5] }))).toThrow(
+      /unit-length/,
+    );
+    expect(() =>
+      assertPlacementsValid(bad({ quat: [0, 0, 0, Number.NaN] })),
+    ).toThrow(/unit-length/);
+    expect(() => assertPlacementsValid(bad({ variantIndex: -1 }))).toThrow(
+      /variantIndex/,
+    );
+    expect(() => assertPlacementsValid(bad({ variantIndex: 2.5 }))).toThrow(
+      /variantIndex/,
+    );
+    // a real quarter-turn about +Y is unit-length and passes
+    expect(() =>
+      assertPlacementsValid(bad({ quat: [0, Math.SQRT1_2, 0, Math.SQRT1_2] })),
+    ).not.toThrow();
   });
 });
 
@@ -980,14 +1170,16 @@ describe("field generators — rotation + door-offset authoring (D-F3-13)", () =
   test("the -1 sentinel, an absent key, and today's centring are the SAME door", () => {
     // Three routes to auto-centre must not drift — they share one branch.
     const hall = generatorById("hall");
-    const legacy = hall.evaluate(HALL_PARAMS, 7, REGION, TABLE, "replace");
+    const legacy = brushOps(
+      hall.evaluate(HALL_PARAMS, 7, REGION, TABLE, "replace"),
+    );
     const sentinel = hall.evaluate(
       { ...HALL_PARAMS, doorNorthOffset: -1 },
       7,
       REGION,
       TABLE,
       "replace",
-    );
+    ).ops;
     expect(JSON.stringify(sentinel)).toBe(JSON.stringify(legacy));
     // and it is the CENTRED span the pre-F3a hall produced: interiorLen 8,
     // DOOR_W_CELLS 4 → lo = 1 + floor((8−4)/2) = 3 → cells [3,6]
@@ -1005,13 +1197,9 @@ describe("field generators — rotation + door-offset authoring (D-F3-13)", () =
     // sabotage; with offset 0 it fails, which is the point.
     const hall = generatorById("hall");
     const base = { ...HALL_PARAMS, doorNorthOffset: 0 };
-    const ops0 = hall.evaluate(base, 1, REGION, TABLE, "replace");
-    const ops90 = hall.evaluate(
-      { ...base, rotation: "90" },
-      1,
-      REGION,
-      TABLE,
-      "replace",
+    const ops0 = brushOps(hall.evaluate(base, 1, REGION, TABLE, "replace"));
+    const ops90 = brushOps(
+      hall.evaluate({ ...base, rotation: "90" }, 1, REGION, TABLE, "replace"),
     );
     expectRotatedEquivalence(ops0, ops90, ORIGIN_REGION, 1);
     // North door at offset 0 → cells i ∈ [1,4] on the shell row k = nz−1 = 9.
@@ -1043,12 +1231,8 @@ describe("field generators — rotation + door-offset authoring (D-F3-13)", () =
       ["270", "west", [1, 4]],
     ] as const;
     for (const [rotation, wall, span] of expected) {
-      const ops = hall.evaluate(
-        { ...base, rotation },
-        1,
-        REGION,
-        TABLE,
-        "replace",
+      const ops = brushOps(
+        hall.evaluate({ ...base, rotation }, 1, REGION, TABLE, "replace"),
       );
       expect(doorSpan(ops, ORIGIN_REGION, wall)).toEqual([...span]);
       // exactly ONE wall carries a door in every rotation
@@ -1078,7 +1262,7 @@ describe("field generators — rotation + door-offset authoring (D-F3-13)", () =
     ];
     for (const [id, base, region, origin, seed] of cases) {
       const def = generatorById(id);
-      const ops0 = def.evaluate(base, seed, region, TABLE, "replace");
+      const ops0 = brushOps(def.evaluate(base, seed, region, TABLE, "replace"));
       // a NON-square footprint, so a dims swap cannot hide
       const [nx, , nz] = stampDims(ops0);
       expect(nx).not.toBe(nz);
@@ -1087,12 +1271,14 @@ describe("field generators — rotation + door-offset authoring (D-F3-13)", () =
         ["180", 2],
         ["270", 3],
       ] as const) {
-        const opsR = def.evaluate(
-          { ...base, rotation: rot },
-          seed,
-          region,
-          TABLE,
-          "replace",
+        const opsR = brushOps(
+          def.evaluate(
+            { ...base, rotation: rot },
+            seed,
+            region,
+            TABLE,
+            "replace",
+          ),
         );
         expectRotatedEquivalence(ops0, opsR, origin, turns);
         for (const op of opsR)
@@ -1155,12 +1341,14 @@ describe("field generators — rotation + door-offset authoring (D-F3-13)", () =
     // exists to prevent, and a test that re-derives them defeats the point.
     for (const [wall, enable, key] of DOOR_KEYS) {
       for (const offset of [0, 1, 4]) {
-        const ops = hall.evaluate(
-          { ...HALL_PARAMS, doorNorth: false, [enable]: true, [key]: offset },
-          7,
-          REGION,
-          TABLE,
-          "replace",
+        const ops = brushOps(
+          hall.evaluate(
+            { ...HALL_PARAMS, doorNorth: false, [enable]: true, [key]: offset },
+            7,
+            REGION,
+            TABLE,
+            "replace",
+          ),
         );
         // lo = 1 + offset; the door is DOOR_W_CELLS = 4 wide
         expect(doorSpan(ops, ORIGIN_REGION, wall)).toEqual([
@@ -1181,12 +1369,14 @@ describe("field generators — rotation + door-offset authoring (D-F3-13)", () =
       max: [24, 4, 24] as [number, number, number],
     };
     for (const offset of [0, 1, 2, 3]) {
-      const ops = mz.evaluate(
-        { ...params, doorNorthOffset: offset },
-        3,
-        region,
-        TABLE,
-        "replace",
+      const ops = brushOps(
+        mz.evaluate(
+          { ...params, doorNorthOffset: offset },
+          3,
+          region,
+          TABLE,
+          "replace",
+        ),
       );
       expect(ops.length).toBeGreaterThan(0);
       const span = doorSpan(ops, ORIGIN_MAZE, "north");
@@ -1213,12 +1403,14 @@ describe("field generators — rotation + door-offset authoring (D-F3-13)", () =
       max: [24, 4, 24] as [number, number, number],
     };
     for (const cellsX of [2, 4, 6]) {
-      const ops = mz.evaluate(
-        { ...MAZE_PARAMS, cellsX, cellsZ: 2 },
-        3,
-        region,
-        TABLE,
-        "replace",
+      const ops = brushOps(
+        mz.evaluate(
+          { ...MAZE_PARAMS, cellsX, cellsZ: 2 },
+          3,
+          region,
+          TABLE,
+          "replace",
+        ),
       );
       const centreCell = Math.floor(cellsX / 2);
       expect(doorSpan(ops, ORIGIN_MAZE, "north")).toEqual([
@@ -1335,7 +1527,7 @@ describe("field generators — rotation + door-offset authoring (D-F3-13)", () =
   test("rotation + offsets hold on a NEGATIVE, off-lattice region (snapDown floors)", () => {
     const hall = generatorById("hall");
     const base = { ...HALL_PARAMS, depth: 12, doorNorthOffset: 1 };
-    const ops0 = hall.evaluate(base, 7, REGION_NEG, TABLE, "replace");
+    const ops0 = brushOps(hall.evaluate(base, 7, REGION_NEG, TABLE, "replace"));
     // the stamp really is anchored at the FLOORED origin, not the raw min
     const fill0 = ops0[0];
     if (fill0?.shape.kind !== "box") throw new Error("expected a box fill");
@@ -1350,12 +1542,14 @@ describe("field generators — rotation + door-offset authoring (D-F3-13)", () =
       ["180", 2],
       ["270", 3],
     ] as const) {
-      const opsR = hall.evaluate(
-        { ...base, rotation: rot },
-        7,
-        REGION_NEG,
-        TABLE,
-        "replace",
+      const opsR = brushOps(
+        hall.evaluate(
+          { ...base, rotation: rot },
+          7,
+          REGION_NEG,
+          TABLE,
+          "replace",
+        ),
       );
       expectRotatedEquivalence(ops0, opsR, ORIGIN_NEG, turns);
       for (const op of opsR)

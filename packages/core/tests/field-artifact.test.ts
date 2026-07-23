@@ -395,14 +395,14 @@ describe("field oplog v2 codec", () => {
     });
   });
 
-  test("serializeOps emits a v2 envelope with base64 payloads, never index-keyed objects", () => {
+  test("serializeOps emits a v3 envelope with base64 payloads, never index-keyed objects", () => {
     const op = patch(7, [densitySlice("0,0,0", [bitOf(1, 2, 3)], [-5])]);
     const text = serializeOps([op]);
     const wire = JSON.parse(text) as {
       version: number;
       ops: { kind: string; chunks: Record<string, unknown>[] }[];
     };
-    expect(wire.version).toBe(2);
+    expect(wire.version).toBe(3);
     expect(wire.ops[0]?.kind).toBe("patch");
     const slice = wire.ops[0]?.chunks[0];
     expect(typeof slice?.["densityMask"]).toBe("string");
@@ -525,7 +525,8 @@ describe("field oplog v2 codec", () => {
   });
 
   test("parseOps rejects unknown, future and malformed envelopes", () => {
-    expect(() => parseOps(JSON.stringify({ version: 3, ops: [] }))).toThrow(
+    // v3 is the CURRENT version; v4 is the future case.
+    expect(() => parseOps(JSON.stringify({ version: 4, ops: [] }))).toThrow(
       /newer than this build/,
     );
     expect(() => parseOps(JSON.stringify({ version: 1, ops: [] }))).toThrow(
@@ -542,9 +543,9 @@ describe("field oplog v2 codec", () => {
     // leaves the user guessing which file broke.
     expect(() => parseOps("{not json")).toThrow(/field oplog: not valid JSON/);
     expect(() => parseOps("")).toThrow(/field oplog: not valid JSON/);
-    expect(() => parseOps("null")).toThrow(/expected a v2 envelope/);
-    expect(() => parseOps('"oplog"')).toThrow(/expected a v2 envelope/);
-    expect(() => parseOps("42")).toThrow(/expected a v2 envelope/);
+    expect(() => parseOps("null")).toThrow(/expected a versioned envelope/);
+    expect(() => parseOps('"oplog"')).toThrow(/expected a versioned envelope/);
+    expect(() => parseOps("42")).toThrow(/expected a versioned envelope/);
     expect(() => parseOps(JSON.stringify({ version: 2 }))).toThrow(/ops array/);
     expect(() => parseOps(JSON.stringify({ version: 2, ops: {} }))).toThrow(
       /ops array/,
@@ -910,5 +911,106 @@ describe("field oplog v2 codec", () => {
       });
       expect(() => parseOps(dropped)).toThrow(/must be a base64 string/);
     }
+  });
+
+  // ——— v3: placement ops (D-F3-8) ———
+
+  const placementOp = (id: number): FieldOp => ({
+    id,
+    kind: "placement",
+    records: [
+      {
+        archetypeId: "torch",
+        position: [1.5, 2, -3],
+        quat: [0, 0, 0, 1],
+        scale: [1, 1, 1],
+        variantIndex: 0,
+      },
+      {
+        archetypeId: "barrel",
+        position: [4, 0, 4],
+        // a real quarter-turn about +Y: |q|² = 2·(√½)² ≈ 1 (within tolerance)
+        quat: [0, Math.SQRT1_2, 0, Math.SQRT1_2],
+        scale: [0.5, 1.25, 0.5],
+        variantIndex: 3,
+      },
+    ],
+  });
+
+  test("v3 round-trips a placement op exactly, as literal JSON (no base64)", () => {
+    const op = placementOp(9);
+    const text = serializeOps([op]);
+    const wire = JSON.parse(text) as {
+      version: number;
+      ops: Record<string, unknown>[];
+    };
+    expect(wire.version).toBe(3);
+    // a placement op rides the envelope literally — no typed-array encoding
+    expect(wire.ops[0]).toEqual(op as unknown as Record<string, unknown>);
+    expect(parseOps(text)).toEqual([op]);
+  });
+
+  test("three-version chain — v1 bare array, v2 envelope, v3 envelope all parse", () => {
+    const brush: FieldOp = {
+      id: 1,
+      kind: "brush",
+      effect: "dig",
+      shape: SPHERE,
+    };
+    // v1: a bare JSON array, no envelope
+    expect(parseOps(JSON.stringify([brush]))).toEqual([brush]);
+    // v2: an envelope with version 2 (carries no placement ops by construction)
+    expect(parseOps(JSON.stringify({ version: 2, ops: [brush] }))).toEqual([
+      brush,
+    ]);
+    // v3: the current envelope, which may carry placement ops
+    expect(
+      parseOps(JSON.stringify({ version: 3, ops: [brush, placementOp(2)] })),
+    ).toEqual([brush, placementOp(2)]);
+  });
+
+  test("parseOps validates placement records — shape AND values", () => {
+    const good = {
+      archetypeId: "torch",
+      position: [0, 0, 0],
+      quat: [0, 0, 0, 1],
+      scale: [1, 1, 1],
+      variantIndex: 0,
+    };
+    const withRecord = (over: Record<string, unknown>): string =>
+      JSON.stringify({
+        version: 3,
+        ops: [{ id: 1, kind: "placement", records: [{ ...good, ...over }] }],
+      });
+    // structure
+    expect(() =>
+      parseOps(
+        JSON.stringify({ version: 3, ops: [{ id: 1, kind: "placement" }] }),
+      ),
+    ).toThrow(/has no records array/);
+    expect(() => parseOps(withRecord({ archetypeId: 42 }))).toThrow(
+      /archetypeId must be a string/,
+    );
+    expect(() => parseOps(withRecord({ position: [0, 0] }))).toThrow(
+      /position must be an array of 3 numbers/,
+    );
+    expect(() => parseOps(withRecord({ quat: [0, 0, 1] }))).toThrow(
+      /quat must be an array of 4 numbers/,
+    );
+    // values
+    expect(() => parseOps(withRecord({ archetypeId: "" }))).toThrow(
+      /archetypeId must be a non-empty string/,
+    );
+    expect(() => parseOps(withRecord({ quat: [0, 0, 0, 0] }))).toThrow(
+      /unit-length/,
+    );
+    expect(() => parseOps(withRecord({ variantIndex: -1 }))).toThrow(
+      /variantIndex must be a non-negative integer/,
+    );
+    expect(() => parseOps(withRecord({ variantIndex: 1.5 }))).toThrow(
+      /variantIndex/,
+    );
+    // the good record parses clean
+    expect(() => parseOps(withRecord({}))).not.toThrow();
   });
 });

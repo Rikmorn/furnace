@@ -398,6 +398,7 @@ describe("field worker protocol", () => {
       chunks: [],
       opCount: 7,
       evalMs: 0.5,
+      placements: [],
     };
     worker.onmessage?.({ data: reply } as MessageEvent);
     const res = await promise;
@@ -535,8 +536,11 @@ describe("field worker protocol", () => {
       HALL_REGION,
       TABLE,
       "keep-existing-air",
-    ))
+    ).ops) {
+      // hall emits only brush ops; the handler dispatches patch ops separately.
+      if (op.kind !== "brush") continue;
       applyOp(scratch, { ...op, id: id++ }, TABLE);
+    }
     expect(getDensity(scratch, 10, 6, 1)).toBeGreaterThan(0); // still open
     const wire = withSnapshot.chunks.find((c) => c.key === "0,0,0");
     expect(wire).toBeDefined();

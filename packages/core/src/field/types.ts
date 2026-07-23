@@ -196,23 +196,47 @@ export type PatchOp = { id: number; kind: "patch"; chunks: PatchChunk[] };
  *  carvings survive (compiles into the op record — replay-safe). */
 export type MergePolicy = "replace" | "keep-existing-air";
 
+/** Read-only field access for a context-reading generator (e.g. scatter, which
+ *  samples the surface to place instances). Passed to `evaluate` ONLY when the
+ *  def declares `contextFree: false`. */
+export type EvaluateContext = { store: FieldStore };
+
+/** What a generator's `evaluate` returns (D-F3-8 widening). `ops` are the
+ *  field-cell writes (lattice-snapped brush ops in world coords, and — for
+ *  emitters like the cave — patch ops); `placements` are explicit placed
+ *  instances that write no field cells. Both carry the placeholder id 0 — the
+ *  committer assigns real log ids when the result is applied through the op
+ *  log. A generator may return an empty `ops` (a pure scatter) or empty
+ *  `placements` (a pure carver); both empty is rejected setup-loud. */
+export type GeneratorResult = {
+  ops: (BrushOp | PatchOp)[];
+  placements: PlacementRecord[];
+};
+
 /** One staged generator: JSON-Schema params (SchemaForm-compatible plain data —
  *  no array-typed fields, the form renders those as fallback), defaults, and a
- *  pure evaluate to a span of lattice-snapped brush ops (world coords).
- *  Emitted ops carry the placeholder id 0 — the committer assigns real log
- *  ids when the span is applied through the op log. */
+ *  pure evaluate to a {@link GeneratorResult} (world coords). Emitted ops and
+ *  placements carry the placeholder id 0 — the committer assigns real log ids
+ *  when the result is applied through the op log. */
 export type GeneratorDef = {
   id: string;
   name: string;
   paramSchema: Record<string, unknown>;
   defaults: Record<string, unknown>;
+  /** `true` = evaluate is pure in `(params, seed, region)`: replaying the
+   *  recorded span equals re-evaluating, so no field access is needed. `false`
+   *  = evaluate reads the field through `ctx` — its recorded span still replays
+   *  as explicit data, but the def's own reconfigure re-cooks against restored
+   *  pre-span state, and its influence is bounded by its REGION. */
+  contextFree: boolean;
   evaluate(
     params: Record<string, unknown>,
     seed: number,
     region: { min: [number, number, number]; max: [number, number, number] },
     table: MaterialTable,
     policy: MergePolicy,
-  ): BrushOp[];
+    ctx?: EvaluateContext,
+  ): GeneratorResult;
 };
 
 /** One committed generator application — the log's smart-object record (L4).
@@ -265,8 +289,34 @@ export type EntityOp = {
   entity: GeneratorEntity;
 };
 
-/** The field-op union: brush strokes, entity ops and patches share the log. */
-export type FieldOp = BrushOp | EntityOp | PatchOp;
+/** One explicit placed instance (D-F3-8). Orientation and hemisphere resolve
+ *  at PLACEMENT time — the quaternion is baked in, so replay is context-free
+ *  data: a recorded placement re-instances identically without re-deriving pose
+ *  from the field. */
+export type PlacementRecord = {
+  archetypeId: string;
+  position: [number, number, number];
+  /** Unit quaternion `[x, y, z, w]`. */
+  quat: [number, number, number, number];
+  /** Per-axis scale applied to the archetype's unit-sized mesh. */
+  scale: [number, number, number];
+  variantIndex: number;
+};
+
+/** A placement op (D-F3-8): a set of explicit placed instances, no field-cell
+ *  writes. Its influence on the FIELD is empty (it writes no density or
+ *  material) — drift detection uses each record's world AABB instead (see
+ *  reconfigure). It rides the log like an entity op: replay-ordered, undoable,
+ *  and skipped by every store-mutating replay path. */
+export type PlacementOp = {
+  id: number;
+  kind: "placement";
+  records: PlacementRecord[];
+};
+
+/** The field-op union: brush strokes, entity ops, patches and placements share
+ *  the log. */
+export type FieldOp = BrushOp | EntityOp | PatchOp | PlacementOp;
 
 /** A selection's DEFINITION — deterministic and replay-safe: floods re-evaluate
  *  against the replayed field state, so an op embedding a spec replays
