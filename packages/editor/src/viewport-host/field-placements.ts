@@ -214,20 +214,28 @@ export type PlacedArchetype = { archetypeId: string; count: number };
  *  world draw" (the prop layer's rebuild), this one answers "what did THIS stamp
  *  put down" (the entities list's row).
  *
- *  Attribution is by op-id membership of the entity's `opSpan`, the only bond
- *  core records: `commitGenerator` appends a commit's placements as ONE op
- *  inside that span, and log ids are handed out monotonically and never reused,
- *  so a placement op's id names exactly one entity. Position in `log.ops` would
- *  NOT be safe to key on — `reconfigureGenerator` splices a re-cooked span back
- *  into the same place carrying FRESH ids, so the log is not id-ordered.
+ *  Attribution is by op-id membership of the entity's `opSpan`:
+ *  `commitGenerator` appends a commit's placements as ONE op inside that span,
+ *  and within a session ids are handed out monotonically and never reused, so a
+ *  placement op's id names exactly one entity.
+ *
+ *  POSITION would also work on every log core WRITES — `reconfigureGenerator`
+ *  states that it "requires and preserves" commitGenerator's layout, a span
+ *  contiguous and immediately before its entity op. Id-keying is chosen not
+ *  because position is unsafe but because it leans on no invariant beyond id
+ *  uniqueness, and that matters on a log core only READS: `parseOps` validates
+ *  op ids and union tags (and an entity op's `action`/`entity.type`) but never
+ *  the LAYOUT, so a loaded oplog carries whatever order its file has. It is also
+ *  how `generatorFootprint` already filters a span. Note the log is NOT
+ *  id-ordered either — a re-cooked span carries fresh ids spliced back into the
+ *  same place — so nothing here may assume ids ascend with position.
  *
  *  It TESTS each placement op's id against the span bounds rather than walking
- *  the span's id RANGE, matching `generatorFootprint`'s span filter. Two reasons,
- *  both load-bearing: `opSpan` is a trusted numeric field on load (core's
- *  `parseOps` validates op ids and union tags, never span bounds), so a range
- *  walk would spin unboundedly on one corrupt record; and the cost then rides on
- *  placement-ops × entities — both ENTITY-scale — instead of on the op count, so
- *  a heavily carved world costs no more than an empty one. */
+ *  the span's id RANGE. `opSpan` is trusted numeric data on load (`parseOps`
+ *  does not check its bounds), so a range walk would spin unboundedly on one
+ *  corrupt record; and the cost then rides on placement-ops × entities — both
+ *  ENTITY-scale — instead of on the op count, so a heavily carved world costs no
+ *  more than an empty one. */
 export const placementsByEntity = (
   ops: readonly FieldOp[],
 ): Map<number, PlacedArchetype[]> => {

@@ -111,14 +111,32 @@ const toolsEqual = (a: FieldTool, b: FieldTool): boolean => {
 };
 
 // Entity-list identity for the refresh guard: everything a ROW can display —
-// id + generator + seed + opSpan + the two state flags. Params and the `placed`
-// summary are NOT compared and do not need to be: a reconfigure re-evaluates the
-// span with fresh op ids (core takes them from log.nextId, which only ever
-// grows), so any param change that reaches the log moves opSpan with it — and
-// `placed` is DERIVED from the ops inside that span, which nothing else rewrites
-// in place (core's compaction folds brush ops only, never a placement op). The
-// flags DO need their own comparison — freeze and bake rewrite the record and
-// nothing else, so without them a frozen badge would never appear.
+// id + generator + seed + opSpan + the two state flags + the `placed` counts.
+//
+// `placed` is compared DIRECTLY rather than inferred from opSpan, and the reason
+// is a fact that is easy to get wrong: op ids do NOT only ever grow. Core hands
+// them out monotonically WITHIN a session, but `loadWorld` recomputes
+// `log.nextId` from the loaded ops' own maximum (field-host.ts, the parseOps
+// path), so ids — and with them every opSpan — RESTART across a world switch.
+// Two worlds whose rows agree on id/generator/seed/span/flags and differ only in
+// what a scatter placed are therefore reachable from the toolbar's Load button,
+// which calls loadWorld inside this same panel mount: no remount, no state
+// reset, just an entity tick. Without the `placed` comparison this guard returns
+// `prev` and the row keeps the PREVIOUS world's count. (Params are the same
+// shape and still uncompared — pre-existing, filed as
+// `docs/backlog/editor-and-tooling/entity-row-params-stale-across-load.md`.)
+//
+// The flags DO need their own comparison too — freeze and bake rewrite the
+// record and nothing else, so without them a frozen badge would never appear.
+const samePlaced = (a: FieldEntityInfo, b: FieldEntityInfo): boolean =>
+	a.placed.length === b.placed.length &&
+	a.placed.every((p, i) => {
+		const o = b.placed[i];
+		return (
+			o !== undefined && p.archetypeId === o.archetypeId && p.count === o.count
+		);
+	});
+
 const sameEntities = (a: FieldEntityInfo[], b: FieldEntityInfo[]): boolean =>
 	a.length === b.length &&
 	a.every((e, i) => {
@@ -131,7 +149,8 @@ const sameEntities = (a: FieldEntityInfo[], b: FieldEntityInfo[]): boolean =>
 			e.opSpan[0] === o.opSpan[0] &&
 			e.opSpan[1] === o.opSpan[1] &&
 			e.frozen === o.frozen &&
-			e.baked === o.baked
+			e.baked === o.baked &&
+			samePlaced(e, o)
 		);
 	});
 

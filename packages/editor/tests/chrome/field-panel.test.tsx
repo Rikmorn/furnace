@@ -654,6 +654,30 @@ test("a scatter row names the archetype it placed and how many; a carver row kee
 	expect(screen.getByText("hall · seed 7 · 3 ops")).toBeTruthy();
 });
 
+// The refresh guard's blind spot, closed. `sameEntities` compares id, generator,
+// seed, opSpan and the two flags — and a world SWITCH can leave every one of
+// those equal while the counts differ, because loadWorld recomputes
+// `log.nextId` from the loaded ops' own maximum, so ids and spans restart. The
+// toolbar's Load button calls loadWorld inside this same panel mount (no
+// remount, no state reset, just an entity tick), which is exactly the tick this
+// test fires. Without `placed` in the comparator the guard returns `prev` and
+// the row keeps world A's count over world B.
+test("a world switch that changes ONLY a prop count still re-renders the row", async () => {
+	fetch404();
+	const stub = makeStubHost({ generators: [HALL_GEN] });
+	await showEntities(stub, [SCATTER]);
+	expect(
+		screen.getByText("scatter · seed 9 · 1 ops · rock · 24 placed"),
+	).toBeTruthy();
+	// World B: identical in every OTHER compared field, 2 props instead of 24.
+	pushEntities(stub, [
+		{ ...SCATTER, placed: [{ archetypeId: "rock", count: 2 }] },
+	]);
+	expect(
+		screen.getByText("scatter · seed 9 · 1 ops · rock · 2 placed"),
+	).toBeTruthy();
+});
+
 // The chrome half of the free-ness claim (its host half is field-stamp.test.ts'
 // "Open → re-roll → Apply on a SCATTER row"): a scatter is an ordinary
 // GeneratorEntity, so the F3a verbs and the generic params <dl> serve it with no

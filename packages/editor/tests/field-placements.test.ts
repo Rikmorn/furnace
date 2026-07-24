@@ -272,13 +272,14 @@ test("placementsByEntity counts EACH archetype a span placed, in first-seen orde
   ]);
 });
 
-// The invariant that makes span-ID membership the right key and log POSITION the
-// wrong one: reconfigureGenerator splices a re-cooked span back into the same
-// place carrying FRESH ids (log.nextId, which only grows), so a reconfigured
-// entity's span sits BEFORE lower-id ops in log order. A positional
-// implementation ("the placement ops since the last entity op") reads the same
-// on the ordered log above and mis-attributes here.
-test("placementsByEntity keys on span IDS, not log position (the post-reconfigure log is not id-ordered)", () => {
+// The log is NOT id-ordered once anything has been reconfigured:
+// reconfigureGenerator splices a re-cooked span back into the same PLACE
+// carrying fresh ids, so a reconfigured entity's span sits before lower-id ops.
+// Nothing here may assume ids ascend with position — this pins that. It does NOT
+// discriminate against a positional implementation (position and id agree on
+// this log, as they do on every log core writes); the test below that one is the
+// one that does.
+test("placementsByEntity attributes correctly on a log that is NOT id-ordered (the post-reconfigure shape)", () => {
   const ops: FieldOp[] = [
     // Entity 9's re-cooked span: ids 20-21, spliced in at the FRONT.
     placementOp(20, [record({ archetypeId: "rock" })]),
@@ -295,17 +296,60 @@ test("placementsByEntity keys on span IDS, not log position (the post-reconfigur
   expect(byEntity.get(4)).toEqual([{ archetypeId: "stalagmite", count: 2 }]);
 });
 
-// `opSpan` is a TRUSTED numeric field on load — core's parseOps validates op
-// ids and union tags but never span bounds — so a hand-edited or truncated
+// Position and id agree on every log core WRITES — commitGenerator lays a span
+// immediately before its entity op, and reconfigureGenerator "requires and
+// preserves" that layout (its own contract's words). They part company on a log
+// core only READS: parseOps validates op ids and union tags and, for an entity
+// op, `action` / `entity.type` / the record's presence — never the LAYOUT. A
+// loaded oplog.json therefore carries whatever order its file has.
+//
+// So this is the discriminating case for the natural positional implementation
+// ("attribute a placement op to the next entity op after it in log order"),
+// which the id-ordering test above cannot tell apart from id-keying.
+test("placementsByEntity attributes by span id even when the NEXT entity op in log order is not the owner", () => {
+  const ops: FieldOp[] = [
+    placementOp(3, [record({ archetypeId: "rock" })]), // entity 4's placement…
+    entityOp(9, "cave", [7, 8]), // …but THIS entity op follows it
+    entityOp(4, "scatter", [3, 3]), // and this one owns id 3
+  ];
+  const byEntity = placementsByEntity(ops);
+  expect(byEntity.get(4)).toEqual([{ archetypeId: "rock", count: 1 }]);
+  expect(byEntity.has(9)).toBe(false); // the cave carved; it placed nothing
+});
+
+// `opSpan` is TRUSTED numeric data on load — core's parseOps validates op ids
+// and union tags but never span bounds — so a hand-edited or truncated
 // oplog.json can carry an arbitrarily wide one. Attribution must therefore never
-// WALK the range. Stated plainly because it shapes how a regression LOOKS: a
-// range-walking implementation HANGS here (a synchronous loop cannot be
-// pre-empted by the per-test timeout — verified: the run never returns), so the
-// failure shows up as a stalled suite, not as a failed assertion.
+// WALK the range.
+//
+// The budget is what makes that assertable. A plain wide span would let a
+// range-walking implementation HANG (a synchronous loop cannot be pre-empted by
+// the per-test timeout — measured: the run never returns), turning a regression
+// into a stalled suite instead of a red test. Reading the upper bound through a
+// counter fixes that: `for (let id = span[0]; id <= span[1]; id++)` re-evaluates
+// span[1] on EVERY iteration, so a walk trips the budget in microseconds and
+// fails loudly, while id-membership reads it once per placement op × entity.
+const SPAN_READ_BUDGET = 1000;
+
+/** An `opSpan` whose upper bound throws once read more than `SPAN_READ_BUDGET`
+ *  times — generous for any id-membership test, instant for a range walk. */
+const budgetedSpan = (first: number, last: number): [number, number] => {
+  let reads = 0;
+  return new Proxy([first, last] as [number, number], {
+    get(target, prop, receiver) {
+      if (prop === "1" && ++reads > SPAN_READ_BUDGET)
+        throw new Error(
+          `opSpan[1] read ${reads} times — the id RANGE is being walked`,
+        );
+      return Reflect.get(target, prop, receiver);
+    },
+  });
+};
+
 test("placementsByEntity survives a corrupt, arbitrarily wide opSpan (it tests ids, it does not walk the range)", () => {
   const ops: FieldOp[] = [
     placementOp(1, [record({ archetypeId: "rock" })]),
-    entityOp(2, "scatter", [0, Number.MAX_SAFE_INTEGER]),
+    entityOp(2, "scatter", budgetedSpan(0, Number.MAX_SAFE_INTEGER)),
   ];
   expect(placementsByEntity(ops).get(2)).toEqual([
     { archetypeId: "rock", count: 1 },

@@ -47,6 +47,9 @@ export {
   type SelectionInfo,
   type SelectionMode,
 } from "./field-host.ts";
+// `FieldEntityInfo.placed`'s element type, re-exported beside it so a consumer
+// can NAME the type without reaching into field-placements.ts.
+export type { PlacedArchetype } from "./field-placements.ts";
 export type {
   StampPhase,
   StampRegion,

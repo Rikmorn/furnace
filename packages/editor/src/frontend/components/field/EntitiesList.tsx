@@ -39,11 +39,17 @@ const opCount = (e: FieldEntityInfo): number => e.opSpan[1] - e.opSpan[0] + 1;
 
 /** The row's one-line record, `·`-joined: the recipe (generator, seed, span
  *  size) plus, for a stamp that PLACED something, each archetype it placed and
- *  how many — `scatter · seed 3 · 1 ops · rock · 24 placed`. The props segments
- *  are absent, not zeroed, for everything that places nothing (every carver):
- *  the host leaves `placed` empty there, and a permanent "· 0 placed" on every
- *  hall row would be noise. This is the row's twin of the StampInspector's
- *  "· N props", which shows a LIVE preview's count under the same rule. */
+ *  how many — `scatter · seed 3 · 1 ops · rock · 24 placed`.
+ *
+ *  Deliberately NOT the StampInspector's zero-rule, which it otherwise resembles.
+ *  That one gates on the GENERATOR (`def.placesProps`) and so shows "· 0 props"
+ *  at zero, because a settled preview at zero is the state whose commit refusal
+ *  it is about to explain. A committed row has no such state to explain, and no
+ *  per-entity `placesProps` to gate on — the chrome sees records, not schemas —
+ *  so it gates on the records and shows nothing. Consequence, stated because it
+ *  is a real (if unreachable) gap: a LOADED world holding a placer that placed
+ *  zero would read like a carver. The host refuses to commit one, so only a
+ *  hand-written oplog can produce it. */
 const rowSummary = (e: FieldEntityInfo): string =>
 	[
 		e.generator,
