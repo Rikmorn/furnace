@@ -193,7 +193,7 @@ function makeStubHost(opts: { generators?: FieldGeneratorInfo[] } = {}) {
 		setTool: mock(),
 		setSlice: mock(),
 		setLayers: mock(),
-		setSelectionMode: mock(),
+		setGesture: mock(),
 		setDigRadius: mock(),
 		setShading: mock(),
 		setMaterialTable: mock(),
@@ -238,7 +238,7 @@ function makeStubHost(opts: { generators?: FieldGeneratorInfo[] } = {}) {
 			// biome-ignore lint/suspicious/noEmptyBlockStatements: inert unsubscribe no-op
 			return () => {};
 		},
-		setSelectionMode: calls.setSelectionMode,
+		setGesture: calls.setGesture,
 		clearSelection: calls.clearSelection,
 		reselect: calls.reselect,
 		subscribeSelection: (cb) => {
@@ -1114,4 +1114,38 @@ test("the props count shows for a prop generator only — a carver never reads '
 		);
 	});
 	expect(screen.getByText(/0 props/)).toBeDefined();
+});
+
+// --- (n) the segment gesture shares the selection slot but keeps the brush ---
+
+test("Segment arms the gesture slot, keeps the brush inspector, and survives an effect pick", async () => {
+	stubCatalogs({ materials: CATALOG_JSON });
+	const stub = makeStubHost();
+	await renderPanel(stub);
+
+	// Arming a SELECTION gesture hides the brush inspector — an armed flood
+	// makes radius/mask promises LMB won't keep.
+	fireEvent.click(button("Wand"));
+	expect(stub.calls.setGesture.mock.calls.at(-1)?.[0]).toBe("material");
+	expect(screen.queryByLabelText("brush radius")).toBeNull();
+
+	// Segment does NOT: its click commits a brush op, so radius (the capsule's
+	// radius) and the rest of the brush parameters stay live and visible.
+	fireEvent.click(button("Segment"));
+	expect(stub.calls.setGesture.mock.calls.at(-1)?.[0]).toBe("segment");
+	expect(screen.getByLabelText("brush radius")).toBeTruthy();
+
+	// …and picking an effect under it re-aims the segment (dig → fill = tunnel →
+	// rampart) instead of disarming it, which is what the SELECTION gestures get.
+	const before = stub.calls.setGesture.mock.calls.length;
+	fireEvent.click(button("Fill"));
+	expect(stub.calls.setTool.mock.calls.at(-1)?.[0]).toMatchObject({
+		effect: "fill",
+	});
+	expect(stub.calls.setGesture.mock.calls.length).toBe(before);
+	expect(
+		screen
+			.getByRole("button", { name: "Segment" })
+			.getAttribute("aria-pressed"),
+	).toBe("true");
 });

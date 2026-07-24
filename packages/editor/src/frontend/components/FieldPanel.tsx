@@ -24,8 +24,8 @@ import type {
 	FieldTool,
 	PlacedArchetype,
 	SelectionInfo,
-	SelectionMode,
 	StampSession,
+	ViewportGesture,
 } from "../../viewport-host/index.ts"; // type-only: erased
 import { initWhenSized } from "../lib/init-when-sized.ts";
 import { useEditor } from "./editor-context.ts";
@@ -228,9 +228,13 @@ export function FieldPanel() {
 	const [radius, setRadius] = useState(DEFAULT_RADIUS);
 	const [headlamp, setHeadlamp] = useState(false);
 	const [tool, setToolState] = useState<FieldTool>(DEFAULT_TOOL);
-	const [selectionMode, setSelectionModeState] = useState<SelectionMode | null>(
-		null,
-	);
+	// ONE armed-gesture slot, mirroring the host's (ViewportGesture): the three
+	// selection gestures and the segment brush all bind LMB, so they cannot be
+	// armed independently. `selectionArmed` is the narrower question the two
+	// brush-facing gates below ask — the segment gesture keeps LMB on the brush,
+	// so it must NOT hide the brush inspector or grey the ghost toggle.
+	const [gesture, setGestureState] = useState<ViewportGesture | null>(null);
+	const selectionArmed = gesture !== null && gesture !== "segment";
 	const [selection, setSelection] = useState<SelectionInfo | null>(null);
 	// Full registry info — paramSchema/defaults feed the stamp inspector's form.
 	const [generators, setGenerators] = useState<FieldGeneratorInfo[]>([]);
@@ -454,14 +458,18 @@ export function FieldPanel() {
 		if (effect === "paint" && !paintable)
 			materialId = table.classes.find((c) => c.kind === "organic")?.id ?? 0;
 		pushTool({ ...tool, effect, materialId });
-		// A brush pick disarms any selection gesture — LMB returns to the brush.
-		setSelectionModeState(null);
-		fieldHostRef.current?.setSelectionMode(null);
+		// A brush pick disarms a SELECTION gesture — LMB returns to the brush. It
+		// deliberately leaves `segment` armed: picking Fill under the segment brush
+		// means "sweep a rampart instead of a tunnel", not "stop segmenting".
+		if (selectionArmed) {
+			setGestureState(null);
+			fieldHostRef.current?.setGesture(null);
+		}
 	};
 
-	const onSelectionModePick = (mode: SelectionMode): void => {
-		setSelectionModeState(mode);
-		fieldHostRef.current?.setSelectionMode(mode);
+	const onGesturePick = (next: ViewportGesture): void => {
+		setGestureState(next);
+		fieldHostRef.current?.setGesture(next);
 	};
 
 	const onMaterial = (id: number): void =>
@@ -524,10 +532,10 @@ export function FieldPanel() {
 				<div className="flex flex-col gap-2 border-b border-border p-2 text-sm">
 					<ToolPalette
 						effect={tool.effect}
-						selectionMode={selectionMode}
+						gesture={gesture}
 						generators={generators}
 						onBrush={onBrush}
-						onSelectionMode={onSelectionModePick}
+						onGesture={onGesturePick}
 						onGenerator={(id) => fieldHostRef.current?.startStamp(id)}
 					/>
 					{/* The persistent swatch strip: rendered whenever the catalog has more
@@ -543,7 +551,7 @@ export function FieldPanel() {
 					)}
 					{/* Brush inspector only while LMB actually brushes — an armed selection
               gesture makes radius/mask/smooth/hollow promises LMB won't keep. */}
-					{selectionMode === null && (
+					{!selectionArmed && (
 						<BrushInspector
 							tool={tool}
 							radius={radius}
@@ -579,7 +587,7 @@ export function FieldPanel() {
 					<LayersRow
 						layers={layers}
 						slice={slice}
-						ghostSuppressed={selectionMode !== null && stamp === null}
+						ghostSuppressed={selectionArmed && stamp === null}
 						onLayers={onLayers}
 						onSlice={onSlice}
 					/>

@@ -628,8 +628,9 @@ dig ring, selection) had rendered NOTHING since F1. Record + rules:
   mirrors host-initiated changes into the panel. The kit-fill ghost renders as a
   translucent solid cube (rebuilt per snapped-size change) plus edges; the brush ghost
   persists off-canvas so panel-slider size drags preview live.
-- **Selection (a tool class, not an op)** — `setSelectionMode("box"|"material"|"void")`
-  arms LMB gestures (applyTool bypassed): box = two clicks with an anchor cross + a
+- **Selection (a tool class, not an op)** — `setGesture("box"|"material"|"void")`
+  arms LMB gestures (applyTool bypassed; F3b widened the setter to one armed-gesture
+  slot that also holds the `segment` brush — §18): box = two clicks with an anchor cross + a
   LIVE snapped-region preview following the cursor (fix round 1); material/void =
   one-click floods seeded from the raycast hit / its last-air `prev` voxel,
   `SELECTION_UI_BUDGET = 200_000` under core's ceiling, truncation surfaced in the

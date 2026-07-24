@@ -47,7 +47,16 @@ the standing editor-UX debt: `world-panel-w3-gate-ux-findings.md` +
    schema bounds; region-fills-selection rejected — legal sizes are quantized),
    quarter-turn `rotation` + per-wall door offsets shipped on both stamp schemas, and
    the entity highlight boxes the stamped FOOTPRINT rather than the recorded region.
-   `field-two-point-tunnel-brush.md` still rides the F3b cave arc (spec D-F3-14).
+   The two-point tunnel brush shipped in F3b (spec D-F3-14) as the `segment`
+   gesture; only its box cross-section stayed deferred
+   (`field-segment-box-cross-section.md`).
+
+8. **Esc does not cancel a pending BOX-select anchor** — surfaced while wiring the
+   segment brush's own Esc (F3b Task 13, 2026-07-25), which DOES drop its pending
+   anchor. The box gesture's only way out of a half-drawn region is to re-arm the mode
+   from the palette. The fix is the same one-liner in `onKeyDown`, deliberately not
+   folded into that task: it changes an existing gesture's key handling, and item 1
+   above already owns "box-select ergonomics" for the same pass.
 
 **Trigger to revisit:** the F4 recharter (items 1–6; joined by
 `field-f3a-gate-ux-findings.md`).

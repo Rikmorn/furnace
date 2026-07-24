@@ -1,11 +1,19 @@
-// The Field panel's tool strip: the four brush effects, the three selection
+// The Field panel's tool strip: the four brush effects, the four click
 // gestures, and one stamp button per registry generator. Pure presentation —
-// the panel owns the active choice and every host call. A brush button
-// highlights only while NO selection mode is armed (LMB then brushes); a
-// selection button highlights while its gesture is armed; generator buttons
-// are ACTIONS, not toggles — each press opens (or replaces) a stamp session,
-// whose UI is the stamp form (Task 15), not a palette state.
-import type { FieldTool, SelectionMode } from "../../../viewport-host/index.ts"; // type-only: erased
+// the panel owns the active choice and every host call. A gesture button
+// highlights while its gesture is armed; generator buttons are ACTIONS, not
+// toggles — each press opens (or replaces) a stamp session, whose UI is the
+// stamp form (Task 15), not a palette state.
+//
+// The four gestures sit in ONE group because they share one slot in the host
+// (ViewportGesture — arming any disarms the rest); splitting the three
+// selections from `segment` would imply they can be armed independently. The
+// brush effects stay highlighted under `segment`, which is not a lie: a segment
+// click commits a brush op with the active effect and material.
+import type {
+	FieldTool,
+	ViewportGesture,
+} from "../../../viewport-host/index.ts"; // type-only: erased
 import { Button } from "../ui/button.tsx";
 
 type ToolEffect = FieldTool["effect"];
@@ -25,33 +33,43 @@ const BRUSH_TOOLS: { effect: ToolEffect; label: string; title: string }[] = [
 	},
 ];
 
-const SELECTION_TOOLS: { mode: SelectionMode; label: string; title: string }[] =
-	[
-		{
-			mode: "box",
-			label: "Box Select",
-			title: "two clicks span a snapped region",
-		},
-		{
-			mode: "material",
-			label: "Wand",
-			title: "flood-select the clicked material",
-		},
-		{ mode: "void", label: "Room", title: "flood-select an air pocket" },
-	];
+const GESTURE_TOOLS: {
+	gesture: ViewportGesture;
+	label: string;
+	title: string;
+}[] = [
+	{
+		gesture: "box",
+		label: "Box Select",
+		title: "two clicks span a snapped region",
+	},
+	{
+		gesture: "material",
+		label: "Wand",
+		title: "flood-select the clicked material",
+	},
+	{ gesture: "void", label: "Room", title: "flood-select an air pocket" },
+	{
+		gesture: "segment",
+		label: "Segment",
+		title:
+			"two clicks sweep the brush between them — one op (dig: a tunnel, fill: a rampart); Esc drops the first point",
+	},
+];
 
 export function ToolPalette(props: {
-	/** The active brush effect — highlighted only while `selectionMode` is null. */
+	/** The active brush effect — highlighted while LMB still brushes (no gesture,
+	 *  or the segment gesture, which commits with this effect). */
 	effect: ToolEffect;
-	/** The armed selection gesture (null = LMB brushes). */
-	selectionMode: SelectionMode | null;
+	/** The armed click gesture (null = LMB brushes a stroke). */
+	gesture: ViewportGesture | null;
 	/** Registry generators for the stamp buttons (host `listGenerators`). */
 	generators: { id: string; name: string }[];
 	onBrush: (effect: ToolEffect) => void;
-	onSelectionMode: (mode: SelectionMode) => void;
+	onGesture: (gesture: ViewportGesture) => void;
 	onGenerator: (id: string) => void;
 }) {
-	const brushActive = props.selectionMode === null;
+	const brushActive = props.gesture === null || props.gesture === "segment";
 	return (
 		<div className="flex flex-wrap items-center gap-2">
 			{/* biome-ignore lint/a11y/useSemanticElements: role="group" is the intended ARIA grouping for this control row; a native <fieldset>/<legend> would force the boxed-card look this flat UI deliberately avoids */}
@@ -80,17 +98,17 @@ export function ToolPalette(props: {
 			<div
 				className="flex flex-wrap items-center gap-1"
 				role="group"
-				aria-label="selection tool"
+				aria-label="click gesture"
 			>
-				{SELECTION_TOOLS.map((t) => (
+				{GESTURE_TOOLS.map((t) => (
 					<Button
-						key={t.mode}
+						key={t.gesture}
 						type="button"
 						size="sm"
-						variant={props.selectionMode === t.mode ? "default" : "secondary"}
-						aria-pressed={props.selectionMode === t.mode}
+						variant={props.gesture === t.gesture ? "default" : "secondary"}
+						aria-pressed={props.gesture === t.gesture}
 						title={t.title}
-						onClick={() => props.onSelectionMode(t.mode)}
+						onClick={() => props.onGesture(t.gesture)}
 					>
 						{t.label}
 					</Button>

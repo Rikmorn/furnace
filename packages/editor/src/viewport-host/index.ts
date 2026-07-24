@@ -46,6 +46,7 @@ export {
   type FieldTool,
   type SelectionInfo,
   type SelectionMode,
+  type ViewportGesture,
 } from "./field-host.ts";
 // `FieldEntityInfo.placed`'s element type, re-exported beside it so a consumer
 // can NAME the type without reaching into field-placements.ts.

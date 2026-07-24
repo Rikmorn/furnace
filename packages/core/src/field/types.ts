@@ -87,13 +87,25 @@ export type ChunkMaterials =
   | { kind: "uniform"; classId: number }
   | { kind: "indexed"; palette: Uint8Array; bits: number; packed: Uint8Array };
 
-/** A brush's spatial extent — the bounded influence, implied by the shape. */
+/** A brush's spatial extent — the bounded influence, implied by the shape.
+ *  `capsule` is the SWEPT sphere from `a` to `b` (radius `radius` about the
+ *  segment, hemispherical endcaps) — the two-click tunnel/rampart shape
+ *  (D-F3-14). It degenerates cleanly: `a === b` is exactly the sphere of that
+ *  radius at that point. Kit-class writes accept the BOX alone (the lattice
+ *  rule in `assertOpValid` — kit stays grid-locked), so a capsule op writes
+ *  organic classes only. */
 export type BrushShape =
   | { kind: "sphere"; center: [number, number, number]; radius: number }
   | {
       kind: "box";
       center: [number, number, number];
       halfExtents: [number, number, number];
+    }
+  | {
+      kind: "capsule";
+      a: [number, number, number];
+      b: [number, number, number];
+      radius: number;
     };
 
 /** A brush op's cross-cutting cell filter, evaluated per sample during

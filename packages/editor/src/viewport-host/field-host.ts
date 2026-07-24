@@ -46,6 +46,7 @@ import {
   boxCorners,
   GHOST_COLOR,
   generatorFootprint,
+  segmentGhostSegments,
   sphereGhostSegments,
 } from "./field-ghost.ts";
 import {
@@ -116,6 +117,18 @@ export type FieldTool = {
  *  the same-class solid from the hit voxel; `void` = flood the air pocket the
  *  cursor ray crosses just before its hit. */
 export type SelectionMode = "box" | "material" | "void";
+
+/** What an LMB click DOES in the viewport — ONE slot, so arming any of these
+ *  disarms the others: a {@link SelectionMode} gesture, the two-click
+ *  `segment` brush (D-F3-14: anchor, then commit ONE swept-capsule op with the
+ *  active tool's effect/material — dig carves a tunnel, fill raises a
+ *  rampart), or `null` for a plain brush stroke.
+ *
+ *  `segment` is a BRUSH gesture, not a selection: it makes no selection, and
+ *  the brush parameters (radius = the capsule radius, effect, material, mask)
+ *  stay live under it — which is why the panel keeps the brush inspector open
+ *  for `segment` and hides it for the three selection modes. */
+export type ViewportGesture = SelectionMode | "segment";
 
 /** The panel's view of the host's current selection. `spec` is the replayable
  *  selection spec (the same object shape a selection-masked op embeds);
@@ -206,10 +219,12 @@ export type FieldStats = {
 /** Per-layer render visibility. `field` = the per-class bucket surface meshes;
  *  `kit` = the instanced kit pieces; `props` = the instanced placed-prop proxies
  *  (committed placement records); `ghost` = the brush ghost (cube + lines) + the
- *  stamp session's hologram preview + its placement wireframes; `selection` =
- *  the amber selection overlay + pending box anchor + the amber-dim entity
- *  highlight box; `grid` = the reference grid (minor + major). Display-only —
- *  hiding a layer never affects targeting, ops, or bakes.
+ *  stamp session's hologram preview + its placement wireframes + the segment
+ *  brush's pending anchor and capsule outline (a preview of a brush op, so it
+ *  rides with the other ghosts, not with `selection`); `selection` = the amber
+ *  selection overlay + pending box anchor + the amber-dim entity highlight box;
+ *  `grid` = the reference grid (minor + major). Display-only — hiding a layer
+ *  never affects targeting, ops, or bakes.
  *
  *  All default true EXCEPT `voidCast` (D-F3-15), which is a view MODE wearing a
  *  layer's clothes: the X-ray that meshes the field's negative space, so a cave
@@ -270,13 +285,16 @@ export type FieldHost = {
    *  next stroke, so a drag can't spam at stroke rate). Single subscriber
    *  (the panel status line); returns an unsubscribe. */
   subscribeToolError(cb: (msg: string) => void): () => void;
-  /** Arms LMB selection gestures (`box`/`material`/`void`); `null` returns
-   *  LMB to the brush. The mode governs only the GESTURE — an existing
-   *  selection persists across mode changes (it keeps masking ops until
-   *  cleared). Any pending box anchor is dropped on a mode change. No
-   *  keyboard shortcuts on purpose: Esc/Enter belong to the stamp session
-   *  — selection clear is the panel button. */
-  setSelectionMode(mode: SelectionMode | null): void;
+  /** Arms what an LMB click does ({@link ViewportGesture}): a selection
+   *  gesture (`box`/`material`/`void`), the two-click `segment` brush, or
+   *  `null` for a plain brush stroke. ONE slot — arming any gesture disarms
+   *  the one before it. A selection gesture governs only the GESTURE: an
+   *  existing selection persists across changes (it keeps masking ops until
+   *  cleared). Any pending box OR segment anchor is dropped on a change.
+   *  Esc cancels a pending SEGMENT anchor (only when no stamp session owns the
+   *  key); the selection gestures deliberately have no keyboard shortcuts —
+   *  selection clear is the panel button. */
+  setGesture(gesture: ViewportGesture | null): void;
   /** Clears the current selection into the Reselect slot (and drops a pending
    *  box anchor); subscribers are notified with null. */
   clearSelection(): void;
@@ -864,10 +882,18 @@ export function createFieldHost(deps?: {
   // re-armed at pointer-down so a 40ms-throttled drag can't spam it.
   let maskDropReported = false;
 
-  // --- selection state (armed mode, current + Reselect slot, overlay) -----
-  let selectionMode: SelectionMode | null = null;
+  // --- gesture + selection state (armed slot, current + Reselect, overlay) --
+  // What LMB does: one slot for the three selection gestures AND the segment
+  // brush (see ViewportGesture) — they all bind the same click, so they cannot
+  // be armed independently.
+  let gesture: ViewportGesture | null = null;
   // Pending box-select anchor: the first click's world point (null = none).
   let boxAnchor: Vec3T | null = null;
+  // Pending SEGMENT anchor: the first click's world point (null = none). Its
+  // own slot rather than a shared one — the two gestures are mutually
+  // exclusive through `gesture`, but a shared anchor would silently survive a
+  // box→segment switch as a segment start the user never clicked.
+  let segmentAnchor: Vec3T | null = null;
   let selection: SelectionState | null = null;
   // The Reselect slot: the one previous selection (clear/replace park it here).
   let lastSelection: SelectionState | null = null;
@@ -882,6 +908,12 @@ export function createFieldHost(deps?: {
   // pointer MOVE (never per frame). Null unless a box anchor is pending; cleared
   // with the anchor (setBoxAnchor(null)).
   let boxPreviewBatch: LineBatch | null = null;
+  // The segment brush's two overlays, both hologram-blue and both under the
+  // GHOST layer (a pending capsule is a preview of a brush op, not a selection):
+  // the anchor cross, and the capsule wireframe the second click would commit —
+  // rebuilt on pointer MOVE, never per frame, like boxPreviewBatch.
+  let segmentAnchorBatch: LineBatch | null = null;
+  let segmentPreviewBatch: LineBatch | null = null;
 
   // The project's entity catalog, indexed by archetype id (empty until
   // setEntityCatalog — a project with no catalog stays empty forever and every
@@ -1489,18 +1521,20 @@ export function createFieldHost(deps?: {
     return m;
   };
 
-  // Build the brush op for the active tool at a world centre. A kit-class FILL
-  // snaps to a lattice box (field-brush.snappedKitBox); organic fill, paint,
-  // and smooth use a sphere; dig and smooth are material-free. A fill with a
-  // non-null `hollow` becomes a shell-band fill. `classOf` throws on an
-  // unknown material id (caught by applyTool), so a stray tool selection can't
-  // corrupt the field.
-  const toolOp = (center: Vec3T): field.BrushOp => {
+  // Build the brush op for the active tool over a caller-chosen SHAPE. The
+  // shape is a parameter because two gestures build different ones from the
+  // same tool: a plain stroke sweeps nothing (sphere, or the snapped lattice
+  // box for a kit fill — see strokeShape), the segment brush hands in a
+  // capsule. Everything else — effect, material, mask, the fill's `hollow` —
+  // is the tool's and identical either way. Dig and smooth stay material-free.
+  // `classOf` throws on an unknown material id (caught by commitToolOp), so a
+  // stray tool selection can't corrupt the field.
+  const toolOp = (shape: field.BrushShape): field.BrushOp => {
     const mask = toolMask();
     const base = {
       id: 0,
       kind: "brush",
-      shape: sphereShape(center, digRadius),
+      shape,
       ...(mask !== undefined && { mask }),
     } as const;
     if (tool.effect === "dig") return { ...base, effect: "dig" };
@@ -1524,9 +1558,31 @@ export function createFieldHost(deps?: {
       ...base,
       effect: tool.effect,
       material: tool.materialId,
-      ...(kitFill && { shape: snappedKitBox(center, digRadius) }),
       ...(hollow !== null && { hollow }),
     };
+  };
+
+  // The shape a plain (non-segment) stroke applies at a world centre: the
+  // snapped lattice box when the tool is a kit fill, else the brush sphere.
+  const strokeShape = (center: Vec3T): field.BrushShape =>
+    isKitFillTool()
+      ? snappedKitBox(center, digRadius)
+      : sphereShape(center, digRadius);
+
+  // Log-apply a built op and mark the touched chunks (+ apron neighbours)
+  // dirty. Shared by the stroke and the segment commit so both carry the same
+  // failure contract: a setup-loud validation throw (kit fill off the lattice,
+  // a kit class under a non-box shape, an unknown material class) is reported
+  // to the panel and the op is DROPPED, rather than escaping the pointer
+  // handler. Reported per occurrence (the message replaces itself on the
+  // status line) — only the mask-drop report is once-per-stroke.
+  const commitToolOp = (op: field.BrushOp): void => {
+    try {
+      markDirtyWithNeighbors(field.logApply(store, log, op, table));
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      reportToolError(`tool apply failed: ${message}`);
+    }
   };
 
   // Whether the active tool fills a kit class — its ghost + op use the snapped
@@ -1668,23 +1724,12 @@ export function createFieldHost(deps?: {
     notifyTool();
   };
 
-  // Apply the active tool at a cursor position: compute the dig-feel centre, build
-  // the op, log-apply it, and mark the touched chunks (+ apron neighbours) dirty.
+  // Apply the active tool at a cursor position: compute the dig-feel centre,
+  // build the op, and commit it through the shared failure contract.
   const applyTool = (clientX: number, clientY: number): void => {
     const at = computeTarget(clientX, clientY);
     if (!at) return;
-    try {
-      const dirtied = field.logApply(store, log, toolOp(at), table);
-      markDirtyWithNeighbors(dirtied);
-    } catch (err) {
-      // A kit fill off the lattice or an unknown material class throws here
-      // (assertOpValid / classOf, setup-loud) — swallow so a bad brush can't
-      // escape the pointer handler; the stroke is simply dropped. Reported
-      // per occurrence (the message replaces itself on the status line) —
-      // only the mask-drop report above is once-per-stroke.
-      const message = err instanceof Error ? err.message : String(err);
-      reportToolError(`tool apply failed: ${message}`);
-    }
+    commitToolOp(toolOp(strokeShape(at)));
   };
 
   // --- selection gestures + overlay ---------------------------------------
@@ -1947,8 +1992,99 @@ export function createFieldHost(deps?: {
     setSelection({ spec, materialized });
   };
 
-  // One LMB click while a selection mode is armed (applyTool is bypassed).
-  const selectionClick = (clientX: number, clientY: number): void => {
+  // --- segment brush (two-click swept capsule, D-F3-14) -------------------
+
+  // The pending segment start (null = none), plus its hologram-blue cross. The
+  // preview capsule dies with the anchor: without a start point there is no
+  // second endpoint to sweep to.
+  const setSegmentAnchor = (p: Vec3T | null): void => {
+    segmentAnchor = p;
+    if (p === null) {
+      segmentAnchorBatch = null;
+      segmentPreviewBatch = null;
+      return;
+    }
+    const [x, y, z] = p;
+    const r = ANCHOR_CROSS_HALF_M;
+    segmentAnchorBatch = segmentsToBatch(
+      [
+        [
+          [x - r, y, z],
+          [x + r, y, z],
+        ],
+        [
+          [x, y - r, z],
+          [x, y + r, z],
+        ],
+        [
+          [x, y, z - r],
+          [x, y, z + r],
+        ],
+      ],
+      GHOST_COLOR,
+    );
+  };
+
+  // The capsule the second click would build: same endpoints, same radius as
+  // the op. Rebuilt on pointer MOVE while an anchor is pending. A cursor that
+  // resolves to no surface point leaves the last preview standing — a
+  // transient miss must not flicker the capsule off (updateBoxPreview's rule).
+  //
+  // This is the WHOLE preview: no worker ghost, no scratch mesh. A brush op is
+  // cheap and reversible, and the generator preview protocol exists for
+  // recipes whose output cannot be guessed from their inputs — a swept capsule
+  // can.
+  //
+  // Rebuilt on MOVE means exactly that: a radius change (wheel, [ / ]) with the
+  // cursor still does not re-fatten the pending capsule until the next
+  // pointermove. The sphere ghost, which IS rebuilt per frame, does not have
+  // that gap. Accepted rather than moved into the frame path — a pending anchor
+  // is a momentary state, and per-frame rebuilds are the cost the batches are
+  // stored to avoid.
+  const updateSegmentPreview = (clientX: number, clientY: number): void => {
+    if (segmentAnchor === null) return;
+    const p = selectionPoint(clientX, clientY);
+    if (!p) return;
+    segmentPreviewBatch = segmentsToBatch(
+      segmentGhostSegments(segmentAnchor, p, digRadius),
+      GHOST_COLOR,
+    );
+  };
+
+  // One LMB click while the segment brush is armed. First click anchors; the
+  // second builds ONE capsule op with the ACTIVE tool's effect/material and
+  // commits it through the ordinary log path — so it is one ⌘Z, exactly like a
+  // stroke, and needs no undo machinery of its own.
+  //
+  // The endpoints are selectionPoint's RAW surface hits, not computeTarget's
+  // bitten-past centres: a tunnel must start and end where the user clicked
+  // (the box-select corner rule, and the same reason).
+  const segmentClick = (clientX: number, clientY: number): void => {
+    const p = selectionPoint(clientX, clientY);
+    if (!p) return;
+    if (segmentAnchor === null) {
+      setSegmentAnchor(p);
+      return;
+    }
+    const op = toolOp({
+      kind: "capsule",
+      a: [...segmentAnchor],
+      b: p,
+      radius: digRadius,
+    });
+    setSegmentAnchor(null);
+    commitToolOp(op);
+  };
+
+  // One LMB click while a selection mode is armed (applyTool is bypassed). The
+  // mode is a PARAMETER, not a read of `gesture`: the segment gesture shares
+  // that slot, and a bare else-fallthrough would have silently flood-selected
+  // void for it.
+  const selectionClick = (
+    selectionMode: SelectionMode,
+    clientX: number,
+    clientY: number,
+  ): void => {
     if (selectionMode === "box") {
       const p = selectionPoint(clientX, clientY);
       if (!p) return;
@@ -2794,10 +2930,14 @@ export function createFieldHost(deps?: {
     // ghosts below (also premultiplied, also no depth write) is what decides
     // how those two translucents composite against each other.
     // Two independent ghost gates: the LAYER flag is user intent; the
-    // selection-mode suppression is mode coherence — while a selection mode is
-    // armed LMB doesn't stroke, so a brush preview would promise an action
-    // that won't happen.
-    const ghost = layers.ghost && selectionMode === null ? ghostState() : null;
+    // gesture suppression is mode coherence — while ANY gesture is armed LMB
+    // doesn't stroke, so a sphere/box brush preview would promise an action
+    // that won't happen. The segment brush is included: its click anchors or
+    // sweeps a capsule, never stamps the sphere this ghost draws. Its own
+    // preview only appears once a point IS anchored, so an armed-but-unanchored
+    // segment shows no brush affordance at all — the box gesture's precedent,
+    // and one the F4 tool-feel pass may want to revisit.
+    const ghost = layers.ghost && gesture === null ? ghostState() : null;
     if (ghost?.kitBox && ghostCube) {
       ghostPos.set(ghost.kitBox.center);
       ghostScale[0] = ghost.kitBox.halfExtents[0] * 2;
@@ -2887,6 +3027,24 @@ export function createFieldHost(deps?: {
         camera: view,
         occlude: false,
       });
+    // The segment brush's pending anchor + capsule preview. Under the GHOST
+    // layer, not `selection`: they preview a brush op the next click commits.
+    if (layers.ghost) {
+      if (segmentAnchorBatch)
+        frame.drawLines(c, {
+          vertices: segmentAnchorBatch.vertices,
+          colors: segmentAnchorBatch.colors,
+          camera: view,
+          occlude: false,
+        });
+      if (segmentPreviewBatch)
+        frame.drawLines(c, {
+          vertices: segmentPreviewBatch.vertices,
+          colors: segmentPreviewBatch.colors,
+          camera: view,
+          occlude: false,
+        });
+    }
     // Ghost target preview last so it draws over the scene + grid (occlude:false).
     if (ghost) renderGhostLines(c, view, ghost);
   };
@@ -2945,11 +3103,12 @@ export function createFieldHost(deps?: {
       eyedropper(e.clientX, e.clientY);
       return;
     }
-    if (e.button === 0 && selectionMode !== null) {
-      // Selection gestures BYPASS applyTool entirely: no stroke, no digging
-      // flag, no pointer capture (single clicks, nothing drags). RMB look
-      // below stays live in selection mode.
-      selectionClick(e.clientX, e.clientY);
+    if (e.button === 0 && gesture !== null) {
+      // Armed gestures BYPASS applyTool entirely: no stroke, no digging flag,
+      // no pointer capture (single clicks, nothing drags). RMB look below
+      // stays live under every gesture.
+      if (gesture === "segment") segmentClick(e.clientX, e.clientY);
+      else selectionClick(gesture, e.clientX, e.clientY);
       return;
     }
     if (e.button === 0) {
@@ -2976,8 +3135,13 @@ export function createFieldHost(deps?: {
     }
     // Box-select live preview: while a box anchor is pending, keep the amber
     // region the second click would commit updated as the cursor moves.
-    if (selectionMode === "box" && boxAnchor !== null) {
+    if (gesture === "box" && boxAnchor !== null) {
       updateBoxPreview(e.clientX, e.clientY);
+      return;
+    }
+    // Segment brush: same shape, with the capsule the second click would sweep.
+    if (gesture === "segment" && segmentAnchor !== null) {
+      updateSegmentPreview(e.clientX, e.clientY);
       return;
     }
     if (!digging) return;
@@ -3046,6 +3210,16 @@ export function createFieldHost(deps?: {
         e.preventDefault();
         if (k === "escape") cancelStampSession();
         else commitActiveSession(); // ready-phase only — else a no-op
+        return;
+      }
+      // With no session owning the key, Esc drops a pending SEGMENT anchor —
+      // the way out of a half-drawn capsule without committing one. Scoped to
+      // the segment gesture on purpose: the box anchor's Esc is the same
+      // one-liner but a separate UX change, filed rather than folded in
+      // (backlog `field-f2b-gate-ux-findings`).
+      if (k === "escape" && segmentAnchor !== null) {
+        e.preventDefault();
+        setSegmentAnchor(null);
       }
       return;
     }
@@ -3166,6 +3340,9 @@ export function createFieldHost(deps?: {
     // leave propInstanceCounts describing the world that just went away.
     rebuildProps();
     setBoxAnchor(null);
+    // The segment anchor is a point in the OLD field — a capsule swept from it
+    // into the new one would start somewhere the user never clicked.
+    setSegmentAnchor(null);
     selection = null;
     lastSelection = null;
     selectionBatch = null;
@@ -3354,10 +3531,14 @@ export function createFieldHost(deps?: {
         if (toolErrorCb === cb) toolErrorCb = null;
       };
     },
-    setSelectionMode(mode) {
-      if (mode === selectionMode) return; // re-arming the same mode must not drop a pending box anchor
-      selectionMode = mode;
-      setBoxAnchor(null); // a pending anchor never survives a mode change
+    setGesture(next) {
+      if (next === gesture) return; // re-arming the same gesture must not drop a pending anchor
+      gesture = next;
+      // Neither pending anchor survives a gesture change — including
+      // box→segment, where a carried-over point would read as a segment start
+      // the user never clicked.
+      setBoxAnchor(null);
+      setSegmentAnchor(null);
     },
     clearSelection() {
       setBoxAnchor(null);

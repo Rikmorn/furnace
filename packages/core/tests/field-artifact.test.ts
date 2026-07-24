@@ -587,8 +587,9 @@ describe("field oplog v2 codec", () => {
   });
 
   test("parseOps rejects off-contract brush/entity fields (the closed unions)", () => {
-    // `effect` is a 4-value union and `shape.kind` a 2-value union — both
-    // table-INDEPENDENT, so the decoder can check them for the same reason
+    // `effect` is a 4-value union and `shape.kind` a 3-value one (sphere, box,
+    // and F3b's capsule) — both table-INDEPENDENT, so the decoder can check
+    // them for the same reason
     // assertPatchStructure checks a patch's shape. Measured when it did not:
     // effect:"carve" parsed, then applyOp returned dirty.size 0 and the
     // replayed world silently diverged from the baked one; shape:{kind:"torus"}

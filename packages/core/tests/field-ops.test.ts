@@ -21,6 +21,7 @@ import {
   logApply,
   MAT_ROCK,
   MAX_SELECTION_BUDGET,
+  opBounds,
   parseOps,
   redo,
   SOLID,
@@ -415,6 +416,159 @@ describe("brush ops", () => {
       effect: "dig",
       shape: { kind: "sphere", center: [1, 2, 3], radius: 0.75 },
     });
+  });
+});
+
+describe("capsule shape — the segment brush (F3b: D-F3-14)", () => {
+  // A 2 m sweep along +x at y=z=1 m, radius 0.5 m. At the default 0.25 m cell
+  // the endpoints land on samples (4,4,4) and (12,4,4), so every probe below
+  // is an exact world position, not a rounding.
+  const digCapsule = (
+    a: [number, number, number],
+    b: [number, number, number],
+    radius: number,
+  ): BrushOp => ({
+    id: 0,
+    kind: "brush",
+    effect: "dig",
+    shape: { kind: "capsule", a, b, radius },
+  });
+
+  test("carves the whole TUBE, not two endpoint spheres", () => {
+    const s = createFieldStore();
+    applyOp(s, digCapsule([1, 1, 1], [3, 1, 1], 0.5), TABLE);
+    // The midpoint is 1 m from BOTH endpoints — twice the radius. A union of
+    // two spheres leaves it solid; the swept capsule opens it.
+    expect(getDensity(s, 8, 4, 4)).toBeGreaterThan(0);
+    // …and so is every sample along the axis between them.
+    for (let x = 4; x <= 12; x++)
+      expect(getDensity(s, x, 4, 4)).toBeGreaterThan(0);
+  });
+
+  test("the radius bounds the tube perpendicular to the axis", () => {
+    const s = createFieldStore();
+    applyOp(s, digCapsule([1, 1, 1], [3, 1, 1], 0.5), TABLE);
+    // Mid-sweep, 0.25 m off the axis: inside. 0.75 m off: outside.
+    expect(getDensity(s, 8, 5, 4)).toBeGreaterThan(0);
+    expect(getDensity(s, 8, 7, 4)).toBeLessThan(0);
+    expect(getDensity(s, 8, 4, 5)).toBeGreaterThan(0);
+    expect(getDensity(s, 8, 4, 7)).toBeLessThan(0);
+  });
+
+  test("the endcaps are ROUND and the sweep does not run past them", () => {
+    const s = createFieldStore();
+    applyOp(s, digCapsule([1, 1, 1], [3, 1, 1], 0.5), TABLE);
+    // 0.25 m beyond each endpoint, on the axis: inside the hemisphere.
+    expect(getDensity(s, 13, 4, 4)).toBeGreaterThan(0);
+    expect(getDensity(s, 3, 4, 4)).toBeGreaterThan(0);
+    // 0.75 m beyond: outside. This is the projection CLAMP's teeth — without
+    // it the shape is an infinite cylinder and both of these open too.
+    expect(getDensity(s, 15, 4, 4)).toBeLessThan(0);
+    expect(getDensity(s, 1, 4, 4)).toBeLessThan(0);
+    // The cap's reach SHRINKS off-axis — a hemisphere, not a flat extension:
+    // the same 0.25 m past `b`, but 0.5 m off the axis, is outside
+    // (√(0.25² + 0.5²) ≈ 0.56 > 0.5).
+    expect(getDensity(s, 13, 6, 4)).toBeLessThan(0);
+  });
+
+  test("a DEGENERATE capsule (a === b) is exactly the sphere at that point", () => {
+    const capsule = createFieldStore();
+    const sphere = createFieldStore();
+    applyOp(capsule, digCapsule([2, 2, 2], [2, 2, 2], 1.2), TABLE);
+    applyOp(sphere, digSphere([2, 2, 2], 1.2), TABLE);
+    // Byte-for-byte across every chunk either one allocated.
+    expect(snapshotAll(capsule)).toEqual(snapshotAll(sphere));
+    expect(capsule.chunks.size).toBeGreaterThan(0); // …and it did allocate
+  });
+
+  test("opBounds is the AABB of both endpoints grown by the radius", () => {
+    expect(opBounds(digCapsule([1, 2, 3], [4, 0, 3], 0.5))).toEqual({
+      min: [0.5, -0.5, 2.5],
+      max: [4.5, 2.5, 3.5],
+    });
+    // Order-independent: swapping the endpoints is the same op.
+    expect(opBounds(digCapsule([4, 0, 3], [1, 2, 3], 0.5))).toEqual({
+      min: [0.5, -0.5, 2.5],
+      max: [4.5, 2.5, 3.5],
+    });
+  });
+
+  test("a kit class rejects a capsule, like every other non-box shape", () => {
+    // No new clause in assertOpValid — the existing "kit writes require a box"
+    // rule already covers it. This test is what keeps that true.
+    expect(() =>
+      assertOpValid(
+        {
+          id: 0,
+          kind: "brush",
+          effect: "fill",
+          material: 2, // masonry, the kit class
+          shape: { kind: "capsule", a: [1, 1, 1], b: [2, 1, 1], radius: 0.5 },
+        },
+        TABLE,
+      ),
+    ).toThrow(/kit-class writes require a box shape/);
+  });
+
+  test("assertOpValid rejects non-finite endpoints and a non-positive radius", () => {
+    const bad = (shape: BrushOp["shape"]): BrushOp => ({
+      id: 0,
+      kind: "brush",
+      effect: "dig", // material-free: proves the leg runs BEFORE the material early-return
+      shape,
+    });
+    for (const a of [
+      [Number.NaN, 1, 1],
+      [Number.POSITIVE_INFINITY, 1, 1],
+    ] as [number, number, number][])
+      expect(() =>
+        assertOpValid(
+          bad({ kind: "capsule", a, b: [2, 1, 1], radius: 1 }),
+          TABLE,
+        ),
+      ).toThrow(/capsule endpoints must be three finite numbers/);
+    expect(() =>
+      assertOpValid(
+        bad({
+          kind: "capsule",
+          a: [1, 1, 1],
+          b: [1, 2, Number.NaN],
+          radius: 1,
+        }),
+        TABLE,
+      ),
+    ).toThrow(/capsule endpoints must be three finite numbers/);
+    for (const radius of [0, -1, Number.NaN, Number.POSITIVE_INFINITY])
+      expect(() =>
+        assertOpValid(
+          bad({ kind: "capsule", a: [1, 1, 1], b: [2, 1, 1], radius }),
+          TABLE,
+        ),
+      ).toThrow(/capsule radius must be a finite positive length/);
+    // The good one still passes, under every effect that carries a shape.
+    expect(() =>
+      assertOpValid(
+        bad({ kind: "capsule", a: [1, 1, 1], b: [2, 1, 1], radius: 0.5 }),
+        TABLE,
+      ),
+    ).not.toThrow();
+  });
+
+  test("a capsule op survives the oplog round-trip", () => {
+    // The wire guard is a CLOSED union (artifact.ts SHAPE_KINDS): a shape kind
+    // the engine can emit but its own parser refuses would only surface at load.
+    const op = { ...digCapsule([1, 2, 3], [4, 5, 6], 0.75), id: 1 };
+    expect(parseOps(serializeOps([op]))).toEqual([op]);
+  });
+
+  test("a capsule dig undoes byte-identically", () => {
+    const s = createFieldStore();
+    const log = createOpLog();
+    const before = snapshotAll(s);
+    logApply(s, log, digCapsule([1, 1, 1], [3, 1, 1], 0.5), TABLE);
+    expect(s.chunks.size).toBeGreaterThan(0);
+    undo(s, log);
+    expect(snapshotAll(s)).toEqual(before);
   });
 });
 

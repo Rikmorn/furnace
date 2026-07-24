@@ -444,6 +444,7 @@ const BRUSH_EFFECTS = {
 const SHAPE_KINDS = {
   sphere: true,
   box: true,
+  capsule: true,
 } as const satisfies Record<BrushShape["kind"], true>;
 const ENTITY_ACTIONS = {
   place: true,

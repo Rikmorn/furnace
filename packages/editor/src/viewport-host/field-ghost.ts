@@ -63,6 +63,83 @@ export const sphereGhostSegments = (
   return segments;
 };
 
+// The segment brush's capsule ghost: one ring per endcap plus this many rails
+// joining them (evenly spaced around the ring, so the sweep reads as a tube
+// from any angle without a fill).
+const CAPSULE_RAILS = 4;
+
+/** Unit vector least aligned with `axis` — the seed for an arbitrary
+ *  perpendicular. Picking the SMALLEST |component| axis keeps the cross product
+ *  well away from zero (worst case |cross| = √(2/3) ≈ 0.82), so a capsule drawn
+ *  along any world axis gets a stable basis. */
+const leastAlignedAxis = (axis: Vec3T): Vec3T => {
+  const [ax, ay, az] = [
+    Math.abs(axis[0]),
+    Math.abs(axis[1]),
+    Math.abs(axis[2]),
+  ];
+  if (ax <= ay && ax <= az) return [1, 0, 0];
+  return ay <= az ? [0, 1, 0] : [0, 0, 1];
+};
+
+const cross = (u: Vec3T, v: Vec3T): Vec3T => [
+  u[1] * v[2] - u[2] * v[1],
+  u[2] * v[0] - u[0] * v[2],
+  u[0] * v[1] - u[1] * v[0],
+];
+
+const normalize = (v: Vec3T): Vec3T => {
+  const len = Math.sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
+  return [v[0] / len, v[1] / len, v[2] / len];
+};
+
+/** The SEGMENT brush's capsule ghost as line segments: a GHOST_RING_SEGMENTS
+ *  ring around each endpoint in the plane PERPENDICULAR to the axis, plus
+ *  {@link CAPSULE_RAILS} rails joining matching ring points — the swept-sphere
+ *  outline of the op the second click will build. The endcaps are drawn as flat
+ *  rings, not hemispheres: the op's caps are round, so the wireframe under-draws
+ *  the volume by up to `radius` at each end (a deliberate cheap outline, the
+ *  same license the two-ring sphere ghost takes).
+ *
+ *  A DEGENERATE segment (`a` within a float of `b`) has no perpendicular plane
+ *  to build a basis in, and the op it previews is exactly a sphere — so it
+ *  returns {@link sphereGhostSegments} at `a` rather than a NaN batch.
+ *
+ *  Pure — the host wraps the result in `segmentsToBatch`, like every other
+ *  overlay. NOTE: nothing in this module or its tests establishes that the
+ *  result is VISIBLE on screen; drawLines has silently dropped whole overlays
+ *  before (`docs/learnings/2026-07-21-invisible-line-overlays.md`). */
+export const segmentGhostSegments = (
+  a: Vec3T,
+  b: Vec3T,
+  radius: number,
+): [Vec3T, Vec3T][] => {
+  const d: Vec3T = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+  const len = Math.sqrt(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
+  if (len < 1e-6) return sphereGhostSegments(a, radius);
+  const axis: Vec3T = [d[0] / len, d[1] / len, d[2] / len];
+  const u = normalize(cross(axis, leastAlignedAxis(axis)));
+  const v = cross(axis, u); // unit by construction: axis ⟂ u, both unit
+  const segments: [Vec3T, Vec3T][] = [];
+  for (const center of [a, b])
+    for (let i = 0; i < GHOST_RING_SEGMENTS; i++) {
+      const t0 = (2 * Math.PI * i) / GHOST_RING_SEGMENTS;
+      const t1 = (2 * Math.PI * (i + 1)) / GHOST_RING_SEGMENTS;
+      segments.push([
+        ringPoint(center, radius, u, v, t0),
+        ringPoint(center, radius, u, v, t1),
+      ]);
+    }
+  for (let i = 0; i < CAPSULE_RAILS; i++) {
+    const t = (2 * Math.PI * i) / CAPSULE_RAILS;
+    segments.push([
+      ringPoint(a, radius, u, v, t),
+      ringPoint(b, radius, u, v, t),
+    ]);
+  }
+  return segments;
+};
+
 /** The 8 world corners of a centre+halfExtents box in boxEdges' bit-layout order
  *  (bit0=x, bit1=y, bit2=z), as a length-24 Float32Array. */
 export const boxCorners = (center: Vec3T, half: Vec3T): Float32Array => {

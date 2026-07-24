@@ -46,12 +46,37 @@ const EPS = 1e-6;
 const onLattice = (v: number): boolean =>
   Math.abs(v / LATTICE - Math.round(v / LATTICE)) < EPS;
 
-/** Signed distance (m) of a brush shape at a world point: >0 inside (air). */
+/** Signed distance (m) of a brush shape at a world point: >0 inside (air).
+ *  The capsule leg is the standard point-to-SEGMENT distance: project onto the
+ *  axis, CLAMP the parameter to [0, 1] (which is what makes the endcaps
+ *  hemispherical rather than an infinite cylinder), then subtract the radius.
+ *  Squared-form `Math.sqrt`, never `Math.hypot` — the sphere leg above already
+ *  spells it this way, and (INFERRED, not measured here) hypot's specified
+ *  overflow/underflow scaling is cost this never needs: world coords are
+ *  metres. A degenerate axis (`a === b`, `ab2 === 0`) takes t = 0 and reduces
+ *  to the sphere at `a`. */
 function shapeSdf(s: BrushShape, x: number, y: number, z: number): number {
   if (s.kind === "sphere") {
     const dx = x - s.center[0];
     const dy = y - s.center[1];
     const dz = z - s.center[2];
+    return s.radius - Math.sqrt(dx * dx + dy * dy + dz * dz);
+  }
+  if (s.kind === "capsule") {
+    const abx = s.b[0] - s.a[0];
+    const aby = s.b[1] - s.a[1];
+    const abz = s.b[2] - s.a[2];
+    const apx = x - s.a[0];
+    const apy = y - s.a[1];
+    const apz = z - s.a[2];
+    const ab2 = abx * abx + aby * aby + abz * abz;
+    const t =
+      ab2 === 0
+        ? 0
+        : Math.max(0, Math.min(1, (apx * abx + apy * aby + apz * abz) / ab2));
+    const dx = apx - abx * t;
+    const dy = apy - aby * t;
+    const dz = apz - abz * t;
     return s.radius - Math.sqrt(dx * dx + dy * dy + dz * dz);
   }
   return Math.min(
@@ -61,12 +86,31 @@ function shapeSdf(s: BrushShape, x: number, y: number, z: number): number {
   );
 }
 
-/** Axis-aligned world bounds of the op (its declared bounded influence). */
+/** Axis-aligned world bounds of the op (its declared bounded influence). A
+ *  capsule's are the AABB of BOTH endpoints grown by the radius — tight for an
+ *  axis-aligned sweep, loose (by up to the radius at each corner) for a
+ *  diagonal one, which is the same over-declaration every brush shape's bounds
+ *  already carry (see {@link fieldOpChunks}). */
 export function opBounds(op: BrushOp): {
   min: [number, number, number];
   max: [number, number, number];
 } {
   const s = op.shape;
+  if (s.kind === "capsule") {
+    const r = s.radius;
+    return {
+      min: [
+        Math.min(s.a[0], s.b[0]) - r,
+        Math.min(s.a[1], s.b[1]) - r,
+        Math.min(s.a[2], s.b[2]) - r,
+      ],
+      max: [
+        Math.max(s.a[0], s.b[0]) + r,
+        Math.max(s.a[1], s.b[1]) + r,
+        Math.max(s.a[2], s.b[2]) + r,
+      ],
+    };
+  }
   const r: [number, number, number] =
     s.kind === "sphere"
       ? [s.radius, s.radius, s.radius]
@@ -143,6 +187,35 @@ function assertSmoothValid(p: SmoothParams | undefined): void {
     throw new Error(`field op: unknown smooth mode "${String(p.mode)}"`);
 }
 
+/** Capsule leg of {@link assertOpValid}: finite endpoints and a finite positive
+ *  radius. The capsule is the first shape whose numbers come from TWO
+ *  independent screen-space raycasts (the editor's two-click gesture), and both
+ *  failure modes were MEASURED on the applier before this guard existed: a NaN
+ *  endpoint makes {@link opSampleBounds} NaN, so the sample loop's `z <= z1` is
+ *  false at once and the op logs, burns an id and writes nothing — a silent
+ *  no-op ⌘Z (measured: dirty 0, 0.4 ms); an INFINITE radius makes those bounds
+ *  ±Infinity, and `z++` off −Infinity never advances — `applyOp` was still
+ *  running at an 8 s cutoff.
+ *
+ *  Sphere `radius` and box `halfExtents` are NOT validated here. That is a
+ *  pre-existing gap, not a judgement that they are safe — the same two failures
+ *  reach them (backlog `field-brush-shape-numeric-validation`). This leg is
+ *  scoped to the shape this task adds.
+ *
+ *  @throws {@link Error} if a capsule endpoint is non-finite, or its radius is
+ *    not a finite positive length. */
+function assertCapsuleValid(shape: BrushShape): void {
+  if (shape.kind !== "capsule") return;
+  const finite = (v: [number, number, number]): boolean =>
+    v.every((n) => Number.isFinite(n));
+  if (!finite(shape.a) || !finite(shape.b))
+    throw new Error("field op: capsule endpoints must be three finite numbers");
+  if (!Number.isFinite(shape.radius) || shape.radius <= 0)
+    throw new Error(
+      "field op: capsule radius must be a finite positive length (metres)",
+    );
+}
+
 /**
  * Setup-loud per-op validation — also the replay / LLM-stream guard. Validates
  * the mask when present (class ids must exist in the table; an embedded
@@ -155,18 +228,23 @@ function assertSmoothValid(p: SmoothParams | undefined): void {
  * effect validates the material: the class id must exist in the table, and
  * kit-class writes must be lattice-snapped boxes (kit pieces stay grid-locked
  * to the 0.5 m built-kit lattice) whose `hollow`, when present, is a multiple
- * of 0.5 m — the shell's INNER faces must land on lattice planes too.
- * Material-free, mask-free ops (plain dig) are a no-op.
+ * of 0.5 m — the shell's INNER faces must land on lattice planes too. A CAPSULE
+ * shape validates its own numbers up front, whatever the effect
+ * ({@link assertCapsuleValid}), and is rejected outright for a kit class by the
+ * same non-box clause a sphere hits. Material-free, mask-free ops (plain dig)
+ * are otherwise a no-op.
  *
  * @throws {@link Error} if a class id (material, class mask, or embedded
  *   flood-material spec) is unknown, an embedded selection spec has a
  *   non-integer flood seed or an out-of-range budget, `hollow` rides a
- *   non-fill effect or is not a positive thickness, a smooth op's params are
- *   absent or out of range, or a kit-class write is not an
+ *   non-fill effect or is not a positive thickness, a capsule shape has a
+ *   non-finite endpoint or a non-positive/non-finite radius, a smooth op's
+ *   params are absent or out of range, or a kit-class write is not an
  *   axis-lattice-aligned box (with a lattice-multiple `hollow` when present).
  */
 export function assertOpValid(op: BrushOp, table: MaterialTable): void {
   assertMaskValid(op.mask, table);
+  assertCapsuleValid(op.shape);
   if (op.hollow !== undefined) {
     if (op.effect !== "fill")
       throw new Error("field op: hollow is a fill-effect parameter");
@@ -404,9 +482,13 @@ function applySmooth(
   const ny = y1 - y0 + 1;
   const nz = z1 - z0 + 1;
   // Falloff reference: the shape's smallest half-dimension, so cap → 0 at the
-  // boundary and reaches full strength only in the deep interior.
+  // boundary and reaches full strength only in the deep interior. A capsule's
+  // is its radius — the sphere case, and right for the same reason: the radius
+  // IS the distance from the axis to the boundary, so the sweep's LENGTH must
+  // not enter the falloff (it would make a long tunnel smooth harder than a
+  // short one at the same wall distance).
   const sdfRef =
-    op.shape.kind === "sphere"
+    op.shape.kind === "sphere" || op.shape.kind === "capsule"
       ? op.shape.radius
       : Math.min(
           op.shape.halfExtents[0],

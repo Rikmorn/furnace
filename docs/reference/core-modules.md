@@ -796,7 +796,14 @@ channel** (uniform|indexed palette encoding behind accessors — `getMaterial` /
   `voxelChunk`, `worldToVoxel`/`sampleToWorld`, `AIR`/`SOLID`.
 - **The op log (F2b: one log, op-list undo; F3a: splice-safe entries + patches; F3b:
   placement ops)** — the `FieldOp` union = `BrushOp | EntityOp | PatchOp | PlacementOp`
-  (`isBrushOp` narrows to the brush member). **Brush effects**: dig / fill / paint /
+  (`isBrushOp` narrows to the brush member). **Brush shapes** (`BrushShape`): `sphere`
+  (`center` + `radius`), `box` (`center` + `halfExtents`), and **`capsule`** (F3b:
+  D-F3-14 — the swept sphere from `a` to `b` with hemispherical endcaps, the editor's
+  two-click segment brush; `a === b` degenerates to exactly the sphere at that point).
+  A capsule's numbers are validated setup-loud by `assertOpValid` (finite endpoints, a
+  finite positive radius) whatever the effect, and a kit class rejects it under the
+  same rule that rejects a sphere — kit writes require a lattice-snapped box, so
+  capsules write organic classes only. **Brush effects**: dig / fill / paint /
   **smooth**
   (`SmoothParams` — max-delta-clamp strength doubling as the thin-wall guard,
   iterations, both|erode|fill modes, `SMOOTH_DEFAULTS`; density-only, never materials).
@@ -1136,7 +1143,8 @@ channel** (uniform|indexed palette encoding behind accessors — `getMaterial` /
   The union tables are `satisfies Record<Union, true>` keyed records, exhaustive in BOTH
   directions — adding a member to a union in `types.ts` without extending the table is a
   compile error (TS1360), not an op the engine emits and its own parser refuses.
-  **Not checked — every NUMERIC field:** a shape's centre/radius/half-extents, a brush's
+  **Not checked — every NUMERIC field:** a shape's centre/radius/half-extents/capsule
+  endpoints (`assertOpValid`'s capsule leg guards the AUTHORING path, not this one), a brush's
   `material` and `mask.classId`, `smooth.strength`/`iterations`, a flood selection's
   `seed`/`budget`, an entity record's `entityId`/`seed`/`region`/`opSpan`, and a patch
   slice's material class ids. The class ids need a `MaterialTable` (`parseOps` takes none);
