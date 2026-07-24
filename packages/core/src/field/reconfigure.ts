@@ -10,13 +10,20 @@
 // setGeneratorFrozen and bakeGeneratorEntity (§2.2) re-evaluate NOTHING. They
 // swap the entity RECORD in place under one entity-update entry, touching no
 // chunk and no span: protection (reversible) and severing (not).
-import { createFieldStore, densityEqual } from "./chunks.ts";
+import {
+  chunkKey,
+  createFieldStore,
+  densityEqual,
+  voxelChunk,
+  worldToVoxel,
+} from "./chunks.ts";
 import { evaluateGenerator, generatorById } from "./generators.ts";
 import { materialsEqual } from "./materials.ts";
 import {
   applyFieldOp,
   assertOpValid,
   assertPatchValid,
+  assertPlacementsValid,
   fieldOpChunks,
   imagesOf,
   restoreImages,
@@ -39,7 +46,15 @@ import type {
   OpInverse,
   OpLog,
   PatchOp,
+  PlacementOp,
+  PlacementRecord,
 } from "./types.ts";
+
+/** A span member: everything a generator commit appends BEFORE the entity op —
+ *  field ops (brush / patch) plus an optional placement op. Excludes the entity
+ *  op itself. The shape {@link evaluateSpan} produces and the reconfigure
+ *  splices back in. */
+type SpanOp = BrushOp | PatchOp | PlacementOp;
 
 /** The merge policy a reconfigure assumes when the caller does not supply one.
  *  F2b's {@link GeneratorEntity} does not record the policy the commit used, so
@@ -179,24 +194,25 @@ function mergeProvenance(
 
 /** Evaluates the generator with the merged provenance and validates the WHOLE
  *  result — the {@link commitGenerator} validate-all-then-apply posture, and the
- *  last leg of a reconfigure that can throw. Returns the field OPS (brush /
- *  patch); placements are not spliced into a reconfigured span yet.
+ *  last leg of a reconfigure that can throw. Returns the whole span in commit
+ *  order: the field ops (brush / patch), then — if any — ONE placement op
+ *  wrapping the emitted records (the {@link commitGenerator} layout), all with
+ *  placeholder id 0 for {@link stampSpan} to renumber.
+ *
+ *  `ctx` is the re-cook context for a `contextFree: false` generator ({@link
+ *  recookContext}) and `undefined` otherwise; {@link evaluateGenerator}'s guard
+ *  enforces the pairing.
  *
  *  @throws {@link Error} if the generator rejects the params, evaluates to an
- *    empty result, or emits an op {@link assertOpValid}/{@link assertPatchValid}
+ *    empty result, or emits an op / placement
+ *    {@link assertOpValid}/{@link assertPatchValid}/{@link assertPlacementsValid}
  *    rejects. */
 function evaluateSpan(
   def: GeneratorDef,
-  store: FieldStore,
   provenance: Provenance,
   table: MaterialTable,
-): (BrushOp | PatchOp)[] {
-  // MIGRATION (until Task 5): a context-reading reconfigure must re-cook
-  // against pre-span SCRATCH state, not the live store; this placeholder passes
-  // the live store. Today every reconfigure-able generator is contextFree, so
-  // this ctx is never actually consumed — the guard just wires the call shape.
-  const ctx: EvaluateContext | undefined =
-    def.contextFree === false ? { store } : undefined;
+  ctx: EvaluateContext | undefined,
+): SpanOp[] {
   const { ops, placements } = evaluateGenerator(
     def,
     provenance.params,
@@ -214,9 +230,63 @@ function evaluateSpan(
     if (op.kind === "patch") assertPatchValid(op, table);
     else assertOpValid(op, table);
   }
-  // MIGRATION (until Task 5): placements are not yet spliced into the
-  // reconfigured span — only scatter emits them, and it arrives in Task 5.
-  return ops;
+  const span: SpanOp[] = [...ops];
+  if (placements.length > 0) {
+    assertPlacementsValid(placements);
+    span.push({ id: 0, kind: "placement", records: placements });
+  }
+  return span;
+}
+
+/** The chunk keys a region AABB spans, in the store's chunk grid — a
+ *  `contextFree: false` generator's declared influence bound (evaluate reads
+ *  only inside its region by contract). The re-cook restores exactly these
+ *  chunks into its scratch so the generator re-reads the same surfaces it saw at
+ *  commit time. */
+function regionChunkKeys(
+  region: Provenance["region"],
+  cellSize: number,
+): Set<ChunkKey> {
+  const keys = new Set<ChunkKey>();
+  const cc = (w: number): number => voxelChunk(worldToVoxel(w, cellSize));
+  for (let cz = cc(region.min[2]); cz <= cc(region.max[2]); cz++)
+    for (let cy = cc(region.min[1]); cy <= cc(region.max[1]); cy++)
+      for (let cx = cc(region.min[0]); cx <= cc(region.max[0]); cx++)
+        keys.add(chunkKey(cx, cy, cz));
+  return keys;
+}
+
+/** Builds the re-cook context for a `contextFree: false` generator: a SCRATCH
+ *  store holding the generator's region chunks as of BEFORE its span (log
+ *  position `spanStartIdx`), so its evaluate re-reads the pre-span surfaces — the
+ *  reconfigured cave, say — rather than the live end-of-log state that includes
+ *  its own span and everything after.
+ *
+ *  Critically it touches the LIVE store not at all: {@link preStateImages} builds
+ *  the pre-span images without mutating it (the scratch-half of
+ *  {@link restorePreState}), and they are restored into a FRESH store. That is
+ *  what preserves the no-mutation-on-throw invariant — the re-cook's evaluate can
+ *  reject, and the live store, log and stacks are still untouched when it does. */
+function recookContext(
+  store: FieldStore,
+  log: OpLog,
+  spanStartIdx: number,
+  region: Provenance["region"],
+  table: MaterialTable,
+  snapshots: readonly SnapshotRecord[],
+): EvaluateContext {
+  const regionChunks = regionChunkKeys(region, store.cellSize);
+  const images = preStateImages(
+    store,
+    log,
+    spanStartIdx,
+    regionChunks,
+    table,
+    snapshots,
+  );
+  const scratch = createFieldStore(store.cellSize);
+  restoreImages(scratch, images);
+  return { store: scratch };
 }
 
 /** The chunks the replacement disturbs directly: the old span's bounded
@@ -287,9 +357,14 @@ function closeOverDownstream(
   };
 }
 
-/** Rebuilds the affected chunks' state as of BEFORE log position `pos` and
- *  copies ONLY those chunks back — every other chunk in the store is left
- *  exactly as it is.
+/** Builds the affected chunks' state as of BEFORE log position `pos` as an
+ *  {@link OpInverse} of images, reading ONLY `log`/`snapshots` and `store`'s cell
+ *  size — never `store`'s chunk bytes, and never mutating it. The
+ *  scratch-building HALF of the rewind: {@link restorePreState} commits these
+ *  images to the LIVE store; {@link recookContext} materializes them into a fresh
+ *  scratch instead, which is what lets a `contextFree: false` re-cook run and
+ *  validate before the live store is touched (the no-mutation-on-throw
+ *  invariant).
  *
  *  Two routes to the same bytes. The CULLED route rebuilds each affected chunk
  *  ALONE, in a scratch store holding nothing else, replaying only the ops that
@@ -311,14 +386,14 @@ function closeOverDownstream(
  *  route replays per CHUNK, so ops shared by many affected chunks are paid for
  *  many times, and a wide affected set can cost more than the single prefix
  *  replay it replaces. */
-function restorePreState(
+function preStateImages(
   store: FieldStore,
   log: OpLog,
   pos: number,
   affected: Set<ChunkKey>,
   table: MaterialTable,
   snapshots: readonly SnapshotRecord[],
-): void {
+): OpInverse {
   const seeds = restoreSeeds(log, pos, affected, snapshots, store.cellSize);
   const everyChunkCulled = seeds.size === affected.size;
   const culledOps = [...seeds.values()].reduce((n, s) => n + s.ops.length, 0);
@@ -326,8 +401,7 @@ function restorePreState(
   if (!takeCulledRoute) {
     const scratch = createFieldStore(store.cellSize);
     for (const op of log.ops.slice(0, pos)) applyFieldOp(scratch, op, table);
-    restoreImages(store, imagesOf(scratch, affected));
-    return;
+    return imagesOf(scratch, affected);
   }
   const images: OpInverse = new Map();
   for (const [key, seed] of seeds) {
@@ -337,7 +411,25 @@ function restorePreState(
     for (const [rebuilt, image] of imagesOf(scratch, [key]))
       images.set(rebuilt, image);
   }
-  restoreImages(store, images);
+  return images;
+}
+
+/** Rebuilds the affected chunks' state as of BEFORE log position `pos` and
+ *  copies ONLY those chunks back — every other chunk in the store is left
+ *  exactly as it is. The route choice + cost model live on
+ *  {@link preStateImages}; this is that image set committed to the LIVE store. */
+function restorePreState(
+  store: FieldStore,
+  log: OpLog,
+  pos: number,
+  affected: Set<ChunkKey>,
+  table: MaterialTable,
+  snapshots: readonly SnapshotRecord[],
+): void {
+  restoreImages(
+    store,
+    preStateImages(store, log, pos, affected, table, snapshots),
+  );
 }
 
 /** True when any of `chunks` reads differently now than it did in `before` (the
@@ -398,11 +490,80 @@ function applyAndReport(
 }
 
 /** Stamps a span with consecutive ids from `firstId`, leaving the ops otherwise
- *  untouched. */
-const stampSpan = (
-  ops: readonly (BrushOp | PatchOp)[],
-  firstId: number,
-): (BrushOp | PatchOp)[] => ops.map((op, i) => ({ ...op, id: firstId + i }));
+ *  untouched. Covers the placement op a `contextFree: false` generator appends,
+ *  which rides the span like any other member. */
+const stampSpan = (ops: readonly SpanOp[], firstId: number): SpanOp[] =>
+  ops.map((op, i) => ({ ...op, id: firstId + i }));
+
+/** The world-AABB chunk keys of one placement record: `position ± scale/2`.
+ *  APPROXIMATION — it assumes a UNIT primitive mesh (±0.5 in local space, so
+ *  world half-extent = `scale/2`) and ignores the `quat`, so a record whose mesh
+ *  is larger than unit, or whose rotation tilts it past that box, can reach cells
+ *  this misses. That is acceptable for the drift report, whose job is a
+ *  jump-to-here list, not an exact cover. */
+function recordChunks(r: PlacementRecord, cellSize: number): Set<ChunkKey> {
+  const keys = new Set<ChunkKey>();
+  const cc = (w: number): number => voxelChunk(worldToVoxel(w, cellSize));
+  const [px, py, pz] = r.position;
+  const [sx, sy, sz] = r.scale;
+  for (
+    let cz = cc(pz - Math.abs(sz) / 2);
+    cz <= cc(pz + Math.abs(sz) / 2);
+    cz++
+  )
+    for (
+      let cy = cc(py - Math.abs(sy) / 2);
+      cy <= cc(py + Math.abs(sy) / 2);
+      cy++
+    )
+      for (
+        let cx = cc(px - Math.abs(sx) / 2);
+        cx <= cc(px + Math.abs(sx) / 2);
+        cx++
+      )
+        keys.add(chunkKey(cx, cy, cz));
+  return keys;
+}
+
+/** Drift finding for ONE downstream placement op (the props-drift contract,
+ *  D-F3-4): a placement writes no field cells, so it never replays — instead
+ *  each record's world AABB ({@link recordChunks}) is intersected with the
+ *  reconfigure's `affected` set, and if any intersecting chunk's bytes MOVED
+ *  (`before` vs the settled store) the op is flagged `drifted`, `chunks` = the
+ *  moved intersecting keys. Null when no record's footprint moved — a prop over
+ *  untouched field is not disturbed. Never `orphaned`: a placement has no field
+ *  outcome to vanish. */
+function placementFinding(
+  store: FieldStore,
+  before: OpInverse,
+  op: PlacementOp,
+  affected: Set<ChunkKey>,
+  cellSize: number,
+): DriftFinding | null {
+  const moved = new Set<ChunkKey>();
+  for (const record of op.records)
+    for (const key of recordChunks(record, cellSize))
+      if (affected.has(key) && outcomeChanged(store, before, new Set([key])))
+        moved.add(key);
+  if (moved.size === 0) return null;
+  return { opId: op.id, kind: "drifted", chunks: [...moved] };
+}
+
+/** Drift findings for the downstream placement ops, in log order — appended
+ *  AFTER the field-op findings ({@link applyAndReport}). Runs once the store has
+ *  settled, so each record's footprint is diffed against the final bytes. */
+function placementDrift(
+  store: FieldStore,
+  before: OpInverse,
+  placements: readonly PlacementOp[],
+  affected: Set<ChunkKey>,
+  cellSize: number,
+): DriftFinding[] {
+  return placements.flatMap((op) => {
+    const finding = placementFinding(store, before, op, affected, cellSize);
+    return finding === null ? [] : [finding];
+  });
+}
 
 /**
  * Re-evaluates a committed generator entity IN PLACE and replays the downstream
@@ -433,6 +594,22 @@ const stampSpan = (
  * evaluation's, closed transitively over the downstream ops that intersect it.
  * Ops outside it are never re-applied. An op whose mask embeds a FLOOD selection
  * reads state outside the cells it writes, so it joins the set unconditionally.
+ *
+ * **A `contextFree: false` generator (scatter) re-cooks against restored pre-span
+ * state.** Its evaluate reads the field, so reconfiguring it re-evaluates against
+ * a SCRATCH restore of its region as of BEFORE its span — the surfaces it saw at
+ * commit time, including any UPSTREAM generator (a cave) reconfigured since —
+ * never the live end-of-log store. The scratch is built without touching the live
+ * store, so a rejecting re-cook is as atomic as any other validation failure. The
+ * affected set still seeds from what the span WRITES (empty for a pure scatter),
+ * never what it reads: reads create no field drift.
+ *
+ * **Downstream placement ops DRIFT when the field beneath them moves** (D-F3-4).
+ * A placement writes no cells, so it never replays and never orphans — instead
+ * each record's world AABB (`position ± scale/2`, a unit-primitive approximation)
+ * is intersected with the affected set, and if any intersecting chunk's bytes
+ * changed the op is flagged `drifted` (its `chunks` = the moved keys). Placement
+ * findings follow the field-op findings in the returned `drift`.
  *
  * `snapshots` is OPTIONAL and purely a cost lever — the output is the same with
  * or without them, and both are verified against each other in
@@ -493,8 +670,10 @@ const stampSpan = (
  * @throws {@link Error} if no entity op carries `entityId`, the entity is
  *   `frozen` or `baked`, its recorded generator id is unknown, the log does not
  *   hold its span where the record says, the generator rejects the merged
- *   params, the evaluation is empty, or an evaluated op fails
- *   {@link assertOpValid}; a `DataCloneError` if `changes.params`/`region` — or
+ *   params (including a `contextFree: false` re-cook that rejects — the live
+ *   store is still untouched), the evaluation is empty, or an evaluated op or
+ *   placement fails {@link assertOpValid}/{@link assertPlacementsValid}; a
+ *   `DataCloneError` if `changes.params`/`region` — or
  *   any field the RECORD itself carries, which the spread copies forward — hold
  *   structured-clone-incompatible values. Every one of those is a VALIDATION
  *   failure and fires before the first write, leaving the store, `log.ops`,
@@ -550,15 +729,43 @@ export function reconfigureGenerator(
   //     it inherits the obligation to validate what it splices.
   // Adding a step below that can genuinely fail breaks this, and the entry
   // pushed at step 7 is the only unwind there is.
+  //
+  // A `contextFree: false` generator (scatter) re-cooks against a SCRATCH restore
+  // of its region's PRE-SPAN state, not the live store — so it re-reads the same
+  // surfaces it saw at commit time (a reconfigured cave upstream, say), and the
+  // live store stays byte-untouched until validation passes. recookContext reads
+  // the live store not at all (see preStateImages), so an evaluate that rejects
+  // leaves everything below the first write intact, exactly as this step
+  // promises.
   const provenance = mergeProvenance(recorded, changes);
-  const evaluated = evaluateSpan(def, store, provenance, table);
-
-  // 3 — the affected set, closed over the downstream ops that intersect it
   const cellSize = store.cellSize;
+  const ctx =
+    def.contextFree === false
+      ? recookContext(
+          store,
+          log,
+          spanStartIdx,
+          provenance.region,
+          table,
+          snapshots,
+        )
+      : undefined;
+  const evaluated = evaluateSpan(def, provenance, table, ctx);
+
+  // 3 — the affected set, closed over the downstream ops that intersect it. It
+  // seeds from what the span WRITES (empty for a pure scatter), never what a
+  // context-reading generator READS: reads create no field drift, so the region
+  // it re-cooks against is the scratch's concern (above), not the replay set's.
+  // Downstream placement ops are collected separately — they write no cells, so
+  // they never enter `replay`, but their props can DRIFT when the field beneath
+  // them moves (the placement-drift pass in step 6).
   const { affected, replay } = closeOverDownstream(
     directlyAffected(spanOps, evaluated, cellSize),
     downstreamOf(log, entityIdx, cellSize),
   );
+  const downstreamPlacements = log.ops
+    .slice(entityIdx + 1)
+    .filter((o): o is PlacementOp => o.kind === "placement");
 
   // 4 — old-final images: undo's `before` AND the drift baseline
   const before = imagesOf(store, affected);
@@ -589,9 +796,15 @@ export function reconfigureGenerator(
   spliceOps(log.ops, spanStartIdx, removed.length, inserted);
   log.nextId = firstId + newSpan.length;
 
-  // 6 — rewind the affected chunks, then re-apply forward
+  // 6 — rewind the affected chunks, then re-apply forward. Field-op findings
+  // come first (log order among the replayed ops), then placement findings
+  // (log order among the downstream placement ops) — both diffed once the store
+  // has settled.
   restorePreState(store, log, spanStartIdx, affected, table, snapshots);
-  const drift = applyAndReport(store, newSpan, replay, before, table);
+  const drift = [
+    ...applyAndReport(store, newSpan, replay, before, table),
+    ...placementDrift(store, before, downstreamPlacements, affected, cellSize),
+  ];
 
   // 7 — after-images + the ONE undo entry
   const after = imagesOf(store, affected);

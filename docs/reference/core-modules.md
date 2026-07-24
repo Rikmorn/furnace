@@ -830,27 +830,30 @@ channel** (uniform|indexed palette encoding behind accessors — `getMaterial` /
   brush ops quantize their +1-margin sample bounds).
 - **Placement ops (F3b: D-F3-8)** — `PlacementOp` = a set of `PlacementRecord`s (each an
   `archetypeId`, world `position`, unit `quat`, per-axis `scale`, `variantIndex`), no
-  field-cell writes. Orientation resolves at PLACEMENT time — the quat is baked in, so
-  the recorded op replays as context-free data. It rides the log like an entity op:
-  replay-ordered, undoable, skipped by every store-mutating replay path (`applyFieldOp`
-  returns null, `fieldOpChunks` returns empty, cell-local trivially). `assertPlacementsValid`
-  is setup-loud (non-empty `archetypeId`, finite `position`/`scale`, unit-length `quat`
-  within 1e-3, non-negative integer `variantIndex`) — the commit and the oplog decoder
-  both run it.
+  field-cell writes; the **scatter generator** emits them. Orientation resolves at
+  PLACEMENT time — the quat is baked in, so the recorded op replays as context-free data.
+  It rides the log like an entity op: replay-ordered, undoable, skipped by every
+  store-mutating replay path (`applyFieldOp` returns null, `fieldOpChunks` returns empty,
+  cell-local trivially). `assertPlacementsValid` is setup-loud (non-empty `archetypeId`,
+  finite `position`/`scale`, unit-length `quat` within 1e-3, non-negative integer
+  `variantIndex`) — the commit and the oplog decoder both run it.
 - **Selection** — `SelectionSpec` (region | flood-material | flood-void) →
   `materializeSelection` (6-connected BFS, budget-capped LOUDLY via `truncated`, ceiling
   `MAX_SELECTION_BUDGET`; pure query) + `selectionHas`; `MaterializedSelection` keeps
   regions as predicates and floods as chunk-keyed bitsets. Deterministic and embeddable
   in op masks (floods re-evaluate against replayed state).
-- **Staged generators (F2b: the first entity ops; F3b: the evaluate widening + the cave)** —
+- **Staged generators (F2b: the first entity ops; F3b: the evaluate widening + the cave + scatter)** —
   `FIELD_GENERATORS` registry (`generatorById`, setup-loud): data-parameterized hall,
-  maze, and **cave** (`GeneratorDef` — plain JSON-Schema params; integer-only maze RNG, donor
+  maze, **cave**, and **scatter** (`GeneratorDef` — plain JSON-Schema params; integer-only maze RNG, donor
   bit-parity). `evaluate` → a **`GeneratorResult`** = `{ ops, placements }` (D-F3-8): `ops`
   are lattice-snapped brush AND patch ops, `placements` are explicit `PlacementRecord`s;
   a `MergePolicy` (replace | keep-existing-air) rides in. Each `GeneratorDef` declares
   `contextFree: boolean` — `true` = pure in (params, seed, region), so the recorded span
   replays == re-evaluates (hall/maze/cave); `false` = evaluate reads the field through an
-  `EvaluateContext` ({ store }), passed only then. `commitGenerator` applies the field ops
+  `EvaluateContext` ({ store }), passed only then (scatter). The shared strict param
+  validators (`numParam`/`intParam`/`boolParam`) live in a cycle-free `generator-params.ts`
+  leaf (the `rng.ts` precedent — the registry imports the defs, so a def importing validators
+  back out of `generators.ts` would cycle). `commitGenerator` applies the field ops
   and, if any, wraps `placements` in ONE placement op appended after them (inside `opSpan`),
   then records the `EntityOp` (`GeneratorEntity`: generator id, params, seed, region, opSpan
   — full provenance) under ONE undo entry; an empty result (no ops AND no placements) is
@@ -872,6 +875,21 @@ channel** (uniform|indexed palette encoding behind accessors — `getMaterial` /
   and Pr-2-exact (no transcendentals, no float-seeded tables — the donor's noise perm table
   is rewritten to a hash-direct lookup). There is deliberately NO `rotation` param: the
   skeleton is seeded isotropically in the region.
+- **The scatter generator (F3b)** — the first `contextFree: false` generator and the first
+  PLACEMENT emitter: it READS the carved field through `ctx.store` and projects prop
+  instances onto surfaces, returning `{ ops: [], placements }` (no field-cell writes). A
+  jittered candidate lattice (pitch `max(minSpacing, 1/√density)`) is projected onto the
+  `hemisphere`'s crossing — `floor` (topmost rock→air, normal up), `ceiling` (rock-above-air,
+  normal down), or `wall` (horizontal crossing, normal sideways) — with a central-difference
+  gradient normal and greedy `minSpacing` rejection. Each record bakes its `quat` from the
+  `orientation` mode (`gravity` yaw-only, `normal` aligned to the surface, `blend` an **nlerp**
+  of the two — never slerp/trig), a uniform `scale` in `[scaleMin, scaleMax]`, and
+  `variantIndex = rng % variants`. Pr-2-exact: integer RNG, `Math.sqrt` + the four ops only.
+  The candidate lattice is capped at 4096 sites (setup-loud — shrink the region or lower
+  density). Reconfiguring scatter RE-COOKS against a scratch restore of its region's pre-span
+  state (so it re-reads a reconfigured cave upstream); reconfiguring an upstream generator
+  leaves scatter's records untouched but DRIFTS its placement op when the field beneath the
+  props moves (`reconfigureGenerator` placement-drift, D-F3-4).
 - **Stamp placement authoring (F3a: D-F3-13)** — ONE authoring convention across every
   generator. `rotation` is a quarter turn about +Y, spelled as the STRING enum
   `"0" | "90" | "180" | "270"` (default `"0"`), applied to the finished mini-grid after
@@ -914,11 +932,18 @@ channel** (uniform|indexed palette encoding behind accessors — `getMaterial` /
   the span stays contiguous. Replay is CULLED to the affected set (old span's chunks ∪
   the new evaluation's, closed transitively over downstream ops that intersect it); an
   op whose mask embeds a FLOOD selection reads outside its own writes, so it is included
-  unconditionally. Returns `{dirty, entity, drift}`: `dirty` is the whole affected set
+  unconditionally. A `contextFree: false` generator (scatter, F3b) RE-COOKS against a
+  scratch restore of its region's pre-span state — built without touching the live store,
+  so a rejecting re-cook is as atomic as any other validation failure — instead of reading
+  the live end-of-log store. Returns `{dirty, entity, drift}`: `dirty` is the whole affected set
   (a restored-but-unrewritten chunk still needs a remesh), `entity` is a COPY of the new
-  record, and `drift` is a `DriftFinding[]` in log order — `orphaned` (the replayed op
+  record, and `drift` is a `DriftFinding[]` — `orphaned` (the replayed op
   wrote nothing) or `drifted` (its chunks read differently than before), each with
-  chunk-quantized `chunks` for jump-to-bounds UI. Drift is chunk-granular and does not
+  chunk-quantized `chunks` for jump-to-bounds UI. Downstream PLACEMENT ops never replay
+  (they write no cells) but DRIFT when the field beneath them moves: each record's world
+  AABB (`position ± scale/2`, a unit-primitive approximation) is intersected with the
+  affected set, and a moved chunk flags the op `drifted` (F3b, D-F3-4). Field-op findings
+  come first (log order), then placement findings. Drift is chunk-granular and does not
   attribute cause — a place worth a look, not a proof an op misbehaved. One `splice`
   undo entry, redo cleared; undo/redo restore images and never re-execute the span, and
   `log.nextId` is not rolled back (ids are handed out once). Setup-loud: unknown

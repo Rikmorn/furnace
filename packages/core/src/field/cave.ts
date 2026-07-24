@@ -25,6 +25,7 @@ import {
   voxelChunk,
   worldToVoxel,
 } from "./chunks.ts";
+import { boolParam, intParam, numParam } from "./generator-params.ts";
 import { PATCH_MASK_BYTES } from "./ops.ts";
 import { fnv1a, makeIntRng } from "./rng.ts";
 import type {
@@ -1288,52 +1289,6 @@ const CAVE_DEFAULTS: Record<string, unknown> = Object.fromEntries(
   Object.entries(CAVE_SCHEMA.properties).map(([k, p]) => [k, p.default]),
 );
 
-/** Setup-loud number param in `[minimum, maximum]` (admits fractional). */
-function numParam(
-  params: Record<string, unknown>,
-  key: string,
-  range: { minimum: number; maximum: number },
-): number {
-  const v = params[key];
-  if (
-    typeof v !== "number" ||
-    !Number.isFinite(v) ||
-    v < range.minimum ||
-    v > range.maximum
-  )
-    throw new Error(
-      `cave: ${key} must be a number in [${range.minimum}, ${range.maximum}], got ${JSON.stringify(v)}`,
-    );
-  return v;
-}
-
-/** Setup-loud integer param in `[minimum, maximum]`. */
-function intParam(
-  params: Record<string, unknown>,
-  key: string,
-  range: { minimum: number; maximum: number },
-): number {
-  const v = params[key];
-  if (
-    typeof v !== "number" ||
-    !Number.isInteger(v) ||
-    v < range.minimum ||
-    v > range.maximum
-  )
-    throw new Error(
-      `cave: ${key} must be an integer in [${range.minimum}, ${range.maximum}], got ${JSON.stringify(v)}`,
-    );
-  return v;
-}
-
-/** Setup-loud boolean param. */
-function assertBoolParam(params: Record<string, unknown>, key: string): void {
-  if (typeof params[key] !== "boolean")
-    throw new Error(
-      `cave: ${key} must be a boolean, got ${JSON.stringify(params[key])}`,
-    );
-}
-
 /** Setup-loud door offset: absent (auto-centre) or an integer in range. Every
  *  wall's offset is validated, enabled or not — the hall/maze stance (a bad
  *  offset on a disabled door must not lurk in persisted params). */
@@ -1365,13 +1320,13 @@ function caveParams(params: Record<string, unknown>): {
     throw new Error(
       `cave: theme must be one of ${CAVE_THEMES.map((t) => `"${t}"`).join(" | ")}, got ${JSON.stringify(theme)}`,
     );
-  intParam(params, "chambers", P.chambers);
-  numParam(params, "chamberRadius", P.chamberRadius);
-  numParam(params, "verticality", P.verticality);
-  const roughness = numParam(params, "roughness", P.roughness);
-  intParam(params, "extraLoops", P.extraLoops);
+  intParam("cave", params, "chambers", P.chambers);
+  numParam("cave", params, "chamberRadius", P.chamberRadius);
+  numParam("cave", params, "verticality", P.verticality);
+  const roughness = numParam("cave", params, "roughness", P.roughness);
+  intParam("cave", params, "extraLoops", P.extraLoops);
   for (const w of CAVE_WALLS) {
-    assertBoolParam(params, w.enable);
+    boolParam("cave", params, w.enable);
     assertOffsetParam(params, w.offsetKey);
   }
   return { theme: theme as CaveTheme, roughness };

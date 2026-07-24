@@ -6,6 +6,7 @@
 // the ONE plug point (resolves the third-grid-vocabulary dispatch tax), and
 // commitGenerator owns the entity semantics: one commit = one undo entry.
 import { caveGenerator } from "./cave.ts";
+import { boolParam, intParam, numParam } from "./generator-params.ts";
 import {
   applyFieldOp,
   assertOpValid,
@@ -13,6 +14,7 @@ import {
   assertPlacementsValid,
 } from "./ops.ts";
 import { fnv1a, makeIntRng } from "./rng.ts";
+import { scatterGenerator } from "./scatter.ts";
 import type {
   BrushOp,
   ChunkKey,
@@ -322,63 +324,6 @@ function openDoor(
               `${di},${j},${dk}) — move the door or adjust the interior`,
           );
       }
-}
-
-/** Integer param in the schema property's [minimum, maximum] — setup-loud.
- *  `label` names the generator in the error ("hall" / "maze"). */
-function intParam(
-  label: string,
-  params: Record<string, unknown>,
-  key: string,
-  range: { minimum: number; maximum: number },
-): number {
-  const v = params[key];
-  if (
-    typeof v !== "number" ||
-    !Number.isInteger(v) ||
-    v < range.minimum ||
-    v > range.maximum
-  )
-    throw new Error(
-      `${label}: ${key} must be an integer in [${range.minimum}, ${range.maximum}], got ${JSON.stringify(v)}`,
-    );
-  return v;
-}
-
-/** Finite number param in the schema property's [minimum, maximum] —
- *  setup-loud; unlike {@link intParam} it admits fractional values (the
- *  maze's braid is a real-valued probability, NOT an integer). */
-function numParam(
-  label: string,
-  params: Record<string, unknown>,
-  key: string,
-  range: { minimum: number; maximum: number },
-): number {
-  const v = params[key];
-  if (
-    typeof v !== "number" ||
-    !Number.isFinite(v) ||
-    v < range.minimum ||
-    v > range.maximum
-  )
-    throw new Error(
-      `${label}: ${key} must be a number in [${range.minimum}, ${range.maximum}], got ${JSON.stringify(v)}`,
-    );
-  return v;
-}
-
-/** Boolean param — setup-loud. `label` names the generator in the error. */
-function boolParam(
-  label: string,
-  params: Record<string, unknown>,
-  key: string,
-): boolean {
-  const v = params[key];
-  if (typeof v !== "boolean")
-    throw new Error(
-      `${label}: ${key} must be a boolean, got ${JSON.stringify(v)}`,
-    );
-  return v;
 }
 
 /** The stamp's quarter-turn rotation.
@@ -986,6 +931,7 @@ export const FIELD_GENERATORS: readonly GeneratorDef[] = [
   hallGenerator,
   mazeGenerator,
   caveGenerator,
+  scatterGenerator,
 ];
 
 /** Registry lookup, setup-loud on unknown ids. */

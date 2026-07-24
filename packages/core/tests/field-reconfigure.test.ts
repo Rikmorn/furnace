@@ -22,11 +22,15 @@ import {
   redo,
   setGeneratorFrozen,
   undo,
+  worldToVoxel,
 } from "@furnace/core/field";
 // In-core helpers, deliberately NOT on the public index (the spliceOps
 // precedent). materialsEqual is used here only to prove the density-only drift
 // case's premise — that the material channel really is untouched; its own unit
 // tests live in field-materials.test.ts, which owns that module.
+// evaluateGenerator is the in-core evaluate seam (also off the index) — the
+// re-cook tests compare a reconfigure's records against a fresh evaluate.
+import { evaluateGenerator } from "../src/field/generators.ts";
 import { materialsEqual } from "../src/field/materials.ts";
 import { imagesOf, PATCH_MASK_BYTES } from "../src/field/ops.ts";
 import { snapshotAll } from "./_helpers/field-store.ts";
@@ -1128,4 +1132,201 @@ describe("setGeneratorFrozen / bakeGeneratorEntity — no-ops and setup-loud gua
       expect(snapshotLog(log)).toEqual(beforeLog);
     });
   }
+});
+
+// ─── contextFree:false re-cook + placement drift (scatter over a cave) ───
+// Scatter is the first contextFree:false generator: it READS the carved field
+// and emits placement records. Two reconfigure behaviours are unique to it —
+// (1) when an UPSTREAM generator (the cave) is reconfigured, scatter's placement
+// op replays as DATA (records unchanged) but its props DRIFT (the field beneath
+// them moved); (2) when SCATTER itself is reconfigured, it re-cooks against the
+// restored pre-span field, so its records follow the NEW cave.
+describe("reconfigureGenerator — contextFree:false re-cook + placement drift", () => {
+  const CAVE = generatorById("cave");
+  const SCATTER = generatorById("scatter");
+  const CAVE_REGION = {
+    min: [0, 0, 0] as [number, number, number],
+    max: [12, 8, 12] as [number, number, number],
+  };
+  const SCATTER_PARAMS = (): Record<string, unknown> => ({
+    ...structuredClone(SCATTER.defaults),
+    density: 0.8, // enough sites to reliably populate the cave floors
+  });
+
+  /** Commits a cave then a scatter reading it; returns their entities, the
+   *  scatter placement op id, and its committed records. */
+  const commitCaveThenScatter = (
+    store: FieldStore,
+    log: OpLog,
+    caveSeed: number,
+    scatterSeed: number,
+  ) => {
+    const cave = commitGenerator(store, log, CAVE, {
+      params: structuredClone(CAVE.defaults),
+      seed: caveSeed,
+      region: CAVE_REGION,
+      policy: "replace",
+      table: TABLE,
+    }).entity;
+    const scatter = commitGenerator(store, log, SCATTER, {
+      params: SCATTER_PARAMS(),
+      seed: scatterSeed,
+      region: CAVE_REGION,
+      policy: "replace",
+      table: TABLE,
+    }).entity;
+    const placement = log.ops.find((o) => o.kind === "placement");
+    if (placement === undefined || placement.kind !== "placement")
+      throw new Error("test: scatter committed no placement op");
+    return {
+      cave,
+      scatter,
+      placementId: placement.id,
+      records: placement.records,
+    };
+  };
+
+  const placementRecordsOf = (log: OpLog) => {
+    const op = log.ops.find((o) => o.kind === "placement");
+    if (op === undefined || op.kind !== "placement")
+      throw new Error("test: no placement op in the log");
+    return op.records;
+  };
+
+  test("reconfiguring the CAVE leaves scatter's records untouched but flags the props as drifted", () => {
+    const { store, log } = makeWorld();
+    const { cave, placementId, records } = commitCaveThenScatter(
+      store,
+      log,
+      5,
+      3,
+    );
+    expect(records.length).toBeGreaterThan(0);
+
+    const r = reconfigureGenerator(
+      store,
+      log,
+      cave.entityId,
+      { seed: 9 },
+      TABLE,
+    );
+
+    // the placement op REPLAYS AS DATA — the cave reconfigure does not re-cook
+    // scatter, so its records are byte-identical
+    expect(placementRecordsOf(log)).toEqual(records);
+    // …but its props sit on field that MOVED, so the op is reported drifted
+    // (the D-F3-4 props-drift contract), with chunk-quantized locations
+    const finding = r.drift.find((d) => d.opId === placementId);
+    expect(finding?.kind).toBe("drifted");
+    expect(finding?.chunks.length ?? 0).toBeGreaterThan(0);
+  });
+
+  test("reconfiguring SCATTER re-cooks against the reconfigured cave (new surfaces)", () => {
+    const { store, log } = makeWorld();
+    const {
+      cave,
+      scatter,
+      records: before,
+    } = commitCaveThenScatter(store, log, 5, 3);
+    // reconfigure the cave FIRST — the field scatter reads is now different
+    reconfigureGenerator(store, log, cave.entityId, { seed: 9 }, TABLE);
+    // …then re-cook scatter with NO changes: same params + seed, so any change
+    // in the records can ONLY come from re-reading the new pre-span field.
+    reconfigureGenerator(store, log, scatter.entityId, {}, TABLE);
+    const after = placementRecordsOf(log);
+
+    // the re-cook read the NEW cave: records changed even at the same seed…
+    expect(after).not.toEqual(before);
+    // …and they are EXACTLY what a fresh evaluate against the current (post-cave-
+    // reconfigure) field produces — proof the scratch was the pre-span state,
+    // which for a write-nothing scatter equals the live store here.
+    const fresh = evaluateGenerator(
+      SCATTER,
+      { ...SCATTER_PARAMS(), density: 0.8 },
+      3,
+      CAVE_REGION,
+      TABLE,
+      "replace",
+      { store },
+    ).placements;
+    expect(after).toEqual(fresh);
+  });
+
+  test("a re-roll (new seed) re-cooks against the current field and lands on real surfaces", () => {
+    const { store, log } = makeWorld();
+    const { scatter, records: before } = commitCaveThenScatter(
+      store,
+      log,
+      5,
+      3,
+    );
+
+    const r = reconfigureGenerator(
+      store,
+      log,
+      scatter.entityId,
+      { seed: 21 },
+      TABLE,
+    );
+    const after = placementRecordsOf(log);
+    expect(after).not.toEqual(before);
+    expect(r.dirty.size).toBe(0); // scatter writes no field cells
+    // Every re-rolled floor prop sits near a real rock→air crossing in the
+    // CURRENT store (it projected onto the actual field, not stale data). The
+    // recorded position is offset along the surface normal (props sit proud of
+    // the surface), so on a sloped floor worldToVoxel(pos) can be one sample off
+    // the column scatter read — scan a 3×3 column neighbourhood to absorb that.
+    for (const rec of after) {
+      const cx = worldToVoxel(rec.position[0], 0.25);
+      const cz = worldToVoxel(rec.position[2], 0.25);
+      let onSurface = false;
+      for (let dx = -1; dx <= 1; dx++)
+        for (let dz = -1; dz <= 1; dz++)
+          for (let y = -CHUNK_DIM; y < 3 * CHUNK_DIM; y++) {
+            const d0 = getDensity(store, cx + dx, y, cz + dz);
+            const d1 = getDensity(store, cx + dx, y + 1, cz + dz);
+            if (d0 < 0 && d1 > 0) {
+              const cw = (y + d0 / (d0 - d1)) * 0.25;
+              if (Math.abs(cw - rec.position[1]) <= 0.3) onSurface = true;
+            }
+          }
+      expect(onSurface).toBe(true);
+    }
+  });
+
+  // THE no-mutation-on-throw proof for the re-cook (the tranche's riskiest
+  // point). The re-cook builds a SCRATCH pre-span restore (preStateImages, which
+  // never touches the live store) before evaluate runs; a rejecting evaluate
+  // must therefore leave the live store, log and stacks byte-identical.
+  //
+  // The DOWNSTREAM dig is what gives this teeth: it edits scatter's region AFTER
+  // its span, so scatter's PRE-SPAN state (what the re-cook restores) now differs
+  // from the live bytes. A live-mutating restore would rewind the dig before the
+  // throw and leave the store visibly changed. SABOTAGE ANCHOR: route the re-cook
+  // scratch through the live-mutating restorePreState instead of preStateImages
+  // + a fresh scratch, and this goes red.
+  test("a re-cook whose evaluate REJECTS leaves the live store byte-unchanged", () => {
+    const { store, log } = makeWorld();
+    const { scatter } = commitCaveThenScatter(store, log, 5, 3);
+    // an edit INSIDE scatter's region (a solid corner the cave leaves rock),
+    // committed AFTER its span — so the pre-span restore genuinely differs from
+    // the live store, giving the sabotage teeth. Self-validated: the dig must
+    // actually write, or the scenario proves nothing.
+    expect(logApply(store, log, digSphere([1, 1, 1], 1.5), TABLE).size).toBe(8);
+    const beforeStore = snapshotAll(store);
+    const beforeLog = snapshotLog(log);
+
+    expect(() =>
+      reconfigureGenerator(
+        store,
+        log,
+        scatter.entityId,
+        { params: { ...SCATTER_PARAMS(), density: 999 } },
+        TABLE,
+      ),
+    ).toThrow(/density must be a number/);
+
+    expect(snapshotAll(store)).toEqual(beforeStore);
+    expect(snapshotLog(log)).toEqual(beforeLog);
+  });
 });
