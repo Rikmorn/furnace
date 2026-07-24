@@ -11,7 +11,11 @@
 // cube / sphere / cylinder, not the archetype's `.fmesh` variants the dungeon
 // loads. Mesh-accurate editor props are backlogged
 // (`docs/backlog/editor-and-tooling/field-editor-prop-meshes.md`).
-import type { FieldOp, PlacementRecord } from "@furnace/core/field";
+import type {
+  FieldOp,
+  GeneratorEntity,
+  PlacementRecord,
+} from "@furnace/core/field";
 import type {
   EntityArchetype,
   EntityCollision,
@@ -231,17 +235,27 @@ export type PlacedArchetype = { archetypeId: string; count: number };
  *  same place — so nothing here may assume ids ascend with position.
  *
  *  It TESTS each placement op's id against the span bounds rather than walking
- *  the span's id RANGE. `opSpan` is trusted numeric data on load (`parseOps`
- *  does not check its bounds), so a range walk would spin unboundedly on one
- *  corrupt record; and the cost then rides on placement-ops × entities — both
- *  ENTITY-scale — instead of on the op count, so a heavily carved world costs no
- *  more than an empty one. */
+ *  the span's id RANGE: `opSpan` is trusted numeric data on load (`parseOps`
+ *  does not check its bounds), so a WALK's cost rides on span width — unbounded
+ *  on one corrupt record. This shape's cost is instead two scans over `ops` plus
+ *  placement-ops × entities for the attribution, so it does still grow with the
+ *  LOG: measured 0.02 ms for 5 entities × 200 records over no brush ops against
+ *  0.50 ms for the same set over 50 000, and 2.3 ms at 200 entities × 500
+ *  records over 100 000 — a ~24× swing driven by carve count alone.
+ *  Comfortable either way on this path: the entity list refreshes on discrete
+ *  user actions, never per-rAF.
+ *
+ *  A placement op no span claims is skipped, runtime-quiet. Note the divergence
+ *  from {@link groupPlacements}, which counts every record whatever owns it: on
+ *  a corrupt log the prop LAYER would draw props that no row accounts for. */
 export const placementsByEntity = (
   ops: readonly FieldOp[],
 ): Map<number, PlacedArchetype[]> => {
-  const entities = ops.flatMap((op) =>
-    op.kind === "entity" ? [op.entity] : [],
-  );
+  // A push loop, not `ops.flatMap` — the flatMap allocates one throwaway array
+  // per op, and this scan runs over the whole log (50 000 of them in the figures
+  // above).
+  const entities: GeneratorEntity[] = [];
+  for (const op of ops) if (op.kind === "entity") entities.push(op.entity);
   const counts = new Map<number, Map<string, number>>();
   for (const op of ops) {
     if (op.kind !== "placement") continue;
@@ -250,7 +264,7 @@ export const placementsByEntity = (
     );
     if (owner === undefined) continue; // an orphan; no commit path makes one
     const byArchetype = counts.get(owner.entityId) ?? new Map<string, number>();
-    counts.set(owner.entityId, byArchetype);
+    if (!counts.has(owner.entityId)) counts.set(owner.entityId, byArchetype);
     for (const r of op.records)
       byArchetype.set(r.archetypeId, (byArchetype.get(r.archetypeId) ?? 0) + 1);
   }

@@ -21,10 +21,18 @@ pre-existing — F3a shipped the `<dl>` and the guard together. F3b closed the s
 `placed` because that one puts a wrong NUMBER on the collapsed row, which is visible without
 expanding anything.
 
-The fix is not simply "compare params too": params are arbitrary `Record<string, unknown>`
-values, so a comparator needs a decision about depth (shallow value-compare, JSON
-stringify, structural walk) and about cost on every tick with a large param set. That is the
-design question that keeps this out of an inline fix.
+What defers this is SCOPE, not difficulty — it is pre-existing and outside the task that
+surfaced it. Whoever picks it up should not re-derive a blocker that is not there:
+
+- **Depth is already decided.** `formatParam` in `EntitiesList.tsx` fixes what the row
+  actually displays — `typeof v === "object" && v !== null ? JSON.stringify(v) : String(v)`.
+  "Compare what the row renders" answers the depth question with no new design decision,
+  which is exactly the principle the `placed` fix used.
+- **Cost is not a real objection.** Param sets are schema-driven and small (a generator's
+  `paramSchema` properties), and the guard already does per-entity work on every tick.
+
+So the likely shape is a `sameParams` helper beside `samePlaced`, comparing the rendered
+projection rather than the raw values.
 
 **Trigger to revisit:** when the params `<dl>` becomes editable (the row stops being a
 read-only record), OR the first time a world switch is a routine part of the loop rather

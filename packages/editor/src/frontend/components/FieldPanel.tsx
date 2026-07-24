@@ -22,6 +22,7 @@ import type {
 	FieldMaskChoice,
 	FieldStats,
 	FieldTool,
+	PlacedArchetype,
 	SelectionInfo,
 	SelectionMode,
 	StampSession,
@@ -128,10 +129,15 @@ const toolsEqual = (a: FieldTool, b: FieldTool): boolean => {
 //
 // The flags DO need their own comparison too — freeze and bake rewrite the
 // record and nothing else, so without them a frozen badge would never appear.
-const samePlaced = (a: FieldEntityInfo, b: FieldEntityInfo): boolean =>
-	a.placed.length === b.placed.length &&
-	a.placed.every((p, i) => {
-		const o = b.placed[i];
+// Index-wise, not set-wise: `rowSummary` renders `placed` in ARRAY order, so a
+// reordering changes the row string and must re-render.
+const samePlaced = (
+	a: readonly PlacedArchetype[],
+	b: readonly PlacedArchetype[],
+): boolean =>
+	a.length === b.length &&
+	a.every((p, i) => {
+		const o = b[i];
 		return (
 			o !== undefined && p.archetypeId === o.archetypeId && p.count === o.count
 		);
@@ -141,16 +147,44 @@ const sameEntities = (a: FieldEntityInfo[], b: FieldEntityInfo[]): boolean =>
 	a.length === b.length &&
 	a.every((e, i) => {
 		const o = b[i];
+		if (o === undefined) return false;
+		// Compiler backstop — the toolsEqual/statsEqual rider, and the one THIS
+		// comparator was missing when the `placed` hole shipped. FieldEntityInfo is
+		// an intersection over CORE's GeneratorEntity, so a field added there lands
+		// here silently and no test can exist for a field nobody knew to compare;
+		// destructuring every one makes the compiler force the question.
+		//
+		// The three voided below are deliberate non-compares: `type` is the constant
+		// literal "generator"; `region` is never rendered by a row (the highlight box
+		// is drawn from the HOST's own record, off an id); and `params` is the known
+		// pre-existing hole, filed as
+		// `docs/backlog/editor-and-tooling/entity-row-params-stale-across-load.md`.
+		const {
+			entityId,
+			type,
+			generator,
+			params,
+			seed,
+			region,
+			opSpan,
+			frozen,
+			baked,
+			placed,
+			...rest
+		} = e;
+		void (rest satisfies Record<string, never>);
+		void type;
+		void params;
+		void region;
 		return (
-			o !== undefined &&
-			e.entityId === o.entityId &&
-			e.generator === o.generator &&
-			e.seed === o.seed &&
-			e.opSpan[0] === o.opSpan[0] &&
-			e.opSpan[1] === o.opSpan[1] &&
-			e.frozen === o.frozen &&
-			e.baked === o.baked &&
-			samePlaced(e, o)
+			entityId === o.entityId &&
+			generator === o.generator &&
+			seed === o.seed &&
+			opSpan[0] === o.opSpan[0] &&
+			opSpan[1] === o.opSpan[1] &&
+			frozen === o.frozen &&
+			baked === o.baked &&
+			samePlaced(placed, o.placed)
 		);
 	});
 

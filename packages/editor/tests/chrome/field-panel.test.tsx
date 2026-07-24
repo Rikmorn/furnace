@@ -654,6 +654,29 @@ test("a scatter row names the archetype it placed and how many; a carver row kee
 	expect(screen.getByText("hall · seed 7 · 3 ops")).toBeTruthy();
 });
 
+// The branch the array-shaped `placed` EXISTS for. Scatter names one archetype
+// per commit, so every other test here renders a single entry and the flatMap's
+// multi-entry path never runs. `placementsByEntity` counting two archetypes is
+// pinned in field-placements.test.ts; this pins what the ROW then reads like.
+test("a row that placed TWO archetypes names both", async () => {
+	fetch404();
+	const stub = makeStubHost({ generators: [HALL_GEN] });
+	await showEntities(stub, [
+		{
+			...SCATTER,
+			placed: [
+				{ archetypeId: "rock", count: 24 },
+				{ archetypeId: "stalagmite", count: 3 },
+			],
+		},
+	]);
+	expect(
+		screen.getByText(
+			"scatter · seed 9 · 1 ops · rock · 24 placed · stalagmite · 3 placed",
+		),
+	).toBeTruthy();
+});
+
 // The refresh guard's blind spot, closed. `sameEntities` compares id, generator,
 // seed, opSpan and the two flags — and a world SWITCH can leave every one of
 // those equal while the counts differ, because loadWorld recomputes

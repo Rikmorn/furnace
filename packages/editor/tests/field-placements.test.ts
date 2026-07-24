@@ -322,17 +322,25 @@ test("placementsByEntity attributes by span id even when the NEXT entity op in l
 // oplog.json can carry an arbitrarily wide one. Attribution must therefore never
 // WALK the range.
 //
-// The budget is what makes that assertable. A plain wide span would let a
-// range-walking implementation HANG (a synchronous loop cannot be pre-empted by
-// the per-test timeout — measured: the run never returns), turning a regression
-// into a stalled suite instead of a red test. Reading the upper bound through a
-// counter fixes that: `for (let id = span[0]; id <= span[1]; id++)` re-evaluates
-// span[1] on EVERY iteration, so a walk trips the budget in microseconds and
-// fails loudly, while id-membership reads it once per placement op × entity.
+// The budget converts ONE spelling of that regression from a hang into a red
+// test, and it is worth being exact about which. `for (let id = span[0]; id <=
+// span[1]; id++)` re-evaluates span[1] on every iteration, so it trips the
+// budget in microseconds (verified). Hoist the bounds first — `const [lo, hi] =
+// e.opSpan` — and the proxy is read twice, the budget never fires, and the walk
+// HANGS instead (also verified: killed at 15 s, no output). Hoisting is at least
+// as natural a spelling, so this is a tripwire on the shape that was actually
+// written and replaced here, not a guarantee against every range walk. A
+// subprocess-with-timeout harness would close the gap and is not worth its
+// weight for the risk.
+//
+// The result assertion below is the real one either way; the budget never fires
+// for a correct implementation, which reads the bound once per placement op ×
+// entity.
 const SPAN_READ_BUDGET = 1000;
 
 /** An `opSpan` whose upper bound throws once read more than `SPAN_READ_BUDGET`
- *  times — generous for any id-membership test, instant for a range walk. */
+ *  times — generous for any id-membership test, instant for a range walk that
+ *  re-reads the bound per iteration. */
 const budgetedSpan = (first: number, last: number): [number, number] => {
   let reads = 0;
   return new Proxy([first, last] as [number, number], {

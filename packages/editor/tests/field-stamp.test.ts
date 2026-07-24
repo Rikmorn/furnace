@@ -1365,11 +1365,11 @@ test("a load-time compaction that throws is caught: the world still loads and th
 
 import type { PlacementRecord } from "@furnace/core/field";
 import type { EntityCatalog } from "../src/frontend/lib/catalog.ts";
-import type { FieldEntityInfo } from "../src/viewport-host/field-host.ts";
 import {
   groupPlacements,
   placesArchetypes,
 } from "../src/viewport-host/field-placements.ts";
+import type { FieldEntityInfo } from "../src/viewport-host/index.ts";
 
 const CAVE_REGION = {
   min: [0, 0, 0] as [number, number, number],
