@@ -2,6 +2,7 @@ import {
   CHUNK_DIM,
   CHUNK_SAMPLES,
   chunkKey,
+  clampInt8,
   DENSITY_SCALE,
   getDensity,
   parseChunkKey,
@@ -39,9 +40,6 @@ import type {
   SmoothParams,
 } from "./types.ts";
 import { MAT_ROCK } from "./types.ts";
-
-const clampInt8 = (v: number): number =>
-  Math.max(-127, Math.min(127, Math.round(v)));
 
 const LATTICE = 0.5; // kit pieces stay grid-locked to the 0.5 m built-kit lattice
 const EPS = 1e-6;

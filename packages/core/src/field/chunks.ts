@@ -14,6 +14,12 @@ export const SOLID = -127;
 /** Fully open air. */
 export const AIR = 127;
 
+/** Quantize a metres-scaled density to the store's int8 range `[SOLID, AIR]` —
+ *  round-to-nearest (never Int8Array truncation), the one store-wide density
+ *  convention every writer (dig/fill/smooth in `ops.ts`, the cave carver) shares. */
+export const clampInt8 = (v: number): number =>
+  Math.max(SOLID, Math.min(AIR, Math.round(v)));
+
 /** Builds the key of the chunk holding chunk coords (cx,cy,cz). */
 export const chunkKey = (cx: number, cy: number, cz: number): ChunkKey =>
   `${cx},${cy},${cz}`;

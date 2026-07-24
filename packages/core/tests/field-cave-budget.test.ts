@@ -17,9 +17,12 @@ type Vec3 = [number, number, number];
 
 /** Group into ≤ this many patch chunks (the plan's ceiling). */
 const CEILING_CHUNKS = 200;
-/** Evaluate wall-clock ceiling (ms) — generous, to catch runaway, not to pin
- *  the machine. */
-const CEILING_MS = 250;
+/** Evaluate wall-clock ceiling (ms) — a RUNAWAY guard (an unbounded loop or an
+ *  accidental O(cells·features) blow-up would take seconds), NOT a perf gate.
+ *  The median is ~100 ms here; the wide headroom to 500 is deliberate so a
+ *  slower CI machine cannot flake. Chunk-count and serialized-size ceilings
+ *  below ARE machine-independent — those stay tight. */
+const CEILING_MS = 500;
 /** Serialized (base64 JSON) size ceiling — the plan's 1 MB fallback trigger. */
 const CEILING_SERIALIZED = 1_000_000;
 

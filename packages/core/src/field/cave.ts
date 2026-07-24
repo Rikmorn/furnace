@@ -18,6 +18,7 @@
 import {
   CHUNK_DIM,
   chunkKey,
+  clampInt8,
   DEFAULT_CELL_SIZE,
   DENSITY_SCALE,
   SOLID,
@@ -801,22 +802,28 @@ const CHAMBER_SMOOTH_K = 1.0;
 const FLOOR_BAND = 1.0;
 /** Ramp distance (m) over which noise fades from 0 (at the band top) to full. */
 const NOISE_FADE = 0.5;
-/** Peak organic chamber wall/ceiling displacement (m) at `roughness = 1`. */
-const CHAMBER_NOISE_AMP = 0.6;
+/** Peak organic chamber wall/ceiling displacement (m) at `roughness = 1`.
+ *  Exported (with {@link PASSAGE_NOISE_AMP}) so the test suite pins the
+ *  {@link INFLUENCE_MARGIN} derivation against a future amp bump. */
+export const CHAMBER_NOISE_AMP = 0.6;
 /** Peak organic passage displacement (m) at `roughness = 1`. */
-const PASSAGE_NOISE_AMP = 0.3;
+export const PASSAGE_NOISE_AMP = 0.3;
 /** Value-noise spatial frequency (cycles per metre). */
 const NOISE_FREQ = 0.6;
-/** How far (m) a feature's influence reaches before density saturates to
- *  {@link SOLID}: 127/DENSITY_SCALE ≈ 4 m of signed distance, plus the noise
- *  amplitude and a cell of slack. A chunk no feature reaches within this is
- *  ALL solid — the fast path skips its per-cell SDF entirely. */
-const INFLUENCE_MARGIN = 5.0;
-
-/** Clamp to the store's int8 density range — the {@link applyOp}/`clampInt8`
- *  convention (round-to-nearest, never Int8Array truncation). */
-const clampInt8 = (v: number): number =>
-  Math.max(-127, Math.min(127, Math.round(v)));
+/** How far (m) a feature's influence reaches before its density saturates to
+ *  {@link SOLID}, DERIVED so it can never fall behind the constants it guards:
+ *  the SOLID-saturation distance (`-SOLID / DENSITY_SCALE` m of signed distance)
+ *  + the peak noise displacement a wall/ceiling can reach outward + one cell of
+ *  discretization slack. A chunk no feature's influence box reaches is ALL solid
+ *  — the fast path skips its per-cell SDF and writes {@link SOLID} directly, which
+ *  is byte-exact ONLY while every cell outside the box truly saturates. Raising a
+ *  noise amp past this margin would otherwise silently clip displaced walls to
+ *  rock at chunk seams; deriving it keeps the invariant true by construction (and
+ *  `field-cave.test.ts` pins it). */
+export const INFLUENCE_MARGIN =
+  -SOLID / DENSITY_SCALE +
+  Math.max(CHAMBER_NOISE_AMP, PASSAGE_NOISE_AMP) +
+  CARVE_CELL;
 
 /** Smoothstep, clamped to [0,1] — the Hermite `3t²−2t³`. Pure polynomial (Pr-2
  *  safe); reused for the noise floor-taper and the value-noise interpolation. */

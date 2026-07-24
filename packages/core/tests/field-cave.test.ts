@@ -18,15 +18,20 @@ import {
   createFieldStore,
   createOpLog,
   DEFAULT_CELL_SIZE,
+  DENSITY_SCALE,
   generatorById,
   getDensity,
+  SOLID,
   serializeOps,
 } from "@furnace/core/field";
 import {
   BOUNDS_MARGIN,
+  CHAMBER_NOISE_AMP,
+  INFLUENCE_MARGIN,
   MAX_GRADE,
   MAX_SWITCHBACKS,
   MIN_TREAD,
+  PASSAGE_NOISE_AMP,
   RISER,
 } from "../src/field/cave.ts";
 
@@ -864,5 +869,25 @@ describe("cave carve — registry & result shape", () => {
     expect(log.undoStack).toHaveLength(1); // one commit = one undo entry
     // The span is [patch op, entity op] — the emitter contributes ONE field op.
     expect(log.ops.map((o) => o.kind)).toEqual(["patch", "entity"]);
+  });
+});
+
+describe("cave carve — all-solid fast-path safety (INFLUENCE_MARGIN invariant)", () => {
+  test("INFLUENCE_MARGIN covers SOLID-saturation + peak noise displacement + a cell", () => {
+    // The emitter writes SOLID for every cell in a chunk no feature's influence
+    // box reaches. That is byte-exact ONLY if such cells are far enough to
+    // saturate: at least (the SOLID-saturation distance + the peak the noise can
+    // push a wall/ceiling OUTWARD) from any feature surface, plus a cell of
+    // discretization slack. INFLUENCE_MARGIN is DERIVED from exactly these
+    // constants, so a future noise-amp bump can never blow the margin silently;
+    // this pins that it is not de-derived back to a too-small literal (raising
+    // an amp past a hardcoded margin would clip displaced walls to rock at chunk
+    // seams — corruption no interior-sampling test would catch).
+    const saturationDist = -SOLID / DENSITY_SCALE;
+    const required =
+      saturationDist +
+      Math.max(CHAMBER_NOISE_AMP, PASSAGE_NOISE_AMP) +
+      DEFAULT_CELL_SIZE;
+    expect(INFLUENCE_MARGIN).toBeGreaterThanOrEqual(required);
   });
 });
