@@ -1,42 +1,41 @@
-# FieldHost hard-wires its worker client, so every worker-backed path is untestable headlessly
+# FieldHost's worker seam exists now — what host coverage still cannot reach is a stamp session
 
-**Context.** `createFieldHost()` takes no arguments and constructs its own
-`new FieldWorkerClient()` (`packages/editor/src/viewport-host/field-host.ts`). The client
-itself HAS an injection seam — `constructor(private readonly spawn = defaultSpawn)` — but
-the host never exposes it, so a test cannot see what the host asks the worker for.
+**Status: mostly CLOSED by F3b Task 12.** `createFieldHost({ spawnWorker })` now takes the
+seam (`packages/editor/src/viewport-host/field-host.ts`), threaded into
+`FieldWorkerClient`'s existing `spawn` argument, and
+`packages/editor/tests/field-host-void-cast.gpu.test.ts` uses it to drive the whole loop —
+request → the real protocol handler in-process → response → `applyVoidCast` against a
+bun-webgpu device. Now pinned: the request the host BUILDS (chunk set, cellSize), the
+density COPY contract (the fake worker detaches transferred buffers exactly as a real one
+does, so sending the store's live buffers fails the next cast), the response path, the
+in-flight refusal, and the empty-dirty-set guard that spec review found missing.
 
-That makes a whole class of host behaviour unobservable in `bun test`. It bit F3b Task 12
-(the void cast): the enable path's context guard (`if (!ctx) return` before firing the cast
-job) cannot be covered, because a real spawn of the browser's `/field-worker.js` inside bun
-neither resolves nor rejects — it simply hangs, so removing the guard is INVISIBLE to a
-test. The Task 12 test was narrowed to the claim it could actually make (the enable path is
-synchronous-exception-free without a context) after the wider version survived sabotage.
-The same blind spot covers: the request the host builds (chunk set, cellSize), the
-generation guard that strands a superseded job, remesh coalescing, and every response
-handler.
+Two corrections to what this entry first claimed, both worth remembering:
 
-It bit the same task a second time, harder. Spec review found that
-`markDirtyWithNeighbors` also runs with an EMPTY dirty set — a pure scatter writes no
-cells — so the cast was torn down, with a "the field changed" message, on the commit of a
-stamp that could not have staled it. The fix is a one-line `if (changed.size === 0)
-return;`, and **deleting that line again fails nothing**: 502 pass / 0 fail across the
-whole editor suite, because the only observable is a cast that headless tests can never
-bring into existence. A real regression on the headline F3b workflow is presently held by
-code review alone.
+- **DI was never the whole answer.** `requestVoidCast` returns at its `!ctx` guard BEFORE
+  it sends anything, so the binding constraint on host-side coverage is the **GPU
+  context** — and that harness already existed (`core/tests/_helpers/gpu-fixture.ts` +
+  `installMockResizeObserver` + rAF/canvas shims), already used by the sibling
+  `preview-host.gpu.test.ts` in the same directory. The first revision of this entry
+  blamed the seam for an uncovered `markDirtyWithNeighbors` guard; wrong diagnosis, and
+  that guard is now covered.
+- **What forced the seam anyway** was process hygiene, not observability: a real `Worker`
+  for the browser's `/field-worker.js` never settles under `bun test`, and **terminating
+  one panics the Bun runtime**, so `host.dispose()` in a GPU test crashed the process until
+  the worker was injected.
 
-The plausible seam is a single optional argument — `createFieldHost(deps?: { spawnWorker?:
-() => WorkerLike })` threaded into the client — but `WorkerLike` is private to
-`field-client.ts`, three test files plus the production panel call the factory, and "should
-the host expose a DI seam at all, or should these paths be gated visually" is a real
-design call rather than a mechanical change. That is why Task 12 filed it instead of
-adding it mid-tranche.
+**What is still out of reach.** Anything behind a stamp SESSION: `startStamp` needs a
+selection, which needs pointer gestures on a canvas whose listeners the GPU fixture stubs
+out. So `commitStamp`, `applyReconfigure`, and the preview coalescer's latch remain gated
+on review plus the Safari gate — and with them the one void-cast case a test still cannot
+reach: a cast surviving a REAL scatter commit, rather than the empty-dirty-set entry point
+(`undo` with nothing to undo) that stands in for it today.
 
-**Trigger to revisit:** the next task that needs to assert on what the host SENDS the
-worker (rather than on what a handler does with a request) — or the next time a
-worker-backed host bug ships because the only gate for it was visual.
+**Trigger to revisit:** the first task that needs to assert on a stamp session end to end.
+That needs synthetic pointer events or a host-level gesture seam — a bigger design call
+than this one turned out to be.
 
-**Reference:** `packages/editor/src/viewport-host/field-host.ts` (`createFieldHost`'s
-`const worker = new FieldWorkerClient()`; `requestVoidCast`'s context guard);
-`packages/editor/src/frontend/lib/field-client.ts` (the `spawn` seam that already exists);
-`packages/editor/tests/field-host-headless.test.ts` (the narrowed void-cast test and its
-comment).
+**Reference:** `packages/editor/tests/field-host-void-cast.gpu.test.ts` (the harness, and
+its comments on why the worker is injected); `packages/editor/src/viewport-host/field-host.ts`
+(`createFieldHost`'s `deps` parameter); `packages/editor/tests/preview-host.gpu.test.ts`
+(prior art for the GPU fixture).

@@ -4,7 +4,9 @@ import type {
   FieldWorkerResponse,
 } from "./field-protocol.ts";
 
-type WorkerLike = {
+/** The slice of `Worker` this client uses — the seam {@link FieldWorkerClient}'s
+ *  constructor takes, so a test can drive the protocol without a real Worker. */
+export type WorkerLike = {
   postMessage(msg: unknown, transfer?: Transferable[]): void;
   terminate(): void;
   onmessage: ((e: MessageEvent) => void) | null;
@@ -16,12 +18,26 @@ type FieldWorkerSuccess = Extract<
   { kind: "meshed" | "stamp-previewed" | "void-casted" }
 >;
 
+/** `r.kind === kind` as a predicate: TypeScript cannot narrow a union through a
+ *  comparison against a GENERIC discriminator, so the check has to name the
+ *  relationship it proves. A predicate, not an `as` — the runtime test is real
+ *  and this is the whole of it. */
+function isKind<K extends FieldWorkerSuccess["kind"]>(
+  r: FieldWorkerSuccess,
+  kind: K,
+): r is Extract<FieldWorkerResponse, { kind: K }> {
+  return r.kind === kind;
+}
+
 const defaultSpawn = (): WorkerLike =>
   new Worker("/field-worker.js", { type: "module" }) as unknown as WorkerLike;
 
-/** One persistent field worker; stale results dropped by jobId; callers
- *  own dirty-set coalescing (this client is a plain request pipe — it does NOT
- *  cancel superseded jobs; the FieldHost avoids redundant sends). */
+/** One persistent field worker; stale results dropped by jobId. A plain request
+ *  pipe: it does NOT cancel or coalesce, so a caller that can fire the same job
+ *  twice owns that itself — the FieldHost coalesces stamp previews behind a
+ *  latch, drops redundant remeshes through its dirty set, and refuses a second
+ *  void cast while one is in flight. Nothing here stops the worker computing a
+ *  job whose result the caller has already decided to ignore. */
 export class FieldWorkerClient {
   private worker: WorkerLike | null = null;
   private jobId = 0;
@@ -50,6 +66,38 @@ export class FieldWorkerClient {
     return w;
   }
 
+  /** Posts one request and resolves with the response of the expected `kind`.
+   *  The one place the pending-entry invariants live, so every request kind
+   *  gets them: the answer is NARROWED at runtime rather than cast (a response
+   *  of the wrong kind is a protocol bug, surfaced as a rejection), and a
+   *  synchronous `postMessage` throw (bad transferable, dead worker) deletes
+   *  the entry before rethrowing — a stranded entry would leave its promise
+   *  pending forever. Rethrowing inside the executor rejects the returned
+   *  promise, so callers see one failure channel. */
+  private send<K extends FieldWorkerSuccess["kind"]>(
+    req: FieldWorkerRequest,
+    kind: K,
+    transfer: Transferable[],
+  ): Promise<Extract<FieldWorkerResponse, { kind: K }>> {
+    const { jobId } = req;
+    return new Promise((resolve, reject) => {
+      this.pending.set(jobId, {
+        resolve: (r) => {
+          if (isKind(r, kind)) resolve(r);
+          else
+            reject(new Error(`field worker: expected ${kind}, got ${r.kind}`));
+        },
+        reject,
+      });
+      try {
+        this.ensure().postMessage(req, transfer);
+      } catch (err) {
+        this.pending.delete(jobId);
+        throw err;
+      }
+    });
+  }
+
   /** Remesh one chunk from its aprons (buffers TRANSFERRED). `sliceY` clips
    *  the display copy: samples at/above that world Y read as air before
    *  mesh + skin (the worker copies — the field itself is untouched). */
@@ -60,41 +108,21 @@ export class FieldWorkerClient {
     cellSize: number,
     sliceY?: number,
   ) {
-    const jobId = ++this.jobId;
     const density = aprons.density.buffer as ArrayBuffer;
     const materials = aprons.materials.buffer as ArrayBuffer;
-    const req: FieldWorkerRequest = {
-      kind: "mesh",
-      jobId,
-      key,
-      density,
-      materials,
-      table,
-      cellSize,
-      ...(sliceY === undefined ? {} : { sliceY }),
-    };
-    return new Promise<Extract<FieldWorkerResponse, { kind: "meshed" }>>(
-      (resolve, reject) => {
-        this.pending.set(jobId, {
-          resolve: (r) => {
-            // Runtime narrowing, never a cast: the worker answers a mesh job
-            // with `meshed`; anything else is a protocol bug surfaced loud.
-            if (r.kind === "meshed") resolve(r);
-            else
-              reject(new Error(`field worker: expected meshed, got ${r.kind}`));
-          },
-          reject,
-        });
-        // A synchronous postMessage throw (bad transferable, dead worker) must
-        // not strand the pending entry; rethrowing inside the executor rejects
-        // the returned promise with the original error.
-        try {
-          this.ensure().postMessage(req, [density, materials]);
-        } catch (err) {
-          this.pending.delete(jobId);
-          throw err;
-        }
+    return this.send(
+      {
+        kind: "mesh",
+        jobId: ++this.jobId,
+        key,
+        density,
+        materials,
+        table,
+        cellSize,
+        ...(sliceY === undefined ? {} : { sliceY }),
       },
+      "meshed",
+      [density, materials],
     );
   }
 
@@ -106,35 +134,12 @@ export class FieldWorkerClient {
       Extract<FieldWorkerRequest, { kind: "stamp-preview" }>,
       "kind" | "jobId"
     >,
-  ): Promise<Extract<FieldWorkerResponse, { kind: "stamp-previewed" }>> {
-    const jobId = ++this.jobId;
-    const full: FieldWorkerRequest = { kind: "stamp-preview", jobId, ...req };
-    return new Promise((resolve, reject) => {
-      this.pending.set(jobId, {
-        resolve: (r) => {
-          // Runtime narrowing, never a cast (the mesh() twin).
-          if (r.kind === "stamp-previewed") resolve(r);
-          else
-            reject(
-              new Error(
-                `field worker: expected stamp-previewed, got ${r.kind}`,
-              ),
-            );
-        },
-        reject,
-      });
-      // The mesh() twin: a synchronous postMessage throw must not strand the
-      // pending entry.
-      try {
-        this.ensure().postMessage(
-          full,
-          req.chunks.map((c) => c.density),
-        );
-      } catch (err) {
-        this.pending.delete(jobId);
-        throw err;
-      }
-    });
+  ) {
+    return this.send(
+      { kind: "stamp-preview", jobId: ++this.jobId, ...req },
+      "stamp-previewed",
+      req.chunks.map((c) => c.density),
+    );
   }
 
   /** Cast the VOID of an all-chunk snapshot: the worker inverts each chunk's
@@ -142,41 +147,12 @@ export class FieldWorkerClient {
    *  cast of the air. Density buffers are TRANSFERRED (pass copies — the
    *  stampPreview contract); no materials and no table cross the wire (the
    *  cast is shape only). */
-  voidCast(
-    chunks: { key: string; density: ArrayBuffer }[],
-    cellSize: number,
-  ): Promise<Extract<FieldWorkerResponse, { kind: "void-casted" }>> {
-    const jobId = ++this.jobId;
-    const req: FieldWorkerRequest = {
-      kind: "void-cast",
-      jobId,
-      chunks,
-      cellSize,
-    };
-    return new Promise((resolve, reject) => {
-      this.pending.set(jobId, {
-        resolve: (r) => {
-          // Runtime narrowing, never a cast (the mesh() twin).
-          if (r.kind === "void-casted") resolve(r);
-          else
-            reject(
-              new Error(`field worker: expected void-casted, got ${r.kind}`),
-            );
-        },
-        reject,
-      });
-      // The mesh() twin: a synchronous postMessage throw must not strand the
-      // pending entry.
-      try {
-        this.ensure().postMessage(
-          req,
-          chunks.map((c) => c.density),
-        );
-      } catch (err) {
-        this.pending.delete(jobId);
-        throw err;
-      }
-    });
+  voidCast(chunks: { key: string; density: ArrayBuffer }[], cellSize: number) {
+    return this.send(
+      { kind: "void-cast", jobId: ++this.jobId, chunks, cellSize },
+      "void-casted",
+      chunks.map((c) => c.density),
+    );
   }
 
   dispose(): void {

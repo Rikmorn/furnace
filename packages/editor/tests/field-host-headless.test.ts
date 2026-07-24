@@ -55,10 +55,11 @@ test("highlightEntity is runtime-quiet on unknown ids and null", () => {
 });
 
 // --- void cast (F3b Task 12) ------------------------------------------------
-// The two refusals that need no GPU. The rest of the feature (worker round
-// trip → meshes → render list, and the drop-on-edit invalidation, which can
-// only fire once a cast exists) needs a live context; the FieldHost has no GPU
-// test harness in this package, so it is gated visually, not here.
+// The refusals that need no GPU: they are decided before the context guard, so
+// they are the half of the enable path a host with no device still runs. Once a
+// cast can actually exist — the worker round trip, the meshes, the invalidation
+// — the coverage moves to `field-host-void-cast.gpu.test.ts`, which drives the
+// same host over a real bun-webgpu device with the worker injected.
 
 const layersWithVoidCast = (on: boolean): FieldLayers => ({
   field: true,
@@ -117,6 +118,17 @@ test("the budget refusal is decided BEFORE the GPU guard, and 512 is inside it",
   host.subscribeToolError((m) => errors.push(m));
   host.setLayers(layersWithVoidCast(true));
   expect(errors).toEqual([]);
+});
+
+test("enabling the void cast on a world with nothing dug says so", () => {
+  // The feature's own rule (invalidateVoidCast's comment): a ticked box with
+  // nothing behind it reads as a bug. An undug world has no air to cast, and
+  // that refusal is the one the user is most likely to hit first.
+  const host = createFieldHost();
+  const errors: string[] = [];
+  host.subscribeToolError((m) => errors.push(m));
+  host.setLayers(layersWithVoidCast(true));
+  expect(errors).toEqual(["nothing to cast yet — dig something first"]);
 });
 
 test("the enable/disable edges are context-free until they need a context", () => {

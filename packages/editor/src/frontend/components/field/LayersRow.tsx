@@ -1,17 +1,18 @@
 // Layer visibility + the two view modes (F2b Task 15, F3b Task 12): six
 // checkboxes drive host.setLayers (display-only gates — hiding a layer never
-// affects targeting, ops, or bakes), and beside them the void-cast toggle (the
-// X-ray) plus the slice enable + Y slider (host.setSlice — display + targeting,
-// never the field). Pure presentation — the panel owns the state and every host
-// call.
+// affects targeting, ops, or bakes); beside them the void-cast toggle (the
+// X-ray, also a setLayers flag) and the slice enable + Y slider (host.setSlice
+// — display + targeting, never the field). Pure presentation — the panel owns
+// the state and every host call.
 //
-// The void toggle rides in FieldLayers but is deliberately NOT in the LAYERS
-// group below: those six are free display gates over state that already exists,
-// while ticking void RUNS a whole-world job that can refuse (chunk budget) and
-// that the next edit throws away. Same widget, different kind — so it sits with
-// the other view mode rather than inside a group aria-labelled "layer
-// visibility". Blender draws the same line: outliner visibility columns are one
-// thing, the X-ray overlay toggle is another.
+// Two labelled groups, because they are two kinds of control wearing the same
+// widget. The six under "layers" are free display gates over state that already
+// exists. The void toggle rides in FieldLayers but belongs under "view": ticking
+// it RUNS a whole-world job that can refuse (chunk budget), and the next edit
+// throws the result away. Blender draws the same line — outliner visibility
+// columns are one thing, the X-ray overlay toggle is another — and the group
+// label is what makes it visible here, since a seventh identical checkbox in a
+// flat row would read as a seventh free gate.
 import type { FieldLayers } from "../../../viewport-host/index.ts"; // type-only: erased
 
 const VOID_CAST_TITLE =
@@ -94,44 +95,54 @@ export function LayersRow(props: {
 					);
 				})}
 			</span>
-			<label className={LABEL_CLASS} title={VOID_CAST_TITLE}>
-				<input
-					type="checkbox"
-					checked={props.layers.voidCast}
-					onChange={(e) =>
-						props.onLayers({ ...props.layers, voidCast: e.target.checked })
-					}
-					aria-label="void cast"
-				/>
-				void
-			</label>
-			<label className={LABEL_CLASS}>
-				<input
-					type="checkbox"
-					checked={props.slice.enabled}
-					onChange={(e) =>
-						props.onSlice({ ...props.slice, enabled: e.target.checked })
-					}
-					aria-label="slice view"
-				/>
-				slice
-			</label>
-			<label className={LABEL_CLASS}>
-				y
-				<input
-					type="range"
-					min={SLICE_MIN_Y}
-					max={SLICE_MAX_Y}
-					step={SLICE_STEP}
-					value={props.slice.y}
-					disabled={!props.slice.enabled}
-					onChange={(e) =>
-						props.onSlice({ enabled: true, y: Number(e.target.value) })
-					}
-					aria-label="slice y"
-				/>
-				<span className="w-14 tabular-nums">{props.slice.y.toFixed(2)} m</span>
-			</label>
+			{/* biome-ignore lint/a11y/useSemanticElements: role="group" is the intended ARIA grouping for this control row; a native <fieldset>/<legend> would force the boxed-card look this flat UI deliberately avoids */}
+			<span
+				className="flex flex-wrap items-center gap-2 text-muted-foreground"
+				role="group"
+				aria-label="view modes"
+			>
+				view
+				<label className={LABEL_CLASS} title={VOID_CAST_TITLE}>
+					<input
+						type="checkbox"
+						checked={props.layers.voidCast}
+						onChange={(e) =>
+							props.onLayers({ ...props.layers, voidCast: e.target.checked })
+						}
+						aria-label="void cast"
+					/>
+					void
+				</label>
+				<label className={LABEL_CLASS}>
+					<input
+						type="checkbox"
+						checked={props.slice.enabled}
+						onChange={(e) =>
+							props.onSlice({ ...props.slice, enabled: e.target.checked })
+						}
+						aria-label="slice view"
+					/>
+					slice
+				</label>
+				<label className={LABEL_CLASS}>
+					y
+					<input
+						type="range"
+						min={SLICE_MIN_Y}
+						max={SLICE_MAX_Y}
+						step={SLICE_STEP}
+						value={props.slice.y}
+						disabled={!props.slice.enabled}
+						onChange={(e) =>
+							props.onSlice({ enabled: true, y: Number(e.target.value) })
+						}
+						aria-label="slice y"
+					/>
+					<span className="w-14 tabular-nums">
+						{props.slice.y.toFixed(2)} m
+					</span>
+				</label>
+			</span>
 		</div>
 	);
 }

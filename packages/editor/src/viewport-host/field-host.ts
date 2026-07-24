@@ -28,7 +28,10 @@ import {
   snapSpan,
   spanCells,
 } from "../frontend/lib/field-brush.ts";
-import { FieldWorkerClient } from "../frontend/lib/field-client.ts";
+import {
+  FieldWorkerClient,
+  type WorkerLike,
+} from "../frontend/lib/field-client.ts";
 import { openBlockedReason } from "../frontend/lib/field-entity.ts";
 import type { WireBucket } from "../frontend/lib/field-protocol.ts";
 import { deriveSizeDefaults } from "../frontend/lib/field-size.ts";
@@ -795,8 +798,17 @@ function generatorSchemaProperties(
  * operation. Mirrors {@link createPreviewHost}'s lifecycle (own context, own
  * camera, own listeners) but drives a fly camera + dig loop instead of orbit,
  * and remeshes carved chunks off the main thread via the field worker.
+ *
+ * `deps.spawnWorker` overrides how that worker is created; production omits it
+ * and gets the real `/field-worker.js`. It exists because the host's
+ * worker-backed paths are otherwise unreachable under `bun test` — a real Worker
+ * for a browser URL never settles in-process, and terminating one panics the
+ * runtime — so injecting the protocol handler directly is what lets a test see
+ * the request the host builds and drive the response back through it.
  */
-export function createFieldHost(): FieldHost {
+export function createFieldHost(deps?: {
+  spawnWorker?: () => WorkerLike;
+}): FieldHost {
   let ctx: Context | null = null;
   let cam: camera.Camera | null = null;
   let canvasEl: HTMLCanvasElement | null = null;
@@ -805,7 +817,7 @@ export function createFieldHost(): FieldHost {
   const store = field.createFieldStore();
   const log = field.createOpLog();
   const dirty = new Set<string>();
-  const worker = new FieldWorkerClient();
+  const worker = new FieldWorkerClient(deps?.spawnWorker);
   const chunkMeshes = new Map<string, ChunkRender>();
 
   // ONE flat material (normalColor): classes are indistinct in flat mode — the
@@ -956,10 +968,13 @@ export function createFieldHost(): FieldHost {
   // whose field moved under it — or whose layer was switched off — lands stale
   // and is dropped instead of showing an X-ray of a world that no longer is.
   let voidCastGen = 0;
-  // Whether a cast job is in flight. Tracked beside the meshes because the
-  // invalidation message must fire for a cast the user is still WAITING on, not
-  // only for one already on screen.
-  let voidCastPending = false;
+  // The generation of the job the WORKER is still computing (null = none). One
+  // piece of state answering both questions, so they can never disagree: the
+  // worker is busy while it is non-null, and the user is still waiting for THIS
+  // cast while it equals `voidCastGen` — a discard bumps the generation, which
+  // is exactly what makes a stranded job stop counting as awaited without
+  // pretending the worker stopped working on it.
+  let voidCastJobGen: number | null = null;
 
   let digRadius = 1.25;
   let digging = false;
@@ -2143,10 +2158,12 @@ export function createFieldHost(): FieldHost {
   };
 
   // Free the cast and strand whatever job is in flight for it. SILENT: the
-  // callers that owe the user an explanation give one themselves.
+  // callers that owe the user an explanation give one themselves. The bumped
+  // generation is the whole strand — `voidCastJobGen` is deliberately NOT
+  // cleared, because nothing here reaches the worker, which goes on computing a
+  // result that will now be dropped on arrival.
   const discardVoidCast = (): void => {
     voidCastGen++;
-    voidCastPending = false;
     destroyVoidCast();
   };
 
@@ -2156,7 +2173,8 @@ export function createFieldHost(): FieldHost {
   // checkbox would read as a bug. Self-limiting: the second mutation finds
   // nothing live and returns, so a drag cannot spam the status line.
   const invalidateVoidCast = (): void => {
-    if (!voidCastPending && voidCastMeshes.size === 0) return;
+    const awaited = voidCastJobGen === voidCastGen;
+    if (!awaited && voidCastMeshes.size === 0) return;
     discardVoidCast();
     reportToolError(
       "void cast cleared — the field changed; re-toggle the void layer to refresh it",
@@ -2207,39 +2225,63 @@ export function createFieldHost(): FieldHost {
   };
 
   // Cast the void of the CURRENT field: one worker job over a snapshot of every
-  // allocated chunk. Three refusals, in the order a user experiences them —
-  // nothing allocated yet (quiet: an empty world casts an empty void), over
-  // budget (loud: the whole point of the ceiling is that it is visible), and no
-  // GPU context (quiet: layer flags survive a dispose, so a re-init'd host must
-  // not fire a job it has nowhere to put — the user re-toggles).
+  // allocated chunk. Four refusals, in the order a user experiences them.
+  //
+  // The in-flight one is a cost guard, and it is keyed on the WORKER being busy
+  // rather than on the user still wanting the result: the client is a plain
+  // request pipe over ONE worker whose handler is synchronous per message, so a
+  // second cast posted now delays every chunk remesh and every stamp preview
+  // behind a second full sweep of the world — and a discard cannot call it off,
+  // only agree to ignore it. Toggling off and on again is therefore NOT free,
+  // and it is the sequence that would otherwise stack them.
   const requestVoidCast = (): void => {
-    discardVoidCast(); // an enable while a cast stands replaces it
+    if (voidCastJobGen !== null) {
+      reportToolError(
+        "a void cast is still building — re-tick the void layer once it lands",
+      );
+      return;
+    }
+    discardVoidCast(); // an enable while a settled cast stands replaces it
     const count = store.chunks.size;
-    if (count === 0) return;
+    if (count === 0) {
+      // Loud, by this feature's own rule (see invalidateVoidCast): a ticked box
+      // with nothing behind it reads as a bug. There is no air to cast in a
+      // world nothing has been dug out of yet.
+      reportToolError("nothing to cast yet — dig something first");
+      return;
+    }
     if (count > VOID_CAST_CHUNK_BUDGET) {
       reportToolError(
         `void cast covers ${count} chunks, over the ${VOID_CAST_CHUNK_BUDGET}-chunk budget — the X-ray is a region-scale tool, not a world-scale one`,
       );
       return;
     }
+    // Quiet: layer flags survive a dispose, so a re-init'd host must not fire a
+    // job it has nowhere to put — the user re-toggles.
     if (!ctx) return;
     const gen = voidCastGen;
-    voidCastPending = true;
-    worker.voidCast(snapshotAllChunks(), store.cellSize).then(
-      (res) => {
+    voidCastJobGen = gen;
+    worker
+      .voidCast(snapshotAllChunks(), store.cellSize)
+      .then((res) => {
+        // Cleared BEFORE the staleness guard: the worker is free either way,
+        // and a stranded job that left this set would refuse every later cast.
+        voidCastJobGen = null;
         if (disposed || gen !== voidCastGen) return;
-        voidCastPending = false;
         applyVoidCast(res.chunks);
-      },
-      (err) => {
+      })
+      // .catch, not then's second argument: applyVoidCast above can throw (a
+      // context torn down mid-flight, a lost device), and a two-argument then
+      // would route that into an unhandled rejection instead of into this
+      // handler — leaving the job latch stuck, which refuses every later cast.
+      .catch((err: unknown) => {
+        voidCastJobGen = null;
         if (disposed || gen !== voidCastGen) return;
-        voidCastPending = false;
         // The remeshOne posture, one level louder: a cast the user asked for
         // and will not get is a tool problem, not a background hiccup.
         const message = err instanceof Error ? err.message : String(err);
         reportToolError(`void cast failed: ${message}`);
-      },
-    );
+      });
   };
 
   // Post ONE preview job for a session state captured at fire time. Response
@@ -2247,8 +2289,9 @@ export function createFieldHost(): FieldHost {
   // superseded runs) and the session GENERATION (run restarts at 0 per
   // session, so a previous session's response could otherwise land on a fresh
   // session's run 0). The coalescer's settle() runs on EVERY settlement —
-  // result or error, stale or foreign-generation alike — so the latch always
-  // releases and a queued re-fire is never lost.
+  // result, error, or a handler that itself threw, stale and
+  // foreign-generation alike — so the latch always releases and a queued
+  // re-fire is never lost.
   const sendPreviewJob = (s: StampSession, gen: number, run: number): void => {
     worker
       .stampPreview({
@@ -2283,9 +2326,8 @@ export function createFieldHost(): FieldHost {
               notifyStamp();
             }
           }
-          previewCoalescer.settle();
         },
-        (err) => {
+        (err: unknown) => {
           if (!disposed && gen === stampGen && stamp !== null) {
             const message = err instanceof Error ? err.message : String(err);
             const next = withPreviewError(stamp, run, message);
@@ -2298,9 +2340,20 @@ export function createFieldHost(): FieldHost {
               notifyStamp();
             }
           }
-          previewCoalescer.settle();
         },
-      );
+      )
+      // A HANDLER can throw — applyStampGhost against a context torn down
+      // mid-flight, or a subscriber inside notifyStamp. Two-argument `then`
+      // sends that to an unhandled rejection, skipping the settle() the old
+      // shape put at the end of each handler and latching the coalescer shut
+      // for the rest of the session (every later preview silently queued and
+      // never fired). Catch it, then settle from `finally` so the latch
+      // releases on EVERY path — result, rejection, or handler fault.
+      .catch((err: unknown) => {
+        const message = err instanceof Error ? err.message : String(err);
+        console.warn(`field-host: stamp preview handler failed: ${message}`);
+      })
+      .finally(() => previewCoalescer.settle());
   };
 
   // Latest-wins in-flight coalescing: the worker client is a plain request
