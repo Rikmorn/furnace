@@ -237,11 +237,13 @@ export function StampInspector(props: {
 				{session.opCount !== null && (
 					<span className="tabular-nums"> · {session.opCount} ops</span>
 				)}
-				{/* Props are the ONLY output a reader generator (scatter) has — its op
-				    count is always 0 — so the count shows whenever a preview has
-				    settled, including at zero. A settled "0 ops · 0 props" is the
-				    reading the host's commit refusal explains. */}
-				{session.placementCount !== null && (
+				{/* Props are the ONLY output an archetype-driven generator (scatter)
+				    has — its op count is always 0 — so its count shows whenever a
+				    preview has settled, INCLUDING at zero: "0 ops · 0 props" is the
+				    reading the host's commit refusal then explains. A carver has no
+				    props by construction, and a permanent "· 0 props" on every hall
+				    preview would be noise, so the count is gated on the generator. */}
+				{def.placesProps && session.placementCount !== null && (
 					<span className="tabular-nums">
 						{" "}
 						· {session.placementCount} props

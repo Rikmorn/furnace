@@ -75,14 +75,20 @@ export const boxCorners = (center: Vec3T, half: Vec3T): Float32Array => {
   return out;
 };
 
-/** The stamped FOOTPRINT of a committed generator: the union AABB of its
- *  span's field-writing ops, read from the live log. The recorded `region` is
+/** The stamped FOOTPRINT of a committed generator: the union AABB of everything
+ *  its span PUT IN THE WORLD, read from the live log. The recorded `region` is
  *  the SELECTION the user drew — a stamp anchors at the region's snapped min
  *  corner with its size from params, so an oversized region can badly
  *  over-draw the actual content (the F3a gate finding: the highlight boxed
- *  mostly-empty space). Brush ops contribute their declared bounds; patch ops
- *  contribute their chunks' extents. Null when the span holds no
- *  field-writing ops — the caller falls back to the region. */
+ *  mostly-empty space).
+ *
+ *  Brush ops contribute their declared bounds; patch ops contribute their
+ *  chunks' extents; PLACEMENT ops contribute each record's `position ± scale/2`
+ *  world AABB (core's own placement-bounds convention — it assumes a unit
+ *  primitive and ignores the quat, which is right for an outline). A placement
+ *  writes no field cells, so without it a pure reader like scatter would have no
+ *  footprint at all. Null only when the span holds NOTHING that contributes
+ *  bounds — the caller falls back to the region. */
 export const generatorFootprint = (
   ops: readonly FieldOp[],
   entity: GeneratorEntity,

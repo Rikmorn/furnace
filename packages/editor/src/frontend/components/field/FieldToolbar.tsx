@@ -1,9 +1,10 @@
 // The Field panel's persistence toolbar (extracted from FieldPanel, F2b
 // sweep): the world-name input + New / Load / Save / Bake-as-default + the
 // headlamp toggle, plus the run-once catalog fetch that installs the
-// project's resolved material table on the host. Owns the name / busy /
-// catalog-settled state — the panel consumes only the parsed table (onTable)
-// and the status line (onStatus, rendered in the panel footer). Reaches the
+// project's resolved material table AND its entity catalog on the host. Owns
+// the name / busy / catalog-settled state — the panel consumes the parsed
+// table (onTable), the entity-catalog signal (onEntityCatalog) and the status
+// line (onStatus, rendered in the panel footer). Reaches the
 // App-owned host through the editor context ref, exactly like the panel —
 // the chrome never value-imports engine code (the project-first invariant);
 // this file type-imports the artifact types (erased) and value-imports the
@@ -13,6 +14,7 @@ import { useEffect, useRef, useState } from "react";
 import { api } from "../../lib/api.ts";
 // catalog.ts type-imports core only (erased), so value-importing it here does
 // NOT pull core into the chrome bundle — the project-first invariant holds.
+import type { EntityCatalog } from "../../lib/catalog.ts";
 import {
 	CatalogError,
 	parseEntityCatalog,
@@ -42,11 +44,17 @@ export function FieldToolbar(props: {
 	onShading: (on: boolean) => void;
 	/** Adopt the parsed catalog table (drives the panel's swatches + mask options). */
 	onTable: (table: MaterialTable) => void;
+	/** Announce the parsed ENTITY catalog, AFTER it is installed on the host.
+	 *  The toolbar already owns the install; the panel needs the signal because
+	 *  `host.listGenerators()` is a snapshot — the `archetypeId` picker options
+	 *  only exist in schemas read after this lands, and the panel reads them once
+	 *  at engine-ready, which is necessarily before this async fetch settles. */
+	onEntityCatalog: (catalog: EntityCatalog) => void;
 	/** The panel's status line (rendered in its footer). */
 	onStatus: (msg: string) => void;
 }) {
 	const { state, fieldHostRef } = useEditor();
-	const { onTable, onStatus } = props;
+	const { onTable, onStatus, onEntityCatalog } = props;
 	const catalogLoaded = useRef(false);
 	const [name, setName] = useState("");
 	// True once the catalog fetch reached ANY outcome (success / 404 / error) —
@@ -100,6 +108,7 @@ export function FieldToolbar(props: {
 				if (!res.ok) return `entities fetch failed (${res.status})`;
 				const parsed = parseEntityCatalog(await res.text());
 				host.setEntityCatalog(parsed);
+				onEntityCatalog(parsed); // AFTER the install — the panel re-reads the host
 				return `props: ${parsed.archetypes.length} archetypes`;
 			} catch (err) {
 				return err instanceof CatalogError
@@ -127,7 +136,7 @@ export function FieldToolbar(props: {
 			const entities = await loadEntities();
 			if (entities !== null) onStatus(`${status} · ${entities}`);
 		})();
-	}, [state.status, fieldHostRef, onTable, onStatus]);
+	}, [state.status, fieldHostRef, onTable, onStatus, onEntityCatalog]);
 
 	const onNew = (): void => {
 		fieldHostRef.current?.newWorld();

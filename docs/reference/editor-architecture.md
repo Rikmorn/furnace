@@ -751,11 +751,18 @@ tasks land.
   proxies (`field-editor-prop-meshes.md`). **The catalog SEEDS, it never gates:** absent
   file → scatter still runs on schema defaults and every prop draws at a nominal 0.5 m box.
 - **Archetype-driven params** — `listGenerators()` fills any generator's `archetypeId`
-  property with an `enum` of the catalog ids (`withArchetypeOptions`), which is what turns
-  the SchemaForm field into a picker; `startStamp` overlays the chosen archetype's authored
-  `scatter` block on the schema defaults (`seedArchetypeParams`). Seeding is ONCE-at-open —
-  switching archetype mid-session keeps the current numbers
+  property with an `enum` of the catalog ids (`withArchetypeOptions`); the inspector's kind
+  resolver reads `enum` first, so the SchemaForm field renders as a picker instead of free
+  text. `startStamp` overlays the chosen archetype's authored `scatter` block on the schema
+  defaults (`seedArchetypeParams`). Seeding is ONCE-at-open — switching archetype
+  mid-session keeps the current numbers
   (`field-scatter-archetype-switch-keeps-stale-hints.md`).
+  **`listGenerators()` is a SNAPSHOT, and the catalog necessarily lands after the first
+  possible read** (engine-ready fires before an async fetch can settle), so FieldToolbar
+  hands the parsed catalog to FieldPanel (`onEntityCatalog`) purely as a re-read signal and
+  the panel's generator effect depends on it. Reading once left `archetypeId` free text
+  forever; `tests/chrome/field-panel.test.tsx` pins the ordering, which host-level tests
+  structurally cannot (they install the catalog first).
 - **Context-threaded preview** — `stamp-preview` now passes an `EvaluateContext { store }`
   (the scratch store the snapshot was installed into) for any `contextFree: false`
   generator, which is what lets scatter's ghost read the field at all. `stamp-previewed`'s
@@ -769,18 +776,25 @@ tasks land.
   shared `litInstanced` kit material. Called from every path that changes which placement
   ops are in the log — commit, reconfigure apply, ⌘Z/⇧⌘Z, world new/load — plus `init` and
   `setEntityCatalog`; placements dirty NO chunk, so the layer cannot ride the remesh drain.
-  Whole-layer teardown-and-rebuild (instance counts are fixed at creation).
+  Whole-layer teardown-and-rebuild (instance counts are fixed at creation). The layer is
+  otherwise write-only GPU state, so `FieldHost.propInstanceCounts()` exposes its
+  per-archetype instance counts — the one readable fact, and what the rebuild is held to in
+  tests. Props are NOT slice-clipped (`field-props-not-slice-clipped.md`).
 - **Prop drift in the chrome** — reconfiguring an upstream generator (a cave) leaves the
   scatter's records byte-identical (a placement replays as data) but flags the op
   `drifted`; core's D-F3-4 finding now reaches `DriftReport` through the existing
   `subscribeDrift` seam with no editor-side work beyond the test that pins it.
 - **Empty-result policy (settled)** — core rejects an evaluate with no ops AND no
-  placements. Right for a carver, wrong-feeling for a READER driven to zero props, so the
-  EDITOR refuses first: `previewIsEmpty(session)` gates both `commitStamp` and
-  `applyReconfigure` and reports a sentence through `subscribeToolError`; core stays strict
-  and never sees the empty commit. StampInspector shows `N props` beside `N ops` whenever a
-  preview has settled, including at zero. (Resolved
-  `docs/backlog/engine-architecture/scatter-empty-result-policy.md`, option (c).)
+  placements, and KEEPS that stance. Right for a carver, wrong-feeling for a READER driven
+  to zero props, so the EDITOR refuses first — but for PROP generators only
+  (`placesArchetypes`, i.e. the schema names an `archetypeId`): `previewIsEmpty(session)`
+  gates both `commitStamp` and `applyReconfigure` and reports a sentence about props
+  through `subscribeToolError`, while a carver still goes to core and surfaces core's own
+  wording ("raise density, lower spacing" is nonsense advice for a hall). Core never sees
+  the empty commit for the case it reads wrong. StampInspector shows `N props` beside
+  `N ops` for a prop generator whenever a preview has settled, including at zero, and never
+  for a carver. The F3b review settled the open design question; core's
+  `field-scatter.test.ts` pins the strict side, and its comment records the decision.
 - **Entity footprint covers placements** — `generatorFootprint` grows by each record's
   `position ± scale/2` world AABB (core's own placement-bounds convention), so a pure
   reader's highlight box outlines its props instead of falling back to the recorded

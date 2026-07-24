@@ -1337,7 +1337,10 @@ test("a load-time compaction that throws is caught: the world still loads and th
 
 import type { PlacementRecord } from "@furnace/core/field";
 import type { EntityCatalog } from "../src/frontend/lib/catalog.ts";
-import { groupPlacements } from "../src/viewport-host/field-placements.ts";
+import {
+  groupPlacements,
+  placesArchetypes,
+} from "../src/viewport-host/field-placements.ts";
 
 const CAVE_REGION = {
   min: [0, 0, 0] as [number, number, number],
@@ -1439,11 +1442,32 @@ test("a cave + a scatter load as two entities, and the prop layer draws one inst
   const entities = host.listEntities();
   expect(entities.map((e) => e.generator)).toEqual(["cave", "scatter"]);
 
-  // The prop layer is one instanced draw per archetype, its count the group's
-  // record count — so the whole layer accounts for exactly the committed props.
-  const groups = groupPlacements(hostOps(host));
-  expect([...groups.keys()]).toEqual(["rock"]); // scatter's default archetype
-  expect(groups.get("rock")).toHaveLength(records);
+  // The LAYER, not the log: propInstanceCounts is what rebuildProps produced —
+  // one instanced draw per archetype, its instance count the group's record
+  // count. Reading the log instead would hold whether or not rebuildProps ran.
+  expect([...host.propInstanceCounts()]).toEqual([["rock", records]]);
+  // …and it agrees with the log the layer is derived FROM (the two can only
+  // disagree if a rebuild was skipped).
+  expect(groupPlacements(hostOps(host)).get("rock")).toHaveLength(records);
+});
+
+test("a props-free world reports an empty prop layer; newWorld clears a populated one", () => {
+  const host = createFieldHost();
+  loadCaveWithProps(host);
+  expect(host.propInstanceCounts().size).toBe(1);
+  // newWorld drops the log, so the layer must go with it — otherwise the counts
+  // describe a world that is gone.
+  host.newWorld();
+  expect(host.propInstanceCounts().size).toBe(0);
+});
+
+test("propInstanceCounts hands out a COPY (mutating it cannot rewrite the layer)", () => {
+  const host = createFieldHost();
+  const { records } = loadCaveWithProps(host);
+  const counts = host.propInstanceCounts();
+  counts.set("rock", 999);
+  counts.set("intruder", 1);
+  expect(host.propInstanceCounts()).toEqual(new Map([["rock", records]]));
 });
 
 // NOT asserted (no seam): that the host actually re-issues the instanced draws
@@ -1473,8 +1497,11 @@ test("a history step moves the prop layer's source: ⌘Z restores the previous r
 
     host.undo();
     expect(propsNow()).toEqual(before);
+    // The LAYER followed the step, not just the log behind it.
+    expect(host.propInstanceCounts().get("rock")).toBe(before.length);
     host.redo();
     expect(propsNow()).not.toEqual(before);
+    expect(host.propInstanceCounts().get("rock")).toBe(propsNow().length);
   } finally {
     uninstall();
   }
@@ -1566,7 +1593,7 @@ test("a scatter that places NOTHING is refused legibly — core never sees the e
     // The refusal is a sentence about props, not core's "evaluated to an empty
     // result" (which core would throw if this reached it).
     expect(errors).toHaveLength(1);
-    expect(errors[0]).toMatch(/placed nothing/);
+    expect(errors[0]).toMatch(/placed no props/);
     expect(errors[0]).not.toMatch(/empty result/);
     // Nothing landed: the entity is untouched and the session stands to re-tune.
     expect(host.listEntities()).toEqual(before);
@@ -1597,4 +1624,79 @@ test("the entity catalog fills archetypeId's picker options; without one the sch
   // Uninstalling (a project whose catalog fetch 404s) returns it to free text.
   host.setEntityCatalog(null);
   expect(schemaOf("scatter")["archetypeId"]?.["enum"]).toBeUndefined();
+});
+
+/** A fake Worker that answers EVERY stamp preview with an empty result — the
+ *  one way to put a CARVER session into the `0 ops, 0 props` state the
+ *  editor-side refusal keys on. No carver reachable today can actually evaluate
+ *  to nothing (hall/maze always emit their shell fill, the cave always emits its
+ *  patch), so the worker seam is where that state has to come from. */
+function installEmptyPreviewWorker(): () => void {
+  const real = globalThis.Worker;
+  class FakeWorker {
+    onmessage: ((e: MessageEvent) => void) | null = null;
+    postMessage(msg: unknown): void {
+      const req = msg as FieldWorkerRequest;
+      if (req.kind !== "stamp-preview") return;
+      this.onmessage?.({
+        data: {
+          kind: "stamp-previewed",
+          jobId: req.jobId,
+          chunks: [],
+          opCount: 0,
+          evalMs: 0,
+          placements: [],
+        },
+      } as MessageEvent);
+    }
+    terminate(): void {
+      // fake worker: nothing to tear down
+    }
+  }
+  // Boundary cast: the fake implements the WorkerLike subset field-client calls.
+  globalThis.Worker = FakeWorker as unknown as typeof Worker;
+  return () => {
+    globalThis.Worker = real;
+  };
+}
+
+test("a CARVER whose preview came back empty still goes to CORE — the refusal is prop-generators-only", () => {
+  // The editor-side refusal exists because "0 props" is a legitimate outcome for
+  // a READER. For a carver, nothing-to-build is a misconfiguration and core's own
+  // wording is the accurate one — "raise density, lower spacing" would be
+  // nonsense advice for a hall. So the gate is `placesArchetypes`, and this pins
+  // that it did not quietly become "every generator".
+  expect(placesArchetypes(generatorById("hall").paramSchema)).toBe(false);
+  expect(placesArchetypes(generatorById("cave").paramSchema)).toBe(false);
+  expect(placesArchetypes(generatorById("maze").paramSchema)).toBe(false);
+  expect(placesArchetypes(generatorById("scatter").paramSchema)).toBe(true);
+});
+
+test("…and the host acts on that: an empty-previewed HALL applies, it is not intercepted", async () => {
+  const uninstall = installEmptyPreviewWorker();
+  try {
+    const host = createFieldHost();
+    const { entityId, params } = loadCommittedHall(host);
+    const errors: string[] = [];
+    host.subscribeToolError((m) => errors.push(m));
+    const sessions: (StampSession | null)[] = [];
+    host.subscribeStamp((s) => sessions.push(s));
+
+    host.openEntity(entityId);
+    await settle();
+    // The session is in exactly the state the refusal keys on…
+    expect(sessions.at(-1)?.opCount).toBe(0);
+    expect(sessions.at(-1)?.placementCount).toBe(0);
+
+    host.updateStamp({ ...params, width: 12 }, 7, "replace");
+    await settle();
+    host.applyReconfigure();
+    // …and the host let it through anyway, because a hall places no props. Core
+    // re-evaluated the real generator (which emits plenty) and the apply LANDED.
+    // With the gate widened to every generator this is refused instead.
+    expect(errors).toEqual([]);
+    expect(host.listEntities()[0]?.params).toMatchObject({ width: 12 });
+  } finally {
+    uninstall();
+  }
 });

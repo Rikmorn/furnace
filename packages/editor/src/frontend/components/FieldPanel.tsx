@@ -225,15 +225,29 @@ export function FieldPanel() {
 		});
 	}, [state.status, fieldHostRef]);
 
-	// Host-surfaced constants, read once at engine-ready: the smooth ceilings
-	// and the generator registry (both reach the chrome through the host
-	// because it cannot value-import core).
+	// Host-surfaced state, read at engine-ready (it reaches the chrome through the
+	// host because the chrome cannot value-import core). The smooth ceilings are
+	// true constants; the generator registry is NOT — see refreshGenerators.
 	useEffect(() => {
 		const host = fieldHostRef.current;
 		if (!host || state.status !== "ready") return;
 		setSmoothLimits(host.getSmoothLimits());
 		setGenerators(host.listGenerators());
 	}, [state.status, fieldHostRef]);
+
+	// Re-read the generator registry. `listGenerators()` is a SNAPSHOT: an
+	// archetype-driven generator's `archetypeId` param only carries its picker
+	// options once the host HOLDS the entity catalog, and that catalog arrives off
+	// an async fetch which cannot possibly settle before the effect above first
+	// runs at engine-ready. Reading once left `archetypeId` a free-text field
+	// forever (review B1), so the toolbar calls this the moment it has installed
+	// the catalog on the host — the argument is deliberately ignored, the CALL is
+	// the signal.
+	const refreshGenerators = useCallback((): void => {
+		const host = fieldHostRef.current;
+		if (!host) return;
+		setGenerators(host.listGenerators());
+	}, [fieldHostRef]);
 
 	// Mirror HOST-initiated tool changes (Alt-click eyedropper, momentary
 	// Shift/Ctrl overrides) into panel state. ECHO GUARD (binding rider): a
@@ -437,6 +451,7 @@ export function FieldPanel() {
 				headlamp={headlamp}
 				onShading={onShading}
 				onTable={setTable}
+				onEntityCatalog={refreshGenerators}
 				onStatus={setStatus}
 			/>
 			{/* The controls stack (palette + swatches + inspectors + layers + entities)

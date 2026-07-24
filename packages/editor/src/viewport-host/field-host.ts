@@ -51,6 +51,7 @@ import {
   groupPlacements,
   PROXY_PRIMITIVE,
   placementGhostBatch,
+  placesArchetypes,
   proxyRecords,
   seedArchetypeParams,
   withArchetypeOptions,
@@ -139,6 +140,11 @@ export type FieldGeneratorInfo = {
   name: string;
   paramSchema: Record<string, unknown>;
   defaults: Record<string, unknown>;
+  /** Whether this generator PLACES props (its schema names an `archetypeId`) —
+   *  derived host-side because the rule lives in `field-placements.ts` and the
+   *  chrome cannot value-import it. The stamp form reads it to decide whether a
+   *  props count means anything: a carver's is always 0 and showing it is noise. */
+  placesProps: boolean;
 };
 
 /** The host's live stats readout ({@link FieldHost.subscribeStats}, pushed
@@ -301,10 +307,28 @@ export type FieldHost = {
    *  A generator with an `archetypeId` param has that property's `enum` filled
    *  from the installed entity catalog ({@link setEntityCatalog}), turning the
    *  form's free-text field into a picker. With no catalog the schema passes
-   *  through untouched — free text still commits. The panel reads this ONCE at
-   *  engine-ready today, so a catalog installed later does not retro-fit the
-   *  options (the fetch settles first in practice). */
+   *  through untouched — free text still commits.
+   *
+   *  SNAPSHOT, not a subscription: the result reflects the catalog installed
+   *  AT CALL TIME. The catalog necessarily arrives later than the first possible
+   *  call (it comes off an async fetch, and engine-ready fires before that fetch
+   *  can settle), so a caller that renders the schema MUST call again when the
+   *  catalog lands or it will render the pre-catalog one forever. The chrome
+   *  does exactly that — FieldToolbar hands the parsed catalog to FieldPanel,
+   *  whose generator effect depends on it — and
+   *  `tests/chrome/field-panel.test.tsx` pins the ordering. */
   listGenerators(): FieldGeneratorInfo[];
+  /** The committed prop layer as the renderer holds it: per archetype id, the
+   *  instance count of its instanced draw — a COPY, keyed exactly as the draws
+   *  are grouped. Empty when the log carries no placement records.
+   *
+   *  The one readable fact about a layer that is otherwise write-only GPU state,
+   *  so it is what a caller (and a test) can hold the rebuild to. Refreshed by
+   *  every path that rebuilds the layer — commit, reconfigure apply, ⌘Z/⇧⌘Z,
+   *  world new/load, {@link setEntityCatalog} — INCLUDING before GPU init, where
+   *  the counts are decided but the upload is deferred to `init` (so a host that
+   *  loaded a world and never initialized still reports what it will draw). */
+  propInstanceCounts(): Map<string, number>;
   /** Opens a stamp session for a registry generator, its region the CURRENT
    *  selection's AABB snapped OUTWARD to the 0.5 m lattice, its seed a fresh
    *  random uint16, its params the generator's schema defaults — and fires
@@ -358,11 +382,13 @@ export type FieldHost = {
    *  original survived. {@link applyReconfigure} is that session's verb; Enter
    *  in the viewport routes to whichever the mode calls for.
    *
-   *  A preview that evaluated to NOTHING (zero ops AND zero placements — a
-   *  scatter whose region holds no matching surfaces is the reachable case)
-   *  never reaches core: core rejects an empty result outright, so the host
-   *  reports it through {@link subscribeToolError} as a sentence and leaves the
-   *  session standing to re-tune. */
+   *  A PROP generator whose preview evaluated to NOTHING (zero ops AND zero
+   *  placements — a scatter whose region holds no matching surfaces) never
+   *  reaches core: core rejects an empty result outright, so the host reports it
+   *  through {@link subscribeToolError} as a sentence about props and leaves the
+   *  session standing to re-tune. A CARVER that evaluates to nothing still goes
+   *  to core and surfaces core's own message — for a hall, "nothing to build" is
+   *  a misconfiguration, and prop advice would be nonsense. */
   commitStamp(): void;
   /** Ends the live session with whichever verb its MODE calls for —
    *  {@link commitStamp} for a stamp, {@link applyReconfigure} for a
@@ -443,9 +469,9 @@ export type FieldHost = {
    *  only — a stamp session, or a configuring/previewing one, is a no-op. A core
    *  rejection (the entity was frozen or undone from under the session) reports
    *  through {@link subscribeToolError} and LEAVES the session standing so the
-   *  user can retry or cancel. An empty re-evaluate (zero ops AND zero
-   *  placements) is caught before core the same way {@link commitStamp} catches
-   *  it.
+   *  user can retry or cancel. A PROP generator's empty re-evaluate (zero ops
+   *  AND zero placements) is caught before core the same way
+   *  {@link commitStamp} catches it; a carver's still goes to core.
    *
    *  COST — this blocks the main thread, and the stall grows with the LOG, not
    *  with the edit. The host passes no snapshot records, so core takes its
@@ -790,6 +816,12 @@ export function createFieldHost(): FieldHost {
   // The committed prop layer: one instanced draw per archetype, rebuilt from the
   // op log's placement records by rebuildProps.
   const propMeshes: PropRender[] = [];
+  // The layer's per-archetype instance counts as of the last rebuildProps — the
+  // ONE observable fact about a layer that is otherwise write-only GPU state
+  // (see propInstanceCounts). Recorded even when there is no context, because
+  // rebuildProps' whole job is to decide these numbers and only then upload
+  // them; init() replays the upload from the same source.
+  let propCounts = new Map<string, number>();
 
   // --- view state (layers + slice plane) ----------------------------------
   let layers: FieldLayers = {
@@ -1130,10 +1162,15 @@ export function createFieldHost(): FieldHost {
   // Silent no-op before GPU init — init() rebuilds once the materials exist, so
   // a world loaded pre-init still gets its props.
   const rebuildProps = (): void => {
+    const groups = groupPlacements(log.ops);
+    // The counts settle FIRST and unconditionally: they are what the layer IS,
+    // and recording them before the GPU guard keeps them honest for a host that
+    // has not initialized yet (init replays the upload from this same log).
+    propCounts = new Map([...groups].map(([id, r]) => [id, r.length]));
     const c = ctx;
     if (!c || !kitMat) return;
     destroyProps(c);
-    for (const [archetypeId, records] of groupPlacements(log.ops)) {
+    for (const [archetypeId, records] of groups) {
       const archetype = archetypeById.get(archetypeId);
       const collision = archetype?.collision ?? FALLBACK_COLLISION;
       const g = proxyGeometry(c, collision);
@@ -2065,17 +2102,27 @@ export function createFieldHost(): FieldHost {
     notifyStamp();
   };
 
-  // The empty-preview gate both terminal verbs share. Core rejects an empty
-  // evaluate outright ("evaluated to an empty result"), which is right for a
-  // CARVER — nothing to build means a misconfigured stamp — but reads as a hard
-  // failure for a READER generator the user simply tuned down to zero props. So
-  // the host tests the settled preview first and reports a sentence instead,
-  // leaving the session standing to re-tune. Core stays strict and never sees
-  // the empty commit. Returns whether it refused.
+  // The empty-preview gate both terminal verbs share, and PROP GENERATORS ONLY.
+  // Core rejects an empty evaluate outright ("evaluated to an empty result"),
+  // which is right for a CARVER — nothing to build means a misconfigured stamp,
+  // and core's own message says so accurately. It reads as a hard failure for a
+  // READER the user simply tuned down to zero props, where zero is a legitimate
+  // outcome, so for those the host tests the settled preview first and reports a
+  // sentence in the vocabulary of the thing that came up empty, leaving the
+  // session standing to re-tune. A carver keeps core's message verbatim (through
+  // the callers' catch): "0 props … raise density" would be nonsense advice for
+  // a hall. Returns whether it refused.
   const reportEmptyPreview = (s: StampSession): boolean => {
     if (!previewIsEmpty(s)) return false;
+    let def: field.GeneratorDef;
+    try {
+      def = field.generatorById(s.generator);
+    } catch {
+      return false; // a retired generator: let the core call own the failure
+    }
+    if (!placesArchetypes(def.paramSchema)) return false;
     reportToolError(
-      `${s.generator} placed nothing here — 0 ops and 0 props. Widen the region, raise density, or lower spacing.`,
+      `${s.generator} placed no props here — nothing to commit. Widen the region, raise density, or lower spacing.`,
     );
     return true;
   };
@@ -2776,11 +2823,12 @@ export function createFieldHost(): FieldHost {
     log.nextId = 1;
     dirty.clear();
     const c = ctx;
-    if (c) {
-      for (const [, cm] of chunkMeshes) destroyChunkRender(c, cm);
-      destroyProps(c);
-    }
+    if (c) for (const [, cm] of chunkMeshes) destroyChunkRender(c, cm);
     chunkMeshes.clear();
+    // rebuildProps, not destroyProps: the log was emptied above, so this both
+    // frees the outgoing draws AND resets the counts — a bare destroy would
+    // leave propInstanceCounts describing the world that just went away.
+    rebuildProps();
     setBoxAnchor(null);
     selection = null;
     lastSelection = null;
@@ -3051,7 +3099,11 @@ export function createFieldHost(): FieldHost {
         name: g.name,
         paramSchema: withArchetypeOptions(structuredClone(g.paramSchema), ids),
         defaults: structuredClone(g.defaults),
+        placesProps: placesArchetypes(g.paramSchema),
       }));
+    },
+    propInstanceCounts() {
+      return new Map(propCounts);
     },
     startStamp(generator) {
       const sel = selection;

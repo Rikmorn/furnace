@@ -15,6 +15,11 @@ import { afterEach, expect, mock, test } from "bun:test";
 import type { DriftFinding, GeneratorEntity } from "@furnace/core/field";
 import type { ConfirmRequest } from "../../src/frontend/components/ConfirmDialog.tsx";
 import { FieldPanel } from "../../src/frontend/components/FieldPanel.tsx";
+import type { EntityCatalog } from "../../src/frontend/lib/catalog.ts";
+// Tests are NOT part of the chrome bundle, so a value import of the viewport
+// host is allowed here — and using the REAL helper is the point: the stub then
+// goes stale exactly when the production host would.
+import { withArchetypeOptions } from "../../src/viewport-host/field-placements.ts";
 import type {
 	FieldGeneratorInfo,
 	FieldHost,
@@ -42,10 +47,31 @@ afterEach(() => {
 	globalThis.fetch = realFetch;
 });
 
-/** Replace globalThis.fetch for one test (afterEach restores the real one). */
-function stubFetch(fn: () => Promise<Response>): void {
-	// Boundary cast: the stub only serves the toolbar's one catalog GET.
-	globalThis.fetch = mock(fn) as unknown as typeof fetch;
+/** Replace globalThis.fetch for one test (afterEach restores the real one).
+ *  URL-AWARE: the toolbar fires TWO catalog GETs (materials, then entities) and
+ *  a URL-agnostic stub silently fed the materials body to parseEntityCatalog —
+ *  which threw a swallowed CatalogError, so the entity path was only ever
+ *  covered in its error branch (review O7). */
+function stubFetch(fn: (url: string) => Promise<Response>): void {
+	// Boundary cast: the stub only serves the toolbar's two catalog GETs, whose
+	// first argument is always a plain string URL.
+	globalThis.fetch = mock((input: unknown) =>
+		fn(String(input)),
+	) as unknown as typeof fetch;
+}
+
+/** Serve each catalog URL its own body; anything absent 404s. */
+function stubCatalogs(bodies: { materials?: string; entities?: string }): void {
+	stubFetch((url) => {
+		const body = url.includes("entities.json")
+			? bodies.entities
+			: bodies.materials;
+		return Promise.resolve(
+			body === undefined
+				? new Response("", { status: 404 })
+				: new Response(body, { status: 200 }),
+		);
+	});
 }
 
 const fetch404 = (): void =>
@@ -85,6 +111,7 @@ const HALL_GEN: FieldGeneratorInfo = {
 	name: "Hall",
 	paramSchema: { type: "object", properties: { width: { type: "number" } } },
 	defaults: { width: 4 },
+	placesProps: false,
 };
 
 function makeStats(overrides: Partial<FieldStats> = {}): FieldStats {
@@ -136,6 +163,13 @@ const ENTITY: GeneratorEntity = {
  *  (empty) state on subscribe, like the real host. */
 function makeStubHost(opts: { generators?: FieldGeneratorInfo[] } = {}) {
 	let entities: GeneratorEntity[] = [];
+	// The stub models the REAL host's snapshot semantics: setEntityCatalog stores
+	// the catalog, and listGenerators() reads it AT CALL TIME through the same
+	// pure helper field-host.ts uses. Without this the ordering bug (B1) is
+	// invisible from the chrome — a static generator list can never go stale.
+	let installedCatalog: EntityCatalog | null = null;
+	// Call-order trace for the two seams whose ORDER is the contract under test.
+	const order: string[] = [];
 	const cbs: {
 		tool: ((t: FieldTool) => void) | null;
 		stamp: ((s: StampSession | null) => void) | null;
@@ -215,8 +249,22 @@ function makeStubHost(opts: { generators?: FieldGeneratorInfo[] } = {}) {
 		setSlice: calls.setSlice,
 		getSmoothLimits: () => ({ maxStrength: 32, maxIterations: 4 }),
 		setMaterialTable: calls.setMaterialTable,
-		setEntityCatalog: calls.setEntityCatalog,
-		listGenerators: () => opts.generators ?? [],
+		setEntityCatalog: (catalog) => {
+			order.push("setEntityCatalog");
+			installedCatalog = catalog;
+			calls.setEntityCatalog(catalog);
+		},
+		listGenerators: () => {
+			order.push("listGenerators");
+			return (opts.generators ?? []).map((g) => ({
+				...g,
+				paramSchema: withArchetypeOptions(
+					structuredClone(g.paramSchema),
+					(installedCatalog?.archetypes ?? []).map((a) => a.id),
+				),
+			}));
+		},
+		propInstanceCounts: () => new Map<string, number>(),
 		startStamp: calls.startStamp,
 		updateStamp: calls.updateStamp,
 		nudgeStamp: calls.nudgeStamp,
@@ -262,6 +310,8 @@ function makeStubHost(opts: { generators?: FieldGeneratorInfo[] } = {}) {
 	return {
 		host,
 		calls,
+		/** Seam-call trace, in order — the B1 ordering contract's witness. */
+		order,
 		/** Fire a latched host→panel push (callers wrap in act). */
 		fire: {
 			tool: (t: FieldTool) => cbs.tool?.(t),
@@ -320,7 +370,7 @@ const button = (name: string): HTMLButtonElement =>
 // --- (a) paint organic-clamp ------------------------------------------------
 
 test("picking Paint while a kit class is active clamps the material to the first organic class", async () => {
-	stubFetch(() => Promise.resolve(new Response(CATALOG_JSON, { status: 200 })));
+	stubCatalogs({ materials: CATALOG_JSON });
 	const stub = makeStubHost();
 	await renderPanel(stub);
 	// The swatch strip appears once the catalog lands (2 classes > 1).
@@ -341,12 +391,18 @@ test("picking Paint while a kit class is active clamps the material to the first
 // --- (b) catalog-gated Load -------------------------------------------------
 
 test("Load stays disabled until the catalog fetch settles", async () => {
+	// ONLY the materials GET hangs (it is the one that gates Load); entities 404s
+	// like any project without one. A URL-agnostic pending stub used to hand the
+	// same `settle` slot to both GETs, so the first promise was overwritten and
+	// left unresolved forever (review O7) — harmless, but it meant this test's
+	// subject was ambiguous.
 	let settle!: (r: Response) => void;
-	stubFetch(
-		() =>
-			new Promise<Response>((res) => {
-				settle = res;
-			}),
+	stubFetch((url) =>
+		url.includes("entities.json")
+			? Promise.resolve(new Response("", { status: 404 }))
+			: new Promise<Response>((res) => {
+					settle = res;
+				}),
 	);
 	const stub = makeStubHost();
 	renderWithEditor(
@@ -803,4 +859,140 @@ test("the control sections share ONE bounded scroll container; the canvas cell i
 	expect(tall.canvas).toBe(canvas);
 	expect(controls.contains(button("Commit"))).toBe(true);
 	expect(controls.contains(canvas)).toBe(false);
+});
+
+// --- (k) F3b: the archetypeId picker survives the catalog's ASYNC arrival ----
+//
+// The ordering this pins is the whole point (review B1). The panel reads
+// `host.listGenerators()` at engine-ready — SYNCHRONOUSLY, in an effect body —
+// while the toolbar installs the entity catalog only after `await fetch(...)`.
+// So the schema the form renders is always captured BEFORE the catalog exists,
+// and unless the panel re-reads, `archetypeId` stays a free-text input forever.
+// Host-level tests cannot see this: they call setEntityCatalog first, which is
+// exactly the order the chrome does not produce.
+
+/** A one-archetype `catalog/entities.json`, the v1 shape parseEntityCatalog takes. */
+const ENTITIES_JSON = JSON.stringify({
+	version: 1,
+	archetypes: [
+		{
+			id: "rock",
+			name: "Rock",
+			material: { litColor: [0.45, 0.42, 0.4] },
+			collision: { kind: "box", halfExtents: [0.4, 0.35, 0.4] },
+			scatter: { density: 0.3 },
+		},
+		{
+			id: "stalagmite",
+			name: "Stalagmite",
+			material: { litColor: [0.5, 0.48, 0.44] },
+			collision: { kind: "capsule", halfHeight: 0.5, radius: 0.22 },
+			scatter: { density: 0.15 },
+		},
+	],
+});
+
+const SCATTER_GEN: FieldGeneratorInfo = {
+	id: "scatter",
+	name: "Scatter",
+	paramSchema: {
+		type: "object",
+		properties: { archetypeId: { type: "string", default: "rock" } },
+	},
+	defaults: { archetypeId: "rock" },
+	placesProps: true,
+};
+
+test("the entity catalog is fetched, parsed and installed on the host", async () => {
+	stubCatalogs({ materials: CATALOG_JSON, entities: ENTITIES_JSON });
+	const stub = makeStubHost();
+	await renderPanel(stub);
+	await waitFor(() =>
+		expect(stub.calls.setEntityCatalog.mock.calls.length).toBe(1),
+	);
+	// The PARSED catalog reaches the host, not the raw text — a URL-agnostic
+	// fetch stub used to hand parseEntityCatalog the materials body instead, so
+	// this path only ever ran in its swallowed-error branch (review O7).
+	const installed = stub.calls.setEntityCatalog.mock.calls[0]?.[0] as
+		| EntityCatalog
+		| undefined;
+	expect(installed?.archetypes.map((a) => a.id)).toEqual([
+		"rock",
+		"stalagmite",
+	]);
+	// …and the scatter block was re-shaped into generator param spelling.
+	expect(installed?.archetypes[0]?.scatter).toEqual({ density: 0.3 });
+});
+
+/** The inspector labels a param with its humanized key, and FieldRow wraps the
+ *  control in that <label> — so this resolves whichever control the field kind
+ *  chose: EnumField's Radix combobox (a <button>) or StringField's <input>. */
+const archetypeField = (): HTMLElement => screen.getByLabelText("Archetype Id");
+
+test("archetypeId renders as a PICKER once the catalog lands (it arrives after the first listGenerators)", async () => {
+	stubCatalogs({ materials: CATALOG_JSON, entities: ENTITIES_JSON });
+	const stub = makeStubHost({ generators: [SCATTER_GEN] });
+	await renderPanel(stub);
+	act(() => {
+		stub.fire.stamp(makeSession({ generator: "scatter", phase: "ready" }));
+	});
+	// The kind resolver reads `enum` FIRST, so an enum-carrying schema renders
+	// EnumField (a Radix combobox trigger) and a bare string one renders
+	// StringField (an <input>). Before the re-read fix this was the <input>: the
+	// catalog HAD installed on the host, but the panel was still holding the
+	// schema it read synchronously at engine-ready.
+	await waitFor(() => expect(archetypeField().tagName).toBe("BUTTON"));
+	expect(archetypeField().getAttribute("role")).toBe("combobox");
+
+	// The mechanism, stated directly (the reviewer's probe, made permanent):
+	// the catalog installs BEFORE the last listGenerators read. An implementation
+	// that reads the registry once at engine-ready fails here even if some other
+	// path happened to make the DOM assertion above pass.
+	expect(stub.order.indexOf("setEntityCatalog")).toBeGreaterThanOrEqual(0);
+	expect(stub.order.lastIndexOf("listGenerators")).toBeGreaterThan(
+		stub.order.indexOf("setEntityCatalog"),
+	);
+});
+
+test("with no entity catalog (404) archetypeId stays a free-text field", async () => {
+	// The catalog SEEDS, it never GATES: scatter must stay authorable without one.
+	stubCatalogs({ materials: CATALOG_JSON });
+	const stub = makeStubHost({ generators: [SCATTER_GEN] });
+	await renderPanel(stub);
+	act(() => {
+		stub.fire.stamp(makeSession({ generator: "scatter", phase: "ready" }));
+	});
+	expect(stub.calls.setEntityCatalog.mock.calls.length).toBe(0);
+	expect(archetypeField().tagName).toBe("INPUT");
+});
+
+test("the props count shows for a prop generator only — a carver never reads '0 props'", async () => {
+	stubCatalogs({ materials: CATALOG_JSON, entities: ENTITIES_JSON });
+	const stub = makeStubHost({ generators: [HALL_GEN, SCATTER_GEN] });
+	await renderPanel(stub);
+
+	// A carver's placementCount is 0 by construction, so a permanent "· 0 props"
+	// on every hall preview would be noise the user has to learn to ignore.
+	act(() => {
+		stub.fire.stamp(
+			makeSession({ phase: "ready", opCount: 12, placementCount: 0 }),
+		);
+	});
+	expect(screen.getByText(/12 ops/)).toBeDefined();
+	// `/\d+ props/`, not `/props/` — the layer strip has a bare "props" checkbox.
+	expect(screen.queryByText(/\d+ props/)).toBeNull();
+
+	// For scatter it is the ONLY output — shown even at zero, because that is the
+	// reading the host's commit refusal then explains.
+	act(() => {
+		stub.fire.stamp(
+			makeSession({
+				generator: "scatter",
+				phase: "ready",
+				opCount: 0,
+				placementCount: 0,
+			}),
+		);
+	});
+	expect(screen.getByText(/0 props/)).toBeDefined();
 });

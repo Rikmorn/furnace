@@ -204,6 +204,27 @@ export const groupPlacements = (
  *  generator picks the catalog options up for free. */
 const ARCHETYPE_PARAM = "archetypeId";
 
+/** Whether a generator PLACES archetype instances — i.e. its schema declares an
+ *  `archetypeId` param. The one predicate behind every "is this a prop
+ *  generator?" branch: the catalog picker, the param seeding, the props count in
+ *  the stamp form, and the editor-side empty-result refusal. Keyed on the schema
+ *  property rather than on a generator id so a future archetype-driven generator
+ *  inherits all four for free.
+ *
+ *  It is a proxy for a fact core does not expose (`GeneratorDef` has
+ *  `contextFree`, which means "reads the field" — scatter satisfies both today,
+ *  but a future carver that reads the field would satisfy only the first). If
+ *  core ever declares "emits placements" directly, this should read THAT. */
+export const placesArchetypes = (
+  paramSchema: Record<string, unknown>,
+): boolean => {
+  const properties = paramSchema["properties"];
+  if (typeof properties !== "object" || properties === null) return false;
+  // Boundary cast: the runtime check proves `properties` is a non-null object,
+  // always index-readable as a record (values stay unknown).
+  return ARCHETYPE_PARAM in (properties as Record<string, unknown>);
+};
+
 /** A generator's param schema with its `archetypeId` property given an `enum` of
  *  the catalog's ids — which is what turns the stamp form's free-text field into
  *  a picker (the inspector's kind resolver reads `enum` first). Returns the
