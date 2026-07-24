@@ -27,7 +27,7 @@ import {
 } from "./chunks.ts";
 import { boolParam, intParam, numParam } from "./generator-params.ts";
 import { PATCH_MASK_BYTES } from "./ops.ts";
-import { fnv1a, makeIntRng } from "./rng.ts";
+import { fnv1a, makeIntRng, rand01, randInt, randRange } from "./rng.ts";
 import type {
   GeneratorDef,
   GeneratorResult,
@@ -156,16 +156,6 @@ type CaveParams = {
   extraLoops: number;
   doors: { face: Face; offset: number | undefined }[];
 };
-
-// ─── integer-RNG float helpers (Pr-2: only the allowed ops) ───
-/** A uint32 stream mapped to [0, 1) via an exact power-of-two division. */
-const rand01 = (rng: () => number): number => (rng() >>> 8) / 0x1000000;
-/** A float in [lo, hi) from one stream draw. */
-const randRange = (rng: () => number, lo: number, hi: number): number =>
-  lo + rand01(rng) * (hi - lo);
-/** An integer in [lo, hiExclusive) from one stream draw. */
-const randInt = (rng: () => number, lo: number, hiExclusive: number): number =>
-  lo + (rng() % (hiExclusive - lo));
 
 /** Read an array at a caller-proven-valid index, narrowing away the
  *  `noUncheckedIndexedAccess` widening the same way generators.ts narrows its

@@ -35,3 +35,22 @@ export function makeIntRng(seedWord: number): () => number {
     return (t ^ (t >>> 14)) >>> 0;
   };
 }
+
+// ─── float adapters over the integer stream (Pr-2: only + - * /) ───
+// Shared by the cave and scatter generators; the mapping to [0, 1) is an EXACT
+// power-of-two division (divisor 0x1000000, NOT 0xFFFFFF), so a draw is half-open
+// [0, 1) and never reaches 1.0 — the property braid=1 / density edges rely on.
+
+/** A uint32 stream draw mapped to `[0, 1)` via an exact power-of-two division. */
+export const rand01 = (rng: () => number): number => (rng() >>> 8) / 0x1000000;
+
+/** A float in `[lo, hi)` from one stream draw. */
+export const randRange = (rng: () => number, lo: number, hi: number): number =>
+  lo + rand01(rng) * (hi - lo);
+
+/** An integer in `[lo, hiExclusive)` from one stream draw. */
+export const randInt = (
+  rng: () => number,
+  lo: number,
+  hiExclusive: number,
+): number => lo + (rng() % (hiExclusive - lo));

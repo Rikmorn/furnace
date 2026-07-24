@@ -16,7 +16,7 @@
 
 import { getDensity, worldToVoxel } from "./chunks.ts";
 import { boolParam, intParam, numParam } from "./generator-params.ts";
-import { fnv1a, makeIntRng } from "./rng.ts";
+import { fnv1a, makeIntRng, rand01, randInt } from "./rng.ts";
 import type {
   FieldStore,
   GeneratorDef,
@@ -46,17 +46,15 @@ const JITTER_FRAC = 0.4;
 const NORMAL_OFFSET = 0.02;
 /** Below this gradient magnitude the surface is treated as flat/absent and the
  *  candidate is discarded (no meaningful normal). */
-const MIN_GRADIENT = 1e-6;
+const GRADIENT_EPS = 1e-6;
+/** Below this the unit-disk rejection sample sits at the origin — no direction to
+ *  normalize, so re-draw. */
+const DISK_EPS = 1e-6;
+/** Below this a quaternion has no length to normalize — fall back to identity. */
+const QUAT_LEN_EPS = 1e-6;
 /** Below this the shortest-arc denominator (1 + n·+Y) is degenerate (n ≈ −Y):
  *  fall back to a 180° turn about +X, which maps +Y → −Y. */
 const ANTIPARALLEL_EPS = 1e-6;
-
-// ─── integer-RNG float helpers (Pr-2: only the allowed ops) ───
-/** A uint32 stream mapped to [0, 1) via an exact power-of-two division. */
-const rand01 = (rng: () => number): number => (rng() >>> 8) / 0x1000000;
-/** An integer in [lo, hiExclusive) from one stream draw. */
-const randInt = (rng: () => number, lo: number, hiExclusive: number): number =>
-  lo + (rng() % (hiExclusive - lo));
 
 const clampInt = (v: number, lo: number, hi: number): number =>
   Math.max(lo, Math.min(hi, v));
@@ -70,12 +68,6 @@ const HEMISPHERES = ["floor", "wall", "ceiling"] as const;
 type Hemisphere = (typeof HEMISPHERES)[number];
 const isHemisphere = (v: unknown): v is Hemisphere =>
   HEMISPHERES.some((h) => h === v);
-
-const DENSITY_RANGE = { minimum: 0.05, maximum: 2 } as const;
-const SPACING_RANGE = { minimum: 0.25, maximum: 8 } as const;
-const SCALE_RANGE = { minimum: 0.05, maximum: 8 } as const;
-const BLEND_RANGE = { minimum: 0, maximum: 1 } as const;
-const VARIANTS_RANGE = { minimum: 1, maximum: 8 } as const;
 
 const SCATTER_PROPERTIES = {
   archetypeId: { type: "string", default: "rock" },
@@ -125,6 +117,9 @@ type ScatterParams = {
  *  hall/maze/cave stance. `scaleMax >= scaleMin` is enforced too (a reversed
  *  pair is a caller error, not silently swapped). */
 function scatterParams(params: Record<string, unknown>): ScatterParams {
+  // Bounds are single-sourced from the schema properties (the cave pattern) —
+  // the validators read `{minimum, maximum}` straight off each property object.
+  const P = SCATTER_SCHEMA.properties;
   const archetypeId = params["archetypeId"];
   if (typeof archetypeId !== "string" || archetypeId.length === 0)
     throw new Error(
@@ -140,23 +135,23 @@ function scatterParams(params: Record<string, unknown>): ScatterParams {
     throw new Error(
       `scatter: hemisphere must be one of ${HEMISPHERES.map((h) => `"${h}"`).join(" | ")}, got ${JSON.stringify(hemisphere)}`,
     );
-  const scaleMin = numParam("scatter", params, "scaleMin", SCALE_RANGE);
-  const scaleMax = numParam("scatter", params, "scaleMax", SCALE_RANGE);
+  const scaleMin = numParam("scatter", params, "scaleMin", P.scaleMin);
+  const scaleMax = numParam("scatter", params, "scaleMax", P.scaleMax);
   if (scaleMax < scaleMin)
     throw new Error(
       `scatter: scaleMax (${scaleMax}) must be >= scaleMin (${scaleMin})`,
     );
   return {
     archetypeId,
-    density: numParam("scatter", params, "density", DENSITY_RANGE),
-    minSpacing: numParam("scatter", params, "minSpacing", SPACING_RANGE),
+    density: numParam("scatter", params, "density", P.density),
+    minSpacing: numParam("scatter", params, "minSpacing", P.minSpacing),
     scaleMin,
     scaleMax,
     randomYaw: boolParam("scatter", params, "randomYaw"),
     orientation,
-    blend: numParam("scatter", params, "blend", BLEND_RANGE),
+    blend: numParam("scatter", params, "blend", P.blend),
     hemisphere,
-    variants: intParam("scatter", params, "variants", VARIANTS_RANGE),
+    variants: intParam("scatter", params, "variants", P.variants),
   };
 }
 
@@ -205,19 +200,23 @@ function surfaceNormal(
   const gy = getDensity(store, x, y + 1, z) - getDensity(store, x, y - 1, z);
   const gz = getDensity(store, x, y, z + 1) - getDensity(store, x, y, z - 1);
   const len = Math.sqrt(gx * gx + gy * gy + gz * gz);
-  if (len < MIN_GRADIENT) return null;
+  if (len < GRADIENT_EPS) return null;
   return [gx / len, gy / len, gz / len];
 }
 
-/** Sub-sample world coordinate of the zero-crossing between sample `s` (density
- *  `d0`) and `s + 1` (density `d1`), of opposite sign — the linear interpolant
- *  `s + d0/(d0 − d1)`, in metres. */
+/** Sub-sample world coordinate of the zero-crossing one `step` (±1 sample) from
+ *  sample `s` (density `d0`) toward its neighbour (density `d1`, opposite sign):
+ *  the linear interpolant `s + step · d0/(d0 − d1)`, in metres. `step` carries the
+ *  SCAN DIRECTION — a −X/−Z wall scan interpolates toward LOWER coords, so the
+ *  crossing lands between the air cell and the rock cell rather than on the far
+ *  side of the air cell. The vertical column scan always steps +1 (upward). */
 const crossingWorld = (
   s: number,
+  step: number,
   d0: number,
   d1: number,
   cell: number,
-): number => (s + d0 / (d0 - d1)) * cell;
+): number => (s + step * (d0 / (d0 - d1))) * cell;
 
 // ─── vertical column scan (floor / ceiling) ───
 /** The air-side sample of the target vertical crossing at column (x, z), or null
@@ -240,7 +239,7 @@ function columnSurface(
       const d0 = getDensity(store, x, y, z);
       const d1 = getDensity(store, x, y + 1, z);
       if (d0 < 0 && d1 > 0)
-        return { airY: y + 1, surfaceY: crossingWorld(y, d0, d1, cell) };
+        return { airY: y + 1, surfaceY: crossingWorld(y, 1, d0, d1, cell) };
     }
     return null;
   }
@@ -249,7 +248,7 @@ function columnSurface(
     const d0 = getDensity(store, x, y, z);
     const d1 = getDensity(store, x, y + 1, z);
     if (d0 > 0 && d1 < 0)
-      return { airY: y, surfaceY: crossingWorld(y, d0, d1, cell) };
+      return { airY: y, surfaceY: crossingWorld(y, 1, d0, d1, cell) };
   }
   return null;
 }
@@ -291,8 +290,14 @@ function wallSurface(
         if (best === null || k < best.k)
           best = {
             air: [prevX, y, prevZ],
-            wx: dx === 0 ? prevX * cell : crossingWorld(prevX, prevD, d, cell),
-            wz: dz === 0 ? prevZ * cell : crossingWorld(prevZ, prevD, d, cell),
+            wx:
+              dx === 0
+                ? prevX * cell
+                : crossingWorld(prevX, dx, prevD, d, cell),
+            wz:
+              dz === 0
+                ? prevZ * cell
+                : crossingWorld(prevZ, dz, prevD, d, cell),
             k,
           };
         break;
@@ -314,7 +319,7 @@ function randomDir(rng: () => number): [number, number] {
     const x = rand01(rng) * 2 - 1;
     const y = rand01(rng) * 2 - 1;
     const r2 = x * x + y * y;
-    if (r2 > MIN_GRADIENT && r2 <= 1) {
+    if (r2 > DISK_EPS && r2 <= 1) {
       const r = Math.sqrt(r2);
       return [x / r, y / r];
     }
@@ -356,7 +361,7 @@ function quatMul(a: Quat, b: Quat): Quat {
 
 function normalizeQuat(q: Quat): Quat {
   const len = Math.sqrt(q[0] * q[0] + q[1] * q[1] + q[2] * q[2] + q[3] * q[3]);
-  if (len < MIN_GRADIENT) return [0, 0, 0, 1];
+  if (len < QUAT_LEN_EPS) return [0, 0, 0, 1];
   return [q[0] / len, q[1] / len, q[2] / len, q[3] / len];
 }
 

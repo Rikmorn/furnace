@@ -207,6 +207,95 @@ describe("scatter — ceiling hemisphere", () => {
   });
 });
 
+// Carves a vertical wall: a rock half-space on one side of a sample plane along
+// `axis` (0=x, 2=z), air the other side. `rockLow` = rock at sample ≤ boundary.
+// Region samples run 0..24 (world [0,6] at cell 0.25).
+const WALL_REGION: Region = { min: [0, 0, 0], max: [6, 6, 6] };
+function carveWall(
+  axis: 0 | 2,
+  boundary: number,
+  rockLow: boolean,
+): FieldStore {
+  const store = createFieldStore();
+  const sMax = worldToVoxel(WALL_REGION.max[0], CELL);
+  for (let sz = 0; sz <= sMax; sz++)
+    for (let sy = 0; sy <= sMax; sy++)
+      for (let sx = 0; sx <= sMax; sx++) {
+        const along = axis === 0 ? sx : sz;
+        const isAir = rockLow ? along > boundary : along < boundary;
+        if (isAir) setDensity(store, sx, sy, sz, AIR);
+      }
+  return store;
+}
+
+describe("scatter — wall hemisphere (all four faces)", () => {
+  // The crossing between the last air sample and the first rock sample lands at
+  // (boundary ± 0.5)·cell for a hard AIR/SOLID wall. Props sit one tiny normal
+  // offset onto the AIR side. −X/−Z scans exercise the signed-step interpolant:
+  // SABOTAGE ANCHOR — drop the scan direction from `crossingWorld` (Fix 1) and
+  // the −X/−Z props float a full cell into open air → their `|pos − crossing|`
+  // blows past the half-cell bound below.
+  const faces = [
+    {
+      name: "-X",
+      axis: 0 as const,
+      boundary: 8,
+      rockLow: true,
+      crossing: 2.125,
+    },
+    {
+      name: "+X",
+      axis: 0 as const,
+      boundary: 16,
+      rockLow: false,
+      crossing: 3.875,
+    },
+    {
+      name: "-Z",
+      axis: 2 as const,
+      boundary: 8,
+      rockLow: true,
+      crossing: 2.125,
+    },
+    {
+      name: "+Z",
+      axis: 2 as const,
+      boundary: 16,
+      rockLow: false,
+      crossing: 3.875,
+    },
+  ];
+  for (const f of faces)
+    test(`${f.name} wall: every prop sits on the AIR side of the crossing, normal horizontal`, () => {
+      const store = carveWall(f.axis, f.boundary, f.rockLow);
+      const records = evalScatter(
+        store,
+        scatterParams({
+          hemisphere: "wall",
+          orientation: "normal",
+          density: 2,
+          minSpacing: 0.5,
+        }),
+        WALL_REGION,
+      );
+      expect(records.length).toBeGreaterThan(0);
+      const boundaryWorld = f.boundary * CELL;
+      for (const r of records) {
+        // on the CORRECT side, within half a cell of the true vertical crossing
+        // (the bug puts −X/−Z props a full cell out into the air)
+        expect(Math.abs(r.position[f.axis] - f.crossing)).toBeLessThanOrEqual(
+          0.5 * CELL,
+        );
+        // air side: rock-low walls put air ABOVE the plane, rock-high BELOW it
+        if (f.rockLow)
+          expect(r.position[f.axis]).toBeGreaterThan(boundaryWorld);
+        else expect(r.position[f.axis]).toBeLessThan(boundaryWorld);
+        // a wall normal is horizontal
+        expect(Math.abs(rotatePlusY(r.quat)[1])).toBeLessThan(0.4);
+      }
+    });
+});
+
 describe("scatter — region bound", () => {
   test("no record lands outside the region AABB", () => {
     const region: Region = { min: [1, 0, 1], max: [7, 4, 7] };
@@ -287,6 +376,29 @@ describe("scatter — commit path (contextFree:false)", () => {
     expect(placement.records.length).toBeGreaterThan(0);
     // commit validated every quat as unit-length (assertPlacementsValid), so a
     // non-unit orientation would have thrown before this line.
+  });
+
+  // Pins the CURRENT empty-scatter contract (unsettled design, do NOT change
+  // here — see docs/backlog/engine-architecture/scatter-empty-result-policy.md):
+  // a scatter that finds no surfaces evaluates to {ops:[], placements:[]}, which
+  // commitGenerator rejects setup-loud like any empty generator result — and
+  // atomically (nothing mutated).
+  test("a scatter that finds no surfaces throws 'empty result' with nothing mutated", () => {
+    const region: Region = { min: [0, 0, 0], max: [8, 4, 8] };
+    const store = createFieldStore(); // all-solid: no rock→air crossings anywhere
+    const log = createOpLog();
+    expect(() =>
+      commitGenerator(store, log, SCATTER, {
+        params: scatterParams(),
+        seed: 7,
+        region,
+        policy: "replace",
+        table: TABLE,
+      }),
+    ).toThrow(/empty result/);
+    expect(store.chunks.size).toBe(0);
+    expect(log.ops.length).toBe(0);
+    expect(log.nextId).toBe(1);
   });
 });
 
