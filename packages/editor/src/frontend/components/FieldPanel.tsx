@@ -74,6 +74,7 @@ const ROCK_ONLY_TABLE: MaterialTable = {
 const DEFAULT_LAYERS: FieldLayers = {
 	field: true,
 	kit: true,
+	props: true,
 	ghost: true,
 	selection: true,
 	grid: true,

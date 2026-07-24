@@ -378,11 +378,13 @@ describe("scatter — commit path (contextFree:false)", () => {
     // non-unit orientation would have thrown before this line.
   });
 
-  // Pins the CURRENT empty-scatter contract (unsettled design, do NOT change
-  // here — see docs/backlog/engine-architecture/scatter-empty-result-policy.md):
-  // a scatter that finds no surfaces evaluates to {ops:[], placements:[]}, which
-  // commitGenerator rejects setup-loud like any empty generator result — and
-  // atomically (nothing mutated).
+  // Pins the empty-scatter contract, SETTLED at F3b Task 10: core stays strict
+  // — a scatter that finds no surfaces evaluates to {ops:[], placements:[]},
+  // which commitGenerator rejects setup-loud like any empty generator result,
+  // and atomically (nothing mutated). Zero props is a legitimate outcome for a
+  // READER generator, so the legibility fix lives in the EDITOR, which tests the
+  // settled preview and refuses before calling core (FieldHost's
+  // `reportEmptyPreview` / field-stamp's `previewIsEmpty`). Do not relax this.
   test("a scatter that finds no surfaces throws 'empty result' with nothing mutated", () => {
     const region: Region = { min: [0, 0, 0], max: [8, 4, 8] };
     const store = createFieldStore(); // all-solid: no rock→air crossings anywhere

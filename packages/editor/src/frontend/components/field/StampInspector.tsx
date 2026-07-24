@@ -237,6 +237,16 @@ export function StampInspector(props: {
 				{session.opCount !== null && (
 					<span className="tabular-nums"> · {session.opCount} ops</span>
 				)}
+				{/* Props are the ONLY output a reader generator (scatter) has — its op
+				    count is always 0 — so the count shows whenever a preview has
+				    settled, including at zero. A settled "0 ops · 0 props" is the
+				    reading the host's commit refusal explains. */}
+				{session.placementCount !== null && (
+					<span className="tabular-nums">
+						{" "}
+						· {session.placementCount} props
+					</span>
+				)}
 			</p>
 			{session.error !== null && (
 				// role="alert": a failed evaluate must reach screen readers — the

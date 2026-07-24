@@ -98,9 +98,10 @@ export type FieldWorkerResponse =
       chunks: { key: string; buckets: WireBucket[] }[];
       opCount: number;
       evalMs: number;
-      /** Explicit placed instances the generator emitted (D-F3-8). Additive: the
-       *  ghost preview does not render them yet — the editor's placement tranche
-       *  consumes this; until then the host ignores it. */
+      /** Explicit placed instances the generator emitted (D-F3-8) — the ONLY
+       *  output of a pure reader like scatter (its `opCount` is 0). The host
+       *  draws them as wireframe proxy boxes in the ghost layer and counts them
+       *  into the session's `placementCount`. */
       placements: PlacementRecord[];
     }
   | { kind: "mesh-error"; jobId: number; key: string; message: string };
@@ -185,14 +186,18 @@ function handleStampPreview(
     if (c.materials !== null) store.materials.set(c.key, c.materials);
   }
   const t0 = performance.now();
-  // Preview path evaluates hall/maze (both contextFree) — no EvaluateContext is
-  // threaded here; a context-reading generator's preview arrives with scatter.
+  // A `contextFree: false` generator (scatter) READS the field to place its
+  // instances, so the preview hands it the SCRATCH store the snapshot was just
+  // installed into — the same store the ghost is meshed from, which is what
+  // makes preview and commit agree. Context-free defs get `undefined` and ignore
+  // it (core's own evaluateGenerator makes the same call).
   const evaluated = def.evaluate(
     msg.params,
     msg.seed,
     msg.region,
     msg.table,
     msg.policy,
+    def.contextFree ? undefined : { store },
   );
   const evalMs = performance.now() - t0;
   const dirty = new Set<string>();

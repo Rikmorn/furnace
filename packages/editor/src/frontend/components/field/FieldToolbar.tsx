@@ -13,7 +13,11 @@ import { useEffect, useRef, useState } from "react";
 import { api } from "../../lib/api.ts";
 // catalog.ts type-imports core only (erased), so value-importing it here does
 // NOT pull core into the chrome bundle — the project-first invariant holds.
-import { CatalogError, parseMaterialsCatalog } from "../../lib/catalog.ts";
+import {
+	CatalogError,
+	parseEntityCatalog,
+	parseMaterialsCatalog,
+} from "../../lib/catalog.ts";
 import { cn } from "../../lib/cn.ts";
 import { bakeUploadCalls, toWireFiles } from "../../lib/generation.ts";
 import { useEditor } from "../editor-context.ts";
@@ -54,47 +58,74 @@ export function FieldToolbar(props: {
 
 	const nameValid = NAME_RE.test(name);
 
-	// Catalog load, run-once on engine-ready. Fetches the project's materials catalog
-	// (the daemon maps this chrome-miss GET onto the project root) and installs the
-	// resolved table on the host — BEFORE any world Load, so a v2 world baked against
-	// this same catalog remeshes with the right classes. A 404 leaves the host on its
-	// rock-only BUILTIN_TABLE default; a CatalogError is setup-loud (its JSON path
-	// shows in the status line so a mistyped catalog is diagnosable here). The host
-	// may not be GPU-init'd yet — setMaterialTable then just stores the table (no
-	// rebuild) and init() picks it up; if init ran first, the swap re-meshes. Either
-	// order converges. fieldHostRef.current is assigned before engine-ready (App), so
-	// it is present whenever state.status === "ready". EVERY outcome settles the
-	// catalog (finally) — the Load gate must never wedge shut on a failed fetch.
+	// Catalog load, run-once on engine-ready — BOTH project catalogs, in one pass so
+	// they cannot race each other onto the status line. Materials come first and
+	// alone gate Load: a v2 world must remesh against the same table it was baked
+	// with. The entity catalog gates nothing (props render from the op log whether or
+	// not it resolves), so it runs after the gate has settled and its outcome only
+	// ever appends to the message.
+	//
+	// The daemon maps these chrome-miss GETs onto the project root. A 404 leaves the
+	// host on its rock-only BUILTIN_TABLE / no-archetypes defaults; a CatalogError is
+	// setup-loud (its JSON path shows in the status line so a mistyped catalog is
+	// diagnosable here). The host may not be GPU-init'd yet — the setters then just
+	// store (no rebuild) and init() picks them up; if init ran first, the swap
+	// re-meshes. Either order converges. fieldHostRef.current is assigned before
+	// engine-ready (App), so it is present whenever state.status === "ready". EVERY
+	// materials outcome settles the gate (finally) — Load must never wedge shut on a
+	// failed fetch.
 	useEffect(() => {
 		const host = fieldHostRef.current;
 		if (!host || state.status !== "ready" || catalogLoaded.current) return;
 		catalogLoaded.current = true;
-		void (async () => {
+
+		const loadMaterials = async (): Promise<string> => {
+			const res = await fetch("/catalog/materials.json");
+			if (res.status === 404) return "no catalog — rock only";
+			if (!res.ok) return `catalog fetch failed (${res.status})`;
+			const parsed = parseMaterialsCatalog(await res.text());
+			host.setMaterialTable(parsed);
+			onTable(parsed);
+			return `materials: ${parsed.classes.length} classes`;
+		};
+
+		// Never throws — an entity-catalog problem is diagnostic text, never a
+		// reason to leave the panel without its material table.
+		const loadEntities = async (): Promise<string | null> => {
 			try {
-				const res = await fetch("/catalog/materials.json");
-				if (res.status === 404) {
-					onStatus("no catalog — rock only");
-					return;
-				}
-				if (!res.ok) {
-					onStatus(`catalog fetch failed (${res.status})`);
-					return;
-				}
-				const parsed = parseMaterialsCatalog(await res.text());
-				host.setMaterialTable(parsed);
-				onTable(parsed);
-				onStatus(`materials: ${parsed.classes.length} classes`);
+				const res = await fetch("/catalog/entities.json");
+				// 404 is the ordinary case for a project with no props at all —
+				// silent, not a warning. Scatter still runs on its schema defaults.
+				if (res.status === 404) return null;
+				if (!res.ok) return `entities fetch failed (${res.status})`;
+				const parsed = parseEntityCatalog(await res.text());
+				host.setEntityCatalog(parsed);
+				return `props: ${parsed.archetypes.length} archetypes`;
 			} catch (err) {
-				if (err instanceof CatalogError) {
-					onStatus(
-						`catalog error at "${err.path || "(root)"}": ${err.message}`,
-					);
-					return;
-				}
-				onStatus(`catalog load failed: ${errorMessage(err)}`);
+				return err instanceof CatalogError
+					? `entities error at "${err.path || "(root)"}": ${err.message}`
+					: `entities load failed: ${errorMessage(err)}`;
+			}
+		};
+
+		void (async () => {
+			let status: string;
+			try {
+				status = await loadMaterials();
+			} catch (err) {
+				status =
+					err instanceof CatalogError
+						? `catalog error at "${err.path || "(root)"}": ${err.message}`
+						: `catalog load failed: ${errorMessage(err)}`;
 			} finally {
 				setCatalogSettled(true);
 			}
+			// Report the materials outcome the moment it is known, then APPEND the
+			// entity one — a slow (or wedged) entities fetch must not hold back the
+			// message about the catalog that actually gates Load.
+			onStatus(status);
+			const entities = await loadEntities();
+			if (entities !== null) onStatus(`${status} · ${entities}`);
 		})();
 	}, [state.status, fieldHostRef, onTable, onStatus]);
 

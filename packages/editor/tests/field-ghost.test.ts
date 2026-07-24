@@ -97,3 +97,36 @@ test("patch-op spans derive chunk-extent bounds; a missing span is null", () => 
   });
   expect(generatorFootprint([entityOp(entity)], entity, 0.25)).toBeNull();
 });
+
+test("a placement span's footprint is its records' world AABBs, not the region", () => {
+  // A pure reader (scatter) writes no field cells at all — its span holds ONE
+  // placement op — so without this the highlight box would fall back to the
+  // recorded selection region and outline mostly-empty space (the same F3a gate
+  // finding the brush case above fixes). `position ± scale/2` is core's own
+  // placement-bounds convention (recordChunks in reconfigure.ts).
+  const entity = entityWithSpan([1, 1]);
+  const placement: FieldOp = {
+    id: 1,
+    kind: "placement",
+    records: [
+      {
+        archetypeId: "rock",
+        position: [2, 1, 2],
+        quat: [0, 0, 0, 1],
+        scale: [1, 1, 1],
+        variantIndex: 0,
+      },
+      {
+        archetypeId: "rock",
+        position: [6, 1, 6],
+        quat: [0, 0, 0, 1],
+        scale: [2, 2, 2],
+        variantIndex: 1,
+      },
+    ],
+  };
+  expect(
+    generatorFootprint([placement, entityOp(entity)], entity, 0.25),
+    // rock 1 spans ±0.5 about (2,1,2); rock 2 spans ±1 about (6,1,6).
+  ).toEqual({ min: [1.5, 0, 1.5], max: [7, 2, 7] });
+});

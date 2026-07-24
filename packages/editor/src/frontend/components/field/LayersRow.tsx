@@ -1,4 +1,4 @@
-// Layer visibility + the slice view (F2b Task 15): five checkboxes drive
+// Layer visibility + the slice view (F2b Task 15): six checkboxes drive
 // host.setLayers (display-only gates — hiding a layer never affects targeting,
 // ops, or bakes) and an enable checkbox + Y slider drive host.setSlice
 // (display + targeting, never the field). Pure presentation — the panel owns
@@ -8,6 +8,11 @@ import type { FieldLayers } from "../../../viewport-host/index.ts"; // type-only
 const LAYERS: { key: keyof FieldLayers; label: string; title: string }[] = [
 	{ key: "field", label: "field", title: "the per-class surface meshes" },
 	{ key: "kit", label: "kit", title: "the instanced kit pieces" },
+	{
+		key: "props",
+		label: "props",
+		title: "placed prop proxies (scatter placements)",
+	},
 	{ key: "ghost", label: "ghost", title: "brush ghost + stamp hologram" },
 	{
 		key: "selection",

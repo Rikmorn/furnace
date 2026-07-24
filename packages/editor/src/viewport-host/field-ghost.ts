@@ -111,9 +111,26 @@ export const generatorFootprint = (
       continue;
     }
     if (op.kind === "placement") {
-      // MIGRATION (until Task 5): placement ops carry no field cells; a span's
-      // AABB should grow by each record's world bounds. No committed span emits
-      // placement ops until scatter arrives, so skip for now.
+      // A placement writes no field cells, so it has no op bounds — its
+      // footprint is its records' world AABBs. `position ± scale/2` is core's
+      // own placement-bounds convention (`recordChunks` in reconfigure.ts): it
+      // assumes a UNIT primitive and ignores the quat, which is exactly right
+      // for a highlight box (a jump-to-here outline, not an exact cover). This
+      // is the ONLY footprint a pure reader like scatter has — without it a
+      // scatter entity falls back to its recorded selection region.
+      for (const r of op.records)
+        grow(
+          [
+            r.position[0] - Math.abs(r.scale[0]) / 2,
+            r.position[1] - Math.abs(r.scale[1]) / 2,
+            r.position[2] - Math.abs(r.scale[2]) / 2,
+          ],
+          [
+            r.position[0] + Math.abs(r.scale[0]) / 2,
+            r.position[1] + Math.abs(r.scale[1]) / 2,
+            r.position[2] + Math.abs(r.scale[2]) / 2,
+          ],
+        );
       continue;
     }
     for (const chunk of op.chunks) {

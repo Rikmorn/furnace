@@ -7,6 +7,7 @@ import type { KitStyle, MaterialTable } from "@furnace/core/field";
 import { validateMaterialTable } from "@furnace/core/field";
 import {
   CatalogError,
+  parseEntityCatalog,
   parseMaterialsCatalog,
 } from "../src/frontend/lib/catalog.ts";
 
@@ -227,5 +228,185 @@ describe("validateMaterialTable twin parity", () => {
       ],
     };
     expect(() => validateMaterialTable(table)).toThrow();
+  });
+});
+
+// ——— the entity catalog (catalog/entities.json) ———
+//
+// The scatter authoring path's seed source: archetype ids feed the stamp form's
+// picker, `scatter` blocks seed a fresh session's params, and `collision` sizes
+// every prop proxy the editor draws. Structural failures are setup-loud (a
+// mistyped catalog must not silently size every prop wrong); ABSENCE is not a
+// failure and never reaches this parser at all.
+
+describe("parseEntityCatalog", () => {
+  const VALID_ENTITIES = JSON.stringify({
+    version: 1,
+    archetypes: [
+      {
+        id: "rock",
+        name: "Rock",
+        meshes: ["catalog/meshes/rock.0.fmesh"],
+        material: { litColor: [0.45, 0.42, 0.4] },
+        collision: { kind: "box", halfExtents: [0.4, 0.35, 0.4] },
+        scatter: {
+          density: 0.3,
+          minSpacing: 1,
+          scaleRange: [0.6, 1.6],
+          randomYaw: true,
+          orientation: "gravity",
+          hemisphere: "floor",
+          variants: 3,
+        },
+      },
+    ],
+  });
+
+  /** Parse `text`, expecting a CatalogError; return it so `.path` can be asserted. */
+  const entityError = (text: string): CatalogError => {
+    try {
+      parseEntityCatalog(text);
+    } catch (e) {
+      if (e instanceof CatalogError) return e;
+      throw e;
+    }
+    throw new Error("expected parseEntityCatalog to throw a CatalogError");
+  };
+
+  test("parses an archetype into its editor-facing shape", () => {
+    const { archetypes } = parseEntityCatalog(VALID_ENTITIES);
+    expect(archetypes).toHaveLength(1);
+    const rock = archetypes[0] as (typeof archetypes)[0];
+    expect(rock.id).toBe("rock");
+    expect(rock.name).toBe("Rock");
+    expect(rock.color).toEqual([0.45, 0.42, 0.4]);
+    expect(rock.collision).toEqual({
+      kind: "box",
+      halfExtents: [0.4, 0.35, 0.4],
+    });
+  });
+
+  test("the scatter block is re-shaped into SCATTER GENERATOR param spelling", () => {
+    const rock = parseEntityCatalog(VALID_ENTITIES).archetypes[0] as ReturnType<
+      typeof parseEntityCatalog
+    >["archetypes"][0];
+    // scaleRange is the one re-shaping — the generator takes two scalars, and a
+    // stamp session spreads this record straight over the schema defaults.
+    expect(rock.scatter).toEqual({
+      density: 0.3,
+      minSpacing: 1,
+      randomYaw: true,
+      orientation: "gravity",
+      hemisphere: "floor",
+      variants: 3,
+      scaleMin: 0.6,
+      scaleMax: 1.6,
+    });
+  });
+
+  test("an archetype with no scatter block seeds nothing (the catalog never gates)", () => {
+    const text = JSON.stringify({
+      version: 1,
+      archetypes: [
+        {
+          id: "crate",
+          material: { litColor: [1, 1, 1] },
+          collision: { kind: "sphere", radius: 0.5 },
+        },
+      ],
+    });
+    const crate = parseEntityCatalog(text).archetypes[0] as ReturnType<
+      typeof parseEntityCatalog
+    >["archetypes"][0];
+    expect(crate.scatter).toEqual({});
+    expect(crate.name).toBe("crate"); // name falls back to the id
+  });
+
+  test("all three collision kinds parse; an unknown kind throws naming the path", () => {
+    const withCollision = (collision: unknown): string =>
+      JSON.stringify({
+        version: 1,
+        archetypes: [{ id: "x", material: { litColor: [1, 1, 1] }, collision }],
+      });
+    expect(
+      parseEntityCatalog(withCollision({ kind: "sphere", radius: 0.3 }))
+        .archetypes[0]?.collision,
+    ).toEqual({ kind: "sphere", radius: 0.3 });
+    expect(
+      parseEntityCatalog(
+        withCollision({ kind: "capsule", halfHeight: 0.5, radius: 0.22 }),
+      ).archetypes[0]?.collision,
+    ).toEqual({ kind: "capsule", halfHeight: 0.5, radius: 0.22 });
+    expect(entityError(withCollision({ kind: "cone" })).path).toBe(
+      "archetypes[0].collision.kind",
+    );
+  });
+
+  test("structural failures are setup-loud and name their JSON path", () => {
+    expect(entityError("{").path).toBe("");
+    expect(
+      entityError(JSON.stringify({ version: 2, archetypes: [] })).path,
+    ).toBe("version");
+    expect(entityError(JSON.stringify({ version: 1 })).path).toBe("archetypes");
+    expect(
+      entityError(
+        JSON.stringify({
+          version: 1,
+          archetypes: [{ material: { litColor: [1, 1, 1] }, collision: {} }],
+        }),
+      ).path,
+    ).toBe("archetypes[0].id");
+    expect(
+      entityError(
+        JSON.stringify({
+          version: 1,
+          archetypes: [
+            { id: "x", material: { litColor: [1, 1] }, collision: {} },
+          ],
+        }),
+      ).path,
+    ).toBe("archetypes[0].material.litColor");
+  });
+
+  test("a duplicate archetype id throws (ids key the lookup AND the picker)", () => {
+    const dup = JSON.stringify({
+      version: 1,
+      archetypes: [
+        {
+          id: "rock",
+          material: { litColor: [1, 1, 1] },
+          collision: { kind: "sphere", radius: 1 },
+        },
+        {
+          id: "rock",
+          material: { litColor: [0, 0, 0] },
+          collision: { kind: "sphere", radius: 2 },
+        },
+      ],
+    });
+    expect(entityError(dup).path).toBe("archetypes[1].id");
+  });
+
+  test("the message names the ENTITY catalog, not the materials one", () => {
+    expect(entityError("{").message).toStartWith("entity catalog:");
+  });
+
+  test("the shipped dungeon entity catalog parses", async () => {
+    // The coupling test: the editor parser and the file the dungeon's loader
+    // reads are the same artifact — a format change must fail HERE, loudly.
+    const path = join(
+      import.meta.dir,
+      "..",
+      "..",
+      "dungeon",
+      "catalog",
+      "entities.json",
+    );
+    const { archetypes } = parseEntityCatalog(await Bun.file(path).text());
+    expect(archetypes.map((a) => a.id)).toEqual(["rock", "stalagmite"]);
+    expect(archetypes.map((a) => a.collision.kind)).toEqual(["box", "capsule"]);
+    // Every shipped archetype carries authoring hints the stamp form can seed from.
+    for (const a of archetypes)
+      expect(Object.keys(a.scatter).length).toBeGreaterThan(0);
   });
 });

@@ -43,7 +43,7 @@ describe("stamp session transitions", () => {
   });
 
   test("withParams returns to configuring, bumps run, clears result state", () => {
-    const s0 = withPreviewResult(toPreviewing(fresh()), 0, 9);
+    const s0 = withPreviewResult(toPreviewing(fresh()), 0, 9, 0);
     expect(s0).not.toBeNull();
     if (s0 === null) return;
     const s1 = withParams(s0, { width: 12 }, 7, "keep-existing-air");
@@ -61,7 +61,7 @@ describe("stamp session transitions", () => {
   });
 
   test("withRegion replaces the region, bumps run, clears result state", () => {
-    const s0 = withPreviewResult(toPreviewing(fresh()), 0, 9);
+    const s0 = withPreviewResult(toPreviewing(fresh()), 0, 9, 0);
     expect(s0).not.toBeNull();
     if (s0 === null) return;
     const s1 = withRegion(s0, { min: [1, 1, 1], max: [6, 5, 6] });
@@ -83,8 +83,8 @@ describe("stamp session transitions", () => {
       inFlight,
       nudgeRegion(inFlight.region, [1, 0, 0]),
     );
-    expect(withPreviewResult(nudged, 0, 55)).toBeNull(); // run-0 reply: stale
-    const live = withPreviewResult(toPreviewing(nudged), 1, 55);
+    expect(withPreviewResult(nudged, 0, 55, 0)).toBeNull(); // run-0 reply: stale
+    const live = withPreviewResult(toPreviewing(nudged), 1, 55, 0);
     expect(live?.phase).toBe("ready");
   });
 
@@ -110,7 +110,7 @@ describe("stamp session transitions", () => {
   });
 
   test("withPreviewResult on the live run lands ready with the op count", () => {
-    const s = withPreviewResult(toPreviewing(fresh()), 0, 128);
+    const s = withPreviewResult(toPreviewing(fresh()), 0, 128, 0);
     expect(s).not.toBeNull();
     if (s === null) return;
     expect(s.phase).toBe("ready");
@@ -119,14 +119,14 @@ describe("stamp session transitions", () => {
   });
 
   test("a stale run's result is dropped (returns null)", () => {
-    expect(withPreviewResult(toPreviewing(fresh()), 3, 128)).toBeNull();
+    expect(withPreviewResult(toPreviewing(fresh()), 3, 128, 0)).toBeNull();
   });
 
   test("a param change invalidates the in-flight preview", () => {
     const inFlight = toPreviewing(fresh()); // run 0 owns the in-flight job
     const changed = withParams(inFlight, { width: 10 }, 42, "replace"); // run 1
-    expect(withPreviewResult(changed, 0, 55)).toBeNull(); // run-0 reply: stale
-    const live = withPreviewResult(toPreviewing(changed), 1, 55);
+    expect(withPreviewResult(changed, 0, 55, 0)).toBeNull(); // run-0 reply: stale
+    const live = withPreviewResult(toPreviewing(changed), 1, 55, 0);
     expect(live?.phase).toBe("ready");
   });
 
@@ -183,7 +183,7 @@ describe("stamp session transitions", () => {
     });
     const s1 = withParams(s0, { width: 12 }, 7, "keep-existing-air");
     const s2 = withRegion(toPreviewing(s1), { min: [1, 1, 1], max: [2, 2, 2] });
-    const s3 = withPreviewResult(toPreviewing(s2), s2.run, 4);
+    const s3 = withPreviewResult(toPreviewing(s2), s2.run, 4, 0);
     for (const s of [s1, s2, s3]) {
       expect(s?.mode).toBe("reconfigure");
       expect(s?.entityId).toBe(12);
@@ -196,7 +196,7 @@ describe("stamp session transitions", () => {
     toPreviewing(s0);
     withParams(s0, { width: 9 }, 1, "keep-existing-air");
     withRegion(s0, { min: [9, 9, 9], max: [10, 10, 10] });
-    withPreviewResult(toPreviewing(s0), 0, 3);
+    withPreviewResult(toPreviewing(s0), 0, 3, 0);
     withPreviewError(toPreviewing(s0), 0, "x");
     expect(s0).toEqual(snapshot);
   });
@@ -559,7 +559,7 @@ test("the handler round drops nothing: a stale response for a superseded run lea
   const res = await p;
   const session = toPreviewing(withParams(fresh(), hallParams(), 2, "replace"));
   // run 1 owns the live job; the resolved response carries run 0 → dropped.
-  expect(withPreviewResult(session, 0, res.opCount)).toBeNull();
+  expect(withPreviewResult(session, 0, res.opCount, 0)).toBeNull();
 });
 
 // ——— listEntities (headless host: entity ops from a loaded oplog) ———
@@ -1322,4 +1322,279 @@ test("a load-time compaction that throws is caught: the world still loads and th
   expect(() => host.loadWorld(world)).not.toThrow();
   // …and the skip reason reached the status line (not swallowed silently).
   expect(errors.some((m) => /compaction/i.test(m))).toBe(true);
+});
+
+// ——— scatter authoring: catalog seeding, the ctx-threaded preview, the prop
+// layer, prop drift, and the empty-result refusal (F3b Task 10) ———
+//
+// Everything below drives the REAL host headlessly: the fake worker over the
+// real protocol handler answers previews, and worlds arrive through loadWorld
+// (the only headless route to a committed entity — startStamp needs a
+// pointer-made selection). The prop layer itself is GPU state with no readback
+// seam, so its INSTANCE COUNT is asserted where it is decided: groupPlacements
+// over the host's own log, read back through the baked oplog. `count:` is fed
+// that group's length verbatim (field-host rebuildProps).
+
+import type { PlacementRecord } from "@furnace/core/field";
+import type { EntityCatalog } from "../src/frontend/lib/catalog.ts";
+import { groupPlacements } from "../src/viewport-host/field-placements.ts";
+
+const CAVE_REGION = {
+  min: [0, 0, 0] as [number, number, number],
+  max: [12, 8, 12] as [number, number, number],
+};
+
+/** Dense enough that the cave's floors reliably take props (the core
+ *  reconfigure suite's figure). */
+const scatterParams = (): Record<string, unknown> => ({
+  ...structuredClone(generatorById("scatter").defaults),
+  density: 0.8,
+});
+
+/** A catalog covering both dungeon archetypes, in the shape parseEntityCatalog
+ *  produces (see catalog.test.ts, which parses the REAL file). */
+const ENTITY_CATALOG: EntityCatalog = {
+  archetypes: [
+    {
+      id: "rock",
+      name: "Rock",
+      color: [0.45, 0.42, 0.4],
+      collision: { kind: "box", halfExtents: [0.4, 0.35, 0.4] },
+      scatter: { density: 0.3, minSpacing: 1, variants: 3 },
+    },
+    {
+      id: "stalagmite",
+      name: "Stalagmite",
+      color: [0.5, 0.48, 0.44],
+      collision: { kind: "capsule", halfHeight: 0.5, radius: 0.22 },
+      scatter: { density: 0.15, minSpacing: 1.4, variants: 2 },
+    },
+  ],
+};
+
+/** Build a cave + a scatter reading it with CORE, then hand the whole world to
+ *  the host through loadWorld. Returns the two entity ids and the committed
+ *  placement records. */
+function loadCaveWithProps(host: ReturnType<typeof createFieldHost>): {
+  caveId: number;
+  scatterId: number;
+  records: number;
+} {
+  const store = createFieldStore();
+  const log = createOpLog();
+  const cave = commitGenerator(store, log, generatorById("cave"), {
+    params: structuredClone(generatorById("cave").defaults),
+    seed: 5,
+    region: CAVE_REGION,
+    policy: "replace",
+    table: TABLE,
+  }).entity;
+  const scatter = commitGenerator(store, log, generatorById("scatter"), {
+    params: scatterParams(),
+    seed: 3,
+    region: CAVE_REGION,
+    policy: "replace",
+    table: TABLE,
+  }).entity;
+  const placement = log.ops.find((o) => o.kind === "placement");
+  if (placement === undefined || placement.kind !== "placement")
+    throw new Error("test: scatter committed no placement op");
+  host.setMaterialTable(TABLE);
+  host.setEntityCatalog(ENTITY_CATALOG);
+  host.loadWorld({
+    manifest: MANIFEST,
+    chunks: [...store.chunks].map(([key, density]) => ({
+      key,
+      bytes: encodeChunkFile(density),
+    })),
+    materials: [...store.materials].map(([key, m]) => ({
+      key,
+      bytes: encodeMaterialFile(m),
+    })),
+    oplog: serializeOps(log.ops),
+  });
+  return {
+    caveId: cave.entityId,
+    scatterId: scatter.entityId,
+    records: placement.records.length,
+  };
+}
+
+/** The host's LIVE op log, read back through the baked artifact — the same
+ *  source rebuildProps groups (readOplogLength's sibling). */
+function hostOps(host: ReturnType<typeof createFieldHost>): FieldOp[] {
+  const file = host
+    .exportArtifact("probe")
+    .find((f) => f.path === "worlds/probe/oplog.json");
+  if (file === undefined || typeof file.contents !== "string")
+    throw new Error("test: no oplog.json in the artifact");
+  return parseOps(file.contents);
+}
+
+test("a cave + a scatter load as two entities, and the prop layer draws one instance per record", () => {
+  const host = createFieldHost();
+  const { records } = loadCaveWithProps(host);
+  expect(records).toBeGreaterThan(0);
+
+  const entities = host.listEntities();
+  expect(entities.map((e) => e.generator)).toEqual(["cave", "scatter"]);
+
+  // The prop layer is one instanced draw per archetype, its count the group's
+  // record count — so the whole layer accounts for exactly the committed props.
+  const groups = groupPlacements(hostOps(host));
+  expect([...groups.keys()]).toEqual(["rock"]); // scatter's default archetype
+  expect(groups.get("rock")).toHaveLength(records);
+});
+
+// NOT asserted (no seam): that the host actually re-issues the instanced draws
+// on a history step. The prop layer is GPU state with no readback, so what is
+// pinned is its SOURCE — the log-derived grouping rebuildProps consumes — moving
+// and coming back under one step. rebuildProps is called from stepHistory, the
+// one function that owns it (the rebuildEntityHighlight precedent in this file).
+test("a history step moves the prop layer's source: ⌘Z restores the previous records", async () => {
+  const uninstall = installFakeWorker();
+  try {
+    const host = createFieldHost();
+    const { scatterId } = loadCaveWithProps(host);
+    const propsNow = (): PlacementRecord[] =>
+      groupPlacements(hostOps(host)).get("rock") ?? [];
+    const before = propsNow();
+    expect(before.length).toBeGreaterThan(0);
+
+    // A re-roll re-cooks the scatter against the same cave — new records under
+    // ONE undo entry. A placement op dirties NO chunk, so nothing remeshes: the
+    // prop layer is the only thing a ⌘Z can show here.
+    host.openEntity(scatterId);
+    await settle();
+    host.updateStamp(scatterParams(), 77, "replace");
+    await settle();
+    host.applyReconfigure();
+    expect(propsNow()).not.toEqual(before);
+
+    host.undo();
+    expect(propsNow()).toEqual(before);
+    host.redo();
+    expect(propsNow()).not.toEqual(before);
+  } finally {
+    uninstall();
+  }
+});
+
+test("opening the scatter entity previews through a ctx-threaded evaluate (props, not an error)", async () => {
+  const uninstall = installFakeWorker();
+  try {
+    const host = createFieldHost();
+    const { scatterId, records } = loadCaveWithProps(host);
+    const sessions: (StampSession | null)[] = [];
+    host.subscribeStamp((s) => sessions.push(s));
+
+    host.openEntity(scatterId);
+    await settle();
+    const opened = sessions.at(-1);
+    // Without an EvaluateContext the worker's evaluate THROWS ("scatter:
+    // evaluate requires an EvaluateContext") and the session lands in
+    // `configuring` carrying that message — this is the assertion that pins the
+    // preview's field access.
+    expect(opened?.error).toBeNull();
+    expect(opened?.phase).toBe("ready");
+    // A pure reader emits no ops at all: props are its entire output.
+    expect(opened?.opCount).toBe(0);
+    expect(opened?.placementCount).toBe(records);
+  } finally {
+    uninstall();
+  }
+});
+
+test("reconfiguring the CAVE reports the scatter's props as drifted (D-F3-4, in the chrome)", async () => {
+  const uninstall = installFakeWorker();
+  try {
+    const host = createFieldHost();
+    const { caveId, records } = loadCaveWithProps(host);
+    const reports: (DriftFinding[] | null)[] = [];
+    host.subscribeDrift((r) => reports.push(r));
+    expect(reports).toEqual([null]);
+
+    host.openEntity(caveId);
+    await settle();
+    // Re-roll the cave: its floors move out from under the props.
+    host.updateStamp(
+      structuredClone(generatorById("cave").defaults),
+      9,
+      "replace",
+    );
+    await settle();
+    host.applyReconfigure();
+
+    const report = reports.at(-1);
+    expect(report?.length).toBeGreaterThan(0);
+    // The placement op REPLAYS AS DATA (a cave reconfigure does not re-cook
+    // scatter) — the records survive — but the props are flagged, with the
+    // chunk-quantized locations the click-to-frame seam needs.
+    expect(groupPlacements(hostOps(host)).get("rock")).toHaveLength(records);
+    const placementId = hostOps(host).find((o) => o.kind === "placement")?.id;
+    const finding = report?.find((d) => d.opId === placementId);
+    expect(finding?.kind).toBe("drifted");
+    expect(finding?.chunks.length ?? 0).toBeGreaterThan(0);
+  } finally {
+    uninstall();
+  }
+});
+
+test("a scatter that places NOTHING is refused legibly — core never sees the empty commit", async () => {
+  const uninstall = installFakeWorker();
+  try {
+    const host = createFieldHost();
+    const { scatterId } = loadCaveWithProps(host);
+    const errors: string[] = [];
+    host.subscribeToolError((m) => errors.push(m));
+    const sessions: (StampSession | null)[] = [];
+    host.subscribeStamp((s) => sessions.push(s));
+    const before = host.listEntities();
+
+    host.openEntity(scatterId);
+    await settle();
+    // Move the region 50 m up into untouched solid rock: no rock→air crossing,
+    // so the re-cook resolves zero surfaces and evaluates to {ops:[], placements:[]}.
+    host.nudgeStamp(0, 100, 0);
+    await settle();
+    const empty = sessions.at(-1);
+    expect(empty?.phase).toBe("ready"); // the PREVIEW succeeded — it found nothing
+    expect(empty?.opCount).toBe(0);
+    expect(empty?.placementCount).toBe(0);
+
+    host.applyReconfigure();
+    // The refusal is a sentence about props, not core's "evaluated to an empty
+    // result" (which core would throw if this reached it).
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toMatch(/placed nothing/);
+    expect(errors[0]).not.toMatch(/empty result/);
+    // Nothing landed: the entity is untouched and the session stands to re-tune.
+    expect(host.listEntities()).toEqual(before);
+    expect(sessions.at(-1)?.mode).toBe("reconfigure");
+  } finally {
+    uninstall();
+  }
+});
+
+test("the entity catalog fills archetypeId's picker options; without one the schema passes through", () => {
+  const host = createFieldHost();
+  const schemaOf = (id: string): Record<string, Record<string, unknown>> =>
+    (host.listGenerators().find((g) => g.id === id)?.paramSchema[
+      "properties"
+    ] ?? {}) as Record<string, Record<string, unknown>>;
+
+  // No catalog: free text, exactly the registry's own schema.
+  expect(schemaOf("scatter")["archetypeId"]?.["enum"]).toBeUndefined();
+
+  host.setEntityCatalog(ENTITY_CATALOG);
+  expect(schemaOf("scatter")["archetypeId"]?.["enum"]).toEqual([
+    "rock",
+    "stalagmite",
+  ]);
+  // Only the archetype property learns anything — sibling generators are inert.
+  expect(schemaOf("hall")["width"]?.["enum"]).toBeUndefined();
+
+  // Uninstalling (a project whose catalog fetch 404s) returns it to free text.
+  host.setEntityCatalog(null);
+  expect(schemaOf("scatter")["archetypeId"]?.["enum"]).toBeUndefined();
 });

@@ -636,8 +636,9 @@ dig ring, selection) had rendered NOTHING since F1. Record + rules:
   panel. Amber AABB overlay (occlude:false), `reselect()` one-slot restore,
   `subscribeSelection` + `subscribeToolError` feed the panel footer. Cell-level
   display is deferred to F4 (`field-f2b-gate-ux-findings.md`).
-- **Layers + slice** — `FieldLayers { field, kit, ghost, selection, grid }` gate the
-  render lists per frame (display-only; a hidden selection keeps masking ops). The
+- **Layers + slice** — `FieldLayers { field, kit, props, ghost, selection, grid }` gate
+  the render lists per frame (display-only; a hidden selection keeps masking ops).
+  `props` arrived with F3b's placed-prop layer (§18). The
   Ghost checkbox is DISABLED with a hint while a selection tool is armed and no stamp
   session runs (suppression honesty — the brush ghost is mode-suppressed but the stamp
   hologram is not). Slice = **remesh clip**: the worker clamps aprons at/above `sliceY`
@@ -730,3 +731,60 @@ F2b stamp-session machinery end to end.
 - **Deferred UX set** → `docs/backlog/editor-and-tooling/field-f3a-gate-ux-findings.md`
   (mouse-driven region move, in-viewport pointer/select tool, box/wand selection feel
   — slotted to the F4 recharter with the F2b set).
+
+## 18. One Field F3b — the editor's scatter authoring + placed props (2026-07-24)
+
+The editor became the third consumer of core's F3b placement work (after the generator
+itself and the dungeon's field-world loader): it authors scatter stamps and renders the
+props they commit. Task 10 of the F3b plan; sections grow as the remaining F3b editor
+tasks land.
+
+- **Entity catalog** — the second project→editor catalog contract, DATA only, exactly
+  parallel to the F2a materials one: FieldToolbar's run-once catalog effect also fetches
+  `/catalog/entities.json`, parses it with `lib/catalog.ts`'s setup-loud
+  `parseEntityCatalog` (same `CatalogError`, path-naming, type-only core imports) and
+  installs it via `FieldHost.setEntityCatalog`. Both fetches live in ONE effect so they
+  cannot race onto the status line; only MATERIALS gates Load (props render from the op
+  log whether or not the entity catalog resolves). The parser normalises the catalog's
+  authoring vocabulary into the scatter generator's param spelling (`scaleRange` →
+  `scaleMin`/`scaleMax`) and deliberately drops the `meshes` paths — editor props are
+  proxies (`field-editor-prop-meshes.md`). **The catalog SEEDS, it never gates:** absent
+  file → scatter still runs on schema defaults and every prop draws at a nominal 0.5 m box.
+- **Archetype-driven params** — `listGenerators()` fills any generator's `archetypeId`
+  property with an `enum` of the catalog ids (`withArchetypeOptions`), which is what turns
+  the SchemaForm field into a picker; `startStamp` overlays the chosen archetype's authored
+  `scatter` block on the schema defaults (`seedArchetypeParams`). Seeding is ONCE-at-open —
+  switching archetype mid-session keeps the current numbers
+  (`field-scatter-archetype-switch-keeps-stale-hints.md`).
+- **Context-threaded preview** — `stamp-preview` now passes an `EvaluateContext { store }`
+  (the scratch store the snapshot was installed into) for any `contextFree: false`
+  generator, which is what lets scatter's ghost read the field at all. `stamp-previewed`'s
+  `placements` reach the session as `placementCount` and the ghost as ONE merged
+  hologram-blue wireframe batch of oriented proxy boxes (`placementGhostBatch`,
+  `occlude:false`, under the `ghost` layer gate). No mesh loading in the ghost (v0).
+- **Committed prop layer** — `rebuildProps` rebuilds one instanced draw per archetype from
+  the op log's `PlacementOp` records: `groupPlacements` (group size = instance count) →
+  core `packPlacementMatrices` over `proxyRecords` (the collision primitive's extents folded
+  into each record's scale) on a unit cube / sphere / cylinder, tinted per archetype on the
+  shared `litInstanced` kit material. Called from every path that changes which placement
+  ops are in the log — commit, reconfigure apply, ⌘Z/⇧⌘Z, world new/load — plus `init` and
+  `setEntityCatalog`; placements dirty NO chunk, so the layer cannot ride the remesh drain.
+  Whole-layer teardown-and-rebuild (instance counts are fixed at creation).
+- **Prop drift in the chrome** — reconfiguring an upstream generator (a cave) leaves the
+  scatter's records byte-identical (a placement replays as data) but flags the op
+  `drifted`; core's D-F3-4 finding now reaches `DriftReport` through the existing
+  `subscribeDrift` seam with no editor-side work beyond the test that pins it.
+- **Empty-result policy (settled)** — core rejects an evaluate with no ops AND no
+  placements. Right for a carver, wrong-feeling for a READER driven to zero props, so the
+  EDITOR refuses first: `previewIsEmpty(session)` gates both `commitStamp` and
+  `applyReconfigure` and reports a sentence through `subscribeToolError`; core stays strict
+  and never sees the empty commit. StampInspector shows `N props` beside `N ops` whenever a
+  preview has settled, including at zero. (Resolved
+  `docs/backlog/engine-architecture/scatter-empty-result-policy.md`, option (c).)
+- **Entity footprint covers placements** — `generatorFootprint` grows by each record's
+  `position ± scale/2` world AABB (core's own placement-bounds convention), so a pure
+  reader's highlight box outlines its props instead of falling back to the recorded
+  selection region.
+- **Host extractions** — `viewport-host/field-placements.ts` (pure: proxy extents/scale,
+  oriented corners, log grouping, the two catalog-seeding helpers) with
+  `tests/field-placements.test.ts`, the `field-ghost.ts` precedent.

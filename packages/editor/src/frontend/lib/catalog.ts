@@ -1,5 +1,7 @@
-// packages/editor/src/frontend/lib/catalog.ts — the world-materials catalog
-// parser. FRONTEND (chrome-bundle) code: imports from @furnace/core MUST be
+// packages/editor/src/frontend/lib/catalog.ts — the project catalog parsers:
+// `catalog/materials.json` (the resolved material table) and
+// `catalog/entities.json` (the placement archetypes scatter draws from).
+// FRONTEND (chrome-bundle) code: imports from @furnace/core MUST be
 // `import type` only (erased at compile). A value import would pull a second core
 // instance into the chrome bundle — frontend-no-engine-leakage.test.ts enforces
 // this. So the table invariants below are RE-IMPLEMENTED locally rather than
@@ -14,29 +16,32 @@ import type {
 const CATALOG_VERSION = 1;
 
 /**
- * A materials-catalog parse/validation failure. Setup-loud: every failure names
- * the exact offending JSON path (e.g. `classes[3].kit.pieceColors.panel`) so a
- * mistyped catalog fails visibly rather than skinning the world wrong.
+ * A catalog parse/validation failure (materials or entities). Setup-loud: every
+ * failure names the exact offending JSON path (e.g.
+ * `classes[3].kit.pieceColors.panel`) so a mistyped catalog fails visibly rather
+ * than skinning the world wrong.
  */
 export class CatalogError extends Error {
   /** The offending JSON path, e.g. `classes[3].kit.panelProud`. */
   readonly path: string;
-  constructor(path: string, detail: string) {
-    super(`materials catalog: ${path}: ${detail}`);
+  constructor(path: string, detail: string, label = "materials catalog") {
+    super(`${label}: ${path}: ${detail}`);
     this.name = "CatalogError";
     this.path = path;
   }
 }
 
-const num = (v: unknown, path: string): number => {
+// `label` names the catalog FILE in the thrown message (the CatalogError
+// default covers materials); the entity parser below passes its own.
+const num = (v: unknown, path: string, label?: string): number => {
   if (typeof v !== "number" || !Number.isFinite(v))
-    throw new CatalogError(path, "expected a finite number");
+    throw new CatalogError(path, "expected a finite number", label);
   return v;
 };
 
-const str = (v: unknown, path: string): string => {
+const str = (v: unknown, path: string, label?: string): string => {
   if (typeof v !== "string" || v.length === 0)
-    throw new CatalogError(path, "expected a non-empty string");
+    throw new CatalogError(path, "expected a non-empty string", label);
   return v;
 };
 
@@ -46,9 +51,13 @@ const color4 = (v: unknown, path: string): [number, number, number, number] => {
   return [num(v[0], path), num(v[1], path), num(v[2], path), num(v[3], path)];
 };
 
-const record = (v: unknown, path: string): Record<string, unknown> => {
+const record = (
+  v: unknown,
+  path: string,
+  label?: string,
+): Record<string, unknown> => {
   if (typeof v !== "object" || v === null || Array.isArray(v))
-    throw new CatalogError(path, "expected an object");
+    throw new CatalogError(path, "expected an object", label);
   return v as Record<string, unknown>;
 };
 
@@ -130,4 +139,187 @@ export function parseMaterialsCatalog(text: string): MaterialTable {
     throw new CatalogError("classes[0].kind", "class 0 must be organic (rock)");
 
   return { classes };
+}
+
+// ─── the entity catalog (catalog/entities.json) ───
+
+const ENTITY_LABEL = "entity catalog";
+
+/** An archetype's collision primitive, as `catalog/entities.json` declares it —
+ *  the same three kinds the dungeon's field-world loader derives static colliders
+ *  from (D-F3-10). The EDITOR reads it as a proxy SIZE: it draws each placed prop
+ *  as this primitive rather than loading the archetype's `.fmesh` variants. */
+export type EntityCollision =
+  | { kind: "box"; halfExtents: [number, number, number] }
+  | { kind: "sphere"; radius: number }
+  | { kind: "capsule"; halfHeight: number; radius: number };
+
+/** One placement archetype as the EDITOR consumes it: its id (what a core
+ *  `PlacementRecord`'s `archetypeId` names), a display name, the lit colour
+ *  its proxies tint with, its collision primitive (the proxy size), and the
+ *  scatter param defaults it seeds a stamp session with — already mapped to the
+ *  SCATTER GENERATOR's param spelling (`scaleRange` → `scaleMin`/`scaleMax`), so
+ *  the host can spread it straight over the schema defaults. The catalog's mesh
+ *  paths are deliberately NOT carried: editor props are proxies (see
+ *  `docs/backlog/editor-and-tooling/field-editor-prop-meshes.md`). */
+export type EntityArchetype = {
+  id: string;
+  name: string;
+  color: [number, number, number];
+  collision: EntityCollision;
+  scatter: Record<string, unknown>;
+};
+
+/** The parsed `catalog/entities.json`. */
+export type EntityCatalog = { archetypes: EntityArchetype[] };
+
+const color3 = (v: unknown, path: string): [number, number, number] => {
+  if (!Array.isArray(v) || v.length !== 3)
+    throw new CatalogError(path, "expected [r,g,b]", ENTITY_LABEL);
+  return [
+    num(v[0], path, ENTITY_LABEL),
+    num(v[1], path, ENTITY_LABEL),
+    num(v[2], path, ENTITY_LABEL),
+  ];
+};
+
+const entityCollision = (v: unknown, path: string): EntityCollision => {
+  const rec = record(v, path, ENTITY_LABEL);
+  const kind = rec["kind"];
+  if (kind === "box") {
+    const he = rec["halfExtents"];
+    if (!Array.isArray(he) || he.length !== 3)
+      throw new CatalogError(
+        `${path}.halfExtents`,
+        "expected [x,y,z]",
+        ENTITY_LABEL,
+      );
+    return {
+      kind,
+      halfExtents: [
+        num(he[0], `${path}.halfExtents`, ENTITY_LABEL),
+        num(he[1], `${path}.halfExtents`, ENTITY_LABEL),
+        num(he[2], `${path}.halfExtents`, ENTITY_LABEL),
+      ],
+    };
+  }
+  if (kind === "sphere")
+    return { kind, radius: num(rec["radius"], `${path}.radius`, ENTITY_LABEL) };
+  if (kind === "capsule")
+    return {
+      kind,
+      halfHeight: num(rec["halfHeight"], `${path}.halfHeight`, ENTITY_LABEL),
+      radius: num(rec["radius"], `${path}.radius`, ENTITY_LABEL),
+    };
+  throw new CatalogError(
+    `${path}.kind`,
+    'expected "box" | "sphere" | "capsule"',
+    ENTITY_LABEL,
+  );
+};
+
+/** Catalog `scatter` key → scatter-generator param key, for the keys that carry
+ *  straight through. `scaleRange` is the ONE re-shaping (a `[min, max]` pair vs
+ *  the generator's two scalars) and is handled separately. */
+const SCATTER_PASSTHROUGH = [
+  "density",
+  "minSpacing",
+  "randomYaw",
+  "orientation",
+  "hemisphere",
+  "variants",
+] as const;
+
+/** An archetype's authoring hints as SCATTER PARAMS. Every key is OPTIONAL —
+ *  the catalog SEEDS the stamp form, it never gates it, so a missing block or a
+ *  missing key simply leaves the generator's own schema default standing. Values
+ *  are carried through unvalidated-by-type on purpose: the scatter generator's
+ *  own setup-loud param validation is the authority, and duplicating its ranges
+ *  here would be a second source of truth that can disagree. `scaleRange` is
+ *  re-shaped into `scaleMin`/`scaleMax`. */
+const scatterHints = (v: unknown, path: string): Record<string, unknown> => {
+  if (v === undefined) return {};
+  const rec = record(v, path, ENTITY_LABEL);
+  const out: Record<string, unknown> = {};
+  for (const key of SCATTER_PASSTHROUGH)
+    if (rec[key] !== undefined) out[key] = rec[key];
+  const range = rec["scaleRange"];
+  if (range !== undefined) {
+    if (!Array.isArray(range) || range.length !== 2)
+      throw new CatalogError(
+        `${path}.scaleRange`,
+        "expected [min,max]",
+        ENTITY_LABEL,
+      );
+    out["scaleMin"] = num(range[0], `${path}.scaleRange`, ENTITY_LABEL);
+    out["scaleMax"] = num(range[1], `${path}.scaleRange`, ENTITY_LABEL);
+  }
+  return out;
+};
+
+const entityArchetype = (v: unknown, path: string): EntityArchetype => {
+  const rec = record(v, path, ENTITY_LABEL);
+  const id = str(rec["id"], `${path}.id`, ENTITY_LABEL);
+  const material = record(rec["material"], `${path}.material`, ENTITY_LABEL);
+  return {
+    id,
+    // `name` is the label a palette shows; absent falls back to the id rather
+    // than failing a catalog whose consumer (the dungeon loader) never reads it.
+    name:
+      rec["name"] === undefined
+        ? id
+        : str(rec["name"], `${path}.name`, ENTITY_LABEL),
+    color: color3(material["litColor"], `${path}.material.litColor`),
+    collision: entityCollision(rec["collision"], `${path}.collision`),
+    scatter: scatterHints(rec["scatter"], `${path}.scatter`),
+  };
+};
+
+/**
+ * Parses a `catalog/entities.json` text into the archetypes the editor's
+ * placement authoring reads. Setup-loud: every structural failure throws a
+ * {@link CatalogError} naming the offending JSON path — a mistyped catalog fails
+ * visibly rather than silently sizing every prop proxy wrong.
+ *
+ * ABSENCE is not a failure: a project with no entity catalog never calls this,
+ * and the host falls back to schema defaults + a generic proxy box (the catalog
+ * seeds, it never gates).
+ *
+ * @throws {@link CatalogError} on malformed JSON, a wrong `version`, a
+ *   non-array `archetypes`, a duplicate archetype id, or a missing/mistyped
+ *   `id` / `material.litColor` / `collision` on any archetype.
+ */
+export function parseEntityCatalog(text: string): EntityCatalog {
+  let root: unknown;
+  try {
+    root = JSON.parse(text);
+  } catch (e) {
+    const detail = e instanceof Error ? e.message : String(e);
+    throw new CatalogError("", `invalid JSON: ${detail}`, ENTITY_LABEL);
+  }
+  const rec = record(root, "", ENTITY_LABEL);
+  const version = num(rec["version"], "version", ENTITY_LABEL);
+  if (version !== CATALOG_VERSION)
+    throw new CatalogError(
+      "version",
+      `unsupported version ${version} (expected ${CATALOG_VERSION})`,
+      ENTITY_LABEL,
+    );
+  const raw = rec["archetypes"];
+  if (!Array.isArray(raw))
+    throw new CatalogError("archetypes", "expected an array", ENTITY_LABEL);
+  const archetypes = raw.map((a, i) => entityArchetype(a, `archetypes[${i}]`));
+  // Ids key the host's lookup map AND the archetypeId enum — a duplicate would
+  // silently shadow one archetype's proxy + hints with another's.
+  const seen = new Set<string>();
+  archetypes.forEach((a, i) => {
+    if (seen.has(a.id))
+      throw new CatalogError(
+        `archetypes[${i}].id`,
+        `duplicate archetype id "${a.id}"`,
+        ENTITY_LABEL,
+      );
+    seen.add(a.id);
+  });
+  return { archetypes };
 }

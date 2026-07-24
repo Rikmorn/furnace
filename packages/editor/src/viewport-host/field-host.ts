@@ -15,6 +15,11 @@ import * as material from "@furnace/core/material";
 import * as mesh from "@furnace/core/mesh";
 import * as shader from "@furnace/core/shader";
 import { vec4 } from "@furnace/core/transform";
+import type {
+  EntityArchetype,
+  EntityCatalog,
+  EntityCollision,
+} from "../frontend/lib/catalog.ts";
 import {
   computeBrushCenter,
   nudgeRegion,
@@ -41,7 +46,18 @@ import {
   sphereGhostSegments,
 } from "./field-ghost.ts";
 import {
+  FALLBACK_COLLISION,
+  FALLBACK_TINT,
+  groupPlacements,
+  PROXY_PRIMITIVE,
+  placementGhostBatch,
+  proxyRecords,
+  seedArchetypeParams,
+  withArchetypeOptions,
+} from "./field-placements.ts";
+import {
   createPreviewCoalescer,
+  previewIsEmpty,
   type StampSession,
   startReconfigureSession,
   startSession,
@@ -115,7 +131,9 @@ export type SelectionInfo = {
 
 /** One registry generator as the panel sees it ({@link FieldHost.listGenerators}):
  *  core's GeneratorDef minus its evaluate. `paramSchema` feeds the stamp form
- *  (Task 15); `defaults` seed its initial params. */
+ *  (Task 15) — augmented with the installed entity catalog's ids where the
+ *  generator takes an `archetypeId`, so it is the registry's schema plus what
+ *  only the HOST knows; `defaults` seed its initial params. */
 export type FieldGeneratorInfo = {
   id: string;
   name: string;
@@ -162,15 +180,17 @@ export type FieldStats = {
 };
 
 /** Per-layer render visibility (all default true). `field` = the per-class
- *  bucket surface meshes; `kit` = the instanced kit pieces; `ghost` = the
- *  brush ghost (cube + lines) + the stamp session's hologram preview;
- *  `selection` = the amber selection overlay + pending box anchor + the
- *  amber-dim entity highlight box; `grid` = the reference grid (minor +
- *  major). Display-only — hiding a layer never affects targeting, ops, or
- *  bakes. */
+ *  bucket surface meshes; `kit` = the instanced kit pieces; `props` = the
+ *  instanced placed-prop proxies (committed placement records); `ghost` = the
+ *  brush ghost (cube + lines) + the stamp session's hologram preview + its
+ *  placement wireframes; `selection` = the amber selection overlay + pending box
+ *  anchor + the amber-dim entity highlight box; `grid` = the reference grid
+ *  (minor + major). Display-only — hiding a layer never affects targeting, ops,
+ *  or bakes. */
 export type FieldLayers = {
   field: boolean;
   kit: boolean;
+  props: boolean;
   ghost: boolean;
   selection: boolean;
   grid: boolean;
@@ -257,11 +277,33 @@ export type FieldHost = {
   /** Swaps the project's resolved material table (the panel calls this once
    *  after catalog load, Task 12). Re-buckets and re-meshes every chunk. */
   setMaterialTable(table: field.MaterialTable): void;
+  /** Installs the project's entity catalog (`catalog/entities.json`), the
+   *  chrome's run-once fetch twin of {@link setMaterialTable}. It SEEDS three
+   *  things and gates none of them: the `archetypeId` param's picker options
+   *  ({@link listGenerators}), a scatter session's opening params
+   *  ({@link startStamp} overlays the chosen archetype's authored `scatter`
+   *  block), and each placed prop's proxy size + tint. `null` (no catalog file)
+   *  leaves scatter fully usable on its schema defaults, with every prop drawn
+   *  at a nominal 0.5 m box.
+   *
+   *  Rebuilds the committed prop layer, because the catalog decides its geometry
+   *  and colour. Does NOT cancel a live stamp session (unlike a material-table
+   *  swap): the catalog is not an input to evaluate, so a previewed ghost still
+   *  describes exactly what commit would build — only the proxy it is DRAWN with
+   *  changes. */
+  setEntityCatalog(catalog: EntityCatalog | null): void;
   /** The registry's staged generators (id/name/param schema/defaults) for the
    *  panel's palette + stamp form — surfaced through the host because the
    *  chrome cannot value-import core's FIELD_GENERATORS. Schema/defaults are
    *  CLONED per call (plain-data records), so the panel never holds registry
-   *  state. */
+   *  state.
+   *
+   *  A generator with an `archetypeId` param has that property's `enum` filled
+   *  from the installed entity catalog ({@link setEntityCatalog}), turning the
+   *  form's free-text field into a picker. With no catalog the schema passes
+   *  through untouched — free text still commits. The panel reads this ONCE at
+   *  engine-ready today, so a catalog installed later does not retro-fit the
+   *  options (the fetch settles first in practice). */
   listGenerators(): FieldGeneratorInfo[];
   /** Opens a stamp session for a registry generator, its region the CURRENT
    *  selection's AABB snapped OUTWARD to the 0.5 m lattice, its seed a fresh
@@ -270,7 +312,15 @@ export type FieldHost = {
    *  region first"), no session. A truncated-flood selection carries
    *  `truncatedSelection` into the session so the stamp UI can surface that
    *  the region under-covers the flood. Replaces any existing session (its
-   *  ghost is destroyed; in-flight previews are dropped). */
+   *  ghost is destroyed; in-flight previews are dropped).
+   *
+   *  An archetype-driven generator (one with an `archetypeId` param) opens on
+   *  the catalog archetype its defaults name — falling back to the catalog's
+   *  first — with that archetype's authored `scatter` hints overlaid on the
+   *  schema defaults. Seeding happens ONCE, at open: picking a different
+   *  archetype in the form afterwards changes the id alone and leaves the
+   *  density/spacing/scale the user is looking at, rather than silently
+   *  discarding their edits. */
   startStamp(generator: string): void;
   /** Re-parameterizes the live session (params/seed/policy) and re-previews.
    *  Any in-flight preview is superseded (its response is dropped). No-op
@@ -306,7 +356,13 @@ export type FieldHost = {
    *  STAMP-mode only: a live RECONFIGURE session is a no-op here, because
    *  committing one would append a SECOND entity over the same region while the
    *  original survived. {@link applyReconfigure} is that session's verb; Enter
-   *  in the viewport routes to whichever the mode calls for. */
+   *  in the viewport routes to whichever the mode calls for.
+   *
+   *  A preview that evaluated to NOTHING (zero ops AND zero placements — a
+   *  scatter whose region holds no matching surfaces is the reachable case)
+   *  never reaches core: core rejects an empty result outright, so the host
+   *  reports it through {@link subscribeToolError} as a sentence and leaves the
+   *  session standing to re-tune. */
   commitStamp(): void;
   /** Ends the live session with whichever verb its MODE calls for —
    *  {@link commitStamp} for a stamp, {@link applyReconfigure} for a
@@ -387,7 +443,9 @@ export type FieldHost = {
    *  only — a stamp session, or a configuring/previewing one, is a no-op. A core
    *  rejection (the entity was frozen or undone from under the session) reports
    *  through {@link subscribeToolError} and LEAVES the session standing so the
-   *  user can retry or cancel.
+   *  user can retry or cancel. An empty re-evaluate (zero ops AND zero
+   *  placements) is caught before core the same way {@link commitStamp} catches
+   *  it.
    *
    *  COST — this blocks the main thread, and the stall grows with the LOG, not
    *  with the edit. The host passes no snapshot records, so core takes its
@@ -498,6 +556,10 @@ type ChunkRender = {
   kit: mesh.InstancedMesh | null;
   kitGeo: geometry.Geometry | null;
 };
+
+/** One archetype's committed prop draw: an instanced proxy primitive + the
+ *  geometry it owns (one draw call for every placed record of that archetype). */
+type PropRender = { im: mesh.InstancedMesh; g: geometry.Geometry };
 
 const REMESH_PER_FRAME = 2; // dirty-set drain budget per rAF
 const STROKE_MIN_MS = 40; // stroke throttle (pointermove-while-digging)
@@ -717,10 +779,23 @@ export function createFieldHost(): FieldHost {
   // with the anchor (setBoxAnchor(null)).
   let boxPreviewBatch: LineBatch | null = null;
 
+  // The project's entity catalog, indexed by archetype id (empty until
+  // setEntityCatalog — a project with no catalog stays empty forever and every
+  // prop draws at the fallback proxy). The ARRAY is kept beside the map because
+  // the two seeding paths need ORDER (the archetypeId enum, and startStamp's
+  // "the catalog's first" fallback), which a Map's iteration order gives but
+  // reads worse.
+  let archetypes: readonly EntityArchetype[] = [];
+  let archetypeById: ReadonlyMap<string, EntityArchetype> = new Map();
+  // The committed prop layer: one instanced draw per archetype, rebuilt from the
+  // op log's placement records by rebuildProps.
+  const propMeshes: PropRender[] = [];
+
   // --- view state (layers + slice plane) ----------------------------------
   let layers: FieldLayers = {
     field: true,
     kit: true,
+    props: true,
     ghost: true,
     selection: true,
     grid: true,
@@ -754,6 +829,10 @@ export function createFieldHost(): FieldHost {
   >();
   let stampGhostMat: material.Material | null = null;
   let stampGhostBind: binding.Binding | null = null;
+  // The previewed PLACEMENTS' wireframe proxies, as ONE merged line batch
+  // (hologram-blue, occlude:false) — rebuilt with the ghost meshes on every
+  // preview response, cleared with them. Null = the preview placed nothing.
+  let placementGhost: LineBatch | null = null;
   // Entity-highlight overlay (highlightEntity): prebuilt on the call, drawn
   // under the selection layer gate. CPU-only line batch.
   //
@@ -1014,6 +1093,67 @@ export function createFieldHost(): FieldHost {
       mesh.setInstanceTint(c, im, i, field.pieceColor(table, k)),
     );
     return { im, g };
+  };
+
+  // The unit-sized proxy primitive for a collision kind — cube `size: 1`,
+  // sphere/cylinder ⌀1 — so `proxyRecords`' folded scale IS the world extent.
+  // Do NOT change these sizes without changing proxyScale: the two are one
+  // formula split across the CPU/GPU boundary.
+  const proxyGeometry = (
+    c: Context,
+    collision: EntityCollision,
+  ): geometry.Geometry => {
+    const primitive = PROXY_PRIMITIVE[collision.kind];
+    if (primitive === "sphere") return geometry.sphere(c, { radius: 0.5 });
+    if (primitive === "cylinder")
+      return geometry.cylinder(c, { radius: 0.5, height: 1 });
+    return geometry.cube(c, { size: 1 });
+  };
+
+  const destroyProps = (c: Context): void => {
+    for (const p of propMeshes) {
+      mesh.destroyInstanced(c, p.im);
+      geometry.destroy(c, p.g);
+    }
+    propMeshes.length = 0;
+  };
+
+  // Rebuild the committed prop layer from the op log: one instanced proxy draw
+  // per archetype, its instance count the archetype's record count, its matrices
+  // core's packPlacementMatrices over records re-scaled to the catalog collision
+  // primitive, its tint the archetype's catalog colour. Called by every path that
+  // can change which placement ops are in the log (commit, reconfigure apply,
+  // ⌘Z/⇧⌘Z, world new/load) plus the two that change how they DRAW (init,
+  // setEntityCatalog). Whole-layer teardown-and-rebuild, like a chunk remesh:
+  // instance counts are fixed at creation, and a placement op is a whole
+  // generator's worth of props at once, so there is no partial update to make.
+  // Silent no-op before GPU init — init() rebuilds once the materials exist, so
+  // a world loaded pre-init still gets its props.
+  const rebuildProps = (): void => {
+    const c = ctx;
+    if (!c || !kitMat) return;
+    destroyProps(c);
+    for (const [archetypeId, records] of groupPlacements(log.ops)) {
+      const archetype = archetypeById.get(archetypeId);
+      const collision = archetype?.collision ?? FALLBACK_COLLISION;
+      const g = proxyGeometry(c, collision);
+      const im = mesh.createInstanced(c, {
+        geometry: g,
+        material: kitInstancedMat(),
+        count: records.length,
+      });
+      mesh.setInstanceMatrices(
+        c,
+        im,
+        field.packPlacementMatrices(proxyRecords(records, collision)),
+      );
+      const tint: [number, number, number, number] =
+        archetype === undefined
+          ? FALLBACK_TINT
+          : [archetype.color[0], archetype.color[1], archetype.color[2], 1];
+      records.forEach((_, i) => mesh.setInstanceTint(c, im, i, tint));
+      propMeshes.push({ im, g });
+    }
   };
 
   const destroyChunkRender = (c: Context, cm: ChunkRender): void => {
@@ -1712,6 +1852,10 @@ export function createFieldHost(): FieldHost {
     );
   };
 
+  // Tears down BOTH halves of the stamp ghost: the surface meshes (GPU) and the
+  // placement wireframes (CPU-only line batch). One function because they are
+  // one preview's worth of promise — a session whose ghost meshes are gone but
+  // whose prop boxes linger would show props the field no longer previews.
   const destroyStampGhosts = (): void => {
     const c = ctx;
     if (c)
@@ -1721,6 +1865,7 @@ export function createFieldHost(): FieldHost {
           geometry.destroy(c, e.g);
         }
     ghostMeshes.clear();
+    placementGhost = null;
   };
 
   // The stamp-preview snapshot: density COPIES + cloned materials of every
@@ -1831,11 +1976,22 @@ export function createFieldHost(): FieldHost {
       .then(
         (res) => {
           if (!disposed && gen === stampGen && stamp !== null) {
-            const next = withPreviewResult(stamp, run, res.opCount);
+            const next = withPreviewResult(
+              stamp,
+              run,
+              res.opCount,
+              res.placements.length,
+            );
             // null = superseded — a newer preview owns the ghost.
             if (next !== null) {
               stamp = next;
               applyStampGhost(res.chunks);
+              // AFTER applyStampGhost, which clears both ghost halves first.
+              placementGhost = placementGhostBatch(
+                res.placements,
+                archetypeById,
+                GHOST_COLOR,
+              );
               notifyStamp();
             }
           }
@@ -1909,6 +2065,21 @@ export function createFieldHost(): FieldHost {
     notifyStamp();
   };
 
+  // The empty-preview gate both terminal verbs share. Core rejects an empty
+  // evaluate outright ("evaluated to an empty result"), which is right for a
+  // CARVER — nothing to build means a misconfigured stamp — but reads as a hard
+  // failure for a READER generator the user simply tuned down to zero props. So
+  // the host tests the settled preview first and reports a sentence instead,
+  // leaving the session standing to re-tune. Core stays strict and never sees
+  // the empty commit. Returns whether it refused.
+  const reportEmptyPreview = (s: StampSession): boolean => {
+    if (!previewIsEmpty(s)) return false;
+    reportToolError(
+      `${s.generator} placed nothing here — 0 ops and 0 props. Widen the region, raise density, or lower spacing.`,
+    );
+    return true;
+  };
+
   // Commit the previewed stamp: ONE undo entry, ONE entity op. Preview and
   // commit run the SAME pure evaluate (charter §2.2 determinism), so the
   // committed field reproduces the ghost exactly — the ghost is not an
@@ -1922,6 +2093,7 @@ export function createFieldHost(): FieldHost {
     // leave the original standing. commitActiveSession already routes Enter by
     // mode, so this guards the PUBLIC commitStamp against the same mistake.
     if (s.mode !== "stamp") return;
+    if (reportEmptyPreview(s)) return;
     try {
       const { dirty: committed } = field.commitGenerator(
         store,
@@ -1946,6 +2118,8 @@ export function createFieldHost(): FieldHost {
     }
     stamp = null;
     destroyStampGhosts();
+    // The commit's placement ops (a scatter's props) are new prop-layer content.
+    rebuildProps();
     notifyStamp();
     notifyEntities();
   };
@@ -2001,6 +2175,7 @@ export function createFieldHost(): FieldHost {
     const s = stamp;
     if (s === null || s.mode !== "reconfigure" || s.entityId === null) return;
     if (s.phase !== "ready") return;
+    if (reportEmptyPreview(s)) return;
     // The try wraps the core call and NOTHING else — the catch's claim (the
     // store and the log are untouched) is true of `reconfigureGenerator`
     // validating before its first write, and of nothing below it. Anything
@@ -2046,6 +2221,9 @@ export function createFieldHost(): FieldHost {
     drift = result.drift.length === 0 ? null : result.drift;
     stamp = null;
     destroyStampGhosts();
+    // A re-cooked scatter replaces its own placement op's records, and any
+    // reconfigure re-splices the log the prop layer is derived from.
+    rebuildProps();
     // The three notifications LAST, once every piece of host state the apply
     // moved has settled: a subscriber may read the host back synchronously from
     // inside any of them (the panel does — subscribeEntities' callback calls
@@ -2086,6 +2264,10 @@ export function createFieldHost(): FieldHost {
       : field.undo(store, log);
     markDirtyWithNeighbors(dirtied);
     rebuildEntityHighlight();
+    // A step can add or remove placement ops (a scatter commit, a reconfigure
+    // splice) and dirties NO chunk for them — placements write no cells — so the
+    // prop layer cannot ride the remesh drain the way chunk state does.
+    rebuildProps();
     // A standing drift report describes the LAST reconfigure's replay against
     // a log this step just rewrote — stale in either direction (F3a gate
     // finding: ⌘Z left the list up). Cleared, never recomputed; the load-path
@@ -2214,6 +2396,10 @@ export function createFieldHost(): FieldHost {
       if (layers.field) for (const e of cm.entries) meshes.push(e.m);
       if (layers.kit && cm.kit) instanced.push(cm.kit);
     }
+    // Committed placed props: proxy primitives on the shared instanced-lit
+    // material, their own layer gate (they are entities, not field — the "if you
+    // can dig it, it's field" jurisdiction line drawn in the layer strip).
+    if (layers.props) for (const p of propMeshes) instanced.push(p.im);
     // Filled kit ghost (the fill-tool-solid-volume-surprise fix): pose the ONE
     // translucent unit cube at the snapped box and push it into the mesh list.
     // When there is no kit-fill ghost this frame the mesh is simply not drawn.
@@ -2307,6 +2493,17 @@ export function createFieldHost(): FieldHost {
           occlude: false,
         });
     }
+    // The stamp's PLACEMENT proxies — one merged batch of oriented wireframe
+    // boxes, occlude:false like every other ghost overlay so props previewed
+    // inside a cave read through its walls. Under the ghost layer gate with the
+    // hologram meshes: they are two halves of one preview.
+    if (layers.ghost && placementGhost)
+      frame.drawLines(c, {
+        vertices: placementGhost.vertices,
+        colors: placementGhost.colors,
+        camera: view,
+        occlude: false,
+      });
     // Ghost target preview last so it draws over the scene + grid (occlude:false).
     if (ghost) renderGhostLines(c, view, ghost);
   };
@@ -2579,7 +2776,10 @@ export function createFieldHost(): FieldHost {
     log.nextId = 1;
     dirty.clear();
     const c = ctx;
-    if (c) for (const [, cm] of chunkMeshes) destroyChunkRender(c, cm);
+    if (c) {
+      for (const [, cm] of chunkMeshes) destroyChunkRender(c, cm);
+      destroyProps(c);
+    }
     chunkMeshes.clear();
     setBoxAnchor(null);
     selection = null;
@@ -2638,6 +2838,11 @@ export function createFieldHost(): FieldHost {
       applyOrbit();
       unbindCamera = camera.bindToCanvas(ctx, cam);
       await initMaterials(ctx);
+      // A world can be loaded BEFORE the GPU exists (the panel's Load races
+      // init, and every headless caller never inits at all), and rebuildProps
+      // no-ops without a context — so build the layer once here from whatever
+      // the log already holds.
+      rebuildProps();
       attachListeners(canvas);
       lastFrameT = 0;
       raf = requestAnimationFrame(tick);
@@ -2651,6 +2856,7 @@ export function createFieldHost(): FieldHost {
       if (c) {
         for (const [, cm] of chunkMeshes) destroyChunkRender(c, cm);
         chunkMeshes.clear();
+        destroyProps(c);
         destroyStampGhosts();
         if (flatMat) material.destroy(c, flatMat);
         destroyLitMaterials(c);
@@ -2712,7 +2918,10 @@ export function createFieldHost(): FieldHost {
       // ops, so the entity list below is unaffected either way.
       compactLoadedLog();
       // AFTER the ops land, not inside resetWorld: the tick must carry the
-      // loaded world's entities, not the empty log the reset left behind.
+      // loaded world's entities, not the empty log the reset left behind — and
+      // the prop layer must be built from the loaded placement ops, not the
+      // empty log (resetWorld tore the previous world's props down).
+      rebuildProps();
       notifyEntities();
     },
     setDigRadius(r) {
@@ -2828,11 +3037,19 @@ export function createFieldHost(): FieldHost {
         }
       })();
     },
+    setEntityCatalog(catalog) {
+      // Copy at the boundary (the setLayers precedent): host state never aliases
+      // the parsed object the chrome keeps.
+      archetypes = catalog === null ? [] : [...catalog.archetypes];
+      archetypeById = new Map(archetypes.map((a) => [a.id, a]));
+      rebuildProps(); // the catalog decides proxy geometry + tint
+    },
     listGenerators() {
+      const ids = archetypes.map((a) => a.id);
       return field.FIELD_GENERATORS.map((g) => ({
         id: g.id,
         name: g.name,
-        paramSchema: structuredClone(g.paramSchema),
+        paramSchema: withArchetypeOptions(structuredClone(g.paramSchema), ids),
         defaults: structuredClone(g.defaults),
       }));
     },
@@ -2869,9 +3086,17 @@ export function createFieldHost(): FieldHost {
       );
       cancelStampSession(); // a live session (+ ghost) never survives a restart
       stampGen++;
+      // Layering, outermost last: schema defaults → the archetype's authored
+      // scatter hints (catalog seeding) → the selection-fit sizes. The two never
+      // collide today (no generator has both an archetypeId and a size param),
+      // and if one ever does, the SELECTION the user drew should win over a
+      // catalog default.
       stamp = startSession(
         generator,
-        { ...structuredClone(def.defaults), ...sizes },
+        {
+          ...seedArchetypeParams(structuredClone(def.defaults), archetypes),
+          ...sizes,
+        },
         { min: [x0, y0, z0], max: [x1, y1, z1] },
         randomStampSeed(),
         sel.materialized.kind === "cells" && sel.materialized.truncated,

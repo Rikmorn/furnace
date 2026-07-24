@@ -30,8 +30,10 @@ export type StampMode = "stamp" | "reconfigure";
  *  params/seed/policy change bumps it and a preview response carrying an older
  *  run is DROPPED ({@link withPreviewResult}/{@link withPreviewError} return
  *  null). Intra-session only — run restarts at 0 each {@link startSession},
- *  so the HOST must guard responses across sessions itself. `opCount`/`error`
- *  are the last preview's outcome (both null while none applies).
+ *  so the HOST must guard responses across sessions itself.
+ *  `opCount`/`placementCount`/`error` are the last preview's outcome (all null
+ *  while none applies) — `placementCount` is the props a placement-emitting
+ *  generator (scatter) would commit, which is the only output a pure reader has.
  *  `truncatedSelection` records that the region came from a selection whose
  *  flood hit the UI budget — the region under-covers the true flood, and the
  *  stamp UI (Task 15) surfaces that instead of silently stamping short. */
@@ -44,6 +46,7 @@ export type StampSession = {
   phase: StampPhase;
   run: number;
   opCount: number | null;
+  placementCount: number | null;
   error: string | null;
   truncatedSelection: boolean;
   mode: StampMode;
@@ -74,6 +77,7 @@ export function startSession(
     phase: "configuring",
     run: 0,
     opCount: null,
+    placementCount: null,
     error: null,
     truncatedSelection,
     mode: "stamp",
@@ -135,6 +139,7 @@ export function withParams(
     phase: "configuring",
     run: s.run + 1,
     opCount: null,
+    placementCount: null,
     error: null,
   };
 }
@@ -151,6 +156,7 @@ export function withRegion(s: StampSession, region: StampRegion): StampSession {
     phase: "configuring",
     run: s.run + 1,
     opCount: null,
+    placementCount: null,
     error: null,
   };
 }
@@ -162,14 +168,15 @@ export function toPreviewing(s: StampSession): StampSession {
 
 /** A preview success for `run`: null when the run is stale (the caller drops
  *  the response — a newer preview owns the ghost); else `ready` carrying the
- *  evaluated op count. */
+ *  evaluated op and placement counts. */
 export function withPreviewResult(
   s: StampSession,
   run: number,
   opCount: number,
+  placementCount: number,
 ): StampSession | null {
   if (run !== s.run) return null;
-  return { ...s, phase: "ready", opCount, error: null };
+  return { ...s, phase: "ready", opCount, placementCount, error: null };
 }
 
 /** A preview failure for `run`: null when the run is stale; else back to
@@ -180,8 +187,26 @@ export function withPreviewError(
   message: string,
 ): StampSession | null {
   if (run !== s.run) return null;
-  return { ...s, phase: "configuring", opCount: null, error: message };
+  return {
+    ...s,
+    phase: "configuring",
+    opCount: null,
+    placementCount: null,
+    error: message,
+  };
 }
+
+/** Whether the session's settled preview produced NOTHING to commit — zero ops
+ *  AND zero placements. Core REJECTS that outright (`commitGenerator` /
+ *  `reconfigureGenerator` throw "evaluated to an empty result"), which is the
+ *  right default for a carver but reads as a hard error for a READER generator
+ *  driven to zero props by its own params (a scatter over a field with no
+ *  matching surfaces is a legitimate, well-formed request). The host tests this
+ *  BEFORE calling core so the outcome surfaces as a legible sentence instead of
+ *  a core throw string — core stays strict and never sees the empty commit.
+ *  False while a preview is in flight or has not run (both counts null). */
+export const previewIsEmpty = (s: StampSession): boolean =>
+  s.opCount === 0 && s.placementCount === 0;
 
 /** A latest-wins in-flight latch for preview jobs (the worker client is a
  *  plain request pipe — callers own coalescing). `request()` fires
