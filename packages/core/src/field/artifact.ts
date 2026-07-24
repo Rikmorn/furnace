@@ -706,6 +706,214 @@ export function parseOps(text: string): FieldOp[] {
   return ops.map(decodeOp);
 }
 
+// ─── placement artifact (F3b: D-F3-10) ───
+
+/** Floats per packed placement record: `pos3 + quat4 + scale3 + variant1`. The
+ *  archetype id is the GROUP key — never in the float array — mirroring the
+ *  packed per-archetype instance-buffer shape (Unity TreeInstance / Godot
+ *  MultiMesh). Distinct from {@link packPlacementMatrices}' 16-float render
+ *  matrix: this is the SERIALIZED record the loader re-packs into matrices. */
+const PLACEMENT_FLOATS = 11;
+const F32_BYTES = 4;
+
+/** Placement-artifact envelope version. Independent of the oplog and manifest
+ *  versions — the placement artifact is its own file. */
+const PLACEMENT_ARTIFACT_VERSION = 1;
+
+/** One archetype's decoded placement group: the archetype id and its records
+ *  (each reconstructed with `archetypeId` set to the group id). */
+export type PlacementGroup = { id: string; records: PlacementRecord[] };
+
+/** Groups records by archetype id in FIRST-APPEARANCE order (a Map preserves
+ *  insertion order), each group keeping its records' relative order — so a
+ *  round-trip is stable and archetype-contiguous input survives unreordered. */
+function groupByArchetype(
+  records: readonly PlacementRecord[],
+): Map<string, PlacementRecord[]> {
+  const groups = new Map<string, PlacementRecord[]>();
+  for (const r of records) {
+    const g = groups.get(r.archetypeId);
+    if (g === undefined) groups.set(r.archetypeId, [r]);
+    else g.push(r);
+  }
+  return groups;
+}
+
+/** Packs one archetype's records into a flat Float32Array, {@link
+ *  PLACEMENT_FLOATS} per record in the fixed
+ *  `[px,py,pz, qx,qy,qz,qw, sx,sy,sz, variantIndex]` order. */
+function packPlacementFloats(
+  records: readonly PlacementRecord[],
+): Float32Array {
+  const out = new Float32Array(PLACEMENT_FLOATS * records.length);
+  records.forEach((r, i) => {
+    const o = i * PLACEMENT_FLOATS;
+    out[o] = r.position[0];
+    out[o + 1] = r.position[1];
+    out[o + 2] = r.position[2];
+    out[o + 3] = r.quat[0];
+    out[o + 4] = r.quat[1];
+    out[o + 5] = r.quat[2];
+    out[o + 6] = r.quat[3];
+    out[o + 7] = r.scale[0];
+    out[o + 8] = r.scale[1];
+    out[o + 9] = r.scale[2];
+    out[o + 10] = r.variantIndex;
+  });
+  return out;
+}
+
+/**
+ * Serializes explicit placement records as the placement artifact (D-F3-10):
+ * `{ version: 1, archetypes: [{ id, count, records }] }`, where `records` is a
+ * base64 Float32Array packed {@link PLACEMENT_FLOATS} floats per record. Records
+ * are grouped per archetype — the packed per-archetype instance-buffer shape the
+ * loader re-packs into render matrices with {@link packPlacementMatrices}. No
+ * collider data, no clustering (both derived at load).
+ *
+ * @param records - the placement records (any order; grouped here by archetype).
+ * @returns the `placements.json` text.
+ */
+export function serializePlacements(
+  records: readonly PlacementRecord[],
+): string {
+  const archetypes = Array.from(groupByArchetype(records), ([id, group]) => {
+    const floats = packPlacementFloats(group);
+    return {
+      id,
+      count: group.length,
+      records: u8ToB64(
+        new Uint8Array(floats.buffer, floats.byteOffset, floats.byteLength),
+      ),
+    };
+  });
+  return JSON.stringify({ version: PLACEMENT_ARTIFACT_VERSION, archetypes });
+}
+
+/** `JSON.parse` with this module's locator on failure — a placement artifact
+ *  sits beside `manifest.json`/`oplog.json` in a world dir.
+ *
+ *  @throws {@link Error} if `text` is not valid JSON. */
+function parsePlacementJson(text: string): unknown {
+  try {
+    return JSON.parse(text) as unknown;
+  } catch (e) {
+    const detail = e instanceof Error ? e.message : String(e);
+    throw new Error(`field placements: not valid JSON — ${detail}`);
+  }
+}
+
+/** Reconstructs one archetype's records from its base64 float payload, keying
+ *  every record's `archetypeId` to the group id.
+ *
+ *  @throws {@link Error} if the payload is not `count · PLACEMENT_FLOATS · 4`
+ *    bytes. */
+function decodePlacementFloats(
+  bytes: Uint8Array,
+  id: string,
+  count: number,
+): PlacementRecord[] {
+  const expected = count * PLACEMENT_FLOATS * F32_BYTES;
+  if (bytes.byteLength !== expected)
+    throw new Error(
+      `field placements: archetype "${id}" records is ${bytes.byteLength} bytes, expected ${expected} (${count} × ${PLACEMENT_FLOATS} × ${F32_BYTES})`,
+    );
+  // b64ToU8 returns a fresh, offset-0, exact-sized buffer, so this Float32 view
+  // is aligned; the length check above proves every index below is in-bounds, so
+  // the `as number` sheds noUncheckedIndexedAccess widening (decodeMaterialFile
+  // precedent, same file).
+  const f = new Float32Array(
+    bytes.buffer,
+    bytes.byteOffset,
+    count * PLACEMENT_FLOATS,
+  );
+  const records: PlacementRecord[] = [];
+  for (let i = 0; i < count; i++) {
+    const o = i * PLACEMENT_FLOATS;
+    records.push({
+      archetypeId: id,
+      position: [f[o] as number, f[o + 1] as number, f[o + 2] as number],
+      quat: [
+        f[o + 3] as number,
+        f[o + 4] as number,
+        f[o + 5] as number,
+        f[o + 6] as number,
+      ],
+      scale: [f[o + 7] as number, f[o + 8] as number, f[o + 9] as number],
+      variantIndex: f[o + 10] as number,
+    });
+  }
+  return records;
+}
+
+/** @throws {@link Error} if the group is not an object, its `id` is not a
+ *   non-empty string, its `count` is not a non-negative integer, its `records`
+ *   is not a base64 string, or the payload length disagrees with `count`. */
+function decodePlacementGroup(raw: unknown): PlacementGroup {
+  if (!isRecord(raw))
+    throw new Error(
+      "field placements: an archetype group is not a JSON object",
+    );
+  const id = raw["id"];
+  if (typeof id !== "string" || id.length === 0)
+    throw new Error(
+      "field placements: archetype id must be a non-empty string",
+    );
+  const count = raw["count"];
+  if (typeof count !== "number" || !Number.isInteger(count) || count < 0)
+    throw new Error(
+      `field placements: archetype "${id}" count must be a non-negative integer, got ${jsonTag(count)}`,
+    );
+  const recordsB64 = raw["records"];
+  if (typeof recordsB64 !== "string")
+    throw new Error(
+      `field placements: archetype "${id}" records must be a base64 string`,
+    );
+  let bytes: Uint8Array;
+  try {
+    bytes = b64ToU8(recordsB64);
+  } catch {
+    throw new Error(
+      `field placements: archetype "${id}" records is not valid base64`,
+    );
+  }
+  return { id, records: decodePlacementFloats(bytes, id, count) };
+}
+
+/**
+ * Parses a placement artifact ({@link serializePlacements}) back into per-archetype
+ * groups. Setup-loud (a file the process did not write): the envelope shape and
+ * version are checked, every group's `id`/`count`/`records` shape is checked, the
+ * float payload's length must match `count`, and each group's reconstructed
+ * records are value-validated with {@link assertPlacementsValid} (finite vectors,
+ * unit quat, non-negative integer variant) — a corrupt artifact never becomes a
+ * plausible one.
+ *
+ * @param text - the `placements.json` contents.
+ * @returns per-archetype groups in first-appearance order; no input aliased.
+ * @throws {@link Error} on invalid JSON, a non-object payload, an unknown
+ *   version, a missing/`non-array` `archetypes`, a malformed group, a payload
+ *   whose length disagrees with `count`, or records that fail
+ *   {@link assertPlacementsValid}.
+ */
+export function parsePlacements(text: string): PlacementGroup[] {
+  const parsed = parsePlacementJson(text);
+  if (!isRecord(parsed))
+    throw new Error(
+      `field placements: expected a versioned envelope, got ${typeTag(parsed)}`,
+    );
+  if (parsed["version"] !== PLACEMENT_ARTIFACT_VERSION)
+    throw new Error(
+      `field placements: unknown version ${jsonTag(parsed["version"])}`,
+    );
+  const archetypes = parsed["archetypes"];
+  if (!Array.isArray(archetypes))
+    throw new Error("field placements: envelope has no archetypes array");
+  const groups = archetypes.map(decodePlacementGroup);
+  for (const g of groups) assertPlacementsValid(g.records);
+  return groups;
+}
+
 /** File-name-safe key segment ("cx,cy,cz" → "cx_cy_cz"). */
 const keyToFileName = (key: ChunkKey): string => key.replaceAll(",", "_");
 
@@ -756,8 +964,9 @@ export type BakeFieldWorldOptions = {
  * density file (authoring truth) + the oplog JSON + one `.fmesh` render mesh per
  * NON-EMPTY per-class bucket (the derived runtime bake) + a `.mat` material
  * sibling for every chunk with a real non-rock material + a `kit/*.json` for
- * every chunk holding kit pieces. The resolved `table` is embedded in the
- * manifest so the artifact is self-contained.
+ * every chunk holding kit pieces + a `placements.json` placement artifact when
+ * the log carries any placement ops (D-F3-10). The resolved `table` is embedded
+ * in the manifest so the artifact is self-contained.
  *
  * Pure — returns the file set; the caller owns writing/uploading. The manifest
  * is emitted LAST so a partial write never yields a manifest referencing files
@@ -846,6 +1055,20 @@ export function bakeFieldWorld(
 
   if (materials.length > 0) manifest.materials = materials;
   if (kit.length > 0) manifest.kit = kit;
+
+  // Placement artifact (D-F3-10): every PlacementOp still in log.ops (splice
+  // semantics already removed undone ones), folded in order into one grouped
+  // per-archetype file. Additive — the manifest field is absent when empty.
+  const placementRecords = log.ops
+    .filter((op): op is PlacementOp => op.kind === "placement")
+    .flatMap((op) => op.records);
+  if (placementRecords.length > 0) {
+    manifest.placements = "placements.json";
+    files.push({
+      path: `worlds/${opts.name}/placements.json`,
+      contents: serializePlacements(placementRecords),
+    });
+  }
 
   files.push({
     path: `worlds/${opts.name}/oplog.json`,

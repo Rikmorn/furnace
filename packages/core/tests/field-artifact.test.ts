@@ -12,6 +12,8 @@ import type {
   OpLog,
   PatchChunk,
   PatchOp,
+  PlacementOp,
+  PlacementRecord,
 } from "@furnace/core/field";
 import {
   BUILTIN_TABLE,
@@ -26,7 +28,9 @@ import {
   logApply,
   logApplyPatch,
   parseOps,
+  parsePlacements,
   serializeOps,
+  serializePlacements,
   setMaterial,
 } from "@furnace/core/field";
 
@@ -1012,5 +1016,185 @@ describe("field oplog v2 codec", () => {
     );
     // the good record parses clean
     expect(() => parseOps(withRecord({}))).not.toThrow();
+  });
+});
+
+describe("field placement artifact (D-F3-10)", () => {
+  // Every value here is EXACTLY representable in Float32 (integers, halves,
+  // quarters, eighths, and unit quats built from 0/1/0.5), so a round-trip
+  // through the packed Float32 payload is BYTE-exact and can be asserted with
+  // toEqual — no float-precision slack.
+  const rockA: PlacementRecord = {
+    archetypeId: "rock",
+    position: [1.5, 2, -3],
+    quat: [0, 0, 0, 1],
+    scale: [1, 1, 1],
+    variantIndex: 0,
+  };
+  const rockB: PlacementRecord = {
+    archetypeId: "rock",
+    position: [4, 0, 4],
+    quat: [0.5, 0.5, 0.5, 0.5], // |q|² = 1, Float32-exact
+    scale: [0.5, 1.25, 0.5],
+    variantIndex: 2,
+  };
+  const stalag: PlacementRecord = {
+    archetypeId: "stalagmite",
+    position: [-2, 0.5, 8],
+    quat: [0, 0, 0, 1],
+    scale: [1, 2, 1],
+    variantIndex: 1,
+  };
+
+  test("round-trips records exactly, grouped per archetype, first-appearance order", () => {
+    const records = [rockA, rockB, stalag];
+    const groups = parsePlacements(serializePlacements(records));
+    expect(groups.map((g) => g.id)).toEqual(["rock", "stalagmite"]);
+    expect(groups.map((g) => g.records.length)).toEqual([2, 1]);
+    // archetype-contiguous input survives unreordered and byte-exact
+    expect(groups.flatMap((g) => g.records)).toEqual(records);
+  });
+
+  test("groups records by archetype even when the input INTERLEAVES them", () => {
+    // rock, stalagmite, rock — the grouping must collect both rocks under one id.
+    const groups = parsePlacements(serializePlacements([rockA, stalag, rockB]));
+    expect(groups.map((g) => g.id)).toEqual(["rock", "stalagmite"]);
+    // count test: break the per-archetype grouping (e.g. one group per record)
+    // and this 2 goes to 1 — the sabotage target.
+    expect(groups[0]?.records.length).toBe(2);
+    expect(groups[0]?.records).toEqual([rockA, rockB]);
+    expect(groups[1]?.records).toEqual([stalag]);
+  });
+
+  test("packs EXACTLY 11 floats/record: [pos3 quat4 scale3 variant]", () => {
+    const wire = JSON.parse(serializePlacements([rockB])) as {
+      version: number;
+      archetypes: { id: string; count: number; records: string }[];
+    };
+    expect(wire.version).toBe(1);
+    expect(wire.archetypes[0]?.id).toBe("rock");
+    expect(wire.archetypes[0]?.count).toBe(1);
+    // Decode the base64 payload directly and assert the exact float layout.
+    const b64 = wire.archetypes[0]?.records as string;
+    const bin = atob(b64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    const f = new Float32Array(bytes.buffer);
+    expect(f.length).toBe(11);
+    // rockB: pos [4,0,4], quat [0.5,0.5,0.5,0.5], scale [0.5,1.25,0.5], variant 2
+    expect(Array.from(f)).toEqual([
+      4, 0, 4, 0.5, 0.5, 0.5, 0.5, 0.5, 1.25, 0.5, 2,
+    ]);
+  });
+
+  test("empty records serialize to a versioned envelope with no archetypes", () => {
+    const groups = parsePlacements(serializePlacements([]));
+    expect(groups).toEqual([]);
+  });
+
+  test("parsePlacements is setup-loud on structural corruption", () => {
+    // bad JSON gets the module locator (three JSON files sit in a world dir)
+    expect(() => parsePlacements("{not json")).toThrow(
+      /field placements: not valid JSON/,
+    );
+    // wrong / missing version
+    expect(() =>
+      parsePlacements(JSON.stringify({ version: 2, archetypes: [] })),
+    ).toThrow(/unknown version 2/);
+    expect(() => parsePlacements(JSON.stringify({ archetypes: [] }))).toThrow(
+      /unknown version undefined/,
+    );
+    // missing archetypes array
+    expect(() => parsePlacements(JSON.stringify({ version: 1 }))).toThrow(
+      /no archetypes array/,
+    );
+    // a group with a non-string id
+    expect(() =>
+      parsePlacements(JSON.stringify({ version: 1, archetypes: [{ id: 42 }] })),
+    ).toThrow(/id must be a non-empty string/);
+    // count disagreeing with the payload length — the silent-corruption shape
+    const good = JSON.parse(serializePlacements([rockA, rockB])) as {
+      version: number;
+      archetypes: { id: string; count: number; records: string }[];
+    };
+    const badCount = structuredClone(good);
+    (badCount.archetypes[0] as { count: number }).count = 3; // payload holds 2
+    expect(() => parsePlacements(JSON.stringify(badCount))).toThrow(
+      /expected .* × 11 × 4/,
+    );
+    // garbage base64
+    const badB64 = structuredClone(good);
+    (badB64.archetypes[0] as { records: string }).records = "!!! not b64 !!!";
+    expect(() => parsePlacements(JSON.stringify(badB64))).toThrow(
+      /not valid base64/,
+    );
+  });
+
+  test("parsePlacements value-validates via assertPlacementsValid (non-unit quat)", () => {
+    // Hand-pack one record whose quat is NOT unit-length (all ones, |q|² = 4).
+    const f = new Float32Array([0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 0]);
+    const bytes = new Uint8Array(f.buffer);
+    const b64 = btoa(Array.from(bytes, (b) => String.fromCharCode(b)).join(""));
+    const text = JSON.stringify({
+      version: 1,
+      archetypes: [{ id: "rock", count: 1, records: b64 }],
+    });
+    expect(() => parsePlacements(text)).toThrow(/unit-length/);
+  });
+
+  const placementOp = (
+    id: number,
+    records: PlacementRecord[],
+  ): PlacementOp => ({
+    id,
+    kind: "placement",
+    records,
+  });
+
+  test("bakeFieldWorld emits placements.json + manifest.placements; version stays 2", () => {
+    const { s, log } = wallFixture();
+    // A scatter commit appends a placement op to the log; bake reads log.ops.
+    log.ops.push(placementOp(99, [rockA, rockB, stalag]));
+    const files = bakeFieldWorld(s, log, TABLE, {
+      name: "props",
+      playerStart: [2, 1, 2],
+      playerYaw: 0,
+    });
+    const manifest = JSON.parse(
+      files.find((f) => f.path.endsWith("manifest.json"))?.contents as string,
+    ) as FieldManifest;
+    expect(manifest.version).toBe(2); // ADDITIVE — NOT bumped
+    expect(manifest.placements).toBe("placements.json");
+    // manifest still LAST (partial-write safety), placements written before it
+    expect(files[files.length - 1]?.path.endsWith("manifest.json")).toBe(true);
+    const pf = files.find((f) => f.path === "worlds/props/placements.json");
+    expect(pf).toBeDefined();
+    const artifact = JSON.parse(pf?.contents as string) as {
+      version: number;
+      archetypes: { id: string; count: number }[];
+    };
+    expect(artifact.version).toBe(1);
+    expect(artifact.archetypes.map((a) => a.id)).toEqual([
+      "rock",
+      "stalagmite",
+    ]);
+    expect(artifact.archetypes.map((a) => a.count)).toEqual([2, 1]);
+    // full round-trip through the baked file
+    const groups = parsePlacements(pf?.contents as string);
+    expect(groups.flatMap((g) => g.records)).toEqual([rockA, rockB, stalag]);
+  });
+
+  test("bakeFieldWorld omits placements when the log has no placement ops", () => {
+    const { s, log } = wallFixture(); // brush ops only
+    const files = bakeFieldWorld(s, log, TABLE, {
+      name: "noprops",
+      playerStart: [2, 1, 2],
+      playerYaw: 0,
+    });
+    const manifest = JSON.parse(
+      files.find((f) => f.path.endsWith("manifest.json"))?.contents as string,
+    ) as FieldManifest;
+    expect(manifest.placements).toBeUndefined();
+    expect(files.some((f) => f.path.endsWith("placements.json"))).toBe(false);
   });
 });

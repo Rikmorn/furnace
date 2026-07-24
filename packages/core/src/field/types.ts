@@ -477,4 +477,8 @@ export type FieldManifest = {
   kit?: { key: ChunkKey; file: string }[];
   /** The resolved material table, embedded so the artifact is self-contained. */
   materialTable?: MaterialTable;
+  /** World-dir-relative path of the placement artifact (F3b: D-F3-10), emitted
+   *  only when the log carries placement ops. ADDITIVE within version 2 — absent
+   *  means the world has no props, and the loader must not require it. */
+  placements?: string;
 };

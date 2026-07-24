@@ -1040,8 +1040,23 @@ channel** (uniform|indexed palette encoding behind accessors — `getMaterial` /
   clip — cells at/above read as air for targeting); per-chunk shell colliders
   (`chunkColliders` — density-only, material classes never affect collision).
 - **Artifact** — `encodeChunkFile`/`decodeChunkFile`,
-  `encodeMaterialFile`/`decodeMaterialFile`, oplog serialize/parse, `bakeFieldWorld`
+  `encodeMaterialFile`/`decodeMaterialFile`, oplog serialize/parse,
+  `serializePlacements`/`parsePlacements` (the placement artifact), `bakeFieldWorld`
   (pure; the manifest embeds the resolved material table).
+- **The placement artifact (F3b: D-F3-10)** — `placements.json` is a **`{ version: 1,
+  archetypes: [{ id, count, records }] }`** envelope, where `records` is a base64
+  **Float32Array packed 11 floats/record** (`pos3 + quat4 + scale3 + variantIndex`) —
+  the archetype id is the GROUP key, never in the float array (the packed per-archetype
+  instance-buffer shape: Unity TreeInstance / Godot MultiMesh). `bakeFieldWorld` folds
+  every `PlacementOp` still in `log.ops` (in order, grouped per archetype) into it and
+  adds an **optional** `placements: "placements.json"` manifest field — **additive within
+  manifest version 2** (absent = no props; the loader must not require it). This is the
+  SERIALIZED record, distinct from `packPlacementMatrices`' 16-float render matrix: the
+  loader `parsePlacements` → per-archetype groups → `packPlacementMatrices` per group. No
+  collider data, no clustering (both derived at load). `parsePlacements` is **setup-loud**
+  — envelope shape + version, each group's `id`/`count`/`records` shape, a payload length
+  that must equal `count × 11 × 4`, and each group's records value-validated with
+  `assertPlacementsValid` (finite vectors, unit quat, non-negative integer variant).
 - **The oplog wire format (F3a: v2; F3b: v3)** — `oplog.json` is a **v3 envelope**,
   `{ version: 3, ops: [...] }`. Every `FieldOp` member round-trips: brush, entity AND
   placement ops are plain JSON (so an entity's `frozen`/`baked` flags persist, and ABSENCE

@@ -1,4 +1,8 @@
-export type { BakedFile, BakeFieldWorldOptions } from "./artifact.ts";
+export type {
+  BakedFile,
+  BakeFieldWorldOptions,
+  PlacementGroup,
+} from "./artifact.ts";
 export {
   bakeFieldWorld,
   chunkFilePath,
@@ -7,7 +11,9 @@ export {
   encodeChunkFile,
   encodeMaterialFile,
   parseOps,
+  parsePlacements,
   serializeOps,
+  serializePlacements,
 } from "./artifact.ts";
 export type {
   CaveChamber,

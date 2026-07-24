@@ -1,0 +1,44 @@
+{
+  "version": 1,
+  "archetypes": [
+    {
+      "id": "rock",
+      "name": "Rock",
+      "meshes": [
+        "catalog/meshes/rock.0.fmesh",
+        "catalog/meshes/rock.1.fmesh",
+        "catalog/meshes/rock.2.fmesh"
+      ],
+      "material": { "litColor": [0.45, 0.42, 0.4] },
+      "collision": { "kind": "box", "halfExtents": [0.4, 0.35, 0.4] },
+      "scatter": {
+        "density": 0.3,
+        "minSpacing": 1.0,
+        "scaleRange": [0.6, 1.6],
+        "randomYaw": true,
+        "orientation": "gravity",
+        "hemisphere": "floor",
+        "variants": 3
+      }
+    },
+    {
+      "id": "stalagmite",
+      "name": "Stalagmite",
+      "meshes": [
+        "catalog/meshes/stalagmite.0.fmesh",
+        "catalog/meshes/stalagmite.1.fmesh"
+      ],
+      "material": { "litColor": [0.5, 0.48, 0.44] },
+      "collision": { "kind": "capsule", "halfHeight": 0.5, "radius": 0.22 },
+      "scatter": {
+        "density": 0.15,
+        "minSpacing": 1.4,
+        "scaleRange": [0.8, 2.2],
+        "randomYaw": true,
+        "orientation": "gravity",
+        "hemisphere": "floor",
+        "variants": 2
+      }
+    }
+  ]
+}
