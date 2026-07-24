@@ -22,6 +22,7 @@ import {
   bakeFieldWorld,
   buildCaveSkeleton,
   type CaveChamber,
+  type CaveMouth,
   type CavePassage,
   type CaveSkeleton,
   commitGenerator,
@@ -356,7 +357,13 @@ type LaneRec = {
   outcome: LaneOutcome;
 };
 
-async function walkConfig(cfg: Cfg): Promise<LaneRec[]> {
+/** Bake a config's cave, load it through the REAL `loadWorld` (per-chunk shell voxel
+ *  colliders), and run `body` against the loaded world + skeleton — restoring fetch and
+ *  tearing down the GPU/physics resources afterwards. */
+async function withLoadedCave<T>(
+  cfg: Cfg,
+  body: (ctx: gpu.Context, world: physics.World, sk: CaveSkeleton) => T,
+): Promise<T> {
   const store = createFieldStore();
   const log = createOpLog();
   commitGenerator(store, log, CAVE, {
@@ -374,9 +381,6 @@ async function walkConfig(cfg: Cfg): Promise<LaneRec[]> {
     playerYaw: 0,
   });
 
-  const composite = buildCompositePoly(sk);
-  const records: LaneRec[] = [];
-
   const canvas = await makeOffscreenCanvas();
   const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
   const world = await physics.createWorld(ctx, { gravity: [0, -9.81, 0] });
@@ -387,22 +391,7 @@ async function walkConfig(cfg: Cfg): Promise<LaneRec[]> {
     const loaded = await loadWorld(ctx, world, matCache);
     globalThis.fetch = orig; // walks cast against the world; no more fetches
     try {
-      sk.passages.forEach((p, index) => {
-        const poly = p.waypoints.map((w) => [...w] as Vec3);
-        records.push({
-          cfg,
-          kind: "passage",
-          index,
-          outcome: walkLane(ctx, world, poly),
-        });
-      });
-      if (composite !== null && composite.length >= 2)
-        records.push({
-          cfg,
-          kind: "composite",
-          index: 0,
-          outcome: walkLane(ctx, world, composite),
-        });
+      return body(ctx, world, sk);
     } finally {
       loaded.destroy();
     }
@@ -412,8 +401,30 @@ async function walkConfig(cfg: Cfg): Promise<LaneRec[]> {
     physics.destroyWorld(ctx, world);
     gpu.dispose(ctx);
   }
-  return records;
 }
+
+const walkConfig = (cfg: Cfg): Promise<LaneRec[]> =>
+  withLoadedCave(cfg, (ctx, world, sk) => {
+    const composite = buildCompositePoly(sk);
+    const records: LaneRec[] = sk.passages.map((p, index) => ({
+      cfg,
+      kind: "passage",
+      index,
+      outcome: walkLane(
+        ctx,
+        world,
+        p.waypoints.map((w) => [...w] as Vec3),
+      ),
+    }));
+    if (composite !== null && composite.length >= 2)
+      records.push({
+        cfg,
+        kind: "composite",
+        index: 0,
+        outcome: walkLane(ctx, world, composite),
+      });
+    return records;
+  });
 
 // ─── report rendering (the committed deliverable — F4's analyzer corpus) ───
 const REPORT_PATH = new URL(
@@ -522,6 +533,12 @@ TESTABLE (a single riser fits under the mover's step-up).
 
 Fixed: extent ${EXTENT.join("×")} m, 3 chambers, radius 5 m, 1 extra loop, north mouth.
 
+**Topology note (F4: do NOT over-count diversity).** \`theme\` selects only the SN carve SKIN —
+it never reaches \`buildCaveSkeleton\`, so these 12 configs are **4 distinct passage LAYOUTS**
+(2 verticality × 2 seeds) × 3 carve skins. For a given (verticality, seed) the walk LANES are
+identical across themes; only the carved collider surface differs. So the 48 passage walks
+cover 4 topologies, not 12 — the theme axis probes skin-vs-collision, not layout.
+
 | theme | verticality | seed | passages walked | composite walked |
 |---|---|---|---|---|
 ${matrixRows}
@@ -586,17 +603,69 @@ describe("field cave walk — P-F3-1 stepped-floor probe", () => {
       const fy = chamberFloorY(c);
       expect(dAt(store, c.center[0], fy + 1.0, c.center[2])).toBeGreaterThan(0);
     }
+    // Sample bounds are the region in SAMPLES (world / RISER), derived so they track EXTENT.
+    const [nx, ny, nz] = EXTENT.map((e) => Math.round(e / RISER)) as [
+      number,
+      number,
+      number,
+    ];
+    const SCAN_STRIDE = 8; // coarse subsample — an air/rock census, not an exhaustive scan
     let rock = 0;
     let total = 0;
-    for (let sx = 1; sx < 80; sx += 8)
-      for (let sy = 1; sy < 40; sy += 8)
-        for (let sz = 1; sz < 80; sz += 8) {
+    for (let sx = 1; sx < nx; sx += SCAN_STRIDE)
+      for (let sy = 1; sy < ny; sy += SCAN_STRIDE)
+        for (let sz = 1; sz < nz; sz += SCAN_STRIDE) {
           total++;
           if (getDensity(store, sx, sy, sz) < 0) rock++;
         }
     expect(rock).toBeGreaterThan(0); // rock exists (teeth: an empty store trips this)
     expect(rock).toBeLessThan(total); // and air exists — a real cave, not a solid block
   });
+
+  test.skipIf(!bunWebGpuAvailable())(
+    "classifier teeth + no-leak invariant: an into-rock lane is RECORDED walked:false, and a clean lane on the SAME world still walks",
+    async () => {
+      // Proves two things the clean matrix never exercises: (1) the catch→classifyThrow→bucket
+      // path actually runs (an unwalkable lane is recorded, not silently passed), and (2)
+      // `runWalk` does NOT leak its capsule on throw — a leaked phantom would block the clean
+      // lane driven next on the SAME world. Sabotage-verified: reverting runWalk's finally
+      // turns the clean-lane assertion RED (the phantom blocks the mouth spawn).
+      const cfg: Cfg = {
+        theme: "mined",
+        verticality: 0.75,
+        seed: 1,
+        name: "cave-probe-teeth",
+        params: fullParams({ theme: "mined", verticality: 0.75 }),
+      };
+      await withLoadedCave(cfg, (ctx, world, sk) => {
+        const composite = buildCompositePoly(sk);
+        expect(composite).not.toBeNull();
+
+        // Throwing lane: from the mouth, straight OUTWARD (away from the region centre) into
+        // the boundary rock — the mover cannot advance, so a per-frame guard throws and the
+        // classifier buckets it. This leaves a phantom AT the mouth without the finally.
+        const mouth = (sk.mouths[0] as CaveMouth).at;
+        const ox = mouth[0] - EXTENT[0] / 2;
+        const oz = mouth[2] - EXTENT[2] / 2;
+        const olen = Math.sqrt(ox * ox + oz * oz) || 1;
+        const outward: Vec3 = [
+          mouth[0] + (ox / olen) * 5,
+          mouth[1],
+          mouth[2] + (oz / olen) * 5,
+        ];
+        const thrown = walkLane(ctx, world, [mouth, outward]);
+        expect(thrown.walked).toBe(false);
+        if (!thrown.walked) expect(FAIL_CLASSES).toContain(thrown.failClass);
+
+        // Clean lane on the SAME world: the composite (spawns at the mouth). It walks with the
+        // finally in place; it is BLOCKED by the leaked phantom without it — this assertion is
+        // the leak guard.
+        const clean = walkLane(ctx, world, composite as Vec3[]);
+        expect(clean.walked).toBe(true);
+      });
+    },
+    60_000,
+  );
 
   test.skipIf(!bunWebGpuAvailable())(
     "stepped-floor capsule fuzz-walk matrix (deliverable, not blocker)",

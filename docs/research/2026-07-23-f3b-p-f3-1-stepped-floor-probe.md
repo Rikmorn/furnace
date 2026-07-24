@@ -22,6 +22,12 @@ TESTABLE (a single riser fits under the mover's step-up).
 
 Fixed: extent 20×10×20 m, 3 chambers, radius 5 m, 1 extra loop, north mouth.
 
+**Topology note (F4: do NOT over-count diversity).** `theme` selects only the SN carve SKIN —
+it never reaches `buildCaveSkeleton`, so these 12 configs are **4 distinct passage LAYOUTS**
+(2 verticality × 2 seeds) × 3 carve skins. For a given (verticality, seed) the walk LANES are
+identical across themes; only the carved collider surface differs. So the 48 passage walks
+cover 4 topologies, not 12 — the theme axis probes skin-vs-collision, not layout.
+
 | theme | verticality | seed | passages walked | composite walked |
 |---|---|---|---|---|
 | mined | 0.25 | 1 | 4/4 | yes |

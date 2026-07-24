@@ -129,51 +129,57 @@ export function runWalk(
     shape: { capsule: CAPSULE },
     position: pos,
   });
-  physics.step(ctx, world, DT); // one settle step before the measured walk
-  const mover = new CharacterMover(CAPSULE, body);
+  // A per-frame guard's `expect` throws mid-walk; the `finally` guarantees the kinematic
+  // body + collider are torn down so a failing lane never leaks a phantom into the shared
+  // `world` (which a subsequent lane's shapecasts would then hit).
+  try {
+    physics.step(ctx, world, DT); // one settle step before the measured walk
+    const mover = new CharacterMover(CAPSULE, body);
 
-  let minY = pos[1];
-  let maxY = pos[1];
-  let stalls = 0;
-  let frames = 0;
-  const iters = opts.maxIters ?? MAX_ITERS;
-  for (let i = 0; i < iters; i++) {
-    frames = i + 1;
-    const prev = pos;
-    pos = mover.resolve(
-      ctx,
-      world,
-      pos,
-      [dir[0] * FRAME_STEP, 0, dir[2] * FRAME_STEP],
-      DT,
-    ).pos;
-    physics.setBodyNextKinematicTranslation(ctx, body, pos);
-    physics.step(ctx, world, DT);
+    let minY = pos[1];
+    let maxY = pos[1];
+    let stalls = 0;
+    let frames = 0;
+    const iters = opts.maxIters ?? MAX_ITERS;
+    for (let i = 0; i < iters; i++) {
+      frames = i + 1;
+      const prev = pos;
+      pos = mover.resolve(
+        ctx,
+        world,
+        pos,
+        [dir[0] * FRAME_STEP, 0, dir[2] * FRAME_STEP],
+        DT,
+      ).pos;
+      physics.setBodyNextKinematicTranslation(ctx, body, pos);
+      physics.step(ctx, world, DT);
 
-    const horizStep = Math.hypot(pos[0] - prev[0], pos[2] - prev[2]);
-    const rise = pos[1] - prev[1];
-    if (i >= SETTLE_FRAMES) {
-      expect(horizStep).toBeLessThan(MAX_FRAME_HORIZ); // (b) no horizontal teleport
-      expect(rise).toBeLessThan(MAX_FRAME_RISE); // (b) no upward ghost-launch (step-ups OK)
+      const horizStep = Math.hypot(pos[0] - prev[0], pos[2] - prev[2]);
+      const rise = pos[1] - prev[1];
+      if (i >= SETTLE_FRAMES) {
+        expect(horizStep).toBeLessThan(MAX_FRAME_HORIZ); // (b) no horizontal teleport
+        expect(rise).toBeLessThan(MAX_FRAME_RISE); // (b) no upward ghost-launch (step-ups OK)
+      }
+      minY = Math.min(minY, pos[1]);
+      maxY = Math.max(maxY, pos[1]);
+      expect(minY).toBeGreaterThan(opts.floorY); // (c) no fall-through
+      expect(maxY).toBeLessThan(opts.ceilY); // (c) no launch up
+      // A lane walking INTO a wall legitimately stalls; expectStop lanes drive the full budget
+      // and let the caller assert where the mover settled. Forward lanes keep the exact
+      // no-stall + stopAlong-break semantics.
+      if (!opts.expectStop) {
+        const progressed = horizStep > 0.005;
+        stalls = progressed ? 0 : stalls + 1;
+        expect(stalls).toBeLessThan(MAX_STALL_FRAMES); // (a) never wedged
+
+        if (opts.stopAlong !== undefined && along(pos, dir) > opts.stopAlong)
+          break;
+      }
     }
-    minY = Math.min(minY, pos[1]);
-    maxY = Math.max(maxY, pos[1]);
-    expect(minY).toBeGreaterThan(opts.floorY); // (c) no fall-through
-    expect(maxY).toBeLessThan(opts.ceilY); // (c) no launch up
-    // A lane walking INTO a wall legitimately stalls; expectStop lanes drive the full budget
-    // and let the caller assert where the mover settled. Forward lanes keep the exact
-    // no-stall + stopAlong-break semantics.
-    if (!opts.expectStop) {
-      const progressed = horizStep > 0.005;
-      stalls = progressed ? 0 : stalls + 1;
-      expect(stalls).toBeLessThan(MAX_STALL_FRAMES); // (a) never wedged
-
-      if (opts.stopAlong !== undefined && along(pos, dir) > opts.stopAlong)
-        break;
-    }
+    return { pos, minY, maxY, advanced: along(pos, dir), frames };
+  } finally {
+    physics.destroyBody(ctx, body);
   }
-  physics.destroyBody(ctx, body);
-  return { pos, minY, maxY, advanced: along(pos, dir), frames };
 }
 
 /** Build the FULL collider set for `spec` exactly as the game does — bake it in memory, stub
