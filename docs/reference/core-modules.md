@@ -875,6 +875,19 @@ channel** (uniform|indexed palette encoding behind accessors — `getMaterial` /
   and Pr-2-exact (no transcendentals, no float-seeded tables — the donor's noise perm table
   is rewritten to a hash-direct lookup). There is deliberately NO `rotation` param: the
   skeleton is seeded isotropically in the region.
+
+  | Param | Type | Range / values | Default | Notes |
+  |---|---|---|---|---|
+  | `theme` | enum | `mined` \| `organic` \| `mixed` | `mixed` | passage/chamber style selector (crisp / rough / mined-passages-through-organic-chambers) |
+  | `chambers` | int¹ | 2–6 | 3 | floor-anchored blob-cluster count |
+  | `chamberRadius` | number | 3–8 (m) | 5 | base blob radius (per-axis jittered ×0.4–1.3) |
+  | `verticality` | number | 0–1 | 0.5 | scales the chambers' floor-height spread across the Y range |
+  | `roughness` | number | 0–1 | 0.5 | organic wall/ceiling value-noise displacement (0 = smooth) |
+  | `extraLoops` | int¹ | 0–3 | 1 | near-pair passage edges added beyond the spanning tree |
+  | `doorNorth`/`doorSouth`/`doorEast`/`doorWest` | boolean | — | North `true`, rest `false` | per-wall boundary mouth on/off |
+  | `doorNorthOffset`/…/`doorWestOffset` | int | −1 … 62 | −1 (auto-centre) | lateral mouth offset; **optional on input** (postdates persisted data); validated for every wall even when its door is off |
+
+  ¹ `chambers`/`extraLoops` are schema-typed `number` but validated as integers (`intParam`). All params are setup-loud and range-checked before any emission.
 - **The scatter generator (F3b)** — the first `contextFree: false` generator and the first
   PLACEMENT emitter: it READS the carved field through `ctx.store` and projects prop
   instances onto surfaces, returning `{ ops: [], placements }` (no field-cell writes). A
@@ -890,6 +903,21 @@ channel** (uniform|indexed palette encoding behind accessors — `getMaterial` /
   state (so it re-reads a reconfigured cave upstream); reconfiguring an upstream generator
   leaves scatter's records untouched but DRIFTS its placement op when the field beneath the
   props moves (`reconfigureGenerator` placement-drift, D-F3-4).
+
+  | Param | Type | Range / values | Default | Notes |
+  |---|---|---|---|---|
+  | `archetypeId` | string | non-empty | `"rock"` | the catalog archetype every emitted record names |
+  | `density` | number | 0.05–2 | 0.3 | sites per m²; sets lattice pitch `max(minSpacing, 1/√density)` |
+  | `minSpacing` | number | 0.25–8 (m) | 1.0 | greedy rejection radius + pitch floor |
+  | `scaleMin` | number | 0.05–8 | 0.6 | uniform-scale lower bound |
+  | `scaleMax` | number | 0.05–8 | 1.6 | uniform-scale upper bound (`scaleMax ≥ scaleMin` enforced) |
+  | `randomYaw` | boolean | — | `true` | random yaw about +Y vs a fixed +X facing |
+  | `orientation` | enum | `gravity` \| `normal` \| `blend` | `gravity` | gravity = yaw-only; normal = align +Y→surface normal; blend = nlerp of the two |
+  | `blend` | number | 0–1 | 0.5 | nlerp factor, used only when `orientation = "blend"` |
+  | `hemisphere` | enum | `floor` \| `wall` \| `ceiling` | `floor` | which surface crossing to project onto |
+  | `variants` | int² | 1–8 | 3 | `variantIndex = rng % variants` |
+
+  ² `variants` is schema-typed `number` but validated as an integer (`intParam`). All params are setup-loud and range-checked; the record `scale` is UNIFORM (`[s,s,s]`, `s ∈ [scaleMin, scaleMax]`).
 - **Stamp placement authoring (F3a: D-F3-13)** — ONE authoring convention across every
   generator. `rotation` is a quarter turn about +Y, spelled as the STRING enum
   `"0" | "90" | "180" | "270"` (default `"0"`), applied to the finished mini-grid after
@@ -1036,6 +1064,27 @@ channel** (uniform|indexed palette encoding behind accessors — `getMaterial` /
   watertight seams by construction); the generic **kit skinner** on the derived coarse
   view (`skinChunkKit` — panels/tiles/posts/collar from catalog kit-style data,
   `variantHash` tint jitter).
+- **Kit + placement render math (F3b: `kit-render.ts`)** — the pure, GPU-free single
+  source of truth for the FIELD's per-instance matrices + tints, shared by every
+  consumer that draws or bakes instances (the editor field-host preview, the dungeon
+  field-world loader, and F3 explicit placements). Public: `packKitMatrices(kit, origin)`
+  packs one chunk's kit pieces into a column-major `Float32Array` (16 floats/instance) —
+  each `(yaw quaternion · box scale)` TRS at chunk-local position offset by the chunk's
+  world `origin` — for one bulk `setInstanceMatrices` upload. **Invariant:** every kit
+  matrix is a quarter-turn yaw about +Y times a per-axis box scale on an AXIS-ALIGNED
+  UNIT CUBE, which is what lets the `litInstanced` shader skip the per-instance normal
+  matrix; callers must NOT feed non-axis-aligned kit geometry or arbitrary rotations.
+  `packPlacementMatrices(records)` is the sibling packer for explicit placements: each
+  record's baked-in ARBITRARY quat, world position and per-axis scale composed as one
+  `T·R·S` via the same `mat4.fromRotationTranslationScale`, so placement instances share
+  the kit layout + winding — but because the rotation is arbitrary the no-normal-matrix
+  shortcut does NOT apply (a placement's instanced material must supply proper normals, or
+  the archetype mesh must use uniform scale). `pieceColor(table, k)` is the per-instance
+  kit tint: the class's `KitStyle` piece colour (via the piece-kind→bucket map) jittered
+  by the instance variant (RGB only, alpha carried through); a non-kit class passes through
+  white. `yawQuat`/`PIECE_COLOR_KEY` are module-internal (not re-exported from
+  `field/index.ts`). Consumed but never overlapping: each caller keeps its own GPU calls
+  (geometry/mesh creation, uploads) and per-consumer material cache.
 - **Raycast + collision** — voxel DDA (`raycastField`, optional `maxY` display-slice
   clip — cells at/above read as air for targeting); per-chunk shell colliders
   (`chunkColliders` — density-only, material classes never affect collision).

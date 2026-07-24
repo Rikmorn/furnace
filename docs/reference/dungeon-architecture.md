@@ -330,3 +330,63 @@ over the world the player boots) plus `cave-entrance.gpu.test.ts` and the
   by the wall — `tests/field-world.gpu.test.ts`). Kit writes are lattice-disciplined
   at the op layer (`assertOpValid`: box shapes on the 0.5 m lattice only — charter P4's
   grid-locked-kit posture, enforced setup-loud and re-checked on replay).
+
+## 8. F3b — placements (props): loading + catalog + derived colliders, as-built
+
+The dungeon re-enters the One Field arc as an ENTITY consumer: the cave/scatter generators
+are pure `@furnace/core/field` surface (`core-modules.md` §field), and the dungeon's half is
+the catalog + the placement-artifact loader in `field-world.ts`. The jurisdiction rule is
+"if you can dig it, it's field; else it's an entity that carries its OWN collider" — props
+render as instanced meshes and collide via per-record bodies, independent of the field's
+density-derived shells.
+
+- **The entity catalog** (`catalog/entities.json`) — a `{ version, archetypes }` file
+  served at `/catalog/entities.json` (the `serve.ts` `/catalog/*` route), OUTSIDE any world
+  dir: placements name archetype ids, so ONE catalog is shared across every field world. Per
+  archetype: `id`/`name`, an ordered list of variant `.fmesh` mesh paths (package-relative,
+  fetched as a leading-slash URL), a lit `material.litColor`, a `collision` primitive
+  (`box` `halfExtents` \| `sphere` `radius` \| `capsule` `halfHeight`+`radius`), and a
+  bake-time `scatter` config (density/minSpacing/scaleRange/orientation/hemisphere/variants —
+  authoring input, consumed at BAKE, not load). The loader types only the fields it consumes
+  (id, meshes, `material.litColor`, `collision`) and fetches setup-loud (a file the process
+  did not write). Ships two archetypes today: `rock` (box collider, 3 variants) and
+  `stalagmite` (capsule collider, 2 variants).
+- **Placement loading** (`field-world.ts buildPlacementInstances`) — when the v2 manifest
+  carries the optional `placements: "placements.json"` field, fetch it, `field.parsePlacements`
+  → per-archetype `PlacementGroup`s, resolve each group's archetype in the catalog (setup-loud
+  if absent — a stale/foreign world). Per (archetype, VARIANT): split the group's records by
+  `variantIndex`, load that variant's `.fmesh` geometry, and `field.packPlacementMatrices` the
+  records into ONE bulk `setInstanceMatrices` upload → one instanced mesh per (archetype,
+  variant). All variants of an archetype share ONE `litInstanced` material tinted by the catalog
+  `litColor` (the arbitrary placement quat shades correctly under the shader's uniform-scale
+  path — see `packPlacementMatrices`' caveat). The placement instanced meshes join the field
+  world's `instanced` draw list alongside the F2a instanced kit. Absent `manifest.placements`
+  (a props-free world) → no placement instances; the F1/F2a shape still loads unchanged (the
+  loader must not require the field).
+- **Derived colliders at load (D-F3-10)** — colliders are DERIVED from the catalog collision
+  primitive at load and NEVER serialized (the same posture as the chunk shell voxels and the v1
+  proxies). `createPlacementColliders` makes one STATIC body per record at the record's baked
+  world pose (`position` + `quat`), shaped by `placementCollider(collision, scale)`:
+  - `box` → a `cuboid` scaled PER-AXIS (`halfExtents · scale`) — exact for an axis-aligned cuboid.
+  - `sphere` → a `ball` of `radius × max(scale axis)`.
+  - `capsule` → a `capsule { halfHeight, radius }` with BOTH scaled by `max(scale axis)`.
+
+  The sphere/capsule max-axis rule is EXACT for scatter's uniform-scale records (`sx=sy=sz`), a
+  conservative over-approximation only if a future non-uniform placement source appears. A
+  prop's static collider is what the player capsule
+  (`PLAYER_CAPSULE_HALF_HEIGHT 0.6` / `RADIUS 0.3`) collide-and-slides against via the
+  `CharacterMover` contract in §3.
+- **Teardown** — mirrors the v1 loader and the F1 field world: the returned `destroy()` frees
+  only THIS world's owned GPU resources (meshes + geometries + instanced kit + instanced
+  placement meshes); every static body — chunk shell voxels AND per-prop placement colliders —
+  dies with `physics.destroyWorld`, never freed here.
+- **Known interaction gap** — the derived collider is CENTRED at the scatter record's
+  surface-projection point, so a prop sits half-buried and its above-floor extent is small.
+  Measured against the real mover, a rock box is CLIMBED at ≤~0.56 m and reliably BLOCKS at
+  ≥~0.77 m above the floor (§3's `STEP_HEIGHT` 0.4 step-up + the rim-ride); scatter's authored
+  rock sizes give 0.21–0.56 m above-floor, so the realistic range is STEPPED OVER, not blocked.
+  This is a per-archetype anchoring / mover-interaction concern (centre-origin vs base-origin
+  meshes want opposite fixes), tracked in `docs/backlog/dungeon/placement-props-stepped-over.md`
+  and deferred to the F4 traversal pass. Walk-gate coverage:
+  `tests/field-placements.gpu.test.ts` (the rock test records the 0.56/0.77 climb thresholds;
+  the stalagmite test blocks only because it is scaled ≥2×).
