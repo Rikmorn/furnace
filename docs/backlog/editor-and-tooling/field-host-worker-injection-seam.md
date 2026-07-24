@@ -15,6 +15,15 @@ The same blind spot covers: the request the host builds (chunk set, cellSize), t
 generation guard that strands a superseded job, remesh coalescing, and every response
 handler.
 
+It bit the same task a second time, harder. Spec review found that
+`markDirtyWithNeighbors` also runs with an EMPTY dirty set — a pure scatter writes no
+cells — so the cast was torn down, with a "the field changed" message, on the commit of a
+stamp that could not have staled it. The fix is a one-line `if (changed.size === 0)
+return;`, and **deleting that line again fails nothing**: 502 pass / 0 fail across the
+whole editor suite, because the only observable is a cast that headless tests can never
+bring into existence. A real regression on the headline F3b workflow is presently held by
+code review alone.
+
 The plausible seam is a single optional argument — `createFieldHost(deps?: { spawnWorker?:
 () => WorkerLike })` threaded into the client — but `WorkerLike` is private to
 `field-client.ts`, three test files plus the production panel call the factory, and "should

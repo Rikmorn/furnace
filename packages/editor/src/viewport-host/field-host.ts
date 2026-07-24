@@ -1126,14 +1126,19 @@ export function createFieldHost(): FieldHost {
     });
     // Void-cast material: the stamp-ghost recipe with two deliberate changes.
     // The tint is cyan (context, not a pending action), and depth COMPARES
-    // ALWAYS — the load-bearing one. The cast's surface is the SAME isosurface
-    // as the field's own (it meshes the other side of it), so a depth-TESTED
-    // cast would lose the equal-depth comparison against the rock it casts and
-    // vanish, silently, exactly like an X-ray that shows nothing. `always`
-    // (plus no depth write) is what makes it read through solid rock, the same
-    // posture the line overlays get from `occlude: false`. NOT `depth: false`,
-    // which builds a depth-LESS pipeline — invalid in frame.render's
-    // depth-having pass (engine-conventions §Depth buffer).
+    // ALWAYS — the load-bearing one, because an X-ray that respects depth is
+    // not an X-ray. Under the default `less`, ANY front-facing opaque surface
+    // between eye and cast hides it: a ground/terrain top surface (front-facing
+    // from above, and it writes depth) buries every cave beneath it, and so do
+    // a nearer cavity's far wall, kit pieces, and placed props — which is
+    // exactly the "see the network from outside" case the tool exists for.
+    //
+    // NOT for z-fighting: the cast's triangles ARE the field's, same diagonal
+    // wound backwards (mesher.ts), so with the engine's default `cullMode:
+    // "back"` exactly one of any coincident pair survives culling and the two
+    // never contend for a pixel. And NOT `depth: false`, which builds a
+    // depth-LESS pipeline — invalid in frame.render's depth-having pass
+    // (engine-conventions §Depth buffer).
     voidCastBind = binding.create(c, ghostShd);
     binding.set(c, voidCastBind, {
       color: [
@@ -1192,7 +1197,18 @@ export function createFieldHost(): FieldHost {
   // neighbour whose apron reads the changed sample (the lower-endpoint-owns
   // rule). Add the 26 allocated neighbours of every changed chunk.
   const markDirtyWithNeighbors = (changed: Set<string>): void => {
-    // THE field-mutation choke point (strokes, stamp commits, ⌘Z/⇧⌘Z,
+    // An EMPTY set is not a field change, and saying so is load-bearing rather
+    // than defensive: a pure scatter writes no cells (core `scatter.ts`'s
+    // `{ ops: [], placements }`, and a placement op returns null from
+    // applyFieldOp — pinned by core's "commitGenerator accepts a pure scatter",
+    // which asserts `dirty.size === 0`), so committing one — or undoing it,
+    // through stepHistory — arrives here with nothing changed. Without this the
+    // void cast, which shows SHAPE and never props, would tear itself down on
+    // the commit of a scatter that could not have staled it, and announce a
+    // field change that did not happen. The loop below is already inert for an
+    // empty set; only the invalidation below is not.
+    if (changed.size === 0) return;
+    // THE density-mutation choke point (strokes, stamp commits, ⌘Z/⇧⌘Z,
     // reconfigure apply) — and so where the void cast learns its snapshot went
     // stale. The paths that bypass it change no density: setSlice and
     // setMaterialTable re-mesh the DISPLAY, and a world new/load routes through

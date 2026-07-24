@@ -119,11 +119,11 @@ test("the budget refusal is decided BEFORE the GPU guard, and 512 is inside it",
   expect(errors).toEqual([]);
 });
 
-test("toggling the void cast touches no GPU state before the context guard", () => {
+test("the enable/disable edges are context-free until they need a context", () => {
   // The narrow claim this CAN make headlessly: every step the enable takes
-  // before it gives up on a missing context is context-free, so neither edge
-  // throws and neither reports. It deliberately does NOT claim the guard
-  // stopped a worker job — a spawned bun Worker for the browser's
+  // before it gives up on a missing context dereferences no GPU state, so
+  // neither edge throws and neither reports. It deliberately does NOT claim the
+  // guard stopped a worker job — a spawned bun Worker for the browser's
   // /field-worker.js neither resolves nor rejects in-process, so removing the
   // guard is invisible from here. Proving THAT needs a worker-client injection
   // seam the host does not have (backlog: field-host-worker-injection-seam).
