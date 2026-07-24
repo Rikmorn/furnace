@@ -6,11 +6,14 @@ The `CharacterMover` (`char-move.ts`) climbs short obstacles via its `STEP_HEIGH
 
 This is not a loader bug — the collider is derived faithfully — it is a mover/prop-size interaction. It means the F3b "props collide" goal only holds for large props at scatter's authored sizes.
 
+**The mismatch is PER-ARCHETYPE and depends on the mesh's ORIGIN convention — it is not one global "half-buried" story, and the two archetypes' fixes point in OPPOSITE directions.** The rock mesh is centre-origin, so its centred catalog box roughly matches the mesh (half-buried at the surface point → the "stepped over" band above). The stalagmite mesh is base-origin (y∈[0,1]) but is paired with a CENTRED capsule collider: placed at the surface point it not only sinks half the collider below the floor but also leaves the TOP ~28% of the mesh un-collided (the capsule's centre sits at the mesh's mid-height, not its base). So the measured climb thresholds above (0.56 / 0.77 m) are ROCK-BOX-specific — a base-origin archetype has a different collider/mesh offset entirely. Because a center-origin mesh wants one anchoring and a base-origin mesh wants another, the right fix is per-archetype anchoring that follows each mesh's origin convention (or a per-primitive anchor/offset field on the `collision` schema), NOT a single global step-up/rim-ride policy tweak.
+
 Options to weigh (a design decision, not an inline fix):
-- Raise prop colliders to sit ON the surface (collider bottom at `position.y`) rather than centred — gives the full mesh height as blocking extent, at the cost of a collider that no longer matches the half-buried visual.
+- Anchor each prop's collider to its mesh's origin convention (base-origin mesh → collider bottom at `position.y`; centre-origin mesh → centred), or add an explicit `anchor`/`offset` to the catalog `collision` schema so authoring controls it per primitive.
+- Raise prop colliders to sit ON the surface (collider bottom at `position.y`) rather than centred — gives the full mesh height as blocking extent, at the cost of a collider that no longer matches a centre-origin mesh's half-buried visual.
 - Suppress the mover's step-up / rim-ride against entity (non-field) colliders, so any prop collider blocks regardless of height.
 - Accept small props as decorative-only (walkable-over) and reserve blocking for large props — document the size threshold.
 
 **Trigger to revisit:** F4 traversal/interaction pass, or the first time a design calls for player-blocking scatter props at their authored sizes. Related rim-ride items: `organic-cave-mouth-offaxis-rimride.md`, `charmover-stepup-into-low-ceiling-guard.md`.
 
-**Reference:** `packages/dungeon/src/char-move.ts` (`resolve` step-up + `applyGravity` rim-ride); `packages/dungeon/tests/field-placements.gpu.test.ts` (the collide test's large-rock comment records the measured 0.56/0.77 climb threshold).
+**Reference:** `packages/dungeon/src/char-move.ts` (`resolve` step-up + `applyGravity` rim-ride); `packages/dungeon/src/field-world.ts` (`placementCollider` derives the centred collider); `packages/dungeon/tests/field-placements.gpu.test.ts` (the rock collide test records the 0.56/0.77 rock-box climb thresholds; the stalagmite collide test shows the base-origin-mesh + centred-capsule anchoring, blocking only because it is scaled ≥2×).

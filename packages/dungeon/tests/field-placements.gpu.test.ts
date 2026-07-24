@@ -273,6 +273,58 @@ describe("field world: placement loading (F3b Task 8)", () => {
   );
 
   test.skipIf(!bunWebGpuAvailable())(
+    "derives a CAPSULE collider (stalagmite) that stops the capsule",
+    async () => {
+      // Gives the NEW `placementCollider` capsule branch end-to-end teeth — it exists only because
+      // of the stalagmite archetype (v1 `colliderFor` handled ball/cylinder/cuboid only), and until
+      // now was merely construct-verified (a collider gets created without error, but nothing WALKS
+      // into one). Mirrors the rock walk-stop, but with the stalagmite's catalog capsule
+      // (halfHeight 0.5, radius 0.22).
+      //
+      // ANCHORING QUIRK (see docs/backlog): the stalagmite MESH is base-origin (y∈[0,1]), but its
+      // catalog collider is a CENTRED capsule. Placed at the surface point [5,0,2] × scale 2, the
+      // derived capsule (halfHeight 1.0, radius 0.44) spans ±(1.0+0.44) = ±1.44 m about that point —
+      // above-floor extent 1.44 m, well over the mover's step-up + rim-ride climb reach (~0.56 m),
+      // and radius 0.44 leaves 0.56 m gaps in the 2 m corridor (< the 0.6 m capsule diameter), so it
+      // BLOCKS. The walk aims +x at the collider's FOOTPRINT (the surface point's XZ), not the mesh
+      // top. Measured: the capsule halts at x ≈ 4.18 (near face 4.56).
+      //
+      // SABOTAGE-VERIFIED two ways: (1) comment out `createPlacementColliders` → walks through to
+      // x ≈ 7.9; (2) aim the walk PAST the footprint → no stop. Either makes `< 4.5` go red.
+      const stalagmite: PlacementRecord = {
+        archetypeId: "stalagmite",
+        position: [5, 0, 2],
+        quat: IDENTITY_QUAT,
+        scale: [2, 2, 2],
+        variantIndex: 0,
+      };
+      await withLoadedField(
+        {
+          name: "placements-collide-capsule",
+          playerStart: [2, REST_OFFSET + 0.1, 2],
+          build: (store, log) => {
+            digRoom(store, log, [4, 1.75, 2], [4, 1.75, 1]);
+            pushPlacements(log, [stalagmite]);
+          },
+        },
+        ({ ctx, world, loaded, files }) => {
+          expect(loaded.instanced.length).toBe(expectedGroupCount(files));
+          expect(loaded.instanced.length).toBe(1);
+          const res = runWalk(ctx, world, {
+            start: [2, REST_OFFSET + 0.1, 2],
+            dir: [1, 0, 0],
+            expectStop: true,
+            floorY: -1,
+            ceilY: 4,
+          });
+          expect(res.pos[0]).toBeGreaterThan(2.8); // walked toward the stalagmite (no wedge at spawn)
+          expect(res.pos[0]).toBeLessThan(4.5); // …and the capsule collider stopped it short
+        },
+      );
+    },
+  );
+
+  test.skipIf(!bunWebGpuAvailable())(
     "a placement-free world still loads (optional-field regression)",
     async () => {
       // No placement op -> manifest.placements absent -> the loader must not require it, and must
