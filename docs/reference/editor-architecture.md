@@ -759,8 +759,9 @@ tasks land.
   (`field-scatter-archetype-switch-keeps-stale-hints.md`).
   **`listGenerators()` is a SNAPSHOT, and the catalog necessarily lands after the first
   possible read** (engine-ready fires before an async fetch can settle), so FieldToolbar
-  hands the parsed catalog to FieldPanel (`onEntityCatalog`) purely as a re-read signal and
-  the panel's generator effect depends on it. Reading once left `archetypeId` free text
+  calls back into FieldPanel (`onEntityCatalog`) once the catalog is installed, and the
+  panel re-reads the registry. The catalog never enters panel state — the CALL is the
+  signal, and the callback's argument is ignored. Reading once left `archetypeId` free text
   forever; `tests/chrome/field-panel.test.tsx` pins the ordering, which host-level tests
   structurally cannot (they install the catalog first).
 - **Context-threaded preview** — `stamp-preview` now passes an `EvaluateContext { store }`

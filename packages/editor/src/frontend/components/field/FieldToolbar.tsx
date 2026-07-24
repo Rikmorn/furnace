@@ -44,11 +44,13 @@ export function FieldToolbar(props: {
 	onShading: (on: boolean) => void;
 	/** Adopt the parsed catalog table (drives the panel's swatches + mask options). */
 	onTable: (table: MaterialTable) => void;
-	/** Announce the parsed ENTITY catalog, AFTER it is installed on the host.
-	 *  The toolbar already owns the install; the panel needs the signal because
-	 *  `host.listGenerators()` is a snapshot — the `archetypeId` picker options
-	 *  only exist in schemas read after this lands, and the panel reads them once
-	 *  at engine-ready, which is necessarily before this async fetch settles. */
+	/** Announce the parsed ENTITY catalog, AFTER it is installed on the host, so
+	 *  the panel can re-read the generator registry. The toolbar already owns the
+	 *  install; the panel needs the signal because `host.listGenerators()` is a
+	 *  snapshot — the `archetypeId` picker options only exist in schemas read
+	 *  after this lands, and the panel reads them at engine-ready, which is
+	 *  necessarily before this async fetch settles. The CALL is what matters; the
+	 *  panel's handler ignores the argument. */
 	onEntityCatalog: (catalog: EntityCatalog) => void;
 	/** The panel's status line (rendered in its footer). */
 	onStatus: (msg: string) => void;

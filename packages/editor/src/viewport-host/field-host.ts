@@ -314,20 +314,25 @@ export type FieldHost = {
    *  call (it comes off an async fetch, and engine-ready fires before that fetch
    *  can settle), so a caller that renders the schema MUST call again when the
    *  catalog lands or it will render the pre-catalog one forever. The chrome
-   *  does exactly that — FieldToolbar hands the parsed catalog to FieldPanel,
-   *  whose generator effect depends on it — and
+   *  does exactly that — FieldToolbar calls back into FieldPanel once the
+   *  catalog is installed, and the panel re-reads the registry — and
    *  `tests/chrome/field-panel.test.tsx` pins the ordering. */
   listGenerators(): FieldGeneratorInfo[];
-  /** The committed prop layer as the renderer holds it: per archetype id, the
-   *  instance count of its instanced draw — a COPY, keyed exactly as the draws
-   *  are grouped. Empty when the log carries no placement records.
+  /** The committed prop layer as the LAST REBUILD decided it: per archetype id,
+   *  the instance count of its instanced draw — a COPY, keyed exactly as the
+   *  draws are grouped. Empty when the log carries no placement records.
    *
    *  The one readable fact about a layer that is otherwise write-only GPU state,
    *  so it is what a caller (and a test) can hold the rebuild to. Refreshed by
    *  every path that rebuilds the layer — commit, reconfigure apply, ⌘Z/⇧⌘Z,
-   *  world new/load, {@link setEntityCatalog} — INCLUDING before GPU init, where
-   *  the counts are decided but the upload is deferred to `init` (so a host that
-   *  loaded a world and never initialized still reports what it will draw). */
+   *  world new/load, {@link setEntityCatalog}.
+   *
+   *  "Last rebuild", not "currently drawing", because the two can differ in the
+   *  states where no draws exist at all: before GPU init the counts are decided
+   *  but the upload is deferred to `init`, and after {@link dispose} the draws
+   *  are freed while the counts stand. Both report what the layer WILL be once a
+   *  context exists, because both rebuild from the op log — which, like the log
+   *  and {@link listEntities}, survives a dispose. */
   propInstanceCounts(): Map<string, number>;
   /** Opens a stamp session for a registry generator, its region the CURRENT
    *  selection's AABB snapped OUTWARD to the 0.5 m lattice, its seed a fresh
