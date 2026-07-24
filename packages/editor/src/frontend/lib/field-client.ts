@@ -18,6 +18,25 @@ type FieldWorkerSuccess = Extract<
   { kind: "meshed" | "stamp-previewed" | "void-casted" }
 >;
 
+/** The response kind each request kind is answered with. One statement of the
+ *  pairing, so `send` derives the expected answer from the request instead of
+ *  being told — passing them separately would let a caller ask for a `mesh` and
+ *  await a `void-casted`, and only the runtime would object. */
+const RESPONSE_KIND = {
+  mesh: "meshed",
+  "stamp-preview": "stamp-previewed",
+  "void-cast": "void-casted",
+} as const satisfies Record<
+  FieldWorkerRequest["kind"],
+  FieldWorkerSuccess["kind"]
+>;
+
+/** The answer a given request resolves with. */
+type ResponseFor<R extends FieldWorkerRequest> = Extract<
+  FieldWorkerResponse,
+  { kind: (typeof RESPONSE_KIND)[R["kind"]] }
+>;
+
 /** `r.kind === kind` as a predicate: TypeScript cannot narrow a union through a
  *  comparison against a GENERIC discriminator, so the check has to name the
  *  relationship it proves. A predicate, not an `as` — the runtime test is real
@@ -74,12 +93,17 @@ export class FieldWorkerClient {
    *  the entry before rethrowing — a stranded entry would leave its promise
    *  pending forever. Rethrowing inside the executor rejects the returned
    *  promise, so callers see one failure channel. */
-  private send<K extends FieldWorkerSuccess["kind"]>(
-    req: FieldWorkerRequest,
-    kind: K,
+  private send<R extends FieldWorkerRequest>(
+    req: R,
     transfer: Transferable[],
-  ): Promise<Extract<FieldWorkerResponse, { kind: K }>> {
+  ): Promise<ResponseFor<R>> {
     const { jobId } = req;
+    // Reading a discriminator off a value of generic type widens it back to the
+    // whole union, which loses the request→response pairing this signature
+    // exists to keep. The lookup is TOTAL over that union (RESPONSE_KIND
+    // `satisfies Record<FieldWorkerRequest["kind"], …>`), so the value is right
+    // by construction and only its type needs restating.
+    const kind = RESPONSE_KIND[req.kind as R["kind"]];
     return new Promise((resolve, reject) => {
       this.pending.set(jobId, {
         resolve: (r) => {
@@ -121,7 +145,6 @@ export class FieldWorkerClient {
         cellSize,
         ...(sliceY === undefined ? {} : { sliceY }),
       },
-      "meshed",
       [density, materials],
     );
   }
@@ -137,7 +160,6 @@ export class FieldWorkerClient {
   ) {
     return this.send(
       { kind: "stamp-preview", jobId: ++this.jobId, ...req },
-      "stamp-previewed",
       req.chunks.map((c) => c.density),
     );
   }
@@ -150,7 +172,6 @@ export class FieldWorkerClient {
   voidCast(chunks: { key: string; density: ArrayBuffer }[], cellSize: number) {
     return this.send(
       { kind: "void-cast", jobId: ++this.jobId, chunks, cellSize },
-      "void-casted",
       chunks.map((c) => c.density),
     );
   }

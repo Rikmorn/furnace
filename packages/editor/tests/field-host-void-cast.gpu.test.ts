@@ -5,9 +5,9 @@
 // The worker is INJECTED (createFieldHost's spawnWorker seam) and runs the REAL
 // protocol handler in-process, so these tests exercise the whole loop —
 // snapshot → request → handler → response → applyVoidCast against a live device
-// — with no `/field-worker.js` in sight. That is not only convenience: a real
-// bun Worker for that browser URL never settles, and terminating one panics the
-// runtime on dispose.
+// — with no `/field-worker.js` in sight. Necessary, not tidy: a job posted to a
+// Worker spawned from that browser URL never settles under bun (measured: still
+// pending after 1 s), so with a real one nothing past the request would run.
 import { expect, test } from "bun:test";
 import {
   CHUNK_SAMPLES,

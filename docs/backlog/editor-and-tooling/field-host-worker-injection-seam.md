@@ -19,10 +19,19 @@ Two corrections to what this entry first claimed, both worth remembering:
   `preview-host.gpu.test.ts` in the same directory. The first revision of this entry
   blamed the seam for an uncovered `markDirtyWithNeighbors` guard; wrong diagnosis, and
   that guard is now covered.
-- **What forced the seam anyway** was process hygiene, not observability: a real `Worker`
-  for the browser's `/field-worker.js` never settles under `bun test`, and **terminating
-  one panics the Bun runtime**, so `host.dispose()` in a GPU test crashed the process until
-  the worker was injected.
+- **What forced the seam anyway** is that a job posted to a `Worker` spawned from the
+  browser's `/field-worker.js` never settles under `bun test` — measured repeatedly, still
+  pending after 1 s — so with a real worker nothing downstream of the request ever runs,
+  and the response path could not be covered at all.
+
+  A retracted claim, kept because it cost a review round: an earlier revision of this entry
+  (and of `createFieldHost`'s TSDoc) stated that terminating such a Worker **panics the Bun
+  runtime**. A genuine `panic: unhandled exception` with a bun.report URL was observed once,
+  on Bun 1.3.14 / macOS, from a GPU test that spawned a real worker and then disposed the
+  host — and it does not reproduce: 10/10 clean on the identical file afterwards, and code
+  review could not reproduce it in five configurations. Treat it as an unexplained one-off,
+  not a mechanism. (The first attempt to re-verify it "reproduced" 5/5 — by grepping for
+  `panic` and matching the probe file's own NAME. Grep the panic banner, not the word.)
 
 **What is still out of reach.** Anything behind a stamp SESSION: `startStamp` needs a
 selection, which needs pointer gestures on a canvas whose listeners the GPU fixture stubs

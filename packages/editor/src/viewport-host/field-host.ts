@@ -801,10 +801,11 @@ function generatorSchemaProperties(
  *
  * `deps.spawnWorker` overrides how that worker is created; production omits it
  * and gets the real `/field-worker.js`. It exists because the host's
- * worker-backed paths are otherwise unreachable under `bun test` — a real Worker
- * for a browser URL never settles in-process, and terminating one panics the
- * runtime — so injecting the protocol handler directly is what lets a test see
- * the request the host builds and drive the response back through it.
+ * worker-backed paths are otherwise unreachable under `bun test`: a job posted
+ * to a Worker spawned from that browser URL never settles in-process (measured:
+ * still pending after 1 s), so nothing downstream of a request ever runs.
+ * Injecting the protocol handler directly is what lets a test see the request
+ * the host builds AND drive the response back through it.
  */
 export function createFieldHost(deps?: {
   spawnWorker?: () => WorkerLike;
@@ -2259,10 +2260,15 @@ export function createFieldHost(deps?: {
     // Quiet: layer flags survive a dispose, so a re-init'd host must not fire a
     // job it has nowhere to put — the user re-toggles.
     if (!ctx) return;
+    // Snapshot BEFORE the latch, not as an argument after it: a throw while
+    // building it (a detached store buffer — not reachable today, since nothing
+    // transfers the store's own chunks) would otherwise leave the latch set with
+    // no job to clear it, and every later cast refused forever.
+    const snapshot = snapshotAllChunks();
     const gen = voidCastGen;
     voidCastJobGen = gen;
     worker
-      .voidCast(snapshotAllChunks(), store.cellSize)
+      .voidCast(snapshot, store.cellSize)
       .then((res) => {
         // Cleared BEFORE the staleness guard: the worker is free either way,
         // and a stranded job that left this set would refuse every later cast.
@@ -2350,8 +2356,14 @@ export function createFieldHost(deps?: {
       // never fired). Catch it, then settle from `finally` so the latch
       // releases on EVERY path — result, rejection, or handler fault.
       .catch((err: unknown) => {
+        // reportToolError, not a bare console.warn: the session's own error
+        // field carries a preview REJECTION to the panel, but a fault in the
+        // handler leaves the session reading "previewing" beside a ghost that
+        // never arrived — the one stamp failure with nowhere to show. The
+        // status line is where the void cast puts its equivalent, and
+        // reportToolError keeps the console trail either way.
         const message = err instanceof Error ? err.message : String(err);
-        console.warn(`field-host: stamp preview handler failed: ${message}`);
+        reportToolError(`stamp preview could not be drawn: ${message}`);
       })
       .finally(() => previewCoalescer.settle());
   };
