@@ -622,7 +622,8 @@ test("listEntities returns CLONED entity ops from a loaded oplog, brush ops filt
     ]),
   });
   const list = host.listEntities();
-  expect(list).toEqual([entity]);
+  // `placed` rides every record (F3b): empty here — this hall placed nothing.
+  expect(list).toEqual([{ ...entity, placed: [] }]);
   // Clones: mutating the returned record must never rewrite the log.
   (list[0] as GeneratorEntity).seed = 999;
   expect((host.listEntities()[0] as GeneratorEntity).seed).toBe(5);
@@ -1364,6 +1365,7 @@ test("a load-time compaction that throws is caught: the world still loads and th
 
 import type { PlacementRecord } from "@furnace/core/field";
 import type { EntityCatalog } from "../src/frontend/lib/catalog.ts";
+import type { FieldEntityInfo } from "../src/viewport-host/field-host.ts";
 import {
   groupPlacements,
   placesArchetypes,
@@ -1403,11 +1405,17 @@ const ENTITY_CATALOG: EntityCatalog = {
 };
 
 /** Build a cave + a scatter reading it with CORE, then hand the whole world to
- *  the host through loadWorld. Returns the two entity ids and the committed
- *  placement records. */
-function loadCaveWithProps(host: ReturnType<typeof createFieldHost>): {
+ *  the host through loadWorld. `extraScatterSeed` appends a SECOND scatter of
+ *  the same archetype over the same cave — the shape the world-wide prop-layer
+ *  count cannot tell apart. Returns the entity ids (the second one null unless
+ *  asked for) and the FIRST scatter's placement-record count. */
+function loadCaveWithProps(
+  host: ReturnType<typeof createFieldHost>,
+  opts: { extraScatterSeed?: number } = {},
+): {
   caveId: number;
   scatterId: number;
+  secondScatterId: number | null;
   records: number;
 } {
   const store = createFieldStore();
@@ -1426,6 +1434,17 @@ function loadCaveWithProps(host: ReturnType<typeof createFieldHost>): {
     policy: "replace",
     table: TABLE,
   }).entity;
+  const second =
+    opts.extraScatterSeed === undefined
+      ? null
+      : commitGenerator(store, log, generatorById("scatter"), {
+          params: scatterParams(),
+          seed: opts.extraScatterSeed,
+          region: CAVE_REGION,
+          policy: "replace",
+          table: TABLE,
+        }).entity;
+  // The FIRST placement op in the log — the first scatter's, whatever follows.
   const placement = log.ops.find((o) => o.kind === "placement");
   if (placement === undefined || placement.kind !== "placement")
     throw new Error("test: scatter committed no placement op");
@@ -1446,6 +1465,7 @@ function loadCaveWithProps(host: ReturnType<typeof createFieldHost>): {
   return {
     caveId: cave.entityId,
     scatterId: scatter.entityId,
+    secondScatterId: second === null ? null : second.entityId,
     records: placement.records.length,
   };
 }
@@ -1476,6 +1496,98 @@ test("a cave + a scatter load as two entities, and the prop layer draws one inst
   // …and it agrees with the log the layer is derived FROM (the two can only
   // disagree if a rebuild was skipped).
   expect(groupPlacements(hostOps(host)).get("rock")).toHaveLength(records);
+});
+
+// ——— the entities list's prop rows (F3b Task 11) ———
+//
+// The row's two facts, both read off listEntities: WHICH archetype a stamp
+// placed and HOW MANY. propInstanceCounts cannot answer either — it is
+// world-wide, so two scatters of the same archetype are one number there.
+
+test("listEntities carries each entity's OWN placements: the cave's row none, the scatter's its archetype + count", () => {
+  const host = createFieldHost();
+  const { caveId, scatterId, records } = loadCaveWithProps(host);
+  const placedById = new Map(
+    host.listEntities().map((e) => [e.entityId, e.placed]),
+  );
+  expect(placedById.get(scatterId)).toEqual([
+    { archetypeId: "rock", count: records },
+  ]);
+  // A carver's row is EMPTY, not zeroed: the row shows no prop segment at all.
+  expect(placedById.get(caveId)).toEqual([]);
+  // The per-entity count agrees with the world-wide layer readback — the only
+  // other place this number exists, and the two derive from the same log.
+  expect(host.propInstanceCounts().get("rock")).toBe(records);
+});
+
+test("a second scatter of the SAME archetype gets its OWN row count (the world-wide layer number cannot tell them apart)", () => {
+  const host = createFieldHost();
+  const { scatterId, secondScatterId, records } = loadCaveWithProps(host, {
+    extraScatterSeed: 9,
+  });
+  if (secondScatterId === null) throw new Error("test: no second scatter");
+  const placedById = new Map(
+    host.listEntities().map((e) => [e.entityId, e.placed]),
+  );
+  // The first scatter's row reads the count of ITS OWN span's records, not the
+  // layer's total — this is what a row wired to propInstanceCounts would fail.
+  expect(placedById.get(scatterId)).toEqual([
+    { archetypeId: "rock", count: records },
+  ]);
+  const secondCount = placedById.get(secondScatterId)?.[0]?.count ?? 0;
+  expect(secondCount).toBeGreaterThan(0);
+  // …and the two rows account for the ONE number the prop layer draws.
+  expect(host.propInstanceCounts().get("rock")).toBe(records + secondCount);
+});
+
+// THE FREE-NESS CHECK. A scatter is an ordinary GeneratorEntity, so F3a's
+// reconfigure machinery is supposed to serve it with no scatter-specific seam:
+// this drives the exact row gesture (Open → re-roll → Apply → ⌘Z) through the
+// SAME host calls a hall row makes and asserts the record — not the prop layer,
+// which the history-step test above already covers.
+test("Open → re-roll → Apply on a SCATTER row rewrites the entity in place, and the row's count re-reads from the new span", async () => {
+  const uninstall = installFakeWorker();
+  try {
+    const host = createFieldHost();
+    const { scatterId, records } = loadCaveWithProps(host);
+    let ticks = 0;
+    host.subscribeEntities(() => {
+      ticks++;
+    });
+    const row = (): FieldEntityInfo => {
+      const found = host.listEntities().find((e) => e.entityId === scatterId);
+      if (found === undefined) throw new Error("test: the scatter row is gone");
+      return found;
+    };
+    const before = row();
+    expect(before.placed).toEqual([{ archetypeId: "rock", count: records }]);
+    const ticksAtOpen = ticks;
+
+    host.openEntity(scatterId); // the row's Open button
+    await settle();
+    host.updateStamp(scatterParams(), 77, "replace"); // the ⚄ re-roll
+    await settle();
+    host.applyReconfigure(); // the session's Apply
+
+    const after = row();
+    expect(host.listEntities()).toHaveLength(2); // replaced, never appended
+    expect(after.seed).toBe(77); // the re-roll landed in the record
+    expect(after.opSpan).not.toEqual(before.opSpan); // re-cooked span, fresh ids
+    expect(ticks).toBeGreaterThan(ticksAtOpen); // the list was told to re-read
+    // The row's count came from the NEW span: one archetype still, and it equals
+    // what the layer this same apply rebuilt is drawing (the cave is the only
+    // other entity, and it places nothing).
+    expect(after.placed).toHaveLength(1);
+    expect(after.placed[0]?.archetypeId).toBe("rock");
+    expect(after.placed[0]?.count).toBe(host.propInstanceCounts().get("rock"));
+
+    // ⌘Z restores the recipe AND the count the row showed before.
+    host.undo();
+    expect(row().seed).toBe(3);
+    expect(row().placed).toEqual([{ archetypeId: "rock", count: records }]);
+  } finally {
+    uninstall();
+  }
 });
 
 test("a props-free world reports an empty prop layer; newWorld clears a populated one", () => {

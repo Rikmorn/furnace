@@ -2,8 +2,10 @@
 // sibling): the catalog collision primitive → proxy-primitive mapping, the
 // oriented wireframe corners the placement GHOST draws, the record re-scaling the
 // committed PROP LAYER packs through core's packPlacementMatrices, and the
-// log → per-archetype record grouping both rebuild from. The host keeps the GPU
-// calls (geometry / instanced-mesh creation, uploads) and the catalog transport.
+// log → per-archetype record grouping both rebuild from, and the per-ENTITY
+// attribution of that same log the entities list's prop rows read. The host
+// keeps the GPU calls (geometry / instanced-mesh creation, uploads) and the
+// catalog transport.
 //
 // v0 posture: editor props are PROXIES — the collision primitive drawn as a unit
 // cube / sphere / cylinder, not the archetype's `.fmesh` variants the dungeon
@@ -197,6 +199,59 @@ export const groupPlacements = (
     }
   }
   return groups;
+};
+
+/** One archetype's contribution to a committed entity's placements: the id its
+ *  records name, and how many of them do. */
+export type PlacedArchetype = { archetypeId: string; count: number };
+
+/** Per entity id, what that entity's OWN span placed — one entry per archetype
+ *  its placement records name, in first-seen record order. An entity that placed
+ *  nothing (every carver) is ABSENT from the map, so a lookup miss IS "no props"
+ *  and a caller needs no separate "is this a prop entity?" test.
+ *
+ *  The {@link groupPlacements} sibling: that one answers "what does the whole
+ *  world draw" (the prop layer's rebuild), this one answers "what did THIS stamp
+ *  put down" (the entities list's row).
+ *
+ *  Attribution is by op-id membership of the entity's `opSpan`, the only bond
+ *  core records: `commitGenerator` appends a commit's placements as ONE op
+ *  inside that span, and log ids are handed out monotonically and never reused,
+ *  so a placement op's id names exactly one entity. Position in `log.ops` would
+ *  NOT be safe to key on — `reconfigureGenerator` splices a re-cooked span back
+ *  into the same place carrying FRESH ids, so the log is not id-ordered.
+ *
+ *  It TESTS each placement op's id against the span bounds rather than walking
+ *  the span's id RANGE, matching `generatorFootprint`'s span filter. Two reasons,
+ *  both load-bearing: `opSpan` is a trusted numeric field on load (core's
+ *  `parseOps` validates op ids and union tags, never span bounds), so a range
+ *  walk would spin unboundedly on one corrupt record; and the cost then rides on
+ *  placement-ops × entities — both ENTITY-scale — instead of on the op count, so
+ *  a heavily carved world costs no more than an empty one. */
+export const placementsByEntity = (
+  ops: readonly FieldOp[],
+): Map<number, PlacedArchetype[]> => {
+  const entities = ops.flatMap((op) =>
+    op.kind === "entity" ? [op.entity] : [],
+  );
+  const counts = new Map<number, Map<string, number>>();
+  for (const op of ops) {
+    if (op.kind !== "placement") continue;
+    const owner = entities.find(
+      (e) => op.id >= e.opSpan[0] && op.id <= e.opSpan[1],
+    );
+    if (owner === undefined) continue; // an orphan; no commit path makes one
+    const byArchetype = counts.get(owner.entityId) ?? new Map<string, number>();
+    counts.set(owner.entityId, byArchetype);
+    for (const r of op.records)
+      byArchetype.set(r.archetypeId, (byArchetype.get(r.archetypeId) ?? 0) + 1);
+  }
+  return new Map(
+    [...counts].map(([entityId, byArchetype]) => [
+      entityId,
+      [...byArchetype].map(([archetypeId, count]) => ({ archetypeId, count })),
+    ]),
+  );
 };
 
 /** The JSON-Schema property key a generator uses to name a catalog archetype.

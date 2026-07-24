@@ -49,8 +49,10 @@ import {
   FALLBACK_COLLISION,
   FALLBACK_TINT,
   groupPlacements,
+  type PlacedArchetype,
   PROXY_PRIMITIVE,
   placementGhostBatch,
+  placementsByEntity,
   placesArchetypes,
   proxyRecords,
   seedArchetypeParams,
@@ -145,6 +147,19 @@ export type FieldGeneratorInfo = {
    *  chrome cannot value-import it. The stamp form reads it to decide whether a
    *  props count means anything: a carver's is always 0 and showing it is noise. */
   placesProps: boolean;
+};
+
+/** One committed generator entity as the panel sees it
+ *  ({@link FieldHost.listEntities}): core's `GeneratorEntity` clone plus what
+ *  that entity's span PLACED. Host-derived for the same reason
+ *  {@link FieldGeneratorInfo.placesProps} is — the attribution needs the op LOG,
+ *  which the chrome does not have. */
+export type FieldEntityInfo = field.GeneratorEntity & {
+  /** One entry per archetype this entity's placement records name, with that
+   *  archetype's record count, in first-seen order. EMPTY for everything that
+   *  places nothing (every carver), which is also the entities list's test for
+   *  whether a row has a prop line to show at all. */
+  placed: PlacedArchetype[];
 };
 
 /** The host's live stats readout ({@link FieldHost.subscribeStats}, pushed
@@ -549,8 +564,10 @@ export type FieldHost = {
    *  never moves. Single subscriber (the panel); returns an unsubscribe. */
   subscribeEntities(cb: () => void): () => void;
   /** The committed generator entities, in log order (CLONES — read from the
-   *  op log's entity ops, so undo/redo and world loads stay accurate). */
-  listEntities(): field.GeneratorEntity[];
+   *  op log's entity ops, so undo/redo and world loads stay accurate), each
+   *  carrying the {@link FieldEntityInfo.placed} summary of its own span's
+   *  placement records. */
+  listEntities(): FieldEntityInfo[];
   /** Shows the amber-dim box of one committed entity's stamped FOOTPRINT —
    *  the union of its span's op bounds, falling back to the recorded
    *  selection region only when the span holds no field-writing ops (null =
@@ -3291,9 +3308,18 @@ export function createFieldHost(): FieldHost {
       };
     },
     listEntities() {
-      const out: field.GeneratorEntity[] = [];
+      // One attribution pass for the whole list, not one scan per row: the
+      // helper walks the log once and hands back every entity's placements.
+      const placed = placementsByEntity(log.ops);
+      const out: FieldEntityInfo[] = [];
       for (const op of log.ops)
-        if (op.kind === "entity") out.push(structuredClone(op.entity));
+        if (op.kind === "entity")
+          out.push({
+            ...structuredClone(op.entity),
+            // Fresh arrays out of the helper, so the row's summary is a clone
+            // like the record it rides on.
+            placed: placed.get(op.entity.entityId) ?? [],
+          });
       return out;
     },
     highlightEntity(entityId) {

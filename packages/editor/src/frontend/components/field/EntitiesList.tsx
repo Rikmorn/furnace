@@ -7,6 +7,12 @@
 // not the editor; Open is how a row becomes editable, which is also why a
 // FROZEN or BAKED row keeps its params visible while its Open is disabled.
 //
+// F3b adds nothing but a segment: a scatter is an ordinary generator entity, so
+// its row already had every verb and the generic params <dl>. What it lacked was
+// the one fact the rest of the row's summary could not carry — a scatter writes
+// no cells, so "1 ops" says nothing about what it put down. `placed` (host-
+// derived, see rowSummary) names the archetype and the count.
+//
 // Three inline buttons rather than the planned ⋯ dropdown: the Radix menu family
 // does not render its content under this package's happy-dom harness (verified
 // on HEAD — tests/chrome/menubar.test.tsx fails 6/10 for exactly that reason),
@@ -19,8 +25,8 @@
 // choosing between six identically-named buttons cannot tell which stamp they
 // are about to sever. The expand button is the exception and needs no label: its
 // visible text already names the stamp it belongs to.
-import type { GeneratorEntity } from "@furnace/core/field"; // type-only: erased
 import { Fragment, useEffect, useState } from "react";
+import type { FieldEntityInfo } from "../../../viewport-host/index.ts"; // type-only: erased
 import { cn } from "../../lib/cn.ts";
 // The shared host/chrome rule for what blocks a reconfigure. A chrome-side lib
 // module on purpose (see its header): the host imports it, never the reverse.
@@ -29,7 +35,22 @@ import { CollapsibleSection } from "../CollapsibleSection.tsx";
 import { Button } from "../ui/button.tsx";
 
 /** `opSpan` is [firstOpId, lastOpId] inclusive (commitGenerator). */
-const opCount = (e: GeneratorEntity): number => e.opSpan[1] - e.opSpan[0] + 1;
+const opCount = (e: FieldEntityInfo): number => e.opSpan[1] - e.opSpan[0] + 1;
+
+/** The row's one-line record, `·`-joined: the recipe (generator, seed, span
+ *  size) plus, for a stamp that PLACED something, each archetype it placed and
+ *  how many — `scatter · seed 3 · 1 ops · rock · 24 placed`. The props segments
+ *  are absent, not zeroed, for everything that places nothing (every carver):
+ *  the host leaves `placed` empty there, and a permanent "· 0 placed" on every
+ *  hall row would be noise. This is the row's twin of the StampInspector's
+ *  "· N props", which shows a LIVE preview's count under the same rule. */
+const rowSummary = (e: FieldEntityInfo): string =>
+	[
+		e.generator,
+		`seed ${e.seed}`,
+		`${opCount(e)} ops`,
+		...e.placed.flatMap((p) => [p.archetypeId, `${p.count} placed`]),
+	].join(" · ");
 
 /** Params are schema-driven primitives (number/boolean/enum string); the
  *  object branch is a robustness fallback, not an expected shape. */
@@ -49,7 +70,7 @@ function StateBadge({ label }: { label: string }) {
 }
 
 export function EntitiesList(props: {
-	entities: GeneratorEntity[];
+	entities: FieldEntityInfo[];
 	/** The entity a reconfigure session is currently open on (null = none) —
 	 *  read only to warn that Freeze would discard that session's edits. */
 	openEntityId: number | null;
@@ -113,7 +134,7 @@ export function EntitiesList(props: {
 								>
 									<span aria-hidden="true">▦</span>
 									<span className="min-w-0 flex-1 truncate font-mono">
-										{e.generator} · seed {e.seed} · {opCount(e)} ops
+										{rowSummary(e)}
 									</span>
 									{e.frozen === true && <StateBadge label="frozen" />}
 									{baked && <StateBadge label="baked" />}

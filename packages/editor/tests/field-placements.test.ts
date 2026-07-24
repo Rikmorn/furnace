@@ -3,7 +3,8 @@
 // are pinned without a context: the collision-primitive → proxy extents mapping,
 // the record re-scaling core's packPlacementMatrices consumes, the oriented
 // corner layout, the log → per-archetype grouping (whose group sizes ARE the
-// instanced draw counts), and the two catalog-seeding helpers.
+// instanced draw counts), the log → per-ENTITY attribution the entities list's
+// prop rows read, and the two catalog-seeding helpers.
 //
 // The sibling of field-ghost.test.ts, which pins field-ghost.ts the same way.
 import { expect, test } from "bun:test";
@@ -18,6 +19,7 @@ import {
   groupPlacements,
   PROXY_PRIMITIVE,
   placementGhostBatch,
+  placementsByEntity,
   proxyCorners,
   proxyExtents,
   proxyRecords,
@@ -207,6 +209,121 @@ test("groupPlacements collects every placement op's records by archetype, in log
 
 test("groupPlacements over a log with no placement ops is empty (no prop draws)", () => {
   expect(groupPlacements([]).size).toBe(0);
+});
+
+// ——— log → per-ENTITY attribution (the entities list's prop rows) ———
+
+const entityOp = (
+  entityId: number,
+  generator: string,
+  opSpan: [number, number],
+): FieldOp => ({
+  id: entityId,
+  kind: "entity",
+  action: "place",
+  entity: {
+    entityId,
+    type: "generator",
+    generator,
+    params: {},
+    seed: 1,
+    region: { min: [0, 0, 0], max: [4, 4, 4] },
+    opSpan,
+  },
+});
+
+test("placementsByEntity attributes each placement op to the entity whose span holds it", () => {
+  // A carver's span (a brush op), then a scatter's (one placement op) — the
+  // commitGenerator layout: span ops, then the entity op that closes them.
+  const ops: FieldOp[] = [
+    {
+      id: 1,
+      kind: "brush",
+      effect: "dig",
+      shape: { kind: "sphere", center: [0, 0, 0], radius: 1 },
+    },
+    entityOp(2, "cave", [1, 1]),
+    placementOp(3, [
+      record({ archetypeId: "rock" }),
+      record({ archetypeId: "rock" }),
+    ]),
+    entityOp(4, "scatter", [3, 3]),
+  ];
+  const byEntity = placementsByEntity(ops);
+  expect(byEntity.get(4)).toEqual([{ archetypeId: "rock", count: 2 }]);
+  // The carver placed nothing, so it is ABSENT — a miss IS "no props", which is
+  // what the row keys its prop segment on.
+  expect(byEntity.has(2)).toBe(false);
+  expect(byEntity.size).toBe(1);
+});
+
+test("placementsByEntity counts EACH archetype a span placed, in first-seen order", () => {
+  const ops: FieldOp[] = [
+    placementOp(1, [
+      record({ archetypeId: "stalagmite" }),
+      record({ archetypeId: "rock" }),
+      record({ archetypeId: "stalagmite" }),
+    ]),
+    entityOp(2, "scatter", [1, 1]),
+  ];
+  expect(placementsByEntity(ops).get(2)).toEqual([
+    { archetypeId: "stalagmite", count: 2 },
+    { archetypeId: "rock", count: 1 },
+  ]);
+});
+
+// The invariant that makes span-ID membership the right key and log POSITION the
+// wrong one: reconfigureGenerator splices a re-cooked span back into the same
+// place carrying FRESH ids (log.nextId, which only grows), so a reconfigured
+// entity's span sits BEFORE lower-id ops in log order. A positional
+// implementation ("the placement ops since the last entity op") reads the same
+// on the ordered log above and mis-attributes here.
+test("placementsByEntity keys on span IDS, not log position (the post-reconfigure log is not id-ordered)", () => {
+  const ops: FieldOp[] = [
+    // Entity 9's re-cooked span: ids 20-21, spliced in at the FRONT.
+    placementOp(20, [record({ archetypeId: "rock" })]),
+    entityOp(9, "scatter", [20, 20]),
+    // An older, untouched scatter still carrying its original low ids.
+    placementOp(3, [
+      record({ archetypeId: "stalagmite" }),
+      record({ archetypeId: "stalagmite" }),
+    ]),
+    entityOp(4, "scatter", [3, 3]),
+  ];
+  const byEntity = placementsByEntity(ops);
+  expect(byEntity.get(9)).toEqual([{ archetypeId: "rock", count: 1 }]);
+  expect(byEntity.get(4)).toEqual([{ archetypeId: "stalagmite", count: 2 }]);
+});
+
+// `opSpan` is a TRUSTED numeric field on load — core's parseOps validates op
+// ids and union tags but never span bounds — so a hand-edited or truncated
+// oplog.json can carry an arbitrarily wide one. Attribution must therefore never
+// WALK the range. Stated plainly because it shapes how a regression LOOKS: a
+// range-walking implementation HANGS here (a synchronous loop cannot be
+// pre-empted by the per-test timeout — verified: the run never returns), so the
+// failure shows up as a stalled suite, not as a failed assertion.
+test("placementsByEntity survives a corrupt, arbitrarily wide opSpan (it tests ids, it does not walk the range)", () => {
+  const ops: FieldOp[] = [
+    placementOp(1, [record({ archetypeId: "rock" })]),
+    entityOp(2, "scatter", [0, Number.MAX_SAFE_INTEGER]),
+  ];
+  expect(placementsByEntity(ops).get(2)).toEqual([
+    { archetypeId: "rock", count: 1 },
+  ]);
+});
+
+test("placementsByEntity over a props-free log is empty (no span walked at all)", () => {
+  const ops: FieldOp[] = [
+    {
+      id: 1,
+      kind: "brush",
+      effect: "dig",
+      shape: { kind: "sphere", center: [0, 0, 0], radius: 1 },
+    },
+    entityOp(2, "cave", [1, 1]),
+  ];
+  expect(placementsByEntity(ops).size).toBe(0);
+  expect(placementsByEntity([]).size).toBe(0);
 });
 
 // ——— catalog seeding (schema options + opening params) ———

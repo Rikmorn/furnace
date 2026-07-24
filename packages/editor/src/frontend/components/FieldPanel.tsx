@@ -12,13 +12,10 @@
 // /engine.js runtime channel (a context ref) — the chrome never value-imports
 // engine code (the project-first invariant). This file type-imports the field
 // host + artifact types (all erased).
-import type {
-	DriftFinding,
-	GeneratorEntity,
-	MaterialTable,
-} from "@furnace/core/field"; // type-only: erased
+import type { DriftFinding, MaterialTable } from "@furnace/core/field"; // type-only: erased
 import { useCallback, useEffect, useRef, useState } from "react";
 import type {
+	FieldEntityInfo,
 	FieldGeneratorInfo,
 	FieldHostShading,
 	FieldLayers,
@@ -114,13 +111,15 @@ const toolsEqual = (a: FieldTool, b: FieldTool): boolean => {
 };
 
 // Entity-list identity for the refresh guard: everything a ROW can display —
-// id + generator + seed + opSpan + the two state flags. Params are NOT compared
-// and do not need to be: a reconfigure re-evaluates the span with fresh op ids
-// (core takes them from log.nextId, which only ever grows), so any param change
-// that reaches the log moves opSpan with it. The flags DO need their own
-// comparison — freeze and bake rewrite the record and nothing else, so without
-// them a frozen badge would never appear.
-const sameEntities = (a: GeneratorEntity[], b: GeneratorEntity[]): boolean =>
+// id + generator + seed + opSpan + the two state flags. Params and the `placed`
+// summary are NOT compared and do not need to be: a reconfigure re-evaluates the
+// span with fresh op ids (core takes them from log.nextId, which only ever
+// grows), so any param change that reaches the log moves opSpan with it — and
+// `placed` is DERIVED from the ops inside that span, which nothing else rewrites
+// in place (core's compaction folds brush ops only, never a placement op). The
+// flags DO need their own comparison — freeze and bake rewrite the record and
+// nothing else, so without them a frozen badge would never appear.
+const sameEntities = (a: FieldEntityInfo[], b: FieldEntityInfo[]): boolean =>
 	a.length === b.length &&
 	a.every((e, i) => {
 		const o = b[i];
@@ -180,7 +179,7 @@ export function FieldPanel() {
 	// Full registry info — paramSchema/defaults feed the stamp inspector's form.
 	const [generators, setGenerators] = useState<FieldGeneratorInfo[]>([]);
 	const [stamp, setStamp] = useState<StampSession | null>(null);
-	const [entities, setEntities] = useState<GeneratorEntity[]>([]);
+	const [entities, setEntities] = useState<FieldEntityInfo[]>([]);
 	const [layers, setLayers] = useState<FieldLayers>(DEFAULT_LAYERS);
 	const [slice, setSlice] = useState({ enabled: false, y: SLICE_DEFAULT_Y });
 	// Range floors until the host-constants effect reads the real core ceilings.

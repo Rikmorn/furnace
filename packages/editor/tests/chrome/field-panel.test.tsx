@@ -12,7 +12,7 @@
 // selection footer.
 
 import { afterEach, expect, mock, test } from "bun:test";
-import type { DriftFinding, GeneratorEntity } from "@furnace/core/field";
+import type { DriftFinding } from "@furnace/core/field";
 import type { ConfirmRequest } from "../../src/frontend/components/ConfirmDialog.tsx";
 import { FieldPanel } from "../../src/frontend/components/FieldPanel.tsx";
 import type { EntityCatalog } from "../../src/frontend/lib/catalog.ts";
@@ -21,6 +21,7 @@ import type { EntityCatalog } from "../../src/frontend/lib/catalog.ts";
 // goes stale exactly when the production host would.
 import { withArchetypeOptions } from "../../src/viewport-host/field-placements.ts";
 import type {
+	FieldEntityInfo,
 	FieldGeneratorInfo,
 	FieldHost,
 	FieldStats,
@@ -147,7 +148,7 @@ function makeSession(overrides: Partial<StampSession> = {}): StampSession {
 	};
 }
 
-const ENTITY: GeneratorEntity = {
+const ENTITY: FieldEntityInfo = {
 	entityId: 1,
 	type: "generator",
 	generator: "hall",
@@ -155,6 +156,7 @@ const ENTITY: GeneratorEntity = {
 	seed: 7,
 	region: { min: [0, 0, 0], max: [4, 4, 4] },
 	opSpan: [2, 4], // 3 ops
+	placed: [], // a hall places nothing
 };
 
 /** A minimal FieldHost stub: every mutator is a recording mock; the subscribe
@@ -162,7 +164,7 @@ const ENTITY: GeneratorEntity = {
  *  manually (wrap in act). subscribeSelection/subscribeStamp push the current
  *  (empty) state on subscribe, like the real host. */
 function makeStubHost(opts: { generators?: FieldGeneratorInfo[] } = {}) {
-	let entities: GeneratorEntity[] = [];
+	let entities: FieldEntityInfo[] = [];
 	// The stub models the REAL host's snapshot semantics: setEntityCatalog stores
 	// the catalog, and listGenerators() reads it AT CALL TIME through the same
 	// pure helper field-host.ts uses. Without this the ordering bug (B1) is
@@ -322,7 +324,7 @@ function makeStubHost(opts: { generators?: FieldGeneratorInfo[] } = {}) {
 			entities: () => cbs.entities?.(),
 			drift: (r: DriftFinding[] | null) => cbs.drift?.(r),
 		},
-		setEntities: (next: GeneratorEntity[]) => {
+		setEntities: (next: FieldEntityInfo[]) => {
 			entities = next;
 		},
 	};
@@ -332,7 +334,7 @@ function makeStubHost(opts: { generators?: FieldGeneratorInfo[] } = {}) {
  *  does after a commit / apply / freeze / bake / ⌘Z. */
 function pushEntities(
 	stub: ReturnType<typeof makeStubHost>,
-	next: GeneratorEntity[],
+	next: FieldEntityInfo[],
 ): void {
 	stub.setEntities(next);
 	act(() => {
@@ -561,14 +563,14 @@ test("the drift report renders findings, frames a click, and dismisses through t
 
 // --- (d2) F3a: the smart-object verbs on a committed row --------------------
 
-const FROZEN: GeneratorEntity = { ...ENTITY, entityId: 2, frozen: true };
-const BAKED: GeneratorEntity = { ...ENTITY, entityId: 3, baked: true };
+const FROZEN: FieldEntityInfo = { ...ENTITY, entityId: 2, frozen: true };
+const BAKED: FieldEntityInfo = { ...ENTITY, entityId: 3, baked: true };
 
 /** Expand the Entities section (rows render inside a collapsed section by
  *  default) after seeding `next`. */
 async function showEntities(
 	stub: ReturnType<typeof makeStubHost>,
-	next: GeneratorEntity[],
+	next: FieldEntityInfo[],
 ): Promise<void> {
 	await renderPanel(stub);
 	pushEntities(stub, next);
@@ -606,7 +608,7 @@ test("a frozen row badges its state and refuses Open; a baked row does both too"
 test("each row's verbs address ITS OWN entity in a multi-row list", async () => {
 	fetch404();
 	const stub = makeStubHost({ generators: [HALL_GEN] });
-	const second: GeneratorEntity = { ...ENTITY, entityId: 7 };
+	const second: FieldEntityInfo = { ...ENTITY, entityId: 7 };
 	// TWO rows: "Freeze" as visible text is ambiguous here — only the id-bearing
 	// accessible name distinguishes them, which is the whole point of the label
 	// convention (a screen-reader user picking between identical buttons).
@@ -622,6 +624,54 @@ test("each row's verbs address ITS OWN entity in a multi-row list", async () => 
 	pushEntities(stub, [ENTITY, { ...second, frozen: true }]);
 	fireEvent.click(rowButton("unfreeze", 7));
 	expect(stub.calls.setEntityFrozen.mock.calls.at(-1)).toEqual([7, false]);
+});
+
+// --- (d3) F3b: the prop segment on a scatter row ----------------------------
+
+/** A committed scatter as listEntities hands it over: a one-op span (the
+ *  placement op is the ONLY op it appends) plus the host's attribution of that
+ *  op's records. */
+const SCATTER: FieldEntityInfo = {
+	...ENTITY,
+	entityId: 4,
+	generator: "scatter",
+	params: { archetypeId: "rock", density: 0.3 },
+	seed: 9,
+	opSpan: [5, 5], // 1 op
+	placed: [{ archetypeId: "rock", count: 24 }],
+};
+
+test("a scatter row names the archetype it placed and how many; a carver row keeps no prop segment", async () => {
+	fetch404();
+	const stub = makeStubHost({ generators: [HALL_GEN] });
+	await showEntities(stub, [ENTITY, SCATTER]);
+	// "1 ops" says nothing about a scatter's output (it writes no cells), so the
+	// prop segment is the row's only reading of what this stamp put down.
+	expect(
+		screen.getByText("scatter · seed 9 · 1 ops · rock · 24 placed"),
+	).toBeTruthy();
+	// The carver's row is untouched — absent, not a permanent "· 0 placed".
+	expect(screen.getByText("hall · seed 7 · 3 ops")).toBeTruthy();
+});
+
+// The chrome half of the free-ness claim (its host half is field-stamp.test.ts'
+// "Open → re-roll → Apply on a SCATTER row"): a scatter is an ordinary
+// GeneratorEntity, so the F3a verbs and the generic params <dl> serve it with no
+// scatter-specific branch — the new segment did not cost the row anything.
+test("a scatter row keeps the generic verbs and params <dl> (F3a machinery, no scatter case)", async () => {
+	fetch404();
+	const stub = makeStubHost({ generators: [HALL_GEN] });
+	await showEntities(stub, [SCATTER]);
+	fireEvent.click(screen.getByLabelText("open entity 4"));
+	expect(stub.calls.openEntity.mock.calls).toEqual([[4]]);
+	// Expanding shows the scatter's own params through the same <dl> a hall gets.
+	fireEvent.click(
+		screen.getByText("scatter · seed 9 · 1 ops · rock · 24 placed"),
+	);
+	expect(screen.getByText("archetypeId")).toBeTruthy();
+	expect(screen.getByText("rock")).toBeTruthy();
+	expect(screen.getByText("density")).toBeTruthy();
+	expect(screen.getByText("0.3")).toBeTruthy();
 });
 
 test("a baked row disables both verbs — core would refuse them anyway", async () => {
