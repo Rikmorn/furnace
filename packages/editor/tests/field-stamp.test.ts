@@ -9,6 +9,7 @@ import { createFieldWorkerHandler } from "../src/frontend/lib/field-protocol.ts"
 import { deriveSizeDefaults } from "../src/frontend/lib/field-size.ts";
 import {
   createPreviewCoalescer,
+  previewIsEmpty,
   startReconfigureSession,
   startSession,
   toPreviewing,
@@ -188,6 +189,25 @@ describe("stamp session transitions", () => {
       expect(s?.mode).toBe("reconfigure");
       expect(s?.entityId).toBe(12);
     }
+  });
+
+  test("previewIsEmpty is true only for a SETTLED preview that produced nothing", () => {
+    // The predicate behind the host's editor-side commit refusal. Both counts
+    // null (no preview yet, or one in flight) must read FALSE — refusing a
+    // session that has not evaluated would block the very first Enter.
+    expect(previewIsEmpty(fresh())).toBe(false);
+    expect(previewIsEmpty(toPreviewing(fresh()))).toBe(false);
+    const empty = withPreviewResult(toPreviewing(fresh()), 0, 0, 0);
+    expect(empty === null ? null : previewIsEmpty(empty)).toBe(true);
+    // Anything at all to commit — ops OR props — is not empty.
+    const ops = withPreviewResult(toPreviewing(fresh()), 0, 7, 0);
+    expect(ops === null ? null : previewIsEmpty(ops)).toBe(false);
+    const props = withPreviewResult(toPreviewing(fresh()), 0, 0, 7);
+    expect(props === null ? null : previewIsEmpty(props)).toBe(false);
+    // An ERRORED preview clears both counts back to null, so it reads false too
+    // (there is no valid ghost to commit — the phase gate catches that one).
+    const errored = withPreviewError(toPreviewing(fresh()), 0, "boom");
+    expect(errored === null ? null : previewIsEmpty(errored)).toBe(false);
   });
 
   test("transitions never mutate their input session", () => {
@@ -1328,12 +1348,19 @@ test("a load-time compaction that throws is caught: the world still loads and th
 // layer, prop drift, and the empty-result refusal (F3b Task 10) ———
 //
 // Everything below drives the REAL host headlessly: the fake worker over the
-// real protocol handler answers previews, and worlds arrive through loadWorld
-// (the only headless route to a committed entity — startStamp needs a
-// pointer-made selection). The prop layer itself is GPU state with no readback
-// seam, so its INSTANCE COUNT is asserted where it is decided: groupPlacements
-// over the host's own log, read back through the baked oplog. `count:` is fed
-// that group's length verbatim (field-host rebuildProps).
+// real protocol handler answers previews, and worlds arrive through loadWorld.
+// The prop layer's instance counts are read back through `propInstanceCounts()`,
+// which is what `rebuildProps` decides and feeds to `createInstanced({count})`.
+//
+// COVERAGE BOUNDARY, stated rather than implied. loadWorld is the only headless
+// route to a committed entity — a ready STAMP session needs a pointer-made
+// selection the host exposes no seam for (the same limit the reconfigure suite
+// notes at "applyReconfigure before the ghost settles"). So the rebuild that
+// follows `commitStampSession` — the "stamp scatter → Enter → props appear"
+// gesture — has NO automated coverage here; every other rebuild path does
+// (load, reconfigure apply, ⌘Z/⇧⌘Z, newWorld, setEntityCatalog). The commit
+// path is covered by gate checklist item 3, and building a headless selection
+// seam for it is F4 cockpit-pass work, not a shortcut taken here.
 
 import type { PlacementRecord } from "@furnace/core/field";
 import type { EntityCatalog } from "../src/frontend/lib/catalog.ts";
@@ -1494,6 +1521,10 @@ test("a history step moves the prop layer's source: ⌘Z restores the previous r
     await settle();
     host.applyReconfigure();
     expect(propsNow()).not.toEqual(before);
+    // Apply's OWN rebuild — asserted here, immediately, and not left to the
+    // undo/redo below: those each rebuild too, so they would mask an apply that
+    // never rebuilt at all ("re-roll scatter → Apply → props re-seat").
+    expect(host.propInstanceCounts().get("rock")).toBe(propsNow().length);
 
     host.undo();
     expect(propsNow()).toEqual(before);
@@ -1699,4 +1730,24 @@ test("…and the host acts on that: an empty-previewed HALL applies, it is not i
   } finally {
     uninstall();
   }
+});
+
+// COVERAGE BOUNDARY (stated, not implied): this pins that the prop layer's SIZE
+// is catalog-INDEPENDENT — installing, emptying or dropping the catalog never
+// changes how many props the layer accounts for. It does NOT reach the
+// uncatalogued RENDER branch (FALLBACK_COLLISION geometry + FALLBACK_TINT):
+// those live inside rebuildProps' GPU-guarded loop, which no headless test
+// enters, and a sabotage that drops uncatalogued archetypes there passes this
+// suite. field-placements.test.ts pins the GHOST's half of the same fallback
+// (`placementGhostBatch` is pure); the committed layer's half has no coverage.
+test("props whose archetype the catalog does not define STILL count in the layer (never gates)", () => {
+  const host = createFieldHost();
+  loadCaveWithProps(host); // scatter's records are all archetype "rock"
+  const withCatalog = host.propInstanceCounts().get("rock");
+  expect(withCatalog).toBeGreaterThan(0);
+
+  host.setEntityCatalog({ archetypes: [] }); // a catalog that knows nothing
+  expect(host.propInstanceCounts().get("rock")).toBe(withCatalog as number);
+  host.setEntityCatalog(null); // …and no catalog at all
+  expect(host.propInstanceCounts().get("rock")).toBe(withCatalog as number);
 });

@@ -88,7 +88,16 @@ export const boxCorners = (center: Vec3T, half: Vec3T): Float32Array => {
  *  primitive and ignores the quat, which is right for an outline). A placement
  *  writes no field cells, so without it a pure reader like scatter would have no
  *  footprint at all. Null only when the span holds NOTHING that contributes
- *  bounds — the caller falls back to the region. */
+ *  bounds — the caller falls back to the region.
+ *
+ *  NOTE — a placement contributes its RECORD SCALE alone, while the prop layer
+ *  DRAWS that record at the catalog primitive's extents × the same scale
+ *  (`field-placements.proxyScale`). The two sizing conventions are deliberate
+ *  and differently sourced: this one follows core, which has no catalog and must
+ *  stay catalog-free (a highlight box must not change size because a project
+ *  edited `entities.json`), while the drawn proxy has to match the collider the
+ *  game derives. So a highlight box can read slightly tighter or looser than the
+ *  props inside it; that is expected, not drift. */
 export const generatorFootprint = (
   ops: readonly FieldOp[],
   entity: GeneratorEntity,

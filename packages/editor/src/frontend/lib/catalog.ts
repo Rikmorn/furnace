@@ -15,6 +15,10 @@ import type {
 /** The catalog-file schema version this parser understands. */
 const CATALOG_VERSION = 1;
 
+/** The two catalog files, as their thrown messages name them. */
+const MATERIALS_LABEL = "materials catalog";
+const ENTITY_LABEL = "entity catalog";
+
 /**
  * A catalog parse/validation failure (materials or entities). Setup-loud: every
  * failure names the exact offending JSON path (e.g.
@@ -24,41 +28,50 @@ const CATALOG_VERSION = 1;
 export class CatalogError extends Error {
   /** The offending JSON path, e.g. `classes[3].kit.panelProud`. */
   readonly path: string;
-  constructor(path: string, detail: string, label = "materials catalog") {
+  constructor(path: string, detail: string, label = MATERIALS_LABEL) {
     super(`${label}: ${path}: ${detail}`);
     this.name = "CatalogError";
     this.path = path;
   }
 }
 
-// `label` names the catalog FILE in the thrown message (the CatalogError
-// default covers materials); the entity parser below passes its own.
-const num = (v: unknown, path: string, label?: string): number => {
-  if (typeof v !== "number" || !Number.isFinite(v))
-    throw new CatalogError(path, "expected a finite number", label);
-  return v;
-};
+/** The primitive parsers BOUND to one catalog file's label. Bound rather than
+ *  taking the label per call: an optional per-call label is a footgun in a file
+ *  that parses two different catalogs — every call site has to remember it, and
+ *  a forgotten one silently blames the wrong FILE, which is exactly the
+ *  diagnostic the label exists to give. Each parser below is destructured from
+ *  one of these, so the label is chosen once per catalog and cannot drift. */
+const parsersFor = (label: string) => ({
+  num: (v: unknown, path: string): number => {
+    if (typeof v !== "number" || !Number.isFinite(v))
+      throw new CatalogError(path, "expected a finite number", label);
+    return v;
+  },
+  str: (v: unknown, path: string): string => {
+    if (typeof v !== "string" || v.length === 0)
+      throw new CatalogError(path, "expected a non-empty string", label);
+    return v;
+  },
+  /** A CatalogError already blaming this file — so an entity-section throw can
+   *  never fall back to the materials label. */
+  err: (path: string, detail: string): CatalogError =>
+    new CatalogError(path, detail, label),
+  record: (v: unknown, path: string): Record<string, unknown> => {
+    if (typeof v !== "object" || v === null || Array.isArray(v))
+      throw new CatalogError(path, "expected an object", label);
+    // Boundary cast: parsed JSON of unknown shape; the runtime check above
+    // proves it is a non-null non-array object, which is always index-readable
+    // as a record (values stay unknown).
+    return v as Record<string, unknown>;
+  },
+});
 
-const str = (v: unknown, path: string, label?: string): string => {
-  if (typeof v !== "string" || v.length === 0)
-    throw new CatalogError(path, "expected a non-empty string", label);
-  return v;
-};
+const { num, str, record } = parsersFor(MATERIALS_LABEL);
 
 const color4 = (v: unknown, path: string): [number, number, number, number] => {
   if (!Array.isArray(v) || v.length !== 4)
     throw new CatalogError(path, "expected [r,g,b,a]");
   return [num(v[0], path), num(v[1], path), num(v[2], path), num(v[3], path)];
-};
-
-const record = (
-  v: unknown,
-  path: string,
-  label?: string,
-): Record<string, unknown> => {
-  if (typeof v !== "object" || v === null || Array.isArray(v))
-    throw new CatalogError(path, "expected an object", label);
-  return v as Record<string, unknown>;
 };
 
 const kitStyle = (v: unknown, path: string): KitStyle => {
@@ -143,7 +156,14 @@ export function parseMaterialsCatalog(text: string): MaterialTable {
 
 // ─── the entity catalog (catalog/entities.json) ───
 
-const ENTITY_LABEL = "entity catalog";
+// The entity file's own bound parsers — `num`/`str`/`record` above are bound to
+// the MATERIALS label and must never be used below this line.
+const {
+  num: entityNum,
+  str: entityStr,
+  record: entityRecord,
+  err: entityErr,
+} = parsersFor(ENTITY_LABEL);
 
 /** An archetype's collision primitive, as `catalog/entities.json` declares it —
  *  the same three kinds the dungeon's field-world loader derives static colliders
@@ -175,47 +195,35 @@ export type EntityCatalog = { archetypes: EntityArchetype[] };
 
 const color3 = (v: unknown, path: string): [number, number, number] => {
   if (!Array.isArray(v) || v.length !== 3)
-    throw new CatalogError(path, "expected [r,g,b]", ENTITY_LABEL);
-  return [
-    num(v[0], path, ENTITY_LABEL),
-    num(v[1], path, ENTITY_LABEL),
-    num(v[2], path, ENTITY_LABEL),
-  ];
+    throw entityErr(path, "expected [r,g,b]");
+  return [entityNum(v[0], path), entityNum(v[1], path), entityNum(v[2], path)];
 };
 
 const entityCollision = (v: unknown, path: string): EntityCollision => {
-  const rec = record(v, path, ENTITY_LABEL);
+  const rec = entityRecord(v, path);
   const kind = rec["kind"];
   if (kind === "box") {
     const he = rec["halfExtents"];
     if (!Array.isArray(he) || he.length !== 3)
-      throw new CatalogError(
-        `${path}.halfExtents`,
-        "expected [x,y,z]",
-        ENTITY_LABEL,
-      );
+      throw entityErr(`${path}.halfExtents`, "expected [x,y,z]");
     return {
       kind,
       halfExtents: [
-        num(he[0], `${path}.halfExtents`, ENTITY_LABEL),
-        num(he[1], `${path}.halfExtents`, ENTITY_LABEL),
-        num(he[2], `${path}.halfExtents`, ENTITY_LABEL),
+        entityNum(he[0], `${path}.halfExtents`),
+        entityNum(he[1], `${path}.halfExtents`),
+        entityNum(he[2], `${path}.halfExtents`),
       ],
     };
   }
   if (kind === "sphere")
-    return { kind, radius: num(rec["radius"], `${path}.radius`, ENTITY_LABEL) };
+    return { kind, radius: entityNum(rec["radius"], `${path}.radius`) };
   if (kind === "capsule")
     return {
       kind,
-      halfHeight: num(rec["halfHeight"], `${path}.halfHeight`, ENTITY_LABEL),
-      radius: num(rec["radius"], `${path}.radius`, ENTITY_LABEL),
+      halfHeight: entityNum(rec["halfHeight"], `${path}.halfHeight`),
+      radius: entityNum(rec["radius"], `${path}.radius`),
     };
-  throw new CatalogError(
-    `${path}.kind`,
-    'expected "box" | "sphere" | "capsule"',
-    ENTITY_LABEL,
-  );
+  throw entityErr(`${path}.kind`, 'expected "box" | "sphere" | "capsule"');
 };
 
 /** Catalog `scatter` key → scatter-generator param key, for the keys that carry
@@ -239,36 +247,30 @@ const SCATTER_PASSTHROUGH = [
  *  re-shaped into `scaleMin`/`scaleMax`. */
 const scatterHints = (v: unknown, path: string): Record<string, unknown> => {
   if (v === undefined) return {};
-  const rec = record(v, path, ENTITY_LABEL);
+  const rec = entityRecord(v, path);
   const out: Record<string, unknown> = {};
   for (const key of SCATTER_PASSTHROUGH)
     if (rec[key] !== undefined) out[key] = rec[key];
   const range = rec["scaleRange"];
   if (range !== undefined) {
     if (!Array.isArray(range) || range.length !== 2)
-      throw new CatalogError(
-        `${path}.scaleRange`,
-        "expected [min,max]",
-        ENTITY_LABEL,
-      );
-    out["scaleMin"] = num(range[0], `${path}.scaleRange`, ENTITY_LABEL);
-    out["scaleMax"] = num(range[1], `${path}.scaleRange`, ENTITY_LABEL);
+      throw entityErr(`${path}.scaleRange`, "expected [min,max]");
+    out["scaleMin"] = entityNum(range[0], `${path}.scaleRange`);
+    out["scaleMax"] = entityNum(range[1], `${path}.scaleRange`);
   }
   return out;
 };
 
 const entityArchetype = (v: unknown, path: string): EntityArchetype => {
-  const rec = record(v, path, ENTITY_LABEL);
-  const id = str(rec["id"], `${path}.id`, ENTITY_LABEL);
-  const material = record(rec["material"], `${path}.material`, ENTITY_LABEL);
+  const rec = entityRecord(v, path);
+  const id = entityStr(rec["id"], `${path}.id`);
+  const material = entityRecord(rec["material"], `${path}.material`);
   return {
     id,
     // `name` is the label a palette shows; absent falls back to the id rather
     // than failing a catalog whose consumer (the dungeon loader) never reads it.
     name:
-      rec["name"] === undefined
-        ? id
-        : str(rec["name"], `${path}.name`, ENTITY_LABEL),
+      rec["name"] === undefined ? id : entityStr(rec["name"], `${path}.name`),
     color: color3(material["litColor"], `${path}.material.litColor`),
     collision: entityCollision(rec["collision"], `${path}.collision`),
     scatter: scatterHints(rec["scatter"], `${path}.scatter`),
@@ -295,29 +297,26 @@ export function parseEntityCatalog(text: string): EntityCatalog {
     root = JSON.parse(text);
   } catch (e) {
     const detail = e instanceof Error ? e.message : String(e);
-    throw new CatalogError("", `invalid JSON: ${detail}`, ENTITY_LABEL);
+    throw entityErr("", `invalid JSON: ${detail}`);
   }
-  const rec = record(root, "", ENTITY_LABEL);
-  const version = num(rec["version"], "version", ENTITY_LABEL);
+  const rec = entityRecord(root, "");
+  const version = entityNum(rec["version"], "version");
   if (version !== CATALOG_VERSION)
-    throw new CatalogError(
+    throw entityErr(
       "version",
       `unsupported version ${version} (expected ${CATALOG_VERSION})`,
-      ENTITY_LABEL,
     );
   const raw = rec["archetypes"];
-  if (!Array.isArray(raw))
-    throw new CatalogError("archetypes", "expected an array", ENTITY_LABEL);
+  if (!Array.isArray(raw)) throw entityErr("archetypes", "expected an array");
   const archetypes = raw.map((a, i) => entityArchetype(a, `archetypes[${i}]`));
   // Ids key the host's lookup map AND the archetypeId enum — a duplicate would
   // silently shadow one archetype's proxy + hints with another's.
   const seen = new Set<string>();
   archetypes.forEach((a, i) => {
     if (seen.has(a.id))
-      throw new CatalogError(
+      throw entityErr(
         `archetypes[${i}].id`,
         `duplicate archetype id "${a.id}"`,
-        ENTITY_LABEL,
       );
     seen.add(a.id);
   });

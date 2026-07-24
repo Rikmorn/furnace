@@ -3,18 +3,17 @@
 // headlamp toggle, plus the run-once catalog fetch that installs the
 // project's resolved material table AND its entity catalog on the host. Owns
 // the name / busy / catalog-settled state — the panel consumes the parsed
-// table (onTable), the entity-catalog signal (onEntityCatalog) and the status
-// line (onStatus, rendered in the panel footer). Reaches the
+// table (onTable), the entity-catalog signal (onEntityCatalogInstalled) and
+// the status line (onStatus, rendered in the panel footer). Reaches the
 // App-owned host through the editor context ref, exactly like the panel —
 // the chrome never value-imports engine code (the project-first invariant);
 // this file type-imports the artifact types (erased) and value-imports the
 // catalog parser from a frontend lib that itself only type-imports core.
 import type { FieldManifest, MaterialTable } from "@furnace/core/field"; // type-only: erased
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../../lib/api.ts";
 // catalog.ts type-imports core only (erased), so value-importing it here does
 // NOT pull core into the chrome bundle — the project-first invariant holds.
-import type { EntityCatalog } from "../../lib/catalog.ts";
 import {
 	CatalogError,
 	parseEntityCatalog,
@@ -44,19 +43,36 @@ export function FieldToolbar(props: {
 	onShading: (on: boolean) => void;
 	/** Adopt the parsed catalog table (drives the panel's swatches + mask options). */
 	onTable: (table: MaterialTable) => void;
-	/** Announce the parsed ENTITY catalog, AFTER it is installed on the host, so
-	 *  the panel can re-read the generator registry. The toolbar already owns the
-	 *  install; the panel needs the signal because `host.listGenerators()` is a
-	 *  snapshot — the `archetypeId` picker options only exist in schemas read
-	 *  after this lands, and the panel reads them at engine-ready, which is
-	 *  necessarily before this async fetch settles. The CALL is what matters; the
-	 *  panel's handler ignores the argument. */
-	onEntityCatalog: (catalog: EntityCatalog) => void;
+	/** Fired once the ENTITY catalog is installed on the host, so the panel can
+	 *  re-read the generator registry. The toolbar owns the install; the panel
+	 *  needs the signal because `host.listGenerators()` is a snapshot — the
+	 *  `archetypeId` picker options only exist in schemas read after this lands,
+	 *  and the panel reads them at engine-ready, which is necessarily before this
+	 *  async fetch settles.
+	 *
+	 *  Deliberately CARRIES NOTHING. Handing over the parsed catalog would invite
+	 *  a consumer to read it instead of re-reading the host — which is precisely
+	 *  the stale-snapshot bug this callback exists to prevent. The host is the one
+	 *  source of truth; this is only the "ask it again" tick. */
+	onEntityCatalogInstalled: () => void;
 	/** The panel's status line (rendered in its footer). */
 	onStatus: (msg: string) => void;
 }) {
 	const { state, fieldHostRef } = useEditor();
-	const { onTable, onStatus, onEntityCatalog } = props;
+	const { onTable, onStatus, onEntityCatalogInstalled } = props;
+	// Every status write from this component goes through `report`, which bumps a
+	// sequence. The catalog effect's trailing append (one await later) checks the
+	// sequence has not moved — a New / Load / Save landing inside the entity
+	// fetch's round-trip OWNS the line, and must not be clobbered by a composed
+	// message about a catalog the user has stopped caring about.
+	const statusSeq = useRef(0);
+	const report = useCallback(
+		(msg: string): void => {
+			statusSeq.current++;
+			onStatus(msg);
+		},
+		[onStatus],
+	);
 	const catalogLoaded = useRef(false);
 	const [name, setName] = useState("");
 	// True once the catalog fetch reached ANY outcome (success / 404 / error) —
@@ -110,7 +126,7 @@ export function FieldToolbar(props: {
 				if (!res.ok) return `entities fetch failed (${res.status})`;
 				const parsed = parseEntityCatalog(await res.text());
 				host.setEntityCatalog(parsed);
-				onEntityCatalog(parsed); // AFTER the install — the panel re-reads the host
+				onEntityCatalogInstalled(); // AFTER the install — the panel re-reads the host
 				return `props: ${parsed.archetypes.length} archetypes`;
 			} catch (err) {
 				return err instanceof CatalogError
@@ -134,28 +150,30 @@ export function FieldToolbar(props: {
 			// Report the materials outcome the moment it is known, then APPEND the
 			// entity one — a slow (or wedged) entities fetch must not hold back the
 			// message about the catalog that actually gates Load.
-			onStatus(status);
+			report(status);
+			const owned = statusSeq.current;
 			const entities = await loadEntities();
-			if (entities !== null) onStatus(`${status} · ${entities}`);
+			if (entities !== null && statusSeq.current === owned)
+				report(`${status} · ${entities}`);
 		})();
-	}, [state.status, fieldHostRef, onTable, onStatus, onEntityCatalog]);
+	}, [state.status, fieldHostRef, onTable, report, onEntityCatalogInstalled]);
 
 	const onNew = (): void => {
 		fieldHostRef.current?.newWorld();
-		onStatus("new world — all solid rock");
+		report("new world — all solid rock");
 	};
 
 	const onSave = async (): Promise<void> => {
 		const host = fieldHostRef.current;
 		if (!host || !nameValid) return;
 		setBusy(true);
-		onStatus(`saving ${name}…`);
+		report(`saving ${name}…`);
 		try {
 			const files = toWireFiles(host.exportArtifact(name));
 			const res = await api.generationBake(files, `worlds/${name}`);
-			onStatus(`saved ${res.files} files → worlds/${name}`);
+			report(`saved ${res.files} files → worlds/${name}`);
 		} catch (err) {
-			onStatus(`save failed: ${errorMessage(err)}`);
+			report(`save failed: ${errorMessage(err)}`);
 		} finally {
 			setBusy(false);
 		}
@@ -165,7 +183,7 @@ export function FieldToolbar(props: {
 		const host = fieldHostRef.current;
 		if (!host || !nameValid) return;
 		setBusy(true);
-		onStatus(`baking ${name} as the game's world…`);
+		report(`baking ${name} as the game's world…`);
 		try {
 			// Reuse the world flow's upload sequence: the world's file set (cleanDir'd to its own
 			// dir so a re-bake leaves no orphans), then worlds/index.json pointed at it
@@ -181,9 +199,9 @@ export function FieldToolbar(props: {
 			for (const call of calls) {
 				results.push(await api.generationBake(call.files, call.cleanDir));
 			}
-			onStatus(`baked ${results[0]?.files ?? 0} files — now the game's world`);
+			report(`baked ${results[0]?.files ?? 0} files — now the game's world`);
 		} catch (err) {
-			onStatus(`bake failed: ${errorMessage(err)}`);
+			report(`bake failed: ${errorMessage(err)}`);
 		} finally {
 			setBusy(false);
 		}
@@ -193,7 +211,7 @@ export function FieldToolbar(props: {
 		const host = fieldHostRef.current;
 		if (!host || !nameValid) return;
 		setBusy(true);
-		onStatus(`loading ${name}…`);
+		report(`loading ${name}…`);
 		try {
 			const res = await api.fieldLoad(name);
 			host.loadWorld({
@@ -215,9 +233,9 @@ export function FieldToolbar(props: {
 				// `kind:"dig"` ops forward; the chrome can't value-import parseOps).
 				oplog: res.oplog,
 			});
-			onStatus(`loaded ${name} (${res.chunks.length} chunks)`);
+			report(`loaded ${name} (${res.chunks.length} chunks)`);
 		} catch (err) {
-			onStatus(`load failed: ${errorMessage(err)}`);
+			report(`load failed: ${errorMessage(err)}`);
 		} finally {
 			setBusy(false);
 		}

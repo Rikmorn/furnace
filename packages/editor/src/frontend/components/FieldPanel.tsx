@@ -241,8 +241,8 @@ export function FieldPanel() {
 	// an async fetch which cannot possibly settle before the effect above first
 	// runs at engine-ready. Reading once left `archetypeId` a free-text field
 	// forever (review B1), so the toolbar calls this the moment it has installed
-	// the catalog on the host — the argument is deliberately ignored, the CALL is
-	// the signal.
+	// the catalog on the host. The signal carries nothing on purpose: the HOST is
+	// the source of truth, and a payload would invite reading it instead.
 	const refreshGenerators = useCallback((): void => {
 		const host = fieldHostRef.current;
 		if (!host) return;
@@ -451,7 +451,7 @@ export function FieldPanel() {
 				headlamp={headlamp}
 				onShading={onShading}
 				onTable={setTable}
-				onEntityCatalog={refreshGenerators}
+				onEntityCatalogInstalled={refreshGenerators}
 				onStatus={setStatus}
 			/>
 			{/* The controls stack (palette + swatches + inspectors + layers + entities)

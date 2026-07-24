@@ -387,8 +387,52 @@ describe("parseEntityCatalog", () => {
     expect(entityError(dup).path).toBe("archetypes[1].id");
   });
 
-  test("the message names the ENTITY catalog, not the materials one", () => {
-    expect(entityError("{").message).toStartWith("entity catalog:");
+  test("EVERY entity failure names the ENTITY catalog, not the materials one", () => {
+    // The whole point of the label. Both parsers live in one file and share one
+    // error class, so a path that reached for the MATERIALS-bound parser would
+    // blame the wrong FILE — the exact wrong diagnostic. Sampled across all four
+    // throw shapes: the bound err factory, and the bound num / str / record.
+    const messages = [
+      entityError("{"), // err factory (malformed JSON)
+      entityError(JSON.stringify({ version: "1", archetypes: [] })), // num
+      entityError(
+        JSON.stringify({
+          version: 1,
+          archetypes: [{ id: 7, material: {}, collision: {} }],
+        }),
+      ), // str
+      entityError(
+        JSON.stringify({
+          version: 1,
+          archetypes: [{ id: "x", material: 5, collision: {} }],
+        }),
+      ), // record (a nested one)
+      entityError(
+        JSON.stringify({
+          version: 1,
+          archetypes: [
+            { id: "x", material: { litColor: [1, 1, 1] }, collision: 5 },
+          ],
+        }),
+      ), // record (the collision block)
+      entityError(
+        JSON.stringify({
+          version: 1,
+          archetypes: [
+            {
+              id: "x",
+              material: { litColor: [1, 1, 1] },
+              collision: { kind: "sphere", radius: 1 },
+              scatter: 5,
+            },
+          ],
+        }),
+      ), // record (the scatter hints block)
+      entityError(JSON.stringify({ version: 1, archetypes: ["nope"] })), // record (the outer archetype)
+      entityError(JSON.stringify(5)), // record (the document root)
+    ].map((e) => e.message);
+    for (const m of messages) expect(m).toStartWith("entity catalog:");
+    expect(messages.some((m) => m.includes("materials catalog"))).toBe(false);
   });
 
   test("the shipped dungeon entity catalog parses", async () => {

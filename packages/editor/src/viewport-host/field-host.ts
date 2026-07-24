@@ -292,11 +292,14 @@ export type FieldHost = {
    *  leaves scatter fully usable on its schema defaults, with every prop drawn
    *  at a nominal 0.5 m box.
    *
-   *  Rebuilds the committed prop layer, because the catalog decides its geometry
-   *  and colour. Does NOT cancel a live stamp session (unlike a material-table
-   *  swap): the catalog is not an input to evaluate, so a previewed ghost still
-   *  describes exactly what commit would build — only the proxy it is DRAWN with
-   *  changes. */
+   *  Rebuilds the COMMITTED prop layer, because the catalog decides its geometry
+   *  and colour. A live stamp session is neither cancelled nor re-ghosted (unlike
+   *  a material-table swap): the catalog is not an input to evaluate, so a
+   *  previewed ghost still describes exactly what commit would build — but its
+   *  placement wireframes are a prebuilt line batch over records this host does
+   *  not retain, so a live ghost keeps its OLD-SIZE boxes until the next preview.
+   *  In practice the catalog installs long before any session exists (one
+   *  run-once fetch at engine-ready). */
   setEntityCatalog(catalog: EntityCatalog | null): void;
   /** The registry's staged generators (id/name/param schema/defaults) for the
    *  panel's palette + stamp form — surfaced through the host because the
@@ -2117,6 +2120,14 @@ export function createFieldHost(): FieldHost {
   // session standing to re-tune. A carver keeps core's message verbatim (through
   // the callers' catch): "0 props … raise density" would be nonsense advice for
   // a hall. Returns whether it refused.
+  //
+  // STALENESS — this reads the LAST SETTLED PREVIEW, not a fresh evaluate, so it
+  // inherits the divergence window `previewStamp` documents: a ⌘Z or a brush
+  // stroke during a live session moves the store the preview snapshotted. Dig a
+  // floor under a scatter that previewed empty and Enter still refuses, with
+  // advice that is no longer true. Cheap to escape (any param change, re-roll or
+  // nudge re-previews) and it only ever refuses a commit core would reject
+  // anyway, so it is documented rather than fixed with a re-evaluate on commit.
   const reportEmptyPreview = (s: StampSession): boolean => {
     if (!previewIsEmpty(s)) return false;
     let def: field.GeneratorDef;
