@@ -13,7 +13,7 @@ type WorkerLike = {
 /** The worker's success responses — what a pending job may resolve with. */
 type FieldWorkerSuccess = Extract<
   FieldWorkerResponse,
-  { kind: "meshed" | "stamp-previewed" }
+  { kind: "meshed" | "stamp-previewed" | "void-casted" }
 >;
 
 const defaultSpawn = (): WorkerLike =>
@@ -129,6 +129,48 @@ export class FieldWorkerClient {
         this.ensure().postMessage(
           full,
           req.chunks.map((c) => c.density),
+        );
+      } catch (err) {
+        this.pending.delete(jobId);
+        throw err;
+      }
+    });
+  }
+
+  /** Cast the VOID of an all-chunk snapshot: the worker inverts each chunk's
+   *  density and meshes the result, so the buckets that come back are a solid
+   *  cast of the air. Density buffers are TRANSFERRED (pass copies — the
+   *  stampPreview contract); no materials and no table cross the wire (the
+   *  cast is shape only). */
+  voidCast(
+    chunks: { key: string; density: ArrayBuffer }[],
+    cellSize: number,
+  ): Promise<Extract<FieldWorkerResponse, { kind: "void-casted" }>> {
+    const jobId = ++this.jobId;
+    const req: FieldWorkerRequest = {
+      kind: "void-cast",
+      jobId,
+      chunks,
+      cellSize,
+    };
+    return new Promise((resolve, reject) => {
+      this.pending.set(jobId, {
+        resolve: (r) => {
+          // Runtime narrowing, never a cast (the mesh() twin).
+          if (r.kind === "void-casted") resolve(r);
+          else
+            reject(
+              new Error(`field worker: expected void-casted, got ${r.kind}`),
+            );
+        },
+        reject,
+      });
+      // The mesh() twin: a synchronous postMessage throw must not strand the
+      // pending entry.
+      try {
+        this.ensure().postMessage(
+          req,
+          chunks.map((c) => c.density),
         );
       } catch (err) {
         this.pending.delete(jobId);

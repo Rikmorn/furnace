@@ -200,14 +200,23 @@ export type FieldStats = {
   lastReconfigureMs: number;
 };
 
-/** Per-layer render visibility (all default true). `field` = the per-class
- *  bucket surface meshes; `kit` = the instanced kit pieces; `props` = the
- *  instanced placed-prop proxies (committed placement records); `ghost` = the
- *  brush ghost (cube + lines) + the stamp session's hologram preview + its
- *  placement wireframes; `selection` = the amber selection overlay + pending box
- *  anchor + the amber-dim entity highlight box; `grid` = the reference grid
- *  (minor + major). Display-only — hiding a layer never affects targeting, ops,
- *  or bakes. */
+/** Per-layer render visibility. `field` = the per-class bucket surface meshes;
+ *  `kit` = the instanced kit pieces; `props` = the instanced placed-prop proxies
+ *  (committed placement records); `ghost` = the brush ghost (cube + lines) + the
+ *  stamp session's hologram preview + its placement wireframes; `selection` =
+ *  the amber selection overlay + pending box anchor + the amber-dim entity
+ *  highlight box; `grid` = the reference grid (minor + major). Display-only —
+ *  hiding a layer never affects targeting, ops, or bakes.
+ *
+ *  All default true EXCEPT `voidCast` (D-F3-15), which is a view MODE wearing a
+ *  layer's clothes: the X-ray that meshes the field's negative space, so a cave
+ *  network reads as a solid from outside. Unlike the other six it names no
+ *  resident GPU state — its meshes exist only while it is on, and they are
+ *  BUILT by its false→true edge (one all-chunk worker job) and DROPPED by the
+ *  next field mutation, which reports the drop on
+ *  {@link FieldHost.subscribeToolError}. A cast is therefore a snapshot of the
+ *  field at the moment it was enabled; re-toggle to refresh. See
+ *  {@link FieldHost.setLayers}. */
 export type FieldLayers = {
   field: boolean;
   kit: boolean;
@@ -215,6 +224,7 @@ export type FieldLayers = {
   ghost: boolean;
   selection: boolean;
   grid: boolean;
+  voidCast: boolean;
 };
 
 export type FieldHost = {
@@ -279,9 +289,18 @@ export type FieldHost = {
    *  a selection exists never shows "no selection" beside a visible overlay.
    *  Single subscriber (the panel); returns an unsubscribe. */
   subscribeSelection(cb: (info: SelectionInfo | null) => void): () => void;
-  /** Sets per-layer render visibility (see {@link FieldLayers}; default
-   *  all true). Layer flags are view state like shading — they survive
-   *  world loads and dispose/re-init. */
+  /** Sets per-layer render visibility (see {@link FieldLayers}; default all
+   *  true but `voidCast`). Layer flags are view state like shading — they
+   *  survive world loads and dispose/re-init.
+   *
+   *  `voidCast` alone has an EDGE effect: false→true snapshots every allocated
+   *  chunk into one worker job and builds the X-ray from what comes back
+   *  (refused, loudly, past `VOID_CAST_CHUNK_BUDGET` chunks — the cast is a
+   *  region-scale tool); true→false frees it. A call that leaves the flag true
+   *  rebuilds NOTHING, so a cast the field's next edit dropped stays gone until
+   *  the user toggles it off and on — which is also how it comes back after a
+   *  dispose/re-init or a world load, both of which free the meshes while the
+   *  flag rides through. */
   setLayers(layers: FieldLayers): void;
   /** Sets the slice-view clip plane (world metres; `null` = off). DISPLAY
    *  only: every chunk re-meshes through the worker's slice clamp (samples
@@ -658,6 +677,27 @@ const GHOST_CUBE_ALPHA = 0.25;
 // read as "this is what commit builds" while the field stays visible through it.
 const STAMP_GHOST_ALPHA = 0.35;
 
+// Void-cast X-ray (D-F3-15) — a dim CYAN, deliberately off the hologram-blue
+// GHOST_COLOR: the cast is ambient context (what the air already is), never a
+// preview of a pending action. Dimmer than either ghost because it can cover
+// the whole viewport.
+const VOID_CAST_COLOR: Vec3T = [0.25, 0.85, 0.75];
+const VOID_CAST_ALPHA = 0.3;
+// Enabling the cast snapshots + meshes EVERY allocated chunk in ONE worker job,
+// so its cost is linear in the whole world, not in what the camera sees. The
+// ceiling makes that honest: past it the enable REFUSES loudly rather than
+// queueing a job that gets slower with no upper bound. 512 chunks is 2.1 MB of
+// density on the wire and, packed, a 32 m cube of field at the default 0.25 m
+// cell — a region-scale tool by design; world-scale X-ray belongs to F5's
+// streaming work.
+//
+// Measured at the ceiling (bun/JSC, 512 dug chunks, one cast): ~1.3 s of worker
+// time. That is a real wait, and it buys the tool no progress state in v0 — the
+// overlay simply appears. The number is recorded here rather than tuned because
+// the spec set the ceiling; a gate that finds the wait unacceptable should move
+// THIS constant, and browser V8 is not JSC, so re-measure there before doing so.
+const VOID_CAST_CHUNK_BUDGET = 512;
+
 const clampRadius = (r: number): number =>
   Math.max(RADIUS_MIN, Math.min(RADIUS_MAX, r));
 
@@ -856,6 +896,7 @@ export function createFieldHost(): FieldHost {
     ghost: true,
     selection: true,
     grid: true,
+    voidCast: false, // an X-ray costs a whole-world remesh — opt in
   };
   // Slice-view clip plane (world metres; null = off). Display + targeting
   // only — never read by logApply, the oplog, or bakeFieldWorld.
@@ -900,6 +941,25 @@ export function createFieldHost(): FieldHost {
   // stale, which is why the id was not kept.
   let highlightedEntityId: number | null = null;
   let entityHighlightBatch: LineBatch | null = null;
+
+  // --- void cast (the X-ray) ----------------------------------------------
+  // A ghostMeshes sibling: one entry per cast chunk, every bucket on the ONE
+  // translucent void material. Built by the layer's enabling edge, dropped by
+  // the next field mutation (see invalidateVoidCast) — never rebuilt on its own.
+  const voidCastMeshes = new Map<
+    string,
+    { m: mesh.Mesh; g: geometry.Geometry }[]
+  >();
+  let voidCastMat: material.Material | null = null;
+  let voidCastBind: binding.Binding | null = null;
+  // Generation guard (the stampGen pattern): bumped by every discard, so a job
+  // whose field moved under it — or whose layer was switched off — lands stale
+  // and is dropped instead of showing an X-ray of a world that no longer is.
+  let voidCastGen = 0;
+  // Whether a cast job is in flight. Tracked beside the meshes because the
+  // invalidation message must fire for a cast the user is still WAITING on, not
+  // only for one already on screen.
+  let voidCastPending = false;
 
   let digRadius = 1.25;
   let digging = false;
@@ -1064,6 +1124,31 @@ export function createFieldHost(): FieldHost {
       blend: material.blend.premultiplied,
       depth: { write: false },
     });
+    // Void-cast material: the stamp-ghost recipe with two deliberate changes.
+    // The tint is cyan (context, not a pending action), and depth COMPARES
+    // ALWAYS — the load-bearing one. The cast's surface is the SAME isosurface
+    // as the field's own (it meshes the other side of it), so a depth-TESTED
+    // cast would lose the equal-depth comparison against the rock it casts and
+    // vanish, silently, exactly like an X-ray that shows nothing. `always`
+    // (plus no depth write) is what makes it read through solid rock, the same
+    // posture the line overlays get from `occlude: false`. NOT `depth: false`,
+    // which builds a depth-LESS pipeline — invalid in frame.render's
+    // depth-having pass (engine-conventions §Depth buffer).
+    voidCastBind = binding.create(c, ghostShd);
+    binding.set(c, voidCastBind, {
+      color: [
+        VOID_CAST_COLOR[0] * VOID_CAST_ALPHA,
+        VOID_CAST_COLOR[1] * VOID_CAST_ALPHA,
+        VOID_CAST_COLOR[2] * VOID_CAST_ALPHA,
+        VOID_CAST_ALPHA,
+      ],
+    });
+    voidCastMat = await material.create(c, {
+      shader: ghostShd,
+      binding: voidCastBind,
+      blend: material.blend.premultiplied,
+      depth: { write: false, compare: "always" },
+    });
     await buildLitMaterials(c);
   };
 
@@ -1071,6 +1156,12 @@ export function createFieldHost(): FieldHost {
     if (!stampGhostMat)
       throw new Error("field-host: stamp ghost material not initialized");
     return stampGhostMat;
+  };
+
+  const voidCastMaterial = (): material.Material => {
+    if (!voidCastMat)
+      throw new Error("field-host: void cast material not initialized");
+    return voidCastMat;
   };
 
   // Material for one surface/backing bucket under the current shading mode. Flat
@@ -1101,6 +1192,12 @@ export function createFieldHost(): FieldHost {
   // neighbour whose apron reads the changed sample (the lower-endpoint-owns
   // rule). Add the 26 allocated neighbours of every changed chunk.
   const markDirtyWithNeighbors = (changed: Set<string>): void => {
+    // THE field-mutation choke point (strokes, stamp commits, ⌘Z/⇧⌘Z,
+    // reconfigure apply) — and so where the void cast learns its snapshot went
+    // stale. The paths that bypass it change no density: setSlice and
+    // setMaterialTable re-mesh the DISPLAY, and a world new/load routes through
+    // resetWorld, which discards the cast with everything else.
+    invalidateVoidCast();
     for (const k of changed) {
       dirty.add(k);
       const [cx, cy, cz] = field.parseChunkKey(k);
@@ -2016,6 +2113,119 @@ export function createFieldHost(): FieldHost {
     }
   };
 
+  // --- void cast (D-F3-15) -------------------------------------------------
+
+  const destroyVoidCast = (): void => {
+    const c = ctx;
+    if (c)
+      for (const entries of voidCastMeshes.values())
+        for (const e of entries) {
+          mesh.destroy(c, e.m);
+          geometry.destroy(c, e.g);
+        }
+    voidCastMeshes.clear();
+  };
+
+  // Free the cast and strand whatever job is in flight for it. SILENT: the
+  // callers that owe the user an explanation give one themselves.
+  const discardVoidCast = (): void => {
+    voidCastGen++;
+    voidCastPending = false;
+    destroyVoidCast();
+  };
+
+  // Any field mutation ages the cast out: it was meshed from a snapshot, and
+  // re-casting per stroke would mean a whole-world worker job per stroke. So the
+  // v0 drops it and SAYS so — a silently vanishing X-ray beside a still-ticked
+  // checkbox would read as a bug. Self-limiting: the second mutation finds
+  // nothing live and returns, so a drag cannot spam the status line.
+  const invalidateVoidCast = (): void => {
+    if (!voidCastPending && voidCastMeshes.size === 0) return;
+    discardVoidCast();
+    reportToolError(
+      "void cast cleared — the field changed; re-toggle the void layer to refresh it",
+    );
+  };
+
+  // Every allocated chunk's density as a COPY, keyed as the store keys it. The
+  // copy is load-bearing for the same reason snapshotChunks' is: the client
+  // TRANSFERS these buffers, and sending the store's live ones would detach
+  // them and destroy the field.
+  const snapshotAllChunks = (): { key: string; density: ArrayBuffer }[] =>
+    [...store.chunks].map(([key, density]) => ({
+      key,
+      density: density.slice().buffer as ArrayBuffer,
+    }));
+
+  // Build the cast's render state from a void-cast response: one mesh per
+  // non-empty bucket, ALL under the one void material, at chunk origins. The
+  // applyStampGhost twin, deliberately not folded into it — see the material's
+  // comment for why the two differ in depth state, and the invisible-overlay
+  // learning (2026-07-21) for why working render code is not refactored without
+  // a visual gate.
+  const applyVoidCast = (
+    chunks: { key: string; buckets: WireBucket[] }[],
+  ): void => {
+    const c = ctx;
+    if (!c) return;
+    destroyVoidCast();
+    for (const { key, buckets } of chunks) {
+      const [cx, cy, cz] = field.parseChunkKey(key);
+      const origin = chunkOrigin(cx, cy, cz);
+      const entries: { m: mesh.Mesh; g: geometry.Geometry }[] = [];
+      for (const bucket of buckets) {
+        const indices = new Uint32Array(bucket.indices);
+        if (indices.length === 0) continue;
+        const g = geometry.create(c, {
+          positions: new Float32Array(bucket.positions),
+          normals: new Float32Array(bucket.normals),
+          uvs: new Float32Array(bucket.uvs),
+          indices,
+        });
+        const m = mesh.create(c, { geometry: g, material: voidCastMaterial() });
+        mesh.setPosition(c, m, origin);
+        entries.push({ m, g });
+      }
+      if (entries.length > 0) voidCastMeshes.set(key, entries);
+    }
+  };
+
+  // Cast the void of the CURRENT field: one worker job over a snapshot of every
+  // allocated chunk. Three refusals, in the order a user experiences them —
+  // nothing allocated yet (quiet: an empty world casts an empty void), over
+  // budget (loud: the whole point of the ceiling is that it is visible), and no
+  // GPU context (quiet: layer flags survive a dispose, so a re-init'd host must
+  // not fire a job it has nowhere to put — the user re-toggles).
+  const requestVoidCast = (): void => {
+    discardVoidCast(); // an enable while a cast stands replaces it
+    const count = store.chunks.size;
+    if (count === 0) return;
+    if (count > VOID_CAST_CHUNK_BUDGET) {
+      reportToolError(
+        `void cast covers ${count} chunks, over the ${VOID_CAST_CHUNK_BUDGET}-chunk budget — the X-ray is a region-scale tool, not a world-scale one`,
+      );
+      return;
+    }
+    if (!ctx) return;
+    const gen = voidCastGen;
+    voidCastPending = true;
+    worker.voidCast(snapshotAllChunks(), store.cellSize).then(
+      (res) => {
+        if (disposed || gen !== voidCastGen) return;
+        voidCastPending = false;
+        applyVoidCast(res.chunks);
+      },
+      (err) => {
+        if (disposed || gen !== voidCastGen) return;
+        voidCastPending = false;
+        // The remeshOne posture, one level louder: a cast the user asked for
+        // and will not get is a tool problem, not a background hiccup.
+        const message = err instanceof Error ? err.message : String(err);
+        reportToolError(`void cast failed: ${message}`);
+      },
+    );
+  };
+
   // Post ONE preview job for a session state captured at fire time. Response
   // processing is guarded two ways: the session RUN (the pure module drops
   // superseded runs) and the session GENERATION (run restarts at 0 per
@@ -2480,6 +2690,18 @@ export function createFieldHost(): FieldHost {
     // material, their own layer gate (they are entities, not field — the "if you
     // can dig it, it's field" jurisdiction line drawn in the layer strip).
     if (layers.props) for (const p of propMeshes) instanced.push(p.im);
+    // The void cast goes in FIRST of the three translucents on purpose. All
+    // three sort after every opaque (frame.render's blended group), so this
+    // position decides nothing against the field — but within the blended group
+    // submission order is preserved, and that is what decides how the three
+    // compose against EACH OTHER. The cast ignores depth outright
+    // (compare: "always"), so submitted last it would wash cyan over every ghost
+    // in the frame; submitted first, the two ghosts keep their hologram-blue and
+    // read on top of it. Right priority: a ghost is the action the user is
+    // steering right now, the cast is the room around it.
+    if (layers.voidCast)
+      for (const entries of voidCastMeshes.values())
+        for (const e of entries) meshes.push(e.m);
     // Filled kit ghost (the fill-tool-solid-volume-surprise fix): pose the ONE
     // translucent unit cube at the snapped box and push it into the mesh list.
     // When there is no kit-fill ghost this frame the mesh is simply not drawn.
@@ -2873,6 +3095,10 @@ export function createFieldHost(): FieldHost {
     cancelStampSession();
     highlightedEntityId = null;
     entityHighlightBatch = null;
+    // The cast describes the field that just went away. Discarded SILENTLY,
+    // unlike an edit-time invalidation: everything else on screen is being
+    // replaced too, so "void cast cleared" beside a fresh world is noise.
+    discardVoidCast();
     drift = null;
     notifyDrift();
   };
@@ -2939,6 +3165,7 @@ export function createFieldHost(): FieldHost {
         chunkMeshes.clear();
         destroyProps(c);
         destroyStampGhosts();
+        discardVoidCast();
         if (flatMat) material.destroy(c, flatMat);
         destroyLitMaterials(c);
         if (kitMat) material.destroy(c, kitMat);
@@ -2949,6 +3176,8 @@ export function createFieldHost(): FieldHost {
         if (ghostBind) binding.destroy(c, ghostBind);
         if (stampGhostMat) material.destroy(c, stampGhostMat);
         if (stampGhostBind) binding.destroy(c, stampGhostBind);
+        if (voidCastMat) material.destroy(c, voidCastMat);
+        if (voidCastBind) binding.destroy(c, voidCastBind);
         unbindCamera?.();
         gpu.dispose(c); // LAST — a clean shutdown is the leak check.
       }
@@ -2961,6 +3190,8 @@ export function createFieldHost(): FieldHost {
       ghostBind = null;
       stampGhostMat = null;
       stampGhostBind = null;
+      voidCastMat = null;
+      voidCastBind = null;
       // Unlike the selection (CPU-only, survives dispose), the stamp session
       // dies with its GPU ghost: a "ready" session with no ghost after a
       // re-init would promise a commit the user can no longer see. Silent (no
@@ -3070,7 +3301,14 @@ export function createFieldHost(): FieldHost {
       };
     },
     setLayers(next) {
+      const wasVoidCast = layers.voidCast;
       layers = { ...next }; // copy — host state never aliases panel objects
+      // The one layer with an edge effect: nothing to show unless a cast was
+      // built for the field as it stands (see FieldLayers). Off is a plain
+      // silent free; a call that leaves it true rebuilds nothing, which is what
+      // makes "re-toggle to refresh" the documented way back after an edit.
+      if (!layers.voidCast) discardVoidCast();
+      else if (!wasVoidCast) requestVoidCast();
     },
     setSlice(y) {
       if (y === sliceY) return; // slider-drag repeats of the same value are free

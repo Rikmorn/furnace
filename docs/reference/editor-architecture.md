@@ -638,7 +638,9 @@ dig ring, selection) had rendered NOTHING since F1. Record + rules:
   display is deferred to F4 (`field-f2b-gate-ux-findings.md`).
 - **Layers + slice** — `FieldLayers { field, kit, props, ghost, selection, grid }` gate
   the render lists per frame (display-only; a hidden selection keeps masking ops).
-  `props` arrived with F3b's placed-prop layer (§18). The
+  `props` arrived with F3b's placed-prop layer (§18). The same type carries a seventh
+  flag, `voidCast`, which is NOT a plain gate — it is F3b's X-ray view mode, default
+  off, built by its own enabling edge and dropped by the next edit (§18). The
   Ghost checkbox is DISABLED with a hint while a selection tool is armed and no stamp
   session runs (suppression honesty — the brush ghost is mode-suppressed but the stamp
   hologram is not). Slice = **remesh clip**: the worker clamps aprons at/above `sliceY`

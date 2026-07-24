@@ -1,11 +1,28 @@
-// Layer visibility + the slice view (F2b Task 15): six checkboxes drive
-// host.setLayers (display-only gates — hiding a layer never affects targeting,
-// ops, or bakes) and an enable checkbox + Y slider drive host.setSlice
-// (display + targeting, never the field). Pure presentation — the panel owns
-// the state and every host call.
+// Layer visibility + the two view modes (F2b Task 15, F3b Task 12): six
+// checkboxes drive host.setLayers (display-only gates — hiding a layer never
+// affects targeting, ops, or bakes), and beside them the void-cast toggle (the
+// X-ray) plus the slice enable + Y slider (host.setSlice — display + targeting,
+// never the field). Pure presentation — the panel owns the state and every host
+// call.
+//
+// The void toggle rides in FieldLayers but is deliberately NOT in the LAYERS
+// group below: those six are free display gates over state that already exists,
+// while ticking void RUNS a whole-world job that can refuse (chunk budget) and
+// that the next edit throws away. Same widget, different kind — so it sits with
+// the other view mode rather than inside a group aria-labelled "layer
+// visibility". Blender draws the same line: outliner visibility columns are one
+// thing, the X-ray overlay toggle is another.
 import type { FieldLayers } from "../../../viewport-host/index.ts"; // type-only: erased
 
-const LAYERS: { key: keyof FieldLayers; label: string; title: string }[] = [
+const VOID_CAST_TITLE =
+	"X-ray: meshes the air as a solid, so a cave network reads from outside. Built when you tick it; the next edit clears it — re-tick to refresh";
+
+// The exclusion above, made machine-checked: putting `voidCast` in the group
+// stops compiling rather than quietly shipping an expensive toggle dressed as a
+// free one (and rendering it twice).
+type VisibilityLayer = Exclude<keyof FieldLayers, "voidCast">;
+
+const LAYERS: { key: VisibilityLayer; label: string; title: string }[] = [
 	{ key: "field", label: "field", title: "the per-class surface meshes" },
 	{ key: "kit", label: "kit", title: "the instanced kit pieces" },
 	{
@@ -77,6 +94,17 @@ export function LayersRow(props: {
 					);
 				})}
 			</span>
+			<label className={LABEL_CLASS} title={VOID_CAST_TITLE}>
+				<input
+					type="checkbox"
+					checked={props.layers.voidCast}
+					onChange={(e) =>
+						props.onLayers({ ...props.layers, voidCast: e.target.checked })
+					}
+					aria-label="void cast"
+				/>
+				void
+			</label>
 			<label className={LABEL_CLASS}>
 				<input
 					type="checkbox"

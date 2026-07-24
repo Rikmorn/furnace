@@ -864,6 +864,28 @@ test("the slice checkbox and slider drive host.setSlice(y | null)", async () => 
 	expect(stub.calls.setSlice.mock.calls.at(-1)?.[0]).toBe(null); // off
 });
 
+test("the void checkbox drives host.setLayers(voidCast) and leaves the other layers alone", async () => {
+	fetch404();
+	const stub = makeStubHost();
+	await renderPanel(stub);
+	fireEvent.click(screen.getByLabelText("void cast"));
+	expect(stub.calls.setLayers.mock.calls.at(-1)?.[0]).toEqual({
+		field: true,
+		kit: true,
+		props: true,
+		ghost: true,
+		selection: true,
+		grid: true,
+		voidCast: true,
+	});
+	// Off again — the host reads the false→true EDGE, so a panel that only ever
+	// sent `true` would leave the X-ray unbuildable after its first edit.
+	fireEvent.click(screen.getByLabelText("void cast"));
+	expect(stub.calls.setLayers.mock.calls.at(-1)?.[0]).toMatchObject({
+		voidCast: false,
+	});
+});
+
 // --- (h) selection footer ---------------------------------------------------
 
 test("the footer shows the selection count + the truncation warning; Clear reaches the host", async () => {

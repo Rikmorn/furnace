@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { FieldStore, MaterialTable } from "@furnace/core/field";
 import {
+  AIR,
   applyOp,
   CHUNK_SAMPLES,
   chunkKey,
@@ -19,7 +20,10 @@ import type {
   FieldWorkerResponse,
   WireBucket,
 } from "../src/frontend/lib/field-protocol.ts";
-import { createFieldWorkerHandler } from "../src/frontend/lib/field-protocol.ts";
+import {
+  createFieldWorkerHandler,
+  VOID_CAST_ERROR_KEY,
+} from "../src/frontend/lib/field-protocol.ts";
 
 // 3-class fixture: rock (id0 organic), dirt (id1 organic), masonry (id2 kit).
 // A kit class makes the skinner emit + the mesher split off a backing bucket —
@@ -565,5 +569,238 @@ describe("field worker protocol", () => {
     const flat = (buckets: WireBucket[]) =>
       buckets.flatMap((b) => [...new Float32Array(b.positions)]);
     expect(flat(wire.buckets)).not.toEqual(flat(bare.buckets));
+  });
+});
+
+// --- void cast (D-F3-15) ----------------------------------------------------
+
+/** Signed volume of a closed indexed mesh (divergence theorem, m³). Its SIGN is
+ *  the winding: positive when the triangles wind outward around the volume they
+ *  enclose, negative when they wind inward. That is exactly what the cast flips
+ *  — the field meshes a cavity's shell facing INTO the air, the cast meshes the
+ *  same shell facing out of the solid it casts. */
+function signedVolume(b: WireBucket): number {
+  const p = new Float32Array(b.positions);
+  const idx = new Uint32Array(b.indices);
+  let v = 0;
+  for (let i = 0; i < idx.length; i += 3) {
+    const a = (idx[i] as number) * 3;
+    const c = (idx[i + 1] as number) * 3;
+    const d = (idx[i + 2] as number) * 3;
+    const ax = p[a] as number;
+    const ay = p[a + 1] as number;
+    const az = p[a + 2] as number;
+    const bx = p[c] as number;
+    const by = p[c + 1] as number;
+    const bz = p[c + 2] as number;
+    const cx = p[d] as number;
+    const cy = p[d + 1] as number;
+    const cz = p[d + 2] as number;
+    v +=
+      (ax * (by * cz - bz * cy) -
+        ay * (bx * cz - bz * cx) +
+        az * (bx * cy - by * cx)) /
+      6;
+  }
+  return v;
+}
+
+/** Position key → normal, for comparing two meshings of the same isosurface.
+ *  Keyed by position because `compactBucket` renumbers vertices by first use in
+ *  the index list, and the cast's flipped winding visits them in a different
+ *  order — the vertex ARRAYS are permutations of each other, not copies. */
+function normalsByPosition(b: WireBucket): Map<string, number[]> {
+  const p = new Float32Array(b.positions);
+  const n = new Float32Array(b.normals);
+  const out = new Map<string, number[]>();
+  for (let i = 0; i < p.length; i += 3)
+    out.set(`${p[i]},${p[i + 1]},${p[i + 2]}`, [
+      n[i] as number,
+      n[i + 1] as number,
+      n[i + 2] as number,
+    ]);
+  return out;
+}
+
+/** Runs a void cast over every chunk of a store (density COPIED, as the host
+ *  copies before the client transfers). */
+function runVoidCast(
+  s: FieldStore,
+): Extract<FieldWorkerResponse, { kind: "void-casted" }> {
+  const posts = runHandler({
+    kind: "void-cast",
+    jobId: 7,
+    chunks: [...s.chunks].map(([key, density]) => ({
+      key,
+      density: density.slice().buffer as ArrayBuffer,
+    })),
+    cellSize: s.cellSize,
+  });
+  const msg = (posts[0] as (typeof posts)[0]).msg;
+  if (msg.kind !== "void-casted")
+    throw new Error(`expected void-casted, got ${msg.kind}`);
+  return msg;
+}
+
+/** The single bucket of a single-chunk cast (a dug-only store writes no
+ *  materials, so every sample is MAT_ROCK and the mesher emits one bucket). */
+function onlyBucket(
+  res: Extract<FieldWorkerResponse, { kind: "void-casted" }>,
+): WireBucket {
+  expect(res.chunks.length).toBe(1);
+  const chunk = res.chunks[0] as (typeof res.chunks)[0];
+  expect(chunk.buckets.length).toBe(1);
+  return chunk.buckets[0] as WireBucket;
+}
+
+/** A 2.4 m sphere dug at (2,2,2) — entirely inside chunk (0,0,0), so its shell
+ *  is closed and every crossing is owned by that one chunk. */
+function pocketFixture(): FieldStore {
+  const s = createFieldStore();
+  applyOp(
+    s,
+    {
+      id: 1,
+      kind: "brush",
+      effect: "dig",
+      shape: { kind: "sphere", center: [2, 2, 2], radius: 1.2 },
+    },
+    TABLE,
+  );
+  return s;
+}
+
+describe("void cast", () => {
+  test("casts the SAME isosurface as the field mesh, inside out", () => {
+    const s = pocketFixture();
+    const key = chunkKey(0, 0, 0);
+    expect([...s.chunks.keys()]).toEqual([key]);
+    const aprons = extractFieldAprons(s, key);
+    const meshed = runHandler({
+      kind: "mesh",
+      jobId: 6,
+      key,
+      density: aprons.density.buffer as ArrayBuffer,
+      materials: aprons.materials.buffer as ArrayBuffer,
+      table: TABLE,
+      cellSize: s.cellSize,
+    })[0]?.msg;
+    if (meshed?.kind !== "meshed") throw new Error("expected meshed");
+    const real = meshed.buckets[0] as WireBucket;
+    const cast = onlyBucket(runVoidCast(s));
+
+    // Same surface, vertex for vertex: negating density leaves the crossing
+    // interpolant t = da/(da−db) unchanged, so the cast places its vertices at
+    // exactly the field's positions.
+    const realNormals = normalsByPosition(real);
+    const castNormals = normalsByPosition(cast);
+    expect(castNormals.size).toBe(realNormals.size);
+    expect(new Uint32Array(cast.indices).length).toBe(
+      new Uint32Array(real.indices).length,
+    );
+    for (const [pos, n] of realNormals) {
+      const c = castNormals.get(pos);
+      expect(c).toBeDefined();
+      if (c === undefined) continue;
+      // Inside out: the gradient negates with the field, so every normal does.
+      for (let i = 0; i < 3; i++)
+        expect(c[i] as number).toBeCloseTo(-(n[i] as number), 6);
+    }
+    // ...and the winding flips with it, which is what makes the cast read as a
+    // SOLID from outside rather than as the cavity's inner wall. The magnitude
+    // is the dug pocket's own volume (4/3·π·1.2³ ≈ 7.24 m³, Surface Nets a
+    // little under).
+    const realVolume = signedVolume(real);
+    expect(realVolume).toBeLessThan(-6);
+    expect(realVolume).toBeGreaterThan(-7.24);
+    expect(signedVolume(cast)).toBeCloseTo(-realVolume, 5);
+  });
+
+  test("caps against UNALLOCATED space: an all-air chunk still casts", () => {
+    // The transform's load-bearing detail. Unallocated space is uniform SOLID,
+    // so a cast that inverted the STORE (absent chunk → cast-solid by default)
+    // would find no crossing at this chunk's boundary and return nothing;
+    // inverting the extracted APRON reads the absent neighbours as rock, casts
+    // them as air, and the boundary crossings survive. 1536 = the three
+    // owned faces of a 16³ chunk (256 quads each, 2 triangles a quad).
+    const s = createFieldStore();
+    s.chunks.set(chunkKey(0, 0, 0), new Int8Array(CHUNK_SAMPLES).fill(AIR));
+    const cast = onlyBucket(runVoidCast(s));
+    expect(new Uint32Array(cast.indices).length / 3).toBe(1536);
+  });
+
+  test("a sample of exactly 0 casts solid, not a pinhole", () => {
+    // 0 is AIR to the mesher (`d >= 0`) and −0 is still 0, so a plain negation
+    // would leave a zero-density pocket air on BOTH sides of the transform and
+    // drop every crossing around it. A 4³ block of them is a whole cavity.
+    const s = createFieldStore();
+    const chunk = new Int8Array(CHUNK_SAMPLES).fill(SOLID);
+    for (let z = 6; z < 10; z++)
+      for (let y = 6; y < 10; y++)
+        for (let x = 6; x < 10; x++) chunk[x + 16 * (y + 16 * z)] = 0;
+    s.chunks.set(chunkKey(0, 0, 0), chunk);
+    const cast = onlyBucket(runVoidCast(s));
+    // The 4³ pocket's shell: 6 faces × 4×4 quads × 2 triangles.
+    expect(new Uint32Array(cast.indices).length / 3).toBe(192);
+    expect(signedVolume(cast)).toBeGreaterThan(0);
+  });
+
+  test("an out-of-range −128 sample casts air, not phantom geometry", () => {
+    // Below SOLID, so nothing in core writes it — but a decoded chunk file can
+    // carry it, and `-(−128)` wraps back to −128 in an Int8Array. Uncorrected,
+    // a block of them would be solid in the field AND solid in its own cast:
+    // an X-ray blob standing inside rock the user cannot dig.
+    const s = createFieldStore();
+    const chunk = new Int8Array(CHUNK_SAMPLES).fill(SOLID);
+    for (let z = 6; z < 10; z++)
+      for (let y = 6; y < 10; y++)
+        for (let x = 6; x < 10; x++) chunk[x + 16 * (y + 16 * z)] = -128;
+    s.chunks.set(chunkKey(0, 0, 0), chunk);
+    expect(runVoidCast(s).chunks).toEqual([]);
+  });
+
+  test("chunks that cast nothing are omitted, and buffers are transferred", () => {
+    const solid = createFieldStore();
+    solid.chunks.set(
+      chunkKey(0, 0, 0),
+      new Int8Array(CHUNK_SAMPLES).fill(SOLID),
+    );
+    expect(runVoidCast(solid).chunks).toEqual([]);
+
+    const posts = runHandler({
+      kind: "void-cast",
+      jobId: 8,
+      chunks: [...pocketFixture().chunks].map(([key, density]) => ({
+        key,
+        density: density.slice().buffer as ArrayBuffer,
+      })),
+      cellSize: 0.25,
+    });
+    const post = posts[0] as (typeof posts)[0];
+    if (post.msg.kind !== "void-casted")
+      throw new Error("expected void-casted");
+    const buffers = post.msg.chunks.flatMap((c) =>
+      c.buckets.flatMap((b) => [b.positions, b.normals, b.uvs, b.indices]),
+    );
+    expect(buffers.length).toBeGreaterThan(0);
+    expect(post.transfer).toEqual(buffers);
+  });
+
+  test("a malformed cast chunk errors under the void-cast key sentinel", () => {
+    const posts = runHandler({
+      kind: "void-cast",
+      jobId: 9,
+      // Four samples where a chunk should be. Nothing downstream would catch
+      // it — the store reads past a short chunk as unallocated rock and hands
+      // the mesher a well-formed apron — so the handler's own length check is
+      // what turns a protocol bug into a typed error instead of a wrong X-ray.
+      chunks: [{ key: chunkKey(0, 0, 0), density: new ArrayBuffer(4) }],
+      cellSize: 0.25,
+    });
+    const msg = (posts[0] as (typeof posts)[0]).msg;
+    expect(msg.kind).toBe("mesh-error");
+    if (msg.kind !== "mesh-error") return;
+    expect(msg.key).toBe(VOID_CAST_ERROR_KEY);
+    expect(msg.jobId).toBe(9);
   });
 });

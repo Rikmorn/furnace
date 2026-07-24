@@ -76,6 +76,9 @@ const DEFAULT_LAYERS: FieldLayers = {
 	ghost: true,
 	selection: true,
 	grid: true,
+	// The one default-off flag: ticking it runs a whole-world cast job, so the
+	// X-ray is opt-in (mirrors the host's own default).
+	voidCast: false,
 };
 
 // Slice defaults: OFF, plane parked at 8 m — mid-range of the slider (LayersRow

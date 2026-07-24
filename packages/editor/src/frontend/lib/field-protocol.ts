@@ -1,5 +1,6 @@
 // Field worker protocol: chunk remesh (with an optional display-side slice
-// clip) + stamp ghost preview on a scratch store. Unlike the generation worker,
+// clip), stamp ghost preview on a scratch store, and the void cast (the same
+// scratch pattern with an INVERTED density). Unlike the generation worker,
 // this worker runs ENGINE code (@furnace/core/field) — it does not load the
 // project's /engine.js bundle and has no extension surface. The handler is a
 // PURE factory over an injected `post` so the protocol is unit-testable without
@@ -19,7 +20,9 @@ import {
   AIR,
   applyOp,
   applyPatchOp,
+  BUILTIN_TABLE,
   CHUNK_DIM,
+  CHUNK_SAMPLES,
   chunkKey,
   createFieldStore,
   extractFieldAprons,
@@ -69,6 +72,23 @@ export type FieldWorkerRequest =
         density: ArrayBuffer;
         materials: ChunkMaterials | null;
       }[];
+    }
+  /** The void cast (D-F3-15): mesh the field's NEGATIVE space, so a cave
+   *  network reads as a solid from outside. No material channel and no table
+   *  on purpose — the cast is SHAPE only: the scratch store carries no
+   *  materials, so every apron sample reads {@link MAT_ROCK} (class 0, organic
+   *  in every valid table) and the mesher returns exactly ONE non-backing
+   *  bucket per chunk, which the host draws with its single void material. */
+  | {
+      kind: "void-cast";
+      jobId: number;
+      /** Snapshot of EVERY allocated chunk, density buffers transferred. No
+       *  separate halo term and no completeness caveat: "every allocated chunk"
+       *  IS the halo. What the snapshot omits is unallocated, and the scratch
+       *  store reads exactly that as uniform solid — the same thing the real
+       *  field holds there. */
+      chunks: { key: string; density: ArrayBuffer }[];
+      cellSize: number;
     };
 
 /** One per-class mesh bucket over the wire: the {@link MeshBucket}'s ChunkMesh
@@ -82,8 +102,10 @@ export type WireBucket = {
   indices: ArrayBuffer;
 };
 
-/** For a failed `stamp-preview` job, `mesh-error.key` carries the request's
- *  GENERATOR ID (a stamp has no chunk key) — the documented sentinel. */
+/** `mesh-error.key` carries the failed job's chunk key. The two requests that
+ *  have no single chunk key carry a documented sentinel instead: a
+ *  `stamp-preview` carries its GENERATOR ID, a `void-cast` the literal
+ *  {@link VOID_CAST_ERROR_KEY}. */
 export type FieldWorkerResponse =
   | {
       kind: "meshed";
@@ -104,7 +126,19 @@ export type FieldWorkerResponse =
        *  into the session's `placementCount`. */
       placements: PlacementRecord[];
     }
+  | {
+      kind: "void-casted";
+      jobId: number;
+      /** One entry per chunk whose INVERTED density meshed to something —
+       *  chunks that cast nothing (uniform rock, or uniform air with no
+       *  allocated neighbour to cap against) are omitted, not sent empty. */
+      chunks: { key: string; buckets: WireBucket[] }[];
+    }
   | { kind: "mesh-error"; jobId: number; key: string; message: string };
+
+/** The `mesh-error.key` sentinel for a failed `void-cast` job (which spans
+ *  every chunk, so no single key describes it). */
+export const VOID_CAST_ERROR_KEY = "void-cast";
 
 type Post = (msg: FieldWorkerResponse, transfer: Transferable[]) => void;
 
@@ -150,6 +184,75 @@ function sliceAprons(
       }
   }
   return { density, materials };
+}
+
+/** Returns a COPIED density channel with the mesher's air/rock partition
+ *  INVERTED — air becomes rock and rock becomes air, so meshing the result
+ *  casts the void. Copies, never in-place, for the {@link sliceAprons} reason
+ *  (the pure handler also runs in-realm).
+ *
+ *  Negation carries the partition (the mesher reads `d >= 0` as air) with ONE
+ *  exception: a sample of exactly 0 is air, and `-0` is still 0, so plain
+ *  negation would leave it air on BOTH sides and drop the crossings around it —
+ *  a pinhole through an otherwise closed cast. Those map to −1, the smallest
+ *  cast-solid value, which inverts the partition exactly.
+ *
+ *  Inside the store's own `[SOLID, AIR]` range negation is symmetric (±127) and
+ *  needs no clamp. The clamp is for what the range does NOT cover: int8 reaches
+ *  −128, which nothing in core WRITES (`clampInt8` floors at SOLID) but a
+ *  decoded chunk file can still carry, and `-(−128)` wraps back to −128 — a
+ *  sample that is solid in the field AND solid in its cast, casting phantom
+ *  geometry through rock. {@link AIR} is where it belongs. */
+function invertDensity(density: Int8Array): Int8Array {
+  const out = new Int8Array(density.length);
+  for (let i = 0; i < density.length; i++) {
+    const d = density[i] as number;
+    out[i] = d === 0 ? -1 : Math.min(AIR, -d);
+  }
+  return out;
+}
+
+function handleVoidCast(
+  msg: Extract<FieldWorkerRequest, { kind: "void-cast" }>,
+  post: Post,
+): void {
+  const store = createFieldStore(msg.cellSize);
+  // Snapshot install, the handleStampPreview contract: views over the request's
+  // buffers, which the caller relinquished (production transfers them). Length
+  // is checked here rather than left to the mesher's apron guard, which cannot
+  // see it: a short chunk still EXTRACTS to a well-formed 20³ apron (the store
+  // reads past it as unallocated rock), so the cast would come back
+  // plausible-looking and quietly wrong instead of failing.
+  for (const c of msg.chunks) {
+    const density = new Int8Array(c.density);
+    if (density.length !== CHUNK_SAMPLES)
+      throw new Error(
+        `void-cast: chunk ${c.key} must be ${CHUNK_SAMPLES} samples (16³), got ${density.length}`,
+      );
+    store.chunks.set(c.key, density);
+  }
+  const chunks: { key: string; buckets: WireBucket[] }[] = [];
+  const transfer: Transferable[] = [];
+  for (const key of store.chunks.keys()) {
+    const aprons = extractFieldAprons(store, key);
+    // Invert AFTER extraction, never the store before it: the apron's outer
+    // ring reads UNALLOCATED space as SOLID, which is what the real field holds
+    // there, so inverting the extracted window is the honest transform. Invert
+    // the store's own chunks instead and that ring stays solid-by-default —
+    // i.e. reads as cast-solid — and the cast runs open past every allocated
+    // boundary instead of capping against the rock outside it.
+    const buckets = toWireBuckets(
+      meshChunkField(
+        { density: invertDensity(aprons.density), materials: aprons.materials },
+        BUILTIN_TABLE,
+        msg.cellSize,
+      ).buckets,
+    );
+    if (buckets.length === 0) continue;
+    transfer.push(...bucketTransfer(buckets));
+    chunks.push({ key, buckets });
+  }
+  post({ kind: "void-casted", jobId: msg.jobId, chunks }, transfer);
 }
 
 function handleMesh(
@@ -249,6 +352,20 @@ function handleStampPreview(
   );
 }
 
+// The failing request's `mesh-error.key`. Exhaustive by construction: a new
+// request kind with no case leaves a `string | undefined` return the declared
+// type rejects.
+function errorKey(msg: FieldWorkerRequest): string {
+  switch (msg.kind) {
+    case "mesh":
+      return msg.key;
+    case "stamp-preview":
+      return msg.generator;
+    case "void-cast":
+      return VOID_CAST_ERROR_KEY;
+  }
+}
+
 /** Pure handler factory (worker entry wires post = self.postMessage). Never
  *  throws — every failure posts a typed mesh-error message (a worker-side
  *  throw would surface as a generic ErrorEvent with no jobId). */
@@ -257,14 +374,17 @@ export function createFieldWorkerHandler(post: Post) {
     try {
       if (msg.kind === "mesh") handleMesh(msg, post);
       else if (msg.kind === "stamp-preview") handleStampPreview(msg, post);
+      else handleVoidCast(msg, post);
     } catch (err) {
       // A malformed apron (mesher/skinner length guard), an unknown class
       // (classOf throw), or a generator lookup/param/evaluate failure surfaces
-      // here as a typed, jobId-carrying error. Stamp errors have no chunk key:
-      // the generator id is the key sentinel (see FieldWorkerResponse).
+      // here as a typed, jobId-carrying error, under the request's key or its
+      // documented sentinel (see FieldWorkerResponse).
       const message = err instanceof Error ? err.message : String(err);
-      const key = msg.kind === "mesh" ? msg.key : msg.generator;
-      post({ kind: "mesh-error", jobId: msg.jobId, key, message }, []);
+      post(
+        { kind: "mesh-error", jobId: msg.jobId, key: errorKey(msg), message },
+        [],
+      );
     }
   };
 }
