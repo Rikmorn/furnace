@@ -40,7 +40,6 @@ import {
   generatorFootprint,
   sphereGhostSegments,
 } from "./field-ghost.ts";
-import { packKitMatrices, pieceColor } from "./field-kit-render.ts";
 import {
   createPreviewCoalescer,
   type StampSession,
@@ -988,20 +987,16 @@ export function createFieldHost(): FieldHost {
 
   // Build one chunk's instanced kit mesh: a unit cube drawn once per piece, each
   // transformed by its (yaw · box) matrix at its world position, tinted per piece.
-  // Matrix packing + tinting live in field-kit-render.ts; only GPU calls here.
+  // Matrix packing + tinting live in @furnace/core/field kit-render; only GPU
+  // calls here. The unit-cube + quarter-turn no-normal-matrix invariant that
+  // makes litInstanced safe is documented on `packKitMatrices` — do NOT swap to
+  // non-axis-aligned kit geometry (it would skew normals with no test to catch).
   const buildKit = (
     c: Context,
     key: string,
     kit: field.KitInstance[],
   ): { im: mesh.InstancedMesh; g: geometry.Geometry } | null => {
     if (kit.length === 0) return null;
-    // Safe under litInstanced's no-normal-matrix shortcut (it reconstructs the
-    // world normal from the upper 3×3 with no inverse-transpose) ONLY because
-    // this is an axis-aligned unit cube + quarter-turn yaw: a per-axis-scaled
-    // face normal still normalize()s back to its correct outward direction. Do
-    // NOT swap to non-axis-aligned kit geometry (beveled/rounded/cylindrical) —
-    // non-uniform per-instance scale would skew its normals with no compiler
-    // error and no test to catch it (GPU-visual only).
     const g = geometry.cube(c, { size: 1 });
     const im = mesh.createInstanced(c, {
       geometry: g,
@@ -1013,9 +1008,11 @@ export function createFieldHost(): FieldHost {
     mesh.setInstanceMatrices(
       c,
       im,
-      packKitMatrices(kit, [cx * dim, cy * dim, cz * dim]),
+      field.packKitMatrices(kit, [cx * dim, cy * dim, cz * dim]),
     );
-    kit.forEach((k, i) => mesh.setInstanceTint(c, im, i, pieceColor(table, k)));
+    kit.forEach((k, i) =>
+      mesh.setInstanceTint(c, im, i, field.pieceColor(table, k)),
+    );
     return { im, g };
   };
 

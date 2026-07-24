@@ -17,7 +17,6 @@ import type { Material } from "@furnace/core/material";
 import * as mesh from "@furnace/core/mesh";
 import * as physics from "@furnace/core/physics";
 import { decodeMeshBlob } from "@furnace/core/scene";
-import { mat4 } from "@furnace/core/transform";
 import type { MaterialCache } from "./realize.ts";
 import type { MaterialDescriptor } from "./region.ts";
 import type { LoadedWorld } from "./world-loader.ts";
@@ -43,67 +42,6 @@ const STONE: MaterialDescriptor = {
   color: [0.62, 0.6, 0.58, 1],
   specular: [0.06, 0.06, 0.06, 16],
 };
-
-// --- kit render math (PORTED from the editor field-host, viewport-host/field-host.ts) ----------
-// The dungeon must render kit pieces exactly as the editor previews them, so the tint + yaw math
-// is reproduced here byte-for-byte rather than imported (cross-package). NOTE: this is now the
-// SECOND occurrence of this math (host + loader); a third would earn a shared @furnace/core/field
-// kit-render helper — flagged for the planning session, deliberately not extracted here.
-
-// Per-piece tint jitter (deterministic from the instance variant): scale RGB by
-// KIT_TINT_JITTER_BASE + KIT_TINT_JITTER_SPAN·variant.
-const KIT_TINT_JITTER_BASE = 0.92;
-const KIT_TINT_JITTER_SPAN = 0.16;
-
-// Exact quarter-turn yaw quaternions (rotation about +Y): (0, sin(θ/2), 0, cos(θ/2)). No trig —
-// kit yaws are always {0, ±π/2, π}.
-const S = Math.SQRT1_2;
-const YAW_ZERO = new Float32Array([0, 0, 0, 1]); // 0°
-const YAW_PLUS_90 = new Float32Array([0, S, 0, S]); // +90°
-const YAW_180 = new Float32Array([0, 1, 0, 0]); // 180°
-const YAW_MINUS_90 = new Float32Array([0, -S, 0, S]); // -90° / 270°
-
-// Kit piece kind → its KitStyle.pieceColors bucket.
-const PIECE_COLOR_KEY: Record<
-  field.KitPieceId,
-  keyof field.KitStyle["pieceColors"]
-> = {
-  panel: "panel",
-  floorTile: "floor",
-  ceilTile: "floor",
-  post: "trim",
-  rimPostV: "collar",
-  rimEdgeH: "collar",
-};
-
-/** Exact yaw quaternion for a quarter-turn rotation about +Y (yaw ∈ {0, ±π/2, π}). */
-function yawQuat(yaw: number): Float32Array {
-  const q = ((Math.round(yaw / (Math.PI / 2)) % 4) + 4) % 4;
-  switch (q) {
-    case 1:
-      return YAW_PLUS_90;
-    case 2:
-      return YAW_180;
-    case 3:
-      return YAW_MINUS_90;
-    default:
-      return YAW_ZERO;
-  }
-}
-
-/** Per-instance tint for a kit piece: the class's KitStyle piece colour, jittered by the instance
- *  variant (RGB only; alpha carried through). Falls back to white for a non-kit class (defensive —
- *  the skinner only emits kit pieces for kit classes). */
-function pieceColor(
-  table: field.MaterialTable,
-  k: field.KitInstance,
-): [number, number, number, number] {
-  const cls = field.classOf(table, k.classId);
-  if (cls.kind !== "kit") return [1, 1, 1, 1];
-  const base = cls.kit.pieceColors[PIECE_COLOR_KEY[k.piece]];
-  const j = KIT_TINT_JITTER_BASE + KIT_TINT_JITTER_SPAN * k.variant;
-  return [base[0] * j, base[1] * j, base[2] * j, base[3]];
-}
 
 /** The render-material descriptor for one manifest mesh bucket. Table ABSENT (F1 bake) → the shared
  *  {@link STONE}. Table present → the entry's class colour: an ORGANIC class contributes its
@@ -296,12 +234,9 @@ function buildKitChunk(
   pieces: field.KitInstance[],
   cellSize: number,
 ): KitOwned {
-  // Safe under litInstanced's no-normal-matrix shortcut (it reconstructs the world normal from
-  // the upper 3×3 with no inverse-transpose) ONLY because this is an axis-aligned unit cube +
-  // quarter-turn yaw: a per-axis-scaled face normal still normalize()s back to its correct
-  // outward direction. Do NOT swap to non-axis-aligned kit geometry (beveled/rounded/cylindrical)
-  // — non-uniform per-instance box scale would skew its normals with no compiler error and no test
-  // to catch it (GPU-visual only). See field-host.ts buildKit, the first copy of this pattern.
+  // The unit-cube + quarter-turn no-normal-matrix invariant that makes
+  // litInstanced safe is documented on core's `packKitMatrices` — do NOT swap to
+  // non-axis-aligned kit geometry (it would skew normals with no test to catch).
   const g = geometry.cube(ctx, { size: 1 });
   const im = mesh.createInstanced(ctx, {
     geometry: g,
@@ -310,26 +245,13 @@ function buildKitChunk(
   });
   const [cx, cy, cz] = field.parseChunkKey(key);
   const dim = field.CHUNK_DIM * cellSize;
-  const ox = cx * dim;
-  const oy = cy * dim;
-  const oz = cz * dim;
-  const packed = new Float32Array(16 * pieces.length);
-  const m = mat4.create();
-  const t = new Float32Array(3);
-  const s = new Float32Array(3);
-  pieces.forEach((k, i) => {
-    t[0] = k.position[0] + ox;
-    t[1] = k.position[1] + oy;
-    t[2] = k.position[2] + oz;
-    s[0] = k.box[0];
-    s[1] = k.box[1];
-    s[2] = k.box[2];
-    mat4.fromRotationTranslationScale(m, yawQuat(k.yaw), t, s);
-    packed.set(m, i * 16);
-  });
-  mesh.setInstanceMatrices(ctx, im, packed);
+  mesh.setInstanceMatrices(
+    ctx,
+    im,
+    field.packKitMatrices(pieces, [cx * dim, cy * dim, cz * dim]),
+  );
   pieces.forEach((k, i) =>
-    mesh.setInstanceTint(ctx, im, i, pieceColor(table, k)),
+    mesh.setInstanceTint(ctx, im, i, field.pieceColor(table, k)),
   );
   return { im, g };
 }

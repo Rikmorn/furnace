@@ -45,6 +45,11 @@ export {
   generatorById,
   MAZE_PITCH_CELLS,
 } from "./generators.ts";
+export {
+  packKitMatrices,
+  packPlacementMatrices,
+  pieceColor,
+} from "./kit-render.ts";
 export type { CompactOptions, LogStats } from "./maintenance.ts";
 export { compactRuns, logStats } from "./maintenance.ts";
 export {
