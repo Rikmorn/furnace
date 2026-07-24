@@ -80,7 +80,18 @@ commitment predates this probe).
 
 **Reference:** `docs/research/2026-07-13-one-field-direction.md` (§3, §5),
 `docs/research/2026-07-14-field-precedent-research.md`,
-`packages/dungeon/src/walkability.ts`, `docs/learnings/jolt-mesh-collision-spike.md`.
+`packages/dungeon/src/walkability.ts`, `docs/learnings/jolt-mesh-collision-spike.md`,
+`docs/research/2026-07-23-f3b-p-f3-1-stepped-floor-probe.md` (the F3b cave stepped-floor
+walk corpus, below).
+
+**F3b P-F3-1 corpus exists (2026-07-23):** the cave generator's stepped-floor capsule
+fuzz-walk probe now lives at `docs/research/2026-07-23-f3b-p-f3-1-stepped-floor-probe.md` —
+a 12-config matrix (3 themes × 2 verticality × 2 seeds) walking the real `CharacterMover`
+over baked cave voxel colliders, classifying any failure into
+wedge/ghost-launch/fall-through/blocked/too-steep. Harness (regenerates the report):
+`packages/dungeon/tests/field-cave-walk.gpu.test.ts`. First run: every lane walked
+(48/48 passage, 12/12 composite) — the strong-envelope outcome, no failure classes to
+route. Feeds this analyzer's corpus as the cave-side known-good set.
 
 **F0 VERDICT (2026-07-15):** The hybrid records ZERO false-negative misses on the
 known-bad corpus (every fixture that traps the real mover is flagged by stage 1 and
