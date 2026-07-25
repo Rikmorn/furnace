@@ -261,7 +261,19 @@ export function FieldPanel() {
 	// The last reconfigure's drift report (null = clean / none). Non-modal: it
 	// renders (via DriftReport) only while findings exist.
 	const [drift, setDrift] = useState<DriftFinding[] | null>(null);
-	const [status, setStatus] = useState("dig into the rock, then Save");
+	// The one footer status line, toned: host REFUSALS (subscribeToolError) wear
+	// the destructive tone so they are seen — the F3b gate found the void-cast
+	// budget refusal and scatter's "select a region first" both landing here
+	// indistinguishably from info, reading as dead features. A subsequent plain
+	// status resets the tone (errors are loud, not sticky).
+	const [status, setStatusLine] = useState<{
+		text: string;
+		tone: "info" | "error";
+	}>({ text: "dig into the rock, then Save", tone: "info" });
+	const setStatus = useCallback(
+		(text: string) => setStatusLine({ text, tone: "info" }),
+		[],
+	);
 
 	// Run-once init (the Viewport idiom): grab the canvas once the engine is ready and the
 	// App-owned host exists. Deferred to the first nonzero canvas measure (initWhenSized)
@@ -279,7 +291,10 @@ export function FieldPanel() {
 		initialized.current = true;
 		return initWhenSized(canvas, () => {
 			host.init(canvas).catch((err) => {
-				setStatus(`field host init failed: ${errorMessage(err)}`);
+				setStatusLine({
+					text: `field host init failed: ${errorMessage(err)}`,
+					tone: "error",
+				});
 			});
 		});
 	}, [state.status, fieldHostRef]);
@@ -385,7 +400,9 @@ export function FieldPanel() {
 	useEffect(() => {
 		const host = fieldHostRef.current;
 		if (!host || state.status !== "ready") return;
-		return host.subscribeToolError(setStatus);
+		return host.subscribeToolError((text) =>
+			setStatusLine({ text, tone: "error" }),
+		);
 	}, [state.status, fieldHostRef]);
 
 	// Live chunk / remesh-time / op-cost readout. The host fires this every rAF; the
@@ -682,7 +699,12 @@ export function FieldPanel() {
 						Reselect
 					</Button>
 				</span>
-				<span aria-live="polite">{status}</span>
+				<span
+					aria-live="polite"
+					className={status.tone === "error" ? "text-destructive" : undefined}
+				>
+					{status.text}
+				</span>
 			</div>
 		</div>
 	);

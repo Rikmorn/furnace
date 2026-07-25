@@ -323,6 +323,7 @@ function makeStubHost(opts: { generators?: FieldGeneratorInfo[] } = {}) {
 			/** The entity-list change TICK (the real host's only entity signal). */
 			entities: () => cbs.entities?.(),
 			drift: (r: DriftFinding[] | null) => cbs.drift?.(r),
+			toolError: (msg: string) => cbs.toolError?.(msg),
 		},
 		setEntities: (next: FieldEntityInfo[]) => {
 			entities = next;
@@ -1148,4 +1149,26 @@ test("Segment arms the gesture slot, keeps the brush inspector, and survives an 
 			.getByRole("button", { name: "Segment" })
 			.getAttribute("aria-pressed"),
 	).toBe("true");
+});
+
+// --- tool-error visibility (F3b gate round 1) --------------------------------
+// The host's refusals (void-cast budget, "select a region first") all land on
+// the one footer status line; rendered indistinguishably from info they read as
+// dead features — both gate findings traced here. Errors wear the destructive
+// tone; a plain status resets it.
+
+test("a tool error renders in the destructive tone; the default status does not", async () => {
+	stubCatalogs({ materials: CATALOG_JSON });
+	const stub = makeStubHost();
+	await renderPanel(stub);
+	// The toolbar's catalog fetch lands during render and posts an INFO status
+	// ("materials: 2 classes") through the same line — it must NOT wear the tone.
+	const line = document.querySelector("span[aria-live]");
+	expect(line?.textContent).toContain("materials: 2 classes");
+	expect(line?.className ?? "").not.toContain("text-destructive");
+	act(() => {
+		stub.fire.toolError("select a region first");
+	});
+	const err = screen.getByText("select a region first");
+	expect(err.className).toContain("text-destructive");
 });
