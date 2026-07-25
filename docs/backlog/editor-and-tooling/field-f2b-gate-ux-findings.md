@@ -38,7 +38,7 @@ the standing editor-UX debt: `world-panel-w3-gate-ux-findings.md` +
    `FieldHost.undo()` / `.redo()` exist for exactly this fix — a panel affordance (or
    whatever refocus/lift approach wins) should call them rather than re-deriving the
    step. They have no production caller until then, deliberately, in the same sense as
-   `generation-cancel-has-no-caller.md`.
+   `editor-chrome-authoring-gaps.md` § *`GenerationWorkerClient.cancel()` has no production caller*.
 
 **→ F3 (placement pain — mostly already-chartered features):**
 
@@ -49,7 +49,7 @@ the standing editor-UX debt: `world-panel-w3-gate-ux-findings.md` +
    the entity highlight boxes the stamped FOOTPRINT rather than the recorded region.
    The two-point tunnel brush shipped in F3b (spec D-F3-14) as the `segment`
    gesture; only its box cross-section stayed deferred
-   (`field-segment-box-cross-section.md`).
+   (`field-tool-follow-ons.md` § *Segment brush: a BOX cross-section*).
 
 8. **Esc does not cancel a pending BOX-select anchor** — surfaced while wiring the
    segment brush's own Esc (F3b Task 13, 2026-07-25), which DOES drop its pending

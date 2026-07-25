@@ -3,7 +3,7 @@
 > Narrowed at the W4 sweep (2026-07-13). Of the 3.1 + 3.2.2 gate findings: the 3.2.3
 > hardening resolved the knob/blocking/envelope/cancel set (history in the seal-log);
 > ③ preview-takes-over-the-viewport has its own entry
-> (`generation-preview-own-panel.md`); ⑤a/⑤b (gizmos, resource live-preview) are
+> (`editor-seams-and-preview-deferrals.md` § *Generation preview should be its own dockview panel*); ⑤a/⑤b (gizmos, resource live-preview) are
 > tracked in `editor-interaction-model-redesign.md` + `editor-M5B-viewport-interaction.md`.
 
 **④ (open).** The 3.1 gate moved the fog toggle INTO the viewport as a show-flag on

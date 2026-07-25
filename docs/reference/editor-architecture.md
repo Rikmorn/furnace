@@ -407,11 +407,11 @@ The editor renders whatever the consumer's `@furnace/core` scene loader produces
 
 **Physics-from-data.** A `rigidBody` component instantiates against a lazily-created physics world; when an entity has both `rigidBody` and `meshRenderer`, the `meshRenderer` **defers** (returns no mesh) and the `rigidBody` builds a **rigidMesh composite** that owns the mesh and binds its transform to the body. The world and bodies are fully **instantiated but NOT stepped** — there is no fixed-step loop in the loader. **Driving the simulation is the consumer's game-loop concern** (the loader instantiates the world + bodies; a consumer fixed-step loop would call `world.step`). So a loaded physics scene shows the bodies at their authored rest pose; it does not simulate.
 
-**Viewport-host render path — lights + ambient on, post deferred.** `renderLoaded` (`packages/editor/src/viewport-host/index.ts`) passes the loaded scene's `lights` and `ambient` to `frame.render` — these don't depend on the context's HDR state, so the editor shows the real lit scene (the lit-viewport payoff). It passes **`effects: []`** — the post chain is deferred. The host's GPU context is **non-HDR** (`init()` requests the default `hdr: false`). The relevant `frame.render` contract (`packages/core/src/frame/render.ts`) throws **only** when `hdr === true` **and** the effect chain is **empty** (an `rgba16float` scene target with no pass to reach the LDR swap chain); a non-HDR context with effects does **not** throw. So the deferral is about **fidelity, not a crash**: a scene's post chain (`bloom → tonemap`) is authored for the consumer's HDR pipeline, where tonemap maps `rgba16float → LDR`; running that HDR-authored chain against the editor's LDR scene target would produce wrong output rather than the real preview. Post-preview lands when the editor viewport gains an HDR context (tracked in `docs/backlog/editor-and-tooling/editor-viewport-hdr-context-and-post-preview.md`). Note that authoring textures/effects resources via the editor's `scene.setResource` command is not yet wired — its `tableEnum` still covers only `geometries | shaders | materials` (§4); the new tables are loadable and validatable but not yet command-mutable.
+**Viewport-host render path — lights + ambient on, post deferred.** `renderLoaded` (`packages/editor/src/viewport-host/index.ts`) passes the loaded scene's `lights` and `ambient` to `frame.render` — these don't depend on the context's HDR state, so the editor shows the real lit scene (the lit-viewport payoff). It passes **`effects: []`** — the post chain is deferred. The host's GPU context is **non-HDR** (`init()` requests the default `hdr: false`). The relevant `frame.render` contract (`packages/core/src/frame/render.ts`) throws **only** when `hdr === true` **and** the effect chain is **empty** (an `rgba16float` scene target with no pass to reach the LDR swap chain); a non-HDR context with effects does **not** throw. So the deferral is about **fidelity, not a crash**: a scene's post chain (`bloom → tonemap`) is authored for the consumer's HDR pipeline, where tonemap maps `rgba16float → LDR`; running that HDR-authored chain against the editor's LDR scene target would produce wrong output rather than the real preview. Post-preview lands when the editor viewport gains an HDR context (tracked in `docs/backlog/editor-and-tooling/editor-seams-and-preview-deferrals.md` § *Editor viewport HDR context + post-chain preview*). Note that authoring textures/effects resources via the editor's `scene.setResource` command is not yet wired — its `tableEnum` still covers only `geometries | shaders | materials` (§4); the new tables are loadable and validatable but not yet command-mutable.
 
 ## 13. Slice 3.1 — the generation cockpit (Epic 3)
 
-Slice 3.1 ("the Loop") makes the editor **generate, preview, curate, and bake** procedural world content — while keeping the editor engine-free. The consumer's generator arrives through the engine bundle's `extensions` namespace (§3a) and is driven by a dockview **World panel** (§13.4); the daemon carries **zero** generator knowledge (the bake path uploads a browser-produced file set — the Decision in §13.3). The build is dungeon-first (the generator is `packages/dungeon/src/editor-extensions.ts`), but nothing in the editor knows that — the seam is generic (see `docs/backlog/editor-and-tooling/generation-session-editor-facility.md` for the plan to make the session a per-project editor facility).
+Slice 3.1 ("the Loop") makes the editor **generate, preview, curate, and bake** procedural world content — while keeping the editor engine-free. The consumer's generator arrives through the engine bundle's `extensions` namespace (§3a) and is driven by a dockview **World panel** (§13.4); the daemon carries **zero** generator knowledge (the bake path uploads a browser-produced file set — the Decision in §13.3). The build is dungeon-first (the generator is `packages/dungeon/src/editor-extensions.ts`), but nothing in the editor knows that — the seam is generic (see `docs/backlog/editor-and-tooling/editor-seams-and-preview-deferrals.md` § *Generation session as a generic editor facility* for the plan to make the session a per-project editor facility).
 
 ### 13.1 Preview host — `src/viewport-host/preview-host.ts`
 
@@ -554,7 +554,7 @@ Component sections are collapsible (`CollapsibleSection`); resources default col
 
 ### 14.6 Selection color single-source + test harness
 
-The viewport selection highlight derives from the `--primary` CSS variable at runtime via `frontend/lib/theme.ts` `resolveCssColor` — a 1×1 canvas-2D `getImageData` resolve, NOT `getComputedStyle().color` (which preserves `oklch()` under CSS Color 4 and returns garbage). A happy-dom + `@testing-library/react` harness (`tests/inspector/`) renders fields/panels and exercises the `onChange → onPreview → onCommit` chain — the field-render coverage the M5B ColorField regression exposed as missing. **DOM tests live in `tests/` SUBDIRS** (never bare `tests/`) so happy-dom's `navigator`/`fetch` mutation can't clobber the GPU + daemon-HTTP suites earlier in bun's single-process file walk (`docs/backlog/editor-and-tooling/test-harness-process-sharing-fragility.md`).
+The viewport selection highlight derives from the `--primary` CSS variable at runtime via `frontend/lib/theme.ts` `resolveCssColor` — a 1×1 canvas-2D `getImageData` resolve, NOT `getComputedStyle().color` (which preserves `oklch()` under CSS Color 4 and returns garbage). A happy-dom + `@testing-library/react` harness (`tests/inspector/`) renders fields/panels and exercises the `onChange → onPreview → onCommit` chain — the field-render coverage the M5B ColorField regression exposed as missing. **DOM tests live in `tests/` SUBDIRS** (never bare `tests/`) so happy-dom's `navigator`/`fetch` mutation can't clobber the GPU + daemon-HTTP suites earlier in bun's single-process file walk (`docs/backlog/editor-and-tooling/editor-test-harness-fragility.md` § *bun test single-process fragility: DOM (happy-dom) vs GPU tests interleave badly*).
 
 ## 15. One Field F1+F2a — the Field panel + FieldHost (2026-07-16)
 
@@ -699,7 +699,7 @@ F2b stamp-session machinery end to end.
   seeded from recorded provenance (`startReconfigureSession`; params/seed/region;
   merge policy is NOT recorded — opens at core's `"replace"` fallback, surfaced in the
   inspector). Same ghost-preview worker path (known v0 limit: the ghost previews
-  against CURRENT field state — `field-reconfigure-ghost-exactness.md`); StampInspector
+  against CURRENT field state — `docs/backlog/editor-and-tooling/field-tool-follow-ons.md` § *Reconfigure ghost previews against CURRENT field state*); StampInspector
   relabels commit as **Apply** → `applyReconfigure` runs core `reconfigureGenerator`
   (in-place span splice, affected-set-culled downstream replay), remeshes the dirty
   set, ONE undo entry. Frozen entities refuse Open at the row (badge + reason);
@@ -753,7 +753,7 @@ the void cast (an X-ray view mode) and the segment brush (a two-click swept caps
   log whether or not the entity catalog resolves). The parser normalises the catalog's
   authoring vocabulary into the scatter generator's param spelling (`scaleRange` →
   `scaleMin`/`scaleMax`) and deliberately drops the `meshes` paths — editor props are
-  proxies (`field-editor-prop-meshes.md`). **The catalog SEEDS, it never gates:** absent
+  proxies (`docs/backlog/editor-and-tooling/field-tool-follow-ons.md` § *Editor props render as collision PROXIES, not the archetype's actual meshes*). **The catalog SEEDS, it never gates:** absent
   file → scatter still runs on schema defaults and every prop draws at a nominal 0.5 m box.
 - **Archetype-driven params** — `listGenerators()` fills any generator's `archetypeId`
   property with an `enum` of the catalog ids (`withArchetypeOptions`); the inspector's kind
@@ -761,7 +761,7 @@ the void cast (an X-ray view mode) and the segment brush (a two-click swept caps
   text. `startStamp` overlays the chosen archetype's authored `scatter` block on the schema
   defaults (`seedArchetypeParams`). Seeding is ONCE-at-open — switching archetype
   mid-session keeps the current numbers
-  (`field-scatter-archetype-switch-keeps-stale-hints.md`).
+  (`docs/backlog/editor-and-tooling/field-tool-follow-ons.md` § *Switching archetype mid-session keeps the previous archetype's scatter hints*).
   **`listGenerators()` is a SNAPSHOT, and the catalog necessarily lands after the first
   possible read** (engine-ready fires before an async fetch can settle), so FieldToolbar
   calls back into FieldPanel (`onEntityCatalogInstalled`) once the catalog is installed and
@@ -786,9 +786,9 @@ the void cast (an X-ray view mode) and the segment brush (a two-click swept caps
   otherwise write-only GPU state, so `FieldHost.propInstanceCounts()` exposes its
   per-archetype instance counts — the one readable fact, and what the rebuild is held to in
   tests. Two filed gaps: props are NOT slice-clipped
-  (`field-props-not-slice-clipped.md`), and the rebuild is UNCONDITIONAL — it runs whether or
+  (`docs/backlog/editor-and-tooling/field-tool-follow-ons.md` § *Placed props ignore the slice plane*), and the rebuild is UNCONDITIONAL — it runs whether or
   not a placement op actually moved, re-creating the three unit proxy geometries each time
-  (`field-prop-layer-rebuild-is-unconditional.md`; a change-detection signature has to cover
+  (`docs/backlog/editor-and-tooling/field-tool-follow-ons.md` § *The editor's prop layer rebuilds unconditionally*; a change-detection signature has to cover
   record CONTENT, since a re-cook can return the same count at different poses).
 - **Entity rows carry a prop line** — a scatter is an ordinary generator entity, so F3a's row
   already had every verb and the generic params `<dl>`. What it lacked is the one fact the row
@@ -806,7 +806,7 @@ the void cast (an X-ray view mode) and the segment brush (a two-click swept caps
   exhaustiveness backstop, so a field added to core's `GeneratorEntity` can no longer land in this
   intersection without the compiler forcing the comparison question. (`type`, `region`, and
   `params` are deliberate non-compares; the `params` one is the pre-existing
-  `entity-row-params-stale-across-load.md`.)
+  `docs/backlog/editor-and-tooling/editor-chrome-authoring-gaps.md` § *An entity row's expanded params can show the PREVIOUS world's values after a load*.)
 - **Prop drift in the chrome** — reconfiguring an upstream generator (a cave) leaves the
   scatter's records byte-identical (a placement replays as data) but flags the op
   `drifted`; core's D-F3-4 finding now reaches `DriftReport` through the existing
@@ -858,7 +858,7 @@ the void cast (an X-ray view mode) and the segment brush (a two-click swept caps
   of worker time depending on fill, on bun/JSC — and browser V8 is not JSC, so re-measure
   before moving it); and a torn-down context, which is silent by design. Refusing where
   COALESCING belongs is a filed gap, not a settled shape
-  (`field-void-cast-worker-scheduling.md`): there is no cancel — an invalidated job grinds on
+  (`docs/backlog/editor-and-tooling/field-tool-follow-ons.md` § *The void cast monopolises the one field worker*): there is no cancel — an invalidated job grinds on
   in the worker — and a toggle-off-then-on during a cast drops the user's last intent instead
   of queueing it, though `createPreviewCoalescer` already solves exactly that for the stamp
   preview. **The sequence to watch at the gate**, because it will read as "the editor
@@ -867,7 +867,7 @@ the void cast (an X-ray view mode) and the segment brush (a two-click swept caps
   the cast, when it arrives, is thrown away by the very edit that was waiting on it. Every
   part of that is working as designed; the whole is not. The cast also ignores the slice
   plane — `requestVoidCast` sends the worker no `sliceY`, so the X-ray paints over the cut
-  (`field-props-not-slice-clipped.md`, third instance; arguably right for an X-ray, but it is
+  (`docs/backlog/editor-and-tooling/field-tool-follow-ons.md` § *Placed props ignore the slice plane*, third instance; arguably right for an X-ray, but it is
   the third display layer to disagree with the slice and wants one rule with the other two).
 - **Void-cast lifetime — it is a snapshot, not a live view** — `invalidateVoidCast` sits at the single density-mutation
   choke point (strokes, stamp commits, ⌘Z/⇧⌘Z, reconfigure apply) and DROPS the cast, saying so
@@ -896,7 +896,7 @@ the void cast (an X-ray view mode) and the segment brush (a two-click swept caps
   kit fill by the snapped box, a flood by `SELECTION_UI_BUDGET`), but the fly camera stays
   live between the two clicks, so the sweep length is whatever the user walks and the op cost
   is linear in it. No clamp ships, deliberately; the measurements and the ~4-line shape a cap
-  would take are in `field-segment-sweep-is-unbounded.md`. Note the asymmetry with the void
+  would take are in `docs/backlog/editor-and-tooling/field-tool-follow-ons.md` § *The segment brush is the first editor gesture with unbounded op extent*. Note the asymmetry with the void
   cast, which shipped a budget in the same phase.
 - **Segment preview + failure path** — the preview is the WHOLE preview: a hologram-blue anchor
   cross plus the wireframe capsule the second click would commit (`segmentGhostSegments` in
@@ -916,7 +916,7 @@ the void cast (an X-ray view mode) and the segment brush (a two-click swept caps
   the source.) Core's half — the `capsule` `BrushShape` and the capsule leg of `assertOpValid`
   (finite endpoints, finite positive radius, kit-class rejection) — is in `core-modules.md`; the
   box cross-section variant is explicitly NOT shipped
-  (`field-segment-box-cross-section.md`).
+  (`docs/backlog/editor-and-tooling/field-tool-follow-ons.md` § *Segment brush: a BOX cross-section*).
 - **Host extractions + the worker seam** — `viewport-host/field-placements.ts` (pure: proxy
   extents/scale, oriented corners, `groupPlacements`, `placementGhostBatch`,
   `placementsByEntity`, `placesArchetypes`, and the two catalog-seeding helpers) with
@@ -925,4 +925,4 @@ the void cast (an X-ray view mode) and the segment brush (a two-click swept caps
   DI seam for the worker: production omits it and gets the real `/field-worker.js`, while a test
   injects the protocol handler directly — the host's worker-backed paths are otherwise unreachable
   under `bun test`, where a job posted to a Worker spawned from that browser URL never settles
-  in-process. Backlog status: `field-host-worker-injection-seam.md`.
+  in-process. Backlog status: `docs/backlog/editor-and-tooling/editor-test-harness-fragility.md` § *FieldHost's worker seam exists now*.
