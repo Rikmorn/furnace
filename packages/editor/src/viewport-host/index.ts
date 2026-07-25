@@ -45,10 +45,8 @@ export {
   type FieldStats,
   type FieldTool,
   type SelectionInfo,
-  // `SelectionMode` is deliberately NOT re-exported: after F3b widened the setter to
-  // `setGesture(ViewportGesture | null)`, the chrome only ever names the wider union
-  // (it narrows structurally — `gesture !== null && gesture !== "segment"`). It stays
-  // exported from field-host.ts, which is where `ViewportGesture`'s TSDoc link resolves.
+  // `SelectionMode` is deliberately absent: the chrome only names the wider union, which it
+  // narrows structurally (`gesture !== null && gesture !== "segment"`).
   type ViewportGesture,
 } from "./field-host.ts";
 // `FieldEntityInfo.placed`'s element type, re-exported beside it so a consumer

@@ -54,8 +54,18 @@ one cluster with this decision:
   `Math.min(rng.int(2, 4), DIRS.length)` and `DIRS.length === 2` (only two open cardinals), so
   the draw always clamps to 2.
 
-**Trigger to revisit:** the field-charter brainstorm, or any pass that touches `cave.ts`'s
-public params (at which point the `CaveParams` contract change is already on the table).
+**Trigger to revisit:** **F6 (the One Field clean-cut + seal)**, which is where the v1 cave
+path retires — re-pointed 2026-07-25, because the original "field-charter brainstorm" trigger
+FIRED (charter 2026-07-14) without this entry being promoted, and the marker question came
+back at the F3b docs pass. Also fires on any pass that touches `cave.ts`'s public params (at
+which point the `CaveParams` contract change is already on the table).
+
+Note for whoever picks this up: `grep -rn "MIGRATION (until" packages/` is a seal-gate step,
+and after F3b retired the editor viewport's five past-due markers these five in `cave.ts` are
+the ONLY hits left in the repo. They are past due by the same logic (B2 is closed) and are
+deliberately NOT cleared blind — `:446`'s legacy no-`mouths` selector is still live code, so
+clearing the markers without retiring the path would be the rot the convention exists to
+prevent.
 
 **Reference:** `packages/dungeon/src/themes/cave.ts` (`buildGraphLegacy`, `caveSkeleton`,
 `buildField`, `caveMouthData`), `packages/dungeon/src/world-spec.ts` (`CaveRegionSpec`,

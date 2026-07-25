@@ -1,6 +1,6 @@
 # Editor Architecture
 
-The as-built `@furnace/editor` package, milestones **M3** (editor shell) + **M4** (command layer) + **M5A** (inspector) + **M5B** (viewport interaction), plus the **M1-slices** registration batch (the full built-in set + physics-from-data in the core loader), plus the **Epic 3 cockpit slices** — **3.0** (editor-openable dungeon, extensions-dir watch) and **3.1** (the generation loop: a preview host, the `generation.bake` command, and an ephemeral generation session; §13), **3.2** (the editor foundation pass — design-system tokens, menu bar + global keybindings, UI persistence, viewport reference layer + dolly navigation, inspector IA + humanized labels; §14), and **3.2.3** (cockpit hardening — generation moved onto a worker, with instant mid-run cancel; §13.6). This is the reference — "how the editor IS today." The decision history that produced it lives in `docs/backlog/editor-and-tooling/editor-backend-architecture.md`; this doc describes the running system.
+The as-built `@furnace/editor` package, milestones **M3** (editor shell) + **M4** (command layer) + **M5A** (inspector) + **M5B** (viewport interaction), plus the **M1-slices** registration batch (the full built-in set + physics-from-data in the core loader), plus the **Epic 3 cockpit slices** — **3.0** (editor-openable dungeon, extensions-dir watch) and **3.1** (the generation loop: a preview host, the `generation.bake` command, and an ephemeral generation session; §13), **3.2** (the editor foundation pass — design-system tokens, menu bar + global keybindings, UI persistence, viewport reference layer + dolly navigation, inspector IA + humanized labels; §14), and **3.2.3** (cockpit hardening — generation moved onto a worker, with instant mid-run cancel; §13.6), plus the **One Field phase** — **F1+F2a** (the Field panel + `FieldHost` over `@furnace/core/field`; §15), **F2b** (the palette — brush chassis, selection, stamp generators, layers + slice; §16), **F3a** (smart objects — reconfigure/freeze/bake; §17), and **F3b** (scatter authoring, placed props, the void cast, the segment brush; §18 — **landed, gate pending**). This is the reference — "how the editor IS today." The decision history that produced it lives in `docs/backlog/editor-and-tooling/editor-backend-architecture.md`; this doc describes the running system.
 
 > **Epic status (2026-06-14): the editor epic is complete and paused.** M1→M5B + M1-slices landed and sealed. The originally-planned **M6** (behaviour runtime) and **M7** (porting + docs) are **dropped** — the project retargeted from the bowling demo to its actual application (a first-person dungeon crawler), so future editor work is driven by that app's **procedural-authoring** needs rather than the old milestone ladder. The known gaps a future editor pass must address are captured in `docs/backlog/editor-and-tooling/editor-interaction-model-redesign.md`.
 >
@@ -685,8 +685,8 @@ dig ring, selection) had rendered NOTHING since F1. Record + rules:
   (ring/box batch math), `field-stamp.ts`, `input-map.ts` additions; FieldHost keeps
   the GPU calls.
 - **Core underneath (see `core-modules.md`)** — the FieldOp union + op-list undo,
-  masks, smooth, hollow fill, selection, the generator registry (hall + maze) +
-  `commitGenerator`, raycast `maxY`; and the two F2b frame fixes: drawLines
+  masks, smooth, hollow fill, selection, the generator registry (hall + maze; cave + scatter
+  joined at F3b — §18) + `commitGenerator`, raycast `maxY`; and the two F2b frame fixes: drawLines
   MSAA-awareness and blend-partitioned draw order (translucent ghosts now draw over
   instanced kit).
 
@@ -737,7 +737,14 @@ F2b stamp-session machinery end to end.
   (mouse-driven region move, in-viewport pointer/select tool, box/wand selection feel
   — slotted to the F4 recharter with the F2b set).
 
-## 18. One Field F3b — the editor's scatter authoring + placed props (2026-07-24)
+## 18. One Field F3b — scatter authoring, placed props, and two tools of its own (2026-07-24)
+
+> **Gate pending.** Landed 2026-07-24/25; the Safari gate has NOT run, so unlike §16 and §17
+> the date above is a LANDING date, not a seal date. Everything below about what the viewport
+> SHOWS — compositing order, depth-always, the wireframe ghosts — is unverified pixels.
+> `docs/learnings/2026-07-21-invisible-line-overlays.md` is why that distinction is worth
+> making: every field line overlay rendered nothing, silently, across two SEALED slices, and
+> renders-clean logic tests proved nothing about it. Delete this note at seal.
 
 The editor became the third consumer of core's F3b placement work (after the generator
 itself and the dungeon's field-world loader): it authors scatter stamps and renders the
@@ -785,7 +792,11 @@ the void cast (an X-ray view mode) and the segment brush (a two-click swept caps
   Whole-layer teardown-and-rebuild (instance counts are fixed at creation). The layer is
   otherwise write-only GPU state, so `FieldHost.propInstanceCounts()` exposes its
   per-archetype instance counts — the one readable fact, and what the rebuild is held to in
-  tests. Props are NOT slice-clipped (`field-props-not-slice-clipped.md`).
+  tests. Two filed gaps: props are NOT slice-clipped
+  (`field-props-not-slice-clipped.md`), and the rebuild is UNCONDITIONAL — it runs whether or
+  not a placement op actually moved, re-creating the three unit proxy geometries each time
+  (`field-prop-layer-rebuild-is-unconditional.md`; a change-detection signature has to cover
+  record CONTENT, since a re-cook can return the same count at different poses).
 - **Entity rows carry a prop line** — a scatter is an ordinary generator entity, so F3a's row
   already had every verb and the generic params `<dl>`. What it lacked is the one fact the row
   summary could not carry: a scatter writes NO field cells, so "1 ops" says nothing about what it
@@ -846,10 +857,22 @@ the void cast (an X-ray view mode) and the segment brush (a two-click swept caps
 - **Void-cast refusals + lifetime** — four refusals, in the order a user meets them, all via
   `subscribeToolError`: a cast already in flight (the client is one worker with a synchronous
   per-message handler, so a second sweep would delay every remesh behind it); an empty world;
-  a world over `VOID_CAST_CHUNK_BUDGET` = 512 chunks (the constant's comment records ~1.3 s of
-  worker time measured at that ceiling on bun/JSC, and says explicitly that browser V8 is not
-  JSC — re-measure before moving it); and a torn-down context, which is silent by design. The
-  cast is a SNAPSHOT, not a live view: `invalidateVoidCast` sits at the single density-mutation
+  a world over `VOID_CAST_CHUNK_BUDGET` = 512 chunks (measured at that ceiling as ~630 ms–1.3 s
+  of worker time depending on fill, on bun/JSC — and browser V8 is not JSC, so re-measure
+  before moving it); and a torn-down context, which is silent by design. Refusing where
+  COALESCING belongs is a filed gap, not a settled shape
+  (`field-void-cast-worker-scheduling.md`): there is no cancel — an invalidated job grinds on
+  in the worker — and a toggle-off-then-on during a cast drops the user's last intent instead
+  of queueing it, though `createPreviewCoalescer` already solves exactly that for the stamp
+  preview. **The sequence to watch at the gate**, because it will read as "the editor
+  hitches" and be hard to attribute: enable the cast on a big world → immediately dig → the
+  stroke lands but its remesh queues behind ~1 s of cast work, so the viewport freezes → and
+  the cast, when it arrives, is thrown away by the very edit that was waiting on it. Every
+  part of that is working as designed; the whole is not. The cast also ignores the slice
+  plane — `requestVoidCast` sends the worker no `sliceY`, so the X-ray paints over the cut
+  (`field-props-not-slice-clipped.md`, third instance; arguably right for an X-ray, but it is
+  the third display layer to disagree with the slice and wants one rule with the other two).
+- **Void-cast lifetime — it is a snapshot, not a live view** — `invalidateVoidCast` sits at the single density-mutation
   choke point (strokes, stamp commits, ⌘Z/⇧⌘Z, reconfigure apply) and DROPS the cast, saying so
   — a silently vanishing X-ray beside a still-ticked box would read as a bug — and it is
   self-limiting, since the second mutation finds nothing live and returns. Re-toggle to refresh;
@@ -871,7 +894,13 @@ the void cast (an X-ray view mode) and the segment brush (a two-click swept caps
   three selection modes (`selectionArmed = gesture !== null && gesture !== "segment"`), why
   ToolPalette keeps the brush effects highlighted under it, and why picking a brush effect disarms
   a SELECTION gesture but deliberately leaves `segment` armed ("sweep a rampart instead of a
-  tunnel", not "stop segmenting").
+  tunnel", not "stop segmenting"). It is also the FIRST editor gesture with unbounded op
+  extent — every other one is bounded by construction (a stroke's sphere by `digRadius`, a
+  kit fill by the snapped box, a flood by `SELECTION_UI_BUDGET`), but the fly camera stays
+  live between the two clicks, so the sweep length is whatever the user walks and the op cost
+  is linear in it. No clamp ships, deliberately; the measurements and the ~4-line shape a cap
+  would take are in `field-segment-sweep-is-unbounded.md`. Note the asymmetry with the void
+  cast, which shipped a budget in the same phase.
 - **Segment preview + failure path** — the preview is the WHOLE preview: a hologram-blue anchor
   cross plus the wireframe capsule the second click would commit (`segmentGhostSegments` in
   `field-ghost.ts` — a 16-segment ring at each endpoint plus 4 rails, degenerating to the sphere
@@ -885,18 +914,16 @@ the void cast (an X-ray view mode) and the segment brush (a two-click swept caps
   than folded in. `commitToolOp(shape)` is the shared build→apply→report path the stroke and the
   segment both take, so both carry ONE failure contract: every setup-loud throw the apply raises —
   a kit fill off the lattice, a kit class under a non-box shape (reachable ONLY through this
-  gesture), an unknown material class — is caught, reported to the panel, and the op DROPPED. The
-  op is BUILT inside that try as well, which the source records honestly as defence in depth rather
-  than a live fix: `toolOp` is total today (its one throwing call became `isKitFillTool`, which
-  swallows the unknown-id throw), so no test can currently distinguish the two placements. What it
-  guards is a future build-time throw escaping `onPointerDown` before its `setPointerCapture`.
-  Core's half (the `capsule`
-  `BrushShape`, its clamped-projection SDF, the exact-Minkowski `opBounds`, `assertCapsuleValid`,
-  and the kit-class rejection) is in `core-modules.md`; the box cross-section variant is explicitly
-  NOT shipped (`field-segment-box-cross-section.md`).
+  gesture), an unknown material class — is caught, reported to the panel, and the op DROPPED. (The
+  op is built inside that try too; the reasoning for that placement, and its honest status, live at
+  the source.) Core's half — the `capsule` `BrushShape` and the capsule leg of `assertOpValid`
+  (finite endpoints, finite positive radius, kit-class rejection) — is in `core-modules.md`; the
+  box cross-section variant is explicitly NOT shipped
+  (`field-segment-box-cross-section.md`).
 - **Host extractions + the worker seam** — `viewport-host/field-placements.ts` (pure: proxy
-  extents/scale, oriented corners, log grouping, `placementGhostBatch`, the two catalog-seeding
-  helpers) with `tests/field-placements.test.ts`, the `field-ghost.ts` precedent; `field-ghost.ts`
+  extents/scale, oriented corners, `groupPlacements`, `placementGhostBatch`,
+  `placementsByEntity`, `placesArchetypes`, and the two catalog-seeding helpers) with
+  `tests/field-placements.test.ts`, the `field-ghost.ts` precedent; `field-ghost.ts`
   itself gained `segmentGhostSegments`. `createFieldHost(deps?: { spawnWorker })` adds a
   DI seam for the worker: production omits it and gets the real `/field-worker.js`, while a test
   injects the protocol handler directly — the host's worker-backed paths are otherwise unreachable
