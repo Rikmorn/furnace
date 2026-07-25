@@ -13,7 +13,7 @@ const ENGINE = String.raw`["']@furnace\/core`;
 // into a chrome-graph file would pull core into the main bundle just as surely —
 // so it is forbidden from non-exempt files too. Any specifier ending in
 // `field-protocol` (`./field-protocol.ts`, `./lib/field-protocol.ts`).
-const PROTOCOL = String.raw`["'][^"']*field-protocol`;
+const PROTOCOL = `["'][^"']*field-protocol`;
 // viewport-host/index.ts is the ENGINE BARREL — it value-imports @furnace/core/*
 // (it re-exports the hosts). A value-import of it into any chrome file would
 // transitively pull core into the main bundle just as surely as an @furnace/core
@@ -22,7 +22,7 @@ const PROTOCOL = String.raw`["'][^"']*field-protocol`;
 // invariant held solely by manual discipline (every chrome import of the barrel is
 // kept `import type`). Machine-enforce it. Any specifier ending in `viewport-host`
 // (`../../viewport-host/index.ts`, `./viewport-host`).
-const VIEWPORT_HOST = String.raw`["'][^"']*viewport-host`;
+const VIEWPORT_HOST = `["'][^"']*viewport-host`;
 
 // All three rule-sets (@furnace/core, field-protocol, viewport-host) exempt the
 // SAME files: the dedicated field remesh worker is its OWN bundle (/field-worker.js),

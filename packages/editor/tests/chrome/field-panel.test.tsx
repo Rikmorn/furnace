@@ -417,6 +417,9 @@ test("Load stays disabled until the catalog fetch settles", async () => {
 	});
 	// Valid name, but the catalog is still in flight — the gate holds.
 	expect(button("Load").disabled).toBe(true);
+	// The async scope is the point: act() drains the microtask queue the settled
+	// fetch schedules; the callback body has nothing of its own to await.
+	// biome-ignore lint/suspicious/useAwait: intentionally await-free async act scope
 	await act(async () => {
 		settle(new Response("", { status: 404 }));
 	});
