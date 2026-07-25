@@ -37,6 +37,7 @@
       "recommended": true,
       "style": {
         "noNamespace": "error",
+        "noNonNullAssertion": "error",
         "useAsConstAssertion": "error",
         "noInferrableTypes": "error",
         "useConsistentArrayType": "error",
