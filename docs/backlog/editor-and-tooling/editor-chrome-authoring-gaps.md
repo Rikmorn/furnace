@@ -186,6 +186,11 @@ preview-updates? / commits-and-sticks? in BOTH browsers. Direction should now
 preview in both (this fix). If intensity/color fail in Safari only, the fix is
 in the inspector event path (ColorField), not the host — file a follow-up.
 
+**Trigger to revisit:** the next user Safari gate that touches the SCENE editor
+(run the reproduction matrix above then), or the UX/polish stage's editor pass —
+whichever comes first. (Line added 2026-07-25: the hygiene prune found this
+section had no trigger and would never surface from a trigger grep.)
+
 **Reference:** `packages/editor/src/viewport-host/index.ts` `previewEntity` +
 `packages/editor/src/viewport-host/preview-gate.ts` `transformEditNeedsRebuild`;
 `packages/core/src/scene/loader.ts` `setEntityTransform`/`rebuildEntity`;
