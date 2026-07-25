@@ -1,6 +1,6 @@
 # Editor Architecture
 
-The as-built `@furnace/editor` package, milestones **M3** (editor shell) + **M4** (command layer) + **M5A** (inspector) + **M5B** (viewport interaction), plus the **M1-slices** registration batch (the full built-in set + physics-from-data in the core loader), plus the **Epic 3 cockpit slices** — **3.0** (editor-openable dungeon, extensions-dir watch) and **3.1** (the generation loop: a preview host, the `generation.bake` command, and an ephemeral generation session; §13), **3.2** (the editor foundation pass — design-system tokens, menu bar + global keybindings, UI persistence, viewport reference layer + dolly navigation, inspector IA + humanized labels; §14), and **3.2.3** (cockpit hardening — generation moved onto a worker, with instant mid-run cancel; §13.6), plus the **One Field phase** — **F1+F2a** (the Field panel + `FieldHost` over `@furnace/core/field`; §15), **F2b** (the palette — brush chassis, selection, stamp generators, layers + slice; §16), **F3a** (smart objects — reconfigure/freeze/bake; §17), and **F3b** (scatter authoring, placed props, the void cast, the segment brush; §18 — **landed, gate pending**). This is the reference — "how the editor IS today." The decision history that produced it lives in `docs/backlog/editor-and-tooling/editor-backend-architecture.md`; this doc describes the running system.
+The as-built `@furnace/editor` package, milestones **M3** (editor shell) + **M4** (command layer) + **M5A** (inspector) + **M5B** (viewport interaction), plus the **M1-slices** registration batch (the full built-in set + physics-from-data in the core loader), plus the **Epic 3 cockpit slices** — **3.0** (editor-openable dungeon, extensions-dir watch) and **3.1** (the generation loop: a preview host, the `generation.bake` command, and an ephemeral generation session; §13), **3.2** (the editor foundation pass — design-system tokens, menu bar + global keybindings, UI persistence, viewport reference layer + dolly navigation, inspector IA + humanized labels; §14), and **3.2.3** (cockpit hardening — generation moved onto a worker, with instant mid-run cancel; §13.6), plus the **One Field phase** — **F1+F2a** (the Field panel + `FieldHost` over `@furnace/core/field`; §15), **F2b** (the palette — brush chassis, selection, stamp generators, layers + slice; §16), **F3a** (smart objects — reconfigure/freeze/bake; §17), and **F3b** (scatter authoring, placed props, the void cast, the segment brush; §18). This is the reference — "how the editor IS today." The decision history that produced it lives in `docs/backlog/editor-and-tooling/editor-backend-architecture.md`; this doc describes the running system.
 
 > **Epic status (2026-06-14): the editor epic is complete and paused.** M1→M5B + M1-slices landed and sealed. The originally-planned **M6** (behaviour runtime) and **M7** (porting + docs) are **dropped** — the project retargeted from the bowling demo to its actual application (a first-person dungeon crawler), so future editor work is driven by that app's **procedural-authoring** needs rather than the old milestone ladder. The known gaps a future editor pass must address are captured in `docs/backlog/editor-and-tooling/editor-interaction-model-redesign.md`.
 >
@@ -737,14 +737,7 @@ F2b stamp-session machinery end to end.
   (mouse-driven region move, in-viewport pointer/select tool, box/wand selection feel
   — slotted to the F4 recharter with the F2b set).
 
-## 18. One Field F3b — scatter authoring, placed props, and two tools of its own (2026-07-24)
-
-> **Gate pending.** Landed 2026-07-24/25; the Safari gate has NOT run, so unlike §16 and §17
-> the date above is a LANDING date, not a seal date. Everything below about what the viewport
-> SHOWS — compositing order, depth-always, the wireframe ghosts — is unverified pixels.
-> `docs/learnings/2026-07-21-invisible-line-overlays.md` is why that distinction is worth
-> making: every field line overlay rendered nothing, silently, across two SEALED slices, and
-> renders-clean logic tests proved nothing about it. Delete this note at seal.
+## 18. One Field F3b — scatter authoring, placed props, and two tools of its own (sealed 2026-07-25)
 
 The editor became the third consumer of core's F3b placement work (after the generator
 itself and the dungeon's field-world loader): it authors scatter stamps and renders the
@@ -833,7 +826,11 @@ the void cast (an X-ray view mode) and the segment brush (a two-click swept caps
   `position ± scale/2` world AABB (core's own placement-bounds convention), so a pure
   reader's highlight box outlines its props instead of falling back to the recorded
   selection region.
-- **The void cast — an X-ray view mode (D-F3-15)** — `FieldLayers.voidCast` is the one flag
+- **The void cast — an X-ray view mode (D-F3-15)** — sealed with its pixels visually
+  UNCONFIRMED (accepted gate variance: round 1 predated the visible-refusal fix
+  `10551f9e`, so the user never distinguished refusal from silence; the lifecycle is
+  GPU-test-held, the render is not pixel-checked — the `2026-07-21-invisible-line-overlays`
+  caution applies until someone sees it). `FieldLayers.voidCast` is the one flag
   with an EDGE effect. false→true copies every allocated chunk's density into ONE worker
   `void-cast` job (a copy, because the client TRANSFERS the buffers and sending the store's
   own would detach the field). The worker installs the snapshot into a scratch store, and
