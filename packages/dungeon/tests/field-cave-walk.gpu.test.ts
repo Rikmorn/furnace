@@ -38,6 +38,7 @@ import { MaterialCache } from "../src/realize.ts";
 import type { Vec3 } from "../src/region.ts";
 import { STEP_HEIGHT } from "../src/walkability.ts";
 import { loadWorld } from "../src/world-loader.ts";
+import { at } from "./_helpers/expect.ts";
 import {
   bunWebGpuAvailable,
   ensureBunWebGpu,
@@ -309,7 +310,8 @@ function walkLane(
   const floors = poly.map((w) => w[1]);
   const floorGuard = Math.min(...floors) - FALL_MARGIN;
   const ceilGuard = Math.max(...floors) + PASSAGE_HEADROOM + CEIL_MARGIN;
-  let pos: Vec3 = [poly[0]![0], poly[0]![1] + SPAWN_ABOVE_FLOOR, poly[0]![2]];
+  const start = at(poly, 0);
+  let pos: Vec3 = [start[0], start[1] + SPAWN_ABOVE_FLOOR, start[2]];
   for (let i = 0; i + 1 < poly.length; i++) {
     const next = poly[i + 1] as Vec3;
     const dir = horizDirTo(pos, next);

@@ -3,6 +3,7 @@
 import { expect, test } from "bun:test";
 import { mouthCap, mouthCollar } from "../src/built.ts";
 import type { Connection, Vec3 } from "../src/region.ts";
+import { at } from "./_helpers/expect.ts";
 
 const OPTS = {
   opening: { width: 2, height: 2.8 },
@@ -104,7 +105,7 @@ test("mouthCap: one plug box filling the collared opening at the door plane", ()
   };
   const { boxes } = mouthCap(door);
   expect(boxes.length).toBe(1);
-  const plug = boxes[0]!;
+  const plug = at(boxes, 0);
   // spans the opening exactly, full collar depth (embed 0.8 + proud 0.4), centred on the door
   expect(plug.size[0]).toBe(2);
   expect(plug.size[1]).toBe(2.8);
@@ -125,7 +126,8 @@ test("mouthCap: yawed facing carries a rotation and displaces along the facing a
     kind: "door",
   };
   const { boxes } = mouthCap(door);
-  expect(boxes[0]!.rotation).toBeDefined();
-  expect(boxes[0]!.center[0]).toBeCloseTo(0, 9); // centred on the door point
-  expect(boxes[0]!.center[2]).toBeCloseTo(0, 9);
+  const plug = at(boxes, 0);
+  expect(plug.rotation).toBeDefined();
+  expect(plug.center[0]).toBeCloseTo(0, 9); // centred on the door point
+  expect(plug.center[2]).toBeCloseTo(0, 9);
 });

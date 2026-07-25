@@ -14,6 +14,7 @@ import {
 } from "../src/substrate/grid.ts";
 import { faceKey } from "../src/substrate/skin.ts";
 import { suppressedFaces } from "../src/substrate/suppress.ts";
+import { at } from "./_helpers/expect.ts";
 
 /** A 1-cell-thick wall slab: 5x6x1 coarse masonry, air on both Z sides is
  *  OFF-GRID (grid covers only the wall) — panels face in-grid air, so build a
@@ -153,28 +154,40 @@ function segTri(
   p1: number[],
   p2: number[],
 ): boolean {
-  const e1 = [p1[0]! - p0[0]!, p1[1]! - p0[1]!, p1[2]! - p0[2]!];
-  const e2 = [p2[0]! - p0[0]!, p2[1]! - p0[1]!, p2[2]! - p0[2]!];
-  const d = [b[0]! - a[0]!, b[1]! - a[1]!, b[2]! - a[2]!];
-  const h = [
-    d[1]! * e2[2]! - d[2]! * e2[1]!,
-    d[2]! * e2[0]! - d[0]! * e2[2]!,
-    d[0]! * e2[1]! - d[1]! * e2[0]!,
+  const e1 = [
+    at(p1, 0) - at(p0, 0),
+    at(p1, 1) - at(p0, 1),
+    at(p1, 2) - at(p0, 2),
   ];
-  const det = e1[0]! * h[0]! + e1[1]! * h[1]! + e1[2]! * h[2]!;
+  const e2 = [
+    at(p2, 0) - at(p0, 0),
+    at(p2, 1) - at(p0, 1),
+    at(p2, 2) - at(p0, 2),
+  ];
+  const d = [at(b, 0) - at(a, 0), at(b, 1) - at(a, 1), at(b, 2) - at(a, 2)];
+  const h = [
+    at(d, 1) * at(e2, 2) - at(d, 2) * at(e2, 1),
+    at(d, 2) * at(e2, 0) - at(d, 0) * at(e2, 2),
+    at(d, 0) * at(e2, 1) - at(d, 1) * at(e2, 0),
+  ];
+  const det =
+    at(e1, 0) * at(h, 0) + at(e1, 1) * at(h, 1) + at(e1, 2) * at(h, 2);
   if (Math.abs(det) < 1e-12) return false;
   const inv = 1 / det;
-  const s = [a[0]! - p0[0]!, a[1]! - p0[1]!, a[2]! - p0[2]!];
-  const u = inv * (s[0]! * h[0]! + s[1]! * h[1]! + s[2]! * h[2]!);
+  const s = [at(a, 0) - at(p0, 0), at(a, 1) - at(p0, 1), at(a, 2) - at(p0, 2)];
+  const u =
+    inv * (at(s, 0) * at(h, 0) + at(s, 1) * at(h, 1) + at(s, 2) * at(h, 2));
   if (u < 0 || u > 1) return false;
   const q = [
-    s[1]! * e1[2]! - s[2]! * e1[1]!,
-    s[2]! * e1[0]! - s[0]! * e1[2]!,
-    s[0]! * e1[1]! - s[1]! * e1[0]!,
+    at(s, 1) * at(e1, 2) - at(s, 2) * at(e1, 1),
+    at(s, 2) * at(e1, 0) - at(s, 0) * at(e1, 2),
+    at(s, 0) * at(e1, 1) - at(s, 1) * at(e1, 0),
   ];
-  const v = inv * (d[0]! * q[0]! + d[1]! * q[1]! + d[2]! * q[2]!);
+  const v =
+    inv * (at(d, 0) * at(q, 0) + at(d, 1) * at(q, 1) + at(d, 2) * at(q, 2));
   if (v < 0 || u + v > 1) return false;
-  const t = inv * (e2[0]! * q[0]! + e2[1]! * q[1]! + e2[2]! * q[2]!);
+  const t =
+    inv * (at(e2, 0) * at(q, 0) + at(e2, 1) * at(q, 1) + at(e2, 2) * at(q, 2));
   return t >= 0 && t <= 1;
 }
 
@@ -188,11 +201,10 @@ function patchBlocks(
   if (!patch) return false;
   const pos = patch.positions;
   const idx = patch.indices;
-  const tri = (i: number, c: number): number[] => [
-    pos[idx[i + c]! * 3]!,
-    pos[idx[i + c]! * 3 + 1]!,
-    pos[idx[i + c]! * 3 + 2]!,
-  ];
+  const tri = (i: number, c: number): number[] => {
+    const base = at(idx, i + c) * 3;
+    return [at(pos, base), at(pos, base + 1), at(pos, base + 2)];
+  };
   for (let i = 0; i < idx.length; i += 3) {
     if (segTri(a, b, tri(i, 0), tri(i, 1), tri(i, 2))) return true;
   }

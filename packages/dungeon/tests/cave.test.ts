@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { aabbOfBoxes } from "../src/aabb.ts";
 import type { Aabb, RegionData, RegionMesh, Vec3 } from "../src/region.ts";
 import { cave } from "../src/themes/cave.ts";
+import { at, expectDefined } from "./_helpers/expect.ts";
 
 const params = {
   theme: "cave" as const,
@@ -87,8 +88,8 @@ test("cave bounds contain the collar boxes and a masonry material is appended", 
   expect(r.materials[idx]?.color).toEqual([0.42, 0.42, 0.45, 1]);
   for (const m of boxMeshes) {
     for (let a = 0; a < 3; a++) {
-      expect(m.position[a]).toBeGreaterThanOrEqual(r.bounds.min[a]! - 3);
-      expect(m.position[a]).toBeLessThanOrEqual(r.bounds.max[a]! + 3);
+      expect(m.position[a]).toBeGreaterThanOrEqual(at(r.bounds.min, a) - 3);
+      expect(m.position[a]).toBeLessThanOrEqual(at(r.bounds.max, a) + 3);
     }
   }
 });
@@ -148,8 +149,8 @@ test("capped bores: plugged, excluded from connections, prefix-stable with the o
     capped: 1,
   });
   expect(capped.connections.length).toBe(2);
-  expect(capped.connections[0]).toEqual(open.connections[0]!);
-  expect(capped.connections[1]).toEqual(open.connections[1]!);
+  expect(capped.connections[0]).toEqual(at(open.connections, 0));
+  expect(capped.connections[1]).toEqual(at(open.connections, 1));
   expect(capped.meshes.length).toBe(1 + 4 * 3 + 1);
   const plug = capped.colliders.find(
     (c) =>
@@ -159,9 +160,10 @@ test("capped bores: plugged, excluded from connections, prefix-stable with the o
       Math.abs(c.shape.cuboid[2] - 0.6) < 1e-9,
   );
   expect(plug).toBeDefined();
-  const third = open.connections[2]!;
-  expect(plug!.position[0]).toBeCloseTo(third.position[0], 6);
-  expect(plug!.position[2]).toBeCloseTo(third.position[2], 6);
+  const third = at(open.connections, 2);
+  const plugCollider = expectDefined(plug, "cap plug collider");
+  expect(plugCollider.position[0]).toBeCloseTo(third.position[0], 6);
+  expect(plugCollider.position[2]).toBeCloseTo(third.position[2], 6);
 });
 
 test("mouths+capped beyond 4 cardinals throws setup-loud", () => {
