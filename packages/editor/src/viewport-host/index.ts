@@ -45,7 +45,10 @@ export {
   type FieldStats,
   type FieldTool,
   type SelectionInfo,
-  type SelectionMode,
+  // `SelectionMode` is deliberately NOT re-exported: after F3b widened the setter to
+  // `setGesture(ViewportGesture | null)`, the chrome only ever names the wider union
+  // (it narrows structurally — `gesture !== null && gesture !== "segment"`). It stays
+  // exported from field-host.ts, which is where `ViewportGesture`'s TSDoc link resolves.
   type ViewportGesture,
 } from "./field-host.ts";
 // `FieldEntityInfo.placed`'s element type, re-exported beside it so a consumer
@@ -286,8 +289,6 @@ export function createViewportHost(opts?: ViewportHostOptions): ViewportHost {
   // reading held WASD/QE keys + accumulated pointer look-deltas each frame. It is
   // the host's ONLY continuous-render path; stopFly (RMB-up / dispose) cancels it
   // so the host returns to render-on-demand.
-  // MIGRATION (until Task 12): the fly/look sensitivities below are provisional —
-  // tune them at the live gate.
   const LOOK_SPEED = 0.005; // radians per pixel of RMB-drag
   const FLY_SPEED_DEFAULT = 6; // world units / second at base speed
   const FLY_SPEED_MIN = 0.25;
@@ -1023,7 +1024,6 @@ export function createViewportHost(opts?: ViewportHostOptions): ViewportHost {
     if (drag.action === "fly") {
       // Accumulate look; the rAF fly loop consumes it (don't render here). Signs
       // give non-inverted FPS look — drag right → look right, drag down → look down.
-      // MIGRATION (until Task 12): look sensitivity/inversion tuned live at the gate.
       flyYawAccum += -dx * LOOK_SPEED;
       flyPitchAccum += dy * LOOK_SPEED;
       return;
@@ -1076,7 +1076,6 @@ export function createViewportHost(opts?: ViewportHostOptions): ViewportHost {
     }
     // Trackpad two-finger pan heuristic: a no-button wheel with BOTH axes present
     // and no pinch (ctrlKey).
-    // MIGRATION (until Task 12): trackpad pan/zoom feel verified in Safari at the gate.
     const isTrackpadPan =
       !e.ctrlKey && e.buttons === 0 && e.deltaX !== 0 && e.deltaY !== 0;
     if (isTrackpadPan) {

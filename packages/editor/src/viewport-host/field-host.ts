@@ -659,7 +659,6 @@ const EDITOR_FOV_Y = Math.PI / 3;
 const FLY_SPEED = 6; // m/s
 const FLY_BOOST = 3; // shift-held multiplier
 const MAX_FRAME_DT = 0.1; // clamp dt so a stall can't lurch the camera
-// MIGRATION (until Task 12): provisional look/dig feel — tune at the Safari gate.
 const LOOK_SPEED = 0.005; // rad per pixel of RMB drag
 const RADIUS_MIN = 0.25;
 const RADIUS_MAX = 4;

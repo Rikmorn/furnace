@@ -637,11 +637,13 @@ dig ring, selection) had rendered NOTHING since F1. Record + rules:
   panel. Amber AABB overlay (occlude:false), `reselect()` one-slot restore,
   `subscribeSelection` + `subscribeToolError` feed the panel footer. Cell-level
   display is deferred to F4 (`field-f2b-gate-ux-findings.md`).
-- **Layers + slice** — `FieldLayers { field, kit, props, ghost, selection, grid }` gate
-  the render lists per frame (display-only; a hidden selection keeps masking ops).
-  `props` arrived with F3b's placed-prop layer (§18). The same type carries a seventh
-  flag, `voidCast`, which is NOT a plain gate — it is F3b's X-ray view mode, default
-  off, built by its own enabling edge and dropped by the next edit (§18). The
+- **Layers + slice** — `FieldLayers { field, kit, props, ghost, selection, grid,
+  voidCast }`; the first SIX gate the render lists per frame (display-only; a hidden
+  selection keeps masking ops), and `props` among them arrived with F3b's placed-prop
+  layer (§18). The seventh, `voidCast`, is NOT a plain gate — it is F3b's X-ray view
+  mode, default off, built by its own enabling edge and dropped by the next edit (§18);
+  `LayersRow` renders it under a separate "view" group and machine-checks the split with
+  `type VisibilityLayer = Exclude<keyof FieldLayers, "voidCast">`. The
   Ghost checkbox is DISABLED with a hint while a selection tool is armed and no stamp
   session runs (suppression honesty — the brush ghost is mode-suppressed but the stamp
   hologram is not). Slice = **remesh clip**: the worker clamps aprons at/above `sliceY`
@@ -739,8 +741,8 @@ F2b stamp-session machinery end to end.
 
 The editor became the third consumer of core's F3b placement work (after the generator
 itself and the dungeon's field-world loader): it authors scatter stamps and renders the
-props they commit. Task 10 of the F3b plan; sections grow as the remaining F3b editor
-tasks land.
+props they commit. It also gained two tools of its own that owe nothing to placements —
+the void cast (an X-ray view mode) and the segment brush (a two-click swept capsule).
 
 - **Entity catalog** — the second project→editor catalog contract, DATA only, exactly
   parallel to the F2a materials one: FieldToolbar's run-once catalog effect also fetches
@@ -784,6 +786,23 @@ tasks land.
   otherwise write-only GPU state, so `FieldHost.propInstanceCounts()` exposes its
   per-archetype instance counts — the one readable fact, and what the rebuild is held to in
   tests. Props are NOT slice-clipped (`field-props-not-slice-clipped.md`).
+- **Entity rows carry a prop line** — a scatter is an ordinary generator entity, so F3a's row
+  already had every verb and the generic params `<dl>`. What it lacked is the one fact the row
+  summary could not carry: a scatter writes NO field cells, so "1 ops" says nothing about what it
+  put down. `listEntities()` now returns `FieldEntityInfo` = core's `GeneratorEntity` + `placed:
+  PlacedArchetype[]`, attributed by `placementsByEntity` — a placement op belongs to the entity
+  whose `opSpan` contains its op id (orphans are skipped; no commit path makes one) — and the row
+  reads `scatter · seed 3 · 1 ops · rock · 24 placed`. A row with no records shows nothing extra,
+  deliberately UNLIKE the StampInspector's zero rule, which gates on the generator
+  (`FieldGeneratorInfo.placesProps`) and does show `0 props`: a settled preview at zero is the
+  state whose commit refusal it is about to explain, whereas a committed row has no such state and
+  the chrome sees records, not schemas. The panel's `sameEntities` push guard gained a `samePlaced`
+  leg — it had none when `placed` shipped, so a tick whose only change was a placement count could
+  be swallowed as "nothing changed" — plus a destructure-and-`satisfies Record<string, never>`
+  exhaustiveness backstop, so a field added to core's `GeneratorEntity` can no longer land in this
+  intersection without the compiler forcing the comparison question. (`type`, `region`, and
+  `params` are deliberate non-compares; the `params` one is the pre-existing
+  `entity-row-params-stale-across-load.md`.)
 - **Prop drift in the chrome** — reconfiguring an upstream generator (a cave) leaves the
   scatter's records byte-identical (a placement replays as data) but flags the op
   `drifted`; core's D-F3-4 finding now reaches `DriftReport` through the existing
@@ -803,6 +822,83 @@ tasks land.
   `position ± scale/2` world AABB (core's own placement-bounds convention), so a pure
   reader's highlight box outlines its props instead of falling back to the recorded
   selection region.
-- **Host extractions** — `viewport-host/field-placements.ts` (pure: proxy extents/scale,
-  oriented corners, log grouping, the two catalog-seeding helpers) with
-  `tests/field-placements.test.ts`, the `field-ghost.ts` precedent.
+- **The void cast — an X-ray view mode (D-F3-15)** — `FieldLayers.voidCast` is the one flag
+  with an EDGE effect. false→true copies every allocated chunk's density into ONE worker
+  `void-cast` job (a copy, because the client TRANSFERS the buffers and sending the store's
+  own would detach the field). The worker installs the snapshot into a scratch store, and
+  per chunk extracts the 20³ apron FIRST, then inverts that window
+  (`d === 0 ? -1 : min(AIR, -d)` — the clamp covers a decoded −128, which nothing in core
+  writes but a chunk file can carry, and which negates back to itself), then meshes it with
+  the ordinary `meshChunkField`. Inverting AFTER extraction is load-bearing: the apron's
+  outer ring reads unallocated space as SOLID, which is what the real field holds there, so
+  the cast caps against the rock outside instead of running open past every allocated
+  boundary. Host side: one mesh per non-empty bucket at chunk origins, all under a dim-CYAN
+  premultiplied material at `depth: { write: false, compare: "always" }`. Depth-always is
+  the load-bearing half — under the default `less` ANY nearer front-facing opaque surface
+  (a terrain top, a nearer cavity's far wall, kit, props) buries the cast, which is exactly
+  the case the tool exists for. It is NOT a z-fighting fix: the cast's triangles ARE the
+  field's, wound backwards, so back-face culling already keeps exactly one of any coincident
+  pair. It is submitted FIRST of the three translucents: all three sort after every opaque, so
+  this position decides nothing against the field, but submission order IS preserved within the
+  blended group — submitted last, a depth-ignoring cast would wash cyan over every ghost in the
+  frame; submitted first, the two hologram ghosts (which keep the default depth compare) read on
+  top of it. A ghost is the action the user is steering; the cast is the room around it.
+- **Void-cast refusals + lifetime** — four refusals, in the order a user meets them, all via
+  `subscribeToolError`: a cast already in flight (the client is one worker with a synchronous
+  per-message handler, so a second sweep would delay every remesh behind it); an empty world;
+  a world over `VOID_CAST_CHUNK_BUDGET` = 512 chunks (the constant's comment records ~1.3 s of
+  worker time measured at that ceiling on bun/JSC, and says explicitly that browser V8 is not
+  JSC — re-measure before moving it); and a torn-down context, which is silent by design. The
+  cast is a SNAPSHOT, not a live view: `invalidateVoidCast` sits at the single density-mutation
+  choke point (strokes, stamp commits, ⌘Z/⇧⌘Z, reconfigure apply) and DROPS the cast, saying so
+  — a silently vanishing X-ray beside a still-ticked box would read as a bug — and it is
+  self-limiting, since the second mutation finds nothing live and returns. Re-toggle to refresh;
+  a `setLayers` call that merely leaves the flag true rebuilds nothing, which is also why the
+  cast stays gone across a dispose/re-init or a world load while the flag rides through.
+  Two pieces of state keep this honest: `voidCastGen` strands in-flight results after a discard
+  (nothing can call the worker off, only agree to ignore it), and `voidCastJobGen` is the
+  single-flight latch — cleared in BOTH `.then` and `.catch` BEFORE the staleness guard, since a
+  stranded job that left it set would refuse every later cast forever.
+- **The segment brush (D-F3-14)** — a two-click swept capsule. `setGesture("segment")` arms LMB
+  from the same ONE slot as the three selection gestures (arming any disarms the rest); the first
+  click sets an anchor, the second builds ONE `{ kind: "capsule", a, b, radius }` op and commits
+  it through the ordinary log path — so it is one ⌘Z, exactly like a stroke, and needs no undo
+  machinery of its own. Both endpoints are `selectionPoint`'s RAW surface hits, not
+  `computeTarget`'s bitten-past centres: a tunnel must start and end where the user clicked (the
+  box-select corner rule). It is a BRUSH gesture, not a selection — it makes no selection, and the
+  active tool's effect/material/mask/radius stay live under it (dig carves a tunnel, fill raises a
+  rampart). That is why the panel keeps `BrushInspector` open for `segment` and hides it for the
+  three selection modes (`selectionArmed = gesture !== null && gesture !== "segment"`), why
+  ToolPalette keeps the brush effects highlighted under it, and why picking a brush effect disarms
+  a SELECTION gesture but deliberately leaves `segment` armed ("sweep a rampart instead of a
+  tunnel", not "stop segmenting").
+- **Segment preview + failure path** — the preview is the WHOLE preview: a hologram-blue anchor
+  cross plus the wireframe capsule the second click would commit (`segmentGhostSegments` in
+  `field-ghost.ts` — a 16-segment ring at each endpoint plus 4 rails, degenerating to the sphere
+  ghost below a 1e-6 axis length), both under the `ghost` layer, since a pending capsule is a
+  preview of a brush op rather than a selection. No worker ghost and no scratch mesh: a brush op is
+  cheap and reversible, and the generator preview protocol exists for recipes whose output cannot
+  be guessed from their inputs — a swept capsule can. It is rebuilt on pointer MOVE, so a radius
+  change with a still cursor does not re-fatten the pending capsule until the next move (accepted,
+  filed as item 9 of `field-f2b-gate-ux-findings.md`). Esc drops a pending anchor, but only when no
+  stamp session owns the key — the box anchor's identical Esc is a separate UX change, filed rather
+  than folded in. `commitToolOp(shape)` is the shared build→apply→report path the stroke and the
+  segment both take, so both carry ONE failure contract: every setup-loud throw the apply raises —
+  a kit fill off the lattice, a kit class under a non-box shape (reachable ONLY through this
+  gesture), an unknown material class — is caught, reported to the panel, and the op DROPPED. The
+  op is BUILT inside that try as well, which the source records honestly as defence in depth rather
+  than a live fix: `toolOp` is total today (its one throwing call became `isKitFillTool`, which
+  swallows the unknown-id throw), so no test can currently distinguish the two placements. What it
+  guards is a future build-time throw escaping `onPointerDown` before its `setPointerCapture`.
+  Core's half (the `capsule`
+  `BrushShape`, its clamped-projection SDF, the exact-Minkowski `opBounds`, `assertCapsuleValid`,
+  and the kit-class rejection) is in `core-modules.md`; the box cross-section variant is explicitly
+  NOT shipped (`field-segment-box-cross-section.md`).
+- **Host extractions + the worker seam** — `viewport-host/field-placements.ts` (pure: proxy
+  extents/scale, oriented corners, log grouping, `placementGhostBatch`, the two catalog-seeding
+  helpers) with `tests/field-placements.test.ts`, the `field-ghost.ts` precedent; `field-ghost.ts`
+  itself gained `segmentGhostSegments`. `createFieldHost(deps?: { spawnWorker })` adds a
+  DI seam for the worker: production omits it and gets the real `/field-worker.js`, while a test
+  injects the protocol handler directly — the host's worker-backed paths are otherwise unreachable
+  under `bun test`, where a job posted to a Worker spawned from that browser URL never settles
+  in-process. Backlog status: `field-host-worker-injection-seam.md`.

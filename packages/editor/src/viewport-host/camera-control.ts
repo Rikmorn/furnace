@@ -14,7 +14,6 @@ const ZOOM_SCALE = 0.1;
 // Dolly (scroll-travel) step per wheel notch: a fraction of the current view
 // distance so it scales with the scene, floored so a tight framing still travels —
 // it never crawls to a stop the way distance-scaled orbit zoom does.
-// MIGRATION (until Task 12): provisional feel — tune live at the Safari gate.
 const DOLLY_FRACTION = 0.15;
 const DOLLY_MIN_STEP = 0.15;
 
