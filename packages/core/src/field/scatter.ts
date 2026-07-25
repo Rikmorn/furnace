@@ -205,11 +205,13 @@ function surfaceNormal(
 }
 
 /** Sub-sample world coordinate of the zero-crossing one `step` (±1 sample) from
- *  sample `s` (density `d0`) toward its neighbour (density `d1`, opposite sign):
- *  the linear interpolant `s + step · d0/(d0 − d1)`, in metres. `step` carries the
- *  SCAN DIRECTION — a −X/−Z wall scan interpolates toward LOWER coords, so the
- *  crossing lands between the air cell and the rock cell rather than on the far
- *  side of the air cell. The vertical column scan always steps +1 (upward). */
+ *  sample `s` (density `d0`) toward its neighbour (density `d1`, opposite sign
+ *  or exactly zero — never both zero): the linear interpolant
+ *  `s + step · d0/(d0 − d1)`, in metres. A zero side degenerates cleanly — the
+ *  crossing lands exactly ON that sample. `step` carries the SCAN DIRECTION — a
+ *  −X/−Z wall scan interpolates toward LOWER coords, so the crossing lands
+ *  between the air cell and the rock cell rather than on the far side of the
+ *  air cell. The vertical column scan always steps +1 (upward). */
 const crossingWorld = (
   s: number,
   step: number,
@@ -219,12 +221,41 @@ const crossingWorld = (
 ): number => (s + step * (d0 / (d0 - d1))) * cell;
 
 // ─── vertical column scan (floor / ceiling) ───
+/** How far past a zero-density boundary sample the rock-evidence walk looks.
+ *  Quantized cave surfaces put the zero-crossing exactly ON a sample plane
+ *  (`clampInt8(sdf·DENSITY_SCALE)` = 0 there), so real surfaces carry a
+ *  single-sample zero band — a few samples covers any clamp-band thickening
+ *  without scanning the world. */
+const ZERO_BAND_SAMPLES = 4;
+
+/** True when a run of exact-zero samples starting at `from` (walking `dir`)
+ *  ends in real rock (d < 0) within {@link ZERO_BAND_SAMPLES} — the guard that
+ *  keeps a zero membrane floating in open air from counting as a surface. */
+function rockBacked(
+  store: FieldStore,
+  x: number,
+  z: number,
+  from: number,
+  dir: -1 | 1,
+): boolean {
+  for (let k = 0; k < ZERO_BAND_SAMPLES; k++) {
+    const d = getDensity(store, x, from + dir * k, z);
+    if (d < 0) return true;
+    if (d > 0) return false;
+  }
+  return false;
+}
+
 /** The air-side sample of the target vertical crossing at column (x, z), or null
  *  if none. `floor` = the TOPMOST rising crossing (rock below → air above): the
  *  air sample is the crossing's upper cell. `ceiling` = the LOWEST falling
  *  crossing scanned upward (air below → rock above): the air sample is the lower
- *  cell. The scan is restricted so the returned air sample's normal stencil
- *  stays in-region. Returns `{ air, surfaceY }` in sample / world units. */
+ *  cell. A boundary sample reading EXACTLY zero counts as the rock side when
+ *  {@link rockBacked} rock lies behind it — quantized cave floors land their
+ *  surface on a sample plane, which a strict sign-flip test is blind to (the
+ *  F3b gate finding: 3 placements on a whole default cave). The scan is
+ *  restricted so the returned air sample's normal stencil stays in-region.
+ *  Returns `{ air, surfaceY }` in sample / world units. */
 function columnSurface(
   store: FieldStore,
   x: number,
@@ -238,7 +269,7 @@ function columnSurface(
     for (let y = sb.y1 - 2; y >= sb.y0; y--) {
       const d0 = getDensity(store, x, y, z);
       const d1 = getDensity(store, x, y + 1, z);
-      if (d0 < 0 && d1 > 0)
+      if (d0 <= 0 && d1 > 0 && (d0 < 0 || rockBacked(store, x, z, y - 1, -1)))
         return { airY: y + 1, surfaceY: crossingWorld(y, 1, d0, d1, cell) };
     }
     return null;
@@ -247,7 +278,7 @@ function columnSurface(
   for (let y = sb.y0 + 1; y <= sb.y1 - 1; y++) {
     const d0 = getDensity(store, x, y, z);
     const d1 = getDensity(store, x, y + 1, z);
-    if (d0 > 0 && d1 < 0)
+    if (d0 > 0 && d1 <= 0 && (d1 < 0 || rockBacked(store, x, z, y + 2, 1)))
       return { airY: y, surfaceY: crossingWorld(y, 1, d0, d1, cell) };
   }
   return null;

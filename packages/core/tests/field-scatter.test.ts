@@ -463,3 +463,83 @@ describe("scatter — param validation (setup-loud)", () => {
       );
     });
 });
+
+describe("scatter — sample-aligned crossings (F3b gate fix)", () => {
+  /** Overwrites one horizontal sample layer with exact-zero density — the
+   *  pattern a quantized cave floor/ceiling produces when its surface lands ON
+   *  a sample plane (`clampInt8(sdf·SCALE)` = 0 there), which the strict
+   *  `d0 < 0 && d1 > 0` crossing test is blind to. */
+  const zeroLayer = (
+    store: FieldStore,
+    region: Region,
+    worldY: number,
+  ): void => {
+    const sy = worldToVoxel(worldY, CELL);
+    for (
+      let sz = worldToVoxel(region.min[2], CELL);
+      sz <= worldToVoxel(region.max[2], CELL);
+      sz++
+    )
+      for (
+        let sx = worldToVoxel(region.min[0], CELL);
+        sx <= worldToVoxel(region.max[0], CELL);
+        sx++
+      )
+        setDensity(store, sx, sy, sz, 0);
+  };
+
+  test("a floor whose boundary sample is exactly zero still receives placements", () => {
+    const region: Region = { min: [0, 0, 0], max: [8, 4, 8] };
+    const store = carveFloor(region, 2);
+    zeroLayer(store, region, 2); // …rock, 0, air… — no strict sign flip left
+    const records = evalScatter(store, scatterParams(), region);
+    expect(records.length).toBeGreaterThan(0);
+    // The crossing is exactly on the sample plane; records seat on it.
+    for (const r of records)
+      expect(Math.abs(r.position[1] - 2)).toBeLessThanOrEqual(CELL);
+  });
+
+  test("a zero membrane with NO rock beneath is not a floor (rock-evidence guard)", () => {
+    const region: Region = { min: [0, 0, 0], max: [8, 4, 8] };
+    const store = carveFloor(region, 1); // air everywhere above y=1
+    zeroLayer(store, region, 2); // a floating zero layer inside open air
+    const records = evalScatter(store, scatterParams(), region);
+    // Placements may exist (the REAL floor at y=1 is intact), but none may
+    // seat on the phantom membrane at y=2.
+    for (const r of records)
+      expect(Math.abs(r.position[1] - 2)).toBeGreaterThan(CELL / 2);
+  });
+
+  test("a ceiling whose boundary sample is exactly zero still receives placements", () => {
+    const region: Region = { min: [0, 0, 0], max: [8, 4, 8] };
+    const store = carveCeiling(region, 2);
+    zeroLayer(store, region, 2); // …air, 0, rock… upward
+    const records = evalScatter(
+      store,
+      scatterParams({ hemisphere: "ceiling", orientation: "normal" }),
+      region,
+    );
+    expect(records.length).toBeGreaterThan(0);
+  });
+
+  test("a default cave's floors receive a real population (the gate repro)", () => {
+    const store = createFieldStore();
+    const log = createOpLog();
+    const cave = generatorById("cave");
+    const region: Region = { min: [0, 0, 0], max: [20, 10, 20] };
+    commitGenerator(store, log, cave, {
+      params: structuredClone(cave.defaults) as Record<string, unknown>,
+      seed: 1,
+      region,
+      policy: "replace",
+      table: TABLE,
+    });
+    const records = evalScatter(store, scatterParams(), region, 7);
+    // Pre-fix this exact fixture yielded THREE records over a 20×20 m footprint
+    // — the quantized floors were invisible to the strict test. Post-fix it
+    // measures 11 against a 71 m² carved footprint (density 0.3/m² ⇒ ~21 before
+    // jitter + hemisphere/spacing filters). The floor is deliberately loose so
+    // cave tuning survives it.
+    expect(records.length).toBeGreaterThanOrEqual(8);
+  });
+});

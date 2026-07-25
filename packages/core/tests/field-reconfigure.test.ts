@@ -1285,7 +1285,14 @@ describe("reconfigureGenerator — contextFree:false re-cook + placement drift",
           for (let y = -CHUNK_DIM; y < 3 * CHUNK_DIM; y++) {
             const d0 = getDensity(store, cx + dx, y, cz + dz);
             const d1 = getDensity(store, cx + dx, y + 1, cz + dz);
-            if (d0 < 0 && d1 > 0) {
+            // Zero-tolerant rising crossing, mirroring scatter's own scan (the
+            // F3b gate fix): a boundary sample reading exactly 0 counts as the
+            // rock side when rock lies directly beneath it.
+            const rising =
+              d0 <= 0 &&
+              d1 > 0 &&
+              (d0 < 0 || getDensity(store, cx + dx, y - 1, cz + dz) < 0);
+            if (rising) {
               const cw = (y + d0 / (d0 - d1)) * 0.25;
               if (Math.abs(cw - rec.position[1]) <= 0.3) onSurface = true;
             }
