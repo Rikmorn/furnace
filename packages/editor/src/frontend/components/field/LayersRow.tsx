@@ -68,13 +68,19 @@ export function LayersRow(props: {
 			>
 				layers
 				{LAYERS.map((l) => {
-					// The ghost layer gates two host paths: the brush/kit-fill ghost
-					// (hidden while a selection tool is armed) AND the stamp hologram
-					// (stays live during a stamp session, no selection-mode gate). So the
-					// checkbox is only truly inert when a selection tool is armed and no
-					// stamp session is active — which is exactly `ghostSuppressed`. Show
-					// it disabled then, instead of letting it read as dead. Presentational
-					// only; the host still owns the actual suppression.
+					// The ghost layer gates three host paths: the brush/kit-fill ghost
+					// (hidden while ANY gesture is armed) AND the stamp hologram (stays
+					// live during a stamp session, no gesture gate) AND the segment
+					// brush's capsule preview (live once a point is anchored). So the
+					// checkbox is inert when a SELECTION gesture is armed and no stamp
+					// session is active — which is exactly `ghostSuppressed`. Show it
+					// disabled then, instead of letting it read as dead.
+					//
+					// Not exact, and deliberately so: an armed-but-UNANCHORED segment
+					// gesture also has nothing for the flag to show, and this reads as
+					// enabled there. Tracking that would mean plumbing the host's anchor
+					// state into the panel to grey a checkbox for the moment between two
+					// clicks. Presentational only; the host owns the real suppression.
 					const suppressed = l.key === "ghost" && props.ghostSuppressed;
 					return (
 						<label

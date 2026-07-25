@@ -878,8 +878,12 @@ export function createFieldHost(deps?: {
   let toolCb: ((t: FieldTool) => void) | null = null;
   // User-facing tool-problem channel (panel status line, Task 14).
   let toolErrorCb: ((msg: string) => void) | null = null;
-  // Once-per-stroke guard for the "selection mask but no selection" report —
-  // re-armed at pointer-down so a 40ms-throttled drag can't spam it.
+  // Once-per-GESTURE guard for the "selection mask but no selection" report.
+  // The gesture whose repeats need suppressing is the drag: a stroke re-arms
+  // this at pointer-down, so one 40ms-throttled drag reports once. The segment
+  // brush re-arms per COMMIT instead — its unit is the two-click pair, not a
+  // drag, so sharing the stroke's re-arm point would silence every segment
+  // after the first.
   let maskDropReported = false;
 
   // --- gesture + selection state (armed slot, current + Reselect, overlay) --
@@ -1527,8 +1531,11 @@ export function createFieldHost(deps?: {
   // box for a kit fill — see strokeShape), the segment brush hands in a
   // capsule. Everything else — effect, material, mask, the fill's `hollow` —
   // is the tool's and identical either way. Dig and smooth stay material-free.
-  // `classOf` throws on an unknown material id (caught by commitToolOp), so a
-  // stray tool selection can't corrupt the field.
+  //
+  // The kit question is asked ONCE, through isKitFillTool, and the answer is
+  // shared with strokeShape: this used to re-derive it with a bare `classOf`,
+  // which throws on an unknown id where isKitFillTool returns false — so the
+  // two disagreed on exactly the input that made one of them throw.
   const toolOp = (shape: field.BrushShape): field.BrushOp => {
     const mask = toolMask();
     const base = {
@@ -1540,9 +1547,7 @@ export function createFieldHost(deps?: {
     if (tool.effect === "dig") return { ...base, effect: "dig" };
     if (tool.effect === "smooth")
       return { ...base, effect: "smooth", smooth: { ...tool.smooth } };
-    const kitFill =
-      tool.effect === "fill" &&
-      field.classOf(table, tool.materialId).kind === "kit";
+    const kitFill = isKitFillTool();
     // Kit-class hollow snaps to the 0.5 m lattice (floored) — core REJECTS
     // non-multiples (the shell's inner faces must land on lattice planes).
     const hollow =
@@ -1569,16 +1574,28 @@ export function createFieldHost(deps?: {
       ? snappedKitBox(center, digRadius)
       : sphereShape(center, digRadius);
 
-  // Log-apply a built op and mark the touched chunks (+ apron neighbours)
-  // dirty. Shared by the stroke and the segment commit so both carry the same
-  // failure contract: a setup-loud validation throw (kit fill off the lattice,
-  // a kit class under a non-box shape, an unknown material class) is reported
-  // to the panel and the op is DROPPED, rather than escaping the pointer
-  // handler. Reported per occurrence (the message replaces itself on the
-  // status line) — only the mask-drop report is once-per-stroke.
-  const commitToolOp = (op: field.BrushOp): void => {
+  // BUILD the op for a shape and apply it through the log, marking the touched
+  // chunks (+ apron neighbours) dirty. Shared by the stroke and the segment
+  // commit so both carry the same failure contract: every setup-loud throw on
+  // the path — a kit fill off the lattice, a kit class under a non-box shape
+  // (reachable ONLY through the segment gesture), an unknown material class —
+  // is reported to the panel and the op DROPPED, rather than escaping the
+  // pointer handler. Reported per occurrence (the message replaces itself on
+  // the status line); only the mask-drop report is once-per-gesture.
+  //
+  // toolOp is called INSIDE the try deliberately, though as of this commit it
+  // is TOTAL — its one throwing call became isKitFillTool, which swallows
+  // classOf's unknown-id throw. So this placement is defence in depth, not a
+  // live fix, and no test can currently tell the two apart (verified by
+  // sabotage: hoisting the build above the try breaks nothing). What it
+  // defends is real: a caller writing `commitToolOp(toolOp(shape))` evaluates
+  // the build BEFORE this function is entered, so any future build-time throw
+  // would escape the catch, back out through onPointerDown, and skip its
+  // setPointerCapture — stranding `digging === true` with no capture, so a
+  // pointerup outside the canvas latches the stroke on.
+  const commitToolOp = (shape: field.BrushShape): void => {
     try {
-      markDirtyWithNeighbors(field.logApply(store, log, op, table));
+      markDirtyWithNeighbors(field.logApply(store, log, toolOp(shape), table));
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       reportToolError(`tool apply failed: ${message}`);
@@ -1729,7 +1746,7 @@ export function createFieldHost(deps?: {
   const applyTool = (clientX: number, clientY: number): void => {
     const at = computeTarget(clientX, clientY);
     if (!at) return;
-    commitToolOp(toolOp(strokeShape(at)));
+    commitToolOp(strokeShape(at));
   };
 
   // --- selection gestures + overlay ---------------------------------------
@@ -2040,7 +2057,8 @@ export function createFieldHost(deps?: {
   // pointermove. The sphere ghost, which IS rebuilt per frame, does not have
   // that gap. Accepted rather than moved into the frame path — a pending anchor
   // is a momentary state, and per-frame rebuilds are the cost the batches are
-  // stored to avoid.
+  // stored to avoid. Filed as item 9 of
+  // `docs/backlog/editor-and-tooling/field-f2b-gate-ux-findings.md` (F4).
   const updateSegmentPreview = (clientX: number, clientY: number): void => {
     if (segmentAnchor === null) return;
     const p = selectionPoint(clientX, clientY);
@@ -2066,14 +2084,16 @@ export function createFieldHost(deps?: {
       setSegmentAnchor(p);
       return;
     }
-    const op = toolOp({
-      kind: "capsule",
-      a: [...segmentAnchor],
-      b: p,
-      radius: digRadius,
-    });
+    // Copy the anchor BEFORE clearing it — setSegmentAnchor nulls the field,
+    // and the op is built after.
+    const a: Vec3T = [...segmentAnchor];
     setSegmentAnchor(null);
-    commitToolOp(op);
+    // Re-arm the once-per-stroke mask-drop report. A stroke re-arms it at
+    // pointer-down (a drag is one stroke, many ops); a segment's unit is ONE
+    // commit, so without this every segment after the first would drop a
+    // selection mask SILENTLY.
+    maskDropReported = false;
+    commitToolOp({ kind: "capsule", a, b: p, radius: digRadius });
   };
 
   // One LMB click while a selection mode is armed (applyTool is bypassed). The
@@ -2935,8 +2955,9 @@ export function createFieldHost(deps?: {
     // that won't happen. The segment brush is included: its click anchors or
     // sweeps a capsule, never stamps the sphere this ghost draws. Its own
     // preview only appears once a point IS anchored, so an armed-but-unanchored
-    // segment shows no brush affordance at all — the box gesture's precedent,
-    // and one the F4 tool-feel pass may want to revisit.
+    // segment shows no brush affordance at all — the box gesture's precedent.
+    // Filed as item 10 of
+    // `docs/backlog/editor-and-tooling/field-f2b-gate-ux-findings.md` (F4).
     const ghost = layers.ghost && gesture === null ? ghostState() : null;
     if (ghost?.kitBox && ghostCube) {
       ghostPos.set(ghost.kitBox.center);

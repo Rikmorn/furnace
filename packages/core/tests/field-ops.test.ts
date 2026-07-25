@@ -570,6 +570,58 @@ describe("capsule shape — the segment brush (F3b: D-F3-14)", () => {
     undo(s, log);
     expect(snapshotAll(s)).toEqual(before);
   });
+
+  test("smooth falls off by the capsule's RADIUS, never its sweep length", () => {
+    // applySmooth caps each sample's delta by `strength · min(1, sdf/sdfRef)`.
+    // For a capsule, sdfRef is the radius — the distance from the axis to the
+    // boundary, exactly as it is for a sphere. Anything length-derived would
+    // make the SAME cell at the SAME wall distance smooth harder in a short
+    // tunnel than in a long one, which is what this pins.
+    const roughened = (): FieldStore => {
+      const s = createFieldStore();
+      // A sphere carved ON the shared axis: its surface crosses the smoothed
+      // region at every distance from the axis, so the probe set below spans
+      // the whole falloff range instead of one point on it.
+      applyOp(s, digSphere([2, 2, 0.5], 1), TABLE);
+      return s;
+    };
+    type Pt = [number, number, number];
+    const smoothCapsule = (a: Pt, b: Pt): BrushOp => ({
+      id: 0,
+      kind: "brush",
+      effect: "smooth",
+      shape: { kind: "capsule", a, b, radius: 2 },
+      smooth: { strength: 64, iterations: 1, mode: "both" },
+    });
+    const before = roughened();
+    const short = roughened();
+    const long = roughened();
+    const A: Pt = [2, 2, 0.5];
+    applyOp(short, smoothCapsule(A, [2.5, 2, 0.5]), TABLE);
+    applyOp(long, smoothCapsule(A, [8, 2, 0.5]), TABLE);
+
+    // Compare only where the two shapes are the SAME shape: a sample whose
+    // projection lands at or before the short capsule's far endpoint has the
+    // same closest point — and so the same sdf — on both segments.
+    const h = short.cellSize;
+    let compared = 0;
+    let changed = 0;
+    for (let z = 0; z <= 10; z++)
+      for (let y = 0; y <= 16; y++)
+        for (let x = 0; x <= 10; x++) {
+          if (x * h > 2.5) continue;
+          const s0 = getDensity(before, x, y, z);
+          const sShort = getDensity(short, x, y, z);
+          expect(getDensity(long, x, y, z)).toBe(sShort);
+          compared++;
+          if (sShort !== s0) changed++;
+        }
+    // Non-vacuity: the equality above is worthless if the smooth wrote
+    // nothing in the compared window — an unwritten cell trivially matches an
+    // unwritten cell. Measured: 948 of 2057 compared samples changed.
+    expect(compared).toBeGreaterThan(1000);
+    expect(changed).toBeGreaterThan(500);
+  });
 });
 
 describe("op-list undo entries + the FieldOp union (F2b)", () => {

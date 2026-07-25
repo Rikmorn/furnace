@@ -87,10 +87,12 @@ function shapeSdf(s: BrushShape, x: number, y: number, z: number): number {
 }
 
 /** Axis-aligned world bounds of the op (its declared bounded influence). A
- *  capsule's are the AABB of BOTH endpoints grown by the radius — tight for an
- *  axis-aligned sweep, loose (by up to the radius at each corner) for a
- *  diagonal one, which is the same over-declaration every brush shape's bounds
- *  already carry (see {@link fieldOpChunks}). */
+ *  capsule's are the AABB of BOTH endpoints grown by the radius, which is
+ *  EXACT — the Minkowski sum of the segment and the ball of that radius, and
+ *  the segment's own AABB is the hull of its endpoints. What changes with the
+ *  sweep direction is how much of the box the capsule FILLS (a diagonal sweep
+ *  fills less), not whether the box is tight; that is the same relationship a
+ *  sphere has with its cube, and it is not a bounds bug. */
 export function opBounds(op: BrushOp): {
   min: [number, number, number];
   max: [number, number, number];

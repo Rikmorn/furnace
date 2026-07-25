@@ -58,6 +58,24 @@ the standing editor-UX debt: `world-panel-w3-gate-ux-findings.md` +
    folded into that task: it changes an existing gesture's key handling, and item 1
    above already owns "box-select ergonomics" for the same pass.
 
+9. **A pending segment capsule does not re-fatten on a radius change** (F3b Task 13) —
+   `updateSegmentPreview` rebuilds its line batch on pointer MOVE, so turning the wheel
+   or pressing `[` / `]` with a still cursor leaves the previewed capsule at the old
+   radius until the pointer twitches. The plain brush ghost has no such gap: it is
+   rebuilt per frame from `ghostState()`. Fixing it means either moving the capsule
+   batch into the frame path (the cost the stored batches exist to avoid) or rebuilding
+   it from the radius setters as well. Inline note at `field-host.ts`
+   (`updateSegmentPreview`).
+
+10. **An armed-but-unanchored Segment shows no cursor affordance at all** (F3b Task 13)
+    — the sphere ghost is suppressed for every armed gesture (mode coherence: LMB will
+    not stamp a sphere), and the capsule preview only exists once a first point is
+    clicked, so between arming and the first click there is nothing on screen
+    indicating where the segment will start or how thick it will be. This follows the
+    box gesture's precedent exactly, which is why it shipped as-is; both are item 1's
+    "the gesture still reads a bit odd". A start-point ring at the cursor is the
+    obvious candidate. Inline note at `field-host.ts` (`renderScene`'s ghost gate).
+
 **Trigger to revisit:** the F4 recharter (items 1–6; joined by
 `field-f3a-gate-ux-findings.md`).
 

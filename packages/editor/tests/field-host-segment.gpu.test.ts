@@ -9,7 +9,12 @@
 // the whole point: what is under test is the two-click state machine inside the
 // host, which has no method seam at all.
 import { expect, test } from "bun:test";
-import type { BrushOp, FieldManifest, FieldOp } from "@furnace/core/field";
+import type {
+  BrushOp,
+  FieldManifest,
+  FieldOp,
+  MaterialTable,
+} from "@furnace/core/field";
 import { DEFAULT_CELL_SIZE, parseOps } from "@furnace/core/field";
 import {
   bunWebGpuAvailable,
@@ -247,6 +252,121 @@ test.skipIf(!bunWebGpuAvailable())(
       expect(f.ops()).toHaveLength(0);
       f.click(40, 40);
       expect(f.ops()).toHaveLength(1);
+    } finally {
+      f.teardown();
+    }
+  },
+);
+
+/** A table with a KIT class (id 2) — kit writes are lattice-locked to a BOX,
+ *  so this is what makes a capsule commit fail core's validator. */
+const KIT_TABLE: MaterialTable = {
+  classes: [
+    { id: 0, name: "rock", kind: "organic", color: [0.6, 0.6, 0.6, 1] },
+    { id: 1, name: "dirt", kind: "organic", color: [0.4, 0.3, 0.2, 1] },
+    {
+      id: 2,
+      name: "masonry",
+      kind: "kit",
+      color: [0.5, 0.5, 0.5, 1],
+      kit: {
+        panelProud: 0.06,
+        panelReveal: 0.02,
+        collarSection: 0.14,
+        backingColor: [0.4, 0.4, 0.4, 1],
+        pieceColors: {
+          panel: [0.55, 0.53, 0.5, 1],
+          floor: [0.42, 0.4, 0.38, 1],
+          trim: [0.35, 0.33, 0.3, 1],
+          collar: [0.3, 0.28, 0.26, 1],
+        },
+      },
+    },
+  ],
+};
+
+test.skipIf(!bunWebGpuAvailable())(
+  "loading a different world drops a pending anchor",
+  async () => {
+    const f = await segmentFixture();
+    try {
+      f.host.setTool(DIG_TOOL);
+      f.host.setGesture("segment");
+      f.click(16, 16); // anchor, in THIS world
+
+      // Load is reachable with a half-drawn segment on screen. The anchor is a
+      // point in the field that just went away; carried over, the next click
+      // sweeps a capsule from somewhere the user never clicked in a world they
+      // have not seen.
+      f.host.loadWorld({ manifest: MANIFEST, chunks: [], oplog: null });
+      f.click(48, 40); // must ANCHOR afresh, not commit
+      expect(f.ops()).toHaveLength(0);
+
+      // …and the gesture is still armed, so the pair completes normally.
+      f.click(20, 44);
+      expect(f.ops()).toHaveLength(1);
+    } finally {
+      f.teardown();
+    }
+  },
+);
+
+test.skipIf(!bunWebGpuAvailable())(
+  "a kit-class fill under Segment is REPORTED, not thrown, and writes nothing",
+  async () => {
+    const f = await segmentFixture();
+    try {
+      // Kit classes stay grid-locked to a lattice BOX, so core rejects a
+      // capsule carrying one (assertOpValid). The segment gesture is the only
+      // path that can build that op — a plain stroke swaps in a snapped box —
+      // which makes this the ONE reachable case for that setup-loud throw, and
+      // the editor's job is to surface it rather than let it escape the
+      // pointer handler.
+      f.host.setMaterialTable(KIT_TABLE);
+      f.host.setTool({ ...DIG_TOOL, effect: "fill", materialId: 2 });
+      f.host.setGesture("segment");
+      f.click(16, 16);
+      f.click(48, 40);
+      expect(f.ops()).toHaveLength(0);
+      expect(f.errors.at(-1)).toMatch(/kit-class writes require a box shape/);
+
+      // The anchor is still consumed: a rejected commit must not leave the
+      // gesture half-armed, or the next click sweeps from a stale point.
+      f.click(20, 44);
+      expect(f.ops()).toHaveLength(0);
+    } finally {
+      f.teardown();
+    }
+  },
+);
+
+test.skipIf(!bunWebGpuAvailable())(
+  "an unknown material id is reported, not thrown out of the pointer handler",
+  async () => {
+    const f = await segmentFixture();
+    try {
+      // `classOf` throws setup-loud on an id absent from the table. It reaches
+      // this path through assertOpValid inside logApply — the op BUILD is
+      // total (isKitFillTool swallows its own classOf), so the throw is
+      // apply-time and the catch in commitToolOp is what stops it escaping
+      // onPointerDown. Sabotage-checked: deleting that try/catch fails this
+      // test; hoisting the build out of it does NOT, which is the honest
+      // extent of what this pins.
+      f.host.setTool({ ...DIG_TOOL, effect: "fill", materialId: 99 });
+      f.host.setGesture("segment");
+      f.click(16, 16);
+      f.click(48, 40);
+      expect(f.ops()).toHaveLength(0);
+      expect(f.errors.at(-1)).toMatch(/unknown class id 99/);
+
+      // The same throw on the plain STROKE path (no gesture), which is where an
+      // escaped exception also costs a stranded pointer capture: onPointerDown
+      // sets `digging = true` before applyTool and calls setPointerCapture
+      // after it.
+      f.host.setGesture(null);
+      f.click(32, 32);
+      expect(f.ops()).toHaveLength(0);
+      expect(f.errors.at(-1)).toMatch(/unknown class id 99/);
     } finally {
       f.teardown();
     }
