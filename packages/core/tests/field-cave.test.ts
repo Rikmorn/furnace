@@ -34,6 +34,7 @@ import {
   PASSAGE_NOISE_AMP,
   RISER,
 } from "../src/field/cave.ts";
+import { at, expectDefined } from "./_helpers/expect.ts";
 
 // Geometric assertions derived from the skeleton (the W2/W3 posture) — never
 // lattice-aligned freebies. Each has teeth (sabotage-verified during dev).
@@ -59,8 +60,8 @@ function allConnected(sk: CaveSkeleton): boolean {
   const find = (x: number): number => {
     let r = x;
     while (parent[r] !== r) {
-      parent[r] = parent[parent[r]!]!;
-      r = parent[r]!;
+      parent[r] = at(parent, at(parent, r));
+      r = at(parent, r);
     }
     return r;
   };
@@ -69,7 +70,7 @@ function allConnected(sk: CaveSkeleton): boolean {
   };
   const mouthNodeAt = (p: Vec3): number => {
     for (let m = 0; m < M; m++) {
-      const at = sk.mouths[m]!.at;
+      const at = expectDefined(sk.mouths[m], `mouths[${m}]`).at;
       const d =
         Math.abs(at[0] - p[0]) +
         Math.abs(at[1] - p[1]) +
@@ -79,11 +80,12 @@ function allConnected(sk: CaveSkeleton): boolean {
     return -1;
   };
   for (const pass of sk.passages) {
-    const nFrom = pass.from >= 0 ? pass.from : mouthNodeAt(pass.waypoints[0]!);
+    const nFrom =
+      pass.from >= 0 ? pass.from : mouthNodeAt(at(pass.waypoints, 0));
     const nTo =
       pass.to >= 0
         ? pass.to
-        : mouthNodeAt(pass.waypoints[pass.waypoints.length - 1]!);
+        : mouthNodeAt(at(pass.waypoints, pass.waypoints.length - 1));
     if (nFrom < 0 || nTo < 0) return false; // an unresolved terminal
     union(nFrom, nTo);
   }
@@ -99,14 +101,14 @@ function assertGradeBudget(sk: CaveSkeleton): void {
     expect(pass.waypoints.length).toBe(pass.floorY.length);
     for (let k = 0; k < pass.waypoints.length; k++) {
       // floorY is the waypoint's own Y (parallel, consistent).
-      expect(pass.floorY[k]!).toBeCloseTo(pass.waypoints[k]![1], 6);
+      expect(at(pass.floorY, k)).toBeCloseTo(at(pass.waypoints, k)[1], 6);
       // every floor is a RISER multiple.
-      const q = pass.floorY[k]! / RISER;
+      const q = at(pass.floorY, k) / RISER;
       expect(Math.abs(q - Math.round(q))).toBeLessThan(EPS);
     }
     for (let k = 0; k + 1 < pass.waypoints.length; k++) {
-      const dY = pass.floorY[k + 1]! - pass.floorY[k]!;
-      const run = horiz(pass.waypoints[k]!, pass.waypoints[k + 1]!);
+      const dY = at(pass.floorY, k + 1) - at(pass.floorY, k);
+      const run = horiz(at(pass.waypoints, k), at(pass.waypoints, k + 1));
       // the riser is a RISER multiple.
       const q = dY / RISER;
       expect(Math.abs(q - Math.round(q))).toBeLessThan(EPS);
@@ -119,9 +121,9 @@ function assertGradeBudget(sk: CaveSkeleton): void {
     if (pass.kind === "switchback") {
       let reversals = 0;
       for (let k = 0; k + 2 < pass.waypoints.length; k++) {
-        const a = pass.waypoints[k]!;
-        const b = pass.waypoints[k + 1]!;
-        const c = pass.waypoints[k + 2]!;
+        const a = at(pass.waypoints, k);
+        const b = at(pass.waypoints, k + 1);
+        const c = at(pass.waypoints, k + 2);
         const d0x = b[0] - a[0];
         const d0z = b[2] - a[2];
         const d1x = c[0] - b[0];
@@ -195,7 +197,7 @@ describe("cave skeleton — determinism", () => {
     }
   });
   test("seed + 1 → different skeleton", () => {
-    const c = CONFIGS[0]!;
+    const c = at(CONFIGS, 0);
     const a = buildCaveSkeleton(c.params, c.seed, c.extent);
     const b = buildCaveSkeleton(c.params, c.seed + 1, c.extent);
     expect(a).not.toEqual(b);
@@ -257,9 +259,9 @@ describe("cave skeleton — grade budget", () => {
         if (pass.kind !== "switchback") continue;
         let reversals = 0;
         for (let k = 0; k + 2 < pass.waypoints.length; k++) {
-          const a = pass.waypoints[k]!;
-          const b = pass.waypoints[k + 1]!;
-          const d = pass.waypoints[k + 2]!;
+          const a = at(pass.waypoints, k);
+          const b = at(pass.waypoints, k + 1);
+          const d = at(pass.waypoints, k + 2);
           if (
             (b[0] - a[0]) * (d[0] - b[0]) + (b[2] - a[2]) * (d[2] - b[2]) <
             -EPS
@@ -285,10 +287,10 @@ describe("cave skeleton — endpoint delivery (Δy)", () => {
     sk: CaveSkeleton,
     pass: CaveSkeleton["passages"][number],
   ): number => {
-    const endY = pass.floorY[pass.floorY.length - 1]!;
+    const endY = at(pass.floorY, pass.floorY.length - 1);
     if (pass.to >= 0)
-      return Math.abs(endY - chamberFloorY(sk.chambers[pass.to]!));
-    return Math.abs(endY - pass.floorY[0]!); // mouth passages are level
+      return Math.abs(endY - chamberFloorY(at(sk.chambers, pass.to)));
+    return Math.abs(endY - at(pass.floorY, 0)); // mouth passages are level
   };
 
   // The full climb the passage was asked to deliver (from-floor → to-floor).
@@ -296,17 +298,17 @@ describe("cave skeleton — endpoint delivery (Δy)", () => {
     sk: CaveSkeleton,
     pass: CaveSkeleton["passages"][number],
   ): number => {
-    const fromFloor = chamberFloorY(sk.chambers[pass.from]!); // from is always ≥ 0
+    const fromFloor = chamberFloorY(at(sk.chambers, pass.from)); // from is always ≥ 0
     if (pass.to < 0) return 0; // mouth passages are level
-    return Math.abs(chamberFloorY(sk.chambers[pass.to]!) - fromFloor);
+    return Math.abs(chamberFloorY(at(sk.chambers, pass.to)) - fromFloor);
   };
 
   test("start waypoint always sits on the from-chamber floor", () => {
     for (const c of CONFIGS) {
       const sk = buildCaveSkeleton(c.params, c.seed, c.extent);
       for (const pass of sk.passages)
-        expect(pass.floorY[0]!).toBeCloseTo(
-          chamberFloorY(sk.chambers[pass.from]!),
+        expect(at(pass.floorY, 0)).toBeCloseTo(
+          chamberFloorY(at(sk.chambers, pass.from)),
           6,
         );
     }
@@ -332,7 +334,7 @@ describe("cave skeleton — endpoint delivery (Δy)", () => {
       const sk = buildCaveSkeleton(c.params, c.seed, c.extent);
       for (const pass of sk.passages) {
         const deliveredDy = Math.abs(
-          pass.floorY[pass.floorY.length - 1]! - pass.floorY[0]!,
+          at(pass.floorY, pass.floorY.length - 1) - at(pass.floorY, 0),
         );
         const intended = intendedDy(sk, pass);
         expect(deliveredDy).toBeLessThanOrEqual(intended + EPS); // never overshoots
@@ -410,8 +412,14 @@ describe("cave skeleton — mouths honor the door convention", () => {
       1,
       EXT,
     );
-    const nLo = lo.mouths.find((m) => m.face === "north")!;
-    const nHi = hi.mouths.find((m) => m.face === "north")!;
+    const nLo = expectDefined(
+      lo.mouths.find((m) => m.face === "north"),
+      "lo north mouth",
+    );
+    const nHi = expectDefined(
+      hi.mouths.find((m) => m.face === "north"),
+      "hi north mouth",
+    );
     // north face runs along X — the lateral coord is X, and it tracks the offset.
     expect(nLo.at[0]).toBeCloseTo(3, 6);
     expect(nHi.at[0]).toBeCloseTo(15, 6);
@@ -424,15 +432,24 @@ describe("cave skeleton — mouths honor the door convention", () => {
       EXT,
     );
     const absent = buildCaveSkeleton({ doorNorth: true }, 1, EXT);
-    const nS = sentinel.mouths.find((m) => m.face === "north")!;
-    const nA = absent.mouths.find((m) => m.face === "north")!;
+    const nS = expectDefined(
+      sentinel.mouths.find((m) => m.face === "north"),
+      "sentinel north mouth",
+    );
+    const nA = expectDefined(
+      absent.mouths.find((m) => m.face === "north"),
+      "absent north mouth",
+    );
     expect(nS.at[0]).toBeCloseTo(EXT[0] / 2, 6); // centred on X
     expect(nA.at).toEqual(nS.at); // absent key ≡ the −1 sentinel
   });
 
   test("east/west mouths track the offset along Z", () => {
     const sk = buildCaveSkeleton({ doorEast: true, doorEastOffset: 4 }, 1, EXT);
-    const e = sk.mouths.find((m) => m.face === "east")!;
+    const e = expectDefined(
+      sk.mouths.find((m) => m.face === "east"),
+      "east mouth",
+    );
     expect(e.at[2]).toBeCloseTo(4, 6);
     expect(e.at[0]).toBeCloseTo(EXT[0] - MARGIN, 6); // on the +X face
   });
@@ -544,9 +561,9 @@ function chamberSurfaceRadii(s: FieldStore, c: CaveChamber): number[] {
 function passageWallDists(s: FieldStore, p: CavePassage): number[] {
   const out: number[] = [];
   for (let i = 1; i + 1 < p.waypoints.length; i++) {
-    const a = p.waypoints[i - 1]!;
-    const b = p.waypoints[i + 1]!;
-    const w = p.waypoints[i]!;
+    const a = at(p.waypoints, i - 1);
+    const b = at(p.waypoints, i + 1);
+    const w = at(p.waypoints, i);
     const tx = b[0] - a[0];
     const tz = b[2] - a[2];
     const tl = Math.hypot(tx, tz) || 1;
@@ -698,14 +715,14 @@ describe("cave carve — protected stepped floors (0.25 m quanta)", () => {
     const store = carve(STEP_PARAMS, STEP_SEED, "replace");
     const sk = buildCaveSkeleton(STEP_PARAMS, STEP_SEED, CAVE_REGION.max);
     const stepped = sk.passages.filter((p: CavePassage) =>
-      p.floorY.some((y, i) => i > 0 && Math.abs(y - p.floorY[i - 1]!) > EPS),
+      p.floorY.some((y, i) => i > 0 && Math.abs(y - at(p.floorY, i - 1)) > EPS),
     );
     expect(stepped.length).toBeGreaterThan(0); // the config really does step
     let checked = 0;
     for (const p of stepped) {
       for (let i = 0; i + 1 < p.waypoints.length; i++) {
-        const a = p.waypoints[i]!;
-        const b = p.waypoints[i + 1]!;
+        const a = at(p.waypoints, i);
+        const b = at(p.waypoints, i + 1);
         // Sample the waypoint and the segment midpoint — the midpoint is where
         // an un-quantized (raw-lerp) floor would land off the 0.25 grid.
         for (const [wx, wz] of [
@@ -739,7 +756,7 @@ describe("cave carve — themes (noise dial)", () => {
   function chamberWallVar(theme: string): number {
     const store = carve({ ...THEME_PARAMS, theme }, THEME_SEED, "replace");
     const sk = buildCaveSkeleton(THEME_PARAMS, THEME_SEED, CAVE_REGION.max);
-    return variance(chamberSurfaceRadii(store, sk.chambers[0]!));
+    return variance(chamberSurfaceRadii(store, at(sk.chambers, 0)));
   }
 
   test("organic chamber walls are rougher (higher radius variance) than mined", () => {
@@ -760,7 +777,7 @@ describe("cave carve — themes (noise dial)", () => {
       "replace",
     );
     const sk = buildCaveSkeleton(THEME_PARAMS, THEME_SEED, CAVE_REGION.max);
-    const c = sk.chambers[0]!;
+    const c = at(sk.chambers, 0);
     const mixedChamberVar = variance(chamberSurfaceRadii(mixed, c));
     // (a) mixed chambers ARE displaced — rougher than the all-mined cave's SAME
     // chamber (isolates the organic noise the mixed theme routes to chambers).
@@ -769,7 +786,10 @@ describe("cave carve — themes (noise dial)", () => {
     );
     // (b) mixed passages stay crisp — their wall roughness sits well below the
     // (organic) chamber's.
-    const p = sk.passages.find((q: CavePassage) => q.waypoints.length >= 3)!;
+    const p = expectDefined(
+      sk.passages.find((q: CavePassage) => q.waypoints.length >= 3),
+      "passage with >= 3 waypoints",
+    );
     expect(variance(passageWallDists(mixed, p))).toBeLessThan(mixedChamberVar);
   });
 });

@@ -5,6 +5,7 @@ import {
   createFieldStore,
   raycastField,
 } from "@furnace/core/field";
+import { at } from "./_helpers/expect.ts";
 
 describe("raycastField", () => {
   test("a ray inside a dug cavity hits the far wall", () => {
@@ -22,9 +23,9 @@ describe("raycastField", () => {
     const hit = raycastField(s, [2, 2, 2], [1, 0, 0], 10);
     expect(hit).not.toBeNull();
     // wall is ~1.5 m out (quantization slop one cell either way)
-    expect(Math.abs((hit as { point: number[] }).point[0]! - 3.5)).toBeLessThan(
-      0.5,
-    );
+    expect(
+      Math.abs(at((hit as { point: number[] }).point, 0) - 3.5),
+    ).toBeLessThan(0.5);
   });
 
   test("a ray in solid rock hits immediately; maxDist misses return null", () => {
