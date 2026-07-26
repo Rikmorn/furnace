@@ -345,6 +345,27 @@ describe("analyzeChunk — walkable column pass", () => {
     for (const f of narrow) expect(f.cell[0]).toBe(8);
   });
 
+  test("rejects a wrongly-encoded extraSolid buffer (setup-loud)", () => {
+    // A PACKED bitset is the plausible wrong encoding — and the dangerous one:
+    // it reads without error and yields a partial subset of the true flags
+    // (measured 14 where the byte-per-cell buffer gives 16), so a producer that
+    // guessed wrong would ship silent false negatives. Length is the only tell.
+    const s = room();
+    const packed = new Uint8Array(CHUNK_SAMPLES / 8);
+    expect(() =>
+      analyzeChunk(s, CENTER, AGENT, {
+        extraSolid: new Map([[CENTER, packed]]),
+      }),
+    ).toThrow(/one BYTE per sample/);
+    // The check covers every buffer in the map, not just the analysed chunk's:
+    // neighbour reads cross borders, so a bad neighbour buffer is read too.
+    expect(() =>
+      analyzeChunk(s, CENTER, AGENT, {
+        extraSolid: new Map([[chunkKey(1, 0, 0), packed]]),
+      }),
+    ).toThrow(/one BYTE per sample/);
+  });
+
   test("an unallocated chunk analyses to no flags", () => {
     expect(analyzeChunk(room(), chunkKey(9, 9, 9), AGENT)).toEqual([]);
   });

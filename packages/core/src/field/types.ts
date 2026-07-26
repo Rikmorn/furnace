@@ -493,21 +493,23 @@ export type FlagSeverity = "candidate" | "info";
 /** One stage-1 walkability finding. Advisory data — never blocks anything, and
  *  the analyzer never mutates the store on account of it (D-F4-1). */
 export type FieldFlag = {
-  kind: FlagKind;
-  severity: FlagSeverity;
+  readonly kind: FlagKind;
+  readonly severity: FlagSeverity;
   /** Global voxel coords of the anchor cell (the AIR cell above the floor).
    *  NOT guaranteed to be a walkable cell: `low-clearance` anchors on the
    *  offending NEIGHBOUR, which by construction failed the clearance test. */
-  cell: [number, number, number];
+  readonly cell: readonly [number, number, number];
   /** World position of the floor surface centre under `cell` (cell XZ centre,
    *  Y of its bottom face = the top of the solid below). */
-  world: [number, number, number];
+  readonly world: readonly [number, number, number];
   /** Owner chunk: the chunk whose pass emitted this flag, which for a
    *  `low-clearance` anchor may differ from the chunk holding `cell`. Flags are
    *  replaced per owner chunk on re-analysis. */
-  chunk: ChunkKey;
+  readonly chunk: ChunkKey;
   /** Reachability demotion tag (D-F4-8) — set by the reachability pass, which
-   *  demotes and never deletes. */
+   *  demotes and never deletes. The one MUTABLE member: that pass tags flags in
+   *  place, so everything describing WHAT was found stays readonly and only the
+   *  triage verdict can be written after the fact. */
   unreachable?: boolean;
 };
 

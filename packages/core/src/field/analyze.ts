@@ -12,9 +12,8 @@
 // condition applies to analysing SMOOTH source geometry, which this is not.
 import {
   CHUNK_DIM,
+  CHUNK_SAMPLES,
   chunkKey,
-  getDensity,
-  localIndex,
   parseChunkKey,
   sampleToWorld,
   voxelChunk,
@@ -47,8 +46,10 @@ const DIRS = [
 /** Options shared by every analyzer entry point. */
 export type AnalyzeOptions = {
   /** Extra solidity beyond the field itself (voxelized placement colliders),
-   *  as one byte per sample in `localIndex` order — length `CHUNK_SAMPLES`,
-   *  non-zero = solid. A missing chunk key means that chunk has no extras. */
+   *  as one BYTE per sample in `localIndex` order — length exactly
+   *  `CHUNK_SAMPLES`, non-zero = solid. NOT a packed bitset; a packed producer
+   *  would read as plausible partial garbage rather than failing, so the length
+   *  is checked setup-loud. A missing chunk key means that chunk has no extras. */
   extraSolid?: ReadonlyMap<ChunkKey, Uint8Array>;
 };
 
@@ -57,6 +58,15 @@ export type AnalyzeOptions = {
 type SolidView = {
   store: FieldStore;
   extras: ReadonlyMap<ChunkKey, Uint8Array> | undefined;
+  /** Memo of the last chunk resolved. Every scan here walks a column, so 16
+   *  consecutive probes hit the same chunk; without this each one rebuilt a
+   *  `"cx,cy,cz"` key and re-hit the Map. NaN never equals itself, so the first
+   *  probe always misses. */
+  cx: number;
+  cy: number;
+  cz: number;
+  density: Int8Array | undefined;
+  extra: Uint8Array | undefined;
 };
 
 /** Agent thresholds resolved to CELLS at the store's cell size. */
@@ -77,6 +87,12 @@ type PushFlag = (
   z: number,
 ) => void;
 
+/** The rounding is asymmetric on purpose, and miss-safe in both directions:
+ *  `ceil` on what the capsule REQUIRES (clearance, radius, probe heights)
+ *  over-demands, and `floor` on what it is ALLOWED (step, climb) under-grants.
+ *  Every threshold therefore lands strictly tighter than the real mover, which
+ *  is the posture this pass wants — borderline geometry surfaces as a flag
+ *  rather than being rounded away. Do not "fix" one of them into symmetry. */
 function metricsFor(profile: AgentProfile, cellSize: number): ColumnMetrics {
   const clearCells = Math.ceil(profile.clearance / cellSize);
   return {
@@ -115,17 +131,58 @@ function assertAgentProfileValid(profile: AgentProfile): void {
     );
 }
 
+/** Setup-loud check that every extra-solidity buffer uses the encoding the
+ *  probe assumes. Length is the only tell a packed bitset gives: it reads
+ *  without error and returns a plausible SUBSET of the true flags, which is a
+ *  false-negative class arriving through the back door. Checked once here, not
+ *  per probe — `isSolid` is the hot path. */
+function assertExtraSolidValid(
+  extras: ReadonlyMap<ChunkKey, Uint8Array>,
+): void {
+  for (const [key, bits] of extras)
+    if (bits.length !== CHUNK_SAMPLES)
+      throw new Error(
+        `analyze: extraSolid["${key}"] has length ${bits.length}, expected ${CHUNK_SAMPLES} — one BYTE per sample in localIndex order, non-zero = solid (a packed bitset is not the encoding)`,
+      );
+}
+
 /** Rock at (x,y,z) — the `collider.ts` predicate (density < 0), widened by the
- *  caller's extra solidity. Unallocated chunks read SOLID, which `getDensity`
- *  implements directly and the collider derivation inherits. */
+ *  caller's extra solidity. Unallocated chunks read SOLID, the rule
+ *  `chunks.ts`'s `getDensity` states and the collider derivation inherits.
+ *
+ *  This INLINES `getDensity` + `localIndex` rather than calling them, to hang a
+ *  last-chunk memo off the resolution: a column scan probes the same chunk 16
+ *  times running, and each call otherwise rebuilt a `"cx,cy,cz"` string and
+ *  re-hit the Map. Measured 5x on the cave fixture and 7x on a 16 m open column
+ *  — a constant-factor win only; cost stays O(headroom). The memo is safe
+ *  because the pass never writes to the store (D-F4-1), so nothing it caches can
+ *  go stale mid-call, and the view is per-call. The cost is a second copy of the
+ *  store's layout rules: if the chunk elision rule or the sample index formula
+ *  in `chunks.ts` ever changes, this function must change with it. */
 function isSolid(v: SolidView, x: number, y: number, z: number): boolean {
-  if (getDensity(v.store, x, y, z) < 0) return true;
-  if (v.extras === undefined) return false;
-  const bits = v.extras.get(
-    chunkKey(voxelChunk(x), voxelChunk(y), voxelChunk(z)),
-  );
-  if (bits === undefined) return false;
-  const bit = bits[localIndex(x, y, z)];
+  const cx = voxelChunk(x);
+  const cy = voxelChunk(y);
+  const cz = voxelChunk(z);
+  if (cx !== v.cx || cy !== v.cy || cz !== v.cz) {
+    const key = chunkKey(cx, cy, cz);
+    v.cx = cx;
+    v.cy = cy;
+    v.cz = cz;
+    v.density = v.store.chunks.get(key);
+    v.extra = v.extras === undefined ? undefined : v.extras.get(key);
+  }
+  const density = v.density;
+  if (density === undefined) return true; // unallocated chunk = uniform rock
+  const i =
+    x -
+    cx * CHUNK_DIM +
+    CHUNK_DIM * (y - cy * CHUNK_DIM + CHUNK_DIM * (z - cz * CHUNK_DIM));
+  const d = density[i];
+  if (d !== undefined && d < 0) return true;
+  const extra = v.extra;
+  if (extra === undefined) return false;
+  // In range by construction — the buffer's length was checked at setup.
+  const bit = extra[i];
   return bit !== undefined && bit !== 0;
 }
 
@@ -299,10 +356,15 @@ const floorSurfaceWorld = (
  *
  * @param key - The chunk whose own 16³ cells are the ANCHORS. Neighbour reads
  * cross chunk borders freely, so the caller must have the surrounding chunks
- * present (a worker mirror sends the halo); absent neighbours read as rock,
- * which is exactly what the runtime collider derives from. An unallocated key
- * is legal and yields no flags — air, and therefore every anchor, only exists
- * in allocated chunks.
+ * present; absent neighbours read as rock, which is exactly what the runtime
+ * collider derives from. That requirement is NOT a one-chunk ring: reads are
+ * unbounded upward in Y, because the ceiling search runs until it finds rock.
+ * A mirror (or bake) missing a chunk overhead manufactures a false ceiling at
+ * its own edge, which drops every rise above it — the exact cliff a capped scan
+ * used to cause. Hold the whole vertical column above the analysed chunk, or
+ * accept clipped ceilings there and say so downstream. An unallocated key is
+ * legal and yields no flags — air, and therefore every anchor, only exists in
+ * allocated chunks.
  * @returns Flags in scan order, deduplicated by (kind, cell): the rise checks
  * run per direction but key the centre cell, and a flag carries no direction.
  * Every flag is owned by `key` even when its anchor cell lies in a neighbouring
@@ -315,14 +377,20 @@ const floorSurfaceWorld = (
  * over-emits instead; a presentation layer that cares should dedupe by cell.
  * @throws Error - setup-loud, on an agent profile that is not internally
  * consistent (non-positive or non-finite fields, `climbCeiling` not above
- * `stepHeight`, `clearance` below the capsule's own height).
+ * `stepHeight`, `clearance` below the capsule's own height), or on an
+ * `extraSolid` buffer whose length is not `CHUNK_SAMPLES`.
  * @remarks Unallocated space being rock is the field's own rule and the one
  * this pass wants, but note where it differs from the runtime: an unallocated
  * chunk emits no collider at all, so a mover moves through it freely. At the
- * OUTER rim of the allocated region — and only there — the two disagree: the
- * pass sees rock, so a floor within `clearance` of the rim reads as headroom
- * limited (or as no anchor at all) where the runtime would let the capsule
- * stand. Interior chunk borders are unaffected as long as the caller keeps the
+ * OUTER rim of the allocated region — and only there — the two disagree, in
+ * BOTH directions. Under-flagging: a floor within `clearance` of the rim reads
+ * as headroom limited, or as no anchor at all, where the runtime would let the
+ * capsule stand. Over-flagging, which is the half a user actually sees: the rim
+ * reads as walls, so cells near a boundary corner pinch on two sides and the
+ * region's edge grows a rim of `narrow` markers with no geometry under them.
+ * Both are artifacts of where the allocated data stops, not of the world, and
+ * both feed the false-positive counts any triage bar is calibrated against.
+ * Interior chunk borders are unaffected as long as the caller keeps the
  * neighbouring chunks present.
  */
 export function analyzeChunk(
@@ -332,7 +400,17 @@ export function analyzeChunk(
   opts?: AnalyzeOptions,
 ): FieldFlag[] {
   assertAgentProfileValid(profile);
-  const v: SolidView = { store, extras: opts?.extraSolid };
+  const extras = opts?.extraSolid;
+  if (extras !== undefined) assertExtraSolidValid(extras);
+  const v: SolidView = {
+    store,
+    extras,
+    cx: Number.NaN,
+    cy: Number.NaN,
+    cz: Number.NaN,
+    density: undefined,
+    extra: undefined,
+  };
   const m = metricsFor(profile, store.cellSize);
   const [cx, cy, cz] = parseChunkKey(key);
   const bx = cx * CHUNK_DIM;

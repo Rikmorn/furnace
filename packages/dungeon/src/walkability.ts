@@ -20,7 +20,8 @@ import agent from "../catalog/agent.json";
  *  `analyzeWorld` are parameterized on, and the raw capsule facts (step-up sweep, climb
  *  ceiling, clearance, slope limit) for dungeon-side consumers that need more than the two
  *  derived constants below, e.g. the walk-probe verify verb. `AgentProfile`'s members are
- *  readonly at the source, so this single shared instance cannot be edited by an importer. */
+ *  readonly at the source, so an importer cannot edit this shared instance without going
+ *  around the type system — a compile-time guarantee only; the object is not frozen. */
 export const AGENT: AgentProfile = agent;
 
 /** Max walkable slope angle in radians, from `agent.slopeLimitDeg`. */
