@@ -1,7 +1,8 @@
 # F0 — hybrid walkability analyzer corpus probe (2026-07-15)
 
 Charter premise P1. Design under test: column flags (stage 1) + real-mover swept
-probes (stage 2), per `docs/backlog/dungeon/walkability-analyzer-requirements.md`.
+probes (stage 2), per the analyzer requirements — then a `docs/backlog/` entry, absorbed
+at F4 into `docs/reference/dungeon-architecture.md` §3 "The walkability analyzer".
 Code lives in `packages/dungeon/scripts/analyzer-probe/{occupancy,column-pass,fixtures,sweep}.ts`,
 gated by `packages/dungeon/tests/analyzer-probe.{test,gpu.test}.ts`. Known-bad corpus
 sealed at commit `8fd0694`; known-good `DEFAULT_WORLD` run at `35c5437`.

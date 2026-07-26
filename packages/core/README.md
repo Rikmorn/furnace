@@ -10,7 +10,7 @@ npm install @furnace/core
 
 ## What you get
 
-Per-feature sub-path modules — `@furnace/core/{gpu, frame, geometry, mesh, material, camera, transform, post, events, stats, input, log, resources, physics, rigid-mesh, rng, scene, shader, binding}` — documented signature-by-signature in `docs/reference/core-modules.md`. Concept taxonomy + naming rules: `docs/reference/api-posture.md`. Behavioural contracts (coordinate system, color space, DPR, time, disposal, failure policy): `docs/reference/engine-conventions.md`.
+Per-feature sub-path modules — `@furnace/core/{gpu, frame, geometry, mesh, material, camera, transform, post, events, stats, input, log, resources, physics, rigid-mesh, rng, scene, shader, binding, field}` — documented signature-by-signature in `docs/reference/core-modules.md`. Concept taxonomy + naming rules: `docs/reference/api-posture.md`. Behavioural contracts (coordinate system, color space, DPR, time, disposal, failure policy): `docs/reference/engine-conventions.md`.
 
 For a working end-to-end example, see the `@furnace/hello-world` package in this repository; for one demo page per feature, `@furnace/cookbook`.
 

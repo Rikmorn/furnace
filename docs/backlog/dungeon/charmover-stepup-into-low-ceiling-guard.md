@@ -51,6 +51,7 @@ collider backend.
   `footOffset`).
 - `packages/dungeon/src/themes/cave.ts` — `TUNNEL_R` and the round-bore `capsuleCavern` tunnel
   whose narrowing produced the wedge.
-- Sibling deferrals: `docs/backlog/dungeon/traversal-verbs-on-character-mover.md`,
-  `docs/backlog/dungeon/walkability-analyzer-requirements.md` (the wedge corpus this class
-  belongs to — the mouth/door-geometry entry it used to cite retired at the W4 sweep).
+- Sibling deferral: `docs/backlog/dungeon/traversal-verbs-on-character-mover.md`.
+- The wedge corpus this class belongs to is `docs/reference/dungeon-architecture.md` §3
+  "The walkability analyzer" (absorbed there at F4; the mouth/door-geometry entry it
+  originally cited retired at the W4 sweep).

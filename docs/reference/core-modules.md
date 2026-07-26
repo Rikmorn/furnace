@@ -635,26 +635,30 @@ CPU-authoritative rigid-body simulation over a Rapier backend (see `docs/referen
 
 **Gate-rule (section-wide).** Every physics field is a pure pass-through to the Rapier backend — furnace performs no JS-side physics math (no inertia / center-of-mass / mass computation). Descriptor fields and setters hand their values straight to Rapier, and capability gaps (joints, …) are tracked toward a future backend, never faked. The per-row "no JS-side physics math" notes below are instances of this single rule.
 
+**Context rule (section-wide, F4).** Every entry point below takes a `PhysicsContext`, not a `Context`. A full `Context` from `gpu.requestContext` is assignable to it, so the ordinary path is unchanged and needs no thought; `createHeadlessPhysicsContext` supplies one where `requestContext` cannot run. The widening is type-level only — no signature gained or lost an argument, and no body changed.
+
 ### Public
 
 | Export | Signature | Notes |
 |---|---|---|
-| `createWorld` | `(ctx: Context, descriptor: WorldDescriptor) => Promise<World>` | `async` — lazily runs Rapier's one-time wasm init (memoized across all worlds), then constructs the backend world + event queue. Setup-loud: throws `FurnaceError` if `gravity` is not a finite 3-component vector. |
-| `step` | `(ctx: Context, world: World, dtSeconds: number) => void` | Hot-path Command — sets the backend timestep to `dtSeconds` and advances one step. Runtime-quiet: silent no-op on a stale/destroyed world. Populates the collision-event buffer drained by `drainCollisions`. |
-| `drainCollisions` | `(ctx: Context, world: World) => CollisionEvent[]` | Drains begin/end contacts recorded by the most recent `step`. Returns `[]` on a stale world or when nothing collided. Events whose collider does not resolve to a live body (e.g. a body destroyed mid-step) are dropped. |
-| `getDebugLines` | `(ctx: Context, world: World) => DebugLines` | Hot-path read — pass-through to Rapier's `world.debugRender()`. Returns the world's collider wireframe as `{ vertices, colors }` (flat xyz line-list + RGBA per vertex). Returns empty buffers on a stale/destroyed world. The arrays are transient — valid until the next `getDebugLines`/`step`; copy to retain. Pair with `frame.drawLines`. |
-| `destroyWorld` | `(ctx: Context, world: World) => void` | Tears down every body the world owns (removing each from the still-live backend world), then frees the backend world + its event queue. Idempotent silent no-op on a stale/destroyed handle. |
-| `createBody` | `(ctx: Context, world: World, descriptor: BodyDescriptor) => Body` | **Synchronous.** Builds a Rapier rigid body + collider (colliders are created event-enabled). Setup-loud: throws `FurnaceError` if the descriptor is `null`, has an unknown `type`, a non-finite `position`, or an invalid `shape`; also throws if `world` is not a live handle. |
-| `destroyBody` | `(ctx: Context, body: Body) => void` | Removes the body from its world's backend simulation and frees its slot. Idempotent silent no-op on a stale/destroyed handle. |
-| `getBodyTranslation` | `(ctx: Context, body: Body, out: Vec3) => Vec3` | Hot-path read of world-space translation into the **required** `out` (no per-call alloc); returns `out`. `out` is left unchanged on a stale/destroyed body. |
-| `getBodyRotation` | `(ctx: Context, body: Body, out: Quat) => Quat` | Hot-path read of the world-space rotation quaternion into the **required** `out` (no per-call alloc); returns `out`. `out` is left unchanged on a stale/destroyed body. |
-| `setBodyLinearVelocity` | `(ctx: Context, body: Body, v: Vec3Tuple) => void` | First hot-path body **setter**: sets the body's world-space linear velocity (a runtime "kick" — throw/jump/launch) and wakes it. Pure pass-through to Rapier `setLinvel` (no JS-side physics math). Runtime-quiet: log-warns and skips on a non-finite `v`, silent no-op on a stale/destroyed body. |
-| `setBodyNextKinematicTranslation` | `(ctx: Context, body: Body, pos: readonly [number, number, number]) => void` | Hot-path body **setter** for `kinematicPosition` bodies: queues the next world-space translation, applied by the following `step`. Pure pass-through to Rapier `setNextKinematicTranslation` (no JS-side physics math). Runtime-quiet: log-warns and skips on a non-finite `pos`, silent no-op on a stale/destroyed body. |
-| `createCharacterController` | `(ctx: Context, world: World, opts?: CharacterControllerOptions) => CharacterController` | Creates a kinematic character controller (a movement solver for a kinematic capsule) owned by `world`. Each `opts` field is a pure pass-through to the matching Rapier `KinematicCharacterController` setter (`setUp`, `enableAutostep`, `enableSnapToGround`, `setMaxSlopeClimbAngle`, `setMinSlopeSlideAngle`, `setSlideEnabled`, `setApplyImpulsesToDynamicBodies`, `setCharacterMass`); omitted fields keep Rapier's defaults. Setup-loud: throws `FurnaceError` if `world` is not a live handle, or if `offset` is non-positive/non-finite. |
-| `destroyCharacterController` | `(ctx: Context, controller: CharacterController) => void` | Removes the controller from its world's backend and tracking set. Idempotent silent no-op on an already-destroyed controller or a stale world. Controllers left live when their world is destroyed are cleaned up by `destroyWorld` (no leak). |
-| `computeMovement` | `(ctx: Context, controller: CharacterController, body: Body, desired: readonly [number, number, number], out: Vec3) => boolean` | Hot-path: resolves a kinematic capsule's `desired` translation against the world's colliders (Rapier `computeColliderMovement` → `computedMovement`), writing the corrected slide/blocked movement into the **required** `out` and returning whether the body is grounded (`computedGrounded`). Obstacles come from Rapier's query structures, populated by `step` — query after the world has stepped. Apply `out` via `setBodyNextKinematicTranslation`, then `step`. Runtime-quiet: log-warns and returns `false` with zeroed `out` on a non-finite `desired`; silent `false` + zeroed `out` on a destroyed controller or stale body/world. |
-| `castRay` | `(ctx: Context, world: World, opts: CastRayOptions) => RayHit \| null` | Query primitive — casts a ray and returns the nearest hit `{ toi, point, normal, body }` within `maxDistance`, else `null`. Wraps Rapier `castRayAndGetNormal`; `dir` is normalised internally (a zero-length `dir` yields a miss); `excludeBody` omits the caller's own collider. Obstacles come from Rapier's query structures, populated by `step` — query after the world has stepped. Setup-loud: throws `FurnaceError` on a non-finite/negative `maxDistance`. Runtime-quiet: `null` on a stale/destroyed world. |
-| `castShape` | `(ctx: Context, world: World, opts: CastShapeOptions) => RayHit \| null` | Query primitive — sweeps a convex `shape` (ball/cuboid/capsule/cylinder) from `position` along `dir` and returns the nearest hit `{ toi, point, normal, body }` within `maxDistance`, else `null`. Wraps Rapier `castShape`; the returned `normal` (Rapier `normal1`) opposes travel — suitable for collide-and-slide projection. `rotation` defaults to identity; `excludeBody` omits the caller's collider. Setup-loud: throws `FurnaceError` on a non-finite/negative `maxDistance` or a non-castable shape (trimesh). Runtime-quiet: `null` on a stale/destroyed world. |
+| `createWorld` | `(ctx: PhysicsContext, descriptor: WorldDescriptor) => Promise<World>` | `async` — lazily runs Rapier's one-time wasm init (memoized across all worlds), then constructs the backend world + event queue. Setup-loud: throws `FurnaceError` if `gravity` is not a finite 3-component vector. |
+| `step` | `(ctx: PhysicsContext, world: World, dtSeconds: number) => void` | Hot-path Command — sets the backend timestep to `dtSeconds` and advances one step. Runtime-quiet: silent no-op on a stale/destroyed world. Populates the collision-event buffer drained by `drainCollisions`. |
+| `drainCollisions` | `(ctx: PhysicsContext, world: World) => CollisionEvent[]` | Drains begin/end contacts recorded by the most recent `step`. Returns `[]` on a stale world or when nothing collided. Events whose collider does not resolve to a live body (e.g. a body destroyed mid-step) are dropped. |
+| `getDebugLines` | `(ctx: PhysicsContext, world: World) => DebugLines` | Hot-path read — pass-through to Rapier's `world.debugRender()`. Returns the world's collider wireframe as `{ vertices, colors }` (flat xyz line-list + RGBA per vertex). Returns empty buffers on a stale/destroyed world. The arrays are transient — valid until the next `getDebugLines`/`step`; copy to retain. Pair with `frame.drawLines`. |
+| `destroyWorld` | `(ctx: PhysicsContext, world: World) => void` | Tears down every body the world owns (removing each from the still-live backend world), then frees the backend world + its event queue. Idempotent silent no-op on a stale/destroyed handle. |
+| `createBody` | `(ctx: PhysicsContext, world: World, descriptor: BodyDescriptor) => Body` | **Synchronous.** Builds a Rapier rigid body + collider (colliders are created event-enabled). Setup-loud: throws `FurnaceError` if the descriptor is `null`, has an unknown `type`, a non-finite `position`, or an invalid `shape`; also throws if `world` is not a live handle. |
+| `destroyBody` | `(ctx: PhysicsContext, body: Body) => void` | Removes the body from its world's backend simulation and frees its slot. Idempotent silent no-op on a stale/destroyed handle. |
+| `getBodyTranslation` | `(ctx: PhysicsContext, body: Body, out: Vec3) => Vec3` | Hot-path read of world-space translation into the **required** `out` (no per-call alloc); returns `out`. `out` is left unchanged on a stale/destroyed body. |
+| `getBodyRotation` | `(ctx: PhysicsContext, body: Body, out: Quat) => Quat` | Hot-path read of the world-space rotation quaternion into the **required** `out` (no per-call alloc); returns `out`. `out` is left unchanged on a stale/destroyed body. |
+| `setBodyLinearVelocity` | `(ctx: PhysicsContext, body: Body, v: Vec3Tuple) => void` | First hot-path body **setter**: sets the body's world-space linear velocity (a runtime "kick" — throw/jump/launch) and wakes it. Pure pass-through to Rapier `setLinvel` (no JS-side physics math). Runtime-quiet: log-warns and skips on a non-finite `v`, silent no-op on a stale/destroyed body. |
+| `setBodyNextKinematicTranslation` | `(ctx: PhysicsContext, body: Body, pos: readonly [number, number, number]) => void` | Hot-path body **setter** for `kinematicPosition` bodies: queues the next world-space translation, applied by the following `step`. Pure pass-through to Rapier `setNextKinematicTranslation` (no JS-side physics math). Runtime-quiet: log-warns and skips on a non-finite `pos`, silent no-op on a stale/destroyed body. |
+| `createCharacterController` | `(ctx: PhysicsContext, world: World, opts?: CharacterControllerOptions) => CharacterController` | Creates a kinematic character controller (a movement solver for a kinematic capsule) owned by `world`. Each `opts` field is a pure pass-through to the matching Rapier `KinematicCharacterController` setter (`setUp`, `enableAutostep`, `enableSnapToGround`, `setMaxSlopeClimbAngle`, `setMinSlopeSlideAngle`, `setSlideEnabled`, `setApplyImpulsesToDynamicBodies`, `setCharacterMass`); omitted fields keep Rapier's defaults. Setup-loud: throws `FurnaceError` if `world` is not a live handle, or if `offset` is non-positive/non-finite. |
+| `destroyCharacterController` | `(ctx: PhysicsContext, controller: CharacterController) => void` | Removes the controller from its world's backend and tracking set. Idempotent silent no-op on an already-destroyed controller or a stale world. Controllers left live when their world is destroyed are cleaned up by `destroyWorld` (no leak). |
+| `computeMovement` | `(ctx: PhysicsContext, controller: CharacterController, body: Body, desired: readonly [number, number, number], out: Vec3) => boolean` | Hot-path: resolves a kinematic capsule's `desired` translation against the world's colliders (Rapier `computeColliderMovement` → `computedMovement`), writing the corrected slide/blocked movement into the **required** `out` and returning whether the body is grounded (`computedGrounded`). Obstacles come from Rapier's query structures, populated by `step` — query after the world has stepped. Apply `out` via `setBodyNextKinematicTranslation`, then `step`. Runtime-quiet: log-warns and returns `false` with zeroed `out` on a non-finite `desired`; silent `false` + zeroed `out` on a destroyed controller or stale body/world. |
+| `castRay` | `(ctx: PhysicsContext, world: World, opts: CastRayOptions) => RayHit \| null` | Query primitive — casts a ray and returns the nearest hit `{ toi, point, normal, body }` within `maxDistance`, else `null`. Wraps Rapier `castRayAndGetNormal`; `dir` is normalised internally (a zero-length `dir` yields a miss); `excludeBody` omits the caller's own collider. Obstacles come from Rapier's query structures, populated by `step` — query after the world has stepped. Setup-loud: throws `FurnaceError` on a non-finite/negative `maxDistance`. Runtime-quiet: `null` on a stale/destroyed world. |
+| `castShape` | `(ctx: PhysicsContext, world: World, opts: CastShapeOptions) => RayHit \| null` | Query primitive — sweeps a convex `shape` (ball/cuboid/capsule/cylinder) from `position` along `dir` and returns the nearest hit `{ toi, point, normal, body }` within `maxDistance`, else `null`. Wraps Rapier `castShape`; the returned `normal` (Rapier `normal1`) opposes travel — suitable for collide-and-slide projection. `rotation` defaults to identity; `excludeBody` omits the caller's collider. Setup-loud: throws `FurnaceError` on a non-finite/negative `maxDistance` or a non-castable shape (trimesh). Runtime-quiet: `null` on a stale/destroyed world. |
+| `createHeadlessPhysicsContext` | `() => PhysicsContext` | **Escape hatch** — a `PhysicsContext` with no GPU behind it, for callers that need physics where `requestContext` cannot run (a plain unit test, a Web Worker, a headless probe). The ordinary path is to pass the `Context` from `gpu.requestContext`. Valid for `@furnace/core/physics` only: the returned value has no `device`/`queue`/`canvas`/`format`/`pixelRatio`, so handing it to a `gpu`/`mesh`/`material`/`frame` function is a compile error, not a runtime failure. Frozen, holds no GPU objects. Takes the next id from the SAME per-realm counter `gpu.requestContext` draws from, so headless and GPU contexts stay distinct across a realm's first 65535 contexts (ids are 16 bits and recycle beyond that) — one context per session, not one per query. **No dispose:** `gpu.dispose` takes a full `Context` and there is no headless equivalent; the context's own state is ordinary JS and is collected with the last reference. Still call `destroyWorld` on each world — that is what frees the Rapier wasm allocations *promptly*. Skipping it is not an unbounded leak (rapier's wasm-bindgen glue registers a `FinalizationRegistry`) but finalization is non-deterministic. |
+| `PhysicsContext` | `Pick<Context, "_internal">` | The structural slice of `Context` this module actually uses — engine-internal state, nothing GPU-owned — and the first argument of every function above. A full `Context` is assignable, so `requestContext` → `physics.*` needs no thought; the type exists so a caller with no GPU can get one from `createHeadlessPhysicsContext`. It is deliberately NOT interchangeable in the other direction: with no `device`/`queue`/`canvas`/`format`/`pixelRatio`, passing a `PhysicsContext` to a `gpu`/`mesh`/`material`/`frame` function fails to compile. |
 | `WorldDescriptor` | `{ gravity: readonly [number, number, number]; lengthUnit?: number }` | Gravity vector for the world (e.g. `[0, -9.81, 0]`). `lengthUnit` = approximate size in world units of a 1-meter object; scales the backend solver's length tolerances for non-meter-scale scenes (sub-meter objects jitter at the default). Optional — furnace forwards its own meter-scale default (`1`) when omitted, so the backend's own default is never relied upon. |
 | `BodyDescriptor` | `{ type: "dynamic" \| "static" \| "kinematicPosition"; shape: ShapeDescriptor; position: readonly [number, number, number]; rotation?: readonly [number, number, number, number]; linearVelocity?: readonly [number, number, number]; angularVelocity?: readonly [number, number, number]; density?: number; friction?: number; restitution?: number; linearDamping?: number; angularDamping?: number }` | `rotation` is an `[x,y,z,w]` quaternion, defaults to identity. `linearVelocity` defaults to zero and is only meaningful for `dynamic` bodies (static and kinematicPosition bodies don't integrate velocity). `angularVelocity` is radians/sec about `x,y,z`, defaults to zero, and is likewise `dynamic`-only. `density` defaults to `1` (drives dynamic mass). `friction`, `restitution`, `linearDamping`, `angularDamping` are pass-through rigid-body material scalars: `friction` is the Coulomb coefficient, `restitution` is bounciness in `[0,1]` (`0` = no bounce), `linearDamping`/`angularDamping` are per-second velocity decay. All four are optional and forwarded straight to Rapier (no JS-side physics math). `kinematicPosition` bodies are not integrated by gravity; their pose is driven externally via `setBodyNextKinematicTranslation`. |
 | `ShapeDescriptor` | `{ ball: number } \| { cuboid: readonly [number, number, number] } \| { cylinder: { halfHeight: number; radius: number } } \| { capsule: { halfHeight: number; radius: number } } \| { trimesh: { vertices: Float32Array; indices: Uint32Array } } \| { voxels: { coords: Int32Array; size: readonly [number, number, number] } }` | `ball` = sphere radius; `cuboid` = box half-extents; `cylinder` = Y-axis-aligned half-height + radius (same Y axis as `geometry.cylinder`, whose `height` = `2 × halfHeight`). Backed by Rapier's round-cylinder for solver robustness; the requested `halfHeight`/`radius` are the true outer dimensions. `capsule` = Y-axis-aligned half-height + radius (the player shape). `trimesh` = flat triangle-soup for static level geometry: `vertices` xyz-packed, `indices` u32 triples; requires `indices.length % 3 === 0` and both arrays non-empty (validated by `createBody`). **For static or kinematic bodies only** — trimesh has no interior volume so a `dynamic` body with a trimesh collider produces undefined solver behaviour. Obtain the arrays from `geometry.getCollisionData` when using a mesh-resource geometry. `voxels` = a set of solid grid cells for static (or kinematic) level geometry: `coords` are signed integer grid coordinates, 3 ints per solid voxel (`coords.length % 3 === 0`, non-empty, validated by `createBody`); `size` is the per-axis world size of one voxel. Wraps Rapier's purpose-built voxel collider — sparse storage, and **free of the `trimesh` internal-edge ghost-collision artifact** across shared voxel faces (the reason field-derived level geometry uses it). **Static/kinematic only**, same as `trimesh`. |
@@ -673,6 +677,10 @@ CPU-authoritative rigid-body simulation over a Rapier backend (see `docs/referen
 ### Demoed in cookbook
 
 - `createWorld`, `step`, `createBody`, `getBodyTranslation`, `getBodyRotation` (and `WorldDescriptor` / `BodyDescriptor` / `ShapeDescriptor`) → `cookbook/physics`, exercised indirectly through `@furnace/core/rigid-mesh`: the demo's cubes are `rigidMesh` composites whose bodies are stepped each fixed tick and read back for interpolation. (Bodies still don't render on their own — `rigid-mesh` is the renderable binding.)
+
+### Reference-only (no demo, by design)
+
+- `createHeadlessPhysicsContext` / `PhysicsContext` — the no-GPU escape hatch. A cookbook demo has a `Context` by construction, so there is nothing for it to show; the surface exists for tests, workers, and headless probes.
 
 ---
 
@@ -781,8 +789,9 @@ The scene format: a text-JSON document (`SceneDocument`) with typed resource tab
 **Graduated at the F2b seal (2026-07-21): documented surface** — TSDoc on every export
 (`check:tsdoc` enforced) is the per-export contract; this section is the grouped map.
 The cookbook `field` demo (`packages/cookbook/src/demos/field/`) proves the public API
-stands alone: dig + paint + snapped masonry fill → mesh buckets + kit skin, rendered
-with no editor imports. Consumers today: the editor's FieldHost + remesh worker, the
+stands alone: dig + flat-floor fill + paint + snapped masonry fill → mesh buckets + kit
+skin, plus an `analyzeChunk` pass whose flags are drawn as floor markers, rendered with
+no editor imports. Consumers today: the editor's FieldHost + remesh worker, the
 dungeon's v2 field-world loader, and the cookbook demo.
 
 The chunked sparse voxel field: 16³ Int8 density chunks (air-positive, solid-by-default,
@@ -857,7 +866,21 @@ channel** (uniform|indexed palette encoding behind accessors — `getMaterial` /
   a `MergePolicy` (replace | keep-existing-air) rides in. Each `GeneratorDef` declares
   `contextFree: boolean` — `true` = pure in (params, seed, region), so the recorded span
   replays == re-evaluates (hall/maze/cave); `false` = evaluate reads the field through an
-  `EvaluateContext` ({ store }), passed only then (scatter). The shared strict param
+  `EvaluateContext` ({ store }), passed only then (scatter). It also declares
+  **`emits: GeneratorEmits`** (F4: D-F4-15) — `"ops"` (placements always empty),
+  `"placements"` (ops always empty), or `"both"` (nothing forbidden; the honest
+  declaration for a mixed emitter). A DECLARATIVE fact about the result's shape, not a
+  capability switch: read it to shape UI without evaluating ("does this generator place
+  props?" is `emits !== "ops"`). ORTHOGONAL to `contextFree` (what evaluate READS) — every
+  combination is legal; today's registry pairs `contextFree: true` + `"ops"` (hall, maze,
+  cave) with `contextFree: false` + `"placements"` (scatter), which is a coincidence of
+  the four rather than a rule, and no def declares `"both"`. Enforced setup-loud by the
+  COMMITTER: the one shared evaluate path behind `commitGenerator` and
+  `reconfigureGenerator` throws, before any write, on a result contradicting the
+  declaration (two array-length reads on the result in hand — so it catches a def that DID
+  contradict itself on this call, and cannot prove one never will on other params). A
+  direct `def.evaluate` (a preview, a test) bypasses the guard, exactly as it bypasses the
+  `contextFree` one. The shared strict param
   validators (`numParam`/`intParam`/`boolParam`) live in a cycle-free `generator-params.ts`
   leaf (the `rng.ts` precedent — the registry imports the defs, so a def importing validators
   back out of `generators.ts` would cycle). `commitGenerator` applies the field ops
@@ -1095,6 +1118,132 @@ channel** (uniform|indexed palette encoding behind accessors — `getMaterial` /
 - **Raycast + collision** — voxel DDA (`raycastField`, optional `maxY` display-slice
   clip — cells at/above read as air for targeting); per-chunk shell colliders
   (`chunkColliders` — density-only, material classes never affect collision).
+- **Placement colliders as solidity (F4: D-F4-5, D-F4-14)** — props carry their OWN
+  colliders in the runtime physics world ("if you can dig it, it's field; else it's an
+  entity with its own collider"), so anything reading chunk density alone is blind to
+  them. `placement-collision.ts` is the bridge, and is deliberately NOT an analysis
+  module: the same functions position the dungeon's rigid bodies and an editor's ghosts.
+  `PlacementCollision` = the catalog's authored primitive in the archetype's own unit
+  frame — `box` `halfExtents` | `sphere` `radius` | `capsule` `halfHeight`+`radius` — each
+  with an optional **`anchor: "center" | "base"`** (`"center"` is the default and every
+  pre-F4 catalog's implicit meaning; `"base"` puts `position` at the primitive's BOTTOM,
+  what a floor-standing prop wants). `PlacementCollisionGroup` = `{ collision, records }`,
+  the per-archetype batching a placement artifact already has.
+  `collisionExtentY(c, scale)` is the primitive's half-extent along its OWN Y after scale
+  — box `halfExtents[1]`, sphere `radius`, capsule `halfHeight + radius` — under the
+  runtime collider's scale rule: per-axis for a box, MAX axis for the round primitives,
+  MAGNITUDES throughout (a mirrored record covers the same box). `collisionCenter(c, r)`
+  is the pose to give the body/proxy/ghost: `"center"` returns `r.position` unchanged,
+  `"base"` lifts it by that extent along the record's LOCAL +Y. Call it rather than
+  composing the lift — the analyzer's rasterized solidity, the dungeon loader's rigid
+  body and an editor's proxy come from this ONE function, not from a recipe. Both are
+  pure queries and validate NOTHING (the caller already parsed the data); a non-unit
+  `quat` mis-scales the lift WITHOUT BOUND above `|q| = 1` — `voxelizePlacements` is where
+  such a record is refused.
+  `voxelizePlacements(groups, cellSize)` rasterizes those colliders into per-chunk
+  solidity for the analyzer: one `Uint8Array` per touched chunk, in `AnalyzeOptions`'
+  `extraSolid` encoding exactly. Coverage is CONSERVATIVE — each record contributes the
+  world AABB of its anchored, scaled, quaternion-rotated primitive and every cell that
+  AABB touches is marked, so a rotated or round collider reads slightly larger than it is.
+  Over-solidity is the miss-safe direction for a trap hunt (it can invent a `narrow`,
+  never hide one) with one honest cost: filled cells stop being floor anchors, so the
+  analyzer says nothing about the ground immediately under a prop — matching the runtime,
+  where the mover cannot stand there either. Chunks no collider reaches are absent
+  (readers treat that as "no extras"), so the map need not align with the store's
+  allocated chunks. Setup-loud on every way of covering LESS than the collider does: a
+  non-positive/non-finite collision dimension (checked per group even when it holds no
+  records) or `cellSize`, a non-unit `quat` (it would rotate only PARTIALLY and
+  under-cover), a pose whose world AABB is non-finite (which would rasterize to silent
+  nothing), or a record past the per-record budget of `1 << 18` cells (a 64-cell cube —
+  16 m on a side at the default `cellSize`, so crossing it means garbage dimensions).
+- **Walkability analysis (F4: D-F4-1..8) — `AgentProfile`, `FieldFlag`, `analyzeChunk` /
+  `analyzeWorld` / `markUnreachable`** — stage 1 of the walkability advisor: a
+  Recast-style walkable-column pass over the field's OWN solidity (the same `density < 0`
+  predicate `chunkColliders` derives from, so it analyses at the resolution the capsule
+  actually touches). **ADVISORY ONLY** — it never mutates the store, never blocks a verb,
+  never auto-fixes. Demoed in `cookbook/field`.
+  `AgentProfile` is the consuming project's capsule as DATA (core hard-codes no game's
+  mover): `capsule {radius, halfHeight}`, `stepHeight`, `climbCeiling`, `clearance`,
+  `slopeLimitDeg`. Cell thresholds are derived from it against `store.cellSize`
+  ASYMMETRICALLY on purpose — `ceil` on what the capsule REQUIRES (clearance, radius,
+  probe heights), `floor` on what it is ALLOWED (step, climb) — so every threshold lands
+  strictly tighter than the real mover and borderline geometry surfaces rather than
+  rounding away. `slopeLimitDeg` is validated but NOT read by this pass (it is carried for
+  stage-2 movers; a voxel column has no slope concept).
+  A `FieldFlag` is `{kind, severity, cell, world, chunk, unreachable?}`. `FlagKind`:
+  `low-clearance` (headroom below `clearance`), `ledge` (a neighbour floor higher than
+  `stepHeight`), `lip-near-wall` (a sub-step lip with a wall within capsule radius beyond
+  it — the wedge CONJUNCTION, since a sub-step lip alone is harmless), `narrow` (solid
+  within capsule radius at torso height on two or more of the four cardinal sides).
+  `FlagSeverity` is the triage band (D-F4-7): `candidate` = shown by default, worth a
+  stage-2 verify; `info` = a known-benign class the current mover handles. Only `ledge`
+  varies — `info` within `(stepHeight, climbCeiling]`, `candidate` past `climbCeiling`;
+  `low-clearance` and `narrow` are always `candidate`, `lip-near-wall` always `info`.
+  Those bounds hold exactly, not approximately. Rises are whole cells, and `floor` puts
+  both realized thresholds at or below their metre values (`climbCells·cellSize ≤
+  climbCeiling`), so a `candidate` rise is always strictly greater than `climbCeiling`
+  and an `info` rise strictly greater than `stepHeight`. Cell size therefore only ever
+  moves a rise into a MORE severe band than the metre-exact rule would — never out of
+  one.
+  `cell` is the anchor AIR cell above the floor and is NOT guaranteed walkable
+  (`low-clearance` anchors on the offending NEIGHBOUR); `world` is the floor surface
+  centre under it (cell XZ centre, Y of its bottom face); `chunk` is the OWNER — the chunk
+  whose pass emitted the flag, which for a `low-clearance` anchor may differ from the
+  chunk holding `cell`, so re-analysing a chunk can wholesale replace what its own pass
+  produced.
+  `analyzeChunk(store, key, profile, opts?)` anchors on that chunk's own 16³ cells and
+  returns flags in scan order, deduplicated by (kind, cell). Neighbour reads cross chunk
+  borders freely and are UNBOUNDED UPWARD in Y (the ceiling search runs until it finds
+  rock, deliberately uncapped — any cap silently drops every rise standing above it), so
+  the caller must hold the whole vertical column above the analysed chunk or accept
+  clipped ceilings and say so downstream. An unallocated key is legal and yields nothing
+  (air, and therefore every anchor, exists only in allocated chunks). `analyzeWorld` is
+  the same pass over every allocated chunk, returning one entry per chunk — empty arrays
+  included. `AnalyzeOptions.extraSolid` widens solidity with the caller's placement
+  colliders: `ReadonlyMap<ChunkKey, Uint8Array>`, **ONE BYTE PER SAMPLE**, length exactly
+  `CHUNK_SAMPLES`, in `localIndex` order, non-zero = solid; a missing chunk key means that
+  chunk has no extras. It is **NOT a packed bitset** — a packed producer would read as
+  plausible partial garbage rather than failing, so the length is checked SETUP-LOUD (once
+  at entry, not per probe). All three entry points here — `analyzeChunk`, `analyzeWorld`
+  and `markUnreachable` — share that gate, and also throw setup-loud on a profile that is
+  not internally consistent: a non-positive or non-finite field, `climbCeiling` not above
+  `stepHeight` (the `info` band would be empty), or `clearance` below the capsule's own
+  `2 × (halfHeight + radius)`. The gate runs BEFORE any early return, so a bad profile
+  throws even when there is nothing to do.
+  `markUnreachable(store, profile, flags, seeds, opts?)` (D-F4-8) is triage, not
+  filtering: it floods from each seed's floor surface (4-connected in XZ, any |Δy| within
+  `climbCells` — the same band the `ledge` severity uses) and WRITES `unreachable` into
+  the flags passed in. It removes no flag, changes no severity and never touches the
+  store. Seeds are WORLD positions, each snapped DOWN to the floor surface at or below it;
+  a seed buried in rock warns and is ignored. With no usable seed the pass skips entirely,
+  leaving every tag as it was — because with nothing known reachable, tagging would demote
+  the whole world. (An EMPTY seed list returns silently, without a warning; so does a flag
+  map with nothing in it, which is the common case in an edit loop.) The filter is
+  deliberately UNSOUND, and demote-not-delete is what makes that safe: **falling is
+  ignored** (a shelf reachable only by dropping reads unreachable — fall arcs are stage
+  2's business); **headroom is ignored**, so the flood crosses gaps the capsule cannot fit
+  through, and a `cellSize` COARSER than `climbCeiling` floors `climbCells` to 0 and
+  strands everything off the seed's own level; and steps are
+  **4-connected in XZ**, so a floor whose only route in is a DIAGONAL step reads
+  unreachable though the mover walks there fine. `unreachable` is therefore a TRI-STATE —
+  `undefined` = this pass never ran over that flag, `false` = reached, `true` = demoted —
+  and mixed vintages are the normal steady state (analysis is per-dirty-chunk, this pass
+  is whole-world). **Filter on `=== true`** (hide those, show everything else); testing
+  `=== false` for "reachable" silently hides every not-yet-flooded flag.
+  Two properties of the pass consumers must plan for. **The rim divergence:**
+  unallocated chunks read SOLID — the field's own rule, which the runtime collider
+  derivation inherits — but the runtime emits NO collider there at all, so at the OUTER
+  rim of the allocated region the two disagree in both directions. Under-flagging: a floor
+  within `clearance` of the rim reads headroom-limited, or as no anchor at all, where the
+  runtime would let the capsule stand. Over-flagging, the half a user actually sees: the
+  rim reads as walls, so cells near a boundary corner pinch on two sides and the region's
+  edge grows a fringe of `narrow` markers with no geometry under them. Interior chunk
+  borders are unaffected as long as the neighbouring chunks are present. **Deliberate
+  cross-chunk duplicates:** a `low-clearance` cell straddling a chunk border is emitted by
+  BOTH neighbouring passes under different owners. Suppressing the copy whose cell lies
+  outside the analysed chunk would LOSE the flag whenever its only walkable neighbour sits
+  across that border, so the pass over-emits instead — a presentation layer that cares
+  must dedupe by cell.
 - **Artifact** — `encodeChunkFile`/`decodeChunkFile`,
   `encodeMaterialFile`/`decodeMaterialFile`, oplog serialize/parse,
   `serializePlacements`/`parsePlacements` (the placement artifact), `bakeFieldWorld`

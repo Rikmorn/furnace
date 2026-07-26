@@ -66,6 +66,63 @@ The editor cockpit's loop shipped in 3.1: generate → reroll → freeze & bake 
   stair rise (0.25) sits under it, so climbable-by-construction holds
   (`GROUND_SNAP >= STEP_HEIGHT` is unit-asserted).
 
+### The walkability analyzer — what it must catch, and the numbers it inherits
+
+Stage 1 of the analyzer is `field.analyzeChunk` / `analyzeWorld` in core
+(`core-modules.md` §field), parameterized on `catalog/agent.json` through
+`walkability.ts`'s `AGENT`. It is ADVISORY: it reads the field and reports, it never
+edits and never blocks. What follows is the requirements record that used to sit in
+`docs/backlog/`, absorbed here at F4.
+
+**Failure classes the analyzer exists to catch** (the known-bad corpus, distilled at the
+W4 sweep from the retiring wing-era entries):
+
+- **Carved-rim wedge / lip above step height** — the 2.2.1 rim-riding class plus the
+  substrate spike's carved-patch wedge (spike P5): floor-adjacent lips above
+  `STEP_HEIGHT` 0.4 that stall the capsule.
+- **Sub-capsule pockets** — voids the capsule (r 0.3, half-height 0.6) enters but cannot
+  leave (the class slice 2.2.1's shapecast-ground fix closed).
+- **Tight-corner capsule catch** — enclosure inner corners and short dogleg turns at
+  oblique joins, catching the capsule mid-turn (3.1 gate observation).
+- **Interior centerline-obstacle stall** — an obstacle on the natural door→far-side
+  walking lane; door-lane guards cover the door band only, not mid-room paths
+  (pillarHall centerline finding, 2.2.2).
+- **Vertical-transition sills** — voxel-quantized floors (0.25 steps) meeting built sills
+  at organic thresholds; the worst walk-feel class at the 3.1 gate.
+- **Lintel clip at walled low portals** — climbing arrivals into a WALLED low portal clip
+  the lintel; walledness is the discriminator, not climb direction (an ascending low end
+  is a free-floor departure — landings there create wedges, verified 2.2.5b-B1).
+
+This is the requirement set, not a claim about today's mover. Four of the six are
+capsule-TRAP classes, and the F0 corpus probe (2026-07-15) measured each against
+`char-move.ts`: two of the four could not be reproduced — the sub-step-height two-contact
+wedge (always climbed by the step-up pass) and sub-capsule pockets (closed by slice
+2.2.1) — so the probe corpus substitutes above-step-height and supra-capsule geometry
+that does trap, and the mover's real climb ceiling measured well above `STEP_HEIGHT`.
+`docs/learnings/2026-07-15-analyzer-corpus-probe.md` is the authority on all of that.
+
+**Empirical constants.** These were single-sourced in `walkability.ts`; W4 deleted the
+orphaned exports when their readers died with the mesh connector kit, so for those rows
+this table is the only record outside git history.
+
+| Constant | Value | Provenance |
+|---|---|---|
+| Ramp mount success (GPU-traced) | **47.2°** | slice 2.2.5b-B1 GPU traces |
+| Ramp stall (GPU-traced) | **49.64°** | slice 2.2.5b-B1 GPU traces |
+| `RAMP_MOUNT_LIMIT_RAD` (deleted at W4) | **45°** | safety margin below the 47.2° known-good mount |
+| `STEP_MARGIN` (deleted at W4) | **0.05 m** | kept generated step rises strictly below `STEP_HEIGHT` |
+| `stepCount(rise)` (deleted at W4) | `ceil(rise / (STEP_HEIGHT − STEP_MARGIN))` = `ceil(rise / 0.35)` | — |
+| `STEP_HEIGHT` | **0.4 m** | live: `walkability.ts`, derived from `catalog/agent.json` |
+| Slope stand-on limit | **55°** | live: `walkability.ts` `SLOPE_LIMIT_COS`, from `agent.slopeLimitDeg` |
+| `STAIR_RISE` | one FINE cell (**0.25 m**) | live: `connector-built.ts` (`FINE` in `substrate/grid.ts`) |
+| Voxel proxy Y-cell | **0.25 m** | live: `PROXY_VOXEL_Y` in `connector.ts` + `themes/cave.ts`; chosen below `STEP_HEIGHT` |
+
+The deleted `RAMP_MOUNT_LIMIT_RAD` TSDoc's rationale, verbatim: *"the steepest ramp the
+CharacterMover can climb onto from a FLAT approach … a ramp steeper than the mount limit
+is a one-way slope in a walk-verb world (descending arrivals put a flat landing at every
+ramp foot, so every ramp gets mounted from flat when walked back up). SLOPE_LIMIT_RAD
+(55°) remains the physical stand-on/slide limit only."*
+
 ## 4. The generator library (the cockpit consumes it; the game and scripts too)
 
 **Region contract (`region.ts`)** — themes are pure `(RegionParams) → RegionData`:
@@ -296,10 +353,10 @@ over the world the player boots) plus `cave-entrance.gpu.test.ts` and the
   specified classes don't reproduce against the current mover (the real climb ceiling is
   ~0.7 m, not `STEP_HEIGHT` 0.4), and the known-good false-positive load is unaffordable
   as-is: the analyzer CANNOT self-certify F4 (needs capsule-aware navigability on top).
-  Report: `docs/learnings/2026-07-15-analyzer-corpus-probe.md`; requirements + F4 notes:
-  `docs/backlog/dungeon/walkability-analyzer-requirements.md`; harness kept at
-  `scripts/analyzer-probe/` (seeds F4). Surfaced the shipped mover levitation bug —
-  fixed pre-gate (§3).
+  Report: `docs/learnings/2026-07-15-analyzer-corpus-probe.md`; the requirements + the
+  measured constants live in §3 "The walkability analyzer" (absorbed from
+  `docs/backlog/` at F4); harness kept at `scripts/analyzer-probe/` (seeds F4). Surfaced
+  the shipped mover levitation bug — fixed pre-gate (§3).
 - **F1 field worlds:** `src/field-world.ts` loads manifest **version 2**
   (`kind: "field"`) — `world-loader.ts` branches BEFORE `assertCompatible`, leaving the
   v1 region-world path byte-identical. Render = baked per-chunk `.fmesh` meshes

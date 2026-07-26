@@ -566,8 +566,9 @@ function floodReachable(
  *   falling into, reads unreachable. Modelling it would need the mover's fall
  *   arc, which is stage 2's business.
  * - Headroom is ignored, so the flood crosses gaps the capsule cannot fit
- *   through, and coarse cells (`cellSize` at or above `climbCeiling`) leave
- *   `climbCells` at 0, which strands everything off the seed's own level.
+ *   through, and coarse cells (a `cellSize` COARSER than `climbCeiling`, which
+ *   floors `climbCells` to 0 — an equal one still grants 1) strand everything
+ *   off the seed's own level.
  * - **Steps are 4-connected in XZ.** A floor whose only route in is a DIAGONAL
  *   step reads unreachable, though the mover walks there fine.
  *

@@ -46,12 +46,13 @@ clean; both off-centre wall-hug lanes cross the seams without wedge/launch. Prob
 - **Traversal-quality — off-centre lanes grind slowly.** The ±0.55 wall-hug lanes traverse
   without wedging but grind through the cave's shovable dressing (dynamic spires) and the bumpy
   off-centre voxel floor, needing ~1800 sim frames vs ~800 for the centre lane. Not a wedge; a
-  feel issue. Folds into `walkability-analyzer-requirements.md` (the walk-feel corpus that
-  succeeded the retired wing-era traversal-quality entry at the W4 sweep).
+  feel issue. Folds into the walk-feel corpus, now recorded in
+  `docs/reference/dungeon-architecture.md` §3 "The walkability analyzer" (it succeeded the
+  retired wing-era traversal-quality entry at the W4 sweep).
 
 **Reference:** `packages/dungeon/src/connector.ts` (`TUNNEL_RADIUS` comment),
 `packages/dungeon/tests/world-traversal.gpu.test.ts`, `connector-geometry-stitching.md`,
-`walkability-analyzer-requirements.md`.
+`docs/reference/dungeon-architecture.md` §3 "The walkability analyzer".
 
 ---
 
