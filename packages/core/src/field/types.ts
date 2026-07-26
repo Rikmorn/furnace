@@ -459,6 +459,58 @@ export type ChunkCollider = {
   position: [number, number, number];
 };
 
+/** Capsule-agent facts the walkability analyzer is parameterized on (D-F4-4).
+ *  Data from the consuming project's catalog — core never hard-codes a game's
+ *  capsule. All lengths are metres; the analyzer derives its cell thresholds
+ *  from these against the store's `cellSize`. */
+export type AgentProfile = {
+  capsule: { radius: number; halfHeight: number };
+  /** Rise a mover climbs in one tick (its auto-step). */
+  stepHeight: number;
+  /** MEASURED climb ceiling — the TRAP threshold for rises: above it a rise is
+   *  a `candidate`, within `(stepHeight, climbCeiling]` it is `info` (D-F4-7).
+   *  Must exceed `stepHeight`. */
+  climbCeiling: number;
+  /** Standing headroom the capsule needs — normally `2 * (halfHeight + radius)`,
+   *  and never less. */
+  clearance: number;
+  /** Max walkable slope. Carried for stage-2 movers; the voxel column pass has
+   *  no slope concept and does not read it. */
+  slopeLimitDeg: number;
+};
+
+/** What a {@link FieldFlag} found. `lip-near-wall` = a steppable rise with a
+ *  wall within capsule radius beyond it (the wedge conjunction); `ledge` = a
+ *  neighbour floor higher than `stepHeight`; `low-clearance` = a floor whose
+ *  headroom is below `clearance`; `narrow` = solid within capsule radius at
+ *  torso height on two or more sides. */
+export type FlagKind = "lip-near-wall" | "ledge" | "low-clearance" | "narrow";
+
+/** Triage band: `candidate` is shown by default (worth a stage-2 verify),
+ *  `info` is a known-benign class the current mover handles (D-F4-7). */
+export type FlagSeverity = "candidate" | "info";
+
+/** One stage-1 walkability finding. Advisory data — never blocks anything, and
+ *  the analyzer never mutates the store on account of it (D-F4-1). */
+export type FieldFlag = {
+  kind: FlagKind;
+  severity: FlagSeverity;
+  /** Global voxel coords of the anchor cell (the AIR cell above the floor).
+   *  NOT guaranteed to be a walkable cell: `low-clearance` anchors on the
+   *  offending NEIGHBOUR, which by construction failed the clearance test. */
+  cell: [number, number, number];
+  /** World position of the floor surface centre under `cell` (cell XZ centre,
+   *  Y of its bottom face = the top of the solid below). */
+  world: [number, number, number];
+  /** Owner chunk: the chunk whose pass emitted this flag, which for a
+   *  `low-clearance` anchor may differ from the chunk holding `cell`. Flags are
+   *  replaced per owner chunk on re-analysis. */
+  chunk: ChunkKey;
+  /** Reachability demotion tag (D-F4-8) — set by the reachability pass, which
+   *  demotes and never deletes. */
+  unreachable?: boolean;
+};
+
 /** v2 field-world manifest (kind discriminates from the v1 region world). The
  *  material fields are ADDITIVE within version 2: all optional, so a manifest
  *  that omits them (mesh entries without `classId`/`backing`, no `materials` /

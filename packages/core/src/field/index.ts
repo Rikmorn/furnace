@@ -1,3 +1,5 @@
+export type { AnalyzeOptions } from "./analyze.ts";
+export { analyzeChunk, analyzeWorld } from "./analyze.ts";
 export type {
   BakedFile,
   BakeFieldWorldOptions,
@@ -102,6 +104,7 @@ export { skinChunkKit, variantHash } from "./skin.ts";
 export type { SnapshotRecord } from "./snapshots.ts";
 export { captureDueSnapshots } from "./snapshots.ts";
 export type {
+  AgentProfile,
   BrushMask,
   BrushOp,
   BrushShape,
@@ -115,9 +118,12 @@ export type {
   EvaluateContext,
   FieldAprons,
   FieldChunkMeshes,
+  FieldFlag,
   FieldManifest,
   FieldOp,
   FieldStore,
+  FlagKind,
+  FlagSeverity,
   GeneratorDef,
   GeneratorEntity,
   GeneratorResult,
