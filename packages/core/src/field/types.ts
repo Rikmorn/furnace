@@ -495,9 +495,11 @@ export type AgentProfile = {
   readonly capsule: { readonly radius: number; readonly halfHeight: number };
   /** Rise a mover climbs in one tick (its auto-step). */
   readonly stepHeight: number;
-  /** MEASURED climb ceiling — the TRAP threshold for rises: above it a rise is
-   *  a `candidate`, within `(stepHeight, climbCeiling]` it is `info` (D-F4-7).
-   *  Must exceed `stepHeight`. */
+  /** MEASURED climb ceiling — the tallest rise the mover gets up at all. It is
+   *  the EDGE RULE of the connectivity passes (D-F4-18): a level change within
+   *  it connects two columns both ways, one past it is a one-way drop. It is NOT
+   *  a severity threshold — a tall rise on its own is terrain, and measurement
+   *  refuted trying to read it as a trap (P-F4-3). Must exceed `stepHeight`. */
   readonly climbCeiling: number;
   /** Standing headroom the capsule needs — normally `2 * (halfHeight + radius)`,
    *  and never less. */
@@ -519,11 +521,21 @@ export type AgentProfile = {
  *  wall within capsule radius beyond it (the wedge conjunction); `ledge` = a
  *  neighbour floor higher than `stepHeight`; `low-clearance` = a floor whose
  *  headroom is below `clearance`; `narrow` = free width at torso height below
- *  `2 * capsule.radius + skin` between OPPOSING solids on one XZ axis. */
-export type FlagKind = "lip-near-wall" | "ledge" | "low-clearance" | "narrow";
+ *  `2 * capsule.radius + skin` between OPPOSING solids on one XZ axis; `pit` =
+ *  a REGION the agent can get into and not back out of (D-F4-18) — the only
+ *  kind that is not a per-cell property, and the only one no per-cell predicate
+ *  could have expressed. */
+export type FlagKind =
+  | "lip-near-wall"
+  | "ledge"
+  | "low-clearance"
+  | "narrow"
+  | "pit";
 
-/** Triage band: `candidate` is shown by default (worth a stage-2 verify),
- *  `info` is a known-benign class the current mover handles (D-F4-7). */
+/** Triage band (D-F4-7): `candidate` is shown by default — worth a stage-2
+ *  verify. `info` is context, and covers two things since D-F4-18: a class the
+ *  current mover simply handles (`lip-near-wall`), and one that describes the
+ *  TERRAIN rather than a fault in it (`ledge`, at any height). */
 export type FlagSeverity = "candidate" | "info";
 
 /** One stage-1 walkability finding. Advisory data — never blocks anything, and
@@ -540,8 +552,17 @@ export type FieldFlag = {
   readonly world: readonly [number, number, number];
   /** Owner chunk: the chunk whose pass emitted this flag, which for a
    *  `low-clearance` anchor may differ from the chunk holding `cell`. Flags are
-   *  replaced per owner chunk on re-analysis. */
+   *  replaced per owner chunk on re-analysis — EXCEPT `pit`, whose producer is
+   *  whole-world (see {@link FieldFlag.chunks}). */
   readonly chunk: ChunkKey;
+  /** Every chunk this flag's REGION touches, sorted — `pit` only, absent on the
+   *  per-cell kinds. A pit region can span chunks, so `chunk` (the anchor's own)
+   *  is not a complete owner: pit flags do NOT fit the replace-per-owner-chunk
+   *  model and must be replaced wholesale, per `detectPits` run. */
+  readonly chunks?: readonly ChunkKey[];
+  /** Region size in standable columns — `pit` only, absent on the per-cell
+   *  kinds (where it would always be 1). The panel's "how big is this trap". */
+  readonly cells?: number;
   /** Reachability demotion tag (D-F4-8) — set by the reachability pass, which
    *  demotes and never deletes. The one MUTABLE member: that pass tags flags in
    *  place, so everything describing WHAT was found stays readonly and only the

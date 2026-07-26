@@ -1156,8 +1156,9 @@ channel** (uniform|indexed palette encoding behind accessors — `getMaterial` /
   under-cover), a pose whose world AABB is non-finite (which would rasterize to silent
   nothing), or a record past the per-record budget of `1 << 18` cells (a 64-cell cube —
   16 m on a side at the default `cellSize`, so crossing it means garbage dimensions).
-- **Walkability analysis (F4: D-F4-1..8) — `AgentProfile`, `FieldFlag`, `analyzeChunk` /
-  `analyzeWorld` / `markUnreachable`** — stage 1 of the walkability advisor: a
+- **Walkability analysis (F4: D-F4-1..8, D-F4-18) — `AgentProfile`, `FieldFlag`,
+  `analyzeChunk` / `analyzeWorld` / `markUnreachable` / `detectPits`** — the walkability
+  advisor: a
   Recast-style walkable-column pass over the field's OWN solidity (the same `density < 0`
   predicate `chunkColliders` derives from, so it analyses at the resolution the capsule
   actually touches). **ADVISORY ONLY** — it never mutates the store, never blocks a verb,
@@ -1173,31 +1174,36 @@ channel** (uniform|indexed palette encoding behind accessors — `getMaterial` /
   is NOT rounded to cells at all (it is a metre comparison; only its scan bound rounds
   up). `slopeLimitDeg` is validated but NOT read by this pass (it is carried for stage-2
   movers; a voxel column has no slope concept).
-  A `FieldFlag` is `{kind, severity, cell, world, chunk, unreachable?}`. `FlagKind`:
-  `low-clearance` (headroom below `clearance`), `ledge` (a neighbour floor higher than
-  `stepHeight`), `lip-near-wall` (a sub-step lip with a wall within capsule radius beyond
-  it — the wedge CONJUNCTION, since a sub-step lip alone is harmless), `narrow` (less than
-  `2·radius + skin` of free width at torso height between the near faces of the nearest
-  solid on OPPOSING sides of one XZ axis). Both halves of that last one are load-bearing
-  and were measured (P-F4-3): counting the four cardinals INDEPENDENTLY made every inside
-  corner a pinch, which on cave terrain is most of the map, and rounding the reach to
-  cells made `ceil(0.30/0.25) = 2` cells mean a 0.75 m lane for a 0.60 m capsule.
+  A `FieldFlag` is `{kind, severity, cell, world, chunk, unreachable?, chunks?, cells?}`.
+  `FlagKind`: `low-clearance` (headroom below `clearance`), `ledge` (a neighbour floor
+  higher than `stepHeight`), `lip-near-wall` (a sub-step lip with a wall within capsule
+  radius beyond it — the wedge CONJUNCTION, since a sub-step lip alone is harmless),
+  `narrow` (less than `2·radius + skin` of free width at torso height between the near
+  faces of the nearest solid on OPPOSING sides of one XZ axis), and `pit` (a REGION the
+  agent can enter and not leave — the only kind that is not a per-cell property, produced
+  by `detectPits` alone). Both halves of `narrow` are load-bearing and were measured
+  (P-F4-3): counting the four cardinals INDEPENDENTLY made every inside corner a pinch,
+  which on cave terrain is most of the map, and rounding the reach to cells made
+  `ceil(0.30/0.25) = 2` cells mean a 0.75 m lane for a 0.60 m capsule.
   `FlagSeverity` is the triage band (D-F4-7): `candidate` = shown by default, worth a
-  stage-2 verify; `info` = a known-benign class the current mover handles. Only `ledge`
-  varies — `info` within `(stepHeight, climbCeiling]`, `candidate` past `climbCeiling`;
-  `low-clearance` and `narrow` are always `candidate`, `lip-near-wall` always `info`.
-  Those bounds hold exactly, not approximately. Rises are whole cells, and `floor` puts
-  both realized thresholds at or below their metre values (`climbCells·cellSize ≤
-  climbCeiling`), so a `candidate` rise is always strictly greater than `climbCeiling`
-  and an `info` rise strictly greater than `stepHeight`. Cell size therefore only ever
-  moves a rise into a MORE severe band than the metre-exact rule would — never out of
-  one.
+  stage-2 verify; `info` = a known-benign class the current mover handles. Nothing
+  varies with height: `low-clearance`, `narrow` and `pit` are always `candidate`,
+  `ledge` and `lip-near-wall` always `info`. **`ledge` carried a `candidate` band past
+  `climbCeiling` until D-F4-18 retired it**, and the reason is measured rather than
+  stylistic: on deliberately vertical cave terrain a rise past the climb ceiling
+  describes the TERRAIN (P-F4-3 counted 787 such candidates in the largest committed
+  world and 323 in a default cave). Being trapped by one is a connectivity property no
+  per-cell filter can express, so it moved to `detectPits`, where `climbCeiling` lives on
+  as the graph's edge rule.
   `cell` is the anchor AIR cell above the floor and is NOT guaranteed walkable
   (`low-clearance` anchors on the offending NEIGHBOUR); `world` is the floor surface
   centre under it (cell XZ centre, Y of its bottom face); `chunk` is the OWNER — the chunk
   whose pass emitted the flag, which for a `low-clearance` anchor may differ from the
   chunk holding `cell`, so re-analysing a chunk can wholesale replace what its own pass
-  produced.
+  produced. `chunks` (every chunk the region touches, sorted) and `cells` (region size in
+  columns) are present on `pit` flags ONLY — and they are the tell that a pit does not
+  fit the per-owner-chunk replacement model at all: it is produced whole-world and must
+  be replaced wholesale per `detectPits` run.
   `analyzeChunk(store, key, profile, opts?)` anchors on that chunk's own 16³ cells and
   returns flags in scan order, deduplicated by (kind, cell). Neighbour reads cross chunk
   borders freely and are UNBOUNDED UPWARD in Y (the ceiling search runs until it finds
@@ -1211,16 +1217,18 @@ channel** (uniform|indexed palette encoding behind accessors — `getMaterial` /
   `CHUNK_SAMPLES`, in `localIndex` order, non-zero = solid; a missing chunk key means that
   chunk has no extras. It is **NOT a packed bitset** — a packed producer would read as
   plausible partial garbage rather than failing, so the length is checked SETUP-LOUD (once
-  at entry, not per probe). All three entry points here — `analyzeChunk`, `analyzeWorld`
-  and `markUnreachable` — share that gate, and also throw setup-loud on a profile that is
-  not internally consistent: a non-positive or non-finite field, `climbCeiling` not above
-  `stepHeight` (the `info` band would be empty), `clearance` below the capsule's own
+  at entry, not per probe). All four entry points here — `analyzeChunk`, `analyzeWorld`,
+  `markUnreachable`, `detectPits` — share that gate, and also throw setup-loud on a
+  profile that is not internally consistent: a non-positive or non-finite field,
+  `climbCeiling` not above `stepHeight` (a mover that auto-steps higher than it climbs is
+  not a profile these passes can read), `clearance` below the capsule's own
   `2 × (halfHeight + radius)`, or `skin` at or above `capsule.radius` (which would put the
   `narrow` bar past three radii). The gate runs BEFORE any early return, so a bad profile
   throws even when there is nothing to do.
   `markUnreachable(store, profile, flags, seeds, opts?)` (D-F4-8) is triage, not
   filtering: it floods from each seed's floor surface (4-connected in XZ, any |Δy| within
-  `climbCells` — the same band the `ledge` severity uses) and WRITES `unreachable` into
+  `climbCells` — the CLIMB BAND, the edge rule it shares with `detectPits`, so
+  "climbable" means one thing in the module) and WRITES `unreachable` into
   the flags passed in. It removes no flag, changes no severity and never touches the
   store. Seeds are WORLD positions, each snapped DOWN to the floor surface at or below it;
   a seed buried in rock warns and is ignored. With no usable seed the pass skips entirely,
@@ -1228,8 +1236,12 @@ channel** (uniform|indexed palette encoding behind accessors — `getMaterial` /
   the whole world. (An EMPTY seed list returns silently, without a warning; so does a flag
   map with nothing in it, which is the common case in an edit loop.) The filter is
   deliberately UNSOUND, and demote-not-delete is what makes that safe: **falling is
-  ignored** (a shelf reachable only by dropping reads unreachable — fall arcs are stage
-  2's business); **headroom is ignored**, so the flood crosses gaps the capsule cannot fit
+  ignored** (a shelf reachable only by dropping reads unreachable — `detectPits` models
+  that edge, and the two are deliberately NOT merged: this one answers "can the agent get
+  there at all", where the conservative undirected answer is the honest basis for a
+  demotion. One consequence bites: this flood cannot enter a pit BY DEFINITION, so running
+  it over `detectPits` output would demote every pit flag — keep the two sets apart);
+  **headroom is ignored**, so the flood crosses gaps the capsule cannot fit
   through, and a `cellSize` COARSER than `climbCeiling` floors `climbCells` to 0 and
   strands everything off the seed's own level; and steps are
   **4-connected in XZ**, so a floor whose only route in is a DIAGONAL step reads
@@ -1238,7 +1250,31 @@ channel** (uniform|indexed palette encoding behind accessors — `getMaterial` /
   and mixed vintages are the normal steady state (analysis is per-dirty-chunk, this pass
   is whole-world). **Filter on `=== true`** (hide those, show everything else); testing
   `=== false` for "reachable" silently hides every not-yet-flooded flag.
-  Two properties of the pass consumers must plan for. **The rim divergence:**
+  `detectPits(store, profile, seeds, opts?)` (D-F4-18) answers the question no per-cell
+  filter can: **which regions can the agent get INTO and not back OUT of.** Same nodes as
+  the flood above (standable columns, headroom ignored), with a DIRECTED edge rule between
+  XZ-4-adjacent ones: within `climbCeiling` they connect both ways; further apart the
+  higher connects to the lower and not back — walking off an edge, which the mover does
+  freely (no fall-damage model, and so no fall-distance limit: a 50 m drop is an entrance
+  like a 1 m one). A pit is ENTERABLE ∧ ¬CAN-RETURN — the flood from the seeds minus the
+  flood that reaches the seeds over REVERSED edges — clustered 4-connected into regions,
+  ONE `candidate` flag per region anchored at its LOWEST column. Returns a FLAT array, not
+  a per-chunk map: a pit is a global property, so this is a **world-cadence pass for the
+  idle tail**, not a per-dirty-chunk one (one dug cell can open or seal a trap anywhere).
+  Empty or wholly-unusable seeds return NO flags — with no known start there is no
+  "enterable", and guessing a spawn would be the advisor inventing its own premise.
+  Its unsoundness is the flood's, minus the safety: this pass REPORTS rather than demotes,
+  so an error either way is a wrong finding, not a conservative one. Headroom ignored can
+  both hide a pit whose only modelled exit is a crawlspace and invent one whose only
+  modelled entrance is; 4-connected steps make a region whose only way out is DIAGONAL
+  read as a pit; `climbCells` flooring can only ADD regions (a rise the mover would just
+  make reads one-way), and at a `cellSize` as coarse as `climbCeiling` it floors to 1 —
+  coarser still to 0, where every level change is a one-way drop and everything off the
+  seed's level reads trapped. **Budget it as a second whole-world pass, not a cheap
+  post-step:** measured 1.21–1.34x the `analyzeWorld` beside it on the F3b default cave
+  (2026-07-26, warm), because the reverse flood scans each column's air pocket to its
+  ceiling — cost tracks open air as well as floor area.
+  Two properties of the column pass consumers must plan for. **The rim divergence:**
   unallocated chunks read SOLID — the field's own rule, which the runtime collider
   derivation inherits — but the runtime emits NO collider there at all, so at the OUTER
   rim of the allocated region the two disagree in both directions. Under-flagging: a floor

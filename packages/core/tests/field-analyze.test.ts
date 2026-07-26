@@ -20,12 +20,14 @@ import {
   chunkKey,
   createFieldStore,
   DEFAULT_CELL_SIZE,
+  detectPits,
   type FieldStore,
   getDensity,
   markUnreachable,
   type PlacementCollision,
   SOLID,
   setDensity,
+  voxelChunk,
   voxelizePlacements,
 } from "@furnace/core/field";
 import { at, expectDefined } from "./_helpers/expect.ts";
@@ -189,12 +191,18 @@ describe("analyzeChunk — walkable column pass", () => {
     }
   });
 
-  test("a 1.0 m rise flags ledge as a candidate (past the climb ceiling)", () => {
+  test("a 1.0 m rise is STILL info — a tall rise is terrain, not a trap", () => {
+    // D-F4-18: the candidate band this kind used to carry was refuted by
+    // measurement (P-F4-3). On deliberately vertical cave terrain "rise past
+    // climbCeiling" describes the terrain — 787 of the largest committed world's
+    // remaining candidates were `ledge`. A trap is a CONNECTIVITY property, which
+    // no per-cell predicate can express, so it moved to `detectPits` and the
+    // climbCeiling threshold lives on there as the edge rule.
     const s = room();
     spanZ(s, 9, ROOM_MAX - 1, AIR_LO, 4); // 4 cells = 1.0 m > climbCeiling 0.7
     const ledges = only(analyzeChunk(s, CENTER, AGENT), "ledge");
     expect(ledges.length).toBeGreaterThan(0);
-    for (const f of ledges) expect(f.severity).toBe("candidate");
+    for (const f of ledges) expect(f.severity).toBe("info");
   });
 
   test("a rise FAR above step height still flags ledge (the blind spot)", () => {
@@ -208,7 +216,7 @@ describe("analyzeChunk — walkable column pass", () => {
     expect(ledges.length).toBeGreaterThan(0);
     for (const f of ledges) {
       expect(f.cell[0]).toBe(8); // the LOW cell, where the mover stands
-      expect(f.severity).toBe("candidate");
+      expect(f.severity).toBe("info");
     }
   });
 
@@ -227,7 +235,23 @@ describe("analyzeChunk — walkable column pass", () => {
     expect(ledges.length).toBeGreaterThan(0);
     for (const f of ledges) {
       expect(f.cell[0]).toBe(8);
-      expect(f.severity).toBe("candidate");
+      expect(f.severity).toBe("info");
+    }
+  });
+
+  test("EVERY ledge is info, whatever the rise — the candidate band is gone", () => {
+    // One assertion over the whole band, so a future re-split of `ledge` by
+    // height has to come here and argue with D-F4-18 rather than slipping past
+    // the per-rise cases above. Rises in cells: 2 (0.50 m, the old info band),
+    // 4 (1.00), 6 (1.50), 11 (2.75, as tall as this room's ceiling allows).
+    for (const rise of [2, 4, 6, 11]) {
+      const s = room();
+      spanZ(s, 9, ROOM_MAX - 1, AIR_LO, AIR_LO + rise - 1);
+      const ledges = only(analyzeChunk(s, CENTER, AGENT), "ledge");
+      // Vacuity guard per rise: the flag exists, and it is info.
+      expect([rise, ledges.length > 0]).toEqual([rise, true]);
+      for (const f of ledges)
+        expect([rise, f.severity]).toEqual([rise, "info"]);
     }
   });
 
@@ -559,7 +583,7 @@ describe("voxelizePlacements feeding analyzeChunk", () => {
       "ledge",
     );
     expect(ledges.length).toBeGreaterThan(0);
-    for (const f of ledges) expect(f.severity).toBe("candidate");
+    for (const f of ledges) expect(f.severity).toBe("info");
     // 1.0 m of collider standing on the floor, so the columns beside it read a
     // rise past the climb ceiling — exactly as field rock of the same shape does.
     expect(
@@ -788,5 +812,304 @@ describe("markUnreachable", () => {
         extraSolid: new Map([[CENTER, new Uint8Array(CHUNK_SAMPLES / 8)]]),
       }),
     ).toThrow(/one BYTE per sample/);
+  });
+});
+
+// ─── Pit fixtures (D-F4-18) ───
+
+/** The authored pit's depth: 6 cells = 1.50 m, far past climbCeiling 0.70 m, so
+ *  its rim is a one-way edge — walk off it and there is no way back up. */
+const PIT_DEPTH = 6;
+/** The pit's own floor level (the hall floor minus its depth). */
+const PIT_FLOOR = FLOOR - PIT_DEPTH;
+/** A climbable step, in cells: 0.50 m, exactly `climbCells` for AGENT. */
+const STEP = 2;
+
+/** Digs a `w`×`w` shaft `depth` cells into the hall's floor with its -X/-Z
+ *  corner at (x0, z0). Sheer sides, no ramp: the rock the hall never carved is
+ *  what walls it. */
+function digPit(
+  s: FieldStore,
+  x0: number,
+  z0: number,
+  w = 2,
+  depth = PIT_DEPTH,
+): void {
+  airBox(s, x0, x0 + w - 1, FLOOR - depth, FLOOR - 1, z0, z0 + w - 1);
+}
+
+/** The hall with one 2×2, 1.50 m pit at (8, 8) — the reference trap. */
+function pitHall(): FieldStore {
+  const s = hall();
+  digPit(s, 8, 8);
+  return s;
+}
+
+/** A spawn standing on the hall's own floor, well clear of the pit. */
+const GROUND_SEED = standingAt(0, FLOOR, 0);
+
+/** Marks one cell solid in an `extraSolid` map, allocating the chunk's buffer on
+ *  first touch — `localIndex`, spelled out, so a fixture can straddle chunks. */
+function markExtra(
+  map: Map<ChunkKey, Uint8Array>,
+  x: number,
+  y: number,
+  z: number,
+): void {
+  const cx = voxelChunk(x);
+  const cy = voxelChunk(y);
+  const cz = voxelChunk(z);
+  const key = chunkKey(cx, cy, cz);
+  let bits = map.get(key);
+  if (bits === undefined) {
+    bits = new Uint8Array(CHUNK_SAMPLES);
+    map.set(key, bits);
+  }
+  const lx = x - cx * CHUNK_DIM;
+  const ly = y - cy * CHUNK_DIM;
+  const lz = z - cz * CHUNK_DIM;
+  bits[lx + CHUNK_DIM * (ly + CHUNK_DIM * lz)] = 1;
+}
+
+const pitLevels = (flags: readonly FieldFlag[]): number[] =>
+  flags.map((f) => at(f.cell, 1));
+
+describe("detectPits", () => {
+  test("a 1.50 m pit with no way out is ONE candidate region", () => {
+    const flags = detectPits(pitHall(), AGENT, [GROUND_SEED]);
+    expect(flags.length).toBe(1);
+    const pit = at(flags, 0);
+    expect(pit.kind).toBe("pit");
+    expect(pit.severity).toBe("candidate");
+    // The region is exactly the four dug columns, and the flag anchors at its
+    // lowest one (they are all at the pit floor; ties break on x then z).
+    expect(pit.cells).toBe(4);
+    expect(pit.cell).toEqual([8, PIT_FLOOR, 8]);
+    expect(pit.world).toEqual([8.5 * 0.25, PIT_FLOOR * 0.25, 8.5 * 0.25]);
+    expect(pit.chunk).toBe(chunkKey(0, -1, 0));
+    expect(pit.chunks).toEqual([chunkKey(0, -1, 0)]);
+    // Advisory data only: no reachability verdict, and nothing was demoted.
+    expect(pit.unreachable).toBeUndefined();
+  });
+
+  test("a staircase of 0.50 m steps out of the pit clears it", () => {
+    // Three climbable steps bridge the 1.50 m: the pit floor at -5, landings at
+    // -3 and -1, then the hall floor at 1. Every hop is exactly climbCells, so
+    // the edges up are bidirectional and the return flood walks out.
+    const s = pitHall();
+    airBox(s, 10, 10, PIT_FLOOR + STEP, FLOOR - 1, 8, 8);
+    airBox(s, 11, 11, PIT_FLOOR + 2 * STEP, FLOOR - 1, 8, 8);
+    expect(detectPits(s, AGENT, [GROUND_SEED])).toEqual([]);
+    // Vacuity: the SAME hall without the staircase is a pit, so the empty
+    // result above is the exit being walked, not the pass finding no floor.
+    expect(detectPits(pitHall(), AGENT, [GROUND_SEED]).length).toBe(1);
+  });
+
+  test("two disjoint pits are two regions", () => {
+    const s = hall();
+    digPit(s, 2, 2);
+    digPit(s, 14, 14);
+    const flags = detectPits(s, AGENT, [GROUND_SEED]);
+    expect(flags.length).toBe(2);
+    for (const f of flags) {
+      expect(f.kind).toBe("pit");
+      expect(f.cells).toBe(4);
+    }
+    expect(flags.map((f) => at(f.cell, 0)).sort((a, b) => a - b)).toEqual([
+      2, 14,
+    ]);
+  });
+
+  test("a pit that drops into a deeper one is ONE trap, anchored at the bottom", () => {
+    // A two-tier trap: the rim drops 0.75 m into the upper shelf, which drops
+    // another 0.75 m into the lower floor. Neither hop is climbable, so both
+    // tiers are trapped — and they are ONE region, because the fall edge
+    // between them joins the columns the way the mover experiences it.
+    const s = hall();
+    digPit(s, 8, 8, 2, 3); // upper shelf: floor at y = -2
+    digPit(s, 10, 8, 2, PIT_DEPTH); // lower floor: y = -5, adjacent in X
+    const flags = detectPits(s, AGENT, [GROUND_SEED]);
+    expect(flags.length).toBe(1);
+    const pit = at(flags, 0);
+    expect(pit.cells).toBe(8);
+    expect(pit.cell).toEqual([10, PIT_FLOOR, 8]); // the LOWEST column
+  });
+
+  test("a region spanning two chunks lists both owners", () => {
+    // The pit straddles x = 16, the chunk border. `chunk` is the anchor's own
+    // chunk; `chunks` is every chunk the region touches — a pit is a world
+    // property, so it cannot be replaced per owner chunk the way the column
+    // pass's flags are.
+    const s = hall();
+    digPit(s, CHUNK_DIM - 1, 8);
+    const pit = at(detectPits(s, AGENT, [GROUND_SEED]), 0);
+    expect(pit.cells).toBe(4);
+    expect(pit.chunk).toBe(chunkKey(0, -1, 0));
+    expect(pit.chunks).toEqual([chunkKey(0, -1, 0), chunkKey(1, -1, 0)]);
+  });
+
+  test("a seed INSIDE the pit reports nothing — you are not trapped where you start", () => {
+    // The rim is simply out of reach from down there, and unreachable is not
+    // the same finding as trapped: D-F4-8's demotion is what covers it.
+    const s = pitHall();
+    solidBox(s, -3, -2, FLOOR, FLOOR + 3, 0, 1); // a 1.0 m block up on the rim
+    const inside = standingAt(8, PIT_FLOOR, 8);
+    expect(detectPits(s, AGENT, [inside])).toEqual([]);
+    // …and the flags up on the rim come back demoted, from the same seed.
+    const flags = analyzeWorld(s, AGENT);
+    markUnreachable(s, AGENT, flags, [inside]);
+    const rim = flatten(flags).filter((f) => at(f.cell, 1) === FLOOR);
+    expect(rim.length).toBeGreaterThan(0);
+    for (const f of rim) expect(f.unreachable).toBe(true);
+  });
+
+  test("geometry no seed can enter is not a pit", () => {
+    // ENTERABLE is half the predicate. The floating shelf is unreachable in
+    // both directions — the flood never gets there, so it is D-F4-8's business
+    // and not a trap. A one-sided implementation (¬can-return alone) would
+    // report the whole shelf.
+    expect(detectPits(floatingShelfHall(), AGENT, [GROUND_SEED])).toEqual([]);
+  });
+
+  test("a 0.50 m depression the mover climbs out of is not a pit", () => {
+    expect(detectPits(stairHall(), AGENT, [GROUND_SEED])).toEqual([]);
+  });
+
+  test("a return path THROUGH the top cell of an air pocket counts", () => {
+    // The reverse flood's scan bound, at its exact boundary. A fall lands in a
+    // pocket iff the faller's level is INSIDE it, so the scan must run to the
+    // pocket's ceiling EXCLUSIVE — the topmost air cell included. Stopping one
+    // cell short loses exactly the ledge that sits level with a pocket's top air
+    // cell, which is not exotic geometry: it is a shelf beside a roofed bay.
+    //
+    // The route: floor → stair → wall top (10) → FALL onto the shelf (7) → FALL
+    // into the roofed bay (1) → floor. The shelf's ONLY way back is that second
+    // fall, and its level is exactly `ceiling(bay) - 1`, so an off-by-one in the
+    // scan reports the shelf as a pit. Randomized terrain does not reach this
+    // (500 random stores did not), because it takes a cell whose single return
+    // edge is the boundary one.
+    const s = hall();
+    const BAY_X = 10;
+    const SHELF_X = 11;
+    const Z = 10;
+    // A roof 3 cells thick over the bay: thick so its OWN top surface (y = 11)
+    // is out of the shelf's climb band, leaving the shelf one way out.
+    solidBox(s, BAY_X, BAY_X, 8, 10, Z, Z);
+    // The shelf, on a pillar: floor anchor at y = 7 = ceiling(bay) - 1.
+    solidBox(s, SHELF_X, SHELF_X, FLOOR, 6, Z, Z);
+    // Walls on its other three sides, topping out at 10 — three cells above the
+    // shelf, so they are drops onto it and not climbs off it.
+    solidBox(s, SHELF_X + 1, SHELF_X + 1, FLOOR, 9, Z, Z);
+    solidBox(s, SHELF_X, SHELF_X, FLOOR, 9, Z - 1, Z - 1);
+    solidBox(s, SHELF_X, SHELF_X, FLOOR, 9, Z + 1, Z + 1);
+    // A 0.5 m staircase from the hall floor up to that wall top.
+    for (const [x, top] of [
+      [13, 8],
+      [14, 6],
+      [15, 4],
+      [16, 2],
+    ] as const)
+      solidBox(s, x, x, FLOOR, top, Z, Z);
+
+    const shelf: [number, number, number] = [SHELF_X, 7, Z];
+    expect(detectPits(s, AGENT, [GROUND_SEED])).toEqual([]);
+    // Vacuity, in both directions. The shelf really is reachable only by
+    // falling…
+    const flags = analyzeWorld(s, AGENT);
+    markUnreachable(s, AGENT, flags, [GROUND_SEED]);
+    const onShelf = flatten(flags).filter(
+      (f) => at(f.cell, 0) === SHELF_X && at(f.cell, 1) === 7,
+    );
+    expect(onShelf.length).toBeGreaterThan(0);
+    for (const f of onShelf) expect(f.unreachable).toBe(true);
+    // …and sealing the bay it escapes into makes it a pit of exactly one cell,
+    // which is what the boundary is protecting.
+    const sealed = hall();
+    solidBox(sealed, BAY_X, BAY_X, FLOOR, 10, Z, Z);
+    solidBox(sealed, SHELF_X, SHELF_X, FLOOR, 6, Z, Z);
+    solidBox(sealed, SHELF_X + 1, SHELF_X + 1, FLOOR, 9, Z, Z);
+    solidBox(sealed, SHELF_X, SHELF_X, FLOOR, 9, Z - 1, Z - 1);
+    solidBox(sealed, SHELF_X, SHELF_X, FLOOR, 9, Z + 1, Z + 1);
+    for (const [x, top] of [
+      [13, 8],
+      [14, 6],
+      [15, 4],
+      [16, 2],
+    ] as const)
+      solidBox(sealed, x, x, FLOOR, top, Z, Z);
+    const trapped = detectPits(sealed, AGENT, [GROUND_SEED]);
+    expect(trapped.length).toBe(1);
+    expect(at(trapped, 0).cell).toEqual(shelf);
+    expect(at(trapped, 0).cells).toBe(1);
+  });
+
+  test("no seeds means no pass at all — no flags, no throw", () => {
+    expect(detectPits(pitHall(), AGENT, [])).toEqual([]);
+    // A seed list with nothing usable in it reads the same way: with no known
+    // starting point there is no "enterable", so guessing one would be a lie.
+    expect(detectPits(pitHall(), AGENT, [[0.125, -50, 0.125]])).toEqual([]);
+  });
+
+  test("several seeds are ONE set: a pit with a spawn in it is not a pit", () => {
+    // "Can return" means reaching ANY seed, not every seed. A hollow the author
+    // deliberately spawns into is somewhere the agent is meant to be.
+    const s = pitHall();
+    const flags = detectPits(s, AGENT, [
+      GROUND_SEED,
+      standingAt(8, PIT_FLOOR, 8),
+    ]);
+    expect(flags).toEqual([]);
+    // Vacuity: the ground seed ALONE still reports it.
+    expect(detectPits(s, AGENT, [GROUND_SEED]).length).toBe(1);
+  });
+
+  test("a buried seed among usable ones is dropped, not a veto", () => {
+    const flags = detectPits(pitHall(), AGENT, [
+      [0.125, -50, 0.125],
+      GROUND_SEED,
+    ]);
+    expect(flags.length).toBe(1);
+  });
+
+  test("extraSolid participates: props filling the pit remove the trap", () => {
+    // Filling the shaft to the rim leaves its floor level with the hall's, so
+    // there is nothing to be trapped in. The fill straddles the Y chunk border
+    // (the shaft's own chunk and the hall's), which is why it goes through a
+    // per-chunk helper rather than one buffer.
+    const s = pitHall();
+    const extraSolid = new Map<ChunkKey, Uint8Array>();
+    for (let z = 8; z <= 9; z++)
+      for (let x = 8; x <= 9; x++)
+        for (let y = PIT_FLOOR; y < FLOOR; y++) markExtra(extraSolid, x, y, z);
+    expect(detectPits(s, AGENT, [GROUND_SEED], { extraSolid })).toEqual([]);
+    // Vacuity: the same store without the extras still reports the pit.
+    expect(detectPits(s, AGENT, [GROUND_SEED]).length).toBe(1);
+  });
+
+  test("rejects an invalid agent profile and a wrongly-encoded extraSolid", () => {
+    // Setup-loud BEFORE any early return, as everywhere else in this module: a
+    // bad profile throws even when there are no seeds and nothing to do.
+    const s = pitHall();
+    expect(() => detectPits(s, { ...AGENT, clearance: 1.0 }, [])).toThrow(
+      /clearance/,
+    );
+    expect(() =>
+      detectPits(s, AGENT, [GROUND_SEED], {
+        extraSolid: new Map([[CENTER, new Uint8Array(CHUNK_SAMPLES / 8)]]),
+      }),
+    ).toThrow(/one BYTE per sample/);
+  });
+
+  test("the pass is pure: the store and the column pass are untouched", () => {
+    const s = pitHall();
+    const before = analyzeWorld(s, AGENT);
+    const chunks = [...s.chunks.keys()].sort();
+    detectPits(s, AGENT, [GROUND_SEED]);
+    expect([...s.chunks.keys()].sort()).toEqual(chunks);
+    expect(flatten(analyzeWorld(s, AGENT)).map(identity)).toEqual(
+      flatten(before).map(identity),
+    );
+    // Re-running gives the same verdict — nothing about the pass is stateful.
+    expect(pitLevels(detectPits(s, AGENT, [GROUND_SEED]))).toEqual([PIT_FLOOR]);
   });
 });

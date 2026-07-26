@@ -117,10 +117,22 @@ function defaultCave(): field.FieldStore {
 // ─── (a) the tall-rim class: stage 1 flags it, the mover confirms it ───
 
 describe("analyzerVerify — a 1.0 m pit rim", () => {
-  test("stage 1 flags the pit floor `ledge` candidate and the mover is trapped by it", async () => {
+  test("stage 1 flags the pit floor `ledge` info, `detectPits` calls it a trap, and the mover agrees", async () => {
+    // The severity is `info` and that is the POINT (D-F4-18): the 1.0 m rim on its own
+    // is a rise like any other, and rises past the climb ceiling were measured to be what
+    // vertical terrain is made of. What makes THIS one a trap is that there is no way back
+    // out — a connectivity property, which `detectPits` reports and the mover confirms
+    // below. This test is the three of them agreeing on one fixture.
     const store = pitRoom();
     const flag = flagAt(allFlags(store), "ledge", [6, 0, 11]);
-    expect(flag.severity).toBe("candidate");
+    expect(flag.severity).toBe("info");
+
+    const pits = field.detectPits(store, AGENT, [[0.625, 1.125, 0.625]]);
+    expect(pits.length).toBe(1);
+    const pit = expectDefined(pits[0], "the pit region");
+    expect(pit.severity).toBe("candidate");
+    expect(pit.cells).toBe(144); // the 12 x 12 cells of the 3 x 3 m pit floor
+    expect(pit.cell[1]).toBe(0); // anchored on the pit floor, not the rim
 
     const verdict = await analyzerVerify({
       store,

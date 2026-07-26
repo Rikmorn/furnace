@@ -122,6 +122,11 @@ type PushFlag = (
  *  is the posture this pass wants — borderline geometry surfaces as a flag
  *  rather than being rounded away. Do not "fix" one of them into symmetry.
  *
+ *  `climbCells` carries that same under-grant into {@link detectPits}, where it
+ *  is an EDGE rule rather than a threshold: a rise the mover would just about
+ *  make can read as one-way, which shrinks the return set and can only ADD pit
+ *  regions. Over-reporting is the miss-safe direction for a trap hunt.
+ *
  *  `pinchWidth` is the exception, and deliberately not a cell count at all: a
  *  rounded pinch is not "tighter", it is WRONG BY UP TO A CELL EITHER WAY, and
  *  measurement found that the rounding — not the geometry — produced most of the
@@ -171,7 +176,7 @@ function assertAgentProfileValid(profile: AgentProfile): void {
     );
   if (profile.climbCeiling <= profile.stepHeight)
     throw new Error(
-      `analyze: agent profile climbCeiling (${profile.climbCeiling}) must exceed stepHeight (${profile.stepHeight}) — the info band between them would be empty`,
+      `analyze: agent profile climbCeiling (${profile.climbCeiling}) must exceed stepHeight (${profile.stepHeight}) — a mover that auto-steps higher than it can climb is not a profile any pass here can read`,
     );
   const minClearance =
     2 * (profile.capsule.halfHeight + profile.capsule.radius);
@@ -389,6 +394,14 @@ function pinchedAtTorso(
 /** The neighbour column's FIRST floor surface above ours, searched up to our own
  *  ceiling, classified by how far above it sits.
  *
+ *  Every rise is `info` (D-F4-18). The candidate band this once carried — rises
+ *  past `climbCeiling` — was refuted by measurement: on deliberately vertical
+ *  cave terrain a tall rise IS the terrain (P-F4-3 counted 787 such candidates
+ *  in the largest committed world, and 323 in a default cave). What a trap
+ *  actually is — getting in and not back out — is a CONNECTIVITY property that
+ *  no per-cell predicate here can express, so it moved to {@link detectPits},
+ *  where `climbCeiling` lives on as the edge rule.
+ *
  *  The bound is load-bearing in BOTH directions (D-F4-6, F0-proven):
  *  - An earlier cap of `stepCells + 2` made every rise TALLER than ~0.75 m
  *    invisible — a 1.0 m or 1.5 m rim stalls the capsule and emitted no flag at
@@ -410,8 +423,7 @@ function scanRise(
   const [x, y, z] = anchor;
   for (let ry = 1; y + ry < ceiling; ry++) {
     if (!isSolid(v, ax, y + ry - 1, az) || isSolid(v, ax, y + ry, az)) continue;
-    if (ry > m.climbCells) push("ledge", "candidate", x, y, z);
-    else if (ry > m.stepCells) push("ledge", "info", x, y, z);
+    if (ry > m.stepCells) push("ledge", "info", x, y, z);
     else if (wallBeyondLip(v, m, ax, y + ry, az))
       push("lip-near-wall", "info", x, y, z);
     return;
@@ -462,11 +474,12 @@ const floorSurfaceWorld = (
  *
  * Filters, all strictly tighter than the mover's own limits so borderline
  * geometry surfaces: headroom below `clearance` (`low-clearance`); a neighbour
- * floor above `stepHeight` (`ledge`, `info` while within `climbCeiling`,
- * `candidate` past it — D-F4-7); a sub-step lip with a wall within capsule
- * radius beyond it (`lip-near-wall`, the wedge conjunction); and less than
- * `2 * radius + skin` of free width between OPPOSING solids at torso height on
- * one XZ axis (`narrow`), measured in metres from face to face rather than
+ * floor above `stepHeight` (`ledge`, always `info` — D-F4-18: a rise on its own
+ * is terrain, and being TRAPPED by one is a connectivity property this pass
+ * cannot see, so {@link detectPits} owns it); a sub-step lip with a wall within
+ * capsule radius beyond it (`lip-near-wall`, the wedge conjunction); and less
+ * than `2 * radius + skin` of free width between OPPOSING solids at torso height
+ * on one XZ axis (`narrow`), measured in metres from face to face rather than
  * rounded to cells.
  *
  * @param key - The chunk whose own 16³ cells are the ANCHORS. Neighbour reads
@@ -599,47 +612,174 @@ function seedAnchor(
   return [x, y, z];
 }
 
-/** Floor-connected flood from the resolved seeds: 4-connected in XZ, any
- *  |Δy| ≤ `climbCells` per step.
+/** One node of both connectivity passes: a floor-anchor cell.
  *
  *  Nodes are {@link isFloorAnchor} cells — the SAME walkable notion the column
  *  pass anchors on, minus its headroom test. Dropping the headroom test is
- *  deliberate: requiring clearance would cut the flood at every crawlspace and
- *  demote everything beyond it, whereas over-connecting only ever demotes LESS.
- *  For a demote-only pass, less is the miss-safe direction.
+ *  deliberate for {@link markUnreachable}: requiring clearance would cut the
+ *  flood at every crawlspace and demote everything beyond it, whereas
+ *  over-connecting only ever demotes LESS, and for a demote-only pass less is
+ *  the miss-safe direction. {@link detectPits} inherits the same node set so the
+ *  two passes cannot disagree about what a standable column is — but note the
+ *  posture does NOT carry over as cleanly there (see its own remarks). */
+type Column = [number, number, number];
+
+/** Receives one neighbour column during an expansion. */
+type VisitColumn = (x: number, y: number, z: number) => void;
+
+/** An edge rule, as a function: offers a column's neighbours to `visit`.
  *
- *  Bounded by the data, with no artificial budget: a floor anchor needs an air
- *  cell, air exists only in allocated chunks, so the reached set can never
- *  exceed the store's allocated cells. */
-function floodReachable(
+ *  The graph is deliberately NEVER materialized. Storing it — and a directed
+ *  pass needs the TRANSPOSE too, which is the expensive half — would cost an
+ *  edge list of up to `4 * (2 * climbCells + 2)` entries per node over a node
+ *  set measured at ~1.1k columns on the F3b default cave and ~16.8k on the
+ *  largest committed world (2026-07-26), and every pass here visits each node
+ *  exactly once anyway. Re-enumerating per pass buys that memory back for one
+ *  extra neighbourhood scan per node per pass, which the budget test prices. */
+type Expand = (x: number, y: number, z: number, visit: VisitColumn) => void;
+
+/** The CLIMB band, the one edge rule every pass here shares: floor anchors in
+ *  the 4 XZ-adjacent columns within `climbCells` of (x,y,z). SYMMETRIC by
+ *  construction — |Δy| ≤ climbCells reads the same from either end — so one
+ *  enumeration serves the undirected flood and BOTH directions of the directed
+ *  one. Steps are 4-connected, so a purely DIAGONAL step is not an edge. */
+function climbNeighbours(
   v: SolidView,
   climbCells: number,
-  anchors: readonly [number, number, number][],
-): Set<string> {
-  const reached = new Set<string>();
-  const stack: [number, number, number][] = [];
-  for (const a of anchors) {
-    const key = cellKey(a[0], a[1], a[2]);
-    if (reached.has(key)) continue;
-    reached.add(key);
-    stack.push(a);
+  x: number,
+  y: number,
+  z: number,
+  visit: VisitColumn,
+): void {
+  for (const [dx, dz] of DIRS) {
+    const nx = x + dx;
+    const nz = z + dz;
+    for (let ny = y - climbCells; ny <= y + climbCells; ny++)
+      if (isFloorAnchor(v, nx, ny, nz)) visit(nx, ny, nz);
   }
-  while (stack.length > 0) {
-    const cur = stack.pop();
+}
+
+/** Where walking off the edge LANDS (D-F4-18), per direction: the floor of the
+ *  air pocket the neighbour column holds at OUR level, offered only when it
+ *  sits more than `climbCells` below — a shallower drop is already a climb-band
+ *  edge, and this one is DIRECTED (you fall in; you do not climb back out).
+ *
+ *  Rock at the neighbour's own level yields nothing: that is a wall to walk into,
+ *  not an edge to walk off. There is no fall-distance limit and no fall-damage
+ *  model in v1 — a 50 m drop is an edge exactly like a 1 m one. That matches the
+ *  reference consumer's mover, which has no fall-damage concept either, and it
+ *  is what makes a deep cavern floor ENTERABLE rather than merely unreachable.
+ *  A consumer that adds fall damage has to revisit this rule.
+ *
+ *  The descent terminates on the data, as {@link seedAnchor}'s does: unallocated
+ *  space reads SOLID, so a column falling out of the allocated region stops. */
+function fallTargets(
+  v: SolidView,
+  climbCells: number,
+  x: number,
+  y: number,
+  z: number,
+  visit: VisitColumn,
+): void {
+  for (const [dx, dz] of DIRS) {
+    const nx = x + dx;
+    const nz = z + dz;
+    if (isSolid(v, nx, y, nz)) continue;
+    let ny = y;
+    while (!isSolid(v, nx, ny - 1, nz)) ny--;
+    if (ny < y - climbCells) visit(nx, ny, nz);
+  }
+}
+
+/** The other end of {@link fallTargets}: every column that would LAND here.
+ *
+ *  The exact transpose, derived rather than approximated. `fallTargets` emits
+ *  `u → v` iff v's column is air at u's level and the descent from there lands
+ *  on v — which holds iff `y_v ≤ y_u < ceilingAbove(v)`, i.e. iff u's level is
+ *  inside THIS cell's own air pocket — and iff the drop clears the climb band,
+ *  `y_u > y_v + climbCells`. Intersecting those two gives the scanned range
+ *  exactly: `[y + climbCells + 1, ceiling)`.
+ *
+ *  Two boundaries in that range are load-bearing, and both are tested:
+ *  - The ceiling is EXCLUSIVE, so the pocket's topmost air cell is included. A
+ *    scan stopping one short loses precisely the shelf that sits level with a
+ *    roofed bay's top cell — and it is uncapped besides, the same
+ *    data-terminated bound {@link ceilingAbove} supplies, because any cap
+ *    silently drops every ledge above it (a false-negative cliff).
+ *  - Starting past the climb band is an EFFICIENCY choice, not a correctness
+ *    one: the levels it skips are exactly the ones {@link climbNeighbours}
+ *    already offers, both ways.
+ *
+ *  Asymmetric in COUNT, though: a column falls into at most one pocket per
+ *  direction, while a pocket can be fallen into from many ledges. */
+function fallSources(
+  v: SolidView,
+  climbCells: number,
+  x: number,
+  y: number,
+  z: number,
+  visit: VisitColumn,
+): void {
+  const ceiling = ceilingAbove(v, x, y, z);
+  for (const [dx, dz] of DIRS) {
+    const nx = x + dx;
+    const nz = z + dz;
+    for (let ny = y + climbCells + 1; ny < ceiling; ny++)
+      if (isFloorAnchor(v, nx, ny, nz)) visit(nx, ny, nz);
+  }
+}
+
+/** Flood over floor-anchor columns from `starts`, following whatever `expand`
+ *  offers, keyed by cell so callers can both test membership and iterate. Order
+ *  is irrelevant to a reachable set, so the worklist is a plain stack.
+ *
+ *  Bounded by the data, with no artificial budget: a floor anchor needs an air
+ *  cell, air exists only in allocated chunks, so the visited set can never
+ *  exceed the store's allocated cells. */
+function floodColumns(
+  starts: readonly Column[],
+  expand: Expand,
+): Map<string, Column> {
+  const seen = new Map<string, Column>();
+  const pending: Column[] = [];
+  const visit: VisitColumn = (x, y, z) => {
+    const key = cellKey(x, y, z);
+    if (seen.has(key)) return;
+    const cell: Column = [x, y, z];
+    seen.set(key, cell);
+    pending.push(cell);
+  };
+  for (const s of starts) visit(s[0], s[1], s[2]);
+  while (pending.length > 0) {
+    const cur = pending.pop();
     if (cur === undefined) break;
-    const [x, y, z] = cur;
-    for (const [dx, dz] of DIRS) {
-      const nx = x + dx;
-      const nz = z + dz;
-      for (let ny = y - climbCells; ny <= y + climbCells; ny++) {
-        const key = cellKey(nx, ny, nz);
-        if (reached.has(key) || !isFloorAnchor(v, nx, ny, nz)) continue;
-        reached.add(key);
-        stack.push([nx, ny, nz]);
-      }
-    }
+    expand(cur[0], cur[1], cur[2], visit);
   }
-  return reached;
+  return seen;
+}
+
+/** Each seed's floor surface, dropping the ones with none. A buried or
+ *  non-finite seed warns rather than throwing: seeds come from world data, and
+ *  one stale spawn point must not veto the pass — {@link markUnreachable} would
+ *  then demote an entire world on the strength of it. */
+function seedColumns(
+  v: SolidView,
+  cellSize: number,
+  seeds: readonly [number, number, number][],
+  who: string,
+): Column[] {
+  const anchors: Column[] = [];
+  for (const seed of seeds) {
+    const anchor = seedAnchor(v, cellSize, seed);
+    if (anchor === undefined)
+      warn(
+        "field",
+        `${who}: seed has no floor surface below it (buried or non-finite) — ignored`,
+        { seed },
+      );
+    else anchors.push(anchor);
+  }
+  return anchors;
 }
 
 /**
@@ -649,16 +789,21 @@ function floodReachable(
  * the store.
  *
  * The filter is a floor-connected flood from each seed's floor surface: four XZ
- * neighbours, any rise or drop within `climbCeiling` (the same `climbCells` the
- * ledge severity band uses, so "climbable" means one thing in this module).
- * Every flag anchors on a floor cell, so a flag is reachable exactly when its
- * anchor cell is in the flood.
+ * neighbours, any rise or drop within `climbCeiling` — the CLIMB BAND, the one
+ * edge rule this module's two connectivity passes share, so "climbable" means
+ * one thing here. Every flag anchors on a floor cell, so a flag is reachable
+ * exactly when its anchor cell is in the flood.
  *
  * Miss-safety comes from demote-not-delete, NOT from the filter being sound —
  * which it is not, and deliberately so:
  * - **Falling is ignored.** A shelf the mover can only drop off, or reach by
- *   falling into, reads unreachable. Modelling it would need the mover's fall
- *   arc, which is stage 2's business.
+ *   falling into, reads unreachable. {@link detectPits} models exactly that
+ *   edge, and the two are deliberately NOT merged: this pass answers "can the
+ *   agent get there at all", which stays the honest question for a demotion,
+ *   and its undirected flood is what makes the answer conservative. One
+ *   consequence follows directly and bites: this flood cannot enter a pit, so
+ *   running it over `detectPits` output would demote every pit flag. Keep the
+ *   two flag sets apart.
  * - Headroom is ignored, so the flood crosses gaps the capsule cannot fit
  *   through, and coarse cells (a `cellSize` COARSER than `climbCeiling`, which
  *   floors `climbCells` to 0 — an equal one still grants 1) strand everything
@@ -703,17 +848,7 @@ export function markUnreachable(
   // nothing is pure cost.
   if (![...flags.values()].some((list) => list.length > 0)) return;
 
-  const anchors: [number, number, number][] = [];
-  for (const seed of seeds) {
-    const anchor = seedAnchor(v, store.cellSize, seed);
-    if (anchor === undefined)
-      warn(
-        "field",
-        "markUnreachable: seed has no floor surface below it (buried or non-finite) — ignored",
-        { seed },
-      );
-    else anchors.push(anchor);
-  }
+  const anchors = seedColumns(v, store.cellSize, seeds, "markUnreachable");
   if (anchors.length === 0) {
     warn(
       "field",
@@ -724,8 +859,170 @@ export function markUnreachable(
   }
 
   const { climbCells } = metricsFor(profile, store.cellSize);
-  const reached = floodReachable(v, climbCells, anchors);
+  const reached = floodColumns(anchors, (x, y, z, visit) =>
+    climbNeighbours(v, climbCells, x, y, z, visit),
+  );
   for (const list of flags.values())
     for (const f of list)
       f.unreachable = !reached.has(cellKey(f.cell[0], f.cell[1], f.cell[2]));
+}
+
+/** One trap: the columns of a region, and the lowest of them. Tracked as the
+ *  region is built, so the anchor never depends on flood order. */
+type PitRegion = { anchor: Column; cells: Column[] };
+
+/** Is `a` lower than `b` — Y first, then x, then z, so a flat-floored region
+ *  picks the same anchor whatever order its columns were discovered in. */
+function lowerColumn(a: Column, b: Column): boolean {
+  if (a[1] !== b[1]) return a[1] < b[1];
+  if (a[0] !== b[0]) return a[0] < b[0];
+  return a[2] < b[2];
+}
+
+/** Splits the trapped columns into regions over the SAME edges the two floods
+ *  walked, direction IGNORED: a shelf that drops into its own deeper floor is
+ *  one trap and not two, because that is how the mover meets it. */
+function pitRegions(
+  v: SolidView,
+  climbCells: number,
+  trapped: ReadonlyMap<string, Column>,
+): PitRegion[] {
+  const claimed = new Set<string>();
+  const regions: PitRegion[] = [];
+  for (const [key, start] of trapped) {
+    if (claimed.has(key)) continue;
+    const region = floodColumns([start], (x, y, z, visit) => {
+      const inside: VisitColumn = (nx, ny, nz) => {
+        if (trapped.has(cellKey(nx, ny, nz))) visit(nx, ny, nz);
+      };
+      climbNeighbours(v, climbCells, x, y, z, inside);
+      fallTargets(v, climbCells, x, y, z, inside);
+      fallSources(v, climbCells, x, y, z, inside);
+    });
+    let anchor = start;
+    for (const cell of region.values())
+      if (lowerColumn(cell, anchor)) anchor = cell;
+    for (const k of region.keys()) claimed.add(k);
+    regions.push({ anchor, cells: [...region.values()] });
+  }
+  return regions;
+}
+
+/** The chunk holding a cell. */
+const chunkOf = (cell: Column): ChunkKey =>
+  chunkKey(voxelChunk(cell[0]), voxelChunk(cell[1]), voxelChunk(cell[2]));
+
+/** One region as its flag: anchored at the bottom of the trap, carrying the
+ *  region's size and every chunk it touches. */
+function pitFlag(cellSize: number, region: PitRegion): FieldFlag {
+  const [x, y, z] = region.anchor;
+  const owners = new Set<ChunkKey>();
+  for (const cell of region.cells) owners.add(chunkOf(cell));
+  return {
+    kind: "pit",
+    severity: "candidate",
+    cell: [x, y, z],
+    world: floorSurfaceWorld(cellSize, x, y, z),
+    chunk: chunkOf(region.anchor),
+    chunks: [...owners].sort(),
+    cells: region.cells.length,
+  };
+}
+
+/**
+ * Finds the regions the agent can get INTO and not back OUT of (D-F4-18) — the
+ * connectivity half of the advisor, and the one finding no per-cell filter can
+ * express. **ADVISORY ONLY**, like every pass here: it never mutates the store,
+ * never blocks a verb, never auto-fixes.
+ *
+ * The graph is the standable columns {@link markUnreachable} floods, with a
+ * directed edge rule between XZ-4-adjacent ones: within `climbCeiling` of each
+ * other they connect BOTH ways; further apart the higher one connects to the
+ * lower and not back — walking off an edge, which the mover does freely (no
+ * fall-damage model here, and none in the reference consumer's mover either).
+ * A pit is then ENTERABLE ∧ ¬CAN-RETURN:
+ * the flood from the seeds MINUS the flood that reaches the seeds over reversed
+ * edges. Those columns cluster into 4-connected regions and each region emits
+ * ONE flag, anchored at its lowest column.
+ *
+ * This replaces what the `ledge` candidate band tried to say and could not:
+ * measurement (P-F4-3) found a tall rise is simply what vertical cave terrain is
+ * made of, while a trap is a property of the graph.
+ *
+ * @param seeds - WORLD positions the agent starts from (`playerStart`, spawn
+ * points), each snapped DOWN to the floor surface at or below it; a seed buried
+ * in rock warns and is dropped. An empty list — or one where no seed is usable —
+ * returns NO flags: with no known starting point there is no "enterable", and
+ * guessing a spawn would be the advisor inventing its own premise. Several seeds
+ * are ONE set, not several runs: a region counts as returnable if it can reach
+ * ANY of them, so a hollow with a spawn of its own in it is never a pit.
+ * @returns One `candidate` flag per pit region, ordered by where the enterable
+ * flood first met each region — a FLAT array,
+ * not the per-chunk map {@link analyzeWorld} returns, because a pit is a global
+ * property and this pass is world-cadence (run it on the idle tail, not per
+ * dirty chunk: one dug cell can open or seal a trap anywhere in the world).
+ * `cell`/`world` are the anchor column, `cells` is the region's size in columns,
+ * and `chunks` is every chunk the region touches — `chunk` alone (the anchor's)
+ * is NOT a complete owner, so pit flags must be replaced wholesale per run
+ * rather than per owner chunk the way the column pass's flags are.
+ * @throws Error - setup-loud, as {@link analyzeChunk}: an inconsistent agent
+ * profile, or an `extraSolid` buffer of the wrong length. The gate runs BEFORE
+ * the empty-seed return, so a bad profile throws even with nothing to do.
+ * @remarks What this does NOT model, all of it inherited from the shared node
+ * set and edge rule, and none of it one-directionally safe the way
+ * {@link markUnreachable}'s unsoundness is — this pass reports rather than
+ * demotes, so an error either way is a wrong finding:
+ * - **Headroom is ignored** (the node set's own simplification), so both floods
+ *   cross gaps the capsule cannot fit through. That can hide a pit whose only
+ *   modelled exit is a crawlspace the mover cannot enter, and can invent one
+ *   whose only modelled entrance is.
+ * - **Steps are 4-connected in XZ**, so a region whose only way out is a
+ *   DIAGONAL step reads as a pit though the mover walks out of it.
+ * - **`climbCells` floors**, so a rise the mover would just about make can read
+ *   one-way. That direction only ever ADDS regions. At a `cellSize` as coarse as
+ *   `climbCeiling` it floors to 1, and coarser still to 0 — where every level
+ *   change becomes a one-way drop and everything off the seed's own level reads
+ *   as trapped. That is the same coarse-cell cliff {@link markUnreachable}
+ *   documents, with a louder failure mode.
+ * - **Falls have no distance limit**, so a 50 m drop is an entrance like any
+ *   other. It matches the reference consumer's mover, which takes no fall
+ *   damage, and it is what makes a deep cavern floor "enterable" rather than
+ *   merely unreachable. A consumer that adds fall damage must revisit it.
+ * - The **rim divergence** applies unchanged: unallocated chunks read SOLID, so
+ *   a shelf at the outer rim of the allocated region can read as walled-in where
+ *   the runtime has no collider at all.
+ */
+export function detectPits(
+  store: FieldStore,
+  profile: AgentProfile,
+  seeds: readonly [number, number, number][],
+  opts?: AnalyzeOptions,
+): FieldFlag[] {
+  const v = validatedView(store, profile, opts);
+  if (seeds.length === 0) return [];
+
+  const anchors = seedColumns(v, store.cellSize, seeds, "detectPits");
+  if (anchors.length === 0) {
+    warn("field", "detectPits: no usable seed — skipped, no pits reported", {
+      seeds: seeds.length,
+    });
+    return [];
+  }
+
+  const { climbCells } = metricsFor(profile, store.cellSize);
+  const enterable = floodColumns(anchors, (x, y, z, visit) => {
+    climbNeighbours(v, climbCells, x, y, z, visit);
+    fallTargets(v, climbCells, x, y, z, visit);
+  });
+  const canReturn = floodColumns(anchors, (x, y, z, visit) => {
+    climbNeighbours(v, climbCells, x, y, z, visit);
+    fallSources(v, climbCells, x, y, z, visit);
+  });
+
+  const trapped = new Map<string, Column>();
+  for (const [key, cell] of enterable)
+    if (!canReturn.has(key)) trapped.set(key, cell);
+  return pitRegions(v, climbCells, trapped).map((region) =>
+    pitFlag(store.cellSize, region),
+  );
 }

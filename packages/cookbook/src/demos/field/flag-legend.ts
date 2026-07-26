@@ -16,4 +16,5 @@ export const FLAG_MEANING: Record<FlagKind, string> = {
   "lip-near-wall": "sub-step lip with a wall within capsule radius beyond it",
   "low-clearance": "neighbour floor whose headroom is below clearance",
   narrow: "free width at torso height below 2·radius + skin, on one axis",
+  pit: "a region the agent can get into and not back out of",
 };

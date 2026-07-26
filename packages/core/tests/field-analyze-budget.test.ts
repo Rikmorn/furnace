@@ -24,10 +24,12 @@ import {
   createFieldStore,
   createOpLog,
   DEFAULT_CELL_SIZE,
+  detectPits,
   generatorById,
   markUnreachable,
   setDensity,
   voxelizePlacements,
+  worldToVoxel,
 } from "@furnace/core/field";
 import { at } from "./_helpers/expect.ts";
 
@@ -39,11 +41,24 @@ const TARGET_MS = 2;
 const REACH_CEILING_MS = 100;
 const VOXELIZE_CEILING_MS = 100;
 /** How much of the whole-world analysis one flood is allowed to cost. Measured
- *  0.45–0.50x over six warm runs (±5%), so 1x is a bar with ~2x headroom that
- *  still bites anything past a doubling — and being a RATIO it holds on a slower
- *  machine, where an absolute millisecond bound would not. An earlier 2x bound
- *  was too slack to notice a deliberate 3x regression. */
+ *  0.26–0.30x over five warm runs (2026-07-26), so 1x is a bar with >3x headroom
+ *  that still bites anything past a doubling — and being a RATIO it holds on a
+ *  slower machine, where an absolute millisecond bound would not. An earlier 2x
+ *  bound was too slack to notice a deliberate 3x regression. (The 0.45–0.50x
+ *  this comment used to record was measured before the sub-cell `narrow`
+ *  predicate made the DENOMINATOR dearer; the flood itself did not change.) */
 const REACH_VS_ANALYSIS = 1;
+/** The same kind of bar for the pit sweep, which is TWO floods plus a scan of
+ *  each column's air pocket to its ceiling. Measured 1.21–1.34x of the analysis
+ *  over five warm runs on this cave (2026-07-26), so 2.5x is ~2x headroom.
+ *  Deliberately slacker than the flood's bar, and the number is the point: a pit
+ *  sweep is NOT cheaper than the analysis it accompanies — budget it as a second
+ *  whole-world pass of the same order. Cost tracks OPEN AIR as well as floor
+ *  area, so it is fixture-dependent: this is a regression tooth for this cave,
+ *  not a portable bound. */
+const PIT_VS_ANALYSIS = 2.5;
+/** Depth of the shaft the pit case digs: 8 cells = 2.0 m, past climbCeiling. */
+const SHAFT_CELLS = 8;
 /** Denser than any bake ships — 6400 props over the cave's footprint. */
 const PROP_RECORDS = 6400;
 
@@ -103,6 +118,16 @@ function openColumn(headroom: number): FieldStore {
 
 const median = (sorted: readonly number[]): number =>
   at(sorted, (sorted.length - 1) >> 1);
+
+/** A seed at a flag's own floor-surface position: it lands on that flag's anchor
+ *  cell exactly, which is what makes the connectivity cases' vacuity guards
+ *  mean something. */
+const seedOf = (
+  flags: ReadonlyMap<ChunkKey, readonly FieldFlag[]>,
+): [number, number, number] => {
+  const w = at([...flags.values()].flat(), 0).world;
+  return [at(w, 0), at(w, 1), at(w, 2)];
+};
 
 /** The F3b default cave, carved once per call — the shared realistic fixture. */
 function carvedCave(): FieldStore {
@@ -197,7 +222,7 @@ describe("analyzeChunk — budget (P-F4-1)", () => {
   });
 });
 
-describe("markUnreachable — budget (P-F4-1)", () => {
+describe("whole-world passes — budget (P-F4-1)", () => {
   test("one whole-world flood costs less than the analysis that fed it", () => {
     // Unlike the column pass this is NOT per-chunk work: connectivity does not
     // decompose, so the flood is whole-world by nature and is priced against the
@@ -213,14 +238,6 @@ describe("markUnreachable — budget (P-F4-1)", () => {
     // what re-analyzing everything costs — budget it as such, and do not expect
     // an incremental version to fall out of this shape.
     const store = carvedCave();
-    // Seed from a flag's own floor-surface position: it lands on that flag's
-    // anchor cell exactly, which makes the vacuity guard below meaningful.
-    const seedOf = (
-      flags: ReadonlyMap<ChunkKey, readonly FieldFlag[]>,
-    ): [number, number, number] => {
-      const w = at([...flags.values()].flat(), 0).world;
-      return [at(w, 0), at(w, 1), at(w, 2)];
-    };
     const seed = seedOf(analyzeWorld(store, AGENT));
     // Warm BOTH paths before timing either. Not ceremony: the two are compared
     // against EACH OTHER, so timing a cold flood against a warm analysis reports
@@ -254,6 +271,59 @@ describe("markUnreachable — budget (P-F4-1)", () => {
     // would not; the ceiling below stays as an absolute runaway guard.
     expect(floodMs).toBeLessThan(analysisMs * REACH_VS_ANALYSIS);
     expect(floodMs).toBeLessThan(REACH_CEILING_MS);
+  });
+
+  test("one whole-world pit sweep is priced against the same analysis", () => {
+    // Same family as the flood above and the same planning fact: connectivity
+    // does not decompose, so this is whole-world by nature and does NOT amortize
+    // as edits get smaller — one dug cell can open or seal a trap anywhere. It
+    // is two floods rather than one, and the reverse one additionally scans each
+    // column's air pocket to its ceiling, so its cost tracks OPEN AIR as well as
+    // floor area. Measured warm on this cave: ~1.3x the analysis beside it (and
+    // cold, on the 364-chunk committed world, 121 ms against 89 ms). Run it on
+    // the idle tail, not per dirty chunk.
+    const store = carvedCave();
+    const seed = seedOf(analyzeWorld(store, AGENT));
+    // A 2×2 shaft dug beside the seed, deeper than the climb ceiling: the
+    // vacuity guard. Without it a sweep that bailed at the seed (or found the
+    // cave simply well-connected, which it is) would time the same as one that
+    // walked the whole world.
+    const cell = (w: number): number => worldToVoxel(w, store.cellSize);
+    const sx = cell(at(seed, 0)) + 2;
+    const sz = cell(at(seed, 2)) + 2;
+    const sy = cell(at(seed, 1));
+    for (let z = sz; z <= sz + 1; z++)
+      for (let x = sx; x <= sx + 1; x++)
+        for (let y = sy - SHAFT_CELLS; y < sy; y++)
+          setDensity(store, x, y, z, AIR);
+
+    for (let i = 0; i < WARMUP_PASSES; i++) {
+      analyzeWorld(store, AGENT);
+      detectPits(store, AGENT, [seed]);
+    }
+    const t0 = performance.now();
+    const flags = analyzeWorld(store, AGENT);
+    const analysisMs = performance.now() - t0;
+    const t1 = performance.now();
+    const pits = detectPits(store, AGENT, [seed]);
+    const pitMs = performance.now() - t1;
+
+    console.log(
+      `[f4-budget] detectPits over ${store.chunks.size} cave chunks: ` +
+        `${pitMs.toFixed(1)} ms for ${pits.length} pit region(s) ` +
+        `(${pits.map((p) => p.cells).join(",")} columns); the analyzeWorld ` +
+        `beside it cost ${analysisMs.toFixed(1)} ms over ` +
+        `${[...flags.values()].flat().length} flags ` +
+        `(${(pitMs / analysisMs).toFixed(2)}x — bound ${PIT_VS_ANALYSIS}x, ` +
+        `runaway guard ${REACH_CEILING_MS} ms)`,
+    );
+
+    // The dug shaft is found, and it is the ONLY trap in this cave.
+    expect(pits.length).toBe(1);
+    expect(at(pits, 0).cells).toBe(4);
+    // The relationship the test's NAME claims, asserted rather than logged.
+    expect(pitMs).toBeLessThan(analysisMs * PIT_VS_ANALYSIS);
+    expect(pitMs).toBeLessThan(REACH_CEILING_MS);
   });
 
   test("voxelizePlacements stays proportional to the cells its props cover", () => {

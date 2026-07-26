@@ -70,8 +70,10 @@ The editor cockpit's loop shipped in 3.1: generate → reroll → freeze & bake 
 
 Stage 1 of the analyzer is `field.analyzeChunk` / `analyzeWorld` in core
 (`core-modules.md` §field), parameterized on `catalog/agent.json` through
-`walkability.ts`'s `AGENT`. It is ADVISORY: it reads the field and reports, it never
-edits and never blocks. What follows is the requirements record that used to sit in
+`walkability.ts`'s `AGENT`, with two whole-world companions — `markUnreachable`
+(reachability demotion) and `detectPits` (regions the agent enters and cannot leave,
+which is the "voids the capsule enters but cannot leave" class below, at region scale).
+All three are ADVISORY: they read the field and report, they never edit and never block. What follows is the requirements record that used to sit in
 `docs/backlog/`, absorbed here at F4.
 
 **Failure classes the analyzer exists to catch** (the known-bad corpus, distilled at the

@@ -1,5 +1,10 @@
 export type { AnalyzeOptions } from "./analyze.ts";
-export { analyzeChunk, analyzeWorld, markUnreachable } from "./analyze.ts";
+export {
+  analyzeChunk,
+  analyzeWorld,
+  detectPits,
+  markUnreachable,
+} from "./analyze.ts";
 export type {
   BakedFile,
   BakeFieldWorldOptions,
