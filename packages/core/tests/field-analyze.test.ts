@@ -22,8 +22,8 @@ import {
   DEFAULT_CELL_SIZE,
   type FieldStore,
   getDensity,
+  markUnreachable,
   type PlacementCollision,
-  reachabilityPass,
   SOLID,
   setDensity,
   voxelizePlacements,
@@ -569,11 +569,11 @@ const flatten = (flags: ReadonlyMap<ChunkKey, FieldFlag[]>): FieldFlag[] =>
 const identity = (f: FieldFlag): string =>
   `${f.kind}/${f.severity}/${f.cell.join(",")}/${f.world.join(",")}/${f.chunk}`;
 
-describe("reachabilityPass", () => {
+describe("markUnreachable", () => {
   test("demotes flags on a shelf no climb can reach", () => {
     const s = floatingShelfHall();
     const flags = analyzeWorld(s, AGENT);
-    reachabilityPass(s, AGENT, flags, [standingAt(0, FLOOR, 0)]);
+    markUnreachable(s, AGENT, flags, [standingAt(0, FLOOR, 0)]);
     const all = flatten(flags);
     const shelf = all.filter((f) => f.cell[1] === SHELF);
     const ground = all.filter((f) => f.cell[1] === FLOOR);
@@ -591,7 +591,7 @@ describe("reachabilityPass", () => {
     // to Δy = 0 strands both.
     const s = stairHall();
     const flags = analyzeWorld(s, AGENT);
-    reachabilityPass(s, AGENT, flags, [standingAt(0, FLOOR, 0)]);
+    markUnreachable(s, AGENT, flags, [standingAt(0, FLOOR, 0)]);
     const all = flatten(flags);
     expect(all.length).toBeGreaterThan(0);
     const levels = new Set(all.map((f) => f.cell[1]));
@@ -603,7 +603,7 @@ describe("reachabilityPass", () => {
     const s = floatingShelfHall();
     const flags = analyzeWorld(s, AGENT);
     const before = flatten(flags).map(identity);
-    reachabilityPass(s, AGENT, flags, [standingAt(0, FLOOR, 0)]);
+    markUnreachable(s, AGENT, flags, [standingAt(0, FLOOR, 0)]);
     const after = flatten(flags).map(identity);
     expect(after).toEqual(before);
     expect([...flags.keys()]).toEqual([...analyzeWorld(s, AGENT).keys()]);
@@ -612,16 +612,16 @@ describe("reachabilityPass", () => {
   test("no seeds means no pass at all — every flag keeps an unset verdict", () => {
     const s = floatingShelfHall();
     const flags = analyzeWorld(s, AGENT);
-    reachabilityPass(s, AGENT, flags, []);
+    markUnreachable(s, AGENT, flags, []);
     for (const f of flatten(flags)) expect(f.unreachable).toBeUndefined();
   });
 
   test("a seed in mid-air falls to the floor below it", () => {
     const s = floatingShelfHall();
     const airborne = analyzeWorld(s, AGENT);
-    reachabilityPass(s, AGENT, airborne, [standingAt(0, 8, 0)]);
+    markUnreachable(s, AGENT, airborne, [standingAt(0, 8, 0)]);
     const grounded = analyzeWorld(s, AGENT);
-    reachabilityPass(s, AGENT, grounded, [standingAt(0, FLOOR, 0)]);
+    markUnreachable(s, AGENT, grounded, [standingAt(0, FLOOR, 0)]);
     expect(flatten(airborne).map((f) => f.unreachable)).toEqual(
       flatten(grounded).map((f) => f.unreachable),
     );
@@ -633,7 +633,7 @@ describe("reachabilityPass", () => {
     const flags = analyzeWorld(s, AGENT);
     // Deep under the hall's rock floor: solid, so nothing can stand there.
     expect(() =>
-      reachabilityPass(s, AGENT, flags, [[0.125, -5, 0.125]]),
+      markUnreachable(s, AGENT, flags, [[0.125, -5, 0.125]]),
     ).not.toThrow();
     for (const f of flatten(flags)) expect(f.unreachable).toBeUndefined();
   });
@@ -644,7 +644,7 @@ describe("reachabilityPass", () => {
     const bits = new Uint8Array(CHUNK_SAMPLES);
     // Fill the whole column above the seed cell, so falling finds no surface.
     for (let y = 0; y < CHUNK_DIM; y++) bits[CHUNK_DIM * y] = 1;
-    reachabilityPass(s, AGENT, flags, [standingAt(0, FLOOR, 0)], {
+    markUnreachable(s, AGENT, flags, [standingAt(0, FLOOR, 0)], {
       extraSolid: new Map([[CENTER, bits]]),
     });
     for (const f of flatten(flags)) expect(f.unreachable).toBeUndefined();
@@ -654,9 +654,9 @@ describe("reachabilityPass", () => {
     const s = floatingShelfHall();
     const flags = analyzeWorld(s, AGENT);
     const ground = standingAt(0, FLOOR, 0);
-    reachabilityPass(s, AGENT, flags, [ground]);
+    markUnreachable(s, AGENT, flags, [ground]);
     expect(flatten(flags).some((f) => f.unreachable === true)).toBe(true);
-    reachabilityPass(s, AGENT, flags, [ground, standingAt(5, SHELF, 0)]);
+    markUnreachable(s, AGENT, flags, [ground, standingAt(5, SHELF, 0)]);
     for (const f of flatten(flags)) expect(f.unreachable).toBe(false);
   });
 
@@ -665,10 +665,10 @@ describe("reachabilityPass", () => {
     const flags = analyzeWorld(s, AGENT);
     const seeds: [number, number, number][] = [standingAt(0, FLOOR, 0)];
     expect(() =>
-      reachabilityPass(s, { ...AGENT, clearance: 1.0 }, flags, seeds),
+      markUnreachable(s, { ...AGENT, clearance: 1.0 }, flags, seeds),
     ).toThrow(/clearance/);
     expect(() =>
-      reachabilityPass(s, AGENT, flags, seeds, {
+      markUnreachable(s, AGENT, flags, seeds, {
         extraSolid: new Map([[CENTER, new Uint8Array(CHUNK_SAMPLES / 8)]]),
       }),
     ).toThrow(/one BYTE per sample/);

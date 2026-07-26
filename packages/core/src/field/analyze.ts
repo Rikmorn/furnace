@@ -549,9 +549,10 @@ function floodReachable(
 }
 
 /**
- * Tags every flag the agent cannot walk to from `seeds` with `unreachable`
- * (D-F4-8) — a triage DEMOTION, applied in place. It never deletes a flag, never
- * changes a severity, and never touches the store.
+ * Marks every flag the agent cannot walk to from `seeds` as `unreachable`
+ * (D-F4-8), WRITING THE VERDICT INTO the flags passed in — a triage demotion,
+ * never a deletion. It removes no flag, changes no severity, and never touches
+ * the store.
  *
  * The filter is a floor-connected flood from each seed's floor surface: four XZ
  * neighbours, any rise or drop within `climbCeiling` (the same `climbCells` the
@@ -572,10 +573,11 @@ function floodReachable(
  * missing flag. Present the `unreachable` set; do not drop it.
  *
  * @param flags - The map {@link analyzeWorld} returns (or an equivalent set of
- * per-chunk arrays). MUTATED: every flag gets `unreachable` written — `false`
- * when reached, `true` when not. An unwritten (`undefined`) tag therefore means
- * this pass never ran over that flag, which is a third state worth showing
- * differently from "reachable".
+ * per-chunk arrays). MUTATED — this is the function's only output: every flag
+ * gets `unreachable` written, `false` when reached and `true` when not, so a
+ * re-run after the world changes clears a stale demotion as readily as it makes
+ * a new one. An unwritten (`undefined`) tag therefore means this never ran over
+ * that flag, a third state worth showing differently from "reachable".
  * @param seeds - WORLD positions the agent starts from (`playerStart`, spawn
  * points). Each snaps to the floor surface at or below it; a seed buried in rock
  * is unusable and warns. An empty list — or a list where no seed is usable —
@@ -584,7 +586,7 @@ function floodReachable(
  * @throws Error - setup-loud, as {@link analyzeChunk}: an inconsistent agent
  * profile, or an `extraSolid` buffer of the wrong length.
  */
-export function reachabilityPass(
+export function markUnreachable(
   store: FieldStore,
   profile: AgentProfile,
   flags: ReadonlyMap<ChunkKey, FieldFlag[]>,
@@ -603,7 +605,7 @@ export function reachabilityPass(
     if (anchor === undefined)
       warn(
         "field",
-        "reachabilityPass: seed has no floor surface below it (buried or non-finite) — ignored",
+        "markUnreachable: seed has no floor surface below it (buried or non-finite) — ignored",
         { seed },
       );
     else anchors.push(anchor);
@@ -611,7 +613,7 @@ export function reachabilityPass(
   if (anchors.length === 0) {
     warn(
       "field",
-      "reachabilityPass: no usable seed — skipped, no flags demoted",
+      "markUnreachable: no usable seed — skipped, no flags demoted",
       { seeds: seeds.length },
     );
     return;

@@ -22,7 +22,7 @@ import {
   createOpLog,
   DEFAULT_CELL_SIZE,
   generatorById,
-  reachabilityPass,
+  markUnreachable,
   setDensity,
   voxelizePlacements,
 } from "@furnace/core/field";
@@ -187,7 +187,7 @@ describe("analyzeChunk — budget (P-F4-1)", () => {
   });
 });
 
-describe("reachabilityPass — budget (P-F4-1)", () => {
+describe("markUnreachable — budget (P-F4-1)", () => {
   test("one whole-world flood costs a fraction of the analysis that fed it", () => {
     // Unlike the column pass this is NOT per-chunk work: the flood is
     // whole-world by nature (connectivity does not decompose), so it is priced
@@ -203,14 +203,14 @@ describe("reachabilityPass — budget (P-F4-1)", () => {
     // anchor cell exactly, which makes the vacuity guard below meaningful.
     const seed = at(all, 0).world;
     const t1 = performance.now();
-    reachabilityPass(store, AGENT, flags, [
+    markUnreachable(store, AGENT, flags, [
       [at(seed, 0), at(seed, 1), at(seed, 2)],
     ]);
     const floodMs = performance.now() - t1;
     const demoted = all.filter((f) => f.unreachable === true).length;
 
     console.log(
-      `[f4-budget] reachabilityPass over ${store.chunks.size} cave chunks: ` +
+      `[f4-budget] markUnreachable over ${store.chunks.size} cave chunks: ` +
         `${floodMs.toFixed(1)} ms for ${all.length} flags (${demoted} demoted); ` +
         `the analyzeWorld that produced them cost ${analysisMs.toFixed(1)} ms ` +
         `(ceiling ${REACH_CEILING_MS})`,

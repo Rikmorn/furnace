@@ -287,7 +287,7 @@ function markCellBox(out: Map<ChunkKey, Uint8Array>, box: CellBox): void {
  * @param cellSize - The target store's `cellSize`. The analyzer reads these
  * buffers on the store's own lattice, so this must be that store's value.
  * @returns One buffer per chunk any collider touched, to hand to `analyzeChunk`
- * / `analyzeWorld` / `reachabilityPass` as `extraSolid`. Chunks no collider
+ * / `analyzeWorld` / `markUnreachable` as `extraSolid`. Chunks no collider
  * reaches are absent, which those readers treat as "no extras" — the map need
  * not align with the store's allocated chunks (a prop overhanging the void marks
  * a chunk the field never allocated, where the analyzer simply finds no floor).
