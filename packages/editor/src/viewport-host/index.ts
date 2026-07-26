@@ -39,6 +39,7 @@ export type { OrbitState } from "./camera-control.ts";
 export type {
   FlagCount,
   FlagFilters,
+  FlagRow,
   FlagsSummary,
 } from "./field-flags.ts";
 export {

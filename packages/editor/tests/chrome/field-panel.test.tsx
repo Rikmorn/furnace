@@ -311,12 +311,7 @@ function makeStubHost(opts: { generators?: FieldGeneratorInfo[] } = {}) {
 		setAgentProfile: calls.setAgentProfile,
 		subscribeFlags: (cb) => {
 			cbs.flags = cb;
-			cb({
-				total: 0,
-				byKindSeverity: [],
-				visible: [],
-				verdicts: new Map(),
-			});
+			cb({ total: 0, byKindSeverity: [], visible: [] });
 			// biome-ignore lint/suspicious/noEmptyBlockStatements: inert unsubscribe no-op
 			return () => {};
 		},

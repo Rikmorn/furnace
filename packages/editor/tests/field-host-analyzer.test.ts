@@ -233,7 +233,7 @@ const lastSummary = (pushes: readonly FlagsSummary[]): FlagsSummary => {
 };
 
 const kinds = (summary: FlagsSummary | undefined): string[] =>
-  (summary?.visible ?? []).map((f) => f.kind);
+  (summary?.visible ?? []).map((r) => r.flag.kind);
 
 test("with no agent profile the advisor posts NOTHING and says so exactly once", () => {
   const f = fixture(null);
@@ -433,7 +433,9 @@ test("the real handler answers a loaded world end to end", async () => {
   const summary = lastSummary(f.pushes);
   expect(summary.total).toBeGreaterThan(0);
   expect(summary.visible.length).toBeGreaterThan(0);
-  expect(summary.visible.every((v) => v.severity === "candidate")).toBe(true);
+  expect(summary.visible.every((r) => r.flag.severity === "candidate")).toBe(
+    true,
+  );
   expect(f.host.flagMarkerCount()).toBe(summary.visible.length);
 });
 

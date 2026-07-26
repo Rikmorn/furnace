@@ -8,12 +8,20 @@
 // through `cursorRay` → `screenToRay`, so without `init` the pointer handler
 // returns before it writes a cell — and writing cells is what feeds the mirror.
 //
-// Not asserted here: that `renderScene` draws the layer. The host requests its
-// context WITHOUT `surfaceFormat: "linear"`, which bun-webgpu's mock cannot
-// render through (see the gpu-fixture header), so both existing field-host GPU
-// tests stub rAF to a no-op and this one does the same. Marker pixels are a
-// browser gate's job.
-import { expect, test } from "bun:test";
+// ⚠️ NOT PROVEN ANYWHERE IN THIS SUITE: that the marker layer is DRAWN AT ALL.
+// Deleting the `layers.flags && flagMarkers` push from `renderScene` fails no
+// test in this repo. The tests below build the layer against a real device and
+// pin its instance count, and the tick tests do call `renderScene` — but the
+// host requests its context without `surfaceFormat: "linear"`, so under
+// bun-webgpu that render is invalid (see the mute below) and proves nothing
+// about what reached the draw list. There is no draw-list seam and no pixel read
+// here.
+//
+// The whole weight of "the markers are visible" therefore rests on Task 13's
+// BROWSER PIXEL CHECK. That is deliberate and recorded: this repo has already
+// shipped two classes of invisible overlay that passed every headless test
+// (2026-07-21), which is the history that pixel check exists for.
+import { afterAll, beforeAll, expect, test } from "bun:test";
 import type {
   AgentProfile,
   FieldManifest,
@@ -28,6 +36,7 @@ import {
   encodeChunkFile,
   SOLID,
 } from "@furnace/core/field";
+import { consoleSink, setSink } from "@furnace/core/log";
 import {
   bunWebGpuAvailable,
   ensureBunWebGpu,
@@ -41,9 +50,24 @@ import type {
 import { createAnalyzerWorkerHandler } from "../src/frontend/lib/analyzer-protocol.ts";
 import type { WorkerLike } from "../src/frontend/lib/field-client.ts";
 import { createFieldHost } from "../src/viewport-host/field-host.ts";
-import type { FieldTool, FlagsSummary } from "../src/viewport-host/index.ts";
+import type {
+  FieldStats,
+  FieldTool,
+  FlagsSummary,
+} from "../src/viewport-host/index.ts";
 
 await ensureBunWebGpu();
+
+// The tick tests below drive `renderScene`, and under bun-webgpu that render is
+// INVALID: the host requests its context without `surfaceFormat: "linear"`, so
+// `createView({ format: "bgra8unorm-srgb" })` fails validation against the mock's
+// canvas texture (the gpu-fixture header). It fails ASYNCHRONOUSLY, as uncaptured
+// device errors rather than a throw, which is why the tick still returns and the
+// stats push before it still happens. Muted so the expected wall of device errors
+// does not drown the suite — the `uncaptured-error.gpu.test.ts` pattern. Nothing
+// here asserts on core's log; the host's own tool-error channel is a subscriber.
+beforeAll(() => setSink(null));
+afterAll(() => setSink(consoleSink));
 
 const AGENT: AgentProfile = {
   capsule: { radius: 0.3, halfHeight: 0.6 },
@@ -166,20 +190,36 @@ const lastSummary = (pushes: readonly FlagsSummary[]): FlagsSummary => {
 };
 
 /** rAF/cAF do not exist in bun, and the host schedules its loop through them at
- *  the end of `init`. Stubbed to no-ops — see this file's header for why the
- *  callback must not run. */
-function stubAnimationFrame(): () => void {
+ *  the end of `init`. Stubbed so the loop never runs on its own — but the
+ *  callback is CAPTURED, because one hand-driven tick is the only way to observe
+ *  the per-frame {@link FieldStats} push. */
+function stubAnimationFrame(): {
+  restore: () => void;
+  tick: (now: number) => void;
+} {
   const g = globalThis as unknown as Record<string, unknown>;
   const saved = ["requestAnimationFrame", "cancelAnimationFrame"].map(
     (name) => ({ name, had: name in g, prev: g[name] }),
   );
-  g["requestAnimationFrame"] = () => 1;
+  let pending: ((now: number) => void) | null = null;
+  g["requestAnimationFrame"] = (fn: (now: number) => void) => {
+    pending = fn;
+    return 1;
+  };
   g["cancelAnimationFrame"] = () => undefined;
-  return () => {
-    for (const { name, had, prev } of saved) {
-      if (had) g[name] = prev;
-      else delete g[name];
-    }
+  return {
+    tick: (now) => {
+      const fn = pending;
+      if (fn === null) throw new Error("test: the host scheduled no frame");
+      pending = null;
+      fn(now);
+    },
+    restore: () => {
+      for (const { name, had, prev } of saved) {
+        if (had) g[name] = prev;
+        else delete g[name];
+      }
+    },
   };
 }
 
@@ -203,14 +243,20 @@ async function makeHostCanvas(
   }) as unknown as HTMLCanvasElement;
 }
 
-async function fixture() {
+/** Comfortably past ANALYZER_IDLE_MS (500) — the debounce is a real constant in
+ *  the host, deliberately not injected, so the wait is real too. */
+const IDLE_TAIL_WAIT_MS = 700;
+
+async function fixture(
+  opts: { profile: AgentProfile | null } = { profile: AGENT },
+) {
   const restoreRo = installMockResizeObserver();
-  const restoreRaf = stubAnimationFrame();
+  const raf = stubAnimationFrame();
   const listeners: Listeners = new Map();
   const fake = analyzerWorker();
   const host = createFieldHost({ spawnAnalyzer: () => fake.worker });
   host.setMaterialTable(ROCK_ONLY);
-  host.setAgentProfile(AGENT);
+  if (opts.profile !== null) host.setAgentProfile(opts.profile);
   host.loadWorld({
     manifest: MANIFEST,
     chunks: [{ key: chunkKey(0, 0, 0), bytes: chamberChunk() }],
@@ -221,6 +267,8 @@ async function fixture() {
   host.subscribeToolError((m) => errors.push(m));
   const pushes: FlagsSummary[] = [];
   host.subscribeFlags((s) => pushes.push(s));
+  const stats: FieldStats[] = [];
+  host.subscribeStats((s) => stats.push(s));
   const click = (x: number, y: number): void => {
     const fn = listeners.get("pointerdown");
     if (fn === undefined) throw new Error("test: no pointerdown listener");
@@ -230,11 +278,15 @@ async function fixture() {
     host,
     errors,
     pushes,
+    stats,
     click,
+    /** Run ONE frame of the host's own loop. The stats push happens before the
+     *  render, so this is what makes {@link FieldStats} observable at all. */
+    tick: raf.tick,
     ...fake,
     teardown: () => {
       host.dispose();
-      restoreRaf();
+      raf.restore();
       restoreRo();
     },
   };
@@ -253,9 +305,9 @@ test.skipIf(!bunWebGpuAvailable())(
       expect(f.errors).toEqual([]);
       const summary = lastSummary(f.pushes);
       expect(summary.visible.length).toBeGreaterThan(0);
-      expect(summary.visible.every((v) => v.severity === "candidate")).toBe(
-        true,
-      );
+      expect(
+        summary.visible.every((r) => r.flag.severity === "candidate"),
+      ).toBe(true);
       expect(f.host.flagMarkerCount()).toBe(summary.visible.length);
 
       // Widening the filter REBUILDS the layer — whole-layer teardown and
@@ -312,6 +364,118 @@ test.skipIf(!bunWebGpuAvailable())(
 
       await f.deliver();
       expect(f.errors).toEqual([]);
+    } finally {
+      f.teardown();
+    }
+  },
+);
+
+test.skipIf(!bunWebGpuAvailable())(
+  "analyzerPending counts the pass in flight and the work queued behind it",
+  async () => {
+    const f = await fixture();
+    try {
+      // The load's pass is posted and unanswered, and `init`'s prop rebuild has
+      // queued another behind it: one in flight, one waiting.
+      f.tick(16);
+      expect(f.stats.at(-1)?.analyzerPending).toBe(2);
+
+      await f.deliver();
+      f.tick(32);
+      // Everything answered, nothing queued — the markers describe the field.
+      expect(f.stats.at(-1)?.analyzerPending).toBe(0);
+
+      // An edit re-opens it: the pass goes out immediately, so this is the
+      // in-flight 1 rather than the queued one.
+      f.click(32, 32);
+      f.tick(48);
+      expect(f.stats.at(-1)?.analyzerPending).toBe(1);
+
+      await f.deliver();
+      f.tick(64);
+      expect(f.stats.at(-1)?.analyzerPending).toBe(0);
+    } finally {
+      f.teardown();
+    }
+  },
+);
+
+test.skipIf(!bunWebGpuAvailable())(
+  "with no agent profile the meter reads 0 — the advisor is off, not busy",
+  async () => {
+    const f = await fixture({ profile: null });
+    try {
+      // The load marked a full re-sync and a whole-world pass, and NEITHER will
+      // ever be posted. Reporting them as pending would park the meter at 1 for
+      // the session and read as an advisor that is permanently working.
+      expect(f.sent).toEqual([]);
+      f.tick(16);
+      expect(f.stats.at(-1)?.analyzerPending).toBe(0);
+    } finally {
+      f.teardown();
+    }
+  },
+);
+
+test.skipIf(!bunWebGpuAvailable())(
+  "the whole-world pass runs on the idle TAIL of an edit burst, once",
+  async () => {
+    const f = await fixture();
+    try {
+      await f.deliver();
+      f.sent.length = 0;
+
+      // A burst: three strokes inside the debounce window. Each posts its own
+      // INCREMENTAL pass; none may run the connectivity passes, which are
+      // world-cadence and cost ~72% of a full analyzeWorld on top of the pass
+      // they ride (which is the whole reason they are debounced).
+      f.click(30, 30);
+      await f.deliver();
+      f.click(32, 32);
+      await f.deliver();
+      f.click(34, 34);
+      await f.deliver();
+      expect(f.of("analyze").every((a) => a.reachability === false)).toBe(true);
+
+      // Let the tail fire.
+      f.sent.length = 0;
+      await new Promise((resolve) => setTimeout(resolve, IDLE_TAIL_WAIT_MS));
+      const whole = f.of("analyze").filter((a) => a.reachability);
+      expect(whole).toHaveLength(1);
+      // It re-analyses the WORLD, not the last chunk edited, and carries the
+      // seeds both connectivity passes need.
+      expect(whole[0]?.seeds).toEqual([CHAMBER_FLOOR]);
+      expect(whole[0]?.dirty.length).toBeGreaterThan(0);
+    } finally {
+      f.teardown();
+    }
+  },
+);
+
+test.skipIf(!bunWebGpuAvailable())(
+  "a dispose/re-init re-syncs the mirror the terminated worker took with it",
+  async () => {
+    const f = await fixture();
+    try {
+      await f.deliver();
+      f.host.dispose();
+      f.sent.length = 0;
+
+      // The client spawns a FRESH worker on the next request, with an empty
+      // mirror. `init` asks for a whole-world pass, and one of those carries
+      // `pits` — so without the re-sync it would analyse an empty world and its
+      // `pits: []` would wholesale-clear the trap set.
+      await f.host.init(await makeHostCanvas(new Map()));
+      const sync = f.of("sync").at(-1);
+      const analyze = f.of("analyze").at(-1);
+      expect(sync?.upserts.map((u) => u.key)).toEqual([chunkKey(0, 0, 0)]);
+      expect(f.of("placements").length).toBeGreaterThan(0);
+      expect(analyze?.reachability).toBe(true);
+      // The sync must PRECEDE the analyze — the worker dispatches in arrival
+      // order, so an analyze that overtook its sync reads an empty mirror.
+      expect(f.sent.findIndex((r) => r.kind === "sync")).toBeLessThan(
+        f.sent.findIndex((r) => r.kind === "analyze"),
+      );
     } finally {
       f.teardown();
     }

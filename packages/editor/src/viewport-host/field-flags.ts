@@ -57,8 +57,14 @@ export const VERIFIED_CLEAR_TINT: FlagTint = [0.4, 0.8, 0.5, 1];
  * to agree on what "one finding" is. Cell alone would be wrong: a single cell
  * can carry a `narrow` AND a `low-clearance`, and collapsing them would drop a
  * finding rather than a duplicate.
+ *
+ * PRIVATE, and the format with it. It reaches a consumer only as
+ * {@link FlagRow.key} — a value to hand back, never a string to build. The
+ * chrome cannot value-import this module (it carries engine code), so an
+ * exported key function would be unreachable from the one place that would need
+ * it and the format would get re-spelled there instead.
  */
-export const flagKey = (f: FieldFlag): string =>
+const flagKey = (f: FieldFlag): string =>
   `${f.kind}@${f.cell[0]},${f.cell[1]},${f.cell[2]}`;
 
 /**
@@ -69,15 +75,34 @@ export const flagKey = (f: FieldFlag): string =>
  * ran out of budget or found no lane proved nothing about the finding, and
  * painting it as a third state would read as an answer.
  */
-export const flagTint = (
-  flag: FieldFlag,
-  verdict: VerifyVerdictWire | undefined,
-): FlagTint => {
-  if (verdict !== undefined) {
-    if (verdict.outcome === "trapped") return VERIFIED_TRAPPED_TINT;
-    if (verdict.outcome === "clear") return VERIFIED_CLEAR_TINT;
+export const flagTint = (row: FlagRow): FlagTint => {
+  if (row.verdict !== undefined) {
+    if (row.verdict.outcome === "trapped") return VERIFIED_TRAPPED_TINT;
+    if (row.verdict.outcome === "clear") return VERIFIED_CLEAR_TINT;
   }
-  return flag.severity === "candidate" ? CANDIDATE_TINT : INFO_TINT;
+  return row.flag.severity === "candidate" ? CANDIDATE_TINT : INFO_TINT;
+};
+
+/**
+ * One finding as everything that SHOWS it consumes it: the analyzer's flag, the
+ * stage-2 verdict taken on it (absent until one is), and a stable identity for a
+ * list key or a callback argument.
+ *
+ * A ROW for the reason {@link FlagCount} is one — anything the chrome would have
+ * to LOOK UP by a key it cannot spell has to arrive already joined. Shipping a
+ * verdict MAP instead would push `${kind}@${x},${y},${z}` into the panel, which
+ * is the duplicated-format-string divergence this module exists on the right
+ * side of.
+ */
+export type FlagRow = {
+  /** Opaque and stable across responses for the same finding. Hand it back;
+   *  never build one. */
+  key: string;
+  /** The analyzer's finding. READ-ONLY to a consumer — the store hands out the
+   *  worker's own objects. */
+  flag: FieldFlag;
+  /** What stage 2 proved, once it has run on this finding. */
+  verdict?: VerifyVerdictWire;
 };
 
 /** How many findings of one (kind, severity) pair stand. A ROW rather than a
@@ -100,10 +125,8 @@ export type FlagsSummary = {
    *  severity order. Pairs with none are ABSENT rather than zero, so a reader
    *  iterates what exists. */
   byKindSeverity: FlagCount[];
-  visible: FieldFlag[];
-  /** Stage-2 verdicts by {@link flagKey}, for every finding that has one —
-   *  including ones the filters currently hide. */
-  verdicts: Map<string, VerifyVerdictWire>;
+  /** The findings the filters admit, each already carrying its verdict. */
+  visible: FlagRow[];
 };
 
 /** One recorded verdict, with the two facts needed to know when it goes stale:
@@ -224,6 +247,14 @@ export function createFlagStore(): FlagStore {
         // A verdict describes a mover walked against a field that has since
         // been re-analysed here — the finding may have moved, changed band or
         // gone. Cheaper and more honest to drop it than to guess it still holds.
+        // `pit` is excluded because a pit's `chunk` is its ANCHOR's alone and its
+        // region can span more, so this per-owner rule cannot decide staleness
+        // for one — the wholesale pit replacement below does. Safe today only
+        // because no pit verdict is ever created: v1 does not offer stage-2
+        // verify on a pit (a region-level finding; the UI disables the button
+        // with "walk it" as the reason). If pits ever become verifiable, one on a
+        // since-dug pit would read current until the next whole-world pass, and
+        // this exclusion is where that gets fixed.
         for (const [flagId, entry] of verdicts)
           if (entry.kind !== "pit" && entry.chunk === key)
             verdicts.delete(flagId);
@@ -271,10 +302,16 @@ export function createFlagStore(): FlagStore {
         byKindSeverity: [...tally]
           .sort(([a], [b]) => compareKeys(a, b))
           .map(([, row]) => row),
-        visible: found.filter((f) => passesFilters(f, filters)),
-        verdicts: new Map(
-          [...verdicts].map(([key, entry]) => [key, entry.verdict]),
-        ),
+        // The join happens HERE, once, where both halves are in hand.
+        visible: found
+          .filter((f) => passesFilters(f, filters))
+          .map((flag) => {
+            const key = flagKey(flag);
+            const entry = verdicts.get(key);
+            return entry === undefined
+              ? { key, flag }
+              : { key, flag, verdict: entry.verdict };
+          }),
       };
     },
   };

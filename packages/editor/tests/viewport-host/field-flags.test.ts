@@ -8,11 +8,14 @@ import type {
   FlagSeverity,
 } from "@furnace/core/field";
 import type { VerifyVerdictWire } from "../../src/frontend/lib/analyzer-protocol.ts";
+import type {
+  FlagRow,
+  FlagsSummary,
+} from "../../src/viewport-host/field-flags.ts";
 import {
   CANDIDATE_TINT,
   createFlagStore,
   DEFAULT_FLAG_FILTERS,
-  flagKey,
   flagTint,
   INFO_TINT,
   VERIFIED_CLEAR_TINT,
@@ -40,6 +43,17 @@ function flag(
     ...(unreachable === undefined ? {} : { unreachable }),
   };
 }
+
+/** The visible rows' keys — the identity the store hands out, which a consumer
+ *  passes back and never builds. */
+const keysOf = (s: FlagsSummary): string[] => s.visible.map((r) => r.key);
+
+/** The verdict carried on the row for `key`, if that row is visible at all. */
+const verdictOf = (
+  s: FlagsSummary,
+  key: string,
+): VerifyVerdictWire | undefined =>
+  s.visible.find((r) => r.key === key)?.verdict;
 
 const verdict = (outcome: VerifyVerdictWire["outcome"]): VerifyVerdictWire => ({
   outcome,
@@ -79,7 +93,7 @@ test("the default filters show candidates and hide info + demoted flags", () => 
   );
   const s = store.summary();
   expect(s.total).toBe(3);
-  expect(s.visible.map(flagKey)).toEqual(["narrow@1,0,0"]);
+  expect(keysOf(s)).toEqual(["narrow@1,0,0"]);
 });
 
 test("each filter admits exactly its own band", () => {
@@ -92,15 +106,9 @@ test("each filter admits exactly its own band", () => {
     ]),
   );
   store.setFilters({ candidates: true, info: true, unreachable: false });
-  expect(store.summary().visible.map(flagKey)).toEqual([
-    "ledge@2,0,0",
-    "narrow@1,0,0",
-  ]);
+  expect(keysOf(store.summary())).toEqual(["ledge@2,0,0", "narrow@1,0,0"]);
   store.setFilters({ candidates: true, info: false, unreachable: true });
-  expect(store.summary().visible.map(flagKey)).toEqual([
-    "narrow@1,0,0",
-    "narrow@3,0,0",
-  ]);
+  expect(keysOf(store.summary())).toEqual(["narrow@1,0,0", "narrow@3,0,0"]);
   store.setFilters({ candidates: false, info: false, unreachable: true });
   expect(store.summary().visible).toEqual([]);
   // Hiding everything filters the VIEW and nothing else — the findings stand.
@@ -118,10 +126,7 @@ test("only `unreachable === true` is demoted — `undefined` is the normal mixed
   );
   // Teeth: a filter written as `unreachable === false` would show only 2,0,0
   // and silently hide every flag no reachability pass has visited yet.
-  expect(store.summary().visible.map(flagKey)).toEqual([
-    "narrow@1,0,0",
-    "narrow@2,0,0",
-  ]);
+  expect(keysOf(store.summary())).toEqual(["narrow@1,0,0", "narrow@2,0,0"]);
 });
 
 test("a chunk's flags are REPLACED wholesale, empty list included", () => {
@@ -135,7 +140,7 @@ test("a chunk's flags are REPLACED wholesale, empty list included", () => {
   expect(store.summary().total).toBe(2);
   // "0,0,0" analysed to nothing; "1,0,0" was not in this response at all.
   store.applyFlags([{ key: "0,0,0", flags: [] }]);
-  expect(store.summary().visible.map(flagKey)).toEqual(["narrow@20,0,0"]);
+  expect(keysOf(store.summary())).toEqual(["narrow@20,0,0"]);
 });
 
 test("re-analysing a chunk clears the demotion tags it used to carry", () => {
@@ -149,7 +154,7 @@ test("re-analysing a chunk clears the demotion tags it used to carry", () => {
   // `markUnreachable` leaves prior demotions standing on its own skip paths, so
   // a store that MERGED tags instead of replacing would hide this forever.
   store.applyFlags(byOwner([flag("narrow", "candidate", [1, 0, 0], "0,0,0")]));
-  expect(store.summary().visible.map(flagKey)).toEqual(["narrow@1,0,0"]);
+  expect(keysOf(store.summary())).toEqual(["narrow@1,0,0"]);
 });
 
 test("duplicate (kind, cell) findings from two owner chunks present once", () => {
@@ -169,7 +174,7 @@ test("duplicate (kind, cell) findings from two owner chunks present once", () =>
   ]);
   const s = store.summary();
   expect(s.total).toBe(1);
-  expect(s.visible.map(flagKey)).toEqual(["low-clearance@16,0,0"]);
+  expect(keysOf(s)).toEqual(["low-clearance@16,0,0"]);
 });
 
 test("a duplicate that is NOT demoted wins over one that is", () => {
@@ -187,9 +192,7 @@ test("a duplicate that is NOT demoted wins over one that is", () => {
       flags: [flag("low-clearance", "candidate", [16, 0, 0], "1,0,0")],
     },
   ]);
-  expect(store.summary().visible.map(flagKey)).toEqual([
-    "low-clearance@16,0,0",
-  ]);
+  expect(keysOf(store.summary())).toEqual(["low-clearance@16,0,0"]);
   // …and in the other arrival order.
   const other = createFlagStore();
   other.applyFlags([
@@ -202,9 +205,7 @@ test("a duplicate that is NOT demoted wins over one that is", () => {
       flags: [flag("low-clearance", "candidate", [16, 0, 0], "0,0,0", true)],
     },
   ]);
-  expect(other.summary().visible.map(flagKey)).toEqual([
-    "low-clearance@16,0,0",
-  ]);
+  expect(keysOf(other.summary())).toEqual(["low-clearance@16,0,0"]);
 });
 
 test("byKindSeverity counts the deduped, UNFILTERED set", () => {
@@ -230,39 +231,35 @@ test("pits replace wholesale, and only when the response carries them", () => {
   const store = createFlagStore();
   const pit = flag("pit", "candidate", [4, 0, 4], "0,0,0");
   store.applyFlags([], [pit]);
-  expect(store.summary().visible.map(flagKey)).toEqual(["pit@4,0,4"]);
+  expect(keysOf(store.summary())).toEqual(["pit@4,0,4"]);
 
   // An INCREMENTAL response carries no pit field: the whole-world pass did not
   // run, so it has nothing to say about traps and must not clear them.
   store.applyFlags(byOwner([flag("narrow", "candidate", [1, 0, 0], "0,0,0")]));
-  expect(store.summary().visible.map(flagKey)).toEqual([
-    "narrow@1,0,0",
-    "pit@4,0,4",
-  ]);
+  expect(keysOf(store.summary())).toEqual(["narrow@1,0,0", "pit@4,0,4"]);
 
   // A whole-world response with an EMPTY pit list is the trap being fixed.
   store.applyFlags([], []);
-  expect(store.summary().visible.map(flagKey)).toEqual(["narrow@1,0,0"]);
+  expect(keysOf(store.summary())).toEqual(["narrow@1,0,0"]);
 });
 
-test("a verdict is keyed by kind@cell and cleared when its owner chunk re-analyses", () => {
+test("a verdict rides its own row, and is cleared when its owner chunk re-analyses", () => {
   const store = createFlagStore();
   const narrow = flag("narrow", "candidate", [1, 0, 0], "0,0,0");
   const elsewhere = flag("narrow", "candidate", [20, 0, 0], "1,0,0");
   store.applyFlags(byOwner([narrow, elsewhere]));
   store.setVerdict(narrow, verdict("trapped"));
   store.setVerdict(elsewhere, verdict("clear"));
-  expect([...store.summary().verdicts.keys()].sort()).toEqual([
-    "narrow@1,0,0",
-    "narrow@20,0,0",
-  ]);
+  // Already joined onto the row: a consumer never indexes a map with a key it
+  // would have had to spell itself.
+  expect(verdictOf(store.summary(), "narrow@1,0,0")?.outcome).toBe("trapped");
+  expect(verdictOf(store.summary(), "narrow@20,0,0")?.outcome).toBe("clear");
 
   // "0,0,0" re-analysed: whatever the mover proved about that chunk was proved
   // against a field that has since moved.
   store.applyFlags([{ key: "0,0,0", flags: [narrow] }]);
-  const v = store.summary().verdicts;
-  expect(v.has("narrow@1,0,0")).toBe(false);
-  expect(v.get("narrow@20,0,0")?.outcome).toBe("clear");
+  expect(verdictOf(store.summary(), "narrow@1,0,0")).toBeUndefined();
+  expect(verdictOf(store.summary(), "narrow@20,0,0")?.outcome).toBe("clear");
 });
 
 test("a pit verdict is cleared by the next pit replacement", () => {
@@ -270,11 +267,11 @@ test("a pit verdict is cleared by the next pit replacement", () => {
   const pit = flag("pit", "candidate", [4, 0, 4], "0,0,0");
   store.applyFlags([], [pit]);
   store.setVerdict(pit, verdict("trapped"));
-  expect(store.summary().verdicts.size).toBe(1);
+  expect(verdictOf(store.summary(), "pit@4,0,4")?.outcome).toBe("trapped");
   // Pits have no owner chunk to replace by — `chunk` is the anchor's alone and
   // a region can span more — so the wholesale replacement clears them wholesale.
   store.applyFlags([], [pit]);
-  expect(store.summary().verdicts.size).toBe(0);
+  expect(verdictOf(store.summary(), "pit@4,0,4")).toBeUndefined();
 });
 
 test("clear() empties findings, pits and verdicts but keeps the filters", () => {
@@ -290,7 +287,6 @@ test("clear() empties findings, pits and verdicts but keeps the filters", () => 
   const s = store.summary();
   expect(s.total).toBe(0);
   expect(s.visible).toEqual([]);
-  expect(s.verdicts.size).toBe(0);
   // Filters are a VIEW preference, like the layer flags: a world load must not
   // silently re-hide what the user chose to see.
   expect(store.filters()).toEqual({
@@ -301,15 +297,21 @@ test("clear() empties findings, pits and verdicts but keeps the filters", () => 
 });
 
 test("the tint reads the verdict first and the severity band second", () => {
+  const row = (
+    flag: FieldFlag,
+    outcome?: VerifyVerdictWire["outcome"],
+  ): FlagRow => ({
+    key: "k",
+    flag,
+    ...(outcome === undefined ? {} : { verdict: verdict(outcome) }),
+  });
   const candidate = flag("narrow", "candidate", [1, 0, 0], "0,0,0");
   const info = flag("ledge", "info", [2, 0, 0], "0,0,0");
-  expect(flagTint(candidate, undefined)).toEqual(CANDIDATE_TINT);
-  expect(flagTint(info, undefined)).toEqual(INFO_TINT);
-  expect(flagTint(candidate, verdict("trapped"))).toEqual(
-    VERIFIED_TRAPPED_TINT,
-  );
-  expect(flagTint(candidate, verdict("clear"))).toEqual(VERIFIED_CLEAR_TINT);
+  expect(flagTint(row(candidate))).toEqual(CANDIDATE_TINT);
+  expect(flagTint(row(info))).toEqual(INFO_TINT);
+  expect(flagTint(row(candidate, "trapped"))).toEqual(VERIFIED_TRAPPED_TINT);
+  expect(flagTint(row(candidate, "clear"))).toEqual(VERIFIED_CLEAR_TINT);
   // "inconclusive" proved nothing, so the finding keeps its own colour.
-  expect(flagTint(candidate, verdict("inconclusive"))).toEqual(CANDIDATE_TINT);
-  expect(flagTint(info, verdict("inconclusive"))).toEqual(INFO_TINT);
+  expect(flagTint(row(candidate, "inconclusive"))).toEqual(CANDIDATE_TINT);
+  expect(flagTint(row(info, "inconclusive"))).toEqual(INFO_TINT);
 });

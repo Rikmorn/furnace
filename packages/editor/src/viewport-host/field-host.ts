@@ -51,7 +51,6 @@ import {
   createFlagStore,
   type FlagFilters,
   type FlagsSummary,
-  flagKey,
   flagTint,
 } from "./field-flags.ts";
 import {
@@ -658,7 +657,7 @@ export type FieldHost = {
    *  Single subscriber (the panel); returns an unsubscribe.
    *
    *  The summary is derived fresh per push and shared with nothing — but the
-   *  `FieldFlag` objects inside it are the analyzer's own and must be treated as
+   *  `FieldFlag` inside each row is the analyzer's own and must be treated as
    *  read-only. */
   subscribeFlags(cb: (summary: FlagsSummary) => void): () => void;
   /** Sets which triage bands the markers and the list show (default: candidates
@@ -2785,24 +2784,19 @@ export function createFieldHost(deps?: {
     // there is nothing to rotate).
     const matrices = new Float32Array(16 * summary.visible.length);
     const lift = store.cellSize / 2;
-    summary.visible.forEach((f, i) => {
+    summary.visible.forEach((row, i) => {
       const o = i * 16;
       matrices[o] = FLAG_MARKER_SIZE_M;
       matrices[o + 5] = FLAG_MARKER_SIZE_M;
       matrices[o + 10] = FLAG_MARKER_SIZE_M;
-      matrices[o + 12] = f.world[0];
-      matrices[o + 13] = f.world[1] + lift;
-      matrices[o + 14] = f.world[2];
+      matrices[o + 12] = row.flag.world[0];
+      matrices[o + 13] = row.flag.world[1] + lift;
+      matrices[o + 14] = row.flag.world[2];
       matrices[o + 15] = 1;
     });
     mesh.setInstanceMatrices(c, im, matrices);
-    summary.visible.forEach((f, i) =>
-      mesh.setInstanceTint(
-        c,
-        im,
-        i,
-        flagTint(f, summary.verdicts.get(flagKey(f))),
-      ),
+    summary.visible.forEach((row, i) =>
+      mesh.setInstanceTint(c, im, i, flagTint(row)),
     );
     flagMarkers = { im, g };
   };
@@ -3818,6 +3812,17 @@ export function createFieldHost(deps?: {
       detachListeners();
       worker.dispose();
       analyzer.dispose();
+      // Disposing TERMINATES the analyzer worker, and the client spawns a fresh
+      // one on the next request — with an empty mirror and no placement set. A
+      // re-init'd host must therefore re-send both, or the first pass after it
+      // analyses a world the worker does not hold: mostly nothing, and since
+      // `init` asks for a WHOLE-WORLD pass, its `pits: []` would wholesale-clear
+      // the trap set on the strength of an empty field. The store, the log and
+      // the findings all survive a dispose (the `disposed = false` in `init`
+      // exists so a re-init'd instance lives), so this is the analyzer half of
+      // that same contract.
+      analyzerResync = true;
+      analyzerPlacementsStale = true;
       if (analyzerIdle !== null) {
         clearTimeout(analyzerIdle);
         analyzerIdle = null;

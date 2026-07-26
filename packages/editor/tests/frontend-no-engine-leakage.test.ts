@@ -58,8 +58,10 @@ const VIEWPORT_HOST = `["'][^"']*viewport-host`;
 // `packages/core/src/field/artifact.ts` importing `encodeMeshBlob` from
 // `@furnace/core/scene`, and the scene graph pulls gpu/mesh/material/physics/post behind
 // it: measured 2026-07-26, a throwaway entry importing only `@furnace/core/field`
-// bundles to 2,910,957 bytes with `rapier` in it, and 15,011 bytes with
-// `@furnace/core/scene` marked external. Filed as
+// bundles to 208 modules with `rapier` in it, and to 31 modules without, once
+// `@furnace/core/scene` is marked external — ~2.9 MB against ~15 KB, though the
+// BYTE figures move with the probe entry's import form and the module counts do
+// not (the backlog entry names the exact entry). Filed as
 // `docs/backlog/engine-architecture/field-module-pulls-whole-engine.md`. The same is
 // already true of field-worker.js (both ~2.65 MB on the daemon-served bundle). The cost
 // is a second copy of core's JS in the worker's memory, which is accepted.
