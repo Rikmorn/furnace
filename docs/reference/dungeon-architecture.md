@@ -379,14 +379,14 @@ density-derived shells.
   (`PLAYER_CAPSULE_HALF_HEIGHT 0.6` / `RADIUS 0.3`) collide-and-slides against via the
   `CharacterMover` contract in §3.
 - **Collider anchoring (F4 · D-F4-14)** — the catalog `collision` carries an optional
-  `anchor: "center" | "base"`, and the loader's `placementBodyPosition(collision, record)` honours
-  it. `"center"` (the default, and every pre-F4 catalog's implicit meaning) puts the body at the
-  record's position unchanged. `"base"` lifts it by the collider's own Y half-extent along the
-  record's LOCAL +Y, so the collider's BOTTOM lands on the record position — the surface point
-  scatter projected. That extent comes from core's `field.collisionExtentY`, the SAME function the
-  F4 analyzer's `voxelizePlacements` rasterizes with, so the walkability flags describe the bodies
-  this loader creates. The shipped catalog base-anchors the `stalagmite` (base-origin mesh,
-  y∈[0,1]) and leaves the `rock` centred (centre-origin mesh).
+  `anchor: "center" | "base"`, and the loader positions each body with core's
+  `field.collisionCenter(collision, record)`. `"center"` (the default, and every pre-F4 catalog's
+  implicit meaning) returns the record's position unchanged. `"base"` lifts it by the collider's
+  own Y half-extent (`field.collisionExtentY`) along the record's LOCAL +Y, so the collider's
+  BOTTOM lands on the record position — the surface point scatter projected. That is the SAME
+  function the F4 analyzer's `voxelizePlacements` rasterizes around (not a matching recipe), so
+  the walkability flags describe the bodies this loader creates. The shipped catalog base-anchors
+  the `stalagmite` (base-origin mesh, y∈[0,1]) and leaves the `rock` centred (centre-origin mesh).
 - **Teardown** — mirrors the v1 loader and the F1 field world: the returned `destroy()` frees
   only THIS world's owned GPU resources (meshes + geometries + instanced kit + instanced
   placement meshes); every static body — chunk shell voxels AND per-prop placement colliders —

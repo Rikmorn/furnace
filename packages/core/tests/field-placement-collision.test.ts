@@ -9,6 +9,7 @@ import {
   CHUNK_DIM,
   CHUNK_SAMPLES,
   chunkKey,
+  collisionCenter,
   collisionExtentY,
   DEFAULT_CELL_SIZE,
   type PlacementCollision,
@@ -132,6 +133,87 @@ describe("collisionExtentY", () => {
     expect(
       collisionExtentY({ kind: "sphere", radius: 0.5 }, [-2, 1, 1]),
     ).toBeCloseTo(1.0);
+  });
+});
+
+describe("collisionCenter", () => {
+  /** The stalagmite's shipped primitive: base-anchored, Y extent 0.72 at scale 1. */
+  const BASE_CAPSULE: PlacementCollision = {
+    kind: "capsule",
+    halfHeight: 0.5,
+    radius: 0.22,
+    anchor: "base",
+  };
+  const BOX: PlacementCollision = {
+    kind: "box",
+    halfExtents: [0.4, 0.35, 0.4],
+  };
+  const at123 = (
+    quat: PlacementRecord["quat"] = IDENTITY,
+    scale: PlacementRecord["scale"] = UNIT,
+  ): PlacementRecord => record([1, 2, 3], quat, scale);
+
+  const expectVec3 = (
+    actual: readonly number[],
+    expected: [number, number, number],
+  ): void => {
+    expect(actual.length).toBe(3);
+    actual.forEach((v, i) => expect(v).toBeCloseTo(at(expected, i), 6));
+  };
+
+  test('anchor "base" lifts the centre so the collider BOTTOM sits on the record position', () => {
+    // Capsule Y extent = halfHeight + radius = 0.72 at scale 1, 1.44 at scale 2 (the round
+    // primitives take the max scale axis). The record position is the surface point a
+    // placement projected onto, so the lift is exactly what stands the collider on it.
+    expectVec3(collisionCenter(BASE_CAPSULE, at123()), [1, 2.72, 3]);
+    expectVec3(
+      collisionCenter(BASE_CAPSULE, at123(IDENTITY, [2, 2, 2])),
+      [1, 3.44, 3],
+    );
+  });
+
+  test("an unanchored or centre-anchored primitive keeps the record position exactly", () => {
+    // The pre-F4 shape (no `anchor` key) must stay byte-identical — every world already baked
+    // against a centre-anchored catalog is the regression surface.
+    expect(collisionCenter(BOX, at123())).toEqual([1, 2, 3]);
+    expect(collisionCenter({ ...BOX, anchor: "center" }, at123())).toEqual([
+      1, 2, 3,
+    ]);
+  });
+
+  test("the lift follows the record's OWN +Y, not world up", () => {
+    // A quarter-turn about +X maps local +Y onto world +Z. A wall or ceiling prop is placed
+    // with exactly this kind of quat, and a world-up lift would push it off the surface it
+    // is standing on.
+    const q = Math.SQRT1_2;
+    expectVec3(
+      collisionCenter(BASE_CAPSULE, at123([q, 0, 0, q])),
+      [1, 2, 3.72],
+    );
+    // A YAW leaves a +Y lift alone — the case that would hide a world-up bug, so it is
+    // pinned as the control rather than left to chance.
+    expectVec3(collisionCenter(BASE_CAPSULE, at123(yawQuat(37))), [1, 2.72, 3]);
+  });
+
+  test("agrees with the centre voxelizePlacements rasterizes around", () => {
+    // The whole point of the export: one code path, so the analyzer's solidity and whatever a
+    // consumer places cannot drift. A thin box makes the marked cell box tight enough that a
+    // centre disagreement of even one cell would show. Y extent 0.6 → base lift 0.6, so the
+    // box spans y [1.0, 2.2] → cells 4..8 about a record at y = 1.
+    const collision: PlacementCollision = {
+      kind: "box",
+      halfExtents: [0.3, 0.6, 0.3],
+      anchor: "base",
+    };
+    const r = record([1, 1, 1], yawQuat(30));
+    const centre = collisionCenter(collision, r);
+    expectVec3(centre, [1, 1.6, 1]);
+    const cells = markedCells(
+      voxelizePlacements([{ collision, records: [r] }], DEFAULT_CELL_SIZE),
+    );
+    const ys = [...cells].map((c) => Number(c.split(",")[1]));
+    expect(Math.min(...ys)).toBe(4); // (1.6 − 0.6) / 0.25
+    expect(Math.max(...ys)).toBe(8); // (1.6 + 0.6) / 0.25
   });
 });
 

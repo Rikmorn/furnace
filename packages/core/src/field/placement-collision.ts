@@ -6,9 +6,11 @@
 // the same per-chunk solidity the analyzer consumes (`AnalyzeOptions.extraSolid`).
 //
 // It shares nothing with the column pass but that encoding, and deliberately
-// lives apart from it: `collisionExtentY` is not an analysis function — the
-// dungeon's field-world loader imports it to POSITION rigid bodies, and the two
-// uses must not drift.
+// lives apart from it: `collisionExtentY` and `collisionCenter` are not analysis
+// functions — the dungeon's field-world loader calls `collisionCenter` to POSITION
+// rigid bodies, and an editor's ghosts/proxies will call it to draw them. That is
+// the point of exporting it: the analyzer rasterizes around the centre those
+// consumers place, because it is the same function, not a matching recipe.
 import {
   CHUNK_DIM,
   CHUNK_SAMPLES,
@@ -85,9 +87,11 @@ type CellBox = {
 };
 
 /** Rotation matrix of a unit quaternion `[x, y, z, w]`, row-major. Written once
- *  here because both uses below — the world-AABB widening and the base-anchor
- *  lift — must come from the SAME matrix; two hand-written copies is how the
- *  rasterized solidity and the placed rigid body would drift apart. */
+ *  here because {@link coveredCells}' two uses — the world-AABB widening and the
+ *  base-anchor lift — must come from the SAME matrix; two hand-written copies is
+ *  how the rasterized solidity and the placed rigid body would drift apart.
+ *  {@link collisionCenter} builds its own (it has only a quaternion to start
+ *  from) but reaches the lift through the same {@link anchorOffset}. */
 function quatMatrix(q: readonly [number, number, number, number]): Mat3 {
   const [x, y, z, w] = q;
   return [
@@ -146,12 +150,13 @@ function localHalfExtents(
  * Per primitive: a box's `halfExtents[1]`, a sphere's `radius`, a capsule's
  * `halfHeight + radius` (the cap counts). It applies the runtime collider's own
  * scale rule — per-axis for a box, max-axis for the round primitives, magnitudes
- * throughout — so a body created at `position + rotateByQuat(record.quat, [0,
- * collisionExtentY(c, record.scale), 0])` has its collider's bottom exactly on
- * `position`. That is the same lift {@link voxelizePlacements} rasterizes, and
- * the reason both live in this module: the analyzer's solidity and the physics
- * body must agree. The dungeon's `field-world.ts` is the runtime half of that
- * pair, and its own tests pin both halves of the rule.
+ * throughout. The dungeon's `field-world.ts` is the runtime half of that pair,
+ * and its own tests pin its side of the rule.
+ *
+ * This is the EXTENT alone. To place a `"base"`-anchored collider, call {@link
+ * collisionCenter} rather than composing the lift by hand: getting the world
+ * pose right also means rotating that extent into the record's own frame, and a
+ * recipe written out in prose is a recipe that drifts from the code.
  *
  * @param c - The archetype's authored collision primitive.
  * @param scale - The placement record's per-axis scale.
@@ -163,6 +168,64 @@ export const collisionExtentY = (
   c: PlacementCollision,
   scale: readonly [number, number, number],
 ): number => localHalfExtents(c, scale)[1];
+
+/** How far an anchored collider's CENTRE sits from the record's position, given
+ *  the record's rotation MATRIX. Column 1 of `m` is where the collider's own +Y
+ *  points in the world, so a `"base"` primitive offsets by that column times its
+ *  Y extent; `"center"` (the default) offsets by nothing.
+ *
+ *  Takes the matrix rather than the quaternion so {@link coveredCells} — which
+ *  already built one for the AABB widening — passes that SAME matrix, which is
+ *  the invariant {@link quatMatrix} exists to hold. {@link collisionCenter}
+ *  builds one and calls straight through, so the public answer and the
+ *  rasterizer's are one code path, not two that agree today. */
+function anchorOffset(
+  m: Mat3,
+  c: PlacementCollision,
+  scale: readonly [number, number, number],
+): [number, number, number] {
+  if (c.anchor !== "base") return [0, 0, 0];
+  const lift = collisionExtentY(c, scale);
+  return [m[1] * lift, m[4] * lift, m[7] * lift];
+}
+
+/**
+ * Where a placed record's collider CENTRE is in world space — the pose to give
+ * the rigid body, the proxy, or the ghost that stands in for it (D-F4-14).
+ *
+ * A `"center"` primitive (the default, and every pre-F4 catalog's implicit
+ * meaning) sits at the record's `position` unchanged. A `"base"` one is lifted
+ * by its own Y half-extent ({@link collisionExtentY}) along the record's LOCAL
+ * +Y — so the collider's BOTTOM lands on `position`, which is what an archetype
+ * whose mesh is base-origin needs to have its collider cover the mesh rather
+ * than bury half of it.
+ *
+ * Call this rather than composing the lift per consumer: the extent rule
+ * (per-axis box, max-axis round, magnitudes) and the rotation into the record's
+ * own frame both have to be right, and every consumer that gets one of them
+ * wrong puts its collider somewhere {@link voxelizePlacements} did not mark. The
+ * analyzer's solidity, the runtime's rigid body and an editor's proxy come from
+ * this one function for exactly that reason.
+ *
+ * @param c - The archetype's authored collision primitive.
+ * @param r - The placed record, for its position, rotation and scale.
+ * @returns A fresh world-space `[x, y, z]`, in metres.
+ * @remarks Not validated — a pure query over data the caller already parsed, the
+ * same stance as {@link collisionExtentY}. A non-unit `r.quat` rotates only
+ * PARTIALLY here (it would shorten the lift); {@link voxelizePlacements} is
+ * where such a record is refused.
+ */
+export function collisionCenter(
+  c: PlacementCollision,
+  r: PlacementRecord,
+): [number, number, number] {
+  const off = anchorOffset(quatMatrix(r.quat), c, r.scale);
+  return [
+    r.position[0] + off[0],
+    r.position[1] + off[1],
+    r.position[2] + off[2],
+  ];
+}
 
 /** World-AABB half-extents of a local box under rotation `m`: the standard
  *  `|R| · h`. A rotated box's AABB is strictly larger than the box, so this
@@ -225,11 +288,10 @@ function coveredCells(
   assertUnitQuat(r);
   const m = quatMatrix(r.quat);
   const half = rotatedHalfExtents(m, localHalfExtents(c, r.scale));
-  // Column 1 of the matrix is where the collider's own +Y points in the world.
-  const lift = c.anchor === "base" ? collisionExtentY(c, r.scale) : 0;
-  const cx = r.position[0] + m[1] * lift;
-  const cy = r.position[1] + m[4] * lift;
-  const cz = r.position[2] + m[7] * lift;
+  const off = anchorOffset(m, c, r.scale);
+  const cx = r.position[0] + off[0];
+  const cy = r.position[1] + off[1];
+  const cz = r.position[2] + off[2];
   const centres = [cx, cy, cz];
   if (!centres.every(Number.isFinite) || !half.every(Number.isFinite))
     throw new Error(

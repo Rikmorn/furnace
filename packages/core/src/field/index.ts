@@ -92,6 +92,7 @@ export type {
   PlacementCollisionGroup,
 } from "./placement-collision.ts";
 export {
+  collisionCenter,
   collisionExtentY,
   voxelizePlacements,
 } from "./placement-collision.ts";

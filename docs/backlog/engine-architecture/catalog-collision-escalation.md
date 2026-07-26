@@ -37,8 +37,9 @@ player at their authored scatter sizes (a cluttered chamber that must read as im
 used as level geometry).
 
 **Reference:** `packages/dungeon/src/field-world.ts` (`placementCollider`,
-`placementBodyPosition`); `packages/core/src/field/placement-collision.ts` (`collisionExtentY`,
-the analyzer's half of the same rule); `packages/dungeon/src/char-move.ts` (`resolve` step-up +
+the derived shape); `packages/core/src/field/placement-collision.ts` (`collisionExtentY` +
+`collisionCenter`, the one function every consumer anchors through);
+`packages/dungeon/src/char-move.ts` (`resolve` step-up +
 `applyGravity` rim-ride, the source of the 0.56 / 0.77 m thresholds);
 `packages/dungeon/tests/field-placements.gpu.test.ts` (the derivation + walk-stop + anchor
 lanes). Replaces the F3b-era `placement-props-stepped-over` entry under `docs/backlog/dungeon/`,

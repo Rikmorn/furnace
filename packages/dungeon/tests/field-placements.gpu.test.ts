@@ -46,10 +46,7 @@ import {
 } from "@furnace/core/field";
 import * as gpu from "@furnace/core/gpu";
 import * as physics from "@furnace/core/physics";
-import {
-  placementBodyPosition,
-  placementCollider,
-} from "../src/field-world.ts";
+import { placementCollider } from "../src/field-world.ts";
 import { MaterialCache } from "../src/realize.ts";
 import type { Vec3 } from "../src/region.ts";
 import { loadWorld } from "../src/world-loader.ts";
@@ -183,10 +180,11 @@ async function withLoadedField(
   }
 }
 
-// ─── F4 Task 5 (D-F4-14): the derivation half — collider SHAPE and body POSE from one catalog
-// primitive. Pure functions, no GPU: the walk/ray lanes below prove the derivation reaches the
-// physics world, these prove it is the right number for inputs a walk cannot reach (a tilted
-// record, a mirrored scale).
+// ─── F4 Task 5 (D-F4-14): the derivation half — the collider SHAPE this loader derives, and the
+// catalog data that drives it. Pure, no GPU: the walk/ray lanes below prove the derivation reaches
+// the physics world, these prove it is the right number for a scale no walk can reach (a mirror).
+// The anchored POSE is core's `collisionCenter`, pinned in core's own
+// `tests/field-placement-collision.test.ts` — this file's ray probe is its end-to-end lane.
 
 /** The derived shape's kind + its numbers, flattened — so an assertion states both without
  *  narrowing the six-member `ShapeDescriptor` union at every call site. */
@@ -215,27 +213,6 @@ function expectShape(
   expect(parts.nums.length).toBe(nums.length);
   parts.nums.forEach((v, i) => expect(v).toBeCloseTo(at(nums, i), 6));
 }
-
-/** Assert a derived body position, component-wise (to 1e-6). */
-function expectPosition(
-  actual: physics.Vec3Tuple,
-  expected: [number, number, number],
-): void {
-  actual.forEach((v, i) => expect(v).toBeCloseTo(at(expected, i), 6));
-}
-
-/** A record at the fixed position [1,2,3] — the derivation reads only pose, so one position is
- *  enough and every expectation below reads as an offset from it. */
-const recordAt123 = (
-  quat: PlacementRecord["quat"] = IDENTITY_QUAT,
-  scale: PlacementRecord["scale"] = [1, 1, 1],
-): PlacementRecord => ({
-  archetypeId: "x",
-  position: [1, 2, 3],
-  quat,
-  scale,
-  variantIndex: 0,
-});
 
 /** The two shipped catalog primitives, as `catalog/entities.json` declares them. */
 const ROCK_BOX: PlacementCollision = {
@@ -266,46 +243,6 @@ describe("placement collider derivation (F4 · D-F4-14)", () => {
       "base",
     );
     expect(expectDefined(byId.get("rock"), "rock").anchor).toBeUndefined();
-  });
-
-  test('anchor "base" lifts the body so the collider BOTTOM sits on the record position', () => {
-    // Capsule Y half-extent = halfHeight + radius = 0.72 at scale 1, 1.44 at scale 2 (the round
-    // primitives take the max scale axis). The record's position is the surface point scatter
-    // projected, so the lift is exactly what puts the collider's bottom there.
-    expectPosition(
-      placementBodyPosition(STALAGMITE_CAPSULE, recordAt123()),
-      [1, 2.72, 3],
-    );
-    expectPosition(
-      placementBodyPosition(
-        STALAGMITE_CAPSULE,
-        recordAt123(IDENTITY_QUAT, [2, 2, 2]),
-      ),
-      [1, 3.44, 3],
-    );
-  });
-
-  test("an unanchored or centre-anchored primitive keeps the record position exactly", () => {
-    // The pre-F4 catalog shape (no `anchor` key) must stay byte-identical — the rock's collider
-    // is the regression surface for every world already baked.
-    expect(placementBodyPosition(ROCK_BOX, recordAt123())).toEqual([1, 2, 3]);
-    expect(
-      placementBodyPosition({ ...ROCK_BOX, anchor: "center" }, recordAt123()),
-    ).toEqual([1, 2, 3]);
-  });
-
-  test("the base lift follows the record's OWN +Y, not world up", () => {
-    // A quarter-turn about +X maps local +Y onto world +Z. A wall/ceiling prop is placed with
-    // exactly this kind of quat (scatter's `orientation: "gravity"` on a non-floor hemisphere),
-    // and a world-up lift would push it out of the surface it is standing on.
-    const halfTurnX = Math.SQRT1_2;
-    expectPosition(
-      placementBodyPosition(
-        STALAGMITE_CAPSULE,
-        recordAt123([halfTurnX, 0, 0, halfTurnX]),
-      ),
-      [1, 2, 3.72],
-    );
   });
 
   test("collider extents are scale MAGNITUDES — a mirrored record derives its twin's collider", () => {

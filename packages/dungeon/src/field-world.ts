@@ -327,8 +327,8 @@ async function fetchCatalog(): Promise<Map<string, CatalogArchetype>> {
  *  cuboid). A `sphere`/`capsule` primitive has no per-axis form, so its radius (and the capsule's
  *  half-height) scale by the MAX scale axis — exact for scatter's uniform-scale records (sx=sy=sz),
  *  a conservative over-approximation only if a future non-uniform placement source appears. That is
- *  the same rule core's `collisionExtentY` applies, which is what lets {@link
- *  placementBodyPosition} lift a base-anchored body by an extent computed THERE.
+ *  the same rule core's `collisionExtentY` applies, which is what lets `field.collisionCenter`
+ *  anchor this shape with an extent computed THERE (see {@link createPlacementColliders}).
  *
  *  MAGNITUDES: a negative scale axis is a mirror, and mirroring moves no surface — so every extent
  *  takes `Math.abs` and a mirrored record derives its twin's collider. Signed arithmetic would hand
@@ -356,55 +356,6 @@ export function placementCollider(
   }
   const [hx, hy, hz] = collision.halfExtents;
   return { cuboid: [hx * sx, hy * sy, hz * sz] };
-}
-
-/** Rotate `v` by the unit quaternion `q = [x,y,z,w]` — the standard `v + 2·q_v × (q_v × v + w·v)`
- *  form. A local copy on purpose: textbook math with no free parameters, where the alternative is
- *  a cross-package import. The value that must not be re-derived is the EXTENT, and that one comes
- *  from core (see {@link placementBodyPosition}). */
-function rotateByQuat(
-  q: readonly [number, number, number, number],
-  v: readonly [number, number, number],
-): [number, number, number] {
-  const [qx, qy, qz, qw] = q;
-  const [x, y, z] = v;
-  const tx = 2 * (qy * z - qz * y);
-  const ty = 2 * (qz * x - qx * z);
-  const tz = 2 * (qx * y - qy * x);
-  return [
-    x + qw * tx + qy * tz - qz * ty,
-    y + qw * ty + qz * tx - qx * tz,
-    z + qw * tz + qx * ty - qy * tx,
-  ];
-}
-
-/** Where a placed record's BODY goes (D-F4-14). A `"center"` primitive — the default, and every
- *  pre-F4 catalog's implicit meaning — sits at the record's position unchanged. A `"base"` one is
- *  lifted by its own Y half-extent along the record's LOCAL +Y, so the collider's BOTTOM lands on
- *  the record's position: the surface point scatter projected. That is what an archetype whose mesh
- *  is base-origin (the stalagmite, y∈[0,1]) needs to have its collider cover the mesh instead of
- *  burying half of it and leaving the top uncovered.
- *
- *  The extent comes from core's `collisionExtentY` — the same function the F4 analyzer voxelizes
- *  with — so the flags stage 1 produces describe the body created here. Reimplementing that rule
- *  (per-axis box, max-axis round) is the one way this can silently disagree.
- *
- *  Exported alongside {@link placementCollider}, for the same reason. */
-export function placementBodyPosition(
-  collision: field.PlacementCollision,
-  record: field.PlacementRecord,
-): physics.Vec3Tuple {
-  if (collision.anchor !== "base") return record.position;
-  const lift = rotateByQuat(record.quat, [
-    0,
-    field.collisionExtentY(collision, record.scale),
-    0,
-  ]);
-  return [
-    record.position[0] + lift[0],
-    record.position[1] + lift[1],
-    record.position[2] + lift[2],
-  ];
 }
 
 /** One owned instanced placement mesh: the draw handle + its per-variant archetype geometry. */
@@ -455,10 +406,12 @@ async function buildPlacementInstances(
 }
 
 /** One derived static collider per placed record at its baked world pose ({@link
- *  placementCollider} for the shape, {@link placementBodyPosition} for the anchored position).
- *  Density-agnostic: props carry their OWN colliders (the "if you can dig it, it's field, else it's
- *  an entity with its own collider" jurisdiction rule), independent of the chunk shell voxels.
- *  Bodies die with the world — not tracked for teardown, matching {@link createColliderBodies}. */
+ *  placementCollider} for the shape, core's `field.collisionCenter` for the anchored position —
+ *  the same function the F4 analyzer's `voxelizePlacements` rasterizes around, so the walkability
+ *  flags describe these bodies). Density-agnostic: props carry their OWN colliders (the "if you
+ *  can dig it, it's field, else it's an entity with its own collider" jurisdiction rule),
+ *  independent of the chunk shell voxels. Bodies die with the world — not tracked for teardown,
+ *  matching {@link createColliderBodies}. */
 function createPlacementColliders(
   ctx: Context,
   world: physics.World,
@@ -469,7 +422,7 @@ function createPlacementColliders(
     physics.createBody(ctx, world, {
       type: "static",
       shape: placementCollider(archetype.collision, r.scale),
-      position: placementBodyPosition(archetype.collision, r),
+      position: field.collisionCenter(archetype.collision, r),
       rotation: r.quat,
     });
   }
