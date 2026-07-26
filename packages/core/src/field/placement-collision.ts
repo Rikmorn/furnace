@@ -16,6 +16,7 @@ import {
   voxelChunk,
   worldToVoxel,
 } from "./chunks.ts";
+import { QUAT_NORM_TOLERANCE } from "./ops.ts";
 import type { ChunkKey, PlacementRecord } from "./types.ts";
 
 /** Cells one record may cover before the rasterizer refuses it. Generous by
@@ -210,6 +211,25 @@ function assertCollisionValid(c: PlacementCollision, at: number): void {
       );
 }
 
+/** Setup-loud check that a record's quaternion is unit-length, to the same
+ *  tolerance {@link assertPlacementsValid} holds the artifact path to.
+ *
+ *  Not redundant with that check, and not a style guard: {@link quatMatrix} on a
+ *  quat of norm `n` yields `I + n²(R − I)`, a PARTIAL rotation, whose AABB is
+ *  SMALLER than the true one. (Worked: box `h = [0.5, 0.1, 0.1]` at 45° yaw with
+ *  `|q|² = 0.5` gives `hz' = 0.181` against a true `0.424`.) Under-covering is
+ *  the one direction this module promises never to go, and every other input
+ *  class that could cause it already throws — so this one does too, rather than
+ *  leaving the guarantee true only for callers who came through the parser. */
+function assertUnitQuat(r: PlacementRecord): void {
+  const [x, y, z, w] = r.quat;
+  const norm2 = x * x + y * y + z * z + w * w;
+  if (!Number.isFinite(norm2) || Math.abs(norm2 - 1) > QUAT_NORM_TOLERANCE)
+    throw new Error(
+      `voxelizePlacements: record "${r.archetypeId}" quat must be unit-length (|q|² = ${norm2}, tolerance ${QUAT_NORM_TOLERANCE}) — a non-unit quaternion rotates PARTIALLY, and its AABB would under-cover`,
+    );
+}
+
 /** The inclusive cell box one record covers: the world AABB of its anchored,
  *  scaled, rotated primitive, widened to whole cells (a cell counts as covered
  *  when the AABB touches it at all). */
@@ -218,6 +238,7 @@ function coveredCells(
   r: PlacementRecord,
   cellSize: number,
 ): CellBox {
+  assertUnitQuat(r);
   const m = quatMatrix(r.quat);
   const half = rotatedHalfExtents(m, localHalfExtents(c, r.scale));
   // Column 1 of the matrix is where the collider's own +Y points in the world.
@@ -247,9 +268,29 @@ function coveredCells(
   return box;
 }
 
-/** Marks one record's cell box, chunk by chunk: the chunk is resolved ONCE per
- *  16³ block and the cells inside it are clipped to the box, so a record
- *  spanning many chunks never rebuilds a key per cell. */
+/** Marks the part of `box` that lands inside ONE chunk, the chunk's own cells
+ *  clipped to the box. `b*` are the chunk's base cell coords, so the write index
+ *  is the plain `localIndex` formula on the local offsets. */
+function fillChunkSlice(
+  bits: Uint8Array,
+  box: CellBox,
+  bx: number,
+  by: number,
+  bz: number,
+): void {
+  const xEnd = Math.min(box.x1, bx + CHUNK_DIM - 1);
+  const yEnd = Math.min(box.y1, by + CHUNK_DIM - 1);
+  const zEnd = Math.min(box.z1, bz + CHUNK_DIM - 1);
+  for (let z = Math.max(box.z0, bz); z <= zEnd; z++)
+    for (let y = Math.max(box.y0, by); y <= yEnd; y++)
+      for (let x = Math.max(box.x0, bx); x <= xEnd; x++)
+        bits[x - bx + CHUNK_DIM * (y - by + CHUNK_DIM * (z - bz))] = 1;
+}
+
+/** Marks one record's cell box, chunk by chunk: WHICH chunks it spans here, and
+ *  which cells within each one in {@link fillChunkSlice}. Splitting the two
+ *  halves keeps the key resolved ONCE per 16³ block — a record spanning many
+ *  chunks never rebuilds a key per cell — without six nested loops in one body. */
 function markCellBox(out: Map<ChunkKey, Uint8Array>, box: CellBox): void {
   for (let cz = voxelChunk(box.z0); cz <= voxelChunk(box.z1); cz++)
     for (let cy = voxelChunk(box.y0); cy <= voxelChunk(box.y1); cy++)
@@ -260,25 +301,13 @@ function markCellBox(out: Map<ChunkKey, Uint8Array>, box: CellBox): void {
           bits = new Uint8Array(CHUNK_SAMPLES);
           out.set(key, bits);
         }
-        const bx = cx * CHUNK_DIM;
-        const by = cy * CHUNK_DIM;
-        const bz = cz * CHUNK_DIM;
-        for (
-          let z = Math.max(box.z0, bz);
-          z <= Math.min(box.z1, bz + CHUNK_DIM - 1);
-          z++
-        )
-          for (
-            let y = Math.max(box.y0, by);
-            y <= Math.min(box.y1, by + CHUNK_DIM - 1);
-            y++
-          )
-            for (
-              let x = Math.max(box.x0, bx);
-              x <= Math.min(box.x1, bx + CHUNK_DIM - 1);
-              x++
-            )
-              bits[x - bx + CHUNK_DIM * (y - by + CHUNK_DIM * (z - bz))] = 1;
+        fillChunkSlice(
+          bits,
+          box,
+          cx * CHUNK_DIM,
+          cy * CHUNK_DIM,
+          cz * CHUNK_DIM,
+        );
       }
 }
 
@@ -311,9 +340,12 @@ function markCellBox(out: Map<ChunkKey, Uint8Array>, box: CellBox): void {
  * not align with the store's allocated chunks (a prop overhanging the void marks
  * a chunk the field never allocated, where the analyzer simply finds no floor).
  * @throws Error - setup-loud, on a non-positive or non-finite collision
- * dimension, a non-positive `cellSize`, a record whose pose makes its world AABB
- * non-finite (which would otherwise rasterize to silent nothing), or a record
- * whose AABB exceeds the per-record cell budget.
+ * dimension, a non-positive `cellSize`, a record whose quaternion is not
+ * unit-length (it would rotate only partially, and UNDER-cover), a record whose
+ * pose makes its world AABB non-finite (which would otherwise rasterize to
+ * silent nothing), or a record whose AABB exceeds the per-record cell budget.
+ * Every one of those is a way to cover LESS than the collider really does, which
+ * is the failure this module refuses to have silently.
  */
 export function voxelizePlacements(
   groups: readonly PlacementCollisionGroup[],

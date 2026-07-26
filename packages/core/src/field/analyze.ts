@@ -151,7 +151,7 @@ function assertExtraSolidValid(
 /** The shared entry gate of every pass here: validate setup-loud, then open a
  *  fresh solidity view (per call, so its chunk memo can never outlive the store
  *  state it was taken against). */
-function viewFor(
+function validatedView(
   store: FieldStore,
   profile: AgentProfile,
   opts: AnalyzeOptions | undefined,
@@ -423,7 +423,7 @@ export function analyzeChunk(
   profile: AgentProfile,
   opts?: AnalyzeOptions,
 ): FieldFlag[] {
-  const v = viewFor(store, profile, opts);
+  const v = validatedView(store, profile, opts);
   const m = metricsFor(profile, store.cellSize);
   const [cx, cy, cz] = parseChunkKey(key);
   const bx = cx * CHUNK_DIM;
@@ -568,16 +568,25 @@ function floodReachable(
  * - Headroom is ignored, so the flood crosses gaps the capsule cannot fit
  *   through, and coarse cells (`cellSize` at or above `climbCeiling`) leave
  *   `climbCells` at 0, which strands everything off the seed's own level.
+ * - **Steps are 4-connected in XZ.** A floor whose only route in is a DIAGONAL
+ *   step reads unreachable, though the mover walks there fine.
  *
- * Both errors are visible in the UI as a hidden-by-default filter, never as a
- * missing flag. Present the `unreachable` set; do not drop it.
+ * Every one of those errors is visible in the UI as a hidden-by-default filter,
+ * never as a missing flag. Present the `unreachable` set; do not drop it.
  *
  * @param flags - The map {@link analyzeWorld} returns (or an equivalent set of
- * per-chunk arrays). MUTATED — this is the function's only output: every flag
- * gets `unreachable` written, `false` when reached and `true` when not, so a
- * re-run after the world changes clears a stale demotion as readily as it makes
- * a new one. An unwritten (`undefined`) tag therefore means this never ran over
- * that flag, a third state worth showing differently from "reachable".
+ * per-chunk arrays). MUTATED — this is the function's only output, and the only
+ * thing it writes: every flag gets `unreachable` set, `false` when reached and
+ * `true` when not, so a re-run after the world changes clears a stale demotion
+ * as readily as it makes a new one. An unwritten (`undefined`) tag means this
+ * never ran over that flag.
+ *
+ * That third state is not hypothetical: analysis is per-dirty-chunk while this
+ * pass is whole-world, so a MIXED-VINTAGE map — freshly analysed flags that no
+ * flood has visited yet, beside tagged ones — is the normal steady state.
+ * Consumers must therefore filter on the POSITIVE: hide `unreachable === true`,
+ * show everything else. Testing `=== false` for "reachable" silently hides every
+ * not-yet-flooded flag, which is a false negative wearing a filter's clothes.
  * @param seeds - WORLD positions the agent starts from (`playerStart`, spawn
  * points). Each snaps to the floor surface at or below it; a seed buried in rock
  * is unusable and warns. An empty list — or a list where no seed is usable —
@@ -589,11 +598,11 @@ function floodReachable(
 export function markUnreachable(
   store: FieldStore,
   profile: AgentProfile,
-  flags: ReadonlyMap<ChunkKey, FieldFlag[]>,
+  flags: ReadonlyMap<ChunkKey, readonly FieldFlag[]>,
   seeds: readonly [number, number, number][],
   opts?: AnalyzeOptions,
 ): void {
-  const v = viewFor(store, profile, opts);
+  const v = validatedView(store, profile, opts);
   if (seeds.length === 0) return;
   // A clean world is the common case in the edit loop; flooding it to tag
   // nothing is pure cost.

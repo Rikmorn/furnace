@@ -695,8 +695,12 @@ export function assertPatchValid(op: PatchOp, table: MaterialTable): void {
 }
 
 /** Max deviation of `|q|²` from 1 that still counts as a unit quaternion — the
- *  slack a producer's normalization rounding is allowed. */
-const QUAT_NORM_TOLERANCE = 1e-3;
+ *  slack a producer's normalization rounding is allowed.
+ *
+ *  Shared with `placement-collision.ts`, which re-checks it on the rasterizer's
+ *  own inputs: one definition of "unit" across every place a placement quat is
+ *  trusted. In-core only, like `densityEqual` — not on the public field index. */
+export const QUAT_NORM_TOLERANCE = 1e-3;
 
 /**
  * Setup-loud placement validation — the {@link assertOpValid}/

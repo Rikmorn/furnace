@@ -355,6 +355,43 @@ describe("voxelizePlacements", () => {
     ).toThrow(/finite/);
   });
 
+  test("rejects a non-unit quaternion — it would rotate partially and UNDER-cover", () => {
+    // quatMatrix on a quat of norm n yields I + n²(R − I): a PARTIAL rotation
+    // whose AABB is SMALLER than the true one. Under-covering is the one
+    // direction this module promises never to go, so it throws like every other
+    // way of covering less. Half-length quat = |q|² of 0.25, far past tolerance.
+    const half = yawQuat(45).map((v) => v * 0.5) as [
+      number,
+      number,
+      number,
+      number,
+    ];
+    expect(() =>
+      voxelizePlacements(
+        [
+          {
+            collision: { kind: "box", halfExtents: [0.5, 0.1, 0.1] },
+            records: [record([1, 1, 1], half)],
+          },
+        ],
+        DEFAULT_CELL_SIZE,
+      ),
+    ).toThrow(/unit-length/);
+    // The artifact path's own tolerance still passes: float drift is not a bug.
+    const drifted: [number, number, number, number] = [0, 0, 0, 1 - 1e-5];
+    expect(() =>
+      voxelizePlacements(
+        [
+          {
+            collision: { kind: "box", halfExtents: [0.5, 0.1, 0.1] },
+            records: [record([1, 1, 1], drifted)],
+          },
+        ],
+        DEFAULT_CELL_SIZE,
+      ),
+    ).not.toThrow();
+  });
+
   test("refuses a record whose AABB exceeds the per-record cell budget", () => {
     // Budgets are day-one semantics: a 100 m collider is garbage data, and
     // rasterizing it would stall the analyzer for tens of millions of cells.

@@ -7,8 +7,11 @@
 import { describe, expect, test } from "bun:test";
 import type {
   AgentProfile,
+  ChunkKey,
+  FieldFlag,
   FieldStore,
   PlacementCollision,
+  PlacementRecord,
 } from "@furnace/core/field";
 import {
   AIR,
@@ -35,6 +38,12 @@ const TARGET_MS = 2;
  *  whole-world `analyzeWorld` they bracket rather than the 16³ chunk ceiling. */
 const REACH_CEILING_MS = 100;
 const VOXELIZE_CEILING_MS = 100;
+/** How much of the whole-world analysis one flood is allowed to cost. Measured
+ *  0.45–0.50x over six warm runs (±5%), so 1x is a bar with ~2x headroom that
+ *  still bites anything past a doubling — and being a RATIO it holds on a slower
+ *  machine, where an absolute millisecond bound would not. An earlier 2x bound
+ *  was too slack to notice a deliberate 3x regression. */
+const REACH_VS_ANALYSIS = 1;
 /** Denser than any bake ships — 6400 props over the cave's footprint. */
 const PROP_RECORDS = 6400;
 
@@ -188,24 +197,43 @@ describe("analyzeChunk — budget (P-F4-1)", () => {
 });
 
 describe("markUnreachable — budget (P-F4-1)", () => {
-  test("one whole-world flood costs a fraction of the analysis that fed it", () => {
-    // Unlike the column pass this is NOT per-chunk work: the flood is
-    // whole-world by nature (connectivity does not decompose), so it is priced
-    // against the whole-world analysis it post-processes rather than the 5 ms
-    // per-chunk ceiling. Cost is O(floor anchors × 4 × (2·climbCells + 1)) —
-    // bounded by allocated cells, with no search depth to run away with.
+  test("one whole-world flood costs less than the analysis that fed it", () => {
+    // Unlike the column pass this is NOT per-chunk work: connectivity does not
+    // decompose, so the flood is whole-world by nature and is priced against the
+    // whole-world analysis it post-processes rather than the 5 ms per-chunk
+    // ceiling. Cost is O(floor anchors × 4 × (2·climbCells + 1)) — bounded by
+    // allocated cells, with no search depth to run away with.
+    //
+    // The consequence matters more than the number, and it is a PLANNING fact:
+    // this does NOT amortize as edits get smaller. The column pass re-runs on
+    // dirty chunks only, but one dug cell can reconnect or sever the whole
+    // world, so every re-run is a full re-flood at roughly the cost measured
+    // here. A debounced whole-world pass on the idle tail therefore costs about
+    // what re-analyzing everything costs — budget it as such, and do not expect
+    // an incremental version to fall out of this shape.
     const store = carvedCave();
+    // Seed from a flag's own floor-surface position: it lands on that flag's
+    // anchor cell exactly, which makes the vacuity guard below meaningful.
+    const seedOf = (
+      flags: ReadonlyMap<ChunkKey, readonly FieldFlag[]>,
+    ): [number, number, number] => {
+      const w = at([...flags.values()].flat(), 0).world;
+      return [at(w, 0), at(w, 1), at(w, 2)];
+    };
+    const seed = seedOf(analyzeWorld(store, AGENT));
+    // Warm BOTH paths before timing either. Not ceremony: the two are compared
+    // against EACH OTHER, so timing a cold flood against a warm analysis reports
+    // the JIT rather than the algorithms. Measured — cold-vs-warm skewed the
+    // ratio far enough to let a deliberate 3x regression pass the bound below.
+    for (let i = 0; i < WARMUP_PASSES; i++)
+      markUnreachable(store, AGENT, analyzeWorld(store, AGENT), [seed]);
+
     const t0 = performance.now();
     const flags = analyzeWorld(store, AGENT);
     const analysisMs = performance.now() - t0;
     const all = [...flags.values()].flat();
-    // Seed from a flag's own floor-surface position: it lands on that flag's
-    // anchor cell exactly, which makes the vacuity guard below meaningful.
-    const seed = at(all, 0).world;
     const t1 = performance.now();
-    markUnreachable(store, AGENT, flags, [
-      [at(seed, 0), at(seed, 1), at(seed, 2)],
-    ]);
+    markUnreachable(store, AGENT, flags, [seed]);
     const floodMs = performance.now() - t1;
     const demoted = all.filter((f) => f.unreachable === true).length;
 
@@ -213,29 +241,33 @@ describe("markUnreachable — budget (P-F4-1)", () => {
       `[f4-budget] markUnreachable over ${store.chunks.size} cave chunks: ` +
         `${floodMs.toFixed(1)} ms for ${all.length} flags (${demoted} demoted); ` +
         `the analyzeWorld that produced them cost ${analysisMs.toFixed(1)} ms ` +
-        `(ceiling ${REACH_CEILING_MS})`,
+        `(${(floodMs / analysisMs).toFixed(2)}x — bound ${REACH_VS_ANALYSIS}x, ` +
+        `runaway guard ${REACH_CEILING_MS} ms)`,
     );
 
     // Vacuity guards: real flags, and the seed's own flag came back reachable.
     expect(all.length).toBeGreaterThan(0);
     expect(at(all, 0).unreachable).toBe(false);
+    // The relationship the test's NAME claims, asserted rather than logged.
+    // Same-machine ratio, so it survives a slow box the way a wall-clock bound
+    // would not; the ceiling below stays as an absolute runaway guard.
+    expect(floodMs).toBeLessThan(analysisMs * REACH_VS_ANALYSIS);
     expect(floodMs).toBeLessThan(REACH_CEILING_MS);
   });
 
   test("voxelizePlacements stays proportional to the cells its props cover", () => {
     // A denser prop population than any bake ships, to price the rasterizer's
     // per-record constant rather than one archetype's shape.
-    const records = Array.from({ length: PROP_RECORDS }, (_, i) => ({
-      archetypeId: "rock",
-      position: [(i % 80) * 0.25, 1, Math.floor(i / 80) * 0.25] as [
-        number,
-        number,
-        number,
-      ],
-      quat: [0, 0, 0, 1] as [number, number, number, number],
-      scale: [1, 1, 1] as [number, number, number],
-      variantIndex: 0,
-    }));
+    const records = Array.from(
+      { length: PROP_RECORDS },
+      (_, i): PlacementRecord => ({
+        archetypeId: "rock",
+        position: [(i % 80) * 0.25, 1, Math.floor(i / 80) * 0.25],
+        quat: [0, 0, 0, 1],
+        scale: [1, 1, 1],
+        variantIndex: 0,
+      }),
+    );
     const collision: PlacementCollision = {
       kind: "box",
       halfExtents: [0.4, 0.35, 0.4],
