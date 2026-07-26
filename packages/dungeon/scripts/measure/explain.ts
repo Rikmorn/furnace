@@ -17,7 +17,9 @@ import type { Subject } from "./subjects.ts";
 /** `analyze.ts` TORSO_PROBE_M — the height above the floor the `narrow` filter probes at. */
 const TORSO_PROBE_M = 0.5;
 
-const fmt = (m: number): string => `${m.toFixed(3)} m`;
+/** Metres, at a fixed width — the one formatter this measurement's output uses, so a raw
+ *  float like `0.6799999999999999` can never reach the artifact people quote. */
+export const fmt = (m: number): string => `${m.toFixed(3)} m`;
 
 /** `faceDistance`: anchor XZ centre to the near face of the nearest solid along one direction,
  *  or `undefined` if nothing solid stands within the scan bound. */
@@ -146,8 +148,10 @@ function neighbourInClimbBand(
   return false;
 }
 
-/** A one-column region's four XZ neighbours at its OWN level: all solid means a WELL exactly one
- *  cell across, which the capsule is too wide to fall into at all. */
+/** A one-column region's four XZ neighbours at its OWN level. All four solid means a WELL
+ *  exactly one cell across — which the capsule is too wide to fall into IF the cell is narrower
+ *  than its diameter. That holds at the 0.25 m production lattice and not by definition:
+ *  `cellSize` comes from the manifest, so the comparison is made rather than assumed. */
 const wellWalls = (
   subject: Subject,
   cell: readonly [number, number, number],
@@ -183,10 +187,11 @@ function explainPit(
       ? `no neighbour floor within ${fmt(RISE_SCAN_CELLS * subject.store.cellSize)} above`
       : `nearest neighbour floor ${fmt(rise)} up`;
   const walls = wellWalls(subject, flag.cell);
-  const width = fmt(subject.store.cellSize);
+  const cellSize = subject.store.cellSize;
+  const diameter = 2 * profile.capsule.radius;
   const shape =
     walls === 4
-      ? `; a WELL ${width} across — narrower than the capsule (${fmt(2 * profile.capsule.radius)}), which cannot fall in`
+      ? `; a WELL ${fmt(cellSize)} across, capsule ${fmt(diameter)} — ${cellSize < diameter ? "too narrow to fall into" : "wide enough for the capsule"}`
       : `; ${walls}/4 sides walled at its own level`;
   const bad = neighbourInClimbBand(subject, flag.cell, climbCells)
     ? "  !! MISMATCH: a neighbour floor sits inside the climb band"

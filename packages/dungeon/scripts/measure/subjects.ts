@@ -89,9 +89,16 @@ export function chamberSeeds(
 }
 
 /** The `playerStart` the P-F3-1 walk harness bakes for a config: chamber 0's floor, one
- *  grounded capsule-rest above it. Derived from {@link AGENT} rather than restated, so it
- *  cannot drift from the profile the analyzer reads. THE world's own spawn for a walked
- *  config — what Task 8's in-harness tooth will use. */
+ *  grounded capsule-rest above it. THE world's own spawn for a walked config — what Task 8's
+ *  in-harness tooth will use.
+ *
+ *  The rest offset is derived from {@link AGENT} here, so it cannot drift from the profile the
+ *  analyzer reads. Note that is only true of THIS side: the harness computes the same offset
+ *  from a LOCAL literal (`walk-fixture.ts`'s `CAPSULE = { halfHeight: 0.6, radius: 0.3 }`), not
+ *  from `catalog/agent.json`. The two agree at 0.9 m today by coincidence of two independent
+ *  sources, not by construction. Nothing here depends on the exact value — `seedAnchor` snaps
+ *  DOWN to the floor, so any Y inside the chamber's air lands on the same anchor — but do not
+ *  read this as the two files being single-sourced. */
 export function spawnSeed(
   params: Record<string, unknown>,
   seed: number,
@@ -169,7 +176,9 @@ function collisionGroups(
 
 /** The densest prop set the scatter schema allows, used for the P-F4-4 stress row: the authored
  *  catalog densities put only a dozen props in this cave, which is far too few to show whether
- *  prop solidity FLOODS the candidate filters. Schema maxima, not a proposal. */
+ *  prop solidity FLOODS the candidate filters. These are the schema's EXTREMES in the crowding
+ *  direction — `density` at its maximum (2) and `minSpacing` at its minimum (0.25) — not a
+ *  proposal, and not "maxima" on both fields. */
 export const STRESS_SCATTER = { density: 2, minSpacing: 0.25 } as const;
 /** Seed for the prop pass. Any fixed value; the point is a reproducible prop set. */
 const SCATTER_SEED = 7;
@@ -224,7 +233,9 @@ export function scatterProps(
 
 // ─── committed field worlds ───
 
-/** Every v2 field manifest under `worlds/`, largest first. */
+/** Every v2 field manifest under `worlds/`, largest first — usually NONE. `.gitignore` keeps
+ *  `worlds/*` out of the repo apart from `worlds/index.json` and the v1 region world
+ *  `worlds/default`, which this filter drops, so anything found here is a LOCAL user bake. */
 async function committedManifests(): Promise<
   { name: string; manifest: field.FieldManifest }[]
 > {
@@ -276,7 +287,7 @@ async function loadCommittedWorld(
     );
   }
   return {
-    label: `committed world "${name}"`,
+    label: `local field world "${name}"`,
     note: `${store.chunks.size} chunks, ${manifest.cellSize} m cells, spawn from the manifest`,
     store,
     extraSolid,
@@ -285,12 +296,15 @@ async function loadCommittedWorld(
   };
 }
 
-/** EVERY committed v2 field world, largest first — not just the largest. The buried-spawn
- *  caveat is only visible if each world's own seed is resolved and reported. */
-export async function committedWorlds(catalog: Catalog): Promise<Subject[]> {
+/** Every v2 field world present on THIS machine, largest first — not just the largest, because
+ *  the buried-spawn caveat is only visible if each world's own seed is resolved and reported.
+ *
+ *  EMPTY IS THE NORMAL CASE, not an error: these are local bakes (see {@link committedManifests}),
+ *  so a clean checkout has none. Returning `[]` lets the generated-cave tables — which ARE
+ *  reproducible from seeds, and which are the population the P-F4-3b bar is read against — still
+ *  print. Throwing here made the whole script unrunnable on a fresh worktree. */
+export async function localFieldWorlds(catalog: Catalog): Promise<Subject[]> {
   const manifests = await committedManifests();
-  if (manifests.length === 0)
-    throw new Error("measure: no committed v2 field world under worlds/");
   return Promise.all(
     manifests.map((m) => loadCommittedWorld(m.name, m.manifest, catalog)),
   );

@@ -90,6 +90,13 @@ const REDRIVE_SLACK = 120;
 const EPS = 1e-6;
 
 // ─── matrix: 3 themes × 2 verticality × 2 seeds = 12 configs ───
+// DUPLICATED, and this is the side that gets edited. `scripts/measure/subjects.ts` restates
+// these three arrays verbatim (`walkConfigs`) because it cannot import them — this file awaits
+// a WebGPU context at module scope, so importing it from a plain `bun scripts/...` run would
+// try to bring up a GPU. Nothing detects a divergence: edit the matrix here only and the
+// P-F4-3b measurement keeps measuring the OLD twelve while still labelling its table "the
+// population the bar names". CHANGE BOTH, or land Task 8 first — that task moves the analysis
+// into this harness, at which point the copy in `subjects.ts` is deleted rather than synced.
 const THEMES = ["mined", "organic", "mixed"] as const;
 const VERTICALITIES = [0.25, 0.75] as const;
 const SEEDS = [1, 7] as const;

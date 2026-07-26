@@ -1,11 +1,21 @@
 // packages/dungeon/scripts/measure-analyze.ts
 // P-F4-3b: what does the walkability advisor ACTUALLY flag, on real worlds, under PIT
 // SEMANTICS? Counts by kind x severity x reachable x walkable-ground, plus the pit regions
-// `detectPits` finds, over: the generated default cave (bare and propped two ways), the twelve
-// P-F3-1 walked cave configs, and every committed v2 field world. The numbers are the
-// deliverable — this script tunes nothing and writes nothing.
+// `detectPits` finds. The numbers are the deliverable — this script tunes nothing and writes
+// nothing.
 //
 // Run (from packages/dungeon): bun scripts/measure-analyze.ts
+//
+// WHAT IS REPRODUCIBLE, AND WHAT IS NOT. Two populations, and the difference matters when
+// quoting these tables:
+//   - The generated caves (the default cave and the twelve P-F3-1 walked configs) are carved
+//     from a generator id and a seed. They reproduce anywhere, from a clean checkout, and they
+//     are the population the P-F4-3b bar is read against.
+//   - The v2 field worlds under `worlds/` are LOCAL USER BAKES. `packages/dungeon/.gitignore`
+//     ignores `worlds/*` except `worlds/index.json` and `worlds/default` — and `default` is a
+//     v1 REGION world this script filters out. So on a clean checkout there are NO v2 field
+//     worlds at all, that section is skipped, and any table quoting `runnel` / `hello` /
+//     `hehe` / `testing` describes one machine's scratch bakes and nobody else's.
 //
 // WALKABLE GROUND — the operational definition the stop condition is read against. A flag
 // counts as being on walkable ground when BOTH hold of its anchor cell:
@@ -18,12 +28,15 @@
 //        `analyzeChunk` applies when picking its anchors, re-derived in `measure/solidity.ts`
 //        over the same solidity (field density widened by voxelized placement colliders).
 // (ii) is not redundant with (i). Three of the five kinds anchor on a cell that passed the
-// walkable test by construction, but `low-clearance` anchors on the OFFENDING NEIGHBOUR and
-// `pit` on a node from the headroom-free connectivity node set — exactly the cells (ii)
-// excludes. Both columns are printed so the difference is visible rather than asserted.
+// walkable test by construction; the two where (ii) can bite are `low-clearance`, which anchors
+// on the OFFENDING NEIGHBOUR and is therefore excluded ALWAYS, and `pit`, which anchors on a
+// node from the headroom-free connectivity node set and is excluded only SOMETIMES (measured:
+// 9 pits, 6 of them standable). Both columns are printed so the difference is visible rather
+// than asserted.
 import * as field from "@furnace/core/field";
 import { AGENT } from "../src/walkability.ts";
-import { explain } from "./measure/explain.ts";
+import { type Coverage, measureCoverage } from "./measure/coverage.ts";
+import { explain, fmt } from "./measure/explain.ts";
 import { CONTROL_EXPECTATION, runPitControl } from "./measure/pit-control.ts";
 import { isStandable, seedAnchor } from "./measure/solidity.ts";
 import {
@@ -32,7 +45,7 @@ import {
   carveCave,
   caveDefaults,
   chamberSeeds,
-  committedWorlds,
+  localFieldWorlds,
   readCatalog,
   STRESS_SCATTER,
   type Subject,
@@ -68,6 +81,7 @@ type Measured = {
   visible: field.FieldFlag[];
   pits: field.FieldFlag[];
   seedsUsable: number;
+  coverage: Coverage;
   ms: number;
 };
 
@@ -112,7 +126,16 @@ function measure(subject: Subject): Measured {
   const seedsUsable = subject.seeds.filter(
     (s) => seedAnchor(subject, s) !== undefined,
   ).length;
-  return { rows, totals, candidates, visible, pits, seedsUsable, ms };
+  return {
+    rows,
+    totals,
+    candidates,
+    visible,
+    pits,
+    seedsUsable,
+    coverage: measureCoverage(subject, AGENT, byChunk),
+    ms,
+  };
 }
 
 // ─── reporting ───
@@ -166,6 +189,23 @@ function printVisibleCandidates(
   }
 }
 
+/** Flood coverage over floor COLUMNS, and the cross-check that says whether to trust it. */
+function printCoverage(m: Measured): void {
+  const { anchors, reached, enterable, disagreements } = m.coverage;
+  const pct = (n: number): string =>
+    anchors === 0 ? "n/a" : `${Math.round((100 * n) / anchors)}%`;
+  const check =
+    disagreements === undefined
+      ? "no verdicts to cross-check"
+      : disagreements === 0
+        ? "cross-check vs markUnreachable: agrees on every tagged flag"
+        : `!! ${disagreements} flags disagree with markUnreachable — this row is not trustworthy`;
+  console.log(
+    `   floor columns: ${anchors}; climb flood ${reached} (${pct(reached)}), ` +
+      `enterable flood ${enterable} (${pct(enterable)}) — ${check}`,
+  );
+}
+
 function report(subject: Subject): Measured {
   const m = measure(subject);
   console.log(`\n── ${subject.label} ──`);
@@ -189,6 +229,7 @@ function report(subject: Subject): Measured {
   console.log(
     `   ${pad("DEFAULT-VISIBLE", 17)}${pad("candidate", 11)}${padStart(m.candidates.total, 7)}${padStart(m.candidates.reachable, 11)}${padStart(m.candidates.walkable, 17)}`,
   );
+  printCoverage(m);
   printPitRegions(subject, m.pits);
   printVisibleCandidates(subject, m.visible);
   return m;
@@ -197,9 +238,16 @@ function report(subject: Subject): Measured {
 /** One line per subject — the shape the 12-config matrix needs, where per-kind detail would
  *  bury the comparison the matrix exists to make.
  *
- *  `reach` is the honesty column. These configs are seeded from ONE `playerStart`, so a low
- *  candidate count would also be what a flood that never left the spawn chamber produces. The
- *  share of flags the flood reached says which of the two happened. */
+ *  `reach` is the honesty column for the per-cell kinds. These configs are seeded from ONE
+ *  `playerStart`, so a low candidate count would also be what a flood that never left the spawn
+ *  chamber produces; the share of flags the flood reached says which of the two happened.
+ *
+ *  That argument is CIRCULAR for pits — a pit only enters any flag count if the enterable flood
+ *  found it — so `anchors` and `enter` carry the pit half instead: floor COLUMNS in the world,
+ *  and the share of them the enterable flood (climb edges plus walking off an edge) reaches.
+ *  The remainder is terrain no agent can get to even by falling, where "is it a trap" is moot.
+ *  See `measure/coverage.ts`, which also cross-checks itself against `markUnreachable`'s own
+ *  written verdicts. */
 function compactRow(label: string, subject: Subject, m: Measured): void {
   const kind = (k: field.FlagKind): number =>
     m.rows.get(`${k}|candidate`)?.walkable ?? 0;
@@ -209,8 +257,11 @@ function compactRow(label: string, subject: Subject, m: Measured): void {
     m.totals.total === 0
       ? "n/a"
       : `${Math.round((100 * m.totals.reachable) / m.totals.total)}%`;
+  const { anchors, enterable } = m.coverage;
+  const enter =
+    anchors === 0 ? "n/a" : `${Math.round((100 * enterable) / anchors)}%`;
   console.log(
-    `   ${pad(label, 22)}${padStart(subject.store.chunks.size, 7)}${padStart(seeds, 7)}${padStart(reach, 7)}` +
+    `   ${pad(label, 20)}${padStart(seeds, 6)}${padStart(reach, 7)}${padStart(anchors, 9)}${padStart(enter, 8)}` +
       `${padStart(m.pits.length, 6)}${padStart(pitColumns, 9)}${padStart(kind("narrow"), 8)}` +
       `${padStart(kind("low-clearance"), 12)}${padStart(m.candidates.walkable, 12)}${padStart(m.candidates.total, 10)}`,
   );
@@ -219,12 +270,14 @@ function compactRow(label: string, subject: Subject, m: Measured): void {
 const compactHeader = (title: string): void => {
   console.log(`\n── ${title} ──`);
   console.log(
-    `   ${pad("config", 22)}${padStart("chunks", 7)}${padStart("seeds", 7)}${padStart("reach", 7)}${padStart("pits", 6)}` +
+    `   ${pad("config", 20)}${padStart("seeds", 6)}${padStart("reach", 7)}${padStart("anchors", 9)}${padStart("enter", 8)}${padStart("pits", 6)}` +
       `${padStart("pit cols", 9)}${padStart("narrow", 8)}${padStart("low-clear", 12)}${padStart("CANDIDATES", 12)}${padStart("(raw)", 10)}`,
   );
   console.log(
-    "   (walkable-ground counts; seeds = usable/given; reach = share of flags the flood reached;" +
-      " (raw) = candidates before the walkable-ground filter, so a low `reach` cannot flatter the count)",
+    "   (narrow / low-clear / CANDIDATES are walkable-ground counts. pits + pit cols are RAW —" +
+      " the walkable filter is per-flag on a region's ANCHOR, so it can drop a region but can" +
+      " never partition its columns. seeds = usable/given; reach = flags the flood reached;" +
+      " anchors/enter = floor COLUMNS total / enterable-flood; (raw) = candidates unfiltered.)",
   );
 };
 
@@ -292,7 +345,7 @@ const catalog = await readCatalog();
 console.log(
   `agent profile (catalog/agent.json): capsule r=${AGENT.capsule.radius} hh=${AGENT.capsule.halfHeight}, ` +
     `stepHeight=${AGENT.stepHeight}, climbCeiling=${AGENT.climbCeiling}, clearance=${AGENT.clearance}, ` +
-    `skin=${AGENT.skin} (narrow pinch bar = ${2 * AGENT.capsule.radius + AGENT.skin} m of free width)`,
+    `skin=${AGENT.skin} (narrow pinch bar = ${fmt(2 * AGENT.capsule.radius + AGENT.skin)} of free width)`,
 );
 console.log(
   "walkable ground = reachable (unreachable !== true) AND standable (floor anchor with full clearance)",
@@ -304,7 +357,15 @@ console.log(
 const detailed: { label: string; subject: Subject; m: Measured }[] = [];
 for (const subject of defaultCaveSubjects(catalog))
   detailed.push({ label: subject.label, subject, m: report(subject) });
-for (const subject of await committedWorlds(catalog))
+const local = await localFieldWorlds(catalog);
+if (local.length === 0)
+  console.log(
+    "\n── local v2 field worlds: NONE ──\n" +
+      "   `worlds/` holds no v2 field world on this machine. That is the CLEAN-CHECKOUT state,\n" +
+      "   not a failure: those worlds are gitignored local bakes. The generated-cave tables below\n" +
+      "   are seed-reproducible and carry the bar on their own.",
+  );
+for (const subject of local)
   detailed.push({ label: subject.label, subject, m: report(subject) });
 
 const configs = walkConfigs();
