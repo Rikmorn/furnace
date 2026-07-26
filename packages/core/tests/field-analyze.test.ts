@@ -535,6 +535,26 @@ describe("analyzeWorld", () => {
     setDensity(s, 4, 4, 4, AIR);
     expect(analyzeWorld(s, AGENT).get(CENTER)).toEqual([]);
   });
+
+  test("rejects bad setup with NOTHING to analyze (setup-loud)", () => {
+    // This pass validates through the per-chunk calls it makes, and an EMPTY
+    // store makes none — so the gate used to be skipped exactly when there was
+    // nothing to do, while every other entry point rejected the same profile.
+    // "Throws only if the store has chunks" is not a contract anyone would
+    // write on purpose; the gate is about rejecting bad input.
+    const empty = createFieldStore(DEFAULT_CELL_SIZE);
+    expect(empty.chunks.size).toBe(0);
+    expect(() =>
+      analyzeWorld(empty, { ...AGENT, climbCeiling: AGENT.stepHeight }),
+    ).toThrow(/climbCeiling/);
+    expect(() =>
+      analyzeWorld(empty, AGENT, {
+        extraSolid: new Map([[CENTER, new Uint8Array(CHUNK_SAMPLES / 8)]]),
+      }),
+    ).toThrow(/one BYTE per sample/);
+    // A VALID profile over the same empty store still returns an empty map.
+    expect(analyzeWorld(empty, AGENT).size).toBe(0);
+  });
 });
 
 // ─── Placement colliders as analyzed solidity (D-F4-5) ───

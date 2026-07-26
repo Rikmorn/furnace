@@ -17,6 +17,7 @@
 import { CHUNK_DIM, parseChunkKey } from "./chunks.ts";
 import {
   type AnalyzeOptions,
+  assertAnalyzeInputs,
   ceilingAbove,
   climbCellsFor,
   DIRS,
@@ -408,13 +409,19 @@ export function analyzeChunk(
  *
  * @returns One entry per allocated chunk, empty array included, keyed by the
  * owning chunk — the shape a flag store replaces wholesale per chunk.
- * @throws Error - as {@link analyzeChunk}, on an inconsistent agent profile.
+ * @throws Error - as {@link analyzeChunk}, on an inconsistent agent profile or a
+ * wrongly-encoded `extraSolid` buffer. Checked HERE and not only through the
+ * per-chunk calls below, so an empty store rejects a bad profile too.
  */
 export function analyzeWorld(
   store: FieldStore,
   profile: AgentProfile,
   opts?: AnalyzeOptions,
 ): Map<ChunkKey, FieldFlag[]> {
+  // A store with no allocated chunks makes no per-chunk call, so the gate those
+  // calls carry would never run — and setup-loud is about rejecting bad input,
+  // not about rejecting it only when there is work to do.
+  assertAnalyzeInputs(profile, opts);
   const out = new Map<ChunkKey, FieldFlag[]>();
   for (const key of store.chunks.keys())
     out.set(key, analyzeChunk(store, key, profile, opts));

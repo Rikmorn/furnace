@@ -105,7 +105,25 @@ function assertExtraSolidValid(
       );
 }
 
-/** The shared entry gate of every analyzer pass: validate setup-loud, then open
+/** The setup-loud gate EVERY analyzer entry point runs first: the agent profile,
+ *  and the extra-solidity encoding when one is given.
+ *
+ *  Separate from {@link validatedView} because one entry point validates without
+ *  opening a view of its own. `analyzeWorld` delegates all scanning to per-chunk
+ *  calls, and a store with no allocated chunks makes none of them — so a gate
+ *  reached only through those calls would let a bad profile pass silently
+ *  exactly when there is nothing to analyse. "Throws only if there is work to
+ *  do" is not a rule worth having; the gate is about rejecting bad input. */
+export function assertAnalyzeInputs(
+  profile: AgentProfile,
+  opts: AnalyzeOptions | undefined,
+): void {
+  assertAgentProfileValid(profile);
+  const extras = opts?.extraSolid;
+  if (extras !== undefined) assertExtraSolidValid(extras);
+}
+
+/** The shared entry gate of every analyzer PASS: validate setup-loud, then open
  *  a fresh solidity view (per call, so its chunk memo can never outlive the
  *  store state it was taken against). */
 export function validatedView(
@@ -113,12 +131,10 @@ export function validatedView(
   profile: AgentProfile,
   opts: AnalyzeOptions | undefined,
 ): SolidView {
-  assertAgentProfileValid(profile);
-  const extras = opts?.extraSolid;
-  if (extras !== undefined) assertExtraSolidValid(extras);
+  assertAnalyzeInputs(profile, opts);
   return {
     store,
-    extras,
+    extras: opts?.extraSolid,
     cx: Number.NaN,
     cy: Number.NaN,
     cz: Number.NaN,

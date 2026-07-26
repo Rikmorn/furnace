@@ -1231,11 +1231,9 @@ channel** (uniform|indexed palette encoding behind accessors — `getMaterial` /
   `climbCeiling` not above `stepHeight` (a mover that auto-steps higher than it climbs is
   not a profile these passes can read), `clearance` below the capsule's own
   `2 × (halfHeight + radius)`, or `skin` at or above `capsule.radius` (which would put the
-  `narrow` bar past three radii). In `markUnreachable` and `detectPits` the gate runs
-  BEFORE any early return, so a bad profile throws even with no seeds and nothing to do.
-  `analyzeWorld` is the one exception, by construction rather than by choice: it validates
-  only through the `analyzeChunk` calls it makes, so over a store with NO allocated chunks
-  it runs the gate zero times and returns an empty map without throwing.
+  `narrow` bar past three radii). The gate runs BEFORE any early return, so a bad profile
+  throws even when there is nothing to do — an empty seed list, or a store with no
+  allocated chunks at all.
   `markUnreachable(store, profile, flags, seeds, opts?)` (D-F4-8) is triage, not
   filtering: it floods from each seed's floor surface (4-connected in XZ, any |Δy| within
   `climbCells` — the CLIMB BAND, the edge rule it shares with `detectPits`, so
