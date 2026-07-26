@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "capsule": { "radius": 0.3, "halfHeight": 0.6 },
+  "stepHeight": 0.4,
+  "climbCeiling": 0.7,
+  "clearance": 1.8,
+  "slopeLimitDeg": 55
+}
