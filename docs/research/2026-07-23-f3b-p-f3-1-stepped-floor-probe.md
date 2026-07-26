@@ -68,6 +68,63 @@ Failure classes are routed, never repaired in this task:
 
 - None — no lane failed, so nothing is routed. The premise holds.
 
+## Quiet-lane tooth (F4 Task 8)
+
+After every config is walked, the FULL advisor runs on the same carved store — column pass,
+`markUnreachable`, `detectPits` — seeded from the `playerStart` this harness bakes. Two
+things assert, one is recorded:
+
+- **(a)** no pit region meets a walked lane. Tested at CHUNK granularity: a pit flag carries its
+  anchor, its size in columns and its chunk span, but not its member columns, so "region ∩ lane
+  ≠ ∅" is over-approximated by "region's chunks ∩ lane's chunks ≠ ∅". Containment implies chunk
+  overlap, so a zero here PROVES zero containment; the converse does not hold, which makes the
+  test over-strict in the miss-safe direction.
+- **(b)** no `narrow` / `low-clearance` candidate anchors on a walked-lane column.
+- **(c)** off-lane candidates are counted, never asserted — that ground was not walked.
+
+**What a lane proves.** Each lane is driven ONCE, first waypoint to last, and never driven back
+(`walkLane` chains single-direction segments). So (b) is a real cross-check of the analyzer
+against the mover: a candidate on a column the capsule passed through contradicts a walk that
+happened. **(a) is not.** A pit means "you can get in and not back OUT", and getting back out is
+precisely what a single-direction walk never tests — so the pit assertion guards the measured
+zero against regression, it does not corroborate it against the mover. Columns are derived from
+the lane POLYLINE (sampled at half-cell spacing and snapped down to the floor anchor), not from
+the capsule's recorded trajectory — `runWalk` returns an end pose, not a path — and not widened
+by the capsule radius. The `buried` column counts probe points that landed inside rock, where no
+column could be derived: those samples are lane geometry these assertions say nothing about.
+
+| theme | verticality | seed | lanes walked | lane columns | buried | pit regions | pits ∩ lane chunks | on-lane candidates | off-lane candidates (raw) |
+|---|---|---|---|---|---|---|---|---|---|
+| mined | 0.25 | 1 | 5/5 | 96 | 0 | 0 | 0 | 0 | 3 (3) |
+| mined | 0.25 | 7 | 5/5 | 103 | 0 | 0 | 0 | 0 | 5 (5) |
+| mined | 0.75 | 1 | 5/5 | 139 | 0 | 0 | 0 | 0 | 4 (6) |
+| mined | 0.75 | 7 | 5/5 | 97 | 0 | 0 | 0 | 0 | 6 (6) |
+| organic | 0.25 | 1 | 5/5 | 96 | 0 | 0 | 0 | 0 | 6 (6) |
+| organic | 0.25 | 7 | 5/5 | 103 | 0 | 0 | 0 | 0 | 15 (15) |
+| organic | 0.75 | 1 | 5/5 | 139 | 0 | 0 | 0 | 0 | 20 (20) |
+| organic | 0.75 | 7 | 5/5 | 97 | 0 | 0 | 0 | 0 | 14 (14) |
+| mixed | 0.25 | 1 | 5/5 | 96 | 0 | 0 | 0 | 0 | 2 (2) |
+| mixed | 0.25 | 7 | 5/5 | 103 | 0 | 0 | 0 | 0 | 9 (9) |
+| mixed | 0.75 | 1 | 5/5 | 139 | 0 | 0 | 0 | 0 | 6 (6) |
+| mixed | 0.75 | 7 | 5/5 | 97 | 0 | 0 | 0 | 0 | 10 (10) |
+
+0 pit region(s) across the whole matrix, 0 candidate(s) on walked-lane
+columns. Off-lane candidates after the reachability demotion run 2–20 per config
+(the parenthesised number is the same count before the demotion, so a flood that never left the
+spawn chamber cannot flatter it).
+
+Do NOT read that off-lane column against P-F4-3b's "candidates on walkable ground" (0–3, worst
+config 3). It is a WIDER population: this column counts every candidate whose anchor is not a
+lane column, while that measurement additionally required the anchor to be STANDABLE — which
+excludes every `low-clearance` flag by construction, since that kind anchors on the offending
+neighbour, a cell that failed the walkable test. Re-deriving standability here would be a second
+copy of a predicate that is not exported; (c) is recorded rather than asserted, so it does not
+need one.
+
+The raw off-lane column IS directly comparable to that measurement's own `(raw)` column, and on
+this run the twelve values agree exactly — which only holds while the on-lane count is zero, so
+treat the agreement as a cross-check between two independent code paths rather than an identity.
+
 ## Reproduction
 
 `bun test packages/dungeon/tests/field-cave-walk.gpu.test.ts` regenerates this report from the

@@ -6,6 +6,7 @@ import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 import * as field from "@furnace/core/field";
 import { AGENT } from "../../src/walkability.ts";
+import { CAVE_REGION, caveConfigs } from "../../tests/_helpers/cave-matrix.ts";
 
 const PACKAGE_ROOT = join(import.meta.dir, "..", "..");
 const WORLDS_DIR = join(PACKAGE_ROOT, "worlds");
@@ -26,12 +27,10 @@ export type Subject = {
 
 // ─── generated caves ───
 
-/** The F3b default cave region — the same fixture the P-F4-1 budget test carves, and the
- *  extent the P-F3-1 walk harness uses for its whole matrix. */
-export const CAVE_REGION = {
-  min: [0, 0, 0] as [number, number, number],
-  max: [20, 10, 20] as [number, number, number],
-};
+/** The F3b default cave region — the same fixture the P-F4-1 budget test carves, and the region
+ *  the P-F3-1 walk harness carves its whole matrix into. Re-exported from the matrix module so
+ *  this file's callers keep one import. */
+export { CAVE_REGION };
 /** Seed for the default-cave rows (the P-F4-1 fixture's). The P-F3-1 matrix seeds itself. */
 export const CAVE_SEED = 1;
 
@@ -115,30 +114,22 @@ export function spawnSeed(
   ];
 }
 
-/** The P-F3-1 walked matrix, RESTATED from `tests/field-cave-walk.gpu.test.ts` (3 themes × 2
- *  verticality × 2 seeds). It cannot be imported: that file awaits a WebGPU context at module
- *  scope. The duplication is the reason Task 8 moves this measurement INTO the harness — until
- *  it does, a matrix edited there and not here silently measures the wrong population. */
-const THEMES = ["mined", "organic", "mixed"] as const;
-const VERTICALITIES = [0.25, 0.75] as const;
-const WALK_SEEDS = [1, 7] as const;
-
 export type WalkConfig = {
   name: string;
   params: Record<string, unknown>;
   seed: number;
 };
 
+/** The P-F3-1 walked matrix, from the SHARED definition the walk harness also reads
+ *  (`tests/_helpers/cave-matrix.ts`) — the duplication that used to sit here is gone, so a
+ *  matrix edited on either side can no longer leave this measurement quietly measuring the old
+ *  twelve. Only the row LABEL is local: the harness names a baked world, this names a table row. */
 export const walkConfigs = (): WalkConfig[] =>
-  THEMES.flatMap((theme) =>
-    VERTICALITIES.flatMap((verticality) =>
-      WALK_SEEDS.map((seed) => ({
-        name: `${theme}/v${verticality}/s${seed}`,
-        params: { ...caveDefaults(), theme, verticality },
-        seed,
-      })),
-    ),
-  );
+  caveConfigs().map(({ theme, verticality, seed, params }) => ({
+    name: `${theme}/v${verticality}/s${seed}`,
+    params,
+    seed,
+  }));
 
 // ─── the catalog (placement collision primitives) ───
 

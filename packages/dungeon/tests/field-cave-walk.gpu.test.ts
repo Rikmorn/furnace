@@ -1,8 +1,14 @@
 // F3b Task 4 — P-F3-1 probe: the stepped-floor capsule fuzz-walk (a DELIVERABLE, not a
 // blocker). Per D-F3-11, failures are CLASSIFIED and RECORDED, never repaired: there is no
-// search / retry / repair loop anywhere here. Individual lane failures are DATA; only three
-// things assert — (a) fixture validity, (b) the composite mouth→deepest lane walking on
-// >= half the configs (the systemic-collapse tripwire), (c) the report file is written.
+// search / retry / repair loop anywhere here. Individual lane failures are DATA; the WALK
+// asserts only three things — (a) fixture validity, (b) the composite mouth→deepest lane
+// walking on >= half the configs (the systemic-collapse tripwire), (c) the report is written.
+//
+// F4 Task 8 added a fourth, separate contract on top of the same runs: the QUIET-LANE TOOTH
+// (see its own section below), which asserts the advisor stays silent on the ground these walks
+// demonstrably cover. That one IS a blocker — it is the regression guard for the amended
+// severity model — and it is deliberately scoped to walked lanes so off-lane terrain findings
+// stay data.
 //
 // The walk plumbing (bake -> stub fetch -> loadWorld -> runWalk against the per-chunk shell
 // voxel colliders — the SAME collision the game uses) is lifted from field-world.gpu.test.ts;
@@ -18,6 +24,7 @@
 
 import { describe, expect, test } from "bun:test";
 import {
+  analyzeWorld,
   BUILTIN_TABLE,
   bakeFieldWorld,
   buildCaveSkeleton,
@@ -25,19 +32,33 @@ import {
   type CaveMouth,
   type CavePassage,
   type CaveSkeleton,
+  type ChunkKey,
+  chunkKey,
   commitGenerator,
   createFieldStore,
   createOpLog,
   DEFAULT_CELL_SIZE,
+  detectPits,
+  type FieldFlag,
+  type FieldStore,
   generatorById,
   getDensity,
+  markUnreachable,
+  voxelChunk,
+  worldToVoxel,
 } from "@furnace/core/field";
 import * as gpu from "@furnace/core/gpu";
 import * as physics from "@furnace/core/physics";
 import { MaterialCache } from "../src/realize.ts";
 import type { Vec3 } from "../src/region.ts";
-import { STEP_HEIGHT } from "../src/walkability.ts";
+import { AGENT, STEP_HEIGHT } from "../src/walkability.ts";
 import { loadWorld } from "../src/world-loader.ts";
+import {
+  CAVE_EXTENT,
+  CAVE_REGION,
+  type CaveConfig,
+  caveConfigs,
+} from "./_helpers/cave-matrix.ts";
 import { at } from "./_helpers/expect.ts";
 import {
   bunWebGpuAvailable,
@@ -90,18 +111,11 @@ const REDRIVE_SLACK = 120;
 const EPS = 1e-6;
 
 // ─── matrix: 3 themes × 2 verticality × 2 seeds = 12 configs ───
-// DUPLICATED, and this is the side that gets edited. `scripts/measure/subjects.ts` restates
-// these three arrays verbatim (`walkConfigs`) because it cannot import them — this file awaits
-// a WebGPU context at module scope, so importing it from a plain `bun scripts/...` run would
-// try to bring up a GPU. Nothing detects a divergence: edit the matrix here only and the
-// P-F4-3b measurement keeps measuring the OLD twelve while still labelling its table "the
-// population the bar names". CHANGE BOTH, or land Task 8 first — that task moves the analysis
-// into this harness, at which point the copy in `subjects.ts` is deleted rather than synced.
-const THEMES = ["mined", "organic", "mixed"] as const;
-const VERTICALITIES = [0.25, 0.75] as const;
-const SEEDS = [1, 7] as const;
-const EXTENT: Vec3 = [20, 10, 20];
-const REGION = { min: [0, 0, 0] as Vec3, max: EXTENT };
+// The matrix and the carve region are SHARED with `scripts/measure-analyze.ts` through
+// `_helpers/cave-matrix.ts` (Task 8). Neither side restates the other any more, so a matrix
+// edit can no longer leave the P-F4-3b measurement quietly measuring the old twelve.
+const EXTENT = CAVE_EXTENT;
+const REGION = CAVE_REGION;
 const CAVE = generatorById("cave");
 
 /** Strict cave params from the schema defaults + overrides (evaluate is setup-loud). */
@@ -110,25 +124,14 @@ const fullParams = (o: Record<string, unknown>): Record<string, unknown> => ({
   ...o,
 });
 
-type Cfg = {
-  theme: string;
-  verticality: number;
-  seed: number;
-  name: string;
-  params: Record<string, unknown>;
-};
+/** A matrix cell plus the BAKED WORLD NAME this harness gives it (the measurement script
+ *  derives its own table label from the same three axes). */
+type Cfg = CaveConfig & { name: string };
 
-const CONFIGS: Cfg[] = THEMES.flatMap((theme) =>
-  VERTICALITIES.flatMap((verticality) =>
-    SEEDS.map((seed) => ({
-      theme,
-      verticality,
-      seed,
-      name: `cave-probe-${theme}-v${verticality}-s${seed}`,
-      params: fullParams({ theme, verticality }),
-    })),
-  ),
-);
+const CONFIGS: Cfg[] = caveConfigs().map((c) => ({
+  ...c,
+  name: `cave-probe-${c.theme}-v${c.verticality}-s${c.seed}`,
+}));
 
 // ─── skeleton helpers ───
 const chamberFloorY = (c: CaveChamber): number => c.center[1] - c.radii[1];
@@ -358,20 +361,200 @@ function walkLane(
   return { walked: true };
 }
 
+// ─── the quiet-lane tooth (F4 Task 8 step 1) ───
+// The permanent regression tooth for the property P-F4-3b measured after the severity model was
+// amended: on the ground this harness DEMONSTRABLY walks, the advisor is quiet. Premise P-F4-3
+// failed at 323 candidate flags on walkable ground (default cave) / 1485 (largest local world);
+// Task 7.1 rewrote `narrow` to a true sub-cell opposing-face width, Task 7.2 demoted `ledge` to
+// always-`info` and added `detectPits`, and Task 7.3 re-measured 0 pit regions across all 12
+// walked configs with a worst config of 3 candidates on walkable ground.
+//
+// WHAT A LANE PROVES, EXACTLY — read this before trusting either assertion.
+// `walkLane` drives each polyline ONCE, waypoint 0 → waypoint n, and never drives it back. So:
+//   - The `narrow` / `low-clearance` assertion IS a cross-check of the analyzer against the
+//     mover: a candidate on a column the capsule demonstrably passed through is the analyzer
+//     contradicting a walk that happened.
+//   - The PIT assertion is NOT. A pit is "you can get in and not back OUT", and getting back out
+//     is the one thing a single-direction walk never tests. It is a regression tooth on the
+//     analyzer's own output over the walked population — it guards the measured 0, it does not
+//     corroborate it against the mover.
+// Both are also spine-scoped: columns are derived from the lane POLYLINE, not from the capsule's
+// actual trajectory (`runWalk` returns an end pose, not a path) and not from its radius
+// footprint. The mover slides and steps a little off the spine, so "the capsule stood on exactly
+// these columns" is an approximation — a close one, since every segment is driven straight at
+// the next waypoint.
+
+/** Height above a lane waypoint the column probe starts its descent from: the capsule's own
+ *  grounded centre. Any point inside the passage air would do — the probe snaps DOWN exactly as
+ *  the analyzer's `seedAnchor` does — but this is the height the walk itself spawns at. */
+const LANE_PROBE_RISE = REST_OFFSET;
+/** Spacing (m) at which a lane segment is sampled for its floor columns: half a cell, so
+ *  consecutive samples land in the same or an adjacent column and no column ON the spine is
+ *  stepped over. */
+const LANE_SAMPLE_M = RISER / 2;
+
+/** Rock at (x,y,z). `getDensity < 0` is the `collider.ts` predicate AND — with no placement
+ *  colliders in this harness, so no `extraSolid` — exactly what the analyzer's own `isSolid`
+ *  reads. Unallocated chunks read SOLID; `getDensity` applies that rule itself. */
+const solidAt = (s: FieldStore, x: number, y: number, z: number): boolean =>
+  getDensity(s, x, y, z) < 0;
+
+/** The floor column a world point stands over, as the analyzer's own `x,y,z` cell key —
+ *  `seedAnchor`'s rule: refuse a point buried in rock, else descend to the first air cell
+ *  sitting on rock. The descent terminates on the data (unallocated space reads SOLID). */
+function columnKeyAt(store: FieldStore, p: Vec3): string | undefined {
+  const x = worldToVoxel(p[0], store.cellSize);
+  const z = worldToVoxel(p[2], store.cellSize);
+  let y = worldToVoxel(p[1], store.cellSize);
+  if (solidAt(store, x, y, z)) return undefined;
+  while (!solidAt(store, x, y - 1, z)) y--;
+  return `${x},${y},${z}`;
+}
+
+/** The columns under a set of lane polylines, plus the coverage the derivation did NOT get. */
+type LaneColumns = {
+  /** `x,y,z` keys — what the assertions test flag anchors against. */
+  keys: Set<string>;
+  /** The chunks those columns live in, for the pit containment test. */
+  chunks: Set<ChunkKey>;
+  samples: number;
+  /** Samples whose probe point was inside rock, so no column was derived. Reported rather than
+   *  hidden: they are lane geometry the assertions below say nothing about. */
+  buried: number;
+};
+
+function laneColumns(
+  store: FieldStore,
+  polys: readonly (readonly Vec3[])[],
+): LaneColumns {
+  const keys = new Set<string>();
+  const chunks = new Set<ChunkKey>();
+  let samples = 0;
+  let buried = 0;
+  for (const poly of polys)
+    for (let i = 0; i + 1 < poly.length; i++) {
+      const a = at(poly, i);
+      const b = at(poly, i + 1);
+      const len = Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]);
+      const steps = Math.max(1, Math.ceil(len / LANE_SAMPLE_M));
+      for (let k = 0; k <= steps; k++) {
+        const t = k / steps;
+        samples++;
+        const key = columnKeyAt(store, [
+          a[0] + (b[0] - a[0]) * t,
+          a[1] + (b[1] - a[1]) * t + LANE_PROBE_RISE,
+          a[2] + (b[2] - a[2]) * t,
+        ]);
+        if (key === undefined) {
+          buried++;
+          continue;
+        }
+        keys.add(key);
+        const [cx, cy, cz] = key.split(",").map(Number) as Vec3;
+        chunks.add(chunkKey(voxelChunk(cx), voxelChunk(cy), voxelChunk(cz)));
+      }
+    }
+  return { keys, chunks, samples, buried };
+}
+
+/** What one config's analysis found, split by whether it lands on walked ground. */
+type Quiet = {
+  walkedLanes: number;
+  totalLanes: number;
+  lane: LaneColumns;
+  /** Pit regions in the whole config — recorded, not asserted. */
+  pits: number;
+  /** Pit regions whose chunk span meets a lane chunk. This is a SOUND over-approximation of
+   *  "a region containing a lane column": containment implies chunk overlap, so zero here proves
+   *  zero containment. It can fire on a region that merely shares a 4 m chunk with a lane and
+   *  holds no lane column at all — over-strict in the miss-safe direction, and it costs nothing
+   *  today because the walked configs produce no pit regions whatsoever. A pit flag carries its
+   *  anchor, its size and its chunk span, but not its member columns, so this is the tightest
+   *  containment test the public flag shape supports without re-deriving the flood. */
+  pitsOnLaneChunks: number;
+  /** `narrow` / `low-clearance` candidates anchored ON a lane column — the asserted zero. */
+  onLane: FieldFlag[];
+  /** Candidates elsewhere, after the reachability demotion (`unreachable !== true`). Recorded
+   *  only: off-lane geometry is terrain this harness never walked, so a flag there is not a
+   *  contradiction of anything. */
+  offLaneVisible: number;
+  /** The same count before the demotion, so a low visible number cannot be flattered by a flood
+   *  that never left the spawn chamber. */
+  offLaneRaw: number;
+};
+
+/** Run the full advisor over a config's store — column pass, reachability demotion, pit
+ *  detection — seeded from the SAME `playerStart` this harness bakes, and split what it finds by
+ *  the walked lanes. Pure CPU: it reads the store the bake was taken from and mutates nothing
+ *  but the flag objects `markUnreachable` owns. */
+function measureQuietLanes(
+  store: FieldStore,
+  spawn: Vec3,
+  walkedPolys: readonly (readonly Vec3[])[],
+  totalLanes: number,
+): Quiet {
+  const lane = laneColumns(store, walkedPolys);
+  const byChunk = analyzeWorld(store, AGENT);
+  markUnreachable(store, AGENT, byChunk, [spawn]);
+  const pits = detectPits(store, AGENT, [spawn]);
+
+  const onLane: FieldFlag[] = [];
+  let offLaneVisible = 0;
+  let offLaneRaw = 0;
+  for (const list of byChunk.values())
+    for (const f of list) {
+      if (f.severity !== "candidate") continue;
+      if (lane.keys.has(`${f.cell[0]},${f.cell[1]},${f.cell[2]}`)) {
+        onLane.push(f);
+        continue;
+      }
+      offLaneRaw++;
+      if (f.unreachable !== true) offLaneVisible++;
+    }
+  return {
+    walkedLanes: walkedPolys.length,
+    totalLanes,
+    lane,
+    pits: pits.length,
+    pitsOnLaneChunks: pits.filter((p) =>
+      (p.chunks ?? [p.chunk]).some((c) => lane.chunks.has(c)),
+    ).length,
+    onLane,
+    offLaneVisible,
+    offLaneRaw,
+  };
+}
+
 // ─── per-config bake -> load -> walk (mirrors field-world.gpu.test.ts) ───
 type LaneRec = {
   cfg: Cfg;
   kind: "passage" | "composite";
   index: number;
+  /** The polyline this lane was driven along — the tooth derives its columns from it. */
+  poly: Vec3[];
   outcome: LaneOutcome;
+};
+
+/** The `playerStart` a config bakes: chamber 0's floor, one grounded capsule-rest above it.
+ *  ONE expression, read by both the bake and the advisor seeds, so the walk and the analysis
+ *  cannot start from different places. */
+const spawnOf = (sk: CaveSkeleton): Vec3 => {
+  const c0 = sk.chambers[0] as CaveChamber;
+  return [c0.center[0], chamberFloorY(c0) + REST_OFFSET, c0.center[2]];
 };
 
 /** Bake a config's cave, load it through the REAL `loadWorld` (per-chunk shell voxel
  *  colliders), and run `body` against the loaded world + skeleton — restoring fetch and
- *  tearing down the GPU/physics resources afterwards. */
+ *  tearing down the GPU/physics resources afterwards. `body` also gets the CARVED store, which
+ *  the bake only read: the tooth analyses exactly the field that was walked. */
 async function withLoadedCave<T>(
   cfg: Cfg,
-  body: (ctx: gpu.Context, world: physics.World, sk: CaveSkeleton) => T,
+  body: (
+    ctx: gpu.Context,
+    world: physics.World,
+    sk: CaveSkeleton,
+    store: FieldStore,
+  ) => T,
 ): Promise<T> {
   const store = createFieldStore();
   const log = createOpLog();
@@ -383,10 +566,9 @@ async function withLoadedCave<T>(
     table: BUILTIN_TABLE,
   });
   const sk = buildCaveSkeleton(cfg.params, cfg.seed, EXTENT);
-  const c0 = sk.chambers[0] as CaveChamber;
   const files = bakeFieldWorld(store, log, BUILTIN_TABLE, {
     name: cfg.name,
-    playerStart: [c0.center[0], chamberFloorY(c0) + REST_OFFSET, c0.center[2]],
+    playerStart: spawnOf(sk),
     playerYaw: 0,
   });
 
@@ -400,7 +582,7 @@ async function withLoadedCave<T>(
     const loaded = await loadWorld(ctx, world, matCache);
     globalThis.fetch = orig; // walks cast against the world; no more fetches
     try {
-      return body(ctx, world, sk);
+      return body(ctx, world, sk, store);
     } finally {
       loaded.destroy();
     }
@@ -412,27 +594,39 @@ async function withLoadedCave<T>(
   }
 }
 
-const walkConfig = (cfg: Cfg): Promise<LaneRec[]> =>
-  withLoadedCave(cfg, (ctx, world, sk) => {
+type ConfigRun = { records: LaneRec[]; quiet: Quiet };
+
+const walkConfig = (cfg: Cfg): Promise<ConfigRun> =>
+  withLoadedCave(cfg, (ctx, world, sk, store) => {
     const composite = buildCompositePoly(sk);
-    const records: LaneRec[] = sk.passages.map((p, index) => ({
-      cfg,
-      kind: "passage",
-      index,
-      outcome: walkLane(
-        ctx,
-        world,
-        p.waypoints.map((w) => [...w] as Vec3),
-      ),
-    }));
+    const records: LaneRec[] = sk.passages.map((p, index) => {
+      const poly = p.waypoints.map((w) => [...w] as Vec3);
+      return {
+        cfg,
+        kind: "passage",
+        index,
+        poly,
+        outcome: walkLane(ctx, world, poly),
+      };
+    });
     if (composite !== null && composite.length >= 2)
       records.push({
         cfg,
         kind: "composite",
         index: 0,
+        poly: composite,
         outcome: walkLane(ctx, world, composite),
       });
-    return records;
+    // ONLY the lanes that walked end to end. A lane that stalled proves nothing about the
+    // ground past its stall, and the analyzer flagging geometry the mover could not traverse
+    // is correct behaviour rather than the defect this tooth guards.
+    const walkedPolys = records
+      .filter((r) => r.outcome.walked)
+      .map((r) => r.poly);
+    return {
+      records,
+      quiet: measureQuietLanes(store, spawnOf(sk), walkedPolys, records.length),
+    };
   });
 
 // ─── report rendering (the committed deliverable — F4's analyzer corpus) ───
@@ -462,7 +656,74 @@ const DISPOSITIONS: Record<FailClass, string> = {
     "Task-3 DEFAULT tuning candidate (MAX_GRADE / verticality profile) — the risers were too steep for the mover at this config. Report to the controller; do NOT tune here.",
 };
 
-function renderReport(records: LaneRec[]): string {
+/** The quiet-lane section: one row per config, plus the scope statement that says what the
+ *  numbers do and do not establish. */
+function renderQuietSection(quiets: readonly QuietRec[]): string {
+  const rows = quiets
+    .map(({ cfg, quiet: q }) => {
+      const cols = q.lane.keys.size;
+      const buried =
+        q.lane.buried === 0 ? "0" : `${q.lane.buried}/${q.lane.samples}`;
+      return `| ${cfg.theme} | ${cfg.verticality} | ${cfg.seed} | ${q.walkedLanes}/${q.totalLanes} | ${cols} | ${buried} | ${q.pits} | ${q.pitsOnLaneChunks} | ${q.onLane.length} | ${q.offLaneVisible} (${q.offLaneRaw}) |`;
+    })
+    .join("\n");
+
+  const totalPits = quiets.reduce((n, q) => n + q.quiet.pits, 0);
+  const totalOnLane = quiets.reduce((n, q) => n + q.quiet.onLane.length, 0);
+  const offLane = quiets.map((q) => q.quiet.offLaneVisible);
+  const worstOffLane = Math.max(...offLane);
+
+  return `## Quiet-lane tooth (F4 Task 8)
+
+After every config is walked, the FULL advisor runs on the same carved store — column pass,
+\`markUnreachable\`, \`detectPits\` — seeded from the \`playerStart\` this harness bakes. Two
+things assert, one is recorded:
+
+- **(a)** no pit region meets a walked lane. Tested at CHUNK granularity: a pit flag carries its
+  anchor, its size in columns and its chunk span, but not its member columns, so "region ∩ lane
+  ≠ ∅" is over-approximated by "region's chunks ∩ lane's chunks ≠ ∅". Containment implies chunk
+  overlap, so a zero here PROVES zero containment; the converse does not hold, which makes the
+  test over-strict in the miss-safe direction.
+- **(b)** no \`narrow\` / \`low-clearance\` candidate anchors on a walked-lane column.
+- **(c)** off-lane candidates are counted, never asserted — that ground was not walked.
+
+**What a lane proves.** Each lane is driven ONCE, first waypoint to last, and never driven back
+(\`walkLane\` chains single-direction segments). So (b) is a real cross-check of the analyzer
+against the mover: a candidate on a column the capsule passed through contradicts a walk that
+happened. **(a) is not.** A pit means "you can get in and not back OUT", and getting back out is
+precisely what a single-direction walk never tests — so the pit assertion guards the measured
+zero against regression, it does not corroborate it against the mover. Columns are derived from
+the lane POLYLINE (sampled at half-cell spacing and snapped down to the floor anchor), not from
+the capsule's recorded trajectory — \`runWalk\` returns an end pose, not a path — and not widened
+by the capsule radius. The \`buried\` column counts probe points that landed inside rock, where no
+column could be derived: those samples are lane geometry these assertions say nothing about.
+
+| theme | verticality | seed | lanes walked | lane columns | buried | pit regions | pits ∩ lane chunks | on-lane candidates | off-lane candidates (raw) |
+|---|---|---|---|---|---|---|---|---|---|
+${rows}
+
+${totalPits} pit region(s) across the whole matrix, ${totalOnLane} candidate(s) on walked-lane
+columns. Off-lane candidates after the reachability demotion run ${Math.min(...offLane)}–${worstOffLane} per config
+(the parenthesised number is the same count before the demotion, so a flood that never left the
+spawn chamber cannot flatter it).
+
+Do NOT read that off-lane column against P-F4-3b's "candidates on walkable ground" (0–3, worst
+config 3). It is a WIDER population: this column counts every candidate whose anchor is not a
+lane column, while that measurement additionally required the anchor to be STANDABLE — which
+excludes every \`low-clearance\` flag by construction, since that kind anchors on the offending
+neighbour, a cell that failed the walkable test. Re-deriving standability here would be a second
+copy of a predicate that is not exported; (c) is recorded rather than asserted, so it does not
+need one.
+
+The raw off-lane column IS directly comparable to that measurement's own \`(raw)\` column, and on
+this run the twelve values agree exactly — which only holds while the on-lane count is zero, so
+treat the agreement as a cross-check between two independent code paths rather than an identity.
+`;
+}
+
+type QuietRec = { cfg: Cfg; quiet: Quiet };
+
+function renderReport(records: LaneRec[], quiets: readonly QuietRec[]): string {
   const counts: Record<FailClass, number> = {
     wedge: 0,
     "ghost-launch": 0,
@@ -577,6 +838,7 @@ Failure classes are routed, never repaired in this task:
 
 ${dispositionRows}
 
+${renderQuietSection(quiets)}
 ## Reproduction
 
 \`bun test packages/dungeon/tests/field-cave-walk.gpu.test.ts\` regenerates this report from the
@@ -680,10 +942,15 @@ describe("field cave walk — P-F3-1 stepped-floor probe", () => {
     "stepped-floor capsule fuzz-walk matrix (deliverable, not blocker)",
     async () => {
       const records: LaneRec[] = [];
-      for (const cfg of CONFIGS) records.push(...(await walkConfig(cfg)));
+      const quiets: QuietRec[] = [];
+      for (const cfg of CONFIGS) {
+        const run = await walkConfig(cfg);
+        records.push(...run.records);
+        quiets.push({ cfg, quiet: run.quiet });
+      }
 
       // Write the committed report FIRST — it must exist even if the tripwire fires below.
-      const report = renderReport(records);
+      const report = renderReport(records, quiets);
       await Bun.write(REPORT_PATH, report);
 
       // (c) the report file is written.
@@ -698,6 +965,30 @@ describe("field cave walk — P-F3-1 stepped-floor probe", () => {
       expect(compositeWalked).toBeGreaterThanOrEqual(
         Math.ceil(CONFIGS.length / 2),
       );
+
+      // THE QUIET-LANE TOOTH. Asserted last because the two above are the probe's own contract;
+      // these guard the AMENDED severity model (Task 7.1/7.2) against regression.
+      // Every assertion is spelled as a LABELLED string so a failure names the config it came
+      // from — 12 configs share this loop and `expect` carries no message argument.
+      for (const { cfg, quiet } of quiets) {
+        // Non-vacuity FIRST: over an empty column set both assertions below pass for free, so a
+        // derivation that silently stopped resolving columns would read as a clean bill.
+        expect(`${cfg.name}: ${quiet.lane.keys.size} lane columns`).not.toBe(
+          `${cfg.name}: 0 lane columns`,
+        );
+        // (a) No pit region meets a walked lane — chunk-granular, a sound over-approximation of
+        // containment (see `Quiet.pitsOnLaneChunks`). Single-direction walks do NOT corroborate
+        // this; it guards the measured zero against regression.
+        expect(
+          `${cfg.name}: ${quiet.pitsOnLaneChunks} of ${quiet.pits} pit regions meet a lane chunk`,
+        ).toBe(`${cfg.name}: 0 of ${quiet.pits} pit regions meet a lane chunk`);
+        // (b) No `narrow` / `low-clearance` candidate on a column the capsule walked through.
+        // THIS one is a genuine cross-check: such a flag contradicts a walk that happened.
+        const onLane = quiet.onLane.map((f) => `${f.kind}@${f.cell.join(",")}`);
+        expect(
+          `${cfg.name}: ${onLane.length} on-lane candidates [${onLane.join(" ")}]`,
+        ).toBe(`${cfg.name}: 0 on-lane candidates []`);
+      }
     },
     300_000, // the 12-config × ~260-lane matrix runs the real mover headlessly — well over 5 s
   );
