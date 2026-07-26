@@ -21,6 +21,7 @@ import type { Material } from "@furnace/core/material";
 import * as mesh from "@furnace/core/mesh";
 import * as physics from "@furnace/core/physics";
 import { decodeMeshBlob } from "@furnace/core/scene";
+import { placementCollider } from "./placement-collider.ts";
 import type { MaterialCache } from "./realize.ts";
 import type { MaterialDescriptor } from "./region.ts";
 import type { LoadedWorld } from "./world-loader.ts";
@@ -316,49 +317,6 @@ async function fetchCatalog(): Promise<Map<string, CatalogArchetype>> {
   return new Map(catalog.archetypes.map((a) => [a.id, a]));
 }
 
-/** A static collider for one placed prop, derived at load from the archetype's catalog collision
- *  primitive scaled by the record's per-axis scale (D-F3-10: colliders are DERIVED, never stored).
- *  The v2 catalog-collision sibling of {@link colliderFor} in `realize.ts` (which maps a v1 scatter
- *  `ArchetypeGeometry` + a single scalar scale): the two input vocabularies differ (catalog
- *  collision KINDS + a per-axis scale here vs. archetype PRIMITIVES + a scalar scale there), so this
- *  is a local v2 helper rather than a shared one — the smallest honest change.
- *
- *  Scale approximation (the plan's AABB posture): a `box` scales PER-AXIS (exact for an axis-aligned
- *  cuboid). A `sphere`/`capsule` primitive has no per-axis form, so its radius (and the capsule's
- *  half-height) scale by the MAX scale axis — exact for scatter's uniform-scale records (sx=sy=sz),
- *  a conservative over-approximation only if a future non-uniform placement source appears. That is
- *  the same rule core's `collisionExtentY` applies, which is what lets `field.collisionCenter`
- *  anchor this shape with an extent computed THERE (see {@link createPlacementColliders}).
- *
- *  MAGNITUDES: a negative scale axis is a mirror, and mirroring moves no surface — so every extent
- *  takes `Math.abs` and a mirrored record derives its twin's collider. Signed arithmetic would hand
- *  Rapier a negative ball radius / cuboid half-extent, and split this derivation from
- *  `collisionExtentY` (which takes magnitudes too).
- *
- *  Exported for `tests/field-placements.gpu.test.ts`: a walk cannot reach a mirrored record, and a
- *  body's shape is not readable back out of the physics world. (Rotation is no concern of this
- *  function — the pose is `field.collisionCenter`'s.) */
-export function placementCollider(
-  collision: field.PlacementCollision,
-  scale: readonly [number, number, number],
-): physics.ShapeDescriptor {
-  const sx = Math.abs(scale[0]);
-  const sy = Math.abs(scale[1]);
-  const sz = Math.abs(scale[2]);
-  const maxAxis = Math.max(sx, sy, sz);
-  if (collision.kind === "sphere") return { ball: collision.radius * maxAxis };
-  if (collision.kind === "capsule") {
-    return {
-      capsule: {
-        halfHeight: collision.halfHeight * maxAxis,
-        radius: collision.radius * maxAxis,
-      },
-    };
-  }
-  const [hx, hy, hz] = collision.halfExtents;
-  return { cuboid: [hx * sx, hy * sy, hz * sz] };
-}
-
 /** One owned instanced placement mesh: the draw handle + its per-variant archetype geometry. */
 type PlacementOwned = { im: mesh.InstancedMesh; g: geometry.Geometry };
 
@@ -406,8 +364,9 @@ async function buildPlacementInstances(
   return owned;
 }
 
-/** One derived static collider per placed record at its baked world pose ({@link
- *  placementCollider} for the shape, core's `field.collisionCenter` for the anchored position —
+/** One derived static collider per placed record at its baked world pose
+ *  (`placement-collider.ts`'s {@link placementCollider} for the shape, core's
+ *  `field.collisionCenter` for the anchored position —
  *  the same function the F4 analyzer's `voxelizePlacements` rasterizes around, so the walkability
  *  flags describe these bodies). Density-agnostic: props carry their OWN colliders (the "if you
  *  can dig it, it's field, else it's an entity with its own collider" jurisdiction rule),

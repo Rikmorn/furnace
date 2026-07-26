@@ -1,4 +1,3 @@
-import type { Context } from "@furnace/core/gpu";
 import * as physics from "@furnace/core/physics";
 import { SLOPE_LIMIT_COS, STEP_HEIGHT } from "./walkability.ts";
 
@@ -49,7 +48,12 @@ export type Capsule = { halfHeight: number; radius: number };
 /** A custom kinematic-capsule mover: horizontal collide-and-slide, a separate
  *  gravity/ground pass, and explicit step-up — all on raycast/shapecast, so it is
  *  robust to the trimesh internal-edge contact-normal corruption that stalls
- *  Rapier's built-in KCC. Future verbs (crouch/jump/mantle/climb) extend this. */
+ *  Rapier's built-in KCC. Future verbs (crouch/jump/mantle/climb) extend this.
+ *
+ *  Takes a `physics.PhysicsContext`, not the GPU `Context` (which is assignable to it, so the
+ *  game's call sites are unchanged): every ctx here is forwarded straight to a physics query, and
+ *  nothing in this file touches a device. That is what lets `walk-probe.ts` drive THIS mover — the
+ *  shipped one, not a model of it — from `createHeadlessPhysicsContext` in a plain unit test. */
 export class CharacterMover {
   vVel = 0;
   constructor(
@@ -60,7 +64,7 @@ export class CharacterMover {
   /** Resolve a horizontal move from `pos` by `desired` (Y ignored), sliding along
    *  obstacles. Returns the new world position. Iterative shapecast collide-and-slide. */
   slideHorizontal(
-    ctx: Context,
+    ctx: physics.PhysicsContext,
     world: physics.World,
     pos: [number, number, number],
     desired: [number, number, number],
@@ -120,7 +124,7 @@ export class CharacterMover {
    *  Grounded/walkable only when the ground passes the slope gate; otherwise
    *  integrate gravity so the player slides/falls off too-steep surfaces. */
   applyGravity(
-    ctx: Context,
+    ctx: physics.PhysicsContext,
     world: physics.World,
     pos: [number, number, number],
     dt: number,
@@ -176,7 +180,7 @@ export class CharacterMover {
   /** Full per-tick resolve: horizontal slide (with step-up), then the vertical
    *  gravity/ground pass. `desiredHoriz` is the input move (Y ignored). */
   resolve(
-    ctx: Context,
+    ctx: physics.PhysicsContext,
     world: physics.World,
     pos: [number, number, number],
     desiredHoriz: [number, number, number],
@@ -213,7 +217,7 @@ export class CharacterMover {
  *  step integrates the shove. Game-interaction policy lives with the caller via
  *  `shovable`; the mover itself stays pure locomotion. */
 export function shoveDynamicBodies(
-  ctx: Context,
+  ctx: physics.PhysicsContext,
   world: physics.World,
   capsule: Capsule,
   selfBody: physics.Body,

@@ -22,6 +22,21 @@ export {
 } from "./bake.ts";
 export { MaterialCache, realizeRegion } from "./realize.ts";
 export { caveDressing, caveProxy } from "./themes/cave.ts";
+// Stage 2 of the walkability advisor. The analyzer worker calls `analyzerVerify` off this same
+// untyped view of the module; it needs no GPU context (Task 4's headless physics context) and
+// mutates nothing.
+export {
+  type AnalyzerVerifyOptions,
+  analyzerVerify,
+  type VerifyLane,
+  type VerifyLaneOutcome,
+  type VerifyOutcome,
+  type VerifyReason,
+  type VerifyVerdict,
+} from "./walk-probe.ts";
+/** The dungeon's agent profile (`catalog/agent.json`) — the argument core's `analyzeChunk` /
+ *  `analyzeWorld` / `markUnreachable` are parameterized on, and the one `analyzerVerify` accepts. */
+export { AGENT } from "./walkability.ts";
 // World-spec surface: the dungeon's default world spec, and the validator that
 // `realizeWorldSpec` itself runs over a spec before realizing it.
 export {
