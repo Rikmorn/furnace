@@ -1,5 +1,5 @@
 export type { AnalyzeOptions } from "./analyze.ts";
-export { analyzeChunk, analyzeWorld } from "./analyze.ts";
+export { analyzeChunk, analyzeWorld, reachabilityPass } from "./analyze.ts";
 export type {
   BakedFile,
   BakeFieldWorldOptions,
@@ -87,6 +87,14 @@ export {
   SMOOTH_MAX_STRENGTH,
   undo,
 } from "./ops.ts";
+export type {
+  PlacementCollision,
+  PlacementCollisionGroup,
+} from "./placement-collision.ts";
+export {
+  collisionExtentY,
+  voxelizePlacements,
+} from "./placement-collision.ts";
 export type { FieldHit } from "./raycast.ts";
 export { raycastField } from "./raycast.ts";
 export type { ReconfigureChanges } from "./reconfigure.ts";

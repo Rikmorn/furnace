@@ -5,7 +5,12 @@
 // semantics the probe's bounded grid had no equivalent for (unallocated =
 // rock, per-chunk anchors, extra solidity).
 import { describe, expect, test } from "bun:test";
-import type { AgentProfile, ChunkKey, FieldFlag } from "@furnace/core/field";
+import type {
+  AgentProfile,
+  ChunkKey,
+  FieldFlag,
+  PlacementRecord,
+} from "@furnace/core/field";
 import {
   AIR,
   analyzeChunk,
@@ -17,8 +22,11 @@ import {
   DEFAULT_CELL_SIZE,
   type FieldStore,
   getDensity,
+  type PlacementCollision,
+  reachabilityPass,
   SOLID,
   setDensity,
+  voxelizePlacements,
 } from "@furnace/core/field";
 import { at, expectDefined } from "./_helpers/expect.ts";
 
@@ -404,5 +412,265 @@ describe("analyzeWorld", () => {
     // One air cell, floating: no solid-below anchor anywhere in the chunk.
     setDensity(s, 4, 4, 4, AIR);
     expect(analyzeWorld(s, AGENT).get(CENTER)).toEqual([]);
+  });
+});
+
+// ─── Placement colliders as analyzed solidity (D-F4-5) ───
+
+const placed = (position: [number, number, number]): PlacementRecord => ({
+  archetypeId: "prop",
+  position,
+  quat: [0, 0, 0, 1],
+  scale: [1, 1, 1],
+  variantIndex: 0,
+});
+
+/** World centre of cell (x, z) at the room's floor SURFACE — where a
+ *  base-anchored prop's bottom sits. */
+const onFloor = (x: number, z: number): [number, number, number] => [
+  (x + 0.5) * DEFAULT_CELL_SIZE,
+  FLOOR * DEFAULT_CELL_SIZE,
+  (z + 0.5) * DEFAULT_CELL_SIZE,
+];
+
+describe("voxelizePlacements feeding analyzeChunk", () => {
+  // The producer/consumer pair of the extraSolid contract. The encoding test
+  // above proves the analyzer READS byte-per-sample; these prove the rasterizer
+  // WRITES it, end to end — the seam where a packed producer would have shipped
+  // a plausible flag subset instead of an error.
+  const PROP: PlacementCollision = {
+    kind: "box",
+    halfExtents: [0.3, 0.5, 0.3],
+    anchor: "base",
+  };
+  const PEBBLE: PlacementCollision = {
+    kind: "box",
+    halfExtents: [0.3, 0.1, 0.3],
+    anchor: "base",
+  };
+
+  test("a prop taller than the climb ceiling makes its neighbours flag ledge", () => {
+    const s = room();
+    expect(analyzeChunk(s, CENTER, AGENT)).toEqual([]);
+    const extraSolid = voxelizePlacements(
+      [{ collision: PROP, records: [placed(onFloor(8, 0))] }],
+      s.cellSize,
+    );
+    const ledges = only(
+      analyzeChunk(s, CENTER, AGENT, { extraSolid }),
+      "ledge",
+    );
+    expect(ledges.length).toBeGreaterThan(0);
+    for (const f of ledges) expect(f.severity).toBe("candidate");
+    // 1.0 m of collider standing on the floor, so the columns beside it read a
+    // rise past the climb ceiling — exactly as field rock of the same shape does.
+    expect(
+      ledges.some(
+        (f) => f.cell[0] === 6 && f.cell[1] === FLOOR && f.cell[2] === 0,
+      ),
+    ).toBe(true);
+  });
+
+  test("two props either side of a one-cell lane make it flag narrow", () => {
+    const s = room();
+    const extraSolid = voxelizePlacements(
+      [
+        {
+          collision: PROP,
+          records: [placed(onFloor(6, 0)), placed(onFloor(10, 0))],
+        },
+      ],
+      s.cellSize,
+    );
+    const narrow = only(
+      analyzeChunk(s, CENTER, AGENT, { extraSolid }),
+      "narrow",
+    );
+    expect(narrow.length).toBeGreaterThan(0);
+    for (const f of narrow) expect(f.cell[0]).toBe(8);
+  });
+
+  test("a sub-step pebble changes nothing", () => {
+    const s = room();
+    const extraSolid = voxelizePlacements(
+      [{ collision: PEBBLE, records: [placed(onFloor(8, 0))] }],
+      s.cellSize,
+    );
+    expect(analyzeChunk(s, CENTER, AGENT, { extraSolid })).toEqual([]);
+  });
+});
+
+// ─── Reachability fixtures (D-F4-8) ───
+
+// A hall tall enough to stand a shelf 3.5 m up and still leave the capsule its
+// full 1.8 m of headroom on top of it. Kept to ~24 cells in XZ (one chunk plus
+// a margin) to bound fixture cost.
+const HALL_MIN = -4;
+const HALL_MAX = CHUNK_DIM + 3; // 19, inclusive
+const HALL_TOP = 32; // inclusive top air layer
+
+function hall(): FieldStore {
+  const s = createFieldStore(DEFAULT_CELL_SIZE);
+  airBox(s, HALL_MIN, HALL_MAX, AIR_LO, HALL_TOP, HALL_MIN, HALL_MAX);
+  return s;
+}
+
+/** A feature spanning the hall's full Z extent. */
+const spanHall = (
+  s: FieldStore,
+  x0: number,
+  x1: number,
+  y0: number,
+  y1: number,
+): void => solidBox(s, x0, x1, y0, y1, HALL_MIN, HALL_MAX);
+
+/** The shelf's own floor level: the air cell above the floating slab's top. */
+const SHELF = 15;
+
+/** A slab floating 3.25 m over the only floor, with a 1.0 m block on top of it
+ *  so its surface HAS flags to demote, and a matching block on the main floor so
+ *  the reachable side has flags too. Nothing connects the two levels. */
+function floatingShelfHall(): FieldStore {
+  const s = hall();
+  spanHall(s, 4, 10, 13, 14); // the slab: top at y = 14, surface at y = 15
+  spanHall(s, 8, 10, SHELF, 18); // 1.0 m block ON the shelf
+  solidBox(s, -3, -1, AIR_LO, 4, 0, 4); // 1.0 m block on the main floor
+  return s;
+}
+
+/** The same hall, made traversable: a 0.5 m staircase up to the shelf and a
+ *  0.5 m pit down from the floor. Every flag in here is reachable — the fixture
+ *  is deliberately sensitive to a BFS that lost either sign of the climb. */
+function stairHall(): FieldStore {
+  const s = hall();
+  airBox(s, -3, -1, -1, 0, -3, -1); // a 2-cell (0.5 m) pit: surface at y = -1
+  spanHall(s, 4, 5, AIR_LO, 2); // step 1 → surface y = 3
+  spanHall(s, 6, 7, AIR_LO, 4); // step 2 → surface y = 5
+  spanHall(s, 8, HALL_MAX, AIR_LO, 6); // the shelf → surface y = 7
+  solidBox(s, 12, 14, 7, 10, 0, 4); // 1.0 m block on the shelf
+  return s;
+}
+
+/** World position of the floor surface at cell (x, z), one cell up — a spawn
+ *  point as an author would write it (standing ON the floor, not inside it). */
+const standingAt = (
+  x: number,
+  y: number,
+  z: number,
+): [number, number, number] => [
+  (x + 0.5) * DEFAULT_CELL_SIZE,
+  (y + 0.5) * DEFAULT_CELL_SIZE,
+  (z + 0.5) * DEFAULT_CELL_SIZE,
+];
+
+const flatten = (flags: ReadonlyMap<ChunkKey, FieldFlag[]>): FieldFlag[] =>
+  [...flags.values()].flat();
+
+const identity = (f: FieldFlag): string =>
+  `${f.kind}/${f.severity}/${f.cell.join(",")}/${f.world.join(",")}/${f.chunk}`;
+
+describe("reachabilityPass", () => {
+  test("demotes flags on a shelf no climb can reach", () => {
+    const s = floatingShelfHall();
+    const flags = analyzeWorld(s, AGENT);
+    reachabilityPass(s, AGENT, flags, [standingAt(0, FLOOR, 0)]);
+    const all = flatten(flags);
+    const shelf = all.filter((f) => f.cell[1] === SHELF);
+    const ground = all.filter((f) => f.cell[1] === FLOOR);
+    expect(shelf.length).toBeGreaterThan(0);
+    expect(ground.length).toBeGreaterThan(0);
+    for (const f of shelf) expect(f.unreachable).toBe(true);
+    for (const f of ground) expect(f.unreachable).toBe(false);
+    // The demoted set is EXACTLY the shelf — nothing else drifted out of reach.
+    expect(all.filter((f) => f.unreachable === true).length).toBe(shelf.length);
+  });
+
+  test("a shelf reached by 0.5 m climbs — and a 0.5 m drop — stays reachable", () => {
+    // Sensitive by construction to a BFS that lost the climb: an up-only flood
+    // strands the pit, a down-only flood strands the stairs, and a flood pinned
+    // to Δy = 0 strands both.
+    const s = stairHall();
+    const flags = analyzeWorld(s, AGENT);
+    reachabilityPass(s, AGENT, flags, [standingAt(0, FLOOR, 0)]);
+    const all = flatten(flags);
+    expect(all.length).toBeGreaterThan(0);
+    const levels = new Set(all.map((f) => f.cell[1]));
+    for (const y of [-1, FLOOR, 3, 5, 7]) expect(levels.has(y)).toBe(true);
+    for (const f of all) expect(f.unreachable).toBe(false);
+  });
+
+  test("demotes, never deletes: the flag set is identical either side of the pass", () => {
+    const s = floatingShelfHall();
+    const flags = analyzeWorld(s, AGENT);
+    const before = flatten(flags).map(identity);
+    reachabilityPass(s, AGENT, flags, [standingAt(0, FLOOR, 0)]);
+    const after = flatten(flags).map(identity);
+    expect(after).toEqual(before);
+    expect([...flags.keys()]).toEqual([...analyzeWorld(s, AGENT).keys()]);
+  });
+
+  test("no seeds means no pass at all — every flag keeps an unset verdict", () => {
+    const s = floatingShelfHall();
+    const flags = analyzeWorld(s, AGENT);
+    reachabilityPass(s, AGENT, flags, []);
+    for (const f of flatten(flags)) expect(f.unreachable).toBeUndefined();
+  });
+
+  test("a seed in mid-air falls to the floor below it", () => {
+    const s = floatingShelfHall();
+    const airborne = analyzeWorld(s, AGENT);
+    reachabilityPass(s, AGENT, airborne, [standingAt(0, 8, 0)]);
+    const grounded = analyzeWorld(s, AGENT);
+    reachabilityPass(s, AGENT, grounded, [standingAt(0, FLOOR, 0)]);
+    expect(flatten(airborne).map((f) => f.unreachable)).toEqual(
+      flatten(grounded).map((f) => f.unreachable),
+    );
+    expect(flatten(airborne).some((f) => f.unreachable === true)).toBe(true);
+  });
+
+  test("a buried seed is unusable, and no usable seed means no demotions", () => {
+    const s = floatingShelfHall();
+    const flags = analyzeWorld(s, AGENT);
+    // Deep under the hall's rock floor: solid, so nothing can stand there.
+    expect(() =>
+      reachabilityPass(s, AGENT, flags, [[0.125, -5, 0.125]]),
+    ).not.toThrow();
+    for (const f of flatten(flags)) expect(f.unreachable).toBeUndefined();
+  });
+
+  test("extraSolid participates: a prop sealing the seed cell unseats the seed", () => {
+    const s = floatingShelfHall();
+    const flags = analyzeWorld(s, AGENT);
+    const bits = new Uint8Array(CHUNK_SAMPLES);
+    // Fill the whole column above the seed cell, so falling finds no surface.
+    for (let y = 0; y < CHUNK_DIM; y++) bits[CHUNK_DIM * y] = 1;
+    reachabilityPass(s, AGENT, flags, [standingAt(0, FLOOR, 0)], {
+      extraSolid: new Map([[CENTER, bits]]),
+    });
+    for (const f of flatten(flags)) expect(f.unreachable).toBeUndefined();
+  });
+
+  test("a second seed ON the shelf clears the demotion (the pass is re-runnable)", () => {
+    const s = floatingShelfHall();
+    const flags = analyzeWorld(s, AGENT);
+    const ground = standingAt(0, FLOOR, 0);
+    reachabilityPass(s, AGENT, flags, [ground]);
+    expect(flatten(flags).some((f) => f.unreachable === true)).toBe(true);
+    reachabilityPass(s, AGENT, flags, [ground, standingAt(5, SHELF, 0)]);
+    for (const f of flatten(flags)) expect(f.unreachable).toBe(false);
+  });
+
+  test("rejects an invalid agent profile and a wrongly-encoded extraSolid", () => {
+    const s = floatingShelfHall();
+    const flags = analyzeWorld(s, AGENT);
+    const seeds: [number, number, number][] = [standingAt(0, FLOOR, 0)];
+    expect(() =>
+      reachabilityPass(s, { ...AGENT, clearance: 1.0 }, flags, seeds),
+    ).toThrow(/clearance/);
+    expect(() =>
+      reachabilityPass(s, AGENT, flags, seeds, {
+        extraSolid: new Map([[CENTER, new Uint8Array(CHUNK_SAMPLES / 8)]]),
+      }),
+    ).toThrow(/one BYTE per sample/);
   });
 });

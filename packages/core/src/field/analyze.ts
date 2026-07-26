@@ -10,6 +10,7 @@
 // what the capsule actually touches, so analysing at that resolution is exact
 // w.r.t. the runtime geometry — the research's "cells << capsule radius"
 // condition applies to analysing SMOOTH source geometry, which this is not.
+import { warn } from "../log/internal.ts";
 import {
   CHUNK_DIM,
   CHUNK_SAMPLES,
@@ -17,6 +18,7 @@ import {
   parseChunkKey,
   sampleToWorld,
   voxelChunk,
+  worldToVoxel,
 } from "./chunks.ts";
 import type {
   AgentProfile,
@@ -144,6 +146,28 @@ function assertExtraSolidValid(
       throw new Error(
         `analyze: extraSolid["${key}"] has length ${bits.length}, expected ${CHUNK_SAMPLES} — one BYTE per sample in localIndex order, non-zero = solid (a packed bitset is not the encoding)`,
       );
+}
+
+/** The shared entry gate of every pass here: validate setup-loud, then open a
+ *  fresh solidity view (per call, so its chunk memo can never outlive the store
+ *  state it was taken against). */
+function viewFor(
+  store: FieldStore,
+  profile: AgentProfile,
+  opts: AnalyzeOptions | undefined,
+): SolidView {
+  assertAgentProfileValid(profile);
+  const extras = opts?.extraSolid;
+  if (extras !== undefined) assertExtraSolidValid(extras);
+  return {
+    store,
+    extras,
+    cx: Number.NaN,
+    cy: Number.NaN,
+    cz: Number.NaN,
+    density: undefined,
+    extra: undefined,
+  };
 }
 
 /** Rock at (x,y,z) — the `collider.ts` predicate (density < 0), widened by the
@@ -399,18 +423,7 @@ export function analyzeChunk(
   profile: AgentProfile,
   opts?: AnalyzeOptions,
 ): FieldFlag[] {
-  assertAgentProfileValid(profile);
-  const extras = opts?.extraSolid;
-  if (extras !== undefined) assertExtraSolidValid(extras);
-  const v: SolidView = {
-    store,
-    extras,
-    cx: Number.NaN,
-    cy: Number.NaN,
-    cz: Number.NaN,
-    density: undefined,
-    extra: undefined,
-  };
+  const v = viewFor(store, profile, opts);
   const m = metricsFor(profile, store.cellSize);
   const [cx, cy, cz] = parseChunkKey(key);
   const bx = cx * CHUNK_DIM;
@@ -465,4 +478,148 @@ export function analyzeWorld(
   for (const key of store.chunks.keys())
     out.set(key, analyzeChunk(store, key, profile, opts));
   return out;
+}
+
+/** Global-cell identity in the reached set. Strings, as the flag dedupe above
+ *  uses: the coords are unbounded ints in both directions, so no packed integer
+ *  key is available without picking an arbitrary world bound. */
+const cellKey = (x: number, y: number, z: number): string => `${x},${y},${z}`;
+
+/** The floor surface a seed STANDS on: its own cell if that is already a floor
+ *  anchor, else the first one straight down — the mover falls, so descending is
+ *  the only honest snap. A seed inside rock has no such surface and is refused.
+ *
+ *  The descent terminates on the data, like {@link ceilingAbove}: unallocated
+ *  space reads SOLID, so a column falling out of the allocated region stops at
+ *  its edge. */
+function seedAnchor(
+  v: SolidView,
+  cellSize: number,
+  seed: readonly [number, number, number],
+): [number, number, number] | undefined {
+  const x = worldToVoxel(seed[0], cellSize);
+  const z = worldToVoxel(seed[2], cellSize);
+  let y = worldToVoxel(seed[1], cellSize);
+  if (isSolid(v, x, y, z)) return undefined;
+  while (!isSolid(v, x, y - 1, z)) y--;
+  return [x, y, z];
+}
+
+/** Floor-connected flood from the resolved seeds: 4-connected in XZ, any
+ *  |Δy| ≤ `climbCells` per step.
+ *
+ *  Nodes are {@link isFloorAnchor} cells — the SAME walkable notion the column
+ *  pass anchors on, minus its headroom test. Dropping the headroom test is
+ *  deliberate: requiring clearance would cut the flood at every crawlspace and
+ *  demote everything beyond it, whereas over-connecting only ever demotes LESS.
+ *  For a demote-only pass, less is the miss-safe direction.
+ *
+ *  Bounded by the data, with no artificial budget: a floor anchor needs an air
+ *  cell, air exists only in allocated chunks, so the reached set can never
+ *  exceed the store's allocated cells. */
+function floodReachable(
+  v: SolidView,
+  climbCells: number,
+  anchors: readonly [number, number, number][],
+): Set<string> {
+  const reached = new Set<string>();
+  const stack: [number, number, number][] = [];
+  for (const a of anchors) {
+    const key = cellKey(a[0], a[1], a[2]);
+    if (reached.has(key)) continue;
+    reached.add(key);
+    stack.push(a);
+  }
+  while (stack.length > 0) {
+    const cur = stack.pop();
+    if (cur === undefined) break;
+    const [x, y, z] = cur;
+    for (const [dx, dz] of DIRS) {
+      const nx = x + dx;
+      const nz = z + dz;
+      for (let ny = y - climbCells; ny <= y + climbCells; ny++) {
+        const key = cellKey(nx, ny, nz);
+        if (reached.has(key) || !isFloorAnchor(v, nx, ny, nz)) continue;
+        reached.add(key);
+        stack.push([nx, ny, nz]);
+      }
+    }
+  }
+  return reached;
+}
+
+/**
+ * Tags every flag the agent cannot walk to from `seeds` with `unreachable`
+ * (D-F4-8) — a triage DEMOTION, applied in place. It never deletes a flag, never
+ * changes a severity, and never touches the store.
+ *
+ * The filter is a floor-connected flood from each seed's floor surface: four XZ
+ * neighbours, any rise or drop within `climbCeiling` (the same `climbCells` the
+ * ledge severity band uses, so "climbable" means one thing in this module).
+ * Every flag anchors on a floor cell, so a flag is reachable exactly when its
+ * anchor cell is in the flood.
+ *
+ * Miss-safety comes from demote-not-delete, NOT from the filter being sound —
+ * which it is not, and deliberately so:
+ * - **Falling is ignored.** A shelf the mover can only drop off, or reach by
+ *   falling into, reads unreachable. Modelling it would need the mover's fall
+ *   arc, which is stage 2's business.
+ * - Headroom is ignored, so the flood crosses gaps the capsule cannot fit
+ *   through, and coarse cells (`cellSize` at or above `climbCeiling`) leave
+ *   `climbCells` at 0, which strands everything off the seed's own level.
+ *
+ * Both errors are visible in the UI as a hidden-by-default filter, never as a
+ * missing flag. Present the `unreachable` set; do not drop it.
+ *
+ * @param flags - The map {@link analyzeWorld} returns (or an equivalent set of
+ * per-chunk arrays). MUTATED: every flag gets `unreachable` written — `false`
+ * when reached, `true` when not. An unwritten (`undefined`) tag therefore means
+ * this pass never ran over that flag, which is a third state worth showing
+ * differently from "reachable".
+ * @param seeds - WORLD positions the agent starts from (`playerStart`, spawn
+ * points). Each snaps to the floor surface at or below it; a seed buried in rock
+ * is unusable and warns. An empty list — or a list where no seed is usable —
+ * skips the pass entirely, leaving every tag as it was: with nothing known to be
+ * reachable, tagging would demote the whole world.
+ * @throws Error - setup-loud, as {@link analyzeChunk}: an inconsistent agent
+ * profile, or an `extraSolid` buffer of the wrong length.
+ */
+export function reachabilityPass(
+  store: FieldStore,
+  profile: AgentProfile,
+  flags: ReadonlyMap<ChunkKey, FieldFlag[]>,
+  seeds: readonly [number, number, number][],
+  opts?: AnalyzeOptions,
+): void {
+  const v = viewFor(store, profile, opts);
+  if (seeds.length === 0) return;
+  // A clean world is the common case in the edit loop; flooding it to tag
+  // nothing is pure cost.
+  if (![...flags.values()].some((list) => list.length > 0)) return;
+
+  const anchors: [number, number, number][] = [];
+  for (const seed of seeds) {
+    const anchor = seedAnchor(v, store.cellSize, seed);
+    if (anchor === undefined)
+      warn(
+        "field",
+        "reachabilityPass: seed has no floor surface below it (buried or non-finite) — ignored",
+        { seed },
+      );
+    else anchors.push(anchor);
+  }
+  if (anchors.length === 0) {
+    warn(
+      "field",
+      "reachabilityPass: no usable seed — skipped, no flags demoted",
+      { seeds: seeds.length },
+    );
+    return;
+  }
+
+  const { climbCells } = metricsFor(profile, store.cellSize);
+  const reached = floodReachable(v, climbCells, anchors);
+  for (const list of flags.values())
+    for (const f of list)
+      f.unreachable = !reached.has(cellKey(f.cell[0], f.cell[1], f.cell[2]));
 }

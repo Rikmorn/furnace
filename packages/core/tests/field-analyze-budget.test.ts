@@ -5,10 +5,15 @@
 // ceiling is generous on purpose: hard-fail only above it, the `[f4-budget]`
 // log line is the real deliverable.
 import { describe, expect, test } from "bun:test";
-import type { AgentProfile, FieldStore } from "@furnace/core/field";
+import type {
+  AgentProfile,
+  FieldStore,
+  PlacementCollision,
+} from "@furnace/core/field";
 import {
   AIR,
   analyzeChunk,
+  analyzeWorld,
   BUILTIN_TABLE,
   CHUNK_DIM,
   chunkKey,
@@ -17,12 +22,21 @@ import {
   createOpLog,
   DEFAULT_CELL_SIZE,
   generatorById,
+  reachabilityPass,
   setDensity,
+  voxelizePlacements,
 } from "@furnace/core/field";
 import { at } from "./_helpers/expect.ts";
 
 const CEILING_MS = 5;
 const TARGET_MS = 2;
+/** Whole-world budgets, not per-chunk ones: the flood and the rasterizer both
+ *  run once per analysis over everything, so they are priced against the
+ *  whole-world `analyzeWorld` they bracket rather than the 16³ chunk ceiling. */
+const REACH_CEILING_MS = 100;
+const VOXELIZE_CEILING_MS = 100;
+/** Denser than any bake ships — 6400 props over the cave's footprint. */
+const PROP_RECORDS = 6400;
 
 /** The dungeon's capsule (`packages/dungeon/catalog/agent.json`), copied — core
  *  tests must not import a consumer package. */
@@ -80,17 +94,23 @@ function openColumn(headroom: number): FieldStore {
 const median = (sorted: readonly number[]): number =>
   at(sorted, (sorted.length - 1) >> 1);
 
+/** The F3b default cave, carved once per call — the shared realistic fixture. */
+function carvedCave(): FieldStore {
+  const store = createFieldStore();
+  const cave = generatorById("cave");
+  commitGenerator(store, createOpLog(), cave, {
+    params: cave.defaults,
+    seed: SEED,
+    region: REGION,
+    policy: "replace",
+    table: BUILTIN_TABLE,
+  });
+  return store;
+}
+
 describe("analyzeChunk — budget (P-F4-1)", () => {
   test("per-chunk median over a carved cave stays under the ceiling", () => {
-    const store = createFieldStore();
-    const cave = generatorById("cave");
-    commitGenerator(store, createOpLog(), cave, {
-      params: cave.defaults,
-      seed: SEED,
-      region: REGION,
-      policy: "replace",
-      table: BUILTIN_TABLE,
-    });
+    const store = carvedCave();
     const keys = [...store.chunks.keys()];
 
     for (let pass = 0; pass < WARMUP_PASSES; pass++)
@@ -164,5 +184,76 @@ describe("analyzeChunk — budget (P-F4-1)", () => {
     expect(tall).toBeGreaterThan(short);
     expect(tall).toBeLessThan(CEILING_MS);
     expect(tall).toBeLessThan(RUNAWAY_MS);
+  });
+});
+
+describe("reachabilityPass — budget (P-F4-1)", () => {
+  test("one whole-world flood costs a fraction of the analysis that fed it", () => {
+    // Unlike the column pass this is NOT per-chunk work: the flood is
+    // whole-world by nature (connectivity does not decompose), so it is priced
+    // against the whole-world analysis it post-processes rather than the 5 ms
+    // per-chunk ceiling. Cost is O(floor anchors × 4 × (2·climbCells + 1)) —
+    // bounded by allocated cells, with no search depth to run away with.
+    const store = carvedCave();
+    const t0 = performance.now();
+    const flags = analyzeWorld(store, AGENT);
+    const analysisMs = performance.now() - t0;
+    const all = [...flags.values()].flat();
+    // Seed from a flag's own floor-surface position: it lands on that flag's
+    // anchor cell exactly, which makes the vacuity guard below meaningful.
+    const seed = at(all, 0).world;
+    const t1 = performance.now();
+    reachabilityPass(store, AGENT, flags, [
+      [at(seed, 0), at(seed, 1), at(seed, 2)],
+    ]);
+    const floodMs = performance.now() - t1;
+    const demoted = all.filter((f) => f.unreachable === true).length;
+
+    console.log(
+      `[f4-budget] reachabilityPass over ${store.chunks.size} cave chunks: ` +
+        `${floodMs.toFixed(1)} ms for ${all.length} flags (${demoted} demoted); ` +
+        `the analyzeWorld that produced them cost ${analysisMs.toFixed(1)} ms ` +
+        `(ceiling ${REACH_CEILING_MS})`,
+    );
+
+    // Vacuity guards: real flags, and the seed's own flag came back reachable.
+    expect(all.length).toBeGreaterThan(0);
+    expect(at(all, 0).unreachable).toBe(false);
+    expect(floodMs).toBeLessThan(REACH_CEILING_MS);
+  });
+
+  test("voxelizePlacements stays proportional to the cells its props cover", () => {
+    // A denser prop population than any bake ships, to price the rasterizer's
+    // per-record constant rather than one archetype's shape.
+    const records = Array.from({ length: PROP_RECORDS }, (_, i) => ({
+      archetypeId: "rock",
+      position: [(i % 80) * 0.25, 1, Math.floor(i / 80) * 0.25] as [
+        number,
+        number,
+        number,
+      ],
+      quat: [0, 0, 0, 1] as [number, number, number, number],
+      scale: [1, 1, 1] as [number, number, number],
+      variantIndex: 0,
+    }));
+    const collision: PlacementCollision = {
+      kind: "box",
+      halfExtents: [0.4, 0.35, 0.4],
+      anchor: "base",
+    };
+    const t0 = performance.now();
+    const extra = voxelizePlacements(
+      [{ collision, records }],
+      DEFAULT_CELL_SIZE,
+    );
+    const ms = performance.now() - t0;
+
+    console.log(
+      `[f4-budget] voxelizePlacements ${PROP_RECORDS} records: ${ms.toFixed(1)} ms ` +
+        `over ${extra.size} chunks (ceiling ${VOXELIZE_CEILING_MS})`,
+    );
+
+    expect(extra.size).toBeGreaterThan(0);
+    expect(ms).toBeLessThan(VOXELIZE_CEILING_MS);
   });
 });
