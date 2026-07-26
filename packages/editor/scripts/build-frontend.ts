@@ -19,6 +19,11 @@ const result = await Bun.build({
     // (new Worker("/field-worker.js", {type:"module"})). It runs engine code
     // (@furnace/core/field) directly — no /engine.js, no extension surface.
     "src/frontend/field-worker.ts",
+    // The walkability analyzer worker, its own bundle for the same reason
+    // (new Worker("/analyzer-worker.js", {type:"module"})). It runs engine code
+    // directly AND loads /engine.js at runtime for the stage-2 verify, which
+    // drives the project's own mover.
+    "src/frontend/analyzer-worker.ts",
   ],
   outdir: "dist/frontend",
   minify: true,

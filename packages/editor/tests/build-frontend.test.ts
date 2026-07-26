@@ -17,4 +17,8 @@ test("build-frontend produces index.html + bundled assets", async () => {
   // chrome can spawn it by URL: new Worker("/generation-worker.js", {type:
   // "module"}). It must land un-hashed at the outdir root or that URL 404s.
   expect(existsSync(join(DIST, "generation-worker.js"))).toBe(true);
+  // Same contract for the other two by-URL workers: /field-worker.js (the field
+  // remesher) and /analyzer-worker.js (the walkability advisor, F4).
+  expect(existsSync(join(DIST, "field-worker.js"))).toBe(true);
+  expect(existsSync(join(DIST, "analyzer-worker.js"))).toBe(true);
 }, 60_000);
