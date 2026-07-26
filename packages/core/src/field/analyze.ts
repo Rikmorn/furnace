@@ -36,13 +36,6 @@ const WALL_PROBE_M = 1.0;
 const NARROW_MIN_SIDES = 2;
 /** Float slack on the clearance-vs-capsule consistency check (authored data). */
 const CLEARANCE_EPS = 1e-9;
-/** Cap on the ceiling search, in capsule clearances. The field is unbounded, so
- *  a column open over a tall cavern would otherwise scan as far as the data
- *  reaches. Capping only ever TIGHTENS the air volume a rise is judged against
- *  (D-F4-6's bound is an upper limit), and 4 capsule heights is far past
- *  anything a mover could climb. */
-const CEILING_SCAN_CLEARANCES = 4;
-
 /** The 4 cardinal XZ neighbours. */
 const DIRS = [
   [1, 0],
@@ -74,7 +67,6 @@ type ColumnMetrics = {
   torsoCells: number;
   stepCells: number;
   climbCells: number;
-  ceilingScanCells: number;
 };
 
 type PushFlag = (
@@ -94,7 +86,6 @@ function metricsFor(profile: AgentProfile, cellSize: number): ColumnMetrics {
     torsoCells: Math.ceil(TORSO_PROBE_M / cellSize),
     stepCells: Math.floor(profile.stepHeight / cellSize),
     climbCells: Math.floor(profile.climbCeiling / cellSize),
-    ceilingScanCells: CEILING_SCAN_CLEARANCES * clearCells,
   };
 }
 
@@ -149,7 +140,11 @@ const isFloorAnchor = (
 /** Air cells from (x,y,z) upward, counted to at most `limit`. Stopping short of
  *  `limit` therefore always means rock stopped it — the sparse-store equivalent
  *  of the donor's "open to the top of the grid" escape hatch, which this field
- *  has no need of (there is no grid top; unallocated space is rock). */
+ *  has no need of (there is no grid top; unallocated space is rock).
+ *
+ *  Capping is information-preserving HERE, unlike in {@link ceilingAbove}: every
+ *  caller only asks "is the run at least `limit`?", and `min(run, limit) < limit`
+ *  iff `run < limit`. Do not symmetrize the two. */
 function airRun(
   v: SolidView,
   x: number,
@@ -163,17 +158,21 @@ function airRun(
 }
 
 /** The CEILING of the air volume a capsule at (x,y,z) stands in: the first rock
- *  cell above it, or `y + limit` when the column is open past the cap. */
-function ceilingAbove(
-  v: SolidView,
-  x: number,
-  y: number,
-  z: number,
-  limit: number,
-): number {
-  const stop = y + limit;
+ *  cell above it, searched with NO cap.
+ *
+ *  A cap here is not a cheap safety net — it is the `stepCells + 2` mistake in
+ *  disguise. Any ceiling lower than the true one silently drops every rise above
+ *  it that stands in the volume the mover occupies, so a plateau in a tall
+ *  cavern reads clean: a hard false-negative cliff at exactly the cap, which is
+ *  the class D-F4-6 exists to forbid. (Measured: a 4-clearance cap lost a 8.00 m
+ *  rise entirely while flagging 7.75 m, and bought no measurable time.)
+ *
+ *  The scan terminates on the data, not on a counter: unallocated chunks read
+ *  SOLID and a store holds finitely many chunks, so any column runs out of air
+ *  at the top of its topmost allocated chunk. */
+function ceilingAbove(v: SolidView, x: number, y: number, z: number): number {
   let cy = y + 1;
-  while (cy < stop && !isSolid(v, x, cy, z)) cy++;
+  while (!isSolid(v, x, cy, z)) cy++;
   return cy;
 }
 
@@ -256,7 +255,7 @@ function scanAnchor(
   push: PushFlag,
 ): void {
   const [x, y, z] = anchor;
-  const ceiling = ceilingAbove(v, x, y, z, m.ceilingScanCells);
+  const ceiling = ceilingAbove(v, x, y, z);
   for (const [dx, dz] of DIRS) {
     const ax = x + dx;
     const az = z + dz;

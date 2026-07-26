@@ -92,6 +92,16 @@ function room(): FieldStore {
   return s;
 }
 
+// A cavern taller than any cap a scan might be tempted to impose: 60 air cells
+// (15 m) of headroom, with a plateau whose top sits 40 cells (10 m) above the
+// floor — well past 4 capsule clearances (32 cells), and still inside the air
+// volume the mover stands in. Kept narrower in XZ than `room()` (walls 4 cells
+// beyond the analysed chunk, still clear of wallCellsXZ) to bound fixture cost.
+const TALL_MIN = -4;
+const TALL_MAX = CHUNK_DIM + 3; // inclusive
+const TALL_CEILING = 61;
+const PLATEAU_TOP = 40;
+
 /** A feature spanning the room's full Z extent, as the donor's fixtures did. */
 const spanZ = (
   s: FieldStore,
@@ -170,6 +180,25 @@ describe("analyzeChunk — walkable column pass", () => {
     expect(ledges.length).toBeGreaterThan(0);
     for (const f of ledges) {
       expect(f.cell[0]).toBe(8); // the LOW cell, where the mover stands
+      expect(f.severity).toBe("candidate");
+    }
+  });
+
+  test("a plateau far above the floor still flags ledge in a TALL cavern", () => {
+    // The other side of the ceiling bound, and the case that caught a shipped
+    // regression: a "safety" cap on the ceiling SEARCH is the stepCells+2
+    // mistake wearing a bigger number. Capping at 4 clearances (32 cells =
+    // 8.00 m) flagged a 7.75 m rise and silently lost this one — a hard
+    // false-negative cliff at exactly the cap. The plateau below stands in the
+    // SAME air volume as the mover, so it is a genuine, mover-relevant rise, and
+    // the only correct bound is the real ceiling.
+    const s = createFieldStore(DEFAULT_CELL_SIZE);
+    airBox(s, TALL_MIN, TALL_MAX, AIR_LO, TALL_CEILING - 1, TALL_MIN, TALL_MAX);
+    solidBox(s, 9, TALL_MAX, AIR_LO, PLATEAU_TOP, TALL_MIN, TALL_MAX);
+    const ledges = only(analyzeChunk(s, CENTER, AGENT), "ledge");
+    expect(ledges.length).toBeGreaterThan(0);
+    for (const f of ledges) {
+      expect(f.cell[0]).toBe(8);
       expect(f.severity).toBe("candidate");
     }
   });
