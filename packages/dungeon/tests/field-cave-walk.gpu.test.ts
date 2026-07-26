@@ -939,7 +939,7 @@ describe("field cave walk — P-F3-1 stepped-floor probe", () => {
   );
 
   test.skipIf(!bunWebGpuAvailable())(
-    "stepped-floor capsule fuzz-walk matrix (deliverable, not blocker)",
+    "stepped-floor capsule fuzz-walk matrix (walk = deliverable; quiet-lane tooth = blocker)",
     async () => {
       const records: LaneRec[] = [];
       const quiets: QuietRec[] = [];

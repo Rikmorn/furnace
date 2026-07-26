@@ -34,29 +34,28 @@ export { CAVE_REGION };
 /** Seed for the default-cave rows (the P-F4-1 fixture's). The P-F3-1 matrix seeds itself. */
 export const CAVE_SEED = 1;
 
-function caveGenerator(): field.GeneratorDef {
-  const cave = field.generatorById("cave");
-  if (cave === undefined) throw new Error("measure: no cave generator");
-  return cave;
-}
-
 /** The cave generator's own schema defaults — theme `mixed`, verticality 0.5, which is NOT any
  *  cell of the P-F3-1 matrix (that one sweeps verticality 0.25 / 0.75). */
 export const caveDefaults = (): Record<string, unknown> =>
-  caveGenerator().defaults;
+  field.generatorById("cave").defaults;
 
 export function carveCave(
   params: Record<string, unknown>,
   seed: number,
 ): field.FieldStore {
   const store = field.createFieldStore();
-  field.commitGenerator(store, field.createOpLog(), caveGenerator(), {
-    params,
-    seed,
-    region: CAVE_REGION,
-    policy: "replace",
-    table: field.BUILTIN_TABLE,
-  });
+  field.commitGenerator(
+    store,
+    field.createOpLog(),
+    field.generatorById("cave"),
+    {
+      params,
+      seed,
+      region: CAVE_REGION,
+      policy: "replace",
+      table: field.BUILTIN_TABLE,
+    },
+  );
   return store;
 }
 
@@ -183,7 +182,6 @@ export function scatterProps(
   overrides: Record<string, unknown> = {},
 ): { extraSolid: Map<field.ChunkKey, Uint8Array>; props: number } {
   const scatter = field.generatorById("scatter");
-  if (scatter === undefined) throw new Error("measure: no scatter generator");
   const out: { id: string; records: field.PlacementRecord[] }[] = [];
   for (const [id, archetype] of catalog) {
     const hints = archetype.scatter ?? {};
