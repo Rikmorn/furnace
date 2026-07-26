@@ -50,12 +50,15 @@ const VOXELIZE_CEILING_MS = 100;
 const REACH_VS_ANALYSIS = 1;
 /** The same kind of bar for the pit sweep, which is TWO floods plus a scan of
  *  each column's air pocket to its ceiling. Measured 1.21–1.34x of the analysis
- *  over five warm runs on this cave (2026-07-26), so 2.5x is ~2x headroom.
- *  Deliberately slacker than the flood's bar, and the number is the point: a pit
- *  sweep is NOT cheaper than the analysis it accompanies — budget it as a second
- *  whole-world pass of the same order. Cost tracks OPEN AIR as well as floor
- *  area, so it is fixture-dependent: this is a regression tooth for this cave,
- *  not a portable bound. */
+ *  over five warm runs on this cave (2026-07-26); an independent reviewer saw up
+ *  to 1.79x over eight runs on another machine, so the real spread is wider than
+ *  one session shows and 2.5x is nearer 1.4x headroom than 2x. A failure here is
+ *  more likely to be a slow box than a regression — read the logged ratio before
+ *  concluding either. Deliberately slacker than the flood's bar, and the number
+ *  is the point: a pit sweep is NOT cheaper than the analysis it accompanies —
+ *  budget it as a second whole-world pass of the same order. Cost tracks OPEN
+ *  AIR as well as floor area, so it is fixture-dependent: a regression tooth for
+ *  this cave, not a portable bound. */
 const PIT_VS_ANALYSIS = 2.5;
 /** Depth of the shaft the pit case digs: 8 cells = 2.0 m, past climbCeiling. */
 const SHAFT_CELLS = 8;

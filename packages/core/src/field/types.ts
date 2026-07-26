@@ -555,10 +555,12 @@ export type FieldFlag = {
    *  replaced per owner chunk on re-analysis — EXCEPT `pit`, whose producer is
    *  whole-world (see {@link FieldFlag.chunks}). */
   readonly chunk: ChunkKey;
-  /** Every chunk this flag's REGION touches, sorted — `pit` only, absent on the
-   *  per-cell kinds. A pit region can span chunks, so `chunk` (the anchor's own)
-   *  is not a complete owner: pit flags do NOT fit the replace-per-owner-chunk
-   *  model and must be replaced wholesale, per `detectPits` run. */
+  /** Every chunk this flag's REGION touches — `pit` only, absent on the
+   *  per-cell kinds. Sorted by KEY STRING, which is determinism and not spatial
+   *  order (`"10,0,0"` precedes `"2,0,0"`). A pit region can span chunks, so
+   *  `chunk` (the anchor's own) is not a complete owner: pit flags do NOT fit
+   *  the replace-per-owner-chunk model and must be replaced wholesale, per
+   *  `detectPits` run. */
   readonly chunks?: readonly ChunkKey[];
   /** Region size in standable columns — `pit` only, absent on the per-cell
    *  kinds (where it would always be 1). The panel's "how big is this trap". */

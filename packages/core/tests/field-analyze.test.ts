@@ -1050,6 +1050,32 @@ describe("detectPits", () => {
     expect(detectPits(pitHall(), AGENT, [[0.125, -50, 0.125]])).toEqual([]);
   });
 
+  test("markUnreachable leaves pit flags alone, even in one mixed list", () => {
+    // The footgun this guards: a panel's natural shape is ONE array, and this
+    // flood cannot enter a pit by construction — so without the skip every pit
+    // would come back `unreachable === true` and vanish behind the documented
+    // default filter. The module's most valuable finding, silently.
+    const s = pitHall();
+    const pits = detectPits(s, AGENT, [GROUND_SEED]);
+    expect(pits.length).toBe(1);
+    const mixed = analyzeWorld(s, AGENT);
+    const own = expectDefined(mixed.get(at(pits, 0).chunk), "the pit's chunk");
+    own.push(...pits);
+    markUnreachable(s, AGENT, mixed, [GROUND_SEED]);
+    for (const f of flatten(mixed))
+      expect([f.kind, f.unreachable === undefined]).toEqual([
+        f.kind,
+        f.kind === "pit",
+      ]);
+    // Vacuity: the flood really did run and really would have demoted this one
+    // (the pit floor's own per-cell flags are down there and are tagged true).
+    const below = flatten(mixed).filter(
+      (f) => f.kind !== "pit" && at(f.cell, 1) === PIT_FLOOR,
+    );
+    expect(below.length).toBeGreaterThan(0);
+    for (const f of below) expect(f.unreachable).toBe(true);
+  });
+
   test("several seeds are ONE set: a pit with a spawn in it is not a pit", () => {
     // "Can return" means reaching ANY seed, not every seed. A hollow the author
     // deliberately spawns into is somewhere the agent is meant to be.

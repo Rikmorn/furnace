@@ -1168,12 +1168,20 @@ channel** (uniform|indexed palette encoding behind accessors — `getMaterial` /
   `slopeLimitDeg`, `skin` (the mover's collide-and-slide contact margin, which must be
   positive and below `radius`). Cell thresholds are derived from it against
   `store.cellSize` ASYMMETRICALLY on purpose — `ceil` on what the capsule REQUIRES
-  (clearance, radius, probe heights), `floor` on what it is ALLOWED (step, climb) — so
-  every threshold lands strictly tighter than the real mover and borderline geometry
-  surfaces rather than rounding away. The `narrow` pinch width is the one threshold that
-  is NOT rounded to cells at all (it is a metre comparison; only its scan bound rounds
-  up). `slopeLimitDeg` is validated but NOT read by this pass (it is carried for stage-2
-  movers; a voxel column has no slope concept).
+  (clearance, radius, probe heights), `floor` on what it is ALLOWED (step, climb) — but
+  be exact about what that buys, because the halves differ. **Against a lattice-quantized
+  measurement it is EXACT, not merely tight** (`clearCells`, `stepCells`, `climbCells`):
+  floor surfaces sit at whole multiples of `cellSize` and the runtime collider is
+  `cellSize` boxes on that same lattice, so a rise between anchors is exactly `Δy·cellSize`
+  and a headroom exactly `run·cellSize`; for integer `n`, `n ≤ floor(t/cellSize)` ⟺
+  `n·cellSize ≤ t`. These ARE the mover's predicates — there is no borderline band for the
+  rounding to shave off, and **no safe direction to reason from**. Against a continuous
+  quantity it really is a bound, and the `ceil` over-demands as intended: the PROBE REACHES
+  (`wallCellsXZ`, `wallProbeUp`, `torsoCells`) look slightly further than the capsule does.
+  The `narrow` pinch width is the one threshold that is NOT rounded to cells at all (it is
+  a metre comparison; only its scan bound rounds up).
+  `slopeLimitDeg` is validated but NOT read by
+  this pass (it is carried for stage-2 movers; a voxel column has no slope concept).
   A `FieldFlag` is `{kind, severity, cell, world, chunk, unreachable?, chunks?, cells?}`.
   `FlagKind`: `low-clearance` (headroom below `clearance`), `ledge` (a neighbour floor
   higher than `stepHeight`), `lip-near-wall` (a sub-step lip with a wall within capsule
@@ -1200,8 +1208,8 @@ channel** (uniform|indexed palette encoding behind accessors — `getMaterial` /
   centre under it (cell XZ centre, Y of its bottom face); `chunk` is the OWNER — the chunk
   whose pass emitted the flag, which for a `low-clearance` anchor may differ from the
   chunk holding `cell`, so re-analysing a chunk can wholesale replace what its own pass
-  produced. `chunks` (every chunk the region touches, sorted) and `cells` (region size in
-  columns) are present on `pit` flags ONLY — and they are the tell that a pit does not
+  produced. `chunks` (every chunk the region touches, sorted by KEY STRING — determinism,
+  not spatial order) and `cells` (region size in columns) are present on `pit` flags ONLY — and they are the tell that a pit does not
   fit the per-owner-chunk replacement model at all: it is produced whole-world and must
   be replaced wholesale per `detectPits` run.
   `analyzeChunk(store, key, profile, opts?)` anchors on that chunk's own 16³ cells and
@@ -1267,12 +1275,17 @@ channel** (uniform|indexed palette encoding behind accessors — `getMaterial` /
   so an error either way is a wrong finding, not a conservative one. Headroom ignored can
   both hide a pit whose only modelled exit is a crawlspace and invent one whose only
   modelled entrance is; 4-connected steps make a region whose only way out is DIAGONAL
-  read as a pit; `climbCells` flooring can only ADD regions (a rise the mover would just
-  make reads one-way), and at a `cellSize` as coarse as `climbCeiling` it floors to 1 —
-  coarser still to 0, where every level change is a one-way drop and everything off the
-  seed's level reads trapped. **Budget it as a second whole-world pass, not a cheap
-  post-step:** measured 1.21–1.34x the `analyzeWorld` beside it on the F3b default cave
-  (2026-07-26, warm), because the reverse flood scans each column's air pocket to its
+  read as a pit. **The climb band has no safe direction either** — it is exact (above),
+  and region count is not monotone in it in EITHER direction: measured 2026-07-26 over
+  4000 random stores, shrinking the band from 3 cells to 2 added a region in 1561 and LOST
+  one in 34, because a narrower band deletes ENTERABLE edges as readily as return ones.
+  **A missing pit is possible; the caveat list is not a proof otherwise.** Separately, and
+  not a rounding error: at a `cellSize` as coarse as `climbCeiling` the band is one cell
+  and coarser still it is zero, where the lattice cannot represent a climbable step at all
+  and everything the agent can only drop to reads trapped. **Budget it as a second
+  whole-world pass, not a cheap post-step:** measured 1.21–1.34x the `analyzeWorld` beside
+  it on the F3b default cave (2026-07-26, warm; an independent reviewer saw up to 1.79x
+  over eight runs), because the reverse flood scans each column's air pocket to its
   ceiling — cost tracks open air as well as floor area.
   Two properties of the column pass consumers must plan for. **The rim divergence:**
   unallocated chunks read SOLID — the field's own rule, which the runtime collider

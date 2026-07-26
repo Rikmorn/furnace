@@ -115,17 +115,27 @@ type PushFlag = (
   z: number,
 ) => void;
 
-/** The rounding is asymmetric on purpose, and miss-safe in both directions:
- *  `ceil` on what the capsule REQUIRES (clearance, radius, probe heights)
- *  over-demands, and `floor` on what it is ALLOWED (step, climb) under-grants.
- *  Every threshold therefore lands strictly tighter than the real mover, which
- *  is the posture this pass wants — borderline geometry surfaces as a flag
- *  rather than being rounded away. Do not "fix" one of them into symmetry.
+/** The rounding is asymmetric on purpose: `ceil` on what the capsule REQUIRES
+ *  (clearance, radius, probe heights), `floor` on what it is ALLOWED (step,
+ *  climb). Never "fix" one of them into symmetry — but be exact about what that
+ *  buys, because the two halves differ and the difference is load-bearing.
  *
- *  `climbCells` carries that same under-grant into {@link detectPits}, where it
- *  is an EDGE rule rather than a threshold: a rise the mover would just about
- *  make can read as one-way, which shrinks the return set and can only ADD pit
- *  regions. Over-reporting is the miss-safe direction for a trap hunt.
+ *  **Against a lattice-quantized measurement the rounding is EXACT, not merely
+ *  tight** — `clearCells`, `stepCells`, `climbCells`. Floor surfaces sit at
+ *  whole multiples of `cellSize` ({@link sampleToWorld}) and the runtime
+ *  collider is `cellSize` boxes anchored on the same lattice (`collider.ts`), so
+ *  a rise between two anchors is exactly `Δy * cellSize` and a headroom is
+ *  exactly `run * cellSize`. For integer `n`, `n <= floor(t / cellSize)` is
+ *  equivalent to `n * cellSize <= t`, and `n >= ceil(t / cellSize)` to
+ *  `n * cellSize >= t`: these ARE the mover's predicates, with no borderline
+ *  band for the rounding to shave off in either direction. Do not reason from
+ *  them as though they were conservative — {@link detectPits} reads `climbCells`
+ *  as an EDGE rule, where no safe direction exists at all (see its remarks).
+ *
+ *  Against a continuous quantity it really is a bound, and there the `ceil`
+ *  over-demands as intended: the PROBE REACHES (`wallCellsXZ`, `wallProbeUp`,
+ *  `torsoCells`) round a metre distance up to a whole number of cells to search,
+ *  so they look slightly further than the capsule does.
  *
  *  `pinchWidth` is the exception, and deliberately not a cell count at all: a
  *  rounded pinch is not "tighter", it is WRONG BY UP TO A CELL EITHER WAY, and
@@ -720,6 +730,8 @@ function fallSources(
   z: number,
   visit: VisitColumn,
 ): void {
+  // OUR pocket's ceiling, bounding a scan of the NEIGHBOURS' anchors: a faller
+  // has to be inside this air volume to land here, whichever column it stood in.
   const ceiling = ceilingAbove(v, x, y, z);
   for (const [dx, dz] of DIRS) {
     const nx = x + dx;
@@ -801,9 +813,10 @@ function seedColumns(
  *   edge, and the two are deliberately NOT merged: this pass answers "can the
  *   agent get there at all", which stays the honest question for a demotion,
  *   and its undirected flood is what makes the answer conservative. One
- *   consequence follows directly and bites: this flood cannot enter a pit, so
- *   running it over `detectPits` output would demote every pit flag. Keep the
- *   two flag sets apart.
+ *   consequence follows directly: this flood cannot enter a pit, so tagging one
+ *   would demote every `detectPits` finding. **`pit` flags are therefore SKIPPED
+ *   here** — their tag is left `undefined`, the "show it" state — so mixing the
+ *   two flag sets into one list is a no-op rather than a silent hiding.
  * - Headroom is ignored, so the flood crosses gaps the capsule cannot fit
  *   through, and coarse cells (a `cellSize` COARSER than `climbCeiling`, which
  *   floors `climbCells` to 0 — an equal one still grants 1) strand everything
@@ -819,7 +832,8 @@ function seedColumns(
  * thing it writes: every flag gets `unreachable` set, `false` when reached and
  * `true` when not, so a re-run after the world changes clears a stale demotion
  * as readily as it makes a new one. An unwritten (`undefined`) tag means this
- * never ran over that flag.
+ * never ran over that flag — or that the flag is a `pit`, which this pass
+ * deliberately does not answer for (see above).
  *
  * That third state is not hypothetical: analysis is per-dirty-chunk while this
  * pass is whole-world, so a MIXED-VINTAGE map — freshly analysed flags that no
@@ -863,12 +877,21 @@ export function markUnreachable(
     climbNeighbours(v, climbCells, x, y, z, visit),
   );
   for (const list of flags.values())
-    for (const f of list)
+    for (const f of list) {
+      // A `pit` is trapped BY DEFINITION, and this flood cannot enter one — so
+      // the question is meaningless here and the answer would always be "true".
+      // Left unwritten rather than answered wrongly: `undefined` is the
+      // documented "show it" state, so a consumer that keeps ONE flag list (the
+      // natural shape for a panel) gets a no-op instead of silently hiding every
+      // pit behind the default filter.
+      if (f.kind === "pit") continue;
       f.unreachable = !reached.has(cellKey(f.cell[0], f.cell[1], f.cell[2]));
+    }
 }
 
-/** One trap: the columns of a region, and the lowest of them. Tracked as the
- *  region is built, so the anchor never depends on flood order. */
+/** One trap: the columns of a region, and the lowest of them — chosen by a
+ *  post-pass minimum over the finished region under a total order
+ *  ({@link lowerColumn}), so it never depends on flood order. */
 type PitRegion = { anchor: Column; cells: Column[] };
 
 /** Is `a` lower than `b` — Y first, then x, then z, so a flat-floored region
@@ -913,7 +936,8 @@ const chunkOf = (cell: Column): ChunkKey =>
   chunkKey(voxelChunk(cell[0]), voxelChunk(cell[1]), voxelChunk(cell[2]));
 
 /** One region as its flag: anchored at the bottom of the trap, carrying the
- *  region's size and every chunk it touches. */
+ *  region's size and every chunk it touches. Owners are sorted by KEY STRING —
+ *  determinism, not spatial order. */
 function pitFlag(cellSize: number, region: PitRegion): FieldFlag {
   const [x, y, z] = region.anchor;
   const owners = new Set<ChunkKey>();
@@ -978,12 +1002,21 @@ function pitFlag(cellSize: number, region: PitRegion): FieldFlag {
  *   whose only modelled entrance is.
  * - **Steps are 4-connected in XZ**, so a region whose only way out is a
  *   DIAGONAL step reads as a pit though the mover walks out of it.
- * - **`climbCells` floors**, so a rise the mover would just about make can read
- *   one-way. That direction only ever ADDS regions. At a `cellSize` as coarse as
- *   `climbCeiling` it floors to 1, and coarser still to 0 — where every level
- *   change becomes a one-way drop and everything off the seed's own level reads
- *   as trapped. That is the same coarse-cell cliff {@link markUnreachable}
- *   documents, with a louder failure mode.
+ * - **The climb band has NO safe direction** — and do not reason as though it
+ *   did. The band itself is exact rather than conservative (see
+ *   {@link metricsFor}: a rise between anchors is exactly `Δy * cellSize`), and
+ *   region count is not monotone in it EITHER way. Measured 2026-07-26 over
+ *   4000 random stores: shrinking the band from 3 cells to 2 added a region in
+ *   1561 and LOST one in 34, because a narrower band deletes ENTERABLE edges as
+ *   readily as return ones — the band can reach an anchor that is not the
+ *   descent landing, and {@link fallTargets} only offers the landing. So a
+ *   MISSING pit is possible, and this list is not a proof that it is not.
+ * - **Resolution bites where rounding does not.** At a `cellSize` as coarse as
+ *   `climbCeiling` the band is one cell, and coarser still it is zero: the
+ *   lattice then cannot represent a climbable step at all, so everything the
+ *   agent can only drop to reads as trapped — a flood of regions rather than a
+ *   finding. That is the coarse-cell cliff {@link markUnreachable} documents,
+ *   with a louder failure mode.
  * - **Falls have no distance limit**, so a 50 m drop is an entrance like any
  *   other. It matches the reference consumer's mover, which takes no fall
  *   damage, and it is what makes a deep cavern floor "enterable" rather than
