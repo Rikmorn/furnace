@@ -208,6 +208,14 @@ export type PatchOp = { id: number; kind: "patch"; chunks: PatchChunk[] };
  *  carvings survive (compiles into the op record — replay-safe). */
 export type MergePolicy = "replace" | "keep-existing-air";
 
+/** What a generator's `evaluate` puts in its {@link GeneratorResult}: `"ops"` =
+ *  field writes only, `placements` is always empty; `"placements"` = placed
+ *  instances only, `ops` is always empty; `"both"` = either channel may carry
+ *  values, so nothing is forbidden — the only honest declaration for a mixed
+ *  emitter, and the escape hatch when a def legitimately does both. Declared
+ *  per def as {@link GeneratorDef.emits}. */
+export type GeneratorEmits = "ops" | "placements" | "both";
+
 /** Read-only field access for a context-reading generator (e.g. scatter, which
  *  samples the surface to place instances). Passed to `evaluate` ONLY when the
  *  def declares `contextFree: false`. */
@@ -241,12 +249,10 @@ export type GeneratorDef = {
    *  as explicit data, but the def's own reconfigure re-cooks against restored
    *  pre-span state, and its influence is bounded by its REGION. */
   contextFree: boolean;
-  /** What evaluate RETURNS — a declarative fact about the result's shape, not a
-   *  capability switch. `"ops"` = field writes only, `placements` is always
-   *  empty; `"placements"` = placed instances only, `ops` is always empty;
-   *  `"both"` = either channel may carry values, so nothing is forbidden (the
-   *  only honest declaration for a mixed emitter). Read it to shape UI without
-   *  evaluating — "does this generator place props?" is `emits !== "ops"`.
+  /** What evaluate RETURNS ({@link GeneratorEmits} for the per-value meanings) —
+   *  a declarative fact about the result's shape, not a capability switch. Read
+   *  it to shape UI without evaluating: "does this generator place props?" is
+   *  `emits !== "ops"`.
    *
    *  ORTHOGONAL to {@link GeneratorDef.contextFree}, which is about what
    *  evaluate READS (the field): the two facts are independent, and every
@@ -262,7 +268,7 @@ export type GeneratorDef = {
    *  array lengths of the result in hand, so it catches a def that DID
    *  contradict itself on this call — it cannot prove a def never will on other
    *  params. */
-  emits: "ops" | "placements" | "both";
+  emits: GeneratorEmits;
   evaluate(
     params: Record<string, unknown>,
     seed: number,

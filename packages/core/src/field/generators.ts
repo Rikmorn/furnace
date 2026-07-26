@@ -944,9 +944,10 @@ export function generatorById(id: string): GeneratorDef {
 }
 
 /** Calls a generator's `evaluate`, enforcing BOTH declarative facts a
- *  {@link GeneratorDef} carries — the ONE evaluate call site guard, shared by
+ *  {@link GeneratorDef} carries — the ONE GUARDED call site, shared by
  *  {@link commitGenerator} and `reconfigureGenerator`, so neither path can drift
- *  from the other:
+ *  from the other. A direct `def.evaluate` call (the editor's stamp preview,
+ *  tests) bypasses it, and therefore both facts below:
  *
  *  - `contextFree` (what evaluate READS) — a context-reading def
  *    (`contextFree === false`) MUST be given a `ctx`, or it is a caller bug. A
@@ -976,11 +977,11 @@ export function evaluateGenerator(
   const result = def.evaluate(params, seed, region, table, policy, ctx);
   if (result.placements.length > 0 && def.emits === "ops")
     throw new Error(
-      `generator "${def.id}" declares emits:"ops" but returned placements`,
+      `generator "${def.id}": declares emits:"ops" but returned ${result.placements.length} placement(s) — fix evaluate, or declare emits:"both" if it legitimately does both`,
     );
   if (result.ops.length > 0 && def.emits === "placements")
     throw new Error(
-      `generator "${def.id}" declares emits:"placements" but returned ops`,
+      `generator "${def.id}": declares emits:"placements" but returned ${result.ops.length} op(s) — fix evaluate, or declare emits:"both" if it legitimately does both`,
     );
   return result;
 }

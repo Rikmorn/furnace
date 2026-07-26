@@ -4,10 +4,12 @@ Tracker for the editor's BOUNDARY items: the project-first `editor-extensions` s
 (what it re-exports vs what the cockpit actually consumes, and what it would take to make
 the generation contract explicit rather than an ad-hoc cast), the preview surface's
 dockview/WebGPU lifecycle problem, and the two render-path fidelity deferrals in the
-viewport host. Merged so there is **one place to check whenever you touch the
-project-first bundle boundary (`packages/dungeon/src/editor-extensions.ts`,
-`packages/editor/src/daemon/bundle.ts`) or the viewport host's render path
-(`packages/editor/src/viewport-host/index.ts`)**. Sections keep their original content.
+viewport host, and the field worker protocol's un-guarded generator evaluate. Merged so
+there is **one place to check whenever you touch the project-first bundle boundary
+(`packages/dungeon/src/editor-extensions.ts`, `packages/editor/src/daemon/bundle.ts`), the
+viewport host's render path (`packages/editor/src/viewport-host/index.ts`), or the field
+worker protocol (`packages/editor/src/frontend/lib/field-protocol.ts`)**. Sections keep
+their original content.
 
 ## `editor-extensions.ts` re-exports more than the editor consumes
 
@@ -135,6 +137,19 @@ fails when core's rule changes.
 adds a third `GeneratorDef` declarative fact — a third fact makes the duplication a real
 maintenance hazard rather than a tidiness one. Also fold in if the field module gets a
 public-surface pass.
+
+The concrete third-fact candidate is already visible: **`usesSeed`**. `hallGenerator.evaluate`
+opens with `void seed` — hall's structure is params-determined (the donor contract), and its
+TSDoc reserves the seed for future skin variants, so nothing consumes it *today*. Meanwhile
+`packages/editor/src/frontend/components/field/StampInspector.tsx` (:133-169) renders the seed
+input and the ⚄ re-roll button **unconditionally**, with no generator-dependent guard
+(verified). So the editor offers a control that changes nothing on hall — the same class of
+gap `placesArchetypes` existed to paper over, and the same class of fix `emits` is. Surfaced
+by the F4 Task 6 review; deliberately NOT built, since D-F4-15 scoped exactly one fact. Note
+it is a genuinely *harder* fact than `emits`: `emits` is checkable against the result, whereas
+"does evaluate read `seed`" is not observable from one call — it would be a declaration on
+trust, or inferred from evaluating twice at different seeds. If `usesSeed` lands, it lands
+through the same seam this entry is about — do the two together.
 
 **Reference:** `packages/core/src/field/generators.ts` (`evaluateGenerator`, the two guards),
 `packages/core/src/field/index.ts` (what the field module does and does not export),

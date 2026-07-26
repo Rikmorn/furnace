@@ -134,6 +134,7 @@ export type {
   FlagKind,
   FlagSeverity,
   GeneratorDef,
+  GeneratorEmits,
   GeneratorEntity,
   GeneratorResult,
   KitInstance,

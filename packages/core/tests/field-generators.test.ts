@@ -3,6 +3,7 @@ import type {
   BrushOp,
   FieldStore,
   GeneratorDef,
+  GeneratorEmits,
   GeneratorResult,
   MaterialTable,
   OpLog,
@@ -719,7 +720,7 @@ const RECORD: PlacementRecord = {
  *  `emits` is an explicit parameter, never derived from `result`: these tests
  *  exist to exercise defs whose declaration and output DISAGREE. */
 const placingDef = (
-  emits: GeneratorDef["emits"],
+  emits: GeneratorEmits,
   result: Partial<GeneratorResult>,
 ): GeneratorDef => ({
   id: "placer",
@@ -981,8 +982,10 @@ describe("field generators — the emission fact (D-F4-15)", () => {
     const s = createFieldStore();
     const log = createOpLog();
     const def = placingDef("ops", { ops: [], placements: [RECORD] });
+    // the message names the subject, COUNTS what came back, and points at the
+    // legal escape — all three are the diagnosis an author needs
     expect(() => commitPlacer(s, log, def)).toThrow(
-      /declares emits:"ops" but returned placements/,
+      /generator "placer": declares emits:"ops" but returned 1 placement\(s\) — .*declare emits:"both"/,
     );
     expect(s.chunks.size).toBe(0);
     expect(s.materials.size).toBe(0);
@@ -996,7 +999,7 @@ describe("field generators — the emission fact (D-F4-15)", () => {
     const log = createOpLog();
     const def = placingDef("placements", { ops: [FILL], placements: [] });
     expect(() => commitPlacer(s, log, def)).toThrow(
-      /declares emits:"placements" but returned ops/,
+      /generator "placer": declares emits:"placements" but returned 1 op\(s\) — .*declare emits:"both"/,
     );
     expect(s.chunks.size).toBe(0);
     expect(s.materials.size).toBe(0);
@@ -1055,9 +1058,14 @@ describe("field generators — the emission fact (D-F4-15)", () => {
       // re-resolves its def through the registry (a synthetic def is
       // unreachable). Restored in `finally`, so the lie cannot leak.
       hall.emits = "placements";
+      // 55 = hall's real op count at HALL_PARAMS/REGION (measured, not copied):
+      // the message counts the def's ACTUAL output, so pinning it exactly also
+      // pins that the count comes from the result rather than a placeholder.
       expect(() =>
         reconfigureGenerator(s, log, entity.entityId, { seed: 8 }, TABLE),
-      ).toThrow(/declares emits:"placements" but returned ops/);
+      ).toThrow(
+        /generator "hall": declares emits:"placements" but returned 55 op\(s\)/,
+      );
     } finally {
       hall.emits = declared;
     }

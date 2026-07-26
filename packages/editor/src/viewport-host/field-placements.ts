@@ -290,8 +290,10 @@ const ARCHETYPE_PARAM = "archetypeId";
  *
  *  It is a proxy for a fact core does not expose (`GeneratorDef` has
  *  `contextFree`, which means "reads the field" — scatter satisfies both today,
- *  but a future carver that reads the field would satisfy only the first). If
- *  core ever declares "emits placements" directly, this should read THAT. */
+ *  but a future carver that reads the field would satisfy only the first). Core
+ *  NOW declares this directly as `GeneratorDef.emits` (D-F4-15) — this proxy is
+ *  superseded and should read `emits !== "ops"` instead; the swap and this
+ *  function's deletion are F4 tranche B. */
 export const placesArchetypes = (
   paramSchema: Record<string, unknown>,
 ): boolean => {
