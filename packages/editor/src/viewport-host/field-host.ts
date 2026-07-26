@@ -52,6 +52,7 @@ import {
   type FlagFilters,
   type FlagsSummary,
   flagTint,
+  INFO_TINT,
 } from "./field-flags.ts";
 import {
   boxCorners,
@@ -777,7 +778,12 @@ const VOID_CAST_ALPHA = 0.3;
 const VOID_CAST_CHUNK_BUDGET = 512;
 
 // Walkability-marker cube edge (metres) — under the 0.25 m cell, so a marker
-// reads as a pin ON a floor cell rather than as a block filling it.
+// reads as a pin ON a floor cell rather than as a block filling it. FIXED in
+// metres while the marker's Y lift is `cellSize / 2`, which is deliberate but
+// only safe because this host is single-lattice: `createFieldStore()` takes the
+// default and `loadWorld` REFUSES a world of another cellSize. On a coarser
+// lattice the pin would shrink against its cell, and on a much finer one it
+// would span several — make it lattice-relative if that refusal ever lifts.
 const FLAG_MARKER_SIZE_M = 0.18;
 // Quiet time after the last density write before the WHOLE-WORLD pass runs
 // (reachability demotion + pit detection). Those two are world-cadence: one dug
@@ -807,8 +813,10 @@ const HOLLOW_MIN_M = 0.5;
 // ceiling exactly; truncation at this cap surfaces via SelectionInfo.
 const SELECTION_UI_BUDGET = 200_000;
 // Selection overlay colour — amber, deliberately distinct from the
-// hologram-blue brush ghost (GHOST_COLOR).
-const SELECTION_COLOR: [number, number, number, number] = [1, 0.75, 0.3, 1];
+// hologram-blue brush ghost (GHOST_COLOR). Shared with the advisor's INFO_TINT
+// rather than restated: both mark CONTEXT the user is not being asked to act on,
+// and two copies of four numbers is how that claim quietly stops being true.
+const SELECTION_COLOR: [number, number, number, number] = INFO_TINT;
 // Entity-highlight box colour: the selection amber DIMMED, so a highlighted
 // entity region reads as related to but distinct from the live selection.
 const ENTITY_HIGHLIGHT_COLOR: [number, number, number, number] = [
@@ -2368,7 +2376,7 @@ export function createFieldHost(deps?: {
       const mats = store.materials.get(key);
       out.push({
         key,
-        density: density.slice().buffer as ArrayBuffer,
+        density: chunkCopy(density),
         materials: mats === undefined ? null : field.cloneChunkMaterials(mats),
       });
     }
@@ -2449,6 +2457,13 @@ export function createFieldHost(deps?: {
     );
   };
 
+  // One chunk's density as a buffer another realm may own. Boundary cast:
+  // `.slice()` allocates a fresh ArrayBuffer, which the Int8Array declaration
+  // widens to ArrayBufferLike. Shared by the void cast and the analyzer mirror —
+  // the two differ in WHY they copy (see each call site), not in how.
+  const chunkCopy = (density: Int8Array): ArrayBuffer =>
+    density.slice().buffer as ArrayBuffer;
+
   // Every allocated chunk's density as a COPY, keyed as the store keys it. The
   // copy is load-bearing for the same reason snapshotChunks' is: the client
   // TRANSFERS these buffers, and sending the store's live ones would detach
@@ -2456,7 +2471,7 @@ export function createFieldHost(deps?: {
   const snapshotAllChunks = (): { key: string; density: ArrayBuffer }[] =>
     [...store.chunks].map(([key, density]) => ({
       key,
-      density: density.slice().buffer as ArrayBuffer,
+      density: chunkCopy(density),
     }));
 
   // Build the cast's render state from a void-cast response: one mesh per
@@ -2617,12 +2632,6 @@ export function createFieldHost(deps?: {
     reportToolError(`walkability analyzer: ${message}`);
   };
 
-  // One chunk's density as a buffer the worker may own. Boundary cast: `.slice()`
-  // allocates a fresh ArrayBuffer, which the Int8Array declaration widens to
-  // ArrayBufferLike — the same cast `snapshotAllChunks` makes.
-  const chunkCopy = (density: Int8Array): ArrayBuffer =>
-    density.slice().buffer as ArrayBuffer;
-
   // The placement colliders as core's rasterizer takes them: one group per
   // archetype, its primitive the catalog's — or FALLBACK_COLLISION, which is
   // exactly what the viewport already DRAWS for an uncatalogued archetype, so
@@ -2676,6 +2685,14 @@ export function createFieldHost(deps?: {
    * reset is real work with no analysis attached).
    */
   const analyzerFire = (): AnalyzeInput | undefined => {
+    // The `createPreviewCoalescer` guard, for the same reason: the pump settles
+    // its latch on EVERY settlement, and `analyzer.dispose()` rejects the job in
+    // flight — so a queued request re-fires from inside that rejection, after the
+    // host is gone. Without this, the client's lazy `ensure()` would spawn a
+    // FRESH worker to receive it, leaving a live thread holding a megabyte-scale
+    // mirror and running a whole-world analysis nobody will read. Safe across
+    // re-init: `init` clears `disposed` before anything can request a pass.
+    if (disposed) return undefined;
     const profile = agentProfile;
     if (profile === null) {
       if (!profileMissingReported) {
@@ -2694,11 +2711,20 @@ export function createFieldHost(deps?: {
         .placements(analyzerPlacementGroups())
         .catch(reportAnalyzerFailure);
     }
+    // A whole-world request analyses the STORE, so an empty `dirty` here means
+    // an empty store — nothing any pass could find. It is DEFERRED rather than
+    // consumed: dropping it would be harmless today (every path that later fills
+    // the store re-requests it, and the idle tail would catch the rest), but only
+    // by a coupling a reader has to re-derive, and the flag surviving is free.
+    // The first pass that has something to analyse then honours it, instead of
+    // downgrading to incremental and making the user wait out the idle tail.
+    const dirty = analyzerWholeWorld
+      ? [...store.chunks.keys()]
+      : [...analyzerDirty];
+    if (dirty.length === 0) return undefined;
     const wholeWorld = analyzerWholeWorld;
     analyzerWholeWorld = false;
-    const dirty = wholeWorld ? [...store.chunks.keys()] : [...analyzerDirty];
     analyzerDirty.clear();
-    if (dirty.length === 0) return undefined;
     analyzerBusy = true;
     return { profile, dirty, reachability: wholeWorld, seeds: analyzerSeeds };
   };
@@ -2784,7 +2810,8 @@ export function createFieldHost(deps?: {
     // there is nothing to rotate).
     const matrices = new Float32Array(16 * summary.visible.length);
     const lift = store.cellSize / 2;
-    summary.visible.forEach((row, i) => {
+    let i = 0;
+    for (const row of summary.visible) {
       const o = i * 16;
       matrices[o] = FLAG_MARKER_SIZE_M;
       matrices[o + 5] = FLAG_MARKER_SIZE_M;
@@ -2793,11 +2820,10 @@ export function createFieldHost(deps?: {
       matrices[o + 13] = row.flag.world[1] + lift;
       matrices[o + 14] = row.flag.world[2];
       matrices[o + 15] = 1;
-    });
+      mesh.setInstanceTint(c, im, i, flagTint(row));
+      i++;
+    }
     mesh.setInstanceMatrices(c, im, matrices);
-    summary.visible.forEach((row, i) =>
-      mesh.setInstanceTint(c, im, i, flagTint(row)),
-    );
     flagMarkers = { im, g };
   };
 
@@ -3814,11 +3840,13 @@ export function createFieldHost(deps?: {
       analyzer.dispose();
       // Disposing TERMINATES the analyzer worker, and the client spawns a fresh
       // one on the next request — with an empty mirror and no placement set. A
-      // re-init'd host must therefore re-send both, or the first pass after it
-      // analyses a world the worker does not hold: mostly nothing, and since
-      // `init` asks for a WHOLE-WORLD pass, its `pits: []` would wholesale-clear
-      // the trap set on the strength of an empty field. The store, the log and
-      // the findings all survive a dispose (the `disposed = false` in `init`
+      // re-init'd host must therefore re-send both, or every pass fails: the
+      // protocol refuses an analyse before any sync (`requireStore`), so what
+      // arrives is a typed `analyzer-error` — "the mirror holds no field yet" —
+      // reported on the status line, once per pass, until something happens to
+      // fill `analyzerDirty`. LOUD rather than wrong, which is `requireStore`
+      // doing its job; the advisor is simply dead until then. The store, the log
+      // and the findings all survive a dispose (the `disposed = false` in `init`
       // exists so a re-init'd instance lives), so this is the analyzer half of
       // that same contract.
       analyzerResync = true;

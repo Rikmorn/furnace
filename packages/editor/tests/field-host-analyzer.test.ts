@@ -184,13 +184,22 @@ function analyzerWorker() {
 
 function fixture(profile: AgentProfile | null = AGENT) {
   const fake = analyzerWorker();
-  const host = createFieldHost({ spawnAnalyzer: () => fake.worker });
+  // Counted, not just returned: the client spawns LAZILY, so a stray post after
+  // dispose shows up here as a second spawn — a live worker holding a
+  // megabyte-scale mirror that nothing will ever reap.
+  const spawns = { count: 0 };
+  const host = createFieldHost({
+    spawnAnalyzer: () => {
+      spawns.count += 1;
+      return fake.worker;
+    },
+  });
   const errors: string[] = [];
   host.subscribeToolError((m) => errors.push(m));
   const pushes: FlagsSummary[] = [];
   host.subscribeFlags((s) => pushes.push(s));
   if (profile !== null) host.setAgentProfile(profile);
-  return { host, errors, pushes, ...fake };
+  return { host, errors, pushes, spawns, ...fake };
 }
 
 /** A fixture with the chamber world loaded and its analyze PENDING — so exactly
@@ -449,4 +458,42 @@ test("a worker-side failure surfaces as a tool problem, not a silent stall", asy
   await f.deliver();
   expect(f.errors.at(-1)).toContain("walkability analyzer:");
   expect(f.errors.at(-1)).toContain("climbCeiling");
+});
+
+/** `dispose()` calls `cancelAnimationFrame`, which bun does not define. Stubbed
+ *  only for the one test that disposes — nothing here schedules a frame. */
+function stubCancelAnimationFrame(): () => void {
+  const g = globalThis as unknown as Record<string, unknown>;
+  const had = "cancelAnimationFrame" in g;
+  const prev = g["cancelAnimationFrame"];
+  g["cancelAnimationFrame"] = () => undefined;
+  return () => {
+    if (had) g["cancelAnimationFrame"] = prev;
+    else delete g["cancelAnimationFrame"];
+  };
+}
+
+test("dispose stops the advisor — no stray pass, no second worker", async () => {
+  const restoreCaf = stubCancelAnimationFrame();
+  const f = fixture();
+  f.host.loadWorld({
+    manifest: manifest(),
+    chunks: [{ key: chunkKey(0, 0, 0), bytes: chamberChunk() }],
+    oplog: null,
+  });
+  // Deliberately NOT drained: a pass is in flight and another is queued behind
+  // it, which is the ordinary state of an edit session and the only state this
+  // path is reachable from.
+  expect(f.spawns.count).toBe(1);
+  const before = f.sent.length;
+
+  f.host.dispose();
+  // `analyzer.dispose()` rejects the in-flight job, the pump's catch settles its
+  // latch, and the queued request re-fires — from inside a disposed host. With
+  // no guard that fire posts sync + placements + analyze, and the client's lazy
+  // `ensure()` spawns a FRESH worker to take them.
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(f.sent.length).toBe(before);
+  expect(f.spawns.count).toBe(1);
+  restoreCaf();
 });

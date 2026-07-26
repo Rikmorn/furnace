@@ -371,7 +371,9 @@ describe("parseEntityCatalog", () => {
     });
     // Absent stays absent — core reads a missing anchor as "center", and
     // spelling it in would make every pre-F4 catalog parse to a different object.
-    expect(parsed({ kind: "sphere", radius: 0.3 })).toEqual({
+    // STRICT: `toEqual` treats `{ anchor: undefined }` as equal to `{}`, so it
+    // would pass for a parser that spelled the key in with an undefined value.
+    expect(parsed({ kind: "sphere", radius: 0.3 })).toStrictEqual({
       kind: "sphere",
       radius: 0.3,
     });

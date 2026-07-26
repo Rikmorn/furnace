@@ -60,9 +60,12 @@ export const VERIFIED_CLEAR_TINT: FlagTint = [0.4, 0.8, 0.5, 1];
  *
  * PRIVATE, and the format with it. It reaches a consumer only as
  * {@link FlagRow.key} — a value to hand back, never a string to build. The
- * chrome cannot value-import this module (it carries engine code), so an
- * exported key function would be unreachable from the one place that would need
- * it and the format would get re-spelled there instead.
+ * chrome cannot value-import anything under `viewport-host/`:
+ * `frontend-no-engine-leakage.test.ts` bans the whole DIRECTORY by path, because
+ * the barrel beside this file re-exports the hosts and so carries core. THIS
+ * file carries none (both its imports are `import type`), but the rule is a path
+ * rule and does not look. So an exported key builder would be unreachable from
+ * the one place that would need it, and the format would get re-spelled there.
  */
 const flagKey = (f: FieldFlag): string =>
   `${f.kind}@${f.cell[0]},${f.cell[1]},${f.cell[2]}`;
@@ -107,8 +110,9 @@ export type FlagRow = {
 
 /** How many findings of one (kind, severity) pair stand. A ROW rather than a
  *  keyed map entry so a reader never has to spell the pair — which matters
- *  because the chrome cannot value-import this module (it carries engine code),
- *  so a key function would be unreachable from the one consumer that needs it. */
+ *  because the chrome cannot value-import anything under `viewport-host/` (see
+ *  {@link flagKey}), so a key function would be unreachable from the one consumer
+ *  that needs it. */
 export type FlagCount = {
   kind: FlagKind;
   severity: FlagSeverity;
@@ -288,13 +292,10 @@ export function createFlagStore(): FlagStore {
       // and the rows are the shape a consumer can read without knowing the key.
       const tally = new Map<string, FlagCount>();
       for (const f of found) {
-        const row = tally.get(`${f.kind}/${f.severity}`);
+        const pair = `${f.kind}/${f.severity}`;
+        const row = tally.get(pair);
         if (row === undefined)
-          tally.set(`${f.kind}/${f.severity}`, {
-            kind: f.kind,
-            severity: f.severity,
-            count: 1,
-          });
+          tally.set(pair, { kind: f.kind, severity: f.severity, count: 1 });
         else row.count += 1;
       }
       return {

@@ -248,18 +248,22 @@ async function makeHostCanvas(
 const IDLE_TAIL_WAIT_MS = 700;
 
 async function fixture(
-  opts: { profile: AgentProfile | null } = { profile: AGENT },
+  opts: {
+    profile?: AgentProfile | null;
+    chunks?: { key: string; bytes: Uint8Array }[];
+  } = {},
 ) {
+  const profile = opts.profile === undefined ? AGENT : opts.profile;
   const restoreRo = installMockResizeObserver();
   const raf = stubAnimationFrame();
   const listeners: Listeners = new Map();
   const fake = analyzerWorker();
   const host = createFieldHost({ spawnAnalyzer: () => fake.worker });
   host.setMaterialTable(ROCK_ONLY);
-  if (opts.profile !== null) host.setAgentProfile(opts.profile);
+  if (profile !== null) host.setAgentProfile(profile);
   host.loadWorld({
     manifest: MANIFEST,
-    chunks: [{ key: chunkKey(0, 0, 0), bytes: chamberChunk() }],
+    chunks: opts.chunks ?? [{ key: chunkKey(0, 0, 0), bytes: chamberChunk() }],
     oplog: null,
   });
   await host.init(await makeHostCanvas(listeners));
@@ -480,9 +484,11 @@ test.skipIf(!bunWebGpuAvailable())(
       f.sent.length = 0;
 
       // The client spawns a FRESH worker on the next request, with an empty
-      // mirror. `init` asks for a whole-world pass, and one of those carries
-      // `pits` — so without the re-sync it would analyse an empty world and its
-      // `pits: []` would wholesale-clear the trap set.
+      // mirror. Without the re-sync the protocol refuses the analyse outright
+      // (`requireStore`: "analyze before any sync"), so the failure is a typed
+      // analyzer-error on the status line rather than a wrong answer — and it
+      // repeats for every pass until something fills `analyzerDirty`. The
+      // advisor is dead, loudly.
       await f.host.init(await makeHostCanvas(new Map()));
       const sync = f.of("sync").at(-1);
       const analyze = f.of("analyze").at(-1);
@@ -494,6 +500,28 @@ test.skipIf(!bunWebGpuAvailable())(
       expect(f.sent.findIndex((r) => r.kind === "sync")).toBeLessThan(
         f.sent.findIndex((r) => r.kind === "analyze"),
       );
+    } finally {
+      f.teardown();
+    }
+  },
+);
+
+test.skipIf(!bunWebGpuAvailable())(
+  "a whole-world request outlives an empty store instead of being consumed",
+  async () => {
+    // Nothing to analyse yet, so the whole-world request `init`'s prop rebuild
+    // made cannot go out — `dirty` is the STORE when the flag is set, and the
+    // store is empty.
+    const f = await fixture({ chunks: [] });
+    try {
+      expect(f.of("analyze")).toEqual([]);
+
+      // The world arrives by the one route that does NOT re-request a
+      // whole-world pass: a density write. If the flag had been consumed by the
+      // empty fire, this pass would be INCREMENTAL and reachability + pits would
+      // wait out the idle tail for no reason.
+      f.click(32, 32);
+      expect(f.of("analyze").at(-1)?.reachability).toBe(true);
     } finally {
       f.teardown();
     }
