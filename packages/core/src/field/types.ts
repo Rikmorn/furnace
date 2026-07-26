@@ -464,19 +464,19 @@ export type ChunkCollider = {
  *  capsule. All lengths are metres; the analyzer derives its cell thresholds
  *  from these against the store's `cellSize`. */
 export type AgentProfile = {
-  capsule: { radius: number; halfHeight: number };
+  readonly capsule: { readonly radius: number; readonly halfHeight: number };
   /** Rise a mover climbs in one tick (its auto-step). */
-  stepHeight: number;
+  readonly stepHeight: number;
   /** MEASURED climb ceiling — the TRAP threshold for rises: above it a rise is
    *  a `candidate`, within `(stepHeight, climbCeiling]` it is `info` (D-F4-7).
    *  Must exceed `stepHeight`. */
-  climbCeiling: number;
+  readonly climbCeiling: number;
   /** Standing headroom the capsule needs — normally `2 * (halfHeight + radius)`,
    *  and never less. */
-  clearance: number;
+  readonly clearance: number;
   /** Max walkable slope. Carried for stage-2 movers; the voxel column pass has
    *  no slope concept and does not read it. */
-  slopeLimitDeg: number;
+  readonly slopeLimitDeg: number;
 };
 
 /** What a {@link FieldFlag} found. `lip-near-wall` = a steppable rise with a
