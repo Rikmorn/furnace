@@ -584,6 +584,7 @@ const hallGenerator: GeneratorDef = {
   paramSchema: HALL_SCHEMA,
   defaults: HALL_DEFAULTS,
   contextFree: true, // params-determined; no field reads
+  emits: "ops", // a pure carver — the masonry stamp, no placed instances
   evaluate(params, seed, region, table, policy) {
     void seed; // hall structure is params-determined (donor contract)
     const p = hallParams(params); // narrow + range-validate, setup-loud
@@ -858,6 +859,7 @@ const mazeGenerator: GeneratorDef = {
   paramSchema: MAZE_SCHEMA,
   defaults: MAZE_DEFAULTS,
   contextFree: true, // seeded-but-pure; no field reads
+  emits: "ops", // a pure carver — the passage stamp, no placed instances
   evaluate(params, seed, region, table, policy) {
     const p = mazeParams(params); // narrow + range-validate, setup-loud
     const w = PITCH * p.cellsX - 1;
@@ -941,13 +943,23 @@ export function generatorById(id: string): GeneratorDef {
   return def;
 }
 
-/** Calls a generator's `evaluate`, enforcing the {@link EvaluateContext}
- *  contract: a context-reading def (`contextFree === false`) MUST be given a
- *  `ctx`, or it is a caller bug (setup-loud). A context-free def ignores any
- *  `ctx` passed. The ONE evaluate call site guard, shared by
- *  {@link commitGenerator} and `reconfigureGenerator`.
+/** Calls a generator's `evaluate`, enforcing BOTH declarative facts a
+ *  {@link GeneratorDef} carries — the ONE evaluate call site guard, shared by
+ *  {@link commitGenerator} and `reconfigureGenerator`, so neither path can drift
+ *  from the other:
  *
- *  @throws {@link Error} if `def.contextFree === false` and `ctx` is undefined. */
+ *  - `contextFree` (what evaluate READS) — a context-reading def
+ *    (`contextFree === false`) MUST be given a `ctx`, or it is a caller bug. A
+ *    context-free def ignores any `ctx` passed.
+ *  - `emits` (what evaluate RETURNS) — the result must not carry a channel the
+ *    declaration forbids. Checked AFTER evaluate, on the result in hand: two
+ *    array-length reads, no traversal.
+ *
+ *  Both are programming errors at authoring time, so both are setup-loud.
+ *
+ *  @throws {@link Error} if `def.contextFree === false` and `ctx` is undefined;
+ *    or if the evaluated result contradicts `def.emits` — placements from an
+ *    `emits: "ops"` def, ops from an `emits: "placements"` one. */
 export function evaluateGenerator(
   def: GeneratorDef,
   params: Record<string, unknown>,
@@ -961,7 +973,16 @@ export function evaluateGenerator(
     throw new Error(
       `generator "${def.id}": contextFree is false but evaluate was called without an EvaluateContext`,
     );
-  return def.evaluate(params, seed, region, table, policy, ctx);
+  const result = def.evaluate(params, seed, region, table, policy, ctx);
+  if (result.placements.length > 0 && def.emits === "ops")
+    throw new Error(
+      `generator "${def.id}" declares emits:"ops" but returned placements`,
+    );
+  if (result.ops.length > 0 && def.emits === "placements")
+    throw new Error(
+      `generator "${def.id}" declares emits:"placements" but returned ops`,
+    );
+  return result;
 }
 
 /** Applies a generator's evaluated result to the store and records the log's
@@ -986,8 +1007,10 @@ export function evaluateGenerator(
  *  the charter §2.2 contract) to reproduce a previewed span exactly.
  *
  *  @throws {@link Error} if the generator's own param validation rejects
- *    `opts.params`, the evaluated result is EMPTY (no ops AND no placements — a
- *    generator must emit something), or any evaluated op/placement fails
+ *    `opts.params`, the evaluated result contradicts the def's
+ *    {@link GeneratorDef.emits} declaration, the evaluated result is EMPTY (no
+ *    ops AND no placements — a generator must emit something), or any evaluated
+ *    op/placement fails
  *    {@link assertOpValid}/{@link assertPatchValid}/{@link assertPlacementsValid};
  *    a `DataCloneError` if `opts.params`/`opts.region` hold structured-clone-
  *    incompatible values (e.g. a function in an unknown key) — in all cases

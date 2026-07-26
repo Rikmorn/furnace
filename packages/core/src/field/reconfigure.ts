@@ -203,8 +203,9 @@ function mergeProvenance(
  *  recookContext}) and `undefined` otherwise; {@link evaluateGenerator}'s guard
  *  enforces the pairing.
  *
- *  @throws {@link Error} if the generator rejects the params, evaluates to an
- *    empty result, or emits an op / placement
+ *  @throws {@link Error} if the generator rejects the params, returns a result
+ *    contradicting its `emits` declaration ({@link evaluateGenerator}'s guard),
+ *    evaluates to an empty result, or emits an op / placement
  *    {@link assertOpValid}/{@link assertPatchValid}/{@link assertPlacementsValid}
  *    rejects. */
 function evaluateSpan(

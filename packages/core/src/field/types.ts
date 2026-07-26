@@ -241,6 +241,28 @@ export type GeneratorDef = {
    *  as explicit data, but the def's own reconfigure re-cooks against restored
    *  pre-span state, and its influence is bounded by its REGION. */
   contextFree: boolean;
+  /** What evaluate RETURNS — a declarative fact about the result's shape, not a
+   *  capability switch. `"ops"` = field writes only, `placements` is always
+   *  empty; `"placements"` = placed instances only, `ops` is always empty;
+   *  `"both"` = either channel may carry values, so nothing is forbidden (the
+   *  only honest declaration for a mixed emitter). Read it to shape UI without
+   *  evaluating — "does this generator place props?" is `emits !== "ops"`.
+   *
+   *  ORTHOGONAL to {@link GeneratorDef.contextFree}, which is about what
+   *  evaluate READS (the field): the two facts are independent, and every
+   *  combination is legal. Today's registry has `contextFree: true` +
+   *  `"ops"` (hall, maze, cave) and `contextFree: false` + `"placements"`
+   *  (scatter), but the pairing is a coincidence of the four, not a rule.
+   *
+   *  Enforced setup-loud by the COMMITTER — every path that puts a result into
+   *  the op log (`commitGenerator`, `reconfigureGenerator`) evaluates through
+   *  one shared guard that throws, before any write, on a result contradicting
+   *  the declaration. Calling `evaluate` directly (a preview, a test) skips the
+   *  guard, exactly as it skips the `contextFree` one. The check reads the two
+   *  array lengths of the result in hand, so it catches a def that DID
+   *  contradict itself on this call — it cannot prove a def never will on other
+   *  params. */
+  emits: "ops" | "placements" | "both";
   evaluate(
     params: Record<string, unknown>,
     seed: number,

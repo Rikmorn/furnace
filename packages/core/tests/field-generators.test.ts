@@ -5,9 +5,11 @@ import type {
   GeneratorDef,
   GeneratorResult,
   MaterialTable,
+  OpLog,
   PlacementRecord,
 } from "@furnace/core/field";
 import {
+  AIR,
   applyOp,
   assertOpValid,
   assertPlacementsValid,
@@ -15,6 +17,7 @@ import {
   commitGenerator,
   createFieldStore,
   createOpLog,
+  DEFAULT_CELL_SIZE,
   encodeChunkFile,
   encodeMaterialFile,
   FIELD_GENERATORS,
@@ -22,8 +25,11 @@ import {
   getDensity,
   getMaterial,
   logApply,
+  reconfigureGenerator,
   redo,
+  setDensity,
   undo,
+  worldToVoxel,
 } from "@furnace/core/field";
 
 const TABLE: MaterialTable = {
@@ -578,6 +584,7 @@ describe("field generators — commitGenerator", () => {
       paramSchema: {},
       defaults: {},
       contextFree: true,
+      emits: "ops",
       evaluate: () => ({ ops: [], placements: [] }),
     };
     expect(() =>
@@ -650,6 +657,7 @@ describe("field generators — commitGenerator", () => {
       paramSchema: {},
       defaults: {},
       contextFree: true,
+      emits: "ops",
       evaluate: () => ({
         ops: [
           {
@@ -706,14 +714,20 @@ const RECORD: PlacementRecord = {
   variantIndex: 0,
 };
 
-/** A minimal generator whose evaluate returns exactly `result` — the seam for
- *  exercising the placement/ops-empty paths without a real generator. */
-const placingDef = (result: Partial<GeneratorResult>): GeneratorDef => ({
+/** A minimal generator declaring `emits` and returning exactly `result` — the
+ *  seam for exercising the placement/ops-empty paths without a real generator.
+ *  `emits` is an explicit parameter, never derived from `result`: these tests
+ *  exist to exercise defs whose declaration and output DISAGREE. */
+const placingDef = (
+  emits: GeneratorDef["emits"],
+  result: Partial<GeneratorResult>,
+): GeneratorDef => ({
   id: "placer",
   name: "Placer",
   paramSchema: {},
   defaults: {},
   contextFree: true,
+  emits,
   evaluate: () => ({ ops: [], placements: [], ...result }),
 });
 
@@ -745,7 +759,7 @@ describe("field generators — evaluate widening (D-F3-8)", () => {
       material: KIT_CLASS_ID,
       shape: { kind: "box", center: [1, 1, 1], halfExtents: [0.5, 0.5, 0.5] },
     };
-    const def = placingDef({ ops: [fill], placements: [RECORD] });
+    const def = placingDef("both", { ops: [fill], placements: [RECORD] });
     const res = commitGenerator(s, log, def, {
       params: {},
       seed: 1,
@@ -779,7 +793,7 @@ describe("field generators — evaluate widening (D-F3-8)", () => {
     // rejection, so ops:[] with a placement is a legitimate commit.
     const s = createFieldStore();
     const log = createOpLog();
-    const def = placingDef({
+    const def = placingDef("placements", {
       ops: [],
       placements: [RECORD, { ...RECORD, position: [5, 1, 5] }],
     });
@@ -810,7 +824,7 @@ describe("field generators — evaluate widening (D-F3-8)", () => {
   test("commitGenerator rejects invalid placements setup-loud, before any write", () => {
     const s = createFieldStore();
     const log = createOpLog();
-    const def = placingDef({
+    const def = placingDef("placements", {
       placements: [{ ...RECORD, quat: [0, 0, 0, 0] }], // not unit-length
     });
     expect(() =>
@@ -858,6 +872,200 @@ describe("field generators — evaluate widening (D-F3-8)", () => {
     expect(() =>
       assertPlacementsValid(bad({ quat: [0, Math.SQRT1_2, 0, Math.SQRT1_2] })),
     ).not.toThrow();
+  });
+});
+
+// ——— F4 (D-F4-15): the emission fact ———
+// `emits` is what evaluate RETURNS; `contextFree` (tested above) is what it
+// READS — orthogonal facts. The declaration is enforced setup-loud inside
+// evaluateGenerator, the ONE seam commitGenerator and reconfigureGenerator both
+// evaluate through, so a single check covers both entry points; the reconfigure
+// test below exercises that second path rather than assuming it.
+
+/** The region scatter is exercised over here — big enough for the default
+ *  density to land several instances on the carved floor. */
+const REGION_SCATTER = {
+  min: [0, 0, 0] as [number, number, number],
+  max: [12, 6, 12] as [number, number, number],
+};
+/** A region the cave fills with one patch op at its defaults. */
+const REGION_CAVE = {
+  min: [0, 0, 0] as [number, number, number],
+  max: [20, 10, 20] as [number, number, number],
+};
+
+/** Carves a flat-floored air box: every sample above `floorY` (metres) inside
+ *  `region` becomes AIR, everything below stays SOLID — one rock→air crossing
+ *  per column, which is what scatter projects its instances onto. Own copy of
+ *  the field-scatter.test.ts fixture, per the file-owns-its-fixture convention. */
+function carveFloor(
+  region: { min: [number, number, number]; max: [number, number, number] },
+  floorY: number,
+): FieldStore {
+  const cell = DEFAULT_CELL_SIZE;
+  const store = createFieldStore();
+  const sx1 = worldToVoxel(region.max[0], cell);
+  const sy1 = worldToVoxel(region.max[1], cell);
+  const sz1 = worldToVoxel(region.max[2], cell);
+  for (let sz = worldToVoxel(region.min[2], cell); sz <= sz1; sz++)
+    for (let sy = worldToVoxel(floorY, cell); sy <= sy1; sy++)
+      for (let sx = worldToVoxel(region.min[0], cell); sx <= sx1; sx++)
+        setDensity(store, sx, sy, sz, AIR);
+  return store;
+}
+
+/** A lattice-valid masonry fill, the stand-in field op for the mismatch defs. */
+const FILL: BrushOp = {
+  id: 0,
+  kind: "brush",
+  effect: "fill",
+  material: KIT_CLASS_ID,
+  shape: { kind: "box", center: [1, 1, 1], halfExtents: [0.5, 0.5, 0.5] },
+};
+
+/** Commits a synthetic def over the shared fixture — the mismatch tests differ
+ *  only in the def they pass. */
+const commitPlacer = (
+  s: FieldStore,
+  log: OpLog,
+  def: GeneratorDef,
+): ReturnType<typeof commitGenerator> =>
+  commitGenerator(s, log, def, {
+    params: {},
+    seed: 1,
+    region: REGION,
+    policy: "replace",
+    table: TABLE,
+  });
+
+describe("field generators — the emission fact (D-F4-15)", () => {
+  test("every registered def declares emits; the four carry the values the spec assigns", () => {
+    expect(generatorById("hall").emits).toBe("ops");
+    expect(generatorById("maze").emits).toBe("ops");
+    expect(generatorById("cave").emits).toBe("ops");
+    expect(generatorById("scatter").emits).toBe("placements");
+    for (const g of FIELD_GENERATORS)
+      expect(["ops", "placements", "both"]).toContain(g.emits);
+  });
+
+  test("each registered def's evaluated result really has the shape it declares", () => {
+    // The declaration is only worth anything if it MATCHES behaviour, so this
+    // reads the evaluated result rather than re-reading the declared field.
+    const carvers = [
+      ["hall", HALL_PARAMS, REGION],
+      ["maze", MAZE_PARAMS, REGION_MAZE],
+      ["cave", generatorById("cave").defaults, REGION_CAVE],
+    ] as const;
+    for (const [id, params, region] of carvers) {
+      const def = generatorById(id);
+      expect(def.emits).toBe("ops");
+      const r = def.evaluate(params, 7, region, TABLE, "replace");
+      expect(r.ops.length).toBeGreaterThan(0);
+      expect(r.placements).toEqual([]); // what emits:"ops" forbids
+    }
+    const scatter = generatorById("scatter");
+    expect(scatter.emits).toBe("placements");
+    const r = scatter.evaluate(
+      scatter.defaults,
+      7,
+      REGION_SCATTER,
+      TABLE,
+      "replace",
+      { store: carveFloor(REGION_SCATTER, 2) },
+    );
+    expect(r.placements.length).toBeGreaterThan(0);
+    expect(r.ops).toEqual([]); // what emits:"placements" forbids
+  });
+
+  test('commitGenerator throws when a def declaring emits:"ops" returns a placement; store and log untouched', () => {
+    const s = createFieldStore();
+    const log = createOpLog();
+    const def = placingDef("ops", { ops: [], placements: [RECORD] });
+    expect(() => commitPlacer(s, log, def)).toThrow(
+      /declares emits:"ops" but returned placements/,
+    );
+    expect(s.chunks.size).toBe(0);
+    expect(s.materials.size).toBe(0);
+    expect(log.ops.length).toBe(0);
+    expect(log.undoStack.length).toBe(0);
+    expect(log.nextId).toBe(1);
+  });
+
+  test('commitGenerator throws when a def declaring emits:"placements" returns ops; store and log untouched', () => {
+    const s = createFieldStore();
+    const log = createOpLog();
+    const def = placingDef("placements", { ops: [FILL], placements: [] });
+    expect(() => commitPlacer(s, log, def)).toThrow(
+      /declares emits:"placements" but returned ops/,
+    );
+    expect(s.chunks.size).toBe(0);
+    expect(s.materials.size).toBe(0);
+    expect(log.ops.length).toBe(0);
+    expect(log.undoStack.length).toBe(0);
+    expect(log.nextId).toBe(1);
+  });
+
+  test('emits:"both" commits either channel alone AND both together', () => {
+    // "both" constrains nothing about which channels appear — that is its
+    // meaning, and it is the only declaration a mixed emitter can honestly make.
+    for (const result of [
+      { ops: [FILL], placements: [] },
+      { ops: [], placements: [RECORD] },
+      { ops: [FILL], placements: [RECORD] },
+    ]) {
+      const s = createFieldStore();
+      const log = createOpLog();
+      expect(() =>
+        commitPlacer(s, log, placingDef("both", result)),
+      ).not.toThrow();
+      expect(log.undoStack.length).toBe(1);
+    }
+  });
+
+  test("an all-empty result still reports EMPTY, not an emission mismatch", () => {
+    // Both lengths are 0, so neither mismatch condition can fire — the empty
+    // check downstream of it must still be the diagnosis the caller sees.
+    const s = createFieldStore();
+    const log = createOpLog();
+    expect(() =>
+      commitPlacer(
+        s,
+        log,
+        placingDef("placements", { ops: [], placements: [] }),
+      ),
+    ).toThrow(/empty/);
+  });
+
+  test("reconfigureGenerator enforces the fact too — the shared evaluateGenerator seam", () => {
+    const s = createFieldStore();
+    const log = createOpLog();
+    const hall = generatorById("hall"); // the registry singleton reconfigure re-resolves
+    const { entity } = commitGenerator(s, log, hall, {
+      params: HALL_PARAMS,
+      seed: 7,
+      region: REGION,
+      policy: "replace",
+      table: TABLE,
+    });
+    const opsAfterCommit = log.ops.length;
+    const declared = hall.emits;
+    try {
+      // Make the registered def LIE about itself — the only way to reach
+      // reconfigure's evaluate with a mismatched declaration, since reconfigure
+      // re-resolves its def through the registry (a synthetic def is
+      // unreachable). Restored in `finally`, so the lie cannot leak.
+      hall.emits = "placements";
+      expect(() =>
+        reconfigureGenerator(s, log, entity.entityId, { seed: 8 }, TABLE),
+      ).toThrow(/declares emits:"placements" but returned ops/);
+    } finally {
+      hall.emits = declared;
+    }
+    expect(hall.emits).toBe("ops"); // the lie really was reverted
+    // no-mutation-on-throw holds for this rejection as for every other
+    expect(log.ops.length).toBe(opsAfterCommit);
+    expect(log.undoStack.length).toBe(1); // still just the commit's entry
+    expect(log.redoStack.length).toBe(0);
   });
 });
 

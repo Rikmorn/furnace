@@ -103,6 +103,45 @@ This is a **fidelity** deferral, not a crash workaround. A scene's post chain (e
 
 **Reference:** `docs/reference/editor-architecture.md` (§1, §11 — editor-host render path), `packages/editor/src/viewport-host/index.ts` (`renderLoaded`, the `effects: []` comment block), `packages/core/src/frame/render.ts` (the HDR↔effects throw contract).
 
+## The stamp-preview worker evaluates generators OUTSIDE core's guard seam
+
+Surfaced by F4 Task 6 (`GeneratorDef.emits`, D-F4-15). Core has ONE evaluate seam,
+`evaluateGenerator` (`packages/core/src/field/generators.ts`), which enforces both of a
+`GeneratorDef`'s declarative facts before returning: `contextFree` (evaluate must get a
+`ctx` when it reads the field) and now `emits` (the result must not carry a channel the
+declaration forbids). `commitGenerator` and `reconfigureGenerator` both go through it, so
+every path that puts a result into the op log is covered.
+
+The editor's stamp preview does not. `handleStampPreview`
+(`packages/editor/src/frontend/lib/field-protocol.ts` ~:297) calls `def.evaluate(...)`
+**directly** and hand-rolls the ctx pairing inline (`def.contextFree ? undefined : { store }`),
+so it skips both guards. It cannot use the seam today: `evaluateGenerator` is deliberately
+**not** on the public field index — it is in-core surface, reached from core's own tests only
+by source path.
+
+**Blast radius today is small and bounded:** preview writes to a scratch store and posts a
+ghost mesh, never to the op log, so a lying def shows a wrong ghost and the subsequent commit
+still throws setup-loud. The real cost is that the ctx rule now has **two spellings in two
+packages** — core's guard and the preview's inline conditional — which is the parallel-path
+smell, and `emits` has none on the preview side at all.
+
+Fixing it is a design decision, not a mechanical edit: either (a) promote `evaluateGenerator`
+to the public field index (new public API surface — and the current comment says its
+in-core-ness is intentional), or (b) give core a preview-shaped public entry point that wraps
+the seam, or (c) accept the duplication and pin the preview's ctx conditional with a test that
+fails when core's rule changes.
+
+**Trigger to revisit:** the next task that touches `handleStampPreview`'s evaluate call or
+adds a third `GeneratorDef` declarative fact — a third fact makes the duplication a real
+maintenance hazard rather than a tidiness one. Also fold in if the field module gets a
+public-surface pass.
+
+**Reference:** `packages/core/src/field/generators.ts` (`evaluateGenerator`, the two guards),
+`packages/core/src/field/index.ts` (what the field module does and does not export),
+`packages/editor/src/frontend/lib/field-protocol.ts` (`handleStampPreview`),
+`packages/core/src/field/types.ts` (`GeneratorDef.emits` TSDoc, which states the guard is the
+committer's and that direct `evaluate` calls skip it).
+
 ## LoadedScene → frame.render clearColor: tuple↔Vec4 ergonomics seam
 
 `LoadedScene.settings.clearColor` resolves to a hand-authored RGBA tuple `[number, number, number, number]` (via `t.vec4()` = a zod tuple — the INPUT-side vec type), but `frame.render`'s `RenderOptions.clearColor` is `Vec4` = `Float32Array` (the STORAGE-side vec type). So any consumer driving `frame.render` directly from a loaded scene's settings must convert tuple→Float32Array. The M3 editor's `ViewportHost` is the **first** such consumer and absorbs this with a module-private `toVec4()` helper (`packages/editor/src/viewport-host/index.ts`) using the public `vec4.fromValues`; a grep this session found no prior precedent in core/hello-world/cookbook.

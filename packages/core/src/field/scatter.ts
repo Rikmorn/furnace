@@ -633,6 +633,7 @@ export const scatterGenerator: GeneratorDef = {
   paramSchema: SCATTER_SCHEMA,
   defaults: SCATTER_DEFAULTS,
   contextFree: false, // reads the field to project onto surfaces
+  emits: "placements", // a pure placer — writes no field cells at all
   evaluate(params, seed, region, table, policy, ctx): GeneratorResult {
     void table; // scatter writes no cells and needs no material catalog
     void policy; // scatter emits placements, not merge-policied field ops
