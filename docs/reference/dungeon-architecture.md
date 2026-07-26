@@ -366,27 +366,39 @@ density-derived shells.
 - **Derived colliders at load (D-F3-10)** — colliders are DERIVED from the catalog collision
   primitive at load and NEVER serialized (the same posture as the chunk shell voxels and the v1
   proxies). `createPlacementColliders` makes one STATIC body per record at the record's baked
-  world pose (`position` + `quat`), shaped by `placementCollider(collision, scale)`:
-  - `box` → a `cuboid` scaled PER-AXIS (`halfExtents · scale`) — exact for an axis-aligned cuboid.
-  - `sphere` → a `ball` of `radius × max(scale axis)`.
-  - `capsule` → a `capsule { halfHeight, radius }` with BOTH scaled by `max(scale axis)`.
+  world pose (`quat`, plus the anchored position below), shaped by
+  `placementCollider(collision, scale)`:
+  - `box` → a `cuboid` scaled PER-AXIS (`halfExtents · |scale|`) — exact for an axis-aligned cuboid.
+  - `sphere` → a `ball` of `radius × max(|scale| axis)`.
+  - `capsule` → a `capsule { halfHeight, radius }` with BOTH scaled by `max(|scale| axis)`.
 
   The sphere/capsule max-axis rule is EXACT for scatter's uniform-scale records (`sx=sy=sz`), a
-  conservative over-approximation only if a future non-uniform placement source appears. A
-  prop's static collider is what the player capsule
+  conservative over-approximation only if a future non-uniform placement source appears. Every
+  extent takes MAGNITUDES: a negative scale axis is a mirror, which moves no surface, and a signed
+  extent would be a negative Rapier radius. A prop's static collider is what the player capsule
   (`PLAYER_CAPSULE_HALF_HEIGHT 0.6` / `RADIUS 0.3`) collide-and-slides against via the
   `CharacterMover` contract in §3.
+- **Collider anchoring (F4 · D-F4-14)** — the catalog `collision` carries an optional
+  `anchor: "center" | "base"`, and the loader's `placementBodyPosition(collision, record)` honours
+  it. `"center"` (the default, and every pre-F4 catalog's implicit meaning) puts the body at the
+  record's position unchanged. `"base"` lifts it by the collider's own Y half-extent along the
+  record's LOCAL +Y, so the collider's BOTTOM lands on the record position — the surface point
+  scatter projected. That extent comes from core's `field.collisionExtentY`, the SAME function the
+  F4 analyzer's `voxelizePlacements` rasterizes with, so the walkability flags describe the bodies
+  this loader creates. The shipped catalog base-anchors the `stalagmite` (base-origin mesh,
+  y∈[0,1]) and leaves the `rock` centred (centre-origin mesh).
 - **Teardown** — mirrors the v1 loader and the F1 field world: the returned `destroy()` frees
   only THIS world's owned GPU resources (meshes + geometries + instanced kit + instanced
   placement meshes); every static body — chunk shell voxels AND per-prop placement colliders —
   dies with `physics.destroyWorld`, never freed here.
-- **Known interaction gap** — the derived collider is CENTRED at the scatter record's
-  surface-projection point, so a prop sits half-buried and its above-floor extent is small.
-  Measured against the real mover, a rock box is CLIMBED at ≤~0.56 m and reliably BLOCKS at
-  ≥~0.77 m above the floor (§3's `STEP_HEIGHT` 0.4 step-up + the rim-ride); scatter's authored
-  rock sizes give 0.21–0.56 m above-floor, so the realistic range is STEPPED OVER, not blocked.
-  This is a per-archetype anchoring / mover-interaction concern (centre-origin vs base-origin
-  meshes want opposite fixes), tracked in `docs/backlog/dungeon/placement-props-stepped-over.md`
-  and deferred to the F4 traversal pass. Walk-gate coverage:
-  `tests/field-placements.gpu.test.ts` (the rock test records the 0.56/0.77 climb thresholds;
-  the stalagmite test blocks only because it is scaled ≥2×).
+- **Small props are walkable-over (accepted, F4)** — a CENTRE-anchored prop sits half-buried at
+  its surface-projection point, so its above-floor extent is small. Measured against the real
+  mover, a rock box is CLIMBED at ≤~0.56 m and reliably BLOCKS at ≥~0.77 m above the floor (§3's
+  `STEP_HEIGHT` 0.4 step-up + the rim-ride); scatter's authored rock sizes give 0.21–0.56 m
+  above-floor, so the realistic range is stepped over. D-F4-14 answered the ANCHORING half of this
+  (per-archetype `anchor`, above) and left the sizing half as an authoring choice: to make a prop
+  block, scale it up or give it a base-origin mesh with `anchor: "base"`. An engine-side override
+  (a `mesh` collision kind, or forced blocking) is the escalation path, unbuilt —
+  `docs/backlog/engine-architecture/catalog-collision-escalation.md`. Walk-gate coverage:
+  `tests/field-placements.gpu.test.ts` (the rock test records the 0.56/0.77 climb thresholds; the
+  stalagmite test blocks at scale 2, and a ray probe pins its base-anchored top).

@@ -29,7 +29,12 @@
         "catalog/meshes/stalagmite.1.fmesh"
       ],
       "material": { "litColor": [0.5, 0.48, 0.44] },
-      "collision": { "kind": "capsule", "halfHeight": 0.5, "radius": 0.22 },
+      "collision": {
+        "kind": "capsule",
+        "halfHeight": 0.5,
+        "radius": 0.22,
+        "anchor": "base"
+      },
       "scatter": {
         "density": 0.15,
         "minSpacing": 1.4,

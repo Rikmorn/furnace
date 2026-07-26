@@ -39,15 +39,21 @@ import {
   generatorById,
   logApply,
   type OpLog,
+  type PlacementCollision,
   type PlacementOp,
   type PlacementRecord,
   parsePlacements,
 } from "@furnace/core/field";
 import * as gpu from "@furnace/core/gpu";
 import * as physics from "@furnace/core/physics";
+import {
+  placementBodyPosition,
+  placementCollider,
+} from "../src/field-world.ts";
 import { MaterialCache } from "../src/realize.ts";
 import type { Vec3 } from "../src/region.ts";
 import { loadWorld } from "../src/world-loader.ts";
+import { at, expectDefined } from "./_helpers/expect.ts";
 import {
   bunWebGpuAvailable,
   ensureBunWebGpu,
@@ -177,6 +183,175 @@ async function withLoadedField(
   }
 }
 
+// ─── F4 Task 5 (D-F4-14): the derivation half — collider SHAPE and body POSE from one catalog
+// primitive. Pure functions, no GPU: the walk/ray lanes below prove the derivation reaches the
+// physics world, these prove it is the right number for inputs a walk cannot reach (a tilted
+// record, a mirrored scale).
+
+/** The derived shape's kind + its numbers, flattened — so an assertion states both without
+ *  narrowing the six-member `ShapeDescriptor` union at every call site. */
+function shapeParts(s: physics.ShapeDescriptor): {
+  kind: string;
+  nums: number[];
+} {
+  if ("ball" in s) return { kind: "ball", nums: [s.ball] };
+  if ("cuboid" in s) return { kind: "cuboid", nums: [...s.cuboid] };
+  if ("capsule" in s)
+    return {
+      kind: "capsule",
+      nums: [s.capsule.halfHeight, s.capsule.radius],
+    };
+  return { kind: Object.keys(s).join("+"), nums: [] };
+}
+
+/** Assert a derived collider is exactly `kind` with exactly `nums` (to 1e-6). */
+function expectShape(
+  s: physics.ShapeDescriptor,
+  kind: string,
+  nums: number[],
+): void {
+  const parts = shapeParts(s);
+  expect(parts.kind).toBe(kind);
+  expect(parts.nums.length).toBe(nums.length);
+  parts.nums.forEach((v, i) => expect(v).toBeCloseTo(at(nums, i), 6));
+}
+
+/** Assert a derived body position, component-wise (to 1e-6). */
+function expectPosition(
+  actual: physics.Vec3Tuple,
+  expected: [number, number, number],
+): void {
+  actual.forEach((v, i) => expect(v).toBeCloseTo(at(expected, i), 6));
+}
+
+/** A record at the fixed position [1,2,3] — the derivation reads only pose, so one position is
+ *  enough and every expectation below reads as an offset from it. */
+const recordAt123 = (
+  quat: PlacementRecord["quat"] = IDENTITY_QUAT,
+  scale: PlacementRecord["scale"] = [1, 1, 1],
+): PlacementRecord => ({
+  archetypeId: "x",
+  position: [1, 2, 3],
+  quat,
+  scale,
+  variantIndex: 0,
+});
+
+/** The two shipped catalog primitives, as `catalog/entities.json` declares them. */
+const ROCK_BOX: PlacementCollision = {
+  kind: "box",
+  halfExtents: [0.4, 0.35, 0.4],
+};
+const STALAGMITE_CAPSULE: PlacementCollision = {
+  kind: "capsule",
+  halfHeight: 0.5,
+  radius: 0.22,
+  anchor: "base",
+};
+
+describe("placement collider derivation (F4 · D-F4-14)", () => {
+  test("the shipped catalog base-anchors the stalagmite and leaves the rock centred", async () => {
+    // The schema change is only half the decision — the OTHER half is which archetype declares
+    // it, and that lives in committed data no other assertion here reads. The stalagmite mesh is
+    // base-origin (y∈[0,1]); the rock mesh is centre-origin and stays centred (its props remain
+    // walkable-over by decision, not by omission).
+    const text = await Bun.file(
+      new URL("../catalog/entities.json", import.meta.url).pathname,
+    ).text();
+    const catalog = JSON.parse(text) as {
+      archetypes: { id: string; collision: PlacementCollision }[];
+    };
+    const byId = new Map(catalog.archetypes.map((a) => [a.id, a.collision]));
+    expect(expectDefined(byId.get("stalagmite"), "stalagmite").anchor).toBe(
+      "base",
+    );
+    expect(expectDefined(byId.get("rock"), "rock").anchor).toBeUndefined();
+  });
+
+  test('anchor "base" lifts the body so the collider BOTTOM sits on the record position', () => {
+    // Capsule Y half-extent = halfHeight + radius = 0.72 at scale 1, 1.44 at scale 2 (the round
+    // primitives take the max scale axis). The record's position is the surface point scatter
+    // projected, so the lift is exactly what puts the collider's bottom there.
+    expectPosition(
+      placementBodyPosition(STALAGMITE_CAPSULE, recordAt123()),
+      [1, 2.72, 3],
+    );
+    expectPosition(
+      placementBodyPosition(
+        STALAGMITE_CAPSULE,
+        recordAt123(IDENTITY_QUAT, [2, 2, 2]),
+      ),
+      [1, 3.44, 3],
+    );
+  });
+
+  test("an unanchored or centre-anchored primitive keeps the record position exactly", () => {
+    // The pre-F4 catalog shape (no `anchor` key) must stay byte-identical — the rock's collider
+    // is the regression surface for every world already baked.
+    expect(placementBodyPosition(ROCK_BOX, recordAt123())).toEqual([1, 2, 3]);
+    expect(
+      placementBodyPosition({ ...ROCK_BOX, anchor: "center" }, recordAt123()),
+    ).toEqual([1, 2, 3]);
+  });
+
+  test("the base lift follows the record's OWN +Y, not world up", () => {
+    // A quarter-turn about +X maps local +Y onto world +Z. A wall/ceiling prop is placed with
+    // exactly this kind of quat (scatter's `orientation: "gravity"` on a non-floor hemisphere),
+    // and a world-up lift would push it out of the surface it is standing on.
+    const halfTurnX = Math.SQRT1_2;
+    expectPosition(
+      placementBodyPosition(
+        STALAGMITE_CAPSULE,
+        recordAt123([halfTurnX, 0, 0, halfTurnX]),
+      ),
+      [1, 2, 3.72],
+    );
+  });
+
+  test("collider extents are scale MAGNITUDES — a mirrored record derives its twin's collider", () => {
+    // A negative scale axis is a MIRROR: it moves no surface, so no extent may go negative. A
+    // negative Rapier ball radius / cuboid half-extent is a bug on its own terms, and it would
+    // also split this derivation from core's `collisionExtentY` (which takes magnitudes) — the
+    // one pair that must agree for the F4 analyzer to voxelize what physics actually collides.
+    // Unreachable from scatter today (uniform, schema-pinned-positive scale); pinned anyway.
+    expectShape(
+      placementCollider(ROCK_BOX, [-1, -1, -1]),
+      "cuboid",
+      [0.4, 0.35, 0.4],
+    );
+    expectShape(
+      placementCollider({ kind: "sphere", radius: 0.5 }, [-2, 1, 1]),
+      "ball",
+      [1],
+    );
+    expectShape(
+      placementCollider(STALAGMITE_CAPSULE, [-3, 1, 1]),
+      "capsule",
+      [1.5, 0.66],
+    );
+  });
+
+  test("a box scales per-axis; the round primitives take the max scale axis", () => {
+    // The rule core's `collisionExtentY` mirrors. Exact for scatter's uniform records, a
+    // conservative over-approximation for anything non-uniform.
+    expectShape(
+      placementCollider(ROCK_BOX, [3, 2, 5]),
+      "cuboid",
+      [1.2, 0.7, 2],
+    );
+    expectShape(
+      placementCollider({ kind: "sphere", radius: 0.5 }, [1, 1, 3]),
+      "ball",
+      [1.5],
+    );
+    expectShape(
+      placementCollider(STALAGMITE_CAPSULE, [2, 1, 1]),
+      "capsule",
+      [1, 0.44],
+    );
+  });
+});
+
 describe("field world: placement loading (F3b Task 8)", () => {
   test.skipIf(!bunWebGpuAvailable())(
     "renders one instanced group per (archetype, variant)",
@@ -281,13 +456,14 @@ describe("field world: placement loading (F3b Task 8)", () => {
       // into one). Mirrors the rock walk-stop, but with the stalagmite's catalog capsule
       // (halfHeight 0.5, radius 0.22).
       //
-      // ANCHORING QUIRK (see docs/backlog): the stalagmite MESH is base-origin (y∈[0,1]), but its
-      // catalog collider is a CENTRED capsule. Placed at the surface point [5,0,2] × scale 2, the
-      // derived capsule (halfHeight 1.0, radius 0.44) spans ±(1.0+0.44) = ±1.44 m about that point —
-      // above-floor extent 1.44 m, well over the mover's step-up + rim-ride climb reach (~0.56 m),
-      // and radius 0.44 leaves 0.56 m gaps in the 2 m corridor (< the 0.6 m capsule diameter), so it
-      // BLOCKS. The walk aims +x at the collider's FOOTPRINT (the surface point's XZ), not the mesh
-      // top. Measured: the capsule halts at x ≈ 4.18 (near face 4.56).
+      // ANCHORING (D-F4-14): the stalagmite MESH is base-origin (y∈[0,1]) and its catalog collision
+      // declares `anchor: "base"` to match, so the derived capsule stands ON the surface point
+      // rather than straddling it. Placed at [5,0,2] × scale 2 the capsule (halfHeight 1.0, radius
+      // 0.44) spans y 0..2.88 — above-floor extent 2.88 m, far over the mover's step-up + rim-ride
+      // climb reach (~0.56 m) — and radius 0.44 leaves 0.56 m gaps in the 2 m corridor (< the 0.6 m
+      // capsule diameter), so it BLOCKS. The stop is a FOOTPRINT (XZ) result and the anchor moves
+      // the collider only in Y: measured x ≈ 4.18 (near face 4.56), the same as when this collider
+      // was centred. The anchor's own end-to-end proof is the ray probe below, not this stop.
       //
       // SABOTAGE-VERIFIED two ways: (1) comment out `createPlacementColliders` → walks through to
       // x ≈ 7.9; (2) aim the walk PAST the footprint → no stop. Either makes `< 4.5` go red.
@@ -319,6 +495,47 @@ describe("field world: placement loading (F3b Task 8)", () => {
           });
           expect(res.pos[0]).toBeGreaterThan(2.8); // walked toward the stalagmite (no wedge at spawn)
           expect(res.pos[0]).toBeLessThan(4.5); // …and the capsule collider stopped it short
+        },
+      );
+    },
+  );
+
+  test.skipIf(!bunWebGpuAvailable())(
+    "a base-anchored prop's collider stands ON the surface point (end-to-end)",
+    async () => {
+      // The anchor's END of the wire: the pure derivation is pinned above, this proves the lifted
+      // pose survives the loader and reaches Rapier. A stalagmite at the floor point [4,0,4] ×
+      // scale 2 has Y half-extent (0.5+0.22)×2 = 1.44 m, so BASE-anchored its capsule spans
+      // y 0..2.88 and a ray dropped down its axis meets the top cap at 2.88. Centre-anchored (the
+      // pre-F4 derivation) that ray would meet it at 1.44 — half the collider buried under the
+      // floor, and the mesh's top ~28% (y∈[2.88,4] of the base-origin mesh at scale 2) uncovered.
+      const stalagmite: PlacementRecord = {
+        archetypeId: "stalagmite",
+        position: [4, 0, 4],
+        quat: IDENTITY_QUAT,
+        scale: [2, 2, 2],
+        variantIndex: 0,
+      };
+      await withLoadedField(
+        {
+          name: "placements-anchor",
+          playerStart: [1, 1.5, 1],
+          build: (store, log) => {
+            digRoom(store, log, [4, 1.75, 4], [4, 1.75, 4]); // air y 0..3.5
+            pushPlacements(log, [stalagmite]);
+          },
+        },
+        ({ ctx, world }) => {
+          // Casts see colliders only after the world has stepped at least once (castRay's contract).
+          physics.step(ctx, world, 1 / 60);
+          const hit = physics.castRay(ctx, world, {
+            origin: [4, 3.4, 4],
+            dir: [0, -1, 0],
+            maxDistance: 4,
+          });
+          expect(
+            expectDefined(hit, "downward ray onto the stalagmite").point[1],
+          ).toBeCloseTo(2.88, 2);
         },
       );
     },

@@ -106,28 +106,17 @@ function quatMatrix(q: readonly [number, number, number, number]): Mat3 {
 /** Half-extents of the primitive's own AABB, in its LOCAL frame, after scale.
  *
  *  The scale rule matches the runtime collider derivation (the dungeon's
- *  `placementCollider`) for every non-negative scale: a box scales PER AXIS,
- *  while a sphere/capsule has no per-axis form and takes the MAX scale axis.
+ *  `placementCollider`): a box scales PER AXIS, while a sphere/capsule has no
+ *  per-axis form and takes the MAX scale axis, and both sides take MAGNITUDES.
  *  Exact for the uniform-scale records scatter emits, a conservative
  *  over-approximation otherwise. Diverging from it would put analyzed solidity
  *  where the physics collider is not, which is the one thing D-F4-5 exists to
  *  prevent.
  *
- *  Magnitudes only: an extent is a distance, so a MIRRORED record (a negative
- *  scale axis) covers the same box. Signed arithmetic here would invert the cell
- *  range and rasterize the record to nothing at all — silence, in a pass whose
- *  whole job is not going quiet about solid things.
- *
- *  That `Math.abs` is also the ONE case where the two derivations disagree:
- *  the runtime takes `Math.max(scale)` raw, so a negative axis yields a negative
- *  radius or half-extent there and a positive one here. Nothing in the repo can
- *  reach it — `scatter.ts` emits uniform `[s,s,s]` with the schema pinning
- *  `scaleMin` positive — and the runtime's negative extent is a genuine bug on
- *  its own terms (a negative Rapier ball radius).
- *  // MIGRATION (until Tranche A Task 5): Task 5 adds the same `Math.abs` to the
- *  dungeon's `placementCollider`. When it lands, both caveats in this file —
- *  here and in `collisionExtentY`'s TSDoc — become false and should be cut back
- *  to the unconditional "matches the runtime collider's rule". */
+ *  Magnitudes: an extent is a distance, so a MIRRORED record (a negative scale
+ *  axis) covers the same box. Signed arithmetic here would invert the cell range
+ *  and rasterize the record to nothing at all — silence, in a pass whose whole
+ *  job is not going quiet about solid things. */
 function localHalfExtents(
   c: PlacementCollision,
   scale: readonly [number, number, number],
@@ -155,19 +144,14 @@ function localHalfExtents(
  * an `anchor: "base"` collider's centre sits above the record's position.
  *
  * Per primitive: a box's `halfExtents[1]`, a sphere's `radius`, a capsule's
- * `halfHeight + radius` (the cap counts). For any non-negative `scale` this
- * matches the runtime collider's own rule — per-axis for a box, max-axis for the
- * round primitives — so a body created at `position + rotateByQuat(record.quat,
- * [0, collisionExtentY(c, record.scale), 0])` has its collider's bottom exactly
- * on `position`. That is the same lift {@link voxelizePlacements} rasterizes,
- * and the reason both live in this module: the analyzer's solidity and the
- * physics body must agree.
- *
- * A NEGATIVE scale axis is the one case where they currently differ: this
- * returns a magnitude, the runtime returns the signed value. No in-repo producer
- * emits one (scatter's scale is uniform and schema-pinned positive), and the
- * runtime side is where the fix belongs — a negative collider extent is a bug
- * there regardless of this function.
+ * `halfHeight + radius` (the cap counts). It applies the runtime collider's own
+ * scale rule — per-axis for a box, max-axis for the round primitives, magnitudes
+ * throughout — so a body created at `position + rotateByQuat(record.quat, [0,
+ * collisionExtentY(c, record.scale), 0])` has its collider's bottom exactly on
+ * `position`. That is the same lift {@link voxelizePlacements} rasterizes, and
+ * the reason both live in this module: the analyzer's solidity and the physics
+ * body must agree. The dungeon's `field-world.ts` is the runtime half of that
+ * pair, and its own tests pin both halves of the rule.
  *
  * @param c - The archetype's authored collision primitive.
  * @param scale - The placement record's per-axis scale.
