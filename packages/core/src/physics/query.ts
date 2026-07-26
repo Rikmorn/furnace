@@ -1,6 +1,5 @@
 import RAPIER from "@dimforge/rapier3d-compat";
 import { FurnaceError } from "../errors.ts";
-import type { Context } from "../gpu/index.ts";
 import {
   _lookupPhysicsBody,
   _lookupPhysicsWorld,
@@ -9,6 +8,7 @@ import { buildShape } from "./internal.ts";
 import type {
   Body,
   BodySlot,
+  PhysicsContext,
   QuatTuple,
   ShapeDescriptor,
   Vec3Tuple,
@@ -58,7 +58,7 @@ function unit(v: Vec3Tuple): [number, number, number] {
  * @throws FurnaceError - if `maxDistance` is non-finite or negative.
  */
 export function castRay(
-  ctx: Context,
+  ctx: PhysicsContext,
   world: World,
   opts: CastRayOptions,
 ): RayHit | null {
@@ -125,7 +125,7 @@ const IDENTITY_QUAT: QuatTuple = [0, 0, 0, 1];
  * @throws FurnaceError - if `maxDistance` is non-finite/negative, or `shape` is not castable.
  */
 export function castShape(
-  ctx: Context,
+  ctx: PhysicsContext,
   world: World,
   opts: CastShapeOptions,
 ): RayHit | null {

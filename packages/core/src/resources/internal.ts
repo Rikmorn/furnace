@@ -1,4 +1,4 @@
-import type { Context } from "../gpu/context-types.ts";
+import type { Context, ContextInternals } from "../gpu/context-types.ts";
 import { _recordAlloc, _recordDestroy } from "../stats/internal.ts";
 import {
   type BindingHandle,
@@ -44,7 +44,7 @@ export type ResourceKind =
  * Map a {@link ResourceKind} to the matching pool on the manager. Engine-
  * internal lookup; not exported to consumers.
  */
-function poolFor(ctx: Context, kind: ResourceKind): Pool<unknown> {
+function poolFor(ctx: ContextInternals, kind: ResourceKind): Pool<unknown> {
   const r = ctx._internal.resources;
   switch (kind) {
     case "mesh":
@@ -79,7 +79,11 @@ function poolFor(ctx: Context, kind: ResourceKind): Pool<unknown> {
  * applied at the typed `_alloc*` wrappers below; this raw helper returns
  * a plain `number`.
  */
-function _allocRaw<T>(ctx: Context, kind: ResourceKind, data: T): number {
+function _allocRaw<T>(
+  ctx: ContextInternals,
+  kind: ResourceKind,
+  data: T,
+): number {
   const pool = poolFor(ctx, kind);
   // Boundary cast: pool storage is `Pool<unknown>` so the manager can hold
   // all four resource kinds uniformly. The typed _allocMesh/etc. wrappers
@@ -96,7 +100,7 @@ function _allocRaw<T>(ctx: Context, kind: ResourceKind, data: T): number {
  * resolve to a wrong-but-live slot in the recipient).
  */
 function _lookupRaw<T>(
-  ctx: Context,
+  ctx: ContextInternals,
   kind: ResourceKind,
   handle: number,
 ): T | null {
@@ -126,7 +130,7 @@ function _lookupRaw<T>(
  * cascade) that don't have a branded handle in hand.
  */
 function _destroyRaw<T>(
-  ctx: Context,
+  ctx: ContextInternals,
   kind: ResourceKind,
   handle: number,
   teardown: (data: T) => void,
@@ -336,7 +340,7 @@ export function _destroyBinding<T>(
 
 /** Allocate a physics-world slot and return a branded {@link PhysicsWorldHandle}. */
 export function _allocPhysicsWorld<T>(
-  ctx: Context,
+  ctx: ContextInternals,
   data: T,
 ): PhysicsWorldHandle {
   // Boundary cast: see _allocMesh.
@@ -347,7 +351,7 @@ export function _allocPhysicsWorld<T>(
 
 /** Look up a physics-world slot. Returns `null` on stale or invalid handles. */
 export function _lookupPhysicsWorld<T>(
-  ctx: Context,
+  ctx: ContextInternals,
   handle: PhysicsWorldHandle,
 ): T | null {
   return _lookupRaw(ctx, "physics-world", handle);
@@ -355,7 +359,7 @@ export function _lookupPhysicsWorld<T>(
 
 /** Destroy a physics-world slot. See {@link _destroyMesh} for semantics. */
 export function _destroyPhysicsWorld<T>(
-  ctx: Context,
+  ctx: ContextInternals,
   handle: PhysicsWorldHandle,
   teardown: (data: T) => void,
 ): boolean {
@@ -365,7 +369,10 @@ export function _destroyPhysicsWorld<T>(
 }
 
 /** Allocate a physics-body slot and return a branded {@link PhysicsBodyHandle}. */
-export function _allocPhysicsBody<T>(ctx: Context, data: T): PhysicsBodyHandle {
+export function _allocPhysicsBody<T>(
+  ctx: ContextInternals,
+  data: T,
+): PhysicsBodyHandle {
   // Boundary cast: see _allocMesh.
   const handle = _allocRaw(ctx, "physics-body", data) as PhysicsBodyHandle;
   _recordAlloc(ctx, "physics-body", 0);
@@ -374,7 +381,7 @@ export function _allocPhysicsBody<T>(ctx: Context, data: T): PhysicsBodyHandle {
 
 /** Look up a physics-body slot. Returns `null` on stale or invalid handles. */
 export function _lookupPhysicsBody<T>(
-  ctx: Context,
+  ctx: ContextInternals,
   handle: PhysicsBodyHandle,
 ): T | null {
   return _lookupRaw(ctx, "physics-body", handle);
@@ -382,7 +389,7 @@ export function _lookupPhysicsBody<T>(
 
 /** Destroy a physics-body slot. See {@link _destroyMesh} for semantics. */
 export function _destroyPhysicsBody<T>(
-  ctx: Context,
+  ctx: ContextInternals,
   handle: PhysicsBodyHandle,
   teardown: (data: T) => void,
 ): boolean {

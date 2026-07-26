@@ -1,5 +1,4 @@
 import { FurnaceError } from "../errors.ts";
-import type { Context } from "../gpu/index.ts";
 import { warn } from "../log/internal.ts";
 import {
   _lookupPhysicsBody,
@@ -10,6 +9,7 @@ import type {
   Body,
   BodySlot,
   CharacterController,
+  PhysicsContext,
   Vec3Tuple,
   World,
   WorldSlot,
@@ -49,7 +49,7 @@ const DEFAULT_OFFSET = 0.01;
  * @throws FurnaceError - if `world` is invalid/destroyed, or `offset` is non-positive/non-finite.
  */
 export function createCharacterController(
-  ctx: Context,
+  ctx: PhysicsContext,
   world: World,
   opts: CharacterControllerOptions = {},
 ): CharacterController {
@@ -108,7 +108,7 @@ export function createCharacterController(
  * stale world.
  */
 export function destroyCharacterController(
-  ctx: Context,
+  ctx: PhysicsContext,
   controller: CharacterController,
 ): void {
   if (controller._destroyed) return;
@@ -131,7 +131,7 @@ export function destroyCharacterController(
  * {@link setBodyNextKinematicTranslation}, then {@link step}.
  */
 export function computeMovement(
-  ctx: Context,
+  ctx: PhysicsContext,
   controller: CharacterController,
   body: Body,
   desired: Vec3Tuple,

@@ -1,5 +1,4 @@
 import { FurnaceError } from "../errors.ts";
-import type { Context } from "../gpu/index.ts";
 import { warn } from "../log/internal.ts";
 import {
   _allocPhysicsBody,
@@ -13,6 +12,7 @@ import type {
   Body,
   BodyDescriptor,
   BodySlot,
+  PhysicsContext,
   ShapeDescriptor,
   Vec3Tuple,
   World,
@@ -96,7 +96,7 @@ function validateBodyDescriptor(d: BodyDescriptor): void {
  * @throws FurnaceError - if `world` is not a live handle.
  */
 export function createBody(
-  ctx: Context,
+  ctx: PhysicsContext,
   world: World,
   descriptor: BodyDescriptor,
 ): Body {
@@ -137,7 +137,7 @@ export function createBody(
  * Destroy a {@link Body}: remove it from its world's backend simulation and
  * free its slot. Idempotent silent no-op on a stale/destroyed handle.
  */
-export function destroyBody(ctx: Context, body: Body): void {
+export function destroyBody(ctx: PhysicsContext, body: Body): void {
   _destroyPhysicsBody<BodySlot>(ctx, body, (s) => s._teardown());
 }
 
@@ -145,7 +145,11 @@ export function destroyBody(ctx: Context, body: Body): void {
  * Read a body's world-space translation into `out` (returns `out`). Hot-path
  * getter — `out` is unchanged on a stale/destroyed handle.
  */
-export function getBodyTranslation(ctx: Context, body: Body, out: Vec3): Vec3 {
+export function getBodyTranslation(
+  ctx: PhysicsContext,
+  body: Body,
+  out: Vec3,
+): Vec3 {
   const slot = _lookupPhysicsBody<BodySlot>(ctx, body);
   if (slot === null) return out;
   const t = slot.rapierBody.translation();
@@ -159,7 +163,11 @@ export function getBodyTranslation(ctx: Context, body: Body, out: Vec3): Vec3 {
  * Read a body's world-space rotation quaternion into `out` (returns `out`).
  * Hot-path getter — `out` is unchanged on a stale/destroyed handle.
  */
-export function getBodyRotation(ctx: Context, body: Body, out: Quat): Quat {
+export function getBodyRotation(
+  ctx: PhysicsContext,
+  body: Body,
+  out: Quat,
+): Quat {
   const slot = _lookupPhysicsBody<BodySlot>(ctx, body);
   if (slot === null) return out;
   const r = slot.rapierBody.rotation();
@@ -176,7 +184,7 @@ export function getBodyRotation(ctx: Context, body: Body, out: Quat): Quat {
  * non-finite input and is a silent no-op on a stale/destroyed handle.
  */
 export function setBodyLinearVelocity(
-  ctx: Context,
+  ctx: PhysicsContext,
   body: Body,
   v: Vec3Tuple,
 ): void {
@@ -195,7 +203,7 @@ export function setBodyLinearVelocity(
  * warning on non-finite input and is a silent no-op on a stale/destroyed handle.
  */
 export function setBodyNextKinematicTranslation(
-  ctx: Context,
+  ctx: PhysicsContext,
   body: Body,
   pos: Vec3Tuple,
 ): void {

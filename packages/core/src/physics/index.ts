@@ -12,6 +12,7 @@ export {
   createCharacterController,
   destroyCharacterController,
 } from "./character.ts";
+export { createHeadlessPhysicsContext } from "./context.ts";
 export type { CastRayOptions, CastShapeOptions, RayHit } from "./query.ts";
 export { castRay, castShape } from "./query.ts";
 export type {
@@ -20,6 +21,7 @@ export type {
   CharacterController,
   CollisionEvent,
   DebugLines,
+  PhysicsContext,
   QuatTuple,
   ShapeDescriptor,
   Vec3Tuple,

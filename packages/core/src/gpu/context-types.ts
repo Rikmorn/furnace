@@ -30,3 +30,18 @@ export type Context = Readonly<{
   pixelRatio: number;
   _internal: InternalState;
 }>;
+
+/**
+ * Engine-internal: the `_internal`-only structural slice of {@link Context}.
+ *
+ * Plumbing that touches no GPU object — resource-pool alloc/lookup/destroy,
+ * stats counters — declares this instead of the full {@link Context}, so a
+ * caller holding only `_internal` can drive it. A full {@link Context} is
+ * assignable to it, so widening a parameter from `Context` to this type never
+ * breaks an existing call site.
+ *
+ * Not re-exported from `gpu/index.ts`: the only public shape built on it is
+ * `PhysicsContext` (see `@furnace/core/physics`), which spells the pick out
+ * itself rather than aliasing this engine-private name.
+ */
+export type ContextInternals = Pick<Context, "_internal">;

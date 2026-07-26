@@ -1,6 +1,5 @@
 import RAPIER from "@dimforge/rapier3d-compat";
 import { FurnaceError } from "../errors.ts";
-import type { Context } from "../gpu/index.ts";
 import {
   _allocPhysicsWorld,
   _destroyPhysicsBody,
@@ -12,6 +11,7 @@ import type {
   BodySlot,
   CollisionEvent,
   DebugLines,
+  PhysicsContext,
   World,
   WorldDescriptor,
   WorldSlot,
@@ -33,7 +33,7 @@ const DEFAULT_LENGTH_UNIT = 1;
  * @throws FurnaceError - if `gravity` is not a finite 3-component vector.
  */
 export async function createWorld(
-  ctx: Context,
+  ctx: PhysicsContext,
   descriptor: WorldDescriptor,
 ): Promise<World> {
   const g = descriptor?.gravity;
@@ -70,7 +70,11 @@ export async function createWorld(
  * stale/destroyed world handle. Populates the world's collision-event buffer,
  * drained by {@link drainCollisions}.
  */
-export function step(ctx: Context, world: World, dtSeconds: number): void {
+export function step(
+  ctx: PhysicsContext,
+  world: World,
+  dtSeconds: number,
+): void {
   const slot = _lookupPhysicsWorld<WorldSlot>(ctx, world);
   if (slot === null) return;
   slot.rapier.timestep = dtSeconds;
@@ -82,7 +86,10 @@ export function step(ctx: Context, world: World, dtSeconds: number): void {
  * Hot-path read — returns `[]` on a stale world or when nothing collided.
  * Events whose bodies were destroyed mid-step are dropped.
  */
-export function drainCollisions(ctx: Context, world: World): CollisionEvent[] {
+export function drainCollisions(
+  ctx: PhysicsContext,
+  world: World,
+): CollisionEvent[] {
   const slot = _lookupPhysicsWorld<WorldSlot>(ctx, world);
   if (slot === null) return [];
   const events: CollisionEvent[] = [];
@@ -102,7 +109,7 @@ export function drainCollisions(ctx: Context, world: World): CollisionEvent[] {
  * {@link DebugLines}). Pair with `frame.drawLines` to overlay the colliders on
  * the rendered scene.
  */
-export function getDebugLines(ctx: Context, world: World): DebugLines {
+export function getDebugLines(ctx: PhysicsContext, world: World): DebugLines {
   const slot = _lookupPhysicsWorld<WorldSlot>(ctx, world);
   if (slot === null) {
     return { vertices: new Float32Array(0), colors: new Float32Array(0) };
@@ -116,7 +123,7 @@ export function getDebugLines(ctx: Context, world: World): DebugLines {
  * the still-live backend world), then free the backend world + its event
  * queue. Idempotent silent no-op on a stale/destroyed handle.
  */
-export function destroyWorld(ctx: Context, world: World): void {
+export function destroyWorld(ctx: PhysicsContext, world: World): void {
   const slot = _lookupPhysicsWorld<WorldSlot>(ctx, world);
   if (slot === null) return;
   // Snapshot — each body teardown mutates slot.bodies.

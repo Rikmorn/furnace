@@ -1,9 +1,27 @@
 import type * as RAPIER from "@dimforge/rapier3d-compat";
+import type { Context } from "../gpu/context-types.ts";
 import type { CascadeTeardownSlot } from "../resources/dispose.ts";
 import type {
   PhysicsBodyHandle,
   PhysicsWorldHandle,
 } from "../resources/handle.ts";
+
+/**
+ * The structural slice of {@link Context} that `@furnace/core/physics` actually
+ * uses — its engine-internal state, and nothing GPU-owned. Every physics
+ * function takes this as its first argument.
+ *
+ * A full {@link Context} is assignable, so the ordinary
+ * `requestContext` → `physics.*` path is unchanged and needs no thought. The
+ * type exists so a caller with no GPU at all (a test, a worker) can obtain one
+ * from {@link createHeadlessPhysicsContext} instead.
+ *
+ * **This type is valid for `@furnace/core/physics` only.** It has no `device`,
+ * `queue`, `canvas`, `format`, or `pixelRatio`, so passing a value typed as
+ * `PhysicsContext` to a `gpu`/`mesh`/`material`/`frame` function is a compile
+ * error rather than a runtime surprise.
+ */
+export type PhysicsContext = Pick<Context, "_internal">;
 
 /** Opaque handle to a physics world (owns the backend world + its bodies). */
 export type World = PhysicsWorldHandle;

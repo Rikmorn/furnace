@@ -1,4 +1,4 @@
-import type { Context } from "../gpu/context-types.ts";
+import type { Context, ContextInternals } from "../gpu/context-types.ts";
 import { error, warn } from "../log/internal.ts";
 import { tickFps } from "./fps-counter.ts";
 import { pushFrameMs } from "./frame-window.ts";
@@ -80,7 +80,7 @@ export function _recordBindGroupSwitch(ctx: Context): void {
  * Runtime-quiet on disposed `ctx`.
  */
 export function _recordAlloc(
-  ctx: Context,
+  ctx: ContextInternals,
   kind: ResourceKind,
   bytes: number,
 ): void {
@@ -93,7 +93,7 @@ export function _recordAlloc(
  * caller passes the same `bytes` value used at alloc time.
  */
 export function _recordDestroy(
-  ctx: Context,
+  ctx: ContextInternals,
   kind: ResourceKind,
   bytes: number,
 ): void {
