@@ -536,6 +536,55 @@ describe("analyzer worker: stage-2 verify", () => {
     expect(engine.calls[0]?.placements).toEqual(groups);
   });
 
+  test("a sync landing MID-VERIFY waits: the verify reads the pre-sync mirror", async () => {
+    // The real `analyzerVerify` awaits `physics.createWorld` BEFORE
+    // `buildChunkBodies` reads the store (walk-probe.ts), and the first verify
+    // also awaits the bundle import. `self.onmessage` fires handlers
+    // concurrently, so without serialization a `sync` arriving in either window
+    // mutates the very FieldStore the in-flight verify captured, and the verdict
+    // describes a half-updated mirror. This drives exactly that interleaving.
+    let release = (): void => undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let sizeSeenAfterTheAwait = -1;
+    const { posts, handle } = await mirrored(steppedCorridor(), () =>
+      Promise.resolve({
+        analyzerVerify: async (
+          opts: Parameters<AnalyzerEngine["analyzerVerify"]>[0],
+        ) => {
+          await gate; // stands in for `await physics.createWorld`
+          sizeSeenAfterTheAwait = opts.store.chunks.size;
+          return VERDICT;
+        },
+      }),
+    );
+    expect(steppedCorridor().chunks.size).toBe(24);
+
+    const verifying = verify(handle, 2);
+    // Posted while the verify is suspended, and it REMOVES a chunk — so a
+    // mid-verify application is visible as a smaller store.
+    const syncing = handle({
+      kind: "sync",
+      jobId: 3,
+      cellSize: CELL,
+      upserts: [],
+      removed: ["1,0,0"],
+    });
+    release();
+    await Promise.all([verifying, syncing]);
+
+    expect(sizeSeenAfterTheAwait).toBe(24);
+    // Arrival order, not completion order: the verify answers first even though
+    // the sync would have finished in an instant.
+    expect(posts.map((p) => p.kind)).toEqual(["acked", "verified", "acked"]);
+    // …and the sync still landed once its turn came.
+    await analyze(handle, 4, ["1,0,0"]);
+    expect(lastOf(posts, "flags").chunks.map((c) => c.key)).not.toContain(
+      "1,0,0",
+    );
+  });
+
   test("the bundle loads ONCE across verifies — the shared physics context depends on it", async () => {
     const engine = fakeEngine(() => Promise.resolve(VERDICT));
     const { handle } = await mirrored(steppedCorridor(), engine.loadEngine);

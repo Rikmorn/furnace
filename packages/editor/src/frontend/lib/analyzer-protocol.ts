@@ -25,9 +25,7 @@ import type {
   ChunkKey,
   FieldFlag,
   FieldStore,
-  PlacementCollision,
   PlacementCollisionGroup,
-  PlacementRecord,
 } from "@furnace/core/field";
 import {
   analyzeChunk,
@@ -112,10 +110,10 @@ export type AnalyzerRequest =
   | {
       kind: "placements";
       jobId: number;
-      groups: { collision: PlacementCollision; records: PlacementRecord[] }[];
+      groups: readonly PlacementCollisionGroup[];
     }
   /** Re-run stage 1 over the chunks a set of edits could have changed the answer
-   *  for (see {@link reanalysisSet}), optionally followed by the reachability
+   *  for (see {@link reanalysisKeys}), optionally followed by the reachability
    *  demotion pass over exactly those flags. */
   | {
       kind: "analyze";
@@ -182,17 +180,17 @@ function requireStore(state: MirrorState, verb: string): FieldStore {
 
 /** The extra-solidity view of the placements, computed at most once per
  *  (placement set, lattice) pair. */
-function solidity(state: MirrorState, store: FieldStore): AnalyzeOptions {
+function analyzeOptions(state: MirrorState, store: FieldStore): AnalyzeOptions {
   state.extraSolid ??= voxelizePlacements(state.groups, store.cellSize);
   return { extraSolid: state.extraSolid };
 }
 
 /** One allocated chunk within an XZ column, with its chunk-Y already parsed —
- *  {@link reanalysisSet} compares against it five times per dirty chunk. */
+ *  {@link reanalysisKeys} compares against it five times per dirty chunk. */
 type ColumnMember = { key: ChunkKey; cy: number };
 
 /** Allocated chunk keys grouped by their XZ column (`"cx,cz"`), built once per
- *  analyse. The column membership {@link reanalysisSet} needs is a scan of the
+ *  analyse. The column membership {@link reanalysisKeys} needs is a scan of the
  *  mirror's keys; doing it per dirty chunk instead would be quadratic in the
  *  world at load, when EVERY chunk is dirty. */
 function columnIndex(store: FieldStore): Map<string, ColumnMember[]> {
@@ -241,8 +239,11 @@ const READ_COLUMNS = [
  * bounded only by the open air above it: dig a hole in one chunk and a floor
  * anchor several chunks below can see through it for the first time. A
  * neighbour-halo rule alone would leave those columns holding stale flags —
- * measured, not argued: analysing `"1,-4,0"` before and after a floor appeared
- * inside `"0,0,0"` (five chunks up, one column across) gained 5 `ledge` flags.
+ * measured, not argued, on the fixture committed beside this (the
+ * "cardinal-column term is load-bearing" test): analysing `"1,-4,0"` before and
+ * after a floor appeared inside `"0,0,0"` — FOUR chunks up, one column across —
+ * goes from 0 `ledge` to 1, at cell `16,-64,8`. Re-runnable; cite that and not a
+ * remembered number.
  *
  * The cardinal spread past the halo is this executor's deviation from the LETTER
  * of the D-F4-9 amendment (which named the anchor's own column only) and a
@@ -254,7 +255,7 @@ const READ_COLUMNS = [
  * Above stays excluded: a chunk higher than the dirty one reads DOWN into it
  * only at its own bottom row, i.e. only when it is already a 26-neighbour.
  */
-function reanalysisSet(
+function reanalysisKeys(
   store: FieldStore,
   dirty: readonly ChunkKey[],
 ): ChunkKey[] {
@@ -320,9 +321,9 @@ function handleAnalyze(
   post: Post,
 ): void {
   const store = requireStore(state, "analyze");
-  const opts = solidity(state, store);
+  const opts = analyzeOptions(state, store);
   const flags = new Map<ChunkKey, FieldFlag[]>();
-  for (const key of reanalysisSet(store, msg.dirty))
+  for (const key of reanalysisKeys(store, msg.dirty))
     flags.set(key, analyzeChunk(store, key, msg.profile, opts));
   // Whole-world pass over a per-chunk slice: exactly the mixed-vintage steady
   // state `markUnreachable` documents. It tags only the flags handed to it, and
@@ -414,7 +415,7 @@ export function createAnalyzerWorkerHandler(deps: {
     });
   };
 
-  return async (msg) => {
+  const dispatch = async (msg: AnalyzerRequest): Promise<void> => {
     try {
       switch (msg.kind) {
         case "verify": {
@@ -446,5 +447,34 @@ export function createAnalyzerWorkerHandler(deps: {
         message: errText(err),
       });
     }
+  };
+
+  // Messages are processed strictly in ARRIVAL order, one at a time.
+  //
+  // `self.onmessage` invokes its handler per message with no regard for whether
+  // the previous one has settled, and `dispatch` is async: a `verify` suspends
+  // at the bundle import and again inside `analyzerVerify`, which awaits
+  // `createWorld` BEFORE it reads the store. A `sync` landing in either window
+  // would run `chunks.set`/`delete` on the very `FieldStore` object the
+  // in-flight verify captured, and the verdict would describe a half-updated
+  // mirror — not corruption (single-threaded, advisory output, no iterator
+  // invalidation), but a WRONG answer in exactly the edit-while-verifying case
+  // the editor is for. The field worker has no such class because it is
+  // synchronous throughout.
+  //
+  // Serializing rather than snapshotting the store per verify is deliberate:
+  // ordering is the property a host can reason about ("I synced, then I
+  // analysed, so the analysis saw the sync"), and the mirror is megabytes.
+  // A long verify therefore DELAYS later messages; it does not drop them, and
+  // the client's own coalescer collapses whatever piles up behind it.
+  let tail: Promise<void> = Promise.resolve();
+  return (msg) => {
+    const settled = tail.then(() => dispatch(msg));
+    // The queue must outlive a handler that threw where it should not have (a
+    // `post` that itself fails, say). A rejected tail makes every later `.then`
+    // skip its callback, which would wedge the worker silently; the caller still
+    // sees that failure through the promise it was handed.
+    tail = settled.catch(() => undefined);
+    return settled;
   };
 }

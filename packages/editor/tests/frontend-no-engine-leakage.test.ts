@@ -28,14 +28,32 @@ const VIEWPORT_HOST = `["'][^"']*viewport-host`;
 // All three rule-sets (@furnace/core, *-protocol, viewport-host) exempt the SAME
 // files: each dedicated worker is its OWN bundle (/field-worker.js,
 // /analyzer-worker.js), spawned by URL into an isolated Worker realm. They consume
-// stock engine code (@furnace/core/field) directly. The hazard this invariant guards
-// — a duplicate core instance next to the engine bundle in the SAME realm — cannot
-// arise in either: the field worker's realm has no engine bundle at all, and the
-// analyzer worker's realm loads /engine.js ONLY there, where its core instance is the
-// one the verify verb is supposed to be driving. What must never happen is core
-// entering the CHROME's bundle, which is what every rule below is about. Exempt files
-// may (1) value-import @furnace/core AND (2) value-import a core-carrying protocol
-// module — they ARE those bundles (field-worker.ts value-imports
+// stock engine code (@furnace/core/field) directly. What must never happen is core
+// entering the CHROME's bundle, which is what every rule below is about.
+//
+// Be precise about WHY each exemption is safe, because the two workers are safe for
+// DIFFERENT reasons and only one of them is the easy case:
+//   - The field worker's realm never loads /engine.js, so it holds exactly one core.
+//   - The analyzer worker's realm holds TWO. Measured on the daemon-served bundle
+//     (2026-07-26): /engine.js is ~8.7 MB, defines `createFieldStore` itself and has
+//     ZERO external `@furnace/core` imports — esbuild INLINES core into it. So the
+//     copy bundled into analyzer-worker.js (via analyzer-protocol.ts) sits beside the
+//     engine bundle's own copy. The duplicate is real; do NOT cite this exemption as
+//     evidence that a worker realm cannot have one.
+// It is INERT here for two reasons, and both have to keep holding. (1) Everything
+// crossing that seam is plain structural DATA — `FieldStore` is
+// `{ cellSize, chunks: Map, materials: Map }` (core's types.ts), and `AgentProfile` /
+// `FieldFlag` / `PlacementCollisionGroup` are likewise plain objects: no class
+// identity, no `instanceof`, no symbols, so which core minted the value cannot matter
+// (the dungeon's `AnalyzerVerifyOptions` says the same thing from its side —
+// "Structural — an editor worker's mirror store satisfies it as readily as the game's
+// own"). (2) The two instances share no module-level state: our copy runs only the
+// pure column pass and the placement rasterizer, the bundle's copy owns the physics
+// context and the collider derivation, and neither reads the other's registries. The
+// cost is a second copy of core's JS in the worker's memory, which is accepted.
+//
+// Exempt files may (1) value-import @furnace/core AND (2) value-import a core-carrying
+// protocol module — they ARE those bundles (field-worker.ts value-imports
 // createFieldWorkerHandler; field-protocol.ts value-imports the mesher; the analyzer
 // pair does the same with the advisor passes).
 // The viewport-host rule is a no-op for them: the worker files don't import the barrel

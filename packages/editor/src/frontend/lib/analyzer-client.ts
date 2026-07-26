@@ -1,10 +1,3 @@
-import type {
-  AgentProfile,
-  ChunkKey,
-  FieldFlag,
-  PlacementCollision,
-  PlacementRecord,
-} from "@furnace/core/field";
 import type { AnalyzerRequest, AnalyzerResponse } from "./analyzer-protocol.ts";
 import type { WorkerLike } from "./field-client.ts";
 
@@ -42,19 +35,25 @@ function isKind<K extends AnalyzerSuccess["kind"]>(
 }
 
 const defaultSpawn = (): WorkerLike =>
+  // Boundary cast: the DOM Worker satisfies WorkerLike structurally; the alias
+  // exists only so tests can inject a fake.
   new Worker("/analyzer-worker.js", {
     type: "module",
   }) as unknown as WorkerLike;
 
-/** What one stage-1 pass needs to know. */
-export type AnalyzeInput = {
-  profile: AgentProfile;
-  /** Chunks the host has edited since the last pass. The worker widens this to
-   *  the set whose ANSWER could have changed (halo + the column below). */
-  dirty: ChunkKey[];
-  reachability: boolean;
-  seeds: [number, number, number][];
-};
+/** The payload of one request kind, minus the envelope {@link
+ *  AnalyzerWorkerClient} stamps on it. Derived rather than restated so a change
+ *  to {@link AnalyzerRequest} cannot leave this file describing a wire the
+ *  worker no longer speaks. */
+type Payload<K extends AnalyzerRequest["kind"]> = Omit<
+  Extract<AnalyzerRequest, { kind: K }>,
+  "kind" | "jobId"
+>;
+
+/** What one stage-1 pass needs to know. `dirty` is the chunks the host has
+ *  edited since the last pass; the worker widens it to the set whose ANSWER
+ *  could have changed (the halo plus the columns below). */
+export type AnalyzeInput = Payload<"analyze">;
 
 /** One persistent analyzer worker; stale results dropped by jobId. A plain
  *  request pipe, like `FieldWorkerClient`: it does not cancel and does not
@@ -125,8 +124,8 @@ export class AnalyzerWorkerClient {
    *  structured-CLONED, not transferred: the host goes on editing its own. */
   sync(
     cellSize: number,
-    upserts: { key: ChunkKey; density: ArrayBuffer }[],
-    removed: ChunkKey[],
+    upserts: Payload<"sync">["upserts"],
+    removed: Payload<"sync">["removed"],
   ) {
     return this.send({
       kind: "sync",
@@ -138,9 +137,7 @@ export class AnalyzerWorkerClient {
   }
 
   /** Replace the placement collider set the analyzer sees. */
-  placements(
-    groups: { collision: PlacementCollision; records: PlacementRecord[] }[],
-  ) {
+  placements(groups: Payload<"placements">["groups"]) {
     return this.send({ kind: "placements", jobId: ++this.jobId, groups });
   }
 
@@ -151,12 +148,7 @@ export class AnalyzerWorkerClient {
   }
 
   /** Run stage 2 on one flag: the project's real mover, driven at it. */
-  verify(req: {
-    engineUrl: string;
-    flag: FieldFlag;
-    profile: AgentProfile;
-    budgetMs: number;
-  }) {
+  verify(req: Payload<"verify">) {
     return this.send({ kind: "verify", jobId: ++this.jobId, ...req });
   }
 

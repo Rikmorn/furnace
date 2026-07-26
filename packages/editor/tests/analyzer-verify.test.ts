@@ -158,9 +158,6 @@ test("P-F4-2: the real analyzer worker verifies a flag against the daemon's own 
     // controller. (A weaker "some lane is not `budget`" is satisfied by an
     // all-`no-lane` verdict, in which the mover is never constructed at all.)
     expect(verdict.lanes.some((l) => l.progressed > 0)).toBe(true);
-    console.log(
-      `P-F4-2 verdict: ${JSON.stringify(verdict)} (flag ${flag.kind} @ ${flag.cell.join(",")})`,
-    );
   } finally {
     client.dispose();
   }
