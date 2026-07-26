@@ -211,9 +211,14 @@ function anchorOffset(
  * @param r - The placed record, for its position, rotation and scale.
  * @returns A fresh world-space `[x, y, z]`, in metres.
  * @remarks Not validated — a pure query over data the caller already parsed, the
- * same stance as {@link collisionExtentY}. A non-unit `r.quat` rotates only
- * PARTIALLY here (it would shorten the lift); {@link voxelizePlacements} is
- * where such a record is refused.
+ * same stance as {@link collisionExtentY}. A non-unit `r.quat` MIS-SCALES the
+ * lift in whichever direction its norm points, and the error is NOT conservative:
+ * {@link quatMatrix}'s column 1 has length 1 only at `|q| = 1`, shrinking below
+ * it and growing WITHOUT BOUND above it. Worked, for a 90°-about-X quat lifting a
+ * unit extent: `|q| = 0.5` gives `[0, 0.750, 0.250]` (‖0.791‖), `|q| = 1.5` gives
+ * `[0, −1.250, 2.250]` (‖2.574‖), `|q| = 2` gives `[0, −3.000, 4.000]` (‖5.000‖)
+ * — 5× the extent, and pointing DOWN. Callers must not read "partial rotation" as
+ * "a shorter lift"; {@link voxelizePlacements} is where such a record is refused.
  */
 export function collisionCenter(
   c: PlacementCollision,
@@ -262,18 +267,22 @@ function assertCollisionValid(c: PlacementCollision, at: number): void {
  *  tolerance {@link assertPlacementsValid} holds the artifact path to.
  *
  *  Not redundant with that check, and not a style guard: {@link quatMatrix} on a
- *  quat of norm `n` yields `I + n²(R − I)`, a PARTIAL rotation, whose AABB is
- *  SMALLER than the true one. (Worked: box `h = [0.5, 0.1, 0.1]` at 45° yaw with
- *  `|q|² = 0.5` gives `hz' = 0.181` against a true `0.424`.) Under-covering is
- *  the one direction this module promises never to go, and every other input
- *  class that could cause it already throws — so this one does too, rather than
- *  leaving the guarantee true only for callers who came through the parser. */
+ *  quat of norm `n` yields `I + n²(R − I)`, a PARTIAL rotation, and the AABB it
+ *  produces is wrong in EITHER direction — smaller than the true one below
+ *  `n = 1`, larger above it (`rotatedHalfExtents` sums `Math.abs` of matrix
+ *  entries that grow with `n²`). Worked, box `h = [0.5, 0.1, 0.1]` at 45° yaw,
+ *  true `hz' = 0.424`: `|q| = 0.5` gives `0.181`, `|q| = 1.5` gives `0.830`.
+ *  Only the first is dangerous — under-covering is the one direction this module
+ *  promises never to go — but a non-unit quat is bad input either way, and every
+ *  other input class that could under-cover already throws, so this one does too
+ *  rather than leaving the guarantee true only for callers who came through the
+ *  parser. */
 function assertUnitQuat(r: PlacementRecord): void {
   const [x, y, z, w] = r.quat;
   const norm2 = x * x + y * y + z * z + w * w;
   if (!Number.isFinite(norm2) || Math.abs(norm2 - 1) > QUAT_NORM_TOLERANCE)
     throw new Error(
-      `voxelizePlacements: record "${r.archetypeId}" quat must be unit-length (|q|² = ${norm2}, tolerance ${QUAT_NORM_TOLERANCE}) — a non-unit quaternion rotates PARTIALLY, and its AABB would under-cover`,
+      `voxelizePlacements: record "${r.archetypeId}" quat must be unit-length (|q|² = ${norm2}, tolerance ${QUAT_NORM_TOLERANCE}) — a non-unit quaternion rotates PARTIALLY, and its AABB would MIS-cover (under-cover below |q| = 1, over-cover above)`,
     );
 }
 

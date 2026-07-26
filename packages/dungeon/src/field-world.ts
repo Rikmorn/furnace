@@ -335,8 +335,9 @@ async function fetchCatalog(): Promise<Map<string, CatalogArchetype>> {
  *  Rapier a negative ball radius / cuboid half-extent, and split this derivation from
  *  `collisionExtentY` (which takes magnitudes too).
  *
- *  Exported for `tests/field-placements.gpu.test.ts`: a walk cannot reach a mirrored or tilted
- *  record, and a body's shape is not readable back out of the physics world. */
+ *  Exported for `tests/field-placements.gpu.test.ts`: a walk cannot reach a mirrored record, and a
+ *  body's shape is not readable back out of the physics world. (Rotation is no concern of this
+ *  function — the pose is `field.collisionCenter`'s.) */
 export function placementCollider(
   collision: field.PlacementCollision,
   scale: readonly [number, number, number],

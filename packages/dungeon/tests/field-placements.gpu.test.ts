@@ -32,6 +32,7 @@ import {
   type BakedFile,
   BUILTIN_TABLE,
   bakeFieldWorld,
+  collisionExtentY,
   commitGenerator,
   createFieldStore,
   createOpLog,
@@ -214,7 +215,21 @@ function expectShape(
   parts.nums.forEach((v, i) => expect(v).toBeCloseTo(at(nums, i), 6));
 }
 
-/** The two shipped catalog primitives, as `catalog/entities.json` declares them. */
+/** The Y half-extent of a DERIVED collider, read back out of the shape the loader hands Rapier —
+ *  the same quantity core's `collisionExtentY` computes from the primitive, by the other of the
+ *  two independent implementations of that rule. */
+function shapeExtentY(s: physics.ShapeDescriptor): number {
+  if ("ball" in s) return s.ball;
+  if ("cuboid" in s) return s.cuboid[1];
+  if ("capsule" in s) return s.capsule.halfHeight + s.capsule.radius;
+  throw new Error(
+    `shapeExtentY: no Y half-extent for a ${Object.keys(s).join("+")} shape`,
+  );
+}
+
+/** The two shipped catalog primitives. Pinned field-for-field against the committed
+ *  `catalog/entities.json` by the first test below, so "as the catalog declares them" is checked
+ *  rather than asserted — hand-copied dimensions would otherwise go stale silently. */
 const ROCK_BOX: PlacementCollision = {
   kind: "box",
   halfExtents: [0.4, 0.35, 0.4],
@@ -239,10 +254,40 @@ describe("placement collider derivation (F4 · D-F4-14)", () => {
       archetypes: { id: string; collision: PlacementCollision }[];
     };
     const byId = new Map(catalog.archetypes.map((a) => [a.id, a.collision]));
+    // Field-for-field, so the constants above ARE the catalog and every dimension asserted
+    // through them (extents, the extent-parity lane) is asserted against committed data.
+    expect(byId.get("rock")).toEqual(ROCK_BOX);
+    expect(byId.get("stalagmite")).toEqual(STALAGMITE_CAPSULE);
+    // …and the anchor decision stated outright, so editing BOTH the constant and the file in
+    // step still fails here rather than passing a matched pair of wrong values.
     expect(expectDefined(byId.get("stalagmite"), "stalagmite").anchor).toBe(
       "base",
     );
     expect(expectDefined(byId.get("rock"), "rock").anchor).toBeUndefined();
+  });
+
+  test("the derived collider's Y half-extent IS core's collisionExtentY (the pair Rider A split)", () => {
+    // The extent rule (per-axis box, max-axis round, magnitudes) has TWO hand-written
+    // implementations: core's `localHalfExtents`, which the analyzer voxelizes with, and this
+    // package's `placementCollider`, which physics collides with. They diverged once already —
+    // that divergence is what Rider A fixed — and until now each side was pinned only by its own
+    // hand-written literals, so editing one set left the other green. This computes one from the
+    // other: no literals, nothing to keep in step.
+    const cases: [PlacementCollision, PlacementRecord["scale"]][] = [
+      [ROCK_BOX, [1, 1, 1]],
+      [ROCK_BOX, [3, 2, 5]],
+      [ROCK_BOX, [-1, -1, -1]],
+      [{ kind: "sphere", radius: 0.5 }, [1, 1, 3]],
+      [{ kind: "sphere", radius: 0.5 }, [-2, 1, 1]],
+      [STALAGMITE_CAPSULE, [1, 1, 1]],
+      [STALAGMITE_CAPSULE, [2, 1, 1]],
+      [STALAGMITE_CAPSULE, [-3, 1, 1]],
+    ];
+    for (const [collision, scale] of cases)
+      expect(shapeExtentY(placementCollider(collision, scale))).toBeCloseTo(
+        collisionExtentY(collision, scale),
+        12,
+      );
   });
 
   test("collider extents are scale MAGNITUDES — a mirrored record derives its twin's collider", () => {

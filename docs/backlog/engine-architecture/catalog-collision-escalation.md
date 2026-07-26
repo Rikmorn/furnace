@@ -1,11 +1,22 @@
 # Catalog collision escalation: a `mesh` kind, or a per-archetype blocking override
 
 F4's D-F4-14 gave the catalog `collision` schema an explicit `anchor: "center" | "base"` (default
-`"center"`, so every pre-F4 catalog is unchanged). Core's `collisionExtentY` /
+`"center"`, so every pre-F4 catalog is unchanged). Core's `collisionCenter` /
 `voxelizePlacements`, the dungeon's `field-world.ts` loader, and the editor's ghosts + prop
-proxies all read it, so a prop's render, its physics collider and the analyzer's walkability
-flags agree by construction. The stalagmite declares `"base"` (its mesh is base-origin, y∈[0,1]);
-the rock stays centred (its mesh is centre-origin).
+proxies all anchor through the same function, so a prop's physics collider and the analyzer's
+walkability flags agree by construction. The stalagmite declares `"base"` (its mesh is
+base-origin, y∈[0,1]); the rock stays centred (its mesh is centre-origin).
+
+**One leg of that agreement is still a human promise: the MESH.** `packPlacementMatrices`
+(`core/field/kit-render.ts`) packs each record's RAW `position` — it never consults `anchor`,
+because the anchor describes where the COLLIDER sits, and the render transform is the record pose
+by definition. That is correct, and it means collider↔flags now agree mechanically while
+collider↔mesh agreement rests entirely on an author matching a JSON string to a mesh's origin
+convention, with nothing checking the pairing. Declare `"base"` on a centre-origin archetype (or
+forget it on a base-origin one) and the collider silently sits half a mesh away — the same bug
+D-F4-14 just fixed, one archetype along. It is checkable: the committed `.fmesh` blobs carry
+vertex bounds, so a test asserting `anchor: "base"` ⇒ minY ≈ 0 and centre-origin ⇒ minY ≈ −maxY
+would close it against real geometry rather than a comment.
 
 That closes the anchoring question but NOT the sizing one, and the remaining consequence was
 accepted deliberately rather than solved: **small props stay walkable-over.** Faithful centre
