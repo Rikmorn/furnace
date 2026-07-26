@@ -568,7 +568,12 @@ export type FieldFlag = {
   /** Reachability demotion tag (D-F4-8) — set by the reachability pass, which
    *  demotes and never deletes. The one MUTABLE member: that pass tags flags in
    *  place, so everything describing WHAT was found stays readonly and only the
-   *  triage verdict can be written after the fact. */
+   *  triage verdict can be written after the fact.
+   *
+   *  Left `undefined` on a `pit`, which that pass deliberately SKIPS: its
+   *  undirected flood cannot enter a pit, so every answer would be `true`.
+   *  `undefined` is the "show it" state, so a consumer holding one mixed flag
+   *  list gets a no-op rather than every pit hidden behind the default filter. */
   unreachable?: boolean;
 };
 

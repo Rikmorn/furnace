@@ -14,4 +14,4 @@ The two were deliberately NOT merged in Task 7.2, because they answer different 
 
 **Trigger to revisit:** the F4 tranche-B UI work, when the flag panel decides what "hidden by default" means and someone has to explain why a visible cavern floor's flags are greyed out; or any consumer that adds a fall-damage model, which changes the answer for both passes at once.
 
-**Reference:** `packages/core/src/field/analyze.ts` (`climbNeighbours`, `fallTargets`, `markUnreachable`, `detectPits`); measured numbers in `packages/core/tests/field-analyze-budget.test.ts` (`[f4-budget]` lines).
+**Reference:** `packages/core/src/field/reachability.ts` (`climbNeighbours`, `fallTargets`, `markUnreachable`, `detectPits`); measured numbers in `packages/core/tests/field-analyze-budget.test.ts` (`[f4-budget]` lines).

@@ -30,7 +30,7 @@ panel — i.e. someone is regularly dismissing pit rows that turn out to be 1-ce
 handful in a stress-density bake is not that. Also revisit if the node set gains a width or
 headroom notion for any other reason, since the two passes must keep reading one node set.
 
-**Reference.** `packages/core/src/field/analyze.ts` (`detectPits` @remarks — the headroom and
+**Reference.** `packages/core/src/field/reachability.ts` (`detectPits` @remarks — the headroom and
 resolution caveats this extends; `fallTargets` / `climbNeighbours` are the edge rules);
 `packages/dungeon/scripts/measure/explain.ts` (`explainPit`, the well diagnosis);
 `packages/dungeon/scripts/measure-analyze.ts` (re-runnable repro: the authored-props default cave

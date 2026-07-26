@@ -1231,8 +1231,11 @@ channel** (uniform|indexed palette encoding behind accessors — `getMaterial` /
   `climbCeiling` not above `stepHeight` (a mover that auto-steps higher than it climbs is
   not a profile these passes can read), `clearance` below the capsule's own
   `2 × (halfHeight + radius)`, or `skin` at or above `capsule.radius` (which would put the
-  `narrow` bar past three radii). The gate runs BEFORE any early return, so a bad profile
-  throws even when there is nothing to do.
+  `narrow` bar past three radii). In `markUnreachable` and `detectPits` the gate runs
+  BEFORE any early return, so a bad profile throws even with no seeds and nothing to do.
+  `analyzeWorld` is the one exception, by construction rather than by choice: it validates
+  only through the `analyzeChunk` calls it makes, so over a store with NO allocated chunks
+  it runs the gate zero times and returns an empty map without throwing.
   `markUnreachable(store, profile, flags, seeds, opts?)` (D-F4-8) is triage, not
   filtering: it floods from each seed's floor surface (4-connected in XZ, any |Δy| within
   `climbCells` — the CLIMB BAND, the edge rule it shares with `detectPits`, so
@@ -1247,14 +1250,17 @@ channel** (uniform|indexed palette encoding behind accessors — `getMaterial` /
   ignored** (a shelf reachable only by dropping reads unreachable — `detectPits` models
   that edge, and the two are deliberately NOT merged: this one answers "can the agent get
   there at all", where the conservative undirected answer is the honest basis for a
-  demotion. One consequence bites: this flood cannot enter a pit BY DEFINITION, so running
-  it over `detectPits` output would demote every pit flag — keep the two sets apart);
+  demotion. One consequence is HANDLED rather than left to the caller: this flood cannot
+  enter a pit by definition, so tagging one would demote every `detectPits` finding — the
+  pass therefore SKIPS `pit` flags outright and leaves their tag `undefined`, which makes
+  mixing the two sets into one list a no-op instead of a silent hiding);
   **headroom is ignored**, so the flood crosses gaps the capsule cannot fit
   through, and a `cellSize` COARSER than `climbCeiling` floors `climbCells` to 0 and
   strands everything off the seed's own level; and steps are
   **4-connected in XZ**, so a floor whose only route in is a DIAGONAL step reads
   unreachable though the mover walks there fine. `unreachable` is therefore a TRI-STATE —
-  `undefined` = this pass never ran over that flag, `false` = reached, `true` = demoted —
+  `undefined` = this pass never ran over that flag, or the flag is a `pit` it deliberately
+  does not answer for; `false` = reached; `true` = demoted —
   and mixed vintages are the normal steady state (analysis is per-dirty-chunk, this pass
   is whole-world). **Filter on `=== true`** (hide those, show everything else); testing
   `=== false` for "reachable" silently hides every not-yet-flooded flag.

@@ -8,4 +8,4 @@ Not fixed inline because the fix is not the trivial one it looks like: hoisting 
 
 **Trigger to revisit:** the first `analyzeWorld` run over a world large enough for the `[f4-budget]` line to show validation time — practically, when a bake exceeds ~1k chunks with placements spread across most of them, or when the analyzer worker (D-F4-9) starts running whole-world passes rather than dirty-chunk ones. Measure before changing: the per-chunk incremental path (the actual live-editing shape) passes a small extras slice and is unaffected either way.
 
-**Reference:** `packages/core/src/field/analyze.ts` (`assertExtraSolidValid`, `viewFor`, `analyzeWorld`); producer `packages/core/src/field/placement-collision.ts`; budget numbers in `packages/core/tests/field-analyze-budget.test.ts`.
+**Reference:** `packages/core/src/field/solidity.ts` (`assertExtraSolidValid`, `validatedView`) + `analyze.ts` (`analyzeWorld`); producer `packages/core/src/field/placement-collision.ts`; budget numbers in `packages/core/tests/field-analyze-budget.test.ts`.
