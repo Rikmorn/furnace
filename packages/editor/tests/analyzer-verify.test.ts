@@ -146,13 +146,18 @@ test("P-F4-2: the real analyzer worker verifies a flag against the daemon's own 
     // that the whole stack ran off the main thread.
     expect(["trapped", "clear", "inconclusive"]).toContain(verdict.outcome);
     expect(verdict.ms).toBeGreaterThan(0);
-    // …and that the MOVER ran, not just the scene build: a lane with a real
-    // outcome means the drive loop executed. `budget` everywhere would mean
-    // the physics came up and then ran out of clock, which proves less.
     expect(verdict.lanes.length).toBeGreaterThan(0);
     for (const lane of verdict.lanes)
       expect(LANE_OUTCOMES).toContain(lane.outcome);
-    expect(verdict.lanes.some((l) => l.outcome !== "budget")).toBe(true);
+    // …and that the MOVER actually RAN, which is the load-bearing half of the
+    // claim this test exists to make. `progressed` is the only field that
+    // proves it: `walk-probe.ts` returns `no-lane` with `progressed: 0` BEFORE
+    // it constructs the CharacterMover, and a non-zero value can only come from
+    // `maxAlong - startAlong` after the drive loop. So a positive `progressed`
+    // means a capsule was built, stepped and MOVED under the shipped
+    // controller. (A weaker "some lane is not `budget`" is satisfied by an
+    // all-`no-lane` verdict, in which the mover is never constructed at all.)
+    expect(verdict.lanes.some((l) => l.progressed > 0)).toBe(true);
     console.log(
       `P-F4-2 verdict: ${JSON.stringify(verdict)} (flag ${flag.kind} @ ${flag.cell.join(",")})`,
     );

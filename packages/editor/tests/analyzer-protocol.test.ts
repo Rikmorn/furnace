@@ -260,6 +260,22 @@ describe("analyzer worker: mirror + stage 1", () => {
     expect(err.message).toContain("before any sync");
   });
 
+  test("an unrecognised request kind is refused, not run as the chain's last arm", async () => {
+    const { posts, handle } = await mirrored(steppedCorridor());
+    // Boundary cast: a message no version of this protocol declares — which is
+    // what a stale host or a hand-posted message looks like at runtime.
+    await handle({ kind: "nope", jobId: 7 } as unknown as AnalyzerRequest);
+    const err = lastOf(posts, "analyzer-error");
+    expect(err.jobId).toBe(7);
+    expect(err.message).toContain("unrecognised request kind nope");
+    // And the placement set survived. An if/else chain ending in a bare `else`
+    // would have taken this message into the `placements` arm, set `groups` to
+    // undefined, dropped the solidity memo and ACKED success — which only
+    // surfaces on the next analyse, as a stage-1 failure with no obvious cause.
+    await analyze(handle, 8, ["1,0,0"]);
+    expect(flagsOf(lastOf(posts, "flags"), "1,0,0").length).toBe(12);
+  });
+
   test("a bad agent profile surfaces as a typed error (core's setup-loud gate)", async () => {
     const { posts, handle } = await mirrored(steppedCorridor());
     await handle({
@@ -283,22 +299,63 @@ describe("analyzer worker: the re-analysis set (D-F4-9, amended)", () => {
     return store;
   }
 
-  test("dirty chunk + allocated 26-neighbours + every allocated chunk BELOW it in the same XZ column", async () => {
+  test("dirty chunk + allocated 26-neighbours + everything BELOW it in the own AND CARDINAL XZ columns", async () => {
     const { posts, handle } = await mirrored(
       sparse([
         "0,0,0", // dirty
         "1,0,0", // 26-neighbour
         "0,-1,0", // neighbour AND below
-        "0,-4,0", // far below, same column: the ceiling scan reads through the edit
-        "0,4,0", // far above: its columns never read down this far
-        "1,-4,0", // below a DIAGONAL neighbour: its column is not ours
-        "4,0,0", // far sideways
+        // Far below in the anchor's OWN column: `ceilingAbove` is uncapped, so
+        // its columns read up through the edit.
+        "0,-4,0",
+        // Far below in a CARDINALLY-adjacent column, x and z. `scanRise` reads
+        // the 4 cardinal neighbour columns bounded by that same uncapped
+        // ceiling, so these are just as exposed as the own column — the class
+        // the letter of the amendment missed.
+        "1,-4,0",
+        "0,-4,1",
+        // Far below in a DIAGONAL column: `scanRise` reads cardinals only, so
+        // nothing down here can see the edit. The asymmetry is the algorithm's.
+        "1,-4,1",
+        "0,4,0", // far above: reads DOWN only at its own bottom row (a neighbour)
+        "4,0,0", // far sideways at the same level: no read reaches that far
       ]),
     );
     await analyze(handle, 2, ["0,0,0"]);
     expect(new Set(lastOf(posts, "flags").chunks.map((c) => c.key))).toEqual(
-      new Set(["0,0,0", "1,0,0", "0,-1,0", "0,-4,0"]),
+      new Set(["0,0,0", "1,0,0", "0,-1,0", "0,-4,0", "1,-4,0", "0,-4,1"]),
     );
+  });
+
+  test("the cardinal-column term is load-bearing: a real flag four chunks below and one column across", async () => {
+    // A 1-cell open shaft. The floor anchor at (16,-64,8) lives in "1,-4,0";
+    // its −x neighbour column runs up through "0,0,0", four chunks above.
+    // `scanRise` reads that column bounded by the anchor's OWN uncapped
+    // ceiling, so a floor appearing up there is a brand-new `ledge` down here —
+    // and a rule that only walked the anchor's own column would never
+    // re-analyse the chunk holding it.
+    const store = createFieldStore(CELL);
+    box(store, [14, 18, -66, 22, 6, 10], SOLID);
+    box(store, [15, 16, -64, 21, 8, 8], AIR);
+    const { posts, handle } = await mirrored(store);
+    const ledgeAtAnchor = () =>
+      flagsOf(lastOf(posts, "flags"), "1,-4,0").filter(
+        (f) => f.kind === "ledge" && f.cell.join(",") === "16,-64,8",
+      );
+
+    await analyze(handle, 2, ["0,0,0"]);
+    expect(ledgeAtAnchor()).toEqual([]);
+
+    setDensity(store, 15, 4, 8, SOLID);
+    await handle({
+      kind: "sync",
+      jobId: 3,
+      cellSize: CELL,
+      upserts: upsertsOf(store).filter((u) => u.key === "0,0,0"),
+      removed: [],
+    });
+    await analyze(handle, 4, ["0,0,0"]);
+    expect(ledgeAtAnchor().length).toBe(1);
   });
 
   test("unallocated members of the set are dropped, not analysed into empty noise", async () => {
@@ -645,7 +702,9 @@ describe("analyzer client", () => {
 });
 
 describe("analyze pump (latest-wins)", () => {
-  function harness() {
+  function harness(
+    onFlags?: (r: Extract<AnalyzerResponse, { kind: "flags" }>) => void,
+  ) {
     const { worker, sent, reply } = fakeWorker();
     const client = new AnalyzerWorkerClient(() => worker);
     const dirty = new Set<string>();
@@ -654,7 +713,7 @@ describe("analyze pump (latest-wins)", () => {
     const pump = createAnalyzePump(client, {
       next: () =>
         dirty.size === 0 ? undefined : { ...ANALYZE_INPUT, dirty: [...dirty] },
-      onFlags: (r) => flags.push(r.jobId),
+      onFlags: onFlags ?? ((r) => flags.push(r.jobId)),
       onError: (e) => errors.push(e.message),
     });
     return { sent, reply, dirty, flags, errors, pump, client };
@@ -712,6 +771,22 @@ describe("analyze pump (latest-wins)", () => {
     });
     await flush();
     expect(h.errors).toEqual(["stage 1 blew up"]);
+    h.pump.request();
+    expect(h.sent.length).toBe(2);
+    await settleLast(h);
+  });
+
+  test("a throw out of onFlags reports like a failed pass and still releases the latch", async () => {
+    // The one failure channel the pump documents. Wedging on a host-side render
+    // bug would stop analysis for the rest of the session, so it must not be a
+    // property that merely happens to hold.
+    const h = harness(() => {
+      throw new Error("render blew up");
+    });
+    h.dirty.add("0,0,0");
+    h.pump.request();
+    await settleLast(h);
+    expect(h.errors).toEqual(["render blew up"]);
     h.pump.request();
     expect(h.sent.length).toBe(2);
     await settleLast(h);

@@ -187,37 +187,67 @@ function solidity(state: MirrorState, store: FieldStore): AnalyzeOptions {
   return { extraSolid: state.extraSolid };
 }
 
+/** One allocated chunk within an XZ column, with its chunk-Y already parsed —
+ *  {@link reanalysisSet} compares against it five times per dirty chunk. */
+type ColumnMember = { key: ChunkKey; cy: number };
+
 /** Allocated chunk keys grouped by their XZ column (`"cx,cz"`), built once per
  *  analyse. The column membership {@link reanalysisSet} needs is a scan of the
  *  mirror's keys; doing it per dirty chunk instead would be quadratic in the
  *  world at load, when EVERY chunk is dirty. */
-function columnIndex(store: FieldStore): Map<string, ChunkKey[]> {
-  const out = new Map<string, ChunkKey[]>();
+function columnIndex(store: FieldStore): Map<string, ColumnMember[]> {
+  const out = new Map<string, ColumnMember[]>();
   for (const key of store.chunks.keys()) {
-    const [cx, , cz] = parseChunkKey(key);
+    const [cx, cy, cz] = parseChunkKey(key);
     const column = `${cx},${cz}`;
+    const member: ColumnMember = { key, cy };
     const list = out.get(column);
-    if (list === undefined) out.set(column, [key]);
-    else list.push(key);
+    if (list === undefined) out.set(column, [member]);
+    else list.push(member);
   }
   return out;
 }
 
+/** The XZ columns an anchor's UNBOUNDED upward reads can travel: its own, plus
+ *  the 4 CARDINAL neighbours. `ceilingAbove` scans the anchor's own column with
+ *  no cap, and `scanRise` then scans each cardinal neighbour column bounded by
+ *  that same ceiling (`analyze.ts` `scanAnchor` → `scanRise`, over core's
+ *  `DIRS`) — so both are unbounded in Y.
+ *
+ *  Diagonals are excluded because `scanRise` reads `DIRS` only; that asymmetry
+ *  is the algorithm's, not an oversight. The analyzer's other neighbour reads
+ *  (`wallBeyondLip`, `pinchedAtTorso`) do reach diagonally, but only within a
+ *  few cells of the anchor's own Y, which the 26-neighbour halo already covers. */
+const READ_COLUMNS = [
+  [0, 0],
+  [1, 0],
+  [-1, 0],
+  [0, 1],
+  [0, -1],
+] as const;
+
 /**
  * The chunks whose stage-1 answer an edit to `dirty` could have changed: each
- * dirty chunk, its 26 neighbours, and every chunk BELOW it in the same XZ
- * column — intersected with what the mirror actually holds.
+ * dirty chunk, its 26 neighbours, and every chunk BELOW it in the columns of
+ * {@link READ_COLUMNS} — intersected with what the mirror actually holds.
  *
- * The column term is not belt-and-braces. `analyzeChunk`'s ceiling search is
- * UNCAPPED (a cap was a false-negative cliff, D-F4-6), so an anchor's scan reach
- * is bounded only by the open air above it: dig a hole in one chunk and an
+ * The column term is not belt-and-braces. `analyzeChunk`'s upward scans are
+ * UNCAPPED (a cap was a false-negative cliff, D-F4-6), so an anchor's reach is
+ * bounded only by the open air above it: dig a hole in one chunk and a floor
  * anchor several chunks below can see through it for the first time. A
- * neighbour-halo rule alone would leave those columns holding stale flags.
+ * neighbour-halo rule alone would leave those columns holding stale flags —
+ * measured, not argued: analysing `"1,-4,0"` before and after a floor appeared
+ * inside `"0,0,0"` (five chunks up, one column across) gained 5 `ledge` flags.
  *
- * Sideways is different, and deliberately not included: a column two chunks away
- * scans up ITS own air, which the edit never entered. Above is covered by the
- * halo — a chunk higher than the dirty one reads down into it only at its own
- * bottom row, i.e. only when it is a neighbour.
+ * The cardinal spread past the halo is this executor's deviation from the LETTER
+ * of the D-F4-9 amendment (which named the anchor's own column only) and a
+ * reading of its own rationale: `scanRise` makes the neighbour columns just as
+ * unbounded as `ceilingAbove` makes the anchor's. Miss-safe in the correct
+ * direction — a wider set re-analyses more, which costs time and never
+ * correctness.
+ *
+ * Above stays excluded: a chunk higher than the dirty one reads DOWN into it
+ * only at its own bottom row, i.e. only when it is already a 26-neighbour.
  */
 function reanalysisSet(
   store: FieldStore,
@@ -232,8 +262,9 @@ function reanalysisSet(
       for (let dy = -1; dy <= 1; dy++)
         for (let dx = -1; dx <= 1; dx++)
           out.add(chunkKey(cx + dx, cy + dy, cz + dz));
-    for (const below of columns.get(`${cx},${cz}`) ?? [])
-      if (parseChunkKey(below)[1] < cy) out.add(below);
+    for (const [ox, oz] of READ_COLUMNS)
+      for (const member of columns.get(`${cx + ox},${cz + oz}`) ?? [])
+        if (member.cy < cy) out.add(member.key);
   }
   // Unallocated space is uniform rock and holds no air, so it can hold no
   // anchor and no flag: analysing it would post empty lists for chunks the host
@@ -319,6 +350,26 @@ async function handleVerify(
   post({ kind: "verified", jobId: msg.jobId, verdict });
 }
 
+/** Exhaustiveness guard for the dispatch below: a new {@link AnalyzerRequest}
+ *  kind with no `case` makes this call a COMPILE error, because its argument is
+ *  `never` (the `errorKey` precedent in `field-protocol.ts`).
+ *
+ *  It is a real RUNTIME guard too, and that is the half that matters here. An
+ *  `if/else` chain ending in an unguarded `else` sends anything unrecognised
+ *  into the LAST verb's arm — for this protocol, `placements`, which would
+ *  silently clobber the collider set, drop the solidity memo, and ack success.
+ *  A message this protocol does not declare (a stale host, a hand-posted one)
+ *  has to be refused. */
+function unrecognisedRequest(msg: never): Error {
+  // Boundary cast: `msg` is statically `never` because every DECLARED kind has a
+  // case; this line is reached exactly when the runtime message is not one of
+  // them, which the type system cannot express.
+  const kind = (msg as { kind?: unknown }).kind;
+  return new Error(
+    `analyzer worker: unrecognised request kind ${String(kind)}`,
+  );
+}
+
 /**
  * Pure handler factory (the worker entry wires `post = self.postMessage` and the
  * real dynamic import). Never throws — every failure posts a typed
@@ -342,30 +393,39 @@ export function createAnalyzerWorkerHandler(deps: {
   };
   let engine: Promise<AnalyzerEngine> | undefined;
 
+  /** The bundle module. Memoized by presence, not by URL: the host always names
+   *  "/engine.js", and a rebuild replaces the whole worker (the generation
+   *  worker's rule). Only a LOAD failure drops the memo, so a later verify can
+   *  retry a bundle that has since built — a verify that failed for its own
+   *  reasons keeps the module it already has. */
+  const resolveEngine = (url: string): Promise<AnalyzerEngine> => {
+    engine ??= deps.loadEngine(url);
+    return engine.catch((err: unknown) => {
+      engine = undefined;
+      throw err;
+    });
+  };
+
   return async (msg) => {
     try {
-      if (msg.kind === "verify") {
-        // Memoized by presence, not by URL: the host always names "/engine.js",
-        // and a rebuild replaces the whole worker (the generation worker's rule).
-        engine ??= deps.loadEngine(msg.engineUrl);
-        // Only a LOAD failure drops the memo, so a later verify can retry a
-        // bundle that has since built. A verify that failed for its own reasons
-        // keeps the module it already has.
-        const ext = await engine.catch((err: unknown) => {
-          engine = undefined;
-          throw err;
-        });
-        await handleVerify(state, msg, ext, deps.post);
-        return;
-      }
-      if (msg.kind === "analyze") {
-        handleAnalyze(state, msg, deps.post);
-        return;
-      }
-      if (msg.kind === "sync") handleSync(state, msg);
-      else {
-        state.groups = msg.groups;
-        state.extraSolid = undefined;
+      switch (msg.kind) {
+        case "verify": {
+          const ext = await resolveEngine(msg.engineUrl);
+          await handleVerify(state, msg, ext, deps.post);
+          return;
+        }
+        case "analyze":
+          handleAnalyze(state, msg, deps.post);
+          return;
+        case "sync":
+          handleSync(state, msg);
+          break;
+        case "placements":
+          state.groups = msg.groups;
+          state.extraSolid = undefined;
+          break;
+        default:
+          throw unrecognisedRequest(msg);
       }
       deps.post({ kind: "acked", jobId: msg.jobId });
     } catch (err) {
