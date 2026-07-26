@@ -8,11 +8,21 @@ import agent from "../catalog/agent.json";
 import { AGENT, SLOPE_LIMIT_COS, STEP_HEIGHT } from "../src/walkability.ts";
 
 test("clearance is derived (2*(halfHeight+radius)), not an independent number", () => {
+  // Tolerance, not `toBe`: 2*(0.6+0.3) computes to 1.7999999999999998 in IEEE 754 double
+  // arithmetic, one ULP below the authored 1.8 literal — a genuine float representation
+  // gap, not a derivation this test is being lenient about. `toBeCloseTo(_, 10)` treats
+  // that gap as equal while still catching a real mismatch (e.g. an uncorrected typo).
   const expected = 2 * (agent.capsule.halfHeight + agent.capsule.radius);
   expect(agent.clearance).toBeCloseTo(expected, 10);
 });
 
-test("capsule/step/climb/clearance/slope fields are all positive finite", () => {
+test("version/capsule/step/climb/clearance/slope fields are all positive finite", () => {
+  // version is schema metadata, not a physical quantity — but the spec says "all fields",
+  // and a non-integer or non-positive version is still a malformed catalog, so it gets the
+  // same floor plus an integer check (the honest shape for a schema version number).
+  expect(Number.isFinite(agent.version)).toBe(true);
+  expect(Number.isInteger(agent.version)).toBe(true);
+  expect(agent.version).toBeGreaterThan(0);
   expect(Number.isFinite(agent.capsule.radius)).toBe(true);
   expect(agent.capsule.radius).toBeGreaterThan(0);
   expect(Number.isFinite(agent.capsule.halfHeight)).toBe(true);
@@ -36,10 +46,11 @@ test("walkability.STEP_HEIGHT is derived from the catalog's stepHeight", () => {
 });
 
 test("walkability.SLOPE_LIMIT_COS is derived from the catalog's slopeLimitDeg", () => {
-  expect(SLOPE_LIMIT_COS).toBeCloseTo(
-    Math.cos((agent.slopeLimitDeg * Math.PI) / 180),
-    10,
-  );
+  // Strict equality (unlike clearance above): walkability.ts computes this with the exact
+  // same expression, `Math.cos((agent.slopeLimitDeg * Math.PI) / 180)`, so there is no
+  // independent floating-point path to reconcile — this is genuine byte-identity, not a
+  // value that merely happens to be close.
+  expect(SLOPE_LIMIT_COS).toBe(Math.cos((agent.slopeLimitDeg * Math.PI) / 180));
 });
 
 test("walkability.AGENT re-exports the parsed catalog profile", () => {
