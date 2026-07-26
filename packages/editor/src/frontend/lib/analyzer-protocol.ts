@@ -214,10 +214,15 @@ function columnIndex(store: FieldStore): Map<string, ColumnMember[]> {
  *  that same ceiling (`analyze.ts` `scanAnchor` → `scanRise`, over core's
  *  `DIRS`) — so both are unbounded in Y.
  *
- *  Diagonals are excluded because `scanRise` reads `DIRS` only; that asymmetry
- *  is the algorithm's, not an oversight. The analyzer's other neighbour reads
- *  (`wallBeyondLip`, `pinchedAtTorso`) do reach diagonally, but only within a
- *  few cells of the anchor's own Y, which the 26-neighbour halo already covers. */
+ *  Diagonals are excluded because those two ARE the only unbounded reads and
+ *  neither is diagonal; that asymmetry is the algorithm's, not an oversight.
+ *  Every other neighbour probe stays within a few cells of the anchor's own Y,
+ *  where the 26-neighbour halo already covers it: `pinchedAtTorso` is cardinal
+ *  too (`faceDistance` steps ONE of `AXES` at a time, never both) and reads a
+ *  single Y, `y + torsoCells`; `wallBeyondLip` is the one genuinely diagonal
+ *  probe, but `scanRise` reaches it only on its `ry <= stepCells` branch, which
+ *  caps its highest read at `y + stepCells + wallProbeUp − 1` (y + 4 at the
+ *  production lattice). */
 const READ_COLUMNS = [
   [0, 0],
   [1, 0],
@@ -352,7 +357,9 @@ async function handleVerify(
 
 /** Exhaustiveness guard for the dispatch below: a new {@link AnalyzerRequest}
  *  kind with no `case` makes this call a COMPILE error, because its argument is
- *  `never` (the `errorKey` precedent in `field-protocol.ts`).
+ *  `never`. Same exhaustive-by-construction discipline as `field-protocol.ts`'s
+ *  `errorKey`, by a different mechanism — that one leans on its declared RETURN
+ *  type, this one on a `never` parameter.
  *
  *  It is a real RUNTIME guard too, and that is the half that matters here. An
  *  `if/else` chain ending in an unguarded `else` sends anything unrecognised
@@ -361,9 +368,10 @@ async function handleVerify(
  *  A message this protocol does not declare (a stale host, a hand-posted one)
  *  has to be refused. */
 function unrecognisedRequest(msg: never): Error {
-  // Boundary cast: `msg` is statically `never` because every DECLARED kind has a
-  // case; this line is reached exactly when the runtime message is not one of
-  // them, which the type system cannot express.
+  // Boundary cast: the worker's message port. `self.onmessage` hands over
+  // whatever was posted and the entry TYPES it `AnalyzerRequest` by convention
+  // alone, so `msg` is statically `never` here (every declared kind has a case)
+  // while at runtime this line is reached exactly when it was not one of them.
   const kind = (msg as { kind?: unknown }).kind;
   return new Error(
     `analyzer worker: unrecognised request kind ${String(kind)}`,
