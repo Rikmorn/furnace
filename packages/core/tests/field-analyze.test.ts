@@ -638,6 +638,24 @@ describe("markUnreachable", () => {
     for (const f of flatten(flags)) expect(f.unreachable).toBeUndefined();
   });
 
+  test("ONE buried seed among usable ones is dropped, not a veto", () => {
+    // The skip is for a seed list with NOTHING usable in it. Making it
+    // all-or-nothing instead would be a trap of the worst kind: a single stale
+    // spawn point would demote the entire world, and the demotions would look
+    // like real findings.
+    const s = floatingShelfHall();
+    const ground = standingAt(0, FLOOR, 0);
+    const mixed = analyzeWorld(s, AGENT);
+    markUnreachable(s, AGENT, mixed, [[0.125, -5, 0.125], ground]);
+    const clean = analyzeWorld(s, AGENT);
+    markUnreachable(s, AGENT, clean, [ground]);
+    // The pass ran, demoted, and the dead seed contributed exactly nothing.
+    expect(flatten(mixed).some((f) => f.unreachable === true)).toBe(true);
+    expect(flatten(mixed).map((f) => f.unreachable)).toEqual(
+      flatten(clean).map((f) => f.unreachable),
+    );
+  });
+
   test("extraSolid participates: a prop sealing the seed cell unseats the seed", () => {
     const s = floatingShelfHall();
     const flags = analyzeWorld(s, AGENT);

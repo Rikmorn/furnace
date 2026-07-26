@@ -94,7 +94,7 @@ describe("collisionExtentY", () => {
     ).toBeCloseTo(0.72);
   });
 
-  test("scales exactly as the runtime collider does (per-axis box, max-axis round)", () => {
+  test("matches the runtime collider's scale rule for non-negative scale", () => {
     // `field-world.ts`'s `placementCollider`: a box scales PER AXIS, a
     // sphere/capsule has no per-axis form so it takes the MAX scale axis. The
     // lift must use the same rule or a base-anchored body's bottom misses the
@@ -114,6 +114,24 @@ describe("collisionExtentY", () => {
         [2, 1, 1],
       ),
     ).toBeCloseTo(1.44);
+  });
+
+  test("returns a MAGNITUDE under negative scale — the one runtime divergence", () => {
+    // An extent is a distance, so mirroring cannot make it negative. The runtime
+    // takes `Math.max(scale)` raw and would return -0.35 here — a negative
+    // collider extent, which is a bug on its own terms and is being fixed on
+    // that side. Unreachable from any in-repo producer meanwhile (scatter emits
+    // uniform, schema-pinned-positive scale). This pins OUR half of the contract
+    // so the runtime fix converges on it rather than the reverse.
+    expect(
+      collisionExtentY(
+        { kind: "box", halfExtents: [0.4, 0.35, 0.4] },
+        [-1, -1, -1],
+      ),
+    ).toBeCloseTo(0.35);
+    expect(
+      collisionExtentY({ kind: "sphere", radius: 0.5 }, [-2, 1, 1]),
+    ).toBeCloseTo(1.0);
   });
 });
 
