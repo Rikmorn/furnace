@@ -1,10 +1,4 @@
-export type { AnalyzeOptions } from "./analyze.ts";
-export {
-  analyzeChunk,
-  analyzeWorld,
-  detectPits,
-  markUnreachable,
-} from "./analyze.ts";
+export { analyzeChunk, analyzeWorld } from "./analyze.ts";
 export type {
   BakedFile,
   BakeFieldWorldOptions,
@@ -103,6 +97,7 @@ export {
 } from "./placement-collision.ts";
 export type { FieldHit } from "./raycast.ts";
 export { raycastField } from "./raycast.ts";
+export { detectPits, markUnreachable } from "./reachability.ts";
 export type { ReconfigureChanges } from "./reconfigure.ts";
 export {
   bakeGeneratorEntity,
@@ -117,6 +112,7 @@ export {
 export { skinChunkKit, variantHash } from "./skin.ts";
 export type { SnapshotRecord } from "./snapshots.ts";
 export { captureDueSnapshots } from "./snapshots.ts";
+export type { AnalyzeOptions } from "./solidity.ts";
 export type {
   AgentProfile,
   BrushMask,
