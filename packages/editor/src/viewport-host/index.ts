@@ -34,6 +34,13 @@ import { transformEditNeedsRebuild } from "./preview-gate.ts";
 import { buildGridLines, segmentsToBatch } from "./reference-grid.ts";
 
 export type { OrbitState } from "./camera-control.ts";
+// The advisor's presentation types, re-exported beside the host that hands them
+// out — a consumer names them without reaching into field-flags.ts.
+export type {
+  FlagCount,
+  FlagFilters,
+  FlagsSummary,
+} from "./field-flags.ts";
 export {
   createFieldHost,
   type FieldEntityInfo,

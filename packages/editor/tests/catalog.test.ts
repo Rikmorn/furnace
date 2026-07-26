@@ -342,6 +342,50 @@ describe("parseEntityCatalog", () => {
     );
   });
 
+  test("`anchor` is CARRIED through, on every kind, and validated", () => {
+    const withCollision = (collision: unknown): string =>
+      JSON.stringify({
+        version: 1,
+        archetypes: [{ id: "x", material: { litColor: [1, 1, 1] }, collision }],
+      });
+    const parsed = (collision: unknown) =>
+      parseEntityCatalog(withCollision(collision)).archetypes[0]?.collision;
+    // The parser is a field WHITELIST, so a key it does not name is DROPPED
+    // rather than passed through — and a dropped `anchor` means the editor draws
+    // a base-anchored prop's proxy half-buried while the runtime stands it up.
+    expect(
+      parsed({ kind: "box", halfExtents: [1, 2, 3], anchor: "base" }),
+    ).toEqual({ kind: "box", halfExtents: [1, 2, 3], anchor: "base" });
+    expect(parsed({ kind: "sphere", radius: 0.3, anchor: "base" })).toEqual({
+      kind: "sphere",
+      radius: 0.3,
+      anchor: "base",
+    });
+    expect(
+      parsed({ kind: "capsule", halfHeight: 0.5, radius: 0.2, anchor: "base" }),
+    ).toEqual({
+      kind: "capsule",
+      halfHeight: 0.5,
+      radius: 0.2,
+      anchor: "base",
+    });
+    // Absent stays absent — core reads a missing anchor as "center", and
+    // spelling it in would make every pre-F4 catalog parse to a different object.
+    expect(parsed({ kind: "sphere", radius: 0.3 })).toEqual({
+      kind: "sphere",
+      radius: 0.3,
+    });
+    expect(parsed({ kind: "sphere", radius: 0.3, anchor: "center" })).toEqual({
+      kind: "sphere",
+      radius: 0.3,
+      anchor: "center",
+    });
+    expect(
+      entityError(withCollision({ kind: "sphere", radius: 1, anchor: "top" }))
+        .path,
+    ).toBe("archetypes[0].collision.anchor");
+  });
+
   test("structural failures are setup-loud and name their JSON path", () => {
     expect(entityError("{").path).toBe("");
     expect(

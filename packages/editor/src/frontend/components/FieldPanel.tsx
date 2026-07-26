@@ -76,6 +76,7 @@ const DEFAULT_LAYERS: FieldLayers = {
 	ghost: true,
 	selection: true,
 	grid: true,
+	flags: true,
 	// The one default-off flag: ticking it runs a whole-world cast job, so the
 	// X-ray is opt-in (mirrors the host's own default).
 	voidCast: false,
@@ -206,6 +207,7 @@ const statsEqual = (a: FieldStats, b: FieldStats): boolean => {
 		compactableOps,
 		undoDepth,
 		lastReconfigureMs,
+		analyzerPending,
 		...rest
 	} = a;
 	void (rest satisfies Record<string, never>);
@@ -217,7 +219,8 @@ const statsEqual = (a: FieldStats, b: FieldStats): boolean => {
 		liveGenerators === b.liveGenerators &&
 		compactableOps === b.compactableOps &&
 		undoDepth === b.undoDepth &&
-		lastReconfigureMs === b.lastReconfigureMs
+		lastReconfigureMs === b.lastReconfigureMs &&
+		analyzerPending === b.analyzerPending
 	);
 };
 
@@ -257,6 +260,7 @@ export function FieldPanel() {
 		compactableOps: 0,
 		undoDepth: 0,
 		lastReconfigureMs: 0,
+		analyzerPending: 0,
 	});
 	// The last reconfigure's drift report (null = clean / none). Non-modal: it
 	// renders (via DriftReport) only while findings exist.

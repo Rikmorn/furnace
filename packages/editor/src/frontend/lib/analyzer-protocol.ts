@@ -32,6 +32,7 @@ import {
   CHUNK_SAMPLES,
   chunkKey,
   createFieldStore,
+  detectPits,
   markUnreachable,
   parseChunkKey,
   voxelizePlacements,
@@ -116,8 +117,9 @@ export type AnalyzerRequest =
       groups: readonly PlacementCollisionGroup[];
     }
   /** Re-run stage 1 over the chunks a set of edits could have changed the answer
-   *  for (see {@link reanalysisKeys}), optionally followed by the reachability
-   *  demotion pass over exactly those flags. */
+   *  for (see {@link reanalysisKeys}), optionally followed by the two
+   *  whole-world CONNECTIVITY passes: the reachability demotion over exactly
+   *  those flags, and the trap hunt over the world. */
   | {
       kind: "analyze";
       jobId: number;
@@ -126,11 +128,15 @@ export type AnalyzerRequest =
        *  to the set whose answer could have changed — see {@link reanalysisKeys}
        *  — so a caller lists what it wrote, never what it thinks needs redoing. */
       dirty: ChunkKey[];
-      /** Run the reachability demotion pass over the flags this call produced.
-       *  Demotes, never deletes, and only ever tags what it is handed. */
+      /** Run the two connectivity passes: the reachability demotion over the
+       *  flags this call produced (demotes, never deletes, and only ever tags
+       *  what it is handed), and `detectPits` over the whole world, whose result
+       *  rides back on {@link AnalyzerResponse}'s `pits`. Both are world-cadence
+       *  — drive them on an idle tail, not per edit. */
       reachability: boolean;
       /** WORLD positions the agent starts from. Empty skips the demotion pass
-       *  entirely rather than demoting everything. */
+       *  entirely rather than demoting everything, and yields no traps rather
+       *  than guessing where the agent enters the world from. */
       seeds: [number, number, number][];
     }
   /** Stage 2 for ONE flag: drive the project's real mover at it. */
@@ -153,6 +159,21 @@ export type AnalyzerResponse =
       kind: "flags";
       jobId: number;
       chunks: { key: ChunkKey; flags: FieldFlag[] }[];
+      /**
+       * The world's TRAPS, as a wholesale replacement — regions the agent can
+       * get into and not back out of (`detectPits`).
+       *
+       * Present on a `reachability: true` request and ABSENT otherwise, which is
+       * the field's whole contract. A pit is a property of the world graph: one
+       * dug cell can open or seal one anywhere, and a region can span chunks, so
+       * it fits neither the per-chunk replacement above nor the per-chunk
+       * cadence that produces it. Emitting `[]` on an incremental response would
+       * therefore be a lie a host acts on — it would clear every trap on the
+       * next keystroke — whereas an absent field is a host with nothing to do.
+       *
+       * `[]` on a whole-world response IS meaningful: no seeds, or no traps.
+       */
+      pits?: FieldFlag[];
     }
   | { kind: "verified"; jobId: number; verdict: VerifyVerdictWire }
   /** The answer to a `sync` / `placements`. Carries no payload — it exists so
@@ -335,17 +356,26 @@ function handleAnalyze(
   const flags = new Map<ChunkKey, FieldFlag[]>();
   for (const key of reanalysisKeys(store, msg.dirty))
     flags.set(key, analyzeChunk(store, key, msg.profile, opts));
+  const chunks = [...flags].map(([key, list]) => ({ key, flags: list }));
   // Whole-world pass over a per-chunk slice: exactly the mixed-vintage steady
   // state `markUnreachable` documents. It tags only the flags handed to it, and
   // leaves `undefined` where it skipped (no usable seed, or a `pit`) — which is
   // the "show it" state, so a host filtering on `=== true` never hides a flag it
   // has no answer for.
-  if (msg.reachability)
-    markUnreachable(store, msg.profile, flags, msg.seeds, opts);
+  if (!msg.reachability) {
+    post({ kind: "flags", jobId: msg.jobId, chunks });
+    return;
+  }
+  markUnreachable(store, msg.profile, flags, msg.seeds, opts);
+  // The trap hunt rides the SAME request, because it needs exactly what this one
+  // already declares: the whole world and the agent's start points. Running it
+  // here rather than as a verb of its own is what keeps "the flags you are
+  // looking at" one response and one replacement (see the `pits` contract).
   post({
     kind: "flags",
     jobId: msg.jobId,
-    chunks: [...flags].map(([key, list]) => ({ key, flags: list })),
+    chunks,
+    pits: detectPits(store, msg.profile, msg.seeds, opts),
   });
 }
 

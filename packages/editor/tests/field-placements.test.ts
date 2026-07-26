@@ -87,6 +87,64 @@ test("proxyScale scales a box PER AXIS and a sphere/capsule by the max axis", ()
   expectVec(proxyScale(CAPSULE, [1, 1, 2]), [0.88, 2.88, 0.88]);
 });
 
+test("proxyScale takes scale MAGNITUDES, so a mirrored record keeps its size", () => {
+  // An extent is a distance: a negative scale axis mirrors a record, it does not
+  // shrink it. Core's `localHalfExtents` (the rule this mirrors) takes
+  // magnitudes for exactly this reason — without them a `Math.max` over
+  // [-3, -3, -3] picks −3 and the round proxy inverts to nothing at all.
+  expectVec(proxyScale(BOX, [-2, 3, -4]), [1.6, 2.1, 3.2]);
+  expectVec(proxyScale(SPHERE, [-3, -3, -3]), [1.8, 1.8, 1.8]);
+  expectVec(proxyScale(CAPSULE, [-2, 1, 1]), [0.88, 2.88, 0.88]);
+});
+
+// ——— the anchored pose (D-F4-14) ———
+
+/** `BOX` with its origin at the primitive's BOTTOM, the way a prop authored to
+ *  stand on the floor is. Its Y half-extent is 0.35, so its centre sits 0.35 m
+ *  above the record's position at scale 1. */
+const BASE_BOX: EntityCollision = {
+  kind: "box",
+  halfExtents: [0.4, 0.35, 0.4],
+  anchor: "base",
+};
+
+test("proxyRecords LIFTS a base-anchored record onto its collider centre", () => {
+  // The editor's proxy and the runtime's rigid body must land in the same place,
+  // and core exported `collisionCenter` so exactly one function decides where
+  // that is. A proxy at the raw `position` draws the prop half-buried.
+  const centred = proxyRecords([record({ position: [1, 2, 3] })], BOX);
+  expect(centred[0]?.position).toEqual([1, 2, 3]);
+  const based = proxyRecords([record({ position: [1, 2, 3] })], BASE_BOX);
+  expectVec(based[0]?.position ?? [], [1, 2.35, 3]);
+  // The lift scales with the record, per axis for a box.
+  const scaled = proxyRecords(
+    [record({ position: [0, 0, 0], scale: [1, 2, 1] })],
+    BASE_BOX,
+  );
+  expectVec(scaled[0]?.position ?? [], [0, 0.7, 0]);
+});
+
+test("the base lift follows the record's LOCAL +Y, not world up", () => {
+  // 90° about +Z sends local +Y to world −X, so a wall-mounted base-anchored
+  // prop's collider centre moves sideways. Composing the lift as a bare
+  // `position[1] + extentY` — the hand-written form core's extraction deleted —
+  // would put it 0.35 m up instead.
+  const s = Math.SQRT1_2;
+  const out = proxyRecords(
+    [record({ position: [0, 0, 0], quat: [0, 0, s, s] })],
+    BASE_BOX,
+  );
+  expectVec(out[0]?.position ?? [], [-0.35, 0, 0]);
+});
+
+test("proxyCorners boxes the base-anchored record around its collider centre", () => {
+  const c = proxyCorners(record({ position: [0, 0, 0] }), BASE_BOX);
+  // The whole box sits ABOVE the record position: y spans [0, 0.7], not
+  // [−0.35, 0.35].
+  expectVec(c.subarray(0, 3), [-0.4, 0, -0.4]);
+  expectVec(c.subarray(21, 24), [0.4, 0.7, 0.4]);
+});
+
 test("PROXY_PRIMITIVE maps every collision kind (a capsule draws as a cylinder)", () => {
   expect(PROXY_PRIMITIVE.box).toBe("cube");
   expect(PROXY_PRIMITIVE.sphere).toBe("sphere");

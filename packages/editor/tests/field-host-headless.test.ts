@@ -68,6 +68,7 @@ const layersWithVoidCast = (on: boolean): FieldLayers => ({
   ghost: true,
   selection: true,
   grid: true,
+  flags: true,
   voidCast: on,
 });
 

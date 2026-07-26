@@ -165,14 +165,33 @@ const {
   err: entityErr,
 } = parsersFor(ENTITY_LABEL);
 
+/** Where a record's `position` sits on its collision primitive (D-F4-14):
+ *  `"center"` (the default, and every pre-F4 catalog's implicit meaning) at the
+ *  primitive's middle, `"base"` at its bottom — what a prop authored to stand on
+ *  the floor wants. Structurally core's `PlacementCollision["anchor"]`. */
+export type EntityAnchor = "center" | "base";
+
 /** An archetype's collision primitive, as `catalog/entities.json` declares it —
  *  the same three kinds the dungeon's field-world loader derives static colliders
  *  from (D-F3-10). The EDITOR reads it as a proxy SIZE: it draws each placed prop
- *  as this primitive rather than loading the archetype's `.fmesh` variants. */
+ *  as this primitive rather than loading the archetype's `.fmesh` variants.
+ *
+ *  Structurally assignable to core's `PlacementCollision`, which is what lets the
+ *  proxy math hand one straight to `collisionCenter` instead of re-deriving the
+ *  anchored pose. Keep the two in step. */
 export type EntityCollision =
-  | { kind: "box"; halfExtents: [number, number, number] }
-  | { kind: "sphere"; radius: number }
-  | { kind: "capsule"; halfHeight: number; radius: number };
+  | {
+      kind: "box";
+      halfExtents: [number, number, number];
+      anchor?: EntityAnchor;
+    }
+  | { kind: "sphere"; radius: number; anchor?: EntityAnchor }
+  | {
+      kind: "capsule";
+      halfHeight: number;
+      radius: number;
+      anchor?: EntityAnchor;
+    };
 
 /** One placement archetype as the EDITOR consumes it: its id (what a core
  *  `PlacementRecord`'s `archetypeId` names), a display name, the lit colour
@@ -199,9 +218,25 @@ const color3 = (v: unknown, path: string): [number, number, number] => {
   return [entityNum(v[0], path), entityNum(v[1], path), entityNum(v[2], path)];
 };
 
+/** The optional `anchor`, as a SPREADABLE fragment — so an absent one stays
+ *  absent rather than becoming an explicit `"center"`. That matters: core reads a
+ *  missing anchor as centred, and spelling it in would make every pre-F4 catalog
+ *  parse to a different object than it did before for no behavioural gain. */
+const entityAnchor = (v: unknown, path: string): { anchor?: EntityAnchor } => {
+  if (v === undefined) return {};
+  if (v !== "center" && v !== "base")
+    throw entityErr(path, 'expected "center" or "base"');
+  return { anchor: v };
+};
+
 const entityCollision = (v: unknown, path: string): EntityCollision => {
   const rec = entityRecord(v, path);
   const kind = rec["kind"];
+  // Every key this parser does not name is DROPPED — it is a whitelist, not a
+  // passthrough — so `anchor` has to be carried explicitly on all three kinds or
+  // the editor draws a base-anchored prop's proxy half-buried while the runtime
+  // stands its collider up (D-F4-14).
+  const anchor = entityAnchor(rec["anchor"], `${path}.anchor`);
   if (kind === "box") {
     const he = rec["halfExtents"];
     if (!Array.isArray(he) || he.length !== 3)
@@ -213,15 +248,21 @@ const entityCollision = (v: unknown, path: string): EntityCollision => {
         entityNum(he[1], `${path}.halfExtents`),
         entityNum(he[2], `${path}.halfExtents`),
       ],
+      ...anchor,
     };
   }
   if (kind === "sphere")
-    return { kind, radius: entityNum(rec["radius"], `${path}.radius`) };
+    return {
+      kind,
+      radius: entityNum(rec["radius"], `${path}.radius`),
+      ...anchor,
+    };
   if (kind === "capsule")
     return {
       kind,
       halfHeight: entityNum(rec["halfHeight"], `${path}.halfHeight`),
       radius: entityNum(rec["radius"], `${path}.radius`),
+      ...anchor,
     };
   throw entityErr(`${path}.kind`, 'expected "box" | "sphere" | "capsule"');
 };

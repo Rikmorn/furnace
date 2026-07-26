@@ -16,6 +16,7 @@ import type {
   GeneratorEntity,
   PlacementRecord,
 } from "@furnace/core/field";
+import { collisionCenter } from "@furnace/core/field";
 import type {
   EntityArchetype,
   EntityCollision,
@@ -68,13 +69,21 @@ export const proxyExtents = (c: EntityCollision): Vec3T => {
  *  scale. A `box` scales PER AXIS (exact for an axis-aligned cuboid); a
  *  `sphere`/`capsule` has no per-axis form, so it takes the MAX scale axis —
  *  exact for scatter's uniform-scale records and a conservative
- *  over-approximation otherwise. Mirrors the dungeon loader's `placementCollider`
- *  posture, so the editor proxy and the game collider agree on size. */
+ *  over-approximation otherwise. Mirrors core's `localHalfExtents` (which the
+ *  runtime collider and the analyzer's rasterizer both go through), so the editor
+ *  proxy and the game collider agree on size.
+ *
+ *  MAGNITUDES, per that same rule: an extent is a distance, so a MIRRORED record
+ *  (a negative scale axis) covers the same box. Signed arithmetic would shrink a
+ *  box's proxy through zero and make `Math.max` pick the LEAST negative axis for
+ *  a round one. */
 export const proxyScale = (c: EntityCollision, scale: Vec3T): Vec3T => {
   const e = proxyExtents(c);
-  if (c.kind === "box")
-    return [e[0] * scale[0], e[1] * scale[1], e[2] * scale[2]];
-  const m = Math.max(scale[0], scale[1], scale[2]);
+  const sx = Math.abs(scale[0]);
+  const sy = Math.abs(scale[1]);
+  const sz = Math.abs(scale[2]);
+  if (c.kind === "box") return [e[0] * sx, e[1] * sy, e[2] * sz];
+  const m = Math.max(sx, sy, sz);
   return [e[0] * m, e[1] * m, e[2] * m];
 };
 
@@ -82,8 +91,15 @@ export const proxyScale = (c: EntityCollision, scale: Vec3T): Vec3T => {
  *  `radius: 0.5`, cylinder `radius: 0.5, height: 1`) lands at the archetype's
  *  collision extents once packed by core's `packPlacementMatrices` — that packer
  *  applies the record's `scale` alone, so the primitive's own size has to ride in
- *  it. Fresh record objects; `position`/`quat` are shared by reference (the
- *  packer only reads them) and the input is never mutated.
+ *  it. Fresh record objects; `quat` is shared by reference (the packer only reads
+ *  it) and the input is never mutated.
+ *
+ *  The POSITION is core's {@link collisionCenter}, not the record's own: an
+ *  `anchor: "base"` primitive's centre sits a Y half-extent above `position`,
+ *  along the record's LOCAL +Y (D-F4-14). Called rather than composed here on
+ *  purpose — the extent rule and the rotation into the record's frame both have
+ *  to be right, and a hand-written copy is how the editor's proxy and the
+ *  runtime's rigid body drift apart.
  *
  *  SHADING NOTE — the resulting scale is non-uniform (a box's axes differ; a
  *  cylinder's height differs from its diameter), which normally skews normals
@@ -97,7 +113,11 @@ export const proxyRecords = (
   records: readonly PlacementRecord[],
   collision: EntityCollision,
 ): PlacementRecord[] =>
-  records.map((r) => ({ ...r, scale: proxyScale(collision, r.scale) }));
+  records.map((r) => ({
+    ...r,
+    position: collisionCenter(collision, r),
+    scale: proxyScale(collision, r.scale),
+  }));
 
 /** Rotate `(x, y, z)` by a unit quaternion `[x, y, z, w]` — the standard
  *  `v + 2·q_v × (q_v × v + w·v)` form, four ops only. */
@@ -121,12 +141,17 @@ const rotateByQuat = (
 /** The 8 world corners of one record's proxy box, ROTATED by the record's
  *  quaternion, in {@link boxEdges}' bit layout (bit0=x, bit1=y, bit2=z) — so the
  *  ghost shows a wall/ceiling prop's actual tilt rather than an axis-aligned
- *  stand-in. Length-24 Float32Array. */
+ *  stand-in. Length-24 Float32Array.
+ *
+ *  Boxed about core's {@link collisionCenter}, the same anchored pose
+ *  {@link proxyRecords} gives the committed layer — so a prop's ghost and its
+ *  committed proxy stand in the same place. */
 export const proxyCorners = (
   record: PlacementRecord,
   collision: EntityCollision,
 ): Float32Array => {
   const [sx, sy, sz] = proxyScale(collision, record.scale);
+  const centre = collisionCenter(collision, record);
   const out = new Float32Array(24);
   for (let i = 0; i < 8; i++) {
     const [wx, wy, wz] = rotateByQuat(
@@ -135,9 +160,9 @@ export const proxyCorners = (
       ((i & 2) === 0 ? -sy : sy) / 2,
       ((i & 4) === 0 ? -sz : sz) / 2,
     );
-    out[i * 3] = record.position[0] + wx;
-    out[i * 3 + 1] = record.position[1] + wy;
-    out[i * 3 + 2] = record.position[2] + wz;
+    out[i * 3] = centre[0] + wx;
+    out[i * 3 + 1] = centre[1] + wy;
+    out[i * 3 + 2] = centre[2] + wz;
   }
   return out;
 };

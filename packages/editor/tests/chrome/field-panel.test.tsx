@@ -26,6 +26,7 @@ import type {
 	FieldHost,
 	FieldStats,
 	FieldTool,
+	FlagsSummary,
 	SelectionInfo,
 	StampSession,
 } from "../../src/viewport-host/index.ts";
@@ -125,6 +126,7 @@ function makeStats(overrides: Partial<FieldStats> = {}): FieldStats {
 		compactableOps: 0,
 		undoDepth: 0,
 		lastReconfigureMs: 0,
+		analyzerPending: 0,
 		...overrides,
 	};
 }
@@ -180,6 +182,7 @@ function makeStubHost(opts: { generators?: FieldGeneratorInfo[] } = {}) {
 		toolError: ((msg: string) => void) | null;
 		entities: (() => void) | null;
 		drift: ((r: DriftFinding[] | null) => void) | null;
+		flags: ((s: FlagsSummary) => void) | null;
 	} = {
 		tool: null,
 		stamp: null,
@@ -188,6 +191,7 @@ function makeStubHost(opts: { generators?: FieldGeneratorInfo[] } = {}) {
 		toolError: null,
 		entities: null,
 		drift: null,
+		flags: null,
 	};
 	const calls = {
 		setTool: mock(),
@@ -217,6 +221,8 @@ function makeStubHost(opts: { generators?: FieldGeneratorInfo[] } = {}) {
 		bakeEntity: mock(),
 		dismissDrift: mock(),
 		frameChunks: mock(),
+		setAgentProfile: mock(),
+		setFlagFilters: mock(),
 	};
 	const host: FieldHost = {
 		init: () => Promise.resolve(),
@@ -302,6 +308,20 @@ function makeStubHost(opts: { generators?: FieldGeneratorInfo[] } = {}) {
 		},
 		listEntities: () => entities.map((e) => structuredClone(e)),
 		highlightEntity: calls.highlightEntity,
+		setAgentProfile: calls.setAgentProfile,
+		subscribeFlags: (cb) => {
+			cbs.flags = cb;
+			cb({
+				total: 0,
+				byKindSeverity: [],
+				visible: [],
+				verdicts: new Map(),
+			});
+			// biome-ignore lint/suspicious/noEmptyBlockStatements: inert unsubscribe no-op
+			return () => {};
+		},
+		setFlagFilters: calls.setFlagFilters,
+		flagMarkerCount: () => 0,
 		exportArtifact: () => [],
 		subscribeStats: (cb) => {
 			cbs.stats = cb;
@@ -324,6 +344,7 @@ function makeStubHost(opts: { generators?: FieldGeneratorInfo[] } = {}) {
 			entities: () => cbs.entities?.(),
 			drift: (r: DriftFinding[] | null) => cbs.drift?.(r),
 			toolError: (msg: string) => cbs.toolError?.(msg),
+			flags: (s: FlagsSummary) => cbs.flags?.(s),
 		},
 		setEntities: (next: FieldEntityInfo[]) => {
 			entities = next;
@@ -880,6 +901,7 @@ test("the void checkbox drives host.setLayers(voidCast) and leaves the other lay
 		ghost: true,
 		selection: true,
 		grid: true,
+		flags: true,
 		voidCast: true,
 	});
 	// Off again — the host reads the false→true EDGE, so a panel that only ever

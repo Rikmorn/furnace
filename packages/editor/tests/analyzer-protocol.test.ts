@@ -430,6 +430,46 @@ describe("analyzer worker: reachability demotion", () => {
     expect(flags.length).toBeGreaterThan(0);
     expect(flags.every((f) => f.unreachable === false)).toBe(true);
   });
+
+  const pitsOf = async (extra?: {
+    reachability: boolean;
+    seeds: [number, number, number][];
+  }) => {
+    const { posts, handle } = await mirrored(pitRoom());
+    await analyze(handle, 2, DIRTY, extra);
+    return lastOf(posts, "flags").pits;
+  };
+
+  test("the whole-world pass ALSO returns the trap set", async () => {
+    // The room's floor is 1.0 m above the pit's — a drop the mover takes and
+    // cannot climb back out of, which is the definition detectPits models.
+    const pits = await pitsOf({ reachability: true, seeds: [UPPER_FLOOR] });
+    expect(pits?.length).toBe(1);
+    const pit = pits?.[0];
+    expect(pit?.kind).toBe("pit");
+    expect(pit?.severity).toBe("candidate");
+    // A region property, not a per-cell one: it names every chunk it touches and
+    // how many columns it spans.
+    expect(pit?.cells).toBeGreaterThan(1);
+    expect(pit?.chunks?.length).toBeGreaterThan(0);
+  });
+
+  test("an INCREMENTAL response omits the pit field entirely", async () => {
+    // Absent, not empty: a per-chunk pass has nothing to say about a world-scale
+    // property, and a host that replaced its trap set from an empty field would
+    // clear every pit on the next keystroke.
+    const { posts, handle } = await mirrored(pitRoom());
+    await analyze(handle, 2, DIRTY);
+    expect("pits" in lastOf(posts, "flags")).toBe(false);
+  });
+
+  test("the whole-world pass with NO seed reports no traps, loudly-empty", async () => {
+    // detectPits refuses an empty seed set: with no known starting point there
+    // is no "enterable", and guessing a spawn would invent the premise. The
+    // field is still PRESENT, so the host clears a stale trap set rather than
+    // keeping one taken against a world that has moved.
+    expect(await pitsOf({ reachability: true, seeds: [] })).toEqual([]);
+  });
 });
 
 describe("analyzer worker: placement solidity", () => {

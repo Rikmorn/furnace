@@ -15,6 +15,11 @@ import * as material from "@furnace/core/material";
 import * as mesh from "@furnace/core/mesh";
 import * as shader from "@furnace/core/shader";
 import { vec4 } from "@furnace/core/transform";
+import {
+  type AnalyzeInput,
+  AnalyzerWorkerClient,
+  createAnalyzePump,
+} from "../frontend/lib/analyzer-client.ts";
 import type {
   EntityArchetype,
   EntityCatalog,
@@ -42,6 +47,13 @@ import {
   type OrbitState,
   toEyeTarget,
 } from "./camera-control.ts";
+import {
+  createFlagStore,
+  type FlagFilters,
+  type FlagsSummary,
+  flagKey,
+  flagTint,
+} from "./field-flags.ts";
 import {
   boxCorners,
   GHOST_COLOR,
@@ -214,6 +226,14 @@ export type FieldStats = {
    *  it). The reconfigure stall grows with the LOG, so this is the meter's
    *  honest read on how heavy the recipe has become. */
   lastReconfigureMs: number;
+  /** Walkability-advisor passes the host is still owed an answer for: 1 for a
+   *  posted-and-unanswered pass, plus 1 for edits queued behind it. 0 means the
+   *  flag markers describe the field as it stands. Never above 2 — the analyze
+   *  pump is a latest-wins latch, so at most one pass is in flight and everything
+   *  behind it collapses into one re-fire. Stays 0 with no agent profile
+   *  installed, where nothing is ever posted (see
+   *  {@link FieldHost.setAgentProfile}). */
+  analyzerPending: number;
 };
 
 /** Per-layer render visibility. `field` = the per-class bucket surface meshes;
@@ -223,8 +243,12 @@ export type FieldStats = {
  *  brush's pending anchor and capsule outline (a preview of a brush op, so it
  *  rides with the other ghosts, not with `selection`); `selection` = the amber
  *  selection overlay + pending box anchor + the amber-dim entity highlight box;
- *  `grid` = the reference grid (minor + major). Display-only — hiding a layer
- *  never affects targeting, ops, or bakes.
+ *  `grid` = the reference grid (minor + major); `flags` = the walkability
+ *  advisor's severity markers (D-F4-9). Display-only — hiding a layer never
+ *  affects targeting, ops, or bakes. Hiding `flags` in particular does not stop
+ *  the analyzer: the findings keep arriving and {@link
+ *  FieldHost.subscribeFlags} keeps firing, exactly as a hidden `selection` layer
+ *  keeps masking ops.
  *
  *  All default true EXCEPT `voidCast` (D-F3-15), which is a view MODE wearing a
  *  layer's clothes: the X-ray that meshes the field's negative space, so a cave
@@ -242,6 +266,7 @@ export type FieldLayers = {
   ghost: boolean;
   selection: boolean;
   grid: boolean;
+  flags: boolean;
   voidCast: boolean;
 };
 
@@ -614,6 +639,40 @@ export type FieldHost = {
    *  hide; unknown ids hide too — runtime-quiet). Display-only, under the
    *  `selection` layer gate. */
   highlightEntity(entityId: number | null): void;
+  /** Installs the project's agent profile (`catalog/agent.json`) — the capsule,
+   *  step and clearance the walkability advisor is parameterized on (D-F4-4).
+   *
+   *  A GATE, like the material table is for a kit fill: with no profile the
+   *  advisor posts nothing at all, and the first edit that would have analysed
+   *  says so ONCE through {@link subscribeToolError} rather than repeating at
+   *  stroke rate. Nothing else is refused — every verb still works, because the
+   *  advisor never blocks one (D-F4-1).
+   *
+   *  Installing catches the world up in full: the mirror re-syncs and the next
+   *  pass is whole-world, so the first findings describe the field as it stands
+   *  rather than only what has been edited since. */
+  setAgentProfile(profile: field.AgentProfile): void;
+  /** Subscribes to the advisor's findings, pushed after every analyzer response
+   *  and after every {@link setFlagFilters}. Immediately pushes the CURRENT
+   *  summary on subscribe (the {@link subscribeSelection} remount rationale).
+   *  Single subscriber (the panel); returns an unsubscribe.
+   *
+   *  The summary is derived fresh per push and shared with nothing — but the
+   *  `FieldFlag` objects inside it are the analyzer's own and must be treated as
+   *  read-only. */
+  subscribeFlags(cb: (summary: FlagsSummary) => void): () => void;
+  /** Sets which triage bands the markers and the list show (default: candidates
+   *  only). A VIEW filter and nothing more — it hides findings, never drops
+   *  them, and a filtered-out finding still counts in
+   *  {@link FlagsSummary.total}. Survives world loads, like the layer flags. */
+  setFlagFilters(filters: FlagFilters): void;
+  /** How many flag markers the LAST rebuild decided to draw — the
+   *  {@link propInstanceCounts} twin, and for the same reason: the marker layer
+   *  is otherwise write-only GPU state, so this is what a caller (and a test) can
+   *  hold the rebuild to. Equals the visible-flag count, including before GPU
+   *  init and after {@link dispose}, where the number is decided but no draw
+   *  exists. */
+  flagMarkerCount(): number;
   /** Bakes the current field to the artifact file set (pure, for upload). */
   exportArtifact(name: string): field.BakedFile[];
   /** Subscribes to the live stats readout ({@link FieldStats}), pushed every
@@ -718,6 +777,20 @@ const VOID_CAST_ALPHA = 0.3;
 // THIS constant, and browser V8 is not JSC, so re-measure there before doing so.
 const VOID_CAST_CHUNK_BUDGET = 512;
 
+// Walkability-marker cube edge (metres) — under the 0.25 m cell, so a marker
+// reads as a pin ON a floor cell rather than as a block filling it.
+const FLAG_MARKER_SIZE_M = 0.18;
+// Quiet time after the last density write before the WHOLE-WORLD pass runs
+// (reachability demotion + pit detection). Those two are world-cadence: one dug
+// cell can open or seal a trap anywhere, so they cannot be done per dirty chunk,
+// and a whole-world re-flood costs ~72% of a full analyzeWorld on top of it
+// (F4 tranche A measured 2.9–3.2 ms against 4.1–4.2 ms over 108 chunks, both
+// growing with the world). This debounce is the budget knob: long enough that a
+// drag re-arms it
+// instead of running it, short enough that the markers settle while the user is
+// still looking at what they dug.
+const ANALYZER_IDLE_MS = 500;
+
 const clampRadius = (r: number): number =>
   Math.max(RADIUS_MIN, Math.min(RADIUS_MAX, r));
 
@@ -816,16 +889,18 @@ function generatorSchemaProperties(
  * camera, own listeners) but drives a fly camera + dig loop instead of orbit,
  * and remeshes carved chunks off the main thread via the field worker.
  *
- * `deps.spawnWorker` overrides how that worker is created; production omits it
- * and gets the real `/field-worker.js`. It exists because the host's
- * worker-backed paths are otherwise unreachable under `bun test`: a job posted
- * to a Worker spawned from that browser URL never settles in-process (measured:
- * still pending after 1 s), so nothing downstream of a request ever runs.
- * Injecting the protocol handler directly is what lets a test see the request
- * the host builds AND drive the response back through it.
+ * `deps.spawnWorker` / `deps.spawnAnalyzer` override how the two workers (the
+ * remesher and the walkability analyzer) are created; production omits both and
+ * gets the real `/field-worker.js` and `/analyzer-worker.js`. They exist because
+ * the host's worker-backed paths are otherwise unreachable under `bun test`: a
+ * job posted to a Worker spawned from those browser URLs never settles
+ * in-process (measured: still pending after 1 s), so nothing downstream of a
+ * request ever runs. Injecting the protocol handler directly is what lets a test
+ * see the request the host builds AND drive the response back through it.
  */
 export function createFieldHost(deps?: {
   spawnWorker?: () => WorkerLike;
+  spawnAnalyzer?: () => WorkerLike;
 }): FieldHost {
   let ctx: Context | null = null;
   let cam: camera.Camera | null = null;
@@ -936,6 +1011,17 @@ export function createFieldHost(deps?: {
   // them; init() replays the upload from the same source.
   let propCounts = new Map<string, number>();
 
+  // The walkability advisor's marker layer: ONE instanced unit cube for every
+  // VISIBLE finding, its per-instance tint the severity/verdict colour. Null
+  // when nothing is visible or before GPU init. `markerCount` is its
+  // propCounts twin — decided by every rebuild, uploaded only when a context
+  // exists.
+  let flagMarkers: { im: mesh.InstancedMesh; g: geometry.Geometry } | null =
+    null;
+  let flagMarkerMat: material.Material | null = null;
+  let flagMarkerBind: binding.Binding | null = null;
+  let markerCount = 0;
+
   // --- view state (layers + slice plane) ----------------------------------
   let layers: FieldLayers = {
     field: true,
@@ -944,6 +1030,7 @@ export function createFieldHost(deps?: {
     ghost: true,
     selection: true,
     grid: true,
+    flags: true,
     voidCast: false, // an X-ray costs a whole-world remesh — opt in
   };
   // Slice-view clip plane (world metres; null = off). Display + targeting
@@ -1205,6 +1292,17 @@ export function createFieldHost(deps?: {
       blend: material.blend.premultiplied,
       depth: { write: false, compare: "always" },
     });
+    // Walkability markers: UNLIT instanced, white base, so the per-instance
+    // severity tint is the pixel and nothing else. Deliberately not the kit's
+    // litInstanced material — a marker that dims when the headlamp looks away is
+    // a marker that stops doing its job in the shading mode meant for mood.
+    const markerShd = await shader.unlitInstanced(c);
+    flagMarkerBind = binding.create(c, markerShd);
+    binding.set(c, flagMarkerBind, { color: [1, 1, 1, 1] });
+    flagMarkerMat = await material.create(c, {
+      shader: markerShd,
+      binding: flagMarkerBind,
+    });
     await buildLitMaterials(c);
   };
 
@@ -1265,6 +1363,13 @@ export function createFieldHost(deps?: {
     // setMaterialTable re-mesh the DISPLAY, and a world new/load routes through
     // resetWorld, which discards the cast with everything else.
     invalidateVoidCast();
+    // Same choke point, second consumer: the analyzer mirrors this store, so
+    // this is where it learns what to copy across. Only what was WRITTEN goes in
+    // — the worker widens to the chunks whose answer could have changed, and the
+    // apron neighbours below are a MESH-seam rule, not that one.
+    for (const k of changed) analyzerDirty.add(k);
+    analyzePump.request();
+    scheduleWholeWorldPass();
     for (const k of changed) {
       dirty.add(k);
       const [cx, cy, cz] = field.parseChunkKey(k);
@@ -1351,6 +1456,14 @@ export function createFieldHost(deps?: {
   // Silent no-op before GPU init — init() rebuilds once the materials exist, so
   // a world loaded pre-init still gets its props.
   const rebuildProps = (): void => {
+    // The prop layer and the analyzer's collider set are derived from the SAME
+    // log, so one call site keeps them in step. Whole-world, not incremental:
+    // props rasterize into the solidity stage 1 reads, and there is no
+    // incremental placement-sync path — `voxelizePlacements` is whole-map
+    // replacement by construction.
+    analyzerPlacementsStale = true;
+    analyzerWholeWorld = true;
+    analyzePump.request();
     const groups = groupPlacements(log.ops);
     // The counts settle FIRST and unconditionally: they are what the layer IS,
     // and recording them before the GPU guard keeps them honest for a host that
@@ -2445,6 +2558,255 @@ export function createFieldHost(deps?: {
       });
   };
 
+  // --- walkability advisor (D-F4-9) ---------------------------------------
+  //
+  // The analyzer worker holds a MIRROR of this store: every density write is
+  // copied across, and stage 1 re-runs over the chunks whose answer could have
+  // changed. ADVISORY throughout (D-F4-1) — nothing it reports blocks a verb,
+  // mutates the field, or fixes anything. It draws markers and fills a list.
+  //
+  // Two cadences, and the split is the whole cost story. Per-edit passes analyse
+  // what was written; the CONNECTIVITY passes (reachability demotion, pit
+  // detection) are whole-world by nature and run on the idle tail — see
+  // ANALYZER_IDLE_MS.
+
+  const analyzer = new AnalyzerWorkerClient(deps?.spawnAnalyzer);
+  const flagStore = createFlagStore();
+  let flagsCb: ((summary: FlagsSummary) => void) | null = null;
+  // The project's capsule (setAgentProfile). NOTHING is posted without one: the
+  // analyzer is parameterized on the agent, and a guessed capsule would be the
+  // advisor inventing its own premise.
+  let agentProfile: field.AgentProfile | null = null;
+  // Once-EVER report for the missing profile (the maskDropReported discipline):
+  // an edit loop would otherwise repeat it at stroke rate. Never re-armed,
+  // because a profile can only be installed, never removed.
+  let profileMissingReported = false;
+  // Chunks whose density this host has written since the last mirror sync —
+  // what it WROTE, never widened. The worker owns the widening (`reanalysisKeys`
+  // spreads to the neighbourhood AND down the cardinal columns, because the
+  // column pass's upward scans are uncapped); a host that pre-widened would be
+  // second-guessing a rule it does not hold.
+  const analyzerDirty = new Set<field.ChunkKey>();
+  // Keys the mirror may still hold that this store no longer does. The protocol
+  // has no reset verb on purpose, so a world swap lists the outgoing keys as
+  // removals; resetWorld fills this and the next sync drains it.
+  const analyzerStale = new Set<field.ChunkKey>();
+  // The next pass syncs the WHOLE store rather than `analyzerDirty` (a world
+  // load, or a profile installed after edits the mirror never saw).
+  let analyzerResync = false;
+  // The next pass re-posts the placement collider set (props rasterize into the
+  // solidity stage 1 reads, so the analyzer and the runtime see one prop set).
+  let analyzerPlacementsStale = false;
+  // The next pass is the whole-world one: reachability demotion + pit detection.
+  let analyzerWholeWorld = false;
+  // Reachability + pit seeds: the loaded world's manifest `playerStart`. EMPTY
+  // for a new world, and honestly so — both connectivity passes refuse an empty
+  // seed set outright (markUnreachable would otherwise demote everything,
+  // detectPits would have no notion of "enterable"), and inventing a spawn is
+  // the one thing an advisor must not do.
+  let analyzerSeeds: [number, number, number][] = [];
+  // True while a pass is posted and unanswered. A flag and not a count: the pump
+  // is a latest-wins latch, so exactly one pass can ever be in flight.
+  let analyzerBusy = false;
+  let analyzerIdle: ReturnType<typeof setTimeout> | null = null;
+
+  // An advisor failure is a TOOL problem, not a background hiccup (the void
+  // cast's posture): the user is looking at markers that have stopped updating.
+  const reportAnalyzerFailure = (err: unknown): void => {
+    if (disposed) return; // dispose rejects every pending job — expected, swallow
+    const message = err instanceof Error ? err.message : String(err);
+    reportToolError(`walkability analyzer: ${message}`);
+  };
+
+  // One chunk's density as a buffer the worker may own. Boundary cast: `.slice()`
+  // allocates a fresh ArrayBuffer, which the Int8Array declaration widens to
+  // ArrayBufferLike — the same cast `snapshotAllChunks` makes.
+  const chunkCopy = (density: Int8Array): ArrayBuffer =>
+    density.slice().buffer as ArrayBuffer;
+
+  // The placement colliders as core's rasterizer takes them: one group per
+  // archetype, its primitive the catalog's — or FALLBACK_COLLISION, which is
+  // exactly what the viewport already DRAWS for an uncatalogued archetype, so
+  // the analysis and the picture agree either way.
+  const analyzerPlacementGroups = (): field.PlacementCollisionGroup[] =>
+    [...groupPlacements(log.ops)].map(([archetypeId, records]) => ({
+      collision:
+        archetypeById.get(archetypeId)?.collision ?? FALLBACK_COLLISION,
+      records,
+    }));
+
+  // Bring the mirror level with the store. Buffers are COPIES, and NOT because
+  // the wire needs them to be: the client structured-clones rather than
+  // transferring, so a real Worker would copy the store's own buffers safely.
+  // The copy is for the case where the handler runs IN THIS REALM — the tests
+  // wire it directly, and its `handleSync` says so — where the mirror would
+  // otherwise install a view onto the very array the next stroke writes into.
+  const postMirrorSync = (): void => {
+    const keys = analyzerResync ? [...store.chunks.keys()] : [...analyzerDirty];
+    analyzerResync = false;
+    const upserts: { key: field.ChunkKey; density: ArrayBuffer }[] = [];
+    for (const key of keys) {
+      const density = store.chunks.get(key);
+      if (density !== undefined)
+        upserts.push({ key, density: chunkCopy(density) });
+    }
+    // Tested against the LIVE store rather than trusted from the reset that
+    // recorded them: a new world can reuse a key the old one had, and the worker
+    // applies upserts BEFORE removals — so a key listed in both would delete the
+    // chunk that was just sent.
+    const removed = [...analyzerStale].filter((key) => !store.chunks.has(key));
+    analyzerStale.clear();
+    if (upserts.length === 0 && removed.length === 0) return;
+    void analyzer
+      .sync(store.cellSize, upserts, removed)
+      .catch(reportAnalyzerFailure);
+  };
+
+  /**
+   * The pump's fire-time work: bring the mirror level, then say what to analyse.
+   *
+   * A COMMAND as much as a query, deliberately. The sync and the analysis are
+   * ONE round trip, and the pump owns the moment it happens — which is the point
+   * of reading it at FIRE time, so the accumulated edits go out rather than the
+   * ones that happened to be current when a key was pressed. Both posts land in
+   * this turn and the worker dispatches in strict arrival order, so the analysis
+   * is guaranteed to see the sync without anyone awaiting its ack.
+   *
+   * `undefined` = nothing to analyse, which leaves the pump's latch idle (a
+   * mirror sync may still have gone out — emptying the mirror after a world
+   * reset is real work with no analysis attached).
+   */
+  const analyzerFire = (): AnalyzeInput | undefined => {
+    const profile = agentProfile;
+    if (profile === null) {
+      if (!profileMissingReported) {
+        profileMissingReported = true;
+        reportToolError(
+          "walkability advisor idle — this project installs no agent profile",
+        );
+      }
+      // Every pending flag stays set, so an install later catches up in full.
+      return undefined;
+    }
+    postMirrorSync();
+    if (analyzerPlacementsStale) {
+      analyzerPlacementsStale = false;
+      void analyzer
+        .placements(analyzerPlacementGroups())
+        .catch(reportAnalyzerFailure);
+    }
+    const wholeWorld = analyzerWholeWorld;
+    analyzerWholeWorld = false;
+    const dirty = wholeWorld ? [...store.chunks.keys()] : [...analyzerDirty];
+    analyzerDirty.clear();
+    if (dirty.length === 0) return undefined;
+    analyzerBusy = true;
+    return { profile, dirty, reachability: wholeWorld, seeds: analyzerSeeds };
+  };
+
+  // Settle the marker layer on the current findings, then tell the subscriber —
+  // in that order, because a subscriber may read the host back synchronously
+  // (the panel does) and none may observe a summary whose markers are stale.
+  // The ONE path from "the findings changed" to "everything that shows them
+  // agrees", shared by the response, the filters and a world reset.
+  const publishFlags = (): void => {
+    const summary = flagStore.summary();
+    rebuildFlagMarkers(summary);
+    flagsCb?.(summary);
+  };
+
+  const analyzePump = createAnalyzePump(analyzer, {
+    next: analyzerFire,
+    onFlags: (res) => {
+      analyzerBusy = false;
+      if (disposed) return;
+      flagStore.applyFlags(res.chunks, res.pits);
+      publishFlags();
+    },
+    onError: (err) => {
+      analyzerBusy = false;
+      reportAnalyzerFailure(err);
+    },
+  });
+
+  // Re-arm the whole-world pass. Every density write calls this, so a drag
+  // pushes it out rather than running it; it fires once the writes stop. The
+  // per-edit passes are unaffected — they go out immediately.
+  const scheduleWholeWorldPass = (): void => {
+    if (analyzerIdle !== null) clearTimeout(analyzerIdle);
+    analyzerIdle = setTimeout(() => {
+      analyzerIdle = null;
+      analyzerWholeWorld = true;
+      analyzePump.request();
+    }, ANALYZER_IDLE_MS);
+  };
+
+  // Advisor passes still owed an answer — see FieldStats.analyzerPending. With
+  // no profile the pending flags DO accumulate (they are the catch-up an install
+  // would run), but nothing is posted and nothing will be until one arrives: the
+  // advisor is off, not busy, and a meter stuck at 1 forever would say otherwise.
+  const analyzerPendingCount = (): number => {
+    if (agentProfile === null) return 0;
+    const queued =
+      analyzerDirty.size > 0 || analyzerWholeWorld || analyzerResync;
+    return (analyzerBusy ? 1 : 0) + (queued ? 1 : 0);
+  };
+
+  const destroyFlagMarkers = (c: Context): void => {
+    if (!flagMarkers) return;
+    mesh.destroyInstanced(c, flagMarkers.im);
+    geometry.destroy(c, flagMarkers.g);
+    flagMarkers = null;
+  };
+
+  // Rebuild the marker layer from a settled summary: ONE instanced unit cube,
+  // scaled to FLAG_MARKER_SIZE_M, at each visible finding's floor surface raised
+  // half a cell (so the marker sits in the AIR cell the flag anchors on, not
+  // sunk into the floor under it). Whole-layer teardown-and-rebuild, like
+  // rebuildProps: instance counts are fixed at creation and a response replaces
+  // whole chunks at a time, so there is no partial update to make. Silent no-op
+  // before GPU init — init() rebuilds once the materials exist.
+  const rebuildFlagMarkers = (summary: FlagsSummary): void => {
+    // The count settles FIRST and unconditionally: it is what the layer IS
+    // (rebuildProps' rule), and a host with no context has still decided it.
+    markerCount = summary.visible.length;
+    const c = ctx;
+    if (!c || !flagMarkerMat) return;
+    destroyFlagMarkers(c);
+    if (summary.visible.length === 0) return;
+    const g = geometry.cube(c, { size: 1 });
+    const im = mesh.createInstanced(c, {
+      geometry: g,
+      material: flagMarkerMat,
+      count: summary.visible.length,
+    });
+    // Column-major TRS with no rotation: uniform scale on the diagonal, position
+    // in the last column (the packPlacementMatrices layout, by hand because
+    // there is nothing to rotate).
+    const matrices = new Float32Array(16 * summary.visible.length);
+    const lift = store.cellSize / 2;
+    summary.visible.forEach((f, i) => {
+      const o = i * 16;
+      matrices[o] = FLAG_MARKER_SIZE_M;
+      matrices[o + 5] = FLAG_MARKER_SIZE_M;
+      matrices[o + 10] = FLAG_MARKER_SIZE_M;
+      matrices[o + 12] = f.world[0];
+      matrices[o + 13] = f.world[1] + lift;
+      matrices[o + 14] = f.world[2];
+      matrices[o + 15] = 1;
+    });
+    mesh.setInstanceMatrices(c, im, matrices);
+    summary.visible.forEach((f, i) =>
+      mesh.setInstanceTint(
+        c,
+        im,
+        i,
+        flagTint(f, summary.verdicts.get(flagKey(f))),
+      ),
+    );
+    flagMarkers = { im, g };
+  };
+
   // Post ONE preview job for a session state captured at fire time. Response
   // processing is guarded two ways: the session RUN (the pure module drops
   // superseded runs) and the session GENERATION (run restarts at 0 per
@@ -2926,6 +3288,10 @@ export function createFieldHost(deps?: {
     // material, their own layer gate (they are entities, not field — the "if you
     // can dig it, it's field" jurisdiction line drawn in the layer strip).
     if (layers.props) for (const p of propMeshes) instanced.push(p.im);
+    // The walkability advisor's markers: ONE opaque unlit instanced draw covering
+    // every visible finding. Their own gate — the findings keep arriving while it
+    // is off (the analyzer is not a display layer), this only stops drawing them.
+    if (layers.flags && flagMarkers) instanced.push(flagMarkers.im);
     // The void cast goes in FIRST of the three translucents on purpose. All
     // three sort after every opaque (frame.render's blended group), so this
     // position decides nothing against the field — but within the blended group
@@ -3107,6 +3473,7 @@ export function createFieldHost(deps?: {
         compactableOps: ls.compactableOps,
         undoDepth: ls.undoDepth,
         lastReconfigureMs,
+        analyzerPending: analyzerPendingCount(),
       });
       renderScene(c, cam);
     }
@@ -3345,6 +3712,16 @@ export function createFieldHost(deps?: {
   // selection state: like the tool/radius/camera pose, it is CPU-only session
   // state that survives a dispose/re-init on the same store.
   const resetWorld = (): void => {
+    // BEFORE the clear, while the outgoing keys still exist: the analyzer's
+    // mirror has no reset verb, so a world swap lists them as removals on the
+    // next sync. Its findings describe a field that is about to be gone, and its
+    // pending write set names chunks that will not be there to copy.
+    for (const key of store.chunks.keys()) analyzerStale.add(key);
+    analyzerDirty.clear();
+    analyzerResync = true;
+    analyzerSeeds = [];
+    flagStore.clear();
+    publishFlags();
     store.chunks.clear();
     store.materials.clear();
     log.ops.length = 0;
@@ -3426,8 +3803,11 @@ export function createFieldHost(deps?: {
       // A world can be loaded BEFORE the GPU exists (the panel's Load races
       // init, and every headless caller never inits at all), and rebuildProps
       // no-ops without a context — so build the layer once here from whatever
-      // the log already holds.
+      // the log already holds. Same for the advisor's markers: findings can
+      // arrive before the GPU does, and the counts they settled are replayed
+      // into draws here.
       rebuildProps();
+      rebuildFlagMarkers(flagStore.summary());
       attachListeners(canvas);
       lastFrameT = 0;
       raf = requestAnimationFrame(tick);
@@ -3437,11 +3817,17 @@ export function createFieldHost(deps?: {
       cancelAnimationFrame(raf);
       detachListeners();
       worker.dispose();
+      analyzer.dispose();
+      if (analyzerIdle !== null) {
+        clearTimeout(analyzerIdle);
+        analyzerIdle = null;
+      }
       const c = ctx;
       if (c) {
         for (const [, cm] of chunkMeshes) destroyChunkRender(c, cm);
         chunkMeshes.clear();
         destroyProps(c);
+        destroyFlagMarkers(c);
         destroyStampGhosts();
         discardVoidCast();
         if (flatMat) material.destroy(c, flatMat);
@@ -3456,6 +3842,8 @@ export function createFieldHost(deps?: {
         if (stampGhostBind) binding.destroy(c, stampGhostBind);
         if (voidCastMat) material.destroy(c, voidCastMat);
         if (voidCastBind) binding.destroy(c, voidCastBind);
+        if (flagMarkerMat) material.destroy(c, flagMarkerMat);
+        if (flagMarkerBind) binding.destroy(c, flagMarkerBind);
         unbindCamera?.();
         gpu.dispose(c); // LAST — a clean shutdown is the leak check.
       }
@@ -3470,6 +3858,8 @@ export function createFieldHost(deps?: {
       stampGhostBind = null;
       voidCastMat = null;
       voidCastBind = null;
+      flagMarkerMat = null;
+      flagMarkerBind = null;
       // Unlike the selection (CPU-only, survives dispose), the stamp session
       // dies with its GPU ghost: a "ready" session with no ghost after a
       // re-init would promise a commit the user can no longer see. Silent (no
@@ -3481,6 +3871,11 @@ export function createFieldHost(deps?: {
     },
     newWorld() {
       resetWorld();
+      // The mirror is emptied by the pass resetWorld's outgoing keys ride on;
+      // this request is the explicit one, so that emptying does not depend on the
+      // prop layer happening to rebuild on the same path. No ANALYSIS follows
+      // either way — a new world holds no field and, with no manifest, no seed.
+      analyzePump.request();
       notifyEntities();
     },
     loadWorld(data) {
@@ -3501,7 +3896,19 @@ export function createFieldHost(deps?: {
       for (const op of ops) log.ops.push(op);
       log.nextId = ops.reduce((max, o) => Math.max(max, o.id), 0) + 1;
       // v0: manifest.playerStart/playerYaw are the dungeon runtime spawn — the
-      // editor keeps its current fly pose on load (not applied to the camera here).
+      // editor keeps its current fly pose on load (not applied to the camera
+      // here). `playerStart` IS read, as the walkability advisor's seed: it is
+      // where the agent starts, which is exactly what "can it get there" and
+      // "can it get back" are asked from. Copied, not aliased — the manifest is
+      // the caller's. A world with no manifest (newWorld) leaves the seeds empty
+      // and both connectivity passes skip, rather than guessing a spawn.
+      const [seedX, seedY, seedZ] = data.manifest.playerStart;
+      analyzerSeeds = [[seedX, seedY, seedZ]];
+      // The mirror holds the OLD world (resetWorld listed its keys as removals);
+      // these chunks were written straight into the store, so nothing marked them
+      // dirty. Whole-world too: every chunk is new to the analyzer.
+      analyzerResync = true;
+      analyzerWholeWorld = true;
       for (const key of store.chunks.keys()) dirty.add(key);
       // Fold aged brush runs before the panel reads the log: quiescent history
       // is guaranteed here (see compactLoadedLog), and it never touches entity
@@ -3512,6 +3919,10 @@ export function createFieldHost(deps?: {
       // the prop layer must be built from the loaded placement ops, not the
       // empty log (resetWorld tore the previous world's props down).
       rebuildProps();
+      // Explicit rather than left to rebuildProps' own request: a load's
+      // analyzer work (full re-sync, placements, whole-world pass) must not
+      // depend on the prop layer happening to rebuild on the same path.
+      analyzePump.request();
       notifyEntities();
     },
     setDigRadius(r) {
@@ -3851,6 +4262,32 @@ export function createFieldHost(deps?: {
       // Unknown id (undone, stale panel row): rebuild clears both, runtime-quiet.
       highlightedEntityId = entityId;
       rebuildEntityHighlight();
+    },
+    setAgentProfile(profile) {
+      agentProfile = profile;
+      // Catch the world up: the mirror may be missing every edit made before the
+      // profile arrived, and the first pass should describe the field as it
+      // stands rather than only what has changed since.
+      analyzerResync = true;
+      analyzerWholeWorld = true;
+      analyzerPlacementsStale = true;
+      analyzePump.request();
+    },
+    subscribeFlags(cb) {
+      flagsCb = cb;
+      // Initial push (the subscribeSelection remount rationale): a panel
+      // remounting while markers are on screen must not render an empty list.
+      cb(flagStore.summary());
+      return () => {
+        if (flagsCb === cb) flagsCb = null;
+      };
+    },
+    setFlagFilters(filters) {
+      flagStore.setFilters(filters);
+      publishFlags();
+    },
+    flagMarkerCount() {
+      return markerCount;
     },
     exportArtifact(name) {
       return field.bakeFieldWorld(store, log, table, {
