@@ -7,17 +7,20 @@
  *
  *  The underlying capsule facts (radius, half-height, step/climb/clearance, slope limit)
  *  are authored once in `catalog/agent.json` (D-F4-4) — not restated here — so the game's
- *  locomotion constants and the (future) walkability analyzer's thresholds can't drift
- *  apart the way STEP_HEIGHT and the mover's real ~0.7 m climb ceiling once did (see
+ *  locomotion constants and the walkability analyzer's thresholds can't drift apart the
+ *  way STEP_HEIGHT and the mover's real ~0.7 m climb ceiling once did (see
  *  `docs/learnings/2026-07-15-analyzer-corpus-probe.md` §climb ceiling). STEP_HEIGHT and
- *  SLOPE_LIMIT_COS below are derived from that file; their values are unchanged. */
+ *  SLOPE_LIMIT_COS below are derived from that file; their values are unchanged.
+ *  // MIGRATION (until Tranche A Task 2): "the walkability analyzer" above names Task 2's
+ *  stage-1 analyzer in `@furnace/core/field`, which does not exist yet as of this file. */
 import agent from "../catalog/agent.json";
 
 /** The parsed `catalog/agent.json` profile, re-exported for dungeon-side consumers that
  *  need the raw capsule facts (step-up sweep, climb ceiling, clearance, slope limit) rather
  *  than the two derived constants below — e.g. the walk-probe verify verb. Its shape mirrors
- *  core's future `AgentProfile` type (not yet defined; this is a plain data re-export, not a
- *  cast to that type). */
+ *  core's `AgentProfile` type; this is a plain data re-export, not a cast to that type.
+ *  // MIGRATION (until Tranche A Task 2): `AgentProfile` does not exist in core yet as of
+ *  this file — Task 2 lands it in `@furnace/core/field`. */
 export const AGENT = agent;
 
 /** Max walkable slope angle in radians, from `agent.slopeLimitDeg`. */

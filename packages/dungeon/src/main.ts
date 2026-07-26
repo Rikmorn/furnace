@@ -10,10 +10,9 @@ import { FpController } from "./fp-controller.ts";
 import { buildMotes } from "./motes.ts";
 import { MaterialCache } from "./realize.ts";
 import { Torch } from "./torch.ts";
+import { AGENT } from "./walkability.ts";
 import { type LoadedWorld, loadWorld } from "./world-loader.ts";
 
-const PLAYER_CAPSULE_HALF_HEIGHT = 0.6;
-const PLAYER_CAPSULE_RADIUS = 0.3;
 const NOCLIP_FLY_SPEED = 6; // m/s vertical fly rate in noclip (dev tool)
 const SHOVE_SPEED = 3; // m/s push imparted to dynamic props
 const SHOVE_REACH = 0.6; // forward distance to detect a shovable prop
@@ -64,18 +63,10 @@ async function main(): Promise<void> {
 
   const playerBody = physics.createBody(ctx, world, {
     type: "kinematicPosition",
-    shape: {
-      capsule: {
-        halfHeight: PLAYER_CAPSULE_HALF_HEIGHT,
-        radius: PLAYER_CAPSULE_RADIUS,
-      },
-    },
+    shape: { capsule: AGENT.capsule },
     position: loadedWorld.playerStart,
   });
-  const mover = new CharacterMover(
-    { halfHeight: PLAYER_CAPSULE_HALF_HEIGHT, radius: PLAYER_CAPSULE_RADIUS },
-    playerBody,
-  );
+  const mover = new CharacterMover(AGENT.capsule, playerBody);
   let noclip = false; // V toggles fly/noclip (dev tool)
 
   // Bloom REQUIRES an hdr context; an hdr context REQUIRES a non-empty effects chain.
@@ -140,10 +131,7 @@ async function main(): Promise<void> {
       shoveDynamicBodies(
         ctx,
         world,
-        {
-          halfHeight: PLAYER_CAPSULE_HALF_HEIGHT,
-          radius: PLAYER_CAPSULE_RADIUS,
-        },
+        AGENT.capsule,
         playerBody,
         next,
         player.desiredHorizontal(dt),

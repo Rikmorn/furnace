@@ -17,9 +17,9 @@ test("clearance is derived (2*(halfHeight+radius)), not an independent number", 
 });
 
 test("version/capsule/step/climb/clearance/slope fields are all positive finite", () => {
-  // version is schema metadata, not a physical quantity — but the spec says "all fields",
-  // and a non-integer or non-positive version is still a malformed catalog, so it gets the
-  // same floor plus an integer check (the honest shape for a schema version number).
+  // version is schema metadata, not a physical quantity, but a non-integer or non-positive
+  // version is still a malformed catalog, so it gets the same floor plus an integer check
+  // (the honest shape for a schema version number).
   expect(Number.isFinite(agent.version)).toBe(true);
   expect(Number.isInteger(agent.version)).toBe(true);
   expect(agent.version).toBeGreaterThan(0);
@@ -35,6 +35,14 @@ test("version/capsule/step/climb/clearance/slope fields are all positive finite"
   expect(agent.clearance).toBeGreaterThan(0);
   expect(Number.isFinite(agent.slopeLimitDeg)).toBe(true);
   expect(agent.slopeLimitDeg).toBeGreaterThan(0);
+});
+
+test("catalog version is pinned to 1", () => {
+  // The static import path (unlike the editor's future parseAgentCatalog, tranche B) has no
+  // schema-mismatch guard of its own — this pin forces a conscious review the moment the
+  // schema bumps, rather than a version change passing silently through the positive-finite
+  // check above.
+  expect(agent.version).toBe(1);
 });
 
 test("climb ceiling exceeds step height (F0's two conflated numbers, now distinct)", () => {
