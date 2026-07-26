@@ -429,15 +429,33 @@ test.skipIf(!bunWebGpuAvailable())(
       // INCREMENTAL pass; none may run the connectivity passes, which are
       // world-cadence and cost ~72% of a full analyzeWorld on top of the pass
       // they ride (which is the whole reason they are debounced).
-      f.click(30, 30);
-      await f.deliver();
-      f.click(32, 32);
-      await f.deliver();
-      f.click(34, 34);
-      await f.deliver();
-      expect(f.of("analyze").every((a) => a.reachability === false)).toBe(true);
+      //
+      // Read BEFORE each deliver, because `deliver` splices `sent` — asserting
+      // over `of("analyze")` after the last one runs `[].every(...)`, which is
+      // vacuously true and cannot fail.
+      const burst: boolean[] = [];
+      for (const [x, y] of [
+        [30, 30],
+        [32, 32],
+        [34, 34],
+      ] as const) {
+        f.click(x, y);
+        burst.push(...f.of("analyze").map((a) => a.reachability));
+        await f.deliver();
+      }
+      // Three strokes, three passes, none of them whole-world. The LENGTH is
+      // half of it — a burst that posted nothing would satisfy "no whole-world
+      // pass" just as well — and the values are the other half. Between them
+      // they catch an edit that reaches the analyzer not at all, and an edit
+      // whose own pass runs the connectivity passes. What they do NOT catch is
+      // the debounce being absent, because the timer is asynchronous either way:
+      // that is the post-wait assertion's job, below.
+      expect(burst).toEqual([false, false, false]);
 
-      // Let the tail fire.
+      // Let the tail fire. THIS is where the debounce itself is pinned: with
+      // `scheduleWholeWorldPass` no-op'd nothing arrives, and with it
+      // undebounced the burst has already spent the whole-world passes before
+      // the wait, so either way this comes back empty.
       f.sent.length = 0;
       await new Promise((resolve) => setTimeout(resolve, IDLE_TAIL_WAIT_MS));
       const whole = f.of("analyze").filter((a) => a.reachability);

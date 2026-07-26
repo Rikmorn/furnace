@@ -12,7 +12,7 @@ console.log(typeof field.analyzeChunk);
 
 | build | modules | `rapier` | bytes |
 | --- | --- | --- | --- |
-| as-is | **208** | present (×7) | ~2.91 MB |
+| as-is | **208** | present | ~2.91 MB |
 | `--external "@furnace/core/scene"` | **31** | absent | ~15 KB |
 
 Bytes are indicative only: a namespace import defeats tree-shaking and a single named import shakes harder, so the same finding reproduces anywhere in the ~2.90–3.06 MB / ~8–177 KB band depending on the entry. The 208-vs-31 module split and the presence-vs-absence of `rapier` do not move.

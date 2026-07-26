@@ -3822,6 +3822,15 @@ export function createFieldHost(deps?: {
       // exists so a re-init'd instance lives), so this is the analyzer half of
       // that same contract.
       analyzerResync = true;
+      // DEFENCE IN DEPTH, and its independent effect is deliberately UNCOVERED:
+      // every path that can reach the analyzer after a dispose goes through
+      // `rebuildProps` (via `init`, `loadWorld` or `newWorld`) or through
+      // `setAgentProfile`, and all of those set this flag themselves — so
+      // deleting this line fails no test. It is kept because depending on that
+      // coincidence is what the line above exists to stop doing, and the cost of
+      // being wrong is one-directional: `voxelizePlacements` is purely additive,
+      // so a worker with no placement set sees strictly MORE open air and
+      // UNDER-reports, which is the miss-unsafe direction for a trap hunt.
       analyzerPlacementsStale = true;
       if (analyzerIdle !== null) {
         clearTimeout(analyzerIdle);
