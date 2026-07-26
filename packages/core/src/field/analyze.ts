@@ -86,10 +86,17 @@ type ColumnMetrics = {
   climbCells: number;
   cellSize: number;
   /** Free width (m) below which an axis reads pinched: the capsule's diameter
-   *  plus ONE mover contact margin. One, not two: the mover keeps `skin` clear
-   *  in its DIRECTION OF TRAVEL, and a capsule walking a lane casts along it,
-   *  grazing the side walls rather than driving into them — so the lane must
-   *  hold the diameter plus enough margin that the graze is not a contact. */
+   *  plus ONE mover contact margin. The bar has to clear `2 * radius` outright,
+   *  because a lane exactly the diameter leaves the capsule at EXACT contact
+   *  with both walls, and a shapecast whose start pose is already touching
+   *  returns a zero-distance hit with an arbitrary normal — the stall the
+   *  mover's own rest and lift margins exist to prevent. One `skin` is then a
+   *  well-chosen agent-scale margin over that floor, not a derived quantity.
+   *
+   *  Below `cellSize` this filter is structurally silent: the smallest sum two
+   *  opposing faces can produce is `cellSize` (both solids at `d = 1`), so a
+   *  store whose cells are as coarse as the capsule reports NO pinch anywhere,
+   *  the same coarse-cell cliff {@link markUnreachable} documents for climbs. */
   pinchWidth: number;
   /** How far out (cells) the pinch scan looks for the nearest solid. `ceil` is
    *  complete, not merely generous: the nearest possible solid past this bound
@@ -119,7 +126,14 @@ type PushFlag = (
  *  rounded pinch is not "tighter", it is WRONG BY UP TO A CELL EITHER WAY, and
  *  measurement found that the rounding — not the geometry — produced most of the
  *  `narrow` flags in a real cave (P-F4-3). Its scan bound rounds up because a
- *  scan bound must not miss; the comparison itself is in metres. */
+ *  scan bound must not miss; the comparison itself is in metres.
+ *
+ *  `wallCellsXZ` still carries that same rounding, and still drives
+ *  `lip-near-wall`: at the production 0.25 m lattice a 0.3 m radius rounds to a
+ *  0.5 m wall probe. It was measured (341 `lip-near-wall` on the F3b default
+ *  cave) and deliberately left — that filter is `info` severity, so it sits
+ *  outside the candidate bar `narrow` was fixed for. Anything promoting it to
+ *  `candidate` has to answer this first. */
 function metricsFor(profile: AgentProfile, cellSize: number): ColumnMetrics {
   const clearCells = Math.ceil(profile.clearance / cellSize);
   const pinchWidth = 2 * profile.capsule.radius + profile.skin;
@@ -345,12 +359,16 @@ function faceDistance(
  *  terrain that is not a rare miss — "walls nearby" describes the terrain, so
  *  the count reads 2 almost everywhere and the filter says nothing (P-F4-3).
  *
- *  Two axes, so a purely DIAGONAL lane is measured across its axis-aligned
- *  width, which at 45° is √2 times its true width: a diagonal lane between
- *  `pinchWidth / √2` and `pinchWidth` reads clear. The band is narrow and the
- *  lattice works against it (a staircased wall puts cells nearer the axis than
- *  the ideal line does, which only ever tightens the measurement), but it is a
- *  real false negative and stage 2 is what catches it. */
+ *  Two axes, so what a DIAGONAL lane gets measured on is its axis-aligned air
+ *  span, which is strictly wider than the lane. The `/√2` an ideal 45° line
+ *  suggests is the OPTIMISTIC bound, and the lattice makes it worse rather than
+ *  better: a 45° staircase of step `k` has an axis span of `(2k-1)` cells while
+ *  its true corner-to-corner clearance is only `√2·(k-1)`, which is exactly
+ *  `1/√2` of a cell BELOW the ideal line's `(2k-1)/√2` — at every `k`. So the
+ *  miss band extends under `pinchWidth / √2`, not just up to it.
+ *  Measured at `cellSize` 0.25 with a 0.68 m bar: `k = 2` spans 0.750 on the
+ *  axis (clear) at a true clearance of 0.354, which a 0.60 m capsule cannot
+ *  enter at all. This filter does not see that class; stage 2 owns all of it. */
 function pinchedAtTorso(
   v: SolidView,
   m: ColumnMetrics,
@@ -474,8 +492,9 @@ const floorSurfaceWorld = (
  * over-emits instead; a presentation layer that cares should dedupe by cell.
  * @throws Error - setup-loud, on an agent profile that is not internally
  * consistent (non-positive or non-finite fields, `climbCeiling` not above
- * `stepHeight`, `clearance` below the capsule's own height), or on an
- * `extraSolid` buffer whose length is not `CHUNK_SAMPLES`.
+ * `stepHeight`, `clearance` below the capsule's own height, `skin` at or above
+ * the capsule radius), or on an `extraSolid` buffer whose length is not
+ * `CHUNK_SAMPLES`.
  * @remarks Unallocated space being rock is the field's own rule and the one
  * this pass wants, but note where it differs from the runtime: an unallocated
  * chunk emits no collider at all, so a mover moves through it freely. At the

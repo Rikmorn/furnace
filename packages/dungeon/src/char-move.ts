@@ -1,5 +1,5 @@
 import * as physics from "@furnace/core/physics";
-import { SLOPE_LIMIT_COS, STEP_HEIGHT } from "./walkability.ts";
+import { SKIN, SLOPE_LIMIT_COS, STEP_HEIGHT } from "./walkability.ts";
 
 /** Project `v` onto the plane with unit normal `n` (Quake PM_ClipVelocity):
  *  `v - n·(v·n)`. Removes the component of `v` heading into the surface,
@@ -21,10 +21,6 @@ export function isWalkable(
   return normal[1] >= limitCos;
 }
 
-/** Gap kept between the capsule and surfaces (tunable). Exported because it is an
- *  agent FACT the walkability analyzer needs too — `catalog/agent.json`'s `skin` is
- *  this number, and `tests/agent-catalog.test.ts` pins the two together. */
-export const SKIN = 0.08;
 const MAX_SLIDE_ITERS = 4;
 const MIN_MOVE_LENGTH = 1e-5; // below this the remaining move is exhausted
 const GRAVITY = -9.81;

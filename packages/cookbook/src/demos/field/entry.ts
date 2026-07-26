@@ -90,9 +90,10 @@ const STEP_CENTER: [number, number, number] = [
 const STEP_HALF: [number, number, number] = [0.5, STEP_DEPTH / 2, 0.7];
 // …and a third: two blocks standing on the floor with a 0.50 m lane between
 // them, under the capsule's 0.68 m pinch bar (2·radius + skin). A box fill takes
-// the samples STRICTLY inside it, so both the rock and the lane come out one
-// 0.25 m cell narrower than the authored box — the pair below authors a 0.25 m
-// gap and a 1.25 m height to get a 0.50 m lane between 1.00 m blocks.
+// the samples STRICTLY inside it, so each block loses a 0.25 m cell off its
+// authored box — and the lane between two of them GAINS one, since both facing
+// samples stay air. Hence a 1.25 m authored height for 1.00 m blocks, and a
+// 0.25 m authored gap for the 0.50 m lane.
 const SLOT_HALF: [number, number, number] = [0.5, 0.625, 0.7];
 const SLOT_Y = FLOOR_Y + 0.375;
 const SLOT_Z = 3.3;

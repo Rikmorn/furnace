@@ -58,9 +58,9 @@ const WIDE: AgentProfile = {
 
 // The room: 48x48 cells of floor (3 chunks wide in XZ) carved out of rock,
 // centred on chunk (0,0,0), with 12 cells (3.0 m) of air above it. Analysing the
-// CENTRE chunk keeps every anchor 16 cells clear of the surrounding rock, so a
-// clean room really is quiet — a one-chunk room would pinch `narrow` at its
-// corners (see the unallocated-rock test, which relies on exactly that).
+// CENTRE chunk keeps every anchor 16 cells clear of the surrounding rock — well
+// past any probe's reach — so a clean room really is quiet, and every fixture
+// below is read against only the walls it adds itself.
 const ROOM_MIN = -CHUNK_DIM;
 const ROOM_MAX = 2 * CHUNK_DIM; // exclusive
 const AIR_LO = 1;
@@ -109,7 +109,9 @@ function room(): FieldStore {
 // (15 m) of headroom, with a plateau whose top sits 40 cells (10 m) above the
 // floor — well past 4 capsule clearances (32 cells), and still inside the air
 // volume the mover stands in. Kept narrower in XZ than `room()` (walls 4 cells
-// beyond the analysed chunk, still clear of wallCellsXZ) to bound fixture cost.
+// beyond the analysed chunk, still past every XZ reach AGENT has — pinchCells 3,
+// wallCellsXZ 2) to bound fixture cost. AGENT is the only profile analysed on it;
+// WIDE reaches 5 and would read these walls.
 const TALL_MIN = -4;
 const TALL_MAX = CHUNK_DIM + 3; // inclusive
 const TALL_CEILING = 61;
@@ -313,11 +315,12 @@ describe("analyzeChunk — walkable column pass", () => {
     ).toBeGreaterThan(0);
   });
 
-  test("the nearest solid wins, so an intermediate wall is never stepped over", () => {
-    // WIDE reaches 5 cells (ceil(1.18 / 0.25)); the walls sit at offset 2. A
-    // probe that read only the cell at its reach would find air there and miss
-    // both walls — the donor probe's "scan every offset" rule, kept as
-    // "first hit outward wins", which also fixes the pinch's measured width.
+  test("a wall short of the scan's reach is not stepped over", () => {
+    // WIDE reaches 5 cells (ceil(1.18 / 0.25)); the walls sit at offset 2, with
+    // nothing beyond them. A probe that read only the cell at its reach would
+    // find air at 5 and miss both — the donor probe's "scan every offset" rule.
+    // (Which solid gets CHOSEN when there are several is the slab test above;
+    // here nearest and farthest are the same wall.)
     const narrow = only(analyzeChunk(lane(2, 2), CENTER, WIDE), "narrow");
     // Exactly the three air cells of the lane: 0.75 m of width at x = 8, and
     // 0.125 + 0.625 = 0.75 m at each shoulder.

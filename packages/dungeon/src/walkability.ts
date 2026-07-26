@@ -32,3 +32,11 @@ export const SLOPE_LIMIT_COS = Math.cos(SLOPE_LIMIT_RAD);
  *  — deliberately NOT `agent.climbCeiling`, the mover's real (larger) climb ceiling; see the
  *  module comment above. */
 export const STEP_HEIGHT = agent.stepHeight;
+/** Contact margin (m) the mover keeps between the capsule and any surface, from `agent.skin`.
+ *  `char-move.ts` casts with `maxDistance: dist + SKIN` and backs off `toi - SKIN`, so every
+ *  cast's next start pose is strictly non-penetrating — `castShape` is stopAtPenetration, and a
+ *  start pose at exact contact returns toi 0 with an arbitrary normal and stalls the slide (the
+ *  2.2.1 wedge class; see also REST_GAP and LIFT_MARGIN there). The analyzer's `narrow` bar is
+ *  `2 * radius + skin` for the same reason: a lane only wide enough for the bare diameter leaves
+ *  the capsule at exact contact with both walls. */
+export const SKIN = agent.skin;

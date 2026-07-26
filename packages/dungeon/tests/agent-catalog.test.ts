@@ -5,8 +5,12 @@
 // against silently diverging from the file it's supposed to derive from.
 import { expect, test } from "bun:test";
 import agent from "../catalog/agent.json";
-import { SKIN } from "../src/char-move.ts";
-import { AGENT, SLOPE_LIMIT_COS, STEP_HEIGHT } from "../src/walkability.ts";
+import {
+  AGENT,
+  SKIN,
+  SLOPE_LIMIT_COS,
+  STEP_HEIGHT,
+} from "../src/walkability.ts";
 
 test("clearance is derived (2*(halfHeight+radius)), not an independent number", () => {
   // Tolerance, not `toBe`: 2*(0.6+0.3) computes to 1.7999999999999998 in IEEE 754 double
@@ -17,15 +21,15 @@ test("clearance is derived (2*(halfHeight+radius)), not an independent number", 
   expect(agent.clearance).toBeCloseTo(expected, 10);
 });
 
-test("skin is the mover's own SKIN constant, and below the capsule radius", () => {
-  // The clearance-equality pattern, for the second fact the catalog and the mover
-  // both hold: char-move.ts reads its contact margin from a module constant, so
-  // nothing but this pin stops the catalog's copy from drifting. Strict equality —
-  // both are the same authored literal, not two float derivations.
-  expect(agent.skin).toBe(SKIN);
-  // A margin at or above the radius would make the pinch threshold (2r + skin)
-  // exceed three radii, i.e. flag lanes the capsule walks through comfortably.
+test("skin is below the capsule radius, and walkability.SKIN derives from it", () => {
+  // A margin at or above the radius would make the analyzer's pinch threshold
+  // (2r + skin) exceed three radii, i.e. flag lanes the capsule walks through
+  // comfortably. Core validates this too, setup-loud; the catalog owns the value,
+  // so it is guarded where it is authored.
   expect(agent.skin).toBeLessThan(agent.capsule.radius);
+  // Derivation, not a second spelling: char-move.ts imports this, so there is no
+  // literal for the catalog to drift from (the STEP_HEIGHT pattern below).
+  expect(SKIN).toBe(agent.skin);
 });
 
 test("version/capsule/step/climb/clearance/slope/skin fields are all positive finite", () => {

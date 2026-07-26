@@ -1214,8 +1214,9 @@ channel** (uniform|indexed palette encoding behind accessors — `getMaterial` /
   at entry, not per probe). All three entry points here — `analyzeChunk`, `analyzeWorld`
   and `markUnreachable` — share that gate, and also throw setup-loud on a profile that is
   not internally consistent: a non-positive or non-finite field, `climbCeiling` not above
-  `stepHeight` (the `info` band would be empty), or `clearance` below the capsule's own
-  `2 × (halfHeight + radius)`. The gate runs BEFORE any early return, so a bad profile
+  `stepHeight` (the `info` band would be empty), `clearance` below the capsule's own
+  `2 × (halfHeight + radius)`, or `skin` at or above `capsule.radius` (which would put the
+  `narrow` bar past three radii). The gate runs BEFORE any early return, so a bad profile
   throws even when there is nothing to do.
   `markUnreachable(store, profile, flags, seeds, opts?)` (D-F4-8) is triage, not
   filtering: it floods from each seed's floor surface (4-connected in XZ, any |Δy| within
