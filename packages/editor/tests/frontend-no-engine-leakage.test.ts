@@ -50,11 +50,19 @@ const VIEWPORT_HOST = `["'][^"']*viewport-host`;
 // own"). (2) The two instances share no module-level state: our copy runs only the
 // pure column pass and the placement rasterizer, the bundle's copy owns the physics
 // context and the collider derivation, and neither reads the other's registries.
-// That is a claim about EXECUTION, not about bundle content — `@furnace/core/field`
-// resolves to core's own index, so the physics module (Rapier's wasm-bindgen glue and
-// all) does ship inside analyzer-worker.js; no code path in this realm calls it, and
-// the same is already true of field-worker.js (both ~2.65 MB, measured 2026-07-26).
-// The cost is a second copy of core's JS in the worker's memory, which is accepted.
+// That is a claim about EXECUTION, not about bundle content: the physics module
+// (Rapier's wasm-bindgen glue and all) DOES ship inside analyzer-worker.js, and no code
+// path in this realm calls it. The lever is one VALUE import, not the module graph of
+// `@furnace/core/field` generally — that entry alone reaches only `transform/` and
+// `log/` and bundles to 15 KB. What drags the rest in is
+// `packages/core/src/field/artifact.ts` importing `encodeMeshBlob` from
+// `@furnace/core/scene`, and the scene graph pulls gpu/mesh/material/physics/post behind
+// it: measured 2026-07-26, a throwaway entry importing only `@furnace/core/field`
+// bundles to 2,910,957 bytes with `rapier` in it, and 15,011 bytes with
+// `@furnace/core/scene` marked external. Filed as
+// `docs/backlog/engine-architecture/field-module-pulls-whole-engine.md`. The same is
+// already true of field-worker.js (both ~2.65 MB on the daemon-served bundle). The cost
+// is a second copy of core's JS in the worker's memory, which is accepted.
 //
 // Exempt files may (1) value-import @furnace/core AND (2) value-import a core-carrying
 // protocol module — they ARE those bundles (field-worker.ts value-imports
