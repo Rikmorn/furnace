@@ -402,7 +402,8 @@ subjects.push(
 
 console.log(
   `agent profile (catalog/agent.json): capsule r=${AGENT.capsule.radius} hh=${AGENT.capsule.halfHeight}, ` +
-    `stepHeight=${AGENT.stepHeight}, climbCeiling=${AGENT.climbCeiling}, clearance=${AGENT.clearance}`,
+    `stepHeight=${AGENT.stepHeight}, climbCeiling=${AGENT.climbCeiling}, clearance=${AGENT.clearance}, ` +
+    `skin=${AGENT.skin} (narrow pinch bar = ${2 * AGENT.capsule.radius + AGENT.skin} m of free width)`,
 );
 console.log(
   "walkable ground = reachable (unreachable !== true) AND standable (floor anchor with full clearance)",

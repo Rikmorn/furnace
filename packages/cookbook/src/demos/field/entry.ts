@@ -88,16 +88,28 @@ const STEP_CENTER: [number, number, number] = [
   1.6,
 ];
 const STEP_HALF: [number, number, number] = [0.5, STEP_DEPTH / 2, 0.7];
+// …and a third: two blocks standing on the floor with a 0.50 m lane between
+// them, under the capsule's 0.68 m pinch bar (2·radius + skin). A box fill takes
+// the samples STRICTLY inside it, so both the rock and the lane come out one
+// 0.25 m cell narrower than the authored box — the pair below authors a 0.25 m
+// gap and a 1.25 m height to get a 0.50 m lane between 1.00 m blocks.
+const SLOT_HALF: [number, number, number] = [0.5, 0.625, 0.7];
+const SLOT_Y = FLOOR_Y + 0.375;
+const SLOT_Z = 3.3;
+const SLOT_A: [number, number, number] = [1.0, SLOT_Y, SLOT_Z];
+const SLOT_B: [number, number, number] = [2.25, SLOT_Y, SLOT_Z];
 
 // The capsule the analyzer is parameterized on — consuming-project DATA, never
 // hard-coded in core. `clearance` is the capsule's own height and may not be
-// less; `climbCeiling` must exceed `stepHeight` (both checked setup-loud).
+// less; `climbCeiling` must exceed `stepHeight`; `skin` is the mover's contact
+// margin and must be under the radius (all three checked setup-loud).
 const AGENT: field.AgentProfile = {
   capsule: { radius: 0.3, halfHeight: 0.6 },
   stepHeight: 0.4,
   climbCeiling: 0.7,
   clearance: 1.8,
   slopeLimitDeg: 55,
+  skin: 0.08,
 };
 
 // Flag markers: warm + large for `candidate` (shown by default — worth a look),
@@ -230,12 +242,27 @@ function buildField(): { store: field.FieldStore; dirty: Set<field.ChunkKey> } {
       effect: "dig",
       shape: { kind: "box", center: PIT_CENTER, halfExtents: PIT_HALF },
     },
-    // …and a shallow step it handles fine.
+    // …a shallow step it handles fine…
     {
       id: 0,
       kind: "brush",
       effect: "dig",
       shape: { kind: "box", center: STEP_CENTER, halfExtents: STEP_HALF },
+    },
+    // …and two blocks pinching a lane too tight to walk down.
+    {
+      id: 0,
+      kind: "brush",
+      effect: "fill",
+      material: field.MAT_ROCK,
+      shape: { kind: "box", center: SLOT_A, halfExtents: SLOT_HALF },
+    },
+    {
+      id: 0,
+      kind: "brush",
+      effect: "fill",
+      material: field.MAT_ROCK,
+      shape: { kind: "box", center: SLOT_B, halfExtents: SLOT_HALF },
     },
   ];
   const dirty = new Set<field.ChunkKey>();

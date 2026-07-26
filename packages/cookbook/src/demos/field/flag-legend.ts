@@ -15,5 +15,5 @@ export const FLAG_MEANING: Record<FlagKind, string> = {
   ledge: "neighbour floor higher than stepHeight",
   "lip-near-wall": "sub-step lip with a wall within capsule radius beyond it",
   "low-clearance": "neighbour floor whose headroom is below clearance",
-  narrow: "solid within capsule radius at torso height on 2+ sides",
+  narrow: "free width at torso height below 2·radius + skin, on one axis",
 };

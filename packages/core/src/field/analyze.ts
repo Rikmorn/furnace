@@ -33,8 +33,6 @@ import type {
 const TORSO_PROBE_M = 0.5;
 /** A "wall" beside a lip = solid within this height above the lip's floor. */
 const WALL_PROBE_M = 1.0;
-/** Sides (of the 4 cardinal) that must pinch before a cell reads `narrow`. */
-const NARROW_MIN_SIDES = 2;
 /** Float slack on the clearance-vs-capsule consistency check (authored data). */
 const CLEARANCE_EPS = 1e-9;
 /** The 4 cardinal XZ neighbours. */
@@ -43,6 +41,12 @@ const DIRS = [
   [-1, 0],
   [0, 1],
   [0, -1],
+] as const;
+/** The 2 XZ axes, one direction each — the `narrow` scan mirrors them itself,
+ *  because a pinch is a property of an axis and not of a side. */
+const AXES = [
+  [1, 0],
+  [0, 1],
 ] as const;
 
 /** Options shared by every analyzer entry point. */
@@ -71,7 +75,8 @@ type SolidView = {
   extra: Uint8Array | undefined;
 };
 
-/** Agent thresholds resolved to CELLS at the store's cell size. */
+/** Agent thresholds resolved to CELLS at the store's cell size — except the
+ *  `narrow` pinch, which stays in metres (see {@link pinchWidth}). */
 type ColumnMetrics = {
   clearCells: number;
   wallCellsXZ: number;
@@ -79,6 +84,20 @@ type ColumnMetrics = {
   torsoCells: number;
   stepCells: number;
   climbCells: number;
+  cellSize: number;
+  /** Free width (m) below which an axis reads pinched: the capsule's diameter
+   *  plus ONE mover contact margin. One, not two: the mover keeps `skin` clear
+   *  in its DIRECTION OF TRAVEL, and a capsule walking a lane casts along it,
+   *  grazing the side walls rather than driving into them — so the lane must
+   *  hold the diameter plus enough margin that the graze is not a contact. */
+  pinchWidth: number;
+  /** How far out (cells) the pinch scan looks for the nearest solid. `ceil` is
+   *  complete, not merely generous: the nearest possible solid past this bound
+   *  sits at `(pinchCells + 0.5) * cellSize`, and the nearest possible solid on
+   *  the other side at `0.5 * cellSize`, so a miss here already sums to at least
+   *  `(pinchCells + 1) * cellSize > pinchWidth`. A side with nothing in range
+   *  therefore cannot be half of a pinch, whatever stands beyond it. */
+  pinchCells: number;
 };
 
 type PushFlag = (
@@ -94,9 +113,16 @@ type PushFlag = (
  *  over-demands, and `floor` on what it is ALLOWED (step, climb) under-grants.
  *  Every threshold therefore lands strictly tighter than the real mover, which
  *  is the posture this pass wants — borderline geometry surfaces as a flag
- *  rather than being rounded away. Do not "fix" one of them into symmetry. */
+ *  rather than being rounded away. Do not "fix" one of them into symmetry.
+ *
+ *  `pinchWidth` is the exception, and deliberately not a cell count at all: a
+ *  rounded pinch is not "tighter", it is WRONG BY UP TO A CELL EITHER WAY, and
+ *  measurement found that the rounding — not the geometry — produced most of the
+ *  `narrow` flags in a real cave (P-F4-3). Its scan bound rounds up because a
+ *  scan bound must not miss; the comparison itself is in metres. */
 function metricsFor(profile: AgentProfile, cellSize: number): ColumnMetrics {
   const clearCells = Math.ceil(profile.clearance / cellSize);
+  const pinchWidth = 2 * profile.capsule.radius + profile.skin;
   return {
     clearCells,
     wallCellsXZ: Math.ceil(profile.capsule.radius / cellSize),
@@ -104,6 +130,9 @@ function metricsFor(profile: AgentProfile, cellSize: number): ColumnMetrics {
     torsoCells: Math.ceil(TORSO_PROBE_M / cellSize),
     stepCells: Math.floor(profile.stepHeight / cellSize),
     climbCells: Math.floor(profile.climbCeiling / cellSize),
+    cellSize,
+    pinchWidth,
+    pinchCells: Math.ceil(pinchWidth / cellSize),
   };
 }
 
@@ -115,12 +144,17 @@ function assertAgentProfileValid(profile: AgentProfile): void {
     ["climbCeiling", profile.climbCeiling],
     ["clearance", profile.clearance],
     ["slopeLimitDeg", profile.slopeLimitDeg],
+    ["skin", profile.skin],
   ];
   for (const [name, value] of positive)
     if (!Number.isFinite(value) || value <= 0)
       throw new Error(
         `analyze: agent profile ${name} must be a positive finite number, got ${value}`,
       );
+  if (profile.skin >= profile.capsule.radius)
+    throw new Error(
+      `analyze: agent profile skin (${profile.skin}) must be below the capsule radius (${profile.capsule.radius}) — a contact margin that large would put the narrow pinch threshold past three radii`,
+    );
   if (profile.climbCeiling <= profile.stepHeight)
     throw new Error(
       `analyze: agent profile climbCeiling (${profile.climbCeiling}) must exceed stepHeight (${profile.stepHeight}) — the info band between them would be empty`,
@@ -273,27 +307,65 @@ function wallBeyondLip(
   return false;
 }
 
-/** How many of the 4 cardinal sides have rock within capsule radius at torso
- *  height. Scans EVERY offset out to the radius rather than only the cell at
- *  exactly that distance: at fine cell sizes an intermediate solid would
- *  otherwise be stepped over, and a missed pinch is the failure mode this
- *  filter exists to rule out. */
-function narrowSides(
+/** Distance (m) from the anchor cell's XZ CENTRE to the near face of the nearest
+ *  solid along one direction, or `undefined` if nothing solid stands within
+ *  `pinchCells`.
+ *
+ *  The anchor stands at its own cell's centre, so the cell `d` steps away spans
+ *  `[d - 0.5, d + 0.5]` cells from that centre and its NEAR face is at `d - 0.5`
+ *  — half a cell of the anchor's own footprint, plus the `d - 1` whole cells of
+ *  air between them. Faces, not centres: two opposing faces bound exactly the
+ *  air a capsule has to fit into, whereas two centres would over-count it by a
+ *  full cell.
+ *
+ *  Outward from `d = 1` and stopping at the FIRST hit, so an intermediate solid
+ *  can never be stepped over (the donor probe's "scan every offset" rule) and
+ *  the distance returned is the tightest one on that side. */
+function faceDistance(
+  v: SolidView,
+  m: ColumnMetrics,
+  torsoY: number,
+  x: number,
+  z: number,
+  dx: number,
+  dz: number,
+): number | undefined {
+  for (let d = 1; d <= m.pinchCells; d++)
+    if (isSolid(v, x + dx * d, torsoY, z + dz * d))
+      return (d - 0.5) * m.cellSize;
+  return undefined;
+}
+
+/** Is the anchor pinched at torso height — solid on BOTH sides of one XZ axis,
+ *  with less than `pinchWidth` of free width between their faces?
+ *
+ *  Opposing is the whole predicate. Counting sides independently (the F0 shape
+ *  this replaces) flags every inside CORNER, where the capsule is not pinched at
+ *  all: it walks out along either open axis. On deliberately vertical cave
+ *  terrain that is not a rare miss — "walls nearby" describes the terrain, so
+ *  the count reads 2 almost everywhere and the filter says nothing (P-F4-3).
+ *
+ *  Two axes, so a purely DIAGONAL lane is measured across its axis-aligned
+ *  width, which at 45° is √2 times its true width: a diagonal lane between
+ *  `pinchWidth / √2` and `pinchWidth` reads clear. The band is narrow and the
+ *  lattice works against it (a staircased wall puts cells nearer the axis than
+ *  the ideal line does, which only ever tightens the measurement), but it is a
+ *  real false negative and stage 2 is what catches it. */
+function pinchedAtTorso(
   v: SolidView,
   m: ColumnMetrics,
   x: number,
   y: number,
   z: number,
-): number {
+): boolean {
   const torsoY = y + m.torsoCells;
-  let sides = 0;
-  for (const [dx, dz] of DIRS)
-    for (let d = 1; d <= m.wallCellsXZ; d++)
-      if (isSolid(v, x + dx * d, torsoY, z + dz * d)) {
-        sides++;
-        break;
-      }
-  return sides;
+  for (const [dx, dz] of AXES) {
+    const pos = faceDistance(v, m, torsoY, x, z, dx, dz);
+    if (pos === undefined) continue;
+    const neg = faceDistance(v, m, torsoY, x, z, -dx, -dz);
+    if (neg !== undefined && pos + neg < m.pinchWidth) return true;
+  }
+  return false;
 }
 
 /** The neighbour column's FIRST floor surface above ours, searched up to our own
@@ -349,8 +421,7 @@ function scanAnchor(
       push("low-clearance", "candidate", ax, y, az);
     scanRise(v, m, anchor, ax, az, ceiling, push);
   }
-  if (narrowSides(v, m, x, y, z) >= NARROW_MIN_SIDES)
-    push("narrow", "candidate", x, y, z);
+  if (pinchedAtTorso(v, m, x, y, z)) push("narrow", "candidate", x, y, z);
 }
 
 /** World centre of the floor surface under an anchor cell: the cell's XZ centre
@@ -375,8 +446,10 @@ const floorSurfaceWorld = (
  * geometry surfaces: headroom below `clearance` (`low-clearance`); a neighbour
  * floor above `stepHeight` (`ledge`, `info` while within `climbCeiling`,
  * `candidate` past it — D-F4-7); a sub-step lip with a wall within capsule
- * radius beyond it (`lip-near-wall`, the wedge conjunction); rock within
- * capsule radius at torso height on two or more sides (`narrow`).
+ * radius beyond it (`lip-near-wall`, the wedge conjunction); and less than
+ * `2 * radius + skin` of free width between OPPOSING solids at torso height on
+ * one XZ axis (`narrow`), measured in metres from face to face rather than
+ * rounded to cells.
  *
  * @param key - The chunk whose own 16³ cells are the ANCHORS. Neighbour reads
  * cross chunk borders freely, so the caller must have the surrounding chunks
@@ -409,13 +482,15 @@ const floorSurfaceWorld = (
  * OUTER rim of the allocated region — and only there — the two disagree, in
  * BOTH directions. Under-flagging: a floor within `clearance` of the rim reads
  * as headroom limited, or as no anchor at all, where the runtime would let the
- * capsule stand. Over-flagging, which is the half a user actually sees: the rim
- * reads as walls, so cells near a boundary corner pinch on two sides and the
- * region's edge grows a rim of `narrow` markers with no geometry under them.
- * Both are artifacts of where the allocated data stops, not of the world, and
- * both feed the false-positive counts any triage bar is calibrated against.
- * Interior chunk borders are unaffected as long as the caller keeps the
- * neighbouring chunks present.
+ * capsule stand. Over-flagging: the rim reads as walls, so a sub-step lip beside
+ * one earns a `lip-near-wall` against rock that does not exist at runtime. What
+ * this is NOT any more is a `narrow` fringe along the whole edge — that was the
+ * side-counting predicate, for which a rim corner counted as a pinch; the
+ * opposing-face measurement only fires at a rim if the allocated region is
+ * itself narrower than the capsule. Both remaining halves are artifacts of where
+ * the allocated data stops, not of the world, and both feed the false-positive
+ * counts any triage bar is calibrated against. Interior chunk borders are
+ * unaffected as long as the caller keeps the neighbouring chunks present.
  */
 export function analyzeChunk(
   store: FieldStore,

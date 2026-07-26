@@ -32,23 +32,28 @@ import { at, expectDefined } from "./_helpers/expect.ts";
 
 /** The dungeon's capsule (`packages/dungeon/catalog/agent.json`), copied — core
  *  tests must not import a consumer package. At the 0.25 m default cell size
- *  this derives: clearCells 8, stepCells 1, climbCells 2, wallCellsXZ 2. */
+ *  this derives: clearCells 8, stepCells 1, climbCells 2, wallCellsXZ 2, and a
+ *  `narrow` pinch threshold of 2·0.3 + 0.08 = 0.68 m reached over
+ *  ceil(0.68 / 0.25) = 3 cells. */
 const AGENT: AgentProfile = {
   capsule: { radius: 0.3, halfHeight: 0.6 },
   stepHeight: 0.4,
   climbCeiling: 0.7,
   clearance: 1.8,
   slopeLimitDeg: 55,
+  skin: 0.08,
 };
 
-/** A deliberately fat capsule: wallCellsXZ = ceil(0.55 / 0.25) = 3, so a wall at
- *  offset 2 is INTERMEDIATE — the case the "probe every offset" rule exists for. */
+/** A deliberately fat capsule: its pinch threshold is 2·0.55 + 0.08 = 1.18 m,
+ *  reached over ceil(1.18 / 0.25) = 5 cells, so a wall at offset 2 is
+ *  INTERMEDIATE — the case the "nearest solid, not the far cell" rule is for. */
 const WIDE: AgentProfile = {
   capsule: { radius: 0.55, halfHeight: 0.6 },
   stepHeight: 0.4,
   climbCeiling: 0.7,
   clearance: 2.3,
   slopeLimitDeg: 55,
+  skin: 0.08,
 };
 
 // The room: 48x48 cells of floor (3 chunks wide in XZ) carved out of rock,
@@ -118,6 +123,19 @@ const spanZ = (
   y0: number,
   y1: number,
 ): void => solidBox(s, x0, x1, y0, y1, ROOM_MIN, ROOM_MAX - 1);
+
+/** The lane the `narrow` cases are built around, at the centre chunk's middle. */
+const LANE_X = 8;
+
+/** Two full-height walls either side of the lane at {@link LANE_X}, `minus` and
+ *  `plus` cells out from it. The free width between their near faces — what the
+ *  pinch predicate measures — is `(minus + plus - 1) * 0.25` m. */
+function lane(minus: number, plus: number): FieldStore {
+  const s = room();
+  spanZ(s, LANE_X - minus, LANE_X - minus, AIR_LO, AIR_HI - 1);
+  spanZ(s, LANE_X + plus, LANE_X + plus, AIR_LO, AIR_HI - 1);
+  return s;
+}
 
 const kindsOf = (flags: readonly FieldFlag[]): string[] =>
   flags.map((f) => f.kind);
@@ -241,36 +259,106 @@ describe("analyzeChunk — walkable column pass", () => {
     }
   });
 
-  test("a lane narrower than the capsule flags narrow", () => {
-    const s = room();
-    spanZ(s, 7, 7, AIR_LO, AIR_HI - 1);
-    spanZ(s, 9, 9, AIR_LO, AIR_HI - 1); // one-cell lane at x = 8
-    const flags = analyzeChunk(s, CENTER, AGENT);
+  // ─── narrow: a sub-cell opposing pinch, measured in metres ───
+  // The bar is the free width between the near faces of the nearest solid EITHER
+  // SIDE of the anchor on one XZ axis, against `2 * radius + skin` — 0.68 m for
+  // AGENT. Nothing here is rounded to cells: the cases below straddle that bar
+  // between lattice widths, and each names the width it builds.
+
+  test("a 0.25 m lane — one cell either side — is pinched", () => {
+    const flags = analyzeChunk(lane(1, 1), CENTER, AGENT);
     const narrow = only(flags, "narrow");
     expect(narrow.length).toBeGreaterThan(0);
     for (const f of narrow) {
-      expect(f.cell[0]).toBe(8); // the lane, not the open floor beyond a wall
+      expect(f.cell[0]).toBe(LANE_X); // the lane, not the open floor beyond a wall
       expect(f.severity).toBe("candidate");
     }
-    // Regression: wallCellsXZ is 2 here, so probing ONLY the far cell (offset 2)
-    // would read air either side and miss both walls.
-    expect(kindsOf(flags)).toContain("narrow");
   });
 
-  test("narrow probes every offset out to the capsule radius, not just the far cell", () => {
-    // WIDE's wallCellsXZ is 3; the walls sit at offset 2. A far-cell-only probe
-    // reads air at offset 3 and under-flags — the one failure mode this rule
-    // exists to rule out.
-    const s = room();
-    spanZ(s, 6, 6, AIR_LO, AIR_HI - 1);
-    spanZ(s, 10, 10, AIR_LO, AIR_HI - 1);
-    const narrow = only(analyzeChunk(s, CENTER, WIDE), "narrow");
+  test("a 0.50 m lane — one cell one side, two the other — is pinched", () => {
+    // Asymmetric on purpose: the two sides are measured independently and summed,
+    // so 0.125 + 0.375 must read the same as any other pair totalling 0.50 m.
+    const narrow = only(analyzeChunk(lane(1, 2), CENTER, AGENT), "narrow");
     expect(narrow.length).toBeGreaterThan(0);
-    expect(narrow.some((f) => f.cell[0] === 8)).toBe(true);
+    for (const f of narrow)
+      expect([LANE_X, LANE_X + 1]).toContain(at(f.cell, 0));
+  });
+
+  test("a 0.50 m slot between two SLABS still pinches — thickness is irrelevant", () => {
+    // The F0 `slab-pinch` fixture's own shape: two full-height slabs three cells
+    // thick with a 0.50 m slot between them. Only the NEAREST solid each way can
+    // matter, so a slab reads exactly as a one-cell wall does.
+    const s = room();
+    spanZ(s, 4, 6, AIR_LO, AIR_HI - 1);
+    spanZ(s, 9, 11, AIR_LO, AIR_HI - 1); // slot at x = 7, 8
+    const narrow = only(analyzeChunk(s, CENTER, AGENT), "narrow");
+    expect(narrow.length).toBeGreaterThan(0);
     for (const f of narrow) {
-      expect(f.cell[0]).toBeGreaterThanOrEqual(7);
-      expect(f.cell[0]).toBeLessThanOrEqual(9);
+      expect([7, 8]).toContain(at(f.cell, 0));
+      expect(f.severity).toBe("candidate");
     }
+  });
+
+  test("a 0.75 m lane is NOT pinched — the two-cell probe was a rounding artifact", () => {
+    // `ceil(0.3 / 0.25)` is 2 cells = 0.50 m of reach for a 0.30 m radius, so the
+    // old side-counting probe called this lane pinched. It is 0.75 m of free
+    // width for a capsule that needs 0.68 — the mover walks it.
+    const s = lane(2, 2);
+    expect(only(analyzeChunk(s, CENTER, AGENT), "narrow")).toEqual([]);
+    // Vacuity: the SAME geometry pinches a capsule that genuinely needs the
+    // width (WIDE's bar is 2·0.55 + 0.08 = 1.18 m), so the quiet above is a
+    // measurement rather than a blind spot.
+    expect(
+      only(analyzeChunk(s, CENTER, WIDE), "narrow").length,
+    ).toBeGreaterThan(0);
+  });
+
+  test("the nearest solid wins, so an intermediate wall is never stepped over", () => {
+    // WIDE reaches 5 cells (ceil(1.18 / 0.25)); the walls sit at offset 2. A
+    // probe that read only the cell at its reach would find air there and miss
+    // both walls — the donor probe's "scan every offset" rule, kept as
+    // "first hit outward wins", which also fixes the pinch's measured width.
+    const narrow = only(analyzeChunk(lane(2, 2), CENTER, WIDE), "narrow");
+    // Exactly the three air cells of the lane: 0.75 m of width at x = 8, and
+    // 0.125 + 0.625 = 0.75 m at each shoulder.
+    const lanes = [...new Set(narrow.map((f) => f.cell[0]))];
+    expect(lanes.sort((a, b) => a - b)).toEqual([7, 8, 9]);
+  });
+
+  test("the pinch bar is metres, not cells — `skin` moves it on its own", () => {
+    // SNUG rounds to the SAME wallCellsXZ as AGENT (ceil(0.35 / 0.25) === 2), so
+    // no cell-quantized probe could tell these two capsules apart on this lane.
+    const s = lane(2, 2); // 0.75 m of free width
+    const SNUG: AgentProfile = {
+      ...AGENT,
+      capsule: { radius: 0.35, halfHeight: 0.6 },
+      clearance: 1.9,
+    };
+    // 2·0.35 + 0.08 = 0.78 > 0.75 → pinched…
+    expect(
+      only(analyzeChunk(s, CENTER, SNUG), "narrow").length,
+    ).toBeGreaterThan(0);
+    // …and the same capsule with a thinner contact margin clears it:
+    // 2·0.35 + 0.01 = 0.71 < 0.75.
+    expect(
+      only(analyzeChunk(s, CENTER, { ...SNUG, skin: 0.01 }), "narrow"),
+    ).toEqual([]);
+  });
+
+  test("perpendicular walls never pinch — a corner is not a lane", () => {
+    // The refutation fix (P-F4-3): the old probe counted the four cardinals
+    // INDEPENDENTLY and flagged at two, so an inside corner — walls on +X and
+    // +Z, open on -X and -Z — read as a pinch. Nothing is pinched there; the
+    // capsule walks out along either open axis.
+    const s = room();
+    spanZ(s, 9, 9, AIR_LO, AIR_HI - 1); // wall to the +X
+    solidBox(s, ROOM_MIN, ROOM_MAX - 1, AIR_LO, AIR_HI - 1, 9, 9); // to the +Z
+    expect(only(analyzeChunk(s, CENTER, AGENT), "narrow")).toEqual([]);
+    // Vacuity: give the +X wall an OPPOSING partner and the same fixture pinches.
+    spanZ(s, 7, 7, AIR_LO, AIR_HI - 1);
+    const narrow = only(analyzeChunk(s, CENTER, AGENT), "narrow");
+    expect(narrow.length).toBeGreaterThan(0);
+    for (const f of narrow) expect(f.cell[0]).toBe(LANE_X);
   });
 
   test("a cell with rises on two sides emits one flag, not one per direction", () => {
@@ -314,18 +402,21 @@ describe("analyzeChunk — walkable column pass", () => {
 
   test("unallocated chunks read as solid rock", () => {
     // getDensity's own rule (missing chunk = SOLID), which is also what the
-    // runtime collider derives from — so a room carved exactly to a chunk border
-    // is walled by rock, and its corners pinch the capsule.
+    // runtime collider derives from — so a lane carved to a chunk's own border is
+    // walled by the neighbouring chunk that was never written. The lane is two
+    // cells (0.50 m) wide, so its -X wall is that unallocated chunk: read it as
+    // air and the lane has one side only, which cannot pinch.
     const s = createFieldStore(DEFAULT_CELL_SIZE);
-    airBox(s, 0, CHUNK_DIM - 1, AIR_LO, AIR_HI - 1, 0, CHUNK_DIM - 1);
+    airBox(s, 0, 1, AIR_LO, AIR_HI - 1, 0, CHUNK_DIM - 1);
     const narrow = only(analyzeChunk(s, CENTER, AGENT), "narrow");
     expect(narrow.length).toBeGreaterThan(0);
-    // Only the four corners pinch on two sides; a cell along one wall does not.
-    const inCorner = (v: number): boolean => v <= 1 || v >= CHUNK_DIM - 2;
-    for (const f of narrow) {
-      expect(inCorner(at(f.cell, 0))).toBe(true);
-      expect(inCorner(at(f.cell, 2))).toBe(true);
-    }
+    for (const f of narrow) expect([0, 1]).toContain(at(f.cell, 0));
+    // The open room, by contrast, is quiet: reading the rim as rock no longer
+    // grows a fringe of `narrow` at the region's edge, because a rim corner
+    // pinches nothing — the opposite side of both axes is 4 m of open floor.
+    const walled = createFieldStore(DEFAULT_CELL_SIZE);
+    airBox(walled, 0, CHUNK_DIM - 1, AIR_LO, AIR_HI - 1, 0, CHUNK_DIM - 1);
+    expect(only(analyzeChunk(walled, CENTER, AGENT), "narrow")).toEqual([]);
     // A column open into the unallocated chunk ABOVE still terminates and stays
     // walkable: the scan hits that chunk's rock instead of running away.
     const open = createFieldStore(DEFAULT_CELL_SIZE);
@@ -391,6 +482,10 @@ describe("analyzeChunk — walkable column pass", () => {
       /climbCeiling/,
     );
     expect(run({ ...AGENT, clearance: 1.0 })).toThrow(/clearance/);
+    expect(run({ ...AGENT, skin: 0 })).toThrow(/positive finite/);
+    // A contact margin at or above the radius would put the pinch bar past three
+    // radii, flagging lanes the capsule strolls through.
+    expect(run({ ...AGENT, skin: AGENT.capsule.radius })).toThrow(/skin/);
     // The exact-capsule clearance is legal (float tolerance, not a strict >).
     expect(run({ ...AGENT, clearance: 2 * (0.6 + 0.3) })).not.toThrow();
   });

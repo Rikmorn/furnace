@@ -5,6 +5,7 @@
 // against silently diverging from the file it's supposed to derive from.
 import { expect, test } from "bun:test";
 import agent from "../catalog/agent.json";
+import { SKIN } from "../src/char-move.ts";
 import { AGENT, SLOPE_LIMIT_COS, STEP_HEIGHT } from "../src/walkability.ts";
 
 test("clearance is derived (2*(halfHeight+radius)), not an independent number", () => {
@@ -16,7 +17,18 @@ test("clearance is derived (2*(halfHeight+radius)), not an independent number", 
   expect(agent.clearance).toBeCloseTo(expected, 10);
 });
 
-test("version/capsule/step/climb/clearance/slope fields are all positive finite", () => {
+test("skin is the mover's own SKIN constant, and below the capsule radius", () => {
+  // The clearance-equality pattern, for the second fact the catalog and the mover
+  // both hold: char-move.ts reads its contact margin from a module constant, so
+  // nothing but this pin stops the catalog's copy from drifting. Strict equality —
+  // both are the same authored literal, not two float derivations.
+  expect(agent.skin).toBe(SKIN);
+  // A margin at or above the radius would make the pinch threshold (2r + skin)
+  // exceed three radii, i.e. flag lanes the capsule walks through comfortably.
+  expect(agent.skin).toBeLessThan(agent.capsule.radius);
+});
+
+test("version/capsule/step/climb/clearance/slope/skin fields are all positive finite", () => {
   // version is schema metadata, not a physical quantity, but a non-integer or non-positive
   // version is still a malformed catalog, so it gets the same floor plus an integer check
   // (the honest shape for a schema version number).
@@ -35,6 +47,8 @@ test("version/capsule/step/climb/clearance/slope fields are all positive finite"
   expect(agent.clearance).toBeGreaterThan(0);
   expect(Number.isFinite(agent.slopeLimitDeg)).toBe(true);
   expect(agent.slopeLimitDeg).toBeGreaterThan(0);
+  expect(Number.isFinite(agent.skin)).toBe(true);
+  expect(agent.skin).toBeGreaterThan(0);
 });
 
 test("catalog version is pinned to 1", () => {

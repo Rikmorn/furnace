@@ -55,6 +55,7 @@ const AGENT: AgentProfile = {
   climbCeiling: 0.7,
   clearance: 1.8,
   slopeLimitDeg: 55,
+  skin: 0.08,
 };
 
 /** The F3b default cave region: 20×10×20 m at the 0.25 m default cell size. */

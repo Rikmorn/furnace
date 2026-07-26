@@ -1164,17 +1164,24 @@ channel** (uniform|indexed palette encoding behind accessors — `getMaterial` /
   never auto-fixes. Demoed in `cookbook/field`.
   `AgentProfile` is the consuming project's capsule as DATA (core hard-codes no game's
   mover): `capsule {radius, halfHeight}`, `stepHeight`, `climbCeiling`, `clearance`,
-  `slopeLimitDeg`. Cell thresholds are derived from it against `store.cellSize`
-  ASYMMETRICALLY on purpose — `ceil` on what the capsule REQUIRES (clearance, radius,
-  probe heights), `floor` on what it is ALLOWED (step, climb) — so every threshold lands
-  strictly tighter than the real mover and borderline geometry surfaces rather than
-  rounding away. `slopeLimitDeg` is validated but NOT read by this pass (it is carried for
-  stage-2 movers; a voxel column has no slope concept).
+  `slopeLimitDeg`, `skin` (the mover's collide-and-slide contact margin, which must be
+  positive and below `radius`). Cell thresholds are derived from it against
+  `store.cellSize` ASYMMETRICALLY on purpose — `ceil` on what the capsule REQUIRES
+  (clearance, radius, probe heights), `floor` on what it is ALLOWED (step, climb) — so
+  every threshold lands strictly tighter than the real mover and borderline geometry
+  surfaces rather than rounding away. The `narrow` pinch width is the one threshold that
+  is NOT rounded to cells at all (it is a metre comparison; only its scan bound rounds
+  up). `slopeLimitDeg` is validated but NOT read by this pass (it is carried for stage-2
+  movers; a voxel column has no slope concept).
   A `FieldFlag` is `{kind, severity, cell, world, chunk, unreachable?}`. `FlagKind`:
   `low-clearance` (headroom below `clearance`), `ledge` (a neighbour floor higher than
   `stepHeight`), `lip-near-wall` (a sub-step lip with a wall within capsule radius beyond
-  it — the wedge CONJUNCTION, since a sub-step lip alone is harmless), `narrow` (solid
-  within capsule radius at torso height on two or more of the four cardinal sides).
+  it — the wedge CONJUNCTION, since a sub-step lip alone is harmless), `narrow` (less than
+  `2·radius + skin` of free width at torso height between the near faces of the nearest
+  solid on OPPOSING sides of one XZ axis). Both halves of that last one are load-bearing
+  and were measured (P-F4-3): counting the four cardinals INDEPENDENTLY made every inside
+  corner a pinch, which on cave terrain is most of the map, and rounding the reach to
+  cells made `ceil(0.30/0.25) = 2` cells mean a 0.75 m lane for a 0.60 m capsule.
   `FlagSeverity` is the triage band (D-F4-7): `candidate` = shown by default, worth a
   stage-2 verify; `info` = a known-benign class the current mover handles. Only `ledge`
   varies — `info` within `(stepHeight, climbCeiling]`, `candidate` past `climbCeiling`;
@@ -1235,10 +1242,11 @@ channel** (uniform|indexed palette encoding behind accessors — `getMaterial` /
   derivation inherits — but the runtime emits NO collider there at all, so at the OUTER
   rim of the allocated region the two disagree in both directions. Under-flagging: a floor
   within `clearance` of the rim reads headroom-limited, or as no anchor at all, where the
-  runtime would let the capsule stand. Over-flagging, the half a user actually sees: the
-  rim reads as walls, so cells near a boundary corner pinch on two sides and the region's
-  edge grows a fringe of `narrow` markers with no geometry under them. Interior chunk
-  borders are unaffected as long as the neighbouring chunks are present. **Deliberate
+  runtime would let the capsule stand. Over-flagging: the rim reads as walls, so a
+  sub-step lip beside one earns a `lip-near-wall` against rock the runtime does not have.
+  It no longer grows a `narrow` fringe along the edge — that was the side-counting
+  predicate, for which a rim corner counted as a pinch. Interior chunk borders are
+  unaffected as long as the neighbouring chunks are present. **Deliberate
   cross-chunk duplicates:** a `low-clearance` cell straddling a chunk border is emitted by
   BOTH neighbouring passes under different owners. Suppressing the copy whose cell lies
   outside the analysed chunk would LOSE the flag whenever its only walkable neighbour sits

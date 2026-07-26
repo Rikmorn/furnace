@@ -505,13 +505,21 @@ export type AgentProfile = {
   /** Max walkable slope. Carried for stage-2 movers; the voxel column pass has
    *  no slope concept and does not read it. */
   readonly slopeLimitDeg: number;
+  /** The mover's contact margin — the gap its collide-and-slide keeps between
+   *  the capsule and any surface. Provenance in the reference consumer: the
+   *  `SKIN` constant of `packages/dungeon/src/char-move.ts`, pinned to the
+   *  catalog by that package's `agent-catalog.test.ts`. The `narrow` pinch
+   *  threshold is `2 * capsule.radius + skin`, so this is the only reason a
+   *  gap exactly the capsule's diameter reads as pinched. Must be positive and
+   *  below `capsule.radius`. */
+  readonly skin: number;
 };
 
 /** What a {@link FieldFlag} found. `lip-near-wall` = a steppable rise with a
  *  wall within capsule radius beyond it (the wedge conjunction); `ledge` = a
  *  neighbour floor higher than `stepHeight`; `low-clearance` = a floor whose
- *  headroom is below `clearance`; `narrow` = solid within capsule radius at
- *  torso height on two or more sides. */
+ *  headroom is below `clearance`; `narrow` = free width at torso height below
+ *  `2 * capsule.radius + skin` between OPPOSING solids on one XZ axis. */
 export type FlagKind = "lip-near-wall" | "ledge" | "low-clearance" | "narrow";
 
 /** Triage band: `candidate` is shown by default (worth a stage-2 verify),
