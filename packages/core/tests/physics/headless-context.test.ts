@@ -9,6 +9,11 @@
 import { expect, test } from "bun:test";
 import { FurnaceError } from "../../src/errors.ts";
 import * as physics from "../../src/physics/index.ts";
+import {
+  decodeCtxId,
+  decodeGeneration,
+  decodeSlotIndex,
+} from "../../src/resources/handle.ts";
 
 // Floor: 10 × 0.2 × 10 cuboid centred at the origin, so its top face is y = 0.1.
 const FLOOR_HALF_EXTENTS: physics.Vec3Tuple = [5, 0.1, 5];
@@ -22,6 +27,7 @@ const CAST_START_Y = 2;
 test("headless context runs createWorld → createBody → castShape/castRay → destroyWorld with no GPU", async () => {
   // No RAPIER.init() here on purpose: createWorld owns the wasm init.
   const ctx = physics.createHeadlessPhysicsContext();
+  expect(Object.isFrozen(ctx)).toBe(true); // parity with gpu.requestContext
   const world = await physics.createWorld(ctx, { gravity: [0, -9.81, 0] });
 
   const floor = physics.createBody(ctx, world, {
@@ -84,10 +90,12 @@ test("each headless context gets a fresh ctxId, so context B rejects context A's
   const worldB = await physics.createWorld(ctxB, { gravity: [0, -9.81, 0] });
 
   // Both are the first physics-world slot in their own pool, so slot index and
-  // generation are identical — the handles can differ ONLY by ctxId. Without a
-  // fresh id per context they would be the same number, and ctxB's lookup would
-  // resolve worldA to its own live world instead of rejecting it.
-  expect(worldA).not.toBe(worldB);
+  // generation match and ctxId is the ONLY differing field. Asserted rather
+  // than argued: without a fresh id per context these would be one number, and
+  // ctxB's lookup would resolve worldA to its own live world.
+  expect(decodeSlotIndex(worldA)).toBe(decodeSlotIndex(worldB));
+  expect(decodeGeneration(worldA)).toBe(decodeGeneration(worldB));
+  expect(decodeCtxId(worldA)).not.toBe(decodeCtxId(worldB));
 
   physics.createBody(ctxA, worldA, {
     type: "static",

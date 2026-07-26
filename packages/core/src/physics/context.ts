@@ -32,5 +32,7 @@ import type { PhysicsContext } from "./types.ts";
  * occupied for an unpredictable window.
  */
 export function createHeadlessPhysicsContext(): PhysicsContext {
-  return { _internal: createInternalState() };
+  // Frozen to match `Context`, which `requestContext` also freezes: the type is
+  // readonly either way, so this only hardens the JS-consumer path.
+  return Object.freeze({ _internal: createInternalState() });
 }

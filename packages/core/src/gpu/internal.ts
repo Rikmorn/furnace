@@ -23,9 +23,11 @@ let nextCtxId = 1;
 
 /**
  * Engine-internal: monotonic context-id assignment. Used by both
- * `createInternalState` (for non-canvas test contexts) and `context.ts`'s
+ * `createInternalState` (for canvas-less contexts — test fixtures, and the
+ * shipped `physics.createHeadlessPhysicsContext` path) and `context.ts`'s
  * inline construction (for production contexts that also carry canvas
- * boundary fields).
+ * boundary fields). One sequence serves both, so a headless context's handles
+ * can never resolve inside a GPU context.
  */
 export function _nextContextId(): number {
   const id = nextCtxId;
@@ -42,8 +44,9 @@ export function createInternalState(): InternalState {
     ctxId: _nextContextId(),
     sampleCount: 1,
     hdr: false,
-    // Stub sentinel for non-canvas test contexts (no swapchain to query). The
-    // real working format is derived in requestContext from hdr + viewFormat.
+    // Stub sentinel for canvas-less contexts (no swapchain to query) — test
+    // fixtures and headless physics alike, neither of which renders. The real
+    // working format is derived in requestContext from hdr + viewFormat.
     workingColorFormat: "bgra8unorm",
   };
 }
