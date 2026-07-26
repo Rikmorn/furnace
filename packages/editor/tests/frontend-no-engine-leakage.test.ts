@@ -49,8 +49,12 @@ const VIEWPORT_HOST = `["'][^"']*viewport-host`;
 // "Structural — an editor worker's mirror store satisfies it as readily as the game's
 // own"). (2) The two instances share no module-level state: our copy runs only the
 // pure column pass and the placement rasterizer, the bundle's copy owns the physics
-// context and the collider derivation, and neither reads the other's registries. The
-// cost is a second copy of core's JS in the worker's memory, which is accepted.
+// context and the collider derivation, and neither reads the other's registries.
+// That is a claim about EXECUTION, not about bundle content — `@furnace/core/field`
+// resolves to core's own index, so the physics module (Rapier's wasm-bindgen glue and
+// all) does ship inside analyzer-worker.js; no code path in this realm calls it, and
+// the same is already true of field-worker.js (both ~2.65 MB, measured 2026-07-26).
+// The cost is a second copy of core's JS in the worker's memory, which is accepted.
 //
 // Exempt files may (1) value-import @furnace/core AND (2) value-import a core-carrying
 // protocol module — they ARE those bundles (field-worker.ts value-imports

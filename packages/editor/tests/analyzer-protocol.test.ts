@@ -260,6 +260,35 @@ describe("analyzer worker: mirror + stage 1", () => {
     expect(err.message).toContain("before any sync");
   });
 
+  test("a post that throws does not wedge the queue for every later message", async () => {
+    // The failure channel failing is the one error the handler cannot answer: it
+    // posts `analyzer-error`, and that post throws too, so the rejection escapes
+    // to the serialization tail. A tail left rejected makes every subsequent
+    // `.then` skip its callback — the worker would ack nothing again, forever,
+    // with no test noticing.
+    const posts: AnalyzerResponse[] = [];
+    const handle = createAnalyzerWorkerHandler({
+      loadEngine: () =>
+        Promise.reject(new Error("no engine wired in this test")),
+      post: (msg) => {
+        if (msg.jobId === 1) throw new Error("postMessage failed");
+        posts.push(msg);
+      },
+    });
+    const sync = (jobId: number) =>
+      handle({ kind: "sync", jobId, cellSize: CELL, upserts: [], removed: [] });
+
+    // Job 1 cannot report at all: its `acked` throws, and so does the
+    // `analyzer-error` the catch tries to send. The caller sees it — the entry
+    // logs it — but nothing reaches the wire.
+    await expect(sync(1)).rejects.toThrow("postMessage failed");
+    expect(posts).toEqual([]);
+
+    // The queue survived: the next message is served normally.
+    await sync(2);
+    expect(posts).toEqual([{ kind: "acked", jobId: 2 }]);
+  });
+
   test("an unrecognised request kind is refused, not run as the chain's last arm", async () => {
     const { posts, handle } = await mirrored(steppedCorridor());
     // Boundary cast: a message no version of this protocol declares — which is

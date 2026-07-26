@@ -25,4 +25,12 @@ const handle = createAnalyzerWorkerHandler({
   // tsconfig types `self` as Window; this file only ever runs as a worker.
   post: (msg) => (self as unknown as Worker).postMessage(msg),
 });
-self.onmessage = (e: MessageEvent<AnalyzerRequest>) => void handle(e.data);
+self.onmessage = (e: MessageEvent<AnalyzerRequest>) => {
+  // A rejection here means the failure CHANNEL failed (`post` itself threw), so
+  // it cannot be answered over the wire. The protocol marks it handled to keep
+  // its queue alive, which also silences the runtime's own unhandled-rejection
+  // report — this log is the ONLY remaining signal, not decoration.
+  handle(e.data).catch((err: unknown) =>
+    console.error("analyzer worker: unreportable failure", err),
+  );
+};

@@ -50,9 +50,8 @@ type Payload<K extends AnalyzerRequest["kind"]> = Omit<
   "kind" | "jobId"
 >;
 
-/** What one stage-1 pass needs to know. `dirty` is the chunks the host has
- *  edited since the last pass; the worker widens it to the set whose ANSWER
- *  could have changed (the halo plus the columns below). */
+/** What one stage-1 pass needs to know. Per-field docs live on the request in
+ *  `analyzer-protocol.ts`, which owns the shape. */
 export type AnalyzeInput = Payload<"analyze">;
 
 /** One persistent analyzer worker; stale results dropped by jobId. A plain
@@ -169,9 +168,9 @@ export class AnalyzerWorkerClient {
  *  COPIED from `createPreviewCoalescer` in `src/viewport-host/field-stamp.ts`
  *  rather than imported: `tests/frontend-no-engine-leakage.test.ts` forbids any
  *  `viewport-host` specifier in a chrome-graph file, because that barrel carries
- *  engine code. Fifteen lines of duplication is the cheaper side of that trade —
- *  the alternative is hoisting the primitive into a third module, which is a
- *  refactor of the stamp host, not of this. */
+ *  engine code. This much duplication is the cheaper side of that trade — the
+ *  alternative is hoisting the primitive into a third module, which is a refactor
+ *  of the stamp host, not of this. */
 function createLatestWinsLatch(fire: () => boolean): {
   request(): void;
   settle(): void;

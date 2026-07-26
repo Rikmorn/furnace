@@ -71,8 +71,9 @@ export type VerifyVerdictWire = {
 };
 
 /** The stage-2 surface the worker consumes off the engine bundle's `extensions`
- *  namespace — structural, for the {@link VerifyVerdictWire} reason. Narrowed
- *  ONCE, where the generation worker narrows its own. */
+ *  namespace — structural, for the {@link VerifyVerdictWire} reason. Declared
+ *  here, applied ONCE in the worker entry (`analyzer-worker.ts`'s `loadEngine`),
+ *  which is where the generation worker narrows its own. */
 export type AnalyzerEngine = {
   analyzerVerify: (opts: {
     store: FieldStore;
@@ -88,9 +89,11 @@ export type AnalyzerRequest =
    * Bring the mirror level with the host's store. Density buffers are COPIED
    * (structured clone), never transferred — the host keeps editing its own.
    *
-   * The mirror holds EVERY allocated chunk, not a window: presence is free
-   * (a `Map` entry per 4 KiB chunk) and the analyzer's ceiling scan is
-   * uncapped, so a missing chunk overhead manufactures a false ceiling.
+   * The mirror holds EVERY allocated chunk, not a window. That costs a second
+   * copy of the world's density (one 4 KiB `Int8Array` per chunk), which is
+   * accepted because a window cannot be made correct: the analyzer's ceiling
+   * scan is uncapped, so any chunk missing ABOVE an anchor manufactures a false
+   * ceiling and silently drops every rise beyond it.
    *
    * There is no reset verb on purpose. A host switching worlds either lists the
    * old keys in `removed` or disposes the client — the worker dies with its
@@ -119,8 +122,15 @@ export type AnalyzerRequest =
       kind: "analyze";
       jobId: number;
       profile: AgentProfile;
+      /** Chunks the host has edited since the last pass. The worker WIDENS this
+       *  to the set whose answer could have changed — see {@link reanalysisKeys}
+       *  — so a caller lists what it wrote, never what it thinks needs redoing. */
       dirty: ChunkKey[];
+      /** Run the reachability demotion pass over the flags this call produced.
+       *  Demotes, never deletes, and only ever tags what it is handed. */
       reachability: boolean;
+      /** WORLD positions the agent starts from. Empty skips the demotion pass
+       *  entirely rather than demoting everything. */
       seeds: [number, number, number][];
     }
   /** Stage 2 for ONE flag: drive the project's real mover at it. */
@@ -185,8 +195,8 @@ function analyzeOptions(state: MirrorState, store: FieldStore): AnalyzeOptions {
   return { extraSolid: state.extraSolid };
 }
 
-/** One allocated chunk within an XZ column, with its chunk-Y already parsed —
- *  {@link reanalysisKeys} compares against it five times per dirty chunk. */
+/** One allocated chunk within an XZ column, with its chunk-Y already parsed, so
+ *  {@link reanalysisKeys} can compare depths without re-splitting key strings. */
 type ColumnMember = { key: ChunkKey; cy: number };
 
 /** Allocated chunk keys grouped by their XZ column (`"cx,cz"`), built once per
@@ -381,15 +391,20 @@ function unrecognisedRequest(msg: never): Error {
 
 /**
  * Pure handler factory (the worker entry wires `post = self.postMessage` and the
- * real dynamic import). Never throws — every failure posts a typed
- * `analyzer-error` carrying the jobId, because a worker-side throw surfaces as a
- * generic ErrorEvent with no job to blame and no waiter to reject.
+ * real dynamic import).
  *
- * `loadEngine` is memoized on first use and NEVER re-run per verify. That is not
- * an optimisation: the project's verify path holds ONE headless
+ * Every failure it can REPORT posts a typed `analyzer-error` carrying the jobId,
+ * rather than throwing — a worker-side throw surfaces as a generic ErrorEvent
+ * with no job to blame and no waiter to reject. The one failure it cannot report
+ * is `post` itself throwing, which rejects the returned promise; the worker entry
+ * logs that, since by definition it cannot be sent.
+ *
+ * `loadEngine` is memoized on first use and NEVER re-run per verify. The ES
+ * module registry would dedupe a same-URL re-import on its own; what the memo
+ * adds is that a DIFFERENT url can never be loaded into this worker. That is the
+ * part worth protecting: the project's verify path holds ONE headless
  * `PhysicsContext` as a module singleton, and context ids are 16-bit and wrap
- * without aliasing detection — a fresh module instance per verify would mint a
- * fresh context each time.
+ * without aliasing detection, so a second module instance means a second context.
  */
 export function createAnalyzerWorkerHandler(deps: {
   loadEngine: (url: string) => Promise<AnalyzerEngine>;
@@ -471,9 +486,16 @@ export function createAnalyzerWorkerHandler(deps: {
   return (msg) => {
     const settled = tail.then(() => dispatch(msg));
     // The queue must outlive a handler that threw where it should not have (a
-    // `post` that itself fails, say). A rejected tail makes every later `.then`
-    // skip its callback, which would wedge the worker silently; the caller still
-    // sees that failure through the promise it was handed.
+    // `post` that itself fails, say): a rejected tail makes every later `.then`
+    // skip its callback, wedging the worker permanently on one bad message.
+    //
+    // Attaching here also MARKS that rejection handled, which silences the
+    // runtime's own reporting for any caller that does not await — and the
+    // production entry does not. The returned promise still carries the failure
+    // (tests await it), but the SIGNAL is now `analyzer-worker.ts`'s own
+    // console.error. Keeping the queue alive and keeping the failure visible are
+    // two problems; this line solves the first and creates the second, so do not
+    // delete that handler thinking it is decoration.
     tail = settled.catch(() => undefined);
     return settled;
   };
