@@ -92,7 +92,9 @@ const SLICE_DEFAULT_Y = 8;
 // Panel-side advisor-filter defaults — candidates only, mirroring the host's own
 // DEFAULT_FLAG_FILTERS. A local literal for the DEFAULT_LAYERS reason (the chrome
 // cannot value-import the host), pushed at engine-ready so the checkboxes and the
-// markers agree: the host's filters survive a panel remount, this state does not.
+// markers agree. CONSEQUENCE, stated plainly because someone will hit it: the
+// panel REMOUNTING (a dock tab switch is enough) resets the filters to candidates
+// only, discarding whatever the user last ticked — see the push site's comment.
 const DEFAULT_FLAG_FILTERS: FlagFilters = {
 	candidates: true,
 	info: false,
@@ -389,11 +391,15 @@ export function FieldPanel() {
 	// highlight subscription seam, so a REMOUNT resets all of them to the panel
 	// defaults — honest (the controls always show what the host uses) at the cost
 	// of forgetting the toggles across tab switches; the same v0 trade as the
-	// one-way radius seam below. The filters matter most here: the host keeps the
-	// last set ACROSS world loads, so a remounted panel showing "candidates only"
-	// beside markers still drawing the info band would be a straight lie. The
-	// highlight clear keeps a remounted list (expansion state reset) from standing
-	// next to a box no row claims.
+	// one-way radius seam below. The filters matter most here, in both directions:
+	// the host keeps the last set ACROSS world loads, so a remounted panel showing
+	// "candidates only" beside markers still drawing the info band would be a
+	// straight lie — and the price of preventing it is that a remount RESETS the
+	// user's filters to candidates only, ticked info band and all. Agreement over
+	// memory, deliberately; giving the host a filters subscription (so the panel
+	// could adopt instead of overwrite) is what would buy both. The highlight clear
+	// keeps a remounted list (expansion state reset) from standing next to a box no
+	// row claims.
 	useEffect(() => {
 		const host = fieldHostRef.current;
 		if (!host || state.status !== "ready") return;

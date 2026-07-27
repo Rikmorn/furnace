@@ -1355,7 +1355,15 @@ test("a row click frames its owner chunk; a pit frames its whole region", async 
 	]);
 });
 
-test("findings of one kind within 2 m collapse into one row; a far one keeps its own", async () => {
+// The radius is bracketed from BOTH sides — 1.5 m must fold in, 2.5 m must not —
+// which pins the constant to [1.5, 2.5) rather than merely "somewhere sane" (the
+// membership test is `<=`, so 1.5 passes and 2.5 does not). A one-sided set
+// (everything either well inside or 10 m out) passes at 2 m and at 4 m alike,
+// which is a test that would not notice the constant changing. Verified by
+// mutation: 1.4 and 2.6 both go red, and so do 1 and 4. The window is a metre
+// wide on purpose — this is a triage heuristic, and pinning it to ±0.1 m would
+// fail a deliberate re-tune that changed no behaviour anyone can see.
+test("findings of one kind within 2 m collapse into one row; the ones outside it keep their own", async () => {
 	fetch404();
 	const stub = makeStubHost();
 	await renderPanel(stub);
@@ -1368,17 +1376,52 @@ test("findings of one kind within 2 m collapse into one row; a far one keeps its
 				// 1.5 m from `b` but 3 m from the anchor: a cluster admits a flag
 				// near ANY member, so the run chains rather than splitting.
 				rowOf("c", flagAt("narrow", "candidate", [3, 0, 0])),
-				// 10 m out — its own row.
-				rowOf("d", flagAt("narrow", "candidate", [10, 0, 0])),
+				// 2.5 m past the nearest member of that run (`c`) — the UPPER bound.
+				// A radius that grew to 4 m would swallow it and this row would vanish.
+				rowOf("d", flagAt("narrow", "candidate", [5.5, 0, 0])),
+				// 4.5 m past `d` — out under any of the radii above, so the run's tail
+				// cannot chain this far however the constant moves.
+				rowOf("e", flagAt("narrow", "candidate", [10, 0, 0])),
 				// Inside the radius of the anchor but a DIFFERENT kind: one row is
 				// one kind, because the row's label and dot describe all of it.
-				rowOf("e", flagAt("low-clearance", "candidate", [0.5, 0, 0])),
+				rowOf("f", flagAt("low-clearance", "candidate", [0.5, 0, 0])),
 			]),
 		);
 	});
+	// ×3 and not ×4: shrinking the radius below 1.5 m splits the run, growing it
+	// past 2.5 m absorbs `d`. Both directions move this string.
 	expect(screen.getByText("narrow ×3 @ (0.0, 0.0, 0.0)")).toBeTruthy();
+	expect(screen.getByText("narrow @ (5.5, 0.0, 0.0)")).toBeTruthy();
 	expect(screen.getByText("narrow @ (10.0, 0.0, 0.0)")).toBeTruthy();
 	expect(screen.getByText("low-clearance @ (0.5, 0.0, 0.0)")).toBeTruthy();
+});
+
+// The radius is a SPHERE, and each axis of it has to be live. Every other fixture
+// in this file sits at y = 0, which leaves the Y term dead: a `dy = 0` slip would
+// collapse two floors of a shaft into one row — the exact geometry a walkability
+// advisor exists to flag — with the whole suite still green. Z is no better
+// covered by the run above, so all three axes are pinned here at once.
+test("the cluster radius is spherical — a 3 m gap on ANY axis is two rows", async () => {
+	fetch404();
+	const stub = makeStubHost();
+	await renderPanel(stub);
+	act(() => {
+		stub.fire.flags(
+			summaryOf([
+				rowOf("a", flagAt("narrow", "candidate", [0, 0, 0])),
+				rowOf("b", flagAt("narrow", "candidate", [3, 0, 0])),
+				// Same XZ as the anchor, one storey up.
+				rowOf("c", flagAt("narrow", "candidate", [0, 3, 0])),
+				rowOf("d", flagAt("narrow", "candidate", [0, 0, 3])),
+			]),
+		);
+	});
+	// Four rows, each reading its own anchor: any axis dropped from the distance
+	// folds its pair into the first and takes one of these labels with it.
+	expect(screen.getByText("narrow @ (0.0, 0.0, 0.0)")).toBeTruthy();
+	expect(screen.getByText("narrow @ (3.0, 0.0, 0.0)")).toBeTruthy();
+	expect(screen.getByText("narrow @ (0.0, 3.0, 0.0)")).toBeTruthy();
+	expect(screen.getByText("narrow @ (0.0, 0.0, 3.0)")).toBeTruthy();
 });
 
 test("candidates sort above info, and a demoted row says so", async () => {
@@ -1486,6 +1529,31 @@ test("a verdict on the next push badges the row", async () => {
 		stub.fire.flags(summaryOf([rowOf("a", NARROW.flag, VERDICT_TRAPPED)]));
 	});
 	expect(screen.getByText("trapped")).toBeTruthy();
+});
+
+// Stage 2 takes ONE flag, so a cluster row's verdict is a sample, not a survey —
+// and `narrow ×2 · trapped` reads as two proven traps. The scope therefore has to
+// ride the two channels assistive tech actually gets: a chip's own text (a
+// `title` on a generic span reaches a mouse and nothing else, and `aria-label` on
+// one has no reliable exposure) and the accessible NAME of the verb.
+test("a cluster's verdict and Verify say WHICH finding they are about", async () => {
+	fetch404();
+	const stub = makeStubHost();
+	await renderPanel(stub);
+	act(() => {
+		stub.fire.flags(
+			summaryOf([
+				rowOf("a", flagAt("narrow", "candidate", [0, 0, 0]), VERDICT_TRAPPED),
+				rowOf("b", flagAt("narrow", "candidate", [1, 0, 0])),
+			]),
+		);
+	});
+	expect(screen.getByText("first: trapped")).toBeTruthy();
+	expect(
+		screen.getByLabelText(
+			"verify the first finding in narrow ×2 @ (0.0, 0.0, 0.0)",
+		),
+	).toBeTruthy();
 });
 
 // The verify SEAM, pinned against the section directly: FieldPanel cannot start

@@ -48,9 +48,12 @@ const FILTER_TITLES = {
 /** The filter row, in declaration order (string keys enumerate in insertion
  *  order). The `Record` above is what makes the set EXHAUSTIVE — a fourth band
  *  added to FlagFilters has no title and stops compiling, instead of shipping a
- *  filter nobody can reach. The cast only re-narrows what that Record already
- *  guarantees: `Object.keys` is typed `string[]` because a value can structurally
- *  carry extra keys, which an object literal checked against a Record cannot. */
+ *  filter nobody can reach. */
+// Boundary cast: `Object.keys` is typed `string[]` because a VALUE can
+// structurally carry keys its type never declared — but the argument here is an
+// object literal checked against `Record<keyof FlagFilters, string>`, which
+// cannot. The invariant the cast re-states is that literal's own excess-property
+// check, which the return type of Object.keys has no way to carry.
 const FILTER_BANDS = Object.keys(FILTER_TITLES) as (keyof FlagFilters)[];
 
 /** Rows the user can act on wear the alarm colour; context wears the warning
@@ -153,12 +156,23 @@ function rowLabel(c: FlagCluster): string {
 }
 
 /** What a row's Verify runs on, and what its verdict badge is therefore about:
- *  ONE finding, the anchor. For a cluster that is a sample, not a survey — said
- *  in the tooltips rather than letting `narrow ×3 · clear` read as three cleared
- *  pinches. (Stage 2 takes one flag, so this is the verb's shape, not a
- *  shortcut: verifying a row of 12 would be 12 budgeted mover runs.) */
-const anchorScope = (c: FlagCluster): string =>
-	c.members.length > 1 ? "the first finding in this row" : "this finding";
+ *  ONE finding, the anchor. For a cluster that is a sample, not a survey.
+ *  (Stage 2 takes one flag, so this is the verb's shape, not a shortcut:
+ *  verifying a row of 12 would be 12 budgeted mover runs.)
+ *
+ *  Said in the visible text and the ACCESSIBLE NAME, not only in a `title`: the
+ *  misreading this exists to stop — `narrow ×3 · clear` as three cleared pinches
+ *  — is exactly the reading a screen reader gets from an unqualified badge, and
+ *  a `title` on a non-focusable span reaches a mouse and nothing else. The
+ *  tooltips keep the longer prose; these two carry the scope itself. */
+const anchorScope = (clustered: boolean): string =>
+	clustered ? "the first finding in this row" : "this finding";
+
+/** `first: trapped` on a cluster row, plain `trapped` on a single. VISIBLE, so
+ *  it needs no ARIA at all — which is the point: `aria-label` on a generic
+ *  `<span>` has no reliable exposure, so text is the only channel a chip has. */
+const verdictLabel = (outcome: string, clustered: boolean): string =>
+	clustered ? `first: ${outcome}` : outcome;
 
 /** What was FOUND, by kind — the only reading of what the filters are hiding.
  *  One entry per (kind, severity) pair, which today reads as one per kind. */
@@ -270,15 +284,21 @@ export function FlagsSection(props: {
 									c.anchor.key,
 								);
 								const running = verifying === c.anchor.key;
+								// Everything a row says about ONE of its findings rather than
+								// all of them turns on this (see anchorScope).
+								const clustered = c.members.length > 1;
 								return (
 									<li key={c.anchor.key} className="flex items-center gap-1">
 										{/* The chips sit OUTSIDE the button on purpose: an
 										    aria-label overrides its element's contents, so a
-										    verdict inside would be invisible to a screen reader.
-										    The label names the ACTION plus the row (DriftReport's
-										    reasoning) — "narrow @ (2.5, 0.0, -8.0)" alone says
-										    nothing about what a click does, and kind + anchor is
-										    what distinguishes two rows. */}
+										    verdict inside one would reach a screen reader only if
+										    the label repeated it. Out here the chip's own TEXT is
+										    the channel — which is why the verdict's scope lives in
+										    that text (verdictLabel) and not only in a tooltip. The
+										    button's label names the ACTION plus the row
+										    (DriftReport's reasoning): "narrow @ (2.5, 0.0, -8.0)"
+										    alone says nothing about what a click does, and kind +
+										    anchor is what distinguishes two rows. */}
 										<button
 											type="button"
 											title="frame the chunks this covers"
@@ -299,8 +319,11 @@ export function FlagsSection(props: {
 										{flag.unreachable === true && <Tag label="unreachable" />}
 										{c.anchor.verdict !== undefined && (
 											<Tag
-												label={c.anchor.verdict.outcome}
-												title={`stage 2's verdict on ${anchorScope(c)}`}
+												label={verdictLabel(
+													c.anchor.verdict.outcome,
+													clustered,
+												)}
+												title={`stage 2's verdict on ${anchorScope(clustered)}`}
 												className={VERDICT_CLASS[c.anchor.verdict.outcome]}
 											/>
 										)}
@@ -312,7 +335,7 @@ export function FlagsSection(props: {
 										<span
 											title={
 												refusal ??
-												`drive the project's mover at ${anchorScope(c)}`
+												`drive the project's mover at ${anchorScope(clustered)}`
 											}
 										>
 											<Button
@@ -321,7 +344,7 @@ export function FlagsSection(props: {
 												variant="ghost"
 												className="h-5 px-1.5 text-xs"
 												disabled={flag.kind === "pit" || verifying !== null}
-												aria-label={`verify ${label}${refusal === null ? "" : ` (${refusal})`}`}
+												aria-label={`verify ${clustered ? "the first finding in " : ""}${label}${refusal === null ? "" : ` (${refusal})`}`}
 												onClick={() => onVerify(c.anchor.key)}
 											>
 												{running ? "Verifying…" : "Verify"}

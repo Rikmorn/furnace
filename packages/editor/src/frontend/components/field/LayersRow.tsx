@@ -42,9 +42,12 @@ const LAYER_TITLES: Record<VisibilityLayer, string> = {
 };
 
 /** Render order, which is declaration order above (string keys enumerate in
- *  insertion order). The cast only re-narrows what the Record already
- *  guarantees: `Object.keys` is typed `string[]` because a value can structurally
- *  carry extra keys, which an object literal checked against a Record cannot. */
+ *  insertion order). */
+// Boundary cast: `Object.keys` is typed `string[]` because a VALUE can
+// structurally carry keys its type never declared — but the argument here is an
+// object literal checked against `Record<VisibilityLayer, string>`, which cannot.
+// The invariant the cast re-states is that literal's own excess-property check,
+// which the return type of Object.keys has no way to carry.
 const LAYERS = Object.keys(LAYER_TITLES) as VisibilityLayer[];
 
 // Slice slider range (world metres): −8 reaches below any v0 dig, +24 clears
