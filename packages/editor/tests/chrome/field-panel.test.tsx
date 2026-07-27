@@ -1319,6 +1319,51 @@ test("the panel pushes its filter defaults at engine-ready and each checkbox edi
 		info: true,
 		unreachable: false,
 	});
+	// The three are a GROUP, not three loose checkboxes that happen to sit in a
+	// row: the leading "show" is a text node with no programmatic association, so
+	// without this the only thing tying them together is proximity. The LayersRow
+	// idiom, one section up, for the same reason.
+	const group = screen.getByRole("group", { name: "flag filters" });
+	for (const band of ["candidates", "info", "unreachable"])
+		expect(group.contains(screen.getByLabelText(band))).toBe(true);
+});
+
+// I2's forcing function, and the reason `disabled` DERIVES from `verifyRefusal`
+// rather than restating its rule: the two can only disagree if something adds a
+// refusal reason to one and not the other, and the failure is silent — a live
+// button whose own accessible name explains why it is not. Quantified over every
+// row rather than naming the pit, so it holds for reasons that do not exist yet.
+test("a Verify that ANNOUNCES a refusal is a Verify that is disabled", async () => {
+	fetch404();
+	const stub = makeStubHost();
+	await renderPanel(stub);
+	act(() => {
+		stub.fire.flags(
+			summaryOf([
+				rowOf("a", flagAt("narrow", "candidate", [0, 0, 0])),
+				rowOf("b", flagAt("ledge", "info", [9, 0, 0])),
+				rowOf("c", flagAt("pit", "candidate", [20, 0, 0], { cells: 6 })),
+			]),
+		);
+	});
+	const buttons = screen.getAllByRole("button", {
+		name: /^verify /,
+	}) as HTMLButtonElement[];
+	expect(buttons.length).toBe(3);
+	// ". Unavailable: " is the refusal, and it is unambiguous BECAUSE verifyName
+	// breaks the sentence rather than appending a parenthetical: a row label ends
+	// in "(2.5, 0.0, -8.0)", so a trailing "(…)" would match every button here.
+	const announced = buttons.filter((b) =>
+		(b.getAttribute("aria-label") ?? "").includes(". Unavailable: "),
+	);
+	expect(announced.map((b) => b.disabled)).toEqual(announced.map(() => true));
+	// Non-vacuous — the fixture's pit puts at least one button in that set, so the
+	// forall above has something to be true OF. Deliberately `>= 1` and not `=== 1`:
+	// pinning the exact count would turn a LEGITIMATE new refusal reason into a
+	// failure of this test, which is the opposite of what it is for. Verified by
+	// mutation: adding a third reason keeps this green, and adding one while
+	// restating `disabled` instead of deriving it goes red.
+	expect(announced.length).toBeGreaterThanOrEqual(1);
 });
 
 test("a row click frames its owner chunk; a pit frames its whole region", async () => {
@@ -1343,12 +1388,14 @@ test("a row click frames its owner chunk; a pit frames its whole region", async 
 			]),
 		);
 	});
-	fireEvent.click(screen.getByLabelText("frame narrow @ (2.5, 0.0, -8.0)"));
+	fireEvent.click(
+		screen.getByLabelText("frame candidate narrow @ (2.5, 0.0, -8.0)"),
+	);
 	expect(stub.calls.frameChunks.mock.calls.at(-1)).toEqual([["1,0,0"]]);
 	// A pit is region-level: its `chunks` are the region's owners, and framing
 	// only the anchor's chunk would point at a corner of the trap.
 	fireEvent.click(
-		screen.getByLabelText("frame pit @ (9.0, 0.0, 0.0) · 14 cells"),
+		screen.getByLabelText("frame candidate pit @ (9.0, 0.0, 0.0) · 14 cells"),
 	);
 	expect(stub.calls.frameChunks.mock.calls.at(-1)).toEqual([
 		["2,0,0", "3,0,0"],
@@ -1445,29 +1492,39 @@ test("candidates sort above info, and a demoted row says so", async () => {
 		.getAllByRole("button", { name: /^frame / })
 		.map((b) => b.getAttribute("aria-label"));
 	expect(labels).toEqual([
-		"frame narrow @ (0.0, 0.0, 0.0)",
-		"frame ledge @ (0.0, 0.0, 0.0)",
+		"frame candidate narrow @ (0.0, 0.0, 0.0)",
+		"frame info ledge @ (0.0, 0.0, 0.0)",
 	]);
 	// The `unreachable` filter is opt-in, so a row it admitted has to say WHY it
 	// is there — otherwise widening the filter just grows the list. Scoped to the
 	// row: the filter checkbox carries the same word, deliberately (the chip names
 	// the filter that let this row through).
 	const demoted = screen
-		.getByLabelText("frame narrow @ (0.0, 0.0, 0.0)")
+		.getByLabelText("frame candidate narrow @ (0.0, 0.0, 0.0)")
 		.closest("li");
 	if (!(demoted instanceof HTMLElement))
 		throw new Error("flag rows are no longer <li> — the row scope is gone");
 	expect(within(demoted).getByText("unreachable")).toBeTruthy();
 	// …and the row it did NOT demote says nothing.
-	const info = screen.getByLabelText("frame ledge @ (0.0, 0.0, 0.0)");
+	const info = screen.getByLabelText("frame info ledge @ (0.0, 0.0, 0.0)");
 	expect(info.closest("li")?.textContent).not.toContain("unreachable");
-	// The dot is the row's OTHER reading of its band (sort order being the first),
-	// and the panel's only use of hue on a flag row — alarm for what to act on,
-	// warning amber for context. Its viewport twins are CANDIDATE_TINT / INFO_TINT.
-	expect(within(demoted).getByText("●").className).toContain(
-		"text-destructive",
-	);
-	expect(within(info).getByText("●").className).toContain("text-warning");
+	// The band reaches a reader through THREE channels, and the assertions above
+	// already cover the third (it is in each accessible name). The other two are
+	// the dot's hue — alarm for what to act on, amber for context, the viewport's
+	// CANDIDATE_TINT / INFO_TINT twins — and its SHAPE. Both are pinned because
+	// hue alone is WCAG 1.4.1: red against amber is a hard pair, and this is the
+	// one axis the whole list is triaged on.
+	const dot = (row: HTMLElement, glyph: string): HTMLElement =>
+		within(row).getByText(glyph);
+	expect(dot(demoted, "●").className).toContain("text-destructive");
+	const infoRow = info.closest("li");
+	if (!(infoRow instanceof HTMLElement))
+		throw new Error("flag rows are no longer <li> — the row scope is gone");
+	expect(dot(infoRow, "○").className).toContain("text-warning");
+	// …and the two glyphs are not interchangeable: a filled dot in the info row
+	// would mean the shape channel had collapsed back onto colour alone.
+	expect(within(infoRow).queryByText("●")).toBeNull();
+	expect(within(demoted).queryByText("○")).toBeNull();
 });
 
 // The band a row groups on is everything it DISPLAYS, demotion included. Two
@@ -1510,7 +1567,7 @@ test("a pit refuses Verify with its reason in the accessible name", async () => 
 	// pointer events), so the accessible name is the only channel that reaches a
 	// screen reader — the EntitiesList blocked-Open convention.
 	const verify = screen.getByLabelText(
-		"verify pit @ (9.0, 0.0, 0.0) · 14 cells (region-level — walk it)",
+		"verify pit @ (9.0, 0.0, 0.0) · 14 cells. Unavailable: region-level — walk it",
 	) as HTMLButtonElement;
 	expect(verify.disabled).toBe(true);
 });
@@ -1551,7 +1608,7 @@ test("a cluster's verdict and Verify say WHICH finding they are about", async ()
 	expect(screen.getByText("first: trapped")).toBeTruthy();
 	expect(
 		screen.getByLabelText(
-			"verify the first finding in narrow ×2 @ (0.0, 0.0, 0.0)",
+			"verify narrow ×2 @ (0.0, 0.0, 0.0) — the first finding in this row",
 		),
 	).toBeTruthy();
 });
@@ -1591,7 +1648,7 @@ test("Verify hands back the row's own key, and only one runs at a time", () => {
 	expect(running.textContent).toBe("Verifying…");
 	// …and every OTHER row refuses with the reason in its accessible name.
 	const other = verifyButton(
-		"verify narrow @ (40.0, 0.0, 0.0) (a verify is already running)",
+		"verify narrow @ (40.0, 0.0, 0.0). Unavailable: a verify is already running",
 	);
 	expect(other.disabled).toBe(true);
 	fireEvent.click(other);

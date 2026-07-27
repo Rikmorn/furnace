@@ -13,7 +13,12 @@
 // does the one transient fact a row reads (`verifying`) — the panel owns which
 // verify is in flight, because releasing it needs signals this file cannot see
 // (a verdict push, or a refusal on the tool-error seam).
-import type { ChunkKey, FieldFlag, FlagKind } from "@furnace/core/field"; // type-only: erased
+import type {
+	ChunkKey,
+	FieldFlag,
+	FlagKind,
+	FlagSeverity,
+} from "@furnace/core/field"; // type-only: erased
 import { useMemo } from "react";
 import type {
 	FlagCount,
@@ -64,6 +69,16 @@ const FILTER_BANDS = Object.keys(FILTER_TITLES) as (keyof FlagFilters)[];
 const DOT_CLASS = {
 	candidate: "text-destructive",
 	info: "text-warning",
+} as const;
+
+/** The band's SHAPE, carried beside its hue: filled = candidate, hollow = info.
+ *  Colour alone would be the only visual signal of the one thing this list is
+ *  triaged BY — WCAG 1.4.1 — and red-against-amber is a hard pair to begin with.
+ *  Sort order is a second signal but an unlabelled one. Assistive tech gets the
+ *  band as a word instead; see {@link frameName}. */
+const DOT_GLYPH = {
+	candidate: "●",
+	info: "○",
 } as const;
 
 const VERDICT_CLASS = {
@@ -156,23 +171,65 @@ function rowLabel(c: FlagCluster): string {
 }
 
 /** What a row's Verify runs on, and what its verdict badge is therefore about:
- *  ONE finding, the anchor. For a cluster that is a sample, not a survey.
- *  (Stage 2 takes one flag, so this is the verb's shape, not a shortcut:
- *  verifying a row of 12 would be 12 budgeted mover runs.)
+ *  ONE finding, the anchor. For a cluster that is a sample, not a survey — stage
+ *  2 takes one flag, so this is the verb's SHAPE and not a shortcut (verifying a
+ *  row of 12 would be 12 budgeted mover runs).
  *
- *  Said in the visible text and the ACCESSIBLE NAME, not only in a `title`: the
- *  misreading this exists to stop — `narrow ×3 · clear` as three cleared pinches
- *  — is exactly the reading a screen reader gets from an unqualified badge, and
- *  a `title` on a non-focusable span reaches a mouse and nothing else. The
- *  tooltips keep the longer prose; these two carry the scope itself. */
+ *  The one spelling of the phrase: {@link verifyName} and both tooltips read it
+ *  from here, so the row cannot say it two ways. */
 const anchorScope = (clustered: boolean): string =>
 	clustered ? "the first finding in this row" : "this finding";
 
-/** `first: trapped` on a cluster row, plain `trapped` on a single. VISIBLE, so
- *  it needs no ARIA at all — which is the point: `aria-label` on a generic
- *  `<span>` has no reliable exposure, so text is the only channel a chip has. */
+/** The verdict chip's text: `first: trapped` on a cluster row, plain `trapped`
+ *  on a single.
+ *
+ *  The scope rides the TEXT, and that is the whole point — the misreading it
+ *  stops (`narrow ×3 · trapped` read as three proven traps) is exactly what a
+ *  screen reader gets from an unqualified chip, `aria-label` on a generic
+ *  `<span>` has no reliable exposure, and a `title` reaches a mouse and nothing
+ *  else. Compressed rather than {@link anchorScope}'s prose because a chip has no
+ *  room for a clause; the chip's `title` carries the long form. */
 const verdictLabel = (outcome: string, clustered: boolean): string =>
 	clustered ? `first: ${outcome}` : outcome;
+
+/** The frame button's accessible NAME.
+ *
+ *  It carries the triage band because nothing else in the name does: the dot is
+ *  `aria-hidden` (decoration to a reader) and the row's text is kind, position
+ *  and count. Without this, `candidate` versus `info` — the axis the whole list
+ *  is triaged on, and the axis its filters are named after — would reach
+ *  assistive tech not at all. {@link DOT_GLYPH} is the same split's visual half.
+ *
+ *  It names the ACTION too (DriftReport's reasoning): "narrow @ (2.5, 0.0, -8.0)"
+ *  says nothing about what a click does, and kind + anchor is what tells two rows
+ *  apart. */
+const frameName = (label: string, severity: FlagSeverity): string =>
+	`frame ${severity} ${label}`;
+
+/** The Verify button's accessible NAME: the row, the scope the verb is really
+ *  about, and the refusal when there is one.
+ *
+ *  All three belong in the NAME rather than the `title` — this button is disabled
+ *  in three of its four states, and a disabled button swallows the pointer events
+ *  a tooltip needs. Extracted from the JSX because it is three conditional joins,
+ *  which inline is a template nobody can read.
+ *
+ *  The refusal rides a sentence break rather than EntitiesList's trailing
+ *  parenthetical (`open entity 2 (frozen — …)`), and the deviation is forced: a
+ *  flag row's label already ENDS in parens — `narrow @ (2.5, 0.0, -8.0)` — so
+ *  that convention would produce two adjacent parentheticals meaning different
+ *  things, which no reader (and no test) can tell apart. The break also reads
+ *  better aloud, and it is what lets the suite state the invariant that this
+ *  button and {@link verifyRefusal} can never disagree. */
+function verifyName(
+	label: string,
+	clustered: boolean,
+	refusal: string | null,
+): string {
+	const scope = clustered ? ` — ${anchorScope(clustered)}` : "";
+	const why = refusal === null ? "" : `. Unavailable: ${refusal}`;
+	return `verify ${label}${scope}${why}`;
+}
 
 /** What was FOUND, by kind — the only reading of what the filters are hiding.
  *  One entry per (kind, severity) pair, which today reads as one per kind. */
@@ -250,7 +307,12 @@ export function FlagsSection(props: {
 							{kindTally(summary.byKindSeverity)}
 						</span>
 					</div>
-					<div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+					{/* biome-ignore lint/a11y/useSemanticElements: role="group" is the intended ARIA grouping for this control row (the LayersRow idiom); a native <fieldset>/<legend> would force the boxed-card look this flat UI deliberately avoids */}
+					<span
+						className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground"
+						role="group"
+						aria-label="flag filters"
+					>
 						show
 						{FILTER_BANDS.map((band) => (
 							<label
@@ -268,7 +330,7 @@ export function FlagsSection(props: {
 								{band}
 							</label>
 						))}
-					</div>
+					</span>
 					{clusters.length === 0 ? (
 						<p className="px-1 text-xs text-muted-foreground">
 							{`all ${summary.total} hidden by the filters`}
@@ -294,23 +356,21 @@ export function FlagsSection(props: {
 										    verdict inside one would reach a screen reader only if
 										    the label repeated it. Out here the chip's own TEXT is
 										    the channel — which is why the verdict's scope lives in
-										    that text (verdictLabel) and not only in a tooltip. The
-										    button's label names the ACTION plus the row
-										    (DriftReport's reasoning): "narrow @ (2.5, 0.0, -8.0)"
-										    alone says nothing about what a click does, and kind +
-										    anchor is what distinguishes two rows. */}
+										    that text (verdictLabel) and not only in a tooltip. */}
 										<button
 											type="button"
 											title="frame the chunks this covers"
-											aria-label={`frame ${label}`}
+											aria-label={frameName(label, flag.severity)}
 											onClick={() => onFrame(flag.chunks ?? [flag.chunk])}
 											className="flex min-w-0 flex-1 items-center gap-1.5 rounded px-1 py-0.5 text-left text-xs hover:bg-muted/50"
 										>
+											{/* Decoration to a reader — frameName carries the band as
+											    a word, so announcing a bullet too would be noise. */}
 											<span
 												aria-hidden="true"
 												className={DOT_CLASS[flag.severity]}
 											>
-												●
+												{DOT_GLYPH[flag.severity]}
 											</span>
 											<span className="min-w-0 flex-1 truncate font-mono tabular-nums">
 												{label}
@@ -343,8 +403,14 @@ export function FlagsSection(props: {
 												size="sm"
 												variant="ghost"
 												className="h-5 px-1.5 text-xs"
-												disabled={flag.kind === "pit" || verifying !== null}
-												aria-label={`verify ${clustered ? "the first finding in " : ""}${label}${refusal === null ? "" : ` (${refusal})`}`}
+												// DERIVED from the refusal, never restated: the two
+												// must agree, and a third reason added to
+												// verifyRefusal would otherwise leave the button live
+												// while its own name announced why it was not.
+												// `running` is the fourth state — disabled, but the
+												// user's own doing rather than a refusal.
+												disabled={refusal !== null || running}
+												aria-label={verifyName(label, clustered, refusal)}
 												onClick={() => onVerify(c.anchor.key)}
 											>
 												{running ? "Verifying…" : "Verify"}
