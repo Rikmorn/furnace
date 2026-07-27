@@ -14,16 +14,23 @@ their original content.
 ## `editor-extensions.ts` re-exports more than the editor consumes
 
 **Context.** Surfaced at the W4 sweep. `packages/dungeon/src/editor-extensions.ts` is the
-editor's project-first bundle entry. The editor's LIVE `ext.*` surface is exactly **five**
-members:
+editor's project-first bundle entry. The editor's LIVE `ext.*` surface is **six** members
+across **three** boundary casts (re-counted 2026-07-26, F4 tranche B — was five across two):
 
 - main thread (`WorldPanel.tsx`'s boundary cast): `realizeRegion`, `MaterialCache`, `worldDir`
-- worker (`generation-protocol.ts`'s `WorkerEngine`): `runWorld`, `bakeWorldFiles`
+- generation worker (`generation-protocol.ts`'s `WorkerEngine`): `runWorld`, `bakeWorldFiles`
+- analyzer worker (`analyzer-protocol.ts`'s `AnalyzerEngine`, F4): `analyzerVerify`
 
 These re-exports have **zero consumers**: `caveDressing`, `caveProxy`, `DEFAULT_WORLD`,
-`validateWorldSpec`, and the four type re-exports (`BakeFile`, `WorldManifest`,
-`WorldRegionEntry`, `WorldConnectorEntry`). (`DEFAULT_WORLD` and `BakeFile` each appear once
-more in the editor — both in *comments*, not imports.)
+`validateWorldSpec`, **`AGENT`**, and the type re-exports (`BakeFile`, `WorldManifest`,
+`WorldRegionEntry`, `WorldConnectorEntry`, plus F4's `AnalyzerVerifyOptions` / `VerifyLane` /
+`VerifyLaneOutcome` / `VerifyOutcome` / `VerifyReason` / `VerifyVerdict`). (`DEFAULT_WORLD`
+and `BakeFile` each appear once more in the editor — both in *comments*, not imports.
+`AGENT` is a NEW zero-consumer value re-export: the editor gets the same agent profile as
+DATA, by fetching and parsing `catalog/agent.json`, because the advisor's premise must not
+depend on the project shipping a bundle entry. The F4 verdict types are likewise unreachable
+— the editor declares its own structural twin, `VerifyVerdictWire`, for the reason the
+`WorldSpecLike` / `BakeFileLike` mirrors already exist.)
 
 The editor has **no `@furnace/dungeon` dependency** and cannot import the types at all; it
 declares its own structural mirrors (`WorldSpecLike`, `BakeFileLike`). The module header's
@@ -43,17 +50,18 @@ the contract side).
 **Reference:** `packages/dungeon/src/editor-extensions.ts` (the seam),
 `packages/editor/src/frontend/components/WorldPanel.tsx` (main-thread cast — three members),
 `packages/editor/src/frontend/lib/generation-protocol.ts` (`WorkerEngine` — two members),
-`docs/reference/editor-architecture.md` §13.2 (the as-built seam).
+`packages/editor/src/frontend/lib/analyzer-protocol.ts` (`AnalyzerEngine` — one member),
+`docs/reference/editor-architecture.md` §13.2 + §19 (the as-built seams).
 
 ## Generation session as a generic editor facility
 
-**Context.** Slice 3.1's spec (Decision 3) noted that the generation session / orchestration layer will eventually become a **generic editor facility** — a reusable cockpit into which *any* project plugs its own generator — rather than something the dungeon owns. For 3.1 it stays **dungeon-owned** and is reached entirely through the consumer's `editor-extensions.ts` seam: the engine bundle re-exports that module as an `extensions` namespace (`export * as extensions`, see `editor-architecture.md` §3a/§13.2), and the cockpit calls the generator through it. The set the editor calls is exactly FIVE members — `realizeRegion` / `MaterialCache` / `worldDir` (main thread) and `runWorld` / `bakeWorldFiles` (generation worker) — and is therefore a **de-facto protocol**: today it is narrowed at two boundary casts — the WorldPanel's main-thread seam (`WorldPanel.tsx`) and the generation worker's `WorkerEngine` (`generation-protocol.ts`) — with no formal contract. Nothing in the editor is dungeon-specific — the panel drives the generic preview host (`createPreviewHost`) with whatever realize code the namespace provides — but the *shape* of the protocol is implicit rather than declared.
+**Context.** Slice 3.1's spec (Decision 3) noted that the generation session / orchestration layer will eventually become a **generic editor facility** — a reusable cockpit into which *any* project plugs its own generator — rather than something the dungeon owns. For 3.1 it stays **dungeon-owned** and is reached entirely through the consumer's `editor-extensions.ts` seam: the engine bundle re-exports that module as an `extensions` namespace (`export * as extensions`, see `editor-architecture.md` §3a/§13.2), and the cockpit calls the generator through it. The set the editor calls is SIX members — `realizeRegion` / `MaterialCache` / `worldDir` (main thread), `runWorld` / `bakeWorldFiles` (generation worker), and F4's `analyzerVerify` (analyzer worker) — and is therefore a **de-facto protocol**: today it is narrowed at three boundary casts — the WorldPanel's main-thread seam (`WorldPanel.tsx`), the generation worker's `WorkerEngine` (`generation-protocol.ts`) and the analyzer worker's `AnalyzerEngine` (`analyzer-protocol.ts`) — with no formal contract. F4 adding a third cast rather than a formal contract is the entry's own trigger firing without being acted on, and is worth saying: the implicit protocol is now growing per-worker. Nothing in the editor is dungeon-specific — the panel drives the generic preview host (`createPreviewHost`) with whatever realize code the namespace provides — but the *shape* of the protocol is implicit rather than declared.
 
 Promoting this to a facility means: (1) declaring the generator-consumer contract explicitly (the names + signatures the panel depends on), so a project satisfies it by implementing an interface rather than by matching an undocumented cast; (2) deciding where per-project config is declared — today the editor hand-mirrors the dungeon's knob shapes in its own `world-draft.ts` (region presets + the Add-region field set) rather than reading them off the seam (the measured `COCKPIT_*` envelope/budget knobs this entry originally named retired with the attempts orchestration at the W4 sweep); and (3) confirming the preview-host mood constants (fog / ambient / headlamp — currently hand-tuned to the dungeon's `main.ts`) are either generic defaults or consumer-supplied.
 
 **Trigger to revisit.** A second project wants cockpit generation (forcing the contract to be explicit rather than dungeon-shaped), OR the Slice 3.3 generator-entity / socket work formalizes the generation contract (at which point the panel↔generator protocol should be defined alongside it, not left as an ad-hoc cast). The field charter's brush editor re-shapes this contract — fold into that brainstorm if it lands first.
 
-**Reference.** `packages/dungeon/src/editor-extensions.ts` (the seam — the re-export surface the cockpit consumes; its over-wide re-export set is tracked separately in the *`editor-extensions.ts` re-exports more than the editor consumes* section above); `packages/editor/src/daemon/bundle.ts` (the `export * as extensions` namespace re-export); `packages/editor/src/frontend/components/WorldPanel.tsx` + `src/frontend/lib/generation-protocol.ts` (the two boundary casts that narrow the untyped namespace); `docs/reference/editor-architecture.md` §13.2 (the as-built seam).
+**Reference.** `packages/dungeon/src/editor-extensions.ts` (the seam — the re-export surface the cockpit consumes; its over-wide re-export set is tracked separately in the *`editor-extensions.ts` re-exports more than the editor consumes* section above); `packages/editor/src/daemon/bundle.ts` (the `export * as extensions` namespace re-export); `packages/editor/src/frontend/components/WorldPanel.tsx` + `src/frontend/lib/generation-protocol.ts` + `src/frontend/lib/analyzer-protocol.ts` (the three boundary casts that narrow the untyped namespace); `docs/reference/editor-architecture.md` §13.2 + §19 (the as-built seams).
 
 ## Generation preview should be its own dockview panel, not a viewport takeover
 
@@ -144,7 +152,10 @@ TSDoc reserves the seed for future skin variants, so nothing consumes it *today*
 `packages/editor/src/frontend/components/field/StampInspector.tsx` (:133-169) renders the seed
 input and the ⚄ re-roll button **unconditionally**, with no generator-dependent guard
 (verified). So the editor offers a control that changes nothing on hall — the same class of
-gap `placesArchetypes` existed to paper over, and the same class of fix `emits` is. Surfaced
+gap the editor's `placesArchetypes` schema sniff existed to paper over, and the same class of
+fix `emits` is. (That sniff is GONE: F4 tranche B Task 12 deleted it for
+`placesProps(def.emits)` in `field-placements.ts`. Named here only as the precedent — do not
+grep for it.) Surfaced
 by the F4 Task 6 review; deliberately NOT built, since D-F4-15 scoped exactly one fact. Note
 it is a genuinely *harder* fact than `emits`: `emits` is checkable against the result, whereas
 "does evaluate read `seed`" is not observable from one call — it would be a declaration on

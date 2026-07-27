@@ -638,12 +638,18 @@ dig ring, selection) had rendered NOTHING since F1. Record + rules:
   `subscribeSelection` + `subscribeToolError` feed the panel footer. Cell-level
   display is deferred to F4 (`field-f2b-gate-ux-findings.md`).
 - **Layers + slice** — `FieldLayers { field, kit, props, ghost, selection, grid,
-  voidCast }`; the first SIX gate the render lists per frame (display-only; a hidden
-  selection keeps masking ops), and `props` among them arrived with F3b's placed-prop
-  layer (§18). The seventh, `voidCast`, is NOT a plain gate — it is F3b's X-ray view
-  mode, default off, built by its own enabling edge and dropped by the next edit (§18);
-  `LayersRow` renders it under a separate "view" group and machine-checks the split with
-  `type VisibilityLayer = Exclude<keyof FieldLayers, "voidCast">`. The
+  flags, voidCast }`; the first SEVEN gate the render lists per frame (display-only; a
+  hidden selection keeps masking ops), and two of them arrived later: `props` with F3b's
+  placed-prop layer (§18) and `flags` with F4's advisor markers (§19). The eighth,
+  `voidCast`, is NOT a plain gate — it is F3b's X-ray view mode, default off, built by its
+  own enabling edge and dropped by the next edit (§18); `LayersRow` renders it under a
+  separate "view" group and machine-checks the split with
+  `type VisibilityLayer = Exclude<keyof FieldLayers, "voidCast">`. F4 Task 11 additionally
+  reshaped the rendered set from an ARRAY into `LAYER_TITLES: Record<VisibilityLayer,
+  string>` (the row's labels are its keys, so there is one string per layer), which makes
+  the group EXHAUSTIVE rather than merely closed: an extra key already failed to compile, a
+  MISSING one did not — which is exactly how `flags` first shipped with no toggle at all.
+  The
   Ghost checkbox is DISABLED with a hint while a selection tool is armed and no stamp
   session runs (suppression honesty — the brush ghost is mode-suppressed but the stamp
   hologram is not). Slice = **remesh clip**: the worker clamps aprons at/above `sliceY`
@@ -830,7 +836,11 @@ the void cast (an X-ray view mode) and the segment brush (a two-click swept caps
   UNCONFIRMED (accepted gate variance: round 1 predated the visible-refusal fix
   `10551f9e`, so the user never distinguished refusal from silence; the lifecycle is
   GPU-test-held, the render is not pixel-checked — the `2026-07-21-invisible-line-overlays`
-  caution applies until someone sees it). `FieldLayers.voidCast` is the one flag
+  caution applies until someone sees it). F4's marker layer took the OTHER route and is
+  pixel-CONFIRMED at its gate, by a committed re-runnable recipe
+  (`packages/editor/scripts/analyzer-pixel-check.md`, §19) — which leaves the void cast the
+  one field overlay whose render nothing has ever checked, and gives whoever checks it a
+  template. `FieldLayers.voidCast` is the one flag
   with an EDGE effect. false→true copies every allocated chunk's density into ONE worker
   `void-cast` job (a copy, because the client TRANSFERS the buffers and sending the store's
   own would detach the field). The worker installs the snapshot into a scratch store, and
@@ -891,13 +901,12 @@ the void cast (an X-ray view mode) and the segment brush (a two-click swept caps
   three selection modes (`selectionArmed = gesture !== null && gesture !== "segment"`), why
   ToolPalette keeps the brush effects highlighted under it, and why picking a brush effect disarms
   a SELECTION gesture but deliberately leaves `segment` armed ("sweep a rampart instead of a
-  tunnel", not "stop segmenting"). It is also the FIRST editor gesture with unbounded op
+  tunnel", not "stop segmenting"). It WAS also the first editor gesture with unbounded op
   extent — every other one is bounded by construction (a stroke's sphere by `digRadius`, a
   kit fill by the snapped box, a flood by `SELECTION_UI_BUDGET`), but the fly camera stays
   live between the two clicks, so the sweep length is whatever the user walks and the op cost
-  is linear in it. No clamp ships, deliberately; the measurements and the ~4-line shape a cap
-  would take are in `docs/backlog/editor-and-tooling/field-tool-follow-ons.md` § *The segment brush is the first editor gesture with unbounded op extent*. Note the asymmetry with the void
-  cast, which shipped a budget in the same phase.
+  is linear in it. F3b shipped it uncapped and recorded the asymmetry with the void cast's
+  same-phase budget; **F4 closed it** — `MAX_SEGMENT_M` (§19).
 - **Segment preview + failure path** — the preview is the WHOLE preview: a hologram-blue anchor
   cross plus the wireframe capsule the second click would commit (`segmentGhostSegments` in
   `field-ghost.ts` — a 16-segment ring at each endpoint plus 4 rails, degenerating to the sphere
@@ -926,3 +935,317 @@ the void cast (an X-ray view mode) and the segment brush (a two-click swept caps
   injects the protocol handler directly — the host's worker-backed paths are otherwise unreachable
   under `bun test`, where a job posted to a Worker spawned from that browser URL never settles
   in-process. Backlog status: `docs/backlog/editor-and-tooling/editor-test-harness-fragility.md` § *FieldHost's worker seam exists now*.
+
+## 19. One Field F4 — the walkability advisor in the editor (tranche B, 2026-07-26)
+
+The editor gained its THIRD worker: an advisor that runs core's stage-1 walkability passes
+over a mirror of the field as the user digs, draws what it finds as severity-coloured
+markers in the viewport, lists it in a Flags panel section, and — on demand — drives the
+PROJECT'S OWN mover at one finding to see whether it really sticks.
+
+**Advisory throughout (D-F4-1), and that is a design commitment, not a v0 limit.** Nothing
+the advisor reports blocks a verb, mutates a field, or is auto-fixed. A filter HIDES a
+finding and a reachability demotion tags one; neither deletes one. The only thing that
+retires a finding is a re-analysis that no longer reports it — the analyzer changing its
+mind.
+
+- **The analyzer worker** (`frontend/analyzer-worker.ts` + `lib/analyzer-protocol.ts` /
+  `lib/analyzer-client.ts`) — a FOURTH `build-frontend.ts` entrypoint beside the chrome, the
+  generation worker and the remesher, spawned by URL as `/analyzer-worker.js`
+  (`tests/build-frontend.test.ts` pins that all three worker bundles land un-hashed at the
+  outdir root, or those URLs 404). It holds a MIRROR
+  `FieldStore` and runs `analyzeChunk` / `markUnreachable` / `detectPits` from
+  `@furnace/core/field` directly. All logic lives in a PURE handler factory
+  (`createAnalyzerWorkerHandler({ loadEngine, post })`, the `createFieldWorkerHandler` shape),
+  so the whole protocol unit-tests with no real Worker; the entry wires only the real
+  `self.postMessage` and the real dynamic import.
+- **The mirror is EVERY allocated chunk, not a window**, and that costs a second copy of the
+  world's density (one 4 KiB `Int8Array` per chunk). A window cannot be made correct: stage
+  1's ceiling scan is uncapped, so any chunk missing ABOVE an anchor manufactures a false
+  ceiling and silently drops every rise beyond it. Buffers are structured-CLONED and never
+  transferred — the host goes on editing its own. There is no reset verb: a world swap lists
+  the outgoing keys as `removed` (upserts apply BEFORE removals, so `postMirrorSync` filters
+  the removal list against the LIVE store — a new world can reuse an old key), and a
+  `cellSize` that differs from the live mirror's resets it outright.
+- **Re-analysis set** — a caller lists what it WROTE; the worker owns the widening.
+  `reanalysisKeys` takes each dirty chunk, its 26 neighbours, and every allocated chunk BELOW
+  it in its own XZ column plus the 4 CARDINAL ones, intersected with what the mirror holds.
+  The column term is not belt-and-braces: `ceilingAbove` scans the anchor's own column
+  uncapped and `scanRise` scans each cardinal neighbour bounded only by that ceiling, so a
+  hole dug in one chunk can let a floor anchor several chunks below see through it for the
+  first time. Measured on the fixture committed beside it (the "cardinal-column term is
+  load-bearing" test): analysing `"1,-4,0"` before and after a floor appears inside `"0,0,0"`
+  — four chunks up, one column across — goes from 0 `ledge` to 1. The cardinal spread past
+  the anchor's own column is the executor's deviation from the LETTER of D-F4-9's amendment
+  and miss-safe in the right direction (a wider set costs time, never correctness). ABOVE
+  stays excluded: a higher chunk reads down into the dirty one only at its own bottom row,
+  i.e. only when it is already a 26-neighbour. The halo's sufficiency for the BOUNDED probes
+  is lattice-dependent and filed:
+  `docs/backlog/editor-and-tooling/analyzer-reanalysis-halo-cellsize-coupling.md`.
+- **Serialized dispatch, and it is load-bearing.** `self.onmessage` re-enters per message
+  regardless of whether the previous one settled, and `verify` suspends twice (the bundle
+  import, then inside `analyzerVerify`, which awaits `createWorld` BEFORE reading the store).
+  A `sync` landing in either window would mutate the very `FieldStore` the in-flight verify
+  captured, and the verdict would describe a half-updated mirror — not corruption, but a
+  wrong answer in exactly the edit-while-verifying case the editor is for. So the handler
+  chains every message onto one tail, and the tail's rejection is caught (a rejected tail
+  makes every later `.then` skip its callback, wedging the worker permanently). That catch
+  also MARKS the rejection handled, which silences the runtime's own report — so
+  `analyzer-worker.ts`'s `console.error` is the ONLY remaining signal for the one failure the
+  protocol cannot report over the wire (`post` itself throwing). Do not delete it as
+  decoration.
+- **jobId discipline** — every request has exactly one response, `acked` included, so a
+  FAILED mirror update reaches a waiter instead of being dropped. The client's `pending` map
+  discards any response nobody asked for, resolves by the response kind the request DERIVES
+  (`RESPONSE_KIND satisfies Record<AnalyzerRequest["kind"], …>`), and rejects a wrong-kind
+  answer rather than casting it. A dispatch `default` arm throws through a `never`-parameter
+  guard: a `switch` with an unguarded `else` would send an unrecognised message into the LAST
+  arm — `placements`, which would silently clobber the collider set and ack success.
+- **One `PhysicsContext` per worker lifetime.** `loadEngine` is memoized on first use and
+  never re-run per verify. The ES module registry would dedupe a same-URL re-import anyway;
+  what the memo adds is that a DIFFERENT url can never be loaded into this worker — the
+  project's verify path holds one headless `PhysicsContext` as a module singleton, and core's
+  context ids are 16-bit and wrap without aliasing detection. Only a LOAD failure drops the
+  memo, so a later verify can retry a bundle that has since built.
+- **Host wiring** (`viewport-host/field-host.ts`) — the mirror syncs at the SAME density
+  choke point the void cast invalidates from, so every write is mirrored by construction. A
+  latest-wins `createAnalyzePump` collapses bursts: `analyzerFire` is read at FIRE time (so
+  the accumulated dirty set goes out, not the one current when a key was pressed), posts the
+  mirror sync and the analysis in ONE turn, and relies on the worker's arrival-order dispatch
+  rather than awaiting the ack. `undefined` leaves the latch idle. It is a COMMAND as much as
+  a query, deliberately.
+- **Two cadences, and the split is the whole cost story.** Per-edit passes analyse what was
+  written and go out immediately. The two CONNECTIVITY passes — the reachability demotion and
+  the pit hunt — are whole-world by nature (one dug cell can open or seal a trap anywhere) and
+  ride an idle tail, `ANALYZER_IDLE_MS = 500`, re-armed by every density write so a drag pushes
+  them out rather than running them. F4 tranche A measured the whole-world re-flood at ~72% of
+  a full `analyzeWorld` on top of it (2.9–3.2 ms against 4.1–4.2 ms over 108 chunks, both
+  growing with the world) — that debounce is the budget knob.
+- **NOTHING is posted without an agent profile.** The advisor is parameterized on the
+  project's capsule and a guessed one would be the advisor inventing its own premise, so with
+  no profile the pending flags accumulate (an install later catches up in full), nothing goes
+  out, and the host says so ONCE — "walkability advisor idle — this project installs no agent
+  profile" — at the first edit that would have analysed. Reachability + pit SEEDS are the
+  loaded world's manifest `playerStart`, and EMPTY for a new world honestly so: both passes
+  refuse an empty seed set outright rather than demoting everything or guessing where the
+  agent enters. `FieldStats.analyzerPending` is 0–2 (1 in flight + 1 queued; the latch admits
+  no more) and stays 0 with no profile — off, not busy. The footer renders `· analyzing…`
+  while it is above 0 and nothing at 0, because the count is PASSES owed, not chunks.
+- **Flag presentation state — `viewport-host/field-flags.ts`**, pure and GPU-free (the
+  `field-ghost.ts` / `field-placements.ts` sibling). `createFlagStore()` holds stage-1
+  findings by OWNER chunk, pits beside them (a pit region can span chunks, so its anchor's
+  chunk is not a complete owner), and verdicts keyed by `${kind}@${cell}` — the same key the
+  presentation dedupe uses, which is not a coincidence: a verdict is about a finding the user
+  can see. A `flags` response REPLACES every chunk it names, empty lists included, which is
+  how a fixed problem stops being reported AND how a stale `unreachable` tag clears
+  (`markUnreachable` leaves prior demotions standing on its skip paths, so a store that
+  MERGED tags would hide those findings for the session). `pits` replaces the pit set
+  wholesale when present and is ABSENT on an incremental response — emitting `[]` there would
+  clear every trap on the next keystroke.
+- **Cross-border duplicates are real and paid for here.** `low-clearance` anchors on the
+  offending NEIGHBOUR cell, so a border cell is emitted by both owners' passes (tranche A
+  measured 48 duplicated cells of 208 on a border-aligned fixture). Suppressing that in core
+  would LOSE flags at the border, so `dedupeByKey` keeps the LEAST-demoted copy — the two can
+  carry different `unreachable` tags, having been analysed by different passes, and a stale
+  demotion on one owner must never hide a finding the other has nothing against. Ordered by
+  key string: determinism, not spatial order, so a list does not reshuffle between responses
+  that found the same things.
+- **Filters are one-sided by design.** `DEFAULT_FLAG_FILTERS` is candidates only. The
+  reachability test hides `unreachable === true` and nothing else: `undefined` is the normal
+  mixed-vintage state of a per-chunk analyzer beside a whole-world pass (and the PERMANENT
+  state of every `pit`, which that pass skips), so testing `=== false` for "reachable" would
+  silently hide every never-flooded finding — a false negative wearing a filter's clothes.
+  Filters survive world loads, like the layer flags; `clear()` drops findings, pits and
+  verdicts but not filters.
+- **Viewport markers** — ONE instanced unit cube per visible finding, `FLAG_MARKER_SIZE_M =
+  0.18` (under the 0.25 m cell, so it reads as a pin ON a floor cell rather than a block
+  filling it), lifted `cellSize / 2` so it occupies the AIR cell its flag anchors on.
+  UNLIT instanced (`shader.unlitInstanced`, white base), deliberately: a marker that dims when
+  the headlamp looks away is a marker that stops doing its job in the shading mode meant for
+  mood. Whole-layer teardown-and-rebuild, the `rebuildProps` rule. Colour is the stage-2
+  verdict if there is one, else the triage band — `CANDIDATE_TINT` red, `INFO_TINT` the
+  selection amber (shared with `SELECTION_COLOR` rather than restated: both mean CONTEXT),
+  `VERIFIED_TRAPPED_TINT` the candidate red darkened, `VERIFIED_CLEAR_TINT` a muted green. An
+  `inconclusive` verdict falls THROUGH to the band: a verify that ran out of budget proved
+  nothing, and a third colour would read as an answer. `FieldHost.flagMarkerCount()` is the
+  `propInstanceCounts()` twin — the layer is otherwise write-only GPU state, so the count the
+  rebuild settled on is the one readable fact and what tests hold it to.
+- **⚠️ Nothing in the automated suite proves the markers are DRAWN.** Deleting the
+  `layers.flags && flagMarkers` push from `renderScene` fails no test in this repo; so does
+  forcing every tint to white. `tests/field-host-analyzer.gpu.test.ts` builds the layer
+  against a real device and pins its instance count, and its tick tests do call `renderScene`
+  — but the host requests its context WITHOUT `surfaceFormat: "linear"`, so under bun-webgpu
+  that render is invalid (asynchronously, as uncaptured device errors, which is why the tick
+  still returns), and there is no draw-list seam and no pixel read. The whole weight of "the
+  markers are visible" rests on a browser pixel check whose recipe is COMMITTED and
+  re-runnable: `packages/editor/scripts/analyzer-pixel-check.md` (headless Chrome via
+  Playwright's `channel: "chrome"`; four claims — red candidates appear where you dig, the
+  `info` filter reveals amber, the `flags` gate removes and restores exactly the same pixels,
+  and a browser-side Verify returns a real verdict). **Run it whenever anything under the
+  marker layer changes.** Its own header says to read the SHAPE and not the digits: every
+  absolute pixel count in it is one camera's reading, and an independent re-run on the same
+  commit measured 2182 where the first measured 1977. The pass criteria are the RELATIONS
+  (`gate > 0`, `restored === gate`, `idempotent === 0`) and the core colours. Precedent for
+  the whole split: `docs/learnings/2026-07-21-invisible-line-overlays.md` rule 1 — this repo
+  has already shipped two classes of invisible overlay that passed every headless test.
+- **Stage 2 — the verify verb, and the one place the editor loads the PROJECT'S engine into a
+  worker.** `verifyFlag(key)` posts the flag to the analyzer worker, which imports
+  `/engine.js` (`ANALYZER_ENGINE_URL`) and calls `extensions.analyzerVerify` — the dungeon's
+  own `walk-probe.ts`, driving the real `CharacterMover` down directed lanes in a locally
+  built physics scene. There is no engine-generic form of this and there should not be: "test
+  the code, not the data" only means anything if the code under test is the project's own.
+  The verdict crosses as `VerifyVerdictWire`, a deliberate STRUCTURAL twin of the dungeon's
+  `VerifyVerdict` and NOT an import of it — the editor is project-first, has no dependency on
+  any project, and the bundle crosses that boundary untyped. Keep the fields identical; do not
+  "unify" them by importing, because the import is what the architecture forbids and the twin
+  is what makes the boundary honest.
+- **Verify is ONE at a time, budgeted, and refuses four ways.** `VERIFY_BUDGET_MS = 8000`;
+  past it the verdict is `inconclusive` with reason `budget`, which the panel paints as no
+  answer rather than a third one. The four refusals, in the order a user meets them, all
+  through `subscribeToolError`: a verify already running; no agent profile (checked BEFORE the
+  key lookup, so the message names the root cause instead of sending the user hunting a flag
+  that was never analysed); a key that no longer resolves ("that flag was re-analyzed away");
+  and a `pit`, refused in the HOST as well as disabled in the panel — stage 2 drives lanes at
+  one anchor cell and a pit is a whole region, so one anchor's lanes would prove nothing about
+  it. A `worldEpoch` counter drops a verdict landing after a world reset; every OTHER
+  staleness route is the flag store's own rule (a chunk's re-analysis drops its verdicts). The
+  in-flight latch releases on every SETTLEMENT, or one dead bundle would cost the verb for the
+  session. It does NOT cover a `bundler.build()` that never settles — that import runs before
+  `budgetMs` is consulted and nothing bounds it, and a host-side timeout was deliberately not
+  added: the worker dispatches on a serialized tail, so a hung import has already wedged sync
+  and analyze too, and a timeout would trade a visibly stuck verb for an invisibly stuck one.
+- **P-F4-2 is GO on BOTH transports, and they ARE two.** `tests/analyzer-verify.test.ts` rides
+  the real path headlessly — the real daemon serving the real dungeon project, the real
+  `analyzer-worker.ts` spawned as an actual Bun Worker, a headless `PhysicsContext` with no GPU
+  behind it, Rapier's wasm initialising in that realm, and the shipped `CharacterMover` driven
+  at a flag. It carries ONE honest deviation, recorded in its own header: Bun cannot
+  dynamically import over http (`import("http://…")` fails with `ENOENT`, measured 2026-07-26),
+  so the test fetches `/engine.js` from the running daemon and writes those exact bytes to a
+  temp FILE. The artifact is the daemon's; only the transport differs — which is why the
+  browser's native `import("/engine.js")` over http had to be checked separately, and was, at
+  the Task 13 gate: verdicts landed as chips with a SPREAD of outcomes and no status-line
+  error. That is the pixel-check recipe's own claim 4 — "a verify that raises a status-line
+  error instead of a chip is a P-F4-2 NO-GO". All-`inconclusive` would not have been a failure
+  on its own (it is a real outcome); a `clear` and a `trapped` in the set are what prove the
+  mover actually walked lanes.
+- **The Flags panel section** (`components/field/FlagsSection.tsx`) — presentational, like
+  `DriftReport`: every host verb arrives as a prop. It renders on what was FOUND, not on what
+  is shown, because gating on the visible rows would unmount the only control that could bring
+  them back. Findings group into rows by band (`kind/severity/unreachable`) and then
+  agglomerate greedily within `CLUSTER_RADIUS_M = 2` — single-linkage, so a run of pinches
+  along a corridor chains into one row; greedy rather than connected components, which leaves
+  boundaries arrival-order dependent and therefore STABLE, since the store hands findings over
+  in key order and the sort is stable. Clicking a row frames its chunks (`frameChunks`, a
+  pit's whole region via `flag.chunks`, a per-cell finding's owner chunk). Verify runs on the
+  row's ANCHOR — for a cluster that is a sample, not a survey, which is why the verdict chip
+  reads `first: trapped` on a clustered row and why the scope rides the TEXT rather than a
+  tooltip (a `title` reaches a mouse and nothing else, and `narrow ×3 · trapped` read as three
+  proven traps is the exact misreading). The triage band reaches assistive tech as a word in
+  the frame button's accessible name and colour-blind eyes as a filled-vs-hollow dot glyph —
+  colour alone would be the only signal of the axis the list is triaged BY (WCAG 1.4.1). The
+  Verify button's `disabled` is DERIVED from its refusal string, never restated, so a third
+  reason cannot leave the button live while its own name announces why it is not.
+- **The filters gate BOTH surfaces**, because the host applies them once in its store and both
+  the marker rebuild and the list read what survives — so a checkbox in the panel also changes
+  what the viewport draws. `publishFlags()` is the ONE path from "the findings changed" to
+  "everything that shows them agrees": it rebuilds the markers FIRST and notifies the
+  subscriber second, because a subscriber may read the host back synchronously (the panel
+  does) and none may observe a summary whose markers are stale.
+- **Panel state and its honest cost.** The summary is the host's; the filter set and the
+  in-flight verify key are PANEL state. `verifying` cannot live in the host because releasing
+  it needs two signals no single host seam carries — a verdict arrives on `subscribeFlags`,
+  and each `verifyFlag` refusal arrives on `subscribeToolError` having pushed no flags at all.
+  Both releases are deliberately BLUNT (an unrelated tool error also clears it; so does any
+  flags push, not just the one carrying the verdict), because that way round costs a button
+  that looks live for a moment against a column that sticks for good. The engine-ready push of
+  `DEFAULT_FLAG_FILTERS` follows the layers/slice precedent and carries the same consequence,
+  stated plainly at the site: a panel REMOUNT (a dock tab switch is enough) RESETS the user's
+  filters, because the host keeps the last set across world loads and a remounted panel
+  reading "candidates only" beside markers still drawing the info band would be a straight lie.
+  Agreement over memory; a filters subscription is what would buy both.
+- **The `flags` layer** is the SEVENTH display gate (§16). Hiding it does NOT stop the
+  analyzer — findings keep arriving and `subscribeFlags` keeps firing, exactly as a hidden
+  `selection` layer keeps masking ops.
+- **Two core instances in one realm, and why it is inert.** The analyzer worker's realm holds
+  the copy bundled into `analyzer-worker.js` (via `analyzer-protocol.ts`) AND the one esbuild
+  inlines into `/engine.js` — measured 2026-07-26: the served `/engine.js` is ~8.7 MB, defines
+  `createFieldStore` itself, and has zero external `@furnace/core` imports. The duplicate is
+  REAL; the field worker's realm is the easy case (it never loads `/engine.js`) and this one is
+  not, so do not cite this exemption as evidence that a worker realm cannot have one. It is
+  inert for two reasons that both have to keep holding: (1) everything crossing the seam is
+  plain structural DATA — `FieldStore`, `AgentProfile`, `FieldFlag`,
+  `PlacementCollisionGroup` are all plain objects with no class identity, no `instanceof`, no
+  symbols, so which core minted a value cannot matter; and (2) the two share no module-level
+  state — our copy runs only the pure column pass and the placement rasterizer, the bundle's
+  copy owns the physics context and the collider derivation. That second one is a claim about
+  EXECUTION, not bundle content: Rapier's wasm-bindgen glue DOES ship inside
+  `analyzer-worker.js`, and no path in this realm calls it.
+  `tests/frontend-no-engine-leakage.test.ts` widened its protocol rule to
+  `(field|analyzer)-protocol` and carries the whole argument in its exemption comment. The
+  lever behind the payload is ONE value import — `field/artifact.ts` importing `encodeMeshBlob`
+  from `@furnace/core/scene`, which drags gpu/mesh/material/physics/post in behind it; a
+  field-only entry bundles to 208 modules with `rapier` and 31 without once the scene module is
+  external. Filed as `docs/backlog/engine-architecture/field-module-pulls-whole-engine.md`.
+- **`catalog/agent.json` — the third project→editor catalog contract**, DATA only, exactly
+  parallel to the F2a materials and F3b entities ones. `FieldToolbar`'s run-once catalog effect
+  now fetches all three in ONE pass so they cannot race onto the status line;
+  `lib/catalog.ts`'s `parseAgentCatalog` validates it setup-loud with the same `CatalogError`
+  and path naming, and the host takes it through `setAgentProfile`. It is STRUCTURAL validation
+  only — every field present and finite — because the numeric CONTRACT (positivity,
+  `climbCeiling > stepHeight`, `clearance` at least the capsule's height, `skin` under the
+  radius) belongs to core's `assertAgentProfileValid` — reached through `assertAnalyzeInputs`,
+  the setup-loud gate every analyzer entry point runs FIRST — and reports through the worker's
+  typed error channel; restating it here would be a second source of truth that can disagree
+  with the gate that decides. Both good outcomes are SILENT: a
+  parsed profile shows itself in the markers, and a 404 is a project with no agent — which the
+  host already reports at the first edit that would have analysed, a better moment than load.
+  Only a MALFORMED catalog has something to say here, and it must be said, or nothing would
+  tell the user why the advisor never lit up. The agent catalog gates nothing; only MATERIALS
+  gates Load.
+- **The collider `anchor` (D-F4-14), editor half.** `EntityCollision` gained an optional
+  `anchor: "center" | "base"` — structurally core's `PlacementCollision["anchor"]` — and the
+  catalog parser carries it explicitly on all three kinds, because that parser is a WHITELIST
+  and a dropped `anchor` would draw a base-anchored prop's proxy half-buried while the runtime
+  stands its collider up. `proxyRecords` and `proxyCorners` now position on core's
+  `collisionCenter(collision, record)` rather than the record's own `position`, so the
+  committed prop layer, the placement ghost, the analyzer's rasterized solidity and the game's
+  rigid bodies all agree on one pose. Called rather than composed, deliberately: the extent
+  rule and the rotation into the record's frame both have to be right, and a hand-written copy
+  is how the editor's proxy and the runtime's body drift apart. `proxyScale` also gained
+  `Math.abs` on every axis — an extent is a DISTANCE, so a mirrored record covers the same box,
+  whereas signed arithmetic would shrink a box's proxy through zero and make `Math.max` pick
+  the LEAST negative axis for a round one.
+- **`GeneratorDef.emits` replaces the schema sniff (D-F4-15).** `placesProps(emits)` — one
+  line, `emits !== "ops"` — supersedes `placesArchetypes`, which inferred "does this place
+  props?" from the presence of an `archetypeId` param and would have mis-read any placer that
+  names its archetype another way. The rule is `!== "ops"` and not `=== "placements"` because
+  `"both"` places props too; written the narrower way it would agree with this one on every def
+  the registry holds today (nothing declares `"both"`) and silently drop props for the first
+  mixed emitter added — a divergence no registry-driven test can catch, since its expectations
+  are built from the same registry. Hence one function with a unit test that can pass a
+  synthetic `"both"`. It feeds all four branches the sniff did: the catalog picker, param
+  seeding, the stamp form's props count, and the editor-side empty-result refusal (§18).
+- **The segment brush gained its cap (D-F4-16).** `MAX_SEGMENT_M = 2 · DIG_RANGE_M` = 60 m,
+  checked in `segmentClick` BEFORE the anchor is cleared, so a refusal leaves the gesture
+  exactly as it was — the pending start stands and the user re-clicks nearer, rather than
+  losing a point they meant to keep. Twice `DIG_RANGE_M` is not a round number, it is the
+  geometry: each endpoint lands within 30 m of the eye that resolved it, so two clicks from ONE
+  camera can never be further apart. The cap therefore admits every segment a stationary user
+  can draw and refuses only the ones that needed the camera to move between clicks — which is
+  exactly the accident it exists for. Pinned by a GPU test straddling the threshold: an
+  over-length second click commits nothing and leaves the anchor ARMED. The number is restated
+  in `ToolPalette`'s Segment tooltip and the two agree by REVIEW — the chrome cannot
+  value-import anything under `viewport-host/` (the `FlagsSection` tint-palette precedent, the
+  same rule that keeps `flagKey` private and puts `rowByKey` in the store).
+- **Deliberately untouched: the void cast's worker scheduling.** F3b's X-ray still monopolises
+  the one FIELD worker with no cancel and refuses where coalescing belongs (§18); F4 gave the
+  advisor a worker of its OWN rather than touching that, so its passes never queue behind a
+  cast and the cast's scheduling is exactly as F3b left it.
+  The gap stands as filed —
+  `docs/backlog/editor-and-tooling/field-tool-follow-ons.md` § *The void cast monopolises the one field worker*.
+- **Panel-orchestrator slope.** Tranche B took `FieldPanel.tsx` from 15 `useState` slots and 7
+  subscriptions to 18 and 8 (711 → 817 lines): three new slots — the flags summary, the filter
+  set, the in-flight verify key — plus `analyzerPending` on the existing stats mirror and its
+  footer segment. The file is the dig loop's single orchestrator; the entry tracking that
+  slope, with the figures pinned to commits, is
+  `docs/backlog/editor-and-tooling/field-panel-is-the-whole-dig-loop-orchestrator.md`.

@@ -10,14 +10,25 @@ comparators with their compiler backstops (`toolsEqual`, `sameEntities`, `samePl
 `statsEqual`), a state slot per mirrored host fact, and the footer meter that reads several
 of them.
 
-Measured rather than estimated, and dated so the figures cannot quietly go stale: **793
-lines, 17 `useState` slots, 8 subscriptions at `47fdd3e5`** (F4 Task 11's review-fix commit).
-They only ever go up — the point of the entry is the slope, not the value.
+Measured rather than estimated, and pinned to commits so the figures cannot quietly go
+stale — the point of the entry is the SLOPE, not the value:
+
+| commit | lines | `useState` slots | `host.subscribe*` |
+| --- | --- | --- | --- |
+| `1ad745c9` (master, pre-F4-tranche-B) | 711 | 15 | 7 |
+| `47fdd3e5` (F4 Task 11's review-fix) | 793 | 17 | 8 |
+| `c9460be2` (F4 tranche B tip) | 817 | 18 | 8 |
+
+The subscription count held across Tasks 12–13 because the verify's in-flight key is PANEL
+state riding two existing seams (`subscribeFlags` and `subscribeToolError`), not a ninth
+subscription — which is itself the entry's point from the other side: the file absorbed a new
+host verb by growing its own state instead.
 
 The mechanism is that every new host seam costs this file a state slot, an effect and a prop
-thread, and no section can own its own mirror without a second subscription. F4 Task 11 added
-three more (summary, filters, the analyzer status segment) and F4 Task 12 will add the verify
-in flight. Nothing here is wrong; it is one file carrying the whole chrome↔host protocol.
+thread, and no section can own its own mirror without a second subscription. F4 added four
+(the flags summary, the filter set, the in-flight verify key, and the analyzer status segment
+in the footer meter) across Tasks 11 and 12. Nothing here is wrong; it is one file carrying
+the whole chrome↔host protocol.
 
 The shape worth considering is a `useFieldHost()` hook (or one hook per concern —
 `useFieldFlags`, `useFieldEntities`) owning the subscribe/mirror/compare triple, leaving the

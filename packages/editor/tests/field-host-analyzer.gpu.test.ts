@@ -141,7 +141,8 @@ const MANIFEST: FieldManifest = {
  *  unallocated space, which `getDensity` reads as SOLID, so `computeTarget` takes
  *  its EYE-IN-ROCK branch and mines `digRadius` straight ahead of the eye. The
  *  room only has to be wide enough for that to land in its air, which at this
- *  size it does (measured centre ≈ cell 9, 13, 13). */
+ *  size it does (measured centre (2.304, 3.229, 3.368) m = cell 9, 12, 13, since
+ *  `worldToVoxel` floors). */
 const CLEAR_ROOM = {
   floorY: 4,
   topY: 15,
