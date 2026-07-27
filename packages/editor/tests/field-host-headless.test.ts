@@ -16,6 +16,7 @@ import {
   SOLID,
 } from "@furnace/core/field";
 import { createFieldHost } from "../src/viewport-host/field-host.ts";
+import { placesProps } from "../src/viewport-host/field-placements.ts";
 import type { FieldLayers } from "../src/viewport-host/index.ts";
 
 test("startStamp with no selection reports 'select a region first' and opens no session", () => {
@@ -55,15 +56,15 @@ test("highlightEntity is runtime-quiet on unknown ids and null", () => {
   expect(() => host.highlightEntity(null)).not.toThrow();
 });
 
-// --- listGenerators: the `emits` → `placesProps` wiring (F4 Task 12, D-F4-15) -
+// --- listGenerators: the `emits` → `placesProps` WIRING (F4 Task 12, D-F4-15) -
 //
-// Pinned at the SEAM the chrome actually reads, not at a pure helper. That is
-// the whole point: the fact this carries used to be inferred editor-side by
-// sniffing the param schema for an `archetypeId`, and core now DECLARES it —
-// so what needs a test is that the host reads the declaration, which no test
-// covered while the sniff was a standalone function.
+// The seam the chrome actually reads. This covers the wiring only — that the
+// host asks `placesProps` about every def and carries the answer out. The RULE
+// itself lives in `field-placements.ts` and is pinned in that module's test,
+// which is the only place able to feed it a `"both"` the registry does not
+// contain.
 
-test("placesProps carries core's own emits declaration, per generator", () => {
+test("listGenerators carries placesProps for every def in the registry", () => {
   const infos = createFieldHost().listGenerators();
   const byId = (id: string) => infos.find((g) => g.id === id);
   // Concrete, so a wiring bug cannot hide behind a mirrored expectation: the
@@ -73,16 +74,14 @@ test("placesProps carries core's own emits declaration, per generator", () => {
   expect(byId("maze")?.placesProps).toBe(false);
   expect(byId("scatter")?.placesProps).toBe(true);
 
-  // …and the rule is `emits !== "ops"` over the WHOLE registry, so a generator
-  // added later is covered the day it lands rather than the day someone
-  // remembers this test. It is also the only thing that would catch the
-  // narrowing mistake `emits === "placements"`, which agrees with the correct
-  // rule on every def the registry holds TODAY (nothing declares `"both"`) and
-  // silently drops props for the first mixed emitter added.
-  const declared = new Map(FIELD_GENERATORS.map((g) => [g.id, g.emits]));
+  // …and no def is dropped or special-cased. Driven FROM the registry so a
+  // missing id surfaces as `undefined` against a boolean rather than being
+  // skipped. This much is a mirrored expectation — both sides read the same
+  // `FIELD_GENERATORS` — so it cannot catch a wrong rule, only a wrong wiring.
+  const carried = new Map(infos.map((i) => [i.id, i.placesProps]));
   expect(infos.length).toBe(FIELD_GENERATORS.length);
-  for (const info of infos)
-    expect(info.placesProps).toBe(declared.get(info.id) !== "ops");
+  for (const def of FIELD_GENERATORS)
+    expect(carried.get(def.id)).toBe(placesProps(def.emits));
 });
 
 // --- void cast (F3b Task 12) ------------------------------------------------

@@ -13,6 +13,7 @@
 // (`docs/backlog/editor-and-tooling/field-editor-prop-meshes.md`).
 import type {
   FieldOp,
+  GeneratorEmits,
   GeneratorEntity,
   PlacementRecord,
 } from "@furnace/core/field";
@@ -300,6 +301,23 @@ export const placementsByEntity = (
     ]),
   );
 };
+
+/**
+ * Whether a generator PLACES props, from core's own `GeneratorDef.emits`
+ * declaration (D-F4-15). The successor to this module's `placesArchetypes`
+ * schema sniff, which inferred the same fact from an `archetypeId` param and
+ * would have mis-read any placer that names its archetype another way.
+ *
+ * ONE function rather than the expression inlined at each call site, because
+ * `emits` is a three-value union and the rule is `!== "ops"`, not
+ * `=== "placements"`: `"both"` places props too. Written twice, the narrower
+ * spelling agrees with this one on every def the registry holds today (nothing
+ * declares `"both"`) and silently drops props for the first mixed emitter added
+ * — a divergence no registry-driven test can catch, since its expectations are
+ * built from the same registry. Here it is one line with a unit test that can
+ * pass a synthetic `"both"`.
+ */
+export const placesProps = (emits: GeneratorEmits): boolean => emits !== "ops";
 
 /** The JSON-Schema property key a generator uses to name a catalog archetype.
  *  Keyed on the PROPERTY, not on a generator id, so any future archetype-driven

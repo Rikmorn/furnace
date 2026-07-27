@@ -20,6 +20,7 @@ import {
   PROXY_PRIMITIVE,
   placementGhostBatch,
   placementsByEntity,
+  placesProps,
   proxyCorners,
   proxyExtents,
   proxyRecords,
@@ -498,4 +499,23 @@ test("seedArchetypeParams is a no-op with no catalog or a non-archetype generato
   expect(seedArchetypeParams(defaults, [])).toBe(defaults);
   const hall = { width: 8 };
   expect(seedArchetypeParams(hall, [archetype("rock", BOX)])).toBe(hall);
+});
+
+// --- placesProps: the emits → "does this place props?" rule (D-F4-15) --------
+//
+// A one-line predicate with a test, because the mistake it exists to prevent is
+// invisible to every registry-driven test in the repo. `placesProps` is read by
+// the stamp form's props count (via FieldGeneratorInfo) and by the host's
+// empty-preview refusal; both used to sniff the param schema for an
+// `archetypeId`, and both now read core's declaration.
+
+test('placesProps is `!== "ops"`, so a MIXED emitter places props too', () => {
+  // The whole reason this is a function. `"both"` is the case a test built from
+  // FIELD_GENERATORS cannot reach — no built-in declares it — so the narrowing
+  // mistake `emits === "placements"` agrees with the correct rule everywhere the
+  // registry can see and diverges on the first mixed emitter added. Naming the
+  // union member directly is the only way to pin it before that day.
+  expect(placesProps("both")).toBe(true);
+  expect(placesProps("placements")).toBe(true);
+  expect(placesProps("ops")).toBe(false);
 });

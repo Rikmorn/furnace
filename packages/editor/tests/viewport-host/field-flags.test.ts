@@ -315,3 +315,48 @@ test("the tint reads the verdict first and the severity band second", () => {
   expect(flagTint(row(candidate, "inconclusive"))).toEqual(CANDIDATE_TINT);
   expect(flagTint(row(info, "inconclusive"))).toEqual(INFO_TINT);
 });
+
+// --- rowByKey: the inverse of the private key format (F4 Task 12) -----------
+//
+// Lives here rather than in the host because `flagKey` is private to this
+// module: a lookup written anywhere else would be re-spelling a format it
+// cannot see. `FieldHost.verifyFlag` is the caller — it resolves the row the
+// panel handed a key for, and posts stage 2 at that row's flag.
+
+test("rowByKey resolves a key the summary handed out, and returns its verdict", () => {
+  const store = createFlagStore();
+  const narrow = flag("narrow", "candidate", [1, 0, 0], "0,0,0");
+  store.applyFlags([{ key: "0,0,0", flags: [narrow] }]);
+  const key = keysOf(store.summary())[0];
+  if (key === undefined) throw new Error("test: no visible row");
+
+  expect(store.rowByKey(key)?.flag).toBe(narrow);
+  expect(store.rowByKey("narrow@9,9,9")).toBeUndefined();
+
+  // The row carries its verdict, like the summary's own — both are built by one
+  // joiner, so a row resolved by key and the same row read off the summary can
+  // never disagree about what stage 2 proved.
+  store.setVerdict(narrow, verdict("trapped"));
+  expect(store.rowByKey(key)?.verdict).toEqual(verdict("trapped"));
+  expect(store.rowByKey(key)?.verdict).toEqual(verdictOf(store.summary(), key));
+});
+
+test("rowByKey is scoped to VISIBLE rows — a filtered-out finding is unaddressable", () => {
+  // The keys a consumer can hold come from `summary().visible` and nowhere else,
+  // so a hidden finding is one nothing has a key for. Resolving it anyway would
+  // let a verify run on a finding the user cannot see, and land a verdict on a
+  // row that is not on screen to show it.
+  const store = createFlagStore();
+  const info = flag("ledge", "info", [2, 0, 0], "0,0,0");
+  store.setFilters({ candidates: true, info: true, unreachable: false });
+  store.applyFlags([{ key: "0,0,0", flags: [info] }]);
+  const key = keysOf(store.summary())[0];
+  if (key === undefined) throw new Error("test: no visible row");
+  expect(store.rowByKey(key)?.flag).toBe(info);
+
+  // Hide the band it is in: the finding STANDS (a filter never deletes) but the
+  // key stops resolving.
+  store.setFilters(DEFAULT_FLAG_FILTERS); // candidates only
+  expect(store.summary().total).toBe(1);
+  expect(store.rowByKey(key)).toBeUndefined();
+});

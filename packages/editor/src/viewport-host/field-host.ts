@@ -70,6 +70,7 @@ import {
   PROXY_PRIMITIVE,
   placementGhostBatch,
   placementsByEntity,
+  placesProps,
   proxyRecords,
   seedArchetypeParams,
   withArchetypeOptions,
@@ -171,10 +172,10 @@ export type FieldGeneratorInfo = {
   paramSchema: Record<string, unknown>;
   defaults: Record<string, unknown>;
   /** Whether this generator PLACES props — core's own `GeneratorDef.emits`
-   *  declaration, read as `emits !== "ops"` (D-F4-15). Carried host-side because
-   *  the chrome cannot value-import core to read the registry itself. The stamp
-   *  form reads it to decide whether a props count means anything: a carver's is
-   *  always 0 and showing it is noise. */
+   *  declaration, through `field-placements.ts`'s `placesProps` (D-F4-15).
+   *  Carried host-side because the chrome cannot value-import core to read the
+   *  registry itself. The stamp form reads it to decide whether a props count
+   *  means anything: a carver's is always 0 and showing it is noise. */
   placesProps: boolean;
 };
 
@@ -2840,15 +2841,6 @@ export function createFieldHost(deps?: {
   // happened; every OTHER way a verdict goes stale is that rule's job.
   let worldEpoch = 0;
 
-  /** The finding a {@link FlagRow.key} names, or `undefined` when nothing
-   *  currently shown answers to it. Resolved against the VISIBLE rows — exactly
-   *  what the panel is looking at, which is what makes the key round-trip honest
-   *  (the chrome cannot build one: the format is private to field-flags.ts).
-   *  A finding the filters hide is therefore not addressable, which is right: it
-   *  has no button, and a verify nobody can see the result of is not a verb. */
-  const flagByKey = (key: string): FlagRow | undefined =>
-    flagStore.summary().visible.find((row) => row.key === key);
-
   const verifyFlagImpl = (key: string): void => {
     if (verifyInFlight) {
       reportToolError("a verify is already running");
@@ -2864,7 +2856,9 @@ export function createFieldHost(deps?: {
       );
       return;
     }
-    const row = flagByKey(key);
+    // The store owns key→row: `flagKey` is private to field-flags.ts, so a
+    // lookup written here would be re-spelling a format it cannot see.
+    const row = flagStore.rowByKey(key);
     if (row === undefined) {
       reportToolError("that flag was re-analyzed away");
       return;
@@ -2900,8 +2894,20 @@ export function createFieldHost(deps?: {
         publishFlags();
       })
       .catch(reportAnalyzerFailure)
-      // The latch releases on EVERY settlement, or one dead bundle costs the
-      // verb for the rest of the session (the pump's own rule).
+      // The latch releases on every SETTLEMENT, or one dead bundle costs the
+      // verb for the rest of the session (the pump's own rule). That covers the
+      // realistic bundle failure: a build error makes the daemon answer
+      // /engine.js with a 500, the worker's dynamic import rejects, and the
+      // typed analyzer-error lands in the catch above (the worker also drops its
+      // engine memo, so a later verify retries a bundle that has since built).
+      //
+      // It does NOT cover a `bundler.build()` that never settles at all: that
+      // import runs BEFORE `budgetMs` is consulted and nothing here bounds it,
+      // so this promise never settles and the latch stays shut. Deliberately not
+      // fixed with a host-side timeout — the worker dispatches on a serialized
+      // tail, so a hung import has already wedged sync and analyze too. A
+      // timeout would re-enable a button whose every request queues behind the
+      // hang, trading a visibly stuck verb for an invisibly stuck one.
       .finally(() => {
         verifyInFlight = false;
       });
@@ -3122,7 +3128,7 @@ export function createFieldHost(deps?: {
     } catch {
       return false; // a retired generator: let the core call own the failure
     }
-    if (def.emits === "ops") return false;
+    if (!placesProps(def.emits)) return false;
     reportToolError(
       `${s.generator} placed no props here — nothing to commit. Widen the region, raise density, or lower spacing.`,
     );
@@ -4247,7 +4253,7 @@ export function createFieldHost(deps?: {
         name: g.name,
         paramSchema: withArchetypeOptions(structuredClone(g.paramSchema), ids),
         defaults: structuredClone(g.defaults),
-        placesProps: g.emits !== "ops",
+        placesProps: placesProps(g.emits),
       }));
     },
     propInstanceCounts() {

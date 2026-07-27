@@ -1800,24 +1800,27 @@ function installEmptyPreviewWorker(): () => void {
   };
 }
 
-test("a CARVER whose preview came back empty still goes to CORE — the refusal is prop-generators-only", () => {
-  // The editor-side refusal exists because "0 props" is a legitimate outcome for
-  // a READER. For a carver, nothing-to-build is a misconfiguration and core's own
-  // wording is the accurate one — "raise density, lower spacing" would be
-  // nonsense advice for a hall. So the gate is `emits !== "ops"` (D-F4-15), and
-  // this pins that it did not quietly become "every generator".
+test("the registry declares exactly one placer — the FIXTURE the two tests around this rely on", () => {
+  // Registry DATA, and nothing else: these four assertions read core's own
+  // `emits` declarations and touch no editor code, so they cannot detect the
+  // empty-preview gate changing. They are here because the tests on either side
+  // are written against these values — the reconfigure test above expects
+  // scatter to be intercepted with a props sentence, the test below expects hall
+  // to sail through to core — and a registry that redeclared either would make
+  // both pass for the wrong reason.
   //
-  // The registry's own declaration, read straight off the def: `emits` replaced
-  // the editor-side `placesArchetypes` schema sniff, which inferred the same fact
-  // from an `archetypeId` param and would have mis-read a future placer that
-  // takes its archetype any other way.
+  // The gate's own behaviour is covered by those two, not by this. `emits`
+  // (D-F4-15) replaced the editor-side `placesArchetypes` schema sniff, which
+  // inferred the same fact from an `archetypeId` param and would have mis-read a
+  // placer that names its archetype any other way; the rule that reads it now
+  // lives in `field-placements.ts` (`placesProps`) with its own test.
   expect(generatorById("hall").emits).toBe("ops");
   expect(generatorById("cave").emits).toBe("ops");
   expect(generatorById("maze").emits).toBe("ops");
   expect(generatorById("scatter").emits).toBe("placements");
 });
 
-test("…and the host acts on that: an empty-previewed HALL applies, it is not intercepted", async () => {
+test("a CARVER whose preview came back empty still goes to CORE — the refusal is prop-generators-only", async () => {
   const uninstall = installEmptyPreviewWorker();
   try {
     const host = createFieldHost();

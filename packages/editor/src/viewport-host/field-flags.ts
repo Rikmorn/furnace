@@ -223,6 +223,18 @@ export type FlagStore = {
     chunks: readonly { key: ChunkKey; flags: readonly FieldFlag[] }[],
     pits?: readonly FieldFlag[],
   ): void;
+  /**
+   * The VISIBLE row a {@link FlagRow.key} names, or `undefined` when nothing
+   * currently shown answers to it (a re-analysis moved on, or a world reset).
+   *
+   * Here rather than in the host because this is the inverse of {@link flagKey},
+   * which is private to this module and must stay that way — a caller that
+   * resolved keys itself would be re-spelling the format. Scoped to the visible
+   * rows on purpose: a key only ever reaches a consumer through
+   * {@link FlagsSummary.visible}, so a hidden finding is one nothing can be
+   * holding a key for.
+   */
+  rowByKey(key: string): FlagRow | undefined;
   /** Record what stage 2 proved about one finding. */
   setVerdict(flag: FieldFlag, verdict: VerifyVerdictWire): void;
   setFilters(filters: FlagFilters): void;
@@ -243,6 +255,20 @@ export function createFlagStore(): FlagStore {
   let pits: readonly FieldFlag[] = [];
   const verdicts = new Map<string, VerdictEntry>();
   let filters: FlagFilters = { ...DEFAULT_FLAG_FILTERS };
+
+  /** The findings to present, deduped and ordered — the one input both
+   *  {@link FlagStore.summary} and {@link FlagStore.rowByKey} read, so the two
+   *  can never disagree about what exists. */
+  const findings = (): FieldFlag[] => dedupeByKey([...byChunk.values(), pits]);
+
+  /** One finding as a row, with its verdict joined if it has one. */
+  const rowOf = (flag: FieldFlag): FlagRow => {
+    const key = flagKey(flag);
+    const entry = verdicts.get(key);
+    return entry === undefined
+      ? { key, flag }
+      : { key, flag, verdict: entry.verdict };
+  };
 
   return {
     applyFlags(chunks, nextPits) {
@@ -268,6 +294,14 @@ export function createFlagStore(): FlagStore {
       for (const [flagId, entry] of verdicts)
         if (entry.kind === "pit") verdicts.delete(flagId);
     },
+    rowByKey(key) {
+      // `find`, not a built map: one call per Verify click, and the early exit
+      // beats materializing every row to read one.
+      const flag = findings().find(
+        (f) => flagKey(f) === key && passesFilters(f, filters),
+      );
+      return flag === undefined ? undefined : rowOf(flag);
+    },
     setVerdict(flag, verdict) {
       verdicts.set(flagKey(flag), {
         chunk: flag.chunk,
@@ -287,7 +321,7 @@ export function createFlagStore(): FlagStore {
       verdicts.clear();
     },
     summary() {
-      const found = dedupeByKey([...byChunk.values(), pits]);
+      const found = findings();
       // Keyed while counting, rows on the way out: the map is the natural tally
       // and the rows are the shape a consumer can read without knowing the key.
       const tally = new Map<string, FlagCount>();
@@ -303,16 +337,10 @@ export function createFlagStore(): FlagStore {
         byKindSeverity: [...tally]
           .sort(([a], [b]) => compareKeys(a, b))
           .map(([, row]) => row),
-        // The join happens HERE, once, where both halves are in hand.
-        visible: found
-          .filter((f) => passesFilters(f, filters))
-          .map((flag) => {
-            const key = flagKey(flag);
-            const entry = verdicts.get(key);
-            return entry === undefined
-              ? { key, flag }
-              : { key, flag, verdict: entry.verdict };
-          }),
+        // The join happens through `rowOf`, the same one `rowByKey` uses — so a
+        // row resolved by key and a row read off the summary are built by one
+        // piece of code and cannot carry different verdicts.
+        visible: found.filter((f) => passesFilters(f, filters)).map(rowOf),
       };
     },
   };
