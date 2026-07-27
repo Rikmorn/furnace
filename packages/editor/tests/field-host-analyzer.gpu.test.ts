@@ -128,16 +128,21 @@ const MANIFEST: FieldManifest = {
   meshes: [],
 };
 
-/** The flag-and-fix loop's world: one flat-floored room, uniformly clear, with
- *  its top face left OPEN at the chunk's last sample.
+/** The flag-and-fix loop's world: one flat-floored room, UNIFORMLY CLEAR — every
+ *  floor cell has more than `clearance` overhead and no neighbour rises, so stage
+ *  1 finds NOTHING. That zero baseline is the load-bearing part, and the only
+ *  one: it is what lets the assertions below tell "the fix worked" from "the
+ *  marker layer never held anything".
  *
- *  Both halves of that are load-bearing. Uniformly clear makes stage 1 find
- *  NOTHING — the zero baseline a marker count can return to. And the open top is
- *  what lets the CURSOR in: unallocated space is rock to the analyzer and empty
- *  to `raycastField`, so the orbit camera's centre ray enters through the missing
- *  ceiling and lands inside the room, where an edit can be made. Roof it and
- *  every stroke lands on the outside of that roof instead. */
-const OPEN_ROOM = {
+ *  What is NOT load-bearing, though it looks like it: the top face being left
+ *  open at the chunk's last sample. A roofed variant (`topY: 14`) runs this same
+ *  loop to the same numbers — measured. It cannot matter, because no stroke here
+ *  goes through `raycastField` at all: the framed camera's eye sits in
+ *  unallocated space, which `getDensity` reads as SOLID, so `computeTarget` takes
+ *  its EYE-IN-ROCK branch and mines `digRadius` straight ahead of the eye. The
+ *  room only has to be wide enough for that to land in its air, which at this
+ *  size it does (measured centre ≈ cell 9, 13, 13). */
+const CLEAR_ROOM = {
   floorY: 4,
   topY: 15,
   x: [1, 14],
@@ -157,11 +162,11 @@ const chamberChunk = (): Uint8Array => {
   return encodeChunkFile(density);
 };
 
-const openRoomChunk = (): Uint8Array => {
+const clearRoomChunk = (): Uint8Array => {
   const density = new Int8Array(CHUNK_SAMPLES).fill(SOLID);
-  for (let z = OPEN_ROOM.z[0]; z <= OPEN_ROOM.z[1]; z++)
-    for (let y = OPEN_ROOM.floorY; y <= OPEN_ROOM.topY; y++)
-      for (let x = OPEN_ROOM.x[0]; x <= OPEN_ROOM.x[1]; x++)
+  for (let z = CLEAR_ROOM.z[0]; z <= CLEAR_ROOM.z[1]; z++)
+    for (let y = CLEAR_ROOM.floorY; y <= CLEAR_ROOM.topY; y++)
+      for (let x = CLEAR_ROOM.x[0]; x <= CLEAR_ROOM.x[1]; x++)
         density[x + CHUNK_DIM * (y + CHUNK_DIM * z)] = AIR;
   return encodeChunkFile(density);
 };
@@ -566,9 +571,13 @@ test.skipIf(!bunWebGpuAvailable())(
  *  within the capsule's `clearance` of it — a smaller blob hangs too high and the
  *  floor beneath it stays walkable, which is the whole finding.
  *
- *  ONE radius for both strokes, which is not free: the two spheres do NOT share a
- *  centre (`computeBrushCenter` bites past the raycast hit, and the fill has since
- *  moved that hit), so the dig taking the shelf out completely is a measured fact
+ *  ONE radius for both strokes, and they do share a centre: the eye-in-rock
+ *  branch mines a fixed distance ahead of the eye without consulting a raycast
+ *  hit, so the fill having changed the geometry cannot move where the dig lands
+ *  (instrumented — same origin, same centre, both times). The dig is therefore
+ *  very nearly the fill's inverse. NOT exactly: neither stroke is a pure set
+ *  operation — both carry the tool's smoothing pass and both write quantized
+ *  densities — so "the dig takes the whole shelf back out" stays a measured fact
  *  rather than a geometric identity. */
 const SHELF_RADIUS_M = 1.25;
 
@@ -582,7 +591,7 @@ test.skipIf(!bunWebGpuAvailable())(
   "the flag-and-fix loop: an edit raises a candidate, the fix retires it",
   async () => {
     const f = await fixture({
-      chunks: [{ key: chunkKey(0, 0, 0), bytes: openRoomChunk() }],
+      chunks: [{ key: chunkKey(0, 0, 0), bytes: clearRoomChunk() }],
       engine: { analyzerVerify: () => Promise.resolve(LOOP_VERDICT) },
     });
     try {
@@ -626,15 +635,20 @@ test.skipIf(!bunWebGpuAvailable())(
       f.click(32, 32);
       await f.deliver();
 
-      // No candidate left, so nothing to draw. Not "no findings": the dig leaves
-      // its own `ledge`/`lip-near-wall` behind, which the default filters hide —
-      // the advisor stopped raising an alarm, it did not go blind.
-      //
-      // `flagMarkerCount` is the count the rebuild SETTLED ON and not a read of
-      // the GPU, so what this pins is that a fixed problem takes its markers with
-      // it, which is the loop's point.
-      expect(lastSummary(f.pushes).visible).toEqual([]);
+      // No candidate left, so nothing to draw. `flagMarkerCount` is the count the
+      // rebuild SETTLED ON and not a read of the GPU, so what it pins is that a
+      // fixed problem takes its markers with it, which is the loop's point.
+      const fixed = lastSummary(f.pushes);
+      expect(fixed.visible).toEqual([]);
       expect(f.host.flagMarkerCount()).toBe(0);
+      // …and the advisor stopped raising an ALARM rather than going blind. The
+      // dig leaves its own `ledge`/`lip-near-wall` behind and the default filters
+      // hide them, so an analyzer that had simply stopped reporting would satisfy
+      // the two assertions above just as well. These two are what tell them apart.
+      expect(fixed.total).toBeGreaterThan(0);
+      expect(fixed.byKindSeverity.every((c) => c.severity === "info")).toBe(
+        true,
+      );
       // The verified finding is gone from the STORE, not merely filtered out of
       // the view: `rowByKey` no longer resolves its key, so the verdict taken on
       // it has nothing left to badge. A verify aimed at it is refused outright

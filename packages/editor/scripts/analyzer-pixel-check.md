@@ -48,7 +48,7 @@ node /tmp/pixel-check.mjs      # the script below
 Two things that are easy to get wrong:
 
 - **Browser.** Playwright's own chromium is *not* downloaded in this workspace
-  (`~/Library/Caches/ms-playwright` is empty). Launch the system Chrome instead:
+  (`~/Library/Caches/ms-playwright` holds no browser build). Launch the system Chrome instead:
   `chromium.launch({ channel: "chrome", … })`. WebGPU works headless there with
   `--enable-unsafe-webgpu --enable-features=Vulkan --use-angle=metal`.
 - **Never `waitUntil: "networkidle"`.** The editor holds the SSE change feed open
@@ -132,7 +132,13 @@ async function markerPixels(tag) {
   const off = await shot(`${tag}-off`);
   await layer("flags").check();
   await page.waitForTimeout(800);
-  return { gate: await diff(on, off), restored: await diff(await shot(`${tag}-again`), off) };
+  const again = await shot(`${tag}-again`);
+  return {
+    gate: await diff(on, off),
+    restored: await diff(again, off),
+    // The strict half: the layer must come back IDENTICAL, not merely similar.
+    idempotent: await diff(on, again),
+  };
 }
 
 // --- 1 + 3: dig in a VIRGIN world, then read the markers -------------------
@@ -165,7 +171,7 @@ await filter("info").uncheck();
 await page.getByPlaceholder("world name").fill("hello");
 await page.getByRole("button", { name: "Load", exact: true }).click();
 await page.waitForTimeout(12000);
-for (let i = 0; i < 6; i++) {
+for (let i = 0; i < 8; i++) {
   const btn = page.locator('button[aria-label^="verify "]').nth(i);
   const name = await btn.getAttribute("aria-label");
   if (name === null || name.includes("Unavailable")) continue;
@@ -188,20 +194,34 @@ the viewport canvas 800×415):
 
 ```
 after dig:   203 flags · 11 shown
-candidates:  { gate:     { changed: 1977,  core: [243,144,149] },
-               restored: { changed: 1977,  core: [243,144,149] } }
+candidates:  { gate:       { changed: 1977,  core: [243,144,149] },
+               restored:   { changed: 1977,  core: [243,144,149] },
+               idempotent: { changed: 0,     core: null } }
 with info:   203 flags · 203 shown
-all:         { gate:     { changed: 31759, core: [254,216,149] }, … }
+all:         { gate:       { changed: 31759, core: [254,216,149] }, … }
 [0] verify low-clearance ×31 @ (-0.1, -3.3, -16.6) -> … FIRST: TRAPPED
 [6] verify low-clearance ×15 @ (-2.4, -0.5, 11.4) -> … FIRST: CLEAR
 status: 190 chunks · remesh 0.8ms · … (no error)
 ```
 
+> **Read the SHAPE, not the digits.** Every absolute pixel count above is one
+> camera's reading — it moves with the window size, the canvas size, and wherever
+> the framed camera happened to land. An independent re-run on the same commit
+> measured 2182 where this one measured 1977, on an 800×586 canvas. Only the
+> **relations** are the pass criteria: `gate > 0`, `restored === gate`,
+> `idempotent === 0`, and the `core` colours. A different count is not a
+> regression.
+
 - `gate.changed > 0` is claim 3's whole point: those pixels exist only while the
-  `flags` layer is on. `restored.changed` must equal it — an on-vs-back-on diff of
-  0 says the layer came back identical rather than approximately.
+  `flags` layer is on. `restored.changed` must equal it, and `idempotent.changed`
+  must be **0** — that is what says the layer came back identical rather than
+  merely similar.
 - `core` is the tint. Candidates ≈ `[243, 144, 149]`, info ≈ `[255, 225, 149]`.
   A grey/white core means the per-instance tint is not reaching the shader.
+  The `all:` line reads `[254, 216, 149]` rather than pure amber for a boring
+  reason: that diff is the WHOLE marker layer against no layer, so it averages the
+  red candidates in with the amber. To read the amber alone, diff info-on against
+  candidates-only (measured on `worlds/hello`: `[255, 225, 149]`).
 - Verdicts must show a **spread**. All-`inconclusive` is not a failure on its own
   (it is a real outcome — see `walk-probe.ts`), but a `clear` and a `trapped` in
   the set are what prove the mover actually walked lanes.
@@ -217,9 +237,13 @@ flag anchors on.
 ## Known properties, not defects
 
 - **Markers are depth-tested**, so advice behind rock is invisible from outside the
-  cave. Measured on `worlds/hello`: hiding the `field` + `kit` layers takes the
-  marker pixels from 2425 to 4048, so about 40% of the findings in view are occluded
-  at any moment. The void cast deliberately goes the other way (`compare: "always"`).
+  cave. Hiding the `field` + `kit` layers makes that visible: on `worlds/hello` one
+  camera went from 2425 to 4048 marker pixels and another from 493 to 8778. Do not
+  turn either into a percentage of the FINDINGS — the ratio is whatever the camera
+  is pointing at (a camera sitting inside terrain sees almost nothing), and a
+  pixel count cannot distinguish a fully-occluded marker from a partly-occluded
+  one. The direction is the finding; the magnitude is not a property. The void cast
+  deliberately goes the other way (`compare: "always"`).
 - **A dig into an existing cave floor mostly raises `info`**, not candidates. A
   spherical bite adds headroom and leaves a climbable bowl, so it produces `ledge` /
   `lip-near-wall`; under the amended pit semantics it is not a `pit` either. The
