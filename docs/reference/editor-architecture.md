@@ -938,6 +938,21 @@ the void cast (an X-ray view mode) and the segment brush (a two-click swept caps
 
 ## 19. One Field F4 — the walkability advisor in the editor (tranche B, 2026-07-26)
 
+> **SEALED 2026-07-27 (user Safari gate, no fix round).** The flag-and-fix loop, the
+> flags-layer pixel toggle, prop anchoring/blocking (with a bake-and-walk inside it)
+> all passed live. **Depth-testing on markers is now a USER-RATIFIED decision, not a
+> default** — gate item 5c: markers are IN the world, occluded like props; the layer
+> toggles are the occlusion answer, the Flags panel the per-finding see-through
+> channel. Accepted variances (machine evidence stands in): quiet-by-default
+> (P-F4-3b: 0 pits / worst 3 candidates on the 12 walked configs — the user was
+> structurally blocked from loading a committed world by the world-management hole),
+> the verify badge (Task 13: 8 browser verifies, outcomes 2 trapped / 1 clear /
+> 5 inconclusive), and the segment clamp (pinned by tests; the arming flow is the
+> known discoverability gap). Gate finding — selected-flag identification (the frame
+> box is chunk-sized; direct-click-to-select is the wanted direction) — deferred to
+> `docs/backlog/editor-and-tooling/field-f4-gate-ux-findings.md` with the sibling
+> sets, per the standing features-now/polish-later sequencing decision.
+
 The editor gained its THIRD worker: an advisor that runs core's stage-1 walkability passes
 over a mirror of the field as the user digs, draws what it finds as severity-coloured
 markers in the viewport, lists it in a Flags panel section, and — on demand — drives the
