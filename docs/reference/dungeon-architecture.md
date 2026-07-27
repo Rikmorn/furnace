@@ -126,6 +126,32 @@ is a one-way slope in a walk-verb world (descending arrivals put a flat landing 
 ramp foot, so every ramp gets mounted from flat when walked back up). SLOPE_LIMIT_RAD
 (55°) remains the physical stand-on/slide limit only."*
 
+### Stage 2 — the verify probe (`walk-probe.ts`), as-built at F4
+
+`analyzerVerify(opts)` in `src/walk-probe.ts` is stage 2 of the advisor (D-F4-10): for
+ONE stage-1 flag it builds a LOCAL headless physics scene — chunk shell colliders in a
+bounded neighborhood via `field.chunkColliders` plus placement colliders via
+`placement-collider.ts`, the SAME derivations the game loads with, on a
+`physics.createHeadlessPhysicsContext()` — and drives the REAL `CharacterMover` at the
+flag from the four cardinals. Test the code, not the data: a verdict is a statement
+about the shipped controller, never a model of it.
+
+Verdicts are `trapped | clear | inconclusive` under F0's carried invariants:
+trap-precedence (a trap in any lane outvotes clears in others — the ordering IS the
+miss-safety), the levitation guard, and an asymmetric error posture — a false CLEAR is
+a MISS and every rule biases against it (a flag with no usable evidence is
+`inconclusive`, never `clear`); a false TRAP is only noise. Budgets are semantics, not
+tuning: a wall-clock ceiling and lane caps, with exhaustion → `inconclusive`
+(`reason: "budget"`). Spawn poses are enumerated (0.9–2.0 m approach band, half-cell
+lateral nudges — larger nudges could route AROUND the hazard and manufacture a false
+clear) and VALIDATED before driving, closing F0's spawn-in-geometry false-trap class.
+
+The editor's analyzer worker calls it through the `editor-extensions.ts` seam via
+`/engine.js`. Pit flags are NOT verifiable — they are region-level (spec A1); walk
+them. And per D-F4-1 the probe is a per-flag FILTER, never certification: the GPU walk
+suites remain the authoritative walkability gate. Tests: `tests/walk-probe.test.ts` —
+plain `bun:test`, no GPU fixture, which is itself the headless-context payoff.
+
 ## 4. The generator library (the cockpit consumes it; the game and scripts too)
 
 **Region contract (`region.ts`)** — themes are pure `(RegionParams) → RegionData`:
@@ -355,7 +381,12 @@ over the world the player boots) plus `cave-entrance.gpu.test.ts` and the
   validity-proven trap corpus, but the premise was disconfirmed in richer ways — 2 of 4
   specified classes don't reproduce against the current mover (the real climb ceiling is
   ~0.7 m, not `STEP_HEIGHT` 0.4), and the known-good false-positive load is unaffordable
-  as-is: the analyzer CANNOT self-certify F4 (needs capsule-aware navigability on top).
+  as-is: the analyzer CANNOT self-certify (needs capsule-aware navigability on top).
+  F4 then closed that gap the advisor's way: `detectPits` supplies the minimal
+  fall-aware navigability (the A1 pit-semantics ruling, after P-F4-3 refuted local
+  thresholds at 323/1485 candidates on walkable ground), stage 2 ships as the per-flag
+  `walk-probe.ts` filter (§3), and self-certification stays deliberately OUT of scope —
+  the walk suites remain the gate (D-F4-1).
   Report: `docs/learnings/2026-07-15-analyzer-corpus-probe.md`; the requirements + the
   measured constants live in §3 "The walkability analyzer" (absorbed from
   `docs/backlog/` at F4); harness kept at `scripts/analyzer-probe/` (seeds F4). Surfaced
