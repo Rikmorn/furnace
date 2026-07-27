@@ -31,12 +31,16 @@ import {
   AIR,
   analyzeWorld,
   createFieldStore,
+  encodeChunkFile,
   SOLID,
   setDensity,
 } from "@furnace/core/field";
 import { type RunningServer, startServer } from "../src/daemon/server.ts";
 import { AnalyzerWorkerClient } from "../src/frontend/lib/analyzer-client.ts";
+import type { AnalyzerRequest } from "../src/frontend/lib/analyzer-protocol.ts";
 import type { WorkerLike } from "../src/frontend/lib/field-client.ts";
+import { createFieldHost } from "../src/viewport-host/field-host.ts";
+import type { FlagsSummary } from "../src/viewport-host/index.ts";
 
 const DUNGEON_ROOT = resolve(import.meta.dir, "../../dungeon");
 const WORKER_ENTRY = new URL(
@@ -102,6 +106,15 @@ function steppedCorridor(): FieldStore {
   return store;
 }
 
+/** A world point standing on the corridor's LOWER floor — the seed the
+ *  connectivity passes flood from (an unseeded pass demotes nothing and finds no
+ *  traps, which would make the fixture quieter than the code under test). */
+const CORRIDOR_START: [number, number, number] = [
+  4 * CELL,
+  0.5 * CELL,
+  5 * CELL,
+];
+
 const LANE_OUTCOMES = new Set([
   "clear",
   "trap",
@@ -160,5 +173,128 @@ test("P-F4-2: the real analyzer worker verifies a flag against the daemon's own 
     expect(verdict.lanes.some((l) => l.progressed > 0)).toBe(true);
   } finally {
     client.dispose();
+  }
+}, 120_000);
+
+// --- the same stack, driven from the HOST's verb (F4 Task 12) ----------------
+//
+// The spike above proves the analyzer worker CAN verify. This proves the editor
+// does: `FieldHost.verifyFlag(key)` — the only thing the Flags panel calls — all
+// the way to the project's shipped mover and back onto the row it was taken on.
+// Everything between is real: the real host, its real analyzer client, the real
+// worker entry as an actual Worker, the daemon's own /engine.js bytes.
+//
+// The ONE substitution is the engineUrl, for the transport reason in this file's
+// header (Bun cannot `import()` over http). The host names "/engine.js"; the
+// proxy below rewrites exactly that field of exactly the `verify` request, and
+// nothing else crosses altered.
+
+/** `dispose()` calls `cancelAnimationFrame`, which bun does not define. */
+function stubCancelAnimationFrame(): () => void {
+  const g = globalThis as unknown as Record<string, unknown>;
+  const had = "cancelAnimationFrame" in g;
+  const prev = g["cancelAnimationFrame"];
+  g["cancelAnimationFrame"] = () => undefined;
+  return () => {
+    if (had) g["cancelAnimationFrame"] = prev;
+    else delete g["cancelAnimationFrame"];
+  };
+}
+
+/** The real worker entry, spawned, with the verify request's engineUrl pointed
+ *  at the on-disk copy of the daemon's bundle. */
+function spawnRewritingAnalyzer(): WorkerLike {
+  // Boundary cast: Bun's Worker stands in for the browser's (the spike's note).
+  const real = new Worker(WORKER_ENTRY, {
+    type: "module",
+  }) as unknown as WorkerLike;
+  return {
+    postMessage(msg) {
+      const req = msg as AnalyzerRequest;
+      real.postMessage(req.kind === "verify" ? { ...req, engineUrl } : req);
+    },
+    terminate: () => real.terminate(),
+    get onmessage() {
+      return real.onmessage;
+    },
+    set onmessage(fn) {
+      real.onmessage = fn;
+    },
+  };
+}
+
+/** Poll `read` until it returns a value, or fail with `what` in the message.
+ *  A real Worker answers on its own schedule, so nothing here can be awaited
+ *  directly — the host's seams are push-based and fire-and-forget. */
+async function until<T>(
+  what: string,
+  read: () => T | undefined,
+  timeoutMs = 60_000,
+): Promise<T> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const got = read();
+    if (got !== undefined) return got;
+    if (Date.now() > deadline)
+      throw new Error(`test: timed out waiting for ${what}`);
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+}
+
+test("FieldHost.verifyFlag drives the project's real mover end to end", async () => {
+  const restoreCaf = stubCancelAnimationFrame();
+  const host = createFieldHost({ spawnAnalyzer: spawnRewritingAnalyzer });
+  const summaries: FlagsSummary[] = [];
+  const errors: string[] = [];
+  try {
+    host.subscribeToolError((m) => errors.push(m));
+    host.subscribeFlags((s) => summaries.push(s));
+    // Every band, so the row this verifies is whichever one stage 1 finds —
+    // the test is about the VERB, not about core's severity assignment.
+    host.setFlagFilters({ candidates: true, info: true, unreachable: true });
+    host.setAgentProfile(agent);
+
+    const store = steppedCorridor();
+    host.loadWorld({
+      manifest: {
+        version: 2,
+        kind: "field",
+        cellSize: CELL,
+        playerStart: CORRIDOR_START,
+        playerYaw: 0,
+        chunks: [],
+        meshes: [],
+      },
+      chunks: [...store.chunks].map(([key, density]) => ({
+        key,
+        bytes: encodeChunkFile(density),
+      })),
+      oplog: null,
+    });
+
+    // Stage 1, in a real worker thread. A `pit` is refused by the verb (a
+    // region-level finding), so the row picked here is any other kind.
+    const row = await until("a verifiable stage-1 finding", () =>
+      summaries.at(-1)?.visible.find((r) => r.flag.kind !== "pit"),
+    );
+    expect(errors).toEqual([]);
+
+    host.verifyFlag(row.key);
+    const verdict = await until(
+      "the stage-2 verdict",
+      () => summaries.at(-1)?.visible.find((r) => r.key === row.key)?.verdict,
+    );
+
+    // The GO condition, restated at the HOST's level: the panel's own verb put a
+    // real verdict on the row the user clicked. Its VALUE is the dungeon's
+    // business; that the shipped CharacterMover ran is `progressed`, for the
+    // reason spelled out in the spike above.
+    expect(["trapped", "clear", "inconclusive"]).toContain(verdict.outcome);
+    expect(verdict.ms).toBeGreaterThan(0);
+    expect(verdict.lanes.some((l) => l.progressed > 0)).toBe(true);
+    expect(errors).toEqual([]);
+  } finally {
+    host.dispose();
+    restoreCaf();
   }
 }, 120_000);

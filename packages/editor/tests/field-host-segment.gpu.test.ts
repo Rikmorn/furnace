@@ -15,7 +15,7 @@ import type {
   FieldOp,
   MaterialTable,
 } from "@furnace/core/field";
-import { DEFAULT_CELL_SIZE, parseOps } from "@furnace/core/field";
+import { chunkKey, DEFAULT_CELL_SIZE, parseOps } from "@furnace/core/field";
 import {
   bunWebGpuAvailable,
   ensureBunWebGpu,
@@ -334,6 +334,103 @@ test.skipIf(!bunWebGpuAvailable())(
       // gesture half-armed, or the next click sweeps from a stale point.
       f.click(20, 44);
       expect(f.ops()).toHaveLength(0);
+    } finally {
+      f.teardown();
+    }
+  },
+);
+
+// --- the 60 m length clamp (D-F4-16) ----------------------------------------
+//
+// A segment sweeps a capsule between two raw surface hits, and each op's cost is
+// linear in that length: an accidental cross-world pair (a click, an orbit, a
+// second click) commits one op that dirties every chunk on the line. The cap
+// refuses it and KEEPS the anchor, so the fix is one nearer click rather than
+// re-arming the gesture from scratch.
+//
+// The camera is what makes a long pair reachable here. Both endpoints fall back
+// to `computeBrushCenter`'s open-space distance (4 m ahead of the eye) in this
+// empty world, so two clicks from ONE camera are never more than ~8 m apart —
+// the length only grows when the eye moves between them, which is exactly the
+// gesture the cap is about. `frameChunks` is the seam that moves it (the flags
+// list's click-to-frame drives the same one).
+
+/** Chunks are `CHUNK_DIM · cellSize` = 4 m at the production lattice, so framing
+ *  chunk `cx` parks the orbit target at `4·cx + 2` on X. Measured, not derived:
+ *  from an eye framed on chunk 0, chunk 14 puts the pair at 56.7 m and chunk 15
+ *  at 60.7 m — the tightest straddle of the 60 m cap this seam can express, and
+ *  each test re-measures rather than trusting these numbers. */
+const NEAR_CHUNK_X = 14;
+const FAR_CHUNK_X = 15;
+
+/** The metres a refusal reported, so a test can check WHICH side of the cap the
+ *  fixture actually landed on rather than trusting the constants above. */
+const reportedLength = (message: string): number => {
+  const m = /segment is ([\d.]+) m/.exec(message);
+  if (m?.[1] === undefined)
+    throw new Error(`test: no length in the refusal "${message}"`);
+  return Number(m[1]);
+};
+
+const capsuleLength = (ops: FieldOp[]): number => {
+  const { a, b } = soleCapsule(ops);
+  return Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]);
+};
+
+test.skipIf(!bunWebGpuAvailable())(
+  "an over-length second click commits nothing and leaves the anchor ARMED",
+  async () => {
+    const f = await segmentFixture();
+    try {
+      f.host.setTool(DIG_TOOL);
+      f.host.frameChunks([chunkKey(0, 0, 0)]);
+      f.host.setGesture("segment");
+      f.click(16, 16); // anchor, beside the origin
+
+      // Orbit far away, then click: the pair is now past the cap.
+      f.host.frameChunks([chunkKey(FAR_CHUNK_X, 0, 0)]);
+      f.click(48, 40);
+      expect(f.ops()).toHaveLength(0);
+      const refusal = f.errors.at(-1) ?? "";
+      // The message carries BOTH numbers: a refusal that only says "too long"
+      // gives the user nothing to aim at.
+      expect(refusal).toMatch(/the cap is 60 m/);
+      expect(refusal).toMatch(/click nearer/);
+      // …and the fixture really is over the cap, not merely refused.
+      expect(reportedLength(refusal)).toBeGreaterThan(60);
+
+      // THE TEETH: the anchor survived. Orbit back and one click completes the
+      // ORIGINAL pair — which is only possible if the refusal left it standing.
+      // A guard that cleared it would make this click a fresh anchor, and the
+      // log would still be empty.
+      f.host.frameChunks([chunkKey(0, 0, 0)]);
+      f.click(48, 40);
+      expect(f.ops()).toHaveLength(1);
+    } finally {
+      f.teardown();
+    }
+  },
+);
+
+test.skipIf(!bunWebGpuAvailable())(
+  "a long segment INSIDE the cap commits normally",
+  async () => {
+    const f = await segmentFixture();
+    try {
+      f.host.setTool(DIG_TOOL);
+      f.host.frameChunks([chunkKey(0, 0, 0)]);
+      f.host.setGesture("segment");
+      f.click(16, 16);
+      f.host.frameChunks([chunkKey(NEAR_CHUNK_X, 0, 0)]);
+      f.click(48, 40);
+
+      // The other half of the clamp: it must not have become a general
+      // long-segment ban. This pair is tens of metres — far past anything two
+      // clicks from one camera could reach — and still commits.
+      const length = capsuleLength(f.ops());
+      expect(length).toBeGreaterThan(30);
+      expect(length).toBeLessThanOrEqual(60);
+      expect(f.errors).toEqual([]);
     } finally {
       f.teardown();
     }

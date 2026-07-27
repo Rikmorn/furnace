@@ -1,12 +1,14 @@
 // packages/editor/src/frontend/lib/catalog.ts — the project catalog parsers:
-// `catalog/materials.json` (the resolved material table) and
-// `catalog/entities.json` (the placement archetypes scatter draws from).
+// `catalog/materials.json` (the resolved material table), `catalog/entities.json`
+// (the placement archetypes scatter draws from) and `catalog/agent.json` (the
+// capsule the walkability advisor is parameterized on).
 // FRONTEND (chrome-bundle) code: imports from @furnace/core MUST be
 // `import type` only (erased at compile). A value import would pull a second core
 // instance into the chrome bundle — frontend-no-engine-leakage.test.ts enforces
 // this. So the table invariants below are RE-IMPLEMENTED locally rather than
 // value-importing core's validateMaterialTable.
 import type {
+  AgentProfile,
   KitStyle,
   MaterialClass,
   MaterialTable,
@@ -15,13 +17,14 @@ import type {
 /** The catalog-file schema version this parser understands. */
 const CATALOG_VERSION = 1;
 
-/** The two catalog files, as their thrown messages name them. */
+/** The three catalog files, as their thrown messages name them. */
 const MATERIALS_LABEL = "materials catalog";
 const ENTITY_LABEL = "entity catalog";
+const AGENT_LABEL = "agent catalog";
 
 /**
- * A catalog parse/validation failure (materials or entities). Setup-loud: every
- * failure names the exact offending JSON path (e.g.
+ * A catalog parse/validation failure (materials, entities or agent). Setup-loud:
+ * every failure names the exact offending JSON path (e.g.
  * `classes[3].kit.pieceColors.panel`) so a mistyped catalog fails visibly rather
  * than skinning the world wrong.
  */
@@ -37,8 +40,8 @@ export class CatalogError extends Error {
 
 /** The primitive parsers BOUND to one catalog file's label. Bound rather than
  *  taking the label per call: an optional per-call label is a footgun in a file
- *  that parses two different catalogs — every call site has to remember it, and
- *  a forgotten one silently blames the wrong FILE, which is exactly the
+ *  that parses three different catalogs — every call site has to remember it,
+ *  and a forgotten one silently blames the wrong FILE, which is exactly the
  *  diagnostic the label exists to give. Each parser below is destructured from
  *  one of these, so the label is chosen once per catalog and cannot drift. */
 const parsersFor = (label: string) => ({
@@ -362,4 +365,64 @@ export function parseEntityCatalog(text: string): EntityCatalog {
     seen.add(a.id);
   });
   return { archetypes };
+}
+
+// ─── the agent catalog (catalog/agent.json) ───
+
+// The agent file's own bound parsers — the two sets above belong to the other
+// catalogs' labels and must never be used below this line.
+const {
+  num: agentNum,
+  record: agentRecord,
+  err: agentErr,
+} = parsersFor(AGENT_LABEL);
+
+/**
+ * Parses a `catalog/agent.json` text into the {@link AgentProfile} the
+ * walkability advisor is parameterized on (D-F4-4).
+ *
+ * STRUCTURAL validation only, and deliberately: every field must be present and
+ * a finite number, but the numeric CONTRACT — positivity, `climbCeiling >
+ * stepHeight`, `clearance` at least the capsule's own height, `skin` below the
+ * capsule radius — belongs to core's `assertAgentProfileValid`, which every
+ * analyzer pass runs and which reports through the worker's typed error channel.
+ * Restating those relations here would be a second source of truth that can
+ * disagree with the gate that actually decides (the same trade `scatterHints`
+ * makes with the scatter generator's param ranges).
+ *
+ * ABSENCE is not a failure: a project with no agent catalog never calls this,
+ * and the host simply leaves the advisor off — saying so once, loudly, at the
+ * first edit that would have analysed.
+ *
+ * @throws {@link CatalogError} on malformed JSON, a wrong `version`, or a
+ *   missing/mistyped `capsule.radius` / `capsule.halfHeight` / `stepHeight` /
+ *   `climbCeiling` / `clearance` / `slopeLimitDeg` / `skin`.
+ */
+export function parseAgentCatalog(text: string): AgentProfile {
+  let root: unknown;
+  try {
+    root = JSON.parse(text);
+  } catch (e) {
+    const detail = e instanceof Error ? e.message : String(e);
+    throw agentErr("", `invalid JSON: ${detail}`);
+  }
+  const rec = agentRecord(root, "");
+  const version = agentNum(rec["version"], "version");
+  if (version !== CATALOG_VERSION)
+    throw agentErr(
+      "version",
+      `unsupported version ${version} (expected ${CATALOG_VERSION})`,
+    );
+  const capsule = agentRecord(rec["capsule"], "capsule");
+  return {
+    capsule: {
+      radius: agentNum(capsule["radius"], "capsule.radius"),
+      halfHeight: agentNum(capsule["halfHeight"], "capsule.halfHeight"),
+    },
+    stepHeight: agentNum(rec["stepHeight"], "stepHeight"),
+    climbCeiling: agentNum(rec["climbCeiling"], "climbCeiling"),
+    clearance: agentNum(rec["clearance"], "clearance"),
+    slopeLimitDeg: agentNum(rec["slopeLimitDeg"], "slopeLimitDeg"),
+    skin: agentNum(rec["skin"], "skin"),
+  };
 }

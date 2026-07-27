@@ -50,6 +50,7 @@ import {
 import {
   createFlagStore,
   type FlagFilters,
+  type FlagRow,
   type FlagsSummary,
   flagTint,
   INFO_TINT,
@@ -69,7 +70,6 @@ import {
   PROXY_PRIMITIVE,
   placementGhostBatch,
   placementsByEntity,
-  placesArchetypes,
   proxyRecords,
   seedArchetypeParams,
   withArchetypeOptions,
@@ -170,10 +170,11 @@ export type FieldGeneratorInfo = {
   name: string;
   paramSchema: Record<string, unknown>;
   defaults: Record<string, unknown>;
-  /** Whether this generator PLACES props (its schema names an `archetypeId`) —
-   *  derived host-side because the rule lives in `field-placements.ts` and the
-   *  chrome cannot value-import it. The stamp form reads it to decide whether a
-   *  props count means anything: a carver's is always 0 and showing it is noise. */
+  /** Whether this generator PLACES props — core's own `GeneratorDef.emits`
+   *  declaration, read as `emits !== "ops"` (D-F4-15). Carried host-side because
+   *  the chrome cannot value-import core to read the registry itself. The stamp
+   *  form reads it to decide whether a props count means anything: a carver's is
+   *  always 0 and showing it is noise. */
   placesProps: boolean;
 };
 
@@ -666,6 +667,23 @@ export type FieldHost = {
    *  them, and a filtered-out finding still counts in
    *  {@link FlagsSummary.total}. Survives world loads, like the layer flags. */
   setFlagFilters(filters: FlagFilters): void;
+  /** Runs STAGE 2 on one finding, named by the {@link FlagRow.key} the summary
+   *  handed out: the project's own `/engine.js` mover, driven at that flag under
+   *  a time budget. The verdict arrives on the next {@link subscribeFlags} push,
+   *  joined onto the row it was taken on.
+   *
+   *  Fire-and-forget, and an ADVISOR verb throughout (D-F4-1) — it mutates no
+   *  field, blocks nothing, and fixes nothing. Every refusal is a
+   *  {@link subscribeToolError} report and nothing else:
+   *  - a verify is already in flight (budgeted seconds of real mover; one at a time),
+   *  - the key names no current finding (a re-analysis moved on),
+   *  - the finding is a `pit` — region-level, so one anchor's directed lanes
+   *    would prove nothing about it; walking it is the answer,
+   *  - no agent profile is installed yet ({@link setAgentProfile}).
+   *
+   *  A stage-2 failure (no bundle, a mover that threw) reports through the same
+   *  seam and releases the latch. */
+  verifyFlag(key: string): void;
   /** How many flag markers the LAST rebuild decided to draw — the
    *  {@link propInstanceCounts} twin, and for the same reason: the marker layer
    *  is otherwise write-only GPU state, so this is what a caller (and a test) can
@@ -714,6 +732,30 @@ type PropRender = { im: mesh.InstancedMesh; g: geometry.Geometry };
 const REMESH_PER_FRAME = 2; // dirty-set drain budget per rAF
 const STROKE_MIN_MS = 40; // stroke throttle (pointermove-while-digging)
 const DIG_RANGE_M = 30;
+/** The longest capsule the segment gesture will sweep (D-F4-16). A segment's
+ *  cost is linear in its length — every chunk on the line is dirtied, remeshed
+ *  and re-analysed — and the two clicks are independent, so an orbit between
+ *  them can pair points across the whole world by accident. The cap refuses that
+ *  op and keeps the anchor armed, making the fix one nearer click.
+ *
+ *  Twice DIG_RANGE_M is not a round number, it is the geometry: each endpoint
+ *  lands within DIG_RANGE_M of the eye that resolved it, so two clicks from ONE
+ *  camera can never be more than 2·30 m apart. The cap therefore admits every
+ *  segment a stationary user can draw and refuses only the ones that needed the
+ *  camera to move between clicks — which is exactly the accident it is for.
+ *
+ *  RESTATED in `ToolPalette`'s Segment tooltip — the chrome cannot value-import
+ *  anything under `viewport-host/`, so the two agree by review (the FlagsSection
+ *  tint-palette precedent). */
+const MAX_SEGMENT_M = 2 * DIG_RANGE_M;
+/** The project's runtime-built engine bundle, which is where stage 2's mover
+ *  lives. The daemon serves it at this path; the analyzer worker imports it. */
+const ANALYZER_ENGINE_URL = "/engine.js";
+/** Wall-clock ceiling for ONE stage-2 verify. The mover is real and the lanes
+ *  are budgeted, so the verb has to be able to give up: past this the verdict
+ *  comes back `inconclusive` with reason `budget`, which the panel paints as no
+ *  answer rather than as a third one. */
+const VERIFY_BUDGET_MS = 8000;
 const EDITOR_FOV_Y = Math.PI / 3;
 const FLY_SPEED = 6; // m/s
 const FLY_BOOST = 3; // shift-held multiplier
@@ -2206,6 +2248,19 @@ export function createFieldHost(deps?: {
     // Copy the anchor BEFORE clearing it — setSegmentAnchor nulls the field,
     // and the op is built after.
     const a: Vec3T = [...segmentAnchor];
+    // The length cap (MAX_SEGMENT_M), decided BEFORE the anchor is cleared so a
+    // refusal leaves the gesture exactly as it was: the pending start stands and
+    // the user re-clicks nearer, rather than losing a point they meant to keep.
+    const dx = p[0] - a[0];
+    const dy = p[1] - a[1];
+    const dz = p[2] - a[2];
+    const len = Math.sqrt(dx * dx + dy * dy + dz * dz);
+    if (len > MAX_SEGMENT_M) {
+      reportToolError(
+        `segment is ${len.toFixed(1)} m — the cap is ${MAX_SEGMENT_M} m; click nearer`,
+      );
+      return;
+    }
     setSegmentAnchor(null);
     // Re-arm the once-per-stroke mask-drop report. A stroke re-arms it at
     // pointer-down (a drag is one stroke, many ops); a segment's unit is ONE
@@ -2766,6 +2821,88 @@ export function createFieldHost(deps?: {
     }, ANALYZER_IDLE_MS);
   };
 
+  // --- stage 2: the verify verb --------------------------------------------
+  //
+  // One at a time, by a flag rather than a count: a verify is seconds of the
+  // project's REAL mover under a time budget, and the panel shows exactly one
+  // row as running. Queueing a second would spend that budget on a field the
+  // first may have outlived, with nothing on screen saying so.
+  let verifyInFlight = false;
+  // Bumped by every world reset. A verify is seconds long and `resetWorld` runs
+  // `flagStore.clear()`, so a verdict landing after one would be re-added to a
+  // store that has just dropped every verdict it had — describing a field that
+  // no longer exists. The store's own staleness rule (a chunk's re-analysis
+  // drops its verdicts) cannot catch that one, because the clear already
+  // happened; every OTHER way a verdict goes stale is that rule's job.
+  let worldEpoch = 0;
+
+  /** The finding a {@link FlagRow.key} names, or `undefined` when nothing
+   *  currently shown answers to it. Resolved against the VISIBLE rows — exactly
+   *  what the panel is looking at, which is what makes the key round-trip honest
+   *  (the chrome cannot build one: the format is private to field-flags.ts).
+   *  A finding the filters hide is therefore not addressable, which is right: it
+   *  has no button, and a verify nobody can see the result of is not a verb. */
+  const flagByKey = (key: string): FlagRow | undefined =>
+    flagStore.summary().visible.find((row) => row.key === key);
+
+  const verifyFlagImpl = (key: string): void => {
+    if (verifyInFlight) {
+      reportToolError("a verify is already running");
+      return;
+    }
+    const profile = agentProfile;
+    // Checked BEFORE the lookup so the message names the ROOT cause: with no
+    // profile nothing was ever analysed, so every key is missing, and "that flag
+    // was re-analyzed away" would send the user hunting the wrong thing.
+    if (profile === null) {
+      reportToolError(
+        "verify needs the project's agent profile — none is installed",
+      );
+      return;
+    }
+    const row = flagByKey(key);
+    if (row === undefined) {
+      reportToolError("that flag was re-analyzed away");
+      return;
+    }
+    // A pit is refused HERE and not only in the panel, which disables the button
+    // with the same reason. Defence in depth on a verb whose cost is real: stage
+    // 2 drives directed lanes at ONE anchor cell and a pit is a whole region, so
+    // an anchor's lanes would prove nothing about it. The two spellings of the
+    // reason agree by REVIEW — the chrome cannot value-import anything under
+    // `viewport-host/` (the FlagsSection tint-palette precedent).
+    if (row.flag.kind === "pit") {
+      reportToolError("that finding is region-level — walk it");
+      return;
+    }
+    verifyInFlight = true;
+    const epoch = worldEpoch;
+    void analyzer
+      .verify({
+        engineUrl: ANALYZER_ENGINE_URL,
+        flag: row.flag,
+        profile,
+        budgetMs: VERIFY_BUDGET_MS,
+      })
+      .then((res) => {
+        // Dropped when the host is gone, or when the WORLD is: an answer about a
+        // field that has since been swapped out would be re-added past the
+        // clear that reset made, and would then badge whatever finding of the
+        // NEW world happened to key alike. Everything else — a re-analysis
+        // retiring or moving this finding — is the flag store's own rule, which
+        // drops a chunk's verdicts when that chunk is replaced.
+        if (disposed || worldEpoch !== epoch) return;
+        flagStore.setVerdict(row.flag, res.verdict);
+        publishFlags();
+      })
+      .catch(reportAnalyzerFailure)
+      // The latch releases on EVERY settlement, or one dead bundle costs the
+      // verb for the rest of the session (the pump's own rule).
+      .finally(() => {
+        verifyInFlight = false;
+      });
+  };
+
   // Advisor passes still owed an answer — see FieldStats.analyzerPending. With
   // no profile the pending flags DO accumulate (they are the catch-up an install
   // would run), but nothing is posted and nothing will be until one arrives: the
@@ -2981,7 +3118,7 @@ export function createFieldHost(deps?: {
     } catch {
       return false; // a retired generator: let the core call own the failure
     }
-    if (!placesArchetypes(def.paramSchema)) return false;
+    if (def.emits === "ops") return false;
     reportToolError(
       `${s.generator} placed no props here — nothing to commit. Widen the region, raise density, or lower spacing.`,
     );
@@ -3740,6 +3877,7 @@ export function createFieldHost(deps?: {
     analyzerDirty.clear();
     analyzerResync = true;
     analyzerSeeds = [];
+    worldEpoch += 1; // retires any stage-2 verdict still in flight
     flagStore.clear();
     publishFlags();
     store.chunks.clear();
@@ -4105,7 +4243,7 @@ export function createFieldHost(deps?: {
         name: g.name,
         paramSchema: withArchetypeOptions(structuredClone(g.paramSchema), ids),
         defaults: structuredClone(g.defaults),
-        placesProps: placesArchetypes(g.paramSchema),
+        placesProps: g.emits !== "ops",
       }));
     },
     propInstanceCounts() {
@@ -4328,6 +4466,7 @@ export function createFieldHost(deps?: {
       flagStore.setFilters(filters);
       publishFlags();
     },
+    verifyFlag: verifyFlagImpl,
     flagMarkerCount() {
       return markerCount;
     },

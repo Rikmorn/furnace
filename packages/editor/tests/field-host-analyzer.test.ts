@@ -32,8 +32,10 @@ import {
   SOLID,
 } from "@furnace/core/field";
 import type {
+  AnalyzerEngine,
   AnalyzerRequest,
   AnalyzerResponse,
+  VerifyVerdictWire,
 } from "../src/frontend/lib/analyzer-protocol.ts";
 import { createAnalyzerWorkerHandler } from "../src/frontend/lib/analyzer-protocol.ts";
 import type { WorkerLike } from "../src/frontend/lib/field-client.ts";
@@ -112,8 +114,14 @@ const DELIVER_ROUNDS = 8;
 
 /** A worker whose "thread" is the real handler, run on demand. The handler is
  *  built ONCE — it owns the mirror, so a per-delivery one would forget every
- *  sync between messages. */
-function analyzerWorker() {
+ *  sync between messages.
+ *
+ *  `verifyWith` supplies the stage-2 engine the handler would otherwise import
+ *  from /engine.js. Given one, the REAL `handleVerify` runs — `requireStore`
+ *  included — so what a test drives is the whole worker path minus the project's
+ *  mover. Omitted, the engine load rejects, which is the pre-verify default and
+ *  what every stage-1 test wants. */
+function analyzerWorker(verifyWith?: AnalyzerEngine) {
   const sent: AnalyzerRequest[] = [];
   // Tracked beside `sent` so `respond` still works after a test has cleared the
   // inspection log to isolate the messages of one verb.
@@ -134,7 +142,10 @@ function analyzerWorker() {
   const handle = createAnalyzerWorkerHandler({
     post: (res: AnalyzerResponse) =>
       worker.onmessage?.({ data: res } as MessageEvent),
-    loadEngine: () => Promise.reject(new Error("no engine wired in this test")),
+    loadEngine: () =>
+      verifyWith === undefined
+        ? Promise.reject(new Error("no engine wired in this test"))
+        : Promise.resolve(verifyWith),
   });
   /** Drain the microtask queue. A response walks a two-link chain inside the
    *  client and the pump (`.then` for the result, `.catch` for a handler that
@@ -179,11 +190,14 @@ function analyzerWorker() {
     sent.filter(
       (r): r is Extract<AnalyzerRequest, { kind: K }> => r.kind === kind,
     );
-  return { worker, sent, deliver, respond, of };
+  return { worker, sent, deliver, respond, of, flush };
 }
 
-function fixture(profile: AgentProfile | null = AGENT) {
-  const fake = analyzerWorker();
+function fixture(
+  profile: AgentProfile | null = AGENT,
+  engine?: AnalyzerEngine,
+) {
+  const fake = analyzerWorker(engine);
   // Counted, not just returned: the client spawns LAZILY, so a stray post after
   // dispose shows up here as a second spawn — a live worker holding a
   // megabyte-scale mirror that nothing will ever reap.
@@ -458,6 +472,233 @@ test("a worker-side failure surfaces as a tool problem, not a silent stall", asy
   await f.deliver();
   expect(f.errors.at(-1)).toContain("walkability analyzer:");
   expect(f.errors.at(-1)).toContain("climbCeiling");
+});
+
+// --- stage 2: the verify verb (D-F4-13) --------------------------------------
+//
+// `verifyFlag` is the ONE host path that reaches the project's own mover. What
+// it must get right is small and all refusal: the right flag, the right profile,
+// one at a time, and four things it declines to post at all. The verdict's
+// CONTENT is the dungeon's business (`walk-probe.test.ts`), and that the whole
+// stack actually runs off-thread is `analyzer-verify.test.ts`' — which drives
+// this same verb against the real engine bundle.
+
+const VERDICT: VerifyVerdictWire = {
+  outcome: "clear",
+  lanes: [{ dir: [1, 0], outcome: "clear", progressed: 3.5 }],
+  ms: 42,
+};
+
+/** A stage-2 engine that answers with {@link VERDICT} and records what it was
+ *  asked, so a test can check the host handed over the flag the user clicked. */
+function cannedEngine(): AnalyzerEngine & {
+  asked: { flag: FieldFlag; budgetMs: number }[];
+} {
+  const asked: { flag: FieldFlag; budgetMs: number }[] = [];
+  return {
+    asked,
+    analyzerVerify: (opts) => {
+      asked.push({ flag: opts.flag, budgetMs: opts.budgetMs });
+      return Promise.resolve(VERDICT);
+    },
+  };
+}
+
+/** An engine whose verify never settles on its own — the in-flight state, held
+ *  open so a second request can be attempted against it. */
+function hangingEngine(): AnalyzerEngine & { release: () => void } {
+  let release = (): void => undefined;
+  return {
+    release: () => release(),
+    analyzerVerify: () =>
+      new Promise<VerifyVerdictWire>((resolve) => {
+        release = () => resolve(VERDICT);
+      }),
+  };
+}
+
+/** The chamber loaded, stage 1 settled, and the key of a finding the panel would
+ *  actually show — the state every verify starts from. */
+async function verifiableFixture(engine: AnalyzerEngine) {
+  const f = fixture(AGENT, engine);
+  f.host.loadWorld({
+    manifest: manifest(),
+    chunks: [{ key: chunkKey(0, 0, 0), bytes: chamberChunk() }],
+    oplog: null,
+  });
+  await f.deliver();
+  const row = lastSummary(f.pushes).visible[0];
+  if (row === undefined)
+    throw new Error("test: stage 1 found nothing to verify");
+  return { ...f, row };
+}
+
+// `deliver` SPLICES `sent`, so every assertion about what was POSTED is taken
+// before it runs — the request lands synchronously (postMessage is called inside
+// the client's promise executor), so there is nothing to wait for.
+
+test("verifyFlag drives stage 2 at the named finding and joins the verdict on", async () => {
+  const engine = cannedEngine();
+  const f = await verifiableFixture(engine);
+  f.host.verifyFlag(f.row.key);
+
+  const req = f.of("verify").at(-1);
+  // The project's OWN bundle, its OWN capsule — stage 2 exists to test the code,
+  // not a generic mover, so both have to be the project's.
+  expect(req?.engineUrl).toBe("/engine.js");
+  expect(req?.profile).toEqual(AGENT);
+  expect(req?.budgetMs).toBeGreaterThan(0);
+  // The flag the ROW named, not merely some flag: a verify taken on the wrong
+  // finding answers a question nobody asked and badges the wrong row.
+  expect(req?.flag.cell).toEqual(f.row.flag.cell);
+
+  await f.deliver();
+  // …and the worker handed the SAME flag and budget to the engine — the request
+  // shape above is only half the path.
+  expect(engine.asked.at(-1)?.flag.cell).toEqual(f.row.flag.cell);
+  expect(engine.asked.at(-1)?.budgetMs).toBe(req?.budgetMs ?? -1);
+
+  // The answer comes back JOINED onto the row it was taken on — one summary, no
+  // separate verdict channel for the panel to line up itself.
+  const verified = lastSummary(f.pushes).visible.find(
+    (r) => r.key === f.row.key,
+  );
+  expect(verified?.verdict).toEqual(VERDICT);
+  expect(f.errors).toEqual([]);
+});
+
+test("a verdict that outlives its WORLD is dropped, not attached", async () => {
+  // The one staleness case the flag store's own rule cannot reach: `resetWorld`
+  // has already run `clear()`, so a verdict landing afterwards is a fresh entry
+  // in an emptied map rather than a stale one waiting to be dropped.
+  //
+  // The reload is what makes it OBSERVABLE. Findings key on (kind, cell), so a
+  // world reloaded from the same chunks produces the very same keys — which is
+  // exactly when an ungated late verdict stops being inert and starts badging a
+  // row of a field it was never taken on.
+  const engine = hangingEngine();
+  const f = fixture(AGENT, engine);
+  const chunks = [{ key: chunkKey(0, 0, 0), bytes: chamberChunk() }];
+  f.host.loadWorld({ manifest: manifest(), chunks, oplog: null });
+  const canned = [
+    {
+      key: "0,0,0" as ChunkKey,
+      flags: [flag("narrow", "candidate", [1, 0, 0], "0,0,0")],
+    },
+  ];
+  await f.respond(canned);
+  const key = lastSummary(f.pushes).visible[0]?.key;
+  if (key === undefined) throw new Error("test: no row to verify");
+
+  f.host.verifyFlag(key);
+  const draining = f.deliver();
+  await f.flush(); // the verify is now suspended inside the engine
+
+  // Swap the world out and back in while it hangs, and let the SAME finding
+  // return — answered directly, so it lands before the verdict does.
+  f.host.newWorld();
+  f.host.loadWorld({ manifest: manifest(), chunks, oplog: null });
+  await f.respond(canned);
+  expect(lastSummary(f.pushes).visible.map((r) => r.key)).toEqual([key]);
+
+  engine.release();
+  await draining;
+  // The row is back and carries NO verdict: a wrong verdict wearing a current
+  // row's clothes is worse than none, and the finding simply stands unverified.
+  expect(
+    lastSummary(f.pushes).visible.find((r) => r.key === key)?.verdict,
+  ).toBe(undefined);
+  expect(f.errors).toEqual([]);
+});
+
+test("a second verify while one runs is REFUSED, never queued", async () => {
+  const engine = hangingEngine();
+  const f = await verifiableFixture(engine);
+  const second = lastSummary(f.pushes).visible[1];
+  if (second === undefined) throw new Error("test: need two findings");
+
+  f.host.verifyFlag(f.row.key);
+  expect(f.of("verify")).toHaveLength(1);
+  // Drive it INTO the worker and leave it there. The flush is load-bearing: the
+  // protocol dispatches off a promise TAIL, so `deliver` alone has not yet
+  // entered `analyzerVerify` and the release below would arm nothing. After it,
+  // `deliver` has spliced the queue and is suspended inside the hanging verify,
+  // so anything the host posts from here on appends to an empty `sent`.
+  const draining = f.deliver();
+  await f.flush();
+
+  f.host.verifyFlag(second.key);
+  // Budgeted seconds of real mover: a queued second one would run against a
+  // field the first may have outlived, with nothing on screen saying so.
+  expect(f.sent).toEqual([]);
+  expect(f.errors.at(-1)).toBe("a verify is already running");
+
+  // …and the latch RELEASES: once the first answers, the next is accepted.
+  engine.release();
+  await draining;
+  f.host.verifyFlag(second.key);
+  expect(f.of("verify").at(-1)?.flag.cell).toEqual(second.flag.cell);
+});
+
+test("a key no finding holds is refused — the analyzer moved on", async () => {
+  const f = await verifiableFixture(cannedEngine());
+  // The reachable race: the panel renders a row, an edit's re-analysis replaces
+  // that chunk's findings, and the click lands on a key nothing answers to. The
+  // host must SAY so — a silent no-op reads as a dead button.
+  f.host.verifyFlag("narrow@999,999,999");
+  await f.deliver();
+  expect(f.of("verify")).toEqual([]);
+  expect(f.errors.at(-1)).toBe("that flag was re-analyzed away");
+});
+
+test("a pit is refused HERE, not only greyed out in the panel", async () => {
+  const f = fixture(AGENT, cannedEngine());
+  f.host.loadWorld({
+    manifest: manifest(),
+    chunks: [{ key: chunkKey(0, 0, 0), bytes: chamberChunk() }],
+    oplog: null,
+  });
+  await f.respond([], [flag("pit", "candidate", [4, 0, 4], "0,0,0")]);
+  const pit = lastSummary(f.pushes).visible.find((r) => r.flag.kind === "pit");
+  if (pit === undefined) throw new Error("test: no pit row");
+
+  // The panel disables this button, but the panel is not the enforcement point
+  // — a stale render, a keyboard activation on a control React has not
+  // re-disabled yet, or any future caller all reach the host directly. Stage 2
+  // drives DIRECTED lanes at ONE anchor cell, and a pit is a whole region: one
+  // anchor's lanes would prove nothing about it, so the answer would be
+  // meaningless rather than merely expensive.
+  f.host.verifyFlag(pit.key);
+  await f.deliver();
+  expect(f.of("verify")).toEqual([]);
+  expect(f.errors.at(-1)).toContain("region-level — walk it");
+});
+
+test("with no agent profile a verify refuses instead of posting a bad request", async () => {
+  // Unreachable through the panel today (no profile means no findings, so no
+  // row and no button) — but the profile arrives off an async fetch and the
+  // request cannot even be BUILT without one, so the guard is what stops a
+  // malformed post rather than a decoration.
+  const f = fixture(null, cannedEngine());
+  f.host.verifyFlag("narrow@0,0,0");
+  await f.deliver();
+  expect(f.of("verify")).toEqual([]);
+  expect(f.errors.at(-1)).toContain("agent profile");
+});
+
+test("a stage-2 failure surfaces as a tool problem and releases the latch", async () => {
+  const failing: AnalyzerEngine = {
+    analyzerVerify: () => Promise.reject(new Error("rapier wasm never loaded")),
+  };
+  const f = await verifiableFixture(failing);
+  f.host.verifyFlag(f.row.key);
+  await f.deliver();
+  expect(f.errors.at(-1)).toContain("rapier wasm never loaded");
+
+  // The latch must not wedge on a failure: a verify that died has to leave the
+  // verb usable, or one bad bundle costs the rest of the session.
+  f.host.verifyFlag(f.row.key);
+  expect(f.of("verify")).toHaveLength(1);
 });
 
 /** `dispose()` calls `cancelAnimationFrame`, which bun does not define. Stubbed

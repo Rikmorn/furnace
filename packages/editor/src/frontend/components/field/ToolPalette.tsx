@@ -52,8 +52,10 @@ const GESTURE_TOOLS: {
 	{
 		gesture: "segment",
 		label: "Segment",
+		// The 60 m is FieldHost's MAX_SEGMENT_M, restated: the chrome cannot
+		// value-import anything under `viewport-host/`, so the two agree by review.
 		title:
-			"two clicks sweep the brush between them — one op (dig: a tunnel, fill: a rampart); Esc drops the first point",
+			"two clicks sweep the brush between them — one op (dig: a tunnel, fill: a rampart) · max 60 m; Esc drops the first point",
 	},
 ];
 

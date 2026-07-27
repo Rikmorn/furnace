@@ -1365,10 +1365,7 @@ test("a load-time compaction that throws is caught: the world still loads and th
 
 import type { PlacementRecord } from "@furnace/core/field";
 import type { EntityCatalog } from "../src/frontend/lib/catalog.ts";
-import {
-  groupPlacements,
-  placesArchetypes,
-} from "../src/viewport-host/field-placements.ts";
+import { groupPlacements } from "../src/viewport-host/field-placements.ts";
 import type { FieldEntityInfo } from "../src/viewport-host/index.ts";
 
 const CAVE_REGION = {
@@ -1807,12 +1804,17 @@ test("a CARVER whose preview came back empty still goes to CORE — the refusal 
   // The editor-side refusal exists because "0 props" is a legitimate outcome for
   // a READER. For a carver, nothing-to-build is a misconfiguration and core's own
   // wording is the accurate one — "raise density, lower spacing" would be
-  // nonsense advice for a hall. So the gate is `placesArchetypes`, and this pins
-  // that it did not quietly become "every generator".
-  expect(placesArchetypes(generatorById("hall").paramSchema)).toBe(false);
-  expect(placesArchetypes(generatorById("cave").paramSchema)).toBe(false);
-  expect(placesArchetypes(generatorById("maze").paramSchema)).toBe(false);
-  expect(placesArchetypes(generatorById("scatter").paramSchema)).toBe(true);
+  // nonsense advice for a hall. So the gate is `emits !== "ops"` (D-F4-15), and
+  // this pins that it did not quietly become "every generator".
+  //
+  // The registry's own declaration, read straight off the def: `emits` replaced
+  // the editor-side `placesArchetypes` schema sniff, which inferred the same fact
+  // from an `archetypeId` param and would have mis-read a future placer that
+  // takes its archetype any other way.
+  expect(generatorById("hall").emits).toBe("ops");
+  expect(generatorById("cave").emits).toBe("ops");
+  expect(generatorById("maze").emits).toBe("ops");
+  expect(generatorById("scatter").emits).toBe("placements");
 });
 
 test("…and the host acts on that: an empty-previewed HALL applies, it is not intercepted", async () => {

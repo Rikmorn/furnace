@@ -290,6 +290,12 @@ export function FieldPanel() {
 	const [flags, setFlags] = useState<FlagsSummary>(NO_FLAGS);
 	const [flagFilters, setFlagFilters] =
 		useState<FlagFilters>(DEFAULT_FLAG_FILTERS);
+	// The row key stage 2 is running on (null = none). PANEL state, not the
+	// host's, because releasing it takes two signals no single host seam carries:
+	// a verdict arrives on subscribeFlags, and each of `verifyFlag`'s refusals
+	// arrives on subscribeToolError having pushed no flags at all. Adopted here
+	// on the click for the same reason — `verifyFlag` is fire-and-forget.
+	const [verifying, setVerifying] = useState<string | null>(null);
 	// The one footer status line, toned: host REFUSALS (subscribeToolError) wear
 	// the destructive tone so they are seen — the F3b gate found the void-cast
 	// budget refusal and scatter's "select a region first" both landing here
@@ -433,13 +439,23 @@ export function FieldPanel() {
 	}, [state.status, fieldHostRef, refreshEntities]);
 
 	// User-facing tool problems (selection-mask misuse, swallowed stroke
-	// failures, "select a region first") surface on the status line.
+	// failures, "select a region first") surface on the status line — and release
+	// any verify the panel thinks is running. Every `verifyFlag` refusal comes
+	// through here having pushed no flags, so this is the only signal that a
+	// verify the user started never actually began; without it the column would
+	// read "Verifying…" until the next analyzer response.
+	//
+	// Deliberately blunt: an UNRELATED tool error (a failed stroke) also releases
+	// it. That way round is the safe one — the host still refuses a real second
+	// verify with "a verify is already running", so the cost is a button that
+	// looks live for a moment, against a column that sticks for good.
 	useEffect(() => {
 		const host = fieldHostRef.current;
 		if (!host || state.status !== "ready") return;
-		return host.subscribeToolError((text) =>
-			setStatusLine({ text, tone: "error" }),
-		);
+		return host.subscribeToolError((text) => {
+			setStatusLine({ text, tone: "error" });
+			setVerifying(null);
+		});
 	}, [state.status, fieldHostRef]);
 
 	// Live chunk / remesh-time / op-cost readout. The host fires this every rAF; the
@@ -469,10 +485,18 @@ export function FieldPanel() {
 	// setFlagFilters (plus the current summary on subscribe, so a remount mid-dig
 	// re-renders the list it left). Answer-paced, not frame-paced — which is why,
 	// unlike the stats mirror beside it, this needs no value-equality guard.
+	//
+	// Any push releases the in-flight verify, not just the one carrying its
+	// verdict: a re-analysis that landed mid-verify may have replaced the row the
+	// key names, so holding the column against a row that no longer exists would
+	// disable every Verify in the list with no way back.
 	useEffect(() => {
 		const host = fieldHostRef.current;
 		if (!host || state.status !== "ready") return;
-		return host.subscribeFlags(setFlags);
+		return host.subscribeFlags((summary) => {
+			setFlags(summary);
+			setVerifying(null);
+		});
 	}, [state.status, fieldHostRef]);
 
 	// Panel radius → host, DELIBERATELY one-way: the host's wheel and [ / ]
@@ -670,17 +694,16 @@ export function FieldPanel() {
 					filters={flagFilters}
 					onFilters={onFlagFilters}
 					onFrame={(chunks) => fieldHostRef.current?.frameChunks(chunks)}
-					// MIGRATION (until F4 Task 12): stage 2 drives the PROJECT's mover
-					// through the analyzer worker, and the host verb that starts it does
-					// not exist yet. Nothing can be in flight until it does, and a loud
-					// refusal beats a button that silently does nothing.
-					verifying={null}
-					onVerify={() =>
-						setStatusLine({
-							text: "verify is not wired to the mover yet",
-							tone: "error",
-						})
-					}
+					verifying={verifying}
+					onVerify={(key) => {
+						// Adopt BEFORE the call, never after: three of the host's four
+						// refusals are decided synchronously and report on the tool-error
+						// seam from inside `verifyFlag`, so a write afterwards would
+						// overwrite the release that refusal just performed and leave the
+						// column stuck on a verify that never ran.
+						setVerifying(key);
+						fieldHostRef.current?.verifyFlag(key);
+					}}
 				/>
 				<div className="border-b border-border px-2 py-1 text-sm">
 					<EntitiesList

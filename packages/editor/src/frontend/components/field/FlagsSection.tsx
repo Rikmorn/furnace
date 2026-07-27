@@ -195,10 +195,11 @@ const verdictLabel = (outcome: string, clustered: boolean): string =>
 /** The frame button's accessible NAME.
  *
  *  It carries the triage band because nothing else in the name does: the dot is
- *  `aria-hidden` (decoration to a reader) and the row's text is kind, position
- *  and count. Without this, `candidate` versus `info` — the axis the whole list
- *  is triaged on, and the axis its filters are named after — would reach
- *  assistive tech not at all. {@link DOT_GLYPH} is the same split's visual half.
+ *  `aria-hidden` (decoration to a reader) and the row's text is kind, count,
+ *  position and — on a pit — its cell total. Without this, `candidate` versus
+ *  `info` — the axis the whole list is triaged on, and the axis its filters are
+ *  named after — would reach assistive tech not at all. {@link DOT_GLYPH} is the
+ *  same split's visual half.
  *
  *  It names the ACTION too (DriftReport's reasoning): "narrow @ (2.5, 0.0, -8.0)"
  *  says nothing about what a click does, and kind + anchor is what tells two rows
@@ -215,10 +216,12 @@ const frameName = (label: string, severity: FlagSeverity): string =>
  *  which inline is a template nobody can read.
  *
  *  The refusal rides a sentence break rather than EntitiesList's trailing
- *  parenthetical (`open entity 2 (frozen — …)`), and the deviation is forced: a
- *  flag row's label already ENDS in parens — `narrow @ (2.5, 0.0, -8.0)` — so
+ *  parenthetical (`open entity 2 (frozen — …)`), and the deviation is forced:
+ *  every per-cell row's label ENDS in parens — `narrow @ (2.5, 0.0, -8.0)` — so
  *  that convention would produce two adjacent parentheticals meaning different
- *  things, which no reader (and no test) can tell apart. The break also reads
+ *  things, which no reader (and no test) can tell apart. (A `pit`'s label runs
+ *  on past them, `· 14 cells`, but it is the one kind that is ALWAYS refused, so
+ *  it cannot be the case the convention is chosen for.) The break also reads
  *  better aloud, and it is what lets the suite state the invariant that this
  *  button and {@link verifyRefusal} can never disagree. */
 function verifyName(

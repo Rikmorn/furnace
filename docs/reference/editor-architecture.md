@@ -814,7 +814,7 @@ the void cast (an X-ray view mode) and the segment brush (a two-click swept caps
 - **Empty-result policy (settled)** — core rejects an evaluate with no ops AND no
   placements, and KEEPS that stance. Right for a carver, wrong-feeling for a READER driven
   to zero props, so the EDITOR refuses first — but for PROP generators only
-  (`placesArchetypes`, i.e. the schema names an `archetypeId`): `previewIsEmpty(session)`
+  (`def.emits !== "ops"`, core's own declaration — D-F4-15): `previewIsEmpty(session)`
   gates both `commitStamp` and `applyReconfigure` and reports a sentence about props
   through `subscribeToolError`, while a carver still goes to core and surfaces core's own
   wording ("raise density, lower spacing" is nonsense advice for a hall). Core never sees
@@ -919,7 +919,7 @@ the void cast (an X-ray view mode) and the segment brush (a two-click swept caps
   (`docs/backlog/editor-and-tooling/field-tool-follow-ons.md` § *Segment brush: a BOX cross-section*).
 - **Host extractions + the worker seam** — `viewport-host/field-placements.ts` (pure: proxy
   extents/scale, oriented corners, `groupPlacements`, `placementGhostBatch`,
-  `placementsByEntity`, `placesArchetypes`, and the two catalog-seeding helpers) with
+  `placementsByEntity`, and the two catalog-seeding helpers) with
   `tests/field-placements.test.ts`, the `field-ghost.ts` precedent; `field-ghost.ts`
   itself gained `segmentGhostSegments`. `createFieldHost(deps?: { spawnWorker })` adds a
   DI seam for the worker: production omits it and gets the real `/field-worker.js`, while a test

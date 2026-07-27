@@ -73,11 +73,18 @@ function stubFetch(fn: (url: string) => Promise<Response>): void {
 }
 
 /** Serve each catalog URL its own body; anything absent 404s. */
-function stubCatalogs(bodies: { materials?: string; entities?: string }): void {
+function stubCatalogs(bodies: {
+	materials?: string;
+	entities?: string;
+	agent?: string;
+}): void {
 	stubFetch((url) => {
-		const body = url.includes("entities.json")
-			? bodies.entities
-			: bodies.materials;
+		const pick = (): string | undefined => {
+			if (url.includes("entities.json")) return bodies.entities;
+			if (url.includes("agent.json")) return bodies.agent;
+			return bodies.materials;
+		};
+		const body = pick();
 		return Promise.resolve(
 			body === undefined
 				? new Response("", { status: 404 })
@@ -175,7 +182,15 @@ const ENTITY: FieldEntityInfo = {
  *  seams latch their callback so a test can fire host-initiated pushes
  *  manually (wrap in act). subscribeSelection/subscribeStamp push the current
  *  (empty) state on subscribe, like the real host. */
-function makeStubHost(opts: { generators?: FieldGeneratorInfo[] } = {}) {
+function makeStubHost(
+	opts: {
+		generators?: FieldGeneratorInfo[];
+		/** Make `verifyFlag` refuse SYNCHRONOUSLY on the tool-error seam, exactly
+		 *  as the real host's busy / no-profile / stale-key / pit guards do — they
+		 *  are decided and reported before the call returns. */
+		verifyRefusal?: string;
+	} = {},
+) {
 	let entities: FieldEntityInfo[] = [];
 	// The stub models the REAL host's snapshot semantics: setEntityCatalog stores
 	// the catalog, and listGenerators() reads it AT CALL TIME through the same
@@ -233,6 +248,7 @@ function makeStubHost(opts: { generators?: FieldGeneratorInfo[] } = {}) {
 		frameChunks: mock(),
 		setAgentProfile: mock(),
 		setFlagFilters: mock(),
+		verifyFlag: mock(),
 	};
 	const host: FieldHost = {
 		init: () => Promise.resolve(),
@@ -326,6 +342,10 @@ function makeStubHost(opts: { generators?: FieldGeneratorInfo[] } = {}) {
 			return () => {};
 		},
 		setFlagFilters: calls.setFlagFilters,
+		verifyFlag: (key) => {
+			calls.verifyFlag(key);
+			if (opts.verifyRefusal !== undefined) cbs.toolError?.(opts.verifyRefusal);
+		},
 		flagMarkerCount: () => 0,
 		exportArtifact: () => [],
 		subscribeStats: (cb) => {
@@ -1074,6 +1094,70 @@ test("the entity catalog is fetched, parsed and installed on the host", async ()
 	expect(installed?.archetypes[0]?.scatter).toEqual({ density: 0.3 });
 });
 
+/** The agent profile in the exact catalog/agent.json v1 shape (D-F4-4). */
+const AGENT_JSON = JSON.stringify({
+	version: 1,
+	capsule: { radius: 0.3, halfHeight: 0.6 },
+	stepHeight: 0.4,
+	climbCeiling: 0.7,
+	clearance: 1.8,
+	slopeLimitDeg: 55,
+	skin: 0.08,
+});
+
+test("the agent catalog is fetched, parsed and installed on the host", async () => {
+	stubCatalogs({ materials: CATALOG_JSON, agent: AGENT_JSON });
+	const stub = makeStubHost();
+	await renderPanel(stub);
+	await waitFor(() =>
+		expect(stub.calls.setAgentProfile.mock.calls.length).toBe(1),
+	);
+	// The whole profile, parsed — this is the advisor's entire premise, and a
+	// field dropped here is a pass parameterized on a capsule nobody authored.
+	expect(stub.calls.setAgentProfile.mock.calls[0]?.[0]).toEqual({
+		capsule: { radius: 0.3, halfHeight: 0.6 },
+		stepHeight: 0.4,
+		climbCeiling: 0.7,
+		clearance: 1.8,
+		slopeLimitDeg: 55,
+		skin: 0.08,
+	});
+});
+
+test("no agent catalog installs nothing, quietly — the advisor says so itself", async () => {
+	// A project with no agent profile is a legitimate one (the editor is
+	// project-first). The host reports "advisor idle" ONCE at the first edit that
+	// would have analysed, which is a better moment than load; a second message
+	// here would be noise on a line that has already said what happened.
+	stubCatalogs({ materials: CATALOG_JSON });
+	const stub = makeStubHost();
+	await renderPanel(stub);
+	await waitFor(() => expect(screen.getByText(/materials: /)).toBeTruthy());
+	expect(stub.calls.setAgentProfile.mock.calls).toEqual([]);
+	expect(screen.queryByText(/agent/)).toBeNull();
+});
+
+test("a MALFORMED agent catalog is setup-loud and costs the other two nothing", async () => {
+	stubCatalogs({
+		materials: CATALOG_JSON,
+		entities: ENTITIES_JSON,
+		agent: JSON.stringify({ version: 1, capsule: { radius: 0.3 } }),
+	});
+	const stub = makeStubHost();
+	await renderPanel(stub);
+	// The JSON path is in the line, so a mistyped catalog is diagnosable from the
+	// panel rather than from a pass that silently never ran.
+	await waitFor(() =>
+		expect(screen.getByText(/capsule\.halfHeight/)).toBeTruthy(),
+	);
+	expect(stub.calls.setAgentProfile.mock.calls).toEqual([]);
+	// The other two catalogs are unaffected — the agent fetch gates nothing, so
+	// its failure must not cost the table that DOES gate Load.
+	expect(stub.calls.setMaterialTable.mock.calls.length).toBe(1);
+	expect(stub.calls.setEntityCatalog.mock.calls.length).toBe(1);
+	expect(screen.getByText(/materials: 2 classes/)).toBeTruthy();
+});
+
 /** The inspector labels a param with its humanized key, and FieldRow wraps the
  *  control in that <label> — so this resolves whichever control the field kind
  *  chose: EnumField's Radix combobox (a <button>) or StringField's <input>. */
@@ -1613,10 +1697,11 @@ test("a cluster's verdict and Verify say WHICH finding they are about", async ()
 	).toBeTruthy();
 });
 
-// The verify SEAM, pinned against the section directly: FieldPanel cannot start
-// one until the host grows `verifyFlag` (F4 Task 12), so it passes a null
-// `verifying` and a placeholder handler — going through the panel would pin the
-// placeholder instead of the contract.
+// The section's own four button states, pinned against it DIRECTLY: `verifying`
+// is a prop, so the section can be driven through all of them by re-rendering,
+// where the panel test below can only reach the ones its host stub produces.
+// The panel's half — who sets that prop, and what releases it — is the two tests
+// after this one.
 test("Verify hands back the row's own key, and only one runs at a time", () => {
 	// biome-ignore lint/suspicious/noEmptyBlockStatements: inert test no-op
 	const noop = () => {};
@@ -1658,6 +1743,92 @@ test("Verify hands back the row's own key, and only one runs at a time", () => {
 	rerender(section(null));
 	expect(verifyButton("verify narrow @ (2.5, 0.0, -8.0)").disabled).toBe(false);
 	expect(verifyButton("verify narrow @ (40.0, 0.0, 0.0)").disabled).toBe(false);
+});
+
+/** The second of two rows far enough apart not to cluster (CLUSTER_RADIUS_M is
+ *  2 m), so the list renders two independent Verify buttons. Named separately
+ *  because one test rebuilds the pair with a verdict on the first. */
+const FAR_ROW = rowOf("b", flagAt("narrow", "candidate", [40, 0, 0]));
+const TWO_ROWS: FlagRow[] = [NARROW, FAR_ROW];
+
+test("clicking Verify starts a REAL one on the host and marks the row in flight", async () => {
+	fetch404();
+	const stub = makeStubHost();
+	await renderPanel(stub);
+	act(() => {
+		stub.fire.flags(summaryOf(TWO_ROWS));
+	});
+
+	fireEvent.click(screen.getByLabelText("verify narrow @ (2.5, 0.0, -8.0)"));
+	// The host verb, with the store's own opaque key handed straight back.
+	expect(stub.calls.verifyFlag.mock.calls).toEqual([["a"]]);
+	// …and the panel adopts the in-flight row itself, because nothing pushes it
+	// back: `verifyFlag` is fire-and-forget and the verdict is the next signal.
+	expect(
+		(
+			screen.getByLabelText(
+				"verify narrow @ (2.5, 0.0, -8.0)",
+			) as HTMLButtonElement
+		).textContent,
+	).toBe("Verifying…");
+	expect(
+		screen.getByLabelText(
+			"verify narrow @ (40.0, 0.0, 0.0). Unavailable: a verify is already running",
+		),
+	).toBeTruthy();
+});
+
+test("the in-flight column is released by a verdict AND by a refusal", async () => {
+	fetch404();
+	const stub = makeStubHost();
+	await renderPanel(stub);
+	act(() => {
+		stub.fire.flags(summaryOf(TWO_ROWS));
+	});
+	const verifyA = (): HTMLButtonElement =>
+		screen.getByLabelText(/^verify narrow @ \(2\.5/) as HTMLButtonElement;
+
+	// (1) the verdict push — the ordinary end of a verify.
+	fireEvent.click(verifyA());
+	expect(verifyA().textContent).toBe("Verifying…");
+	act(() => {
+		stub.fire.flags(
+			summaryOf([rowOf("a", NARROW.flag, VERDICT_TRAPPED), FAR_ROW]),
+		);
+	});
+	expect(verifyA().textContent).toBe("Verify");
+
+	// (2) a REFUSAL. The host's four refusals (busy, no profile, a key it no
+	// longer holds, a pit) all report on the tool-error seam and push NO flags —
+	// so a column released only by (1) would stick until the next edit, showing a
+	// verify that never started as one still running.
+	fireEvent.click(verifyA());
+	expect(verifyA().textContent).toBe("Verifying…");
+	act(() => {
+		stub.fire.toolError("that flag was re-analyzed away");
+	});
+	expect(verifyA().textContent).toBe("Verify");
+	expect(screen.getByText("that flag was re-analyzed away")).toBeTruthy();
+});
+
+test("a SYNCHRONOUS refusal never leaves the column stuck", async () => {
+	fetch404();
+	// Three of the host's four refusals report from INSIDE verifyFlag, before it
+	// returns. So the panel's adopt has to happen first: adopting afterwards
+	// overwrites the release that refusal already performed, and the row reads
+	// "Verifying…" forever over a verify that never started.
+	const stub = makeStubHost({ verifyRefusal: "a verify is already running" });
+	await renderPanel(stub);
+	act(() => {
+		stub.fire.flags(summaryOf(TWO_ROWS));
+	});
+	const verifyA = (): HTMLButtonElement =>
+		screen.getByLabelText(/^verify narrow @ \(2\.5/) as HTMLButtonElement;
+
+	fireEvent.click(verifyA());
+	expect(stub.calls.verifyFlag.mock.calls).toEqual([["a"]]);
+	expect(verifyA().textContent).toBe("Verify");
+	expect(screen.getByText("a verify is already running")).toBeTruthy();
 });
 
 test("the analyzer says when it is catching up, and idles quiet", async () => {

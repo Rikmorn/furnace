@@ -1,8 +1,8 @@
 // The Field panel's persistence toolbar (extracted from FieldPanel, F2b
 // sweep): the world-name input + New / Load / Save / Bake-as-default + the
-// headlamp toggle, plus the run-once catalog fetch that installs the
-// project's resolved material table AND its entity catalog on the host. Owns
-// the name / busy / catalog-settled state — the panel consumes the parsed
+// headlamp toggle, plus the run-once catalog fetch that installs the project's
+// resolved material table, its entity catalog AND its agent profile on the
+// host. Owns the name / busy / catalog-settled state — the panel consumes the parsed
 // table (onTable), the entity-catalog signal (onEntityCatalogInstalled) and
 // the status line (onStatus, rendered in the panel footer). Reaches the
 // App-owned host through the editor context ref, exactly like the panel —
@@ -16,6 +16,7 @@ import { api } from "../../lib/api.ts";
 // NOT pull core into the chrome bundle — the project-first invariant holds.
 import {
 	CatalogError,
+	parseAgentCatalog,
 	parseEntityCatalog,
 	parseMaterialsCatalog,
 } from "../../lib/catalog.ts";
@@ -84,17 +85,19 @@ export function FieldToolbar(props: {
 
 	const nameValid = NAME_RE.test(name);
 
-	// Catalog load, run-once on engine-ready — BOTH project catalogs, in one pass so
-	// they cannot race each other onto the status line. Materials come first and
-	// alone gate Load: a v2 world must remesh against the same table it was baked
-	// with. The entity catalog gates nothing (props render from the op log whether or
-	// not it resolves), so it runs after the gate has settled and its outcome only
-	// ever appends to the message.
+	// Catalog load, run-once on engine-ready — ALL THREE project catalogs, in one
+	// pass so they cannot race each other onto the status line. Materials come first
+	// and alone gate Load: a v2 world must remesh against the same table it was baked
+	// with. The entity and agent catalogs gate nothing (props render from the op log
+	// whether or not the first resolves; the advisor simply stays off without the
+	// second), so they run after the gate has settled and their outcomes only ever
+	// append to the message.
 	//
 	// The daemon maps these chrome-miss GETs onto the project root. A 404 leaves the
-	// host on its rock-only BUILTIN_TABLE / no-archetypes defaults; a CatalogError is
-	// setup-loud (its JSON path shows in the status line so a mistyped catalog is
-	// diagnosable here). The host may not be GPU-init'd yet — the setters then just
+	// host on its rock-only BUILTIN_TABLE / no-archetypes / no-profile defaults; a
+	// CatalogError is setup-loud (its JSON path shows in the status line so a
+	// mistyped catalog is diagnosable here). The host may not be GPU-init'd yet —
+	// the setters then just
 	// store (no rebuild) and init() picks them up; if init ran first, the swap
 	// re-meshes. Either order converges. fieldHostRef.current is assigned before
 	// engine-ready (App), so it is present whenever state.status === "ready". EVERY
@@ -135,6 +138,27 @@ export function FieldToolbar(props: {
 			}
 		};
 
+		// The walkability advisor's premise (D-F4-4). Never throws, like the entity
+		// load, and SILENT on both good outcomes: a parsed profile shows itself in
+		// the advisor's markers, and a 404 is a project that simply has no agent —
+		// one the host already reports as "advisor idle" at the first edit that
+		// would have analysed, which is a better moment than load. Only a MALFORMED
+		// catalog has something to say here, and it must be said: nothing else
+		// would tell the user why the advisor never lit up.
+		const loadAgent = async (): Promise<string | null> => {
+			try {
+				const res = await fetch("/catalog/agent.json");
+				if (res.status === 404) return null;
+				if (!res.ok) return `agent fetch failed (${res.status})`;
+				host.setAgentProfile(parseAgentCatalog(await res.text()));
+				return null;
+			} catch (err) {
+				return err instanceof CatalogError
+					? `agent error at "${err.path || "(root)"}": ${err.message}`
+					: `agent load failed: ${errorMessage(err)}`;
+			}
+		};
+
 		void (async () => {
 			let status: string;
 			try {
@@ -147,14 +171,18 @@ export function FieldToolbar(props: {
 			} finally {
 				setCatalogSettled(true);
 			}
-			// Report the materials outcome the moment it is known, then APPEND the
-			// entity one — a slow (or wedged) entities fetch must not hold back the
-			// message about the catalog that actually gates Load.
+			// Report the materials outcome the moment it is known, then APPEND
+			// whatever the two NON-GATING catalogs have to say — a slow (or wedged)
+			// entities fetch must not hold back the message about the catalog that
+			// actually gates Load. Both run concurrently and the line is composed
+			// ONCE, so neither can clobber the other's fragment.
 			report(status);
 			const owned = statusSeq.current;
-			const entities = await loadEntities();
-			if (entities !== null && statusSeq.current === owned)
-				report(`${status} · ${entities}`);
+			const extras = (await Promise.all([loadEntities(), loadAgent()])).filter(
+				(part): part is string => part !== null,
+			);
+			if (extras.length > 0 && statusSeq.current === owned)
+				report([status, ...extras].join(" · "));
 		})();
 	}, [state.status, fieldHostRef, onTable, report, onEntityCatalogInstalled]);
 

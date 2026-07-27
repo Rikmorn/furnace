@@ -4,9 +4,14 @@ import type { KitStyle, MaterialTable } from "@furnace/core/field";
 // Tests are NOT part of the chrome bundle, so a VALUE import of core is allowed
 // here — it is exactly what proves the frontend parser's LOCAL validation twin
 // stays in sync with core's validateMaterialTable.
-import { validateMaterialTable } from "@furnace/core/field";
+import {
+  analyzeWorld,
+  createFieldStore,
+  validateMaterialTable,
+} from "@furnace/core/field";
 import {
   CatalogError,
+  parseAgentCatalog,
   parseEntityCatalog,
   parseMaterialsCatalog,
 } from "../src/frontend/lib/catalog.ts";
@@ -498,5 +503,153 @@ describe("parseEntityCatalog", () => {
     // Every shipped archetype carries authoring hints the stamp form can seed from.
     for (const a of archetypes)
       expect(Object.keys(a.scatter).length).toBeGreaterThan(0);
+  });
+});
+
+// ——— the agent catalog (catalog/agent.json) ———
+//
+// The walkability advisor's premise (D-F4-4): the capsule, step, climb ceiling,
+// clearance, slope and contact margin every analyzer pass is parameterized on.
+// STRUCTURAL validation only — the numeric CONTRACT (positivity, and the three
+// cross-field relations) is core's `assertAgentProfileValid`, which every pass
+// runs; the tests below pin that division rather than assuming it.
+
+describe("parseAgentCatalog", () => {
+  const VALID_AGENT = JSON.stringify({
+    version: 1,
+    capsule: { radius: 0.3, halfHeight: 0.6 },
+    stepHeight: 0.4,
+    climbCeiling: 0.7,
+    clearance: 1.8,
+    slopeLimitDeg: 55,
+    skin: 0.08,
+  });
+
+  /** Parse `text`, expecting a CatalogError; return it so `.path` can be asserted. */
+  const agentError = (text: string): CatalogError => {
+    try {
+      parseAgentCatalog(text);
+    } catch (e) {
+      if (e instanceof CatalogError) return e;
+      throw e;
+    }
+    throw new Error("expected parseAgentCatalog to throw a CatalogError");
+  };
+
+  /** JSON round-trip so each negative case mutates a fresh copy. */
+  const mutateAgent = (fn: (root: Record<string, unknown>) => void): string => {
+    const root = JSON.parse(VALID_AGENT) as Record<string, unknown>;
+    fn(root);
+    return JSON.stringify(root);
+  };
+
+  test("parses the whole profile — all SEVEN fields, none dropped", () => {
+    // The count is the assertion. A parser that silently skipped a field would
+    // hand core a profile missing the very number a pass reads, and core's own
+    // gate would then blame a field the catalog spelled correctly.
+    expect(parseAgentCatalog(VALID_AGENT)).toEqual({
+      capsule: { radius: 0.3, halfHeight: 0.6 },
+      stepHeight: 0.4,
+      climbCeiling: 0.7,
+      clearance: 1.8,
+      slopeLimitDeg: 55,
+      skin: 0.08,
+    });
+  });
+
+  test("every missing or mistyped field names its own JSON path", () => {
+    /** The capsule sub-record, loosely typed for the mutation callbacks. */
+    const capsuleOf = (r: Record<string, unknown>): Record<string, unknown> =>
+      r["capsule"] as Record<string, unknown>;
+    const cases: [string, (root: Record<string, unknown>) => void][] = [
+      ["capsule", (r) => delete r["capsule"]],
+      ["capsule.radius", (r) => delete capsuleOf(r)["radius"]],
+      [
+        "capsule.halfHeight",
+        (r) => {
+          capsuleOf(r)["halfHeight"] = "tall";
+        },
+      ],
+      ["stepHeight", (r) => delete r["stepHeight"]],
+      ["climbCeiling", (r) => delete r["climbCeiling"]],
+      ["clearance", (r) => delete r["clearance"]],
+      ["slopeLimitDeg", (r) => delete r["slopeLimitDeg"]],
+      // The tranche-A addition. A parser written against the pre-skin six would
+      // pass every other case here and drop exactly this one.
+      ["skin", (r) => delete r["skin"]],
+    ];
+    for (const [path, breakIt] of cases)
+      expect(agentError(mutateAgent(breakIt)).path).toBe(path);
+  });
+
+  test("the document-level failures land where the other two parsers' do", () => {
+    expect(agentError("{").path).toBe("");
+    expect(agentError(JSON.stringify(5)).path).toBe("");
+  });
+
+  test("a version this parser does not speak is refused", () => {
+    const e = agentError(mutateAgent((r) => (r["version"] = 2)));
+    expect(e.path).toBe("version");
+    expect(e.message).toContain("unsupported version 2");
+  });
+
+  test("EVERY agent failure names the AGENT catalog, not the other two", () => {
+    // Three parsers, one error class, one file: a path that reached for another
+    // parser's bound label would blame the wrong FILE — the exact wrong
+    // diagnostic. Sampled across all three throw shapes this parser can take.
+    const messages = [
+      agentError("{"), // err factory (malformed JSON)
+      agentError(JSON.stringify(5)), // record (the document root)
+      agentError(mutateAgent((r) => delete r["stepHeight"])), // num
+      agentError(mutateAgent((r) => (r["capsule"] = 5))), // record (nested)
+    ].map((e) => e.message);
+    for (const m of messages) expect(m).toStartWith("agent catalog:");
+    expect(
+      messages.some(
+        (m) => m.includes("materials catalog") || m.includes("entity catalog"),
+      ),
+    ).toBe(false);
+  });
+
+  test("the numeric CONTRACT is core's, and this parser deliberately defers it", () => {
+    // Profiles that are structurally perfect and semantically impossible. This
+    // parser passes each — restating core's relations here would be a second
+    // source of truth that can disagree with the gate every pass actually runs
+    // (the entity parser's scatter-hints rationale, same trade).
+    //
+    // Each case is its OWN document: core's gate throws on the first relation it
+    // finds, so a single profile breaking three would only ever pin one message.
+    const deferred: [string, (root: Record<string, unknown>) => void][] = [
+      ["climbCeiling", (r) => (r["climbCeiling"] = 0.1)], // below stepHeight
+      ["skin", (r) => (r["skin"] = 0.9)], // wider than the capsule radius
+      ["clearance", (r) => (r["clearance"] = 0.5)], // below the capsule's height
+      ["stepHeight", (r) => (r["stepHeight"] = -1)], // not positive
+    ];
+    for (const [field, breakIt] of deferred) {
+      const profile = parseAgentCatalog(mutateAgent(breakIt));
+      // …and core is the one that refuses it — proof the deferral lands
+      // somewhere rather than nowhere, and that it names the offending FIELD.
+      // `analyzeWorld` runs the gate even with no chunks to analyse.
+      expect(() => analyzeWorld(createFieldStore(0.25), profile)).toThrow(
+        new RegExp(field),
+      );
+    }
+  });
+
+  test("the shipped dungeon agent catalog parses AND satisfies core's gate", async () => {
+    // The coupling test, both halves: the artifact the dungeon ships parses
+    // here, and the profile that comes out is one core will actually analyse
+    // with. Either half alone would let a real catalog break the advisor.
+    const path = join(
+      import.meta.dir,
+      "..",
+      "..",
+      "dungeon",
+      "catalog",
+      "agent.json",
+    );
+    const profile = parseAgentCatalog(await Bun.file(path).text());
+    expect(profile.capsule.radius).toBeGreaterThan(0);
+    expect(() => analyzeWorld(createFieldStore(0.25), profile)).not.toThrow();
   });
 });
