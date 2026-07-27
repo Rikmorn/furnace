@@ -1,18 +1,20 @@
-// Layer visibility + the two view modes (F2b Task 15, F3b Task 12): six
-// checkboxes drive host.setLayers (display-only gates — hiding a layer never
-// affects targeting, ops, or bakes); beside them the void-cast toggle (the
+// Layer visibility + the two view modes (F2b Task 15, F3b Task 12, F4 Task 11):
+// seven checkboxes drive host.setLayers (display-only gates — hiding a layer
+// never affects targeting, ops, or bakes); beside them the void-cast toggle (the
 // X-ray, also a setLayers flag) and the slice enable + Y slider (host.setSlice
 // — display + targeting, never the field). Pure presentation — the panel owns
 // the state and every host call.
 //
 // Two labelled groups, because they are two kinds of control wearing the same
-// widget. The six under "layers" are free display gates over state that already
-// exists. The void toggle rides in FieldLayers but belongs under "view": ticking
-// it RUNS a whole-world job that can refuse (chunk budget), and the next edit
-// throws the result away. Blender draws the same line — outliner visibility
-// columns are one thing, the X-ray overlay toggle is another — and the group
-// label is what makes it visible here, since a seventh identical checkbox in a
-// flat row would read as a seventh free gate.
+// widget. The seven under "layers" are free display gates over state that
+// already exists — `flags` included: the advisor analyses whether or not its
+// markers are drawn, so hiding them costs nothing and starts nothing. The void
+// toggle rides in FieldLayers but belongs under "view": ticking it RUNS a
+// whole-world job that can refuse (chunk budget), and the next edit throws the
+// result away. Blender draws the same line — outliner visibility columns are one
+// thing, the X-ray overlay toggle is another — and the group label is what makes
+// it visible here, since one more identical checkbox in a flat row would read as
+// one more free gate.
 import type { FieldLayers } from "../../../viewport-host/index.ts"; // type-only: erased
 
 const VOID_CAST_TITLE =
@@ -23,22 +25,27 @@ const VOID_CAST_TITLE =
 // free one (and rendering it twice).
 type VisibilityLayer = Exclude<keyof FieldLayers, "voidCast">;
 
-const LAYERS: { key: VisibilityLayer; label: string; title: string }[] = [
-	{ key: "field", label: "field", title: "the per-class surface meshes" },
-	{ key: "kit", label: "kit", title: "the instanced kit pieces" },
-	{
-		key: "props",
-		label: "props",
-		title: "placed prop proxies (scatter placements)",
-	},
-	{ key: "ghost", label: "ghost", title: "brush ghost + stamp hologram" },
-	{
-		key: "selection",
-		label: "selection",
-		title: "selection overlay + entity highlight",
-	},
-	{ key: "grid", label: "grid", title: "the reference grid" },
-];
+// Keyed by layer, so the group is EXHAUSTIVE: a new FieldLayers field has no
+// title here and stops compiling. The array this replaced could not say that —
+// an extra key failed, a MISSING one did not, which is how `flags` shipped in F4
+// with no toggle at all. The key doubles as the visible label (every one of them
+// already did), so there is one string per layer and nothing to keep in sync.
+const LAYER_TITLES: Record<VisibilityLayer, string> = {
+	field: "the per-class surface meshes",
+	kit: "the instanced kit pieces",
+	props: "placed prop proxies (scatter placements)",
+	ghost: "brush ghost + stamp hologram",
+	selection: "selection overlay + entity highlight",
+	grid: "the reference grid",
+	flags:
+		"the walkability advisor's severity markers — hiding them does not stop the analyzer",
+};
+
+/** Render order, which is declaration order above (string keys enumerate in
+ *  insertion order). The cast only re-narrows what the Record already
+ *  guarantees: `Object.keys` is typed `string[]` because a value can structurally
+ *  carry extra keys, which an object literal checked against a Record cannot. */
+const LAYERS = Object.keys(LAYER_TITLES) as VisibilityLayer[];
 
 // Slice slider range (world metres): −8 reaches below any v0 dig, +24 clears
 // the tallest kit hall; 0.25 m steps match the field's cell size.
@@ -67,7 +74,7 @@ export function LayersRow(props: {
 				aria-label="layer visibility"
 			>
 				layers
-				{LAYERS.map((l) => {
+				{LAYERS.map((layer) => {
 					// The ghost layer gates three host paths: the brush/kit-fill ghost
 					// (hidden while ANY gesture is armed) AND the stamp hologram (stays
 					// live during a stamp session, no gesture gate) AND the segment
@@ -81,22 +88,22 @@ export function LayersRow(props: {
 					// enabled there. Tracking that would mean plumbing the host's anchor
 					// state into the panel to grey a checkbox for the moment between two
 					// clicks. Presentational only; the host owns the real suppression.
-					const suppressed = l.key === "ghost" && props.ghostSuppressed;
+					const suppressed = layer === "ghost" && props.ghostSuppressed;
 					return (
 						<label
-							key={l.key}
-							title={suppressed ? GHOST_SUPPRESSED_TITLE : l.title}
+							key={layer}
+							title={suppressed ? GHOST_SUPPRESSED_TITLE : LAYER_TITLES[layer]}
 							className={LABEL_CLASS}
 						>
 							<input
 								type="checkbox"
-								checked={props.layers[l.key]}
+								checked={props.layers[layer]}
 								disabled={suppressed}
 								onChange={(e) =>
-									props.onLayers({ ...props.layers, [l.key]: e.target.checked })
+									props.onLayers({ ...props.layers, [layer]: e.target.checked })
 								}
 							/>
-							{l.label}
+							{layer}
 						</label>
 					);
 				})}

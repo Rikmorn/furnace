@@ -22,6 +22,8 @@ import type {
 	FieldMaskChoice,
 	FieldStats,
 	FieldTool,
+	FlagFilters,
+	FlagsSummary,
 	PlacedArchetype,
 	SelectionInfo,
 	StampSession,
@@ -33,6 +35,7 @@ import { BrushInspector } from "./field/BrushInspector.tsx";
 import { DriftReport } from "./field/DriftReport.tsx";
 import { EntitiesList } from "./field/EntitiesList.tsx";
 import { FieldToolbar } from "./field/FieldToolbar.tsx";
+import { FlagsSection } from "./field/FlagsSection.tsx";
 import { LayersRow } from "./field/LayersRow.tsx";
 import { MaterialSwatches } from "./field/MaterialSwatches.tsx";
 import { StampInspector } from "./field/StampInspector.tsx";
@@ -85,6 +88,20 @@ const DEFAULT_LAYERS: FieldLayers = {
 // Slice defaults: OFF, plane parked at 8 m — mid-range of the slider (LayersRow
 // owns the −8…+24 range), high enough to cut a typical kit hall when enabled.
 const SLICE_DEFAULT_Y = 8;
+
+// Panel-side advisor-filter defaults — candidates only, mirroring the host's own
+// DEFAULT_FLAG_FILTERS. A local literal for the DEFAULT_LAYERS reason (the chrome
+// cannot value-import the host), pushed at engine-ready so the checkboxes and the
+// markers agree: the host's filters survive a panel remount, this state does not.
+const DEFAULT_FLAG_FILTERS: FlagFilters = {
+	candidates: true,
+	info: false,
+	unreachable: false,
+};
+
+// Nothing found yet — what the panel renders between its first ready render and
+// the subscribe effect that follows it, after which every summary is the host's.
+const NO_FLAGS: FlagsSummary = { total: 0, byKindSeverity: [], visible: [] };
 
 // Value-equality for the subscribeTool echo guard (see the mirror effect).
 const masksEqual = (a: FieldMaskChoice, b: FieldMaskChoice): boolean =>
@@ -265,6 +282,12 @@ export function FieldPanel() {
 	// The last reconfigure's drift report (null = clean / none). Non-modal: it
 	// renders (via DriftReport) only while findings exist.
 	const [drift, setDrift] = useState<DriftFinding[] | null>(null);
+	// The advisor's findings + the bands the panel asks for. The summary is the
+	// host's (filters already applied); the filter set is panel state pushed
+	// through setFlagFilters, the layers/slice precedent.
+	const [flags, setFlags] = useState<FlagsSummary>(NO_FLAGS);
+	const [flagFilters, setFlagFilters] =
+		useState<FlagFilters>(DEFAULT_FLAG_FILTERS);
 	// The one footer status line, toned: host REFUSALS (subscribeToolError) wear
 	// the destructive tone so they are seen — the F3b gate found the void-cast
 	// budget refusal and scatter's "select a region first" both landing here
@@ -360,19 +383,23 @@ export function FieldPanel() {
 		return host.subscribeStamp(setStamp);
 	}, [state.status, fieldHostRef]);
 
-	// Push the panel's layer/slice view defaults to the host at engine-ready,
-	// and drop any entity-highlight box when the panel unmounts. The host
-	// outlives the panel (App owns it) and has no layers/slice/highlight
-	// subscription seam, so a REMOUNT resets all three to the panel defaults —
-	// honest (the controls always show what the host uses) at the cost of
-	// forgetting the toggles across tab switches; the same v0 trade as the
-	// one-way radius seam below. The highlight clear keeps a remounted list
-	// (expansion state reset) from standing next to a box no row claims.
+	// Push the panel's layer/slice/flag-filter view defaults to the host at
+	// engine-ready, and drop any entity-highlight box when the panel unmounts. The
+	// host outlives the panel (App owns it) and has no layers/slice/filters/
+	// highlight subscription seam, so a REMOUNT resets all of them to the panel
+	// defaults — honest (the controls always show what the host uses) at the cost
+	// of forgetting the toggles across tab switches; the same v0 trade as the
+	// one-way radius seam below. The filters matter most here: the host keeps the
+	// last set ACROSS world loads, so a remounted panel showing "candidates only"
+	// beside markers still drawing the info band would be a straight lie. The
+	// highlight clear keeps a remounted list (expansion state reset) from standing
+	// next to a box no row claims.
 	useEffect(() => {
 		const host = fieldHostRef.current;
 		if (!host || state.status !== "ready") return;
 		host.setLayers(DEFAULT_LAYERS);
 		host.setSlice(null);
+		host.setFlagFilters(DEFAULT_FLAG_FILTERS);
 		return () => host.highlightEntity(null);
 	}, [state.status, fieldHostRef]);
 
@@ -432,6 +459,16 @@ export function FieldPanel() {
 		return host.subscribeDrift(setDrift);
 	}, [state.status, fieldHostRef]);
 
+	// The advisor's findings. Pushed after every analyzer response and every
+	// setFlagFilters (plus the current summary on subscribe, so a remount mid-dig
+	// re-renders the list it left). Answer-paced, not frame-paced — which is why,
+	// unlike the stats mirror beside it, this needs no value-equality guard.
+	useEffect(() => {
+		const host = fieldHostRef.current;
+		if (!host || state.status !== "ready") return;
+		return host.subscribeFlags(setFlags);
+	}, [state.status, fieldHostRef]);
+
 	// Panel radius → host, DELIBERATELY one-way: the host's wheel and [ / ]
 	// keys also step its radius and there is NO host→panel radius seam
 	// (FieldTool does not carry radius; no subscription does), so the readout
@@ -456,6 +493,11 @@ export function FieldPanel() {
 	const onSlice = (next: { enabled: boolean; y: number }): void => {
 		setSlice(next);
 		fieldHostRef.current?.setSlice(next.enabled ? next.y : null);
+	};
+
+	const onFlagFilters = (next: FlagFilters): void => {
+		setFlagFilters(next);
+		fieldHostRef.current?.setFlagFilters(next);
 	};
 
 	// The one funnel for every tool change: adopt locally + push to the host.
@@ -613,6 +655,27 @@ export function FieldPanel() {
 						onSlice={onSlice}
 					/>
 				</div>
+				{/* The advisor's findings, under the layer toggle that draws their
+            markers. Owns its border (the DriftReport rule) and renders nothing
+            until something is found, so a world with no complaints costs no
+            space. */}
+				<FlagsSection
+					summary={flags}
+					filters={flagFilters}
+					onFilters={onFlagFilters}
+					onFrame={(chunks) => fieldHostRef.current?.frameChunks(chunks)}
+					// MIGRATION (until F4 Task 12): stage 2 drives the PROJECT's mover
+					// through the analyzer worker, and the host verb that starts it does
+					// not exist yet. Nothing can be in flight until it does, and a loud
+					// refusal beats a button that silently does nothing.
+					verifying={null}
+					onVerify={() =>
+						setStatusLine({
+							text: "verify is not wired to the mover yet",
+							tone: "error",
+						})
+					}
+				/>
 				<div className="border-b border-border px-2 py-1 text-sm">
 					<EntitiesList
 						entities={entities}
@@ -669,6 +732,15 @@ export function FieldPanel() {
 					{stats.lastReconfigureMs > 0
 						? `${stats.lastReconfigureMs.toFixed(0)} ms`
 						: "—"}
+					{/* The advisor's one-liner (D-F4-13). `analyzerPending` counts PASSES
+              owed (0–2), not chunks, so the line says only that it is behind —
+              naming a number here would name the wrong noun. Absent at 0: an
+              idle advisor is the normal state and has nothing to report. */}
+					{stats.analyzerPending > 0 && (
+						<span title="the walkability advisor is catching up with your edits">
+							{" · analyzing…"}
+						</span>
+					)}
 				</span>
 				<span className="flex items-center gap-1.5">
 					{selection && (

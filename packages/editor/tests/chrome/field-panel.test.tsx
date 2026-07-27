@@ -8,13 +8,20 @@
 // subscribeTool echo guard, the entity-refresh tick (F3a — the ONE trigger,
 // which replaced the F2b commit-push + remeshVersion-counter pair), the F3a
 // row verbs (Open / Freeze / Bake-behind-a-confirm) and the reconfigure
-// session's Apply routing, stamp commit gating, slice wiring, and the
-// selection footer.
+// session's Apply routing, stamp commit gating, slice wiring, the
+// selection footer, and the F4 advisor's flags section.
 
 import { afterEach, expect, mock, test } from "bun:test";
-import type { DriftFinding } from "@furnace/core/field";
+import type {
+	DriftFinding,
+	FieldFlag,
+	FlagKind,
+	FlagSeverity,
+} from "@furnace/core/field";
 import type { ConfirmRequest } from "../../src/frontend/components/ConfirmDialog.tsx";
 import { FieldPanel } from "../../src/frontend/components/FieldPanel.tsx";
+import { FlagsSection } from "../../src/frontend/components/field/FlagsSection.tsx";
+import type { VerifyVerdictWire } from "../../src/frontend/lib/analyzer-protocol.ts";
 import type { EntityCatalog } from "../../src/frontend/lib/catalog.ts";
 // Tests are NOT part of the chrome bundle, so a value import of the viewport
 // host is allowed here — and using the REAL helper is the point: the stub then
@@ -26,6 +33,7 @@ import type {
 	FieldHost,
 	FieldStats,
 	FieldTool,
+	FlagRow,
 	FlagsSummary,
 	SelectionInfo,
 	StampSession,
@@ -35,9 +43,11 @@ import {
 	cleanup,
 	fireEvent,
 	makeEditorContext,
+	render,
 	renderWithEditor,
 	screen,
 	waitFor,
+	within,
 } from "../inspector/_harness.tsx";
 
 afterEach(cleanup);
@@ -1191,4 +1201,368 @@ test("a tool error renders in the destructive tone; the default status does not"
 	});
 	const err = screen.getByText("select a region first");
 	expect(err.className).toContain("text-destructive");
+});
+
+// --- (o) F4: the walkability advisor's flags section -------------------------
+
+/** One stage-1 finding. `cell` is derived from `world` at the production 0.25 m
+ *  lattice: the panel never reads it, but a fixture whose cell contradicted its
+ *  world would mislead the next reader. */
+const flagAt = (
+	kind: FlagKind,
+	severity: FlagSeverity,
+	world: [number, number, number],
+	extra: Partial<FieldFlag> = {},
+): FieldFlag => ({
+	kind,
+	severity,
+	cell: [world[0] * 4, world[1] * 4, world[2] * 4],
+	world,
+	chunk: "0,0,0",
+	...extra,
+});
+
+/** A summary row. The keys here are DELIBERATELY opaque nonsense (`a`, `b`):
+ *  the host's real format is private to field-flags.ts, and a panel that hands
+ *  one of these straight back cannot be reconstructing it. */
+const rowOf = (
+	key: string,
+	flag: FieldFlag,
+	verdict?: VerifyVerdictWire,
+): FlagRow => (verdict === undefined ? { key, flag } : { key, flag, verdict });
+
+const summaryOf = (
+	visible: FlagRow[],
+	over: Partial<FlagsSummary> = {},
+): FlagsSummary => ({
+	total: visible.length,
+	byKindSeverity: [],
+	visible,
+	...over,
+});
+
+const NARROW = rowOf("a", flagAt("narrow", "candidate", [2.5, 0, -8]));
+
+const VERDICT_TRAPPED: VerifyVerdictWire = {
+	outcome: "trapped",
+	lanes: [],
+	ms: 12,
+};
+
+test("the flags section stays hidden until the advisor finds something", async () => {
+	fetch404();
+	const stub = makeStubHost();
+	await renderPanel(stub);
+	// The subscribe push is an EMPTY summary — nothing found, nothing rendered
+	// (the DriftReport precedent: no permanently empty section).
+	expect(screen.queryByText(/^Flags \(/)).toBeNull();
+	act(() => {
+		stub.fire.flags(summaryOf([NARROW]));
+	});
+	expect(screen.getByText("Flags (1)")).toBeTruthy();
+});
+
+test("the count line reads what was found against what the filters admit", async () => {
+	fetch404();
+	const stub = makeStubHost();
+	await renderPanel(stub);
+	act(() => {
+		stub.fire.flags(
+			summaryOf([NARROW], {
+				total: 12,
+				byKindSeverity: [
+					{ kind: "narrow", severity: "candidate", count: 4 },
+					{ kind: "ledge", severity: "info", count: 8 },
+				],
+			}),
+		);
+	});
+	expect(screen.getByText("12 flags · 1 shown")).toBeTruthy();
+	// The tally covers everything FOUND, so it is the only reading of what the
+	// filters are hiding.
+	expect(screen.getByText("narrow 4 · ledge 8")).toBeTruthy();
+});
+
+test("the section survives filters that hide every finding — they are the way back", async () => {
+	fetch404();
+	const stub = makeStubHost();
+	await renderPanel(stub);
+	act(() => {
+		stub.fire.flags(summaryOf([], { total: 7 }));
+	});
+	// Unmounting here would take the only control that can un-hide them with it.
+	expect(screen.getByText("Flags (7)")).toBeTruthy();
+	expect(screen.getByText("all 7 hidden by the filters")).toBeTruthy();
+});
+
+test("the panel pushes its filter defaults at engine-ready and each checkbox edits them", async () => {
+	fetch404();
+	const stub = makeStubHost();
+	await renderPanel(stub);
+	// Panel and host must start in agreement (the DEFAULT_LAYERS precedent) —
+	// the host keeps the last filters across a panel remount, panel state does not.
+	expect(stub.calls.setFlagFilters.mock.calls).toEqual([
+		[{ candidates: true, info: false, unreachable: false }],
+	]);
+	act(() => {
+		stub.fire.flags(summaryOf([NARROW]));
+	});
+	fireEvent.click(screen.getByLabelText("info"));
+	expect(stub.calls.setFlagFilters.mock.calls.at(-1)?.[0]).toEqual({
+		candidates: true,
+		info: true,
+		unreachable: false,
+	});
+	fireEvent.click(screen.getByLabelText("candidates"));
+	expect(stub.calls.setFlagFilters.mock.calls.at(-1)?.[0]).toEqual({
+		candidates: false,
+		info: true,
+		unreachable: false,
+	});
+});
+
+test("a row click frames its owner chunk; a pit frames its whole region", async () => {
+	fetch404();
+	const stub = makeStubHost();
+	await renderPanel(stub);
+	act(() => {
+		stub.fire.flags(
+			summaryOf([
+				rowOf(
+					"a",
+					flagAt("narrow", "candidate", [2.5, 0, -8], { chunk: "1,0,0" }),
+				),
+				rowOf(
+					"b",
+					flagAt("pit", "candidate", [9, 0, 0], {
+						chunk: "2,0,0",
+						chunks: ["2,0,0", "3,0,0"],
+						cells: 14,
+					}),
+				),
+			]),
+		);
+	});
+	fireEvent.click(screen.getByLabelText("frame narrow @ (2.5, 0.0, -8.0)"));
+	expect(stub.calls.frameChunks.mock.calls.at(-1)).toEqual([["1,0,0"]]);
+	// A pit is region-level: its `chunks` are the region's owners, and framing
+	// only the anchor's chunk would point at a corner of the trap.
+	fireEvent.click(
+		screen.getByLabelText("frame pit @ (9.0, 0.0, 0.0) · 14 cells"),
+	);
+	expect(stub.calls.frameChunks.mock.calls.at(-1)).toEqual([
+		["2,0,0", "3,0,0"],
+	]);
+});
+
+test("findings of one kind within 2 m collapse into one row; a far one keeps its own", async () => {
+	fetch404();
+	const stub = makeStubHost();
+	await renderPanel(stub);
+	act(() => {
+		stub.fire.flags(
+			summaryOf([
+				rowOf("a", flagAt("narrow", "candidate", [0, 0, 0])),
+				// 1.5 m from the anchor — inside the radius, so it folds in.
+				rowOf("b", flagAt("narrow", "candidate", [1.5, 0, 0])),
+				// 1.5 m from `b` but 3 m from the anchor: a cluster admits a flag
+				// near ANY member, so the run chains rather than splitting.
+				rowOf("c", flagAt("narrow", "candidate", [3, 0, 0])),
+				// 10 m out — its own row.
+				rowOf("d", flagAt("narrow", "candidate", [10, 0, 0])),
+				// Inside the radius of the anchor but a DIFFERENT kind: one row is
+				// one kind, because the row's label and dot describe all of it.
+				rowOf("e", flagAt("low-clearance", "candidate", [0.5, 0, 0])),
+			]),
+		);
+	});
+	expect(screen.getByText("narrow ×3 @ (0.0, 0.0, 0.0)")).toBeTruthy();
+	expect(screen.getByText("narrow @ (10.0, 0.0, 0.0)")).toBeTruthy();
+	expect(screen.getByText("low-clearance @ (0.5, 0.0, 0.0)")).toBeTruthy();
+});
+
+test("candidates sort above info, and a demoted row says so", async () => {
+	fetch404();
+	const stub = makeStubHost();
+	await renderPanel(stub);
+	act(() => {
+		stub.fire.flags(
+			summaryOf([
+				rowOf("a", flagAt("ledge", "info", [0, 0, 0])),
+				rowOf(
+					"b",
+					flagAt("narrow", "candidate", [0, 0, 0], {
+						unreachable: true,
+					}),
+				),
+			]),
+		);
+	});
+	const labels = screen
+		.getAllByRole("button", { name: /^frame / })
+		.map((b) => b.getAttribute("aria-label"));
+	expect(labels).toEqual([
+		"frame narrow @ (0.0, 0.0, 0.0)",
+		"frame ledge @ (0.0, 0.0, 0.0)",
+	]);
+	// The `unreachable` filter is opt-in, so a row it admitted has to say WHY it
+	// is there — otherwise widening the filter just grows the list. Scoped to the
+	// row: the filter checkbox carries the same word, deliberately (the chip names
+	// the filter that let this row through).
+	const demoted = screen
+		.getByLabelText("frame narrow @ (0.0, 0.0, 0.0)")
+		.closest("li");
+	if (!(demoted instanceof HTMLElement))
+		throw new Error("flag rows are no longer <li> — the row scope is gone");
+	expect(within(demoted).getByText("unreachable")).toBeTruthy();
+	// …and the row it did NOT demote says nothing.
+	const info = screen.getByLabelText("frame ledge @ (0.0, 0.0, 0.0)");
+	expect(info.closest("li")?.textContent).not.toContain("unreachable");
+	// The dot is the row's OTHER reading of its band (sort order being the first),
+	// and the panel's only use of hue on a flag row — alarm for what to act on,
+	// warning amber for context. Its viewport twins are CANDIDATE_TINT / INFO_TINT.
+	expect(within(demoted).getByText("●").className).toContain(
+		"text-destructive",
+	);
+	expect(within(info).getByText("●").className).toContain("text-warning");
+});
+
+// The band a row groups on is everything it DISPLAYS, demotion included. Two
+// findings alike in kind, severity and position but differing in `unreachable`
+// are the pair that proves it: folded together, one row would wear a chip that is
+// false for half its members — and the reachability tag is the one thing on a
+// flag the analyzer writes AFTER the fact, so mixed vintages are the normal
+// state, not a corner.
+test("a demoted finding never folds into a live one's row", async () => {
+	fetch404();
+	const stub = makeStubHost();
+	await renderPanel(stub);
+	act(() => {
+		stub.fire.flags(
+			summaryOf([
+				rowOf("a", flagAt("narrow", "candidate", [0, 0, 0])),
+				rowOf(
+					"b",
+					flagAt("narrow", "candidate", [0.5, 0, 0], { unreachable: true }),
+				),
+			]),
+		);
+	});
+	expect(screen.getByText("narrow @ (0.0, 0.0, 0.0)")).toBeTruthy();
+	expect(screen.getByText("narrow @ (0.5, 0.0, 0.0)")).toBeTruthy();
+});
+
+test("a pit refuses Verify with its reason in the accessible name", async () => {
+	fetch404();
+	const stub = makeStubHost();
+	await renderPanel(stub);
+	act(() => {
+		stub.fire.flags(
+			summaryOf([
+				rowOf("a", flagAt("pit", "candidate", [9, 0, 0], { cells: 14 })),
+			]),
+		);
+	});
+	// The title rides a non-focusable wrapper span (a disabled button eats
+	// pointer events), so the accessible name is the only channel that reaches a
+	// screen reader — the EntitiesList blocked-Open convention.
+	const verify = screen.getByLabelText(
+		"verify pit @ (9.0, 0.0, 0.0) · 14 cells (region-level — walk it)",
+	) as HTMLButtonElement;
+	expect(verify.disabled).toBe(true);
+});
+
+test("a verdict on the next push badges the row", async () => {
+	fetch404();
+	const stub = makeStubHost();
+	await renderPanel(stub);
+	act(() => {
+		stub.fire.flags(summaryOf([NARROW]));
+	});
+	expect(screen.queryByText("trapped")).toBeNull();
+	// Stage 2's answer arrives joined onto the row it was taken on (the host
+	// pushes a fresh summary), not as a separate verdict channel.
+	act(() => {
+		stub.fire.flags(summaryOf([rowOf("a", NARROW.flag, VERDICT_TRAPPED)]));
+	});
+	expect(screen.getByText("trapped")).toBeTruthy();
+});
+
+// The verify SEAM, pinned against the section directly: FieldPanel cannot start
+// one until the host grows `verifyFlag` (F4 Task 12), so it passes a null
+// `verifying` and a placeholder handler — going through the panel would pin the
+// placeholder instead of the contract.
+test("Verify hands back the row's own key, and only one runs at a time", () => {
+	// biome-ignore lint/suspicious/noEmptyBlockStatements: inert test no-op
+	const noop = () => {};
+	const verified: string[] = [];
+	const rows = [NARROW, rowOf("b", flagAt("narrow", "candidate", [40, 0, 0]))];
+	const section = (verifying: string | null) => (
+		<FlagsSection
+			summary={summaryOf(rows)}
+			filters={{ candidates: true, info: false, unreachable: false }}
+			onFilters={noop}
+			onFrame={noop}
+			onVerify={(key) => verified.push(key)}
+			verifying={verifying}
+		/>
+	);
+	const { rerender } = render(section(null));
+	const verifyButton = (name: string): HTMLButtonElement =>
+		screen.getByLabelText(name) as HTMLButtonElement;
+
+	fireEvent.click(verifyButton("verify narrow @ (2.5, 0.0, -8.0)"));
+	// The key is the store's own opaque string, handed straight back — the panel
+	// never builds one (it cannot: the format is private to field-flags.ts).
+	expect(verified).toEqual(["a"]);
+
+	// Budgeted verb, one at a time. The row in flight says so on its face…
+	rerender(section("a"));
+	const running = verifyButton("verify narrow @ (2.5, 0.0, -8.0)");
+	expect(running.disabled).toBe(true);
+	expect(running.textContent).toBe("Verifying…");
+	// …and every OTHER row refuses with the reason in its accessible name.
+	const other = verifyButton(
+		"verify narrow @ (40.0, 0.0, 0.0) (a verify is already running)",
+	);
+	expect(other.disabled).toBe(true);
+	fireEvent.click(other);
+	expect(verified).toEqual(["a"]);
+
+	// Released when the panel says the flight ended.
+	rerender(section(null));
+	expect(verifyButton("verify narrow @ (2.5, 0.0, -8.0)").disabled).toBe(false);
+	expect(verifyButton("verify narrow @ (40.0, 0.0, 0.0)").disabled).toBe(false);
+});
+
+test("the analyzer says when it is catching up, and idles quiet", async () => {
+	fetch404();
+	const stub = makeStubHost();
+	await renderPanel(stub);
+	expect(screen.queryByText(/analyzing/)).toBeNull();
+	act(() => {
+		stub.fire.stats(makeStats({ analyzerPending: 1 }));
+	});
+	expect(screen.getByText(/analyzing/)).toBeTruthy();
+	act(() => {
+		stub.fire.stats(makeStats({ analyzerPending: 0 }));
+	});
+	expect(screen.queryByText(/analyzing/)).toBeNull();
+});
+
+test("the flags layer is a free display gate, beside the other six", async () => {
+	fetch404();
+	const stub = makeStubHost();
+	await renderPanel(stub);
+	fireEvent.click(screen.getByLabelText("flags"));
+	expect(stub.calls.setLayers.mock.calls.at(-1)?.[0]).toEqual({
+		field: true,
+		kit: true,
+		props: true,
+		ghost: true,
+		selection: true,
+		grid: true,
+		flags: false,
+		voidCast: false,
+	});
 });
