@@ -17,10 +17,12 @@
 // about what reached the draw list. There is no draw-list seam and no pixel read
 // here.
 //
-// The whole weight of "the markers are visible" therefore rests on Task 13's
-// BROWSER PIXEL CHECK. That is deliberate and recorded: this repo has already
-// shipped two classes of invisible overlay that passed every headless test
-// (2026-07-21), which is the history that pixel check exists for.
+// The whole weight of "the markers are visible" therefore rests on the BROWSER
+// PIXEL CHECK, whose recipe is `scripts/analyzer-pixel-check.md` — run it when
+// anything under the marker layer changes. That split is deliberate and
+// recorded: this repo has already shipped two classes of invisible overlay that
+// passed every headless test (2026-07-21), which is the history that pixel check
+// exists for.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import type {
   AgentProfile,
@@ -44,8 +46,10 @@ import {
 } from "../../core/tests/_helpers/gpu-fixture.ts";
 import { installMockResizeObserver } from "../../core/tests/_helpers/mock-resize-observer.ts";
 import type {
+  AnalyzerEngine,
   AnalyzerRequest,
   AnalyzerResponse,
+  VerifyVerdictWire,
 } from "../src/frontend/lib/analyzer-protocol.ts";
 import { createAnalyzerWorkerHandler } from "../src/frontend/lib/analyzer-protocol.ts";
 import type { WorkerLike } from "../src/frontend/lib/field-client.ts";
@@ -86,6 +90,8 @@ const DIG_TOOL: FieldTool = {
   hollow: null,
 };
 
+const FILL_TOOL: FieldTool = { ...DIG_TOOL, effect: "fill" };
+
 // Rock-only, so the remesh worker (not injected here) is never needed to decide
 // a bucket split — this test drives the ANALYZER worker only.
 const ROCK_ONLY: MaterialTable = {
@@ -122,6 +128,22 @@ const MANIFEST: FieldManifest = {
   meshes: [],
 };
 
+/** The flag-and-fix loop's world: one flat-floored room, uniformly clear, with
+ *  its top face left OPEN at the chunk's last sample.
+ *
+ *  Both halves of that are load-bearing. Uniformly clear makes stage 1 find
+ *  NOTHING — the zero baseline a marker count can return to. And the open top is
+ *  what lets the CURSOR in: unallocated space is rock to the analyzer and empty
+ *  to `raycastField`, so the orbit camera's centre ray enters through the missing
+ *  ceiling and lands inside the room, where an edit can be made. Roof it and
+ *  every stroke lands on the outside of that roof instead. */
+const OPEN_ROOM = {
+  floorY: 4,
+  topY: 15,
+  x: [1, 14],
+  z: [1, 14],
+} as const;
+
 const chamberChunk = (): Uint8Array => {
   const density = new Int8Array(CHUNK_SAMPLES).fill(SOLID);
   const carve = (x0: number, x1: number, topY: number): void => {
@@ -135,13 +157,26 @@ const chamberChunk = (): Uint8Array => {
   return encodeChunkFile(density);
 };
 
+const openRoomChunk = (): Uint8Array => {
+  const density = new Int8Array(CHUNK_SAMPLES).fill(SOLID);
+  for (let z = OPEN_ROOM.z[0]; z <= OPEN_ROOM.z[1]; z++)
+    for (let y = OPEN_ROOM.floorY; y <= OPEN_ROOM.topY; y++)
+      for (let x = OPEN_ROOM.x[0]; x <= OPEN_ROOM.x[1]; x++)
+        density[x + CHUNK_DIM * (y + CHUNK_DIM * z)] = AIR;
+  return encodeChunkFile(density);
+};
+
 /** Drain rounds `deliver` allows before calling the host stuck. Each round is
  *  one settle→re-fire hop, and a world load takes two. */
 const DELIVER_ROUNDS = 8;
 
 /** The `field-host-analyzer.test.ts` fake, verbatim in spirit: the real handler
- *  as the worker's thread, run on demand. */
-function analyzerWorker() {
+ *  as the worker's thread, run on demand.
+ *
+ *  `engine` supplies the stage-2 mover the handler would otherwise import from
+ *  /engine.js. Omitted, the engine load rejects — the stage-1 default, and what
+ *  every test here but the flag-and-fix loop wants. */
+function analyzerWorker(engine?: AnalyzerEngine) {
   const sent: AnalyzerRequest[] = [];
   const worker: WorkerLike = {
     onmessage: null,
@@ -155,7 +190,10 @@ function analyzerWorker() {
   const handle = createAnalyzerWorkerHandler({
     post: (res: AnalyzerResponse) =>
       worker.onmessage?.({ data: res } as MessageEvent),
-    loadEngine: () => Promise.reject(new Error("no engine wired in this test")),
+    loadEngine: () =>
+      engine === undefined
+        ? Promise.reject(new Error("no engine wired in this test"))
+        : Promise.resolve(engine),
   });
   const flush = (): Promise<void> =>
     new Promise((resolve) => setTimeout(resolve, 0));
@@ -251,13 +289,14 @@ async function fixture(
   opts: {
     profile?: AgentProfile | null;
     chunks?: { key: string; bytes: Uint8Array }[];
+    engine?: AnalyzerEngine;
   } = {},
 ) {
   const profile = opts.profile === undefined ? AGENT : opts.profile;
   const restoreRo = installMockResizeObserver();
   const raf = stubAnimationFrame();
   const listeners: Listeners = new Map();
-  const fake = analyzerWorker();
+  const fake = analyzerWorker(opts.engine);
   const host = createFieldHost({ spawnAnalyzer: () => fake.worker });
   host.setMaterialTable(ROCK_ONLY);
   if (profile !== null) host.setAgentProfile(profile);
@@ -500,6 +539,110 @@ test.skipIf(!bunWebGpuAvailable())(
       expect(f.sent.findIndex((r) => r.kind === "sync")).toBeLessThan(
         f.sent.findIndex((r) => r.kind === "analyze"),
       );
+    } finally {
+      f.teardown();
+    }
+  },
+);
+
+// --- the flag-and-fix loop ---------------------------------------------------
+//
+// The loop the user gate drives, end to end on a real device: an edit raises a
+// candidate, the corrective edit retires it, and the marker layer follows both
+// ways. Nothing is canned — the strokes go through `cursorRay` → `applyTool`,
+// the findings come from core's own column pass, and the marker count is what
+// `rebuildFlagMarkers` decided against the live GPU.
+//
+// DIRECTION, and why it is the reverse of the obvious one: the flag-raising edit
+// here is the FILL, not the dig. A single spherical dig into a flat floor can
+// only ADD headroom and leave a climbable bowl, so measurement (this fixture,
+// dig at the same cursor) finds `ledge`/`lip-near-wall` — both `info` — and no
+// candidate at all. Filling drops a shelf over the floor, which is the cheapest
+// one-stroke way to make a REAL `low-clearance` candidate, and digging it back
+// out is the fix. The mechanism under test is the same either way: a re-analysis
+// REPLACES the chunk's findings, so a fixed problem stops being reported.
+
+/** Big enough that the shelf the fill drops over the floor has its underside
+ *  within the capsule's `clearance` of it — a smaller blob hangs too high and the
+ *  floor beneath it stays walkable, which is the whole finding.
+ *
+ *  ONE radius for both strokes, which is not free: the two spheres do NOT share a
+ *  centre (`computeBrushCenter` bites past the raycast hit, and the fill has since
+ *  moved that hit), so the dig taking the shelf out completely is a measured fact
+ *  rather than a geometric identity. */
+const SHELF_RADIUS_M = 1.25;
+
+const LOOP_VERDICT: VerifyVerdictWire = {
+  outcome: "clear",
+  lanes: [{ dir: [1, 0], outcome: "clear", progressed: 3.5 }],
+  ms: 7,
+};
+
+test.skipIf(!bunWebGpuAvailable())(
+  "the flag-and-fix loop: an edit raises a candidate, the fix retires it",
+  async () => {
+    const f = await fixture({
+      chunks: [{ key: chunkKey(0, 0, 0), bytes: openRoomChunk() }],
+      engine: { analyzerVerify: () => Promise.resolve(LOOP_VERDICT) },
+    });
+    try {
+      await f.deliver();
+      // A clean room: nothing found, nothing drawn. Without this the assertions
+      // below could not tell "the fix worked" from "the marker layer never had
+      // anything in it".
+      expect(lastSummary(f.pushes).total).toBe(0);
+      expect(f.host.flagMarkerCount()).toBe(0);
+
+      // The bad edit: a shelf dropped over the floor.
+      f.host.setTool(FILL_TOOL);
+      f.host.setDigRadius(SHELF_RADIUS_M);
+      f.click(32, 32);
+      await f.deliver();
+
+      const flagged = lastSummary(f.pushes);
+      // Only `low-clearance` — the shelf's own footprint. The kind is asserted
+      // because it is the one this geometry is built to raise: a test that
+      // accepted any candidate would keep passing if the column pass started
+      // reporting something else entirely about the same edit.
+      expect(flagged.visible.length).toBeGreaterThan(0);
+      expect(
+        flagged.visible.every((r) => r.flag.kind === "low-clearance"),
+      ).toBe(true);
+      expect(f.host.flagMarkerCount()).toBe(flagged.visible.length);
+
+      // Stage 2 lands a verdict on one of them, so the fix below has something
+      // to invalidate.
+      const verified = flagged.visible[0];
+      if (verified === undefined) throw new Error("test: nothing to verify");
+      f.host.verifyFlag(verified.key);
+      await f.deliver();
+      expect(
+        lastSummary(f.pushes).visible.find((r) => r.key === verified.key)
+          ?.verdict,
+      ).toEqual(LOOP_VERDICT);
+
+      // The fix: dig the shelf back out.
+      f.host.setTool(DIG_TOOL);
+      f.click(32, 32);
+      await f.deliver();
+
+      // No candidate left, so nothing to draw. Not "no findings": the dig leaves
+      // its own `ledge`/`lip-near-wall` behind, which the default filters hide —
+      // the advisor stopped raising an alarm, it did not go blind.
+      //
+      // `flagMarkerCount` is the count the rebuild SETTLED ON and not a read of
+      // the GPU, so what this pins is that a fixed problem takes its markers with
+      // it, which is the loop's point.
+      expect(lastSummary(f.pushes).visible).toEqual([]);
+      expect(f.host.flagMarkerCount()).toBe(0);
+      // The verified finding is gone from the STORE, not merely filtered out of
+      // the view: `rowByKey` no longer resolves its key, so the verdict taken on
+      // it has nothing left to badge. A verify aimed at it is refused outright
+      // rather than posted at a finding that no longer exists.
+      f.sent.length = 0;
+      f.host.verifyFlag(verified.key);
+      expect(f.errors.at(-1)).toBe("that flag was re-analyzed away");
+      expect(f.of("verify")).toEqual([]);
     } finally {
       f.teardown();
     }
