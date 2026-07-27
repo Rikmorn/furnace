@@ -998,9 +998,11 @@ mind.
   FAILED mirror update reaches a waiter instead of being dropped. The client's `pending` map
   discards any response nobody asked for, resolves by the response kind the request DERIVES
   (`RESPONSE_KIND satisfies Record<AnalyzerRequest["kind"], …>`), and rejects a wrong-kind
-  answer rather than casting it. A dispatch `default` arm throws through a `never`-parameter
-  guard: a `switch` with an unguarded `else` would send an unrecognised message into the LAST
-  arm — `placements`, which would silently clobber the collider set and ack success.
+  answer rather than casting it. The dispatch's `default` arm throws through a
+  `never`-parameter guard, so a new request kind with no `case` is a COMPILE error — and it is
+  a real runtime refusal too, which is the half that matters: the `if/else` chain it replaces
+  would have sent anything unrecognised into the LAST arm, `placements`, silently clobbering
+  the collider set and acking success.
 - **One `PhysicsContext` per worker lifetime.** `loadEngine` is memoized on first use and
   never re-run per verify. The ES module registry would dedupe a same-URL re-import anyway;
   what the memo adds is that a DIFFERENT url can never be loaded into this worker — the
@@ -1070,24 +1072,24 @@ mind.
   nothing, and a third colour would read as an answer. `FieldHost.flagMarkerCount()` is the
   `propInstanceCounts()` twin — the layer is otherwise write-only GPU state, so the count the
   rebuild settled on is the one readable fact and what tests hold it to.
-- **⚠️ Nothing in the automated suite proves the markers are DRAWN.** Deleting the
-  `layers.flags && flagMarkers` push from `renderScene` fails no test in this repo; so does
-  forcing every tint to white. `tests/field-host-analyzer.gpu.test.ts` builds the layer
-  against a real device and pins its instance count, and its tick tests do call `renderScene`
-  — but the host requests its context WITHOUT `surfaceFormat: "linear"`, so under bun-webgpu
-  that render is invalid (asynchronously, as uncaptured device errors, which is why the tick
-  still returns), and there is no draw-list seam and no pixel read. The whole weight of "the
-  markers are visible" rests on a browser pixel check whose recipe is COMMITTED and
-  re-runnable: `packages/editor/scripts/analyzer-pixel-check.md` (headless Chrome via
-  Playwright's `channel: "chrome"`; four claims — red candidates appear where you dig, the
-  `info` filter reveals amber, the `flags` gate removes and restores exactly the same pixels,
-  and a browser-side Verify returns a real verdict). **Run it whenever anything under the
-  marker layer changes.** Its own header says to read the SHAPE and not the digits: every
-  absolute pixel count in it is one camera's reading, and an independent re-run on the same
-  commit measured 2182 where the first measured 1977. The pass criteria are the RELATIONS
-  (`gate > 0`, `restored === gate`, `idempotent === 0`) and the core colours. Precedent for
-  the whole split: `docs/learnings/2026-07-21-invisible-line-overlays.md` rule 1 — this repo
-  has already shipped two classes of invisible overlay that passed every headless test.
+- **⚠️ Nothing in the automated suite proves the markers REACH THE SCREEN.** Deleting the
+  `layers.flags && flagMarkers` push from `renderScene` fails no test in this repo, and neither
+  does whitening the tint at its UPLOAD site (`mesh.setInstanceTint` inside
+  `rebuildFlagMarkers`). Keep that second one qualified — `flagTint` itself IS pinned
+  (`tests/viewport-host/field-flags.test.ts` asserts all four constants and the `inconclusive`
+  fall-through), so the gap is the hop from that pure function to the GPU, not the colour
+  policy, and the unqualified version under-claims real coverage.
+  `tests/field-host-analyzer.gpu.test.ts` builds the layer against a real device and pins its
+  instance count, and its tick tests do call `renderScene` — but the host requests its context
+  WITHOUT `surfaceFormat: "linear"`, so under bun-webgpu that render is invalid (asynchronously,
+  as uncaptured device errors, which is why the tick still returns), and there is no draw-list
+  seam and no pixel read. The weight of "the markers are visible" therefore rests entirely on
+  `packages/editor/scripts/analyzer-pixel-check.md`, which owns the four claims, the procedure,
+  the expected colours, and the warning that its pixel counts are one camera's reading rather
+  than constants. **Run it whenever anything under the marker layer changes.** Precedent:
+  `docs/learnings/2026-07-21-invisible-line-overlays.md` — ONE bug class (a `drawLines` MSAA
+  sample-count mismatch) that shipped dead pixels through TWO sealed slices and passed every
+  headless test.
 - **Stage 2 — the verify verb, and the one place the editor loads the PROJECT'S engine into a
   worker.** `verifyFlag(key)` posts the flag to the analyzer worker, which imports
   `/engine.js` (`ANALYZER_ENGINE_URL`) and calls `extensions.analyzerVerify` — the dungeon's
@@ -1166,26 +1168,22 @@ mind.
 - **The `flags` layer** is the SEVENTH display gate (§16). Hiding it does NOT stop the
   analyzer — findings keep arriving and `subscribeFlags` keeps firing, exactly as a hidden
   `selection` layer keeps masking ops.
-- **Two core instances in one realm, and why it is inert.** The analyzer worker's realm holds
-  the copy bundled into `analyzer-worker.js` (via `analyzer-protocol.ts`) AND the one esbuild
-  inlines into `/engine.js` — measured 2026-07-26: the served `/engine.js` is ~8.7 MB, defines
-  `createFieldStore` itself, and has zero external `@furnace/core` imports. The duplicate is
-  REAL; the field worker's realm is the easy case (it never loads `/engine.js`) and this one is
-  not, so do not cite this exemption as evidence that a worker realm cannot have one. It is
-  inert for two reasons that both have to keep holding: (1) everything crossing the seam is
-  plain structural DATA — `FieldStore`, `AgentProfile`, `FieldFlag`,
-  `PlacementCollisionGroup` are all plain objects with no class identity, no `instanceof`, no
-  symbols, so which core minted a value cannot matter; and (2) the two share no module-level
-  state — our copy runs only the pure column pass and the placement rasterizer, the bundle's
-  copy owns the physics context and the collider derivation. That second one is a claim about
-  EXECUTION, not bundle content: Rapier's wasm-bindgen glue DOES ship inside
-  `analyzer-worker.js`, and no path in this realm calls it.
-  `tests/frontend-no-engine-leakage.test.ts` widened its protocol rule to
-  `(field|analyzer)-protocol` and carries the whole argument in its exemption comment. The
-  lever behind the payload is ONE value import — `field/artifact.ts` importing `encodeMeshBlob`
-  from `@furnace/core/scene`, which drags gpu/mesh/material/physics/post in behind it; a
-  field-only entry bundles to 208 modules with `rapier` and 31 without once the scene module is
-  external. Filed as `docs/backlog/engine-architecture/field-module-pulls-whole-engine.md`.
+- **The analyzer worker's realm holds TWO core instances, and the two workers are exempt from
+  the leakage rule for DIFFERENT reasons.** The field worker is the easy case — its realm never
+  loads `/engine.js`, so it holds exactly one core. The analyzer worker holds the copy bundled
+  via `analyzer-protocol.ts` AND the one esbuild inlines into the project's `/engine.js`. The
+  duplicate is REAL, so do not cite this exemption as evidence that a worker realm cannot have
+  one. It is inert on two conditions that both have to keep holding: everything crossing the
+  seam is plain structural DATA (no class identity, no `instanceof`, no symbols, so which core
+  minted a value cannot matter), and the two share no module-level state (our copy runs the pure
+  column pass and the placement rasterizer; the bundle's owns the physics context and the
+  collider derivation). That second one is a claim about EXECUTION, not bundle content — Rapier
+  ships inside `analyzer-worker.js` and nothing in this realm calls it.
+  `tests/frontend-no-engine-leakage.test.ts` widened its rule to `(field|analyzer)-protocol` and
+  carries the full argument, the measurements, and the one value import that drags core's whole
+  graph in (`field/artifact.ts` → `@furnace/core/scene`) in its exemption comment; the
+  design question is
+  `docs/backlog/engine-architecture/field-module-pulls-whole-engine.md`.
 - **`catalog/agent.json` — the third project→editor catalog contract**, DATA only, exactly
   parallel to the F2a materials and F3b entities ones. `FieldToolbar`'s run-once catalog effect
   now fetches all three in ONE pass so they cannot race onto the status line;
@@ -1215,28 +1213,30 @@ mind.
   `Math.abs` on every axis — an extent is a DISTANCE, so a mirrored record covers the same box,
   whereas signed arithmetic would shrink a box's proxy through zero and make `Math.max` pick
   the LEAST negative axis for a round one.
-- **`GeneratorDef.emits` replaces the schema sniff (D-F4-15).** `placesProps(emits)` — one
-  line, `emits !== "ops"` — supersedes `placesArchetypes`, which inferred "does this place
-  props?" from the presence of an `archetypeId` param and would have mis-read any placer that
-  names its archetype another way. The rule is `!== "ops"` and not `=== "placements"` because
-  `"both"` places props too; written the narrower way it would agree with this one on every def
-  the registry holds today (nothing declares `"both"`) and silently drop props for the first
-  mixed emitter added — a divergence no registry-driven test can catch, since its expectations
-  are built from the same registry. Hence one function with a unit test that can pass a
-  synthetic `"both"`. It feeds all four branches the sniff did: the catalog picker, param
-  seeding, the stamp form's props count, and the editor-side empty-result refusal (§18).
-- **The segment brush gained its cap (D-F4-16).** `MAX_SEGMENT_M = 2 · DIG_RANGE_M` = 60 m,
-  checked in `segmentClick` BEFORE the anchor is cleared, so a refusal leaves the gesture
-  exactly as it was — the pending start stands and the user re-clicks nearer, rather than
-  losing a point they meant to keep. Twice `DIG_RANGE_M` is not a round number, it is the
-  geometry: each endpoint lands within 30 m of the eye that resolved it, so two clicks from ONE
-  camera can never be further apart. The cap therefore admits every segment a stationary user
-  can draw and refuses only the ones that needed the camera to move between clicks — which is
-  exactly the accident it exists for. Pinned by a GPU test straddling the threshold: an
-  over-length second click commits nothing and leaves the anchor ARMED. The number is restated
-  in `ToolPalette`'s Segment tooltip and the two agree by REVIEW — the chrome cannot
-  value-import anything under `viewport-host/` (the `FlagsSection` tint-palette precedent, the
-  same rule that keeps `flagKey` private and puts `rowByKey` in the store).
+- **`GeneratorDef.emits` replaces the schema sniff (D-F4-15) — for TWO of the four branches,
+  and the split is the fact to carry.** `field-placements.ts`'s `placesProps(emits)` (rule,
+  rationale and its synthetic-`"both"` unit test live at the source) supersedes
+  `placesArchetypes`, which inferred "does this place props?" from an `archetypeId` param and
+  would have mis-read any placer naming its archetype another way. It is read at exactly two
+  sites: the editor-side empty-result refusal (§18) and `FieldGeneratorInfo.placesProps`, which
+  the StampInspector's props count reads. **The other two prop-generator branches still sniff
+  the schema key** — `withArchetypeOptions` (the `archetypeId` picker) and `seedArchetypeParams`
+  both gate on `ARCHETYPE_PARAM in …` and never consulted the predicate, before or after. The
+  deleted `placesArchetypes` TSDoc called itself "the one predicate behind" all four; it was
+  not, and that claim should not be carried forward. **Consequence:** a generator that declares
+  `emits: "placements"` (or `"both"`) but names its archetype param something else gets the
+  refusal and the count, and silently gets NO picker and no seeding — the exact divergence class
+  `placesProps`' own TSDoc warns about, one level up. Unifying the remaining two is unbuilt.
+- **The segment brush gained its cap (D-F4-16), closing the asymmetry §18 recorded.**
+  `MAX_SEGMENT_M = 2 · DIG_RANGE_M` = 60 m, checked in `segmentClick` before the anchor is
+  cleared, so a refusal leaves the pending start armed and the fix is one nearer click; its
+  TSDoc owns why twice the dig range is the geometry and not a round number. F3b shipped this
+  gesture uncapped while the void cast shipped a budget in the same phase, and recorded the
+  mismatch rather than resolving it — this is that debt paid. Pinned by a GPU test straddling
+  the threshold (an over-length second click commits nothing and leaves the anchor ARMED), and
+  restated in `ToolPalette`'s tooltip, which agrees by REVIEW rather than by import: the chrome
+  cannot value-import anything under `viewport-host/`, the same rule that keeps `flagKey`
+  private and puts `rowByKey` in the store.
 - **Deliberately untouched: the void cast's worker scheduling.** F3b's X-ray still monopolises
   the one FIELD worker with no cancel and refuses where coalescing belongs (§18); F4 gave the
   advisor a worker of its OWN rather than touching that, so its passes never queue behind a

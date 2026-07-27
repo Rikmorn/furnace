@@ -20,8 +20,9 @@
 // The whole weight of "the markers are visible" therefore rests on the BROWSER
 // PIXEL CHECK, whose recipe is `scripts/analyzer-pixel-check.md` — run it when
 // anything under the marker layer changes. That split is deliberate and
-// recorded: this repo has already shipped two classes of invisible overlay that
-// passed every headless test (2026-07-21), which is the history that pixel check
+// recorded: this repo has already shipped ONE class of invisible overlay (a
+// `drawLines` MSAA sample-count mismatch) through TWO sealed slices, passing
+// every headless test both times (2026-07-21) — the history this pixel check
 // exists for.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import type {
