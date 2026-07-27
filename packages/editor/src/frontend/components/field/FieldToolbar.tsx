@@ -96,13 +96,12 @@ export function FieldToolbar(props: {
 	// The daemon maps these chrome-miss GETs onto the project root. A 404 leaves the
 	// host on its rock-only BUILTIN_TABLE / no-archetypes / no-profile defaults; a
 	// CatalogError is setup-loud (its JSON path shows in the status line so a
-	// mistyped catalog is diagnosable here). The host may not be GPU-init'd yet —
-	// the setters then just
-	// store (no rebuild) and init() picks them up; if init ran first, the swap
-	// re-meshes. Either order converges. fieldHostRef.current is assigned before
-	// engine-ready (App), so it is present whenever state.status === "ready". EVERY
-	// materials outcome settles the gate (finally) — Load must never wedge shut on a
-	// failed fetch.
+	// mistyped catalog is diagnosable here). The host may not be GPU-init'd yet — the
+	// setters then just store (no rebuild) and init() picks them up; if init ran
+	// first, the swap re-meshes. Either order converges. fieldHostRef.current is
+	// assigned before engine-ready (App), so it is present whenever
+	// state.status === "ready". EVERY materials outcome settles the gate (finally) —
+	// Load must never wedge shut on a failed fetch.
 	useEffect(() => {
 		const host = fieldHostRef.current;
 		if (!host || state.status !== "ready" || catalogLoaded.current) return;

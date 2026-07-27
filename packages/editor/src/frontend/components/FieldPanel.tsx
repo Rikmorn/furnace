@@ -696,11 +696,12 @@ export function FieldPanel() {
 					onFrame={(chunks) => fieldHostRef.current?.frameChunks(chunks)}
 					verifying={verifying}
 					onVerify={(key) => {
-						// Adopt BEFORE the call, never after: three of the host's four
+						// Adopt BEFORE the call, never after: ALL FOUR of the host's
 						// refusals are decided synchronously and report on the tool-error
-						// seam from inside `verifyFlag`, so a write afterwards would
-						// overwrite the release that refusal just performed and leave the
-						// column stuck on a verify that never ran.
+						// seam from inside `verifyFlag` (only a stage-2 FAILURE is async),
+						// so a write afterwards would overwrite the release that refusal
+						// just performed and leave the column stuck on a verify that never
+						// ran.
 						setVerifying(key);
 						fieldHostRef.current?.verifyFlag(key);
 					}}

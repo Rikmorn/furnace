@@ -674,15 +674,19 @@ export type FieldHost = {
    *
    *  Fire-and-forget, and an ADVISOR verb throughout (D-F4-1) — it mutates no
    *  field, blocks nothing, and fixes nothing. Every refusal is a
-   *  {@link subscribeToolError} report and nothing else:
-   *  - a verify is already in flight (budgeted seconds of real mover; one at a time),
-   *  - the key names no current finding (a re-analysis moved on),
-   *  - the finding is a `pit` — region-level, so one anchor's directed lanes
-   *    would prove nothing about it; walking it is the answer,
-   *  - no agent profile is installed yet ({@link setAgentProfile}).
+   *  {@link subscribeToolError} report and nothing else, and all four are decided
+   *  SYNCHRONOUSLY, before this returns. Listed in the order they are checked,
+   *  which is itself deliberate:
+   *  1. a verify is already in flight (budgeted seconds of real mover; one at a time),
+   *  2. no agent profile is installed yet ({@link setAgentProfile}) — checked
+   *     before the key, so the message names the root cause rather than the
+   *     missing finding that absence necessarily implies,
+   *  3. the key names no current finding (a re-analysis moved on),
+   *  4. the finding is a `pit` — region-level, so one anchor's directed lanes
+   *     would prove nothing about it; walking it is the answer.
    *
-   *  A stage-2 failure (no bundle, a mover that threw) reports through the same
-   *  seam and releases the latch. */
+   *  A stage-2 failure (no bundle, a mover that threw) is the one ASYNC outcome:
+   *  it reports through the same seam and releases the latch. */
   verifyFlag(key: string): void;
   /** How many flag markers the LAST rebuild decided to draw — the
    *  {@link propInstanceCounts} twin, and for the same reason: the marker layer

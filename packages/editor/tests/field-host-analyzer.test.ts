@@ -646,7 +646,8 @@ test("a key no finding holds is refused — the analyzer moved on", async () => 
   // that chunk's findings, and the click lands on a key nothing answers to. The
   // host must SAY so — a silent no-op reads as a dead button.
   f.host.verifyFlag("narrow@999,999,999");
-  await f.deliver();
+  // No drain before these: BOTH the post and the refusal are synchronous, and a
+  // `deliver` first would splice `sent` and make the emptiness check vacuous.
   expect(f.of("verify")).toEqual([]);
   expect(f.errors.at(-1)).toBe("that flag was re-analyzed away");
 });
@@ -669,19 +670,19 @@ test("a pit is refused HERE, not only greyed out in the panel", async () => {
   // anchor's lanes would prove nothing about it, so the answer would be
   // meaningless rather than merely expensive.
   f.host.verifyFlag(pit.key);
-  await f.deliver();
+  // Before any drain — see the stale-key test: `deliver` splices `sent`, and
+  // this emptiness check is the whole assertion that nothing was posted.
   expect(f.of("verify")).toEqual([]);
   expect(f.errors.at(-1)).toContain("region-level — walk it");
 });
 
-test("with no agent profile a verify refuses instead of posting a bad request", async () => {
+test("with no agent profile a verify refuses instead of posting a bad request", () => {
   // Unreachable through the panel today (no profile means no findings, so no
   // row and no button) — but the profile arrives off an async fetch and the
   // request cannot even be BUILT without one, so the guard is what stops a
   // malformed post rather than a decoration.
   const f = fixture(null, cannedEngine());
   f.host.verifyFlag("narrow@0,0,0");
-  await f.deliver();
   expect(f.of("verify")).toEqual([]);
   expect(f.errors.at(-1)).toContain("agent profile");
 });

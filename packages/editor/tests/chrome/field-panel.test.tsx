@@ -1813,10 +1813,11 @@ test("the in-flight column is released by a verdict AND by a refusal", async () 
 
 test("a SYNCHRONOUS refusal never leaves the column stuck", async () => {
 	fetch404();
-	// Three of the host's four refusals report from INSIDE verifyFlag, before it
-	// returns. So the panel's adopt has to happen first: adopting afterwards
-	// overwrites the release that refusal already performed, and the row reads
-	// "Verifying…" forever over a verify that never started.
+	// ALL FOUR of the host's refusals report from INSIDE verifyFlag, before it
+	// returns (only a stage-2 FAILURE is async). So the panel's adopt has to
+	// happen first: adopting afterwards overwrites the release that refusal
+	// already performed, and the row reads "Verifying…" forever over a verify
+	// that never started.
 	const stub = makeStubHost({ verifyRefusal: "a verify is already running" });
 	await renderPanel(stub);
 	act(() => {

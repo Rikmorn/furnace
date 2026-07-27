@@ -12,6 +12,7 @@ import {
   chunkKey,
   DEFAULT_CELL_SIZE,
   encodeChunkFile,
+  FIELD_GENERATORS,
   SOLID,
 } from "@furnace/core/field";
 import { createFieldHost } from "../src/viewport-host/field-host.ts";
@@ -52,6 +53,36 @@ test("highlightEntity is runtime-quiet on unknown ids and null", () => {
   const host = createFieldHost();
   expect(() => host.highlightEntity(999)).not.toThrow();
   expect(() => host.highlightEntity(null)).not.toThrow();
+});
+
+// --- listGenerators: the `emits` → `placesProps` wiring (F4 Task 12, D-F4-15) -
+//
+// Pinned at the SEAM the chrome actually reads, not at a pure helper. That is
+// the whole point: the fact this carries used to be inferred editor-side by
+// sniffing the param schema for an `archetypeId`, and core now DECLARES it —
+// so what needs a test is that the host reads the declaration, which no test
+// covered while the sniff was a standalone function.
+
+test("placesProps carries core's own emits declaration, per generator", () => {
+  const infos = createFieldHost().listGenerators();
+  const byId = (id: string) => infos.find((g) => g.id === id);
+  // Concrete, so a wiring bug cannot hide behind a mirrored expectation: the
+  // three carvers say no, the placer says yes.
+  expect(byId("hall")?.placesProps).toBe(false);
+  expect(byId("cave")?.placesProps).toBe(false);
+  expect(byId("maze")?.placesProps).toBe(false);
+  expect(byId("scatter")?.placesProps).toBe(true);
+
+  // …and the rule is `emits !== "ops"` over the WHOLE registry, so a generator
+  // added later is covered the day it lands rather than the day someone
+  // remembers this test. It is also the only thing that would catch the
+  // narrowing mistake `emits === "placements"`, which agrees with the correct
+  // rule on every def the registry holds TODAY (nothing declares `"both"`) and
+  // silently drops props for the first mixed emitter added.
+  const declared = new Map(FIELD_GENERATORS.map((g) => [g.id, g.emits]));
+  expect(infos.length).toBe(FIELD_GENERATORS.length);
+  for (const info of infos)
+    expect(info.placesProps).toBe(declared.get(info.id) !== "ops");
 });
 
 // --- void cast (F3b Task 12) ------------------------------------------------
