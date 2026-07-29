@@ -1,0 +1,4 @@
+# Test mkdtemp scratch dirs, created inside the workspace (not /tmp) so esbuild
+# can resolve @furnace/core through the workspace node_modules. afterEach()
+# normally rmSync's these; a crashed/interrupted run can leave one behind.
+tests/fixtures/tmp-*

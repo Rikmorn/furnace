@@ -29,9 +29,11 @@ export type HandlerContext = {
   session: Session;
   emit(event: DaemonEvent): void;
   /** Injected capability (same pattern as watchDir): reports whether a
-   *  project-relative path is git-tracked. Undefined when no git repo is
-   *  available — world.list then reports every row's `tracked` as null. */
-  isTracked?: (rel: string) => boolean;
+   *  project-relative path is git-tracked (true), gitignored (false), or
+   *  indeterminate (null — a git error or ambiguous status). Undefined when
+   *  no git repo is available at all — world.list then reports every row's
+   *  `tracked` as null. */
+  isTracked?: (rel: string) => boolean | null;
 };
 
 const componentsRecord = z.record(z.string(), z.unknown());
@@ -411,8 +413,8 @@ export function createHandlers(ctx: HandlerContext): Handlers {
     },
   });
 
-  // Enumerate worlds/ (read-only — mutating verbs land in a later task).
-  // Classification + the tracked-checker capability live in worlds.ts.
+  // Enumerate worlds/ (read-only). Classification + the tracked-checker
+  // capability live in worlds.ts.
   handlers.set("world.list", {
     input: z.strictObject({}),
     run: () => Promise.resolve(listWorlds(ctx.root, ctx.isTracked)),

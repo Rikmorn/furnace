@@ -136,19 +136,27 @@ function sendJson(res: ServerResponse, status: number, body: unknown): void {
  *  just scaffolded with no repo yet), returns undefined so world.list reports
  *  every row's `tracked` as null instead of guessing. When a repo IS found,
  *  the returned closure shells out to `git check-ignore` per call: exit 1
- *  (not ignored) ⇒ tracked; exit 0 (ignored) ⇒ scratch; any other status
- *  (git error, or a per-call spawn failure) also resolves to scratch — this
- *  capability only ever downgrades a UI hint, so failing toward "no warning"
- *  is the safe direction, not a silent false claim of safety. */
+ *  (not ignored) ⇒ true; exit 0 (ignored) ⇒ false; any other status (a git
+ *  error, or a per-call spawn failure) ⇒ null (indeterminate). A null row
+ *  degrades to no tracked/scratch badge, and any overwrite-confirmation flow
+ *  built on this field must treat null the same as "don't warn" — the
+ *  failure direction is silence, never a false claim that a tracked world is
+ *  safe to overwrite. */
 function createGitTrackedChecker(
   root: string,
-): ((rel: string) => boolean) | undefined {
+): ((rel: string) => boolean | null) | undefined {
   const probe = spawnSync("git", ["rev-parse", "--is-inside-work-tree"], {
     cwd: root,
   });
   if (probe.error || probe.status !== 0) return undefined;
-  return (rel: string) =>
-    spawnSync("git", ["check-ignore", "-q", rel], { cwd: root }).status === 1;
+  return (rel: string) => {
+    const status = spawnSync("git", ["check-ignore", "-q", rel], {
+      cwd: root,
+    }).status;
+    if (status === 1) return true;
+    if (status === 0) return false;
+    return null;
+  };
 }
 
 /** Start the editor daemon for one project root. `port: 0` lets the OS pick (tests). */

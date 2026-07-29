@@ -10,7 +10,7 @@ import {
 } from "../src/daemon/handlers.ts";
 import { createRegistryLoader } from "../src/daemon/registry-bundle.ts";
 import { createSession, type Session } from "../src/daemon/session.ts";
-import type { WorldRow } from "../src/daemon/worlds.ts";
+import { type WorldRow, worldsIndexBytes } from "../src/daemon/worlds.ts";
 
 // Real session + real registry over an IN-WORKSPACE copy of mini-project (esbuild
 // resolves @furnace/core through the workspace node_modules; an os.tmpdir() copy
@@ -43,7 +43,7 @@ afterEach(() => {
 
 /** Build a handlers map over the shared session, optionally injecting the
  *  tracked-checker capability under test (mirrors production's isTracked wiring). */
-function build(isTracked?: (rel: string) => boolean): Handlers {
+function build(isTracked?: (rel: string) => boolean | null): Handlers {
   return createHandlers({
     root,
     scenesPattern: "**/*.scene.json",
@@ -63,19 +63,11 @@ describe("world.list", () => {
       JSON.stringify({ version: 1, default: "default" }),
     );
 
-    // Legacy world: scene-backed, no oplog.json (matches packages/dungeon/worlds/default).
-    const defaultDir = join(root, "worlds", "default");
-    mkdirSync(defaultDir, { recursive: true });
-    writeFileSync(
-      join(defaultDir, "world.scene.json"),
-      JSON.stringify({ entities: [] }),
-    );
-    writeFileSync(
-      join(defaultDir, "manifest.json"),
-      JSON.stringify({ version: 1, scene: "worlds/default/world.scene.json" }),
-    );
-
-    // Field world: oplog-backed, v2 manifest with a chunks array.
+    // Field world created FIRST, legacy "default" LAST: on filesystems where
+    // readdir order tracks creation order, the raw order disagrees with alpha
+    // order — so the assertion below actually exercises listWorlds's own sort
+    // rather than being masked by a test-side .sort() that would pass even if
+    // that sort were removed.
     const scratchDir = join(root, "worlds", "scratch-a");
     mkdirSync(scratchDir, { recursive: true });
     writeFileSync(join(scratchDir, "oplog.json"), JSON.stringify([]));
@@ -89,6 +81,18 @@ describe("world.list", () => {
       }),
     );
 
+    // Legacy world: scene-backed, no oplog.json (matches packages/dungeon/worlds/default).
+    const defaultDir = join(root, "worlds", "default");
+    mkdirSync(defaultDir, { recursive: true });
+    writeFileSync(
+      join(defaultDir, "world.scene.json"),
+      JSON.stringify({ entities: [] }),
+    );
+    writeFileSync(
+      join(defaultDir, "manifest.json"),
+      JSON.stringify({ version: 1, scene: "worlds/default/world.scene.json" }),
+    );
+
     // Not a world: no manifest.json at all — must be excluded (crash-safety:
     // manifest-last means a dir without one is a partial/in-progress write).
     mkdirSync(join(root, "worlds", "not-a-world"), { recursive: true });
@@ -97,7 +101,7 @@ describe("world.list", () => {
     const res = (await dispatch(handlers, "world.list", {})) as ListResult;
 
     expect(res.defaultName).toBe("default");
-    const names = res.worlds.map((w) => w.name).sort();
+    const names = res.worlds.map((w) => w.name);
     expect(names).toEqual(["default", "scratch-a"]);
 
     const def = res.worlds.find((w) => w.name === "default");
@@ -107,7 +111,7 @@ describe("world.list", () => {
     const scratch = res.worlds.find((w) => w.name === "scratch-a");
     expect(scratch?.kind).toBe("field");
     expect(scratch?.isDefault).toBe(false);
-    expect(typeof scratch?.manifestMtimeMs).toBe("number");
+    expect(scratch?.manifestMtimeMs).toBeGreaterThan(0);
   });
 
   test("reports tracked via the injected checker; null checker => tracked null", async () => {
@@ -117,7 +121,11 @@ describe("world.list", () => {
       writeFileSync(join(dir, "manifest.json"), JSON.stringify({ version: 1 }));
     }
 
-    const tracked = build((rel) => rel.endsWith("default"));
+    const seen: string[] = [];
+    const tracked = build((rel) => {
+      seen.push(rel);
+      return rel.endsWith("default");
+    });
     const trackedRes = (await dispatch(
       tracked,
       "world.list",
@@ -129,6 +137,12 @@ describe("world.list", () => {
     );
     expect(trackedDefault?.tracked).toBe(true);
     expect(trackedScratch?.tracked).toBe(false);
+    // Pin the path CONTRACT isTracked receives: project-relative "worlds/<name>",
+    // not the bare directory name — a caller that passed entry.name straight
+    // through would make every row tracked:true against a repo-root
+    // .gitignore rule keyed on "worlds/". Sorted: readdir order isn't
+    // guaranteed by POSIX, so the loop's call order isn't either.
+    expect([...seen].sort()).toEqual(["worlds/default", "worlds/scratch-a"]);
 
     const untracked = build();
     const untrackedRes = (await dispatch(
@@ -143,5 +157,53 @@ describe("world.list", () => {
     const handlers = build();
     const res = (await dispatch(handlers, "world.list", {})) as ListResult;
     expect(res).toEqual({ defaultName: null, worlds: [] });
+  });
+
+  test("index.default names a nonexistent world: defaultName reports the ghost name, no row is isDefault", async () => {
+    mkdirSync(join(root, "worlds"), { recursive: true });
+    writeFileSync(
+      join(root, "worlds", "index.json"),
+      JSON.stringify({ version: 1, default: "ghost-world" }),
+    );
+    const dir = join(root, "worlds", "default");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "manifest.json"), JSON.stringify({ version: 1 }));
+
+    const handlers = build();
+    const res = (await dispatch(handlers, "world.list", {})) as ListResult;
+    expect(res.defaultName).toBe("ghost-world");
+    expect(res.worlds.some((w) => w.isDefault)).toBe(false);
+  });
+
+  test("worlds/ exists but index.json is absent: defaultName null, rows still enumerate", async () => {
+    const dir = join(root, "worlds", "default");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "manifest.json"), JSON.stringify({ version: 1 }));
+
+    const handlers = build();
+    const res = (await dispatch(handlers, "world.list", {})) as ListResult;
+    expect(res.defaultName).toBeNull();
+    expect(res.worlds.map((w) => w.name)).toEqual(["default"]);
+  });
+
+  test("corrupt worlds/index.json degrades to defaultName null; rows still enumerate", async () => {
+    mkdirSync(join(root, "worlds"), { recursive: true });
+    writeFileSync(join(root, "worlds", "index.json"), "{not valid json");
+    const dir = join(root, "worlds", "default");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "manifest.json"), JSON.stringify({ version: 1 }));
+
+    const handlers = build();
+    const res = (await dispatch(handlers, "world.list", {})) as ListResult;
+    expect(res.defaultName).toBeNull();
+    expect(res.worlds.map((w) => w.name)).toEqual(["default"]);
+  });
+});
+
+describe("worldsIndexBytes", () => {
+  test("is byte-identical to the client's historical writer (generation.ts)", () => {
+    expect(worldsIndexBytes("scratch-a")).toBe(
+      '{\n  "version": 1,\n  "default": "scratch-a"\n}\n',
+    );
   });
 });
