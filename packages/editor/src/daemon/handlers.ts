@@ -13,6 +13,7 @@ import type { DaemonEvent } from "./events.ts";
 import * as mutations from "./mutations.ts";
 import { listScenes, readScene } from "./scenes.ts";
 import type { Session } from "./session.ts";
+import { listWorlds } from "./worlds.ts";
 
 type Handler = {
   input: z.ZodType;
@@ -27,6 +28,10 @@ export type HandlerContext = {
   scenesPattern: string;
   session: Session;
   emit(event: DaemonEvent): void;
+  /** Injected capability (same pattern as watchDir): reports whether a
+   *  project-relative path is git-tracked. Undefined when no git repo is
+   *  available — world.list then reports every row's `tracked` as null. */
+  isTracked?: (rel: string) => boolean;
 };
 
 const componentsRecord = z.record(z.string(), z.unknown());
@@ -404,6 +409,13 @@ export function createHandlers(ctx: HandlerContext): Handlers {
         : null;
       return Promise.resolve({ manifest, chunks, materials, oplog });
     },
+  });
+
+  // Enumerate worlds/ (read-only — mutating verbs land in a later task).
+  // Classification + the tracked-checker capability live in worlds.ts.
+  handlers.set("world.list", {
+    input: z.strictObject({}),
+    run: () => Promise.resolve(listWorlds(ctx.root, ctx.isTracked)),
   });
 
   return handlers;

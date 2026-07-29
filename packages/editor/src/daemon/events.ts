@@ -8,11 +8,14 @@ const HEARTBEAT_MS = 15_000;
  *  serve the fresh bundle on next fetch (it rebuilds per GET) — the browser just
  *  needs to know to reload. `generation-baked` = the browser uploaded a freshly
  *  baked world file set (via generation.bake) and the daemon wrote it to the project
- *  root; `files` is how many were written. */
+ *  root; `files` is how many were written. `worlds-changed` = a mutating world verb
+ *  (delete/rename/duplicate/makeDefault — a later task) changed the worlds/
+ *  directory or its index; consumers should refetch world.list. */
 export type DaemonEvent =
   | SessionEvent
   | { type: "bundle-outdated" }
-  | { type: "generation-baked"; files: number };
+  | { type: "generation-baked"; files: number }
+  | { type: "worlds-changed" };
 
 /**
  * SSE broadcaster for session events. Events are notification-only dirty-bits:

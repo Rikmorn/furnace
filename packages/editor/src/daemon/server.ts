@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import { createReadStream, existsSync, statSync } from "node:fs";
 import {
   createServer,
@@ -130,6 +131,26 @@ function sendJson(res: ServerResponse, status: number, body: unknown): void {
   res.end(text);
 }
 
+/** Production adapter for HandlerContext.isTracked: probes ONCE whether `root`
+ *  is inside a git work tree; when it isn't (git absent, or the project was
+ *  just scaffolded with no repo yet), returns undefined so world.list reports
+ *  every row's `tracked` as null instead of guessing. When a repo IS found,
+ *  the returned closure shells out to `git check-ignore` per call: exit 1
+ *  (not ignored) ⇒ tracked; exit 0 (ignored) ⇒ scratch; any other status
+ *  (git error, or a per-call spawn failure) also resolves to scratch — this
+ *  capability only ever downgrades a UI hint, so failing toward "no warning"
+ *  is the safe direction, not a silent false claim of safety. */
+function createGitTrackedChecker(
+  root: string,
+): ((rel: string) => boolean) | undefined {
+  const probe = spawnSync("git", ["rev-parse", "--is-inside-work-tree"], {
+    cwd: root,
+  });
+  if (probe.error || probe.status !== 0) return undefined;
+  return (rel: string) =>
+    spawnSync("git", ["check-ignore", "-q", rel], { cwd: root }).status === 1;
+}
+
 /** Start the editor daemon for one project root. `port: 0` lets the OS pick (tests). */
 export async function startServer(opts: ServerOptions): Promise<RunningServer> {
   const config = loadConfig(opts.root);
@@ -146,6 +167,7 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
     scenesPattern: config.scenes,
     session,
     emit: (event) => hub.emit(event),
+    isTracked: createGitTrackedChecker(opts.root),
   });
   const bundler: EngineBundler = await createEngineBundler(
     opts.root,

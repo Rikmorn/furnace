@@ -15,6 +15,7 @@ export type EditorErrorCode =
   | "unsaved-changes"
   | "nothing-to-undo"
   | "nothing-to-redo"
+  | "already-exists"
   | "unreadable"
   | "extension-build-failed"
   | "internal";
@@ -32,6 +33,7 @@ const HTTP_STATUS: Record<EditorErrorCode, number> = {
   "unsaved-changes": 409,
   "nothing-to-undo": 409,
   "nothing-to-redo": 409,
+  "already-exists": 409,
   unreadable: 500,
   "extension-build-failed": 500,
   internal: 500,

@@ -25,6 +25,7 @@ test("httpStatus maps every code to its spec'd status", () => {
     "unsaved-changes": 409,
     "nothing-to-undo": 409,
     "nothing-to-redo": 409,
+    "already-exists": 409,
     unreadable: 500,
     "extension-build-failed": 500,
     internal: 500,
