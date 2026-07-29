@@ -25,7 +25,7 @@ import { SchemaForm } from "../../inspector/index.tsx";
 import type { JsonSchemaNode } from "../../inspector/types.ts";
 import { Button } from "../ui/button.tsx";
 import { Input } from "../ui/input.tsx";
-import { ReasonTip, SELECT_CLASS } from "../world-panel/fields.tsx";
+import { ReasonTip, SELECT_CLASS } from "./form-bits.tsx";
 
 const LABEL_CLASS = "flex items-center gap-1.5 text-muted-foreground";
 

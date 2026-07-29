@@ -25,7 +25,7 @@ import { bakeUploadCalls, toWireFiles } from "../../lib/generation.ts";
 import { useEditor } from "../editor-context.ts";
 import { Button } from "../ui/button.tsx";
 import { Input } from "../ui/input.tsx";
-import { errorMessage, ReasonTip } from "../world-panel/fields.tsx";
+import { errorMessage, ReasonTip } from "./form-bits.tsx";
 
 // Mirrors the daemon field.load name regex AND FieldHost's clamp range. Name is EMPTY by
 // default and never prefilled (the W3/W4 gate-clobber lesson: a stale default silently

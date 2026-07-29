@@ -12,7 +12,7 @@ import type {
 	FieldTool,
 } from "../../../viewport-host/index.ts"; // type-only: erased
 import { Input } from "../ui/input.tsx";
-import { SELECT_CLASS } from "../world-panel/fields.tsx";
+import { SELECT_CLASS } from "./form-bits.tsx";
 
 // Mirror FieldHost's radius clamp range (RADIUS_MIN/MAX) — the chrome cannot
 // import the host's value constants (type-only barrel).

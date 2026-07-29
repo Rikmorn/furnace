@@ -1,20 +1,12 @@
 // Leaf helpers shared by the World panel's three pieces (WorldPanel.tsx, RegionRow.tsx,
-// AddRegionForm.tsx): the label scaffolding every knob repeats, the number-input parser,
-// and the error-to-string helper. SELECT_CLASS + ReasonTip are also reused by the Field
-// panel (FieldPanel.tsx, field/BrushInspector.tsx). Nothing here holds state or knows
-// about the draft.
-//
-// These panels use the NATIVE <select>, not the package's ui/select.tsx (Radix) — a
-// deliberate deviation from the primitive four other files use. The World panel's selects
-// are dense, list-driven knob rows (walls, region ids, connector kinds) where the
-// platform's own keyboard and mobile-wheel behaviour is exactly what we want, and a native
-// control stays drivable from the chrome harness with fireEvent.change. Radix's portaled
-// listbox buys nothing at this size and costs the harness a mock.
+// AddRegionForm.tsx): the label scaffolding every knob repeats and the number-input
+// parser. SELECT_CLASS, ReasonTip, and errorMessage moved to field/form-bits.tsx (also
+// reused by the Field panel: FieldPanel.tsx, field/BrushInspector.tsx) and are
+// re-exported here so this module's own two remaining World-panel consumers keep
+// compiling. Nothing here holds state or knows about the draft.
 import type { ReactNode } from "react";
-import { cn } from "../../lib/cn.ts";
 
-export const SELECT_CLASS =
-	"h-8 rounded-md border border-input bg-transparent px-2";
+export { errorMessage, ReasonTip, SELECT_CLASS } from "../field/form-bits.tsx";
 
 /** One labelled knob. The WRAPPING label associates its text with whatever control is
  *  passed as children — no id/htmlFor plumbing, and getByLabelText finds it. */
@@ -44,22 +36,3 @@ export const num = (v: string, fallback: number): number => {
 	const n = Number(v);
 	return Number.isFinite(n) ? n : fallback;
 };
-
-/** An unknown thrown value as a display string. */
-export const errorMessage = (err: unknown): string =>
-	err instanceof Error ? err.message : String(err);
-
-/** Wrap a DISABLED control so its explanation is still reachable: shadcn's Button sets
- *  `disabled:pointer-events-none` (ui/button.tsx), so a `title` on the button itself
- *  never fires a tooltip and isn't reliably exposed to AT either. The span still takes
- *  pointer events, so the reason survives the disable. */
-export function ReasonTip(props: {
-	reason: string | undefined;
-	children: ReactNode;
-}) {
-	return (
-		<span title={props.reason} className={cn(props.reason && "cursor-help")}>
-			{props.children}
-		</span>
-	);
-}

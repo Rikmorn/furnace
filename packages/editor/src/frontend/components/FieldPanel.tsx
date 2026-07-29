@@ -36,12 +36,12 @@ import { DriftReport } from "./field/DriftReport.tsx";
 import { EntitiesList } from "./field/EntitiesList.tsx";
 import { FieldToolbar } from "./field/FieldToolbar.tsx";
 import { FlagsSection } from "./field/FlagsSection.tsx";
+import { errorMessage } from "./field/form-bits.tsx";
 import { LayersRow } from "./field/LayersRow.tsx";
 import { MaterialSwatches } from "./field/MaterialSwatches.tsx";
 import { StampInspector } from "./field/StampInspector.tsx";
 import { ToolPalette } from "./field/ToolPalette.tsx";
 import { Button } from "./ui/button.tsx";
-import { errorMessage } from "./world-panel/fields.tsx";
 
 // Mirror FieldHost's default digRadius (the range lives in BrushInspector).
 const DEFAULT_RADIUS = 1.25;
