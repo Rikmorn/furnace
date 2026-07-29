@@ -21,6 +21,7 @@
       "!**/plugins/*/pkg",
       "!**/graphify-out",
       "!**/.claude",
+      "!docs/superpowers",
       "!**/worlds/*",
       "**/worlds/index.json",
       "!bun.lock"
