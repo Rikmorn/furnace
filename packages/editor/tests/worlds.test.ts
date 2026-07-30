@@ -254,10 +254,13 @@ describe("world mutations", () => {
     expect(events.filter((e) => e.type === "worlds-changed")).toHaveLength(1);
   });
 
-  test("world.makeDefault refuses a world with no manifest (not-found)", async () => {
+  test("world.makeDefault refuses a world whose dir exists but has no manifest (not-found)", async () => {
+    // The dir itself DOES exist (unlike a fully-missing name) — this pins
+    // "no manifest", not "no dir", which the name-only variant can't tell apart.
+    mkdirSync(join(root, "worlds", "dir-no-manifest"), { recursive: true });
     const handlers = build();
     await expect(
-      dispatch(handlers, "world.makeDefault", { name: "ghost" }),
+      dispatch(handlers, "world.makeDefault", { name: "dir-no-manifest" }),
     ).rejects.toMatchObject({ code: "not-found" });
     expect(existsSync(join(root, "worlds", "index.json"))).toBe(false);
     expect(events.filter((e) => e.type === "worlds-changed")).toHaveLength(0);
@@ -309,6 +312,20 @@ describe("world mutations", () => {
     expect(events.filter((e) => e.type === "worlds-changed")).toHaveLength(0);
   });
 
+  test("world.delete refuses when worlds/index.json exists but is corrupt (can't tell if this is the default)", async () => {
+    // If the index degraded silently to "no default" here, the delete-default
+    // guard above would be bypassed for whatever world the corrupt index
+    // ACTUALLY named default — a destructive delete would go through.
+    const dir = makeFieldWorld("scratch-a");
+    writeFileSync(join(root, "worlds", "index.json"), "{not valid json");
+    const handlers = build();
+    await expect(
+      dispatch(handlers, "world.delete", { name: "scratch-a" }),
+    ).rejects.toMatchObject({ code: "invalid-input" });
+    expect(existsSync(dir)).toBe(true);
+    expect(events.filter((e) => e.type === "worlds-changed")).toHaveLength(0);
+  });
+
   test("world.rename moves the dir; renaming the default also rewrites index.json", async () => {
     const dir = makeFieldWorld("scratch-a");
     writeFileSync(
@@ -329,9 +346,28 @@ describe("world mutations", () => {
     expect(events.filter((e) => e.type === "worlds-changed")).toHaveLength(1);
   });
 
+  test("world.rename refuses from === to with invalid-input, not a self-contradicting already-exists", async () => {
+    makeFieldWorld("scratch-a");
+    const handlers = build();
+    await expect(
+      dispatch(handlers, "world.rename", {
+        from: "scratch-a",
+        to: "scratch-a",
+      }),
+    ).rejects.toMatchObject({ code: "invalid-input" });
+    expect(events.filter((e) => e.type === "worlds-changed")).toHaveLength(0);
+  });
+
   test("world.rename/duplicate refuse an existing target with already-exists", async () => {
     makeFieldWorld("scratch-a");
     makeFieldWorld("scratch-b");
+    // Distinguish scratch-b's chunk bytes from scratch-a's identical fixture
+    // output: cpSync defaults to force:true, so an unguarded duplicate would
+    // silently overwrite scratch-b with scratch-a's bytes — invisible if the
+    // two fixtures happen to be byte-identical, as makeFieldWorld's output is.
+    const bChunkPath = join(root, "worlds", "scratch-b", "chunks", "0_0_0.bin");
+    writeFileSync(bChunkPath, Buffer.from([9, 9, 9]));
+
     const handlers = build();
     await expect(
       dispatch(handlers, "world.rename", {
@@ -347,6 +383,7 @@ describe("world mutations", () => {
     ).rejects.toMatchObject({ code: "already-exists" });
     // Neither refusal touched the filesystem or emitted.
     expect(existsSync(join(root, "worlds", "scratch-a"))).toBe(true);
+    expect(Array.from(readFileSync(bChunkPath))).toEqual([9, 9, 9]);
     expect(events.filter((e) => e.type === "worlds-changed")).toHaveLength(0);
   });
 
@@ -365,7 +402,39 @@ describe("world mutations", () => {
     expect(events.filter((e) => e.type === "worlds-changed")).toHaveLength(1);
   });
 
-  test("all four verbs refuse names failing WORLD_NAME_RE at the zod boundary (invalid-input)", async () => {
+  test("world.makeDefault on the already-default world is an idempotent rewrite, not an error", async () => {
+    makeFieldWorld("scratch-a");
+    writeFileSync(
+      join(root, "worlds", "index.json"),
+      worldsIndexBytes("scratch-a"),
+    );
+    const handlers = build();
+    await dispatch(handlers, "world.makeDefault", { name: "scratch-a" });
+    const bytes = readFileSync(join(root, "worlds", "index.json"), "utf8");
+    expect(bytes).toBe('{\n  "version": 1,\n  "default": "scratch-a"\n}\n');
+    expect(events.filter((e) => e.type === "worlds-changed")).toHaveLength(1);
+  });
+
+  test("world.duplicate of the default world: the copy is not default (index untouched)", async () => {
+    makeFieldWorld("scratch-a");
+    writeFileSync(
+      join(root, "worlds", "index.json"),
+      worldsIndexBytes("scratch-a"),
+    );
+    const handlers = build();
+    await dispatch(handlers, "world.duplicate", {
+      from: "scratch-a",
+      to: "scratch-copy",
+    });
+    const bytes = readFileSync(join(root, "worlds", "index.json"), "utf8");
+    expect(bytes).toBe('{\n  "version": 1,\n  "default": "scratch-a"\n}\n');
+    const res = (await dispatch(handlers, "world.list", {})) as ListResult;
+    const copy = res.worlds.find((w) => w.name === "scratch-copy");
+    expect(copy?.isDefault).toBe(false);
+    expect(events.filter((e) => e.type === "worlds-changed")).toHaveLength(1);
+  });
+
+  test("all four verbs refuse names failing WORLD_NAME_RE at the zod boundary (invalid-input) — 6/6 fields", async () => {
     const handlers = build();
     await expect(
       dispatch(handlers, "world.makeDefault", { name: "Bad Name!" }),
@@ -375,6 +444,12 @@ describe("world mutations", () => {
     ).rejects.toMatchObject({ code: "invalid-input" });
     await expect(
       dispatch(handlers, "world.rename", { from: "Bad Name!", to: "ok" }),
+    ).rejects.toMatchObject({ code: "invalid-input" });
+    await expect(
+      dispatch(handlers, "world.rename", { from: "ok", to: "Bad Name!" }),
+    ).rejects.toMatchObject({ code: "invalid-input" });
+    await expect(
+      dispatch(handlers, "world.duplicate", { from: "Bad Name!", to: "ok" }),
     ).rejects.toMatchObject({ code: "invalid-input" });
     await expect(
       dispatch(handlers, "world.duplicate", { from: "ok", to: "Bad Name!" }),

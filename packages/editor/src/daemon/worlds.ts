@@ -13,10 +13,11 @@ import {
 import { join } from "node:path";
 
 /** ONE source of truth for a world directory name. Kept textually identical to
- *  the other 4 copies — frontend `lib/generation.ts`'s `isValidWorldName`,
- *  frontend `field/FieldToolbar.tsx`'s `NAME_RE`, `handlers.ts`'s `field.load`
- *  input schema, and `packages/dungeon/src/bake.ts`'s `WORLD_NAME_RE` — grep
- *  all copies before changing this pattern. */
+ *  the other 3 copies — frontend `lib/generation.ts`'s `isValidWorldName`,
+ *  frontend `field/FieldToolbar.tsx`'s `NAME_RE`, and `packages/dungeon/src/bake.ts`'s
+ *  `WORLD_NAME_RE` — grep all copies before changing this pattern. (`handlers.ts`
+ *  imports this constant directly — its shared `worldName` zod schema is used by
+ *  `field.load` and every `world.*` verb, not a separate copy.) */
 export const WORLD_NAME_RE = /^[a-z0-9][a-z0-9_-]*$/i;
 
 export type WorldRow = {
@@ -93,7 +94,8 @@ export function worldDir(root: string, name: string): string {
 // The four mutation primitives below are dumb fs wrappers only — no
 // EditorError, no validation, no existence/collision checks. handlers.ts owns
 // all of that (refusal codes, messages, event emission) so this module stays
-// framework-free, mirroring how listWorlds above never throws either.
+// framework-free, mirroring how listWorlds above never raises EditorError —
+// it (and these primitives) only ever throw raw fs errors (e.g. EACCES).
 
 /** Delete a world directory (and everything under it). Idempotent: deleting
  *  an already-absent dir is a no-op (`force: true`), same as `rm -rf`. */
@@ -117,8 +119,11 @@ export function duplicateWorldDir(
   cpSync(worldDir(root, from), worldDir(root, to), { recursive: true });
 }
 
-/** Rewrite worlds/index.json to name `name` as the default world, using the
- *  same byte-pinned writer as the rest of the daemon (`worldsIndexBytes`). */
+/** Rewrite worlds/index.json to name `name` as the default world, via
+ *  `worldsIndexBytes`. The frontend's `generation.ts` hand-rolls the same
+ *  bytes for its own index write (it can't import node:fs code) — the
+ *  byte-pin test on `worldsIndexBytes` is what keeps the two writers
+ *  identical, not a shared implementation. */
 export function writeDefaultWorld(root: string, name: string): void {
   writeFileSync(join(root, "worlds", "index.json"), worldsIndexBytes(name));
 }

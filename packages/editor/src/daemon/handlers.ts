@@ -47,6 +47,9 @@ export type HandlerContext = {
 
 const componentsRecord = z.record(z.string(), z.unknown());
 const tableEnum = z.enum(["geometries", "shaders", "materials"]);
+// Shared by field.load and every world.* verb below — the ONE handlers.ts
+// copy of WORLD_NAME_RE (worlds.ts's top comment tracks the other copies).
+const worldName = z.string().regex(WORLD_NAME_RE);
 
 /** Build the M4 command set: stateless reads + the document-session commands. */
 export function createHandlers(ctx: HandlerContext): Handlers {
@@ -375,7 +378,7 @@ export function createHandlers(ctx: HandlerContext): Handlers {
   // manifest is on-disk data, not trusted input).
   handlers.set("field.load", {
     input: z.strictObject({
-      name: z.string().regex(/^[a-z0-9][a-z0-9_-]*$/i),
+      name: worldName,
     }),
     run: (input) => {
       const { name } = input as { name: string };
@@ -429,8 +432,6 @@ export function createHandlers(ctx: HandlerContext): Handlers {
     run: () => Promise.resolve(listWorlds(ctx.root, ctx.isTracked)),
   });
 
-  const worldName = z.string().regex(WORLD_NAME_RE);
-
   handlers.set("world.makeDefault", {
     input: z.strictObject({ name: worldName }),
     run: (input) => {
@@ -452,7 +453,21 @@ export function createHandlers(ctx: HandlerContext): Handlers {
       if (!existsSync(worldDir(ctx.root, name))) {
         throw new EditorError("not-found", `world "${name}" does not exist`);
       }
-      const isDefault = readWorldsIndex(ctx.root)?.default === name;
+      const indexPath = join(ctx.root, "worlds", "index.json");
+      const index = readWorldsIndex(ctx.root);
+      // A corrupt index must not silently disable the delete-default guard
+      // below: readWorldsIndex(...)?.default === name degrades to false when
+      // the file is unparseable, which would let the ACTUAL default get
+      // deleted. Distinguish "no index file" (fine — no default is set) from
+      // "index present but unreadable" (refuse; we can't tell if this is the
+      // default or not).
+      if (existsSync(indexPath) && index === null) {
+        throw new EditorError(
+          "invalid-input",
+          "can't determine the default world — worlds/index.json is unreadable; fix or delete the index first",
+        );
+      }
+      const isDefault = index?.default === name;
       if (isDefault) {
         throw new EditorError(
           "invalid-input",
@@ -476,13 +491,33 @@ export function createHandlers(ctx: HandlerContext): Handlers {
       if (!existsSync(worldDir(ctx.root, from))) {
         throw new EditorError("not-found", `world "${from}" does not exist`);
       }
-      // macOS's default case-insensitive filesystem means existsSync also
-      // catches case-folded collisions (e.g. "Foo" vs "foo") — consistent
-      // with WORLD_NAME_RE's `i` flag treating them as the same name.
+      if (from === to) {
+        throw new EditorError(
+          "invalid-input",
+          "rename target is the same name",
+        );
+      }
+      // macOS's default case-insensitive filesystem folds case-distinct names
+      // to the same directory entry, so existsSync(to) also catches a
+      // case-only collision (e.g. "Foo" vs "foo") — that's the filesystem's
+      // doing, not WORLD_NAME_RE's `i` flag (which only defines which
+      // characters are valid in a name, not name equivalence). Consequence: a
+      // case-only rename (scratch-a → Scratch-A) is refused with
+      // already-exists on default macOS; on a case-sensitive filesystem
+      // (Linux — this daemon is portable) "scratch-a" and "Scratch-A" are
+      // distinct directory entries and the rename succeeds.
       if (existsSync(worldDir(ctx.root, to))) {
         throw new EditorError("already-exists", `world "${to}" already exists`);
       }
       const wasDefault = readWorldsIndex(ctx.root)?.default === from;
+      // Ordering note (torn-window): renameSync runs BEFORE the index
+      // rewrite. If the process dies in between (crash, disk full), the
+      // directory has already moved but worlds/index.json still names the
+      // OLD (now-renamed-away) world as default — the reviewed alternative
+      // (index-first) risks the index naming a default whose dir was never
+      // actually moved, judged the worse failure; this ordering's failure
+      // mode is at least a clean abort. Recovery is manual: re-pick the
+      // default in the world drawer (world.makeDefault on the renamed dir).
       renameWorldDir(ctx.root, from, to);
       if (wasDefault) writeDefaultWorld(ctx.root, to);
       ctx.emit({ type: "worlds-changed" });
