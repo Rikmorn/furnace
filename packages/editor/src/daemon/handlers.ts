@@ -28,11 +28,11 @@ export type HandlerContext = {
   scenesPattern: string;
   session: Session;
   emit(event: DaemonEvent): void;
-  /** Injected capability (same pattern as watchDir): reports whether a
-   *  project-relative path is git-tracked (true), gitignored (false), or
-   *  indeterminate (null — a git error or ambiguous status). Undefined when
-   *  no git repo is available at all — world.list then reports every row's
-   *  `tracked` as null. */
+  /** Injected capability (same pattern as watchDir): for a project-relative
+   *  path, reports true (not gitignored per `git check-ignore`), false
+   *  (gitignored), or null (a git error or ambiguous status — indeterminate).
+   *  Undefined when no git repo is available at all — world.list then
+   *  reports every row's `tracked` as null. */
   isTracked?: (rel: string) => boolean | null;
 };
 

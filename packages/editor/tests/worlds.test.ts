@@ -151,6 +151,19 @@ describe("world.list", () => {
       {},
     )) as ListResult;
     expect(untrackedRes.worlds.every((w) => w.tracked === null)).toBe(true);
+
+    // Distinguish injected-null (checker present, ambiguous per-row answer)
+    // from absent-capability (checker undefined, above): a checker that
+    // returns null must flow through as null, not collapse to false — a
+    // `?? false` on the per-call result would silently relabel every
+    // indeterminate row "scratch" and pass the assertion above by accident.
+    const indeterminate = build(() => null);
+    const indeterminateRes = (await dispatch(
+      indeterminate,
+      "world.list",
+      {},
+    )) as ListResult;
+    expect(indeterminateRes.worlds.every((w) => w.tracked === null)).toBe(true);
   });
 
   test("with no worlds dir returns empty list + defaultName null", async () => {

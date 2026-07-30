@@ -42,7 +42,7 @@ export function readWorldsIndex(
   }
 }
 
-/** Byte-identical to the client's historical writer (generation.ts:78) — pinned by test. */
+/** Byte-identical to the client's historical writer (generation.ts) — pinned by test. */
 export function worldsIndexBytes(defaultName: string): string {
   return `${JSON.stringify({ version: 1, default: defaultName }, null, 2)}\n`;
 }
