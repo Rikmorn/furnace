@@ -52,6 +52,7 @@ import {
   type FlagFilters,
   type FlagRow,
   type FlagsSummary,
+  flagMarkerCenter,
   flagTint,
   INFO_TINT,
 } from "./field-flags.ts";
@@ -62,6 +63,7 @@ import {
   segmentGhostSegments,
   sphereGhostSegments,
 } from "./field-ghost.ts";
+import { type PickCandidate, pickNearest } from "./field-pick.ts";
 import {
   FALLBACK_COLLISION,
   FALLBACK_TINT,
@@ -72,6 +74,7 @@ import {
   placementsByEntity,
   placesProps,
   proxyRecords,
+  proxyScale,
   seedArchetypeParams,
   withArchetypeOptions,
 } from "./field-placements.ts";
@@ -139,16 +142,21 @@ export type FieldTool = {
 export type SelectionMode = "box" | "material" | "void";
 
 /** What an LMB click DOES in the viewport — ONE slot, so arming any of these
- *  disarms the others: a {@link SelectionMode} gesture, the two-click
- *  `segment` brush (D-F3-14: anchor, then commit ONE swept-capsule op with the
- *  active tool's effect/material — dig carves a tunnel, fill raises a
- *  rampart), or `null` for a plain brush stroke.
+ *  disarms the others: `pointer` (select the ENTITY under the cursor — the
+ *  DEFAULT a host opens armed with, D-F4.5-7), a {@link SelectionMode} gesture,
+ *  the two-click `segment` brush (D-F3-14: anchor, then commit ONE swept-capsule
+ *  op with the active tool's effect/material — dig carves a tunnel, fill raises
+ *  a rampart), or `null` for a plain brush stroke.
  *
  *  `segment` is a BRUSH gesture, not a selection: it makes no selection, and
  *  the brush parameters (radius = the capsule radius, effect, material, mask)
  *  stay live under it — which is why the panel keeps the brush inspector open
- *  for `segment` and hides it for the three selection modes. */
-export type ViewportGesture = SelectionMode | "segment";
+ *  for `segment` and hides it for the cell-selection modes and for `pointer`.
+ *
+ *  `pointer` selects OBJECTS (an entity, or a prop/marker that resolves to
+ *  one); the three {@link SelectionMode}s select CELLS. Two different kinds of
+ *  selection sharing one slot because they share one button. */
+export type ViewportGesture = SelectionMode | "segment" | "pointer";
 
 /** The panel's view of the host's current selection. `spec` is the replayable
  *  selection spec (the same object shape a selection-masked op embeds);
@@ -343,14 +351,16 @@ export type FieldHost = {
    *  (the shell's host-state provider, which posts each message as a toast);
    *  returns an unsubscribe. */
   subscribeToolError(cb: (msg: string) => void): () => void;
-  /** Arms what an LMB click does ({@link ViewportGesture}): a selection
+  /** Arms what an LMB click does ({@link ViewportGesture}): `pointer` (entity
+   *  select — what a fresh host is ALREADY armed with), a cell-selection
    *  gesture (`box`/`material`/`void`), the two-click `segment` brush, or
    *  `null` for a plain brush stroke. ONE slot — arming any gesture disarms
-   *  the one before it. A selection gesture governs only the GESTURE: an
-   *  existing selection persists across changes (it keeps masking ops until
-   *  cleared). Any pending box OR segment anchor is dropped on a change.
+   *  the one before it. A gesture governs only the GESTURE: an existing cell
+   *  selection persists across changes (it keeps masking ops until cleared),
+   *  and so does the entity selection ({@link subscribeEntitySelection}).
+   *  Any pending box OR segment anchor is dropped on a change.
    *  Esc cancels a pending SEGMENT anchor (only when no stamp session owns the
-   *  key); the selection gestures deliberately have no keyboard shortcuts —
+   *  key); the gestures deliberately have no keyboard shortcuts —
    *  selection clear is the panel button. */
   setGesture(gesture: ViewportGesture | null): void;
   /** Clears the current selection into the Reselect slot (and drops a pending
@@ -670,12 +680,34 @@ export type FieldHost = {
    *  carrying the {@link FieldEntityInfo.placed} summary of its own span's
    *  placement records. */
   listEntities(): FieldEntityInfo[];
-  /** Shows the amber-dim box of one committed entity's stamped FOOTPRINT —
-   *  the union of its span's op bounds, falling back to the recorded
-   *  selection region only when the span holds no field-writing ops (null =
-   *  hide; unknown ids hide too — runtime-quiet). Display-only, under the
-   *  `selection` layer gate. */
-  highlightEntity(entityId: number | null): void;
+  /** Selects one committed entity, or nothing (`null`). The SAME state a
+   *  `pointer` click writes, so the palette and the viewport cannot disagree
+   *  about what is selected — there is one selection concept, not a selection
+   *  and a highlight.
+   *
+   *  Runtime-quiet on an id no entity op carries (an undone commit, a stale
+   *  panel row): it selects NOTHING rather than reporting, because the ids come
+   *  from a list that can lag the log. Re-selecting what is already selected is
+   *  a no-op that notifies nobody.
+   *
+   *  The selected entity wears its stamped FOOTPRINT box in the theme's primary
+   *  colour — the union of its span's op bounds, falling back to the recorded
+   *  selection region only when the span holds no field-writing ops (a pure
+   *  placer's). That emphasis is display-only and rides the `selection` layer
+   *  gate; the selection itself is not display state and survives the layer
+   *  being off. */
+  selectEntity(entityId: number | null): void;
+  /** Subscribes to the selected entity id (`null` = nothing selected), pushed on
+   *  every change — a `pointer` click, a {@link selectEntity} call, and the
+   *  INVALIDATION that fires when the selected entity leaves the log (⌘Z over a
+   *  commit, a world new/load). Immediately pushes the CURRENT id on subscribe
+   *  (the {@link subscribeSelection} remount rationale). Single subscriber;
+   *  returns an unsubscribe.
+   *
+   *  Distinct from {@link subscribeSelection}, which carries the CELL selection
+   *  that masks ops. The two are independent state: selecting an entity does not
+   *  disturb a cell selection and vice versa. */
+  subscribeEntitySelection(cb: (entityId: number | null) => void): () => void;
   /** Installs the project's agent profile (`catalog/agent.json`) — the capsule,
    *  step and clearance the walkability advisor is parameterized on (D-F4-4).
    *
@@ -802,6 +834,11 @@ const DIG_RANGE_M = 30;
  *  anything under `viewport-host/`, so the two agree by review (the FlagsSection
  *  tint-palette precedent). */
 const MAX_SEGMENT_M = 2 * DIG_RANGE_M;
+/** How far a `pointer` pick reaches — the DIG reach, deliberately the same
+ *  number rather than an independent one: "you can select what you could dig" is
+ *  one rule to hold in the head, and the same range bounds the pick's occlusion
+ *  probe, so nothing can be picked through terrain the probe never tested. */
+const PICK_RANGE_M = DIG_RANGE_M;
 /** The project's runtime-built engine bundle, which is where stage 2's mover
  *  lives. The daemon serves it at this path; the analyzer worker imports it. */
 const ANALYZER_ENGINE_URL = "/engine.js";
@@ -919,10 +956,21 @@ const SELECTION_UI_BUDGET = 200_000;
 // rather than restated: both mark CONTEXT the user is not being asked to act on,
 // and two copies of four numbers is how that claim quietly stops being true.
 const SELECTION_COLOR: [number, number, number, number] = INFO_TINT;
-// Entity-highlight box colour: the selection amber DIMMED, so a highlighted
-// entity region reads as related to but distinct from the live selection.
-const ENTITY_HIGHLIGHT_COLOR: [number, number, number, number] = [
-  0.55, 0.41, 0.17, 1,
+// Selected-entity footprint box: the CHROME's primary accent, so "this is what
+// is selected" is one colour across the whole editor — the palette row and the
+// viewport box wear the same steel blue, and neither reads as the amber
+// cell-selection overlay beside it.
+//
+// The theme token is `--primary: oklch(0.62 0.11 240)` (styles.css); these are
+// its LINEAR-sRGB components, which is what a shader writes (engine-conventions
+// §Color space: shaders write linear, the swap chain encodes). Converted once
+// here rather than eyeballed — the two surfaces are meant to be the same colour,
+// and a hand-picked approximation is how that quietly stops being true. The
+// chrome cannot value-import anything under `viewport-host/`, so the two agree
+// by review (the MAX_SEGMENT_M / FlagsSection tint-palette precedent): if the
+// token moves, this moves.
+const ENTITY_SELECTED_COLOR: [number, number, number, number] = [
+  0.048, 0.271, 0.536, 1,
 ];
 // Box-select anchor cross: half-length of each of the three axis strokes (m).
 const ANCHOR_CROSS_HALF_M = 0.25;
@@ -1081,10 +1129,18 @@ export function createFieldHost(deps?: {
   let maskDropReported = false;
 
   // --- gesture + selection state (armed slot, current + Reselect, overlay) --
-  // What LMB does: one slot for the three selection gestures AND the segment
-  // brush (see ViewportGesture) — they all bind the same click, so they cannot
-  // be armed independently.
-  let gesture: ViewportGesture | null = null;
+  // What LMB does: one slot for `pointer`, the three cell-selection gestures
+  // AND the segment brush (see ViewportGesture) — they all bind the same click,
+  // so they cannot be armed independently.
+  //
+  // POINTER is the default (D-F4.5-7): a host opens ready to SELECT, not ready
+  // to dig, so the first click on a world can never be a destructive one. Two
+  // existing behaviours fall out of that with no new rule — the brush ghost
+  // hides (renderScene draws it only while `gesture === null`) and LMB bypasses
+  // applyTool (the arbitration below) — which is exactly right: nothing on
+  // screen promises a stroke that will not happen. Arming a brush effect is what
+  // the chrome does to get back to `null`.
+  let gesture: ViewportGesture | null = "pointer";
   // Pending box-select anchor: the first click's world point (null = none).
   let boxAnchor: Vec3T | null = null;
   // Pending SEGMENT anchor: the first click's world point (null = none). Its
@@ -1186,16 +1242,23 @@ export function createFieldHost(deps?: {
   // (hologram-blue, occlude:false) — rebuilt with the ghost meshes on every
   // preview response, cleared with them. Null = the preview placed nothing.
   let placementGhost: LineBatch | null = null;
-  // Entity-highlight overlay (highlightEntity): prebuilt on the call, drawn
-  // under the selection layer gate. CPU-only line batch.
+  // The SELECTED entity (selectEntity / a `pointer` click) and its footprint
+  // box, prebuilt on every change and drawn under the selection layer gate.
+  // CPU-only line batch.
   //
   // The ID is tracked BESIDE the batch because a committed region is no longer
   // immutable: F3a's reconfigure can move it (the card offers nudge), and undo
   // can move it back — so the batch has to be rebuildable from the id rather
   // than only from the call that first drew it. Before F3a the box could not go
   // stale, which is why the id was not kept.
-  let highlightedEntityId: number | null = null;
-  let entityHighlightBatch: LineBatch | null = null;
+  let selectedEntityId: number | null = null;
+  let entitySelectionBatch: LineBatch | null = null;
+  let entitySelectionCb: ((entityId: number | null) => void) | null = null;
+  // The selected FLAG (a `pointer` click on a marker), by the opaque FlagRow key.
+  // No emphasis and no seam yet — the flags palette is what will render it; what
+  // it already buys is that a marker click is not a MISS, so it does not clear
+  // the entity selection under the user.
+  let selectedFlagKey: string | null = null;
 
   // --- void cast (the X-ray) ----------------------------------------------
   // A ghostMeshes sibling: one entry per cast chunk, every bucket on the ONE
@@ -2037,8 +2100,8 @@ export function createFieldHost(deps?: {
     selectionCb?.(selection === null ? null : selectionInfo(selection));
   };
 
-  // The 12-edge line batch of a metre AABB — the selection overlay and the
-  // entity highlight share it.
+  // The 12-edge line batch of a metre AABB — the cell-selection overlay and the
+  // selected entity's footprint box share it.
   const aabbEdgeBatch = (
     aabb: { min: Vec3T; max: Vec3T },
     color: [number, number, number, number],
@@ -2386,6 +2449,138 @@ export function createFieldHost(deps?: {
     });
   };
 
+  // --- pointer pick (object selection) ------------------------------------
+
+  // Everything a `pointer` click can land on, built fresh per click (never per
+  // frame — this is the whole reason the pick is affordable on the CPU).
+  //
+  // Both drawn layers are GATED ON THEIR OWN LAYER FLAG, the slice-coherence
+  // rule applied to objects: with props or markers switched off, clicking where
+  // one would have been must not select it (what you see is what you target).
+  // Entity footprints are NOT gated on the `selection` layer — that flag hides
+  // the emphasis box, and a hidden box is not a hidden entity.
+  const pickCandidates = (): PickCandidate[] => {
+    const candidates: PickCandidate[] = [];
+    for (const [entityId, aabb] of entityFootprints())
+      candidates.push({ kind: "entity", entityId, aabb });
+
+    if (layers.props) {
+      // Attribution by op-id membership of the entity's span — the rule
+      // `field-placements.placementsByEntity` applies, run inline because THAT
+      // helper answers "how many of each archetype did this entity place" and
+      // cannot name the record a ray hit. `groupPlacements` (what the drawn
+      // layer is built from) discards op identity outright, so a (archetype,
+      // instance) pair has no path back to an entity either: the owning entity
+      // has to fall out of the same walk that finds the record.
+      const entities: field.GeneratorEntity[] = [];
+      for (const op of log.ops)
+        if (op.kind === "entity") entities.push(op.entity);
+      for (const op of log.ops) {
+        if (op.kind !== "placement") continue;
+        const owner = entities.find(
+          (e) => op.id >= e.opSpan[0] && op.id <= e.opSpan[1],
+        );
+        if (owner === undefined) continue; // an orphan; no commit path makes one
+        for (const record of op.records) {
+          const collision =
+            archetypeById.get(record.archetypeId)?.collision ??
+            FALLBACK_COLLISION;
+          // The record's OWN frame, not `proxyCorners`: that one allocates 24
+          // floats per record for the wireframe, and the oriented box test wants
+          // the frame rather than the corners. Same centre and same extents as
+          // the drawn proxy (collisionCenter + proxyScale), so the click volume
+          // is exactly the box on screen.
+          const [sx, sy, sz] = proxyScale(collision, record.scale);
+          candidates.push({
+            kind: "prop",
+            entityId: owner.entityId,
+            obb: {
+              center: field.collisionCenter(collision, record),
+              halfExtents: [sx / 2, sy / 2, sz / 2],
+              quat: record.quat,
+            },
+          });
+        }
+      }
+    }
+
+    if (layers.flags) {
+      // The pick volume is the CELL, centred where the marker is DRAWN
+      // (flagMarkerCenter — the same lift the instanced matrices use, shared so
+      // the two cannot part company). So the box spans `world.y … world.y +
+      // cellSize`, exactly the air cell the finding anchors on. Deliberately NOT
+      // the drawn FLAG_MARKER_SIZE_M: a 0.18 m pin is a hard click target, and
+      // the cell is what the finding is actually about.
+      const half = store.cellSize / 2;
+      for (const row of flagStore.summary().visible) {
+        const [cx, cy, cz] = flagMarkerCenter(row.flag.world, store.cellSize);
+        candidates.push({
+          kind: "flag",
+          key: row.key,
+          aabb: {
+            min: [cx - half, cy - half, cz - half],
+            max: [cx + half, cy + half, cz + half],
+          },
+        });
+      }
+    }
+    return candidates;
+  };
+
+  // One LMB click while `pointer` is armed: select the object under the cursor,
+  // or deselect when the click landed on bare terrain or nothing at all.
+  //
+  // A PROP click selects its OWNING entity — a placement record is not an
+  // independently editable object here.
+  const pointerClick = (clientX: number, clientY: number): void => {
+    const ray = cursorRay(clientX, clientY);
+    if (!ray) return;
+    // The occluder, slice-coherent like every other cursor-driven raycast
+    // (sliceOpts): under an active slice a pick targets the surface the user
+    // SEES. Skipped when the eye is in rock, for computeTarget's reason — the
+    // ray would hit its own voxel at t = 0 and occlude the entire world.
+    const rc = ray.eyeInRock
+      ? null
+      : field.raycastField(
+          store,
+          ray.origin,
+          ray.dir,
+          PICK_RANGE_M,
+          sliceOpts(),
+        );
+    // How far the ray is KNOWN to be clear: the terrain hit, or the probe's own
+    // range when it missed — nothing past that range was tested, so nothing past
+    // it may be picked either.
+    const clearTo =
+      rc === null
+        ? PICK_RANGE_M
+        : Math.hypot(
+            rc.point[0] - ray.origin[0],
+            rc.point[1] - ray.origin[1],
+            rc.point[2] - ray.origin[2],
+          );
+    const hit = pickNearest(
+      { origin: ray.origin, dir: ray.dir },
+      pickCandidates(),
+      clearTo,
+    );
+    if (hit === null) {
+      selectedFlagKey = null;
+      selectEntity(null);
+      return;
+    }
+    if (hit.kind === "flag") {
+      // A marker click selects the FLAG and deliberately leaves the entity
+      // selection standing: the two are different selections, and clicking a
+      // finding is not a statement about which stamp is being worked on.
+      if (selectedFlagKey === hit.key) return;
+      selectedFlagKey = hit.key;
+      return;
+    }
+    selectedFlagKey = null;
+    selectEntity(hit.entityId);
+  };
+
   // --- stamp session (ghost preview → commit) -----------------------------
 
   // A fresh small random seed per session/reroll (uint16 keeps it readable in
@@ -2416,7 +2611,7 @@ export function createFieldHost(deps?: {
 
   // The LIVE entity record for an id (not a clone — callers that hand it on
   // clone at their own boundary), or null when no entity op carries it. The one
-  // lookup behind the highlight box, the reconfigure session and the verbs.
+  // lookup behind the selection box, the reconfigure session and the verbs.
   const entityRecord = (entityId: number): field.GeneratorEntity | null => {
     const hit = log.ops.find(
       (op): op is field.EntityOp =>
@@ -2425,27 +2620,101 @@ export function createFieldHost(deps?: {
     return hit === undefined ? null : hit.entity;
   };
 
-  // Re-derive the highlight box from the CURRENT record. Every path that can
-  // move or remove a committed region calls this: a reconfigure apply (the
-  // region is an editable field of the session) and undo/redo (which restores
-  // the previous record). An entity that left the log clears the box and the
-  // id, so an undone commit cannot leave an amber ghost floating over nothing.
-  // The box outlines the stamped FOOTPRINT (union of the span's op bounds),
-  // not the recorded selection region — an oversized region boxed mostly-empty
-  // space (F3a gate finding); the region is only the no-span fallback.
-  const rebuildEntityHighlight = (): void => {
-    if (highlightedEntityId === null) return;
-    const record = entityRecord(highlightedEntityId);
-    if (record === null) {
-      highlightedEntityId = null;
-      entityHighlightBatch = null;
+  // Every committed entity's PICK/EMPHASIS box, memoized on the log signature.
+  //
+  // The box is `generatorFootprint` — the union of the span's op bounds — with
+  // the recorded selection region as the fallback the helper's null means: a
+  // span with no field-writing ops (a pure placer's) has no op bounds, and an
+  // entity with no box at all would be silently unpickable. One rule, resolved
+  // in one place, so the pick and the drawn emphasis can never outline different
+  // volumes.
+  //
+  // MEMOIZED because the pick needs EVERY entity's box on every click, and
+  // `generatorFootprint` walks the whole op log per entity: O(entities × ops)
+  // per click, against a measured 2.3 ms for one full-log pass at 200 entities
+  // over 100 000 ops (field-placements.ts). Recomputed once per LOG MUTATION
+  // instead, which is a discrete user action.
+  //
+  // The signature is `currentLogStats`' — the three lengths plus `nextId`, which
+  // is what closes that cache's one documented gap here: a reconfigure can
+  // splice out N ops and back in N, moving no length, but it allocates fresh ids
+  // and so always moves `nextId`. What remains uncovered is the same
+  // several-mutations-in-one-frame netting, unreachable from single-event-per-
+  // frame input; a stale box mis-aims a click and self-heals on the next
+  // mutation, it corrupts nothing.
+  let footprintCache: Map<number, { min: Vec3T; max: Vec3T }> | null = null;
+  let footprintSig = "";
+  const entityFootprints = (): Map<number, { min: Vec3T; max: Vec3T }> => {
+    const sig = `${log.ops.length}/${log.undoStack.length}/${log.redoStack.length}/${log.nextId}`;
+    const cached = footprintCache;
+    if (cached !== null && sig === footprintSig) return cached;
+    const boxes = new Map<number, { min: Vec3T; max: Vec3T }>();
+    for (const op of log.ops) {
+      if (op.kind !== "entity") continue;
+      const record = op.entity;
+      boxes.set(
+        record.entityId,
+        generatorFootprint(log.ops, record, store.cellSize) ?? record.region,
+      );
+    }
+    footprintCache = boxes;
+    footprintSig = sig;
+    return boxes;
+  };
+
+  // Re-derive the selected entity's box from the CURRENT record, and DROP the
+  // selection when that record has left the log. Every path that can move or
+  // remove a committed region calls this: a reconfigure apply (the region is an
+  // editable field of the session) and undo/redo (which restores the previous
+  // record). An entity that left the log clears the box, the id AND notifies —
+  // an undone commit must not leave a box floating over nothing, nor a palette
+  // row highlighted for a stamp that no longer exists.
+  //
+  // The box outlines the stamped FOOTPRINT, not the recorded selection region —
+  // an oversized region boxed mostly-empty space (F3a gate finding); see
+  // entityFootprints for the fallback.
+  const rebuildEntitySelectionBatch = (): void => {
+    const box =
+      selectedEntityId === null
+        ? undefined
+        : entityFootprints().get(selectedEntityId);
+    entitySelectionBatch =
+      box === undefined ? null : aabbEdgeBatch(box, ENTITY_SELECTED_COLOR);
+  };
+
+  // Drop the selection and tell whoever holds it — the host's OWN way of
+  // clearing one (an entity leaving the log, a world reset), as opposed to the
+  // user clicking empty space, which goes through selectEntity. Guarded on there
+  // being a selection at all, so the seam keeps its "pushed on every change"
+  // contract literally.
+  const clearEntitySelection = (): void => {
+    if (selectedEntityId === null) return;
+    selectedEntityId = null;
+    entitySelectionBatch = null;
+    entitySelectionCb?.(null);
+  };
+
+  const revalidateEntitySelection = (): void => {
+    if (selectedEntityId === null) return;
+    if (entityRecord(selectedEntityId) === null) {
+      clearEntitySelection();
       return;
     }
-    const footprint = generatorFootprint(log.ops, record, store.cellSize);
-    entityHighlightBatch = aabbEdgeBatch(
-      footprint ?? record.region,
-      ENTITY_HIGHLIGHT_COLOR,
-    );
+    rebuildEntitySelectionBatch();
+  };
+
+  // Select one entity (or nothing). Validated against the log — an id no entity
+  // op carries selects NOTHING rather than reporting, because the ids come from
+  // a panel list that can lag it (openEntitySession's stance, minus the report:
+  // a stale click is not worth a toast). Re-selecting the same id is a no-op
+  // that notifies nobody, so a palette row can call this on every render.
+  const selectEntity = (entityId: number | null): void => {
+    const next =
+      entityId === null || entityRecord(entityId) === null ? null : entityId;
+    if (next === selectedEntityId) return;
+    selectedEntityId = next;
+    rebuildEntitySelectionBatch();
+    entitySelectionCb?.(next);
   };
 
   // Tears down BOTH halves of the stamp ghost: the surface meshes (GPU) and the
@@ -3025,18 +3294,20 @@ export function createFieldHost(deps?: {
     });
     // Column-major TRS with no rotation: uniform scale on the diagonal, position
     // in the last column (the packPlacementMatrices layout, by hand because
-    // there is nothing to rotate).
+    // there is nothing to rotate). The POSITION comes from flagMarkerCenter,
+    // shared with the pointer pick's cell box so the drawn marker and the
+    // clickable one cannot part company by the height of the lift.
     const matrices = new Float32Array(16 * summary.visible.length);
-    const lift = store.cellSize / 2;
     let i = 0;
     for (const row of summary.visible) {
       const o = i * 16;
+      const [cx, cy, cz] = flagMarkerCenter(row.flag.world, store.cellSize);
       matrices[o] = FLAG_MARKER_SIZE_M;
       matrices[o + 5] = FLAG_MARKER_SIZE_M;
       matrices[o + 10] = FLAG_MARKER_SIZE_M;
-      matrices[o + 12] = row.flag.world[0];
-      matrices[o + 13] = row.flag.world[1] + lift;
-      matrices[o + 14] = row.flag.world[2];
+      matrices[o + 12] = cx;
+      matrices[o + 13] = cy;
+      matrices[o + 14] = cz;
       matrices[o + 15] = 1;
       mesh.setInstanceTint(c, im, i, flagTint(row));
       i++;
@@ -3340,8 +3611,8 @@ export function createFieldHost(deps?: {
     lastReconfigureMs = performance.now() - reconfigureStart;
     markDirtyWithNeighbors(result.dirty);
     // The region is an editable field of this session (the nudge cluster), so
-    // the highlight box this entity may be wearing can be stale as of now.
-    rebuildEntityHighlight();
+    // the footprint box this entity may be wearing can be stale as of now.
+    revalidateEntitySelection();
     // A clean apply CLEARS the previous report: leaving it up would attribute
     // stale findings to the edit the user just made.
     drift = result.drift.length === 0 ? null : result.drift;
@@ -3382,14 +3653,16 @@ export function createFieldHost(deps?: {
   // undo()/redo(). Everything a step can move is refreshed here, not at the
   // call sites: the chunks it dirtied, the entity list (a commit, a reconfigure
   // splice and a freeze/bake record swap all ride these stacks — and the last
-  // two dirty NOTHING, so a remesh cannot be the panel's signal), and the
-  // highlight box (a reconfigure can have moved the region it outlines).
+  // two dirty NOTHING, so a remesh cannot be the panel's signal), and the entity
+  // selection (a reconfigure can have moved the footprint it outlines, and
+  // undoing a commit removes the entity outright — the selection has to go with
+  // it, notifying whoever holds it).
   const stepHistory = (redo: boolean): void => {
     const dirtied = redo
       ? field.redo(store, log, table)
       : field.undo(store, log);
     markDirtyWithNeighbors(dirtied);
-    rebuildEntityHighlight();
+    revalidateEntitySelection();
     // A step can add or remove placement ops (a scatter commit, a reconfigure
     // splice) and dirties NO chunk for them — placements write no cells — so the
     // prop layer cannot ride the remesh drain the way chunk state does.
@@ -3562,6 +3835,9 @@ export function createFieldHost(deps?: {
     // sweeps a capsule, never stamps the sphere this ghost draws. Its own
     // preview only appears once a point IS anchored, so an armed-but-unanchored
     // segment shows no brush affordance at all — the box gesture's precedent.
+    // `pointer` being the DEFAULT gesture means this is also why a freshly
+    // opened world shows no brush ghost until a brush is armed: nothing on
+    // screen may promise a stroke the next click will not make.
     // Filed as item 10 of
     // `docs/backlog/editor-and-tooling/field-f2b-gate-ux-findings.md` (F4).
     const ghost = layers.ghost && gesture === null ? ghostState() : null;
@@ -3608,12 +3884,13 @@ export function createFieldHost(deps?: {
         occlude: true,
       });
     }
-    // Selection overlay: amber AABB + pending box-select anchor cross + the
-    // pending-region preview, all occlude:false so a selection reads through
-    // rock. Batches are prebuilt on selection change (the box preview on pointer
-    // move) — nothing is materialized per frame. Hiding the layer hides the
-    // DISPLAY only: the selection itself stays live (it keeps masking ops and
-    // the panel keeps its info).
+    // Selection overlay: the amber cell-selection AABB + pending box-select
+    // anchor cross + the pending-region preview, and the SELECTED ENTITY's
+    // footprint box in the chrome's primary blue — all occlude:false so a
+    // selection reads through rock. Batches are prebuilt on selection change
+    // (the box preview on pointer move) — nothing is materialized per frame.
+    // Hiding the layer hides the DISPLAY only: both selections stay live (the
+    // cell one keeps masking ops, the entity one keeps feeding its seam).
     if (layers.selection) {
       if (selectionBatch)
         frame.drawLines(c, {
@@ -3636,10 +3913,10 @@ export function createFieldHost(deps?: {
           camera: view,
           occlude: false,
         });
-      if (entityHighlightBatch)
+      if (entitySelectionBatch)
         frame.drawLines(c, {
-          vertices: entityHighlightBatch.vertices,
-          colors: entityHighlightBatch.colors,
+          vertices: entitySelectionBatch.vertices,
+          colors: entitySelectionBatch.colors,
           camera: view,
           occlude: false,
         });
@@ -3736,8 +4013,11 @@ export function createFieldHost(deps?: {
     if (e.button === 0 && gesture !== null) {
       // Armed gestures BYPASS applyTool entirely: no stroke, no digging flag,
       // no pointer capture (single clicks, nothing drags). RMB look below
-      // stays live under every gesture.
-      if (gesture === "segment") segmentClick(e.clientX, e.clientY);
+      // stays live under every gesture. `pointer` is the DEFAULT one, so this
+      // branch — not the stroke below — is what a fresh host does with its
+      // first click.
+      if (gesture === "pointer") pointerClick(e.clientX, e.clientY);
+      else if (gesture === "segment") segmentClick(e.clientX, e.clientY);
       else selectionClick(gesture, e.clientX, e.clientY);
       return;
     }
@@ -3993,11 +4273,15 @@ export function createFieldHost(deps?: {
     selectionBatch = null;
     notifySelection(); // null — the panel must not show a stale selection
     // A different world invalidates the stamp session (its region + snapshot
-    // describe the old field), any entity highlight (log entity ids reset) and
-    // any drift report (its findings name op ids the new log does not have).
+    // describe the old field), the entity + flag selections (log entity ids
+    // reset, and a flag key names a finding of the old field) and any drift
+    // report (its findings name op ids the new log does not have).
     cancelStampSession();
-    highlightedEntityId = null;
-    entityHighlightBatch = null;
+    // Notified, not just cleared: the selection is a SEAM now, and a subscriber
+    // left holding an id from the outgoing world is the same class of bug as the
+    // stale stamp session announced above.
+    selectedFlagKey = null;
+    clearEntitySelection();
     // The cast describes the field that just went away. Discarded SILENTLY,
     // unlike an edit-time invalidation: everything else on screen is being
     // replaced too, so "void cast cleared" beside a fresh world is noise.
@@ -4547,15 +4831,18 @@ export function createFieldHost(deps?: {
           });
       return out;
     },
-    highlightEntity(entityId) {
-      if (entityId === null) {
-        highlightedEntityId = null;
-        entityHighlightBatch = null;
-        return;
-      }
-      // Unknown id (undone, stale panel row): rebuild clears both, runtime-quiet.
-      highlightedEntityId = entityId;
-      rebuildEntityHighlight();
+    selectEntity(entityId) {
+      selectEntity(entityId);
+    },
+    subscribeEntitySelection(cb) {
+      entitySelectionCb = cb;
+      // Initial push (the subscribeSelection remount rationale): a palette
+      // remounting while an entity is selected must not render every row
+      // unselected next to a visible box in the viewport.
+      cb(selectedEntityId);
+      return () => {
+        if (entitySelectionCb === cb) entitySelectionCb = null;
+      };
     },
     setAgentProfile(profile) {
       agentProfile = profile;

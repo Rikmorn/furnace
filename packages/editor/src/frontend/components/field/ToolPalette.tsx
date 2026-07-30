@@ -1,15 +1,19 @@
-// The Field panel's tool strip: the four brush effects, the four click
+// The Field panel's tool strip: the four brush effects, the five click
 // gestures, and one stamp button per registry generator. Pure presentation —
 // the panel owns the active choice and every host call. A gesture button
 // highlights while its gesture is armed; generator buttons are ACTIONS, not
 // toggles — each press opens (or replaces) a stamp session, whose UI is the
 // stamp form (Task 15), not a palette state.
 //
-// The four gestures sit in ONE group because they share one slot in the host
-// (ViewportGesture — arming any disarms the rest); splitting the three
-// selections from `segment` would imply they can be armed independently. The
+// The five gestures sit in ONE group because they share one slot in the host
+// (ViewportGesture — arming any disarms the rest); splitting the selections
+// from `segment` would imply they can be armed independently. The
 // brush effects stay highlighted under `segment`, which is not a lie: a segment
 // click commits a brush op with the active effect and material.
+//
+// `Select` (the pointer) leads the group because it is what a host opens ARMED
+// with, and a default with no button would be a mode the user can neither see
+// nor get back to.
 import type {
 	FieldTool,
 	ViewportGesture,
@@ -38,6 +42,12 @@ const GESTURE_TOOLS: {
 	label: string;
 	title: string;
 }[] = [
+	{
+		gesture: "pointer",
+		label: "Select",
+		title:
+			"click a stamp, a prop or a marker to select it — click bare rock to deselect",
+	},
 	{
 		gesture: "box",
 		label: "Box Select",

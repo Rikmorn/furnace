@@ -31,6 +31,23 @@ file walk. This works today but is fragile — it relies on alphabetical file-wa
 ordering and a placement comment, and a new bare-`tests/` DOM file silently
 reintroduces either failure.
 
+**The convention has a SECOND half nobody had written down, found 2026-07-31
+(F4.5b Task 3).** It also constrains where GPU tests may live: a `*.gpu.test.ts`
+placed in a subdirectory that sorts after `tests/chrome/` (here:
+`tests/viewport-host/`) is poisoned by the same clobber, and it does NOT skip —
+it FAILS. The reason is that `ensureBunWebGpu()` memoizes its setup promise
+(`packages/core/tests/_helpers/gpu-fixture.ts`) and `bunWebGpuAvailable()` keeps
+answering `true` from the cached flag, so `test.skipIf(!bunWebGpuAvailable())`
+admits the test and `requestContext` then throws "WebGPU unavailable". Observed
+as 4 failures that are green in isolation and red in the full suite — the worst
+shape a harness failure can take, because the task-scoped gate passes. Worked
+around by keeping the file in bare `tests/` beside the five other host GPU tests.
+The `readSse`-style real fix here is one line of *validation* rather than caching:
+have `ensureBunWebGpu` re-check `navigator.gpu` before returning the memoized
+promise and re-run `setupGlobals()` when it has gone. Left unwritten because it is
+in `packages/core/tests/`, outside that task's boundary, and because the
+environment isolation proposed below subsumes it.
+
 3. **Radix PORTAL content does not render unless a `tests/inspector/` file ran
    first.** Found in F3a Task 8 (2026-07-22). `bun test` from the repo root is
    green, but a narrower invocation is not: the trigger element flips correctly

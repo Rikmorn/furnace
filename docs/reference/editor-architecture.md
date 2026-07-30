@@ -689,7 +689,9 @@ dig ring, selection) had rendered NOTHING since F1. Record + rules:
   persists off-canvas so panel-slider size drags preview live.
 - **Selection (a tool class, not an op)** — `setGesture("box"|"material"|"void")`
   arms LMB gestures (applyTool bypassed; F3b widened the setter to one armed-gesture
-  slot that also holds the `segment` brush — §18): box = two clicks with an anchor cross + a
+  slot that also holds the `segment` brush — §18; F4.5b added `pointer` to the same
+  slot and made it the DEFAULT a host opens armed with, so the first click on a world
+  selects rather than digs): box = two clicks with an anchor cross + a
   LIVE snapped-region preview following the cursor (fix round 1); material/void =
   one-click floods seeded from the raycast hit / its last-air `prev` voxel,
   `SELECTION_UI_BUDGET = 200_000` under core's ceiling, truncation surfaced in the
@@ -788,11 +790,16 @@ F2b stamp-session machinery end to end.
   quiescent history (both stacks empty — its splice/entity-update entries address
   `log.ops` by position; durable fix backlogged as
   `field-log-entries-anchored-by-index.md`). A failed fold never fails a load.
-- **Entity highlight = stamped footprint** (F3a gate fix) — the amber-dim box outlines
+- **Entity selection box = stamped footprint** (F3a gate fix) — the box outlines
   `generatorFootprint(log.ops, entity, cellSize)` (union of the span's op bounds,
   patch-op aware; pure, in `field-ghost.ts`), falling back to the recorded selection
   region only when the span holds no field-writing ops. The recorded region routinely
   over-draws the content (stamps anchor at the snapped min corner, size from params).
+  F4.5b turned it from a display-only `highlightEntity` call into the emphasis of the
+  host's ONE entity selection (`selectEntity` / `subscribeEntitySelection`, written by
+  the `pointer` gesture) and repainted it in the chrome's `--primary`, so the palette
+  row and the viewport box agree by colour as well as by state. The footprints are
+  memoized per log mutation — the pick needs every entity's box on every click.
 - **Stamp ergonomics** — `deriveSizeDefaults` seeds hall w/h/d and maze cellsX/Z from
   the active selection's extent (clamped to schema bounds; maze fit =
   `floor((extentCells − 1) / MAZE_PITCH_CELLS)`, the pitch now a public core
@@ -895,7 +902,7 @@ the void cast (an X-ray view mode) and the segment brush (a two-click swept caps
   `field-scatter.test.ts` pins the strict side, and its comment records the decision.
 - **Entity footprint covers placements** — `generatorFootprint` grows by each record's
   `position ± scale/2` world AABB (core's own placement-bounds convention), so a pure
-  reader's highlight box outlines its props instead of falling back to the recorded
+  reader's selection box outlines its props instead of falling back to the recorded
   selection region.
 - **The void cast — an X-ray view mode (D-F3-15)** — sealed with its pixels visually
   UNCONFIRMED (accepted gate variance: round 1 predated the visible-refusal fix
@@ -963,7 +970,7 @@ the void cast (an X-ray view mode) and the segment brush (a two-click swept caps
   box-select corner rule). It is a BRUSH gesture, not a selection — it makes no selection, and the
   active tool's effect/material/mask/radius stay live under it (dig carves a tunnel, fill raises a
   rampart). That is why the panel keeps `BrushInspector` open for `segment` and hides it for the
-  three selection modes (`selectionArmed = gesture !== null && gesture !== "segment"`), why
+  other gestures (`brushLive = gesture === null || gesture === "segment"`), why
   ToolPalette keeps the brush effects highlighted under it, and why picking a brush effect disarms
   a SELECTION gesture but deliberately leaves `segment` armed ("sweep a rampart instead of a
   tunnel", not "stop segmenting"). It WAS also the first editor gesture with unbounded op

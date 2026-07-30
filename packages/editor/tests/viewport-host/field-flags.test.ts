@@ -16,6 +16,7 @@ import {
   CANDIDATE_TINT,
   createFlagStore,
   DEFAULT_FLAG_FILTERS,
+  flagMarkerCenter,
   flagTint,
   INFO_TINT,
   VERIFIED_CLEAR_TINT,
@@ -359,4 +360,18 @@ test("rowByKey is scoped to VISIBLE rows — a filtered-out finding is unaddress
   store.setFilters(DEFAULT_FLAG_FILTERS); // candidates only
   expect(store.summary().total).toBe(1);
   expect(store.rowByKey(key)).toBeUndefined();
+});
+
+// --- the marker's standing place (F4.5b Task 3) -----------------------------
+
+test("flagMarkerCenter LIFTS the marker half a cell out of the floor", () => {
+  // `flag.world` is the floor surface under the anchor cell. The marker stands
+  // in the CELL, not in the floor — and the two consumers of that fact (the
+  // host's instanced marker matrices, and the pointer pick's clickable cell box)
+  // read it here rather than each adding cellSize/2 of their own. Spelled twice
+  // they drift by half a cell and every marker becomes unclickable while still
+  // looking right on screen.
+  expect(flagMarkerCenter([2, 1, -3], 0.5)).toEqual([2, 1.25, -3]);
+  // Cell-relative, because the lift is: X and Z are untouched, Y scales.
+  expect(flagMarkerCenter([2, 1, -3], CELL)).toEqual([2, 1.125, -3]);
 });

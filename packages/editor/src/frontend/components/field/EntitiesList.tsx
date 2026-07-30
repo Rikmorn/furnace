@@ -1,8 +1,7 @@
 // The committed-entities list: one row per generator entity in log order, fed
 // by the shell provider's host.listEntities() mirror (F4.5a Task 10 — it used to
-// be the panel's). Clicking a row shows its amber-dim
-// region box (host.highlightEntity) plus an inline READ-ONLY params <dl>;
-// clicking again collapses both. F3a adds the smart-object verbs beside it:
+// be the panel's). Clicking a row expands an inline READ-ONLY params <dl>;
+// clicking again collapses it. F3a adds the smart-object verbs beside it:
 // Open starts a reconfigure session (the same staged form a fresh stamp gets),
 // then Freeze/Unfreeze and Bake…. The <dl> stays read-only — it is the record,
 // not the editor; Open is how a row becomes editable, which is also why a
@@ -81,7 +80,6 @@ function StateBadge({ label }: { label: string }) {
 
 export function EntitiesList(props: {
 	entities: readonly FieldEntityInfo[];
-	onHighlight: (id: number | null) => void;
 	/** Open a reconfigure session on this entity (host.openEntity). */
 	onReconfigure: (id: number) => void;
 	/** Flip the entity's frozen flag (host.setEntityFrozen). */
@@ -90,20 +88,19 @@ export function EntitiesList(props: {
 	 *  a recipe on its own click (bake is the one irreversible verb). */
 	onBake: (id: number) => void;
 }) {
-	const { entities, onHighlight } = props;
+	const { entities } = props;
 	const [expandedId, setExpandedId] = useState<number | null>(null);
 
 	// A refresh can remove the expanded entity (⌘Z undoes the whole commit):
-	// drop the expansion + the highlight box so neither outlives its row.
+	// drop the expansion so it does not outlive its row.
 	useEffect(() => {
 		if (
 			expandedId !== null &&
 			!entities.some((e) => e.entityId === expandedId)
 		) {
 			setExpandedId(null);
-			onHighlight(null);
 		}
-	}, [entities, expandedId, onHighlight]);
+	}, [entities, expandedId]);
 
 	return (
 		<CollapsibleSection
@@ -128,12 +125,8 @@ export function EntitiesList(props: {
 								<button
 									type="button"
 									aria-expanded={expanded}
-									title="show this stamp's region in the viewport"
-									onClick={() => {
-										const next = expanded ? null : e.entityId;
-										setExpandedId(next);
-										onHighlight(next);
-									}}
+									title="show this stamp's recipe"
+									onClick={() => setExpandedId(expanded ? null : e.entityId)}
 									className={cn(
 										"flex min-w-0 flex-1 items-center gap-1.5 rounded px-1 py-0.5 text-left text-xs hover:bg-muted/50",
 										expanded && "bg-muted",

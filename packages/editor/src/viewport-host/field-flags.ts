@@ -71,6 +71,27 @@ const flagKey = (f: FieldFlag): string =>
   `${f.kind}@${f.cell[0]},${f.cell[1]},${f.cell[2]}`;
 
 /**
+ * Where one finding's marker STANDS: its anchor cell's world corner, raised half
+ * a cell in Y.
+ *
+ * The lift is the whole content of this function and the reason it exists at all
+ * — `flag.world` is the FLOOR surface, so a marker drawn at it is sunk into the
+ * floor rather than standing in the air cell the finding is about. Two things
+ * need that fact and must not spell it twice: the host's instanced-marker matrix
+ * (what is drawn) and the pointer pick's cell box (what is clickable). Written
+ * twice they drift by half a cell, and the pick misses every marker on screen
+ * while looking correct in review.
+ *
+ * Cell-relative because the lift is: a coarser lattice raises the marker
+ * further. (The marker's drawn SIZE is a fixed metre constant in the host,
+ * which is safe only because that host is single-lattice — see its comment.)
+ */
+export const flagMarkerCenter = (
+  world: readonly [number, number, number],
+  cellSize: number,
+): [number, number, number] => [world[0], world[1] + cellSize / 2, world[2]];
+
+/**
  * What one finding is DRAWN as: the stage-2 verdict if there is one, else the
  * triage band it was found in.
  *

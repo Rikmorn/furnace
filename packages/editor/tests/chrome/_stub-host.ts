@@ -91,6 +91,7 @@ export function makeStubHost(
     entities: (() => void) | null;
     drift: ((r: DriftFinding[] | null) => void) | null;
     flags: ((s: FlagsSummary) => void) | null;
+    entitySelection: ((entityId: number | null) => void) | null;
   } = {
     tool: null,
     cameraPose: null,
@@ -101,6 +102,7 @@ export function makeStubHost(
     entities: null,
     drift: null,
     flags: null,
+    entitySelection: null,
   };
   const calls = {
     init: mock(),
@@ -113,7 +115,7 @@ export function makeStubHost(
     setShading: mock(),
     setMaterialTable: mock(),
     setEntityCatalog: mock(),
-    highlightEntity: mock(),
+    selectEntity: mock(),
     startStamp: mock(),
     updateStamp: mock(),
     nudgeStamp: mock(),
@@ -135,9 +137,11 @@ export function makeStubHost(
     setAgentProfile: mock(),
     setFlagFilters: mock(),
     verifyFlag: mock(),
-    // Every one of the nine subscribe seams records its call, so a test can assert the
-    // slot was claimed EXACTLY ONCE across a whole mounted arrangement — the single-slot
-    // rule's only machine-checkable form.
+    // Every subscribe seam records its call, so a test can assert the slot was claimed
+    // EXACTLY ONCE across a whole mounted arrangement — the single-slot rule's only
+    // machine-checkable form. Nine of the ten belong to the shell's host-state provider;
+    // `subscribeEntitySelection` is the tenth and has NO chrome owner yet (F4.5b Task 3
+    // created it host-side), which is why the ownership cases enumerate nine.
     subscribeStats: mock(),
     subscribeToolError: mock(),
     subscribeEntities: mock(),
@@ -147,6 +151,7 @@ export function makeStubHost(
     subscribeSelection: mock(),
     subscribeStamp: mock(),
     subscribeFlags: mock(),
+    subscribeEntitySelection: mock(),
   };
   const host: FieldHost = {
     // Modelled on the real host's lifecycle, both halves of it. It REFUSES a second
@@ -275,7 +280,17 @@ export function makeStubHost(
       };
     },
     listEntities: () => entities.map((e) => structuredClone(e)),
-    highlightEntity: calls.highlightEntity,
+    selectEntity: calls.selectEntity,
+    subscribeEntitySelection: (cb) => {
+      calls.subscribeEntitySelection(cb);
+      cbs.entitySelection = cb;
+      cb(null); // the real host pushes the CURRENT id on subscribe
+      // A REAL unsubscribe (the subscribeStats reason — single slot, and a leak has to
+      // be distinguishable from a clean release).
+      return () => {
+        if (cbs.entitySelection === cb) cbs.entitySelection = null;
+      };
+    },
     setAgentProfile: calls.setAgentProfile,
     subscribeFlags: (cb) => {
       calls.subscribeFlags(cb);
@@ -371,6 +386,12 @@ export function makeStubHost(
       flags: (s: FlagsSummary): boolean => {
         if (cbs.flags === null) return false;
         cbs.flags(s);
+        return true;
+      },
+      /** An entity-selection change, as a pointer click or `selectEntity` publishes one. */
+      entitySelection: (entityId: number | null): boolean => {
+        if (cbs.entitySelection === null) return false;
+        cbs.entitySelection(entityId);
         return true;
       },
     },

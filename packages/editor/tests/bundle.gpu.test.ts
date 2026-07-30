@@ -154,7 +154,11 @@ test.skipIf(!bunWebGpuAvailable())(
       const stats: FieldStats[] = [];
       host.subscribeStats((s) => stats.push(s));
 
-      // 1. One dig, through the host's real pointer path.
+      // 1. One dig, through the host's real pointer path. `setGesture(null)` is
+      // what ARMS the brush: a host opens with the pointer gesture armed
+      // (D-F4.5-7), where LMB selects rather than strokes, and the chrome's own
+      // brush pick is what disarms it in the product.
+      host.setGesture(null);
       host.setTool(DIG_TOOL);
       host.setDigRadius(0.75);
       const pointerdown = listeners.get("pointerdown");

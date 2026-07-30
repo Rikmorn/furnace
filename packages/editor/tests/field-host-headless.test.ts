@@ -1,13 +1,15 @@
 // FieldHost surfaces that need NO GPU init (a field-host-load.test.ts
 // sibling): startStamp's no-selection guard, subscribeStamp's initial push,
-// nudgeStamp's no-session no-op, highlightEntity's unknown-id quiet no-op, the
-// void cast's pre-context refusals, the camera-pose seam, and the options `init`
-// builds before it ever touches a device.
+// nudgeStamp's no-session no-op, the entity-selection seam's validation and
+// single-slot discipline, the void cast's pre-context refusals, the camera-pose
+// seam, and the options `init` builds before it ever touches a device.
 // Verified against the host source: none of these paths touch the GPU context,
 // the render loop, or the lazily-spawned remesh worker — startStamp returns at
 // the selection guard BEFORE any session/preview work, nudgeStamp returns at
-// its own session guard BEFORE nudgeRegion/previewStamp, and highlightEntity
-// only scans the op log.
+// its own session guard BEFORE nudgeRegion/previewStamp, and selectEntity only
+// scans the op log. The pointer CLICK path is not here: it resolves through
+// `cursorRay`, and there is no camera until `init` has a device
+// (`field-host-pointer.gpu.test.ts`).
 import { expect, test } from "bun:test";
 import {
   CHUNK_SAMPLES,
@@ -53,10 +55,38 @@ test("nudgeStamp without a session is a quiet no-op (no push, no preview)", () =
   expect(pushes).toEqual([null]);
 });
 
-test("highlightEntity is runtime-quiet on unknown ids and null", () => {
+test("selectEntity is runtime-quiet on unknown ids, and never pushes a phantom id", () => {
   const host = createFieldHost();
-  expect(() => host.highlightEntity(999)).not.toThrow();
-  expect(() => host.highlightEntity(null)).not.toThrow();
+  const pushes: (number | null)[] = [];
+  host.subscribeEntitySelection((id) => pushes.push(id));
+  // Only the initial push so far — an empty world has nothing selected.
+  expect(pushes).toEqual([null]);
+  // An id no entity op carries (an undone commit, a stale palette row) selects
+  // NOTHING. Quiet, and — the half that matters — it must not notify: pushing
+  // 999 would put a subscriber in a state the host is not in.
+  expect(() => host.selectEntity(999)).not.toThrow();
+  expect(() => host.selectEntity(null)).not.toThrow();
+  expect(pushes).toEqual([null]);
+});
+
+test("subscribeEntitySelection is a single slot with a real unsubscribe", () => {
+  const host = createFieldHost();
+  const seen: (number | null)[] = [];
+  const unsubscribe = host.subscribeEntitySelection((id) => seen.push(id));
+  expect(seen).toEqual([null]);
+  unsubscribe();
+  // A stale unsubscribe must not null a SUCCESSOR's callback (the subscribeTool
+  // rule every seam here follows) — so re-subscribing after the release still
+  // lands, and the released one is really gone.
+  const after: (number | null)[] = [];
+  host.subscribeEntitySelection((id) => after.push(id));
+  unsubscribe();
+  expect(after).toEqual([null]);
+  host.newWorld();
+  // Neither callback hears the reset: the first was released, and the second is
+  // still installed but a no-selection world reset changes nothing to push.
+  expect(seen).toEqual([null]);
+  expect(after).toEqual([null]);
 });
 
 // --- listGenerators: the `emits` → `placesProps` WIRING (F4 Task 12, D-F4-15) -

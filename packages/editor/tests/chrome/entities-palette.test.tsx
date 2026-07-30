@@ -463,19 +463,9 @@ test("before the engine lands the palette says so, rather than claiming zero sta
 	).toBeTruthy();
 });
 
-// --- the highlight box does not outlive the palette -------------------------
-
-test("closing the palette clears the entity highlight the host is still drawing", () => {
-	const stub = makeStubHost();
-	const { unmount } = renderPalette(stub);
-	pushEntities(stub, [ENTITY]);
-	fireEvent.click(screen.getByText("Entities (1)"));
-	fireEvent.click(screen.getByText("hall · seed 7 · 3 ops"));
-	expect(stub.calls.highlightEntity.mock.calls.at(-1)).toEqual([1]);
-
-	// The host outlives the palette and has no highlight subscription, so without the
-	// unmount clear an amber region box stays on the canvas with no row claiming it —
-	// and the row expansion that put it there is gone with the palette.
-	unmount();
-	expect(stub.calls.highlightEntity.mock.calls.at(-1)).toEqual([null]);
-});
+// The "closing the palette clears the entity highlight" case went with
+// `host.highlightEntity` itself (F4.5b Task 3's deletion pass): there is ONE
+// selection concept now, written by a pointer click or `selectEntity` and read
+// back off `subscribeEntitySelection`, so a row cannot own a second one that
+// needs unmount cleanup. Expanding a row is display-only — the row↔selection
+// sync is the next task's, and this file gets its case back with it.

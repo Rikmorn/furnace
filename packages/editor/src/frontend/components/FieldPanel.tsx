@@ -13,9 +13,10 @@
 // already CONTAINS — the committed entity list and the drift report — is a palette
 // of its own (shell/EntitiesPalette), the first organ out of this file.
 // It owns NO canvas: the shell mounts the one full-window viewport (CanvasHost)
-// and inits the host on it. It owns NO host subscription either — all nine seams
-// are single slots the shell holds (useFieldHostState), and subscribing to any of
-// them here would silently steal the shell's callback; what this file renders from
+// and inits the host on it. It owns NO host subscription either — every host seam
+// is a single slot, and the nine the chrome reads are all held by the shell
+// (useFieldHostState); subscribing to any of
+// them here would silently steal the shell's callback. What this file renders from
 // (the armed tool, the selection, the live session, the advisor's flags) it reads
 // out of that provider's contexts. It has no status line: what the editor SAYS
 // goes to the notification store (toasts + the message log), which is a shell
@@ -53,13 +54,20 @@ export function FieldPanel() {
 	const { selection } = useFieldSelection();
 	const { stamp } = useFieldStamp();
 	const { flags, filters, setFilters, verifying, verify } = useFieldFlags();
-	// ONE armed-gesture slot, mirroring the host's (ViewportGesture): the three
-	// selection gestures and the segment brush all bind LMB, so they cannot be
-	// armed independently. `selectionArmed` is the narrower question the two
-	// brush-facing gates below ask — the segment gesture keeps LMB on the brush,
-	// so it must NOT hide the brush inspector or grey the ghost toggle.
-	const [gesture, setGestureState] = useState<ViewportGesture | null>(null);
-	const selectionArmed = gesture !== null && gesture !== "segment";
+	// ONE armed-gesture slot, mirroring the host's (ViewportGesture): pointer, the
+	// three cell-selection gestures and the segment brush all bind LMB, so they
+	// cannot be armed independently. It STARTS at "pointer" because the host does
+	// (D-F4.5-7) — a mirror that opened at null would show the brush inspector
+	// beside an LMB that selects.
+	//
+	// `brushLive` is the narrower question the two brush-facing gates below ask:
+	// does LMB still apply the brush? Null does, and so does the segment gesture
+	// (its click commits a brush op), which is why neither hides the brush
+	// inspector; pointer and the three cell-selection gestures do not.
+	const [gesture, setGestureState] = useState<ViewportGesture | null>(
+		"pointer",
+	);
+	const brushLive = gesture === null || gesture === "segment";
 	// Full registry info — paramSchema/defaults feed the stamp inspector's form.
 	const [generators, setGenerators] = useState<FieldGeneratorInfo[]>([]);
 	// Range floors until the host-constants effect reads the real core ceilings.
@@ -111,10 +119,11 @@ export function FieldPanel() {
 		if (effect === "paint" && !paintable)
 			materialId = table.classes.find((c) => c.kind === "organic")?.id ?? 0;
 		setTool({ ...tool, effect, materialId });
-		// A brush pick disarms a SELECTION gesture — LMB returns to the brush. It
-		// deliberately leaves `segment` armed: picking Fill under the segment brush
-		// means "sweep a rampart instead of a tunnel", not "stop segmenting".
-		if (selectionArmed) {
+		// A brush pick disarms whatever was holding LMB — the pointer or a
+		// cell-selection gesture — so LMB returns to the brush. It deliberately
+		// leaves `segment` armed: picking Fill under the segment brush means "sweep
+		// a rampart instead of a tunnel", not "stop segmenting".
+		if (!brushLive) {
 			setGestureState(null);
 			fieldHostRef.current?.setGesture(null);
 		}
@@ -173,9 +182,10 @@ export function FieldPanel() {
 							onSelect={onMaterial}
 						/>
 					)}
-					{/* Brush inspector only while LMB actually brushes — an armed selection
-              gesture makes radius/mask/smooth/hollow promises LMB won't keep. */}
-					{!selectionArmed && (
+					{/* Brush inspector only while LMB actually brushes — the pointer or an
+              armed cell-selection gesture makes radius/mask/smooth/hollow
+              promises LMB won't keep. */}
+					{brushLive && (
 						<BrushInspector
 							tool={tool}
 							radius={radius}

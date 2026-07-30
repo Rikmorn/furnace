@@ -29,7 +29,7 @@ export {
   type FieldTool,
   type SelectionInfo,
   // `SelectionMode` is deliberately absent: the chrome only names the wider union, which it
-  // narrows structurally (`gesture !== null && gesture !== "segment"`).
+  // narrows structurally (`gesture === null || gesture === "segment"` — does LMB still brush).
   type ViewportGesture,
 } from "./field-host.ts";
 // `FieldEntityInfo.placed`'s element type, re-exported beside it so a consumer

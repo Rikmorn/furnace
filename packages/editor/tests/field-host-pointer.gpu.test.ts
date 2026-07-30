@@ -1,0 +1,254 @@
+// The `pointer` gesture end to end on a real (bun-webgpu) context: a click on
+// the canvas → `cursorRay` → the CPU pick → the entity-selection seam.
+//
+// It needs a device even though nothing here draws, and that is the whole
+// reason it is not in `field-host-headless.test.ts`: every click resolves
+// through `cursorRay` → `camera.screenToRay`, and there is no camera until
+// `init` has acquired a context. Same constraint, same recipe as
+// `field-host-segment.gpu.test.ts` — the canvas RECORDS the listeners the host
+// registers and the tests call the real `pointerdown` handler with synthetic
+// events, because the two-click/one-click state machines inside the host have
+// no method seam at all.
+//
+// HERE and not in `tests/viewport-host/` (which holds this slice's PURE module
+// tests, `field-pick.test.ts` among them) for a harness reason worth stating,
+// because it is invisible and it bites silently: `bun test` runs a directory's
+// own files before its subdirectories, and `tests/chrome/` registers happy-dom,
+// which REPLACES `globalThis.navigator` — taking `navigator.gpu` with it. The
+// bun-webgpu fixture memoizes its setup and never reinstalls, while
+// `bunWebGpuAvailable()` keeps answering true, so a `.gpu` test in any
+// subdirectory sorting after `chrome/` is not skipped — it runs and fails at
+// `requestContext`. Every other host GPU test is in this directory for the same
+// reason (filed: docs/backlog/editor-and-tooling/editor-test-harness-fragility.md).
+//
+// The world arrives through `loadWorld`'s oplog path rather than through a
+// stamp commit. That is a real host path (it is how every saved world opens)
+// and it puts the same entity + placement ops in the same log a commit would,
+// which is all the pick reads — while a commit would need the field worker
+// driven through a whole preview round trip to reach `ready`, none of which
+// this is about. The store is left EMPTY on purpose: an unallocated chunk reads
+// SOLID, so the eye is "in rock", which is exactly the state where the host
+// skips the occlusion raycast (a start inside rock hits its own voxel at t=0)
+// and the pick is decided by the candidates alone.
+import { expect, test } from "bun:test";
+import {
+  DEFAULT_CELL_SIZE,
+  type FieldManifest,
+  type FieldOp,
+} from "@furnace/core/field";
+import {
+  bunWebGpuAvailable,
+  ensureBunWebGpu,
+} from "../../core/tests/_helpers/gpu-fixture.ts";
+import { installMockResizeObserver } from "../../core/tests/_helpers/mock-resize-observer.ts";
+import { createFieldHost } from "../src/viewport-host/field-host.ts";
+import { type HostListeners, makeHostCanvas } from "./_helpers/host-canvas.ts";
+import { stubAnimationFrameNoop } from "./_helpers/raf.ts";
+
+await ensureBunWebGpu();
+
+const MANIFEST: FieldManifest = {
+  version: 2,
+  kind: "field",
+  cellSize: DEFAULT_CELL_SIZE,
+  playerStart: [0, 0, 0],
+  playerYaw: 0,
+  chunks: [],
+  meshes: [],
+};
+
+/** The host's starting orbit target — where the centre of a 64×64 canvas looks.
+ *  Everything below is placed at it so a click at (32, 32) is a hit and a click
+ *  at a corner is not, with no camera arithmetic in the test. */
+const TARGET: [number, number, number] = [0, 1, 0];
+
+const CARVE_ENTITY_ID = 2;
+const SCATTER_ENTITY_ID = 4;
+
+/** A dig op at the orbit target, and the entity that claims it. Its footprint is
+ *  the sphere's own bounds — a 1 m box straddling the target. */
+const carveOps = (): FieldOp[] => [
+  {
+    id: 1,
+    kind: "brush",
+    effect: "dig",
+    shape: { kind: "sphere", center: [...TARGET], radius: 0.5 },
+  },
+  {
+    id: CARVE_ENTITY_ID,
+    kind: "entity",
+    action: "place",
+    entity: {
+      entityId: CARVE_ENTITY_ID,
+      type: "generator",
+      generator: "hall",
+      params: {},
+      seed: 7,
+      region: { min: [-1, 0, -1], max: [1, 2, 1] },
+      opSpan: [1, 1],
+    },
+  },
+];
+
+/** A placement op at the same target, claimed by a SECOND entity — the pair the
+ *  ownership walk has to tell apart: the prop is inside the carve entity's
+ *  footprint, so a pick that attributed it wrongly (or preferred the enclosing
+ *  volume) would answer with the carver. */
+const scatterOps = (): FieldOp[] => [
+  {
+    id: 3,
+    kind: "placement",
+    records: [
+      {
+        archetypeId: "barrel",
+        position: [...TARGET],
+        quat: [0, 0, 0, 1],
+        scale: [1, 1, 1],
+        variantIndex: 0,
+      },
+    ],
+  },
+  {
+    id: SCATTER_ENTITY_ID,
+    kind: "entity",
+    action: "place",
+    entity: {
+      entityId: SCATTER_ENTITY_ID,
+      type: "generator",
+      generator: "scatter",
+      params: {},
+      seed: 3,
+      region: { min: [-1, 0, -1], max: [1, 2, 1] },
+      opSpan: [3, 3],
+    },
+  },
+];
+
+/** An initialized host over a world built from `ops`, with the recorded click
+ *  handler and the entity-selection pushes. Callers own `teardown`. */
+async function pointerFixture(ops: FieldOp[]) {
+  const restoreRo = installMockResizeObserver();
+  // The NO-OP rAF variant: nothing here observes a frame — the pick runs
+  // entirely inside the pointerdown handler.
+  const restoreRaf = stubAnimationFrameNoop();
+  const listeners: HostListeners = new Map();
+  const host = createFieldHost();
+  host.loadWorld({
+    manifest: MANIFEST,
+    chunks: [],
+    oplog: JSON.stringify(ops),
+  });
+  await host.init(await makeHostCanvas(listeners));
+  const selected: (number | null)[] = [];
+  host.subscribeEntitySelection((id) => selected.push(id));
+  const click = (x: number, y: number): void => {
+    const fn = listeners.get("pointerdown");
+    if (fn === undefined) throw new Error("test: no pointerdown listener");
+    fn({ button: 0, altKey: false, clientX: x, clientY: y, pointerId: 1 });
+  };
+  return {
+    host,
+    selected,
+    click,
+    teardown: () => {
+      host.dispose();
+      restoreRaf();
+      restoreRo();
+    },
+  };
+}
+
+test.skipIf(!bunWebGpuAvailable())(
+  "a click selects the entity under the cursor — with NO setGesture call, because pointer is the default",
+  async () => {
+    const f = await pointerFixture(carveOps());
+    try {
+      // The initial push only: a freshly loaded world has nothing selected.
+      expect(f.selected).toEqual([null]);
+
+      // Deliberately no `setGesture`: a host opens armed with `pointer`
+      // (D-F4.5-7), so this click is a PICK and not a dig. If the default
+      // regressed to `null` the click would stroke the brush instead and this
+      // seam would never fire.
+      f.click(32, 32);
+      expect(f.selected).toEqual([null, CARVE_ENTITY_ID]);
+
+      // Re-clicking the same entity is a no-op: the seam pushes CHANGES, and a
+      // palette row re-rendering on every push must not be re-entered for free.
+      f.click(32, 32);
+      expect(f.selected).toEqual([null, CARVE_ENTITY_ID]);
+
+      // A corner click's ray leaves the 1 m footprint by metres — nothing to
+      // pick, which the caller reads as deselect.
+      f.click(2, 2);
+      expect(f.selected).toEqual([null, CARVE_ENTITY_ID, null]);
+
+      // …and a miss with nothing selected pushes nothing at all.
+      f.click(60, 60);
+      expect(f.selected).toEqual([null, CARVE_ENTITY_ID, null]);
+    } finally {
+      f.teardown();
+    }
+  },
+);
+
+test.skipIf(!bunWebGpuAvailable())(
+  "a click on a PROP selects the entity that placed it, not the carver it sits inside",
+  async () => {
+    const f = await pointerFixture([...carveOps(), ...scatterOps()]);
+    try {
+      // Both entities' footprints straddle the target, and the carve entity's
+      // encloses the prop. The prop wins on both counts under test: objects are
+      // resolved before footprint volumes, and its owner is read off the op
+      // SPAN that claims its placement op — not off the box it happens to be in.
+      f.click(32, 32);
+      expect(f.selected).toEqual([null, SCATTER_ENTITY_ID]);
+    } finally {
+      f.teardown();
+    }
+  },
+);
+
+test.skipIf(!bunWebGpuAvailable())(
+  "a world reset invalidates the selection through the seam",
+  async () => {
+    const f = await pointerFixture(carveOps());
+    try {
+      f.click(32, 32);
+      expect(f.selected).toEqual([null, CARVE_ENTITY_ID]);
+      // The entity leaves the log with the world. A subscriber left holding its
+      // id would render a palette row selected for a stamp that no longer
+      // exists — and the box would outlive the world that had it.
+      f.host.newWorld();
+      expect(f.selected).toEqual([null, CARVE_ENTITY_ID, null]);
+    } finally {
+      f.teardown();
+    }
+  },
+);
+
+test.skipIf(!bunWebGpuAvailable())(
+  "props switched OFF are not pickable — what you see is what you target",
+  async () => {
+    const f = await pointerFixture([...carveOps(), ...scatterOps()]);
+    try {
+      f.host.setLayers({
+        field: true,
+        kit: true,
+        props: false,
+        ghost: true,
+        selection: true,
+        grid: true,
+        flags: true,
+        voidCast: false,
+      });
+      // With the prop layer hidden, the same click that selected the scatter
+      // above falls through to the carve entity's footprint. Selecting an
+      // invisible prop's owner would be picking something the user cannot see.
+      f.click(32, 32);
+      expect(f.selected).toEqual([null, CARVE_ENTITY_ID]);
+    } finally {
+      f.teardown();
+    }
+  },
+);

@@ -243,6 +243,14 @@ test("a host-initiated tool push is adopted without re-pushing to host.setTool",
 	fetch404();
 	const stub = makeStubHost();
 	await renderPanel(stub);
+	// Arm the brush first. The panel opens with the POINTER armed (D-F4.5-7, the
+	// host's own default), and a brush effect deliberately does not read as
+	// pressed while LMB selects instead of brushing — so without this the
+	// assertion below would be about the armed GESTURE, not about the echo guard
+	// this case is for. The pick's own setTool is cleared so the "no echo" claim
+	// still quantifies over everything after the host's push.
+	fireEvent.click(button("Dig"));
+	stub.calls.setTool.mockClear();
 	const fill: FieldTool = {
 		effect: "fill",
 		materialId: 0,

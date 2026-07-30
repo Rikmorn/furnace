@@ -5,7 +5,7 @@
 //
 // It reads its two seams out of the shell's host-state provider (single-slot
 // discipline: no surface below that provider may re-subscribe to anything it owns,
-// which since F4.5b Task 2 is all nine seams) and reaches the host for its
+// which since F4.5b Task 2 is all nine seams the chrome reads) and reaches the host for its
 // VERBS the way every other shell surface does — `fieldHostRef` off EditorContext,
 // exactly as ShellChrome's ⌘Z does. The verbs are fire-and-forget; nothing here holds
 // host state, so there is no action provider to justify.
@@ -18,7 +18,6 @@
 // the host has no entity-delete verb at all (swept this task: `openEntity`,
 // `setEntityFrozen`, `bakeEntity` and undo are the entire entity-mutating surface).
 // Freeze, bake and open ship now; F4.5b owns adding the verb and the row that calls it.
-import { useEffect } from "react";
 import { useFieldEntities } from "../../hooks/useFieldHostState.tsx";
 import { useEditor } from "../editor-context.ts";
 import { DriftReport } from "../field/DriftReport.tsx";
@@ -27,17 +26,6 @@ import { EntitiesList } from "../field/EntitiesList.tsx";
 export function EntitiesPalette() {
 	const { state, fieldHostRef, openConfirm } = useEditor();
 	const { entities, drift } = useFieldEntities();
-
-	// Drop any entity-highlight box when this palette goes away. The host outlives it
-	// (App owns the host) and has no highlight subscription seam, so a closed or
-	// re-opened palette — whose row expansion state resets with it — would otherwise
-	// stand next to an amber box no row claims. Collapsing does NOT trip this: a
-	// collapsed palette stays mounted behind `hidden`, which is deliberate (its state
-	// survives the round trip) and means the box survives with the row that owns it.
-	useEffect(
-		() => () => fieldHostRef.current?.highlightEntity(null),
-		[fieldHostRef],
-	);
 
 	// Before the engine bundle lands there is no host, so the provider has subscribed to
 	// nothing and `entities` is empty for a reason that is not "this world has no
@@ -71,7 +59,6 @@ export function EntitiesPalette() {
 			<div className="px-2 py-1">
 				<EntitiesList
 					entities={entities}
-					onHighlight={(id) => fieldHostRef.current?.highlightEntity(id)}
 					// Open starts a RECONFIGURE session on the host, which pushes it down
 					// the stamp seam — so the staged form appears in the controls palette,
 					// where the stamp inspector lives, without this palette knowing that

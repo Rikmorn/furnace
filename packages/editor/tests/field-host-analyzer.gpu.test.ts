@@ -258,6 +258,10 @@ async function fixture(
   const listeners: HostListeners = new Map();
   const fake = analyzerWorker(opts.engine);
   const host = createFieldHost({ spawnAnalyzer: () => fake.worker });
+  // Arm the BRUSH: a host opens with the pointer gesture armed (D-F4.5-7), where
+  // LMB selects an entity instead of stroking — and every `click` below is a dig.
+  // The chrome's brush pick is what does this in the product.
+  host.setGesture(null);
   host.setMaterialTable(ROCK_ONLY);
   if (profile !== null) host.setAgentProfile(profile);
   host.loadWorld({

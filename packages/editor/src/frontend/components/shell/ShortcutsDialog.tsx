@@ -87,7 +87,7 @@ const GROUPS: BindingGroup[] = [
 			},
 			{
 				keys: "left-click",
-				what: "With a gesture armed it selects instead of brushing: Wand and Room take one click, Box Select and Segment take two",
+				what: "With a gesture armed it selects instead of brushing — Select (the default) and Wand and Room take one click, Box Select and Segment take two",
 			},
 			{ keys: "wheel", what: "Brush radius" },
 			{
