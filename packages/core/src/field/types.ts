@@ -285,9 +285,9 @@ export type GeneratorDef = {
    *  Neither corrupts anything, which is why there is no guard: unlike `emits`,
    *  whose violation would put a channel into the op log that the declaration
    *  forbids, a wrong `usesSeed` only mis-shapes a form. The pin is BEHAVIOURAL
-   *  and lives in the tests instead — `field-delete-entity.test.ts` evaluates
-   *  every registered def at two seeds and requires `usesSeed` to predict
-   *  whether the output moved, which catches both directions. */
+   *  and lives in the registry's own tests instead — every def in
+   *  {@link FIELD_GENERATORS} is evaluated at two seeds, and `usesSeed` must
+   *  predict whether the output moved, which catches both directions above. */
   usesSeed: boolean;
   evaluate(
     params: Record<string, unknown>,

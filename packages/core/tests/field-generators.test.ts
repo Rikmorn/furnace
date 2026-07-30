@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type {
   BrushOp,
+  EvaluateContext,
   FieldStore,
   GeneratorDef,
   GeneratorEmits,
@@ -32,6 +33,12 @@ import {
   undo,
   worldToVoxel,
 } from "@furnace/core/field";
+// The in-core evaluate seam, deliberately NOT on the public index (the
+// spliceOps precedent) — the same import field-reconfigure.test.ts takes. The
+// usesSeed probe goes through it rather than `def.evaluate` because it is the
+// GUARDED path commitGenerator and reconfigureGenerator both use, so the probe
+// measures what production measures.
+import { evaluateGenerator } from "../src/field/generators.ts";
 
 const TABLE: MaterialTable = {
   classes: [
@@ -1780,4 +1787,87 @@ describe("field generators — rotation + door-offset authoring (D-F3-13)", () =
         expect(() => assertOpValid(op, TABLE)).not.toThrow();
     }
   });
+});
+
+describe("field generators — GeneratorDef.usesSeed", () => {
+  // `usesSeed` is a DECLARATION core deliberately does not enforce at runtime
+  // (see its TSDoc: a wrong value only mis-shapes a form, it cannot corrupt the
+  // log). Asserting the four literals would merely re-type the source, so this
+  // evaluates each registered def at two seeds and requires `usesSeed` to
+  // PREDICT whether the output moved. That gives the fact teeth in both
+  // directions: a def declaring `true` while ignoring the seed fails, and so
+  // does one declaring `false` while consuming it — the quiet direction, which
+  // otherwise silently hides a working control in the UI with no symptom.
+  //
+  // It lives in THIS file, not beside the verb that shipped it: it is a fact
+  // about the generator registry, it iterates FIELD_GENERATORS, and this file
+  // already owns the registry and the per-generator seed tests.
+  const SEED_REGION = {
+    min: [0, 0, 0] as [number, number, number],
+    max: [12, 8, 12] as [number, number, number],
+  };
+
+  /** A store carrying a carved cave. Scatter is `contextFree: false` and needs
+   *  real surfaces to project onto; a context-free def ignores any ctx it is
+   *  handed (`evaluateGenerator`'s contract), so ONE fixture drives all four
+   *  and the loop stays generic — no per-def special-casing. Its own region and
+   *  params are deliberately local: REGION above is tuned to the hall's literal
+   *  geometry derivations and is too small to give the cave room. */
+  const carvedWorld = (): EvaluateContext => {
+    const store = createFieldStore();
+    const log = createOpLog();
+    const cave = generatorById("cave");
+    commitGenerator(store, log, cave, {
+      params: structuredClone(cave.defaults),
+      seed: 5,
+      region: SEED_REGION,
+      policy: "replace",
+      table: TABLE,
+    });
+    return { store };
+  };
+
+  /** One evaluation, as a comparable fingerprint. JSON renders the patch/mask
+   *  typed arrays as index-keyed objects — verbose but deterministic, which is
+   *  all an equality probe needs. */
+  const evaluateAt = (
+    def: GeneratorDef,
+    seed: number,
+    ctx: EvaluateContext,
+  ): string =>
+    JSON.stringify(
+      evaluateGenerator(
+        def,
+        structuredClone(def.defaults),
+        seed,
+        SEED_REGION,
+        TABLE,
+        "replace",
+        ctx,
+      ),
+    );
+
+  /** How many ops + placements an evaluation actually emitted. The premise the
+   *  seed comparison rests on: a def that emitted NOTHING at both seeds would
+   *  compare equal for a reason with nothing to do with the seed, and would
+   *  pass a `usesSeed: false` expectation for free. Counting the two channels
+   *  is the only guard that can see that — a string length cannot, since the
+   *  empty result still stringifies to 26 characters. */
+  const emitted = (fingerprint: string): number => {
+    const r = JSON.parse(fingerprint) as {
+      ops: unknown[];
+      placements: unknown[];
+    };
+    return r.ops.length + r.placements.length;
+  };
+
+  for (const def of FIELD_GENERATORS) {
+    test(`${def.id}: usesSeed predicts whether two seeds evaluate differently`, () => {
+      const ctx = carvedWorld();
+      const atEleven = evaluateAt(def, 11, ctx);
+      const atTwelve = evaluateAt(def, 12, ctx);
+      expect(emitted(atEleven)).toBeGreaterThan(0);
+      expect(atEleven !== atTwelve).toBe(def.usesSeed);
+    });
+  }
 });

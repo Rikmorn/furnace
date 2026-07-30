@@ -891,9 +891,9 @@ channel** (uniform|indexed palette encoding behind accessors — `getMaterial` /
   control that would have worked, so a real axis of variation disappears with no symptom at
   all. Neither corrupts anything — unlike `emits`, whose violation puts a forbidden channel
   into the op log, a wrong `usesSeed` only mis-shapes a form — which is why the pin is
-  BEHAVIOURAL instead: `field-delete-entity.test.ts` evaluates every registered def at two
-  seeds and requires `usesSeed` to predict whether the output moved, catching both
-  directions. The shared strict param
+  BEHAVIOURAL instead: every def in `FIELD_GENERATORS` is evaluated at two seeds, and
+  `usesSeed` must predict whether the output moved, which catches both directions. The
+  shared strict param
   validators (`numParam`/`intParam`/`boolParam`) live in a cycle-free `generator-params.ts`
   leaf (the `rng.ts` precedent — the registry imports the defs, so a def importing validators
   back out of `generators.ts` would cycle). `commitGenerator` applies the field ops
