@@ -510,14 +510,17 @@ export function createHandlers(ctx: HandlerContext): Handlers {
         throw new EditorError("already-exists", `world "${to}" already exists`);
       }
       const wasDefault = readWorldsIndex(ctx.root)?.default === from;
-      // Ordering note (torn-window): renameSync runs BEFORE the index
-      // rewrite. If the process dies in between (crash, disk full), the
-      // directory has already moved but worlds/index.json still names the
-      // OLD (now-renamed-away) world as default — the reviewed alternative
-      // (index-first) risks the index naming a default whose dir was never
-      // actually moved, judged the worse failure; this ordering's failure
-      // mode is at least a clean abort. Recovery is manual: re-pick the
-      // default in the world drawer (world.makeDefault on the renamed dir).
+      // Ordering note: renameSync runs BEFORE the index rewrite because it's
+      // the RISKIER of the two ops — EXDEV (cross-mount), EPERM, EBUSY, a
+      // concurrent target creation — versus a ~50-byte write into a dir that
+      // already exists. Rename-first means the LIKELIER failure (the rename
+      // itself) aborts cleanly: nothing has moved and the index is untouched.
+      // If the index write still fails AFTER the rename has already landed
+      // (e.g. ENOSPC — that doesn't kill the process, it just throws out of
+      // writeDefaultWorld), THAT's the torn state: the dir has moved but
+      // worlds/index.json still names the OLD (now-renamed-away) world as
+      // default. Recovery is manual: re-pick the default in the world
+      // drawer (world.makeDefault on the renamed dir).
       renameWorldDir(ctx.root, from, to);
       if (wasDefault) writeDefaultWorld(ctx.root, to);
       ctx.emit({ type: "worlds-changed" });

@@ -268,6 +268,18 @@ describe("world mutations", () => {
 
   test("world.delete removes the directory and emits worlds-changed", async () => {
     const dir = makeFieldWorld("scratch-a");
+    // A valid index naming a DIFFERENT world as default is essential here:
+    // this must prove delete succeeds because scratch-a is NOT the default
+    // (not merely because no index exists at all) — with no index file, a
+    // mutant that treats "any index present" as "this is the default"
+    // (e.g. `index !== null` instead of `index?.default === name`) would
+    // slip through unnoticed, since both read as "not default" when there's
+    // no index. "other-world" doesn't need its own dir — the default-guard
+    // check is a plain string comparison against index.default.
+    writeFileSync(
+      join(root, "worlds", "index.json"),
+      worldsIndexBytes("other-world"),
+    );
     const handlers = build();
     await dispatch(handlers, "world.delete", { name: "scratch-a" });
     expect(existsSync(dir)).toBe(false);
@@ -305,6 +317,10 @@ describe("world mutations", () => {
     await expect(
       dispatch(handlers, "world.delete", { name: "scratch-a" }),
     ).rejects.toMatchObject({ code: "invalid-input" });
+    // Load-bearing: this refusal and the corrupt-index refusal below both
+    // carry code "invalid-input" — only the message text distinguishes them,
+    // so this regex is what actually pins THIS refusal path (delete-the-
+    // default) rather than the corrupt-index one. Don't simplify it away.
     await expect(
       dispatch(handlers, "world.delete", { name: "scratch-a" }),
     ).rejects.toThrow(/make another world default first/);
