@@ -73,7 +73,7 @@ const CatalogContext = createContext<CatalogState>(NO_CATALOG);
 /** Read the project's catalogs. Defaults to rock-only-and-unsettled rather than throwing
  *  outside the provider: a panel mounted on its own (the harness tests do exactly that)
  *  has no fetch behind it, and "no catalog" is the truth in that case rather than a
- *  wiring bug worth crashing over — the ToolErrorTickContext precedent. */
+ *  wiring bug worth crashing over — the CameraPoseContext precedent. */
 export function useCatalog(): CatalogState {
 	return useContext(CatalogContext);
 }

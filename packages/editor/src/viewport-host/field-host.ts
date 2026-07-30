@@ -3340,7 +3340,7 @@ export function createFieldHost(deps?: {
     rebuildProps();
     // The three notifications LAST, once every piece of host state the apply
     // moved has settled: a subscriber may read the host back synchronously from
-    // inside any of them (the panel does — subscribeEntities' callback calls
+    // inside any of them (the chrome does — subscribeEntities' callback calls
     // listEntities), so none may observe a half-applied session.
     //
     // Drift goes last of the three because a throwing subscriber aborts the
@@ -4582,7 +4582,10 @@ export function createFieldHost(deps?: {
     subscribeStats(cb) {
       statsCb = cb;
       return () => {
-        statsCb = null;
+        // Guard: a STALE unsubscribe (kept past a later subscribe) must not
+        // null the successor's callback — the subscribeTool rule, which every
+        // other seam here already follows.
+        if (statsCb === cb) statsCb = null;
       };
     },
     subscribeCameraPose(cb) {

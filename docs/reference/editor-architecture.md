@@ -1234,18 +1234,20 @@ mind.
   "everything that shows them agrees": it rebuilds the markers FIRST and notifies the
   subscriber second, because a subscriber may read the host back synchronously (the panel
   does) and none may observe a summary whose markers are stale.
-- **Panel state and its honest cost.** The summary is the host's; the filter set and the
-  in-flight verify key are PANEL state. `verifying` cannot live in the host because releasing
-  it needs two signals no single host seam carries — a verdict arrives on `subscribeFlags`,
-  and each `verifyFlag` refusal arrives on `subscribeToolError` having pushed no flags at all.
-  Both releases are deliberately BLUNT (an unrelated tool error also clears it; so does any
-  flags push, not just the one carrying the verdict), because that way round costs a button
-  that looks live for a moment against a column that sticks for good. The engine-ready push of
-  `DEFAULT_FLAG_FILTERS` follows the layers/slice precedent and carries the same consequence,
-  stated plainly at the site: a panel REMOUNT (a dock tab switch is enough) RESETS the user's
-  filters, because the host keeps the last set across world loads and a remounted panel
-  reading "candidates only" beside markers still drawing the info band would be a straight lie.
-  Agreement over memory; a filters subscription is what would buy both.
+- **Chrome state and its honest cost.** The summary is the host's; the filter set and the
+  in-flight verify key are CHROME state, and since F4.5b Task 2 they live in the shell's
+  provider (`FieldFlagsContext`) rather than in a palette. `verifying` cannot live in the host
+  because releasing it needs two signals no single host seam carries — a verdict arrives on
+  `subscribeFlags`, and each `verifyFlag` refusal arrives on `subscribeToolError` having pushed
+  no flags at all; putting both halves in one file is why the state moved there. Both releases
+  are deliberately BLUNT (an unrelated tool error also clears it; so does any flags push, not
+  just the one carrying the verdict), because that way round costs a button that looks live for
+  a moment against a column that sticks for good. The filters follow the layers/slice precedent
+  — one effect keyed on the value, so engine-ready and every later edit are ONE mechanism — and
+  the provider mounting with the shell is what makes them survive a palette being closed and
+  re-opened. That remount used to RESET them, because the host keeps the last set across world
+  loads and a re-mounted section reading "candidates only" beside markers still drawing the
+  info band would be a straight lie. Remembering them across SESSIONS is D-3's, still open.
 - **The `flags` layer** is the SEVENTH display gate (§16). Hiding it does NOT stop the
   analyzer — findings keep arriving and `subscribeFlags` keeps firing, exactly as a hidden
   `selection` layer keeps masking ops.
@@ -1571,7 +1573,7 @@ orchestrator-slope entry tracked it at 817). What left, and where it went:
 
 | Left the panel | Now lives in |
 | --- | --- |
-| stats, tool-error, entity list, drift | `hooks/useFieldHostState.tsx` (the provider) |
+| every host subscription — stats, tool-error, camera-pose, entities, drift, and (F4.5b Task 2) tool, selection, stamp, flags | `hooks/useFieldHostState.tsx` (the provider) |
 | world verbs (Save / Open / Bake) | `hooks/useWorld.tsx` + the world chip + the drawer |
 | shading, layer gates, slice plane, AA | `hooks/useView.tsx` + `shell/ViewPopover.tsx` |
 | the catalog fetch | `hooks/useCatalogs.tsx` (mounted once by the shell) |
@@ -1579,17 +1581,20 @@ orchestrator-slope entry tracked it at 817). What left, and where it went:
 | the status line | `lib/notify-store.ts` (toasts + the log) |
 
 What **remains** is the dig loop's control stack: the tool palette, the material
-swatches, the brush inspector, the stamp inspector and the advisor's flags — and exactly
-**four** host subscriptions (`subscribeTool`, `subscribeSelection`, `subscribeStamp`,
-`subscribeFlags`).
+swatches, the brush inspector, the stamp inspector and the advisor's flags — rendered
+entirely from the provider's contexts, with **no host subscription of its own**.
 
-**`hooks/useFieldHostState.tsx` is the ONE subscription point for the seams the shell
+**`hooks/useFieldHostState.tsx` is the ONE subscription point for the seams the chrome
 reads**, and the reason is a real failure mode: every `FieldHost.subscribe*` seam is a
 **single slot** (`statsCb = cb`), so a second subscriber silently steals the first's —
-the earlier consumer just stops updating, with nothing thrown and nothing logged. Five
-seams live there today (stats, tool-error, camera-pose, entities, drift), each published
-through its **own** context because they run at different cadences. **FieldPanel must not
-re-subscribe to anything this provider owns.** The stats push is guarded by a
+the earlier consumer just stops updating, with nothing thrown and nothing logged. All
+**nine** seams live there (stats, tool-error, camera-pose, entities, drift, tool,
+selection, stamp, flags), published through **seven** contexts split by CADENCE — a
+frame-paced seam must not re-render a surface that only cares about an answer. Each
+context makes its own throw-vs-default call at its docblock; `CameraPoseContext` is the
+only defaulted one, because "no camera here" is the one default that is true outside the
+provider. **No surface below the provider may re-subscribe to anything it owns.** The
+stats push is guarded by a
 value-equality comparator with a `satisfies Record<string, never>` backstop — a new
 `FieldStats` field fails the never-check and forces the comparator to learn it, because a
 missed field would silently *weaken* the guard.

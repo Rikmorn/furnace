@@ -11,8 +11,8 @@ import "../inspector/_register.ts";
 // the MOUNT moved. What that mount now proves in passing is the seam relocation itself:
 // the palette holds no subscription at all, and the rows it renders arrive through the
 // shell's host-state provider (which owns `subscribeEntities` + `subscribeDrift` as
-// single slots). The panel's matching NEGATIVE assertion — that it claims neither seam
-// — stayed behind in field-panel.test.tsx.
+// single slots). The matching NEGATIVE assertion stayed behind in field-panel.test.tsx,
+// where F4.5b Task 2 widened it to every seam there is.
 
 import { afterEach, expect, test } from "bun:test";
 import type { DriftFinding } from "@furnace/core/field";
@@ -259,7 +259,8 @@ test("Open on a plain row starts a reconfigure session through the host", () => 
 	fireEvent.click(screen.getByLabelText("open entity 1"));
 	// The HOST is the whole seam between this palette and the staged form the
 	// controls palette renders: openEntity pushes the session down subscribeStamp,
-	// which FieldPanel owns. No chrome-to-chrome channel exists or is needed.
+	// which the shell's provider owns and publishes as a context. No chrome-to-chrome
+	// channel exists or is needed.
 	expect(stub.calls.openEntity.mock.calls).toEqual([[1]]);
 });
 
@@ -321,10 +322,9 @@ test("a blocked Open carries its reason in the accessible name, not only a title
 });
 
 // Freeze states its consequence on EVERY unfrozen row rather than only on the one
-// carrying a live session — the row can no longer see the stamp session (it is a
-// single-slot host seam owned by a different palette), and the sentence is true of
-// every unfrozen row anyway: the host cancels whatever session sits on the entity it
-// freezes. Pinned because the alternative ways to phrase it are all weaker: a bare
+// carrying a live session — the row does not read the stamp session (it could, off the
+// shell's context, and declines: see EntitiesList), and the sentence is true of every
+// unfrozen row anyway: the host cancels whatever session sits on the entity it freezes. Pinned because the alternative ways to phrase it are all weaker: a bare
 // "protect this stamp" drops the data-loss warning entirely.
 test("Freeze names the session it would end, on every unfrozen row", () => {
 	const stub = makeStubHost();

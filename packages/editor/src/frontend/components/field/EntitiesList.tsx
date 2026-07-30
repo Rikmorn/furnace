@@ -178,15 +178,16 @@ export function EntitiesList(props: {
 									className={ROW_BUTTON_CLASS}
 									disabled={baked}
 									// The freeze consequence is stated UNCONDITIONALLY rather than
-									// only on the row that has a session open. It reads a little
-									// wider than it needs to, and it costs this list its last
-									// coupling to the stamp session — which lives behind a
-									// single-slot host seam FieldPanel owns, in a different
-									// palette, and which this list could only learn about by
-									// stealing that seam or having its value handed sideways
-									// through chrome. The sentence is true of every unfrozen row
-									// (the host cancels a session on the entity it freezes), so
-									// nothing about the warning got weaker.
+									// only on the row that has a session open, and it costs
+									// nothing to do so: the sentence is true of every unfrozen
+									// row (the host cancels a session on the entity it freezes),
+									// so the wider phrasing makes the warning no weaker while
+									// leaving this list uncoupled from the session. That
+									// coupling IS available since F4.5b Task 2 — the session is
+									// a shell context (`useFieldStamp`) any surface may read —
+									// and is declined rather than unreachable: a tooltip that
+									// re-renders on every nudge of an unrelated stamp is a poor
+									// trade for one word.
 									title={
 										e.frozen === true
 											? "allow this stamp to be reconfigured again"

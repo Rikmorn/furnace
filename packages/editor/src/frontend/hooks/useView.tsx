@@ -4,9 +4,11 @@
 // reads the AA setting, so it cannot live inside a palette that closing would take with
 // it (the world-state precedent).
 //
-// It is the chrome→host direction, which is why it is NOT part of `useFieldHostState`
-// (host→chrome, single-slot subscriptions). The host has no shading/layers/slice
-// subscription to mirror, so this provider is the source of truth and pushes: one effect
+// It is a pure chrome→host concern, which is why it is NOT part of `useFieldHostState`:
+// that provider exists to own the single-slot SUBSCRIPTIONS, and every value it holds is
+// anchored to one (a mirror, or the chrome half of a seam's round trip). Nothing here has
+// a seam at all — the host has no shading/layers/slice subscription to mirror — so this
+// provider is the source of truth and pushes: one effect
 // per seam, each keyed on its own value, so a shading change never re-sends the layer
 // flags (`setLayers` is edge-sensitive for `voidCast`) and a slider drag never re-sends
 // the shading mode.

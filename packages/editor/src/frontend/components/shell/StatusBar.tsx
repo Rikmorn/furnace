@@ -24,8 +24,8 @@ function engineLabel(state: EditorState): string {
 // The viewport's momentary bindings, verified against field-host.ts's keydown handler:
 // LMB applies the armed tool, `[` / `]` step the brush radius, holding ⇧ derives the
 // smooth effect and holding ⌃ swaps dig↔fill (both restore on release). Static on
-// purpose — the armed tool reaches the chrome on subscribeTool, which is another
-// single-slot seam the field panel already holds.
+// purpose — the armed tool is available (the shell's provider mirrors subscribeTool at
+// `useFieldTool`), but naming it here would make this line change under every ⇧ press.
 const KEYMAP = "LMB brush · [ ] radius · ⇧ smooth · ⌃ dig↔fill";
 
 /** The one clickable chip in this slice (D-19's stats-chip popovers are F4.5c). It

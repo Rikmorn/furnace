@@ -7,9 +7,11 @@
 // fought off. Plain elements plus the shared Button.
 //
 // Collapsed palettes stay MOUNTED behind the `hidden` attribute rather than unmounting:
-// their content is host-subscribed state that a remount resets (FieldPanel's flag
-// filters are the documented case), and rolling a palette up must not be a state-losing
-// act. `hidden` also takes it out of the accessibility tree, so the rail chip is the
+// their content holds local state a remount would reset (the control stack's armed
+// gesture is the plain case), and rolling a palette up must not be a state-losing act.
+// CLOSING one still unmounts it, which is why anything that must outlive the gesture —
+// the advisor's filter bands, the brush radius — is the shell provider's rather than a
+// palette's. `hidden` also takes it out of the accessibility tree, so the rail chip is the
 // only thing a screen reader finds — which is what the collapsed state actually is.
 import { ChevronUp, X } from "lucide-react";
 import type {

@@ -5,6 +5,11 @@
 // subscribeSelection/subscribeStamp/subscribeDrift/subscribeFlags/subscribeEntities
 // push the current (empty) state on subscribe, like the real host does.
 //
+// Every unsubscribe is REAL (frees the slot, identity-guarded like the production
+// host's) and every `fire.*` reports whether the push was DELIVERED. That pair is what
+// lets a test tell a subscriber that leaks from one that cleans up — and, on a
+// single-slot seam, WHICH mount is holding it.
+//
 // Shared because three suites now mount chrome that talks to a host: the field panel's
 // own tests, the entities palette's, and the shell's (which renders both inside the
 // shell layout). A second copy would go stale against the real FieldHost independently
@@ -130,11 +135,18 @@ export function makeStubHost(
     setAgentProfile: mock(),
     setFlagFilters: mock(),
     verifyFlag: mock(),
+    // Every one of the nine subscribe seams records its call, so a test can assert the
+    // slot was claimed EXACTLY ONCE across a whole mounted arrangement — the single-slot
+    // rule's only machine-checkable form.
     subscribeStats: mock(),
     subscribeToolError: mock(),
     subscribeEntities: mock(),
     subscribeDrift: mock(),
     subscribeCameraPose: mock(),
+    subscribeTool: mock(),
+    subscribeSelection: mock(),
+    subscribeStamp: mock(),
+    subscribeFlags: mock(),
   };
   const host: FieldHost = {
     // Modelled on the real host's lifecycle, both halves of it. It REFUSES a second
@@ -164,9 +176,14 @@ export function makeStubHost(
     setShading: calls.setShading,
     setTool: calls.setTool,
     subscribeTool: (cb) => {
+      calls.subscribeTool(cb);
       cbs.tool = cb;
-      // biome-ignore lint/suspicious/noEmptyBlockStatements: inert unsubscribe no-op
-      return () => {};
+      // A REAL unsubscribe, for the subscribeStats reason: this is a single slot the
+      // shell's provider owns now, and an inert release could not tell a subscriber
+      // that leaks from one that cleans up.
+      return () => {
+        if (cbs.tool === cb) cbs.tool = null;
+      };
     },
     subscribeToolError: (cb) => {
       calls.subscribeToolError(cb);
@@ -182,10 +199,14 @@ export function makeStubHost(
     clearSelection: calls.clearSelection,
     reselect: calls.reselect,
     subscribeSelection: (cb) => {
+      calls.subscribeSelection(cb);
       cbs.selection = cb;
       cb(null);
-      // biome-ignore lint/suspicious/noEmptyBlockStatements: inert unsubscribe no-op
-      return () => {};
+      // A REAL unsubscribe (the subscribeStats reason — single slot, and a leak has to
+      // be distinguishable from a clean release).
+      return () => {
+        if (cbs.selection === cb) cbs.selection = null;
+      };
     },
     setLayers: calls.setLayers,
     setSlice: calls.setSlice,
@@ -217,10 +238,14 @@ export function makeStubHost(
     undo: calls.undo,
     redo: calls.redo,
     subscribeStamp: (cb) => {
+      calls.subscribeStamp(cb);
       cbs.stamp = cb;
       cb(null);
-      // biome-ignore lint/suspicious/noEmptyBlockStatements: inert unsubscribe no-op
-      return () => {};
+      // A REAL unsubscribe (the subscribeStats reason — single slot, and a leak has to
+      // be distinguishable from a clean release).
+      return () => {
+        if (cbs.stamp === cb) cbs.stamp = null;
+      };
     },
     openEntity: calls.openEntity,
     applyReconfigure: calls.applyReconfigure,
@@ -253,10 +278,14 @@ export function makeStubHost(
     highlightEntity: calls.highlightEntity,
     setAgentProfile: calls.setAgentProfile,
     subscribeFlags: (cb) => {
+      calls.subscribeFlags(cb);
       cbs.flags = cb;
       cb({ total: 0, byKindSeverity: [], visible: [] });
-      // biome-ignore lint/suspicious/noEmptyBlockStatements: inert unsubscribe no-op
-      return () => {};
+      // A REAL unsubscribe (the subscribeStats reason — single slot, and a leak has to
+      // be distinguishable from a clean release).
+      return () => {
+        if (cbs.flags === cb) cbs.flags = null;
+      };
     },
     setFlagFilters: calls.setFlagFilters,
     verifyFlag: (key) => {
@@ -291,44 +320,59 @@ export function makeStubHost(
     calls,
     /** Seam-call trace, in order — the B1 ordering contract's witness. */
     order,
-    /** Fire a latched host→panel push (callers wrap in act). */
+    /** Fire a latched host→chrome push (callers wrap in act). EVERY fire reports whether
+     *  the push was DELIVERED — false once the slot is free again, which is how a test
+     *  tells a real unsubscribe from an inert one, and how it tells which MOUNT is
+     *  holding a single-slot seam. */
     fire: {
-      tool: (t: FieldTool) => cbs.tool?.(t),
-      stamp: (s: StampSession | null) => cbs.stamp?.(s),
-      /** Returns whether the push was DELIVERED — false once the slot is free again,
-       *  which is how a test tells a real unsubscribe from an inert one. */
+      tool: (t: FieldTool): boolean => {
+        if (cbs.tool === null) return false;
+        cbs.tool(t);
+        return true;
+      },
+      stamp: (s: StampSession | null): boolean => {
+        if (cbs.stamp === null) return false;
+        cbs.stamp(s);
+        return true;
+      },
       stats: (s: FieldStats): boolean => {
         if (cbs.stats === null) return false;
         cbs.stats(s);
         return true;
       },
-      selection: (i: SelectionInfo | null) => cbs.selection?.(i),
+      selection: (i: SelectionInfo | null): boolean => {
+        if (cbs.selection === null) return false;
+        cbs.selection(i);
+        return true;
+      },
       /** A camera move, as the host publishes one from `applyOrbit`. */
-      cameraPose: (p: CameraPose) => cbs.cameraPose?.(p),
-      /** The entity-list change TICK (the real host's only entity signal). Returns
-       *  whether the tick was DELIVERED — false once the slot is free again (the
-       *  subscribeStats precedent: how a test tells a real unsubscribe from an inert
-       *  one). */
+      cameraPose: (p: CameraPose): boolean => {
+        if (cbs.cameraPose === null) return false;
+        cbs.cameraPose(p);
+        return true;
+      },
+      /** The entity-list change TICK (the real host's only entity signal). */
       entities: (): boolean => {
         if (cbs.entities === null) return false;
         cbs.entities();
         return true;
       },
-      /** A drift report push. Delivery is reported for the `fire.entities` reason. */
+      /** A drift report push. */
       drift: (r: DriftFinding[] | null): boolean => {
         if (cbs.drift === null) return false;
         cbs.drift(r);
         return true;
       },
-      /** Returns whether the push was DELIVERED — false once the slot is free again
-       *  (the subscribeStats precedent: it is how a test tells a real unsubscribe from
-       *  an inert one). */
       toolError: (msg: string): boolean => {
         if (cbs.toolError === null) return false;
         cbs.toolError(msg);
         return true;
       },
-      flags: (s: FlagsSummary) => cbs.flags?.(s),
+      flags: (s: FlagsSummary): boolean => {
+        if (cbs.flags === null) return false;
+        cbs.flags(s);
+        return true;
+      },
     },
     setEntities: (next: FieldEntityInfo[]) => {
       entities = next;

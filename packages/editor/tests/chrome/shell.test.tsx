@@ -26,6 +26,7 @@ import {
 } from "../../src/frontend/hooks/useFieldHostState.tsx";
 import { notify } from "../../src/frontend/lib/notify-store.ts";
 import type { UiStore } from "../../src/frontend/lib/persist.ts";
+import type { FieldTool } from "../../src/viewport-host/index.ts";
 import {
 	act,
 	cleanup,
@@ -254,7 +255,7 @@ test("an init rejection lands in the status bar, NOT the global engine-error bra
 	expect(live?.className).toContain("sr-only");
 });
 
-// --- the provider owns the single stats slot ---------------------------------
+// --- the provider owns the single-slot seams ---------------------------------
 
 test("an identical stats push does not re-render the readout", () => {
 	let renders = 0;
@@ -309,6 +310,55 @@ test("the provider releases the stats slot on unmount", () => {
 	// Single slot: an unsubscribe that does not FREE it leaves the next mount unable to
 	// claim one — the readout would be dead with nothing thrown and nothing logged.
 	expect(push()).toBe(false);
+});
+
+/** A dig brush, the host's own default tool — the value shape `fire.tool` carries. */
+const DIG_TOOL: FieldTool = {
+	effect: "dig",
+	materialId: 0,
+	mask: { kind: "none" },
+	smooth: { strength: 16, iterations: 1, mode: "both" },
+	hollow: null,
+};
+
+/** The four seams the control stack held until F4.5b Task 2, with the push that proves
+ *  each slot is live. Table-driven rather than four copies of the case above: the claim
+ *  is identical in all four, and four near-identical blocks would bury the one line that
+ *  differs. */
+const LIFTED_SEAMS: readonly (readonly [
+	string,
+	(stub: ReturnType<typeof makeStubHost>) => boolean,
+])[] = [
+	["tool", (s) => s.fire.tool(DIG_TOOL)],
+	["selection", (s) => s.fire.selection(null)],
+	["stamp", (s) => s.fire.stamp(null)],
+	["flags", (s) => s.fire.flags({ total: 0, byKindSeverity: [], visible: [] })],
+];
+
+test("the provider claims — and releases — the four seams lifted off the panel", () => {
+	for (const [name, push] of LIFTED_SEAMS) {
+		const stub = makeStubHost();
+		const { unmount } = render(
+			<FieldHostStateProvider host={stub.host} engineReady>
+				<span />
+			</FieldHostStateProvider>,
+		);
+		const deliver = (): boolean => {
+			let delivered = false;
+			act(() => {
+				delivered = push(stub);
+			});
+			return delivered;
+		};
+		// Claimed with no consumer mounted at all: the provider subscribes because it is
+		// the OWNER, not because something below it happens to be reading. A seam nobody
+		// claims is a control that goes dead with nothing thrown.
+		expect([name, deliver()]).toEqual([name, true]);
+		unmount();
+		// …and freed on the way out, the stats-slot rule above: an unsubscribe that leaves
+		// the slot occupied makes the NEXT mount's claim the silent loser.
+		expect([name, deliver()]).toEqual([name, false]);
+	}
 });
 
 // --- (b) the top bar ----------------------------------------------------------

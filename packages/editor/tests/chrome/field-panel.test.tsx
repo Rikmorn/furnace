@@ -9,11 +9,18 @@
 // commit gating, the selection footer, and the F4 advisor's flags section.
 //
 // The entity list and the drift report LEFT this panel in F4.5a Task 10 — they are
-// tests/chrome/entities-palette.test.tsx now, assertion for assertion. What stayed
-// behind is the negative half: the panel claims neither of their seams.
+// tests/chrome/entities-palette.test.tsx now, assertion for assertion.
+//
+// The panel now claims NO host seam at all: F4.5b Task 2 lifted its last four
+// (tool / selection / stamp / flags) into the shell's provider, so every case here
+// mounts under `FieldHostStateProvider` and every host push travels provider → context →
+// panel. What stayed behind is the negative half, one case, quantified over all nine
+// seams.
 
 import { afterEach, expect, mock, test } from "bun:test";
 import type { FieldFlag, FlagKind, FlagSeverity } from "@furnace/core/field";
+import type { ReactElement } from "react";
+import { EditorContext } from "../../src/frontend/components/editor-context.ts";
 import { FieldPanel } from "../../src/frontend/components/FieldPanel.tsx";
 import { FlagsSection } from "../../src/frontend/components/field/FlagsSection.tsx";
 import { Toasts } from "../../src/frontend/components/shell/Toasts.tsx";
@@ -35,12 +42,11 @@ import {
 	fireEvent,
 	makeEditorContext,
 	render,
-	renderWithEditor,
 	screen,
 	waitFor,
 	within,
 } from "../inspector/_harness.tsx";
-import { makeStubHost } from "./_stub-host.ts";
+import { makeStats, makeStubHost } from "./_stub-host.ts";
 
 afterEach(cleanup);
 // The notification store is a module singleton (one editor, one message log), so a
@@ -162,46 +168,42 @@ function makeSession(overrides: Partial<StampSession> = {}): StampSession {
  *  on screen. Mounting it here keeps those cases assertions about what a user sees
  *  rather than about a store's internals.
  *
- *  Deliberately NOT wrapped in FieldHostStateProvider — several cases below assert
- *  that the PANEL claims none of the shell's single-slot seams, and a provider here
- *  would claim them for it. `renderPanelUnderShellSeams` is the variant for the two
- *  cases that need the tool-error seam wired. */
-async function renderPanel(stub: ReturnType<typeof makeStubHost>) {
-	const result = renderWithEditor(
-		<CatalogProvider>
-			<FieldPanel />
-			<Toasts />
-		</CatalogProvider>,
-		makeEditorContext({ fieldHostRef: { current: stub.host } }),
-	);
-	await act(async () => {
-		// Two microtask turns: the catalog path awaits fetch() then res.text().
-		await Promise.resolve();
-		await Promise.resolve();
-	});
-	return result;
-}
-
-/** The panel under the shell's host-state provider — the arrangement the real editor
- *  mounts. The provider owns `subscribeToolError`, so this is what a `fire.toolError`
- *  needs to reach anything: it becomes a toast AND the tick that releases the panel's
- *  in-flight verify column. */
-async function renderPanelUnderShellSeams(
+ *  `<FieldHostStateProvider />` is not scenery either: it owns ALL NINE FieldHost
+ *  subscribe seams (F4.5b Task 2 lifted the last four out of this panel), so without it
+ *  a `stub.fire.tool` / `.selection` / `.stamp` / `.flags` reaches nothing at all and
+ *  every case below would be asserting about a panel wired to a dead host. This is also
+ *  the arrangement the real editor mounts, which is what makes these cases claims about
+ *  the product rather than about a fixture.
+ *
+ *  Built as an ELEMENT (rather than passed straight to `renderWithEditor`) so a case can
+ *  re-render the same tree with the PANEL removed — the shell.test.tsx `withEditor`
+ *  precedent, and what the seam-ownership case below needs. */
+const withEditor = (
+	ui: ReactElement,
 	stub: ReturnType<typeof makeStubHost>,
-) {
-	const result = renderWithEditor(
+): ReactElement => (
+	<EditorContext.Provider
+		value={makeEditorContext({ fieldHostRef: { current: stub.host } })}
+	>
 		<FieldHostStateProvider host={stub.host} engineReady>
 			<CatalogProvider>
-				<FieldPanel />
+				{ui}
 				<Toasts />
 			</CatalogProvider>
-		</FieldHostStateProvider>,
-		makeEditorContext({ fieldHostRef: { current: stub.host } }),
-	);
-	await act(async () => {
+		</FieldHostStateProvider>
+	</EditorContext.Provider>
+);
+
+/** Two microtask turns: the catalog path awaits fetch() then res.text(). */
+const flushCatalog = () =>
+	act(async () => {
 		await Promise.resolve();
 		await Promise.resolve();
 	});
+
+async function renderPanel(stub: ReturnType<typeof makeStubHost>) {
+	const result = render(withEditor(<FieldPanel />, stub));
+	await flushCatalog();
 	return result;
 }
 
@@ -258,27 +260,76 @@ test("a host-initiated tool push is adopted without re-pushing to host.setTool",
 });
 
 // The single-slot rule, pinned from the side that would break it. Every FieldHost
-// subscribe seam stores ONE callback (`statsCb = cb`), so a panel that re-subscribed
-// to one would silently steal the shell's — no throw, no warning, the shell surface
-// just stops updating. The panel reads none of these five now: stats belong to the
-// status bar's chips, tool errors to the toast stack, entities + drift to the
-// entities palette, and the camera pose to the axis triad (all via the shell's
-// provider, at useFieldHostState). This is the guard a re-added meter, a re-added
-// status line, an entity list, or a second orientation readout that crept back has to
-// trip.
+// subscribe seam stores ONE callback (`toolCb = cb`), so a panel that subscribed to one
+// would silently steal the shell's — no throw, no warning, the shell surface just stops
+// updating. ALL NINE belong to the provider now: stats to the status bar's chips, tool
+// errors to the toast stack, entities + drift to the entities palette, the camera pose to
+// the axis triad, and — since F4.5b Task 2 — tool / selection / stamp / flags to the
+// control stack, read out of context. This is the guard a re-added meter, a re-added
+// status line, or a mirror that crept back into a section has to trip.
 //
-// It is the ONLY case here that must NOT be rendered under FieldHostStateProvider — a
-// provider above the panel claims all five itself, and every assertion below would
-// then be about the provider rather than the panel.
-test("the panel never subscribes to stats, tool errors, entities, drift or the camera pose — those slots belong to the shell", async () => {
+// Every seam, with the push that proves the slot is live. Quantified rather than spelled
+// out case by case: the point is that the set is CLOSED, and a tenth seam claimed by a
+// panel section is exactly what this must catch.
+const DIG_TOOL: FieldTool = {
+	effect: "dig",
+	materialId: 0,
+	mask: { kind: "none" },
+	smooth: { strength: 16, iterations: 1, mode: "both" },
+	hollow: null,
+};
+
+const NO_FLAGS: FlagsSummary = { total: 0, byKindSeverity: [], visible: [] };
+
+const seamsOf = (stub: ReturnType<typeof makeStubHost>) =>
+	[
+		["stats", stub.calls.subscribeStats, () => stub.fire.stats(makeStats())],
+		[
+			"toolError",
+			stub.calls.subscribeToolError,
+			() => stub.fire.toolError("select a region first"),
+		],
+		[
+			"cameraPose",
+			stub.calls.subscribeCameraPose,
+			() => stub.fire.cameraPose({ yaw: 1, pitch: 0.2 }),
+		],
+		["entities", stub.calls.subscribeEntities, () => stub.fire.entities()],
+		["drift", stub.calls.subscribeDrift, () => stub.fire.drift(null)],
+		["tool", stub.calls.subscribeTool, () => stub.fire.tool(DIG_TOOL)],
+		[
+			"selection",
+			stub.calls.subscribeSelection,
+			() => stub.fire.selection(null),
+		],
+		["stamp", stub.calls.subscribeStamp, () => stub.fire.stamp(null)],
+		["flags", stub.calls.subscribeFlags, () => stub.fire.flags(NO_FLAGS)],
+	] as const;
+
+test("every host seam is the SHELL's — the panel adds no claim and holds none", async () => {
 	fetch404();
 	const stub = makeStubHost();
-	await renderPanel(stub);
-	expect(stub.calls.subscribeStats).not.toHaveBeenCalled();
-	expect(stub.calls.subscribeToolError).not.toHaveBeenCalled();
-	expect(stub.calls.subscribeEntities).not.toHaveBeenCalled();
-	expect(stub.calls.subscribeDrift).not.toHaveBeenCalled();
-	expect(stub.calls.subscribeCameraPose).not.toHaveBeenCalled();
+	const { rerender } = await renderPanel(stub);
+
+	// (1) Nobody claimed anything twice. A second claim is the failure this rule exists
+	// for, and it reads as ONE extra call and nothing else.
+	for (const [name, claim] of seamsOf(stub))
+		expect([name, claim.mock.calls.length]).toEqual([name, 1]);
+
+	// (2) …and that one claim is the PROVIDER's. Counting cannot tell the two apart — one
+	// claim is one claim whoever made it, and this file's mount has both components in it
+	// — so the PANEL is unmounted out from under a provider that stays, and every seam is
+	// pushed again. A seam the panel owned releases here and goes dead; a seam the
+	// provider owns keeps delivering. This half is what actually inverted in Task 2: with
+	// the four mirrors still in FieldPanel it fails four times over.
+	rerender(withEditor(<span />, stub));
+	for (const [name, , push] of seamsOf(stub)) {
+		let delivered = false;
+		act(() => {
+			delivered = push();
+		});
+		expect([name, delivered]).toEqual([name, true]);
+	}
 });
 
 test("the commit button reads its mode and routes through the ONE host verb", async () => {
@@ -793,12 +844,13 @@ test("the section survives filters that hide every finding — they are the way 
 	expect(screen.getByText("all 7 hidden by the filters")).toBeTruthy();
 });
 
-test("the panel pushes its filter defaults at engine-ready and each checkbox edits them", async () => {
+test("the shell pushes the filter defaults at engine-ready and each checkbox edits them", async () => {
 	fetch404();
 	const stub = makeStubHost();
 	await renderPanel(stub);
-	// Panel and host must start in agreement (the DEFAULT_LAYERS precedent) —
-	// the host keeps the last filters across a panel remount, panel state does not.
+	// Chrome and host must start in agreement (the DEFAULT_LAYERS precedent). The push is
+	// the PROVIDER's since Task 2 — one effect keyed on the filter value, so engine-ready
+	// and every later edit go through the same path instead of two that can disagree.
 	expect(stub.calls.setFlagFilters.mock.calls).toEqual([
 		[{ candidates: true, info: false, unreachable: false }],
 	]);
@@ -1113,9 +1165,9 @@ test("a cluster's verdict and Verify say WHICH finding they are about", async ()
 
 // The section's own four button states, pinned against it DIRECTLY: `verifying`
 // is a prop, so the section can be driven through all of them by re-rendering,
-// where the panel test below can only reach the ones its host stub produces.
-// The panel's half — who sets that prop, and what releases it — is the two tests
-// after this one.
+// where the test below can only reach the ones its host stub produces. The other
+// half — who sets that prop (the shell's provider, at `useFieldFlags`) and what
+// releases it — is the two tests after this one.
 test("Verify hands back the row's own key, and only one runs at a time", () => {
 	// biome-ignore lint/suspicious/noEmptyBlockStatements: inert test no-op
 	const noop = () => {};
@@ -1136,7 +1188,7 @@ test("Verify hands back the row's own key, and only one runs at a time", () => {
 		screen.getByLabelText(name) as HTMLButtonElement;
 
 	fireEvent.click(verifyButton("verify narrow @ (2.5, 0.0, -8.0)"));
-	// The key is the store's own opaque string, handed straight back — the panel
+	// The key is the store's own opaque string, handed straight back — the chrome
 	// never builds one (it cannot: the format is private to field-flags.ts).
 	expect(verified).toEqual(["a"]);
 
@@ -1153,7 +1205,7 @@ test("Verify hands back the row's own key, and only one runs at a time", () => {
 	fireEvent.click(other);
 	expect(verified).toEqual(["a"]);
 
-	// Released when the panel says the flight ended.
+	// Released when its owner says the flight ended.
 	rerender(section(null));
 	expect(verifyButton("verify narrow @ (2.5, 0.0, -8.0)").disabled).toBe(false);
 	expect(verifyButton("verify narrow @ (40.0, 0.0, 0.0)").disabled).toBe(false);
@@ -1176,7 +1228,7 @@ test("clicking Verify starts a REAL one on the host and marks the row in flight"
 	fireEvent.click(screen.getByLabelText("verify narrow @ (2.5, 0.0, -8.0)"));
 	// The host verb, with the store's own opaque key handed straight back.
 	expect(stub.calls.verifyFlag.mock.calls).toEqual([["a"]]);
-	// …and the panel adopts the in-flight row itself, because nothing pushes it
+	// …and the chrome adopts the in-flight row itself, because nothing pushes it
 	// back: `verifyFlag` is fire-and-forget and the verdict is the next signal.
 	expect(
 		(
@@ -1195,9 +1247,7 @@ test("clicking Verify starts a REAL one on the host and marks the row in flight"
 test("the in-flight column is released by a verdict AND by a refusal", async () => {
 	fetch404();
 	const stub = makeStubHost();
-	// Under the provider: the refusal half of this test travels host → provider →
-	// tick, which is the path the real shell wires.
-	await renderPanelUnderShellSeams(stub);
+	await renderPanel(stub);
 	act(() => {
 		stub.fire.flags(summaryOf(TWO_ROWS));
 	});
@@ -1237,12 +1287,12 @@ test("the in-flight column is released by a verdict AND by a refusal", async () 
 test("a SYNCHRONOUS refusal never leaves the column stuck", async () => {
 	fetch404();
 	// ALL FOUR of the host's refusals report from INSIDE verifyFlag, before it
-	// returns (only a stage-2 FAILURE is async). So the panel's adopt has to
-	// happen first: adopting afterwards overwrites the release that refusal
-	// already performed, and the row reads "Verifying…" forever over a verify
-	// that never started.
+	// returns (only a stage-2 FAILURE is async). So the adopt has to happen
+	// first: adopting afterwards overwrites the release that refusal already
+	// performed, and the row reads "Verifying…" forever over a verify that never
+	// started.
 	const stub = makeStubHost({ verifyRefusal: "a verify is already running" });
-	await renderPanelUnderShellSeams(stub);
+	await renderPanel(stub);
 	act(() => {
 		stub.fire.flags(summaryOf(TWO_ROWS));
 	});

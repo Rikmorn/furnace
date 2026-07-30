@@ -1,19 +1,26 @@
-// The ONE subscription point for the host seams the SHELL reads.
+// The ONE subscription point for the host seams the chrome reads.
 //
 // Every FieldHost subscribe seam is a SINGLE SLOT: the host stores one callback per
 // seam (`statsCb = cb`), so a second subscriber silently steals the first's — the
 // earlier consumer just stops updating, with nothing thrown and nothing logged. The
-// shell now has several consumers that want the same readout (the status bar today,
-// more as palettes land), so the subscriptions live here, once, and the consumers read
-// them out of context. FieldPanel must NOT re-subscribe to anything this provider owns.
+// shell has several consumers that want the same readout, and the dissolving control
+// stack is about to become several more, so the subscriptions live here, once, and the
+// consumers read them out of context. Nothing below this provider may subscribe to
+// anything it owns.
 //
-// Five seams so far: `subscribeStats` (the status bar's chips), `subscribeToolError`
-// (a toast, plus the tick below), `subscribeCameraPose` (the corner axis triad) and the
-// entity pair `subscribeEntities` + `subscribeDrift` (the entities palette). Each is
-// published through its OWN context because they run at different cadences — see
-// ToolErrorTickContext, CameraPoseContext and FieldEntitiesContext.
+// ALL NINE seams are here: `subscribeStats` (the status bar's chips), `subscribeToolError`
+// (a toast, plus the verify release below), `subscribeCameraPose` (the corner axis triad),
+// the entity pair `subscribeEntities` + `subscribeDrift` (the entities palette), and the
+// four the control stack held until F4.5b — `subscribeTool` (the brush palette's armed
+// effect and the swatch ring), `subscribeSelection` (the selection verbs),
+// `subscribeStamp` (the stamp inspector) and `subscribeFlags` (the advisor's list).
 //
-// MIGRATION (until F4.5b): grows one seam at a time as FieldPanel dissolves.
+// They publish through SEVEN contexts, split by CADENCE rather than by owner: a seam that
+// pushes at frame rate must not re-render a surface that only cares about something
+// answered once a minute. Each context's own docblock states its cadence, and its
+// throw-vs-default call with the reason for it. `subscribeToolError` is the one seam with
+// no context of its own — its message goes straight to the toast stack, and the only state
+// it releases (an in-flight verify) lives in this same file now.
 import type { DriftFinding } from "@furnace/core/field"; // type-only: erased
 import type { ReactNode } from "react";
 import {
@@ -28,8 +35,14 @@ import type {
 	CameraPose,
 	FieldEntityInfo,
 	FieldHost,
+	FieldMaskChoice,
 	FieldStats,
+	FieldTool,
+	FlagFilters,
+	FlagsSummary,
 	PlacedArchetype,
+	SelectionInfo,
+	StampSession,
 } from "../../viewport-host/index.ts"; // type-only: erased
 import { notify } from "../lib/notify-store.ts";
 
@@ -151,6 +164,63 @@ const sameEntities = (
 		);
 	});
 
+// Value-equality for the subscribeTool echo guard (see the mirror effect).
+const masksEqual = (a: FieldMaskChoice, b: FieldMaskChoice): boolean =>
+	a.kind === "class" && b.kind === "class"
+		? a.classId === b.classId
+		: a.kind === b.kind;
+
+const toolsEqual = (a: FieldTool, b: FieldTool): boolean => {
+	// Compiler backstop (F2b rider): destructure EVERY FieldTool field — a
+	// future field lands in `rest` and fails the never-check, forcing this
+	// comparator to learn it. A missed field would silently WEAKEN the
+	// subscribeTool echo guard: differing tools would compare equal and the
+	// mirror would drop host-initiated changes.
+	const { effect, materialId, hollow, mask, smooth, ...rest } = a;
+	void (rest satisfies Record<string, never>);
+	// The same backstop one level down: `smooth` is a nested shape whose future
+	// fields would slip past the top-level destructure unseen.
+	const { strength, iterations, mode, ...smoothRest } = smooth;
+	void (smoothRest satisfies Record<string, never>);
+	return (
+		effect === b.effect &&
+		materialId === b.materialId &&
+		hollow === b.hollow &&
+		masksEqual(mask, b.mask) &&
+		strength === b.smooth.strength &&
+		iterations === b.smooth.iterations &&
+		mode === b.smooth.mode
+	);
+};
+
+/** The brush the chrome opens on — a mirror of the host's own `defaultTool()` (dig into
+ *  rock, unmasked, core SMOOTH_DEFAULTS-equivalent smooth, solid fill). A local literal
+ *  because the chrome cannot value-import core or the host
+ *  (frontend-no-engine-leakage), and `subscribeTool` fires only on HOST-initiated
+ *  changes — there is nothing to seed from at mount. */
+const DEFAULT_TOOL: FieldTool = {
+	effect: "dig",
+	materialId: 0,
+	mask: { kind: "none" },
+	smooth: { strength: 16, iterations: 1, mode: "both" },
+	hollow: null,
+};
+
+/** Mirrors FieldHost's default digRadius (the slider's range lives in BrushInspector). */
+const DEFAULT_RADIUS = 1.25;
+
+/** The advisor bands the chrome asks for at boot — candidates only, mirroring the host's
+ *  own DEFAULT_FLAG_FILTERS. A local literal for the DEFAULT_TOOL reason. */
+const DEFAULT_FLAG_FILTERS: FlagFilters = {
+	candidates: true,
+	info: false,
+	unreachable: false,
+};
+
+/** Nothing found yet — what the flags surface renders between mount and the host's first
+ *  push, after which every summary is the host's. */
+const NO_FLAGS: FlagsSummary = { total: 0, byKindSeverity: [], visible: [] };
+
 /** Host-pushed state the shell renders. `stats` is null until the host's first push
  *  (which only starts once the render loop runs, i.e. after `init`). */
 export type FieldHostState = {
@@ -166,24 +236,62 @@ export type FieldEntitiesState = {
 	drift: DriftFinding[] | null;
 };
 
+/** The armed brush, and the radius it strokes with. Read-write in one context rather
+ *  than the state/actions PAIR the sibling providers use (useView, useWorkspace,
+ *  useWorld): the adopt and the push here are ONE concern that cannot be separated —
+ *  see the echo guard on the mirror effect — and useView's own header says to delete
+ *  that split rather than defend it where nobody benefits. Every consumer of this
+ *  context both shows the tool and changes it. */
+export type FieldToolState = {
+	tool: FieldTool;
+	/** The brush radius. CHROME state, not a mirror: FieldTool does not carry radius and
+	 *  no seam reports one, so this is one-way (see `setRadius`). */
+	radius: number;
+	/** Adopt + push, the ONE funnel for a tool change. The host clamps (smooth ceilings,
+	 *  hollow floor) as a backstop; the controls stay inside the same ranges so chrome
+	 *  and host agree. */
+	setTool: (next: FieldTool) => void;
+	/** Adopt + push, DELIBERATELY one-way: the host's wheel and `[` / `]` also step its
+	 *  radius and there is no host→chrome radius seam, so the readout can still lag the
+	 *  host after wheel/key sizing. Pre-existing asymmetry, kept — the ghost ring in the
+	 *  viewport is the live radius display. */
+	setRadius: (r: number) => void;
+};
+
+/** What the host currently has selected — `null` for nothing. */
+export type FieldSelectionState = {
+	selection: SelectionInfo | null;
+};
+
+/** The live stamp/reconfigure session — `null` between sessions. */
+export type FieldStampState = {
+	stamp: StampSession | null;
+};
+
+/** The advisor's findings, the bands the chrome asks for, and the one verify in flight.
+ *
+ *  `verifying` is CHROME state (the row key stage 2 is running on) because releasing it
+ *  takes two signals no single host seam carries: a verdict arrives on `subscribeFlags`,
+ *  and each of `verifyFlag`'s refusals arrives on the tool-error seam having pushed no
+ *  flags at all. Both halves live in this file, which is why the state does too. */
+export type FieldFlagsState = {
+	flags: FlagsSummary;
+	filters: FlagFilters;
+	setFilters: (next: FlagFilters) => void;
+	verifying: string | null;
+	/** Adopt BEFORE the call, never after: ALL FOUR of the host's refusals are decided
+	 *  synchronously and report on the tool-error seam from inside `verifyFlag` (only a
+	 *  stage-2 FAILURE is async), so a write afterwards would overwrite the release that
+	 *  refusal just performed and leave the column stuck on a verify that never ran. */
+	verify: (key: string) => void;
+};
+
 const FieldHostStateContext = createContext<FieldHostState | null>(null);
 
-/** How many tool REFUSALS the host has reported, in its own context and deliberately
- *  NOT part of FieldHostState. The two seams run at different cadences: stats arrive
- *  every rAF, refusals arrive when someone does something the host won't do. Folding
- *  the counter into the stats value would re-render its consumer (FieldPanel — four
- *  subscriptions and a form-heavy subtree) on every remesh, which is exactly the
- *  pointer-rate coupling the palette layer's two-context split exists to avoid.
- *
- *  Defaults to 0 rather than throwing: a panel mounted OUTSIDE the shell (the harness
- *  tests do exactly that) has no host seam behind it, and "no refusal has happened" is
- *  the truth in that case, not a wiring bug worth crashing over. */
-const ToolErrorTickContext = createContext(0);
-
-/** The orbit camera's orientation, in its own context for the ToolErrorTick reason with
- *  the cadence turned up: the host pushes a pose on every camera move, so while the user
- *  flies this changes at frame rate. Folding it into FieldHostState would re-render the
- *  status bar 60×/s during a fly, which is exactly what the split exists to prevent.
+/** The orbit camera's orientation, in its own context at the TOP of the cadence range:
+ *  the host pushes a pose on every camera move, so while the user flies this changes at
+ *  frame rate. Folding it into FieldHostState would re-render the status bar 60×/s during
+ *  a fly, which is exactly what the split exists to prevent.
  *
  *  Defaults to the identity view rather than throwing — an overlay mounted outside the
  *  provider (the harness tests do that) has no pose to read, and a triad drawn down the
@@ -193,12 +301,57 @@ const ToolErrorTickContext = createContext(0);
  *  effect. */
 const CameraPoseContext = createContext<CameraPose>({ yaw: 0, pitch: 0 });
 
-/** The entity concern, in its own context for the ToolErrorTick reason from the other
- *  end of the cadence range: entities and drift move when someone COMMITS something,
+/** The entity concern, in its own context from the BOTTOM of that range: entities and
+ *  drift move when someone COMMITS something,
  *  which is orders of magnitude rarer than a stats push. Folding them into
  *  FieldHostState would re-render the entities list on every remesh — a list of rows
  *  repainting under a dig it has nothing to do with. */
 const FieldEntitiesContext = createContext<FieldEntitiesState | null>(null);
+
+/** The brush concern, USER-paced: the host pushes a tool on an Alt-click eyedrop and on
+ *  every momentary ⇧/⌃ press and release, i.e. as fast as fingers move and no faster.
+ *  Its own context all the same, because its consumers are the densest chrome in the
+ *  editor (the palette, the swatch strip, the whole brush inspector) and folding it into
+ *  a frame-paced value would repaint that subtree under every remesh.
+ *
+ *  Throws outside the provider, unlike CameraPoseContext above — the one DEFAULTED context
+ *  in this file, and the only one whose default value is true anywhere ("no camera here").
+ *  Both reasons here are load-bearing: a defaulted `tool` would claim the host is on
+ *  dig-into-rock when nobody
+ *  has asked it anything, and a defaulted `setTool` would be a silent no-op behind a
+ *  live-looking button — the dead-control failure the sibling ACTION contexts
+ *  (useViewActions, useWorkspaceActions, useWorldActions) all throw over. */
+const FieldToolContext = createContext<FieldToolState | null>(null);
+
+/** The selection concern, GESTURE-paced: one push per completed box/flood/wand, plus the
+ *  current state on subscribe (so a surface mounting over a live selection does not render
+ *  "no selection" beside a visible amber overlay). Separate from the stamp context beside
+ *  it because a stamp nudge pushes at pointer rate and must not repaint the selection
+ *  verbs.
+ *
+ *  Throws: `{ selection: null }` reads as "the host has nothing selected", which is a
+ *  claim about the host that nobody outside the provider is in a position to make — the
+ *  FieldEntitiesContext rule, one concern over. */
+const FieldSelectionContext = createContext<FieldSelectionState | null>(null);
+
+/** The session concern, POINTER-paced while one is live: `subscribeStamp` pushes a clone
+ *  on every nudge, param edit and preview run, plus the current session on subscribe (so
+ *  a remount mid-session recovers the live form). Its own context for the reason above,
+ *  read from the other side.
+ *
+ *  Throws, for the FieldSelectionContext reason: a defaulted `null` claims there is no
+ *  session in progress. */
+const FieldStampContext = createContext<FieldStampState | null>(null);
+
+/** The advisor concern, ANSWER-paced: a push per analyzer response and per filter change,
+ *  which is the slowest cadence in this file and the reason it needs no value-equality
+ *  guard where the stats mirror does.
+ *
+ *  Throws: every field here is a claim about work the host has or has not done — an empty
+ *  summary reads as "the advisor found nothing", a null `verifying` as "no verify is
+ *  running" — and `setFilters`/`verify` would be silent no-ops behind live controls
+ *  (the FieldToolContext reason). */
+const FieldFlagsContext = createContext<FieldFlagsState | null>(null);
 
 /** Read the shell's host-state mirror; throws outside the provider. */
 export function useFieldHostState(): FieldHostState {
@@ -206,14 +359,6 @@ export function useFieldHostState(): FieldHostState {
 	if (!value)
 		throw new Error("useFieldHostState outside <FieldHostStateProvider>");
 	return value;
-}
-
-/** A counter that increments on every host tool refusal. The MESSAGE is not here — it
- *  went to the notification store and is on screen as a toast; this is only for state
- *  a refusal has to release (FieldPanel's in-flight verify column), which needs to know
- *  that one happened and nothing else about it. */
-export function useToolErrorTick(): number {
-	return useContext(ToolErrorTickContext);
 }
 
 /** The orbit camera's current orientation. Re-renders its caller on every camera move —
@@ -233,6 +378,35 @@ export function useFieldEntities(): FieldEntitiesState {
 	return value;
 }
 
+/** The armed brush plus the verbs that change it; throws outside the provider. */
+export function useFieldTool(): FieldToolState {
+	const value = useContext(FieldToolContext);
+	if (!value) throw new Error("useFieldTool outside <FieldHostStateProvider>");
+	return value;
+}
+
+/** What the host has selected; throws outside the provider. */
+export function useFieldSelection(): FieldSelectionState {
+	const value = useContext(FieldSelectionContext);
+	if (!value)
+		throw new Error("useFieldSelection outside <FieldHostStateProvider>");
+	return value;
+}
+
+/** The live stamp/reconfigure session; throws outside the provider. */
+export function useFieldStamp(): FieldStampState {
+	const value = useContext(FieldStampContext);
+	if (!value) throw new Error("useFieldStamp outside <FieldHostStateProvider>");
+	return value;
+}
+
+/** The advisor's findings, filters and in-flight verify; throws outside the provider. */
+export function useFieldFlags(): FieldFlagsState {
+	const value = useContext(FieldFlagsContext);
+	if (!value) throw new Error("useFieldFlags outside <FieldHostStateProvider>");
+	return value;
+}
+
 export function FieldHostStateProvider({
 	host,
 	engineReady,
@@ -243,10 +417,16 @@ export function FieldHostStateProvider({
 	children: ReactNode;
 }) {
 	const [stats, setStats] = useState<FieldStats | null>(null);
-	const [toolErrorTick, setToolErrorTick] = useState(0);
 	const [pose, setPose] = useState<CameraPose>({ yaw: 0, pitch: 0 });
 	const [entities, setEntities] = useState<readonly FieldEntityInfo[]>([]);
 	const [drift, setDrift] = useState<DriftFinding[] | null>(null);
+	const [tool, setToolState] = useState<FieldTool>(DEFAULT_TOOL);
+	const [radius, setRadiusState] = useState(DEFAULT_RADIUS);
+	const [selection, setSelection] = useState<SelectionInfo | null>(null);
+	const [stamp, setStamp] = useState<StampSession | null>(null);
+	const [flags, setFlags] = useState<FlagsSummary>(NO_FLAGS);
+	const [filters, setFilters] = useState<FlagFilters>(DEFAULT_FLAG_FILTERS);
+	const [verifying, setVerifying] = useState<string | null>(null);
 
 	useEffect(() => {
 		if (!engineReady || !host) return;
@@ -263,11 +443,20 @@ export function FieldHostStateProvider({
 	//
 	// No message is mirrored into context: the toast IS the render, and a second copy in
 	// React state would be a second thing to keep in agreement with it.
+	//
+	// It also RELEASES any verify in flight, which is the second half of a pairing whose
+	// first half is the flags push below. Every `verifyFlag` refusal reports here having
+	// pushed no flags at all, so this is the only signal that a verify the user started
+	// never actually began; without it the column would read "Verifying…" until the next
+	// analyzer response. Deliberately blunt — an UNRELATED tool error (a failed stroke)
+	// releases it too. That way round is the safe one: the host still refuses a real
+	// second verify with "a verify is already running", so the cost is a button that
+	// looks live for a moment, against a column that sticks for good.
 	useEffect(() => {
 		if (!engineReady || !host) return;
 		return host.subscribeToolError((text) => {
 			notify.error(text);
-			setToolErrorTick((n) => n + 1);
+			setVerifying(null);
 		});
 	}, [engineReady, host]);
 
@@ -322,20 +511,125 @@ export function FieldHostStateProvider({
 		return host.subscribeDrift(setDrift);
 	}, [engineReady, host]);
 
+	// Mirror HOST-initiated tool changes (Alt-click eyedropper, momentary Shift/Ctrl
+	// overrides). ECHO GUARD (binding rider): a chrome `setTool` that lands while a
+	// momentary modifier is held makes the host re-derive and fire THIS callback with the
+	// DERIVED tool — so the mirror ADOPTS only (a state write, never a `host.setTool`
+	// re-push: pushing the derived tool back would re-derive → re-fire → loop), and
+	// value-compares first so an echo of our own state returns the same reference.
+	useEffect(() => {
+		if (!engineReady || !host) return;
+		return host.subscribeTool((t) =>
+			setToolState((prev) => (toolsEqual(prev, t) ? prev : t)),
+		);
+	}, [engineReady, host]);
+
+	// The selection mirror (the count, the truncation warning, Clear / Reselect).
+	// `subscribeSelection` pushes the CURRENT state on subscribe, so a surface mounting
+	// over a live selection renders it rather than "no selection".
+	useEffect(() => {
+		if (!engineReady || !host) return;
+		return host.subscribeSelection(setSelection);
+	}, [engineReady, host]);
+
+	// The session mirror. `subscribeStamp` pushes CLONES plus the current session on
+	// subscribe, so a surface mounting mid-session recovers the live form.
+	useEffect(() => {
+		if (!engineReady || !host) return;
+		return host.subscribeStamp(setStamp);
+	}, [engineReady, host]);
+
+	// The advisor's findings. Pushed after every analyzer response and every
+	// `setFlagFilters` (plus the current summary on subscribe). Answer-paced, not
+	// frame-paced — which is why, unlike the stats mirror above, this needs no
+	// value-equality guard.
+	//
+	// ANY push releases the in-flight verify, not just the one carrying its verdict: a
+	// re-analysis that landed mid-verify may have replaced the row the key names, and
+	// holding the column against a row that no longer exists would disable every Verify in
+	// the list with no way back. (The refusal half of that release is the tool-error
+	// effect above.)
+	useEffect(() => {
+		if (!engineReady || !host) return;
+		return host.subscribeFlags((summary) => {
+			setFlags(summary);
+			setVerifying(null);
+		});
+	}, [engineReady, host]);
+
+	// The filters are CHROME state pushed into the host, which has no filters seam to
+	// mirror — so this is a one-way push, keyed on the value, the useView pattern. Keying
+	// it on `filters` is what makes engine-ready and every later edit ONE mechanism
+	// instead of two that could disagree.
+	//
+	// Living HERE rather than in a palette is what makes the arrangement honest: the host
+	// keeps the last filters across a world load and outlives every palette, so a surface
+	// that re-pushed its defaults on each remount would silently untick the user's bands
+	// — closing and re-opening the palette that holds them is a live gesture (the burger's
+	// checkbox is the way back), not a hypothetical. This provider mounts once, with the
+	// shell. Remembering the set ACROSS sessions is D-3's, and arrives with the palette.
+	useEffect(() => {
+		if (!engineReady || !host) return;
+		host.setFlagFilters(filters);
+	}, [engineReady, host, filters]);
+
+	const setTool = useCallback(
+		(next: FieldTool): void => {
+			setToolState(next);
+			host?.setTool(next);
+		},
+		[host],
+	);
+
+	const setRadius = useCallback(
+		(r: number): void => {
+			setRadiusState(r);
+			host?.setDigRadius(r);
+		},
+		[host],
+	);
+
+	const verify = useCallback(
+		(key: string): void => {
+			setVerifying(key);
+			host?.verifyFlag(key);
+		},
+		[host],
+	);
+
 	const value = useMemo<FieldHostState>(() => ({ stats }), [stats]);
 	const entityValue = useMemo<FieldEntitiesState>(
 		() => ({ entities, drift }),
 		[entities, drift],
 	);
+	const toolValue = useMemo<FieldToolState>(
+		() => ({ tool, radius, setTool, setRadius }),
+		[tool, radius, setTool, setRadius],
+	);
+	const selectionValue = useMemo<FieldSelectionState>(
+		() => ({ selection }),
+		[selection],
+	);
+	const stampValue = useMemo<FieldStampState>(() => ({ stamp }), [stamp]);
+	const flagsValue = useMemo<FieldFlagsState>(
+		() => ({ flags, filters, setFilters, verifying, verify }),
+		[flags, filters, verifying, verify],
+	);
 	return (
 		<FieldHostStateContext.Provider value={value}>
-			<ToolErrorTickContext.Provider value={toolErrorTick}>
-				<CameraPoseContext.Provider value={pose}>
-					<FieldEntitiesContext.Provider value={entityValue}>
-						{children}
-					</FieldEntitiesContext.Provider>
-				</CameraPoseContext.Provider>
-			</ToolErrorTickContext.Provider>
+			<CameraPoseContext.Provider value={pose}>
+				<FieldEntitiesContext.Provider value={entityValue}>
+					<FieldToolContext.Provider value={toolValue}>
+						<FieldSelectionContext.Provider value={selectionValue}>
+							<FieldStampContext.Provider value={stampValue}>
+								<FieldFlagsContext.Provider value={flagsValue}>
+									{children}
+								</FieldFlagsContext.Provider>
+							</FieldStampContext.Provider>
+						</FieldSelectionContext.Provider>
+					</FieldToolContext.Provider>
+				</FieldEntitiesContext.Provider>
+			</CameraPoseContext.Provider>
 		</FieldHostStateContext.Provider>
 	);
 }
