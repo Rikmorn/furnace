@@ -1,5 +1,4 @@
 @import "tailwindcss";
-@import "dockview/dist/styles/dockview.css";
 
 /* Self-hosted (no CDN in a local tool). Latin subsets copied from
    @fontsource-variable/inter@5.2.8 + @fontsource/jetbrains-mono@5.2.8.
@@ -105,32 +104,6 @@
 	--font-mono: var(--font-mono);
 }
 
-/* Flat-Dock Rule: docked chrome is flat; dockview maps onto the same tokens.
-   Chrome (tab strip) = card, content = background; tonal layers, never shadows.
-   Real --dv-* names verified against node_modules/dockview/dist/styles/dockview.css. */
-.dockview-theme-dark {
-	--dv-group-view-background-color: var(--background);
-	--dv-tabs-and-actions-container-background-color: var(--card);
-	--dv-activegroup-visiblepanel-tab-background-color: var(--background);
-	--dv-activegroup-hiddenpanel-tab-background-color: var(--card);
-	--dv-inactivegroup-visiblepanel-tab-background-color: var(--background);
-	--dv-inactivegroup-hiddenpanel-tab-background-color: var(--card);
-	--dv-tab-divider-color: var(--border);
-	--dv-separator-border: var(--border);
-	--dv-paneview-header-border-color: var(--border);
-	--dv-activegroup-visiblepanel-tab-color: var(--foreground);
-	--dv-activegroup-hiddenpanel-tab-color: var(--muted-foreground);
-	--dv-inactivegroup-visiblepanel-tab-color: var(--muted-foreground);
-	--dv-inactivegroup-hiddenpanel-tab-color: var(--muted-foreground);
-	--dv-paneview-active-outline-color: var(--primary);
-	--dv-drag-over-background-color: color-mix(
-		in oklab,
-		var(--primary) 30%,
-		transparent
-	);
-	--dv-icon-hover-background-color: var(--muted);
-}
-
 /* ── Motion (3.2.2 live pass) ───────────────────────────────────────────────
    State-feedback only: 150–250ms, ease-out, no choreography. All durations are
    zeroed by the prefers-reduced-motion block below (it wins with !important).
@@ -199,15 +172,6 @@
 		height: 0;
 		opacity: 0;
 	}
-}
-
-/* Dockview tabs: the active↔inactive (and hover) background/text swap is driven by
-   the --dv-* var mapping above, which changes instantly. Ease the colour change on
-   the tab element itself so panel/group focus reads as a transition, not a jump. */
-.dockview-theme-dark .dv-tab {
-	transition:
-		background-color 150ms ease-out,
-		color 150ms ease-out;
 }
 
 @media (prefers-reduced-motion: reduce) {

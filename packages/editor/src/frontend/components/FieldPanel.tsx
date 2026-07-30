@@ -1,26 +1,27 @@
-// The Field panel (F1/F2b): the dig-loop chrome. It mounts a <canvas> the
-// App-owned FieldHost renders into (LMB applies the tool or a selection
-// gesture, RMB looks, WASD/QE flies, wheel/[ ] size the brush, ⌘Z undoes, and
-// the arrows nudge a pending stamp's region) and exposes the tool palette
-// (brush effects, selection gestures, stamp generators) + the persistent
-// material swatches + the brush inspector (radius/mask/smooth/hollow) +
-// shading. The persistence concern — world name, Save / Load / Bake-as-default,
+// The Field panel (F1/F2b): the dig-loop CONTROL STACK. It drives the tool
+// palette (brush effects, selection gestures, stamp generators) + the persistent
+// material swatches + the brush inspector (radius/mask/smooth/hollow) + shading
+// + the layers/slice row, the advisor's flags, the entity list and the drift
+// report. The persistence concern — world name, Save / Load / Bake-as-default,
 // and the run-once catalog fetch that gates Load — lives in FieldToolbar
 // (extracted, F2b sweep); the panel keeps the table (swatches) and the status
 // line the toolbar reports into.
+// It owns NO canvas: the shell mounts the one full-window viewport (CanvasHost)
+// and inits the host on it. It also owns no stats subscription — that seam is a
+// single slot and the shell holds it (useFieldHostState); subscribing here would
+// silently steal the status bar's callback.
 // The host is created ONCE at engine-ready (App) and reached ONLY through the
 // /engine.js runtime channel (a context ref) — the chrome never value-imports
 // engine code (the project-first invariant). This file type-imports the field
 // host + artifact types (all erased).
 import type { DriftFinding, MaterialTable } from "@furnace/core/field"; // type-only: erased
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type {
 	FieldEntityInfo,
 	FieldGeneratorInfo,
 	FieldHostShading,
 	FieldLayers,
 	FieldMaskChoice,
-	FieldStats,
 	FieldTool,
 	FlagFilters,
 	FlagsSummary,
@@ -29,14 +30,12 @@ import type {
 	StampSession,
 	ViewportGesture,
 } from "../../viewport-host/index.ts"; // type-only: erased
-import { initWhenSized } from "../lib/init-when-sized.ts";
 import { useEditor } from "./editor-context.ts";
 import { BrushInspector } from "./field/BrushInspector.tsx";
 import { DriftReport } from "./field/DriftReport.tsx";
 import { EntitiesList } from "./field/EntitiesList.tsx";
 import { FieldToolbar } from "./field/FieldToolbar.tsx";
 import { FlagsSection } from "./field/FlagsSection.tsx";
-import { errorMessage } from "./field/form-bits.tsx";
 import { LayersRow } from "./field/LayersRow.tsx";
 import { MaterialSwatches } from "./field/MaterialSwatches.tsx";
 import { StampInspector } from "./field/StampInspector.tsx";
@@ -93,8 +92,10 @@ const SLICE_DEFAULT_Y = 8;
 // DEFAULT_FLAG_FILTERS. A local literal for the DEFAULT_LAYERS reason (the chrome
 // cannot value-import the host), pushed at engine-ready so the checkboxes and the
 // markers agree. CONSEQUENCE, stated plainly because someone will hit it: the
-// panel REMOUNTING (a dock tab switch is enough) resets the filters to candidates
-// only, discarding whatever the user last ticked — see the push site's comment.
+// panel REMOUNTING resets the filters to candidates only, discarding whatever the
+// user last ticked — see the push site's comment. Nothing in the shell remounts it
+// today (the dock tab switch that used to is gone), which makes this latent rather
+// than fixed: moving the flags section into a palette brings it straight back.
 const DEFAULT_FLAG_FILTERS: FlagFilters = {
 	candidates: true,
 	info: false,
@@ -211,42 +212,8 @@ const sameEntities = (a: FieldEntityInfo[], b: FieldEntityInfo[]): boolean =>
 		);
 	});
 
-// Value-equality for the subscribeStats push guard (the host fires it every rAF;
-// an idle field must not re-render the panel 60×/s). The destructure is the
-// toolsEqual backstop: a future FieldStats field lands in `rest`, fails the
-// never-check and forces this comparator to learn it — a missed field would
-// silently WEAKEN the guard (a changed value comparing equal → a stale meter).
-const statsEqual = (a: FieldStats, b: FieldStats): boolean => {
-	const {
-		chunks,
-		lastRemeshMs,
-		remeshVersion,
-		totalOps,
-		liveGenerators,
-		compactableOps,
-		undoDepth,
-		lastReconfigureMs,
-		analyzerPending,
-		...rest
-	} = a;
-	void (rest satisfies Record<string, never>);
-	return (
-		chunks === b.chunks &&
-		lastRemeshMs === b.lastRemeshMs &&
-		remeshVersion === b.remeshVersion &&
-		totalOps === b.totalOps &&
-		liveGenerators === b.liveGenerators &&
-		compactableOps === b.compactableOps &&
-		undoDepth === b.undoDepth &&
-		lastReconfigureMs === b.lastReconfigureMs &&
-		analyzerPending === b.analyzerPending
-	);
-};
-
 export function FieldPanel() {
 	const { state, fieldHostRef, openConfirm } = useEditor();
-	const canvasRef = useRef<HTMLCanvasElement>(null);
-	const initialized = useRef(false);
 	const [radius, setRadius] = useState(DEFAULT_RADIUS);
 	const [headlamp, setHeadlamp] = useState(false);
 	const [tool, setToolState] = useState<FieldTool>(DEFAULT_TOOL);
@@ -270,17 +237,6 @@ export function FieldPanel() {
 		maxIterations: 1,
 	});
 	const [table, setTable] = useState<MaterialTable>(ROCK_ONLY_TABLE);
-	const [stats, setStats] = useState<FieldStats>({
-		chunks: 0,
-		lastRemeshMs: 0,
-		remeshVersion: 0,
-		totalOps: 0,
-		liveGenerators: 0,
-		compactableOps: 0,
-		undoDepth: 0,
-		lastReconfigureMs: 0,
-		analyzerPending: 0,
-	});
 	// The last reconfigure's drift report (null = clean / none). Non-modal: it
 	// renders (via DriftReport) only while findings exist.
 	const [drift, setDrift] = useState<DriftFinding[] | null>(null);
@@ -309,30 +265,6 @@ export function FieldPanel() {
 		(text: string) => setStatusLine({ text, tone: "info" }),
 		[],
 	);
-
-	// Run-once init (the Viewport idiom): grab the canvas once the engine is ready and the
-	// App-owned host exists. Deferred to the first nonzero canvas measure (initWhenSized)
-	// so mounting hidden behind another tab can't latch a zero-size init failure. NO
-	// dispose in cleanup — the host outlives this panel (App owns it), exactly like the
-	// viewport host. Init failure is reported LOCALLY (not a global engine-error dispatch)
-	// so a Field-panel failure can't blank the whole editor: this is optional chrome.
-	// Panel-reopen re-init throws "already initialized" (host bound to the prior
-	// canvas) — a standing v0 limitation surfaced here.
-	useEffect(() => {
-		const canvas = canvasRef.current;
-		const host = fieldHostRef.current;
-		if (!canvas || !host || initialized.current || state.status !== "ready")
-			return;
-		initialized.current = true;
-		return initWhenSized(canvas, () => {
-			host.init(canvas).catch((err) => {
-				setStatusLine({
-					text: `field host init failed: ${errorMessage(err)}`,
-					tone: "error",
-				});
-			});
-		});
-	}, [state.status, fieldHostRef]);
 
 	// Host-surfaced state, read at engine-ready (it reaches the chrome through the
 	// host because the chrome cannot value-import core). The smooth ceilings are
@@ -396,7 +328,7 @@ export function FieldPanel() {
 	// host outlives the panel (App owns it) and has no layers/slice/filters/
 	// highlight subscription seam, so a REMOUNT resets all of them to the panel
 	// defaults — honest (the controls always show what the host uses) at the cost
-	// of forgetting the toggles across tab switches; the same v0 trade as the
+	// of forgetting the toggles across a remount; the same v0 trade as the
 	// one-way radius seam below. The filters matter most here, in both directions:
 	// the host keeps the last set ACROSS world loads, so a remounted panel showing
 	// "candidates only" beside markers still drawing the info band would be a
@@ -456,19 +388,6 @@ export function FieldPanel() {
 			setStatusLine({ text, tone: "error" });
 			setVerifying(null);
 		});
-	}, [state.status, fieldHostRef]);
-
-	// Live chunk / remesh-time / op-cost readout. The host fires this every rAF; the
-	// functional guard returns the SAME reference when nothing changed, so an idle field
-	// (no dig in flight) does not re-render the panel 60×/second. The op-cost fields the
-	// host adds are gated host-side to only move when the log does, so an idle field keeps
-	// comparing equal here too.
-	useEffect(() => {
-		const host = fieldHostRef.current;
-		if (!host || state.status !== "ready") return;
-		return host.subscribeStats((s) =>
-			setStats((prev) => (statsEqual(prev, s) ? prev : s)),
-		);
 	}, [state.status, fieldHostRef]);
 
 	// The reconfigure drift report. subscribeDrift pushes clones + the current
@@ -611,17 +530,12 @@ export function FieldPanel() {
 				onStatus={setStatus}
 			/>
 			{/* The controls stack (palette + swatches + inspectors + layers + entities)
-          is BOUNDED and scrolls inside itself. Unbounded it grew with its tallest
-          section — a Hall/Maze StampInspector form starved the canvas below to a
-          sliver (F2b gate reject). max-h-[45%] caps it at 45% of the panel — 45 and
-          not 50 so the canvas keeps the MAJORITY of the height whatever the controls
-          do (the root is h-full inside a definite-height dockview panel, so the
-          percentage resolves); the box still sizes to CONTENT under the cap, so a
-          collapsed stack leaves no dead space. min-h-0 (redundant with the auto
-          min-size an overflow!=visible flex item already gets, kept explicit) lets
-          it shrink instead of pushing the canvas out, and overflow-y-auto puts the
-          scroll HERE rather than on the panel. */}
-			<div className="max-h-[45%] min-h-0 overflow-y-auto">
+          takes whatever height the toolbar above and the status line below leave, and
+          scrolls INSIDE itself. The F2b-era 45% cap is gone with the canvas it was
+          protecting: the panel is nothing but controls now, so a tall StampInspector
+          form has nothing left to starve. min-h-0 is what lets a flex child shrink
+          below its content instead of pushing the status line off the bottom. */}
+			<div className="min-h-0 flex-1 overflow-y-auto">
 				<div className="flex flex-col gap-2 border-b border-border p-2 text-sm">
 					<ToolPalette
 						effect={tool.effect}
@@ -727,51 +641,11 @@ export function FieldPanel() {
 					onDismiss={() => fieldHostRef.current?.dismissDrift()}
 				/>
 			</div>
-			{/* The FieldHost renders into this canvas. tabIndex makes it focusable so the WASD/QE
-          fly + ⌘Z undo keydowns the host attaches actually reach it (Task 9 review flagged
-          this as a Task 10 responsibility). Absolute-fill inside a positioned flex cell so
-          the canvas always has a non-zero client box at GPU init (bindToCanvas rejects zero).
-          min-h-24 is that "non-zero" as a HARD floor, not an aspiration — flex never shrinks
-          an item below its min-height, so the cell keeps a 96px box at ANY panel height. It is
-          load-bearing POST-init too: core's resize path floors the backing store straight off
-          the CSS box (gpu/resize.ts computeResizeEvent → canvas.width = 0) and the next frame
-          hands that 0 to createTexture (frame/render.ts _ensureDepthTexture) — neither clamps.
-          That is a WebGPU VALIDATION error, not device loss: an invalid texture makes an
-          invalid encoder, so frames break and uncaptured errors spam until the panel grows
-          back, where _ensureDepthTexture's size check reallocates cleanly. NOT min-h-0:
-          that reads like a floor but is the ABSENCE of one. The cell has no in-flow content (the
-          canvas is absolute), so the floor is the only thing between it and zero, and it costs
-          nothing above ~287px panel height, where the controls cap binds first. */}
-			<div className="relative min-h-24 flex-1">
-				<canvas
-					ref={canvasRef}
-					tabIndex={0}
-					aria-label="field dig surface"
-					className="absolute inset-0 h-full w-full focus:outline-none"
-				/>
-			</div>
-			<div className="flex items-center justify-between gap-2 border-t border-border px-2 py-1 text-xs text-muted-foreground">
-				{/* The op-cost meter (spec D-F3-16): render stats (chunks · remesh) +
-            log stats (ops · live gens · compactable · undo · last reconfigure).
-            `last reconfigure` shows "—" until one lands, so a 0 never reads as
-            an instantaneous reconfigure that never happened. */}
-				<span className="tabular-nums">
-					{stats.chunks} chunks · remesh {stats.lastRemeshMs.toFixed(1)}ms · ops{" "}
-					{stats.totalOps} · live gens {stats.liveGenerators} · compactable{" "}
-					{stats.compactableOps} · undo {stats.undoDepth} · last reconfigure{" "}
-					{stats.lastReconfigureMs > 0
-						? `${stats.lastReconfigureMs.toFixed(0)} ms`
-						: "—"}
-					{/* The advisor's one-liner (D-F4-13). `analyzerPending` counts PASSES
-              owed (0–2), not chunks, so the line says only that it is behind —
-              naming a number here would name the wrong noun. Absent at 0: an
-              idle advisor is the normal state and has nothing to report. */}
-					{stats.analyzerPending > 0 && (
-						<span title="the walkability advisor is catching up with your edits">
-							{" · analyzing…"}
-						</span>
-					)}
-				</span>
+			{/* The panel's own footer: the selection verbs and the ONE status line the
+          toolbar and the host's refusals both report into. The op-cost meter that
+          shared this row is gone — the live host readout belongs to the shell's
+          status bar now, which is the only subscriber to that seam. */}
+			<div className="flex flex-col gap-1 border-t border-border px-2 py-1 text-xs text-muted-foreground">
 				<span className="flex items-center gap-1.5">
 					{selection && (
 						<span className="tabular-nums">

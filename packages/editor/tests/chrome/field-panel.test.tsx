@@ -1,9 +1,9 @@
 // Harness tests for the Field panel (F2b sweep — the Task 14 review
 // commitment): mock EditorContext + a minimal stub FieldHost that records
 // calls and exposes its subscribe callbacks for manual firing (the
-// world-panel.test.tsx precedent). The GPU never initializes here — the
-// panel's initWhenSized defers host.init until the canvas measures nonzero,
-// and a happy-dom canvas never does — so every behaviour under test is pure
+// world-panel.test.tsx precedent). The GPU never initializes here — the panel
+// owns no canvas at all now (the shell's CanvasHost does), so nothing in this
+// file ever calls host.init — and every behaviour under test is pure
 // chrome↔host protocol: the paint organic-clamp, the catalog Load gate, the
 // subscribeTool echo guard, the entity-refresh tick (F3a — the ONE trigger,
 // which replaced the F2b commit-push + remeshVersion-counter pair), the F3a
@@ -23,19 +23,12 @@ import { FieldPanel } from "../../src/frontend/components/FieldPanel.tsx";
 import { FlagsSection } from "../../src/frontend/components/field/FlagsSection.tsx";
 import type { VerifyVerdictWire } from "../../src/frontend/lib/analyzer-protocol.ts";
 import type { EntityCatalog } from "../../src/frontend/lib/catalog.ts";
-// Tests are NOT part of the chrome bundle, so a value import of the viewport
-// host is allowed here — and using the REAL helper is the point: the stub then
-// goes stale exactly when the production host would.
-import { withArchetypeOptions } from "../../src/viewport-host/field-placements.ts";
 import type {
 	FieldEntityInfo,
 	FieldGeneratorInfo,
-	FieldHost,
-	FieldStats,
 	FieldTool,
 	FlagRow,
 	FlagsSummary,
-	SelectionInfo,
 	StampSession,
 } from "../../src/viewport-host/index.ts";
 import {
@@ -49,6 +42,7 @@ import {
 	waitFor,
 	within,
 } from "../inspector/_harness.tsx";
+import { makeStubHost } from "./_stub-host.ts";
 
 afterEach(cleanup);
 
@@ -123,7 +117,7 @@ const CATALOG_JSON = JSON.stringify({
 	],
 });
 
-// --- stub host --------------------------------------------------------------
+// --- fixtures (the stub host itself lives in ./_stub-host.ts) ---------------
 
 const HALL_GEN: FieldGeneratorInfo = {
 	id: "hall",
@@ -132,21 +126,6 @@ const HALL_GEN: FieldGeneratorInfo = {
 	defaults: { width: 4 },
 	placesProps: false,
 };
-
-function makeStats(overrides: Partial<FieldStats> = {}): FieldStats {
-	return {
-		chunks: 0,
-		lastRemeshMs: 0,
-		remeshVersion: 0,
-		totalOps: 0,
-		liveGenerators: 0,
-		compactableOps: 0,
-		undoDepth: 0,
-		lastReconfigureMs: 0,
-		analyzerPending: 0,
-		...overrides,
-	};
-}
 
 function makeSession(overrides: Partial<StampSession> = {}): StampSession {
 	return {
@@ -177,205 +156,6 @@ const ENTITY: FieldEntityInfo = {
 	opSpan: [2, 4], // 3 ops
 	placed: [], // a hall places nothing
 };
-
-/** A minimal FieldHost stub: every mutator is a recording mock; the subscribe
- *  seams latch their callback so a test can fire host-initiated pushes
- *  manually (wrap in act). subscribeSelection/subscribeStamp push the current
- *  (empty) state on subscribe, like the real host. */
-function makeStubHost(
-	opts: {
-		generators?: FieldGeneratorInfo[];
-		/** Make `verifyFlag` refuse SYNCHRONOUSLY on the tool-error seam, exactly
-		 *  as the real host's busy / no-profile / stale-key / pit guards do — they
-		 *  are decided and reported before the call returns. */
-		verifyRefusal?: string;
-	} = {},
-) {
-	let entities: FieldEntityInfo[] = [];
-	// The stub models the REAL host's snapshot semantics: setEntityCatalog stores
-	// the catalog, and listGenerators() reads it AT CALL TIME through the same
-	// pure helper field-host.ts uses. Without this the ordering bug (B1) is
-	// invisible from the chrome — a static generator list can never go stale.
-	let installedCatalog: EntityCatalog | null = null;
-	// Call-order trace for the two seams whose ORDER is the contract under test.
-	const order: string[] = [];
-	const cbs: {
-		tool: ((t: FieldTool) => void) | null;
-		stamp: ((s: StampSession | null) => void) | null;
-		stats: ((s: FieldStats) => void) | null;
-		selection: ((i: SelectionInfo | null) => void) | null;
-		toolError: ((msg: string) => void) | null;
-		entities: (() => void) | null;
-		drift: ((r: DriftFinding[] | null) => void) | null;
-		flags: ((s: FlagsSummary) => void) | null;
-	} = {
-		tool: null,
-		stamp: null,
-		stats: null,
-		selection: null,
-		toolError: null,
-		entities: null,
-		drift: null,
-		flags: null,
-	};
-	const calls = {
-		setTool: mock(),
-		setSlice: mock(),
-		setLayers: mock(),
-		setGesture: mock(),
-		setDigRadius: mock(),
-		setShading: mock(),
-		setMaterialTable: mock(),
-		setEntityCatalog: mock(),
-		highlightEntity: mock(),
-		startStamp: mock(),
-		updateStamp: mock(),
-		nudgeStamp: mock(),
-		rerollStamp: mock(),
-		commitStamp: mock(),
-		commitSession: mock(),
-		cancelStamp: mock(),
-		undo: mock(),
-		redo: mock(),
-		clearSelection: mock(),
-		reselect: mock(),
-		newWorld: mock(),
-		openEntity: mock(),
-		applyReconfigure: mock(),
-		setEntityFrozen: mock(),
-		bakeEntity: mock(),
-		dismissDrift: mock(),
-		frameChunks: mock(),
-		setAgentProfile: mock(),
-		setFlagFilters: mock(),
-		verifyFlag: mock(),
-	};
-	const host: FieldHost = {
-		init: () => Promise.resolve(),
-		// biome-ignore lint/suspicious/noEmptyBlockStatements: inert test no-op
-		dispose: () => {},
-		newWorld: calls.newWorld,
-		// biome-ignore lint/suspicious/noEmptyBlockStatements: inert test no-op
-		loadWorld: () => {},
-		setDigRadius: calls.setDigRadius,
-		setShading: calls.setShading,
-		setTool: calls.setTool,
-		subscribeTool: (cb) => {
-			cbs.tool = cb;
-			// biome-ignore lint/suspicious/noEmptyBlockStatements: inert unsubscribe no-op
-			return () => {};
-		},
-		subscribeToolError: (cb) => {
-			cbs.toolError = cb;
-			// biome-ignore lint/suspicious/noEmptyBlockStatements: inert unsubscribe no-op
-			return () => {};
-		},
-		setGesture: calls.setGesture,
-		clearSelection: calls.clearSelection,
-		reselect: calls.reselect,
-		subscribeSelection: (cb) => {
-			cbs.selection = cb;
-			cb(null);
-			// biome-ignore lint/suspicious/noEmptyBlockStatements: inert unsubscribe no-op
-			return () => {};
-		},
-		setLayers: calls.setLayers,
-		setSlice: calls.setSlice,
-		getSmoothLimits: () => ({ maxStrength: 32, maxIterations: 4 }),
-		setMaterialTable: calls.setMaterialTable,
-		setEntityCatalog: (catalog) => {
-			order.push("setEntityCatalog");
-			installedCatalog = catalog;
-			calls.setEntityCatalog(catalog);
-		},
-		listGenerators: () => {
-			order.push("listGenerators");
-			return (opts.generators ?? []).map((g) => ({
-				...g,
-				paramSchema: withArchetypeOptions(
-					structuredClone(g.paramSchema),
-					(installedCatalog?.archetypes ?? []).map((a) => a.id),
-				),
-			}));
-		},
-		propInstanceCounts: () => new Map<string, number>(),
-		startStamp: calls.startStamp,
-		updateStamp: calls.updateStamp,
-		nudgeStamp: calls.nudgeStamp,
-		rerollStamp: calls.rerollStamp,
-		commitStamp: calls.commitStamp,
-		commitSession: calls.commitSession,
-		cancelStamp: calls.cancelStamp,
-		undo: calls.undo,
-		redo: calls.redo,
-		subscribeStamp: (cb) => {
-			cbs.stamp = cb;
-			cb(null);
-			// biome-ignore lint/suspicious/noEmptyBlockStatements: inert unsubscribe no-op
-			return () => {};
-		},
-		openEntity: calls.openEntity,
-		applyReconfigure: calls.applyReconfigure,
-		setEntityFrozen: calls.setEntityFrozen,
-		bakeEntity: calls.bakeEntity,
-		subscribeDrift: (cb) => {
-			cbs.drift = cb;
-			cb(null);
-			// biome-ignore lint/suspicious/noEmptyBlockStatements: inert unsubscribe no-op
-			return () => {};
-		},
-		dismissDrift: calls.dismissDrift,
-		frameChunks: calls.frameChunks,
-		subscribeEntities: (cb) => {
-			cbs.entities = cb;
-			cb(); // the real host's initial catch-up tick
-			// biome-ignore lint/suspicious/noEmptyBlockStatements: inert unsubscribe no-op
-			return () => {};
-		},
-		listEntities: () => entities.map((e) => structuredClone(e)),
-		highlightEntity: calls.highlightEntity,
-		setAgentProfile: calls.setAgentProfile,
-		subscribeFlags: (cb) => {
-			cbs.flags = cb;
-			cb({ total: 0, byKindSeverity: [], visible: [] });
-			// biome-ignore lint/suspicious/noEmptyBlockStatements: inert unsubscribe no-op
-			return () => {};
-		},
-		setFlagFilters: calls.setFlagFilters,
-		verifyFlag: (key) => {
-			calls.verifyFlag(key);
-			if (opts.verifyRefusal !== undefined) cbs.toolError?.(opts.verifyRefusal);
-		},
-		flagMarkerCount: () => 0,
-		exportArtifact: () => [],
-		subscribeStats: (cb) => {
-			cbs.stats = cb;
-			// biome-ignore lint/suspicious/noEmptyBlockStatements: inert unsubscribe no-op
-			return () => {};
-		},
-	};
-	return {
-		host,
-		calls,
-		/** Seam-call trace, in order — the B1 ordering contract's witness. */
-		order,
-		/** Fire a latched host→panel push (callers wrap in act). */
-		fire: {
-			tool: (t: FieldTool) => cbs.tool?.(t),
-			stamp: (s: StampSession | null) => cbs.stamp?.(s),
-			stats: (s: FieldStats) => cbs.stats?.(s),
-			selection: (i: SelectionInfo | null) => cbs.selection?.(i),
-			/** The entity-list change TICK (the real host's only entity signal). */
-			entities: () => cbs.entities?.(),
-			drift: (r: DriftFinding[] | null) => cbs.drift?.(r),
-			toolError: (msg: string) => cbs.toolError?.(msg),
-			flags: (s: FlagsSummary) => cbs.flags?.(s),
-		},
-		setEntities: (next: FieldEntityInfo[]) => {
-			entities = next;
-		},
-	};
-}
 
 /** Seed the list with `next` and fire the host's entity tick, as the real host
  *  does after a commit / apply / freeze / bake / ⌘Z. */
@@ -527,57 +307,25 @@ test("an undone commit disappears on the entity tick — no session change, no r
 	// advances). The F2b trigger pair would have missed this entirely.
 	pushEntities(stub, []);
 	expect(screen.getByText("Entities (0)")).toBeTruthy();
-	// The proxies the tick replaced must NOT be refresh triggers any more: a
-	// stats push carrying a fresh counter reads no entities back.
-	stub.setEntities([ENTITY]);
-	act(() => {
-		stub.fire.stats(
-			makeStats({ chunks: 4, lastRemeshMs: 1, remeshVersion: 9 }),
-		);
-	});
-	expect(screen.getByText("Entities (0)")).toBeTruthy();
 });
 
-// --- (j) op-cost meter + drift report (Task 9) ------------------------------
-
-test("the footer meter renders the logStats op-cost fields the host pushes", async () => {
+// The single-slot rule, pinned from the side that would break it. Every FieldHost
+// subscribe seam stores ONE callback (`statsCb = cb`), so a panel that re-subscribed
+// to stats would silently steal the shell status bar's — no throw, no warning, the bar
+// just stops updating. The panel reads no stats at all now; this is the guard that a
+// re-added meter has to trip.
+test("the panel never subscribes to stats — that slot belongs to the shell", async () => {
 	fetch404();
 	const stub = makeStubHost();
 	await renderPanel(stub);
-	act(() => {
-		stub.fire.stats(
-			makeStats({
-				chunks: 4,
-				lastRemeshMs: 1,
-				totalOps: 128,
-				liveGenerators: 3,
-				compactableOps: 40,
-				undoDepth: 5,
-				lastReconfigureMs: 12,
-			}),
-		);
-	});
-	// One span, many interpolated text nodes — assert against its textContent so
-	// the split nodes don't defeat a whole-string matcher.
-	const meter = screen.getByText(/chunks · remesh/);
-	expect(meter.textContent).toContain("ops 128");
-	expect(meter.textContent).toContain("live gens 3");
-	expect(meter.textContent).toContain("compactable 40");
-	expect(meter.textContent).toContain("undo 5");
-	expect(meter.textContent).toContain("last reconfigure 12 ms");
+	expect(stub.calls.subscribeStats).not.toHaveBeenCalled();
 });
 
-test("last reconfigure reads — until a reconfigure lands (0 is not 0 ms)", async () => {
-	fetch404();
-	const stub = makeStubHost();
-	await renderPanel(stub);
-	act(() => {
-		stub.fire.stats(makeStats({ lastReconfigureMs: 0 }));
-	});
-	const meter = screen.getByText(/chunks · remesh/);
-	expect(meter.textContent).toContain("last reconfigure —");
-	expect(meter.textContent).not.toContain("0 ms");
-});
+// --- (j) drift report (Task 9) ----------------------------------------------
+//
+// The op-cost meter that used to sit beside it in the panel footer is gone: the live
+// host readout moved to the shell's status bar, which is now the seam's only
+// subscriber (tests/chrome/shell.test.tsx covers what it renders).
 
 const FINDINGS: DriftFinding[] = [
 	{ opId: 12, kind: "drifted", chunks: ["0,0,0", "1,0,0"] },
@@ -957,78 +705,47 @@ test("the footer shows the selection count + the truncation warning; Clear reach
 	expect(stub.calls.clearSelection).toHaveBeenCalledTimes(1);
 });
 
-// --- (i) bounded controls / canvas priority ---------------------------------
+// --- (i) the controls scroll inside themselves ------------------------------
 
-/** The panel root plus the two boxes its height budget is split between: the
- *  controls container and the canvas cell that follows it. Throws (rather than
- *  soft-failing an assertion) if the panel's shape changed — every assertion
- *  below is meaningless without it. */
-function layoutBoxes(): {
-	root: HTMLElement;
-	controls: HTMLElement;
-	canvas: HTMLElement;
-} {
-	const canvas = screen.getByLabelText("field dig surface").parentElement;
-	const controls = canvas?.previousElementSibling;
-	const root = canvas?.parentElement;
-	if (
-		!(canvas instanceof HTMLElement) ||
-		!(controls instanceof HTMLElement) ||
-		!(root instanceof HTMLElement)
-	)
+/** The scroll container the control sections share, resolved through a section that
+ *  must be inside it. Throws (rather than soft-failing an assertion) if the panel's
+ *  shape changed — every assertion below is meaningless without it. */
+function controlsBox(): HTMLElement {
+	const box = screen.getByLabelText("slice view").closest(".overflow-y-auto");
+	if (!(box instanceof HTMLElement))
 		throw new Error(
-			"field panel shape changed: expected the canvas cell to follow a controls container",
+			"field panel shape changed: the control sections no longer share a scroll container",
 		);
-	return { root, controls, canvas };
+	return box;
 }
 
-test("the control sections share ONE bounded scroll container; the canvas cell is its sibling", async () => {
+test("the control sections share ONE scroll container, between the toolbar and the status line", async () => {
 	fetch404();
 	const stub = makeStubHost({ generators: [HALL_GEN] });
 	await renderPanel(stub);
-	// happy-dom runs NO layout (getBoundingClientRect is all zeros — the same
-	// reason host.init never fires here), so the pixel outcome is not assertable.
-	// What IS assertable is the structure that produces it: the controls stack
-	// capped + self-scrolling, the canvas cell OUTSIDE that cap taking the rest.
-	// Unbounded, a tall StampInspector crushed the canvas to a sliver.
-	const { root, controls, canvas } = layoutBoxes();
-	// h-full is the last hop of the containing block chain that makes the cap's
-	// percentage resolve — and the only hop this component owns (the rest is
-	// App/dockview). Without a definite-height parent max-height:45% computes to
-	// none and the cap silently stops existing, with every other assertion green.
-	expect(root.classList.contains("h-full")).toBe(true);
-	// min-h-0 on the container is deliberately NOT pinned: the source calls it
-	// redundant (an overflow!=visible flex item already gets an auto min-size of
-	// 0), so a cleanup dropping it must not fail a test.
-	for (const cls of ["max-h-[45%]", "overflow-y-auto"])
+	// happy-dom runs NO layout (getBoundingClientRect is all zeros), so the pixel
+	// outcome is not assertable. What IS assertable is the structure that produces
+	// it: one self-scrolling stack that takes the height the pinned toolbar above and
+	// the status line below leave, and shrinks instead of pushing them out. The F2b
+	// 45% cap is gone with the canvas it was protecting — the panel is controls now.
+	const controls = controlsBox();
+	for (const cls of ["flex-1", "min-h-0", "overflow-y-auto"])
 		expect(controls.classList.contains(cls)).toBe(true);
-	// All three control sections live inside the cap…
+	expect(controls.classList.contains("max-h-[45%]")).toBe(false);
+	// All three control sections live inside it…
 	expect(controls.contains(button("Dig"))).toBe(true); // palette
-	expect(controls.contains(screen.getByLabelText("slice view"))).toBe(true); // layers
 	expect(controls.contains(screen.getByText("Entities (0)"))).toBe(true); // entities
-	// …the persistence toolbar does NOT (it stays pinned above the scroll)…
+	// …and neither the persistence toolbar nor the status line does: both stay pinned
+	// outside the scroll, which is the whole point of putting it here.
 	expect(controls.contains(screen.getByLabelText("world name"))).toBe(false);
-	// …and neither does the canvas, which grows into whatever the cap leaves.
-	expect(controls.contains(canvas)).toBe(false);
-	for (const cls of ["flex-1", "min-h-24"])
-		expect(canvas.classList.contains(cls)).toBe(true);
-	// The floor is not interchangeable with min-h-0 (mechanism: the canvas-cell
-	// comment in FieldPanel.tsx — kept in ONE place). Both halves are pinned: the
-	// floor present, and min-h-0 ABSENT rather than merely outranked. The absence
-	// is belt-and-braces — emitted CSS orders .min-h-0 before .min-h-24, so both
-	// present already resolves to 96px — but it fails loudly on exactly the
-	// "min-h-0 is the flex idiom" edit it names.
-	expect(canvas.classList.contains("min-h-0")).toBe(false);
-	// The tall extreme: a stamp session adds the generator form to the stack —
-	// it lands INSIDE the bounded container, so the canvas cell is untouched.
+	expect(controls.contains(button("Reselect"))).toBe(false);
+	// The tall extreme: a stamp session adds the generator form to the stack — it
+	// lands INSIDE the container, so the pinned rows are untouched.
 	act(() => {
 		stub.fire.stamp(makeSession({ phase: "configuring" }));
 	});
-	const tall = layoutBoxes();
-	expect(tall.controls).toBe(controls);
-	expect(tall.canvas).toBe(canvas);
+	expect(controlsBox()).toBe(controls);
 	expect(controls.contains(button("Commit"))).toBe(true);
-	expect(controls.contains(canvas)).toBe(false);
 });
 
 // --- (k) F3b: the archetypeId picker survives the catalog's ASYNC arrival ----
@@ -1832,20 +1549,8 @@ test("a SYNCHRONOUS refusal never leaves the column stuck", async () => {
 	expect(screen.getByText("a verify is already running")).toBeTruthy();
 });
 
-test("the analyzer says when it is catching up, and idles quiet", async () => {
-	fetch404();
-	const stub = makeStubHost();
-	await renderPanel(stub);
-	expect(screen.queryByText(/analyzing/)).toBeNull();
-	act(() => {
-		stub.fire.stats(makeStats({ analyzerPending: 1 }));
-	});
-	expect(screen.getByText(/analyzing/)).toBeTruthy();
-	act(() => {
-		stub.fire.stats(makeStats({ analyzerPending: 0 }));
-	});
-	expect(screen.queryByText(/analyzing/)).toBeNull();
-});
+// The advisor's "catching up" line rode `analyzerPending` on the panel footer; it is
+// a status-bar chip now — covered in tests/chrome/shell.test.tsx.
 
 test("the flags layer is a free display gate, beside the other six", async () => {
 	fetch404();

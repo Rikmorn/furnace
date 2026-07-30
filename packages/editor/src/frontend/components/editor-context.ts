@@ -5,12 +5,14 @@ import type { UiStore } from "../lib/persist.ts";
 import type { EditorState } from "../lib/state.ts";
 import type { ConfirmRequest } from "./ConfirmDialog.tsx";
 
-/** Live editor state shared with the dockview panels through React context
- *  (panels are portaled, so closure props can't carry live state — see App). */
+/** Live editor state, shared with the whole chrome through React context: App owns it
+ *  (engine boot, the host, the confirm dialog, the persistence store) and the shell and
+ *  its panels read it wherever they sit in the tree. */
 export type EditorContextValue = {
   state: EditorState;
-  /** The field dig-loop host (F1) — the Field panel mounts its canvas + drives dig/save/bake.
-   *  App-owned (created once at engine-ready) so it survives the panel being closed/reopened. */
+  /** The field dig-loop host (F1) — the shell's CanvasHost inits it on the one
+   *  full-window canvas; the field panel drives dig/save/bake through it. App-owned
+   *  (created once at engine-ready) so its lifetime is the editor's. */
   fieldHostRef: RefObject<FieldHost | undefined>;
   /** Bumped on every daemon `worlds-changed` / `generation-baked` event: the worlds
    *  directory on disk moved. Anything rendering the world list refetches when it
