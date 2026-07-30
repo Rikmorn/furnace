@@ -333,7 +333,8 @@ M5A has `revertEntity` (rebuilds from committed doc) but **no `revertSettings`**
 > `setCallbacks` / `onTransformCommit` and the scene orbit camera are gone with the
 > scene viewport host. `viewport-host/gizmo.ts` and `camera-control.ts`'s
 > `orbit`/`zoom`/`dolly`/`pan` survive as pure math with **no caller** — both are
-> retirement candidates, filed in `docs/backlog/editor-and-tooling/`.
+> retirement candidates, filed as
+> `docs/backlog/editor-and-tooling/viewport-host-orphans-gizmo-and-orbit-camera.md`.
 
 
 M5B landed the full manipulation loop: GPU-id picking, AABB selection highlight, translate gizmo, orbit/pan/zoom camera, NumberField drag-scrub, focused-input echo-guard, settings-revert, and three M5A inspector papercuts (⑩⑪⑫). This section documents the as-built additions to the M5A substrate.
