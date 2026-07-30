@@ -5,10 +5,16 @@
 // A PALETTE, not a modal: it registers in the palette store like any other, so drag,
 // collapse, close and the persisted arrangement all come for free. It ships closed and
 // is summoned from the status bar's ⚠ chip or the View menu.
+//
+// Being a palette is also the trap this file has to handle: a palette body stays
+// MOUNTED while it is invisible (collapsed behind the `hidden` attribute, and the whole
+// layer likewise under the ⌘\ latch), so "this component is rendering" does NOT mean
+// "the user can read this". See SeenMarker.
 
 import type { LucideIcon } from "lucide-react";
 import { CircleAlert, CircleCheck, Info } from "lucide-react";
 import { useEffect, useState, useSyncExternalStore } from "react";
+import { useWorkspaceState } from "../../hooks/useWorkspace.tsx";
 import { cn } from "../../lib/cn.ts";
 import {
 	type NotifyMessage,
@@ -68,6 +74,35 @@ function Row({ message, now }: { message: NotifyMessage; now: number }) {
 	);
 }
 
+/** Marks the log read while it is genuinely ON SCREEN, and renders nothing.
+ *
+ *  The gate is the whole point. Marking on render alone was wrong in two ways, both
+ *  reachable without the user choosing anything: a log palette left OPEN but rolled up
+ *  to its rail chip still renders (it hides behind the `hidden` attribute so its state
+ *  survives), and so does every palette while the ⌘\ latch is on. In both cases an
+ *  arriving error was marked read and the ⚠ chip never lit — the latch case being the
+ *  worse one, since ⌘\ means "I want the canvas unobstructed", not "I am reading the
+ *  log", and a chip that never appears cannot be the click that un-latches it.
+ *
+ *  Its OWN component, not a hook in the palette below, because `useWorkspaceState`
+ *  re-renders its consumer on every drag frame (see useWorkspace's header): keeping the
+ *  subscription in a component that returns null is what stops a 200-row list from
+ *  re-rendering at pointer rate whenever any palette is dragged.
+ *
+ *  No dependency array on purpose: it must re-run both when visibility changes (this
+ *  component's own state) and when a message arrives while visible (its parent
+ *  re-renders, which re-renders this). `markSeen` is a no-op that does not notify when
+ *  the newest id has not moved, so re-running it freely cannot loop. */
+function SeenMarker() {
+	const { palettes, hidden } = useWorkspaceState();
+	const geom = palettes.log;
+	const visible = !hidden && geom.open && !geom.collapsed;
+	useEffect(() => {
+		if (visible) notify.markSeen();
+	});
+	return null;
+}
+
 export function LogPalette() {
 	const { log, overflow } = useSyncExternalStore(
 		notify.subscribe,
@@ -80,22 +115,19 @@ export function LogPalette() {
 		return () => clearInterval(timer);
 	}, []);
 
-	// While the log is on screen, nothing in it is unread — which is what takes the ⚠
-	// chip back down. Runs on every render on purpose (a new message arriving while the
-	// palette is open is also read): `markSeen` is a no-op that does NOT notify when the
-	// newest id has not moved, so this cannot loop.
-	useEffect(() => {
-		notify.markSeen();
-	});
-
 	return (
 		<div className="flex flex-col text-xs">
+			{/* Renders nothing; it is the "these have been read" side effect, gated on the
+			    palette actually being visible. */}
+			<SeenMarker />
 			<div className="flex items-center gap-2 border-border border-b px-2 py-1 text-muted-foreground">
 				<span className="flex-1 tabular-nums">
 					{log.length === 0 ? "no messages" : `${log.length} messages`}
 					{/* Named rather than hidden: the cap dropped these from the SCREEN, and a
 					    log that silently held things the user never saw would be the same
-					    failure the toast stack is trying not to be. */}
+					    failure the toast stack is trying not to be. Both numbers describe THIS
+					    list (the store derives the count from the surviving entries), so the
+					    second can never exceed the first. */}
 					{overflow > 0 && ` · ${overflow} not shown as toasts`}
 				</span>
 				<Button

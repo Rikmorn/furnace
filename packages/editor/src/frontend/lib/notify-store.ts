@@ -21,6 +21,11 @@ export type NotifyMessage = {
   readonly text: string;
   /** Wall-clock ms from the injected clock — the log renders relative time off it. */
   readonly at: number;
+  /** Whether this message ever held a toast slot. Decided once, at push: it is the
+   *  difference between "you saw this go by" and "this only ever existed in the log",
+   *  and recording it ON the message is what keeps the overflow count bounded by the
+   *  log that is showing it (see `NotifySnapshot.overflow`). */
+  readonly toasted: boolean;
 };
 
 export type NotifySnapshot = {
@@ -28,8 +33,11 @@ export type NotifySnapshot = {
   readonly toasts: readonly NotifyMessage[];
   /** The durable log, NEWEST FIRST — the order the log palette reads. ≤ LOG_CAP. */
   readonly log: readonly NotifyMessage[];
-  /** Messages that never got a visible slot. Log-only, and counted so the log can say
-   *  so rather than quietly holding things the user never saw. */
+  /** How many of the messages IN `log` never got a visible slot — so the log can say
+   *  it is holding things the user never saw. Derived from the surviving entries
+   *  rather than accumulated: a running counter would eventually read "200 messages ·
+   *  997 not shown as toasts", two numbers about the same list that cannot both be
+   *  true. This one is bounded by `log.length` by construction. */
   readonly overflow: number;
   /** Errors logged since the last `markSeen`. The ⚠ chip's count: a badge that never
    *  clears is a badge people learn to ignore. */
@@ -86,7 +94,6 @@ export function createNotifyStore(deps: NotifyDeps): NotifyStore {
   const timers = new Map<number, () => void>();
   let toasts: readonly NotifyMessage[] = [];
   let log: readonly NotifyMessage[] = [];
-  let overflow = 0;
   /** The newest id the user has seen in the log; -1 = nothing seen yet. */
   let seenId = -1;
   let nextId = 0;
@@ -115,14 +122,19 @@ export function createNotifyStore(deps: NotifyDeps): NotifyStore {
   };
 
   const push = (severity: NotifySeverity, text: string): void => {
+    // A full stack makes this message log-only. The surplus does NOT evict the oldest
+    // toast: an undismissed error would be exactly what a flood of infos pushed off
+    // the screen, and D-19's whole point is that an error cannot vanish on its own.
+    const toasted = toasts.length < TOAST_CAP;
     const message: NotifyMessage = {
       id: nextId++,
       severity,
       text,
       at: deps.now(),
+      toasted,
     };
     log = [message, ...log].slice(0, LOG_CAP);
-    if (toasts.length < TOAST_CAP) {
+    if (toasted) {
       toasts = [...toasts, message];
       // Errors are the exception: they stay until the user takes them away. Everything
       // else is a report on something that already finished, and reports should leave.
@@ -131,11 +143,6 @@ export function createNotifyStore(deps: NotifyDeps): NotifyStore {
           message.id,
           deps.schedule(() => removeToast(message.id), INFO_TTL_MS),
         );
-    } else {
-      // Log-only. The surplus does NOT evict the oldest toast: an undismissed error
-      // would be exactly what a flood of infos pushed off the screen, and D-19's whole
-      // point is that an error cannot vanish on its own.
-      overflow++;
     }
     emit();
   };
@@ -152,7 +159,7 @@ export function createNotifyStore(deps: NotifyDeps): NotifyStore {
         snapshot = {
           toasts,
           log,
-          overflow,
+          overflow: log.filter((e) => !e.toasted).length,
           unreadErrors: log.filter(
             (e) => e.id > seenId && e.severity === "error",
           ).length,
@@ -174,7 +181,6 @@ export function createNotifyStore(deps: NotifyDeps): NotifyStore {
       timers.clear();
       toasts = [];
       log = [];
-      overflow = 0;
       seenId = -1;
       emit();
     },

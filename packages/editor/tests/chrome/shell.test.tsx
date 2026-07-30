@@ -506,6 +506,81 @@ test("the ⚠ chip clears the ⌘\\ latch, so the log it summons is actually on 
 	expect(controlsPalette()).toBeTruthy();
 });
 
+/** A workspace blob with the log palette open at a readable spot — the shape the store
+ *  is in after a summon, and the starting point for the visibility cases below. */
+const LOG_OPEN = {
+	palettes: {
+		controls: { x: 0, y: 0, edge: "right", collapsed: false, open: true },
+		log: { x: 24, y: 24, edge: null, collapsed: false, open: true },
+	},
+	hidden: false,
+};
+
+/** The same, rolled up to its rail chip. `open` is still true — that is the point: the
+ *  body stays MOUNTED behind the `hidden` attribute so its state survives. */
+const LOG_COLLAPSED = {
+	...LOG_OPEN,
+	palettes: {
+		...LOG_OPEN.palettes,
+		log: { ...LOG_OPEN.palettes.log, collapsed: true },
+	},
+};
+
+// The log marks messages read while it is on screen — and "on screen" is NOT the same
+// as "mounted". A palette body renders while collapsed to its chip, and while the whole
+// layer is latched away by ⌘\. Marking on render alone let an arriving error be read by
+// nobody, with the ⚠ chip never lighting to say so.
+
+test("a collapsed log does NOT mark an arriving error read", async () => {
+	fetch404();
+	const stub = makeStubHost();
+	await renderShell(stub, fakeUiStore({ workspace: LOG_COLLAPSED }));
+	// Rolled up: out of the a11y tree, but still rendering behind `hidden`.
+	expect(logPalette()).toBeNull();
+	expect(screen.getByRole("button", { name: "expand Messages" })).toBeTruthy();
+
+	act(() => {
+		stub.fire.toolError("select a region first");
+	});
+	expect(
+		screen.getByLabelText("1 unread error — open the message log"),
+	).toBeTruthy();
+});
+
+test("a log hidden by the ⌘\\ latch does NOT mark an arriving error read", async () => {
+	fetch404();
+	const stub = makeStubHost();
+	await renderShell(stub, fakeUiStore({ workspace: LOG_OPEN }));
+	expect(logPalette()).toBeTruthy();
+
+	act(() => {
+		fireEvent.keyDown(window, { key: "\\", metaKey: true });
+	});
+	expect(logPalette()).toBeNull();
+	act(() => {
+		stub.fire.toolError("select a region first");
+	});
+	// The worst version of this bug: ⌘\ says "I want the canvas unobstructed", not "I am
+	// reading the log". With the chip suppressed there is nothing left to click — and
+	// the chip's own un-latch (setHidden(false)) never gets the chance to run.
+	expect(
+		screen.getByLabelText("1 unread error — open the message log"),
+	).toBeTruthy();
+});
+
+test("a visibly open log DOES mark an arriving error read", async () => {
+	fetch404();
+	const stub = makeStubHost();
+	await renderShell(stub, fakeUiStore({ workspace: LOG_OPEN }));
+	act(() => {
+		stub.fire.toolError("select a region first");
+	});
+	// The gate must not be so strict that it never marks anything: the log is right
+	// there, the message is in it, so nothing is unread and the chip stays quiet.
+	expect(logPalette()).toBeTruthy();
+	expect(screen.queryByLabelText(/unread error/)).toBeNull();
+});
+
 test("the message log is a palette: closed by default, re-openable from the View menu", async () => {
 	fetch404();
 	const stub = makeStubHost();

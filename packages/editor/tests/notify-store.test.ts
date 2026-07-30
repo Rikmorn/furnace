@@ -112,6 +112,9 @@ test("the visible stack caps at 3; overflow increments the log-only counter", ()
   store.info("six");
   expect(toastTexts(store)).toEqual(["six"]);
   expect(store.getSnapshot().overflow).toBe(2);
+  // DERIVED from the surviving entries (each message records whether it ever held a
+  // slot), never accumulated — see the ring case for what a running total does.
+  expect(store.getSnapshot().log.filter((e) => !e.toasted).length).toBe(2);
 });
 
 test("every toast also lands in the log with severity + timestamp", () => {
@@ -158,6 +161,12 @@ test("log is a ring buffer capped at 200", () => {
   expect(log[0]?.text).toBe(`m${LOG_CAP + 4}`);
   expect(log.at(-1)?.text).toBe("m5");
   expect(log.some((e) => e.text === "m0")).toBe(false);
+
+  // The overflow count is about THESE entries, so it can never exceed them. 205 pushes
+  // with a running counter would say "200 messages · 202 not shown as toasts" — two
+  // numbers about one list that cannot both be true, and the header renders both.
+  expect(store.getSnapshot().overflow).toBeLessThanOrEqual(log.length);
+  expect(store.getSnapshot().overflow).toBe(LOG_CAP);
 });
 
 test("the snapshot is a stable reference between mutations (useSyncExternalStore)", () => {
