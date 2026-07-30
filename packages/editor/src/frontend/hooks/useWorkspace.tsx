@@ -30,9 +30,9 @@ import {
 	type OriginBounds,
 	type PaletteId,
 	serializeWorkspace,
+	setPaletteCollapsed,
 	setPaletteOpen,
 	setPalettesHidden,
-	togglePaletteCollapsed,
 	type WorkspaceState,
 } from "../lib/palette-store.ts";
 import type { UiStore } from "../lib/persist.ts";
@@ -52,7 +52,12 @@ export type WorkspaceActions = {
 		pos: { x: number; y: number },
 		bounds: OriginBounds,
 	) => void;
-	toggleCollapsed: (id: PaletteId) => void;
+	/** Roll a palette up or down, ABSOLUTELY. Same caller and same reason as
+	 *  `setHidden`: summoning a palette has to put it in a state the user can READ, and
+	 *  `open` alone does not — a palette that was collapsed when it was closed comes
+	 *  back collapsed, because the arrangement survives closing (that is the point of
+	 *  `setPaletteOpen`). A toggle would need a read of the state to be safe. */
+	setCollapsed: (id: PaletteId, collapsed: boolean) => void;
 	setOpen: (id: PaletteId, open: boolean) => void;
 	/** The ⌘\ latch: hide every palette, or restore the exact prior arrangement. */
 	toggleHidden: () => void;
@@ -150,7 +155,8 @@ export function WorkspaceProvider({
 		};
 		return {
 			move: (id, pos, bounds) => edit((s) => movePalette(s, id, pos, bounds)),
-			toggleCollapsed: (id) => edit((s) => togglePaletteCollapsed(s, id)),
+			setCollapsed: (id, collapsed) =>
+				edit((s) => setPaletteCollapsed(s, id, collapsed)),
 			setOpen: (id, open) => edit((s) => setPaletteOpen(s, id, open)),
 			toggleHidden: () => edit((s) => setPalettesHidden(s, !s.hidden)),
 			setHidden: (hidden) => edit((s) => setPalettesHidden(s, hidden)),

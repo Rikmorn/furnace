@@ -9,10 +9,10 @@
 import { expect, test } from "bun:test";
 import {
   createNotifyStore,
-  INFO_TTL_MS,
   LOG_CAP,
   type NotifyStore,
   TOAST_CAP,
+  TOAST_TTL_MS,
 } from "../src/frontend/lib/notify-store.ts";
 
 /** The store under a fake clock + fake scheduler. `pending` is how a test proves a
@@ -72,13 +72,13 @@ test("error toasts persist until dismissed; info toasts expire", () => {
   // dismissed, success fades (same TTL class as info).
   expect(pending()).toBe(2);
 
-  advance(INFO_TTL_MS);
+  advance(TOAST_TTL_MS);
   expect(toastTexts(store)).toEqual(["bake failed: disk full"]);
   // Nothing left ticking: an expired toast must not leave its timer behind.
   expect(pending()).toBe(0);
 
   // …and time alone never clears it. Only the dismiss does.
-  advance(INFO_TTL_MS * 10);
+  advance(TOAST_TTL_MS * 10);
   expect(toastTexts(store)).toEqual(["bake failed: disk full"]);
 
   const [error] = store.getSnapshot().toasts;
@@ -104,7 +104,7 @@ test("the visible stack caps at 3; overflow increments the log-only counter", ()
 
   // A freed slot does NOT promote an overflowed message: it is old news by then, and
   // a toast that appears seconds after its moment reads as a new event.
-  advance(INFO_TTL_MS);
+  advance(TOAST_TTL_MS);
   expect(toastTexts(store)).toEqual([]);
   expect(store.getSnapshot().overflow).toBe(2);
 
@@ -123,7 +123,7 @@ test("every toast also lands in the log with severity + timestamp", () => {
   const firstAt = at();
   store.info("new world — all solid rock");
   // Inside the info TTL, so both are still on screen when the ids are compared below.
-  advance(INFO_TTL_MS - 1_000);
+  advance(TOAST_TTL_MS - 1_000);
   const secondAt = at();
   store.error("select a region first");
 
@@ -187,7 +187,7 @@ test("the snapshot is a stable reference between mutations (useSyncExternalStore
 
   // An EXPIRY is a mutation too — a cached snapshot that survived it would leave a
   // faded toast on screen forever (React re-renders only when the reference changes).
-  advance(INFO_TTL_MS);
+  advance(TOAST_TTL_MS);
   expect(notified).toBe(2);
   expect(store.getSnapshot()).not.toBe(afterPush);
 

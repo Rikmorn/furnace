@@ -77,9 +77,11 @@ export const TOAST_CAP = 3;
  *  session cannot grow the tab's memory without limit. */
 export const LOG_CAP = 200;
 
-/** How long a non-error toast holds the screen. Long enough to read a sentence,
- *  short enough that a save + a bake do not stack up on each other. */
-export const INFO_TTL_MS = 4000;
+/** How long a toast that leaves ON ITS OWN holds the screen. Long enough to read a
+ *  sentence, short enough that a save + a bake do not stack up on each other. Named for
+ *  the toast rather than the severity: success fades on the same clock as info, and only
+ *  errors are exempt. */
+export const TOAST_TTL_MS = 4000;
 
 const EMPTY: NotifySnapshot = {
   toasts: [],
@@ -141,7 +143,7 @@ export function createNotifyStore(deps: NotifyDeps): NotifyStore {
       if (severity !== "error")
         timers.set(
           message.id,
-          deps.schedule(() => removeToast(message.id), INFO_TTL_MS),
+          deps.schedule(() => removeToast(message.id), TOAST_TTL_MS),
         );
     }
     emit();

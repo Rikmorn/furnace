@@ -43,7 +43,8 @@
 	/* semantic, desaturated for the dark base — committed 3.2.2 live pass; iterate as the tool is used */
 	--destructive: oklch(0.55 0.14 25);
 	/* D-23, first half — pulled forward by the toast stack (Task 7 of F4.5a): --destructive
-	   is a FILL colour and reads 3.55:1 as TEXT on --card/--popover, under the 4.5:1 floor.
+	   is a FILL colour and reads 3.55:1 as TEXT on --card and 3.40:1 on --popover (the
+	   toast surface) — both under the 4.5:1 floor.
 	   This lighter sibling is the text/icon/dot colour on those surfaces; the fill (buttons,
 	   borders) stays --destructive. The rest of the D-23 token pass is F4.5c. */
 	--destructive-text: oklch(0.68 0.16 25);

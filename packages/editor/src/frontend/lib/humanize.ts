@@ -6,6 +6,24 @@
  * Category-standard for a 3D-editor inspector (Unity/Unreal/Blender all Title-Case
  * their property labels).
  */
+const MINUTE_MS = 60_000;
+const HOUR_MS = 60 * MINUTE_MS;
+const DAY_MS = 24 * HOUR_MS;
+
+/**
+ * How long ago `at` was, coarsely: `"just now"`, `"5m ago"`, `"2h ago"`, `"3d ago"`.
+ * Both instants are arguments — no `Date.now()` inside — so a list renders every row
+ * against ONE instant and a test can pin every boundary without a clock. A future
+ * timestamp (a clock that moved backwards) reads as `"just now"` rather than negative.
+ */
+export function relTime(at: number, now: number): string {
+  const ago = Math.max(0, now - at);
+  if (ago < MINUTE_MS) return "just now";
+  if (ago < HOUR_MS) return `${Math.floor(ago / MINUTE_MS)}m ago`;
+  if (ago < DAY_MS) return `${Math.floor(ago / HOUR_MS)}h ago`;
+  return `${Math.floor(ago / DAY_MS)}d ago`;
+}
+
 export function humanizeLabel(key: string): string {
   return key
     .replace(/([a-z0-9])([A-Z])/g, "$1 $2")

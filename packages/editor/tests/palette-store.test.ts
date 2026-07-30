@@ -9,9 +9,9 @@ import {
   movePalette,
   SNAP_PX,
   serializeWorkspace,
+  setPaletteCollapsed,
   setPaletteOpen,
   setPalettesHidden,
-  togglePaletteCollapsed,
   type WorkspaceState,
 } from "../src/frontend/lib/palette-store.ts";
 import type { PaletteState } from "../src/frontend/lib/persist.ts";
@@ -133,7 +133,7 @@ test("edge snap engages within SNAP_PX of the right/left edge and records edge",
   ).toBe(2);
 });
 
-test("collapse toggles; open=false removes from layout but keeps geometry", () => {
+test("collapse is absolute; open=false removes from layout but keeps geometry", () => {
   const start = movePalette(
     floatingAt(400, 200),
     "controls",
@@ -141,11 +141,17 @@ test("collapse toggles; open=false removes from layout but keeps geometry", () =
     BOUNDS,
   );
 
-  const collapsed = togglePaletteCollapsed(start, "controls");
+  const collapsed = setPaletteCollapsed(start, "controls", true);
   expect(collapsed.palettes.controls.collapsed).toBe(true);
   expect(
-    togglePaletteCollapsed(collapsed, "controls").palettes.controls.collapsed,
+    setPaletteCollapsed(collapsed, "controls", false).palettes.controls
+      .collapsed,
   ).toBe(false);
+  // Absolute, so a caller that already knows the state it wants (the status bar's ⚠
+  // chip summoning the log; the rail chip expanding) needs no read first — and asking
+  // for the state it is already in returns the SAME state rather than a new record
+  // that would re-render the layer and re-arm the persist debounce.
+  expect(setPaletteCollapsed(collapsed, "controls", true)).toBe(collapsed);
   // Collapsing is a chrome state, not a move: the geometry it will be restored to
   // has to survive the round trip untouched.
   expect(collapsed.palettes.controls.x).toBe(300);
@@ -165,9 +171,10 @@ test("collapse toggles; open=false removes from layout but keeps geometry", () =
 });
 
 test("hideAll stores prior state; restore returns the EXACT arrangement (D-3)", () => {
-  const arranged = togglePaletteCollapsed(
+  const arranged = setPaletteCollapsed(
     movePalette(floatingAt(400, 200), "controls", { x: 260, y: 90 }, BOUNDS),
     "controls",
+    true,
   );
 
   const hidden = setPalettesHidden(arranged, true);

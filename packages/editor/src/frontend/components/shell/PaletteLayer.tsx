@@ -92,12 +92,12 @@ export function PaletteLayer({
 
 	const collapse = (id: PaletteId): void => {
 		focusAfter.current = { id, to: "chip" };
-		actions.toggleCollapsed(id);
+		actions.setCollapsed(id, true);
 	};
 
 	const expand = (id: PaletteId): void => {
 		focusAfter.current = { id, to: "collapse" };
-		actions.toggleCollapsed(id);
+		actions.setCollapsed(id, false);
 	};
 
 	const chips = PALETTE_IDS.filter(

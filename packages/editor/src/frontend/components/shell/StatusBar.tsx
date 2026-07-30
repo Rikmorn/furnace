@@ -35,7 +35,7 @@ function ErrorChip() {
 		notify.subscribe,
 		notify.getSnapshot,
 	);
-	const { setOpen, setHidden } = useWorkspaceActions();
+	const { setOpen, setCollapsed, setHidden } = useWorkspaceActions();
 	if (unreadErrors === 0) return null;
 	return (
 		<button
@@ -43,10 +43,16 @@ function ErrorChip() {
 			// SUMMONS rather than toggles: opening the log is what marks it read, which
 			// takes this chip away — so there is never a second click here to close with.
 			// The palette's own × and the View menu are the way back.
+			//
+			// All THREE verbs, because `open` alone does not mean "readable" and the other
+			// two states persist: a palette closed while collapsed comes back collapsed
+			// (the arrangement survives closing, by design), and the ⌘\ latch covers the
+			// whole layer. Either one alone leaves the summoned log invisible — which,
+			// since being read is what clears this chip, is a click that can never
+			// succeed, on a chip that never goes away.
 			onClick={() => {
 				setOpen("log", true);
-				// …and clears the ⌘\ latch, or the summoned palette lands inside a hidden
-				// layer and the click reads as dead.
+				setCollapsed("log", false);
 				setHidden(false);
 			}}
 			aria-label={`${unreadErrors} unread ${unreadErrors === 1 ? "error" : "errors"} — open the message log`}

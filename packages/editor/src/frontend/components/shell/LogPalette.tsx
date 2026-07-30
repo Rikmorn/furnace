@@ -9,13 +9,14 @@
 // Being a palette is also the trap this file has to handle: a palette body stays
 // MOUNTED while it is invisible (collapsed behind the `hidden` attribute, and the whole
 // layer likewise under the ⌘\ latch), so "this component is rendering" does NOT mean
-// "the user can read this". See SeenMarker.
+// "the user can read this". See VisibilityProbe.
 
 import type { LucideIcon } from "lucide-react";
 import { CircleAlert, CircleCheck, Info } from "lucide-react";
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { useWorkspaceState } from "../../hooks/useWorkspace.tsx";
 import { cn } from "../../lib/cn.ts";
+import { relTime } from "../../lib/humanize.ts";
 import {
 	type NotifyMessage,
 	type NotifySeverity,
@@ -32,24 +33,10 @@ const TONE: Record<NotifySeverity, { Icon: LucideIcon; text: string }> = {
 	error: { Icon: CircleAlert, text: "text-destructive-text" },
 };
 
-const MINUTE_MS = 60_000;
-const HOUR_MS = 60 * MINUTE_MS;
-const DAY_MS = 24 * HOUR_MS;
-
-/** How long ago, coarsely. `now` is a parameter rather than a `Date.now()` call so this
- *  is a pure function a test can pin, and so the whole list agrees on one instant. */
-export function relTime(at: number, now: number): string {
-	const ago = Math.max(0, now - at);
-	if (ago < MINUTE_MS) return "just now";
-	if (ago < HOUR_MS) return `${Math.floor(ago / MINUTE_MS)}m ago`;
-	if (ago < DAY_MS) return `${Math.floor(ago / HOUR_MS)}h ago`;
-	return `${Math.floor(ago / DAY_MS)}d ago`;
-}
-
-/** How often the relative times are re-derived. Without it "just now" stays "just now"
- *  for as long as nothing else re-renders the palette — a timestamp that lies is worse
- *  than no timestamp. Half a minute is the coarsest tick that keeps every string in
- *  this vocabulary correct to its own resolution. */
+/** How often the relative times are re-derived WHILE THE LOG IS VISIBLE. Without it
+ *  "just now" stays "just now" for as long as nothing else re-renders the palette — a
+ *  timestamp that lies is worse than no timestamp. Half a minute is the coarsest tick
+ *  that keeps every string in `relTime`'s vocabulary correct to its own resolution. */
 const RETICK_MS = 30_000;
 
 function Row({ message, now }: { message: NotifyMessage; now: number }) {
@@ -74,32 +61,31 @@ function Row({ message, now }: { message: NotifyMessage; now: number }) {
 	);
 }
 
-/** Marks the log read while it is genuinely ON SCREEN, and renders nothing.
+/** Reports whether the log palette is genuinely ON SCREEN, and renders nothing.
  *
- *  The gate is the whole point. Marking on render alone was wrong in two ways, both
- *  reachable without the user choosing anything: a log palette left OPEN but rolled up
- *  to its rail chip still renders (it hides behind the `hidden` attribute so its state
- *  survives), and so does every palette while the ⌘\ latch is on. In both cases an
- *  arriving error was marked read and the ⚠ chip never lit — the latch case being the
- *  worse one, since ⌘\ means "I want the canvas unobstructed", not "I am reading the
- *  log", and a chip that never appears cannot be the click that un-latches it.
+ *  This distinction is the whole point of the component. A palette body keeps RENDERING
+ *  while it is invisible — rolled up to its rail chip it hides behind the `hidden`
+ *  attribute (so its state survives the round trip), and the ⌘\ latch does the same to
+ *  the entire layer. So "I am rendering" is not "the user can read me", and two
+ *  behaviours below depend on the difference: marking messages read, and ticking the
+ *  clock that keeps their timestamps honest.
  *
- *  Its OWN component, not a hook in the palette below, because `useWorkspaceState`
- *  re-renders its consumer on every drag frame (see useWorkspace's header): keeping the
- *  subscription in a component that returns null is what stops a 200-row list from
- *  re-rendering at pointer rate whenever any palette is dragged.
- *
- *  No dependency array on purpose: it must re-run both when visibility changes (this
- *  component's own state) and when a message arrives while visible (its parent
- *  re-renders, which re-renders this). `markSeen` is a no-op that does not notify when
- *  the newest id has not moved, so re-running it freely cannot loop. */
-function SeenMarker() {
+ *  Its OWN component, rather than a `useWorkspaceState` call in the palette below,
+ *  because that hook re-renders its consumer on every drag frame (see useWorkspace's
+ *  header). Keeping the subscription in a leaf that returns `null` — and lifting only
+ *  the BOOLEAN, which changes rarely — is what stops a 200-row list from re-rendering at
+ *  pointer rate whenever any palette is dragged. */
+function VisibilityProbe({
+	onChange,
+}: {
+	onChange: (visible: boolean) => void;
+}) {
 	const { palettes, hidden } = useWorkspaceState();
 	const geom = palettes.log;
 	const visible = !hidden && geom.open && !geom.collapsed;
 	useEffect(() => {
-		if (visible) notify.markSeen();
-	});
+		onChange(visible);
+	}, [visible, onChange]);
 	return null;
 }
 
@@ -109,17 +95,32 @@ export function LogPalette() {
 		notify.getSnapshot,
 	);
 	const [now, setNow] = useState(() => Date.now());
+	const [visible, setVisible] = useState(false);
 
+	// Only while it can be read: a collapsed or latched-away log has no timestamps on
+	// screen to keep honest, and re-rendering the whole list every 30 s for nobody is
+	// exactly the kind of cost that hides until a session has run for an hour.
 	useEffect(() => {
+		if (!visible) return;
+		// Immediately, not only on the first tick: the palette may have been invisible
+		// for an hour, so its "just now" is stale the moment it comes back.
+		setNow(Date.now());
 		const timer = setInterval(() => setNow(Date.now()), RETICK_MS);
 		return () => clearInterval(timer);
-	}, []);
+	}, [visible]);
+
+	// While the log is visible nothing in it is unread — which is what takes the ⚠ chip
+	// back down. No dependency array on purpose: it must run when visibility changes AND
+	// when a message arrives while visible (a store push re-renders this component).
+	// `markSeen` does not notify when the newest id has not moved, so this cannot loop.
+	useEffect(() => {
+		if (visible) notify.markSeen();
+	});
 
 	return (
 		<div className="flex flex-col text-xs">
-			{/* Renders nothing; it is the "these have been read" side effect, gated on the
-			    palette actually being visible. */}
-			<SeenMarker />
+			{/* Renders nothing; it is the palette's answer to "can the user see me?". */}
+			<VisibilityProbe onChange={setVisible} />
 			<div className="flex items-center gap-2 border-border border-b px-2 py-1 text-muted-foreground">
 				<span className="flex-1 tabular-nums">
 					{log.length === 0 ? "no messages" : `${log.length} messages`}
@@ -136,6 +137,9 @@ export function LogPalette() {
 					variant="ghost"
 					className="h-5 px-1.5 text-xs"
 					disabled={log.length === 0}
+					// It takes the toasts too — `clear` is the whole store, not just this
+					// list — and a verb that removes something off-screen has to say so.
+					title="discard the log and any toasts still on screen"
 					onClick={() => notify.clear()}
 				>
 					Clear

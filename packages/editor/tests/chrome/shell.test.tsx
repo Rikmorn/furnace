@@ -356,8 +356,11 @@ test("the status bar keeps the engine label and its live region", async () => {
 	await renderShell(stub);
 	expect(screen.getByText("engine: ok")).toBeTruthy();
 	// ONE persistent, visually-hidden live region that always exists in the a11y tree
-	// (its text CHANGING is what announces — see StatusBar).
-	const live = document.querySelector("div[aria-live='polite']");
+	// (its text CHANGING is what announces — see StatusBar). Scoped to the FOOTER: the
+	// toast layer publishes regions of its own, and an unscoped query would silently
+	// start asserting about whichever one happens to come first in the document.
+	const bar = screen.getByRole("contentinfo");
+	const live = bar.querySelector("div[aria-live='polite']");
 	expect(live?.className).toContain("sr-only");
 	expect(live?.textContent).toBe("");
 });
@@ -400,6 +403,28 @@ test("an engine build failure reports in the status bar, in the destructive tone
 /** The message-log palette's box, or null while it is closed. */
 const logPalette = () => screen.queryByRole("region", { name: "Messages" });
 
+/** The toast stack, or null while nothing is on screen. */
+const toastStack = () => screen.queryByRole("list", { name: "notifications" });
+
+/** A toast row's text, SCOPED to the stack. The announcement regions carry the same
+ *  string on purpose (the house live-region pattern — StatusBar's own test destructures
+ *  the same visible/announced pair), so an unscoped `getByText` is ambiguous. */
+const toastText = (text: string | RegExp): HTMLElement => {
+	const stack = toastStack();
+	if (!(stack instanceof HTMLElement)) throw new Error("no toast stack");
+	return within(stack).getByText(text);
+};
+
+/** The persistent announcement region of one urgency, wherever it is mounted. Always
+ *  present — that is the pattern — so a null here is itself the failure. */
+const liveRegion = (urgency: "assertive" | "polite"): HTMLElement => {
+	const stack = document.querySelectorAll(`div[aria-live='${urgency}']`);
+	const region = stack[0];
+	if (!(region instanceof HTMLElement))
+		throw new Error(`no ${urgency} live region`);
+	return region;
+};
+
 test("a host refusal becomes a persistent, toned toast over the canvas", async () => {
 	fetch404();
 	const stub = makeStubHost();
@@ -411,17 +436,18 @@ test("a host refusal becomes a persistent, toned toast over the canvas", async (
 	act(() => {
 		stub.fire.toolError("select a region first");
 	});
-	const toast = screen.getByText("select a region first");
-	// role=alert, not status: a refusal interrupts, because the action the user just
-	// took did not happen.
-	const row = toast.closest("[role='alert']");
-	if (!(row instanceof HTMLElement)) throw new Error("no alert row");
+	const toast = toastText("select a region first");
+	const row = toast.closest("li");
+	if (!(row instanceof HTMLElement)) throw new Error("no toast row");
 	expect(toast.className).toContain("text-destructive-text");
+	// The body is BOUNDED: an esbuild diagnostic or a daemon stack is unbounded text,
+	// and one message must not be able to cover the viewport it is reporting on.
+	expect(toast.className).toContain("overflow-y-auto");
 
 	// Inside the canvas cell, absolutely — a toast is a LAYER (D-1), not a flex
 	// sibling: it must not take a pixel from the viewport or move it when it appears.
 	const cell = screen.getByLabelText("field viewport").parentElement;
-	const stack = row.parentElement;
+	const stack = toastStack();
 	if (!(stack instanceof HTMLElement)) throw new Error("no toast stack");
 	expect(stack.parentElement).toBe(cell);
 	for (const cls of ["absolute", "pointer-events-none"])
@@ -433,11 +459,60 @@ test("a host refusal becomes a persistent, toned toast over the canvas", async (
 	act(() => {
 		stub.fire.stats(makeStats({ totalOps: 3 }));
 	});
-	expect(screen.getByText("select a region first")).toBeTruthy();
+	expect(toastText("select a region first")).toBeTruthy();
 	act(() => {
 		fireEvent.click(screen.getByLabelText("dismiss: select a region first"));
 	});
-	expect(screen.queryByText("select a region first")).toBeNull();
+	// The dismiss button IS the row, and it is the unambiguous handle: the stack itself
+	// still stands (the toolbar's catalog info is riding out its TTL beside it).
+	expect(screen.queryByLabelText("dismiss: select a region first")).toBeNull();
+});
+
+test("toasts announce through persistent live regions, split by urgency", async () => {
+	fetch404();
+	const stub = makeStubHost();
+	await renderShell(stub);
+	// Both regions exist before any message does. This is the whole pattern (StatusBar's
+	// header states it): a `role="alert"` node mounted together WITH its text is what
+	// VoiceOver/Safari — our primary browser — is unreliable about, so the role has to
+	// pre-exist and the TEXT CHANGING is what announces.
+	expect(liveRegion("assertive").className).toContain("sr-only");
+	expect(liveRegion("polite").className).toContain("sr-only");
+	// The toolbar's catalog line is a report, so it waits for a pause…
+	expect(liveRegion("polite").textContent).toBe("no catalog — rock only");
+	expect(liveRegion("assertive").textContent).toBe("");
+
+	act(() => {
+		stub.fire.toolError("select a region first");
+	});
+	// …and a refusal interrupts.
+	expect(liveRegion("assertive").textContent).toBe("select a region first");
+	expect(liveRegion("polite").textContent).toBe("no catalog — rock only");
+
+	// Dismissing is the USER acting, not the editor speaking: the regions must not
+	// re-announce, and the announcement must not vanish with the row either.
+	act(() => {
+		fireEvent.click(screen.getByLabelText("dismiss: select a region first"));
+	});
+	expect(screen.queryByLabelText("dismiss: select a region first")).toBeNull();
+	expect(liveRegion("assertive").textContent).toBe("select a region first");
+});
+
+test("dismissing a toast keeps focus in the stack while one is left", async () => {
+	fetch404();
+	const stub = makeStubHost();
+	await renderShell(stub);
+	act(() => {
+		stub.fire.toolError("first");
+		stub.fire.toolError("second");
+	});
+	act(() => {
+		fireEvent.click(screen.getByLabelText("dismiss: first"));
+	});
+	// Focus follows to the toast that took its place. Without this it falls to <body>,
+	// so clearing a stack by keyboard means tabbing in from the top of the document
+	// again for every row (the PaletteLayer collapse/expand lesson).
+	expect(document.activeElement).toBe(screen.getByLabelText("dismiss: second"));
 });
 
 test("the ⚠ chip counts unread errors and summons the message log", async () => {
@@ -566,6 +641,30 @@ test("a log hidden by the ⌘\\ latch does NOT mark an arriving error read", asy
 	expect(
 		screen.getByLabelText("1 unread error — open the message log"),
 	).toBeTruthy();
+});
+
+test("the ⚠ chip un-collapses the log it summons", async () => {
+	fetch404();
+	const stub = makeStubHost();
+	// The log was rolled up when it was last closed, and that arrangement PERSISTS —
+	// `open` and `collapsed` are independent, and closing keeps the rest of the record
+	// on purpose. So a summon that only sets `open` restores a palette the user still
+	// cannot read.
+	await renderShell(stub, fakeUiStore({ workspace: LOG_COLLAPSED }));
+	act(() => {
+		stub.fire.toolError("select a region first");
+	});
+	act(() => {
+		fireEvent.click(screen.getByLabelText(/unread error/));
+	});
+	// Visible, not merely open…
+	const log = logPalette();
+	if (!(log instanceof HTMLElement)) throw new Error("the log did not open");
+	expect(within(log).getByText("select a region first")).toBeTruthy();
+	// …and BECAUSE it is visible, the messages are read and the chip stands down. With
+	// only `open` set this chip stays lit forever over a body nobody can see, and every
+	// further click repeats the same nothing — a permanently dead control.
+	expect(screen.queryByLabelText(/unread error/)).toBeNull();
 });
 
 test("a visibly open log DOES mark an arriving error read", async () => {

@@ -124,13 +124,19 @@ export function movePalette(
 }
 
 /** Roll the palette up to a rail chip, or back down. Geometry is untouched: the chip is
- *  a display of the same record, not a different place to be. */
-export function togglePaletteCollapsed(
+ *  a display of the same record, not a different place to be.
+ *
+ *  ABSOLUTE, with no toggle beside it: every caller knows which way it wants to go (the
+ *  header's chevron collapses, the rail chip expands, a summon un-collapses), and a
+ *  toggle would make each of them read the state first to be sure. */
+export function setPaletteCollapsed(
   state: WorkspaceState,
   id: PaletteId,
+  collapsed: boolean,
 ): WorkspaceState {
   const geom = state.palettes[id];
-  return withPalette(state, id, { ...geom, collapsed: !geom.collapsed });
+  if (geom.collapsed === collapsed) return state;
+  return withPalette(state, id, { ...geom, collapsed });
 }
 
 /** Close a palette (it leaves the layer AND the rail) or bring it back. Everything else

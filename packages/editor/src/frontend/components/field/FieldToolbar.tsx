@@ -190,11 +190,20 @@ export function FieldToolbar(props: {
 		notify.info("new world — all solid rock");
 	};
 
+	// The three long verbs report their OUTCOME and nothing else — no "saving…" toast in
+	// front of it. Three reasons, and the third is the load-bearing one:
+	//   1. in-flight is already said AT the control (`busy` disables the whole row), which
+	//      is where the user is looking when they press it;
+	//   2. D-19's mechanism for a long job is a progress chip with a cooperative cancel
+	//      (F4.5c), not a toast that cannot be acted on;
+	//   3. the stack caps at 3 and NEVER evicts, so a progress toast is a slot held by a
+	//      message about something that has already finished — with three of them the
+	//      outcome that matters ("saved 12 files") is the thing that gets suppressed.
+	//      Outcomes must always land; that is what the whole channel is for.
 	const onSave = async (): Promise<void> => {
 		const host = fieldHostRef.current;
 		if (!host || !nameValid) return;
 		setBusy(true);
-		notify.info(`saving ${name}…`);
 		try {
 			const files = toWireFiles(host.exportArtifact(name));
 			const res = await api.generationBake(files, `worlds/${name}`);
@@ -210,7 +219,6 @@ export function FieldToolbar(props: {
 		const host = fieldHostRef.current;
 		if (!host || !nameValid) return;
 		setBusy(true);
-		notify.info(`baking ${name} as the game's world…`);
 		try {
 			// Reuse the world flow's upload sequence: the world's file set (cleanDir'd to its own
 			// dir so a re-bake leaves no orphans), then worlds/index.json pointed at it
@@ -240,7 +248,6 @@ export function FieldToolbar(props: {
 		const host = fieldHostRef.current;
 		if (!host || !nameValid) return;
 		setBusy(true);
-		notify.info(`loading ${name}…`);
 		try {
 			const res = await api.fieldLoad(name);
 			host.loadWorld({

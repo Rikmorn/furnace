@@ -237,6 +237,12 @@ async function renderPanelUnderShellSeams(
 const button = (name: string): HTMLButtonElement =>
 	screen.getByRole("button", { name }) as HTMLButtonElement;
 
+/** A toast row's text, SCOPED to the stack. The toast layer also publishes two
+ *  persistent announcement regions carrying the same string (the house live-region
+ *  pattern — see Toasts), so an unscoped `getByText` is ambiguous by design. */
+const toastText = (text: string | RegExp): HTMLElement =>
+	within(screen.getByRole("list", { name: "notifications" })).getByText(text);
+
 // --- (a) paint organic-clamp ------------------------------------------------
 
 test("picking Paint while a kit class is active clamps the material to the first organic class", async () => {
@@ -892,9 +898,13 @@ test("no agent catalog installs nothing, quietly — the advisor says so itself"
 	stubCatalogs({ materials: CATALOG_JSON });
 	const stub = makeStubHost();
 	await renderPanel(stub);
-	await waitFor(() => expect(screen.getByText(/materials: /)).toBeTruthy());
+	await waitFor(() => expect(toastText(/materials: /)).toBeTruthy());
 	expect(stub.calls.setAgentProfile.mock.calls).toEqual([]);
-	expect(screen.queryByText(/agent/)).toBeNull();
+	expect(
+		within(screen.getByRole("list", { name: "notifications" })).queryByText(
+			/agent/,
+		),
+	).toBeNull();
 });
 
 test("a MALFORMED agent catalog is setup-loud and costs the other two nothing", async () => {
@@ -907,15 +917,13 @@ test("a MALFORMED agent catalog is setup-loud and costs the other two nothing", 
 	await renderPanel(stub);
 	// The JSON path is in the line, so a mistyped catalog is diagnosable from the
 	// panel rather than from a pass that silently never ran.
-	await waitFor(() =>
-		expect(screen.getByText(/capsule\.halfHeight/)).toBeTruthy(),
-	);
+	await waitFor(() => expect(toastText(/capsule\.halfHeight/)).toBeTruthy());
 	expect(stub.calls.setAgentProfile.mock.calls).toEqual([]);
 	// The other two catalogs are unaffected — the agent fetch gates nothing, so
 	// its failure must not cost the table that DOES gate Load.
 	expect(stub.calls.setMaterialTable.mock.calls.length).toBe(1);
 	expect(stub.calls.setEntityCatalog.mock.calls.length).toBe(1);
-	expect(screen.getByText(/materials: 2 classes/)).toBeTruthy();
+	expect(toastText(/materials: 2 classes/)).toBeTruthy();
 });
 
 /** The inspector labels a param with its humanized key, and FieldRow wraps the
@@ -1032,20 +1040,64 @@ test("Segment arms the gesture slot, keeps the brush inspector, and survives an 
 // tone on a shared span. The refusal half of the same story lives in
 // tests/chrome/shell.test.tsx, where the seam that carries it is wired.
 
+test("a save reports its OUTCOME, and says nothing while it is in flight", async () => {
+	// Materials + entities + agent all present, so the catalog pass posts TWO messages
+	// (it is silent on a good agent) — filling two of the three toast slots before the
+	// save even starts. That is the point: the stack caps at 3 and never evicts, so a
+	// "saving…" toast in front of the outcome is a slot spent on something already
+	// finished. In-flight is said AT the control (`busy` disables the row); D-19's
+	// mechanism for a long job is a progress chip with a cancel (F4.5c), not a toast.
+	stubFetch((url) => {
+		if (url.includes("entities.json"))
+			return Promise.resolve(new Response(ENTITIES_JSON, { status: 200 }));
+		if (url.includes("agent.json"))
+			return Promise.resolve(new Response("", { status: 404 }));
+		if (url.includes("materials.json"))
+			return Promise.resolve(new Response(CATALOG_JSON, { status: 200 }));
+		// The daemon call behind api.generationBake.
+		return Promise.resolve(
+			new Response(JSON.stringify({ files: 12 }), { status: 200 }),
+		);
+	});
+	const stub = makeStubHost();
+	await renderPanel(stub);
+	await waitFor(() => toastText("materials: 2 classes"));
+
+	fireEvent.change(screen.getByLabelText("world name"), {
+		target: { value: "cavern" },
+	});
+	await act(async () => {
+		fireEvent.click(button("Save"));
+		await Promise.resolve();
+		await Promise.resolve();
+	});
+
+	// The outcome LANDED. With a progress toast ahead of it this is the message that
+	// would have been dropped — the one the user actually needs.
+	await waitFor(() => toastText("saved 12 files → worlds/cavern"));
+	expect(notify.getSnapshot().overflow).toBe(0);
+	// …and nothing announced the attempt itself.
+	expect(notify.getSnapshot().log.some((m) => /saving/.test(m.text))).toBe(
+		false,
+	);
+});
+
 test("a toolbar report becomes a toast — and is still in the log after the toast goes", async () => {
 	stubCatalogs({ materials: CATALOG_JSON });
 	const stub = makeStubHost();
 	await renderPanel(stub);
-	const toast = await waitFor(() => screen.getByText("materials: 2 classes"));
+	const toast = await waitFor(() => toastText("materials: 2 classes"));
 	// Info, not error: a catalog that loaded is not a problem, and the tone is what
 	// the gate found missing when everything shared one line.
 	expect(toast.className).not.toContain("text-destructive");
-	expect(toast.closest("[role='status']")).toBeTruthy();
+	// …and it is announced POLITELY — a report waits for a pause, only refusals cut in.
+	const polite = document.querySelector("div[aria-live='polite']");
+	expect(polite?.textContent).toBe("materials: 2 classes");
 
 	// Dismissed off the screen, kept in the record — which is what makes a fading
 	// toast safe in the first place.
 	fireEvent.click(screen.getByLabelText("dismiss: materials: 2 classes"));
-	expect(screen.queryByText("materials: 2 classes")).toBeNull();
+	expect(screen.queryByLabelText("dismiss: materials: 2 classes")).toBeNull();
 	expect(notify.getSnapshot().log.map((e) => e.text)).toContain(
 		"materials: 2 classes",
 	);
@@ -1576,11 +1628,12 @@ test("the in-flight column is released by a verdict AND by a refusal", async () 
 	expect(verifyA().textContent).toBe("Verify");
 	// …and the refusal is not swallowed on the way: it is on screen as a toast, which
 	// is the only place it is said now.
+	expect(toastText("that flag was re-analyzed away")).toBeTruthy();
+	// Announced assertively: a refusal interrupts, because what the user asked for did
+	// not happen. (The house pattern — the ROW carries no live role; see Toasts.)
 	expect(
-		screen
-			.getByText("that flag was re-analyzed away")
-			.closest("[role='alert']"),
-	).toBeTruthy();
+		document.querySelector("div[aria-live='assertive']")?.textContent,
+	).toBe("that flag was re-analyzed away");
 });
 
 test("a SYNCHRONOUS refusal never leaves the column stuck", async () => {
@@ -1601,7 +1654,7 @@ test("a SYNCHRONOUS refusal never leaves the column stuck", async () => {
 	fireEvent.click(verifyA());
 	expect(stub.calls.verifyFlag.mock.calls).toEqual([["a"]]);
 	expect(verifyA().textContent).toBe("Verify");
-	expect(screen.getByText("a verify is already running")).toBeTruthy();
+	expect(toastText("a verify is already running")).toBeTruthy();
 });
 
 // The advisor's "catching up" line rode `analyzerPending` on the panel footer; it is
