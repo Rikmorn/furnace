@@ -64,6 +64,7 @@ function stubDaemon(
 	opts: { bakeFiles?: number; hangBakeAfter?: number } = {},
 ) {
 	const posted: Posted[] = [];
+	const held: ((r: Response) => void)[] = [];
 	let bakes = 0;
 	globalThis.fetch = mock((input: unknown, init?: RequestInit) => {
 		const url = String(input);
@@ -77,9 +78,9 @@ function stubDaemon(
 		if (command === "generation.bake") {
 			const nth = bakes++;
 			if (opts.hangBakeAfter !== undefined && nth >= opts.hangBakeAfter)
-				return new Promise<Response>(() => {
-					// deliberately never settles — the write stays in flight
-				});
+				// Held, not dropped: `releaseBakes()` lets a case run assertions WHILE the
+				// write is in flight and then watch what landing does.
+				return new Promise<Response>((res) => held.push(res));
 		}
 		const body =
 			command === "world.list"
@@ -97,6 +98,15 @@ function stubDaemon(
 		commands: () => posted.map((p) => p.command),
 		inputFor: (command: string) =>
 			posted.find((p) => p.command === command)?.input,
+		/** Settle every held `generation.bake`. */
+		releaseBakes: () => {
+			for (const settle of held.splice(0))
+				settle(
+					new Response(JSON.stringify({ files: opts.bakeFiles ?? 3 }), {
+						status: 200,
+					}),
+				);
+		},
 	};
 }
 
@@ -158,18 +168,35 @@ async function renderTopBar(
 	return result;
 }
 
-/** Summon the drawer from the chip and wait for its first listing. */
-async function openDrawer(): Promise<HTMLElement> {
+/** Dismiss the drawer and wait for it to go. Needed before asserting on the chip: the
+ *  drawer is MODAL, so everything behind it is `aria-hidden` and invisible to a role
+ *  query — which is correct behaviour, and exactly what a test has to respect. */
+async function dismissDrawer(): Promise<void> {
 	act(() => {
-		fireEvent.click(screen.getByRole("button", { name: /untitled|world/ }));
+		fireEvent.click(screen.getByRole("button", { name: "Close" }));
+	});
+	await waitFor(() => expect(screen.queryByRole("dialog") === null).toBe(true));
+}
+
+/** Summon the drawer from the world chip and wait for it. The chip's accessible name IS
+ *  the world's name (that is the point of the chip), so a case that has already named its
+ *  world passes it in. */
+async function openDrawer(
+	chip: string | RegExp = /^untitled/,
+): Promise<HTMLElement> {
+	act(() => {
+		fireEvent.click(screen.getByRole("button", { name: chip }));
 	});
 	return await waitFor(() => screen.getByRole("dialog"));
 }
 
+/** One world's row. The rows are `option`s inside a `listbox`, not list items: the
+ *  drawer carries a keyboard cursor, and `aria-selected` is what makes that cursor exist
+ *  for anything but the eye. */
 const rowFor = (drawer: HTMLElement, name: string): HTMLElement => {
 	const item = within(drawer)
-		.getAllByRole("listitem")
-		.find((li) => within(li).queryByText(name) !== null);
+		.getAllByRole("option")
+		.find((row) => within(row).queryByText(name) !== null);
 	if (!item) throw new Error(`no row for "${name}"`);
 	return item;
 };
@@ -254,14 +281,14 @@ test("the filter narrows the list, and ⏎ opens what is selected", async () => 
 	await renderTopBar(stub);
 	const drawer = await openDrawer();
 	await waitFor(() => rowFor(drawer, "cavern"));
-	expect(within(drawer).getAllByRole("listitem").length).toBe(3);
+	expect(within(drawer).getAllByRole("option").length).toBe(3);
 
 	act(() => {
 		fireEvent.change(within(drawer).getByLabelText("filter worlds"), {
 			target: { value: "grot" },
 		});
 	});
-	expect(within(drawer).getAllByRole("listitem").length).toBe(1);
+	expect(within(drawer).getAllByRole("option").length).toBe(1);
 
 	await act(async () => {
 		fireEvent.keyDown(drawer, { key: "Enter" });
@@ -856,4 +883,243 @@ test("the burger's New is disabled while a write is in flight", async () => {
 		await Promise.resolve();
 	});
 	expect((await burgerItem("New")).getAttribute("aria-disabled")).toBe("true");
+});
+
+// --- (h) the save point is what was WRITTEN, not where the session got to -------
+
+test("ops that land DURING the upload stay unsaved — the save point is the snapshot", async () => {
+	// The bug this pins, in the order it happens: ⌘S starts, the upload awaits a round
+	// trip, the user keeps digging, the upload lands, and the save point is taken from
+	// where the session is NOW. Those digs are silently adopted as saved: the chip goes
+	// clean, and the discard gate then throws them away without asking — which is the one
+	// outcome the whole dirty-bit mechanism exists to prevent.
+	const daemon = stubDaemon([], { hangBakeAfter: 0 });
+	const stub = makeStubHost();
+	let request: ConfirmRequest | null = null;
+	await renderTopBar(stub, {
+		openConfirm: (r) => {
+			request = r;
+		},
+	});
+	makeDirty(stub, 4);
+
+	const drawer = await openDrawer();
+	act(() => {
+		fireEvent.click(within(drawer).getByRole("button", { name: "Save as…" }));
+	});
+	act(() => {
+		fireEvent.change(within(drawer).getByLabelText("save as world name"), {
+			target: { value: "cavern" },
+		});
+	});
+	await act(async () => {
+		fireEvent.click(within(drawer).getByRole("button", { name: "Save" }));
+		await Promise.resolve();
+		await Promise.resolve();
+	});
+
+	// Two more digs while the upload is in flight — the artifact went out at 4 ops.
+	act(() => {
+		stub.fire.stats(makeStats({ totalOps: 6, undoDepth: 6 }));
+	});
+
+	// Release the upload.
+	await act(async () => {
+		daemon.releaseBakes();
+		await Promise.resolve();
+		await Promise.resolve();
+		await Promise.resolve();
+	});
+	await waitFor(() => screen.getByRole("button", { name: /cavern/ }));
+
+	// STILL dirty: two ops exist only in the session. A clean chip here is a lie the user
+	// acts on.
+	expect(
+		screen.getByRole("button", { name: "cavern — unsaved changes" }),
+	).toBeTruthy();
+
+	// …and the discard gate agrees, naming exactly the two that are at risk.
+	const newItem = await burgerItem("New");
+	act(() => {
+		fireEvent.click(newItem);
+	});
+	const prompt = request as ConfirmRequest | null;
+	if (!prompt) throw new Error("New did not confirm after a mid-upload edit");
+	expect(prompt.message).toContain("2 unsaved ops");
+});
+
+// --- (i) the keyboard cursor obeys every gate the buttons do -------------------
+
+test("⏎ obeys the busy gate — it cannot walk past a disabled Open", async () => {
+	// Without this, ⏎ reaches `actions.open`, which a write in flight silently refuses.
+	// On a dirty session that refusal lands AFTER the discard confirm has been answered
+	// yes: the user has agreed to lose the work and then nothing happens.
+	const daemon = stubDaemon([row({ name: "cavern" })], { hangBakeAfter: 0 });
+	const stub = makeStubHost();
+	await renderTopBar(stub);
+	const drawer = await openDrawer();
+	await waitFor(() => rowFor(drawer, "cavern"));
+
+	act(() => {
+		fireEvent.click(within(drawer).getByRole("button", { name: "Save as…" }));
+	});
+	act(() => {
+		fireEvent.change(within(drawer).getByLabelText("save as world name"), {
+			target: { value: "scratch" },
+		});
+	});
+	await act(async () => {
+		fireEvent.click(within(drawer).getByRole("button", { name: "Save" }));
+		await Promise.resolve();
+		await Promise.resolve();
+	});
+	// The write is hung — the row's own Open button says so.
+	expect(
+		(
+			within(rowFor(drawer, "cavern")).getByRole("button", {
+				name: /^open cavern/,
+			}) as HTMLButtonElement
+		).disabled,
+	).toBe(true);
+
+	await act(async () => {
+		fireEvent.keyDown(drawer, { key: "Enter" });
+		await Promise.resolve();
+	});
+	expect(daemon.commands()).not.toContain("field.load");
+});
+
+// --- (j) the session follows its own world through rename and delete -----------
+
+test("renaming the OPEN world moves the session with it — the next save writes the NEW name", async () => {
+	const daemon = stubDaemon([row({ name: "cavern" })]);
+	const stub = makeStubHost();
+	await renderTopBar(stub);
+	let drawer = await openDrawer();
+
+	// Get the session onto "cavern" the way a user does.
+	act(() => {
+		fireEvent.click(within(drawer).getByRole("button", { name: "Save as…" }));
+	});
+	act(() => {
+		fireEvent.change(within(drawer).getByLabelText("save as world name"), {
+			target: { value: "cavern" },
+		});
+	});
+	await act(async () => {
+		fireEvent.click(within(drawer).getByRole("button", { name: "Save" }));
+		await Promise.resolve();
+		await Promise.resolve();
+		await Promise.resolve();
+	});
+	await waitFor(() => screen.getByRole("button", { name: "cavern" }));
+
+	drawer = await openDrawer("cavern");
+	await waitFor(() => rowFor(drawer, "cavern"));
+	openRowMenu(drawer, "cavern");
+	act(() => {
+		fireEvent.click(screen.getByText("Rename…"));
+	});
+	act(() => {
+		fireEvent.change(within(drawer).getByLabelText("rename cavern to"), {
+			target: { value: "grotto" },
+		});
+	});
+	await act(async () => {
+		fireEvent.click(within(drawer).getByRole("button", { name: "Rename" }));
+		await Promise.resolve();
+		await Promise.resolve();
+	});
+
+	// The chip follows…
+	await dismissDrawer();
+	await waitFor(() => screen.getByRole("button", { name: "grotto" }));
+	// …and so does the WRITE, which is the half that matters: a session still pointing at
+	// the old name would re-create the directory the rename just emptied.
+	act(() => {
+		fireEvent.click(screen.getByRole("button", { name: "Bake" }));
+	});
+	// The WORLD-FILES call (the one carrying a cleanDir) — a bake posts a second,
+	// cleanDir-free write for worlds/index.json, and that one says nothing about which
+	// directory the session believes it owns.
+	await waitFor(() => {
+		const dirs = daemon.posted
+			.filter((p) => p.command === "generation.bake")
+			.map((p) => (p.input as { cleanDir?: string }).cleanDir)
+			.filter((d): d is string => d !== undefined);
+		expect(dirs.at(-1)).toBe("worlds/grotto");
+	});
+});
+
+test("deleting the OPEN world leaves the session untitled AND dirty", async () => {
+	stubDaemon([row({ name: "cavern" })]);
+	const stub = makeStubHost();
+	let request: ConfirmRequest | null = null;
+	await renderTopBar(stub, {
+		openConfirm: (r) => {
+			request = r;
+		},
+	});
+	let drawer = await openDrawer();
+	act(() => {
+		fireEvent.click(within(drawer).getByRole("button", { name: "Save as…" }));
+	});
+	act(() => {
+		fireEvent.change(within(drawer).getByLabelText("save as world name"), {
+			target: { value: "cavern" },
+		});
+	});
+	await act(async () => {
+		fireEvent.click(within(drawer).getByRole("button", { name: "Save" }));
+		await Promise.resolve();
+		await Promise.resolve();
+		await Promise.resolve();
+	});
+	await waitFor(() => screen.getByRole("button", { name: "cavern" }));
+
+	drawer = await openDrawer("cavern");
+	await waitFor(() => rowFor(drawer, "cavern"));
+	openRowMenu(drawer, "cavern");
+	act(() => {
+		fireEvent.click(screen.getByText("Delete"));
+	});
+	await act(async () => {
+		(request as ConfirmRequest | null)?.onConfirm();
+		await Promise.resolve();
+		await Promise.resolve();
+	});
+
+	// Untitled — the session keeps every edit, it just has nowhere on disk to go back to.
+	// And DIRTY by that same fact: content that exists nowhere on disk is unsaved, whatever
+	// the op count says, so the next New has to ask before discarding it.
+	await dismissDrawer();
+	await waitFor(() =>
+		screen.getByRole("button", { name: "untitled — unsaved changes" }),
+	);
+	request = null;
+	const newItem = await burgerItem("New");
+	act(() => {
+		fireEvent.click(newItem);
+	});
+	expect(request === null).toBe(false);
+});
+
+// --- (k) filter matching is case-insensitive -----------------------------------
+
+test("the filter ignores case on BOTH sides", async () => {
+	stubDaemon([row({ name: "Cavern" }), row({ name: "grotto" })]);
+	const stub = makeStubHost();
+	await renderTopBar(stub);
+	const drawer = await openDrawer();
+	await waitFor(() => rowFor(drawer, "Cavern"));
+
+	// World names may carry capitals (WORLD_NAME_RE's `i` flag allows them). A filter
+	// that hides "Cavern" when you type "cav" reads as a missing world.
+	act(() => {
+		fireEvent.change(within(drawer).getByLabelText("filter worlds"), {
+			target: { value: "CAV" },
+		});
+	});
+	expect(within(drawer).getAllByRole("option").length).toBe(1);
+	expect(rowFor(drawer, "Cavern")).toBeTruthy();
 });

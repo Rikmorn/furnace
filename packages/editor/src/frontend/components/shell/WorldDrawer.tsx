@@ -15,7 +15,7 @@
 // behind the editor's back (a git checkout, another editor) shows up the same way the
 // editor's own do.
 import { MoreHorizontal } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useCatalog } from "../../hooks/useCatalogs.tsx";
 import { useWorldActions, useWorldState } from "../../hooks/useWorld.tsx";
 import { api, type WorldRow } from "../../lib/api.ts";
@@ -42,6 +42,12 @@ import { Input } from "../ui/input.tsx";
 
 const LEGACY_REASON =
 	"a v1 world: no oplog, so field.load can't read it into the editor";
+/** The listbox and its rows carry ids so the filter field can name the row the keyboard
+ *  cursor is on (`aria-activedescendant`). World names are regex-gated to
+ *  `[a-z0-9_-]`, so they are safe to concatenate into an id. */
+const LIST_ID = "world-drawer-list";
+const rowId = (name: string): string => `world-drawer-row-${name}`;
+
 const CATALOG_REASON =
 	"waiting for the materials catalog — a world remeshes against the table it was baked with";
 
@@ -52,12 +58,17 @@ function NameForm({
 	label,
 	initial,
 	submitLabel,
+	busy,
 	onSubmit,
 	onCancel,
 }: {
 	label: string;
 	initial: string;
 	submitLabel: string;
+	/** A world write is in flight. The form stays OPEN and typeable — only its commit is
+	 *  held, because the verb it would start is the one already running. Gated on the
+	 *  handler as well as the button: ⏎ in the field submits without going near it. */
+	busy: boolean;
 	onSubmit: (name: string) => void;
 	onCancel: () => void;
 }) {
@@ -68,7 +79,7 @@ function NameForm({
 			className="flex flex-wrap items-center gap-2 border-border border-b bg-muted/40 px-3 py-2"
 			onSubmit={(e) => {
 				e.preventDefault();
-				if (valid) onSubmit(value);
+				if (valid && !busy) onSubmit(value);
 			}}
 		>
 			<Input
@@ -90,7 +101,7 @@ function NameForm({
 			{/* The rule is STATED, always, not revealed by failing it (D-21). */}
 			<span className="text-muted-foreground text-xs">{WORLD_NAME_RULE}</span>
 			<div className="flex-1" />
-			<Button type="submit" size="sm" disabled={!valid}>
+			<Button type="submit" size="sm" disabled={!valid || busy}>
 				{submitLabel}
 			</Button>
 			<Button type="button" size="sm" variant="ghost" onClick={onCancel}>
@@ -158,14 +169,39 @@ function Row({
 		: catalogSettled
 			? undefined
 			: CATALOG_REASON;
+	// Keep the keyboard cursor in view: ArrowUp/Down move a selection the user cannot
+	// otherwise follow once the list scrolls inside its own box. Optional-called because
+	// happy-dom implements no scrolling — a hard call would make every drawer test throw.
+	const rowRef = useRef<HTMLDivElement | null>(null);
+	useEffect(() => {
+		if (selected) rowRef.current?.scrollIntoView?.({ block: "nearest" });
+	}, [selected]);
+
 	return (
-		<li
+		// `option` inside the list's `listbox`, not a <li>: the drawer HAS a keyboard cursor
+		// (⏎ opens what it points at), and `aria-selected` is the only way that cursor
+		// exists for a screen reader — a background tint announces nothing. A <div> rather
+		// than a list element because the listbox roles REPLACE the list semantics; layering
+		// them on <ul>/<li> gives an element two contradictory role sets.
+		<div
+			ref={rowRef}
+			id={rowId(world.name)}
+			role="option"
+			aria-selected={selected}
+			// Focusable but OUT of the tab order: focus stays in the filter field, which
+			// names this row through `aria-activedescendant` — the standard virtual-cursor
+			// pattern, and the one that lets a user type and steer with the same hand.
+			tabIndex={-1}
 			className={cn(
 				"flex items-center gap-2 border-border/50 border-b px-3 py-1.5 last:border-b-0",
 				selected && "bg-accent",
 			)}
 		>
-			<span className="font-mono text-[13px]">{world.name}</span>
+			{/* min-w-0 + truncate: a long world name must ellipsize rather than shove the
+			    badges and the row's verbs off the right edge of a fixed-width drawer. */}
+			<span className="min-w-0 truncate font-mono text-[13px]">
+				{world.name}
+			</span>
 			{world.isDefault && <Badge tone="default">▶ game loads this</Badge>}
 			<TrackedBadge tracked={world.tracked} />
 			{legacy && <Badge>legacy</Badge>}
@@ -216,7 +252,7 @@ function Row({
 					</DropdownMenuItem>
 				</DropdownMenuContent>
 			</DropdownMenu>
-		</li>
+		</div>
 	);
 }
 
@@ -276,13 +312,22 @@ export function WorldDrawer() {
 		setForm(drawer === "save-as" ? { kind: "save-as" } : null);
 	}, [open, drawer]);
 
-	const visible = rows.filter((w) => w.name.includes(filter.trim()));
+	// Case-INSENSITIVE, on both sides: world names may carry capitals (WORLD_NAME_RE's
+	// `i` flag allows them), and a filter that hides "Cavern" when you type "cav" reads as
+	// a missing world rather than a case-sensitive match.
+	const needle = filter.trim().toLowerCase();
+	const visible = rows.filter((w) => w.name.toLowerCase().includes(needle));
 	const selected = visible[Math.min(cursor, visible.length - 1)];
 
+	// Every gate the row's own Open button wears, `busy` included. Without it ⏎ walks
+	// past a disabled button into an `actions.open` that a write in flight silently
+	// refuses — and on a dirty session that refusal lands AFTER the discard confirm has
+	// been answered yes, so the user has agreed to lose the work and then nothing happens.
 	const openSelected = useCallback((): void => {
-		if (!selected || selected.kind === "legacy" || !catalogSettled) return;
+		if (!selected || selected.kind === "legacy" || !catalogSettled || busy)
+			return;
 		actions.open(selected.name);
-	}, [selected, catalogSettled, actions]);
+	}, [selected, catalogSettled, busy, actions]);
 
 	return (
 		<Dialog
@@ -334,6 +379,13 @@ export function WorldDrawer() {
 						value={filter}
 						placeholder="filter worlds…"
 						aria-label="filter worlds"
+						// The virtual cursor: focus never leaves this field (typing and steering are
+						// the same gesture here), so the row ⏎ would open has to be named from here
+						// or it exists only as a background tint.
+						aria-controls={LIST_ID}
+						{...(selected
+							? { "aria-activedescendant": rowId(selected.name) }
+							: {})}
 						onChange={(e) => {
 							setFilter(e.target.value);
 							setCursor(0);
@@ -365,6 +417,7 @@ export function WorldDrawer() {
 						label="save as world name"
 						initial={name ?? ""}
 						submitLabel="Save"
+						busy={busy}
 						onSubmit={(next) => {
 							setForm(null);
 							actions.saveAs(next);
@@ -377,6 +430,7 @@ export function WorldDrawer() {
 						label={`rename ${form.from} to`}
 						initial={form.from}
 						submitLabel="Rename"
+						busy={busy}
 						onSubmit={(next) => {
 							setForm(null);
 							actions.rename(form.from, next);
@@ -389,6 +443,7 @@ export function WorldDrawer() {
 						label={`duplicate ${form.from} as`}
 						initial={`${form.from}-copy`}
 						submitLabel="Duplicate"
+						busy={busy}
 						onSubmit={(next) => {
 							setForm(null);
 							actions.duplicate(form.from, next);
@@ -408,7 +463,12 @@ export function WorldDrawer() {
 							: "no world matches that filter"}
 					</p>
 				)}
-				<ul className="max-h-80 overflow-y-auto text-sm">
+				<div
+					id={LIST_ID}
+					role="listbox"
+					aria-label="worlds"
+					className="max-h-80 overflow-y-auto text-sm"
+				>
 					{visible.map((world) => (
 						<Row
 							key={world.name}
@@ -424,7 +484,7 @@ export function WorldDrawer() {
 							}
 						/>
 					))}
-				</ul>
+				</div>
 				<p className="border-border border-t px-3 py-1.5 text-[11px] text-muted-foreground">
 					⏎ open selected · esc close
 				</p>

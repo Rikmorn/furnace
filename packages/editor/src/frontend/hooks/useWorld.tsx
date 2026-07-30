@@ -8,10 +8,13 @@
 // stats that provider already owns. `subscribeStats` is a single slot — a second
 // subscription here would silently steal the status bar's.
 //
-// Split into STATE and ACTIONS contexts, the useWorkspace pattern and for the same
-// reason: the component that installs the global keybindings needs the verbs and
-// nothing else, so it must be able to read them without re-rendering (and rebuilding
-// the palette bodies) every time a world is named or goes dirty.
+// Split into STATE and ACTIONS contexts, the useWorkspace pattern. Be precise about what
+// that buys, because the obvious claim is wrong: the verbs close over `name` and `dirty`,
+// so they DO rebuild when either changes, and a consumer of the actions context re-renders
+// then too. What the split isolates is the rest of the state — `drawer` and `busy` — which
+// churn on a different order of magnitude: every summon, every dismiss, and twice per save.
+// ShellChrome (which builds the palette bodies, and so re-renders FieldPanel whenever it
+// re-renders) reads verbs only, and is therefore off all of that.
 import type { ReactNode } from "react";
 import {
 	createContext,
@@ -90,9 +93,11 @@ export function useWorldState(): WorldState {
 	return value;
 }
 
-/** Read the world verbs; throws outside the provider. Stable except when the current
- *  world's NAME changes (the verbs close over it), so a consumer that reads only this
- *  is off the per-edit render path. */
+/** Read the world verbs; throws outside the provider. Rebuilt when `name` or `dirty`
+ *  changes — both are real inputs (the verbs write to the named world; `confirmDiscard`
+ *  reads the flag), so a stale capture would be a correctness bug, not a saved render.
+ *  What a reader of this context does NOT pick up is `drawer` and `busy`, which move far
+ *  more often: every drawer summon and dismiss, and twice per save. */
 export function useWorldActions(): WorldActions {
 	const value = useContext(WorldActionsContext);
 	if (!value) throw new Error("useWorldActions outside <WorldProvider>");
@@ -182,7 +187,13 @@ export function WorldProvider({ children }: { children: ReactNode }) {
 
 		/** One place to say what a daemon verb did. The world verbs are short calls whose
 		 *  only visible result is the drawer refreshing off `worlds-changed`, so without a
-		 *  line each they read as clicks that did nothing. */
+		 *  line each they read as clicks that did nothing.
+		 *
+		 *  Deliberately NOT serialised against each other or against a write: rename,
+		 *  duplicate, delete and make-default can interleave. Accepted posture — this is a
+		 *  single-user tool driving a local daemon, where the interleaving takes two hands on
+		 *  one keyboard, and each verb is one atomic fs call the daemon either performs or
+		 *  refuses. A queue here would be machinery for a race nobody can run. */
 		const runVerb = async (
 			describe: string,
 			done: string,
@@ -210,6 +221,18 @@ export function WorldProvider({ children }: { children: ReactNode }) {
 			// The SSE bundle-outdated guard reads this: a hard reload mid-write would kill
 			// the upload. App owns the reload; the ref is how this reaches it.
 			bakeBusyRef.current = true;
+			// Snapshotted BEFORE the write, and that ordering is the whole correctness of the
+			// dirty bit across a save. The upload is an AWAIT — a round trip to check tracked
+			// status, then one or two uploads — and the user can keep digging through all of
+			// it. Reading the count AFTERWARDS folds those ops into the save point: the chip
+			// goes clean, and the discard gate then throws them away without asking, which is
+			// the one outcome this whole mechanism exists to prevent.
+			//
+			// Conservative in the safe direction, deliberately. `exportArtifact` runs inside
+			// `saveWorld`, one round trip after this line, so an op landing in that window IS
+			// on disk yet still counts as unsaved. The cost is a dirty dot a second ⌘S clears;
+			// the opposite error costs the user their work.
+			const opsAtWrite = seenOps.current ?? 0;
 			try {
 				const outcome = await saveWorld(
 					{ api, host },
@@ -233,11 +256,12 @@ export function WorldProvider({ children }: { children: ReactNode }) {
 				}
 				if (outcome.status !== "saved") return;
 				setName(target);
-				// The new save point: the count the host last reported. A save changes no
-				// ops, so `seenOps` is still current — it is the number the next discard
-				// prompt measures against.
-				savedOps.current = seenOps.current ?? 0;
-				setDirty(false);
+				// The save point is what was WRITTEN, not where the session has got to. Anything
+				// the user dug while the upload was in flight is still unsaved, and the flag has
+				// to say so — a blanket `setDirty(false)` here is exactly the silent adoption the
+				// snapshot above exists to stop.
+				savedOps.current = opsAtWrite;
+				setDirty((seenOps.current ?? 0) !== opsAtWrite);
 				rememberWorld(store, target);
 				// A save-as was asked for FROM the drawer, and it has now been answered —
 				// leaving the list up over the canvas would make the user dismiss it to see
@@ -340,7 +364,14 @@ export function WorldProvider({ children }: { children: ReactNode }) {
 							// The world in the host outlives its directory — the session keeps
 							// every edit, it just has nowhere on disk to go back to, so it
 							// becomes untitled rather than pointing at a path that is gone.
-							if (ok && name === target) setName(null);
+							// And it is DIRTY by that same fact: content that exists nowhere on
+							// disk is the definition of unsaved, whatever the op count says. The
+							// save point went with the directory, so the next New or Open has to
+							// ask before discarding it.
+							if (ok && name === target) {
+								setName(null);
+								setDirty(true);
+							}
 						})();
 					},
 				}),

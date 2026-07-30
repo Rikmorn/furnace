@@ -106,6 +106,13 @@ export async function saveWorld(
   if (tracked === true && params.confirmedTracked !== true)
     return { status: "needs-tracked-confirm" };
 
+  // The check→write window is real and NOT closed: `worlds/<name>` could become tracked
+  // (a `git add`, a .gitignore edit) between the read above and the upload below, and on
+  // the confirm path a whole user decision sits in the middle of it. Accepted posture —
+  // this is a single-user tool driving a local daemon, so closing it would mean the
+  // daemon re-checking under a lock it has no reason to own. The guard's job is to stop
+  // the clobber the user can't see coming, not to be atomic against their other hand.
+
   try {
     // The upload sequence (D-W3-9): the world's file set cleanDir'd to its own
     // directory so a re-bake leaves no orphans, then — only when making it default —
