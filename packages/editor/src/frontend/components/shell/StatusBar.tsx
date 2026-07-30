@@ -1,11 +1,15 @@
 // The shell's status bar: 28 px, opaque, fixed height — the other half of the canvas
 // cell's inset budget (see TopBar).
 //
-// It carries three things: the viewport keymap (left), the engine/error report, and
-// the live host chips (right). The chips come from `useFieldHostState`, NOT from an
-// own subscription — subscribeStats is a single slot and a second subscriber would
-// silently steal the first's callback.
+// It carries four things: the viewport keymap (left), the engine/error report, the ⚠
+// chip that summons the message log, and the live host chips (right). The chips come
+// from `useFieldHostState`, NOT from an own subscription — subscribeStats is a single
+// slot and a second subscriber would silently steal the first's callback.
+import { TriangleAlert } from "lucide-react";
+import { useSyncExternalStore } from "react";
 import { useFieldHostState } from "../../hooks/useFieldHostState.tsx";
+import { useWorkspaceActions } from "../../hooks/useWorkspace.tsx";
+import { notify } from "../../lib/notify-store.ts";
 import type { EditorState } from "../../lib/state.ts";
 import { useEditor } from "../editor-context.ts";
 
@@ -23,6 +27,37 @@ function engineLabel(state: EditorState): string {
 // single-slot seam the field panel already holds.
 const KEYMAP = "LMB brush · [ ] radius · ⇧ smooth · ⌃ dig↔fill";
 
+/** The one clickable chip in this slice (D-19's stats-chip popovers are F4.5c). It
+ *  appears only while errors are UNREAD: a badge that never clears is a badge people
+ *  stop seeing, and the log stays reachable from the View menu once it has. */
+function ErrorChip() {
+	const { unreadErrors } = useSyncExternalStore(
+		notify.subscribe,
+		notify.getSnapshot,
+	);
+	const { setOpen, setHidden } = useWorkspaceActions();
+	if (unreadErrors === 0) return null;
+	return (
+		<button
+			type="button"
+			// SUMMONS rather than toggles: opening the log is what marks it read, which
+			// takes this chip away — so there is never a second click here to close with.
+			// The palette's own × and the View menu are the way back.
+			onClick={() => {
+				setOpen("log", true);
+				// …and clears the ⌘\ latch, or the summoned palette lands inside a hidden
+				// layer and the click reads as dead.
+				setHidden(false);
+			}}
+			aria-label={`${unreadErrors} unread ${unreadErrors === 1 ? "error" : "errors"} — open the message log`}
+			className="flex items-center gap-1 rounded-sm border border-border bg-muted px-1.5 py-px text-destructive-text tabular-nums transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+		>
+			<TriangleAlert className="h-3 w-3" />
+			{unreadErrors}
+		</button>
+	);
+}
+
 export function StatusBar({ viewportError }: { viewportError: string | null }) {
 	const { state } = useEditor();
 	const { stats } = useFieldHostState();
@@ -35,11 +70,12 @@ export function StatusBar({ viewportError }: { viewportError: string | null }) {
           and `truncate` clips it, so without the hover the only readers who get the
           whole message are the ones using the live region below. */}
 			{error && (
-				<span className="truncate text-destructive" title={error}>
+				<span className="truncate text-destructive-text" title={error}>
 					{error}
 				</span>
 			)}
 			<div className="flex-1" />
+			<ErrorChip />
 			{stats && (
 				<span className="flex items-center gap-3 tabular-nums">
 					<span>{stats.totalOps} ops</span>

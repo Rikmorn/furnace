@@ -21,8 +21,11 @@ import type {
 import type { ConfirmRequest } from "../../src/frontend/components/ConfirmDialog.tsx";
 import { FieldPanel } from "../../src/frontend/components/FieldPanel.tsx";
 import { FlagsSection } from "../../src/frontend/components/field/FlagsSection.tsx";
+import { Toasts } from "../../src/frontend/components/shell/Toasts.tsx";
+import { FieldHostStateProvider } from "../../src/frontend/hooks/useFieldHostState.tsx";
 import type { VerifyVerdictWire } from "../../src/frontend/lib/analyzer-protocol.ts";
 import type { EntityCatalog } from "../../src/frontend/lib/catalog.ts";
+import { notify } from "../../src/frontend/lib/notify-store.ts";
 import type {
 	FieldEntityInfo,
 	FieldGeneratorInfo,
@@ -45,6 +48,10 @@ import {
 import { makeStubHost } from "./_stub-host.ts";
 
 afterEach(cleanup);
+// The notification store is a module singleton (one editor, one message log), so a
+// message raised by one case is still there for the next one. Clearing also cancels
+// the TTL timers, which would otherwise fire into an unmounted tree.
+afterEach(() => notify.clear());
 
 // --- fetch stub (the toolbar's run-once catalog GET) ------------------------
 
@@ -177,16 +184,50 @@ const rowButton = (verb: string, entityId: number): HTMLButtonElement =>
 	screen.getByLabelText(`${verb} entity ${entityId}`) as HTMLButtonElement;
 
 /** Render the panel and flush the toolbar's catalog fetch inside act — its
- *  settle (status + Load-gate setState) otherwise lands between assertions as
+ *  settle (message + Load-gate setState) otherwise lands between assertions as
  *  an un-act'ed update. Test (b) renders directly instead: its fetch stays
- *  deliberately pending. */
+ *  deliberately pending.
+ *
+ *  `<Toasts />` rides along because the panel no longer renders what it SAYS: the
+ *  toolbar's reports go to the notification store, and the toast layer is what puts
+ *  them on screen. Mounting it here keeps those cases assertions about what a user
+ *  sees rather than about a store's internals.
+ *
+ *  Deliberately NOT wrapped in FieldHostStateProvider — several cases below assert
+ *  that the PANEL claims none of the shell's single-slot seams, and a provider here
+ *  would claim them for it. `renderPanelUnderShellSeams` is the variant for the two
+ *  cases that need the tool-error seam wired. */
 async function renderPanel(stub: ReturnType<typeof makeStubHost>) {
 	const result = renderWithEditor(
-		<FieldPanel />,
+		<>
+			<FieldPanel />
+			<Toasts />
+		</>,
 		makeEditorContext({ fieldHostRef: { current: stub.host } }),
 	);
 	await act(async () => {
 		// Two microtask turns: the catalog path awaits fetch() then res.text().
+		await Promise.resolve();
+		await Promise.resolve();
+	});
+	return result;
+}
+
+/** The panel under the shell's host-state provider — the arrangement the real editor
+ *  mounts. The provider owns `subscribeToolError`, so this is what a `fire.toolError`
+ *  needs to reach anything: it becomes a toast AND the tick that releases the panel's
+ *  in-flight verify column. */
+async function renderPanelUnderShellSeams(
+	stub: ReturnType<typeof makeStubHost>,
+) {
+	const result = renderWithEditor(
+		<FieldHostStateProvider host={stub.host} engineReady>
+			<FieldPanel />
+			<Toasts />
+		</FieldHostStateProvider>,
+		makeEditorContext({ fieldHostRef: { current: stub.host } }),
+	);
+	await act(async () => {
 		await Promise.resolve();
 		await Promise.resolve();
 	});
@@ -311,14 +352,16 @@ test("an undone commit disappears on the entity tick — no session change, no r
 
 // The single-slot rule, pinned from the side that would break it. Every FieldHost
 // subscribe seam stores ONE callback (`statsCb = cb`), so a panel that re-subscribed
-// to stats would silently steal the shell status bar's — no throw, no warning, the bar
-// just stops updating. The panel reads no stats at all now; this is the guard that a
-// re-added meter has to trip.
-test("the panel never subscribes to stats — that slot belongs to the shell", async () => {
+// to one would silently steal the shell's — no throw, no warning, the shell surface
+// just stops updating. The panel reads neither seam now: stats belong to the status
+// bar's chips, tool errors belong to the toast stack. This is the guard a re-added
+// meter (or a re-added status line) has to trip.
+test("the panel never subscribes to stats or tool errors — those slots belong to the shell", async () => {
 	fetch404();
 	const stub = makeStubHost();
 	await renderPanel(stub);
 	expect(stub.calls.subscribeStats).not.toHaveBeenCalled();
+	expect(stub.calls.subscribeToolError).not.toHaveBeenCalled();
 });
 
 // --- (j) drift report (Task 9) ----------------------------------------------
@@ -719,15 +762,15 @@ function controlsBox(): HTMLElement {
 	return box;
 }
 
-test("the control sections share ONE scroll container, between the toolbar and the status line", async () => {
+test("the control sections share ONE scroll container, between the toolbar and the footer", async () => {
 	fetch404();
 	const stub = makeStubHost({ generators: [HALL_GEN] });
 	await renderPanel(stub);
 	// happy-dom runs NO layout (getBoundingClientRect is all zeros), so the pixel
 	// outcome is not assertable. What IS assertable is the structure that produces
 	// it: one self-scrolling stack that takes the height the pinned toolbar above and
-	// the status line below leave, and shrinks instead of pushing them out. The F2b
-	// 45% cap is gone with the canvas it was protecting — the panel is controls now.
+	// the selection footer below leave, and shrinks instead of pushing them out. The
+	// F2b 45% cap is gone with the canvas it was protecting — the panel is controls now.
 	const controls = controlsBox();
 	for (const cls of ["flex-1", "min-h-0", "overflow-y-auto"])
 		expect(controls.classList.contains(cls)).toBe(true);
@@ -735,8 +778,8 @@ test("the control sections share ONE scroll container, between the toolbar and t
 	// All three control sections live inside it…
 	expect(controls.contains(button("Dig"))).toBe(true); // palette
 	expect(controls.contains(screen.getByText("Entities (0)"))).toBe(true); // entities
-	// …and neither the persistence toolbar nor the status line does: both stay pinned
-	// outside the scroll, which is the whole point of putting it here.
+	// …and neither the persistence toolbar nor the selection footer does: both stay
+	// pinned outside the scroll, which is the whole point of putting it here.
 	expect(controls.contains(screen.getByLabelText("world name"))).toBe(false);
 	expect(controls.contains(button("Reselect"))).toBe(false);
 	// The tall extreme: a stamp session adds the generator form to the stack — it
@@ -982,26 +1025,30 @@ test("Segment arms the gesture slot, keeps the brush inspector, and survives an 
 	).toBe("true");
 });
 
-// --- tool-error visibility (F3b gate round 1) --------------------------------
-// The host's refusals (void-cast budget, "select a region first") all land on
-// the one footer status line; rendered indistinguishably from info they read as
-// dead features — both gate findings traced here. Errors wear the destructive
-// tone; a plain status resets it.
+// --- what the toolbar SAYS now goes to the toast stack -----------------------
+// The F3b gate's finding was that refusals and routine info shared one footer line
+// and read identically, i.e. as dead features. The line is gone: every report is its
+// own toned toast (and its own log entry), so this asserts the routing rather than a
+// tone on a shared span. The refusal half of the same story lives in
+// tests/chrome/shell.test.tsx, where the seam that carries it is wired.
 
-test("a tool error renders in the destructive tone; the default status does not", async () => {
+test("a toolbar report becomes a toast — and is still in the log after the toast goes", async () => {
 	stubCatalogs({ materials: CATALOG_JSON });
 	const stub = makeStubHost();
 	await renderPanel(stub);
-	// The toolbar's catalog fetch lands during render and posts an INFO status
-	// ("materials: 2 classes") through the same line — it must NOT wear the tone.
-	const line = document.querySelector("span[aria-live]");
-	expect(line?.textContent).toContain("materials: 2 classes");
-	expect(line?.className ?? "").not.toContain("text-destructive");
-	act(() => {
-		stub.fire.toolError("select a region first");
-	});
-	const err = screen.getByText("select a region first");
-	expect(err.className).toContain("text-destructive");
+	const toast = await waitFor(() => screen.getByText("materials: 2 classes"));
+	// Info, not error: a catalog that loaded is not a problem, and the tone is what
+	// the gate found missing when everything shared one line.
+	expect(toast.className).not.toContain("text-destructive");
+	expect(toast.closest("[role='status']")).toBeTruthy();
+
+	// Dismissed off the screen, kept in the record — which is what makes a fading
+	// toast safe in the first place.
+	fireEvent.click(screen.getByLabelText("dismiss: materials: 2 classes"));
+	expect(screen.queryByText("materials: 2 classes")).toBeNull();
+	expect(notify.getSnapshot().log.map((e) => e.text)).toContain(
+		"materials: 2 classes",
+	);
 });
 
 // --- (o) F4: the walkability advisor's flags section -------------------------
@@ -1498,7 +1545,9 @@ test("clicking Verify starts a REAL one on the host and marks the row in flight"
 test("the in-flight column is released by a verdict AND by a refusal", async () => {
 	fetch404();
 	const stub = makeStubHost();
-	await renderPanel(stub);
+	// Under the provider: the refusal half of this test travels host → provider →
+	// tick, which is the path the real shell wires.
+	await renderPanelUnderShellSeams(stub);
 	act(() => {
 		stub.fire.flags(summaryOf(TWO_ROWS));
 	});
@@ -1525,7 +1574,13 @@ test("the in-flight column is released by a verdict AND by a refusal", async () 
 		stub.fire.toolError("that flag was re-analyzed away");
 	});
 	expect(verifyA().textContent).toBe("Verify");
-	expect(screen.getByText("that flag was re-analyzed away")).toBeTruthy();
+	// …and the refusal is not swallowed on the way: it is on screen as a toast, which
+	// is the only place it is said now.
+	expect(
+		screen
+			.getByText("that flag was re-analyzed away")
+			.closest("[role='alert']"),
+	).toBeTruthy();
 });
 
 test("a SYNCHRONOUS refusal never leaves the column stuck", async () => {
@@ -1536,7 +1591,7 @@ test("a SYNCHRONOUS refusal never leaves the column stuck", async () => {
 	// already performed, and the row reads "Verifying…" forever over a verify
 	// that never started.
 	const stub = makeStubHost({ verifyRefusal: "a verify is already running" });
-	await renderPanel(stub);
+	await renderPanelUnderShellSeams(stub);
 	act(() => {
 		stub.fire.flags(summaryOf(TWO_ROWS));
 	});

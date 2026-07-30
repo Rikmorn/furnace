@@ -3,14 +3,16 @@
 // headlamp toggle, plus the run-once catalog fetch that installs the project's
 // resolved material table, its entity catalog AND its agent profile on the
 // host. Owns the name / busy / catalog-settled state — the panel consumes the parsed
-// table (onTable), the entity-catalog signal (onEntityCatalogInstalled) and
-// the status line (onStatus, rendered in the panel footer). Reaches the
-// App-owned host through the editor context ref, exactly like the panel —
-// the chrome never value-imports engine code (the project-first invariant);
-// this file type-imports the artifact types (erased) and value-imports the
-// catalog parser from a frontend lib that itself only type-imports core.
+// table (onTable) and the entity-catalog signal (onEntityCatalogInstalled).
+// Everything it has to SAY goes to the notification store (Task 7): each report is
+// its own toast and its own log entry, toned by outcome, instead of overwriting a
+// shared footer line. Reaches the App-owned host through the editor context ref,
+// exactly like the panel — the chrome never value-imports engine code (the
+// project-first invariant); this file type-imports the artifact types (erased) and
+// value-imports the catalog parser from a frontend lib that itself only type-imports
+// core.
 import type { FieldManifest, MaterialTable } from "@furnace/core/field"; // type-only: erased
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "../../lib/api.ts";
 // catalog.ts type-imports core only (erased), so value-importing it here does
 // NOT pull core into the chrome bundle — the project-first invariant holds.
@@ -22,6 +24,7 @@ import {
 } from "../../lib/catalog.ts";
 import { cn } from "../../lib/cn.ts";
 import { bakeUploadCalls, toWireFiles } from "../../lib/generation.ts";
+import { notify } from "../../lib/notify-store.ts";
 import { useEditor } from "../editor-context.ts";
 import { Button } from "../ui/button.tsx";
 import { Input } from "../ui/input.tsx";
@@ -36,6 +39,16 @@ const NAME_RE = /^[a-z0-9][a-z0-9_-]*$/i;
 // the daemon returns. Per-chunk atob is fine for v0 sizes (each chunk is a 4KiB file).
 const base64ToBytes = (b64: string): Uint8Array =>
 	Uint8Array.from(atob(b64), (ch) => ch.charCodeAt(0));
+
+/** One catalog outcome, carried rather than posted, because the three loaders run
+ *  concurrently and the ORDER they are said in is decided by their caller. */
+type Report = { severity: "info" | "error"; text: string };
+const info = (text: string): Report => ({ severity: "info", text });
+const bad = (text: string): Report => ({ severity: "error", text });
+const post = (report: Report): void => {
+	if (report.severity === "error") notify.error(report.text);
+	else notify.info(report.text);
+};
 
 export function FieldToolbar(props: {
 	/** The panel's headlamp state — the toolbar renders the toggle, the panel owns it. */
@@ -56,24 +69,9 @@ export function FieldToolbar(props: {
 	 *  the stale-snapshot bug this callback exists to prevent. The host is the one
 	 *  source of truth; this is only the "ask it again" tick. */
 	onEntityCatalogInstalled: () => void;
-	/** The panel's status line (rendered in its footer). */
-	onStatus: (msg: string) => void;
 }) {
 	const { state, fieldHostRef } = useEditor();
-	const { onTable, onStatus, onEntityCatalogInstalled } = props;
-	// Every status write from this component goes through `report`, which bumps a
-	// sequence. The catalog effect's trailing append (one await later) checks the
-	// sequence has not moved — a New / Load / Save landing inside the entity
-	// fetch's round-trip OWNS the line, and must not be clobbered by a composed
-	// message about a catalog the user has stopped caring about.
-	const statusSeq = useRef(0);
-	const report = useCallback(
-		(msg: string): void => {
-			statusSeq.current++;
-			onStatus(msg);
-		},
-		[onStatus],
-	);
+	const { onTable, onEntityCatalogInstalled } = props;
 	const catalogLoaded = useRef(false);
 	const [name, setName] = useState("");
 	// True once the catalog fetch reached ANY outcome (success / 404 / error) —
@@ -85,18 +83,16 @@ export function FieldToolbar(props: {
 
 	const nameValid = NAME_RE.test(name);
 
-	// Catalog load, run-once on engine-ready — ALL THREE project catalogs, in one
-	// pass so they cannot race each other onto the status line. Materials come first
-	// and alone gate Load: a v2 world must remesh against the same table it was baked
-	// with. The entity and agent catalogs gate nothing (props render from the op log
-	// whether or not the first resolves; the advisor simply stays off without the
-	// second), so they run after the gate has settled and their outcomes only ever
-	// append to the message.
+	// Catalog load, run-once on engine-ready — ALL THREE project catalogs in one pass.
+	// Materials come first and alone gate Load: a v2 world must remesh against the same
+	// table it was baked with. The entity and agent catalogs gate nothing (props render
+	// from the op log whether or not the first resolves; the advisor simply stays off
+	// without the second), so they run after the gate has settled and report separately.
 	//
 	// The daemon maps these chrome-miss GETs onto the project root. A 404 leaves the
 	// host on its rock-only BUILTIN_TABLE / no-archetypes / no-profile defaults; a
-	// CatalogError is setup-loud (its JSON path shows in the status line so a
-	// mistyped catalog is diagnosable here). The host may not be GPU-init'd yet — the
+	// CatalogError is setup-loud (its JSON path shows in the message so a mistyped
+	// catalog is diagnosable here, and the log keeps it after the toast goes). The host may not be GPU-init'd yet — the
 	// setters then just store (no rebuild) and init() picks them up; if init ran
 	// first, the swap re-meshes. Either order converges. fieldHostRef.current is
 	// assigned before engine-ready (App), so it is present whenever
@@ -107,33 +103,35 @@ export function FieldToolbar(props: {
 		if (!host || state.status !== "ready" || catalogLoaded.current) return;
 		catalogLoaded.current = true;
 
-		const loadMaterials = async (): Promise<string> => {
+		const loadMaterials = async (): Promise<Report> => {
 			const res = await fetch("/catalog/materials.json");
-			if (res.status === 404) return "no catalog — rock only";
-			if (!res.ok) return `catalog fetch failed (${res.status})`;
+			if (res.status === 404) return info("no catalog — rock only");
+			if (!res.ok) return bad(`catalog fetch failed (${res.status})`);
 			const parsed = parseMaterialsCatalog(await res.text());
 			host.setMaterialTable(parsed);
 			onTable(parsed);
-			return `materials: ${parsed.classes.length} classes`;
+			return info(`materials: ${parsed.classes.length} classes`);
 		};
 
 		// Never throws — an entity-catalog problem is diagnostic text, never a
 		// reason to leave the panel without its material table.
-		const loadEntities = async (): Promise<string | null> => {
+		const loadEntities = async (): Promise<Report | null> => {
 			try {
 				const res = await fetch("/catalog/entities.json");
 				// 404 is the ordinary case for a project with no props at all —
 				// silent, not a warning. Scatter still runs on its schema defaults.
 				if (res.status === 404) return null;
-				if (!res.ok) return `entities fetch failed (${res.status})`;
+				if (!res.ok) return bad(`entities fetch failed (${res.status})`);
 				const parsed = parseEntityCatalog(await res.text());
 				host.setEntityCatalog(parsed);
 				onEntityCatalogInstalled(); // AFTER the install — the panel re-reads the host
-				return `props: ${parsed.archetypes.length} archetypes`;
+				return info(`props: ${parsed.archetypes.length} archetypes`);
 			} catch (err) {
-				return err instanceof CatalogError
-					? `entities error at "${err.path || "(root)"}": ${err.message}`
-					: `entities load failed: ${errorMessage(err)}`;
+				return bad(
+					err instanceof CatalogError
+						? `entities error at "${err.path || "(root)"}": ${err.message}`
+						: `entities load failed: ${errorMessage(err)}`,
+				);
 			}
 		};
 
@@ -144,63 +142,65 @@ export function FieldToolbar(props: {
 		// would have analysed, which is a better moment than load. Only a MALFORMED
 		// catalog has something to say here, and it must be said: nothing else
 		// would tell the user why the advisor never lit up.
-		const loadAgent = async (): Promise<string | null> => {
+		const loadAgent = async (): Promise<Report | null> => {
 			try {
 				const res = await fetch("/catalog/agent.json");
 				if (res.status === 404) return null;
-				if (!res.ok) return `agent fetch failed (${res.status})`;
+				if (!res.ok) return bad(`agent fetch failed (${res.status})`);
 				host.setAgentProfile(parseAgentCatalog(await res.text()));
 				return null;
 			} catch (err) {
-				return err instanceof CatalogError
-					? `agent error at "${err.path || "(root)"}": ${err.message}`
-					: `agent load failed: ${errorMessage(err)}`;
+				return bad(
+					err instanceof CatalogError
+						? `agent error at "${err.path || "(root)"}": ${err.message}`
+						: `agent load failed: ${errorMessage(err)}`,
+				);
 			}
 		};
 
 		void (async () => {
-			let status: string;
+			let materials: Report;
 			try {
-				status = await loadMaterials();
+				materials = await loadMaterials();
 			} catch (err) {
-				status =
+				materials = bad(
 					err instanceof CatalogError
 						? `catalog error at "${err.path || "(root)"}": ${err.message}`
-						: `catalog load failed: ${errorMessage(err)}`;
+						: `catalog load failed: ${errorMessage(err)}`,
+				);
 			} finally {
 				setCatalogSettled(true);
 			}
-			// Report the materials outcome the moment it is known, then APPEND
-			// whatever the two NON-GATING catalogs have to say — a slow (or wedged)
+			// Report the materials outcome the moment it is known — a slow (or wedged)
 			// entities fetch must not hold back the message about the catalog that
-			// actually gates Load. Both run concurrently and the line is composed
-			// ONCE, so neither can clobber the other's fragment.
-			report(status);
-			const owned = statusSeq.current;
-			const extras = (await Promise.all([loadEntities(), loadAgent()])).filter(
-				(part): part is string => part !== null,
-			);
-			if (extras.length > 0 && statusSeq.current === owned)
-				report([status, ...extras].join(" · "));
+			// actually gates Load — then whatever the two NON-GATING catalogs have to
+			// say, each as its OWN message. The F2b-era composition (one line rebuilt
+			// with the extras appended, guarded by a sequence so a New/Load/Save landing
+			// mid-fetch could not be clobbered) died with the shared line it protected:
+			// messages accumulate now instead of overwriting, and a re-posted composite
+			// would just be the materials outcome said twice.
+			post(materials);
+			for (const extra of await Promise.all([loadEntities(), loadAgent()]))
+				if (extra) post(extra);
 		})();
-	}, [state.status, fieldHostRef, onTable, report, onEntityCatalogInstalled]);
+	}, [state.status, fieldHostRef, onTable, onEntityCatalogInstalled]);
 
 	const onNew = (): void => {
 		fieldHostRef.current?.newWorld();
-		report("new world — all solid rock");
+		notify.info("new world — all solid rock");
 	};
 
 	const onSave = async (): Promise<void> => {
 		const host = fieldHostRef.current;
 		if (!host || !nameValid) return;
 		setBusy(true);
-		report(`saving ${name}…`);
+		notify.info(`saving ${name}…`);
 		try {
 			const files = toWireFiles(host.exportArtifact(name));
 			const res = await api.generationBake(files, `worlds/${name}`);
-			report(`saved ${res.files} files → worlds/${name}`);
+			notify.success(`saved ${res.files} files → worlds/${name}`);
 		} catch (err) {
-			report(`save failed: ${errorMessage(err)}`);
+			notify.error(`save failed: ${errorMessage(err)}`);
 		} finally {
 			setBusy(false);
 		}
@@ -210,7 +210,7 @@ export function FieldToolbar(props: {
 		const host = fieldHostRef.current;
 		if (!host || !nameValid) return;
 		setBusy(true);
-		report(`baking ${name} as the game's world…`);
+		notify.info(`baking ${name} as the game's world…`);
 		try {
 			// Reuse the world flow's upload sequence: the world's file set (cleanDir'd to its own
 			// dir so a re-bake leaves no orphans), then worlds/index.json pointed at it
@@ -226,9 +226,11 @@ export function FieldToolbar(props: {
 			for (const call of calls) {
 				results.push(await api.generationBake(call.files, call.cleanDir));
 			}
-			report(`baked ${results[0]?.files ?? 0} files — now the game's world`);
+			notify.success(
+				`baked ${results[0]?.files ?? 0} files — now the game's world`,
+			);
 		} catch (err) {
-			report(`bake failed: ${errorMessage(err)}`);
+			notify.error(`bake failed: ${errorMessage(err)}`);
 		} finally {
 			setBusy(false);
 		}
@@ -238,7 +240,7 @@ export function FieldToolbar(props: {
 		const host = fieldHostRef.current;
 		if (!host || !nameValid) return;
 		setBusy(true);
-		report(`loading ${name}…`);
+		notify.info(`loading ${name}…`);
 		try {
 			const res = await api.fieldLoad(name);
 			host.loadWorld({
@@ -260,9 +262,9 @@ export function FieldToolbar(props: {
 				// `kind:"dig"` ops forward; the chrome can't value-import parseOps).
 				oplog: res.oplog,
 			});
-			report(`loaded ${name} (${res.chunks.length} chunks)`);
+			notify.success(`loaded ${name} (${res.chunks.length} chunks)`);
 		} catch (err) {
-			report(`load failed: ${errorMessage(err)}`);
+			notify.error(`load failed: ${errorMessage(err)}`);
 		} finally {
 			setBusy(false);
 		}

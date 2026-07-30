@@ -22,8 +22,10 @@ import {
 import { useEditor } from "../editor-context.ts";
 import { FieldPanel } from "../FieldPanel.tsx";
 import { CanvasHost } from "./CanvasHost.tsx";
+import { LogPalette } from "./LogPalette.tsx";
 import { PaletteLayer } from "./PaletteLayer.tsx";
 import { StatusBar } from "./StatusBar.tsx";
+import { Toasts } from "./Toasts.tsx";
 import { TopBar } from "./TopBar.tsx";
 
 /** The workspace provider wraps the WHOLE frame, not just the layer: the top bar's
@@ -72,7 +74,13 @@ function ShellFrame() {
               layer's own drag re-renders untouched (see PaletteLayer's `content`).
               MIGRATION (until F4.5b): the surviving control stack rides in one
               `controls` palette until its organs move into palettes of their own. */}
-					<PaletteLayer content={{ controls: <FieldPanel /> }} />
+					<PaletteLayer
+						content={{ controls: <FieldPanel />, log: <LogPalette /> }}
+					/>
+					{/* Above the palette layer in DOM order, so a toast is never buried under
+              a palette that happens to be parked bottom-right. Its own absolute box
+              inside the SAME cell (D-1): it takes nothing from the canvas. */}
+					<Toasts />
 				</div>
 				<StatusBar viewportError={viewportError} />
 			</div>

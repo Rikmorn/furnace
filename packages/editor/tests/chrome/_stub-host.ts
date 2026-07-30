@@ -119,6 +119,7 @@ export function makeStubHost(
     setFlagFilters: mock(),
     verifyFlag: mock(),
     subscribeStats: mock(),
+    subscribeToolError: mock(),
   };
   const host: FieldHost = {
     init: (canvas) => {
@@ -140,9 +141,14 @@ export function makeStubHost(
       return () => {};
     },
     subscribeToolError: (cb) => {
+      calls.subscribeToolError(cb);
       cbs.toolError = cb;
-      // biome-ignore lint/suspicious/noEmptyBlockStatements: inert unsubscribe no-op
-      return () => {};
+      // A REAL unsubscribe, for the subscribeStats reason: this is a single slot too
+      // (the shell's provider owns it now), and an inert release could not tell a
+      // subscriber that leaks from one that cleans up.
+      return () => {
+        cbs.toolError = null;
+      };
     },
     setGesture: calls.setGesture,
     clearSelection: calls.clearSelection,
@@ -253,7 +259,14 @@ export function makeStubHost(
       /** The entity-list change TICK (the real host's only entity signal). */
       entities: () => cbs.entities?.(),
       drift: (r: DriftFinding[] | null) => cbs.drift?.(r),
-      toolError: (msg: string) => cbs.toolError?.(msg),
+      /** Returns whether the push was DELIVERED — false once the slot is free again
+       *  (the subscribeStats precedent: it is how a test tells a real unsubscribe from
+       *  an inert one). */
+      toolError: (msg: string): boolean => {
+        if (cbs.toolError === null) return false;
+        cbs.toolError(msg);
+        return true;
+      },
       flags: (s: FlagsSummary) => cbs.flags?.(s),
     },
     setEntities: (next: FieldEntityInfo[]) => {

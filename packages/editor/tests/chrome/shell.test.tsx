@@ -24,6 +24,7 @@ import {
 	FieldHostStateProvider,
 	useFieldHostState,
 } from "../../src/frontend/hooks/useFieldHostState.tsx";
+import { notify } from "../../src/frontend/lib/notify-store.ts";
 import type { UiStore } from "../../src/frontend/lib/persist.ts";
 import {
 	act,
@@ -35,10 +36,15 @@ import {
 	renderWithEditor,
 	screen,
 	waitFor,
+	within,
 } from "../inspector/_harness.tsx";
 import { makeStats, makeStubHost } from "./_stub-host.ts";
 
 afterEach(cleanup);
+// The notification store is a module singleton (one editor, one message log), so a
+// message raised by one case is still there for the next one. Clearing also cancels
+// the TTL timers, which would otherwise fire into an unmounted tree.
+afterEach(() => notify.clear());
 
 // --- environment: a laid-out canvas + a quiet catalog fetch ------------------
 
@@ -231,7 +237,11 @@ test("an init rejection lands in the status bar, NOT the global engine-error bra
 	const [visible, live] = screen.getAllByText(
 		/field host init failed: requestAdapter returned null/,
 	);
-	expect(visible?.className).toContain("text-destructive");
+	// `-text`, not the bare fill token: --destructive is a FILL colour and reads
+	// 3.55:1 as text on --card, under the 4.5:1 floor (D-23's first half, landed with
+	// the toasts). The exact class matters — "text-destructive" is a SUBSTRING of it,
+	// so a loose assertion here would pass either way and pin nothing.
+	expect(visible?.className).toContain("text-destructive-text");
 	expect(live?.className).toContain("sr-only");
 });
 
@@ -369,11 +379,181 @@ test("an engine build failure reports in the status bar, in the destructive tone
 	// TWO nodes carry it, deliberately: the visible span and the persistent live
 	// region whose text change is what announces.
 	const [visible, live] = screen.getAllByText("esbuild: it did not build");
-	expect(visible?.className).toContain("text-destructive");
+	// `-text`, not the bare fill token: --destructive is a FILL colour and reads
+	// 3.55:1 as text on --card, under the 4.5:1 floor (D-23's first half, landed with
+	// the toasts). The exact class matters — "text-destructive" is a SUBSTRING of it,
+	// so a loose assertion here would pass either way and pin nothing.
+	expect(visible?.className).toContain("text-destructive-text");
 	expect(live?.className).toContain("sr-only");
 	// …and no canvas was mounted, so nothing tried to init a host that may not exist.
 	expect(document.querySelectorAll("canvas").length).toBe(0);
 	expect(stub.calls.init).not.toHaveBeenCalled();
+});
+
+// --- (c2) what the editor SAYS: toasts, the ⚠ chip, the message log ----------
+//
+// The F3b gate found the host's refusals landing on a shared footer line, toneless and
+// overwritten by the next routine message — reading as dead features. D-19's answer is
+// here: a toned toast over the canvas, persistent while it is destructive, and a
+// durable log behind it. These cases pin the whole chain, host seam included.
+
+/** The message-log palette's box, or null while it is closed. */
+const logPalette = () => screen.queryByRole("region", { name: "Messages" });
+
+test("a host refusal becomes a persistent, toned toast over the canvas", async () => {
+	fetch404();
+	const stub = makeStubHost();
+	await renderShell(stub);
+	// Exactly ONE subscriber to the single-slot tool-error seam (the provider). The
+	// panel used to hold it; a second claim anywhere would silently steal this one.
+	expect(stub.calls.subscribeToolError.mock.calls.length).toBe(1);
+
+	act(() => {
+		stub.fire.toolError("select a region first");
+	});
+	const toast = screen.getByText("select a region first");
+	// role=alert, not status: a refusal interrupts, because the action the user just
+	// took did not happen.
+	const row = toast.closest("[role='alert']");
+	if (!(row instanceof HTMLElement)) throw new Error("no alert row");
+	expect(toast.className).toContain("text-destructive-text");
+
+	// Inside the canvas cell, absolutely — a toast is a LAYER (D-1), not a flex
+	// sibling: it must not take a pixel from the viewport or move it when it appears.
+	const cell = screen.getByLabelText("field viewport").parentElement;
+	const stack = row.parentElement;
+	if (!(stack instanceof HTMLElement)) throw new Error("no toast stack");
+	expect(stack.parentElement).toBe(cell);
+	for (const cls of ["absolute", "pointer-events-none"])
+		expect(stack.classList.contains(cls)).toBe(true);
+	// …and the row itself takes the pointer back, or its dismiss × cannot be clicked.
+	expect(row.classList.contains("pointer-events-auto")).toBe(true);
+
+	// It persists: nothing but the user takes an error away.
+	act(() => {
+		stub.fire.stats(makeStats({ totalOps: 3 }));
+	});
+	expect(screen.getByText("select a region first")).toBeTruthy();
+	act(() => {
+		fireEvent.click(screen.getByLabelText("dismiss: select a region first"));
+	});
+	expect(screen.queryByText("select a region first")).toBeNull();
+});
+
+test("the ⚠ chip counts unread errors and summons the message log", async () => {
+	fetch404();
+	const stub = makeStubHost();
+	await renderShell(stub);
+	// Quiet when there is nothing wrong: a chip that is always lit is one nobody
+	// reads. The log itself stays reachable from the View menu.
+	expect(screen.queryByLabelText(/unread error/)).toBeNull();
+	expect(logPalette()).toBeNull();
+
+	act(() => {
+		stub.fire.toolError("the void-cast budget is exhausted");
+		stub.fire.toolError("select a region first");
+	});
+	const chip = screen.getByLabelText(
+		"2 unread errors — open the message log",
+	) as HTMLButtonElement;
+
+	act(() => {
+		fireEvent.click(chip);
+	});
+	const log = logPalette();
+	if (!(log instanceof HTMLElement)) throw new Error("the log did not open");
+	// Newest first, both refusals, with the toasts still on screen — the log is the
+	// record, not a replacement for the notification. The THIRD entry is the field
+	// toolbar's catalog report ("no catalog — rock only" on this 404 project), which
+	// is the point worth pinning: both producers write the same log.
+	const entries = within(log).getAllByRole("listitem");
+	expect(entries.length).toBe(3);
+	expect(entries[0]?.textContent).toContain("select a region first");
+	expect(entries[1]?.textContent).toContain(
+		"the void-cast budget is exhausted",
+	);
+	expect(entries[2]?.textContent).toContain("no catalog — rock only");
+	expect(within(log).getByText("3 messages")).toBeTruthy();
+
+	// Opening the log is what marks it read, so the chip goes quiet — otherwise it
+	// stays lit over messages the user is looking at.
+	expect(screen.queryByLabelText(/unread error/)).toBeNull();
+
+	act(() => {
+		fireEvent.click(within(log).getByRole("button", { name: "Clear" }));
+	});
+	expect(within(log).getByText("no messages")).toBeTruthy();
+});
+
+test("the ⚠ chip clears the ⌘\\ latch, so the log it summons is actually on screen", async () => {
+	fetch404();
+	const stub = makeStubHost();
+	await renderShell(stub);
+	act(() => {
+		fireEvent.keyDown(window, { key: "\\", metaKey: true });
+	});
+	act(() => {
+		stub.fire.toolError("select a region first");
+	});
+	act(() => {
+		fireEvent.click(screen.getByLabelText(/unread error/));
+	});
+	// Without the un-hide the palette opens INSIDE a hidden layer and the click reads
+	// as dead — the exact failure mode the F3b gate named.
+	expect(logPalette()).toBeTruthy();
+	// The controls palette comes back with it (⌘\ is one latch over the whole layer),
+	// which is the honest cost of showing what was asked for.
+	expect(controlsPalette()).toBeTruthy();
+});
+
+test("the message log is a palette: closed by default, re-openable from the View menu", async () => {
+	fetch404();
+	const stub = makeStubHost();
+	await renderShell(stub);
+	// Closed on a fresh workspace: an empty box over the canvas would be dead chrome.
+	// It is still reachable without an error to summon it — the ⚠ chip is quiet.
+	expect(logPalette()).toBeNull();
+	expect(screen.queryByLabelText(/unread error/)).toBeNull();
+
+	pickMenuItem("Messages palette");
+	const log = logPalette();
+	if (!(log instanceof HTMLElement)) throw new Error("the log did not open");
+	// The toolbar's catalog report is already in it — a message nobody was watching
+	// for is exactly what a durable log is for.
+	expect(within(log).getByText("no catalog — rock only")).toBeTruthy();
+
+	act(() => {
+		fireEvent.click(within(log).getByRole("button", { name: "Clear" }));
+	});
+	expect(
+		within(log).getByText("Saves, bakes and refusals land here."),
+	).toBeTruthy();
+
+	act(() => {
+		fireEvent.click(screen.getByRole("button", { name: "close Messages" }));
+	});
+	expect(logPalette()).toBeNull();
+});
+
+test("the provider releases the tool-error slot on unmount", () => {
+	const stub = makeStubHost();
+	const { unmount } = render(
+		<FieldHostStateProvider host={stub.host} engineReady>
+			<span />
+		</FieldHostStateProvider>,
+	);
+	let delivered = false;
+	act(() => {
+		delivered = stub.fire.toolError("select a region first");
+	});
+	expect(delivered).toBe(true);
+	unmount();
+	// Single slot: an unsubscribe that does not FREE it leaves the next mount unable
+	// to claim one — refusals would stop reaching the toast stack with nothing thrown.
+	act(() => {
+		delivered = stub.fire.toolError("select a region first");
+	});
+	expect(delivered).toBe(false);
 });
 
 // --- (d) the layout contract + the retired dock ------------------------------

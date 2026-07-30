@@ -56,6 +56,12 @@ export type WorkspaceActions = {
 	setOpen: (id: PaletteId, open: boolean) => void;
 	/** The ⌘\ latch: hide every palette, or restore the exact prior arrangement. */
 	toggleHidden: () => void;
+	/** The latch, set ABSOLUTELY. Its one caller is the status bar's ⚠ chip, which
+	 *  summons a palette and must therefore be sure the layer is on screen — a summon
+	 *  that lands behind the ⌘\ latch is a click that visibly does nothing. Stated as a
+	 *  value rather than a toggle so the caller needs no read of the state (and so does
+	 *  not re-render on every drag frame). */
+	setHidden: (hidden: boolean) => void;
 	/** Back to the default arrangement, and forget the persisted one (D-3). The escape
 	 *  hatch for a palette dragged somewhere unreachable. */
 	reset: () => void;
@@ -147,6 +153,7 @@ export function WorkspaceProvider({
 			toggleCollapsed: (id) => edit((s) => togglePaletteCollapsed(s, id)),
 			setOpen: (id, open) => edit((s) => setPaletteOpen(s, id, open)),
 			toggleHidden: () => edit((s) => setPalettesHidden(s, !s.hidden)),
+			setHidden: (hidden) => edit((s) => setPalettesHidden(s, hidden)),
 			reset: () => {
 				// NOT an `edit`: reset un-touches, so the persist effect skips its write and
 				// the key is simply gone until the user arranges something again. The

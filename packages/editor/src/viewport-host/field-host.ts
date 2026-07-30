@@ -310,7 +310,8 @@ export type FieldHost = {
    *  console.warn; the console trail stays) and the selection-mask-without-a-
    *  selection drop (reported once per pointer-down stroke, re-armed on the
    *  next stroke, so a drag can't spam at stroke rate). Single subscriber
-   *  (the panel status line); returns an unsubscribe. */
+   *  (the shell's host-state provider, which posts each message as a toast);
+   *  returns an unsubscribe. */
   subscribeToolError(cb: (msg: string) => void): () => void;
   /** Arms what an LMB click does ({@link ViewportGesture}): a selection
    *  gesture (`box`/`material`/`void`), the two-click `segment` brush, or
@@ -1003,7 +1004,7 @@ export function createFieldHost(deps?: {
   let momentaryCtrl = false;
   // Panel mirror for host-initiated tool changes (eyedropper, momentary).
   let toolCb: ((t: FieldTool) => void) | null = null;
-  // User-facing tool-problem channel (panel status line, Task 14).
+  // User-facing tool-problem channel (the chrome's toast stack + message log).
   let toolErrorCb: ((msg: string) => void) | null = null;
   // Once-per-GESTURE guard for the "selection mask but no selection" report.
   // The gesture whose repeats need suppressing is the drag: a stroke re-arms
@@ -1744,8 +1745,8 @@ export function createFieldHost(deps?: {
   // the path — a kit fill off the lattice, a kit class under a non-box shape
   // (reachable ONLY through the segment gesture), an unknown material class —
   // is reported to the panel and the op DROPPED, rather than escaping the
-  // pointer handler. Reported per occurrence (the message replaces itself on
-  // the status line); only the mask-drop report is once-per-gesture.
+  // pointer handler. Reported per occurrence (each becomes its own message in
+  // the chrome); only the mask-drop report is once-per-gesture.
   //
   // toolOp is called INSIDE the try deliberately, though as of this commit it
   // is TOTAL — its one throwing call became isKitFillTool, which swallows
@@ -2505,7 +2506,7 @@ export function createFieldHost(deps?: {
   // re-casting per stroke would mean a whole-world worker job per stroke. So the
   // v0 drops it and SAYS so — a silently vanishing X-ray beside a still-ticked
   // checkbox would read as a bug. Self-limiting: the second mutation finds
-  // nothing live and returns, so a drag cannot spam the status line.
+  // nothing live and returns, so a drag cannot spam the report channel.
   const invalidateVoidCast = (): void => {
     const awaited = voidCastJobGen === voidCastGen;
     if (!awaited && voidCastMeshes.size === 0) return;
@@ -3042,7 +3043,7 @@ export function createFieldHost(deps?: {
         // field carries a preview REJECTION to the panel, but a fault in the
         // handler leaves the session reading "previewing" beside a ghost that
         // never arrived — the one stamp failure with nowhere to show. The
-        // status line is where the void cast puts its equivalent, and
+        // tool-error channel is where the void cast puts its equivalent, and
         // reportToolError keeps the console trail either way.
         const message = err instanceof Error ? err.message : String(err);
         reportToolError(`stamp preview could not be drawn: ${message}`);
@@ -3942,8 +3943,8 @@ export function createFieldHost(deps?: {
   // class id the ops recorded — see compactRuns' TSDoc), and a failed
   // compaction is never worth failing a load; compactRuns validates before its
   // first write, so a throw leaves the log exactly as parsed. The world loads
-  // uncompacted and the reason surfaces on the status line rather than blanking
-  // the panel (the optional-chrome failure stance).
+  // uncompacted and the reason surfaces on the tool-error channel rather than
+  // blanking the panel (the optional-chrome failure stance).
   const compactLoadedLog = (): void => {
     if (field.logStats(log).compactableOps <= COMPACT_THRESHOLD_OPS) return;
     try {
@@ -3993,7 +3994,7 @@ export function createFieldHost(deps?: {
       // re-init'd host must therefore re-send both, or every pass fails: the
       // protocol refuses an analyse before any sync (`requireStore`), so what
       // arrives is a typed `analyzer-error` — "the mirror holds no field yet" —
-      // reported on the status line, once per pass, until something happens to
+      // reported on the tool-error channel, once per pass, until something happens to
       // fill `analyzerDirty`. LOUD rather than wrong, which is `requireStore`
       // doing its job; the advisor is simply dead until then. The store, the log
       // and the findings all survive a dispose (the `disposed = false` in `init`

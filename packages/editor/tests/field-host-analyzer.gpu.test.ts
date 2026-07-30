@@ -532,7 +532,7 @@ test.skipIf(!bunWebGpuAvailable())(
       // The client spawns a FRESH worker on the next request, with an empty
       // mirror. Without the re-sync the protocol refuses the analyse outright
       // (`requireStore`: "analyze before any sync"), so the failure is a typed
-      // analyzer-error on the status line rather than a wrong answer — and it
+      // analyzer-error on the tool-error seam rather than a wrong answer — and it
       // repeats for every pass until something fills `analyzerDirty`. The
       // advisor is dead, loudly.
       await f.host.init(await makeHostCanvas(new Map()));

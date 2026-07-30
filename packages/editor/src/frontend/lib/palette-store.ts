@@ -12,14 +12,18 @@ import type { PaletteState, UiState } from "./persist.ts";
  *  persisted record for an id that is not here is dropped rather than restored, so a
  *  palette that gets renamed or retired cannot come back as dead geometry.
  *
- *  MIGRATION (until Task 10 of the F4.5a plan): `controls` alone. The entities palette
+ *  MIGRATION (until Task 10 of the F4.5a plan): `controls` + `log`. The entities palette
  *  registers here when it has content of its own — an empty titled box would be dead
  *  chrome, and Task 10 is what fills it. */
-export const PALETTE_IDS = ["controls"] as const;
+export const PALETTE_IDS = ["controls", "log"] as const;
 
 export type PaletteId = (typeof PALETTE_IDS)[number];
 
 /** Where a palette starts before the user has moved it, and what it is called.
+ *
+ *  `log` starts CLOSED, which is the difference between it and every other palette: it
+ *  is summoned (the status bar's ⚠ chip, the View menu) rather than always-on, so an
+ *  editor that has had nothing to say never spends screen on saying so.
  *
  *  MIGRATION (until F4.5b): `controls` is edge-docked right because it holds the whole
  *  surviving FieldPanel stack, which is still one 300 px column. It dissolves into
@@ -31,6 +35,13 @@ export const PALETTES: Record<
   controls: {
     title: "Controls",
     default: { x: 0, y: 0, edge: "right", collapsed: false, open: true },
+  },
+  log: {
+    title: "Messages",
+    // Free-floating, near the top-left: the one corner the default arrangement leaves
+    // empty (controls is docked right), so a summoned log lands somewhere visible
+    // without covering the controls that may have produced the message.
+    default: { x: 24, y: 24, edge: null, collapsed: false, open: false },
   },
 };
 
@@ -59,7 +70,10 @@ export function defaultWorkspace(): WorkspaceState {
   // compiler demand a line here for every palette added to the union, which is the
   // cheapest possible reminder that a new palette needs a default.
   return {
-    palettes: { controls: { ...PALETTES.controls.default } },
+    palettes: {
+      controls: { ...PALETTES.controls.default },
+      log: { ...PALETTES.log.default },
+    },
     hidden: false,
   };
 }
@@ -166,6 +180,11 @@ function isPaletteState(value: unknown): value is PaletteState {
 /** Rebuild the arrangement from a persisted blob, defaulting anything unusable. Each
  *  record is validated ALONE so one bad palette costs only itself, and ids outside
  *  `PALETTE_IDS` are dropped.
+ *
+ *  A blob written before a palette EXISTED is the same case as a corrupt record: the
+ *  base is `defaultWorkspace()` and only ids the blob actually carries overwrite it, so
+ *  a new palette arrives at its own default (closed, for `log`) instead of `undefined`
+ *  — which would be a crash in the layer, not a fallback.
  *
  *  Deliberately does NOT clamp to the current window: bounds need the palette's own
  *  measured size, which does not exist until it renders. A window that shrank between

@@ -1341,7 +1341,7 @@ test("a load-time compaction that throws is caught: the world still loads and th
   const world = buildBrushWorld(OVER_THRESHOLD_OPS, "fill", 1);
   // The load itself must not throw…
   expect(() => host.loadWorld(world)).not.toThrow();
-  // …and the skip reason reached the status line (not swallowed silently).
+  // …and the skip reason reached the tool-error seam (not swallowed silently).
   expect(errors.some((m) => /compaction/i.test(m))).toBe(true);
 });
 

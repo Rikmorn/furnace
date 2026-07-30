@@ -192,6 +192,11 @@ test("reset returns the default arrangement — fresh records, controls docked r
     collapsed: false,
     open: true,
   });
+  // The log palette is the summoned one: it ships CLOSED, so a session that has had
+  // nothing to say spends no screen on saying so. A default of `open: true` here would
+  // put an empty box over the canvas on every first run.
+  expect(fresh.palettes.log.open).toBe(false);
+  expect(fresh.palettes.log.edge).toBeNull();
 
   // Fresh objects every call: the reset verb hands its result straight into React
   // state, so a shared default record would let one session's drag rewrite the
@@ -239,6 +244,22 @@ test("serialize/deserialize round-trips through UiState.workspace", () => {
   expect(salvaged.palettes.controls).toEqual(
     defaultWorkspace().palettes.controls,
   );
-  expect(Object.keys(salvaged.palettes)).toEqual(["controls"]);
+  expect(Object.keys(salvaged.palettes).sort()).toEqual(["controls", "log"]);
   expect(salvaged.hidden).toBe(true);
+});
+
+test("a blob written before a palette existed restores that palette's default", () => {
+  // Exactly what is on disk for anyone who used the editor between Task 6 and Task 7:
+  // a v2 workspace blob with a `controls` record and no `log` key at all. The version
+  // did NOT change (nothing about the old shape became wrong), so this blob is read,
+  // not orphaned — and every id it is missing has to arrive at its own default rather
+  // than as `undefined`, which the layer would dereference on its first render.
+  const restored = deserializeWorkspace({
+    palettes: {
+      controls: { x: 120, y: 60, edge: null, collapsed: false, open: true },
+    },
+    hidden: false,
+  });
+  expect(restored.palettes.controls.x).toBe(120);
+  expect(restored.palettes.log).toEqual(defaultWorkspace().palettes.log);
 });

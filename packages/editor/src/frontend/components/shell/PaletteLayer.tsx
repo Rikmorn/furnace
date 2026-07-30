@@ -8,7 +8,7 @@
 // a palette swaps places with its rail chip.
 
 import type { LucideIcon } from "lucide-react";
-import { SlidersHorizontal } from "lucide-react";
+import { ScrollText, SlidersHorizontal } from "lucide-react";
 import type { ReactNode } from "react";
 import { useCallback, useLayoutEffect, useRef } from "react";
 import {
@@ -34,6 +34,9 @@ const PALETTE_CHROME: Record<
 	{ Icon: LucideIcon; widthClass: string }
 > = {
 	controls: { Icon: SlidersHorizontal, widthClass: "w-[300px]" },
+	// Wider than the controls column: log lines are sentences (a save path, an esbuild
+	// diagnostic), and a narrow box turns every one of them into four wrapped rows.
+	log: { Icon: ScrollText, widthClass: "w-[380px]" },
 };
 
 export function PaletteLayer({

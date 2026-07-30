@@ -4,12 +4,13 @@
 // + the layers/slice row, the advisor's flags, the entity list and the drift
 // report. The persistence concern — world name, Save / Load / Bake-as-default,
 // and the run-once catalog fetch that gates Load — lives in FieldToolbar
-// (extracted, F2b sweep); the panel keeps the table (swatches) and the status
-// line the toolbar reports into.
+// (extracted, F2b sweep); the panel keeps the table (swatches).
 // It owns NO canvas: the shell mounts the one full-window viewport (CanvasHost)
-// and inits the host on it. It also owns no stats subscription — that seam is a
-// single slot and the shell holds it (useFieldHostState); subscribing here would
-// silently steal the status bar's callback.
+// and inits the host on it. It also owns no stats and no tool-error
+// subscription — both seams are single slots the shell holds
+// (useFieldHostState); subscribing to either here would silently steal the
+// shell's callback. It has no status line either: what the editor SAYS goes to
+// the notification store (toasts + the message log), which is a shell surface.
 // The host is created ONCE at engine-ready (App) and reached ONLY through the
 // /engine.js runtime channel (a context ref) — the chrome never value-imports
 // engine code (the project-first invariant). This file type-imports the field
@@ -30,6 +31,7 @@ import type {
 	StampSession,
 	ViewportGesture,
 } from "../../viewport-host/index.ts"; // type-only: erased
+import { useToolErrorTick } from "../hooks/useFieldHostState.tsx";
 import { useEditor } from "./editor-context.ts";
 import { BrushInspector } from "./field/BrushInspector.tsx";
 import { DriftReport } from "./field/DriftReport.tsx";
@@ -249,22 +251,13 @@ export function FieldPanel() {
 	// The row key stage 2 is running on (null = none). PANEL state, not the
 	// host's, because releasing it takes two signals no single host seam carries:
 	// a verdict arrives on subscribeFlags, and each of `verifyFlag`'s refusals
-	// arrives on subscribeToolError having pushed no flags at all. Adopted here
+	// arrives on the tool-error seam having pushed no flags at all. Adopted here
 	// on the click for the same reason — `verifyFlag` is fire-and-forget.
 	const [verifying, setVerifying] = useState<string | null>(null);
-	// The one footer status line, toned: host REFUSALS (subscribeToolError) wear
-	// the destructive tone so they are seen — the F3b gate found the void-cast
-	// budget refusal and scatter's "select a region first" both landing here
-	// indistinguishably from info, reading as dead features. A subsequent plain
-	// status resets the tone (errors are loud, not sticky).
-	const [status, setStatusLine] = useState<{
-		text: string;
-		tone: "info" | "error";
-	}>({ text: "dig into the rock, then Save", tone: "info" });
-	const setStatus = useCallback(
-		(text: string) => setStatusLine({ text, tone: "info" }),
-		[],
-	);
+	// The refusal half of that release. The SEAM is the shell's now (single slot,
+	// one subscriber — the provider, which turns each refusal into a toast); what
+	// reaches here is only the fact that one happened, which is all this needs.
+	const toolErrorTick = useToolErrorTick();
 
 	// Host-surfaced state, read at engine-ready (it reaches the chrome through the
 	// host because the chrome cannot value-import core). The smooth ceilings are
@@ -370,25 +363,26 @@ export function FieldPanel() {
 		return host.subscribeEntities(refreshEntities);
 	}, [state.status, fieldHostRef, refreshEntities]);
 
-	// User-facing tool problems (selection-mask misuse, swallowed stroke
-	// failures, "select a region first") surface on the status line — and release
-	// any verify the panel thinks is running. Every `verifyFlag` refusal comes
-	// through here having pushed no flags, so this is the only signal that a
-	// verify the user started never actually began; without it the column would
-	// read "Verifying…" until the next analyzer response.
+	// A host refusal releases any verify the panel thinks is running. Every
+	// `verifyFlag` refusal reports on the tool-error seam having pushed no flags,
+	// so this is the only signal that a verify the user started never actually
+	// began; without it the column would read "Verifying…" until the next
+	// analyzer response.
 	//
 	// Deliberately blunt: an UNRELATED tool error (a failed stroke) also releases
 	// it. That way round is the safe one — the host still refuses a real second
 	// verify with "a verify is already running", so the cost is a button that
 	// looks live for a moment, against a column that sticks for good.
+	//
+	// The tick, not a message: the refusal's TEXT is already on screen as a toast
+	// (the provider posts it), and mirroring it into panel state would be a second
+	// copy to keep in agreement. The zero guard is what makes the dependency the
+	// effect's actual SUBJECT rather than a bare trigger — at mount nothing has been
+	// refused yet, so there is nothing to release.
 	useEffect(() => {
-		const host = fieldHostRef.current;
-		if (!host || state.status !== "ready") return;
-		return host.subscribeToolError((text) => {
-			setStatusLine({ text, tone: "error" });
-			setVerifying(null);
-		});
-	}, [state.status, fieldHostRef]);
+		if (toolErrorTick === 0) return;
+		setVerifying(null);
+	}, [toolErrorTick]);
 
 	// The reconfigure drift report. subscribeDrift pushes clones + the current
 	// report on subscribe (a panel remount after an apply keeps its findings);
@@ -527,14 +521,13 @@ export function FieldPanel() {
 				onShading={onShading}
 				onTable={setTable}
 				onEntityCatalogInstalled={refreshGenerators}
-				onStatus={setStatus}
 			/>
 			{/* The controls stack (palette + swatches + inspectors + layers + entities)
-          takes whatever height the toolbar above and the status line below leave, and
-          scrolls INSIDE itself. The F2b-era 45% cap is gone with the canvas it was
-          protecting: the panel is nothing but controls now, so a tall StampInspector
-          form has nothing left to starve. min-h-0 is what lets a flex child shrink
-          below its content instead of pushing the status line off the bottom. */}
+          takes whatever height the toolbar above and the selection footer below
+          leave, and scrolls INSIDE itself. The F2b-era 45% cap is gone with the canvas
+          it was protecting: the panel is nothing but controls now, so a tall
+          StampInspector form has nothing left to starve. min-h-0 is what lets a flex
+          child shrink below its content instead of pushing the footer off the bottom. */}
 			<div className="min-h-0 flex-1 overflow-y-auto">
 				<div className="flex flex-col gap-2 border-b border-border p-2 text-sm">
 					<ToolPalette
@@ -641,50 +634,41 @@ export function FieldPanel() {
 					onDismiss={() => fieldHostRef.current?.dismissDrift()}
 				/>
 			</div>
-			{/* The panel's own footer: the selection verbs and the ONE status line the
-          toolbar and the host's refusals both report into. The op-cost meter that
-          shared this row is gone — the live host readout belongs to the shell's
-          status bar now, which is the only subscriber to that seam. */}
-			<div className="flex flex-col gap-1 border-t border-border px-2 py-1 text-xs text-muted-foreground">
-				<span className="flex items-center gap-1.5">
-					{selection && (
-						<span className="tabular-nums">
-							{selection.count} selected
-							{selection.truncated &&
-								` — flood truncated at ${selection.count}`}
-						</span>
-					)}
-					{selection && (
-						<Button
-							type="button"
-							size="sm"
-							variant="ghost"
-							className="h-5 px-1.5 text-xs"
-							onClick={() => fieldHostRef.current?.clearSelection()}
-						>
-							Clear
-						</Button>
-					)}
-					{/* Always shown: Reselect restores what the last Clear/replace
-              displaced, so it matters exactly when there is NO selection; the
-              host no-ops on an empty slot. */}
+			{/* The panel's own footer: the selection verbs, and nothing else. The op-cost
+          meter went to the shell's status bar (the only subscriber to that seam) and
+          the status line went with the message channel it was — refusals and reports
+          are toasts now, over the canvas, with the log behind them. */}
+			<div className="flex items-center gap-1.5 border-t border-border px-2 py-1 text-xs text-muted-foreground">
+				{selection && (
+					<span className="tabular-nums">
+						{selection.count} selected
+						{selection.truncated && ` — flood truncated at ${selection.count}`}
+					</span>
+				)}
+				{selection && (
 					<Button
 						type="button"
 						size="sm"
 						variant="ghost"
 						className="h-5 px-1.5 text-xs"
-						title="restore the previous selection"
-						onClick={() => fieldHostRef.current?.reselect()}
+						onClick={() => fieldHostRef.current?.clearSelection()}
 					>
-						Reselect
+						Clear
 					</Button>
-				</span>
-				<span
-					aria-live="polite"
-					className={status.tone === "error" ? "text-destructive" : undefined}
+				)}
+				{/* Always shown: Reselect restores what the last Clear/replace
+              displaced, so it matters exactly when there is NO selection; the
+              host no-ops on an empty slot. */}
+				<Button
+					type="button"
+					size="sm"
+					variant="ghost"
+					className="h-5 px-1.5 text-xs"
+					title="restore the previous selection"
+					onClick={() => fieldHostRef.current?.reselect()}
 				>
-					{status.text}
-				</span>
+					Reselect
+				</Button>
 			</div>
 		</div>
 	);
