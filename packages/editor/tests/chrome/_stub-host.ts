@@ -134,6 +134,7 @@ export function makeStubHost(
     subscribeToolError: mock(),
     subscribeEntities: mock(),
     subscribeDrift: mock(),
+    subscribeCameraPose: mock(),
   };
   const host: FieldHost = {
     // Modelled on the real host's lifecycle, both halves of it. It REFUSES a second
@@ -265,6 +266,7 @@ export function makeStubHost(
     flagMarkerCount: () => 0,
     exportArtifact: () => [],
     subscribeCameraPose: (cb) => {
+      calls.subscribeCameraPose(cb);
       cbs.cameraPose = cb;
       // The real host pushes the CURRENT pose on subscribe (its own starting orbit);
       // a stub that pushed nothing would let a consumer depending on that go green.

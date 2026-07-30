@@ -260,15 +260,17 @@ test("a host-initiated tool push is adopted without re-pushing to host.setTool",
 // The single-slot rule, pinned from the side that would break it. Every FieldHost
 // subscribe seam stores ONE callback (`statsCb = cb`), so a panel that re-subscribed
 // to one would silently steal the shell's — no throw, no warning, the shell surface
-// just stops updating. The panel reads none of these four now: stats belong to the
-// status bar's chips, tool errors to the toast stack, and entities + drift to the
-// entities palette (via the shell's provider). This is the guard a re-added meter, a
-// re-added status line, or an entity list that crept back has to trip.
+// just stops updating. The panel reads none of these five now: stats belong to the
+// status bar's chips, tool errors to the toast stack, entities + drift to the
+// entities palette, and the camera pose to the axis triad (all via the shell's
+// provider, at useFieldHostState). This is the guard a re-added meter, a re-added
+// status line, an entity list, or a second orientation readout that crept back has to
+// trip.
 //
 // It is the ONLY case here that must NOT be rendered under FieldHostStateProvider — a
-// provider above the panel claims all four itself, and every assertion below would
+// provider above the panel claims all five itself, and every assertion below would
 // then be about the provider rather than the panel.
-test("the panel never subscribes to stats, tool errors, entities or drift — those slots belong to the shell", async () => {
+test("the panel never subscribes to stats, tool errors, entities, drift or the camera pose — those slots belong to the shell", async () => {
 	fetch404();
 	const stub = makeStubHost();
 	await renderPanel(stub);
@@ -276,6 +278,7 @@ test("the panel never subscribes to stats, tool errors, entities or drift — th
 	expect(stub.calls.subscribeToolError).not.toHaveBeenCalled();
 	expect(stub.calls.subscribeEntities).not.toHaveBeenCalled();
 	expect(stub.calls.subscribeDrift).not.toHaveBeenCalled();
+	expect(stub.calls.subscribeCameraPose).not.toHaveBeenCalled();
 });
 
 test("the commit button reads its mode and routes through the ONE host verb", async () => {

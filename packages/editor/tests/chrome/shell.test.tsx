@@ -889,6 +889,45 @@ test("the message log is a palette: closed by default, re-openable from the View
 		fireEvent.click(screen.getByRole("button", { name: "close Messages" }));
 	});
 	expect(logPalette()).toBeNull();
+
+	// The checkbox has to match the ⚠ chip's summon (StatusBar.tsx), not just its
+	// `open` half, or a tick can put the palette on screen where it still can't be
+	// read.
+	//
+	// (a) ⌘\ latches the whole layer away; ticking the box has to clear that too, or
+	// the palette opens INSIDE a layer still marked `hidden` and the tick reads as
+	// dead.
+	act(() => {
+		fireEvent.keyDown(window, { key: "\\", metaKey: true });
+	});
+	pickMenuItem("Messages palette");
+	expect(logPalette()).toBeTruthy();
+
+	act(() => {
+		fireEvent.click(screen.getByRole("button", { name: "close Messages" }));
+	});
+	expect(logPalette()).toBeNull();
+
+	// (b) closing preserves the rest of the record on purpose (see LOG_COLLAPSED), so
+	// a palette closed while collapsed comes back collapsed — the tick also has to
+	// un-collapse it, or the box returns as a rail chip instead of a readable body.
+	cleanup();
+	const stub2 = makeStubHost();
+	await renderShell(
+		stub2,
+		fakeUiStore({
+			workspace: {
+				...LOG_COLLAPSED,
+				palettes: {
+					...LOG_COLLAPSED.palettes,
+					log: { ...LOG_COLLAPSED.palettes.log, open: false },
+				},
+			},
+		}),
+	);
+	pickMenuItem("Messages palette");
+	expect(logPalette()).toBeTruthy();
+	expect(screen.queryByRole("button", { name: "expand Messages" })).toBeNull();
 });
 
 test("the provider releases the tool-error slot on unmount", () => {
@@ -1260,6 +1299,10 @@ test("the axis triad rides the camera pose, over the canvas and out of its way",
 	fetch404();
 	const stub = makeStubHost();
 	await renderShell(stub);
+	// Exactly ONE subscriber to the single-slot camera-pose seam (the provider, at
+	// useFieldHostState). A second one anywhere in the shell would silently steal this
+	// callback — the same claim the stats and tool-error seams pin above.
+	expect(stub.calls.subscribeCameraPose.mock.calls.length).toBe(1);
 	const triad = screen.getByRole("img", { name: "camera orientation axes" });
 	const canvas = screen.getByLabelText("field viewport");
 	// A CELL child like Toasts, absolutely placed: it takes nothing off the canvas

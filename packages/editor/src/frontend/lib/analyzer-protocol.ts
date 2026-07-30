@@ -73,8 +73,8 @@ export type VerifyVerdictWire = {
 
 /** The stage-2 surface the worker consumes off the engine bundle's `extensions`
  *  namespace — structural, for the {@link VerifyVerdictWire} reason. Declared
- *  here, applied ONCE in the worker entry (`analyzer-worker.ts`'s `loadEngine`),
- *  which is where the generation worker narrows its own. */
+ *  here and applied ONCE, in the worker entry's `loadEngine`
+ *  (`analyzer-worker.ts`). */
 export type AnalyzerEngine = {
   analyzerVerify: (opts: {
     store: FieldStore;

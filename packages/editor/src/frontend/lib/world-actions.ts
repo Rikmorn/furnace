@@ -53,8 +53,10 @@ export type LoadOutcome =
   | { status: "invalid-name" }
   | { status: "failed"; message: string };
 
-/** How many world names the recents list keeps. Small: it is a convenience for the
- *  drawer's ordering, not a history. */
+/** How many world names the recents list keeps. `rememberWorld` writes
+ *  `lastWorld`/`recentWorlds` on save and open; nothing reads either back yet — the
+ *  drawer sorts off `world.list` alone. A future drawer ordering or a boot auto-load
+ *  wires them, or deletes them; that call is F4.5b's. */
 export const RECENT_WORLDS_CAP = 8;
 
 // base64 → bytes: the inverse of toWireFiles' encoder, decoding the density chunk files

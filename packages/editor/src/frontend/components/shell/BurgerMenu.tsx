@@ -83,7 +83,8 @@ export function BurgerMenu({
 	onOpenViewOptions: () => void;
 }) {
 	const { palettes, hidden } = useWorkspaceState();
-	const { setOpen, toggleHidden, reset } = useWorkspaceActions();
+	const { setOpen, setCollapsed, setHidden, toggleHidden, reset } =
+		useWorkspaceActions();
 	const raise = usePaletteRaise();
 	const { name: worldName, busy } = useWorldState();
 	const world = useWorldActions();
@@ -212,12 +213,23 @@ export function BurgerMenu({
 						<DropdownMenuCheckboxItem
 							key={id}
 							checked={palettes[id].open}
-							// Opening RAISES, unconditionally — re-ticking a box for a palette that
-							// is open but buried is a summon too, and it has no transition for the
-							// layer's safety net to catch.
+							// Opening is a SUMMON, not a toggle: matches the ⚠ chip's onClick
+							// (StatusBar.tsx) — `open` alone does not mean "readable". A palette
+							// closed while collapsed comes back collapsed, and the ⌘\ latch covers
+							// the whole layer, so a tick that only sets `open` can re-open a rail
+							// chip or a still-latched-hidden palette that renders nothing. Raising
+							// is unconditional for the same reason as the chip: this is very often
+							// already open and merely buried, and buried has no open transition for
+							// the layer's safety net to catch. Closing is deliberately narrower —
+							// unticking shouldn't un-collapse or un-hide anything the user didn't ask
+							// to change.
 							onCheckedChange={(open) => {
 								setOpen(id, open);
-								if (open) raise(id);
+								if (open) {
+									setCollapsed(id, false);
+									setHidden(false);
+									raise(id);
+								}
 							}}
 						>
 							{PALETTES[id].title} palette

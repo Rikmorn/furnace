@@ -11,7 +11,7 @@ import { createAnalyzerWorkerHandler } from "./lib/analyzer-protocol.ts";
 
 async function loadEngine(engineUrl: string): Promise<AnalyzerEngine> {
   // Variable indirection: the runtime-built /engine.js must not be resolved at
-  // build time (the generation worker's loadEngine, same reason).
+  // build time — a literal specifier is exactly what a bundler resolves eagerly.
   const url: string = engineUrl;
   const mod = (await import(url)) as { extensions: Record<string, unknown> };
   // Boundary cast: the engine bundle's `extensions` namespace crosses the

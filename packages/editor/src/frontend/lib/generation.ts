@@ -1,5 +1,5 @@
-// The bake-upload marshalling the field toolbar drives: pure helpers that turn a
-// browser-produced file set into the daemon's `generation.bake` wire shape and decide the
+// The bake-upload marshalling world-actions.ts (and useWorld) drives: pure helpers that turn
+// a browser-produced file set into the daemon's `generation.bake` wire shape and decide the
 // call sequence. NO document-session contact — the ONLY daemon crossing is the api call the
 // caller makes with what these return. Everything here is pure and unit-tested without a DOM.
 

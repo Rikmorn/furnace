@@ -1,7 +1,7 @@
 // Field worker protocol: chunk remesh (with an optional display-side slice
 // clip), stamp ghost preview on a scratch store, and the void cast (the same
-// scratch pattern with an INVERTED density). Unlike the generation worker,
-// this worker runs ENGINE code (@furnace/core/field) — it does not load the
+// scratch pattern with an INVERTED density). Unlike the analyzer worker, this
+// worker runs ENGINE code (@furnace/core/field) only — it does not load the
 // project's /engine.js bundle and has no extension surface. The handler is a
 // PURE factory over an injected `post` so the protocol is unit-testable without
 // a real Worker (bun test spawns none): the worker entry wires
