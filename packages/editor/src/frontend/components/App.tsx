@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import type { FieldHost } from "../../viewport-host/index.ts"; // type-only
 import { useConfirmDialog } from "../hooks/useConfirmDialog.ts";
+import { useDaemonFeed } from "../hooks/useDaemonFeed.ts";
 import { api } from "../lib/api.ts";
 import { EngineBuildError, loadEngine } from "../lib/engine.ts";
-import { subscribeEvents } from "../lib/events.ts";
 import { createUiStore } from "../lib/persist.ts";
 import { initialState, reduce } from "../lib/state.ts";
 import { ConfirmDialog } from "./ConfirmDialog.tsx";
@@ -21,10 +21,9 @@ export function App() {
 	// The F1 field dig host, created once at engine-ready and threaded to the shell via
 	// context. App-owned so its lifetime is the editor's, not any one component's.
 	const fieldHostRef = useRef<FieldHost | undefined>(undefined);
-	// Whether a world write is in flight, for the SSE bundle-outdated guard below (that
-	// closure re-subscribes only on [state.status], so it cannot read live state). The
+	// Whether a world write is in flight, for the feed's bundle-outdated guard. The
 	// shell's world verbs set it around every save/bake; a ref rather than state because
-	// the guard has to see the CURRENT value without re-subscribing.
+	// the guard has to see the CURRENT value without re-subscribing (useDaemonFeed).
 	const bakeBusyRef = useRef(false);
 	// The in-chrome confirm dialog (replaces window.confirm) — its full state machine
 	// (open no-clobber guard, exactly-once resolve) lives in useConfirmDialog. `confirmRef`
@@ -33,10 +32,9 @@ export function App() {
 	const { confirm, confirmRef, openConfirm, resolveConfirm } =
 		useConfirmDialog();
 
-	// Bumped on every daemon `worlds-changed` event (a world.delete/rename/duplicate/
-	// makeDefault landed). Carried in context as the refetch trigger for whatever renders
+	// The daemon's SSE feed. Carried in context as the refetch trigger for whatever renders
 	// the world list — the world drawer is the first consumer.
-	const [worldsVersion, setWorldsVersion] = useState(0);
+	const worldsVersion = useDaemonFeed(state.status === "ready", bakeBusyRef);
 
 	// Per-project UI persistence. The project root comes from the daemon (project.get);
 	// until it resolves the store is undefined and persistence is simply off — the shell
@@ -91,33 +89,6 @@ export function App() {
 			cancelled = true;
 		};
 	}, []);
-
-	useEffect(() => {
-		if (state.status !== "ready") return;
-		return subscribeEvents({
-			// Nothing to catch up on: the editor mirrors no daemon-owned document. The
-			// field world lives in the host until the user saves it.
-			onOpen: () => undefined,
-			onEvent: (event) => {
-				if (event.type === "bundle-outdated") {
-					// Generator/extension source changed: the engine bundle is stale. A hard
-					// reload is the only way to pick it up, and it would kill an in-flight
-					// world write, so refuse while one is running (the shell's world verbs
-					// hold the ref for the duration of the upload).
-					if (!bakeBusyRef.current) window.location.reload();
-					return;
-				}
-				if (
-					event.type === "worlds-changed" ||
-					event.type === "generation-baked"
-				) {
-					// Both mean the worlds directory on disk moved under us (a world verb, or
-					// a bake that just wrote one) — anything showing the world list refetches.
-					setWorldsVersion((v) => v + 1);
-				}
-			},
-		});
-	}, [state.status]);
 
 	// A fresh object each render, unmemoized. That was once load-bearing — the dock
 	// portaled its panels, so a new context value was the only thing that reached them

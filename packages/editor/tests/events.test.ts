@@ -1,6 +1,10 @@
 import { expect, test } from "bun:test";
 import type { ServerResponse } from "node:http";
-import { createEventHub } from "../src/daemon/events.ts";
+import { createEventHub, type DaemonEvent } from "../src/daemon/events.ts";
+// Type-only, and deliberately so: this is the only file that names both sides of the
+// feed, and an `import type` is erased before it can pull the frontend module (and its
+// DOM globals) into a daemon test process.
+import type { ServerEvent } from "../src/frontend/lib/events.ts";
 
 type FakeRes = {
   chunks: string[];
@@ -36,6 +40,21 @@ function fakeRes(): FakeRes {
   } as unknown as ServerResponse;
   return fake;
 }
+
+/** `true` only if the two unions are mutually assignable — one-way would let either
+ *  side grow an arm the other has never heard of. Tuple-wrapped so a union distributes
+ *  as a whole rather than member by member. */
+type Mirrors<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false;
+
+test("the frontend's event union mirrors the daemon's, arm for arm", () => {
+  // Enforced by `bun run typecheck`, not by this run: drift makes the annotation `false`
+  // and the assignment below a compile error. It lives in a test because that is where
+  // someone looks when the two files disagree — the frontend mirrors DaemonEvent by
+  // hand (it cannot import daemon types), and a name that exists on only one side is a
+  // silent dead event, not a crash.
+  const mirrored: Mirrors<DaemonEvent, ServerEvent> = true;
+  expect(mirrored).toBe(true);
+});
 
 test("subscribe sends SSE headers; emit broadcasts a typed event frame", () => {
   const hub = createEventHub();
