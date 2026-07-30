@@ -3,9 +3,9 @@
 //
 // Split into TWO contexts on purpose, and the load-bearing beneficiary is ShellFrame:
 // it reads ACTIONS ONLY, so a drag never re-renders it — which is what keeps the
-// `content={{ controls: <FieldPanel /> }}` elements it builds referentially stable, and
-// therefore what keeps FieldPanel (7 host subscriptions, a form-heavy subtree) off the
-// pointer-rate path. A ShellFrame that starts reading the STATE context silently undoes
+// `content={{ controls: <FieldPanel />, … }}` elements it builds referentially stable,
+// and therefore what keeps FieldPanel (4 host subscriptions, a form-heavy subtree) off
+// the pointer-rate path. A ShellFrame that starts reading the STATE context silently undoes
 // that: it would rebuild those elements per pointermove and re-render the panel with
 // them. The provider's own `children` come from its parent, so its state changes
 // re-render only the context consumers below it (the FieldHostStateProvider pattern).

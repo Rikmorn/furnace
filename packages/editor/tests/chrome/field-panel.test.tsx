@@ -5,20 +5,15 @@
 // owns no canvas at all now (the shell's CanvasHost does), so nothing in this
 // file ever calls host.init — and every behaviour under test is pure
 // chrome↔host protocol: the paint organic-clamp, the catalog Load gate, the
-// subscribeTool echo guard, the entity-refresh tick (F3a — the ONE trigger,
-// which replaced the F2b commit-push + remeshVersion-counter pair), the F3a
-// row verbs (Open / Freeze / Bake-behind-a-confirm) and the reconfigure
-// session's Apply routing, stamp commit gating, slice wiring, the
-// selection footer, and the F4 advisor's flags section.
+// subscribeTool echo guard, the reconfigure session's Apply routing, stamp
+// commit gating, the selection footer, and the F4 advisor's flags section.
+//
+// The entity list and the drift report LEFT this panel in F4.5a Task 10 — they are
+// tests/chrome/entities-palette.test.tsx now, assertion for assertion. What stayed
+// behind is the negative half: the panel claims neither of their seams.
 
 import { afterEach, expect, mock, test } from "bun:test";
-import type {
-	DriftFinding,
-	FieldFlag,
-	FlagKind,
-	FlagSeverity,
-} from "@furnace/core/field";
-import type { ConfirmRequest } from "../../src/frontend/components/ConfirmDialog.tsx";
+import type { FieldFlag, FlagKind, FlagSeverity } from "@furnace/core/field";
 import { FieldPanel } from "../../src/frontend/components/FieldPanel.tsx";
 import { FlagsSection } from "../../src/frontend/components/field/FlagsSection.tsx";
 import { Toasts } from "../../src/frontend/components/shell/Toasts.tsx";
@@ -28,7 +23,6 @@ import type { VerifyVerdictWire } from "../../src/frontend/lib/analyzer-protocol
 import type { EntityCatalog } from "../../src/frontend/lib/catalog.ts";
 import { notify } from "../../src/frontend/lib/notify-store.ts";
 import type {
-	FieldEntityInfo,
 	FieldGeneratorInfo,
 	FieldTool,
 	FlagRow,
@@ -154,36 +148,6 @@ function makeSession(overrides: Partial<StampSession> = {}): StampSession {
 	};
 }
 
-const ENTITY: FieldEntityInfo = {
-	entityId: 1,
-	type: "generator",
-	generator: "hall",
-	params: { width: 4 },
-	seed: 7,
-	region: { min: [0, 0, 0], max: [4, 4, 4] },
-	opSpan: [2, 4], // 3 ops
-	placed: [], // a hall places nothing
-};
-
-/** Seed the list with `next` and fire the host's entity tick, as the real host
- *  does after a commit / apply / freeze / bake / ⌘Z. */
-function pushEntities(
-	stub: ReturnType<typeof makeStubHost>,
-	next: FieldEntityInfo[],
-): void {
-	stub.setEntities(next);
-	act(() => {
-		stub.fire.entities();
-	});
-}
-
-/** One row's action button, resolved by the aria-label that names BOTH the verb
- *  and the entity — the visible text ("Freeze", "Bake…") repeats on every row,
- *  so it identifies nothing once a list has two. Genuinely row-scoped: this is
- *  writable against a multi-row list, which a visible-text lookup was not. */
-const rowButton = (verb: string, entityId: number): HTMLButtonElement =>
-	screen.getByLabelText(`${verb} entity ${entityId}`) as HTMLButtonElement;
-
 /** Render the panel and flush the catalog fetch inside act — its settle (the message
  *  + the table setState) otherwise lands between assertions as an un-act'ed update.
  *
@@ -293,304 +257,25 @@ test("a host-initiated tool push is adopted without re-pushing to host.setTool",
 	expect(stub.calls.setTool).not.toHaveBeenCalled();
 });
 
-// --- (d) commit lands the entity row ----------------------------------------
-
-test("a stamp commit (the host's entity tick) surfaces the new entity row", async () => {
-	fetch404();
-	const stub = makeStubHost({ generators: [HALL_GEN] });
-	await renderPanel(stub);
-	expect(screen.getByText("Entities (0)")).toBeTruthy();
-	act(() => {
-		stub.fire.stamp(makeSession({ phase: "ready", opCount: 3 }));
-	});
-	// The commit appends the entity op, ends the session and ticks the list.
-	act(() => {
-		stub.fire.stamp(null);
-	});
-	pushEntities(stub, [ENTITY]);
-	expect(screen.getByText("Entities (1)")).toBeTruthy();
-	fireEvent.click(screen.getByText("Entities (1)"));
-	expect(screen.getByText("hall · seed 7 · 3 ops")).toBeTruthy();
-});
-
-// --- (e) the entity tick is the ONLY refresh trigger ------------------------
-
-test("an undone commit disappears on the entity tick — no session change, no remesh", async () => {
-	fetch404();
-	const stub = makeStubHost({ generators: [HALL_GEN] });
-	await renderPanel(stub);
-	pushEntities(stub, [ENTITY]);
-	expect(screen.getByText("Entities (1)")).toBeTruthy();
-	// ⌘Z with NOTHING else moving: no stamp session was open (so no null push)
-	// and a freeze/bake undo dirties no chunk (so the remesh counter never
-	// advances). The F2b trigger pair would have missed this entirely.
-	pushEntities(stub, []);
-	expect(screen.getByText("Entities (0)")).toBeTruthy();
-});
-
 // The single-slot rule, pinned from the side that would break it. Every FieldHost
 // subscribe seam stores ONE callback (`statsCb = cb`), so a panel that re-subscribed
 // to one would silently steal the shell's — no throw, no warning, the shell surface
-// just stops updating. The panel reads neither seam now: stats belong to the status
-// bar's chips, tool errors belong to the toast stack. This is the guard a re-added
-// meter (or a re-added status line) has to trip.
-test("the panel never subscribes to stats or tool errors — those slots belong to the shell", async () => {
+// just stops updating. The panel reads none of these four now: stats belong to the
+// status bar's chips, tool errors to the toast stack, and entities + drift to the
+// entities palette (via the shell's provider). This is the guard a re-added meter, a
+// re-added status line, or an entity list that crept back has to trip.
+//
+// It is the ONLY case here that must NOT be rendered under FieldHostStateProvider — a
+// provider above the panel claims all four itself, and every assertion below would
+// then be about the provider rather than the panel.
+test("the panel never subscribes to stats, tool errors, entities or drift — those slots belong to the shell", async () => {
 	fetch404();
 	const stub = makeStubHost();
 	await renderPanel(stub);
 	expect(stub.calls.subscribeStats).not.toHaveBeenCalled();
 	expect(stub.calls.subscribeToolError).not.toHaveBeenCalled();
-});
-
-// --- (j) drift report (Task 9) ----------------------------------------------
-//
-// The op-cost meter that used to sit beside it in the panel footer is gone: the live
-// host readout moved to the shell's status bar, which is now the seam's only
-// subscriber (tests/chrome/shell.test.tsx covers what it renders).
-
-const FINDINGS: DriftFinding[] = [
-	{ opId: 12, kind: "drifted", chunks: ["0,0,0", "1,0,0"] },
-	{ opId: 15, kind: "orphaned", chunks: ["2,0,0"] },
-];
-
-test("the drift report renders findings, frames a click, and dismisses through the host", async () => {
-	fetch404();
-	const stub = makeStubHost();
-	await renderPanel(stub);
-	// Non-modal: nothing renders on a clean apply (the subscribe push is null).
-	expect(screen.queryByText(/drifted|orphaned/)).toBeNull();
-
-	act(() => {
-		stub.fire.drift(FINDINGS);
-	});
-	expect(screen.getByText("op 12 drifted")).toBeTruthy();
-	expect(screen.getByText("op 15 orphaned")).toBeTruthy();
-
-	// A row click frames that finding's chunk bounds.
-	fireEvent.click(screen.getByLabelText("frame op 12 (drifted)"));
-	expect(stub.calls.frameChunks.mock.calls).toEqual([[["0,0,0", "1,0,0"]]]);
-
-	// Dismiss clears through the host (the report is host state)…
-	fireEvent.click(screen.getByLabelText("dismiss drift report"));
-	expect(stub.calls.dismissDrift).toHaveBeenCalledTimes(1);
-	// …and the host's null echo removes the list.
-	act(() => {
-		stub.fire.drift(null);
-	});
-	expect(screen.queryByText("op 12 drifted")).toBeNull();
-});
-
-// --- (d2) F3a: the smart-object verbs on a committed row --------------------
-
-const FROZEN: FieldEntityInfo = { ...ENTITY, entityId: 2, frozen: true };
-const BAKED: FieldEntityInfo = { ...ENTITY, entityId: 3, baked: true };
-
-/** Expand the Entities section (rows render inside a collapsed section by
- *  default) after seeding `next`. */
-async function showEntities(
-	stub: ReturnType<typeof makeStubHost>,
-	next: FieldEntityInfo[],
-): Promise<void> {
-	await renderPanel(stub);
-	pushEntities(stub, next);
-	fireEvent.click(screen.getByText(`Entities (${next.length})`));
-}
-
-test("Open on a plain row starts a reconfigure session through the host", async () => {
-	fetch404();
-	const stub = makeStubHost({ generators: [HALL_GEN] });
-	await showEntities(stub, [ENTITY]);
-	fireEvent.click(screen.getByLabelText("open entity 1"));
-	expect(stub.calls.openEntity.mock.calls).toEqual([[1]]);
-});
-
-test("a frozen row badges its state and refuses Open; a baked row does both too", async () => {
-	fetch404();
-	const stub = makeStubHost({ generators: [HALL_GEN] });
-	await showEntities(stub, [FROZEN, BAKED]);
-	expect(screen.getByText("frozen")).toBeTruthy();
-	expect(screen.getByText("baked")).toBeTruthy();
-	// A blocked Open's accessible name carries the reason too (see its own
-	// test), so these match by prefix.
-	const frozenOpen = screen.getByLabelText(
-		/^open entity 2\b/,
-	) as HTMLButtonElement;
-	const bakedOpen = screen.getByLabelText(
-		/^open entity 3\b/,
-	) as HTMLButtonElement;
-	expect(frozenOpen.disabled).toBe(true);
-	expect(bakedOpen.disabled).toBe(true);
-	fireEvent.click(frozenOpen);
-	expect(stub.calls.openEntity).not.toHaveBeenCalled();
-});
-
-test("each row's verbs address ITS OWN entity in a multi-row list", async () => {
-	fetch404();
-	const stub = makeStubHost({ generators: [HALL_GEN] });
-	const second: FieldEntityInfo = { ...ENTITY, entityId: 7 };
-	// TWO rows: "Freeze" as visible text is ambiguous here — only the id-bearing
-	// accessible name distinguishes them, which is the whole point of the label
-	// convention (a screen-reader user picking between identical buttons).
-	await showEntities(stub, [ENTITY, second]);
-	fireEvent.click(rowButton("freeze", 7));
-	expect(stub.calls.setEntityFrozen.mock.calls).toEqual([[7, true]]);
-	fireEvent.click(rowButton("bake", 1));
-	expect(stub.calls.bakeEntity).not.toHaveBeenCalled(); // routed to the confirm
-
-	// The frozen row's button flips to Unfreeze and asks for false. This is also
-	// the sameEntities guard's test — a flag-only change is the one the F2b
-	// signature (id/generator/seed/opSpan) could not see.
-	pushEntities(stub, [ENTITY, { ...second, frozen: true }]);
-	fireEvent.click(rowButton("unfreeze", 7));
-	expect(stub.calls.setEntityFrozen.mock.calls.at(-1)).toEqual([7, false]);
-});
-
-// --- (d3) F3b: the prop segment on a scatter row ----------------------------
-
-/** A committed scatter as listEntities hands it over: a one-op span (the
- *  placement op is the ONLY op it appends) plus the host's attribution of that
- *  op's records. */
-const SCATTER: FieldEntityInfo = {
-	...ENTITY,
-	entityId: 4,
-	generator: "scatter",
-	params: { archetypeId: "rock", density: 0.3 },
-	seed: 9,
-	opSpan: [5, 5], // 1 op
-	placed: [{ archetypeId: "rock", count: 24 }],
-};
-
-test("a scatter row names the archetype it placed and how many; a carver row keeps no prop segment", async () => {
-	fetch404();
-	const stub = makeStubHost({ generators: [HALL_GEN] });
-	await showEntities(stub, [ENTITY, SCATTER]);
-	// "1 ops" says nothing about a scatter's output (it writes no cells), so the
-	// prop segment is the row's only reading of what this stamp put down.
-	expect(
-		screen.getByText("scatter · seed 9 · 1 ops · rock · 24 placed"),
-	).toBeTruthy();
-	// The carver's row is untouched — absent, not a permanent "· 0 placed".
-	expect(screen.getByText("hall · seed 7 · 3 ops")).toBeTruthy();
-});
-
-// The branch the array-shaped `placed` EXISTS for. Scatter names one archetype
-// per commit, so every other test here renders a single entry and the flatMap's
-// multi-entry path never runs. `placementsByEntity` counting two archetypes is
-// pinned in field-placements.test.ts; this pins what the ROW then reads like.
-test("a row that placed TWO archetypes names both", async () => {
-	fetch404();
-	const stub = makeStubHost({ generators: [HALL_GEN] });
-	await showEntities(stub, [
-		{
-			...SCATTER,
-			placed: [
-				{ archetypeId: "rock", count: 24 },
-				{ archetypeId: "stalagmite", count: 3 },
-			],
-		},
-	]);
-	expect(
-		screen.getByText(
-			"scatter · seed 9 · 1 ops · rock · 24 placed · stalagmite · 3 placed",
-		),
-	).toBeTruthy();
-});
-
-// The refresh guard's blind spot, closed. `sameEntities` compares id, generator,
-// seed, opSpan and the two flags — and a world SWITCH can leave every one of
-// those equal while the counts differ, because loadWorld recomputes
-// `log.nextId` from the loaded ops' own maximum, so ids and spans restart. The
-// toolbar's Load button calls loadWorld inside this same panel mount (no
-// remount, no state reset, just an entity tick), which is exactly the tick this
-// test fires. Without `placed` in the comparator the guard returns `prev` and
-// the row keeps world A's count over world B.
-test("a world switch that changes ONLY a prop count still re-renders the row", async () => {
-	fetch404();
-	const stub = makeStubHost({ generators: [HALL_GEN] });
-	await showEntities(stub, [SCATTER]);
-	expect(
-		screen.getByText("scatter · seed 9 · 1 ops · rock · 24 placed"),
-	).toBeTruthy();
-	// World B: identical in every OTHER compared field, 2 props instead of 24.
-	pushEntities(stub, [
-		{ ...SCATTER, placed: [{ archetypeId: "rock", count: 2 }] },
-	]);
-	expect(
-		screen.getByText("scatter · seed 9 · 1 ops · rock · 2 placed"),
-	).toBeTruthy();
-});
-
-// The chrome half of the free-ness claim (its host half is field-stamp.test.ts'
-// "Open → re-roll → Apply on a SCATTER row"): a scatter is an ordinary
-// GeneratorEntity, so the F3a verbs and the generic params <dl> serve it with no
-// scatter-specific branch — the new segment did not cost the row anything.
-test("a scatter row keeps the generic verbs and params <dl> (F3a machinery, no scatter case)", async () => {
-	fetch404();
-	const stub = makeStubHost({ generators: [HALL_GEN] });
-	await showEntities(stub, [SCATTER]);
-	fireEvent.click(screen.getByLabelText("open entity 4"));
-	expect(stub.calls.openEntity.mock.calls).toEqual([[4]]);
-	// Expanding shows the scatter's own params through the same <dl> a hall gets.
-	fireEvent.click(
-		screen.getByText("scatter · seed 9 · 1 ops · rock · 24 placed"),
-	);
-	expect(screen.getByText("archetypeId")).toBeTruthy();
-	expect(screen.getByText("rock")).toBeTruthy();
-	expect(screen.getByText("density")).toBeTruthy();
-	expect(screen.getByText("0.3")).toBeTruthy();
-});
-
-test("a baked row disables both verbs — core would refuse them anyway", async () => {
-	fetch404();
-	const stub = makeStubHost({ generators: [HALL_GEN] });
-	await showEntities(stub, [BAKED]);
-	expect(rowButton("freeze", 3).disabled).toBe(true);
-	expect(rowButton("bake", 3).disabled).toBe(true);
-});
-
-test("a blocked Open carries its reason in the accessible name, not only a title", async () => {
-	fetch404();
-	const stub = makeStubHost({ generators: [HALL_GEN] });
-	await showEntities(stub, [FROZEN]);
-	// The title sits on a non-focusable wrapper span (a disabled button eats
-	// pointer events), so the accessible name is the only channel a screen
-	// reader or keyboard user actually gets.
-	expect(
-		screen.getByLabelText("open entity 2 (frozen — unfreeze it to edit)"),
-	).toBeTruthy();
-});
-
-test("Bake confirms before severing the recipe — cancelling never reaches the host", async () => {
-	fetch404();
-	const stub = makeStubHost({ generators: [HALL_GEN] });
-	let request: ConfirmRequest | null = null;
-	renderWithEditor(
-		<FieldPanel />,
-		makeEditorContext({
-			fieldHostRef: { current: stub.host },
-			openConfirm: (r) => {
-				request = r;
-			},
-		}),
-	);
-	await act(async () => {
-		await Promise.resolve();
-		await Promise.resolve();
-	});
-	pushEntities(stub, [ENTITY]);
-	fireEvent.click(screen.getByText("Entities (1)"));
-	fireEvent.click(rowButton("bake", 1));
-	// The click alone must not bake: the panel routed it into the App confirm.
-	expect(stub.calls.bakeEntity).not.toHaveBeenCalled();
-	const pending = request as ConfirmRequest | null;
-	if (pending === null) throw new Error("Bake did not open a confirmation");
-	expect(pending.destructive).toBe(true);
-	expect(pending.message).toMatch(/severs the recipe permanently/);
-	// Confirming is what severs it.
-	act(() => {
-		pending.onConfirm();
-	});
-	expect(stub.calls.bakeEntity.mock.calls).toEqual([[1]]);
+	expect(stub.calls.subscribeEntities).not.toHaveBeenCalled();
+	expect(stub.calls.subscribeDrift).not.toHaveBeenCalled();
 });
 
 test("the commit button reads its mode and routes through the ONE host verb", async () => {
@@ -695,9 +380,10 @@ test("the footer shows the selection count + the truncation warning; Clear reach
 /** The scroll container the control sections share, resolved through a section that
  *  must be inside it. Throws (rather than soft-failing an assertion) if the panel's
  *  shape changed — every assertion below is meaningless without it. Anchored on the
- *  entities heading now that the layers row (its old anchor) is the top bar's popover. */
+ *  brush palette now: the layers row (its first anchor) is the top bar's popover and
+ *  the entities heading (its second) is a palette of its own. */
 function controlsBox(): HTMLElement {
-	const box = screen.getByText("Entities (0)").closest(".overflow-y-auto");
+	const box = button("Dig").closest(".overflow-y-auto");
 	if (!(box instanceof HTMLElement))
 		throw new Error(
 			"field panel shape changed: the control sections no longer share a scroll container",
@@ -719,12 +405,16 @@ test("the control sections share ONE scroll container, above the pinned footer",
 	for (const cls of ["flex-1", "min-h-0", "overflow-y-auto"])
 		expect(controls.classList.contains(cls)).toBe(true);
 	expect(controls.classList.contains("max-h-[45%]")).toBe(false);
-	// All three control sections live inside it…
-	expect(controls.contains(button("Dig"))).toBe(true); // palette
-	expect(controls.contains(screen.getByText("Entities (0)"))).toBe(true); // entities
+	// The control sections live inside it…
+	expect(controls.contains(button("Dig"))).toBe(true); // brush palette
+	expect(controls.contains(button("Box Select"))).toBe(true); // gesture row
 	// …and the selection footer does not: it stays pinned outside the scroll, which is
 	// the whole point of putting it here.
 	expect(controls.contains(button("Reselect"))).toBe(false);
+	// The entity list is not in this panel AT ALL any more — it is the entities
+	// palette's, the first organ out (F4.5a Task 10). Compared to null before the
+	// expect, for the fiber-graph reason stated below.
+	expect(screen.queryByText(/^Entities \(/) === null).toBe(true);
 	// Nothing about the WORLD is in this panel any more — the name field, Save, Load
 	// and Bake are the shell's (the world chip + the drawer + ⌘S). A control stack that
 	// owns the save verb cannot be dissolved into palettes, and a palette that can be

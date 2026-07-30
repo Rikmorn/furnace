@@ -27,6 +27,7 @@ import { useEditor } from "../editor-context.ts";
 import { FieldPanel } from "../FieldPanel.tsx";
 import { AxisTriadMount } from "./AxisTriadMount.tsx";
 import { CanvasHost } from "./CanvasHost.tsx";
+import { EntitiesPalette } from "./EntitiesPalette.tsx";
 import { LogPalette } from "./LogPalette.tsx";
 import { PaletteLayer } from "./PaletteLayer.tsx";
 import { StatusBar } from "./StatusBar.tsx";
@@ -121,10 +122,15 @@ function ShellChrome({
 				)}
 				{/* The palette bodies are built HERE so their elements survive the
             layer's own drag re-renders untouched (see PaletteLayer's `content`).
-            MIGRATION (until F4.5b): the surviving control stack rides in one
-            `controls` palette until its organs move into palettes of their own. */}
+            MIGRATION (until F4.5b): the SURVIVING control stack rides in one
+            `controls` palette until the rest of its organs follow the entity list
+            into palettes of their own. */}
 				<PaletteLayer
-					content={{ controls: <FieldPanel />, log: <LogPalette /> }}
+					content={{
+						controls: <FieldPanel />,
+						entities: <EntitiesPalette />,
+						log: <LogPalette />,
+					}}
 				/>
 				{/* Above the palette layer in DOM order, the Toasts rule and for the same
             reason with a sharper case: the DEFAULT arrangement docks the controls

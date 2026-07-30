@@ -126,7 +126,7 @@ test("edge snap engages within SNAP_PX of the right/left edge and records edge",
   ).toBe("right");
 
   // Vertical placement is never snapped: there are only two edges (the persisted
-  // `edge` union says so) and the rail lives on the right.
+  // `edge` union says so), left and right.
   expect(
     movePalette(start, "controls", { x: 400, y: 2 }, BOUNDS).palettes.controls
       .y,
@@ -204,6 +204,17 @@ test("reset returns the default arrangement — fresh records, controls docked r
   // put an empty box over the canvas on every first run.
   expect(fresh.palettes.log.open).toBe(false);
   expect(fresh.palettes.log.edge).toBeNull();
+  // Entities is the OTHER always-on palette, and it floats: it must not dock, because
+  // both edges' full-height slots are the ones a docked palette would take from the
+  // rail and the triad. Open, because a list of what the world contains is the
+  // reference surface the dig loop is judged against.
+  expect(fresh.palettes.entities).toEqual({
+    x: 24,
+    y: 24,
+    edge: null,
+    collapsed: false,
+    open: true,
+  });
 
   // Fresh objects every call: the reset verb hands its result straight into React
   // state, so a shared default record would let one session's drag rewrite the
@@ -251,7 +262,11 @@ test("serialize/deserialize round-trips through UiState.workspace", () => {
   expect(salvaged.palettes.controls).toEqual(
     defaultWorkspace().palettes.controls,
   );
-  expect(Object.keys(salvaged.palettes).sort()).toEqual(["controls", "log"]);
+  expect(Object.keys(salvaged.palettes).sort()).toEqual([
+    "controls",
+    "entities",
+    "log",
+  ]);
   expect(salvaged.hidden).toBe(true);
 });
 

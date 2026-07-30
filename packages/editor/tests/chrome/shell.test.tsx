@@ -128,6 +128,10 @@ async function renderShell(
 const controlsPalette = () =>
 	screen.queryByRole("region", { name: "Controls" });
 
+/** The entities palette's box — open in the default arrangement, unlike the log. */
+const entitiesPalette = () =>
+	screen.queryByRole("region", { name: "Entities" });
+
 /** A persisted arrangement that is nothing like the default, so a restore is visible.
  *  `edge: null` is what makes it float at an x/y a test can read off the style. */
 const MOVED = {
@@ -1204,12 +1208,120 @@ test("the palette layer floats over the canvas and never swallows viewport input
 	// under the layer silently stops working and no other case here notices.
 	expect(layer.classList.contains("pointer-events-none")).toBe(true);
 	expect(palette.classList.contains("pointer-events-auto")).toBe(true);
+	// `isolate` is what CONFINES the click-to-front z-indexes to this layer. Without it
+	// (position:absolute with z-index:auto creates no stacking context) a raised palette
+	// competes with the layer's SIBLINGS — the triad and the toast stack, both above it
+	// by DOM order alone — and a refusal ends up painted under a palette. The DOM-order
+	// assertions elsewhere in this file cannot see that: they are still true when it
+	// breaks.
+	expect(layer.classList.contains("isolate")).toBe(true);
 
 	expect(palette.contains(canvas)).toBe(false);
 	// Docked right by default, and the field controls really are inside it (this is the
 	// field panel, not an empty box that happens to be positioned right).
 	expect(palette.style.right).toBe("0px");
-	expect(palette.contains(screen.getByText("Entities (0)"))).toBe(true);
+	expect(palette.contains(screen.getByRole("button", { name: "Dig" }))).toBe(
+		true,
+	);
+});
+
+test("the entities palette floats clear of the docked controls and the triad", async () => {
+	fetch404();
+	const stub = makeStubHost();
+	await renderShell(stub);
+	const entities = entitiesPalette();
+	if (!(entities instanceof HTMLElement))
+		throw new Error("the entities palette is not open");
+	// Open out of the box: it is the reference surface for everything the dig loop
+	// commits, and the list itself starts collapsed so an empty world costs one row.
+	expect(within(entities).getByText("Entities (0)")).toBeTruthy();
+	// Floating top-left. NOT docked, and that is a layout decision rather than taste:
+	// the default arrangement already spends the right edge on controls (full height)
+	// and the top-right corner on the triad, so a second dock would leave the collapsed-
+	// chip rail nowhere to go.
+	expect(entities.style.left).toBe("24px");
+	expect(entities.style.top).toBe("24px");
+	expect(entities.style.right).toBe("");
+	// …and it is a separate palette, not a section of the controls stack it left.
+	const controls = controlsPalette();
+	if (!(controls instanceof HTMLElement)) throw new Error("controls missing");
+	expect(controls.contains(entities)).toBe(false);
+	expect(within(controls).queryByText(/^Entities \(/) === null).toBe(true);
+});
+
+// Two floating palettes make stacking real for the first time (Task 6 parked it as
+// meaningless with one). A pointerdown ANYWHERE in a palette raises it — reaching for a
+// control on a buried one has to uncover it, not just click through to it.
+test("a pointerdown raises a palette above the others, and does not persist", async () => {
+	fetch404();
+	const stub = makeStubHost();
+	const store = fakeUiStore();
+	await renderShell(stub, store);
+	const zOf = (el: Element | null): string =>
+		el instanceof HTMLElement ? el.style.zIndex : "";
+	// The initial order is PALETTE_IDS: controls, entities.
+	expect(Number(zOf(entitiesPalette()))).toBeGreaterThan(
+		Number(zOf(controlsPalette())),
+	);
+
+	// A click on the controls palette's BODY (not its header — the raise must not be a
+	// drag-handle privilege) puts it on top.
+	act(() => {
+		fireEvent.pointerDown(screen.getByRole("button", { name: "Dig" }), {
+			button: 0,
+			pointerId: 1,
+		});
+	});
+	expect(Number(zOf(controlsPalette()))).toBeGreaterThan(
+		Number(zOf(entitiesPalette())),
+	);
+
+	// …and back again, so the order is a stack rather than a one-way promotion.
+	act(() => {
+		fireEvent.pointerDown(
+			within(entitiesPalette() as HTMLElement).getByText("Entities (0)"),
+			{ button: 0, pointerId: 2 },
+		);
+	});
+	expect(Number(zOf(entitiesPalette()))).toBeGreaterThan(
+		Number(zOf(controlsPalette())),
+	);
+
+	// Deliberately NOT persisted (D-3 persists geometry, collapse and open — the
+	// arrangement DECISIONS). Which palette was touched last is an accident of the final
+	// minute of a session; the debounced writer must not have been armed by it.
+	await act(async () => {
+		await new Promise((r) => setTimeout(r, 250));
+	});
+	expect(store.get("workspace")).toBeUndefined();
+});
+
+test("the collapsed-chip rail sits clear of the docked palette it used to cover", async () => {
+	fetch404();
+	const stub = makeStubHost();
+	await renderShell(stub);
+	act(() => {
+		fireEvent.click(screen.getByRole("button", { name: "collapse Controls" }));
+	});
+	const chip = screen.getByRole("button", { name: "expand Controls" });
+	const rail = chip.parentElement;
+	if (!(rail instanceof HTMLElement)) throw new Error("no chip rail");
+	// Bottom-LEFT. It used to be top-right, which is exactly where the default
+	// arrangement docks the controls palette (full height from y=0) AND where the axis
+	// triad sits — so every chip shipped on top of something.
+	for (const cls of ["bottom-0", "left-0"])
+		expect(rail.classList.contains(cls)).toBe(true);
+	for (const gone of ["top-0", "right-0"])
+		expect(rail.classList.contains(gone)).toBe(false);
+	// …and it stacks ABOVE every palette. The rail used to win by DOM order alone; the
+	// click-to-front z-indexes broke that, and a chip is the only way back to the
+	// palette it stands for — burying one is a control that cannot be reached.
+	const topPalette = Math.max(
+		...[entitiesPalette(), controlsPalette()]
+			.filter((el): el is HTMLElement => el instanceof HTMLElement)
+			.map((el) => Number(el.style.zIndex)),
+	);
+	expect(Number(rail.style.zIndex)).toBeGreaterThan(topPalette);
 });
 
 test("a palette collapses to a rail chip that restores it, keeping its geometry", async () => {
@@ -1223,8 +1335,10 @@ test("a palette collapses to a rail chip that restores it, keeping its geometry"
 	});
 	// Out of the layout AND out of the accessibility tree — but still MOUNTED behind
 	// `hidden`, so the panel's host-subscribed state survives the round trip.
+	// `getByText`, not `getByRole`: `hidden` takes the subtree out of the a11y tree,
+	// which is the very claim above, so a role query would find nothing either way.
 	expect(controlsPalette()).toBeNull();
-	expect(screen.getByText("Entities (0)")).toBeTruthy();
+	expect(screen.getByText("Dig")).toBeTruthy();
 	// The button that was just clicked went with the palette, so focus has to be MOVED
 	// or it lands on <body> and a keyboard user restarts from the top of the document.
 	const chip = screen.getByRole("button", { name: "expand Controls" });
@@ -1259,6 +1373,7 @@ test("⌘\\ hides the whole layer and restores the EXACT arrangement (D-3)", asy
 	expect(screen.getByLabelText("field viewport")).toBe(canvas);
 	// …and it hides rather than UNMOUNTS: ⌘\ is a peek, and a peek that tears the
 	// palettes down would reset every host-subscribed control inside them.
+	expect(screen.getByText("Dig")).toBeTruthy();
 	expect(screen.getByText("Entities (0)")).toBeTruthy();
 
 	act(() => {

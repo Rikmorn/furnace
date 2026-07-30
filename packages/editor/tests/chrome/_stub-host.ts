@@ -5,9 +5,10 @@
 // subscribeSelection/subscribeStamp/subscribeDrift/subscribeFlags/subscribeEntities
 // push the current (empty) state on subscribe, like the real host does.
 //
-// Shared because two suites now mount chrome that talks to a host: the field panel's
-// own tests and the shell's (which renders the panel inside the shell layout). A
-// second copy would go stale against the real FieldHost independently of this one.
+// Shared because three suites now mount chrome that talks to a host: the field panel's
+// own tests, the entities palette's, and the shell's (which renders both inside the
+// shell layout). A second copy would go stale against the real FieldHost independently
+// of this one.
 // Tests are NOT part of the chrome bundle, so a value import of the viewport host is
 // allowed here — and using the REAL helper is the point: the stub then goes stale
 // exactly when the production host would.
@@ -130,6 +131,8 @@ export function makeStubHost(
     verifyFlag: mock(),
     subscribeStats: mock(),
     subscribeToolError: mock(),
+    subscribeEntities: mock(),
+    subscribeDrift: mock(),
   };
   const host: FieldHost = {
     // Modelled on the real host's lifecycle, both halves of it. It REFUSES a second
@@ -222,18 +225,27 @@ export function makeStubHost(
     setEntityFrozen: calls.setEntityFrozen,
     bakeEntity: calls.bakeEntity,
     subscribeDrift: (cb) => {
+      calls.subscribeDrift(cb);
       cbs.drift = cb;
       cb(null);
-      // biome-ignore lint/suspicious/noEmptyBlockStatements: inert unsubscribe no-op
-      return () => {};
+      // A REAL unsubscribe, for the subscribeStats reason: this is a single slot the
+      // shell's provider owns now, and an inert release could not tell a subscriber
+      // that leaks from one that cleans up.
+      return () => {
+        cbs.drift = null;
+      };
     },
     dismissDrift: calls.dismissDrift,
     frameChunks: calls.frameChunks,
     subscribeEntities: (cb) => {
+      calls.subscribeEntities(cb);
       cbs.entities = cb;
       cb(); // the real host's initial catch-up tick
-      // biome-ignore lint/suspicious/noEmptyBlockStatements: inert unsubscribe no-op
-      return () => {};
+      // A REAL unsubscribe (the subscribeStats reason — single slot, and a leak has to
+      // be distinguishable from a clean release).
+      return () => {
+        cbs.entities = null;
+      };
     },
     listEntities: () => entities.map((e) => structuredClone(e)),
     highlightEntity: calls.highlightEntity,
@@ -290,9 +302,21 @@ export function makeStubHost(
       selection: (i: SelectionInfo | null) => cbs.selection?.(i),
       /** A camera move, as the host publishes one from `applyOrbit`. */
       cameraPose: (p: CameraPose) => cbs.cameraPose?.(p),
-      /** The entity-list change TICK (the real host's only entity signal). */
-      entities: () => cbs.entities?.(),
-      drift: (r: DriftFinding[] | null) => cbs.drift?.(r),
+      /** The entity-list change TICK (the real host's only entity signal). Returns
+       *  whether the tick was DELIVERED — false once the slot is free again (the
+       *  subscribeStats precedent: how a test tells a real unsubscribe from an inert
+       *  one). */
+      entities: (): boolean => {
+        if (cbs.entities === null) return false;
+        cbs.entities();
+        return true;
+      },
+      /** A drift report push. Delivery is reported for the `fire.entities` reason. */
+      drift: (r: DriftFinding[] | null): boolean => {
+        if (cbs.drift === null) return false;
+        cbs.drift(r);
+        return true;
+      },
       /** Returns whether the push was DELIVERED — false once the slot is free again
        *  (the subscribeStats precedent: it is how a test tells a real unsubscribe from
        *  an inert one). */

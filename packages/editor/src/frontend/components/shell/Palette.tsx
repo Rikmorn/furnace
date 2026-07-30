@@ -45,11 +45,16 @@ type Drag = {
 /** Absolute placement from stored geometry. A docked palette is placed FROM its edge, so
  *  a window resize keeps it welded there; a free one is placed from its x. The
  *  max-height is what makes a tall palette scroll inside the cell instead of running
- *  under the status bar. */
-function placement(geom: PaletteState): CSSProperties {
+ *  under the status bar.
+ *
+ *  `zIndex` is the layer's click-to-front order, NOT geometry — it is deliberately not
+ *  part of the persisted record (see PaletteLayer). It resolves inside the layer's own
+ *  stacking context (`isolate`), so no palette can ever paint over the toasts. */
+function placement(geom: PaletteState, zIndex: number): CSSProperties {
 	const box: CSSProperties = {
 		top: geom.y,
 		maxHeight: `calc(100% - ${geom.y}px)`,
+		zIndex,
 	};
 	if (geom.edge === "right") return { ...box, right: 0 };
 	if (geom.edge === "left") return { ...box, left: 0 };
@@ -60,8 +65,10 @@ export function Palette({
 	title,
 	geom,
 	widthClass,
+	zIndex,
 	measureBounds,
 	onMove,
+	onRaise,
 	onCollapse,
 	onClose,
 	collapseRef,
@@ -70,10 +77,15 @@ export function Palette({
 	title: string;
 	geom: PaletteState;
 	widthClass: string;
+	/** Where this palette sits in the layer's click-to-front stack. */
+	zIndex: number;
 	/** Bounds for THIS palette's origin, from the layer that owns the measurement.
 	 *  Null when the layer is not mounted, which refuses the drag rather than guessing. */
 	measureBounds: (size: PaletteSize) => OriginBounds | null;
 	onMove: (pos: { x: number; y: number }, bounds: OriginBounds) => void;
+	/** Bring this palette to the front — ANY pointer down on it, header or body, so
+	 *  reaching for a control on a buried palette also uncovers it. */
+	onRaise: () => void;
 	onCollapse: () => void;
 	onClose: () => void;
 	/** The collapse button, published so the layer can put focus back on it when the
@@ -147,7 +159,14 @@ export function Palette({
 			ref={rootRef}
 			aria-labelledby={headingId}
 			hidden={geom.collapsed}
-			style={placement(geom)}
+			// The raise rides the BUBBLE phase of every pointerdown inside the palette, so
+			// one listener on the root serves the header drag, a row click and a form field
+			// alike. It changes only a z-index — no DOM re-parenting — which is what keeps
+			// it safe to fire in the same event that opens a drag: moving a node in the
+			// document can drop its pointer capture, and the header's own gesture starts on
+			// this very event.
+			onPointerDown={onRaise}
+			style={placement(geom, zIndex)}
 			className={cn(
 				// pointer-events-auto against the layer's -none: the layer covers the whole
 				// canvas, so only the palettes themselves may take pointer input.

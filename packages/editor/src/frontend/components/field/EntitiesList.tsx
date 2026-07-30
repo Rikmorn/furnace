@@ -1,5 +1,6 @@
 // The committed-entities list: one row per generator entity in log order, fed
-// by the panel's host.listEntities() clones. Clicking a row shows its amber-dim
+// by the shell provider's host.listEntities() mirror (F4.5a Task 10 — it used to
+// be the panel's). Clicking a row shows its amber-dim
 // region box (host.highlightEntity) plus an inline READ-ONLY params <dl>;
 // clicking again collapses both. F3a adds the smart-object verbs beside it:
 // Open starts a reconfigure session (the same staged form a fresh stamp gets),
@@ -13,11 +14,14 @@
 // no cells, so "1 ops" says nothing about what it put down. `placed` (host-
 // derived, see rowSummary) names the archetype and the count.
 //
-// Three inline buttons rather than the planned ⋯ dropdown: the Radix menu family
-// does not render its content under this package's happy-dom harness (verified
-// on HEAD — tests/chrome/menubar.test.tsx fails 6/10 for exactly that reason),
-// so a menu here would ship the two destructive-ish verbs with no test at all.
-// Row density is F4's problem; unverifiable behaviour is this task's.
+// Three inline buttons rather than the planned ⋯ dropdown. The original reason
+// was that Radix menus did not render under this package's happy-dom harness —
+// no longer true (the burger menu is asserted through its content in
+// tests/chrome/shell.test.tsx, once `_register.ts` is imported FIRST so Radix
+// resolves `globalThis.document` at module-evaluation time). What keeps the three
+// buttons is now a plain design call: three verbs is under the threshold where a
+// menu earns its extra click, and the palette they live in is wide enough for
+// them. Revisit if a fourth verb lands (F4.5b's row delete is the candidate).
 //
 // a11y convention for the row: the three ACTION buttons all carry an aria-label
 // naming their verb AND the entity id, because their visible text ("Open",
@@ -77,9 +81,6 @@ function StateBadge({ label }: { label: string }) {
 
 export function EntitiesList(props: {
 	entities: FieldEntityInfo[];
-	/** The entity a reconfigure session is currently open on (null = none) —
-	 *  read only to warn that Freeze would discard that session's edits. */
-	openEntityId: number | null;
 	onHighlight: (id: number | null) => void;
 	/** Open a reconfigure session on this entity (host.openEntity). */
 	onReconfigure: (id: number) => void;
@@ -176,12 +177,20 @@ export function EntitiesList(props: {
 									variant="ghost"
 									className={ROW_BUTTON_CLASS}
 									disabled={baked}
+									// The freeze consequence is stated UNCONDITIONALLY rather than
+									// only on the row that has a session open. It reads a little
+									// wider than it needs to, and it costs this list its last
+									// coupling to the stamp session — which lives behind a
+									// single-slot host seam FieldPanel owns, in a different
+									// palette, and which this list could only learn about by
+									// stealing that seam or having its value handed sideways
+									// through chrome. The sentence is true of every unfrozen row
+									// (the host cancels a session on the entity it freezes), so
+									// nothing about the warning got weaker.
 									title={
 										e.frozen === true
 											? "allow this stamp to be reconfigured again"
-											: props.openEntityId === e.entityId
-												? "protect this stamp from reconfigure — DISCARDS the session open on it"
-												: "protect this stamp from reconfigure"
+											: "protect this stamp from reconfigure — ends any reconfigure session open on it"
 									}
 									aria-label={`${e.frozen === true ? "unfreeze" : "freeze"} entity ${e.entityId}`}
 									onClick={() => props.onFreeze(e.entityId, e.frozen !== true)}

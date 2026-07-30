@@ -1,7 +1,7 @@
 // The Field panel (F1/F2b): the dig-loop CONTROL STACK. It drives the tool
 // palette (brush effects, selection gestures, stamp generators) + the persistent
-// material swatches + the brush inspector (radius/mask/smooth/hollow), the
-// advisor's flags, the entity list and the drift report. What the viewport SHOWS
+// material swatches + the brush inspector (radius/mask/smooth/hollow), the stamp
+// inspector and the advisor's flags. What the viewport SHOWS
 // — shading, the layer gates, the slice plane, AA — is not here: it went to the
 // top bar's View popover, where it is one click from anywhere instead of hidden
 // behind a palette the user may have closed. The persistence concern — which world
@@ -9,27 +9,26 @@
 // ⌘S): a control stack that owns
 // the save verb cannot be dissolved into palettes, and closing the palette
 // holding it would take ⌘S with it. The material table it renders swatches from
-// arrives the same way, off the catalog provider the shell mounts.
+// arrives the same way, off the catalog provider the shell mounts. What the world
+// already CONTAINS — the committed entity list and the drift report — is a palette
+// of its own (shell/EntitiesPalette), the first organ out of this file.
 // It owns NO canvas: the shell mounts the one full-window viewport (CanvasHost)
-// and inits the host on it. It also owns no stats and no tool-error
-// subscription — both seams are single slots the shell holds
-// (useFieldHostState); subscribing to either here would silently steal the
+// and inits the host on it. It also owns no stats, no tool-error, no entity and no
+// drift subscription — all four seams are single slots the shell holds
+// (useFieldHostState); subscribing to any of them here would silently steal the
 // shell's callback. It has no status line either: what the editor SAYS goes to
 // the notification store (toasts + the message log), which is a shell surface.
 // The host is created ONCE at engine-ready (App) and reached ONLY through the
 // /engine.js runtime channel (a context ref) — the chrome never value-imports
 // engine code (the project-first invariant). This file type-imports the field
-// host + artifact types (all erased).
-import type { DriftFinding } from "@furnace/core/field"; // type-only: erased
-import { useCallback, useEffect, useState } from "react";
+// host types (all erased).
+import { useEffect, useState } from "react";
 import type {
-	FieldEntityInfo,
 	FieldGeneratorInfo,
 	FieldMaskChoice,
 	FieldTool,
 	FlagFilters,
 	FlagsSummary,
-	PlacedArchetype,
 	SelectionInfo,
 	StampSession,
 	ViewportGesture,
@@ -38,8 +37,6 @@ import { useCatalog } from "../hooks/useCatalogs.tsx";
 import { useToolErrorTick } from "../hooks/useFieldHostState.tsx";
 import { useEditor } from "./editor-context.ts";
 import { BrushInspector } from "./field/BrushInspector.tsx";
-import { DriftReport } from "./field/DriftReport.tsx";
-import { EntitiesList } from "./field/EntitiesList.tsx";
 import { FlagsSection } from "./field/FlagsSection.tsx";
 import { MaterialSwatches } from "./field/MaterialSwatches.tsx";
 import { StampInspector } from "./field/StampInspector.tsx";
@@ -109,85 +106,8 @@ const toolsEqual = (a: FieldTool, b: FieldTool): boolean => {
 	);
 };
 
-// Entity-list identity for the refresh guard: everything a ROW can display —
-// id + generator + seed + opSpan + the two state flags + the `placed` counts.
-//
-// `placed` is compared DIRECTLY rather than inferred from opSpan, and the reason
-// is a fact that is easy to get wrong: op ids do NOT only ever grow. Core hands
-// them out monotonically WITHIN a session, but `loadWorld` recomputes
-// `log.nextId` from the loaded ops' own maximum (field-host.ts, the parseOps
-// path), so ids — and with them every opSpan — RESTART across a world switch.
-// Two worlds whose rows agree on id/generator/seed/span/flags and differ only in
-// what a scatter placed are therefore reachable from the toolbar's Load button,
-// which calls loadWorld inside this same panel mount: no remount, no state
-// reset, just an entity tick. Without the `placed` comparison this guard returns
-// `prev` and the row keeps the PREVIOUS world's count. (Params are the same
-// shape and still uncompared — pre-existing, filed as
-// `docs/backlog/editor-and-tooling/entity-row-params-stale-across-load.md`.)
-//
-// The flags DO need their own comparison too — freeze and bake rewrite the
-// record and nothing else, so without them a frozen badge would never appear.
-// Index-wise, not set-wise: `rowSummary` renders `placed` in ARRAY order, so a
-// reordering changes the row string and must re-render.
-const samePlaced = (
-	a: readonly PlacedArchetype[],
-	b: readonly PlacedArchetype[],
-): boolean =>
-	a.length === b.length &&
-	a.every((p, i) => {
-		const o = b[i];
-		return (
-			o !== undefined && p.archetypeId === o.archetypeId && p.count === o.count
-		);
-	});
-
-const sameEntities = (a: FieldEntityInfo[], b: FieldEntityInfo[]): boolean =>
-	a.length === b.length &&
-	a.every((e, i) => {
-		const o = b[i];
-		if (o === undefined) return false;
-		// Compiler backstop — the toolsEqual/statsEqual rider, and the one THIS
-		// comparator was missing when the `placed` hole shipped. FieldEntityInfo is
-		// an intersection over CORE's GeneratorEntity, so a field added there lands
-		// here silently and no test can exist for a field nobody knew to compare;
-		// destructuring every one makes the compiler force the question.
-		//
-		// The three voided below are deliberate non-compares: `type` is the constant
-		// literal "generator"; `region` is never rendered by a row (the highlight box
-		// is drawn from the HOST's own record, off an id); and `params` is the known
-		// pre-existing hole, filed as
-		// `docs/backlog/editor-and-tooling/entity-row-params-stale-across-load.md`.
-		const {
-			entityId,
-			type,
-			generator,
-			params,
-			seed,
-			region,
-			opSpan,
-			frozen,
-			baked,
-			placed,
-			...rest
-		} = e;
-		void (rest satisfies Record<string, never>);
-		void type;
-		void params;
-		void region;
-		return (
-			entityId === o.entityId &&
-			generator === o.generator &&
-			seed === o.seed &&
-			opSpan[0] === o.opSpan[0] &&
-			opSpan[1] === o.opSpan[1] &&
-			frozen === o.frozen &&
-			baked === o.baked &&
-			samePlaced(placed, o.placed)
-		);
-	});
-
 export function FieldPanel() {
-	const { state, fieldHostRef, openConfirm } = useEditor();
+	const { state, fieldHostRef } = useEditor();
 	const [radius, setRadius] = useState(DEFAULT_RADIUS);
 	const [tool, setToolState] = useState<FieldTool>(DEFAULT_TOOL);
 	// ONE armed-gesture slot, mirroring the host's (ViewportGesture): the three
@@ -201,7 +121,6 @@ export function FieldPanel() {
 	// Full registry info — paramSchema/defaults feed the stamp inspector's form.
 	const [generators, setGenerators] = useState<FieldGeneratorInfo[]>([]);
 	const [stamp, setStamp] = useState<StampSession | null>(null);
-	const [entities, setEntities] = useState<FieldEntityInfo[]>([]);
 	// Range floors until the host-constants effect reads the real core ceilings.
 	const [smoothLimits, setSmoothLimits] = useState({
 		maxStrength: 1,
@@ -211,9 +130,6 @@ export function FieldPanel() {
 	// the host. Both come from the shell's catalog provider: the fetch has to happen
 	// whether or not this palette is open, and the world drawer needs the same result.
 	const { table, entityCatalogTick } = useCatalog();
-	// The last reconfigure's drift report (null = clean / none). Non-modal: it
-	// renders (via DriftReport) only while findings exist.
-	const [drift, setDrift] = useState<DriftFinding[] | null>(null);
 	// The advisor's findings + the bands the panel asks for. The summary is the
 	// host's (filters already applied); the filter set is panel state pushed
 	// through setFlagFilters, the layers/slice precedent.
@@ -290,52 +206,27 @@ export function FieldPanel() {
 		return host.subscribeStamp(setStamp);
 	}, [state.status, fieldHostRef]);
 
-	// Push the panel's flag-filter defaults to the host at engine-ready, and drop any
-	// entity-highlight box when the panel unmounts. The host outlives the panel (App
-	// owns it) and has no filters/highlight subscription seam, so a REMOUNT resets the
-	// filters to the panel defaults — honest (the checkboxes always show what the host
-	// uses) at the cost of forgetting them across a remount; the same v0 trade as the
-	// one-way radius seam below. It matters in both directions: the host keeps the last
-	// set ACROSS world loads, so a remounted panel showing "candidates only" beside
-	// markers still drawing the info band would be a straight lie — and the price of
-	// preventing it is that a remount RESETS the user's filters to candidates only,
-	// ticked info band and all. Agreement over memory, deliberately; giving the host a
-	// filters subscription (so the panel could adopt instead of overwrite) is what would
-	// buy both. The highlight clear keeps a remounted list (expansion state reset) from
-	// standing next to a box no row claims.
+	// Push the panel's flag-filter defaults to the host at engine-ready. The host
+	// outlives the panel (App owns it) and has no filters subscription seam, so a
+	// REMOUNT resets the filters to the panel defaults — honest (the checkboxes always
+	// show what the host uses) at the cost of forgetting them across a remount; the same
+	// v0 trade as the one-way radius seam below. It matters in both directions: the host
+	// keeps the last set ACROSS world loads, so a remounted panel showing "candidates
+	// only" beside markers still drawing the info band would be a straight lie — and the
+	// price of preventing it is that a remount RESETS the user's filters to candidates
+	// only, ticked info band and all. Agreement over memory, deliberately; giving the
+	// host a filters subscription (so the panel could adopt instead of overwrite) is what
+	// would buy both.
 	//
 	// The layer/slice half of this block went with them to the View popover, whose
 	// provider outlives every palette and pushes on change AND at engine-ready — so
-	// those toggles now survive a remount instead of snapping back to the defaults.
+	// those toggles now survive a remount instead of snapping back to the defaults. The
+	// entity-highlight clear went to the palette that owns the list (EntitiesPalette).
 	useEffect(() => {
 		const host = fieldHostRef.current;
 		if (!host || state.status !== "ready") return;
 		host.setFlagFilters(DEFAULT_FLAG_FILTERS);
-		return () => host.highlightEntity(null);
 	}, [state.status, fieldHostRef]);
-
-	// Entities refresh strategy (F3a): ONE host-pushed trigger. The host fires
-	// subscribeEntities from every path that can add, remove or rewrite an
-	// entity record — commit, reconfigure apply, freeze/unfreeze, bake, ⌘Z/⇧⌘Z,
-	// world new/load — plus once on subscribe. It REPLACES the F2b trigger pair
-	// (the stamp-session null push + the remesh counter): both were proxies for
-	// "the log changed", and neither could see freeze or bake, which dirty no
-	// chunk and end no session. The signature guard (sameEntities) keeps a tick
-	// that changed nothing from re-rendering the panel.
-	const refreshEntities = useCallback((): void => {
-		const host = fieldHostRef.current;
-		if (!host) return;
-		setEntities((prev) => {
-			const next = host.listEntities();
-			return sameEntities(prev, next) ? prev : next;
-		});
-	}, [fieldHostRef]);
-
-	useEffect(() => {
-		const host = fieldHostRef.current;
-		if (!host || state.status !== "ready") return;
-		return host.subscribeEntities(refreshEntities);
-	}, [state.status, fieldHostRef, refreshEntities]);
 
 	// A host refusal releases any verify the panel thinks is running. Every
 	// `verifyFlag` refusal reports on the tool-error seam having pushed no flags,
@@ -357,16 +248,6 @@ export function FieldPanel() {
 		if (toolErrorTick === 0) return;
 		setVerifying(null);
 	}, [toolErrorTick]);
-
-	// The reconfigure drift report. subscribeDrift pushes clones + the current
-	// report on subscribe (a panel remount after an apply keeps its findings);
-	// dismiss/reset/load push null through the same seam, so setDrift is the
-	// whole mirror.
-	useEffect(() => {
-		const host = fieldHostRef.current;
-		if (!host || state.status !== "ready") return;
-		return host.subscribeDrift(setDrift);
-	}, [state.status, fieldHostRef]);
 
 	// The advisor's findings. Pushed after every analyzer response and every
 	// setFlagFilters (plus the current summary on subscribe, so a remount mid-dig
@@ -439,22 +320,6 @@ export function FieldPanel() {
 	const onMaterial = (id: number): void =>
 		pushTool({ ...tool, materialId: id });
 
-	// Bake is the ONE irreversible field verb (it severs the recipe), so it goes
-	// through the App-owned confirm — the same prompt the destructive scene
-	// actions use, which also suppresses the global keybindings while it is open.
-	// The panel owns this, not EntitiesList: a list that can sever a recipe on
-	// its own click has no seam left to put a confirmation in.
-	const requestBake = (id: number): void => {
-		openConfirm({
-			title: `Bake stamp #${id}?`,
-			message:
-				"Baking severs the recipe permanently: this stamp can never be reconfigured again, and its ops become plain history. Only ⌘Z reverses it, and only until the undo stack is discarded or the world is saved and reloaded.",
-			confirmLabel: "Bake",
-			destructive: true,
-			onConfirm: () => fieldHostRef.current?.bakeEntity(id),
-		});
-	};
-
 	if (state.status !== "ready") {
 		return (
 			<p className="p-3 text-sm text-muted-foreground">
@@ -474,8 +339,8 @@ export function FieldPanel() {
 
 	return (
 		<div className="flex h-full flex-col">
-			{/* The controls stack (palette + swatches + inspectors + layers + entities)
-          takes whatever height the selection footer below leaves, and scrolls INSIDE
+			{/* The controls stack (palette + swatches + inspectors + flags) takes whatever
+          height the selection footer below leaves, and scrolls INSIDE
           itself. The F2b-era 45% cap is gone with the canvas it was protecting: the
           panel is nothing but controls now, so a tall StampInspector form has nothing
           left to starve. min-h-0 is what lets a flex child shrink below its content
@@ -555,26 +420,6 @@ export function FieldPanel() {
 						setVerifying(key);
 						fieldHostRef.current?.verifyFlag(key);
 					}}
-				/>
-				<div className="border-b border-border px-2 py-1 text-sm">
-					<EntitiesList
-						entities={entities}
-						openEntityId={stamp?.mode === "reconfigure" ? stamp.entityId : null}
-						onHighlight={(id) => fieldHostRef.current?.highlightEntity(id)}
-						onReconfigure={(id) => fieldHostRef.current?.openEntity(id)}
-						onFreeze={(id, frozen) =>
-							fieldHostRef.current?.setEntityFrozen(id, frozen)
-						}
-						onBake={requestBake}
-					/>
-				</div>
-				{/* The reconfigure drift report — renders (DriftReport → null when
-            empty) only while findings exist, beside the entities it describes.
-            Owns its own border, so no empty section shows on a clean apply. */}
-				<DriftReport
-					findings={drift ?? []}
-					onFrame={(f) => fieldHostRef.current?.frameChunks(f.chunks)}
-					onDismiss={() => fieldHostRef.current?.dismissDrift()}
 				/>
 			</div>
 			{/* The panel's own footer: the selection verbs, and nothing else. The op-cost

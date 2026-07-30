@@ -10,12 +10,8 @@ import type { PaletteState, UiState } from "./persist.ts";
 
 /** Every palette the cockpit knows, in rail order. The union is closed on purpose: a
  *  persisted record for an id that is not here is dropped rather than restored, so a
- *  palette that gets renamed or retired cannot come back as dead geometry.
- *
- *  MIGRATION (until Task 10 of the F4.5a plan): `controls` + `log`. The entities palette
- *  registers here when it has content of its own — an empty titled box would be dead
- *  chrome, and Task 10 is what fills it. */
-export const PALETTE_IDS = ["controls", "log"] as const;
+ *  palette that gets renamed or retired cannot come back as dead geometry. */
+export const PALETTE_IDS = ["controls", "entities", "log"] as const;
 
 export type PaletteId = (typeof PALETTE_IDS)[number];
 
@@ -24,6 +20,11 @@ export type PaletteId = (typeof PALETTE_IDS)[number];
  *  `log` starts CLOSED, which is the difference between it and every other palette: it
  *  is summoned (the status bar's ⚠ chip, the View menu) rather than always-on, so an
  *  editor that has had nothing to say never spends screen on saying so.
+ *
+ *  The default arrangement claims THREE of the cell's four corners deliberately:
+ *  controls docked right, entities floating top-left, and the top-right left clear for
+ *  the axis triad. That leaves the bottom-left as the one strip nothing defaults into,
+ *  which is where the collapsed-chip rail lives (see PaletteLayer).
  *
  *  MIGRATION (until F4.5b): `controls` is edge-docked right because it holds the whole
  *  surviving FieldPanel stack, which is still one 300 px column. It dissolves into
@@ -36,11 +37,22 @@ export const PALETTES: Record<
     title: "Controls",
     default: { x: 0, y: 0, edge: "right", collapsed: false, open: true },
   },
+  entities: {
+    title: "Entities",
+    // Free-floating top-left, and OPEN: the committed-stamp list is the reference
+    // surface for everything the dig loop produces, so it ships visible. Its section
+    // starts collapsed (EntitiesList's own default), so an empty world spends one
+    // header row on it rather than a column.
+    default: { x: 24, y: 24, edge: null, collapsed: false, open: true },
+  },
   log: {
     title: "Messages",
-    // Free-floating, near the top-left: the one corner the default arrangement leaves
-    // empty (controls is docked right), so a summoned log lands somewhere visible
-    // without covering the controls that may have produced the message.
+    // Deliberately the SAME corner as entities: the log is summoned, transient and
+    // rarely wanted at the same moment as the entity list, and a summon that lands
+    // somewhere visible beats one tucked into whatever corner is still free. It arrives
+    // on TOP (a pointerdown raises a palette — see PaletteLayer's z-order), so the
+    // click that summons it produces something readable; dragging either aside is the
+    // answer for a user who wants both at once.
     default: { x: 24, y: 24, edge: null, collapsed: false, open: false },
   },
 };
@@ -72,6 +84,7 @@ export function defaultWorkspace(): WorkspaceState {
   return {
     palettes: {
       controls: { ...PALETTES.controls.default },
+      entities: { ...PALETTES.entities.default },
       log: { ...PALETTES.log.default },
     },
     hidden: false,

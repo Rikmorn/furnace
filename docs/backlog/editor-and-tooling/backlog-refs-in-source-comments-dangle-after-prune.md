@@ -6,7 +6,7 @@ every `.md` reference was retargeted, but **references living in source comments
 the gate's scope** — and the hygiene pass carried a hard "zero `src/` diffs" invariant, so
 they were deliberately left alone rather than fixed out-of-mandate.
 
-Seven source sites now name a backlog file that no longer exists:
+Five source sites still name a backlog file that no longer exists:
 
 | site | dangling name | now lives in |
 | ---- | ------------- | ------------ |
@@ -14,9 +14,14 @@ Seven source sites now name a backlog file that no longer exists:
 | `packages/editor/src/viewport-host/field-placements.ts:13` | `field-editor-prop-meshes.md` | same as above |
 | `packages/editor/src/viewport-host/field-host.ts:520` | `field-reconfigure-ghost-exactness.md` | `field-tool-follow-ons.md` § *Reconfigure ghost previews against CURRENT field state, not the entity's pre-span state* |
 | `packages/core/src/field/generators.ts:216` | `enum-field-stringifies-numeric-members.md` | `editor-chrome-authoring-gaps.md` § *EnumField stringifies enum members and never coerces back — numeric enums are dead on arrival* |
-| `packages/editor/src/frontend/components/FieldPanel.tsx:131` | `entity-row-params-stale-across-load.md` | `editor-chrome-authoring-gaps.md` § *An entity row's expanded params can show the PREVIOUS world's values after a load* |
-| `packages/editor/src/frontend/components/FieldPanel.tsx:164` | `entity-row-params-stale-across-load.md` | same as above |
 | `packages/editor/tests/field-host-headless.test.ts:141` | `field-host-worker-injection-seam` (bare, no `.md`) | `editor-test-harness-fragility.md` § *FieldHost's worker seam exists now — what host coverage still cannot reach is a stamp session* |
+
+**Two fixed, 2026-07-30 (F4.5a Task 10).** The pair in `FieldPanel.tsx` (:131, :164, both
+`entity-row-params-stale-across-load.md`) travelled with the `sameEntities` comparator into
+`packages/editor/src/frontend/hooks/useFieldHostState.tsx` when the entity seams moved to the
+shell provider — the trigger below firing exactly as written — and were retargeted at
+`editor-chrome-authoring-gaps.md` § *An entity row's expanded params can show the PREVIOUS
+world's values after a load* in the same commit.
 
 Separately, **one dangling ref predates this work**: `docs/reference/ui-foundation.md` cites
 `docs/backlog/editor-and-tooling/svelte-editor-inspector-surfaces.md`, which did not exist on
