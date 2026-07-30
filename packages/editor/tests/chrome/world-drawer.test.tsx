@@ -29,7 +29,7 @@ import {
 	waitFor,
 	within,
 } from "../inspector/_harness.tsx";
-import { makeStubHost } from "./_stub-host.ts";
+import { makeStats, makeStubHost } from "./_stub-host.ts";
 
 afterEach(cleanup);
 afterEach(() => notify.clear());
@@ -56,9 +56,15 @@ const row = (over: Partial<WorldRow> = {}): WorldRow => ({
 	...over,
 });
 
-/** Serve `/api/*` from `worlds`, record every command, and 404 the catalog GETs. */
-function stubDaemon(worlds: WorldRow[], opts: { bakeFiles?: number } = {}) {
+/** Serve `/api/*` from `worlds`, record every command, and 404 the catalog GETs.
+ *  `hangBakeAfter` leaves the Nth `generation.bake` (0-based) unresolved, which is how a
+ *  case gets the editor to sit in its `busy` state for as long as it needs to. */
+function stubDaemon(
+	worlds: WorldRow[],
+	opts: { bakeFiles?: number; hangBakeAfter?: number } = {},
+) {
 	const posted: Posted[] = [];
+	let bakes = 0;
 	globalThis.fetch = mock((input: unknown, init?: RequestInit) => {
 		const url = String(input);
 		if (!url.startsWith("/api/"))
@@ -68,6 +74,13 @@ function stubDaemon(worlds: WorldRow[], opts: { bakeFiles?: number } = {}) {
 			command,
 			input: JSON.parse(String(init?.body ?? "null")) as unknown,
 		});
+		if (command === "generation.bake") {
+			const nth = bakes++;
+			if (opts.hangBakeAfter !== undefined && nth >= opts.hangBakeAfter)
+				return new Promise<Response>(() => {
+					// deliberately never settles — the write stays in flight
+				});
+		}
 		const body =
 			command === "world.list"
 				? {
@@ -85,6 +98,32 @@ function stubDaemon(worlds: WorldRow[], opts: { bakeFiles?: number } = {}) {
 		inputFor: (command: string) =>
 			posted.find((p) => p.command === command)?.input,
 	};
+}
+
+/** Seed the dirty-bit baseline, then move it: the FIRST push is the count the world
+ *  already had (never an edit — that is the whole point of the re-seed), the second is
+ *  one op of divergence from it. */
+function makeDirty(stub: ReturnType<typeof makeStubHost>, ops = 1): void {
+	act(() => {
+		stub.fire.stats(makeStats({ totalOps: 0 }));
+	});
+	act(() => {
+		stub.fire.stats(makeStats({ totalOps: ops, undoDepth: ops }));
+	});
+}
+
+/** Open the burger and return one of its items by exact label. Awaited rather than read
+ *  synchronously: the menu content is a PORTAL behind Radix's Presence, and when the
+ *  drawer has just closed (its own exit transition still settling) the mount lands a
+ *  turn later than the pointerdown. */
+async function burgerItem(label: string): Promise<HTMLElement> {
+	act(() => {
+		fireEvent.pointerDown(screen.getByLabelText("editor menu"), {
+			button: 0,
+			pointerType: "mouse",
+		});
+	});
+	return await waitFor(() => screen.getByText(label));
 }
 
 // --- mounting -----------------------------------------------------------------
@@ -482,33 +521,13 @@ test("the chip reads untitled until a save names the world, and marks unsaved ed
 	// The first stats push SEEDS the baseline — it is the count the world already had,
 	// not an edit.
 	act(() => {
-		stub.fire.stats({
-			chunks: 0,
-			lastRemeshMs: 0,
-			remeshVersion: 0,
-			totalOps: 0,
-			liveGenerators: 0,
-			compactableOps: 0,
-			undoDepth: 0,
-			lastReconfigureMs: 0,
-			analyzerPending: 0,
-		});
+		stub.fire.stats(makeStats({ totalOps: 0 }));
 	});
 	expect(screen.getByRole("button", { name: "untitled" })).toBeTruthy();
 
 	// …and a change to it is an edit.
 	act(() => {
-		stub.fire.stats({
-			chunks: 1,
-			lastRemeshMs: 2,
-			remeshVersion: 1,
-			totalOps: 1,
-			liveGenerators: 0,
-			compactableOps: 0,
-			undoDepth: 1,
-			lastReconfigureMs: 0,
-			analyzerPending: 0,
-		});
+		stub.fire.stats(makeStats({ totalOps: 1, undoDepth: 1 }));
 	});
 	expect(
 		screen.getByRole("button", { name: "untitled — unsaved changes" }),
@@ -629,4 +648,212 @@ test("New world resets the host and takes the session back to untitled", async (
 	// has been picked.
 	await waitFor(() => expect(screen.queryByRole("dialog") === null).toBe(true));
 	expect(screen.getByRole("button", { name: "untitled" })).toBeTruthy();
+});
+
+// --- (f) the discard gate: nothing unsaved is thrown away silently -------------
+//
+// Charter §7's confirm-destructive rule, made cheap by the dirty bit. New and Open are
+// the only two world verbs that DESTROY: they replace the host's world outright and the
+// op log — the editor's only undo — goes with it. A save writes the work down; a
+// rename/duplicate/delete moves other directories around.
+
+test("New on a DIRTY session confirms first, naming how much is lost", async () => {
+	stubDaemon([]);
+	const stub = makeStubHost();
+	let request: ConfirmRequest | null = null;
+	await renderTopBar(stub, {
+		openConfirm: (r) => {
+			request = r;
+		},
+	});
+	makeDirty(stub, 3);
+	const drawer = await openDrawer();
+
+	act(() => {
+		fireEvent.click(within(drawer).getByRole("button", { name: "New world" }));
+	});
+	const prompt = request as ConfirmRequest | null;
+	if (!prompt) throw new Error("New did not confirm on a dirty session");
+	expect(prompt.destructive).toBe(true);
+	// The NUMBER is the point: "you have unsaved changes" is a sentence people click
+	// through, "3 unsaved ops" is one they weigh.
+	expect(prompt.message).toContain("3 unsaved ops");
+	expect(prompt.message).toContain("undo history");
+	// …and nothing has happened yet. A confirm that fires AFTER the host is emptied is
+	// decoration.
+	expect(stub.calls.newWorld).not.toHaveBeenCalled();
+});
+
+test("cancelling the discard keeps the session, the drawer and the dirty mark", async () => {
+	stubDaemon([]);
+	const stub = makeStubHost();
+	let request: ConfirmRequest | null = null;
+	await renderTopBar(stub, {
+		openConfirm: (r) => {
+			request = r;
+		},
+	});
+	makeDirty(stub);
+	const drawer = await openDrawer();
+	act(() => {
+		fireEvent.click(within(drawer).getByRole("button", { name: "New world" }));
+	});
+	const prompt = request as ConfirmRequest | null;
+	if (!prompt) throw new Error("New did not confirm on a dirty session");
+
+	// Cancel is the whole reason the prompt exists: it has to leave EVERYTHING as it was.
+	act(() => {
+		prompt.onCancel?.();
+	});
+	expect(stub.calls.newWorld).not.toHaveBeenCalled();
+	expect(screen.getByRole("dialog")).toBeTruthy();
+
+	// …and confirming still works, so the gate is a gate and not a wall.
+	act(() => {
+		prompt.onConfirm();
+	});
+	expect(stub.calls.newWorld.mock.calls.length).toBe(1);
+});
+
+test("New on a CLEAN session confirms nothing", async () => {
+	stubDaemon([]);
+	const stub = makeStubHost();
+	let request: ConfirmRequest | null = null;
+	await renderTopBar(stub, {
+		openConfirm: (r) => {
+			request = r;
+		},
+	});
+	// Seed the baseline and stop — no divergence, nothing to lose.
+	act(() => {
+		stub.fire.stats(makeStats({ totalOps: 4 }));
+	});
+	const drawer = await openDrawer();
+	act(() => {
+		fireEvent.click(within(drawer).getByRole("button", { name: "New world" }));
+	});
+	// A prompt on every New is one people learn to dismiss without reading — which is
+	// how the prompts that DO matter stop working.
+	expect(request === null).toBe(true);
+	expect(stub.calls.newWorld.mock.calls.length).toBe(1);
+});
+
+test("Open on a DIRTY session confirms before it replaces the world", async () => {
+	const daemon = stubDaemon([row({ name: "cavern" })]);
+	const stub = makeStubHost();
+	let request: ConfirmRequest | null = null;
+	await renderTopBar(stub, {
+		openConfirm: (r) => {
+			request = r;
+		},
+	});
+	makeDirty(stub, 2);
+	const drawer = await openDrawer();
+	await waitFor(() => rowFor(drawer, "cavern"));
+
+	await act(async () => {
+		fireEvent.click(
+			within(rowFor(drawer, "cavern")).getByRole("button", {
+				name: /^open cavern/,
+			}),
+		);
+		await Promise.resolve();
+	});
+	const prompt = request as ConfirmRequest | null;
+	if (!prompt) throw new Error("Open did not confirm on a dirty session");
+	expect(prompt.title).toContain("cavern");
+	expect(prompt.message).toContain("2 unsaved ops");
+	// The load has NOT started — the guard stands in front of the daemon call, not
+	// beside it.
+	expect(daemon.commands()).not.toContain("field.load");
+
+	await act(async () => {
+		prompt.onConfirm();
+		await Promise.resolve();
+		await Promise.resolve();
+	});
+	expect(daemon.inputFor("field.load")).toEqual({ name: "cavern" });
+});
+
+test("a SAVE clears the discard gate — the work is on disk, so New asks nothing", async () => {
+	stubDaemon([]);
+	const stub = makeStubHost();
+	let request: ConfirmRequest | null = null;
+	await renderTopBar(stub, {
+		openConfirm: (r) => {
+			request = r;
+		},
+	});
+	makeDirty(stub, 5);
+	const drawer = await openDrawer();
+	act(() => {
+		fireEvent.click(within(drawer).getByRole("button", { name: "Save as…" }));
+	});
+	act(() => {
+		fireEvent.change(within(drawer).getByLabelText("save as world name"), {
+			target: { value: "cavern" },
+		});
+	});
+	await act(async () => {
+		fireEvent.click(within(drawer).getByRole("button", { name: "Save" }));
+		await Promise.resolve();
+		await Promise.resolve();
+		await Promise.resolve();
+	});
+	await waitFor(() => screen.getByRole("button", { name: "cavern" }));
+
+	// The save moved the save point to where the session already is. Without that, every
+	// New after a save would still prompt about ops that are safely on disk.
+	const newItem = await burgerItem("New");
+	act(() => {
+		fireEvent.click(newItem);
+	});
+	expect(request === null).toBe(true);
+	expect(stub.calls.newWorld.mock.calls.length).toBe(1);
+});
+
+// --- (g) New is busy-gated on BOTH surfaces ------------------------------------
+
+test("the burger's New is disabled while a write is in flight", async () => {
+	// The narrow data-loss path this closes: New empties the host SYNCHRONOUSLY, while an
+	// in-flight save sits between `exportArtifact` and its uploads. Ungated, a New landing
+	// mid-save writes the freshly-emptied world over the named target.
+	stubDaemon([], { hangBakeAfter: 1 });
+	const stub = makeStubHost();
+	await renderTopBar(stub);
+	const drawer = await openDrawer();
+	act(() => {
+		fireEvent.click(within(drawer).getByRole("button", { name: "Save as…" }));
+	});
+	act(() => {
+		fireEvent.change(within(drawer).getByLabelText("save as world name"), {
+			target: { value: "cavern" },
+		});
+	});
+	await act(async () => {
+		fireEvent.click(within(drawer).getByRole("button", { name: "Save" }));
+		await Promise.resolve();
+		await Promise.resolve();
+		await Promise.resolve();
+	});
+	await waitFor(() => screen.getByRole("button", { name: "cavern" }));
+
+	// Not disabled yet: nothing is in flight.
+	expect((await burgerItem("New")).getAttribute("aria-disabled")).not.toBe(
+		"true",
+	);
+	act(() => {
+		fireEvent.keyDown(document.activeElement ?? document.body, {
+			key: "Escape",
+		});
+	});
+
+	// Now start a Bake whose upload never settles.
+	await act(async () => {
+		fireEvent.click(screen.getByRole("button", { name: "Bake" }));
+		await Promise.resolve();
+		await Promise.resolve();
+		await Promise.resolve();
+	});
+	expect((await burgerItem("New")).getAttribute("aria-disabled")).toBe("true");
 });

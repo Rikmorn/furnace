@@ -62,7 +62,14 @@ export function BurgerMenu() {
             name to write about: disabled while untitled, with the reason IN the label
             (a disabled item swallows the tooltip that would otherwise carry it). */}
 				<DropdownMenuLabel>World</DropdownMenuLabel>
-				<DropdownMenuItem onSelect={world.reset}>New</DropdownMenuItem>
+				{/* Busy-gated like Save and Bake, and for a sharper reason than symmetry: New
+				    empties the host's world SYNCHRONOUSLY, while an in-flight save is still
+				    between `exportArtifact` and its uploads. Ungated, a New landing mid-save
+				    writes the freshly-emptied world over the named target. (The drawer's New
+				    is gated already; this is the surface that was missing it.) */}
+				<DropdownMenuItem disabled={busy} onSelect={world.reset}>
+					New
+				</DropdownMenuItem>
 				<DropdownMenuItem onSelect={() => world.openDrawer("browse")}>
 					Open…
 				</DropdownMenuItem>

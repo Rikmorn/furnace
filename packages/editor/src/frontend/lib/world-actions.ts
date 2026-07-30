@@ -76,20 +76,37 @@ export async function saveWorld(
   params: { name: string; makeDefault: boolean; confirmedTracked?: boolean },
 ): Promise<SaveOutcome> {
   const { name, makeDefault } = params;
+  const verb = makeDefault ? "bake" : "save";
   // Before the round trip: a bad name cannot become a directory, and a refusal that
   // still talks to the daemon is a refusal that can fail for a second reason.
   if (!isValidWorldName(name)) return { status: "invalid-name" };
+
+  // The tracked PRE-CHECK gets its own try, and the split is the whole point: this
+  // failure can promise something the write failure below cannot — that nothing has
+  // been written. A single catch spanning both would report a refused pre-check in the
+  // same words as a bake that died between the world files and worlds/index.json, and
+  // those two call for opposite next moves (retry vs. go look at what is on disk).
+  let tracked: boolean | null;
   try {
     const { worlds } = await deps.api.worldList();
-    const target = worlds.find((w) => w.name === name);
-    // `tracked === true` is the only case that warns. `false` is disposable scratch;
-    // `null` is INDETERMINATE (no git repo, or an ambiguous check-ignore answer) and
-    // degrades to no warning — the alternative is warning about every world in a
-    // project without git, which trains the confirm away.
     // A missing row is a world that does not exist yet: nothing to overwrite.
-    if (target?.tracked === true && params.confirmedTracked !== true)
-      return { status: "needs-tracked-confirm" };
+    tracked = worlds.find((w) => w.name === name)?.tracked ?? null;
+  } catch (err) {
+    const message = errorMessage(err);
+    notify.error(
+      `${verb} refused — could not check whether worlds/${name} is tracked (${message}); nothing was written`,
+    );
+    return { status: "failed", message };
+  }
 
+  // `tracked === true` is the only case that warns. `false` is disposable scratch;
+  // `null` is INDETERMINATE (no git repo, or an ambiguous check-ignore answer) and
+  // degrades to no warning — the alternative is warning about every world in a project
+  // without git, which trains the confirm away.
+  if (tracked === true && params.confirmedTracked !== true)
+    return { status: "needs-tracked-confirm" };
+
+  try {
     // The upload sequence (D-W3-9): the world's file set cleanDir'd to its own
     // directory so a re-bake leaves no orphans, then — only when making it default —
     // worlds/index.json with no cleanDir. ORDERED: the index never names a world that
@@ -111,8 +128,11 @@ export async function saveWorld(
     );
     return { status: "saved", files };
   } catch (err) {
+    // Deliberately NOT promising anything about the state on disk: by here the first
+    // call may have cleanDir'd the world's directory and written part of it, or the
+    // world may be whole with worlds/index.json still naming the old default.
     const message = errorMessage(err);
-    notify.error(`${makeDefault ? "bake" : "save"} failed: ${message}`);
+    notify.error(`${verb} failed: ${message}`);
     return { status: "failed", message };
   }
 }

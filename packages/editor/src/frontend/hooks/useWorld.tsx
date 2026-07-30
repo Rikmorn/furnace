@@ -111,11 +111,20 @@ export function WorldProvider({ children }: { children: ReactNode }) {
 	// re-established — a load or a New just replaced the world, and the count the chrome
 	// will next see belongs to the NEW one, so adopting it must not read as an edit.
 	const seenOps = useRef<number | null>(null);
+	// The op count AT the last save point. The dirty flag alone answers "is there
+	// anything to lose"; the discard confirm has to say HOW MUCH, and a number the user
+	// can weigh is the difference between a prompt they read and one they click through.
+	const savedOps = useRef(0);
 
 	useEffect(() => {
 		if (!stats) return;
 		const ops = stats.totalOps;
-		if (seenOps.current !== null && ops !== seenOps.current) setDirty(true);
+		if (seenOps.current === null) {
+			// First push after a world swap: this count IS the new world's save point.
+			savedOps.current = ops;
+		} else if (ops !== seenOps.current) {
+			setDirty(true);
+		}
 		seenOps.current = ops;
 	}, [stats]);
 
@@ -136,6 +145,41 @@ export function WorldProvider({ children }: { children: ReactNode }) {
 	const inFlight = useRef(false);
 
 	const actions = useMemo<WorldActions>(() => {
+		/** How far the session has drifted from its save point, as a COUNT of ops. A
+		 *  distance, not a signed direction: undoing below the save point is divergence
+		 *  too, and "3 ops" is the honest size of it either way. */
+		const unsavedOps = (): number =>
+			Math.abs((seenOps.current ?? 0) - savedOps.current);
+
+		/** Run `proceed`, asking first when there is something to lose (charter §7,
+		 *  confirm-destructive). A CLEAN session confirms nothing — a prompt that fires on
+		 *  every New is one people learn to dismiss without reading, which is how the
+		 *  prompts that matter stop working too.
+		 *
+		 *  The zero-op wording is the documented hole in the dirty bit showing through:
+		 *  undoing back to exactly the saved state leaves the flag set with no distance to
+		 *  report, so the message drops the number rather than claiming "0 unsaved ops". */
+		const confirmDiscard = (
+			title: string,
+			confirmLabel: string,
+			proceed: () => void,
+		): void => {
+			if (!dirty) {
+				proceed();
+				return;
+			}
+			const n = unsavedOps();
+			const amount =
+				n > 0 ? `${n} unsaved op${n === 1 ? "" : "s"}` : "unsaved edits";
+			openConfirm({
+				title,
+				message: `This session has ${amount} since its last save point. They are discarded, and the field's undo history goes with them.`,
+				confirmLabel,
+				destructive: true,
+				onConfirm: proceed,
+			});
+		};
+
 		/** One place to say what a daemon verb did. The world verbs are short calls whose
 		 *  only visible result is the drawer refreshing off `worlds-changed`, so without a
 		 *  line each they read as clicks that did nothing. */
@@ -189,6 +233,10 @@ export function WorldProvider({ children }: { children: ReactNode }) {
 				}
 				if (outcome.status !== "saved") return;
 				setName(target);
+				// The new save point: the count the host last reported. A save changes no
+				// ops, so `seenOps` is still current — it is the number the next discard
+				// prompt measures against.
+				savedOps.current = seenOps.current ?? 0;
 				setDirty(false);
 				rememberWorld(store, target);
 				// A save-as was asked for FROM the drawer, and it has now been answered —
@@ -234,14 +282,24 @@ export function WorldProvider({ children }: { children: ReactNode }) {
 				if (name === null) notify.error("name the world first (⌘S)");
 				else void write(name, true);
 			},
-			open: (target) => void open(target),
-			reset: () => {
-				fieldHostRef.current?.newWorld();
-				setName(null);
-				rebaseline();
-				setDrawer(null);
-				notify.info("new world — all solid rock");
-			},
+			// Both world SWAPS go through the discard gate: they replace the host's
+			// world outright, and the op log — the editor's only undo — goes with it.
+			// Nothing else in the world verb set destroys unsaved work (a save writes
+			// it, a rename/duplicate/delete moves other directories around).
+			open: (target) =>
+				confirmDiscard(
+					`Open "${target}" and discard this session?`,
+					"Discard and open",
+					() => void open(target),
+				),
+			reset: () =>
+				confirmDiscard("Start a new world?", "Discard", () => {
+					fieldHostRef.current?.newWorld();
+					setName(null);
+					rebaseline();
+					setDrawer(null);
+					notify.info("new world — all solid rock");
+				}),
 			makeDefault: (target) =>
 				openConfirm({
 					title: `Make "${target}" the game's world?`,
@@ -289,7 +347,11 @@ export function WorldProvider({ children }: { children: ReactNode }) {
 			openDrawer: setDrawer,
 			closeDrawer: () => setDrawer(null),
 		};
-	}, [name, fieldHostRef, openConfirm, store, bakeBusyRef, rebaseline]);
+		// `dirty` is a real input, not noise: `confirmDiscard` reads it to decide whether
+		// to prompt at all, and a stale capture would either skip the prompt on a dirty
+		// session (silent data loss) or raise it on a clean one. It flips at most twice per
+		// save cycle, so rebuilding the verbs on it costs nothing.
+	}, [name, dirty, fieldHostRef, openConfirm, store, bakeBusyRef, rebaseline]);
 
 	const value = useMemo<WorldState>(
 		() => ({ name, dirty, drawer, busy }),

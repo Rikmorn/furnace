@@ -340,6 +340,73 @@ test("⌘S on an untitled world opens the drawer to name it, rather than doing n
 	expect(screen.getByLabelText("save as world name")).toBeTruthy();
 });
 
+/** Serve the world commands so a case can actually NAME a world and save it. The catalog
+ *  GETs (anything not `/api/*`) 404 as usual. */
+function stubWorldDaemon(): { commands: () => string[]; bakes: unknown[] } {
+	const commands: string[] = [];
+	const bakes: unknown[] = [];
+	globalThis.fetch = ((input: unknown, init?: RequestInit) => {
+		const url = String(input);
+		if (!url.startsWith("/api/"))
+			return Promise.resolve(new Response("", { status: 404 }));
+		const command = url.slice("/api/".length);
+		commands.push(command);
+		const body = JSON.parse(String(init?.body ?? "null")) as unknown;
+		if (command === "generation.bake") bakes.push(body);
+		return Promise.resolve(
+			new Response(
+				JSON.stringify(
+					command === "world.list"
+						? { defaultName: null, worlds: [] }
+						: { files: 7 },
+				),
+				{ status: 200 },
+			),
+		);
+	}) as unknown as typeof fetch;
+	return { commands: () => commands, bakes };
+}
+
+test("⌘S on a NAMED world writes straight to it — no drawer, no second question", async () => {
+	const daemon = stubWorldDaemon();
+	const stub = makeStubHost();
+	await renderShell(stub);
+
+	// Name it the way a user does: ⌘S on an untitled world opens the drawer, the drawer
+	// takes the name. Reaching the named path through the real flow is the point — a
+	// test that injected the name would not prove the flow reaches it.
+	act(() => {
+		fireEvent.keyDown(window, { key: "s", metaKey: true });
+	});
+	const field = await waitFor(() =>
+		screen.getByLabelText("save as world name"),
+	);
+	act(() => {
+		fireEvent.change(field, { target: { value: "cavern" } });
+	});
+	await act(async () => {
+		fireEvent.click(screen.getByRole("button", { name: "Save" }));
+		await Promise.resolve();
+		await Promise.resolve();
+		await Promise.resolve();
+	});
+	await waitFor(() => screen.getByRole("button", { name: "cavern" }));
+	expect(daemon.bakes.length).toBe(1);
+
+	// NOW the primary path: the chord writes the named world directly. This is the save
+	// the editor performs all day, and until here it was only ever reached transitively.
+	await act(async () => {
+		fireEvent.keyDown(window, { key: "s", metaKey: true });
+		await Promise.resolve();
+		await Promise.resolve();
+		await Promise.resolve();
+	});
+	await waitFor(() => expect(daemon.bakes.length).toBe(2));
+	expect(daemon.bakes[1]).toMatchObject({ cleanDir: "worlds/cavern" });
+	// …and it did NOT re-open the drawer to ask a question it already has the answer to.
+	expect(screen.queryByRole("dialog") === null).toBe(true);
+});
+
 test("⌘Z / ⇧⌘Z step the FIELD's history — the editor has no second one", async () => {
 	fetch404();
 	const stub = makeStubHost();

@@ -176,7 +176,39 @@ test("a world.list failure fails the save rather than silently dropping the guar
   // committed world.
   expect(outcome).toEqual({ status: "failed", message: "daemon is gone" });
   expect(bakes).toEqual([]);
-  expect(lastText()).toBe("save failed: daemon is gone");
+  // The pre-check's OWN message: it names the check that refused and promises what only
+  // a pre-write failure can promise — that nothing was written. The write-path catch
+  // cannot say that (it may have cleanDir'd a directory and half-filled it), so
+  // conflating the two would tell the user to go inspect a directory that is untouched.
+  expect(lastText()).toBe(
+    "save refused — could not check whether worlds/cavern is tracked (daemon is gone); nothing was written",
+  );
+});
+
+test("a mid-upload failure says only that it FAILED — it cannot promise the disk is clean", async () => {
+  const { api } = stubApi({ rows: [row()] });
+  const { host } = stubHost();
+  // The world files land; worlds/index.json does not. Nothing here may claim "nothing
+  // was written" — the world directory has already been cleanDir'd and rewritten.
+  let call = 0;
+  const outcome = await saveWorld(
+    {
+      api: {
+        ...api,
+        generationBake: (files) => {
+          call += 1;
+          return call === 1
+            ? Promise.resolve({ files: files.length })
+            : Promise.reject(new Error("ENOSPC"));
+        },
+      },
+      host,
+    },
+    { name: "cavern", makeDefault: true },
+  );
+  expect(outcome).toEqual({ status: "failed", message: "ENOSPC" });
+  expect(lastText()).toBe("bake failed: ENOSPC");
+  expect(lastText()).not.toContain("nothing was written");
 });
 
 // --- the upload sequence (lifted from the toolbar, unchanged) ----------------
