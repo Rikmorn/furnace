@@ -274,12 +274,20 @@ export type GeneratorDef = {
    *  a generator that ignores the seed is a dead control — the hall's structure
    *  is entirely params-determined, so re-rolling it changes nothing.
    *
-   *  Deliberately NOT enforced. There is no runtime check to write: an IGNORED
-   *  seed is harmless, and a CONSUMED-but-undeclared one shows up as a re-roll
-   *  that visibly does nothing, which the declaring generator's own
-   *  determinism tests already pin. Unlike `emits`, whose violation would put a
-   *  channel into the op log that the declaration forbids, a wrong `usesSeed`
-   *  cannot corrupt anything. */
+   *  Deliberately NOT enforced at runtime, but the two ways of getting it wrong
+   *  are NOT symmetric, and the quiet one is the `false`:
+   *  - Declaring `true` while IGNORING the seed leaves a re-roll button that
+   *    visibly does nothing. Loud — the first person to press it finds it.
+   *  - Declaring `false` while CONSUMING the seed makes the UI HIDE a control
+   *    that would have worked, so a real axis of variation disappears with no
+   *    symptom to notice at all.
+   *
+   *  Neither corrupts anything, which is why there is no guard: unlike `emits`,
+   *  whose violation would put a channel into the op log that the declaration
+   *  forbids, a wrong `usesSeed` only mis-shapes a form. The pin is BEHAVIOURAL
+   *  and lives in the tests instead — `field-delete-entity.test.ts` evaluates
+   *  every registered def at two seeds and requires `usesSeed` to predict
+   *  whether the output moved, which catches both directions. */
   usesSeed: boolean;
   evaluate(
     params: Record<string, unknown>,

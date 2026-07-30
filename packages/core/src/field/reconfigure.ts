@@ -886,10 +886,22 @@ export function reconfigureGenerator(
  * set, not just the chunks whose bytes moved — a chunk restored to its pre-span
  * state and never rewritten still needs a remesh.
  *
- * No drift report: `dirty` is what the caller needs to remesh, and the F3
- * drift contract exists to flag ops whose outcome moved under a RE-EVALUATION.
- * Deleting is not a re-evaluation, and every downstream op it disturbs is by
- * definition disturbed, so a report would flag everything.
+ * **`dirty` can be EMPTY, and empty does not mean nothing happened.** A
+ * placements-only entity (scatter) writes no field cells, so deleting it moves
+ * no chunk and there is nothing to remesh — but its placement op IS gone from
+ * `log.ops`, and with it every prop it placed. Props are derived from the LOG,
+ * never from `dirty`: a caller that re-reads placements only when `dirty` is
+ * non-empty will leave deleted props on screen.
+ *
+ * **No drift report** — a cost/scope choice, not an impossibility, and two real
+ * signals are given up by it. An `orphaned` finding would name a downstream op
+ * that replays and now writes NOTHING (a dig that only ever cut the deleted
+ * stamp's masonry); step 5 discards exactly the {@link applyFieldOp} result
+ * that would produce it. A placement `drifted` finding would name a downstream
+ * placement op whose props are left floating when the field beneath them goes
+ * (delete a cave under a scatter and every prop keeps its recorded pose over
+ * air). Both are SUBSETS of the downstream ops, not "everything". Widening the
+ * return to carry them is additive and non-breaking whenever a caller earns it.
  *
  * @throws {@link Error} if no entity op carries `entityId`, the entity is
  *   `frozen` or `baked`, or the log does not hold its span where the record
@@ -952,9 +964,10 @@ export function deleteGeneratorEntity(
   spliceOps(log.ops, spanStartIdx, removed.length, []);
 
   // 5 — rewind the affected chunks, then replay the absorbed downstream ops in
-  // LOG order. This is applyAndReport's loop minus the reporting: with no new
-  // span to apply and no drift to return, the orphan/diff pass would be
-  // computed and thrown away.
+  // LOG order. applyAndReport's loop minus the reporting: the DISCARDED
+  // applyFieldOp result is precisely what an `orphaned` finding reads (an op
+  // that replayed and wrote nothing). See the no-drift note in the TSDoc for
+  // what that costs and why it is still the right trade here.
   restorePreState(store, log, spanStartIdx, affected, table, []);
   for (const candidate of replay) applyFieldOp(store, candidate.op, table);
 

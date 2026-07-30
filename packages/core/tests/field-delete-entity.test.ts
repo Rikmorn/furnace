@@ -3,7 +3,9 @@ import type {
   BrushOp,
   ChunkKey,
   EntityOp,
+  EvaluateContext,
   FieldStore,
+  GeneratorDef,
   GeneratorEntity,
   MaterialTable,
   OpLog,
@@ -14,6 +16,7 @@ import {
   createFieldStore,
   createOpLog,
   deleteGeneratorEntity,
+  FIELD_GENERATORS,
   fieldOpChunks,
   generatorById,
   getDensity,
@@ -22,6 +25,11 @@ import {
   setGeneratorFrozen,
   undo,
 } from "@furnace/core/field";
+// The in-core evaluate seam, deliberately NOT on the public index (the
+// spliceOps precedent) — the same import field-reconfigure.test.ts takes. Used
+// rather than `def.evaluate` because it is the GUARDED path: it enforces the
+// contextFree/emits pairing the usesSeed probe leans on.
+import { evaluateGenerator } from "../src/field/generators.ts";
 import { snapshotAll } from "./_helpers/field-store.ts";
 
 // Own copy of the 3-class fixture (rock / dirt / kit masonry) — stamps REQUIRE
@@ -319,8 +327,12 @@ describe("deleteGeneratorEntity — setup-loud guards", () => {
     const beforeStore = snapshotAll(store);
     const beforeLog = snapshotLog(log);
 
+    // The REASON is load-bearing, not decoration: a reader who only learns
+    // "baked" will file it as a policy choice and try to work around it. The
+    // message has to carry the structural fact — a compacted baked span makes
+    // the recorded opSpan a lie — so the regex pins that clause too.
     expect(() => deleteGeneratorEntity(store, log, e.entityId, TABLE)).toThrow(
-      /deleteGeneratorEntity: entity \d+ is baked/,
+      /deleteGeneratorEntity: entity \d+ is baked — its span ops are compactable history, so its recorded opSpan is no longer a claim about the log/,
     );
     expect(snapshotAll(store)).toEqual(beforeStore);
     expect(snapshotLog(log)).toEqual(beforeLog);
@@ -402,12 +414,64 @@ describe("deleteGeneratorEntity — a placement-only entity", () => {
 });
 
 describe("GeneratorDef.usesSeed", () => {
-  test("every registered generator declares whether its evaluate reads the seed", () => {
-    // The hall opens its evaluate with `void seed` — a seed control on its form
-    // would be a dead control. The other three consume it.
-    expect(generatorById("hall").usesSeed).toBe(false);
-    expect(generatorById("maze").usesSeed).toBe(true);
-    expect(generatorById("cave").usesSeed).toBe(true);
-    expect(generatorById("scatter").usesSeed).toBe(true);
-  });
+  // Asserting the four literals would only re-type the source. This evaluates
+  // each def at two seeds and requires `usesSeed` to PREDICT whether the output
+  // moved — the enforcement core deliberately does not do at runtime (see the
+  // TSDoc), done where it belongs instead. It has teeth in both directions: a
+  // def that declares `true` and ignores the seed fails, and so does one that
+  // declares `false` and consumes it — the quiet direction, which otherwise
+  // just hides a working control in the UI with no symptom.
+  const SEED_REGION = {
+    min: [0, 0, 0] as [number, number, number],
+    max: [12, 8, 12] as [number, number, number],
+  };
+
+  /** A store carrying a carved cave. Scatter is `contextFree: false` and needs
+   *  real surfaces to project onto; a context-free def ignores the ctx it is
+   *  handed ({@link evaluateGenerator}'s contract), so ONE fixture drives all
+   *  four and the loop stays generic. */
+  const carvedWorld = (): EvaluateContext => {
+    const { store, log } = makeWorld();
+    const cave = generatorById("cave");
+    commitGenerator(store, log, cave, {
+      params: structuredClone(cave.defaults),
+      seed: 5,
+      region: SEED_REGION,
+      policy: "replace",
+      table: TABLE,
+    });
+    return { store };
+  };
+
+  /** Structural fingerprint of one evaluation. JSON renders the patch/mask
+   *  typed arrays as index-keyed objects — verbose but deterministic, which is
+   *  all an equality probe needs. */
+  const evaluateAt = (
+    def: GeneratorDef,
+    seed: number,
+    ctx: EvaluateContext,
+  ): string =>
+    JSON.stringify(
+      evaluateGenerator(
+        def,
+        structuredClone(def.defaults),
+        seed,
+        SEED_REGION,
+        TABLE,
+        "replace",
+        ctx,
+      ),
+    );
+
+  for (const def of FIELD_GENERATORS) {
+    test(`${def.id}: usesSeed predicts whether two seeds evaluate differently`, () => {
+      const ctx = carvedWorld();
+      const atEleven = evaluateAt(def, 11, ctx);
+      const atTwelve = evaluateAt(def, 12, ctx);
+      // Guard the premise: an evaluation that produced NOTHING at both seeds
+      // would compare equal for a reason that has nothing to do with the seed.
+      expect(atEleven.length).toBeGreaterThan(2);
+      expect(atEleven !== atTwelve).toBe(def.usesSeed);
+    });
+  }
 });

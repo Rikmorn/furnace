@@ -874,20 +874,26 @@ channel** (uniform|indexed palette encoding behind accessors — `getMaterial` /
   props?" is `emits !== "ops"`). ORTHOGONAL to `contextFree` (what evaluate READS) — every
   combination is legal; today's registry pairs `contextFree: true` + `"ops"` (hall, maze,
   cave) with `contextFree: false` + `"placements"` (scatter), which is a coincidence of
-  the four rather than a rule, and no def declares `"both"`. It also declares
-  **`usesSeed: boolean`** (F4.5b) — whether `evaluate` READS `seed`. UI-facing like
-  `emits`: a seed control or re-roll button on a generator that ignores the seed is a dead
-  control. `false` for the hall alone (its evaluate opens `void seed` — structure is
-  entirely params-determined); `true` for maze, cave and scatter. Deliberately NOT
-  enforced, unlike `emits`: an ignored seed is harmless and a consumed-but-undeclared one
-  shows up as a re-roll that visibly does nothing, so there is nothing a runtime check
-  could protect. Enforced setup-loud by the
+  the four rather than a rule, and no def declares `"both"`. Enforced setup-loud by the
   COMMITTER: the one shared evaluate path behind `commitGenerator` and
   `reconfigureGenerator` throws, before any write, on a result contradicting the
   declaration (two array-length reads on the result in hand — so it catches a def that DID
   contradict itself on this call, and cannot prove one never will on other params). A
   direct `def.evaluate` (a preview, a test) bypasses the guard, exactly as it bypasses the
-  `contextFree` one. The shared strict param
+  `contextFree` one.
+  Each def ALSO declares **`usesSeed: boolean`** (F4.5b) — whether `evaluate` READS `seed`.
+  UI-facing like `emits`: a seed control or re-roll button on a generator that ignores the
+  seed is a dead control. `false` for the hall alone (its evaluate opens `void seed` —
+  structure is entirely params-determined); `true` for maze, cave and scatter. Deliberately
+  NOT enforced at runtime, and the two ways of being wrong are not symmetric: declaring
+  `true` while IGNORING the seed leaves a re-roll button that visibly does nothing (loud —
+  the first press finds it), while declaring `false` while CONSUMING it makes the UI HIDE a
+  control that would have worked, so a real axis of variation disappears with no symptom at
+  all. Neither corrupts anything — unlike `emits`, whose violation puts a forbidden channel
+  into the op log, a wrong `usesSeed` only mis-shapes a form — which is why the pin is
+  BEHAVIOURAL instead: `field-delete-entity.test.ts` evaluates every registered def at two
+  seeds and requires `usesSeed` to predict whether the output moved, catching both
+  directions. The shared strict param
   validators (`numParam`/`intParam`/`boolParam`) live in a cycle-free `generator-params.ts`
   leaf (the `rng.ts` precedent — the registry imports the defs, so a def importing validators
   back out of `generators.ts` would cycle). `commitGenerator` applies the field ops
@@ -1040,9 +1046,19 @@ channel** (uniform|indexed palette encoding behind accessors — `getMaterial` /
   immediately before its own entity op. `log.nextId` is NOT rewound (ids are handed out
   once, so the removed span parked on the redo stack cannot collide with a later op).
   Returns `{dirty}` only — the whole affected set, since a restored-but-unrewritten chunk
-  still needs a remesh. **No `drift` report:** the F3 drift contract flags ops whose
-  outcome moved under a RE-EVALUATION, and deleting is not one — every downstream op it
-  disturbs is by definition disturbed, so a report would flag everything. **No `snapshots`
+  still needs a remesh. **`dirty` can be EMPTY, and empty does not mean nothing happened:**
+  a placements-only entity (scatter) writes no field cells, so deleting it moves no chunk
+  and there is nothing to remesh — but its placement op is gone from `log.ops`, and with it
+  every prop it placed. Props are derived from the LOG, never from `dirty`; a consumer that
+  re-reads placements only when `dirty` is non-empty will leave deleted props on screen.
+  **No `drift` report** — a cost/scope choice, not an impossibility, and two real signals
+  are given up by it: an `orphaned` finding for a downstream op that replays and now writes
+  NOTHING (a dig that only ever cut the deleted stamp's masonry — the verb discards exactly
+  the `applyFieldOp` result that would produce it), and a placement `drifted` finding for
+  props left floating when the field beneath them goes (delete a cave under a scatter and
+  every prop keeps its recorded pose over air). Both are SUBSETS of the downstream ops, not
+  "everything". Widening the return to carry them is additive and non-breaking whenever a
+  caller earns it. **No `snapshots`
   argument** either: the rewind is identical and the lever would work, but no caller holds
   records today, so it is left off rather than added speculatively. One `splice` undo entry
   with `inserted: []`, redo cleared; undo puts the whole entity back and restores the
