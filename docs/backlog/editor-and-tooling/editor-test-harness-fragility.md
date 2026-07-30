@@ -83,6 +83,28 @@ but that is a hypothesis, not a diagnosis; nobody has instrumented it.
 time it fails in CI (whichever is first). Diagnose it then rather than raising the timeout —
 a timeout bump hides the race instead of resolving it.
 
+**2026-07-30 — trigger fired (F4.5a Task 12), NO reproduction, and the hypothesis is half
+refuted.** 31 runs, every one green: 10× `server.test.ts` alone (~550 ms each), 6× the same
+file 3-way parallel, 10× `bundle-watch.test.ts` alone (~96 ms each), 5× the whole editor
+suite (686 tests, ~11 s each). No fix applied — a speculative fix to a test nobody can make
+fail is worse than the flake. What the reading DID settle:
+
+- **The SSE half of the filed hypothesis cannot happen.** `createEventHub.subscribe()` does
+  `writeHead` → `write(": connected")` → `subscribers.add(res)` in ONE synchronous block, so
+  a client whose `fetch` has resolved (headers received) is necessarily already in the
+  subscriber set. No event emitted after that point can be missed by an attaching subscriber.
+- **The watcher half stands, unproven.** `chokidarWatchFile` (`daemon/watch.ts`) starts its
+  watch with `ignoreInitial: true` and nothing awaits chokidar's `ready`, so a
+  `writeFileSync` landing before the watch is armed is silently missed. That is the
+  remaining candidate — and it would fail with `readSse`'s own message ("SSE timeout;
+  buffer so far:") at its **8 s** inner deadline.
+- **The "timed out at 15005 ms" observation does not fit this test.** `server.test.ts:189`
+  carries a 20 s budget and fails through the 8 s message above. The ONLY 15 s test budget
+  in `packages/editor` is `tests/bundle-watch.test.ts:50` — whose shape would deadlock
+  exactly that way if the `": connected"` preamble ever failed to flush before its first
+  `reader.read()`. Whoever picks this up next: check WHICH test the runner named before
+  trusting the attribution here.
+
 **Reference:** `packages/editor/tests/server.test.ts:189` (the test),
 `packages/editor/src/daemon/watch.ts` + `src/daemon/events.ts` + `src/daemon/session.ts` (the
 file watcher, SSE feed, and session store it exercises),
