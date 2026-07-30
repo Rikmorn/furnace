@@ -6,6 +6,8 @@
 // shell now has several consumers that want the same readout (the status bar today,
 // more as palettes land), so the subscription lives here, once, and the consumers read
 // it out of context. FieldPanel must NOT re-subscribe to anything this provider owns.
+//
+// MIGRATION (until F4.5b): grows one seam at a time as FieldPanel dissolves.
 import type { ReactNode } from "react";
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import type { FieldHost, FieldStats } from "../../viewport-host/index.ts"; // type-only: erased

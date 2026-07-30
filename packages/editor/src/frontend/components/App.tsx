@@ -24,9 +24,9 @@ export function App() {
 	// Will mirror whether a world bake is in flight, for the SSE bundle-outdated guard
 	// (that closure re-subscribes only on [state.status], so it cannot read live panel
 	// state).
-	// MIGRATION (until F4.5b): the bake still lives inside the Field panel's toolbar and
-	// nothing writes this yet, so it reads false for the whole session — the reload
-	// below is currently unguarded in practice.
+	// MIGRATION (until Task 8 of the F4.5a plan): the bake still lives inside the Field
+	// panel's toolbar and nothing writes this yet, so it reads false for the whole
+	// session — the reload below is currently unguarded in practice.
 	const bakeBusyRef = useRef(false);
 	// The in-chrome confirm dialog (replaces window.confirm) — its full state machine
 	// (open no-clobber guard, exactly-once resolve) lives in useConfirmDialog. `confirmRef`
