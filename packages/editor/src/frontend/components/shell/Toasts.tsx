@@ -148,10 +148,14 @@ export function Toasts() {
 	// message the cap kept off screen is still announced, and so dismissing one (the
 	// user acting, not the editor speaking) re-announces nothing.
 	//
-	// Known limitation, inherited from the pattern: two identical messages in a row
-	// change no text and therefore announce once.
-	const spokenAssertively = log.find((m) => m.severity === "error")?.text ?? "";
-	const spokenPolitely = log.find((m) => m.severity !== "error")?.text ?? "";
+	// The regions persist; their CHILD is keyed by message id. Text alone would go silent
+	// on the commonest case there is — the same refusal twice ("select a region first"
+	// every time the user tries the gesture) changes no text and would announce once,
+	// leaving the second attempt looking like it did nothing. A keyed child makes each
+	// message a node ADDITION inside an already-live region, which is announced whether
+	// or not the string differs.
+	const spokenAssertively = log.find((m) => m.severity === "error");
+	const spokenPolitely = log.find((m) => m.severity !== "error");
 
 	return (
 		<>
@@ -168,17 +172,21 @@ export function Toasts() {
 							message={message}
 							onDismiss={dismiss}
 							dismissRef={(el) => {
-								dismissRefs.current[message.id] = el;
+								// The null branch is the row unmounting: dropping the key rather
+								// than storing null is what keeps this from growing one dead entry
+								// per message for the life of the session.
+								if (el === null) delete dismissRefs.current[message.id];
+								else dismissRefs.current[message.id] = el;
 							}}
 						/>
 					))}
 				</ol>
 			)}
 			<div className="sr-only" aria-live="assertive">
-				{spokenAssertively}
+				<span key={spokenAssertively?.id}>{spokenAssertively?.text ?? ""}</span>
 			</div>
 			<div className="sr-only" aria-live="polite">
-				{spokenPolitely}
+				<span key={spokenPolitely?.id}>{spokenPolitely?.text ?? ""}</span>
 			</div>
 		</>
 	);

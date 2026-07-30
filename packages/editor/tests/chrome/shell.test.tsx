@@ -415,13 +415,18 @@ const toastText = (text: string | RegExp): HTMLElement => {
 	return within(stack).getByText(text);
 };
 
-/** The persistent announcement region of one urgency, wherever it is mounted. Always
- *  present — that is the pattern — so a null here is itself the failure. */
+/** The TOAST layer's announcement region of one urgency. Always present — that is the
+ *  pattern — so a null here is itself the failure.
+ *
+ *  Scoped to the canvas cell, where the toast layer mounts: the status bar publishes a
+ *  polite region of its own (for the engine/viewport error), and taking "the first one
+ *  in the document" would silently start asserting about whichever happens to come
+ *  first. Two regions with the same urgency is exactly the shape that needs a scope. */
 const liveRegion = (urgency: "assertive" | "polite"): HTMLElement => {
-	const stack = document.querySelectorAll(`div[aria-live='${urgency}']`);
-	const region = stack[0];
+	const cell = screen.getByLabelText("field viewport").parentElement;
+	const region = cell?.querySelector(`:scope > div[aria-live='${urgency}']`);
 	if (!(region instanceof HTMLElement))
-		throw new Error(`no ${urgency} live region`);
+		throw new Error(`no ${urgency} live region in the canvas cell`);
 	return region;
 };
 
@@ -498,6 +503,32 @@ test("toasts announce through persistent live regions, split by urgency", async 
 	expect(liveRegion("assertive").textContent).toBe("select a region first");
 });
 
+test("the SAME refusal twice announces twice", async () => {
+	fetch404();
+	const stub = makeStubHost();
+	await renderShell(stub);
+	act(() => {
+		stub.fire.toolError("select a region first");
+	});
+	const announced = liveRegion("assertive").firstElementChild;
+	if (!(announced instanceof HTMLElement)) throw new Error("nothing announced");
+	// Stamp the node we have seen. A text comparison cannot tell these two cases apart,
+	// and comparing the ELEMENTS with toBe would serialise the fiber graph on failure.
+	announced.dataset["seen"] = "1";
+
+	act(() => {
+		stub.fire.toolError("select a region first");
+	});
+	const second = liveRegion("assertive").firstElementChild;
+	// A NEW node inside the same live region — which is what makes a repeat audible.
+	// The text is identical, so a region fed by text alone goes silent here, and this is
+	// the commonest case there is: the same refusal every time the gesture is retried.
+	expect(second?.textContent).toBe("select a region first");
+	expect(
+		second instanceof HTMLElement && second.dataset["seen"],
+	).toBeUndefined();
+});
+
 test("dismissing a toast keeps focus in the stack while one is left", async () => {
 	fetch404();
 	const stub = makeStubHost();
@@ -512,7 +543,13 @@ test("dismissing a toast keeps focus in the stack while one is left", async () =
 	// Focus follows to the toast that took its place. Without this it falls to <body>,
 	// so clearing a stack by keyboard means tabbing in from the top of the document
 	// again for every row (the PaletteLayer collapse/expand lesson).
-	expect(document.activeElement).toBe(screen.getByLabelText("dismiss: second"));
+	//
+	// Compared by LABEL, not by node identity: happy-dom elements carry React's fiber
+	// graph, so a failed `toBe` on two of them serialises tens of megabytes and reads as
+	// a hung run rather than a failed assertion.
+	expect(document.activeElement?.getAttribute("aria-label")).toBe(
+		"dismiss: second",
+	);
 });
 
 test("the ⚠ chip counts unread errors and summons the message log", async () => {
