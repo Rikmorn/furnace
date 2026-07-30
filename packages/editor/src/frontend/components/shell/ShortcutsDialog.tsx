@@ -58,7 +58,11 @@ const GROUPS: BindingGroup[] = [
 	},
 	{
 		title: "Viewport — camera",
-		note: "The viewport bindings need the canvas focused: click it, and it shows a focus ring while it holds the keys.",
+		// Stated the way the canvas actually behaves: its ring is `focus-visible`, which
+		// browsers paint for keyboard focus and generally NOT for a pointer click. So a
+		// click does arm these keys, silently. (Whether a click should paint a ring too is
+		// a design call, not a wording one — left to the F4.5c polish pass.)
+		note: "The viewport bindings need the canvas focused. Clicking it focuses it — the focus ring shows when you Tab to it, not on a click.",
 		rows: [
 			{
 				keys: "right-drag",
@@ -75,7 +79,7 @@ const GROUPS: BindingGroup[] = [
 		rows: [
 			{
 				keys: "left-drag",
-				what: "Apply the armed tool — dig, fill or smooth — for as long as the button is down",
+				what: "Apply the armed brush — Dig, Fill, Paint or Smooth — for as long as the button is down",
 			},
 			{
 				keys: "⌥ left-click",
@@ -83,7 +87,7 @@ const GROUPS: BindingGroup[] = [
 			},
 			{
 				keys: "left-click",
-				what: "With a gesture armed it selects instead of digging: material and void take one click, box and segment take two",
+				what: "With a gesture armed it selects instead of brushing: Wand and Room take one click, Box Select and Segment take two",
 			},
 			{ keys: "wheel", what: "Brush radius" },
 			{
@@ -94,7 +98,10 @@ const GROUPS: BindingGroup[] = [
 				keys: "⇧ (hold)",
 				what: "Smooth while held; the armed tool comes back on release",
 			},
-			{ keys: "⌃ (hold)", what: "Swap dig ↔ fill while held" },
+			{
+				keys: "⌃ (hold)",
+				what: "Swap Dig ↔ Fill while held (Paint and Smooth pass through). On macOS ⌃+click is synthesized as a right-click, so hold ⌃ during a stroke already running — a fresh ⌃+click starts a look instead",
+			},
 			{
 				keys: "⌘Z / ⇧⌘Z",
 				what: "Undo / redo — the canvas handles the chord itself so one press steps the log once, not twice",
@@ -107,8 +114,8 @@ const GROUPS: BindingGroup[] = [
 		rows: [
 			{ keys: "⏎", what: "Commit the ready ghost, or apply a reconfigure" },
 			{
-				keys: "esc",
-				what: "Discard the session — with no session it drops a pending segment anchor instead",
+				keys: "Esc",
+				what: "Discard the session — with no session it drops a pending Segment anchor instead",
 			},
 			{ keys: "← / →", what: "Nudge the region one lattice step −X / +X" },
 			{ keys: "↑ / ↓", what: "Nudge one step −Z / +Z" },

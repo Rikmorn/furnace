@@ -150,7 +150,14 @@ export function BurgerMenu({
 					    directory first, this one leaves the saved copy exactly as it is and only
 					    repoints worlds/index.json. Not busy-gated — it touches neither the host
 					    nor the in-flight upload (see useWorld's note on the world verbs not
-					    being serialised against each other). */}
+					    being serialised against each other).
+
+					    LIVE when this world is ALREADY the default, unlike the drawer row,
+					    which disables that case. The fact is not free here: `isDefault`
+					    arrives only on `world.list`, so gating would mean this menu fetching
+					    the world list to grey one item out. The cost of not gating is one
+					    confirm and one idempotent index.json rewrite. F4.5b's registry
+					    computes enabled-state from a state store, and gets it for nothing. */}
 					<DropdownMenuItem
 						disabled={worldName === null}
 						title={MAKE_DEFAULT_TITLE}

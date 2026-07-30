@@ -1230,7 +1230,9 @@ test("Help opens the shortcut overlay, and its rows are THIS build's bindings", 
 	await renderShell(stub);
 	pickMenuItem("Keyboard shortcuts");
 	const dialog = await waitFor(() => screen.getByRole("dialog"));
-	expect(within(dialog).getByRole("heading", { name: "Keyboard shortcuts" }));
+	expect(
+		within(dialog).getByRole("heading", { name: "Keyboard shortcuts" }),
+	).toBeTruthy();
 
 	/** What the table says a keycap does: the <dd> beside the <dt> carrying it. */
 	const meaning = (keys: string): string => {
