@@ -585,6 +585,7 @@ const hallGenerator: GeneratorDef = {
   defaults: HALL_DEFAULTS,
   contextFree: true, // params-determined; no field reads
   emits: "ops", // a pure carver — the masonry stamp, no placed instances
+  usesSeed: false, // the ONE seedless generator — see the `void seed` below
   evaluate(params, seed, region, table, policy) {
     void seed; // hall structure is params-determined (donor contract)
     const p = hallParams(params); // narrow + range-validate, setup-loud
@@ -860,6 +861,7 @@ const mazeGenerator: GeneratorDef = {
   defaults: MAZE_DEFAULTS,
   contextFree: true, // seeded-but-pure; no field reads
   emits: "ops", // a pure carver — the passage stamp, no placed instances
+  usesSeed: true, // the carve plan is seeded (fnv1a(String(seed)))
   evaluate(params, seed, region, table, policy) {
     const p = mazeParams(params); // narrow + range-validate, setup-loud
     const w = PITCH * p.cellsX - 1;

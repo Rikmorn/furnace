@@ -586,6 +586,7 @@ describe("field generators — commitGenerator", () => {
       defaults: {},
       contextFree: true,
       emits: "ops",
+      usesSeed: false, // fixture: evaluate takes no arguments at all
       evaluate: () => ({ ops: [], placements: [] }),
     };
     expect(() =>
@@ -659,6 +660,7 @@ describe("field generators — commitGenerator", () => {
       defaults: {},
       contextFree: true,
       emits: "ops",
+      usesSeed: false, // fixture: evaluate takes no arguments at all
       evaluate: () => ({
         ops: [
           {
@@ -729,6 +731,7 @@ const placingDef = (
   defaults: {},
   contextFree: true,
   emits,
+  usesSeed: false, // fixture: evaluate takes no arguments at all
   evaluate: () => ({ ops: [], placements: [], ...result }),
 });
 

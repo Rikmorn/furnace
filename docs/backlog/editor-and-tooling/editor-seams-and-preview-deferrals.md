@@ -162,6 +162,17 @@ it is a genuinely *harder* fact than `emits`: `emits` is checkable against the r
 trust, or inferred from evaluating twice at different seeds. If `usesSeed` lands, it lands
 through the same seam this entry is about — do the two together.
 
+**Status check (2026-07-30, F4.5b Task 1):** `GeneratorDef.usesSeed` **HAS landed** in core
+(`types.ts`; `false` on hall, `true` on maze/cave/scatter) — so the trigger above ("adds a
+third `GeneratorDef` declarative fact") has FIRED, and the duplication is now the maintenance
+hazard this entry predicted rather than a tidiness one. Exactly as predicted, it is a
+declaration on trust: core carries no enforcement for it, deliberately (an ignored seed is
+harmless; a consumed-but-undeclared one shows up as a re-roll that visibly does nothing).
+What did NOT land is the seam fix — `handleStampPreview` still re-spells core's ctx rule, and
+`StampInspector.tsx` still renders the seed input + ⚄ re-roll unconditionally. The consuming
+half is scoped to the F4.5b forms-vocabulary task; the seam choice (a/b/c above) is still open
+and still a design decision.
+
 **Reference:** `packages/core/src/field/generators.ts` (`evaluateGenerator`, the two guards),
 `packages/core/src/field/index.ts` (what the field module does and does not export),
 `packages/editor/src/frontend/lib/field-protocol.ts` (`handleStampPreview`),

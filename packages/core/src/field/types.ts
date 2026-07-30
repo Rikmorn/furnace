@@ -269,6 +269,18 @@ export type GeneratorDef = {
    *  contradict itself on this call — it cannot prove a def never will on other
    *  params. */
   emits: GeneratorEmits;
+  /** Whether `evaluate` READS `seed`. A UI-facing fact, like
+   *  {@link GeneratorDef.emits}: a seed control (or a re-roll button) shown for
+   *  a generator that ignores the seed is a dead control — the hall's structure
+   *  is entirely params-determined, so re-rolling it changes nothing.
+   *
+   *  Deliberately NOT enforced. There is no runtime check to write: an IGNORED
+   *  seed is harmless, and a CONSUMED-but-undeclared one shows up as a re-roll
+   *  that visibly does nothing, which the declaring generator's own
+   *  determinism tests already pin. Unlike `emits`, whose violation would put a
+   *  channel into the op log that the declaration forbids, a wrong `usesSeed`
+   *  cannot corrupt anything. */
+  usesSeed: boolean;
   evaluate(
     params: Record<string, unknown>,
     seed: number,

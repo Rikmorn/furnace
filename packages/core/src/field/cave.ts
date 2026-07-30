@@ -1350,6 +1350,7 @@ export const caveGenerator: GeneratorDef = {
   defaults: CAVE_DEFAULTS,
   contextFree: true, // seeded-but-pure; no field reads
   emits: "ops", // a pure carver — one patch op, no placed instances
+  usesSeed: true, // skeleton AND wall noise are both seeded
   evaluate(params, seed, region, table, policy): GeneratorResult {
     void table; // the cave emits rock (materialMask null) — no kit class needed
     const { theme, roughness } = caveParams(params); // narrow + validate, setup-loud

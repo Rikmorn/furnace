@@ -634,6 +634,7 @@ export const scatterGenerator: GeneratorDef = {
   defaults: SCATTER_DEFAULTS,
   contextFree: false, // reads the field to project onto surfaces
   emits: "placements", // a pure placer — writes no field cells at all
+  usesSeed: true, // lattice jitter, yaw, scale and variant all draw from it
   evaluate(params, seed, region, table, policy, ctx): GeneratorResult {
     void table; // scatter writes no cells and needs no material catalog
     void policy; // scatter emits placements, not merge-policied field ops

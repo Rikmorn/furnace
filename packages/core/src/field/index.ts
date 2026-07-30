@@ -101,6 +101,7 @@ export { detectPits, markUnreachable } from "./reachability.ts";
 export type { ReconfigureChanges } from "./reconfigure.ts";
 export {
   bakeGeneratorEntity,
+  deleteGeneratorEntity,
   reconfigureGenerator,
   setGeneratorFrozen,
 } from "./reconfigure.ts";

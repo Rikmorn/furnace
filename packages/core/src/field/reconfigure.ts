@@ -1,4 +1,4 @@
-// packages/core/src/field/reconfigure.ts — the three smart-object verbs, which
+// packages/core/src/field/reconfigure.ts — the four smart-object verbs, which
 // share one locator over the ONE linear log.
 //
 // reconfigureGenerator (F3 spec §2.1, D-F3-2..5) re-evaluates a committed
@@ -6,6 +6,11 @@
 // downstream ops whose bounded influence touches the change are replayed.
 // Bounded influence is what buys that culling — the whole reason charter §2.2
 // demands it.
+//
+// deleteGeneratorEntity (F4.5b) is that same splice with no replacement: the
+// span AND its entity op go, the affected chunks rewind, the downstream ops
+// replay. It lives here because it reuses every private helper reconfigure
+// built — the locator, the layout check, the rewind and the closure.
 //
 // setGeneratorFrozen and bakeGeneratorEntity (§2.2) re-evaluate NOTHING. They
 // swap the entity RECORD in place under one entity-update entry, touching no
@@ -120,9 +125,9 @@ function intersects(a: Set<ChunkKey>, b: Set<ChunkKey>): boolean {
  *  NOTHING about the op's span: {@link setGeneratorFrozen} and
  *  {@link bakeGeneratorEntity} write only the record and must be able to reach
  *  a corrupt entity — being unable to protect, or retire, a broken one is the
- *  wrong failure mode. {@link reconfigureGenerator}, which REWRITES the span,
- *  pairs this with {@link verifySpanLayout}, in that order and with the record's
- *  own guards between them (see its body).
+ *  wrong failure mode. The two SPLICING verbs, {@link reconfigureGenerator} and
+ *  {@link deleteGeneratorEntity}, pair this with {@link verifySpanLayout}, in
+ *  that order and with the record's own guards between them (see their bodies).
  *
  *  `verb` prefixes the throw with the PUBLIC verb the caller is implementing,
  *  matching every other throw those verbs emit. These strings reach an editor's
@@ -145,12 +150,18 @@ function findEntityOp(
   return { entityIdx, entityOp };
 }
 
-/** Verifies the layout {@link commitGenerator} establishes and every
- *  reconfigure preserves: the span's `opSpan[1] - opSpan[0] + 1` ops sit
- *  immediately before the entity op with sequential ids, none of them an entity
- *  op of its own. Setup-loud rather than trusting a stored index — a span left
- *  stale by an earlier edit is exactly how a bad splice arises, and passing this
- *  is what makes {@link spliceOps}' own range guard unreachable from here.
+/** Verifies the layout {@link commitGenerator} establishes and both splicing
+ *  verbs depend on: the span's `opSpan[1] - opSpan[0] + 1` ops sit immediately
+ *  before the entity op with sequential ids, none of them an entity op of its
+ *  own. {@link reconfigureGenerator} then PRESERVES that layout;
+ *  {@link deleteGeneratorEntity} removes the whole of it. Setup-loud rather
+ *  than trusting a stored index — a span left stale by an earlier edit is
+ *  exactly how a bad splice arises, and passing this is what makes
+ *  {@link spliceOps}' own range guard unreachable from either caller.
+ *
+ *  `verb` names the PUBLIC caller in the throw, for the reason spelled out on
+ *  {@link findEntityOp}: these strings reach an editor's error surface with no
+ *  stack frame attached.
  *
  *  @throws {@link Error} if the log does not hold the span where the record
  *    says. */
@@ -158,6 +169,7 @@ function verifySpanLayout(
   log: OpLog,
   entityIdx: number,
   entityOp: EntityOp,
+  verb: string,
 ): { spanStartIdx: number; spanOps: FieldOp[] } {
   const [firstId, lastId] = entityOp.entity.opSpan;
   const spanLength = lastId - firstId + 1;
@@ -170,7 +182,7 @@ function verifySpanLayout(
     spanOps.every((op, i) => op.kind !== "entity" && op.id === firstId + i);
   if (!laidOutAsCommitted)
     throw new Error(
-      `reconfigureGenerator: entity ${entityOp.entity.entityId}'s span [${firstId}, ${lastId}] is not the ${spanLength} op(s) immediately before its entity op — the log layout is corrupt`,
+      `${verb}: entity ${entityOp.entity.entityId}'s span [${firstId}, ${lastId}] is not the ${spanLength} op(s) immediately before its entity op — the log layout is corrupt`,
     );
   return { spanStartIdx, spanOps };
 }
@@ -290,8 +302,9 @@ function recookContext(
   return { store: scratch };
 }
 
-/** The chunks the replacement disturbs directly: the old span's bounded
- *  influence ∪ the new evaluation's. */
+/** The chunks the edit disturbs directly: the old span's bounded influence ∪
+ *  the new evaluation's — the latter EMPTY for a delete, which replaces the
+ *  span with nothing. */
 function directlyAffected(
   oldSpan: readonly FieldOp[],
   newSpan: readonly FieldOp[],
@@ -710,7 +723,12 @@ export function reconfigureGenerator(
       `reconfigureGenerator: entity ${entityId} is baked — its recipe was severed`,
     );
   const def = generatorById(recorded.generator);
-  const { spanStartIdx, spanOps } = verifySpanLayout(log, entityIdx, entityOp);
+  const { spanStartIdx, spanOps } = verifySpanLayout(
+    log,
+    entityIdx,
+    entityOp,
+    "reconfigureGenerator",
+  );
 
   // 2 — evaluate + validate the replacement. Every rejection the contract names
   // has fired by the end of this step but ONE: the record clone at the top of
@@ -822,6 +840,139 @@ export function reconfigureGenerator(
   // restored-but-unrewritten chunk still needs a remesh — so the dirty set IS
   // the affected set, handed over rather than copied.
   return { dirty: affected, entity: returned, drift };
+}
+
+/**
+ * Deletes a committed generator entity (F4.5b) — {@link reconfigureGenerator}'s
+ * splice with NO replacement.
+ *
+ * The entity's span AND its own entity op are spliced out of `log.ops`, the
+ * chunks the span wrote are rewound to their pre-span state, and the downstream
+ * ops that reach those chunks are replayed on top (the same culled replay,
+ * D-F3-3: the span's chunks closed transitively over the downstream ops that
+ * intersect them; an op whose mask embeds a FLOOD selection joins the set
+ * unconditionally). Nothing outside the affected set is re-applied.
+ *
+ * The result is that the log reads as though the generator had never been
+ * committed, with every later edit preserved: a dig that cut through the deleted
+ * stamp survives as a dig into whatever was underneath. `log.nextId` is NOT
+ * rewound — no id is ever reused, so the removed span parked on the redo stack
+ * can never collide with a later op.
+ *
+ * Other entities are untouched. Spans are located by ID, not by index, so
+ * removing a contiguous block elsewhere in the array leaves every surviving
+ * entity's span sitting immediately before its own entity op exactly as before.
+ *
+ * **Refuses a `frozen` entity** — freeze is protection against an accidental
+ * edit, and deletion is the largest edit there is, so unfreeze first (unlike
+ * {@link bakeGeneratorEntity}, which ignores the flag because baking is a
+ * deliberate one-way action the caller is expected to confirm).
+ *
+ * **Refuses a `baked` entity, permanently.** A baked record's span ops are
+ * plain history eligible for compaction, and `compactRuns` folds them without
+ * updating the record — so a baked `opSpan` is not a claim about the log's
+ * contents, and splicing by it could delete ops the entity never owned. Bake
+ * is the escape hatch for retiring an entity, not a step towards deleting one.
+ *
+ * Takes no `snapshots` argument, unlike {@link reconfigureGenerator}: the
+ * rewind is identical and the lever would work, but no caller holds records
+ * today (the editor passes none to reconfigure either), so it is left off
+ * rather than added speculatively.
+ *
+ * Pushes exactly ONE `splice` undo entry with `inserted: []` (the removed span +
+ * entity op, and the affected chunks' before/after images) and clears the redo
+ * stack. Undo puts the whole entity back and restores the images byte-for-byte;
+ * redo re-deletes. Neither re-executes the span. `dirty` is the whole affected
+ * set, not just the chunks whose bytes moved — a chunk restored to its pre-span
+ * state and never rewritten still needs a remesh.
+ *
+ * No drift report: `dirty` is what the caller needs to remesh, and the F3
+ * drift contract exists to flag ops whose outcome moved under a RE-EVALUATION.
+ * Deleting is not a re-evaluation, and every downstream op it disturbs is by
+ * definition disturbed, so a report would flag everything.
+ *
+ * @throws {@link Error} if no entity op carries `entityId`, the entity is
+ *   `frozen` or `baked`, or the log does not hold its span where the record
+ *   says. All three are VALIDATION failures that fire before the first write,
+ *   leaving the store, `log.ops` and both stacks untouched. Past validation
+ *   this verb has strictly FEWER ways to fail than {@link reconfigureGenerator}
+ *   — no evaluate, no record clone, and `spliceOps`' range guard is discharged
+ *   by `verifySpanLayout` — so the same "does not unwind, and does not need to"
+ *   guarantee holds a fortiori (see the note on step 2 in reconfigure's body
+ *   for the replay-path obligations both verbs inherit).
+ */
+export function deleteGeneratorEntity(
+  store: FieldStore,
+  log: OpLog,
+  entityId: number,
+  table: MaterialTable,
+): { dirty: Set<ChunkKey> } {
+  // 1 — locate + guards, in reconfigureGenerator's order and for its reason: a
+  // baked entity's span is compaction-eligible, so a compacted log holds baked
+  // records whose `opSpan` names ids that no longer exist. Those must report
+  // what they ARE — baked — not "the log layout is corrupt".
+  const { entityIdx, entityOp } = findEntityOp(
+    log,
+    entityId,
+    "deleteGeneratorEntity",
+  );
+  const recorded = entityOp.entity;
+  if (recorded.frozen === true)
+    throw new Error(
+      `deleteGeneratorEntity: entity ${entityId} is frozen — unfreeze it to delete`,
+    );
+  if (recorded.baked === true)
+    throw new Error(
+      `deleteGeneratorEntity: entity ${entityId} is baked — its span ops are compactable history, so its recorded opSpan is no longer a claim about the log`,
+    );
+  const { spanStartIdx, spanOps } = verifySpanLayout(
+    log,
+    entityIdx,
+    entityOp,
+    "deleteGeneratorEntity",
+  );
+
+  // 2 — the affected set: what the span WROTE (there is no replacement to
+  // union in), closed over the downstream ops that intersect it. Downstream
+  // PLACEMENT ops write no cells, so they are never absorbed and never replay —
+  // and unlike a reconfigure there is no drift pass to collect them for.
+  const cellSize = store.cellSize;
+  const { affected, replay } = closeOverDownstream(
+    directlyAffected(spanOps, [], cellSize),
+    downstreamOf(log, entityIdx, cellSize),
+  );
+
+  // 3 — old-final images: undo's `before`
+  const before = imagesOf(store, affected);
+
+  // 4 — splice the log BEFORE the rewind: the prefix restore reads only ops
+  // BELOW spanStartIdx, which the splice leaves alone, so ordering it first
+  // keeps the store and log.ops from ever disagreeing (reconfigure's ordering).
+  const removed: FieldOp[] = [...spanOps, entityOp];
+  spliceOps(log.ops, spanStartIdx, removed.length, []);
+
+  // 5 — rewind the affected chunks, then replay the absorbed downstream ops in
+  // LOG order. This is applyAndReport's loop minus the reporting: with no new
+  // span to apply and no drift to return, the orphan/diff pass would be
+  // computed and thrown away.
+  restorePreState(store, log, spanStartIdx, affected, table, []);
+  for (const candidate of replay) applyFieldOp(store, candidate.op, table);
+
+  // 6 — after-images + the ONE undo entry
+  const after = imagesOf(store, affected);
+  log.undoStack.push({
+    kind: "splice",
+    at: spanStartIdx,
+    removed,
+    inserted: [],
+    before,
+    after,
+  });
+  log.redoStack.length = 0;
+  // Every write above lands in an affected chunk by construction, and a
+  // restored-but-unrewritten chunk still needs a remesh — so the dirty set IS
+  // the affected set, handed over rather than copied.
+  return { dirty: affected };
 }
 
 /** Swaps one entity op's record in place under a single `entity-update` undo

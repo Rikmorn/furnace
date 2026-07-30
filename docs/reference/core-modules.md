@@ -874,7 +874,14 @@ channel** (uniform|indexed palette encoding behind accessors — `getMaterial` /
   props?" is `emits !== "ops"`). ORTHOGONAL to `contextFree` (what evaluate READS) — every
   combination is legal; today's registry pairs `contextFree: true` + `"ops"` (hall, maze,
   cave) with `contextFree: false` + `"placements"` (scatter), which is a coincidence of
-  the four rather than a rule, and no def declares `"both"`. Enforced setup-loud by the
+  the four rather than a rule, and no def declares `"both"`. It also declares
+  **`usesSeed: boolean`** (F4.5b) — whether `evaluate` READS `seed`. UI-facing like
+  `emits`: a seed control or re-roll button on a generator that ignores the seed is a dead
+  control. `false` for the hall alone (its evaluate opens `void seed` — structure is
+  entirely params-determined); `true` for maze, cave and scatter. Deliberately NOT
+  enforced, unlike `emits`: an ignored seed is harmless and a consumed-but-undeclared one
+  shows up as a re-roll that visibly does nothing, so there is nothing a runtime check
+  could protect. Enforced setup-loud by the
   COMMITTER: the one shared evaluate path behind `commitGenerator` and
   `reconfigureGenerator` throws, before any write, on a result contradicting the
   declaration (two array-length reads on the result in hand — so it catches a def that DID
@@ -1022,6 +1029,32 @@ channel** (uniform|indexed palette encoding behind accessors — `getMaterial` /
   PRE-RECONFIGURE bytes (the drift baseline is old-final, not from-scratch), so it is
   loud in practice; the report just cannot say the new output is wrong.
   Tracked in `docs/backlog/engine-architecture/field-reconfigure-flood-read-set.md`.
+- **Smart objects — delete (F4.5b)** — `deleteGeneratorEntity(store, log, entityId,
+  table)` is the reconfigure splice with NO replacement: the entity's span AND its own
+  entity op are spliced out of `log.ops`, the chunks the span wrote rewind to their
+  pre-span state, and the downstream ops that reach them replay on top (the same culled
+  replay, D-F3-3). The log then reads as though the generator had never been committed,
+  with every later edit preserved — a dig that cut through the deleted stamp survives as
+  a dig into whatever was underneath. Other entities are untouched: spans are located by
+  ID, so removing a contiguous block elsewhere leaves each survivor's span sitting
+  immediately before its own entity op. `log.nextId` is NOT rewound (ids are handed out
+  once, so the removed span parked on the redo stack cannot collide with a later op).
+  Returns `{dirty}` only — the whole affected set, since a restored-but-unrewritten chunk
+  still needs a remesh. **No `drift` report:** the F3 drift contract flags ops whose
+  outcome moved under a RE-EVALUATION, and deleting is not one — every downstream op it
+  disturbs is by definition disturbed, so a report would flag everything. **No `snapshots`
+  argument** either: the rewind is identical and the lever would work, but no caller holds
+  records today, so it is left off rather than added speculatively. One `splice` undo entry
+  with `inserted: []`, redo cleared; undo puts the whole entity back and restores the
+  images byte-for-byte, redo re-deletes, and neither re-executes the span. Setup-loud on
+  an unknown entityId, a `frozen` entity (freeze protects against an accidental edit and
+  deletion is the largest edit there is — unfreeze first, unlike `bakeGeneratorEntity`
+  which ignores the flag), a `baked` entity, or a corrupt span layout — all with NOTHING
+  mutated, and in that ORDER for reconfigure's reason. The **baked** refusal is permanent
+  and structural: a baked record's span ops are compaction-eligible and `compactRuns`
+  folds them without updating the record, so a baked `opSpan` is no longer a claim about
+  the log's contents and splicing by it could delete ops the entity never owned. Bake
+  retires an entity; it is not a step towards deleting one.
 - **Smart objects — freeze / bake (F3a)** — the two protection verbs, both
   `(log, entityId, …)` and deliberately WITHOUT `store`: each writes only the entity
   RECORD, so no chunk changes and there is no `dirty` set to return. Each records one
