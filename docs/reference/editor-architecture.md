@@ -1399,10 +1399,16 @@ without a browser.
 - `PALETTE_IDS` is a **closed union** (`controls`, `entities`, `log`): a persisted record
   for an id not in it is dropped rather than restored, so a retired palette cannot come
   back as dead geometry.
-- Defaults claim three of the cell's four corners on purpose — `controls` edge-docked
-  right, `entities` floating top-left and open, `log` the same corner but **closed**
-  (it is summoned, not always-on). The top-right stays clear for the axis triad, leaving
-  the bottom-left strip for the collapsed-chip rail.
+- The defaults claim **two** of the cell's four corners: `controls` docks to the right
+  edge from y=0 — which puts it in the **top-right** — while `entities` and `log` share
+  the **top-left**, `log` starting **closed** because it is summoned rather than
+  always-on. The axis triad is a third claimant of that same top-right corner, which is
+  exactly why it mounts above the palette layer in DOM order (§20.5) — the controls dock
+  covers it otherwise. `Toasts` takes the bottom-right (its own D-1 absolute layer), so
+  the **bottom-left** is the one strip nothing defaults into, and that is where the
+  collapsed-chip rail lives: it used to sit top-right, under exactly this dock, so
+  collapsing any palette dropped its chip on top of another one (`PaletteLayer`'s own
+  account of the move).
 - `SNAP_PX = 24` — roughly a coarse pointer's slop.
 - The ⌘\ hide-all is a **latch**: `hidden` does not touch the per-palette records, so
   restoring returns the exact prior arrangement.
@@ -1410,9 +1416,11 @@ without a browser.
 **`hooks/useWorkspace.tsx`** adds the two things the store refuses to know: React state
 and the disk (a `PERSIST_DEBOUNCE_MS = 200` write, so a drag writes once at the end of
 the gesture rather than 60×/s). It is split into **state and actions contexts**, and the
-load-bearing beneficiary is `ShellFrame`, which reads ACTIONS ONLY — that is what keeps
-the `content={{ controls: <FieldPanel/>, … }}` elements referentially stable and
-therefore keeps `FieldPanel` off the pointer-rate path.
+load-bearing beneficiary is `ShellChrome` — the component that actually builds the
+`content={{ controls: <FieldPanel/>, … }}` elements — which reads ACTIONS ONLY. That is
+what keeps those elements referentially stable across a drag and therefore keeps
+`FieldPanel` off the pointer-rate path. (`ShellFrame`, one level up, reads only
+`useEditor`.)
 
 **Front-to-back order is session-local** (`hooks/usePaletteStack.tsx`) and deliberately
 NOT persisted: geometry, collapse and open are decisions the user made; which palette
@@ -1540,8 +1548,9 @@ box inside the SAME cell: they take nothing from the canvas (D-1).
 
 ### 20.6 The menu, the shortcut overlay, and the ONE history
 
-The menu is a **single burger dropdown** (`shell/BurgerMenu.tsx`) with Edit / World /
-View / Help groups — not a menubar. `shell/ShortcutsDialog.tsx` is the complete keybinding
+The menu is a **single burger dropdown** (`shell/BurgerMenu.tsx`) whose groups render in
+the order **World / Edit / View / Help** — not a menubar. (`EditGroup` is *defined* first
+in the file but *rendered* after the World group; read the JSX, not the declarations.) `shell/ShortcutsDialog.tsx` is the complete keybinding
 reference, hand-maintained (the `MIGRATION (until F4.5b)` marker on it names the command
 registry that will replace its data).
 

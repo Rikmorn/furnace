@@ -1,13 +1,15 @@
 // The live palette arrangement: the pure store (lib/palette-store.ts) plus the two
 // things it refuses to know about — React state and the disk.
 //
-// Split into TWO contexts on purpose, and the load-bearing beneficiary is ShellFrame:
-// it reads ACTIONS ONLY, so a drag never re-renders it — which is what keeps the
-// `content={{ controls: <FieldPanel />, … }}` elements it builds referentially stable,
-// and therefore what keeps FieldPanel (4 host subscriptions, a form-heavy subtree) off
-// the pointer-rate path. A ShellFrame that starts reading the STATE context silently undoes
-// that: it would rebuild those elements per pointermove and re-render the panel with
-// them. The provider's own `children` come from its parent, so its state changes
+// Split into TWO contexts on purpose, and the load-bearing beneficiary is ShellChrome —
+// the component that BUILDS the `content={{ controls: <FieldPanel />, … }}` elements. It
+// reads ACTIONS ONLY, so a drag never re-renders it, which is what keeps those elements
+// referentially stable and therefore what keeps FieldPanel (4 host subscriptions, a
+// form-heavy subtree) off the pointer-rate path. A ShellChrome that starts reading the
+// STATE context silently undoes that: it would rebuild those elements per pointermove and
+// re-render the panel with them. (ShellFrame, one level up, reads only useEditor — this
+// comment named it for both roles until F4.5a Task 13; useWorld.tsx and useView.tsx had
+// it right.) The provider's own `children` come from its parent, so its state changes
 // re-render only the context consumers below it (the FieldHostStateProvider pattern).
 //
 // Honest about who pays: TopBar and BurgerMenu DO read the state — a hide/show label and
