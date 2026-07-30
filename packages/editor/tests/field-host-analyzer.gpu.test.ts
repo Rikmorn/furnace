@@ -43,7 +43,6 @@ import { consoleSink, setSink } from "@furnace/core/log";
 import {
   bunWebGpuAvailable,
   ensureBunWebGpu,
-  makeOffscreenCanvas,
 } from "../../core/tests/_helpers/gpu-fixture.ts";
 import { installMockResizeObserver } from "../../core/tests/_helpers/mock-resize-observer.ts";
 import type {
@@ -60,6 +59,8 @@ import type {
   FieldTool,
   FlagsSummary,
 } from "../src/viewport-host/index.ts";
+import { type HostListeners, makeHostCanvas } from "./_helpers/host-canvas.ts";
+import { stubAnimationFrameCaptured } from "./_helpers/raf.ts";
 
 await ensureBunWebGpu();
 
@@ -237,60 +238,6 @@ const lastSummary = (pushes: readonly FlagsSummary[]): FlagsSummary => {
   return s;
 };
 
-/** rAF/cAF do not exist in bun, and the host schedules its loop through them at
- *  the end of `init`. Stubbed so the loop never runs on its own — but the
- *  callback is CAPTURED, because one hand-driven tick is the only way to observe
- *  the per-frame {@link FieldStats} push. */
-function stubAnimationFrame(): {
-  restore: () => void;
-  tick: (now: number) => void;
-} {
-  const g = globalThis as unknown as Record<string, unknown>;
-  const saved = ["requestAnimationFrame", "cancelAnimationFrame"].map(
-    (name) => ({ name, had: name in g, prev: g[name] }),
-  );
-  let pending: ((now: number) => void) | null = null;
-  g["requestAnimationFrame"] = (fn: (now: number) => void) => {
-    pending = fn;
-    return 1;
-  };
-  g["cancelAnimationFrame"] = () => undefined;
-  return {
-    tick: (now) => {
-      const fn = pending;
-      if (fn === null) throw new Error("test: the host scheduled no frame");
-      pending = null;
-      fn(now);
-    },
-    restore: () => {
-      for (const { name, had, prev } of saved) {
-        if (had) g[name] = prev;
-        else delete g[name];
-      }
-    },
-  };
-}
-
-type Listeners = Map<string, (e: unknown) => void>;
-
-/** The fixture canvas, with a RECORDING addEventListener so a test can fire the
- *  host's own pointer handler (the segment test's recipe). */
-async function makeHostCanvas(
-  listeners: Listeners,
-): Promise<HTMLCanvasElement> {
-  const canvas = await makeOffscreenCanvas(64, 64);
-  return Object.assign(canvas, {
-    addEventListener: (type: string, fn: (e: unknown) => void) => {
-      listeners.set(type, fn);
-    },
-    removeEventListener: () => undefined,
-    getBoundingClientRect: () => ({ left: 0, top: 0, width: 64, height: 64 }),
-    setPointerCapture: () => undefined,
-    releasePointerCapture: () => undefined,
-    style: {},
-  }) as unknown as HTMLCanvasElement;
-}
-
 /** Comfortably past ANALYZER_IDLE_MS (500) — the debounce is a real constant in
  *  the host, deliberately not injected, so the wait is real too. */
 const IDLE_TAIL_WAIT_MS = 700;
@@ -304,8 +251,11 @@ async function fixture(
 ) {
   const profile = opts.profile === undefined ? AGENT : opts.profile;
   const restoreRo = installMockResizeObserver();
-  const raf = stubAnimationFrame();
-  const listeners: Listeners = new Map();
+  // The CAPTURED rAF variant: one hand-driven tick is the only way to observe the
+  // per-frame `FieldStats` push. The canvas records its listeners so a test can
+  // fire the host's own pointer handler (the segment test's recipe).
+  const raf = stubAnimationFrameCaptured();
+  const listeners: HostListeners = new Map();
   const fake = analyzerWorker(opts.engine);
   const host = createFieldHost({ spawnAnalyzer: () => fake.worker });
   host.setMaterialTable(ROCK_ONLY);

@@ -41,6 +41,7 @@ import type { AnalyzerRequest } from "../src/frontend/lib/analyzer-protocol.ts";
 import type { WorkerLike } from "../src/frontend/lib/field-client.ts";
 import { createFieldHost } from "../src/viewport-host/field-host.ts";
 import type { FlagsSummary } from "../src/viewport-host/index.ts";
+import { stubCancelAnimationFrame } from "./_helpers/raf.ts";
 
 const DUNGEON_ROOT = resolve(import.meta.dir, "../../dungeon");
 const WORKER_ENTRY = new URL(
@@ -188,18 +189,6 @@ test("P-F4-2: the real analyzer worker verifies a flag against the daemon's own 
 // header (Bun cannot `import()` over http). The host names "/engine.js"; the
 // proxy below rewrites exactly that field of exactly the `verify` request, and
 // nothing else crosses altered.
-
-/** `dispose()` calls `cancelAnimationFrame`, which bun does not define. */
-function stubCancelAnimationFrame(): () => void {
-  const g = globalThis as unknown as Record<string, unknown>;
-  const had = "cancelAnimationFrame" in g;
-  const prev = g["cancelAnimationFrame"];
-  g["cancelAnimationFrame"] = () => undefined;
-  return () => {
-    if (had) g["cancelAnimationFrame"] = prev;
-    else delete g["cancelAnimationFrame"];
-  };
-}
 
 /** The real worker entry, spawned, with the verify request's engineUrl pointed
  *  at the on-disk copy of the daemon's bundle. */

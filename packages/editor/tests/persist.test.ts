@@ -63,6 +63,12 @@ test("a v1 blob is ignored, not migrated", () => {
   expect(backing.size).toBe(2);
 });
 
+// MERGE SEMANTICS, both legs. `set` rebuilds the blob from `load()` on every
+// call, so a regression to "write the value straight through" would wipe every
+// other key — and each key has exactly one writer that knows nothing about the
+// rest (persist.ts's UiState docblock). Both legs matter: the first pins that
+// keys ACCUMULATE, the second that an OVERWRITE of a live key is still a merge
+// and not a replace.
 test("the keys are independent — a write to one leaves the others alone", () => {
   const store = createUiStore(fakeStorage(), "/p");
   store.set("lastWorld", "cavern");
@@ -70,6 +76,18 @@ test("the keys are independent — a write to one leaves the others alone", () =
   store.set("workspace", WORKSPACE);
   expect(store.get("lastWorld")).toBe("cavern");
   expect(store.get("recentWorlds")).toEqual(["cavern", "grotto"]);
+  expect(store.get("workspace")).toEqual(WORKSPACE);
+
+  // Update one of them; the other two are untouched.
+  store.set("lastWorld", "grotto");
+  expect(store.get("lastWorld")).toBe("grotto");
+  expect(store.get("recentWorlds")).toEqual(["cavern", "grotto"]);
+  expect(store.get("workspace")).toEqual(WORKSPACE);
+
+  // …and so is clearing one (the `undefined` delete is a merge too).
+  store.set("recentWorlds", undefined);
+  expect(store.get("recentWorlds")).toBeUndefined();
+  expect(store.get("lastWorld")).toBe("grotto");
   expect(store.get("workspace")).toEqual(WORKSPACE);
 });
 

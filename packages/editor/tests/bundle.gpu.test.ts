@@ -32,7 +32,6 @@ import { consoleSink, setSink } from "@furnace/core/log";
 import {
   bunWebGpuAvailable,
   ensureBunWebGpu,
-  makeOffscreenCanvas,
 } from "../../core/tests/_helpers/gpu-fixture.ts";
 import { installMockResizeObserver } from "../../core/tests/_helpers/mock-resize-observer.ts";
 import { createEngineBundler } from "../src/daemon/bundle.ts";
@@ -41,6 +40,8 @@ import type {
   FieldStats,
   FieldTool,
 } from "../src/viewport-host/index.ts";
+import { makeHostCanvas } from "./_helpers/host-canvas.ts";
+import { stubAnimationFrameCaptured } from "./_helpers/raf.ts";
 
 await ensureBunWebGpu();
 
@@ -123,58 +124,6 @@ async function importBundle(extensions: string | undefined): Promise<{
   }>;
 }
 
-/** rAF/cAF do not exist in bun and the host schedules its loop through them at the end of
- *  `init`. Stubbed so the loop never runs on its own — but the callback is CAPTURED,
- *  because a hand-driven tick is the only way to make the host render on demand here. */
-function stubAnimationFrame(): {
-  restore: () => void;
-  tick: (now: number) => void;
-} {
-  const g = globalThis as unknown as Record<string, unknown>;
-  const saved = ["requestAnimationFrame", "cancelAnimationFrame"].map(
-    (name) => ({ name, had: name in g, prev: g[name] }),
-  );
-  let pending: ((now: number) => void) | null = null;
-  g["requestAnimationFrame"] = (fn: (now: number) => void) => {
-    pending = fn;
-    return 1;
-  };
-  g["cancelAnimationFrame"] = () => undefined;
-  return {
-    tick: (now) => {
-      const fn = pending;
-      if (fn === null) throw new Error("test: the host scheduled no frame");
-      pending = null;
-      fn(now);
-    },
-    restore: () => {
-      for (const { name, had, prev } of saved) {
-        if (had) g[name] = prev;
-        else delete g[name];
-      }
-    },
-  };
-}
-
-/** The fixture canvas, with a RECORDING addEventListener so the test can fire the host's
- *  own pointer handler — the only route to a real stroke (`cursorRay` → `applyTool`). */
-async function makeHostCanvas(
-  listeners: Map<string, (e: unknown) => void>,
-): Promise<HTMLCanvasElement> {
-  const canvas = await makeOffscreenCanvas(64, 64);
-  // Boundary cast: bun-webgpu's mock canvas stands in for HTMLCanvasElement.
-  return Object.assign(canvas, {
-    addEventListener: (type: string, fn: (e: unknown) => void) => {
-      listeners.set(type, fn);
-    },
-    removeEventListener: () => undefined,
-    getBoundingClientRect: () => ({ left: 0, top: 0, width: 64, height: 64 }),
-    setPointerCapture: () => undefined,
-    releasePointerCapture: () => undefined,
-    style: {},
-  }) as unknown as HTMLCanvasElement;
-}
-
 test.skipIf(!bunWebGpuAvailable())(
   "THE PROJECT-FIRST GATE: the bundled consumer graph boots a field host, digs, and draws",
   async () => {
@@ -183,7 +132,10 @@ test.skipIf(!bunWebGpuAvailable())(
     // the chrome reads it through (see daemon/bundle.ts's virtual entry).
     expect(mod.extensions).toBeDefined();
 
-    const raf = stubAnimationFrame();
+    // The CAPTURED rAF variant: a hand-driven tick is the only way to make the host
+    // render on demand. The canvas records its listeners so the test can fire the
+    // host's own pointer handler — the only route to a real stroke.
+    const raf = stubAnimationFrameCaptured();
     const listeners = new Map<string, (e: unknown) => void>();
     const host = mod.createFieldHost();
     try {

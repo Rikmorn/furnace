@@ -20,7 +20,6 @@ import {
 import {
   bunWebGpuAvailable,
   ensureBunWebGpu,
-  makeOffscreenCanvas,
 } from "../../core/tests/_helpers/gpu-fixture.ts";
 import { installMockResizeObserver } from "../../core/tests/_helpers/mock-resize-observer.ts";
 import type { WorkerLike } from "../src/frontend/lib/field-client.ts";
@@ -31,6 +30,8 @@ import type {
 import { createFieldWorkerHandler } from "../src/frontend/lib/field-protocol.ts";
 import { createFieldHost } from "../src/viewport-host/field-host.ts";
 import type { FieldLayers } from "../src/viewport-host/index.ts";
+import { makeHostCanvas } from "./_helpers/host-canvas.ts";
+import { stubAnimationFrameNoop } from "./_helpers/raf.ts";
 
 await ensureBunWebGpu();
 
@@ -106,46 +107,14 @@ function handlerWorker() {
 const flush = (): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, 0));
 
-/** rAF/cAF do not exist in bun. The host schedules its render loop through them
- *  at the end of `init`, so they must exist — but the callback must NOT run:
- *  ticking would render, and bun-webgpu's mock drops the `viewFormats` array
- *  the engine's default sRGB surface needs. Nothing under test lives in the
- *  tick (a cast is driven by setLayers → worker → response). */
-function stubAnimationFrame(): () => void {
-  const g = globalThis as unknown as Record<string, unknown>;
-  const saved = ["requestAnimationFrame", "cancelAnimationFrame"].map(
-    (name) => ({ name, had: name in g, prev: g[name] }),
-  );
-  g["requestAnimationFrame"] = () => 1;
-  g["cancelAnimationFrame"] = () => undefined;
-  return () => {
-    for (const { name, had, prev } of saved) {
-      if (had) g[name] = prev;
-      else delete g[name];
-    }
-  };
-}
-
-/** The fixture canvas plus the DOM surface `attachListeners` and the camera
- *  bind reach for. All no-ops: these tests drive the host through its methods,
- *  never through input events. */
-async function makeHostCanvas(): Promise<HTMLCanvasElement> {
-  const canvas = await makeOffscreenCanvas(64, 64);
-  return Object.assign(canvas, {
-    addEventListener: () => undefined,
-    removeEventListener: () => undefined,
-    getBoundingClientRect: () => ({ left: 0, top: 0, width: 64, height: 64 }),
-    setPointerCapture: () => undefined,
-    releasePointerCapture: () => undefined,
-    style: {},
-  }) as unknown as HTMLCanvasElement;
-}
-
 /** An initialized host over a one-chunk world with a pocket in it, plus its
  *  injected worker and an error log. Callers own `teardown`. */
 async function fieldHostFixture() {
   const restoreRo = installMockResizeObserver();
-  const restoreRaf = stubAnimationFrame();
+  // The NO-OP rAF variant, and the canvas with no listener map: these tests drive
+  // the host through its methods (setLayers → worker → response), so nothing under
+  // test lives in a frame or behind an input event.
+  const restoreRaf = stubAnimationFrameNoop();
   const fake = handlerWorker();
   const host = createFieldHost({ spawnWorker: () => fake.worker });
   host.loadWorld({

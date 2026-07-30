@@ -19,11 +19,12 @@ import { chunkKey, DEFAULT_CELL_SIZE, parseOps } from "@furnace/core/field";
 import {
   bunWebGpuAvailable,
   ensureBunWebGpu,
-  makeOffscreenCanvas,
 } from "../../core/tests/_helpers/gpu-fixture.ts";
 import { installMockResizeObserver } from "../../core/tests/_helpers/mock-resize-observer.ts";
 import { createFieldHost } from "../src/viewport-host/field-host.ts";
 import type { FieldTool } from "../src/viewport-host/index.ts";
+import { type HostListeners, makeHostCanvas } from "./_helpers/host-canvas.ts";
+import { stubAnimationFrameNoop } from "./_helpers/raf.ts";
 
 await ensureBunWebGpu();
 
@@ -45,48 +46,12 @@ const DIG_TOOL: FieldTool = {
   hollow: null,
 };
 
-/** rAF/cAF do not exist in bun; the host schedules its loop through them at the
- *  end of `init`. Stubbed to no-ops — a tick would render, and nothing under
- *  test lives there (a gesture is driven entirely by input handlers). */
-function stubAnimationFrame(): () => void {
-  const g = globalThis as unknown as Record<string, unknown>;
-  const saved = ["requestAnimationFrame", "cancelAnimationFrame"].map(
-    (name) => ({ name, had: name in g, prev: g[name] }),
-  );
-  g["requestAnimationFrame"] = () => 1;
-  g["cancelAnimationFrame"] = () => undefined;
-  return () => {
-    for (const { name, had, prev } of saved) {
-      if (had) g[name] = prev;
-      else delete g[name];
-    }
-  };
-}
-
-type Listeners = Map<string, (e: unknown) => void>;
-
-/** The fixture canvas, with a RECORDING addEventListener so the tests can fire
- *  the host's own handlers. */
-async function makeHostCanvas(
-  listeners: Listeners,
-): Promise<HTMLCanvasElement> {
-  const canvas = await makeOffscreenCanvas(64, 64);
-  return Object.assign(canvas, {
-    addEventListener: (type: string, fn: (e: unknown) => void) => {
-      listeners.set(type, fn);
-    },
-    removeEventListener: () => undefined,
-    getBoundingClientRect: () => ({ left: 0, top: 0, width: 64, height: 64 }),
-    setPointerCapture: () => undefined,
-    releasePointerCapture: () => undefined,
-    style: {},
-  }) as unknown as HTMLCanvasElement;
-}
-
 async function segmentFixture() {
   const restoreRo = installMockResizeObserver();
-  const restoreRaf = stubAnimationFrame();
-  const listeners: Listeners = new Map();
+  // The NO-OP rAF variant: a tick would only render, and the two-click state
+  // machine under test is driven entirely through the RECORDED input handlers.
+  const restoreRaf = stubAnimationFrameNoop();
+  const listeners: HostListeners = new Map();
   const host = createFieldHost();
   host.loadWorld({ manifest: MANIFEST, chunks: [], oplog: null });
   await host.init(await makeHostCanvas(listeners));

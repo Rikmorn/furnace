@@ -27,7 +27,6 @@ import { consoleSink, setSink } from "@furnace/core/log";
 import {
   bunWebGpuAvailable,
   ensureBunWebGpu,
-  makeOffscreenCanvas,
 } from "../../core/tests/_helpers/gpu-fixture.ts";
 import { installMockResizeObserver } from "../../core/tests/_helpers/mock-resize-observer.ts";
 import type { WorkerLike } from "../src/frontend/lib/field-client.ts";
@@ -38,6 +37,8 @@ import type {
 import { createFieldWorkerHandler } from "../src/frontend/lib/field-protocol.ts";
 import { createFieldHost } from "../src/viewport-host/field-host.ts";
 import type { FieldLayers, FieldStats } from "../src/viewport-host/index.ts";
+import { makeHostCanvas } from "./_helpers/host-canvas.ts";
+import { stubAnimationFrameCaptured } from "./_helpers/raf.ts";
 
 await ensureBunWebGpu();
 
@@ -107,58 +108,10 @@ function handlerWorker() {
   return { worker, deliver, posted };
 }
 
-/** rAF/cAF do not exist in bun, and the host schedules its loop through them at the end
- *  of `init` AND at the end of every tick. Stubbed so the loop never runs on its own,
- *  with the callback CAPTURED — one hand-driven frame is the only way to reach
- *  `drainDirty` and the stats push. */
-function stubAnimationFrame(): {
-  restore: () => void;
-  tick: (now: number) => void;
-} {
-  const g = globalThis as unknown as Record<string, unknown>;
-  const saved = ["requestAnimationFrame", "cancelAnimationFrame"].map(
-    (name) => ({ name, had: name in g, prev: g[name] }),
-  );
-  let pending: ((now: number) => void) | null = null;
-  g["requestAnimationFrame"] = (fn: (now: number) => void) => {
-    pending = fn;
-    return 1;
-  };
-  g["cancelAnimationFrame"] = () => undefined;
-  return {
-    tick: (now) => {
-      const fn = pending;
-      if (fn === null) throw new Error("test: the host scheduled no frame");
-      pending = null;
-      fn(now);
-    },
-    restore: () => {
-      for (const { name, had, prev } of saved) {
-        if (had) g[name] = prev;
-        else delete g[name];
-      }
-    },
-  };
-}
-
 /** Drains the microtask queue: a remesh response walks a `.then`/`.catch` chain, so one
  *  `await` is not enough (the void-cast fixture's note). */
 const flush = (): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, 0));
-
-/** The fixture canvas plus the DOM surface `attachListeners` and the camera bind reach
- *  for — all no-ops: this test drives the host through its methods and its own tick. */
-async function makeHostCanvas(): Promise<HTMLCanvasElement> {
-  const canvas = await makeOffscreenCanvas(64, 64);
-  return Object.assign(canvas, {
-    addEventListener: () => undefined,
-    removeEventListener: () => undefined,
-    getBoundingClientRect: () => ({ left: 0, top: 0, width: 64, height: 64 }),
-    setPointerCapture: () => undefined,
-    releasePointerCapture: () => undefined,
-    style: {},
-  }) as unknown as HTMLCanvasElement;
-}
 
 /** All layers on, `voidCast` as asked for. The chrome's own default set, restated here
  *  for the same reason the chrome restates it: nothing exports it. */
@@ -177,7 +130,11 @@ const layers = (voidCast: boolean): FieldLayers => ({
  *  and the worker answering on demand. Callers own `teardown`. */
 async function fixture() {
   const restoreRo = installMockResizeObserver();
-  const raf = stubAnimationFrame();
+  // The CAPTURED rAF variant: one hand-driven frame is the only way to reach
+  // `drainDirty` and the stats push, both of which live inside the host's tick.
+  // The canvas takes no listener map — this test drives the host through its
+  // methods and that tick, never through input events.
+  const raf = stubAnimationFrameCaptured();
   const fake = handlerWorker();
   const host = createFieldHost({ spawnWorker: () => fake.worker });
   const canvas = await makeHostCanvas();

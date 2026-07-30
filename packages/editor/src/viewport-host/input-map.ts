@@ -1,5 +1,3 @@
-export type DragAction = "select" | "orbit" | "pan" | "fly";
-
 /** A stamp-region nudge in whole LATTICE STEPS (not metres) on world axes —
  *  what {@link arrowNudgeSteps} returns and `FieldHost.nudgeStamp` takes. */
 export type NudgeSteps = [number, number, number];
@@ -29,8 +27,8 @@ const ARROW_NUDGE = new Map<string, { plain: NudgeSteps; shift: NudgeSteps }>([
  * whatever the fly camera is doing.
  *
  * Pure and case-insensitive, so the sign table is unit-testable without a
- * canvas, a GPU, or a real KeyboardEvent (the `classifyDrag` precedent). The
- * caller owns the chord guards and the session check.
+ * canvas, a GPU, or a real KeyboardEvent. The caller owns the chord guards and
+ * the session check.
  *
  * Total: every non-arrow key answers `null` — including `Object.prototype`
  * member names, which a plain-object lookup would have leaked through.
@@ -45,20 +43,4 @@ export function arrowNudgeSteps(e: {
   const entry = ARROW_NUDGE.get(e.key.toLowerCase());
   if (entry === undefined) return null;
   return e.shiftKey ? entry.shift : entry.plain;
-}
-
-/**
- * Classify a pointer-down into a drag action (Unity-style navigation):
- * right button = fly (RMB-hold flythrough), middle = pan, Alt+left = orbit
- * (Alt+Shift+left = a secondary pan), and plain left = select/gizmo.
- */
-export function classifyDrag(e: {
-  button: number;
-  altKey: boolean;
-  shiftKey: boolean;
-}): DragAction {
-  if (e.button === 2) return "fly"; // right → flythrough
-  if (e.button === 1) return "pan"; // middle → pan (was orbit)
-  if (e.button === 0 && e.altKey) return e.shiftKey ? "pan" : "orbit";
-  return "select";
 }

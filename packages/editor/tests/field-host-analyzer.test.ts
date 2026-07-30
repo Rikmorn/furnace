@@ -41,6 +41,7 @@ import { createAnalyzerWorkerHandler } from "../src/frontend/lib/analyzer-protoc
 import type { WorkerLike } from "../src/frontend/lib/field-client.ts";
 import { createFieldHost } from "../src/viewport-host/field-host.ts";
 import type { FlagsSummary } from "../src/viewport-host/index.ts";
+import { stubCancelAnimationFrame } from "./_helpers/raf.ts";
 
 /** The dungeon's shipped capsule, restated as a literal (the analyzer-protocol
  *  test's rationale: the editor is project-first and pins nobody's numbers). */
@@ -701,19 +702,6 @@ test("a stage-2 failure surfaces as a tool problem and releases the latch", asyn
   f.host.verifyFlag(f.row.key);
   expect(f.of("verify")).toHaveLength(1);
 });
-
-/** `dispose()` calls `cancelAnimationFrame`, which bun does not define. Stubbed
- *  only for the one test that disposes — nothing here schedules a frame. */
-function stubCancelAnimationFrame(): () => void {
-  const g = globalThis as unknown as Record<string, unknown>;
-  const had = "cancelAnimationFrame" in g;
-  const prev = g["cancelAnimationFrame"];
-  g["cancelAnimationFrame"] = () => undefined;
-  return () => {
-    if (had) g["cancelAnimationFrame"] = prev;
-    else delete g["cancelAnimationFrame"];
-  };
-}
 
 test("dispose stops the advisor — no stray pass, no second worker", async () => {
   const restoreCaf = stubCancelAnimationFrame();

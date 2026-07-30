@@ -18,6 +18,7 @@ import {
   withPreviewResult,
   withRegion,
 } from "../src/viewport-host/field-stamp.ts";
+import { stubCancelAnimationFrame } from "./_helpers/raf.ts";
 
 const REGION = {
   min: [0, 0, 0] as [number, number, number],
@@ -786,13 +787,11 @@ test("a dispose ANNOUNCES the session it destroys (the AA switch disposes under 
     // (this host never inited, so nothing scheduled a frame either). Stubbed for the
     // call and restored after — a browser always has it, so this is an environment
     // gap, not a contract one.
-    const g = globalThis as unknown as Record<string, unknown>;
-    const hadCaf = "cancelAnimationFrame" in g;
-    g["cancelAnimationFrame"] = () => undefined;
+    const restoreCaf = stubCancelAnimationFrame();
     try {
       host.dispose();
     } finally {
-      if (!hadCaf) delete g["cancelAnimationFrame"];
+      restoreCaf();
     }
     expect(sessions.at(-1)).toBeNull();
   } finally {
