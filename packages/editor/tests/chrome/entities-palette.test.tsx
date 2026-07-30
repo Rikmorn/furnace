@@ -441,6 +441,28 @@ test("a scatter row keeps the generic verbs and params <dl> (F3a machinery, no s
 	expect(screen.getByText("0.3")).toBeTruthy();
 });
 
+// --- the boot state ---------------------------------------------------------
+
+test("before the engine lands the palette says so, rather than claiming zero stamps", () => {
+	const stub = makeStubHost();
+	renderWithEditor(
+		<FieldHostStateProvider host={stub.host} engineReady={false}>
+			<EntitiesPalette />
+		</FieldHostStateProvider>,
+		makeEditorContext({
+			state: { status: "booting" },
+			fieldHostRef: { current: stub.host },
+		}),
+	);
+	// "Entities (0)" here would be a claim about the WORLD made from an empty mirror the
+	// provider has not subscribed anything to yet — the gate FieldPanel has always held,
+	// which this list used to sit behind.
+	expect(screen.queryByText(/^Entities \(/) === null).toBe(true);
+	expect(
+		screen.getByText("the field waits for the engine bundle…"),
+	).toBeTruthy();
+});
+
 // --- the highlight box does not outlive the palette -------------------------
 
 test("closing the palette clears the entity highlight the host is still drawing", () => {

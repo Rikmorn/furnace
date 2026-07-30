@@ -24,7 +24,7 @@ import { DriftReport } from "../field/DriftReport.tsx";
 import { EntitiesList } from "../field/EntitiesList.tsx";
 
 export function EntitiesPalette() {
-	const { fieldHostRef, openConfirm } = useEditor();
+	const { state, fieldHostRef, openConfirm } = useEditor();
 	const { entities, drift } = useFieldEntities();
 
 	// Drop any entity-highlight box when this palette goes away. The host outlives it
@@ -37,6 +37,19 @@ export function EntitiesPalette() {
 		() => () => fieldHostRef.current?.highlightEntity(null),
 		[fieldHostRef],
 	);
+
+	// Before the engine bundle lands there is no host, so the provider has subscribed to
+	// nothing and `entities` is empty for a reason that is not "this world has no
+	// stamps". Rendering the list anyway would put "Entities (0)" on screen as a claim
+	// about the world — the same gate FieldPanel has held since F1, which this list used
+	// to sit behind. Same sentence deliberately: it is one editor booting, not two.
+	if (state.status !== "ready") {
+		return (
+			<p className="p-3 text-sm text-muted-foreground">
+				the field waits for the engine bundle…
+			</p>
+		);
+	}
 
 	// Bake is the ONE irreversible field verb (it severs the recipe), so it goes through
 	// the App-owned confirm — the same prompt the destructive world actions use, which

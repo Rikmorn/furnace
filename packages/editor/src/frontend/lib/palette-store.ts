@@ -49,10 +49,12 @@ export const PALETTES: Record<
     title: "Messages",
     // Deliberately the SAME corner as entities: the log is summoned, transient and
     // rarely wanted at the same moment as the entity list, and a summon that lands
-    // somewhere visible beats one tucked into whatever corner is still free. It arrives
-    // on TOP (a pointerdown raises a palette — see PaletteLayer's z-order), so the
-    // click that summons it produces something readable; dragging either aside is the
-    // answer for a user who wants both at once.
+    // somewhere visible beats one tucked into whatever corner is still free.
+    //
+    // Sharing the corner is only safe BECAUSE opening a palette raises it — PaletteLayer
+    // watches the open transition, not just pointerdowns, so the ⚠ chip and the View
+    // menu both put the log in front of whatever is parked there. Dragging either aside
+    // is the answer for a user who wants both at once.
     default: { x: 24, y: 24, edge: null, collapsed: false, open: false },
   },
 };

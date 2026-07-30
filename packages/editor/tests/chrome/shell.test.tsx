@@ -1296,6 +1296,60 @@ test("a pointerdown raises a palette above the others, and does not persist", as
 	expect(store.get("workspace")).toBeUndefined();
 });
 
+// The summon guarantee, tested through the path that BREAKS it. `log` and `entities`
+// share a default corner ({24,24}) on purpose, so "the log opens where you can read it"
+// rests entirely on opening raising it. The initial stack is PALETTE_IDS order, which
+// puts the log on top for free — so a naive test (summon on a fresh shell) passes
+// against a layer that has no such guarantee at all. Clicking entities FIRST is what
+// makes the assertion mean something: it demotes the log, and only a raise-on-open
+// brings it back.
+test("summoning a palette raises it, even after another was clicked", async () => {
+	fetch404();
+	const stub = makeStubHost();
+	await renderShell(stub);
+	const zOf = (el: Element | null): number =>
+		el instanceof HTMLElement ? Number(el.style.zIndex) : Number.NaN;
+
+	// Demote the log by using the palette that shares its corner.
+	act(() => {
+		fireEvent.pointerDown(
+			within(entitiesPalette() as HTMLElement).getByText("Entities (0)"),
+			{ button: 0, pointerId: 1 },
+		);
+	});
+	expect(zOf(entitiesPalette())).toBeGreaterThan(zOf(controlsPalette()));
+
+	// Now summon the log the way a user does — the ⚠ chip, which is the whole reason
+	// the palette has a default position at all.
+	act(() => {
+		stub.fire.toolError("select a region first");
+	});
+	act(() => {
+		fireEvent.click(screen.getByLabelText(/unread error/));
+	});
+	const log = logPalette();
+	if (!(log instanceof HTMLElement)) throw new Error("the log did not open");
+	// In FRONT of the palette parked in the same corner. Without the raise-on-open the
+	// log opens underneath it and the chip reads as a click that did nothing — the exact
+	// failure the ⚠ chip's un-latch and un-collapse already exist to prevent, arriving
+	// through the one door left open.
+	expect(zOf(log)).toBeGreaterThan(zOf(entitiesPalette()));
+
+	// The View menu is the other opening path, and it must not be a second mechanism:
+	// closing and re-opening from the menu raises it again.
+	act(() => {
+		fireEvent.click(screen.getByRole("button", { name: "close Messages" }));
+	});
+	act(() => {
+		fireEvent.pointerDown(
+			within(entitiesPalette() as HTMLElement).getByText("Entities (0)"),
+			{ button: 0, pointerId: 2 },
+		);
+	});
+	pickMenuItem("Messages palette");
+	expect(zOf(logPalette())).toBeGreaterThan(zOf(entitiesPalette()));
+});
+
 test("the collapsed-chip rail sits clear of the docked palette it used to cover", async () => {
 	fetch404();
 	const stub = makeStubHost();

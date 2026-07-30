@@ -86,6 +86,32 @@ export function PaletteLayer({
 		);
 	}, []);
 
+	// Which palettes were open on the previous render, so OPENING one can raise it.
+	// `null` until the first pass, which deliberately raises nothing: the initial stack
+	// is already PALETTE_IDS order, and a restore that arrives late (the store lands
+	// after `project.get`) must not be read as the user summoning three palettes.
+	const wasOpen = useRef<readonly PaletteId[] | null>(null);
+
+	// THE SUMMON GUARANTEE. A palette that is opened comes to the front — every path,
+	// because this watches the STATE rather than any one caller: the ⚠ chip, the View
+	// menu's checkboxes, and anything added later all go through `setOpen`.
+	//
+	// Without it "summoned" and "visible" come apart, and the case is not hypothetical:
+	// the log's default geometry is the entities palette's default geometry ({24,24} —
+	// they share the corner on purpose), so a ⚠ chip clicked after ANY click on the
+	// entities palette would open the log underneath it. Initial PALETTE_IDS order hides
+	// this until the first raise, which is the worst kind of guarantee: one that holds in
+	// every fresh session and lapses in every used one.
+	//
+	// A layout effect, not a plain one — this settles the stack BEFORE the browser
+	// paints, so a summoned palette never flashes at the wrong depth on its first frame.
+	useLayoutEffect(() => {
+		const open = PALETTE_IDS.filter((id) => palettes[id].open);
+		const prev = wasOpen.current;
+		if (prev !== null) for (const id of open) if (!prev.includes(id)) raise(id);
+		wasOpen.current = open;
+	}, [palettes, raise]);
+
 	useLayoutEffect(() => {
 		const want = focusAfter.current;
 		if (!want) return;
