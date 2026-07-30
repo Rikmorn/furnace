@@ -37,9 +37,7 @@ const noop = () => {};
 
 type EditorContextOverrides = {
 	state?: Partial<EditorState>;
-	dispatch?: EditorContextValue["dispatch"];
 	fieldHostRef?: EditorContextValue["fieldHostRef"];
-	extensions?: Record<string, unknown>;
 	worldsVersion?: number;
 	openConfirm?: EditorContextValue["openConfirm"];
 	store?: UiStore;
@@ -65,9 +63,7 @@ export function makeEditorContext(
 ): EditorContextValue {
 	return {
 		state: { ...initialState, status: "ready", ...overrides.state },
-		dispatch: overrides.dispatch ?? noop,
 		fieldHostRef: overrides.fieldHostRef ?? { current: undefined },
-		extensions: overrides.extensions ?? {},
 		worldsVersion: overrides.worldsVersion ?? 0,
 		openConfirm: overrides.openConfirm ?? noop,
 		store: overrides.store,

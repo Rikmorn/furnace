@@ -76,7 +76,7 @@ const VIEWPORT_HOST = `["'][^"']*viewport-host`;
 // @furnace/core, the protocols, AND viewport-host only TYPE-ONLY (erased). The
 // main-thread clients (field-client.ts, analyzer-client.ts) import their protocol
 // TYPE-ONLY, and the
-// hosts (FieldHost/ViewportHost) reach the chrome ONLY via the /engine.js
+// host (FieldHost) reaches the chrome ONLY via the /engine.js
 // runtime channel — never a static value import — which the viewport-host rule now
 // machine-enforces; without it core could re-enter the chrome via the barrel with no
 // test failing.

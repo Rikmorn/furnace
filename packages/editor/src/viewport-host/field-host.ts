@@ -492,11 +492,10 @@ export type FieldHost = {
   /** Steps the field's own undo/redo history — the ⌘Z / ⇧⌘Z twins, and the
    *  seam any panel affordance for them must call.
    *
-   *  A SEPARATE history from the scene document's (`EditorActions.undo` drives
-   *  the daemon): the field's lives entirely in this host's op log, and the two
-   *  never step together. The canvas binding enforces that by stopping the
-   *  event from reaching the editor's window-level ⌘Z — so while the field
-   *  canvas holds focus, ⌘Z is the FIELD's undo and only that.
+   *  This history lives entirely in this host's op log. The canvas binding keeps
+   *  it the ONLY one a ⌘Z over the canvas can step: it stops the event before
+   *  the editor's window-level ⌘Z listener sees it, so whatever that listener
+   *  comes to own cannot step in the same keystroke.
    *
    *  Which is also why this is public API rather than an internal helper: that
    *  binding lives on the CANVAS, so it fires only while the canvas has focus,
@@ -3734,21 +3733,25 @@ export function createFieldHost(deps?: {
     if ((e.metaKey || e.ctrlKey) && k === "z") {
       e.preventDefault();
       // stopPropagation, not just preventDefault: the editor ALSO binds ⌘Z on
-      // `window` for the scene document (useGlobalKeybindings), and that
-      // listener's only target guard is isTextInputTarget — which matches
-      // INPUT/TEXTAREA/contentEditable and NOT a focusable <canvas>. Extending
-      // that guard would not help either: matchBinding classifies a ⌘-chord
-      // BEFORE consulting it, deliberately (pinned in keybindings.test.ts).
-      // So without this line one ⌘Z over the field canvas stepped BOTH
-      // histories — the field op log here and the scene document at the daemon.
+      // `window` (useGlobalKeybindings), and that listener's only target guard
+      // is isTextInputTarget — which matches INPUT/TEXTAREA/contentEditable and
+      // NOT a focusable <canvas>. Extending that guard would not help either:
+      // matchBinding classifies a ⌘-chord BEFORE consulting it, deliberately
+      // (pinned in keybindings.test.ts). So a ⌘Z over the field canvas reaches
+      // the window listener too, and this line is what keeps the chord from
+      // being handled twice.
       //
-      // Scoped to THIS branch on purpose. The canvas owns the ⌘Z chord and
-      // nothing else the global listener binds: ⌘S (save) should still reach it
-      // while the field has focus, and the bare-key bindings (F, ⌫) are not
-      // handled here at all — blanket-stopping would silently change three
-      // behaviours to fix one. (Those two bare keys DO reach the scene from a
-      // focused field canvas, which is its own pre-existing leak, filed rather
-      // than folded in here.)
+      // TODAY the window handler is an inert no-op, so nothing is double-stepped
+      // with or without this line — it is a GUARD, held for the moment an
+      // app-level undo is wired to it. At that point one ⌘Z over the canvas
+      // would step both this op log and whatever that handler owns, and the
+      // guard is what stops it.
+      //
+      // Scoped to THIS branch on purpose: the canvas owns the ⌘Z chord and
+      // nothing else the global listener binds. ⌘S should still reach the window
+      // while the field has focus, so blanket-stopping would change a second
+      // behaviour to fix one. (The bare keys F and ⌫ are unbound app-side and
+      // unhandled here, so they propagate to nothing either way.)
       e.stopPropagation();
       stepHistory(e.shiftKey);
       return;

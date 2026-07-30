@@ -1,6 +1,5 @@
 // Per-project UI persistence: one JSON blob per project root under a versioned key,
-// so the editor's chrome (dockview layout, last scene, view flags…) survives a
-// restart. Pure and DOM-free — takes a `Storage` (localStorage in the browser, a fake
+// so the editor's chrome state survives a restart. Pure and DOM-free — takes a `Storage` (localStorage in the browser, a fake
 // Map-backed Storage in tests). Schema-tolerant by design: a corrupt or missing blob
 // reads as an empty state rather than throwing, and a bump of VERSION namespaces a new
 // blob so an incompatible old shape is simply ignored (never migrated in place).
@@ -39,7 +38,8 @@ export function createUiStore(storage: Storage, projectRoot: string): UiStore {
     get: (key) => load()[key],
     set: (key, value) => {
       // Setting a key to `undefined` REMOVES it: JSON.stringify omits undefined-valued
-      // properties, so the key is absent from the persisted blob (relied on by resetLayout).
+      // properties, so the key is absent from the persisted blob rather than stored as
+      // null. That is the delete: callers clear a key by setting it undefined.
       const next = { ...load(), [key]: value };
       try {
         storage.setItem(storageKey, JSON.stringify(next));

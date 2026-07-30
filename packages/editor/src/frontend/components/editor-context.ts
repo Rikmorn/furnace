@@ -2,21 +2,16 @@ import type { RefObject } from "react";
 import { createContext, useContext } from "react";
 import type { FieldHost } from "../../viewport-host/index.ts";
 import type { UiStore } from "../lib/persist.ts";
-import type { EditorEvent, EditorState } from "../lib/state.ts";
+import type { EditorState } from "../lib/state.ts";
 import type { ConfirmRequest } from "./ConfirmDialog.tsx";
 
 /** Live editor state shared with the dockview panels through React context
  *  (panels are portaled, so closure props can't carry live state — see App). */
 export type EditorContextValue = {
   state: EditorState;
-  dispatch: (e: EditorEvent) => void;
   /** The field dig-loop host (F1) — the Field panel mounts its canvas + drives dig/save/bake.
    *  App-owned (created once at engine-ready) so it survives the panel being closed/reopened. */
   fieldHostRef: RefObject<FieldHost | undefined>;
-  /** The engine bundle's `extensions` namespace (the consumer's own surface), crossing the
-   *  project-first bundle boundary as an untyped record. A consumer of it narrows it at its
-   *  own seam (with `// Boundary cast:` comments). */
-  extensions: Record<string, unknown>;
   /** Bumped on every daemon `worlds-changed` / `generation-baked` event: the worlds
    *  directory on disk moved. Anything rendering the world list refetches when it
    *  changes — a version counter rather than a payload, because the events are

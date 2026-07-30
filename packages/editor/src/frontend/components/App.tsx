@@ -50,11 +50,12 @@ export function App() {
 	// The F1 field dig host, created once at engine-ready and threaded to the Field
 	// panel via context. App-owned so it survives the panel closing/reopening.
 	const fieldHostRef = useRef<FieldHost | undefined>(undefined);
-	const extensionsRef = useRef<Record<string, unknown>>({});
-	// Mirrors whether a world bake is in flight, for the SSE bundle-outdated guard (that
-	// closure re-subscribes only on [state.status], so it cannot read live panel state).
+	// Will mirror whether a world bake is in flight, for the SSE bundle-outdated guard
+	// (that closure re-subscribes only on [state.status], so it cannot read live panel
+	// state).
 	// MIGRATION (until Task 8 of the F4.5a plan): the bake still lives inside the Field
-	// panel's toolbar and nothing writes this yet, so it reads false for the whole session.
+	// panel's toolbar and nothing writes this yet, so it reads false for the whole session
+	// — the reload below is currently unguarded in practice.
 	const bakeBusyRef = useRef(false);
 	// The in-chrome confirm dialog (replaces window.confirm) — its full state machine
 	// (open no-clobber guard, exactly-once resolve) lives in useConfirmDialog. `confirmRef`
@@ -96,10 +97,9 @@ export function App() {
 			try {
 				const engine = await loadEngine();
 				if (cancelled) return;
-				// Assigned BEFORE the engine-ready dispatch so the host + the consumer's
-				// surface are both live once the panels mount.
+				// Assigned BEFORE the engine-ready dispatch so the host is live by the
+				// time the panels mount.
 				fieldHostRef.current = engine.createFieldHost();
-				extensionsRef.current = engine.extensions;
 				dispatch({ type: "engine-ready" });
 			} catch (err) {
 				const diagnostics =
@@ -215,9 +215,7 @@ export function App() {
 	// state change is what forces the portaled panel consumers to re-render.
 	const ctxValue: EditorContextValue = {
 		state,
-		dispatch,
 		fieldHostRef,
-		extensions: extensionsRef.current,
 		worldsVersion,
 		openConfirm,
 		store,
