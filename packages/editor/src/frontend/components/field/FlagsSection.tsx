@@ -310,7 +310,7 @@ export function FlagsSection(props: {
 							{kindTally(summary.byKindSeverity)}
 						</span>
 					</div>
-					{/* biome-ignore lint/a11y/useSemanticElements: role="group" is the intended ARIA grouping for this control row (the LayersRow idiom); a native <fieldset>/<legend> would force the boxed-card look this flat UI deliberately avoids */}
+					{/* biome-ignore lint/a11y/useSemanticElements: role="group" is the intended ARIA grouping for this control row (the layer-group idiom, now the View popover's); a native <fieldset>/<legend> would force the boxed-card look this flat UI deliberately avoids */}
 					<span
 						className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground"
 						role="group"

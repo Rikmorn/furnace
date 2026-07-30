@@ -8,6 +8,7 @@
 // render site, because each is wired by a different task — one marker for the file would
 // outlive two thirds of what it describes.
 import { Menu } from "lucide-react";
+import { useViewActions, useViewState } from "../../hooks/useView.tsx";
 import {
 	useWorkspaceActions,
 	useWorkspaceState,
@@ -47,6 +48,8 @@ export function BurgerMenu() {
 	const { setOpen, toggleHidden, reset } = useWorkspaceActions();
 	const { name: worldName, busy } = useWorldState();
 	const world = useWorldActions();
+	const { shading, layers } = useViewState();
+	const view = useViewActions();
 
 	return (
 		<DropdownMenu>
@@ -88,10 +91,27 @@ export function BurgerMenu() {
 				</DropdownMenuItem>
 				<DropdownMenuSeparator />
 				<DropdownMenuLabel>View</DropdownMenuLabel>
-				{/* MIGRATION (until Task 9 of the F4.5a plan): the view popover wires the
-            two display toggles. The workspace verbs below them are already live. */}
-				<PendingItem label="Shading" />
-				<PendingItem label="Grid" />
+				{/* The two display toggles the menu carries; everything else about the view
+            lives in the popover beside the world chip, which can show seven layer
+            gates and a slider without becoming a menu. These two are here because
+            they are the ones a user reaches for mid-gesture: the debug shading and
+            the grid.
+
+            Shading is stated as "Normals" rather than as a Studio/Normals pair — a
+            menu checkbox is a boolean, and the boolean that means something is
+            "am I in the debug mode". */}
+				<DropdownMenuCheckboxItem
+					checked={shading === "normals"}
+					onCheckedChange={(on) => view.setShading(on ? "normals" : "studio")}
+				>
+					Normals shading
+				</DropdownMenuCheckboxItem>
+				<DropdownMenuCheckboxItem
+					checked={layers.grid}
+					onCheckedChange={(grid) => view.setLayers({ ...layers, grid })}
+				>
+					Grid
+				</DropdownMenuCheckboxItem>
 				{/* The way back from a palette closed with its × — without it the close
             button is a trap whose only exit is Reset Workspace. */}
 				{PALETTE_IDS.map((id) => (

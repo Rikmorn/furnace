@@ -903,6 +903,271 @@ test("the provider releases the tool-error slot on unmount", () => {
 	expect(delivered).toBe(false);
 });
 
+// --- (c3) the View popover: what the viewport SHOWS --------------------------
+//
+// The controls that used to be a row inside the field palette (D-F4.5-16). They are
+// asserted HERE rather than in field-panel.test.tsx because the popover lives in the top
+// bar and its state lives in a shell provider — mounting the panel alone can no longer
+// reach any of it.
+
+/** Open the popover and let Radix's Popper settle (it measures in a layout effect, which
+ *  lands as an un-act'ed update otherwise). */
+async function openViewPopover(): Promise<void> {
+	await act(async () => {
+		fireEvent.click(screen.getByLabelText("view options"));
+		await Promise.resolve();
+	});
+}
+
+test("the editor comes up in STUDIO shading, and the popover offers normals as the debug mode", async () => {
+	fetch404();
+	const stub = makeStubHost();
+	await renderShell(stub);
+	// D-F4.5-17: studio is the default state of seeing, pushed at engine-ready so the
+	// host and the control agree from the first frame. If this ever reads "normals" the
+	// editor is booting into a debug view.
+	expect(stub.calls.setShading.mock.calls).toEqual([["studio"]]);
+
+	await openViewPopover();
+	const studio = screen.getByLabelText("Studio") as HTMLInputElement;
+	const normals = screen.getByLabelText("Normals (debug)") as HTMLInputElement;
+	expect(studio.checked).toBe(true);
+	expect(normals.checked).toBe(false);
+	// The debug mode SAYS it is one, in the label — a full-chroma normal render is the
+	// loudest thing on the screen and reads as a feature otherwise (critique P0).
+	expect(normals.closest("label")?.textContent).toContain("debug");
+
+	act(() => {
+		fireEvent.click(normals);
+	});
+	expect(stub.calls.setShading.mock.calls.at(-1)?.[0]).toBe("normals");
+	act(() => {
+		fireEvent.click(studio);
+	});
+	expect(stub.calls.setShading.mock.calls.at(-1)?.[0]).toBe("studio");
+});
+
+test("the slice checkbox and slider drive host.setSlice(y | null)", async () => {
+	fetch404();
+	const stub = makeStubHost();
+	await renderShell(stub);
+	// The plane starts OFF, and the provider says so at engine-ready.
+	expect(stub.calls.setSlice.mock.calls).toEqual([[null]]);
+	await openViewPopover();
+	act(() => {
+		fireEvent.click(screen.getByLabelText("slice view"));
+	});
+	expect(stub.calls.setSlice.mock.calls.at(-1)?.[0]).toBe(8); // parked default
+	act(() => {
+		fireEvent.change(screen.getByLabelText("slice y"), {
+			target: { value: "4" },
+		});
+	});
+	expect(stub.calls.setSlice.mock.calls.at(-1)?.[0]).toBe(4);
+	act(() => {
+		fireEvent.click(screen.getByLabelText("slice view"));
+	});
+	expect(stub.calls.setSlice.mock.calls.at(-1)?.[0]).toBe(null); // off
+	// …and re-ticking returns to the depth the user chose, not to the park: the slider
+	// value survives the plane being switched off.
+	act(() => {
+		fireEvent.click(screen.getByLabelText("slice view"));
+	});
+	expect(stub.calls.setSlice.mock.calls.at(-1)?.[0]).toBe(4);
+});
+
+test("the void checkbox drives host.setLayers(voidCast) and leaves the other layers alone", async () => {
+	fetch404();
+	const stub = makeStubHost();
+	await renderShell(stub);
+	await openViewPopover();
+	act(() => {
+		fireEvent.click(screen.getByLabelText("void cast"));
+	});
+	expect(stub.calls.setLayers.mock.calls.at(-1)?.[0]).toEqual({
+		field: true,
+		kit: true,
+		props: true,
+		ghost: true,
+		selection: true,
+		grid: true,
+		flags: true,
+		voidCast: true,
+	});
+	// Off again — the host reads the false→true EDGE, so a chrome that only ever sent
+	// `true` would leave the X-ray unbuildable after its first edit.
+	act(() => {
+		fireEvent.click(screen.getByLabelText("void cast"));
+	});
+	expect(stub.calls.setLayers.mock.calls.at(-1)?.[0]).toMatchObject({
+		voidCast: false,
+	});
+});
+
+test("the flags layer is a free display gate, beside the other six", async () => {
+	fetch404();
+	const stub = makeStubHost();
+	await renderShell(stub);
+	await openViewPopover();
+	act(() => {
+		fireEvent.click(screen.getByLabelText("flags"));
+	});
+	expect(stub.calls.setLayers.mock.calls.at(-1)?.[0]).toEqual({
+		field: true,
+		kit: true,
+		props: true,
+		ghost: true,
+		selection: true,
+		grid: true,
+		flags: false,
+		voidCast: false,
+	});
+});
+
+test("the AA switch re-inits the SAME host at the new sample count", async () => {
+	fetch404();
+	const stub = makeStubHost();
+	await renderShell(stub);
+	const canvas = screen.getByLabelText("field viewport");
+	expect(stub.calls.init.mock.calls).toEqual([[canvas, { sampleCount: 4 }]]);
+
+	await openViewPopover();
+	await act(async () => {
+		fireEvent.click(screen.getByLabelText("antialiasing"));
+		// Two turns: the dispose is deferred behind the settled init, and the re-init is
+		// chained behind that dispose.
+		await Promise.resolve();
+		await Promise.resolve();
+	});
+	// Sample count is a CONTEXT property, so the only way to change it is a round trip —
+	// and the round trip has to stay ORDERED. The host holds ONE context and refuses a
+	// second init while it is up, and its dispose is deferred behind the settled init,
+	// so an unchained re-init lands on "already initialized": the sequence IS the
+	// assertion, not the call count.
+	expect(stub.order.filter((c) => c === "init" || c === "dispose")).toEqual([
+		"init",
+		"dispose",
+		"init",
+	]);
+	expect(stub.calls.init.mock.calls[1]).toEqual([canvas, { sampleCount: 1 }]);
+	// …and nothing failed on the way: a refused re-init reports on the status bar, which
+	// is exactly what a user would see if the ordering broke.
+	expect(screen.queryByText(/field host init failed/) === null).toBe(true);
+	// The SAME host, not a new one: everything the editor cannot rebuild (the field, the
+	// op log, the camera) is CPU state that rides through the dispose. A re-created host
+	// here would silently be "your world is gone" on an AA toggle.
+	expect(stub.calls.init.mock.calls[1]?.[0]).toBe(canvas);
+	expect(screen.getByLabelText("field viewport")).toBe(canvas);
+});
+
+test("the view survives a restart: the popover writes UiState.view and a stored one is pushed", async () => {
+	fetch404();
+	const stub = makeStubHost();
+	const store = fakeUiStore();
+	await renderShell(stub, store);
+	await openViewPopover();
+	act(() => {
+		fireEvent.click(screen.getByLabelText("Normals (debug)"));
+	});
+	act(() => {
+		fireEvent.click(screen.getByLabelText("grid"));
+	});
+	// Debounced, like the workspace writer — nothing on disk until it settles.
+	expect(store.get("view")).toBeUndefined();
+	await act(async () => {
+		await new Promise((r) => setTimeout(r, 250));
+	});
+	expect(store.get("view")).toEqual({
+		shading: "normals",
+		layers: {
+			field: true,
+			kit: true,
+			props: true,
+			ghost: true,
+			selection: true,
+			grid: false,
+			flags: true,
+			voidCast: false,
+		},
+		slice: null,
+	});
+
+	// …and the way back in: a fresh shell over that blob pushes the STORED view to the
+	// host, not the defaults.
+	cleanup();
+	const next = makeStubHost();
+	await renderShell(next, store);
+	await act(async () => {
+		await Promise.resolve();
+	});
+	expect(next.calls.setShading.mock.calls.at(-1)?.[0]).toBe("normals");
+	expect(next.calls.setLayers.mock.calls.at(-1)?.[0]).toMatchObject({
+		grid: false,
+	});
+	// AA is deliberately NOT persisted: restoring it would dispose and rebuild the GPU
+	// context moments after the first one came up, because the store arrives late.
+	expect(next.calls.init.mock.calls).toEqual([
+		[screen.getByLabelText("field viewport"), { sampleCount: 4 }],
+	]);
+});
+
+test("the burger's View group drives the same view state, and reads it back", async () => {
+	fetch404();
+	const stub = makeStubHost();
+	await renderShell(stub);
+	// The menu is the second surface over ONE state (the popover is the first): both
+	// read `useView`, so a menu item that wrote somewhere else would show up as a host
+	// call the popover's own cases never make.
+	pickMenuItem("Grid");
+	expect(stub.calls.setLayers.mock.calls.at(-1)?.[0]).toMatchObject({
+		grid: false,
+	});
+	pickMenuItem("Normals shading");
+	expect(stub.calls.setShading.mock.calls.at(-1)?.[0]).toBe("normals");
+
+	// …and back the other way: re-opened, both items read the state they just wrote.
+	// A menu that only WROTE would show two unticked boxes over a normals-shaded,
+	// gridless viewport.
+	act(() => {
+		fireEvent.pointerDown(screen.getByLabelText("editor menu"), {
+			button: 0,
+			pointerType: "mouse",
+		});
+	});
+	const item = (name: string): HTMLElement =>
+		screen.getByRole("menuitemcheckbox", { name });
+	expect(item("Grid").getAttribute("aria-checked")).toBe("false");
+	expect(item("Normals shading").getAttribute("aria-checked")).toBe("true");
+});
+
+// --- (c4) the orientation triad ----------------------------------------------
+
+test("the axis triad rides the camera pose, over the canvas and out of its way", async () => {
+	fetch404();
+	const stub = makeStubHost();
+	await renderShell(stub);
+	const triad = screen.getByRole("img", { name: "camera orientation axes" });
+	const canvas = screen.getByLabelText("field viewport");
+	// A CELL child like Toasts, absolutely placed: it takes nothing off the canvas
+	// (D-1), and it must not eat the orbit drags that happen in the corner it sits in.
+	const box = triad.parentElement;
+	if (!(box instanceof HTMLElement)) throw new Error("triad has no box");
+	expect(box.parentElement).toBe(canvas.parentElement);
+	for (const cls of ["absolute", "pointer-events-none"])
+		expect(box.classList.contains(cls)).toBe(true);
+
+	// It draws the pose the host pushes — the X cap moves when the camera turns. The
+	// axis line's own end point is the assertion: a triad that ignored the seam would
+	// render the same SVG forever.
+	const xCap = (): string | null =>
+		triad.querySelector("line")?.getAttribute("x2") ?? null;
+	const before = xCap();
+	act(() => {
+		stub.fire.cameraPose({ yaw: 1.9, pitch: 0.2 });
+	});
+	expect(xCap()).not.toBe(before);
+});
+
 // --- (d) the layout contract + the retired dock ------------------------------
 
 test("the palette layer floats over the canvas and never swallows viewport input", async () => {
@@ -932,7 +1197,7 @@ test("the palette layer floats over the canvas and never swallows viewport input
 	// Docked right by default, and the field controls really are inside it (this is the
 	// field panel, not an empty box that happens to be positioned right).
 	expect(palette.style.right).toBe("0px");
-	expect(palette.contains(screen.getByLabelText("slice y"))).toBe(true);
+	expect(palette.contains(screen.getByText("Entities (0)"))).toBe(true);
 });
 
 test("a palette collapses to a rail chip that restores it, keeping its geometry", async () => {
@@ -947,7 +1212,7 @@ test("a palette collapses to a rail chip that restores it, keeping its geometry"
 	// Out of the layout AND out of the accessibility tree — but still MOUNTED behind
 	// `hidden`, so the panel's host-subscribed state survives the round trip.
 	expect(controlsPalette()).toBeNull();
-	expect(screen.getByLabelText("slice y")).toBeTruthy();
+	expect(screen.getByText("Entities (0)")).toBeTruthy();
 	// The button that was just clicked went with the palette, so focus has to be MOVED
 	// or it lands on <body> and a keyboard user restarts from the top of the document.
 	const chip = screen.getByRole("button", { name: "expand Controls" });
@@ -982,7 +1247,7 @@ test("⌘\\ hides the whole layer and restores the EXACT arrangement (D-3)", asy
 	expect(screen.getByLabelText("field viewport")).toBe(canvas);
 	// …and it hides rather than UNMOUNTS: ⌘\ is a peek, and a peek that tears the
 	// palettes down would reset every host-subscribed control inside them.
-	expect(screen.getByLabelText("slice y")).toBeTruthy();
+	expect(screen.getByText("Entities (0)")).toBeTruthy();
 
 	act(() => {
 		fireEvent.keyDown(window, { key: "\\", metaKey: true });

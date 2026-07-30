@@ -15,6 +15,7 @@ import type { ConfirmRequest } from "../../src/frontend/components/ConfirmDialog
 import { TopBar } from "../../src/frontend/components/shell/TopBar.tsx";
 import { CatalogProvider } from "../../src/frontend/hooks/useCatalogs.tsx";
 import { FieldHostStateProvider } from "../../src/frontend/hooks/useFieldHostState.tsx";
+import { ViewProvider } from "../../src/frontend/hooks/useView.tsx";
 import { WorkspaceProvider } from "../../src/frontend/hooks/useWorkspace.tsx";
 import { WorldProvider } from "../../src/frontend/hooks/useWorld.tsx";
 import type { WorldRow } from "../../src/frontend/lib/api.ts";
@@ -147,13 +148,17 @@ async function renderTopBar(
 ) {
 	const result = renderWithEditor(
 		<FieldHostStateProvider host={stub.host} engineReady>
-			<WorldProvider>
-				<CatalogProvider>
-					<WorkspaceProvider store={undefined}>
-						<TopBar />
-					</WorkspaceProvider>
-				</CatalogProvider>
-			</WorldProvider>
+			{/* The bar's View popover and the burger's view items read this — the real shell
+			    mounts it one level above the world state, and so does this. */}
+			<ViewProvider host={stub.host} engineReady store={undefined}>
+				<WorldProvider>
+					<CatalogProvider>
+						<WorkspaceProvider store={undefined}>
+							<TopBar />
+						</WorkspaceProvider>
+					</CatalogProvider>
+				</WorldProvider>
+			</ViewProvider>
 		</FieldHostStateProvider>,
 		makeEditorContext({
 			fieldHostRef: { current: stub.host },

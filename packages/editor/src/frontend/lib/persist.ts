@@ -26,8 +26,7 @@ export type PaletteState = {
 /** The full persisted UI state. Fields are independent — each caller reads/writes its
  *  own key, and each key has exactly one writer:
  *  - `workspace` — the palette store (drag/snap/collapse/hide-all).
- *  - `view` — the view popover (shading / grid / layer toggles / slice plane); still
- *    unwritten, its writer lands with the view popover.
+ *  - `view` — the view popover's display state (`hooks/useView.tsx`).
  *  - `lastWorld` + `recentWorlds` — the world save/load flows (`world-actions.ts`'s
  *    `rememberWorld`). */
 export type UiState = {
@@ -38,10 +37,12 @@ export type UiState = {
     palettes: Record<string, PaletteState>;
     hidden?: boolean;
   };
-  /** Viewport display state — what the field looks like, not what is in it. */
+  /** Viewport display state — what the field looks like, not what is in it. The grid is
+   *  a LAYER (`layers.grid`), not a key of its own: two ways to spell one toggle is two
+   *  things to keep in agreement. `slice` is the clip plane in metres, `null` = off.
+   *  Viewport AA is deliberately absent — see `serializeView`. */
   view?: {
     shading?: "studio" | "normals";
-    grid?: boolean;
     layers?: Record<string, boolean>;
     slice?: number | null;
   };

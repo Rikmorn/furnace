@@ -17,6 +17,7 @@ import type { FieldHost } from "../../../viewport-host/index.ts"; // type-only: 
 import { CatalogProvider } from "../../hooks/useCatalogs.tsx";
 import { FieldHostStateProvider } from "../../hooks/useFieldHostState.tsx";
 import { useGlobalKeybindings } from "../../hooks/useGlobalKeybindings.ts";
+import { useViewState, ViewProvider } from "../../hooks/useView.tsx";
 import {
 	useWorkspaceActions,
 	WorkspaceProvider,
@@ -24,6 +25,7 @@ import {
 import { useWorldActions, WorldProvider } from "../../hooks/useWorld.tsx";
 import { useEditor } from "../editor-context.ts";
 import { FieldPanel } from "../FieldPanel.tsx";
+import { AxisTriadMount } from "./AxisTriadMount.tsx";
 import { CanvasHost } from "./CanvasHost.tsx";
 import { LogPalette } from "./LogPalette.tsx";
 import { PaletteLayer } from "./PaletteLayer.tsx";
@@ -45,12 +47,13 @@ export function Shell() {
 }
 
 /** The provider stack, in dependency order: the host-state mirror first (a single
- *  subscription slot, claimed once), then the world state that derives its dirty bit
- *  from that mirror's stats, then the project catalogs. The chrome itself is one level
- *  further down — `useGlobalKeybindings` binds ⌘S to a world verb, and a hook cannot
- *  read a provider its own JSX renders. */
+ *  subscription slot, claimed once), then the view state that pushes into the same host,
+ *  then the world state that derives its dirty bit from the mirror's stats, then the
+ *  project catalogs. The chrome itself is one level further down —
+ *  `useGlobalKeybindings` binds ⌘S to a world verb, and a hook cannot read a provider its
+ *  own JSX renders. */
 function ShellFrame() {
-	const { state, fieldHostRef } = useEditor();
+	const { state, fieldHostRef, store } = useEditor();
 	// Reading the ref during render is safe HERE and only here: App assigns it exactly
 	// once, synchronously before the `engine-ready` dispatch that causes this render,
 	// and never reassigns it. The gate below is what makes that ordering visible.
@@ -59,11 +62,13 @@ function ShellFrame() {
 
 	return (
 		<FieldHostStateProvider host={host} engineReady={engineReady}>
-			<WorldProvider>
-				<CatalogProvider>
-					<ShellChrome host={host} engineReady={engineReady} />
-				</CatalogProvider>
-			</WorldProvider>
+			<ViewProvider host={host} engineReady={engineReady} store={store}>
+				<WorldProvider>
+					<CatalogProvider>
+						<ShellChrome host={host} engineReady={engineReady} />
+					</CatalogProvider>
+				</WorldProvider>
+			</ViewProvider>
 		</FieldHostStateProvider>
 	);
 }
@@ -112,8 +117,11 @@ function ShellChrome({
           absent (engine still booting, init failed). */}
 			<div className="relative min-h-0 flex-1 bg-viewport-background">
 				{engineReady && host && (
-					<CanvasHost host={host} onError={setViewportError} />
+					<FieldCanvas host={host} onError={setViewportError} />
 				)}
+				{/* The orientation triad: a cell child like Toasts, absolutely placed over the
+            canvas, so it costs the viewport nothing (D-1). */}
+				{engineReady && <AxisTriadMount />}
 				{/* The palette bodies are built HERE so their elements survive the
             layer's own drag re-renders untouched (see PaletteLayer's `content`).
             MIGRATION (until F4.5b): the surviving control stack rides in one
@@ -129,4 +137,20 @@ function ShellChrome({
 			<StatusBar viewportError={viewportError} />
 		</div>
 	);
+}
+
+/** The canvas plus the one piece of view state it needs. A separate component so
+ *  ShellChrome does NOT read the view context: ShellChrome builds the palette bodies, so
+ *  every render of it rebuilds those elements and re-renders FieldPanel with them — the
+ *  same reason it reads workspace ACTIONS only. Here the re-render stops at a canvas
+ *  element React never re-creates. */
+function FieldCanvas({
+	host,
+	onError,
+}: {
+	host: FieldHost;
+	onError: (message: string) => void;
+}) {
+	const { sampleCount } = useViewState();
+	return <CanvasHost host={host} sampleCount={sampleCount} onError={onError} />;
 }

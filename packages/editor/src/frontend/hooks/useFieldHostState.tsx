@@ -7,14 +7,19 @@
 // more as palettes land), so the subscriptions live here, once, and the consumers read
 // them out of context. FieldPanel must NOT re-subscribe to anything this provider owns.
 //
-// Two seams so far: `subscribeStats` (the status bar's chips) and `subscribeToolError`
-// (a toast, plus the tick below). They are published through SEPARATE contexts because
-// they run at different cadences — see ToolErrorTickContext.
+// Three seams so far: `subscribeStats` (the status bar's chips), `subscribeToolError`
+// (a toast, plus the tick below) and `subscribeCameraPose` (the corner axis triad). Each
+// is published through its OWN context because they run at different cadences — see
+// ToolErrorTickContext and CameraPoseContext.
 //
 // MIGRATION (until F4.5b): grows one seam at a time as FieldPanel dissolves.
 import type { ReactNode } from "react";
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
-import type { FieldHost, FieldStats } from "../../viewport-host/index.ts"; // type-only: erased
+import type {
+	CameraPose,
+	FieldHost,
+	FieldStats,
+} from "../../viewport-host/index.ts"; // type-only: erased
 import { notify } from "../lib/notify-store.ts";
 
 /** Value-equality for the subscribeStats push guard (the host fires it every rAF; an
@@ -69,6 +74,19 @@ const FieldHostStateContext = createContext<FieldHostState | null>(null);
  *  the truth in that case, not a wiring bug worth crashing over. */
 const ToolErrorTickContext = createContext(0);
 
+/** The orbit camera's orientation, in its own context for the ToolErrorTick reason with
+ *  the cadence turned up: the host pushes a pose on every camera move, so while the user
+ *  flies this changes at frame rate. Folding it into FieldHostState would re-render the
+ *  status bar 60×/s during a fly, which is exactly what the split exists to prevent.
+ *
+ *  Defaults to the identity view rather than throwing — an overlay mounted outside the
+ *  provider (the harness tests do that) has no pose to read, and a triad drawn down the
+ *  −Z axis is a truthful "no camera here". Deliberately NOT the host's own starting orbit:
+ *  copying those two numbers into the chrome would be a constant that silently drifts,
+ *  and inside the provider the host's push on subscribe replaces this on the first
+ *  effect. */
+const CameraPoseContext = createContext<CameraPose>({ yaw: 0, pitch: 0 });
+
 /** Read the shell's host-state mirror; throws outside the provider. */
 export function useFieldHostState(): FieldHostState {
 	const value = useContext(FieldHostStateContext);
@@ -85,6 +103,12 @@ export function useToolErrorTick(): number {
 	return useContext(ToolErrorTickContext);
 }
 
+/** The orbit camera's current orientation. Re-renders its caller on every camera move —
+ *  read it only where the orientation is actually drawn (the corner triad). */
+export function useCameraPose(): CameraPose {
+	return useContext(CameraPoseContext);
+}
+
 export function FieldHostStateProvider({
 	host,
 	engineReady,
@@ -96,6 +120,7 @@ export function FieldHostStateProvider({
 }) {
 	const [stats, setStats] = useState<FieldStats | null>(null);
 	const [toolErrorTick, setToolErrorTick] = useState(0);
+	const [pose, setPose] = useState<CameraPose>({ yaw: 0, pitch: 0 });
 
 	useEffect(() => {
 		if (!engineReady || !host) return;
@@ -120,11 +145,26 @@ export function FieldHostStateProvider({
 		});
 	}, [engineReady, host]);
 
+	// The camera pose, for the corner orientation triad. Guarded like the stats push and
+	// for the same reason at a higher rate: the host publishes a pose from every path that
+	// applies the orbit, including the ones that move only the TARGET (frame-chunks), and
+	// an orientation that did not change must not re-render the overlay.
+	useEffect(() => {
+		if (!engineReady || !host) return;
+		return host.subscribeCameraPose((next) =>
+			setPose((prev) =>
+				prev.yaw === next.yaw && prev.pitch === next.pitch ? prev : next,
+			),
+		);
+	}, [engineReady, host]);
+
 	const value = useMemo<FieldHostState>(() => ({ stats }), [stats]);
 	return (
 		<FieldHostStateContext.Provider value={value}>
 			<ToolErrorTickContext.Provider value={toolErrorTick}>
-				{children}
+				<CameraPoseContext.Provider value={pose}>
+					{children}
+				</CameraPoseContext.Provider>
 			</ToolErrorTickContext.Provider>
 		</FieldHostStateContext.Provider>
 	);

@@ -667,44 +667,8 @@ test("no stamp session means no nudge cluster", async () => {
 	expect(screen.queryByLabelText("nudge plus X")).toBeNull();
 });
 
-// --- (g) slice wiring -------------------------------------------------------
-
-test("the slice checkbox and slider drive host.setSlice(y | null)", async () => {
-	fetch404();
-	const stub = makeStubHost();
-	await renderPanel(stub);
-	fireEvent.click(screen.getByLabelText("slice view"));
-	expect(stub.calls.setSlice.mock.calls.at(-1)?.[0]).toBe(8); // parked default
-	fireEvent.change(screen.getByLabelText("slice y"), {
-		target: { value: "4" },
-	});
-	expect(stub.calls.setSlice.mock.calls.at(-1)?.[0]).toBe(4);
-	fireEvent.click(screen.getByLabelText("slice view"));
-	expect(stub.calls.setSlice.mock.calls.at(-1)?.[0]).toBe(null); // off
-});
-
-test("the void checkbox drives host.setLayers(voidCast) and leaves the other layers alone", async () => {
-	fetch404();
-	const stub = makeStubHost();
-	await renderPanel(stub);
-	fireEvent.click(screen.getByLabelText("void cast"));
-	expect(stub.calls.setLayers.mock.calls.at(-1)?.[0]).toEqual({
-		field: true,
-		kit: true,
-		props: true,
-		ghost: true,
-		selection: true,
-		grid: true,
-		flags: true,
-		voidCast: true,
-	});
-	// Off again — the host reads the false→true EDGE, so a panel that only ever
-	// sent `true` would leave the X-ray unbuildable after its first edit.
-	fireEvent.click(screen.getByLabelText("void cast"));
-	expect(stub.calls.setLayers.mock.calls.at(-1)?.[0]).toMatchObject({
-		voidCast: false,
-	});
-});
+// (g) The slice + void wiring moved with the controls themselves: they are the View
+// popover's now, covered in tests/chrome/shell.test.tsx.
 
 // --- (h) selection footer ---------------------------------------------------
 
@@ -730,9 +694,10 @@ test("the footer shows the selection count + the truncation warning; Clear reach
 
 /** The scroll container the control sections share, resolved through a section that
  *  must be inside it. Throws (rather than soft-failing an assertion) if the panel's
- *  shape changed — every assertion below is meaningless without it. */
+ *  shape changed — every assertion below is meaningless without it. Anchored on the
+ *  entities heading now that the layers row (its old anchor) is the top bar's popover. */
 function controlsBox(): HTMLElement {
-	const box = screen.getByLabelText("slice view").closest(".overflow-y-auto");
+	const box = screen.getByText("Entities (0)").closest(".overflow-y-auto");
 	if (!(box instanceof HTMLElement))
 		throw new Error(
 			"field panel shape changed: the control sections no longer share a scroll container",
@@ -1161,8 +1126,8 @@ test("the panel pushes its filter defaults at engine-ready and each checkbox edi
 	});
 	// The three are a GROUP, not three loose checkboxes that happen to sit in a
 	// row: the leading "show" is a text node with no programmatic association, so
-	// without this the only thing tying them together is proximity. The LayersRow
-	// idiom, one section up, for the same reason.
+	// without this the only thing tying them together is proximity. The same idiom
+	// the View popover's layer group uses, for the same reason.
 	const group = screen.getByRole("group", { name: "flag filters" });
 	for (const band of ["candidates", "info", "unreachable"])
 		expect(group.contains(screen.getByLabelText(band))).toBe(true);
@@ -1600,19 +1565,5 @@ test("a SYNCHRONOUS refusal never leaves the column stuck", async () => {
 // The advisor's "catching up" line rode `analyzerPending` on the panel footer; it is
 // a status-bar chip now — covered in tests/chrome/shell.test.tsx.
 
-test("the flags layer is a free display gate, beside the other six", async () => {
-	fetch404();
-	const stub = makeStubHost();
-	await renderPanel(stub);
-	fireEvent.click(screen.getByLabelText("flags"));
-	expect(stub.calls.setLayers.mock.calls.at(-1)?.[0]).toEqual({
-		field: true,
-		kit: true,
-		props: true,
-		ghost: true,
-		selection: true,
-		grid: true,
-		flags: false,
-		voidCast: false,
-	});
-});
+// The flags LAYER gate — that hiding the markers is free and does not stop the analyzer
+// — is asserted where the checkbox lives now: the View popover, in shell.test.tsx.

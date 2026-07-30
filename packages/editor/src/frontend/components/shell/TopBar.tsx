@@ -15,6 +15,7 @@ import { useWorldActions, useWorldState } from "../../hooks/useWorld.tsx";
 import { ReasonTip } from "../field/form-bits.tsx";
 import { Button } from "../ui/button.tsx";
 import { BurgerMenu } from "./BurgerMenu.tsx";
+import { ViewPopover } from "./ViewPopover.tsx";
 import { WorldDrawer } from "./WorldDrawer.tsx";
 
 const UNTITLED_REASON = "name the world first — ⌘S";
@@ -58,6 +59,9 @@ export function TopBar() {
 			<BurgerMenu />
 			<WorldChip />
 			<WorldDrawer />
+			{/* Beside the world chip, because they answer the two questions a user asks of
+          the bar: WHICH world is this, and what am I looking at. */}
+			<ViewPopover />
 			<div className="flex-1" />
 			{/* Bake writes worlds/index.json as well as the world, so it needs a name to
           write about. Disabled rather than silently substituting a save-as: the two

@@ -1,6 +1,8 @@
 // FieldHost surfaces that need NO GPU init (a field-host-load.test.ts
 // sibling): startStamp's no-selection guard, subscribeStamp's initial push,
-// nudgeStamp's no-session no-op, and highlightEntity's unknown-id quiet no-op.
+// nudgeStamp's no-session no-op, highlightEntity's unknown-id quiet no-op, the
+// void cast's pre-context refusals, the camera-pose seam, and the options `init`
+// builds before it ever touches a device.
 // Verified against the host source: none of these paths touch the GPU context,
 // the render loop, or the lazily-spawned remesh worker — startStamp returns at
 // the selection guard BEFORE any session/preview work, nudgeStamp returns at
@@ -15,9 +17,10 @@ import {
   FIELD_GENERATORS,
   SOLID,
 } from "@furnace/core/field";
+import type { Context, RequestContextOptions } from "@furnace/core/gpu";
 import { createFieldHost } from "../src/viewport-host/field-host.ts";
 import { placesProps } from "../src/viewport-host/field-placements.ts";
-import type { FieldLayers } from "../src/viewport-host/index.ts";
+import type { CameraPose, FieldLayers } from "../src/viewport-host/index.ts";
 
 test("startStamp with no selection reports 'select a region first' and opens no session", () => {
   const host = createFieldHost();
@@ -176,4 +179,80 @@ test("the enable/disable edges are context-free until they need a context", () =
   expect(() => host.setLayers(layersWithVoidCast(true))).not.toThrow();
   expect(() => host.setLayers(layersWithVoidCast(false))).not.toThrow();
   expect(errors).toEqual([]);
+});
+
+// --- the camera-pose seam (F4.5a Task 9) ------------------------------------
+//
+// The corner axis triad's whole input. Reachable headlessly because `applyOrbit` —
+// the ONE place every camera path ends — publishes before it touches the camera,
+// and `frameChunks` is the one public verb that reaches it without a canvas (the
+// fly keys and the look drag are canvas listeners `init` attaches).
+
+test("subscribeCameraPose pushes the current pose immediately, then on every camera move", () => {
+  const host = createFieldHost();
+  const poses: CameraPose[] = [];
+  const unsubscribe = host.subscribeCameraPose((p) => poses.push(p));
+  // The initial push: a triad mounting mid-session must not draw the default view
+  // until the user happens to move (the camera does not move on its own).
+  expect(poses.length).toBe(1);
+  const first = poses[0];
+  expect(typeof first?.yaw).toBe("number");
+  expect(typeof first?.pitch).toBe("number");
+
+  host.frameChunks([chunkKey(2, 0, 0)]);
+  expect(poses.length).toBe(2);
+  // A frame-chunks retarget moves the PIVOT, not the orientation — so the second
+  // push carries the same angles. That it arrives at all is the assertion: the
+  // publish sits in applyOrbit, which is what makes it fire for the fly step and
+  // the look drag this test cannot reach.
+  expect(poses[1]).toEqual(first as CameraPose);
+
+  unsubscribe();
+  host.frameChunks([chunkKey(3, 0, 0)]);
+  // The slot is a single one and the release really releases it — an inert
+  // unsubscribe would leak a callback into an unmounted overlay.
+  expect(poses.length).toBe(2);
+});
+
+// --- init's MSAA option (F4.5a Task 9) --------------------------------------
+//
+// The AA switch is a dispose + re-init at a different sample count, so what has to
+// be true is that `init` asks for the count it was given. A real context never
+// reports the options it was built from, which is what `deps.requestContext` is
+// for: it RECORDS the request and then refuses, because everything init does past
+// that line needs a device.
+
+function recordingContextRequests(): {
+  seen: RequestContextOptions[];
+  requestContext: (
+    canvas: HTMLCanvasElement,
+    options?: RequestContextOptions,
+  ) => Promise<Context>;
+} {
+  const seen: RequestContextOptions[] = [];
+  return {
+    seen,
+    requestContext: (_canvas, options = {}) => {
+      seen.push(options);
+      return Promise.reject(new Error("stub context"));
+    },
+  };
+}
+
+const FAKE_CANVAS = {} as HTMLCanvasElement;
+
+test("init asks for 4× MSAA by default", async () => {
+  const stub = recordingContextRequests();
+  const host = createFieldHost({ requestContext: stub.requestContext });
+  await expect(host.init(FAKE_CANVAS)).rejects.toThrow("stub context");
+  expect(stub.seen).toEqual([{ sampleCount: 4 }]);
+});
+
+test("init honours an explicit sampleCount (the AA switch's whole mechanism)", async () => {
+  const stub = recordingContextRequests();
+  const host = createFieldHost({ requestContext: stub.requestContext });
+  await expect(host.init(FAKE_CANVAS, { sampleCount: 1 })).rejects.toThrow(
+    "stub context",
+  );
+  expect(stub.seen).toEqual([{ sampleCount: 1 }]);
 });

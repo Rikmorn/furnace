@@ -1,8 +1,10 @@
 // The Field panel (F1/F2b): the dig-loop CONTROL STACK. It drives the tool
 // palette (brush effects, selection gestures, stamp generators) + the persistent
-// material swatches + the brush inspector (radius/mask/smooth/hollow) + shading
-// + the layers/slice row, the advisor's flags, the entity list and the drift
-// report. The persistence concern — which world this is, Save / Open / Bake —
+// material swatches + the brush inspector (radius/mask/smooth/hollow), the
+// advisor's flags, the entity list and the drift report. What the viewport SHOWS
+// — shading, the layer gates, the slice plane, AA — is not here: it went to the
+// top bar's View popover, where it is one click from anywhere instead of hidden
+// behind a palette the user may have closed. The persistence concern — which world this is, Save / Open / Bake —
 // is the SHELL's now (the world chip, the drawer, ⌘S): a control stack that owns
 // the save verb cannot be dissolved into palettes, and closing the palette
 // holding it would take ⌘S with it. The material table it renders swatches from
@@ -22,8 +24,6 @@ import { useCallback, useEffect, useState } from "react";
 import type {
 	FieldEntityInfo,
 	FieldGeneratorInfo,
-	FieldHostShading,
-	FieldLayers,
 	FieldMaskChoice,
 	FieldTool,
 	FlagFilters,
@@ -40,7 +40,6 @@ import { BrushInspector } from "./field/BrushInspector.tsx";
 import { DriftReport } from "./field/DriftReport.tsx";
 import { EntitiesList } from "./field/EntitiesList.tsx";
 import { FlagsSection } from "./field/FlagsSection.tsx";
-import { LayersRow } from "./field/LayersRow.tsx";
 import { MaterialSwatches } from "./field/MaterialSwatches.tsx";
 import { StampInspector } from "./field/StampInspector.tsx";
 import { ToolPalette } from "./field/ToolPalette.tsx";
@@ -61,26 +60,6 @@ const DEFAULT_TOOL: FieldTool = {
 	smooth: { strength: 16, iterations: 1, mode: "both" },
 	hollow: null,
 };
-
-// Panel-side layer defaults — mirror the host's own all-true default (a local
-// literal for the same reason as DEFAULT_TOOL: the chrome cannot value-import
-// the host). Pushed to the host at engine-ready so both start in agreement.
-const DEFAULT_LAYERS: FieldLayers = {
-	field: true,
-	kit: true,
-	props: true,
-	ghost: true,
-	selection: true,
-	grid: true,
-	flags: true,
-	// The one default-off flag: ticking it runs a whole-world cast job, so the
-	// X-ray is opt-in (mirrors the host's own default).
-	voidCast: false,
-};
-
-// Slice defaults: OFF, plane parked at 8 m — mid-range of the slider (LayersRow
-// owns the −8…+24 range), high enough to cut a typical kit hall when enabled.
-const SLICE_DEFAULT_Y = 8;
 
 // Panel-side advisor-filter defaults — candidates only, mirroring the host's own
 // DEFAULT_FLAG_FILTERS. A local literal for the DEFAULT_LAYERS reason (the chrome
@@ -209,7 +188,6 @@ const sameEntities = (a: FieldEntityInfo[], b: FieldEntityInfo[]): boolean =>
 export function FieldPanel() {
 	const { state, fieldHostRef, openConfirm } = useEditor();
 	const [radius, setRadius] = useState(DEFAULT_RADIUS);
-	const [headlamp, setHeadlamp] = useState(false);
 	const [tool, setToolState] = useState<FieldTool>(DEFAULT_TOOL);
 	// ONE armed-gesture slot, mirroring the host's (ViewportGesture): the three
 	// selection gestures and the segment brush all bind LMB, so they cannot be
@@ -223,8 +201,6 @@ export function FieldPanel() {
 	const [generators, setGenerators] = useState<FieldGeneratorInfo[]>([]);
 	const [stamp, setStamp] = useState<StampSession | null>(null);
 	const [entities, setEntities] = useState<FieldEntityInfo[]>([]);
-	const [layers, setLayers] = useState<FieldLayers>(DEFAULT_LAYERS);
-	const [slice, setSlice] = useState({ enabled: false, y: SLICE_DEFAULT_Y });
 	// Range floors until the host-constants effect reads the real core ceilings.
 	const [smoothLimits, setSmoothLimits] = useState({
 		maxStrength: 1,
@@ -313,26 +289,26 @@ export function FieldPanel() {
 		return host.subscribeStamp(setStamp);
 	}, [state.status, fieldHostRef]);
 
-	// Push the panel's layer/slice/flag-filter view defaults to the host at
-	// engine-ready, and drop any entity-highlight box when the panel unmounts. The
-	// host outlives the panel (App owns it) and has no layers/slice/filters/
-	// highlight subscription seam, so a REMOUNT resets all of them to the panel
-	// defaults — honest (the controls always show what the host uses) at the cost
-	// of forgetting the toggles across a remount; the same v0 trade as the
-	// one-way radius seam below. The filters matter most here, in both directions:
-	// the host keeps the last set ACROSS world loads, so a remounted panel showing
-	// "candidates only" beside markers still drawing the info band would be a
-	// straight lie — and the price of preventing it is that a remount RESETS the
-	// user's filters to candidates only, ticked info band and all. Agreement over
-	// memory, deliberately; giving the host a filters subscription (so the panel
-	// could adopt instead of overwrite) is what would buy both. The highlight clear
-	// keeps a remounted list (expansion state reset) from standing next to a box no
-	// row claims.
+	// Push the panel's flag-filter defaults to the host at engine-ready, and drop any
+	// entity-highlight box when the panel unmounts. The host outlives the panel (App
+	// owns it) and has no filters/highlight subscription seam, so a REMOUNT resets the
+	// filters to the panel defaults — honest (the checkboxes always show what the host
+	// uses) at the cost of forgetting them across a remount; the same v0 trade as the
+	// one-way radius seam below. It matters in both directions: the host keeps the last
+	// set ACROSS world loads, so a remounted panel showing "candidates only" beside
+	// markers still drawing the info band would be a straight lie — and the price of
+	// preventing it is that a remount RESETS the user's filters to candidates only,
+	// ticked info band and all. Agreement over memory, deliberately; giving the host a
+	// filters subscription (so the panel could adopt instead of overwrite) is what would
+	// buy both. The highlight clear keeps a remounted list (expansion state reset) from
+	// standing next to a box no row claims.
+	//
+	// The layer/slice half of this block went with them to the View popover, whose
+	// provider outlives every palette and pushes on change AND at engine-ready — so
+	// those toggles now survive a remount instead of snapping back to the defaults.
 	useEffect(() => {
 		const host = fieldHostRef.current;
 		if (!host || state.status !== "ready") return;
-		host.setLayers(DEFAULT_LAYERS);
-		host.setSlice(null);
 		host.setFlagFilters(DEFAULT_FLAG_FILTERS);
 		return () => host.highlightEntity(null);
 	}, [state.status, fieldHostRef]);
@@ -417,22 +393,6 @@ export function FieldPanel() {
 	const onRadius = (r: number): void => {
 		setRadius(r);
 		fieldHostRef.current?.setDigRadius(r);
-	};
-
-	const onShading = (on: boolean): void => {
-		setHeadlamp(on);
-		const mode: FieldHostShading = on ? "headlamp" : "flat";
-		fieldHostRef.current?.setShading(mode);
-	};
-
-	const onLayers = (next: FieldLayers): void => {
-		setLayers(next);
-		fieldHostRef.current?.setLayers(next);
-	};
-
-	const onSlice = (next: { enabled: boolean; y: number }): void => {
-		setSlice(next);
-		fieldHostRef.current?.setSlice(next.enabled ? next.y : null);
 	};
 
 	const onFlagFilters = (next: FlagFilters): void => {
@@ -573,17 +533,6 @@ export function FieldPanel() {
 							onCancel={() => fieldHostRef.current?.cancelStamp()}
 						/>
 					)}
-				</div>
-				<div className="border-b border-border p-2 text-sm">
-					<LayersRow
-						layers={layers}
-						slice={slice}
-						ghostSuppressed={selectionArmed && stamp === null}
-						headlamp={headlamp}
-						onLayers={onLayers}
-						onSlice={onSlice}
-						onShading={onShading}
-					/>
 				</div>
 				{/* The advisor's findings, under the layer toggle that draws their
             markers. Owns its border (the DriftReport rule) and renders nothing

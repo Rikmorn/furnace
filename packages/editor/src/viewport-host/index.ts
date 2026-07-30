@@ -17,6 +17,7 @@ export type {
   FlagsSummary,
 } from "./field-flags.ts";
 export {
+  type CameraPose,
   createFieldHost,
   type FieldEntityInfo,
   type FieldGeneratorInfo,

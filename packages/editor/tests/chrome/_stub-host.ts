@@ -16,6 +16,7 @@ import type { DriftFinding } from "@furnace/core/field";
 import type { EntityCatalog } from "../../src/frontend/lib/catalog.ts";
 import { withArchetypeOptions } from "../../src/viewport-host/field-placements.ts";
 import type {
+  CameraPose,
   FieldEntityInfo,
   FieldGeneratorInfo,
   FieldHost,
@@ -25,6 +26,10 @@ import type {
   SelectionInfo,
   StampSession,
 } from "../../src/viewport-host/index.ts";
+
+/** The pose the stub reports on subscribe — a stand-in for the host's starting orbit
+ *  (its exact numbers are the host's business; what matters is that one arrives). */
+export const START_POSE: CameraPose = { yaw: 0.6, pitch: 0.5 };
 
 /** A zeroed FieldStats with `overrides` applied — the host's idle readout. */
 export function makeStats(overrides: Partial<FieldStats> = {}): FieldStats {
@@ -64,10 +69,14 @@ export function makeStubHost(
   // pure helper field-host.ts uses. Without this the ordering bug (B1) is
   // invisible from the chrome — a static generator list can never go stale.
   let installedCatalog: EntityCatalog | null = null;
-  // Call-order trace for the two seams whose ORDER is the contract under test.
+  // Call-order trace for the seams whose ORDER is the contract under test.
   const order: string[] = [];
+  /** Whether a context is up — the real host's `ctx`, which is what its
+   *  "already initialized" guard reads. */
+  let live = false;
   const cbs: {
     tool: ((t: FieldTool) => void) | null;
+    cameraPose: ((p: CameraPose) => void) | null;
     stamp: ((s: StampSession | null) => void) | null;
     stats: ((s: FieldStats) => void) | null;
     selection: ((i: SelectionInfo | null) => void) | null;
@@ -77,6 +86,7 @@ export function makeStubHost(
     flags: ((s: FlagsSummary) => void) | null;
   } = {
     tool: null,
+    cameraPose: null,
     stamp: null,
     stats: null,
     selection: null,
@@ -122,13 +132,26 @@ export function makeStubHost(
     subscribeToolError: mock(),
   };
   const host: FieldHost = {
-    init: (canvas) => {
-      calls.init(canvas);
-      return opts.initRejection === undefined
-        ? Promise.resolve()
-        : Promise.reject(new Error(opts.initRejection));
+    // Modelled on the real host's lifecycle, both halves of it. It REFUSES a second
+    // init while a context is up ("one host, one live canvas") and it SETTLES
+    // ASYNCHRONOUSLY, because the real one awaits a device — and those two together are
+    // what make an unordered dispose→init (the AA switch's hazard) visible here instead
+    // of only in a browser.
+    init: (canvas, initOpts) => {
+      calls.init(canvas, initOpts);
+      order.push("init");
+      if (opts.initRejection !== undefined)
+        return Promise.reject(new Error(opts.initRejection));
+      if (live)
+        return Promise.reject(new Error("field-host: already initialized"));
+      live = true;
+      return Promise.resolve();
     },
-    dispose: calls.dispose,
+    dispose: () => {
+      order.push("dispose");
+      live = false;
+      calls.dispose();
+    },
     newWorld: calls.newWorld,
     // biome-ignore lint/suspicious/noEmptyBlockStatements: inert test no-op
     loadWorld: () => {},
@@ -228,6 +251,15 @@ export function makeStubHost(
     },
     flagMarkerCount: () => 0,
     exportArtifact: () => [],
+    subscribeCameraPose: (cb) => {
+      cbs.cameraPose = cb;
+      // The real host pushes the CURRENT pose on subscribe (its own starting orbit);
+      // a stub that pushed nothing would let a consumer depending on that go green.
+      cb(START_POSE);
+      return () => {
+        if (cbs.cameraPose === cb) cbs.cameraPose = null;
+      };
+    },
     subscribeStats: (cb) => {
       calls.subscribeStats(cb);
       cbs.stats = cb;
@@ -256,6 +288,8 @@ export function makeStubHost(
         return true;
       },
       selection: (i: SelectionInfo | null) => cbs.selection?.(i),
+      /** A camera move, as the host publishes one from `applyOrbit`. */
+      cameraPose: (p: CameraPose) => cbs.cameraPose?.(p),
       /** The entity-list change TICK (the real host's only entity signal). */
       entities: () => cbs.entities?.(),
       drift: (r: DriftFinding[] | null) => cbs.drift?.(r),

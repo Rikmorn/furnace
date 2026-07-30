@@ -90,9 +90,16 @@ import {
 import { arrowNudgeSteps } from "./input-map.ts";
 import { buildGridLines, segmentsToBatch } from "./reference-grid.ts";
 
-/** Shading toggle: `flat` = unlit normal-colour (structure legibility); `headlamp` =
- *  the game-parity lit material under a camera-carried point light (mood preview). */
-export type FieldHostShading = "flat" | "headlamp";
+/** How the field is lit. `studio` is the DEFAULT and the state of seeing (D-F4.5-17):
+ *  per-class lit materials under a camera-following key light plus a hemisphere fill,
+ *  so form and material read at once. `normals` is a named DEBUG flag — unlit
+ *  normal-colour, which shows structure and nothing else (every class looks identical). */
+export type FieldHostShading = "studio" | "normals";
+
+/** The orbit camera's orientation, in radians ({@link FieldHost.subscribeCameraPose}).
+ *  Orientation only: distance and target don't change which way the axes point, which is
+ *  all the corner triad draws. */
+export type CameraPose = { yaw: number; pitch: number };
 
 /** The panel's mask choice for the active brush — maps onto a core BrushMask
  *  at op-build time. `none` = unmasked; `selection` embeds the host's current
@@ -273,7 +280,20 @@ export type FieldLayers = {
 };
 
 export type FieldHost = {
-  init(canvas: HTMLCanvasElement): Promise<void>;
+  /** Acquires the GPU context on `canvas`, builds the materials and starts the render
+   *  loop. Throws if a context already exists — one host, one live canvas.
+   *
+   *  `sampleCount` is the scene pass's MSAA (default 4; `1` = off), and it is fixed for
+   *  the context's life: changing it is a `dispose()` + `init()` on the same host, which
+   *  is exactly what the View popover's AA switch does. That round trip is cheap because
+   *  everything the editor cannot rebuild — the field store, the op log, the tool, the
+   *  camera, the selection — is CPU state that survives a dispose; only GPU objects are
+   *  torn down, and this re-marks every allocated chunk for re-meshing so the world the
+   *  user was looking at comes back. */
+  init(
+    canvas: HTMLCanvasElement,
+    opts?: { sampleCount?: 1 | 4 },
+  ): Promise<void>;
   dispose(): void;
   newWorld(): void;
   /** Loads a previously saved world (manifest + chunk bytes + material siblings + ops). */
@@ -701,6 +721,15 @@ export type FieldHost = {
   /** Subscribes to the live stats readout ({@link FieldStats}), pushed every
    *  rAF. Single subscriber (the panel); returns an unsubscribe. */
   subscribeStats(cb: (s: FieldStats) => void): () => void;
+  /** Subscribes to the orbit camera's orientation ({@link CameraPose}), pushed on
+   *  every camera move — a fly step, a look drag, a frame-chunks retarget — and
+   *  ONCE immediately on subscribe, so a triad mounting into a session already
+   *  under way draws the pose the user is actually at rather than the default one.
+   *
+   *  Pushed at pointer/frame rate while the camera is moving, which is why the
+   *  subscriber is the shell's provider (one slot, one guard) rather than the
+   *  overlay. Single subscriber; returns an unsubscribe. */
+  subscribeCameraPose(cb: (pose: CameraPose) => void): () => void;
 };
 
 type Vec3T = [number, number, number];
@@ -771,17 +800,23 @@ const RADIUS_MAX = 4;
 const RADIUS_WHEEL_STEP = 0.1;
 
 const CLEAR = vec4.fromValues(0.03, 0.03, 0.045, 1);
-const HEADLAMP_COLOR: Vec3T = [1, 0.95, 0.85];
-const HEADLAMP_INTENSITY = 6;
-const HEADLAMP_RANGE = 18;
-// Low hemisphere ambient so the carried lamp dominates (mood parity with the
-// dungeon torch). Flat mode uses normalColor, which ignores ambient/lights.
-const HEADLAMP_AMBIENT: frame.Ambient = {
+// The studio key light: camera-following, warm, and the only light in the scene.
+const STUDIO_KEY_COLOR: Vec3T = [1, 0.95, 0.85];
+const STUDIO_KEY_INTENSITY = 6;
+const STUDIO_KEY_RANGE = 18;
+// Hemisphere fill, low enough that the key still shapes the surface. These are the
+// dungeon-torch numbers this mode started as: D-F4.5-17 wants them TUNED for form +
+// material legibility, and P5 (the slice's own readability check) is what decides
+// whether that tuning is needed — untouched until it says so.
+const STUDIO_AMBIENT: frame.Ambient = {
   sky: [0.4, 0.42, 0.48],
   ground: [0.16, 0.16, 0.2],
   intensity: 0.28,
 };
-const FLAT_AMBIENT: frame.Ambient = {
+// The debug mode draws through shader.normalColor, which ignores lights and ambient
+// entirely. Full white is what keeps the kit's instanced-lit pieces (no unlit variant
+// exists) readable beside it.
+const NORMALS_AMBIENT: frame.Ambient = {
   sky: [1, 1, 1],
   ground: [1, 1, 1],
   intensity: 1,
@@ -951,11 +986,18 @@ function generatorSchemaProperties(
  * in-process (measured: still pending after 1 s), so nothing downstream of a
  * request ever runs. Injecting the protocol handler directly is what lets a test
  * see the request the host builds AND drive the response back through it.
+ *
+ * `deps.requestContext` overrides how {@link FieldHost.init} acquires the GPU
+ * context, and exists for the same class of reason: a real context never reports
+ * the options it was built from, so the only way to prove `init` asks for the MSAA
+ * the caller wanted is to record the request. Production omits it.
  */
 export function createFieldHost(deps?: {
   spawnWorker?: () => WorkerLike;
   spawnAnalyzer?: () => WorkerLike;
+  requestContext?: typeof gpu.requestContext;
 }): FieldHost {
+  const requestContext = deps?.requestContext ?? gpu.requestContext;
   let ctx: Context | null = null;
   let cam: camera.Camera | null = null;
   let canvasEl: HTMLCanvasElement | null = null;
@@ -967,9 +1009,10 @@ export function createFieldHost(deps?: {
   const worker = new FieldWorkerClient(deps?.spawnWorker);
   const chunkMeshes = new Map<string, ChunkRender>();
 
-  // ONE flat material (normalColor): classes are indistinct in flat mode — the
-  // v0 coarseness is deliberate (structure legibility over class colour).
-  let flatMat: material.Material | null = null;
+  // ONE material for the `normals` debug mode (normalColor): every class looks
+  // identical under it — the v0 coarseness is deliberate (structure legibility over
+  // class colour, which is what `studio` is for).
+  let normalsMat: material.Material | null = null;
   // Per-class lit materials keyed `c<classId>` (surface) / `b<classId>` (kit
   // backing), rebuilt from `table` at init and on setMaterialTable.
   const litByClass = new Map<
@@ -988,7 +1031,10 @@ export function createFieldHost(deps?: {
   let ghostBind: binding.Binding | null = null;
   let ghostCube: mesh.Mesh | null = null;
   let ghostCubeGeo: geometry.Geometry | null = null;
-  let shading: FieldHostShading = "flat";
+  // Studio is the state of seeing (D-F4.5-17), so it is what a host with no chrome
+  // attached already renders — the chrome pushing its own default is agreement, not
+  // the thing that turns the lights on.
+  let shading: FieldHostShading = "studio";
 
   // The project's resolved material table — drives the mesher's bucket split,
   // logApply validation, and the bake. Defaults rock-only until setMaterialTable.
@@ -1170,6 +1216,7 @@ export function createFieldHost(deps?: {
   // trigger that Safari's ~1 ms performance.now() clamp can't alias.
   let remeshVersion = 0;
   let statsCb: ((s: FieldStats) => void) | null = null;
+  let cameraPoseCb: ((pose: CameraPose) => void) | null = null;
   // Last LANDED applyReconfigure wall-clock (ms); 0 until the first one lands.
   let lastReconfigureMs = 0;
   // logStats cache: recomputing it every rAF is an O(ops) scan that allocates
@@ -1224,8 +1271,12 @@ export function createFieldHost(deps?: {
 
   const cameraEye = (): Vec3T => toEyeTarget(orbitState).eye;
 
-  // Write the current orbitState into the camera's position/target/up.
+  // Write the current orbitState into the camera's position/target/up, and tell
+  // whoever is drawing the orientation triad. The publish sits ABOVE the camera
+  // guard on purpose: every path that moves the orbit ends here, and a pose change
+  // is just as true before the GPU exists as after it.
   const applyOrbit = (): void => {
+    cameraPoseCb?.({ yaw: orbitState.yaw, pitch: orbitState.pitch });
     if (!cam) return;
     const { eye, target, up } = toEyeTarget(orbitState);
     camera.setPosition(cam, new Float32Array(eye));
@@ -1269,8 +1320,8 @@ export function createFieldHost(deps?: {
   };
 
   const initMaterials = async (c: Context): Promise<void> => {
-    const flatShd = await shader.normalColor(c); // unlit, normal-distinct faces
-    flatMat = await material.create(c, { shader: flatShd });
+    const normalsShd = await shader.normalColor(c); // unlit, normal-distinct faces
+    normalsMat = await material.create(c, { shader: normalsShd });
     const kitShd = await shader.litInstanced(c);
     kitBind = binding.create(c, kitShd);
     // White base color — per-instance tint carries the piece colour.
@@ -1347,8 +1398,8 @@ export function createFieldHost(deps?: {
     });
     // Walkability markers: UNLIT instanced, white base, so the per-instance
     // severity tint is the pixel and nothing else. Deliberately not the kit's
-    // litInstanced material — a marker that dims when the headlamp looks away is
-    // a marker that stops doing its job in the shading mode meant for mood.
+    // litInstanced material — a marker that dims when the studio key light looks
+    // away is a marker that stops doing its job in the mode the editor lives in.
     const markerShd = await shader.unlitInstanced(c);
     flagMarkerBind = binding.create(c, markerShd);
     binding.set(c, flagMarkerBind, { color: [1, 1, 1, 1] });
@@ -1371,16 +1422,16 @@ export function createFieldHost(deps?: {
     return voidCastMat;
   };
 
-  // Material for one surface/backing bucket under the current shading mode. Flat
-  // mode collapses every class to flatMat; headlamp mode looks up the per-class
-  // lit material (falling back to class-0 surface if the key is missing).
+  // Material for one surface/backing bucket under the current shading mode. The
+  // `normals` debug mode collapses every class to normalsMat; `studio` looks up the
+  // per-class lit material (falling back to class-0 surface if the key is missing).
   const bucketMaterial = (
     classId: number,
     backing: boolean,
   ): material.Material => {
-    if (shading === "flat") {
-      if (!flatMat) throw new Error("field-host: materials not initialized");
-      return flatMat;
+    if (shading === "normals") {
+      if (!normalsMat) throw new Error("field-host: materials not initialized");
+      return normalsMat;
     }
     const key = (backing ? "b" : "c") + classId;
     const hit = litByClass.get(key) ?? litByClass.get("c0");
@@ -3383,15 +3434,18 @@ export function createFieldHost(deps?: {
     applyOrbit();
   };
 
+  // The studio key light rides the eye, so a surface the user turns toward is a
+  // surface that lights up. `normals` needs no lights at all (normalColor ignores
+  // them), and an empty list is what says that to frame.render.
   const sceneLights = (): frame.Light[] =>
-    shading === "headlamp"
+    shading === "studio"
       ? [
           {
             type: "point",
             position: cameraEye(),
-            color: HEADLAMP_COLOR,
-            intensity: HEADLAMP_INTENSITY,
-            range: HEADLAMP_RANGE,
+            color: STUDIO_KEY_COLOR,
+            intensity: STUDIO_KEY_INTENSITY,
+            range: STUDIO_KEY_RANGE,
           },
         ]
       : [];
@@ -3505,16 +3559,17 @@ export function createFieldHost(deps?: {
     if (layers.ghost)
       for (const entries of ghostMeshes.values())
         for (const e of entries) meshes.push(e.m);
-    // Kit instances always render with the lit-instanced material, even in flat
-    // mode — there is no flat-instanced variant; FLAT_AMBIENT (full white) makes
-    // them readable headlamp-independently. A deliberate v0 choice.
+    // Kit instances always render with the lit-instanced material, even in the
+    // `normals` debug mode — there is no normal-coloured instanced variant, and
+    // NORMALS_AMBIENT (full white) is what keeps them readable there. A deliberate
+    // v0 choice.
     frame.render(c, {
       meshes,
       instanced,
       camera: view,
       clearColor: CLEAR,
       lights: sceneLights(),
-      ambient: shading === "headlamp" ? HEADLAMP_AMBIENT : FLAT_AMBIENT,
+      ambient: shading === "studio" ? STUDIO_AMBIENT : NORMALS_AMBIENT,
       effects: [],
     });
     // Depth-tested grid (occlude:true): solid geometry hides it. Minors, then majors.
@@ -3958,10 +4013,12 @@ export function createFieldHost(deps?: {
   };
 
   return {
-    async init(canvas) {
+    async init(canvas, opts) {
       if (ctx) throw new Error("field-host: already initialized");
       disposed = false; // clear a prior dispose() so a re-init'd instance lives
-      ctx = await gpu.requestContext(canvas, { sampleCount: 4 });
+      ctx = await requestContext(canvas, {
+        sampleCount: opts?.sampleCount ?? 4,
+      });
       cam = camera.perspective({
         fovYRad: EDITOR_FOV_Y,
         aspect: 1,
@@ -3979,6 +4036,12 @@ export function createFieldHost(deps?: {
       // into draws here.
       rebuildProps();
       rebuildFlagMarkers(flagStore.summary());
+      // Re-mesh whatever the store already holds. At the FIRST init this is empty
+      // and costs nothing; at a re-init (the AA switch) it is the whole world, and
+      // without it the field never comes back — `dispose` destroys every chunk mesh
+      // and `dirty` only ever holds chunks something EDITED. The paced drain
+      // (REMESH_PER_FRAME) is what keeps the burst from stalling the first frames.
+      for (const key of store.chunks.keys()) dirty.add(key);
       attachListeners(canvas);
       lastFrameT = 0;
       raf = requestAnimationFrame(tick);
@@ -4023,7 +4086,7 @@ export function createFieldHost(deps?: {
         destroyFlagMarkers(c);
         destroyStampGhosts();
         discardVoidCast();
-        if (flatMat) material.destroy(c, flatMat);
+        if (normalsMat) material.destroy(c, normalsMat);
         destroyLitMaterials(c);
         if (kitMat) material.destroy(c, kitMat);
         if (kitBind) binding.destroy(c, kitBind);
@@ -4040,7 +4103,7 @@ export function createFieldHost(deps?: {
         unbindCamera?.();
         gpu.dispose(c); // LAST — a clean shutdown is the leak check.
       }
-      flatMat = null;
+      normalsMat = null;
       kitMat = null;
       kitBind = null;
       ghostCube = null;
@@ -4494,6 +4557,16 @@ export function createFieldHost(deps?: {
       statsCb = cb;
       return () => {
         statsCb = null;
+      };
+    },
+    subscribeCameraPose(cb) {
+      cameraPoseCb = cb;
+      // Initial push (the subscribeSelection remount rationale): the camera does not
+      // move on its own, so a triad that waited for the first WASD step would draw
+      // the wrong orientation for as long as the user sat still.
+      cb({ yaw: orbitState.yaw, pitch: orbitState.pitch });
+      return () => {
+        if (cameraPoseCb === cb) cameraPoseCb = null;
       };
     },
   };

@@ -1,5 +1,5 @@
-// resolveCssColor is the ONE token→engine-colour bridge (Task 7 selection accent +
-// viewport clear; Task 9 reuses it for grid/headlamp). These pins lock its two
+// resolveCssColor is the ONE token→engine-colour bridge (the M5B selection accent +
+// viewport clear). These pins lock its two
 // load-bearing behaviours: it reads sRGB bytes back from a 1×1 canvas 2D context,
 // and it returns the caller's fallback when resolution is impossible.
 //

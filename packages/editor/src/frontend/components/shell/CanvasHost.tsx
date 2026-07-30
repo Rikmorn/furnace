@@ -12,18 +12,34 @@ import { errorMessage } from "../../lib/humanize.ts";
  * it is the shell's CSS contract broken, and waiting for a resize that will never come
  * would hide it. Fail loud instead.
  *
+ * `sampleCount` is the viewport's MSAA, and it is a CONTEXT property: the only way to
+ * change it is to dispose the host and init it again, which is why the View popover's AA
+ * switch lands here rather than on a host setter. The cost is a re-init, not a reset —
+ * everything the editor cannot rebuild (the field, the op log, the tool, the camera) is
+ * CPU state the host keeps across a dispose.
+ *
  * `onError` carries an init REJECTION (a GPU/context failure) to the status bar —
  * local, not a global engine-error: the chrome is still usable and the message is the
  * only diagnosis a user gets.
  */
 export function CanvasHost({
 	host,
+	sampleCount,
 	onError,
 }: {
 	host: FieldHost;
+	sampleCount: 1 | 4;
 	onError: (message: string) => void;
 }) {
 	const ref = useRef<HTMLCanvasElement>(null);
+	// The tail of the LAST teardown, so the next init can wait for it. The host holds one
+	// context and throws on a second `init`, and its dispose is deferred (see the cleanup
+	// below) — so an AA change, whose cleanup and re-run happen in the same React commit,
+	// would otherwise call `init` while the old context is still up and take the whole
+	// tree down with "already initialized". Chaining is what makes re-init expressible at
+	// all; it also happens to make a double-invoked mount safe, which the deferred dispose
+	// alone did not.
+	const teardown = useRef<Promise<unknown>>(Promise.resolve());
 
 	// Latest-ref, because the effect below is a GPU LIFECYCLE: it must re-run for a new
 	// host and for nothing else. With `onError` in its deps, a caller passing an inline
@@ -51,10 +67,18 @@ export function CanvasHost({
 			throw new Error(message);
 		}
 		let cancelled = false;
-		const started = host.init(canvas).catch((err: unknown) => {
-			if (!cancelled)
-				onErrorRef.current(`field host init failed: ${errorMessage(err)}`);
-		});
+		const started = teardown.current
+			.then(() => {
+				// The teardown this waited on may have been THIS effect's own cleanup (an AA
+				// change re-runs it in the same commit): starting a context for a canvas the
+				// tree has already dropped would leak a device nobody disposes.
+				if (cancelled) return;
+				return host.init(canvas, { sampleCount });
+			})
+			.catch((err: unknown) => {
+				if (!cancelled)
+					onErrorRef.current(`field host init failed: ${errorMessage(err)}`);
+			});
 		return () => {
 			cancelled = true;
 			// Dispose only once init has SETTLED. `init` awaits the GPU context and the
@@ -62,13 +86,11 @@ export function CanvasHost({
 			// those trailing creations. `started` is the post-`.catch` promise, so it
 			// never rejects and `finally` always runs.
 			//
-			// Honest limit: this does NOT by itself make a double-invoked mount safe. The
-			// host serializes nothing, so a re-init landing before this deferred dispose
-			// still hits its own "already initialized" guard. Nothing double-invokes
-			// today — main.tsx mounts no StrictMode.
-			void started.finally(() => host.dispose());
+			// Handing the result to `teardown` is the other half: the NEXT init starts from
+			// this promise, so dispose→init stays ordered even though dispose is deferred.
+			teardown.current = started.finally(() => host.dispose());
 		};
-	}, [host]);
+	}, [host, sampleCount]);
 
 	// tabIndex makes it focusable: the host attaches its WASD/QE fly, [ / ] radius and
 	// arrow-nudge keydowns to the CANVAS, so they only land while it holds focus — which
