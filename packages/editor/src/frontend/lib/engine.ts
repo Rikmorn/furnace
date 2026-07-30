@@ -1,8 +1,4 @@
-import type {
-  FieldHost,
-  ViewportHost,
-  ViewportHostOptions,
-} from "../../viewport-host/index.ts"; // type-only: erased
+import type { FieldHost } from "../../viewport-host/index.ts"; // type-only: erased
 
 export class EngineBuildError extends Error {
   constructor(diagnostics: string) {
@@ -12,7 +8,6 @@ export class EngineBuildError extends Error {
 }
 
 type EngineModule = {
-  createViewportHost: (opts?: ViewportHostOptions) => ViewportHost;
   createFieldHost: () => FieldHost;
   extensions: Record<string, unknown>;
 };
@@ -30,7 +25,7 @@ export async function loadEngine(): Promise<EngineModule> {
   // specifier and does not try to resolve "/engine.js" as a module at typecheck.
   const url: string = "/engine.js";
   // Boundary cast: the runtime-built bundle's shape is known by contract (it
-  // re-exports createViewportHost + createFieldHost from
+  // re-exports createFieldHost from
   // @furnace/editor/viewport-host and an `extensions` namespace of the consumer's
   // registration module — see daemon/bundle.ts virtual entry).
   return (await import(url)) as EngineModule;

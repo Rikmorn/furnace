@@ -1,7 +1,9 @@
-export type BindingAction = "save" | "undo" | "redo" | "frame" | "delete";
+export type BindingAction = "save" | "undo" | "redo";
 
-/** Pure chord→action map. `inTextInput` guards bare-key bindings (F, ⌫) so typing
- *  never fires them; ⌘-chords stay global (the browser default they replace is worse). */
+/** Pure chord→action map. `inTextInput` guards bare-key bindings so typing never fires
+ *  them; ⌘-chords stay global (the browser default they replace is worse). There are no
+ *  bare-key bindings today, so `inTextInput` currently only gates the early return —
+ *  it stays in the signature because the guard belongs with the classifier. */
 export function matchBinding(
   e: KeyboardEvent,
   inTextInput: boolean,
@@ -10,8 +12,6 @@ export function matchBinding(
   if (mod && e.key.toLowerCase() === "z") return e.shiftKey ? "redo" : "undo";
   if (mod && e.key.toLowerCase() === "s") return "save";
   if (inTextInput || mod || e.altKey) return undefined;
-  if (e.key.toLowerCase() === "f") return "frame";
-  if (e.key === "Backspace" || e.key === "Delete") return "delete";
   return undefined;
 }
 

@@ -7,14 +7,14 @@ import { createEngineBundler } from "../src/daemon/bundle.ts";
 // uses. These tests therefore prove bundle CONTAINMENT (the right symbols land
 // in one ESM string), not resolution ORIGIN (project-first vs editor-relative
 // are indistinguishable when they share a node_modules). The single-instance /
-// project-first invariant is exercised by the Task 6 GPU gate (one core
-// instance drives registration → reflection → load). In production the consumer
-// must carry @furnace/editor in its own node_modules; bundling from a root
-// outside the workspace fails to resolve @furnace/editor/viewport-host — the
-// expected project-first behavior.
+// project-first invariant is exercised by bundle.gpu.test.ts, which boots the
+// bundled host on a real device. In production the consumer must carry
+// @furnace/editor in its own node_modules; bundling from a root outside the
+// workspace fails to resolve @furnace/editor/viewport-host — the expected
+// project-first behavior.
 const FIXTURE = join(import.meta.dir, "fixtures", "mini-project");
 
-test("bundles the fixture project's extensions + viewport-host into one ESM string", async () => {
+test("bundles the fixture project's extensions + field host into one ESM string", async () => {
   const bundler = await createEngineBundler(
     FIXTURE,
     "src/editor-extensions.ts",
@@ -22,8 +22,7 @@ test("bundles the fixture project's extensions + viewport-host into one ESM stri
   const result = await bundler.build();
   if (!result.ok) throw new Error(result.error);
   expect(result.code).toContain("fixtureGlow"); // extension registration made it in
-  expect(result.code).toContain("createViewportHost"); // host export made it in
-  expect(result.code).toContain("createFieldHost"); // field host export made it in
+  expect(result.code).toContain("createFieldHost"); // host export made it in
   expect(result.code).toContain("extensions"); // consumer extensions namespace re-exported
   await bundler.dispose();
 });
@@ -51,7 +50,6 @@ test("no extensions entry: bundle still exports the host (built-ins only)", asyn
   const bundler = await createEngineBundler(FIXTURE, undefined);
   const result = await bundler.build();
   if (!result.ok) throw new Error(result.error);
-  expect(result.code).toContain("createViewportHost");
   expect(result.code).toContain("createFieldHost");
   // No extensions entry → the bundle still exports an (empty) `extensions` const.
   expect(result.code).toContain("extensions");

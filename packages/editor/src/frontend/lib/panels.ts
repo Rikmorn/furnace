@@ -1,7 +1,7 @@
 // The dockview panels the editor manages. `id` doubles as the COMPONENTS registry key
-// and the panel's dockview id; `title` is the tab label. Single source for the View▸Panels
-// toggles (MenuBar) and single-panel re-add; the DEFAULT layout builds from
-// App's DEFAULT_LAYOUT_PANELS (titles still resolve through panelTitle here).
+// and the panel's dockview id; `title` is the tab label. Single source of both: the
+// DEFAULT layout builds from App's DEFAULT_LAYOUT_PANELS, resolving titles through
+// panelTitle here.
 
 export const PANELS = [{ id: "field", title: "Field" }] as const;
 

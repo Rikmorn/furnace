@@ -107,8 +107,8 @@ export function EntitiesList(props: {
 	return (
 		<CollapsibleSection
 			title={`Entities (${entities.length})`}
-			// Reference context, not the focus — closed by default (the InspectPanel
-			// resources idiom). Open-state is per-mount on purpose: no persistence.
+			// Reference context, not the focus — closed by default. Open-state is
+			// per-mount on purpose: no persistence.
 			defaultOpen={false}
 		>
 			<div className="flex flex-col gap-0.5">

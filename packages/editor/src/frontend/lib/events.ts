@@ -8,7 +8,8 @@ export type ServerEvent =
   | { type: "file-conflict"; path: string }
   | { type: "file-invalid"; path: string; message: string }
   | { type: "bundle-outdated" }
-  | { type: "generation-baked"; files: number };
+  | { type: "generation-baked"; files: number }
+  | { type: "worlds-changed" };
 
 const EVENT_TYPES = [
   "scene-opened",
@@ -18,12 +19,13 @@ const EVENT_TYPES = [
   "file-invalid",
   "bundle-outdated",
   "generation-baked",
+  "worlds-changed",
 ] as const;
 
 /**
- * Subscribe to /api/events. `onOpen` fires on every (re)connect — the caller
- * catches up via scene.get there, which also covers events missed while
- * disconnected. Returns an unsubscribe function.
+ * Subscribe to /api/events. `onOpen` fires on every (re)connect, so the caller can
+ * refetch whatever it mirrors and catch up on events missed while disconnected.
+ * Returns an unsubscribe function.
  */
 export function subscribeEvents(handlers: {
   onOpen(): void;

@@ -1,5 +1,4 @@
 // packages/editor/src/frontend/lib/api.ts
-import type { SceneDocument } from "@furnace/core/scene";
 
 /** A daemon command failure: the contract `code` plus the human message. */
 export class ApiClientError extends Error {
@@ -10,16 +9,6 @@ export class ApiClientError extends Error {
     this.code = code;
   }
 }
-
-export type SessionView = {
-  document: SceneDocument;
-  path: string;
-  revision: number;
-  dirty: boolean;
-  conflict: boolean;
-  canUndo: boolean;
-  canRedo: boolean;
-};
 
 type ErrorBody = { error?: { code?: string; message?: string } };
 
@@ -41,37 +30,13 @@ async function call<T>(command: string, input: unknown): Promise<T> {
   return body;
 }
 
-export type MutationResult = { revision: number; dirty: boolean };
-export type ComponentEdit = {
-  entity: string;
-  component: string;
-  params: Record<string, unknown>;
-};
-
+// The daemon still serves the whole scene.* command family (daemon/scenes.ts +
+// daemon/session.ts) — this client just no longer speaks it: the editor is field-only,
+// and the scene chrome that drove those commands is gone. The daemon layer stays for a
+// future consumer surface.
 export const api = {
   // The project root the daemon serves — used to key per-project UI persistence.
   projectGet: () => call<{ root: string }>("project.get", {}),
-  sceneList: () => call<{ scenes: string[] }>("scene.list", {}),
-  sceneOpen: (path: string, force = false) =>
-    call<SessionView>("scene.open", { path, force }),
-  sceneGet: () => call<SessionView>("scene.get", {}),
-  setComponent: (
-    entity: string,
-    component: string,
-    params: Record<string, unknown>,
-  ) =>
-    call<MutationResult>("scene.setComponent", { entity, component, params }),
-  setComponentMany: (edits: ComponentEdit[]) =>
-    call<MutationResult>("scene.batch", { edits }),
-  removeEntity: (id: string) =>
-    call<MutationResult>("scene.removeEntity", { id }),
-  setResource: (table: string, id: string, entry: Record<string, unknown>) =>
-    call<MutationResult>("scene.setResource", { table, id, entry }),
-  setSettings: (settings: unknown) =>
-    call<MutationResult>("scene.setSettings", { settings }),
-  undo: () => call<MutationResult>("scene.undo", {}),
-  redo: () => call<MutationResult>("scene.redo", {}),
-  save: () => call<MutationResult>("scene.save", {}),
   // FALLBACK bake transport (Pr-2 determinism probe failed → the browser bakes and
   // uploads the file set; the daemon validates root-containment, writes, and emits
   // `generation-baked`). `contents` is text verbatim (utf8) or base64 (binary sidecars).

@@ -1,6 +1,6 @@
 import { createContext, useContext } from "react";
 
-/** Lookup lists the ref renderers need, supplied by the host panel (InspectPanel). */
+/** Lookup lists the ref renderers need, supplied by whichever panel hosts the form. */
 export type InspectorOptions = {
   resourceIds: (table: string) => string[];
   entityIds: () => string[];

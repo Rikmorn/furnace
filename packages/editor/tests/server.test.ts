@@ -106,7 +106,7 @@ test("GET /engine.js serves the ESM bundle", async () => {
   const res = await fetch(url("/engine.js"));
   expect(res.status).toBe(200);
   expect(res.headers.get("content-type")).toContain("text/javascript");
-  expect(await res.text()).toContain("createViewportHost");
+  expect(await res.text()).toContain("createFieldHost");
 });
 
 test("GET /engine.js with a broken extensions entry → 500 with diagnostics", async () => {

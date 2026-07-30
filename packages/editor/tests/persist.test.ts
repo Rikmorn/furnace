@@ -1,7 +1,11 @@
 // Pure store tests — no DOM (safe in bare tests/): a Map-backed fake Storage exercises
 // namespacing, per-project isolation, versioning, corruption tolerance, and quota safety.
+//
+// UiState carries exactly ONE key today (`layout`), so every case below drives that key.
+// The "keys are independent" case the scene era had went with `lastScene`/`recentScenes`;
+// it comes back the moment a second key does.
 import { expect, test } from "bun:test";
-import { createUiStore, pushRecent } from "../src/frontend/lib/persist.ts";
+import { createUiStore } from "../src/frontend/lib/persist.ts";
 
 function fakeStorage(backing = new Map<string, string>()): Storage {
   return {
@@ -20,23 +24,15 @@ test("namespaced, versioned, schema-tolerant", () => {
   const backing = new Map<string, string>();
   const fake = fakeStorage(backing);
   const store = createUiStore(fake, "/proj/root");
-  const flags = { grid: false, axes: true, headlamp: true, fog: false };
-  store.set("viewFlags", flags);
+  const layout = { grid: { root: "field" } };
+  store.set("layout", layout);
   // A fresh store over the same storage + root reads the persisted value.
-  expect(createUiStore(fake, "/proj/root").get("viewFlags")).toEqual(flags);
+  expect(createUiStore(fake, "/proj/root").get("layout")).toEqual(layout);
   // A different project root is isolated (per-project namespacing).
-  expect(createUiStore(fake, "/other").get("viewFlags")).toBeUndefined();
+  expect(createUiStore(fake, "/other").get("layout")).toBeUndefined();
   // Corrupt the blob → the store reads it as empty rather than throwing.
   backing.set([...backing.keys()][0] ?? "", "{not json");
-  expect(createUiStore(fake, "/proj/root").get("viewFlags")).toBeUndefined();
-});
-
-test("keys are independent — setting one preserves the others", () => {
-  const store = createUiStore(fakeStorage(), "/p");
-  store.set("lastScene", "scenes/a.scene.json");
-  store.set("recentScenes", ["scenes/a.scene.json"]);
-  expect(store.get("lastScene")).toBe("scenes/a.scene.json");
-  expect(store.get("recentScenes")).toEqual(["scenes/a.scene.json"]);
+  expect(createUiStore(fake, "/proj/root").get("layout")).toBeUndefined();
 });
 
 test("a missing key reads as undefined", () => {
@@ -49,20 +45,6 @@ test("setting a key to undefined drops it from the persisted blob", () => {
   expect(store.get("layout")).toEqual({ some: "layout" });
   store.set("layout", undefined);
   expect(store.get("layout")).toBeUndefined();
-  // Other keys survive the drop.
-  store.set("lastScene", "x");
-  store.set("layout", undefined);
-  expect(store.get("lastScene")).toBe("x");
-});
-
-test("pushRecent: most-recent-first, deduped, capped", () => {
-  // Prepends new items.
-  expect(pushRecent([], "a", 8)).toEqual(["a"]);
-  expect(pushRecent(["a"], "b", 8)).toEqual(["b", "a"]);
-  // Re-visiting an item moves it to the front (dedupes — no duplicate).
-  expect(pushRecent(["b", "a"], "a", 8)).toEqual(["a", "b"]);
-  // Caps at the limit, dropping the oldest.
-  expect(pushRecent(["c", "b", "a"], "d", 3)).toEqual(["d", "c", "b"]);
 });
 
 test("a setItem failure (quota) is swallowed, never thrown", () => {
@@ -73,5 +55,5 @@ test("a setItem failure (quota) is swallowed, never thrown", () => {
     },
   } as unknown as Storage;
   const store = createUiStore(throwing, "/p");
-  expect(() => store.set("lastScene", "x")).not.toThrow();
+  expect(() => store.set("layout", { a: 1 })).not.toThrow();
 });

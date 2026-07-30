@@ -1,5 +1,3 @@
-import type { ViewFlags } from "../../viewport-host/index.ts"; // type-only: erased
-
 // Per-project UI persistence: one JSON blob per project root under a versioned key,
 // so the editor's chrome (dockview layout, last scene, view flags…) survives a
 // restart. Pure and DOM-free — takes a `Storage` (localStorage in the browser, a fake
@@ -12,49 +10,11 @@ import type { ViewFlags } from "../../viewport-host/index.ts"; // type-only: era
 const VERSION = 1;
 
 /** The full persisted UI state. Fields are independent — each caller reads/writes its
- *  own key. Some are wired in Task 6 (layout, lastScene, recentScenes);
- *  cameraByDoc/viewFlags/inspectorCollapse are declared here so the store contract is
- *  complete, but their read/write points land in later tasks (8/9/10). */
+ *  own key. */
 export type UiState = {
   /** dockview serialized layout (SerializedDockview, kept opaque here). */
   layout?: unknown;
-  lastScene?: string;
-  cameraByDoc?: Record<
-    string,
-    {
-      target: [number, number, number];
-      distance: number;
-      yaw: number;
-      pitch: number;
-    }
-  >;
-  // Partial: the store is schema-tolerant and a pre-existing/older blob may carry a subset;
-  // App merges over DEFAULT_VIEW_FLAGS on read. Partial states what's actually guaranteed.
-  viewFlags?: Partial<ViewFlags>;
-  inspectorCollapse?: Record<string, boolean>;
-  /** Recently opened scenes (most recent first); caller caps at 8 before writing. */
-  recentScenes?: string[];
 };
-
-/** Viewport view-flag defaults: grid/axes/headlamp ON, fog OFF (a near-black unlit scene
- *  reads as broken otherwise). Seeds App state before the persisted blob is read; the host
- *  carries its own identical internal default for no-opts callers (the GPU tests). */
-export const DEFAULT_VIEW_FLAGS: ViewFlags = {
-  grid: true,
-  axes: true,
-  headlamp: true,
-  fog: false,
-};
-
-/** Prepend `item` to a most-recent-first list, dropping any prior occurrence and capping
- *  the length. Pure — used for the recent-scenes list and unit-tested without a store. */
-export function pushRecent(
-  list: readonly string[],
-  item: string,
-  cap: number,
-): string[] {
-  return [item, ...list.filter((x) => x !== item)].slice(0, cap);
-}
 
 /** A namespaced, versioned, schema-tolerant view over a `Storage` for ONE project. */
 export type UiStore = {

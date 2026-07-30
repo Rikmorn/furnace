@@ -15,7 +15,7 @@ export type EngineBundler = {
 /**
  * Create the project-first engine bundler. The virtual entry imports the
  * consumer's extensions (registration side-effects — Branch A) then re-exports
- * the viewport host; esbuild resolves EVERY import (core, extensions, zod via
+ * the field host; esbuild resolves EVERY import (core, extensions, zod via
  * core, the host source) from the project root's node_modules, so the bundle
  * carries exactly one core/registry/zod instance.
  */
@@ -34,7 +34,7 @@ export async function createEngineBundler(
   const exportExtensions = extensionsEntry
     ? `export * as extensions from ${JSON.stringify(resolve(root, extensionsEntry))};\n`
     : "export const extensions = {};\n";
-  const contents = `${importExtensions}export { createViewportHost, createFieldHost } from "@furnace/editor/viewport-host";\n${exportExtensions}`;
+  const contents = `${importExtensions}export { createFieldHost } from "@furnace/editor/viewport-host";\n${exportExtensions}`;
 
   const ctx = await esbuild.context({
     stdin: {

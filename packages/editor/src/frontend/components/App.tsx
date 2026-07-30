@@ -14,34 +14,19 @@ import {
 	useRef,
 	useState,
 } from "react";
-import type {
-	FieldHost,
-	ViewFlags,
-	ViewportHost,
-} from "../../viewport-host/index.ts"; // type-only
+import type { FieldHost } from "../../viewport-host/index.ts"; // type-only
 import { useConfirmDialog } from "../hooks/useConfirmDialog.ts";
 import { useGlobalKeybindings } from "../hooks/useGlobalKeybindings.ts";
-import { ApiClientError, api, type ComponentEdit } from "../lib/api.ts";
+import { api } from "../lib/api.ts";
 import { EngineBuildError, loadEngine } from "../lib/engine.ts";
 import { subscribeEvents } from "../lib/events.ts";
 import { type PanelId, panelTitle } from "../lib/panels.ts";
-import {
-	createUiStore,
-	DEFAULT_VIEW_FLAGS,
-	pushRecent,
-} from "../lib/persist.ts";
-import { clickMode, SETTINGS_SELECTION } from "../lib/selection.ts";
+import { createUiStore } from "../lib/persist.ts";
 import { initialState, reduce } from "../lib/state.ts";
-import { resolveCssColor } from "../lib/theme.ts";
 import { ConfirmDialog } from "./ConfirmDialog.tsx";
-import {
-	type EditorActions,
-	EditorContext,
-	type EditorContextValue,
-} from "./editor-context.ts";
+import { EditorContext, type EditorContextValue } from "./editor-context.ts";
 import { FieldPanel } from "./FieldPanel.tsx";
 import { StatusBar } from "./StatusBar.tsx";
-import { Toolbar } from "./Toolbar.tsx";
 
 // Module-level so its identity is stable across App renders: dockview reads the
 // factory only at panel construction, so a fresh map per render would freeze the
@@ -51,9 +36,6 @@ const COMPONENTS: Record<string, FunctionComponent<IDockviewPanelProps>> = {
 	field: FieldPanel,
 };
 
-// Persisted-list cap: the File▸Recent menu stays bounded so a long session can't bloat the
-// per-project localStorage blob (a critique finding).
-const RECENT_SCENES_CAP = 8;
 // Trailing-debounce the layout write: onDidLayoutChange fires per pointermove frame during a
 // splitter drag, but each write JSON-stringifies the whole UiState blob — persist once settled.
 const LAYOUT_SAVE_DEBOUNCE_MS = 200;
@@ -65,33 +47,26 @@ const DEFAULT_LAYOUT_PANELS: readonly PanelId[] = ["field"];
 
 export function App() {
 	const [state, dispatch] = useReducer(reduce, initialState);
-	const hostRef = useRef<ViewportHost | undefined>(undefined);
-	// The F1 field dig host, created once with the other hosts and threaded to the Field
+	// The F1 field dig host, created once at engine-ready and threaded to the Field
 	// panel via context. App-owned so it survives the panel closing/reopening.
 	const fieldHostRef = useRef<FieldHost | undefined>(undefined);
 	const extensionsRef = useRef<Record<string, unknown>>({});
-	const lastLoaded = useRef<{ path?: string; revision?: number }>({});
-	// Mirrors state.dirty for the SSE onEvent closure below, whose effect only
-	// re-subscribes on [state.status, refreshSession] — reading state.dirty
-	// directly there would see a stale value from subscribe time.
-	const dirtyRef = useRef(false);
+	// Mirrors whether a world bake is in flight, for the SSE bundle-outdated guard (that
+	// closure re-subscribes only on [state.status], so it cannot read live panel state).
+	// MIGRATION (until Task 8 of the F4.5a plan): the bake still lives inside the Field
+	// panel's toolbar and nothing writes this yet, so it reads false for the whole session.
+	const bakeBusyRef = useRef(false);
 	// The in-chrome confirm dialog (replaces window.confirm) — its full state machine
 	// (open no-clobber guard, exactly-once resolve) lives in useConfirmDialog. `confirmRef`
 	// is threaded to useGlobalKeybindings so the keydown listener suppresses every binding
 	// while a prompt is open.
 	const { confirm, confirmRef, openConfirm, resolveConfirm } =
 		useConfirmDialog();
-	// Latest selection + undo/redo availability, read by the window keydown listener (which
-	// binds once and must not close over stale state) AND by actions.deleteSelection below.
-	// `latest` stays in App — not useGlobalKeybindings — to break a dependency cycle: the
-	// hook takes `actions` as INPUT, but actions.deleteSelection must read `latest`, so if
-	// the hook owned `latest` App's actions memo couldn't reach it (chicken-and-egg).
-	// Passing `latest` INTO the hook resolves it. App syncs the ref; the hook only reads it.
-	const latest = useRef<{
-		selection: string[];
-		canUndo: boolean;
-		canRedo: boolean;
-	}>({ selection: [], canUndo: false, canRedo: false });
+
+	// Bumped on every daemon `worlds-changed` event (a world.delete/rename/duplicate/
+	// makeDefault landed). Carried in context as the refetch trigger for whatever renders
+	// the world list — Task 8's drawer is the first consumer.
+	const [worldsVersion, setWorldsVersion] = useState(0);
 
 	// Per-project UI persistence. The project root comes from the daemon (project.get);
 	// `storeResolved` gates the dockview render so onReady sees the store (and, if project.get
@@ -108,45 +83,9 @@ export function App() {
 	const layoutSaveTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(
 		undefined,
 	);
-	// Which panels are currently in the layout + the recent-scenes list — mirrored into
-	// React state so the View▸Panels checkmarks and File▸Recent menu re-render on change.
-	const [panelIds, setPanelIds] = useState<string[]>([]);
-	const [recentScenes, setRecentScenes] = useState<string[]>([]);
 
-	// Viewport view flags (Task 9), App-level so the overlay popover and the View▸View-flags
-	// menu are a single source. Seeded from the persisted blob (below); pushed to the host by
-	// a dedicated effect so the initial value and every change take one code path.
-	const [viewFlags, setViewFlags] = useState<ViewFlags>(DEFAULT_VIEW_FLAGS);
-
-	// Mirrors whether a world bake is in flight, for the SSE bundle-outdated guard (that
-	// closure re-subscribes only on [state.status, refreshSession], so it cannot read live
-	// panel state).
-	// MIGRATION (until Task 8 of the F4.5a plan): the bake still lives inside the Field
-	// panel's toolbar and nothing writes this yet, so it reads false for the whole session
-	// — the guard is currently carried by the dirty check alone.
-	const bakeBusyRef = useRef(false);
-
-	// The single scene-error dispatch (extracted — used by every catch below).
-	const reportError = useCallback((err: unknown) => {
-		dispatch({
-			type: "scene-error",
-			message: err instanceof Error ? err.message : String(err),
-		});
-	}, []);
-
-	// Hoisted so both `actions.commitComponents`/`commitSettings` and the host
-	// onTransformCommit callback can suppress their own SSE echoes identically.
-	// Stable: closes only over the lastLoaded ref, whose identity never changes.
-	const suppressEcho = useCallback((result: { revision: number }) => {
-		// Record the just-produced revision so the SSE echo skips the reload —
-		// the viewport already shows it via the local preview.
-		lastLoaded.current = {
-			path: lastLoaded.current.path,
-			revision: result.revision,
-		};
-	}, []);
-
-	// biome-ignore lint/correctness/useExhaustiveDependencies: one-time engine bootstrap — must run exactly once on mount; re-running on dependency churn would re-initialize the engine and hosts
+	// One-time engine bootstrap: `[]` is deliberate — a re-run would build a SECOND field
+	// host beside the one the panel already mounted its canvas on.
 	useEffect(() => {
 		let cancelled = false;
 		(async () => {
@@ -157,60 +96,11 @@ export function App() {
 			try {
 				const engine = await loadEngine();
 				if (cancelled) return;
-				// Resolve the design tokens to engine colours ONCE at engine-ready: the
-				// selection highlight derives from --primary (the single attention lane),
-				// and the viewport clear from --viewport-background (content-vs-chrome
-				// tonal separation). Both go through a canvas-2D readback (oklch→sRGB); the
-				// per-token fallbacks are the provisional token values, so a resolve miss
-				// degrades to a sensible steel-blue / near-black rather than a loud colour.
-				hostRef.current = engine.createViewportHost({
-					accentColor: resolveCssColor("--primary", [0.36, 0.58, 0.8]),
-					viewportBackground: resolveCssColor(
-						"--viewport-background",
-						[0.12, 0.12, 0.13],
-					),
-					// Reference-grid neutral from a muted token; major lines use it, minor lines
-					// are drawn dimmer by the host. Exact shade is a Task 12 live-tuning concern.
-					gridColor: resolveCssColor("--muted-foreground", [0.42, 0.42, 0.46]),
-				});
 				// Assigned BEFORE the engine-ready dispatch so the host + the consumer's
 				// surface are both live once the panels mount.
 				fieldHostRef.current = engine.createFieldHost();
 				extensionsRef.current = engine.extensions;
-				hostRef.current.setCallbacks({
-					onSelect: (entityId, mods) => {
-						if (entityId === null) {
-							dispatch({ type: "clear-selection" });
-							return;
-						}
-						const mode = clickMode(mods);
-						// Spec §4: range-select is an EntitiesPanel-only affordance (no 3D
-						// ordering). Shift in the viewport behaves like a plain replace.
-						const viewportMode = mode === "range" ? "replace" : mode;
-						dispatch({
-							type: "select-entity",
-							id: entityId,
-							mode: viewportMode,
-						});
-					},
-					onTransformCommit: (edits) => {
-						const ces: ComponentEdit[] = edits.map((e) => ({
-							entity: e.entityId,
-							component: "transform",
-							params: e.transform,
-						}));
-						const first = ces[0];
-						if (first === undefined) return;
-						const p =
-							ces.length === 1
-								? api.setComponent(first.entity, first.component, first.params)
-								: api.setComponentMany(ces);
-						void p.then(suppressEcho);
-					},
-				});
 				dispatch({ type: "engine-ready" });
-				const { scenes } = await api.sceneList();
-				if (!cancelled) dispatch({ type: "scenes", scenes });
 			} catch (err) {
 				const diagnostics =
 					err instanceof EngineBuildError ? err.message : String(err);
@@ -243,309 +133,37 @@ export function App() {
 		};
 	}, []);
 
-	// Seed the persisted UI slices into state once the store is available.
-	useEffect(() => {
-		if (!store) return;
-		setRecentScenes(store.get("recentScenes") ?? []);
-		// Merge persisted flags over the defaults so a partial/older blob still yields a full set.
-		const storedFlags = store.get("viewFlags");
-		if (storedFlags) {
-			setViewFlags({ ...DEFAULT_VIEW_FLAGS, ...storedFlags });
-		}
-	}, [store]);
-
-	// Single sync path for view flags: push to the host AND persist on ready and on every
-	// change (so the persisted-seeded value lands too). Keeping the store write here — not in
-	// the setViewFlag handler — leaves the state updater pure. store.set doesn't re-render, so
-	// this doesn't loop; the seed-from-store below runs once and lands one idempotent write.
-	// Runs before any scene loads; render() no-ops until one is loaded, so an early push is safe.
-	useEffect(() => {
-		if (state.status !== "ready") return;
-		hostRef.current?.setViewFlags(viewFlags);
-		store?.set("viewFlags", viewFlags);
-	}, [state.status, viewFlags, store]);
-
-	// Toggle one view flag (mirrored by overlay + menu). Pure functional updater — the host
-	// push + persistence live in the effect above, so there is one sync path.
-	const setViewFlag = useCallback((key: keyof ViewFlags, value: boolean) => {
-		setViewFlags((prev) => ({ ...prev, [key]: value }));
-	}, []);
-
-	// The single doc-refresh path: pull the read model, reload the viewport only
-	// when (path, revision) actually advanced. Every SSE event and every locally
-	// initiated change funnels through here — one code path, every client.
-	const refreshSession = useCallback(async () => {
-		try {
-			const view = await api.sceneGet();
-			if (
-				view.path !== lastLoaded.current.path ||
-				view.revision !== lastLoaded.current.revision
-			) {
-				// Only re-init the editor camera when the scene itself changed (open /
-				// switch). A same-scene revision bump (resource commit, external file
-				// edit) reloads the document but must preserve the user's orbit/zoom.
-				const isNewScene = view.path !== lastLoaded.current.path;
-				await hostRef.current?.loadScene(view.document, {
-					resetCamera: isNewScene,
-				});
-				// On a NEW scene, prefer a persisted per-doc camera pose over the host's default
-				// framing (restore after loadScene, which framed the content). A same-scene
-				// revision bump keeps the user's current orbit (resetCamera=false above).
-				if (isNewScene) {
-					const storedPose = store?.get("cameraByDoc")?.[view.path];
-					if (storedPose) hostRef.current?.setCameraPose(storedPose);
-				}
-				// Assign AFTER the await so a genuine loadScene failure does not poison
-				// the dedup cache — the next SSE event will retry rather than skip.
-				lastLoaded.current = { path: view.path, revision: view.revision };
-			} else {
-				// Dedup hit (e.g. our own committed edit, already previewed): no reload,
-				// but adopt the fresh doc as the host's committed baseline.
-				hostRef.current?.syncCommitted(view.document);
-			}
-			dispatch({
-				type: "session-updated",
-				doc: view.document,
-				path: view.path,
-				revision: view.revision,
-				dirty: view.dirty,
-				conflict: view.conflict,
-				canUndo: view.canUndo,
-				canRedo: view.canRedo,
-			});
-		} catch (err) {
-			if (err instanceof ApiClientError && err.code === "no-session") return;
-			reportError(err);
-		}
-	}, [reportError, store]);
-
-	const actions = useMemo<EditorActions>(
-		() => ({
-			previewEntity: (id, component, params) =>
-				hostRef.current?.previewEntity(id, component, params),
-			// Boundary cast: settings is unknown at this layer; ViewportHost.previewSettings
-			// expects the narrower SceneDocument["settings"] — the daemon validates for real.
-			previewSettings: (settings) =>
-				hostRef.current?.previewSettings(settings as never),
-			revertEntity: (id) => hostRef.current?.revertEntity(id),
-			commitComponents: async (edits: ComponentEdit[]) => {
-				const first = edits[0];
-				const result =
-					edits.length === 1 && first !== undefined
-						? await api.setComponent(
-								first.entity,
-								first.component,
-								first.params,
-							)
-						: await api.setComponentMany(edits);
-				suppressEcho(result);
-			},
-			commitResource: async (table, id, entry) => {
-				// Resources are NOT live-previewed in 5A: commit, then the SSE echo
-				// reloads (no suppressEcho → full reload shows the change).
-				await api.setResource(table, id, entry);
-			},
-			// settings is unknown at this layer; the daemon's setSettings validates the real shape.
-			commitSettings: async (settings) => {
-				const result = await api.setSettings(settings);
-				suppressEcho(result);
-			},
-			save: async () => {
-				try {
-					const result = await api.save();
-					// Save doesn't advance the revision (it persists + clears dirty), so
-					// suppressEcho is a formality; the direct refresh gives immediate
-					// dirty=false feedback without waiting for the `saved` SSE round-trip.
-					suppressEcho(result);
-					void refreshSession();
-				} catch (err) {
-					// ⌘S can fire with no scene open — swallow that, surface real failures.
-					if (err instanceof ApiClientError && err.code === "no-session")
-						return;
-					reportError(err);
-				}
-			},
-			// undo/redo bump the revision and emit `document-changed`; the SSE echo
-			// funnels through refreshSession → loadScene, so they do NOT suppressEcho
-			// and do NOT refresh directly (that would double-apply or dedup-hide).
-			undo: async () => {
-				try {
-					await api.undo();
-				} catch (err) {
-					if (err instanceof ApiClientError && err.code === "nothing-to-undo")
-						return;
-					reportError(err);
-				}
-			},
-			redo: async () => {
-				try {
-					await api.redo();
-				} catch (err) {
-					if (err instanceof ApiClientError && err.code === "nothing-to-redo")
-						return;
-					reportError(err);
-				}
-			},
-			deleteSelection: async () => {
-				// One daemon op per entity so each removal is its own undo step. NO
-				// suppressEcho here: unlike a component commit, the viewport never
-				// previewed a removal, so the change must actually reload — the final
-				// refresh (and the SSE echoes) advance past lastLoaded → loadScene.
-				try {
-					for (const id of latest.current.selection) {
-						if (id === SETTINGS_SELECTION) continue; // sentinel is not a doc entity
-						await api.removeEntity(id);
-					}
-				} catch (err) {
-					reportError(err);
-				}
-				dispatch({ type: "clear-selection" });
-				void refreshSession();
-			},
-			frameSelection: () => hostRef.current?.frameSelection(),
-		}),
-		[suppressEcho, refreshSession, reportError],
-	);
-
-	useEffect(() => {
-		dirtyRef.current = state.dirty;
-	}, [state.dirty]);
-
-	useEffect(() => {
-		latest.current = {
-			selection: state.selectedEntities,
-			canUndo: state.canUndo,
-			canRedo: state.canRedo,
-		};
-	}, [state.selectedEntities, state.canUndo, state.canRedo]);
-
-	// Global keybindings + the delete-routing shared by ⌫ and Edit▸Delete. The listener
-	// binds once and reads live selection / undo-redo availability through `latest`; App
-	// wires the returned requestDelete to the Toolbar/Edit▸Delete affordance.
-	const { requestDelete } = useGlobalKeybindings({
-		actions,
-		openConfirm,
-		confirmRef,
-		latest,
-	});
-
-	useEffect(() => {
-		document.title = state.selectedScene
-			? `${state.selectedScene}${state.dirty ? " ●" : ""} — furnace`
-			: "furnace editor";
-	}, [state.selectedScene, state.dirty]);
+	// The global keybinding listener (⌘S / ⌘Z / ⇧⌘Z), suppressed while a confirm is open.
+	useGlobalKeybindings({ confirmRef });
 
 	useEffect(() => {
 		if (state.status !== "ready") return;
 		return subscribeEvents({
-			onOpen: () => void refreshSession(),
+			// Nothing to catch up on: the editor mirrors no daemon-owned document. The
+			// field world lives in the host until the user saves it.
+			onOpen: () => undefined,
 			onEvent: (event) => {
 				if (event.type === "bundle-outdated") {
-					// Generator/extension source changed: the engine bundle is stale. Reload
-					// when no unsaved work is at risk; otherwise leave the choice to the user
-					// (the status bar shows dirty state — a stale engine is preferable to
-					// losing edits). Also refuse the auto-reload while a bake is in flight —
-					// a hard reload would kill it mid-run. The field remesh/analyzer workers
-					// are deliberately NOT respawned here: a page reload refreshes workers +
-					// main thread together, so when the page stays stale (dirty doc) the
-					// workers must stay stale WITH it.
-					if (!dirtyRef.current && !bakeBusyRef.current) {
-						window.location.reload();
-					}
+					// Generator/extension source changed: the engine bundle is stale. A hard
+					// reload is the only way to pick it up, and it would kill an in-flight
+					// bake, so refuse while one is running.
+					if (!bakeBusyRef.current) window.location.reload();
 					return;
 				}
-				if (event.type === "file-invalid") {
-					dispatch({ type: "file-invalid", message: event.message });
-					return;
+				if (
+					event.type === "worlds-changed" ||
+					event.type === "generation-baked"
+				) {
+					// Both mean the worlds directory on disk moved under us (a world verb, or
+					// a bake that just wrote one) — anything showing the world list refetches.
+					setWorldsVersion((v) => v + 1);
 				}
-				// A fresh session (scene.open resets revision to 0) must always reload,
-				// even if (path, revision) collides with what's already loaded.
-				if (event.type === "scene-opened") lastLoaded.current = {};
-				void refreshSession();
 			},
 		});
-	}, [state.status, refreshSession]);
-
-	// Keep the host's selection in sync so highlight boxes and the gizmo origin
-	// always track the chrome selection state. The World/settings sentinel has no 3D
-	// presence, so it never reaches the viewport.
-	useEffect(() => {
-		hostRef.current?.setSelection(
-			state.selectedEntities.filter((id) => id !== SETTINGS_SELECTION),
-		);
-	}, [state.selectedEntities]);
-
-	// Record a scene open into the persistence store: `lastScene` (restored on next launch)
-	// and the recent-scenes list (most-recent-first, deduped, capped). Reads the current list
-	// from the store rather than closing over state, so it stays correct without a dep churn.
-	const recordSceneVisit = useCallback(
-		(path: string) => {
-			if (!store) return;
-			store.set("lastScene", path);
-			const next = pushRecent(
-				store.get("recentScenes") ?? [],
-				path,
-				RECENT_SCENES_CAP,
-			);
-			store.set("recentScenes", next);
-			setRecentScenes(next);
-		},
-		[store],
-	);
-
-	const selectScene = useCallback(
-		async (path: string) => {
-			dispatch({ type: "scene-loading", path });
-			try {
-				await api.sceneOpen(path);
-				// Record ONLY after a confirmed successful open — never at the top. A cancelled
-				// discard prompt or a failed open must not write lastScene/recentScenes, or the
-				// next-launch restore would silently reopen a scene the user declined to open.
-				recordSceneVisit(path);
-				// No loadScene here: the scene-opened SSE event drives refreshSession —
-				// the chrome rides the same change feed as every other client.
-			} catch (err) {
-				if (err instanceof ApiClientError && err.code === "unsaved-changes") {
-					openConfirm({
-						title: "Discard unsaved changes?",
-						message: `The open scene has unsaved changes. Opening ${path} will discard them.`,
-						confirmLabel: "Discard & open",
-						destructive: true,
-						onConfirm: async () => {
-							try {
-								await api.sceneOpen(path, true);
-								recordSceneVisit(path); // only after the forced open succeeds
-							} catch (err2) {
-								reportError(err2);
-							}
-						},
-						// clears `loading`, restores the current view
-						onCancel: () => void refreshSession(),
-					});
-					return;
-				}
-				reportError(err);
-			}
-		},
-		[refreshSession, openConfirm, reportError, recordSceneVisit],
-	);
-
-	// Reflect the live dockview panel set into React state so the View▸Panels menu tracks it.
-	// Bails out (returns the same array ref) when the ordered id set is unchanged, so a
-	// per-frame resize fire during a splitter drag doesn't re-render Toolbar/MenuBar — only an
-	// actual panel add/remove does.
-	const syncPanels = useCallback(() => {
-		const ids = dockApiRef.current?.panels.map((p) => p.id) ?? [];
-		setPanelIds((prev) =>
-			prev.length === ids.length && prev.every((id, i) => id === ids[i])
-				? prev
-				: ids,
-		);
-	}, []);
+	}, [state.status]);
 
 	// The default layout, built by iterating DEFAULT_LAYOUT_PANELS with titles resolved
-	// through PANELS (panelTitle) so a title edit there still flows to the initial layout,
-	// the toggle menu, and re-add.
+	// through PANELS (panelTitle) so a title edit there still flows to the initial layout.
 	const addDefaultLayout = useCallback((dockApi: DockviewApi) => {
 		for (const id of DEFAULT_LAYOUT_PANELS) {
 			dockApi.addPanel({ id, component: id, title: panelTitle(id) });
@@ -568,13 +186,10 @@ export function App() {
 				}
 			}
 			if (!restored) addDefaultLayout(event.api);
-			syncPanels();
-			// Keep the panel-set mirror current on every change (cheap, bail-out guarded), but
-			// trailing-debounce the expensive whole-blob layout write so a drag persists once when
-			// it settles. Subscribed AFTER the initial build so the multi-addPanel setup doesn't
-			// write intermediate states.
+			// Trailing-debounce the expensive whole-blob layout write so a drag persists once
+			// when it settles. Subscribed AFTER the initial build so the setup doesn't write
+			// intermediate states.
 			event.api.onDidLayoutChange(() => {
-				syncPanels();
 				if (layoutSaveTimerRef.current !== undefined) {
 					clearTimeout(layoutSaveTimerRef.current);
 				}
@@ -583,7 +198,7 @@ export function App() {
 				}, LAYOUT_SAVE_DEBOUNCE_MS);
 			});
 		},
-		[store, addDefaultLayout, syncPanels],
+		[store, addDefaultLayout],
 	);
 
 	// Clear any pending debounced layout write on unmount.
@@ -596,70 +211,20 @@ export function App() {
 		[],
 	);
 
-	// View▸Panels toggle: remove a present panel, or re-add a missing one (no saved position —
-	// dockview places it in a default group; the user can re-dock). onDidLayoutChange re-syncs.
-	const togglePanel = useCallback((id: PanelId) => {
-		const dockApi = dockApiRef.current;
-		if (!dockApi) return;
-		const existing = dockApi.getPanel(id);
-		if (existing) {
-			dockApi.removePanel(existing);
-		} else {
-			dockApi.addPanel({ id, component: id, title: panelTitle(id) });
-		}
-	}, []);
-
-	// View▸Reset layout: drop the persisted layout and reload so onReady rebuilds the default.
-	const resetLayout = useCallback(() => {
-		store?.set("layout", undefined);
-		window.location.reload();
-	}, [store]);
-
-	// Restore the last-opened scene on launch: once the store, scene list, and engine are all
-	// ready, open the persisted lastScene if it still exists and nothing is open yet. Guarded
-	// to fire at most once so it never fights a subsequent user selection.
-	const lastSceneRestoredRef = useRef(false);
-	useEffect(() => {
-		if (lastSceneRestoredRef.current) return;
-		if (!store || state.status !== "ready" || state.scenes.length === 0) return;
-		lastSceneRestoredRef.current = true;
-		const last = store.get("lastScene");
-		if (last && !state.selectedScene && state.scenes.includes(last)) {
-			void selectScene(last);
-		}
-	}, [store, state.status, state.scenes, state.selectedScene, selectScene]);
-
 	// Fresh object each render — that is intentional: a new context value on every
 	// state change is what forces the portaled panel consumers to re-render.
 	const ctxValue: EditorContextValue = {
 		state,
 		dispatch,
-		hostRef,
 		fieldHostRef,
 		extensions: extensionsRef.current,
-		actions,
-		viewFlags,
-		setViewFlag,
+		worldsVersion,
 		openConfirm,
 		store,
 	};
 
 	return (
 		<div className="flex h-screen flex-col">
-			<Toolbar
-				state={state}
-				onSelectScene={selectScene}
-				onSave={actions.save}
-				onUndo={actions.undo}
-				onRedo={actions.redo}
-				onDelete={requestDelete}
-				openPanelIds={panelIds}
-				onTogglePanel={togglePanel}
-				onResetLayout={resetLayout}
-				recentScenes={recentScenes}
-				viewFlags={viewFlags}
-				onToggleViewFlag={setViewFlag}
-			/>
 			<ConfirmDialog request={confirm} onResolve={resolveConfirm} />
 			<EditorContext.Provider value={ctxValue}>
 				<div className="min-h-0 flex-1">

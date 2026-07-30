@@ -18,14 +18,10 @@ import "./_register.ts";
 
 import type { ReactElement } from "react";
 import {
-	type EditorActions,
 	EditorContext,
 	type EditorContextValue,
 } from "../../src/frontend/components/editor-context.ts";
-import {
-	DEFAULT_VIEW_FLAGS,
-	type UiStore,
-} from "../../src/frontend/lib/persist.ts";
+import type { UiStore } from "../../src/frontend/lib/persist.ts";
 import {
 	type EditorState,
 	initialState,
@@ -38,22 +34,19 @@ export { act, cleanup, fireEvent, render, screen, waitFor, within };
 
 // biome-ignore lint/suspicious/noEmptyBlockStatements: shared inert test no-op
 const noop = () => {};
-// biome-ignore lint/suspicious/noEmptyBlockStatements: shared inert async test no-op
-const asyncNoop = async () => {};
 
 type EditorContextOverrides = {
 	state?: Partial<EditorState>;
 	dispatch?: EditorContextValue["dispatch"];
-	hostRef?: EditorContextValue["hostRef"];
 	fieldHostRef?: EditorContextValue["fieldHostRef"];
 	extensions?: Record<string, unknown>;
-	actions?: Partial<EditorActions>;
+	worldsVersion?: number;
 	openConfirm?: EditorContextValue["openConfirm"];
 	store?: UiStore;
 };
 
 /** A Map-backed fake UiStore for tests: reads/writes an in-memory record so a test can
- *  seed persisted UI state and assert what the inspector wrote back. */
+ *  seed persisted UI state and assert what the chrome wrote back. */
 export function fakeUiStore(initial: Record<string, unknown> = {}): UiStore {
 	const data: Record<string, unknown> = { ...initial };
 	return {
@@ -70,29 +63,12 @@ export function fakeUiStore(initial: Record<string, unknown> = {}): UiStore {
 export function makeEditorContext(
 	overrides: EditorContextOverrides = {},
 ): EditorContextValue {
-	const actions: EditorActions = {
-		previewEntity: noop,
-		previewSettings: noop,
-		revertEntity: noop,
-		commitComponents: asyncNoop,
-		commitResource: asyncNoop,
-		commitSettings: asyncNoop,
-		save: asyncNoop,
-		undo: asyncNoop,
-		redo: asyncNoop,
-		deleteSelection: asyncNoop,
-		frameSelection: noop,
-		...overrides.actions,
-	};
 	return {
 		state: { ...initialState, status: "ready", ...overrides.state },
 		dispatch: overrides.dispatch ?? noop,
-		hostRef: overrides.hostRef ?? { current: undefined },
 		fieldHostRef: overrides.fieldHostRef ?? { current: undefined },
 		extensions: overrides.extensions ?? {},
-		actions,
-		viewFlags: DEFAULT_VIEW_FLAGS,
-		setViewFlag: noop,
+		worldsVersion: overrides.worldsVersion ?? 0,
 		openConfirm: overrides.openConfirm ?? noop,
 		store: overrides.store,
 	};
