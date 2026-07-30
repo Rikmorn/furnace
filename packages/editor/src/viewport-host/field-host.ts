@@ -326,12 +326,14 @@ export type FieldHost = {
    *  matches the UI's step). */
   setTool(tool: FieldTool): void;
   /** Subscribes to HOST-initiated tool changes (eyedropper, momentary
-   *  Shift/Ctrl enter/leave) so the panel can mirror them. NOT fired for a
-   *  plain panel setTool — EXCEPT when the panel's setTool lands while a
-   *  momentary modifier is held: that re-derives the effective tool and DOES
-   *  fire, carrying the DERIVED tool (not what the panel set), so the panel
-   *  must value-compare against its own state before re-pushing (echo guard).
-   *  Single subscriber (the panel); returns an unsubscribe. */
+   *  Shift/Ctrl enter/leave) so the chrome can mirror them. NOT fired for a
+   *  plain chrome setTool — EXCEPT when that setTool lands while a momentary
+   *  modifier is held: that re-derives the effective tool and DOES fire,
+   *  carrying the DERIVED tool (not what the chrome set), so the mirror must
+   *  value-compare against its own state before re-pushing (echo guard).
+   *  Single subscriber (the shell's host-state provider, which publishes the
+   *  mirror and the `setTool` funnel together at `useFieldTool` — they are one
+   *  concern precisely because of that guard); returns an unsubscribe. */
   subscribeTool(cb: (tool: FieldTool) => void): () => void;
   /** Subscribes to user-facing tool problems: swallowed stroke failures (kit
    *  fill off the lattice, unknown material class — F2a buried these in
@@ -362,9 +364,10 @@ export type FieldHost = {
    *  empty. */
   reselect(): void;
   /** Subscribes to selection changes (null = no selection). Immediately
-   *  pushes the CURRENT state on subscribe, so a panel that (re)mounts while
+   *  pushes the CURRENT state on subscribe, so a surface that (re)mounts while
    *  a selection exists never shows "no selection" beside a visible overlay.
-   *  Single subscriber (the panel); returns an unsubscribe. */
+   *  Single subscriber (the shell's host-state provider, which publishes it at
+   *  `useFieldSelection`); returns an unsubscribe. */
   subscribeSelection(cb: (info: SelectionInfo | null) => void): () => void;
   /** Sets per-layer render visibility (see {@link FieldLayers}; default all
    *  true but `voidCast`). Layer flags are view state like shading — they
@@ -547,8 +550,9 @@ export type FieldHost = {
   redo(): void;
   /** Subscribes to stamp-session changes (null = no session). Immediately
    *  pushes the CURRENT state on subscribe (the subscribeSelection remount
-   *  rationale); sessions are CLONED — the panel never holds host state.
-   *  Single subscriber (the panel); returns an unsubscribe. */
+   *  rationale); sessions are CLONED — the chrome never holds host state.
+   *  Single subscriber (the shell's host-state provider, which publishes it at
+   *  `useFieldStamp`); returns an unsubscribe. */
   subscribeStamp(cb: (s: StampSession | null) => void): () => void;
   /** Opens a RECONFIGURE session on a committed entity (F3a): the SAME staged
    *  session {@link startStamp} opens — ghost preview, nudges, re-roll — seeded
@@ -630,11 +634,12 @@ export type FieldHost = {
    *  Reports are CLONED and the CURRENT one is pushed immediately on subscribe
    *  (the {@link subscribeStamp} remount rationale). Dismissal is a HOST verb
    *  ({@link dismissDrift}) that nulls the report and notifies, not the UI's own
-   *  state — so a panel remount after a dismiss re-subscribes to null rather
-   *  than resurrecting a cleared report. NOT cleared by ⌘Z: undoing a
-   *  reconfigure leaves its findings standing, still addressed by op id and
-   *  chunk, describing an edit that is no longer applied. Single subscriber (the
-   *  panel); returns an unsubscribe. */
+   *  state — so a remount after a dismiss re-subscribes to null rather than
+   *  resurrecting a cleared report. NOT cleared by ⌘Z: undoing a reconfigure
+   *  leaves its findings standing, still addressed by op id and chunk, describing
+   *  an edit that is no longer applied. Single subscriber (the shell's host-state
+   *  provider, which publishes it with the entity list at `useFieldEntities`);
+   *  returns an unsubscribe. */
   subscribeDrift(cb: (report: field.DriftFinding[] | null) => void): () => void;
   /** Clears the standing drift report: nulls it and notifies
    *  {@link subscribeDrift}. The verb behind the report's Dismiss button —
@@ -653,10 +658,12 @@ export type FieldHost = {
    *  value: the subscriber re-reads {@link listEntities} itself (the records are
    *  clones; pushing them would clone on every fire whether or not anything
    *  moved). Fires on commit, apply, freeze/unfreeze, bake, ⌘Z/⇧⌘Z, world
-   *  new/load, and ONCE immediately on subscribe (a panel that mounts after the
+   *  new/load, and ONCE immediately on subscribe (a surface that mounts after the
    *  world loaded must not render an empty list). Freeze and bake dirty NO
    *  chunk, so this is the only signal that carries them — the remesh counter
-   *  never moves. Single subscriber (the panel); returns an unsubscribe. */
+   *  never moves. Single subscriber (the shell's host-state provider, whose
+   *  callback re-reads {@link listEntities} and publishes the result at
+   *  `useFieldEntities`); returns an unsubscribe. */
   subscribeEntities(cb: () => void): () => void;
   /** The committed generator entities, in log order (CLONES — read from the
    *  op log's entity ops, so undo/redo and world loads stay accurate), each
@@ -685,7 +692,8 @@ export type FieldHost = {
   /** Subscribes to the advisor's findings, pushed after every analyzer response
    *  and after every {@link setFlagFilters}. Immediately pushes the CURRENT
    *  summary on subscribe (the {@link subscribeSelection} remount rationale).
-   *  Single subscriber (the panel); returns an unsubscribe.
+   *  Single subscriber (the shell's host-state provider, which publishes it at
+   *  `useFieldFlags`); returns an unsubscribe.
    *
    *  The summary is derived fresh per push and shared with nothing — but the
    *  `FieldFlag` inside each row is the analyzer's own and must be treated as
@@ -727,7 +735,10 @@ export type FieldHost = {
   /** Bakes the current field to the artifact file set (pure, for upload). */
   exportArtifact(name: string): field.BakedFile[];
   /** Subscribes to the live stats readout ({@link FieldStats}), pushed every
-   *  rAF. Single subscriber (the panel); returns an unsubscribe. */
+   *  rAF — which is why the subscriber is the shell's provider, whose
+   *  value-equality guard is what keeps an idle field from re-rendering the
+   *  chrome 60×/s. Single subscriber (that provider, which publishes it at
+   *  `useFieldHostState`); returns an unsubscribe. */
   subscribeStats(cb: (s: FieldStats) => void): () => void;
   /** Subscribes to the orbit camera's orientation ({@link CameraPose}), pushed on
    *  every camera move — a fly step, a look drag, a frame-chunks retarget — and
@@ -736,7 +747,8 @@ export type FieldHost = {
    *
    *  Pushed at pointer/frame rate while the camera is moving, which is why the
    *  subscriber is the shell's provider (one slot, one guard) rather than the
-   *  overlay. Single subscriber; returns an unsubscribe. */
+   *  overlay. Single subscriber (that provider, which publishes it at
+   *  `useCameraPose`); returns an unsubscribe. */
   subscribeCameraPose(cb: (pose: CameraPose) => void): () => void;
 };
 
@@ -3396,7 +3408,7 @@ export function createFieldHost(deps?: {
 
   // --- momentary tool overrides -------------------------------------------
 
-  // Mirror a host-initiated tool change to the panel (cloned — the panel must
+  // Mirror a host-initiated tool change to the chrome (cloned — the chrome must
   // never hold a reference into host state).
   const notifyTool = (): void => {
     toolCb?.(cloneTool(tool));
@@ -4266,8 +4278,8 @@ export function createFieldHost(deps?: {
     },
     subscribeSelection(cb) {
       selectionCb = cb;
-      // Initial push: a panel (re)mounting while a selection exists must not
-      // render "no selection" next to a visible amber overlay.
+      // Initial push: a subscriber (re)mounting while a selection exists must
+      // not render "no selection" next to a visible amber overlay.
       cb(selection === null ? null : selectionInfo(selection));
       return () => {
         if (selectionCb === cb) selectionCb = null;
@@ -4430,8 +4442,8 @@ export function createFieldHost(deps?: {
     },
     subscribeStamp(cb) {
       stampCb = cb;
-      // Initial push: a panel (re)mounting mid-session must not render "no
-      // stamp" beside a visible ghost (the subscribeSelection rationale).
+      // Initial push: a subscriber (re)mounting mid-session must not render
+      // "no stamp" beside a visible ghost (the subscribeSelection rationale).
       cb(stamp === null ? null : structuredClone(stamp));
       return () => {
         if (stampCb === cb) stampCb = null;
@@ -4477,7 +4489,7 @@ export function createFieldHost(deps?: {
     subscribeDrift(cb) {
       driftCb = cb;
       // Initial push (the subscribeStamp/subscribeSelection remount rationale):
-      // a panel remounting after a reconfigure must not drop its report.
+      // a subscriber remounting after a reconfigure must not drop its report.
       cb(drift === null ? null : structuredClone(drift));
       return () => {
         if (driftCb === cb) driftCb = null;
@@ -4557,7 +4569,7 @@ export function createFieldHost(deps?: {
     },
     subscribeFlags(cb) {
       flagsCb = cb;
-      // Initial push (the subscribeSelection remount rationale): a panel
+      // Initial push (the subscribeSelection remount rationale): a subscriber
       // remounting while markers are on screen must not render an empty list.
       cb(flagStore.summary());
       return () => {

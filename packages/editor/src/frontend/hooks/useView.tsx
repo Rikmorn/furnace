@@ -4,11 +4,20 @@
 // reads the AA setting, so it cannot live inside a palette that closing would take with
 // it (the world-state precedent).
 //
-// It is a pure chrome→host concern, which is why it is NOT part of `useFieldHostState`:
-// that provider exists to own the single-slot SUBSCRIPTIONS, and every value it holds is
-// anchored to one (a mirror, or the chrome half of a seam's round trip). Nothing here has
-// a seam at all — the host has no shading/layers/slice subscription to mirror — so this
-// provider is the source of truth and pushes: one effect
+// It is a pure chrome→host concern, which is why it is NOT part of `useFieldHostState`.
+// The line between the two providers is the DIG LOOP, not the direction of travel:
+// `useFieldHostState` owns the nine single-slot subscriptions and the chrome state
+// cohesive with them (the `setTool` funnel, whose echo guard makes it inseparable from the
+// tool mirror; the flag filters, which round-trip back through `subscribeFlags`); this
+// one owns what the viewport LOOKS like, which has no seam to mirror at all — the host
+// publishes no shading/layers/slice subscription. There is exactly ONE value on the far
+// side of that line: `radius` sits in the host-state provider with no seam behind it in
+// either direction, because it is a brush parameter and every control that shows it also
+// shows `tool` (stated as the exception at its own docblock). A new value goes wherever
+// its CONCERN already lives; if it has neither a seam nor a sibling there, it belongs
+// here or in a provider of its own.
+//
+// So this provider is the source of truth and pushes: one effect
 // per seam, each keyed on its own value, so a shading change never re-sends the layer
 // flags (`setLayers` is edge-sensitive for `voidCast`) and a slider drag never re-sends
 // the shading mode.

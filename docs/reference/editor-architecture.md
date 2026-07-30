@@ -1329,7 +1329,8 @@ mind.
   `docs/backlog/editor-and-tooling/field-tool-follow-ons.md` § *The void cast monopolises the one field worker*.
 - **Panel-orchestrator slope.** *(F4.5a reversed it: 817 → 463 lines and 8 → 4
   subscriptions, by moving the stats/tool-error/entity/drift seams to a shell provider and
-  the world, view and catalog concerns out entirely — §20.7.)* Tranche B took
+  the world, view and catalog concerns out entirely; F4.5b Task 2 finished it at 261 lines
+  and 0 subscriptions — §20.7.)* Tranche B took
   `FieldPanel.tsx` from 15 `useState` slots and 7 subscriptions to 18 and 8 (711 → 817 lines): three new slots — the flags summary, the filter
   set, the in-flight verify key — plus `analyzerPending` on the existing stats mirror and its
   footer segment. The file is the dig loop's single orchestrator; the entry tracking that
@@ -1568,7 +1569,7 @@ banned and the App-owned `ConfirmDialog` is the only prompt seam.
 
 ### 20.7 What moved out of FieldPanel — and what remains
 
-`FieldPanel.tsx` is now **463 lines** and rides in the `controls` palette (§19's
+`FieldPanel.tsx` is now **261 lines** and rides in the `controls` palette (§19's
 orchestrator-slope entry tracked it at 817). What left, and where it went:
 
 | Left the panel | Now lives in |
@@ -1594,8 +1595,8 @@ frame-paced seam must not re-render a surface that only cares about an answer. E
 context makes its own throw-vs-default call at its docblock; `CameraPoseContext` is the
 only defaulted one, because "no camera here" is the one default that is true outside the
 provider. **No surface below the provider may re-subscribe to anything it owns.** The
-stats push is guarded by a
-value-equality comparator with a `satisfies Record<string, never>` backstop — a new
+stats push is guarded by a value-equality comparator with a
+`satisfies Record<string, never>` backstop — a new
 `FieldStats` field fails the never-check and forces the comparator to learn it, because a
 missed field would silently *weaken* the guard.
 

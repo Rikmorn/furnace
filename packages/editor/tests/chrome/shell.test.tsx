@@ -335,6 +335,42 @@ const LIFTED_SEAMS: readonly (readonly [
 	["flags", (s) => s.fire.flags({ total: 0, byKindSeverity: [], visible: [] })],
 ];
 
+// The path the real editor ALWAYS takes, and the one no other case covers: App mounts the
+// shell before the engine bundle has landed, so every one of the nine effects first runs
+// with `engineReady` false and claims nothing. A provider that read the flag only at mount
+// would leave all nine slots empty for the whole session — every readout dead, nothing
+// thrown. The other direction (ready → not ready) is unreachable: `status` never leaves
+// `ready`, and App assigns the host exactly once.
+test("no seam is claimed before engine-ready, and each is claimed exactly once after", () => {
+	const stub = makeStubHost();
+	const tree = (engineReady: boolean) => (
+		<FieldHostStateProvider host={stub.host} engineReady={engineReady}>
+			<span />
+		</FieldHostStateProvider>
+	);
+	const { rerender } = render(tree(false));
+	const claims = () => [
+		["stats", stub.calls.subscribeStats.mock.calls.length],
+		["toolError", stub.calls.subscribeToolError.mock.calls.length],
+		["cameraPose", stub.calls.subscribeCameraPose.mock.calls.length],
+		["entities", stub.calls.subscribeEntities.mock.calls.length],
+		["drift", stub.calls.subscribeDrift.mock.calls.length],
+		["tool", stub.calls.subscribeTool.mock.calls.length],
+		["selection", stub.calls.subscribeSelection.mock.calls.length],
+		["stamp", stub.calls.subscribeStamp.mock.calls.length],
+		["flags", stub.calls.subscribeFlags.mock.calls.length],
+	];
+	// Nothing claimed while the host has no GPU behind it — subscribing here would mean
+	// mirroring state from a host that cannot yet produce any.
+	expect(claims().filter(([, n]) => n !== 0)).toEqual([]);
+
+	act(() => {
+		rerender(tree(true));
+	});
+	// …and the transition claims each seam ONCE, not once per effect re-run.
+	expect(claims().filter(([, n]) => n !== 1)).toEqual([]);
+});
+
 test("the provider claims — and releases — the four seams lifted off the panel", () => {
 	for (const [name, push] of LIFTED_SEAMS) {
 		const stub = makeStubHost();

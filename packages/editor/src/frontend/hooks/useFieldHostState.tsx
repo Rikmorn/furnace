@@ -302,32 +302,39 @@ const FieldHostStateContext = createContext<FieldHostState | null>(null);
 const CameraPoseContext = createContext<CameraPose>({ yaw: 0, pitch: 0 });
 
 /** The entity concern, in its own context from the BOTTOM of that range: entities and
- *  drift move when someone COMMITS something,
- *  which is orders of magnitude rarer than a stats push. Folding them into
- *  FieldHostState would re-render the entities list on every remesh — a list of rows
- *  repainting under a dig it has nothing to do with. */
+ *  drift move when someone COMMITS something, which is orders of magnitude rarer than a
+ *  stats push. Folding them into FieldHostState would re-render the entities list on
+ *  every remesh — a list of rows repainting under a dig it has nothing to do with. */
 const FieldEntitiesContext = createContext<FieldEntitiesState | null>(null);
+
+// The four contexts below are what the control stack reads, and they are honest about
+// which of their two splits pays TODAY. Keeping them out of the frame-paced
+// FieldHostState is a live saving: FieldPanel reads all four, so folding any of them into
+// the stats value would repaint a form-heavy subtree on every remesh. Splitting them from
+// EACH OTHER saves nothing yet, because that one consumer reads all four — a stamp nudge
+// re-renders the panel whichever context carries it, exactly as the local `useState` slots
+// it replaced did. It is built as four because the shape has to be right before the
+// consumers arrive, not after: Tasks 8 and 13 of this slice break the panel into a tool
+// strip and a flags palette that read one context each, and that is when the split starts
+// paying. Cadence is the axis because it is the one that will not need revisiting then.
 
 /** The brush concern, USER-paced: the host pushes a tool on an Alt-click eyedrop and on
  *  every momentary ⇧/⌃ press and release, i.e. as fast as fingers move and no faster.
- *  Its own context all the same, because its consumers are the densest chrome in the
- *  editor (the palette, the swatch strip, the whole brush inspector) and folding it into
- *  a frame-paced value would repaint that subtree under every remesh.
  *
  *  Throws outside the provider, unlike CameraPoseContext above — the one DEFAULTED context
  *  in this file, and the only one whose default value is true anywhere ("no camera here").
  *  Both reasons here are load-bearing: a defaulted `tool` would claim the host is on
- *  dig-into-rock when nobody
- *  has asked it anything, and a defaulted `setTool` would be a silent no-op behind a
- *  live-looking button — the dead-control failure the sibling ACTION contexts
- *  (useViewActions, useWorkspaceActions, useWorldActions) all throw over. */
+ *  dig-into-rock when nobody has asked it anything, and a defaulted `setTool` would be a
+ *  silent no-op behind a live-looking button — the dead-control failure the sibling ACTION
+ *  contexts (useViewActions, useWorkspaceActions, useWorldActions) all throw over. */
 const FieldToolContext = createContext<FieldToolState | null>(null);
 
 /** The selection concern, GESTURE-paced: one push per completed box/flood/wand, plus the
  *  current state on subscribe (so a surface mounting over a live selection does not render
- *  "no selection" beside a visible amber overlay). Separate from the stamp context beside
- *  it because a stamp nudge pushes at pointer rate and must not repaint the selection
- *  verbs.
+ *  "no selection" beside a visible amber overlay). Kept apart from the stamp context beside
+ *  it because a stamp nudge pushes at pointer rate while this moves once per gesture — the
+ *  widest cadence gap among the four, and so the split most worth having in place before
+ *  the two have separate readers.
  *
  *  Throws: `{ selection: null }` reads as "the host has nothing selected", which is a
  *  claim about the host that nobody outside the provider is in a position to make — the
@@ -336,8 +343,7 @@ const FieldSelectionContext = createContext<FieldSelectionState | null>(null);
 
 /** The session concern, POINTER-paced while one is live: `subscribeStamp` pushes a clone
  *  on every nudge, param edit and preview run, plus the current session on subscribe (so
- *  a remount mid-session recovers the live form). Its own context for the reason above,
- *  read from the other side.
+ *  a remount mid-session recovers the live form). The fast side of the pair above.
  *
  *  Throws, for the FieldSelectionContext reason: a defaulted `null` claims there is no
  *  session in progress. */
@@ -559,15 +565,27 @@ export function FieldHostStateProvider({
 
 	// The filters are CHROME state pushed into the host, which has no filters seam to
 	// mirror — so this is a one-way push, keyed on the value, the useView pattern. Keying
-	// it on `filters` is what makes engine-ready and every later edit ONE mechanism
-	// instead of two that could disagree.
+	// it on `filters` folds engine-ready and every later edit into ONE mechanism, which
+	// matters because this value has to be pushed at MOUNT as well as on change: the host
+	// keeps the last set across a world load, so silence at mount would leave freshly
+	// rendered checkboxes describing bands the host is not actually drawing.
+	//
+	// Deliberately NOT the shape `setTool`/`setRadius` use (push inside the handler), and
+	// the criterion is that mount push plus cadence. This one is click-rate — three
+	// checkboxes — so the effect form's cost is invisible; the brush verbs are pointer-rate
+	// (a slider drag) and would pay it every frame. The cost is real and worth naming: a
+	// toggle here renders twice rather than once, and for one frame between them the box
+	// shows the new band while the host still holds the old. That window is why the
+	// "one mechanism" above is about mount-vs-edit agreement, not about the chrome and the
+	// host being in lockstep within a frame — they are not, and nothing here needs them to
+	// be (a filter is a view over findings the host has already computed).
 	//
 	// Living HERE rather than in a palette is what makes the arrangement honest: the host
-	// keeps the last filters across a world load and outlives every palette, so a surface
-	// that re-pushed its defaults on each remount would silently untick the user's bands
-	// — closing and re-opening the palette that holds them is a live gesture (the burger's
-	// checkbox is the way back), not a hypothetical. This provider mounts once, with the
-	// shell. Remembering the set ACROSS sessions is D-3's, and arrives with the palette.
+	// outlives every palette, so a surface that re-pushed its defaults on each remount
+	// would silently untick the user's bands — closing and re-opening the palette that
+	// holds them is a live gesture (the burger's checkbox is the way back), not a
+	// hypothetical. This provider mounts once, with the shell. Remembering the set ACROSS
+	// sessions is D-3's, and arrives with the palette.
 	useEffect(() => {
 		if (!engineReady || !host) return;
 		host.setFlagFilters(filters);
@@ -581,6 +599,11 @@ export function FieldHostStateProvider({
 		[host],
 	);
 
+	// Adopt + push inside the handler, NOT the filters effect above: this is the
+	// pointer-rate half of that criterion (a slider drag pushes per frame, and the effect
+	// form would cost a second render pass on every one of them), and it has no mount push
+	// to fold in — the chrome's default IS the host's, so there is nothing to correct at
+	// engine-ready. Adding one would be a new host call for no disagreement.
 	const setRadius = useCallback(
 		(r: number): void => {
 			setRadiusState(r);
