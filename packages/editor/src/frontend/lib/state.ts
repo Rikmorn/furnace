@@ -22,8 +22,6 @@ export type EditorState = {
   canRedo: boolean;
   /** Transient warning (e.g. the watched file became invalid on disk). */
   notice?: string;
-  /** True while the generation panel owns the viewport (preview canvas shown). */
-  generationActive: boolean;
 };
 
 export type EditorEvent =
@@ -45,8 +43,7 @@ export type EditorEvent =
   | { type: "scene-error"; message: string }
   | { type: "file-invalid"; message: string }
   | { type: "select-entity"; id: string; mode: "replace" | "toggle" | "range" }
-  | { type: "clear-selection" }
-  | { type: "generation-active"; active: boolean };
+  | { type: "clear-selection" };
 
 export const initialState: EditorState = {
   status: "booting",
@@ -57,7 +54,6 @@ export const initialState: EditorState = {
   conflict: false,
   canUndo: false,
   canRedo: false,
-  generationActive: false,
 };
 
 /** Pure state transitions — every UI state is a case here, unit-tested without DOM. */
@@ -135,7 +131,5 @@ export function reduce(s: EditorState, e: EditorEvent): EditorState {
     }
     case "clear-selection":
       return { ...s, selectedEntities: [], selectionAnchor: undefined };
-    case "generation-active":
-      return { ...s, generationActive: e.active };
   }
 }

@@ -1,5 +1,5 @@
 // Field remesh worker entry — ships as its own bundle (see build-frontend.ts).
-// Mirrors generation-worker.ts's self/postMessage idiom; all logic lives in the
+// Mirrors analyzer-worker.ts's self/postMessage idiom; all logic lives in the
 // pure createFieldWorkerHandler so this file only wires the real self.postMessage.
 
 import type { FieldWorkerRequest } from "./lib/field-protocol.ts";

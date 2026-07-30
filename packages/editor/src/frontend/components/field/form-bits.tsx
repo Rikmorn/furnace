@@ -1,17 +1,14 @@
 // Leaf form helpers shared across the Field panel's pieces (FieldPanel.tsx,
 // FieldToolbar.tsx, BrushInspector.tsx, StampInspector.tsx): the select
 // styling, the disabled-control tooltip wrapper, and the error-to-string
-// helper. Relocated from world-panel/fields.tsx ahead of that module's
-// deletion. MIGRATION (until Task 4 of the F4.5a plan): world-panel/fields.tsx
-// re-exports these names in the interim, for the two World-panel files that
-// still import them. Nothing here holds state or knows about the draft.
+// helper. Nothing here holds state.
 //
 // These panels use the NATIVE <select>, not the package's ui/select.tsx (Radix) — a
-// deliberate deviation from the primitive four other files use. The World panel's selects
-// are dense, list-driven knob rows (walls, region ids, connector kinds) where the
-// platform's own keyboard and mobile-wheel behaviour is exactly what we want, and a native
-// control stays drivable from the chrome harness with fireEvent.change. Radix's portaled
-// listbox buys nothing at this size and costs the harness a mock.
+// deliberate deviation from the primitive four other files use. The selects here are
+// dense, list-driven knob rows where the platform's own keyboard and mobile-wheel
+// behaviour is exactly what we want, and a native control stays drivable from the chrome
+// harness with fireEvent.change. Radix's portaled listbox buys nothing at this size and
+// costs the harness a mock.
 import type { ReactNode } from "react";
 import { cn } from "../../lib/cn.ts";
 

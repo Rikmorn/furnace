@@ -16,7 +16,6 @@ import {
 } from "react";
 import type {
 	FieldHost,
-	PreviewHost,
 	ViewFlags,
 	ViewportHost,
 } from "../../viewport-host/index.ts"; // type-only
@@ -25,8 +24,6 @@ import { useGlobalKeybindings } from "../hooks/useGlobalKeybindings.ts";
 import { ApiClientError, api, type ComponentEdit } from "../lib/api.ts";
 import { EngineBuildError, loadEngine } from "../lib/engine.ts";
 import { subscribeEvents } from "../lib/events.ts";
-import { initialWorldSession } from "../lib/generation.ts";
-import { GenerationWorkerClient } from "../lib/generation-client.ts";
 import { type PanelId, panelTitle } from "../lib/panels.ts";
 import {
 	createUiStore,
@@ -37,30 +34,20 @@ import { clickMode, SETTINGS_SELECTION } from "../lib/selection.ts";
 import { initialState, reduce } from "../lib/state.ts";
 import { resolveCssColor } from "../lib/theme.ts";
 import { ConfirmDialog } from "./ConfirmDialog.tsx";
-import { EntitiesPanel } from "./EntitiesPanel.tsx";
 import {
 	type EditorActions,
 	EditorContext,
 	type EditorContextValue,
 } from "./editor-context.ts";
 import { FieldPanel } from "./FieldPanel.tsx";
-import { InspectPanel } from "./InspectPanel.tsx";
 import { StatusBar } from "./StatusBar.tsx";
 import { Toolbar } from "./Toolbar.tsx";
-import { Viewport } from "./Viewport.tsx";
-import { WorldPanel } from "./WorldPanel.tsx";
 
 // Module-level so its identity is stable across App renders: dockview reads the
 // factory only at panel construction, so a fresh map per render would freeze the
 // mounted panels on their first render. The panels take no props and read live
 // state via EditorContext instead.
 const COMPONENTS: Record<string, FunctionComponent<IDockviewPanelProps>> = {
-	entities: EntitiesPanel,
-	viewport: Viewport,
-	inspect: InspectPanel,
-	// Key UNCHANGED ("generation"): it is the dockview id in persisted layouts (D-W3-10) —
-	// the panel behind it is now the World panel.
-	generation: WorldPanel,
 	field: FieldPanel,
 };
 
@@ -71,29 +58,14 @@ const RECENT_SCENES_CAP = 8;
 // splitter drag, but each write JSON-stringifies the whole UiState blob — persist once settled.
 const LAYOUT_SAVE_DEBOUNCE_MS = 200;
 
-// The DEFAULT layout is the field-first subset: Field dominant on the left
-// (the slot the scene Viewport used to hold), Inspect right. The Entities panel, the World
-// panel (id "generation"), and the scene Viewport leave the DEFAULT set only — PANELS still
-// owns id/title/component, so all three stay one click away via the View▸Panels toggles and
-// single-panel re-add. Build order matters: the first id is the dockview root (no
-// position); the rest anchor to it. Rooting Field also guarantees its dig canvas an
-// always-visible group with a non-zero client box at init (a stacked/inactive tab inits
-// at zero size, which core's bindToCanvas rejects).
-const DEFAULT_LAYOUT_PANELS: readonly PanelId[] = ["field", "inspect"];
-type PanelPosition = {
-	referencePanel: PanelId;
-	direction: "left" | "right" | "below";
-};
-const DEFAULT_PANEL_POSITION: Partial<Record<PanelId, PanelPosition>> = {
-	inspect: { referencePanel: "field", direction: "right" },
-};
+// The DEFAULT layout: the Field panel alone, as the dockview root. Rooting Field
+// guarantees its dig canvas an always-visible group with a non-zero client box at init
+// (a stacked/inactive tab inits at zero size, which core's bindToCanvas rejects).
+const DEFAULT_LAYOUT_PANELS: readonly PanelId[] = ["field"];
 
 export function App() {
 	const [state, dispatch] = useReducer(reduce, initialState);
 	const hostRef = useRef<ViewportHost | undefined>(undefined);
-	// The cockpit preview host + the consumer generator surface, both created once the
-	// engine bundle loads and threaded to the WorldPanel via context (Slice 3.1).
-	const previewHostRef = useRef<PreviewHost | undefined>(undefined);
 	// The F1 field dig host, created once with the other hosts and threaded to the Field
 	// panel via context. App-owned so it survives the panel closing/reopening.
 	const fieldHostRef = useRef<FieldHost | undefined>(undefined);
@@ -146,22 +118,13 @@ export function App() {
 	// a dedicated effect so the initial value and every change take one code path.
 	const [viewFlags, setViewFlags] = useState<ViewFlags>(DEFAULT_VIEW_FLAGS);
 
-	// The generation session lifted out of the panel (Task 6): App owns it so it survives
-	// the panel being closed/reopened and an in-flight run keeps updating it after the panel
-	// unmounts. See editor-context.ts GenerationControl for the full rationale. The bake
-	// destination rides IN the session (draft.name, "default" by default — the world the
-	// committed worlds/index.json points at), so there is no separate worldName state.
-	const [generation, setGeneration] = useState(initialWorldSession);
-	// The generation worker client (Slice 3.2.3) — one per App lifetime. useState's
-	// lazy initializer keeps it stable across renders; the worker itself spawns on
-	// first run. A page reload kills it with the page, which is exactly the
-	// bundle-outdated story: reloading refreshes worker AND main thread together, so
-	// both sides always run the SAME engine bundle (never respawn the worker alone —
-	// that would version-split worker-side generation from main-thread realize/bake).
-	const [generationClient] = useState(() => new GenerationWorkerClient());
-	// Mirrors whether a run/bake is in flight for the SSE bundle-outdated guard (that closure
-	// re-subscribes only on [state.status, refreshSession], so it can't read live generation).
-	const generationBusyRef = useRef(false);
+	// Mirrors whether a world bake is in flight, for the SSE bundle-outdated guard (that
+	// closure re-subscribes only on [state.status, refreshSession], so it cannot read live
+	// panel state).
+	// MIGRATION (until Task 8 of the F4.5a plan): the bake still lives inside the Field
+	// panel's toolbar and nothing writes this yet, so it reads false for the whole session
+	// — the guard is currently carried by the dirty check alone.
+	const bakeBusyRef = useRef(false);
 
 	// The single scene-error dispatch (extracted — used by every catch below).
 	const reportError = useCallback((err: unknown) => {
@@ -210,9 +173,8 @@ export function App() {
 					// are drawn dimmer by the host. Exact shade is a Task 12 live-tuning concern.
 					gridColor: resolveCssColor("--muted-foreground", [0.42, 0.42, 0.46]),
 				});
-				// Slice 3.1: the preview host + the consumer's generator surface. Assigned
-				// BEFORE the engine-ready dispatch so both are live once the panels mount.
-				previewHostRef.current = engine.createPreviewHost();
+				// Assigned BEFORE the engine-ready dispatch so the host + the consumer's
+				// surface are both live once the panels mount.
 				fieldHostRef.current = engine.createFieldHost();
 				extensionsRef.current = engine.extensions;
 				hostRef.current.setCallbacks({
@@ -450,11 +412,6 @@ export function App() {
 	}, [state.dirty]);
 
 	useEffect(() => {
-		const phase = generation.status.phase;
-		generationBusyRef.current = phase === "generating" || phase === "baking";
-	}, [generation.status]);
-
-	useEffect(() => {
 		latest.current = {
 			selection: state.selectedEntities,
 			canUndo: state.canUndo,
@@ -487,12 +444,12 @@ export function App() {
 					// Generator/extension source changed: the engine bundle is stale. Reload
 					// when no unsaved work is at risk; otherwise leave the choice to the user
 					// (the status bar shows dirty state — a stale engine is preferable to
-					// losing edits). Also refuse the auto-reload while a generation run/bake is
-					// in flight — a hard reload would kill it mid-run. 3.2's chrome rework owns a
-					// proper notice UX. The generation worker is deliberately NOT respawned here:
-					// a page reload refreshes worker + main thread together, so when the page
-					// stays stale (dirty doc) the worker must stay stale WITH it (Slice 3.2.3).
-					if (!dirtyRef.current && !generationBusyRef.current) {
+					// losing edits). Also refuse the auto-reload while a bake is in flight —
+					// a hard reload would kill it mid-run. The field remesh/analyzer workers
+					// are deliberately NOT respawned here: a page reload refreshes workers +
+					// main thread together, so when the page stays stale (dirty doc) the
+					// workers must stay stale WITH it.
+					if (!dirtyRef.current && !bakeBusyRef.current) {
 						window.location.reload();
 					}
 					return;
@@ -586,18 +543,12 @@ export function App() {
 		);
 	}, []);
 
-	// The default layout (Field | Inspect — field-first), built by
-	// iterating DEFAULT_LAYOUT_PANELS with titles resolved through PANELS (panelTitle) so a
-	// title edit there still flows to the initial layout, the toggle menu, and re-add.
+	// The default layout, built by iterating DEFAULT_LAYOUT_PANELS with titles resolved
+	// through PANELS (panelTitle) so a title edit there still flows to the initial layout,
+	// the toggle menu, and re-add.
 	const addDefaultLayout = useCallback((dockApi: DockviewApi) => {
 		for (const id of DEFAULT_LAYOUT_PANELS) {
-			const position = DEFAULT_PANEL_POSITION[id];
-			dockApi.addPanel({
-				id,
-				component: id,
-				title: panelTitle(id),
-				...(position ? { position } : {}),
-			});
+			dockApi.addPanel({ id, component: id, title: panelTitle(id) });
 		}
 	}, []);
 
@@ -684,15 +635,9 @@ export function App() {
 		state,
 		dispatch,
 		hostRef,
-		previewHostRef,
 		fieldHostRef,
 		extensions: extensionsRef.current,
 		actions,
-		generation: {
-			session: generation,
-			setSession: setGeneration,
-			client: generationClient,
-		},
 		viewFlags,
 		setViewFlag,
 		openConfirm,

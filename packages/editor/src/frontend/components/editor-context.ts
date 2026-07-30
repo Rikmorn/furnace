@@ -1,14 +1,11 @@
-import type { Dispatch, RefObject, SetStateAction } from "react";
+import type { RefObject } from "react";
 import { createContext, useContext } from "react";
 import type {
   FieldHost,
-  PreviewHost,
   ViewFlags,
   ViewportHost,
 } from "../../viewport-host/index.ts";
 import type { ComponentEdit } from "../lib/api.ts";
-import type { WorldGenSession } from "../lib/generation.ts";
-import type { GenerationWorkerClient } from "../lib/generation-client.ts";
 import type { UiStore } from "../lib/persist.ts";
 import type { EditorEvent, EditorState } from "../lib/state.ts";
 import type { ConfirmRequest } from "./ConfirmDialog.tsx";
@@ -40,40 +37,20 @@ export type EditorActions = {
   frameSelection(): void;
 };
 
-/** The generation session lifted to App level so it survives the World panel being
- *  closed and reopened (dockview unmounts a removed panel). The panel is a pure CONSUMER:
- *  it reads `session` and drives it through these App-owned setters. Because the setters
- *  are App state (stable identity), an in-flight run's async setter calls land in App
- *  state even after the panel unmounts. `client` is App-owned for the same reason —
- *  a panel-local worker client would be recreated on remount, orphaning the running worker
- *  (Slice 3.2.3: the worker owns realize + bake; cancel = terminate, instant mid-run). The
- *  cockpit drives the WORLD flow (runWorld/bakeWorld/cancel). W3: the bake destination rides
- *  IN the session (the draft's own `name`). */
-export type GenerationControl = {
-  session: WorldGenSession;
-  setSession: Dispatch<SetStateAction<WorldGenSession>>;
-  /** The App-owned generation worker client (Slice 3.2.3): runWorld/bakeWorld/cancel. */
-  client: GenerationWorkerClient;
-};
-
 /** Live editor state shared with the dockview panels through React context
  *  (panels are portaled, so closure props can't carry live state — see App). */
 export type EditorContextValue = {
   state: EditorState;
   dispatch: (e: EditorEvent) => void;
   hostRef: RefObject<ViewportHost | undefined>;
-  /** The cockpit preview host (Slice 3.1) — the generation panel realizes into it. */
-  previewHostRef: RefObject<PreviewHost | undefined>;
   /** The field dig-loop host (F1) — the Field panel mounts its canvas + drives dig/save/bake.
    *  App-owned (created once at engine-ready) so it survives the panel being closed/reopened. */
   fieldHostRef: RefObject<FieldHost | undefined>;
   /** The engine bundle's `extensions` namespace (the consumer's generator surface),
-   *  crossing the project-first bundle boundary as an untyped record. The World panel
-   *  is the SINGLE seam that narrows it (with `// Boundary cast:` comments). */
+   *  crossing the project-first bundle boundary as an untyped record. A consumer of it
+   *  narrows it at its own seam (with `// Boundary cast:` comments). */
   extensions: Record<string, unknown>;
   actions: EditorActions;
-  /** The lifted generation session (Slice 3.2.2 Task 6) the WorldPanel consumes. */
-  generation: GenerationControl;
   /** Viewport view flags (Task 9), App-level so the overlay popover and the View▸View-flags
    *  menu share one source. `axes` gates the corner triad; the rest gate host rendering. */
   viewFlags: ViewFlags;

@@ -1,9 +1,9 @@
-// FieldHost: the F1 dig-loop surface. A sibling of PreviewHost — owns its
-// canvas context, camera, render loop, and the field session (store + op log +
-// dirty-set + remesh client). React chrome (Task 10) talks to it via methods;
-// the host is FREE of React. Unlike PreviewHost it runs a continuous rAF (fly
-// movement integrates per frame and the dirty-set drains across frames) and
-// creates NO physics world (colliders are derived at dungeon-load time, T11).
+// FieldHost: the F1 dig-loop surface. It owns its canvas context, camera,
+// render loop, and the field session (store + op log + dirty-set + remesh
+// client). React chrome talks to it via methods; the host is FREE of React. It
+// runs a continuous rAF (fly movement integrates per frame and the dirty-set
+// drains across frames) and creates NO physics world (colliders are derived at
+// dungeon-load time, T11).
 import * as binding from "@furnace/core/binding";
 import * as camera from "@furnace/core/camera";
 import * as field from "@furnace/core/field";
@@ -939,9 +939,9 @@ function generatorSchemaProperties(
 
 /**
  * Create an uninitialized field host. `init(canvas)` must run before any GPU
- * operation. Mirrors {@link createPreviewHost}'s lifecycle (own context, own
- * camera, own listeners) but drives a fly camera + dig loop instead of orbit,
- * and remeshes carved chunks off the main thread via the field worker.
+ * operation. The host owns its whole lifecycle (own context, own camera, own
+ * listeners), drives a fly camera + dig loop, and remeshes carved chunks off the
+ * main thread via the field worker.
  *
  * `deps.spawnWorker` / `deps.spawnAnalyzer` override how the two workers (the
  * remesher and the walkability analyzer) are created; production omits both and
@@ -1193,9 +1193,8 @@ export function createFieldHost(deps?: {
   // Fly camera: start a few metres up looking down at the grid origin, so the
   // blank-canvas bootstrap digs the first hole at the ground-grid centre.
   // POSITIVE pitch puts the eye ABOVE the target (toEyeTarget: eye.y = target.y +
-  // distance·sin(pitch)); at distance 6 this seats the eye at y ≈ 3.9 (matches
-  // preview-host's positive-pitch DEFAULT_ORBIT). A negative pitch would sink it
-  // below the y=0 grid looking up.
+  // distance·sin(pitch)); at distance 6 this seats the eye at y ≈ 3.9. A negative
+  // pitch would sink it below the y=0 grid looking up.
   let orbitState: OrbitState = {
     target: [0, 1, 0],
     distance: 6,

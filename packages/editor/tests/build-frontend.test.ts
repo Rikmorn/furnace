@@ -13,12 +13,10 @@ test("build-frontend produces index.html + bundled assets", async () => {
   });
   expect(await proc.exited).toBe(0);
   expect(existsSync(join(DIST, "index.html"))).toBe(true);
-  // The generation worker (Slice 3.2.3) ships as its own module bundle so the
-  // chrome can spawn it by URL: new Worker("/generation-worker.js", {type:
-  // "module"}). It must land un-hashed at the outdir root or that URL 404s.
-  expect(existsSync(join(DIST, "generation-worker.js"))).toBe(true);
-  // Same contract for the other two by-URL workers: /field-worker.js (the field
-  // remesher) and /analyzer-worker.js (the walkability advisor, F4).
+  // The two by-URL workers each ship as their own module bundle so the chrome can
+  // spawn them by URL (new Worker("/field-worker.js", {type: "module"})):
+  // /field-worker.js (the field remesher) and /analyzer-worker.js (the walkability
+  // advisor, F4). Each must land un-hashed at the outdir root or that URL 404s.
   expect(existsSync(join(DIST, "field-worker.js"))).toBe(true);
   expect(existsSync(join(DIST, "analyzer-worker.js"))).toBe(true);
 }, 60_000);

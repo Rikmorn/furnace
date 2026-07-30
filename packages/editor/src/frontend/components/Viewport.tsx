@@ -16,22 +16,10 @@ import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover.tsx";
 const POSE_SAVE_DEBOUNCE_MS = 200;
 
 export function Viewport() {
-	const {
-		state,
-		dispatch,
-		hostRef,
-		previewHostRef,
-		viewFlags,
-		setViewFlag,
-		store,
-	} = useEditor();
+	const { state, dispatch, hostRef, viewFlags, setViewFlag, store } =
+		useEditor();
 	const canvasRef = useRef<HTMLCanvasElement>(null);
-	const previewCanvasRef = useRef<HTMLCanvasElement>(null);
 	const initialized = useRef(false);
-	const previewInitialized = useRef(false);
-	// Preview-host fog toggle (Slice 3.1) — a VIEW flag for the generation preview canvas,
-	// distinct from the doc viewport's own `fog` view flag (which drives the host below).
-	const [fogOn, setFogOn] = useState(false);
 	// The doc viewport's live orbit pose, driving the corner axis triad. Null until a scene
 	// loads; updated live during a drag and on load via the host's camera-pose API.
 	const [pose, setPose] = useState<OrbitState | null>(null);
@@ -59,33 +47,6 @@ export function Viewport() {
 		// competing ResizeObserver for RENDERING — initWhenSized only gates the
 		// one-shot init and disconnects the moment it fires.
 	}, [state.status, dispatch, hostRef]);
-
-	// The cockpit preview host lives on its own canvas (Slice 3.1). It inits at ready —
-	// immediately when the canvas has its layout box (the visibility swap keeps it boxed
-	// while invisible, see the JSX comment), DEFERRED to first nonzero measure when the
-	// panel mounts zero-sized (hidden behind another tab, e.g. the Field tab active in
-	// the group — the F1-gate "preview init failed: width and height must be positive"
-	// class, which previously latched broken until a manual tab-close + refresh).
-	useEffect(() => {
-		const canvas = previewCanvasRef.current;
-		const host = previewHostRef.current;
-		if (
-			!canvas ||
-			!host ||
-			previewInitialized.current ||
-			state.status !== "ready"
-		)
-			return;
-		previewInitialized.current = true;
-		return initWhenSized(canvas, () => {
-			host.init(canvas).catch((err) => {
-				dispatch({
-					type: "engine-error",
-					diagnostics: `preview init failed: ${String(err)}`,
-				});
-			});
-		});
-	}, [state.status, dispatch, previewHostRef]);
 
 	// Persist the doc's camera pose — called on an orbit "end" (see below), then trailing-
 	// debounced so a continuous wheel/trackpad-zoom stream coalesces to ONE whole-UiState
@@ -155,84 +116,49 @@ export function Viewport() {
 			</div>
 		);
 	}
-	// Both canvases stay mounted AND laid out at all times: the swap toggles
-	// `visibility`, never `display` — a display:none canvas has zero client size, so
-	// core's bindToCanvas throws "width and height must be positive" at host init
-	// (found live at the 3.1 gate). visibility keeps the layout box, so both hosts
-	// init at boot with real dimensions and the swap needs no resize event.
 	return (
 		<div className="relative h-full w-full">
 			<canvas
 				ref={canvasRef}
 				aria-label="scene viewport"
 				className="absolute inset-0 h-full w-full"
-				style={{ visibility: state.generationActive ? "hidden" : "visible" }}
 			/>
-			<canvas
-				ref={previewCanvasRef}
-				aria-label="generation preview"
-				className="absolute inset-0 h-full w-full"
-				style={{ visibility: state.generationActive ? "visible" : "hidden" }}
-			/>
-			{state.generationActive && (
-				<div className="pointer-events-none absolute left-2 top-2 rounded bg-warning/90 px-2 py-1 text-xs font-semibold text-warning-foreground">
-					PREVIEW
-				</div>
-			)}
-			{state.generationActive && (
-				<label
-					className="absolute right-2 top-2 flex items-center gap-1.5 rounded bg-popover/80 px-2 py-1 text-xs text-foreground"
-					title="Preview the game's fog mood. Off = clear structural view (fog at orbit distance obscures the world)."
-				>
-					<input
-						type="checkbox"
-						checked={fogOn}
-						onChange={(e) => {
-							setFogOn(e.target.checked);
-							previewHostRef.current?.setFog(e.target.checked);
-						}}
-					/>
-					fog
-				</label>
-			)}
 			{/* Doc-viewport view flags: a top-right popover cluster, mirrored with View▸View flags
-          (both drive the same App state). Hidden while the generation preview owns the view. */}
-			{!state.generationActive && (
-				<div className="absolute right-2 top-2">
-					<Popover>
-						<PopoverTrigger asChild>
-							<Button
-								size="icon"
-								variant="ghost"
-								className="h-8 w-8 bg-popover/70 hover:bg-popover"
-								title="View flags"
-								aria-label="View flags"
-							>
-								<Layers />
-							</Button>
-						</PopoverTrigger>
-						<PopoverContent align="end" className="w-44 p-2">
-							<div className="flex flex-col gap-0.5">
-								{VIEW_FLAG_ITEMS.map(({ key, label }) => (
-									// biome-ignore lint/a11y/noLabelWithoutControl: the label wraps its control as children (shadcn Input/Checkbox or passed children); Biome cannot trace the native control across the component boundary — getByLabelText still resolves it
-									<label
-										key={key}
-										className="flex cursor-pointer items-center gap-2 rounded px-1.5 py-1 text-sm hover:bg-accent"
-									>
-										<Checkbox
-											checked={viewFlags[key]}
-											onCheckedChange={(v) => setViewFlag(key, v === true)}
-										/>
-										{label}
-									</label>
-								))}
-							</div>
-						</PopoverContent>
-					</Popover>
-				</div>
-			)}
+          (both drive the same App state). */}
+			<div className="absolute right-2 top-2">
+				<Popover>
+					<PopoverTrigger asChild>
+						<Button
+							size="icon"
+							variant="ghost"
+							className="h-8 w-8 bg-popover/70 hover:bg-popover"
+							title="View flags"
+							aria-label="View flags"
+						>
+							<Layers />
+						</Button>
+					</PopoverTrigger>
+					<PopoverContent align="end" className="w-44 p-2">
+						<div className="flex flex-col gap-0.5">
+							{VIEW_FLAG_ITEMS.map(({ key, label }) => (
+								// biome-ignore lint/a11y/noLabelWithoutControl: the label wraps its control as children (shadcn Input/Checkbox or passed children); Biome cannot trace the native control across the component boundary — getByLabelText still resolves it
+								<label
+									key={key}
+									className="flex cursor-pointer items-center gap-2 rounded px-1.5 py-1 text-sm hover:bg-accent"
+								>
+									<Checkbox
+										checked={viewFlags[key]}
+										onCheckedChange={(v) => setViewFlag(key, v === true)}
+									/>
+									{label}
+								</label>
+							))}
+						</div>
+					</PopoverContent>
+				</Popover>
+			</div>
 			{/* Corner orientation triad (the `axes` view flag), bottom-right, tracking the orbit. */}
-			{!state.generationActive && viewFlags.axes && pose && (
+			{viewFlags.axes && pose && (
 				<div className="pointer-events-none absolute bottom-2 right-2">
 					<AxisTriad yaw={pose.yaw} pitch={pose.pitch} />
 				</div>

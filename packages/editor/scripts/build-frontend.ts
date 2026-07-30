@@ -11,12 +11,9 @@ process.env.NODE_ENV = "production";
 const result = await Bun.build({
   entrypoints: [
     "src/frontend/index.html",
-    // The generation worker ships as its own module bundle: the chrome spawns it
-    // by URL (new Worker("/generation-worker.js", {type:"module"})), so it cannot
-    // ride the html entry's graph.
-    "src/frontend/generation-worker.ts",
-    // The field remesh worker likewise ships as its own bundle, spawned by URL
-    // (new Worker("/field-worker.js", {type:"module"})). It runs engine code
+    // The field remesh worker ships as its own module bundle: the chrome spawns
+    // it by URL (new Worker("/field-worker.js", {type:"module"})), so it cannot
+    // ride the html entry's graph. It runs engine code
     // (@furnace/core/field) directly — no /engine.js, no extension surface.
     "src/frontend/field-worker.ts",
     // The walkability analyzer worker, its own bundle for the same reason

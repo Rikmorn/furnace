@@ -21,10 +21,7 @@ import {
 	type EditorActions,
 	EditorContext,
 	type EditorContextValue,
-	type GenerationControl,
 } from "../../src/frontend/components/editor-context.ts";
-import { initialWorldSession } from "../../src/frontend/lib/generation.ts";
-import { GenerationWorkerClient } from "../../src/frontend/lib/generation-client.ts";
 import {
 	DEFAULT_VIEW_FLAGS,
 	type UiStore,
@@ -48,11 +45,9 @@ type EditorContextOverrides = {
 	state?: Partial<EditorState>;
 	dispatch?: EditorContextValue["dispatch"];
 	hostRef?: EditorContextValue["hostRef"];
-	previewHostRef?: EditorContextValue["previewHostRef"];
 	fieldHostRef?: EditorContextValue["fieldHostRef"];
 	extensions?: Record<string, unknown>;
 	actions?: Partial<EditorActions>;
-	generation?: Partial<GenerationControl>;
 	openConfirm?: EditorContextValue["openConfirm"];
 	store?: UiStore;
 };
@@ -89,28 +84,13 @@ export function makeEditorContext(
 		frameSelection: noop,
 		...overrides.actions,
 	};
-	const generation: GenerationControl = {
-		session: initialWorldSession(),
-		setSession: noop,
-		// A real client over an inert fake Worker — spawn is lazy (only on run/bake),
-		// so inspector tests that never generate never touch it.
-		client: new GenerationWorkerClient(() => ({
-			postMessage: noop,
-			terminate: noop,
-			onmessage: null,
-			onerror: null,
-		})),
-		...overrides.generation,
-	};
 	return {
 		state: { ...initialState, status: "ready", ...overrides.state },
 		dispatch: overrides.dispatch ?? noop,
 		hostRef: overrides.hostRef ?? { current: undefined },
-		previewHostRef: overrides.previewHostRef ?? { current: undefined },
 		fieldHostRef: overrides.fieldHostRef ?? { current: undefined },
 		extensions: overrides.extensions ?? {},
 		actions,
-		generation,
 		viewFlags: DEFAULT_VIEW_FLAGS,
 		setViewFlag: noop,
 		openConfirm: overrides.openConfirm ?? noop,

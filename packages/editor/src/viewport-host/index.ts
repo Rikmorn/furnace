@@ -66,11 +66,6 @@ export type {
   StampSession,
 } from "./field-stamp.ts";
 export type { NudgeSteps } from "./input-map.ts";
-export {
-  createPreviewHost,
-  type PreviewContent,
-  type PreviewHost,
-} from "./preview-host.ts";
 
 /**
  * Viewport reference-layer + rendering toggles. `grid`, `headlamp`, and `fog` gate what
@@ -389,7 +384,7 @@ export function createViewportHost(opts?: ViewportHostOptions): ViewportHost {
 
   // Fog (view flag, default off): a gentle exponential depth cue fading to the viewport
   // clear — far weaker than the game's density (0.12), which at orbit distance would
-  // swallow the whole scene (the 3.1 preview-host lesson).
+  // swallow the whole scene (the Slice 3.1 preview lesson).
   const VIEWPORT_FOG_DENSITY = 0.02;
   const fogColor: [number, number, number] = opts?.viewportBackground ?? [
     0.1, 0.1, 0.11,
