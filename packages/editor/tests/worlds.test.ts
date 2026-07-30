@@ -1,6 +1,14 @@
 // packages/editor/tests/worlds.test.ts
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import type { DaemonEvent } from "../src/daemon/events.ts";
 import {
@@ -54,6 +62,29 @@ function build(isTracked?: (rel: string) => boolean | null): Handlers {
 }
 
 type ListResult = { defaultName: string | null; worlds: WorldRow[] };
+
+/** Build a field-kind world dir with a manifest, an oplog, and a chunk
+ *  sidecar — the on-disk shape world.duplicate must copy in full. Returns
+ *  the world's absolute directory path. Reads the outer `root` closure
+ *  variable, so it must be called from inside a test body (after beforeEach
+ *  has assigned it), matching how the file's other tests already reference
+ *  `root` directly. */
+function makeFieldWorld(name: string): string {
+  const dir = join(root, "worlds", name);
+  mkdirSync(join(dir, "chunks"), { recursive: true });
+  writeFileSync(join(dir, "oplog.json"), JSON.stringify([]));
+  writeFileSync(join(dir, "chunks", "0_0_0.bin"), Buffer.from([1, 2, 3]));
+  writeFileSync(
+    join(dir, "manifest.json"),
+    JSON.stringify({
+      version: 2,
+      kind: "field",
+      cellSize: 0.25,
+      chunks: [{ key: "0,0,0", file: "chunks/0_0_0.bin" }],
+    }),
+  );
+  return dir;
+}
 
 describe("world.list", () => {
   test("enumerates worlds with kind, default flag, and mtime", async () => {
@@ -210,6 +241,124 @@ describe("world.list", () => {
     const res = (await dispatch(handlers, "world.list", {})) as ListResult;
     expect(res.defaultName).toBeNull();
     expect(res.worlds.map((w) => w.name)).toEqual(["default"]);
+  });
+});
+
+describe("world mutations", () => {
+  test("world.makeDefault rewrites index.json byte-identically and emits worlds-changed", async () => {
+    makeFieldWorld("scratch-a");
+    const handlers = build();
+    await dispatch(handlers, "world.makeDefault", { name: "scratch-a" });
+    const bytes = readFileSync(join(root, "worlds", "index.json"), "utf8");
+    expect(bytes).toBe('{\n  "version": 1,\n  "default": "scratch-a"\n}\n');
+    expect(events.filter((e) => e.type === "worlds-changed")).toHaveLength(1);
+  });
+
+  test("world.makeDefault refuses a world with no manifest (not-found)", async () => {
+    const handlers = build();
+    await expect(
+      dispatch(handlers, "world.makeDefault", { name: "ghost" }),
+    ).rejects.toMatchObject({ code: "not-found" });
+    expect(existsSync(join(root, "worlds", "index.json"))).toBe(false);
+    expect(events.filter((e) => e.type === "worlds-changed")).toHaveLength(0);
+  });
+
+  test("world.delete removes the directory and emits worlds-changed", async () => {
+    const dir = makeFieldWorld("scratch-a");
+    const handlers = build();
+    await dispatch(handlers, "world.delete", { name: "scratch-a" });
+    expect(existsSync(dir)).toBe(false);
+    expect(events.filter((e) => e.type === "worlds-changed")).toHaveLength(1);
+  });
+
+  test("world.delete refuses the current default (invalid-input names the fix)", async () => {
+    const dir = makeFieldWorld("scratch-a");
+    writeFileSync(
+      join(root, "worlds", "index.json"),
+      worldsIndexBytes("scratch-a"),
+    );
+    const handlers = build();
+    await expect(
+      dispatch(handlers, "world.delete", { name: "scratch-a" }),
+    ).rejects.toMatchObject({ code: "invalid-input" });
+    await expect(
+      dispatch(handlers, "world.delete", { name: "scratch-a" }),
+    ).rejects.toThrow(/make another world default first/);
+    expect(existsSync(dir)).toBe(true);
+    expect(events.filter((e) => e.type === "worlds-changed")).toHaveLength(0);
+  });
+
+  test("world.rename moves the dir; renaming the default also rewrites index.json", async () => {
+    const dir = makeFieldWorld("scratch-a");
+    writeFileSync(
+      join(root, "worlds", "index.json"),
+      worldsIndexBytes("scratch-a"),
+    );
+    const handlers = build();
+    await dispatch(handlers, "world.rename", {
+      from: "scratch-a",
+      to: "scratch-b",
+    });
+    expect(existsSync(dir)).toBe(false);
+    const newDir = join(root, "worlds", "scratch-b");
+    expect(existsSync(join(newDir, "manifest.json"))).toBe(true);
+    expect(existsSync(join(newDir, "oplog.json"))).toBe(true);
+    const bytes = readFileSync(join(root, "worlds", "index.json"), "utf8");
+    expect(bytes).toBe('{\n  "version": 1,\n  "default": "scratch-b"\n}\n');
+    expect(events.filter((e) => e.type === "worlds-changed")).toHaveLength(1);
+  });
+
+  test("world.rename/duplicate refuse an existing target with already-exists", async () => {
+    makeFieldWorld("scratch-a");
+    makeFieldWorld("scratch-b");
+    const handlers = build();
+    await expect(
+      dispatch(handlers, "world.rename", {
+        from: "scratch-a",
+        to: "scratch-b",
+      }),
+    ).rejects.toMatchObject({ code: "already-exists" });
+    await expect(
+      dispatch(handlers, "world.duplicate", {
+        from: "scratch-a",
+        to: "scratch-b",
+      }),
+    ).rejects.toMatchObject({ code: "already-exists" });
+    // Neither refusal touched the filesystem or emitted.
+    expect(existsSync(join(root, "worlds", "scratch-a"))).toBe(true);
+    expect(events.filter((e) => e.type === "worlds-changed")).toHaveLength(0);
+  });
+
+  test("world.duplicate copies the whole dir recursively (manifest + oplog + chunks present)", async () => {
+    const dir = makeFieldWorld("scratch-a");
+    const handlers = build();
+    await dispatch(handlers, "world.duplicate", {
+      from: "scratch-a",
+      to: "scratch-copy",
+    });
+    expect(existsSync(dir)).toBe(true); // source intact
+    const copyDir = join(root, "worlds", "scratch-copy");
+    expect(existsSync(join(copyDir, "manifest.json"))).toBe(true);
+    expect(existsSync(join(copyDir, "oplog.json"))).toBe(true);
+    expect(existsSync(join(copyDir, "chunks", "0_0_0.bin"))).toBe(true);
+    expect(events.filter((e) => e.type === "worlds-changed")).toHaveLength(1);
+  });
+
+  test("all four verbs refuse names failing WORLD_NAME_RE at the zod boundary (invalid-input)", async () => {
+    const handlers = build();
+    await expect(
+      dispatch(handlers, "world.makeDefault", { name: "Bad Name!" }),
+    ).rejects.toMatchObject({ code: "invalid-input" });
+    await expect(
+      dispatch(handlers, "world.delete", { name: "Bad Name!" }),
+    ).rejects.toMatchObject({ code: "invalid-input" });
+    await expect(
+      dispatch(handlers, "world.rename", { from: "Bad Name!", to: "ok" }),
+    ).rejects.toMatchObject({ code: "invalid-input" });
+    await expect(
+      dispatch(handlers, "world.duplicate", { from: "ok", to: "Bad Name!" }),
+    ).rejects.toMatchObject({ code: "invalid-input" });
+    expect(events.filter((e) => e.type === "worlds-changed")).toHaveLength(0);
   });
 });
 

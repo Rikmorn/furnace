@@ -13,7 +13,16 @@ import type { DaemonEvent } from "./events.ts";
 import * as mutations from "./mutations.ts";
 import { listScenes, readScene } from "./scenes.ts";
 import type { Session } from "./session.ts";
-import { listWorlds } from "./worlds.ts";
+import {
+  deleteWorld,
+  duplicateWorldDir,
+  listWorlds,
+  readWorldsIndex,
+  renameWorldDir,
+  WORLD_NAME_RE,
+  worldDir,
+  writeDefaultWorld,
+} from "./worlds.ts";
 
 type Handler = {
   input: z.ZodType;
@@ -418,6 +427,84 @@ export function createHandlers(ctx: HandlerContext): Handlers {
   handlers.set("world.list", {
     input: z.strictObject({}),
     run: () => Promise.resolve(listWorlds(ctx.root, ctx.isTracked)),
+  });
+
+  const worldName = z.string().regex(WORLD_NAME_RE);
+
+  handlers.set("world.makeDefault", {
+    input: z.strictObject({ name: worldName }),
+    run: (input) => {
+      const { name } = input as { name: string };
+      const manifestPath = join(worldDir(ctx.root, name), "manifest.json");
+      if (!existsSync(manifestPath)) {
+        throw new EditorError("not-found", `world "${name}" has no manifest`);
+      }
+      writeDefaultWorld(ctx.root, name);
+      ctx.emit({ type: "worlds-changed" });
+      return Promise.resolve({});
+    },
+  });
+
+  handlers.set("world.delete", {
+    input: z.strictObject({ name: worldName }),
+    run: (input) => {
+      const { name } = input as { name: string };
+      if (!existsSync(worldDir(ctx.root, name))) {
+        throw new EditorError("not-found", `world "${name}" does not exist`);
+      }
+      const isDefault = readWorldsIndex(ctx.root)?.default === name;
+      if (isDefault) {
+        throw new EditorError(
+          "invalid-input",
+          `cannot delete "${name}" — it is the current default world; make another world default first`,
+        );
+      }
+      // No manifest check here (unlike world.makeDefault): a dir under
+      // worlds/ that never finished writing a manifest is junk, and its name
+      // is already regex-gated to the same namespace — deleting it is
+      // cleanup, not a semantic "delete this world" operation.
+      deleteWorld(ctx.root, name);
+      ctx.emit({ type: "worlds-changed" });
+      return Promise.resolve({});
+    },
+  });
+
+  handlers.set("world.rename", {
+    input: z.strictObject({ from: worldName, to: worldName }),
+    run: (input) => {
+      const { from, to } = input as { from: string; to: string };
+      if (!existsSync(worldDir(ctx.root, from))) {
+        throw new EditorError("not-found", `world "${from}" does not exist`);
+      }
+      // macOS's default case-insensitive filesystem means existsSync also
+      // catches case-folded collisions (e.g. "Foo" vs "foo") — consistent
+      // with WORLD_NAME_RE's `i` flag treating them as the same name.
+      if (existsSync(worldDir(ctx.root, to))) {
+        throw new EditorError("already-exists", `world "${to}" already exists`);
+      }
+      const wasDefault = readWorldsIndex(ctx.root)?.default === from;
+      renameWorldDir(ctx.root, from, to);
+      if (wasDefault) writeDefaultWorld(ctx.root, to);
+      ctx.emit({ type: "worlds-changed" });
+      return Promise.resolve({});
+    },
+  });
+
+  handlers.set("world.duplicate", {
+    input: z.strictObject({ from: worldName, to: worldName }),
+    run: (input) => {
+      const { from, to } = input as { from: string; to: string };
+      if (!existsSync(worldDir(ctx.root, from))) {
+        throw new EditorError("not-found", `world "${from}" does not exist`);
+      }
+      // Same case-insensitive-FS note as world.rename above.
+      if (existsSync(worldDir(ctx.root, to))) {
+        throw new EditorError("already-exists", `world "${to}" already exists`);
+      }
+      duplicateWorldDir(ctx.root, from, to);
+      ctx.emit({ type: "worlds-changed" });
+      return Promise.resolve({});
+    },
   });
 
   return handlers;

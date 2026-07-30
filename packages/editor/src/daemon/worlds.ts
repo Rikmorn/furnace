@@ -1,6 +1,15 @@
 // packages/editor/src/daemon/worlds.ts — worlds-directory enumeration + classification.
 // Node-portable (node:fs only — no-bun-leakage test enforces this).
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import {
+  cpSync,
+  existsSync,
+  readdirSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 
 /** ONE source of truth for a world directory name. Kept textually identical to
@@ -72,4 +81,44 @@ export function listWorlds(
   }
   worlds.sort((a, b) => a.name.localeCompare(b.name));
   return { defaultName: index?.default ?? null, worlds };
+}
+
+/** A single world's directory, given a name already known to satisfy
+ *  `WORLD_NAME_RE` — shared by every mutation below and by the handlers.ts
+ *  callers that pre-check existence/collisions before invoking one. */
+export function worldDir(root: string, name: string): string {
+  return join(root, "worlds", name);
+}
+
+// The four mutation primitives below are dumb fs wrappers only — no
+// EditorError, no validation, no existence/collision checks. handlers.ts owns
+// all of that (refusal codes, messages, event emission) so this module stays
+// framework-free, mirroring how listWorlds above never throws either.
+
+/** Delete a world directory (and everything under it). Idempotent: deleting
+ *  an already-absent dir is a no-op (`force: true`), same as `rm -rf`. */
+export function deleteWorld(root: string, name: string): void {
+  rmSync(worldDir(root, name), { recursive: true, force: true });
+}
+
+/** Move a world directory to a new name. Caller must have already confirmed
+ *  the source exists and the target does not. */
+export function renameWorldDir(root: string, from: string, to: string): void {
+  renameSync(worldDir(root, from), worldDir(root, to));
+}
+
+/** Recursively copy a world directory to a new name. Caller must have
+ *  already confirmed the source exists and the target does not. */
+export function duplicateWorldDir(
+  root: string,
+  from: string,
+  to: string,
+): void {
+  cpSync(worldDir(root, from), worldDir(root, to), { recursive: true });
+}
+
+/** Rewrite worlds/index.json to name `name` as the default world, using the
+ *  same byte-pinned writer as the rest of the daemon (`worldsIndexBytes`). */
+export function writeDefaultWorld(root: string, name: string): void {
+  writeFileSync(join(root, "worlds", "index.json"), worldsIndexBytes(name));
 }
