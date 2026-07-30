@@ -80,7 +80,7 @@ function StateBadge({ label }: { label: string }) {
 }
 
 export function EntitiesList(props: {
-	entities: FieldEntityInfo[];
+	entities: readonly FieldEntityInfo[];
 	onHighlight: (id: number | null) => void;
 	/** Open a reconfigure session on this entity (host.openEntity). */
 	onReconfigure: (id: number) => void;

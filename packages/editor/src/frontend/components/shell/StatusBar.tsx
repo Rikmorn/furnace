@@ -8,6 +8,7 @@
 import { TriangleAlert } from "lucide-react";
 import { useSyncExternalStore } from "react";
 import { useFieldHostState } from "../../hooks/useFieldHostState.tsx";
+import { usePaletteRaise } from "../../hooks/usePaletteStack.tsx";
 import { useWorkspaceActions } from "../../hooks/useWorkspace.tsx";
 import { notify } from "../../lib/notify-store.ts";
 import type { EditorState } from "../../lib/state.ts";
@@ -36,6 +37,7 @@ function ErrorChip() {
 		notify.getSnapshot,
 	);
 	const { setOpen, setCollapsed, setHidden } = useWorkspaceActions();
+	const raise = usePaletteRaise();
 	if (unreadErrors === 0) return null;
 	return (
 		<button
@@ -44,16 +46,23 @@ function ErrorChip() {
 			// takes this chip away — so there is never a second click here to close with.
 			// The palette's own × and the View menu are the way back.
 			//
-			// All THREE verbs, because `open` alone does not mean "readable" and the other
-			// two states persist: a palette closed while collapsed comes back collapsed
-			// (the arrangement survives closing, by design), and the ⌘\ latch covers the
-			// whole layer. Either one alone leaves the summoned log invisible — which,
-			// since being read is what clears this chip, is a click that can never
-			// succeed, on a chip that never goes away.
+			// All FOUR verbs, because `open` alone does not mean "readable" and the other
+			// three states persist or outlive the click: a palette closed while collapsed
+			// comes back collapsed (the arrangement survives closing, by design), the ⌘\
+			// latch covers the whole layer, and the DEPTH is the one the log shares its
+			// default corner with the entities palette on. Any one of them left out leaves
+			// the summoned log unreadable — which, since being read is what clears this
+			// chip, is a click that can never succeed, on a chip that never goes away.
+			//
+			// `raise` is UNCONDITIONAL rather than riding the open transition: the log is
+			// very often already open and merely buried (that is precisely the state this
+			// chip appears in — the log marks nothing read while it is not on top), and in
+			// that case there is no transition for the layer's safety net to catch.
 			onClick={() => {
 				setOpen("log", true);
 				setCollapsed("log", false);
 				setHidden(false);
+				raise("log");
 			}}
 			aria-label={`${unreadErrors} unread ${unreadErrors === 1 ? "error" : "errors"} — open the message log`}
 			className="flex items-center gap-1 rounded-sm border border-border bg-muted px-1.5 py-px text-destructive-text tabular-nums transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"

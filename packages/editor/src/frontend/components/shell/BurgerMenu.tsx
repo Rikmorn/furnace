@@ -8,6 +8,7 @@
 // render site, because each is wired by a different task — one marker for the file would
 // outlive two thirds of what it describes.
 import { Menu } from "lucide-react";
+import { usePaletteRaise } from "../../hooks/usePaletteStack.tsx";
 import { useViewActions, useViewState } from "../../hooks/useView.tsx";
 import {
 	useWorkspaceActions,
@@ -46,6 +47,7 @@ function PendingItem({
 export function BurgerMenu() {
 	const { palettes, hidden } = useWorkspaceState();
 	const { setOpen, toggleHidden, reset } = useWorkspaceActions();
+	const raise = usePaletteRaise();
 	const { name: worldName, busy } = useWorldState();
 	const world = useWorldActions();
 	const { shading, layers } = useViewState();
@@ -118,7 +120,13 @@ export function BurgerMenu() {
 					<DropdownMenuCheckboxItem
 						key={id}
 						checked={palettes[id].open}
-						onCheckedChange={(open) => setOpen(id, open)}
+						// Opening RAISES, unconditionally — re-ticking a box for a palette that
+						// is open but buried is a summon too, and it has no transition for the
+						// layer's safety net to catch.
+						onCheckedChange={(open) => {
+							setOpen(id, open);
+							if (open) raise(id);
+						}}
 					>
 						{PALETTES[id].title} palette
 					</DropdownMenuCheckboxItem>

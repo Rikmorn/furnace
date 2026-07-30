@@ -99,7 +99,10 @@ const samePlaced = (
 		);
 	});
 
-const sameEntities = (a: FieldEntityInfo[], b: FieldEntityInfo[]): boolean =>
+const sameEntities = (
+	a: readonly FieldEntityInfo[],
+	b: readonly FieldEntityInfo[],
+): boolean =>
 	a.length === b.length &&
 	a.every((e, i) => {
 		const o = b[i];
@@ -156,7 +159,7 @@ export type FieldHostState = {
  *  context because they are one concern (what has been stamped, and what the last
  *  re-stamp disturbed) read by one surface, the entities palette. */
 export type FieldEntitiesState = {
-	entities: FieldEntityInfo[];
+	entities: readonly FieldEntityInfo[];
 	/** null = clean / none. The report is HOST state: dismiss goes through the host. */
 	drift: DriftFinding[] | null;
 };
@@ -240,7 +243,7 @@ export function FieldHostStateProvider({
 	const [stats, setStats] = useState<FieldStats | null>(null);
 	const [toolErrorTick, setToolErrorTick] = useState(0);
 	const [pose, setPose] = useState<CameraPose>({ yaw: 0, pitch: 0 });
-	const [entities, setEntities] = useState<FieldEntityInfo[]>([]);
+	const [entities, setEntities] = useState<readonly FieldEntityInfo[]>([]);
 	const [drift, setDrift] = useState<DriftFinding[] | null>(null);
 
 	useEffect(() => {
@@ -289,10 +292,12 @@ export function FieldHostStateProvider({
 	// call hands back fresh clones — so identity alone says nothing).
 	const refreshEntities = useCallback((): void => {
 		if (!host) return;
-		setEntities((prev) => {
-			const next = host.listEntities();
-			return sameEntities(prev, next) ? prev : next;
-		});
+		// READ outside the updater. A state updater must be a pure function of `prev` —
+		// React may call it twice (StrictMode) or replay it, and `listEntities()` walks the
+		// whole op log to attribute placements. Latent rather than broken today, but the
+		// failure it invites is a double log walk per tick on a long world.
+		const next = host.listEntities();
+		setEntities((prev) => (sameEntities(prev, next) ? prev : next));
 	}, [host]);
 
 	useEffect(() => {
@@ -302,8 +307,14 @@ export function FieldHostStateProvider({
 
 	// The reconfigure drift report. subscribeDrift pushes clones plus the current report
 	// on subscribe (a palette re-opened after an apply keeps its findings); dismiss,
-	// reset and load all push null through the same seam, so setDrift is the whole
-	// mirror — no comparator, because the host pushes only when the report changed.
+	// reset and load all push null through the same seam, so setDrift is the whole mirror.
+	//
+	// No comparator, and NOT because the host only pushes on change — it does not:
+	// `dismissDrift` on an already-clean report and every `loadWorld` push null
+	// regardless. It needs none because those redundant pushes are all null, and
+	// `setDrift(null)` against a null state is a no-op React bails out of by identity.
+	// A redundant push of a non-null report cannot happen (only an apply that LANDED
+	// produces one), which is what makes this safe rather than lucky.
 	useEffect(() => {
 		if (!engineReady || !host) return;
 		return host.subscribeDrift(setDrift);

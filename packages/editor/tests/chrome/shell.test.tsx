@@ -1350,6 +1350,80 @@ test("summoning a palette raises it, even after another was clicked", async () =
 	expect(zOf(logPalette())).toBeGreaterThan(zOf(entitiesPalette()));
 });
 
+// The occlusion hole, and the reason the depth term is not cosmetic. Being READ is what
+// takes the ⚠ chip down, and "rendering" is not "readable": a log buried under the
+// palette it shares a default corner with marked every arriving error read behind an
+// opaque box, so the chip never lit again and the editor silently stopped reporting
+// failures. Strictly worse than the stacking glitch it looks like — the notification
+// channel is what tells the user anything went wrong at all.
+test("a log BURIED under another palette does not mark arriving errors read", async () => {
+	fetch404();
+	const stub = makeStubHost();
+	await renderShell(stub);
+	// Summon the log (this raises it, and marks what is already there read)…
+	act(() => {
+		stub.fire.toolError("first");
+	});
+	act(() => {
+		fireEvent.click(screen.getByLabelText(/unread error/));
+	});
+	expect(screen.queryByLabelText(/unread error/)).toBeNull();
+
+	// …then bury it under the palette parked in the same corner.
+	act(() => {
+		fireEvent.pointerDown(
+			within(entitiesPalette() as HTMLElement).getByText("Entities (0)"),
+			{ button: 0, pointerId: 1 },
+		);
+	});
+
+	// The log is still `open`, still un-collapsed, still un-latched, still RENDERING —
+	// every term the probe had before this fix — and the user cannot read a word of it.
+	act(() => {
+		stub.fire.toolError("second");
+	});
+	expect(
+		screen.getByLabelText("1 unread error — open the message log"),
+	).toBeTruthy();
+
+	// Self-healing, which is what makes the under-marking direction acceptable: clicking
+	// the log raises it, and the chip stands down.
+	act(() => {
+		fireEvent.pointerDown(
+			within(logPalette() as HTMLElement).getByText("second"),
+			{ button: 0, pointerId: 2 },
+		);
+	});
+	expect(screen.queryByLabelText(/unread error/)).toBeNull();
+});
+
+test("summoning a log that is already open but buried brings it back to the front", async () => {
+	fetch404();
+	const stub = makeStubHost();
+	await renderShell(stub, fakeUiStore({ workspace: LOG_OPEN }));
+	const zOf = (el: Element | null): number =>
+		el instanceof HTMLElement ? Number(el.style.zIndex) : Number.NaN;
+	// Bury the (already open) log.
+	act(() => {
+		fireEvent.pointerDown(
+			within(entitiesPalette() as HTMLElement).getByText("Entities (0)"),
+			{ button: 0, pointerId: 1 },
+		);
+	});
+	expect(zOf(logPalette())).toBeLessThan(zOf(entitiesPalette()));
+
+	// There is NO open transition here — the log never closed — so a raise that only
+	// rode false→true would leave this chip clicking into the void, on a palette that is
+	// already `open: true` and therefore already "summoned" as far as the store knows.
+	act(() => {
+		stub.fire.toolError("buried");
+	});
+	act(() => {
+		fireEvent.click(screen.getByLabelText(/unread error/));
+	});
+	expect(zOf(logPalette())).toBeGreaterThan(zOf(entitiesPalette()));
+});
+
 test("the collapsed-chip rail sits clear of the docked palette it used to cover", async () => {
 	fetch404();
 	const stub = makeStubHost();

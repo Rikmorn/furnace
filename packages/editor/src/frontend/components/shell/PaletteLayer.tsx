@@ -10,7 +10,11 @@
 import type { LucideIcon } from "lucide-react";
 import { Boxes, ScrollText, SlidersHorizontal } from "lucide-react";
 import type { ReactNode } from "react";
-import { useCallback, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useLayoutEffect, useRef } from "react";
+import {
+	usePaletteOrder,
+	usePaletteRaise,
+} from "../../hooks/usePaletteStack.tsx";
 import {
 	useWorkspaceActions,
 	useWorkspaceState,
@@ -53,6 +57,8 @@ export function PaletteLayer({
 }) {
 	const { palettes, hidden } = useWorkspaceState();
 	const actions = useWorkspaceActions();
+	const order = usePaletteOrder();
+	const raise = usePaletteRaise();
 	const layerRef = useRef<HTMLDivElement | null>(null);
 	const chipRefs = useRef<Partial<Record<PaletteId, HTMLButtonElement | null>>>(
 		{},
@@ -67,44 +73,28 @@ export function PaletteLayer({
 	const focusAfter = useRef<{ id: PaletteId; to: "chip" | "collapse" } | null>(
 		null,
 	);
-	// Click-to-front, back to front. SESSION-LOCAL on purpose, and the line is worth
-	// drawing: D-3 persists geometry, collapse and open because those are arrangement
-	// DECISIONS the user made; which palette they touched last is an accident of the
-	// final minute of a session, and restoring it would restore an accident. It also
-	// stays out of the pure store for the same reason — nothing here reaches the disk.
-	const [stack, setStack] = useState<readonly PaletteId[]>(PALETTE_IDS);
-
-	const raise = useCallback((id: PaletteId): void => {
-		setStack((prev) =>
-			// Identity return when it is already on top: a pointerdown fires on every
-			// click inside a palette, and re-rendering the whole layer per click (which
-			// rebuilds nothing, but re-runs every palette's placement) is a cost with no
-			// outcome.
-			prev[prev.length - 1] === id
-				? prev
-				: [...prev.filter((p) => p !== id), id],
-		);
-	}, []);
-
 	// Which palettes were open on the previous render, so OPENING one can raise it.
-	// `null` until the first pass, which deliberately raises nothing: the initial stack
-	// is already PALETTE_IDS order, and a restore that arrives late (the store lands
-	// after `project.get`) must not be read as the user summoning three palettes.
 	const wasOpen = useRef<readonly PaletteId[] | null>(null);
 
-	// THE SUMMON GUARANTEE. A palette that is opened comes to the front — every path,
-	// because this watches the STATE rather than any one caller: the ⚠ chip, the View
-	// menu's checkboxes, and anything added later all go through `setOpen`.
+	// THE SUMMON GUARANTEE, safety-net half. The summon SITES raise explicitly (the ⚠
+	// chip, the burger's View group), because they must also cover the case this effect
+	// cannot see: a palette that is ALREADY open and merely buried, where there is no
+	// false→true transition to catch. This effect is what makes the rule hold for openers
+	// that do not know about `raise` at all — Reset Workspace re-opening a closed palette
+	// today, and whatever is added later.
 	//
-	// Without it "summoned" and "visible" come apart, and the case is not hypothetical:
-	// the log's default geometry is the entities palette's default geometry ({24,24} —
-	// they share the corner on purpose), so a ⚠ chip clicked after ANY click on the
-	// entities palette would open the log underneath it. Initial PALETTE_IDS order hides
-	// this until the first raise, which is the worst kind of guarantee: one that holds in
-	// every fresh session and lapses in every used one.
+	// The first pass raises nothing (`wasOpen` starts null) so the initial mount is not
+	// read as three simultaneous summons. To be precise about what that does and does NOT
+	// protect: the workspace RESTORE lands in a passive effect, which runs AFTER this
+	// layout effect, so a restore IS seen here as a transition. It is harmless only
+	// because `log` is the sole palette whose default is closed and is also last in
+	// PALETTE_IDS — so a restore that opens it raises it to where it already was, and the
+	// idempotent bail makes it a no-op. That is a property of today's defaults, not a
+	// guarantee; if a second palette ever ships closed, this needs a `touched`-style ref
+	// to tell a restore from a summon.
 	//
-	// A layout effect, not a plain one — this settles the stack BEFORE the browser
-	// paints, so a summoned palette never flashes at the wrong depth on its first frame.
+	// A layout effect, not a plain one — the stack settles BEFORE the browser paints, so a
+	// summoned palette never flashes at the wrong depth on its first frame.
 	useLayoutEffect(() => {
 		const open = PALETTE_IDS.filter((id) => palettes[id].open);
 		const prev = wasOpen.current;
@@ -174,7 +164,7 @@ export function PaletteLayer({
 						title={PALETTES[id].title}
 						geom={palettes[id]}
 						widthClass={PALETTE_CHROME[id].widthClass}
-						zIndex={stack.indexOf(id) + 1}
+						zIndex={order.indexOf(id) + 1}
 						measureBounds={measureBounds}
 						onMove={(pos, bounds) => actions.move(id, pos, bounds)}
 						onRaise={() => raise(id)}
@@ -199,12 +189,15 @@ export function PaletteLayer({
 				// three: controls docks right, entities floats top-left, the triad owns
 				// top-right. Bottom-left is the one strip nothing defaults into.
 				//
-				// It is a DEFAULT-arrangement guarantee, not an invariant: a user who drags a
-				// palette down here, or grows the entities list to the full height of the
-				// cell, can still cover the rail. The complete fix is the mock's — reserve a
-				// 34 px gutter that no palette may occupy, which costs the gutter even when
-				// nothing is collapsed. Not worth it while chips are rare and every palette
-				// is also reachable from the View menu.
+				// What is left is an OCCUPANCY problem, and it runs the other way round from
+				// the one this corner move fixed: the rail out-stacks every palette (see the
+				// z-index below), so nothing can bury a chip — but a palette dragged into
+				// this corner ends up with the chips sitting ON TOP of its content, and the
+				// rail is `pointer-events-none` except on the chips themselves, so what the
+				// user loses is 34 px of READING, not of clicking. The complete fix is the
+				// mock's: reserve a 34 px gutter no palette may occupy, which costs the
+				// gutter even when nothing is collapsed. Not worth it while chips are rare
+				// and transient.
 				<div
 					// ABOVE every palette. It used to win by DOM order alone; now that the
 					// palettes carry a click-to-front z-index, "last in the layer" is no

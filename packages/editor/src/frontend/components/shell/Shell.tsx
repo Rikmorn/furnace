@@ -17,6 +17,7 @@ import type { FieldHost } from "../../../viewport-host/index.ts"; // type-only: 
 import { CatalogProvider } from "../../hooks/useCatalogs.tsx";
 import { FieldHostStateProvider } from "../../hooks/useFieldHostState.tsx";
 import { useGlobalKeybindings } from "../../hooks/useGlobalKeybindings.ts";
+import { PaletteStackProvider } from "../../hooks/usePaletteStack.tsx";
 import { useViewState, ViewProvider } from "../../hooks/useView.tsx";
 import {
 	useWorkspaceActions,
@@ -42,7 +43,13 @@ export function Shell() {
 	const { store } = useEditor();
 	return (
 		<WorkspaceProvider store={store}>
-			<ShellFrame />
+			{/* Front-to-back order, session-local and NOT part of the arrangement (see its
+          header). It wraps the whole frame rather than living in the palette layer
+          because the two surfaces that OPEN a palette — the status bar's ⚠ chip and the
+          burger's View group — are the layer's siblings, not its children. */}
+			<PaletteStackProvider>
+				<ShellFrame />
+			</PaletteStackProvider>
 		</WorkspaceProvider>
 	);
 }

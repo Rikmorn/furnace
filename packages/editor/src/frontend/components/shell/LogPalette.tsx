@@ -7,13 +7,15 @@
 // is summoned from the status bar's ⚠ chip or the View menu.
 //
 // Being a palette is also the trap this file has to handle: a palette body stays
-// MOUNTED while it is invisible (collapsed behind the `hidden` attribute, and the whole
-// layer likewise under the ⌘\ latch), so "this component is rendering" does NOT mean
-// "the user can read this". See VisibilityProbe.
+// MOUNTED while it is invisible (collapsed behind the `hidden` attribute, the whole layer
+// likewise under the ⌘\ latch, or simply BURIED under another palette), so "this
+// component is rendering" does NOT mean "the user can read this" — and being read is what
+// clears the ⚠ chip. See VisibilityProbe.
 
 import type { LucideIcon } from "lucide-react";
 import { CircleAlert, CircleCheck, Info } from "lucide-react";
 import { useEffect, useState, useSyncExternalStore } from "react";
+import { usePaletteOrder } from "../../hooks/usePaletteStack.tsx";
 import { useWorkspaceState } from "../../hooks/useWorkspace.tsx";
 import { cn } from "../../lib/cn.ts";
 import { relTime } from "../../lib/humanize.ts";
@@ -22,6 +24,7 @@ import {
 	type NotifySeverity,
 	notify,
 } from "../../lib/notify-store.ts";
+import { PALETTE_IDS } from "../../lib/palette-store.ts";
 import { Button } from "../ui/button.tsx";
 
 /** The severity dot + its tone. Same reasoning as the toast: an ICON rather than a bare
@@ -65,10 +68,25 @@ function Row({ message, now }: { message: NotifyMessage; now: number }) {
  *
  *  This distinction is the whole point of the component. A palette body keeps RENDERING
  *  while it is invisible — rolled up to its rail chip it hides behind the `hidden`
- *  attribute (so its state survives the round trip), and the ⌘\ latch does the same to
- *  the entire layer. So "I am rendering" is not "the user can read me", and two
- *  behaviours below depend on the difference: marking messages read, and ticking the
- *  clock that keeps their timestamps honest.
+ *  attribute (so its state survives the round trip), the ⌘\ latch does the same to the
+ *  entire layer, and — the fourth way, and the one that cost real signal — it can simply
+ *  be BURIED under another palette. So "I am rendering" is not "the user can read me",
+ *  and two behaviours below depend on the difference: marking messages read, and ticking
+ *  the clock that keeps their timestamps honest.
+ *
+ *  The depth term is not symmetry with the other three. Without it: summon the log, click
+ *  the entities palette it shares a default corner with, and every refusal from then on
+ *  is marked READ behind an opaque box — the ⚠ chip never lights again, and the editor
+ *  silently stops reporting failures. That is strictly worse than the stacking glitch it
+ *  looks like, because the notification channel is what tells the user anything went
+ *  wrong at all.
+ *
+ *  The error direction is chosen, and it is the safe one. This UNDER-marks: a log that is
+ *  visible but not topmost (peeking out beside the palette over it, perfectly readable)
+ *  keeps its messages unread and leaves the chip lit. That resolves itself the moment the
+ *  user clicks the log — which raises it — and a chip that lingers one click too long is
+ *  a far cheaper failure than one that goes dark over errors nobody saw. Unread is never
+ *  silently marked read.
  *
  *  Its OWN component, rather than a `useWorkspaceState` call in the palette below,
  *  because that hook re-renders its consumer on every drag frame (see useWorkspace's
@@ -81,8 +99,23 @@ function VisibilityProbe({
 	onChange: (visible: boolean) => void;
 }) {
 	const { palettes, hidden } = useWorkspaceState();
+	const order = usePaletteOrder();
 	const geom = palettes.log;
-	const visible = !hidden && geom.open && !geom.collapsed;
+	// Everything that could be DRAWN OVER the log: open, not rolled up to a chip, and
+	// free-floating rather than welded to an edge (a docked palette is somewhere the log
+	// is not). The log's own default corner is the entities palette's, so this set is
+	// non-empty in the shipped arrangement — which is the whole reason the term exists.
+	const occluders = PALETTE_IDS.filter(
+		(id) =>
+			id !== "log" &&
+			palettes[id].open &&
+			!palettes[id].collapsed &&
+			palettes[id].edge === null,
+	);
+	const topmost = occluders.every(
+		(id) => order.indexOf(id) < order.indexOf("log"),
+	);
+	const visible = !hidden && geom.open && !geom.collapsed && topmost;
 	useEffect(() => {
 		onChange(visible);
 	}, [visible, onChange]);

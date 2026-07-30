@@ -51,10 +51,13 @@ export const PALETTES: Record<
     // rarely wanted at the same moment as the entity list, and a summon that lands
     // somewhere visible beats one tucked into whatever corner is still free.
     //
-    // Sharing the corner is only safe BECAUSE opening a palette raises it — PaletteLayer
-    // watches the open transition, not just pointerdowns, so the ⚠ chip and the View
-    // menu both put the log in front of whatever is parked there. Dragging either aside
-    // is the answer for a user who wants both at once.
+    // Sharing the corner rests on TWO mechanisms, and it is worth naming both because
+    // either one alone leaves a hole. (1) Every summon raises: the ⚠ chip and the View
+    // menu call `raise` unconditionally — not merely on the open transition, because the
+    // log is very often already open and just buried. (2) The log only marks messages
+    // READ while it is topmost (LogPalette's VisibilityProbe), so a log that ends up
+    // under this palette anyway keeps the ⚠ chip lit instead of swallowing the errors
+    // behind it. Dragging either aside is the answer for a user who wants both at once.
     default: { x: 24, y: 24, edge: null, collapsed: false, open: false },
   },
 };

@@ -47,14 +47,14 @@ type Drag = {
  *  max-height is what makes a tall palette scroll inside the cell instead of running
  *  under the status bar.
  *
- *  `zIndex` is the layer's click-to-front order, NOT geometry — it is deliberately not
- *  part of the persisted record (see PaletteLayer). It resolves inside the layer's own
- *  stacking context (`isolate`), so no palette can ever paint over the toasts. */
-function placement(geom: PaletteState, zIndex: number): CSSProperties {
+ *  GEOMETRY ONLY. The click-to-front z-index is merged in at the call site rather than
+ *  threaded through here: it is not part of the stored record and never will be (see
+ *  usePaletteStack), so a function whose whole job is "stored geometry → CSS box" has no
+ *  business taking it. */
+function placement(geom: PaletteState): CSSProperties {
 	const box: CSSProperties = {
 		top: geom.y,
 		maxHeight: `calc(100% - ${geom.y}px)`,
-		zIndex,
 	};
 	if (geom.edge === "right") return { ...box, right: 0 };
 	if (geom.edge === "left") return { ...box, left: 0 };
@@ -166,7 +166,9 @@ export function Palette({
 			// document can drop its pointer capture, and the header's own gesture starts on
 			// this very event.
 			onPointerDown={onRaise}
-			style={placement(geom, zIndex)}
+			// Session-local depth over stored geometry. It resolves inside the layer's own
+			// stacking context (`isolate`), so no palette can paint over the toasts.
+			style={{ ...placement(geom), zIndex }}
 			className={cn(
 				// pointer-events-auto against the layer's -none: the layer covers the whole
 				// canvas, so only the palettes themselves may take pointer input.
