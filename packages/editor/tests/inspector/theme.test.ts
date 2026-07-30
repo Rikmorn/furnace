@@ -1,7 +1,7 @@
 // resolveCssColor is the ONE token→engine-colour bridge (the M5B selection accent +
-// viewport clear). These pins lock its two
-// load-bearing behaviours: it reads sRGB bytes back from a 1×1 canvas 2D context,
-// and it returns the caller's fallback when resolution is impossible.
+// viewport clear). These pins lock its two load-bearing behaviours: it reads sRGB
+// bytes back from a 1×1 canvas 2D context, and it returns the caller's fallback when
+// resolution is impossible.
 //
 // The real oklch→sRGB conversion is BROWSER-verified (canvas 2D in Safari/Chrome:
 // oklch(0.62 0.11 240) → rgb(62,142,193)); happy-dom has no 2D raster, so these

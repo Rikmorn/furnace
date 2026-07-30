@@ -11,9 +11,13 @@
 // flags (`setLayers` is edge-sensitive for `voidCast`) and a slider drag never re-sends
 // the shading mode.
 //
-// Split into STATE and ACTIONS contexts, the useWorkspace/useWorld pattern: the actions
-// are stable for the provider's lifetime, so a consumer that only writes never re-renders
-// when the values change.
+// Split into STATE and ACTIONS contexts, the useWorkspace/useWorld pattern — and honest
+// about who benefits TODAY: nobody. Both of this provider's chrome consumers (the View
+// popover, the burger's View group) read state AND actions, because a control that writes
+// a toggle has to show it. The split is here for the shape, not for a saved render, and
+// the one place a view change is genuinely expensive to propagate is handled elsewhere:
+// Shell keeps ShellChrome off the STATE context with a `FieldCanvas` wrapper, documented
+// there. Delete this split rather than defend it if F4.5b's consumers arrive read-only.
 import type { ReactNode } from "react";
 import {
 	createContext,
@@ -118,7 +122,14 @@ const defaultView = (): ViewState => ({
  *  mean disposing and re-initing the GPU context moments after the first one came up
  *  (the store arrives late, off an async project.get), i.e. a visible teardown on every
  *  cold start to honour a switch the user last touched days ago. AA is a session choice
- *  until that ordering is worth solving. */
+ *  until that ordering is worth solving.
+ *
+ *  `slice` is ASYMMETRIC and knowingly so: `{ enabled: false, y: 12 }` persists as `null`,
+ *  so a depth the user chose survives them toggling the plane off and on again WITHIN a
+ *  session but not across a restart — the next run re-parks at `SLICE_DEFAULT_Y`. Storing
+ *  the parked depth would mean a second field (`slice` + `sliceY`) whose only job is to
+ *  remember a number for a plane that is off, and the occupancy-seeded default
+ *  (D-F4.5-16, see SLICE_DEFAULT_Y) is going to overwrite that number anyway. */
 function serializeView(state: ViewState): UiState["view"] {
 	return {
 		shading: state.shading,

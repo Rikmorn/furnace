@@ -1152,9 +1152,21 @@ test("the axis triad rides the camera pose, over the canvas and out of its way",
 	// (D-1), and it must not eat the orbit drags that happen in the corner it sits in.
 	const box = triad.parentElement;
 	if (!(box instanceof HTMLElement)) throw new Error("triad has no box");
-	expect(box.parentElement).toBe(canvas.parentElement);
+	const cell = canvas.parentElement;
+	if (!(cell instanceof HTMLElement)) throw new Error("canvas has no cell");
+	expect(box.parentElement).toBe(cell);
 	for (const cls of ["absolute", "pointer-events-none"])
 		expect(box.classList.contains(cls)).toBe(true);
+
+	// AFTER the palette layer in DOM order, which is the difference between an
+	// overlay and a hidden one: the DEFAULT arrangement docks the controls palette to
+	// the right edge at top 0, i.e. over exactly the corner the triad occupies. Mounted
+	// before the layer, it ships invisible in the out-of-the-box workspace — and no
+	// other case here would notice.
+	const layer = controlsPalette()?.parentElement;
+	if (!(layer instanceof HTMLElement)) throw new Error("palette layer missing");
+	const order = [...cell.children];
+	expect(order.indexOf(box)).toBeGreaterThan(order.indexOf(layer));
 
 	// It draws the pose the host pushes — the X cap moves when the camera turns. The
 	// axis line's own end point is the assertion: a triad that ignored the seam would

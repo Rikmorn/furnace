@@ -37,7 +37,7 @@ import type {
 } from "../src/frontend/lib/field-protocol.ts";
 import { createFieldWorkerHandler } from "../src/frontend/lib/field-protocol.ts";
 import { createFieldHost } from "../src/viewport-host/field-host.ts";
-import type { FieldStats } from "../src/viewport-host/index.ts";
+import type { FieldLayers, FieldStats } from "../src/viewport-host/index.ts";
 
 await ensureBunWebGpu();
 
@@ -45,8 +45,13 @@ await ensureBunWebGpu();
 // requests its context without `surfaceFormat: "linear"`, so `createView({ format:
 // "bgra8unorm-srgb" })` fails validation against the mock's canvas texture. It fails
 // ASYNCHRONOUSLY, as uncaptured device errors rather than a throw — which is why the
-// tick still returns and the stats push before it still happens. Muted so the expected
-// wall of device errors does not drown the suite (the analyzer fixture's precedent).
+// tick still returns and the stats push before it still happens.
+//
+// `setSink(null)` silences CORE's routing of those errors (the `uncaptured-error.gpu`
+// pattern), and that is ALL it silences: bun-webgpu prints its own `JS Device Error
+// Callback` wall from native code, which nothing here can suppress. So this run is noisy
+// either way — the mute keeps the duplicates out of core's log sink, where a test that
+// asserted on it would otherwise be reading this render's failures.
 beforeAll(() => setSink(null));
 afterAll(() => setSink(consoleSink));
 
@@ -76,14 +81,17 @@ function pocketChunk(): Uint8Array {
  *  side exactly as they would in a browser. */
 function handlerWorker() {
   const sent: FieldWorkerRequest[] = [];
+  /** Every request ever posted, by kind. `sent` is the QUEUE — `deliver()` drains it —
+   *  so counting "how many casts were asked for" needs a log that nothing splices. */
+  const posted: FieldWorkerRequest["kind"][] = [];
   const worker: WorkerLike = {
     onmessage: null,
     postMessage(msg, transfer) {
-      sent.push(
-        structuredClone(msg, {
-          transfer: transfer ?? [],
-        }) as FieldWorkerRequest,
-      );
+      const req = structuredClone(msg, {
+        transfer: transfer ?? [],
+      }) as FieldWorkerRequest;
+      posted.push(req.kind);
+      sent.push(req);
     },
     terminate() {
       // nothing to tear down: there is no thread
@@ -96,7 +104,7 @@ function handlerWorker() {
     });
     for (const req of queued) handle(req);
   };
-  return { worker, deliver };
+  return { worker, deliver, posted };
 }
 
 /** rAF/cAF do not exist in bun, and the host schedules its loop through them at the end
@@ -152,61 +160,133 @@ async function makeHostCanvas(): Promise<HTMLCanvasElement> {
   }) as unknown as HTMLCanvasElement;
 }
 
-test.skipIf(!bunWebGpuAvailable())(
-  "a re-init re-meshes the world the dispose tore down (the AA switch's real cost)",
-  async () => {
-    const restoreRo = installMockResizeObserver();
-    const raf = stubAnimationFrame();
-    const fake = handlerWorker();
-    const host = createFieldHost({ spawnWorker: () => fake.worker });
-    const canvas = await makeHostCanvas();
-    const stats: FieldStats[] = [];
-    host.subscribeStats((s) => stats.push(s));
-    const version = (): number => {
+/** All layers on, `voidCast` as asked for. The chrome's own default set, restated here
+ *  for the same reason the chrome restates it: nothing exports it. */
+const layers = (voidCast: boolean): FieldLayers => ({
+  field: true,
+  kit: true,
+  props: true,
+  ghost: true,
+  selection: true,
+  grid: true,
+  flags: true,
+  voidCast,
+});
+
+/** An initialized host over a one-chunk world, with the render loop in the test's hand
+ *  and the worker answering on demand. Callers own `teardown`. */
+async function fixture() {
+  const restoreRo = installMockResizeObserver();
+  const raf = stubAnimationFrame();
+  const fake = handlerWorker();
+  const host = createFieldHost({ spawnWorker: () => fake.worker });
+  const canvas = await makeHostCanvas();
+  const stats: FieldStats[] = [];
+  host.subscribeStats((s) => stats.push(s));
+  const errors: string[] = [];
+  host.subscribeToolError((m) => errors.push(m));
+  host.loadWorld({
+    manifest: MANIFEST,
+    chunks: [{ key: chunkKey(0, 0, 0), bytes: pocketChunk() }],
+    oplog: null,
+  });
+  await host.init(canvas);
+  return {
+    host,
+    canvas,
+    errors,
+    posted: fake.posted,
+    /** The last stats push's remesh counter. */
+    version: (): number => {
       const s = stats.at(-1);
       if (s === undefined) throw new Error("test: no stats were pushed");
       return s.remeshVersion;
-    };
+    },
     /** One frame, the worker's answer, and a second frame to carry the result into a
      *  stats push. */
-    const frameAndSettle = async (now: number): Promise<void> => {
+    frameAndSettle: async (now: number): Promise<void> => {
       raf.tick(now);
       fake.deliver();
       await flush();
       raf.tick(now + 16);
-    };
+    },
+    /** Let a response land without driving a frame (the cast needs no tick). */
+    settle: async (): Promise<void> => {
+      fake.deliver();
+      await flush();
+    },
+    teardown: () => {
+      host.dispose();
+      raf.restore();
+      restoreRo();
+    },
+  };
+}
 
-    host.loadWorld({
-      manifest: MANIFEST,
-      chunks: [{ key: chunkKey(0, 0, 0), bytes: pocketChunk() }],
-      oplog: null,
-    });
-    await host.init(canvas);
+test.skipIf(!bunWebGpuAvailable())(
+  "a re-init re-meshes the world the dispose tore down (the AA switch's real cost)",
+  async () => {
+    const f = await fixture();
     try {
       // The load's own dirty set drains on the first frames.
-      await frameAndSettle(16);
-      const meshed = version();
+      await f.frameAndSettle(16);
+      const meshed = f.version();
       expect(meshed).toBeGreaterThan(0);
 
       // …and then STAYS drained: an idle frame remeshes nothing. This is what makes the
       // assertion after the re-init mean something — without it, a counter that climbed
       // every frame regardless would pass either way.
-      await frameAndSettle(48);
-      expect(version()).toBe(meshed);
+      await f.frameAndSettle(48);
+      expect(f.version()).toBe(meshed);
 
       // The AA switch, exactly as CanvasHost performs it: same host, same canvas, new
       // sample count. The store, the log and the camera ride through; the meshes do not.
-      host.dispose();
-      await host.init(canvas, { sampleCount: 1 });
-      await frameAndSettle(80);
+      f.host.dispose();
+      await f.host.init(f.canvas, { sampleCount: 1 });
+      await f.frameAndSettle(80);
       // The world came back. Delete `init`'s re-mark of the store's chunks and this is
       // the line that fails — everything else about the round trip still passes, which
       // is precisely why it needs its own test.
-      expect(version()).toBeGreaterThan(meshed);
+      expect(f.version()).toBeGreaterThan(meshed);
     } finally {
-      host.dispose();
-      raf.restore();
-      restoreRo();
+      f.teardown();
+    }
+  },
+);
+
+test.skipIf(!bunWebGpuAvailable())(
+  "a re-init re-requests the void cast the layer is still asking for",
+  async () => {
+    const f = await fixture();
+    try {
+      f.host.setLayers(layers(true));
+      await f.settle();
+      const casts = (): number =>
+        f.posted.filter((k) => k === "void-cast").length;
+      expect(casts()).toBe(1);
+      // Scoped to the cast's own channel: this fixture installs no agent profile, so the
+      // advisor says it is idle on the same seam, and that notice is expected here.
+      const castErrors = (): string[] =>
+        f.errors.filter((m) => m.includes("cast"));
+      expect(castErrors()).toEqual([]);
+
+      // `dispose` destroys the cast meshes; the LAYER FLAG rides through, and setLayers
+      // only builds on the false→true edge — so without init's re-request the box stays
+      // ticked over an X-ray that is simply gone, which is the reading
+      // `invalidateVoidCast` refuses to ship.
+      f.host.dispose();
+      await f.host.init(f.canvas, { sampleCount: 1 });
+      expect(casts()).toBe(2);
+      // Re-REQUESTED, not complained about: no "re-toggle the void layer", no "still
+      // building" (the in-flight latch cleared with the job the dispose rejected), no
+      // "nothing to cast yet".
+      expect(castErrors()).toEqual([]);
+
+      // And the answer still lands — the cast is real, not a request into a void.
+      await f.settle();
+      expect(castErrors()).toEqual([]);
+    } finally {
+      f.teardown();
     }
   },
 );

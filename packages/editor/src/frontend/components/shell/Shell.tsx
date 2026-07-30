@@ -119,9 +119,6 @@ function ShellChrome({
 				{engineReady && host && (
 					<FieldCanvas host={host} onError={setViewportError} />
 				)}
-				{/* The orientation triad: a cell child like Toasts, absolutely placed over the
-            canvas, so it costs the viewport nothing (D-1). */}
-				{engineReady && <AxisTriadMount />}
 				{/* The palette bodies are built HERE so their elements survive the
             layer's own drag re-renders untouched (see PaletteLayer's `content`).
             MIGRATION (until F4.5b): the surviving control stack rides in one
@@ -129,6 +126,14 @@ function ShellChrome({
 				<PaletteLayer
 					content={{ controls: <FieldPanel />, log: <LogPalette /> }}
 				/>
+				{/* Above the palette layer in DOM order, the Toasts rule and for the same
+            reason with a sharper case: the DEFAULT arrangement docks the controls
+            palette to the right edge at top 0, which covers exactly the corner the
+            triad sits in — mounted before the layer it would ship invisible out of
+            the box. Gated on the host like the canvas, because a pose readout with
+            no camera behind it is a decoration. Its own absolute box inside the SAME
+            cell (D-1): it takes nothing from the canvas. */}
+				{engineReady && host && <AxisTriadMount />}
 				{/* Above the palette layer in DOM order, so a toast is never buried under
             a palette that happens to be parked bottom-right. Its own absolute box
             inside the SAME cell (D-1): it takes nothing from the canvas. */}

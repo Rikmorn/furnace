@@ -68,9 +68,12 @@ await ensureBunWebGpu();
 // `createView({ format: "bgra8unorm-srgb" })` fails validation against the mock's
 // canvas texture (the gpu-fixture header). It fails ASYNCHRONOUSLY, as uncaptured
 // device errors rather than a throw, which is why the tick still returns and the
-// stats push before it still happens. Muted so the expected wall of device errors
-// does not drown the suite — the `uncaptured-error.gpu.test.ts` pattern. Nothing
-// here asserts on core's log; the host's own tool-error channel is a subscriber.
+// stats push before it still happens. `setSink(null)` silences CORE's routing of those
+// errors (the `uncaptured-error.gpu.test.ts` pattern) and nothing else: bun-webgpu
+// prints its own `JS Device Error Callback` wall from native code, which no test-side
+// mute can reach, so this run is noisy either way. What the mute buys is a clean core
+// log — nothing here asserts on it, but a sink full of this render's failures is a trap
+// for whatever does next. The host's own tool-error channel has a subscriber below.
 beforeAll(() => setSink(null));
 afterAll(() => setSink(consoleSink));
 

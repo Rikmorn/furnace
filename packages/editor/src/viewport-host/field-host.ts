@@ -285,11 +285,15 @@ export type FieldHost = {
    *
    *  `sampleCount` is the scene pass's MSAA (default 4; `1` = off), and it is fixed for
    *  the context's life: changing it is a `dispose()` + `init()` on the same host, which
-   *  is exactly what the View popover's AA switch does. That round trip is cheap because
-   *  everything the editor cannot rebuild — the field store, the op log, the tool, the
-   *  camera, the selection — is CPU state that survives a dispose; only GPU objects are
-   *  torn down, and this re-marks every allocated chunk for re-meshing so the world the
-   *  user was looking at comes back. */
+   *  is exactly what the View popover's AA switch does. Everything the editor cannot
+   *  rebuild — the field store, the op log, the tool, the camera, the selection — is CPU
+   *  state that survives a dispose; only GPU objects are torn down, and `init` puts back
+   *  what depended on them: every allocated chunk is re-marked for re-meshing, and a
+   *  ticked void layer re-requests its cast.
+   *
+   *  ONE thing does not survive: a live stamp session dies with its ghost, announced
+   *  through {@link subscribeStamp} so the chrome sees it go. A round trip taken with a
+   *  stamp open therefore discards it. */
   init(
     canvas: HTMLCanvasElement,
     opts?: { sampleCount?: 1 | 4 },
@@ -2649,8 +2653,9 @@ export function createFieldHost(deps?: {
       );
       return;
     }
-    // Quiet: layer flags survive a dispose, so a re-init'd host must not fire a
-    // job it has nowhere to put — the user re-toggles.
+    // Quiet: layer flags survive a dispose, so a call that lands while there is no
+    // context must not fire a job it has nowhere to put. Nobody has to re-toggle to
+    // get it back — `init` re-requests the cast the flag still asks for.
     if (!ctx) return;
     // Snapshot BEFORE the latch, not as an argument after it: a throw while
     // building it (a detached store buffer — not reachable today, since nothing
@@ -4042,6 +4047,14 @@ export function createFieldHost(deps?: {
       // and `dirty` only ever holds chunks something EDITED. The paced drain
       // (REMESH_PER_FRAME) is what keeps the burst from stalling the first frames.
       for (const key of store.chunks.keys()) dirty.add(key);
+      // The X-ray's half of the same contract. `dispose` destroys the cast meshes
+      // but the LAYER FLAG rides through, and `setLayers` only builds on the
+      // false→true edge — so without this the box stays ticked over nothing, which
+      // is the exact reading `invalidateVoidCast` refuses to ship ("a silently
+      // vanishing X-ray beside a still-ticked checkbox would read as a bug").
+      // Re-requesting rather than reporting: the user asked for the X-ray and
+      // never withdrew it.
+      if (layers.voidCast) requestVoidCast();
       attachListeners(canvas);
       lastFrameT = 0;
       raf = requestAnimationFrame(tick);
@@ -4118,9 +4131,15 @@ export function createFieldHost(deps?: {
       flagMarkerBind = null;
       // Unlike the selection (CPU-only, survives dispose), the stamp session
       // dies with its GPU ghost: a "ready" session with no ghost after a
-      // re-init would promise a commit the user can no longer see. Silent (no
-      // notify) — a remounting panel gets null pushed on re-subscribe.
+      // re-init would promise a commit the user can no longer see.
+      //
+      // ANNOUNCED, not silent. The original reasoning — "a remounting panel gets
+      // null pushed on re-subscribe" — assumed every dispose came with a chrome
+      // remount, and the AA switch broke that: it disposes and re-inits under a
+      // panel that never unmounts, leaving the stamp inspector driving a session
+      // the host has already destroyed. The seam is how the panel finds out.
       stamp = null;
+      notifyStamp();
       unbindCamera = null;
       cam = null;
       ctx = null;
@@ -4485,7 +4504,9 @@ export function createFieldHost(deps?: {
         ...orbitState,
         target: [(minX + maxX) / 2, (minY + maxY) / 2, (minZ + maxZ) / 2],
       };
-      applyOrbit(); // no-op before init (guards on cam); target still moved
+      // Before init this moves the target and publishes the pose, and writes no
+      // camera — applyOrbit guards on `cam`, and there is none yet.
+      applyOrbit();
     },
     subscribeEntities(cb) {
       entitiesCb = cb;

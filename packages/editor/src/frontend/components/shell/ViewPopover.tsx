@@ -7,16 +7,26 @@
 // every host push, so this file decides only what the controls look like and which verb
 // each one calls.
 //
-// Two labelled groups, because they are two kinds of control wearing the same widget.
-// The seven under "layers" are free display gates over state that already exists —
-// `flags` included: the advisor analyses whether or not its markers are drawn, so hiding
-// them costs nothing and starts nothing. The three under "view" each COST something:
-// ticking void runs a whole-world cast job that can refuse (chunk budget) and that the
-// next edit throws away, the slice re-meshes every chunk through a new clip plane, and AA
-// disposes and rebuilds the GPU context. Blender draws the same line — outliner
-// visibility columns are one thing, the X-ray overlay toggle is another — and the group
-// label is what makes it visible here, since one more identical checkbox in a flat row
-// would read as one more free gate.
+// Three labelled groups plus a lone switch, because they are different kinds of control
+// wearing the same widget. The seven under "layers" are free display gates over state
+// that already exists — `flags` included: the advisor analyses whether or not its markers
+// are drawn, so hiding them costs nothing and starts nothing. The two under "overlays"
+// each COST something: ticking void runs a whole-world cast job that can refuse (chunk
+// budget) and that the next edit throws away, and the slice re-meshes every chunk through
+// a new clip plane. Blender draws the same line — outliner visibility columns are one
+// thing, the X-ray overlay toggle is another — and the group label is what makes it
+// visible here, since one more identical checkbox in a flat row would read as one more
+// free gate.
+//
+// Antialiasing stands ALONE at the bottom, under no group, because it is the one control
+// here that is not about the scene at all: it changes how the picture is drawn, and it
+// pays for it with a GPU context rebuild. (It also has nowhere honest to sit — an
+// "overlay" it is not.)
+//
+// Every group's aria-label is its visible label, verbatim. They diverged once ("layers"
+// over `aria-label="layer visibility"`) and a divergence is a screen reader and a screen
+// disagreeing about what a thing is called. And none of them is called "view": inside a
+// popover already named View, a group by that name says nothing.
 import type {
 	FieldHostShading,
 	FieldLayers,
@@ -31,7 +41,7 @@ const SLICE_TITLE =
 	"cut the world at a height: everything at or above the plane reads as air, for display AND for what the brush targets";
 
 const AA_TITLE =
-	"multisampling on the viewport pass. Turning it off rebuilds the GPU context — the world and your edits survive, the picture blinks";
+	"multisampling on the viewport pass. Changing it rebuilds the GPU context: the world, your edits and the camera survive, the picture blinks — but a stamp you have not committed is discarded";
 
 // The exclusion above, made machine-checked: putting `voidCast` in the group stops
 // compiling rather than quietly shipping an expensive toggle dressed as a free one (and
@@ -128,7 +138,7 @@ export function ViewPopover() {
 					))}
 				</div>
 				{/* biome-ignore lint/a11y/useSemanticElements: role="group" is the intended ARIA grouping for this control set; a native <fieldset>/<legend> would force the boxed-card look this flat UI deliberately avoids */}
-				<div className={GROUP_CLASS} role="group" aria-label="layer visibility">
+				<div className={GROUP_CLASS} role="group" aria-label="layers">
 					<span className={GROUP_LABEL_CLASS}>layers</span>
 					{LAYERS.map((layer) => (
 						<label
@@ -146,8 +156,8 @@ export function ViewPopover() {
 					))}
 				</div>
 				{/* biome-ignore lint/a11y/useSemanticElements: role="group" is the intended ARIA grouping for this control set; a native <fieldset>/<legend> would force the boxed-card look this flat UI deliberately avoids */}
-				<div className={GROUP_CLASS} role="group" aria-label="view modes">
-					<span className={GROUP_LABEL_CLASS}>view</span>
+				<div className={GROUP_CLASS} role="group" aria-label="overlays">
+					<span className={GROUP_LABEL_CLASS}>overlays</span>
 					<label className={LABEL_CLASS} title={VOID_CAST_TITLE}>
 						<input
 							type="checkbox"
@@ -190,16 +200,18 @@ export function ViewPopover() {
 							{slice.y.toFixed(2)} m
 						</span>
 					</label>
-					<label className={LABEL_CLASS} title={AA_TITLE}>
-						<input
-							type="checkbox"
-							checked={sampleCount === 4}
-							onChange={(e) => view.setSampleCount(e.target.checked ? 4 : 1)}
-							aria-label="antialiasing"
-						/>
-						antialiasing
-					</label>
 				</div>
+				<label
+					className={`${LABEL_CLASS} border-border border-t pt-3`}
+					title={AA_TITLE}
+				>
+					<input
+						type="checkbox"
+						checked={sampleCount === 4}
+						onChange={(e) => view.setSampleCount(e.target.checked ? 4 : 1)}
+					/>
+					antialiasing
+				</label>
 			</PopoverContent>
 		</Popover>
 	);

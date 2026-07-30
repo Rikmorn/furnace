@@ -765,6 +765,41 @@ test("openEntity seeds a reconfigure session from provenance; applyReconfigure r
   }
 });
 
+test("a dispose ANNOUNCES the session it destroys (the AA switch disposes under a live panel)", async () => {
+  const uninstall = installFakeWorker();
+  try {
+    const host = createFieldHost();
+    const { entityId } = loadCommittedHall(host);
+    const sessions: (StampSession | null)[] = [];
+    host.subscribeStamp((s) => sessions.push(s));
+
+    host.openEntity(entityId);
+    await settle();
+    expect(sessions.at(-1)?.phase).toBe("ready");
+
+    // The session dies with its ghost — but the panel is NOT necessarily remounting
+    // around it. F4.5a's AA switch disposes and re-inits the host under chrome that
+    // never unmounts, so a silent drop leaves the stamp inspector driving a session
+    // the host has already destroyed: a live Apply over nothing.
+    //
+    // `cancelAnimationFrame` is the first line of `dispose` and does not exist in bun
+    // (this host never inited, so nothing scheduled a frame either). Stubbed for the
+    // call and restored after — a browser always has it, so this is an environment
+    // gap, not a contract one.
+    const g = globalThis as unknown as Record<string, unknown>;
+    const hadCaf = "cancelAnimationFrame" in g;
+    g["cancelAnimationFrame"] = () => undefined;
+    try {
+      host.dispose();
+    } finally {
+      if (!hadCaf) delete g["cancelAnimationFrame"];
+    }
+    expect(sessions.at(-1)).toBeNull();
+  } finally {
+    uninstall();
+  }
+});
+
 test("openEntity refuses a frozen entity — no session, an explained tool error", async () => {
   const uninstall = installFakeWorker();
   try {
