@@ -107,14 +107,22 @@ const SHADING_MODES: {
 	},
 ];
 
-export function ViewPopover() {
+export function ViewPopover({
+	open,
+	onOpenChange,
+}: {
+	/** Controlled by the top bar, because the burger's "View options…" item opens this
+	 *  same popover — one surface, two doors. */
+	open: boolean;
+	onOpenChange: (open: boolean) => void;
+}) {
 	const { shading, layers, slice, sampleCount } = useViewState();
 	const view = useViewActions();
 	const setLayer = (layer: keyof FieldLayers, on: boolean): void =>
 		view.setLayers({ ...layers, [layer]: on });
 
 	return (
-		<Popover>
+		<Popover open={open} onOpenChange={onOpenChange}>
 			<PopoverTrigger
 				aria-label="view options"
 				className="flex h-7 items-center gap-1.5 rounded-sm px-2 text-muted-foreground text-xs outline-none hover:bg-accent hover:text-accent-foreground focus-visible:ring-1 focus-visible:ring-ring"

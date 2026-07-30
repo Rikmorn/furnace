@@ -47,6 +47,7 @@ function statsEqual(a: FieldStats, b: FieldStats): boolean {
 		liveGenerators,
 		compactableOps,
 		undoDepth,
+		redoDepth,
 		lastReconfigureMs,
 		analyzerPending,
 		...rest
@@ -60,6 +61,7 @@ function statsEqual(a: FieldStats, b: FieldStats): boolean {
 		liveGenerators === b.liveGenerators &&
 		compactableOps === b.compactableOps &&
 		undoDepth === b.undoDepth &&
+		redoDepth === b.redoDepth &&
 		lastReconfigureMs === b.lastReconfigureMs &&
 		analyzerPending === b.analyzerPending
 	);

@@ -397,6 +397,68 @@ test("Make default confirms, naming worlds/index.json, before anything is rewrit
 	expect(daemon.inputFor("world.makeDefault")).toEqual({ name: "cavern" });
 });
 
+test("the burger's Make default points the game at the OPEN world, without writing over it", async () => {
+	const daemon = stubDaemon([]);
+	const stub = makeStubHost();
+	let request: ConfirmRequest | null = null;
+	await renderTopBar(stub, {
+		openConfirm: (r) => {
+			request = r;
+		},
+	});
+
+	// Untitled: there is no directory for the game to load, so the item carries the reason
+	// IN its label — a disabled item swallows the tooltip that would otherwise say it
+	// (the Bake precedent, one row above it).
+	const untitled = await burgerItem("Make default — name the world first");
+	expect(untitled.getAttribute("aria-disabled")).toBe("true");
+	act(() => {
+		fireEvent.keyDown(document.activeElement ?? document.body, {
+			key: "Escape",
+		});
+	});
+
+	// Name it the way a user does, then use the menu item rather than the drawer row: the
+	// world already open is exactly the case that otherwise costs a trip through the list.
+	const drawer = await openDrawer();
+	act(() => {
+		fireEvent.click(within(drawer).getByRole("button", { name: "Save as…" }));
+	});
+	act(() => {
+		fireEvent.change(within(drawer).getByLabelText("save as world name"), {
+			target: { value: "cavern" },
+		});
+	});
+	await act(async () => {
+		fireEvent.click(within(drawer).getByRole("button", { name: "Save" }));
+		await Promise.resolve();
+		await Promise.resolve();
+		await Promise.resolve();
+	});
+	await waitFor(() => screen.getByRole("button", { name: "cavern" }));
+
+	const item = await burgerItem("Make default");
+	act(() => {
+		fireEvent.click(item);
+	});
+	const prompt = request as ConfirmRequest | null;
+	if (!prompt) throw new Error("make default did not confirm");
+	expect(prompt.message).toContain("worlds/index.json");
+	expect(prompt.message).toContain("cavern");
+
+	await act(async () => {
+		prompt.onConfirm();
+		await Promise.resolve();
+	});
+	expect(daemon.inputFor("world.makeDefault")).toEqual({ name: "cavern" });
+	// …and it wrote NOTHING else on the way. That is the whole difference from Bake, which
+	// rewrites worlds/cavern/** with the session first: this verb repoints the game at the
+	// saved copy and leaves it exactly as it is.
+	expect(daemon.commands().filter((c) => c === "generation.bake").length).toBe(
+		1, // the save-as above, and nothing since
+	);
+});
+
 test("Rename takes its name from an inline form — and Esc cancels the FORM, not the drawer", async () => {
 	const daemon = stubDaemon([row({ name: "cavern" })]);
 	const stub = makeStubHost();

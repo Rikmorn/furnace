@@ -7,6 +7,7 @@
 // here rather than in the shell frame because it is summoned from the chip and portals
 // out of the bar anyway; keeping the pair together keeps the world state out of the
 // component that builds the palette bodies.
+import { useState } from "react";
 import {
 	useWorkspaceActions,
 	useWorkspaceState,
@@ -53,15 +54,19 @@ export function TopBar() {
 	const { toggleHidden } = useWorkspaceActions();
 	const { name, busy } = useWorldState();
 	const { bake } = useWorldActions();
+	// CONTROLLED, because the burger's "View options…" opens it: the two surfaces sit side
+	// by side in this bar, and the menu item is how someone who has not yet worked out what
+	// the ⬒ chip is finds the layer gates behind it.
+	const [viewOpen, setViewOpen] = useState(false);
 
 	return (
 		<header className="flex h-10 shrink-0 items-center gap-2 border-b border-border bg-card px-2">
-			<BurgerMenu />
+			<BurgerMenu onOpenViewOptions={() => setViewOpen(true)} />
 			<WorldChip />
 			<WorldDrawer />
 			{/* Beside the world chip, because they answer the two questions a user asks of
           the bar: WHICH world is this, and what am I looking at. */}
-			<ViewPopover />
+			<ViewPopover open={viewOpen} onOpenChange={setViewOpen} />
 			<div className="flex-1" />
 			{/* Bake writes worlds/index.json as well as the world, so it needs a name to
           write about. Disabled rather than silently substituting a save-as: the two

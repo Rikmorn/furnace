@@ -147,14 +147,19 @@ const MOVED = {
 	hidden: false,
 };
 
-/** Open the burger and click one of its items. Radix opens on pointerdown, not click. */
-function pickMenuItem(label: string | RegExp): void {
+/** Open the burger. Radix opens on pointerdown, not click. */
+function openBurger(): void {
 	act(() => {
 		fireEvent.pointerDown(screen.getByLabelText("editor menu"), {
 			button: 0,
 			pointerType: "mouse",
 		});
 	});
+}
+
+/** Open the burger and click one of its items. */
+function pickMenuItem(label: string | RegExp): void {
+	openBurger();
 	act(() => {
 		fireEvent.click(screen.getByText(label));
 	});
@@ -1142,6 +1147,109 @@ test("the burger's View group drives the same view state, and reads it back", as
 		screen.getByRole("menuitemcheckbox", { name });
 	expect(item("Grid").getAttribute("aria-checked")).toBe("false");
 	expect(item("Normals shading").getAttribute("aria-checked")).toBe("true");
+});
+
+// --- (c3b) the rest of the burger tree: Edit, the popover door, Help ----------
+
+/** A burger item by the start of its label. Disabled items are still in the tree —
+ *  being visibly unavailable is the whole claim some of the cases below make. */
+const menuItem = (name: RegExp): HTMLElement =>
+	screen.getByRole("menuitem", { name });
+
+test("the burger's Edit group steps the field's ONE history, and goes dead when there is nothing to step", async () => {
+	fetch404();
+	const stub = makeStubHost();
+	await renderShell(stub);
+
+	// A session whose host has pushed no stats has provably done nothing yet, so both
+	// verbs read as unavailable rather than as items that swallow a click (this menu's
+	// rule — see BurgerMenu's header).
+	openBurger();
+	expect(menuItem(/^Undo/).getAttribute("aria-disabled")).toBe("true");
+	expect(menuItem(/^Redo/).getAttribute("aria-disabled")).toBe("true");
+
+	// One op in the log with nothing undone: Undo lights, Redo does not. Pushed while
+	// the menu is OPEN, which is also the claim that the group reads the live stats
+	// rather than a value captured when the shell mounted.
+	act(() => {
+		stub.fire.stats(makeStats({ totalOps: 1, undoDepth: 1 }));
+	});
+	expect(menuItem(/^Undo/).getAttribute("aria-disabled")).toBeNull();
+	expect(menuItem(/^Redo/).getAttribute("aria-disabled")).toBe("true");
+
+	act(() => {
+		fireEvent.click(menuItem(/^Undo/));
+	});
+	// The SAME host method the ⌘Z chord reaches — one history, two surfaces.
+	expect(stub.calls.undo.mock.calls.length).toBe(1);
+	expect(stub.calls.redo).not.toHaveBeenCalled();
+
+	// …and the redo stack that undo just filled turns the other item on. Without
+	// `redoDepth` on the stats seam this item could only ever be permanently enabled —
+	// a Redo that no-ops on an empty stack is exactly what the disabled state is for.
+	act(() => {
+		stub.fire.stats(makeStats({ totalOps: 1, undoDepth: 0, redoDepth: 1 }));
+	});
+	openBurger();
+	expect(menuItem(/^Undo/).getAttribute("aria-disabled")).toBe("true");
+	act(() => {
+		fireEvent.click(menuItem(/^Redo/));
+	});
+	expect(stub.calls.redo.mock.calls.length).toBe(1);
+	expect(stub.calls.undo.mock.calls.length).toBe(1);
+});
+
+test("the burger's View options item opens the popover beside it", async () => {
+	fetch404();
+	const stub = makeStubHost();
+	await renderShell(stub);
+	// Compared to null BEFORE the expect (the fiber-graph serialisation rule).
+	expect(screen.queryByLabelText("void cast") === null).toBe(true);
+
+	pickMenuItem("View options…");
+	// Let Radix's Popper settle — it measures in a layout effect, which lands as an
+	// un-act'ed update otherwise (the openViewPopover helper does the same).
+	await act(async () => {
+		await Promise.resolve();
+	});
+	// The layer gates are too many to carry as menu items, so the menu's job is to be the
+	// door someone who has not decoded the ⬒ chip can find. A dead item here would leave
+	// the whole popover undiscoverable from the menu.
+	expect(screen.getByLabelText("void cast")).toBeTruthy();
+});
+
+// The overlay is a HAND-MAINTAINED table (its own header says so), so what these
+// assertions are worth is exactly the rows they pin. One per group, each chosen because
+// it is a claim about a different source: the ⌘\ row about lib/keybindings.ts, the fly
+// and radius rows about field-host.ts's keydown handler, the ⇧-arrow row about
+// input-map.ts's nudge table, and the canvas ⌘Z row about the one line in field-host.ts
+// that stops the chord propagating (without which one press steps the log twice).
+test("Help opens the shortcut overlay, and its rows are THIS build's bindings", async () => {
+	fetch404();
+	const stub = makeStubHost();
+	await renderShell(stub);
+	pickMenuItem("Keyboard shortcuts");
+	const dialog = await waitFor(() => screen.getByRole("dialog"));
+	expect(within(dialog).getByRole("heading", { name: "Keyboard shortcuts" }));
+
+	/** What the table says a keycap does: the <dd> beside the <dt> carrying it. */
+	const meaning = (keys: string): string => {
+		const cap = within(dialog).getByText(keys);
+		const term = cap.closest("dt");
+		if (!(term instanceof HTMLElement)) throw new Error(`no row for ${keys}`);
+		return term.nextElementSibling?.textContent ?? "";
+	};
+
+	expect(meaning("⌘\\")).toContain("palette");
+	expect(meaning("W / S")).toContain("Fly forward");
+	expect(meaning("[ / ]")).toContain("Brush radius");
+	expect(meaning("⇧↑ / ⇧↓")).toContain("+Y");
+	expect(meaning("⌘Z / ⇧⌘Z")).toContain("once, not twice");
+	// The two mouse bindings that are not keys at all, and would be the easiest to leave
+	// out of a "keyboard" overlay: without them the eyedropper and RMB-look are editor
+	// features with no documentation anywhere in the product.
+	expect(meaning("⌥ left-click")).toContain("Sample the material");
+	expect(meaning("right-drag")).toContain("Look around");
 });
 
 // --- (c4) the orientation triad ----------------------------------------------

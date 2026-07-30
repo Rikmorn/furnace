@@ -42,6 +42,7 @@ export function makeStats(overrides: Partial<FieldStats> = {}): FieldStats {
     liveGenerators: 0,
     compactableOps: 0,
     undoDepth: 0,
+    redoDepth: 0,
     lastReconfigureMs: 0,
     analyzerPending: 0,
     ...overrides,

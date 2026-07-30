@@ -223,13 +223,17 @@ export type FieldStats = {
    *  `COMPACT_THRESHOLD_OPS` (the ceiling — nothing pinned, matching the
    *  load-time call's empty `keepIds`; below the threshold the next load folds
    *  nothing while this stays non-zero, which is the meter climbing toward that
-   *  point); `undoDepth` = the history that compaction requires empty.
+   *  point); `undoDepth` = the history that compaction requires empty, and what
+   *  {@link FieldHost.undo} has left to step; `redoDepth` the same for
+   *  {@link FieldHost.redo} (both are what a chrome Undo/Redo control reads to
+   *  know whether it has anything to do).
    *  Recomputed only when the log changed (an O(ops) scan is not a per-frame
    *  cost) — see the tick's log-signature gate. */
   totalOps: number;
   liveGenerators: number;
   compactableOps: number;
   undoDepth: number;
+  redoDepth: number;
   /** Wall-clock of the last LANDED {@link FieldHost.applyReconfigure}, ms
    *  (0 = none has run this session; a reconfigure core REJECTED does not update
    *  it). The reconfigure stall grows with the LOG, so this is the meter's
@@ -3698,6 +3702,7 @@ export function createFieldHost(deps?: {
         liveGenerators: ls.liveGenerators,
         compactableOps: ls.compactableOps,
         undoDepth: ls.undoDepth,
+        redoDepth: ls.redoDepth,
         lastReconfigureMs,
         analyzerPending: analyzerPendingCount(),
       });
