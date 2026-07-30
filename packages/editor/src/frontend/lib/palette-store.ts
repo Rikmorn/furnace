@@ -85,10 +85,10 @@ function withPalette(
 }
 
 /** Place a palette's origin at `pos`, clamped into `bounds` and docked if it lands in
- *  an edge gutter. Docking pins x to the edge AND records it, so `x` is where the
- *  palette was when it docked and `edge` adds the one thing a coordinate cannot: that a
- *  later resize should keep it on that edge (the renderer places a docked palette FROM
- *  the edge and ignores `x` until it un-docks). Dragging out of the gutter un-docks.
+ *  an edge gutter. Docking pins x to the edge AND records it, and `edge` adds the one
+ *  thing a coordinate cannot: that a later resize should keep it on that edge (the
+ *  renderer places a docked palette FROM the edge and ignores `x` until it un-docks).
+ *  Dragging out of the gutter un-docks.
  *
  *  Returns the SAME state when nothing about the placement changed. A drag along a
  *  clamped edge produces a move per pointer event that all resolve to one position;

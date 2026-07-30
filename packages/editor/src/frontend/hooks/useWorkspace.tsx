@@ -4,7 +4,7 @@
 // Split into TWO contexts on purpose, and the load-bearing beneficiary is ShellFrame:
 // it reads ACTIONS ONLY, so a drag never re-renders it — which is what keeps the
 // `content={{ controls: <FieldPanel /> }}` elements it builds referentially stable, and
-// therefore what keeps FieldPanel (8 host subscriptions, a form-heavy subtree) off the
+// therefore what keeps FieldPanel (7 host subscriptions, a form-heavy subtree) off the
 // pointer-rate path. A ShellFrame that starts reading the STATE context silently undoes
 // that: it would rebuild those elements per pointermove and re-render the panel with
 // them. The provider's own `children` come from its parent, so its state changes
@@ -64,8 +64,9 @@ export type WorkspaceActions = {
 const WorkspaceStateContext = createContext<WorkspaceState | null>(null);
 const WorkspaceActionsContext = createContext<WorkspaceActions | null>(null);
 
-/** Read the live arrangement; throws outside the provider. Re-renders on every drag
- *  frame — only the palette layer should call it. */
+/** Read the live arrangement; throws outside the provider. Re-renders its caller on
+ *  every drag frame — read it only where the arrangement is actually displayed, and see
+ *  the header for who pays that today and who must never start. */
 export function useWorkspaceState(): WorkspaceState {
 	const value = useContext(WorkspaceStateContext);
 	if (!value) throw new Error("useWorkspaceState outside <WorkspaceProvider>");

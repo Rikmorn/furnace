@@ -170,10 +170,13 @@ export function Palette({
 				onPointerMove={onPointerMove}
 				onPointerUp={endDrag}
 				onPointerCancel={endDrag}
-				// The browser can take the capture back without a pointerup — the element
-				// being hidden or removed mid-gesture does it. Belt to the buttons===0
-				// brace in onPointerMove: this one ends the drag at the moment capture is
-				// lost, that one catches a gesture that somehow outlived even this.
+				// The browser can take the capture back without a pointerup: the spec
+				// GUARANTEES implicit release when the capturing element leaves the
+				// document. Whether hiding a still-connected element (⌘\, a collapse — both
+				// of which do exactly that to this header) also releases is plausible but
+				// UNVERIFIED here. Belt to the buttons===0 brace in onPointerMove: this ends
+				// the drag the moment capture is lost, that one catches a gesture which
+				// outlived even this — which is why both ship rather than either alone.
 				onLostPointerCapture={endDrag}
 				className="flex shrink-0 cursor-grab touch-none select-none items-center gap-1 border-b border-border px-2 py-1.5 active:cursor-grabbing"
 			>
