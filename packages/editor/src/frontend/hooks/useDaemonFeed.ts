@@ -17,7 +17,10 @@ import { subscribeEvents } from "../lib/events.ts";
  * progress, and nothing is showing a world list yet.
  * @param bakeBusyRef - whether a world write is in flight. A ref rather than state
  * because this subscription re-binds only when `ready` changes, so the handler has to
- * see the CURRENT value without re-subscribing.
+ * see the CURRENT value without re-subscribing. It must be a STABLE ref (App's `useRef`,
+ * or one built outside render): the ref is in this effect's dep list, so an
+ * inline-constructed `{ current: … }` re-subscribes on every render — one EventSource
+ * opened and closed per render, against a daemon that holds each one.
  * @returns a counter bumped on every `worlds-changed` / `generation-baked` event.
  */
 export function useDaemonFeed(

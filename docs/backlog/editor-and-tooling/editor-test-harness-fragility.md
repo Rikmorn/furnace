@@ -93,22 +93,66 @@ fail is worse than the flake. What the reading DID settle:
   `writeHead` → `write(": connected")` → `subscribers.add(res)` in ONE synchronous block, so
   a client whose `fetch` has resolved (headers received) is necessarily already in the
   subscriber set. No event emitted after that point can be missed by an attaching subscriber.
-- **The watcher half stands, unproven.** `chokidarWatchFile` (`daemon/watch.ts`) starts its
-  watch with `ignoreInitial: true` and nothing awaits chokidar's `ready`, so a
-  `writeFileSync` landing before the watch is armed is silently missed. That is the
-  remaining candidate — and it would fail with `readSse`'s own message ("SSE timeout;
-  buffer so far:") at its **8 s** inner deadline.
-- **The "timed out at 15005 ms" observation does not fit this test.** `server.test.ts:189`
-  carries a 20 s budget and fails through the 8 s message above. The ONLY 15 s test budget
-  in `packages/editor` is `tests/bundle-watch.test.ts:50` — whose shape would deadlock
-  exactly that way if the `": connected"` preamble ever failed to flush before its first
-  `reader.read()`. Whoever picks this up next: check WHICH test the runner named before
-  trusting the attribution here.
+- **The watcher half STANDS — and it predicts the observed 15 s timing on the named test.**
+  `chokidarWatchFile` (`daemon/watch.ts`) starts its watch with `ignoreInitial: true` and
+  nothing awaits chokidar's `ready`, so a `writeFileSync` landing before the watch is armed
+  is silently missed. What happens next is the part worth writing down, because the number
+  it produces is not the one the code reads as: `readSse` (`server.test.ts:159-172`)
+  consults its deadline only at the TOP of the loop, and `await reader.read()` carries no
+  timeout of its own — so on a silent stream the read simply blocks past the 8 s deadline.
+  The next byte to arrive is the hub's own heartbeat (`HEARTBEAT_MS = 15_000`,
+  `events.ts:4`, armed by `createEventHub()` at `server.ts:166` — i.e. at server start,
+  which in this test is milliseconds after the test begins). That wakes the read at
+  ≈15.0 s, the predicate fails, the loop condition is now false, and the deadline throw
+  lands. **A missed watcher event therefore fails `server.test.ts:189` at ≈15,00x ms** —
+  exactly the reported figure, on exactly the originally-named test.
+- **An earlier revision of this entry argued the 15 s figure could not come from this test.
+  That was wrong, and worth keeping as the correction it is.** The argument rested on
+  "15005 ms" implying a 15 s test BUDGET (this test declares 20 s), and on
+  `bundle-watch.test.ts:50` being the only 15 s budget in the package. Bun prints ELAPSED
+  time on every fail line whatever the budget — probe-confirmed: a test with a 20 s budget
+  failing at 1.5 s prints `[1516.83ms]` — so the figure never implied a budget at all, and
+  the exclusivity argument dissolves with it. `bundle-watch.test.ts:50` remains a SECONDARY
+  candidate on its own merits (its `read` → `fire()` → `read` shape would deadlock if the
+  `": connected"` preamble ever failed to flush); it went 10/10 green here too. Provenance
+  note for whoever picks this up: the "15005 ms" figure comes from a session message, not
+  from a durable artifact — no log survives.
 
 **Reference:** `packages/editor/tests/server.test.ts:189` (the test),
 `packages/editor/src/daemon/watch.ts` + `src/daemon/events.ts` + `src/daemon/session.ts` (the
 file watcher, SSE feed, and session store it exercises),
 `docs/reference/editor-architecture.md` (SSE change feed + file watching).
+
+## `readSse`'s `timeoutMs` is not honoured on a silent stream
+
+**Context.** Surfaced 2026-07-30 while diagnosing the flake above. `readSse`
+(`packages/editor/tests/server.test.ts:160-173`) takes a `timeoutMs` (default 8 s) and
+reads as though it bounds the wait. It does not: the deadline is consulted only at the top
+of the `while`, and `await state.reader.read()` has no timeout of its own. On a stream that
+goes quiet the helper blocks INSIDE the read, indefinitely as far as its own logic is
+concerned — the parameter bounds only how many further reads it will attempt, never the
+one it is sitting in.
+
+What hides this today is the daemon's SSE heartbeat (`HEARTBEAT_MS = 15_000`,
+`daemon/events.ts:4`): every 15 s a `: ping` frame wakes the read, the predicate fails, and
+the now-expired deadline throws. So the failure mode is not a hang but a ~15 s failure
+whose message ("SSE timeout; buffer so far:") names an 8 s timeout — which is precisely how
+the flake above got mis-attributed once already. Two consequences worth naming: any test
+using this helper has a real floor of one heartbeat interval, not `timeoutMs`; and if the
+heartbeat is ever removed, shortened, or made per-subscriber, these tests stop failing in
+15 s and start hanging to the test budget instead.
+
+**The fix when it is worth doing:** race the read against a timer
+(`Promise.race([state.reader.read(), timeout])`) and cancel the reader on expiry, so the
+helper fails at the deadline it advertises and with a message that is true.
+
+**Trigger to revisit:** the flake above being diagnosed for real (this helper is the
+instrument that would measure it, and a lying instrument is the wrong place to start), or
+any change to the heartbeat. Not urgent on its own — no test is currently WRONG because of
+it, they are only slower and vaguer than they claim.
+
+**Reference:** `packages/editor/tests/server.test.ts:160-173` (the helper),
+`packages/editor/src/daemon/events.ts:4` (the heartbeat that masks it).
 
 ## FieldHost's worker seam exists now — what host coverage still cannot reach is a stamp session
 

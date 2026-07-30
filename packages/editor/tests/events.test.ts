@@ -52,6 +52,11 @@ test("the frontend's event union mirrors the daemon's, arm for arm", () => {
   // someone looks when the two files disagree — the frontend mirrors DaemonEvent by
   // hand (it cannot import daemon types), and a name that exists on only one side is a
   // silent dead event, not a crash.
+  //
+  // What it catches, measured: a missing or extra ARM, and a changed or added REQUIRED
+  // field. What it does NOT catch: an OPTIONAL field added to one side only — both
+  // directions stay assignable, so the guard passes while a payload the client never
+  // reads rides the wire. Add such a field to both unions by hand.
   const mirrored: Mirrors<DaemonEvent, ServerEvent> = true;
   expect(mirrored).toBe(true);
 });
