@@ -21,8 +21,13 @@ export function TopBar() {
 				Bake
 			</Button>
 			{/* MIGRATION (until Task 6 of the F4.5a plan): the hint is ahead of its
-          binding — ⌘\ lands with the palette layer that has something to hide. */}
-			<span className="text-xs text-muted-foreground tabular-nums">
+          binding — ⌘\ lands with the palette layer that has something to hide. Dimmed
+          and aria-disabled until then, by BurgerMenu's own rule: advertising a chord
+          that does nothing is the same failure as a live-looking dead menu item. */}
+			<span
+				aria-disabled="true"
+				className="text-xs text-muted-foreground opacity-50"
+			>
 				⌘\ hide panels
 			</span>
 		</header>

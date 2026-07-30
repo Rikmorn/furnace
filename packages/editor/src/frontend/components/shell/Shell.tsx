@@ -33,7 +33,11 @@ export function Shell() {
 		<FieldHostStateProvider host={host} engineReady={engineReady}>
 			<div className="fixed inset-0 flex flex-col bg-background text-foreground">
 				<TopBar />
-				<div className="relative min-h-0 flex-1">
+				{/* bg-viewport-background is the DESIGN.md §2 viewport surface: one tonal
+            step darker than the app base, so the content area reads as distinct from
+            the chrome before the first GPU frame clears and anywhere the canvas is
+            absent (engine still booting, init failed). */}
+				<div className="relative min-h-0 flex-1 bg-viewport-background">
 					{engineReady && host && (
 						<CanvasHost host={host} onError={setViewportError} />
 					)}

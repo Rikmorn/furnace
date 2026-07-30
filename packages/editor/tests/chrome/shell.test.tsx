@@ -11,9 +11,14 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { Shell } from "../../src/frontend/components/shell/Shell.tsx";
 import {
+	FieldHostStateProvider,
+	useFieldHostState,
+} from "../../src/frontend/hooks/useFieldHostState.tsx";
+import {
 	act,
 	cleanup,
 	makeEditorContext,
+	render,
 	renderWithEditor,
 	screen,
 } from "../inspector/_harness.tsx";
@@ -107,6 +112,112 @@ test("the canvas is initialized on the host, eagerly, with no size-wait", async 
 	expect(stub.calls.init.mock.calls[0]?.[0]).toBe(
 		screen.getByLabelText("field viewport"),
 	);
+});
+
+// --- the GPU lifecycle: fail loud, dispose once, survive a rejection ---------
+
+test("a zero measure fails LOUD instead of waiting for a resize that never comes", () => {
+	fetch404();
+	// No rect stub: happy-dom measures everything as zero, which is exactly the shape
+	// of a broken layout contract in the browser. The retired initWhenSized would have
+	// waited here forever, silently, on a canvas that renders nothing.
+	HTMLCanvasElement.prototype.getBoundingClientRect = REAL_RECT;
+	const stub = makeStubHost();
+	expect(() =>
+		renderWithEditor(
+			<Shell />,
+			makeEditorContext({ fieldHostRef: { current: stub.host } }),
+		),
+	).toThrow(/measured zero/);
+	// And it refused BEFORE touching the host — a zero-size init is what core's
+	// bindToCanvas rejects, so the guard has to come first to say anything useful.
+	expect(stub.calls.init).not.toHaveBeenCalled();
+});
+
+test("unmounting disposes the host exactly once, after init has settled", async () => {
+	fetch404();
+	const stub = makeStubHost();
+	const { unmount } = await renderShell(stub);
+	expect(stub.calls.dispose).not.toHaveBeenCalled();
+	unmount();
+	// The cleanup defers dispose behind the init promise, so it lands a microtask later
+	// — disposing mid-`await` would pull the context out from under init's own trailing
+	// GPU creations.
+	await act(async () => {
+		await Promise.resolve();
+	});
+	expect(stub.calls.dispose.mock.calls.length).toBe(1);
+});
+
+test("an init rejection lands in the status bar, NOT the global engine-error branch", async () => {
+	fetch404();
+	const stub = makeStubHost({ initRejection: "requestAdapter returned null" });
+	await renderShell(stub);
+	// The chrome is still usable — the engine BUILT fine, one GPU surface didn't come
+	// up. Blanking the editor over that would take the message with it.
+	expect(screen.getByText("engine: ok")).toBeTruthy();
+	const [visible, live] = screen.getAllByText(
+		/field host init failed: requestAdapter returned null/,
+	);
+	expect(visible?.className).toContain("text-destructive");
+	expect(live?.className).toContain("sr-only");
+});
+
+// --- the provider owns the single stats slot ---------------------------------
+
+test("an identical stats push does not re-render the readout", () => {
+	let renders = 0;
+	function Probe() {
+		const { stats } = useFieldHostState();
+		renders++;
+		return <span>{stats?.totalOps ?? "—"}</span>;
+	}
+	const stub = makeStubHost();
+	render(
+		<FieldHostStateProvider host={stub.host} engineReady>
+			<Probe />
+		</FieldHostStateProvider>,
+	);
+	const base = renders;
+	act(() => {
+		stub.fire.stats(makeStats({ totalOps: 7 }));
+	});
+	expect(renders).toBe(base + 1);
+	// A DIFFERENT object with identical values — which is what the host pushes every
+	// rAF. Without statsEqual this re-renders every consumer 60×/second on an idle
+	// field, and nothing else in the suite would notice.
+	act(() => {
+		stub.fire.stats(makeStats({ totalOps: 7 }));
+	});
+	expect(renders).toBe(base + 1);
+	// …and a real change still gets through, so the guard isn't just swallowing pushes.
+	act(() => {
+		stub.fire.stats(makeStats({ totalOps: 8 }));
+	});
+	expect(renders).toBe(base + 2);
+});
+
+test("the provider releases the stats slot on unmount", () => {
+	const stub = makeStubHost();
+	const { unmount } = render(
+		<FieldHostStateProvider host={stub.host} engineReady>
+			<span />
+		</FieldHostStateProvider>,
+	);
+	/** Push through the seam and report whether the slot took it (act-wrapped: while
+	 *  mounted, delivery is a state update). */
+	const push = (): boolean => {
+		let delivered = false;
+		act(() => {
+			delivered = stub.fire.stats(makeStats());
+		});
+		return delivered;
+	};
+	expect(push()).toBe(true);
+	unmount();
+	// Single slot: an unsubscribe that does not FREE it leaves the next mount unable to
+	// claim one — the readout would be dead with nothing thrown and nothing logged.
+	expect(push()).toBe(false);
 });
 
 // --- (b) the top bar ----------------------------------------------------------
@@ -228,6 +339,10 @@ test("the canvas cell's insets come from the two bars and nothing else", async (
 	// page from scrolling as a whole — the shell owns the viewport.
 	for (const cls of ["fixed", "inset-0", "flex", "flex-col"])
 		expect(root.classList.contains(cls)).toBe(true);
+	// EXACTLY three children. Without this count a fourth element appended after the
+	// footer — the flex sibling this contract forbids — passes every other assertion
+	// here silently, which is the regression most likely to actually happen.
+	expect(root.children.length).toBe(3);
 	const [header, middle, footer] = [...root.children];
 	expect(middle).toBe(cell);
 	expect(header?.tagName).toBe("HEADER");

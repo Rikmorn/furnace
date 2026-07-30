@@ -123,8 +123,12 @@ export function App() {
 		});
 	}, [state.status]);
 
-	// Fresh object each render — that is intentional: a new context value on every
-	// state change is what forces the consumers to re-render.
+	// A fresh object each render, unmemoized. That was once load-bearing — the dock
+	// portaled its panels, so a new context value was the only thing that reached them
+	// — and it no longer is: the shell is a plain subtree, so an App re-render re-renders
+	// it whatever this identity does. Kept because it is the simplest CORRECT thing:
+	// memoizing would buy nothing (every consumer re-renders anyway) and would need a
+	// dep list that silently goes stale. Revisit if a consumer ever memoizes itself.
 	const ctxValue: EditorContextValue = {
 		state,
 		fieldHostRef,

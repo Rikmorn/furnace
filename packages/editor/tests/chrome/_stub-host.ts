@@ -53,6 +53,9 @@ export function makeStubHost(
      *  as the real host's busy / no-profile / stale-key / pit guards do — they
      *  are decided and reported before the call returns. */
     verifyRefusal?: string;
+    /** Make `init` REJECT with this message — the GPU-failure path (no adapter, a
+     *  context request refused), which the chrome must survive rather than blank on. */
+    initRejection?: string;
   } = {},
 ) {
   let entities: FieldEntityInfo[] = [];
@@ -120,7 +123,9 @@ export function makeStubHost(
   const host: FieldHost = {
     init: (canvas) => {
       calls.init(canvas);
-      return Promise.resolve();
+      return opts.initRejection === undefined
+        ? Promise.resolve()
+        : Promise.reject(new Error(opts.initRejection));
     },
     dispose: calls.dispose,
     newWorld: calls.newWorld,
@@ -220,8 +225,12 @@ export function makeStubHost(
     subscribeStats: (cb) => {
       calls.subscribeStats(cb);
       cbs.stats = cb;
-      // biome-ignore lint/suspicious/noEmptyBlockStatements: inert unsubscribe no-op
-      return () => {};
+      // A REAL unsubscribe: the production host nulls `statsCb`, and the slot being
+      // freed is the whole point of a single-slot seam. An inert unsubscribe here
+      // could not tell a subscriber that leaks from one that cleans up.
+      return () => {
+        cbs.stats = null;
+      };
     },
   };
   return {
@@ -233,7 +242,13 @@ export function makeStubHost(
     fire: {
       tool: (t: FieldTool) => cbs.tool?.(t),
       stamp: (s: StampSession | null) => cbs.stamp?.(s),
-      stats: (s: FieldStats) => cbs.stats?.(s),
+      /** Returns whether the push was DELIVERED — false once the slot is free again,
+       *  which is how a test tells a real unsubscribe from an inert one. */
+      stats: (s: FieldStats): boolean => {
+        if (cbs.stats === null) return false;
+        cbs.stats(s);
+        return true;
+      },
       selection: (i: SelectionInfo | null) => cbs.selection?.(i),
       /** The entity-list change TICK (the real host's only entity signal). */
       entities: () => cbs.entities?.(),

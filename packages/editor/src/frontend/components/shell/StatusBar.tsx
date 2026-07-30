@@ -31,7 +31,14 @@ export function StatusBar({ viewportError }: { viewportError: string | null }) {
 	return (
 		<footer className="flex h-7 shrink-0 items-center gap-4 border-t border-border bg-card px-3 text-xs text-muted-foreground">
 			<span className="whitespace-nowrap">{KEYMAP}</span>
-			{error && <span className="truncate text-destructive">{error}</span>}
+			{/* `title` is not decoration: an esbuild diagnostic is far wider than the bar
+          and `truncate` clips it, so without the hover the only readers who get the
+          whole message are the ones using the live region below. */}
+			{error && (
+				<span className="truncate text-destructive" title={error}>
+					{error}
+				</span>
+			)}
 			<div className="flex-1" />
 			{stats && (
 				<span className="flex items-center gap-3 tabular-nums">
