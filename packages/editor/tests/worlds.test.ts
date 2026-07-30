@@ -271,6 +271,27 @@ describe("world mutations", () => {
     expect(events.filter((e) => e.type === "worlds-changed")).toHaveLength(1);
   });
 
+  test("world.delete on a nonexistent world refuses with not-found", async () => {
+    const handlers = build();
+    await expect(
+      dispatch(handlers, "world.delete", { name: "ghost" }),
+    ).rejects.toMatchObject({ code: "not-found" });
+    expect(events.filter((e) => e.type === "worlds-changed")).toHaveLength(0);
+  });
+
+  test("world.delete on an existing dir without a manifest succeeds (junk cleanup)", async () => {
+    // Pins the controller ruling: a worlds/ dir that never finished writing a
+    // manifest is junk, not a "world" — deleting it is allowed, unlike
+    // world.makeDefault which requires a manifest to exist.
+    const dir = join(root, "worlds", "junk-dir");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "stray.txt"), "leftover");
+    const handlers = build();
+    await dispatch(handlers, "world.delete", { name: "junk-dir" });
+    expect(existsSync(dir)).toBe(false);
+    expect(events.filter((e) => e.type === "worlds-changed")).toHaveLength(1);
+  });
+
   test("world.delete refuses the current default (invalid-input names the fix)", async () => {
     const dir = makeFieldWorld("scratch-a");
     writeFileSync(
