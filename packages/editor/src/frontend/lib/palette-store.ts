@@ -85,9 +85,14 @@ function withPalette(
 }
 
 /** Place a palette's origin at `pos`, clamped into `bounds` and docked if it lands in
- *  an edge gutter. Docking pins x to the edge AND records it, so `x` always describes
- *  where the palette actually is and `edge` adds the one thing a coordinate cannot: that
- *  a later resize should keep it on that edge. Dragging out of the gutter un-docks. */
+ *  an edge gutter. Docking pins x to the edge AND records it, so `x` is where the
+ *  palette was when it docked and `edge` adds the one thing a coordinate cannot: that a
+ *  later resize should keep it on that edge (the renderer places a docked palette FROM
+ *  the edge and ignores `x` until it un-docks). Dragging out of the gutter un-docks.
+ *
+ *  Returns the SAME state when nothing about the placement changed. A drag along a
+ *  clamped edge produces a move per pointer event that all resolve to one position;
+ *  without this React re-renders and the persist debounce re-arms on every one of them. */
 export function movePalette(
   state: WorkspaceState,
   id: PaletteId,
@@ -99,7 +104,9 @@ export function movePalette(
   const edge = edgeAt(clampedX, bounds.maxX);
   const snapped = { left: 0, right: bounds.maxX };
   const x = edge === null ? clampedX : clamp(snapped[edge], bounds.maxX);
-  return withPalette(state, id, { ...state.palettes[id], x, y, edge });
+  const geom = state.palettes[id];
+  if (geom.x === x && geom.y === y && geom.edge === edge) return state;
+  return withPalette(state, id, { ...geom, x, y, edge });
 }
 
 /** Roll the palette up to a rail chip, or back down. Geometry is untouched: the chip is

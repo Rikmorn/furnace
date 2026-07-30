@@ -59,6 +59,12 @@ test("move clamps to the viewport bounds", () => {
 
   // Pure: the input state is not mutated.
   expect(start.palettes.controls.x).toBe(400);
+
+  // A move that resolves to the placement already stored returns the SAME state. A drag
+  // along a clamped edge produces one of these per pointer event; without the identity
+  // return each one re-renders the layer and re-arms the persist debounce.
+  expect(movePalette(far, "controls", { x: 4000, y: 4000 }, BOUNDS)).toBe(far);
+  expect(movePalette(far, "controls", { x: 5000, y: 6000 }, BOUNDS)).toBe(far);
 });
 
 test("edge snap engages within SNAP_PX of the right/left edge and records edge", () => {

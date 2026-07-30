@@ -421,14 +421,23 @@ test("a palette collapses to a rail chip that restores it, keeping its geometry"
 	// `hidden`, so the panel's host-subscribed state survives the round trip.
 	expect(controlsPalette()).toBeNull();
 	expect(screen.getByLabelText("world name")).toBeTruthy();
+	// The button that was just clicked went with the palette, so focus has to be MOVED
+	// or it lands on <body> and a keyboard user restarts from the top of the document.
+	const chip = screen.getByRole("button", { name: "expand Controls" });
+	expect(document.activeElement).toBe(chip);
 
 	act(() => {
-		fireEvent.click(screen.getByRole("button", { name: "expand Controls" }));
+		fireEvent.click(chip);
 	});
 	const restored = controlsPalette();
 	expect(restored?.style.left).toBe("120px");
 	expect(restored?.style.top).toBe("60px");
 	expect(screen.queryByRole("button", { name: "expand Controls" })).toBeNull();
+	// …and back the other way: the chip unmounted, so focus returns to the control that
+	// now does its job.
+	expect(document.activeElement).toBe(
+		screen.getByRole("button", { name: "collapse Controls" }),
+	);
 });
 
 test("⌘\\ hides the whole layer and restores the EXACT arrangement (D-3)", async () => {
@@ -533,6 +542,21 @@ test("a persisted arrangement is adopted when the store arrives LATE", async () 
 	expect(controlsPalette()?.style.top).toBe("60px");
 });
 
+/** Give the LAYER (a div) a measured box for the duration of `f`. happy-dom measures
+ *  everything as zero, and the layer's size is what turns a drag into bounds; the
+ *  palette itself keeps measuring zero, which only means its origin may range over the
+ *  whole cell. */
+function withLayerBox(f: () => void): void {
+	const realRect = HTMLDivElement.prototype.getBoundingClientRect;
+	HTMLDivElement.prototype.getBoundingClientRect = () =>
+		({ x: 0, y: 0, top: 0, left: 0, width: 1000, height: 600 }) as DOMRect;
+	try {
+		f();
+	} finally {
+		HTMLDivElement.prototype.getBoundingClientRect = realRect;
+	}
+}
+
 test("dragging the header moves the palette and persists it once, debounced", async () => {
 	fetch404();
 	const stub = makeStubHost();
@@ -543,13 +567,7 @@ test("dragging the header moves the palette and persists it once, debounced", as
 	if (!(palette instanceof HTMLElement) || !(header instanceof HTMLElement))
 		throw new Error("palette header missing");
 
-	// happy-dom measures everything as zero, and the layer's size is what turns a drag
-	// into bounds — so give the LAYER (a div) a box. The palette itself keeps measuring
-	// zero, which just means its origin may range over the whole cell.
-	const realRect = HTMLDivElement.prototype.getBoundingClientRect;
-	HTMLDivElement.prototype.getBoundingClientRect = () =>
-		({ x: 0, y: 0, top: 0, left: 0, width: 1000, height: 600 }) as DOMRect;
-	try {
+	withLayerBox(() => {
 		act(() => {
 			fireEvent.pointerDown(header, {
 				button: 0,
@@ -557,16 +575,17 @@ test("dragging the header moves the palette and persists it once, debounced", as
 				clientX: 500,
 				clientY: 400,
 			});
+			// buttons:1 — the primary button is still held. It is what says this pointer is
+			// still dragging, and the guard below reads it.
 			fireEvent.pointerMove(header, {
 				pointerId: 1,
+				buttons: 1,
 				clientX: 620,
 				clientY: 460,
 			});
 			fireEvent.pointerUp(header, { pointerId: 1, clientX: 620, clientY: 460 });
 		});
-	} finally {
-		HTMLDivElement.prototype.getBoundingClientRect = realRect;
-	}
+	});
 
 	// Undocked and placed by the pointer delta — 24px from either edge would have
 	// snapped it, 120 does not.
@@ -581,6 +600,87 @@ test("dragging the header moves the palette and persists it once, debounced", as
 	await waitFor(() => {
 		expect(store.get("workspace")?.palettes["controls"]?.x).toBe(120);
 	});
+});
+
+test("a drag that loses its pointer capture stops, instead of following the cursor", async () => {
+	fetch404();
+	const stub = makeStubHost();
+	await renderShell(stub, fakeUiStore({ workspace: MOVED }));
+	const header = controlsPalette()?.querySelector("header");
+	if (!(header instanceof HTMLElement))
+		throw new Error("palette header missing");
+
+	withLayerBox(() => {
+		act(() => {
+			fireEvent.pointerDown(header, {
+				button: 0,
+				pointerId: 1,
+				clientX: 500,
+				clientY: 400,
+			});
+			// Capture taken away mid-gesture with NO pointerup — what the browser does
+			// when the captured element is hidden or removed, which ⌘\ and a collapse both
+			// do to this very header.
+			fireEvent.lostPointerCapture(header, { pointerId: 1 });
+			fireEvent.pointerMove(header, {
+				pointerId: 1,
+				buttons: 1,
+				clientX: 900,
+				clientY: 500,
+			});
+		});
+	});
+	// Still where it was. Without the release the palette keeps tracking a pointer whose
+	// button is no longer down, and the next click looks like a teleport.
+	expect(controlsPalette()?.style.left).toBe("120px");
+
+	// The second guard, alone: a move whose buttons say nothing is pressed ends the
+	// gesture even if the lostpointercapture event never arrives.
+	withLayerBox(() => {
+		act(() => {
+			fireEvent.pointerDown(header, {
+				button: 0,
+				pointerId: 2,
+				clientX: 500,
+				clientY: 400,
+			});
+			fireEvent.pointerMove(header, {
+				pointerId: 2,
+				buttons: 0,
+				clientX: 700,
+				clientY: 500,
+			});
+			fireEvent.pointerMove(header, {
+				pointerId: 2,
+				buttons: 1,
+				clientX: 900,
+				clientY: 520,
+			});
+		});
+	});
+	expect(controlsPalette()?.style.left).toBe("120px");
+});
+
+test("a Reset that happens BEFORE the store arrives is not undone by the restore", async () => {
+	fetch404();
+	const stub = makeStubHost();
+	// No store yet — `project.get` has not resolved, so persistence is off.
+	const { rerender } = renderShellResult(stub, undefined);
+	await flushCatalog();
+
+	pickMenuItem("Reset workspace");
+	await flushCatalog();
+	expect(controlsPalette()?.style.right).toBe("0px");
+
+	// …and NOW the store lands, carrying the arrangement the user just discarded. The
+	// naive arrival effect restores it over the reset and leaves the screen AND the disk
+	// wrong; the reset has to win, and the delete it could not perform has to happen.
+	const store = fakeUiStore({ workspace: MOVED });
+	act(() => {
+		rerender(withEditor(<Shell />, stub, store));
+	});
+	expect(controlsPalette()?.style.right).toBe("0px");
+	expect(store.get("workspace")).toBeUndefined();
 });
 
 test("the canvas cell's insets come from the two bars and nothing else", async () => {

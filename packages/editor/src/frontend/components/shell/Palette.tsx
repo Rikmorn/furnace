@@ -16,9 +16,11 @@ import type {
 	CSSProperties,
 	ReactNode,
 	PointerEvent as ReactPointerEvent,
+	Ref,
 } from "react";
 import { useId, useRef } from "react";
 import { cn } from "../../lib/cn.ts";
+import type { OriginBounds } from "../../lib/palette-store.ts";
 import type { PaletteState } from "../../lib/persist.ts";
 import { Button } from "../ui/button.tsx";
 
@@ -27,15 +29,17 @@ import { Button } from "../ui/button.tsx";
 export type PaletteSize = { width: number; height: number };
 
 /** What a pointer-capture drag needs to survive between events: which pointer owns the
- *  gesture, where it started, and where the palette was when it did. Measured ONCE at
- *  pointerdown — re-measuring per move would read the box mid-flight and drift. */
+ *  gesture, where it started, where the palette was when it did, and the box its origin
+ *  may range over. All measured ONCE at pointerdown — neither the palette nor the layer
+ *  can move during the gesture, and a getBoundingClientRect per pointermove would force
+ *  a full-document reflow at pointer rate to learn nothing new. */
 type Drag = {
 	pointerId: number;
 	fromX: number;
 	fromY: number;
 	originX: number;
 	originY: number;
-	size: PaletteSize;
+	bounds: OriginBounds;
 };
 
 /** Absolute placement from stored geometry. A docked palette is placed FROM its edge, so
@@ -56,17 +60,25 @@ export function Palette({
 	title,
 	geom,
 	widthClass,
+	measureBounds,
 	onMove,
 	onCollapse,
 	onClose,
+	collapseRef,
 	children,
 }: {
 	title: string;
 	geom: PaletteState;
 	widthClass: string;
-	onMove: (pos: { x: number; y: number }, size: PaletteSize) => void;
+	/** Bounds for THIS palette's origin, from the layer that owns the measurement.
+	 *  Null when the layer is not mounted, which refuses the drag rather than guessing. */
+	measureBounds: (size: PaletteSize) => OriginBounds | null;
+	onMove: (pos: { x: number; y: number }, bounds: OriginBounds) => void;
 	onCollapse: () => void;
 	onClose: () => void;
+	/** The collapse button, published so the layer can put focus back on it when the
+	 *  rail chip that replaced this palette is used to bring it back. */
+	collapseRef?: Ref<HTMLButtonElement>;
 	children: ReactNode;
 }) {
 	const headingId = useId();
@@ -76,11 +88,15 @@ export function Palette({
 	const onPointerDown = (e: ReactPointerEvent<HTMLElement>): void => {
 		// Left button only, and never from the header's own buttons — collapse and close
 		// are clicks, and a click that also starts a drag makes both feel broken.
+		// `Element`, not `HTMLElement`: the buttons' icons are SVG, so the pointer's
+		// target inside one is an SVGElement and an HTMLElement check would miss it.
 		if (e.button !== 0) return;
-		if (e.target instanceof HTMLElement && e.target.closest("button")) return;
+		if (e.target instanceof Element && e.target.closest("button")) return;
 		const el = rootRef.current;
 		if (!el) return;
 		const rect = el.getBoundingClientRect();
+		const bounds = measureBounds({ width: rect.width, height: rect.height });
+		if (!bounds) return;
 		drag.current = {
 			pointerId: e.pointerId,
 			fromX: e.clientX,
@@ -91,23 +107,9 @@ export function Palette({
 			// the edge put it.
 			originX: el.offsetLeft,
 			originY: el.offsetTop,
-			size: { width: rect.width, height: rect.height },
+			bounds,
 		};
 		e.currentTarget.setPointerCapture(e.pointerId);
-	};
-
-	const onPointerMove = (e: ReactPointerEvent<HTMLElement>): void => {
-		const d = drag.current;
-		if (!d || d.pointerId !== e.pointerId) return;
-		// A client-space delta IS a layer-space delta: the layer cannot move during the
-		// gesture (it is the canvas cell), so no coordinate conversion is needed.
-		onMove(
-			{
-				x: d.originX + (e.clientX - d.fromX),
-				y: d.originY + (e.clientY - d.fromY),
-			},
-			d.size,
-		);
 	};
 
 	const endDrag = (e: ReactPointerEvent<HTMLElement>): void => {
@@ -116,6 +118,28 @@ export function Palette({
 		drag.current = null;
 		if (e.currentTarget.hasPointerCapture(e.pointerId))
 			e.currentTarget.releasePointerCapture(e.pointerId);
+	};
+
+	const onPointerMove = (e: ReactPointerEvent<HTMLElement>): void => {
+		const d = drag.current;
+		if (!d || d.pointerId !== e.pointerId) return;
+		// The button is no longer down, so the pointerup that should have ended this
+		// gesture never reached us — the header being hidden mid-drag (⌘\, a collapse)
+		// drops implicit capture and does exactly that. Without this the palette keeps
+		// following the bare cursor, and the next click "teleports" it.
+		if (e.buttons === 0) {
+			endDrag(e);
+			return;
+		}
+		// A client-space delta IS a layer-space delta: the layer cannot move during the
+		// gesture (it is the canvas cell), so no coordinate conversion is needed.
+		onMove(
+			{
+				x: d.originX + (e.clientX - d.fromX),
+				y: d.originY + (e.clientY - d.fromY),
+			},
+			d.bounds,
+		);
 	};
 
 	return (
@@ -146,6 +170,11 @@ export function Palette({
 				onPointerMove={onPointerMove}
 				onPointerUp={endDrag}
 				onPointerCancel={endDrag}
+				// The browser can take the capture back without a pointerup — the element
+				// being hidden or removed mid-gesture does it. Belt to the buttons===0
+				// brace in onPointerMove: this one ends the drag at the moment capture is
+				// lost, that one catches a gesture that somehow outlived even this.
+				onLostPointerCapture={endDrag}
 				className="flex shrink-0 cursor-grab touch-none select-none items-center gap-1 border-b border-border px-2 py-1.5 active:cursor-grabbing"
 			>
 				<h2
@@ -155,6 +184,7 @@ export function Palette({
 					{title}
 				</h2>
 				<Button
+					ref={collapseRef}
 					type="button"
 					variant="ghost"
 					size="sm"

@@ -1,13 +1,19 @@
 // The live palette arrangement: the pure store (lib/palette-store.ts) plus the two
 // things it refuses to know about — React state and the disk.
 //
-// Split into TWO contexts on purpose. The state changes once per pointermove during a
-// drag; the actions never change. Consumers that only need verbs (the top bar's toggle,
-// the burger's Reset) read the actions context and are therefore untouched by a drag,
-// while the layer — the one surface that must repaint — reads the state. The provider's
-// own `children` are passed in by its parent, so a state change re-renders the provider
-// without re-rendering the subtree: only the context consumers inside it repaint (the
-// FieldHostStateProvider pattern, same reason).
+// Split into TWO contexts on purpose, and the load-bearing beneficiary is ShellFrame:
+// it reads ACTIONS ONLY, so a drag never re-renders it — which is what keeps the
+// `content={{ controls: <FieldPanel /> }}` elements it builds referentially stable, and
+// therefore what keeps FieldPanel (8 host subscriptions, a form-heavy subtree) off the
+// pointer-rate path. A ShellFrame that starts reading the STATE context silently undoes
+// that: it would rebuild those elements per pointermove and re-render the panel with
+// them. The provider's own `children` come from its parent, so its state changes
+// re-render only the context consumers below it (the FieldHostStateProvider pattern).
+//
+// Honest about who pays: TopBar and BurgerMenu DO read the state — a hide/show label and
+// a checked box have to — and so they do repaint per drag frame. A header, a menu
+// trigger and a closed dropdown are cheap enough for that to be the right trade against
+// a control that lies about its state; revisit if the bar grows heavier consumers.
 import type { ReactNode } from "react";
 import {
 	createContext,
@@ -66,8 +72,9 @@ export function useWorkspaceState(): WorkspaceState {
 	return value;
 }
 
-/** Read the arrangement's verbs; throws outside the provider. Stable — safe to call
- *  from chrome that must not repaint during a drag. */
+/** Read the arrangement's verbs; throws outside the provider. The value is stable for
+ *  the provider's lifetime, so a component that reads ONLY this never re-renders from a
+ *  drag — see the header for why ShellFrame must stay in that set. */
 export function useWorkspaceActions(): WorkspaceActions {
 	const value = useContext(WorkspaceActionsContext);
 	if (!value)
@@ -89,6 +96,8 @@ export function WorkspaceProvider({
 	// that arrives late is dropped rather than yanking a palette out from under a drag.
 	const touched = useRef(false);
 	const restored = useRef(false);
+	// A Reset that happened BEFORE the store existed still owes the disk a delete.
+	const clearOnArrival = useRef(false);
 
 	// The store arrives LATE and may never arrive at all: it is keyed by the project root,
 	// which comes from a daemon call that can fail (App keeps persistence best-effort).
@@ -98,7 +107,17 @@ export function WorkspaceProvider({
 	// restored jump on a slow project.get, which is why the restore is skipped outright
 	// once the user has arranged anything: live intent beats what was on disk.
 	useEffect(() => {
-		if (!store || restored.current) return;
+		if (!store) return;
+		// Reset ran while persistence was still off. Honour it in the order it was asked
+		// for: finish the delete it could not perform, and DON'T restore — the blob this
+		// effect would otherwise read is the very one the user just discarded, and
+		// restoring it would put the stale arrangement back on screen and on disk.
+		if (clearOnArrival.current) {
+			clearOnArrival.current = false;
+			store.set("workspace", undefined);
+			return;
+		}
+		if (restored.current) return;
 		restored.current = true;
 		if (touched.current) return;
 		setState(deserializeWorkspace(store.get("workspace")));
@@ -128,13 +147,19 @@ export function WorkspaceProvider({
 			setOpen: (id, open) => edit((s) => setPaletteOpen(s, id, open)),
 			toggleHidden: () => edit((s) => setPalettesHidden(s, !s.hidden)),
 			reset: () => {
-				// NOT an `edit`: reset un-touches, so the effect above skips its write and
+				// NOT an `edit`: reset un-touches, so the persist effect skips its write and
 				// the key is simply gone until the user arranges something again. The
 				// pending timer from whatever they did last is cleared by that same effect
 				// re-running, so nothing resurrects the blob a moment later.
 				touched.current = false;
 				setState(defaultWorkspace());
-				store?.set("workspace", undefined);
+				// A reset is a DECISION about the persisted arrangement, so it also closes
+				// the restore window: without this, a reset performed before `project.get`
+				// resolves is silently undone when the store lands and the arrival effect
+				// reads the blob the user just rejected.
+				restored.current = true;
+				if (store) store.set("workspace", undefined);
+				else clearOnArrival.current = true;
 			},
 		};
 	}, [store]);

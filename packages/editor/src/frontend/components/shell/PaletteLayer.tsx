@@ -3,18 +3,20 @@
 // width from the canvas and it is `pointer-events-none`, so the only thing in it that
 // can intercept a viewport drag is a palette itself.
 //
-// It also owns the one fact the pure store cannot have: how big the cell is. Bounds are
-// measured here, per move, and handed in.
+// It also owns the two things the pure store cannot have: how big the cell is (bounds
+// are measured here, once per gesture, and handed in) and where focus should land when
+// a palette swaps places with its rail chip.
 
 import type { LucideIcon } from "lucide-react";
 import { SlidersHorizontal } from "lucide-react";
 import type { ReactNode } from "react";
-import { useCallback, useRef } from "react";
+import { useCallback, useLayoutEffect, useRef } from "react";
 import {
 	useWorkspaceActions,
 	useWorkspaceState,
 } from "../../hooks/useWorkspace.tsx";
 import {
+	type OriginBounds,
 	PALETTE_IDS,
 	PALETTES,
 	type PaletteId,
@@ -45,20 +47,55 @@ export function PaletteLayer({
 	const { palettes, hidden } = useWorkspaceState();
 	const actions = useWorkspaceActions();
 	const layerRef = useRef<HTMLDivElement | null>(null);
+	const chipRefs = useRef<Partial<Record<PaletteId, HTMLButtonElement | null>>>(
+		{},
+	);
+	const collapseRefs = useRef<
+		Partial<Record<PaletteId, HTMLButtonElement | null>>
+	>({});
+	// Where focus must go after the NEXT render, set by whichever control is about to
+	// disappear. Collapsing hides the palette (and its collapse button with it) and
+	// expanding unmounts the chip — either way the browser drops focus to <body> and a
+	// keyboard user is thrown back to the top of the document.
+	const focusAfter = useRef<{ id: PaletteId; to: "chip" | "collapse" } | null>(
+		null,
+	);
 
-	const onMove = useCallback(
-		(id: PaletteId, pos: { x: number; y: number }, size: PaletteSize): void => {
+	useLayoutEffect(() => {
+		const want = focusAfter.current;
+		if (!want) return;
+		focusAfter.current = null;
+		const target =
+			want.to === "chip"
+				? chipRefs.current[want.id]
+				: collapseRefs.current[want.id];
+		target?.focus();
+	});
+
+	/** The palette's ORIGIN may range over the cell minus the palette's own box — which
+	 *  makes maxX the right-docked position, exactly what the store snaps to. Called once
+	 *  per gesture (the palette caches the result), never per pointermove. */
+	const measureBounds = useCallback(
+		(size: PaletteSize): OriginBounds | null => {
 			const rect = layerRef.current?.getBoundingClientRect();
-			if (!rect) return;
-			// The palette's ORIGIN may range over the cell minus the palette's own box —
-			// which makes maxX the right-docked position, exactly what the store snaps to.
-			actions.move(id, pos, {
+			if (!rect) return null;
+			return {
 				maxX: rect.width - size.width,
 				maxY: rect.height - size.height,
-			});
+			};
 		},
-		[actions],
+		[],
 	);
+
+	const collapse = (id: PaletteId): void => {
+		focusAfter.current = { id, to: "chip" };
+		actions.toggleCollapsed(id);
+	};
+
+	const expand = (id: PaletteId): void => {
+		focusAfter.current = { id, to: "collapse" };
+		actions.toggleCollapsed(id);
+	};
 
 	const chips = PALETTE_IDS.filter(
 		(id) => palettes[id].open && palettes[id].collapsed,
@@ -82,9 +119,13 @@ export function PaletteLayer({
 						title={PALETTES[id].title}
 						geom={palettes[id]}
 						widthClass={PALETTE_CHROME[id].widthClass}
-						onMove={(pos, size) => onMove(id, pos, size)}
-						onCollapse={() => actions.toggleCollapsed(id)}
+						measureBounds={measureBounds}
+						onMove={(pos, bounds) => actions.move(id, pos, bounds)}
+						onCollapse={() => collapse(id)}
 						onClose={() => actions.setOpen(id, false)}
+						collapseRef={(el) => {
+							collapseRefs.current[id] = el;
+						}}
 					>
 						{content[id]}
 					</Palette>
@@ -105,10 +146,13 @@ export function PaletteLayer({
 						return (
 							<button
 								key={id}
+								ref={(el) => {
+									chipRefs.current[id] = el;
+								}}
 								type="button"
 								title={PALETTES[id].title}
 								aria-label={`expand ${PALETTES[id].title}`}
-								onClick={() => actions.toggleCollapsed(id)}
+								onClick={() => expand(id)}
 								className="pointer-events-auto grid h-[26px] w-[26px] place-items-center rounded-sm border border-border bg-card text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
 							>
 								<Icon className="h-3.5 w-3.5" />
