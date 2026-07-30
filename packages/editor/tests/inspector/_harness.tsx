@@ -41,6 +41,7 @@ type EditorContextOverrides = {
 	worldsVersion?: number;
 	openConfirm?: EditorContextValue["openConfirm"];
 	confirmRef?: EditorContextValue["confirmRef"];
+	bakeBusyRef?: EditorContextValue["bakeBusyRef"];
 	store?: UiStore;
 };
 
@@ -70,6 +71,9 @@ export function makeEditorContext(
 		// No prompt pending: the shell's keydown listener reads this to decide whether a
 		// binding is suppressed, so the default has to be "nothing open".
 		confirmRef: overrides.confirmRef ?? { current: null },
+		// No write in flight. A test that wants to assert the SSE reload guard passes its
+		// own ref and reads it after a save.
+		bakeBusyRef: overrides.bakeBusyRef ?? { current: false },
 		store: overrides.store,
 	};
 }

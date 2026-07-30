@@ -116,8 +116,8 @@ because a reconfigure re-evaluates the span with ids taken from `log.nextId`. Th
 WITHIN a session and fails across a world switch: `loadWorld` recomputes
 `log.nextId = max(op.id) + 1` from the loaded ops, so ids — and every `opSpan` — restart.
 Two worlds can therefore hold entity records that agree on every compared field and differ
-only in their params, and `FieldToolbar`'s Load button calls `loadWorld` from inside the same
-`FieldPanel` mount (no remount, no state reset, just an entity tick). The guard returns
+only in their params, and the world drawer's Open calls `loadWorld` while the same
+`FieldPanel` stays mounted (no remount, no state reset, just an entity tick). The guard returns
 `prev`, and an expanded row keeps the previous world's param values.
 
 Narrow in practice: it needs a row expanded across a load of a same-shaped world, and the
@@ -148,8 +148,8 @@ is the point.
 `samePlaced`, `refreshEntities`); `packages/editor/src/viewport-host/field-host.ts`
 (`loadWorld`'s `log.nextId` recomputation — the fact that breaks the id-monotonicity
 premise); `packages/editor/src/frontend/components/field/EntitiesList.tsx` (the `<dl>`);
-`packages/editor/src/frontend/components/field/FieldToolbar.tsx` (`onLoad`, the in-mount
-reachability).
+`packages/editor/src/frontend/lib/world-actions.ts` (`loadWorldInto`, reached from the
+world drawer while the panel stays mounted).
 
 ## Light-edit preview: transform-direction bug FIXED; Safari per-property verification pending
 

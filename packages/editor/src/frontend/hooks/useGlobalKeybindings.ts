@@ -3,27 +3,32 @@ import type { ConfirmRequest } from "../components/ConfirmDialog.tsx";
 import { isTextInputTarget, matchBinding } from "../lib/keybindings.ts";
 
 /**
- * The global window keydown listener. Binds once (its deps are all stable), so ⌘S/⌘Z/
- * ⇧⌘Z/⌘\ fire wherever focus is. `preventDefault` fires on EVERY match (so ⌘S never
+ * The global window keydown listener. `preventDefault` fires on EVERY match (so ⌘S never
  * triggers the browser save-page — the P0 fix), and the `if (confirmRef.current) return`
  * guard suppresses every binding while a confirm dialog is open (it is modal; a second
  * openConfirm would strand the first, whose onCancel then never runs).
  *
- * Called from the Shell rather than App, because the one binding that is LIVE acts on
- * the palette arrangement, which lives inside the shell's workspace provider.
+ * Called from the Shell rather than App, because every binding acts on shell state: ⌘\
+ * on the palette arrangement, ⌘S on the world, ⌘Z/⇧⌘Z on the field's op log. It
+ * re-binds whenever a handler's identity changes — the world verbs close over the
+ * current world's name, so naming one rebinds the listener. Cheap and correct; what
+ * would NOT be is capturing them once and stepping a world the user has left.
  *
- * MIGRATION (until Task 8/9 of the F4.5a plan): save/undo/redo are wired to no-ops.
- * The scene document session they used to drive is gone, and the field host's own
- * save + ONE history land in those tasks — the chord classification, the
- * preventDefault, and the confirm-dialog suppression are the parts kept alive here in
- * the meantime, because they are what a re-wire must not silently lose.
+ * ⌘Z/⇧⌘Z reach the FIELD HOST, which is the editor's ONE history — there is no second
+ * document to step. The field canvas binds the same chord itself and calls
+ * `stopPropagation`, so a ⌘Z with the viewport focused steps the log exactly once
+ * instead of once here and once there.
  */
 export function useGlobalKeybindings(params: {
   confirmRef: RefObject<ConfirmRequest | null>;
   /** ⌘\ — hide every palette, or restore the exact prior arrangement (D-3). */
   onTogglePalettes: () => void;
+  /** ⌘S — write the current world, or open the drawer to name an untitled one. */
+  onSave: () => void;
+  onUndo: () => void;
+  onRedo: () => void;
 }): void {
-  const { confirmRef, onTogglePalettes } = params;
+  const { confirmRef, onTogglePalettes, onSave, onUndo, onRedo } = params;
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -33,10 +38,13 @@ export function useGlobalKeybindings(params: {
       e.preventDefault();
       switch (action) {
         case "save":
+          onSave();
           return;
         case "undo":
+          onUndo();
           return;
         case "redo":
+          onRedo();
           return;
         case "togglePalettes":
           onTogglePalettes();
@@ -50,5 +58,5 @@ export function useGlobalKeybindings(params: {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [confirmRef, onTogglePalettes]);
+  }, [confirmRef, onTogglePalettes, onSave, onUndo, onRedo]);
 }

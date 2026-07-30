@@ -2,16 +2,17 @@
 // the shortcut overlay) can read the editor's verbs off — not the wiring.
 //
 // Items wire up group by group as their owning task lands, so the menu is a mix: the
-// workspace verbs under View are LIVE, and everything still waiting is rendered
-// DISABLED rather than silently dead, because a live-looking item that does nothing is
-// worse than an obviously unavailable one. Each group carries its own MIGRATION marker
-// at its render site, because each is wired by a different task — one marker for the
-// file would outlive two thirds of what it describes.
+// World and workspace verbs are LIVE, and everything still waiting is rendered DISABLED
+// rather than silently dead, because a live-looking item that does nothing is worse
+// than an obviously unavailable one. Each group carries its own MIGRATION marker at its
+// render site, because each is wired by a different task — one marker for the file would
+// outlive two thirds of what it describes.
 import { Menu } from "lucide-react";
 import {
 	useWorkspaceActions,
 	useWorkspaceState,
 } from "../../hooks/useWorkspace.tsx";
+import { useWorldActions, useWorldState } from "../../hooks/useWorld.tsx";
 import { PALETTE_IDS, PALETTES } from "../../lib/palette-store.ts";
 import {
 	DropdownMenu,
@@ -44,6 +45,8 @@ function PendingItem({
 export function BurgerMenu() {
 	const { palettes, hidden } = useWorkspaceState();
 	const { setOpen, toggleHidden, reset } = useWorkspaceActions();
+	const { name: worldName, busy } = useWorldState();
+	const world = useWorldActions();
 
 	return (
 		<DropdownMenu>
@@ -54,12 +57,28 @@ export function BurgerMenu() {
 				<Menu className="h-4 w-4" />
 			</DropdownMenuTrigger>
 			<DropdownMenuContent align="start" className="w-56">
-				{/* MIGRATION (until Task 8 of the F4.5a plan): the world flows wire these. */}
+				{/* The same verb set the world chip, the drawer and ⌘S drive — one action
+            source, three surfaces. Bake also writes worlds/index.json, so it needs a
+            name to write about: disabled while untitled, with the reason IN the label
+            (a disabled item swallows the tooltip that would otherwise carry it). */}
 				<DropdownMenuLabel>World</DropdownMenuLabel>
-				<PendingItem label="New" />
-				<PendingItem label="Open…" />
-				<PendingItem label="Save" shortcut="⌘S" />
-				<PendingItem label="Bake" />
+				<DropdownMenuItem onSelect={world.reset}>New</DropdownMenuItem>
+				<DropdownMenuItem onSelect={() => world.openDrawer("browse")}>
+					Open…
+				</DropdownMenuItem>
+				<DropdownMenuItem disabled={busy} onSelect={world.save}>
+					Save
+					<DropdownMenuShortcut>⌘S</DropdownMenuShortcut>
+				</DropdownMenuItem>
+				<DropdownMenuItem onSelect={() => world.openDrawer("save-as")}>
+					Save as…
+				</DropdownMenuItem>
+				<DropdownMenuItem
+					disabled={busy || worldName === null}
+					onSelect={world.bake}
+				>
+					{worldName === null ? "Bake — name the world first" : "Bake"}
+				</DropdownMenuItem>
 				<DropdownMenuSeparator />
 				<DropdownMenuLabel>View</DropdownMenuLabel>
 				{/* MIGRATION (until Task 9 of the F4.5a plan): the view popover wires the

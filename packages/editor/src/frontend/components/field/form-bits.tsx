@@ -1,7 +1,6 @@
 // Leaf form helpers shared across the Field panel's pieces (FieldPanel.tsx,
-// FieldToolbar.tsx, BrushInspector.tsx, StampInspector.tsx): the select
-// styling, the disabled-control tooltip wrapper, and the error-to-string
-// helper. Nothing here holds state.
+// BrushInspector.tsx, StampInspector.tsx) and the world drawer: the select
+// styling and the disabled-control tooltip wrapper. Nothing here holds state.
 //
 // These panels use the NATIVE <select>, not the package's ui/select.tsx (Radix) — a
 // deliberate deviation from the primitive four other files use. The selects here are
@@ -14,10 +13,6 @@ import { cn } from "../../lib/cn.ts";
 
 export const SELECT_CLASS =
 	"h-8 rounded-md border border-input bg-transparent px-2";
-
-/** An unknown thrown value as a display string. */
-export const errorMessage = (err: unknown): string =>
-	err instanceof Error ? err.message : String(err);
 
 /** Wrap a DISABLED control so its explanation is still reachable: shadcn's Button sets
  *  `disabled:pointer-events-none` (ui/button.tsx), so a `title` on the button itself

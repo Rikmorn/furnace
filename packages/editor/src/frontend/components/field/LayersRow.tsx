@@ -61,12 +61,21 @@ const LABEL_CLASS = "flex items-center gap-1 text-muted-foreground";
 const GHOST_SUPPRESSED_TITLE =
 	"brush ghost is hidden while a selection tool is active";
 
+const HEADLAMP_TITLE =
+	"light the field from the camera instead of flat shading";
+
 export function LayersRow(props: {
 	layers: FieldLayers;
 	slice: { enabled: boolean; y: number };
 	ghostSuppressed: boolean;
+	/** The host's headlamp shading mode. MIGRATION (until Task 9 of the F4.5a plan): it
+	 *  rode the world toolbar until the world verbs left it, and lands here — beside the
+	 *  other view toggles — for the one task between that and the View popover it
+	 *  belongs in. */
+	headlamp: boolean;
 	onLayers: (next: FieldLayers) => void;
 	onSlice: (next: { enabled: boolean; y: number }) => void;
+	onShading: (on: boolean) => void;
 }) {
 	return (
 		<div className="flex flex-wrap items-center gap-3">
@@ -157,6 +166,15 @@ export function LayersRow(props: {
 					<span className="w-14 tabular-nums">
 						{props.slice.y.toFixed(2)} m
 					</span>
+				</label>
+				<label className={LABEL_CLASS} title={HEADLAMP_TITLE}>
+					<input
+						type="checkbox"
+						checked={props.headlamp}
+						onChange={(e) => props.onShading(e.target.checked)}
+						aria-label="headlamp"
+					/>
+					headlamp
 				</label>
 			</span>
 		</div>

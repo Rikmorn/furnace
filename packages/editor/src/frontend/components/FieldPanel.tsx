@@ -2,9 +2,11 @@
 // palette (brush effects, selection gestures, stamp generators) + the persistent
 // material swatches + the brush inspector (radius/mask/smooth/hollow) + shading
 // + the layers/slice row, the advisor's flags, the entity list and the drift
-// report. The persistence concern — world name, Save / Load / Bake-as-default,
-// and the run-once catalog fetch that gates Load — lives in FieldToolbar
-// (extracted, F2b sweep); the panel keeps the table (swatches).
+// report. The persistence concern — which world this is, Save / Open / Bake —
+// is the SHELL's now (the world chip, the drawer, ⌘S): a control stack that owns
+// the save verb cannot be dissolved into palettes, and closing the palette
+// holding it would take ⌘S with it. The material table it renders swatches from
+// arrives the same way, off the catalog provider the shell mounts.
 // It owns NO canvas: the shell mounts the one full-window viewport (CanvasHost)
 // and inits the host on it. It also owns no stats and no tool-error
 // subscription — both seams are single slots the shell holds
@@ -15,7 +17,7 @@
 // /engine.js runtime channel (a context ref) — the chrome never value-imports
 // engine code (the project-first invariant). This file type-imports the field
 // host + artifact types (all erased).
-import type { DriftFinding, MaterialTable } from "@furnace/core/field"; // type-only: erased
+import type { DriftFinding } from "@furnace/core/field"; // type-only: erased
 import { useCallback, useEffect, useState } from "react";
 import type {
 	FieldEntityInfo,
@@ -31,12 +33,12 @@ import type {
 	StampSession,
 	ViewportGesture,
 } from "../../viewport-host/index.ts"; // type-only: erased
+import { useCatalog } from "../hooks/useCatalogs.tsx";
 import { useToolErrorTick } from "../hooks/useFieldHostState.tsx";
 import { useEditor } from "./editor-context.ts";
 import { BrushInspector } from "./field/BrushInspector.tsx";
 import { DriftReport } from "./field/DriftReport.tsx";
 import { EntitiesList } from "./field/EntitiesList.tsx";
-import { FieldToolbar } from "./field/FieldToolbar.tsx";
 import { FlagsSection } from "./field/FlagsSection.tsx";
 import { LayersRow } from "./field/LayersRow.tsx";
 import { MaterialSwatches } from "./field/MaterialSwatches.tsx";
@@ -58,16 +60,6 @@ const DEFAULT_TOOL: FieldTool = {
 	mask: { kind: "none" },
 	smooth: { strength: 16, iterations: 1, mode: "both" },
 	hollow: null,
-};
-
-// Dropdown/swatch fallback before the catalog resolves and when there is none
-// (404): rock only. A LOCAL literal — the chrome can't value-import core's
-// BUILTIN_TABLE (frontend-no-engine-leakage). The host keeps its own
-// BUILTIN_TABLE default; this only feeds the panel's material UI.
-const ROCK_ONLY_TABLE: MaterialTable = {
-	classes: [
-		{ id: 0, name: "rock", kind: "organic", color: [0.62, 0.6, 0.58, 1] },
-	],
 };
 
 // Panel-side layer defaults — mirror the host's own all-true default (a local
@@ -238,7 +230,10 @@ export function FieldPanel() {
 		maxStrength: 1,
 		maxIterations: 1,
 	});
-	const [table, setTable] = useState<MaterialTable>(ROCK_ONLY_TABLE);
+	// The project's material classes + the tick that says the ENTITY catalog is now on
+	// the host. Both come from the shell's catalog provider: the fetch has to happen
+	// whether or not this palette is open, and the world drawer needs the same result.
+	const { table, entityCatalogTick } = useCatalog();
 	// The last reconfigure's drift report (null = clean / none). Non-modal: it
 	// renders (via DriftReport) only while findings exist.
 	const [drift, setDrift] = useState<DriftFinding[] | null>(null);
@@ -269,19 +264,21 @@ export function FieldPanel() {
 		setGenerators(host.listGenerators());
 	}, [state.status, fieldHostRef]);
 
-	// Re-read the generator registry. `listGenerators()` is a SNAPSHOT: an
-	// archetype-driven generator's `archetypeId` param only carries its picker
-	// options once the host HOLDS the entity catalog, and that catalog arrives off
-	// an async fetch which cannot possibly settle before the effect above first
-	// runs at engine-ready. Reading once left `archetypeId` a free-text field
-	// forever (review B1), so the toolbar calls this the moment it has installed
-	// the catalog on the host. The signal carries nothing on purpose: the HOST is
-	// the source of truth, and a payload would invite reading it instead.
-	const refreshGenerators = useCallback((): void => {
+	// Re-read the generator registry when the entity catalog lands.
+	// `listGenerators()` is a SNAPSHOT: an archetype-driven generator's
+	// `archetypeId` param only carries its picker options once the host HOLDS the
+	// entity catalog, and that catalog arrives off an async fetch which cannot
+	// possibly settle before the effect above first runs at engine-ready. Reading
+	// once left `archetypeId` a free-text field forever (review B1). The tick
+	// carries nothing on purpose: the HOST is the source of truth, and a payload
+	// would invite reading it instead. The zero guard is what keeps this from
+	// re-reading at mount, before anything has been installed.
+	useEffect(() => {
+		if (entityCatalogTick === 0) return;
 		const host = fieldHostRef.current;
 		if (!host) return;
 		setGenerators(host.listGenerators());
-	}, [fieldHostRef]);
+	}, [entityCatalogTick, fieldHostRef]);
 
 	// Mirror HOST-initiated tool changes (Alt-click eyedropper, momentary
 	// Shift/Ctrl overrides) into panel state. ECHO GUARD (binding rider): a
@@ -516,18 +513,12 @@ export function FieldPanel() {
 
 	return (
 		<div className="flex h-full flex-col">
-			<FieldToolbar
-				headlamp={headlamp}
-				onShading={onShading}
-				onTable={setTable}
-				onEntityCatalogInstalled={refreshGenerators}
-			/>
 			{/* The controls stack (palette + swatches + inspectors + layers + entities)
-          takes whatever height the toolbar above and the selection footer below
-          leave, and scrolls INSIDE itself. The F2b-era 45% cap is gone with the canvas
-          it was protecting: the panel is nothing but controls now, so a tall
-          StampInspector form has nothing left to starve. min-h-0 is what lets a flex
-          child shrink below its content instead of pushing the footer off the bottom. */}
+          takes whatever height the selection footer below leaves, and scrolls INSIDE
+          itself. The F2b-era 45% cap is gone with the canvas it was protecting: the
+          panel is nothing but controls now, so a tall StampInspector form has nothing
+          left to starve. min-h-0 is what lets a flex child shrink below its content
+          instead of pushing the footer off the bottom. */}
 			<div className="min-h-0 flex-1 overflow-y-auto">
 				<div className="flex flex-col gap-2 border-b border-border p-2 text-sm">
 					<ToolPalette
@@ -588,8 +579,10 @@ export function FieldPanel() {
 						layers={layers}
 						slice={slice}
 						ghostSuppressed={selectionArmed && stamp === null}
+						headlamp={headlamp}
 						onLayers={onLayers}
 						onSlice={onSlice}
+						onShading={onShading}
 					/>
 				</div>
 				{/* The advisor's findings, under the layer toggle that draws their

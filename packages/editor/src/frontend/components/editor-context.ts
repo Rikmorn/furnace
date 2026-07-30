@@ -30,6 +30,11 @@ export type EditorContextValue = {
    *  open. A ref rather than state on purpose — the listener binds once and must see
    *  the current value without re-binding on each prompt. */
   confirmRef: RefObject<ConfirmRequest | null>;
+  /** Whether a world write is in flight, as a ref. App's SSE handler reads it to refuse
+   *  the `bundle-outdated` hard reload while one is running — that closure re-subscribes
+   *  only on [state.status], so it cannot read live state, and a reload mid-upload would
+   *  kill the write. The shell's world verbs are the writers. */
+  bakeBusyRef: RefObject<boolean>;
   /** Per-project UI persistence store. Undefined when the project root couldn't be
    *  resolved (persistence best-effort). */
   store: UiStore | undefined;

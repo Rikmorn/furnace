@@ -1,3 +1,9 @@
+/** An unknown thrown value as a display string. Lives here rather than beside the form
+ *  leaves it started with: `lib/world-actions.ts` needs it too, and a lib module must
+ *  not import a component file to get one. */
+export const errorMessage = (err: unknown): string =>
+  err instanceof Error ? err.message : String(err);
+
 const MINUTE_MS = 60_000;
 const HOUR_MS = 60 * MINUTE_MS;
 const DAY_MS = 24 * HOUR_MS;

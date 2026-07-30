@@ -22,6 +22,7 @@ import type { ConfirmRequest } from "../../src/frontend/components/ConfirmDialog
 import { FieldPanel } from "../../src/frontend/components/FieldPanel.tsx";
 import { FlagsSection } from "../../src/frontend/components/field/FlagsSection.tsx";
 import { Toasts } from "../../src/frontend/components/shell/Toasts.tsx";
+import { CatalogProvider } from "../../src/frontend/hooks/useCatalogs.tsx";
 import { FieldHostStateProvider } from "../../src/frontend/hooks/useFieldHostState.tsx";
 import type { VerifyVerdictWire } from "../../src/frontend/lib/analyzer-protocol.ts";
 import type { EntityCatalog } from "../../src/frontend/lib/catalog.ts";
@@ -183,15 +184,19 @@ function pushEntities(
 const rowButton = (verb: string, entityId: number): HTMLButtonElement =>
 	screen.getByLabelText(`${verb} entity ${entityId}`) as HTMLButtonElement;
 
-/** Render the panel and flush the toolbar's catalog fetch inside act — its
- *  settle (message + Load-gate setState) otherwise lands between assertions as
- *  an un-act'ed update. Test (b) renders directly instead: its fetch stays
- *  deliberately pending.
+/** Render the panel and flush the catalog fetch inside act — its settle (the message
+ *  + the table setState) otherwise lands between assertions as an un-act'ed update.
  *
- *  `<Toasts />` rides along because the panel no longer renders what it SAYS: the
- *  toolbar's reports go to the notification store, and the toast layer is what puts
- *  them on screen. Mounting it here keeps those cases assertions about what a user
- *  sees rather than about a store's internals.
+ *  `<CatalogProvider />` wraps it because the three-fetch pass is the SHELL's now (the
+ *  world drawer needs the same result, and the fetch has to happen whether or not this
+ *  palette is open). Mounting it here keeps the panel's catalog-dependent behaviour —
+ *  the swatch strip, the archetypeId picker — testable against the real fetch path
+ *  rather than a hand-fed table.
+ *
+ *  `<Toasts />` rides along because the panel does not render what the editor SAYS: the
+ *  catalog reports go to the notification store, and the toast layer is what puts them
+ *  on screen. Mounting it here keeps those cases assertions about what a user sees
+ *  rather than about a store's internals.
  *
  *  Deliberately NOT wrapped in FieldHostStateProvider — several cases below assert
  *  that the PANEL claims none of the shell's single-slot seams, and a provider here
@@ -199,10 +204,10 @@ const rowButton = (verb: string, entityId: number): HTMLButtonElement =>
  *  cases that need the tool-error seam wired. */
 async function renderPanel(stub: ReturnType<typeof makeStubHost>) {
 	const result = renderWithEditor(
-		<>
+		<CatalogProvider>
 			<FieldPanel />
 			<Toasts />
-		</>,
+		</CatalogProvider>,
 		makeEditorContext({ fieldHostRef: { current: stub.host } }),
 	);
 	await act(async () => {
@@ -222,8 +227,10 @@ async function renderPanelUnderShellSeams(
 ) {
 	const result = renderWithEditor(
 		<FieldHostStateProvider host={stub.host} engineReady>
-			<FieldPanel />
-			<Toasts />
+			<CatalogProvider>
+				<FieldPanel />
+				<Toasts />
+			</CatalogProvider>
 		</FieldHostStateProvider>,
 		makeEditorContext({ fieldHostRef: { current: stub.host } }),
 	);
@@ -262,41 +269,6 @@ test("picking Paint while a kit class is active clamps the material to the first
 		effect: "paint",
 		materialId: 0,
 	});
-});
-
-// --- (b) catalog-gated Load -------------------------------------------------
-
-test("Load stays disabled until the catalog fetch settles", async () => {
-	// ONLY the materials GET hangs (it is the one that gates Load); entities 404s
-	// like any project without one. A URL-agnostic pending stub used to hand the
-	// same `settle` slot to both GETs, so the first promise was overwritten and
-	// left unresolved forever (review O7) — harmless, but it meant this test's
-	// subject was ambiguous.
-	let settle!: (r: Response) => void;
-	stubFetch((url) =>
-		url.includes("entities.json")
-			? Promise.resolve(new Response("", { status: 404 }))
-			: new Promise<Response>((res) => {
-					settle = res;
-				}),
-	);
-	const stub = makeStubHost();
-	renderWithEditor(
-		<FieldPanel />,
-		makeEditorContext({ fieldHostRef: { current: stub.host } }),
-	);
-	fireEvent.change(screen.getByLabelText("world name"), {
-		target: { value: "cavern" },
-	});
-	// Valid name, but the catalog is still in flight — the gate holds.
-	expect(button("Load").disabled).toBe(true);
-	// The async scope is the point: act() drains the microtask queue the settled
-	// fetch schedules; the callback body has nothing of its own to await.
-	// biome-ignore lint/suspicious/useAwait: intentionally await-free async act scope
-	await act(async () => {
-		settle(new Response("", { status: 404 }));
-	});
-	await waitFor(() => expect(button("Load").disabled).toBe(false));
 });
 
 // --- (c) the subscribeTool echo guard ---------------------------------------
@@ -768,15 +740,16 @@ function controlsBox(): HTMLElement {
 	return box;
 }
 
-test("the control sections share ONE scroll container, between the toolbar and the footer", async () => {
+test("the control sections share ONE scroll container, above the pinned footer", async () => {
 	fetch404();
 	const stub = makeStubHost({ generators: [HALL_GEN] });
 	await renderPanel(stub);
 	// happy-dom runs NO layout (getBoundingClientRect is all zeros), so the pixel
 	// outcome is not assertable. What IS assertable is the structure that produces
-	// it: one self-scrolling stack that takes the height the pinned toolbar above and
-	// the selection footer below leave, and shrinks instead of pushing them out. The
-	// F2b 45% cap is gone with the canvas it was protecting — the panel is controls now.
+	// it: one self-scrolling stack that takes the height the selection footer below
+	// leaves, and shrinks instead of pushing it out. The F2b 45% cap is gone with the
+	// canvas it was protecting — the panel is controls now, and the world toolbar that
+	// used to pin the top went with the world state (the shell owns it).
 	const controls = controlsBox();
 	for (const cls of ["flex-1", "min-h-0", "overflow-y-auto"])
 		expect(controls.classList.contains(cls)).toBe(true);
@@ -784,10 +757,19 @@ test("the control sections share ONE scroll container, between the toolbar and t
 	// All three control sections live inside it…
 	expect(controls.contains(button("Dig"))).toBe(true); // palette
 	expect(controls.contains(screen.getByText("Entities (0)"))).toBe(true); // entities
-	// …and neither the persistence toolbar nor the selection footer does: both stay
-	// pinned outside the scroll, which is the whole point of putting it here.
-	expect(controls.contains(screen.getByLabelText("world name"))).toBe(false);
+	// …and the selection footer does not: it stays pinned outside the scroll, which is
+	// the whole point of putting it here.
 	expect(controls.contains(button("Reselect"))).toBe(false);
+	// Nothing about the WORLD is in this panel any more — the name field, Save, Load
+	// and Bake are the shell's (the world chip + the drawer + ⌘S). A control stack that
+	// owns the save verb cannot be dissolved into palettes, and a palette that can be
+	// closed cannot be the only way to save.
+	// Compared to null BEFORE the expect: a happy-dom element carries React's fiber
+	// graph, so a failing `toBeNull` on one serialises tens of megabytes and reads as a
+	// hung run rather than a failed assertion.
+	expect(screen.queryByLabelText("world name") === null).toBe(true);
+	for (const gone of ["Save", "Load", "Bake & make default"])
+		expect(screen.queryByRole("button", { name: gone }) === null).toBe(true);
 	// The tall extreme: a stamp session adds the generator form to the stack — it
 	// lands INSIDE the container, so the pinned rows are untouched.
 	act(() => {
@@ -1033,56 +1015,14 @@ test("Segment arms the gesture slot, keeps the brush inspector, and survives an 
 	).toBe("true");
 });
 
-// --- what the toolbar SAYS now goes to the toast stack -----------------------
+// --- what the catalog pass SAYS goes to the toast stack ----------------------
 // The F3b gate's finding was that refusals and routine info shared one footer line
 // and read identically, i.e. as dead features. The line is gone: every report is its
 // own toned toast (and its own log entry), so this asserts the routing rather than a
 // tone on a shared span. The refusal half of the same story lives in
 // tests/chrome/shell.test.tsx, where the seam that carries it is wired.
 
-test("a save reports its OUTCOME, and says nothing while it is in flight", async () => {
-	// Materials + entities + agent all present, so the catalog pass posts TWO messages
-	// (it is silent on a good agent) — filling two of the three toast slots before the
-	// save even starts. That is the point: the stack caps at 3 and never evicts, so a
-	// "saving…" toast in front of the outcome is a slot spent on something already
-	// finished. In-flight is said AT the control (`busy` disables the row); D-19's
-	// mechanism for a long job is a progress chip with a cancel (F4.5c), not a toast.
-	stubFetch((url) => {
-		if (url.includes("entities.json"))
-			return Promise.resolve(new Response(ENTITIES_JSON, { status: 200 }));
-		if (url.includes("agent.json"))
-			return Promise.resolve(new Response("", { status: 404 }));
-		if (url.includes("materials.json"))
-			return Promise.resolve(new Response(CATALOG_JSON, { status: 200 }));
-		// The daemon call behind api.generationBake.
-		return Promise.resolve(
-			new Response(JSON.stringify({ files: 12 }), { status: 200 }),
-		);
-	});
-	const stub = makeStubHost();
-	await renderPanel(stub);
-	await waitFor(() => toastText("materials: 2 classes"));
-
-	fireEvent.change(screen.getByLabelText("world name"), {
-		target: { value: "cavern" },
-	});
-	await act(async () => {
-		fireEvent.click(button("Save"));
-		await Promise.resolve();
-		await Promise.resolve();
-	});
-
-	// The outcome LANDED. With a progress toast ahead of it this is the message that
-	// would have been dropped — the one the user actually needs.
-	await waitFor(() => toastText("saved 12 files → worlds/cavern"));
-	expect(notify.getSnapshot().overflow).toBe(0);
-	// …and nothing announced the attempt itself.
-	expect(notify.getSnapshot().log.some((m) => /saving/.test(m.text))).toBe(
-		false,
-	);
-});
-
-test("a toolbar report becomes a toast — and is still in the log after the toast goes", async () => {
+test("a catalog report becomes a toast — and is still in the log after the toast goes", async () => {
 	stubCatalogs({ materials: CATALOG_JSON });
 	const stub = makeStubHost();
 	await renderPanel(stub);

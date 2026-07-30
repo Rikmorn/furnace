@@ -2,7 +2,7 @@
 // the shell's layout contract rather than by any panel.
 import { useEffect, useRef } from "react";
 import type { FieldHost } from "../../../viewport-host/index.ts"; // type-only: erased
-import { errorMessage } from "../field/form-bits.tsx";
+import { errorMessage } from "../../lib/humanize.ts";
 
 /**
  * Mounts the canvas and inits `host` on it. Init is EAGER — the dock-era

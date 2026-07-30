@@ -304,17 +304,86 @@ test("the provider releases the stats slot on unmount", () => {
 
 // --- (b) the top bar ----------------------------------------------------------
 
-test("the top bar carries the menu and the bake verb, inert but visible", async () => {
+test("the top bar carries the menu, the world chip and the bake verb", async () => {
 	fetch404();
 	const stub = makeStubHost();
 	await renderShell(stub);
 	expect(screen.getByLabelText("editor menu")).toBeTruthy();
-	// Inert items are DISABLED rather than silently dead — a live-looking button that
-	// swallows clicks is the worse failure.
+	// The chip names the world, and a fresh session has none — never prefilled (the
+	// W3/W4 clobber lesson: a stale default silently overwrites the game's world).
+	expect(screen.getByRole("button", { name: "untitled" })).toBeTruthy();
+	// Bake writes worlds/index.json as well as the world, so it needs a name to write
+	// about — disabled while untitled, with the reason on the wrapper (a disabled
+	// button swallows its own tooltip).
 	const bake = screen.getByRole("button", {
 		name: "Bake",
 	}) as HTMLButtonElement;
 	expect(bake.disabled).toBe(true);
+	expect(bake.parentElement?.getAttribute("title")).toContain("⌘S");
+});
+
+// --- (b2) the chords reach the world and the field's ONE history --------------
+
+test("⌘S on an untitled world opens the drawer to name it, rather than doing nothing", async () => {
+	fetch404();
+	const stub = makeStubHost();
+	await renderShell(stub);
+	// Compared to null BEFORE the expect: a happy-dom element carries React's fiber
+	// graph, so a failing `toBeNull` on one serialises tens of megabytes.
+	expect(screen.queryByRole("dialog") === null).toBe(true);
+	act(() => {
+		fireEvent.keyDown(window, { key: "s", metaKey: true });
+	});
+	// D-21: naming IS the first save. A ⌘S that silently no-ops on an unnamed world is
+	// the shape of "I thought I saved that".
+	await waitFor(() => expect(screen.getByRole("dialog")).toBeTruthy());
+	expect(screen.getByLabelText("save as world name")).toBeTruthy();
+});
+
+test("⌘Z / ⇧⌘Z step the FIELD's history — the editor has no second one", async () => {
+	fetch404();
+	const stub = makeStubHost();
+	await renderShell(stub);
+	act(() => {
+		fireEvent.keyDown(window, { key: "z", metaKey: true });
+	});
+	expect(stub.calls.undo.mock.calls.length).toBe(1);
+	expect(stub.calls.redo).not.toHaveBeenCalled();
+	act(() => {
+		fireEvent.keyDown(window, { key: "z", metaKey: true, shiftKey: true });
+	});
+	expect(stub.calls.redo.mock.calls.length).toBe(1);
+	expect(stub.calls.undo.mock.calls.length).toBe(1);
+});
+
+test("a confirm dialog suppresses every chord while it is open", async () => {
+	fetch404();
+	const stub = makeStubHost();
+	// A prompt is pending: the listener must swallow the lot. A binding that fires
+	// under a modal strands it — its onCancel never runs, and the destructive action
+	// the user was being asked about is left half-answered.
+	renderWithEditor(
+		<Shell />,
+		makeEditorContext({
+			fieldHostRef: { current: stub.host },
+			confirmRef: {
+				current: {
+					title: "t",
+					message: "m",
+					confirmLabel: "ok",
+					// biome-ignore lint/suspicious/noEmptyBlockStatements: inert test no-op
+					onConfirm: () => {},
+				},
+			},
+		}),
+	);
+	await flushCatalog();
+	act(() => {
+		fireEvent.keyDown(window, { key: "z", metaKey: true });
+		fireEvent.keyDown(window, { key: "s", metaKey: true });
+	});
+	expect(stub.calls.undo).not.toHaveBeenCalled();
+	expect(screen.queryByRole("dialog") === null).toBe(true);
 });
 
 // --- (c) the status bar reads the host --------------------------------------
@@ -796,7 +865,7 @@ test("the palette layer floats over the canvas and never swallows viewport input
 	// Docked right by default, and the field controls really are inside it (this is the
 	// field panel, not an empty box that happens to be positioned right).
 	expect(palette.style.right).toBe("0px");
-	expect(palette.contains(screen.getByLabelText("world name"))).toBe(true);
+	expect(palette.contains(screen.getByLabelText("slice y"))).toBe(true);
 });
 
 test("a palette collapses to a rail chip that restores it, keeping its geometry", async () => {
@@ -811,7 +880,7 @@ test("a palette collapses to a rail chip that restores it, keeping its geometry"
 	// Out of the layout AND out of the accessibility tree — but still MOUNTED behind
 	// `hidden`, so the panel's host-subscribed state survives the round trip.
 	expect(controlsPalette()).toBeNull();
-	expect(screen.getByLabelText("world name")).toBeTruthy();
+	expect(screen.getByLabelText("slice y")).toBeTruthy();
 	// The button that was just clicked went with the palette, so focus has to be MOVED
 	// or it lands on <body> and a keyboard user restarts from the top of the document.
 	const chip = screen.getByRole("button", { name: "expand Controls" });
@@ -846,7 +915,7 @@ test("⌘\\ hides the whole layer and restores the EXACT arrangement (D-3)", asy
 	expect(screen.getByLabelText("field viewport")).toBe(canvas);
 	// …and it hides rather than UNMOUNTS: ⌘\ is a peek, and a peek that tears the
 	// palettes down would reset every host-subscribed control inside them.
-	expect(screen.getByLabelText("world name")).toBeTruthy();
+	expect(screen.getByLabelText("slice y")).toBeTruthy();
 
 	act(() => {
 		fireEvent.keyDown(window, { key: "\\", metaKey: true });

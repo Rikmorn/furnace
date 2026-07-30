@@ -21,12 +21,10 @@ export function App() {
 	// The F1 field dig host, created once at engine-ready and threaded to the shell via
 	// context. App-owned so its lifetime is the editor's, not any one component's.
 	const fieldHostRef = useRef<FieldHost | undefined>(undefined);
-	// Will mirror whether a world bake is in flight, for the SSE bundle-outdated guard
-	// (that closure re-subscribes only on [state.status], so it cannot read live panel
-	// state).
-	// MIGRATION (until Task 8 of the F4.5a plan): the bake still lives inside the Field
-	// panel's toolbar and nothing writes this yet, so it reads false for the whole
-	// session — the reload below is currently unguarded in practice.
+	// Whether a world write is in flight, for the SSE bundle-outdated guard below (that
+	// closure re-subscribes only on [state.status], so it cannot read live state). The
+	// shell's world verbs set it around every save/bake; a ref rather than state because
+	// the guard has to see the CURRENT value without re-subscribing.
 	const bakeBusyRef = useRef(false);
 	// The in-chrome confirm dialog (replaces window.confirm) — its full state machine
 	// (open no-clobber guard, exactly-once resolve) lives in useConfirmDialog. `confirmRef`
@@ -104,7 +102,8 @@ export function App() {
 				if (event.type === "bundle-outdated") {
 					// Generator/extension source changed: the engine bundle is stale. A hard
 					// reload is the only way to pick it up, and it would kill an in-flight
-					// bake, so refuse while one is running.
+					// world write, so refuse while one is running (the shell's world verbs
+					// hold the ref for the duration of the upload).
 					if (!bakeBusyRef.current) window.location.reload();
 					return;
 				}
@@ -132,6 +131,7 @@ export function App() {
 		worldsVersion,
 		openConfirm,
 		confirmRef,
+		bakeBusyRef,
 		store,
 	};
 

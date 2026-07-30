@@ -30,6 +30,23 @@ async function call<T>(command: string, input: unknown): Promise<T> {
   return body;
 }
 
+/** One row of `world.list`, re-declared STRUCTURALLY: the chrome cannot import daemon
+ *  types (the daemon is Node-portable and lives outside the frontend's graph), so this
+ *  mirrors `daemon/worlds.ts`'s `WorldRow` by hand. Grep both when either changes.
+ *
+ *  `tracked` is a TRI-state and the third case is load-bearing: `true` = the world would
+ *  be committed as-is (`git check-ignore` says no), `false` = gitignored scratch, `null`
+ *  = the daemon had no tracked-checker (no git repo) or got an indeterminate answer. */
+export type WorldRow = {
+  name: string;
+  /** `field` = a v2 world with an oplog (the only kind `field.load` can read);
+   *  `legacy` = a v1 world directory with a manifest but no oplog. */
+  kind: "field" | "legacy";
+  isDefault: boolean;
+  tracked: boolean | null;
+  manifestMtimeMs: number;
+};
+
 // The daemon still serves the whole scene.* command family (daemon/scenes.ts +
 // daemon/session.ts) — this client just no longer speaks it: the editor is field-only,
 // and the scene chrome that drove those commands is gone. The daemon layer stays for a
@@ -59,4 +76,20 @@ export const api = {
       materials: { key: string; data: string }[];
       oplog: string | null;
     }>("field.load", { name }),
+
+  // The world verbs (D-22). Every mutator is name-gated by the daemon's shared
+  // WORLD_NAME_RE schema, emits `worlds-changed` on success, and returns an empty
+  // object — the drawer refetches `worldList` off the event rather than patching a
+  // row from a response, so one refresh path serves the editor's own mutations AND
+  // anything that changes worlds/ behind its back.
+  worldList: () =>
+    call<{ defaultName: string | null; worlds: WorldRow[] }>("world.list", {}),
+  worldDelete: (name: string) =>
+    call<Record<string, never>>("world.delete", { name }),
+  worldRename: (from: string, to: string) =>
+    call<Record<string, never>>("world.rename", { from, to }),
+  worldDuplicate: (from: string, to: string) =>
+    call<Record<string, never>>("world.duplicate", { from, to }),
+  worldMakeDefault: (name: string) =>
+    call<Record<string, never>>("world.makeDefault", { name }),
 };

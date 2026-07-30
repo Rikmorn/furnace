@@ -24,13 +24,12 @@ export type PaletteState = {
 };
 
 /** The full persisted UI state. Fields are independent — each caller reads/writes its
- *  own key.
- *
- *  Each key has exactly one writer, and none of them exists yet — this shape is
- *  declared whole so the version bump happens once rather than per key:
+ *  own key, and each key has exactly one writer:
  *  - `workspace` — the palette store (drag/snap/collapse/hide-all).
- *  - `view` — the view popover (shading / grid / layer toggles / slice plane).
- *  - `lastWorld` + `recentWorlds` — the world open/save/new flows. */
+ *  - `view` — the view popover (shading / grid / layer toggles / slice plane); still
+ *    unwritten, its writer lands with the view popover.
+ *  - `lastWorld` + `recentWorlds` — the world save/load flows (`world-actions.ts`'s
+ *    `rememberWorld`). */
 export type UiState = {
   /** The floating-palette arrangement. `hidden` is the ⌘\ hide-all latch: restoring
    *  must return the EXACT prior arrangement, so the per-palette records survive it
@@ -51,6 +50,17 @@ export type UiState = {
   /** Most-recently-opened world names, newest first. */
   recentWorlds?: string[];
 };
+
+/** Prepend `item` to a most-recent-first list, dropping any prior occurrence and capping
+ *  the length. Pure — the recents list is a value, so its rules are testable without a
+ *  store. */
+export function pushRecent(
+  list: readonly string[],
+  item: string,
+  cap: number,
+): string[] {
+  return [item, ...list.filter((x) => x !== item)].slice(0, cap);
+}
 
 /** A namespaced, versioned, schema-tolerant view over a `Storage` for ONE project. */
 export type UiStore = {

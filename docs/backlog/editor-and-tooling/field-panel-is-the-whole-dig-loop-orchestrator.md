@@ -2,7 +2,7 @@
 
 `packages/editor/src/frontend/components/FieldPanel.tsx` has grown past every cognitive-load
 signal in `.claude/rules/clean-code.md` (~400 lines/file). Its presentation was extracted
-long ago — `FieldToolbar`, `ToolPalette`, `MaterialSwatches`, `BrushInspector`,
+long ago — `ToolPalette`, `MaterialSwatches`, `BrushInspector`,
 `StampInspector`, `LayersRow`, `EntitiesList`, `DriftReport`, `FlagsSection` are all their
 own files — so what is left is not markup but ORCHESTRATION: the `host.subscribe*` effects,
 the engine-ready default pushes (layers, slice, flag filters), four value-equality

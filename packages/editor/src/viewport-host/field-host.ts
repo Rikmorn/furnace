@@ -400,8 +400,8 @@ export type FieldHost = {
    *  call (it comes off an async fetch, and engine-ready fires before that fetch
    *  can settle), so a caller that renders the schema MUST call again when the
    *  catalog lands or it will render the pre-catalog one forever. The chrome
-   *  does exactly that — FieldToolbar calls back into FieldPanel once the
-   *  catalog is installed, and the panel re-reads the registry — and
+   *  does exactly that — the catalog provider ticks once it has installed the
+   *  catalog, and the field panel re-reads the registry on that tick — and
    *  `tests/chrome/field-panel.test.tsx` pins the ordering. */
   listGenerators(): FieldGeneratorInfo[];
   /** The committed prop layer as the LAST REBUILD decided it: per archetype id,
@@ -3742,11 +3742,11 @@ export function createFieldHost(deps?: {
       // the window listener too, and this line is what keeps the chord from
       // being handled twice.
       //
-      // TODAY the window handler is an inert no-op, so nothing is double-stepped
-      // with or without this line — it is a GUARD, held for the moment an
-      // app-level undo is wired to it. At that point one ⌘Z over the canvas
-      // would step both this op log and whatever that handler owns, and the
-      // guard is what stops it.
+      // The window handler is LIVE now (useGlobalKeybindings routes ⌘Z/⇧⌘Z to
+      // FieldHost.undo/redo — the field's op log is the editor's ONE history),
+      // so this line is what it prevents: without it a ⌘Z over the focused
+      // canvas would run stepHistory here AND again from the window listener,
+      // stepping the log twice for one chord.
       //
       // Scoped to THIS branch on purpose: the canvas owns the ⌘Z chord and
       // nothing else the global listener binds. ⌘S should still reach the window

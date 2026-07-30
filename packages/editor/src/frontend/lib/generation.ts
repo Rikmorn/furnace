@@ -3,10 +3,17 @@
 // call sequence. NO document-session contact — the ONLY daemon crossing is the api call the
 // caller makes with what these return. Everything here is pure and unit-tested without a DOM.
 
-/** UI-boundary mirror of bake.ts's WORLD_NAME_RE — refuse before burning a bake. */
+/** UI-boundary mirror of bake.ts's WORLD_NAME_RE — refuse before burning a bake. The
+ *  frontend's ONLY copy: every name field validates through this one call. */
 export function isValidWorldName(name: string): boolean {
   return /^[a-z0-9][a-z0-9_-]*$/i.test(name);
 }
+
+/** The same rule in human words, for the helper text beside every field that takes a
+ *  world name (D-21). Lives next to the regex so the two are edited together — a rule
+ *  stated where it cannot be seen from the code that enforces it is a rule that drifts. */
+export const WORLD_NAME_RULE =
+  "letters, digits, - and _ — starting with a letter or digit";
 
 /** The daemon upload sequence for a world bake (D-W3-9): the world's own file set,
  *  cleanDir'd to its directory (a re-bake never leaves orphans) — then, when the user
