@@ -1,10 +1,19 @@
 # Editor Architecture
 
-The as-built `@furnace/editor` package, milestones **M3** (editor shell) + **M4** (command layer) + **M5A** (inspector) + **M5B** (viewport interaction), plus the **M1-slices** registration batch (the full built-in set + physics-from-data in the core loader), plus the **Epic 3 cockpit slices** — **3.0** (editor-openable dungeon, extensions-dir watch) and **3.1** (the generation loop: a preview host, the `generation.bake` command, and an ephemeral generation session; §13), **3.2** (the editor foundation pass — design-system tokens, menu bar + global keybindings, UI persistence, viewport reference layer + dolly navigation, inspector IA + humanized labels; §14), and **3.2.3** (cockpit hardening — generation moved onto a worker, with instant mid-run cancel; §13.6), plus the **One Field phase** — **F1+F2a** (the Field panel + `FieldHost` over `@furnace/core/field`; §15), **F2b** (the palette — brush chassis, selection, stamp generators, layers + slice; §16), **F3a** (smart objects — reconfigure/freeze/bake; §17), and **F3b** (scatter authoring, placed props, the void cast, the segment brush; §18). This is the reference — "how the editor IS today." The decision history that produced it lives in `docs/backlog/editor-and-tooling/editor-backend-architecture.md`; this doc describes the running system.
+The as-built `@furnace/editor` package, milestones **M3** (editor shell) + **M4** (command layer) + **M5A** (inspector) + **M5B** (viewport interaction), plus the **M1-slices** registration batch (the full built-in set + physics-from-data in the core loader), plus the **Epic 3 cockpit slices** — **3.0** (editor-openable dungeon, extensions-dir watch) and **3.1** (the generation loop: a preview host, the `generation.bake` command, and an ephemeral generation session; §13), **3.2** (the editor foundation pass — design-system tokens, menu bar + global keybindings, UI persistence, viewport reference layer + dolly navigation, inspector IA + humanized labels; §14), and **3.2.3** (cockpit hardening — generation moved onto a worker, with instant mid-run cancel; §13.6), plus the **One Field phase** — **F1+F2a** (the Field panel + `FieldHost` over `@furnace/core/field`; §15), **F2b** (the palette — brush chassis, selection, stamp generators, layers + slice; §16), **F3a** (smart objects — reconfigure/freeze/bake; §17), **F3b** (scatter authoring, placed props, the void cast, the segment brush; §18), **F4** (the walkability advisor; §19) and **F4.5a** (the overlay shell — full-window canvas, floating palettes, the world drawer, the notify system, studio shading; **§20**). This is the reference — "how the editor IS today." The decision history that produced it lives in `docs/backlog/editor-and-tooling/editor-backend-architecture.md`; this doc describes the running system.
 
 > **Epic status (2026-06-14): the editor epic is complete and paused.** M1→M5B + M1-slices landed and sealed. The originally-planned **M6** (behaviour runtime) and **M7** (porting + docs) are **dropped** — the project retargeted from the bowling demo to its actual application (a first-person dungeon crawler), so future editor work is driven by that app's **procedural-authoring** needs rather than the old milestone ladder. The known gaps a future editor pass must address are captured in `docs/backlog/editor-and-tooling/editor-interaction-model-redesign.md`.
 >
 > **Update (Epic 3, 2026-07-06):** the cockpit slices reopened editor work along exactly that procedural-authoring axis — the editor now generates, previews, curates, and bakes procedural world content (§13) — while keeping the editor engine-free (the consumer's generator arrives through the engine bundle's `extensions` namespace).
+>
+> **⚠ Update (F4.5a, 2026-07-30) — READ §20 FIRST for anything about the chrome.** The
+> overlay-shell slice retired the dock, the field toolbar, the World panel and the whole
+> scene-document chrome. **§20 is the authority on the frontend as it stands**; §7 and
+> §10–§14 are kept as the history that produced it and are stale wherever they describe a
+> panel, a layout, a keybinding or a component. Each carries its own marker below. The
+> daemon sections (§2–§6, §8) are unaffected and still current. A full merge of the
+> superseded sections into §20 is scheduled for the F4.5 seal — this section landed at
+> F4.5a so the doc stops asserting a chrome that no longer exists.
 
 ## 1. What the editor is
 
@@ -183,7 +192,12 @@ Wire shape on every error: `{ "error": { "code": "<EditorErrorCode>", "message":
 
 ## 7. Chrome
 
-The browser frontend is **React 19 + dockview** (docking panel layout), Tailwind-styled. It is **prebuilt** to `dist/frontend` by `packages/editor/scripts/build-frontend.ts` (`bun run --cwd packages/editor build:frontend`) and served same-origin by the daemon's static route (§2). `bun run edit` rebuilds it before starting the daemon.
+> **Superseded by §20 for the chrome (F4.5a).** The dock, the `ViewportHost` protocol,
+> the portaled panels and `refreshSession` are all gone; what stands is the build/serve
+> path (first paragraph) and the zero-engine-value-imports rule, which §20 restates.
+
+The browser frontend is **React 19**, Tailwind-styled (the **dockview** docking layout it
+used through F4 is retired — §20). It is **prebuilt** to `dist/frontend` by `packages/editor/scripts/build-frontend.ts` (`bun run --cwd packages/editor build:frontend`) and served same-origin by the daemon's static route (§2). `bun run edit` rebuilds it before starting the daemon.
 
 **Zero engine value-imports.** The chrome must never `import` `@furnace/core` at value level — doing so would create a *second* core instance alongside the engine bundle's, the exact bug project-first resolution prevents. This is enforced by `packages/editor/tests/frontend-no-engine-leakage.test.ts`, which scans `src/frontend` and forbids value imports / side-effect imports / value re-exports of `@furnace/core` (`import type` / `export type` are erased and allowed). The chrome reaches the engine **only** through `loadEngine()` (a dynamic `import("/engine.js")`) and the `ViewportHost` type (imported type-only, §below).
 
@@ -191,7 +205,7 @@ The browser frontend is **React 19 + dockview** (docking panel layout), Tailwind
 
 - **Host owns resize-rendering.** On `loadScene`, the host calls `camera.bindToCanvas` (aspect tracks canvas size) and subscribes its own re-render via `gpu.onResize`. Because the engine's `onResize` sets the canvas backing store *before* emitting, the host's render runs at the new size. The chrome must **not** drive resize-rendering from its own `ResizeObserver` — that fires before the backing-store resize and blanks the surface. (This was a real bug caught only by the manual visual gate; the protocol TSDoc documents the constraint.)
 
-**Module-level components + context-through-portals.** dockview reads its panel-component factory map only at panel construction, so a fresh map per render would freeze panels on their first render. `App.tsx` therefore keeps `COMPONENTS` (`entities` / `viewport` / `inspect`) at **module level** (stable identity), and the panels take no props — they read live state through `EditorContext` (a React Context threaded through dockview's portals). A fresh context value each render is what re-renders the portaled panels.
+**Module-level components + context-through-portals** *(historical — the dock is gone; §20)*. dockview read its panel-component factory map only at panel construction, so a fresh map per render would freeze panels on their first render. `App.tsx` therefore kept `COMPONENTS` (`entities` / `viewport` / `inspect`) at **module level** (stable identity), and the panels took no props — they read live state through `EditorContext` (a React Context threaded through dockview's portals). A fresh context value each render is what re-rendered the portaled panels. Today the shell is a plain subtree and the context is read directly.
 
 **Single `refreshSession` path.** `App.tsx` has exactly one document-refresh function: it pulls `scene.get`, reloads the viewport only when `(path, revision)` actually advanced, and dispatches the read model into the reducer. Every SSE event and every locally initiated change funnels through `refreshSession` — one code path for every client. The scene picker's `scene.open` does *not* load the viewport directly; it relies on the `scene-opened` SSE event driving `refreshSession`, so the chrome rides the same change feed as every other client. (`file-invalid` is the one event handled specially — it surfaces the message rather than refetching.)
 
@@ -212,6 +226,16 @@ If the file is absent, all editor settings fall back to defaults. Malformed JSON
 *(Two gaps this section previously listed as deferred were resolved in Slice 3.1 and are now documented inline as current behaviour: registry staleness on extension edits — §3, Staleness model + §5, Directory watching; and the session concurrent-open await races — §4, Concurrent-open await guards.)*
 
 ## 10. M5A — inspector, selection, live preview
+
+> **Superseded by §20 (F4.5a): the scene-document half is deleted code.** No
+> `InspectPanel.tsx`, no `EntitiesPanel.tsx`, no entity selection in the reducer, no
+> live-preview/echo-suppression path — the chrome no longer speaks `scene.*` at all
+> (the daemon still implements the family; nothing calls it). **What survives is
+> `frontend/inspector/`** — `SchemaForm`, the kind→renderer registry, the scrub
+> affordance — reused wholesale by `field/StampInspector.tsx` for stamp and
+> reconfigure params. Read §10.2–§10.5 for the inspector module; treat §10.1, §10.6,
+> §10.7 and §10.8 as history.
+
 
 M5A landed an **editable, reflection-driven inspector** with multi-entity selection and live-preview. This section documents the as-built additions to the M3+M4 substrate.
 
@@ -304,6 +328,14 @@ M5A has `revertEntity` (rebuilds from committed doc) but **no `revertSettings`**
 
 ## 11. M5B — viewport interaction (picking, gizmos, orbit camera, drag-scrub)
 
+> **Superseded by §20 (F4.5a): this whole section describes deleted code.** GPU-id
+> picking, the AABB selection highlight, the translate gizmo, `setSelection` /
+> `setCallbacks` / `onTransformCommit` and the scene orbit camera are gone with the
+> scene viewport host. `viewport-host/gizmo.ts` and `camera-control.ts`'s
+> `orbit`/`zoom`/`dolly`/`pan` survive as pure math with **no caller** — both are
+> retirement candidates, filed in `docs/backlog/editor-and-tooling/`.
+
+
 M5B landed the full manipulation loop: GPU-id picking, AABB selection highlight, translate gizmo, orbit/pan/zoom camera, NumberField drag-scrub, focused-input echo-guard, settings-revert, and three M5A inspector papercuts (⑩⑪⑫). This section documents the as-built additions to the M5A substrate.
 
 ### 11.1 Engine additions (`@furnace/core`)
@@ -330,7 +362,7 @@ The host (`viewport-host/index.ts`) maintains a private `editorCam: Camera` and 
 - **Preserved across same-scene reloads** — `loadScene(doc, { resetCamera })` only re-initializes the orbit state when `resetCamera` is true (a scene open/switch, keyed off a path change in `App.tsx`'s `refreshSession`). A same-scene revision bump — a resource/settings commit or external file edit — reloads the document and rebuilds meshes but keeps the existing `orbitState`, so the user's orbit/zoom does not jump. The `editorCam` object is recreated each reload (then rebound); applying the preserved `orbitState` to it reproduces the exact view. Resource commits reload via the SSE echo (they are not echo-suppressed), so without this the camera reset on every material/settings color edit.
 - **Never serialized** — the editor camera is completely independent of the scene camera entity. Editing the scene camera entity in the inspector does not move the editor view; orbiting in the viewport does not touch the scene document.
 - The `loaded.camera` (the scene camera entity) is kept but not used for rendering; `editorCam` is passed to `frame.render` and `frame.drawLines` instead.
-- **Controls** (see `viewport-host/input-map.ts` `classifyDrag`): left-drag = select (no modifier) or orbit (Alt held), Alt+Shift-drag = pan, middle-drag = orbit, scroll = zoom (exponential, `exp(delta * 0.1)`), F key = frame-selected (sets orbit target to selection centroid). The `keydown` listener lives **on the canvas**, so `onPointerDown` calls `canvasEl.focus({ preventScroll: true })` to give it keyboard focus on every click — Safari does not focus a `tabindex` element on click (and blurs the prior focus), so without this F/Escape would only work until the first viewport click.
+- **Controls** (`classifyDrag`, deleted at F4.5a Task 13 — it had no production caller and disagreed with the field host's actual bindings): left-drag = select (no modifier) or orbit (Alt held), Alt+Shift-drag = pan, middle-drag = orbit, scroll = zoom (exponential, `exp(delta * 0.1)`), F key = frame-selected (sets orbit target to selection centroid). The `keydown` listener lives **on the canvas**, so `onPointerDown` calls `canvasEl.focus({ preventScroll: true })` to give it keyboard focus on every click — Safari does not focus a `tabindex` element on click (and blurs the prior focus), so without this F/Escape would only work until the first viewport click.
 
 ### 11.3 AABB selection highlight
 
@@ -395,6 +427,14 @@ For `previewEntity` with `component === "transform"`, the host takes a fast path
 
 ## 12. Scene-loader coverage — full built-in set + physics-from-data
 
+> **Partly superseded (F4.5a).** The CORE-side claims (the loader instantiates the full
+> built-in set from data, physics included but unstepped) are unchanged and still
+> current — that is `@furnace/core/scene`, not the editor. The **editor-side render
+> path** at the end of this section (`renderLoaded` / `applyScene` in
+> `viewport-host/index.ts`) is deleted: that barrel now re-exports `createFieldHost`
+> and nothing else.
+
+
 The editor renders whatever the consumer's `@furnace/core` scene loader produces; it has no engine of its own (§1). The core loader now reproduces the bowling demo's full **setup** from a data document, so the editor viewport can load lit, textured, and physics-bearing scenes — not just the unlit/cube scenes earlier milestones exercised. The built-in registry (`packages/core/src/scene/builtins.ts`, verified in source) covers:
 
 - **Geometry kinds** — `cube`, `sphere`, `cylinder`, `plane`.
@@ -411,9 +451,20 @@ The editor renders whatever the consumer's `@furnace/core` scene loader produces
 
 ## 13. Slice 3.1 — the generation cockpit (Epic 3)
 
-Slice 3.1 ("the Loop") makes the editor **generate, preview, curate, and bake** procedural world content — while keeping the editor engine-free. The consumer's generator arrives through the engine bundle's `extensions` namespace (§3a) and is driven by a dockview **World panel** (§13.4); the daemon carries **zero** generator knowledge (the bake path uploads a browser-produced file set — the Decision in §13.3). The build is dungeon-first (the generator is `packages/dungeon/src/editor-extensions.ts`), but nothing in the editor knows that — the seam is generic (see `docs/backlog/editor-and-tooling/editor-seams-and-preview-deferrals.md` § *Generation session as a generic editor facility* for the plan to make the session a per-project editor facility).
+> **Superseded by §20 (F4.5a): everything in §13 EXCEPT §13.3 is deleted code.** The
+> preview host, the World panel, the world draft, the generation worker and its
+> client/protocol were all removed in F4.5a Task 4; the world flow is now `field.load` +
+> the `world.*` daemon family + the world drawer (§20.4). §13.3 (`generation.bake`) is
+> **still live** — it is the bake upload the world verbs drive. Kept as the history that
+> produced the current seam.
 
-### 13.1 Preview host — `src/viewport-host/preview-host.ts`
+Slice 3.1 ("the Loop") made the editor **generate, preview, curate, and bake** procedural world content — while keeping the editor engine-free. The consumer's generator arrives through the engine bundle's `extensions` namespace (§3a) and was driven by a dockview **World panel** (§13.4); the daemon carries **zero** generator knowledge (the bake path uploads a browser-produced file set — the Decision in §13.3). The build is dungeon-first (the generator is `packages/dungeon/src/editor-extensions.ts`), but nothing in the editor knows that — the seam is generic (see `docs/backlog/editor-and-tooling/editor-seams-and-preview-deferrals.md` § *Generation session as a generic editor facility* for the plan to make the session a per-project editor facility).
+
+### 13.1 Preview host — `src/viewport-host/preview-host.ts` *(DELETED — F4.5a Task 4)*
+
+*The file, the `createPreviewHost` bundle export and the camera-eye headlamp described
+below no longer exist. The one host today is `FieldHost`, lit by the studio key light
+(§20.5).*
 
 A **second** engine-bundle-side host, alongside the viewport host, created via `createPreviewHost()`. It is the generation session's render surface: an HDR preview world the panel realizes consumer `RegionData` into. It is **generic** — it owns no generator knowledge; the panel calls the consumer's realize code (`realizeRegion`, `MaterialCache`) against the host's `ctx()`/`world()` and hands the resulting engine handles to `adopt()`.
 
@@ -459,7 +510,7 @@ The `path` `.min(1)` guard is load-bearing: an empty path resolves to the root d
 
 The dockview **World panel** (`frontend/components/WorldPanel.tsx` + `world-panel/` sub-components; panel id stays `generation` — it is baked into persisted dockview layouts — title "World") drives the loop; its state is an **ephemeral world session** (`frontend/lib/generation.ts`) held **App-owned** (lifted out of the panel in Slice 3.2 so the session survives the panel closing/reopening; §14.3), **beside** the daemon's document session. The only daemon/FS crossing is freeze (the `generation.bake` upload) — everything else in `generation.ts` / `world-draft.ts` is pure and unit-tested without a DOM.
 
-**W3 — assembly (charter §2.4):** the panel assembles a **`WorldDraft`** (`frontend/lib/world-draft.ts`): attach-on-add — region 0 anchors at the origin and every later region enters WITH the connector tying it to an earlier region, so the world is a TREE by construction and grid regions' doors are ASSEMBLED from attachments (`draftToSpec` — portal indices cannot drift; connector `a` = parent, `b` = the derivable child; `legalKinds` filters the class-pair matrix, and a cave parent cannot take a grid child — the collar must ride the grid-side `a`-end while only `b`-ends derive). Region rows carry per-algorithm knobs, a seed field, per-region **Reroll** (bump that region's seed, re-realize the whole world on the worker — deterministic, instant cancel), and leaf-only **Remove**. `previewing` snapshots the FULL SPEC that produced the on-screen world; **Freeze & bake** bakes exactly that snapshot (`bakeWorld` on the worker → `generation.bake` upload with `cleanDir`), and the **"Make this the game's world"** checkbox (default on) retargets `worlds/index.json` via a second cleanDir-FREE `generation.bake` call (`bakeUploadCalls` — byte-parity with the committed index, so re-defaulting "default" is a no-op diff). The draft starts EMPTY (no spec→draft import until 3.5 needs one). Gate-observed assembly-UX findings are consolidated in `docs/backlog/editor-and-tooling/world-panel-w3-gate-ux-findings.md` (3.5 inputs).
+**W3 — assembly (charter §2.4):** the panel assembles a **`WorldDraft`** (`frontend/lib/world-draft.ts`): attach-on-add — region 0 anchors at the origin and every later region enters WITH the connector tying it to an earlier region, so the world is a TREE by construction and grid regions' doors are ASSEMBLED from attachments (`draftToSpec` — portal indices cannot drift; connector `a` = parent, `b` = the derivable child; `legalKinds` filters the class-pair matrix, and a cave parent cannot take a grid child — the collar must ride the grid-side `a`-end while only `b`-ends derive). Region rows carry per-algorithm knobs, a seed field, per-region **Reroll** (bump that region's seed, re-realize the whole world on the worker — deterministic, instant cancel), and leaf-only **Remove**. `previewing` snapshots the FULL SPEC that produced the on-screen world; **Freeze & bake** bakes exactly that snapshot (`bakeWorld` on the worker → `generation.bake` upload with `cleanDir`), and the **"Make this the game's world"** checkbox (default on) retargets `worlds/index.json` via a second cleanDir-FREE `generation.bake` call (`bakeUploadCalls` — byte-parity with the committed index, so re-defaulting "default" is a no-op diff). The draft starts EMPTY (no spec→draft import until 3.5 needs one). Gate-observed assembly-UX findings were consolidated in a backlog set that F4.5a resolved with the panel; the one finding that outlived it (`realizeWorldSpec`'s unactionable "no portal 0" throw, which is dungeon-side and still live) is `docs/backlog/dungeon/world-spec-no-portal-error-is-unactionable.md`.
 
 - **Generate / Reroll** run the consumer's `runWorld(spec)` on the **generation worker** (§13.6), so realize never blocks the main thread and Cancel kills it INSTANTLY, mid-run. Generation is **deterministic** — one call, one `world-run` payload. On that payload the panel realizes every placed piece (regions + connectors) into the preview host **main-thread** (`ext.realizeRegion` against the host's GPU context, sequentially — the shared `MaterialCache` is not concurrency-safe), frames the camera on the union AABB (`layoutBounds`), and snapshots the spec as a `previewing` status.
 - **Freeze & bake** reads **only** the `previewing` snapshot's spec — never the live draft — re-bakes it on the SAME worker (`client.bakeWorld(spec, name)` → the consumer's `bakeWorldFiles`), and uploads via `api.generationBake` (a main-thread daemon call; the upload's `cleanDir` is `ext.worldDir(name)` = `worlds/<name>`, so the daemon clears the prior bake). That snapshot is what makes "freeze bakes exactly what you previewed" hold even after a draft edit: any draft write drops a `previewing` status back to `idle` (`invalidateWorldPreview`), so Freeze is only ever enabled for the world currently on screen.
@@ -530,23 +581,28 @@ retargets it at bake time via a second, `cleanDir`-free upload (§13.4).
 
 ## 14. Slice 3.2 — editor foundation pass (Epic 3)
 
+> **Superseded by §20 for §14.1's theme mapping, §14.2's menu bar, §14.3's persistence,
+> §14.4's navigation and §14.6's selection colour (F4.5a).** §14.5 (inspector IA,
+> humanized labels, number formatting) still stands — the inspector survives as the
+> stamp/reconfigure param form.
+
 The foundation pass that turned the M3–3.1 prototype into a usable tool, driven by an `/impeccable` critique (20/40 → 31/40; the baseline's 1×P0 + 3×P1 all resolved). **Browser-chrome only — no `@furnace/core` change.** The daemon gained one read command (`project.get`, §4) and two `SessionView` fields (`canUndo`/`canRedo`).
 
 ### 14.1 Design system + tokens
 
-`frontend/styles.css` carries a committed OKLCH token set (`@theme inline`, mapped onto `.dockview-theme-dark`): a single steel-blue `--primary` (`oklch(0.62 0.11 240)`), a hue-250 neutral ramp, a desaturated semantic set, self-hosted **Inter Variable** (UI) + **JetBrains Mono** (data — numbers/IDs/paths), `color-scheme: dark`, one tokenized focus ring, and a `@media (prefers-reduced-motion: reduce)` block. Controls are shadcn/ui (new-york) over Radix; `frontend/lib/cn.ts` is the class-merge (the shadcn CLI's bare alias is relativized on every generated component — a bare alias breaks repo-root typecheck). The committed design intent lives in `packages/editor/DESIGN.md`.
+`frontend/styles.css` carries a committed OKLCH token set (`@theme inline`; the `.dockview-theme-dark` mapping went with the dock): a single steel-blue `--primary` (`oklch(0.62 0.11 240)`), a hue-250 neutral ramp, a desaturated semantic set, self-hosted **Inter Variable** (UI) + **JetBrains Mono** (data — numbers/IDs/paths), `color-scheme: dark`, one tokenized focus ring, and a `@media (prefers-reduced-motion: reduce)` block. Controls are shadcn/ui (new-york) over Radix; `frontend/lib/cn.ts` is the class-merge (the shadcn CLI's bare alias is relativized on every generated component — a bare alias breaks repo-root typecheck). The committed design intent lives in `packages/editor/DESIGN.md`.
 
 ### 14.2 Menu bar + global keybindings + in-chrome confirm
 
-`frontend/components/MenuBar.tsx` is a Radix Menubar (File/Edit/View/Help) whose items dispatch through the App's document-control handlers; `frontend/lib/keybindings.ts` + `hooks/useGlobalKeybindings.ts` bind ⌘S / ⌘Z / ⇧⌘Z / F / ⌫ with focus-aware guards (bare keys ignored while typing in a field). Save/Undo/Redo call `scene.save`/`scene.undo`/`scene.redo`; their enabled state reads `SessionView.canUndo`/`canRedo`. Destructive actions route through an in-chrome `ConfirmDialog` (Radix), never `window.confirm`. **Radix Presence caveat (found at the 3.2 gate):** menu-family exit animations must NOT use a `forwards`-fill `data-[state=closed]` keyframe — it wedges Radix `Presence` so a menubar/dropdown sibling-switch closes the open menu but never opens the next; the fix keeps only the enter (open-state) animation on `menubar.tsx` + `dropdown-menu.tsx`.
+*(Historical — the menu is now the single `shell/BurgerMenu.tsx` dropdown, Edit/World/View/Help, and Undo/Redo drive the field op log rather than a document session; §20.6.)* `frontend/components/MenuBar.tsx` was a Radix Menubar (File/Edit/View/Help) whose items dispatched through the App's document-control handlers; `frontend/lib/keybindings.ts` + `hooks/useGlobalKeybindings.ts` bind ⌘S / ⌘Z / ⇧⌘Z / F / ⌫ with focus-aware guards (bare keys ignored while typing in a field). Save/Undo/Redo call `scene.save`/`scene.undo`/`scene.redo`; their enabled state reads `SessionView.canUndo`/`canRedo`. Destructive actions route through an in-chrome `ConfirmDialog` (Radix), never `window.confirm`. **Radix Presence caveat (found at the 3.2 gate):** menu-family exit animations must NOT use a `forwards`-fill `data-[state=closed]` keyframe — it wedges Radix `Presence` so a menubar/dropdown sibling-switch closes the open menu but never opens the next; the fix keeps only the enter (open-state) animation on `menubar.tsx` + `dropdown-menu.tsx`.
 
 ### 14.3 UI persistence + generation-session lift
 
-`frontend/lib/persist.ts` persists dockview layout + view flags + inspector section open-state, scoped by the project root from `project.get`. Closed panels reopen via **View ▸ Panels** — the `PANELS` registry (`frontend/lib/panels.ts`) is the single source for the default layout, the toggle menu, and single-panel re-add. The **ephemeral generation session was lifted out of the panel (today `WorldPanel`) into App-owned state** so it survives the panel closing/reopening (correcting §13.4's original panel-local design); the bake destination is the draft's own `name` (§13.4).
+`frontend/lib/persist.ts` persists per-project UI state, scoped by the project root from `project.get`. *(Historical: it held the dockview layout + view flags + inspector section open-state, and closed panels reopened via **View ▸ Panels** from a `PANELS` registry. `panels.ts` is deleted; the blob is now `workspace` / `view` / `lastWorld` / `recentWorlds` at **v2**, and a v1 blob is orphaned rather than migrated — §20.2.)* The **ephemeral generation session was lifted out of the panel (today `WorldPanel`) into App-owned state** so it survives the panel closing/reopening (correcting §13.4's original panel-local design); the bake destination is the draft's own `name` (§13.4).
 
 ### 14.4 Viewport reference layer + navigation
 
-`frontend/viewport-host/reference-grid.ts` adds a depth-tested grid; a corner axis triad (`AxisTriad.tsx`) and a neutral headlamp make an opened scene read as a scene, not a black void. `ViewFlags` (`grid`/`axes`/`headlamp`/`fog`) are a viewport concern (default grid/axes/headlamp **ON**, fog **OFF**), mirrored between a viewport overlay popover and View ▸ View-flags. **Navigation (`viewport-host/camera-control.ts`):** Alt+LMB orbit, **MMB pan**, RMB-hold + WASD/QE fly (wheel trims fly speed), and **scroll = `dolly` forward** — a scale-aware, floored forward `flyMove` that travels through the scene rather than orbit-zooming toward the pivot (distance-scaled orbit zoom asymptotes to a dead stop); `F` frames the selection. The prior `zoomToward` cursor-zoom was deleted.
+*(Historical — this describes the deleted scene viewport. What survives: `viewport-host/reference-grid.ts` (the field host still draws the depth-tested grid, gated by `layers.grid`) and `AxisTriad.tsx` (now mounted by `shell/AxisTriadMount.tsx` off the host's camera-pose seam). `ViewFlags` is gone — the field's visibility set is `FieldLayers` and the shading modes are `studio`/`normals` (§20.5); there is no `axes`, `headlamp` or `fog` flag. The navigation below is NOT the field host's: it binds right-drag look + WASD/QE fly, left-drag strokes the brush, and the wheel trims brush radius. `camera-control.ts`'s `orbit`/`zoom`/`dolly`/`pan`/`fromEyeTarget` survive as pure math with no caller.)* `frontend/viewport-host/reference-grid.ts` adds a depth-tested grid; a corner axis triad (`AxisTriad.tsx`) and a neutral headlamp make an opened scene read as a scene, not a black void. `ViewFlags` (`grid`/`axes`/`headlamp`/`fog`) are a viewport concern (default grid/axes/headlamp **ON**, fog **OFF**), mirrored between a viewport overlay popover and View ▸ View-flags. **Navigation (`viewport-host/camera-control.ts`):** Alt+LMB orbit, **MMB pan**, RMB-hold + WASD/QE fly (wheel trims fly speed), and **scroll = `dolly` forward** — a scale-aware, floored forward `flyMove` that travels through the scene rather than orbit-zooming toward the pivot (distance-scaled orbit zoom asymptotes to a dead stop); `F` frames the selection. The prior `zoomToward` cursor-zoom was deleted.
 
 ### 14.5 Inspector IA, humanized labels, number formatting
 
@@ -554,7 +610,7 @@ Component sections are collapsible (`CollapsibleSection`); resources default col
 
 ### 14.6 Selection color single-source + test harness
 
-The viewport selection highlight derives from the `--primary` CSS variable at runtime via `frontend/lib/theme.ts` `resolveCssColor` — a 1×1 canvas-2D `getImageData` resolve, NOT `getComputedStyle().color` (which preserves `oklch()` under CSS Color 4 and returns garbage). A happy-dom + `@testing-library/react` harness (`tests/inspector/`) renders fields/panels and exercises the `onChange → onPreview → onCommit` chain — the field-render coverage the M5B ColorField regression exposed as missing. **DOM tests live in `tests/` SUBDIRS** (never bare `tests/`) so happy-dom's `navigator`/`fetch` mutation can't clobber the GPU + daemon-HTTP suites earlier in bun's single-process file walk (`docs/backlog/editor-and-tooling/editor-test-harness-fragility.md` § *bun test single-process fragility: DOM (happy-dom) vs GPU tests interleave badly*).
+*(Historical — the scene viewport this served is deleted, and `frontend/lib/theme.ts` went with its last consumer at F4.5a Task 13. The field host's selection colour is a host-side constant.)* The viewport selection highlight derived from the `--primary` CSS variable at runtime via `frontend/lib/theme.ts` `resolveCssColor` — a 1×1 canvas-2D `getImageData` resolve, NOT `getComputedStyle().color` (which preserves `oklch()` under CSS Color 4 and returns garbage). A happy-dom + `@testing-library/react` harness (`tests/inspector/`) renders fields/panels and exercises the `onChange → onPreview → onCommit` chain — the field-render coverage the M5B ColorField regression exposed as missing. **DOM tests live in `tests/` SUBDIRS** (never bare `tests/`) so happy-dom's `navigator`/`fetch` mutation can't clobber the GPU + daemon-HTTP suites earlier in bun's single-process file walk (`docs/backlog/editor-and-tooling/editor-test-harness-fragility.md` § *bun test single-process fragility: DOM (happy-dom) vs GPU tests interleave badly*).
 
 ## 15. One Field F1+F2a — the Field panel + FieldHost (2026-07-16)
 
@@ -563,10 +619,10 @@ The viewport selection highlight derives from the `--primary` CSS variable at ru
   `@furnace/core/field` store + op log (undo/redo = chunk-keyed two-channel inverse
   deltas, ⌘Z/⇧⌘Z), LMB tool strokes, RMB fly-look + WASD/QE (camera-control reuse), a
   **flat-shaded** (`shader.normalColor`, unlit normal-distinct — material classes
-  deliberately indistinct here) vs **headlamp** (lit + camera point light, per-class
-  colors visible) toggle, ground grid + origin marker (blank-canvas bootstrap).
-  Threaded to the chrome through the `/engine.js` runtime channel exactly like
-  PreviewHost — the chrome never value-imports engine code;
+  deliberately indistinct here) vs LIT (per-class colors visible) toggle — F4.5a renamed
+  the pair `normals`/`studio` and made `studio` the default (§20.5), ground grid + origin marker (blank-canvas bootstrap).
+  Threaded to the chrome through the `/engine.js` runtime channel (the same channel the
+  now-deleted PreviewHost used) — the chrome never value-imports engine code;
   `tests/frontend-no-engine-leakage.test.ts` machine-enforces the ban against
   `@furnace/core`, `field-protocol`, AND `viewport-host` value-imports.
 - **Tools (F2a)** — `setTool({effect, materialId})` over dig/fill/paint;
@@ -606,11 +662,13 @@ The viewport selection highlight derives from the `--primary` CSS variable at ru
   `readSiblings` helper — manifest + base64 chunks + material siblings + oplog; a
   dedicated path-traversal rejection test guards it). Host lifecycle is v0:
   panel-reopen re-init throws and is surfaced as a panel status.
-- **Init robustness** (`lib/init-when-sized.ts`): all three hosts (viewport, preview,
-  field) defer init to the first NONZERO canvas measure via a one-shot ResizeObserver
-  — dockview panels mounting hidden (e.g. behind the Field tab) previously latched
-  core's "width and height must be positive" throw until a manual tab-close +
-  refresh. Distinct from resize-RENDERING, which hosts own via `gpu.onResize`.
+- **Init robustness** (`lib/init-when-sized.ts`) — **RETIRED at F4.5a (D-1).** All three
+  hosts (viewport, preview, field) deferred init to the first NONZERO canvas measure via a
+  one-shot ResizeObserver, because dockview panels mounting hidden (e.g. behind the Field
+  tab) latched core's "width and height must be positive" throw until a manual tab-close +
+  refresh. With one full-window canvas sized by the layout contract there is nothing to
+  wait for: init is EAGER and a zero measure THROWS (§20.1). Distinct from
+  resize-RENDERING, which the host still owns via `gpu.onResize`.
 
 ## 16. One Field F2b — the palette (2026-07-21)
 
@@ -676,18 +734,22 @@ dig ring, selection) had rendered NOTHING since F1. Record + rules:
   paramSchema + visible hand-editable seed + ⚄ re-roll + merge policy +
   Commit/Cancel), EntitiesList (▦ rows → footprint highlight; F3a made rows the
   smart-object surface — Open/Freeze/Bake, §17), LayersRow + slice slider,
-  FieldToolbar. The controls stack is bounded
+  FieldToolbar. *(F4.5a: `LayersRow` and `FieldToolbar` are deleted — the layer gates and
+  the slice slider moved to the top bar's View popover, the world verbs to the shell, and
+  the catalog fetch to `hooks/useCatalogs.tsx`; §20.)* The controls stack is bounded
   (scrollable) and the canvas cell floors at `min-h-24` — it can never reach zero
   (measured fix; the unclamped-resize core hop is
   `docs/backlog/engine-architecture/resize-unclamped-zero-size-canvas.md`).
 - **Field-first default layout** — `DEFAULT_LAYOUT_PANELS = ["field", "inspect"]`
   (World + scene Viewport + Entities leave the DEFAULT only; `PANELS` still owns
   View▸Panels re-add). Persisted layouts unaffected; View▸Reset lands on the new
-  default.
+  default. *(F4.5a: deleted with the dock. The layout is now the fixed Shell contract
+  plus a floating palette arrangement — §20.1–§20.2.)*
 - **Load gating (F2a carry-over closed)** — Load stays disabled until the catalog
   settles (success or 404-fallback); catalog-wins semantics stand.
 - **Host extractions (F2a carry-over closed)** — pure modules with tests:
-  `field-kit-render.ts` (yawQuat/pieceColor/packKitMatrices), `field-ghost.ts`
+  `field-kit-render.ts` (yawQuat/pieceColor/packKitMatrices — since folded back into
+  `field-host.ts`/`catalog.ts`), `field-ghost.ts`
   (ring/box batch math), `field-stamp.ts`, `input-map.ts` additions; FieldHost keeps
   the GPU calls.
 - **Core underneath (see `core-modules.md`)** — the FieldOp union + op-list undo,
@@ -751,12 +813,13 @@ props they commit. It also gained two tools of its own that owe nothing to place
 the void cast (an X-ray view mode) and the segment brush (a two-click swept capsule).
 
 - **Entity catalog** — the second project→editor catalog contract, DATA only, exactly
-  parallel to the F2a materials one: FieldToolbar's run-once catalog effect also fetches
-  `/catalog/entities.json`, parses it with `lib/catalog.ts`'s setup-loud
+  parallel to the F2a materials one: the run-once catalog effect (FieldToolbar's then,
+  `hooks/useCatalogs.tsx`'s since F4.5a) also fetches `/catalog/entities.json`, parses it with `lib/catalog.ts`'s setup-loud
   `parseEntityCatalog` (same `CatalogError`, path-naming, type-only core imports) and
   installs it via `FieldHost.setEntityCatalog`. Both fetches live in ONE effect so they
   cannot race onto the status line; only MATERIALS gates Load (props render from the op
-  log whether or not the entity catalog resolves). The parser normalises the catalog's
+  log whether or not the entity catalog resolves). *(F4.5a: the status line is gone —
+  a catalog error is a toast plus a durable log entry, §20.3.)* The parser normalises the catalog's
   authoring vocabulary into the scatter generator's param spelling (`scaleRange` →
   `scaleMin`/`scaleMax`) and deliberately drops the `meshes` paths — editor props are
   proxies (`docs/backlog/editor-and-tooling/field-tool-follow-ons.md` § *Editor props render as collision PROXIES, not the archetype's actual meshes*). **The catalog SEEDS, it never gates:** absent
@@ -769,9 +832,10 @@ the void cast (an X-ray view mode) and the segment brush (a two-click swept caps
   mid-session keeps the current numbers
   (`docs/backlog/editor-and-tooling/field-tool-follow-ons.md` § *Switching archetype mid-session keeps the previous archetype's scatter hints*).
   **`listGenerators()` is a SNAPSHOT, and the catalog necessarily lands after the first
-  possible read** (engine-ready fires before an async fetch can settle), so FieldToolbar
-  calls back into FieldPanel (`onEntityCatalogInstalled`) once the catalog is installed and
-  the panel re-reads the registry. The signal carries NOTHING — the host is the source of
+  possible read** (engine-ready fires before an async fetch can settle), so the catalog
+  owner signals once the catalog is installed and the panel re-reads the registry — the
+  toolbar's `onEntityCatalogInstalled` callback then, the catalog provider's
+  `entityCatalogTick` since F4.5a. The signal carries NOTHING — the host is the source of
   truth, and a payload would invite reading it instead. Reading once left `archetypeId` free text
   forever; `tests/chrome/field-panel.test.tsx` pins the ordering, which host-level tests
   structurally cannot (they install the catalog first).
@@ -1078,8 +1142,8 @@ mind.
   0.18` (under the 0.25 m cell, so it reads as a pin ON a floor cell rather than a block
   filling it), lifted `cellSize / 2` so it occupies the AIR cell its flag anchors on.
   UNLIT instanced (`shader.unlitInstanced`, white base), deliberately: a marker that dims when
-  the headlamp looks away is a marker that stops doing its job in the shading mode meant for
-  mood. Whole-layer teardown-and-rebuild, the `rebuildProps` rule. Colour is the stage-2
+  the camera-following key light looks away is a marker that stops doing its job in the
+  shading mode meant for mood. Whole-layer teardown-and-rebuild, the `rebuildProps` rule. Colour is the stage-2
   verdict if there is one, else the triage band — `CANDIDATE_TINT` red, `INFO_TINT` the
   selection amber (shared with `SELECTION_COLOR` rather than restated: both mean CONTEXT),
   `VERIFIED_TRAPPED_TINT` the candidate red darkened, `VERIFIED_CLEAR_TINT` a muted green. An
@@ -1140,9 +1204,10 @@ mind.
   so the test fetches `/engine.js` from the running daemon and writes those exact bytes to a
   temp FILE. The artifact is the daemon's; only the transport differs — which is why the
   browser's native `import("/engine.js")` over http had to be checked separately, and was, at
-  the Task 13 gate: verdicts landed as chips with a SPREAD of outcomes and no status-line
-  error. That is the pixel-check recipe's own claim 4 — "a verify that raises a status-line
-  error instead of a chip is a P-F4-2 NO-GO". All-`inconclusive` would not have been a failure
+  the Task 13 gate: verdicts landed as chips with a SPREAD of outcomes and no error
+  raised beside them. That is the pixel-check recipe's own claim 4 — "a verify that raises
+  an error instead of a chip is a P-F4-2 NO-GO" (it read "status-line error" when the panel
+  still had a status line; F4.5a routes it to a toast + the log, §20.3). All-`inconclusive` would not have been a failure
   on its own (it is a real outcome); a `clear` and a `trapped` in the set are what prove the
   mover actually walked lanes.
 - **The Flags panel section** (`components/field/FlagsSection.tsx`) — presentational, like
@@ -1200,8 +1265,9 @@ mind.
   design question is
   `docs/backlog/engine-architecture/field-module-pulls-whole-engine.md`.
 - **`catalog/agent.json` — the third project→editor catalog contract**, DATA only, exactly
-  parallel to the F2a materials and F3b entities ones. `FieldToolbar`'s run-once catalog effect
-  now fetches all three in ONE pass so they cannot race onto the status line;
+  parallel to the F2a materials and F3b entities ones. The run-once catalog effect
+  (`FieldToolbar`'s then, `hooks/useCatalogs.tsx`'s since F4.5a) fetches all three in ONE
+  pass so they cannot race;
   `lib/catalog.ts`'s `parseAgentCatalog` validates it setup-loud with the same `CatalogError`
   and path naming, and the host takes it through `setAgentProfile`. It is STRUCTURAL validation
   only — every field present and finite — because the numeric CONTRACT (positivity,
@@ -1258,9 +1324,279 @@ mind.
   cast and the cast's scheduling is exactly as F3b left it.
   The gap stands as filed —
   `docs/backlog/editor-and-tooling/field-tool-follow-ons.md` § *The void cast monopolises the one field worker*.
-- **Panel-orchestrator slope.** Tranche B took `FieldPanel.tsx` from 15 `useState` slots and 7
-  subscriptions to 18 and 8 (711 → 817 lines): three new slots — the flags summary, the filter
+- **Panel-orchestrator slope.** *(F4.5a reversed it: 817 → 463 lines and 8 → 4
+  subscriptions, by moving the stats/tool-error/entity/drift seams to a shell provider and
+  the world, view and catalog concerns out entirely — §20.7.)* Tranche B took
+  `FieldPanel.tsx` from 15 `useState` slots and 7 subscriptions to 18 and 8 (711 → 817 lines): three new slots — the flags summary, the filter
   set, the in-flight verify key — plus `analyzerPending` on the existing stats mirror and its
   footer segment. The file is the dig loop's single orchestrator; the entry tracking that
   slope, with the figures pinned to commits, is
   `docs/backlog/editor-and-tooling/field-panel-is-the-whole-dig-loop-orchestrator.md`.
+
+## 20. F4.5a — the overlay shell (2026-07-30)
+
+**This section is the authority on the editor's chrome.** F4.5a rebuilt it as an *overlay
+cockpit*: one full-window canvas with everything else floating over it. The dock, the
+field toolbar, the World panel and the entire scene-document surface were deleted
+(§7/§10–§14 are the history that produced this). The editor is now **field-only** — the
+daemon still implements the `scene.*` family, but nothing in the chrome speaks it.
+
+Scope note: this is the **as-built at the end of F4.5a**, not the end of F4.5. The
+`MIGRATION (until F4.5b)` markers in `packages/editor/src` name the eight places that
+know they are provisional; `grep -rn "MIGRATION (until" packages/editor/src` is the list.
+
+### 20.1 The layout contract (D-1) and the canvas layer
+
+`components/shell/Shell.tsx` states the one rule the cockpit rests on: **the canvas
+cell's insets are decided by the two fixed-height bars (`TopBar`, `StatusBar`) and
+nothing else.** No palette opening, no selection changing, no surface resizing may move
+them. Every floating surface — the palette layer, the axis triad, the toast stack —
+therefore mounts as an **absolute layer inside that cell**, over the canvas, never as a
+flex sibling of it. A viewport that re-lays-out under the user is what the dock era got
+wrong.
+
+Shell is split out of `App.tsx` deliberately: App owns the engine bootstrap (the dynamic
+`/engine.js` import plus a WebGPU probe), neither of which can reach "ready" outside a
+browser, so a layout living inside App would be a layout no test can drive. Shell reads
+what it needs from `EditorContext`, which a test supplies.
+
+The provider stack, in dependency order — `WorkspaceProvider` → `PaletteStackProvider` →
+`FieldHostStateProvider` → `ViewProvider` → `WorldProvider` → `CatalogProvider` → the
+chrome. The order is not cosmetic: the world state derives its dirty bit from the stats
+the host-state provider owns, and `useGlobalKeybindings` binds ⌘S to a world verb, so the
+listener has to sit *below* the provider it reads.
+
+**`shell/CanvasHost.tsx`** mounts the one canvas and inits the host on it:
+
+- **Init is EAGER.** The dock-era `lib/init-when-sized.ts` deferral is retired: this
+  canvas is an absolute fill of a cell whose height comes from two fixed-height bars, so
+  it is sized by construction at the first effect. A **zero measure is therefore not
+  "not laid out yet" — it is the layout contract broken**, and it logs then throws rather
+  than waiting for a resize that will never come. (The log precedes the throw on purpose:
+  there is no error boundary above it, so the throw blanks the page.)
+- **`sampleCount` is a CONTEXT property**, so the View popover's AA switch cannot be a
+  host setter — the only way to change it is dispose + init. The cost is a re-init, not a
+  reset: the field, the op log, the tool and the camera are CPU state the host keeps
+  across a dispose.
+- **The re-init chain.** The host holds one context and throws on a second `init`, and
+  its dispose is *deferred* (dispose only once `init` has SETTLED, because init awaits
+  the GPU context and disposing mid-await pulls it out from under trailing creations). An
+  AA change runs cleanup and effect in the **same** React commit, so the next init must
+  wait for the previous teardown — a `teardown` ref carries that promise forward. It also
+  makes a double-invoked mount safe, which the deferred dispose alone did not.
+- The canvas is `tabIndex={0}` with a visible focus ring: the host attaches its WASD/QE
+  fly, `[`/`]` radius and arrow-nudge keydowns to the CANVAS, so the ring is the only
+  signal those keys will land anywhere.
+
+### 20.2 The palette layer, the workspace store, and persistence v2
+
+**`lib/palette-store.ts` is pure data** — no DOM, no persistence, no React. The cell's
+size is the one fact it cannot know, so it arrives as an argument (`OriginBounds`); the
+layer component measures it. That is what makes clamp/snap/what-survives-a-hide testable
+without a browser.
+
+- `PALETTE_IDS` is a **closed union** (`controls`, `entities`, `log`): a persisted record
+  for an id not in it is dropped rather than restored, so a retired palette cannot come
+  back as dead geometry.
+- Defaults claim three of the cell's four corners on purpose — `controls` edge-docked
+  right, `entities` floating top-left and open, `log` the same corner but **closed**
+  (it is summoned, not always-on). The top-right stays clear for the axis triad, leaving
+  the bottom-left strip for the collapsed-chip rail.
+- `SNAP_PX = 24` — roughly a coarse pointer's slop.
+- The ⌘\ hide-all is a **latch**: `hidden` does not touch the per-palette records, so
+  restoring returns the exact prior arrangement.
+
+**`hooks/useWorkspace.tsx`** adds the two things the store refuses to know: React state
+and the disk (a `PERSIST_DEBOUNCE_MS = 200` write, so a drag writes once at the end of
+the gesture rather than 60×/s). It is split into **state and actions contexts**, and the
+load-bearing beneficiary is `ShellFrame`, which reads ACTIONS ONLY — that is what keeps
+the `content={{ controls: <FieldPanel/>, … }}` elements referentially stable and
+therefore keeps `FieldPanel` off the pointer-rate path.
+
+**Front-to-back order is session-local** (`hooks/usePaletteStack.tsx`) and deliberately
+NOT persisted: geometry, collapse and open are decisions the user made; which palette
+they touched last is an accident of the final minute. It sits above the whole chrome
+rather than inside the layer, because the two surfaces that *open* a palette — the status
+bar's ⚠ chip and the burger's View group — are the layer's siblings, not its children.
+**Every summon raises unconditionally**, not merely on the open transition: the log is
+very often already open and merely buried.
+
+**Persistence is v2** (`lib/persist.ts`). The serialized dock `layout` key died with the
+dock library, so `VERSION` bumped and a **v1 blob is orphaned, never migrated** — nothing
+in the v1 shape has a v2 meaning. The live keys are `workspace`, `view`, `lastWorld`,
+`recentWorlds`, each with exactly one writer, and `set` rebuilds the blob from `load()`
+so the keys stay independent. A corrupt blob reads as empty; a quota failure is
+swallowed. Persistence is best-effort and must never break the editor.
+
+### 20.3 What the editor SAYS — the notify store
+
+`lib/notify-store.ts` (D-19) is a **capped toast stack over a durable message log**,
+framework-free: `subscribe`/`getSnapshot` and nothing more, so every rule lives in one
+place a bare test can drive without a DOM, a clock or a React tree. The clock and the
+timer are **injected** — a store that called `Date.now`/`setTimeout` itself could only be
+tested by waiting.
+
+- `TOAST_CAP = 3`, `LOG_CAP = 200`, `TOAST_TTL_MS = 4000`.
+- **Errors never auto-fade** — they hold their slot until dismissed. Everything else is a
+  report on something that already finished, and reports should leave.
+- **The cap does NOT evict.** A message arriving against a full stack becomes log-only
+  (`toasted: false`) rather than pushing the oldest toast off, because the thing a flood
+  of infos would push off is exactly the undismissed error D-19 exists to protect.
+- `overflow` (how many logged messages never got a slot) is **derived from the surviving
+  entries**, not accumulated — a running counter would eventually read "200 messages · 997
+  not shown", two numbers about the same list that cannot both be true.
+- `unreadErrors` drives the status bar's ⚠ chip. The log palette calls `markSeen` **only
+  while it is topmost** (its `VisibilityProbe`), so a log buried under another palette
+  keeps the chip lit rather than silently swallowing the errors behind it. `markSeen` is a
+  no-op when nothing is new, or a palette that marks on render would loop.
+
+The toast stack (`shell/Toasts.tsx`) and the log palette (`shell/LogPalette.tsx`) render
+the SAME records by id. Live regions are **persistent** — mounted whether or not there is
+anything to announce, because a region that appears with its text is a region screen
+readers may not announce. This replaced the field panel's status line entirely: **the
+panel has no status line, and nothing else does either.**
+
+### 20.4 The world — `world.*`, `useWorld`, and the drawer
+
+The daemon gained a **`world.*` namespace** (`daemon/handlers.ts`) beside the existing
+`field.load` and `generation.bake`:
+
+| Verb | What it does |
+| --- | --- |
+| `world.list` | Enumerate `worlds/` read-only, with a **`tracked` tri-state** per row — `true`/`false` from `git check-ignore`, `null` when git cannot tell (no repo, or an ambiguous answer). |
+| `world.makeDefault` | Point `worlds/index.json` at an existing world. Manifest-checked. |
+| `world.delete` | Remove a world directory. **Refused for the current default.** |
+| `world.rename` | Rename a world directory (case-insensitive-FS aware). |
+| `world.duplicate` | Copy a world under a new name. |
+
+**`hooks/useWorld.tsx` holds the world state, and it is SHELL state, not panel state** —
+the world chip reads it, ⌘S drives it, the drawer lists against it. That placement is the
+point: a control stack that owns the save verb cannot be dissolved into palettes, and
+closing the palette holding it would take ⌘S with it. It sits *under*
+`FieldHostStateProvider` because the dirty bit derives from the stats that provider
+already owns (`subscribeStats` is a single slot — a second subscription here would
+silently steal the status bar's).
+
+- `name` is `null` for an untitled scratch and **never prefilled** — the W3/W4
+  gate-clobber lesson: a stale default silently overwrites the game's world at the first
+  Save. An untitled ⌘S opens the drawer in `save-as` mode to be named first (D-21).
+- `dirty` derives from the host's op COUNT changing. Honest in the direction that matters
+  (an edit always sets it) and deliberately imprecise in the other (undoing back to the
+  saved state leaves it set). A `savedOps` ref carries the save-point count so the
+  **discard confirm can say how much** — a number the user can weigh is the difference
+  between a prompt they read and one they click through.
+- A world swap re-establishes the baseline through a `seenOps: null` sentinel, so adopting
+  the new world's op count does not read as an edit.
+- `busy` gates the verbs. In-flight is said AT the controls (they disable) rather than in a
+  toast — a toast slot spent on "saving…" is a slot the OUTCOME then cannot have.
+- **The tracked guard is a round trip, not a precheck**: a save issues with
+  `confirmedTracked: false`, and a `needs-tracked-confirm` outcome comes back and raises
+  the confirm naming the path. The upload is an await, so a separate check-then-write
+  would race.
+
+**`shell/WorldDrawer.tsx`** (D-20/D-21) is every world in one modal list, summoned from
+the world chip and gone the moment it is dismissed — transient by construction, so it can
+afford to say more per row than a permanent sidebar could. A **modal** `Dialog` rather
+than a popover because every dangerous verb in the editor lives there (make-default,
+delete, save-over-tracked) and a stray outside-click must not leave a half-typed rename
+hanging over the canvas. It **owns no world state**: verbs come from `useWorldActions`,
+confirms are the App-owned prompt, and rows come from `world.list` **refetched on every
+`worlds-changed` tick — never patched from a mutation's response**, so a change made
+behind the editor's back (a git checkout, another editor) shows up the same way the
+editor's own do. A `null` `tracked` earns no badge rather than a wrong one.
+
+### 20.5 Seeing — studio shading, the View popover, the pose seam
+
+**`FieldHostShading = "studio" | "normals"`**, and **`studio` is the default** (D-F4.5-17,
+"the state of seeing"): per-class lit materials under a **camera-following key light plus
+a hemisphere fill**. `normals` (unlit normal-colour, material classes deliberately
+indistinct) is now a *debug flag*, not a peer. The advisor's flag markers stay
+`shader.unlitInstanced` for exactly this reason — a marker that dims when the key light
+looks away stops doing its job in the mode meant for mood.
+
+**`hooks/useView.tsx`** owns what the field LOOKS like — shading, layer visibility, the
+slice plane, viewport AA — and nothing about what is in it. It is shell state for the
+world-state reason: the View popover drives it, the burger's View group drives the same
+values, and the canvas layer reads the AA setting.
+
+It is the **chrome→host direction**, which is why it is not part of `useFieldHostState`
+(host→chrome). The host has no shading/layers/slice subscription to mirror, so this
+provider is the source of truth and **pushes: one effect per seam, each keyed on its own
+value**, so a shading change never re-sends the layer flags (`setLayers` is edge-sensitive
+for `voidCast`) and a slider drag never re-sends the shading mode. Defaults:
+`DEFAULT_LAYERS` all-true but `voidCast` (opt-in — ticking it runs a whole-world cast),
+`SLICE_DEFAULT_Y = 8`, `DEFAULT_SAMPLE_COUNT = 4`. The layer set is restated here rather
+than imported because the chrome cannot value-import the host (the project-first
+invariant), and it is pushed at engine-ready so the two agree from the first frame.
+
+**The camera-pose seam.** `FieldHost.subscribeCameraPose` pushes `{ yaw, pitch }` in
+radians; `shell/AxisTriadMount.tsx` reads it through `useFieldHostState` and renders the
+corner triad. The triad mounts **above the palette layer in DOM order** — the default
+arrangement docks `controls` to the right edge at top 0, which covers exactly the corner
+the triad sits in, so mounted before the layer it would ship invisible out of the box.
+`Toasts` sits there for the same reason with a softer case. Both are their own absolute
+box inside the SAME cell: they take nothing from the canvas (D-1).
+
+### 20.6 The menu, the shortcut overlay, and the ONE history
+
+The menu is a **single burger dropdown** (`shell/BurgerMenu.tsx`) with Edit / World /
+View / Help groups — not a menubar. `shell/ShortcutsDialog.tsx` is the complete keybinding
+reference, hand-maintained (the `MIGRATION (until F4.5b)` marker on it names the command
+registry that will replace its data).
+
+**Undo/redo go straight to the host: the field's op log IS the editor's history.** There
+is no second document to step, so ⌘Z/⇧⌘Z call `FieldHost.undo()`/`redo()` and nothing
+else. The canvas binds the same chord itself and stops propagation, so a ⌘Z with the
+viewport focused steps once, not twice.
+
+There is **one** window keydown listener (`hooks/useGlobalKeybindings.ts`). It lives
+inside the workspace provider because ⌘\ acts on the arrangement, and App's `confirmRef`
+suppresses **every** binding while a prompt is open — which is why `window.confirm` is
+banned and the App-owned `ConfirmDialog` is the only prompt seam.
+
+### 20.7 What moved out of FieldPanel — and what remains
+
+`FieldPanel.tsx` is now **463 lines** and rides in the `controls` palette (§19's
+orchestrator-slope entry tracked it at 817). What left, and where it went:
+
+| Left the panel | Now lives in |
+| --- | --- |
+| stats, tool-error, entity list, drift | `hooks/useFieldHostState.tsx` (the provider) |
+| world verbs (Save / Open / Bake) | `hooks/useWorld.tsx` + the world chip + the drawer |
+| shading, layer gates, slice plane, AA | `hooks/useView.tsx` + `shell/ViewPopover.tsx` |
+| the catalog fetch | `hooks/useCatalogs.tsx` (mounted once by the shell) |
+| the committed-entity list + drift report | `shell/EntitiesPalette.tsx` — the first organ out |
+| the status line | `lib/notify-store.ts` (toasts + the log) |
+
+What **remains** is the dig loop's control stack: the tool palette, the material
+swatches, the brush inspector, the stamp inspector and the advisor's flags — and exactly
+**four** host subscriptions (`subscribeTool`, `subscribeSelection`, `subscribeStamp`,
+`subscribeFlags`).
+
+**`hooks/useFieldHostState.tsx` is the ONE subscription point for the seams the shell
+reads**, and the reason is a real failure mode: every `FieldHost.subscribe*` seam is a
+**single slot** (`statsCb = cb`), so a second subscriber silently steals the first's —
+the earlier consumer just stops updating, with nothing thrown and nothing logged. Five
+seams live there today (stats, tool-error, camera-pose, entities, drift), each published
+through its **own** context because they run at different cadences. **FieldPanel must not
+re-subscribe to anything this provider owns.** The stats push is guarded by a
+value-equality comparator with a `satisfies Record<string, never>` backstop — a new
+`FieldStats` field fails the never-check and forces the comparator to learn it, because a
+missed field would silently *weaken* the guard.
+
+### 20.8 The daemon feed
+
+`hooks/useDaemonFeed.ts` reduces the SSE feed to the two things the chrome does with it:
+
+- a **`worldsVersion` counter** bumped on `worlds-changed` / `generation-baked` — a
+  version rather than a payload, because those events are notification-only dirty bits.
+  Anything rendering the world list refetches on it.
+- the **hard reload** a stale engine bundle needs (`bundle-outdated`), **refused while a
+  world write is in flight** — the subscription re-binds only when the engine becomes
+  ready, so it reads `bakeBusyRef` (a ref, not state) to see the current value without
+  re-subscribing. A reload mid-upload would kill the write.
+
+It is a hook rather than App-local state for Shell's reason: a feed wired inside App is a
+feed no test can drive, because App owns the WebGPU probe and the `/engine.js` import.
+There is **nothing to catch up on** at `onOpen` — the editor mirrors no daemon-owned
+document; the field world lives in the host until the user saves it.

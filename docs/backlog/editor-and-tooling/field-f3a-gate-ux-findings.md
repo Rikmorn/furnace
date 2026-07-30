@@ -1,5 +1,15 @@
 # Field F3a gate — deferred UX findings (the set), slotted F4
 
+> **F4.5a update (2026-07-30).** The **shell portion of this set has landed** — the
+> overlay cockpit rebuilt the chrome these findings were filed against: one full-window
+> canvas that nothing reflows, floating palettes, a single burger menu with a complete
+> shortcut overlay, toasts + a durable message log in place of the panel status line, a
+> world drawer with confirms on every destructive verb, and studio shading by default
+> (`docs/reference/editor-architecture.md` §20). **The specifics below are still owed**
+> and are still stage input: anything about a control's affordance, wording, feedback or
+> gesture survived the rebuild unless it named a surface that no longer exists. This
+> file is consumed at the F4.5 seal, not before — do not delete it.
+
 **Context.** The F3a "smart objects" Safari gate (2026-07-23) found two mechanism bugs —
 fixed in-slice (⌘Z left the drift list standing; the entity highlight boxed the recorded
 SELECTION region instead of the stamped footprint) — and this deferred set, kept together
@@ -7,7 +17,8 @@ per the W3/F2b precedent (piecemeal polish dilutes). User framing at the gate: "
 gaps … might be a backlog or maybe picked up in future stages."
 
 **→ F4 recharter ("seeing & the cockpit pass" — joins `field-f2b-gate-ux-findings.md`
-items 1–6, `world-panel-w3-gate-ux-findings.md`, `editor-interaction-model-redesign.md`):**
+items 1–6 and `editor-interaction-model-redesign.md`; the world-panel set was resolved at
+F4.5a — see the note above):**
 
 1. **Mouse-driven region move** — the stamp/reconfigure session's nudge BUTTONS "aren't
    great, i think it should be mouse driven": drag the ghost/region in-viewport instead

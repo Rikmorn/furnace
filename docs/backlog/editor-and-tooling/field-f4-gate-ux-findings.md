@@ -1,5 +1,15 @@
 # Field F4 gate — UX findings (deferred to the polish stage)
 
+> **F4.5a update (2026-07-30).** The **shell portion of this set has landed** — the
+> overlay cockpit rebuilt the chrome these findings were filed against: one full-window
+> canvas that nothing reflows, floating palettes, a single burger menu with a complete
+> shortcut overlay, toasts + a durable message log in place of the panel status line, a
+> world drawer with confirms on every destructive verb, and studio shading by default
+> (`docs/reference/editor-architecture.md` §20). **The specifics below are still owed**
+> and are still stage input: anything about a control's affordance, wording, feedback or
+> gesture survived the rebuild unless it named a surface that no longer exists. This
+> file is consumed at the F4.5 seal, not before — do not delete it.
+
 Findings from the F4 Safari gate (2026-07-27) that are interaction-model work, not
 mechanism bugs. Joins the sibling sets (`field-f2b-gate-ux-findings.md`,
 `field-f3a-gate-ux-findings.md`, `field-f3b-gate-ux-findings.md`,

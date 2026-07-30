@@ -33,21 +33,36 @@ reintroduces either failure.
 
 3. **Radix PORTAL content does not render unless a `tests/inspector/` file ran
    first.** Found in F3a Task 8 (2026-07-22). `bun test` from the repo root is
-   green, but a narrower invocation is not: `bun test packages/editor/tests/chrome/`
-   fails 10/45 — every assertion that queries menu or dialog CONTENT
-   (`menubar.test.tsx` 6, `confirm-dialog.test.tsx` 3, `view-flags` 1). The
-   trigger element itself flips correctly (`data-state="open"`,
-   `aria-expanded="true"`); the portalled content is simply absent from the DOM.
-   It is NOT a first-file-in-process effect: `menubar` + `confirm-dialog`
-   together still fail both. It IS fixed by running certain inspector files
-   first — `color-field`, `entities-panel`, `number-field`, `scrub-affordance`
-   and `vec-field` each make `confirm-dialog` pass, while `boolean-field`,
-   `inspect-panel`, `object-field` and `schema-form-mixed` do not. Root cause not
-   identified (suspect a happy-dom global some component touches lazily). The
-   practical cost today: any NEW chrome behaviour built on a Radix portal is
-   untestable in a single-file run, which is how a task-scoped gate is usually
-   run — F3a Task 8 chose three inline row buttons over the planned ⋯ dropdown
-   for exactly this reason.
+   green, but a narrower invocation is not: the trigger element flips correctly
+   (`data-state="open"`, `aria-expanded="true"`); the portalled content is simply
+   absent from the DOM. It is NOT a first-file-in-process effect — two chrome files
+   together still fail both. Root cause not identified (suspect a happy-dom global
+   some component touches lazily). The practical cost: any chrome behaviour built on
+   a Radix portal is untestable in a chrome-only run, which is how a task-scoped gate
+   is usually run — F3a Task 8 chose three inline row buttons over the planned ⋯
+   dropdown for exactly this reason.
+
+   **Re-measured at F4.5a Task 13 (2026-07-30), and the effect has GROWN with the
+   shell — but so has the confidence in the mechanism:**
+
+   | Invocation | Result |
+   | --- | --- |
+   | `bun test tests/chrome/` | **97 pass / 48 fail** across 7 files |
+   | `bun test tests/inspector/color-field.test.tsx tests/chrome/` | **150 pass / 0 fail** across 8 files |
+   | `bun test` (whole repo) | green — 2353 pass / 1 skip / 0 fail |
+
+   ONE inspector file in front of the directory clears **all 48**. That is the same
+   mechanism as the original 10/45, at the scale F4.5a's portal-heavy chrome (dialogs,
+   dropdowns, popovers) put on it. `confirm-dialog.test.tsx` also fails 3/3 run entirely
+   alone and passes when preceded by `color-field` — the smallest reproduction of the
+   whole thing.
+
+   **The workaround, until the real fix below lands:** run a chrome subset as
+   `bun test tests/inspector/color-field.test.tsx tests/chrome/<file>`. It is ugly and
+   it is not a fix, but it makes a task-scoped gate possible, which the entry previously
+   said was impossible. (The per-file figures the earlier revision named —
+   `menubar.test.tsx`, `entities-panel`, `inspect-panel`, `view-flags` — are all files
+   F4.5a deleted; the ordering finding survives them, the file list does not.)
 
 **A real fix worth designing when this bites again:** isolate the environments —
 e.g. a separate `bun test` invocation (or bunfig test project) for DOM tests vs
@@ -59,9 +74,9 @@ dependency entirely.
 failure appears, or when the suite grows enough DOM tests that the subdir
 convention becomes unwieldy. Not urgent — the convention holds for now.
 
-**Reference:** `packages/editor/tests/inspector/_register.ts`; placement comments
-in `tests/inspector/theme.test.ts` and `tests/chrome/*`; surfaced in Slice 3.2.2
-Tasks 5 and 7.
+**Reference:** `packages/editor/tests/inspector/_register.ts` (the happy-dom
+registration); placement comments in `tests/chrome/*`; surfaced in Slice 3.2.2 Tasks 5
+and 7, re-measured at F4.5a Task 13.
 
 ## Flaky daemon test: `session lifecycle over HTTP with a live SSE feed + watcher reload`
 

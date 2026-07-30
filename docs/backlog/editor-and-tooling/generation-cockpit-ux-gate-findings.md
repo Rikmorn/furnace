@@ -1,5 +1,15 @@
 # Cockpit UX gate findings — remaining item: fog/headlamp are world/player data, not view-flags
 
+> **F4.5a update (2026-07-30).** The **shell portion of this set has landed** — the
+> overlay cockpit rebuilt the chrome these findings were filed against: one full-window
+> canvas that nothing reflows, floating palettes, a single burger menu with a complete
+> shortcut overlay, toasts + a durable message log in place of the panel status line, a
+> world drawer with confirms on every destructive verb, and studio shading by default
+> (`docs/reference/editor-architecture.md` §20). **The specifics below are still owed**
+> and are still stage input: anything about a control's affordance, wording, feedback or
+> gesture survived the rebuild unless it named a surface that no longer exists. This
+> file is consumed at the F4.5 seal, not before — do not delete it.
+
 > Narrowed at the W4 sweep (2026-07-13). Of the 3.1 + 3.2.2 gate findings: the 3.2.3
 > hardening resolved the knob/blocking/envelope/cancel set (history in the seal-log);
 > ③ preview-takes-over-the-viewport has its own entry
@@ -17,4 +27,4 @@ headlamp/torch).
 
 **Trigger to revisit:** the interaction-model redesign / the post-W4 field-charter
 editor pass (couples to `editor-interaction-model-redesign.md` and the W3 gate set in
-`world-panel-w3-gate-ux-findings.md`).
+the world-panel set, resolved at F4.5a).

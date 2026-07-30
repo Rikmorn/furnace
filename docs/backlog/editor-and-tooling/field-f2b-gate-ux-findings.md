@@ -1,5 +1,15 @@
 # Field F2b gate — deferred UX findings (the set), slotted F3/F4
 
+> **F4.5a update (2026-07-30).** The **shell portion of this set has landed** — the
+> overlay cockpit rebuilt the chrome these findings were filed against: one full-window
+> canvas that nothing reflows, floating palettes, a single burger menu with a complete
+> shortcut overlay, toasts + a durable message log in place of the panel status line, a
+> world drawer with confirms on every destructive verb, and studio shading by default
+> (`docs/reference/editor-architecture.md` §20). **The specifics below are still owed**
+> and are still stage input: anything about a control's affordance, wording, feedback or
+> gesture survived the rebuild unless it named a surface that no longer exists. This
+> file is consumed at the F4.5 seal, not before — do not delete it.
+
 **Context.** The F2b "the palette" Safari gate (three rounds, 2026-07-17→21) rejected
 two mechanisms outright — fixed in-slice (drawLines-on-MSAA core bug; Field panel
 layout crush) — and produced this deferred set, kept together deliberately (the W3
@@ -7,8 +17,9 @@ precedent: piecemeal polish dilutes). User direction at the gate: ship features 
 "look at ui holistically" later. Slotting agreed with the user 2026-07-21:
 
 **→ F4 ("seeing" — recommend rechartering it as *seeing & the cockpit pass*, folding
-the standing editor-UX debt: `world-panel-w3-gate-ux-findings.md` +
-`editor-interaction-model-redesign.md` + this set):**
+the standing editor-UX debt: `editor-interaction-model-redesign.md` + this set; the
+world-panel set that stood beside them was resolved at F4.5a — its surface is gone and
+its one live finding moved to `dungeon/world-spec-no-portal-error-is-unactionable.md`):**
 
 1. **Selection feedback overhaul** — flood selections render only an AABB outline; a
    truncated 200k-cell flood in an open world encloses the camera (invisible from

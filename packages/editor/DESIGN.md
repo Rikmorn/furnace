@@ -1,6 +1,12 @@
 <!-- Tokens (§2 colors, §3 typography, §4 elevation) are the committed 3.2.2 live-pass
      values, transcribed from src/frontend/styles.css. Component states (§5) are still
-     unspecced — re-run /impeccable document at the component-scan pass to fill them in. -->
+     unspecced — re-run /impeccable document at the component-scan pass to fill them in.
+
+     F4.5a (2026-07-30): the chrome moved from DOCKED panels to an OVERLAY cockpit — one
+     full-window canvas with floating palettes over it. The tokens are unaffected; the
+     "docked panels" language below is the category reference, not the layout. The
+     component inventory (§5) is stale on the same axis. Both get their pass at the F4.5
+     seal; the as-built is editor-architecture.md §20. -->
 
 ---
 name: furnace editor
@@ -55,14 +61,14 @@ Tailwind's default fixed-rem type scale — no `clamp()`, no custom `@theme` fon
 
 ## 4. Elevation
 
-Flat by default. Docked chrome (panels, toolbars, status bar) is flat; depth is conveyed by 1px borders and tonal layering between the content surface and the panel layer. Shadows are reserved for things that genuinely float: menus, popovers, dropdowns, dragged dockview panels.
+Flat by default. Docked chrome (panels, toolbars, status bar) is flat; depth is conveyed by 1px borders and tonal layering between the content surface and the panel layer. Shadows are reserved for things that genuinely float: menus, popovers, dropdowns, dragged palettes.
 
 ### Named Rules
 **The Flat-Dock Rule.** If it's docked, it's flat. If it floats, it may cast one quiet shadow.
 
 ## 5. Components
 
-An inventory exists (toolbar, scene selector, dockview panels, entity tree, inspector field system — number/vec/color/quat/enum/resource-ref fields, generation panel, status bar, JSON view) but no committed visual spec yet. Component states, shapes, and treatments `[to be specced at the component-scan pass]` (the 3.2.2 live pass committed the token layer — §2–§4 — but not per-component visual specs). Baseline requirement carried from the product register: every interactive component ships default, hover, focus, active, and disabled states — no half-vocabularies.
+An inventory exists (top bar + world chip, burger menu, floating palettes, world drawer, toasts + message log, the field control stack, inspector field system — number/vec/color/quat/enum/resource-ref fields, status bar) but no committed visual spec yet. Component states, shapes, and treatments `[to be specced at the component-scan pass]` (the 3.2.2 live pass committed the token layer — §2–§4 — but not per-component visual specs). Baseline requirement carried from the product register: every interactive component ships default, hover, focus, active, and disabled states — no half-vocabularies.
 
 ## 6. Do's and Don'ts
 

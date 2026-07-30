@@ -38,5 +38,6 @@ TRANSCRIBED from comments living one grep away.
    repeated (one fabricated figure was self-disclosed and re-measured in F3b; F4's
    audit of 12 other numeric claims found them real).
 
-Context: `docs/superpowers/report/f4-{root,editor}.md` (local) carry the per-instance
-detail; the F4 seal entry in `seal-log.md` is the tracked summary.
+Context: the F4 seal entry in `seal-log.md` is the tracked summary. The per-instance
+detail lived in that arc's local (gitignored) session reports and is not citable — which
+is the point of the rule: a tracked doc may only cite tracked facts.
