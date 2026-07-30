@@ -88,7 +88,14 @@ export function CanvasHost({
 			//
 			// Handing the result to `teardown` is the other half: the NEXT init starts from
 			// this promise, so dispose→init stays ordered even though dispose is deferred.
-			teardown.current = started.finally(() => host.dispose());
+			// The trailing catch keeps that chain CLEAN: a dispose that threw would
+			// otherwise ride into the next init's `.catch` and be reported as a failure to
+			// start the viewport, which is a wrong sentence about a real problem.
+			// Unreachable today (nothing in `dispose` throws) — one line of honesty about
+			// a chain that now outlives a single mount.
+			teardown.current = started
+				.finally(() => host.dispose())
+				.catch(() => undefined);
 		};
 	}, [host, sampleCount]);
 

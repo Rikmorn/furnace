@@ -177,7 +177,15 @@ export function ViewProvider({
 		if (!store || restored.current) return;
 		restored.current = true;
 		if (touched.current) return;
-		setState(deserializeView(store.get("view")));
+		const stored = store.get("view");
+		// A cold start (nothing persisted) keeps the state object it already has, rather
+		// than adopting an equal-valued new one: `deserializeView(undefined)` IS the
+		// defaults, and `layers`/`slice` are objects, so a fresh copy re-fires their push
+		// effects on identity alone. Harmless (both host seams are idempotent — `setSlice`
+		// value-guards, `setLayers` acts only on the voidCast EDGE) and still wasteful:
+		// every cold start would send the same two calls twice.
+		if (!stored) return;
+		setState(deserializeView(stored));
 	}, [store]);
 
 	// Debounced by effect cleanup: each change cancels the previous pending write.

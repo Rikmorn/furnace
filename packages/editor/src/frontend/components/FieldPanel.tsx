@@ -4,8 +4,9 @@
 // advisor's flags, the entity list and the drift report. What the viewport SHOWS
 // — shading, the layer gates, the slice plane, AA — is not here: it went to the
 // top bar's View popover, where it is one click from anywhere instead of hidden
-// behind a palette the user may have closed. The persistence concern — which world this is, Save / Open / Bake —
-// is the SHELL's now (the world chip, the drawer, ⌘S): a control stack that owns
+// behind a palette the user may have closed. The persistence concern — which world
+// this is, Save / Open / Bake — is the SHELL's now (the world chip, the drawer,
+// ⌘S): a control stack that owns
 // the save verb cannot be dissolved into palettes, and closing the palette
 // holding it would take ⌘S with it. The material table it renders swatches from
 // arrives the same way, off the catalog provider the shell mounts.
@@ -534,10 +535,10 @@ export function FieldPanel() {
 						/>
 					)}
 				</div>
-				{/* The advisor's findings, under the layer toggle that draws their
-            markers. Owns its border (the DriftReport rule) and renders nothing
-            until something is found, so a world with no complaints costs no
-            space. */}
+				{/* The advisor's findings. The layer gate that draws their markers is the
+            View popover's now, so this section stands on its own: it owns its border
+            (the DriftReport rule) and renders nothing until something is found, so a
+            world with no complaints costs no space. */}
 				<FlagsSection
 					summary={flags}
 					filters={flagFilters}
