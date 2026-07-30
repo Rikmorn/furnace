@@ -9,17 +9,38 @@
 // project-built /engine.js plus a WebGPU probe), neither of which can reach "ready"
 // outside a browser — so with the layout inside App the contract above would be
 // untestable. Shell reads everything it needs from EditorContext, which a test can
-// supply.
+// supply. The palette arrangement lives here for the same reason: its restore, its
+// debounced write and its ⌘\ latch are all behaviour, and behaviour above the Shell
+// boundary is behaviour no test can reach.
 import { useState } from "react";
 import { FieldHostStateProvider } from "../../hooks/useFieldHostState.tsx";
+import { useGlobalKeybindings } from "../../hooks/useGlobalKeybindings.ts";
+import {
+	useWorkspaceActions,
+	WorkspaceProvider,
+} from "../../hooks/useWorkspace.tsx";
 import { useEditor } from "../editor-context.ts";
 import { FieldPanel } from "../FieldPanel.tsx";
 import { CanvasHost } from "./CanvasHost.tsx";
+import { PaletteLayer } from "./PaletteLayer.tsx";
 import { StatusBar } from "./StatusBar.tsx";
 import { TopBar } from "./TopBar.tsx";
 
+/** The workspace provider wraps the WHOLE frame, not just the layer: the top bar's
+ *  hide/show toggle and the burger's Reset act on the same arrangement the layer
+ *  renders. The frame is a child component rather than this function's own body because
+ *  the global keybinding listener has to be able to READ the provider it sits under. */
 export function Shell() {
-	const { state, fieldHostRef } = useEditor();
+	const { store } = useEditor();
+	return (
+		<WorkspaceProvider store={store}>
+			<ShellFrame />
+		</WorkspaceProvider>
+	);
+}
+
+function ShellFrame() {
+	const { state, fieldHostRef, confirmRef } = useEditor();
 	// Reading the ref during render is safe HERE and only here: App assigns it exactly
 	// once, synchronously before the `engine-ready` dispatch that causes this render,
 	// and never reassigns it. The gate below is what makes that ordering visible.
@@ -28,6 +49,12 @@ export function Shell() {
 	// A field-host init failure is LOCAL (the chrome still works), so it reports on the
 	// status bar rather than blanking the editor with a global engine-error.
 	const [viewportError, setViewportError] = useState<string | null>(null);
+	const { toggleHidden } = useWorkspaceActions();
+
+	// The ONE window keydown listener. It lives inside the workspace provider because ⌘\
+	// acts on the arrangement; App keeps the confirm dialog whose open state suppresses
+	// every binding, and hands its ref down through the editor context.
+	useGlobalKeybindings({ confirmRef, onTogglePalettes: toggleHidden });
 
 	return (
 		<FieldHostStateProvider host={host} engineReady={engineReady}>
@@ -41,17 +68,11 @@ export function Shell() {
 					{engineReady && host && (
 						<CanvasHost host={host} onError={setViewportError} />
 					)}
-					{/* The floating-palette layer mounts here — absolute, over the canvas. */}
-					{/* MIGRATION (until F4.5b): the surviving control stack, parked as a
-              right-docked panel until its organs move into palettes. ABSOLUTE, not a
-              flex sibling: as a sibling it would eat width from the canvas cell and
-              break the contract at the top of this file. */}
-					<aside
-						aria-label="field controls"
-						className="absolute inset-y-0 right-0 w-[300px] border-l border-border bg-card"
-					>
-						<FieldPanel />
-					</aside>
+					{/* The palette bodies are built HERE so their elements survive the
+              layer's own drag re-renders untouched (see PaletteLayer's `content`).
+              MIGRATION (until F4.5b): the surviving control stack rides in one
+              `controls` palette until its organs move into palettes of their own. */}
+					<PaletteLayer content={{ controls: <FieldPanel /> }} />
 				</div>
 				<StatusBar viewportError={viewportError} />
 			</div>

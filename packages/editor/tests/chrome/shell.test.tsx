@@ -1,26 +1,40 @@
+// Registered FIRST, before any other import in this file, and that ordering is
+// load-bearing rather than style: Radix resolves `globalThis.document` at MODULE
+// EVALUATION time to decide whether it may use layout effects, and its Portal never
+// mounts if the answer was no. Import Shell before the DOM exists and the burger menu's
+// content is unreachable for the rest of the process — the menu opens (aria-expanded
+// flips) with nothing in it. Measured this session, moving the workspace-verb cases in.
+import "../inspector/_register.ts";
+
 // The overlay shell's skeleton: one full-window canvas between two fixed-height bars,
 // with every other surface floating OVER the canvas as an absolute layer.
 //
 // happy-dom runs no layout (every getBoundingClientRect is zero by default), so the
 // pixel outcome is never assertable here. What IS assertable is the structure that
 // produces it — which is exactly what the layout contract is: the canvas fills its cell
-// (`absolute inset-0`), the control panel is a LAYER inside that same cell rather than
-// a flex sibling that would take width off it, and the two bars are shrink-0 siblings
+// (`absolute inset-0`), every palette is a LAYER inside that same cell rather than a
+// flex sibling that would take width off it, and the two bars are shrink-0 siblings
 // OUTSIDE the cell. Sabotage-proven: making the panel a flex sibling, or dropping the
 // canvas's aria-label, each fails a case below.
 import { afterEach, beforeEach, expect, test } from "bun:test";
+import type { ReactElement } from "react";
+import { EditorContext } from "../../src/frontend/components/editor-context.ts";
 import { Shell } from "../../src/frontend/components/shell/Shell.tsx";
 import {
 	FieldHostStateProvider,
 	useFieldHostState,
 } from "../../src/frontend/hooks/useFieldHostState.tsx";
+import type { UiStore } from "../../src/frontend/lib/persist.ts";
 import {
 	act,
 	cleanup,
+	fakeUiStore,
+	fireEvent,
 	makeEditorContext,
 	render,
 	renderWithEditor,
 	screen,
+	waitFor,
 } from "../inspector/_harness.tsx";
 import { makeStats, makeStubHost } from "./_stub-host.ts";
 
@@ -65,17 +79,75 @@ function fetch404(): void {
 		)) as unknown as typeof fetch;
 }
 
-async function renderShell(stub: ReturnType<typeof makeStubHost>) {
-	const result = renderWithEditor(
-		<Shell />,
-		makeEditorContext({ fieldHostRef: { current: stub.host } }),
-	);
-	await act(async () => {
-		// Two microtask turns: the catalog path awaits fetch() then res.text().
+/** The shell under a mock editor context, as an ELEMENT — so a case can re-render it
+ *  with a different context (the store arriving late) rather than only mount it. */
+const withEditor = (
+	ui: ReactElement,
+	stub: ReturnType<typeof makeStubHost>,
+	store?: UiStore,
+) => (
+	<EditorContext.Provider
+		value={makeEditorContext({ fieldHostRef: { current: stub.host }, store })}
+	>
+		{ui}
+	</EditorContext.Provider>
+);
+
+const renderShellResult = (
+	stub: ReturnType<typeof makeStubHost>,
+	store?: UiStore,
+) => render(withEditor(<Shell />, stub, store));
+
+/** Let the field toolbar's run-once catalog GET settle: two microtask turns, the path
+ *  awaiting fetch() then res.text(). Needed after anything that MOUNTS the panel — a
+ *  reset or a re-open does, and its state lands outside act without this. */
+const flushCatalog = () =>
+	act(async () => {
 		await Promise.resolve();
 		await Promise.resolve();
 	});
+
+async function renderShell(
+	stub: ReturnType<typeof makeStubHost>,
+	store?: UiStore,
+) {
+	const result = renderShellResult(stub, store);
+	await flushCatalog();
 	return result;
+}
+
+/** The controls palette's own box (a labelled region), or null once it is collapsed or
+ *  hidden — both of which take it out of the accessibility tree, which is precisely the
+ *  claim those states make. */
+const controlsPalette = () =>
+	screen.queryByRole("region", { name: "Controls" });
+
+/** A persisted arrangement that is nothing like the default, so a restore is visible.
+ *  `edge: null` is what makes it float at an x/y a test can read off the style. */
+const MOVED = {
+	palettes: {
+		controls: {
+			x: 120,
+			y: 60,
+			edge: null,
+			collapsed: false,
+			open: true,
+		},
+	},
+	hidden: false,
+};
+
+/** Open the burger and click one of its items. Radix opens on pointerdown, not click. */
+function pickMenuItem(label: string | RegExp): void {
+	act(() => {
+		fireEvent.pointerDown(screen.getByLabelText("editor menu"), {
+			button: 0,
+			pointerType: "mouse",
+		});
+	});
+	act(() => {
+		fireEvent.click(screen.getByText(label));
+	});
 }
 
 // --- (a) the one full-window canvas ------------------------------------------
@@ -306,24 +378,209 @@ test("an engine build failure reports in the status bar, in the destructive tone
 
 // --- (d) the layout contract + the retired dock ------------------------------
 
-test("the control panel is a LAYER over the canvas, not a sibling that takes width", async () => {
+test("the palette layer floats over the canvas and never swallows viewport input", async () => {
 	fetch404();
 	const stub = makeStubHost();
 	await renderShell(stub);
 	const canvas = screen.getByLabelText("field viewport");
 	const cell = canvas.parentElement;
-	const panel = screen.getByRole("complementary", { name: "field controls" });
+	const palette = controlsPalette();
+	const layer = palette?.parentElement;
+	if (!(palette instanceof HTMLElement) || !(layer instanceof HTMLElement))
+		throw new Error("controls palette missing");
 
-	// Same positioned cell as the canvas, absolutely placed inside it. As a flex
-	// sibling it would subtract 300px from the canvas — and then every palette that
-	// opens would move the viewport, which is the failure this contract exists for.
-	expect(panel.parentElement).toBe(cell);
-	for (const cls of ["absolute", "inset-y-0", "right-0"])
-		expect(panel.classList.contains(cls)).toBe(true);
-	expect(panel.contains(canvas)).toBe(false);
-	// The panel's own controls really are in there (this is the field panel, not an
-	// empty box that happens to be positioned right).
-	expect(panel.contains(screen.getByLabelText("world name"))).toBe(true);
+	// The layer sits in the same positioned cell as the canvas, absolutely, covering it.
+	// As a flex sibling it would subtract 300px from the canvas — and then every palette
+	// that opens would move the viewport, the failure this contract exists for.
+	expect(layer.parentElement).toBe(cell);
+	for (const cls of ["absolute", "inset-0"])
+		expect(layer.classList.contains(cls)).toBe(true);
+	// …and because it covers the canvas edge to edge, it must be transparent to the
+	// pointer everywhere except on a palette. Without this pair, orbit/dig anywhere
+	// under the layer silently stops working and no other case here notices.
+	expect(layer.classList.contains("pointer-events-none")).toBe(true);
+	expect(palette.classList.contains("pointer-events-auto")).toBe(true);
+
+	expect(palette.contains(canvas)).toBe(false);
+	// Docked right by default, and the field controls really are inside it (this is the
+	// field panel, not an empty box that happens to be positioned right).
+	expect(palette.style.right).toBe("0px");
+	expect(palette.contains(screen.getByLabelText("world name"))).toBe(true);
+});
+
+test("a palette collapses to a rail chip that restores it, keeping its geometry", async () => {
+	fetch404();
+	const stub = makeStubHost();
+	await renderShell(stub, fakeUiStore({ workspace: MOVED }));
+	expect(controlsPalette()?.style.left).toBe("120px");
+
+	act(() => {
+		fireEvent.click(screen.getByRole("button", { name: "collapse Controls" }));
+	});
+	// Out of the layout AND out of the accessibility tree — but still MOUNTED behind
+	// `hidden`, so the panel's host-subscribed state survives the round trip.
+	expect(controlsPalette()).toBeNull();
+	expect(screen.getByLabelText("world name")).toBeTruthy();
+
+	act(() => {
+		fireEvent.click(screen.getByRole("button", { name: "expand Controls" }));
+	});
+	const restored = controlsPalette();
+	expect(restored?.style.left).toBe("120px");
+	expect(restored?.style.top).toBe("60px");
+	expect(screen.queryByRole("button", { name: "expand Controls" })).toBeNull();
+});
+
+test("⌘\\ hides the whole layer and restores the EXACT arrangement (D-3)", async () => {
+	fetch404();
+	const stub = makeStubHost();
+	await renderShell(stub, fakeUiStore({ workspace: MOVED }));
+	const canvas = screen.getByLabelText("field viewport");
+
+	act(() => {
+		fireEvent.keyDown(window, { key: "\\", metaKey: true });
+	});
+	expect(controlsPalette()).toBeNull();
+	// The chord hides the CHROME, not the viewport: the canvas and its cell are exactly
+	// as they were, which is the whole point of the layer being a layer.
+	expect(screen.getByLabelText("field viewport")).toBe(canvas);
+	// …and it hides rather than UNMOUNTS: ⌘\ is a peek, and a peek that tears the
+	// palettes down would reset every host-subscribed control inside them.
+	expect(screen.getByLabelText("world name")).toBeTruthy();
+
+	act(() => {
+		fireEvent.keyDown(window, { key: "\\", metaKey: true });
+	});
+	// Exact, not defaults: the palette comes back at the position it was hidden from.
+	expect(controlsPalette()?.style.left).toBe("120px");
+	expect(controlsPalette()?.style.top).toBe("60px");
+});
+
+test("the top bar's ⌘\\ control is live, and follows the state it toggles", async () => {
+	fetch404();
+	const stub = makeStubHost();
+	await renderShell(stub);
+	const toggle = screen.getByRole("button", { name: /hide palettes/ });
+	act(() => {
+		fireEvent.click(toggle);
+	});
+	expect(controlsPalette()).toBeNull();
+	// A toggle that still says "hide" while everything is hidden is a lie the user has
+	// to test by clicking.
+	expect(screen.getByRole("button", { name: /show palettes/ })).toBeTruthy();
+});
+
+test("Reset workspace restores the defaults AND drops the persisted arrangement", async () => {
+	fetch404();
+	const stub = makeStubHost();
+	const store = fakeUiStore({
+		workspace: {
+			palettes: {
+				controls: { x: 120, y: 60, edge: null, collapsed: true, open: false },
+			},
+			hidden: true,
+		},
+	});
+	await renderShell(stub, store);
+	expect(controlsPalette()).toBeNull();
+
+	pickMenuItem("Reset workspace");
+	// The panel MOUNTS again here (it was closed), so let its catalog GET settle.
+	await flushCatalog();
+
+	// Back to the shipped arrangement: open, uncollapsed, docked right.
+	expect(controlsPalette()?.style.right).toBe("0px");
+	// …and the blob is GONE, not rewritten with the defaults: the next session starts
+	// from whatever the defaults are then, not from a snapshot of today's.
+	expect(store.get("workspace")).toBeUndefined();
+});
+
+test("the View menu can re-open a palette closed with its ×", async () => {
+	fetch404();
+	const stub = makeStubHost();
+	await renderShell(stub);
+
+	act(() => {
+		fireEvent.click(screen.getByRole("button", { name: "close Controls" }));
+	});
+	expect(controlsPalette()).toBeNull();
+	// Closing must not be a trap: without this item the only way back is Reset
+	// Workspace, which also discards every position the user set.
+	pickMenuItem("Controls palette");
+	await flushCatalog();
+	expect(controlsPalette()).toBeTruthy();
+});
+
+test("a persisted arrangement is adopted when the store arrives LATE", async () => {
+	fetch404();
+	const stub = makeStubHost();
+	// First render with NO store — the shape App is in until `project.get` resolves, and
+	// the shape it stays in forever if that call fails. The cockpit must not wait on it:
+	// gating the palettes on a store that may never arrive is how the whole control
+	// surface goes missing on a daemon hiccup.
+	const { rerender } = renderShellResult(stub, undefined);
+	await act(async () => {
+		await Promise.resolve();
+		await Promise.resolve();
+	});
+	expect(controlsPalette()?.style.right).toBe("0px");
+
+	// …and the moment it does arrive, the saved arrangement is adopted.
+	act(() => {
+		rerender(withEditor(<Shell />, stub, fakeUiStore({ workspace: MOVED })));
+	});
+	expect(controlsPalette()?.style.left).toBe("120px");
+	expect(controlsPalette()?.style.top).toBe("60px");
+});
+
+test("dragging the header moves the palette and persists it once, debounced", async () => {
+	fetch404();
+	const stub = makeStubHost();
+	const store = fakeUiStore();
+	await renderShell(stub, store);
+	const palette = controlsPalette();
+	const header = palette?.querySelector("header");
+	if (!(palette instanceof HTMLElement) || !(header instanceof HTMLElement))
+		throw new Error("palette header missing");
+
+	// happy-dom measures everything as zero, and the layer's size is what turns a drag
+	// into bounds — so give the LAYER (a div) a box. The palette itself keeps measuring
+	// zero, which just means its origin may range over the whole cell.
+	const realRect = HTMLDivElement.prototype.getBoundingClientRect;
+	HTMLDivElement.prototype.getBoundingClientRect = () =>
+		({ x: 0, y: 0, top: 0, left: 0, width: 1000, height: 600 }) as DOMRect;
+	try {
+		act(() => {
+			fireEvent.pointerDown(header, {
+				button: 0,
+				pointerId: 1,
+				clientX: 500,
+				clientY: 400,
+			});
+			fireEvent.pointerMove(header, {
+				pointerId: 1,
+				clientX: 620,
+				clientY: 460,
+			});
+			fireEvent.pointerUp(header, { pointerId: 1, clientX: 620, clientY: 460 });
+		});
+	} finally {
+		HTMLDivElement.prototype.getBoundingClientRect = realRect;
+	}
+
+	// Undocked and placed by the pointer delta — 24px from either edge would have
+	// snapped it, 120 does not.
+	const moved = controlsPalette();
+	expect(moved?.style.left).toBe("120px");
+	expect(moved?.style.top).toBe("60px");
+	expect(moved?.style.right).toBe("");
+
+	// Nothing is written synchronously (a drag would write 60×/s, and every write
+	// re-serializes the whole blob); the debounce lands it once.
+	expect(store.get("workspace")).toBeUndefined();
+	await waitFor(() => {
+		expect(store.get("workspace")?.palettes["controls"]?.x).toBe(120);
+	});
 });
 
 test("the canvas cell's insets come from the two bars and nothing else", async () => {

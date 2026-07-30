@@ -40,6 +40,7 @@ type EditorContextOverrides = {
 	fieldHostRef?: EditorContextValue["fieldHostRef"];
 	worldsVersion?: number;
 	openConfirm?: EditorContextValue["openConfirm"];
+	confirmRef?: EditorContextValue["confirmRef"];
 	store?: UiStore;
 };
 
@@ -66,6 +67,9 @@ export function makeEditorContext(
 		fieldHostRef: overrides.fieldHostRef ?? { current: undefined },
 		worldsVersion: overrides.worldsVersion ?? 0,
 		openConfirm: overrides.openConfirm ?? noop,
+		// No prompt pending: the shell's keydown listener reads this to decide whether a
+		// binding is suppressed, so the default has to be "nothing open".
+		confirmRef: overrides.confirmRef ?? { current: null },
 		store: overrides.store,
 	};
 }

@@ -25,6 +25,11 @@ export type EditorContextValue = {
    *  callbacks exactly once, and its `confirmRef` suppresses every global
    *  keybinding while one is open — none of which a panel-local dialog would get. */
   openConfirm: (request: ConfirmRequest) => void;
+  /** The pending confirm request, as a ref. The other half of the seam above: the
+   *  global keydown listener reads it to suppress EVERY binding while a prompt is
+   *  open. A ref rather than state on purpose — the listener binds once and must see
+   *  the current value without re-binding on each prompt. */
+  confirmRef: RefObject<ConfirmRequest | null>;
   /** Per-project UI persistence store. Undefined when the project root couldn't be
    *  resolved (persistence best-effort). */
   store: UiStore | undefined;

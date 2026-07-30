@@ -18,6 +18,21 @@ test("matchBinding maps the ⌘-chords, in a text input as much as out of one", 
   expect(matchBinding(ev({ key: "s", metaKey: true }), true)).toBe("save");
 });
 
+test("matchBinding maps ⌘\\ to the palette hide-all latch", () => {
+  expect(matchBinding(ev({ key: "\\", metaKey: true }), false)).toBe(
+    "togglePalettes",
+  );
+  expect(matchBinding(ev({ key: "\\", ctrlKey: true }), false)).toBe(
+    "togglePalettes",
+  );
+  // A ⌘-chord, so it stays live in a text input like the others.
+  expect(matchBinding(ev({ key: "\\", metaKey: true }), true)).toBe(
+    "togglePalettes",
+  );
+  // Bare `\` is a character someone is typing — never a binding.
+  expect(matchBinding(ev({ key: "\\" }), false)).toBeUndefined();
+});
+
 test("matchBinding: Ctrl stands in for Cmd, Alt is inert, case is folded", () => {
   expect(matchBinding(ev({ key: "z", ctrlKey: true }), false)).toBe("undo");
   expect(

@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import type { FieldHost } from "../../viewport-host/index.ts"; // type-only
 import { useConfirmDialog } from "../hooks/useConfirmDialog.ts";
-import { useGlobalKeybindings } from "../hooks/useGlobalKeybindings.ts";
 import { api } from "../lib/api.ts";
 import { EngineBuildError, loadEngine } from "../lib/engine.ts";
 import { subscribeEvents } from "../lib/events.ts";
@@ -12,9 +11,10 @@ import { EditorContext, type EditorContextValue } from "./editor-context.ts";
 import { Shell } from "./shell/Shell.tsx";
 
 /**
- * The editor's bootstrap: engine load, project resolution, the daemon event feed, the
- * global keybindings and the one confirm dialog. Everything VISIBLE is the Shell's —
- * see its header for the layout contract.
+ * The editor's bootstrap: engine load, project resolution, the daemon event feed and
+ * the one confirm dialog. Everything VISIBLE is the Shell's — see its header for the
+ * layout contract; the global keydown listener moved there too, because the bindings
+ * act on shell state.
  */
 export function App() {
 	const [state, dispatch] = useReducer(reduce, initialState);
@@ -30,8 +30,8 @@ export function App() {
 	const bakeBusyRef = useRef(false);
 	// The in-chrome confirm dialog (replaces window.confirm) — its full state machine
 	// (open no-clobber guard, exactly-once resolve) lives in useConfirmDialog. `confirmRef`
-	// is threaded to useGlobalKeybindings so the keydown listener suppresses every binding
-	// while a prompt is open.
+	// rides the editor context down to the shell's keydown listener, which suppresses
+	// every binding while a prompt is open.
 	const { confirm, confirmRef, openConfirm, resolveConfirm } =
 		useConfirmDialog();
 
@@ -94,9 +94,6 @@ export function App() {
 		};
 	}, []);
 
-	// The global keybinding listener (⌘S / ⌘Z / ⇧⌘Z), suppressed while a confirm is open.
-	useGlobalKeybindings({ confirmRef });
-
 	useEffect(() => {
 		if (state.status !== "ready") return;
 		return subscribeEvents({
@@ -134,6 +131,7 @@ export function App() {
 		fieldHostRef,
 		worldsVersion,
 		openConfirm,
+		confirmRef,
 		store,
 	};
 

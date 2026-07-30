@@ -1,10 +1,17 @@
 // The shell's top bar: 40 px, opaque, and NEVER resized by anything in the viewport.
 // Its height is one half of the canvas cell's inset budget (the status bar is the
 // other), so a palette opening or a selection changing cannot move it.
+import {
+	useWorkspaceActions,
+	useWorkspaceState,
+} from "../../hooks/useWorkspace.tsx";
 import { Button } from "../ui/button.tsx";
 import { BurgerMenu } from "./BurgerMenu.tsx";
 
 export function TopBar() {
+	const { hidden } = useWorkspaceState();
+	const { toggleHidden } = useWorkspaceActions();
+
 	return (
 		<header className="flex h-10 shrink-0 items-center gap-2 border-b border-border bg-card px-2">
 			<BurgerMenu />
@@ -20,16 +27,19 @@ export function TopBar() {
 			<Button type="button" size="sm" variant="secondary" disabled>
 				Bake
 			</Button>
-			{/* MIGRATION (until Task 6 of the F4.5a plan): the hint is ahead of its
-          binding — ⌘\ lands with the palette layer that has something to hide. Dimmed
-          and aria-disabled until then, by BurgerMenu's own rule: advertising a chord
-          that does nothing is the same failure as a live-looking dead menu item. */}
-			<span
-				aria-disabled="true"
-				className="text-xs text-muted-foreground opacity-50"
+			{/* A BUTTON, not the hint it started as: the chord is live now, and the
+          affordance that advertises it may as well perform it — a keycap you cannot
+          click is a worse version of a control that teaches its own shortcut. The
+          label follows the state, which is the one reason this bar reads it. */}
+			<Button
+				type="button"
+				size="sm"
+				variant="ghost"
+				className="h-7 px-2 font-normal text-muted-foreground text-xs"
+				onClick={toggleHidden}
 			>
-				⌘\ hide panels
-			</span>
+				⌘\ {hidden ? "show" : "hide"} palettes
+			</Button>
 		</header>
 	);
 }

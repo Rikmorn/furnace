@@ -1,14 +1,21 @@
 // The top bar's one menu. The TREE is the deliverable here — the shape a user (and
 // the shortcut overlay) can read the editor's verbs off — not the wiring.
 //
-// Every item is inert today and rendered DISABLED rather than silently dead, because
-// a live-looking item that does nothing is worse than an obviously unavailable one.
-// Each group carries its own MIGRATION marker at its render site, because each is
-// wired by a different task — one marker for the file would outlive two thirds of
-// what it describes.
+// Items wire up group by group as their owning task lands, so the menu is a mix: the
+// workspace verbs under View are LIVE, and everything still waiting is rendered
+// DISABLED rather than silently dead, because a live-looking item that does nothing is
+// worse than an obviously unavailable one. Each group carries its own MIGRATION marker
+// at its render site, because each is wired by a different task — one marker for the
+// file would outlive two thirds of what it describes.
 import { Menu } from "lucide-react";
 import {
+	useWorkspaceActions,
+	useWorkspaceState,
+} from "../../hooks/useWorkspace.tsx";
+import { PALETTE_IDS, PALETTES } from "../../lib/palette-store.ts";
+import {
 	DropdownMenu,
+	DropdownMenuCheckboxItem,
 	DropdownMenuContent,
 	DropdownMenuItem,
 	DropdownMenuLabel,
@@ -35,6 +42,9 @@ function PendingItem({
 }
 
 export function BurgerMenu() {
+	const { palettes, hidden } = useWorkspaceState();
+	const { setOpen, toggleHidden, reset } = useWorkspaceActions();
+
 	return (
 		<DropdownMenu>
 			<DropdownMenuTrigger
@@ -51,10 +61,27 @@ export function BurgerMenu() {
 				<PendingItem label="Save" shortcut="⌘S" />
 				<PendingItem label="Bake" />
 				<DropdownMenuSeparator />
-				{/* MIGRATION (until Task 9 of the F4.5a plan): the view popover wires these. */}
 				<DropdownMenuLabel>View</DropdownMenuLabel>
+				{/* MIGRATION (until Task 9 of the F4.5a plan): the view popover wires the
+            two display toggles. The workspace verbs below them are already live. */}
 				<PendingItem label="Shading" />
 				<PendingItem label="Grid" />
+				{/* The way back from a palette closed with its × — without it the close
+            button is a trap whose only exit is Reset Workspace. */}
+				{PALETTE_IDS.map((id) => (
+					<DropdownMenuCheckboxItem
+						key={id}
+						checked={palettes[id].open}
+						onCheckedChange={(open) => setOpen(id, open)}
+					>
+						{PALETTES[id].title} palette
+					</DropdownMenuCheckboxItem>
+				))}
+				<DropdownMenuItem onSelect={toggleHidden}>
+					{hidden ? "Show palettes" : "Hide palettes"}
+					<DropdownMenuShortcut>⌘\</DropdownMenuShortcut>
+				</DropdownMenuItem>
+				<DropdownMenuItem onSelect={reset}>Reset workspace</DropdownMenuItem>
 				<DropdownMenuSeparator />
 				{/* MIGRATION (until Task 11 of the F4.5a plan): the shortcut overlay wires
             this one. */}

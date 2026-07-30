@@ -1,4 +1,4 @@
-export type BindingAction = "save" | "undo" | "redo";
+export type BindingAction = "save" | "undo" | "redo" | "togglePalettes";
 
 /**
  * Pure chord→action map. ⌘-chords are classified unconditionally — they stay live even
@@ -20,6 +20,13 @@ export function matchBinding(
   const mod = e.metaKey || e.ctrlKey; // ⌘ on macOS, Ctrl elsewhere
   if (mod && e.key.toLowerCase() === "z") return e.shiftKey ? "redo" : "undo";
   if (mod && e.key.toLowerCase() === "s") return "save";
+  // Matched on `key`, not `code`: on a layout where `\` is not its own physical key the
+  // code would be wrong, whereas the key is whatever the user actually produced.
+  // UNVERIFIED in Safari — that ⌘\ arrives as `key === "\\"` with meta held is the
+  // standard reading, not something measured here (no Safari in the session that wrote
+  // this). If the browser gate finds it silent, an `e.code === "Backslash"` fallback is
+  // the fix, and it belongs here rather than in the listener.
+  if (mod && e.key === "\\") return "togglePalettes";
   // No bare-key bindings today. When one returns it goes here, behind
   // `if (inTextInput || mod || e.altKey) return undefined;`.
   return undefined;
