@@ -177,7 +177,7 @@ export type RegionBox = {
 
 /**
  * Translate a region AABB by whole 0.5 m lattice steps — the stamp's nudge
- * (arrow keys / the inspector's buttons). BOTH corners move, so the region
+ * (arrow keys / the session card's d-pad). BOTH corners move, so the region
  * keeps its size and stays on the lattice {@link snapSpan} put it on. Steps
  * are rounded to whole numbers to hold that invariant.
  *

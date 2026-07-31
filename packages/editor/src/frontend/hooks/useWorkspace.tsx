@@ -61,6 +61,23 @@ export type WorkspaceActions = {
 	 *  `setPaletteOpen`). A toggle would need a read of the state to be safe. */
 	setCollapsed: (id: PaletteId, collapsed: boolean) => void;
 	setOpen: (id: PaletteId, open: boolean) => void;
+	/** Open or close a palette whose open state the EDITOR drives (`PALETTES[id].drivenOpen`
+	 *  — today only the session card), WITHOUT recording that the user arranged anything.
+	 *
+	 *  `setOpen` cannot be reused here, and the reason is not tidiness. Every other verb in
+	 *  this object goes through `edit`, which sets `touched` — and `touched` GATES THE
+	 *  RESTORE below: the store arrives late, and a restore that finds the flag set is
+	 *  skipped outright. A driven open firing in that window — any entity selected, or any
+	 *  session opened, before `project.get` resolves — would discard the user's whole
+	 *  persisted arrangement for that boot, silently, and their next drag would overwrite
+	 *  the blob with defaults. It also keeps this provider's own promise true ("nothing is
+	 *  written before the first interaction"): merely SELECTING something is not an
+	 *  arrangement decision, so it must neither persist nor veto a restore.
+	 *
+	 *  The state still moves — the palette really opens — and the persist debounce stays
+	 *  armed only by real arrangement changes. `drivenOpen` was a READ-side rule in the
+	 *  store (`deserializeWorkspace` drops the persisted flag); this is its write side. */
+	setDrivenOpen: (id: PaletteId, open: boolean) => void;
 	/** The ⌘\ latch: hide every palette, or restore the exact prior arrangement. */
 	toggleHidden: () => void;
 	/** The latch, set ABSOLUTELY. Its one caller is the status bar's ⚠ chip, which
@@ -181,6 +198,9 @@ export function WorkspaceProvider({
 			setCollapsed: (id, collapsed) =>
 				edit((s) => setPaletteCollapsed(s, id, collapsed)),
 			setOpen: (id, open) => edit((s) => setPaletteOpen(s, id, open)),
+			// NOT an `edit`: see the docblock on the type. The write happens; the
+			// ownership claim does not.
+			setDrivenOpen: (id, open) => setState((s) => setPaletteOpen(s, id, open)),
 			toggleHidden: () => edit((s) => setPalettesHidden(s, !s.hidden)),
 			setHidden: (hidden) => edit((s) => setPalettesHidden(s, hidden)),
 			reset: () => {

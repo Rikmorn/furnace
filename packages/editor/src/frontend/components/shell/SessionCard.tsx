@@ -27,9 +27,15 @@
 //     the session arrives — patched onto the SESSION's own params/seed/policy rather than
 //     onto a chrome-side guess at what `openEntity` would produce. (The merge policy in
 //     particular is not recoverable from the record: `GeneratorEntity` does not carry one.)
-//   - between the touch and the session there is one render. `openEntity` sets the session
-//     and pushes it synchronously, so the two land in one React batch and nothing paints in
-//     between.
+//   - it paints ONCE, and that took two mechanisms rather than one. `openEntity` sets the
+//     session and publishes it synchronously (`openEntitySession` → `previewStamp` →
+//     `notifyStamp`), so the touch and the session's ARRIVAL land in one React batch — the
+//     rest state never paints with the edit missing. But the touch is APPLIED one render
+//     later, from the effect below, and a passive effect runs after paint: React would
+//     commit RECONFIGURE still holding the record's pre-touch value, so the value that
+//     flickered would be the number the user just typed. Hence a LAYOUT effect — its body
+//     only calls `host.updateStamp`, whose `notifyStamp` is synchronous, so React flushes
+//     the resulting render before the browser paints either.
 //   - a REFUSED promotion drops its touch. `openEntity` is runtime-quiet on an unknown id,
 //     a frozen/baked entity and a retired generator; a parked edit that survived would land
 //     on whatever session opened next — a different entity, silently carrying an edit made
@@ -39,7 +45,15 @@
 // entity ROW's, because they change what an entity IS rather than what it holds. What
 // remains here is the recipe and the two verbs that end the session.
 import type { MergePolicy } from "@furnace/core/field"; // type-only: erased
-import { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
+import {
+	Fragment,
+	useEffect,
+	useId,
+	useLayoutEffect,
+	useMemo,
+	useRef,
+	useState,
+} from "react";
 import type {
 	FieldEntityInfo,
 	FieldGeneratorInfo,
@@ -126,6 +140,10 @@ const NUDGE_AXES: {
 // d-pad, and at 32px they read as six peers of the commit verb rather than one cluster.
 const NUDGE_BUTTON_CLASS = "h-6 px-2 font-mono";
 
+/** The empty params record, hoisted so the fallback below is a STABLE identity — a `{}`
+ *  literal in the expression would defeat the `formValues` memo it feeds. */
+const NO_PARAMS: Record<string, unknown> = {};
+
 /** One update to a live session, as a PATCH: the fields the card is changing, with the
  *  session supplying the rest. A patch rather than the seam's three positional arguments
  *  because a promotion has to carry the change across a render — and at the moment it is
@@ -189,6 +207,10 @@ export function SessionCard() {
 	const { selectedEntityId } = useFieldEntitySelection();
 	const generators = useGenerators();
 	const [pending, setPending] = useState<PendingTouch | null>(null);
+	// The seed input's id, for the label's `htmlFor`. `useId` rather than a constant: the
+	// card is one mount today, but a constant id is the kind of thing that only breaks once
+	// two of something exist.
+	const seedInputId = useId();
 
 	// The record behind the REST state. Read out of the entity list rather than held,
 	// so a freeze, a ⌘Z or a reconfigure elsewhere reaches this card by the same tick
@@ -202,10 +224,38 @@ export function SessionCard() {
 	const generatorId = stamp?.generator ?? record?.generator;
 	const def = generators.find((g) => g.id === generatorId);
 
+	const params = stamp?.params ?? record?.params ?? NO_PARAMS;
+	// SchemaForm re-seeds its drafts whenever `values` is a new ARRAY (`seed.current !==
+	// values`), and a re-seed is a state write DURING render — so a fresh `[params]` literal
+	// made every card render cost TWO SchemaForm renders, each rebuilding every field row,
+	// and made `onBlurCapture`'s deferred re-seed fire unconditionally on every focus-out.
+	//
+	// MEASURED, both sides, 20 session pushes through the real Shell (and the number is not
+	// the flattering one): with the host cloning the session as it actually does, this memo
+	// changes nothing — 40 renders either way — because `structuredClone` in `notifyStamp`
+	// hands the card a new `params` identity on every push, nudge and phase transition. Hold
+	// that identity stable and the same 20 pushes cost 40 renders WITHOUT this memo and 21
+	// with it. So the memo is the necessary half that lives in this file, and it is not the
+	// sufficient one: the other half is a value-equality guard on the stamp seam, which is
+	// the provider's call and is filed
+	// (`docs/backlog/editor-and-tooling/stamp-seam-pushes-fresh-identities-per-frame.md`).
+	//
+	// ABOVE the early return, and that is not stylistic: as the first hook BELOW it this
+	// crashed the card outright ("Rendered more hooks than during the previous render") the
+	// moment the placeholder path rendered — which the burger-summon case reaches on purpose.
+	const formValues = useMemo(() => [params], [params]);
+
 	// The parked touch, applied to the session the promotion opened. ONE SHOT: cleared on
 	// the first run whatever it finds, so a refusal (no session arrives) drops it rather
 	// than leaving it for the next one. See `PendingTouch` for why that is the whole guard.
-	useEffect(() => {
+	//
+	// A LAYOUT effect, for `useGenerators`' reason one notch sharper: a passive effect runs
+	// after paint, so the browser would show the reconfigure holding the RECORD's pre-touch
+	// value for a frame — and the value that flickers is the number the user just typed,
+	// which is the worst thing on this card to flicker. The body only calls
+	// `host.updateStamp`, which notifies synchronously, so the render it causes is flushed
+	// before paint too.
+	useLayoutEffect(() => {
 		if (pending === null) return;
 		setPending(null);
 		if (stamp === null) return;
@@ -217,9 +267,14 @@ export function SessionCard() {
 	}, [pending, stamp, fieldHostRef]);
 
 	if (def === undefined || (stamp === null && record === undefined))
-		// One frame, at most: the driver closes the card when its subject goes away, and the
-		// registry read is a layout effect. A retired generator id is the only lasting way
-		// here, and it says so rather than rendering an empty box.
+		// Two ways here, and only one of them is momentary. (1) The subject just went away:
+		// the driver closes the card in the next effect, and the registry read is a layout
+		// effect, so nothing paints an empty form. (2) The user TICKED this palette in the
+		// burger with nothing selected — `BurgerMenu` maps `PALETTE_IDS`, so the card has a
+		// checkbox like every other palette (kept on purpose: it is the only exit from the
+		// × latch). Through that route the placeholder STANDS until the next subject change,
+		// which is why it is a sentence rather than a blank box. A retired generator id is
+		// the third way, and it names itself.
 		return (
 			<p className="p-3 text-xs text-muted-foreground">
 				{generatorId === undefined
@@ -269,9 +324,9 @@ export function SessionCard() {
 	// pair for every state that HAS one, and rest has neither.
 	const tag = stamp === null ? "SELECTED" : sessionStateTag(stamp);
 	const name = subjectName(stamp, record);
-	const params = stamp?.params ?? record?.params ?? {};
 	const seed = stamp?.seed ?? record?.seed ?? 0;
 	const verbs = stamp === null ? null : VERBS[sessionStateTag(stamp)];
+	const caveat = policyCaveat(stamp);
 	const ready = stamp?.phase === "ready";
 
 	return (
@@ -316,8 +371,19 @@ export function SessionCard() {
 					    nothing when pressed. */}
 					{def.usesSeed && (
 						<div className="flex items-center gap-2 px-3 py-1.5">
-							{/* biome-ignore lint/a11y/noLabelWithoutControl: the label wraps its control as children (shadcn Input); Biome cannot trace the native control across the component boundary — getByLabelText still resolves it */}
-							<label className={`${LABEL_CLASS} w-[52px]`}>seed</label>
+							{/* `htmlFor`, not a wrapping <label> and not a suppression. The ⚄ has to
+							    stay OUTSIDE the label (a button nested in one forwards its clicks to
+							    the input through label activation), which rules out wrapping; and the
+							    suppression this replaced carried a justification copied from
+							    `StampInspector`, where the label genuinely DID wrap its input — here
+							    they were siblings, so the 52 px "seed" target focused nothing and the
+							    accessible name came from an `aria-label` no association backed. */}
+							<label
+								htmlFor={seedInputId}
+								className={`${LABEL_CLASS} w-[52px]`}
+							>
+								seed
+							</label>
 							<Input
 								type="number"
 								min={0}
@@ -336,7 +402,7 @@ export function SessionCard() {
 									// diverged — snap it back once typing settles.
 									e.target.value = String(seed);
 								}}
-								aria-label="stamp seed"
+								id={seedInputId}
 								className="h-7 w-20 font-mono"
 							/>
 							<Button
@@ -360,14 +426,14 @@ export function SessionCard() {
 							// the generator's JSON-Schema object node, which is exactly SchemaForm's
 							// structural input.
 							schema={def.paramSchema as JsonSchemaNode}
-							values={[params]}
+							values={formValues}
 							onPreview={(next) => {
 								// Previews only reach a LIVE session: with none, there is no ghost to
 								// preview against, and promoting per keystroke would open a session on
 								// a half-typed number. See this file's header.
 								if (stamp !== null)
 									// Boundary cast: SchemaForm emits unknown[] drafts; draft 0 is this
-									// subject's params record (values={[params]}).
+									// subject's params record (values={formValues}).
 									push({ params: next[0] as Record<string, unknown> });
 							}}
 							onCommit={(next) =>
@@ -471,16 +537,14 @@ export function SessionCard() {
 				</p>
 			)}
 
-			{/* The two v0 caveats a reconfigure carries, stated once rather than left to
-			    surprise at Apply (host.openEntity's contract owns both): the merge policy is
-			    not recorded provenance, and the ghost is previewed against the field as it
-			    stands now while Apply rewinds this stamp's chunks first. */}
-			{stamp?.mode === "reconfigure" && (
-				<p className="px-3 py-1 text-muted-foreground">
-					merge policy isn't recorded — this opens at Replace; the ghost
-					previews against the current field, Apply rewinds this stamp's chunks
-					first
-				</p>
+			{/* The v0 caveats, stated once rather than left to surprise at Apply
+			    (host.openEntity's contract owns both). It renders in REST as well as under a
+			    reconfigure, and that is the whole point of `policyCaveat`: the merge select
+			    reads "Replace" in REST because that is what a reconfigure WOULD open at, not
+			    because the record says so — `GeneratorEntity` carries no policy at all. Shown
+			    only under `reconfigure`, the rest state was stating a fact it does not have. */}
+			{!readOnly && caveat !== null && (
+				<p className="px-3 py-1 text-muted-foreground">{caveat}</p>
 			)}
 			{stamp?.truncatedSelection === true && (
 				<p className="px-3 py-1 text-warning">
@@ -576,7 +640,7 @@ export function SessionCard() {
 export function SessionCardPresence() {
 	const { stamp } = useFieldStamp();
 	const { selectedEntityId } = useFieldEntitySelection();
-	const { setOpen } = useWorkspaceActions();
+	const { setDrivenOpen } = useWorkspaceActions();
 	const raise = usePaletteRaise();
 	// The last subject ACTED ON. A ref, not state, and the difference is not cosmetic: as
 	// state it would be an effect dependency, so writing it would schedule a second run of
@@ -601,15 +665,30 @@ export function SessionCardPresence() {
 		if (subject === shown.current) return;
 		shown.current = subject;
 		if (subject === null) {
-			setOpen("session", false);
+			setDrivenOpen("session", false);
 			return;
 		}
-		setOpen("session", true);
+		setDrivenOpen("session", true);
 		// Unconditional, the ⚠ chip's rule: the card is very often already open and merely
 		// buried, which has no open transition for the layer's safety net to catch.
 		raise("session");
-	}, [subject, setOpen, raise]);
+	}, [subject, setDrivenOpen, raise]);
 
+	return null;
+}
+
+/** What the merge policy needs saying about it, or `null` when nothing does.
+ *
+ *  `GeneratorEntity` records no merge policy, so "Replace" is never a fact READ off a
+ *  committed stamp — in REST it is a prediction about what a reconfigure would open at, and
+ *  under a live reconfigure it is what the ghost is actually running. Both need saying and
+ *  they do not say the same thing; a CREATE session needs neither, because the policy there
+ *  is simply the one the user picked. */
+function policyCaveat(stamp: StampSession | null): string | null {
+	if (stamp === null)
+		return "merge policy isn't recorded — a reconfigure opens at Replace whatever this stamp was committed with";
+	if (stamp.mode === "reconfigure")
+		return "merge policy isn't recorded — this opens at Replace; the ghost previews against the current field, Apply rewinds this stamp's chunks first";
 	return null;
 }
 

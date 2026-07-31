@@ -48,7 +48,7 @@ import {
 	screen,
 	within,
 } from "../inspector/_harness.tsx";
-import { makeStubHost } from "./_stub-host.ts";
+import { makeStats, makeStubHost } from "./_stub-host.ts";
 
 afterEach(cleanup);
 afterEach(() => notify.clear());
@@ -224,6 +224,16 @@ function openCard(): HTMLElement {
 	if (!(box instanceof HTMLElement))
 		throw new Error("the session card is not open");
 	return box;
+}
+
+/** Open the burger. Radix opens on pointerdown, not click (the shell.test.tsx recipe). */
+function openBurger(): void {
+	act(() => {
+		fireEvent.pointerDown(screen.getByLabelText("editor menu"), {
+			button: 0,
+			pointerType: "mouse",
+		});
+	});
 }
 
 /** Select `entity` on the host, as the viewport's pointer or an Entities row does. */
@@ -537,6 +547,37 @@ test("while a session stands the card reads the SESSION, not the record it came 
 	expect(within(box).queryByText("SELECTED") === null).toBe(true);
 });
 
+// REST's merge select reads "Replace" for every committed stamp, because
+// `GeneratorEntity` records no policy — so the value is a PREDICTION about what a
+// reconfigure would open at, not a fact read off the record. Without the caveat the card
+// states it as a fact, which is the one thing a properties surface must not do.
+test("REST says the merge policy is unrecorded, beside the value it is showing", async () => {
+	fetch404();
+	const stub = makeStubHost({ generators: [HALL] });
+	await renderShell(stub);
+	selectEntity(stub, [makeEntity()], 3);
+	const box = openCard();
+	expect(
+		within(box).getByText(/merge policy isn't recorded/).textContent,
+	).toContain("a reconfigure opens at Replace");
+	// …and the control it qualifies really is showing that value (the caveat is about a
+	// select the user can see, not a general disclaimer).
+	fireEvent.click(within(box).getByRole("button", { name: /advanced/ }));
+	expect(
+		(within(openCard()).getByLabelText("merge policy") as HTMLSelectElement)
+			.value,
+	).toBe("replace");
+
+	// A CREATE session needs no caveat at all — the policy there is simply what the user
+	// picked, and a permanent disclaimer under a live control is noise.
+	act(() => {
+		stub.fire.stamp(makeSession());
+	});
+	expect(
+		within(openCard()).queryByText(/merge policy isn't recorded/) === null,
+	).toBe(true);
+});
+
 // --- (d) usesSeed gating, and the verbs that are NOT here --------------------
 
 test("the seed row rides the generator's usesSeed declaration", async () => {
@@ -548,7 +589,7 @@ test("the seed row rides the generator's usesSeed declaration", async () => {
 	act(() => {
 		stub.fire.stamp(makeSession({ generator: "hall" }));
 	});
-	expect(within(openCard()).queryByLabelText("stamp seed") === null).toBe(true);
+	expect(within(openCard()).queryByLabelText("seed") === null).toBe(true);
 	expect(within(openCard()).queryByLabelText("re-roll seed") === null).toBe(
 		true,
 	);
@@ -560,9 +601,17 @@ test("the seed row rides the generator's usesSeed declaration", async () => {
 		);
 	});
 	const box = openCard();
-	expect(
-		(within(box).getByLabelText("stamp seed") as HTMLInputElement).value,
-	).toBe("7");
+	// Resolved through the LABEL ASSOCIATION rather than an `aria-label`, which is what
+	// makes this cover the association at all. The row first shipped with a sibling
+	// `<label>` beside an `aria-label`-ed input: a lookup by name passed while the visible
+	// 52 px "seed" target focused nothing, and a biome suppression carrying a justification
+	// copied from a file where it was true hid the violation. The `htmlFor` assertion below
+	// is the half that catches that.
+	const seedInput = within(box).getByLabelText("seed") as HTMLInputElement;
+	expect(seedInput.value).toBe("7");
+	expect(box.querySelector(`label[for="${seedInput.id}"]`)?.textContent).toBe(
+		"seed",
+	);
 	fireEvent.click(within(box).getByLabelText("re-roll seed"));
 	expect(stub.calls.rerollStamp).toHaveBeenCalledTimes(1);
 });
@@ -707,6 +756,38 @@ test("archetypeId becomes a PICKER when the catalog lands AFTER the card opened"
 	expect(stub.order.lastIndexOf("listGenerators")).toBeGreaterThan(
 		stub.order.indexOf("setEntityCatalog"),
 	);
+});
+
+// The card has a user-facing checkbox after all — `BurgerMenu` maps `PALETTE_IDS`, so
+// `session` gets one like every other palette. It is KEPT deliberately: the × closes the
+// card and the driver will not re-open it for the same subject, so without the menu item
+// that close is a latch with no exit. What it costs is that the card can be opened with
+// nothing to be about, and the placeholder it shows then is not "one frame" — it stands
+// until the next subject change.
+test("the burger can summon the card with no subject, and the placeholder STANDS", async () => {
+	fetch404();
+	const stub = makeStubHost({ generators: [HALL] });
+	await renderShell(stub);
+	expect(card() === null).toBe(true);
+
+	openBurger();
+	act(() => {
+		fireEvent.click(screen.getByText("Session palette"));
+	});
+	// It opens, and it says what it has: nothing.
+	expect(within(openCard()).getByText("nothing selected")).toBeTruthy();
+
+	// …and it is still there after an unrelated host push, which is the half that makes
+	// "one frame, at most" false and the reason the card's own comment now says so.
+	act(() => {
+		stub.fire.stats(makeStats({ totalOps: 3 }));
+	});
+	expect(within(openCard()).getByText("nothing selected")).toBeTruthy();
+
+	// Selecting something fills it in, so the summon is a real way back rather than a
+	// dead end.
+	selectEntity(stub, [makeEntity()], 3);
+	expect(within(openCard()).getByText("hall #3")).toBeTruthy();
 });
 
 // --- (f) the card and the pending-stamp arm do not fight ---------------------

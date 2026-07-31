@@ -23,10 +23,18 @@ export type PaletteId = (typeof PALETTE_IDS)[number];
  *  so an editor that has had nothing to say never spends screen on saying so.
  *
  *  `session` starts closed too, but for a DIFFERENT reason, and the difference is what
- *  `drivenOpen` records: nobody summons the session card. It appears when there is a
- *  session or a selected entity for it to be about and leaves when there is not (D-13),
- *  which makes its open state a fact about the editor rather than a decision the user
- *  made — the one exception to D-3's "the arrangement is the user's".
+ *  `drivenOpen` records: the session card is not normally summoned. It appears when there
+ *  is a session or a selected entity for it to be about and leaves when there is not
+ *  (D-13), which makes its open state a fact about the editor rather than a decision the
+ *  user made — the one exception to D-3's "the arrangement is the user's".
+ *
+ *  ONE deliberate hole in that, and it is worth naming rather than pretending away:
+ *  `BurgerMenu` maps `PALETTE_IDS`, so this palette has a user checkbox like every other
+ *  one. It is KEPT, because the card's × closes it and the driver will not re-open it for
+ *  the same subject — without the menu item that close is a latch with no exit. The cost is
+ *  that the card can be ticked open with nothing to be about, where it shows a placeholder
+ *  that STANDS until the next subject change. `drivenOpen` therefore means "not persisted,
+ *  and normally not user-set", not "unreachable by the user".
  *
  *  The default arrangement claims THREE of the cell's four corners deliberately:
  *  controls docked right, entities floating top-left, and the top-right left clear for

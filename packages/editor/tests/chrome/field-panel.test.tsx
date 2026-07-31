@@ -352,7 +352,7 @@ test("the surviving section scrolls inside itself, above the pinned footer", asy
 	expect(screen.queryByLabelText("brush radius") === null).toBe(true);
 	// The PROPERTIES surface is not here either, since Task 10: the stamp form, its seed
 	// and its commit verb are the session card's, in a palette of its own.
-	expect(screen.queryByLabelText("stamp seed") === null).toBe(true);
+	expect(screen.queryByLabelText("seed") === null).toBe(true);
 	expect(screen.queryByLabelText("nudge plus X") === null).toBe(true);
 	// The entity list is not in this panel AT ALL any more — it is the entities
 	// palette's, the first organ out (F4.5a Task 10). Compared to null before the

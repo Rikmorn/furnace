@@ -2072,6 +2072,52 @@ test("a RESTORE does not steal the front from the palette the user is working in
 	expect(zOf(logPalette())).toBeGreaterThan(zOf(entitiesPalette()));
 });
 
+// The DRIVEN open must not claim the arrangement, and this is the case that costs the user
+// something real if it does. The store arrives LATE (project.get is an RPC), and the restore
+// is skipped outright once `touched` is set — so a card that opened in that window through
+// the ordinary `setOpen` would silently discard the whole persisted arrangement for that
+// boot, and the next drag would overwrite the blob with defaults. Narrow race, silent,
+// permanent. `setDrivenOpen` is the verb that moves the state without making the claim.
+test("a card that auto-opens BEFORE the store arrives does not discard the saved arrangement", async () => {
+	fetch404();
+	const stub = makeStubHost();
+	// No store yet — the shape App is in until `project.get` resolves.
+	const { rerender } = renderShellResult(stub, undefined);
+	await act(async () => {
+		await Promise.resolve();
+		await Promise.resolve();
+	});
+	expect(controlsPalette()?.style.right).toBe("0px");
+
+	// The user selects something in the viewport. The session card auto-opens — a write to
+	// the arrangement that the user did not make.
+	act(() => {
+		stub.fire.stamp({
+			generator: "hall",
+			params: {},
+			seed: 7,
+			policy: "replace",
+			region: { min: [0, 0, 0], max: [4, 4, 4] },
+			phase: "configuring",
+			run: 0,
+			opCount: null,
+			placementCount: null,
+			error: null,
+			truncatedSelection: false,
+			mode: "stamp",
+			entityId: null,
+		});
+	});
+	expect(screen.queryByRole("region", { name: "Session" })).toBeTruthy();
+
+	// …and THEN the store lands. The saved arrangement must still be adopted.
+	act(() => {
+		rerender(withEditor(<Shell />, stub, fakeUiStore({ workspace: MOVED })));
+	});
+	expect(controlsPalette()?.style.left).toBe("120px");
+	expect(controlsPalette()?.style.top).toBe("60px");
+});
+
 /** Give the LAYER (a div) a measured box for the duration of `f`. happy-dom measures
  *  everything as zero, and the layer's size is what turns a drag into bounds; the
  *  palette itself keeps measuring zero, which only means its origin may range over the

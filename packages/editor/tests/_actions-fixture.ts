@@ -91,6 +91,7 @@ export function makeCtx(over: Partial<ActionCtx> = {}): ActionCtx {
         move: mock(),
         setCollapsed: mock(),
         setOpen: mock(),
+        setDrivenOpen: mock(),
         toggleHidden: mock(),
         setHidden: mock(),
         reset: mock(),

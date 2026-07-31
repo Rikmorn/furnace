@@ -8,13 +8,15 @@
 // consumers read them out of context. Nothing below this provider may subscribe to
 // anything it owns.
 //
-// ALL TEN seams are here: `subscribeStats` (the status bar's chips), `subscribeToolError`
-// (a toast, plus the verify release below), `subscribeCameraPose` (the corner axis triad),
-// the entity pair `subscribeEntities` + `subscribeDrift` (the entities palette),
-// `subscribeEntitySelection` (which row is selected, and the box the viewport draws for
-// it), and the four the control stack held until F4.5b — `subscribeTool` (the brush
-// palette's armed effect and the swatch ring), `subscribeSelection` (the selection verbs),
-// `subscribeStamp` (the stamp inspector) and `subscribeFlags` (the advisor's list).
+// ALL ELEVEN seams are here: `subscribeStats` (the status bar's chips),
+// `subscribeToolError` (a toast, plus the verify release below), `subscribeCameraPose` (the
+// corner axis triad), the entity pair `subscribeEntities` + `subscribeDrift` (the entities
+// palette), `subscribeEntitySelection` (which row is selected, the box the viewport draws
+// for it, and the session card's REST subject), `subscribePendingStamp` (a stamp armed for
+// region-draw — the rail, the status keymap and the canvas cursor), and the four the
+// control stack held until F4.5b: `subscribeTool` (the tool rail's armed family and the
+// strip's params), `subscribeSelection` (the selection verbs), `subscribeStamp` (the
+// session card) and `subscribeFlags` (the advisor's list).
 //
 // Two values here have NO seam behind them and never will: the brush `radius` and the
 // armed `gesture`. Both are chrome state pushed one way into the host, and both sit here

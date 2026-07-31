@@ -503,11 +503,13 @@ export type FieldHost = {
    *  In practice the catalog installs long before any session exists (one
    *  run-once fetch at engine-ready). */
   setEntityCatalog(catalog: EntityCatalog | null): void;
-  /** The registry's staged generators (id/name/param schema/defaults) for the
-   *  panel's palette + stamp form — surfaced through the host because the
-   *  chrome cannot value-import core's FIELD_GENERATORS. Schema/defaults are
-   *  CLONED per call (plain-data records), so the panel never holds registry
-   *  state.
+  /** The registry's staged generators (id/name/param schema/defaults/`usesSeed`)
+   *  for the SESSION CARD's form — surfaced through the host because the chrome
+   *  cannot value-import core's FIELD_GENERATORS. Schema/defaults are CLONED per
+   *  call (plain-data records), so the chrome never holds registry state.
+   *
+   *  Its one consumer is `shell/SessionCard.tsx` (F4.5b Task 10 — it moved there
+   *  with the form, out of the field panel that used to hold both).
    *
    *  A generator with an `archetypeId` param has that property's `enum` filled
    *  from the installed entity catalog ({@link setEntityCatalog}), turning the
@@ -579,7 +581,7 @@ export type FieldHost = {
    *  Camera-relative mapping is deliberately NOT v0: world axes stay
    *  predictable whatever the fly camera is doing and match the region numbers
    *  everything else in the field surfaces. The viewport's arrow bindings live
-   *  in `arrowNudgeSteps`; the inspector's buttons call this same seam.
+   *  in `arrowNudgeSteps`; the session card's d-pad calls this same seam.
    *
    *  Supersedes any in-flight preview (its response is dropped — the run
    *  bumps like a params change). No-op without a session. */
@@ -4111,7 +4113,7 @@ export function createFieldHost(deps?: {
   };
 
   // Move the session's placement region by whole lattice steps and re-preview
-  // — the ONE path behind both the arrow keys and the inspector's buttons.
+  // — the ONE path behind both the arrow keys and the session card's d-pad.
   // Region changes supersede like params changes (withRegion bumps the run),
   // so an in-flight ghost for the old placement is dropped on arrival, and
   // sendPreviewJob re-snapshots chunks off the NEW region by itself.
@@ -5812,9 +5814,9 @@ export function createFieldHost(deps?: {
       //
       // ANNOUNCED, not silent. The original reasoning — "a remounting panel gets
       // null pushed on re-subscribe" — assumed every dispose came with a chrome
-      // remount, and the AA switch broke that: it disposes and re-inits under a
-      // panel that never unmounts, leaving the stamp inspector driving a session
-      // the host has already destroyed. The seam is how the panel finds out.
+      // remount, and the AA switch broke that: it disposes and re-inits under
+      // chrome that never unmounts, leaving the session card driving a session the
+      // host has already destroyed. The seam is how the chrome finds out.
       // cancelStampSession, not a bare `stamp = null`: it runs endMove() first
       // (before its own null guard) so no cursor mapping survives the teardown,
       // and it notifies. One teardown, one place.

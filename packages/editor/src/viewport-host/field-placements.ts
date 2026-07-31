@@ -445,9 +445,14 @@ export const seedArchetypeParams = (
  *  archetype hints after the first re-roll.
  *
  *  Compared with `Object.is`, so a non-primitive value (an array param) reads as changed
- *  every time and stays permanently touched. That is the SAFE direction — a touched key is
- *  one the re-seed leaves alone — and a deep walk would be doing more work to answer a
- *  question no generator's schema currently asks. */
+ *  and stays permanently touched. Be precise about how often that fires: the host
+ *  `structuredClone`s the incoming record before comparing, so an object or array param is
+ *  a NEW IDENTITY on every call — it is marked touched by the FIRST update of any kind,
+ *  including a seed re-roll or a policy switch that changed no param at all. So for
+ *  non-primitives this is not "conservative", it is unconditional. It is still the SAFE
+ *  direction (a touched key is one the re-seed leaves alone, i.e. the user's value stands),
+ *  and it is latent today — no registry generator has an array param, though a `doors: []`
+ *  would be one. A deep walk is the fix if one ever lands. */
 export const touchedParamKeys = (
   incoming: Record<string, unknown>,
   current: Record<string, unknown>,

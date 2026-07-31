@@ -98,9 +98,12 @@ export function EntitiesPalette() {
 						driftSection.current?.scrollIntoView({ block: "nearest" })
 					}
 					// Open starts a RECONFIGURE session on the host, which pushes it down
-					// the stamp seam — so the staged form appears in the controls palette,
-					// where the stamp inspector lives, without this palette knowing that
-					// surface exists. The host is the seam; there is no chrome coupling.
+					// the stamp seam — so the staged form appears in the SESSION CARD, a
+					// palette of its own, without this palette knowing that surface exists.
+					// The host is the seam; there is no chrome coupling. (Since F4.5b Task 10
+					// the row CLICK beside this button reaches the same card through
+					// `selectEntity`, which is why retiring Open is the first item on this
+					// row's composition pass — see EntitiesList's header.)
 					onReconfigure={(id) => fieldHostRef.current?.openEntity(id)}
 					onFreeze={(id, frozen) =>
 						fieldHostRef.current?.setEntityFrozen(id, frozen)
