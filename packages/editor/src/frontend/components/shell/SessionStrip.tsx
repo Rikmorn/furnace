@@ -7,14 +7,12 @@
 // entity, a re-run of an existing one, a translation of one), and `⏎` means "commit",
 // "apply" and "drop" respectively.
 //
-// The verbs here are READOUTS, not buttons, and the honest version of why is narrower than
-// the first draft claimed. The draft said the clickable pair is "on screen at the same
-// time"; it is not reliably — the only Commit/Cancel buttons today live in `StampInspector`
-// inside the `controls` palette, which the user can close and which ⌘\ hides wholesale. So
-// this is a KEYMAP, deliberately, and the argument for it is that the session CARD (Task 10)
-// is where the clickable pair belongs: a bar 40 px tall and always visible should name the
-// two keys, not compete with the card for the verb. Until that card lands there is a real
-// gap for a mouse-only user with the palettes hidden, and Esc/⏎ are the answer.
+// The verbs here are READOUTS, not buttons, and since F4.5b Task 10 the reason is settled
+// rather than provisional: the clickable pair lives on the SESSION CARD, which auto-opens
+// on the very session this strip is describing (D-13). A bar 40 px tall and always visible
+// names the two keys; the card competes for neither. The residual gap this comment used to
+// disclose — a mouse-only user with the palettes hidden — is narrower now but real: ⌘\
+// still hides the layer, and the card with it, leaving Esc/⏎ as the answer.
 //
 // ONE CLAUSE, WORDED FOR WHAT IS TRUE TODAY — and since F4.5b Task 9 both halves of D-7's
 // suspension are true, so it says the stronger one. The BRUSH is suspended:
@@ -23,24 +21,10 @@
 // brush it swaps cannot stroke), and the tool rail refuses its buttons through the same
 // gate. The clause names the brush because that is the one a user finds by trying it.
 import type { StampSession } from "../../../viewport-host/index.ts"; // type-only: erased
-
-/** The three session states, as the strip tags them. Read off `mode` + `moving` rather
- *  than stored, because those two fields ARE the state — a third spelling here is a third
- *  thing to keep in agreement with the card and the status bar's keymap line. */
-function stateTag(session: StampSession): string {
-	if (session.moving === true) return "MOVE";
-	return session.mode === "reconfigure" ? "RECONFIGURE" : "STAMP";
-}
-
-/** What the session is about, in the ROWS' vocabulary: `hall #3` for a session that owns a
- *  committed entity, the bare generator id for one that has not created anything yet. The
- *  same spelling `entityName` gives the entities palette and the menu labels, so the strip
- *  and the row point at one object in one language. */
-function sessionName(session: StampSession): string {
-	return session.entityId === null
-		? session.generator
-		: `${session.generator} #${session.entityId}`;
-}
+// The name and the tag live in `lib/field-session.ts` since F4.5b Task 10: the session
+// CARD is the second surface that says both, and this file's own header warned that a
+// third spelling would be a third thing to keep in agreement.
+import { sessionName, sessionStateTag } from "../../lib/field-session.ts";
 
 export function SessionStrip({ session }: { session: StampSession }) {
 	return (
@@ -60,7 +44,7 @@ export function SessionStrip({ session }: { session: StampSession }) {
 					{sessionName(session)}
 				</span>
 				<span className="font-semibold text-[10px] text-primary tracking-widest">
-					{stateTag(session)}
+					{sessionStateTag(session)}
 				</span>
 			</span>
 			<span className="flex items-center gap-3 text-muted-foreground">

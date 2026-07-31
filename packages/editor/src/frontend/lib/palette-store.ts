@@ -11,15 +11,22 @@ import type { PaletteState, UiState } from "./persist.ts";
 /** Every palette the cockpit knows, in rail order. The union is closed on purpose: a
  *  persisted record for an id that is not here is dropped rather than restored, so a
  *  palette that gets renamed or retired cannot come back as dead geometry. */
-export const PALETTE_IDS = ["controls", "entities", "log"] as const;
+export const PALETTE_IDS = ["controls", "entities", "session", "log"] as const;
 
 export type PaletteId = (typeof PALETTE_IDS)[number];
 
-/** Where a palette starts before the user has moved it, and what it is called.
+/** Where a palette starts before the user has moved it, what it is called, and whether
+ *  its OPEN state belongs to the user at all.
  *
- *  `log` starts CLOSED, which is the difference between it and every other palette: it
- *  is summoned (the status bar's ⚠ chip, the View menu) rather than always-on, so an
- *  editor that has had nothing to say never spends screen on saying so.
+ *  `log` starts CLOSED, which used to be the difference between it and every other
+ *  palette: it is summoned (the status bar's ⚠ chip, the View menu) rather than always-on,
+ *  so an editor that has had nothing to say never spends screen on saying so.
+ *
+ *  `session` starts closed too, but for a DIFFERENT reason, and the difference is what
+ *  `drivenOpen` records: nobody summons the session card. It appears when there is a
+ *  session or a selected entity for it to be about and leaves when there is not (D-13),
+ *  which makes its open state a fact about the editor rather than a decision the user
+ *  made — the one exception to D-3's "the arrangement is the user's".
  *
  *  The default arrangement claims THREE of the cell's four corners deliberately:
  *  controls docked right, entities floating top-left, and the top-right left clear for
@@ -31,7 +38,15 @@ export type PaletteId = (typeof PALETTE_IDS)[number];
  *  per-concern palettes next slice, and this default goes with it. */
 export const PALETTES: Record<
   PaletteId,
-  { title: string; default: PaletteState }
+  {
+    title: string;
+    default: PaletteState;
+    /** This palette's `open` is DRIVEN by the editor, so it is neither persisted nor
+     *  restored — `deserializeWorkspace` forces it back to the default above. Everything
+     *  else about it (where it sits, whether it is docked or rolled up) is still the
+     *  user's, which is exactly D-13's "permanence is a docking choice". */
+    drivenOpen?: true;
+  }
 > = {
   controls: {
     title: "Controls",
@@ -44,6 +59,19 @@ export const PALETTES: Record<
     // starts collapsed (EntitiesList's own default), so an empty world spends one
     // header row on it rather than a column.
     default: { x: 24, y: 24, edge: null, collapsed: false, open: true },
+  },
+  session: {
+    title: "Session",
+    // FLOATING, and closed. Floating because D-13 makes permanence a docking choice the
+    // user makes rather than a panel class we assign; closed because there is nothing to
+    // configure until something is selected or a session opens.
+    //
+    // `y: 56` clears the 40 px top bar with a gutter (the mock's own figure). `x: 420`
+    // clears the entities palette, which floats at x = 24 in a 360 px box — the card is
+    // the surface a user reads WHILE looking at the entity list, so overlapping the two
+    // by default would make the first drag mandatory.
+    default: { x: 420, y: 56, edge: null, collapsed: false, open: false },
+    drivenOpen: true,
   },
   log: {
     title: "Messages",
@@ -90,6 +118,7 @@ export function defaultWorkspace(): WorkspaceState {
     palettes: {
       controls: { ...PALETTES.controls.default },
       entities: { ...PALETTES.entities.default },
+      session: { ...PALETTES.session.default },
       log: { ...PALETTES.log.default },
     },
     hidden: false,
@@ -158,13 +187,21 @@ export function setPaletteCollapsed(
 }
 
 /** Close a palette (it leaves the layer AND the rail) or bring it back. Everything else
- *  about it survives, so re-opening restores the arrangement rather than the default. */
+ *  about it survives, so re-opening restores the arrangement rather than the default.
+ *
+ *  Returns the SAME state when nothing changed — `setPaletteCollapsed`'s discipline, and
+ *  it earns its keep here for a reason that did not exist when the other two got it: the
+ *  session card's open state is DRIVEN by an effect rather than clicked, so a redundant
+ *  "still open" would otherwise rewrite the arrangement (re-rendering the layer, re-arming
+ *  the persist debounce) on a schedule nothing user-facing controls. */
 export function setPaletteOpen(
   state: WorkspaceState,
   id: PaletteId,
   open: boolean,
 ): WorkspaceState {
-  return withPalette(state, id, { ...state.palettes[id], open });
+  const geom = state.palettes[id];
+  if (geom.open === open) return state;
+  return withPalette(state, id, { ...geom, open });
 }
 
 /** The ⌘\ latch (D-3). ONE flag over the whole layer, rewriting no palette record —
@@ -210,6 +247,12 @@ function isPaletteState(value: unknown): value is PaletteState {
  *  a new palette arrives at its own default (closed, for `log`) instead of `undefined`
  *  — which would be a crash in the layer, not a fallback.
  *
+ *  A `drivenOpen` palette (today: `session`) restores its GEOMETRY and drops its `open`,
+ *  because that flag is the editor's rather than the user's. Enforced here, at the one
+ *  place a blob becomes an arrangement, rather than left to the driver to correct on
+ *  mount: the driver would close it a frame later, so the visible outcome of trusting the
+ *  blob is a flash of a card describing nothing.
+ *
  *  Deliberately does NOT clamp to the current window: bounds need the palette's own
  *  measured size, which does not exist until it renders. A window that shrank between
  *  sessions can therefore restore a palette out of reach — the case Reset Workspace
@@ -224,7 +267,11 @@ export function deserializeWorkspace(
     const records = persisted as Record<string, unknown>;
     for (const id of PALETTE_IDS) {
       const record = records[id];
-      if (isPaletteState(record)) state.palettes[id] = record;
+      if (!isPaletteState(record)) continue;
+      state.palettes[id] =
+        PALETTES[id].drivenOpen === true
+          ? { ...record, open: PALETTES[id].default.open }
+          : record;
     }
   }
   return { palettes: state.palettes, hidden: raw.hidden === true };

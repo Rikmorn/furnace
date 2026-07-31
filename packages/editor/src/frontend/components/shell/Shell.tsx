@@ -35,6 +35,7 @@ import { CanvasHost } from "./CanvasHost.tsx";
 import { EntitiesPalette } from "./EntitiesPalette.tsx";
 import { LogPalette } from "./LogPalette.tsx";
 import { PaletteLayer } from "./PaletteLayer.tsx";
+import { SessionCard, SessionCardPresence } from "./SessionCard.tsx";
 import { StatusBar } from "./StatusBar.tsx";
 import { Toasts } from "./Toasts.tsx";
 import { ToolRail } from "./ToolRail.tsx";
@@ -134,9 +135,18 @@ function ShellChrome({
 								content={{
 									controls: <FieldPanel />,
 									entities: <EntitiesPalette />,
+									session: <SessionCard />,
 									log: <LogPalette />,
 								}}
 							/>
+							{/* The session card's open state is DRIVEN (D-13), and the thing that
+                  opens a palette cannot live inside it — the layer unmounts a closed
+                  palette's body. So the driver is a sibling that renders nothing and
+                  reads only the two host facts it decides from. Mounted HERE rather than
+                  inside ShellChrome's own body for the reason that whole component reads
+                  no state context: a subscription up there would rebuild the palette
+                  elements above on every session push. */}
+							<SessionCardPresence />
 							{/* Above the palette layer in DOM order, the Toasts rule and for the
                   same reason with a sharper case: the DEFAULT arrangement docks the
                   controls palette to the right edge at top 0, which covers exactly the

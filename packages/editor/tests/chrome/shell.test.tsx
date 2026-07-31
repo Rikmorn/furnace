@@ -64,6 +64,8 @@ const HALL_GEN_MIN = {
 	paramSchema: { type: "object", properties: {} },
 	defaults: {},
 	placesProps: false,
+	// core's own declaration: a hall does not read its seed.
+	usesSeed: false,
 };
 
 const REAL_RECT = HTMLCanvasElement.prototype.getBoundingClientRect;
@@ -2005,6 +2007,69 @@ test("a persisted arrangement is adopted when the store arrives LATE", async () 
 	});
 	expect(controlsPalette()?.style.left).toBe("120px");
 	expect(controlsPalette()?.style.top).toBe("60px");
+});
+
+// The restore is NOT a summon, and the layer cannot tell them apart on its own — a restore
+// that re-opens a palette arrives as exactly the closed→open transition the summon
+// safety-net raises on. That used to be harmless by coincidence (`log` was the only palette
+// whose default is closed AND was last in PALETTE_IDS, so its raise landed where it already
+// was); the session card made the closed set bigger and the coincidence stopped holding, so
+// the provider now says where an arrangement came from.
+//
+// The fixture is built so the raise is OBSERVABLE, which takes work: the initial stack IS
+// PALETTE_IDS order and the safety-net raises in PALETTE_IDS order, so on a fresh shell a
+// spurious raise reproduces the order it started from and nothing moves. Clicking a palette
+// FIRST is what makes it visible — and a late-arriving store is the real shape of this
+// (project.get resolves after the first paint), not a contrivance.
+test("a RESTORE does not steal the front from the palette the user is working in", async () => {
+	fetch404();
+	const stub = makeStubHost();
+	const { rerender } = renderShellResult(stub, undefined);
+	await act(async () => {
+		await Promise.resolve();
+		await Promise.resolve();
+	});
+	const zOf = (el: Element | null): number =>
+		el instanceof HTMLElement ? Number(el.style.zIndex) : Number.NaN;
+
+	// The user brings the entities palette to the front.
+	act(() => {
+		fireEvent.pointerDown(
+			within(entitiesPalette() as HTMLElement).getByText("Entities (0)"),
+			{ button: 0, pointerId: 1 },
+		);
+	});
+
+	// …and THEN the persisted arrangement lands, carrying an open log.
+	act(() => {
+		rerender(
+			withEditor(
+				<Shell />,
+				stub,
+				fakeUiStore({
+					workspace: {
+						palettes: {
+							log: { x: 24, y: 24, edge: null, collapsed: false, open: true },
+						},
+						hidden: false,
+					},
+				}),
+			),
+		);
+	});
+	const log = logPalette();
+	if (!(log instanceof HTMLElement)) throw new Error("the log did not restore");
+	// The log is BACK, because that is what was on disk — and it is BEHIND the palette the
+	// user just clicked, because nobody summoned it.
+	expect(zOf(entitiesPalette())).toBeGreaterThan(zOf(log));
+
+	// The other half, and the reason this is not just "never raise": a real summon after a
+	// restore still raises. Without it the fix would trade one silent failure for another.
+	act(() => {
+		fireEvent.click(screen.getByRole("button", { name: "close Messages" }));
+	});
+	pickMenuItem("Messages palette");
+	expect(zOf(logPalette())).toBeGreaterThan(zOf(entitiesPalette()));
 });
 
 /** Give the LAYER (a div) a measured box for the duration of `f`. happy-dom measures

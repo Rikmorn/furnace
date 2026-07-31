@@ -23,7 +23,7 @@ whole engine carrying that annotation are four fields on two core SCENE builtins
 `meshRenderer.geometry` / `meshRenderer.material` and `materials.standard.shader` /
 `materials.standard.texture.texture` (`packages/core/src/scene/builtins.ts:297,298,558,561`)
 — and no generator param schema (the only schemas `SchemaForm` renders post-deletion, via
-`StampInspector.tsx`) produces a `t.resource(...)` or `t.ref(...)` field; the one place a
+the session card) produces a `t.resource(...)` or `t.ref(...)` field; the one place a
 generator schema gets augmented at runtime, `withArchetypeOptions`
 (`viewport-host/field-placements.ts`), adds an `enum`, not a `resource`/`ref`. So
 `ResourceRefField`/`EntityRefField` are registered but can never mount: nothing that reaches
@@ -32,9 +32,11 @@ the registry at HEAD ever resolves to their kind. `lib/ref-options.ts` and
 they travel with it.
 
 The keep side of the same subtree: `SchemaForm.tsx` + `types.ts`'s `JsonSchemaNode` are a
-real donor for the F4.5b session card. `StampInspector.tsx:24-25` is the ONLY live import of
-`SchemaForm`/`JsonSchemaNode` anywhere in the codebase — `BrushInspector.tsx` only mentions
-`SchemaForm` in a comment explaining why it deliberately isn't used there.
+real donor for the F4.5b session card. **PATH UPDATE (2026-07-31, Task 10):** that card has
+landed as `frontend/components/shell/SessionCard.tsx` and `StampInspector.tsx` was DELETED, so
+the card is now the only live import of `SchemaForm`/`JsonSchemaNode` anywhere in the
+codebase. The finding is unchanged — one consumer, and it renders generator param schemas
+only — but grep for the card, not for the inspector that used to be here.
 
 **Precedent for pruning over keeping:** `lib/theme.ts` was kept on exactly this "a later
 slice will want it" reasoning for a whole slice, was never wanted, and was deleted once its
@@ -53,6 +55,6 @@ pruning; this entry frames the decision rather than making it.
 `lib/resource-refs.ts`, `options.ts`, `lib/ref-options.ts`, `lib/resource-kind.ts`,
 `fields/EntityRefField.tsx`, `fields/ResourceRefField.tsx`; `registry.tsx:24-25`;
 `kind.ts:14-24`; `packages/core/src/scene/builtins.ts:297,298,558,561`;
-`packages/editor/src/frontend/components/field/StampInspector.tsx:24-25`; the scene-surface
+`packages/editor/src/frontend/components/shell/SessionCard.tsx` (the SchemaForm import); the scene-surface
 deletion commit `ebd9dd6c`; `docs/reference/editor-architecture.md:614` (the theme.ts
 precedent).

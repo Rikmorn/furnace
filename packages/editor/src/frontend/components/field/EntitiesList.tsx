@@ -51,11 +51,15 @@
 // stopgap: between this task and Task 7 the verb is reachable from tests and from
 // nothing else. That is a gap in reach, not in behaviour.
 //
-// "Open" keeps its word because the mock RELOCATES it rather than restyling it
-// (into the session card, D-13) — inventing a glyph for a control that is about
-// to move would be churn with a guess in it. Four controls, three of them glyphs;
-// whether a ⋯ menu earns its click gets decided when the relocation lands and it
-// is clear what is left. (The original reason for inline buttons — Radix menus
+// "Open" is now a SECOND way into a surface that opens by itself, and this is the
+// state of that question rather than a defence of it. Since F4.5b Task 10 a row
+// click selects, the session card auto-opens in its REST state, and the first
+// control the user commits through promotes it into the reconfigure this button
+// opens directly — so what the button still buys is a ghost with no edit in it.
+// It stays for now because retiring it is a decision about the ROW's composition
+// (which verbs live here at all, whether a ⋯ menu earns its click) rather than a
+// line to delete, and that is the pass this comment has always deferred to. It is
+// the first candidate on it. (The original reason for inline buttons — Radix menus
 // not rendering under this package's happy-dom harness — is no longer true: the
 // burger menu is asserted through its content in tests/chrome/shell.test.tsx,
 // once `_register.ts` is imported FIRST so Radix resolves `globalThis.document`
@@ -94,7 +98,7 @@ const opCount = (e: FieldEntityInfo): number => e.opSpan[1] - e.opSpan[0] + 1;
  *  size) plus, for a stamp that PLACED something, each archetype it placed and
  *  how many — `scatter · seed 3 · 1 ops · rock · 24 placed`.
  *
- *  Deliberately NOT the StampInspector's zero-rule, which it otherwise resembles.
+ *  Deliberately NOT the session CARD's zero-rule, which it otherwise resembles.
  *  That one gates on the GENERATOR (`def.placesProps`) and so shows "· 0 props"
  *  at zero, because a settled preview at zero is the state whose commit refusal
  *  it is about to explain. A committed row has no such state to explain, and no

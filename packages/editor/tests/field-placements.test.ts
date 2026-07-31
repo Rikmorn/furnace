@@ -27,6 +27,7 @@ import {
   proxyRecords,
   proxyScale,
   seedArchetypeParams,
+  touchedParamKeys,
   withArchetypeOptions,
 } from "../src/viewport-host/field-placements.ts";
 
@@ -557,6 +558,72 @@ test("seedArchetypeParams is a no-op with no catalog or a non-archetype generato
   expect(seedArchetypeParams(defaults, [])).toBe(defaults);
   const hall = { width: 8 };
   expect(seedArchetypeParams(hall, [archetype("rock", BOX)])).toBe(hall);
+});
+
+// The MID-SESSION re-seed (D-25's "defaults behave"): switching archetype has to move the
+// params the user has not spoken about and leave the ones they have. The filter is what
+// makes one function serve both moments — a fresh session passes no filter and takes every
+// hint, a live one passes its untouched keys.
+test("seedArchetypeParams applies only the FILTERED hints when keys are given", () => {
+  const catalog = [
+    archetype("rock", BOX, { density: 0.9, minSpacing: 1.4 }),
+    archetype("stalagmite", CAPSULE, { density: 0.15, minSpacing: 0.6 }),
+  ];
+  const live = { archetypeId: "stalagmite", density: 0.42, minSpacing: 1.4 };
+  const seeded = seedArchetypeParams(live, catalog, ["minSpacing"]);
+  expect(seeded).toEqual({
+    archetypeId: "stalagmite",
+    // NOT 0.15: `density` is not in the filter, so the value already there stands.
+    density: 0.42,
+    // …and the one that IS takes the new archetype's hint.
+    minSpacing: 0.6,
+  });
+  // An EMPTY filter is a real answer ("everything is touched"), not a missing one — the
+  // archetype id still lands, because that is the change being applied rather than a hint.
+  expect(seedArchetypeParams(live, catalog, [])).toEqual({
+    archetypeId: "stalagmite",
+    density: 0.42,
+    minSpacing: 1.4,
+  });
+});
+
+// --- touchedParamKeys: what the user has spoken about -----------------------
+
+test("touchedParamKeys accumulates the keys whose VALUE changed, and never forgets one", () => {
+  const seen = touchedParamKeys(
+    { density: 0.42, minSpacing: 1.4, archetypeId: "rock" },
+    { density: 0.3, minSpacing: 1.4, archetypeId: "rock" },
+    new Set<string>(),
+  );
+  expect([...seen].sort()).toEqual(["density"]);
+
+  // A later edit ADDS to the set rather than replacing it: an update that changes
+  // `minSpacing` must not un-touch the `density` the user set two edits ago.
+  const later = touchedParamKeys(
+    { density: 0.42, minSpacing: 0.9, archetypeId: "rock" },
+    { density: 0.42, minSpacing: 1.4, archetypeId: "rock" },
+    seen,
+  );
+  expect([...later].sort()).toEqual(["density", "minSpacing"]);
+
+  // An update that changes NOTHING (a seed re-roll or a policy switch pushes the same
+  // params record) touches nothing.
+  const idle = touchedParamKeys(
+    { density: 0.42, minSpacing: 0.9, archetypeId: "rock" },
+    { density: 0.42, minSpacing: 0.9, archetypeId: "rock" },
+    later,
+  );
+  expect([...idle].sort()).toEqual(["density", "minSpacing"]);
+
+  // A key that only the INCOMING record carries is a change (there was nothing there
+  // before), and a non-primitive value is conservatively treated as one — the safe
+  // direction, since a touched key is a key the re-seed leaves alone.
+  const added = touchedParamKeys(
+    { doors: ["N", "S"], width: 4 },
+    { width: 4 },
+    new Set<string>(),
+  );
+  expect([...added].sort()).toEqual(["doors"]);
 });
 
 // --- placesProps: the emits → "does this place props?" rule (D-F4-15) --------

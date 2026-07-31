@@ -82,6 +82,7 @@ import {
 } from "./field-move.ts";
 import { type PickCandidate, pickNearest } from "./field-pick.ts";
 import {
+  ARCHETYPE_PARAM,
   FALLBACK_COLLISION,
   FALLBACK_TINT,
   groupPlacements,
@@ -94,6 +95,7 @@ import {
   proxyRecords,
   proxyScale,
   seedArchetypeParams,
+  touchedParamKeys,
   withArchetypeOptions,
 } from "./field-placements.ts";
 import {
@@ -236,6 +238,12 @@ export type FieldGeneratorInfo = {
    *  registry itself. The stamp form reads it to decide whether a props count
    *  means anything: a carver's is always 0 and showing it is noise. */
   placesProps: boolean;
+  /** Whether this generator READS its seed — core's own `GeneratorDef.usesSeed`
+   *  declaration, passed through unchanged. Carried for `placesProps`'s reason
+   *  (the chrome cannot read the registry), and the session card gates its seed
+   *  row and ⚄ re-roll on it: a hall's seed changes nothing, so a field and a
+   *  button for it are two controls that do nothing when pressed. */
+  usesSeed: boolean;
 };
 
 /** One committed generator entity as the panel sees it
@@ -1555,6 +1563,11 @@ export function createFieldHost(deps?: {
   // from the current session's run-0 job. Bumped on every startStamp; preview
   // handlers drop responses whose captured generation is stale.
   let stampGen = 0;
+  // Which of the LIVE session's params the user has spoken about, accumulated over its
+  // updates. Session-scoped (cleared wherever a session opens), because it is a claim
+  // about THIS conversation: an edit made to the stamp before last says nothing about
+  // the one on screen now. Its one reader is the archetype re-seed below.
+  let stampTouched: ReadonlySet<string> = new Set();
   // Panel mirror for stamp-session changes (Task 15).
   let stampCb: ((s: StampSession | null) => void) | null = null;
   // The last reconfigure's drift report (null = the last apply was clean, or
@@ -4169,6 +4182,36 @@ export function createFieldHost(deps?: {
     notifyStamp();
   };
 
+  // The ONE thing the host decides for the card when a param changes: re-pointing a
+  // placer at a different catalog archetype re-seeds the params the user has NOT spoken
+  // about from the new archetype's authored `scatter` hints, and leaves the ones they
+  // have (D-25 — "defaults behave"). Both other readings are wrong in a way the user
+  // notices: re-seed everything and their density edit vanishes without a word; re-seed
+  // nothing and the new archetype arrives wearing the old one's spacing.
+  //
+  // HERE rather than in the session card, and not by preference. The hints come off the
+  // installed entity catalog, which the CHROME deliberately does not carry — `useCatalogs`
+  // publishes a tick and says why ("handing over the parsed catalog would invite a
+  // consumer to read it instead of re-reading the host"). So the host owns the hints, and
+  // therefore has to own the touched-key set that filters them, or the decision would be
+  // split across two actors that can disagree.
+  //
+  // QUERY only: `stampTouched` is updated by the caller BEFORE this runs, so the incoming
+  // change itself counts as touched — which is what keeps the id the user just picked from
+  // being treated as a hint about itself.
+  const reseedForArchetype = (
+    incoming: Record<string, unknown>,
+    current: Record<string, unknown>,
+  ): Record<string, unknown> => {
+    if (Object.is(incoming[ARCHETYPE_PARAM], current[ARCHETYPE_PARAM]))
+      return incoming;
+    return seedArchetypeParams(
+      incoming,
+      archetypes,
+      Object.keys(incoming).filter((k) => !stampTouched.has(k)),
+    );
+  };
+
   // Open a STAMP session over `aabb` and fire its first ghost preview — the half
   // of `startStamp` that runs once a region is known, shared by its two routes
   // in: a selection that was already there, and a region the user drew for a
@@ -4203,6 +4246,7 @@ export function createFieldHost(deps?: {
     cancelStampSession(); // a live session (+ ghost) never survives a restart
     stampGen++;
     suspendReported = false; // one suspension sentence per session
+    stampTouched = new Set(); // a new session has heard nothing yet
     // Layering, outermost last: schema defaults → the archetype's authored
     // scatter hints (catalog seeding) → the region-fit sizes. The two never
     // collide today (no generator has both an archetypeId and a size param),
@@ -4364,6 +4408,7 @@ export function createFieldHost(deps?: {
     setPendingStamp(null);
     stampGen++;
     suspendReported = false; // one suspension sentence per session
+    stampTouched = new Set(); // a new session has heard nothing yet
     const opened = startReconfigureSession({
       entityId,
       generator: record.generator,
@@ -5994,6 +6039,7 @@ export function createFieldHost(deps?: {
         paramSchema: withArchetypeOptions(structuredClone(g.paramSchema), ids),
         defaults: structuredClone(g.defaults),
         placesProps: placesProps(g.emits),
+        usesSeed: g.usesSeed,
       }));
     },
     propInstanceCounts() {
@@ -6045,7 +6091,16 @@ export function createFieldHost(deps?: {
     updateStamp(params, seed, policy) {
       if (stamp === null) return;
       // Clone at the boundary — session params must never alias panel state.
-      stamp = withParams(stamp, structuredClone(params), seed, policy);
+      const incoming = structuredClone(params);
+      // Record what the user has spoken about BEFORE re-seeding, so the archetype id they
+      // just picked counts as touched and the filter below cannot overwrite it.
+      stampTouched = touchedParamKeys(incoming, stamp.params, stampTouched);
+      stamp = withParams(
+        stamp,
+        reseedForArchetype(incoming, stamp.params),
+        seed,
+        policy,
+      );
       previewStamp();
     },
     nudgeStamp(dx, dy, dz) {

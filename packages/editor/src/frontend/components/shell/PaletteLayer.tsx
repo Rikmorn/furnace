@@ -8,7 +8,7 @@
 // a palette swaps places with its rail chip.
 
 import type { LucideIcon } from "lucide-react";
-import { Boxes, ScrollText, SlidersHorizontal } from "lucide-react";
+import { Boxes, ScrollText, Settings2, SlidersHorizontal } from "lucide-react";
 import type { ReactNode } from "react";
 import { useCallback, useLayoutEffect, useRef } from "react";
 import {
@@ -42,6 +42,11 @@ const PALETTE_CHROME: Record<
 	// (`scatter · seed 9 · 1 ops · rock · 24 placed`) followed by three verbs, and at
 	// 300 px the summary truncated before it reached what the stamp actually placed.
 	entities: { Icon: Boxes, widthClass: "w-[360px]" },
+	// The mock's card is a 264 px form; 280 px is that plus the palette's own 8 px of
+	// padding either side. Narrower than every other palette on purpose — it is a
+	// label-column form, not a list, and a wide one puts the labels a long way from the
+	// values they name.
+	session: { Icon: Settings2, widthClass: "w-[280px]" },
 	// Wider than the controls column: log lines are sentences (a save path, an esbuild
 	// diagnostic), and a narrow box turns every one of them into four wrapped rows.
 	log: { Icon: ScrollText, widthClass: "w-[380px]" },
@@ -55,7 +60,7 @@ export function PaletteLayer({
 	 *  of re-rendering the (expensive, host-subscribed) contents 60 times a second. */
 	content: Record<PaletteId, ReactNode>;
 }) {
-	const { palettes, hidden } = useWorkspaceState();
+	const { palettes, hidden, fromRestore } = useWorkspaceState();
 	const actions = useWorkspaceActions();
 	const order = usePaletteOrder();
 	const raise = usePaletteRaise();
@@ -84,23 +89,30 @@ export function PaletteLayer({
 	// today, and whatever is added later.
 	//
 	// The first pass raises nothing (`wasOpen` starts null) so the initial mount is not
-	// read as three simultaneous summons. To be precise about what that does and does NOT
-	// protect: the workspace RESTORE lands in a passive effect, which runs AFTER this
-	// layout effect, so a restore IS seen here as a transition. It is harmless only
-	// because `log` is the sole palette whose default is closed and is also last in
-	// PALETTE_IDS — so a restore that opens it raises it to where it already was, and the
-	// idempotent bail makes it a no-op. That is a property of today's defaults, not a
-	// guarantee; if a second palette ever ships closed, this needs a `touched`-style ref
-	// to tell a restore from a summon.
+	// read as four simultaneous summons.
+	//
+	// `fromRestore` is the second half of that, and it is a REAL distinction rather than a
+	// tidy one. The workspace restore lands in a passive effect, which runs AFTER this
+	// layout effect, so a restore arrives here as an ordinary closed→open transition — the
+	// layer cannot tell "the user summoned this" from "this is what was on disk" out of the
+	// value alone, and the provider is the only thing that knows. This used to be papered
+	// over by a coincidence, stated in this comment and now falsified: `log` was the ONLY
+	// palette whose default is closed AND was last in PALETTE_IDS, so a restore that opened
+	// it raised it to where it already was. The session card made the closed set bigger, so
+	// the provenance is asked for directly.
+	//
+	// `wasOpen` is still updated on a restore pass: the restore's own opens are then not
+	// pending raises, and the next real summon is measured against what the restore left.
 	//
 	// A layout effect, not a plain one — the stack settles BEFORE the browser paints, so a
 	// summoned palette never flashes at the wrong depth on its first frame.
 	useLayoutEffect(() => {
 		const open = PALETTE_IDS.filter((id) => palettes[id].open);
 		const prev = wasOpen.current;
-		if (prev !== null) for (const id of open) if (!prev.includes(id)) raise(id);
+		if (prev !== null && !fromRestore)
+			for (const id of open) if (!prev.includes(id)) raise(id);
 		wasOpen.current = open;
-	}, [palettes, raise]);
+	}, [palettes, raise, fromRestore]);
 
 	useLayoutEffect(() => {
 		const want = focusAfter.current;

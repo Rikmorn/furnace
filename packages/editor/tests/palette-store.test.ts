@@ -189,6 +189,22 @@ test("hideAll stores prior state; restore returns the EXACT arrangement (D-3)", 
   expect(shown).toEqual(arranged);
 });
 
+test("open is ABSOLUTE and returns the SAME state when it changes nothing", () => {
+  // The sibling discipline (`setPaletteCollapsed`, `movePalette`): a verb asked for the
+  // state it is already in hands back the same object, so React bails out and the persist
+  // debounce is not re-armed. It matters more here than it did for the other two, because
+  // `session`'s open state is DRIVEN by an effect rather than clicked — a driver that
+  // re-asserted "open" on every push would otherwise rewrite the arrangement, and the
+  // workspace provider reads any write as "the user has arranged something" and skips the
+  // restore it has not performed yet.
+  const start = defaultWorkspace();
+  expect(setPaletteOpen(start, "controls", true)).toBe(start);
+  expect(setPaletteOpen(start, "session", false)).toBe(start);
+  const opened = setPaletteOpen(start, "session", true);
+  expect(opened).not.toBe(start);
+  expect(opened.palettes.session.open).toBe(true);
+});
+
 test("reset returns the default arrangement — fresh records, controls docked right", () => {
   const fresh = defaultWorkspace();
   expect(fresh.hidden).toBe(false);
@@ -214,6 +230,18 @@ test("reset returns the default arrangement — fresh records, controls docked r
     edge: null,
     collapsed: false,
     open: true,
+  });
+  // The session card (D-13): FLOATING and CLOSED. Floating because permanence is a
+  // docking choice the user makes, not a panel class; closed because its open state is
+  // DRIVEN — it appears when there is a session or a selected entity to be about, and a
+  // card open over nothing is the "empty inspector" the category was retired for. `y: 56`
+  // clears the top bar; `x` clears the entities palette's own 360 px box at x = 24.
+  expect(fresh.palettes.session).toEqual({
+    x: 420,
+    y: 56,
+    edge: null,
+    collapsed: false,
+    open: false,
   });
 
   // Fresh objects every call: the reset verb hands its result straight into React
@@ -266,8 +294,43 @@ test("serialize/deserialize round-trips through UiState.workspace", () => {
     "controls",
     "entities",
     "log",
+    "session",
   ]);
   expect(salvaged.hidden).toBe(true);
+});
+
+// D-13's one exception, and it is a property of the palette rather than of the store's
+// callers, so it is enforced HERE where a persisted blob becomes an arrangement. The
+// session card's GEOMETRY is the user's (where they dragged it, whether they docked it —
+// permanence is a docking choice); its OPEN state is the editor's, driven by whether
+// there is a session or a selected entity to be about. A blob written while a card was
+// open would otherwise restore an empty card over the canvas on the next boot — and the
+// driver would close it a frame later, so the visible outcome is a flash of a panel
+// describing nothing.
+test("a DRIVEN-open palette restores its geometry but never its open state", () => {
+  const restored = deserializeWorkspace({
+    palettes: {
+      session: { x: 100, y: 200, edge: "left", collapsed: true, open: true },
+    },
+    hidden: false,
+  });
+  expect(restored.palettes.session).toEqual({
+    x: 100,
+    y: 200,
+    edge: "left",
+    collapsed: true,
+    // …and NOT the `true` the blob carries.
+    open: false,
+  });
+  // The rule is scoped to the palettes that declare it: `log` is summoned rather than
+  // driven, so a user who left it open gets it back.
+  const log = deserializeWorkspace({
+    palettes: {
+      log: { x: 100, y: 200, edge: null, collapsed: false, open: true },
+    },
+    hidden: false,
+  });
+  expect(log.palettes.log.open).toBe(true);
 });
 
 test("a blob written before a palette existed restores that palette's default", () => {

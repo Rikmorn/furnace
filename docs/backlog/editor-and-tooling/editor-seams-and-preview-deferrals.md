@@ -168,10 +168,17 @@ third `GeneratorDef` declarative fact") has FIRED, and the duplication is now th
 hazard this entry predicted rather than a tidiness one. Exactly as predicted, it is a
 declaration on trust: core carries no enforcement for it, deliberately (an ignored seed is
 harmless; a consumed-but-undeclared one shows up as a re-roll that visibly does nothing).
-What did NOT land is the seam fix — `handleStampPreview` still re-spells core's ctx rule, and
-`StampInspector.tsx` still renders the seed input + ⚄ re-roll unconditionally. The consuming
-half is scoped to the F4.5b forms-vocabulary task; the seam choice (a/b/c above) is still open
-and still a design decision.
+What did NOT land is the seam fix — `handleStampPreview` still re-spells core's ctx rule.
+
+**Status check (2026-07-31, F4.5b Task 10):** the CONSUMING half has now landed too.
+`FieldGeneratorInfo` carries `usesSeed` (`field-host.ts`, straight through from the registry
+in `listGenerators`), and the session card — `shell/SessionCard.tsx`, which replaced the
+deleted `StampInspector.tsx` — renders the seed row and the ⚄ re-roll ONLY when it is true,
+pinned in both directions (`tests/field-host-session-params.test.ts` on the projection,
+`tests/chrome/session-card.test.tsx` on the gating). So the dead control this entry predicted
+is gone. **What survives is only the SEAM question** in the paragraphs above:
+`handleStampPreview` still re-spells core's ctx rule, and the a/b/c choice is still open and
+still a design decision. Nothing about `usesSeed` is outstanding.
 
 **Reference:** `packages/core/src/field/generators.ts` (`evaluateGenerator`, the two guards),
 `packages/core/src/field/index.ts` (what the field module does and does not export),

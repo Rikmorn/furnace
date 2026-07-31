@@ -104,6 +104,7 @@ const HALL: FieldGeneratorInfo = {
 	paramSchema: { type: "object", properties: {} },
 	defaults: {},
 	placesProps: false,
+	usesSeed: false,
 };
 
 const MAZE: FieldGeneratorInfo = {
@@ -112,6 +113,7 @@ const MAZE: FieldGeneratorInfo = {
 	paramSchema: { type: "object", properties: {} },
 	defaults: {},
 	placesProps: false,
+	usesSeed: true,
 };
 
 function makeSession(overrides: Partial<StampSession> = {}): StampSession {

@@ -74,13 +74,25 @@ export type WorkspaceActions = {
 	reset: () => void;
 };
 
-const WorkspaceStateContext = createContext<WorkspaceState | null>(null);
+/** The arrangement plus the one thing about it that is not geometry: where it CAME FROM.
+ *
+ *  `fromRestore` exists for a question only the palette layer asks, and one it cannot
+ *  answer from the value alone — "is this arrangement something the user just did, or the
+ *  one that was on disk?". Its summon safety-net raises any palette that transitions
+ *  closed→open, and the restore lands as exactly that transition, so without this a boot
+ *  that re-opens a palette is indistinguishable from a user summoning it. That was
+ *  harmless only while `log` was the sole palette whose default is closed AND happened to
+ *  be last in `PALETTE_IDS`; the session card made the closed set bigger and the
+ *  coincidence stopped being a guarantee. */
+export type WorkspaceView = WorkspaceState & { fromRestore: boolean };
+
+const WorkspaceStateContext = createContext<WorkspaceView | null>(null);
 const WorkspaceActionsContext = createContext<WorkspaceActions | null>(null);
 
 /** Read the live arrangement; throws outside the provider. Re-renders its caller on
  *  every drag frame — read it only where the arrangement is actually displayed, and see
  *  the header for who pays that today and who must never start. */
-export function useWorkspaceState(): WorkspaceState {
+export function useWorkspaceState(): WorkspaceView {
 	const value = useContext(WorkspaceStateContext);
 	if (!value) throw new Error("useWorkspaceState outside <WorkspaceProvider>");
 	return value;
@@ -104,6 +116,13 @@ export function WorkspaceProvider({
 	children: ReactNode;
 }) {
 	const [state, setState] = useState<WorkspaceState>(defaultWorkspace);
+	// The arrangement the RESTORE produced, held by IDENTITY so `fromRestore` needs no
+	// clearing: every `edit` builds a new record, which is `!==` this one by construction.
+	// A verb that changes nothing returns the same record and leaves the flag standing —
+	// correct, because a move that moved nothing opened nothing either.
+	const [restoredState, setRestoredState] = useState<WorkspaceState | null>(
+		null,
+	);
 	// Whether the arrangement on screen is the USER's. It gates both directions: nothing
 	// is written before the first interaction (so the defaults this component renders
 	// with can never overwrite a saved arrangement it has not read yet), and a restore
@@ -134,7 +153,9 @@ export function WorkspaceProvider({
 		if (restored.current) return;
 		restored.current = true;
 		if (touched.current) return;
-		setState(deserializeWorkspace(store.get("workspace")));
+		const next = deserializeWorkspace(store.get("workspace"));
+		setRestoredState(next);
+		setState(next);
 	}, [store]);
 
 	// Debounced by effect cleanup: each state change cancels the previous pending write,
@@ -180,9 +201,14 @@ export function WorkspaceProvider({
 		};
 	}, [store]);
 
+	const view = useMemo<WorkspaceView>(
+		() => ({ ...state, fromRestore: state === restoredState }),
+		[state, restoredState],
+	);
+
 	return (
 		<WorkspaceActionsContext.Provider value={actions}>
-			<WorkspaceStateContext.Provider value={state}>
+			<WorkspaceStateContext.Provider value={view}>
 				{children}
 			</WorkspaceStateContext.Provider>
 		</WorkspaceActionsContext.Provider>

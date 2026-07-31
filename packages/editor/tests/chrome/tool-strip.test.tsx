@@ -135,6 +135,7 @@ const HALL: FieldGeneratorInfo = {
 	paramSchema: { type: "object", properties: {} },
 	defaults: {},
 	placesProps: false,
+	usesSeed: false,
 };
 
 function makeSession(overrides: Partial<StampSession> = {}): StampSession {

@@ -30,11 +30,9 @@ import type { VerifyVerdictWire } from "../../src/frontend/lib/analyzer-protocol
 import type { EntityCatalog } from "../../src/frontend/lib/catalog.ts";
 import { notify } from "../../src/frontend/lib/notify-store.ts";
 import type {
-	FieldGeneratorInfo,
 	FieldTool,
 	FlagRow,
 	FlagsSummary,
-	StampSession,
 } from "../../src/viewport-host/index.ts";
 import {
 	act,
@@ -126,33 +124,6 @@ const CATALOG_JSON = JSON.stringify({
 });
 
 // --- fixtures (the stub host itself lives in ./_stub-host.ts) ---------------
-
-const HALL_GEN: FieldGeneratorInfo = {
-	id: "hall",
-	name: "Hall",
-	paramSchema: { type: "object", properties: { width: { type: "number" } } },
-	defaults: { width: 4 },
-	placesProps: false,
-};
-
-function makeSession(overrides: Partial<StampSession> = {}): StampSession {
-	return {
-		generator: "hall",
-		params: { width: 4 },
-		seed: 7,
-		policy: "replace",
-		region: { min: [0, 0, 0], max: [4, 4, 4] },
-		phase: "configuring",
-		run: 0,
-		opCount: null,
-		placementCount: null,
-		error: null,
-		truncatedSelection: false,
-		mode: "stamp",
-		entityId: null,
-		...overrides,
-	};
-}
 
 /** Render the panel and flush the catalog fetch inside act — its settle (the message
  *  + the table setState) otherwise lands between assertions as an un-act'ed update.
@@ -304,79 +275,11 @@ test("every host seam is the SHELL's — the panel adds no claim and holds none"
 	}
 });
 
-test("the commit button reads its mode and routes through the ONE host verb", async () => {
-	fetch404();
-	const stub = makeStubHost({ generators: [HALL_GEN] });
-	await renderPanel(stub);
-	act(() => {
-		stub.fire.stamp(
-			makeSession({ mode: "reconfigure", entityId: 1, phase: "ready" }),
-		);
-	});
-	// The card names its destination: the entity, not a fresh stamp.
-	expect(screen.getByText("reconfigure: Hall #1")).toBeTruthy();
-	fireEvent.click(button("Apply"));
-	// The panel does NOT re-derive mode→verb: the host owns that mapping (it
-	// already owns it for Enter), so both labels reach the same seam.
-	expect(stub.calls.commitSession).toHaveBeenCalledTimes(1);
-	expect(stub.calls.applyReconfigure).not.toHaveBeenCalled();
-	expect(stub.calls.commitStamp).not.toHaveBeenCalled();
-	// The stamp path still reads Commit, through the same verb.
-	act(() => {
-		stub.fire.stamp(makeSession({ phase: "ready" }));
-	});
-	fireEvent.click(button("Commit"));
-	expect(stub.calls.commitSession).toHaveBeenCalledTimes(2);
-	expect(stub.calls.commitStamp).not.toHaveBeenCalled();
-});
-
-// --- (f) Commit ready-gating ------------------------------------------------
-
-test("Commit is disabled until the stamp session reaches ready", async () => {
-	fetch404();
-	const stub = makeStubHost({ generators: [HALL_GEN] });
-	await renderPanel(stub);
-	act(() => {
-		stub.fire.stamp(makeSession({ phase: "configuring" }));
-	});
-	expect(button("Commit").disabled).toBe(true);
-	act(() => {
-		stub.fire.stamp(makeSession({ phase: "ready", opCount: 3 }));
-	});
-	expect(button("Commit").disabled).toBe(false);
-	fireEvent.click(button("Commit"));
-	expect(stub.calls.commitSession).toHaveBeenCalledTimes(1);
-});
-
-test("the stamp nudge buttons drive host.nudgeStamp in whole lattice STEPS", async () => {
-	fetch404();
-	const stub = makeStubHost({ generators: [HALL_GEN] });
-	await renderPanel(stub);
-	act(() => {
-		stub.fire.stamp(makeSession());
-	});
-	// World axes, one step per press — the button twins of ←/→, ⇧↓/⇧↑, ↑/↓.
-	const pressed: [string, [number, number, number]][] = [
-		["nudge minus X", [-1, 0, 0]],
-		["nudge plus X", [1, 0, 0]],
-		["nudge minus Y", [0, -1, 0]],
-		["nudge plus Y", [0, 1, 0]],
-		["nudge minus Z", [0, 0, -1]],
-		["nudge plus Z", [0, 0, 1]],
-	];
-	for (const [label] of pressed) fireEvent.click(screen.getByLabelText(label));
-	expect(stub.calls.nudgeStamp.mock.calls).toEqual(pressed.map(([, s]) => s));
-	// The hint line names the keyboard twins (the canvas must be focused for
-	// them to land, so the buttons are not redundant).
-	expect(screen.getByText(/←\/→ move X/)).toBeTruthy();
-});
-
-test("no stamp session means no nudge cluster", async () => {
-	fetch404();
-	const stub = makeStubHost({ generators: [HALL_GEN] });
-	await renderPanel(stub);
-	expect(screen.queryByLabelText("nudge plus X")).toBeNull();
-});
+// The four STAMP-SESSION cases that lived here — the mode-aware commit verb, the ready
+// gate, the nudge cluster and its absence — left with their subject in F4.5b Task 10.
+// `StampInspector` was deleted, not moved: the session card (shell/SessionCard) replaces
+// it, and tests/chrome/session-card.test.tsx carries that coverage assertion for
+// assertion, plus the REST state the inspector never had.
 
 // (g) The slice + void wiring moved with the controls themselves: they are the View
 // popover's now, covered in tests/chrome/shell.test.tsx.
@@ -403,44 +306,41 @@ test("the footer shows the selection count + the truncation warning; Clear reach
 
 // --- (i) the controls scroll inside themselves ------------------------------
 
-/** The scroll container the control sections share, resolved through a section that
- *  must be inside it. Throws (rather than soft-failing an assertion) if the panel's
- *  shape changed — every assertion below is meaningless without it.
+/** The scroll container the surviving section sits in, resolved through that section.
+ *  Throws (rather than soft-failing an assertion) if the panel's shape changed — every
+ *  assertion below is meaningless without it.
  *
- *  Anchored on the STAMP form now, which is why the case below opens a session before
- *  asking: the layers row (its first anchor) is the top bar's View popover, the entities
- *  heading (its second) is a palette of its own, and the brush palette (its third) is the
- *  tool rail and the top strip since F4.5b Task 8. What is left in this panel renders
- *  only when it has something to say. */
+ *  Anchored on the FLAGS section now, which is why the case below pushes a finding before
+ *  asking. Every earlier anchor has left with its organ: the layers row is the top bar's
+ *  View popover, the entities heading is a palette of its own, the brush palette is the
+ *  tool rail and the top strip (F4.5b Task 8), and the stamp form is the session card
+ *  (Task 10). What is left in this panel renders only when it has something to say. */
 function controlsBox(): HTMLElement {
-	const box = button("Commit").closest(".overflow-y-auto");
+	const box = screen.getByText("Flags (1)").closest(".overflow-y-auto");
 	if (!(box instanceof HTMLElement))
 		throw new Error(
-			"field panel shape changed: the control sections no longer share a scroll container",
+			"field panel shape changed: the flags section is no longer in a scroll container",
 		);
 	return box;
 }
 
-test("the control sections share ONE scroll container, above the pinned footer", async () => {
+test("the surviving section scrolls inside itself, above the pinned footer", async () => {
 	fetch404();
-	const stub = makeStubHost({ generators: [HALL_GEN] });
+	const stub = makeStubHost();
 	await renderPanel(stub);
 	// happy-dom runs NO layout (getBoundingClientRect is all zeros), so the pixel
 	// outcome is not assertable. What IS assertable is the structure that produces
 	// it: one self-scrolling stack that takes the height the selection footer below
 	// leaves, and shrinks instead of pushing it out. The F2b 45% cap is gone with the
-	// canvas it was protecting — the panel is controls now, and the world toolbar that
-	// used to pin the top went with the world state (the shell owns it).
+	// canvas it was protecting.
 	act(() => {
-		stub.fire.stamp(makeSession({ phase: "configuring" }));
+		stub.fire.flags(summaryOf([NARROW]));
 	});
 	const controls = controlsBox();
 	for (const cls of ["flex-1", "min-h-0", "overflow-y-auto"])
 		expect(controls.classList.contains(cls)).toBe(true);
 	expect(controls.classList.contains("max-h-[45%]")).toBe(false);
-	// The surviving control sections live inside it…
-	expect(controls.contains(button("Commit"))).toBe(true); // the stamp form
-	expect(controls.contains(screen.getByLabelText("stamp seed"))).toBe(true);
+	expect(controls.contains(screen.getByText("Flags (1)"))).toBe(true);
 	// …and the selection footer does not: it stays pinned outside the scroll, which is
 	// the whole point of putting it here.
 	expect(controls.contains(button("Reselect"))).toBe(false);
@@ -450,6 +350,10 @@ test("the control sections share ONE scroll container, above the pinned footer",
 	for (const gone of ["Dig", "Box Select", "Segment"])
 		expect(screen.queryByRole("button", { name: gone }) === null).toBe(true);
 	expect(screen.queryByLabelText("brush radius") === null).toBe(true);
+	// The PROPERTIES surface is not here either, since Task 10: the stamp form, its seed
+	// and its commit verb are the session card's, in a palette of its own.
+	expect(screen.queryByLabelText("stamp seed") === null).toBe(true);
+	expect(screen.queryByLabelText("nudge plus X") === null).toBe(true);
 	// The entity list is not in this panel AT ALL any more — it is the entities
 	// palette's, the first organ out (F4.5a Task 10). Compared to null before the
 	// expect, for the fiber-graph reason stated below.
@@ -464,14 +368,6 @@ test("the control sections share ONE scroll container, above the pinned footer",
 	expect(screen.queryByLabelText("world name") === null).toBe(true);
 	for (const gone of ["Save", "Load", "Bake & make default"])
 		expect(screen.queryByRole("button", { name: gone }) === null).toBe(true);
-	// The tall extreme: the advisor's findings join the stack — they land INSIDE the
-	// container too, so the pinned footer is untouched however long the list gets.
-	act(() => {
-		stub.fire.flags(summaryOf([NARROW]));
-	});
-	expect(controlsBox()).toBe(controls);
-	expect(controls.contains(screen.getByText("Flags (1)"))).toBe(true);
-	expect(controls.contains(button("Reselect"))).toBe(false);
 });
 
 // --- (k) F3b: the archetypeId picker survives the catalog's ASYNC arrival ----
@@ -504,17 +400,6 @@ const ENTITIES_JSON = JSON.stringify({
 		},
 	],
 });
-
-const SCATTER_GEN: FieldGeneratorInfo = {
-	id: "scatter",
-	name: "Scatter",
-	paramSchema: {
-		type: "object",
-		properties: { archetypeId: { type: "string", default: "rock" } },
-	},
-	defaults: { archetypeId: "rock" },
-	placesProps: true,
-};
 
 test("the entity catalog is fetched, parsed and installed on the host", async () => {
 	stubCatalogs({ materials: CATALOG_JSON, entities: ENTITIES_JSON });
@@ -603,78 +488,10 @@ test("a MALFORMED agent catalog is setup-loud and costs the other two nothing", 
 	expect(toastText(/materials: 2 classes/)).toBeTruthy();
 });
 
-/** The inspector labels a param with its humanized key, and FieldRow wraps the
- *  control in that <label> — so this resolves whichever control the field kind
- *  chose: EnumField's Radix combobox (a <button>) or StringField's <input>. */
-const archetypeField = (): HTMLElement => screen.getByLabelText("Archetype Id");
-
-test("archetypeId renders as a PICKER once the catalog lands (it arrives after the first listGenerators)", async () => {
-	stubCatalogs({ materials: CATALOG_JSON, entities: ENTITIES_JSON });
-	const stub = makeStubHost({ generators: [SCATTER_GEN] });
-	await renderPanel(stub);
-	act(() => {
-		stub.fire.stamp(makeSession({ generator: "scatter", phase: "ready" }));
-	});
-	// The kind resolver reads `enum` FIRST, so an enum-carrying schema renders
-	// EnumField (a Radix combobox trigger) and a bare string one renders
-	// StringField (an <input>). Before the re-read fix this was the <input>: the
-	// catalog HAD installed on the host, but the panel was still holding the
-	// schema it read synchronously at engine-ready.
-	await waitFor(() => expect(archetypeField().tagName).toBe("BUTTON"));
-	expect(archetypeField().getAttribute("role")).toBe("combobox");
-
-	// The mechanism, stated directly (the reviewer's probe, made permanent):
-	// the catalog installs BEFORE the last listGenerators read. An implementation
-	// that reads the registry once at engine-ready fails here even if some other
-	// path happened to make the DOM assertion above pass.
-	expect(stub.order.indexOf("setEntityCatalog")).toBeGreaterThanOrEqual(0);
-	expect(stub.order.lastIndexOf("listGenerators")).toBeGreaterThan(
-		stub.order.indexOf("setEntityCatalog"),
-	);
-});
-
-test("with no entity catalog (404) archetypeId stays a free-text field", async () => {
-	// The catalog SEEDS, it never GATES: scatter must stay authorable without one.
-	stubCatalogs({ materials: CATALOG_JSON });
-	const stub = makeStubHost({ generators: [SCATTER_GEN] });
-	await renderPanel(stub);
-	act(() => {
-		stub.fire.stamp(makeSession({ generator: "scatter", phase: "ready" }));
-	});
-	expect(stub.calls.setEntityCatalog.mock.calls.length).toBe(0);
-	expect(archetypeField().tagName).toBe("INPUT");
-});
-
-test("the props count shows for a prop generator only — a carver never reads '0 props'", async () => {
-	stubCatalogs({ materials: CATALOG_JSON, entities: ENTITIES_JSON });
-	const stub = makeStubHost({ generators: [HALL_GEN, SCATTER_GEN] });
-	await renderPanel(stub);
-
-	// A carver's placementCount is 0 by construction, so a permanent "· 0 props"
-	// on every hall preview would be noise the user has to learn to ignore.
-	act(() => {
-		stub.fire.stamp(
-			makeSession({ phase: "ready", opCount: 12, placementCount: 0 }),
-		);
-	});
-	expect(screen.getByText(/12 ops/)).toBeDefined();
-	// `/\d+ props/`, not `/props/` — the layer strip has a bare "props" checkbox.
-	expect(screen.queryByText(/\d+ props/)).toBeNull();
-
-	// For scatter it is the ONLY output — shown even at zero, because that is the
-	// reading the host's commit refusal then explains.
-	act(() => {
-		stub.fire.stamp(
-			makeSession({
-				generator: "scatter",
-				phase: "ready",
-				opCount: 0,
-				placementCount: 0,
-			}),
-		);
-	});
-	expect(screen.getByText(/0 props/)).toBeDefined();
-});
+// The archetypeId PICKER cases (the B1 ordering contract) and the props-count case also
+// left with the form that renders them — tests/chrome/session-card.test.tsx. The catalog
+// FETCH half of that story stays here, because the fetch is still the shell's and this
+// file is where its three outcomes are pinned.
 
 // The mount-arming case and the segment case also left with their subjects (F4.5b Task 8):
 // which family reads as armed is tests/chrome/tool-rail.test.tsx, and which params the

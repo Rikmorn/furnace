@@ -365,8 +365,12 @@ export const placesProps = (emits: GeneratorEmits): boolean => emits !== "ops";
 
 /** The JSON-Schema property key a generator uses to name a catalog archetype.
  *  Keyed on the PROPERTY, not on a generator id, so any future archetype-driven
- *  generator picks the catalog options up for free. */
-const ARCHETYPE_PARAM = "archetypeId";
+ *  generator picks the catalog options up for free.
+ *
+ *  Exported since F4.5b Task 10: the host's mid-session re-seed has to ask whether THIS
+ *  param is the one that changed, and a second spelling of the key there is a second
+ *  thing to keep in agreement with the two functions below. */
+export const ARCHETYPE_PARAM = "archetypeId";
 
 /** A generator's param schema with its `archetypeId` property given an `enum` of
  *  the catalog's ids — which is what turns the stamp form's free-text field into
@@ -397,21 +401,60 @@ export const withArchetypeOptions = (
   };
 };
 
-/** The scatter params an archetype seeds a fresh stamp session with: the
- *  generator's own schema defaults overlaid with the archetype's authored
- *  `scatter` hints and its id. Returns the defaults UNCHANGED when the schema has
- *  no `archetypeId` property (a non-archetype generator) or the catalog is empty
- *  (a project with no `catalog/entities.json` authors scatter on schema defaults).
- *  The archetype chosen is the one the defaults already name, falling back to the
- *  catalog's first — so a schema default that has left the catalog still opens on
- *  something real. */
+/** The scatter params an archetype seeds a stamp session with: the params handed in
+ *  overlaid with the archetype's authored `scatter` hints and its id. Returns them
+ *  UNCHANGED when the schema has no `archetypeId` property (a non-archetype generator) or
+ *  the catalog is empty (a project with no `catalog/entities.json` authors scatter on
+ *  schema defaults). The archetype chosen is the one the params already name, falling back
+ *  to the catalog's first — so a schema default that has left the catalog still opens on
+ *  something real.
+ *
+ *  `keys` restricts which HINTS may land, and it is what lets one function serve two
+ *  moments. A FRESH session passes none and takes every hint (nothing has been said about
+ *  anything yet). A LIVE session whose archetype just changed passes the params the user
+ *  has not touched, so switching rock → stalagmite moves the spacing they never mentioned
+ *  and keeps the density they set. The archetype ID itself always lands: it is the change
+ *  being applied, not a hint about it. */
 export const seedArchetypeParams = (
   defaults: Record<string, unknown>,
   archetypes: readonly EntityArchetype[],
+  keys?: readonly string[],
 ): Record<string, unknown> => {
   if (!(ARCHETYPE_PARAM in defaults)) return defaults;
   const wanted = defaults[ARCHETYPE_PARAM];
   const chosen = archetypes.find((a) => a.id === wanted) ?? archetypes[0];
   if (chosen === undefined) return defaults; // empty catalog — nothing to seed
-  return { ...defaults, ...chosen.scatter, [ARCHETYPE_PARAM]: chosen.id };
+  const hints =
+    keys === undefined
+      ? chosen.scatter
+      : Object.fromEntries(
+          Object.entries(chosen.scatter).filter(([k]) => keys.includes(k)),
+        );
+  return { ...defaults, ...hints, [ARCHETYPE_PARAM]: chosen.id };
+};
+
+/** The params a user has SPOKEN ABOUT in the current session, accumulated across updates:
+ *  `prev` plus every key whose value differs between the incoming record and the one the
+ *  session currently holds.
+ *
+ *  Accumulating (rather than reporting one update's changes) is the whole contract: the
+ *  question it answers is "has the user ever set this?", and a density edit two updates ago
+ *  is still an answer to it. The empty-diff case matters just as much — the update seam
+ *  carries params, seed and policy together, so a re-roll pushes the WHOLE params record
+ *  unchanged, and a version that counted that as touching everything would freeze the
+ *  archetype hints after the first re-roll.
+ *
+ *  Compared with `Object.is`, so a non-primitive value (an array param) reads as changed
+ *  every time and stays permanently touched. That is the SAFE direction — a touched key is
+ *  one the re-seed leaves alone — and a deep walk would be doing more work to answer a
+ *  question no generator's schema currently asks. */
+export const touchedParamKeys = (
+  incoming: Record<string, unknown>,
+  current: Record<string, unknown>,
+  prev: ReadonlySet<string>,
+): Set<string> => {
+  const next = new Set(prev);
+  for (const [key, value] of Object.entries(incoming))
+    if (!Object.is(value, current[key])) next.add(key);
+  return next;
 };
