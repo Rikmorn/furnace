@@ -65,13 +65,26 @@ export function FieldRow({
  * A field row whose control side is a GROUP rather than one input — a segmented control's
  * radiogroup, a stepper's −/input/+ triple.
  *
- * A plain `<div>`, and the difference is not cosmetic. `<label>` labels exactly ONE
- * control: wrap three and every one of them answers to the row's caption instead of its
- * own, so a screen reader reads "Pillars, Pillars, Pillars" for a segmented control and
- * "Chambers, Chambers" for a stepper's two buttons. It also puts buttons inside a label's
- * activation path, which happy-dom resolves by dispatching the click TWICE — one press,
- * two commits, two undo entries. Members of a group carry their own `aria-label`s; the
- * caption here is a visible heading, not an association.
+ * A plain `<div>`, and the difference is not cosmetic. TWO reasons, both real in a
+ * browser:
+ *
+ * 1. `<label>` labels exactly ONE control, so wrapping three makes every one of them
+ *    answer to the row's caption instead of its own — a screen reader reads "Pillars,
+ *    Pillars, Pillars" for a segmented control and "Chambers, Chambers" for a stepper's
+ *    two buttons.
+ * 2. A `<label>` with no `for` labels its FIRST labelable descendant, so clicking the
+ *    caption activates it: pressing "Chambers" steps the value down, and pressing
+ *    "Pillars" selects member one.
+ *
+ * A third symptom is a HARNESS artifact and is called out so nobody chases it in a
+ * browser: happy-dom dispatches the click TWICE for a button inside a label (one press,
+ * two commits). WHATWG says a label's activation behavior for events targeted at
+ * interactive content descendants "must be to do nothing", so a spec-compliant browser
+ * does not double-fire — but it is what made the defect VISIBLE, via a call-count
+ * assertion, and the two reasons above are why the fix is right regardless.
+ *
+ * Members of a group carry their own `aria-label`s; the caption here is a visible
+ * heading, not an association.
  */
 export function FieldGroupRow({
 	path,

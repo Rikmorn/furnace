@@ -92,17 +92,34 @@ export function SchemaForm({
 	const focusWithin = useRef(false);
 	// Per-PATH, deliberately, even though only one refusal leaves this component: a
 	// refused draft is never written, so a row stays wrong until its own field is fixed
-	// — and clearing it because an unrelated row was edited would drop the explanation
+	// — and clearing it because an UNRELATED ROW was edited would drop the explanation
 	// while the bad text is still on screen. The map is the render source; the single
 	// slot below is derived from it.
+	//
+	// A RE-SEED is the one thing that ends a refusal without the field being fixed, and
+	// that is `reseed` below rather than an exception to the rule above: once the incoming
+	// values are on screen, the text the refusal was about is gone, so keeping it would
+	// disable the commit verb while naming a field that now holds a valid number.
 	const [refusals, setRefusals] = useState<Record<string, string>>({});
+
+	/** Adopt the incoming values as the drafts, dropping any refusal they replace.
+	 *
+	 *  The non-empty guard is REQUIRED, not an optimization: this runs during render, and
+	 *  an unconditional `setRefusals({})` hands React a fresh object identity every pass,
+	 *  which never bails out and loops. */
+	const reseed = (next: unknown[]): void => {
+		setDrafts(next);
+		if (Object.keys(refusals).length > 0) setRefusals({});
+	};
 
 	if (seed.current !== values) {
 		// Always record that a new value arrived so we know to reseed on blur.
 		seed.current = values;
 		// Only re-seed immediately when no input is active (shouldReseed returns true).
-		if (drafts !== values && shouldReseed(focusWithin.current))
-			setDrafts(values);
+		// While one IS active the whole re-seed is deferred, refusal included — clearing
+		// it here would leave the user's offending text on screen with nothing saying why
+		// the commit verb is dead, which is the exact state this channel exists to stop.
+		if (drafts !== values && shouldReseed(focusWithin.current)) reseed(values);
 	}
 
 	const properties = schema.properties ?? {};
@@ -149,7 +166,10 @@ export function SchemaForm({
 					focusWithin.current = false;
 					// A session-updated arrived while focused and was deferred — reseed now
 					// so the field shows the latest committed value now that editing is done.
-					if (drafts !== values) setDrafts(values);
+					// Through `reseed`, so the deferred case drops its refusal at the same
+					// moment the immediate one does; two spellings here is how the fix would
+					// come back as "it only happens when you were typing at the time".
+					if (drafts !== values) reseed(values);
 				}
 			}}
 		>

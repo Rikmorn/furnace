@@ -103,6 +103,17 @@ test("a bounded SMALL-INT param resolves to the stepper, a long one to the slide
   ).toBe("slider");
 });
 
+test("the stepper/slider cut is at 12 intervals — BOTH sides, adjacent", () => {
+  // The pair that gives the threshold teeth. The two cases above straddle it at 6 and
+  // 28, so a mutation to 20 (or 27) leaves them both green and the cut silently moves;
+  // only an adjacent pair pins the number itself. Twelve presses end to end is the last
+  // count where ± beats a 120 px track, so 12 steps and 13 steps must answer differently.
+  const at = (max: number) =>
+    resolveKind({ type: "number", minimum: 0, maximum: max, multipleOf: 1 });
+  expect(at(12)).toBe("stepper");
+  expect(at(13)).toBe("slider");
+});
+
 test("a bounded CONTINUOUS param is always a slider, however narrow its span", () => {
   // Without this the [0,1] params (braid, blend, roughness, verticality) would read
   // as 1-step steppers if the rule counted RANGE rather than steps.

@@ -771,6 +771,60 @@ test("an out-of-range param refuses at the field AND disables ⏎ by NAME", asyn
 	).toBeTruthy();
 });
 
+test("an external push clears a standing refusal — the verb does not stay dead", async () => {
+	// The card is NOT remounted on a subject change: `SessionCardPresence` only calls
+	// `setDrivenOpen("session", true)`, which is already true, so the SAME `SchemaForm`
+	// instance survives every push. Refuse a field, then let ANY external push land — a
+	// different entity's reconfigure, a ⚄ reroll, an undo, an SSE change. Before the fix
+	// the exact input re-seeded to the incoming valid number while the row kept printing
+	// `must be at most 8` and ⏎ stayed disabled naming a field that was now fine, with the
+	// only exit being to edit that field again.
+	fetch404();
+	const stub = makeStubHost({ generators: [CAVE] });
+	await renderShell(stub);
+	act(() => {
+		stub.fire.stamp(caveSession());
+	});
+	const radius = within(openCard()).getByLabelText(
+		"Chamber Radius exact",
+	) as HTMLInputElement;
+	act(() => {
+		radius.focus();
+		fireEvent.change(radius, { target: { value: "40" } });
+		// `focusout`, not `blur`: only the bubbling event reaches the form's
+		// `onBlurCapture`, which is what releases the echo guard deferring the re-seed.
+		fireEvent.focusOut(radius);
+	});
+	expect(within(openCard()).getByRole("alert").textContent).toContain(
+		"must be at most 8",
+	);
+
+	act(() => {
+		stub.fire.stamp(
+			makeSession({
+				generator: "cave",
+				params: { chamberRadius: 6, chambers: 3 },
+				phase: "ready",
+			}),
+		);
+	});
+	// The field took the incoming value…
+	expect(radius.value).toBe("6");
+	// …so the refusal is gone from the row, from the verb's reason, and from the disable.
+	// `queryByRole` returns null when absent; compare to null FIRST (house rule).
+	expect(within(openCard()).queryByRole("alert") === null).toBe(true);
+	expect(
+		within(openCard()).queryByText(/Chamber Radius must be at most 8/) === null,
+	).toBe(true);
+	expect(
+		(
+			within(openCard()).getByRole("button", {
+				name: "commit (Enter)",
+			}) as HTMLButtonElement
+		).disabled,
+	).toBe(false);
+});
+
 test("the ▸ advanced disclosure survives the card closing and coming back", async () => {
 	// The card UNMOUNTS whenever its palette closes (`PaletteLayer` renders `open ?
 	// <Palette> : null`), and the nudge d-pad behind this disclosure is the only MOUSE

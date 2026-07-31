@@ -239,10 +239,13 @@ test("the stepper's ± commit one step and are BOUNDED at each end", () => {
 
 test("ONE press is ONE commit — the row must not re-dispatch the click", () => {
 	// Found by the segmented control's own count assertion and shared with it: both were
-	// wrapped in `FieldRow`'s `<label>`, and a label's activation path re-dispatches a
-	// click on a button inside it. Two commits per press is two worker round trips and
-	// two undo entries for one gesture, and NOTHING about the rendered output shows it —
-	// only a call count does.
+	// wrapped in `FieldRow`'s `<label>`. The double dispatch itself is a HAPPY-DOM
+	// artifact — WHATWG says a label does nothing for events targeted at interactive
+	// content descendants, so a browser does not double-fire — but it is what made the
+	// wrapper visible, and the wrapper is wrong in a browser for two other reasons
+	// (`FieldGroupRow`'s TSDoc: the caption presses the first control, and every member
+	// answers to the row's name). Keeping the count assertion because NOTHING about the
+	// rendered output shows a re-dispatch — only a call count does.
 	const { onCommit } = renderStepper(3);
 	fireEvent.click(screen.getByRole("button", { name: "increase Chambers" }));
 	expect(onCommit).toHaveBeenCalledTimes(1);

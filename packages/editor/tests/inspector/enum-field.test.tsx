@@ -12,6 +12,25 @@
 // (`Number(v)`) would work for numbers and silently lie for `"1"` vs `1`, and there is no
 // third option that keeps ONE spelling.
 //
+// WHERE THE COMMIT IS PINNED, and where it is NOT. The cases below cover the mapping and
+// this field's DISPLAY binding; the commit is driven end to end through `SegmentedField`
+// instead (`segmented-field.test.tsx`, "picking a segment COMMITS the schema member"),
+// which consumes this same `lib/enum-options.ts` and asserts `toBe(90)` plus
+// `typeof === "number"` after a real click.
+//
+// That is a disclosure, not a preference. A Radix `Select` item cannot be clicked under
+// happy-dom: PROBED this session — `pointerdown` on the trigger does flip it to
+// `aria-expanded="true"`, but the portaled content never mounts (0 elements with
+// `role="listbox"`, 0 with `role="option"`), because `SelectContent` positions itself from
+// real layout measurement that happy-dom does not provide. Keyboard `Enter`/`Space` and a
+// plain `click` reach the same dead end. So the choice was between an honest gap and a
+// test that mocked Radix and therefore asserted nothing about Radix.
+//
+// What this leaves genuinely uncovered: the wiring of `memberAt` into THIS component's
+// `onValueChange`. Deleting that call is caught by typecheck (`onCommit` needs a value)
+// and by the display case below, but rewriting it to `onCommit(… v)` — committing the
+// index string — would pass everything here. A browser-driven gate is what closes it.
+//
 // Harness import MUST be first (happy-dom globals before any DOM-touching module).
 
 import { afterEach, expect, mock, test } from "bun:test";
