@@ -623,11 +623,10 @@ test("listEntities returns CLONED entity ops from a loaded oplog, brush ops filt
     ]),
   });
   const list = host.listEntities();
-  // `placed` rides every record (F3b): empty here — this hall placed nothing.
-  // `footprintChunks` rides it too (F4.5b): the span's one op is a 0.5 m sphere
-  // at [1,1,1], which sits wholly inside the first chunk (16 samples × 0.25 m =
-  // 4 m per chunk), so the footprint box quantizes to exactly one key.
-  expect(list).toEqual([{ ...entity, placed: [], footprintChunks: ["0,0,0"] }]);
+  // `placed` rides every record (F3b) and nothing else does: F4.5b Task 4 briefly
+  // hung the footprint's chunk keys here too, then moved them onto the drift push
+  // where they are computed once per report instead of once per list read.
+  expect(list).toEqual([{ ...entity, placed: [] }]);
   // Clones: mutating the returned record must never rewrite the log.
   (list[0] as GeneratorEntity).seed = 999;
   expect((host.listEntities()[0] as GeneratorEntity).seed).toBe(5);
@@ -642,7 +641,7 @@ test("listEntities returns CLONED entity ops from a loaded oplog, brush ops filt
 // installs a fake Worker global over the REAL protocol handler (the same
 // handler the fake-client round above drives), which answers synchronously.
 
-import type { BrushOp, DriftFinding, FieldOp } from "@furnace/core/field";
+import type { BrushOp, FieldOp } from "@furnace/core/field";
 import {
   CHUNK_DIM,
   encodeChunkFile,
@@ -653,6 +652,7 @@ import {
 } from "@furnace/core/field";
 import type { FieldWorkerRequest } from "../src/frontend/lib/field-protocol.ts";
 import type { StampSession } from "../src/viewport-host/field-stamp.ts";
+import type { FieldDriftReport } from "../src/viewport-host/index.ts";
 
 const MANIFEST: FieldManifest = {
   version: 2,
@@ -1126,9 +1126,13 @@ const lastOpId = (ops: FieldOp[]): number => {
  *  hand the whole log to the host through loadWorld (the headless route to a
  *  committed entity carrying real downstream history). Returns the ids a drift
  *  scenario needs. */
-function loadDriftedWorld(host: ReturnType<typeof createFieldHost>): {
+function loadDriftedWorld(
+  host: ReturnType<typeof createFieldHost>,
+  opts: { distantHall?: boolean } = {},
+): {
   entityId: number;
   digId: number;
+  distantId: number | null;
   params: Record<string, unknown>;
 } {
   const store = createFieldStore();
@@ -1143,6 +1147,22 @@ function loadDriftedWorld(host: ReturnType<typeof createFieldHost>): {
   });
   logApply(store, log, DRIFT_DIG, TABLE);
   const digId = lastOpId(log.ops);
+  // A second hall 200 m away, for the ONE case that needs the drift push's
+  // entity attribution to EXCLUDE something. Opt-in so the three cases that do
+  // not use it keep a byte-identical log (op ids and all).
+  const distant =
+    opts.distantHall === true
+      ? commitGenerator(store, log, generatorById("hall"), {
+          params: hallParams(),
+          seed: 11,
+          region: {
+            min: [200, 0, 0] as [number, number, number],
+            max: [208, 8, 8] as [number, number, number],
+          },
+          policy: "replace",
+          table: TABLE,
+        }).entity
+      : null;
   host.setMaterialTable(TABLE);
   host.loadWorld({
     manifest: MANIFEST,
@@ -1156,16 +1176,23 @@ function loadDriftedWorld(host: ReturnType<typeof createFieldHost>): {
     })),
     oplog: serializeOps(log.ops),
   });
-  return { entityId: entity.entityId, digId, params };
+  return {
+    entityId: entity.entityId,
+    digId,
+    distantId: distant === null ? null : distant.entityId,
+    params,
+  };
 }
 
 test("a drift-producing reconfigure pushes non-empty findings to subscribeDrift", async () => {
   const uninstall = installFakeWorker();
   try {
     const host = createFieldHost();
-    const { entityId, digId, params } = loadDriftedWorld(host);
+    const { entityId, digId, distantId, params } = loadDriftedWorld(host, {
+      distantHall: true,
+    });
 
-    const reports: (DriftFinding[] | null)[] = [];
+    const reports: (FieldDriftReport | null)[] = [];
     host.subscribeDrift((r) => reports.push(r));
     // The subscribe push is null — no reconfigure has run yet.
     expect(reports).toEqual([null]);
@@ -1178,12 +1205,33 @@ test("a drift-producing reconfigure pushes non-empty findings to subscribeDrift"
 
     const report = reports.at(-1);
     expect(report).not.toBeNull();
-    expect(report?.length).toBeGreaterThan(0);
+    expect(report?.findings.length).toBeGreaterThan(0);
     // The dig is drifted, and its finding carries the chunk-quantized location
     // the click-to-frame seam needs.
-    const dig = report?.find((d) => d.opId === digId);
+    const dig = report?.findings.find((d) => d.opId === digId);
     expect(dig?.kind).toBe("drifted");
     expect(dig?.chunks.length).toBeGreaterThan(0);
+
+    // …and the push ALSO names which committed entities those chunks fall in —
+    // the palette's Δ badge rows (F4.5b Task 4). This is the whole reason the
+    // intersection is host-side: the findings speak in chunk keys, the rows in
+    // entity ids, and only the host holds both the footprints and the chunk size
+    // needed to relate them.
+    //
+    // BOTH directions, because inclusion alone is not a test of an intersection —
+    // "name every entity" would satisfy it. The reconfigured hall is necessarily
+    // in (the drifted dig replayed into chunks its own span wrote) and the hall
+    // 200 m away is necessarily out.
+    //
+    // What this does NOT pin, said plainly so nobody reads it as more: the
+    // BOUNDARY arithmetic. 200 m is ~50 chunks of clearance, so an overlap test
+    // that were one chunk too generous (or too mean) would still pass here. The
+    // half-open high bound is argued at the implementation instead; catching an
+    // off-by-one behaviourally would want a fixture placed exactly one chunk out,
+    // and that has not been built.
+    expect(report?.entityIds).toContain(entityId);
+    expect(distantId).not.toBeNull();
+    expect(report?.entityIds).not.toContain(distantId);
   } finally {
     uninstall();
   }
@@ -1194,7 +1242,7 @@ test("dismissDrift nulls the standing report and re-notifies subscribeDrift", as
   try {
     const host = createFieldHost();
     const { entityId, params } = loadDriftedWorld(host);
-    const reports: (DriftFinding[] | null)[] = [];
+    const reports: (FieldDriftReport | null)[] = [];
     host.subscribeDrift((r) => reports.push(r));
 
     host.openEntity(entityId);
@@ -1203,7 +1251,7 @@ test("dismissDrift nulls the standing report and re-notifies subscribeDrift", as
     await settle();
     host.applyReconfigure();
     // A real report is standing (guards the dismiss test against vacuity).
-    expect(reports.at(-1)?.length).toBeGreaterThan(0);
+    expect(reports.at(-1)?.findings.length).toBeGreaterThan(0);
     const pushesBefore = reports.length;
 
     host.dismissDrift();
@@ -1220,7 +1268,7 @@ test("stepping history clears the standing drift report (F3a gate finding)", asy
   try {
     const host = createFieldHost();
     const { entityId, params } = loadDriftedWorld(host);
-    const reports: (DriftFinding[] | null)[] = [];
+    const reports: (FieldDriftReport | null)[] = [];
     host.subscribeDrift((r) => reports.push(r));
 
     host.openEntity(entityId);
@@ -1228,7 +1276,7 @@ test("stepping history clears the standing drift report (F3a gate finding)", asy
     host.updateStamp({ ...params, depth: 12 }, 7, "replace");
     await settle();
     host.applyReconfigure();
-    expect(reports.at(-1)?.length).toBeGreaterThan(0);
+    expect(reports.at(-1)?.findings.length).toBeGreaterThan(0);
 
     // ⌘Z rewinds the reconfigure the report describes — the report must go
     // with it (its findings name a replay the log no longer contains).
@@ -1714,7 +1762,7 @@ test("reconfiguring the CAVE reports the scatter's props as drifted (D-F3-4, in 
   try {
     const host = createFieldHost();
     const { caveId, records } = loadCaveWithProps(host);
-    const reports: (DriftFinding[] | null)[] = [];
+    const reports: (FieldDriftReport | null)[] = [];
     host.subscribeDrift((r) => reports.push(r));
     expect(reports).toEqual([null]);
 
@@ -1730,13 +1778,13 @@ test("reconfiguring the CAVE reports the scatter's props as drifted (D-F3-4, in 
     host.applyReconfigure();
 
     const report = reports.at(-1);
-    expect(report?.length).toBeGreaterThan(0);
+    expect(report?.findings.length).toBeGreaterThan(0);
     // The placement op REPLAYS AS DATA (a cave reconfigure does not re-cook
     // scatter) — the records survive — but the props are flagged, with the
     // chunk-quantized locations the click-to-frame seam needs.
     expect(groupPlacements(hostOps(host)).get("rock")).toHaveLength(records);
     const placementId = hostOps(host).find((o) => o.kind === "placement")?.id;
-    const finding = report?.find((d) => d.opId === placementId);
+    const finding = report?.findings.find((d) => d.opId === placementId);
     expect(finding?.kind).toBe("drifted");
     expect(finding?.chunks.length ?? 0).toBeGreaterThan(0);
   } finally {

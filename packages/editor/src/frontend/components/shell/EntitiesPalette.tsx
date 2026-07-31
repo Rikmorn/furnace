@@ -5,6 +5,11 @@
 // LAYERS panel (D-14): the rows carry the full entity verb set and are one half of the
 // bidirectional selection sync with the viewport.
 //
+// The Δ badges do NOT intersect anything here: the host owns both the findings'
+// chunk keys and the entity footprints, so it answers "which rows does this report
+// touch?" at push time and the provider hands the answer down as a set. This file
+// reads it; it does not compute it.
+//
 // It reads its three seams out of the shell's host-state provider (single-slot
 // discipline: no surface below that provider may re-subscribe to anything it owns,
 // which since F4.5b Task 4 is all ten seams the chrome reads) and reaches the host for its
@@ -15,7 +20,7 @@
 // Bake and DELETE keep their confirmations HERE rather than in EntitiesList, for the
 // reason the panel kept bake's: a list that can sever a recipe — or remove a stamp —
 // on its own click has no seam left to put a confirmation in.
-import { useMemo, useRef } from "react";
+import { useRef } from "react";
 import {
 	useFieldEntities,
 	useFieldEntitySelection,
@@ -26,22 +31,9 @@ import { EntitiesList } from "../field/EntitiesList.tsx";
 
 export function EntitiesPalette() {
 	const { state, fieldHostRef, openConfirm } = useEditor();
-	const { entities, drift } = useFieldEntities();
+	const { entities, drift, driftedIds } = useFieldEntities();
 	const { selectedEntityId } = useFieldEntitySelection();
 	const driftSection = useRef<HTMLDivElement | null>(null);
-
-	// Which rows wear a Δ. Both sides are CHUNK KEYS — the host quantizes each
-	// entity's footprint into the drift report's own space precisely so this can
-	// be a string-set intersection here (the chrome cannot value-import core to
-	// quantize anything itself); see FieldEntityInfo.footprintChunks.
-	const driftedIds = useMemo(() => {
-		const ids = new Set<number>();
-		if (drift === null || drift.length === 0) return ids;
-		const disturbed = new Set(drift.flatMap((f) => f.chunks));
-		for (const e of entities)
-			if (e.footprintChunks.some((k) => disturbed.has(k))) ids.add(e.entityId);
-		return ids;
-	}, [entities, drift]);
 
 	// Before the engine bundle lands there is no host, so the provider has subscribed to
 	// nothing and `entities` is empty for a reason that is not "this world has no
@@ -113,7 +105,6 @@ export function EntitiesPalette() {
 					onFreeze={(id, frozen) =>
 						fieldHostRef.current?.setEntityFrozen(id, frozen)
 					}
-					onDuplicate={(id) => fieldHostRef.current?.duplicateEntity(id)}
 					onDelete={requestDelete}
 					onBake={requestBake}
 				/>
@@ -123,7 +114,7 @@ export function EntitiesPalette() {
           empty section. The wrapper exists for the Δ badges to scroll to. */}
 			<div ref={driftSection}>
 				<DriftReport
-					findings={drift ?? []}
+					findings={drift?.findings ?? []}
 					onFrame={(f) => fieldHostRef.current?.frameChunks(f.chunks)}
 					onDismiss={() => fieldHostRef.current?.dismissDrift()}
 				/>

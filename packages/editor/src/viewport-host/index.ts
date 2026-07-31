@@ -19,6 +19,7 @@ export type {
 export {
   type CameraPose,
   createFieldHost,
+  type FieldDriftReport,
   type FieldEntityInfo,
   type FieldGeneratorInfo,
   type FieldHost,

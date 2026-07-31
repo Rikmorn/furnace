@@ -27,7 +27,7 @@ import type {
 } from "../frontend/lib/catalog.ts";
 import {
   computeBrushCenter,
-  LATTICE,
+  latticeClearance,
   nudgeRegion,
   regionSampleCount,
   snappedKitBox,
@@ -207,21 +207,32 @@ export type FieldEntityInfo = field.GeneratorEntity & {
    *  places nothing (every carver), which is also the entities list's test for
    *  whether a row has a prop line to show at all. */
   placed: PlacedArchetype[];
-  /** Every chunk this entity's FOOTPRINT box covers, chunk-quantized — the row's
-   *  drift-badge input (F4.5b Task 4). The chrome asks "does the standing drift
-   *  report touch this entity?", and a `DriftFinding` carries `chunks`, so the
-   *  two sets have to be in the SAME space; the conversion has to happen HERE
-   *  because it needs `CHUNK_DIM` and `store.cellSize`, and the chrome cannot
-   *  value-import core to reach either. So the host quantizes and the chrome does
-   *  a pure string intersection.
+};
+
+/** The standing reconfigure drift report as the chrome reads it
+ *  ({@link FieldHost.subscribeDrift}): core's findings plus the ANSWER to the one
+ *  question a palette row asks of them.
+ *
+ *  `entityIds` is derived rather than carried, and derived HERE rather than in the
+ *  chrome, because both of its inputs are the host's: the findings' chunk keys and
+ *  every entity's footprint box. Quantizing one into the other's space needs
+ *  `CHUNK_DIM` and `store.cellSize`, which the chrome cannot value-import core to
+ *  reach — so the alternative was publishing every entity's whole chunk box down
+ *  the entity list for the chrome to intersect, which is a per-entity allocation
+ *  growing with the CUBE of region size (a 200 m region is ~133k keys) paid on
+ *  every `listEntities()` call, for a question that is only ever asked while a
+ *  report is standing. One derived set, computed at push time, replaces it. */
+export type FieldDriftReport = {
+  findings: field.DriftFinding[];
+  /** The committed entities whose FOOTPRINT box overlaps some finding's chunks —
+   *  the rows that wear a drift badge.
    *
-   *  An OVER-approximation, deliberately: it is the footprint AABB's chunk box
-   *  (the memoized `entityFootprints` boxes, reused rather than re-walked), not
-   *  the span's written chunks, so a chunk the box spans but the span never wrote
-   *  is counted in. The badge means "the last reconfigure disturbed something
-   *  where this stamp is", and over-inclusion at chunk granularity keeps that
-   *  true; under-inclusion would silently drop the pointer. */
-  footprintChunks: field.ChunkKey[];
+   *  Chunk-granular and therefore an OVER-approximation on both sides: the box is
+   *  the union of the span's op bounds rather than the cells it wrote, and a chunk
+   *  counts as touched when the box reaches any part of it. The badge means "the
+   *  last reconfigure disturbed something where this stamp is", which over-
+   *  inclusion keeps true; under-inclusion would silently drop the pointer. */
+  entityIds: number[];
 };
 
 /** The host's live stats readout ({@link FieldHost.subscribeStats}, pushed
@@ -676,9 +687,15 @@ export type FieldHost = {
    *  entry (the commit's own), and the copy becomes the selected entity.
    *
    *  The copy is offset +X by the original's FOOTPRINT extent snapped UP to the
-   *  0.5 m lattice (the same lattice `startStamp` snaps a region onto), floored
-   *  at one step so a zero-extent footprint still moves. It clears the original
-   *  along X by construction and lands on the grid the stamp UI works in.
+   *  0.5 m lattice (`latticeClearance` — the lattice `startStamp` snaps a region
+   *  onto), floored at one step. It clears the original along X by construction
+   *  and lands on the grid the stamp UI works in.
+   *
+   *  A span with no field-writing ops (a pure placer's) has no footprint, and the
+   *  shift is then by the recorded REGION's extent — not by a bare minimum step.
+   *  That falls out of `entityFootprints`, which resolves the null footprint to
+   *  the region once for every reader (the emphasis box and the pick share it), so
+   *  a scatter's copy clears its own region rather than landing half inside it.
    *
    *  Its seed is a fresh uint16 when the generator READS one (core's
    *  `GeneratorDef.usesSeed`), so duplicating a cave or a scatter gives a
@@ -706,6 +723,9 @@ export type FieldHost = {
    *  have). An apply core REJECTS pushes nothing at all: it changed no op, so
    *  the standing report still describes the log as it is, and clearing it
    *  would destroy findings on behalf of an edit that never happened.
+   *  Each push carries the findings AND the entities they touch
+   *  ({@link FieldDriftReport.entityIds}), derived at push time from the footprints
+   *  as they stand — so a row badge cannot outlive the geometry it points at.
    *  Reports are CLONED and the CURRENT one is pushed immediately on subscribe
    *  (the {@link subscribeStamp} remount rationale). Dismissal is a HOST verb
    *  ({@link dismissDrift}) that nulls the report and notifies, not the UI's own
@@ -715,7 +735,7 @@ export type FieldHost = {
    *  an edit that is no longer applied. Single subscriber (the shell's host-state
    *  provider, which publishes it with the entity list at `useFieldEntities`);
    *  returns an unsubscribe. */
-  subscribeDrift(cb: (report: field.DriftFinding[] | null) => void): () => void;
+  subscribeDrift(cb: (report: FieldDriftReport | null) => void): () => void;
   /** Clears the standing drift report: nulls it and notifies
    *  {@link subscribeDrift}. The verb behind the report's Dismiss button —
    *  the report is host state, so this is how the UI discards it. Idempotent:
@@ -743,8 +763,7 @@ export type FieldHost = {
   /** The committed generator entities, in log order (CLONES — read from the
    *  op log's entity ops, so undo/redo and world loads stay accurate), each
    *  carrying the {@link FieldEntityInfo.placed} summary of its own span's
-   *  placement records and the {@link FieldEntityInfo.footprintChunks} its box
-   *  covers. */
+   *  placement records. */
   listEntities(): FieldEntityInfo[];
   /** Selects one committed entity, or nothing (`null`). The SAME state a
    *  `pointer` click writes, so the palette and the viewport cannot disagree
@@ -1291,7 +1310,7 @@ export function createFieldHost(deps?: {
   // The last reconfigure's drift report (null = the last apply was clean, or
   // none has run) + its panel subscriber.
   let drift: field.DriftFinding[] | null = null;
-  let driftCb: ((report: field.DriftFinding[] | null) => void) | null = null;
+  let driftCb: ((report: FieldDriftReport | null) => void) | null = null;
   // Entity-list change tick (freeze/bake dirty no chunk, so the remesh counter
   // cannot carry them — see subscribeEntities).
   let entitiesCb: (() => void) | null = null;
@@ -2663,9 +2682,57 @@ export function createFieldHost(deps?: {
     entitiesCb?.();
   };
 
-  // Cloned like the session: a drift report is plain data the panel keeps.
+  // Which committed entities the findings TOUCH — the palette's drift badges.
+  //
+  // Driven from the FINDINGS, not from the entities, and that direction is the
+  // whole cost model: a report holds a handful of ops each naming the chunks it
+  // wrote, so this is (findings × chunks × entities) box tests with NO string
+  // allocation at all. The other direction — enumerate each entity's chunk box and
+  // look each key up — allocates a key per chunk of every footprint, which grows
+  // with the cube of region size and is unbounded in a way findings are not.
+  //
+  // The overlap test reproduces chunk-box membership exactly rather than
+  // approximately: a box covers chunk `c` iff `floor(min/dim) <= c <= floor(max/dim)`,
+  // and those two are `c·dim <= box.max` and `(c+1)·dim > box.min` respectively —
+  // half-open on the high side, which is how a chunk owns its span.
+  const driftedEntities = (
+    findings: readonly field.DriftFinding[],
+  ): number[] => {
+    const boxes = entityFootprints();
+    const dim = field.CHUNK_DIM * store.cellSize;
+    const hit = new Set<number>();
+    for (const finding of findings)
+      for (const key of finding.chunks) {
+        const [cx, cy, cz] = field.parseChunkKey(key);
+        const lo: Vec3T = [cx * dim, cy * dim, cz * dim];
+        for (const [entityId, box] of boxes) {
+          if (hit.has(entityId)) continue;
+          if (
+            lo[0] <= box.max[0] &&
+            lo[0] + dim > box.min[0] &&
+            lo[1] <= box.max[1] &&
+            lo[1] + dim > box.min[1] &&
+            lo[2] <= box.max[2] &&
+            lo[2] + dim > box.min[2]
+          )
+            hit.add(entityId);
+        }
+      }
+    return [...hit];
+  };
+
+  // Cloned like the session: a drift report is plain data the palette keeps. The
+  // touched-entity set is recomputed on every push rather than stored beside
+  // `drift`, because the FOOTPRINTS can move under a standing report (a
+  // reconfigure re-splices a span; the report survives) — deriving at push time
+  // is what keeps the badge pointing at the geometry as it currently is.
+  const driftPayload = (): FieldDriftReport | null =>
+    drift === null
+      ? null
+      : { findings: structuredClone(drift), entityIds: driftedEntities(drift) };
+
   const notifyDrift = (): void => {
-    driftCb?.(drift === null ? null : structuredClone(drift));
+    driftCb?.(driftPayload());
   };
 
   // The LIVE entity record for an id (not a clone — callers that hand it on
@@ -2737,37 +2804,6 @@ export function createFieldHost(deps?: {
     footprintCache = boxes;
     footprintSig = sig;
     return boxes;
-  };
-
-  // One footprint box, chunk-quantized — what a row's drift badge intersects the
-  // standing report's `chunks` against (FieldEntityInfo.footprintChunks states
-  // why the conversion has to be the HOST's, and why over-approximating is the
-  // safe direction). `Math.floor` on both ends, matching `snapshotChunks` and
-  // core's own key derivation: a chunk's world span is [c·dim, (c+1)·dim), so the
-  // key of a point is the floor of its coordinate over the chunk size.
-  //
-  // Computed per `listEntities()` rather than cached beside the boxes: it is
-  // wanted only by the palette, which reads the list once per entity tick (a
-  // commit / apply / freeze / bake / ⌘Z), while the boxes themselves are wanted
-  // by every pointer click. Caching it with them would pay for the enumeration on
-  // every log mutation for a consumer that is usually not looking.
-  const footprintChunkKeys = (box: {
-    min: Vec3T;
-    max: Vec3T;
-  }): field.ChunkKey[] => {
-    const dim = field.CHUNK_DIM * store.cellSize;
-    const keys: field.ChunkKey[] = [];
-    const loX = Math.floor(box.min[0] / dim);
-    const loY = Math.floor(box.min[1] / dim);
-    const loZ = Math.floor(box.min[2] / dim);
-    const hiX = Math.floor(box.max[0] / dim);
-    const hiY = Math.floor(box.max[1] / dim);
-    const hiZ = Math.floor(box.max[2] / dim);
-    for (let cz = loZ; cz <= hiZ; cz++)
-      for (let cy = loY; cy <= hiY; cy++)
-        for (let cx = loX; cx <= hiX; cx++)
-          keys.push(field.chunkKey(cx, cy, cz));
-    return keys;
   };
 
   // Re-derive the selected entity's box from the CURRENT record, and DROP the
@@ -4901,15 +4937,18 @@ export function createFieldHost(deps?: {
         return;
       }
       markDirtyWithNeighbors(dirtied);
-      // The record left the log, so a selection on it has to go with it — an
-      // outline over a stamp that no longer exists. Surviving entities' spans do
-      // not move (core locates spans by id), so nothing else re-outlines.
-      revalidateEntitySelection();
       // UNCONDITIONAL, never gated on `dirtied.size`, and core's TSDoc says why
       // in as many words: a placements-only entity (a scatter) writes no cells,
       // so deleting it dirties NOTHING while every prop it placed leaves the log
       // with it. Props are derived from the LOG, never from the dirty set.
       rebuildProps();
+      // The record left the log, so a selection on it has to go with it — an
+      // outline over a stamp that no longer exists. Surviving entities' spans do
+      // not move (core locates spans by id), so nothing else re-outlines. It
+      // notifies, so it sits with the pushes below rather than above the rebuild:
+      // by the time anything hears about the delete, EVERY piece of host state it
+      // moved has settled.
+      revalidateEntitySelection();
       // The two notifications LAST, once every piece of host state has settled
       // (applyReconfigureSession's rule): a subscriber may read the host back
       // synchronously from inside either, and none may observe a half-deleted
@@ -4941,7 +4980,7 @@ export function createFieldHost(deps?: {
       // footprint with no X extent at all still moves the copy off the original.
       const box = entityFootprints().get(entityId);
       const extentX = box === undefined ? 0 : box.max[0] - box.min[0];
-      const shiftX = Math.max(LATTICE, Math.ceil(extentX / LATTICE) * LATTICE);
+      const shiftX = latticeClearance(extentX);
       const region = structuredClone(record.region);
       region.min[0] += shiftX;
       region.max[0] += shiftX;
@@ -4988,7 +5027,7 @@ export function createFieldHost(deps?: {
       driftCb = cb;
       // Initial push (the subscribeStamp/subscribeSelection remount rationale):
       // a subscriber remounting after a reconfigure must not drop its report.
-      cb(drift === null ? null : structuredClone(drift));
+      cb(driftPayload());
       return () => {
         if (driftCb === cb) driftCb = null;
       };
@@ -5032,27 +5071,22 @@ export function createFieldHost(deps?: {
     },
     listEntities() {
       // One attribution pass for the whole list, not one scan per row: the
-      // helper walks the log once and hands back every entity's placements. The
-      // boxes come out of the memo for the same reason — `generatorFootprint`
-      // walks the whole log per entity, and this would otherwise do it per row.
+      // helper walks the log once and hands back every entity's placements.
+      //
+      // Nothing FOOTPRINT-derived rides this. It is a general read with several
+      // callers and only one of them ever wanted the boxes, so the drift badges
+      // take them off `subscribeDrift` instead — where they are computed once per
+      // report rather than per list read (see FieldDriftReport).
       const placed = placementsByEntity(log.ops);
-      const boxes = entityFootprints();
       const out: FieldEntityInfo[] = [];
       for (const op of log.ops)
-        if (op.kind === "entity") {
-          const box = boxes.get(op.entity.entityId);
+        if (op.kind === "entity")
           out.push({
             ...structuredClone(op.entity),
             // Fresh arrays out of the helper, so the row's summary is a clone
             // like the record it rides on.
             placed: placed.get(op.entity.entityId) ?? [],
-            // Ditto — a fresh array per call, never the memo's own box handed
-            // out. `entityFootprints` has an entry for every entity op in the
-            // log, so the empty fallback is unreachable; it exists so a future
-            // caller cannot get `undefined` past the type.
-            footprintChunks: box === undefined ? [] : footprintChunkKeys(box),
           });
-        }
       return out;
     },
     selectEntity(entityId) {

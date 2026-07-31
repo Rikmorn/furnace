@@ -781,12 +781,23 @@ F2b stamp-session machinery end to end.
   `bakeGeneratorEntity`; bake confirms through the App-owned `useConfirmDialog` (stays
   inside the no-clobber + keybinding-suppression guards). `subscribeEntities` ticks the
   panel on entity-record changes that dirty no chunk (freeze/bake/undo of either).
-  *(F4.5b Task 4 joined them with ⬇ duplicate and 🗑 delete, both confirmation-gated the
-  same way, and made the row half of a bidirectional selection sync with the viewport.)*
+  *(F4.5b Task 4 adopted D-14's glyph map — freeze ❄ / bake ⬇ / delete 🗑, with Open
+  keeping its word until D-13's session card takes it — added `deleteEntity`, and made the
+  row half of a bidirectional selection sync with the viewport. Duplicate is deliberately
+  NOT a row verb: `FieldHost.duplicateEntity` exists and Task 7 binds it to ⌘J and the Edit
+  menu, per the mock's burger placement.)*
 - **Drift report** — `applyReconfigure` pushes core's drifted/orphaned findings to
   `subscribeDrift`; `DriftReport` renders a dismissible list, click → `frameChunks`
   (fly-camera orbit-target re-center on the chunk-set centroid). The report clears on
   ANY history step (undo/redo — an F3a gate fix) and on world load; never recomputed.
+  F4.5b Task 4 widened the push to a `FieldDriftReport` = `{ findings, entityIds }`, where
+  `entityIds` is the committed entities whose FOOTPRINT box the findings' chunks fall in —
+  the palette's Δ badge rows. Derived host-side and at push time, because only the host
+  holds both inputs (the findings speak chunk keys, the rows entity ids, and relating them
+  needs `CHUNK_DIM · cellSize`, which the chrome cannot value-import core to reach). The
+  alternative — publishing each entity's chunk box down `listEntities()` — was built first
+  and removed: it allocates a key per chunk of every footprint, growing with the CUBE of
+  region size, on a general read whose other callers never want it.
 - **Op-cost meter** — `logStats` fields appended to the field footer line, pushed with
   the rAF stats under a log-signature dedup (ops/undo/redo lengths). Compaction runs
   at WORLD LOAD only (`COMPACT_THRESHOLD_OPS` 200): core's `compactRuns` requires a

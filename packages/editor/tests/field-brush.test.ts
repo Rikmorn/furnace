@@ -6,6 +6,7 @@ import {
 } from "@furnace/core/field";
 import {
   computeBrushCenter,
+  latticeClearance,
   nudgeRegion,
   regionSampleCount,
   snappedKitBox,
@@ -52,6 +53,26 @@ test("snapSpan snaps OUTWARD to the 0.5 lattice in either endpoint order", () =>
   expect(snapSpan(2.3, 1.1)).toEqual([1, 2.5]);
   expect(snapSpan(-0.2, 0.6)).toEqual([-0.5, 1]);
   expect(snapSpan(1.5, 2.5)).toEqual([1.5, 2.5]); // already on the lattice
+});
+
+// `FieldHost.duplicateEntity`'s +X offset, as a rule rather than as an outcome.
+// The host-level case can only observe it through a footprint, and every registry
+// generator's footprint already sits on the lattice — so these are the concrete
+// numbers that say what the rule IS, independent of anything's geometry.
+test("latticeClearance snaps a clearance UP onto the lattice, never to zero", () => {
+  // Off-lattice extents round UP — the case the host's own fixtures cannot reach.
+  expect(latticeClearance(1.4)).toBe(1.5);
+  expect(latticeClearance(0.1)).toBe(0.5);
+  expect(latticeClearance(2.6)).toBe(3);
+  // Already-aligned extents are left alone (this is a clearance, not a gap).
+  expect(latticeClearance(1.5)).toBe(1.5);
+  expect(latticeClearance(4)).toBe(4);
+  // The floor: a zero-extent footprint still moves its copy off the original.
+  expect(latticeClearance(0)).toBe(0.5);
+  // Total over its domain — a negative clearance is not a thing.
+  expect(latticeClearance(-3)).toBe(0.5);
+  // Float residue from a real footprint subtraction still lands on the lattice.
+  expect(latticeClearance(1.4000000000000004)).toBe(1.5);
 });
 
 test("a degenerate span (one lattice plane) widens to one lattice step", () => {

@@ -11,6 +11,11 @@
 // barrel carries core), and would be caught by that test rather than by review.
 import type { GeneratorEntity } from "@furnace/core/field"; // type-only: erased
 
+// ——— AUTHORITATIVE rules — the host imports these and ACTS on them ———————————
+//
+// One spelling, two actors. Splitting any of these would let the UI enable a
+// control the host silently rejects.
+
 /**
  * Why a committed entity cannot open a reconfigure session, or null when it
  * can. ONE spelling of the rule, because two consumers act on it in ways that
@@ -32,25 +37,63 @@ export function openBlockedReason(entity: GeneratorEntity): string | null {
   return null;
 }
 
-/**
- * Why a committed entity cannot be DELETED, or null when it can — core
- * `deleteGeneratorEntity`'s two refusals, in the vocabulary of a button tooltip.
- *
- * Unlike {@link openBlockedReason} the HOST does not read this: core throws its
- * own sentence and `FieldHost.deleteEntity` passes that through to the tool-error
- * seam verbatim, which is the better message when the row's own state was stale.
- * So this is strictly the chrome's mirror of a core rule, and the thing that
- * keeps the two honest is the pair of tests either side — the row asserting a
- * DISABLED 🗑 here, and the host suite asserting core's message reaches the seam.
- *
- * Baked wins over frozen, for {@link openBlockedReason}'s reason (baking clears
- * `frozen`, so the two cannot both be set, and the permanent state is the one
- * worth naming) — core's own delete checks frozen first, which is the same
- * decision under a different order because the states are mutually exclusive.
- */
+// ——— MIRRORS of CORE rules — chrome-only, and NOT what refuses ———————————————
+//
+// Everything below this line is a different KIND of thing from `openBlockedReason`
+// above, and the difference matters enough to be visible at the export site rather
+// than only inside a docblock: the host does not import any of them. Core owns
+// each of these refusals, throws its own sentence, and `FieldHost` passes that
+// sentence through to the tool-error seam verbatim — which is the better message
+// precisely when a row's state was stale enough to offer the button at all.
+//
+// So these exist to DISABLE a control early, never to decide anything. The
+// obligation that comes with that: each one has to keep agreeing with a rule it
+// does not own. What holds them honest is a test either side — the row asserting
+// the disabled control here, and `tests/field-host-entity-verbs.test.ts` asserting
+// core's own message reaches the seam. A mirror that drifts shows up as a live
+// button that reports instead of a dead one, which is a degradation, not a break.
+//
+// Baked wins over frozen throughout, and the two can never both be set anyway
+// (`bakeGeneratorEntity` clears `frozen`); where core checks frozen first, that is
+// the same decision under a different order.
+
+/** Why a committed entity cannot be DELETED, or null when it can — core
+ *  `deleteGeneratorEntity`'s two refusals in the vocabulary of a button tooltip.
+ *  A MIRROR (see the banner above). */
 export function deleteBlockedReason(entity: GeneratorEntity): string | null {
   if (entity.baked === true)
     return "baked — its ops are plain history now, not a span to remove";
   if (entity.frozen === true) return "frozen — unfreeze it to delete";
   return null;
 }
+
+/** Why a committed entity cannot be FROZEN or unfrozen, or null when it can —
+ *  core `setGeneratorFrozen`'s one refusal. A MIRROR (see the banner above). */
+export function freezeBlockedReason(entity: GeneratorEntity): string | null {
+  return entity.baked === true
+    ? "baked — its recipe was severed, so there is nothing left to protect"
+    : null;
+}
+
+/** Why a committed entity cannot be BAKED, or null when it can — core
+ *  `bakeGeneratorEntity`'s one refusal. A MIRROR (see the banner above). */
+export function bakeBlockedReason(entity: GeneratorEntity): string | null {
+  return entity.baked === true
+    ? "baked — its recipe is already severed; there is no second bake"
+    : null;
+}
+
+// ——— row formatting ————————————————————————————————————————————————————————
+
+/** Renders one committed-entity param for display — schema-driven primitives
+ *  (number/boolean/enum string); the object branch is a robustness fallback, not
+ *  an expected shape.
+ *
+ *  Here rather than beside the `<dl>` that shows it, because it has TWO callers
+ *  that must never disagree: the row renders through it, and the shell provider's
+ *  `sameEntities` push guard COMPARES through it. What must not go stale is the
+ *  string on screen, so the guard asks the renderer rather than re-deciding what
+ *  "same param" means — and a hook reaching into `components/` for that would
+ *  invert the layering, which is the reason it moved out of `EntitiesList.tsx`. */
+export const formatParam = (v: unknown): string =>
+  typeof v === "object" && v !== null ? JSON.stringify(v) : String(v);

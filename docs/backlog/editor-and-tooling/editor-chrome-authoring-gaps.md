@@ -147,3 +147,38 @@ section had no trigger and would never surface from a trigger grep.)
 `packages/editor/src/viewport-host/preview-gate.ts` `transformEditNeedsRebuild`;
 `packages/core/src/scene/loader.ts` `setEntityTransform`/`rebuildEntity`;
 `packages/core/src/scene/builtins.ts` `buildLight`.
+
+## The entities palette has no roving focus, and D-14 just made that expensive
+
+**Context.** F4.5b Task 4 promoted `EntitiesList` from a reference read-out to the
+LAYERS panel: every row now carries four verb buttons plus an expand button, and the Δ
+badge makes six on a drifted row. Every one of them is an independent tab stop, so
+reaching the last row of an N-entity world costs ~6N tabs, and a keyboard user cannot
+move DOWN the list at all — Tab moves along a row, never across rows.
+
+Every comparable surface solves this the same way and has for years: Blender's outliner,
+Figma's layers panel and Photoshop's layers palette all use **roving `tabindex`** — the
+list is ONE tab stop, arrow keys move the selection between rows, and the row's verbs are
+reached with a second key (Right/Enter into the row, or a shortcut per verb). The ARIA
+Authoring Practices `grid`/`treegrid` pattern is the written-down version.
+
+It fits this palette unusually well because the selection state it would rove over
+already exists and is already bidirectional: `subscribeEntitySelection` is the host's one
+entity selection, a row click writes it, and a viewport pick pushes it back. Arrow-key
+roving is that same write on a keyboard, which means the interaction model does not have
+to be invented — only the focus management.
+
+**Not built here** because it is a keyboard-interaction design pass, not a rider on a
+verb task: it wants a decision about what Enter does on a row (expand? open?), what
+happens to the expanded `<dl>`'s own focusables, and whether the palette becomes a
+`treegrid` or stays a list of buttons — none of which this task had cause to settle.
+
+**Trigger to revisit:** Task 8's palette-layout pass (which decides what the controls
+column opens on, and is where this palette's ergonomics get looked at as a whole), or
+F4.5c if Task 8 stays layout-only.
+
+**Reference:** `packages/editor/src/frontend/components/field/EntitiesList.tsx` (the row's
+button cluster and the `RowVerb` wrapper each verb renders through);
+`packages/editor/src/frontend/hooks/useFieldHostState.tsx` (`useFieldEntitySelection` —
+the state arrow keys would move); ARIA Authoring Practices, the `grid` pattern's
+roving-tabindex section.

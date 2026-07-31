@@ -15,14 +15,16 @@ import "../inspector/_register.ts";
 // where F4.5b Task 2 widened it to every seam there is.
 
 import { afterEach, expect, test } from "bun:test";
-import type { DriftFinding } from "@furnace/core/field";
 import type { ConfirmRequest } from "../../src/frontend/components/ConfirmDialog.tsx";
 import { EntitiesPalette } from "../../src/frontend/components/shell/EntitiesPalette.tsx";
 import {
 	FieldHostStateProvider,
 	useFieldEntities,
 } from "../../src/frontend/hooks/useFieldHostState.tsx";
-import type { FieldEntityInfo } from "../../src/viewport-host/index.ts";
+import type {
+	FieldDriftReport,
+	FieldEntityInfo,
+} from "../../src/viewport-host/index.ts";
 import {
 	act,
 	cleanup,
@@ -47,9 +49,6 @@ const ENTITY: FieldEntityInfo = {
 	region: { min: [0, 0, 0], max: [4, 4, 4] },
 	opSpan: [2, 4], // 3 ops
 	placed: [], // a hall places nothing
-	// The host quantizes each entity's footprint into the drift report's own
-	// space so the Δ badge can be a string-set intersection here.
-	footprintChunks: ["0,0,0"],
 };
 
 const FROZEN: FieldEntityInfo = { ...ENTITY, entityId: 2, frozen: true };
@@ -224,10 +223,15 @@ test("an undone commit disappears on the entity tick — no session change, no r
 
 // --- the drift report -------------------------------------------------------
 
-const FINDINGS: DriftFinding[] = [
-	{ opId: 12, kind: "drifted", chunks: ["0,0,0", "1,0,0"] },
-	{ opId: 15, kind: "orphaned", chunks: ["2,0,0"] },
-];
+const FINDINGS: FieldDriftReport = {
+	findings: [
+		{ opId: 12, kind: "drifted", chunks: ["0,0,0", "1,0,0"] },
+		{ opId: 15, kind: "orphaned", chunks: ["2,0,0"] },
+	],
+	// Which rows the report touches is the HOST's answer (it owns the footprints
+	// and the chunk arithmetic); a chrome test states it rather than deriving it.
+	entityIds: [],
+};
 
 test("the drift report renders findings, frames a click, and dismisses through the host", () => {
 	const stub = makeStubHost();
@@ -307,11 +311,20 @@ test("each row's verbs address ITS OWN entity in a multi-row list", () => {
 	expect(stub.calls.setEntityFrozen.mock.calls.at(-1)).toEqual([7, false]);
 });
 
-test("a baked row disables both verbs — core would refuse them anyway", () => {
+// Every row verb states its reason the same way, which is a convention that had to
+// be EXTENDED rather than invented: Open and 🗑 shipped with reasons in the
+// accessible name while ❄ and bake were bare `disabled` with a tooltip that still
+// promised to sever a recipe already severed. Quantified over the set so a fifth
+// verb cannot quietly ship bare.
+test("a baked row disables every verb it cannot run, each naming its reason", () => {
 	const stub = makeStubHost();
 	showEntities(stub, [BAKED]);
-	expect(rowButton("freeze", 3).disabled).toBe(true);
-	expect(rowButton("bake", 3).disabled).toBe(true);
+	for (const verb of ["open", "freeze", "bake", "delete"]) {
+		const button = screen.getByLabelText(
+			new RegExp(`^${verb} entity 3 \\(baked`),
+		) as HTMLButtonElement;
+		expect([verb, button.disabled]).toEqual([verb, true]);
+	}
 });
 
 test("a blocked Open carries its reason in the accessible name, not only a title", () => {
@@ -526,19 +539,28 @@ test("the entity-selection seam styles the row — the read half, from the viewp
 	expect(currentFlags()).toEqual([null, null]);
 });
 
-test("⬇ duplicates through the host, with no confirmation in the way", () => {
+// D-14's glyph map: ⬇ is BAKE, and duplicate is a burger item rather than a row
+// verb (Task 7 binds it to ⌘J). Pinned from the side that would break it — the
+// glyph reads so naturally as "duplicate" that wiring it there is the obvious
+// mistake, and it would be a SILENT one: the row would look right and sever a
+// recipe on click.
+test("the row's ⬇ is BAKE, and duplicate has no row affordance at all", () => {
 	const stub = makeStubHost();
-	showEntities(stub, [ENTITY]);
-	fireEvent.click(rowButton("duplicate", 1));
-	// Additive and one ⌘Z away, so it asks nothing — unlike 🗑 and Bake….
-	expect(stub.calls.duplicateEntity.mock.calls).toEqual([[1]]);
-});
+	let request: ConfirmRequest | null = null;
+	renderPalette(stub, {
+		openConfirm: (r) => {
+			request = r;
+		},
+	});
+	pushEntities(stub, [ENTITY]);
+	fireEvent.click(screen.getByText("Entities (1)"));
+	expect(screen.queryByLabelText(/^duplicate entity/)).toBeNull();
 
-test("⬇ stays live on a frozen or baked row — a copy is a new commit, not an edit", () => {
-	const stub = makeStubHost();
-	showEntities(stub, [FROZEN, BAKED]);
-	expect(rowButton("duplicate", 2).disabled).toBe(false);
-	expect(rowButton("duplicate", 3).disabled).toBe(false);
+	fireEvent.click(rowButton("bake", 1));
+	expect(stub.calls.duplicateEntity).not.toHaveBeenCalled();
+	const pending = request as ConfirmRequest | null;
+	if (pending === null) throw new Error("⬇ did not open the bake confirmation");
+	expect(pending.message).toMatch(/severs the recipe permanently/);
 });
 
 test("🗑 confirms before removing the stamp — cancelling never reaches the host", () => {
@@ -585,24 +607,24 @@ test("🗑 is disabled with its reason on a frozen or baked row", () => {
 	expect(stub.calls.deleteEntity).not.toHaveBeenCalled();
 });
 
-// The Δ badge is a POINTER to the drift report, not a copy of it, and the rule
-// is a chunk-set intersection: the host quantizes each entity's footprint into
-// the SAME space the findings address (the chrome cannot value-import core to do
-// that itself), so a badge appears exactly when the two sets meet.
-test("Δ appears only on rows the standing drift report actually touches", () => {
+// The Δ badge is a POINTER to the drift report, not a copy of it. WHICH rows it
+// lands on is decided host-side and arrives on the drift push (the host owns both
+// the findings' chunk keys and the footprints; the chrome cannot value-import core
+// to quantize either) — so what this file pins is that the badge follows the
+// pushed set exactly, and the intersection RULE is pinned host-side instead, in
+// tests/field-host-entity-verbs.test.ts.
+test("Δ lands on exactly the rows the pushed report names", () => {
 	const stub = makeStubHost();
-	const elsewhere: FieldEntityInfo = {
-		...ENTITY,
-		entityId: 8,
-		footprintChunks: ["9,9,9"],
-	};
+	const elsewhere: FieldEntityInfo = { ...ENTITY, entityId: 8 };
 	showEntities(stub, [ENTITY, elsewhere]);
 	expect(screen.queryByLabelText(/^show drift near entity/)).toBeNull();
 
 	act(() => {
-		stub.fire.drift([{ opId: 12, kind: "drifted", chunks: ["0,0,0"] }]);
+		stub.fire.drift({
+			findings: [{ opId: 12, kind: "drifted", chunks: ["0,0,0"] }],
+			entityIds: [1],
+		});
 	});
-	// Entity 1's footprint covers 0,0,0; entity 8's covers 9,9,9 only.
 	expect(screen.getByLabelText("show drift near entity 1")).toBeTruthy();
 	expect(screen.queryByLabelText("show drift near entity 8")).toBeNull();
 

@@ -4,7 +4,7 @@
 // READ-ONLY params <dl>; clicking again collapses it and leaves the selection
 // standing. F3a added the smart-object verbs beside it: Open starts a
 // reconfigure session (the same staged form a fresh stamp gets), then
-// Freeze/Unfreeze and Bake…. The <dl> stays read-only — it is the record, not
+// freeze/unfreeze and bake. The <dl> stays read-only — it is the record, not
 // the editor; Open is how a row becomes editable, which is also why a FROZEN or
 // BAKED row keeps its params visible while its Open is disabled.
 //
@@ -22,37 +22,66 @@
 //     surfaces — which is also how expanding a row got its viewport box back
 //     after `highlightEntity` was retired (Task 3): the box follows SELECTION
 //     now, and selection is what a row click writes.
-//   - two verbs join the three: ⬇ duplicate and 🗑 delete.
+//   - 🗑 delete joins the row, and bake adopts the mock's ⬇ glyph.
 //   - a Δ badge appears on any row the standing drift report touches, and is a
 //     POINTER to the report rather than a copy of it — the DriftReport section
 //     stays where it is, and the badge scrolls it into view.
 //
-// Verb spelling: the three GLYPH verbs (❄ ⬇ 🗑) are the cockpit mock's row;
-// "Open" and "Bake…" keep their words because the mock relocates them rather
-// than restyling them (Open into the session card, D-13), and inventing glyphs
-// for two verbs that are about to move would be churn with a guess in it. Five
-// controls is over the threshold where a ⋯ menu earns its extra click — revisit
-// when the relocation lands, not before, because the answer depends on what is
-// left. (The original reason for inline buttons — Radix menus not rendering
-// under this package's happy-dom harness — is no longer true: the burger menu is
-// asserted through its content in tests/chrome/shell.test.tsx, once
-// `_register.ts` is imported FIRST so Radix resolves `globalThis.document` at
-// module-evaluation time.)
+// VISUAL-GATE RIDER: the two destructive verbs (⬇ bake, 🗑 delete) carry NO
+// `text-destructive`, where their worded predecessors did. The class had to go
+// rather than move, because a bare emoji renders from the colour-emoji font and
+// ignores `color` outright — so it was styling that did nothing while reading as
+// though it did. Forcing text presentation (a `\uFE0E` variation selector) is
+// unreliable across platforms, so the real answer is an SVG icon set, which is a
+// design decision for the gate rather than a fix to guess at here. Until then the
+// destructive pair is distinguished by its glyphs and its confirmations, not by
+// colour.
 //
-// a11y convention for the row: the five ACTION buttons all carry an aria-label
+// Verb spelling, from the spec rather than from the shape of the code: D-14 maps
+// the row's glyph trio as freeze ❄ / BAKE ⬇ / delete 🗑, and the mock's own
+// caption says those three "stay on the row". So ⬇ is bake — NOT duplicate — and
+// DUPLICATE IS NOT A ROW VERB AT ALL: the mock puts it in the burger
+// (`Duplicate "maze-3"`), which is why there is no ⬇-for-duplicate button below
+// however naturally the glyph reads as one.
+//
+// `FieldHost.duplicateEntity` exists and is tested; it is deliberately menu-only,
+// and F4.5b Task 7 gives it its binding — ⌘J plus an Edit-menu item (the
+// charter's §5 ruling, superseding the mock's ⌘D, which Safari owns as
+// bookmark-this-page). INTERIM GAP, stated the way Task 3 stated its Select-button
+// stopgap: between this task and Task 7 the verb is reachable from tests and from
+// nothing else. That is a gap in reach, not in behaviour.
+//
+// "Open" keeps its word because the mock RELOCATES it rather than restyling it
+// (into the session card, D-13) — inventing a glyph for a control that is about
+// to move would be churn with a guess in it. Four controls, three of them glyphs;
+// whether a ⋯ menu earns its click gets decided when the relocation lands and it
+// is clear what is left. (The original reason for inline buttons — Radix menus
+// not rendering under this package's happy-dom harness — is no longer true: the
+// burger menu is asserted through its content in tests/chrome/shell.test.tsx,
+// once `_register.ts` is imported FIRST so Radix resolves `globalThis.document`
+// at module-evaluation time.)
+//
+// a11y convention for the row: the four ACTION buttons all carry an aria-label
 // naming their verb AND the entity id, because their visible text ("Open", "❄",
 // "🗑") repeats identically on every row — a screen-reader user choosing between
-// ten identically-named buttons cannot tell which stamp they are about to sever.
-// The expand button is the exception and needs no label: its visible text
-// already names the stamp it belongs to.
+// eight identically-named buttons cannot tell which stamp they are about to
+// sever. Every one of them also carries its DISABLED REASON in that label when it
+// has one, because the wrapper `title` a disabled button needs (it swallows
+// pointer events) sits on a non-focusable span that reaches neither a screen
+// reader reliably nor a keyboard user at all. The expand button is the exception
+// and needs no label: its visible text already names the stamp it belongs to.
 import { Fragment, useEffect, useRef, useState } from "react";
 import type { FieldEntityInfo } from "../../../viewport-host/index.ts"; // type-only: erased
 import { cn } from "../../lib/cn.ts";
-// The shared host/chrome rules for what blocks a reconfigure and what blocks a
-// delete. A chrome-side lib module on purpose (see its header): the host imports
-// it, never the reverse.
+// The committed-entity policy vocabulary: one blocked-reason rule per row verb,
+// plus the param renderer the provider's push guard also compares through. A
+// chrome-side lib module on purpose (see its header): the host imports it, never
+// the reverse.
 import {
+	bakeBlockedReason,
 	deleteBlockedReason,
+	formatParam,
+	freezeBlockedReason,
 	openBlockedReason,
 } from "../../lib/field-entity.ts";
 import { CollapsibleSection } from "../CollapsibleSection.tsx";
@@ -82,17 +111,61 @@ const rowSummary = (e: FieldEntityInfo): string =>
 		...e.placed.flatMap((p) => [p.archetypeId, `${p.count} placed`]),
 	].join(" · ");
 
-/** Params are schema-driven primitives (number/boolean/enum string); the
- *  object branch is a robustness fallback, not an expected shape.
- *
- *  Exported because the provider's `sameEntities` push guard compares params
- *  through it: what must not go stale is the STRING this produces, so the guard
- *  and the `<dl>` read the same function rather than two spellings of "render a
- *  param" that can drift apart. */
-export const formatParam = (v: unknown): string =>
-	typeof v === "object" && v !== null ? JSON.stringify(v) : String(v);
-
 const ROW_BUTTON_CLASS = "h-5 px-1.5 text-xs";
+
+/** One row verb's control, with the wrapper a DISABLED button needs: a disabled
+ *  button swallows pointer events, so the mouse tooltip has to ride a span around
+ *  it — and because that span is not focusable, the reason goes in the
+ *  `aria-label` too or a keyboard user never gets it. One component so the four
+ *  verbs cannot drift apart on this again (they did: ❄ and bake shipped bare, and
+ *  bake's tooltip still promised to sever a recipe on a row where it could not).
+ *
+ *  `glyph` renders inside an `aria-hidden` span: the accessible name is the label,
+ *  never the pictograph. */
+function RowVerb(props: {
+	entityId: number;
+	/** The verb, as it appears in the accessible name: `freeze entity 7`. */
+	verb: string;
+	glyph?: string;
+	label?: string;
+	/** Why the verb is unavailable, or null when it is. */
+	blocked: string | null;
+	/** The tooltip when it is NOT blocked. */
+	title: string;
+	className?: string;
+	onClick: () => void;
+}) {
+	const { blocked } = props;
+	return (
+		// The wrapper carries the tooltip ONLY while the button is disabled, which is
+		// the one state that needs it: a disabled button swallows pointer events, so a
+		// `title` on it never fires. An ENABLED button keeps its own, because the
+		// element the user hovers and focuses should be the element that explains
+		// itself — a wrapper span is neither focusable nor hit-tested independently.
+		<span title={blocked ?? undefined}>
+			<Button
+				type="button"
+				size="sm"
+				variant="ghost"
+				className={cn(ROW_BUTTON_CLASS, props.className)}
+				disabled={blocked !== null}
+				title={blocked === null ? props.title : undefined}
+				aria-label={
+					blocked === null
+						? `${props.verb} entity ${props.entityId}`
+						: `${props.verb} entity ${props.entityId} (${blocked})`
+				}
+				onClick={props.onClick}
+			>
+				{props.glyph === undefined ? (
+					props.label
+				) : (
+					<span aria-hidden="true">{props.glyph}</span>
+				)}
+			</Button>
+		</span>
+	);
+}
 
 /** The frozen/baked state chip. Muted, not semantic-coloured: these are states
  *  of a record, not warnings — the disabled Open carries the consequence. The
@@ -122,8 +195,6 @@ export function EntitiesList(props: {
 	onReconfigure: (id: number) => void;
 	/** Flip the entity's frozen flag (host.setEntityFrozen). */
 	onFreeze: (id: number, frozen: boolean) => void;
-	/** Commit a copy beside it (host.duplicateEntity). */
-	onDuplicate: (id: number) => void;
 	/** Request a delete. The PALETTE owns the confirmation — this list never
 	 *  removes a stamp on its own click. */
 	onDelete: (id: number) => void;
@@ -148,20 +219,34 @@ export function EntitiesList(props: {
 
 	// The READ half of the sync: a selection made in the VIEWPORT has to reach a
 	// row that may be scrolled out of the palette, or the two surfaces agree in
-	// state and disagree on screen. `block: "nearest"` scrolls only when the row
-	// is actually out of view. The ref is genuinely nullable — the section is
+	// state and disagree on screen. `block: "nearest"` scrolls only when the row is
+	// actually out of view. The ref is genuinely nullable — the section is
 	// collapsed by default, so there is often no row element at all.
-	// biome-ignore lint/correctness/useExhaustiveDependencies: the ref is re-pointed during the render that `entities` triggers; re-running on a list change is what re-scrolls after a row moves.
+	//
+	// Keyed on the SELECTION alone, deliberately. Adding `entities` would re-scroll
+	// on every entity tick — a commit elsewhere, a freeze on another row, a ⌘Z —
+	// and each one would throw away wherever the user had scrolled this palette to.
+	// What that costs is the case where a row MOVES under a standing selection
+	// (only a delete above it can do that, and only by one row), which is a far
+	// smaller loss than yanking the scroll position out from under someone
+	// mid-read.
 	useEffect(() => {
 		if (selectedId === null) return;
 		selectedRow.current?.scrollIntoView({ block: "nearest" });
-	}, [selectedId, entities]);
+	}, [selectedId]);
 
 	return (
 		<CollapsibleSection
 			title={`Entities (${entities.length})`}
-			// Reference context, not the focus — closed by default. Open-state is
-			// per-mount on purpose: no persistence.
+			// INHERITED from when this was reference context inside FieldPanel, and
+			// now questionable rather than obviously right: D-14 just made it the
+			// layers panel, and a layers panel that starts closed hides the READ half
+			// of the selection sync — pick something in the viewport and nothing
+			// visibly happens until you open a section. Left closed for this task
+			// because the answer belongs with the palette-layout pass (Task 8), which
+			// decides what the controls column opens on and is where a default that
+			// costs vertical space has to be paid for. Open-state stays per-mount
+			// either way: no persistence.
 			defaultOpen={false}
 		>
 			<div className="flex flex-col gap-0.5">
@@ -172,8 +257,6 @@ export function EntitiesList(props: {
 				)}
 				{entities.map((e) => {
 					const expanded = e.entityId === expandedId;
-					const blocked = openBlockedReason(e);
-					const deleteBlocked = deleteBlockedReason(e);
 					const baked = e.baked === true;
 					const frozen = e.frozen === true;
 					const selected = e.entityId === selectedId;
@@ -231,103 +314,53 @@ export function EntitiesList(props: {
 										Δ
 									</Button>
 								)}
-								{/* A bare title (not ReasonTip): a DISABLED button swallows
-								    pointer events, so the mouse tooltip rides the wrapper span.
-								    The reason is ALSO in the aria-label, because that span is
-								    not focusable and a title on it reaches neither a screen
-								    reader reliably nor a keyboard user at all. */}
-								<span title={blocked ?? "reconfigure this stamp"}>
-									<Button
-										type="button"
-										size="sm"
-										variant="ghost"
-										className={ROW_BUTTON_CLASS}
-										disabled={blocked !== null}
-										aria-label={
-											blocked === null
-												? `open entity ${e.entityId}`
-												: `open entity ${e.entityId} (${blocked})`
-										}
-										onClick={() => props.onReconfigure(e.entityId)}
-									>
-										Open
-									</Button>
-								</span>
-								{/* Both verbs refuse a baked entity core-side (a severed recipe
-								    has nothing left to protect and cannot re-bake), so the row
-								    disables rather than reports. */}
-								<Button
-									type="button"
-									size="sm"
-									variant="ghost"
-									className={ROW_BUTTON_CLASS}
-									disabled={baked}
+								<RowVerb
+									entityId={e.entityId}
+									verb="open"
+									label="Open"
+									blocked={openBlockedReason(e)}
+									title="reconfigure this stamp"
+									onClick={() => props.onReconfigure(e.entityId)}
+								/>
+								<RowVerb
+									entityId={e.entityId}
+									verb={frozen ? "unfreeze" : "freeze"}
+									glyph={frozen ? "🔓" : "❄"}
+									blocked={freezeBlockedReason(e)}
 									// The freeze consequence is stated UNCONDITIONALLY rather than
-									// only on the row that has a session open, and it costs
-									// nothing to do so: the sentence is true of every unfrozen
-									// row (the host cancels a session on the entity it freezes),
-									// so the wider phrasing makes the warning no weaker while
-									// leaving this list uncoupled from the session. That
-									// coupling IS available since F4.5b Task 2 — the session is
-									// a shell context (`useFieldStamp`) any surface may read —
-									// and is declined rather than unreachable: a tooltip that
-									// re-renders on every nudge of an unrelated stamp is a poor
-									// trade for one word.
+									// only on the row that has a session open, and it costs nothing
+									// to do so: the sentence is true of every unfrozen row (the host
+									// cancels a session on the entity it freezes), so the wider
+									// phrasing makes the warning no weaker while leaving this list
+									// uncoupled from the session. That coupling IS available since
+									// F4.5b Task 2 — the session is a shell context (`useFieldStamp`)
+									// any surface may read — and is declined rather than unreachable:
+									// a tooltip that re-renders on every nudge of an unrelated stamp
+									// is a poor trade for one word.
 									title={
 										frozen
 											? "allow this stamp to be reconfigured again"
 											: "protect this stamp from reconfigure — ends any reconfigure session open on it"
 									}
-									aria-label={`${frozen ? "unfreeze" : "freeze"} entity ${e.entityId}`}
 									onClick={() => props.onFreeze(e.entityId, !frozen)}
-								>
-									<span aria-hidden="true">{frozen ? "🔓" : "❄"}</span>
-								</Button>
-								{/* Enabled on frozen AND baked rows, unlike every other verb
-								    here, because the copy is a fresh commit from recorded
-								    provenance rather than an edit of the protected record — see
-								    FieldHost.duplicateEntity. No confirmation: it is additive
-								    and ⌘Z is one step. */}
-								<Button
-									type="button"
-									size="sm"
-									variant="ghost"
-									className={ROW_BUTTON_CLASS}
-									title="commit a copy of this stamp beside it"
-									aria-label={`duplicate entity ${e.entityId}`}
-									onClick={() => props.onDuplicate(e.entityId)}
-								>
-									<span aria-hidden="true">⬇</span>
-								</Button>
-								<span title={deleteBlocked ?? "remove this stamp and its ops"}>
-									<Button
-										type="button"
-										size="sm"
-										variant="ghost"
-										className={cn(ROW_BUTTON_CLASS, "text-destructive")}
-										disabled={deleteBlocked !== null}
-										aria-label={
-											deleteBlocked === null
-												? `delete entity ${e.entityId}`
-												: `delete entity ${e.entityId} (${deleteBlocked})`
-										}
-										onClick={() => props.onDelete(e.entityId)}
-									>
-										<span aria-hidden="true">🗑</span>
-									</Button>
-								</span>
-								<Button
-									type="button"
-									size="sm"
-									variant="ghost"
-									className={cn(ROW_BUTTON_CLASS, "text-destructive")}
-									disabled={baked}
+								/>
+								{/* ⬇ is BAKE (D-14's glyph map), not duplicate — see the header. */}
+								<RowVerb
+									entityId={e.entityId}
+									verb="bake"
+									glyph="⬇"
+									blocked={bakeBlockedReason(e)}
 									title="sever this stamp's recipe — permanent"
-									aria-label={`bake entity ${e.entityId}`}
 									onClick={() => props.onBake(e.entityId)}
-								>
-									Bake…
-								</Button>
+								/>
+								<RowVerb
+									entityId={e.entityId}
+									verb="delete"
+									glyph="🗑"
+									blocked={deleteBlockedReason(e)}
+									title="remove this stamp and its ops"
+									onClick={() => props.onDelete(e.entityId)}
+								/>
 							</div>
 							{expanded && (
 								<dl className="grid grid-cols-[auto_1fr] gap-x-3 px-6 py-1 text-xs text-muted-foreground">

@@ -27,8 +27,6 @@ import type {
   MaterialTable,
 } from "@furnace/core/field";
 import {
-  CHUNK_DIM,
-  chunkKey,
   commitGenerator,
   createFieldStore,
   createOpLog,
@@ -40,6 +38,7 @@ import {
   serializeOps,
 } from "@furnace/core/field";
 import type { EntityCatalog } from "../src/frontend/lib/catalog.ts";
+import { LATTICE, latticeClearance } from "../src/frontend/lib/field-brush.ts";
 import type { FieldWorkerRequest } from "../src/frontend/lib/field-protocol.ts";
 import { createFieldWorkerHandler } from "../src/frontend/lib/field-protocol.ts";
 import { generatorFootprint } from "../src/viewport-host/field-ghost.ts";
@@ -246,6 +245,19 @@ test("deleting a scatter takes its props with it, though it dirties NO chunk", (
   const scatterId = ids[1] as number;
   expect(host.propInstanceCounts().get("rock")).toBeGreaterThan(0);
 
+  // The title's premise, asserted rather than merely asserted-about: this entity's
+  // WHOLE span is one `placement` op, and a placement op writes no cells (core's
+  // applyFieldOp returns null for it), so core's delete can only return an EMPTY
+  // dirty set. Without this the case would still pass against a scatter that had
+  // somehow acquired a field-writing op — and would then be proving nothing.
+  const scatter = host.listEntities()[1];
+  if (scatter === undefined) throw new Error("test: no committed scatter");
+  expect(scatter.opSpan[1] - scatter.opSpan[0] + 1).toBe(1);
+  const span = hostOps(host).filter(
+    (o) => o.id >= scatter.opSpan[0] && o.id <= scatter.opSpan[1],
+  );
+  expect(span.map((o) => o.kind)).toEqual(["placement"]);
+
   host.deleteEntity(scatterId);
 
   // Derived from the LOG, which no longer holds the placement op.
@@ -352,12 +364,11 @@ test("deleting an entity with a live reconfigure session on it cancels that sess
 
 // --- duplicateEntity --------------------------------------------------------
 
-/** The +X shift the host is supposed to apply: the footprint's X extent snapped
- *  UP to the 0.5 m lattice, floored at one lattice step. The footprint itself is
- *  core's (pinned in core's own tests) — what this recomputes is the SNAP, so a
- *  host that shifted by the raw extent, or by the region's extent, is caught. */
-const LATTICE_M = 0.5;
-function expectedShift(ops: FieldOp[], entityId: number): number {
+/** The X extent of an entity's footprint, read the way the HOST reads it — through
+ *  `generatorFootprint` with the recorded region as the null fallback. Derived
+ *  rather than hand-computed, which is what lets the premise assertions below
+ *  actually fire: a literal cannot notice that the footprint moved. */
+function footprintExtentX(ops: FieldOp[], entityId: number): number {
   const op = ops.find(
     (o) => o.kind === "entity" && o.entity.entityId === entityId,
   );
@@ -365,12 +376,7 @@ function expectedShift(ops: FieldOp[], entityId: number): number {
     throw new Error("test: no entity op for that id");
   const box =
     generatorFootprint(ops, op.entity, DEFAULT_CELL_SIZE) ?? op.entity.region;
-  const extentX = box.max[0] - box.min[0];
-  const shift = Math.max(LATTICE_M, Math.ceil(extentX / LATTICE_M) * LATTICE_M);
-  // Independent of the footprint's value: the snap is UP, and onto the lattice.
-  expect(shift).toBeGreaterThanOrEqual(extentX);
-  expect(shift % LATTICE_M).toBe(0);
-  return shift;
+  return box.max[0] - box.min[0];
 }
 
 test("duplicateEntity commits a copy shifted +X clear of the original's footprint", () => {
@@ -386,7 +392,11 @@ test("duplicateEntity commits a copy shifted +X clear of the original's footprin
   expect(list).toHaveLength(2);
   const copy = list[1];
   if (copy === undefined) throw new Error("test: no copy");
-  const shift = expectedShift(ops, entityId);
+  // The footprint's extent, read the way the host reads it. This fixture cannot
+  // tell footprint from region (a default hall fills its region along X, so both
+  // measure 5) — the snap-up case below is where that half of the rule is
+  // observable, and it is the one a region-extent shift fails against.
+  const shift = latticeClearance(footprintExtentX(ops, entityId));
   expect(copy.region.min[0]).toBe(original.region.min[0] + shift);
   expect(copy.region.max[0]).toBe(original.region.max[0] + shift);
   // Only X moves — a duplicate is a step sideways, not a re-placement.
@@ -400,16 +410,20 @@ test("duplicateEntity commits a copy shifted +X clear of the original's footprin
   expect(copy.entityId).not.toBe(original.entityId);
 });
 
-// The snap-UP half of the shift rule, and it needs its own fixture: EVERY
-// registry generator's footprint happens to land on the 0.5 m lattice already
-// (a hall's spans whole cells, a sphere of radius 0.75 measures exactly 1.5), so
-// against them `ceil(extent / 0.5) * 0.5` and a raw `extent` shift are the same
-// number and a dropped snap is INVISIBLE — the first version of this suite
-// asserted the snap against a hall and could not go red for it. A hand-written
-// span with an odd radius is the only shape that can observe it, so the case
-// carries its own guard: if a future footprint change lands this on the lattice
-// too, the `not.toBe(0)` fails loudly rather than quietly stopping testing
-// anything.
+// The snap-UP half of the shift rule, and it needs its own fixture: EVERY registry
+// generator's footprint happens to land on the 0.5 m lattice already (a hall's
+// spans whole cells, a sphere of radius 0.75 measures exactly 1.5), so against them
+// `latticeClearance(extent)` and a raw `extent` shift are the SAME NUMBER and a
+// dropped snap is invisible. A hand-written span with an odd radius is the only
+// shape that can observe it.
+//
+// The premise assertion is therefore bound to the DERIVED extent, never to the 1.4
+// anyone can compute from the radius, and that distinction IS the guard: a literal
+// `2 * 0.7` can never fail, so a later change to `opBounds` (snapping brush bounds
+// to cell boundaries, say — plausible, it would make footprints match what the
+// brush writes) would silently move the real extent to 1.5, make a sabotaged host
+// and a correct one agree again, and leave this case green and toothless. Read
+// through `footprintExtentX` it fails loudly instead, which is the point of it.
 test("the +X shift snaps UP: an off-lattice footprint still lands on the grid", () => {
   const host = createFieldHost();
   host.setMaterialTable(TABLE);
@@ -446,9 +460,12 @@ test("the +X shift snaps UP: an off-lattice footprint still lands on the grid", 
     oplog: JSON.stringify(ops),
   });
 
-  const extentX = 2 * 0.7; // the sphere's own bounds — its diameter
-  expect(extentX % LATTICE_M).not.toBe(0); // the case has teeth only while this holds
-  const snapped = Math.ceil(extentX / LATTICE_M) * LATTICE_M;
+  const extentX = footprintExtentX(ops, entityId);
+  const snapped = latticeClearance(extentX);
+  // BOTH premises, on the DERIVED value: the fixture is off-lattice (so snapping is
+  // observable at all) and snapping therefore moves it (so a raw-extent shift is a
+  // different number from the right one).
+  expect(extentX % LATTICE).not.toBe(0);
   expect(snapped).toBeGreaterThan(extentX);
 
   host.duplicateEntity(entityId);
@@ -458,7 +475,7 @@ test("the +X shift snaps UP: an off-lattice footprint still lands on the grid", 
   expect(copy.region.min[0]).toBeCloseTo(region.min[0] + snapped, 10);
   // …and the copy's own min lands ON the lattice, which is the point of snapping
   // rather than merely clearing.
-  expect(copy.region.min[0] % LATTICE_M).toBe(0);
+  expect(copy.region.min[0] % LATTICE).toBe(0);
 });
 
 test("the copy becomes the selected entity", () => {
@@ -576,41 +593,4 @@ test("duplicateEntity on an unknown id reports rather than throwing", () => {
   expect(() => host.duplicateEntity(9999)).not.toThrow();
   expect(errors).toHaveLength(1);
   expect(host.listEntities()).toHaveLength(1);
-});
-
-// --- footprintChunks: the row's Δ badge input --------------------------------
-
-// The drift report addresses findings by CHUNK KEY, and the chrome cannot
-// value-import core to quantize an AABB — so the host has to hand each row its
-// footprint already in that space.
-test("every entity row carries its footprint's chunk keys, in the drift report's space", () => {
-  const host = createFieldHost();
-  const { ops } = loadWorld(host, [HALL]);
-  const info = host.listEntities()[0];
-  if (info === undefined) throw new Error("test: no committed hall");
-
-  const op = ops.find((o) => o.kind === "entity");
-  if (op === undefined || op.kind !== "entity")
-    throw new Error("test: no entity op");
-  const box =
-    generatorFootprint(ops, op.entity, DEFAULT_CELL_SIZE) ?? op.entity.region;
-  const dim = CHUNK_DIM * DEFAULT_CELL_SIZE;
-  const corner = chunkKey(
-    Math.floor(box.min[0] / dim),
-    Math.floor(box.min[1] / dim),
-    Math.floor(box.min[2] / dim),
-  );
-  const far = chunkKey(
-    Math.floor(box.max[0] / dim),
-    Math.floor(box.max[1] / dim),
-    Math.floor(box.max[2] / dim),
-  );
-  expect(info.footprintChunks).toContain(corner);
-  expect(info.footprintChunks).toContain(far);
-  // No duplicates — the badge does a set intersection over this.
-  expect(new Set(info.footprintChunks).size).toBe(info.footprintChunks.length);
-  // A copy per call, like every other field of the record.
-  expect(host.listEntities()[0]?.footprintChunks).not.toBe(
-    info.footprintChunks,
-  );
 });

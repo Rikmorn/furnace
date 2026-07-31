@@ -22,7 +22,6 @@
 // throw-vs-default call with the reason for it. `subscribeToolError` is the one seam with
 // no context of its own — its message goes straight to the toast stack, and the only state
 // it releases (an in-flight verify) lives in this same file now.
-import type { DriftFinding } from "@furnace/core/field"; // type-only: erased
 import type { ReactNode } from "react";
 import {
 	createContext,
@@ -34,6 +33,7 @@ import {
 } from "react";
 import type {
 	CameraPose,
+	FieldDriftReport,
 	FieldEntityInfo,
 	FieldHost,
 	FieldMaskChoice,
@@ -45,11 +45,10 @@ import type {
 	SelectionInfo,
 	StampSession,
 } from "../../viewport-host/index.ts"; // type-only: erased
-// The ROW's own param renderer, so the push guard below compares exactly the
-// string the `<dl>` shows (see `sameParams`). A value import of a component
-// module from a hook is unusual and deliberate: two spellings of "render a
-// param" is precisely the drift this guard exists to prevent.
-import { formatParam } from "../components/field/EntitiesList.tsx";
+// The row's own param renderer, so the push guard below compares exactly the
+// string the `<dl>` shows (see `sameParams`) — one function, so a row and its
+// guard cannot disagree about what "same param" means.
+import { formatParam } from "../lib/field-entity.ts";
 import { notify } from "../lib/notify-store.ts";
 
 /** Value-equality for the subscribeStats push guard (the host fires it every rAF; an
@@ -147,13 +146,6 @@ const sameParams = (
 	);
 };
 
-/** The chunk sets behind the row's drift badge. Index-wise for `samePlaced`'s
- *  reason and one more: the host builds these by walking a chunk box in a fixed
- *  order, so two equal sets ALWAYS arrive in the same order — an order change is
- *  a real change, never noise. */
-const sameChunks = (a: readonly string[], b: readonly string[]): boolean =>
-	a.length === b.length && a.every((k, i) => k === b[i]);
-
 const sameEntities = (
 	a: readonly FieldEntityInfo[],
 	b: readonly FieldEntityInfo[],
@@ -170,9 +162,8 @@ const sameEntities = (
 		//
 		// The two voided below are deliberate non-compares: `type` is the constant
 		// literal "generator", and `region` is never rendered by a row (the emphasis
-		// box is drawn from the HOST's own record, off an id — and `footprintChunks`,
-		// which IS compared, moves whenever a region move is large enough to change
-		// which chunks the stamp covers).
+		// box is drawn from the HOST's own record, off an id, and the drift badge off
+		// the drift push — no row reads a region).
 		const {
 			entityId,
 			type,
@@ -184,7 +175,6 @@ const sameEntities = (
 			frozen,
 			baked,
 			placed,
-			footprintChunks,
 			...rest
 		} = e;
 		void (rest satisfies Record<string, never>);
@@ -199,8 +189,7 @@ const sameEntities = (
 			frozen === o.frozen &&
 			baked === o.baked &&
 			samePlaced(placed, o.placed) &&
-			sameParams(params, o.params) &&
-			sameChunks(footprintChunks, o.footprintChunks)
+			sameParams(params, o.params)
 		);
 	});
 
@@ -272,8 +261,14 @@ export type FieldHostState = {
  *  re-stamp disturbed) read by one surface, the entities palette. */
 export type FieldEntitiesState = {
 	entities: readonly FieldEntityInfo[];
-	/** null = clean / none. The report is HOST state: dismiss goes through the host. */
-	drift: DriftFinding[] | null;
+	/** null = clean / none. The report is HOST state: dismiss goes through the host.
+	 *  Carries its own `entityIds` — see `driftedIds`. */
+	drift: FieldDriftReport | null;
+	/** The rows that wear a drift badge, as a set for the row-by-row lookup that
+	 *  reads it. The MEMBERSHIP is the host's answer (it owns both the findings'
+	 *  chunk keys and the footprints, and the chrome cannot value-import core to
+	 *  quantize either) — all that happens here is array → Set. */
+	driftedIds: ReadonlySet<number>;
 };
 
 /** The armed brush, and the radius it strokes with. Read-write in one context rather
@@ -353,14 +348,17 @@ const CameraPoseContext = createContext<CameraPose>({ yaw: 0, pitch: 0 });
 const FieldEntitiesContext = createContext<FieldEntitiesState | null>(null);
 
 /** Which entity is selected, CLICK-paced and kept apart from the entity list beside it.
- *  Both are user-driven, but they move on different events and by an order of magnitude:
- *  the list moves when someone COMMITS, the selection moves on every `pointer` click in
- *  the viewport — including the ones that land on bare terrain and select nothing. Folded
- *  into FieldEntitiesState, a click on empty space would re-render the drift report and
- *  every row's summary; kept apart, the rows re-read only their own `selected` flag. It is
- *  also the context with readers OUTSIDE the palette coming (the move gizmo, the session
- *  card), which is the same "get the shape right before the consumers arrive" the four
- *  below were built on.
+ *
+ *  The split pays NOTHING today, and saying so is the honest version: the entities palette
+ *  is currently the only reader and it consumes BOTH contexts, so a selection change
+ *  re-renders it — list, rows and drift report — exactly as it would if the id rode
+ *  `FieldEntitiesState`. What the split is for is the readers arriving next, which read
+ *  the selection and not the list: Task 5's move verbs (the selected entity is what they
+ *  translate) and Task 10's session card. That is the same "get the shape right before the
+ *  consumers arrive, not after" the four contexts below were built on, and cadence is the
+ *  axis for their reason too — the list moves when someone COMMITS, the selection when
+ *  someone CLICKS a different object, and those are not the same event however similar
+ *  their rate. No measurement has been taken of either, and none is claimed.
  *
  *  Throws outside the provider, and the reason is specific to this value rather than
  *  borrowed: `null` is a REAL member of its domain — it means "nothing is selected" — so
@@ -500,7 +498,7 @@ export function FieldHostStateProvider({
 	const [stats, setStats] = useState<FieldStats | null>(null);
 	const [pose, setPose] = useState<CameraPose>({ yaw: 0, pitch: 0 });
 	const [entities, setEntities] = useState<readonly FieldEntityInfo[]>([]);
-	const [drift, setDrift] = useState<DriftFinding[] | null>(null);
+	const [drift, setDrift] = useState<FieldDriftReport | null>(null);
 	const [selectedEntityId, setSelectedEntityId] = useState<number | null>(null);
 	const [tool, setToolState] = useState<FieldTool>(DEFAULT_TOOL);
 	const [radius, setRadiusState] = useState(DEFAULT_RADIUS);
@@ -715,7 +713,15 @@ export function FieldHostStateProvider({
 
 	const value = useMemo<FieldHostState>(() => ({ stats }), [stats]);
 	const entityValue = useMemo<FieldEntitiesState>(
-		() => ({ entities, drift }),
+		() => ({
+			entities,
+			drift,
+			// Array → Set, and nothing else: the host decided the membership. Built
+			// here rather than pushed as a Set so the seam stays plain JSON-shaped
+			// data (every other host push is), and rebuilt only when the report
+			// itself changes — which is what makes it safe to hand to a row lookup.
+			driftedIds: new Set(drift?.entityIds ?? []),
+		}),
 		[entities, drift],
 	);
 	const entitySelectionValue = useMemo<FieldEntitySelectionState>(

@@ -62,9 +62,36 @@ function brushDepth(t: BrushTargetInput, radius: number): number {
 
 /** The built-kit lattice step, in metres — the grid every region snap, nudge and
  *  kit-fill box in the editor lands on. Exported because the host offsets a
- *  duplicated entity onto this same lattice (`duplicateEntity`), and a second
- *  0.5 sitting there would be a constant free to drift away from this one. */
+ *  duplicated entity onto this same lattice ({@link latticeClearance}), and a
+ *  second 0.5 sitting there would be a constant free to drift away from this
+ *  one. */
 export const LATTICE = 0.5;
+
+/**
+ * The smallest lattice-aligned distance that CLEARS `extent` — `extent` snapped
+ * UP to the 0.5 m lattice, floored at one whole step.
+ *
+ * `FieldHost.duplicateEntity`'s +X offset: a copy shifted by exactly its own
+ * footprint extent would abut the original off-grid, and a copy shifted by zero
+ * (a footprint with no extent along the axis) would sit on top of it. Snapping
+ * up answers both, and lands the copy's region on the grid the stamp UI works
+ * in — the same lattice `snapSpan` puts a selection on.
+ *
+ * A pure lattice rule rather than an inline expression in the host, so the
+ * behaviour a test asserts is the rule itself and not a re-derivation of it (the
+ * arithmetic reads identically whether or not the snap is there, whenever
+ * `extent` already happens to sit on the lattice — which is true of every
+ * registry generator's own footprint).
+ *
+ * @param extent - A non-negative distance in metres. Negative input is treated
+ *   as zero: the result is a CLEARANCE, and there is no such thing as a negative
+ *   one — callers derive `extent` from `max − min` on an AABB, which cannot be
+ *   negative, so this is a total-function guard rather than a reachable branch.
+ * @returns A positive multiple of {@link LATTICE}, always `>= extent`.
+ */
+export function latticeClearance(extent: number): number {
+  return Math.max(LATTICE, Math.ceil(Math.max(0, extent) / LATTICE) * LATTICE);
+}
 
 /**
  * One axis span of two world coords, snapped OUTWARD to the 0.5 m built-kit

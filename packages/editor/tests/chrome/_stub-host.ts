@@ -18,11 +18,11 @@
 // allowed here — and using the REAL helper is the point: the stub then goes stale
 // exactly when the production host would.
 import { mock } from "bun:test";
-import type { DriftFinding } from "@furnace/core/field";
 import type { EntityCatalog } from "../../src/frontend/lib/catalog.ts";
 import { withArchetypeOptions } from "../../src/viewport-host/field-placements.ts";
 import type {
   CameraPose,
+  FieldDriftReport,
   FieldEntityInfo,
   FieldGeneratorInfo,
   FieldHost,
@@ -89,7 +89,7 @@ export function makeStubHost(
     selection: ((i: SelectionInfo | null) => void) | null;
     toolError: ((msg: string) => void) | null;
     entities: (() => void) | null;
-    drift: ((r: DriftFinding[] | null) => void) | null;
+    drift: ((r: FieldDriftReport | null) => void) | null;
     flags: ((s: FlagsSummary) => void) | null;
     entitySelection: ((entityId: number | null) => void) | null;
   } = {
@@ -376,8 +376,10 @@ export function makeStubHost(
         cbs.entities();
         return true;
       },
-      /** A drift report push. */
-      drift: (r: DriftFinding[] | null): boolean => {
+      /** A drift report push. The host derives `entityIds` (which rows wear a
+       *  badge) at push time from the footprints, so a test states it directly —
+       *  the intersection itself is the HOST's and is pinned host-side. */
+      drift: (r: FieldDriftReport | null): boolean => {
         if (cbs.drift === null) return false;
         cbs.drift(r);
         return true;
