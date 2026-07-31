@@ -8,14 +8,20 @@ export type OrbitState = {
   pitch: number;
 };
 
-const MIN_DISTANCE = 0.05;
 const PITCH_LIMIT = Math.PI / 2 - 0.01; // avoid pole flip
-const ZOOM_SCALE = 0.1;
 // Dolly (scroll-travel) step per wheel notch: a fraction of the current view
 // distance so it scales with the scene, floored so a tight framing still travels —
 // it never crawls to a stop the way distance-scaled orbit zoom does.
 const DOLLY_FRACTION = 0.15;
 const DOLLY_MIN_STEP = 0.15;
+/** How much room {@link frameBox} gives what it framed: the box's longest edge
+ *  times this is the view distance. At the editor's 60° vertical FOV a cube-ish
+ *  box then spans ~31° of the 60°, i.e. about half the frame height — framed
+ *  with margin rather than touching the edges. */
+const FRAME_FIT = 1.8;
+/** Floor on a framed distance, in metres. Without it a single-voxel selection
+ *  fits to under half a metre and puts the eye inside the geometry it framed. */
+const FRAME_MIN_DISTANCE_M = 2;
 
 /** Clamp a pitch to just inside ±90° so the spherical rig never reaches the pole. */
 function clampPitch(pitch: number): number {
@@ -34,18 +40,66 @@ function sphericalDir(yaw: number, pitch: number): V3 {
   return [cp * Math.sin(yaw), Math.sin(pitch), cp * Math.cos(yaw)];
 }
 
-/** Return a new state with yaw/pitch adjusted. Pitch is clamped away from ±90°. */
-export function orbit(s: OrbitState, dYaw: number, dPitch: number): OrbitState {
-  return { ...s, yaw: s.yaw + dYaw, pitch: clampPitch(s.pitch + dPitch) };
+/** The camera's orthonormal frame for a (yaw, pitch): view-forward, screen-right
+ *  (kept horizontal, well-defined while |pitch| < 90° — which {@link clampPitch}
+ *  guarantees) and the up that completes them. */
+function basis(yaw: number, pitch: number): { f: V3; r: V3; u: V3 } {
+  const dir = sphericalDir(yaw, pitch);
+  const f: V3 = [-dir[0], -dir[1], -dir[2]];
+  const r = normalized([-f[2], 0, f[0]]);
+  const u: V3 = [
+    r[1] * f[2] - r[2] * f[1],
+    r[2] * f[0] - r[0] * f[2],
+    r[0] * f[1] - r[1] * f[0],
+  ];
+  return { f, r, u };
 }
 
-/** Return a new state with distance scaled by exp(delta). Always positive. */
-export function zoom(s: OrbitState, delta: number): OrbitState {
-  const distance = Math.max(
-    MIN_DISTANCE,
-    s.distance * Math.exp(delta * ZOOM_SCALE),
-  );
-  return { ...s, distance };
+/**
+ * Orbit about an arbitrary world `pivot`, holding the pivot where it is ON SCREEN.
+ *
+ * The yaw/pitch deltas are the same ones {@link flyLook} takes, and the pitch is
+ * clamped the same way — the difference is where the rig ends up. `flyLook` pins
+ * the EYE and swings the view; this pins the PIVOT and swings the whole rig
+ * around it, so the thing being orbited neither drifts across the frame nor
+ * jumps when the drag starts.
+ *
+ * It works by reading the pivot's coordinates in the camera's own frame, turning
+ * the frame, and placing the eye so those coordinates come out unchanged —
+ * which is what "the same pixel" means. `distance` is preserved and `target`
+ * lands wherever the new view direction puts it.
+ *
+ * Passing the state's OWN target as the pivot reduces to a plain yaw/pitch turn
+ * with the target untouched (the pivot is then `distance` straight ahead, and
+ * that is exactly where it is put back) — which is why there is no separate
+ * `orbit`.
+ */
+export function orbitAbout(
+  s: OrbitState,
+  pivot: V3,
+  dYaw: number,
+  dPitch: number,
+): OrbitState {
+  const { eye } = toEyeTarget(s);
+  const rel: V3 = [pivot[0] - eye[0], pivot[1] - eye[1], pivot[2] - eye[2]];
+  const before = basis(s.yaw, s.pitch);
+  // The pivot in camera coordinates — the triple that has to survive the turn.
+  const cr = rel[0] * before.r[0] + rel[1] * before.r[1] + rel[2] * before.r[2];
+  const cu = rel[0] * before.u[0] + rel[1] * before.u[1] + rel[2] * before.u[2];
+  const cf = rel[0] * before.f[0] + rel[1] * before.f[1] + rel[2] * before.f[2];
+  const yaw = s.yaw + dYaw;
+  const pitch = clampPitch(s.pitch + dPitch);
+  const after = basis(yaw, pitch);
+  const target: V3 = [0, 0, 0];
+  for (let i = 0; i < 3; i++) {
+    const axis = i as 0 | 1 | 2;
+    // eye = pivot − (the same camera-space offset, re-expressed in the new frame)
+    const eyeI =
+      pivot[axis] -
+      (cr * after.r[axis] + cu * after.u[axis] + cf * after.f[axis]);
+    target[axis] = eyeI + s.distance * after.f[axis];
+  }
+  return { target, distance: s.distance, yaw, pitch };
 }
 
 /**
@@ -62,31 +116,60 @@ export function dolly(s: OrbitState, direction: number): OrbitState {
 }
 
 /**
- * Return a new state with the target panned in the screen-right/up plane.
- * `right` and `up` are world-space camera axes; `speed` scales by distance so
- * panning is proportional to how close the camera is.
+ * Frame a metre AABB: pivot on its centre and back off far enough to see it,
+ * keeping the orientation the user is looking from. A FIT, not a flight — yaw
+ * and pitch are untouched, so framing shows the thing from where you already
+ * were rather than resetting the view.
+ *
+ * The distance is the box's longest edge × {@link FRAME_FIT}, floored at
+ * {@link FRAME_MIN_DISTANCE_M} so a one-voxel box cannot put the eye inside it.
  */
-export function pan(
-  s: OrbitState,
-  dx: number,
-  dy: number,
-  right: V3,
-  up: V3,
-  speed: number,
-): OrbitState {
-  const k = speed * s.distance;
+export function frameBox(s: OrbitState, box: { min: V3; max: V3 }): OrbitState {
   const target: V3 = [
-    s.target[0] - right[0] * dx * k + up[0] * dy * k,
-    s.target[1] - right[1] * dx * k + up[1] * dy * k,
-    s.target[2] - right[2] * dx * k + up[2] * dy * k,
+    (box.min[0] + box.max[0]) / 2,
+    (box.min[1] + box.max[1]) / 2,
+    (box.min[2] + box.max[2]) / 2,
   ];
-  return { ...s, target };
+  const longest = Math.max(
+    box.max[0] - box.min[0],
+    box.max[1] - box.min[1],
+    box.max[2] - box.min[2],
+  );
+  return {
+    ...s,
+    target,
+    distance: Math.max(FRAME_MIN_DISTANCE_M, longest * FRAME_FIT),
+  };
+}
+
+/**
+ * Snap to an axis-aligned view. `sign: 1` puts the EYE on the POSITIVE side of
+ * `axis` looking back at the pivot, `-1` on the negative side — the convention
+ * the corner triad's tips are labelled with, so clicking the tip marked +X sends
+ * the camera to +X.
+ *
+ * Target and distance are the user's framing and survive the snap; only the
+ * angles move. The two Y views land one hundredth of a radian off the pole (the
+ * shared pitch clamp) and KEEP the current yaw, because yaw is undefined
+ * straight up — a top view that also spun the horizon would be a second change
+ * nobody asked for.
+ */
+export function axisView(
+  s: OrbitState,
+  axis: "x" | "y" | "z",
+  sign: 1 | -1,
+): OrbitState {
+  if (axis === "y") return { ...s, pitch: clampPitch((sign * Math.PI) / 2) };
+  // Target→eye is sphericalDir(yaw, 0) = [sin yaw, 0, cos yaw]: +Z at yaw 0,
+  // +X at yaw +90°.
+  const yaw = axis === "x" ? (sign * Math.PI) / 2 : sign === 1 ? 0 : Math.PI;
+  return { ...s, yaw, pitch: 0 };
 }
 
 /**
  * Fly-look: rotate the view by yaw/pitch deltas with the EYE held fixed
- * (recomputing the target) — the inverse of {@link orbit}, which holds the
- * target and swings the eye. Distance is preserved and pitch is clamped. Drives
+ * (recomputing the target) — the inverse of {@link orbitAbout}, which holds a
+ * pivot and swings the rig. Distance is preserved and pitch is clamped. Drives
  * RMB-hold flythrough, where the camera pivots about its own position.
  */
 export function flyLook(
@@ -120,12 +203,8 @@ export function flyMove(
   move: { f: number; r: number; u: number },
   speed: number,
 ): OrbitState {
-  // View-forward (eye→target) is the negated target→eye offset direction.
-  const dir = sphericalDir(s.yaw, s.pitch);
-  const forward: V3 = [-dir[0], -dir[1], -dir[2]];
-  // Right = forward × worldUp, kept horizontal; well-defined while |pitch| < 90°.
+  const { f: forward, r: right } = basis(s.yaw, s.pitch);
   const worldUp: V3 = [0, 1, 0];
-  const right = normalized([-forward[2], 0, forward[0]]);
   const target: V3 = [
     s.target[0] +
       (forward[0] * move.f + right[0] * move.r + worldUp[0] * move.u) * speed,
@@ -146,15 +225,4 @@ export function toEyeTarget(s: OrbitState): { eye: V3; target: V3; up: V3 } {
     s.target[2] + s.distance * dir[2],
   ];
   return { eye, target: s.target, up: [0, 1, 0] };
-}
-
-/** Initialize an orbit state from a camera's eye position and look target. */
-export function fromEyeTarget(eye: V3, target: V3): OrbitState {
-  const dx = eye[0] - target[0];
-  const dy = eye[1] - target[1];
-  const dz = eye[2] - target[2];
-  const distance = Math.max(MIN_DISTANCE, Math.hypot(dx, dy, dz));
-  const pitch = Math.asin(Math.max(-1, Math.min(1, dy / distance)));
-  const yaw = Math.atan2(dx, dz);
-  return { target, distance, yaw, pitch };
 }

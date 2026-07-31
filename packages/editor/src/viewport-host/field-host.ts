@@ -43,9 +43,13 @@ import type { WireBucket } from "../frontend/lib/field-protocol.ts";
 import { deriveSizeDefaults } from "../frontend/lib/field-size.ts";
 import { boxEdges } from "./box-edges.ts";
 import {
+  axisView,
+  dolly,
   flyLook,
   flyMove,
+  frameBox,
   type OrbitState,
+  orbitAbout,
   toEyeTarget,
 } from "./camera-control.ts";
 import {
@@ -800,6 +804,38 @@ export type FieldHost = {
    *  distance are kept). No-op on the camera before init (no `cam` yet), but it
    *  still moves the stored orbit target so the first frame lands framed. */
   frameChunks(chunks: readonly field.ChunkKey[]): void;
+  /** Frames what is selected — the `F` key's verb, and a FIT rather than a
+   *  re-centre: it moves the orbit pivot to the selection's centre AND pulls the
+   *  distance in to the box's longest edge, keeping the angle the user is
+   *  looking from ({@link frameChunks} moves the pivot alone).
+   *
+   *  What it frames, in order: the selected ENTITY's stamped footprint
+   *  ({@link selectEntity}), else the cell selection's AABB
+   *  ({@link SelectionInfo.aabb}), else nothing at all. The entity wins because
+   *  the two selections are independent state and both can stand at once — the
+   *  one the user last acted on is the object one.
+   *
+   *  With neither selected this is a complete NO-OP: no camera write and no
+   *  {@link subscribeCameraPose} push. Framing "everything" instead would be a
+   *  different verb, and one that flies the user somewhere they did not ask to go.
+   *
+   *  A CUT, not a tween — the editor has no camera animation, and this shares
+   *  that stance with every other camera path (see the class comment on the
+   *  camera verbs in the implementation). */
+  frameSelection(): void;
+  /** Snaps to an axis-aligned view: `sign: 1` puts the EYE on the POSITIVE side
+   *  of `axis` looking back at the pivot, `-1` on the negative side. The corner
+   *  triad's six tips are this verb, and they are labelled with the same
+   *  convention — the tip marked +X sends the camera to +X.
+   *
+   *  The FRAMING is untouched: pivot and distance are whatever the user last
+   *  arranged, so a snap re-angles the current view rather than resetting it.
+   *  Needs no selection — it is a view verb.
+   *
+   *  The two Y views land one hundredth of a radian off the pole (the same
+   *  clamp the look drag uses, which is what keeps the up vector defined) and
+   *  KEEP the current yaw, because yaw means nothing straight up. */
+  snapView(axis: "x" | "y" | "z", sign: 1 | -1): void;
   /** Subscribes to "the entity list may have changed" — a bare TICK, not a
    *  value: the subscriber re-reads {@link listEntities} itself (the records are
    *  clones; pushing them would clone on every fire whether or not anything
@@ -1524,8 +1560,13 @@ export function createFieldHost(deps?: {
     pitch: 0.5,
   };
   const keys = new Set<string>();
-  // RMB-drag look state (null when not looking).
-  let look: { lastX: number; lastY: number } | null = null;
+  // RMB-drag camera state (null when the button is up). `pivot` LATCHES which of
+  // the two drags this is, decided once at the press: a world point = orbit
+  // about it, null = fly-look. Latched rather than re-derived per move so the
+  // gesture cannot change under the user's hand — selecting something else,
+  // deleting the entity, or disarming the pointer tool mid-drag all leave the
+  // drag that is running exactly as it started.
+  let look: { lastX: number; lastY: number; pivot: Vec3T | null } | null = null;
 
   // Reference grid — world-static, so both batches are built once and reused.
   const gridSegments = buildGridLines();
@@ -1550,7 +1591,15 @@ export function createFieldHost(deps?: {
   // whoever is drawing the orientation triad. The publish sits ABOVE the camera
   // guard on purpose: every path that moves the orbit ends here, and a pose change
   // is just as true before the GPU exists as after it.
+  //
+  // Being the ONE place every camera path ends is also why a live move's anchor
+  // is retired here (see reaimMove): the anchor is a world point read under the
+  // old view, and it goes stale for a fly step, a wheel dolly and an `F` framing
+  // exactly as it does for a look drag. Retiring it at each of those call sites
+  // instead is how one of them ends up forgotten. Inert while no move is in
+  // flight, which is every call before F4.5b's move sessions existed.
   const applyOrbit = (): void => {
+    reaimMove();
     cameraPoseCb?.({ yaw: orbitState.yaw, pitch: orbitState.pitch });
     if (!cam) return;
     const { eye, target, up } = toEyeTarget(orbitState);
@@ -3046,6 +3095,55 @@ export function createFieldHost(deps?: {
       g.tol,
       g.inner,
     );
+  };
+
+  // --- camera verbs -------------------------------------------------------
+  //
+  // Both CUT rather than tween, and deliberately: the host has no camera
+  // animation and adding one here would need a per-frame tween arbitrating with
+  // the fly keys, the look drag, the wheel and a live move's anchor — every one
+  // of those an interruption rule of its own. It would also have to honour
+  // `prefers-reduced-motion`, which the host cannot read (it touches no `window`;
+  // the CHROME can). `frameChunks` has always cut, so cutting is also what keeps
+  // the editor's two framing verbs behaving the same way.
+
+  // The centre of the selected entity's footprint, or null when there is nothing
+  // to pivot on. Gated on the POINTER tool for the gizmo's reason: with a brush
+  // armed the selection is not what the user is working on, and a right-drag
+  // that suddenly orbits something they are not looking at is a surprise.
+  const orbitPivot = (): Vec3T | null => {
+    if (gesture !== "pointer" || selectedEntityId === null) return null;
+    const box = entityFootprints().get(selectedEntityId);
+    if (box === undefined) return null;
+    return [
+      (box.min[0] + box.max[0]) / 2,
+      (box.min[1] + box.max[1]) / 2,
+      (box.min[2] + box.max[2]) / 2,
+    ];
+  };
+
+  // The box `F` frames: the selected ENTITY's footprint, else the CELL
+  // selection's AABB, else nothing. Entity first because both selections can
+  // stand at once and the object one is what a `pointer` click just wrote.
+  const frameTargetBox = (): { min: Vec3T; max: Vec3T } | null => {
+    const box =
+      selectedEntityId === null
+        ? undefined
+        : entityFootprints().get(selectedEntityId);
+    if (box !== undefined) return box;
+    return selection === null ? null : selectionAabb(selection);
+  };
+
+  const frameSelection = (): void => {
+    const box = frameTargetBox();
+    if (box === null) return; // no camera write, and no pose push either
+    orbitState = frameBox(orbitState, box);
+    applyOrbit();
+  };
+
+  const snapView = (axis: Axis, sign: 1 | -1): void => {
+    orbitState = axisView(orbitState, axis, sign);
+    applyOrbit();
   };
 
   // Select one entity, or NOTHING — the single mutator of the entity selection,
@@ -4659,7 +4757,7 @@ export function createFieldHost(deps?: {
       applyTool(e.clientX, e.clientY);
       canvasEl?.setPointerCapture(e.pointerId);
     } else if (e.button === 2) {
-      look = { lastX: e.clientX, lastY: e.clientY };
+      look = { lastX: e.clientX, lastY: e.clientY, pivot: orbitPivot() };
       canvasEl?.setPointerCapture(e.pointerId);
     }
   };
@@ -4671,7 +4769,14 @@ export function createFieldHost(deps?: {
       const dy = e.clientY - look.lastY;
       look.lastX = e.clientX;
       look.lastY = e.clientY;
-      orbitState = flyLook(orbitState, -dx * LOOK_SPEED, -dy * LOOK_SPEED);
+      const dYaw = -dx * LOOK_SPEED;
+      const dPitch = -dy * LOOK_SPEED;
+      // The SAME angles either way, so the view turns the direction the hand
+      // moved in both drags; the pivot decides what stays still while it does.
+      orbitState =
+        look.pivot === null
+          ? flyLook(orbitState, dYaw, dPitch)
+          : orbitAbout(orbitState, look.pivot, dYaw, dPitch);
       applyOrbit();
       return;
     }
@@ -4736,10 +4841,7 @@ export function createFieldHost(deps?: {
       pendingMove = null;
     }
     digging = false;
-    if (look !== null) {
-      look = null;
-      reaimMove(); // the camera turned under a live move — retire its anchor
-    }
+    look = null; // the anchor a turned camera invalidated was retired in applyOrbit
     canvasEl?.releasePointerCapture(e.pointerId);
   };
 
@@ -4757,11 +4859,26 @@ export function createFieldHost(deps?: {
   // (see the lastPointer declaration comment). A move drag does not need one
   // either: it takes pointer capture, so the events keep arriving.
 
+  // The wheel is TWO bindings on one input, split by what LMB is armed to do.
+  // Under `pointer` — which selects and moves rather than paints — there is no
+  // brush to resize, so the notches travel the camera instead; under everything
+  // else (the brush, `segment`, the cell-selection gestures) they are the brush
+  // radius they have always been. One notch away from the user = forward /
+  // bigger, in both.
   const onWheel = (e: WheelEvent): void => {
     e.preventDefault();
-    digRadius = clampRadius(
-      digRadius - Math.sign(e.deltaY) * RADIUS_WHEEL_STEP,
-    );
+    const notches = -Math.sign(e.deltaY);
+    // A purely horizontal wheel (deltaY 0 — a trackpad's sideways scroll) means
+    // neither binding. Returning is not just an optimisation: falling through
+    // would publish a pose for a camera that did not move, and retire a live
+    // move's anchor on the strength of it.
+    if (notches === 0) return;
+    if (gesture === "pointer") {
+      orbitState = dolly(orbitState, notches);
+      applyOrbit();
+      return;
+    }
+    digRadius = clampRadius(digRadius + notches * RADIUS_WHEEL_STEP);
   };
 
   const onContextMenu = (e: Event): void => {
@@ -4794,8 +4911,9 @@ export function createFieldHost(deps?: {
       // Scoped to THIS branch on purpose: the canvas owns the ⌘Z chord and
       // nothing else the global listener binds. ⌘S should still reach the window
       // while the field has focus, so blanket-stopping would change a second
-      // behaviour to fix one. (The bare keys F and ⌫ are unbound app-side and
-      // unhandled here, so they propagate to nothing either way.)
+      // behaviour to fix one. (The bare `F` is handled below and bound to
+      // nothing app-side, so it never reaches the window listener to collide;
+      // ⌫ is unbound in both places and propagates to nothing either way.)
       e.stopPropagation();
       stepHistory(e.shiftKey);
       return;
@@ -4859,6 +4977,16 @@ export function createFieldHost(deps?: {
         rotateStampSession();
         return;
       }
+      return;
+    }
+    // F frames the selection. Canvas-owned rather than an app action for the
+    // reason R is: it moves the VIEWPORT's camera, and there is nothing to frame
+    // unless the viewport is what you are working in. Same three-modifier guard
+    // as R — ⌘F and ctrl+F are the browser's find, and Alt is the pointer path's
+    // eyedropper modifier. Not a fly key, so returning starves nothing.
+    if (k === "f" && !e.metaKey && !e.ctrlKey && !e.altKey) {
+      e.preventDefault();
+      frameSelection();
       return;
     }
     // [ / ] step the brush radius (same clamp as the wheel); key-repeat is the
@@ -5664,6 +5792,8 @@ export function createFieldHost(deps?: {
       // camera — applyOrbit guards on `cam`, and there is none yet.
       applyOrbit();
     },
+    frameSelection,
+    snapView,
     subscribeEntities(cb) {
       entitiesCb = cb;
       cb(); // initial catch-up: the world may already hold entities

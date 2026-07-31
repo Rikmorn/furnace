@@ -338,8 +338,13 @@ M5A has `revertEntity` (rebuilds from committed doc) but **no `revertSettings`**
 > **`viewport-host/gizmo.ts` was PROMOTED by F4.5b Task 5** and is live again —
 > the FIELD host's translate gizmo calls `pickAxis`, `closestPointParamOnAxis` and
 > `isViewParallel`. Read its own TSDoc, not §11.4 below, for the current contract:
-> `pickAxis` gained an `innerLen` dead zone at the gizmo origin. `camera-control.ts`'s
-> `orbit`/`zoom`/`dolly`/`pan` are still callerless retirement candidates.
+> `pickAxis` gained an `innerLen` dead zone at the gizmo origin. **`camera-control.ts`
+> was resolved by F4.5b Task 6**, and the split went the other way from the plan's
+> guess: `dolly` is live (the wheel under the `pointer` tool), `orbit` was SUBSUMED by
+> a new `orbitAbout(s, pivot, dYaw, dPitch)` that holds a pivot fixed on screen, and
+> `orbit`, `zoom`, `pan` and `fromEyeTarget` are DELETED. `frameBox` and `axisView`
+> joined it for `F` and the triad's snap views. Every export in that file now has a
+> caller in `field-host.ts`; §11.2 below describes the module as M5B left it.
 
 
 M5B landed the full manipulation loop: GPU-id picking, AABB selection highlight, translate gizmo, orbit/pan/zoom camera, NumberField drag-scrub, focused-input echo-guard, settings-revert, and three M5A inspector papercuts (⑩⑪⑫). This section documents the as-built additions to the M5A substrate.
@@ -360,7 +365,7 @@ M5B landed the full manipulation loop: GPU-id picking, AABB selection highlight,
 
 ### 11.2 Editor orbit camera
 
-`viewport-host/camera-control.ts` implements a **spherical orbit camera** as the pure-math state type `OrbitState { target, distance, yaw, pitch }` plus four pure functions: `orbit(s, dYaw, dPitch)`, `zoom(s, delta)`, `pan(s, dx, dy, right, up, speed)`, `toEyeTarget(s)`, `fromEyeTarget(eye, target)`. No engine imports; trivially unit-testable.
+`viewport-host/camera-control.ts` implemented a **spherical orbit camera** as the pure-math state type `OrbitState { target, distance, yaw, pitch }` plus five pure functions: `orbit(s, dYaw, dPitch)`, `zoom(s, delta)`, `pan(s, dx, dy, right, up, speed)`, `toEyeTarget(s)`, `fromEyeTarget(eye, target)`. No engine imports; trivially unit-testable. (All but `toEyeTarget` are gone as of F4.5b Task 6 — see the banner above for the module as it stands.)
 
 The host (`viewport-host/index.ts`) maintains a private `editorCam: Camera` and `orbitState: OrbitState`:
 
@@ -608,7 +613,7 @@ The foundation pass that turned the M3–3.1 prototype into a usable tool, drive
 
 ### 14.4 Viewport reference layer + navigation
 
-*(Historical — this describes the deleted scene viewport. What survives: `viewport-host/reference-grid.ts` (the field host still draws the depth-tested grid, gated by `layers.grid`) and `AxisTriad.tsx` (now mounted by `shell/AxisTriadMount.tsx` off the host's camera-pose seam). `ViewFlags` is gone — the field's visibility set is `FieldLayers` and the shading modes are `studio`/`normals` (§20.5); there is no `axes`, `headlamp` or `fog` flag. The navigation below is NOT the field host's: it binds right-drag look + WASD/QE fly, left-drag strokes the brush, and the wheel trims brush radius. `camera-control.ts`'s `orbit`/`zoom`/`dolly`/`pan`/`fromEyeTarget` survive as pure math with no caller.)* `frontend/viewport-host/reference-grid.ts` adds a depth-tested grid; a corner axis triad (`AxisTriad.tsx`) and a neutral headlamp make an opened scene read as a scene, not a black void. `ViewFlags` (`grid`/`axes`/`headlamp`/`fog`) are a viewport concern (default grid/axes/headlamp **ON**, fog **OFF**), mirrored between a viewport overlay popover and View ▸ View-flags. **Navigation (`viewport-host/camera-control.ts`):** Alt+LMB orbit, **MMB pan**, RMB-hold + WASD/QE fly (wheel trims fly speed), and **scroll = `dolly` forward** — a scale-aware, floored forward `flyMove` that travels through the scene rather than orbit-zooming toward the pivot (distance-scaled orbit zoom asymptotes to a dead stop); `F` frames the selection. The prior `zoomToward` cursor-zoom was deleted.
+*(Historical — this describes the deleted scene viewport. What survives: `viewport-host/reference-grid.ts` (the field host still draws the depth-tested grid, gated by `layers.grid`) and `AxisTriad.tsx` (now mounted by `shell/AxisTriadMount.tsx` off the host's camera-pose seam). `ViewFlags` is gone — the field's visibility set is `FieldLayers` and the shading modes are `studio`/`normals` (§20.5); there is no `axes`, `headlamp` or `fog` flag. The navigation below is NOT the field host's: it binds right-drag look (or orbit about the selected entity) + WASD/QE fly, left-drag strokes the brush, the wheel trims brush radius (or dollies, under the `pointer` tool), `F` frames the selection and the corner triad's six tips snap the view. `camera-control.ts`'s `orbit`/`zoom`/`pan`/`fromEyeTarget` were deleted at F4.5b Task 6; what is left of that module all has a caller.)* `frontend/viewport-host/reference-grid.ts` adds a depth-tested grid; a corner axis triad (`AxisTriad.tsx`) and a neutral headlamp make an opened scene read as a scene, not a black void. `ViewFlags` (`grid`/`axes`/`headlamp`/`fog`) are a viewport concern (default grid/axes/headlamp **ON**, fog **OFF**), mirrored between a viewport overlay popover and View ▸ View-flags. **Navigation (`viewport-host/camera-control.ts`):** Alt+LMB orbit, **MMB pan**, RMB-hold + WASD/QE fly (wheel trims fly speed), and **scroll = `dolly` forward** — a scale-aware, floored forward `flyMove` that travels through the scene rather than orbit-zooming toward the pivot (distance-scaled orbit zoom asymptotes to a dead stop); `F` frames the selection. The prior `zoomToward` cursor-zoom was deleted.
 
 ### 14.5 Inspector IA, humanized labels, number formatting
 
@@ -1570,7 +1575,12 @@ invariant), and it is pushed at engine-ready so the two agree from the first fra
 
 **The camera-pose seam.** `FieldHost.subscribeCameraPose` pushes `{ yaw, pitch }` in
 radians; `shell/AxisTriadMount.tsx` reads it through `useFieldHostState` and renders the
-corner triad. The triad mounts **above the palette layer in DOM order** — the default
+corner triad. Since **F4.5b Task 6 the triad is also a CONTROL**: its six axis ends are
+real `<button>`s over the SVG (an `<svg>` cannot contain one, and `role="button"` on a
+shape would mean hand-rolling focus and Enter/Space), each calling
+`FieldHost.snapView(axis, sign)` where `sign: 1` puts the eye on the POSITIVE side of
+that axis. The mount box stays `pointer-events-none` so the overlay never eats an orbit
+drag; the six tips re-enable it for their own caps. The triad mounts **above the palette layer in DOM order** — the default
 arrangement docks `controls` to the right edge at top 0, which covers exactly the corner
 the triad sits in, so mounted before the layer it would ship invisible out of the box.
 `Toasts` sits there for the same reason with a softer case. Both are their own absolute

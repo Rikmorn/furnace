@@ -138,6 +138,8 @@ export function makeStubHost(
     duplicateEntity: mock(),
     dismissDrift: mock(),
     frameChunks: mock(),
+    frameSelection: mock(),
+    snapView: mock(),
     setAgentProfile: mock(),
     setFlagFilters: mock(),
     verifyFlag: mock(),
@@ -277,6 +279,8 @@ export function makeStubHost(
     },
     dismissDrift: calls.dismissDrift,
     frameChunks: calls.frameChunks,
+    frameSelection: calls.frameSelection,
+    snapView: calls.snapView,
     subscribeEntities: (cb) => {
       calls.subscribeEntities(cb);
       cbs.entities = cb;

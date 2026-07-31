@@ -1393,7 +1393,9 @@ test("the axis triad rides the camera pose, over the canvas and out of its way",
 	const canvas = screen.getByLabelText("field viewport");
 	// A CELL child like Toasts, absolutely placed: it takes nothing off the canvas
 	// (D-1), and it must not eat the orbit drags that happen in the corner it sits in.
-	const box = triad.parentElement;
+	// Two levels up since F4.5b Task 6: the drawing now sits beside the six snap
+	// buttons inside the triad's own positioning wrapper.
+	const box = triad.parentElement?.parentElement;
 	if (!(box instanceof HTMLElement)) throw new Error("triad has no box");
 	const cell = canvas.parentElement;
 	if (!(cell instanceof HTMLElement)) throw new Error("canvas has no cell");
@@ -1421,6 +1423,51 @@ test("the axis triad rides the camera pose, over the canvas and out of its way",
 		stub.fire.cameraPose({ yaw: 1.9, pitch: 0.2 });
 	});
 	expect(xCap()).not.toBe(before);
+});
+
+test("the triad's six tips snap the view, and are real buttons", async () => {
+	fetch404();
+	const stub = makeStubHost();
+	await renderShell(stub);
+	const drawing = screen.getByRole("img", { name: "camera orientation axes" });
+	const triad = drawing.parentElement;
+	if (!(triad instanceof HTMLElement)) throw new Error("triad has no wrapper");
+
+	// SIX, not three: the −axis tips are the +axis projection negated, and a
+	// ViewCube that only reached three of the six faces would be half a control.
+	const tips = within(triad).getAllByRole("button");
+	expect(tips.length).toBe(6);
+	expect(tips.map((t) => t.getAttribute("aria-label")).sort()).toEqual([
+		"View from +X",
+		"View from +Y",
+		"View from +Z",
+		"View from -X",
+		"View from -Y",
+		"View from -Z",
+	]);
+
+	// Clicking a tip is the snap. The ARGUMENTS are the assertion: axis and sign
+	// are invisible to every other check here, and getting the sign wrong is the
+	// one mistake that looks fine in a DOM test and wrong on screen.
+	fireEvent.click(within(triad).getByRole("button", { name: "View from +X" }));
+	expect(stub.calls.snapView.mock.calls.at(-1)).toEqual(["x", 1]);
+	fireEvent.click(within(triad).getByRole("button", { name: "View from -Z" }));
+	expect(stub.calls.snapView.mock.calls.at(-1)).toEqual(["z", -1]);
+
+	// Keyboard reachability comes from these being REAL buttons rather than
+	// role="button" on an SVG shape — focus, Enter/Space activation and the focus
+	// ring are then the platform's job instead of a hand-rolled key handler's.
+	// That is what this checks, and it is honest about its limit: happy-dom does
+	// not synthesize a click from a keydown on a button, so firing one here would
+	// pin nothing in either direction. What it CAN catch is the regression that
+	// matters — a tip that stops being a button element.
+	for (const tip of tips) {
+		expect(tip.tagName).toBe("BUTTON");
+		expect(tip.getAttribute("type")).toBe("button");
+		// The overlay box is pointer-events-none (above); without this the tips
+		// would be unclickable in a browser and this suite could not tell.
+		expect(tip.classList.contains("pointer-events-auto")).toBe(true);
+	}
 });
 
 // --- (d) the layout contract + the retired dock ------------------------------

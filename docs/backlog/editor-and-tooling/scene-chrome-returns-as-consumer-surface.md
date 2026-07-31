@@ -22,8 +22,10 @@ just has no editing surface.
 Reviving it is not a re-implementation from zero: the daemon half is intact, the inspector
 module (`frontend/inspector/` — SchemaForm, the kind→renderer registry, the scrub
 affordance) survives as the stamp/reconfigure param form, and `viewport-host/gizmo.ts` +
-`camera-control.ts`'s `orbit`/`zoom`/`dolly`/`pan` survive as pure, tested math with no
-caller. What has to be rebuilt is the chrome: a document surface in the overlay shell's
+`camera-control.ts` are live, tested pure math again (F4.5b promoted both into the FIELD
+host — the scene camera's `orbit`/`zoom`/`pan`/`fromEyeTarget` were deleted there, so a
+revived scene surface would drive `orbitAbout`/`dolly`/`frameBox`/`axisView` instead).
+What has to be rebuilt is the chrome: a document surface in the overlay shell's
 idiom (palettes over a canvas), not the dock the old one assumed.
 
 **Trigger to revisit:** a consumer project needs scene-document editing — most likely

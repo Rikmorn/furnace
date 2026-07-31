@@ -66,11 +66,19 @@ const GROUPS: BindingGroup[] = [
 		rows: [
 			{
 				keys: "right-drag",
-				what: "Look around (the browser context menu is suppressed over the canvas)",
+				what: "Look around — or orbit the selected entity, when Select is armed and something is selected (the browser context menu is suppressed over the canvas)",
 			},
 			{ keys: "W / S", what: "Fly forward / back" },
 			{ keys: "A / D", what: "Fly left / right" },
 			{ keys: "Q / E", what: "Fly down / up" },
+			{
+				keys: "F",
+				what: "Frame what is selected — the selected entity, else the cell selection; with neither it does nothing",
+			},
+			{
+				keys: "triad tips",
+				what: "The corner axis gizmo's six ends snap the view to that axis — click one, or Tab to it and press ⏎",
+			},
 			{ keys: "⇧ while flying", what: "3× boost, while held" },
 		],
 	},
@@ -89,7 +97,10 @@ const GROUPS: BindingGroup[] = [
 				keys: "left-click",
 				what: "With a gesture armed it selects instead of brushing — Select (the default) and Wand and Room take one click, Box Select and Segment take two",
 			},
-			{ keys: "wheel", what: "Brush radius" },
+			{
+				keys: "wheel",
+				what: "Brush radius — except under Select, which has no brush to size: there it travels the camera in and out",
+			},
 			{
 				keys: "[ / ]",
 				what: "Brush radius, one step per press — hold to keep resizing",
