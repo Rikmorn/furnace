@@ -163,27 +163,68 @@ export const rayObbT = (ray: PickRay, obb: PickObb): number | null => {
 const candidateT = (ray: PickRay, c: PickCandidate): number | null =>
   c.kind === "prop" ? rayObbT(ray, c.obb) : rayAabbT(ray, c.aabb);
 
-/**
- * Whether a candidate is a bounding VOLUME rather than a real object — the
- * tier {@link pickNearest} resolves second.
- *
- * A positive predicate over an explicit kind list, deliberately, rather than
- * `kind !== "entity"` at the two call sites: a candidate kind added later (a
- * gizmo handle, say) would fall into the object tier by DEFAULT under negation,
- * silently, with nothing forcing its author to decide where it belongs. Written
- * this way the compiler leaves the new kind out of both tiers' positive list and
- * the choice has to be made here.
- */
-const isVolume = (c: PickCandidate): boolean => c.kind === "entity";
+/** The two tiers {@link pickNearest} resolves, in that order: a real, specific
+ *  piece of geometry first; a bounding VOLUME only as the fallback. */
+type PickTier = "object" | "volume";
 
 /**
- * The nearest candidate the filter admits, within `maxT`.
+ * Which tier each candidate kind resolves in — the ONE place the split is
+ * decided, and a total map rather than a predicate on purpose.
  *
- * Ties go to the EARLIER candidate in the array (`t >= bestT` keeps the
- * incumbent), which makes the result deterministic for coincident volumes rather
- * than merely unspecified — the host builds candidates in log order, so the
- * older entity wins a tie. That is load-bearing for nested footprints, where two
- * enclosing boxes both enter at t = 0.
+ * `Record<PickCandidate["kind"], …>` is what makes the classification
+ * compiler-enforced: adding a kind to {@link PickCandidate} without adding it
+ * here does not compile. A predicate (`kind === "entity"`, negated at the object
+ * call site) accepts a new kind silently and drops it into whichever tier the
+ * negation happens to put it — which is the failure this shape exists to
+ * prevent, because "which tier does this belong to" is a product decision and
+ * not something a default should ever answer.
+ *
+ * GIZMO HANDLES ARE NOT HERE, and that is the decision rather than an omission:
+ * a handle is a line segment with a screen-proportional tolerance, not a volume,
+ * so it is not a {@link PickCandidate} at all. It is hit-tested BEFORE this
+ * whole arbitration (`field-host.gizmoAxisAt`, on the press, before
+ * `pickNearest`), which is what makes it beat BOTH tiers — including the
+ * footprint box it is drawn on top of, whose centre every handle starts at. A
+ * manipulator the user can see over an object must win the click over that
+ * object, or it is not a manipulator.
+ */
+const PICK_TIER: Record<PickCandidate["kind"], PickTier> = {
+  prop: "object",
+  flag: "object",
+  entity: "volume",
+};
+
+/** How much world space a candidate's pick volume encloses — the tie-break
+ *  {@link nearestOf} applies at equal `t`. Both shapes are boxes, so both
+ *  measure a true volume in m³ and the two are directly comparable. */
+const candidateVolume = (c: PickCandidate): number => {
+  if (c.kind === "prop") {
+    const [hx, hy, hz] = c.obb.halfExtents;
+    return 8 * hx * hy * hz;
+  }
+  const { min, max } = c.aabb;
+  return (max[0] - min[0]) * (max[1] - min[1]) * (max[2] - min[2]);
+};
+
+/**
+ * The nearest candidate in `tier`, within `maxT`.
+ *
+ * Ties on `t` go to the SMALLER volume, and that is what resolves the nested
+ * entity case (F4.5b Task 5, previously recorded here as an open gap): a scatter
+ * footprint inside a hall's also encloses the camera, both enter at t = 0, and
+ * plain nearest-wins had nothing to separate them. The smaller box is the more
+ * SPECIFIC answer — the same instinct as objects-before-volumes one level up —
+ * and, unlike the log order it replaces, it is a fact the user can see. Commit
+ * order is invisible; "I clicked the small thing inside the big thing" is not.
+ *
+ * Scoped to ties on purpose. Two disjoint boxes, one near and one far, are still
+ * decided by DISTANCE — the small one across the room does not steal a click
+ * from the large one under the cursor. Volume only speaks where distance has
+ * nothing to say.
+ *
+ * Equal `t` AND equal volume still goes to the EARLIER candidate, so the result
+ * stays deterministic (the host builds candidates in log order) rather than
+ * merely unspecified.
  *
  * `maxT` is INCLUSIVE: a candidate exactly at it is admitted (see
  * {@link pickNearest}).
@@ -192,16 +233,20 @@ const nearestOf = (
   ray: PickRay,
   candidates: readonly PickCandidate[],
   maxT: number,
-  admits: (c: PickCandidate) => boolean,
+  tier: PickTier,
 ): PickCandidate | null => {
   let best: PickCandidate | null = null;
   let bestT = Number.POSITIVE_INFINITY;
+  let bestVolume = Number.POSITIVE_INFINITY;
   for (const c of candidates) {
-    if (!admits(c)) continue;
+    if (PICK_TIER[c.kind] !== tier) continue;
     const t = candidateT(ray, c);
-    if (t === null || t > maxT || t >= bestT) continue;
+    if (t === null || t > maxT || t > bestT) continue;
+    const volume = candidateVolume(c);
+    if (t === bestT && volume >= bestVolume) continue;
     best = c;
     bestT = t;
+    bestVolume = volume;
   }
   return best;
 };
@@ -231,19 +276,16 @@ const nearestOf = (
  * prop and marker inside it unpickable. So props and markers (real, specific
  * geometry) are resolved first and footprints are the fallback, which also
  * reads well as a rule: click a thing to get the thing, click the bare room to
- * get the room. Within each tier it IS plain nearest-wins.
+ * get the room. Within each tier it is nearest-wins, ties to the smaller volume
+ * ({@link nearestOf} — that is what resolves nested footprints).
  *
- * KNOWN GAP, recorded rather than papered over: the tier does not resolve
- * entity-vs-entity nesting. A scatter footprint inside a hall's also encloses
- * the camera, both enter at t = 0, and the tie falls to log order (see
- * {@link nearestOf}). Both answers are legitimate — both volumes really are
- * under the cursor — so picking a winner is a product decision, not a geometry
- * one, and it is left to the task that gives entities a manipulator.
+ * NOT arbitrated here at all: the translate gizmo's handles. They are hit-tested
+ * before this function runs and beat both tiers — see {@link PICK_TIER}.
  */
 export const pickNearest = (
   ray: PickRay,
   candidates: readonly PickCandidate[],
   maxT: number,
 ): PickCandidate | null =>
-  nearestOf(ray, candidates, maxT, (c) => !isVolume(c)) ??
-  nearestOf(ray, candidates, maxT, isVolume);
+  nearestOf(ray, candidates, maxT, "object") ??
+  nearestOf(ray, candidates, maxT, "volume");

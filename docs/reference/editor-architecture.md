@@ -331,10 +331,15 @@ M5A has `revertEntity` (rebuilds from committed doc) but **no `revertSettings`**
 > **Superseded by §20 (F4.5a): this whole section describes deleted code.** GPU-id
 > picking, the AABB selection highlight, the translate gizmo, `setSelection` /
 > `setCallbacks` / `onTransformCommit` and the scene orbit camera are gone with the
-> scene viewport host. `viewport-host/gizmo.ts` and `camera-control.ts`'s
-> `orbit`/`zoom`/`dolly`/`pan` survive as pure math with **no caller** — both are
-> retirement candidates, filed as
-> `docs/backlog/editor-and-tooling/viewport-host-orphans-gizmo-and-orbit-camera.md`.
+> scene viewport host.
+>
+> Of the two pure-math modules they left behind with no caller (filed as
+> `docs/backlog/editor-and-tooling/viewport-host-orphans-gizmo-and-orbit-camera.md`),
+> **`viewport-host/gizmo.ts` was PROMOTED by F4.5b Task 5** and is live again —
+> the FIELD host's translate gizmo calls `pickAxis`, `closestPointParamOnAxis` and
+> `isViewParallel`. Read its own TSDoc, not §11.4 below, for the current contract:
+> `pickAxis` gained an `innerLen` dead zone at the gizmo origin. `camera-control.ts`'s
+> `orbit`/`zoom`/`dolly`/`pan` are still callerless retirement candidates.
 
 
 M5B landed the full manipulation loop: GPU-id picking, AABB selection highlight, translate gizmo, orbit/pan/zoom camera, NumberField drag-scrub, focused-input echo-guard, settings-revert, and three M5A inspector papercuts (⑩⑪⑫). This section documents the as-built additions to the M5A substrate.

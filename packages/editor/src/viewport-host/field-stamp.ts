@@ -56,6 +56,19 @@ export type StampSession = {
    *  session wholesale, and a union would distribute through each spread for
    *  a fact only the two terminal verbs read. */
   entityId: number | null;
+  /** Present (and only ever `true`) while this reconfigure session is being
+   *  driven as a MOVE — a pointer drag, a `G` grab or a gizmo handle. A move IS
+   *  a reconfigure: same session, same ghost, same terminal verb, with the
+   *  REGION as the thing being edited. This flag is the one difference, and it
+   *  exists so the chrome can name what the user is doing ("move", not
+   *  "reconfigure") without re-deriving it from which fields happen to be
+   *  changing.
+   *
+   *  OPTIONAL rather than `boolean`, so `false` and "not a move" are the same
+   *  state and no transition has to remember to clear it. It rides the wholesale
+   *  spread every transition here performs, which is what keeps a region nudge
+   *  or a param edit mid-move from silently demoting the session. */
+  readonly moving?: true;
 };
 
 /** Opens a `stamp` session in `configuring` at run 0 with the generator's schema

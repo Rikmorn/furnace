@@ -99,6 +99,25 @@ test("pickAxis: ray crossing the +Y axis near its midpoint picks y", () => {
   expect(hit).toBe("y");
 });
 
+// The dead zone (F4.5b Task 5). All three arms converge at the origin, so a ray
+// through it is within tolerance of every one of them and the answer would be
+// whichever the loop visits first — an arbitrary "X". The caller's free-drag
+// gesture lives at that centre, so the arms have to leave it alone.
+test("pickAxis: innerLen culls a hit inside the dead zone, and only that", () => {
+  // The +Y case above's ray, which crosses the Y axis at t = 1.
+  const ray = {
+    origin: [0.005, 1, 3] as [number, number, number],
+    dir: [0, 0, -1] as [number, number, number],
+  };
+  expect(pickAxis(ray, [0, 0, 0], 2.0, 0.2)).toBe("y"); // default: whole arm
+  // A dead zone PAST the crossing culls it — and nothing else is in range, so
+  // the answer is a miss rather than a different axis.
+  expect(pickAxis(ray, [0, 0, 0], 2.0, 0.2, 1.5)).toBe(null);
+  // …one that stops short of it leaves the hit alone. Both sides asserted: a
+  // dead zone that culled everything would pass the case above on its own.
+  expect(pickAxis(ray, [0, 0, 0], 2.0, 0.2, 0.5)).toBe("y");
+});
+
 test("pickAxis: ray far from every axis returns null", () => {
   const hit = pickAxis(
     { origin: [50, 50, 50], dir: [0, 0, -1] },

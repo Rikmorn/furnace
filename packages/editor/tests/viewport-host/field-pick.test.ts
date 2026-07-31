@@ -230,12 +230,12 @@ test("pickNearest: the maxT bound is INCLUSIVE, and one epsilon past it is not",
   expect(pickNearest(RAY_X, [at5], 5 - Number.EPSILON * 8)).toBeNull();
 });
 
-test("pickNearest: a tie inside one tier goes to the EARLIER candidate", () => {
+test("pickNearest: a tie inside one tier goes to the SMALLER volume", () => {
   // Two footprints that both enclose the ray origin both enter at t = 0 — the
-  // nested-entity case (a scatter inside a hall). Nothing about the geometry
-  // separates them, so the rule is array order, and the host builds candidates
-  // in log order: the older entity wins. Deterministic, which is the point; WHICH
-  // one should win is a product question this module does not answer.
+  // nested-entity case (a scatter inside a hall). Distance has nothing to say,
+  // so the more SPECIFIC answer wins: the inner box, whichever order the host
+  // built the candidates in. Log order would answer differently depending on
+  // commit order, which is a fact the user cannot see.
   const outer: PickCandidate = {
     kind: "entity",
     entityId: 1,
@@ -246,8 +246,45 @@ test("pickNearest: a tie inside one tier goes to the EARLIER candidate", () => {
     entityId: 2,
     aabb: { min: [-2, -2, -2], max: [2, 2, 2] },
   };
-  expect(pickNearest(RAY_X, [outer, inner], 30)).toEqual(outer);
+  expect(pickNearest(RAY_X, [outer, inner], 30)).toEqual(inner);
   expect(pickNearest(RAY_X, [inner, outer], 30)).toEqual(inner);
+});
+
+test("pickNearest: volume breaks TIES only — distance still decides disjoint boxes", () => {
+  // The small box is across the room and the big one is under the cursor. A
+  // smallest-wins rule applied wholesale would reach past the near box for the
+  // far one; the tie-break must not touch this.
+  const near: PickCandidate = {
+    kind: "entity",
+    entityId: 1,
+    aabb: { min: [2, -5, -5], max: [8, 5, 5] },
+  };
+  const far: PickCandidate = {
+    kind: "entity",
+    entityId: 2,
+    aabb: { min: [20, -0.1, -0.1], max: [20.2, 0.1, 0.1] },
+  };
+  expect(pickNearest(RAY_X, [near, far], 30)).toEqual(near);
+  expect(pickNearest(RAY_X, [far, near], 30)).toEqual(near);
+});
+
+test("pickNearest: equal t AND equal volume still falls to the earlier candidate", () => {
+  // Two identical boxes: nothing separates them at all, so the answer is array
+  // order — deterministic rather than merely unspecified, which is what lets a
+  // caller reason about repeat clicks.
+  const box = { min: [-1, -1, -1] as const, max: [1, 1, 1] as const };
+  const first: PickCandidate = {
+    kind: "entity",
+    entityId: 1,
+    aabb: { min: [...box.min], max: [...box.max] },
+  };
+  const second: PickCandidate = {
+    kind: "entity",
+    entityId: 2,
+    aabb: { min: [...box.min], max: [...box.max] },
+  };
+  expect(pickNearest(RAY_X, [first, second], 30)).toEqual(first);
+  expect(pickNearest(RAY_X, [second, first], 30)).toEqual(second);
 });
 
 test("pickNearest: nearest wins WITHIN the object tier, whatever the kinds", () => {

@@ -1,10 +1,21 @@
 /**
- * Pure-math core of the world-axis translate gizmo. No engine imports — operates
- * on plain `[x,y,z]` tuples so it is trivially unit-testable and shares no state
- * with the host. The host (`viewport-host/index.ts`) builds rays via
- * `camera.screenToRay`, marshals them into the {@link Ray} tuple shape, and
- * drives hit-testing ({@link pickAxis}) and the anchor-relative drag parameter
- * ({@link closestPointParamOnAxis}).
+ * Pure-math core of the world-axis translate gizmo — the three handles a
+ * selected entity wears, and the arithmetic that turns a cursor ray into a
+ * constrained drag along one of them (D-9).
+ *
+ * No engine imports: it operates on plain `[x,y,z]` tuples, so every rule here
+ * unit-tests without a camera, a canvas or a GPU, and it shares no state with
+ * the host. `field-host.ts` owns everything stateful — where the handles sit
+ * (the selected footprint's centre), how long they are, when they are drawn,
+ * and the session the drag rides. It builds rays through `camera.screenToRay`,
+ * marshals them into the {@link Ray} tuple shape, and calls three things here:
+ * {@link pickAxis} on the press, {@link closestPointParamOnAxis} on every move,
+ * and {@link isViewParallel} to refuse a reading that would be meaningless.
+ *
+ * The DRAWING is the host's too and deliberately not here: the handle colours
+ * are the editor's semantic axis palette (shared with the chrome's `AxisTriad`),
+ * which is a chrome fact, and the line batch is engine-shaped. What this module
+ * owns is only what a wrong answer would make the gizmo mis-aim.
  */
 
 type V3 = [number, number, number];
@@ -61,6 +72,23 @@ export function closestPointParamOnAxis(
 }
 
 /**
+ * Whether `axisDir` is within ~8° of `ray`'s own direction — the state in which
+ * a handle projects to nearly a POINT on screen and every world-space reading
+ * taken along it (a hit distance, a drag parameter) is ill-conditioned.
+ *
+ * Both {@link pickAxis} (which culls such an axis before hit-testing) and the
+ * host's drag (which holds still rather than lurch) ask this, which is why it is
+ * exported rather than inlined: two callers deciding "too edge-on to trust" by
+ * two different thresholds is how a handle becomes pickable but undraggable.
+ *
+ * Assumes UNIT `axisDir` and UNIT `ray.dir` — the dot product is read as a
+ * cosine. Both hold for the callers: {@link AXIS_DIR}'s entries are unit, and
+ * `camera.screenToRay` normalizes.
+ */
+export const isViewParallel = (axisDir: V3, ray: Ray): boolean =>
+  Math.abs(dot(axisDir, ray.dir)) > VIEW_PARALLEL_COS;
+
+/**
  * Shortest distance (world units) between `ray` and the axis line, evaluated at
  * the lines' mutual closest points. Used by {@link pickAxis} to decide whether a
  * handle is "under" the cursor.
@@ -84,9 +112,17 @@ function rayAxisDistance(origin: V3, axisDir: V3, ray: Ray): number {
 
 /**
  * Which world axis (if any) `ray` hits within `tol` world units of the handle,
- * nearest-wins. Only the segment `[0, axisLen]` along each axis (the drawn
- * handle, not the infinite line) counts as a hit, and axes within ~8° of
+ * nearest-wins. Only the segment `[innerLen, axisLen]` along each axis (the
+ * drawn handle, not the infinite line) counts as a hit, and axes within ~8° of
  * view-parallel are culled (their screen-space hit test is degenerate).
+ *
+ * `innerLen` is the DEAD ZONE at the origin, and it is not cosmetic: all three
+ * axes converge there, every one of them is within `tol` of a ray through it,
+ * and the winner would be whichever this loop visits first — so a click on the
+ * gizmo's own centre would silently mean "X". That centre is also exactly where
+ * the caller's other gesture lives (press the object, drag it freely), so the
+ * arms have to leave it alone. The caller must DRAW from the same offset:
+ * a handle that is visible below `innerLen` is a handle that does nothing.
  *
  * Returns the picked {@link Axis}, or `null` when no handle is within `tol`.
  */
@@ -95,14 +131,15 @@ export function pickAxis(
   gizmoOrigin: V3,
   axisLen: number,
   tol: number,
+  innerLen = 0,
 ): Axis | null {
   let best: Axis | null = null;
   let bestD = tol;
   for (const ax of ["x", "y", "z"] as Axis[]) {
     const axisDir = AXES[ax];
-    if (Math.abs(dot(axisDir, ray.dir)) > VIEW_PARALLEL_COS) continue;
+    if (isViewParallel(axisDir, ray)) continue;
     const t = closestPointParamOnAxis(gizmoOrigin, axisDir, ray);
-    if (t < 0 || t > axisLen) continue;
+    if (t < innerLen || t > axisLen) continue;
     const dist = rayAxisDistance(gizmoOrigin, axisDir, ray);
     if (dist < bestD) {
       bestD = dist;

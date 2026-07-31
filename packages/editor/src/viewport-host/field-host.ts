@@ -27,6 +27,7 @@ import type {
 } from "../frontend/lib/catalog.ts";
 import {
   computeBrushCenter,
+  LATTICE,
   latticeClearance,
   nudgeRegion,
   regionSampleCount,
@@ -92,6 +93,13 @@ import {
   withPreviewResult,
   withRegion,
 } from "./field-stamp.ts";
+import {
+  AXIS_DIR,
+  type Axis,
+  closestPointParamOnAxis,
+  isViewParallel,
+  pickAxis,
+} from "./gizmo.ts";
 import { arrowNudgeSteps } from "./input-map.ts";
 import { buildGridLines, segmentsToBatch } from "./reference-grid.ts";
 
@@ -528,6 +536,19 @@ export type FieldHost = {
    *  Supersedes any in-flight preview (its response is dropped — the run
    *  bumps like a params change). No-op without a session. */
   nudgeStamp(dx: number, dy: number, dz: number): void;
+  /** Cycles the live session's `rotation` param to the next quarter turn and
+   *  re-previews — the viewport's `R`, and the seam a session card's rotate
+   *  affordance calls (the canvas binding only fires while the CANVAS has focus,
+   *  which clicking any panel control takes away; {@link undo}'s rationale).
+   *
+   *  The turns come from the generator's OWN `paramSchema` enum, never from a
+   *  list spelled here, so the editor cannot drift from what core will accept.
+   *  A generator with no `rotation` param (cave, scatter) reports through
+   *  {@link subscribeToolError} and changes nothing — the rotation is a property
+   *  of the recipe, not of the editor. No session at all is a silent no-op.
+   *
+   *  Session-scoped, not move-scoped: a plain reconfigure turns too. */
+  rotateStamp(): void;
   /** Re-previews the live session under a fresh random seed (params/policy
    *  unchanged). No-op without a session. */
   rerollStamp(): void;
@@ -620,6 +641,26 @@ export type FieldHost = {
    *  BAKED entity, and an entity whose recorded generator has left the registry
    *  all report through {@link subscribeToolError} and open no session. */
   openEntity(entityId: number): void;
+  /** Starts a MOVE on a committed entity — the `G` grab (D-9), and what the
+   *  viewport's own drag and gizmo paths call.
+   *
+   *  A move IS a reconfigure: this opens exactly the session {@link openEntity}
+   *  opens, with the same refusals (unknown id, frozen, baked, retired
+   *  generator — all runtime-quiet through {@link subscribeToolError}), the same
+   *  ghost, and {@link commitSession} as its terminal verb. What it adds is a
+   *  MODE: the session is flagged {@link StampSession.moving}, and the CURSOR
+   *  now drives the region — moving the pointer slides the ghost in whole 0.5 m
+   *  lattice steps on the ground plane, ⇧ promotes that to the vertical axis,
+   *  LMB or Enter drops it as ONE undo entry, Esc discards it.
+   *
+   *  No button need be held: this is the grab, so the pointer moves the ghost
+   *  free-hand. Leaving the viewport (a blur — clicking a panel control) CANCELS
+   *  it, the way it cancels every other stranded keydown state; the region is
+   *  untouched until the drop.
+   *
+   *  Nothing is written to the log until that drop, so a move that is cancelled
+   *  costs nothing and leaves no history entry. */
+  beginMove(entityId: number): void;
   /** Applies the live RECONFIGURE session (its Enter twin): re-evaluates the
    *  entity's span in place through core's `reconfigureGenerator`, remeshes the
    *  affected chunks, pushes the replay's drift report to
@@ -900,6 +941,53 @@ type ChunkRender = {
  *  geometry it owns (one draw call for every placed record of that archetype). */
 type PropRender = { im: mesh.InstancedMesh; g: geometry.Geometry };
 
+/** What a live move maps the cursor onto: the horizontal `plane` through the
+ *  footprint's floor (the free drag), or one world {@link Axis} (a gizmo handle,
+ *  or ⇧'s vertical promotion of a free drag). */
+type MoveMapping = "plane" | Axis;
+
+/** A move in progress — the state that turns cursor motion into whole lattice
+ *  steps on the live session's region (D-9). One slot; a move is modal.
+ *
+ *  The arithmetic is ANCHORED rather than incremental: every event asks "where
+ *  is the cursor relative to where the mapping was last anchored, and how many
+ *  steps is that", then applies the DIFFERENCE against what has already been
+ *  applied. Accumulating per-event deltas instead would let rounding drift
+ *  compound over a drag, so a cursor returned to the press point would not
+ *  return the region to where it started. */
+type MoveDrag = {
+  entityId: number;
+  mapping: MoveMapping;
+  /** A GIZMO drag: the handle already named the axis, so ⇧ must not re-map it. */
+  fixedAxis: boolean;
+  /** World Y of the horizontal plane the free mapping intersects — the selected
+   *  footprint's floor, fixed for the whole move. Fixed and not re-derived,
+   *  because the footprint the session is moving stays where the LOG has it
+   *  until the drop: a plane that chased the ghost would feed back on itself. */
+  planeY: number;
+  /** Where the axis mappings measure from — the footprint's centre, i.e. the
+   *  gizmo's own origin. */
+  origin: Vec3T;
+  /** Where the move was grabbed, in client pixels — the FIRST anchor is taken
+   *  here rather than at the event that opens the move, so the region follows
+   *  the cursor from the point the user actually grabbed and the 4 px the
+   *  threshold ate are not silently lost. Null for a `G` grab started with no
+   *  cursor over the canvas at all; the first cursor event anchors instead. */
+  press: { x: number; y: number } | null;
+  /** The mapped world point at the last (re-)anchor; null until the first event
+   *  that produces one. */
+  anchorPoint: Vec3T | null;
+  /** `applied` as of that anchor — the base the current mapping counts from, so
+   *  switching mapping mid-drag keeps what came before and moves nothing by
+   *  itself. */
+  anchorSteps: Vec3T;
+  /** Total lattice steps handed to the region since the move began. */
+  applied: Vec3T;
+  /** A pointer DRAG (a button is down, and a release drops it) rather than a
+   *  `G` grab (free-hand; LMB or Enter drops it). */
+  grabbed: boolean;
+};
+
 const REMESH_PER_FRAME = 2; // dirty-set drain budget per rAF
 const STROKE_MIN_MS = 40; // stroke throttle (pointermove-while-digging)
 const DIG_RANGE_M = 30;
@@ -1059,6 +1147,47 @@ const ENTITY_SELECTED_COLOR: [number, number, number, number] = [
 ];
 // Box-select anchor cross: half-length of each of the three axis strokes (m).
 const ANCHOR_CROSS_HALF_M = 0.25;
+
+// --- the translate gizmo (D-9) ---------------------------------------------
+// Semantic axis colours — X red, Y green, Z blue. The SAME palette the chrome's
+// AxisTriad draws (its own comment already promises they match this gizmo), in
+// linear-sRGB because a shader writes linear (engine-conventions §Color space)
+// while the overlay's are CSS hex. Same review-time agreement as
+// ENTITY_SELECTED_COLOR: the chrome cannot value-import anything under
+// `viewport-host/`.
+const AXIS_COLOR: Record<Axis, [number, number, number, number]> = {
+  x: [0.898, 0.282, 0.302, 1], // #e5484d
+  y: [0.275, 0.655, 0.345, 1], // #46a758
+  z: [0.357, 0.553, 0.937, 1], // #5b8def
+};
+// Handle length: the selected footprint's largest HALF-extent, so the three arms
+// reach roughly its longest face and stay proportionate to the thing they move.
+// Floored so a hair-thin entity still gets something grabbable.
+const GIZMO_MIN_LEN_M = 0.75;
+// Pick tolerance, as a fraction of the drawn handle length rather than a world
+// constant: the target then scales with the arm the user is aiming at, instead
+// of a big entity's gizmo being needle-thin to hit and a tiny one's being a
+// cloud that swallows the box behind it.
+const GIZMO_PICK_TOL_FRACTION = 0.15;
+// The dead zone at the gizmo's centre, as a fraction of the handle length: the
+// arms are DRAWN and picked from here outward. All three converge at the origin,
+// so a click there would resolve to whichever axis the hit test visits first —
+// and the centre is where the OTHER gesture lives (press the entity, drag it
+// freely on the ground plane). Leaving it clear is what keeps the primary drag
+// reachable on an entity the camera is looking straight at, which is most of
+// them.
+const GIZMO_HANDLE_INNER_FRACTION = 0.25;
+// The schema key the quarter-turn cycles. Core spells it the same way (its own
+// `ROTATION_KEY`), and both hall and maze carry it; cave and scatter do not.
+const ROTATION_PARAM = "rotation";
+// Cursor travel (px) before a press on the SELECTED entity stops being a click
+// and becomes a move. Below it a hand tremor between mousedown and mouseup must
+// not open a session, let alone splice the log.
+const DRAG_THRESHOLD_PX = 4;
+// Below this |dir.y| the cursor ray is effectively parallel to the ground plane
+// a free move maps onto and the intersection parameter runs away — the
+// gizmo module's PARALLEL_EPS discipline, applied to the horizontal plane.
+const GROUND_PARALLEL_EPS = 1e-6;
 
 // Load-time compaction fires only when the loaded log carries MORE than this
 // many foldable ops (spec D-F3-16). Named, not inlined: the meter's
@@ -1339,6 +1468,33 @@ export function createFieldHost(deps?: {
   let selectedEntityId: number | null = null;
   let entitySelectionBatch: LineBatch | null = null;
   let entitySelectionCb: ((entityId: number | null) => void) | null = null;
+  // The translate gizmo's geometry, rebuilt with the selection box it hangs on
+  // (same footprint, same invalidation). Kept as origin + length BESIDE the
+  // batch because the PICK needs those two numbers and re-deriving them from the
+  // vertex buffer is how the drawn handles and the pickable ones part company.
+  // Null whenever nothing is selected; whether it is DRAWN is a separate
+  // question (gizmoVisible).
+  let gizmo: { origin: Vec3T; len: number; batch: LineBatch } | null = null;
+  // The live move (null = none). Its session is the `stamp` slot — this is only
+  // the cursor mapping over it, which is why every path that ends a session
+  // clears this too (endMove).
+  let moveDrag: MoveDrag | null = null;
+  // A drop that arrived while the ghost was still in flight. The commit is
+  // ready-phase gated like every other, and a release lands within a preview
+  // round trip of the last cursor move far more often than not — so the drop
+  // LATCHES here and the preview's settle spends it. Without it, letting go
+  // straight after moving would be swallowed and the session would hang open.
+  let moveCommitPending = false;
+  // A press on the ALREADY-SELECTED entity, waiting to see whether the cursor
+  // travels far enough to mean "move" (DRAG_THRESHOLD_PX) — the press itself
+  // changes nothing, so a plain click on what is already selected stays the
+  // no-op it has always been.
+  let pendingMove: {
+    entityId: number;
+    x: number;
+    y: number;
+    pointerId: number;
+  } | null = null;
   // NO selected-flag state here yet, deliberately. A pointer click on a marker
   // already does the one thing it can do without a consumer — it is not treated
   // as a miss, so it leaves the entity selection standing (see pointerClick) —
@@ -2599,14 +2755,20 @@ export function createFieldHost(deps?: {
     return candidates;
   };
 
-  // One LMB click while `pointer` is armed: select the object under the cursor,
-  // or deselect when the click landed on bare terrain or nothing at all.
+  // What a `pointer` press lands on: `{ hit }` when the pick RAN — `hit: null`
+  // there means it ran and found nothing, which the caller reads as deselect —
+  // and a bare null when it could not run at all (no camera, a singular view).
+  // The two must not collapse: a frame without a camera clearing the selection
+  // would be a silent, untraceable deselect.
   //
-  // A PROP click selects its OWNING entity — a placement record is not an
+  // A PROP hit carries its OWNING entity — a placement record is not an
   // independently editable object here.
-  const pointerClick = (clientX: number, clientY: number): void => {
+  const pointerPick = (
+    clientX: number,
+    clientY: number,
+  ): { hit: PickCandidate | null } | null => {
     const ray = cursorRay(clientX, clientY);
-    if (!ray) return;
+    if (!ray) return null;
     // The occluder, slice-coherent like every other cursor-driven raycast
     // (sliceOpts): under an active slice a pick targets the surface the user
     // SEES. Skipped when the eye is in rock, for computeTarget's reason — the
@@ -2631,11 +2793,18 @@ export function createFieldHost(deps?: {
             rc.point[1] - ray.origin[1],
             rc.point[2] - ray.origin[2],
           );
-    const hit = pickNearest(
-      { origin: ray.origin, dir: ray.dir },
-      pickCandidates(),
-      clearTo,
-    );
+    return {
+      hit: pickNearest(
+        { origin: ray.origin, dir: ray.dir },
+        pickCandidates(),
+        clearTo,
+      ),
+    };
+  };
+
+  // What a resolved pick DOES: select the object under the cursor, or deselect
+  // when the press landed on bare terrain or nothing at all.
+  const applyPointerPick = (hit: PickCandidate | null): void => {
     if (hit === null) {
       setSelectedEntity(null);
       return;
@@ -2657,6 +2826,52 @@ export function createFieldHost(deps?: {
       return;
     }
     setSelectedEntity(hit.entityId);
+  };
+
+  // One LMB press while `pointer` is armed. Three outcomes, in the order they
+  // are decided — and the order IS the arbitration:
+  //
+  //  1. A GIZMO handle: the manipulator wins every tie, because its arms are
+  //     drawn over the box they move (they all start at its centre) and one that
+  //     lost the click to the thing behind it would not be a manipulator. The
+  //     drag starts on the press with NO threshold: nothing else is under a
+  //     handle, so there is no click for it to be mistaken for.
+  //  2. The ALREADY-SELECTED entity (directly, or through a prop it placed):
+  //     arm a pending drag and do nothing else. Re-selecting what is selected
+  //     was always a no-op, so deferring costs nothing, and the threshold is
+  //     what decides after the fact whether this press was a click or a move.
+  //  3. Anything else: today's plain pick. Pressing an UNSELECTED entity selects
+  //     it and arms nothing — otherwise the first click on any entity could
+  //     shove it, and a click would never be safe.
+  const pointerPress = (e: PointerEvent): void => {
+    const axis = gizmoAxisAt(e.clientX, e.clientY);
+    if (axis !== null && selectedEntityId !== null) {
+      if (
+        beginMoveSession(selectedEntityId, axis, true, {
+          x: e.clientX,
+          y: e.clientY,
+        })
+      )
+        canvasEl?.setPointerCapture(e.pointerId);
+      return;
+    }
+    const picked = pointerPick(e.clientX, e.clientY);
+    if (picked === null) return;
+    const hit = picked.hit;
+    if (
+      hit !== null &&
+      hit.kind !== "flag" &&
+      hit.entityId === selectedEntityId
+    ) {
+      pendingMove = {
+        entityId: hit.entityId,
+        x: e.clientX,
+        y: e.clientY,
+        pointerId: e.pointerId,
+      };
+      return;
+    }
+    applyPointerPick(hit);
   };
 
   // --- stamp session (ghost preview → commit) -----------------------------
@@ -2817,13 +3032,97 @@ export function createFieldHost(deps?: {
   // The box outlines the stamped FOOTPRINT, not the recorded selection region —
   // an oversized region boxed mostly-empty space (F3a gate finding); see
   // entityFootprints for the fallback.
+  // The three axis handles as ONE line batch: three segments from `origin`, each
+  // in its own axis colour. Built here rather than through segmentsToBatch
+  // because that one paints a whole batch a single colour, and the colour is the
+  // gizmo's entire legibility.
+  const gizmoBatch = (origin: Vec3T, len: number): LineBatch => {
+    const axes: Axis[] = ["x", "y", "z"];
+    const inner = len * GIZMO_HANDLE_INNER_FRACTION;
+    const vertices = new Float32Array(axes.length * 6);
+    const colors = new Float32Array(axes.length * 8);
+    const at = (dir: Vec3T, d: number): Vec3T => [
+      origin[0] + dir[0] * d,
+      origin[1] + dir[1] * d,
+      origin[2] + dir[2] * d,
+    ];
+    axes.forEach((ax, i) => {
+      const dir = AXIS_DIR[ax];
+      const rgba = AXIS_COLOR[ax];
+      // From the dead zone outward, exactly the span gizmoAxisAt hit-tests —
+      // a drawn stub below it would be a handle that does nothing.
+      vertices.set(at(dir, inner), i * 6);
+      vertices.set(at(dir, len), i * 6 + 3);
+      colors.set(rgba, i * 8);
+      colors.set(rgba, i * 8 + 4);
+    });
+    return { vertices, colors };
+  };
+
   const rebuildEntitySelectionBatch = (): void => {
     const box =
       selectedEntityId === null
         ? undefined
         : entityFootprints().get(selectedEntityId);
-    entitySelectionBatch =
-      box === undefined ? null : aabbEdgeBatch(box, ENTITY_SELECTED_COLOR);
+    if (box === undefined) {
+      entitySelectionBatch = null;
+      gizmo = null;
+      return;
+    }
+    entitySelectionBatch = aabbEdgeBatch(box, ENTITY_SELECTED_COLOR);
+    // The gizmo hangs on the SAME box, so it moves and dies with it — one
+    // rebuild, one invalidation, and no way for the handles to end up outlining
+    // a different volume than the emphasis does.
+    const origin: Vec3T = [
+      (box.min[0] + box.max[0]) / 2,
+      (box.min[1] + box.max[1]) / 2,
+      (box.min[2] + box.max[2]) / 2,
+    ];
+    const len = Math.max(
+      GIZMO_MIN_LEN_M,
+      Math.max(
+        box.max[0] - box.min[0],
+        box.max[1] - box.min[1],
+        box.max[2] - box.min[2],
+      ) / 2,
+    );
+    gizmo = { origin, len, batch: gizmoBatch(origin, len) };
+  };
+
+  // Whether the gizmo is on screen — and therefore pickable. ONE predicate for
+  // both, so a handle can never be grabbable while invisible (a click that moves
+  // something the user cannot see) or visible while inert.
+  //
+  // Three conditions, each with its own reason: the POINTER tool has to be armed
+  // (a brush click digs, and a manipulator floating over a dig cursor promises
+  // an action LMB will not take), something has to be SELECTED (the gizmo is the
+  // selection's own affordance), and there must be NO live session — a session
+  // already owns the region through its nudges and its own drag, and a second
+  // way to move the same thing is how the two disagree.
+  const gizmoVisible = (): boolean =>
+    gizmo !== null &&
+    gesture === "pointer" &&
+    selectedEntityId !== null &&
+    stamp === null;
+
+  // Which axis handle a press landed on, or null. Runs BEFORE the candidate pick
+  // (see PICK_TIER in field-pick.ts): the arms radiate outward from the
+  // footprint's centre, so they are drawn over the very box they move, and a
+  // manipulator that lost the click to the thing behind it would be unusable.
+  // The dead zone at that centre is what keeps the free ground drag reachable —
+  // the same span the batch draws, passed as the inner bound here.
+  const gizmoAxisAt = (clientX: number, clientY: number): Axis | null => {
+    const g = gizmo;
+    if (g === null || !gizmoVisible()) return null;
+    const ray = cursorRay(clientX, clientY);
+    if (ray === null) return null;
+    return pickAxis(
+      { origin: ray.origin, dir: ray.dir },
+      g.origin,
+      g.len,
+      g.len * GIZMO_PICK_TOL_FRACTION,
+      g.len * GIZMO_HANDLE_INNER_FRACTION,
+    );
   };
 
   // Select one entity, or NOTHING — the single mutator of the entity selection,
@@ -3503,6 +3802,20 @@ export function createFieldHost(deps?: {
                 archetypeById,
                 GHOST_COLOR,
               );
+              // A move DROP that landed while this preview was in flight. Spent
+              // HERE, on the settle that made the session committable, and
+              // BEFORE notifyStamp: a commit ends the session and notifies on
+              // its own way out, so publishing "ready" first would push a
+              // session the chrome never gets to see. Not spent on a STALE run
+              // (`next === null` above) — a newer preview is still coming and
+              // owns the drop. A commit that refuses (an empty preview, a core
+              // throw) leaves the session standing and falls through to the
+              // notify below, which is what keeps its message on screen.
+              if (moveCommitPending) {
+                moveCommitPending = false;
+                commitActiveSession();
+                if (stamp === null) return;
+              }
               notifyStamp();
             }
           }
@@ -3515,6 +3828,11 @@ export function createFieldHost(deps?: {
               // The session's error field is the panel's channel; console
               // keeps the developer trail (mirrors remeshOne).
               console.warn(`field-host: stamp preview failed: ${message}`);
+              // A latched drop dies with the preview it was waiting on: there is
+              // no ghost to commit, and an armed latch would otherwise fire on
+              // whatever settle came next — a re-roll, a param edit — committing
+              // something the user never dropped.
+              moveCommitPending = false;
               stamp = next;
               destroyStampGhosts();
               notifyStamp();
@@ -3585,7 +3903,61 @@ export function createFieldHost(deps?: {
     previewStamp();
   };
 
+  // The quarter turns a generator offers, read off its OWN paramSchema — never a
+  // list spelled here. Core owns the members (they are STRINGS, and its
+  // validator accepts exactly those), so a copy in the editor would be a second
+  // spelling of one fact, free to drift the day a turn is added or the enum goes
+  // numeric. Null = this generator has no rotation (cave, scatter) or has left
+  // the registry.
+  const rotationOptions = (generator: string): string[] | null => {
+    let def: field.GeneratorDef;
+    try {
+      def = field.generatorById(generator);
+    } catch {
+      return null;
+    }
+    const prop = generatorSchemaProperties(def)[ROTATION_PARAM];
+    if (typeof prop !== "object" || prop === null) return null;
+    // Boundary cast: the runtime check above proves a non-null object, which is
+    // always index-readable as Record<string, unknown> (generatorSchemaProperties'
+    // own narrowing, one level down).
+    const members = (prop as Record<string, unknown>)["enum"];
+    if (!Array.isArray(members)) return null;
+    const turns = members.filter((m): m is string => typeof m === "string");
+    return turns.length === 0 ? null : turns;
+  };
+
+  // R: the live session's next quarter turn. A params change like any other —
+  // the run bumps, the ghost re-cooks, and Enter then commits what is on screen.
+  // A value the schema does not offer (absent, because `rotation` is optional on
+  // records written before it existed) lands on the FIRST member rather than
+  // reporting: the point of the key is to turn the thing.
+  const rotateStampSession = (): void => {
+    const s = stamp;
+    if (s === null) return;
+    const turns = rotationOptions(s.generator);
+    if (turns === null) {
+      reportToolError(`${s.generator} has no rotation`);
+      return;
+    }
+    const current = s.params[ROTATION_PARAM];
+    const at = typeof current === "string" ? turns.indexOf(current) : -1;
+    const next = turns[(at + 1) % turns.length];
+    if (next === undefined) return; // unreachable: turns is non-empty
+    stamp = withParams(
+      s,
+      { ...s.params, [ROTATION_PARAM]: next },
+      s.seed,
+      s.policy,
+    );
+    previewStamp();
+  };
+
   const cancelStampSession = (): void => {
+    // BEFORE the null guard, so a stray move mapping can never survive a session
+    // that is already gone — this is the ONE teardown every discard path runs
+    // (Esc, a world reset, a table swap, freeze/bake/delete, a re-open).
+    endMove();
     if (stamp === null) return;
     stamp = null;
     destroyStampGhosts();
@@ -3674,18 +4046,24 @@ export function createFieldHost(deps?: {
   // Open a reconfigure session on a committed entity. Every refusal is
   // runtime-quiet (report + no session): the ids come from a panel list that
   // can lag the log, and the flags are exactly what the user is asking about.
-  const openEntitySession = (entityId: number): void => {
+  //
+  // `moving` flags the session as a MOVE (see StampSession.moving). It is a
+  // property of the session being built, not a branch — every refusal, the
+  // ghost, and the terminal verb are identical either way, which is the whole
+  // point of a move being a reconfigure. Returns whether a session opened, so
+  // the move path knows whether to arm its cursor mapping.
+  const openEntitySession = (entityId: number, moving: boolean): boolean => {
     const record = entityRecord(entityId);
     if (record === null) {
       reportToolError(`entity ${entityId} is no longer in the log`);
-      return;
+      return false;
     }
     // ONE rule, shared with the row's Open button (field-entity.ts): a state
     // the UI disables for and a state the host refuses can never drift apart.
     const blocked = openBlockedReason(record);
     if (blocked !== null) {
       reportToolError(`entity ${entityId} is ${blocked}`);
-      return;
+      return false;
     }
     try {
       field.generatorById(record.generator); // setup-loud on a retired id
@@ -3694,11 +4072,11 @@ export function createFieldHost(deps?: {
       // whose Apply can never land (startStamp's precedent).
       const message = err instanceof Error ? err.message : String(err);
       reportToolError(message);
-      return;
+      return false;
     }
     cancelStampSession(); // a live session (+ ghost) never survives a re-open
     stampGen++;
-    stamp = startReconfigureSession({
+    const opened = startReconfigureSession({
       entityId,
       generator: record.generator,
       // Clone at the boundary: the session must never alias the log's record.
@@ -3708,7 +4086,176 @@ export function createFieldHost(deps?: {
       // Not provenance — see the openEntity contract.
       policy: "replace",
     });
+    // Set BEFORE previewStamp, which is what pushes the session to subscribers:
+    // flagging it afterwards would publish one frame of "reconfigure" ahead of
+    // the move, and the strip would flicker the wrong word.
+    stamp = moving ? { ...opened, moving: true } : opened;
     previewStamp();
+    return true;
+  };
+
+  // Whatever ends the session ends the move with it. A `moveDrag` that outlived
+  // its session would map the next cursor motion onto nothing — and, once
+  // another session opened, onto the wrong thing entirely.
+  const endMove = (): void => {
+    moveDrag = null;
+    pendingMove = null;
+    moveCommitPending = false;
+  };
+
+  // Start a move on a committed entity: the reconfigure session, plus the cursor
+  // mapping that will drive its region. Returns whether it started (every
+  // refusal is openEntitySession's, already reported).
+  const beginMoveSession = (
+    entityId: number,
+    axis: Axis | null,
+    grabbed: boolean,
+    press: { x: number; y: number } | null,
+  ): boolean => {
+    if (!openEntitySession(entityId, true)) return false;
+    // Read AFTER the open, so the memo is rebuilt against the log the session
+    // was seeded from. The session proves the entity op exists, so the memo has
+    // it; the fallback is the same one entityFootprints itself uses.
+    const box = entityFootprints().get(entityId) ?? stamp?.region;
+    if (box === undefined) return false; // unreachable: the open proved the record
+    moveDrag = {
+      entityId,
+      mapping: axis ?? "plane",
+      fixedAxis: axis !== null,
+      planeY: box.min[1],
+      origin: [
+        (box.min[0] + box.max[0]) / 2,
+        (box.min[1] + box.max[1]) / 2,
+        (box.min[2] + box.max[2]) / 2,
+      ],
+      press,
+      anchorPoint: null,
+      anchorSteps: [0, 0, 0],
+      applied: [0, 0, 0],
+      grabbed,
+    };
+    return true;
+  };
+
+  // The world point the cursor currently means, under one mapping — or null when
+  // this view cannot answer (the ray is edge-on to the plane or the axis, where
+  // the parameter runs away or is undefined). Null means HOLD STILL: a move that
+  // lurched to a garbage reading would be worse than one that ignored a frame.
+  const movePoint = (
+    d: MoveDrag,
+    mapping: MoveMapping,
+    ray: { origin: Vec3T; dir: Vec3T },
+  ): Vec3T | null => {
+    if (mapping === "plane") {
+      const dy = ray.dir[1];
+      if (Math.abs(dy) < GROUND_PARALLEL_EPS) return null;
+      const t = (d.planeY - ray.origin[1]) / dy;
+      if (t <= 0) return null; // the plane is behind the eye
+      return [
+        ray.origin[0] + t * ray.dir[0],
+        d.planeY,
+        ray.origin[2] + t * ray.dir[2],
+      ];
+    }
+    const dir = AXIS_DIR[mapping];
+    if (isViewParallel(dir, ray)) return null;
+    const t = closestPointParamOnAxis(d.origin, dir, ray);
+    return [
+      d.origin[0] + t * dir[0],
+      d.origin[1] + t * dir[1],
+      d.origin[2] + t * dir[2],
+    ];
+  };
+
+  // One cursor event's worth of move: re-read the mapping, turn the offset from
+  // the anchor into whole lattice steps, and hand the DIFFERENCE to the same
+  // region nudge the arrow keys drive.
+  //
+  // No clamp on how far a region may travel, deliberately. The field has no
+  // world bounds to clamp against (chunks allocate on demand), so any limit
+  // would be an invented number; the arrow-key nudge this shares a seam with has
+  // none either, and a move that disagreed with the d-pad about where a region
+  // may go would be a second rule for one concept. What bounds it in practice is
+  // the mapping itself — a region can only go where the cursor ray can reach —
+  // and the ghost shows exactly where it will land before the drop.
+  const updateMove = (e: {
+    clientX: number;
+    clientY: number;
+    shiftKey?: boolean;
+  }): void => {
+    const d = moveDrag;
+    if (d === null || stamp === null) return;
+    // ⇧ promotes a FREE move to the vertical axis — the arrow pad's own rule
+    // (arrowNudgeSteps), for the same reason: a ground-plane drag has no way to
+    // express height. A GIZMO drag ignores it; the handle already named the axis.
+    const mapping: MoveMapping = d.fixedAxis
+      ? d.mapping
+      : e.shiftKey === true
+        ? "y"
+        : "plane";
+    if (d.anchorPoint === null || mapping !== d.mapping) {
+      // (Re-)anchor: this mapping's zero, with the steps already applied as its
+      // base — so a ⇧ pressed mid-drag keeps what came before and moves nothing
+      // by itself. The FIRST anchor of a drag is taken at the PRESS, not here:
+      // the move opens on the event that crosses the threshold, and anchoring
+      // there would throw away the travel that opened it.
+      const from =
+        d.anchorPoint === null && d.press !== null
+          ? d.press
+          : { x: e.clientX, y: e.clientY };
+      const anchorRay = cursorRay(from.x, from.y);
+      if (anchorRay === null) return;
+      const anchoredAt = movePoint(d, mapping, {
+        origin: anchorRay.origin,
+        dir: anchorRay.dir,
+      });
+      if (anchoredAt === null) return;
+      d.mapping = mapping;
+      d.anchorPoint = anchoredAt;
+      d.anchorSteps = [...d.applied];
+    }
+    const ray = cursorRay(e.clientX, e.clientY);
+    if (ray === null) return;
+    const point = movePoint(d, mapping, { origin: ray.origin, dir: ray.dir });
+    if (point === null) return;
+    const anchor = d.anchorPoint;
+    if (anchor === null) return; // unreachable: the block above just set it
+    const wantOn = (i: 0 | 1 | 2): number =>
+      d.anchorSteps[i] + Math.round((point[i] - anchor[i]) / LATTICE);
+    const want: Vec3T = [wantOn(0), wantOn(1), wantOn(2)];
+    const step: Vec3T = [
+      want[0] - d.applied[0],
+      want[1] - d.applied[1],
+      want[2] - d.applied[2],
+    ];
+    if (step[0] === 0 && step[1] === 0 && step[2] === 0) return;
+    d.applied = want;
+    nudgeStampRegion(step);
+  };
+
+  // End a move by DROPPING it — a mouse-up on a drag, LMB on a grab.
+  const dropMove = (): void => {
+    const d = moveDrag;
+    endMove();
+    if (d === null) return;
+    if (d.applied[0] === 0 && d.applied[1] === 0 && d.applied[2] === 0) {
+      // Nothing actually moved — a drag whose travel rounded to no lattice step,
+      // or a grab dropped where it started. A reconfigure would still re-splice
+      // the span with fresh op ids and still spend an undo entry, so committing
+      // here would put a no-op on the history stack for every twitchy click.
+      // End the session instead.
+      cancelStampSession();
+      return;
+    }
+    if (stamp?.phase === "ready") {
+      commitActiveSession();
+      return;
+    }
+    // The ghost is still cooking — latch the drop so the settle spends it (see
+    // moveCommitPending). A session that is neither ready nor previewing has an
+    // ERRORED preview: leave it standing with its message rather than latching a
+    // commit that would fire on some later, unrelated settle.
+    moveCommitPending = stamp?.phase === "previewing";
   };
 
   // Apply the live reconfigure session: ONE undo entry, the entity id and every
@@ -3765,6 +4312,9 @@ export function createFieldHost(deps?: {
     // stale findings to the edit the user just made.
     drift = result.drift.length === 0 ? null : result.drift;
     stamp = null;
+    // The session this move rode has landed, so the mapping goes with it — the
+    // cancel path's rule, from the other side.
+    endMove();
     destroyStampGhosts();
     // A re-cooked scatter replaces its own placement op's records, and any
     // reconfigure re-splices the log the prop layer is derived from.
@@ -4068,6 +4618,16 @@ export function createFieldHost(deps?: {
           camera: view,
           occlude: false,
         });
+      // The translate gizmo, LAST of the selection overlays and occlude:false
+      // like them: a handle behind the box it moves must still be grabbable, and
+      // what the user sees has to be what `gizmoAxisAt` hit-tests.
+      if (gizmo && gizmoVisible())
+        frame.drawLines(c, {
+          vertices: gizmo.batch.vertices,
+          colors: gizmo.batch.colors,
+          camera: view,
+          occlude: false,
+        });
     }
     // The stamp's PLACEMENT proxies — one merged batch of oriented wireframe
     // boxes, occlude:false like every other ghost overlay so props previewed
@@ -4152,6 +4712,14 @@ export function createFieldHost(deps?: {
 
   const onPointerDown = (e: PointerEvent): void => {
     lastPointer = { x: e.clientX, y: e.clientY }; // feeds the per-frame ghost
+    // A live GRAB (`G`, no button held) owns LMB: the button DROPS the move
+    // rather than picking whatever is under the cursor at the end of it. RMB
+    // falls through to look, so a grab can be re-aimed mid-move — the one thing
+    // a free-hand move genuinely needs the camera for.
+    if (moveDrag !== null && !moveDrag.grabbed && e.button === 0) {
+      dropMove();
+      return;
+    }
     if (e.button === 0 && e.altKey) {
       // Alt-click samples a material — never strokes, so it stays live in
       // selection mode too (a brush affordance the gestures don't collide with).
@@ -4159,12 +4727,17 @@ export function createFieldHost(deps?: {
       return;
     }
     if (e.button === 0 && gesture !== null) {
-      // Armed gestures BYPASS applyTool entirely: no stroke, no digging flag,
-      // no pointer capture (single clicks, nothing drags). RMB look below
-      // stays live under every gesture. `pointer` is the DEFAULT one, so this
-      // branch — not the stroke below — is what a fresh host does with its
-      // first click.
-      if (gesture === "pointer") pointerClick(e.clientX, e.clientY);
+      // Armed gestures BYPASS applyTool entirely: no stroke, no digging flag.
+      // RMB look below stays live under every gesture. `pointer` is the DEFAULT
+      // one, so this branch — not the stroke below — is what a fresh host does
+      // with its first click.
+      //
+      // `pointer` is also the ONE gesture that can drag, and therefore the one
+      // that takes pointer capture: a press on a gizmo handle, or on the already
+      // selected entity, can become an entity MOVE (pointerPress owns that
+      // arbitration). The other three are still single clicks that capture
+      // nothing.
+      if (gesture === "pointer") pointerPress(e);
       else if (gesture === "segment") segmentClick(e.clientX, e.clientY);
       else selectionClick(gesture, e.clientX, e.clientY);
       return;
@@ -4191,6 +4764,28 @@ export function createFieldHost(deps?: {
       applyOrbit();
       return;
     }
+    // A live move owns the cursor — after `look`, so RMB can still re-aim the
+    // camera during a grab without the ghost chasing the same motion.
+    if (moveDrag !== null) {
+      updateMove(e);
+      return;
+    }
+    // A press on the selected entity becomes a MOVE once the cursor has actually
+    // travelled. The threshold is measured from the PRESS, not accumulated, so a
+    // slow drift back and forth never adds its way over the line.
+    if (pendingMove !== null) {
+      const p = pendingMove;
+      if (Math.hypot(e.clientX - p.x, e.clientY - p.y) < DRAG_THRESHOLD_PX)
+        return;
+      pendingMove = null;
+      if (beginMoveSession(p.entityId, null, true, { x: p.x, y: p.y })) {
+        canvasEl?.setPointerCapture(p.pointerId);
+        // Anchors at the PRESS (not here) and applies this event's offset from
+        // it in the same call, so the travel that crossed the threshold counts.
+        updateMove(e);
+      }
+      return;
+    }
     // Box-select live preview: while a box anchor is pending, keep the amber
     // region the second click would commit updated as the cursor moves.
     if (gesture === "box" && boxAnchor !== null) {
@@ -4209,15 +4804,44 @@ export function createFieldHost(deps?: {
     applyTool(e.clientX, e.clientY);
   };
 
+  // Abandon a move without committing it — the shared teardown behind
+  // `pointercancel` and focus loss. Cancels the SESSION too (its ghost is a
+  // promise about a drop that is not going to happen); a session that is not a
+  // move is left alone.
+  const cancelMoveInFlight = (): void => {
+    if (moveDrag === null && pendingMove === null) return;
+    endMove();
+    if (stamp?.moving === true) cancelStampSession();
+  };
+
   const onPointerUp = (e: PointerEvent): void => {
+    // Only the button that STARTED a drag ends it. Gated on button 0 because RMB
+    // look is live during a move (a grab can be re-aimed), and a right-button
+    // release must not commit a splice the user is still positioning.
+    if (e.button === 0) {
+      if (moveDrag?.grabbed === true) dropMove();
+      // A press that never crossed the threshold: it was a click on what was
+      // already selected, which has always been a no-op. Nothing to undo.
+      pendingMove = null;
+    }
     digging = false;
     look = null;
     canvasEl?.releasePointerCapture(e.pointerId);
   };
 
+  // `pointercancel` is NOT a quiet pointerup: the system voided the gesture (a
+  // touch turned into a scroll, a device was lost), so a move in flight is
+  // DISCARDED rather than dropped. Committing a splice from a gesture the
+  // platform just cancelled would write history the user never asked for.
+  const onPointerCancel = (e: PointerEvent): void => {
+    cancelMoveInFlight();
+    onPointerUp(e);
+  };
+
   // NOTE: no pointer-leave handler on purpose — lastPointer survives the
   // pointer leaving the canvas so the ghost previews panel-driven size changes
-  // (see the lastPointer declaration comment).
+  // (see the lastPointer declaration comment). A move drag does not need one
+  // either: it takes pointer capture, so the events keep arriving.
 
   const onWheel = (e: WheelEvent): void => {
     e.preventDefault();
@@ -4303,6 +4927,21 @@ export function createFieldHost(deps?: {
       }
       return;
     }
+    // R quarter-turns the live session (D-9). Canvas-owned and beside the arrow
+    // nudges rather than an app-level action, for the same reason they are:
+    // it edits the SESSION, which only exists while the viewport is being
+    // worked. Same three-modifier chord guard — ⌘R and ctrl+R are reload, and
+    // alt+R is a system chord on some layouts. Not a fly key, so returning here
+    // starves nothing; without a session it falls through and is swallowed
+    // unused (Enter/Esc's stance).
+    if (k === "r" && !e.metaKey && !e.ctrlKey && !e.altKey) {
+      if (stamp !== null) {
+        e.preventDefault();
+        rotateStampSession();
+        return;
+      }
+      return;
+    }
     // [ / ] step the brush radius (same clamp as the wheel); key-repeat is the
     // hold-to-resize behaviour. Chord-guarded: ⌘[/⌘] (and ctrl+[/]) are the
     // browser's back/forward — never intercept those.
@@ -4342,7 +4981,15 @@ export function createFieldHost(deps?: {
   // never keyups here, leaving fly movement running or a momentary tool stuck.
   // Clear the fly set + both momentary flags (deriveMomentary restores the
   // saved tool when both drop).
+  //
+  // A move in flight is stranded the same way and is DISCARDED (D-9's blur
+  // decision). A drag alt-tabbed away from never sees its pointerup, and a `G`
+  // grab is a modal viewport state that clicking a panel control leaves.
+  // Committing would land a splice nobody confirmed; leaving it live would strand
+  // a ghost that answers to nothing. Cancelling costs the user only the drag —
+  // the record is untouched until the drop.
   const onBlur = (): void => {
+    cancelMoveInFlight();
     keys.clear();
     if (momentaryShift || momentaryCtrl) {
       momentaryShift = false;
@@ -4359,7 +5006,7 @@ export function createFieldHost(deps?: {
     canvas.addEventListener("pointerdown", onPointerDown);
     canvas.addEventListener("pointermove", onPointerMove);
     canvas.addEventListener("pointerup", onPointerUp);
-    canvas.addEventListener("pointercancel", onPointerUp);
+    canvas.addEventListener("pointercancel", onPointerCancel);
     canvas.addEventListener("wheel", onWheel, { passive: false });
     canvas.addEventListener("contextmenu", onContextMenu);
     canvas.addEventListener("keydown", onKeyDown);
@@ -4372,7 +5019,7 @@ export function createFieldHost(deps?: {
     canvasEl.removeEventListener("pointerdown", onPointerDown);
     canvasEl.removeEventListener("pointermove", onPointerMove);
     canvasEl.removeEventListener("pointerup", onPointerUp);
-    canvasEl.removeEventListener("pointercancel", onPointerUp);
+    canvasEl.removeEventListener("pointercancel", onPointerCancel);
     canvasEl.removeEventListener("wheel", onWheel);
     canvasEl.removeEventListener("contextmenu", onContextMenu);
     canvasEl.removeEventListener("keydown", onKeyDown);
@@ -4687,6 +5334,12 @@ export function createFieldHost(deps?: {
     setGesture(next) {
       if (next === gesture) return; // re-arming the same gesture must not drop a pending anchor
       gesture = next;
+      // Nor does a move in flight. A move is a `pointer`-tool mode, and arming
+      // anything else means LMB now digs or selects cells — a ghost still
+      // chasing the cursor under that would promise a drop no button is going to
+      // make. The blur that follows a rail click cancels it too; this covers the
+      // programmatic path and anything that arms a tool without taking focus.
+      cancelMoveInFlight();
       // Neither pending anchor survives a gesture change — including
       // box→segment, where a carried-over point would read as a segment start
       // the user never clicked.
@@ -4850,6 +5503,9 @@ export function createFieldHost(deps?: {
     nudgeStamp(dx, dy, dz) {
       nudgeStampRegion([dx, dy, dz]); // no-ops without a session
     },
+    rotateStamp() {
+      rotateStampSession();
+    },
     rerollStamp() {
       if (stamp === null) return;
       stamp = withParams(stamp, stamp.params, randomStampSeed(), stamp.policy);
@@ -4880,7 +5536,23 @@ export function createFieldHost(deps?: {
       };
     },
     openEntity(entityId) {
-      openEntitySession(entityId);
+      openEntitySession(entityId, false);
+    },
+    beginMove(entityId) {
+      // The GRAB: no button is held, so the cursor drives the ghost free-hand
+      // and LMB (or Enter) is what drops it. The pointer-drag and gizmo paths
+      // arm the same move with `grabbed: true`.
+      //
+      // Anchored at the last known cursor position (null before the pointer has
+      // ever been over the canvas — then the first cursor event anchors), so a
+      // grab starts where the user is looking instead of jumping the ghost to
+      // wherever the pointer happens to arrive next.
+      beginMoveSession(
+        entityId,
+        null,
+        false,
+        lastPointer === null ? null : { x: lastPointer.x, y: lastPointer.y },
+      );
     },
     applyReconfigure() {
       applyReconfigureSession();
