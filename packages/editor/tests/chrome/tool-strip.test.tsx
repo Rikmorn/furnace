@@ -172,10 +172,10 @@ const MAZE_ENTITY: FieldEntityInfo = {
 /** The strip's own box — a labelled toolbar in the top bar, resolved by role so the
  *  claim is about a region a screen reader reaches, not about a div. */
 const strip = (): HTMLElement =>
-	screen.getByRole("toolbar", { name: "tool options" });
+	screen.getByRole("group", { name: "tool options" });
 
 const sessionStrip = (): HTMLElement =>
-	screen.getByRole("status", { name: "live session" });
+	screen.getByRole("region", { name: "live session" });
 
 /** Every param the strip can carry, keyed by the accessible name its control already
  *  has. No test-only DOM hook: what makes a param "present" is the same thing that
@@ -260,7 +260,7 @@ test("the segment gesture rides the brush family — the armed effect's own para
 	armEffect("fill");
 	fireEvent.click(screen.getByRole("button", { name: "Brush tools" }));
 	const menu = await screen.findByRole("group", { name: "Brush tools" });
-	fireEvent.click(within(menu).getByRole("button", { name: "Segment" }));
+	fireEvent.click(within(menu).getByRole("button", { name: /^Segment —/ }));
 
 	// A segment commits a brush op with the armed effect and material (host
 	// `segmentClick` → `commitToolOp` → the same `toolOp` a stroke uses), so the params
@@ -296,7 +296,7 @@ test("picking Paint while a kit class is active clamps the material to the first
 	// flyout and the `B` family key both go through.
 	fireEvent.click(screen.getByRole("button", { name: "Brush tools" }));
 	const menu = await screen.findByRole("group", { name: "Brush tools" });
-	fireEvent.click(within(menu).getByRole("button", { name: "Paint" }));
+	fireEvent.click(within(menu).getByRole("button", { name: /^Paint —/ }));
 	expect(stub.calls.setTool.mock.calls.at(-1)?.[0]).toMatchObject({
 		effect: "paint",
 		materialId: 0,
@@ -337,7 +337,7 @@ test("the dig↔fill re-aim survives under Segment — X swaps the sweep, it doe
 	armEffect("fill");
 	fireEvent.click(screen.getByRole("button", { name: "Brush tools" }));
 	const menu = await screen.findByRole("group", { name: "Brush tools" });
-	fireEvent.click(within(menu).getByRole("button", { name: "Segment" }));
+	fireEvent.click(within(menu).getByRole("button", { name: /^Segment —/ }));
 	const before = stub.calls.setGesture.mock.calls.length;
 
 	// `X` goes through `armBrush` alone, and `brushArming` deliberately keeps a live
@@ -353,6 +353,61 @@ test("the dig↔fill re-aim survives under Segment — X swaps the sweep, it doe
 	expect(stub.calls.setGesture.mock.calls.length).toBe(before);
 	expect(within(strip()).getByText("SEGMENT")).toBeTruthy();
 	expect(within(strip()).getByText("dig")).toBeTruthy();
+});
+
+test("the hollow field is the shadcn Input, with its label and its unit (D-25)", async () => {
+	stubCatalog();
+	const stub = makeStubHost({ generators: [HALL] });
+	await renderShell(stub);
+	armEffect("fill");
+	fireEvent.click(within(strip()).getByLabelText("hollow fill"));
+
+	const thickness = within(strip()).getByLabelText(
+		"hollow thickness",
+	) as HTMLInputElement;
+	// The house focus vocabulary is ONE ring everywhere (D-23), and it arrives with the
+	// `Input` primitive. The first cut hand-copied this control into a raw `<input>` and
+	// dropped the ring with it — invisible in a screenshot, and exactly the thing nobody
+	// re-checks.
+	expect(thickness.className).toContain("focus-visible:ring-1");
+	// Its visible LABEL and its UNIT, both of which the hand-copy also lost. The radius
+	// param one place over prints its ` m`, and a bare number beside it reads as a
+	// different kind of quantity.
+	const row = thickness.closest("label");
+	if (!(row instanceof HTMLElement))
+		throw new Error("the thickness input is no longer inside its label");
+	expect(row.textContent).toContain("thickness");
+	expect(row.textContent).toContain("m");
+});
+
+test("a kit swatch under Paint explains itself through the name AND a real tooltip", async () => {
+	stubCatalog();
+	const stub = makeStubHost({ generators: [HALL] });
+	await renderShell(stub);
+	armEffect("paint");
+
+	// The paint clamp is the highest-value explanation on this surface, and it was the one
+	// that stayed a `title` — mouse-only, unstyleable, and unreliable on the very control
+	// it describes. It rides the accessible NAME now…
+	const masonry = within(strip()).getByLabelText(
+		/^material masonry — kit classes can't be painted$/,
+	) as HTMLButtonElement;
+	expect(masonry.getAttribute("title")).toBeNull();
+	// …and it is `aria-disabled`, not `disabled`, so the control stays focusable and its
+	// tooltip can actually open. A `disabled` button takes no pointer events at all.
+	expect(masonry.getAttribute("aria-disabled")).toBe("true");
+	expect(masonry.disabled).toBe(false);
+
+	act(() => {
+		fireEvent.focus(masonry);
+	});
+	const tip = await screen.findByRole("tooltip");
+	expect(within(tip).getByText(/kit classes can't be painted/)).toBeTruthy();
+
+	// …and it still refuses the click. With `aria-disabled` the browser no longer does it.
+	stub.calls.setTool.mockClear();
+	fireEvent.click(masonry);
+	expect(stub.calls.setTool).not.toHaveBeenCalled();
 });
 
 // --- (b) the two families that are not the brush -----------------------------
@@ -422,9 +477,9 @@ test("the strip is ONE row that clips rather than wraps, and its params degrade 
 	// so the degradation follows the STRIP's width and not the window's.
 	expect(row.classList.contains("@container/strip")).toBe(true);
 
-	// The params hide as ONE unit below the strip's min content width, leaving exactly
+	// The params hide as ONE unit below the branch's own min content width, leaving exactly
 	// D-6's degraded state: name + ⋯. The threshold is the sum of the declared control
-	// widths — see STRIP_PARAMS_MIN's comment in ToolStrip.tsx.
+	// widths for THAT effect — see STRIP_PARAMS_MIN's comment in ToolStrip.tsx.
 	const params = within(row).getByRole("group", { name: "tool params" });
 	expect(params.classList.contains("@max-[46rem]/strip:hidden")).toBe(true);
 
@@ -433,6 +488,99 @@ test("the strip is ONE row that clips rather than wraps, and its params degrade 
 		within(row).getByRole("button", { name: /^all fill options/ }),
 	).toBeTruthy();
 	expect(within(row).getByText("FILL")).toBeTruthy();
+});
+
+test("each branch degrades at its OWN width — dig does not blank at fill's threshold", async () => {
+	stubCatalog();
+	const stub = makeStubHost({ generators: [HALL] });
+	await renderShell(stub);
+	const thresholdOf = (): number => {
+		const group = within(strip()).getByRole("group", { name: "tool params" });
+		const hit = Array.from(group.classList).find((c) => c.startsWith("@max-["));
+		if (hit === undefined)
+			throw new Error("the param group carries no container query");
+		return Number(hit.replace(/^@max-\[(\d+)rem\].*$/, "$1"));
+	};
+
+	// One worst-case threshold applied to every branch blanked dig — two params — at the
+	// width FILL needs, which is a strip degrading for a reason that is not about it.
+	armEffect("dig");
+	const dig = thresholdOf();
+	armEffect("fill");
+	const fill = thresholdOf();
+	armEffect("paint");
+	const paint = thresholdOf();
+	armEffect("smooth");
+	const smooth = thresholdOf();
+	// Ordered by how much each set needs, which is the only property worth pinning: the
+	// exact rem figures are computed estimates (see the constant's doc) and re-tuning one
+	// must not fail this.
+	expect(dig).toBeLessThan(paint);
+	expect(paint).toBeLessThan(smooth);
+	expect(smooth).toBeLessThan(fill);
+
+	// The two NON-brush branches carry no query at all: their whole content is one short
+	// span that cannot overflow a strip sized for a four-param fill set, so there is
+	// nothing to degrade — and consequently nothing for a ⋯ to hold, which is why they
+	// have none. D-6 satisfied rather than skipped.
+	act(() => {
+		fireEvent.keyDown(window, { key: "v" });
+	});
+	const pointerParams = within(strip()).getByRole("group", {
+		name: "tool params",
+	});
+	expect(
+		Array.from(pointerParams.classList).some((c) => c.startsWith("@max-[")),
+	).toBe(false);
+	expect(
+		within(strip()).queryByRole("button", { name: /^all .* options/ }) === null,
+	).toBe(true);
+});
+
+test("the strip's radius slider pushes through the SAME funnel the wheel and [ ] use", async () => {
+	stubCatalog();
+	const stub = makeStubHost({ generators: [HALL] });
+	await renderShell(stub);
+	armEffect("dig");
+	// `setTool` was pinned by several cases; `setDigRadius` was pinned by none, so "the
+	// strip's controls push through the same funnels the panel used" was half-asserted.
+	const slider = within(strip()).getByLabelText("brush radius");
+	fireEvent.change(slider, { target: { value: "2.5" } });
+	expect(stub.calls.setDigRadius.mock.calls.at(-1)).toEqual([2.5]);
+	// …and the readout follows, with its unit (D-25: units always).
+	expect(within(strip()).getByText("2.50 m")).toBeTruthy();
+});
+
+test("a settled <select> hands focus back, or every bare tool key dies behind it", async () => {
+	stubCatalog();
+	const stub = makeStubHost({ generators: [HALL] });
+	await renderShell(stub);
+	armEffect("dig");
+	const mask = within(strip()).getByLabelText(
+		"brush mask",
+	) as HTMLSelectElement;
+	mask.focus();
+	// Compared as BOOLEANS, never as elements: a happy-dom node carries React's fiber
+	// graph, so a failing element comparison serialises tens of megabytes and reads as a
+	// hung run rather than a failed assertion (the house rule — and the select case below
+	// hit it during sabotage).
+	expect(document.activeElement === mask).toBe(true);
+
+	fireEvent.change(mask, { target: { value: "organic-only" } });
+	expect(stub.calls.setTool.mock.calls.at(-1)?.[0]).toMatchObject({
+		mask: { kind: "organic-only" },
+	});
+	// A native select KEEPS focus after a choice, and the app-level gate refuses every
+	// `typed` action while a select holds it — correctly, since Esc on an open dropdown
+	// must not discard the session behind it. In a palette the user closes that was mild;
+	// in an always-on strip between the user and the canvas it kills every bare tool key
+	// with nothing on screen saying why.
+	expect(document.activeElement === mask).toBe(false);
+	stub.calls.setGesture.mockClear();
+	act(() => {
+		fireEvent.keyDown(window, { key: "v" });
+	});
+	expect(stub.calls.setGesture.mock.calls).toEqual([["pointer"]]);
 });
 
 // --- (d) the ⋯ is the same list, not a second one ---------------------------
@@ -478,7 +626,7 @@ test("a live session swaps the tool strip for the session strip and takes Bake o
 
 	// The tool strip is GONE, not merely covered: leaving it would leave live radius and
 	// mask controls beside a bar that says the tools are locked.
-	expect(screen.queryByRole("toolbar", { name: "tool options" }) === null).toBe(
+	expect(screen.queryByRole("group", { name: "tool options" }) === null).toBe(
 		true,
 	);
 	const live = sessionStrip();
@@ -493,14 +641,36 @@ test("a live session swaps the tool strip for the session strip and takes Bake o
 	// it, so a bake here would quietly write a world without what is on screen.
 	expect(screen.queryByRole("button", { name: "Bake" }) === null).toBe(true);
 
-	// A move says MOVE — the one word that distinguishes the three session states, and
-	// the reason `StampSession.moving` exists at all.
+	// ⏎ APPLIES a reconfigure. Pinned exactly rather than by substring: the first cut
+	// matched /apply/, which "apply" and "applies" and "reapply" all satisfy, and the verb
+	// is the whole content of the claim.
+	expect(within(live).getByText("apply")).toBeTruthy();
+	expect(within(live).queryByText("drop") === null).toBe(true);
+
+	// A move says MOVE and DROP — the one word that distinguishes the three session
+	// states, and the reason `StampSession.moving` exists at all. Both were unpinned: every
+	// fixture reaching this strip was a reconfigure, so the `moving` branch of the tag AND
+	// of the ⏎ verb were dead code as far as the suite could tell.
 	act(() => {
 		stub.fire.stamp(
 			makeSession({ mode: "reconfigure", entityId: 3, moving: true }),
 		);
 	});
 	expect(within(sessionStrip()).getByText("MOVE")).toBeTruthy();
+	expect(within(sessionStrip()).getByText("drop")).toBeTruthy();
+	expect(within(sessionStrip()).queryByText("apply") === null).toBe(true);
+	// R is hidden on a MOVE: a move is a region translation, and `rotateStamp` would refuse
+	// — advertising a key whose only answer is a refusal is the pattern D-7 retires.
+	expect(within(sessionStrip()).queryByText("rotate ¼") === null).toBe(true);
+
+	// The THIRD tag, which no fixture reached: a fresh stamp has no entity yet, so it is
+	// named by its generator alone and tagged STAMP.
+	act(() => {
+		stub.fire.stamp(makeSession({ mode: "stamp", entityId: null }));
+	});
+	expect(within(sessionStrip()).getByText("STAMP")).toBeTruthy();
+	expect(within(sessionStrip()).getByText("hall")).toBeTruthy();
+	expect(within(sessionStrip()).getByText("rotate ¼")).toBeTruthy();
 
 	// …and the strip comes back when the session ends.
 	act(() => {

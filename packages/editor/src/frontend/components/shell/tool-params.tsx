@@ -5,13 +5,17 @@
 // rests on those two being ONE list rather than two that agree. The strip renders a
 // prefix; the popover renders the whole thing.
 //
-// The controls are the ones `BrushInspector` and the panel's swatch strip had: the same
-// control KINDS (native `<select>`s, range inputs, a native checkbox) and the same
-// accessible names, resized for a 40 px bar. Moved and re-fitted, never re-chosen —
-// D-25's forms vocabulary is Task 11's and D-24's Biome rule (no raw `<select>` outside
-// `components/ui/`) is F4.5c's, and swapping the control kind here would have cost the
-// app-level key gate its only native-`<select>` guard while changing nothing a user can
-// see. The net count of raw controls in the chrome is unchanged by this move.
+// The controls are the ones `BrushInspector` and the panel's swatch strip had, with the
+// same accessible names, resized for a 40 px bar. The MASK and SMOOTH-MODE selects stay
+// native and the hollow toggle stays a native checkbox: D-25's forms vocabulary is Task
+// 11's and D-24's Biome rule (no raw `<select>` outside `components/ui/`) is F4.5c's, and
+// swapping the mask's kind here would have cost the app-level key gate its only
+// native-`<select>` guard while changing nothing a user can see.
+//
+// The hollow THICKNESS field is the exception, and it is a correction rather than a
+// carry-over: the first cut of this file hand-copied it into a raw `<input type="number">`
+// and lost the house focus ring with it. It is `<Input>` again — the shadcn primitive
+// `BrushInspector` used — so the raw-control count this move adds is zero, not one.
 import type { MaterialTable } from "@furnace/core/field"; // type-only: erased
 import type { ReactNode } from "react";
 import type {
@@ -21,6 +25,7 @@ import type {
 import { cn } from "../../lib/cn.ts";
 import { SELECT_CLASS } from "../field/form-bits.tsx";
 import { MaterialSwatches } from "../field/MaterialSwatches.tsx";
+import { Input } from "../ui/input.tsx";
 
 // Mirror FieldHost's radius clamp range (RADIUS_MIN/MAX) — the chrome cannot import the
 // host's value constants (type-only barrel).
@@ -37,6 +42,21 @@ const HOLLOW_DEFAULT_M = 0.5;
 
 const LABEL_CLASS = "flex items-center gap-1.5 whitespace-nowrap";
 const STRIP_SELECT_CLASS = "h-7 text-xs";
+
+/** Hand focus back to the document after a `<select>` settles on a value.
+ *
+ *  A native select KEEPS focus after a choice, and the app-level key gate refuses every
+ *  `typed` action while a select has focus (that refusal is correct and load-bearing —
+ *  without it Esc on an open dropdown discards the session behind it). The consequence
+ *  used to be mild: the mask select lived in a palette the user closed. It is not mild in
+ *  a strip that is always on screen and sits between the user and the canvas — every bare
+ *  tool key would be dead until they clicked elsewhere, with nothing saying why.
+ *
+ *  Blurring rather than re-focusing the canvas: the canvas is the host's, this module
+ *  cannot reach it, and `document.body` is where the window listener wants the target
+ *  anyway. */
+const releaseAfterChange = (e: { currentTarget: HTMLSelectElement }): void =>
+	e.currentTarget.blur();
 
 export type BrushEffect = FieldTool["effect"];
 
@@ -152,9 +172,10 @@ const PARAM_RENDERER: Record<ParamId, (ctx: ParamContext) => ReactNode> = {
 			mask
 			<select
 				value={maskValue(ctx.tool.mask)}
-				onChange={(e) =>
-					ctx.setTool({ ...ctx.tool, mask: parseMask(e.target.value) })
-				}
+				onChange={(e) => {
+					ctx.setTool({ ...ctx.tool, mask: parseMask(e.target.value) });
+					releaseAfterChange(e);
+				}}
 				aria-label="brush mask"
 				className={cn(SELECT_CLASS, STRIP_SELECT_CLASS, "w-28")}
 			>
@@ -198,26 +219,33 @@ const PARAM_RENDERER: Record<ParamId, (ctx: ParamContext) => ReactNode> = {
 				hollow
 			</label>
 			{ctx.tool.hollow !== null && (
-				<input
-					type="number"
-					min={HOLLOW_MIN_M}
-					step={HOLLOW_STEP_M}
-					value={ctx.tool.hollow}
-					onChange={(e) => {
-						const n = Number(e.target.value);
-						if (Number.isFinite(n)) ctx.setTool({ ...ctx.tool, hollow: n });
-					}}
-					onBlur={() => {
-						// Display honesty (F2b rider): the HOST clamps hollow to ≥ HOLLOW_MIN_M
-						// on setTool, so a settled sub-floor value here would display 0.2 while
-						// strokes carve 0.5. Clamp on BLUR, not per keystroke — a mid-typing
-						// clamp would fight entering "0.75".
-						if (ctx.tool.hollow !== null && ctx.tool.hollow < HOLLOW_MIN_M)
-							ctx.setTool({ ...ctx.tool, hollow: HOLLOW_MIN_M });
-					}}
-					aria-label="hollow thickness"
-					className="h-7 w-14 rounded-md border border-input bg-transparent px-1.5 font-mono text-foreground text-xs"
-				/>
+				// biome-ignore lint/a11y/noLabelWithoutControl: the label wraps its control as children (the shadcn Input); Biome cannot trace the native control across the component boundary — getByLabelText still resolves it
+				<label className={LABEL_CLASS}>
+					thickness
+					<Input
+						type="number"
+						min={HOLLOW_MIN_M}
+						step={HOLLOW_STEP_M}
+						value={ctx.tool.hollow}
+						onChange={(e) => {
+							const n = Number(e.target.value);
+							if (Number.isFinite(n)) ctx.setTool({ ...ctx.tool, hollow: n });
+						}}
+						onBlur={() => {
+							// Display honesty (F2b rider): the HOST clamps hollow to ≥ HOLLOW_MIN_M
+							// on setTool, so a settled sub-floor value here would display 0.2 while
+							// strokes carve 0.5. Clamp on BLUR, not per keystroke — a mid-typing
+							// clamp would fight entering "0.75".
+							if (ctx.tool.hollow !== null && ctx.tool.hollow < HOLLOW_MIN_M)
+								ctx.setTool({ ...ctx.tool, hollow: HOLLOW_MIN_M });
+						}}
+						aria-label="hollow thickness"
+						className="h-7 w-14 px-1.5 font-mono text-xs"
+					/>
+					{/* D-25: units always. The radius param one place over prints its ` m`, and a
+					    bare number beside it reads as a different kind of quantity. */}
+					m
+				</label>
 			)}
 		</span>
 	),
@@ -249,12 +277,13 @@ const PARAM_RENDERER: Record<ParamId, (ctx: ParamContext) => ReactNode> = {
 			iters
 			<select
 				value={ctx.tool.smooth.iterations}
-				onChange={(e) =>
+				onChange={(e) => {
 					ctx.setTool({
 						...ctx.tool,
 						smooth: { ...ctx.tool.smooth, iterations: Number(e.target.value) },
-					})
-				}
+					});
+					releaseAfterChange(e);
+				}}
 				aria-label="smooth iterations"
 				className={cn(SELECT_CLASS, STRIP_SELECT_CLASS, "w-16")}
 			>
@@ -272,15 +301,16 @@ const PARAM_RENDERER: Record<ParamId, (ctx: ParamContext) => ReactNode> = {
 			mode
 			<select
 				value={ctx.tool.smooth.mode}
-				onChange={(e) =>
+				onChange={(e) => {
 					ctx.setTool({
 						...ctx.tool,
 						smooth: {
 							...ctx.tool.smooth,
 							mode: parseSmoothMode(e.target.value),
 						},
-					})
-				}
+					});
+					releaseAfterChange(e);
+				}}
 				aria-label="smooth mode"
 				className={cn(SELECT_CLASS, STRIP_SELECT_CLASS, "w-24")}
 			>

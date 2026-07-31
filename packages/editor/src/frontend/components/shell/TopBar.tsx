@@ -8,12 +8,14 @@
 // out of the bar anyway; keeping the pair together keeps the world state out of the
 // component that builds the palette bodies.
 import { useState } from "react";
+import { useActionContext } from "../../hooks/useActionContext.tsx";
 import { useFieldStamp } from "../../hooks/useFieldHostState.tsx";
 import {
 	useWorkspaceActions,
 	useWorkspaceState,
 } from "../../hooks/useWorkspace.tsx";
 import { useWorldActions, useWorldState } from "../../hooks/useWorld.tsx";
+import { ACTIONS } from "../../lib/actions.ts";
 import { ReasonTip } from "../field/form-bits.tsx";
 import { Button } from "../ui/button.tsx";
 import { BurgerMenu } from "./BurgerMenu.tsx";
@@ -21,8 +23,6 @@ import { SessionStrip } from "./SessionStrip.tsx";
 import { ToolStrip } from "./ToolStrip.tsx";
 import { ViewPopover } from "./ViewPopover.tsx";
 import { WorldDrawer } from "./WorldDrawer.tsx";
-
-const UNTITLED_REASON = "name the world first — ⌘S";
 
 /** Which world, and whether it is saved. A BUTTON, because the answer to both questions
  *  is the drawer: the chip that reports the state is the handle that changes it. */
@@ -66,31 +66,35 @@ function TopBarStrip() {
 
 /** Bake, and its disappearing act (mock frame 2).
  *
- *  Hidden — not disabled — while a session is live, and the reason is what it would DO:
- *  bake exports through `host.exportArtifact` → `bakeFieldWorld(store, log, …)`, i.e. from
- *  the COMMITTED field and op log, and a live session's ghost is in neither (a preview
- *  only splices in at commit). Baking here would quietly write a world without the
- *  thing on screen. Disabling it would need a reason string that says all that in a
- *  tooltip; removing it says it by being gone, next to a strip that names the two keys
- *  that end the session.
+ *  Both facts come from the REGISTRY entry, never from a local rule: `world.bake.enabled`
+ *  carries the session clause and `world.bake.label` carries the reason. The first cut had
+ *  the clause here and only here, so the top bar hid the button while the burger's World
+ *  group still offered it — the same hazard one menu click away, and two surfaces
+ *  disagreeing about whether the verb exists.
+ *
+ *  HIDDEN rather than disabled while a session stands, and that is this surface's own call
+ *  on top of the shared refusal: `exportArtifact` bakes from the COMMITTED field and op log
+ *  (`bakeFieldWorld(store, log, …)`) and a live session's ghost is in neither, so the verb
+ *  is not merely unavailable, it is about a different world than the one on screen. The
+ *  menu keeps the item (a menu's job is to show the whole vocabulary, greyed, with the
+ *  reason in the label); the bar spends its width on the session instead.
  *
  *  A leaf component for `TopBarStrip`'s reason — the session pushes at pointer rate. */
 function BakeButton() {
-	const { name, busy } = useWorldState();
-	const { bake } = useWorldActions();
-	const { stamp } = useFieldStamp();
-	if (stamp !== null) return null;
+	const ctx = useActionContext();
+	const def = ACTIONS.find((a) => a.id === "world.bake");
+	if (def === undefined || ctx.session !== null) return null;
+	const enabled = def.enabled(ctx);
 	return (
-		// Bake writes worlds/index.json as well as the world, so it needs a name to write
-		// about. Disabled rather than silently substituting a save-as: the two verbs commit
-		// to different things.
-		<ReasonTip reason={name === null ? UNTITLED_REASON : undefined}>
+		// The registry's label already states the reason ("Bake — name the world first"), so
+		// the tooltip repeats it rather than inventing a second wording.
+		<ReasonTip reason={enabled ? undefined : def.label(ctx)}>
 			<Button
 				type="button"
 				size="sm"
 				variant="secondary"
-				disabled={busy || name === null}
-				onClick={bake}
+				disabled={!enabled}
+				onClick={() => def.run(ctx)}
 			>
 				Bake
 			</Button>

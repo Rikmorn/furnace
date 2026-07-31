@@ -92,14 +92,28 @@ test("the entity verbs name what they would act on", () => {
 });
 
 test("the world verbs carry their own blocked reason, because a disabled item has no tooltip", () => {
+  // The reason names the way OUT (⌘S), not only the blocker — the menu item and the top
+  // bar's tooltip both render this one string.
   expect(byId("world.bake").label(makeCtx())).toBe(
-    "Bake — name the world first",
+    "Bake — name the world first (⌘S)",
   );
-  expect(
-    byId("world.bake").label(
-      makeCtx({ world: { name: "attic", dirty: false, busy: false } }),
-    ),
-  ).toBe("Bake");
+  const named = makeCtx({
+    world: { name: "attic", dirty: false, busy: false },
+  });
+  expect(byId("world.bake").label(named)).toBe("Bake");
+
+  // A live session is the SECOND blocker, and it wins: bake exports from the committed
+  // field and op log (`bakeFieldWorld(store, log, …)`), and a session's ghost is in
+  // neither — so baking here writes a world without the thing on screen. The clause lives
+  // HERE rather than on the top bar's button, which is what stopped the burger menu from
+  // offering the same hazard one click away.
+  const mid = makeCtx({
+    world: { name: "attic", dirty: false, busy: false },
+    session: { generator: "hall" } as never,
+  });
+  expect(byId("world.bake").enabled(mid)).toBe(false);
+  expect(byId("world.bake").label(mid)).toBe("Bake — finish the session first");
+  expect(byId("world.bake").enabled(named)).toBe(true);
 });
 
 test("the stamp family names the generator S would open, and follows the cursor", () => {

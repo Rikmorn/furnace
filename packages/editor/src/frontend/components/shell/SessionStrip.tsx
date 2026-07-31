@@ -7,11 +7,14 @@
 // entity, a re-run of an existing one, a translation of one), and `⏎` means "commit",
 // "apply" and "drop" respectively.
 //
-// The verbs here are READOUTS, not buttons, and that is a deliberate departure from the
-// top bar's own ⌘\ precedent ("a keycap you cannot click is a worse version of a control
-// that teaches its own shortcut"). The difference is that ⌘\ had no button anywhere, while
-// these two have one on the session card that is on screen at the same time — a second
-// pair in the bar would be two controls for one verb, six inches apart.
+// The verbs here are READOUTS, not buttons, and the honest version of why is narrower than
+// the first draft claimed. The draft said the clickable pair is "on screen at the same
+// time"; it is not reliably — the only Commit/Cancel buttons today live in `StampInspector`
+// inside the `controls` palette, which the user can close and which ⌘\ hides wholesale. So
+// this is a KEYMAP, deliberately, and the argument for it is that the session CARD (Task 10)
+// is where the clickable pair belongs: a bar 40 px tall and always visible should name the
+// two keys, not compete with the card for the verb. Until that card lands there is a real
+// gap for a mouse-only user with the palettes hidden, and Esc/⏎ are the answer.
 //
 // ONE CLAUSE, WORDED FOR WHAT IS TRUE TODAY. The mock's line reads "brush suspended while
 // session is live". The host does not suspend the BRUSH yet: `onPointerDown` has no
@@ -41,8 +44,14 @@ function sessionName(session: StampSession): string {
 
 export function SessionStrip({ session }: { session: StampSession }) {
 	return (
-		<div
-			role="status"
+		// A named REGION, not a live region. `role="status"` was wrong twice over: this
+		// element is INSERTED when the session opens, and a live region that does not exist
+		// before its content does announces unreliably across screen readers (the house
+		// pattern is Toasts' — keep a permanent region, change its text). What this actually
+		// is, is a labelled landmark a user can jump to and read on arrival. A real
+		// `<section>` with an accessible name IS that role, so there is no `role` attribute
+		// and no suppression: the element carries its own semantics.
+		<section
 			aria-label="live session"
 			className="flex min-w-0 flex-1 items-center gap-3 overflow-hidden text-xs"
 		>
@@ -55,14 +64,26 @@ export function SessionStrip({ session }: { session: StampSession }) {
 				</span>
 			</span>
 			<span className="flex items-center gap-3 text-muted-foreground">
+				{/* ⏎ commits, applies or DROPS — three verbs, and `mode` + `moving` decide
+				    which. The host maps them in `confirmSession`; this names the one that is
+				    about to happen. */}
 				<Verb keycap="⏎" verb={session.moving === true ? "drop" : "apply"} />
 				<Verb keycap="Esc" verb="revert" />
-				<Verb keycap="R" verb="rotate ¼" />
+				{/* R only where it can act. `rotateStamp` refuses with "<generator> has no
+				    rotation" when `rotationOptions` is empty, and advertising a key whose only
+				    response is a refusal is the discovery-by-refusal pattern D-7 retires. A
+				    MOVE is the case decidable from here — it is a region translation — while
+				    the per-generator rotation fact is not: `FieldGeneratorInfo` carries none.
+				    So this hides where the key is CERTAINLY dead and stays where it is merely
+				    possibly dead. Making it exact needs a `rotates` flag on
+				    `FieldGeneratorInfo` (the `usesSeed` shape), which belongs with the card
+				    that renders it in Task 10/11. */}
+				{session.moving !== true && <Verb keycap="R" verb="rotate ¼" />}
 			</span>
 			<span className="truncate text-[10px] text-muted-foreground">
 				tool arming is locked while this session is live
 			</span>
-		</div>
+		</section>
 	);
 }
 

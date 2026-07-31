@@ -242,7 +242,8 @@ const DEFAULT_TOOL: FieldTool = {
 	hollow: null,
 };
 
-/** Mirrors FieldHost's default digRadius (the slider's range lives in BrushInspector). */
+/** Mirrors FieldHost's default digRadius (the slider's range lives in `tool-params.tsx`,
+ *  which is where the radius control went when `BrushInspector` was deleted). */
 const DEFAULT_RADIUS = 1.25;
 
 /** What a fresh host is ALREADY armed with (D-F4.5-7) — a local literal for the

@@ -41,7 +41,11 @@ export function StripOverflow({
 					</PopoverTrigger>
 				</TooltipTrigger>
 				<TooltipContent side="bottom">
-					Every {effect} option — the strip carries the first few
+					{/* Not "the rest": for dig, fill and paint the strip already carries the whole
+					    list, so this popover is an exact duplicate of it and only `smooth` is a
+					    real drawer. What is true of ALL of them is that this is where the options
+					    stay reachable when the strip is too narrow to show them. */}
+					Every {effect} option — also here when the strip is narrow
 				</TooltipContent>
 			</Tooltip>
 			<PopoverContent align="end" className="w-72 p-3">

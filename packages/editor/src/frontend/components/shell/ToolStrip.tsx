@@ -25,36 +25,49 @@ import {
 	useFieldTool,
 } from "../../hooks/useFieldHostState.tsx";
 import { entityName } from "../../lib/actions.ts";
+import { cn } from "../../lib/cn.ts";
 import { useEditor } from "../editor-context.ts";
 import { StripOverflow } from "./StripOverflow.tsx";
-import type { ParamContext } from "./tool-params.tsx";
+import type { BrushEffect, ParamContext } from "./tool-params.tsx";
 import { availableParams, Param, TOOL_OPTIONS } from "./tool-params.tsx";
 
 /**
- * Below this container width the strip drops its params and shows `name + ⋯` (D-6's
- * degraded state).
+ * Below its own threshold a branch drops its params and shows `name + ⋯` (D-6's degraded
+ * state). PER BRANCH, not one worst case: a single fill-sized threshold blanked dig — two
+ * params — at a width where both still fitted comfortably, which is a strip degrading for
+ * a reason that is not about it.
  *
- * A COMPUTED figure, not a measurement — no browser was driven for it. It is the sum of
- * the declared widths in `tool-params.tsx` for the widest param set the strip can carry
- * (fill), at a two-class catalog, rounded UP so the params leave just BEFORE they clip:
+ * COMPUTED figures, not measurements — no browser was driven for them. Each is the sum of
+ * the declared widths in `tool-params.tsx` for that effect's strip set, plus the fixed
+ * frame (name `w-28` 112 + ⋯ `w-7` 28 + 2 gaps 24 = 164), rounded UP past the ~1 rem of
+ * uncertainty the five estimated `text-xs` labels carry between them:
  *
- *   name `w-28` 112 · gap 12 · radius ~173 (label + `w-20` + `w-11`) · gap 12
- *   · mask ~143 (label + `w-28`) · gap 12 · material ~77 (label + two `w-6` swatches)
- *   · gap 12 · hollow ~119 (box + label + `w-14`) · gap 12 · ⋯ `w-7` 28  =  ~712 px
+ *   dig     164 + radius ~173 + gap 12 + mask ~143                       = ~492 px → 32rem
+ *   paint   164 + …          + gap 12 + material ~77                     = ~581 px → 38rem
+ *   smooth  164 + radius + strength ~147 + mode ~132 + 2 gaps            = ~640 px → 41rem
+ *   fill    164 + radius + mask + material + hollow ~119 + 3 gaps        = ~712 px → 46rem
  *
- * ~712 px is 44.5 rem, and the five text labels in it are ESTIMATES at the `text-xs`
- * step — worth about a rem of uncertainty between them — so the constant is the next
- * whole rem above the top of that band rather than above its midpoint. A reader checks
- * the fixed half by adding up the `w-*` classes in `tool-params.tsx`.
+ * A reader checks the fixed half by adding up the `w-*` classes in `tool-params.tsx`.
  *
- * TWO stated limits. A catalog with many classes widens the swatch row past this sum (it
- * is the one param whose width is project data, not a declared class). And the query has
- * NOT been observed firing in a browser — what IS verified is that it COMPILES: the
- * frontend bundle emits `@container strip (width<46rem){…{display:none}}`. Both limits
- * degrade the same safe way: the strip clips instead of wrapping, and the ⋯ still holds
- * every control.
+ * TWO stated limits. A catalog with many classes widens the swatch row past these sums (it
+ * is the one param whose width is project data, not a declared class). And the queries have
+ * NOT been observed firing in a browser — what IS verified is that they COMPILE: the
+ * frontend bundle emits an `@container strip (width<Nrem){…{display:none}}` rule for each.
+ * Both limits degrade the same safe way: the strip clips instead of wrapping, and the ⋯
+ * still holds every control.
+ *
+ * The two NON-brush branches have no entry, deliberately. Their whole content is one short
+ * span (a selection name, a budget note) which cannot overflow a strip sized for a
+ * four-param fill set — so there is nothing to degrade, and consequently nothing for a ⋯
+ * to hold. That is D-6 satisfied rather than skipped: the rule is "content stays reachable
+ * under width pressure", and content that never hides is never unreachable.
  */
-const STRIP_PARAMS_MIN = "@max-[46rem]/strip:hidden";
+const STRIP_PARAMS_MIN: Record<BrushEffect, string> = {
+	dig: "@max-[32rem]/strip:hidden",
+	fill: "@max-[46rem]/strip:hidden",
+	paint: "@max-[38rem]/strip:hidden",
+	smooth: "@max-[41rem]/strip:hidden",
+};
 
 /** The host's flood budget (SELECTION_UI_BUDGET), restated: the chrome cannot value-import
  *  the host, so the two agree by review. It is what `SelectionInfo.truncated` reports
@@ -89,23 +102,30 @@ function StripFrame({
 	name,
 	suffix,
 	params,
+	hideParamsBelow,
 	overflow,
 }: {
 	name: string;
 	/** A muted qualifier beside the name (the armed effect under `segment`). */
 	suffix?: string;
 	params: ReactNode;
+	/** The container-query class that hides the param group under width pressure, or
+	 *  nothing for a branch whose content cannot overflow (see {@link STRIP_PARAMS_MIN}). */
+	hideParamsBelow?: string;
 	/** The ⋯, or nothing when the armed thing HAS no options — a popover that opens onto
 	 *  an empty box is a dead control, and neither the pointer nor a cell-select gesture
 	 *  has a single knob to put in one. */
 	overflow?: ReactNode;
 }) {
 	return (
-		// `role="toolbar"` is the ARIA pattern for a strip of controls; HTML has no element
-		// for it, and biome does not flag it (no suppression needed here, unlike the
-		// `role="group"` below).
+		// `role="group"`, NOT `role="toolbar"`: the APG toolbar pattern commits to a single
+		// tab stop with arrow-key navigation between controls, which is right for the rail
+		// (a mode selector) and wrong here — these are labelled form controls where Tab
+		// between them is what a user expects and what the platform already does. Declaring
+		// `toolbar` would tell a screen reader to expect arrows that nothing implements.
+		// biome-ignore lint/a11y/useSemanticElements: role="group" is the intended ARIA grouping for this control set; a <fieldset>/<legend> would force a boxed look into a 40 px bar
 		<div
-			role="toolbar"
+			role="group"
 			aria-label="tool options"
 			className="@container/strip flex min-w-0 flex-1 items-center gap-3 overflow-hidden"
 		>
@@ -121,7 +141,10 @@ function StripFrame({
 			<div
 				role="group"
 				aria-label="tool params"
-				className={`${STRIP_PARAMS_MIN} flex min-w-0 items-center gap-3 text-muted-foreground text-xs`}
+				className={cn(
+					"flex min-w-0 items-center gap-3 text-muted-foreground text-xs",
+					hideParamsBelow,
+				)}
 			>
 				{params}
 			</div>
@@ -184,6 +207,7 @@ function BrushStrip({ gesture }: { gesture: ViewportGesture | null }) {
 
 	return (
 		<StripFrame
+			hideParamsBelow={STRIP_PARAMS_MIN[effect]}
 			// Under `segment` the NAME says what LMB does and the suffix says what it
 			// commits with: a segment click builds a brush op from the armed effect and
 			// material (host `segmentClick` → `commitToolOp` → the same `toolOp` a stroke

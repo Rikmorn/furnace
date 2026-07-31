@@ -426,6 +426,9 @@ test("the top bar carries the menu, the world chip and the bake verb", async () 
 		name: "Bake",
 	}) as HTMLButtonElement;
 	expect(bake.disabled).toBe(true);
+	// The reason comes from the REGISTRY entry's label since F4.5b Task 8 (`world.bake`),
+	// so the burger item and this tooltip cannot word it differently — and it names the way
+	// out, not just the blocker.
 	expect(bake.parentElement?.getAttribute("title")).toContain("⌘S");
 });
 
@@ -2171,7 +2174,9 @@ test("the canvas cell's insets come from the two bars and nothing else", async (
 	expect(row.children.length).toBe(2);
 	const [rail, canvasCell] = [...row.children];
 	expect(canvasCell).toBe(cell);
-	expect(rail?.tagName).toBe("NAV");
+	// A toolbar, not a nav landmark: it arms tools rather than navigating, and the role is
+	// what commits it to the roving-tabindex pattern (D-26) — see tool-rail.test.tsx.
+	expect(rail?.getAttribute("role")).toBe("toolbar");
 	for (const cls of ["w-11", "shrink-0"])
 		expect(rail?.classList.contains(cls)).toBe(true);
 	expect(rail?.contains(cell)).toBe(false);

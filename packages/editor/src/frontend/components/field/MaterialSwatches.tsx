@@ -1,14 +1,25 @@
 // The persistent material strip (the MagicaVoxel always-on-palette pattern
 // from the F2 tool-UX research): one square per catalog class, its colour as
 // the swatch face, the active ring on the tool's materialId — which mirrors
-// through subscribeTool, so an Alt-click eyedrop moves the ring too. Kit
-// classes disable while paint is active: paint emits a sphere-shaped op and
-// core rejects kit-class writes without a lattice box (assertOpValid), so
-// offering the pick would only manufacture per-stroke errors. Plain
-// <button>s, not the shadcn Button — its `disabled:pointer-events-none`
-// would kill the title tooltip that explains exactly that.
+// through subscribeTool, so an Alt-click eyedrop moves the ring too.
+//
+// It lives in the TOP STRIP since F4.5b Task 8, under paint and fill only —
+// `FieldTool.materialId` is "ignored by dig and smooth" (field-host.ts), so the
+// permanent strip it used to be was a control that did nothing under half the
+// tools.
+//
+// KIT CLASSES AND PAINT. Paint emits a sphere-shaped op and core rejects
+// kit-class writes without a lattice box (assertOpValid), so a kit swatch under
+// paint would only manufacture per-stroke errors. That refusal is the
+// highest-value explanation on this surface, and it is the one that has to
+// survive BEING refused — so the swatch is `aria-disabled` rather than
+// `disabled` and carries a real tooltip (D-25) rather than a `title`. A
+// `disabled` button takes no pointer events, so a tooltip on one never opens;
+// the `title` this replaces reached a mouse and nothing else, and this file's
+// own header used to argue for it. That argument predates D-25.
 import type { MaterialTable } from "@furnace/core/field"; // type-only: erased
 import { cn } from "../../lib/cn.ts";
+import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip.tsx";
 
 /** A catalog colour ([0,1] rgba) as a CSS color for the swatch face. */
 const cssColor = (c: [number, number, number, number]): string =>
@@ -30,26 +41,37 @@ export function MaterialSwatches(props: {
 			aria-label="brush material"
 		>
 			{props.classes.map((c) => {
-				const disabled = props.disableKit && c.kind === "kit";
+				const refused = props.disableKit && c.kind === "kit";
+				const reason = `${c.name} — kit classes can't be painted`;
 				return (
-					<button
-						key={c.id}
-						type="button"
-						title={
-							disabled ? `${c.name} — kit classes can't be painted` : c.name
-						}
-						aria-label={`material ${c.name}`}
-						aria-pressed={c.id === props.activeId}
-						disabled={disabled}
-						onClick={() => props.onSelect(c.id)}
-						className={cn(
-							"h-6 w-6 rounded-sm border border-border focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
-							disabled && "cursor-not-allowed opacity-40",
-							c.id === props.activeId &&
-								"ring-2 ring-ring ring-offset-1 ring-offset-background",
-						)}
-						style={{ backgroundColor: cssColor(c.color) }}
-					/>
+					<Tooltip key={c.id}>
+						<TooltipTrigger asChild>
+							<button
+								type="button"
+								// The reason rides the accessible NAME as well as the tooltip: a
+								// swatch is a 24 px colour square with no text of its own, so the
+								// name is the only channel that ever carried it.
+								aria-label={
+									refused ? `material ${reason}` : `material ${c.name}`
+								}
+								aria-pressed={c.id === props.activeId}
+								aria-disabled={refused || undefined}
+								onClick={() => {
+									if (!refused) props.onSelect(c.id);
+								}}
+								className={cn(
+									"h-6 w-6 rounded-sm border border-border focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+									refused && "cursor-not-allowed opacity-40",
+									c.id === props.activeId &&
+										"ring-2 ring-ring ring-offset-1 ring-offset-background",
+								)}
+								style={{ backgroundColor: cssColor(c.color) }}
+							/>
+						</TooltipTrigger>
+						<TooltipContent side="bottom">
+							{refused ? reason : c.name}
+						</TooltipContent>
+					</Tooltip>
 				);
 			})}
 		</div>

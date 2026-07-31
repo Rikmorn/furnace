@@ -1057,9 +1057,11 @@ const DIG_RANGE_M = 30;
  *  segment a stationary user can draw and refuses only the ones that needed the
  *  camera to move between clicks — which is exactly the accident it is for.
  *
- *  RESTATED in `ToolPalette`'s Segment tooltip — the chrome cannot value-import
- *  anything under `viewport-host/`, so the two agree by review (the FlagsSection
- *  tint-palette precedent). */
+ *  RESTATED in the tool rail's Segment member hint (`BRUSH_FAMILY` in
+ *  `frontend/lib/actions.ts`) — the chrome cannot value-import anything under
+ *  `viewport-host/`, so the two agree by review (the FlagsSection tint-palette
+ *  precedent). It lived on `ToolPalette`'s Segment tooltip until F4.5b Task 8
+ *  deleted that file. */
 const MAX_SEGMENT_M = 2 * DIG_RANGE_M;
 /** How far a `pointer` pick reaches — the DIG reach, deliberately the same
  *  number rather than an independent one: "you can select what you could dig" is

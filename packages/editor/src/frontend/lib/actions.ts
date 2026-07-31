@@ -199,30 +199,61 @@ const shifted = (e: KeyboardEvent, key: string): boolean =>
  *
  *  `label` is here rather than in the rail because the rail's member flyout and the ⇧
  *  cycle step the SAME list: a second list beside the rail is how "⇧B cycles Dig → Fill"
- *  and what the flyout shows would come to disagree. */
-type FamilyMember =
-  | { label: string; effect: FieldTool["effect"] }
-  | { label: string; gesture: ViewportGesture };
+ *  and what the flyout shows would come to disagree.
+ *
+ *  `hint` is the per-MEMBER sentence — the registry's own `hint` is family-level ("Arm the
+ *  brush family"), and the facts that used to live on `ToolPalette`'s per-button tooltips
+ *  ("momentary: hold Ctrl", the 60 m segment cap) had no home after that file was deleted.
+ *  This is that home. */
+type FamilyMember = { label: string; hint: string } & (
+  | { effect: FieldTool["effect"] }
+  | { gesture: ViewportGesture }
+);
 
 /** The pointer is a family of ONE. Spelled as a family anyway so the rail renders four
  *  things the same way, and so "how many members has it?" is the single question that
  *  decides whether a corner flyout appears. */
 const POINTER_FAMILY: readonly FamilyMember[] = [
-  { label: "Select", gesture: "pointer" },
+  {
+    label: "Select",
+    hint: "click a stamp, a prop or a marker; bare rock deselects",
+    gesture: "pointer",
+  },
 ];
 
 const BRUSH_FAMILY: readonly FamilyMember[] = [
-  { label: "Dig", effect: "dig" },
-  { label: "Fill", effect: "fill" },
-  { label: "Paint", effect: "paint" },
-  { label: "Smooth", effect: "smooth" },
-  { label: "Segment", gesture: "segment" },
+  { label: "Dig", hint: "carve air — momentary: hold ⌃", effect: "dig" },
+  { label: "Fill", hint: "solidify + write the material", effect: "fill" },
+  {
+    label: "Paint",
+    hint: "retint solid cells — organic classes only",
+    effect: "paint",
+  },
+  {
+    label: "Smooth",
+    hint: "relax the surface — momentary: hold ⇧",
+    effect: "smooth",
+  },
+  {
+    label: "Segment",
+    // The 60 m is FieldHost's MAX_SEGMENT_M, RESTATED (that constant's doc names this as
+    // the restating site): the chrome cannot value-import anything under `viewport-host/`,
+    // so the two agree by review. It was `ToolPalette`'s Segment tooltip until F4.5b Task 8
+    // deleted that file, and for one commit the cap had no affordance at all — a user met
+    // it only as a post-hoc refusal.
+    hint: "two clicks sweep the brush between them — max 60 m; Esc drops the point",
+    gesture: "segment",
+  },
 ];
 
 const SELECT_FAMILY: readonly FamilyMember[] = [
-  { label: "Box", gesture: "box" },
-  { label: "Wand", gesture: "material" },
-  { label: "Room", gesture: "void" },
+  { label: "Box", hint: "two clicks span a snapped region", gesture: "box" },
+  {
+    label: "Wand",
+    hint: "flood-select the clicked material",
+    gesture: "material",
+  },
+  { label: "Room", hint: "flood-select an air pocket", gesture: "void" },
 ];
 
 /** Which member is armed right now, as an index into `family` — `-1` when none is (the
@@ -349,10 +380,24 @@ export const ACTIONS: readonly ActionDef[] = [
     id: "world.bake",
     group: "world",
     // The reason rides IN the label: a disabled menu item swallows the tooltip that
-    // would otherwise carry it.
-    label: (ctx) =>
-      ctx.world.name === null ? "Bake — name the world first" : "Bake",
-    enabled: (ctx) => !ctx.world.busy && ctx.world.name !== null,
+    // would otherwise carry it. TWO reasons now, most specific first.
+    label: (ctx) => {
+      if (ctx.session !== null) return "Bake — finish the session first";
+      // The reason names the WAY OUT, not just the blocker: ⌘S is what gives the world a
+      // name. It reads the same in the menu item and in the top bar's tooltip because both
+      // render this one string.
+      return ctx.world.name === null
+        ? "Bake — name the world first (⌘S)"
+        : "Bake";
+    },
+    // Refused during a session, and this clause is what makes the top bar's hidden Bake
+    // honest rather than decorative: `exportArtifact` bakes from the COMMITTED field and op
+    // log (`bakeFieldWorld(store, log, …)`), and a live session's ghost is in neither, so a
+    // bake here writes a world without the thing on screen. Before this clause the top bar
+    // hid the button while the burger's World group still offered it — the same hazard one
+    // menu click away, and two surfaces disagreeing about whether the verb exists.
+    enabled: (ctx) =>
+      !ctx.world.busy && ctx.world.name !== null && ctx.session === null,
     run: (ctx) => ctx.run.world.bake(),
   },
   {
@@ -715,6 +760,9 @@ export type ToolFamilyMember = {
   /** Stable within its family; the generator id for a stamp, the member label otherwise. */
   id: string;
   label: string;
+  /** The one sentence this member needs and its family cannot give it — the momentary
+   *  modifier, the organic-only clamp, the 60 m segment cap. */
+  hint: string;
   /** Is THIS member the one the family is currently on? */
   armed: boolean;
   arm: (ctx: ActionCtx) => void;
@@ -733,6 +781,16 @@ export type ToolFamily = {
    *  name a MEMBER ("Stamp Hall"): a flyout headed "Stamp Hall tools" would be named
    *  after one of the things it lists. */
   name: string;
+  /** What the family button is called RIGHT NOW.
+   *
+   *  Separate from `arm.label` because the two answer different questions once a session is
+   *  live. `arm.label` names what pressing the KEY would do, and for `tool.stamp` that is
+   *  `stampMember(ctx)` — the ⇧S cursor, which is independent of any live session. The rail
+   *  is showing the family as PRESSED at that moment, so it must name what is pressed: with
+   *  a `maze` reconfigure standing and the cursor still on `hall`, `arm.label` says "Stamp
+   *  Hall" while the session strip six inches away says `maze #3`. D-8's arming channel
+   *  lying about the state D-7 exists for. */
+  label: (ctx: ActionCtx) => string;
   /** The action a click on the family BUTTON runs: arm the family's CURRENT member (the
    *  bare-letter press). Deliberately not the cycle — see `cycle`. */
   arm: ActionDef;
@@ -764,6 +822,7 @@ const staticMembers =
     return family.map((m, index) => ({
       id: m.label,
       label: m.label,
+      hint: m.hint,
       armed: index === i && ctx.session === null,
       arm: (c: ActionCtx) => armMember(m, c),
     }));
@@ -779,6 +838,7 @@ export const TOOL_FAMILIES: readonly ToolFamily[] = [
   {
     id: "pointer",
     name: "Select",
+    label: (ctx) => byId("tool.pointer").label(ctx),
     arm: byId("tool.pointer"),
     cycle: null,
     members: staticMembers(POINTER_FAMILY),
@@ -787,6 +847,7 @@ export const TOOL_FAMILIES: readonly ToolFamily[] = [
   {
     id: "brush",
     name: "Brush",
+    label: (ctx) => byId("tool.brush").label(ctx),
     arm: byId("tool.brush"),
     cycle: byId("tool.brushCycle"),
     members: staticMembers(BRUSH_FAMILY),
@@ -797,6 +858,7 @@ export const TOOL_FAMILIES: readonly ToolFamily[] = [
   {
     id: "select",
     name: "Cell select",
+    label: (ctx) => byId("tool.select").label(ctx),
     arm: byId("tool.select"),
     cycle: byId("tool.selectCycle"),
     members: staticMembers(SELECT_FAMILY),
@@ -805,6 +867,17 @@ export const TOOL_FAMILIES: readonly ToolFamily[] = [
   {
     id: "stamp",
     name: "Stamp",
+    // The one family whose rail label is NOT its action's. While a session stands this
+    // family reads as pressed (a session IS the staged grammar running, D-7), so it has to
+    // name the generator the SESSION is on — `tool.stamp`'s own label names the ⇧S cursor,
+    // which the session does not move. A `maze` reconfigure under a `hall` cursor made the
+    // rail say "Stamp Hall" beside a session strip saying `maze #3`.
+    label: (ctx) => {
+      const live = ctx.session;
+      if (live === null) return byId("tool.stamp").label(ctx);
+      const def = ctx.generators.find((g) => g.id === live.generator);
+      return `Stamp ${def?.name ?? live.generator}`;
+    },
     arm: byId("tool.stamp"),
     // ⇧S POINTS the S key at the next generator without opening anything, so it is a
     // cursor move rather than an arm — but it is still this family's cycle chord, and
@@ -816,6 +889,11 @@ export const TOOL_FAMILIES: readonly ToolFamily[] = [
       ctx.generators.map((g) => ({
         id: g.id,
         label: g.name,
+        // A generator's own hint is its ROLE, which nothing in the registry carries per
+        // generator — `FieldGeneratorInfo` has id/name/paramSchema/defaults/placesProps.
+        // What IS true of every one of them, and is the fact a first-time user needs, is
+        // what picking it DOES: it opens a staged session rather than arming a mode.
+        hint: "opens a session — ⏎ commits, Esc discards",
         armed: ctx.session?.generator === g.id,
         arm: (c: ActionCtx) => c.host?.startStamp(g.id),
       })),
