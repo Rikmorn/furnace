@@ -25,6 +25,7 @@ import type {
   FieldDriftReport,
   FieldEntityInfo,
   FieldGeneratorInfo,
+  FieldHistory,
   FieldHost,
   FieldStats,
   FieldTool,
@@ -37,6 +38,32 @@ import type {
 /** The pose the stub reports on subscribe — a stand-in for the host's starting orbit
  *  (its exact numbers are the host's business; what matters is that one arrives). */
 export const START_POSE: CameraPose = { yaw: 0.6, pitch: 0.5 };
+
+/** An EMPTY history — what the stub reports on subscribe, exactly as the real host does
+ *  over a world nobody has edited yet. */
+export const NO_HISTORY: FieldHistory = {
+  undo: [],
+  redo: [],
+  undoDepth: 0,
+  redoDepth: 0,
+};
+
+/** A {@link FieldHistory} from its two label lists, newest-LAST, with the depths
+ *  defaulting to the list lengths — i.e. "nothing is being truncated". Pass `depths` to
+ *  model a history longer than its tail, which is the case the palette's "older steps"
+ *  line exists for. */
+export function makeHistory(
+  undo: readonly string[],
+  redo: readonly string[] = [],
+  depths?: { undoDepth?: number; redoDepth?: number },
+): FieldHistory {
+  return {
+    undo,
+    redo,
+    undoDepth: depths?.undoDepth ?? undo.length,
+    redoDepth: depths?.redoDepth ?? redo.length,
+  };
+}
 
 /** A zeroed FieldStats with `overrides` applied — the host's idle readout. */
 export function makeStats(overrides: Partial<FieldStats> = {}): FieldStats {
@@ -99,6 +126,7 @@ export function makeStubHost(
     flags: ((s: FlagsSummary) => void) | null;
     entitySelection: ((entityId: number | null) => void) | null;
     pendingStamp: ((p: PendingStamp | null) => void) | null;
+    history: ((h: FieldHistory) => void) | null;
   } = {
     tool: null,
     cameraPose: null,
@@ -111,6 +139,7 @@ export function makeStubHost(
     flags: null,
     entitySelection: null,
     pendingStamp: null,
+    history: null,
   };
   const calls = {
     init: mock(),
@@ -155,10 +184,10 @@ export function makeStubHost(
     verifyFlag: mock(),
     // Every subscribe seam records its call, so a test can assert the slot was claimed
     // EXACTLY ONCE across a whole mounted arrangement — the single-slot rule's only
-    // machine-checkable form. ALL ELEVEN belong to the shell's host-state provider —
-    // `subscribeEntitySelection` got its chrome owner in F4.5b Task 4 and
-    // `subscribePendingStamp` arrived owned in Task 9 — which is why the ownership
-    // cases enumerate eleven.
+    // machine-checkable form. ALL TWELVE belong to the shell's host-state provider —
+    // `subscribeEntitySelection` got its chrome owner in F4.5b Task 4,
+    // `subscribePendingStamp` arrived owned in Task 9 and `subscribeHistory` in Task 12
+    // — which is why the ownership cases enumerate twelve.
     subscribeStats: mock(),
     subscribeToolError: mock(),
     subscribeEntities: mock(),
@@ -170,6 +199,7 @@ export function makeStubHost(
     subscribePendingStamp: mock(),
     subscribeFlags: mock(),
     subscribeEntitySelection: mock(),
+    subscribeHistory: mock(),
   };
   const host: FieldHost = {
     // Modelled on the real host's lifecycle, both halves of it. It REFUSES a second
@@ -316,6 +346,16 @@ export function makeStubHost(
         cbs.entities = null;
       };
     },
+    subscribeHistory: (cb) => {
+      calls.subscribeHistory(cb);
+      cbs.history = cb;
+      cb(NO_HISTORY); // the real host pushes the CURRENT history on subscribe
+      // A REAL unsubscribe (the subscribeStats reason — single slot, and a leak has to
+      // be distinguishable from a clean release).
+      return () => {
+        if (cbs.history === cb) cbs.history = null;
+      };
+    },
     listEntities: () => entities.map((e) => structuredClone(e)),
     selectEntity: calls.selectEntity,
     subscribeEntitySelection: (cb) => {
@@ -432,6 +472,12 @@ export function makeStubHost(
       pendingStamp: (p: PendingStamp | null): boolean => {
         if (cbs.pendingStamp === null) return false;
         cbs.pendingStamp(p);
+        return true;
+      },
+      /** A named-history push, as any log mutation publishes one (F4.5b Task 12). */
+      history: (h: FieldHistory): boolean => {
+        if (cbs.history === null) return false;
+        cbs.history(h);
         return true;
       },
       /** An entity-selection change, as a pointer click or `selectEntity` publishes one. */

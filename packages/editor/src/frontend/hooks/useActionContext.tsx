@@ -46,12 +46,14 @@ import { useCatalog } from "./useCatalogs.tsx";
 import {
 	useFieldEntities,
 	useFieldEntitySelection,
+	useFieldHistory,
 	useFieldHostState,
 	useFieldSelection,
 	useFieldStamp,
 	useFieldTool,
 } from "./useFieldHostState.tsx";
 import { useGlobalKeybindings } from "./useGlobalKeybindings.ts";
+import { usePaletteSummon } from "./usePaletteStack.tsx";
 import { useViewActions, useViewState } from "./useView.tsx";
 import { useWorkspaceActions, useWorkspaceState } from "./useWorkspace.tsx";
 import { useWorldActions, useWorldState } from "./useWorld.tsx";
@@ -86,6 +88,7 @@ export function ActionContextProvider({
 	const { selection } = useFieldSelection();
 	const { entities } = useFieldEntities();
 	const { selectedEntityId } = useFieldEntitySelection();
+	const { history } = useFieldHistory();
 	const world = useWorldState();
 	const worldActions = useWorldActions();
 	const view = useViewState();
@@ -93,6 +96,7 @@ export function ActionContextProvider({
 	const { hidden } = useWorkspaceState();
 	const workspaceActions = useWorkspaceActions();
 	const { table } = useCatalog();
+	const summonPalette = usePaletteSummon();
 
 	// The registry's staged generators — id and name only, which is all the `S` family
 	// needs. A SNAPSHOT read once at engine-ready, unlike the field panel's, which re-reads
@@ -147,6 +151,7 @@ export function ActionContextProvider({
 			setGesture,
 			armBrush,
 			setStampCursor,
+			summonPalette,
 		}),
 		[
 			worldActions,
@@ -155,6 +160,7 @@ export function ActionContextProvider({
 			openConfirm,
 			setGesture,
 			armBrush,
+			summonPalette,
 		],
 	);
 
@@ -179,13 +185,17 @@ export function ActionContextProvider({
 			generators,
 			stampCursor,
 			pendingStamp,
-			// MIGRATION (until F4.5b): named undo/redo. Both are null, so `edit.undo` and
-			// `edit.redo` render the bare verb and say only WHETHER there is something to
-			// step, never WHAT. Naming the op ("Undo dig") needs the log's TAIL, which no
-			// host seam exposes today — Task 12 adds it and fills these two, and every
-			// surface that renders a label picks it up for nothing. (This marker moved
-			// here from `BurgerMenu.tsx` with the labels themselves.)
-			history: { undoLabel: null, redoLabel: null },
+			// The TOP of each stack, which the history seam publishes as the LAST element
+			// (its own ordering contract). `null` when the side is empty — which is also the
+			// state the action is DISABLED in, so the bare-verb fallback is never what a user
+			// acts on.
+			//
+			// Read off the labels rather than off `stats.undoDepth`: the depth says whether
+			// there is a step, the label says WHAT it is, and only one seam carries the second.
+			history: {
+				undoLabel: history.undo.at(-1) ?? null,
+				redoLabel: history.redo.at(-1) ?? null,
+			},
 			run,
 		}),
 		[
@@ -205,6 +215,7 @@ export function ActionContextProvider({
 			generators,
 			stampCursor,
 			pendingStamp,
+			history,
 			run,
 		],
 	);

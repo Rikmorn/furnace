@@ -17,7 +17,7 @@
 import { Menu } from "lucide-react";
 import { useRef, useState } from "react";
 import { useActionContext } from "../../hooks/useActionContext.tsx";
-import { usePaletteRaise } from "../../hooks/usePaletteStack.tsx";
+import { usePaletteSummon } from "../../hooks/usePaletteStack.tsx";
 import {
 	useWorkspaceActions,
 	useWorkspaceState,
@@ -106,8 +106,8 @@ export function BurgerMenu({
 	onOpenViewOptions: () => void;
 }) {
 	const { palettes } = useWorkspaceState();
-	const { setOpen, setCollapsed, setHidden } = useWorkspaceActions();
-	const raise = usePaletteRaise();
+	const { setOpen } = useWorkspaceActions();
+	const summon = usePaletteSummon();
 	const [shortcutsOpen, setShortcutsOpen] = useState(false);
 	// Radix returns focus to the trigger when the menu closes, which for an item that
 	// OPENS something would pull focus straight back out of the surface just opened. This
@@ -143,10 +143,11 @@ export function BurgerMenu({
 	            name on disk to write about. */}
 					<RegistryGroup group="world" title="World" />
 					<DropdownMenuSeparator />
-					{/* Undo/Redo step the field's ONE history, and are NAMED once the history
-	            seam reports what a step did. Duplicate, Move and Delete name the stamp
-	            they would act on — which is what a menu is for, since their chords
-	            (⌘J, G, ⌫) act on whatever is selected without saying so. */}
+					{/* Undo/Redo step the field's ONE history and are NAMED — "Undo segment fill",
+	            not "Undo" — off the history seam's own top-of-stack label. Duplicate, Move
+	            and Delete name the stamp they would act on, which is what a menu is for:
+	            their chords (⌘J, G, ⌫) act on whatever is selected without saying so.
+	            History… summons that same history as a list. */}
 					<RegistryGroup group="edit" title="Edit" />
 					<DropdownMenuSeparator />
 					{/* The display toggles the menu carries, plus the two workspace verbs;
@@ -176,23 +177,14 @@ export function BurgerMenu({
 						<DropdownMenuCheckboxItem
 							key={id}
 							checked={palettes[id].open}
-							// Opening is a SUMMON, not a toggle: matches the ⚠ chip's onClick
-							// (StatusBar.tsx) — `open` alone does not mean "readable". A palette
-							// closed while collapsed comes back collapsed, and the ⌘\ latch covers
-							// the whole layer, so a tick that only sets `open` can re-open a rail
-							// chip or a still-latched-hidden palette that renders nothing. Raising
-							// is unconditional for the same reason as the chip: this is very often
-							// already open and merely buried, and buried has no open transition for
-							// the layer's safety net to catch. Closing is deliberately narrower —
-							// unticking shouldn't un-collapse or un-hide anything the user didn't ask
-							// to change.
+							// Opening is a SUMMON, not a toggle — the shared verb the status bar's
+							// two chips and the Edit menu's History item all go through
+							// (`usePaletteSummon`, where the four writes and their reasons live).
+							// Closing is deliberately narrower and stays spelled out here: unticking
+							// must not un-collapse or un-hide anything the user did not ask to change.
 							onCheckedChange={(open) => {
-								setOpen(id, open);
-								if (open) {
-									setCollapsed(id, false);
-									setHidden(false);
-									raise(id);
-								}
+								if (open) summon(id);
+								else setOpen(id, false);
 							}}
 						>
 							{PALETTES[id].title} palette

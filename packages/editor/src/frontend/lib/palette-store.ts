@@ -11,7 +11,13 @@ import type { PaletteState, UiState } from "./persist.ts";
 /** Every palette the cockpit knows, in rail order. The union is closed on purpose: a
  *  persisted record for an id that is not here is dropped rather than restored, so a
  *  palette that gets renamed or retired cannot come back as dead geometry. */
-export const PALETTE_IDS = ["controls", "entities", "session", "log"] as const;
+export const PALETTE_IDS = [
+  "controls",
+  "entities",
+  "session",
+  "history",
+  "log",
+] as const;
 
 export type PaletteId = (typeof PALETTE_IDS)[number];
 
@@ -20,7 +26,10 @@ export type PaletteId = (typeof PALETTE_IDS)[number];
  *
  *  `log` starts CLOSED, which used to be the difference between it and every other
  *  palette: it is summoned (the status bar's ⚠ chip, the View menu) rather than always-on,
- *  so an editor that has had nothing to say never spends screen on saying so.
+ *  so an editor that has had nothing to say never spends screen on saying so. `history`
+ *  is the second of that kind (the status bar's `undo N` chip, the Edit menu): the named
+ *  Undo/Redo items carry the last step already, and the visible LIST is what you go
+ *  looking for rather than what you keep open.
  *
  *  `session` starts closed too, but for a DIFFERENT reason, and the difference is what
  *  `drivenOpen` records: the session card is not normally summoned. It appears when there
@@ -81,6 +90,19 @@ export const PALETTES: Record<
     default: { x: 420, y: 56, edge: null, collapsed: false, open: false },
     drivenOpen: true,
   },
+  history: {
+    title: "History",
+    // Free-floating, and the one default that had to dodge three occupied corners: the
+    // entities palette and the log share the top-left, the session card sits at (420, 56),
+    // the axis triad owns the top-right, and the collapsed-chip rail owns the bottom-left.
+    // (420, 360) is under the session card in the same column — the two are read at
+    // different moments (what a stamp IS, versus what has been done), and sharing a column
+    // keeps the middle of the canvas clear.
+    //
+    // A y this far down clamps to the cell's bottom in a short window, which is the right
+    // failure: the chip rail it would then sit beside is at x = 0, and this is not.
+    default: { x: 420, y: 360, edge: null, collapsed: false, open: false },
+  },
   log: {
     title: "Messages",
     // Deliberately the SAME corner as entities: the log is summoned, transient and
@@ -127,6 +149,7 @@ export function defaultWorkspace(): WorkspaceState {
       controls: { ...PALETTES.controls.default },
       entities: { ...PALETTES.entities.default },
       session: { ...PALETTES.session.default },
+      history: { ...PALETTES.history.default },
       log: { ...PALETTES.log.default },
     },
     hidden: false,

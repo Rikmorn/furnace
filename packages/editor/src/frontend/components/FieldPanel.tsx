@@ -21,7 +21,7 @@
 //
 // It owns NO canvas: the shell mounts the one full-window viewport (CanvasHost) and inits
 // the host on it. It owns NO host subscription either — every host seam is a single slot,
-// and the eleven the chrome reads are all held by the shell (useFieldHostState);
+// and the twelve the chrome reads are all held by the shell (useFieldHostState);
 // subscribing to any of them here would silently steal the shell's callback. What this
 // file renders from (the advisor's flags, the cell selection) it reads out of that
 // provider's contexts. It has no status line: what the editor SAYS goes to the

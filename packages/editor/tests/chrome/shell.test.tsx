@@ -350,9 +350,9 @@ const LIFTED_SEAMS: readonly (readonly [
 ];
 
 // The path the real editor ALWAYS takes, and the one no other case covers: App mounts the
-// shell before the engine bundle has landed, so every one of the nine effects first runs
+// shell before the engine bundle has landed, so every one of the ten effects first runs
 // with `engineReady` false and claims nothing. A provider that read the flag only at mount
-// would leave all nine slots empty for the whole session — every readout dead, nothing
+// would leave all ten slots empty for the whole session — every readout dead, nothing
 // thrown. The other direction (ready → not ready) is unreachable: `status` never leaves
 // `ready`, and App assigns the host exactly once.
 test("no seam is claimed before engine-ready, and each is claimed exactly once after", () => {
@@ -373,6 +373,7 @@ test("no seam is claimed before engine-ready, and each is claimed exactly once a
 		["selection", stub.calls.subscribeSelection.mock.calls.length],
 		["stamp", stub.calls.subscribeStamp.mock.calls.length],
 		["flags", stub.calls.subscribeFlags.mock.calls.length],
+		["history", stub.calls.subscribeHistory.mock.calls.length],
 	];
 	// Nothing claimed while the host has no GPU behind it — subscribing here would mean
 	// mirroring state from a host that cannot yet produce any.
@@ -991,6 +992,120 @@ test("a visibly open log DOES mark an arriving error read", async () => {
 	// there, the message is in it, so nothing is unread and the chip stays quiet.
 	expect(logPalette()).toBeTruthy();
 	expect(screen.queryByLabelText(/unread error/)).toBeNull();
+});
+
+// --- the named history (F4.5b Task 12, D-11) ---------------------------------
+
+/** The History palette's own box, or null while it is closed. */
+const historyPalette = () => screen.queryByRole("region", { name: "History" });
+
+/** Push a named history through the seam, as any log mutation does. */
+const pushHistory = (
+	stub: ReturnType<typeof makeStubHost>,
+	undo: readonly string[],
+	redo: readonly string[] = [],
+): void => {
+	act(() => {
+		stub.fire.history({
+			undo,
+			redo,
+			undoDepth: undo.length,
+			redoDepth: redo.length,
+		});
+	});
+};
+
+test("the status bar's `undo N` chip summons the History palette", async () => {
+	fetch404();
+	const stub = makeStubHost();
+	await renderShell(stub);
+	// Closed by default: summoned, not always-on (the message log's rule). The named
+	// Undo item already carries the last step, so the LIST is what you go looking for.
+	expect(historyPalette()).toBeNull();
+
+	act(() => {
+		stub.fire.stats(makeStats({ totalOps: 3, undoDepth: 3 }));
+	});
+	pushHistory(stub, ["stamp Hall", "dig", "segment fill"]);
+
+	act(() => {
+		fireEvent.click(
+			screen.getByLabelText("3 undo steps — open the History palette"),
+		);
+	});
+	const palette = historyPalette();
+	if (!(palette instanceof HTMLElement))
+		throw new Error("the History palette did not open");
+	// Newest first, and the rows really are the pushed labels rather than a placeholder.
+	expect(
+		within(palette).getByLabelText("Undo 1 step — segment fill"),
+	).toBeTruthy();
+	expect(
+		within(palette).getByLabelText("Undo 3 steps — stamp Hall"),
+	).toBeTruthy();
+});
+
+test("the chip clears the ⌘\\ latch too, so the history it summons is on screen", async () => {
+	// The ⚠ chip's case one palette over, and it applies here for the same mechanical
+	// reason: both chips go through the ONE summon verb, so a regression in it would
+	// break both — and this is the half that no `open`-only summon would satisfy.
+	fetch404();
+	const stub = makeStubHost();
+	await renderShell(stub);
+	act(() => {
+		stub.fire.stats(makeStats({ undoDepth: 1 }));
+	});
+	act(() => {
+		fireEvent.keyDown(window, { key: "\\", metaKey: true });
+	});
+	act(() => {
+		fireEvent.click(screen.getByLabelText(/open the History palette/));
+	});
+	expect(historyPalette()).toBeTruthy();
+});
+
+test("the Edit menu's History item is LIVE and summons the same palette", async () => {
+	// It shipped in Task 7 DISABLED with its reason in the LABEL — a disabled Radix item
+	// carries `pointer-events-none`, so a `title` on one is never shown. BOTH halves are
+	// asserted: a live item still wearing the old label would read as unfinished, and the
+	// new label on a dead item would be a lie.
+	fetch404();
+	const stub = makeStubHost();
+	await renderShell(stub);
+	expect(historyPalette()).toBeNull();
+	openBurger();
+	expect(screen.queryByText(/arrives with the History palette/)).toBeNull();
+	expect(screen.getByText("History…").getAttribute("aria-disabled")).not.toBe(
+		"true",
+	);
+	act(() => {
+		fireEvent.click(screen.getByText("History…"));
+	});
+	expect(historyPalette()).toBeTruthy();
+	// The palette's own checkbox in the View list is the way BACK — the Edit item is a
+	// summon, not a toggle, so it must not be the only way in or out.
+	pickMenuItem("History palette");
+	expect(historyPalette()).toBeNull();
+});
+
+test("Undo and Redo NAME what they would step, in the menu (D-11)", async () => {
+	fetch404();
+	const stub = makeStubHost();
+	await renderShell(stub);
+	act(() => {
+		stub.fire.stats(makeStats({ totalOps: 2, undoDepth: 1, redoDepth: 1 }));
+	});
+	// The TOP of each stack is the LAST element, per the seam's ordering contract. Both
+	// arrays carry two entries so that reading the wrong end names the wrong op rather
+	// than accidentally the right one.
+	pushHistory(stub, ["dig", "segment fill"], ["stamp Maze", "freeze Hall"]);
+
+	openBurger();
+	expect(screen.getByText("Undo segment fill")).toBeTruthy();
+	expect(screen.getByText("Redo freeze Hall")).toBeTruthy();
+	// …and the ops at the far end of each list are NOT what the items name.
+	expect(screen.queryByText("Undo dig")).toBeNull();
+	expect(screen.queryByText("Redo stamp Maze")).toBeNull();
 });
 
 test("the message log is a palette: closed by default, re-openable from the View menu", async () => {
@@ -2645,7 +2760,9 @@ test("the burger's Edit group names the stamp its verbs would act on, in table o
 		"Duplicate hall #4",
 		"Delete hall #4",
 		"Move hall #4",
-		"History — arrives with the History palette",
+		// Live since F4.5b Task 12 — it summons the palette rather than explaining its
+		// own absence in the label (see the History cases above).
+		"History…",
 	]);
 });
 

@@ -8,7 +8,7 @@
 // consumers read them out of context. Nothing below this provider may subscribe to
 // anything it owns.
 //
-// ALL ELEVEN seams are here: `subscribeStats` (the status bar's chips),
+// ALL TWELVE seams are here: `subscribeStats` (the status bar's chips),
 // `subscribeToolError` (a toast, plus the verify release below), `subscribeCameraPose` (the
 // corner axis triad), the entity pair `subscribeEntities` + `subscribeDrift` (the entities
 // palette), `subscribeEntitySelection` (which row is selected, the box the viewport draws
@@ -16,7 +16,8 @@
 // region-draw — the rail, the status keymap and the canvas cursor), and the four the
 // control stack held until F4.5b: `subscribeTool` (the tool rail's armed family and the
 // strip's params), `subscribeSelection` (the selection verbs), `subscribeStamp` (the
-// session card) and `subscribeFlags` (the advisor's list).
+// session card) and `subscribeFlags` (the advisor's list). `subscribeHistory` (F4.5b
+// Task 12) is the newest: what each undo/redo step DID, in words.
 //
 // Two values here have NO seam behind them and never will: the brush `radius` and the
 // armed `gesture`. Both are chrome state pushed one way into the host, and both sit here
@@ -24,7 +25,7 @@
 // because every surface that shows one also shows `tool` — the panel's strip, the status
 // bar's keymap line, and the action registry's family keys, which arm the same slot.
 //
-// They publish through EIGHT contexts, split by CADENCE rather than by owner: a seam that
+// They publish through NINE contexts, split by CADENCE rather than by owner: a seam that
 // pushes at frame rate must not re-render a surface that only cares about something
 // answered once a minute. Each context's own docblock states its cadence, and its
 // throw-vs-default call with the reason for it. `subscribeToolError` is the one seam with
@@ -43,6 +44,7 @@ import type {
 	CameraPose,
 	FieldDriftReport,
 	FieldEntityInfo,
+	FieldHistory,
 	FieldHost,
 	FieldMaskChoice,
 	FieldStats,
@@ -266,6 +268,15 @@ const DEFAULT_FLAG_FILTERS: FlagFilters = {
  *  push, after which every summary is the host's. */
 const NO_FLAGS: FlagsSummary = { total: 0, byKindSeverity: [], visible: [] };
 
+/** Nothing done yet. Also the FieldHistoryContext default — see there for why an empty
+ *  history is a truthful reading outside the provider rather than a wiring hole. */
+const NO_HISTORY: FieldHistory = {
+	undo: [],
+	redo: [],
+	undoDepth: 0,
+	redoDepth: 0,
+};
+
 /** Host-pushed state the shell renders. `stats` is null until the host's first push
  *  (which only starts once the render loop runs, i.e. after `init`). */
 export type FieldHostState = {
@@ -337,6 +348,13 @@ export type FieldEntitySelectionState = {
 /** What the host currently has selected — `null` for nothing. */
 export type FieldSelectionState = {
 	selection: SelectionInfo | null;
+};
+
+/** The named history: what each undo/redo step would DO, newest-last per side (D-11).
+ *  Read by the Undo/Redo menu items through the action context, and by the History
+ *  palette. */
+export type FieldHistoryState = {
+	history: FieldHistory;
 };
 
 /** The live stamp/reconfigure session — `null` between sessions. */
@@ -447,6 +465,23 @@ const FieldSelectionContext = createContext<FieldSelectionState | null>(null);
  *  session in progress. */
 const FieldStampContext = createContext<FieldStampState | null>(null);
 
+/** The history concern, MUTATION-paced: one push per real log change (a stroke, a commit,
+ *  a ⌘Z), which is the entity tick's rate and orders of magnitude below the stats push.
+ *  Its own context rather than a field on `FieldEntitiesState` because the two answer
+ *  different questions — what the world CONTAINS versus what was DONE to it — and because
+ *  a brush stroke moves this one while leaving the entity list alone, which is most of
+ *  what a user does.
+ *
+ *  DEFAULTS rather than throws, unlike its neighbours, and the reason is specific to the
+ *  value: an empty history means "nothing has been done yet", which is exactly true
+ *  outside a provider, and both readers degrade honestly — the Undo/Redo menu items fall
+ *  back to their bare verbs (their labels are written to do that) and the palette renders
+ *  its empty state. Nothing here is a verb that could be a silent no-op behind a
+ *  live-looking control, which is what makes the FieldToolContext argument not apply. */
+const FieldHistoryContext = createContext<FieldHistoryState>({
+	history: NO_HISTORY,
+});
+
 /** The advisor concern, ANSWER-paced: a push per analyzer response and per filter change,
  *  which is the slowest cadence in this file and the reason it needs no value-equality
  *  guard where the stats mirror does.
@@ -515,6 +550,12 @@ export function useFieldStamp(): FieldStampState {
 	return value;
 }
 
+/** The named history. Re-renders its caller on every log mutation — read it where the
+ *  labels are actually rendered (the action context, the History palette). */
+export function useFieldHistory(): FieldHistoryState {
+	return useContext(FieldHistoryContext);
+}
+
 /** The advisor's findings, filters and in-flight verify; throws outside the provider. */
 export function useFieldFlags(): FieldFlagsState {
 	const value = useContext(FieldFlagsContext);
@@ -544,6 +585,7 @@ export function FieldHostStateProvider({
 	const [pendingStamp, setPendingStamp] = useState<PendingStamp | null>(null);
 	const [selection, setSelection] = useState<SelectionInfo | null>(null);
 	const [stamp, setStamp] = useState<StampSession | null>(null);
+	const [history, setHistory] = useState<FieldHistory>(NO_HISTORY);
 	const [flags, setFlags] = useState<FlagsSummary>(NO_FLAGS);
 	const [filters, setFilters] = useState<FlagFilters>(DEFAULT_FLAG_FILTERS);
 	const [verifying, setVerifying] = useState<string | null>(null);
@@ -688,6 +730,15 @@ export function FieldHostStateProvider({
 		return host.subscribePendingStamp(setPendingStamp);
 	}, [engineReady, host]);
 
+	// The named history (D-11). The host publishes only when the log's two entry stacks
+	// really moved — several paths tick the entity list without touching them — so this is
+	// the whole mirror: a comparator here would have nothing left to catch, because the
+	// push it would guard against is one the host does not make.
+	useEffect(() => {
+		if (!engineReady || !host) return;
+		return host.subscribeHistory(setHistory);
+	}, [engineReady, host]);
+
 	// The advisor's findings. Pushed after every analyzer response and every
 	// `setFlagFilters` (plus the current summary on subscribe). Answer-paced, not
 	// frame-paced — which is why, unlike the stats mirror above, this needs no
@@ -808,6 +859,10 @@ export function FieldHostStateProvider({
 		[selection],
 	);
 	const stampValue = useMemo<FieldStampState>(() => ({ stamp }), [stamp]);
+	const historyValue = useMemo<FieldHistoryState>(
+		() => ({ history }),
+		[history],
+	);
 	const flagsValue = useMemo<FieldFlagsState>(
 		() => ({ flags, filters, setFilters, verifying, verify }),
 		[flags, filters, verifying, verify],
@@ -820,9 +875,11 @@ export function FieldHostStateProvider({
 						<FieldToolContext.Provider value={toolValue}>
 							<FieldSelectionContext.Provider value={selectionValue}>
 								<FieldStampContext.Provider value={stampValue}>
-									<FieldFlagsContext.Provider value={flagsValue}>
-										{children}
-									</FieldFlagsContext.Provider>
+									<FieldHistoryContext.Provider value={historyValue}>
+										<FieldFlagsContext.Provider value={flagsValue}>
+											{children}
+										</FieldFlagsContext.Provider>
+									</FieldHistoryContext.Provider>
 								</FieldStampContext.Provider>
 							</FieldSelectionContext.Provider>
 						</FieldToolContext.Provider>

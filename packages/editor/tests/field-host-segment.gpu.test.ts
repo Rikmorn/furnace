@@ -22,7 +22,7 @@ import {
 } from "../../core/tests/_helpers/gpu-fixture.ts";
 import { installMockResizeObserver } from "../../core/tests/_helpers/mock-resize-observer.ts";
 import { createFieldHost } from "../src/viewport-host/field-host.ts";
-import type { FieldTool } from "../src/viewport-host/index.ts";
+import type { FieldHistory, FieldTool } from "../src/viewport-host/index.ts";
 import { type HostListeners, makeHostCanvas } from "./_helpers/host-canvas.ts";
 import { stubAnimationFrameNoop } from "./_helpers/raf.ts";
 
@@ -429,6 +429,49 @@ test.skipIf(!bunWebGpuAvailable())(
       f.click(32, 32);
       expect(f.ops()).toHaveLength(0);
       expect(f.errors.at(-1)).toMatch(/unknown class id 99/);
+    } finally {
+      f.teardown();
+    }
+  },
+);
+
+// --- the named-history push from the BRUSH path (F4.5b Task 12) --------------
+//
+// HERE rather than in `field-host-history.test.ts`, and it is the one history case that
+// cannot live there: `commitToolOp` is reached only from a pointer over a live context
+// (both arms resolve their world point through `cursorRay`, which needs the camera
+// `init` builds). It is also the ONE log-mutating host path that rewrites no entity
+// record, so it is the one that does not reach `notifyHistory` through `notifyEntities`
+// — i.e. exactly the branch a test on the other side of the seam cannot see. The rAF
+// stub in this fixture is a no-op, so nothing but the explicit push can deliver these.
+test.skipIf(!bunWebGpuAvailable())(
+  "a brush stroke publishes its own history, on BOTH committing arms",
+  async () => {
+    const f = await segmentFixture();
+    try {
+      const pushes: FieldHistory[] = [];
+      f.host.subscribeHistory((h) => pushes.push(h));
+      expect(pushes.at(-1)?.undo).toEqual([]);
+
+      // The sphere brush: one click, one op.
+      f.host.setTool(DIG_TOOL);
+      f.host.setGesture(null);
+      f.click(32, 32);
+      expect(f.ops()).toHaveLength(1);
+      expect(pushes.at(-1)?.undo).toEqual(["dig"]);
+
+      // The segment: the FIRST click only anchors, so it must publish nothing — a
+      // history row for a click that wrote no op would name a step ⌘Z cannot take.
+      f.host.setTool({ ...DIG_TOOL, effect: "fill", materialId: 0 });
+      f.host.setGesture("segment");
+      const beforeAnchor = pushes.length;
+      f.click(16, 16);
+      expect(pushes.length).toBe(beforeAnchor);
+      // …and the second click commits the capsule, which the label names as a segment.
+      f.click(48, 40);
+      expect(pushes.at(-1)?.undo).toEqual(["dig", "segment fill"]);
+      expect(pushes.at(-1)?.undoDepth).toBe(2);
+      expect(f.errors).toEqual([]);
     } finally {
       f.teardown();
     }

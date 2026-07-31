@@ -17,8 +17,15 @@
 // it. Reading the order there would repaint the status bar and the menu on every click
 // the user makes anywhere in the cockpit.
 import type { ReactNode } from "react";
-import { createContext, useContext, useMemo, useState } from "react";
+import {
+	createContext,
+	useCallback,
+	useContext,
+	useMemo,
+	useState,
+} from "react";
 import { PALETTE_IDS, type PaletteId } from "../lib/palette-store.ts";
+import { useWorkspaceActions } from "./useWorkspace.tsx";
 
 /** Bring a palette to the front. Idempotent: raising what is already on top returns the
  *  same state, so a caller never has to check first (a pointerdown fires on every click
@@ -54,6 +61,39 @@ export function usePaletteRaise(): PaletteRaise {
  *  that this module does not have and should not learn. The caller holds that. */
 export function usePaletteOrder(): readonly PaletteId[] {
 	return useContext(PaletteOrderContext);
+}
+
+/** SUMMON a palette: put it somewhere the user can actually read it, in one verb.
+ *
+ *  All FOUR writes, because `open` alone does not mean "readable" and the other three
+ *  states persist or outlive the click: a palette closed while collapsed comes back
+ *  collapsed (the arrangement survives closing, by design), the ⌘\ latch covers the whole
+ *  layer, and a palette can simply be BURIED under another. Any one of them left out
+ *  leaves a summon that visibly does nothing.
+ *
+ *  `raise` is UNCONDITIONAL rather than riding the open transition: a palette is very
+ *  often already open and merely buried — which is precisely the state a summon affordance
+ *  appears in — and in that case there is no transition for the layer's own safety net to
+ *  catch.
+ *
+ *  ONE spelling, and by F4.5b Task 12 there were four call sites wanting it: the status
+ *  bar's ⚠ chip, its `undo N` chip, the burger's palette checkboxes, and the Edit menu's
+ *  History item. Four copies of a four-write ritual is how three of them come to be
+ *  subtly different. Closing is deliberately NOT here — unticking a checkbox must not
+ *  un-collapse or un-hide anything the user did not ask to change, so the close side is a
+ *  plain `setOpen(id, false)` at the one surface that has one. */
+export function usePaletteSummon(): (id: PaletteId) => void {
+	const { setOpen, setCollapsed, setHidden } = useWorkspaceActions();
+	const raise = usePaletteRaise();
+	return useCallback(
+		(id: PaletteId) => {
+			setOpen(id, true);
+			setCollapsed(id, false);
+			setHidden(false);
+			raise(id);
+		},
+		[setOpen, setCollapsed, setHidden, raise],
+	);
 }
 
 export function PaletteStackProvider({ children }: { children: ReactNode }) {

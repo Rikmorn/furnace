@@ -12,7 +12,7 @@
 //
 // It reads its three seams out of the shell's host-state provider (single-slot
 // discipline: no surface below that provider may re-subscribe to anything it owns,
-// which since F4.5b Task 4 is all ten seams the chrome reads) and reaches the host for its
+// which since F4.5b Task 12 is all twelve seams the chrome reads) and reaches the host for its
 // VERBS the way every other shell surface does — `fieldHostRef` off EditorContext,
 // exactly as ShellChrome's ⌘Z does. The verbs are fire-and-forget; nothing here holds
 // host state, so there is no action provider to justify.

@@ -70,6 +70,7 @@ import {
   segmentGhostSegments,
   sphereGhostSegments,
 } from "./field-ghost.ts";
+import { type FieldHistory, fieldHistory } from "./field-history.ts";
 import {
   advanceMove,
   type MoveDrag,
@@ -946,6 +947,25 @@ export type FieldHost = {
    *  callback re-reads {@link listEntities} and publishes the result at
    *  `useFieldEntities`); returns an unsubscribe. */
   subscribeEntities(cb: () => void): () => void;
+  /** Subscribes to the NAMED history (D-F4.5-11) — what each undo/redo step
+   *  would do, in words, derived from the op log's two entry stacks.
+   *
+   *  A VALUE rather than {@link subscribeEntities}' bare tick, because the
+   *  labels are derived and the chrome cannot value-import core to derive them
+   *  itself. Fires whenever the stacks actually move — every brush stroke,
+   *  commit, apply, freeze/bake, delete/duplicate, ⌘Z/⇧⌘Z and world new/load —
+   *  and ONCE on subscribe with the current history. Pushes that change
+   *  NOTHING are suppressed: several paths tick the entity list without
+   *  touching the log (an already-satisfied freeze, a dismissed drift report),
+   *  and a 50-row palette must not re-render for them.
+   *
+   *  Bounded per side to the most recent `HISTORY_TAIL` entries (the constant
+   *  lives in `field-history.ts` and deliberately stays behind this barrel —
+   *  the chrome cannot value-import it); the DEPTHS beside them are the true
+   *  stack depths, so a consumer can say how much it is not showing without
+   *  knowing the bound. Single subscriber (the shell's host-state
+   *  provider, publishing at `useFieldHistory`); returns an unsubscribe. */
+  subscribeHistory(cb: (history: FieldHistory) => void): () => void;
   /** The committed generator entities, in log order (CLONES — read from the
    *  op log's entity ops, so undo/redo and world loads stay accurate), each
    *  carrying the {@link FieldEntityInfo.placed} summary of its own span's
@@ -1579,6 +1599,15 @@ export function createFieldHost(deps?: {
   // Entity-list change tick (freeze/bake dirty no chunk, so the remesh counter
   // cannot carry them — see subscribeEntities).
   let entitiesCb: (() => void) | null = null;
+  // The named-history subscriber, plus the signature that decides whether a
+  // republish would say anything new (see notifyHistory).
+  let historyCb: ((history: FieldHistory) => void) | null = null;
+  let historySig: {
+    undoLen: number;
+    redoLen: number;
+    undoTop: field.LogEntry | undefined;
+    redoTop: field.LogEntry | undefined;
+  } | null = null;
   // Ghost render state: one entry per previewed chunk, every bucket drawn with
   // the ONE translucent stamp-ghost material. Rebuilt per preview response;
   // destroyed on cancel/commit/re-preview/world-reset + dispose.
@@ -2294,6 +2323,12 @@ export function createFieldHost(deps?: {
       const message = err instanceof Error ? err.message : String(err);
       reportToolError(`tool apply failed: ${message}`);
     }
+    // The ONE log-mutating path that rewrites no entity record, so it is the one
+    // that cannot reach `notifyHistory` through `notifyEntities` (see there).
+    // OUTSIDE the try: a refused op leaves the log untouched and the push is a
+    // guarded no-op, and putting it in the `catch` as well would be two spellings
+    // of one call.
+    notifyHistory();
   };
 
   // Whether the active tool fills a kit class — its ghost + op use the snapped
@@ -3076,11 +3111,70 @@ export function createFieldHost(deps?: {
     stampCb?.(stamp === null ? null : structuredClone(stamp));
   };
 
+  // The NAMED history push (D-F4.5-11), and the guard that decides whether
+  // there is anything to say.
+  //
+  // IDEMPOTENT BY DESIGN, and that is what makes its call sites cheap: it
+  // compares a signature of the two entry stacks first and returns without
+  // publishing when nothing moved. So calling it from a path that sometimes
+  // mutates the log and sometimes does not costs a handful of reads, and a
+  // future path can call it defensively without thinking about whether it needs
+  // to. **Any new path that pushes to, pops from or clears either stack must
+  // call this** — nothing in the type system enforces that, so it is written
+  // here rather than assumed.
+  //
+  // The signature is (length, TOP ENTRY IDENTITY) per side, and the identity
+  // term is load-bearing rather than defensive. Lengths alone are blind to the
+  // commonest sequence in an editor: undo once, then do something new. The new
+  // mutation clears the redo stack and pushes one entry, landing on exactly the
+  // (undo, redo) lengths the history had before the undo — with a different
+  // entry on top. A length-only guard would swallow that push and leave the menu
+  // offering "Undo dig" over a log whose last act was a fill. Under LIFO those
+  // two terms are also SUFFICIENT: entries only ever enter and leave at the top,
+  // so a change below it implies one of them moved. (`redo` re-pushes the very
+  // object it popped for splice/entity-update entries — which is correct, since
+  // the resulting history really is the one already published.)
+  //
+  // No `worldEpoch` term, unlike the footprint memo one screen down. That memo
+  // reads `log.ops`, which a world swap replaces wholesale while the numbers
+  // agree; this reads ONLY the two stacks, and `resetWorld` empties both — so a
+  // load that leaves them empty when they were already empty publishes nothing
+  // because there is genuinely nothing new to publish.
+  const notifyHistory = (): void => {
+    if (historyCb === null) return;
+    const prev = historySig;
+    const sig = {
+      undoLen: log.undoStack.length,
+      redoLen: log.redoStack.length,
+      undoTop: log.undoStack.at(-1),
+      redoTop: log.redoStack.at(-1),
+    };
+    if (
+      prev !== null &&
+      prev.undoLen === sig.undoLen &&
+      prev.redoLen === sig.redoLen &&
+      prev.undoTop === sig.undoTop &&
+      prev.redoTop === sig.redoTop
+    )
+      return;
+    historySig = sig;
+    historyCb(fieldHistory(log.undoStack, log.redoStack));
+  };
+
   // The entity-list tick. Fired by every path that can add, remove or rewrite
   // an entity RECORD — including the two (freeze, bake) that dirty no chunk and
   // would otherwise reach the panel through nothing at all.
+  //
+  // It carries the history push, and that containment is deliberate rather than
+  // convenient. Ten host paths mutate the op log; NINE of them rewrite an entity
+  // record and therefore already funnel through here by this seam's own contract
+  // (commit, apply, freeze, unfreeze, bake, delete, duplicate, ⌘Z/⇧⌘Z, world
+  // new/load). The tenth is the brush stroke, which touches no entity — so
+  // `commitToolOp` calls `notifyHistory` itself, and those two are the ONLY
+  // sites. Spelling it out at all ten would be ten chances to forget.
   const notifyEntities = (): void => {
     entitiesCb?.();
+    notifyHistory();
   };
 
   // Which committed entities the findings TOUCH — the palette's drift badges.
@@ -6362,6 +6456,19 @@ export function createFieldHost(deps?: {
       cb(); // initial catch-up: the world may already hold entities
       return () => {
         if (entitiesCb === cb) entitiesCb = null;
+      };
+    },
+    subscribeHistory(cb) {
+      historyCb = cb;
+      // Clearing the signature is what makes the initial push unconditional: a
+      // subscriber arriving over a world with a live undo stack must be told
+      // about it, and the previous subscriber's signature says nothing about
+      // what THIS one has seen. (The push itself is notifyHistory's, so a
+      // subscribe and a mutation hand out the same shape by construction.)
+      historySig = null;
+      notifyHistory();
+      return () => {
+        if (historyCb === cb) historyCb = null;
       };
     },
     listEntities() {

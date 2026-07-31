@@ -33,6 +33,7 @@ import { TooltipProvider } from "../ui/tooltip.tsx";
 import { AxisTriadMount } from "./AxisTriadMount.tsx";
 import { CanvasHost } from "./CanvasHost.tsx";
 import { EntitiesPalette } from "./EntitiesPalette.tsx";
+import { HistoryPalette } from "./HistoryPalette.tsx";
 import { LogPalette } from "./LogPalette.tsx";
 import { PaletteLayer } from "./PaletteLayer.tsx";
 import { SessionCard, SessionCardPresence } from "./SessionCard.tsx";
@@ -136,6 +137,7 @@ function ShellChrome({
 									controls: <FieldPanel />,
 									entities: <EntitiesPalette />,
 									session: <SessionCard />,
+									history: <HistoryPalette />,
 									log: <LogPalette />,
 								}}
 							/>

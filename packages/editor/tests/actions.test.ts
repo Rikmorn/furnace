@@ -81,6 +81,18 @@ test("Undo and Redo name the step once the history seam reports one", () => {
   ).toBe("Redo stamp hall");
 });
 
+test("the History item is LIVE and summons the palette (D-11)", () => {
+  // It shipped in Task 7 DISABLED with its reason in the LABEL — a disabled Radix item
+  // is `pointer-events-none`, so a `title` on one is never shown. Both halves are
+  // asserted, because a live item still carrying the old label would read as unfinished.
+  const history = byId("edit.history");
+  expect(history.enabled(makeCtx())).toBe(true);
+  expect(history.label(makeCtx())).toBe("History…");
+  const ctx = makeCtx();
+  history.run(ctx);
+  expect(ctx.run.summonPalette).toHaveBeenCalledWith("history");
+});
+
 test("the entity verbs name what they would act on", () => {
   const ctx = makeCtx({ selectedEntity: entity() });
   expect(byId("edit.delete").label(ctx)).toBe("Delete hall #7");

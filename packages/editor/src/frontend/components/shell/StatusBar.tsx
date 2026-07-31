@@ -6,6 +6,7 @@
 // from `useFieldHostState`, NOT from an own subscription — subscribeStats is a single
 // slot and a second subscriber would silently steal the first's callback.
 import { TriangleAlert } from "lucide-react";
+import type { ReactNode } from "react";
 import { useSyncExternalStore } from "react";
 import type {
 	FieldTool,
@@ -18,8 +19,8 @@ import {
 	useFieldStamp,
 	useFieldTool,
 } from "../../hooks/useFieldHostState.tsx";
-import { usePaletteRaise } from "../../hooks/usePaletteStack.tsx";
-import { useWorkspaceActions } from "../../hooks/useWorkspace.tsx";
+import { usePaletteSummon } from "../../hooks/usePaletteStack.tsx";
+import { cn } from "../../lib/cn.ts";
 import { notify } from "../../lib/notify-store.ts";
 import type { EditorState } from "../../lib/state.ts";
 import { useEditor } from "../editor-context.ts";
@@ -122,47 +123,60 @@ function KeymapLine() {
 	);
 }
 
-/** The one clickable chip in this slice (D-19's stats-chip popovers are F4.5c). It
- *  appears only while errors are UNREAD: a badge that never clears is a badge people
- *  stop seeing, and the log stays reachable from the View menu once it has. */
+/** The unread-error chip. It appears only while errors are UNREAD: a badge that never
+ *  clears is a badge people stop seeing, and the log stays reachable from the View menu
+ *  once it has. */
 function ErrorChip() {
 	const { unreadErrors } = useSyncExternalStore(
 		notify.subscribe,
 		notify.getSnapshot,
 	);
-	const { setOpen, setCollapsed, setHidden } = useWorkspaceActions();
-	const raise = usePaletteRaise();
+	const summon = usePaletteSummon();
 	if (unreadErrors === 0) return null;
 	return (
-		<button
-			type="button"
+		<ChipButton
 			// SUMMONS rather than toggles: opening the log is what marks it read, which
 			// takes this chip away — so there is never a second click here to close with.
-			// The palette's own × and the View menu are the way back.
-			//
-			// All FOUR verbs, because `open` alone does not mean "readable" and the other
-			// three states persist or outlive the click: a palette closed while collapsed
-			// comes back collapsed (the arrangement survives closing, by design), the ⌘\
-			// latch covers the whole layer, and the DEPTH is the one the log shares its
-			// default corner with the entities palette on. Any one of them left out leaves
-			// the summoned log unreadable — which, since being read is what clears this
-			// chip, is a click that can never succeed, on a chip that never goes away.
-			//
-			// `raise` is UNCONDITIONAL rather than riding the open transition: the log is
-			// very often already open and merely buried (that is precisely the state this
-			// chip appears in — the log marks nothing read while it is not on top), and in
-			// that case there is no transition for the layer's safety net to catch.
-			onClick={() => {
-				setOpen("log", true);
-				setCollapsed("log", false);
-				setHidden(false);
-				raise("log");
-			}}
-			aria-label={`${unreadErrors} unread ${unreadErrors === 1 ? "error" : "errors"} — open the message log`}
-			className="flex items-center gap-1 rounded-sm border border-border bg-muted px-1.5 py-px text-destructive-text tabular-nums transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+			// The palette's own × and the View menu are the way back. What "summon" has to
+			// do, and why all four writes are needed, lives in `usePaletteSummon`.
+			onClick={() => summon("log")}
+			label={`${unreadErrors} unread ${unreadErrors === 1 ? "error" : "errors"} — open the message log`}
+			className="text-destructive-text"
 		>
 			<TriangleAlert className="h-3 w-3" />
 			{unreadErrors}
+		</ChipButton>
+	);
+}
+
+/** A clickable status chip — the shared shell for the two the bar now has (D-19's
+ *  stats-chip popovers are F4.5c). Its own component so the two cannot drift apart
+ *  visually, which on a 28 px bar is the difference between "these are both buttons" and
+ *  "one of these is text". */
+function ChipButton({
+	onClick,
+	label,
+	className,
+	children,
+}: {
+	onClick: () => void;
+	/** The accessible name — the chips are one glyph and one number, so the sentence
+	 *  cannot be the visible text. */
+	label: string;
+	className?: string;
+	children: ReactNode;
+}) {
+	return (
+		<button
+			type="button"
+			onClick={onClick}
+			aria-label={label}
+			className={cn(
+				"flex items-center gap-1 rounded-sm border border-border bg-muted px-1.5 py-px tabular-nums transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+				className,
+			)}
+		>
+			{children}
 		</button>
 	);
 }
@@ -170,6 +184,7 @@ function ErrorChip() {
 export function StatusBar({ viewportError }: { viewportError: string | null }) {
 	const { state } = useEditor();
 	const { stats } = useFieldHostState();
+	const summon = usePaletteSummon();
 	const error = state.error ?? viewportError;
 
 	return (
@@ -196,7 +211,18 @@ export function StatusBar({ viewportError }: { viewportError: string | null }) {
 							analyzer ●
 						</span>
 					)}
-					<span>undo {stats.undoDepth}</span>
+					{/* The `undo N` readout is a BUTTON (D-11): the depth answers "can I go
+			              back?", and the thing that answers "back to what?" is the History
+			              palette — so the number is the way to it. Unlike the ⚠ chip it is
+			              always present, including at 0, because a history you have not
+			              started is still the surface a first-time user should be able to
+			              find. */}
+					<ChipButton
+						onClick={() => summon("history")}
+						label={`${stats.undoDepth} undo step${stats.undoDepth === 1 ? "" : "s"} — open the History palette`}
+					>
+						undo {stats.undoDepth}
+					</ChipButton>
 				</span>
 			)}
 			<span className="whitespace-nowrap">{engineLabel(state)}</span>

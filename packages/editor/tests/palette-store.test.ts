@@ -7,6 +7,7 @@ import {
   defaultWorkspace,
   deserializeWorkspace,
   movePalette,
+  PALETTES,
   SNAP_PX,
   serializeWorkspace,
   setPaletteCollapsed,
@@ -205,6 +206,23 @@ test("open is ABSOLUTE and returns the SAME state when it changes nothing", () =
   expect(opened.palettes.session.open).toBe(true);
 });
 
+test("the History palette ships CLOSED, and its open state is the USER's", () => {
+  // The second summoned palette (D-11). Closed for the message log's reason — the named
+  // Undo item already carries the last step, so the LIST is what you go looking for
+  // rather than what you keep open — but NOT `drivenOpen`: nothing in the editor decides
+  // to show it, so a blob that has it open must restore it open.
+  const fresh = defaultWorkspace();
+  expect(fresh.palettes.history.open).toBe(false);
+  expect(PALETTES.history.drivenOpen).toBeUndefined();
+  const restored = deserializeWorkspace({
+    palettes: {
+      history: { x: 100, y: 200, edge: null, collapsed: false, open: true },
+    },
+    hidden: false,
+  });
+  expect(restored.palettes.history.open).toBe(true);
+});
+
 test("reset returns the default arrangement — fresh records, controls docked right", () => {
   const fresh = defaultWorkspace();
   expect(fresh.hidden).toBe(false);
@@ -293,6 +311,7 @@ test("serialize/deserialize round-trips through UiState.workspace", () => {
   expect(Object.keys(salvaged.palettes).sort()).toEqual([
     "controls",
     "entities",
+    "history",
     "log",
     "session",
   ]);

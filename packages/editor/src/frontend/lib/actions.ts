@@ -38,6 +38,7 @@ import type { ConfirmRequest } from "../components/ConfirmDialog.tsx";
 import type { ViewActions, ViewState } from "../hooks/useView.tsx";
 import type { WorkspaceActions } from "../hooks/useWorkspace.tsx";
 import type { WorldActions } from "../hooks/useWorld.tsx";
+import type { PaletteId } from "./palette-store.ts";
 
 /** Everything an action can read or call, assembled once per render by
  *  `useActionContext` and handed to every `label`/`enabled`/`run`.
@@ -80,8 +81,9 @@ export type ActionCtx = {
    *  still says, which is why {@link idle} reads it and every family's `armed` goes
    *  through that. */
   pendingStamp: { id: string; name: string } | null;
-  /** What the last/next history step DID, for a named Undo/Redo. Both are null until
-   *  Task 12 lands the seam that reports them; the labels fall back to the bare verb. */
+  /** What the last/next history step DID, for a named Undo/Redo — `null` when there is
+   *  nothing to step, in which case the labels fall back to the bare verb. Derived from
+   *  the top of each stack, which the history seam publishes as the LAST element. */
   history: { undoLabel: string | null; redoLabel: string | null };
   /** The verbs an action dispatches through. Host verbs are NOT here — they are called
    *  on `ctx.host` directly. These are the chrome's own funnels, and using them rather
@@ -100,6 +102,10 @@ export type ActionCtx = {
     armBrush: (effect: FieldTool["effect"]) => void;
     /** Point the `S` family at a generator id. */
     setStampCursor: (id: string) => void;
+    /** Bring a palette somewhere the user can READ it — open, uncollapsed, unlatched and
+     *  raised. The chrome's one summon spelling (`usePaletteSummon`), which the status
+     *  bar's two chips and the burger's checkboxes go through too. */
+    summonPalette: (id: PaletteId) => void;
   };
 };
 
@@ -525,14 +531,18 @@ export const ACTIONS: readonly ActionDef[] = [
   {
     id: "edit.history",
     group: "edit",
-    // The reason rides IN the label, as `world.bake`'s does and for the same mechanical
-    // reason: `dropdown-menu.tsx` sets `pointer-events-none` on a disabled item, so a
-    // `title` on one is never shown. Task 12 builds the palette this summons.
-    label: () => "History — arrives with the History palette",
-    // Disabled rather than absent, so the verb has a place in the menu before it works.
-    enabled: () => false,
-    // biome-ignore lint/suspicious/noEmptyBlockStatements: the palette this opens arrives with Task 12; the item is disabled until then, so this can never run
-    run: () => {},
+    // Named for the surface it opens, and ALWAYS enabled: an empty history is something
+    // the palette SAYS ("nothing yet"), not a reason to grey out the way to it. The other
+    // disabled items in this menu are gated on a missing INPUT (a world name, a selected
+    // stamp, something to step); a summon has none.
+    label: () => "History…",
+    enabled: () => true,
+    menuTitle:
+      "the field's ONE history as a list — every step, newest first; click a row to step back to it",
+    // Deliberately NO chord. ⌘Y is redo on Windows and would teach the wrong thing here,
+    // and every bare letter in the editor is a tool family (D-10). The burger's own
+    // palette checkbox is the other way in, and the status bar's `undo N` chip the third.
+    run: (ctx) => ctx.run.summonPalette("history"),
   },
 
   // ——— tool ————————————————————————————————————————————————————————————————

@@ -16,6 +16,12 @@ export type {
   FlagRow,
   FlagsSummary,
 } from "./field-flags.ts";
+// The named history's payload, beside the seam that publishes it — the chrome names it
+// without reaching into field-history.ts (the FlagsSummary rider). The TAIL constant
+// deliberately stays behind this barrel: the chrome cannot value-import it (that would
+// pull core into the chrome bundle), and it has no need to — the payload carries the true
+// depths, so "how much is not listed" is a subtraction rather than a comparison.
+export type { FieldHistory } from "./field-history.ts";
 export {
   type CameraPose,
   createFieldHost,

@@ -195,14 +195,15 @@ const toastText = (text: string | RegExp): HTMLElement =>
 // The single-slot rule, pinned from the side that would break it. Every FieldHost
 // subscribe seam stores ONE callback (`toolCb = cb`), so a panel that subscribed to one
 // would silently steal the shell's — no throw, no warning, the shell surface just stops
-// updating. ALL TEN belong to the provider now: stats to the status bar's chips, tool
+// updating. ALL TWELVE belong to the provider now: stats to the status bar's chips, tool
 // errors to the toast stack, entities + drift + the entity selection to the entities
-// palette, the camera pose to the axis triad, and — since F4.5b Task 2 — tool / selection
-// / stamp / flags to the control stack, read out of context. This is the guard a re-added
+// palette, the camera pose to the axis triad, the named history to the Undo/Redo labels
+// and the History palette (F4.5b Task 12), and — since F4.5b Task 2 — tool / selection /
+// stamp / flags to the control stack, read out of context. This is the guard a re-added
 // meter, a re-added status line, or a mirror that crept back into a section has to trip.
 //
 // Every seam, with the push that proves the slot is live. Quantified rather than spelled
-// out case by case: the point is that the set is CLOSED, and an eleventh seam claimed by
+// out case by case: the point is that the set is CLOSED, and a thirteenth seam claimed by
 // a panel section is exactly what this must catch.
 const DIG_TOOL: FieldTool = {
 	effect: "dig",
@@ -213,6 +214,8 @@ const DIG_TOOL: FieldTool = {
 };
 
 const NO_FLAGS: FlagsSummary = { total: 0, byKindSeverity: [], visible: [] };
+
+const NO_HISTORY = { undo: [], redo: [], undoDepth: 0, redoDepth: 0 };
 
 const seamsOf = (stub: ReturnType<typeof makeStubHost>) =>
 	[
@@ -246,6 +249,11 @@ const seamsOf = (stub: ReturnType<typeof makeStubHost>) =>
 			"entitySelection",
 			stub.calls.subscribeEntitySelection,
 			() => stub.fire.entitySelection(null),
+		],
+		[
+			"history",
+			stub.calls.subscribeHistory,
+			() => stub.fire.history(NO_HISTORY),
 		],
 	] as const;
 

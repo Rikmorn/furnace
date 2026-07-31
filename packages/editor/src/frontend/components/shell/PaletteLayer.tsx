@@ -8,7 +8,13 @@
 // a palette swaps places with its rail chip.
 
 import type { LucideIcon } from "lucide-react";
-import { Boxes, ScrollText, Settings2, SlidersHorizontal } from "lucide-react";
+import {
+	Boxes,
+	History,
+	ScrollText,
+	Settings2,
+	SlidersHorizontal,
+} from "lucide-react";
 import type { ReactNode } from "react";
 import { useCallback, useLayoutEffect, useRef } from "react";
 import {
@@ -47,6 +53,9 @@ const PALETTE_CHROME: Record<
 	// label-column form, not a list, and a wide one puts the labels a long way from the
 	// values they name.
 	session: { Icon: Settings2, widthClass: "w-[280px]" },
+	// The narrowest of the five, and it can be: a row is a mono index and a two-word
+	// phrase ("segment fill", "reconfigure Hall"), with nothing to the right of it.
+	history: { Icon: History, widthClass: "w-[240px]" },
 	// Wider than the controls column: log lines are sentences (a save path, an esbuild
 	// diagnostic), and a narrow box turns every one of them into four wrapped rows.
 	log: { Icon: ScrollText, widthClass: "w-[380px]" },
