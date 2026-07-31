@@ -237,7 +237,22 @@ export type GeneratorResult = {
  *  no array-typed fields, the form renders those as fallback), defaults, and a
  *  pure evaluate to a {@link GeneratorResult} (world coords). Emitted ops and
  *  placements carry the placeholder id 0 — the committer assigns real log ids
- *  when the result is applied through the op log. */
+ *  when the result is applied through the op log.
+ *
+ *  TWO DECLARATIVE ANNOTATIONS a `paramSchema` property may carry, both read by
+ *  the editor's form and by nothing in core:
+ *
+ *  - `multipleOf` — the notch. A param narrowed by `intParam` carries
+ *    `multipleOf: 1`, which is the schema SAYING what that validator already
+ *    enforces. Without it a bounded control has to invent its own granularity
+ *    and emits fractional values the generator then rejects setup-loud, from
+ *    inside the preview worker, one round trip after the gesture.
+ *  - `furnace.unit` — the display suffix, alongside the `furnace.kind` field
+ *    semantics `scene/t.ts` emits. A DISPLAY string, never parsed and never
+ *    converted, so it must name the unit the evaluator actually reads: the
+ *    cave's `chamberRadius` is compared against a region extent in metres
+ *    (`"m"`), while a hall's `width` counts 0.5 m COARSE CELLS (`"cells"`) and
+ *    would be a lie at `"m"`. */
 export type GeneratorDef = {
   id: string;
   name: string;

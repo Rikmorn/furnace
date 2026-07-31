@@ -19,7 +19,18 @@ test("furnace.kind wins", () => {
   expect(resolveKind({ furnace: { kind: "color" } })).toBe("color");
 });
 test("enum before plain type", () => {
-  expect(resolveKind({ type: "string", enum: ["perspective"] })).toBe("enum");
+  // D-25 split the enum answer by CARDINALITY (see `tests/inspector/numeric-schema.test.ts`
+  // for both sides of that boundary). What this case is about is unchanged: an `enum` node
+  // is never read as its `type`, whichever control it lands on.
+  expect(resolveKind({ type: "string", enum: ["perspective"] })).toBe(
+    "segmented",
+  );
+  expect(
+    resolveKind({
+      type: "string",
+      enum: ["a", "b", "c", "d", "e"],
+    }),
+  ).toBe("enum");
 });
 test("plain JSON types, integer folds to number", () => {
   expect(resolveKind({ type: "number" })).toBe("number");

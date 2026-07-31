@@ -1871,3 +1871,138 @@ describe("field generators — GeneratorDef.usesSeed", () => {
     });
   }
 });
+
+describe("field generators — the paramSchema annotations (F4.5b Task 11)", () => {
+  // Two DECLARATIVE annotations landed on the generator schemas for the editor's
+  // form vocabulary. Nothing in core reads either one, which is exactly why they
+  // need a test: an inert annotation rots silently, and the failure it produces
+  // is a control that emits values the validator next door then throws on.
+  //
+  // The `multipleOf` half is asserted BEHAVIOURALLY rather than by re-typing the
+  // literals: for every bounded numeric param, a fractional value must be
+  // refused if and only if the schema claims `multipleOf: 1`. That gives the
+  // annotation teeth in BOTH directions — a param declaring it while `numParam`
+  // admits fractions fails, and so does one omitting it while `intParam` rejects
+  // them (the quiet direction, which shows up as a slider that produces values
+  // the generator refuses from inside the preview worker).
+
+  const ANNOTATION_REGION = {
+    min: [0, 0, 0] as [number, number, number],
+    max: [12, 8, 12] as [number, number, number],
+  };
+
+  /** A store carrying a carved cave — scatter is `contextFree: false` and needs
+   *  real surfaces; a context-free def ignores the ctx it is handed. The
+   *  `usesSeed` loop above builds the same fixture for the same reason. */
+  const carvedForAnnotations = (): EvaluateContext => {
+    const store = createFieldStore();
+    const log = createOpLog();
+    const cave = generatorById("cave");
+    commitGenerator(store, log, cave, {
+      params: structuredClone(cave.defaults),
+      seed: 5,
+      region: ANNOTATION_REGION,
+      policy: "replace",
+      table: TABLE,
+    });
+    return { store };
+  };
+
+  /** A schema node as the loop reads it — plain JSON Schema plus our two keys. */
+  type ParamNode = {
+    type?: string;
+    minimum?: number;
+    maximum?: number;
+    multipleOf?: number;
+    default?: unknown;
+    furnace?: { unit?: string };
+  };
+
+  const numericParams = (def: GeneratorDef): [string, ParamNode][] =>
+    Object.entries(
+      (def.paramSchema as { properties: Record<string, ParamNode> }).properties,
+    ).filter(
+      ([, node]) =>
+        node.type === "number" &&
+        typeof node.minimum === "number" &&
+        typeof node.maximum === "number",
+    );
+
+  for (const def of FIELD_GENERATORS) {
+    for (const [key, node] of numericParams(def)) {
+      const declared = node.multipleOf === 1;
+      test(`${def.id}.${key}: multipleOf agrees with the validator (${declared ? "whole" : "real"})`, () => {
+        const base = node.default;
+        // PREMISE, not decoration: the probe has to be a fractional value the
+        // range admits, or "it threw" would be about the bound rather than about
+        // the notch. A schema edit that pushes the default to its ceiling makes
+        // this fail loudly instead of silently probing out of range.
+        expect(typeof base).toBe("number");
+        // A QUARTER, not a half, and that is not arbitrary: four of these params
+        // default to 0.5, so `+ 0.5` lands on a whole number and probes nothing.
+        // The premise below caught exactly that when this loop was first written.
+        const probe = (base as number) + 0.25;
+        expect(probe).toBeLessThanOrEqual(node.maximum as number);
+        expect(probe).toBeGreaterThanOrEqual(node.minimum as number);
+        expect(Number.isInteger(probe)).toBe(false);
+
+        const params: Record<string, unknown> = {
+          ...structuredClone(def.defaults),
+          [key]: probe,
+        };
+        // A door offset is only READ when its wall is enabled, so probing one
+        // under the defaults (which open north alone) would measure nothing at
+        // all for the other three.
+        const wall = key.replace(/Offset$/, "");
+        if (wall !== key && wall in params) params[wall] = true;
+
+        const evaluate = () =>
+          evaluateGenerator(
+            def,
+            params,
+            7,
+            ANNOTATION_REGION,
+            TABLE,
+            "replace",
+            carvedForAnnotations(),
+          );
+        if (declared)
+          // The MESSAGE, not just "it threw": enabling a wall can also trip the
+          // lane and offset-fit checks, and a test that accepted any throw would
+          // pass while the integer rule was gone.
+          expect(evaluate).toThrow(/must be an integer/);
+        else expect(evaluate).not.toThrow();
+      });
+    }
+  }
+
+  // The unit half CANNOT be asserted behaviourally — it is a display string core
+  // never reads — so this is a table, and it can only catch DELETION or drift,
+  // not a wrong unit. What keeps it honest is the source comment beside each
+  // annotation naming the code that proves the unit (`chamberRadius` is compared
+  // against a region extent in metres; a hall's `width` indexes a 0.5 m grid).
+  const UNITS: Record<string, Record<string, string>> = {
+    hall: {
+      width: "cells",
+      height: "cells",
+      depth: "cells",
+      pillarSpacing: "cells",
+    },
+    cave: { chamberRadius: "m" },
+    scatter: { minSpacing: "m" },
+  };
+
+  for (const def of FIELD_GENERATORS) {
+    test(`${def.id}: the furnace.unit annotations are exactly the declared set`, () => {
+      const properties = (
+        def.paramSchema as { properties: Record<string, ParamNode> }
+      ).properties;
+      const actual = Object.fromEntries(
+        Object.entries(properties)
+          .filter(([, node]) => node.furnace?.unit !== undefined)
+          .map(([key, node]) => [key, node.furnace?.unit]),
+      );
+      expect(actual).toEqual(UNITS[def.id] ?? {});
+    });
+  }
+});

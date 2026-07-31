@@ -249,6 +249,19 @@ function selectEntity(
 	});
 }
 
+/** Open the card's `▸ advanced` disclosure, whatever state it is IN.
+ *
+ *  The disclosure remembers itself across mounts (D-25 / `AdvancedSection`), and that
+ *  memory is module-scoped, so it also survives between tests in this file. A bare click
+ *  would therefore CLOSE it for any test that runs after one which opened it — an order
+ *  dependency that reads as a mysterious "cannot find nudge plus X". Asking the trigger
+ *  what it is doing removes the dependency instead of hiding it. */
+function openAdvanced(box: HTMLElement): void {
+	const trigger = within(box).getByRole("button", { name: /advanced/ });
+	if (trigger.getAttribute("aria-expanded") !== "true")
+		fireEvent.click(trigger);
+}
+
 // --- (a) the palette id, and who decides whether it is open ------------------
 
 test("the card ships CLOSED and auto-opens when a session begins", async () => {
@@ -651,7 +664,7 @@ test("the nudge cluster drives host.nudgeStamp in whole lattice STEPS", async ()
 	// The region controls sit under `advanced`: they are session MECHANICS (where the
 	// stamp sits, how it merges) rather than recipe values, and the mock's card shows the
 	// recipe above a `▸ advanced` disclosure.
-	fireEvent.click(within(openCard()).getByRole("button", { name: /advanced/ }));
+	openAdvanced(openCard());
 	const box = openCard();
 	const pressed: [string, [number, number, number]][] = [
 		["nudge minus X", [-1, 0, 0]],
@@ -666,6 +679,124 @@ test("the nudge cluster drives host.nudgeStamp in whole lattice STEPS", async ()
 	expect(stub.calls.nudgeStamp.mock.calls).toEqual(pressed.map(([, s]) => s));
 });
 
+// --- (e2) the D-25 forms vocabulary reaches the card -------------------------
+
+/** A generator whose params are BOUNDED, so the card renders D-25's controls rather than
+ *  plain text fields. `chamberRadius` is the slider (a wide continuous span with a unit);
+ *  `chambers` is the stepper (four notches end to end). */
+const CAVE: FieldGeneratorInfo = {
+	id: "cave",
+	name: "Cave",
+	paramSchema: {
+		type: "object",
+		properties: {
+			chamberRadius: {
+				type: "number",
+				minimum: 3,
+				maximum: 8,
+				default: 5,
+				furnace: { unit: "m" },
+			},
+			chambers: {
+				type: "number",
+				minimum: 2,
+				maximum: 6,
+				multipleOf: 1,
+				default: 3,
+			},
+		},
+	},
+	defaults: { chamberRadius: 5, chambers: 3 },
+	placesProps: false,
+	usesSeed: true,
+};
+
+const caveSession = () =>
+	makeSession({
+		generator: "cave",
+		params: { chamberRadius: 5, chambers: 3 },
+		phase: "ready",
+	});
+
+test("a bounded param renders its slider, its unit and its stepper (D-25)", async () => {
+	fetch404();
+	const stub = makeStubHost({ generators: [CAVE] });
+	await renderShell(stub);
+	act(() => {
+		stub.fire.stamp(caveSession());
+	});
+	const box = openCard();
+	expect(
+		within(box).getByRole("slider", { name: "Chamber Radius" }),
+	).toBeTruthy();
+	expect(within(box).getByText("m")).toBeTruthy();
+	// The short integer range gets ± rather than a track: four notches over a 120 px
+	// slider is ~30 px per chamber.
+	expect(within(box).getByLabelText("increase Chambers")).toBeTruthy();
+	// `queryByRole` returns null when absent; compare to null FIRST (house rule).
+	expect(within(box).queryByRole("slider", { name: "Chambers" }) === null).toBe(
+		true,
+	);
+});
+
+test("an out-of-range param refuses at the field AND disables ⏎ by NAME", async () => {
+	fetch404();
+	const stub = makeStubHost({ generators: [CAVE] });
+	await renderShell(stub);
+	act(() => {
+		stub.fire.stamp(caveSession());
+	});
+	const radius = within(openCard()).getByLabelText(
+		"Chamber Radius exact",
+	) as HTMLInputElement;
+	act(() => {
+		radius.focus();
+		fireEvent.change(radius, { target: { value: "40" } });
+	});
+
+	// The refusal is at the field…
+	expect(within(openCard()).getByRole("alert").textContent).toContain(
+		"must be at most 8",
+	);
+	// …the ghost never sees it (a worker round trip to be told what `maximum: 8` says)…
+	expect(stub.calls.updateStamp).not.toHaveBeenCalled();
+	// …and the commit verb NAMES the field rather than saying "invalid". A bottom-of-form
+	// dump makes the user hunt; a verb that names one field does not.
+	const commit = within(openCard()).getByRole("button", {
+		name: "commit (Enter)",
+	}) as HTMLButtonElement;
+	expect(commit.disabled).toBe(true);
+	expect(
+		within(openCard()).getByText(/Chamber Radius must be at most 8/),
+	).toBeTruthy();
+});
+
+test("the ▸ advanced disclosure survives the card closing and coming back", async () => {
+	// The card UNMOUNTS whenever its palette closes (`PaletteLayer` renders `open ?
+	// <Palette> : null`), and the nudge d-pad behind this disclosure is the only MOUSE
+	// route to moving a stamp region — so a disclosure that re-collapsed per subject cost
+	// a click every single session.
+	fetch404();
+	const stub = makeStubHost({ generators: [HALL] });
+	await renderShell(stub);
+	act(() => {
+		stub.fire.stamp(makeSession());
+	});
+	openAdvanced(openCard());
+	expect(within(openCard()).getByLabelText("nudge plus X")).toBeTruthy();
+
+	// Away (the card unmounts) and back on a DIFFERENT subject, so the presence driver
+	// really re-opens rather than leaving the same mount standing.
+	act(() => {
+		stub.fire.stamp(null);
+	});
+	expect(card() === null).toBe(true);
+	act(() => {
+		stub.fire.stamp(makeSession({ generator: "hall", entityId: 42 }));
+	});
+	expect(within(openCard()).getByLabelText("nudge plus X")).toBeTruthy();
+});
+
 test("the merge policy re-previews through the ONE update seam", async () => {
 	fetch404();
 	const stub = makeStubHost({ generators: [HALL] });
@@ -673,7 +804,7 @@ test("the merge policy re-previews through the ONE update seam", async () => {
 	act(() => {
 		stub.fire.stamp(makeSession());
 	});
-	fireEvent.click(within(openCard()).getByRole("button", { name: /advanced/ }));
+	openAdvanced(openCard());
 	fireEvent.change(within(openCard()).getByLabelText("merge policy"), {
 		target: { value: "keep-existing-air" },
 	});
@@ -749,9 +880,15 @@ test("archetypeId becomes a PICKER when the catalog lands AFTER the card opened"
 	expect(field().tagName).toBe("INPUT");
 
 	await flushCatalog();
-	// …and an enum-carrying one renders EnumField (a Radix combobox trigger).
-	expect(field().tagName).toBe("BUTTON");
-	expect(field().getAttribute("role")).toBe("combobox");
+	// …and an enum-carrying one renders D-25's SEGMENTED control. This catalog has ONE
+	// archetype, so the enum sits under the cardinality cap; above four members
+	// `resolveKind` sends it to EnumField's Radix combobox instead, and that decision is
+	// the registry's, not this field's.
+	expect(field().getAttribute("role")).toBe("radiogroup");
+	// Named by its MEMBER, which is the half that would silently break: a segmented
+	// control whose buttons all answer to the row caption is one a screen reader cannot
+	// tell apart, and a `getByRole("radio")` count alone would not see it.
+	expect(within(field()).getByRole("radio", { name: "rock" })).toBeTruthy();
 	// The mechanism, stated directly: the catalog installed BEFORE the last read.
 	expect(stub.order.lastIndexOf("listGenerators")).toBeGreaterThan(
 		stub.order.indexOf("setEntityCatalog"),

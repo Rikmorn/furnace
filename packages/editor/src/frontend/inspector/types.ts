@@ -19,8 +19,20 @@ export type JsonSchemaNode = {
    * Furnace field semantics. zod's `.meta({ furnace })` is hoisted by
    * `z.toJSONSchema` to the NODE ROOT (verified against zod 4 output) — it is
    * NOT nested under a `meta` wrapper. Read it from here.
+   *
+   * Every member is OPTIONAL, `kind` included: `unit` annotates a node whose
+   * control is already decided by its SHAPE (a bounded number is a slider
+   * whether or not it carries metres), so requiring a `kind` beside it would
+   * force every unit-bearing schema to invent one.
    */
-  furnace?: { kind: string; table?: string; requires?: readonly string[] };
+  furnace?: {
+    kind?: string;
+    /** The physical unit of the value, rendered beside the control (D-25:
+     *  units always). A display suffix — never parsed, never converted. */
+    unit?: string;
+    table?: string;
+    requires?: readonly string[];
+  };
   /** JSON Schema default value, emitted by zod `.default()` — used by field renderers to seed display when the doc omits the field. */
   default?: unknown;
   [key: string]: unknown;
@@ -28,6 +40,14 @@ export type JsonSchemaNode = {
 
 export type FieldKind =
   | "number"
+  /** A bounded number with a long run of notches (D-25): range + scrubby label +
+   *  an exact text input. Chosen by SHAPE, not by a `furnace.kind` — see
+   *  `resolveKind`. */
+  | "slider"
+  /** A bounded number a handful of notches wide: ± over the exact input. */
+  | "stepper"
+  /** An enum small enough to show every member at once. */
+  | "segmented"
   | "string"
   | "boolean"
   | "enum"

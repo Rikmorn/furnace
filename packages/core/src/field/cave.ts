@@ -1225,6 +1225,7 @@ const CAVE_OFFSET_RANGE = {
   type: "number",
   minimum: AUTO_CENTRE,
   maximum: 62,
+  multipleOf: 1,
   default: AUTO_CENTRE,
 } as const;
 
@@ -1239,11 +1240,32 @@ const CAVE_WALLS = [
 
 const CAVE_PROPERTIES = {
   theme: { enum: CAVE_THEMES, default: "mixed" },
-  chambers: { type: "number", minimum: 2, maximum: 6, default: 3 },
-  chamberRadius: { type: "number", minimum: 3, maximum: 8, default: 5 },
+  chambers: {
+    type: "number",
+    minimum: 2,
+    maximum: 6,
+    multipleOf: 1,
+    default: 3,
+  },
+  // METRES, and verifiably so: the radius is compared against `extent[i] / 2`
+  // and `extent` is the region size in metres. `numParam`, not `intParam` — a
+  // 5.5 m chamber is legal, so there is deliberately no `multipleOf` here.
+  chamberRadius: {
+    type: "number",
+    minimum: 3,
+    maximum: 8,
+    default: 5,
+    furnace: { unit: "m" },
+  },
   verticality: { type: "number", minimum: 0, maximum: 1, default: 0.5 },
   roughness: { type: "number", minimum: 0, maximum: 1, default: 0.5 },
-  extraLoops: { type: "number", minimum: 0, maximum: 3, default: 1 },
+  extraLoops: {
+    type: "number",
+    minimum: 0,
+    maximum: 3,
+    multipleOf: 1,
+    default: 1,
+  },
   doorNorth: { type: "boolean", default: true },
   doorSouth: { type: "boolean", default: false },
   doorEast: { type: "boolean", default: false },

@@ -19,9 +19,11 @@
 // anywhere is about to build.
 //
 // THE PROMOTION is the subtlest thing here, so it is stated in full:
-//   - a TOUCH is a COMMIT, never a preview. `NumberField` previews on every keystroke, so
-//     promoting on preview would open (and cancel, and re-open) a session per character —
-//     each firing a worker ghost — and would open it on "1" while the user typed "12".
+//   - a TOUCH is a COMMIT, never a preview. Every text-entry field in the form previews on
+//     each keystroke (`NumberField` for unbounded params, `ExactNumberInput` inside the
+//     slider and stepper for bounded ones), so promoting on preview would open (and cancel,
+//     and re-open) a session per character — each firing a worker ghost — and would open it
+//     on "1" while the user typed "12".
 //   - the touch that promoted is APPLIED, not lost. `openEntity` opens the session on the
 //     RECORD's params, so the edit is parked and pushed through `updateStamp` the moment
 //     the session arrives — patched onto the SESSION's own params/seed/policy rather than
@@ -44,11 +46,20 @@
 // The card owns NO lifecycle verb (D-14, user ruling): freeze, bake and delete are the
 // entity ROW's, because they change what an entity IS rather than what it holds. What
 // remains here is the recipe and the two verbs that end the session.
+//
+// WHAT LIVES IN `session-card/` and what stays here. This file owns the SELECTOR (which of
+// the two sources is on screen), the promotion, and the two funnels every control writes
+// through (`push` / `promoteThen`). The four pieces beside it — the seed row, the advanced
+// disclosure, the read-only record and the footer — are presentational leaves that take
+// values and callbacks and hold no host knowledge, which is exactly why they could move:
+// each of them was a block of markup with one decision in it, and none of those decisions
+// was about the card's state machine. `AdvancedSection` is the one exception and it says so
+// in its own header: it remembers its disclosure across mounts, because this card does not
+// survive its palette closing.
 import type { MergePolicy } from "@furnace/core/field"; // type-only: erased
 import {
-	Fragment,
+	useCallback,
 	useEffect,
-	useId,
 	useLayoutEffect,
 	useMemo,
 	useRef,
@@ -58,7 +69,6 @@ import type {
 	FieldEntityInfo,
 	FieldGeneratorInfo,
 	FieldHost,
-	NudgeSteps,
 	StampSession,
 } from "../../../viewport-host/index.ts"; // type-only: erased
 import { useCatalog } from "../../hooks/useCatalogs.tsx";
@@ -69,32 +79,25 @@ import {
 } from "../../hooks/useFieldHostState.tsx";
 import { usePaletteRaise } from "../../hooks/usePaletteStack.tsx";
 import { useWorkspaceActions } from "../../hooks/useWorkspace.tsx";
+import type { FieldRefusal } from "../../inspector/index.tsx";
 import { SchemaForm } from "../../inspector/index.tsx";
 import type { JsonSchemaNode } from "../../inspector/types.ts";
 import { entityName } from "../../lib/actions.ts";
-import { formatParam, openBlockedReason } from "../../lib/field-entity.ts";
+import { openBlockedReason } from "../../lib/field-entity.ts";
 import {
 	type SessionStateTag,
 	sessionName,
 	sessionStateTag,
 } from "../../lib/field-session.ts";
-import { CollapsibleSection } from "../CollapsibleSection.tsx";
+import { humanizeLabel } from "../../lib/humanize.ts";
 import { useEditor } from "../editor-context.ts";
-import { ReasonTip, SELECT_CLASS } from "../field/form-bits.tsx";
-import { Button } from "../ui/button.tsx";
-import { Input } from "../ui/input.tsx";
-
-const LABEL_CLASS = "flex items-center gap-1.5 text-muted-foreground";
-
-const POLICIES: { value: MergePolicy; label: string }[] = [
-	{ value: "replace", label: "Replace" },
-	{ value: "keep-existing-air", label: "Keep existing air" },
-];
-
-/** Decode the `<select>` value back to a policy. Values come from our own option set, so
- *  anything unrecognised (impossible) falls back to replace. */
-const parsePolicy = (v: string): MergePolicy =>
-	v === "keep-existing-air" ? v : "replace";
+import { AdvancedSection } from "./session-card/AdvancedSection.tsx";
+import { ReadOnlyParams } from "./session-card/ReadOnlyParams.tsx";
+import { SeedRow } from "./session-card/SeedRow.tsx";
+import {
+	SessionFooter,
+	type SessionVerbs,
+} from "./session-card/SessionFooter.tsx";
 
 const PHASE_LABEL: Record<StampSession["phase"], string> = {
 	configuring: "configuring",
@@ -105,40 +108,11 @@ const PHASE_LABEL: Record<StampSession["phase"], string> = {
 /** What ⏎ and Esc DO, per state. Three pairs rather than one, because the three states
  *  commit to different things and a footer that read "apply" over a grab would promise a
  *  reconfigure the host does not perform. */
-const VERBS: Record<SessionStateTag, { primary: string; secondary: string }> = {
+const VERBS: Record<SessionStateTag, SessionVerbs> = {
 	STAMP: { primary: "commit", secondary: "discard" },
 	RECONFIGURE: { primary: "apply", secondary: "revert" },
 	MOVE: { primary: "drop", secondary: "revert" },
 };
-
-// The placement nudges as axis PAIRS, so the cluster reads as three axes rather than six
-// loose buttons. The steps and their key twins mirror `arrowNudgeSteps` (input-map.ts),
-// which is the canonical binding — these are its button labels, not a second source.
-const NUDGE_AXES: {
-	axis: string;
-	minus: { steps: NudgeSteps; key: string };
-	plus: { steps: NudgeSteps; key: string };
-}[] = [
-	{
-		axis: "X",
-		minus: { steps: [-1, 0, 0], key: "←" },
-		plus: { steps: [1, 0, 0], key: "→" },
-	},
-	{
-		axis: "Y",
-		minus: { steps: [0, -1, 0], key: "⇧↓" },
-		plus: { steps: [0, 1, 0], key: "⇧↑" },
-	},
-	{
-		axis: "Z",
-		minus: { steps: [0, 0, -1], key: "↑" },
-		plus: { steps: [0, 0, 1], key: "↓" },
-	},
-];
-
-// 24px, below the card's 32px (size="sm") norm: six of these sit in ONE row as a compact
-// d-pad, and at 32px they read as six peers of the commit verb rather than one cluster.
-const NUDGE_BUTTON_CLASS = "h-6 px-2 font-mono";
 
 /** The empty params record, hoisted so the fallback below is a STABLE identity — a `{}`
  *  literal in the expression would defeat the `formValues` memo it feeds. */
@@ -207,10 +181,16 @@ export function SessionCard() {
 	const { selectedEntityId } = useFieldEntitySelection();
 	const generators = useGenerators();
 	const [pending, setPending] = useState<PendingTouch | null>(null);
-	// The seed input's id, for the label's `htmlFor`. `useId` rather than a constant: the
-	// card is one mount today, but a constant id is the kind of thing that only breaks once
-	// two of something exist.
-	const seedInputId = useId();
+	// The field the FORM is currently refusing, if any (D-25). It lives here rather than in
+	// the form because the thing it disables — the commit verb — is the card's, and it
+	// arrives as ONE refusal rather than a bag precisely so this card has nothing it could
+	// print as a bottom-of-form dump.
+	const [refusal, setRefusal] = useState<FieldRefusal | null>(null);
+	// Stable, so `SchemaForm`'s report effect is driven by the refusal changing and not by
+	// this card re-rendering (which it does on every session push).
+	const onInvalid = useCallback((next: FieldRefusal | null) => {
+		setRefusal(next);
+	}, []);
 
 	// The record behind the REST state. Read out of the entity list rather than held,
 	// so a freeze, a ⌘Z or a reconfigure elsewhere reaches this card by the same tick
@@ -328,6 +308,21 @@ export function SessionCard() {
 	const verbs = stamp === null ? null : VERBS[sessionStateTag(stamp)];
 	const caveat = policyCaveat(stamp);
 	const ready = stamp?.phase === "ready";
+	// The refusal as one sentence, the field's own label first — "Chamber Radius must be
+	// at most 8". `humanizeLabel` is the same spelling the form's own row caption uses, so
+	// the name here and the name the user is looking at cannot drift.
+	const refusalReason =
+		refusal === null
+			? undefined
+			: `${humanizeLabel(refusal.path.split(".").at(-1) ?? refusal.path)} ${refusal.message}`;
+	// A refusal outranks the settle gate: a refused param never previewed, so the ghost is
+	// never going to settle on it, and "the preview must settle" would be true, useless,
+	// and about the wrong thing.
+	const commitBlockedReason =
+		refusalReason ??
+		(ready
+			? undefined
+			: `the ghost preview must settle before ${verbs?.primary}`);
 
 	return (
 		<div className="flex flex-col text-xs">
@@ -346,77 +341,17 @@ export function SessionCard() {
 			</div>
 
 			{readOnly ? (
-				// The record, as the entity row shows it. No form: every control here would
-				// report a refusal, and a live-looking dead control is the failure D-7 exists
-				// to retire.
-				<div className="px-3 py-2">
-					<p className="pb-1 text-muted-foreground">{blocked}</p>
-					<dl className="grid grid-cols-[auto_1fr] gap-x-3">
-						{Object.entries(params).map(([k, v]) => (
-							<Fragment key={k}>
-								<dt className="font-mono text-muted-foreground">{k}</dt>
-								{/* The ROW's renderer, not `String`: one spelling of "how a committed
-								    param reads", so the frozen card and the expanded entity row cannot
-								    show the same record differently (`String` on an object param would
-								    print "[object Object]" here and JSON there). */}
-								<dd className="tabular-nums">{formatParam(v)}</dd>
-							</Fragment>
-						))}
-					</dl>
-				</div>
+				<ReadOnlyParams reason={blocked ?? ""} params={params} />
 			) : (
 				<>
-					{/* The seed row, gated on core's own `usesSeed` declaration: a hall never
-					    reads its seed, so a field and a ⚄ for it are two controls that do
-					    nothing when pressed. */}
+					{/* Gated on core's own `usesSeed` declaration: a hall never reads its seed,
+					    so a field and a ⚄ for it are two controls that do nothing. */}
 					{def.usesSeed && (
-						<div className="flex items-center gap-2 px-3 py-1.5">
-							{/* `htmlFor`, not a wrapping <label> and not a suppression. The ⚄ has to
-							    stay OUTSIDE the label (a button nested in one forwards its clicks to
-							    the input through label activation), which rules out wrapping; and the
-							    suppression this replaced carried a justification copied from
-							    `StampInspector`, where the label genuinely DID wrap its input — here
-							    they were siblings, so the 52 px "seed" target focused nothing and the
-							    accessible name came from an `aria-label` no association backed. */}
-							<label
-								htmlFor={seedInputId}
-								className={`${LABEL_CLASS} w-[52px]`}
-							>
-								seed
-							</label>
-							<Input
-								type="number"
-								min={0}
-								step={1}
-								value={seed}
-								onChange={(e) => {
-									// An empty field is MID-EDIT, not a commit: Number("") is 0, so
-									// without this guard clearing the field would stamp seed 0.
-									if (e.target.value === "") return;
-									const n = Number(e.target.value);
-									if (Number.isInteger(n) && n >= 0) push({ seed: n });
-								}}
-								onBlur={(e) => {
-									// Settled-display re-sync (the hollow blur-clamp pattern): a
-									// cleared/rejected value never commits, so the DOM can end up
-									// diverged — snap it back once typing settles.
-									e.target.value = String(seed);
-								}}
-								id={seedInputId}
-								className="h-7 w-20 font-mono"
-							/>
-							<Button
-								type="button"
-								size="sm"
-								variant="secondary"
-								className="ml-auto h-7"
-								title="re-roll the seed"
-								aria-label="re-roll seed"
-								onClick={() => promoteThen((h) => h.rerollStamp())}
-							>
-								⚄
-							</Button>
-						</div>
+						<SeedRow
+							seed={seed}
+							onSeed={(n) => push({ seed: n })}
+							onReroll={() => promoteThen((h) => h.rerollStamp())}
+						/>
 					)}
 
 					<div className="px-3 py-1">
@@ -443,78 +378,15 @@ export function SessionCard() {
 							onCancel={() => {
 								/* nothing to revert — the ghost already shows the last applied params */
 							}}
+							onInvalid={onInvalid}
 						/>
 					</div>
 
-					{/* The session MECHANICS, behind the mock's `▸ advanced`: where the stamp
-					    sits and how it merges are not recipe values, and a card that leads with
-					    them buries the params the user came for. Collapsed by default. */}
-					<div className="px-3 py-1">
-						<CollapsibleSection title="advanced" defaultOpen={false}>
-							<div className="flex flex-col gap-2 pb-1">
-								<label className={LABEL_CLASS}>
-									merge
-									<select
-										value={stamp?.policy ?? "replace"}
-										onChange={(e) =>
-											push({ policy: parsePolicy(e.target.value) })
-										}
-										aria-label="merge policy"
-										className={`${SELECT_CLASS} h-7`}
-									>
-										{POLICIES.map((p) => (
-											<option key={p.value} value={p.value}>
-												{p.label}
-											</option>
-										))}
-									</select>
-								</label>
-								{/* Placement: the region moves, the params don't — one 0.5 m lattice
-								    step per press, both corners, so the size never changes. */}
-								{/* biome-ignore lint/a11y/useSemanticElements: role="group" is the intended ARIA grouping for this control row; a native <fieldset>/<legend> would force the boxed-card look this flat UI deliberately avoids */}
-								<div
-									className="flex flex-wrap items-center gap-2"
-									role="group"
-									aria-label="nudge the stamp region"
-								>
-									<span className={LABEL_CLASS}>nudge</span>
-									{NUDGE_AXES.map(({ axis, minus, plus }) => (
-										<span key={axis} className="flex items-center gap-1">
-											<Button
-												type="button"
-												size="sm"
-												variant="secondary"
-												className={NUDGE_BUTTON_CLASS}
-												title={`move the region 0.5 m along −${axis} (${minus.key} in the viewport)`}
-												aria-label={`nudge minus ${axis}`}
-												onClick={() =>
-													promoteThen((h) => h.nudgeStamp(...minus.steps))
-												}
-											>
-												−{axis}
-											</Button>
-											<Button
-												type="button"
-												size="sm"
-												variant="secondary"
-												className={NUDGE_BUTTON_CLASS}
-												title={`move the region 0.5 m along +${axis} (${plus.key} in the viewport)`}
-												aria-label={`nudge plus ${axis}`}
-												onClick={() =>
-													promoteThen((h) => h.nudgeStamp(...plus.steps))
-												}
-											>
-												+{axis}
-											</Button>
-										</span>
-									))}
-									<span className="text-[10px] text-muted-foreground">
-										in the viewport: ←/→ move X, ↑/↓ move Z, ⇧↑/⇧↓ move Y
-									</span>
-								</div>
-							</div>
-						</CollapsibleSection>
-					</div>
+					<AdvancedSection
+						policy={stamp?.policy ?? "replace"}
+						onPolicy={(policy) => push({ policy })}
+						onNudge={(steps) => promoteThen((h) => h.nudgeStamp(...steps))}
+					/>
 				</>
 			)}
 
@@ -553,60 +425,31 @@ export function SessionCard() {
 			)}
 
 			{/* ABOVE the verbs, deliberately: a refusal printed under the button that
-			    provoked it is read after the user has pressed it again. Task 11 gives it the
-			    field-level treatment D-25 asks for; until then it is one line in the one
-			    place a reader looks before committing. role="alert" because a failed evaluate
-			    must reach screen readers — the ghost silently vanishing is the only other
-			    signal. */}
+			    provoked it is read after the user has pressed it again.
+
+			    TWO lines, not one, because the two refusals are different KINDS. The
+			    session error is what the generator threw after evaluating — it reaches AT
+			    (role="alert") because the only other signal is the ghost silently
+			    vanishing. The field refusal is one the form made itself; SchemaForm has
+			    already announced it at the field, so repeating it as a live region would
+			    say it twice, and here it exists to explain the DISABLED VERB by naming the
+			    field rather than leaving "invalid" to be hunted for. */}
 			{stamp?.error != null && (
 				<p role="alert" className="px-3 py-1 text-destructive">
 					{stamp.error}
 				</p>
 			)}
+			{refusalReason !== undefined && (
+				<p className="px-3 py-1 text-destructive">{refusalReason}</p>
+			)}
 
 			{stamp !== null && verbs !== null && (
-				<div className="flex gap-2 border-t border-border px-3 py-2">
-					{/* ReasonTip, not a bare title: a disabled Button's pointer-events-none
-					    would swallow the tooltip explaining the ready gate. */}
-					<ReasonTip
-						reason={
-							ready
-								? undefined
-								: `the ghost preview must settle before ${verbs.primary}`
-						}
-						className="flex-1"
-					>
-						<Button
-							type="button"
-							size="sm"
-							className="w-full"
-							disabled={!ready}
-							// The KEY is in the accessible name because the glyph is what the user
-							// reads and "⏎" is not a word. The house pattern (EntitiesList's
-							// RowVerb): the pictograph is decorative, the label is the name.
-							aria-label={`${verbs.primary} (Enter)`}
-							onClick={() => fieldHostRef.current?.confirmSession()}
-						>
-							<span aria-hidden="true">⏎</span> {verbs.primary}
-						</Button>
-					</ReasonTip>
-					<Button
-						type="button"
-						size="sm"
-						variant="secondary"
-						className="flex-1"
-						aria-label={`${verbs.secondary} (Esc)`}
-						// `cancelStamp`, not `escape`. The Esc LADDER's first rung is a half-drawn
-						// box/segment corner, and one CAN stand beside a session (`selectionClick`
-						// is not suspended by `suspendedByStamp`, only the stroke and the segment
-						// are) — so routing this button through the ladder would sometimes drop an
-						// anchor and leave the session standing under a button that says "revert".
-						// The KEY still runs the ladder; this button does what it says.
-						onClick={() => fieldHostRef.current?.cancelStamp()}
-					>
-						<span aria-hidden="true">esc</span> {verbs.secondary}
-					</Button>
-				</div>
+				<SessionFooter
+					verbs={verbs}
+					blockedReason={commitBlockedReason}
+					onConfirm={() => fieldHostRef.current?.confirmSession()}
+					onDiscard={() => fieldHostRef.current?.cancelStamp()}
+				/>
 			)}
 
 			{stamp === null && !readOnly && (

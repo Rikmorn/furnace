@@ -474,15 +474,49 @@ const HALL_OFFSET_RANGE = {
   type: "number",
   minimum: AUTO_CENTRE,
   maximum: 28,
+  multipleOf: 1,
   default: AUTO_CENTRE,
+  // No `furnace.unit`: the range is coarse cells EXCEPT for the AUTO_CENTRE
+  // sentinel, so a "cells" suffix would be wrong on exactly the default.
 } as const;
 
+// The dimension params count COARSE CELLS (CELL = 0.5 m), which is why they
+// carry `"cells"` and not `"m"`: a hall of width 8 is 4 m across, and a metre
+// suffix on this row would be a false statement in the UI.
 const HALL_PROPERTIES = {
-  width: { type: "number", minimum: 4, maximum: 24, default: 8 },
-  height: { type: "number", minimum: 6, maximum: 12, default: 6 },
-  depth: { type: "number", minimum: 4, maximum: 32, default: 8 },
+  width: {
+    type: "number",
+    minimum: 4,
+    maximum: 24,
+    multipleOf: 1,
+    default: 8,
+    furnace: { unit: "cells" },
+  },
+  height: {
+    type: "number",
+    minimum: 6,
+    maximum: 12,
+    multipleOf: 1,
+    default: 6,
+    furnace: { unit: "cells" },
+  },
+  depth: {
+    type: "number",
+    minimum: 4,
+    maximum: 32,
+    multipleOf: 1,
+    default: 8,
+    furnace: { unit: "cells" },
+  },
   pillars: { enum: PILLAR_KINDS, default: "none" },
-  pillarSpacing: { type: "number", minimum: 2, maximum: 8, default: 3 },
+  pillarSpacing: {
+    type: "number",
+    minimum: 2,
+    maximum: 8,
+    multipleOf: 1,
+    default: 3,
+    furnace: { unit: "cells" },
+  },
   rotation: { enum: ROTATIONS, default: "0" },
   doorNorth: { type: "boolean", default: true },
   doorSouth: { type: "boolean", default: false },
@@ -769,12 +803,14 @@ const MAZE_OFFSET_RANGE = {
   type: "number",
   minimum: AUTO_CENTRE,
   maximum: 7,
+  multipleOf: 1,
   default: AUTO_CENTRE,
 } as const;
 
 const MAZE_PROPERTIES = {
-  cellsX: { type: "number", minimum: 2, maximum: 8, default: 3 },
-  cellsZ: { type: "number", minimum: 2, maximum: 8, default: 3 },
+  // The names already say the unit, so no `furnace.unit` — "Cells X 3 cells".
+  cellsX: { type: "number", minimum: 2, maximum: 8, multipleOf: 1, default: 3 },
+  cellsZ: { type: "number", minimum: 2, maximum: 8, multipleOf: 1, default: 3 },
   braid: { type: "number", minimum: 0, maximum: 1, default: 0.25 },
   rotation: { enum: ROTATIONS, default: "0" },
   doorNorth: { type: "boolean", default: true },

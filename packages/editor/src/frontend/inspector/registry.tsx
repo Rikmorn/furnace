@@ -1,28 +1,40 @@
 import { BooleanField } from "./fields/BooleanField.tsx";
 import { ColorField } from "./fields/ColorField.tsx";
 import { DefaultField } from "./fields/DefaultField.tsx";
-import { EntityRefField } from "./fields/EntityRefField.tsx";
 import { EnumField } from "./fields/EnumField.tsx";
 import { NumberField } from "./fields/NumberField.tsx";
 import { ObjectField } from "./fields/ObjectField.tsx";
 import { QuatField } from "./fields/QuatField.tsx";
-import { ResourceRefField } from "./fields/ResourceRefField.tsx";
+import { SegmentedField } from "./fields/SegmentedField.tsx";
+import { SliderField } from "./fields/SliderField.tsx";
+import { StepperField } from "./fields/StepperField.tsx";
 import { StringField } from "./fields/StringField.tsx";
 import { makeVecField } from "./fields/VecField.tsx";
 import type { FieldKind, FieldRenderer } from "./types.ts";
 
 export const registry: Partial<Record<FieldKind, FieldRenderer>> = {
 	number: NumberField,
+	slider: SliderField,
+	stepper: StepperField,
 	string: StringField,
 	boolean: BooleanField,
 	enum: EnumField,
+	segmented: SegmentedField,
 	vec2: makeVecField(2),
 	vec3: makeVecField(3),
 	vec4: makeVecField(4),
 	color: ColorField,
 	quat: QuatField,
-	resource: ResourceRefField,
-	ref: EntityRefField,
+	// `resource` and `ref` render READ-ONLY (DefaultField prints the value as JSON in a
+	// muted <pre>) rather than as pickers, and that is honest rather than a stub: the
+	// pickers that used to sit here read their option lists off an `InspectorOptions`
+	// context that has had NO provider anywhere in `src/` since the scene-editing surface
+	// was deleted, so they always offered an EMPTY list. A control that can never offer a
+	// choice is worse than a legible value. The KINDS stay in the union because a schema
+	// can still name them (`scene/builtins.ts` does, on four fields); what changed is that
+	// nothing the field editor renders resolves to one.
+	resource: DefaultField,
+	ref: DefaultField,
 	object: ObjectField,
 };
 export const fallbackRenderer: FieldRenderer = DefaultField;

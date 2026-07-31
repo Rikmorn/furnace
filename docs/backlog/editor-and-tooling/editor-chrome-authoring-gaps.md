@@ -96,12 +96,27 @@ it touches a shared inspector primitive used by every enum in the editor (today:
 Once it lands, `rotation` can become a numeric enum and the coercion note in the
 `ROTATIONS` TSDoc can go.
 
-**Trigger to revisit:** the next schema that wants a numeric enum, or the F4 inspector pass.
+**RESOLVED EDITOR-SIDE 2026-07-31 (F4.5b Task 11); the CORE half is still open.** The field
+half shipped: `inspector/lib/enum-options.ts` carries each member beside its label and
+transports it by INDEX, and both enum controls (`EnumField`'s Select and the new
+`SegmentedField`) commit the member. `tests/inspector/enum-field.test.tsx` pins
+`{ enum: [0, 90] }` committing the number `90`, sabotage-proven red against a
+`String(member)` mapping. `StampInspector` was deleted at Task 10; the boundary cast now
+lives in `SessionCard.tsx` and is unchanged (it casts the params RECORD, not the member).
 
-**Reference:** `packages/editor/src/frontend/inspector/fields/EnumField.tsx` (the `.map(String)`
-options and the `onValueChange` commit), `packages/editor/src/frontend/components/field/StampInspector.tsx`
-(the `apply` boundary cast), `packages/core/src/field/generators.ts` (`ROTATIONS` TSDoc records
-the dependency).
+What has NOT changed is core: stamp `rotation` is still `["0", "90", "180", "270"]` and the
+`ROTATIONS` TSDoc still records the dependency. That migration is a persisted-data change —
+`GeneratorEntity.params` and every `oplog.json` on disk hold the string spelling — so it
+needs a read-both-accept-one lenient parser or a migration, which is a deliberate pass and
+was explicitly out of Task 11's scope.
+
+**Trigger to revisit:** a core pass that is already touching generator param persistence, or
+the next schema that wants a numeric enum in CORE (the editor no longer blocks one).
+
+**Reference:** `packages/editor/src/frontend/inspector/lib/enum-options.ts` (the mapping),
+`fields/EnumField.tsx` + `fields/SegmentedField.tsx` (both commit the member),
+`packages/editor/tests/inspector/enum-field.test.tsx`, `packages/core/src/field/generators.ts`
+(`ROTATIONS` TSDoc — the remaining half).
 
 ## Light-edit preview: transform-direction bug FIXED; Safari per-property verification pending
 

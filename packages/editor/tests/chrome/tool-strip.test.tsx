@@ -381,6 +381,50 @@ test("the hollow field is the shadcn Input, with its label and its unit (D-25)",
 	expect(row.textContent).toContain("m");
 });
 
+test("clearing the hollow thickness never pushes 0 at the host (D-25 buffered parse)", async () => {
+	stubCatalog();
+	const stub = makeStubHost({ generators: [HALL] });
+	await renderShell(stub);
+	armEffect("fill");
+	fireEvent.click(within(strip()).getByLabelText("hollow fill"));
+	const thickness = within(strip()).getByLabelText(
+		"hollow thickness",
+	) as HTMLInputElement;
+	stub.calls.setTool.mockClear();
+
+	// Select-all-and-retype is how anyone changes a number, and its first keystroke leaves
+	// the field EMPTY. `Number("")` is 0 and 0 is finite, so the pre-fix guard let it
+	// through: the host received `hollow: 0` per empty keystroke, and 0 is below the
+	// HOLLOW_MIN_M floor the host then clamps to — so the strokes carved a 0.5 m band
+	// while the field showed nothing.
+	thickness.focus();
+	fireEvent.change(thickness, { target: { value: "" } });
+	expect(stub.calls.setTool).not.toHaveBeenCalled();
+	// The buffer shows what was typed rather than snapping under the cursor…
+	expect(thickness.value).toBe("");
+	// …and a blur on an empty field reverts instead of committing.
+	fireEvent.blur(thickness);
+	expect(stub.calls.setTool).not.toHaveBeenCalled();
+	expect(thickness.value).toBe("0.5");
+});
+
+test("a typed hollow thickness still reaches the host per keystroke", async () => {
+	// The other half: a guard that swallowed everything would pass the case above and
+	// break the control. `1.5` is two keystrokes past a decimal point, so this also pins
+	// that a mid-typing "1." (which parses to 1) does not stop the entry.
+	stubCatalog();
+	const stub = makeStubHost({ generators: [HALL] });
+	await renderShell(stub);
+	armEffect("fill");
+	fireEvent.click(within(strip()).getByLabelText("hollow fill"));
+	const thickness = within(strip()).getByLabelText("hollow thickness");
+	thickness.focus();
+	fireEvent.change(thickness, { target: { value: "1.5" } });
+	expect(stub.calls.setTool.mock.calls.at(-1)?.[0]).toMatchObject({
+		hollow: 1.5,
+	});
+});
+
 test("a kit swatch under Paint explains itself through the name AND a real tooltip", async () => {
 	stubCatalog();
 	const stub = makeStubHost({ generators: [HALL] });

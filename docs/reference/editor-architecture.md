@@ -275,28 +275,41 @@ The inspector is a **self-contained, swappable boundary**: the chrome consumes i
 
 **JSON Schema contract (`types.ts`).** The inspector's `JsonSchemaNode` is a plain frontend-local type (structurally equivalent to what `scene.introspect()` returns, cast at the boundary in `InspectPanel.tsx`). The module must not value-import `@furnace/core` — enforced by `packages/editor/tests/frontend-no-engine-leakage.test.ts`.
 
-**Kind resolution (`kind.ts`).** `resolveKind(schema)` maps a schema node to a `FieldKind` in priority order: `schema.furnace.kind` (for furnace-specific kinds) → `enum` presence → JSON type string → `"unknown"`. The furnace kinds handled: `vec2`, `vec3`, `vec4`, `quat`, `color`, `resource`, `ref`. **Note:** `furnace` sits at the schema-node ROOT, not nested under `meta` — `z.toJSONSchema` hoists zod's `.meta({ furnace })` to the node root. (Reading it from `meta` was the M5A holistic-review CRITICAL bug.)
+**Kind resolution (`kind.ts`).** `resolveKind(schema)` maps a schema node to a `FieldKind` in priority order: `schema.furnace.kind` (for furnace-specific kinds) → `enum` (by CARDINALITY) → numeric SHAPE → JSON type string → `"unknown"`. The furnace kinds handled: `vec2`, `vec3`, `vec4`, `quat`, `color`, `resource`, `ref`. **Note:** `furnace` sits at the schema-node ROOT, not nested under `meta` — `z.toJSONSchema` hoists zod's `.meta({ furnace })` to the node root. (Reading it from `meta` was the M5A holistic-review CRITICAL bug.) Every member of `furnace` is optional, `kind` included, so a node can carry only a `unit`.
+
+**Shape rules (D-25, F4.5b Task 11).** Two kinds are chosen from the schema's SHAPE rather than from a `furnace.kind`, and both decisions live in `resolveKind` so the registry keeps its single lookup:
+
+- an `enum` of **≤ 4** members → `segmented`; above that → `enum` (the Select).
+- a **bounded** number (`minimum` and `maximum` both finite, `lib/numeric-schema.ts`) → `stepper` when every reachable value is a whole number AND the step spans ≤ 12 intervals, else `slider`. An unbounded number keeps `number`.
+
+The bounded control's STEP comes from `multipleOf` when the schema declares one, from `type: "integer"`, or otherwise from the span (a 1-2-5 value near span/100). It is never inferred from how the bounds happen to look: `cave.chamberRadius` has integer bounds `[3, 8]` and `numParam` admits 5.5 m. Core's generator schemas carry `multipleOf: 1` on exactly the params `intParam` narrows, and `furnace.unit` on the params whose unit is not already in their name (`"m"` on `cave.chamberRadius` / `scatter.minSpacing`, `"cells"` on the hall's dimensions — a hall of width 8 is 4 m across). Both annotations are declarative: nothing in core reads either, and `packages/core/tests/field-generators.test.ts` asserts the `multipleOf` half BEHAVIOURALLY (a fractional value must be refused iff the schema claims it).
 
 **Kind→renderer registry (`registry.tsx`).** A `Partial<Record<FieldKind, FieldRenderer>>` maps each kind to its React component. Current registry (verified against source):
 
 | Kind | Renderer |
 | --- | --- |
-| `number` | `NumberField` — numeric input with drag-scrub |
+| `number` | `NumberField` — unbounded numeric input with drag-scrub |
+| `slider` | `SliderField` — range + scrubby label + exact text input, all quantized by `snapToStep`; renders `furnace.unit` |
+| `stepper` | `StepperField` — −/exact/+ over a short integer range; renders `furnace.unit` |
 | `string` | `StringField` — text input |
 | `boolean` | `BooleanField` — checkbox |
-| `enum` | `EnumField` — `<select>` |
+| `enum` | `EnumField` — Radix `Select`, commits the schema MEMBER (`lib/enum-options.ts`) |
+| `segmented` | `SegmentedField` — `role="radiogroup"` of buttons, roving tabindex, commits the MEMBER |
 | `vec2` / `vec3` / `vec4` | `makeVecField(n)` — N-component number row |
 | `color` | `ColorField` — RGBA color picker |
 | `quat` | `QuatField` — Euler XYZ degree inputs (converted via `lib/euler.ts`) |
-| `resource` | `ResourceRefField` — `<select>` over available resource ids |
-| `ref` | `EntityRefField` — `<select>` over entity ids |
+| `resource` / `ref` | `DefaultField` — READ-ONLY JSON. The pickers were deleted in F4.5b Task 11: their option lists came from an `InspectorOptions` context that had had no provider since the scene surface was removed, so they always offered an empty list. The kinds stay in the union because a schema can still name them. |
 | `object` | `ObjectField` — nested properties |
 
 `fallbackRenderer` is `DefaultField` — displays the value as JSON read-only.
 
-**`<SchemaForm>` (`SchemaForm.tsx`).** Iterates `schema.properties`, resolves each field's kind, looks up (or falls back to) the renderer, and renders it wrapped in a **`RowErrorBoundary`** — a React class error boundary that catches per-row render errors and displays them inline without crashing the whole form. Manages N working drafts (`useState`); re-seeds them when the committed `values` reference changes (the `seed` ref guard). Props: `{ schema, values: unknown[], onPreview, onCommit, onCancel }` — a pure callback contract, no internal fetch or mutation.
+**`<SchemaForm>` (`SchemaForm.tsx`).** Iterates `schema.properties`, resolves each field's kind, looks up (or falls back to) the renderer, and renders it wrapped in a **`RowErrorBoundary`** — a React class error boundary that catches per-row render errors and displays them inline without crashing the whole form. Manages N working drafts (`useState`); re-seeds them when the committed `values` reference changes (the `seed` ref guard). Props: `{ schema, values: unknown[], onPreview, onCommit, onCancel, onInvalid? }` — a pure callback contract, no internal fetch or mutation.
 
-**Euler / quat duplication (`lib/euler.ts`).** The `quatToEulerDeg` / `eulerDegToQuat` math is hand-rolled in the inspector because the frontend cannot value-import `@furnace/core`. The conversion matches `core/transform quat.fromEuler` (intrinsic XYZ) and is pinned to core's convention by a test. Similarly, material `"default"` kind detection is duplicated frontend-side (see `lib/resource-kind.ts`). Both duplications are intentional and documented as such.
+**Field-level validation (D-25).** Before fanning a draft, the form runs `validateNumber(fieldSchema, value)` (`lib/validate.ts`: bounds + `multipleOf`) over all N targets. A refused draft is **not written and not previewed** — the worker never evaluates a ghost the generator would throw on — and the reason renders in that row with `role="alert"`. Refusals are held per-path (an unrelated row's edit must not clear one whose bad text is still on screen), but only the FIRST offending field in schema order leaves the component, through `onInvalid`. One slot, not a bag: a consumer holding a list is one render away from printing a bottom-of-form dump, which is the pattern D-25 exists to retire. `SessionCard` turns that slot into the commit verb's disabled reason (`"Chamber Radius must be at most 8"`) and retracts it on unmount.
+
+**Row wrappers (`fields/common.tsx`).** `FieldRow` wraps its control in a `<label>`; `FieldGroupRow` uses a `<div>` and is what a row with SEVERAL controls (stepper, segmented) uses. A `<label>` labels exactly one control, so wrapping a group makes every member answer to the row caption instead of its own name — and it puts buttons in the label's activation path, which happy-dom resolves by dispatching the click twice (one press, two commits).
+
+**Euler / quat duplication (`lib/euler.ts`).** The `quatToEulerDeg` / `eulerDegToQuat` math is hand-rolled in the inspector because the frontend cannot value-import `@furnace/core`. The conversion matches `core/transform quat.fromEuler` (intrinsic XYZ) and is pinned to core's convention by a test. It is the only remaining frontend duplication of core logic in this module — the material `"default"`-kind detection that used to sit beside it (`lib/resource-kind.ts`) travelled out with the resource/ref pickers in F4.5b Task 11.
 
 **Swap escape hatch.** The `frontend/inspector/` boundary is the swap seam: replacing the rendering library (e.g. moving to a richer form engine for M5B) means rewriting only `SchemaForm.tsx` + the field renderers in `fields/`, keeping `<InspectPanel>` and `SchemaFormProps` untouched. The `JsonSchemaNode` type and the `onPreview`/`onCommit`/`onCancel` callback contract are the stable interface.
 

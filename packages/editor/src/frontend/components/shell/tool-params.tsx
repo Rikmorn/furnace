@@ -17,7 +17,7 @@
 // and lost the house focus ring with it. It is `<Input>` again — the shadcn primitive
 // `BrushInspector` used — so the raw-control count this move adds is zero, not one.
 import type { MaterialTable } from "@furnace/core/field"; // type-only: erased
-import type { ReactNode } from "react";
+import { type ReactNode, useRef, useState } from "react";
 import type {
 	FieldMaskChoice,
 	FieldTool,
@@ -144,6 +144,79 @@ const parseMask = (v: string): FieldMaskChoice => {
 const parseSmoothMode = (v: string): FieldTool["smooth"]["mode"] =>
 	v === "erode" || v === "fill" ? v : "both";
 
+/**
+ * The fill brush's shell-band thickness, with a BUFFERED parse (D-25).
+ *
+ * THE DEFECT THIS CLOSES, and it was live at every keystroke: the field parsed straight
+ * through with `Number.isFinite` as its only guard — and `Number("") === 0`, which is
+ * finite. So selecting the text and pressing ⌫ (the ordinary way to retype a number)
+ * pushed `hollow: 0` at the host, the very shape the inspector's own `NumberField` was
+ * given a text buffer to prevent. It survived here because this control was hand-copied
+ * out of `BrushInspector` rather than reused.
+ *
+ * The buffer holds the user's TEXT; nothing reaches `setTool` until it parses to a finite
+ * number, and a blur on an empty or unparseable entry reverts to the live value rather
+ * than committing anything. The sub-floor clamp stays on blur for its original reason (a
+ * mid-typing clamp fights entering "0.75").
+ */
+function HollowThickness({
+	thickness,
+	ctx,
+}: {
+	thickness: number;
+	ctx: ParamContext;
+}) {
+	const settled = String(thickness);
+	const [text, setText] = useState(settled);
+	const focused = useRef(false);
+	// Re-seed from the tool only while the user is not typing — the host clamps and pushes
+	// back, and that echo must not land in the middle of an edit.
+	if (!focused.current && text !== settled) setText(settled);
+
+	return (
+		// biome-ignore lint/a11y/noLabelWithoutControl: the label wraps its control as children (the shadcn Input); Biome cannot trace the native control across the component boundary — getByLabelText still resolves it
+		<label className={LABEL_CLASS}>
+			thickness
+			<Input
+				type="number"
+				min={HOLLOW_MIN_M}
+				step={HOLLOW_STEP_M}
+				value={text}
+				onFocus={() => {
+					focused.current = true;
+				}}
+				onChange={(e) => {
+					setText(e.target.value);
+					const n = Number(e.target.value);
+					// Blank is MID-EDIT, not zero. `Number("")` is 0 and 0 is finite, so the
+					// emptiness has to be tested BEFORE the parse or the guard cannot see it.
+					if (e.target.value.trim() === "" || !Number.isFinite(n)) return;
+					ctx.setTool({ ...ctx.tool, hollow: n });
+				}}
+				onBlur={() => {
+					focused.current = false;
+					const n = Number(text);
+					if (text.trim() === "" || !Number.isFinite(n)) {
+						setText(settled);
+						return;
+					}
+					// Display honesty (F2b rider): the HOST clamps hollow to ≥ HOLLOW_MIN_M on
+					// setTool, so a settled sub-floor value here would display 0.2 while strokes
+					// carve 0.5. Clamp on BLUR, not per keystroke — a mid-typing clamp would
+					// fight entering "0.75".
+					if (n < HOLLOW_MIN_M)
+						ctx.setTool({ ...ctx.tool, hollow: HOLLOW_MIN_M });
+				}}
+				aria-label="hollow thickness"
+				className="h-7 w-14 px-1.5 font-mono text-xs"
+			/>
+			{/* D-25: units always. The radius param one place over prints its ` m`, and a
+			    bare number beside it reads as a different kind of quantity. */}
+			m
+		</label>
+	);
+}
+
 /** A `Record` rather than a switch, so a param added to {@link TOOL_OPTIONS} without a
  *  renderer is a type error rather than a blank space on the strip. */
 const PARAM_RENDERER: Record<ParamId, (ctx: ParamContext) => ReactNode> = {
@@ -219,33 +292,7 @@ const PARAM_RENDERER: Record<ParamId, (ctx: ParamContext) => ReactNode> = {
 				hollow
 			</label>
 			{ctx.tool.hollow !== null && (
-				// biome-ignore lint/a11y/noLabelWithoutControl: the label wraps its control as children (the shadcn Input); Biome cannot trace the native control across the component boundary — getByLabelText still resolves it
-				<label className={LABEL_CLASS}>
-					thickness
-					<Input
-						type="number"
-						min={HOLLOW_MIN_M}
-						step={HOLLOW_STEP_M}
-						value={ctx.tool.hollow}
-						onChange={(e) => {
-							const n = Number(e.target.value);
-							if (Number.isFinite(n)) ctx.setTool({ ...ctx.tool, hollow: n });
-						}}
-						onBlur={() => {
-							// Display honesty (F2b rider): the HOST clamps hollow to ≥ HOLLOW_MIN_M
-							// on setTool, so a settled sub-floor value here would display 0.2 while
-							// strokes carve 0.5. Clamp on BLUR, not per keystroke — a mid-typing
-							// clamp would fight entering "0.75".
-							if (ctx.tool.hollow !== null && ctx.tool.hollow < HOLLOW_MIN_M)
-								ctx.setTool({ ...ctx.tool, hollow: HOLLOW_MIN_M });
-						}}
-						aria-label="hollow thickness"
-						className="h-7 w-14 px-1.5 font-mono text-xs"
-					/>
-					{/* D-25: units always. The radius param one place over prints its ` m`, and a
-					    bare number beside it reads as a different kind of quantity. */}
-					m
-				</label>
+				<HollowThickness thickness={ctx.tool.hollow} ctx={ctx} />
 			)}
 		</span>
 	),

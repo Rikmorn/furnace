@@ -994,6 +994,16 @@ channel** (uniform|indexed palette encoding behind accessors — `getMaterial` /
   first release stays required. Door offsets are validated for EVERY wall, including walls
   whose door is switched off — otherwise a malformed offset on a disabled door would ride
   along in the persisted params and only throw once the user toggled that door on.
+  **Two DECLARATIVE annotations ride the schema properties (F4.5b Task 11), read by the
+  editor's form and by nothing in core:** `multipleOf: 1` on every param `intParam`
+  narrows — the schema saying what that validator already enforces, so a bounded control
+  cannot invent a granularity the generator then refuses; and `furnace.unit`, a DISPLAY
+  suffix beside the `furnace.kind` semantics `scene/t.ts` emits (`"m"` on
+  `cave.chamberRadius` and `scatter.minSpacing`, both verifiably world metres; `"cells"`
+  on the hall's `width`/`height`/`depth`/`pillarSpacing`, which count 0.5 m COARSE cells
+  and would be a lie at `"m"`). The `multipleOf` half is asserted behaviourally in
+  `packages/core/tests/field-generators.test.ts` — a fractional value must be refused if
+  and only if the schema claims it, in both directions.
 - **Smart objects — reconfigure (F3a)** — `reconfigureGenerator(store, log, entityId,
   changes, table, snapshots?)` re-evaluates a committed generator IN PLACE: the old span is spliced
   out, a freshly evaluated one takes new ids from `log.nextId`, and the downstream ops

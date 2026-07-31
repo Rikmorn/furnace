@@ -1,5 +1,13 @@
-import type { PointerEventHandler, ReactNode } from "react";
+import {
+	type PointerEventHandler,
+	type ReactNode,
+	useRef,
+	useState,
+} from "react";
+import { Input } from "../../components/ui/input.tsx";
 import { humanizeLabel } from "../../lib/humanize.ts";
+import { commitIfChanged } from "../lib/commit-guard.ts";
+import { roundForDisplay } from "../lib/format.ts";
 
 interface LabelPointerProps {
 	onPointerDown: PointerEventHandler<HTMLSpanElement>;
@@ -8,13 +16,14 @@ interface LabelPointerProps {
 	onPointerCancel: PointerEventHandler<HTMLSpanElement>;
 }
 
-export function FieldRow({
+const ROW_CLASS = "flex items-center justify-between gap-2 py-0.5";
+
+/** The row's caption, shared by both wrappers. */
+function RowCaption({
 	path,
-	children,
 	labelPointerProps,
 }: {
 	path: string;
-	children: ReactNode;
 	labelPointerProps?: LabelPointerProps;
 }) {
 	const labelSpanCls = [
@@ -27,15 +36,57 @@ export function FieldRow({
 	]
 		.filter(Boolean)
 		.join(" ");
+	return (
+		<span className={labelSpanCls} {...labelPointerProps}>
+			{humanizeLabel(path.split(".").at(-1) ?? path)}
+		</span>
+	);
+}
 
+export function FieldRow({
+	path,
+	children,
+	labelPointerProps,
+}: {
+	path: string;
+	children: ReactNode;
+	labelPointerProps?: LabelPointerProps;
+}) {
 	return (
 		// biome-ignore lint/a11y/noLabelWithoutControl: the label wraps its control as children (shadcn Input/Checkbox or passed children); Biome cannot trace the native control across the component boundary — getByLabelText still resolves it
-		<label className="flex items-center justify-between gap-2 py-0.5">
-			<span className={labelSpanCls} {...labelPointerProps}>
-				{humanizeLabel(path.split(".").at(-1) ?? path)}
-			</span>
+		<label className={ROW_CLASS}>
+			<RowCaption path={path} labelPointerProps={labelPointerProps} />
 			<span className="flex min-w-0 flex-1 justify-end gap-1">{children}</span>
 		</label>
+	);
+}
+
+/**
+ * A field row whose control side is a GROUP rather than one input — a segmented control's
+ * radiogroup, a stepper's −/input/+ triple.
+ *
+ * A plain `<div>`, and the difference is not cosmetic. `<label>` labels exactly ONE
+ * control: wrap three and every one of them answers to the row's caption instead of its
+ * own, so a screen reader reads "Pillars, Pillars, Pillars" for a segmented control and
+ * "Chambers, Chambers" for a stepper's two buttons. It also puts buttons inside a label's
+ * activation path, which happy-dom resolves by dispatching the click TWICE — one press,
+ * two commits, two undo entries. Members of a group carry their own `aria-label`s; the
+ * caption here is a visible heading, not an association.
+ */
+export function FieldGroupRow({
+	path,
+	children,
+}: {
+	path: string;
+	children: ReactNode;
+}) {
+	return (
+		<div className={ROW_CLASS}>
+			<RowCaption path={path} />
+			<span className="flex min-w-0 flex-1 items-center justify-end gap-1">
+				{children}
+			</span>
+		</div>
 	);
 }
 
@@ -77,3 +128,104 @@ export const denseNumericInputCls = `${denseInputCls} font-mono tabular-nums`;
 // right via the component's justify-between).
 export const denseTriggerCls =
 	"h-auto min-w-0 bg-input px-1 py-0.5 text-xs shadow-none";
+
+/**
+ * The unit suffix a numeric row prints after its value (D-25: units always). Decorative
+ * — the number carries the meaning and a screen reader reads the unit as part of the
+ * row's text, so an `aria-hidden` chip here would silence it. Nothing renders when the
+ * schema declares no unit, because inventing one is worse than omitting it.
+ */
+export function UnitSuffix({ unit }: { unit: string | undefined }) {
+	if (unit === undefined || unit === "") return null;
+	return (
+		<span className="shrink-0 select-none text-[10px] text-muted-foreground">
+			{unit}
+		</span>
+	);
+}
+
+/**
+ * The exact-entry half of a bounded numeric row: a text input with a BUFFERED parse.
+ *
+ * Buffered because `Number("") === 0` and 0 is finite, so a field that parsed straight
+ * through would commit a 0 the moment the user selected-all and started retyping — and on
+ * a bounded param 0 is usually out of range, so the ghost would error rather than merely
+ * look wrong. The buffer is the same discipline `NumberField` carries; this is a second
+ * implementation rather than a shared one because the two differ in what they do at the
+ * ends (that field is unbounded and scrubs from its own label; this one is a leaf of a
+ * control whose slider owns the gesture).
+ *
+ * The commit baseline is captured while UNFOCUSED, so it survives the re-renders our own
+ * live previews cause — comparing to the incoming prop mid-edit would compare against the
+ * preview and never see a change.
+ */
+export function ExactNumberInput({
+	value,
+	mixed,
+	label,
+	onPreview,
+	onCommit,
+	onCancel,
+	className,
+}: {
+	value: number;
+	mixed: boolean;
+	/** The row's human label; the accessible name is `<label> exact` so it is
+	 *  distinguishable from the slider sharing the row. */
+	label: string;
+	onPreview: (n: number) => void;
+	onCommit: (n: number) => void;
+	onCancel: () => void;
+	className?: string;
+}) {
+	const settled = mixed ? "" : String(roundForDisplay(value));
+	const [text, setText] = useState(settled);
+	const focused = useRef(false);
+	const committed = useRef(mixed ? Number.NaN : roundForDisplay(value));
+
+	// Re-seed from the outside only while the user is not typing. `settled` changes on
+	// every preview we ourselves fired, which is exactly why this is guarded.
+	if (!focused.current && text !== settled) {
+		setText(settled);
+		committed.current = mixed ? Number.NaN : roundForDisplay(value);
+	}
+
+	const revert = () => setText(settled);
+
+	return (
+		<Input
+			className={`${denseNumericInputCls} ${className ?? ""}`}
+			inputMode="decimal"
+			aria-label={`${label} exact`}
+			placeholder={mixed ? MIXED : undefined}
+			value={text}
+			onFocus={() => {
+				focused.current = true;
+			}}
+			onChange={(e) => {
+				setText(e.target.value);
+				const n = Number(e.target.value);
+				// A blank or half-typed entry is MID-EDIT, not a value.
+				if (e.target.value.trim() !== "" && Number.isFinite(n)) onPreview(n);
+			}}
+			onKeyDown={(e) => {
+				if (e.key === "Enter") {
+					// Blur is the sole committer — calling onCommit here would double-fire.
+					(e.target as HTMLInputElement).blur();
+				} else if (e.key === "Escape") {
+					onCancel();
+					revert();
+				}
+			}}
+			onBlur={() => {
+				focused.current = false;
+				const n = Number(text);
+				if (text.trim() === "" || !Number.isFinite(n)) {
+					revert();
+					return;
+				}
+				commitIfChanged(committed.current, n, () => onCommit(n));
+			}}
+		/>
+	);
+}

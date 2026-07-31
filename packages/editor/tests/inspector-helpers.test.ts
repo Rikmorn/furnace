@@ -60,32 +60,3 @@ test("quatToEulerDeg ∘ eulerDegToQuat round-trips (no gimbal cases)", () => {
       expect(q2[i] as number).toBeCloseTo(q[i] as number, 5);
   }
 });
-
-import { commonComponents } from "../src/frontend/inspector/lib/common-components.ts";
-
-test("commonComponents returns the intersection of component names across entities", () => {
-  const entityA = { id: "a", components: { transform: {}, meshRenderer: {} } };
-  const entityB = { id: "b", components: { transform: {}, camera: {} } };
-  const entities = [entityA, entityB];
-  expect(commonComponents(entities)).toEqual(["transform"]);
-  expect(commonComponents([entityA])).toEqual(["transform", "meshRenderer"]);
-  expect(commonComponents([])).toEqual([]);
-});
-
-import { splitResourceEntry } from "../src/frontend/inspector/lib/resource-kind.ts";
-
-test("splitResourceEntry resolves kind (materials default 'standard') and strips it from params", () => {
-  expect(
-    splitResourceEntry("materials", {
-      shader: "s",
-      params: { color: [1, 0, 0, 1] },
-    }),
-  ).toEqual({
-    kind: "standard",
-    params: { shader: "s", params: { color: [1, 0, 0, 1] } },
-  });
-  expect(splitResourceEntry("geometries", { kind: "cube" })).toEqual({
-    kind: "cube",
-    params: {},
-  });
-});

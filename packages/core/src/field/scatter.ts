@@ -72,14 +72,28 @@ const isHemisphere = (v: unknown): v is Hemisphere =>
 const SCATTER_PROPERTIES = {
   archetypeId: { type: "string", default: "rock" },
   density: { type: "number", minimum: 0.05, maximum: 2, default: 0.3 },
-  minSpacing: { type: "number", minimum: 0.25, maximum: 8, default: 1.0 },
+  // METRES: the candidate lattice pitch is `max(minSpacing, 1/sqrt(density))`
+  // metres and the acceptance filter measures a world-space distance.
+  minSpacing: {
+    type: "number",
+    minimum: 0.25,
+    maximum: 8,
+    default: 1.0,
+    furnace: { unit: "m" },
+  },
   scaleMin: { type: "number", minimum: 0.05, maximum: 8, default: 0.6 },
   scaleMax: { type: "number", minimum: 0.05, maximum: 8, default: 1.6 },
   randomYaw: { type: "boolean", default: true },
   orientation: { enum: ORIENTATIONS, default: "gravity" },
   blend: { type: "number", minimum: 0, maximum: 1, default: 0.5 },
   hemisphere: { enum: HEMISPHERES, default: "floor" },
-  variants: { type: "number", minimum: 1, maximum: 8, default: 3 },
+  variants: {
+    type: "number",
+    minimum: 1,
+    maximum: 8,
+    multipleOf: 1,
+    default: 3,
+  },
 } as const;
 
 const SCATTER_SCHEMA = {
