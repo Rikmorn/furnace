@@ -103,6 +103,13 @@ const REGION = {
 /** The canvas centre — where the starting camera looks. */
 const CENTRE = 32;
 
+/** Flipped by a test to make the NEXT preview fail. The fake worker rewrites the
+ *  request's generator to an id the registry does not carry, so the REAL handler
+ *  throws at `generatorById` and answers with its own typed error response —
+ *  the same path a genuine evaluate failure takes, rather than a hand-rolled
+ *  rejection that could diverge from it. */
+const preview = { failNext: false };
+
 function installFakeWorker(): () => void {
   const real = globalThis.Worker;
   class FakeWorker {
@@ -111,7 +118,13 @@ function installFakeWorker(): () => void {
       this.onmessage?.({ data: msg } as MessageEvent);
     });
     postMessage(msg: unknown): void {
-      this.handle(msg as FieldWorkerRequest);
+      const req = msg as FieldWorkerRequest;
+      if (preview.failNext && req.kind === "stamp-preview") {
+        preview.failNext = false;
+        this.handle({ ...req, generator: "no-such-generator" });
+        return;
+      }
+      this.handle(req);
     }
     terminate(): void {
       // fake worker: nothing to tear down
@@ -233,6 +246,7 @@ async function moveFixture() {
       restoreRaf();
       restoreRo();
       uninstallWorker();
+      preview.failNext = false;
     },
   };
 }
@@ -240,6 +254,32 @@ async function moveFixture() {
 /** Every component of a region corner sits on the 0.5 m lattice. */
 const onLattice = (v: readonly number[]): boolean =>
   v.every((c) => Math.abs(c / LATTICE - Math.round(c / LATTICE)) < 1e-9);
+
+/**
+ * A canvas Y (at x = {@link CENTRE}) where a gizmo handle is grabbable, found by
+ * probing upward from the footprint centre and leaving no session behind.
+ *
+ * SEARCHED rather than computed, deliberately: predicting where a world-space
+ * arm projects means re-running the host's camera math in the test, which would
+ * agree with a broken projection as readily as a correct one. A press that opens
+ * a session with NO threshold move can only be the gizmo — every other press
+ * arms a pending click — so the probe is unambiguous, and the caller requires
+ * the entity to be selected before calling.
+ */
+async function findHandlePixel(
+  f: Awaited<ReturnType<typeof moveFixture>>,
+): Promise<number> {
+  for (let dy = 2; dy <= 24; dy++) {
+    f.down(CENTRE, CENTRE - dy);
+    if (f.session() !== null) {
+      await settle();
+      f.key("escape"); // leave the fixture as it was found
+      return CENTRE - dy;
+    }
+    f.up(); // an ordinary press: release it before the next probe
+  }
+  throw new Error("test: no gizmo handle found along the vertical");
+}
 
 // --- the drag threshold -----------------------------------------------------
 
@@ -458,6 +498,36 @@ test.skipIf(!bunWebGpuAvailable())(
   },
 );
 
+test.skipIf(!bunWebGpuAvailable())(
+  "RMB re-aiming mid-drag moves NOTHING — the anchor is a world point, not a pixel",
+  async () => {
+    const f = await moveFixture();
+    try {
+      f.down(CENTRE, CENTRE);
+      f.up();
+      await draggedTo(f, CENTRE + 14, CENTRE + 12);
+      const before = f.session()?.region;
+      if (before === undefined) throw new Error("test: no move session");
+
+      // RMB look stays live during a move on purpose (a free-hand grab wants to
+      // be re-aimed). But the anchor was captured under the OLD camera: turn the
+      // view and the SAME pixel maps somewhere else, so `point − anchor` jumps by
+      // metres the user never dragged. Cursor returned to exactly where it was.
+      f.down(CENTRE + 14, CENTRE + 12, 2);
+      f.move(CENTRE + 34, CENTRE + 12);
+      f.up(2);
+      f.move(CENTRE + 14, CENTRE + 12);
+      await settle();
+
+      expect(f.session()?.region).toEqual(before);
+
+      f.key("escape");
+    } finally {
+      f.teardown();
+    }
+  },
+);
+
 // --- the gizmo --------------------------------------------------------------
 
 test.skipIf(!bunWebGpuAvailable())(
@@ -469,41 +539,169 @@ test.skipIf(!bunWebGpuAvailable())(
       f.up();
       expect(f.selected.at(-1)).toBe(f.entityId);
 
-      // The handles radiate from the footprint's CENTRE, which is the pixel the
-      // click above landed on — so every probe here is also inside the footprint
-      // box, and a session opening on the press ALONE (no threshold move) is
-      // what proves the gizmo beats the volume tier rather than merely existing.
-      //
-      // The pixel is searched rather than computed: predicting where a world-space
-      // handle projects means re-running the host's camera math in the test, which
-      // would agree with a broken projection as readily as a correct one. The
-      // assertion is that SOME pixel along the arm is grabbable and that grabbing
-      // it constrains the drag — both of which fail outright if the gizmo is not
-      // hit-tested at all.
-      let grabbed = -1;
-      for (let dy = 2; dy <= 24 && grabbed < 0; dy++) {
-        f.down(CENTRE, CENTRE - dy);
-        if (f.session() !== null) grabbed = dy;
-        else f.up(); // an ordinary press: release it before the next probe
-      }
-      expect(grabbed).toBeGreaterThan(0);
-      const s = f.session();
-      expect(s?.moving).toBe(true);
+      // The arms radiate from the footprint's CENTRE, which is the pixel the
+      // click above landed on — so every probe is inside the footprint box, and a
+      // session opening on the press ALONE (no threshold move) is what proves the
+      // gizmo beats the volume tier rather than merely existing.
+      const handle = await findHandlePixel(f);
+      f.down(CENTRE, handle);
+      expect(f.session()?.moving).toBe(true);
       await settle();
 
       // Drag well away in BOTH screen axes. An unconstrained mapping would move
       // two world axes; the handle's job is to let exactly one through.
-      f.move(CENTRE + 20, CENTRE - grabbed + 14);
+      f.move(CENTRE + 20, handle + 14);
       await settle();
       const out = f.session()?.region.min;
       if (out === undefined) throw new Error("test: no move session");
       const movedAxes = [0, 1, 2].filter(
         (i) => Math.abs((out[i] as number) - (REGION.min[i] as number)) > 1e-9,
       );
-      expect(movedAxes.length).toBeLessThanOrEqual(1);
+      // EXACTLY one, not "at most one": a mapping that moved nothing at all
+      // would satisfy the constraint vacuously, and `onLattice` passes trivially
+      // on an unchanged region — the same trap the ground-drag case guards with
+      // its `not.toEqual(REGION.min)`.
+      expect(movedAxes).toHaveLength(1);
       expect(onLattice(out)).toBe(true);
 
       f.key("escape");
+    } finally {
+      f.teardown();
+    }
+  },
+);
+
+// `gizmoVisible`'s three conditions, from the only side a test can reach them:
+// whether a press on a handle pixel starts a move. The predicate is what makes
+// the drawn thing and the pickable thing the same thing, so each condition
+// failing open would mean a click that moves something with no affordance on
+// screen saying it would.
+test.skipIf(!bunWebGpuAvailable())(
+  "the gizmo is unpickable with no selection, with a brush armed, and under a FOREIGN session",
+  async () => {
+    const f = await moveFixture();
+    try {
+      f.down(CENTRE, CENTRE);
+      f.up();
+      const handle = await findHandlePixel(f);
+
+      // 1. NOTHING SELECTED. The gizmo is the selection's affordance; with the
+      //    selection cleared the same pixel is bare space.
+      f.host.selectEntity(null);
+      f.down(CENTRE, handle);
+      expect(f.session()).toBeNull();
+      f.up();
+
+      // 2. A BRUSH ARMED. LMB digs under any non-pointer gesture, so a handle
+      //    there would promise a move the click will not make.
+      f.host.selectEntity(f.entityId);
+      f.host.setGesture("box");
+      f.down(CENTRE, handle);
+      expect(f.session()).toBeNull();
+      f.up();
+      f.host.setGesture("pointer");
+
+      // 3. A FOREIGN SESSION. `openEntity` already owns the region through the
+      //    card's own nudges; a handle over that ghost is a second way to move
+      //    one thing.
+      f.host.openEntity(f.entityId);
+      await settle();
+      const opened = f.session();
+      expect(opened?.moving).toBeUndefined();
+      f.down(CENTRE, handle);
+      // The press neither started a move nor replaced the session.
+      expect(f.session()?.moving).toBeUndefined();
+      f.up();
+      f.key("escape");
+
+      // …and with all three conditions back, the same pixel works — otherwise
+      // this whole case would pass against a gizmo that is simply never pickable.
+      f.down(CENTRE, handle);
+      expect(f.session()?.moving).toBe(true);
+      f.key("escape");
+    } finally {
+      f.teardown();
+    }
+  },
+);
+
+test.skipIf(!bunWebGpuAvailable())(
+  "a press inside the gizmo's DEAD ZONE is a free drag, not an axis drag",
+  async () => {
+    const f = await moveFixture();
+    try {
+      f.down(CENTRE, CENTRE);
+      f.up();
+      // The footprint centre is where all three arms converge and where the
+      // dead zone is. The pure test pins that `pickAxis` culls it; this pins
+      // that the host passes the SAME inner bound it draws from — a host that
+      // drew the gap but picked from zero would open an axis-constrained move
+      // here, with no threshold and no visible handle under the cursor.
+      f.down(CENTRE, CENTRE);
+      expect(f.session()).toBeNull(); // a pending click, not a gizmo grab
+      f.move(CENTRE + 14, CENTRE + 12);
+      await settle();
+      expect(f.session()?.moving).toBe(true);
+      // …and it is the FREE mapping: both ground axes are live.
+      const out = f.session()?.region.min;
+      if (out === undefined) throw new Error("test: no move session");
+      const movedAxes = [0, 1, 2].filter(
+        (i) => Math.abs((out[i] as number) - (REGION.min[i] as number)) > 1e-9,
+      );
+      expect(movedAxes.length).toBeGreaterThan(1);
+
+      f.key("escape");
+    } finally {
+      f.teardown();
+    }
+  },
+);
+
+test.skipIf(!bunWebGpuAvailable())(
+  "arming another gesture mid-move cancels it",
+  async () => {
+    const f = await moveFixture();
+    try {
+      f.down(CENTRE, CENTRE);
+      f.up();
+      await draggedTo(f, CENTRE + 16, CENTRE + 14);
+      expect(f.session()).not.toBeNull();
+
+      // A move is a `pointer`-tool mode. Arming a brush means LMB now digs, so a
+      // ghost still chasing the cursor would promise a drop no button will make.
+      f.host.setGesture("material");
+
+      expect(f.session()).toBeNull();
+      expect(f.region()).toEqual(REGION);
+    } finally {
+      f.teardown();
+    }
+  },
+);
+
+test.skipIf(!bunWebGpuAvailable())(
+  "dispose ends a live move — no mapping survives the teardown",
+  async () => {
+    const f = await moveFixture();
+    try {
+      f.down(CENTRE, CENTRE);
+      f.up();
+      await draggedTo(f, CENTRE + 16, CENTRE + 14);
+      expect(f.session()).not.toBeNull();
+
+      // What this pins is the session half: a dispose mid-drag announces the end
+      // rather than leaving the panel driving a session the host destroyed, and
+      // no further cursor motion resurrects it.
+      //
+      // It does NOT distinguish `cancelStampSession()` from a bare
+      // `stamp = null` — `updateMove` guards on `stamp === null` as well, so the
+      // stranded MAPPING that routing exists to prevent has no effect until a
+      // re-init, which this fixture does not perform. Recorded rather than
+      // papered over; the reason the line is there anyway is on the source.
+      f.host.dispose();
+      expect(f.sessions.at(-1)).toBeNull();
+      f.move(CENTRE + 30, CENTRE + 30);
+      expect(f.sessions.at(-1)).toBeNull();
     } finally {
       f.teardown();
     }
@@ -630,6 +828,85 @@ test.skipIf(!bunWebGpuAvailable())(
       await settle();
       expect(f.session()).toBeNull();
       expect(f.region()).toEqual(REGION);
+    } finally {
+      f.teardown();
+    }
+  },
+);
+
+test.skipIf(!bunWebGpuAvailable())(
+  "a preview that FAILS under a latched drop disarms the latch and demotes the session",
+  async () => {
+    const f = await moveFixture();
+    try {
+      f.down(CENTRE, CENTRE);
+      f.up();
+      await draggedTo(f, CENTRE + 16, CENTRE + 14);
+
+      // One more drag tick whose preview will fail, then release before it
+      // settles — the exact window the latch exists for.
+      preview.failNext = true;
+      f.move(CENTRE + 22, CENTRE + 19);
+      expect(f.session()?.phase).toBe("previewing");
+      f.up();
+      await settle();
+
+      // Nothing landed, and nothing may land LATER: an armed latch would fire on
+      // whatever settle came next (a re-roll, a param edit) and commit a drop the
+      // user made against a ghost that never arrived.
+      expect(f.region()).toEqual(REGION);
+      const stalled = f.session();
+      expect(stalled).not.toBeNull();
+      expect(stalled?.error).not.toBeNull();
+      // The session stays up — its message is the only legible reason — but it is
+      // no longer a MOVE: nothing drives its region, and Task 8's card renders
+      // the word off this flag.
+      expect(stalled?.moving).toBeUndefined();
+
+      // Prove the latch really is disarmed: a fresh preview settling to ready
+      // must NOT commit.
+      f.host.rotateStamp();
+      await settle();
+      expect(f.session()?.phase).toBe("ready");
+      expect(f.region()).toEqual(REGION);
+
+      f.key("escape");
+    } finally {
+      f.teardown();
+    }
+  },
+);
+
+test.skipIf(!bunWebGpuAvailable())(
+  "Enter over a zero-step grab drops it — same rule as the mouse-up, no history",
+  async () => {
+    const f = await moveFixture();
+    try {
+      f.down(CENTRE, CENTRE);
+      f.up();
+      const before = f.ops();
+
+      f.host.beginMove(f.entityId);
+      await settle();
+      expect(f.session()?.moving).toBe(true);
+
+      // Enter over a live move is a DROP, not a bare commit — otherwise
+      // confirming a grab the user thought better of would spend an undo entry
+      // on a reconfigure that changed nothing, while the mouse-up would not.
+      f.key("enter");
+      await settle();
+      expect(f.session()).toBeNull();
+      expect(f.ops()).toEqual(before);
+
+      // …and Enter after a real move still commits, so the rule is about the
+      // zero step and not about Enter.
+      await draggedTo(f, CENTRE + 16, CENTRE + 14);
+      const ghost = f.session()?.region;
+      if (ghost === undefined) throw new Error("test: no move session");
+      f.key("enter");
+      await settle();
+      expect(f.session()).toBeNull();
+      expect(f.region()).toEqual(ghost);
     } finally {
       f.teardown();
     }

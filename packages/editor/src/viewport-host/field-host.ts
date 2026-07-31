@@ -27,7 +27,6 @@ import type {
 } from "../frontend/lib/catalog.ts";
 import {
   computeBrushCenter,
-  LATTICE,
   latticeClearance,
   nudgeRegion,
   regionSampleCount,
@@ -65,6 +64,16 @@ import {
   segmentGhostSegments,
   sphereGhostSegments,
 } from "./field-ghost.ts";
+import {
+  advanceMove,
+  type MoveDrag,
+  moveIsIdle,
+  movePoint,
+  reanchored,
+  resolveMapping,
+  startMove,
+  unanchored,
+} from "./field-move.ts";
 import { type PickCandidate, pickNearest } from "./field-pick.ts";
 import {
   FALLBACK_COLLISION,
@@ -88,16 +97,17 @@ import {
   startReconfigureSession,
   startSession,
   toPreviewing,
+  withoutMoving,
   withParams,
   withPreviewError,
   withPreviewResult,
   withRegion,
 } from "./field-stamp.ts";
 import {
-  AXIS_DIR,
   type Axis,
-  closestPointParamOnAxis,
-  isViewParallel,
+  axisLines,
+  type GizmoSpan,
+  gizmoSpan,
   pickAxis,
 } from "./gizmo.ts";
 import { arrowNudgeSteps } from "./input-map.ts";
@@ -941,53 +951,6 @@ type ChunkRender = {
  *  geometry it owns (one draw call for every placed record of that archetype). */
 type PropRender = { im: mesh.InstancedMesh; g: geometry.Geometry };
 
-/** What a live move maps the cursor onto: the horizontal `plane` through the
- *  footprint's floor (the free drag), or one world {@link Axis} (a gizmo handle,
- *  or ⇧'s vertical promotion of a free drag). */
-type MoveMapping = "plane" | Axis;
-
-/** A move in progress — the state that turns cursor motion into whole lattice
- *  steps on the live session's region (D-9). One slot; a move is modal.
- *
- *  The arithmetic is ANCHORED rather than incremental: every event asks "where
- *  is the cursor relative to where the mapping was last anchored, and how many
- *  steps is that", then applies the DIFFERENCE against what has already been
- *  applied. Accumulating per-event deltas instead would let rounding drift
- *  compound over a drag, so a cursor returned to the press point would not
- *  return the region to where it started. */
-type MoveDrag = {
-  entityId: number;
-  mapping: MoveMapping;
-  /** A GIZMO drag: the handle already named the axis, so ⇧ must not re-map it. */
-  fixedAxis: boolean;
-  /** World Y of the horizontal plane the free mapping intersects — the selected
-   *  footprint's floor, fixed for the whole move. Fixed and not re-derived,
-   *  because the footprint the session is moving stays where the LOG has it
-   *  until the drop: a plane that chased the ghost would feed back on itself. */
-  planeY: number;
-  /** Where the axis mappings measure from — the footprint's centre, i.e. the
-   *  gizmo's own origin. */
-  origin: Vec3T;
-  /** Where the move was grabbed, in client pixels — the FIRST anchor is taken
-   *  here rather than at the event that opens the move, so the region follows
-   *  the cursor from the point the user actually grabbed and the 4 px the
-   *  threshold ate are not silently lost. Null for a `G` grab started with no
-   *  cursor over the canvas at all; the first cursor event anchors instead. */
-  press: { x: number; y: number } | null;
-  /** The mapped world point at the last (re-)anchor; null until the first event
-   *  that produces one. */
-  anchorPoint: Vec3T | null;
-  /** `applied` as of that anchor — the base the current mapping counts from, so
-   *  switching mapping mid-drag keeps what came before and moves nothing by
-   *  itself. */
-  anchorSteps: Vec3T;
-  /** Total lattice steps handed to the region since the move began. */
-  applied: Vec3T;
-  /** A pointer DRAG (a button is down, and a release drops it) rather than a
-   *  `G` grab (free-hand; LMB or Enter drops it). */
-  grabbed: boolean;
-};
-
 const REMESH_PER_FRAME = 2; // dirty-set drain budget per rAF
 const STROKE_MIN_MS = 40; // stroke throttle (pointermove-while-digging)
 const DIG_RANGE_M = 30;
@@ -1150,33 +1113,23 @@ const ANCHOR_CROSS_HALF_M = 0.25;
 
 // --- the translate gizmo (D-9) ---------------------------------------------
 // Semantic axis colours — X red, Y green, Z blue. The SAME palette the chrome's
-// AxisTriad draws (its own comment already promises they match this gizmo), in
-// linear-sRGB because a shader writes linear (engine-conventions §Color space)
-// while the overlay's are CSS hex. Same review-time agreement as
-// ENTITY_SELECTED_COLOR: the chrome cannot value-import anything under
-// `viewport-host/`.
+// AxisTriad draws (its own comment already promises they match this gizmo),
+// converted from those CSS hexes to LINEAR sRGB by the sRGB EOTF
+// (`c <= 0.04045 ? c/12.92 : ((c+0.055)/1.055)^2.4`). The conversion is the
+// whole point: shaders write LINEAR and the swap chain applies the sRGB encoding
+// on output (engine-conventions §Color space), so shipping the 0-1 hex directly
+// would be double-encoded and the arms would render as pale pastels — "red"
+// around rgb(243,145,148). ENTITY_SELECTED_COLOR is converted the same way.
+//
+// No test can catch this: the GPU fixtures request `surfaceFormat: "linear"`, so
+// the encode this compensates for never runs there. It is arithmetic plus review,
+// like ENTITY_SELECTED_COLOR, and the hexes are kept in the trailing comments so
+// the conversion stays checkable.
 const AXIS_COLOR: Record<Axis, [number, number, number, number]> = {
-  x: [0.898, 0.282, 0.302, 1], // #e5484d
-  y: [0.275, 0.655, 0.345, 1], // #46a758
-  z: [0.357, 0.553, 0.937, 1], // #5b8def
+  x: [0.7835, 0.0648, 0.0742, 1], // #e5484d
+  y: [0.0612, 0.3864, 0.0976, 1], // #46a758
+  z: [0.1046, 0.2664, 0.8632, 1], // #5b8def
 };
-// Handle length: the selected footprint's largest HALF-extent, so the three arms
-// reach roughly its longest face and stay proportionate to the thing they move.
-// Floored so a hair-thin entity still gets something grabbable.
-const GIZMO_MIN_LEN_M = 0.75;
-// Pick tolerance, as a fraction of the drawn handle length rather than a world
-// constant: the target then scales with the arm the user is aiming at, instead
-// of a big entity's gizmo being needle-thin to hit and a tiny one's being a
-// cloud that swallows the box behind it.
-const GIZMO_PICK_TOL_FRACTION = 0.15;
-// The dead zone at the gizmo's centre, as a fraction of the handle length: the
-// arms are DRAWN and picked from here outward. All three converge at the origin,
-// so a click there would resolve to whichever axis the hit test visits first —
-// and the centre is where the OTHER gesture lives (press the entity, drag it
-// freely on the ground plane). Leaving it clear is what keeps the primary drag
-// reachable on an entity the camera is looking straight at, which is most of
-// them.
-const GIZMO_HANDLE_INNER_FRACTION = 0.25;
 // The schema key the quarter-turn cycles. Core spells it the same way (its own
 // `ROTATION_KEY`), and both hall and maze carry it; cave and scatter do not.
 const ROTATION_PARAM = "rotation";
@@ -1184,10 +1137,6 @@ const ROTATION_PARAM = "rotation";
 // and becomes a move. Below it a hand tremor between mousedown and mouseup must
 // not open a session, let alone splice the log.
 const DRAG_THRESHOLD_PX = 4;
-// Below this |dir.y| the cursor ray is effectively parallel to the ground plane
-// a free move maps onto and the intersection parameter runs away — the
-// gizmo module's PARALLEL_EPS discipline, applied to the horizontal plane.
-const GROUND_PARALLEL_EPS = 1e-6;
 
 // Load-time compaction fires only when the loaded log carries MORE than this
 // many foldable ops (spec D-F3-16). Named, not inlined: the meter's
@@ -1468,13 +1417,14 @@ export function createFieldHost(deps?: {
   let selectedEntityId: number | null = null;
   let entitySelectionBatch: LineBatch | null = null;
   let entitySelectionCb: ((entityId: number | null) => void) | null = null;
-  // The translate gizmo's geometry, rebuilt with the selection box it hangs on
-  // (same footprint, same invalidation). Kept as origin + length BESIDE the
-  // batch because the PICK needs those two numbers and re-deriving them from the
-  // vertex buffer is how the drawn handles and the pickable ones part company.
-  // Null whenever nothing is selected; whether it is DRAWN is a separate
-  // question (gizmoVisible).
-  let gizmo: { origin: Vec3T; len: number; batch: LineBatch } | null = null;
+  // The translate gizmo's span, rebuilt with the selection box it hangs on (same
+  // footprint, same invalidation), and the line batch drawn from it. The SPAN is
+  // kept beside the batch because the pick needs its numbers and re-deriving
+  // them from a vertex buffer is how the drawn handles and the pickable ones
+  // part company. Both null whenever nothing is selected; whether they are DRAWN
+  // is a separate question (gizmoVisible).
+  let gizmo: GizmoSpan | null = null;
+  let gizmoBatch: LineBatch | null = null;
   // The live move (null = none). Its session is the `stamp` slot — this is only
   // the cursor mapping over it, which is why every path that ends a session
   // clears this too (endMove).
@@ -2834,8 +2784,9 @@ export function createFieldHost(deps?: {
   //  1. A GIZMO handle: the manipulator wins every tie, because its arms are
   //     drawn over the box they move (they all start at its centre) and one that
   //     lost the click to the thing behind it would not be a manipulator. The
-  //     drag starts on the press with NO threshold: nothing else is under a
-  //     handle, so there is no click for it to be mistaken for.
+  //     drag starts on the press with NO threshold, because no CLICK gesture
+  //     competes for a handle press — there is nothing for it to be mistaken
+  //     for, so nothing to disambiguate by waiting.
   //  2. The ALREADY-SELECTED entity (directly, or through a prop it placed):
   //     arm a pending drag and do nothing else. Re-selecting what is selected
   //     was always a no-op, so deferring costs nothing, and the threshold is
@@ -3032,33 +2983,6 @@ export function createFieldHost(deps?: {
   // The box outlines the stamped FOOTPRINT, not the recorded selection region —
   // an oversized region boxed mostly-empty space (F3a gate finding); see
   // entityFootprints for the fallback.
-  // The three axis handles as ONE line batch: three segments from `origin`, each
-  // in its own axis colour. Built here rather than through segmentsToBatch
-  // because that one paints a whole batch a single colour, and the colour is the
-  // gizmo's entire legibility.
-  const gizmoBatch = (origin: Vec3T, len: number): LineBatch => {
-    const axes: Axis[] = ["x", "y", "z"];
-    const inner = len * GIZMO_HANDLE_INNER_FRACTION;
-    const vertices = new Float32Array(axes.length * 6);
-    const colors = new Float32Array(axes.length * 8);
-    const at = (dir: Vec3T, d: number): Vec3T => [
-      origin[0] + dir[0] * d,
-      origin[1] + dir[1] * d,
-      origin[2] + dir[2] * d,
-    ];
-    axes.forEach((ax, i) => {
-      const dir = AXIS_DIR[ax];
-      const rgba = AXIS_COLOR[ax];
-      // From the dead zone outward, exactly the span gizmoAxisAt hit-tests —
-      // a drawn stub below it would be a handle that does nothing.
-      vertices.set(at(dir, inner), i * 6);
-      vertices.set(at(dir, len), i * 6 + 3);
-      colors.set(rgba, i * 8);
-      colors.set(rgba, i * 8 + 4);
-    });
-    return { vertices, colors };
-  };
-
   const rebuildEntitySelectionBatch = (): void => {
     const box =
       selectedEntityId === null
@@ -3072,56 +2996,55 @@ export function createFieldHost(deps?: {
     entitySelectionBatch = aabbEdgeBatch(box, ENTITY_SELECTED_COLOR);
     // The gizmo hangs on the SAME box, so it moves and dies with it — one
     // rebuild, one invalidation, and no way for the handles to end up outlining
-    // a different volume than the emphasis does.
-    const origin: Vec3T = [
-      (box.min[0] + box.max[0]) / 2,
-      (box.min[1] + box.max[1]) / 2,
-      (box.min[2] + box.max[2]) / 2,
-    ];
-    const len = Math.max(
-      GIZMO_MIN_LEN_M,
-      Math.max(
-        box.max[0] - box.min[0],
-        box.max[1] - box.min[1],
-        box.max[2] - box.min[2],
-      ) / 2,
-    );
-    gizmo = { origin, len, batch: gizmoBatch(origin, len) };
+    // a different volume than the emphasis does. While a move is live only the
+    // CONSTRAINED arm is drawn (see gizmoVisible): the other two would advertise
+    // motion this drag will not make.
+    gizmo = gizmoSpan(box);
+    gizmoBatch = axisLines(gizmo, AXIS_COLOR, activeGizmoAxis());
   };
 
   // Whether the gizmo is on screen — and therefore pickable. ONE predicate for
   // both, so a handle can never be grabbable while invisible (a click that moves
   // something the user cannot see) or visible while inert.
   //
-  // Three conditions, each with its own reason: the POINTER tool has to be armed
-  // (a brush click digs, and a manipulator floating over a dig cursor promises
-  // an action LMB will not take), something has to be SELECTED (the gizmo is the
-  // selection's own affordance), and there must be NO live session — a session
-  // already owns the region through its nudges and its own drag, and a second
-  // way to move the same thing is how the two disagree.
+  // The POINTER tool has to be armed (a brush click digs, and a manipulator
+  // floating over a dig cursor promises an action LMB will not take) and
+  // something has to be SELECTED (the gizmo is the selection's own affordance).
+  //
+  // The third condition is "no session the gizmo did not open". A session opened
+  // by another path — the Open button, `G` — already owns the region through its
+  // own affordances, and a second way to move one thing is how the two disagree.
+  // But the gizmo's OWN drag is a session too, and hiding the handles the instant
+  // one is grabbed deletes the only thing naming the axis the ghost is sliding
+  // along. So a live move keeps them, restricted to the constrained arm.
   const gizmoVisible = (): boolean =>
     gizmo !== null &&
     gesture === "pointer" &&
     selectedEntityId !== null &&
-    stamp === null;
+    (stamp === null || moveDrag !== null);
 
-  // Which axis handle a press landed on, or null. Runs BEFORE the candidate pick
-  // (see PICK_TIER in field-pick.ts): the arms radiate outward from the
-  // footprint's centre, so they are drawn over the very box they move, and a
-  // manipulator that lost the click to the thing behind it would be unusable.
-  // The dead zone at that centre is what keeps the free ground drag reachable —
-  // the same span the batch draws, passed as the inner bound here.
+  // The one arm to draw while a move is CONSTRAINED to an axis, or null for the
+  // full triad. A free ground drag has no single axis to name, so it keeps all
+  // three — they are then the frame the ghost is moving within rather than a
+  // constraint indicator.
+  const activeGizmoAxis = (): Axis | null => {
+    const m = moveDrag?.mapping;
+    return m === undefined || m === "plane" ? null : m;
+  };
+
   const gizmoAxisAt = (clientX: number, clientY: number): Axis | null => {
     const g = gizmo;
     if (g === null || !gizmoVisible()) return null;
     const ray = cursorRay(clientX, clientY);
     if (ray === null) return null;
+    // Every bound comes off the ONE span the batch was drawn from, so the
+    // pickable arm and the visible arm cannot be different segments.
     return pickAxis(
       { origin: ray.origin, dir: ray.dir },
       g.origin,
       g.len,
-      g.len * GIZMO_PICK_TOL_FRACTION,
-      g.len * GIZMO_HANDLE_INNER_FRACTION,
+      g.tol,
+      g.inner,
     );
   };
 
@@ -3831,9 +3754,13 @@ export function createFieldHost(deps?: {
               // A latched drop dies with the preview it was waiting on: there is
               // no ghost to commit, and an armed latch would otherwise fire on
               // whatever settle came next — a re-roll, a param edit — committing
-              // something the user never dropped.
+              // something the user never dropped. The session is demoted with it
+              // (the drop already ended the mapping), which is the OTHER way a
+              // move stalls: dropMove's error branch catches a preview that had
+              // already failed, this one catches the drop that latched onto a
+              // preview about to fail.
               moveCommitPending = false;
-              stamp = next;
+              stamp = demoteStalledMove(next);
               destroyStampGhosts();
               notifyStamp();
             }
@@ -4113,63 +4040,24 @@ export function createFieldHost(deps?: {
     press: { x: number; y: number } | null,
   ): boolean => {
     if (!openEntitySession(entityId, true)) return false;
-    // Read AFTER the open, so the memo is rebuilt against the log the session
-    // was seeded from. The session proves the entity op exists, so the memo has
-    // it; the fallback is the same one entityFootprints itself uses.
+    // AFTER the open because of the `?? stamp?.region` fallback, which needs the
+    // session set. The memo itself is unmoved — its signature is
+    // worldEpoch/ops/undo/redo/nextId and opening a session touches none of them
+    // — so this is the same map either way; only the fallback needs the ordering.
     const box = entityFootprints().get(entityId) ?? stamp?.region;
     if (box === undefined) return false; // unreachable: the open proved the record
-    moveDrag = {
-      entityId,
-      mapping: axis ?? "plane",
-      fixedAxis: axis !== null,
-      planeY: box.min[1],
-      origin: [
-        (box.min[0] + box.max[0]) / 2,
-        (box.min[1] + box.max[1]) / 2,
-        (box.min[2] + box.max[2]) / 2,
-      ],
-      press,
-      anchorPoint: null,
-      anchorSteps: [0, 0, 0],
-      applied: [0, 0, 0],
-      grabbed,
-    };
+    moveDrag = startMove({ box, axis, grabbed, press });
+    // The gizmo's arms narrow to the constrained one the moment a drag owns them.
+    rebuildEntitySelectionBatch();
     return true;
-  };
-
-  // The world point the cursor currently means, under one mapping — or null when
-  // this view cannot answer (the ray is edge-on to the plane or the axis, where
-  // the parameter runs away or is undefined). Null means HOLD STILL: a move that
-  // lurched to a garbage reading would be worse than one that ignored a frame.
-  const movePoint = (
-    d: MoveDrag,
-    mapping: MoveMapping,
-    ray: { origin: Vec3T; dir: Vec3T },
-  ): Vec3T | null => {
-    if (mapping === "plane") {
-      const dy = ray.dir[1];
-      if (Math.abs(dy) < GROUND_PARALLEL_EPS) return null;
-      const t = (d.planeY - ray.origin[1]) / dy;
-      if (t <= 0) return null; // the plane is behind the eye
-      return [
-        ray.origin[0] + t * ray.dir[0],
-        d.planeY,
-        ray.origin[2] + t * ray.dir[2],
-      ];
-    }
-    const dir = AXIS_DIR[mapping];
-    if (isViewParallel(dir, ray)) return null;
-    const t = closestPointParamOnAxis(d.origin, dir, ray);
-    return [
-      d.origin[0] + t * dir[0],
-      d.origin[1] + t * dir[1],
-      d.origin[2] + t * dir[2],
-    ];
   };
 
   // One cursor event's worth of move: re-read the mapping, turn the offset from
   // the anchor into whole lattice steps, and hand the DIFFERENCE to the same
-  // region nudge the arrow keys drive.
+  // region nudge the arrow keys drive. An imperative shell — the two `cursorRay`
+  // calls and the session are the only things here that need the world;
+  // `field-move.ts` owns every rule, and returns a fresh drag rather than
+  // writing to this one.
   //
   // No clamp on how far a region may travel, deliberately. The field has no
   // world bounds to clamp against (chunks allocate on demand), so any limit
@@ -4183,20 +4071,11 @@ export function createFieldHost(deps?: {
     clientY: number;
     shiftKey?: boolean;
   }): void => {
-    const d = moveDrag;
+    let d = moveDrag;
     if (d === null || stamp === null) return;
-    // ⇧ promotes a FREE move to the vertical axis — the arrow pad's own rule
-    // (arrowNudgeSteps), for the same reason: a ground-plane drag has no way to
-    // express height. A GIZMO drag ignores it; the handle already named the axis.
-    const mapping: MoveMapping = d.fixedAxis
-      ? d.mapping
-      : e.shiftKey === true
-        ? "y"
-        : "plane";
+    const mapping = resolveMapping(d, e.shiftKey === true);
     if (d.anchorPoint === null || mapping !== d.mapping) {
-      // (Re-)anchor: this mapping's zero, with the steps already applied as its
-      // base — so a ⇧ pressed mid-drag keeps what came before and moves nothing
-      // by itself. The FIRST anchor of a drag is taken at the PRESS, not here:
+      // (Re-)anchor. The FIRST anchor of a drag is taken at the PRESS, not here:
       // the move opens on the event that crosses the threshold, and anchoring
       // there would throw away the travel that opened it.
       const from =
@@ -4205,40 +4084,54 @@ export function createFieldHost(deps?: {
           : { x: e.clientX, y: e.clientY };
       const anchorRay = cursorRay(from.x, from.y);
       if (anchorRay === null) return;
-      const anchoredAt = movePoint(d, mapping, {
+      const at = movePoint(d, mapping, {
         origin: anchorRay.origin,
         dir: anchorRay.dir,
       });
-      if (anchoredAt === null) return;
-      d.mapping = mapping;
-      d.anchorPoint = anchoredAt;
-      d.anchorSteps = [...d.applied];
+      if (at === null) return;
+      d = reanchored(d, mapping, at);
+      moveDrag = d;
+      // A gizmo drag cannot change mapping, so this only fires for ⇧ — and the
+      // drawn arms follow the constraint the ghost is now under.
+      if (!d.fixedAxis) rebuildEntitySelectionBatch();
     }
     const ray = cursorRay(e.clientX, e.clientY);
     if (ray === null) return;
     const point = movePoint(d, mapping, { origin: ray.origin, dir: ray.dir });
     if (point === null) return;
-    const anchor = d.anchorPoint;
-    if (anchor === null) return; // unreachable: the block above just set it
-    const wantOn = (i: 0 | 1 | 2): number =>
-      d.anchorSteps[i] + Math.round((point[i] - anchor[i]) / LATTICE);
-    const want: Vec3T = [wantOn(0), wantOn(1), wantOn(2)];
-    const step: Vec3T = [
-      want[0] - d.applied[0],
-      want[1] - d.applied[1],
-      want[2] - d.applied[2],
-    ];
+    const { drag, step } = advanceMove(d, point);
+    moveDrag = drag;
     if (step[0] === 0 && step[1] === 0 && step[2] === 0) return;
-    d.applied = want;
     nudgeStampRegion(step);
   };
+
+  // A camera change mid-move retires the anchor: it was a world point read under
+  // the old view, and the press pixel that produced it now means somewhere else,
+  // so the next reading would jump by metres nobody dragged. Re-anchoring carries
+  // `applied` forward, so turning the view moves the region by exactly zero —
+  // the same mechanism ⇧ re-anchors through.
+  const reaimMove = (): void => {
+    if (moveDrag !== null) moveDrag = unanchored(moveDrag);
+  };
+
+  // A session still flagged `moving` with NO mapping driving it is a
+  // contradiction: nothing is following the cursor, yet the session card renders
+  // the word off this flag. Demoted rather than cancelled, because the one state
+  // that reaches it is an ERRORED preview and its message is the only legible
+  // reason the drop did not land — cancelling would take the explanation with it.
+  //
+  // Gated on `moveDrag === null` because a preview can also fail MID-drag, and
+  // that move is still live: the next cursor tick re-previews and may well
+  // succeed. Only a move that has already ended can be stalled.
+  const demoteStalledMove = (s: StampSession): StampSession =>
+    moveDrag === null && s.moving === true ? withoutMoving(s) : s;
 
   // End a move by DROPPING it — a mouse-up on a drag, LMB on a grab.
   const dropMove = (): void => {
     const d = moveDrag;
     endMove();
     if (d === null) return;
-    if (d.applied[0] === 0 && d.applied[1] === 0 && d.applied[2] === 0) {
+    if (moveIsIdle(d)) {
       // Nothing actually moved — a drag whose travel rounded to no lattice step,
       // or a grab dropped where it started. A reconfigure would still re-splice
       // the span with fresh op ids and still spend an undo entry, so committing
@@ -4251,11 +4144,18 @@ export function createFieldHost(deps?: {
       commitActiveSession();
       return;
     }
-    // The ghost is still cooking — latch the drop so the settle spends it (see
-    // moveCommitPending). A session that is neither ready nor previewing has an
-    // ERRORED preview: leave it standing with its message rather than latching a
-    // commit that would fire on some later, unrelated settle.
-    moveCommitPending = stamp?.phase === "previewing";
+    if (stamp?.phase === "previewing") {
+      // The ghost is still cooking — latch the drop so the settle spends it
+      // (see moveCommitPending).
+      moveCommitPending = true;
+      return;
+    }
+    // Neither ready nor previewing: the preview had ALREADY errored when the
+    // drop arrived. The session stays standing with its message, demoted.
+    if (stamp !== null && stamp.moving === true) {
+      stamp = demoteStalledMove(stamp);
+      notifyStamp();
+    }
   };
 
   // Apply the live reconfigure session: ONE undo entry, the entity id and every
@@ -4360,6 +4260,17 @@ export function createFieldHost(deps?: {
       ? field.redo(store, log, table)
       : field.undo(store, log);
     markDirtyWithNeighbors(dirtied);
+    // A live MOVE cannot survive the log moving under it. The canvas binds ⌘Z
+    // itself and a `G` grab is a modal state where the canvas necessarily has
+    // focus (Esc and R are on the same listener), so this is one keypress away
+    // rather than contrived — and both halves are wrong. An undone COMMIT leaves
+    // the session naming an entity that is gone and the drop fails outright; an
+    // undone RECONFIGURE leaves it naming an entity whose region the step just
+    // moved, and the drop then quietly re-applies the placement the user undid.
+    // Scoped to moves: whether ANY session should survive a history step is a
+    // wider question, filed as
+    // `docs/backlog/editor-and-tooling/field-session-survives-history-step.md`.
+    if (stamp?.moving === true) cancelStampSession();
     revalidateEntitySelection();
     // A step can add or remove placement ops (a scatter commit, a reconfigure
     // splice) and dirties NO chunk for them — placements write no cells — so the
@@ -4621,10 +4532,10 @@ export function createFieldHost(deps?: {
       // The translate gizmo, LAST of the selection overlays and occlude:false
       // like them: a handle behind the box it moves must still be grabbable, and
       // what the user sees has to be what `gizmoAxisAt` hit-tests.
-      if (gizmo && gizmoVisible())
+      if (gizmoBatch && gizmoVisible())
         frame.drawLines(c, {
-          vertices: gizmo.batch.vertices,
-          colors: gizmo.batch.colors,
+          vertices: gizmoBatch.vertices,
+          colors: gizmoBatch.colors,
           camera: view,
           occlude: false,
         });
@@ -4825,7 +4736,10 @@ export function createFieldHost(deps?: {
       pendingMove = null;
     }
     digging = false;
-    look = null;
+    if (look !== null) {
+      look = null;
+      reaimMove(); // the camera turned under a live move — retire its anchor
+    }
     canvasEl?.releasePointerCapture(e.pointerId);
   };
 
@@ -4895,6 +4809,11 @@ export function createFieldHost(deps?: {
       if (stamp !== null) {
         e.preventDefault();
         if (k === "escape") cancelStampSession();
+        // Enter over a live MOVE is a DROP, not a bare commit — the same verb
+        // the mouse-up runs, so both triggers share the zero-step rule. Without
+        // this, confirming a grab the user thought better of would spend a
+        // history entry on a reconfigure that changed nothing.
+        else if (moveDrag !== null) dropMove();
         else commitActiveSession(); // ready-phase only — else a no-op
         return;
       }
@@ -5232,8 +5151,19 @@ export function createFieldHost(deps?: {
       // remount, and the AA switch broke that: it disposes and re-inits under a
       // panel that never unmounts, leaving the stamp inspector driving a session
       // the host has already destroyed. The seam is how the panel finds out.
-      stamp = null;
-      notifyStamp();
+      // cancelStampSession, not a bare `stamp = null`: it runs endMove() first
+      // (before its own null guard) so no cursor mapping survives the teardown,
+      // and it notifies. One teardown, one place.
+      //
+      // Its independent effect is currently UNCOVERED, and deliberately recorded
+      // as such (the analyzerPlacementsStale precedent above): `updateMove`
+      // guards on `stamp === null` too, so a mapping stranded by a bare
+      // `stamp = null` changes nothing while the host stays disposed — swapping
+      // this line back fails no test. What it buys is the state AFTER a re-init:
+      // `updateMove` RETURNS from onPointerMove, so a stranded mapping would
+      // swallow every pointermove — box previews, segment previews and brush
+      // strokes alike — until something else cleared it.
+      cancelStampSession();
       unbindCamera = null;
       cam = null;
       ctx = null;

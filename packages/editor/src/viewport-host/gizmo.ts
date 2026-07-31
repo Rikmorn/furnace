@@ -12,10 +12,13 @@
  * {@link pickAxis} on the press, {@link closestPointParamOnAxis} on every move,
  * and {@link isViewParallel} to refuse a reading that would be meaningless.
  *
- * The DRAWING is the host's too and deliberately not here: the handle colours
- * are the editor's semantic axis palette (shared with the chrome's `AxisTriad`),
- * which is a chrome fact, and the line batch is engine-shaped. What this module
- * owns is only what a wrong answer would make the gizmo mis-aim.
+ * The handle GEOMETRY lives here too — {@link gizmoSpan} derives it from the
+ * selected footprint and {@link axisLines} emits the vertex/colour pair a
+ * `drawLines` batch wants — because the drawn arms and the picked arms must be
+ * the same span or the gizmo lies about where it can be grabbed. Only the
+ * COLOURS come from the caller: they are the editor's semantic axis palette
+ * (shared with the chrome's `AxisTriad`) and belong beside the theme, not beside
+ * the arithmetic.
  */
 
 type V3 = [number, number, number];
@@ -151,3 +154,93 @@ export function pickAxis(
 
 /** The three unit world-axis directions, keyed by {@link Axis}. */
 export const AXIS_DIR = AXES;
+
+// --- handle geometry --------------------------------------------------------
+
+// Floor on the arm length, so a hair-thin entity still gets something grabbable.
+const MIN_HANDLE_LEN_M = 0.75;
+// The dead zone at the origin, as a fraction of the arm: all three arms converge
+// there, so a click on the centre would resolve to whichever axis pickAxis
+// visits first — and the centre is where the caller's OTHER gesture lives (press
+// the object, drag it freely). See {@link pickAxis}'s `innerLen`.
+const HANDLE_INNER_FRACTION = 0.25;
+// Pick tolerance as a fraction of the arm rather than a world constant: the
+// target scales with the handle being aimed at, instead of a big entity's gizmo
+// being needle-thin to hit and a tiny one's swallowing the box behind it.
+const PICK_TOL_FRACTION = 0.15;
+
+/** Where a selected footprint's handles sit and how big they are. All four
+ *  numbers come out of ONE derivation deliberately: the drawn arm, the pickable
+ *  arm, the dead zone and the hit tolerance are the same fact, and deriving them
+ *  separately is how a gizmo ends up grabbable somewhere it is not drawn. */
+export type GizmoSpan = {
+  origin: V3;
+  /** Arm length in metres, from `origin` outward. */
+  len: number;
+  /** Where each arm STARTS — the dead zone's outer edge. */
+  inner: number;
+  /** Hit tolerance in metres, for {@link pickAxis}. */
+  tol: number;
+};
+
+/**
+ * The handle span for a footprint AABB: arms centred on the box, reaching
+ * roughly its longest face (its largest half-extent, floored at
+ * {@link MIN_HANDLE_LEN_M}) so they stay proportionate to the thing they move.
+ */
+export function gizmoSpan(box: { min: V3; max: V3 }): GizmoSpan {
+  const len = Math.max(
+    MIN_HANDLE_LEN_M,
+    Math.max(
+      box.max[0] - box.min[0],
+      box.max[1] - box.min[1],
+      box.max[2] - box.min[2],
+    ) / 2,
+  );
+  return {
+    origin: [
+      (box.min[0] + box.max[0]) / 2,
+      (box.min[1] + box.max[1]) / 2,
+      (box.min[2] + box.max[2]) / 2,
+    ],
+    len,
+    inner: len * HANDLE_INNER_FRACTION,
+    tol: len * PICK_TOL_FRACTION,
+  };
+}
+
+/** A `drawLines`-shaped vertex/colour pair. Structural, not an engine import —
+ *  this module stays free of `@furnace/core` (see the module docblock). */
+export type AxisLines = { vertices: Float32Array; colors: Float32Array };
+
+/**
+ * The handle arms as line segments, each `[inner, len]` along its axis — exactly
+ * the span {@link pickAxis} accepts for the same {@link GizmoSpan}, which is the
+ * point of taking one.
+ *
+ * `only` restricts the batch to a single axis: while a drag is CONSTRAINED to
+ * one, that arm is the constraint indicator and the other two would advertise
+ * motion the drag will not make. `null` draws all three.
+ */
+export function axisLines(
+  span: GizmoSpan,
+  colors: Record<Axis, readonly [number, number, number, number]>,
+  only: Axis | null = null,
+): AxisLines {
+  const axes: Axis[] = only === null ? ["x", "y", "z"] : [only];
+  const vertices = new Float32Array(axes.length * 6);
+  const rgba = new Float32Array(axes.length * 8);
+  const at = (dir: V3, d: number): V3 => [
+    span.origin[0] + dir[0] * d,
+    span.origin[1] + dir[1] * d,
+    span.origin[2] + dir[2] * d,
+  ];
+  axes.forEach((ax, i) => {
+    const dir = AXES[ax];
+    vertices.set(at(dir, span.inner), i * 6);
+    vertices.set(at(dir, span.len), i * 6 + 3);
+    rgba.set(colors[ax], i * 8);
+    rgba.set(colors[ax], i * 8 + 4);
+  });
+  return { vertices, colors: rgba };
+}

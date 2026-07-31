@@ -135,6 +135,16 @@ export function startReconfigureSession(
   };
 }
 
+/** Demotes a MOVE session to a plain reconfigure, leaving everything else
+ *  alone. For the one state that is a session but no longer a move: a drop that
+ *  landed on an ERRORED preview, where the session must stay standing to show
+ *  its message but nothing is driving its region any more. Deletes the key
+ *  rather than setting it false, so `moving` keeps exactly two states. */
+export function withoutMoving(s: StampSession): StampSession {
+  const { moving: _moving, ...rest } = s;
+  return rest;
+}
+
 /** A params/seed/policy change: back to `configuring`, run bumped (any
  *  in-flight preview is invalidated — its response will carry the old run),
  *  last preview outcome cleared. */

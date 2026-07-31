@@ -1,6 +1,9 @@
 import { expect, test } from "bun:test";
 import {
+  type Axis,
+  axisLines,
   closestPointParamOnAxis,
+  gizmoSpan,
   pickAxis,
 } from "../../src/viewport-host/gizmo.ts";
 
@@ -126,4 +129,68 @@ test("pickAxis: ray far from every axis returns null", () => {
     0.2,
   );
   expect(hit).toBe(null);
+});
+
+// --- handle geometry --------------------------------------------------------
+
+const COLORS: Record<Axis, readonly [number, number, number, number]> = {
+  x: [1, 0, 0, 1],
+  y: [0, 1, 0, 1],
+  z: [0, 0, 1, 1],
+};
+
+test("gizmoSpan centres on the box and reaches its largest HALF-extent", () => {
+  // 6 × 2 × 4 box: the largest extent is 6, so the arms are 3 m long.
+  const span = gizmoSpan({ min: [-3, 0, -2], max: [3, 2, 2] });
+  expect(span.origin).toEqual([0, 1, 0]);
+  expect(span.len).toBe(3);
+  // The dead zone and the tolerance are DERIVED from that one length, which is
+  // what stops the drawn arm and the pickable arm from being different segments.
+  expect(span.inner).toBeCloseTo(3 * 0.25, 10);
+  expect(span.tol).toBeCloseTo(3 * 0.15, 10);
+});
+
+test("gizmoSpan floors the arm length, so a flat entity is still grabbable", () => {
+  // A 0.2 m sliver would otherwise get 0.1 m arms and a 0.015 m tolerance.
+  const span = gizmoSpan({ min: [0, 0, 0], max: [0.2, 0.2, 0.2] });
+  expect(span.len).toBe(0.75);
+  expect(span.inner).toBeGreaterThan(0);
+});
+
+test("axisLines draws each arm from the dead zone outward — the span pickAxis accepts", () => {
+  const span = gizmoSpan({ min: [-3, 0, -2], max: [3, 2, 2] });
+  const all = axisLines(span, COLORS);
+  // Three segments: 2 vertices × 3 floats, 2 vertices × 4 colour channels.
+  expect(all.vertices).toHaveLength(18);
+  expect(all.colors).toHaveLength(24);
+  // The X arm runs from origin+inner to origin+len along +X, at the origin's
+  // height and depth. A batch drawn from 0 instead would show a stub over the
+  // dead zone that no press can grab.
+  expect([...all.vertices.slice(0, 6)]).toEqual([
+    span.inner,
+    1,
+    0,
+    span.len,
+    1,
+    0,
+  ]);
+  // Each segment is one flat colour, so an arm reads as its axis end to end.
+  expect([...all.colors.slice(0, 8)]).toEqual([1, 0, 0, 1, 1, 0, 0, 1]);
+});
+
+test("axisLines restricted to ONE axis draws only that arm", () => {
+  // While a drag is constrained, the other two arms would advertise motion the
+  // drag will not make — so the active one is the constraint indicator.
+  const span = gizmoSpan({ min: [-3, 0, -2], max: [3, 2, 2] });
+  const only = axisLines(span, COLORS, "y");
+  expect(only.vertices).toHaveLength(6);
+  expect([...only.vertices]).toEqual([
+    0,
+    1 + span.inner,
+    0,
+    0,
+    1 + span.len,
+    0,
+  ]);
+  expect([...only.colors]).toEqual([0, 1, 0, 1, 0, 1, 0, 1]);
 });

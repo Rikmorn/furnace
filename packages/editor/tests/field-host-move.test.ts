@@ -358,6 +358,68 @@ test("Esc during a move discards it — the entity is untouched", async () => {
   }
 });
 
+// The log can move UNDER a live move: ⌘Z is bound on the canvas, and a `G` grab
+// is a modal state where the canvas necessarily has focus (Esc and R depend on
+// it), so this is one keypress away rather than contrived. Both halves are
+// wrong and the quiet one is worse: an undone COMMIT leaves the session pointing
+// at an entity that is gone (the drop fails loudly), while an undone
+// RECONFIGURE leaves it pointing at an entity whose region the step just moved,
+// and the drop then re-applies a placement the user has just undone — silently.
+test("undo during a move ends it — the session cannot outlive the log it names", async () => {
+  const f = moveFixture();
+  try {
+    const id = f.ids[0] as number;
+    f.host.duplicateEntity(id);
+    const copy = f.host.listEntities()[1]?.entityId;
+    if (copy === undefined) throw new Error("test: no copy");
+
+    f.host.beginMove(copy);
+    await settle();
+    f.host.nudgeStamp(3, 0, 0);
+    await settle();
+    expect(f.session()?.moving).toBe(true);
+
+    f.host.undo(); // takes the duplicate back out of the log
+
+    expect(f.host.listEntities().map((e) => e.entityId)).toEqual([id]);
+    expect(f.session()).toBeNull();
+  } finally {
+    f.teardown();
+  }
+});
+
+test("undo during a move on a SURVIVING entity ends it too — the region moved under it", async () => {
+  const f = moveFixture();
+  try {
+    const id = f.ids[0] as number;
+    // Land one real move so there is a reconfigure entry to step back over.
+    f.host.beginMove(id);
+    await settle();
+    f.host.nudgeStamp(4, 0, 0);
+    await settle();
+    f.host.commitSession();
+    const moved = structuredClone(regionOf(f.host, id));
+    expect(moved.min[0]).toBeCloseTo(HALL_REGION.min[0] + 4 * LATTICE, 10);
+
+    // Now a SECOND move, undone mid-flight. The entity survives, so nothing
+    // fails loudly — the session simply describes a placement relative to a
+    // region the undo has already taken away.
+    f.host.beginMove(id);
+    await settle();
+    f.host.nudgeStamp(2, 0, 0);
+    await settle();
+
+    f.host.undo();
+
+    expect(regionOf(f.host, id)).toEqual(HALL_REGION); // back to the original
+    expect(f.session()).toBeNull();
+    // …and the record stays where undo put it: no ghost lands afterwards.
+    expect(regionOf(f.host, id)).toEqual(HALL_REGION);
+  } finally {
+    f.teardown();
+  }
+});
+
 // --- R, the quarter turn ----------------------------------------------------
 
 test("rotateStamp cycles the schema's rotation enum and re-previews", async () => {
