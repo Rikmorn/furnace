@@ -1,9 +1,15 @@
 // THE LAYOUT CONTRACT (F4.5 D-1, and the one rule the whole overlay cockpit rests on):
-// the canvas cell's insets are decided by the two fixed-height bars and NOTHING else.
-// No palette opening, no selection changing, no panel resizing may move them — a
-// viewport that re-lays-out under the user is what the dock era got wrong. Every
+// the canvas cell's insets are decided by the two fixed-height bars and the tool rail, and
+// NOTHING else. No palette opening, no selection changing, no panel resizing may move them
+// — a viewport that re-lays-out under the user is what the dock era got wrong. Every
 // floating surface therefore mounts as an ABSOLUTE layer inside the cell, over the
 // canvas, never as a flex sibling of it.
+//
+// The RAIL is the one exception, and it is an exception the same way the bars are: a fixed
+// 44 px column that cannot be closed, moved, collapsed or resized, so it is part of the
+// constant inset rather than something that can change one. It sits in a flex ROW with the
+// cell — a sibling, never a parent — which is what keeps the canvas's `absolute inset-0`
+// resolving against a box only the window can resize.
 //
 // Split out of App on purpose: App owns the engine bootstrap (a dynamic import of the
 // project-built /engine.js plus a WebGPU probe), neither of which can reach "ready"
@@ -23,6 +29,7 @@ import { WorkspaceProvider } from "../../hooks/useWorkspace.tsx";
 import { WorldProvider } from "../../hooks/useWorld.tsx";
 import { useEditor } from "../editor-context.ts";
 import { FieldPanel } from "../FieldPanel.tsx";
+import { TooltipProvider } from "../ui/tooltip.tsx";
 import { AxisTriadMount } from "./AxisTriadMount.tsx";
 import { CanvasHost } from "./CanvasHost.tsx";
 import { EntitiesPalette } from "./EntitiesPalette.tsx";
@@ -30,6 +37,7 @@ import { LogPalette } from "./LogPalette.tsx";
 import { PaletteLayer } from "./PaletteLayer.tsx";
 import { StatusBar } from "./StatusBar.tsx";
 import { Toasts } from "./Toasts.tsx";
+import { ToolRail } from "./ToolRail.tsx";
 import { TopBar } from "./TopBar.tsx";
 
 /** The workspace provider wraps the WHOLE frame, not just the layer: the top bar's
@@ -97,43 +105,55 @@ function ShellChrome({
 	// reading one level down, where its `children` arrive already built.
 	return (
 		<ActionContextProvider host={host ?? null}>
-			<div className="fixed inset-0 flex flex-col bg-background text-foreground">
-				<TopBar />
-				{/* bg-viewport-background is the DESIGN.md §2 viewport surface: one tonal
+			{/* ONE tooltip provider for the whole frame (D-25): the rail, the strip and the
+          ⋯ all use real Radix tooltips rather than `title`, and Radix wants a single
+          provider so the group's open/close delays behave as one — hovering the second
+          rail button after the first opens instantly instead of waiting again. */}
+			<TooltipProvider delayDuration={300}>
+				<div className="fixed inset-0 flex flex-col bg-background text-foreground">
+					<TopBar />
+					{/* The body ROW: the fixed rail column, then the canvas cell. Both are
+              siblings — the rail is part of the cell's constant inset (see this file's
+              header), never a parent of it and never a palette. */}
+					<div className="flex min-h-0 flex-1">
+						<ToolRail />
+						{/* bg-viewport-background is the DESIGN.md §2 viewport surface: one tonal
           step darker than the app base, so the content area reads as distinct from
           the chrome before the first GPU frame clears and anywhere the canvas is
           absent (engine still booting, init failed). */}
-				<div className="relative min-h-0 flex-1 bg-viewport-background">
-					{engineReady && host && (
-						<FieldCanvas host={host} onError={setViewportError} />
-					)}
-					{/* The palette bodies are built HERE so their elements survive the
-            layer's own drag re-renders untouched (see PaletteLayer's `content`).
-            MIGRATION (until F4.5b): the SURVIVING control stack rides in one
-            `controls` palette until the rest of its organs follow the entity list
-            into palettes of their own. */}
-					<PaletteLayer
-						content={{
-							controls: <FieldPanel />,
-							entities: <EntitiesPalette />,
-							log: <LogPalette />,
-						}}
-					/>
-					{/* Above the palette layer in DOM order, the Toasts rule and for the same
-            reason with a sharper case: the DEFAULT arrangement docks the controls
-            palette to the right edge at top 0, which covers exactly the corner the
-            triad sits in — mounted before the layer it would ship invisible out of
-            the box. Gated on the host like the canvas, because a pose readout with
-            no camera behind it is a decoration. Its own absolute box inside the SAME
-            cell (D-1): it takes nothing from the canvas. */}
-					{engineReady && host && <AxisTriadMount />}
-					{/* Above the palette layer in DOM order, so a toast is never buried under
-            a palette that happens to be parked bottom-right. Its own absolute box
-            inside the SAME cell (D-1): it takes nothing from the canvas. */}
-					<Toasts />
+						<div className="relative min-h-0 min-w-0 flex-1 bg-viewport-background">
+							{engineReady && host && (
+								<FieldCanvas host={host} onError={setViewportError} />
+							)}
+							{/* The palette bodies are built HERE so their elements survive the
+                  layer's own drag re-renders untouched (see PaletteLayer's `content`).
+                  MIGRATION (until F4.5b): the SURVIVING control stack rides in one
+                  `controls` palette until the rest of its organs follow the entity list
+                  into palettes of their own. */}
+							<PaletteLayer
+								content={{
+									controls: <FieldPanel />,
+									entities: <EntitiesPalette />,
+									log: <LogPalette />,
+								}}
+							/>
+							{/* Above the palette layer in DOM order, the Toasts rule and for the
+                  same reason with a sharper case: the DEFAULT arrangement docks the
+                  controls palette to the right edge at top 0, which covers exactly the
+                  corner the triad sits in — mounted before the layer it would ship
+                  invisible out of the box. Gated on the host like the canvas, because a
+                  pose readout with no camera behind it is a decoration. Its own absolute
+                  box inside the SAME cell (D-1): it takes nothing from the canvas. */}
+							{engineReady && host && <AxisTriadMount />}
+							{/* Above the palette layer in DOM order, so a toast is never buried
+                  under a palette that happens to be parked bottom-right. Its own absolute
+                  box inside the SAME cell (D-1): it takes nothing from the canvas. */}
+							<Toasts />
+						</div>
+					</div>
+					<StatusBar viewportError={viewportError} />
 				</div>
-				<StatusBar viewportError={viewportError} />
-			</div>
+			</TooltipProvider>
 		</ActionContextProvider>
 	);
 }

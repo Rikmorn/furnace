@@ -195,23 +195,34 @@ const shifted = (e: KeyboardEvent, key: string): boolean =>
 
 /** One member of a keyed family: what arming it does, in the binding table's order.
  *  `effect` members arm the brush (and return LMB to it); `gesture` members arm a click
- *  gesture. The brush family has both — `segment` is a gesture that strokes. */
+ *  gesture. The brush family has both — `segment` is a gesture that strokes.
+ *
+ *  `label` is here rather than in the rail because the rail's member flyout and the ⇧
+ *  cycle step the SAME list: a second list beside the rail is how "⇧B cycles Dig → Fill"
+ *  and what the flyout shows would come to disagree. */
 type FamilyMember =
-  | { effect: FieldTool["effect"] }
-  | { gesture: ViewportGesture };
+  | { label: string; effect: FieldTool["effect"] }
+  | { label: string; gesture: ViewportGesture };
+
+/** The pointer is a family of ONE. Spelled as a family anyway so the rail renders four
+ *  things the same way, and so "how many members has it?" is the single question that
+ *  decides whether a corner flyout appears. */
+const POINTER_FAMILY: readonly FamilyMember[] = [
+  { label: "Select", gesture: "pointer" },
+];
 
 const BRUSH_FAMILY: readonly FamilyMember[] = [
-  { effect: "dig" },
-  { effect: "fill" },
-  { effect: "paint" },
-  { effect: "smooth" },
-  { gesture: "segment" },
+  { label: "Dig", effect: "dig" },
+  { label: "Fill", effect: "fill" },
+  { label: "Paint", effect: "paint" },
+  { label: "Smooth", effect: "smooth" },
+  { label: "Segment", gesture: "segment" },
 ];
 
 const SELECT_FAMILY: readonly FamilyMember[] = [
-  { gesture: "box" },
-  { gesture: "material" },
-  { gesture: "void" },
+  { label: "Box", gesture: "box" },
+  { label: "Wand", gesture: "material" },
+  { label: "Room", gesture: "void" },
 ];
 
 /** Which member is armed right now, as an index into `family` — `-1` when none is (the
@@ -228,9 +239,30 @@ function armedIndex(family: readonly FamilyMember[], ctx: ActionCtx): number {
   return family.findIndex((m) => "effect" in m && m.effect === ctx.tool.effect);
 }
 
+/** Arm exactly this member and nothing else.
+ *
+ *  The trailing `setGesture(null)` is what makes the brush family a RING rather than a
+ *  trap, and the bug it fixes was live: `brushArming` deliberately does NOT disarm
+ *  `segment` when a brush effect is picked ("Fill under Segment means sweep a rampart, not
+ *  stop segmenting"), and `armedIndex` resolves by GESTURE first — so once `segment` was
+ *  armed, every ⇧B armed dig, left the gesture on `segment`, and came back to index 4 to
+ *  arm dig again. The cycle could not leave Segment at all, and neither could the rail's
+ *  member flyout.
+ *
+ *  The two rules are about different gestures and both stand: picking a member from THIS
+ *  list is exclusive (the members are Dig | Fill | Paint | Smooth | Segment — one of
+ *  them), while `X`'s dig↔fill swap goes through `armBrush` alone and still keeps a live
+ *  segment, which is exactly where re-aiming is the point. */
 function armMember(member: FamilyMember, ctx: ActionCtx): void {
-  if ("gesture" in member) ctx.run.setGesture(member.gesture);
-  else ctx.run.armBrush(member.effect);
+  if ("gesture" in member) {
+    ctx.run.setGesture(member.gesture);
+    return;
+  }
+  ctx.run.armBrush(member.effect);
+  // Only `segment` needs saying: every other gesture is already dropped inside
+  // `armBrush` (`brushArming.disarmGesture`), and re-pushing a null the host already
+  // holds would be a redundant call on every bare-letter press.
+  if (ctx.gesture === "segment") ctx.run.setGesture(null);
 }
 
 /** Arm the family's CURRENT member — the bare press. With nothing of the family armed it
@@ -259,8 +291,12 @@ function stampMember(ctx: ActionCtx): { id: string; name: string } | null {
 
 /** How a committed entity is named in a sentence. Entities carry no user-facing name —
  *  the palette rows say `hall #7`, and a second spelling here would be a second thing to
- *  keep in agreement with them. */
-const entityName = (e: FieldEntityInfo): string =>
+ *  keep in agreement with them.
+ *
+ *  Exported since F4.5b Task 8: the top strip's pointer readout names the SAME entity the
+ *  rows highlight and the menu labels act on, and three spellings of one name is three
+ *  places a user has to work out they are looking at one object. */
+export const entityName = (e: FieldEntityInfo): string =>
   `${e.generator} #${e.entityId}`;
 
 // --- the table --------------------------------------------------------------
@@ -670,6 +706,138 @@ export const ACTIONS: readonly ActionDef[] = [
     run: (ctx) => ctx.run.workspace.reset(),
   },
 ];
+
+// --- the tool families, as the RAIL renders them -----------------------------
+
+/** One member of a tool family, resolved against the current state — what the rail's
+ *  corner flyout lists and what the ⇧ chord steps through. */
+export type ToolFamilyMember = {
+  /** Stable within its family; the generator id for a stamp, the member label otherwise. */
+  id: string;
+  label: string;
+  /** Is THIS member the one the family is currently on? */
+  armed: boolean;
+  arm: (ctx: ActionCtx) => void;
+};
+
+/** A rail column entry: one family, its arming action, and its members.
+ *
+ *  The rail does not re-implement any of this — it renders `TOOL_FAMILIES` and dispatches
+ *  `arm.run`, so a click and the family's key are the same code path. That is what stops
+ *  the rail and the keyboard from meaning different things, which is the defect class this
+ *  slice has closed four times. */
+export type ToolFamily = {
+  id: "pointer" | "brush" | "select" | "stamp";
+  /** The family's STABLE name, for surfaces that name the set rather than the press —
+   *  the rail's member flyout. Distinct from `arm.label`, which is contextual and may
+   *  name a MEMBER ("Stamp Hall"): a flyout headed "Stamp Hall tools" would be named
+   *  after one of the things it lists. */
+  name: string;
+  /** The action a click on the family BUTTON runs: arm the family's CURRENT member (the
+   *  bare-letter press). Deliberately not the cycle — see `cycle`. */
+  arm: ActionDef;
+  /** The ⇧ chord that steps to the next member; `null` for a one-member family, where a
+   *  cycle key would be a keycap that does nothing. */
+  cycle: ActionDef | null;
+  /** Its members in cycle order. A function because the stamp family's members are the
+   *  host's registry, which the ctx carries. */
+  members: (ctx: ActionCtx) => readonly ToolFamilyMember[];
+  /** Is this the family LMB is currently doing? Exactly one is true at a time. */
+  armed: (ctx: ActionCtx) => boolean;
+};
+
+/** The action with this id. Resolved at module init and THROWS on a miss, so an id
+ *  renamed in the table above cannot leave a rail button wired to nothing — the editor
+ *  fails to import rather than shipping a dead column. */
+function byId(id: string): ActionDef {
+  const def = ACTIONS.find((a) => a.id === id);
+  if (def === undefined) throw new Error(`actions: no action "${id}"`);
+  return def;
+}
+
+/** Turn a static family into resolved members. `armed` comes from the same `armedIndex`
+ *  the ⇧ cycle uses, so the flyout's tick and the cycle's starting point are one answer. */
+const staticMembers =
+  (family: readonly FamilyMember[]) =>
+  (ctx: ActionCtx): readonly ToolFamilyMember[] => {
+    const i = armedIndex(family, ctx);
+    return family.map((m, index) => ({
+      id: m.label,
+      label: m.label,
+      armed: index === i && ctx.session === null,
+      arm: (c: ActionCtx) => armMember(m, c),
+    }));
+  };
+
+/** A live session owns the interaction, so NO gesture family reads as armed while one
+ *  stands — the stamp family does instead (a session IS the staged grammar running).
+ *  Without this the rail would show a brush armed beside a bar saying the tools are
+ *  locked. */
+const idle = (ctx: ActionCtx): boolean => ctx.session === null;
+
+export const TOOL_FAMILIES: readonly ToolFamily[] = [
+  {
+    id: "pointer",
+    name: "Select",
+    arm: byId("tool.pointer"),
+    cycle: null,
+    members: staticMembers(POINTER_FAMILY),
+    armed: (ctx) => idle(ctx) && ctx.gesture === "pointer",
+  },
+  {
+    id: "brush",
+    name: "Brush",
+    arm: byId("tool.brush"),
+    cycle: byId("tool.brushCycle"),
+    members: staticMembers(BRUSH_FAMILY),
+    // `armedIndex` is the whole rule: the brush counts as armed with LMB on the stroke
+    // (gesture null) and under `segment`, whose click commits a brush op.
+    armed: (ctx) => idle(ctx) && armedIndex(BRUSH_FAMILY, ctx) !== -1,
+  },
+  {
+    id: "select",
+    name: "Cell select",
+    arm: byId("tool.select"),
+    cycle: byId("tool.selectCycle"),
+    members: staticMembers(SELECT_FAMILY),
+    armed: (ctx) => idle(ctx) && armedIndex(SELECT_FAMILY, ctx) !== -1,
+  },
+  {
+    id: "stamp",
+    name: "Stamp",
+    arm: byId("tool.stamp"),
+    // ⇧S POINTS the S key at the next generator without opening anything, so it is a
+    // cursor move rather than an arm — but it is still this family's cycle chord, and
+    // naming it here is what lets the rail annotate the flyout with it.
+    cycle: byId("tool.stampCycle"),
+    // The registry generators, straight through: a stamp "member" is a generator, and
+    // picking one OPENS a session rather than arming a mode.
+    members: (ctx) =>
+      ctx.generators.map((g) => ({
+        id: g.id,
+        label: g.name,
+        armed: ctx.session?.generator === g.id,
+        arm: (c: ActionCtx) => c.host?.startStamp(g.id),
+      })),
+    armed: (ctx) => !idle(ctx),
+  },
+];
+
+/** May a CLICK on this action's control run it, and what to say when it may not?
+ *
+ *  The same {@link gateAction} the keyboard uses, with the env a pointer click pins by
+ *  construction: a click lands on the control (never inside a text input), a modal confirm
+ *  covers the surface it would land on, and the fly gate is about a HELD right button
+ *  while this is a left-button press. Routed through the one gate rather than re-spelled,
+ *  because a button that arms what its own key refuses is the two-surfaces-disagree defect
+ *  — and the refusal SENTENCE has to be the same one too. */
+export function clickGate(def: ActionDef, ctx: ActionCtx): GateVerdict {
+  return gateAction(def, ctx, {
+    inTextInput: false,
+    confirmOpen: false,
+    looking: false,
+  });
+}
 
 /** May this action's key fire right now? PURE — everything that changes between renders
  *  arrives in `env`, polled at dispatch time by the caller.

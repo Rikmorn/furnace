@@ -216,56 +216,10 @@ const button = (name: string): HTMLButtonElement =>
 const toastText = (text: string | RegExp): HTMLElement =>
 	within(screen.getByRole("list", { name: "notifications" })).getByText(text);
 
-// --- (a) paint organic-clamp ------------------------------------------------
-
-test("picking Paint while a kit class is active clamps the material to the first organic class", async () => {
-	stubCatalogs({ materials: CATALOG_JSON });
-	const stub = makeStubHost();
-	await renderPanel(stub);
-	// The swatch strip appears once the catalog lands (2 classes > 1).
-	await waitFor(() => screen.getByLabelText("material masonry"));
-	fireEvent.click(screen.getByLabelText("material masonry"));
-	expect(stub.calls.setTool.mock.calls.at(-1)?.[0]).toMatchObject({
-		effect: "dig",
-		materialId: 1,
-	});
-	fireEvent.click(button("Paint"));
-	// Kit masonry (id 1) is unpaintable — the brush pick clamps to rock (id 0).
-	expect(stub.calls.setTool.mock.calls.at(-1)?.[0]).toMatchObject({
-		effect: "paint",
-		materialId: 0,
-	});
-});
-
-// --- (c) the subscribeTool echo guard ---------------------------------------
-
-test("a host-initiated tool push is adopted without re-pushing to host.setTool", async () => {
-	fetch404();
-	const stub = makeStubHost();
-	await renderPanel(stub);
-	// Arm the brush first. The panel opens with the POINTER armed (D-F4.5-7, the
-	// host's own default), and a brush effect deliberately does not read as
-	// pressed while LMB selects instead of brushing — so without this the
-	// assertion below would be about the armed GESTURE, not about the echo guard
-	// this case is for. The pick's own setTool is cleared so the "no echo" claim
-	// still quantifies over everything after the host's push.
-	fireEvent.click(button("Dig"));
-	stub.calls.setTool.mockClear();
-	const fill: FieldTool = {
-		effect: "fill",
-		materialId: 0,
-		mask: { kind: "none" },
-		smooth: { strength: 16, iterations: 1, mode: "both" },
-		hollow: null,
-	};
-	act(() => {
-		stub.fire.tool(fill);
-	});
-	// The panel MIRRORED the change (Fill highlights)…
-	expect(button("Fill").getAttribute("aria-pressed")).toBe("true");
-	// …without echoing it back (re-pushing would re-derive → re-fire → loop).
-	expect(stub.calls.setTool).not.toHaveBeenCalled();
-});
+// (a) The paint organic-clamp and (c) the subscribeTool echo guard LEFT this file with
+// their subjects in F4.5b Task 8: the swatch strip and the armed tool's readout are the
+// top strip's now, and arming an effect is the tool rail's. Both are in
+// tests/chrome/tool-strip.test.tsx, assertion for assertion.
 
 // The single-slot rule, pinned from the side that would break it. Every FieldHost
 // subscribe seam stores ONE callback (`toolCb = cb`), so a panel that subscribed to one
@@ -446,11 +400,15 @@ test("the footer shows the selection count + the truncation warning; Clear reach
 
 /** The scroll container the control sections share, resolved through a section that
  *  must be inside it. Throws (rather than soft-failing an assertion) if the panel's
- *  shape changed — every assertion below is meaningless without it. Anchored on the
- *  brush palette now: the layers row (its first anchor) is the top bar's popover and
- *  the entities heading (its second) is a palette of its own. */
+ *  shape changed — every assertion below is meaningless without it.
+ *
+ *  Anchored on the STAMP form now, which is why the case below opens a session before
+ *  asking: the layers row (its first anchor) is the top bar's View popover, the entities
+ *  heading (its second) is a palette of its own, and the brush palette (its third) is the
+ *  tool rail and the top strip since F4.5b Task 8. What is left in this panel renders
+ *  only when it has something to say. */
 function controlsBox(): HTMLElement {
-	const box = button("Dig").closest(".overflow-y-auto");
+	const box = button("Commit").closest(".overflow-y-auto");
 	if (!(box instanceof HTMLElement))
 		throw new Error(
 			"field panel shape changed: the control sections no longer share a scroll container",
@@ -468,16 +426,25 @@ test("the control sections share ONE scroll container, above the pinned footer",
 	// leaves, and shrinks instead of pushing it out. The F2b 45% cap is gone with the
 	// canvas it was protecting — the panel is controls now, and the world toolbar that
 	// used to pin the top went with the world state (the shell owns it).
+	act(() => {
+		stub.fire.stamp(makeSession({ phase: "configuring" }));
+	});
 	const controls = controlsBox();
 	for (const cls of ["flex-1", "min-h-0", "overflow-y-auto"])
 		expect(controls.classList.contains(cls)).toBe(true);
 	expect(controls.classList.contains("max-h-[45%]")).toBe(false);
-	// The control sections live inside it…
-	expect(controls.contains(button("Dig"))).toBe(true); // brush palette
-	expect(controls.contains(button("Box Select"))).toBe(true); // gesture row
+	// The surviving control sections live inside it…
+	expect(controls.contains(button("Commit"))).toBe(true); // the stamp form
+	expect(controls.contains(screen.getByLabelText("stamp seed"))).toBe(true);
 	// …and the selection footer does not: it stays pinned outside the scroll, which is
 	// the whole point of putting it here.
 	expect(controls.contains(button("Reselect"))).toBe(false);
+	// The brush controls are not in this panel AT ALL any more — the tool families are
+	// the shell's left rail and the armed tool's params are the top strip (F4.5b Task 8).
+	// Compared to null before the expect, for the fiber-graph reason stated below.
+	for (const gone of ["Dig", "Box Select", "Segment"])
+		expect(screen.queryByRole("button", { name: gone }) === null).toBe(true);
+	expect(screen.queryByLabelText("brush radius") === null).toBe(true);
 	// The entity list is not in this panel AT ALL any more — it is the entities
 	// palette's, the first organ out (F4.5a Task 10). Compared to null before the
 	// expect, for the fiber-graph reason stated below.
@@ -492,13 +459,14 @@ test("the control sections share ONE scroll container, above the pinned footer",
 	expect(screen.queryByLabelText("world name") === null).toBe(true);
 	for (const gone of ["Save", "Load", "Bake & make default"])
 		expect(screen.queryByRole("button", { name: gone }) === null).toBe(true);
-	// The tall extreme: a stamp session adds the generator form to the stack — it
-	// lands INSIDE the container, so the pinned rows are untouched.
+	// The tall extreme: the advisor's findings join the stack — they land INSIDE the
+	// container too, so the pinned footer is untouched however long the list gets.
 	act(() => {
-		stub.fire.stamp(makeSession({ phase: "configuring" }));
+		stub.fire.flags(summaryOf([NARROW]));
 	});
 	expect(controlsBox()).toBe(controls);
-	expect(controls.contains(button("Commit"))).toBe(true);
+	expect(controls.contains(screen.getByText("Flags (1)"))).toBe(true);
+	expect(controls.contains(button("Reselect"))).toBe(false);
 });
 
 // --- (k) F3b: the archetypeId picker survives the catalog's ASYNC arrival ----
@@ -703,68 +671,10 @@ test("the props count shows for a prop generator only — a carver never reads '
 	expect(screen.getByText(/0 props/)).toBeDefined();
 });
 
-// --- the panel opens on the same gesture the HOST opens on -------------------
-
-test("Select reads armed on mount, and the brush inspector is hidden behind it", async () => {
-	stubCatalogs({ materials: CATALOG_JSON });
-	const stub = makeStubHost();
-	await renderPanel(stub);
-
-	// The host initialises its armed slot to `pointer` (D-F4.5-7) and the panel
-	// initialises its MIRROR to the same value — across a fence that forbids the
-	// two from sharing the constant (the chrome cannot value-import anything under
-	// `viewport-host/`). Nothing else would catch them diverging: the panel would
-	// simply render the brush as armed while LMB selected, and no call, no throw
-	// and no warning would say so.
-	expect(button("Select").getAttribute("aria-pressed")).toBe("true");
-	// The mirror is an INITIAL VALUE, not a push — the panel must not have told
-	// the host anything to reach this state.
-	expect(stub.calls.setGesture).not.toHaveBeenCalled();
-	// …and the consequence the user sees: LMB selects, so nothing promises a
-	// brush. No radius, and no brush effect highlighted.
-	expect(screen.queryByLabelText("brush radius")).toBeNull();
-	expect(button("Dig").getAttribute("aria-pressed")).toBe("false");
-
-	// Picking a brush is the way out, and it hands LMB back to the stroke.
-	fireEvent.click(button("Dig"));
-	expect(stub.calls.setGesture.mock.calls.at(-1)?.[0]).toBeNull();
-	expect(screen.getByLabelText("brush radius")).toBeTruthy();
-	expect(button("Select").getAttribute("aria-pressed")).toBe("false");
-});
-
-// --- (n) the segment gesture shares the selection slot but keeps the brush ---
-
-test("Segment arms the gesture slot, keeps the brush inspector, and survives an effect pick", async () => {
-	stubCatalogs({ materials: CATALOG_JSON });
-	const stub = makeStubHost();
-	await renderPanel(stub);
-
-	// Arming a SELECTION gesture hides the brush inspector — an armed flood
-	// makes radius/mask promises LMB won't keep.
-	fireEvent.click(button("Wand"));
-	expect(stub.calls.setGesture.mock.calls.at(-1)?.[0]).toBe("material");
-	expect(screen.queryByLabelText("brush radius")).toBeNull();
-
-	// Segment does NOT: its click commits a brush op, so radius (the capsule's
-	// radius) and the rest of the brush parameters stay live and visible.
-	fireEvent.click(button("Segment"));
-	expect(stub.calls.setGesture.mock.calls.at(-1)?.[0]).toBe("segment");
-	expect(screen.getByLabelText("brush radius")).toBeTruthy();
-
-	// …and picking an effect under it re-aims the segment (dig → fill = tunnel →
-	// rampart) instead of disarming it, which is what the SELECTION gestures get.
-	const before = stub.calls.setGesture.mock.calls.length;
-	fireEvent.click(button("Fill"));
-	expect(stub.calls.setTool.mock.calls.at(-1)?.[0]).toMatchObject({
-		effect: "fill",
-	});
-	expect(stub.calls.setGesture.mock.calls.length).toBe(before);
-	expect(
-		screen
-			.getByRole("button", { name: "Segment" })
-			.getAttribute("aria-pressed"),
-	).toBe("true");
-});
+// The mount-arming case and the segment case also left with their subjects (F4.5b Task 8):
+// which family reads as armed is tests/chrome/tool-rail.test.tsx, and which params the
+// armed one shows — including segment riding the brush effect, and the dig↔fill re-aim
+// that survives under it — is tests/chrome/tool-strip.test.tsx.
 
 // --- what the catalog pass SAYS goes to the toast stack ----------------------
 // The F3b gate's finding was that refusals and routine info shared one footer line

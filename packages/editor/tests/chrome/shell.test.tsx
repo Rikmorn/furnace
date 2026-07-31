@@ -1616,9 +1616,12 @@ test("the palette layer floats over the canvas and never swallows viewport input
 	// Docked right by default, and the field controls really are inside it (this is the
 	// field panel, not an empty box that happens to be positioned right).
 	expect(palette.style.right).toBe("0px");
-	expect(palette.contains(screen.getByRole("button", { name: "Dig" }))).toBe(
-		true,
-	);
+	// Anchored on the selection footer's Reselect: the brush controls left this palette
+	// for the rail and the top strip (F4.5b Task 8), and Reselect is what is always in it
+	// — the stamp form and the flags section both render only when they have something.
+	expect(
+		palette.contains(screen.getByRole("button", { name: "Reselect" })),
+	).toBe(true);
 });
 
 test("the entities palette floats clear of the docked controls and the triad", async () => {
@@ -1663,7 +1666,7 @@ test("a pointerdown raises a palette above the others, and does not persist", as
 	// A click on the controls palette's BODY (not its header — the raise must not be a
 	// drag-handle privilege) puts it on top.
 	act(() => {
-		fireEvent.pointerDown(screen.getByRole("button", { name: "Dig" }), {
+		fireEvent.pointerDown(screen.getByRole("button", { name: "Reselect" }), {
 			button: 0,
 			pointerId: 1,
 		});
@@ -1862,7 +1865,7 @@ test("a palette collapses to a rail chip that restores it, keeping its geometry"
 	// `getByText`, not `getByRole`: `hidden` takes the subtree out of the a11y tree,
 	// which is the very claim above, so a role query would find nothing either way.
 	expect(controlsPalette()).toBeNull();
-	expect(screen.getByText("Dig")).toBeTruthy();
+	expect(screen.getByText("Reselect")).toBeTruthy();
 	// The button that was just clicked went with the palette, so focus has to be MOVED
 	// or it lands on <body> and a keyboard user restarts from the top of the document.
 	const chip = screen.getByRole("button", { name: "expand Controls" });
@@ -1897,7 +1900,7 @@ test("⌘\\ hides the whole layer and restores the EXACT arrangement (D-3)", asy
 	expect(screen.getByLabelText("field viewport")).toBe(canvas);
 	// …and it hides rather than UNMOUNTS: ⌘\ is a peek, and a peek that tears the
 	// palettes down would reset every host-subscribed control inside them.
-	expect(screen.getByText("Dig")).toBeTruthy();
+	expect(screen.getByText("Reselect")).toBeTruthy();
 	expect(screen.getByText("Entities (0)")).toBeTruthy();
 
 	act(() => {
@@ -2131,11 +2134,16 @@ test("the canvas cell's insets come from the two bars and nothing else", async (
 	const stub = makeStubHost();
 	await renderShell(stub);
 	const cell = screen.getByLabelText("field viewport").parentElement;
-	const root = cell?.parentElement;
-	if (!(cell instanceof HTMLElement) || !(root instanceof HTMLElement))
+	const row = cell?.parentElement;
+	const root = row?.parentElement;
+	if (
+		!(cell instanceof HTMLElement) ||
+		!(row instanceof HTMLElement) ||
+		!(root instanceof HTMLElement)
+	)
 		throw new Error("shell root missing");
 
-	// A fixed, full-window column: bar, cell, bar. `fixed inset-0` is what keeps the
+	// A fixed, full-window column: bar, body row, bar. `fixed inset-0` is what keeps the
 	// page from scrolling as a whole — the shell owns the viewport.
 	for (const cls of ["fixed", "inset-0", "flex", "flex-col"])
 		expect(root.classList.contains(cls)).toBe(true);
@@ -2144,16 +2152,29 @@ test("the canvas cell's insets come from the two bars and nothing else", async (
 	// here silently, which is the regression most likely to actually happen.
 	expect(root.children.length).toBe(3);
 	const [header, middle, footer] = [...root.children];
-	expect(middle).toBe(cell);
+	expect(middle).toBe(row);
 	expect(header?.tagName).toBe("HEADER");
 	expect(footer?.tagName).toBe("FOOTER");
-	// Fixed heights, never shrinking: they ARE the cell's inset budget.
+	// Fixed heights, never shrinking: they ARE two thirds of the cell's inset budget.
 	for (const bar of [header, footer]) {
 		expect(bar?.classList.contains("shrink-0")).toBe(true);
 		expect(bar?.contains(cell)).toBe(false);
 	}
 	expect(header?.classList.contains("h-10")).toBe(true);
 	expect(footer?.classList.contains("h-7")).toBe(true);
+
+	// The third inset is the tool rail (F4.5b Task 8): a fixed 44 px COLUMN, the row's
+	// only other child, and a sibling of the cell rather than a parent of it. The same
+	// count assertion carries the same force one level down — a palette that crept into
+	// this row as a flex sibling is the exact regression the whole layer exists to
+	// prevent, and it would take width off the canvas permanently.
+	expect(row.children.length).toBe(2);
+	const [rail, canvasCell] = [...row.children];
+	expect(canvasCell).toBe(cell);
+	expect(rail?.tagName).toBe("NAV");
+	for (const cls of ["w-11", "shrink-0"])
+		expect(rail?.classList.contains(cls)).toBe(true);
+	expect(rail?.contains(cell)).toBe(false);
 });
 
 test("no dock DOM survives", async () => {

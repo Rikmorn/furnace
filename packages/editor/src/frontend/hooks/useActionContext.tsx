@@ -11,13 +11,20 @@
 // `useWorkspace.tsx`'s header names. Here, `children` arrive already built from the
 // parent, so a re-render of this component reaches only the actual context CONSUMERS.
 //
-// There are exactly TWO of those, both inside surfaces that unmount when closed, and both
+// There are THREE of those. Two are inside surfaces that unmount when closed, and both
 // deliberately: the burger's `RegistryGroup` (Radix mounts menu content only while open)
 // and `ShortcutsBody` inside the overlay's `DialogContent` (the Portal renders nothing
 // while closed). Read one level higher in either and a closed menu or a closed dialog
 // would rebuild its rows on every stats push — and at pointer rate during a grab, since
-// the session is a ctx dep. The status bar's `KeymapLine` is NOT a consumer: it reads the
-// two narrow contexts it needs (`useFieldTool`, `useFieldStamp`) and stays off this one.
+// the session is a ctx dep.
+//
+// The third is `ToolRail` (F4.5b Task 8), and it is ALWAYS mounted — the one consumer that
+// pays this cost continuously. That was taken deliberately rather than by omission: the
+// rail renders four buttons whose armed/disabled state is a function of `gesture`, `tool`,
+// `session` and `generators`, i.e. of the ctx, and the alternative is publishing a second
+// narrower context beside this one for a four-button column. Its own header records the
+// tradeoff. The status bar's `KeymapLine` is NOT a consumer: it reads the two narrow
+// contexts it needs (`useFieldTool`, `useFieldStamp`) and stays off this one.
 //
 // The two ends of an action live in different places on purpose. What an action DOES is
 // in `lib/actions.ts` (pure, testable without React); what it can SEE is assembled here.

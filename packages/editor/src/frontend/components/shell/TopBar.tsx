@@ -8,6 +8,7 @@
 // out of the bar anyway; keeping the pair together keeps the world state out of the
 // component that builds the palette bodies.
 import { useState } from "react";
+import { useFieldStamp } from "../../hooks/useFieldHostState.tsx";
 import {
 	useWorkspaceActions,
 	useWorkspaceState,
@@ -16,6 +17,8 @@ import { useWorldActions, useWorldState } from "../../hooks/useWorld.tsx";
 import { ReasonTip } from "../field/form-bits.tsx";
 import { Button } from "../ui/button.tsx";
 import { BurgerMenu } from "./BurgerMenu.tsx";
+import { SessionStrip } from "./SessionStrip.tsx";
+import { ToolStrip } from "./ToolStrip.tsx";
 import { ViewPopover } from "./ViewPopover.tsx";
 import { WorldDrawer } from "./WorldDrawer.tsx";
 
@@ -49,11 +52,55 @@ function WorldChip() {
 	);
 }
 
+/** The bar's middle: the armed tool's params, or — while a session stands — what that
+ *  session is and how it ends (mock frames 1 and 2).
+ *
+ *  Its OWN component so `TopBar` does not read the session context: `subscribeStamp` pushes
+ *  a clone on every nudge and every preview run, i.e. at pointer rate during a move, and a
+ *  read one level up would re-render the burger menu, the world chip and the mounted world
+ *  drawer with it. The `KeymapLine` precedent, one bar over. */
+function TopBarStrip() {
+	const { stamp } = useFieldStamp();
+	return stamp === null ? <ToolStrip /> : <SessionStrip session={stamp} />;
+}
+
+/** Bake, and its disappearing act (mock frame 2).
+ *
+ *  Hidden — not disabled — while a session is live, and the reason is what it would DO:
+ *  bake exports through `host.exportArtifact` → `bakeFieldWorld(store, log, …)`, i.e. from
+ *  the COMMITTED field and op log, and a live session's ghost is in neither (a preview
+ *  only splices in at commit). Baking here would quietly write a world without the
+ *  thing on screen. Disabling it would need a reason string that says all that in a
+ *  tooltip; removing it says it by being gone, next to a strip that names the two keys
+ *  that end the session.
+ *
+ *  A leaf component for `TopBarStrip`'s reason — the session pushes at pointer rate. */
+function BakeButton() {
+	const { name, busy } = useWorldState();
+	const { bake } = useWorldActions();
+	const { stamp } = useFieldStamp();
+	if (stamp !== null) return null;
+	return (
+		// Bake writes worlds/index.json as well as the world, so it needs a name to write
+		// about. Disabled rather than silently substituting a save-as: the two verbs commit
+		// to different things.
+		<ReasonTip reason={name === null ? UNTITLED_REASON : undefined}>
+			<Button
+				type="button"
+				size="sm"
+				variant="secondary"
+				disabled={busy || name === null}
+				onClick={bake}
+			>
+				Bake
+			</Button>
+		</ReasonTip>
+	);
+}
+
 export function TopBar() {
 	const { hidden } = useWorkspaceState();
 	const { toggleHidden } = useWorkspaceActions();
-	const { name, busy } = useWorldState();
-	const { bake } = useWorldActions();
 	// CONTROLLED, because the burger's "View options…" opens it: the two surfaces sit side
 	// by side in this bar, and the menu item is how someone who has not yet worked out what
 	// the ⬒ chip is finds the layer gates behind it.
@@ -67,21 +114,11 @@ export function TopBar() {
 			{/* Beside the world chip, because they answer the two questions a user asks of
           the bar: WHICH world is this, and what am I looking at. */}
 			<ViewPopover open={viewOpen} onOpenChange={setViewOpen} />
-			<div className="flex-1" />
-			{/* Bake writes worlds/index.json as well as the world, so it needs a name to
-          write about. Disabled rather than silently substituting a save-as: the two
-          verbs commit to different things. */}
-			<ReasonTip reason={name === null ? UNTITLED_REASON : undefined}>
-				<Button
-					type="button"
-					size="sm"
-					variant="secondary"
-					disabled={busy || name === null}
-					onClick={bake}
-				>
-					Bake
-				</Button>
-			</ReasonTip>
+			<span aria-hidden="true" className="h-5 w-px shrink-0 bg-border" />
+			{/* The strip takes the free space itself (`flex-1` inside), so the bar has no
+          separate spacer: two flex-1 siblings would split the width and halve the strip. */}
+			<TopBarStrip />
+			<BakeButton />
 			{/* A BUTTON, not the hint it started as: the chord is live now, and the
           affordance that advertises it may as well perform it — a keycap you cannot
           click is a worse version of a control that teaches its own shortcut. The
@@ -90,7 +127,7 @@ export function TopBar() {
 				type="button"
 				size="sm"
 				variant="ghost"
-				className="h-7 px-2 font-normal text-muted-foreground text-xs"
+				className="h-7 shrink-0 px-2 font-normal text-muted-foreground text-xs"
 				onClick={toggleHidden}
 			>
 				⌘\ {hidden ? "show" : "hide"} palettes

@@ -1,0 +1,293 @@
+// The brush's option set: which params each effect HAS, and how each one renders.
+//
+// It lives in its own module because two surfaces render from it — the top strip
+// (`ToolStrip`) and the ⋯ popover (`StripOverflow`) — and the whole capacity rule (D-6)
+// rests on those two being ONE list rather than two that agree. The strip renders a
+// prefix; the popover renders the whole thing.
+//
+// The controls are the ones `BrushInspector` and the panel's swatch strip had: the same
+// control KINDS (native `<select>`s, range inputs, a native checkbox) and the same
+// accessible names, resized for a 40 px bar. Moved and re-fitted, never re-chosen —
+// D-25's forms vocabulary is Task 11's and D-24's Biome rule (no raw `<select>` outside
+// `components/ui/`) is F4.5c's, and swapping the control kind here would have cost the
+// app-level key gate its only native-`<select>` guard while changing nothing a user can
+// see. The net count of raw controls in the chrome is unchanged by this move.
+import type { MaterialTable } from "@furnace/core/field"; // type-only: erased
+import type { ReactNode } from "react";
+import type {
+	FieldMaskChoice,
+	FieldTool,
+} from "../../../viewport-host/index.ts"; // type-only: erased
+import { cn } from "../../lib/cn.ts";
+import { SELECT_CLASS } from "../field/form-bits.tsx";
+import { MaterialSwatches } from "../field/MaterialSwatches.tsx";
+
+// Mirror FieldHost's radius clamp range (RADIUS_MIN/MAX) — the chrome cannot import the
+// host's value constants (type-only barrel).
+const RADIUS_MIN = 0.25;
+const RADIUS_MAX = 4;
+const RADIUS_STEP = 0.05;
+
+// Fill-only shell-band floor/step (metres) — mirrors the host's HOLLOW_MIN_M clamp and
+// the 0.5 m kit lattice. The input does not re-clamp typed values (the host is the
+// enforcement point); min/step keep the native steppers on valid values.
+const HOLLOW_MIN_M = 0.5;
+const HOLLOW_STEP_M = 0.5;
+const HOLLOW_DEFAULT_M = 0.5;
+
+const LABEL_CLASS = "flex items-center gap-1.5 whitespace-nowrap";
+const STRIP_SELECT_CLASS = "h-7 text-xs";
+
+export type BrushEffect = FieldTool["effect"];
+
+export type ParamId =
+	| "radius"
+	| "mask"
+	| "material"
+	| "hollow"
+	| "strength"
+	| "iterations"
+	| "mode";
+
+/**
+ * Per effect: the WHOLE option list in priority order, and how many of them the strip
+ * carries (D-6's ≤4 cap). The ⋯ renders `all`; the strip renders its first `onStrip`.
+ *
+ * ONE table, deliberately — this is the single-source-of-truth point the whole capacity
+ * rule leans on. A second list beside the popover is exactly how "the ⋯ holds everything
+ * the strip shows plus the rest" would quietly stop being true.
+ *
+ * The per-effect membership is the DEAD-CONTROL FIX: `FieldTool`'s own doc says
+ * `materialId` is "ignored by dig and smooth", so the swatches appear under paint and fill
+ * and nowhere else. The panel this replaces showed them permanently, under every tool.
+ */
+export const TOOL_OPTIONS: Record<
+	BrushEffect,
+	{ all: readonly ParamId[]; onStrip: number }
+> = {
+	// Dig writes air: no class, no shell band. Its full set and its strip set are the same
+	// two, so its ⋯ is a reachability guarantee rather than a drawer.
+	dig: { all: ["radius", "mask"], onStrip: 2 },
+	fill: { all: ["radius", "mask", "material", "hollow"], onStrip: 4 },
+	paint: { all: ["radius", "mask", "material"], onStrip: 3 },
+	// The only effect whose list is longer than its strip: iterations and the mask are the
+	// two a user sets once and leaves, so they live behind the ⋯.
+	smooth: {
+		all: ["radius", "strength", "mode", "iterations", "mask"],
+		onStrip: 3,
+	},
+};
+
+/** Everything a param renderer reads or writes. Assembled once by the strip and handed to
+ *  both renderings, so the popover's controls drive the same funnels the strip's do. */
+export type ParamContext = {
+	tool: FieldTool;
+	radius: number;
+	setTool: (next: FieldTool) => void;
+	setRadius: (r: number) => void;
+	classes: MaterialTable["classes"];
+	smoothLimits: { maxStrength: number; maxIterations: number };
+};
+
+/** The params an effect can actually SHOW right now — `TOOL_OPTIONS[effect].all` minus the
+ *  ones the project cannot fill. Filtering happens before the strip slices, so a material
+ *  param a one-class catalog cannot fill never eats one of the strip's four slots and
+ *  leaves a real control stranded behind the ⋯. */
+export function availableParams(
+	effect: BrushEffect,
+	classes: MaterialTable["classes"],
+): readonly ParamId[] {
+	return TOOL_OPTIONS[effect].all.filter((id) =>
+		id === "material" ? classes.length > 1 : true,
+	);
+}
+
+/** One param, wherever it is rendered. */
+export function Param({ id, ctx }: { id: ParamId; ctx: ParamContext }) {
+	return PARAM_RENDERER[id](ctx);
+}
+
+/** Encode a mask choice as the `<select>` value (`class:<id>` for classes). */
+const maskValue = (m: FieldMaskChoice): string =>
+	m.kind === "class" ? `class:${m.classId}` : m.kind;
+
+/** Decode a `<select>` value back to a mask choice. Values come from our own option set,
+ *  so anything unrecognised (impossible) falls back to none. */
+const parseMask = (v: string): FieldMaskChoice => {
+	if (v.startsWith("class:"))
+		return { kind: "class", classId: Number(v.slice("class:".length)) };
+	if (v === "organic-only" || v === "kit-only" || v === "selection")
+		return { kind: v };
+	return { kind: "none" };
+};
+
+const parseSmoothMode = (v: string): FieldTool["smooth"]["mode"] =>
+	v === "erode" || v === "fill" ? v : "both";
+
+/** A `Record` rather than a switch, so a param added to {@link TOOL_OPTIONS} without a
+ *  renderer is a type error rather than a blank space on the strip. */
+const PARAM_RENDERER: Record<ParamId, (ctx: ParamContext) => ReactNode> = {
+	radius: (ctx) => (
+		<label className={LABEL_CLASS}>
+			radius
+			<input
+				type="range"
+				min={RADIUS_MIN}
+				max={RADIUS_MAX}
+				step={RADIUS_STEP}
+				value={ctx.radius}
+				onChange={(e) => ctx.setRadius(Number(e.target.value))}
+				// The accessible name contains the visible "radius" text (the label-in-name
+				// rule) — voice-control users say what they see.
+				aria-label="brush radius"
+				className="w-20"
+			/>
+			<span className="w-11 text-right font-mono text-foreground tabular-nums">
+				{ctx.radius.toFixed(2)} m
+			</span>
+		</label>
+	),
+	mask: (ctx) => (
+		<label className={LABEL_CLASS}>
+			mask
+			<select
+				value={maskValue(ctx.tool.mask)}
+				onChange={(e) =>
+					ctx.setTool({ ...ctx.tool, mask: parseMask(e.target.value) })
+				}
+				aria-label="brush mask"
+				className={cn(SELECT_CLASS, STRIP_SELECT_CLASS, "w-28")}
+			>
+				<option value="none">None</option>
+				<option value="organic-only">Organic only</option>
+				<option value="kit-only">Kit only</option>
+				<option value="selection">Inside selection</option>
+				{ctx.classes.map((c) => (
+					<option key={c.id} value={`class:${c.id}`}>
+						Only {c.name}
+					</option>
+				))}
+			</select>
+		</label>
+	),
+	material: (ctx) => (
+		<span className={LABEL_CLASS}>
+			mat
+			<MaterialSwatches
+				classes={ctx.classes}
+				activeId={ctx.tool.materialId}
+				disableKit={ctx.tool.effect === "paint"}
+				onSelect={(id) => ctx.setTool({ ...ctx.tool, materialId: id })}
+			/>
+		</span>
+	),
+	hollow: (ctx) => (
+		<span className={LABEL_CLASS}>
+			<label className={LABEL_CLASS}>
+				<input
+					type="checkbox"
+					checked={ctx.tool.hollow !== null}
+					onChange={(e) =>
+						ctx.setTool({
+							...ctx.tool,
+							hollow: e.target.checked ? HOLLOW_DEFAULT_M : null,
+						})
+					}
+					aria-label="hollow fill"
+				/>
+				hollow
+			</label>
+			{ctx.tool.hollow !== null && (
+				<input
+					type="number"
+					min={HOLLOW_MIN_M}
+					step={HOLLOW_STEP_M}
+					value={ctx.tool.hollow}
+					onChange={(e) => {
+						const n = Number(e.target.value);
+						if (Number.isFinite(n)) ctx.setTool({ ...ctx.tool, hollow: n });
+					}}
+					onBlur={() => {
+						// Display honesty (F2b rider): the HOST clamps hollow to ≥ HOLLOW_MIN_M
+						// on setTool, so a settled sub-floor value here would display 0.2 while
+						// strokes carve 0.5. Clamp on BLUR, not per keystroke — a mid-typing
+						// clamp would fight entering "0.75".
+						if (ctx.tool.hollow !== null && ctx.tool.hollow < HOLLOW_MIN_M)
+							ctx.setTool({ ...ctx.tool, hollow: HOLLOW_MIN_M });
+					}}
+					aria-label="hollow thickness"
+					className="h-7 w-14 rounded-md border border-input bg-transparent px-1.5 font-mono text-foreground text-xs"
+				/>
+			)}
+		</span>
+	),
+	strength: (ctx) => (
+		<label className={LABEL_CLASS}>
+			strength
+			<input
+				type="range"
+				min={1}
+				max={ctx.smoothLimits.maxStrength}
+				step={1}
+				value={ctx.tool.smooth.strength}
+				onChange={(e) =>
+					ctx.setTool({
+						...ctx.tool,
+						smooth: { ...ctx.tool.smooth, strength: Number(e.target.value) },
+					})
+				}
+				aria-label="smooth strength"
+				className="w-16"
+			/>
+			<span className="w-6 text-right font-mono text-foreground tabular-nums">
+				{ctx.tool.smooth.strength}
+			</span>
+		</label>
+	),
+	iterations: (ctx) => (
+		<label className={LABEL_CLASS}>
+			iters
+			<select
+				value={ctx.tool.smooth.iterations}
+				onChange={(e) =>
+					ctx.setTool({
+						...ctx.tool,
+						smooth: { ...ctx.tool.smooth, iterations: Number(e.target.value) },
+					})
+				}
+				aria-label="smooth iterations"
+				className={cn(SELECT_CLASS, STRIP_SELECT_CLASS, "w-16")}
+			>
+				{Array.from({ length: ctx.smoothLimits.maxIterations }, (_, i) => (
+					// biome-ignore lint/suspicious/noArrayIndexKey: static 1..N option list, never reordered — the index is the stable identity
+					<option key={i + 1} value={i + 1}>
+						{i + 1}
+					</option>
+				))}
+			</select>
+		</label>
+	),
+	mode: (ctx) => (
+		<label className={LABEL_CLASS}>
+			mode
+			<select
+				value={ctx.tool.smooth.mode}
+				onChange={(e) =>
+					ctx.setTool({
+						...ctx.tool,
+						smooth: {
+							...ctx.tool.smooth,
+							mode: parseSmoothMode(e.target.value),
+						},
+					})
+				}
+				aria-label="smooth mode"
+				className={cn(SELECT_CLASS, STRIP_SELECT_CLASS, "w-24")}
+			>
+				<option value="both">Both</option>
+				<option value="erode">Erode only</option>
+				<option value="fill">Fill only</option>
+			</select>
+		</label>
+	),
+};
