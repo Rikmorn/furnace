@@ -28,6 +28,7 @@ import {
 	DropdownMenu,
 	DropdownMenuCheckboxItem,
 	DropdownMenuContent,
+	DropdownMenuGroup,
 	DropdownMenuItem,
 	DropdownMenuLabel,
 	DropdownMenuSeparator,
@@ -36,21 +37,14 @@ import {
 } from "../ui/dropdown-menu.tsx";
 import { ShortcutsDialog } from "./ShortcutsDialog.tsx";
 
-const MAKE_DEFAULT_TITLE =
-	"point the game at the SAVED copy of this world — Bake if you want the edits in this session to go with it";
-
-/** The per-item title a registry action gets, where a disabled item would otherwise
- *  swallow its own explanation. Keyed by id rather than carried on the table because it
- *  is a MENU concern — the same action reached by its chord has no tooltip. */
-const ITEM_TITLES: Record<string, string> = {
-	"world.makeDefault": MAKE_DEFAULT_TITLE,
-	"edit.history": "arrives with the History palette",
-};
-
 /** One registry group, rendered in table order. Its own component so the action context
  *  — which moves on every op and every drag frame — is read inside the menu CONTENT:
  *  Radix mounts that content only while the menu is open, so a closed menu costs nothing
- *  and the trigger sitting in the top bar never re-renders with it. */
+ *  and the trigger sitting in the top bar never re-renders with it.
+ *
+ *  `DropdownMenuGroup` + `aria-labelledby` is what ASSOCIATES the heading with its items;
+ *  a bare `DropdownMenuLabel` beside them is a heading a screen reader announces once and
+ *  then leaves behind, so every item below it is unattributed. */
 function RegistryGroup({
 	group,
 	title,
@@ -59,41 +53,48 @@ function RegistryGroup({
 	title: string;
 }) {
 	const ctx = useActionContext();
+	const labelId = `burger-group-${group}`;
 	return (
-		<>
-			<DropdownMenuLabel>{title}</DropdownMenuLabel>
+		<DropdownMenuGroup aria-labelledby={labelId}>
+			<DropdownMenuLabel id={labelId}>{title}</DropdownMenuLabel>
 			{ACTIONS.filter((a) => a.group === group).map((action) => {
-				const item = {
-					disabled: !action.enabled(ctx),
-					title: ITEM_TITLES[action.id],
-				};
+				// The chord rides BOTH branches: a checkbox action with a `keys` would
+				// otherwise lose it silently, and `view.togglePalettes` is one keycap away
+				// from being exactly that.
+				const chord = action.keys !== undefined && (
+					<DropdownMenuShortcut>{action.keys}</DropdownMenuShortcut>
+				);
+				// `title` is shown only where it can be READ: a disabled item carries
+				// `pointer-events-none`, so it never surfaces a native tooltip — which is
+				// why an action whose reason applies while DISABLED puts it in the label
+				// instead (world.bake, edit.history).
+				const disabled = !action.enabled(ctx);
 				// A checkbox item where the action reports a checked state, a plain item
 				// otherwise — the one structural difference a menu needs from the table.
 				return action.checked === undefined ? (
 					<DropdownMenuItem
 						key={action.id}
-						disabled={item.disabled}
-						title={item.title}
+						disabled={disabled}
+						title={action.menuTitle}
 						onSelect={() => action.run(ctx)}
 					>
 						{action.label(ctx)}
-						{action.keys !== undefined && (
-							<DropdownMenuShortcut>{action.keys}</DropdownMenuShortcut>
-						)}
+						{chord}
 					</DropdownMenuItem>
 				) : (
 					<DropdownMenuCheckboxItem
 						key={action.id}
 						checked={action.checked(ctx)}
-						disabled={item.disabled}
-						title={item.title}
+						disabled={disabled}
+						title={action.menuTitle}
 						onCheckedChange={() => action.run(ctx)}
 					>
 						{action.label(ctx)}
+						{chord}
 					</DropdownMenuCheckboxItem>
 				);
 			})}
-		</>
+		</DropdownMenuGroup>
 	);
 }
 

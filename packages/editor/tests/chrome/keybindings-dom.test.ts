@@ -15,15 +15,56 @@ import { expect, test } from "bun:test";
 import { isTextInputTarget } from "../../src/frontend/lib/keybindings.ts";
 import "../inspector/_register.ts";
 
-test("isTextInputTarget recognises inputs, textareas and contentEditable", () => {
-  const input = document.createElement("input");
+/** An `<input>` of `type`. Built through the attribute rather than the property so the
+ *  fixture goes through the same normalisation the DOM applies to real markup. */
+const inputOf = (type: string): HTMLInputElement => {
+  const el = document.createElement("input");
+  if (type !== "") el.setAttribute("type", type);
+  return el;
+};
+
+test("isTextInputTarget: typed text ENTRY — a textarea, a select, a text field", () => {
   const textarea = document.createElement("textarea");
-  const div = document.createElement("div");
   const editable = document.createElement("div");
   editable.contentEditable = "true";
-  expect(isTextInputTarget(input)).toBe(true);
   expect(isTextInputTarget(textarea)).toBe(true);
   expect(isTextInputTarget(editable)).toBe(true);
-  expect(isTextInputTarget(div)).toBe(false);
+  // An <input> with no type attribute IS a text field — the empty-string case.
+  expect(isTextInputTarget(inputOf(""))).toBe(true);
+  for (const type of [
+    "text",
+    "search",
+    "url",
+    "tel",
+    "email",
+    "password",
+    "number",
+  ])
+    expect({ type, matched: isTextInputTarget(inputOf(type)) }).toEqual({
+      type,
+      matched: true,
+    });
+});
+
+test("isTextInputTarget: a <select> counts — Esc and ⏎ belong to its popup", () => {
+  // The direction that loses WORK. These panels use native selects (form-bits.tsx says
+  // why), one of them the merge-policy select rendered DURING a live stamp session:
+  // Esc there is the conventional dismiss for the dropdown, and an unclaimed Esc runs
+  // the cancel ladder and discards the session being configured.
+  expect(isTextInputTarget(document.createElement("select"))).toBe(true);
+});
+
+test("isTextInputTarget: a control you OPERATE is not typed text", () => {
+  // The direction that loses BINDINGS. `range` is the sharp one — the brush-radius
+  // slider is dragged while looking at the field, so matching it would make V/B/F dead
+  // exactly there (the "touch a panel and the keys stop working" defect, relocated).
+  for (const type of ["range", "checkbox", "radio", "color", "file", "button"])
+    expect({ type, matched: isTextInputTarget(inputOf(type)) }).toEqual({
+      type,
+      matched: false,
+    });
+  expect(isTextInputTarget(document.createElement("div"))).toBe(false);
+  expect(isTextInputTarget(document.createElement("canvas"))).toBe(false);
+  expect(isTextInputTarget(document.createElement("button"))).toBe(false);
   expect(isTextInputTarget(null)).toBe(false);
 });

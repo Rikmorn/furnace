@@ -197,7 +197,7 @@ function Feed({
 							<WorkspaceProvider store={undefined}>
 								{/* The burger's groups and the shortcut overlay render FROM the
 								    action registry, so the bar needs the context that assembles it. */}
-								<ActionContextProvider>
+								<ActionContextProvider host={stub.host}>
 									<TopBar />
 								</ActionContextProvider>
 							</WorkspaceProvider>

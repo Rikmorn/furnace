@@ -5,109 +5,10 @@
 //
 // Its sibling `tests/keybindings.test.ts` owns the other half: which EVENT reaches which
 // entry, and the gate that refuses it.
-import { expect, mock, test } from "bun:test";
-import { ACTIONS, type ActionCtx } from "../src/frontend/lib/actions.ts";
-import type { FieldEntityInfo, FieldHost } from "../src/viewport-host/index.ts";
-
-export function makeHostSpy() {
-  return {
-    undo: mock(),
-    redo: mock(),
-    deleteEntity: mock(),
-    duplicateEntity: mock(),
-    beginMove: mock(),
-    frameSelection: mock(),
-    startStamp: mock(),
-    commitSession: mock(),
-    rotateStamp: mock(),
-    escape: mock(),
-    isLooking: mock(() => false),
-  };
-}
-
-export function makeCtx(over: Partial<ActionCtx> = {}): ActionCtx {
-  const host = makeHostSpy();
-  return {
-    host: host as unknown as FieldHost,
-    gesture: "pointer",
-    tool: {
-      effect: "dig",
-      materialId: 0,
-      mask: { kind: "none" },
-      smooth: { strength: 16, iterations: 1, mode: "both" },
-      hollow: null,
-    },
-    session: null,
-    selectedEntity: null,
-    selection: null,
-    stats: null,
-    world: { name: null, dirty: false, busy: false },
-    view: {
-      shading: "studio",
-      layers: {
-        field: true,
-        kit: true,
-        props: true,
-        ghost: true,
-        selection: true,
-        grid: true,
-        flags: true,
-        voidCast: false,
-      },
-      slice: { enabled: false, y: 8 },
-      sampleCount: 4,
-    },
-    workspace: { hidden: false },
-    generators: [
-      { id: "hall", name: "Hall" },
-      { id: "maze", name: "Maze" },
-      { id: "cave", name: "Cave" },
-      { id: "scatter", name: "Scatter" },
-    ],
-    stampCursor: null,
-    history: { undoLabel: null, redoLabel: null },
-    run: {
-      world: {
-        save: mock(),
-        saveAs: mock(),
-        bake: mock(),
-        open: mock(),
-        reset: mock(),
-        makeDefault: mock(),
-        rename: mock(),
-        duplicate: mock(),
-        remove: mock(),
-        openDrawer: mock(),
-        closeDrawer: mock(),
-      },
-      view: {
-        setShading: mock(),
-        setLayers: mock(),
-        setSlice: mock(),
-        setSampleCount: mock(),
-      },
-      workspace: {
-        move: mock(),
-        setCollapsed: mock(),
-        setOpen: mock(),
-        toggleHidden: mock(),
-        setHidden: mock(),
-        reset: mock(),
-      },
-      openConfirm: mock(),
-      setGesture: mock(),
-      armBrush: mock(),
-      setStampCursor: mock(),
-    },
-    ...over,
-  };
-}
-
-export const byId = (id: string) => {
-  const def = ACTIONS.find((a) => a.id === id);
-  if (def === undefined) throw new Error(`test: no action "${id}"`);
-  return def;
-};
+import { expect, type mock, test } from "bun:test";
+import { ACTIONS } from "../src/frontend/lib/actions.ts";
+import type { FieldEntityInfo } from "../src/viewport-host/index.ts";
+import { byId, makeCtx, type makeHostSpy } from "./_actions-fixture.ts";
 
 const entity = (over: Partial<FieldEntityInfo> = {}): FieldEntityInfo =>
   ({
@@ -124,9 +25,17 @@ const entity = (over: Partial<FieldEntityInfo> = {}): FieldEntityInfo =>
 
 // --- the table's own shape --------------------------------------------------
 
-test("every action id is unique", () => {
+test("every action id is unique, and names its own group", () => {
   const ids = ACTIONS.map((a) => a.id);
   expect(new Set(ids).size).toBe(ids.length);
+  // `group.verb` is what makes an id readable in a menu-order assertion or a failure
+  // message without a lookup — and the burger renders BY group, so an id whose prefix
+  // lies puts the item somewhere its name does not predict.
+  for (const a of ACTIONS)
+    expect({ id: a.id, prefixed: a.id.startsWith(`${a.group}.`) }).toEqual({
+      id: a.id,
+      prefixed: true,
+    });
 });
 
 test("every displayed chord is unique — one key, one action", () => {
@@ -251,13 +160,13 @@ test("the session verbs need a session; Esc never disables", () => {
       makeCtx({ session: { generator: "hall" } as never }),
     ),
   ).toBe(true);
-  // A MOVE is the canvas's ⏎ (it drops the grab rather than applying it), and a move
-  // that is still live means the canvas has focus.
-  expect(
-    byId("session.confirm").enabled(
-      makeCtx({ session: { generator: "hall", moving: true } as never }),
-    ),
-  ).toBe(false);
+  // A MOVE keeps it LIVE and renames it, because `beginMove` does not focus the canvas:
+  // a grab started from the Edit menu has no canvas listener to answer ⏎ with.
+  const moving = makeCtx({
+    session: { generator: "hall", moving: true } as never,
+  });
+  expect(byId("session.confirm").enabled(moving)).toBe(true);
+  expect(byId("session.confirm").label(moving)).toBe("Drop the move");
   expect(byId("session.escape").enabled(makeCtx())).toBe(true);
 });
 

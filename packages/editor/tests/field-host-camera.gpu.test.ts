@@ -151,6 +151,8 @@ async function cameraFixture(opts: { frames?: boolean } = {}) {
 
   const selections: (SelectionInfo | null)[] = [];
   host.subscribeSelection((s) => selections.push(s));
+  const entitySelections: (number | null)[] = [];
+  host.subscribeEntitySelection((id) => entitySelections.push(id));
   // The pose seam is how a test sees the camera TURN. The eye alone cannot: a
   // fly-look pins the eye by definition, so "the eye did not move" is satisfied
   // just as well by nothing having happened at all.
@@ -262,6 +264,7 @@ async function cameraFixture(opts: { frames?: boolean } = {}) {
     host,
     entityId,
     selections,
+    entitySelections,
     footprintCentre,
     footprintLongest,
     /** The camera's current orientation, off the pose seam. */
@@ -698,13 +701,78 @@ test.skipIf(!bunWebGpuAvailable())(
       f.key("Escape");
       expect(f.claimed).toEqual({ preventDefault: 0, stopPropagation: 0 });
 
-      // While the right button is down the letters belong to the FLY, so the
-      // canvas's own R and F stand down — the same rule the app gate applies, so
-      // the two cannot answer one keypress differently.
+      // A live LOOK does not change any of this, and that is deliberate: `r` and `f`
+      // are not fly letters (`readFlyMove` reads w/a/s/d/q/e), so framing or turning
+      // a ghost mid-orbit collides with nothing. The app-level gate draws the same
+      // line — it stands down only for the actions marked `flyLetter`.
       f.down(CENTRE, CENTRE, 2);
       f.key("f");
-      expect(f.claimed).toEqual({ preventDefault: 0, stopPropagation: 0 });
+      expect(f.claimed).toEqual({ preventDefault: 1, stopPropagation: 1 });
       f.up(2);
+    } finally {
+      f.teardown();
+    }
+  },
+);
+
+// --- the Esc LADDER's order (D-12) ------------------------------------------
+
+test.skipIf(!bunWebGpuAvailable())(
+  "Esc cancels ONE thing per press, most recent intent first",
+  async () => {
+    // The order IS the claim here. Before this case the rungs were only reachable
+    // through incidental move/gizmo tests, and rung 4 (the cell selection) was
+    // reachable through none — deleting it left the whole suite green.
+    //
+    // Two independent witnesses per press, which is what makes "one thing" checkable:
+    // `claimed` says the ladder ACTED at all (the canvas branch stops the event only
+    // when it did), and the two selection seams say what it did NOT touch.
+    const f = await cameraFixture();
+    try {
+      // Stack all three cancellables at once: a cell selection, a selected entity, and
+      // a half-drawn segment.
+      f.host.setGesture("box");
+      f.down(CENTRE - 8, CENTRE - 8);
+      f.up();
+      f.down(CENTRE + 8, CENTRE + 8);
+      f.up();
+      expect(f.selections.at(-1)).not.toBeNull();
+      f.host.selectEntity(f.entityId);
+      expect(f.entitySelections.at(-1)).toBe(f.entityId);
+      f.host.setGesture("segment");
+      f.down(CENTRE, CENTRE);
+      f.up();
+      const cellPushes = f.selections.length;
+      const entityPushes = f.entitySelections.length;
+
+      // 1 — the half-drawn segment. It acted (so it claimed), and neither selection
+      //     moved, which is what makes this rung FIRST rather than merely present.
+      f.key("Escape");
+      expect(f.claimed).toEqual({ preventDefault: 1, stopPropagation: 1 });
+      expect(f.entitySelections.length).toBe(entityPushes);
+      expect(f.selections.length).toBe(cellPushes);
+
+      // 2 — no session is live here, so the next rung is the selected ENTITY. The cell
+      //     selection still stands.
+      f.key("Escape");
+      expect(f.claimed).toEqual({ preventDefault: 1, stopPropagation: 1 });
+      expect(f.entitySelections.at(-1)).toBeNull();
+      expect(f.selections.length).toBe(cellPushes);
+
+      // 3 — and only now the cell selection.
+      f.key("Escape");
+      expect(f.claimed).toEqual({ preventDefault: 1, stopPropagation: 1 });
+      expect(f.selections.at(-1)).toBeNull();
+
+      // 4 — nothing left: a no-op that does NOT claim the key, so an Esc with an empty
+      //     ladder still reaches whatever else might want it.
+      f.key("Escape");
+      expect(f.claimed).toEqual({ preventDefault: 0, stopPropagation: 0 });
+
+      // The cell selection went to the RESELECT slot rather than being destroyed, so
+      // Esc has the same way back that the panel's Clear does.
+      f.host.reselect();
+      expect(f.selections.at(-1)).not.toBeNull();
     } finally {
       f.teardown();
     }

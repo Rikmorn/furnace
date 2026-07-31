@@ -101,14 +101,15 @@ export type ActionCtx = {
  *
  *  - `chord` — a ⌘/Ctrl chord. Live everywhere, INCLUDING inside a text input, because
  *    the browser default it replaces (save-page, the input's own undo stack) is worse.
- *  - `bare` — a plain letter or ⌫. Refused in a text input (it is a character someone is
- *    typing) and refused while the right button is down, because while the user is
- *    LOOKING the letters are the fly keys — `S` is fly-backward. That gate is exactly
- *    what makes a bare-letter binding possible at all.
- *  - `editing` — Esc and ⏎. Refused in a text input (a field binds both itself: Escape
- *    reverts, Enter commits) but live during a look drag, because cancelling and
- *    confirming must never depend on which button is down. */
-export type ActionGate = "chord" | "bare" | "editing";
+ *  - `typed` — a key someone could be TYPING: every bare letter, plus ⌫, Esc and ⏎.
+ *    Refused when the focus is in a text input, and nowhere else.
+ *
+ *  There is deliberately no third class for "refused during a look drag". That refusal
+ *  is not a property of being bare — it exists for exactly one reason, a keycap that is
+ *  ALSO a fly key, and it is declared per action ({@link ActionDef.flyLetter}). A blanket
+ *  class would take `R` and `F` down with it for no collision at all: turning a ghost
+ *  while orbiting round it is a normal gesture, and `readFlyMove` reads only w/a/s/d/q/e. */
+export type ActionGate = "chord" | "typed";
 
 /** The world OUTSIDE the ctx that the gate reads, all of it polled at DISPATCH time. */
 export type GateEnv = {
@@ -118,7 +119,8 @@ export type GateEnv = {
   confirmOpen: boolean;
   /** The right button is down and driving the camera (`host.isLooking()`). Polled per
    *  keypress and never stored on the ctx: the button goes down and up between renders,
-   *  so a snapshot would answer for a frame that has already gone. */
+   *  so a snapshot would answer for a frame that has already gone. Only actions marked
+   *  {@link ActionDef.flyLetter} care. */
   looking: boolean;
 };
 
@@ -152,6 +154,15 @@ export type ActionDef = {
   /** This action re-arms what LMB does, so it is refused while a session owns the
    *  interaction — with a hint, because the key looking dead is the failure mode. */
   armsTool?: boolean;
+  /** This keycap is ALSO one of the viewport's fly keys (w/a/s/d/q/e — `readFlyMove`),
+   *  so the look drag owns it: refused while the right button is down. `S` is the whole
+   *  membership today — fly-backward and the stamp family on one key — and the RMB gate
+   *  on fly travel is the other half of the same bargain. */
+  flyLetter?: boolean;
+  /** Per-action data only a MENU needs: the `title` for an item whose reason will not fit
+   *  in its label. Here rather than in a lookup beside the menu so there is ONE home for
+   *  per-action menu facts, beside `checked`. */
+  menuTitle?: string;
   run: (ctx: ActionCtx) => void;
 };
 
@@ -288,6 +299,14 @@ export const ACTIONS: readonly ActionDef[] = [
     group: "world",
     label: () => "Save as…",
     enabled: () => true,
+    // ⇧⌘S is the platform convention, and binding it here closes a regression as well
+    // as adding a shortcut: `world.save` pins `shiftKey === false`, so without this row
+    // nothing claims ⇧⌘S — and nothing calls `preventDefault`, which on macOS hands
+    // muscle-memory Save As straight to the browser's Save-Page dialog.
+    keys: "⇧⌘S",
+    hint: "Name a copy — opens the drawer with the name form ready",
+    match: (e) => chord(e, "s", true),
+    gate: "chord",
     run: (ctx) => ctx.run.world.openDrawer("save-as"),
   },
   {
@@ -308,6 +327,11 @@ export const ACTIONS: readonly ActionDef[] = [
         ? "Make default — name the world first"
         : "Make default",
     enabled: (ctx) => ctx.world.name !== null,
+    // Shown only when the item is ENABLED (a disabled one has pointer-events-none), which
+    // is the case this sentence is for: it distinguishes Make default from Bake, and the
+    // label has no room for that.
+    menuTitle:
+      "point the game at the SAVED copy of this world — Bake if you want the edits in this session to go with it",
     run: (ctx) => {
       const name = ctx.world.name;
       if (name !== null) ctx.run.world.makeDefault(name);
@@ -376,7 +400,7 @@ export const ACTIONS: readonly ActionDef[] = [
       !e.altKey &&
       !e.shiftKey &&
       (e.key === "Backspace" || e.key === "Delete"),
-    gate: "bare",
+    gate: "typed",
     run: (ctx) => {
       const entity = ctx.selectedEntity;
       if (entity === null) return;
@@ -405,7 +429,7 @@ export const ACTIONS: readonly ActionDef[] = [
     keys: "G",
     hint: "Grab the selected stamp — the cursor moves its ghost in 0.5 m steps until ⏎ drops it or Esc discards it",
     match: (e) => bare(e, "g"),
-    gate: "bare",
+    gate: "typed",
     run: (ctx) => {
       if (ctx.selectedEntity !== null)
         ctx.host?.beginMove(ctx.selectedEntity.entityId);
@@ -414,9 +438,11 @@ export const ACTIONS: readonly ActionDef[] = [
   {
     id: "edit.history",
     group: "edit",
-    label: () => "History…",
-    // Task 12 builds the palette this summons. Disabled rather than absent so the
-    // History verb has a place in the menu the moment it exists.
+    // The reason rides IN the label, as `world.bake`'s does and for the same mechanical
+    // reason: `dropdown-menu.tsx` sets `pointer-events-none` on a disabled item, so a
+    // `title` on one is never shown. Task 12 builds the palette this summons.
+    label: () => "History — arrives with the History palette",
+    // Disabled rather than absent, so the verb has a place in the menu before it works.
     enabled: () => false,
     // biome-ignore lint/suspicious/noEmptyBlockStatements: the palette this opens arrives with Task 12; the item is disabled until then, so this can never run
     run: () => {},
@@ -431,7 +457,7 @@ export const ACTIONS: readonly ActionDef[] = [
     keys: "V",
     hint: "Arm Select — click a stamp, a prop or a marker to select it; the wheel travels the camera",
     match: (e) => bare(e, "v"),
-    gate: "bare",
+    gate: "typed",
     armsTool: true,
     run: (ctx) => ctx.run.setGesture("pointer"),
   },
@@ -443,7 +469,7 @@ export const ACTIONS: readonly ActionDef[] = [
     keys: "B",
     hint: "Arm the brush family — press again with ⇧ to cycle Dig → Fill → Paint → Smooth → Segment",
     match: (e) => bare(e, "b"),
-    gate: "bare",
+    gate: "typed",
     armsTool: true,
     run: (ctx) => armFamily(BRUSH_FAMILY, ctx),
   },
@@ -455,7 +481,7 @@ export const ACTIONS: readonly ActionDef[] = [
     keys: "⇧B",
     hint: "Cycle the brush family: Dig → Fill → Paint → Smooth → Segment",
     match: (e) => shifted(e, "b"),
-    gate: "bare",
+    gate: "typed",
     armsTool: true,
     run: (ctx) => cycleFamily(BRUSH_FAMILY, ctx),
   },
@@ -467,7 +493,7 @@ export const ACTIONS: readonly ActionDef[] = [
     keys: "M",
     hint: "Arm the cell-selection family — press again with ⇧ to cycle Box → Wand → Room",
     match: (e) => bare(e, "m"),
-    gate: "bare",
+    gate: "typed",
     armsTool: true,
     run: (ctx) => armFamily(SELECT_FAMILY, ctx),
   },
@@ -479,7 +505,7 @@ export const ACTIONS: readonly ActionDef[] = [
     keys: "⇧M",
     hint: "Cycle the cell-selection family: Box → Wand → Room",
     match: (e) => shifted(e, "m"),
-    gate: "bare",
+    gate: "typed",
     armsTool: true,
     run: (ctx) => cycleFamily(SELECT_FAMILY, ctx),
   },
@@ -494,8 +520,11 @@ export const ACTIONS: readonly ActionDef[] = [
     keys: "S",
     hint: "Open a stamp session for the family's generator, into the current cell selection",
     match: (e) => bare(e, "s"),
-    gate: "bare",
+    gate: "typed",
     armsTool: true,
+    // `S` IS fly-backward. This is the one collision in the table, and the RMB gate on
+    // fly travel is the other half of the same bargain.
+    flyLetter: true,
     run: (ctx) => {
       const member = stampMember(ctx);
       if (member !== null) ctx.host?.startStamp(member.id);
@@ -512,8 +541,10 @@ export const ACTIONS: readonly ActionDef[] = [
     // member this points at, which is what keeps the cursor from being invisible state.
     hint: "Point the S key at the next generator — it opens nothing by itself",
     match: (e) => shifted(e, "s"),
-    gate: "bare",
+    gate: "typed",
     armsTool: true,
+    // ⇧S reaches the same keycap, and ⇧ is the fly BOOST — so it collides too.
+    flyLetter: true,
     run: (ctx) => {
       const current = stampMember(ctx);
       if (current === null) return;
@@ -530,7 +561,7 @@ export const ACTIONS: readonly ActionDef[] = [
     keys: "X",
     hint: "Swap Dig ↔ Fill and STAY there — ⌃ is the same swap while held",
     match: (e) => bare(e, "x"),
-    gate: "bare",
+    gate: "typed",
     run: (ctx) => ctx.run.armBrush(ctx.tool.effect === "dig" ? "fill" : "dig"),
   },
 
@@ -538,16 +569,18 @@ export const ACTIONS: readonly ActionDef[] = [
   {
     id: "session.confirm",
     group: "session",
-    label: () => "Apply session",
-    // A live MOVE is never this listener's: leaving the viewport CANCELS a move (the
-    // host's blur), so a move that is still standing means the canvas has focus and the
-    // canvas's own ⏎ — which drops the grab rather than applying it — answered first.
-    enabled: (ctx) => ctx.session !== null && ctx.session.moving !== true,
+    label: (ctx) =>
+      ctx.session?.moving === true ? "Drop the move" : "Apply session",
+    // Live for a MOVE too, and that is load-bearing: `beginMove` does not focus the
+    // canvas, so a grab started from the Edit menu or by `G` with a palette control
+    // focused has no canvas listener to answer ⏎ — while the status bar advertises
+    // "⏎ drop". `confirmSession` is the move-aware verb both keys route through.
+    enabled: (ctx) => ctx.session !== null,
     keys: "⏎",
-    hint: "Commit the ready ghost, or apply a reconfigure",
+    hint: "Commit the ready ghost, apply a reconfigure, or drop a grab",
     match: (e) => !mod(e) && !e.altKey && e.key === "Enter",
-    gate: "editing",
-    run: (ctx) => ctx.host?.commitSession(),
+    gate: "typed",
+    run: (ctx) => ctx.host?.confirmSession(),
   },
   {
     id: "session.rotate",
@@ -557,7 +590,7 @@ export const ACTIONS: readonly ActionDef[] = [
     keys: "R",
     hint: "Quarter-turn the live ghost — refused, with a reason, on a generator that has no rotation",
     match: (e) => bare(e, "r"),
-    gate: "bare",
+    gate: "typed",
     run: (ctx) => ctx.host?.rotateStamp(),
   },
   {
@@ -570,7 +603,7 @@ export const ACTIONS: readonly ActionDef[] = [
     keys: "Esc",
     hint: "Cancel one thing, most recent first: a half-drawn region, then the live session, then the selected stamp, then the cell selection",
     match: (e) => !mod(e) && !e.altKey && e.key === "Escape",
-    gate: "editing",
+    gate: "typed",
     run: (ctx) => ctx.host?.escape(),
   },
 
@@ -585,7 +618,7 @@ export const ACTIONS: readonly ActionDef[] = [
     keys: "F",
     hint: "Frame what is selected — the selected stamp, else the cell selection; with neither it says so",
     match: (e) => bare(e, "f"),
-    gate: "bare",
+    gate: "typed",
     run: (ctx) => ctx.host?.frameSelection(),
   },
   {
@@ -618,7 +651,14 @@ export const ACTIONS: readonly ActionDef[] = [
     enabled: () => true,
     keys: "⌘\\",
     hint: "Hide every palette, or restore the exact arrangement",
-    match: (e) => mod(e) && !e.altKey && e.key === "\\",
+    // Through `chord` like every other ⌘-binding rather than hand-rolled, so ⇧ means the
+    // same thing across the whole table: a hand-rolled matcher here is what let ⇧⌘\
+    // toggle palettes while ⇧⌘S did nothing at all. Matched on `key`, not `code`: on a
+    // layout where `\` is not its own physical key the code would be wrong, whereas the
+    // key is whatever the user actually produced. UNVERIFIED in Safari — that ⌘\ arrives
+    // as `key === "\\"` is the standard reading, not something measured here; if the
+    // browser gate finds it silent, an `e.code === "Backslash"` fallback is the fix.
+    match: (e) => chord(e, "\\"),
     gate: "chord",
     run: (ctx) => ctx.run.workspace.toggleHidden(),
   },
@@ -645,11 +685,10 @@ export function gateAction(
   // the first, whose onCancel then never runs.
   if (env.confirmOpen) return { ok: false, hint: null };
   if (def.gate === undefined) return { ok: false, hint: null };
-  // Everything below is about a key someone might be TYPING, which a chord never is.
-  if (def.gate !== "chord") {
-    if (env.inTextInput) return { ok: false, hint: null };
-    if (def.gate === "bare" && env.looking) return { ok: false, hint: null };
-  }
+  // A chord is never a character someone is typing; everything else can be.
+  if (def.gate === "typed" && env.inTextInput) return { ok: false, hint: null };
+  // While the right button is down the fly owns its own letters.
+  if (def.flyLetter === true && env.looking) return { ok: false, hint: null };
   if (def.armsTool === true && ctx.session !== null)
     return {
       ok: false,

@@ -51,14 +51,26 @@ const REGISTRY_GROUPS: { group: ActionGroup; title: string; note?: string }[] =
 			title: "World",
 			note: "Live anywhere in the editor, inside a text field too (the browser default they replace is worse). Suppressed while a confirm dialog is open. ⌘ is Ctrl on Windows and Linux.",
 		},
-		{ group: "edit", title: "Edit" },
+		{
+			group: "edit",
+			title: "Edit",
+			note: "Bare keys do nothing while you are typing in a field. The three that act on a stamp (⌘J, G, ⌫) need one selected — the menu names which.",
+		},
 		{
 			group: "tool",
 			title: "Tools",
-			note: "Bare keys: they do nothing while you are typing in a field, while the right button is held (the letters are the fly keys then), or while a stamp session is live — which says so rather than going quiet.",
+			note: "Refused while a stamp session is live — which says so rather than going quiet — and S alone stands down while the right button is held, because S is also fly-backward.",
 		},
-		{ group: "session", title: "Session" },
-		{ group: "view", title: "View" },
+		{
+			group: "session",
+			title: "Session",
+			note: "Live only while a stamp, reconfigure or move session is on screen.",
+		},
+		{
+			group: "view",
+			title: "View",
+			note: "Live anywhere. F frames the selected stamp, else the cell selection.",
+		},
 	];
 
 const CANVAS_GROUP: BindingGroup = {
@@ -137,15 +149,13 @@ export function ShortcutsDialog({
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
 }) {
-	const ctx = useActionContext();
-	const groups: BindingGroup[] = [
-		...REGISTRY_GROUPS.map((g) => ({
-			title: g.title,
-			note: g.note,
-			rows: registryRows(g.group, ctx),
-		})).filter((g) => g.rows.length > 0),
-		CANVAS_GROUP,
-	];
+	// The dialog is mounted UNCONDITIONALLY (the burger unmounts its own content on
+	// close, so a dialog rendered inside would be torn down by the click that opened it)
+	// — which is exactly why the action context is read one level down, in the body.
+	// Radix's Portal renders nothing while closed, so the subscription does not exist
+	// then; read here, a closed overlay would rebuild five filtered groups and ~30 rows
+	// on every stats push, and at POINTER RATE during a grab (the session is a ctx dep).
+	// The same split the status bar's KeymapLine makes, for the same reason.
 	return (
 		<Dialog open={open} onOpenChange={onOpenChange}>
 			{/* Scrolls inside itself: the list is longer than a short window, and a dialog
@@ -158,35 +168,48 @@ export function ShortcutsDialog({
 						focused.
 					</DialogDescription>
 				</DialogHeader>
-				<div className="space-y-4">
-					{groups.map((group) => (
-						<section key={group.title} className="space-y-1.5">
-							<h3 className="font-medium text-[11px] text-muted-foreground uppercase tracking-wide">
-								{group.title}
-							</h3>
-							{group.note && (
-								<p className="text-[11px] text-muted-foreground">
-									{group.note}
-								</p>
-							)}
-							{/* A description list, not a table: each row is one term and its
-							    meaning, and the grid is what lines the keycaps up. */}
-							<dl className="grid grid-cols-[8rem_1fr] gap-x-3 gap-y-1 text-xs">
-								{group.rows.map((row) => (
-									<Fragment key={row.keys}>
-										<dt>
-											<kbd className="rounded-sm border border-border bg-muted px-1.5 py-0.5 font-mono text-[11px] text-foreground">
-												{row.keys}
-											</kbd>
-										</dt>
-										<dd className="text-muted-foreground">{row.what}</dd>
-									</Fragment>
-								))}
-							</dl>
-						</section>
-					))}
-				</div>
+				<ShortcutsBody />
 			</DialogContent>
 		</Dialog>
+	);
+}
+
+function ShortcutsBody() {
+	const ctx = useActionContext();
+	const groups: BindingGroup[] = [
+		...REGISTRY_GROUPS.map((g) => ({
+			title: g.title,
+			note: g.note,
+			rows: registryRows(g.group, ctx),
+		})).filter((g) => g.rows.length > 0),
+		CANVAS_GROUP,
+	];
+	return (
+		<div className="space-y-4">
+			{groups.map((group) => (
+				<section key={group.title} className="space-y-1.5">
+					<h3 className="font-medium text-[11px] text-muted-foreground uppercase tracking-wide">
+						{group.title}
+					</h3>
+					{group.note && (
+						<p className="text-[11px] text-muted-foreground">{group.note}</p>
+					)}
+					{/* A description list, not a table: each row is one term and its
+							    meaning, and the grid is what lines the keycaps up. */}
+					<dl className="grid grid-cols-[8rem_1fr] gap-x-3 gap-y-1 text-xs">
+						{group.rows.map((row) => (
+							<Fragment key={row.keys}>
+								<dt>
+									<kbd className="rounded-sm border border-border bg-muted px-1.5 py-0.5 font-mono text-[11px] text-foreground">
+										{row.keys}
+									</kbd>
+								</dt>
+								<dd className="text-muted-foreground">{row.what}</dd>
+							</Fragment>
+						))}
+					</dl>
+				</section>
+			))}
+		</div>
 	);
 }

@@ -9,8 +9,15 @@
 // palette bodies (`content={{ controls: <FieldPanel />, … }}`), rebuilding those elements
 // per pointermove and dragging a form-heavy subtree along with them — the exact trap
 // `useWorkspace.tsx`'s header names. Here, `children` arrive already built from the
-// parent, so a re-render of this component reaches only the actual context CONSUMERS: the
-// burger menu and the status bar's keymap line.
+// parent, so a re-render of this component reaches only the actual context CONSUMERS.
+//
+// There are exactly TWO of those, both inside surfaces that unmount when closed, and both
+// deliberately: the burger's `RegistryGroup` (Radix mounts menu content only while open)
+// and `ShortcutsBody` inside the overlay's `DialogContent` (the Portal renders nothing
+// while closed). Read one level higher in either and a closed menu or a closed dialog
+// would rebuild its rows on every stats push — and at pointer rate during a grab, since
+// the session is a ctx dep. The status bar's `KeymapLine` is NOT a consumer: it reads the
+// two narrow contexts it needs (`useFieldTool`, `useFieldStamp`) and stays off this one.
 //
 // The two ends of an action live in different places on purpose. What an action DOES is
 // in `lib/actions.ts` (pure, testable without React); what it can SEE is assembled here.
@@ -24,7 +31,7 @@ import {
 	useRef,
 	useState,
 } from "react";
-import type { FieldTool } from "../../viewport-host/index.ts"; // type-only: erased
+import type { FieldHost, FieldTool } from "../../viewport-host/index.ts"; // type-only: erased
 import { useEditor } from "../components/editor-context.ts";
 import type { ActionCtx } from "../lib/actions.ts";
 import { brushArming } from "../lib/field-brush.ts";
@@ -54,8 +61,18 @@ export function useActionContext(): ActionCtx {
 	return value;
 }
 
-export function ActionContextProvider({ children }: { children: ReactNode }) {
-	const { state, fieldHostRef, openConfirm, confirmRef } = useEditor();
+export function ActionContextProvider({
+	host,
+	children,
+}: {
+	/** The live host, as a PROP rather than read off `fieldHostRef` during render: the
+	 *  shell already has it (ShellChrome takes it as a prop too), and reading a ref while
+	 *  rendering is a rule with exactly one documented exemption in this codebase — one
+	 *  this component does not need. */
+	host: FieldHost | null;
+	children: ReactNode;
+}) {
+	const { openConfirm, confirmRef } = useEditor();
 	const { stats } = useFieldHostState();
 	const { tool, gesture, setGesture, setTool } = useFieldTool();
 	const { stamp } = useFieldStamp();
@@ -70,9 +87,6 @@ export function ActionContextProvider({ children }: { children: ReactNode }) {
 	const workspaceActions = useWorkspaceActions();
 	const { table } = useCatalog();
 
-	const engineReady = state.status === "ready";
-	const host = fieldHostRef.current ?? null;
-
 	// The registry's staged generators — id and name only, which is all the `S` family
 	// needs. A SNAPSHOT read once at engine-ready, unlike the field panel's, which re-reads
 	// when the entity catalog lands: the catalog fills an `archetypeId` param's picker
@@ -81,10 +95,11 @@ export function ActionContextProvider({ children }: { children: ReactNode }) {
 		readonly { id: string; name: string }[]
 	>([]);
 	useEffect(() => {
-		const h = fieldHostRef.current;
-		if (!h || !engineReady) return;
-		setGenerators(h.listGenerators().map((g) => ({ id: g.id, name: g.name })));
-	}, [engineReady, fieldHostRef]);
+		if (host === null) return;
+		setGenerators(
+			host.listGenerators().map((g) => ({ id: g.id, name: g.name })),
+		);
+	}, [host]);
 
 	/** Which generator `S` opens. Chrome state with no host mirror — the host has no
 	 *  concept of an armed stamp, because `startStamp` opens a session outright. */

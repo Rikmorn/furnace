@@ -39,6 +39,11 @@ function engineLabel(state: EditorState): string {
  *  mode — and the canvas-owned keys (`[`/`]`, ⇧, ⌃, the arrows) are half of what belongs
  *  on this line and are not in the table at all.
  *
+ *  Keycaps are written the way the rest of the editor writes them — ⌘ ⇧ ⌃ ⌥ ⏎ ⌫ and
+ *  `Esc`, matching the overlay and the menu. Two spellings of one key is drift that reads
+ *  as two different keys, and it is part of how this line's old static clause got away
+ *  with naming three keys the host does not bind.
+ *
  *  Exported for its test: these strings ARE the claim, and asserting them through the DOM
  *  would be asserting the same thing twice. */
 export function armedKeymap(
@@ -50,19 +55,42 @@ export function armedKeymap(
 	// what is left to say is how it ENDS. A move adds the one verb only a move has.
 	if (session !== null)
 		return session.moving === true
-			? "drag ghost move · R rotate ¼ · ⏎ drop · esc revert"
-			: "← → ↑ ↓ nudge · R rotate ¼ · ⏎ apply · esc discard";
+			? "drag ghost move · R rotate ¼ · ⏎ drop · Esc revert"
+			: "← → ↑ ↓ nudge · R rotate ¼ · ⏎ apply · Esc discard";
 	if (gesture === "pointer") return "LMB select · G grab · F frame · ⌫ delete";
-	if (gesture === "box") return "click ×2 spans a region · esc clears";
+	if (gesture === "box") return "click ×2 spans a region · Esc clears";
 	if (gesture === "material")
-		return "LMB floods the clicked material · esc clears";
-	if (gesture === "void") return "LMB floods an air pocket · esc clears";
+		return "LMB floods the clicked material · Esc clears";
+	if (gesture === "void") return "LMB floods an air pocket · Esc clears";
 	if (gesture === "segment")
-		return "click ×2 sweeps the brush · [ ] radius · esc drops the point";
+		return "click ×2 sweeps the brush · [ ] radius · Esc drops the point";
 	// The brush itself, with the armed effect NAMED: it is what LMB is about to do, and
-	// the four read very differently. ⇧ and ⌃ are the momentary overrides, X the sticky
-	// one. Verified against field-host.ts's keydown handler.
-	return `LMB ${tool.effect} · [ ] radius · ⇧ smooth · ⌃ fill · X swap`;
+	// the four read very differently. Joined from parts rather than interpolated, so an
+	// effect with no live modifiers ends at the radius instead of a dangling separator.
+	return [
+		`LMB ${tool.effect}`,
+		"[ ] radius",
+		...modifierParts(tool.effect),
+	].join(" · ");
+}
+
+/** Which momentary/sticky overrides are LIVE under `effect`, derived rather than stated.
+ *
+ *  A static clause was wrong three ways at once, and none of them was catchable by a test
+ *  that pinned the string: `deriveMomentary` swaps dig↔fill SYMMETRICALLY, so under fill
+ *  ⌃ gives *dig*, not fill; under paint and smooth ⌃ passes through entirely and
+ *  `tool.swapEffect` is disabled, so both "⌃ fill" and "X swap" named dead keys; and
+ *  "⇧ smooth" under smooth names a no-op. Verified against `field-host.ts`'s
+ *  `deriveMomentary` and the registry's own `enabled`. */
+function modifierParts(effect: FieldTool["effect"]): string[] {
+	const parts: string[] = [];
+	// ⇧ derives smooth from whatever is armed — nothing to say when it already is.
+	if (effect !== "smooth") parts.push("⇧ smooth");
+	// ⌃ is the momentary half of the swap `X` makes sticky, and both are live only on the
+	// two carving effects. The swap is SYMMETRIC, so each names what it would give.
+	if (effect === "dig") parts.push("⌃ fill", "X swap");
+	if (effect === "fill") parts.push("⌃ dig", "X swap");
+	return parts;
 }
 
 /** The keymap line, in its own component so only IT re-renders: the session context pushes

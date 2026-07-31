@@ -59,9 +59,10 @@ export function Shell() {
  *  reads all four, and a hook cannot read a provider its own JSX renders. */
 function ShellFrame() {
 	const { state, fieldHostRef, store } = useEditor();
-	// Reading the ref during render is safe HERE and only here: App assigns it exactly
-	// once, synchronously before the `engine-ready` dispatch that causes this render,
-	// and never reassigns it. The gate below is what makes that ordering visible.
+	// Reading the ref during render is safe HERE, and this is the ONE place that does it:
+	// App assigns it exactly once, synchronously before the `engine-ready` dispatch that
+	// causes this render, and never reassigns it. The gate below is what makes that
+	// ordering visible. Everything downstream takes the host as a PROP from here.
 	const host = fieldHostRef.current;
 	const engineReady = state.status === "ready";
 
@@ -95,7 +96,7 @@ function ShellChrome({
 	// every drag frame and every world edit. The action context provider does all of that
 	// reading one level down, where its `children` arrive already built.
 	return (
-		<ActionContextProvider>
+		<ActionContextProvider host={host ?? null}>
 			<div className="fixed inset-0 flex flex-col bg-background text-foreground">
 				<TopBar />
 				{/* bg-viewport-background is the DESIGN.md §2 viewport surface: one tonal

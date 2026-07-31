@@ -21,6 +21,7 @@ import type { ReactElement } from "react";
 import type { ConfirmRequest } from "../../src/frontend/components/ConfirmDialog.tsx";
 import { EditorContext } from "../../src/frontend/components/editor-context.ts";
 import { Shell } from "../../src/frontend/components/shell/Shell.tsx";
+import { armedKeymap } from "../../src/frontend/components/shell/StatusBar.tsx";
 import {
 	FieldHostStateProvider,
 	useFieldHostState,
@@ -56,6 +57,15 @@ afterEach(() => notify.clear());
 // test that wants the real init path has to supply a measurement. Stubbed on the
 // prototype rather than injected through a prop: the production component keeps no
 // test seam, and the override is undone after every case.
+/** The minimum a generator needs to reach the stamp form. */
+const HALL_GEN_MIN = {
+	id: "hall",
+	name: "Hall",
+	paramSchema: { type: "object", properties: {} },
+	defaults: {},
+	placesProps: false,
+};
+
 const REAL_RECT = HTMLCanvasElement.prototype.getBoundingClientRect;
 const SIZED = { x: 0, y: 0, width: 1280, height: 720 };
 
@@ -2266,31 +2276,30 @@ test("Esc runs the host's cancel ladder, from anywhere", async () => {
 	expect(stub.calls.escape.mock.calls.length).toBe(1);
 });
 
-test("the bare keys stand down while the RIGHT BUTTON is held — polled per press", async () => {
+test("the FLY LETTERS stand down while the right button is held — polled per press", async () => {
 	fetch404();
-	const stub = makeStubHost();
+	const stub = makeStubHost({ generators: [HALL_GEN_MIN] });
 	await renderShell(stub);
 
-	// `S` is fly-backward AND the stamp family. What separates them is the button, and
-	// the button goes down and up BETWEEN renders — so the gate has to ask the host at
-	// the moment of the press. A ctx that snapshotted this would answer for a frame
-	// that has already gone.
+	// `S` is fly-backward AND the stamp family — the one keycap in the table that
+	// collides. What separates them is the button, and the button goes down and up
+	// BETWEEN renders, so the gate has to ask the host at the moment of the press: a ctx
+	// that snapshotted this would answer for a frame that has already gone.
 	stub.setLooking(true);
-	pressKey("v");
-	pressKey("f");
-	expect(stub.calls.setGesture).not.toHaveBeenCalled();
-	expect(stub.calls.frameSelection).not.toHaveBeenCalled();
+	pressKey("s");
+	expect(stub.calls.startStamp).not.toHaveBeenCalled();
 
 	stub.setLooking(false);
-	pressKey("v");
-	pressKey("f");
-	expect(stub.calls.setGesture.mock.calls).toEqual([["pointer"]]);
-	expect(stub.calls.frameSelection.mock.calls.length).toBe(1);
+	pressKey("s");
+	expect(stub.calls.startStamp.mock.calls).toEqual([["hall"]]);
 
-	// …and Esc is NOT in that class: cancelling must never depend on which button is
-	// down (its gate is the text-input one alone).
+	// Everything that does NOT collide stays live while looking, and that is the point of
+	// keying this on the fly set rather than on "is it a bare key": `R` and `F` are not
+	// fly letters, and turning a ghost while orbiting round it is a normal gesture.
 	stub.setLooking(true);
+	pressKey("f");
 	pressKey("Escape");
+	expect(stub.calls.frameSelection.mock.calls.length).toBe(1);
 	expect(stub.calls.escape.mock.calls.length).toBe(1);
 });
 
@@ -2361,9 +2370,12 @@ test("a family key during a live session refuses OUT LOUD rather than going quie
 		),
 	).toBeTruthy();
 
-	// Esc and ⏎ stay live — they are how the session ends.
+	// Esc and ⏎ stay live — they are how the session ends. ⏎ goes through the MOVE-AWARE
+	// verb, not `commitSession`: a grab started from the Edit menu or by `G` with a
+	// palette control focused never gave the canvas focus, so this listener is the only
+	// one that can answer the "⏎ drop" the status bar advertises.
 	pressKey("Enter");
-	expect(stub.calls.commitSession.mock.calls.length).toBe(1);
+	expect(stub.calls.confirmSession.mock.calls.length).toBe(1);
 });
 
 test("the status bar's keymap line follows what is armed", async () => {
@@ -2381,16 +2393,52 @@ test("the status bar's keymap line follows what is armed", async () => {
 	expect(
 		screen.getByText("LMB dig · [ ] radius · ⇧ smooth · ⌃ fill · X swap"),
 	).toBeTruthy();
+	// ⌃ swaps SYMMETRICALLY (field-host's deriveMomentary), so under fill it gives dig.
 	pressKey("B", { shiftKey: true });
 	expect(
-		screen.getByText("LMB fill · [ ] radius · ⇧ smooth · ⌃ fill · X swap"),
+		screen.getByText("LMB fill · [ ] radius · ⇧ smooth · ⌃ dig · X swap"),
 	).toBeTruthy();
 
 	pressKey("m");
-	expect(screen.getByText("click ×2 spans a region · esc clears")).toBeTruthy();
+	expect(screen.getByText("click ×2 spans a region · Esc clears")).toBeTruthy();
 });
 
-test("the burger's Edit group names the stamp its verbs would act on", async () => {
+test("the keymap names only keys that are LIVE — under paint, ⌃ and X are not", () => {
+	// A TRUTH assertion, not a wording one. The line is derived from the effect, and the
+	// three facts it has to respect all live elsewhere: ⌃ passes through on paint and
+	// smooth (`deriveMomentary`), `tool.swapEffect.enabled` is false off dig/fill, and ⇧
+	// derives smooth from whatever is armed — so under smooth it is a no-op.
+	//
+	// Asserted against the pure function rather than the DOM: pinning the rendered string
+	// pins WORDING DRIFT and never truth, which is exactly how the static line got away
+	// with naming three dead keys.
+	const brush = (effect: FieldTool["effect"]): string =>
+		armedKeymap({ ...DIG_TOOL, effect }, null, null);
+
+	expect(brush("dig")).toBe(
+		"LMB dig · [ ] radius · ⇧ smooth · ⌃ fill · X swap",
+	);
+	expect(brush("fill")).toBe(
+		"LMB fill · [ ] radius · ⇧ smooth · ⌃ dig · X swap",
+	);
+	for (const effect of ["paint", "smooth"] as const) {
+		const line = brush(effect);
+		expect({
+			effect,
+			ctrl: line.includes("⌃"),
+			swap: line.includes("X"),
+		}).toEqual({
+			effect,
+			ctrl: false,
+			swap: false,
+		});
+	}
+	// …and ⇧ goes with it under smooth, where deriving smooth changes nothing.
+	expect(brush("smooth")).toBe("LMB smooth · [ ] radius");
+	expect(brush("paint")).toBe("LMB paint · [ ] radius · ⇧ smooth");
+});
+
+test("the burger's Edit group names the stamp its verbs would act on, in table order", async () => {
 	fetch404();
 	const stub = makeStubHost();
 	await renderShell(stub);
@@ -2399,6 +2447,98 @@ test("the burger's Edit group names the stamp its verbs would act on", async () 
 	// The chord acts on "whatever is selected" without saying so; the menu is where
 	// that noun becomes visible.
 	expect(await waitFor(() => screen.getByText("Delete hall #4"))).toBeTruthy();
-	expect(screen.getByText("Duplicate hall #4")).toBeTruthy();
-	expect(screen.getByText("Move hall #4")).toBeTruthy();
+
+	// ORDER is a real claim and nothing else pins it: the group renders in array
+	// position, so reordering the table silently reorders the menu. Undo/Redo lead
+	// because they are the most-reached; History closes the group as the way into the
+	// palette that lists them.
+	const group = screen.getByText("Edit").closest("[role='group']");
+	if (!(group instanceof HTMLElement)) throw new Error("no Edit group");
+	const labels = [...group.querySelectorAll("[role='menuitem']")].map(
+		// The item renders `{label}{chord}`, so the label is the FIRST child node and the
+		// chord is a trailing <span>. Read the node rather than stripping keycaps out of
+		// `textContent` with a regex — that would have to know every keycap in the table,
+		// which is exactly the coupling the registry exists to remove.
+		(el) => el.firstChild?.textContent,
+	);
+	expect(labels).toEqual([
+		"Undo",
+		"Redo",
+		"Duplicate hall #4",
+		"Delete hall #4",
+		"Move hall #4",
+		"History — arrives with the History palette",
+	]);
+});
+
+// --- (c10) the gate's target predicate: which controls swallow a bare key -----
+//
+// `isTextInputTarget` decides this, and it has to be right in BOTH directions. Too wide
+// and a binding dies behind a control the user is merely FOCUSED on — the F2b
+// "touch a panel and the keys stop working" class, relocated from the canvas to a
+// slider. Too narrow and a key the user pressed for the CONTROL runs an editor verb —
+// which for Esc means losing the session they were configuring.
+
+/** Arm the brush so `BrushInspector` renders: it carries both shapes this predicate has
+ *  to separate — a native `<select>` (mask) and an `<input type="range">` (radius). */
+function armBrushInspector(): void {
+	act(() => {
+		fireEvent.keyDown(window, { key: "b" });
+	});
+}
+
+test("Esc pressed on a native <select> dismisses the DROPDOWN — it does not run the ladder", async () => {
+	fetch404();
+	const stub = makeStubHost({ generators: [HALL_GEN_MIN] });
+	await renderShell(stub);
+	armBrushInspector();
+	const select = screen.getByLabelText("brush mask");
+
+	// Esc is the conventional way to dismiss a native select popup, so this is the
+	// expected keystroke rather than an exotic one — and the ladder's rung 2 would
+	// cancel a live session with it.
+	act(() => {
+		stub.fire.stamp({
+			generator: "hall",
+			params: {},
+			seed: 1,
+			policy: "replace",
+			region: { min: [0, 0, 0], max: [4, 4, 4] },
+			phase: "ready",
+			run: 1,
+			opCount: 3,
+			placementCount: null,
+			error: null,
+			truncatedSelection: false,
+			mode: "stamp",
+			entityId: null,
+		});
+	});
+	act(() => {
+		fireEvent.keyDown(select, { key: "Escape" });
+	});
+	expect(stub.calls.escape).not.toHaveBeenCalled();
+
+	// ⏎ is the select's own commit key, and would otherwise APPLY that session.
+	act(() => {
+		fireEvent.keyDown(select, { key: "Enter" });
+	});
+	expect(stub.calls.commitSession).not.toHaveBeenCalled();
+});
+
+test("a bare key on a RANGE slider still binds — a slider is not typed text", async () => {
+	fetch404();
+	const stub = makeStubHost();
+	await renderShell(stub);
+	armBrushInspector();
+	const slider = screen.getByLabelText("brush radius");
+	stub.calls.setGesture.mockClear();
+
+	// The brush-radius slider is the control a user drags WHILE LOOKING AT THE FIELD, so
+	// a binding that dies while it holds focus is the worst case of the class, not the
+	// mildest. `V` must still arm the pointer.
+	act(() => {
+		fireEvent.keyDown(slider, { key: "v" });
+	});
+	expect(stub.calls.setGesture.mock.calls).toEqual([["pointer"]]);
 });

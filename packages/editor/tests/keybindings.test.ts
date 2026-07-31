@@ -15,7 +15,7 @@ import {
   gateAction,
   matchAction,
 } from "../src/frontend/lib/actions.ts";
-import { byId, makeCtx } from "./actions.test.ts";
+import { byId, makeCtx } from "./_actions-fixture.ts";
 
 /** A synthetic keydown. The four modifier flags are FILLED, never left undefined: a real
  *  `KeyboardEvent` always carries all four as booleans, and a matcher that compared
@@ -42,6 +42,10 @@ const LOOSE: GateEnv = {
  *  case below. */
 const BINDINGS: { id: string; event: KeyboardEvent }[] = [
   { id: "world.save", event: ev({ key: "s", metaKey: true }) },
+  {
+    id: "world.saveAs",
+    event: ev({ key: "S", metaKey: true, shiftKey: true }),
+  },
   { id: "edit.undo", event: ev({ key: "z", metaKey: true }) },
   { id: "edit.redo", event: ev({ key: "z", metaKey: true, shiftKey: true }) },
   { id: "edit.duplicate", event: ev({ key: "j", metaKey: true }) },
@@ -88,6 +92,21 @@ test("Ctrl stands in for ⌘, and case is folded", () => {
     "view.togglePalettes",
   );
   expect(matchAction(ev({ key: "G" }))?.id).toBe("edit.grab");
+});
+
+test("⇧ means ONE thing across the table — every ⌘-chord states it", () => {
+  // Two shift policies in one table is how ⇧⌘S came to do nothing at all (unclaimed, so
+  // unprevented, so the browser's Save-Page dialog) while ⇧⌘\ toggled palettes. Every
+  // ⌘-binding now goes through `chord`, which pins `shiftKey` either way.
+  expect(matchAction(ev({ key: "s", metaKey: true, shiftKey: true }))?.id).toBe(
+    "world.saveAs",
+  );
+  expect(
+    matchAction(ev({ key: "\\", metaKey: true, shiftKey: true })),
+  ).toBeNull();
+  expect(
+    matchAction(ev({ key: "j", metaKey: true, shiftKey: true })),
+  ).toBeNull();
 });
 
 test("⌥ is not a modifier any binding uses — with it held, nothing classifies", () => {
@@ -143,6 +162,42 @@ test("bare keys are refused in a text input — they are characters someone is t
       id,
       ok: false,
     });
+});
+
+test("only the FLY LETTERS stand down during a look drag — R and F are not fly keys", () => {
+  // The look refusal is not a property of being bare, and treating it as one cost
+  // something real: `R` was dead in BOTH listeners while the right button was held, so
+  // turning a ghost while orbiting round it — a natural gesture that worked before the
+  // registry — stopped working. `readFlyMove` reads w/a/s/d/q/e and nothing else.
+  const looking = { looking: true };
+  for (const id of ["tool.stamp", "tool.stampCycle"])
+    expect({ id, ok: verdict(byId(id), looking).ok }).toEqual({
+      id,
+      ok: false,
+    });
+  for (const id of [
+    "session.rotate",
+    "view.frame",
+    "tool.pointer",
+    "tool.brush",
+    "edit.grab",
+    "edit.delete",
+  ])
+    expect({ id, ok: verdict(byId(id), looking).ok }).toEqual({ id, ok: true });
+});
+
+test("the fly-letter flag is declared only where the keycap actually collides", () => {
+  // The membership IS the claim — a flag added to a key that is not w/a/s/d/q/e would
+  // silently kill that binding for the duration of every look drag.
+  const flyKeys = new Set(["w", "a", "s", "d", "q", "e"]);
+  for (const a of ACTIONS) {
+    if (a.flyLetter !== true) continue;
+    const cap = (a.keys ?? "").replace("⇧", "").toLowerCase();
+    expect({ id: a.id, collides: flyKeys.has(cap) }).toEqual({
+      id: a.id,
+      collides: true,
+    });
+  }
 });
 
 test("Esc and ⏎ are refused in a text input, and LIVE during a look drag", () => {

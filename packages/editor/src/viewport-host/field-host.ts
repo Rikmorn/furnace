@@ -593,12 +593,30 @@ export type FieldHost = {
    *  the session a surface mirrors. Ready-phase only (both verbs are); no-op
    *  without a session.
    *
-   *  A live MOVE is the one case this does NOT cover: the viewport's own ⏎ DROPS
-   *  a grab (the zero-step rule, the pending-preview latch) rather than applying
-   *  it, and the app-level ⏎ is refused while a session is `moving` precisely so
-   *  the two cannot answer differently — a move is cancelled by leaving the
-   *  viewport, so one that is still standing means the canvas has focus. */
+   *  A live MOVE is the one case this does NOT cover — {@link confirmSession} is
+   *  the verb for that, and for ⏎ generally. */
   commitSession(): void;
+  /** What ⏎ MEANS: drop a live grab, else end the session by mode
+   *  ({@link commitSession}). Both keys that spell it route here — the canvas's
+   *  own ⏎ and the app-level one — so a confirm cannot mean two different things
+   *  depending on where the focus is.
+   *
+   *  Public because `beginMove` does NOT focus the canvas: a grab started from
+   *  the Edit menu, or by `G` with a palette control focused, leaves the canvas
+   *  listener unreachable, and without this the only key the status bar advertises
+   *  for that state ("⏎ drop") would do nothing at all.
+   *
+   *  The extra thing it does over {@link commitSession} is `dropMove`'s two rules:
+   *  the zero-step rule (a grab dropped where it started ends the session rather
+   *  than spending a history entry on a reconfigure that changed nothing) and the
+   *  pending-preview latch (a drop that lands mid-preview is spent when the
+   *  preview settles). Known limit, filed rather than fixed here: that zero-step
+   *  test reads the CURSOR's travel, so a grab moved only by the ARROW keys reads
+   *  as idle and is discarded —
+   *  `docs/backlog/editor-and-tooling/grab-nudged-by-arrows-reads-as-idle.md`.
+   *  Routing both ⏎s through one verb is what keeps that a single defect instead
+   *  of a difference between two keys. */
+  confirmSession(): void;
   /** Discards the session + its ghost. No-op without a session. The panel's Cancel
    *  button; Esc goes through {@link escape}, which reaches this as one rung of a
    *  ladder rather than unconditionally. */
@@ -4403,20 +4421,20 @@ export function createFieldHost(deps?: {
     else commitStampSession();
   };
 
-  // The CANVAS ⏎'s terminal path. A live MOVE is DROPPED rather than applied:
-  // `dropMove` carries the zero-step rule (a grab dropped where it started
-  // spends no history entry) and the pending-preview latch, neither of which
+  // What ⏎ MEANS, for both keys that spell it: the canvas's own binding and the
+  // app-level `confirmSession`. A live MOVE is DROPPED rather than applied —
+  // `dropMove` carries the zero-step rule (a grab dropped where it started spends
+  // no history entry) and the pending-preview latch, neither of which
   // `commitActiveSession` knows about.
   //
-  // Deliberately NOT what the public `commitSession` routes through, and the
-  // reason is a bug this seam is not the place to fix: `moveIsIdle` asks whether
-  // the CURSOR moved, so a grab whose region was moved by the ARROW KEYS reads
-  // as idle and its move is discarded. Routing every ⏎ through here would spread
-  // that from one entry point to three. Filed as
-  // `docs/backlog/editor-and-tooling/grab-nudged-by-arrows-reads-as-idle.md`.
-  // The two paths cannot disagree in practice: the app-level ⏎ is refused while
-  // a session is `moving`, because leaving the viewport cancels a move — so a
-  // move that is still standing means the canvas has focus and answered first.
+  // The public `commitSession` (a panel button's Commit/Apply) deliberately does
+  // NOT route through here: it means "end by mode", and a move is never reachable
+  // from a panel button anyway — clicking one blurs the canvas, which cancels the
+  // move first. Keeping them apart is also what stops a filed defect from
+  // spreading: `moveIsIdle` asks whether the CURSOR moved, so a grab moved only by
+  // the ARROW keys reads as idle here and is discarded
+  // (`docs/backlog/editor-and-tooling/grab-nudged-by-arrows-reads-as-idle.md`).
+  // Both ⏎s share that one defect rather than answering differently.
   const confirmActiveSession = (): void => {
     if (moveDrag !== null) {
       dropMove();
@@ -5108,19 +5126,23 @@ export function createFieldHost(deps?: {
       return;
     }
     // R quarter-turns the live session (D-9), F frames the selection. Both are
-    // ALSO app-level actions, so both carry the two riders that arrangement
-    // needs: `look === null`, because while the right button is down the letters
-    // belong to the fly (the registry's bare-key gate says the same thing from
-    // the other side), and `stopPropagation` on the branch that acts, so the
-    // window listener does not run the verb again. R is the one shared key that
-    // is not idempotent — a second run is a second quarter turn — which is what
-    // makes the claim load-bearing rather than tidy.
+    // ALSO app-level actions, so the branch that acts calls `stopPropagation` and
+    // the window listener does not run the verb again. R is the one shared key
+    // that is not idempotent — a second run is a second quarter turn — which is
+    // what makes the claim load-bearing rather than tidy.
+    //
+    // NEITHER is gated on a live look, deliberately: `readFlyMove` reads only
+    // w/a/s/d/q/e, so `r` and `f` collide with nothing the fly wants, and turning
+    // a ghost while orbiting round it (or framing mid-drag) is a normal gesture
+    // that a blanket "no letters while looking" rule would kill for no collision.
+    // The app-level gate draws the same line from the other side — it refuses only
+    // the actions marked `flyLetter`, which today is `S` alone.
     //
     // Same three-modifier chord guard on both: ⌘R/ctrl+R are reload and ⌘F/ctrl+F
     // are the browser's find, and Alt is the pointer path's eyedropper modifier.
     // Neither is a fly key, so returning here starves nothing; R without a
     // session falls through and is swallowed unused (⏎'s stance).
-    if (k === "r" && !e.metaKey && !e.ctrlKey && !e.altKey && look === null) {
+    if (k === "r" && !e.metaKey && !e.ctrlKey && !e.altKey) {
       if (stamp !== null) {
         e.preventDefault();
         e.stopPropagation();
@@ -5128,7 +5150,7 @@ export function createFieldHost(deps?: {
       }
       return;
     }
-    if (k === "f" && !e.metaKey && !e.ctrlKey && !e.altKey && look === null) {
+    if (k === "f" && !e.metaKey && !e.ctrlKey && !e.altKey) {
       e.preventDefault();
       e.stopPropagation();
       frameSelection();
@@ -5719,6 +5741,9 @@ export function createFieldHost(deps?: {
     },
     commitSession() {
       commitActiveSession();
+    },
+    confirmSession() {
+      confirmActiveSession();
     },
     cancelStamp() {
       cancelStampSession();

@@ -158,7 +158,7 @@ async function renderTopBar(
 							{/* The burger's groups and the shortcut overlay are rendered FROM the
 							    action registry, so the bar needs the context that assembles it —
 							    innermost, exactly as the shell mounts it. */}
-							<ActionContextProvider>
+							<ActionContextProvider host={stub.host}>
 								<TopBar />
 							</ActionContextProvider>
 						</WorkspaceProvider>
