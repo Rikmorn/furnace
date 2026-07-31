@@ -697,9 +697,9 @@ test("a host refusal becomes a persistent, toned toast over the canvas", async (
 	expect(stub.calls.subscribeToolError.mock.calls.length).toBe(1);
 
 	act(() => {
-		stub.fire.toolError("select a region first");
+		stub.fire.toolError("selection found no matching cells");
 	});
-	const toast = toastText("select a region first");
+	const toast = toastText("selection found no matching cells");
 	const row = toast.closest("li");
 	if (!(row instanceof HTMLElement)) throw new Error("no toast row");
 	expect(toast.className).toContain("text-destructive-text");
@@ -722,13 +722,17 @@ test("a host refusal becomes a persistent, toned toast over the canvas", async (
 	act(() => {
 		stub.fire.stats(makeStats({ totalOps: 3 }));
 	});
-	expect(toastText("select a region first")).toBeTruthy();
+	expect(toastText("selection found no matching cells")).toBeTruthy();
 	act(() => {
-		fireEvent.click(screen.getByLabelText("dismiss: select a region first"));
+		fireEvent.click(
+			screen.getByLabelText("dismiss: selection found no matching cells"),
+		);
 	});
 	// The dismiss button IS the row, and it is the unambiguous handle: the stack itself
 	// still stands (the toolbar's catalog info is riding out its TTL beside it).
-	expect(screen.queryByLabelText("dismiss: select a region first")).toBeNull();
+	expect(
+		screen.queryByLabelText("dismiss: selection found no matching cells"),
+	).toBeNull();
 });
 
 test("toasts announce through persistent live regions, split by urgency", async () => {
@@ -746,19 +750,27 @@ test("toasts announce through persistent live regions, split by urgency", async 
 	expect(liveRegion("assertive").textContent).toBe("");
 
 	act(() => {
-		stub.fire.toolError("select a region first");
+		stub.fire.toolError("selection found no matching cells");
 	});
 	// …and a refusal interrupts.
-	expect(liveRegion("assertive").textContent).toBe("select a region first");
+	expect(liveRegion("assertive").textContent).toBe(
+		"selection found no matching cells",
+	);
 	expect(liveRegion("polite").textContent).toBe("no catalog — rock only");
 
 	// Dismissing is the USER acting, not the editor speaking: the regions must not
 	// re-announce, and the announcement must not vanish with the row either.
 	act(() => {
-		fireEvent.click(screen.getByLabelText("dismiss: select a region first"));
+		fireEvent.click(
+			screen.getByLabelText("dismiss: selection found no matching cells"),
+		);
 	});
-	expect(screen.queryByLabelText("dismiss: select a region first")).toBeNull();
-	expect(liveRegion("assertive").textContent).toBe("select a region first");
+	expect(
+		screen.queryByLabelText("dismiss: selection found no matching cells"),
+	).toBeNull();
+	expect(liveRegion("assertive").textContent).toBe(
+		"selection found no matching cells",
+	);
 });
 
 test("the SAME refusal twice announces twice", async () => {
@@ -766,7 +778,7 @@ test("the SAME refusal twice announces twice", async () => {
 	const stub = makeStubHost();
 	await renderShell(stub);
 	act(() => {
-		stub.fire.toolError("select a region first");
+		stub.fire.toolError("selection found no matching cells");
 	});
 	const announced = liveRegion("assertive").firstElementChild;
 	if (!(announced instanceof HTMLElement)) throw new Error("nothing announced");
@@ -775,13 +787,13 @@ test("the SAME refusal twice announces twice", async () => {
 	announced.dataset["seen"] = "1";
 
 	act(() => {
-		stub.fire.toolError("select a region first");
+		stub.fire.toolError("selection found no matching cells");
 	});
 	const second = liveRegion("assertive").firstElementChild;
 	// A NEW node inside the same live region — which is what makes a repeat audible.
 	// The text is identical, so a region fed by text alone goes silent here, and this is
 	// the commonest case there is: the same refusal every time the gesture is retried.
-	expect(second?.textContent).toBe("select a region first");
+	expect(second?.textContent).toBe("selection found no matching cells");
 	expect(
 		second instanceof HTMLElement && second.dataset["seen"],
 	).toBeUndefined();
@@ -821,7 +833,7 @@ test("the ⚠ chip counts unread errors and summons the message log", async () =
 
 	act(() => {
 		stub.fire.toolError("the void-cast budget is exhausted");
-		stub.fire.toolError("select a region first");
+		stub.fire.toolError("selection found no matching cells");
 	});
 	const chip = screen.getByLabelText(
 		"2 unread errors — open the message log",
@@ -838,7 +850,9 @@ test("the ⚠ chip counts unread errors and summons the message log", async () =
 	// is the point worth pinning: both producers write the same log.
 	const entries = within(log).getAllByRole("listitem");
 	expect(entries.length).toBe(3);
-	expect(entries[0]?.textContent).toContain("select a region first");
+	expect(entries[0]?.textContent).toContain(
+		"selection found no matching cells",
+	);
 	expect(entries[1]?.textContent).toContain(
 		"the void-cast budget is exhausted",
 	);
@@ -863,7 +877,7 @@ test("the ⚠ chip clears the ⌘\\ latch, so the log it summons is actually on 
 		fireEvent.keyDown(window, { key: "\\", metaKey: true });
 	});
 	act(() => {
-		stub.fire.toolError("select a region first");
+		stub.fire.toolError("selection found no matching cells");
 	});
 	act(() => {
 		fireEvent.click(screen.getByLabelText(/unread error/));
@@ -910,7 +924,7 @@ test("a collapsed log does NOT mark an arriving error read", async () => {
 	expect(screen.getByRole("button", { name: "expand Messages" })).toBeTruthy();
 
 	act(() => {
-		stub.fire.toolError("select a region first");
+		stub.fire.toolError("selection found no matching cells");
 	});
 	expect(
 		screen.getByLabelText("1 unread error — open the message log"),
@@ -928,7 +942,7 @@ test("a log hidden by the ⌘\\ latch does NOT mark an arriving error read", asy
 	});
 	expect(logPalette()).toBeNull();
 	act(() => {
-		stub.fire.toolError("select a region first");
+		stub.fire.toolError("selection found no matching cells");
 	});
 	// The worst version of this bug: ⌘\ says "I want the canvas unobstructed", not "I am
 	// reading the log". With the chip suppressed there is nothing left to click — and
@@ -947,7 +961,7 @@ test("the ⚠ chip un-collapses the log it summons", async () => {
 	// cannot read.
 	await renderShell(stub, fakeUiStore({ workspace: LOG_COLLAPSED }));
 	act(() => {
-		stub.fire.toolError("select a region first");
+		stub.fire.toolError("selection found no matching cells");
 	});
 	act(() => {
 		fireEvent.click(screen.getByLabelText(/unread error/));
@@ -955,7 +969,9 @@ test("the ⚠ chip un-collapses the log it summons", async () => {
 	// Visible, not merely open…
 	const log = logPalette();
 	if (!(log instanceof HTMLElement)) throw new Error("the log did not open");
-	expect(within(log).getByText("select a region first")).toBeTruthy();
+	expect(
+		within(log).getByText("selection found no matching cells"),
+	).toBeTruthy();
 	// …and BECAUSE it is visible, the messages are read and the chip stands down. With
 	// only `open` set this chip stays lit forever over a body nobody can see, and every
 	// further click repeats the same nothing — a permanently dead control.
@@ -967,7 +983,7 @@ test("a visibly open log DOES mark an arriving error read", async () => {
 	const stub = makeStubHost();
 	await renderShell(stub, fakeUiStore({ workspace: LOG_OPEN }));
 	act(() => {
-		stub.fire.toolError("select a region first");
+		stub.fire.toolError("selection found no matching cells");
 	});
 	// The gate must not be so strict that it never marks anything: the log is right
 	// there, the message is in it, so nothing is unread and the chip stays quiet.
@@ -1052,14 +1068,14 @@ test("the provider releases the tool-error slot on unmount", () => {
 	);
 	let delivered = false;
 	act(() => {
-		delivered = stub.fire.toolError("select a region first");
+		delivered = stub.fire.toolError("selection found no matching cells");
 	});
 	expect(delivered).toBe(true);
 	unmount();
 	// Single slot: an unsubscribe that does not FREE it leaves the next mount unable
 	// to claim one — refusals would stop reaching the toast stack with nothing thrown.
 	act(() => {
-		delivered = stub.fire.toolError("select a region first");
+		delivered = stub.fire.toolError("selection found no matching cells");
 	});
 	expect(delivered).toBe(false);
 });
@@ -1724,7 +1740,7 @@ test("summoning a palette raises it, even after another was clicked", async () =
 	// Now summon the log the way a user does — the ⚠ chip, which is the whole reason
 	// the palette has a default position at all.
 	act(() => {
-		stub.fire.toolError("select a region first");
+		stub.fire.toolError("selection found no matching cells");
 	});
 	act(() => {
 		fireEvent.click(screen.getByLabelText(/unread error/));
@@ -2440,7 +2456,11 @@ test("the keymap asks for a region while a stamp is armed, and names the generat
 	// The pending arm SHADOWS the gesture: the mirror still says `pointer` underneath
 	// (nothing armed anything else), so a line derived from `gesture` alone would go on
 	// saying "LMB select · G grab" while LMB was drawing a region.
-	expect(screen.getByText("drag a region for Hall · Esc cancels")).toBeTruthy();
+	// "click ×2", not "drag": the mechanism IS the box gesture's two presses (there is
+	// no region branch in `onPointerUp`), and the box line uses the same verb.
+	expect(
+		screen.getByText("click ×2 to span a region for Hall · Esc cancels"),
+	).toBeTruthy();
 
 	act(() => {
 		stub.fire.pendingStamp(null);

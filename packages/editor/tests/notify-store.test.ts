@@ -125,14 +125,14 @@ test("every toast also lands in the log with severity + timestamp", () => {
   // Inside the info TTL, so both are still on screen when the ids are compared below.
   advance(TOAST_TTL_MS - 1_000);
   const secondAt = at();
-  store.error("select a region first");
+  store.error("selection found no matching cells");
 
   // Newest first — the order the log palette reads.
   const [newest, oldest, ...rest] = store.getSnapshot().log;
   expect(rest).toEqual([]);
   expect(newest).toMatchObject({
     severity: "error",
-    text: "select a region first",
+    text: "selection found no matching cells",
     at: secondAt,
   });
   expect(oldest).toMatchObject({
@@ -201,7 +201,7 @@ test("unread errors light the chip until the log is seen; clear empties everythi
 
   store.info("materials: 2 classes");
   store.error("void-cast budget exceeded");
-  store.error("select a region first");
+  store.error("selection found no matching cells");
   expect(store.getSnapshot().unreadErrors).toBe(2);
   // Only errors count: an info the user never read is not a reason to light a warning.
   store.markSeen();

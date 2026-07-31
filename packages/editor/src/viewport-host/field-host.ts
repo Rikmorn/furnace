@@ -65,13 +65,10 @@ import {
 import {
   boxCorners,
   crossSegments,
-  cursorAffordance,
   GHOST_COLOR,
   generatorFootprint,
   segmentGhostSegments,
   sphereGhostSegments,
-  type ViewportCursor,
-  viewportCursor,
 } from "./field-ghost.ts";
 import {
   advanceMove,
@@ -121,6 +118,11 @@ import {
 } from "./gizmo.ts";
 import { arrowNudgeSteps } from "./input-map.ts";
 import { buildGridLines, segmentsToBatch } from "./reference-grid.ts";
+import {
+  cursorAffordance,
+  type ViewportCursor,
+  viewportCursor,
+} from "./viewport-cursor.ts";
 
 /** How the field is lit. `studio` is the DEFAULT and the state of seeing (D-F4.5-17):
  *  per-class lit materials under a camera-following key light plus a hemisphere fill,
@@ -1496,6 +1498,11 @@ export function createFieldHost(deps?: {
   // so ending it restores what LMB did with nothing to put back.
   let pendingStamp: PendingStamp | null = null;
   let pendingStampCb: ((p: PendingStamp | null) => void) | null = null;
+  // Once-per-SESSION guard for the brush-suspension report (`suspendedByStamp`).
+  // Re-armed where a session opens rather than where one ends, so the unit is
+  // the session the user is looking at: one sentence per session, however many
+  // times they click into it.
+  let suspendReported = false;
 
   // The project's entity catalog, indexed by archetype id (empty until
   // setEntityCatalog — a project with no catalog stays empty forever and every
@@ -2510,9 +2517,27 @@ export function createFieldHost(deps?: {
   // The pending stamp arm (null = none). Pushes on CHANGE only: the clear runs
   // from several paths that are usually no-ops (every gesture arm), and a
   // subscriber re-rendering on each of those would pay for nothing.
+  //
+  // DISARMING TAKES THE CORNER WITH IT, and it happens HERE rather than at each
+  // caller because five paths clear the arm and only one of them (the Esc
+  // ladder, whose earlier rung owns the anchors) was clearing the corner: a
+  // `setGesture` re-arming what is already armed, `openEntitySession` — reached
+  // by the Entities palette's Open AND by every `G` grab through
+  // `beginMoveSession` — and a selection-first `startStamp`, reachable with no
+  // click at all through Reselect. Each left an amber cross drawing with nothing
+  // armed to close it, and each ate an Esc rung on the way out.
+  //
+  // Safe by construction rather than by care: while an arm stands, ANY box
+  // anchor belongs to it. `startStamp` clears both anchors before arming, and
+  // LMB routes to `stampRegionClick` ahead of the gesture branch, so
+  // `selectionClick` — the only other route into `boxCorner` — cannot run.
+  // The change guard above is what keeps this off the plain `setGesture` path,
+  // so "re-arming the same gesture must not drop a pending anchor" still holds.
   const setPendingStamp = (next: PendingStamp | null): void => {
     if ((pendingStamp?.id ?? null) === (next?.id ?? null)) return;
+    const disarming = pendingStamp !== null && next === null;
     pendingStamp = next;
+    if (disarming) setBoxAnchor(null);
     pendingStampCb?.(next === null ? null : { ...next });
   };
 
@@ -4057,13 +4082,14 @@ export function createFieldHost(deps?: {
   // runs: a subscriber may synchronously cancel/update the session from
   // inside the "previewing" notification (re-entrancy), so nothing here
   // re-reads `stamp` after notifying.
-  // Known v0 divergence window (F2b Task 15 disposition): a ⌘Z or a brush
-  // stroke DURING a live session mutates the store this preview snapshotted,
-  // so a keep-existing-air ghost can differ from what commit later builds
-  // (commit re-evaluates against the then-current field). Contrived today —
-  // the session flow invites Enter/Esc before more digging — so it is
-  // documented here rather than fixed with cancel-on-undo. See also
-  // commitStampSession.
+  // Known v0 divergence window (F2b Task 15 disposition): a ⌘Z DURING a live
+  // session mutates the store this preview snapshotted, so a keep-existing-air
+  // ghost can differ from what commit later builds (commit re-evaluates against
+  // the then-current field). NARROWED to ⌘Z by F4.5b Task 9: a brush stroke is
+  // no longer one of the ways in — both field-writing arms are suspended while a
+  // session stands (`suspendedByStamp`), which makes the "contrived today"
+  // justification stronger, not weaker. Documented rather than fixed with
+  // cancel-on-undo. See also commitStampSession.
   const previewStamp = (): void => {
     if (stamp === null) return;
     stamp = toPreviewing(stamp);
@@ -4176,6 +4202,7 @@ export function createFieldHost(deps?: {
     );
     cancelStampSession(); // a live session (+ ghost) never survives a restart
     stampGen++;
+    suspendReported = false; // one suspension sentence per session
     // Layering, outermost last: schema defaults → the archetype's authored
     // scatter hints (catalog seeding) → the region-fit sizes. The two never
     // collide today (no generator has both an archetypeId and a size param),
@@ -4232,10 +4259,10 @@ export function createFieldHost(deps?: {
   // a hall. Returns whether it refused.
   //
   // STALENESS — this reads the LAST SETTLED PREVIEW, not a fresh evaluate, so it
-  // inherits the divergence window `previewStamp` documents: a ⌘Z or a brush
-  // stroke during a live session moves the store the preview snapshotted. Dig a
-  // floor under a scatter that previewed empty and Enter still refuses, with
-  // advice that is no longer true. Cheap to escape (any param change, re-roll or
+  // inherits the divergence window `previewStamp` documents: a ⌘Z during a live
+  // session moves the store the preview snapshotted (a brush stroke no longer
+  // can — see `suspendedByStamp`). Undo a floor out from under a scatter that
+  // previewed empty and Enter still refuses, with advice that is no longer true. Cheap to escape (any param change, re-roll or
   // nudge re-previews) and it only ever refuses a commit core would reject
   // anyway, so it is documented rather than fixed with a re-evaluate on commit.
   const reportEmptyPreview = (s: StampSession): boolean => {
@@ -4336,6 +4363,7 @@ export function createFieldHost(deps?: {
     // a region-draw for a stamp nobody is looking at any more.
     setPendingStamp(null);
     stampGen++;
+    suspendReported = false; // one suspension sentence per session
     const opened = startReconfigureSession({
       entityId,
       generator: record.generator,
@@ -5024,6 +5052,7 @@ export function createFieldHost(deps?: {
       move:
         moveDrag === null ? null : moveDrag.grabbed === true ? "drag" : "grab",
       pendingStamp: pendingStamp !== null,
+      session: stamp !== null,
       gesture,
     });
     if (next === lastCursor) return;
@@ -5063,6 +5092,34 @@ export function createFieldHost(deps?: {
 
   // --- input handlers -----------------------------------------------------
 
+  // Is LMB's field-writing job suspended by a live session (D-F4.5-7's staged
+  // grammar)? A session is a ghost being fitted to the rock around it, and a
+  // stroke would carve the very thing it is being fitted to — while the
+  // registry's `armsTool` gate has already stopped the user changing tools out
+  // of it, so a live brush here is one the session INHERITED rather than one
+  // they chose. The ghost hides for the same reason (see renderScene).
+  //
+  // TWO callers, because the two brushes reach the store through different
+  // branches: the sphere brush strokes below, and `segment` commits its capsule
+  // from the gesture branch above. Selection gestures are deliberately NOT
+  // suspended — they write nothing to the store.
+  //
+  // It SPEAKS, once per session (the `maskDropReported` latch shape). Every
+  // other signal is ambient — the strip's clause, the hidden ghost, the rail's
+  // refusals — and none of them fires at the moment the user asks the question,
+  // which is the click. A silent swallow at exactly that moment reads as a
+  // broken editor; the per-session latch is what stops it becoming noise.
+  const suspendedByStamp = (): boolean => {
+    if (stamp === null) return false;
+    if (!suspendReported) {
+      suspendReported = true;
+      reportToolError(
+        "the brush is suspended while a session is live — ⏎ applies it, Esc discards it",
+      );
+    }
+    return true;
+  };
+
   const onPointerDown = (e: PointerEvent): void => {
     lastPointer = { x: e.clientX, y: e.clientY }; // feeds the per-frame ghost
     // A live GRAB (`G`, no button held) owns LMB: the button DROPS the move
@@ -5099,22 +5156,20 @@ export function createFieldHost(deps?: {
       // arbitration). The other three are still single clicks that capture
       // nothing.
       if (gesture === "pointer") pointerPress(e);
-      else if (gesture === "segment") segmentClick(e.clientX, e.clientY);
-      else selectionClick(gesture, e.clientX, e.clientY);
+      else if (gesture === "segment") {
+        // `segment` is a BRUSH that happens to be armed as a gesture, so the
+        // suspension below applies to it too — its second click commits a
+        // capsule op through `commitToolOp`, which is the "user dug a large
+        // tunnel while believing they were interacting with the stamp" report
+        // verbatim (F3b gate item 2). It needs its own guard because it reaches
+        // the store through THIS branch, above the stroke's.
+        if (suspendedByStamp()) return;
+        segmentClick(e.clientX, e.clientY);
+      } else selectionClick(gesture, e.clientX, e.clientY);
       return;
     }
     if (e.button === 0) {
-      // The brush is SUSPENDED while a session stands (D-F4.5-7's staged
-      // grammar). A session is a ghost being fitted to the rock around it, and a
-      // stroke would carve the very thing it is being fitted to — while the
-      // registry's `armsTool` gate has already stopped the user changing tools
-      // out of it, so a live brush here is one the session inherited rather than
-      // one they chose. The ghost hides for the same reason (see renderScene).
-      //
-      // Swallowed rather than repurposed: LMB has no other job during a session
-      // (the move drag has its own branch above), and the session strip says
-      // what the two keys that DO act are.
-      if (stamp !== null) return;
+      if (suspendedByStamp()) return;
       digging = true;
       maskDropReported = false; // re-arm the once-per-stroke mask-drop report
       applyTool(e.clientX, e.clientY);
@@ -5541,6 +5596,11 @@ export function createFieldHost(deps?: {
     // The segment anchor is a point in the OLD field — a capsule swept from it
     // into the new one would start somewhere the user never clicked.
     setSegmentAnchor(null);
+    // …and so is the pending stamp arm: the region it is asking for would be
+    // drawn in the new world for a question the old one posed, and every surface
+    // reading the seam would go on saying "drag a region" across a world swap.
+    // (Its own clear takes the box anchor again — harmless, already null.)
+    setPendingStamp(null);
     selection = null;
     lastSelection = null;
     selectionBatch = null;
@@ -5962,6 +6022,13 @@ export function createFieldHost(deps?: {
         // two mutually exclusive, which is what lets each surface pick one to name.
         cancelStampSession();
         setBoxAnchor(null);
+        // The SEGMENT anchor too, and it is not cosmetic: `cursorAffordance`
+        // answers `null` for any anchored gesture, so a half-drawn capsule would
+        // suppress the very cursor cross this arm exists to show — while its
+        // hologram went on tracking the pointer for a sweep that can no longer
+        // happen, and Esc spent its first press on a point the user thought was
+        // long gone.
+        setSegmentAnchor(null);
         setPendingStamp({ id: generator, name: def.name });
         return;
       }

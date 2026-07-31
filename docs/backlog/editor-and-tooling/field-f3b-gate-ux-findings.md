@@ -27,12 +27,17 @@ cursor/HUD statement of the armed tool, likely alongside the F4 pointer tool.
 
 ## 2. ~~The stamp-session dual-operation model reads as "2 operations at once"~~
 
-**RESOLVED in F4.5b Task 9 (2026-07-31)** — the FIRST option, and both halves of it:
-`onPointerDown` swallows an LMB stroke while a session stands (D-7's "brush suspended
-while a session pends"), the brush ghost is suppressed for the same reason, and the
-key that re-arms the brush polarity (`X`) joined the `armsTool` set so it refuses with
-the same sentence the family keys give. The session strip's clause now says the brush
-rather than arming, because both are true.
+**RESOLVED in F4.5b Task 9 (2026-07-31)** — the FIRST option, and it took two rounds:
+the first pass suspended only the SPHERE brush, and review found the segment brush
+still sweeping a capsule straight through a live session — which is this finding
+verbatim, since "the large tunnel the user dug" IS a capsule sweep. Both field-writing
+arms are now swallowed at `onPointerDown` (`suspendedByStamp`, reached from the stroke
+branch AND the gesture branch), the swallow REPORTS once per session rather than
+failing silently at the one moment the user is asking, the brush ghost and the canvas
+cursor are both suppressed, and the key that re-arms the brush polarity (`X`) joined
+the `armsTool` set so it refuses with the same sentence the family keys give. Selection
+gestures deliberately stay live — they write nothing to the store. The session strip's
+clause says the brush rather than arming, because both are now true.
 
 *Original finding.* While a stamp session (cave) pends in the inspector, viewport
 clicks still drive the ACTIVE BRUSH — the user dug a large tunnel while believing they

@@ -111,6 +111,19 @@ test("arming another tool clears a pending stamp — including a re-push of the 
   ]);
 });
 
+test("a world reset clears the pending stamp arm", () => {
+  const host = createFieldHost();
+  const pending: unknown[] = [];
+  host.subscribePendingStamp((p) => pending.push(p));
+  host.startStamp("hall");
+  host.newWorld();
+  // The region it was asking for would be drawn in the NEW world for a question the
+  // old one posed — and every surface reading the seam would go on saying "click ×2
+  // to span a region" across a world swap. `resetWorld` clears every other
+  // interaction state; this was the one exception.
+  expect(pending).toEqual([null, { id: "hall", name: "Hall" }, null]);
+});
+
 test("subscribePendingStamp is a single slot with a real unsubscribe", () => {
   const host = createFieldHost();
   const seen: unknown[] = [];

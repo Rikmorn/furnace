@@ -740,8 +740,9 @@ dig ring, selection) had rendered NOTHING since F1. Record + rules:
   in the worker (`stamp-preview` protocol v3 request; region+halo chunk snapshot,
   density buffers COPIED then transferred), meshed via the same path and rendered as a
   hologram-blue translucent ghost — surface buckets only, no kit pieces (documented
-  v0). Ghost-vs-commit divergence window: strokes/⌘Z during a live keep-existing-air
-  session (documented, accepted at gate).
+  v0). Ghost-vs-commit divergence window: ⌘Z during a live keep-existing-air
+  session (documented, accepted at gate; F4.5b narrowed it from "strokes/⌘Z" — both
+  field-writing arms are suspended while a session stands, D-F4.5-7).
 - **Panel restructure** — `components/field/`: ToolPalette (brush + selection tools +
   one button per generator from `listGenerators()`), MaterialSwatches (persistent
   strip, eyedropper-tracked active ring), BrushInspector (radius/mask/smooth/hollow —

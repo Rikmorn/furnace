@@ -62,10 +62,17 @@ export function armedKeymap(
 	// A pending stamp SHADOWS the armed gesture: LMB is drawing that stamp's region,
 	// whatever the gesture slot still says underneath (usually `pointer`, the arm most
 	// stamps are picked from). It is checked before `gesture` for exactly that reason —
-	// and it NAMES the generator, because "drag a region" alone leaves the user to
-	// remember which stamp they pressed.
+	// and it NAMES the generator, because "a region" alone leaves the user to remember
+	// which stamp they pressed.
+	//
+	// "click ×2", NOT "drag": the mechanism is the box gesture's, and it takes two
+	// separate presses — `onPointerUp` has no region branch at all, so a press-drag-
+	// release anchors at the PRESS and throws the release away, making the user's next
+	// click anywhere corner two. The box line three cases below says "click ×2" for the
+	// same mechanism; one mechanism with two verbs on one status line, with the wrong
+	// verb on the flow D-F4.5-7 exists to make discoverable, is worse than either.
 	if (pendingStamp !== null)
-		return `drag a region for ${pendingStamp.name} · Esc cancels`;
+		return `click ×2 to span a region for ${pendingStamp.name} · Esc cancels`;
 	if (gesture === "pointer") return "LMB select · G grab · F frame · ⌫ delete";
 	if (gesture === "box") return "click ×2 spans a region · Esc clears";
 	if (gesture === "material")

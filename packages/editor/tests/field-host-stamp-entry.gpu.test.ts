@@ -33,6 +33,7 @@ import type {
   PendingStamp,
   SelectionInfo,
   StampSession,
+  ViewportGesture,
 } from "../src/viewport-host/index.ts";
 import { type HostListeners, makeHostCanvas } from "./_helpers/host-canvas.ts";
 import {
@@ -263,40 +264,238 @@ test.skipIf(!bunWebGpuAvailable())(
   },
 );
 
+// --- disarming the stamp takes its pending corner with it -------------------
+//
+// ONE table, because the claim is one rule: the clear lives inside
+// `setPendingStamp` rather than at its callers, so every path that disarms drops
+// the corner whether or not its author thought about anchors. Before that move
+// each of these left an amber cross drawing with nothing armed to close it, and
+// each ate an Esc rung on the way out.
+//
+// `boxAnchor` is not readable, so the corner is observed the only way it is from
+// outside: a corner still down makes the NEXT click a CLOSING click, which commits
+// a cell selection. `box` is therefore armed for the whole case — re-arming it
+// afterwards to observe would clear the anchor and the probe would pass against
+// anything (it did: the first cut of this table stayed green under sabotage, which
+// is the ninth instance of this slice's fixture defect and the reason the probe is
+// spelled out here).
+//
+// THREE exits are deliberately absent, because each clears the anchor on its own
+// path BEFORE this rule could and a row for it could not fail:
+//   - Esc — rung one IS the anchor (pinned in "Esc drops the pending CORNER first").
+//   - arming a DIFFERENT gesture — `setGesture`'s own `setBoxAnchor(null)`, and it
+//     also changes what a probe click would do.
+//   - a world reset — `resetWorld`'s own line (its ARM clear is pinned headless).
+const ARM_EXITS: readonly {
+  name: string;
+  /** Run the exit. `box` is armed, the stamp is armed over it, one corner is down. */
+  exit: (f: Awaited<ReturnType<typeof stampEntryFixture>>) => void;
+}[] = [
+  {
+    // The one that NEEDS the clear to live in the setter: `setGesture` returns at
+    // its same-gesture guard, above its own anchor clears. Reached by `armBrush`
+    // on every brush pick made from under an arm.
+    name: "re-pushing the gesture already armed",
+    exit: (f) => f.host.setGesture("box"),
+  },
+  {
+    name: "opening an entity session (the palette's Open)",
+    exit: (f) => f.host.openEntity(HALL_ENTITY_ID),
+  },
+  {
+    // `beginMove` opens the SAME session through `beginMoveSession`, so every `G`
+    // grab is this exit too — the site the per-branch fix would have missed.
+    name: "a G grab (the same session, via beginMove)",
+    exit: (f) => {
+      f.host.beginMove(HALL_ENTITY_ID);
+      // The cancel is OBSERVATION SETUP, not part of the exit: a live grab owns
+      // LMB (the press DROPS it), so the probe click below would never reach the
+      // box branch and this row would pass against anything. It was green exactly
+      // that way until this line. `cancelStampSession` touches no anchor, so it
+      // cannot stand in for the rule under test.
+      f.host.cancelStamp();
+    },
+  },
+  {
+    // Reselect restores a PARKED selection with no click at all, which is what
+    // makes a selection-first `startStamp` reachable while a corner is down.
+    name: "Reselect, then a selection-first startStamp",
+    exit: (f) => {
+      f.host.reselect();
+      f.host.startStamp("hall");
+    },
+  },
+];
+
+for (const row of ARM_EXITS) {
+  test.skipIf(!bunWebGpuAvailable())(
+    `the pending corner goes with the arm: ${row.name}`,
+    async () => {
+      const f = await stampEntryFixture({ ops: hallOps() });
+      try {
+        // A real selection, then Clear — which PARKS it in the Reselect slot. That
+        // is what the last row restores; it is inert for the others.
+        f.host.setGesture("box");
+        f.click(14, 14);
+        f.click(50, 50);
+        expect(f.selections.at(-1)).not.toBeNull();
+        f.host.clearSelection();
+
+        f.host.startStamp("maze");
+        f.click(20, 20); // one corner down — LMB routes to the ARM, not to box
+        expect(f.pending.at(-1)).toEqual({ id: "maze", name: "Maze" });
+
+        row.exit(f);
+        expect(f.pending.at(-1)).toBeNull();
+
+        // `box` is still what LMB does, and no gesture was re-armed to get here.
+        // With the corner gone this click can only ANCHOR; with it standing, it
+        // would close a region and commit a selection nobody asked for.
+        const before = f.selections.length;
+        f.click(44, 44);
+        expect(f.selections.length).toBe(before);
+      } finally {
+        f.teardown();
+      }
+    },
+  );
+}
+
 test.skipIf(!bunWebGpuAvailable())(
-  "the brush is SUSPENDED while a session stands (D-F4.5-7)",
+  "arming a stamp drops a pending SEGMENT point too, not just a box corner",
   async () => {
     const f = await stampEntryFixture();
     try {
-      // Arm the brush, then open a session from region-draw — the ordinary route
-      // now that picking a stamp no longer needs a selection first.
-      f.host.setGesture(null);
-      expect(f.ops()).toEqual([]);
-
-      // The brush IS live before the session: one click, one op. Without this the
-      // assertion below would pass against a canvas that never strokes at all.
-      f.click(32, 32);
-      expect(f.ops().length).toBe(1);
-
+      f.host.setGesture("segment");
+      f.click(20, 20); // a segment start is down
       f.host.startStamp("hall");
-      f.click(20, 20);
-      f.click(44, 44);
-      expect(opened(f.sessions)).not.toBeNull();
+      expect(f.pending.at(-1)).toEqual({ id: "hall", name: "Hall" });
 
-      // Same gesture state (`null` — the brush), same click, and now nothing
-      // happens: a stroke here would carve the rock the ghost is being fitted to.
-      f.click(32, 32);
-      expect(f.ops().length).toBe(1);
-
-      // …and the brush comes back when the session goes.
-      f.host.cancelStamp();
-      f.click(32, 32);
-      expect(f.ops().length).toBe(2);
+      // ONE Esc. With the segment point cleared at arm time this reaches the ARM's
+      // rung and disarms; with it left standing, rung one spends the press on a
+      // point the user believes is long gone and the arm survives.
+      //
+      // The stale point is not merely cosmetic: `cursorAffordance` answers `null`
+      // for ANY anchored gesture, so it would suppress the region cross this arm
+      // exists to show, while `onPointerMove` went on live-tracking a capsule for
+      // a sweep that can no longer happen.
+      f.host.escape();
+      expect(f.pending.at(-1)).toBeNull();
     } finally {
       f.teardown();
     }
   },
 );
+
+test.skipIf(!bunWebGpuAvailable())(
+  "re-arming the SAME stamp restarts its region draw (a deliberate reset, not a no-op)",
+  async () => {
+    const f = await stampEntryFixture();
+    try {
+      f.host.startStamp("hall");
+      f.click(20, 20); // corner one
+      // Pressing `S` again on the stamp already armed. The arm does not change —
+      // the seam pushes nothing — but the CORNER is dropped: `startStamp` clears
+      // both anchors before arming, and it does so whether or not the arm moves.
+      // Chosen rather than inherited: a user who presses the same stamp key mid-
+      // draw is starting over, and "arming drops both anchors" is the rule every
+      // other arm already follows. Keeping the corner would make this the one
+      // arming path that silently preserves one.
+      f.host.startStamp("hall");
+      expect(f.pending).toEqual([null, { id: "hall", name: "Hall" }]);
+
+      // So the next two clicks are corner one and corner two of a FRESH region —
+      // if the first corner had survived, this single click would have closed a
+      // region and opened a session.
+      f.click(44, 44);
+      expect(opened(f.sessions)).toBeNull();
+      f.click(50, 50);
+      expect(opened(f.sessions)).not.toBeNull();
+    } finally {
+      f.teardown();
+    }
+  },
+);
+
+/** Every arm whose LMB COMMITS A FIELD OP, with the click sequence that does it —
+ *  the set D-F4.5-7's suspension has to cover, spelled as data so it cannot be
+ *  covered for one member and quietly missed for the other.
+ *
+ *  It is exactly two: the sphere brush strokes on one press, and the segment brush
+ *  sweeps a capsule on the second of a pair. `pointer` and the two flood modes are
+ *  deliberately absent — they SELECT, they never write to the store, and they stay
+ *  live during a session on purpose. */
+const COMMITTING_ARMS: readonly {
+  gesture: ViewportGesture | null;
+  name: string;
+  /** One committing sequence — the last click is the one that writes the op. */
+  clicks: readonly (readonly [number, number])[];
+}[] = [
+  { gesture: null, name: "the sphere brush", clicks: [[32, 32]] },
+  {
+    gesture: "segment",
+    name: "the segment brush",
+    clicks: [
+      [30, 30],
+      [36, 36],
+    ],
+  },
+];
+
+for (const arm of COMMITTING_ARMS) {
+  test.skipIf(!bunWebGpuAvailable())(
+    `${arm.name} is SUSPENDED while a session stands (D-F4.5-7)`,
+    async () => {
+      const f = await stampEntryFixture();
+      const stroke = (): void => {
+        for (const [x, y] of arm.clicks) f.click(x, y);
+      };
+      try {
+        f.host.setGesture(arm.gesture);
+        expect(f.ops()).toEqual([]);
+
+        // It IS live before the session: one sequence, one op. Without this
+        // before-shot the assertion below would pass against a canvas that never
+        // strokes at all.
+        stroke();
+        expect(f.ops().length).toBe(1);
+
+        // Open a session from region-draw — the ordinary route now that picking a
+        // stamp no longer needs a selection first, and the route that leaves
+        // whatever was armed still armed underneath.
+        f.host.startStamp("hall");
+        f.click(20, 20);
+        f.click(44, 44);
+        expect(opened(f.sessions)).not.toBeNull();
+
+        // Same arm, same clicks, and now nothing happens: a stroke here would
+        // carve the rock the ghost is being fitted to. The segment brush is the
+        // member this test exists for — it reaches the store through a DIFFERENT
+        // branch of onPointerDown than the sphere brush does.
+        const errorsBefore = f.errors.length;
+        stroke();
+        expect(f.ops().length).toBe(1);
+
+        // …and the swallow SPEAKS. Every other suspension signal is ambient (the
+        // strip's clause, the hidden ghost, the rail's refusals) and none of them
+        // fires at the click, which is the moment the user is asking. ONCE per
+        // session, though — including for the two-click arm, whose second click
+        // finds the latch already spent.
+        expect(f.errors.length).toBe(errorsBefore + 1);
+        expect(f.errors.at(-1)).toContain("suspended");
+        stroke();
+        expect(f.errors.length).toBe(errorsBefore + 1);
+
+        // …and the brush comes back when the session goes.
+        f.host.cancelStamp();
+        stroke();
+        expect(f.ops().length).toBe(2);
+      } finally {
+        f.teardown();
+      }
+    },
+  );
+}
 
 test.skipIf(!bunWebGpuAvailable())(
   "an arm and a session are mutually exclusive, in BOTH directions",
@@ -330,19 +529,35 @@ test.skipIf(!bunWebGpuAvailable())(
   async () => {
     const f = await stampEntryFixture({ frames: true });
     try {
-      // `pointer` is the default arm, and the ONLY one that keeps the plain arrow.
+      // `pointer` is the default arm, and the ONLY live arm that keeps the plain
+      // arrow.
       expect(f.cursorAfterFrame(16)).toBe("default");
 
+      // A two-click gesture spans between points rather than committing at one.
       f.host.setGesture("box");
-      expect(f.cursorAfterFrame(32)).toBe("crosshair");
+      expect(f.cursorAfterFrame(32)).toBe("cell");
+
+      // …a brush commits AT the point.
+      f.host.setGesture(null);
+      expect(f.cursorAfterFrame(48)).toBe("crosshair");
 
       f.host.setGesture("pointer");
-      expect(f.cursorAfterFrame(48)).toBe("default");
+      expect(f.cursorAfterFrame(64)).toBe("default");
 
       // A pending stamp overrides the arm underneath it — and `pointer` is the
       // arm it is most often picked from, so this is the case that matters.
       f.host.startStamp("hall");
-      expect(f.cursorAfterFrame(64)).toBe("crosshair");
+      expect(f.cursorAfterFrame(80)).toBe("cell");
+
+      // …and a live SESSION takes the suspended brush back to the plain arrow: a
+      // crosshair over a click the host is going to swallow is the same false
+      // promise the ghost is hidden to avoid. Reached the ordinary way — the arm
+      // was picked from under a brush, so the brush is what it lands back on.
+      f.host.setGesture(null);
+      f.host.startStamp("hall");
+      f.click(20, 20);
+      f.click(44, 44);
+      expect(f.cursorAfterFrame(96)).toBe("default");
     } finally {
       f.teardown();
     }

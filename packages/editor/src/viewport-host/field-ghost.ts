@@ -5,19 +5,11 @@
 // box. The host wraps these in segmentsToBatch / boxEdges and draws
 // occlude:false.
 //
-// It also owns the two AFFORDANCE decisions that say WHICH of them to draw and
-// what the canvas cursor should be (F4.5b Task 9). They live beside the geometry
-// rather than inside `renderScene` for the reason every other pure module here
-// exists: a decision table inside the frame path can only be asserted through a
-// live GPU context, and these two are exactly the kind that go quietly wrong.
-//
-// `ViewportGesture` is a TYPE-ONLY import from `field-host.ts` — erased at
-// build, so it adds no runtime edge back to the host. Re-spelling the union
-// locally is the alternative, and a second vocabulary for one armed slot is how
-// the two would come to disagree.
+// WHICH mark to draw, and what CSS cursor goes under it, are decisions rather
+// than geometry — they live in `viewport-cursor.ts`, which is also what keeps
+// this module free of any edge back to `field-host.ts`.
 import type { FieldOp, GeneratorEntity } from "@furnace/core/field";
 import { CHUNK_DIM, opBounds, parseChunkKey } from "@furnace/core/field";
-import type { ViewportGesture } from "./field-host.ts";
 
 type Vec3T = [number, number, number];
 
@@ -176,58 +168,6 @@ export const crossSegments = (p: Vec3T, half: number): [Vec3T, Vec3T][] => {
       [x, y, z + half],
     ],
   ];
-};
-
-/** What a two-click gesture draws at the cursor BEFORE its first click (f2b item 10 /
- *  D-F4.5-7's "armed-but-unanchored always shows a cursor affordance").
- *
- *  - `ring` — the segment brush alone. Its sweep is `digRadius` thick, so the brush
- *    ring IS the width of what the first click starts: the radius is a fact about the
- *    gesture, not a leftover from the brush.
- *  - `cross` — the box corner and the pending stamp's region corner. Neither has a
- *    radius, so a radius-sized ring there would advertise a brush width that decides
- *    nothing about what the click does. The cross is a preview of the ANCHOR MARK
- *    itself ({@link crossSegments}), which is the only thing that is true before the
- *    click lands.
- *  - `null` — everything else. An ANCHORED gesture has its own live preview (the amber
- *    region box, the capsule), `pointer` has the pick, the brush has its sphere ghost,
- *    and a one-click flood has no pending state to preview at all.
- *
- *  A pending stamp SHADOWS whatever gesture is armed underneath it (the host routes LMB
- *  to region-draw first), so it decides before `gesture` does. */
-export type CursorAffordance = "ring" | "cross" | null;
-export const cursorAffordance = (s: {
-  gesture: ViewportGesture | null;
-  pendingStamp: boolean;
-  anchored: boolean;
-}): CursorAffordance => {
-  if (s.anchored) return null;
-  if (s.pendingStamp) return "cross";
-  if (s.gesture === "segment") return "ring";
-  if (s.gesture === "box") return "cross";
-  return null;
-};
-
-/** The canvas `cursor` for what the viewport is armed to do — D-F4.5-8's per-family
- *  cursor glyph, the third of its four arming channels (the rail's pressed state and
- *  the status keymap are two of the others).
- *
- *  A live entity move wins over every arm, because during one the pointer is doing
- *  exactly one thing: `grabbing` while a button holds it, `grab` for a `G` grab, where
- *  the ghost follows a cursor with no button held at all. Otherwise `pointer` — which
- *  selects and drags rather than marking a point — keeps the plain arrow, and every
- *  other arm is a crosshair, because every one of them commits AT a point. */
-export type ViewportCursor = "default" | "crosshair" | "grab" | "grabbing";
-export const viewportCursor = (s: {
-  /** `drag` = a button is holding the move, `grab` = a free-hand `G` grab, `null` =
-   *  no move in flight. */
-  move: "drag" | "grab" | null;
-  pendingStamp: boolean;
-  gesture: ViewportGesture | null;
-}): ViewportCursor => {
-  if (s.move !== null) return s.move === "drag" ? "grabbing" : "grab";
-  if (s.pendingStamp) return "crosshair";
-  return s.gesture === "pointer" ? "default" : "crosshair";
 };
 
 /** The 8 world corners of a centre+halfExtents box in boxEdges' bit-layout order

@@ -915,8 +915,11 @@ export const TOOL_FAMILIES: readonly ToolFamily[] = [
         // A generator's own hint is its ROLE, which nothing in the registry carries per
         // generator — `FieldGeneratorInfo` has id/name/paramSchema/defaults/placesProps.
         // What IS true of every one of them, and is the fact a first-time user needs, is
-        // what picking it DOES: it opens a staged session rather than arming a mode.
-        hint: "opens a session — ⏎ commits, Esc discards",
+        // what picking it DOES — and since F4.5b Task 9 that is TWO answers, so the hint
+        // gives both. The flyout is the one surface the user is looking at at the moment
+        // they pick, so a hint promising a session (and naming two keys that mean nothing
+        // yet) is wrong exactly where it is being read.
+        hint: "opens a session on the selection — or click ×2 to draw its region",
         armed: ctx.pendingStamp?.id === g.id || ctx.session?.generator === g.id,
         arm: (c: ActionCtx) => c.host?.startStamp(g.id),
       })),

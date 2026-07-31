@@ -104,9 +104,10 @@ export function FieldPanel() {
           instead of pushing the footer off the bottom. */}
 			<div className="min-h-0 flex-1 overflow-y-auto">
 				<div className="flex flex-col gap-2 border-b border-border p-2 text-sm">
-					{/* The stamp inspector rides the session's existence, independent of
-              the brush/selection state — the brush stays live during a session
-              (its strokes are the documented divergence window). */}
+					{/* The stamp inspector rides the session's existence, independent of the
+              brush/selection state. Independent, not concurrent: since F4.5b Task 9
+              the brush is SUSPENDED while a session stands (D-F4.5-7), so what the
+              two share is a screen, not the pointer. */}
 					{stamp !== null && stampDef !== undefined && (
 						<StampInspector
 							session={stamp}
