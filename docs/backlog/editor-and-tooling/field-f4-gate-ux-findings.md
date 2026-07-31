@@ -43,3 +43,29 @@ sets).
 
 **Reference:** `docs/reference/editor-architecture.md` §19 (markers, Flags panel,
 frameChunks); the F4 seal entry in `docs/learnings/seal-log.md`.
+
+## 3. The axis triad's snap tips are under the 24 px target-size minimum (F4.5b Task 6)
+
+The corner triad became a control: six `<button>`s on the axis ends, calling
+`FieldHost.snapView`. Their hit targets are **18 px** (the labelled +axis caps) and
+**14 px** (the −axis caps), against the **24 px** minimum in WCAG 2.2 SC 2.5.8
+(Target Size (Minimum)). This is not a slip — six tips share a 64 px box, so no
+arrangement of them inside the current triad reaches 24 px. The exemption the SC
+offers for "the target is in a sentence" does not apply.
+
+The options are all UI decisions rather than fixes, which is why this is filed rather
+than patched: grow the triad (it costs viewport corner, which D-1 protects), keep the
+triad decorative and move the six views into a menu or the command palette T7 builds
+(then the tips stop being controls and the SC stops applying), or accept the shortfall
+as a redundant affordance ONCE a keyboard/menu route to the same six views exists —
+which is the cheapest and is very likely what T7's action registry delivers anyway.
+
+Note this is target SIZE only. The tips are otherwise accessible: real buttons, fixed
+tab order, per-view `aria-label`, a hover ring and a `title`.
+
+**Trigger to revisit:** the F4.5c polish stage, alongside T7's action registry — if the
+registry exposes the six views, option three closes this at no cost.
+
+**Reference:** `packages/editor/src/frontend/components/AxisTriad.tsx` (`HIT` /
+`NEG_HIT`, and the comment that states the constraint); `docs/reference/editor-architecture.md`
+§20.5.

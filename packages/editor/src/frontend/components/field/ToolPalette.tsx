@@ -45,8 +45,13 @@ const GESTURE_TOOLS: {
 	{
 		gesture: "pointer",
 		label: "Select",
+		// Select is the DEFAULT arming, so this is also where the camera bindings
+		// change — and this tooltip is where someone looks when the wheel stops
+		// sizing their brush. The gizmo is the orbit-mode indicator (it appears on
+		// nearly the same condition the selection-pivot orbit does), so it is worth
+		// naming as one rather than leaving the mode invisible.
 		title:
-			"click a stamp, a prop or a marker to select it — click bare rock to deselect",
+			"click a stamp, a prop or a marker to select it — click bare rock to deselect · with this armed the wheel travels the camera instead of sizing the brush, and right-drag orbits the selection (the gizmo arms say when) rather than looking around",
 	},
 	{
 		gesture: "box",

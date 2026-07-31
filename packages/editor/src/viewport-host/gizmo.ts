@@ -20,6 +20,7 @@
  * (shared with the chrome's `AxisTriad`) and belong beside the theme, not beside
  * the arithmetic.
  */
+import { boxCentre } from "./box-edges.ts";
 
 type V3 = [number, number, number];
 
@@ -198,11 +199,7 @@ export function gizmoSpan(box: { min: V3; max: V3 }): GizmoSpan {
     ) / 2,
   );
   return {
-    origin: [
-      (box.min[0] + box.max[0]) / 2,
-      (box.min[1] + box.max[1]) / 2,
-      (box.min[2] + box.max[2]) / 2,
-    ],
+    origin: boxCentre(box),
     len,
     inner: len * HANDLE_INNER_FRACTION,
     tol: len * PICK_TOL_FRACTION,

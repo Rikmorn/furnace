@@ -1,3 +1,5 @@
+import { boxCentre } from "./box-edges.ts";
+
 type V3 = [number, number, number];
 
 /** Orbit camera as target + spherical offset. Editor-only; never serialized. */
@@ -125,11 +127,6 @@ export function dolly(s: OrbitState, direction: number): OrbitState {
  * {@link FRAME_MIN_DISTANCE_M} so a one-voxel box cannot put the eye inside it.
  */
 export function frameBox(s: OrbitState, box: { min: V3; max: V3 }): OrbitState {
-  const target: V3 = [
-    (box.min[0] + box.max[0]) / 2,
-    (box.min[1] + box.max[1]) / 2,
-    (box.min[2] + box.max[2]) / 2,
-  ];
   const longest = Math.max(
     box.max[0] - box.min[0],
     box.max[1] - box.min[1],
@@ -137,7 +134,7 @@ export function frameBox(s: OrbitState, box: { min: V3; max: V3 }): OrbitState {
   );
   return {
     ...s,
-    target,
+    target: boxCentre(box),
     distance: Math.max(FRAME_MIN_DISTANCE_M, longest * FRAME_FIT),
   };
 }
@@ -154,7 +151,7 @@ export function frameBox(s: OrbitState, box: { min: V3; max: V3 }): OrbitState {
  * straight up — a top view that also spun the horizon would be a second change
  * nobody asked for.
  */
-export function axisView(
+export function snapToAxis(
   s: OrbitState,
   axis: "x" | "y" | "z",
   sign: 1 | -1,

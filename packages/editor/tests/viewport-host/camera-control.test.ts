@@ -8,13 +8,13 @@
 // that, which the first case below pins).
 import { expect, test } from "bun:test";
 import {
-  axisView,
   dolly,
   flyLook,
   flyMove,
   frameBox,
   type OrbitState,
   orbitAbout,
+  snapToAxis,
   toEyeTarget,
 } from "../../src/viewport-host/camera-control.ts";
 
@@ -96,7 +96,7 @@ test("frameBox floors the distance so a one-voxel box does not put the eye insid
   expect(s.target).toEqual([0.125, 0.125, 0.125]);
 });
 
-test("axisView: sign +1 puts the EYE on the positive side of the named axis", () => {
+test("snapToAxis: sign +1 puts the EYE on the positive side of the named axis", () => {
   // The convention the triad's tips are labelled with: click the +X tip and the
   // camera goes to +X looking back at the pivot.
   const cases: ["x" | "y" | "z", 1 | -1, V3][] = [
@@ -108,7 +108,7 @@ test("axisView: sign +1 puts the EYE on the positive side of the named axis", ()
     ["z", -1, [0, 0, -1]],
   ];
   for (const [axis, sign, expected] of cases) {
-    const s = axisView(base, axis, sign);
+    const s = snapToAxis(base, axis, sign);
     const offset = sub(toEyeTarget(s).eye, base.target);
     const unit: V3 = [
       offset[0] / base.distance,
@@ -129,10 +129,10 @@ test("axisView: sign +1 puts the EYE on the positive side of the named axis", ()
   }
 });
 
-test("axisView: the Y views stay off the pole and keep the compass heading", () => {
+test("snapToAxis: the Y views stay off the pole and keep the compass heading", () => {
   const turned: OrbitState = { ...base, yaw: 1.1, pitch: -0.3 };
   for (const sign of [1, -1] as const) {
-    const s = axisView(turned, "y", sign);
+    const s = snapToAxis(turned, "y", sign);
     expect(Math.abs(s.pitch)).toBeLessThan(Math.PI / 2);
     expect(Math.abs(s.pitch)).toBeGreaterThan(Math.PI / 2 - 0.02);
     // Yaw is undefined at the pole, so a top view keeps the heading the user had

@@ -21,7 +21,7 @@ guessed.**
 - **PROMOTED: `dolly`** — the wheel under the `pointer` tool travels the camera,
   that tool having no brush radius to size. Every other arming keeps the radius.
 - **ADDED, each with a caller in the same commit: `orbitAbout`, `frameBox`,
-  `axisView`** — right-drag orbit about the selected entity, `F` frame, and the
+  `snapToAxis`** — right-drag orbit about the selected entity, `F` frame, and the
   corner triad's six snap views.
 
 `orbit` was deleted rather than promoted because **`orbitAbout(s, pivot, …)`

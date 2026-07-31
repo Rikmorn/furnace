@@ -41,15 +41,15 @@ import {
 import { openBlockedReason } from "../frontend/lib/field-entity.ts";
 import type { WireBucket } from "../frontend/lib/field-protocol.ts";
 import { deriveSizeDefaults } from "../frontend/lib/field-size.ts";
-import { boxEdges } from "./box-edges.ts";
+import { boxCentre, boxEdges } from "./box-edges.ts";
 import {
-  axisView,
   dolly,
   flyLook,
   flyMove,
   frameBox,
   type OrbitState,
   orbitAbout,
+  snapToAxis,
   toEyeTarget,
 } from "./camera-control.ts";
 import {
@@ -811,13 +811,18 @@ export type FieldHost = {
    *
    *  What it frames, in order: the selected ENTITY's stamped footprint
    *  ({@link selectEntity}), else the cell selection's AABB
-   *  ({@link SelectionInfo.aabb}), else nothing at all. The entity wins because
-   *  the two selections are independent state and both can stand at once — the
-   *  one the user last acted on is the object one.
+   *  ({@link SelectionInfo.aabb}), else nothing at all. The two selections are
+   *  INDEPENDENT state — neither verb clears the other, so both can stand at
+   *  once and either can be the more recent — and the entity wins
+   *  UNCONDITIONALLY. Not a recency rule: an object selection names one thing,
+   *  a cell selection names a volume, and the more specific intent is the one
+   *  worth flying to.
    *
-   *  With neither selected this is a complete NO-OP: no camera write and no
-   *  {@link subscribeCameraPose} push. Framing "everything" instead would be a
-   *  different verb, and one that flies the user somewhere they did not ask to go.
+   *  With neither selected it moves no camera and pushes no
+   *  {@link subscribeCameraPose} — it reports through {@link subscribeToolError}
+   *  instead. Framing "everything" would be a different verb, and one that flies
+   *  the user somewhere they did not ask to go; refusing SILENTLY would be
+   *  indistinguishable from a broken key, since `F` swallows the press anyway.
    *
    *  A CUT, not a tween — the editor has no camera animation, and this shares
    *  that stance with every other camera path (see the class comment on the
@@ -1027,6 +1032,22 @@ const LOOK_SPEED = 0.005; // rad per pixel of RMB drag
 const RADIUS_MIN = 0.25;
 const RADIUS_MAX = 4;
 const RADIUS_WHEEL_STEP = 0.1;
+/** Scroll distance, in CSS pixels, that buys one {@link dolly} step. Roughly one
+ *  notch of a physical wheel on the platforms that report pixels. */
+const WHEEL_STEP_PX = 100;
+/** `WheelEvent.deltaMode` unit conversions to pixels. A "line" is the ~16 px the
+ *  browsers reporting `deltaMode: 1` (Firefox) assume; a "page" is a screenful,
+ *  approximated rather than measured because nothing in this editor scrolls by
+ *  pages and the mode is effectively unreachable here. */
+const WHEEL_LINE_PX = 16;
+const WHEEL_PAGE_PX = 400;
+
+/** A wheel event's scroll distance in CSS pixels, whatever unit it arrived in. */
+function wheelPixels(e: WheelEvent): number {
+  if (e.deltaMode === 1) return e.deltaY * WHEEL_LINE_PX;
+  if (e.deltaMode === 2) return e.deltaY * WHEEL_PAGE_PX;
+  return e.deltaY;
+}
 
 const CLEAR = vec4.fromValues(0.03, 0.03, 0.045, 1);
 // The studio key light: camera-following, warm, and the only light in the scene.
@@ -1567,6 +1588,9 @@ export function createFieldHost(deps?: {
   // deleting the entity, or disarming the pointer tool mid-drag all leave the
   // drag that is running exactly as it started.
   let look: { lastX: number; lastY: number; pivot: Vec3T | null } | null = null;
+  // Scroll banked toward the next dolly step, in CSS pixels (see onWheel). Signed,
+  // so reversing direction drains it rather than fighting it.
+  let dollyPixels = 0;
 
   // Reference grid — world-static, so both batches are built once and reused.
   const gridSegments = buildGridLines();
@@ -2347,11 +2371,7 @@ export function createFieldHost(deps?: {
     aabb: { min: Vec3T; max: Vec3T },
     color: [number, number, number, number],
   ): LineBatch => {
-    const center: Vec3T = [
-      (aabb.min[0] + aabb.max[0]) / 2,
-      (aabb.min[1] + aabb.max[1]) / 2,
-      (aabb.min[2] + aabb.max[2]) / 2,
-    ];
+    const center = boxCentre(aabb);
     const half: Vec3T = [
       (aabb.max[0] - aabb.min[0]) / 2,
       (aabb.max[1] - aabb.min[1]) / 2,
@@ -3111,20 +3131,22 @@ export function createFieldHost(deps?: {
   // to pivot on. Gated on the POINTER tool for the gizmo's reason: with a brush
   // armed the selection is not what the user is working on, and a right-drag
   // that suddenly orbits something they are not looking at is a surprise.
-  const orbitPivot = (): Vec3T | null => {
-    if (gesture !== "pointer" || selectedEntityId === null) return null;
-    const box = entityFootprints().get(selectedEntityId);
-    if (box === undefined) return null;
-    return [
-      (box.min[0] + box.max[0]) / 2,
-      (box.min[1] + box.max[1]) / 2,
-      (box.min[2] + box.max[2]) / 2,
-    ];
-  };
+  //
+  // Read off the GIZMO rather than re-derived from the footprint memo, and the
+  // point is not brevity: `gizmoSpan(box).origin` IS the footprint centre, and
+  // `gizmo` is non-null on exactly the condition a re-derivation would test
+  // (rebuildEntitySelectionBatch nulls it when the selected entity has no box).
+  // Taking it from there makes the pivot the same number the drawn handles hang
+  // on, so the camera can never orbit a centre other than the one on screen.
+  const orbitPivot = (): Vec3T | null =>
+    gesture !== "pointer" || gizmo === null ? null : gizmo.origin;
 
   // The box `F` frames: the selected ENTITY's footprint, else the CELL
-  // selection's AABB, else nothing. Entity first because both selections can
-  // stand at once and the object one is what a `pointer` click just wrote.
+  // selection's AABB, else nothing. A FIXED priority, not "whichever is newer":
+  // `selectionClick` never touches `selectedEntityId` and `setSelectedEntity`
+  // never touches `selection`, so either order of arrival is reachable (select
+  // an entity from the palette, then draw a box — the entity still wins). The
+  // entity is the more SPECIFIC intent: one object rather than a volume.
   const frameTargetBox = (): { min: Vec3T; max: Vec3T } | null => {
     const box =
       selectedEntityId === null
@@ -3136,13 +3158,19 @@ export function createFieldHost(deps?: {
 
   const frameSelection = (): void => {
     const box = frameTargetBox();
-    if (box === null) return; // no camera write, and no pose push either
+    if (box === null) {
+      // Says so rather than doing nothing quietly. `F` swallows the key either
+      // way, so a silent refusal is indistinguishable from a broken binding —
+      // the same reason every other refused verb here reports.
+      reportToolError("nothing selected to frame");
+      return;
+    }
     orbitState = frameBox(orbitState, box);
     applyOrbit();
   };
 
   const snapView = (axis: Axis, sign: 1 | -1): void => {
-    orbitState = axisView(orbitState, axis, sign);
+    orbitState = snapToAxis(orbitState, axis, sign);
     applyOrbit();
   };
 
@@ -4861,23 +4889,34 @@ export function createFieldHost(deps?: {
 
   // The wheel is TWO bindings on one input, split by what LMB is armed to do.
   // Under `pointer` — which selects and moves rather than paints — there is no
-  // brush to resize, so the notches travel the camera instead; under everything
-  // else (the brush, `segment`, the cell-selection gestures) they are the brush
-  // radius they have always been. One notch away from the user = forward /
-  // bigger, in both.
+  // brush to resize, so the scroll travels the camera instead; under everything
+  // else (the brush, `segment`, the cell-selection gestures) it is the brush
+  // radius it has always been. Away from the user = forward / bigger, in both.
+  //
+  // The two measure the scroll DIFFERENTLY, and the asymmetry is deliberate.
+  // Travel is ACCUMULATED: `deltaY` magnitudes differ by two orders between a
+  // notched wheel (~100 px per notch, a handful of events) and a trackpad's
+  // momentum stream (many small events), so one step per EVENT would make how
+  // far the camera goes a function of the event rate rather than of how far the
+  // user scrolled. Radius keeps its per-event step because it is clamped to
+  // [RADIUS_MIN, RADIUS_MAX] — an over-long flick just pins it — and its feel
+  // was tuned at the F2b/F3a gates. Camera travel has no such clamp.
   const onWheel = (e: WheelEvent): void => {
     e.preventDefault();
-    const notches = -Math.sign(e.deltaY);
-    // A purely horizontal wheel (deltaY 0 — a trackpad's sideways scroll) means
-    // neither binding. Returning is not just an optimisation: falling through
-    // would publish a pose for a camera that did not move, and retire a live
-    // move's anchor on the strength of it.
-    if (notches === 0) return;
     if (gesture === "pointer") {
-      orbitState = dolly(orbitState, notches);
+      dollyPixels += wheelPixels(e);
+      const steps = Math.trunc(dollyPixels / WHEEL_STEP_PX);
+      // Sub-threshold scroll banks and waits. Returning is not just an
+      // optimisation: falling through would publish a pose for a camera that did
+      // not move, and retire a live move's anchor on the strength of it.
+      if (steps === 0) return;
+      dollyPixels -= steps * WHEEL_STEP_PX;
+      orbitState = dolly(orbitState, -steps); // negative deltaY = forward
       applyOrbit();
       return;
     }
+    const notches = -Math.sign(e.deltaY);
+    if (notches === 0) return; // a purely horizontal wheel means neither binding
     digRadius = clampRadius(digRadius + notches * RADIUS_WHEEL_STEP);
   };
 

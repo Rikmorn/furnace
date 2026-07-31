@@ -43,7 +43,10 @@ import {
 } from "../../core/tests/_helpers/gpu-fixture.ts";
 import { installMockResizeObserver } from "../../core/tests/_helpers/mock-resize-observer.ts";
 import { generatorFootprint } from "../src/viewport-host/field-ghost.ts";
-import type { SelectionInfo } from "../src/viewport-host/field-host.ts";
+import type {
+  CameraPose,
+  SelectionInfo,
+} from "../src/viewport-host/field-host.ts";
 import { createFieldHost } from "../src/viewport-host/field-host.ts";
 import { type HostListeners, makeHostCanvas } from "./_helpers/host-canvas.ts";
 import { stubAnimationFrameNoop } from "./_helpers/raf.ts";
@@ -138,6 +141,11 @@ async function cameraFixture() {
 
   const selections: (SelectionInfo | null)[] = [];
   host.subscribeSelection((s) => selections.push(s));
+  // The pose seam is how a test sees the camera TURN. The eye alone cannot: a
+  // fly-look pins the eye by definition, so "the eye did not move" is satisfied
+  // just as well by nothing having happened at all.
+  const poses: CameraPose[] = [];
+  host.subscribeCameraPose((p) => poses.push(p));
 
   const fire = (type: string, e: Record<string, unknown>): void => {
     const fn = listeners.get(type);
@@ -229,6 +237,13 @@ async function cameraFixture() {
     selections,
     footprintCentre,
     footprintLongest,
+    /** The camera's current orientation, off the pose seam. */
+    pose: (): CameraPose => {
+      const p = poses.at(-1);
+      if (p === undefined)
+        throw new Error("test: the pose seam pushed nothing");
+      return p;
+    },
     down,
     move,
     up,
@@ -289,6 +304,38 @@ test.skipIf(!bunWebGpuAvailable())(
       f.host.setGesture("pointer");
       f.wheel(100);
       expect(dist(f.eye(), eyeBefore)).toBeLessThan(1e-9);
+    } finally {
+      f.teardown();
+    }
+  },
+);
+
+test.skipIf(!bunWebGpuAvailable())(
+  "wheel travel is measured in SCROLL DISTANCE, not in events",
+  async () => {
+    const f = await cameraFixture();
+    try {
+      f.host.setGesture("pointer");
+      const eyeBefore = f.eye();
+
+      // A macOS trackpad's momentum emits many small events. One dolly step per
+      // EVENT makes travel a function of the event rate — 30 of these would be
+      // ~27 m at the starting distance, past the far edge of the workable world.
+      for (let i = 0; i < 30; i++) f.wheel(-3);
+      // 30 × 3 px = 90, under the 100 px that buys a step: banked, not spent.
+      expect(f.eye()).toEqual(eyeBefore);
+
+      // Crossing the threshold spends exactly one step, and the tenth event is
+      // no different from the first — so this is a threshold, not a lockout.
+      for (let i = 0; i < 4; i++) f.wheel(-3);
+      const eyeAfter = f.eye();
+      expect(dist(eyeBefore, eyeAfter)).toBeGreaterThan(0.1);
+
+      // One notch of a real wheel is one step, and travels the same distance the
+      // 102 px of trackpad above just did.
+      const eyeNotch = f.eye();
+      f.wheel(-100);
+      expect(dist(eyeNotch, f.eye())).toBeCloseTo(dist(eyeBefore, eyeAfter), 6);
     } finally {
       f.teardown();
     }
@@ -364,19 +411,33 @@ test.skipIf(!bunWebGpuAvailable())(
   async () => {
     const f = await cameraFixture();
     try {
+      // BOTH halves of "fly-look ran", every time. Pinning only the eye would
+      // be satisfied by the branch not existing at all — fly-look holds the eye
+      // BY DEFINITION, so a right-drag that did nothing whatsoever passes it.
+      // The yaw is the discriminating claim: fly-look pins the eye AND turns the
+      // view, and this is the editor's primary navigation gesture.
+      //
       // (a) pointer armed, nothing selected.
       f.host.setGesture("pointer");
       const eyeBefore = f.eye();
+      const yawBefore = f.pose().yaw;
       rightDrag(f, 20);
-      expect(f.eye()).toEqual(eyeBefore); // fly-look pins the eye
+      expect(f.eye()).toEqual(eyeBefore);
+      // 20 px at LOOK_SPEED is 0.1 rad; a hundredth of that would be a
+      // rounding artefact rather than a look.
+      expect(Math.abs(f.pose().yaw - yawBefore)).toBeGreaterThan(0.01);
 
       // (b) something selected, but the BRUSH is armed — the selection is not
       // what the user is working on, so the drag must not start orbiting it.
+      // It must still LOOK, which is the half `orbitPivot`'s gesture gate is
+      // otherwise free to break.
       f.host.selectEntity(f.entityId);
       f.host.setGesture(null);
       const eyeBrush = f.eye();
+      const yawBrush = f.pose().yaw;
       rightDrag(f, 20);
       expect(f.eye()).toEqual(eyeBrush);
+      expect(Math.abs(f.pose().yaw - yawBrush)).toBeGreaterThan(0.01);
     } finally {
       f.teardown();
     }

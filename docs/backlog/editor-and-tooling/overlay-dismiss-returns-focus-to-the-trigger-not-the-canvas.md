@@ -28,11 +28,31 @@ why it is here rather than fixed inline.
 Related: the same seam would answer "should ⌘Z work while a palette input has focus?",
 which today is handled separately by `useGlobalKeybindings` + the canvas's own handler.
 
+## Partially handled — the MOMENTARY-COMMAND case (F4.5b Task 6, 2026-07-31)
+
+The trigger fired: Task 6 put six `<button>` tips on the corner axis triad, over the
+canvas, and they landed in this class immediately — a click on one moved focus off the
+canvas, killing every viewport key, and `field-host.ts`'s `onBlur` runs
+`cancelMoveInFlight()`, so a user mid-`G`-grab who clicked a tip to see what they were
+doing lost the grab silently.
+
+That case does **not** need the conditional machinery below, and the distinction is the
+useful part of this entry now: a triad tip is a **momentary command**, not a surface
+anyone navigates INTO. Focus was never meant to land there at all, so the fix is to
+refuse it — `onPointerDown={(e) => { if (e.button === 0) e.preventDefault(); }}`, the
+standard toolbar pattern, which suppresses the click-focus transfer while leaving
+Tab-focus and Enter/Space activation intact. Pinned in `tests/chrome/shell.test.tsx`.
+
+**Still open: the DISMISSIBLE-SURFACE case** — the View popover, the burger, the world
+drawer, the confirm dialog. Those legitimately take focus (you navigate into them), so
+the question is where focus goes on CLOSE, and that is still the conditional-restore
+design decision described above. The momentary-command answer does not generalise to it.
+
 ## Trigger to revisit
 
-F4.5b's pointer/interaction work — it owns the viewport input model and will already be
-touching focus, capture and the gesture state. Or sooner if the slice slider (a control a
-user drags repeatedly while looking at the field) makes the dead-keys window obvious.
+The F4.5c polish stage, or sooner if the slice slider (a control a user drags repeatedly
+while looking at the field) makes the dead-keys window obvious. F4.5b's pointer work
+already came and went — it handled the momentary-command half only.
 
 ## Reference
 
@@ -41,4 +61,5 @@ user drags repeatedly while looking at the field) makes the dead-keys window obv
 - `packages/editor/src/frontend/components/shell/ViewPopover.tsx` — the overlay that made
   this a normal-loop problem.
 - `packages/editor/src/viewport-host/field-host.ts` — `attachListeners`, which binds the
-  keydowns to the canvas element.
+  keydowns to the canvas element, and `onBlur`, which cancels a move in flight.
+- `packages/editor/src/frontend/components/AxisTriad.tsx` — the momentary-command fix.

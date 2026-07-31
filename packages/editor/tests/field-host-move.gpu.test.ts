@@ -528,6 +528,38 @@ test.skipIf(!bunWebGpuAvailable())(
   },
 );
 
+test.skipIf(!bunWebGpuAvailable())(
+  "a wheel DOLLY mid-drag moves nothing either — the retirement is per camera path, not per look",
+  async () => {
+    const f = await moveFixture();
+    try {
+      f.down(CENTRE, CENTRE);
+      f.up();
+      await draggedTo(f, CENTRE + 14, CENTRE + 12);
+      const before = f.session()?.region;
+      if (before === undefined) throw new Error("test: no move session");
+
+      // F4.5b Task 6 moved the anchor retirement to `applyOrbit` — the ONE place
+      // every camera path ends — precisely so it covers the paths that did NOT
+      // exist when it lived on the pointerup: the wheel dolly here, the fly step,
+      // and `F`/`snapView`. The RMB case above cannot stand in for any of them:
+      // narrowing the retirement back to `if (look !== null)` leaves that test
+      // green and this one red. The dolly TRANSLATES the rig, so the same pixel
+      // maps somewhere else just as it does after a turn. Cursor returned to
+      // exactly where it was.
+      f.fire("wheel", { deltaY: -100, preventDefault: () => undefined });
+      f.move(CENTRE + 14, CENTRE + 12);
+      await settle();
+
+      expect(f.session()?.region).toEqual(before);
+
+      f.key("escape");
+    } finally {
+      f.teardown();
+    }
+  },
+);
+
 // --- the gizmo --------------------------------------------------------------
 
 test.skipIf(!bunWebGpuAvailable())(

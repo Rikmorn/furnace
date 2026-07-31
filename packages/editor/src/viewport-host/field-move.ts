@@ -16,6 +16,7 @@
 // The host keeps only what needs the world: the two `cursorRay` calls, the
 // session, and `nudgeStampRegion`.
 import { LATTICE } from "../frontend/lib/field-brush.ts";
+import { boxCentre } from "./box-edges.ts";
 import {
   AXIS_DIR,
   type Axis,
@@ -95,11 +96,7 @@ export function startMove(opts: {
     mapping: opts.axis ?? "plane",
     fixedAxis: opts.axis !== null,
     planeY: box.min[1],
-    origin: [
-      (box.min[0] + box.max[0]) / 2,
-      (box.min[1] + box.max[1]) / 2,
-      (box.min[2] + box.max[2]) / 2,
-    ],
+    origin: boxCentre(box),
     press: opts.press,
     anchorPoint: null,
     anchorSteps: [0, 0, 0],

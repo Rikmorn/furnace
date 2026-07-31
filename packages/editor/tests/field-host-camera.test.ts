@@ -164,9 +164,11 @@ const lastPose = (poses: CameraPose[]): CameraPose => {
 
 // --- frameSelection ---------------------------------------------------------
 
-test("frameSelection with nothing selected moves no camera and pushes no pose", () => {
+test("frameSelection with nothing selected moves no camera, pushes no pose, and SAYS so", () => {
   const { host, poses } = poseProbe();
   loadHall(host);
+  const errors: string[] = [];
+  host.subscribeToolError((m) => errors.push(m));
   const eyeBefore = readCameraEye(host);
   const pushes = poses.length;
 
@@ -176,6 +178,9 @@ test("frameSelection with nothing selected moves no camera and pushes no pose", 
   // A no-op that still published would repaint the triad for nothing, and would
   // hide a framing that silently framed the world origin.
   expect(poses.length).toBe(pushes);
+  // `F` swallows the key whether or not it frames anything, so a silent refusal
+  // reads as a dead binding.
+  expect(errors.at(-1)).toContain("nothing selected");
 });
 
 test("frameSelection fits the SELECTED entity's footprint and keeps the viewing angle", () => {

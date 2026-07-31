@@ -1,3 +1,27 @@
+// Pure metre-AABB geometry, shared by every module that has to say something
+// about a box: the 12-edge line list, and the centre. Dependency-free on purpose
+// — `camera-control.ts` and `gizmo.ts` both import it and both stay free of
+// `@furnace/core`.
+
+type V3 = [number, number, number];
+
+/**
+ * The centre of a metre AABB.
+ *
+ * One helper rather than the hand-inlined `(min + max) / 2` it replaces in four
+ * modules — the framing fit, the highlight box, the gizmo origin and a move's
+ * origin. (A fifth, the orbit pivot, went away entirely: it reads the gizmo's
+ * origin now.) They all mean the same thing, and a box centre that disagreed
+ * with itself across two of them would put a handle where the outline is not.
+ */
+export function boxCentre(box: { min: V3; max: V3 }): V3 {
+  return [
+    (box.min[0] + box.max[0]) / 2,
+    (box.min[1] + box.max[1]) / 2,
+    (box.min[2] + box.max[2]) / 2,
+  ];
+}
+
 /**
  * Corner index bit layout matches `LoadedScene.entityBoxCorners`: bit0=x, bit1=y, bit2=z.
  * For corner index `c`: x = c&1 ? max.x : min.x, y = c&2 ? max.y : min.y, z = c&4 ? max.z : min.z.

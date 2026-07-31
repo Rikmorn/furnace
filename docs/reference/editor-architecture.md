@@ -342,7 +342,7 @@ M5A has `revertEntity` (rebuilds from committed doc) but **no `revertSettings`**
 > was resolved by F4.5b Task 6**, and the split went the other way from the plan's
 > guess: `dolly` is live (the wheel under the `pointer` tool), `orbit` was SUBSUMED by
 > a new `orbitAbout(s, pivot, dYaw, dPitch)` that holds a pivot fixed on screen, and
-> `orbit`, `zoom`, `pan` and `fromEyeTarget` are DELETED. `frameBox` and `axisView`
+> `orbit`, `zoom`, `pan` and `fromEyeTarget` are DELETED. `frameBox` and `snapToAxis`
 > joined it for `F` and the triad's snap views. Every export in that file now has a
 > caller in `field-host.ts`; §11.2 below describes the module as M5B left it.
 
@@ -1580,7 +1580,13 @@ real `<button>`s over the SVG (an `<svg>` cannot contain one, and `role="button"
 shape would mean hand-rolling focus and Enter/Space), each calling
 `FieldHost.snapView(axis, sign)` where `sign: 1` puts the eye on the POSITIVE side of
 that axis. The mount box stays `pointer-events-none` so the overlay never eats an orbit
-drag; the six tips re-enable it for their own caps. The triad mounts **above the palette layer in DOM order** — the default
+drag; the six tips re-enable it for their own caps, and each **suppresses the default on
+a left pointerdown** — a tip is a momentary command, and letting a click move focus off
+the canvas would kill every viewport key and cancel a live `G` grab (`onBlur` →
+`cancelMoveInFlight`). They also suppress their own `contextmenu`, which the canvas's
+handler cannot reach because they are canvas SIBLINGS, not descendants. Buttons are
+emitted in fixed axis order (that is the tab order) and resolve overlap with `zIndex`;
+the SVG behind them paints far-to-near. The triad mounts **above the palette layer in DOM order** — the default
 arrangement docks `controls` to the right edge at top 0, which covers exactly the corner
 the triad sits in, so mounted before the layer it would ship invisible out of the box.
 `Toasts` sits there for the same reason with a softer case. Both are their own absolute

@@ -1435,16 +1435,32 @@ test("the triad's six tips snap the view, and are real buttons", async () => {
 
 	// SIX, not three: the −axis tips are the +axis projection negated, and a
 	// ViewCube that only reached three of the six faces would be half a control.
+	// The order is FIXED and asserted UNSORTED, because it is the tab order: the
+	// drawing is depth-sorted so near caps paint last, and emitting the buttons in
+	// that order too would reshuffle focus order on every camera move.
 	const tips = within(triad).getAllByRole("button");
-	expect(tips.length).toBe(6);
-	expect(tips.map((t) => t.getAttribute("aria-label")).sort()).toEqual([
+	expect(tips.map((t) => t.getAttribute("aria-label"))).toEqual([
 		"View from +X",
-		"View from +Y",
-		"View from +Z",
 		"View from -X",
+		"View from +Y",
 		"View from -Y",
+		"View from +Z",
 		"View from -Z",
 	]);
+	// Still depth-resolved for the pointer, via z-index rather than DOM order.
+	const zOf = (name: string): number =>
+		Number(
+			within(triad)
+				.getByRole("button", { name })
+				.style.getPropertyValue("z-index"),
+		);
+	act(() => {
+		stub.fire.cameraPose({ yaw: 0, pitch: 0 });
+	});
+	// At yaw 0 / pitch 0 the camera looks down −Z, so +Z points at the viewer and
+	// −Z away: the near tip must win an overlap, and at this pose they overlap
+	// exactly (both project to the centre).
+	expect(zOf("View from +Z")).toBeGreaterThan(zOf("View from -Z"));
 
 	// Clicking a tip is the snap. The ARGUMENTS are the assertion: axis and sign
 	// are invisible to every other check here, and getting the sign wrong is the
@@ -1467,7 +1483,51 @@ test("the triad's six tips snap the view, and are real buttons", async () => {
 		// The overlay box is pointer-events-none (above); without this the tips
 		// would be unclickable in a browser and this suite could not tell.
 		expect(tip.classList.contains("pointer-events-auto")).toBe(true);
+		// Tailwind v4 dropped Preflight's `cursor: pointer` on buttons, and this
+		// control has no visible box — the cursor and the hover ring are the only
+		// thing that says it is one. The title is the orientation cue.
+		expect(tip.classList.contains("cursor-pointer")).toBe(true);
+		expect(tip.getAttribute("title")).toBe(tip.getAttribute("aria-label"));
 	}
+});
+
+test("a triad tip does not steal focus from the canvas, and suppresses the context menu", async () => {
+	fetch404();
+	const stub = makeStubHost();
+	await renderShell(stub);
+	const canvas = screen.getByLabelText("field viewport");
+	const tip = screen.getByRole("button", { name: "View from +X" });
+
+	// THE bug this pins: the host binds every viewport key to the CANVAS
+	// (W/A/S/D, F, [ / ], ⌘Z) and its `blur` CANCELS a live move. The tips are
+	// canvas SIBLINGS, so a click that moved focus would silently disarm the
+	// viewport — and cost a `G`-grabbing user their grab, with nothing on screen
+	// saying why. Suppressing the default on the left press is what stops the
+	// browser's click-focus transfer, and it leaves Tab-focus and Enter/Space
+	// alone. Asserted through defaultPrevented because focus transfer itself is a
+	// browser behaviour happy-dom does not model.
+	canvas.focus();
+	const press = new Event("pointerdown", { bubbles: true, cancelable: true });
+	Object.defineProperty(press, "button", { value: 0 });
+	tip.dispatchEvent(press);
+	expect(press.defaultPrevented).toBe(true);
+
+	// A RIGHT press falls through untouched — swallowing it would make the corner
+	// a dead zone for the gesture the overlay is pointer-events-none to protect.
+	const rightPress = new Event("pointerdown", {
+		bubbles: true,
+		cancelable: true,
+	});
+	Object.defineProperty(rightPress, "button", { value: 2 });
+	tip.dispatchEvent(rightPress);
+	expect(rightPress.defaultPrevented).toBe(false);
+
+	// …but the browser menu is still suppressed. `onContextMenu` lives on the
+	// canvas, and these buttons are not canvas descendants, so without their own
+	// handler a right-press here opens it over the viewport.
+	const menu = new Event("contextmenu", { bubbles: true, cancelable: true });
+	tip.dispatchEvent(menu);
+	expect(menu.defaultPrevented).toBe(true);
 });
 
 // --- (d) the layout contract + the retired dock ------------------------------

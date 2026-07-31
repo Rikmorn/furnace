@@ -11,7 +11,6 @@
 //
 // `pointer-events-none` on the BOX is what keeps the overlay from eating orbit drags in
 // the corner it sits in; the tips re-enable it for their own caps (see AxisTriad).
-import { useCallback } from "react";
 import { useCameraPose } from "../../hooks/useFieldHostState.tsx";
 import { AxisTriad } from "../AxisTriad.tsx";
 import { useEditor } from "../editor-context.ts";
@@ -19,14 +18,13 @@ import { useEditor } from "../editor-context.ts";
 export function AxisTriadMount() {
 	const { yaw, pitch } = useCameraPose();
 	const { fieldHostRef } = useEditor();
-	const snap = useCallback(
-		(axis: "x" | "y" | "z", sign: 1 | -1) =>
-			fieldHostRef.current?.snapView(axis, sign),
-		[fieldHostRef],
-	);
 	return (
 		<div className="pointer-events-none absolute top-2 right-2">
-			<AxisTriad yaw={yaw} pitch={pitch} onSnap={snap} />
+			<AxisTriad
+				yaw={yaw}
+				pitch={pitch}
+				onSnap={(axis, sign) => fieldHostRef.current?.snapView(axis, sign)}
+			/>
 		</div>
 	);
 }

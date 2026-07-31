@@ -24,7 +24,7 @@ module (`frontend/inspector/` — SchemaForm, the kind→renderer registry, the 
 affordance) survives as the stamp/reconfigure param form, and `viewport-host/gizmo.ts` +
 `camera-control.ts` are live, tested pure math again (F4.5b promoted both into the FIELD
 host — the scene camera's `orbit`/`zoom`/`pan`/`fromEyeTarget` were deleted there, so a
-revived scene surface would drive `orbitAbout`/`dolly`/`frameBox`/`axisView` instead).
+revived scene surface would drive `orbitAbout`/`dolly`/`frameBox`/`snapToAxis` instead).
 What has to be rebuilt is the chrome: a document surface in the overlay shell's
 idiom (palettes over a canvas), not the dock the old one assumed.
 

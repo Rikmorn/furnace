@@ -15,8 +15,10 @@ const CENTER = SIZE / 2;
 const RADIUS = 22; // axis line length from centre
 const CAP = 7; // labelled +axis end-cap radius
 const NEG_CAP = 5; // the −axis cap: smaller and unlabelled, the way a ViewCube reads
-// Hit targets, wider than the caps they cover. Still small — six of them share a 64px
-// box, so there is no arrangement in which they reach the 24px WCAG target size.
+// Hit targets, wider than the caps they cover. Still under the 24 px WCAG 2.2 SC 2.5.8
+// minimum, and unavoidably so at this size — six tips share a 64 px box. Filed with the
+// options (grow it, or make the six views reachable another way and let these be a
+// redundant affordance): `docs/backlog/editor-and-tooling/field-f4-gate-ux-findings.md` §3.
 const HIT = 18;
 const NEG_HIT = 14;
 
@@ -37,9 +39,10 @@ type Tip = {
  * `lib/axis-triad.ts`; `onSnap` is the only thing this does.
  *
  * `sign: 1` means "put the eye on the POSITIVE side of this axis" — the labelled,
- * filled tip; the hollow tip opposite it is the negative side. Tips are drawn
- * far-to-near so the ones pointing toward the viewer sit on top, and the BUTTONS are
- * emitted in the same order so an overlap near the centre resolves to the near tip too.
+ * filled tip; the hollow tip opposite it is the negative side. The DRAWING is sorted
+ * far-to-near so the tips pointing toward the viewer paint on top; the BUTTONS are
+ * emitted in a FIXED order (that is the tab order) and resolve the same overlap with
+ * `zIndex` instead.
  *
  * The drawing is an `<svg role="img">` and the controls are real `<button>`s over it,
  * rather than `role="button"` inside the SVG: buttons get focus, keyboard activation
@@ -59,12 +62,16 @@ export function AxisTriad({
 	pitch: number;
 	onSnap: (axis: "x" | "y" | "z", sign: 1 | -1) => void;
 }) {
-	const tips: Tip[] = projectAxisTriad(yaw, pitch)
-		.flatMap((a): Tip[] => [
-			{ axis: a.axis, sign: 1, x: a.x, y: a.y, depth: a.depth },
-			{ axis: a.axis, sign: -1, x: -a.x, y: -a.y, depth: -a.depth },
-		])
-		.sort((a, b) => b.depth - a.depth);
+	// FIXED order (x+, x−, y+, y−, z+, z−). It is what the buttons are emitted in,
+	// and therefore the tab order: sorting them by depth would reshuffle focus
+	// order on every camera move, handing a keyboard user a list that reorders
+	// under them. Overlap near the centre is resolved by `zIndex` instead.
+	const tips: Tip[] = projectAxisTriad(yaw, pitch).flatMap((a): Tip[] => [
+		{ axis: a.axis, sign: 1, x: a.x, y: a.y, depth: a.depth },
+		{ axis: a.axis, sign: -1, x: -a.x, y: -a.y, depth: -a.depth },
+	]);
+	// The DRAWING is depth-sorted, far first, so near caps paint over far ones.
+	const painted = [...tips].sort((a, b) => b.depth - a.depth);
 	const at = (tip: Tip): { x: number; y: number } => ({
 		x: CENTER + tip.x * RADIUS,
 		y: CENTER + tip.y * RADIUS,
@@ -78,7 +85,7 @@ export function AxisTriad({
 				role="img"
 				aria-label="camera orientation axes"
 			>
-				{tips.map((tip) => {
+				{painted.map((tip) => {
 					const { x: ex, y: ey } = at(tip);
 					const color = AXIS_COLOR[tip.axis];
 					const positive = tip.sign === 1;
@@ -126,20 +133,50 @@ export function AxisTriad({
 			{tips.map((tip) => {
 				const { x: ex, y: ey } = at(tip);
 				const size = tip.sign === 1 ? HIT : NEG_HIT;
+				const label = `View from ${tip.sign === 1 ? "+" : "-"}${tip.axis.toUpperCase()}`;
 				return (
 					<button
 						key={`${tip.axis}${tip.sign}`}
 						type="button"
 						// The MOUNT is pointer-events-none so the overlay never eats an orbit
 						// drag; these six re-enable it for their own caps and nothing else.
-						className="pointer-events-auto absolute rounded-full outline-none focus-visible:ring-1 focus-visible:ring-ring"
+						//
+						// `cursor-pointer` is not decoration here: Tailwind v4 dropped v3's
+						// Preflight `cursor: pointer` on buttons, and unlike every other
+						// control in the editor this one has no visible box of its own — the
+						// cursor and the hover ring ARE the discovery channel. The `title`
+						// doubles as an orientation cue, naming the destination before a
+						// snap that arrives as a cut.
+						className="pointer-events-auto absolute cursor-pointer rounded-full outline-none ring-ring hover:ring-1 focus-visible:ring-1"
 						style={{
 							left: ex - size / 2,
 							top: ey - size / 2,
 							width: size,
 							height: size,
+							// Near tips win an overlap near the centre — the same order the
+							// SVG paints in, without disturbing the fixed tab order above.
+							// Offset to stay non-negative: a negative z-index would drop the
+							// button behind the drawing it sits on.
+							zIndex: Math.round((1 - tip.depth) * 100),
 						}}
-						aria-label={`View from ${tip.sign === 1 ? "+" : "-"}${tip.axis.toUpperCase()}`}
+						aria-label={label}
+						title={label}
+						// A tip is a MOMENTARY command, not a surface anyone navigates into,
+						// and the canvas owns every viewport key (W/A/S/D, F, [ / ], ⌘Z) plus
+						// a `blur` that CANCELS a live move. Letting a click move focus here
+						// would silently disarm the viewport — and lose a `G` grab for a user
+						// who clicked a tip to see what they were doing. Suppressing the
+						// default on the press keeps Tab-focus and Enter/Space activation
+						// intact (the standard toolbar pattern). Left button only, so a
+						// right-press is left alone.
+						onPointerDown={(e) => {
+							if (e.button === 0) e.preventDefault();
+						}}
+						// The canvas suppresses the context menu, but these buttons are NOT
+						// canvas descendants — without this a right-press on a tip opens the
+						// browser menu over the viewport, in exactly the corner the camera is
+						// flicked in.
+						onContextMenu={(e) => e.preventDefault()}
 						onClick={() => onSnap(tip.axis, tip.sign)}
 					/>
 				);
