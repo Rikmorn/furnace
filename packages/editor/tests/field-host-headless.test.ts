@@ -1,15 +1,17 @@
 // FieldHost surfaces that need NO GPU init (a field-host-load.test.ts
-// sibling): startStamp's no-selection guard, subscribeStamp's initial push,
-// nudgeStamp's no-session no-op, the entity-selection seam's validation and
-// single-slot discipline, the void cast's pre-context refusals, the camera-pose
-// seam, and the options `init` builds before it ever touches a device.
+// sibling): startStamp's no-selection ARM and the pending-stamp seam,
+// subscribeStamp's initial push, nudgeStamp's no-session no-op, the
+// entity-selection seam's validation and single-slot discipline, the void
+// cast's pre-context refusals, the camera-pose seam, and the options `init`
+// builds before it ever touches a device.
 // Verified against the host source: none of these paths touch the GPU context,
-// the render loop, or the lazily-spawned remesh worker — startStamp returns at
-// the selection guard BEFORE any session/preview work, nudgeStamp returns at
-// its own session guard BEFORE nudgeRegion/previewStamp, and selectEntity only
-// scans the op log. The pointer CLICK path is not here: it resolves through
-// `cursorRay`, and there is no camera until `init` has a device
-// (`field-host-pointer.gpu.test.ts`).
+// the render loop, or the lazily-spawned remesh worker — a selection-less
+// startStamp returns at the arm BEFORE any session/preview work, nudgeStamp
+// returns at its own session guard BEFORE nudgeRegion/previewStamp, and
+// selectEntity only scans the op log. Everything DOWNSTREAM of a click is not
+// here: it resolves through `cursorRay`, and there is no camera until `init`
+// has a device (`field-host-stamp-entry.gpu.test.ts`,
+// `field-host-pointer.gpu.test.ts`).
 import { expect, test } from "bun:test";
 import {
   CHUNK_SAMPLES,
@@ -24,16 +26,105 @@ import { createFieldHost } from "../src/viewport-host/field-host.ts";
 import { placesProps } from "../src/viewport-host/field-placements.ts";
 import type { CameraPose, FieldLayers } from "../src/viewport-host/index.ts";
 
-test("startStamp with no selection reports 'select a region first' and opens no session", () => {
+// --- startStamp with NO selection: region-draw, not a refusal (D-F4.5-7) ----
+//
+// The refusal these cases replaced ("select a region first") is what the spec
+// calls discovery-by-refusal, and it died in F4.5b Task 9: picking a stamp with
+// nothing selected ARMS region-draw, and the region the user then drags opens
+// the session. The arm is host state published on its own seam — the chrome
+// mirrors it, so the rail, the status keymap and the cursor all read one fact.
+
+test("startStamp with no selection ARMS region-draw instead of refusing", () => {
   const host = createFieldHost();
   const errors: string[] = [];
   host.subscribeToolError((m) => errors.push(m));
-  const pushes: unknown[] = [];
-  host.subscribeStamp((s) => pushes.push(s));
+  const stamps: unknown[] = [];
+  host.subscribeStamp((s) => stamps.push(s));
+  const pending: unknown[] = [];
+  host.subscribePendingStamp((p) => pending.push(p));
+
   host.startStamp("hall");
-  expect(errors).toEqual(["select a region first"]);
-  // Only the initial subscribe push — the failed start must not notify.
-  expect(pushes).toEqual([null]);
+  // No refusal at all, and no SESSION either — a region is still owed.
+  expect(errors).toEqual([]);
+  expect(stamps).toEqual([null]);
+  // The generator's display NAME rides the push: the status line and the rail
+  // both name it, and resolving the id chrome-side against a cursor that ⇧S can
+  // move is exactly how the two would come to name different generators.
+  expect(pending).toEqual([null, { id: "hall", name: "Hall" }]);
+});
+
+test("startStamp with an UNKNOWN generator refuses and arms nothing", () => {
+  const host = createFieldHost();
+  const errors: string[] = [];
+  host.subscribeToolError((m) => errors.push(m));
+  const pending: unknown[] = [];
+  host.subscribePendingStamp((p) => pending.push(p));
+
+  host.startStamp("no-such-generator");
+  // core's setup-loud message, surfaced verbatim.
+  expect(errors.length).toBe(1);
+  expect(errors[0]).toContain("no-such-generator");
+  // The initial push only: a refusal must not leave the viewport armed for a
+  // region it has no generator to put in.
+  expect(pending).toEqual([null]);
+});
+
+test("Esc clears a pending stamp arm — its own rung on the cancel ladder", () => {
+  const host = createFieldHost();
+  const pending: unknown[] = [];
+  host.subscribePendingStamp((p) => pending.push(p));
+  host.startStamp("maze");
+  expect(pending).toEqual([null, { id: "maze", name: "Maze" }]);
+
+  host.escape();
+  expect(pending).toEqual([null, { id: "maze", name: "Maze" }, null]);
+  // …and the ladder is spent: a second Esc has nothing left to clear here, so it
+  // must not push a second null at a subscriber that already knows.
+  host.escape();
+  expect(pending.length).toBe(3);
+});
+
+test("arming another tool clears a pending stamp — including a re-push of the arm already held", () => {
+  const host = createFieldHost();
+  const pending: unknown[] = [];
+  host.subscribePendingStamp((p) => pending.push(p));
+
+  host.startStamp("hall");
+  host.setGesture("box");
+  expect(pending).toEqual([null, { id: "hall", name: "Hall" }, null]);
+
+  // Back to the brush, then arm a stamp from there.
+  host.setGesture(null); // pending is already clear — nothing to push
+  host.startStamp("hall");
+  expect(pending.length).toBe(4);
+
+  // THE case that would leak: `armBrush` pushes `setGesture(null)` while the host
+  // already holds `null`, so a clear sitting below the "same gesture" early return
+  // would never run and the stamp would stay armed under a brush.
+  host.setGesture(null);
+  expect(pending).toEqual([
+    null,
+    { id: "hall", name: "Hall" },
+    null,
+    { id: "hall", name: "Hall" },
+    null,
+  ]);
+});
+
+test("subscribePendingStamp is a single slot with a real unsubscribe", () => {
+  const host = createFieldHost();
+  const seen: unknown[] = [];
+  const unsubscribe = host.subscribePendingStamp((p) => seen.push(p));
+  expect(seen).toEqual([null]);
+  unsubscribe();
+  const after: unknown[] = [];
+  host.subscribePendingStamp((p) => after.push(p));
+  // A STALE unsubscribe must not null the successor's callback (every seam here
+  // carries the same identity guard).
+  unsubscribe();
+  host.startStamp("cave");
+  expect(seen).toEqual([null]);
+  expect(after).toEqual([null, { id: "cave", name: "Cave" }]);
 });
 
 test("subscribeStamp immediately pushes the current state (null without a session)", () => {

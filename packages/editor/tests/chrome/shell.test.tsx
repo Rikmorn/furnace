@@ -2429,6 +2429,27 @@ test("the status bar's keymap line follows what is armed", async () => {
 	expect(screen.getByText("click ×2 spans a region · Esc clears")).toBeTruthy();
 });
 
+test("the keymap asks for a region while a stamp is armed, and names the generator", async () => {
+	fetch404();
+	const stub = makeStubHost({ generators: [HALL_GEN_MIN] });
+	await renderShell(stub);
+
+	act(() => {
+		stub.fire.pendingStamp({ id: "hall", name: "Hall" });
+	});
+	// The pending arm SHADOWS the gesture: the mirror still says `pointer` underneath
+	// (nothing armed anything else), so a line derived from `gesture` alone would go on
+	// saying "LMB select · G grab" while LMB was drawing a region.
+	expect(screen.getByText("drag a region for Hall · Esc cancels")).toBeTruthy();
+
+	act(() => {
+		stub.fire.pendingStamp(null);
+	});
+	expect(
+		screen.getByText("LMB select · G grab · F frame · ⌫ delete"),
+	).toBeTruthy();
+});
+
 test("the keymap names only keys that are LIVE — under paint, ⌃ and X are not", () => {
 	// A TRUTH assertion, not a wording one. The line is derived from the effect, and the
 	// three facts it has to respect all live elsewhere: ⌃ passes through on paint and
@@ -2439,7 +2460,7 @@ test("the keymap names only keys that are LIVE — under paint, ⌃ and X are no
 	// pins WORDING DRIFT and never truth, which is exactly how the static line got away
 	// with naming three dead keys.
 	const brush = (effect: FieldTool["effect"]): string =>
-		armedKeymap({ ...DIG_TOOL, effect }, null, null);
+		armedKeymap({ ...DIG_TOOL, effect }, null, null, null);
 
 	expect(brush("dig")).toBe(
 		"LMB dig · [ ] radius · ⇧ smooth · ⌃ fill · X swap",

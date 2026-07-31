@@ -6,7 +6,7 @@
 // Its sibling `tests/keybindings.test.ts` owns the other half: which EVENT reaches which
 // entry, and the gate that refuses it.
 import { expect, type mock, test } from "bun:test";
-import { ACTIONS } from "../src/frontend/lib/actions.ts";
+import { ACTIONS, TOOL_FAMILIES } from "../src/frontend/lib/actions.ts";
 import type { FieldEntityInfo } from "../src/viewport-host/index.ts";
 import { byId, makeCtx, type makeHostSpy } from "./_actions-fixture.ts";
 
@@ -307,4 +307,41 @@ test("the view toggles report their own checked state and flip it", () => {
     (ctx.run.view.setLayers as unknown as ReturnType<typeof mock>).mock
       .calls[0]?.[0],
   ).toMatchObject({ grid: false });
+});
+
+// --- the pending stamp arm shadows every other family (F4.5b Task 9, D-F4.5-7) --
+
+test("a pending stamp presses the STAMP family and un-presses the arm underneath it", () => {
+  const pending = { id: "maze", name: "Maze" };
+  // `pointer` is the arm a stamp is most often picked from, and it is the one that
+  // would still read as pressed: nothing about `gesture` changes while a stamp is
+  // armed, so the two families would BOTH show pressed without the shadow.
+  const armed = makeCtx({ gesture: "pointer", pendingStamp: pending });
+  const family = (id: string) => {
+    const f = TOOL_FAMILIES.find((t) => t.id === id);
+    if (f === undefined) throw new Error(`no family "${id}"`);
+    return f;
+  };
+  expect(family("stamp").armed(armed)).toBe(true);
+  expect(family("pointer").armed(armed)).toBe(false);
+  // …and with nothing armed the same ctx presses `pointer` — so the assertion above
+  // is about the arm and not about a family that never presses.
+  const idle = makeCtx({ gesture: "pointer", pendingStamp: null });
+  expect(family("pointer").armed(idle)).toBe(true);
+  expect(family("stamp").armed(idle)).toBe(false);
+
+  // The rail names the generator the ARM holds, not the one ⇧S happens to point at:
+  // the cursor moves independently and would otherwise name a different stamp than
+  // the region being drawn for.
+  expect(
+    family("stamp").label(
+      makeCtx({ stampCursor: "hall", pendingStamp: pending }),
+    ),
+  ).toBe("Stamp Maze");
+  // Its member ticks agree with the label.
+  const members = family("stamp").members(
+    makeCtx({ stampCursor: "hall", pendingStamp: pending }),
+  );
+  expect(members.find((m) => m.id === "maze")?.armed).toBe(true);
+  expect(members.find((m) => m.id === "hall")?.armed).toBe(false);
 });

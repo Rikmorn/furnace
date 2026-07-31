@@ -29,6 +29,7 @@ import type {
   FieldStats,
   FieldTool,
   FlagsSummary,
+  PendingStamp,
   SelectionInfo,
   StampSession,
 } from "../../src/viewport-host/index.ts";
@@ -97,6 +98,7 @@ export function makeStubHost(
     drift: ((r: FieldDriftReport | null) => void) | null;
     flags: ((s: FlagsSummary) => void) | null;
     entitySelection: ((entityId: number | null) => void) | null;
+    pendingStamp: ((p: PendingStamp | null) => void) | null;
   } = {
     tool: null,
     cameraPose: null,
@@ -108,6 +110,7 @@ export function makeStubHost(
     drift: null,
     flags: null,
     entitySelection: null,
+    pendingStamp: null,
   };
   const calls = {
     init: mock(),
@@ -152,9 +155,10 @@ export function makeStubHost(
     verifyFlag: mock(),
     // Every subscribe seam records its call, so a test can assert the slot was claimed
     // EXACTLY ONCE across a whole mounted arrangement — the single-slot rule's only
-    // machine-checkable form. ALL TEN belong to the shell's host-state provider since
-    // F4.5b Task 4 gave `subscribeEntitySelection` its chrome owner, which is why the
-    // ownership cases enumerate ten.
+    // machine-checkable form. ALL ELEVEN belong to the shell's host-state provider —
+    // `subscribeEntitySelection` got its chrome owner in F4.5b Task 4 and
+    // `subscribePendingStamp` arrived owned in Task 9 — which is why the ownership
+    // cases enumerate eleven.
     subscribeStats: mock(),
     subscribeToolError: mock(),
     subscribeEntities: mock(),
@@ -163,6 +167,7 @@ export function makeStubHost(
     subscribeTool: mock(),
     subscribeSelection: mock(),
     subscribeStamp: mock(),
+    subscribePendingStamp: mock(),
     subscribeFlags: mock(),
     subscribeEntitySelection: mock(),
   };
@@ -267,6 +272,16 @@ export function makeStubHost(
       // be distinguishable from a clean release).
       return () => {
         if (cbs.stamp === cb) cbs.stamp = null;
+      };
+    },
+    subscribePendingStamp: (cb) => {
+      calls.subscribePendingStamp(cb);
+      cbs.pendingStamp = cb;
+      cb(null); // the real host pushes the CURRENT arm on subscribe
+      // A REAL unsubscribe (the subscribeStats reason — single slot, and a leak has to
+      // be distinguishable from a clean release).
+      return () => {
+        if (cbs.pendingStamp === cb) cbs.pendingStamp = null;
       };
     },
     openEntity: calls.openEntity,
@@ -410,6 +425,13 @@ export function makeStubHost(
       flags: (s: FlagsSummary): boolean => {
         if (cbs.flags === null) return false;
         cbs.flags(s);
+        return true;
+      },
+      /** A pending stamp ARM (or its clearing), as `startStamp` with no selection
+       *  publishes one (D-F4.5-7). */
+      pendingStamp: (p: PendingStamp | null): boolean => {
+        if (cbs.pendingStamp === null) return false;
+        cbs.pendingStamp(p);
         return true;
       },
       /** An entity-selection change, as a pointer click or `selectEntity` publishes one. */

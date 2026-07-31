@@ -730,7 +730,9 @@ dig ring, selection) had rendered NOTHING since F1. Record + rules:
   spec's targeting rule, adopted).
 - **Stamp sessions** — `field-stamp.ts` pure session transitions (run-counter
   supersession; stale previews dropped) + host `startStamp` (region = current
-  selection, snapped outward) / `updateStamp` / `rerollStamp` (crypto uint16 seeds) /
+  selection, snapped outward — or, with NO selection, an ARM for region-draw
+  published on `subscribePendingStamp`, rather than a refusal: F4.5b, D-F4.5-7) /
+  `updateStamp` / `rerollStamp` (crypto uint16 seeds) /
   `nudgeStamp(dx,dy,dz)` in 0.5 m lattice steps (panel buttons + arrow keys, world
   axes, ⇧↑/⇧↓ = ±Y; known focus trap: a nudge-button click moves focus off-canvas —
   gate-findings item 6) / `commitStamp` (core `commitGenerator` — one undo entry,
@@ -1674,9 +1676,9 @@ entirely from the provider's contexts, with **no host subscription of its own**.
 reads**, and the reason is a real failure mode: every `FieldHost.subscribe*` seam is a
 **single slot** (`statsCb = cb`), so a second subscriber silently steals the first's —
 the earlier consumer just stops updating, with nothing thrown and nothing logged. All
-**ten** seams live there (stats, tool-error, camera-pose, entities, drift,
-entity-selection, tool, selection, stamp, flags), published through **eight** contexts
-split by CADENCE — a
+**eleven** seams live there (stats, tool-error, camera-pose, entities, drift,
+entity-selection, tool, selection, stamp, pending-stamp, flags), published through
+**eight** contexts split by CADENCE — a
 frame-paced seam must not re-render a surface that only cares about an answer. Each
 context makes its own throw-vs-default call at its docblock; `CameraPoseContext` is the
 only defaulted one, because "no camera here" is the one default that is true outside the

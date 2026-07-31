@@ -413,6 +413,57 @@ test("a live session locks every rail family with the refusal the family KEYS gi
 	expect(stub.calls.setGesture).not.toHaveBeenCalled();
 });
 
+test("a PENDING stamp presses the stamp family — and stays armable, unlike a session", async () => {
+	fetch404();
+	// TWO generators and an arm on the SECOND, for the session case's reason: with one
+	// generator the rail's label would agree with the arm by coincidence and could be
+	// naming either it or the ⇧S cursor (which nothing has moved off Hall).
+	const stub = makeStubHost({ generators: [HALL, MAZE] });
+	await renderShell(stub);
+	act(() => {
+		stub.fire.pendingStamp({ id: "maze", name: "Maze" });
+	});
+
+	// The rail names the ARM, and presses it. Nothing pushed a session and nothing armed
+	// a gesture, so the chrome's mirror still reads `pointer` underneath — which is
+	// exactly what would leave TWO families pressed without the shadow.
+	const stamp = within(rail()).getByRole("button", { name: /^Stamp Maze/ });
+	expect(stamp.getAttribute("aria-pressed")).toBe("true");
+	expect(
+		within(rail())
+			.getByRole("button", { name: /^Select/ })
+			.getAttribute("aria-pressed"),
+	).toBe("false");
+
+	// …and unlike a session, an arm does NOT lock the rail: arming another tool is one of
+	// the documented ways out of region-draw, so every family stays live and unrefused.
+	const select = within(rail()).getByRole("button", { name: "Select" });
+	expect(select.getAttribute("aria-disabled")).toBeNull();
+	fireEvent.click(select);
+	expect(stub.calls.setGesture.mock.calls).toEqual([["pointer"]]);
+});
+
+test("arming the BRUSH cancels a pending stamp — even with the brush already armed", async () => {
+	fetch404();
+	const stub = makeStubHost({ generators: [HALL] });
+	await renderShell(stub);
+
+	// Get LMB onto the brush first (gesture → null). This is the state the clause
+	// exists for: `brushArming` reports no disarm when there is no gesture to drop, so
+	// the second click below would push nothing at all without it — and `setGesture` is
+	// what cancels the arm host-side.
+	fireEvent.click(within(rail()).getByRole("button", { name: "Brush" }));
+	expect(stub.calls.setGesture.mock.calls).toEqual([[null]]);
+
+	act(() => {
+		stub.fire.pendingStamp({ id: "hall", name: "Hall" });
+	});
+	fireEvent.click(within(rail()).getByRole("button", { name: "Brush" }));
+	// The SECOND null is the discriminating one — a redundant push while nothing is
+	// armed, and the only signal the host gets that the user has picked up a brush.
+	expect(stub.calls.setGesture.mock.calls).toEqual([[null], [null]]);
+});
+
 // --- (g) D-26: the rail is ONE tab stop, walked with the arrows --------------
 
 test("the rail is a vertical toolbar with a roving tabindex — one tab stop, arrows walk it", async () => {

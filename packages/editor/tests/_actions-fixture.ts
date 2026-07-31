@@ -65,6 +65,7 @@ export function makeCtx(over: Partial<ActionCtx> = {}): ActionCtx {
       { id: "scatter", name: "Scatter" },
     ],
     stampCursor: null,
+    pendingStamp: null,
     history: { undoLabel: null, redoLabel: null },
     run: {
       world: {

@@ -148,6 +148,7 @@ export function ToolRail() {
 			ctx.tool,
 			ctx.session === null,
 			ctx.session?.generator,
+			ctx.pendingStamp,
 			ctx.generators,
 			ctx.stampCursor,
 			ctx.host,

@@ -74,6 +74,12 @@ export type ActionCtx = {
   generators: readonly { id: string; name: string }[];
   /** Which generator `S` would stamp. `null` = the first one. */
   stampCursor: string | null;
+  /** The stamp ARMED for region-draw, waiting on the two clicks that span its region
+   *  (D-F4.5-7) — the host's own state, mirrored through `useFieldTool`. It SHADOWS
+   *  `gesture`: while one stands LMB is drawing a region whatever the gesture slot
+   *  still says, which is why {@link idle} reads it and every family's `armed` goes
+   *  through that. */
+  pendingStamp: { id: string; name: string } | null;
   /** What the last/next history step DID, for a named Undo/Redo. Both are null until
    *  Task 12 lands the seam that reports them; the labels fall back to the bare verb. */
   history: { undoLabel: string | null; redoLabel: string | null };
@@ -599,7 +605,7 @@ export const ACTIONS: readonly ActionDef[] = [
     },
     enabled: (ctx) => ctx.generators.length > 0,
     keys: "S",
-    hint: "Open a stamp session for the family's generator, into the current cell selection",
+    hint: "Open a stamp session for the family's generator — into the current cell selection, or drag a region for it when there is none",
     match: (e) => bare(e, "s"),
     gate: "typed",
     armsTool: true,
@@ -643,6 +649,11 @@ export const ACTIONS: readonly ActionDef[] = [
     hint: "Swap Dig ↔ Fill and STAY there — ⌃ is the same swap while held",
     match: (e) => bare(e, "x"),
     gate: "typed",
+    // The brush is SUSPENDED while a session stands (D-F4.5-7), so a swap there
+    // changes only what a click that cannot happen would have done. It joined the
+    // `armsTool` set when the suspension landed, which is what the flag has always
+    // meant: this key re-arms LMB, and LMB is not the user's right now.
+    armsTool: true,
     run: (ctx) => ctx.run.armBrush(ctx.tool.effect === "dig" ? "fill" : "dig"),
   },
 
@@ -823,16 +834,23 @@ const staticMembers =
       id: m.label,
       label: m.label,
       hint: m.hint,
-      armed: index === i && ctx.session === null,
+      armed: index === i && idle(ctx),
       arm: (c: ActionCtx) => armMember(m, c),
     }));
   };
 
-/** A live session owns the interaction, so NO gesture family reads as armed while one
- *  stands — the stamp family does instead (a session IS the staged grammar running).
- *  Without this the rail would show a brush armed beside a bar saying the tools are
- *  locked. */
-const idle = (ctx: ActionCtx): boolean => ctx.session === null;
+/** Is the STAGED grammar (D-7) idle — no session, no stamp armed for region-draw?
+ *
+ *  Either one owns the interaction, so no gesture family reads as armed while one
+ *  stands; the stamp family reads armed instead, because both states ARE the staged
+ *  grammar running. Without this the rail would show a brush armed beside a bar
+ *  saying the tools are locked, or `pointer` pressed while LMB drew a stamp region.
+ *
+ *  The pending arm and the session are deliberately ONE question here: a stamp picked
+ *  with nothing selected is the same act as one picked with a selection, a click
+ *  earlier in its life. */
+const idle = (ctx: ActionCtx): boolean =>
+  ctx.session === null && ctx.pendingStamp === null;
 
 export const TOOL_FAMILIES: readonly ToolFamily[] = [
   {
@@ -873,6 +891,11 @@ export const TOOL_FAMILIES: readonly ToolFamily[] = [
     // which the session does not move. A `maze` reconfigure under a `hall` cursor made the
     // rail say "Stamp Hall" beside a session strip saying `maze #3`.
     label: (ctx) => {
+      // The ARM first, then the session, then the cursor. A pending arm and a live
+      // session cannot both stand (opening one clears the other), so the order is a
+      // fallback chain rather than a priority: name whichever is running, and the
+      // cursor only when nothing is.
+      if (ctx.pendingStamp !== null) return `Stamp ${ctx.pendingStamp.name}`;
       const live = ctx.session;
       if (live === null) return byId("tool.stamp").label(ctx);
       const def = ctx.generators.find((g) => g.id === live.generator);
@@ -894,7 +917,7 @@ export const TOOL_FAMILIES: readonly ToolFamily[] = [
         // What IS true of every one of them, and is the fact a first-time user needs, is
         // what picking it DOES: it opens a staged session rather than arming a mode.
         hint: "opens a session — ⏎ commits, Esc discards",
-        armed: ctx.session?.generator === g.id,
+        armed: ctx.pendingStamp?.id === g.id || ctx.session?.generator === g.id,
         arm: (c: ActionCtx) => c.host?.startStamp(g.id),
       })),
     armed: (ctx) => !idle(ctx),

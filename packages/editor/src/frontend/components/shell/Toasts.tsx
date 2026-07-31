@@ -149,11 +149,11 @@ export function Toasts() {
 	// user acting, not the editor speaking) re-announces nothing.
 	//
 	// The regions persist; their CHILD is keyed by message id. Text alone would go silent
-	// on the commonest case there is — the same refusal twice ("select a region first"
-	// every time the user tries the gesture) changes no text and would announce once,
-	// leaving the second attempt looking like it did nothing. A keyed child makes each
-	// message a node ADDITION inside an already-live region, which is announced whether
-	// or not the string differs.
+	// on the commonest case there is — the same refusal twice ("selection found no
+	// matching cells at the click point" every time the user retries the gesture)
+	// changes no text and would announce once, leaving the second attempt looking like
+	// it did nothing. A keyed child makes each message a node ADDITION inside an
+	// already-live region, which is announced whether or not the string differs.
 	const spokenAssertively = log.find((m) => m.severity === "error");
 	const spokenPolitely = log.find((m) => m.severity !== "error");
 

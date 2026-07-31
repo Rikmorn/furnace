@@ -62,33 +62,34 @@ its one live finding moved to `dungeon/world-spec-no-portal-error-is-unactionabl
    gesture; only its box cross-section stayed deferred
    (`field-tool-follow-ons.md` § *Segment brush: a BOX cross-section*).
 
-8. **Esc does not cancel a pending BOX-select anchor** — surfaced while wiring the
-   segment brush's own Esc (F3b Task 13, 2026-07-25), which DOES drop its pending
-   anchor. The box gesture's only way out of a half-drawn region is to re-arm the mode
-   from the palette. The fix is the same one-liner in `onKeyDown`, deliberately not
-   folded into that task: it changes an existing gesture's key handling, and item 1
-   above already owns "box-select ergonomics" for the same pass.
+8. ~~**Esc does not cancel a pending BOX-select anchor**~~ — **RESOLVED in F4.5b Task 7
+   (2026-07-30):** the cancel ladder (`escapeLadder`, D-12) took it as rung one, and it
+   clears BOTH pending anchors rather than only the armed gesture's — so the box and the
+   segment answer Esc the same way, from the canvas binding and from the app-level
+   `escape()` verb alike. Task 9 added the pending stamp ARM as its own sub-rung behind
+   the anchors.
 
-9. **A pending segment capsule does not re-fatten on a radius change** (F3b Task 13) —
-   `updateSegmentPreview` rebuilds its line batch on pointer MOVE, so turning the wheel
-   or pressing `[` / `]` with a still cursor leaves the previewed capsule at the old
-   radius until the pointer twitches. The plain brush ghost has no such gap: it is
-   rebuilt per frame from `ghostState()`. Fixing it means either moving the capsule
-   batch into the frame path (the cost the stored batches exist to avoid) or rebuilding
-   it from the radius setters as well. Inline note at `field-host.ts`
-   (`updateSegmentPreview`).
+9. ~~**A pending segment capsule does not re-fatten on a radius change**~~ —
+   **RESOLVED in F4.5b Task 9 (2026-07-31):** the second option, and it needed a split
+   rather than a move. The RAYCAST is what made the rebuild a pointer-MOVE job, so the
+   resolved far endpoint is now stored (`segmentPreviewEnd`) and the batch built from it
+   by `rebuildSegmentPreview` — cheap enough to run from the radius paths, which all
+   became one funnel (`applyRadius`, shared by `setDigRadius`, the wheel and `[` / `]`).
+   **No automated guard covers the rebuild**: the batch is write-only overlay state with
+   no seam, the same gap `gizmoVisible` was disclosed under in Task 5.
 
-10. **An armed-but-unanchored Segment shows no cursor affordance at all** (F3b Task 13)
-    — the sphere ghost is suppressed for every armed gesture (mode coherence: LMB will
-    not stamp a sphere), and the capsule preview only exists once a first point is
-    clicked, so between arming and the first click there is nothing on screen
-    indicating where the segment will start or how thick it will be. This follows the
-    box gesture's precedent exactly, which is why it shipped as-is; both are item 1's
-    "the gesture still reads a bit odd". A start-point ring at the cursor is the
-    obvious candidate. Inline note at `field-host.ts` (`renderScene`'s ghost gate).
+10. ~~**An armed-but-unanchored Segment shows no cursor affordance at all**~~ —
+    **RESOLVED in F4.5b Task 9 (2026-07-31):** the ring shipped for the segment, and the
+    box got a DIFFERENT mark rather than the same one. A box corner has no radius, so a
+    radius-sized ring there would advertise a brush width that decides nothing about
+    what the click does; it shows a ghost of the anchor CROSS the click is about to
+    leave instead. The decision table is pure (`cursorAffordance` in `field-ghost.ts`)
+    and exhaustively pinned; the DRAWING of it, like item 9's rebuild, has no seam.
+    Colour follows the mark, so neither changes colour when the click lands.
 
 **Trigger to revisit:** the F4 recharter (items 1–6; joined by
-`field-f3a-gate-ux-findings.md`).
+`field-f3a-gate-ux-findings.md`). Items 7–10 are all resolved; the file stays for
+items 1–6 and is consumed at the F4.5 seal.
 
 **Reference:** F2 spec §3 + §3.7 (local/gitignored); seal-log F2b entry;
 `docs/learnings/2026-07-21-invisible-line-overlays.md`;

@@ -47,6 +47,7 @@ import type {
 	FieldTool,
 	FlagFilters,
 	FlagsSummary,
+	PendingStamp,
 	PlacedArchetype,
 	SelectionInfo,
 	StampSession,
@@ -298,14 +299,21 @@ export type FieldToolState = {
 	 *  is a MIRROR by construction rather than by echo, and it opens at `"pointer"`
 	 *  because that is what a fresh host is already armed with (D-F4.5-7).
 	 *
-	 *  It lives up here rather than in the panel that used to hold it because three
-	 *  surfaces now write it — the tool palette, the action registry's `V`/`B`/`M` family
-	 *  keys, and the status bar's keymap line reads it — and a per-surface copy would
-	 *  disagree the moment a key armed something a palette was showing. */
+	 *  It lives up here rather than in the panel that used to hold it because several
+	 *  surfaces now write it — the tool rail's family buttons and member flyouts, the
+	 *  action registry's `V`/`B`/`M` family keys, and `armBrush` — while the status bar's
+	 *  keymap line reads it. A per-surface copy would disagree the moment a key armed
+	 *  something a button was showing. */
 	gesture: ViewportGesture | null;
 	/** The brush radius. CHROME state, not a mirror: FieldTool does not carry radius and
 	 *  no seam reports one, so this is one-way (see `setRadius`). */
 	radius: number;
+	/** The stamp ARMED for region-draw — `null` = none (D-F4.5-7). Unlike `gesture` this
+	 *  is HOST state with a real seam behind it (`subscribePendingStamp`): the host
+	 *  decides whether picking a stamp opens a session or asks for a region, and it also
+	 *  clears the arm from paths the chrome never sees (the canvas's own Esc, the region
+	 *  landing). Read-only here for that reason — `host.startStamp` is what sets it. */
+	pendingStamp: PendingStamp | null;
 	/** Arm what LMB does — adopt + push, the ONE funnel, exactly as `setTool` is. */
 	setGesture: (next: ViewportGesture | null) => void;
 	/** Adopt + push, the ONE funnel for a tool change. The host clamps (smooth ceilings,
@@ -531,6 +539,7 @@ export function FieldHostStateProvider({
 		DEFAULT_GESTURE,
 	);
 	const [radius, setRadiusState] = useState(DEFAULT_RADIUS);
+	const [pendingStamp, setPendingStamp] = useState<PendingStamp | null>(null);
 	const [selection, setSelection] = useState<SelectionInfo | null>(null);
 	const [stamp, setStamp] = useState<StampSession | null>(null);
 	const [flags, setFlags] = useState<FlagsSummary>(NO_FLAGS);
@@ -544,8 +553,8 @@ export function FieldHostStateProvider({
 		);
 	}, [engineReady, host]);
 
-	// The host's user-facing refusals (selection-mask misuse, "select a region first",
-	// the void-cast budget, all four verify guards). They go STRAIGHT to the toast stack
+	// The host's user-facing refusals (selection-mask misuse, an empty flood, the
+	// void-cast budget, all four verify guards). They go STRAIGHT to the toast stack
 	// — the F3b gate found them landing on a shared footer line where they read
 	// indistinguishably from routine info, i.e. as dead features. A toast is toned, is
 	// over the canvas the user is looking at, and outlives the next message.
@@ -665,6 +674,18 @@ export function FieldHostStateProvider({
 		return host.subscribeStamp(setStamp);
 	}, [engineReady, host]);
 
+	// The PENDING stamp arm (D-F4.5-7) — a stamp picked with nothing selected, waiting
+	// on the region the user is about to drag. Its own seam rather than a chrome
+	// inference, because the host owns both halves of the question: whether picking a
+	// stamp opened a session or asked for a region, and every path that ends the arm
+	// (the region landing, the canvas's own Esc, arming any tool). Four surfaces read
+	// it — the rail's pressed family, the status keymap, the canvas cursor and the
+	// host's own click routing — and inferring it here is how they would disagree.
+	useEffect(() => {
+		if (!engineReady || !host) return;
+		return host.subscribePendingStamp(setPendingStamp);
+	}, [engineReady, host]);
+
 	// The advisor's findings. Pushed after every analyzer response and every
 	// `setFlagFilters` (plus the current summary on subscribe). Answer-paced, not
 	// frame-paced — which is why, unlike the stats mirror above, this needs no
@@ -769,8 +790,16 @@ export function FieldHostStateProvider({
 		[selectedEntityId],
 	);
 	const toolValue = useMemo<FieldToolState>(
-		() => ({ tool, gesture, radius, setTool, setGesture, setRadius }),
-		[tool, gesture, radius, setTool, setGesture, setRadius],
+		() => ({
+			tool,
+			gesture,
+			radius,
+			pendingStamp,
+			setTool,
+			setGesture,
+			setRadius,
+		}),
+		[tool, gesture, radius, pendingStamp, setTool, setGesture, setRadius],
 	);
 	const selectionValue = useMemo<FieldSelectionState>(
 		() => ({ selection }),

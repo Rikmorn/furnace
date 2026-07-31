@@ -16,12 +16,12 @@
 // two keys, not compete with the card for the verb. Until that card lands there is a real
 // gap for a mouse-only user with the palettes hidden, and Esc/⏎ are the answer.
 //
-// ONE CLAUSE, WORDED FOR WHAT IS TRUE TODAY. The mock's line reads "brush suspended while
-// session is live". The host does not suspend the BRUSH yet: `onPointerDown` has no
-// session branch, so LMB still strokes under a live session (the documented divergence
-// window). What IS suspended is ARMING — `gateAction`'s `armsTool` clause refuses the
-// family keys, and the tool rail refuses its four buttons through the same gate. So the
-// clause says arming. D-7's stroke half lands in Task 9/10; the wording strengthens then.
+// ONE CLAUSE, WORDED FOR WHAT IS TRUE TODAY — and since F4.5b Task 9 both halves of D-7's
+// suspension are true, so it says the stronger one. The BRUSH is suspended:
+// `onPointerDown` swallows an LMB stroke while a session stands. ARMING is suspended too
+// — `gateAction`'s `armsTool` clause refuses the family keys (X among them now, since the
+// brush it swaps cannot stroke), and the tool rail refuses its buttons through the same
+// gate. The clause names the brush because that is the one a user finds by trying it.
 import type { StampSession } from "../../../viewport-host/index.ts"; // type-only: erased
 
 /** The three session states, as the strip tags them. Read off `mode` + `moving` rather
@@ -81,7 +81,7 @@ export function SessionStrip({ session }: { session: StampSession }) {
 				{session.moving !== true && <Verb keycap="R" verb="rotate ¼" />}
 			</span>
 			<span className="truncate text-[10px] text-muted-foreground">
-				tool arming is locked while this session is live
+				the brush is suspended while this session is live
 			</span>
 		</section>
 	);

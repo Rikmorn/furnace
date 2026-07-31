@@ -25,22 +25,34 @@ hard to know which one is actually selected"). The ToolPalette buttons carry
 pressed states, but the cursor/viewport itself gives no affordance. Wants: a
 cursor/HUD statement of the armed tool, likely alongside the F4 pointer tool.
 
-## 2. The stamp-session dual-operation model reads as "2 operations at once"
+## 2. ~~The stamp-session dual-operation model reads as "2 operations at once"~~
 
-While a stamp session (cave) pends in the inspector, viewport clicks still drive
-the ACTIVE BRUSH — the user dug a large tunnel while believing they were
-interacting with the cave stamp, then Enter committed the cave entity separately:
-"why do we do 2 operations at the same time". This is the F2b-era model (stamps
-are inspector-driven; the viewport stays a brush surface). Options for F4: arming
-a stamp suspends the brush; or stamps become viewport-placed via the pointer tool.
+**RESOLVED in F4.5b Task 9 (2026-07-31)** — the FIRST option, and both halves of it:
+`onPointerDown` swallows an LMB stroke while a session stands (D-7's "brush suspended
+while a session pends"), the brush ghost is suppressed for the same reason, and the
+key that re-arms the brush polarity (`X`) joined the `armsTool` set so it refuses with
+the same sentence the family keys give. The session strip's clause now says the brush
+rather than arming, because both are true.
 
-## 3. Region-first flow is undiscoverable
+*Original finding.* While a stamp session (cave) pends in the inspector, viewport
+clicks still drive the ACTIVE BRUSH — the user dug a large tunnel while believing they
+were interacting with the cave stamp, then Enter committed the cave entity separately:
+"why do we do 2 operations at the same time".
 
-Stamps (scatter especially) require an active box selection to seed their region.
-The refusal now renders loudly ("select a region first", destructive tone), but
-the FLOW is still discovery-by-refusal — the user reached for scatter first and
-box select never suggested itself. F4: the stamp button could enter a
-"draw the region" mode directly instead of refusing.
+## 3. ~~Region-first flow is undiscoverable~~
+
+**RESOLVED in F4.5b Task 9 (2026-07-31)** — exactly the suggested shape (D-7): picking
+a stamp with nothing selected ARMS region-draw instead of refusing, the next two clicks
+span its region, and that region opens the session. The refusal string is gone. The arm
+is published on `subscribePendingStamp`, so the rail presses the stamp family, the
+status keymap reads `drag a region for <name> · Esc cancels` and the cursor turns to a
+crosshair — the selection-first flow still works unchanged for a user who had a
+selection already.
+
+*Original finding.* Stamps (scatter especially) required an active box selection to
+seed their region; the refusal rendered loudly but the FLOW was still
+discovery-by-refusal — the user reached for scatter first and box select never
+suggested itself.
 
 ## 4. Placement ghost vs committed props — perception check pending
 

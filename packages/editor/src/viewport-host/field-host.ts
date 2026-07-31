@@ -64,10 +64,14 @@ import {
 } from "./field-flags.ts";
 import {
   boxCorners,
+  crossSegments,
+  cursorAffordance,
   GHOST_COLOR,
   generatorFootprint,
   segmentGhostSegments,
   sphereGhostSegments,
+  type ViewportCursor,
+  viewportCursor,
 } from "./field-ghost.ts";
 import {
   advanceMove,
@@ -182,6 +186,19 @@ export type SelectionMode = "box" | "material" | "void";
  *  one); the three {@link SelectionMode}s select CELLS. Two different kinds of
  *  selection sharing one slot because they share one button. */
 export type ViewportGesture = SelectionMode | "segment" | "pointer";
+
+/** A stamp armed for REGION-DRAW: the generator {@link FieldHost.startStamp}
+ *  picked with nothing selected, waiting on the two clicks that span its region
+ *  (D-F4.5-7). `name` is the generator's display name, carried so every surface
+ *  that names the arm names the same one — see
+ *  {@link FieldHost.subscribePendingStamp}.
+ *
+ *  Deliberately NOT a {@link ViewportGesture} member. The arm is modal ON TOP of
+ *  the gesture — LMB routes here first while it stands — so `gesture` keeps
+ *  naming what the button does underneath and there is nothing to restore when
+ *  the arm ends. Folding it into the one-armed slot would also desynchronise the
+ *  chrome, which OWNS `gesture` and pushes it one way. */
+export type PendingStamp = { id: string; name: string };
 
 /** The panel's view of the host's current selection. `spec` is the replayable
  *  selection spec (the same object shape a selection-masked op embeds);
@@ -515,11 +532,17 @@ export type FieldHost = {
   /** Opens a stamp session for a registry generator, its region the CURRENT
    *  selection's AABB snapped OUTWARD to the 0.5 m lattice, its seed a fresh
    *  random uint16, its params the generator's schema defaults — and fires
-   *  the first ghost preview. No selection → subscribeToolError ("select a
-   *  region first"), no session. A truncated-flood selection carries
+   *  the first ghost preview. A truncated-flood selection carries
    *  `truncatedSelection` into the session so the stamp UI can surface that
    *  the region under-covers the flood. Replaces any existing session (its
    *  ghost is destroyed; in-flight previews are dropped).
+   *
+   *  With NO selection this ARMS REGION-DRAW instead of refusing (D-F4.5-7):
+   *  the generator is published on {@link subscribePendingStamp}, the next two
+   *  LMB clicks span a region, and THAT opens the session — the "select a
+   *  region first" refusal is what the spec calls discovery-by-refusal and it
+   *  is gone. An unknown generator id still refuses (setup-loud, through
+   *  {@link subscribeToolError}) and arms nothing.
    *
    *  An archetype-driven generator (one with an `archetypeId` param) opens on
    *  the catalog archetype its defaults name — falling back to the catalog's
@@ -667,6 +690,25 @@ export type FieldHost = {
    *  Single subscriber (the shell's host-state provider, which publishes it at
    *  `useFieldStamp`); returns an unsubscribe. */
   subscribeStamp(cb: (s: StampSession | null) => void): () => void;
+  /** Subscribes to the PENDING stamp arm (null = none): the generator
+   *  {@link startStamp} armed region-draw for, waiting on the two clicks that
+   *  will span its region (D-F4.5-7).
+   *
+   *  Published rather than inferred because it is what four surfaces read and
+   *  they must not disagree: the rail's pressed family, the status bar's keymap
+   *  line, the canvas cursor and the viewport's own click routing. The
+   *  generator's display NAME rides the push for the same reason — resolving
+   *  the id chrome-side against the ⇧S cursor would name a different generator
+   *  the moment that cursor moved.
+   *
+   *  The arm SHADOWS the gesture rather than occupying its slot: `gesture` goes
+   *  on naming what LMB does underneath, and clearing the arm (Esc, the region
+   *  landing, arming any tool) restores it with nothing to put back.
+   *
+   *  Immediately pushes the current state on subscribe; pushes on CHANGE only.
+   *  Single subscriber (the shell's host-state provider, which publishes it at
+   *  `useFieldTool`); returns an unsubscribe. */
+  subscribePendingStamp(cb: (p: PendingStamp | null) => void): () => void;
   /** Opens a RECONFIGURE session on a committed entity (F3a): the SAME staged
    *  session {@link startStamp} opens — ghost preview, nudges, re-roll — seeded
    *  from the entity's recorded provenance (params/seed/region) instead of the
@@ -1440,6 +1482,20 @@ export function createFieldHost(deps?: {
   // rebuilt on pointer MOVE, never per frame, like boxPreviewBatch.
   let segmentAnchorBatch: LineBatch | null = null;
   let segmentPreviewBatch: LineBatch | null = null;
+  // The segment preview's far endpoint — the last cursor point that resolved to
+  // a surface while an anchor was pending. Kept beside the batch so a RADIUS
+  // change can re-fatten the capsule without a fresh raycast (the raycast is
+  // what makes updateSegmentPreview a pointer-MOVE job; the batch itself is
+  // cheap). Cleared with the anchor.
+  let segmentPreviewEnd: Vec3T | null = null;
+
+  // --- the pending stamp arm (region-draw entry, D-F4.5-7) ------------------
+  // The generator picked with nothing selected: LMB spans a region for it, and
+  // that region opens the session. See the PendingStamp type for why it is NOT
+  // a `gesture` member — it SHADOWS the armed gesture rather than replacing it,
+  // so ending it restores what LMB did with nothing to put back.
+  let pendingStamp: PendingStamp | null = null;
+  let pendingStampCb: ((p: PendingStamp | null) => void) | null = null;
 
   // The project's entity catalog, indexed by archetype id (empty until
   // setEntityCatalog — a project with no catalog stays empty forever and every
@@ -2445,25 +2501,19 @@ export function createFieldHost(deps?: {
       boxPreviewBatch = null; // the pending-region preview dies with its anchor
       return;
     }
-    const [x, y, z] = p;
-    const r = ANCHOR_CROSS_HALF_M;
     anchorBatch = segmentsToBatch(
-      [
-        [
-          [x - r, y, z],
-          [x + r, y, z],
-        ],
-        [
-          [x, y - r, z],
-          [x, y + r, z],
-        ],
-        [
-          [x, y, z - r],
-          [x, y, z + r],
-        ],
-      ],
+      crossSegments(p, ANCHOR_CROSS_HALF_M),
       SELECTION_COLOR,
     );
+  };
+
+  // The pending stamp arm (null = none). Pushes on CHANGE only: the clear runs
+  // from several paths that are usually no-ops (every gesture arm), and a
+  // subscriber re-rendering on each of those would pay for nothing.
+  const setPendingStamp = (next: PendingStamp | null): void => {
+    if ((pendingStamp?.id ?? null) === (next?.id ?? null)) return;
+    pendingStamp = next;
+    pendingStampCb?.(next === null ? null : { ...next });
   };
 
   // Install a new current selection (null = clear): park the displaced one in
@@ -2631,25 +2681,11 @@ export function createFieldHost(deps?: {
     if (p === null) {
       segmentAnchorBatch = null;
       segmentPreviewBatch = null;
+      segmentPreviewEnd = null;
       return;
     }
-    const [x, y, z] = p;
-    const r = ANCHOR_CROSS_HALF_M;
     segmentAnchorBatch = segmentsToBatch(
-      [
-        [
-          [x - r, y, z],
-          [x + r, y, z],
-        ],
-        [
-          [x, y - r, z],
-          [x, y + r, z],
-        ],
-        [
-          [x, y, z - r],
-          [x, y, z + r],
-        ],
-      ],
+      crossSegments(p, ANCHOR_CROSS_HALF_M),
       GHOST_COLOR,
     );
   };
@@ -2664,21 +2700,41 @@ export function createFieldHost(deps?: {
   // recipes whose output cannot be guessed from their inputs — a swept capsule
   // can.
   //
-  // Rebuilt on MOVE means exactly that: a radius change (wheel, [ / ]) with the
-  // cursor still does not re-fatten the pending capsule until the next
-  // pointermove. The sphere ghost, which IS rebuilt per frame, does not have
-  // that gap. Accepted rather than moved into the frame path — a pending anchor
-  // is a momentary state, and per-frame rebuilds are the cost the batches are
-  // stored to avoid. Filed as item 9 of
-  // `docs/backlog/editor-and-tooling/field-f2b-gate-ux-findings.md` (F4).
+  // The RAYCAST is what makes this a pointer-MOVE job; the batch is cheap. So
+  // the resolved endpoint is stored and the batch built from it in
+  // `rebuildSegmentPreview` below, which the radius paths call too — a wheel
+  // notch or `[` / `]` with a still cursor now re-fattens the pending capsule
+  // instead of leaving it at the old radius until the pointer twitches (f2b
+  // item 9; the plain sphere ghost, rebuilt per frame, never had that gap).
+  //
+  // The capsule batch itself comes from the anchor, the last resolved endpoint
+  // and the LIVE radius. No raycast, so it is affordable from any path that
+  // changes the radius; a no-op until the cursor has resolved a far end once.
+  const rebuildSegmentPreview = (): void => {
+    if (segmentAnchor === null || segmentPreviewEnd === null) return;
+    segmentPreviewBatch = segmentsToBatch(
+      segmentGhostSegments(segmentAnchor, segmentPreviewEnd, digRadius),
+      GHOST_COLOR,
+    );
+  };
+
   const updateSegmentPreview = (clientX: number, clientY: number): void => {
     if (segmentAnchor === null) return;
     const p = selectionPoint(clientX, clientY);
     if (!p) return;
-    segmentPreviewBatch = segmentsToBatch(
-      segmentGhostSegments(segmentAnchor, p, digRadius),
-      GHOST_COLOR,
-    );
+    segmentPreviewEnd = p;
+    rebuildSegmentPreview();
+  };
+
+  // The ONE funnel for a radius change — the panel's slider, the wheel and
+  // `[` / `]` all land here. Clamped once, and the pending capsule re-fattens
+  // with it (f2b item 9): three call sites each remembering to refresh is how
+  // one of them would come to forget.
+  const applyRadius = (next: number): void => {
+    const clamped = clampRadius(next);
+    if (clamped === digRadius) return;
+    digRadius = clamped;
+    rebuildSegmentPreview();
   };
 
   // One LMB click while the segment brush is armed. First click anchors; the
@@ -2725,21 +2781,39 @@ export function createFieldHost(deps?: {
   // mode is a PARAMETER, not a read of `gesture`: the segment gesture shares
   // that slot, and a bare else-fallthrough would have silently flood-selected
   // void for it.
+  // One click of the two-click BOX corner machinery, shared by the cell-select
+  // box gesture and the pending stamp's region draw (D-F4.5-7). The first click
+  // anchors and answers null; the second closes and answers the snapped region
+  // the pair spans. A cursor that resolves to no surface point answers null and
+  // changes nothing.
+  //
+  // The two callers differ only in what they DO with the region — one
+  // materializes a cell selection, the other opens a stamp session on it — so
+  // this is the whole of what they share, and sharing it is what stops the
+  // stamp's corners from snapping differently to the selection's.
+  const boxCorner = (
+    clientX: number,
+    clientY: number,
+  ): field.SelectionSpec | null => {
+    const p = selectionPoint(clientX, clientY);
+    if (!p) return null;
+    if (boxAnchor === null) {
+      setBoxAnchor(p); // first corner — the amber cross previews it
+      return null;
+    }
+    const spec = boxRegionSpec(boxAnchor, p);
+    setBoxAnchor(null);
+    return spec;
+  };
+
   const selectionClick = (
     selectionMode: SelectionMode,
     clientX: number,
     clientY: number,
   ): void => {
     if (selectionMode === "box") {
-      const p = selectionPoint(clientX, clientY);
-      if (!p) return;
-      if (boxAnchor === null) {
-        setBoxAnchor(p); // first corner — the amber cross previews it
-        return;
-      }
-      const spec = boxRegionSpec(boxAnchor, p);
-      setBoxAnchor(null);
-      commitSelectionSpec(spec);
+      const spec = boxCorner(clientX, clientY);
+      if (spec !== null) commitSelectionSpec(spec);
       return;
     }
     if (selectionMode === "material") {
@@ -4069,6 +4143,83 @@ export function createFieldHost(deps?: {
     notifyStamp();
   };
 
+  // Open a STAMP session over `aabb` and fire its first ghost preview — the half
+  // of `startStamp` that runs once a region is known, shared by its two routes
+  // in: a selection that was already there, and a region the user drew for a
+  // pending arm (D-F4.5-7). One body, so the two cannot snap, seed or layer
+  // params differently.
+  //
+  // `truncated` is a property of the SELECTION that supplied the region (a flood
+  // that hit the UI budget under-covers what the user asked for), so a drawn
+  // region passes false: a region is exactly itself.
+  const openStampSession = (
+    generator: string,
+    def: field.GeneratorDef,
+    aabb: { min: Vec3T; max: Vec3T },
+    truncated: boolean,
+  ): void => {
+    // The region snapped OUTWARD to the 0.5 m lattice — the same snap box-select
+    // regions get (a region selection and a drawn region are already snapped;
+    // flood AABBs land on the voxel grid and widen out).
+    const [x0, x1] = snapSpan(aabb.min[0], aabb.max[0]);
+    const [y0, y1] = snapSpan(aabb.min[1], aabb.max[1]);
+    const [z0, z1] = snapSpan(aabb.min[2], aabb.max[2]);
+    // Seed the size params from the region extent (spec D-F3-13): the region
+    // already fits, and the generator's size knobs default to fill it (clamped
+    // to their schema range). A sensible default the user overrides with any
+    // subsequent updateStamp edit.
+    const sizes = deriveSizeDefaults(
+      generator,
+      [spanCells(x0, x1), spanCells(y0, y1), spanCells(z0, z1)],
+      generatorSchemaProperties(def),
+      field.MAZE_PITCH_CELLS,
+    );
+    cancelStampSession(); // a live session (+ ghost) never survives a restart
+    stampGen++;
+    // Layering, outermost last: schema defaults → the archetype's authored
+    // scatter hints (catalog seeding) → the region-fit sizes. The two never
+    // collide today (no generator has both an archetypeId and a size param),
+    // and if one ever does, the REGION the user drew should win over a catalog
+    // default.
+    stamp = startSession(
+      generator,
+      {
+        ...seedArchetypeParams(structuredClone(def.defaults), archetypes),
+        ...sizes,
+      },
+      { min: [x0, y0, z0], max: [x1, y1, z1] },
+      randomStampSeed(),
+      truncated,
+    );
+    previewStamp();
+  };
+
+  // The second click of a pending stamp's region draw: the drawn box IS the
+  // region the session opens on. The arm is spent either way the click goes —
+  // once the region lands, and not at all while a corner is still owed.
+  const stampRegionClick = (clientX: number, clientY: number): void => {
+    const armed = pendingStamp;
+    if (armed === null) return;
+    const spec = boxCorner(clientX, clientY);
+    // A region spec's min/max ARE its metre AABB (cf. updateBoxPreview); the
+    // kind check narrows the union, and boxCorner only ever builds a region.
+    if (spec === null || spec.kind !== "region") return;
+    let def: field.GeneratorDef;
+    try {
+      def = field.generatorById(armed.id);
+    } catch (err) {
+      // Unreachable today — `startStamp` resolved this id before arming, and the
+      // registry is a module constant. Caught anyway because the alternative is
+      // a throw out of a pointer handler.
+      const message = err instanceof Error ? err.message : String(err);
+      reportToolError(message);
+      setPendingStamp(null);
+      return;
+    }
+    setPendingStamp(null);
+    openStampSession(armed.id, def, { min: spec.min, max: spec.max }, false);
+  };
+
   // The empty-preview gate both terminal verbs share, and PROP GENERATORS ONLY.
   // Core rejects an empty evaluate outright ("evaluated to an empty result"),
   // which is right for a CARVER — nothing to build means a misconfigured stamp,
@@ -4180,6 +4331,10 @@ export function createFieldHost(deps?: {
       return false;
     }
     cancelStampSession(); // a live session (+ ghost) never survives a re-open
+    // …and neither does a pending stamp arm: opening a session answers the region
+    // question the arm was asking, and leaving it set would put the next click on
+    // a region-draw for a stamp nobody is looking at any more.
+    setPendingStamp(null);
     stampGen++;
     const opened = startReconfigureSession({
       entityId,
@@ -4609,6 +4764,41 @@ export function createFieldHost(deps?: {
     });
   };
 
+  // The cursor mark a two-click gesture shows before its first click. Built per
+  // FRAME rather than stored per pointer-move, because it has to track the
+  // camera as well as the cursor — a right-drag with the pointer still moves the
+  // world point under it. That costs one `selectionPoint` raycast per frame, the
+  // same cost the brush ghost has always paid on the frames it draws, and only
+  // while a two-click gesture is armed and unanchored.
+  //
+  // Colour follows the shape, because each mark previews a specific thing: the
+  // amber cross is the box/region ANCHOR the click will leave (`setBoxAnchor`),
+  // and the hologram ring is the segment's own radius (`setSegmentAnchor` is
+  // hologram too). Neither changes colour when the click lands.
+  const renderCursorAffordance = (c: Context, view: camera.Camera): void => {
+    const shape = cursorAffordance({
+      gesture,
+      pendingStamp: pendingStamp !== null,
+      anchored: boxAnchor !== null || segmentAnchor !== null,
+    });
+    if (shape === null || !lastPointer) return;
+    const p = selectionPoint(lastPointer.x, lastPointer.y);
+    if (!p) return;
+    const batch =
+      shape === "ring"
+        ? segmentsToBatch(sphereGhostSegments(p, digRadius), GHOST_COLOR)
+        : segmentsToBatch(
+            crossSegments(p, ANCHOR_CROSS_HALF_M),
+            SELECTION_COLOR,
+          );
+    frame.drawLines(c, {
+      vertices: batch.vertices,
+      colors: batch.colors,
+      camera: view,
+      occlude: false,
+    });
+  };
+
   const renderScene = (c: Context, view: camera.Camera): void => {
     // Layer gating happens HERE, at draw-list build time: the host has no
     // per-mesh visibility flag — it reconstructs the frame.render lists (and
@@ -4650,19 +4840,21 @@ export function createFieldHost(deps?: {
     // is preserved there — so this cube's position relative to the stamp
     // ghosts below (also premultiplied, also no depth write) is what decides
     // how those two translucents composite against each other.
-    // Two independent ghost gates: the LAYER flag is user intent; the
-    // gesture suppression is mode coherence — while ANY gesture is armed LMB
-    // doesn't stroke, so a sphere/box brush preview would promise an action
-    // that won't happen. The segment brush is included: its click anchors or
-    // sweeps a capsule, never stamps the sphere this ghost draws. Its own
-    // preview only appears once a point IS anchored, so an armed-but-unanchored
-    // segment shows no brush affordance at all — the box gesture's precedent.
-    // `pointer` being the DEFAULT gesture means this is also why a freshly
-    // opened world shows no brush ghost until a brush is armed: nothing on
-    // screen may promise a stroke the next click will not make.
-    // Filed as item 10 of
-    // `docs/backlog/editor-and-tooling/field-f2b-gate-ux-findings.md` (F4).
-    const ghost = layers.ghost && gesture === null ? ghostState() : null;
+    // THREE independent ghost gates: the LAYER flag is user intent; the gesture
+    // suppression and the session suppression are both mode coherence — nothing
+    // on screen may promise a stroke the next click will not make.
+    //  - while ANY gesture is armed LMB doesn't stroke, so a sphere/box brush
+    //    preview would promise an action that won't happen. `segment` is
+    //    included: its click anchors or sweeps a capsule, never stamps the
+    //    sphere this ghost draws (its own affordances are the cursor ring below
+    //    and, once anchored, the capsule preview). `pointer` being the DEFAULT
+    //    gesture is why a freshly opened world shows no brush ghost at all until
+    //    a brush is armed.
+    //  - while a SESSION stands the brush is suspended (D-F4.5-7 — see
+    //    onPointerDown), so the same promise would be false with no gesture
+    //    armed at all.
+    const ghost =
+      layers.ghost && gesture === null && stamp === null ? ghostState() : null;
     if (ghost?.kitBox && ghostCube) {
       ghostPos.set(ghost.kitBox.center);
       ghostScale[0] = ghost.kitBox.halfExtents[0] * 2;
@@ -4784,6 +4976,11 @@ export function createFieldHost(deps?: {
     }
     // Ghost target preview last so it draws over the scene + grid (occlude:false).
     if (ghost) renderGhostLines(c, view, ghost);
+    // The armed-but-unanchored cursor affordance (f2b item 10 / D-F4.5-7): what
+    // a two-click gesture shows BEFORE its first click, so arming one is not a
+    // mode with no affordance at all. Which mark to draw is `cursorAffordance`'s
+    // decision, pinned in the pure module; here is only the drawing.
+    if (layers.ghost) renderCursorAffordance(c, view);
   };
 
   // logStats, recomputed only when the log signature moved (see the cache
@@ -4803,8 +5000,40 @@ export function createFieldHost(deps?: {
     return cachedLogStats;
   };
 
+  // The canvas cursor for what the viewport is armed to do (D-F4.5-8's third
+  // arming channel). Driven from the FRAME rather than from the eight places
+  // that change an arm — one site that cannot go stale beats eight that each
+  // have to remember, and the cost is a string compare against `lastCursor`
+  // with a DOM write only when the answer moves.
+  //
+  // An inline style rather than a class: the canvas carries no `cursor-*` class
+  // to fight with, and the overlay layers above it are `pointer-events-none`
+  // except on their own controls — which carry their own cursors, correctly, and
+  // are the only places a different one should show.
+  let lastCursor: ViewportCursor | null = null;
+  const syncCursor = (): void => {
+    const el = canvasEl;
+    // Before the cache compare, not after: caching an answer that was never
+    // written would leave a canvas attached later with no cursor at all.
+    if (!el) return;
+    const next = viewportCursor({
+      // `MoveDrag.grabbed` reads backwards from the word: it is TRUE for a
+      // pointer DRAG (a button is down) and false for the free-hand `G` grab.
+      // Its own TSDoc says so; this line is where believing the name would put
+      // the two cursors the wrong way round.
+      move:
+        moveDrag === null ? null : moveDrag.grabbed === true ? "drag" : "grab",
+      pendingStamp: pendingStamp !== null,
+      gesture,
+    });
+    if (next === lastCursor) return;
+    lastCursor = next;
+    el.style.cursor = next;
+  };
+
   const tick = (now: number): void => {
     if (disposed) return;
+    syncCursor();
     const c = ctx;
     if (c && cam) {
       const dt =
@@ -4850,6 +5079,14 @@ export function createFieldHost(deps?: {
       eyedropper(e.clientX, e.clientY);
       return;
     }
+    // A pending stamp SHADOWS the armed gesture: while one stands LMB is drawing
+    // its region, whatever the button did before (D-F4.5-7). Before the gesture
+    // branch and after the eyedropper, which samples rather than commits and
+    // stays live under every arm.
+    if (e.button === 0 && pendingStamp !== null) {
+      stampRegionClick(e.clientX, e.clientY);
+      return;
+    }
     if (e.button === 0 && gesture !== null) {
       // Armed gestures BYPASS applyTool entirely: no stroke, no digging flag.
       // RMB look below stays live under every gesture. `pointer` is the DEFAULT
@@ -4867,6 +5104,17 @@ export function createFieldHost(deps?: {
       return;
     }
     if (e.button === 0) {
+      // The brush is SUSPENDED while a session stands (D-F4.5-7's staged
+      // grammar). A session is a ghost being fitted to the rock around it, and a
+      // stroke would carve the very thing it is being fitted to — while the
+      // registry's `armsTool` gate has already stopped the user changing tools
+      // out of it, so a live brush here is one the session inherited rather than
+      // one they chose. The ghost hides for the same reason (see renderScene).
+      //
+      // Swallowed rather than repurposed: LMB has no other job during a session
+      // (the move drag has its own branch above), and the session strip says
+      // what the two keys that DO act are.
+      if (stamp !== null) return;
       digging = true;
       maskDropReported = false; // re-arm the once-per-stroke mask-drop report
       applyTool(e.clientX, e.clientY);
@@ -4917,9 +5165,10 @@ export function createFieldHost(deps?: {
       }
       return;
     }
-    // Box-select live preview: while a box anchor is pending, keep the amber
-    // region the second click would commit updated as the cursor moves.
-    if (gesture === "box" && boxAnchor !== null) {
+    // Box live preview: while a corner is pending, keep the amber region the
+    // second click would close updated as the cursor moves. Both users of the
+    // corner machinery, since a pending stamp draws its region the same way.
+    if (boxAnchor !== null && (gesture === "box" || pendingStamp !== null)) {
       updateBoxPreview(e.clientX, e.clientY);
       return;
     }
@@ -5004,7 +5253,7 @@ export function createFieldHost(deps?: {
     }
     const notches = -Math.sign(e.deltaY);
     if (notches === 0) return; // a purely horizontal wheel means neither binding
-    digRadius = clampRadius(digRadius + notches * RADIUS_WHEEL_STEP);
+    applyRadius(digRadius + notches * RADIUS_WHEEL_STEP);
   };
 
   const onContextMenu = (e: Event): void => {
@@ -5027,6 +5276,15 @@ export function createFieldHost(deps?: {
     if (boxAnchor !== null || segmentAnchor !== null) {
       setBoxAnchor(null);
       setSegmentAnchor(null);
+      return true;
+    }
+    // 1b. The pending stamp ARM — after its own corner, because the two are one
+    //     gesture in two steps and the ladder takes the most recent step first:
+    //     an Esc with a corner down re-draws the region, a second one leaves
+    //     region-draw altogether. Before the session, because an arm is by
+    //     definition more recent than any session still standing beside it.
+    if (pendingStamp !== null) {
+      setPendingStamp(null);
       return true;
     }
     // 2. The live session — a move included, since `cancelStampSession` ends the
@@ -5163,7 +5421,7 @@ export function createFieldHost(deps?: {
     // browser's back/forward — never intercept those.
     if ((k === "[" || k === "]") && !e.metaKey && !e.ctrlKey) {
       const step = k === "]" ? RADIUS_WHEEL_STEP : -RADIUS_WHEEL_STEP;
-      digRadius = clampRadius(digRadius + step);
+      applyRadius(digRadius + step);
       return;
     }
     // Momentary modifiers (repeat-guarded). Shift ALSO lands in `keys` below
@@ -5242,6 +5500,10 @@ export function createFieldHost(deps?: {
     canvasEl.removeEventListener("keyup", onKeyUp);
     canvasEl.removeEventListener("blur", onBlur);
     canvasEl = null;
+    // The cache describes a canvas that is gone. A re-init on a fresh element
+    // (the AA switch) would otherwise find the answer unchanged and write
+    // nothing, leaving the new canvas with the browser default.
+    lastCursor = null;
   };
 
   // Reset the field session + free every GPU chunk render + drop the whole
@@ -5522,7 +5784,7 @@ export function createFieldHost(deps?: {
       notifyEntities();
     },
     setDigRadius(r) {
-      digRadius = clampRadius(r);
+      applyRadius(r);
     },
     setShading(mode) {
       shading = mode;
@@ -5559,6 +5821,12 @@ export function createFieldHost(deps?: {
       };
     },
     setGesture(next) {
+      // ABOVE the early return, deliberately: arming any tool cancels a pending
+      // stamp, and the arm that would otherwise leak is the BRUSH's — `armBrush`
+      // pushes `setGesture(null)` while the host already holds `null`, so a clear
+      // below this line would never run and the stamp would stay armed under a
+      // brush the user had just picked.
+      setPendingStamp(null);
       if (next === gesture) return; // re-arming the same gesture must not drop a pending anchor
       gesture = next;
       // Nor does a move in flight. A move is a `pointer`-tool mode, and arming
@@ -5672,54 +5940,40 @@ export function createFieldHost(deps?: {
       return new Map(propCounts);
     },
     startStamp(generator) {
-      const sel = selection;
-      const aabb = sel === null ? null : selectionAabb(sel);
-      if (sel === null || aabb === null) {
-        reportToolError("select a region first");
-        return;
-      }
       let def: field.GeneratorDef;
       try {
         def = field.generatorById(generator); // setup-loud on unknown ids
       } catch (err) {
+        // BEFORE the selection branch: an id no registry carries cannot open a
+        // session and must not arm region-draw either — there would be nothing
+        // to put in the region the user then drew.
         const message = err instanceof Error ? err.message : String(err);
         reportToolError(message);
         return;
       }
-      // The selection's AABB snapped OUTWARD to the 0.5 m lattice — the same
-      // snap box-select regions get (a region selection is already snapped;
-      // flood AABBs land on the voxel grid and widen out).
-      const [x0, x1] = snapSpan(aabb.min[0], aabb.max[0]);
-      const [y0, y1] = snapSpan(aabb.min[1], aabb.max[1]);
-      const [z0, z1] = snapSpan(aabb.min[2], aabb.max[2]);
-      // Seed the size params from the selection extent (spec D-F3-13): the
-      // region already fits, and the generator's size knobs default to fill it
-      // (clamped to their schema range). A sensible default the user overrides
-      // with any subsequent updateStamp edit.
-      const sizes = deriveSizeDefaults(
+      const sel = selection;
+      const aabb = sel === null ? null : selectionAabb(sel);
+      if (sel === null || aabb === null) {
+        // D-F4.5-7: no region to stamp into, so ASK FOR ONE rather than refuse.
+        // The stale corner goes with the arm — a half-drawn box select would
+        // otherwise become this stamp's first corner without the user clicking it —
+        // and so does any live session, for the reason its own re-open gives: a
+        // ghost the user is no longer steering answers to nothing. That keeps the
+        // two mutually exclusive, which is what lets each surface pick one to name.
+        cancelStampSession();
+        setBoxAnchor(null);
+        setPendingStamp({ id: generator, name: def.name });
+        return;
+      }
+      // A selection-first start supersedes any arm: the region question is
+      // answered, so the viewport must stop asking it.
+      setPendingStamp(null);
+      openStampSession(
         generator,
-        [spanCells(x0, x1), spanCells(y0, y1), spanCells(z0, z1)],
-        generatorSchemaProperties(def),
-        field.MAZE_PITCH_CELLS,
-      );
-      cancelStampSession(); // a live session (+ ghost) never survives a restart
-      stampGen++;
-      // Layering, outermost last: schema defaults → the archetype's authored
-      // scatter hints (catalog seeding) → the selection-fit sizes. The two never
-      // collide today (no generator has both an archetypeId and a size param),
-      // and if one ever does, the SELECTION the user drew should win over a
-      // catalog default.
-      stamp = startSession(
-        generator,
-        {
-          ...seedArchetypeParams(structuredClone(def.defaults), archetypes),
-          ...sizes,
-        },
-        { min: [x0, y0, z0], max: [x1, y1, z1] },
-        randomStampSeed(),
+        def,
+        aabb,
         sel.materialized.kind === "cells" && sel.materialized.truncated,
       );
-      previewStamp();
     },
     updateStamp(params, seed, policy) {
       if (stamp === null) return;
@@ -5766,6 +6020,16 @@ export function createFieldHost(deps?: {
       cb(stamp === null ? null : structuredClone(stamp));
       return () => {
         if (stampCb === cb) stampCb = null;
+      };
+    },
+    subscribePendingStamp(cb) {
+      pendingStampCb = cb;
+      // Initial push, for the subscribeStamp reason: a rail (re)mounting while a
+      // stamp is armed must not read as idle beside a viewport asking for a
+      // region. Copied at the boundary — the chrome never holds host state.
+      cb(pendingStamp === null ? null : { ...pendingStamp });
+      return () => {
+        if (pendingStampCb === cb) pendingStampCb = null;
       };
     },
     openEntity(entityId) {

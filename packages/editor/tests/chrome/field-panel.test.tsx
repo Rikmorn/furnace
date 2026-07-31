@@ -249,7 +249,7 @@ const seamsOf = (stub: ReturnType<typeof makeStubHost>) =>
 		[
 			"toolError",
 			stub.calls.subscribeToolError,
-			() => stub.fire.toolError("select a region first"),
+			() => stub.fire.toolError("selection found no matching cells"),
 		],
 		[
 			"cameraPose",
@@ -265,6 +265,11 @@ const seamsOf = (stub: ReturnType<typeof makeStubHost>) =>
 			() => stub.fire.selection(null),
 		],
 		["stamp", stub.calls.subscribeStamp, () => stub.fire.stamp(null)],
+		[
+			"pendingStamp",
+			stub.calls.subscribePendingStamp,
+			() => stub.fire.pendingStamp(null),
+		],
 		["flags", stub.calls.subscribeFlags, () => stub.fire.flags(NO_FLAGS)],
 		[
 			"entitySelection",

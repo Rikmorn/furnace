@@ -81,7 +81,7 @@ export function ActionContextProvider({
 }) {
 	const { openConfirm, confirmRef } = useEditor();
 	const { stats } = useFieldHostState();
-	const { tool, gesture, setGesture, setTool } = useFieldTool();
+	const { tool, gesture, pendingStamp, setGesture, setTool } = useFieldTool();
 	const { stamp } = useFieldStamp();
 	const { selection } = useFieldSelection();
 	const { entities } = useFieldEntities();
@@ -108,8 +108,11 @@ export function ActionContextProvider({
 		);
 	}, [host]);
 
-	/** Which generator `S` opens. Chrome state with no host mirror — the host has no
-	 *  concept of an armed stamp, because `startStamp` opens a session outright. */
+	/** Which generator `S` opens. Chrome state with no host mirror, and it stays that way
+	 *  now that the host DOES have an armed-stamp state: `pendingStamp` is the generator
+	 *  a `startStamp` actually armed, while this is the one the key is POINTED at and
+	 *  ⇧S moves without opening anything. The two are different questions, and the arm
+	 *  carries its own id precisely so a later cursor move cannot rename it. */
 	const [stampCursor, setStampCursor] = useState<string | null>(null);
 
 	// Arming a brush EFFECT, for the `B` family. The two rules it obeys — paint's clamp
@@ -125,9 +128,14 @@ export function ActionContextProvider({
 				classes: table.classes,
 			});
 			setTool({ ...tool, effect, materialId: arm.materialId });
-			if (arm.disarmGesture) setGesture(null);
+			// The second clause is the pending stamp's: `setGesture` is also what cancels
+			// the arm host-side, and `brushArming` reports no disarm when there is no
+			// gesture to drop — so arming a brush from UNDER a pending stamp (gesture
+			// already `null`) would leave the stamp armed and the next click drawing its
+			// region for a brush the user had just picked.
+			if (arm.disarmGesture || pendingStamp !== null) setGesture(null);
 		},
-		[tool, table, gesture, setGesture, setTool],
+		[tool, table, gesture, pendingStamp, setGesture, setTool],
 	);
 
 	const run = useMemo<ActionCtx["run"]>(
@@ -170,6 +178,7 @@ export function ActionContextProvider({
 			workspace: { hidden },
 			generators,
 			stampCursor,
+			pendingStamp,
 			// MIGRATION (until F4.5b): named undo/redo. Both are null, so `edit.undo` and
 			// `edit.redo` render the bare verb and say only WHETHER there is something to
 			// step, never WHAT. Naming the op ("Undo dig") needs the log's TAIL, which no
@@ -195,6 +204,7 @@ export function ActionContextProvider({
 			hidden,
 			generators,
 			stampCursor,
+			pendingStamp,
 			run,
 		],
 	);

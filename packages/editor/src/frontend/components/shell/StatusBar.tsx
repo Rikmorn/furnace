@@ -9,6 +9,7 @@ import { TriangleAlert } from "lucide-react";
 import { useSyncExternalStore } from "react";
 import type {
 	FieldTool,
+	PendingStamp,
 	StampSession,
 	ViewportGesture,
 } from "../../../viewport-host/index.ts"; // type-only: erased
@@ -50,6 +51,7 @@ export function armedKeymap(
 	tool: FieldTool,
 	gesture: ViewportGesture | null,
 	session: StampSession | null,
+	pendingStamp: PendingStamp | null,
 ): string {
 	// A live session owns the interaction — the family keys refuse while it stands, so
 	// what is left to say is how it ENDS. A move adds the one verb only a move has.
@@ -57,6 +59,13 @@ export function armedKeymap(
 		return session.moving === true
 			? "drag ghost move · R rotate ¼ · ⏎ drop · Esc revert"
 			: "← → ↑ ↓ nudge · R rotate ¼ · ⏎ apply · Esc discard";
+	// A pending stamp SHADOWS the armed gesture: LMB is drawing that stamp's region,
+	// whatever the gesture slot still says underneath (usually `pointer`, the arm most
+	// stamps are picked from). It is checked before `gesture` for exactly that reason —
+	// and it NAMES the generator, because "drag a region" alone leaves the user to
+	// remember which stamp they pressed.
+	if (pendingStamp !== null)
+		return `drag a region for ${pendingStamp.name} · Esc cancels`;
 	if (gesture === "pointer") return "LMB select · G grab · F frame · ⌫ delete";
 	if (gesture === "box") return "click ×2 spans a region · Esc clears";
 	if (gesture === "material")
@@ -97,11 +106,11 @@ function modifierParts(effect: FieldTool["effect"]): string[] {
  *  a clone on every nudge and every preview — pointer rate while a move is live — and the
  *  chips and the error line beside it have nothing to do with that. */
 function KeymapLine() {
-	const { tool, gesture } = useFieldTool();
+	const { tool, gesture, pendingStamp } = useFieldTool();
 	const { stamp } = useFieldStamp();
 	return (
 		<span className="whitespace-nowrap">
-			{armedKeymap(tool, gesture, stamp)}
+			{armedKeymap(tool, gesture, stamp, pendingStamp)}
 		</span>
 	);
 }

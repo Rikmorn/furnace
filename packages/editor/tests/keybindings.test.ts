@@ -234,6 +234,10 @@ test("a key that re-arms LMB is refused while a session owns the interaction, WI
     "tool.selectCycle",
     "tool.stamp",
     "tool.stampCycle",
+    // X joined the set in F4.5b Task 9: the brush it swaps is SUSPENDED while a
+    // session stands (D-F4.5-7 — `onPointerDown` swallows the stroke), so a swap
+    // there changes only what a click that cannot happen would have done.
+    "tool.swapEffect",
   ]) {
     const v = gateAction(byId(id), session, LOOSE);
     expect({ id, ok: v.ok }).toEqual({ id, ok: false });
@@ -249,9 +253,6 @@ test("a key that re-arms LMB is refused while a session owns the interaction, WI
       id,
       ok: true,
     });
-  // …and so does the sticky swap: the brush stays live during a session (its strokes are
-  // the documented divergence window), so swapping its effect re-arms nothing.
-  expect(gateAction(byId("tool.swapEffect"), session, LOOSE).ok).toBe(true);
 });
 
 test("a menu-only action can never be dispatched", () => {
