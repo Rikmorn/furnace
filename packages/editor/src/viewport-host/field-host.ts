@@ -71,6 +71,7 @@ import {
   type PlacedArchetype,
   PROXY_PRIMITIVE,
   placementGhostBatch,
+  placementOwners,
   placementsByEntity,
   placesProps,
   proxyRecords,
@@ -1254,11 +1255,12 @@ export function createFieldHost(deps?: {
   let selectedEntityId: number | null = null;
   let entitySelectionBatch: LineBatch | null = null;
   let entitySelectionCb: ((entityId: number | null) => void) | null = null;
-  // The selected FLAG (a `pointer` click on a marker), by the opaque FlagRow key.
-  // No emphasis and no seam yet — the flags palette is what will render it; what
-  // it already buys is that a marker click is not a MISS, so it does not clear
-  // the entity selection under the user.
-  let selectedFlagKey: string | null = null;
+  // NO selected-flag state here yet, deliberately. A pointer click on a marker
+  // already does the one thing it can do without a consumer — it is not treated
+  // as a miss, so it leaves the entity selection standing (see pointerClick) —
+  // and a `selectedFlagKey` nothing reads would be a field written on three
+  // paths and observed on none. The flags palette is what gives the key a
+  // reader, an emphasis and a seam; the state lands with it.
 
   // --- void cast (the X-ray) ----------------------------------------------
   // A ghostMeshes sibling: one entry per cast chunk, every bucket on the ONE
@@ -2465,42 +2467,28 @@ export function createFieldHost(deps?: {
       candidates.push({ kind: "entity", entityId, aabb });
 
     if (layers.props) {
-      // Attribution by op-id membership of the entity's span — the rule
-      // `field-placements.placementsByEntity` applies, run inline because THAT
-      // helper answers "how many of each archetype did this entity place" and
-      // cannot name the record a ray hit. `groupPlacements` (what the drawn
-      // layer is built from) discards op identity outright, so a (archetype,
-      // instance) pair has no path back to an entity either: the owning entity
-      // has to fall out of the same walk that finds the record.
-      const entities: field.GeneratorEntity[] = [];
-      for (const op of log.ops)
-        if (op.kind === "entity") entities.push(op.entity);
-      for (const op of log.ops) {
-        if (op.kind !== "placement") continue;
-        const owner = entities.find(
-          (e) => op.id >= e.opSpan[0] && op.id <= e.opSpan[1],
-        );
-        if (owner === undefined) continue; // an orphan; no commit path makes one
-        for (const record of op.records) {
-          const collision =
-            archetypeById.get(record.archetypeId)?.collision ??
-            FALLBACK_COLLISION;
-          // The record's OWN frame, not `proxyCorners`: that one allocates 24
-          // floats per record for the wireframe, and the oriented box test wants
-          // the frame rather than the corners. Same centre and same extents as
-          // the drawn proxy (collisionCenter + proxyScale), so the click volume
-          // is exactly the box on screen.
-          const [sx, sy, sz] = proxyScale(collision, record.scale);
-          candidates.push({
-            kind: "prop",
-            entityId: owner.entityId,
-            obb: {
-              center: field.collisionCenter(collision, record),
-              halfExtents: [sx / 2, sy / 2, sz / 2],
-              quat: record.quat,
-            },
-          });
-        }
+      // A prop click selects its OWNING entity, and `placementOwners` is what
+      // pairs each record with the span that claims it (the pure module owns the
+      // attribution rule, and is where it is unit-tested without a GPU).
+      for (const { entityId, record } of placementOwners(log.ops)) {
+        const collision =
+          archetypeById.get(record.archetypeId)?.collision ??
+          FALLBACK_COLLISION;
+        // The record's OWN frame, not `proxyCorners`: that one allocates 24
+        // floats per record for the wireframe, and the oriented box test wants
+        // the frame rather than the corners. Same centre and same extents as
+        // the drawn proxy (collisionCenter + proxyScale), so the click volume
+        // is exactly the box on screen.
+        const [sx, sy, sz] = proxyScale(collision, record.scale);
+        candidates.push({
+          kind: "prop",
+          entityId,
+          obb: {
+            center: field.collisionCenter(collision, record),
+            halfExtents: [sx / 2, sy / 2, sz / 2],
+            quat: record.quat,
+          },
+        });
       }
     }
 
@@ -2565,20 +2553,26 @@ export function createFieldHost(deps?: {
       clearTo,
     );
     if (hit === null) {
-      selectedFlagKey = null;
-      selectEntity(null);
+      setSelectedEntity(null);
       return;
     }
     if (hit.kind === "flag") {
-      // A marker click selects the FLAG and deliberately leaves the entity
-      // selection standing: the two are different selections, and clicking a
-      // finding is not a statement about which stamp is being worked on.
-      if (selectedFlagKey === hit.key) return;
-      selectedFlagKey = hit.key;
+      // A marker click is NOT a miss: it leaves the entity selection standing.
+      // The two are different selections, and clicking a finding is not a
+      // statement about which stamp is being worked on.
+      //
+      // That is the whole of it today — the key is not stored, because nothing
+      // can read it: there is no flag emphasis and no flag-selection seam until
+      // the flags palette grows one, and a field written here and observed
+      // nowhere is dead state wearing a feature's name (the linter says so too).
+      // The consequence to know: the flag PATH is correspondingly untestable end
+      // to end — the layer gate, `flagMarkerCenter`'s lift and the cell box are
+      // covered only where they are pure (field-pick / field-flags tests), and
+      // no assertion reaches them through a click. A seam is not being added
+      // early to make that possible; it arrives with its consumer.
       return;
     }
-    selectedFlagKey = null;
-    selectEntity(hit.entityId);
+    setSelectedEntity(hit.entityId);
   };
 
   // --- stamp session (ghost preview → commit) -----------------------------
@@ -2630,22 +2624,40 @@ export function createFieldHost(deps?: {
   // volumes.
   //
   // MEMOIZED because the pick needs EVERY entity's box on every click, and
-  // `generatorFootprint` walks the whole op log per entity: O(entities × ops)
-  // per click, against a measured 2.3 ms for one full-log pass at 200 entities
-  // over 100 000 ops (field-placements.ts). Recomputed once per LOG MUTATION
+  // `generatorFootprint` walks the whole op log per entity — O(entities × ops)
+  // per click. The in-repo measurement nearest to that shape is
+  // `placementsByEntity`'s (field-placements.ts): 2.3 ms for its WHOLE pass at
+  // 200 entities × 500 records over 100 000 ops — two scans plus
+  // placement-ops × entities attribution, not the unit cost of one
+  // `generatorFootprint` walk. It is the right order of magnitude for one pass
+  // over a log that size and nothing more precise has been taken; what makes the
+  // memo obviously right is the MULTIPLIER this path adds (one such walk per
+  // entity per click), not the constant. Recomputed once per log mutation
   // instead, which is a discrete user action.
   //
-  // The signature is `currentLogStats`' — the three lengths plus `nextId`, which
-  // is what closes that cache's one documented gap here: a reconfigure can
-  // splice out N ops and back in N, moving no length, but it allocates fresh ids
-  // and so always moves `nextId`. What remains uncovered is the same
-  // several-mutations-in-one-frame netting, unreachable from single-event-per-
-  // frame input; a stale box mis-aims a click and self-heals on the next
-  // mutation, it corrupts nothing.
+  // The signature is `currentLogStats`' three lengths plus TWO more, each
+  // closing a gap that is reachable:
+  //   - `nextId`, because a reconfigure can splice out N ops and back in N,
+  //     moving no length — but it always allocates fresh ids.
+  //   - `worldEpoch`, because a world swap CLEARS the log (resetWorld empties
+  //     ops and both stacks and resets nextId), so two worlds whose logs agree
+  //     on all four log-derived numbers share a signature and the incoming world
+  //     would read the outgoing world's boxes. Not hypothetical: two variant
+  //     files out of one authoring flow collide easily — same op count, same
+  //     ids, different geometry — and the symptom is a click on empty space
+  //     selecting an entity that is gone, with a box drawn where nothing is.
+  //     `worldEpoch` is bumped by resetWorld for the analyzer's sake; this rides
+  //     the same counter rather than adding a second one.
+  // What remains uncovered is several mutations within ONE frame that net all
+  // the log numbers back, unreachable from single-event-per-frame input; a stale
+  // box mis-aims a click and self-heals on the next mutation, it corrupts
+  // nothing. (`currentLogStats` at the op-cost meter has the world-swap exposure
+  // too — filed rather than fixed here: `docs/backlog/editor-and-tooling/
+  // field-log-signature-caches-miss-world-swaps.md`.)
   let footprintCache: Map<number, { min: Vec3T; max: Vec3T }> | null = null;
   let footprintSig = "";
   const entityFootprints = (): Map<number, { min: Vec3T; max: Vec3T }> => {
-    const sig = `${log.ops.length}/${log.undoStack.length}/${log.redoStack.length}/${log.nextId}`;
+    const sig = `${worldEpoch}/${log.ops.length}/${log.undoStack.length}/${log.redoStack.length}/${log.nextId}`;
     const cached = footprintCache;
     if (cached !== null && sig === footprintSig) return cached;
     const boxes = new Map<number, { min: Vec3T; max: Vec3T }>();
@@ -2682,39 +2694,43 @@ export function createFieldHost(deps?: {
       box === undefined ? null : aabbEdgeBatch(box, ENTITY_SELECTED_COLOR);
   };
 
-  // Drop the selection and tell whoever holds it — the host's OWN way of
-  // clearing one (an entity leaving the log, a world reset), as opposed to the
-  // user clicking empty space, which goes through selectEntity. Guarded on there
-  // being a selection at all, so the seam keeps its "pushed on every change"
-  // contract literally.
-  const clearEntitySelection = (): void => {
-    if (selectedEntityId === null) return;
-    selectedEntityId = null;
-    entitySelectionBatch = null;
-    entitySelectionCb?.(null);
-  };
-
-  const revalidateEntitySelection = (): void => {
-    if (selectedEntityId === null) return;
-    if (entityRecord(selectedEntityId) === null) {
-      clearEntitySelection();
-      return;
-    }
-    rebuildEntitySelectionBatch();
-  };
-
-  // Select one entity (or nothing). Validated against the log — an id no entity
-  // op carries selects NOTHING rather than reporting, because the ids come from
-  // a panel list that can lag it (openEntitySession's stance, minus the report:
-  // a stale click is not worth a toast). Re-selecting the same id is a no-op
-  // that notifies nobody, so a palette row can call this on every render.
-  const selectEntity = (entityId: number | null): void => {
+  // Select one entity, or NOTHING — the single mutator of the entity selection,
+  // whoever is asking: a pointer click, the public verb, an entity leaving the
+  // log, a world reset. There is deliberately no second "clear" entry point;
+  // `setSelectedEntity(null)` is the clear, and two parallel mutators of one
+  // piece of state is how a side effect added to one and not the other drifts
+  // silently.
+  //
+  // Validated against the log — an id no entity op carries selects NOTHING
+  // rather than reporting, because the ids come from a panel list that can lag
+  // it (openEntitySession's stance, minus the report: a stale click is not worth
+  // a toast). Selecting what is already selected is a no-op that notifies
+  // nobody, so a palette row can call this on every render, and so a world reset
+  // with nothing selected pushes nothing — which is what lets the seam's
+  // "pushed on every change" contract be read literally.
+  //
+  // Named apart from the PUBLIC `selectEntity` it backs (the openEntity →
+  // openEntitySession precedent): the method could shadow-call this one
+  // correctly by lexical scope, but a reader has to stop and prove it is not
+  // recursion.
+  const setSelectedEntity = (entityId: number | null): void => {
     const next =
       entityId === null || entityRecord(entityId) === null ? null : entityId;
     if (next === selectedEntityId) return;
     selectedEntityId = next;
     rebuildEntitySelectionBatch();
     entitySelectionCb?.(next);
+  };
+
+  const revalidateEntitySelection = (): void => {
+    if (selectedEntityId === null) return;
+    // The record is gone (an undone commit): setSelectedEntity's own validation
+    // resolves the stale id to null, so passing it back IS the clear.
+    if (entityRecord(selectedEntityId) === null) {
+      setSelectedEntity(null);
+      return;
+    }
+    rebuildEntitySelectionBatch();
   };
 
   // Tears down BOTH halves of the stamp ghost: the surface meshes (GPU) and the
@@ -4273,15 +4289,13 @@ export function createFieldHost(deps?: {
     selectionBatch = null;
     notifySelection(); // null — the panel must not show a stale selection
     // A different world invalidates the stamp session (its region + snapshot
-    // describe the old field), the entity + flag selections (log entity ids
-    // reset, and a flag key names a finding of the old field) and any drift
-    // report (its findings name op ids the new log does not have).
+    // describe the old field), the entity selection (log entity ids reset) and
+    // any drift report (its findings name op ids the new log does not have).
     cancelStampSession();
     // Notified, not just cleared: the selection is a SEAM now, and a subscriber
     // left holding an id from the outgoing world is the same class of bug as the
     // stale stamp session announced above.
-    selectedFlagKey = null;
-    clearEntitySelection();
+    setSelectedEntity(null);
     // The cast describes the field that just went away. Discarded SILENTLY,
     // unlike an edit-time invalidation: everything else on screen is being
     // replaced too, so "void cast cleared" beside a fresh world is noise.
@@ -4832,7 +4846,7 @@ export function createFieldHost(deps?: {
       return out;
     },
     selectEntity(entityId) {
-      selectEntity(entityId);
+      setSelectedEntity(entityId);
     },
     subscribeEntitySelection(cb) {
       entitySelectionCb = cb;

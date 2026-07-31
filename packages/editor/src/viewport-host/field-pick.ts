@@ -8,9 +8,15 @@
 // the field host acquires its context at `sampleCount: 4`, `frame.renderToTexture`
 // refuses any non-1 sample count, and the two things most worth picking — entity
 // footprints and gizmo handles — have no meshes at all (they are `drawLines`
-// batches and pure math). At this slice's scale (tens of entities, hundreds of
-// props, hundreds of visible markers) one click is ~32k scalar ops plus the ONE
-// field DDA the host already pays on every throttled pointermove.
+// batches and pure math).
+//
+// The whole per-click bill, not just this module's share of it: the ray tests
+// here are ~32k scalar ops at this slice's scale (tens of entities, hundreds of
+// props, hundreds of visible markers); the host's candidate BUILD around them
+// walks the op log twice and derives the flag summary (which caches nothing);
+// and one field DDA runs for the occluder — the same one the host already pays
+// on every throttled pointermove. At the 100k-op scale the log walks dominate,
+// not the arithmetic. All of it is per CLICK, which is what makes it affordable.
 //
 // Its consequence is written into the design and not just tolerated: a CPU pick
 // is affordable per CLICK, not per pointermove, so there is no hover
@@ -50,8 +56,8 @@ export type PickObb = {
  * A `prop` carries the entity that PLACED it, not an identity of its own: a
  * click on a prop selects its owning stamp, because a placement record is not
  * an independently editable object in this editor (per-prop selection is out).
- * The host resolves that ownership from the op log's spans — the same op-id
- * membership rule `field-placements.placementsByEntity` uses.
+ * The host resolves that ownership through `field-placements.placementOwners`,
+ * which pairs each record with the entity whose op span claims it.
  */
 export type PickCandidate =
   | { kind: "entity"; entityId: number; aabb: PickAabb }
@@ -157,7 +163,31 @@ export const rayObbT = (ray: PickRay, obb: PickObb): number | null => {
 const candidateT = (ray: PickRay, c: PickCandidate): number | null =>
   c.kind === "prop" ? rayObbT(ray, c.obb) : rayAabbT(ray, c.aabb);
 
-/** The nearest candidate the filter admits, within `maxT`. */
+/**
+ * Whether a candidate is a bounding VOLUME rather than a real object — the
+ * tier {@link pickNearest} resolves second.
+ *
+ * A positive predicate over an explicit kind list, deliberately, rather than
+ * `kind !== "entity"` at the two call sites: a candidate kind added later (a
+ * gizmo handle, say) would fall into the object tier by DEFAULT under negation,
+ * silently, with nothing forcing its author to decide where it belongs. Written
+ * this way the compiler leaves the new kind out of both tiers' positive list and
+ * the choice has to be made here.
+ */
+const isVolume = (c: PickCandidate): boolean => c.kind === "entity";
+
+/**
+ * The nearest candidate the filter admits, within `maxT`.
+ *
+ * Ties go to the EARLIER candidate in the array (`t >= bestT` keeps the
+ * incumbent), which makes the result deterministic for coincident volumes rather
+ * than merely unspecified — the host builds candidates in log order, so the
+ * older entity wins a tie. That is load-bearing for nested footprints, where two
+ * enclosing boxes both enter at t = 0.
+ *
+ * `maxT` is INCLUSIVE: a candidate exactly at it is admitted (see
+ * {@link pickNearest}).
+ */
 const nearestOf = (
   ray: PickRay,
   candidates: readonly PickCandidate[],
@@ -181,10 +211,17 @@ const nearestOf = (
  *
  * `maxT` is how far the ray is KNOWN to be clear: the field raycast's hit
  * distance when it hit, and the probe's own range when it missed (nothing past
- * that range was tested, so nothing past it may be picked). Anything at or
- * beyond it is behind terrain — the user clicked rock, not the thing behind it.
- * A candidate exactly AT `maxT` loses, which is the right way round for a
- * footprint face lying on the surface the ray just hit.
+ * that range was tested, so nothing past it may be picked). Anything BEYOND it
+ * is behind terrain — the user clicked rock, not the thing behind it.
+ *
+ * The bound is INCLUSIVE — a candidate at exactly `maxT` is still picked — and
+ * that is the deliberate side of the boundary for two reasons. Occlusion means
+ * strictly BEHIND: a candidate sitting exactly on the surface the ray hit is not
+ * behind it, and a carve entity's footprint face lying on the rock face it
+ * carved is the normal case, not a contrived one. And it matches the range
+ * convention of the probe that produces the other `maxT`: `raycastField` bails
+ * on `t > maxDist`, so its own reach is inclusive too, and a pick that stopped
+ * half an epsilon short would disagree with the DDA it is paired with.
  *
  * OBJECTS BEFORE VOLUMES, which is a deviation from plain nearest-wins and the
  * reason is structural: an entity's candidate is its stamped FOOTPRINT — a
@@ -195,11 +232,18 @@ const nearestOf = (
  * geometry) are resolved first and footprints are the fallback, which also
  * reads well as a rule: click a thing to get the thing, click the bare room to
  * get the room. Within each tier it IS plain nearest-wins.
+ *
+ * KNOWN GAP, recorded rather than papered over: the tier does not resolve
+ * entity-vs-entity nesting. A scatter footprint inside a hall's also encloses
+ * the camera, both enter at t = 0, and the tie falls to log order (see
+ * {@link nearestOf}). Both answers are legitimate — both volumes really are
+ * under the cursor — so picking a winner is a product decision, not a geometry
+ * one, and it is left to the task that gives entities a manipulator.
  */
 export const pickNearest = (
   ray: PickRay,
   candidates: readonly PickCandidate[],
   maxT: number,
 ): PickCandidate | null =>
-  nearestOf(ray, candidates, maxT, (c) => c.kind !== "entity") ??
-  nearestOf(ray, candidates, maxT, (c) => c.kind === "entity");
+  nearestOf(ray, candidates, maxT, (c) => !isVolume(c)) ??
+  nearestOf(ray, candidates, maxT, isVolume);

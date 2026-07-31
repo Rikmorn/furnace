@@ -698,6 +698,35 @@ test("the props count shows for a prop generator only — a carver never reads '
 	expect(screen.getByText(/0 props/)).toBeDefined();
 });
 
+// --- the panel opens on the same gesture the HOST opens on -------------------
+
+test("Select reads armed on mount, and the brush inspector is hidden behind it", async () => {
+	stubCatalogs({ materials: CATALOG_JSON });
+	const stub = makeStubHost();
+	await renderPanel(stub);
+
+	// The host initialises its armed slot to `pointer` (D-F4.5-7) and the panel
+	// initialises its MIRROR to the same value — across a fence that forbids the
+	// two from sharing the constant (the chrome cannot value-import anything under
+	// `viewport-host/`). Nothing else would catch them diverging: the panel would
+	// simply render the brush as armed while LMB selected, and no call, no throw
+	// and no warning would say so.
+	expect(button("Select").getAttribute("aria-pressed")).toBe("true");
+	// The mirror is an INITIAL VALUE, not a push — the panel must not have told
+	// the host anything to reach this state.
+	expect(stub.calls.setGesture).not.toHaveBeenCalled();
+	// …and the consequence the user sees: LMB selects, so nothing promises a
+	// brush. No radius, and no brush effect highlighted.
+	expect(screen.queryByLabelText("brush radius")).toBeNull();
+	expect(button("Dig").getAttribute("aria-pressed")).toBe("false");
+
+	// Picking a brush is the way out, and it hands LMB back to the stroke.
+	fireEvent.click(button("Dig"));
+	expect(stub.calls.setGesture.mock.calls.at(-1)?.[0]).toBeNull();
+	expect(screen.getByLabelText("brush radius")).toBeTruthy();
+	expect(button("Select").getAttribute("aria-pressed")).toBe("false");
+});
+
 // --- (n) the segment gesture shares the selection slot but keeps the brush ---
 
 test("Segment arms the gesture slot, keeps the brush inspector, and survives an effect pick", async () => {

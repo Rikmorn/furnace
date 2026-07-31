@@ -2,9 +2,10 @@
 // sibling): the catalog collision primitive → proxy-primitive mapping, the
 // oriented wireframe corners the placement GHOST draws, the record re-scaling the
 // committed PROP LAYER packs through core's packPlacementMatrices, and the
-// log → per-archetype record grouping both rebuild from, and the per-ENTITY
-// attribution of that same log the entities list's prop rows read. The host
-// keeps the GPU calls (geometry / instanced-mesh creation, uploads) and the
+// log → per-archetype record grouping both rebuild from, and the two
+// attributions of that same log — per ENTITY for the entities list's prop rows,
+// per RECORD for the viewport pick's "which stamp placed the prop I hit". The
+// host keeps the GPU calls (geometry / instanced-mesh creation, uploads) and the
 // catalog transport.
 //
 // v0 posture: editor props are PROXIES — the collision primitive drawn as a unit
@@ -235,6 +236,51 @@ export const groupPlacements = (
  *  records name, and how many of them do. */
 export type PlacedArchetype = { archetypeId: string; count: number };
 
+/** Whether an op belongs to a committed entity's span — the ONE spelling of the
+ *  attribution rule both walks below apply. See {@link placementsByEntity} for
+ *  why membership is tested by id rather than by walking the span's range or
+ *  trusting log position. */
+const ownsOp = (entity: GeneratorEntity, opId: number): boolean =>
+  opId >= entity.opSpan[0] && opId <= entity.opSpan[1];
+
+/** One placed instance and the entity whose span claims it. */
+export type OwnedPlacement = { entityId: number; record: PlacementRecord };
+
+/**
+ * Every placement record in a log paired with its OWNING entity, in log order.
+ *
+ * The {@link placementsByEntity} sibling at record granularity: that one answers
+ * "how many of each archetype did this entity place" and cannot name an
+ * individual record, which is what a caller holding ONE record needs — the
+ * viewport pick, whose ray hits a single prop and has to answer with the stamp
+ * that put it there. {@link groupPlacements}, the drawn layer's source, is no
+ * help either: it groups by archetype and discards op identity outright, so an
+ * (archetype, instance) pair has no path back to an entity at all.
+ *
+ * The two walks are kept apart rather than one folded into the other because
+ * their allocation profiles differ where it matters: this one materializes an
+ * object per RECORD (fine for a click, 100 000 objects at the scale
+ * `placementsByEntity`'s figures were taken at) while that one tallies into a
+ * map and allocates per archetype. They share the rule ({@link ownsOp}), which
+ * is the part that could drift.
+ *
+ * Records are the LOG's own objects — read-only to the caller. A placement op no
+ * span claims is skipped, runtime-quiet (see {@link placementsByEntity}).
+ */
+export const placementOwners = (ops: readonly FieldOp[]): OwnedPlacement[] => {
+  const entities: GeneratorEntity[] = [];
+  for (const op of ops) if (op.kind === "entity") entities.push(op.entity);
+  const out: OwnedPlacement[] = [];
+  for (const op of ops) {
+    if (op.kind !== "placement") continue;
+    const owner = entities.find((e) => ownsOp(e, op.id));
+    if (owner === undefined) continue; // an orphan; no commit path makes one
+    for (const record of op.records)
+      out.push({ entityId: owner.entityId, record });
+  }
+  return out;
+};
+
 /** Per entity id, what that entity's OWN span placed — one entry per archetype
  *  its placement records name, in first-seen record order. An entity that placed
  *  nothing (every carver) is ABSENT from the map, so a lookup miss IS "no props"
@@ -285,9 +331,7 @@ export const placementsByEntity = (
   const counts = new Map<number, Map<string, number>>();
   for (const op of ops) {
     if (op.kind !== "placement") continue;
-    const owner = entities.find(
-      (e) => op.id >= e.opSpan[0] && op.id <= e.opSpan[1],
-    );
+    const owner = entities.find((e) => ownsOp(e, op.id));
     if (owner === undefined) continue; // an orphan; no commit path makes one
     const byArchetype = counts.get(owner.entityId) ?? new Map<string, number>();
     if (!counts.has(owner.entityId)) counts.set(owner.entityId, byArchetype);

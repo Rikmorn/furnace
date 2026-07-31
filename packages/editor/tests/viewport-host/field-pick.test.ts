@@ -219,6 +219,37 @@ test("pickNearest: an ENCLOSING entity footprint never shadows an object in fron
   expect(pickNearest(RAY_X, [entityAt(5)], 2)).toBeNull();
 });
 
+test("pickNearest: the maxT bound is INCLUSIVE, and one epsilon past it is not", () => {
+  // A candidate whose entry lands exactly on the terrain hit is not BEHIND it —
+  // a carve entity's footprint face sitting on the rock face it carved is the
+  // normal case. It also matches `raycastField`'s own `t > maxDist` reach, so
+  // the pick and the DDA that feeds it agree about the boundary.
+  const at5 = entityAt(5); // enters at exactly t = 5
+  expect(pickNearest(RAY_X, [at5], 5)).toEqual(at5);
+  // …and the other side of the boundary really is the other side.
+  expect(pickNearest(RAY_X, [at5], 5 - Number.EPSILON * 8)).toBeNull();
+});
+
+test("pickNearest: a tie inside one tier goes to the EARLIER candidate", () => {
+  // Two footprints that both enclose the ray origin both enter at t = 0 — the
+  // nested-entity case (a scatter inside a hall). Nothing about the geometry
+  // separates them, so the rule is array order, and the host builds candidates
+  // in log order: the older entity wins. Deterministic, which is the point; WHICH
+  // one should win is a product question this module does not answer.
+  const outer: PickCandidate = {
+    kind: "entity",
+    entityId: 1,
+    aabb: { min: [-10, -10, -10], max: [10, 10, 10] },
+  };
+  const inner: PickCandidate = {
+    kind: "entity",
+    entityId: 2,
+    aabb: { min: [-2, -2, -2], max: [2, 2, 2] },
+  };
+  expect(pickNearest(RAY_X, [outer, inner], 30)).toEqual(outer);
+  expect(pickNearest(RAY_X, [inner, outer], 30)).toEqual(inner);
+});
+
 test("pickNearest: nearest wins WITHIN the object tier, whatever the kinds", () => {
   // Flag in front of prop and prop in front of flag, same candidate list order
   // both times — so the answer is the distance, not the array position.

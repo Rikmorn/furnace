@@ -19,6 +19,7 @@ import {
   groupPlacements,
   PROXY_PRIMITIVE,
   placementGhostBatch,
+  placementOwners,
   placementsByEntity,
   placesProps,
   proxyCorners,
@@ -374,6 +375,63 @@ test("placementsByEntity attributes by span id even when the NEXT entity op in l
   const byEntity = placementsByEntity(ops);
   expect(byEntity.get(4)).toEqual([{ archetypeId: "rock", count: 1 }]);
   expect(byEntity.has(9)).toBe(false); // the cave carved; it placed nothing
+});
+
+// ——— log → per-RECORD attribution (the viewport pick's prop candidates) ———
+//
+// The sibling of the above at record granularity. It exists because a ray hits
+// ONE prop and has to answer with the stamp that placed it, which a per-entity
+// tally cannot say — and it lives here, in the pure module, precisely so the
+// attribution is assertable without a canvas: through the host it is only
+// reachable by clicking, which needs a GPU device.
+
+test("placementOwners pairs every record with the entity whose span claims its op", () => {
+  const rock = record({ archetypeId: "rock", position: [1, 0, 0] });
+  const spike = record({ archetypeId: "stalagmite", position: [2, 0, 0] });
+  const ops: FieldOp[] = [
+    {
+      id: 1,
+      kind: "brush",
+      effect: "dig",
+      shape: { kind: "sphere", center: [0, 0, 0], radius: 1 },
+    },
+    entityOp(2, "cave", [1, 1]), // a carver: places nothing
+    placementOp(3, [rock, spike]),
+    entityOp(4, "scatter", [3, 3]),
+  ];
+  // One entry per RECORD (not per archetype, not per op), in log order.
+  expect(placementOwners(ops)).toEqual([
+    { entityId: 4, record: rock },
+    { entityId: 4, record: spike },
+  ]);
+  // …and the record is the LOG's own object, not a copy: the pick reads a pose
+  // off it and must see later edits to the log rather than a snapshot.
+  expect(placementOwners(ops)[0]?.record).toBe(rock);
+});
+
+test("placementOwners attributes by SPAN, not by the next entity op in log order", () => {
+  // The discriminating shape from the sibling case above, at record granularity:
+  // a positional implementation ("the next entity op after it") answers 9 here.
+  // A prop click would then select a carver that placed nothing.
+  const ops: FieldOp[] = [
+    placementOp(3, [record({ archetypeId: "rock" })]),
+    entityOp(9, "cave", [7, 8]),
+    entityOp(4, "scatter", [3, 3]),
+  ];
+  expect(placementOwners(ops).map((o) => o.entityId)).toEqual([4]);
+});
+
+test("placementOwners skips an ORPHAN placement op instead of guessing an owner", () => {
+  // No span claims id 3. Runtime-quiet, matching placementsByEntity: no commit
+  // path produces one, and a pick that invented an owner would select an entity
+  // the user cannot see the connection to. The drawn prop layer still shows it
+  // (groupPlacements counts every record whatever owns it) — so on a corrupt log
+  // there is a visible prop that cannot be selected, which is the safe direction.
+  const ops: FieldOp[] = [
+    placementOp(3, [record({ archetypeId: "rock" })]),
+    entityOp(4, "scatter", [10, 12]),
+  ];
+  expect(placementOwners(ops)).toEqual([]);
 });
 
 // `opSpan` is TRUSTED numeric data on load — core's parseOps validates op ids

@@ -32,9 +32,15 @@
 // and the pick is decided by the candidates alone.
 import { expect, test } from "bun:test";
 import {
+  AIR,
+  CHUNK_DIM,
+  CHUNK_SAMPLES,
+  chunkKey,
   DEFAULT_CELL_SIZE,
+  encodeChunkFile,
   type FieldManifest,
   type FieldOp,
+  SOLID,
 } from "@furnace/core/field";
 import {
   bunWebGpuAvailable,
@@ -65,14 +71,19 @@ const TARGET: [number, number, number] = [0, 1, 0];
 const CARVE_ENTITY_ID = 2;
 const SCATTER_ENTITY_ID = 4;
 
-/** A dig op at the orbit target, and the entity that claims it. Its footprint is
- *  the sphere's own bounds — a 1 m box straddling the target. */
-const carveOps = (): FieldOp[] => [
+/** A dig op at `center` (the orbit target by default), and the entity that
+ *  claims it. Its footprint is the sphere's own bounds — a 1 m box straddling
+ *  that point.
+ *
+ *  Parameterized so two DIFFERENT worlds can be built with the same op count and
+ *  the same op ids, which is what the world-swap case needs: those two logs are
+ *  indistinguishable to any signature derived from the log alone. */
+const carveOps = (center: [number, number, number] = TARGET): FieldOp[] => [
   {
     id: 1,
     kind: "brush",
     effect: "dig",
-    shape: { kind: "sphere", center: [...TARGET], radius: 0.5 },
+    shape: { kind: "sphere", center: [...center], radius: 0.5 },
   },
   {
     id: CARVE_ENTITY_ID,
@@ -84,7 +95,10 @@ const carveOps = (): FieldOp[] => [
       generator: "hall",
       params: {},
       seed: 7,
-      region: { min: [-1, 0, -1], max: [1, 2, 1] },
+      region: {
+        min: [center[0] - 1, center[1] - 1, center[2] - 1],
+        max: [center[0] + 1, center[1] + 1, center[2] + 1],
+      },
       opSpan: [1, 1],
     },
   },
@@ -124,20 +138,73 @@ const scatterOps = (): FieldOp[] => [
   },
 ];
 
-/** An initialized host over a world built from `ops`, with the recorded click
- *  handler and the entity-selection pushes. Callers own `teardown`. */
-async function pointerFixture(ops: FieldOp[]) {
+// --- real terrain, for the occlusion cases ----------------------------------
+//
+// The default fixture leaves the store EMPTY, which makes every unallocated
+// chunk read SOLID, the eye "in rock", and the occlusion raycast skipped
+// entirely — so the two cases below allocate real chunks instead, and they are
+// the only coverage the `clearTo` arithmetic has.
+//
+// The geometry is chosen so no camera math is needed in the test, only the ONE
+// documented fact that the host's starting pitch is positive — the eye sits
+// ABOVE the orbit target (field-host's own comment: "at distance 6 this seats
+// the eye at y ≈ 3.9"). The centre ray therefore DESCENDS from ~3.9 to the
+// target at y = 1, and a horizontal slab between those two heights blocks it
+// wherever the eye happens to be in x/z.
+
+/** Chunk indices covering the eye's possible x/z (|x|,|z| ≤ 6, the orbit
+ *  distance) and the target's, at 16 samples × 0.25 m = 4 m per chunk. */
+const AIR_CHUNK_RANGE = [-2, -1, 0, 1];
+/** Local Y index of the slab's top face: world y = 10 × 0.25 = 2.5 m, between
+ *  the target (y = 1) and the eye (y ≈ 3.9). */
+const SLAB_TOP_LOCAL_Y = 10;
+
+/** One chunk of the y = 0 band: air everywhere, except — when `slab` — solid
+ *  below {@link SLAB_TOP_LOCAL_Y}, a floor-to-2.5 m wall of rock. */
+const bandChunk = (slab: boolean): Uint8Array => {
+  const samples = new Int8Array(CHUNK_SAMPLES).fill(AIR);
+  if (slab)
+    for (let ly = 0; ly < SLAB_TOP_LOCAL_Y; ly++)
+      for (let lz = 0; lz < CHUNK_DIM; lz++)
+        for (let lx = 0; lx < CHUNK_DIM; lx++)
+          samples[lx + CHUNK_DIM * (ly + CHUNK_DIM * lz)] = SOLID;
+  return encodeChunkFile(samples);
+};
+
+/** The y = 0 chunk band around the origin, air or slabbed. Chunks OUTSIDE it stay
+ *  unallocated and therefore solid, which is what stops the ray at the band's
+ *  edge in the un-slabbed case — a real terrain hit, just a distant one. */
+const terrainBand = (slab: boolean): { key: string; bytes: Uint8Array }[] => {
+  const bytes = bandChunk(slab);
+  return AIR_CHUNK_RANGE.flatMap((cx) =>
+    AIR_CHUNK_RANGE.map((cz) => ({ key: chunkKey(cx, 0, cz), bytes })),
+  );
+};
+
+/** One `loadWorld` payload, spelled once — the fixture opens with it and the
+ *  world-swap case reuses it to load a SECOND world into the same live host. */
+const loadInto = (
+  host: ReturnType<typeof createFieldHost>,
+  ops: FieldOp[],
+  chunks: { key: string; bytes: Uint8Array }[] = [],
+): void => {
+  host.loadWorld({ manifest: MANIFEST, chunks, oplog: JSON.stringify(ops) });
+};
+
+/** An initialized host over a world built from `ops` (and optionally real
+ *  terrain), with the recorded click handler and the entity-selection pushes.
+ *  Callers own `teardown`. */
+async function pointerFixture(
+  ops: FieldOp[],
+  chunks: { key: string; bytes: Uint8Array }[] = [],
+) {
   const restoreRo = installMockResizeObserver();
   // The NO-OP rAF variant: nothing here observes a frame — the pick runs
   // entirely inside the pointerdown handler.
   const restoreRaf = stubAnimationFrameNoop();
   const listeners: HostListeners = new Map();
   const host = createFieldHost();
-  host.loadWorld({
-    manifest: MANIFEST,
-    chunks: [],
-    oplog: JSON.stringify(ops),
-  });
+  loadInto(host, ops, chunks);
   await host.init(await makeHostCanvas(listeners));
   const selected: (number | null)[] = [];
   host.subscribeEntitySelection((id) => selected.push(id));
@@ -247,6 +314,79 @@ test.skipIf(!bunWebGpuAvailable())(
       // invisible prop's owner would be picking something the user cannot see.
       f.click(32, 32);
       expect(f.selected).toEqual([null, CARVE_ENTITY_ID]);
+    } finally {
+      f.teardown();
+    }
+  },
+);
+
+test.skipIf(!bunWebGpuAvailable())(
+  "a world swap invalidates the footprint memo, even when the two logs SIGN identically",
+  async () => {
+    // Both worlds carry 2 ops with ids 1 and 2 and empty undo/redo stacks, so
+    // every signature derivable from the LOG alone — lengths, ids, nextId — is
+    // the same for the two. Only the geometry differs: world A's hall is at the
+    // orbit target, world B's is 200 m away. A memo keyed on the log alone
+    // therefore serves world A's boxes to world B, and a click on empty space
+    // re-selects an entity from the world that is gone.
+    const f = await pointerFixture(carveOps());
+    try {
+      f.click(32, 32);
+      expect(f.selected).toEqual([null, CARVE_ENTITY_ID]);
+
+      loadInto(f.host, carveOps([200, 1, 200]));
+      // The load cleared the selection through the seam (resetWorld).
+      expect(f.selected).toEqual([null, CARVE_ENTITY_ID, null]);
+
+      // Nothing is under the cursor in world B — its hall is 200 m away, well
+      // past the pick's reach. The click must stay a deselect.
+      f.click(32, 32);
+      expect(f.selected).toEqual([null, CARVE_ENTITY_ID, null]);
+    } finally {
+      f.teardown();
+    }
+  },
+);
+
+// --- the occluder, with real terrain in the store ---------------------------
+//
+// The pair below is what covers `pointerClick`'s distance arithmetic — the
+// `Math.hypot(rc.point − ray.origin)` that turns the raycast's hit POINT into
+// the `maxT` the pick is bounded by. Everything else in this file runs with an
+// empty store, where that line never executes.
+//
+// They differ by ONE thing (the slab), so a bug that occludes everything and a
+// bug that occludes nothing each fail exactly one of them.
+
+test.skipIf(!bunWebGpuAvailable())(
+  "with the ray CLEAR to the entity, the terrain hit beyond it does not occlude",
+  async () => {
+    const f = await pointerFixture(carveOps(), terrainBand(false));
+    try {
+      // The eye is in real air now, so the occlusion raycast actually runs: it
+      // crosses the whole air band and stops at the unallocated (solid) chunk
+      // below y = 0, PAST the hall. A `clearTo` that came back short — or zero —
+      // would swallow this click.
+      f.click(32, 32);
+      expect(f.selected).toEqual([null, CARVE_ENTITY_ID]);
+    } finally {
+      f.teardown();
+    }
+  },
+);
+
+test.skipIf(!bunWebGpuAvailable())(
+  "a rock slab between the eye and the entity occludes the pick",
+  async () => {
+    const f = await pointerFixture(carveOps(), terrainBand(true));
+    try {
+      // Same world, same click, one difference: a solid slab whose top face is
+      // at y = 2.5, which the descending centre ray meets before it reaches the
+      // hall's box. The user clicked ROCK, so nothing is selected — and a
+      // `clearTo` left at the probe's full range would select the hall through
+      // a wall.
+      f.click(32, 32);
+      expect(f.selected).toEqual([null]);
     } finally {
       f.teardown();
     }
