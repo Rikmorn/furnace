@@ -8,14 +8,15 @@
 // consumers read them out of context. Nothing below this provider may subscribe to
 // anything it owns.
 //
-// ALL NINE seams are here: `subscribeStats` (the status bar's chips), `subscribeToolError`
+// ALL TEN seams are here: `subscribeStats` (the status bar's chips), `subscribeToolError`
 // (a toast, plus the verify release below), `subscribeCameraPose` (the corner axis triad),
-// the entity pair `subscribeEntities` + `subscribeDrift` (the entities palette), and the
-// four the control stack held until F4.5b — `subscribeTool` (the brush palette's armed
-// effect and the swatch ring), `subscribeSelection` (the selection verbs),
+// the entity pair `subscribeEntities` + `subscribeDrift` (the entities palette),
+// `subscribeEntitySelection` (which row is selected, and the box the viewport draws for
+// it), and the four the control stack held until F4.5b — `subscribeTool` (the brush
+// palette's armed effect and the swatch ring), `subscribeSelection` (the selection verbs),
 // `subscribeStamp` (the stamp inspector) and `subscribeFlags` (the advisor's list).
 //
-// They publish through SEVEN contexts, split by CADENCE rather than by owner: a seam that
+// They publish through EIGHT contexts, split by CADENCE rather than by owner: a seam that
 // pushes at frame rate must not re-render a surface that only cares about something
 // answered once a minute. Each context's own docblock states its cadence, and its
 // throw-vs-default call with the reason for it. `subscribeToolError` is the one seam with
@@ -44,6 +45,11 @@ import type {
 	SelectionInfo,
 	StampSession,
 } from "../../viewport-host/index.ts"; // type-only: erased
+// The ROW's own param renderer, so the push guard below compares exactly the
+// string the `<dl>` shows (see `sameParams`). A value import of a component
+// module from a hook is unusual and deliberate: two spellings of "render a
+// param" is precisely the drift this guard exists to prevent.
+import { formatParam } from "../components/field/EntitiesList.tsx";
 import { notify } from "../lib/notify-store.ts";
 
 /** Value-equality for the subscribeStats push guard (the host fires it every rAF; an
@@ -92,11 +98,16 @@ function statsEqual(a: FieldStats, b: FieldStats): boolean {
 // what a scatter placed are therefore reachable from the world drawer's Open,
 // which calls loadWorld under this same provider: no remount, no state reset,
 // just an entity tick. Without the `placed` comparison this guard returns `prev`
-// and the row keeps the PREVIOUS world's count. (Params are the same shape and
-// still uncompared — pre-existing, filed as
-// `docs/backlog/editor-and-tooling/editor-chrome-authoring-gaps.md` §
-// "An entity row's expanded params can show the PREVIOUS world's values after a
-// load".)
+// and the row keeps the PREVIOUS world's count.
+//
+// `params` is the same hole one field over, and F4.5b Task 4 closed it: two
+// worlds can hold records agreeing on every other compared field and differing
+// only in their params, and an EXPANDED row renders those as a `<dl>`. It is
+// compared through `formatParam` — the row's own renderer — rather than by
+// value, because what must not go stale is the STRING on screen: two params that
+// render identically (7 and "7") cannot make the row look different, and a
+// deep-equality walk over arbitrary schema values would be doing more work to
+// answer a question the row never asks.
 //
 // The flags DO need their own comparison too — freeze and bake rewrite the
 // record and nothing else, so without them a frozen badge would never appear.
@@ -114,6 +125,35 @@ const samePlaced = (
 		);
 	});
 
+/** Do two param sets RENDER the same `<dl>`? Index-wise over `Object.entries`,
+ *  which is exactly what the row maps over — a reordered set is a reordered
+ *  list, and the key column moving is a change the row must re-render for. */
+const sameParams = (
+	a: Record<string, unknown>,
+	b: Record<string, unknown>,
+): boolean => {
+	const entriesA = Object.entries(a);
+	const entriesB = Object.entries(b);
+	return (
+		entriesA.length === entriesB.length &&
+		entriesA.every(([key, value], i) => {
+			const other = entriesB[i];
+			return (
+				other !== undefined &&
+				other[0] === key &&
+				formatParam(value) === formatParam(other[1])
+			);
+		})
+	);
+};
+
+/** The chunk sets behind the row's drift badge. Index-wise for `samePlaced`'s
+ *  reason and one more: the host builds these by walking a chunk box in a fixed
+ *  order, so two equal sets ALWAYS arrive in the same order — an order change is
+ *  a real change, never noise. */
+const sameChunks = (a: readonly string[], b: readonly string[]): boolean =>
+	a.length === b.length && a.every((k, i) => k === b[i]);
+
 const sameEntities = (
 	a: readonly FieldEntityInfo[],
 	b: readonly FieldEntityInfo[],
@@ -128,13 +168,11 @@ const sameEntities = (
 		// here silently and no test can exist for a field nobody knew to compare;
 		// destructuring every one makes the compiler force the question.
 		//
-		// The three voided below are deliberate non-compares: `type` is the constant
-		// literal "generator"; `region` is never rendered by a row (the highlight box
-		// is drawn from the HOST's own record, off an id); and `params` is the known
-		// pre-existing hole, filed as
-		// `docs/backlog/editor-and-tooling/editor-chrome-authoring-gaps.md` § "An
-		// entity row's expanded params can show the PREVIOUS world's values after a
-		// load".
+		// The two voided below are deliberate non-compares: `type` is the constant
+		// literal "generator", and `region` is never rendered by a row (the emphasis
+		// box is drawn from the HOST's own record, off an id — and `footprintChunks`,
+		// which IS compared, moves whenever a region move is large enough to change
+		// which chunks the stamp covers).
 		const {
 			entityId,
 			type,
@@ -146,11 +184,11 @@ const sameEntities = (
 			frozen,
 			baked,
 			placed,
+			footprintChunks,
 			...rest
 		} = e;
 		void (rest satisfies Record<string, never>);
 		void type;
-		void params;
 		void region;
 		return (
 			entityId === o.entityId &&
@@ -160,7 +198,9 @@ const sameEntities = (
 			opSpan[1] === o.opSpan[1] &&
 			frozen === o.frozen &&
 			baked === o.baked &&
-			samePlaced(placed, o.placed)
+			samePlaced(placed, o.placed) &&
+			sameParams(params, o.params) &&
+			sameChunks(footprintChunks, o.footprintChunks)
 		);
 	});
 
@@ -258,6 +298,11 @@ export type FieldToolState = {
 	setRadius: (r: number) => void;
 };
 
+/** Which committed entity the host has selected — `null` for none. */
+export type FieldEntitySelectionState = {
+	selectedEntityId: number | null;
+};
+
 /** What the host currently has selected — `null` for nothing. */
 export type FieldSelectionState = {
 	selection: SelectionInfo | null;
@@ -306,6 +351,25 @@ const CameraPoseContext = createContext<CameraPose>({ yaw: 0, pitch: 0 });
  *  stats push. Folding them into FieldHostState would re-render the entities list on
  *  every remesh — a list of rows repainting under a dig it has nothing to do with. */
 const FieldEntitiesContext = createContext<FieldEntitiesState | null>(null);
+
+/** Which entity is selected, CLICK-paced and kept apart from the entity list beside it.
+ *  Both are user-driven, but they move on different events and by an order of magnitude:
+ *  the list moves when someone COMMITS, the selection moves on every `pointer` click in
+ *  the viewport — including the ones that land on bare terrain and select nothing. Folded
+ *  into FieldEntitiesState, a click on empty space would re-render the drift report and
+ *  every row's summary; kept apart, the rows re-read only their own `selected` flag. It is
+ *  also the context with readers OUTSIDE the palette coming (the move gizmo, the session
+ *  card), which is the same "get the shape right before the consumers arrive" the four
+ *  below were built on.
+ *
+ *  Throws outside the provider, and the reason is specific to this value rather than
+ *  borrowed: `null` is a REAL member of its domain — it means "nothing is selected" — so
+ *  unlike CameraPoseContext's identity pose there is no value here that reads as "nobody
+ *  asked". A default would put every row in the unselected style beside a viewport box
+ *  that is plainly drawn, which is the disagreement between palette and viewport that
+ *  having ONE selection concept exists to prevent. */
+const FieldEntitySelectionContext =
+	createContext<FieldEntitySelectionState | null>(null);
 
 // The four contexts below are what the control stack reads, and they are honest about
 // which of their two splits pays TODAY. Keeping them out of the frame-paced
@@ -384,6 +448,17 @@ export function useFieldEntities(): FieldEntitiesState {
 	return value;
 }
 
+/** The selected committed entity's id (`null` = none); throws outside the provider.
+ *  READ-ONLY: selecting goes through the host (`fieldHostRef.current.selectEntity`), the
+ *  way every other shell verb does — there is one selection, the host owns it, and a
+ *  setter here would be a second way to spell the same write. */
+export function useFieldEntitySelection(): FieldEntitySelectionState {
+	const value = useContext(FieldEntitySelectionContext);
+	if (!value)
+		throw new Error("useFieldEntitySelection outside <FieldHostStateProvider>");
+	return value;
+}
+
 /** The armed brush plus the verbs that change it; throws outside the provider. */
 export function useFieldTool(): FieldToolState {
 	const value = useContext(FieldToolContext);
@@ -426,6 +501,7 @@ export function FieldHostStateProvider({
 	const [pose, setPose] = useState<CameraPose>({ yaw: 0, pitch: 0 });
 	const [entities, setEntities] = useState<readonly FieldEntityInfo[]>([]);
 	const [drift, setDrift] = useState<DriftFinding[] | null>(null);
+	const [selectedEntityId, setSelectedEntityId] = useState<number | null>(null);
 	const [tool, setToolState] = useState<FieldTool>(DEFAULT_TOOL);
 	const [radius, setRadiusState] = useState(DEFAULT_RADIUS);
 	const [selection, setSelection] = useState<SelectionInfo | null>(null);
@@ -515,6 +591,23 @@ export function FieldHostStateProvider({
 	useEffect(() => {
 		if (!engineReady || !host) return;
 		return host.subscribeDrift(setDrift);
+	}, [engineReady, host]);
+
+	// The entity selection — which row is highlighted, and the entity the viewport is
+	// boxing. Pushed on every change (a `pointer` click, a row click through
+	// `host.selectEntity`, and the invalidation that fires when the selected entity
+	// leaves the log), plus the current id on subscribe.
+	//
+	// NO value guard, and the reason is a property of the seam rather than of the
+	// cadence: the host's own `setSelectedEntity` returns early when the resolved id
+	// equals the one it holds, so a redundant value is never pushed at all — the one
+	// seam in this file whose contract makes the guard unnecessary rather than merely
+	// affordable. A `useState` set to the same NUMBER is also a React bail-out by
+	// identity, so even a host that regressed on that would cost nothing here. The
+	// mirror is therefore the whole effect.
+	useEffect(() => {
+		if (!engineReady || !host) return;
+		return host.subscribeEntitySelection(setSelectedEntityId);
 	}, [engineReady, host]);
 
 	// Mirror HOST-initiated tool changes (Alt-click eyedropper, momentary Shift/Ctrl
@@ -625,6 +718,10 @@ export function FieldHostStateProvider({
 		() => ({ entities, drift }),
 		[entities, drift],
 	);
+	const entitySelectionValue = useMemo<FieldEntitySelectionState>(
+		() => ({ selectedEntityId }),
+		[selectedEntityId],
+	);
 	const toolValue = useMemo<FieldToolState>(
 		() => ({ tool, radius, setTool, setRadius }),
 		[tool, radius, setTool, setRadius],
@@ -642,15 +739,17 @@ export function FieldHostStateProvider({
 		<FieldHostStateContext.Provider value={value}>
 			<CameraPoseContext.Provider value={pose}>
 				<FieldEntitiesContext.Provider value={entityValue}>
-					<FieldToolContext.Provider value={toolValue}>
-						<FieldSelectionContext.Provider value={selectionValue}>
-							<FieldStampContext.Provider value={stampValue}>
-								<FieldFlagsContext.Provider value={flagsValue}>
-									{children}
-								</FieldFlagsContext.Provider>
-							</FieldStampContext.Provider>
-						</FieldSelectionContext.Provider>
-					</FieldToolContext.Provider>
+					<FieldEntitySelectionContext.Provider value={entitySelectionValue}>
+						<FieldToolContext.Provider value={toolValue}>
+							<FieldSelectionContext.Provider value={selectionValue}>
+								<FieldStampContext.Provider value={stampValue}>
+									<FieldFlagsContext.Provider value={flagsValue}>
+										{children}
+									</FieldFlagsContext.Provider>
+								</FieldStampContext.Provider>
+							</FieldSelectionContext.Provider>
+						</FieldToolContext.Provider>
+					</FieldEntitySelectionContext.Provider>
 				</FieldEntitiesContext.Provider>
 			</CameraPoseContext.Provider>
 		</FieldHostStateContext.Provider>

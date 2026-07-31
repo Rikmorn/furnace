@@ -775,11 +775,14 @@ F2b stamp-session machinery end to end.
   (in-place span splice, affected-set-culled downstream replay), remeshes the dirty
   set, ONE undo entry. Frozen entities refuse Open at the row (badge + reason);
   freezing cancels a live session on that entity.
-- **Freeze / Bake verbs** — row buttons (inline, not a menu — Radix portals don't
-  render under the happy-dom harness; backlogged) through core `setGeneratorFrozen` /
+- **Freeze / Bake verbs** — row buttons (inline, not a menu — the original reason, Radix
+  portals not rendering under the happy-dom harness, no longer holds; three verbs simply
+  sat under the threshold where a menu earns its click) through core `setGeneratorFrozen` /
   `bakeGeneratorEntity`; bake confirms through the App-owned `useConfirmDialog` (stays
   inside the no-clobber + keybinding-suppression guards). `subscribeEntities` ticks the
   panel on entity-record changes that dirty no chunk (freeze/bake/undo of either).
+  *(F4.5b Task 4 joined them with ⬇ duplicate and 🗑 delete, both confirmation-gated the
+  same way, and made the row half of a bidirectional selection sync with the viewport.)*
 - **Drift report** — `applyReconfigure` pushes core's drifted/orphaned findings to
   `subscribeDrift`; `DriftReport` renders a dismissible list, click → `frameChunks`
   (fly-camera orbit-target re-center on the chunk-set centroid). The report clears on
@@ -882,9 +885,9 @@ the void cast (an X-ray view mode) and the segment brush (a two-click swept caps
   leg — it had none when `placed` shipped, so a tick whose only change was a placement count could
   be swallowed as "nothing changed" — plus a destructure-and-`satisfies Record<string, never>`
   exhaustiveness backstop, so a field added to core's `GeneratorEntity` can no longer land in this
-  intersection without the compiler forcing the comparison question. (`type`, `region`, and
-  `params` are deliberate non-compares; the `params` one is the pre-existing
-  `docs/backlog/editor-and-tooling/editor-chrome-authoring-gaps.md` § *An entity row's expanded params can show the PREVIOUS world's values after a load*.)
+  intersection without the compiler forcing the comparison question. (`type` and `region` are deliberate non-compares;
+  `params` was one too until F4.5b Task 4 closed it — compared through the row's own
+  `formatParam`, since what must not go stale is the string the `<dl>` shows.)
 - **Prop drift in the chrome** — reconfiguring an upstream generator (a cave) leaves the
   scatter's records byte-identical (a placement replays as data) but flags the op
   `drifted`; core's D-F3-4 finding now reaches `DriftReport` through the existing
@@ -1353,8 +1356,9 @@ field toolbar, the World panel and the entire scene-document surface were delete
 daemon still implements the `scene.*` family, but nothing in the chrome speaks it.
 
 Scope note: this is the **as-built at the end of F4.5a**, not the end of F4.5. The
-`MIGRATION (until F4.5b)` markers in `packages/editor/src` name the eight places that
-know they are provisional; `grep -rn "MIGRATION (until" packages/editor/src` is the list.
+`MIGRATION (until F4.5b)` markers in `packages/editor/src` name the places that
+know they are provisional — six left, the entities palette's row-delete marker having been
+resolved by F4.5b Task 4; `grep -rn "MIGRATION (until" packages/editor/src` is the list.
 
 ### 20.1 The layout contract (D-1) and the canvas layer
 
@@ -1581,11 +1585,11 @@ orchestrator-slope entry tracked it at 817). What left, and where it went:
 
 | Left the panel | Now lives in |
 | --- | --- |
-| every host subscription — stats, tool-error, camera-pose, entities, drift, and (F4.5b Task 2) tool, selection, stamp, flags | `hooks/useFieldHostState.tsx` (the provider) |
+| every host subscription — stats, tool-error, camera-pose, entities, drift, (F4.5b Task 2) tool, selection, stamp, flags, and (Task 4) entity-selection | `hooks/useFieldHostState.tsx` (the provider) |
 | world verbs (Save / Open / Bake) | `hooks/useWorld.tsx` + the world chip + the drawer |
 | shading, layer gates, slice plane, AA | `hooks/useView.tsx` + `shell/ViewPopover.tsx` |
 | the catalog fetch | `hooks/useCatalogs.tsx` (mounted once by the shell) |
-| the committed-entity list + drift report | `shell/EntitiesPalette.tsx` — the first organ out |
+| the committed-entity list + drift report | `shell/EntitiesPalette.tsx` — the first organ out, the layers panel since Task 4 |
 | the status line | `lib/notify-store.ts` (toasts + the log) |
 
 What **remains** is the dig loop's control stack: the tool palette, the material
@@ -1596,8 +1600,9 @@ entirely from the provider's contexts, with **no host subscription of its own**.
 reads**, and the reason is a real failure mode: every `FieldHost.subscribe*` seam is a
 **single slot** (`statsCb = cb`), so a second subscriber silently steals the first's —
 the earlier consumer just stops updating, with nothing thrown and nothing logged. All
-**nine** seams live there (stats, tool-error, camera-pose, entities, drift, tool,
-selection, stamp, flags), published through **seven** contexts split by CADENCE — a
+**ten** seams live there (stats, tool-error, camera-pose, entities, drift,
+entity-selection, tool, selection, stamp, flags), published through **eight** contexts
+split by CADENCE — a
 frame-paced seam must not re-render a surface that only cares about an answer. Each
 context makes its own throw-vs-default call at its docblock; `CameraPoseContext` is the
 only defaulted one, because "no camera here" is the one default that is true outside the

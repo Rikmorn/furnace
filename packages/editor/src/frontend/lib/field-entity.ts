@@ -31,3 +31,26 @@ export function openBlockedReason(entity: GeneratorEntity): string | null {
   if (entity.frozen === true) return "frozen — unfreeze it to edit";
   return null;
 }
+
+/**
+ * Why a committed entity cannot be DELETED, or null when it can — core
+ * `deleteGeneratorEntity`'s two refusals, in the vocabulary of a button tooltip.
+ *
+ * Unlike {@link openBlockedReason} the HOST does not read this: core throws its
+ * own sentence and `FieldHost.deleteEntity` passes that through to the tool-error
+ * seam verbatim, which is the better message when the row's own state was stale.
+ * So this is strictly the chrome's mirror of a core rule, and the thing that
+ * keeps the two honest is the pair of tests either side — the row asserting a
+ * DISABLED 🗑 here, and the host suite asserting core's message reaches the seam.
+ *
+ * Baked wins over frozen, for {@link openBlockedReason}'s reason (baking clears
+ * `frozen`, so the two cannot both be set, and the permanent state is the one
+ * worth naming) — core's own delete checks frozen first, which is the same
+ * decision under a different order because the states are mutually exclusive.
+ */
+export function deleteBlockedReason(entity: GeneratorEntity): string | null {
+  if (entity.baked === true)
+    return "baked — its ops are plain history now, not a span to remove";
+  if (entity.frozen === true) return "frozen — unfreeze it to delete";
+  return null;
+}

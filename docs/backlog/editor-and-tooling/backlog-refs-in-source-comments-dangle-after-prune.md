@@ -21,7 +21,9 @@ Five source sites still name a backlog file that no longer exists:
 `packages/editor/src/frontend/hooks/useFieldHostState.tsx` when the entity seams moved to the
 shell provider — the trigger below firing exactly as written — and were retargeted at
 `editor-chrome-authoring-gaps.md` § *An entity row's expanded params can show the PREVIOUS
-world's values after a load* in the same commit.
+world's values after a load* in the same commit. **Both are gone entirely since F4.5b Task 4**,
+which FIXED that defect (a `sameParams` leg on the comparator) and retired the entry it cited,
+removing the citations with it — the outcome this table wants for every row.
 
 Separately, **one dangling ref predates this work**: `docs/reference/ui-foundation.md` cites
 `docs/backlog/editor-and-tooling/svelte-editor-inspector-surfaces.md`, which did not exist on

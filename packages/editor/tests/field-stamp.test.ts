@@ -624,7 +624,10 @@ test("listEntities returns CLONED entity ops from a loaded oplog, brush ops filt
   });
   const list = host.listEntities();
   // `placed` rides every record (F3b): empty here — this hall placed nothing.
-  expect(list).toEqual([{ ...entity, placed: [] }]);
+  // `footprintChunks` rides it too (F4.5b): the span's one op is a 0.5 m sphere
+  // at [1,1,1], which sits wholly inside the first chunk (16 samples × 0.25 m =
+  // 4 m per chunk), so the footprint box quantizes to exactly one key.
+  expect(list).toEqual([{ ...entity, placed: [], footprintChunks: ["0,0,0"] }]);
   // Clones: mutating the returned record must never rewrite the log.
   (list[0] as GeneratorEntity).seed = 999;
   expect((host.listEntities()[0] as GeneratorEntity).seed).toBe(5);

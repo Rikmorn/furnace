@@ -132,6 +132,8 @@ export function makeStubHost(
     applyReconfigure: mock(),
     setEntityFrozen: mock(),
     bakeEntity: mock(),
+    deleteEntity: mock(),
+    duplicateEntity: mock(),
     dismissDrift: mock(),
     frameChunks: mock(),
     setAgentProfile: mock(),
@@ -139,9 +141,9 @@ export function makeStubHost(
     verifyFlag: mock(),
     // Every subscribe seam records its call, so a test can assert the slot was claimed
     // EXACTLY ONCE across a whole mounted arrangement — the single-slot rule's only
-    // machine-checkable form. Nine of the ten belong to the shell's host-state provider;
-    // `subscribeEntitySelection` is the tenth and has NO chrome owner yet (F4.5b Task 3
-    // created it host-side), which is why the ownership cases enumerate nine.
+    // machine-checkable form. ALL TEN belong to the shell's host-state provider since
+    // F4.5b Task 4 gave `subscribeEntitySelection` its chrome owner, which is why the
+    // ownership cases enumerate ten.
     subscribeStats: mock(),
     subscribeToolError: mock(),
     subscribeEntities: mock(),
@@ -256,6 +258,8 @@ export function makeStubHost(
     applyReconfigure: calls.applyReconfigure,
     setEntityFrozen: calls.setEntityFrozen,
     bakeEntity: calls.bakeEntity,
+    deleteEntity: calls.deleteEntity,
+    duplicateEntity: calls.duplicateEntity,
     subscribeDrift: (cb) => {
       calls.subscribeDrift(cb);
       cbs.drift = cb;

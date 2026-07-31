@@ -47,6 +47,9 @@ const ENTITY: FieldEntityInfo = {
 	region: { min: [0, 0, 0], max: [4, 4, 4] },
 	opSpan: [2, 4], // 3 ops
 	placed: [], // a hall places nothing
+	// The host quantizes each entity's footprint into the drift report's own
+	// space so the Δ badge can be a string-set intersection here.
+	footprintChunks: ["0,0,0"],
 };
 
 const FROZEN: FieldEntityInfo = { ...ENTITY, entityId: 2, frozen: true };
@@ -115,14 +118,15 @@ const rowButton = (verb: string, entityId: number): HTMLButtonElement =>
 
 // --- the seam itself: one subscription, guarded ------------------------------
 
-test("the palette subscribes to nothing — the provider owns both entity seams", () => {
+test("the palette subscribes to nothing — the provider owns all three entity seams", () => {
 	const stub = makeStubHost();
 	renderPalette(stub);
-	// Exactly ONE subscriber each. Both are single slots (`entitiesCb = cb`), so a
+	// Exactly ONE subscriber each. All three are single slots (`entitiesCb = cb`), so a
 	// second claim anywhere would silently steal this one: no throw, no warning, the
 	// list simply stops updating.
 	expect(stub.calls.subscribeEntities.mock.calls.length).toBe(1);
 	expect(stub.calls.subscribeDrift.mock.calls.length).toBe(1);
+	expect(stub.calls.subscribeEntitySelection.mock.calls.length).toBe(1);
 });
 
 // The comparator guard, pinned from the side that would break it. `listEntities()`
@@ -467,5 +471,164 @@ test("before the engine lands the palette says so, rather than claiming zero sta
 // `host.highlightEntity` itself (F4.5b Task 3's deletion pass): there is ONE
 // selection concept now, written by a pointer click or `selectEntity` and read
 // back off `subscribeEntitySelection`, so a row cannot own a second one that
-// needs unmount cleanup. Expanding a row is display-only — the row↔selection
-// sync is the next task's, and this file gets its case back with it.
+// needs unmount cleanup. The cases below are what replaced it.
+
+// --- F4.5b Task 4: the layers panel (D-14) ----------------------------------
+
+/** The row's own button (the one carrying the summary), for the selected-state
+ *  and expand assertions. */
+const rowButtonFor = (summary: string): HTMLButtonElement => {
+	const button = screen.getByText(summary).closest("button");
+	if (button === null) throw new Error(`no row button for "${summary}"`);
+	return button as HTMLButtonElement;
+};
+
+const HALL_ROW = "hall · seed 7 · 3 ops";
+
+test("a row click selects its entity on the HOST — the write half of the sync", () => {
+	const stub = makeStubHost();
+	showEntities(stub, [ENTITY]);
+	fireEvent.click(rowButtonFor(HALL_ROW));
+	// Through the host, never into local state: the same write a `pointer` click
+	// in the viewport makes, so the box and the row cannot disagree.
+	expect(stub.calls.selectEntity.mock.calls).toEqual([[1]]);
+	// …and it still expands, which is this list's own display state.
+	expect(rowButtonFor(HALL_ROW).getAttribute("aria-expanded")).toBe("true");
+	// Collapsing again does NOT deselect — un-expanding a row is not a statement
+	// about what is being worked on.
+	fireEvent.click(rowButtonFor(HALL_ROW));
+	expect(rowButtonFor(HALL_ROW).getAttribute("aria-expanded")).toBe("false");
+	expect(stub.calls.selectEntity.mock.calls).toEqual([[1], [1]]);
+});
+
+test("the entity-selection seam styles the row — the read half, from the viewport", () => {
+	const stub = makeStubHost();
+	const second: FieldEntityInfo = { ...ENTITY, entityId: 7 };
+	// Two rows reading identically — only the SELECTION can tell them apart, which
+	// is the point: the seam carries an id, not a label.
+	showEntities(stub, [ENTITY, second]);
+	const currentFlags = (): (string | null | undefined)[] =>
+		screen
+			.getAllByText(HALL_ROW)
+			.map((r) => r.closest("button")?.getAttribute("aria-current"));
+	expect(currentFlags()).toEqual([null, null]);
+
+	// A pick in the VIEWPORT, which reaches the palette only through the provider.
+	act(() => {
+		stub.fire.entitySelection(7);
+	});
+	expect(currentFlags()).toEqual([null, "true"]);
+
+	// Deselecting (a click on bare terrain) clears it again.
+	act(() => {
+		stub.fire.entitySelection(null);
+	});
+	expect(currentFlags()).toEqual([null, null]);
+});
+
+test("⬇ duplicates through the host, with no confirmation in the way", () => {
+	const stub = makeStubHost();
+	showEntities(stub, [ENTITY]);
+	fireEvent.click(rowButton("duplicate", 1));
+	// Additive and one ⌘Z away, so it asks nothing — unlike 🗑 and Bake….
+	expect(stub.calls.duplicateEntity.mock.calls).toEqual([[1]]);
+});
+
+test("⬇ stays live on a frozen or baked row — a copy is a new commit, not an edit", () => {
+	const stub = makeStubHost();
+	showEntities(stub, [FROZEN, BAKED]);
+	expect(rowButton("duplicate", 2).disabled).toBe(false);
+	expect(rowButton("duplicate", 3).disabled).toBe(false);
+});
+
+test("🗑 confirms before removing the stamp — cancelling never reaches the host", () => {
+	const stub = makeStubHost();
+	let request: ConfirmRequest | null = null;
+	renderPalette(stub, {
+		openConfirm: (r) => {
+			request = r;
+		},
+	});
+	pushEntities(stub, [ENTITY]);
+	fireEvent.click(screen.getByText("Entities (1)"));
+	fireEvent.click(rowButton("delete", 1));
+	// The click alone must not delete: the palette routed it into the App confirm.
+	expect(stub.calls.deleteEntity).not.toHaveBeenCalled();
+	const pending = request as ConfirmRequest | null;
+	if (pending === null) throw new Error("🗑 did not open a confirmation");
+	expect(pending.destructive).toBe(true);
+	// It names the entity AND how much goes with it — a row reads "3 ops", and
+	// that number is the honest measure of what is about to be removed.
+	expect(pending.message).toMatch(/hall #1/);
+	expect(pending.message).toMatch(/3 ops/);
+	act(() => {
+		pending.onConfirm();
+	});
+	expect(stub.calls.deleteEntity.mock.calls).toEqual([[1]]);
+});
+
+test("🗑 is disabled with its reason on a frozen or baked row", () => {
+	const stub = makeStubHost();
+	showEntities(stub, [FROZEN, BAKED]);
+	// The reason rides the ACCESSIBLE NAME as well as the wrapper's title, for
+	// the blocked-Open reason: a disabled button eats pointer events, so the
+	// title sits on a span that reaches neither a keyboard user nor a reader.
+	const frozenDelete = screen.getByLabelText(
+		"delete entity 2 (frozen — unfreeze it to delete)",
+	) as HTMLButtonElement;
+	const bakedDelete = screen.getByLabelText(
+		"delete entity 3 (baked — its ops are plain history now, not a span to remove)",
+	) as HTMLButtonElement;
+	expect(frozenDelete.disabled).toBe(true);
+	expect(bakedDelete.disabled).toBe(true);
+	fireEvent.click(frozenDelete);
+	expect(stub.calls.deleteEntity).not.toHaveBeenCalled();
+});
+
+// The Δ badge is a POINTER to the drift report, not a copy of it, and the rule
+// is a chunk-set intersection: the host quantizes each entity's footprint into
+// the SAME space the findings address (the chrome cannot value-import core to do
+// that itself), so a badge appears exactly when the two sets meet.
+test("Δ appears only on rows the standing drift report actually touches", () => {
+	const stub = makeStubHost();
+	const elsewhere: FieldEntityInfo = {
+		...ENTITY,
+		entityId: 8,
+		footprintChunks: ["9,9,9"],
+	};
+	showEntities(stub, [ENTITY, elsewhere]);
+	expect(screen.queryByLabelText(/^show drift near entity/)).toBeNull();
+
+	act(() => {
+		stub.fire.drift([{ opId: 12, kind: "drifted", chunks: ["0,0,0"] }]);
+	});
+	// Entity 1's footprint covers 0,0,0; entity 8's covers 9,9,9 only.
+	expect(screen.getByLabelText("show drift near entity 1")).toBeTruthy();
+	expect(screen.queryByLabelText("show drift near entity 8")).toBeNull();
+
+	// Dismissing the report takes every badge with it — the badge has no state of
+	// its own to go stale.
+	act(() => {
+		stub.fire.drift(null);
+	});
+	expect(screen.queryByLabelText(/^show drift near entity/)).toBeNull();
+});
+
+// The staleness defect that was filed rather than fixed when the `<dl>` shipped
+// (`docs/backlog/editor-and-tooling/editor-chrome-authoring-gaps.md`): `loadWorld`
+// recomputes `log.nextId` from the loaded ops, so ids and every opSpan RESTART
+// across a world switch — two worlds can hold records agreeing on every compared
+// field and differing only in their params. The world drawer's Open calls
+// loadWorld under this same provider (no remount, just an entity tick), so
+// without a params comparison the guard returns `prev` and an expanded row keeps
+// the previous world's values.
+test("a world switch that changes ONLY a param still re-renders the expanded row", () => {
+	const stub = makeStubHost();
+	showEntities(stub, [ENTITY]);
+	fireEvent.click(rowButtonFor(HALL_ROW));
+	expect(screen.getByText("4")).toBeTruthy(); // width: 4
+
+	pushEntities(stub, [{ ...ENTITY, params: { width: 12 } }]);
+	expect(screen.getByText("12")).toBeTruthy();
+	expect(screen.queryByText("4")).toBeNull();
+});

@@ -27,6 +27,7 @@ import type {
 } from "../frontend/lib/catalog.ts";
 import {
   computeBrushCenter,
+  LATTICE,
   nudgeRegion,
   regionSampleCount,
   snappedKitBox,
@@ -206,6 +207,21 @@ export type FieldEntityInfo = field.GeneratorEntity & {
    *  places nothing (every carver), which is also the entities list's test for
    *  whether a row has a prop line to show at all. */
   placed: PlacedArchetype[];
+  /** Every chunk this entity's FOOTPRINT box covers, chunk-quantized — the row's
+   *  drift-badge input (F4.5b Task 4). The chrome asks "does the standing drift
+   *  report touch this entity?", and a `DriftFinding` carries `chunks`, so the
+   *  two sets have to be in the SAME space; the conversion has to happen HERE
+   *  because it needs `CHUNK_DIM` and `store.cellSize`, and the chrome cannot
+   *  value-import core to reach either. So the host quantizes and the chrome does
+   *  a pure string intersection.
+   *
+   *  An OVER-approximation, deliberately: it is the footprint AABB's chunk box
+   *  (the memoized `entityFootprints` boxes, reused rather than re-walked), not
+   *  the span's written chunks, so a chunk the box spans but the span never wrote
+   *  is counted in. The badge means "the last reconfigure disturbed something
+   *  where this stamp is", and over-inclusion at chunk granularity keeps that
+   *  true; under-inclusion would silently drop the pointer. */
+  footprintChunks: field.ChunkKey[];
 };
 
 /** The host's live stats readout ({@link FieldHost.subscribeStats}, pushed
@@ -634,6 +650,54 @@ export type FieldHost = {
    *  A live reconfigure session on that entity is CANCELLED — its Apply could
    *  no longer land. */
   bakeEntity(entityId: number): void;
+  /** Deletes a committed entity — core `deleteGeneratorEntity`: the span AND its
+   *  entity op are spliced out, the chunks the span wrote are rewound, and the
+   *  downstream ops reaching them replay on top. The log reads as though the
+   *  stamp had never been committed, with every later edit preserved. ONE undo
+   *  entry, which is the whole way back.
+   *
+   *  Core is SETUP-LOUD on all three refusals (an unknown id, a FROZEN entity, a
+   *  BAKED one) and this is the editor, so each throw is caught and reported
+   *  verbatim through {@link subscribeToolError} — the F3b refusal-visibility
+   *  rule. Nothing is written on a refusal; core validates before its first
+   *  store touch.
+   *
+   *  A live reconfigure session on that entity is CANCELLED, for
+   *  {@link bakeEntity}'s reason: its Apply could never land.
+   *
+   *  The prop layer is re-derived from the LOG, never from the dirty set — core's
+   *  contract, and it bites here: a placements-only entity (a scatter) writes no
+   *  cells, so deleting it dirties NOTHING while every prop it placed leaves the
+   *  log with it. Selecting THIS entity clears the selection (and notifies
+   *  {@link subscribeEntitySelection}); selecting another leaves it standing. */
+  deleteEntity(entityId: number): void;
+  /** Commits a COPY of a committed entity beside it — a fresh `commitGenerator`
+   *  from the record's own provenance, not a second reference to it. ONE undo
+   *  entry (the commit's own), and the copy becomes the selected entity.
+   *
+   *  The copy is offset +X by the original's FOOTPRINT extent snapped UP to the
+   *  0.5 m lattice (the same lattice `startStamp` snaps a region onto), floored
+   *  at one step so a zero-extent footprint still moves. It clears the original
+   *  along X by construction and lands on the grid the stamp UI works in.
+   *
+   *  Its seed is a fresh uint16 when the generator READS one (core's
+   *  `GeneratorDef.usesSeed`), so duplicating a cave or a scatter gives a
+   *  genuinely different arrangement — and the recorded seed otherwise, so the
+   *  hall's copy is not left wearing a different number for an identical shape.
+   *
+   *  Merge policy is `"replace"`: `GeneratorEntity` does not record the policy the
+   *  original commit used, so it is not recoverable (core's `reconfigureGenerator`
+   *  falls back the same way, and {@link openEntity} opens on it too).
+   *
+   *  FROZEN and BAKED entities can both be duplicated, and that is deliberate: the
+   *  copy is a new commit from recorded provenance rather than an edit of the
+   *  protected record — freeze guards THIS entity and bake severed THIS entity's
+   *  recipe. Duplicating is how a baked stamp's recipe becomes live again.
+   *
+   *  Runtime-quiet ids like the rest of the entity verbs: an id no entity op
+   *  carries, or a generator that has left the registry, reports through
+   *  {@link subscribeToolError} and commits nothing. */
+  duplicateEntity(entityId: number): void;
   /** Subscribes to the latest reconfigure drift report: the downstream ops the
    *  last {@link applyReconfigure} replayed whose outcome moved (`drifted`) or
    *  vanished (`orphaned`). Pushed on every apply that LANDS — null when that
@@ -679,7 +743,8 @@ export type FieldHost = {
   /** The committed generator entities, in log order (CLONES — read from the
    *  op log's entity ops, so undo/redo and world loads stay accurate), each
    *  carrying the {@link FieldEntityInfo.placed} summary of its own span's
-   *  placement records. */
+   *  placement records and the {@link FieldEntityInfo.footprintChunks} its box
+   *  covers. */
   listEntities(): FieldEntityInfo[];
   /** Selects one committed entity, or nothing (`null`). The SAME state a
    *  `pointer` click writes, so the palette and the viewport cannot disagree
@@ -2672,6 +2737,37 @@ export function createFieldHost(deps?: {
     footprintCache = boxes;
     footprintSig = sig;
     return boxes;
+  };
+
+  // One footprint box, chunk-quantized — what a row's drift badge intersects the
+  // standing report's `chunks` against (FieldEntityInfo.footprintChunks states
+  // why the conversion has to be the HOST's, and why over-approximating is the
+  // safe direction). `Math.floor` on both ends, matching `snapshotChunks` and
+  // core's own key derivation: a chunk's world span is [c·dim, (c+1)·dim), so the
+  // key of a point is the floor of its coordinate over the chunk size.
+  //
+  // Computed per `listEntities()` rather than cached beside the boxes: it is
+  // wanted only by the palette, which reads the list once per entity tick (a
+  // commit / apply / freeze / bake / ⌘Z), while the boxes themselves are wanted
+  // by every pointer click. Caching it with them would pay for the enumeration on
+  // every log mutation for a consumer that is usually not looking.
+  const footprintChunkKeys = (box: {
+    min: Vec3T;
+    max: Vec3T;
+  }): field.ChunkKey[] => {
+    const dim = field.CHUNK_DIM * store.cellSize;
+    const keys: field.ChunkKey[] = [];
+    const loX = Math.floor(box.min[0] / dim);
+    const loY = Math.floor(box.min[1] / dim);
+    const loZ = Math.floor(box.min[2] / dim);
+    const hiX = Math.floor(box.max[0] / dim);
+    const hiY = Math.floor(box.max[1] / dim);
+    const hiZ = Math.floor(box.max[2] / dim);
+    for (let cz = loZ; cz <= hiZ; cz++)
+      for (let cy = loY; cy <= hiY; cy++)
+        for (let cx = loX; cx <= hiX; cx++)
+          keys.push(field.chunkKey(cx, cy, cz));
+    return keys;
   };
 
   // Re-derive the selected entity's box from the CURRENT record, and DROP the
@@ -4784,6 +4880,110 @@ export function createFieldHost(deps?: {
       if (stamp?.entityId === entityId) cancelStampSession();
       notifyEntities();
     },
+    deleteEntity(entityId) {
+      let dirtied: Set<field.ChunkKey>;
+      try {
+        ({ dirty: dirtied } = field.deleteGeneratorEntity(
+          store,
+          log,
+          entityId,
+          table,
+        ));
+      } catch (err) {
+        // Setup-loud core, runtime-VISIBLE editor: all three refusals (unknown
+        // id, frozen, baked) are validation failures core decides before its
+        // first write, so nothing has moved — and core's own sentence is the
+        // best explanation there is, so it is passed through unwrapped
+        // (setEntityFrozen/bakeEntity's stance). Swallowing it would leave a
+        // 🗑 that silently does nothing.
+        const message = err instanceof Error ? err.message : String(err);
+        reportToolError(message);
+        return;
+      }
+      markDirtyWithNeighbors(dirtied);
+      // The record left the log, so a selection on it has to go with it — an
+      // outline over a stamp that no longer exists. Surviving entities' spans do
+      // not move (core locates spans by id), so nothing else re-outlines.
+      revalidateEntitySelection();
+      // UNCONDITIONAL, never gated on `dirtied.size`, and core's TSDoc says why
+      // in as many words: a placements-only entity (a scatter) writes no cells,
+      // so deleting it dirties NOTHING while every prop it placed leaves the log
+      // with it. Props are derived from the LOG, never from the dirty set.
+      rebuildProps();
+      // The two notifications LAST, once every piece of host state has settled
+      // (applyReconfigureSession's rule): a subscriber may read the host back
+      // synchronously from inside either, and none may observe a half-deleted
+      // world. Cancelling here rather than before the core call is deliberate —
+      // a REFUSED delete must not destroy a live session on its way out.
+      if (stamp?.entityId === entityId) cancelStampSession();
+      notifyEntities();
+    },
+    duplicateEntity(entityId) {
+      const record = entityRecord(entityId);
+      if (record === null) {
+        reportToolError(`entity ${entityId} is no longer in the log`);
+        return;
+      }
+      let def: field.GeneratorDef;
+      try {
+        def = field.generatorById(record.generator); // setup-loud on a retired id
+      } catch (err) {
+        // openEntitySession's stance: fail HERE rather than at commitGenerator,
+        // where the message would arrive wrapped in a commit failure.
+        const message = err instanceof Error ? err.message : String(err);
+        reportToolError(message);
+        return;
+      }
+      // Clear of the original along X, on the lattice the stamp UI works in. The
+      // FOOTPRINT extent, not the region's: a recorded region routinely
+      // over-draws its content (the F3a gate finding behind the footprint box),
+      // so shifting by it would leave a visible gap. Floored at one step so a
+      // footprint with no X extent at all still moves the copy off the original.
+      const box = entityFootprints().get(entityId);
+      const extentX = box === undefined ? 0 : box.max[0] - box.min[0];
+      const shiftX = Math.max(LATTICE, Math.ceil(extentX / LATTICE) * LATTICE);
+      const region = structuredClone(record.region);
+      region.min[0] += shiftX;
+      region.max[0] += shiftX;
+      let committed: {
+        dirty: Set<field.ChunkKey>;
+        entity: field.GeneratorEntity;
+      };
+      try {
+        committed = field.commitGenerator(store, log, def, {
+          // commitGenerator clones for provenance; the clone here is so the
+          // evaluate cannot reach the LOG's record through a shared reference.
+          params: structuredClone(record.params),
+          // A fresh roll only where the generator READS the seed (core's
+          // `usesSeed`): duplicating a cave or a scatter should give a different
+          // arrangement, while the hall — whose structure is entirely
+          // params-determined — would just end up wearing a different number for
+          // an identical shape.
+          seed: def.usesSeed ? randomStampSeed() : record.seed,
+          region,
+          // `GeneratorEntity` does not record the policy its commit used, so it
+          // is not recoverable — core's reconfigure and `openEntity` both fall
+          // back to `replace` and this joins them.
+          policy: "replace",
+          table,
+        });
+      } catch (err) {
+        // Reachable without a bug: the material table can have lost the kit
+        // class the recipe needs since the original commit (commitStampSession's
+        // stance, same sentence shape).
+        const message = err instanceof Error ? err.message : String(err);
+        reportToolError(`duplicate failed: ${message}`);
+        return;
+      }
+      markDirtyWithNeighbors(committed.dirty);
+      rebuildProps(); // a duplicated scatter is new prop-layer content
+      // The copy is what the user is now working on — and this is also what
+      // re-outlines: setSelectedEntity rebuilds the emphasis box off the new
+      // record. AFTER the commit, so the footprint memo it reads is rebuilt from
+      // the log that now holds the copy.
+      setSelectedEntity(committed.entity.entityId);
+      notifyEntities();
+    },
     subscribeDrift(cb) {
       driftCb = cb;
       // Initial push (the subscribeStamp/subscribeSelection remount rationale):
@@ -4832,17 +5032,27 @@ export function createFieldHost(deps?: {
     },
     listEntities() {
       // One attribution pass for the whole list, not one scan per row: the
-      // helper walks the log once and hands back every entity's placements.
+      // helper walks the log once and hands back every entity's placements. The
+      // boxes come out of the memo for the same reason — `generatorFootprint`
+      // walks the whole log per entity, and this would otherwise do it per row.
       const placed = placementsByEntity(log.ops);
+      const boxes = entityFootprints();
       const out: FieldEntityInfo[] = [];
       for (const op of log.ops)
-        if (op.kind === "entity")
+        if (op.kind === "entity") {
+          const box = boxes.get(op.entity.entityId);
           out.push({
             ...structuredClone(op.entity),
             // Fresh arrays out of the helper, so the row's summary is a clone
             // like the record it rides on.
             placed: placed.get(op.entity.entityId) ?? [],
+            // Ditto — a fresh array per call, never the memo's own box handed
+            // out. `entityFootprints` has an entry for every entity op in the
+            // log, so the empty fallback is unreachable; it exists so a future
+            // caller cannot get `undefined` past the type.
+            footprintChunks: box === undefined ? [] : footprintChunkKeys(box),
           });
+        }
       return out;
     },
     selectEntity(entityId) {

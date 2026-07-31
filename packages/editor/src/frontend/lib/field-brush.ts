@@ -60,7 +60,11 @@ function brushDepth(t: BrushTargetInput, radius: number): number {
   return OPEN_SPACE_DIG_DISTANCE_M;
 }
 
-const LATTICE = 0.5;
+/** The built-kit lattice step, in metres — the grid every region snap, nudge and
+ *  kit-fill box in the editor lands on. Exported because the host offsets a
+ *  duplicated entity onto this same lattice (`duplicateEntity`), and a second
+ *  0.5 sitting there would be a constant free to drift away from this one. */
+export const LATTICE = 0.5;
 
 /**
  * One axis span of two world coords, snapped OUTWARD to the 0.5 m built-kit

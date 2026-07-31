@@ -14,7 +14,7 @@
 // The panel now claims NO host seam at all: F4.5b Task 2 lifted its last four
 // (tool / selection / stamp / flags) into the shell's provider, so every case here
 // mounts under `FieldHostStateProvider` and every host push travels provider → context →
-// panel. What stayed behind is the negative half, one case, quantified over all nine
+// panel. What stayed behind is the negative half, one case, quantified over all ten
 // seams.
 
 import { afterEach, expect, mock, test } from "bun:test";
@@ -270,15 +270,15 @@ test("a host-initiated tool push is adopted without re-pushing to host.setTool",
 // The single-slot rule, pinned from the side that would break it. Every FieldHost
 // subscribe seam stores ONE callback (`toolCb = cb`), so a panel that subscribed to one
 // would silently steal the shell's — no throw, no warning, the shell surface just stops
-// updating. ALL NINE belong to the provider now: stats to the status bar's chips, tool
-// errors to the toast stack, entities + drift to the entities palette, the camera pose to
-// the axis triad, and — since F4.5b Task 2 — tool / selection / stamp / flags to the
-// control stack, read out of context. This is the guard a re-added meter, a re-added
-// status line, or a mirror that crept back into a section has to trip.
+// updating. ALL TEN belong to the provider now: stats to the status bar's chips, tool
+// errors to the toast stack, entities + drift + the entity selection to the entities
+// palette, the camera pose to the axis triad, and — since F4.5b Task 2 — tool / selection
+// / stamp / flags to the control stack, read out of context. This is the guard a re-added
+// meter, a re-added status line, or a mirror that crept back into a section has to trip.
 //
 // Every seam, with the push that proves the slot is live. Quantified rather than spelled
-// out case by case: the point is that the set is CLOSED, and a tenth seam claimed by a
-// panel section is exactly what this must catch.
+// out case by case: the point is that the set is CLOSED, and an eleventh seam claimed by
+// a panel section is exactly what this must catch.
 const DIG_TOOL: FieldTool = {
 	effect: "dig",
 	materialId: 0,
@@ -312,6 +312,11 @@ const seamsOf = (stub: ReturnType<typeof makeStubHost>) =>
 		],
 		["stamp", stub.calls.subscribeStamp, () => stub.fire.stamp(null)],
 		["flags", stub.calls.subscribeFlags, () => stub.fire.flags(NO_FLAGS)],
+		[
+			"entitySelection",
+			stub.calls.subscribeEntitySelection,
+			() => stub.fire.entitySelection(null),
+		],
 	] as const;
 
 test("every host seam is the SHELL's — the panel adds no claim and holds none", async () => {
