@@ -28,7 +28,6 @@ import { useEffect, useState } from "react";
 import type {
 	FieldGeneratorInfo,
 	FieldTool,
-	ViewportGesture,
 } from "../../viewport-host/index.ts"; // type-only: erased
 import { useCatalog } from "../hooks/useCatalogs.tsx";
 import {
@@ -37,6 +36,7 @@ import {
 	useFieldStamp,
 	useFieldTool,
 } from "../hooks/useFieldHostState.tsx";
+import { brushArming } from "../lib/field-brush.ts";
 import { useEditor } from "./editor-context.ts";
 import { BrushInspector } from "./field/BrushInspector.tsx";
 import { FlagsSection } from "./field/FlagsSection.tsx";
@@ -50,23 +50,19 @@ export function FieldPanel() {
 	// Everything host-mirrored is the SHELL's, read out of the provider's contexts (see
 	// this file's header): the armed brush and its radius, the selection, the live
 	// session, and the advisor's findings with the verify column that rides them.
-	const { tool, radius, setTool, setRadius } = useFieldTool();
+	const { tool, gesture, radius, setTool, setGesture, setRadius } =
+		useFieldTool();
 	const { selection } = useFieldSelection();
 	const { stamp } = useFieldStamp();
 	const { flags, filters, setFilters, verifying, verify } = useFieldFlags();
-	// ONE armed-gesture slot, mirroring the host's (ViewportGesture): pointer, the
-	// three cell-selection gestures and the segment brush all bind LMB, so they
-	// cannot be armed independently. It STARTS at "pointer" because the host does
-	// (D-F4.5-7) — a mirror that opened at null would show the brush inspector
-	// beside an LMB that selects.
+	// Arming what LMB does is the SHELL's now, beside the tool it belongs with: the
+	// action registry's V/B/M family keys arm the same slot this palette's buttons do,
+	// and a panel-local copy would disagree with them the moment a key was pressed.
 	//
 	// `brushLive` is the narrower question the two brush-facing gates below ask:
 	// does LMB still apply the brush? Null does, and so does the segment gesture
 	// (its click commits a brush op), which is why neither hides the brush
 	// inspector; pointer and the three cell-selection gestures do not.
-	const [gesture, setGestureState] = useState<ViewportGesture | null>(
-		"pointer",
-	);
 	const brushLive = gesture === null || gesture === "segment";
 	// Full registry info — paramSchema/defaults feed the stamp inspector's form.
 	const [generators, setGenerators] = useState<FieldGeneratorInfo[]>([]);
@@ -106,32 +102,18 @@ export function FieldPanel() {
 		setGenerators(host.listGenerators());
 	}, [entityCatalogTick, fieldHostRef]);
 
+	// The two arming rules (paint's organic clamp, and which gestures a brush pick
+	// disarms) live in `brushArming` — the action registry's `B` family arms the same
+	// four effects, and a second copy here is how the two would drift.
 	const onBrush = (effect: FieldTool["effect"]): void => {
-		// Paint retints solids and is organic-only: paint on a kit class would
-		// emit a sphere-shaped kit write, which core rejects (kit stays
-		// box+lattice) — clamp to the first organic class (rock, class 0, is
-		// guaranteed organic). The swatches disable kit classes while paint is
-		// active for the same reason.
-		let materialId = tool.materialId;
-		const paintable = table.classes.some(
-			(c) => c.id === materialId && c.kind === "organic",
-		);
-		if (effect === "paint" && !paintable)
-			materialId = table.classes.find((c) => c.kind === "organic")?.id ?? 0;
-		setTool({ ...tool, effect, materialId });
-		// A brush pick disarms whatever was holding LMB — the pointer or a
-		// cell-selection gesture — so LMB returns to the brush. It deliberately
-		// leaves `segment` armed: picking Fill under the segment brush means "sweep
-		// a rampart instead of a tunnel", not "stop segmenting".
-		if (!brushLive) {
-			setGestureState(null);
-			fieldHostRef.current?.setGesture(null);
-		}
-	};
-
-	const onGesturePick = (next: ViewportGesture): void => {
-		setGestureState(next);
-		fieldHostRef.current?.setGesture(next);
+		const arm = brushArming({
+			effect,
+			materialId: tool.materialId,
+			gesture,
+			classes: table.classes,
+		});
+		setTool({ ...tool, effect, materialId: arm.materialId });
+		if (arm.disarmGesture) setGesture(null);
 	};
 
 	const onMaterial = (id: number): void => setTool({ ...tool, materialId: id });
@@ -168,7 +150,7 @@ export function FieldPanel() {
 						gesture={gesture}
 						generators={generators}
 						onBrush={onBrush}
-						onGesture={onGesturePick}
+						onGesture={setGesture}
 						onGenerator={(id) => fieldHostRef.current?.startStamp(id)}
 					/>
 					{/* The persistent swatch strip: rendered whenever the catalog has more

@@ -1,5 +1,5 @@
-// The DOM half of keybindings.ts: `isTextInputTarget` needs a real HTMLElement, so it
-// cannot live beside the pure `matchBinding` cases in tests/keybindings.ts.
+// The DOM half of the key gate: `isTextInputTarget` needs a real HTMLElement to narrow
+// against, so it cannot live beside the pure matcher/gate cases in tests/keybindings.ts.
 //
 // Lives under tests/chrome/ ON PURPOSE, and this is load-bearing rather than tidiness:
 // registering happy-dom from a test file directly in tests/ replaces the global `fetch`

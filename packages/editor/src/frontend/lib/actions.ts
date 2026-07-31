@@ -1,0 +1,665 @@
+// The editor's ONE action registry (D-10/D-11/D-12): every verb the chrome can run,
+// declared once, with the key that runs it, the label that names it and the rule that
+// refuses it. Three surfaces read this table — the window key dispatcher
+// (`useGlobalKeybindings`), the burger menu, and the Help▸Keyboard shortcuts overlay —
+// so a binding cannot be live and undocumented, or documented and dead.
+//
+// WHO OWNS A KEY. There are two keydown listeners in this editor: the field canvas's
+// (`viewport-host/field-host.ts`) and this registry's, on `window`. The rule:
+//
+//   A key has ONE handler per press. The canvas keeps a key when the verb steers the
+//   viewport under the pointer and must NOT fire from a palette — the fly set, `[`/`]`,
+//   the arrow nudges, the momentary ⇧/⌃ — or when it needs first refusal over a verb it
+//   answers more specifically (⌘Z, ⏎, Esc, R, F). Everything else is this registry's.
+//   Where BOTH bind one key, the canvas branch that ACTS must `stopPropagation()`, and
+//   that call is the whole licence for the second owner: exactly one of the two runs.
+//
+// What the registry adds for those shared keys is REACH and GATES. The canvas listener
+// only fires while the canvas has focus, and clicking any palette control takes focus
+// away — the standing F2b finding (`field-f2b-gate-ux-findings.md` #6) that a viewport
+// binding silently dies the moment the user touches a panel. The window listener has no
+// such hole, and it is the only one that consults the gate below.
+//
+// This module is PURE and DOM-free (`KeyboardEvent` appears as a type only, erased at
+// build). It type-imports the host types like every other chrome module — the chrome may
+// never VALUE-import anything under `viewport-host/` (machine-enforced by
+// `tests/frontend-no-engine-leakage.test.ts`), so every host verb here goes through the
+// `FieldHost` instance the context hook reads off `fieldHostRef`.
+import type {
+  FieldEntityInfo,
+  FieldHost,
+  FieldStats,
+  FieldTool,
+  SelectionInfo,
+  StampSession,
+  ViewportGesture,
+} from "../../viewport-host/index.ts"; // type-only: erased
+import type { ConfirmRequest } from "../components/ConfirmDialog.tsx";
+import type { ViewActions, ViewState } from "../hooks/useView.tsx";
+import type { WorkspaceActions } from "../hooks/useWorkspace.tsx";
+import type { WorldActions } from "../hooks/useWorld.tsx";
+
+/** Everything an action can read or call, assembled once per render by
+ *  `useActionContext` and handed to every `label`/`enabled`/`run`.
+ *
+ *  Nothing here may be a SNAPSHOT of something that changes between renders — see
+ *  `host`. The one such value the gate needs (is the right button down?) is polled at
+ *  dispatch time and travels in {@link GateEnv}, not here. */
+export type ActionCtx = {
+  /** The live host, or null before the engine bundle lands. Held as the OBJECT, never
+   *  as a snapshot of its state: a method call on it answers for the instant it is
+   *  made, which is what `host.isLooking()` has to be.
+   *
+   *  There is no separate `engineReady` beside it, deliberately: App assigns the host
+   *  ref ONCE, synchronously, immediately before the dispatch that makes the editor
+   *  ready (see `Shell.tsx`), so `host !== null` and "the engine is up" are the same
+   *  fact — and a second spelling of one fact is a second thing to keep true. */
+  host: FieldHost | null;
+  /** What LMB is armed to do (`null` = the brush strokes). */
+  gesture: ViewportGesture | null;
+  tool: FieldTool;
+  /** The live stamp/reconfigure/move session — `null` between sessions. */
+  session: StampSession | null;
+  /** The selected committed entity, resolved from the id the host published. */
+  selectedEntity: FieldEntityInfo | null;
+  /** The CELL selection (independent of the entity one — either can stand alone). */
+  selection: SelectionInfo | null;
+  stats: FieldStats | null;
+  world: { name: string | null; dirty: boolean; busy: boolean };
+  view: ViewState;
+  workspace: { hidden: boolean };
+  /** The registry generators, in registry order — the `S` family's member list. Read
+   *  from the host rather than spelled here, so the family cannot drift from what core
+   *  actually stages. */
+  generators: readonly { id: string; name: string }[];
+  /** Which generator `S` would stamp. `null` = the first one. */
+  stampCursor: string | null;
+  /** What the last/next history step DID, for a named Undo/Redo. Both are null until
+   *  Task 12 lands the seam that reports them; the labels fall back to the bare verb. */
+  history: { undoLabel: string | null; redoLabel: string | null };
+  /** The verbs an action dispatches through. Host verbs are NOT here — they are called
+   *  on `ctx.host` directly. These are the chrome's own funnels, and using them rather
+   *  than the host is load-bearing for the two tool verbs: `host.setGesture` alone would
+   *  leave the chrome's mirror showing the old arm. */
+  run: {
+    world: WorldActions;
+    view: ViewActions;
+    workspace: WorkspaceActions;
+    openConfirm: (request: ConfirmRequest) => void;
+    /** Arm what LMB does — mirror + host push (`useFieldTool`'s funnel). */
+    setGesture: (gesture: ViewportGesture | null) => void;
+    /** Arm a brush EFFECT: clamps paint to an organic class and returns LMB to the
+     *  brush, exactly as the tool palette's own button does (one spelling — the palette
+     *  calls this too). */
+    armBrush: (effect: FieldTool["effect"]) => void;
+    /** Point the `S` family at a generator id. */
+    setStampCursor: (id: string) => void;
+  };
+};
+
+/** When an action's key is allowed to fire.
+ *
+ *  - `chord` — a ⌘/Ctrl chord. Live everywhere, INCLUDING inside a text input, because
+ *    the browser default it replaces (save-page, the input's own undo stack) is worse.
+ *  - `bare` — a plain letter or ⌫. Refused in a text input (it is a character someone is
+ *    typing) and refused while the right button is down, because while the user is
+ *    LOOKING the letters are the fly keys — `S` is fly-backward. That gate is exactly
+ *    what makes a bare-letter binding possible at all.
+ *  - `editing` — Esc and ⏎. Refused in a text input (a field binds both itself: Escape
+ *    reverts, Enter commits) but live during a look drag, because cancelling and
+ *    confirming must never depend on which button is down. */
+export type ActionGate = "chord" | "bare" | "editing";
+
+/** The world OUTSIDE the ctx that the gate reads, all of it polled at DISPATCH time. */
+export type GateEnv = {
+  /** `isTextInputTarget(e.target)` for this event. */
+  inTextInput: boolean;
+  /** A modal confirm is open (`confirmRef.current !== null`). */
+  confirmOpen: boolean;
+  /** The right button is down and driving the camera (`host.isLooking()`). Polled per
+   *  keypress and never stored on the ctx: the button goes down and up between renders,
+   *  so a snapshot would answer for a frame that has already gone. */
+  looking: boolean;
+};
+
+/** Whether the key may fire, and what to tell the user when it may not. A `null` hint
+ *  means refuse SILENTLY — the reason is already on screen (a modal dialog) or is the
+ *  user's own hand (they are typing, they are holding the right button). */
+export type GateVerdict = { ok: true } | { ok: false; hint: string | null };
+
+export type ActionDef = {
+  /** Stable id, `group.verb`. Unique across the table (asserted). */
+  id: string;
+  group: ActionGroup;
+  /** What to call it on a surface, given the current state — "Delete hall #7", "Undo
+   *  dig". Contextual because the menu is where a user checks WHAT a verb will act on. */
+  label: (ctx: ActionCtx) => string;
+  /** Whether the verb can do anything right now. A disabled action greys its menu item
+   *  and swallows its key (the key is still CLAIMED — see the dispatcher). */
+  enabled: (ctx: ActionCtx) => boolean;
+  /** For the menu's checkbox items (the view toggles). Absent = a plain item. */
+  checked?: (ctx: ActionCtx) => boolean;
+  /** The chord as the user reads it, in the editor's keycap vocabulary (⌘ ⇧ ⌃ ⌥ ⏎ ⌫).
+   *  Absent = menu-only. Unique across the table (asserted). */
+  keys?: string;
+  /** One sentence for the shortcuts overlay — the CONDITION and the consequence, which a
+   *  menu label has no room for. */
+  hint?: string;
+  /** Does this event run this action? Absent = menu-only, unreachable from the keyboard.
+   *  Declared together with `gate` (asserted). */
+  match?: (e: KeyboardEvent) => boolean;
+  gate?: ActionGate;
+  /** This action re-arms what LMB does, so it is refused while a session owns the
+   *  interaction — with a hint, because the key looking dead is the failure mode. */
+  armsTool?: boolean;
+  run: (ctx: ActionCtx) => void;
+};
+
+/** `world` and `edit` and `view` are the burger's groups; `tool` and `session` are the
+ *  keyboard's, and reach the user through the tool rail, the status bar's keymap line and
+ *  the shortcuts overlay rather than through a menu. */
+export type ActionGroup = "world" | "edit" | "view" | "tool" | "session";
+
+// --- matchers ---------------------------------------------------------------
+
+/** ⌘ on macOS, Ctrl everywhere else. */
+const mod = (e: KeyboardEvent): boolean => e.metaKey || e.ctrlKey;
+
+/** A ⌘-chord on `key`, with ⇧ stated rather than assumed — ⌘Z and ⇧⌘Z are two actions,
+ *  so neither may match the other's event. ⌥ is excluded throughout: it is the viewport's
+ *  eyedropper modifier and (on macOS) rewrites `e.key` anyway. */
+const chord = (e: KeyboardEvent, key: string, shift = false): boolean =>
+  mod(e) && !e.altKey && e.shiftKey === shift && e.key.toLowerCase() === key;
+
+/** A plain letter with no modifier at all. `toLowerCase` is what makes a CapsLocked or
+ *  ⇧-held keyboard produce the same action — except where ⇧ is the binding, below. */
+const bare = (e: KeyboardEvent, key: string): boolean =>
+  !mod(e) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === key;
+
+/** ⇧ + a letter: the family CYCLE half of `B`/`M`/`S`. */
+const shifted = (e: KeyboardEvent, key: string): boolean =>
+  !mod(e) && !e.altKey && e.shiftKey && e.key.toLowerCase() === key;
+
+// --- families ---------------------------------------------------------------
+
+/** One member of a keyed family: what arming it does, in the binding table's order.
+ *  `effect` members arm the brush (and return LMB to it); `gesture` members arm a click
+ *  gesture. The brush family has both — `segment` is a gesture that strokes. */
+type FamilyMember =
+  | { effect: FieldTool["effect"] }
+  | { gesture: ViewportGesture };
+
+const BRUSH_FAMILY: readonly FamilyMember[] = [
+  { effect: "dig" },
+  { effect: "fill" },
+  { effect: "paint" },
+  { effect: "smooth" },
+  { gesture: "segment" },
+];
+
+const SELECT_FAMILY: readonly FamilyMember[] = [
+  { gesture: "box" },
+  { gesture: "material" },
+  { gesture: "void" },
+];
+
+/** Which member is armed right now, as an index into `family` — `-1` when none is (the
+ *  family is not the armed one). A `gesture` member wins over the brush effect, because
+ *  arming `segment` is what LMB is actually doing. */
+function armedIndex(family: readonly FamilyMember[], ctx: ActionCtx): number {
+  const byGesture = family.findIndex(
+    (m) => "gesture" in m && m.gesture === ctx.gesture,
+  );
+  if (byGesture !== -1) return byGesture;
+  // The brush effect only counts while LMB still brushes: under `pointer` or a cell
+  // gesture the effect is a remembered setting, not an arm.
+  if (ctx.gesture !== null) return -1;
+  return family.findIndex((m) => "effect" in m && m.effect === ctx.tool.effect);
+}
+
+function armMember(member: FamilyMember, ctx: ActionCtx): void {
+  if ("gesture" in member) ctx.run.setGesture(member.gesture);
+  else ctx.run.armBrush(member.effect);
+}
+
+/** Arm the family's CURRENT member — the bare press. With nothing of the family armed it
+ *  takes the first, which is what makes one key enough to enter a family. */
+function armFamily(family: readonly FamilyMember[], ctx: ActionCtx): void {
+  const i = armedIndex(family, ctx);
+  const member = family[i === -1 ? 0 : i];
+  if (member !== undefined) armMember(member, ctx);
+}
+
+/** Step to the next member and arm it — the ⇧ press. Wraps. */
+function cycleFamily(family: readonly FamilyMember[], ctx: ActionCtx): void {
+  const i = armedIndex(family, ctx);
+  const member = family[(i + 1) % family.length];
+  if (member !== undefined) armMember(member, ctx);
+}
+
+/** The generator the `S` family points at, or null when the registry is empty. The
+ *  cursor is an id rather than an index so it survives a registry that reorders. */
+function stampMember(ctx: ActionCtx): { id: string; name: string } | null {
+  const byCursor = ctx.generators.find((g) => g.id === ctx.stampCursor);
+  return byCursor ?? ctx.generators[0] ?? null;
+}
+
+// --- labels -----------------------------------------------------------------
+
+/** How a committed entity is named in a sentence. Entities carry no user-facing name —
+ *  the palette rows say `hall #7`, and a second spelling here would be a second thing to
+ *  keep in agreement with them. */
+const entityName = (e: FieldEntityInfo): string =>
+  `${e.generator} #${e.entityId}`;
+
+// --- the table --------------------------------------------------------------
+
+export const ACTIONS: readonly ActionDef[] = [
+  // ——— world ———————————————————————————————————————————————————————————————
+  {
+    id: "world.new",
+    group: "world",
+    label: () => "New",
+    // New empties the host's world SYNCHRONOUSLY, so a New landing mid-save writes the
+    // freshly-emptied world over the named target.
+    enabled: (ctx) => !ctx.world.busy,
+    run: (ctx) => ctx.run.world.reset(),
+  },
+  {
+    id: "world.open",
+    group: "world",
+    label: () => "Open…",
+    enabled: () => true,
+    run: (ctx) => ctx.run.world.openDrawer("browse"),
+  },
+  {
+    id: "world.save",
+    group: "world",
+    label: () => "Save",
+    enabled: (ctx) => !ctx.world.busy,
+    keys: "⌘S",
+    hint: "Save the world — an untitled one opens the drawer to be named first",
+    match: (e) => chord(e, "s"),
+    gate: "chord",
+    run: (ctx) => ctx.run.world.save(),
+  },
+  {
+    id: "world.saveAs",
+    group: "world",
+    label: () => "Save as…",
+    enabled: () => true,
+    run: (ctx) => ctx.run.world.openDrawer("save-as"),
+  },
+  {
+    id: "world.bake",
+    group: "world",
+    // The reason rides IN the label: a disabled menu item swallows the tooltip that
+    // would otherwise carry it.
+    label: (ctx) =>
+      ctx.world.name === null ? "Bake — name the world first" : "Bake",
+    enabled: (ctx) => !ctx.world.busy && ctx.world.name !== null,
+    run: (ctx) => ctx.run.world.bake(),
+  },
+  {
+    id: "world.makeDefault",
+    group: "world",
+    label: (ctx) =>
+      ctx.world.name === null
+        ? "Make default — name the world first"
+        : "Make default",
+    enabled: (ctx) => ctx.world.name !== null,
+    run: (ctx) => {
+      const name = ctx.world.name;
+      if (name !== null) ctx.run.world.makeDefault(name);
+    },
+  },
+
+  // ——— edit ————————————————————————————————————————————————————————————————
+  {
+    id: "edit.undo",
+    group: "edit",
+    // The field's op log IS the editor's history — there is no second document to step.
+    label: (ctx) =>
+      ctx.history.undoLabel === null ? "Undo" : `Undo ${ctx.history.undoLabel}`,
+    enabled: (ctx) => (ctx.stats?.undoDepth ?? 0) > 0,
+    keys: "⌘Z",
+    hint: "Undo the last field op — the field's op log is the editor's ONE history",
+    match: (e) => chord(e, "z"),
+    gate: "chord",
+    run: (ctx) => ctx.host?.undo(),
+  },
+  {
+    id: "edit.redo",
+    group: "edit",
+    label: (ctx) =>
+      ctx.history.redoLabel === null ? "Redo" : `Redo ${ctx.history.redoLabel}`,
+    enabled: (ctx) => (ctx.stats?.redoDepth ?? 0) > 0,
+    keys: "⇧⌘Z",
+    hint: "Redo",
+    match: (e) => chord(e, "z", true),
+    gate: "chord",
+    run: (ctx) => ctx.host?.redo(),
+  },
+  {
+    id: "edit.duplicate",
+    group: "edit",
+    label: (ctx) =>
+      ctx.selectedEntity === null
+        ? "Duplicate"
+        : `Duplicate ${entityName(ctx.selectedEntity)}`,
+    enabled: (ctx) => ctx.selectedEntity !== null,
+    // ⌘J, not the mock's ⌘D: ⌘D is Safari's Add-bookmark and is not interceptable
+    // there (charter §5). ⌘J is Downloads in Chrome, which IS interceptable.
+    keys: "⌘J",
+    hint: "Duplicate the selected stamp beside itself — a fresh commit from its own recipe",
+    match: (e) => chord(e, "j"),
+    gate: "chord",
+    run: (ctx) => {
+      if (ctx.selectedEntity !== null)
+        ctx.host?.duplicateEntity(ctx.selectedEntity.entityId);
+    },
+  },
+  {
+    id: "edit.delete",
+    group: "edit",
+    label: (ctx) =>
+      ctx.selectedEntity === null
+        ? "Delete"
+        : `Delete ${entityName(ctx.selectedEntity)}`,
+    // Refused during a session: the session may BE the selected entity's reconfigure,
+    // and deleting the entity under it cancels the session the user is still editing.
+    enabled: (ctx) => ctx.selectedEntity !== null && ctx.session === null,
+    keys: "⌫",
+    hint: "Delete the selected stamp and the ops it committed, behind a confirm (⌘Z puts it back)",
+    match: (e) =>
+      !mod(e) &&
+      !e.altKey &&
+      !e.shiftKey &&
+      (e.key === "Backspace" || e.key === "Delete"),
+    gate: "bare",
+    run: (ctx) => {
+      const entity = ctx.selectedEntity;
+      if (entity === null) return;
+      // The same prompt the palette row raises, with the op count in it: a row reads
+      // "3 ops" but a scatter reads "1 ops" and takes every prop it placed with it.
+      const ops = entity.opSpan[1] - entity.opSpan[0] + 1;
+      ctx.run.openConfirm({
+        title: `Delete stamp #${entity.entityId}?`,
+        message: `Removes ${entity.generator} #${entity.entityId} and the ${ops} op${ops === 1 ? "" : "s"} it committed. Edits made after it are replayed onto what is left, so a dig that cut through this stamp survives as a dig into whatever was underneath. ⌘Z puts it back.`,
+        confirmLabel: "Delete",
+        destructive: true,
+        onConfirm: () => ctx.host?.deleteEntity(entity.entityId),
+      });
+    },
+  },
+  {
+    id: "edit.grab",
+    group: "edit",
+    label: (ctx) =>
+      ctx.selectedEntity === null
+        ? "Move"
+        : `Move ${entityName(ctx.selectedEntity)}`,
+    // No session, for `edit.delete`'s reason plus its own: `beginMove` REPLACES the live
+    // session, so a G during a reconfigure would discard the params being edited.
+    enabled: (ctx) => ctx.selectedEntity !== null && ctx.session === null,
+    keys: "G",
+    hint: "Grab the selected stamp — the cursor moves its ghost in 0.5 m steps until ⏎ drops it or Esc discards it",
+    match: (e) => bare(e, "g"),
+    gate: "bare",
+    run: (ctx) => {
+      if (ctx.selectedEntity !== null)
+        ctx.host?.beginMove(ctx.selectedEntity.entityId);
+    },
+  },
+  {
+    id: "edit.history",
+    group: "edit",
+    label: () => "History…",
+    // Task 12 builds the palette this summons. Disabled rather than absent so the
+    // History verb has a place in the menu the moment it exists.
+    enabled: () => false,
+    // biome-ignore lint/suspicious/noEmptyBlockStatements: the palette this opens arrives with Task 12; the item is disabled until then, so this can never run
+    run: () => {},
+  },
+
+  // ——— tool ————————————————————————————————————————————————————————————————
+  {
+    id: "tool.pointer",
+    group: "tool",
+    label: () => "Select",
+    enabled: () => true,
+    keys: "V",
+    hint: "Arm Select — click a stamp, a prop or a marker to select it; the wheel travels the camera",
+    match: (e) => bare(e, "v"),
+    gate: "bare",
+    armsTool: true,
+    run: (ctx) => ctx.run.setGesture("pointer"),
+  },
+  {
+    id: "tool.brush",
+    group: "tool",
+    label: () => "Brush",
+    enabled: () => true,
+    keys: "B",
+    hint: "Arm the brush family — press again with ⇧ to cycle Dig → Fill → Paint → Smooth → Segment",
+    match: (e) => bare(e, "b"),
+    gate: "bare",
+    armsTool: true,
+    run: (ctx) => armFamily(BRUSH_FAMILY, ctx),
+  },
+  {
+    id: "tool.brushCycle",
+    group: "tool",
+    label: () => "Next brush",
+    enabled: () => true,
+    keys: "⇧B",
+    hint: "Cycle the brush family: Dig → Fill → Paint → Smooth → Segment",
+    match: (e) => shifted(e, "b"),
+    gate: "bare",
+    armsTool: true,
+    run: (ctx) => cycleFamily(BRUSH_FAMILY, ctx),
+  },
+  {
+    id: "tool.select",
+    group: "tool",
+    label: () => "Cell select",
+    enabled: () => true,
+    keys: "M",
+    hint: "Arm the cell-selection family — press again with ⇧ to cycle Box → Wand → Room",
+    match: (e) => bare(e, "m"),
+    gate: "bare",
+    armsTool: true,
+    run: (ctx) => armFamily(SELECT_FAMILY, ctx),
+  },
+  {
+    id: "tool.selectCycle",
+    group: "tool",
+    label: () => "Next cell select",
+    enabled: () => true,
+    keys: "⇧M",
+    hint: "Cycle the cell-selection family: Box → Wand → Room",
+    match: (e) => shifted(e, "m"),
+    gate: "bare",
+    armsTool: true,
+    run: (ctx) => cycleFamily(SELECT_FAMILY, ctx),
+  },
+  {
+    id: "tool.stamp",
+    group: "tool",
+    label: (ctx) => {
+      const member = stampMember(ctx);
+      return member === null ? "Stamp" : `Stamp ${member.name}`;
+    },
+    enabled: (ctx) => ctx.generators.length > 0,
+    keys: "S",
+    hint: "Open a stamp session for the family's generator, into the current cell selection",
+    match: (e) => bare(e, "s"),
+    gate: "bare",
+    armsTool: true,
+    run: (ctx) => {
+      const member = stampMember(ctx);
+      if (member !== null) ctx.host?.startStamp(member.id);
+    },
+  },
+  {
+    id: "tool.stampCycle",
+    group: "tool",
+    label: () => "Next stamp",
+    enabled: (ctx) => ctx.generators.length > 1,
+    keys: "⇧S",
+    // The ONLY family whose cycle does not also arm, because a stamp has nothing to arm
+    // until it is opened: `S` opens a SESSION. The status bar's keymap line names the
+    // member this points at, which is what keeps the cursor from being invisible state.
+    hint: "Point the S key at the next generator — it opens nothing by itself",
+    match: (e) => shifted(e, "s"),
+    gate: "bare",
+    armsTool: true,
+    run: (ctx) => {
+      const current = stampMember(ctx);
+      if (current === null) return;
+      const i = ctx.generators.findIndex((g) => g.id === current.id);
+      const next = ctx.generators[(i + 1) % ctx.generators.length];
+      if (next !== undefined) ctx.run.setStampCursor(next.id);
+    },
+  },
+  {
+    id: "tool.swapEffect",
+    group: "tool",
+    label: () => "Swap dig ↔ fill",
+    enabled: (ctx) => ctx.tool.effect === "dig" || ctx.tool.effect === "fill",
+    keys: "X",
+    hint: "Swap Dig ↔ Fill and STAY there — ⌃ is the same swap while held",
+    match: (e) => bare(e, "x"),
+    gate: "bare",
+    run: (ctx) => ctx.run.armBrush(ctx.tool.effect === "dig" ? "fill" : "dig"),
+  },
+
+  // ——— session —————————————————————————————————————————————————————————————
+  {
+    id: "session.confirm",
+    group: "session",
+    label: () => "Apply session",
+    // A live MOVE is never this listener's: leaving the viewport CANCELS a move (the
+    // host's blur), so a move that is still standing means the canvas has focus and the
+    // canvas's own ⏎ — which drops the grab rather than applying it — answered first.
+    enabled: (ctx) => ctx.session !== null && ctx.session.moving !== true,
+    keys: "⏎",
+    hint: "Commit the ready ghost, or apply a reconfigure",
+    match: (e) => !mod(e) && !e.altKey && e.key === "Enter",
+    gate: "editing",
+    run: (ctx) => ctx.host?.commitSession(),
+  },
+  {
+    id: "session.rotate",
+    group: "session",
+    label: () => "Rotate a quarter turn",
+    enabled: (ctx) => ctx.session !== null,
+    keys: "R",
+    hint: "Quarter-turn the live ghost — refused, with a reason, on a generator that has no rotation",
+    match: (e) => bare(e, "r"),
+    gate: "bare",
+    run: (ctx) => ctx.host?.rotateStamp(),
+  },
+  {
+    id: "session.escape",
+    group: "session",
+    label: () => "Cancel",
+    // Never disabled: the ladder decides what there is to cancel, and an Esc with
+    // nothing to cancel is a no-op rather than a refusal.
+    enabled: () => true,
+    keys: "Esc",
+    hint: "Cancel one thing, most recent first: a half-drawn region, then the live session, then the selected stamp, then the cell selection",
+    match: (e) => !mod(e) && !e.altKey && e.key === "Escape",
+    gate: "editing",
+    run: (ctx) => ctx.host?.escape(),
+  },
+
+  // ——— view ————————————————————————————————————————————————————————————————
+  {
+    id: "view.frame",
+    group: "view",
+    label: () => "Frame selection",
+    // The host reports "nothing to frame" itself, so this stays live with neither
+    // selection: a key that swallows the press and says nothing reads as broken.
+    enabled: () => true,
+    keys: "F",
+    hint: "Frame what is selected — the selected stamp, else the cell selection; with neither it says so",
+    match: (e) => bare(e, "f"),
+    gate: "bare",
+    run: (ctx) => ctx.host?.frameSelection(),
+  },
+  {
+    id: "view.normals",
+    group: "view",
+    label: () => "Normals shading",
+    enabled: () => true,
+    checked: (ctx) => ctx.view.shading === "normals",
+    run: (ctx) =>
+      ctx.run.view.setShading(
+        ctx.view.shading === "normals" ? "studio" : "normals",
+      ),
+  },
+  {
+    id: "view.grid",
+    group: "view",
+    label: () => "Grid",
+    enabled: () => true,
+    checked: (ctx) => ctx.view.layers.grid,
+    run: (ctx) =>
+      ctx.run.view.setLayers({
+        ...ctx.view.layers,
+        grid: !ctx.view.layers.grid,
+      }),
+  },
+  {
+    id: "view.togglePalettes",
+    group: "view",
+    label: (ctx) => (ctx.workspace.hidden ? "Show palettes" : "Hide palettes"),
+    enabled: () => true,
+    keys: "⌘\\",
+    hint: "Hide every palette, or restore the exact arrangement",
+    match: (e) => mod(e) && !e.altKey && e.key === "\\",
+    gate: "chord",
+    run: (ctx) => ctx.run.workspace.toggleHidden(),
+  },
+  {
+    id: "view.resetWorkspace",
+    group: "view",
+    label: () => "Reset workspace",
+    enabled: () => true,
+    run: (ctx) => ctx.run.workspace.reset(),
+  },
+];
+
+/** May this action's key fire right now? PURE — everything that changes between renders
+ *  arrives in `env`, polled at dispatch time by the caller.
+ *
+ *  A menu-only action (no `gate`) can never fire: it has no `match` either, so the
+ *  dispatcher never reaches it, and this refuses it as a backstop. */
+export function gateAction(
+  def: ActionDef,
+  ctx: ActionCtx,
+  env: GateEnv,
+): GateVerdict {
+  // A confirm is MODAL, and it suppresses every class: a second openConfirm would strand
+  // the first, whose onCancel then never runs.
+  if (env.confirmOpen) return { ok: false, hint: null };
+  if (def.gate === undefined) return { ok: false, hint: null };
+  // Everything below is about a key someone might be TYPING, which a chord never is.
+  if (def.gate !== "chord") {
+    if (env.inTextInput) return { ok: false, hint: null };
+    if (def.gate === "bare" && env.looking) return { ok: false, hint: null };
+  }
+  if (def.armsTool === true && ctx.session !== null)
+    return {
+      ok: false,
+      hint: "finish the session first — ⏎ applies it, Esc discards it",
+    };
+  return { ok: true };
+}
+
+/** The action this event runs, or null. First match wins; the matchers are written so
+ *  that no two can claim one event (asserted in `tests/keybindings.test.ts`). */
+export function matchAction(e: KeyboardEvent): ActionDef | null {
+  return ACTIONS.find((a) => a.match?.(e) === true) ?? null;
+}

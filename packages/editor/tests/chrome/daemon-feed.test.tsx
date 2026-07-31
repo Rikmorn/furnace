@@ -23,6 +23,7 @@ import { afterEach, expect, test } from "bun:test";
 import type { RefObject } from "react";
 import { EditorContext } from "../../src/frontend/components/editor-context.ts";
 import { TopBar } from "../../src/frontend/components/shell/TopBar.tsx";
+import { ActionContextProvider } from "../../src/frontend/hooks/useActionContext.tsx";
 import { CatalogProvider } from "../../src/frontend/hooks/useCatalogs.tsx";
 import { useDaemonFeed } from "../../src/frontend/hooks/useDaemonFeed.ts";
 import { FieldHostStateProvider } from "../../src/frontend/hooks/useFieldHostState.tsx";
@@ -194,7 +195,11 @@ function Feed({
 					<WorldProvider>
 						<CatalogProvider>
 							<WorkspaceProvider store={undefined}>
-								<TopBar />
+								{/* The burger's groups and the shortcut overlay render FROM the
+								    action registry, so the bar needs the context that assembles it. */}
+								<ActionContextProvider>
+									<TopBar />
+								</ActionContextProvider>
 							</WorkspaceProvider>
 						</CatalogProvider>
 					</WorldProvider>

@@ -16,6 +16,12 @@
 // palette's armed effect and the swatch ring), `subscribeSelection` (the selection verbs),
 // `subscribeStamp` (the stamp inspector) and `subscribeFlags` (the advisor's list).
 //
+// Two values here have NO seam behind them and never will: the brush `radius` and the
+// armed `gesture`. Both are chrome state pushed one way into the host, and both sit here
+// rather than in `useView` because they belong to the DIG LOOP (useView's line), and
+// because every surface that shows one also shows `tool` — the panel's strip, the status
+// bar's keymap line, and the action registry's family keys, which arm the same slot.
+//
 // They publish through EIGHT contexts, split by CADENCE rather than by owner: a seam that
 // pushes at frame rate must not re-render a surface that only cares about something
 // answered once a minute. Each context's own docblock states its cadence, and its
@@ -44,6 +50,7 @@ import type {
 	PlacedArchetype,
 	SelectionInfo,
 	StampSession,
+	ViewportGesture,
 } from "../../viewport-host/index.ts"; // type-only: erased
 // The row's own param renderer, so the push guard below compares exactly the
 // string the `<dl>` shows (see `sameParams`) — one function, so a row and its
@@ -238,6 +245,11 @@ const DEFAULT_TOOL: FieldTool = {
 /** Mirrors FieldHost's default digRadius (the slider's range lives in BrushInspector). */
 const DEFAULT_RADIUS = 1.25;
 
+/** What a fresh host is ALREADY armed with (D-F4.5-7) — a local literal for the
+ *  DEFAULT_TOOL reason. A mirror that opened at `null` would show the brush inspector
+ *  beside an LMB that selects. */
+const DEFAULT_GESTURE: ViewportGesture | null = "pointer";
+
 /** The advisor bands the chrome asks for at boot — candidates only, mirroring the host's
  *  own DEFAULT_FLAG_FILTERS. A local literal for the DEFAULT_TOOL reason. */
 const DEFAULT_FLAG_FILTERS: FlagFilters = {
@@ -271,7 +283,8 @@ export type FieldEntitiesState = {
 	driftedIds: ReadonlySet<number>;
 };
 
-/** The armed brush, and the radius it strokes with. Read-write in one context rather
+/** The armed brush, what LMB is armed to do, and the radius it strokes with. Read-write
+ *  in one context rather
  *  than the state/actions PAIR the sibling providers use (useView, useWorkspace,
  *  useWorld): the adopt and the push here are ONE concern that cannot be separated —
  *  see the echo guard on the mirror effect — and useView's own header says to delete
@@ -279,9 +292,21 @@ export type FieldEntitiesState = {
  *  context both shows the tool and changes it. */
 export type FieldToolState = {
 	tool: FieldTool;
+	/** What LMB is armed to do — `null` = the brush strokes. CHROME state pushed one way
+	 *  into the host, like `radius`: `setGesture` has no subscription behind it, so this
+	 *  is a MIRROR by construction rather than by echo, and it opens at `"pointer"`
+	 *  because that is what a fresh host is already armed with (D-F4.5-7).
+	 *
+	 *  It lives up here rather than in the panel that used to hold it because three
+	 *  surfaces now write it — the tool palette, the action registry's `V`/`B`/`M` family
+	 *  keys, and the status bar's keymap line reads it — and a per-surface copy would
+	 *  disagree the moment a key armed something a palette was showing. */
+	gesture: ViewportGesture | null;
 	/** The brush radius. CHROME state, not a mirror: FieldTool does not carry radius and
 	 *  no seam reports one, so this is one-way (see `setRadius`). */
 	radius: number;
+	/** Arm what LMB does — adopt + push, the ONE funnel, exactly as `setTool` is. */
+	setGesture: (next: ViewportGesture | null) => void;
 	/** Adopt + push, the ONE funnel for a tool change. The host clamps (smooth ceilings,
 	 *  hollow floor) as a backstop; the controls stay inside the same ranges so chrome
 	 *  and host agree. */
@@ -501,6 +526,9 @@ export function FieldHostStateProvider({
 	const [drift, setDrift] = useState<FieldDriftReport | null>(null);
 	const [selectedEntityId, setSelectedEntityId] = useState<number | null>(null);
 	const [tool, setToolState] = useState<FieldTool>(DEFAULT_TOOL);
+	const [gesture, setGestureState] = useState<ViewportGesture | null>(
+		DEFAULT_GESTURE,
+	);
 	const [radius, setRadiusState] = useState(DEFAULT_RADIUS);
 	const [selection, setSelection] = useState<SelectionInfo | null>(null);
 	const [stamp, setStamp] = useState<StampSession | null>(null);
@@ -703,6 +731,17 @@ export function FieldHostStateProvider({
 		[host],
 	);
 
+	// Adopt + push, `setRadius`'s shape and for its reasons: click-rate, no mount push to
+	// fold in (the chrome's default IS the host's), and no seam to mirror — the host
+	// publishes no gesture, so nothing can push back.
+	const setGesture = useCallback(
+		(next: ViewportGesture | null): void => {
+			setGestureState(next);
+			host?.setGesture(next);
+		},
+		[host],
+	);
+
 	const verify = useCallback(
 		(key: string): void => {
 			setVerifying(key);
@@ -729,8 +768,8 @@ export function FieldHostStateProvider({
 		[selectedEntityId],
 	);
 	const toolValue = useMemo<FieldToolState>(
-		() => ({ tool, radius, setTool, setRadius }),
-		[tool, radius, setTool, setRadius],
+		() => ({ tool, gesture, radius, setTool, setGesture, setRadius }),
+		[tool, gesture, radius, setTool, setGesture, setRadius],
 	);
 	const selectionValue = useMemo<FieldSelectionState>(
 		() => ({ selection }),

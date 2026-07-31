@@ -1,0 +1,387 @@
+// The action TABLE: what each entry says it is, what it names, when it refuses, and what
+// running it actually calls. Pure — `KeyboardEvent` is a type only here, so this file
+// deliberately does NOT import the happy-dom harness (registering it from a top-level
+// tests/ file poisons the daemon/bundle/GPU suites — see tests/chrome/keybindings-dom.ts).
+//
+// Its sibling `tests/keybindings.test.ts` owns the other half: which EVENT reaches which
+// entry, and the gate that refuses it.
+import { expect, mock, test } from "bun:test";
+import { ACTIONS, type ActionCtx } from "../src/frontend/lib/actions.ts";
+import type { FieldEntityInfo, FieldHost } from "../src/viewport-host/index.ts";
+
+export function makeHostSpy() {
+  return {
+    undo: mock(),
+    redo: mock(),
+    deleteEntity: mock(),
+    duplicateEntity: mock(),
+    beginMove: mock(),
+    frameSelection: mock(),
+    startStamp: mock(),
+    commitSession: mock(),
+    rotateStamp: mock(),
+    escape: mock(),
+    isLooking: mock(() => false),
+  };
+}
+
+export function makeCtx(over: Partial<ActionCtx> = {}): ActionCtx {
+  const host = makeHostSpy();
+  return {
+    host: host as unknown as FieldHost,
+    gesture: "pointer",
+    tool: {
+      effect: "dig",
+      materialId: 0,
+      mask: { kind: "none" },
+      smooth: { strength: 16, iterations: 1, mode: "both" },
+      hollow: null,
+    },
+    session: null,
+    selectedEntity: null,
+    selection: null,
+    stats: null,
+    world: { name: null, dirty: false, busy: false },
+    view: {
+      shading: "studio",
+      layers: {
+        field: true,
+        kit: true,
+        props: true,
+        ghost: true,
+        selection: true,
+        grid: true,
+        flags: true,
+        voidCast: false,
+      },
+      slice: { enabled: false, y: 8 },
+      sampleCount: 4,
+    },
+    workspace: { hidden: false },
+    generators: [
+      { id: "hall", name: "Hall" },
+      { id: "maze", name: "Maze" },
+      { id: "cave", name: "Cave" },
+      { id: "scatter", name: "Scatter" },
+    ],
+    stampCursor: null,
+    history: { undoLabel: null, redoLabel: null },
+    run: {
+      world: {
+        save: mock(),
+        saveAs: mock(),
+        bake: mock(),
+        open: mock(),
+        reset: mock(),
+        makeDefault: mock(),
+        rename: mock(),
+        duplicate: mock(),
+        remove: mock(),
+        openDrawer: mock(),
+        closeDrawer: mock(),
+      },
+      view: {
+        setShading: mock(),
+        setLayers: mock(),
+        setSlice: mock(),
+        setSampleCount: mock(),
+      },
+      workspace: {
+        move: mock(),
+        setCollapsed: mock(),
+        setOpen: mock(),
+        toggleHidden: mock(),
+        setHidden: mock(),
+        reset: mock(),
+      },
+      openConfirm: mock(),
+      setGesture: mock(),
+      armBrush: mock(),
+      setStampCursor: mock(),
+    },
+    ...over,
+  };
+}
+
+export const byId = (id: string) => {
+  const def = ACTIONS.find((a) => a.id === id);
+  if (def === undefined) throw new Error(`test: no action "${id}"`);
+  return def;
+};
+
+const entity = (over: Partial<FieldEntityInfo> = {}): FieldEntityInfo =>
+  ({
+    entityId: 7,
+    type: "generator",
+    generator: "hall",
+    params: {},
+    seed: 1,
+    region: { min: [0, 0, 0], max: [1, 1, 1] },
+    opSpan: [2, 5],
+    placed: [],
+    ...over,
+  }) as FieldEntityInfo;
+
+// --- the table's own shape --------------------------------------------------
+
+test("every action id is unique", () => {
+  const ids = ACTIONS.map((a) => a.id);
+  expect(new Set(ids).size).toBe(ids.length);
+});
+
+test("every displayed chord is unique — one key, one action", () => {
+  const keys = ACTIONS.flatMap((a) => (a.keys === undefined ? [] : [a.keys]));
+  expect(new Set(keys).size).toBe(keys.length);
+});
+
+test("match and gate are declared together — a matcher with no gate could not be refused", () => {
+  for (const a of ACTIONS)
+    expect({
+      id: a.id,
+      paired: (a.match === undefined) === (a.gate === undefined),
+    }).toEqual({ id: a.id, paired: true });
+});
+
+test("every keyed action carries its keycap and its overlay sentence", () => {
+  // The overlay renders `keys` + `hint`; an action reachable from the keyboard with
+  // neither is a binding that cannot be discovered.
+  for (const a of ACTIONS) {
+    if (a.match === undefined) continue;
+    expect({ id: a.id, keys: a.keys, hint: typeof a.hint }).toEqual({
+      id: a.id,
+      keys: a.keys,
+      hint: "string",
+    });
+    expect(a.keys).toBeTruthy();
+  }
+});
+
+// --- labels contextualize ---------------------------------------------------
+
+test("Undo and Redo name the step once the history seam reports one", () => {
+  expect(byId("edit.undo").label(makeCtx())).toBe("Undo");
+  expect(
+    byId("edit.undo").label(
+      makeCtx({ history: { undoLabel: "dig", redoLabel: null } }),
+    ),
+  ).toBe("Undo dig");
+  expect(
+    byId("edit.redo").label(
+      makeCtx({ history: { undoLabel: null, redoLabel: "stamp hall" } }),
+    ),
+  ).toBe("Redo stamp hall");
+});
+
+test("the entity verbs name what they would act on", () => {
+  const ctx = makeCtx({ selectedEntity: entity() });
+  expect(byId("edit.delete").label(ctx)).toBe("Delete hall #7");
+  expect(byId("edit.duplicate").label(ctx)).toBe("Duplicate hall #7");
+  expect(byId("edit.grab").label(ctx)).toBe("Move hall #7");
+  // With nothing selected they are still named — a menu item with no noun still has to
+  // say which verb it is.
+  expect(byId("edit.delete").label(makeCtx())).toBe("Delete");
+});
+
+test("the world verbs carry their own blocked reason, because a disabled item has no tooltip", () => {
+  expect(byId("world.bake").label(makeCtx())).toBe(
+    "Bake — name the world first",
+  );
+  expect(
+    byId("world.bake").label(
+      makeCtx({ world: { name: "attic", dirty: false, busy: false } }),
+    ),
+  ).toBe("Bake");
+});
+
+test("the stamp family names the generator S would open, and follows the cursor", () => {
+  expect(byId("tool.stamp").label(makeCtx())).toBe("Stamp Hall");
+  expect(byId("tool.stamp").label(makeCtx({ stampCursor: "cave" }))).toBe(
+    "Stamp Cave",
+  );
+});
+
+// --- enabled ----------------------------------------------------------------
+
+test("delete needs an entity AND no session", () => {
+  const del = byId("edit.delete");
+  expect(del.enabled(makeCtx())).toBe(false);
+  expect(del.enabled(makeCtx({ selectedEntity: entity() }))).toBe(true);
+  expect(
+    del.enabled(
+      makeCtx({
+        selectedEntity: entity(),
+        session: { generator: "hall" } as never,
+      }),
+    ),
+  ).toBe(false);
+});
+
+test("grab needs an entity AND no session — beginMove REPLACES a live session", () => {
+  const grab = byId("edit.grab");
+  expect(grab.enabled(makeCtx())).toBe(false);
+  expect(grab.enabled(makeCtx({ selectedEntity: entity() }))).toBe(true);
+  expect(
+    grab.enabled(
+      makeCtx({
+        selectedEntity: entity(),
+        session: { generator: "hall" } as never,
+      }),
+    ),
+  ).toBe(false);
+});
+
+test("duplicate needs an entity; undo/redo need a stack", () => {
+  expect(byId("edit.duplicate").enabled(makeCtx())).toBe(false);
+  expect(
+    byId("edit.duplicate").enabled(makeCtx({ selectedEntity: entity() })),
+  ).toBe(true);
+  expect(byId("edit.undo").enabled(makeCtx())).toBe(false);
+  expect(
+    byId("edit.undo").enabled(
+      makeCtx({ stats: { undoDepth: 2, redoDepth: 0 } as never }),
+    ),
+  ).toBe(true);
+});
+
+test("the session verbs need a session; Esc never disables", () => {
+  expect(byId("session.rotate").enabled(makeCtx())).toBe(false);
+  expect(byId("session.confirm").enabled(makeCtx())).toBe(false);
+  expect(
+    byId("session.confirm").enabled(
+      makeCtx({ session: { generator: "hall" } as never }),
+    ),
+  ).toBe(true);
+  // A MOVE is the canvas's ⏎ (it drops the grab rather than applying it), and a move
+  // that is still live means the canvas has focus.
+  expect(
+    byId("session.confirm").enabled(
+      makeCtx({ session: { generator: "hall", moving: true } as never }),
+    ),
+  ).toBe(false);
+  expect(byId("session.escape").enabled(makeCtx())).toBe(true);
+});
+
+test("the sticky swap is offered only where there is something to swap", () => {
+  const swap = byId("tool.swapEffect");
+  expect(swap.enabled(makeCtx())).toBe(true);
+  const paint = makeCtx();
+  expect(
+    swap.enabled({ ...paint, tool: { ...paint.tool, effect: "paint" } }),
+  ).toBe(false);
+});
+
+// --- run --------------------------------------------------------------------
+
+test("the entity verbs go through the HOST, on the selected id", () => {
+  const ctx = makeCtx({ selectedEntity: entity({ entityId: 12 }) });
+  const host = ctx.host as unknown as ReturnType<typeof makeHostSpy>;
+  byId("edit.duplicate").run(ctx);
+  expect(host.duplicateEntity.mock.calls).toEqual([[12]]);
+  byId("edit.grab").run(ctx);
+  expect(host.beginMove.mock.calls).toEqual([[12]]);
+});
+
+test("delete asks first — the confirm carries the op count, and only its onConfirm deletes", () => {
+  const ctx = makeCtx({
+    selectedEntity: entity({ entityId: 3, opSpan: [4, 6] }),
+  });
+  const host = ctx.host as unknown as ReturnType<typeof makeHostSpy>;
+  byId("edit.delete").run(ctx);
+  expect(host.deleteEntity).not.toHaveBeenCalled();
+  const request = (ctx.run.openConfirm as unknown as ReturnType<typeof mock>)
+    .mock.calls[0]?.[0] as { message: string; onConfirm: () => void };
+  expect(request.message).toContain("3 ops");
+  request.onConfirm();
+  expect(host.deleteEntity.mock.calls).toEqual([[3]]);
+});
+
+test("the brush family arms on a bare press and steps on ⇧, in the binding table's order", () => {
+  // Armed elsewhere (the pointer): the bare press returns LMB to the brush it remembers.
+  const fromPointer = makeCtx({ gesture: "pointer" });
+  byId("tool.brush").run(fromPointer);
+  expect(
+    (fromPointer.run.armBrush as unknown as ReturnType<typeof mock>).mock.calls,
+  ).toEqual([["dig"]]);
+
+  // Cycling walks dig → fill → paint → smooth → segment → dig.
+  const armed = (effect: string, gesture: string | null) =>
+    makeCtx({
+      gesture: gesture as never,
+      tool: { ...makeCtx().tool, effect: effect as never },
+    });
+  const steps: [string, string | null, string][] = [
+    ["dig", null, "fill"],
+    ["fill", null, "paint"],
+    ["paint", null, "smooth"],
+  ];
+  for (const [from, gesture, to] of steps) {
+    const ctx = armed(from, gesture);
+    byId("tool.brushCycle").run(ctx);
+    expect(
+      (ctx.run.armBrush as unknown as ReturnType<typeof mock>).mock.calls,
+    ).toEqual([[to]]);
+  }
+  // …smooth steps to the SEGMENT gesture, which is a gesture and not an effect.
+  const fromSmooth = armed("smooth", null);
+  byId("tool.brushCycle").run(fromSmooth);
+  expect(
+    (fromSmooth.run.setGesture as unknown as ReturnType<typeof mock>).mock
+      .calls,
+  ).toEqual([["segment"]]);
+  // …and segment wraps back to dig.
+  const fromSegment = armed("smooth", "segment");
+  byId("tool.brushCycle").run(fromSegment);
+  expect(
+    (fromSegment.run.armBrush as unknown as ReturnType<typeof mock>).mock.calls,
+  ).toEqual([["dig"]]);
+});
+
+test("the cell-select family arms box first and cycles box → wand → room", () => {
+  const fresh = makeCtx({ gesture: "pointer" });
+  byId("tool.select").run(fresh);
+  expect(
+    (fresh.run.setGesture as unknown as ReturnType<typeof mock>).mock.calls,
+  ).toEqual([["box"]]);
+
+  const onBox = makeCtx({ gesture: "box" });
+  byId("tool.selectCycle").run(onBox);
+  expect(
+    (onBox.run.setGesture as unknown as ReturnType<typeof mock>).mock.calls,
+  ).toEqual([["material"]]);
+
+  const onVoid = makeCtx({ gesture: "void" });
+  byId("tool.selectCycle").run(onVoid);
+  expect(
+    (onVoid.run.setGesture as unknown as ReturnType<typeof mock>).mock.calls,
+  ).toEqual([["box"]]);
+});
+
+test("S opens the cursor's generator; ⇧S only MOVES the cursor", () => {
+  const ctx = makeCtx({ stampCursor: "maze" });
+  const host = ctx.host as unknown as ReturnType<typeof makeHostSpy>;
+  byId("tool.stamp").run(ctx);
+  expect(host.startStamp.mock.calls).toEqual([["maze"]]);
+
+  byId("tool.stampCycle").run(ctx);
+  expect(
+    (ctx.run.setStampCursor as unknown as ReturnType<typeof mock>).mock.calls,
+  ).toEqual([["cave"]]);
+  // The cycle opens nothing — it is the one family whose ⇧ does not also arm, because
+  // there is no armed stamp state to change until a session exists.
+  expect(host.startStamp.mock.calls).toEqual([["maze"]]);
+});
+
+test("the view toggles report their own checked state and flip it", () => {
+  const ctx = makeCtx();
+  expect(byId("view.normals").checked?.(ctx)).toBe(false);
+  byId("view.normals").run(ctx);
+  expect(
+    (ctx.run.view.setShading as unknown as ReturnType<typeof mock>).mock.calls,
+  ).toEqual([["normals"]]);
+  expect(byId("view.grid").checked?.(ctx)).toBe(true);
+  byId("view.grid").run(ctx);
+  expect(
+    (ctx.run.view.setLayers as unknown as ReturnType<typeof mock>).mock
+      .calls[0]?.[0],
+  ).toMatchObject({ grid: false });
+});

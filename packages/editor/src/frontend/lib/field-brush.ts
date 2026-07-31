@@ -5,6 +5,47 @@
 // and owns the shared 0.5 m region snap (box-select spans, stamp regions), the
 // lattice-step region nudge, and the region sample count.
 
+/** The four effects a brush stroke can apply. Named here rather than inline on
+ *  `FieldTool` because the arming rule below is parameterized on it and lives here —
+ *  one definition, so a fifth effect cannot reach the rule without reaching the type. */
+export type BrushEffect = "dig" | "fill" | "paint" | "smooth";
+
+/**
+ * What arming `effect` changes BESIDES the effect itself. Two rules, and they are here
+ * rather than in a component because two callers must never disagree about them: the
+ * tool palette's own buttons, and the action registry's `B` family key.
+ *
+ * 1. **Paint clamps the material.** Paint retints SOLID cells and is organic-only —
+ *    painting with a KIT class armed would emit a sphere-shaped kit write, which core
+ *    rejects — so it falls back to the first organic class (rock, class 0, is guaranteed
+ *    organic). Every other effect keeps the material it had.
+ * 2. **Arming a brush disarms whatever else holds LMB** — the pointer, or a
+ *    cell-selection gesture — but deliberately NOT `segment`: picking Fill under the
+ *    segment brush means "sweep a rampart instead of a tunnel", not "stop segmenting".
+ *
+ * `classes` is taken STRUCTURALLY rather than as core's `MaterialClass[]`, which is what
+ * keeps this module's no-imports property (the viewport host imports it).
+ */
+export function brushArming(input: {
+  effect: BrushEffect;
+  materialId: number;
+  /** What currently holds LMB (`null` = the brush already does). */
+  gesture: string | null;
+  classes: readonly { id: number; kind: string }[];
+}): { materialId: number; disarmGesture: boolean } {
+  const paintable = input.classes.some(
+    (c) => c.id === input.materialId && c.kind === "organic",
+  );
+  const materialId =
+    input.effect === "paint" && !paintable
+      ? (input.classes.find((c) => c.kind === "organic")?.id ?? 0)
+      : input.materialId;
+  return {
+    materialId,
+    disarmGesture: input.gesture !== null && input.gesture !== "segment",
+  };
+}
+
 /** How far a surface hit bites INTO the rock, as a fraction of the brush radius:
  *  the centre sits `BITE_FACTOR·radius` past the hit along the ray, so the sphere
  *  straddles the wall and removes material instead of grazing its face. */

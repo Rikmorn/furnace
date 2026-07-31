@@ -1,19 +1,25 @@
 // The keyboard-shortcut overlay (burger → Help → Keyboard shortcuts): every binding the
-// editor answers to, in one place, because until now the only way to learn the viewport
-// keys was to read `field-host.ts`.
+// editor answers to, in one place, because otherwise the only way to learn the viewport
+// keys is to read source.
 //
-// The table below is HAND-MAINTAINED and hand-verified. Every row was read off its source
-// when it was written — the four global chords from `lib/keybindings.ts`, everything else
-// from `viewport-host/field-host.ts`'s `onKeyDown`/`onWheel`/`onPointerDown` and
-// `viewport-host/input-map.ts`'s `arrowNudgeSteps`. Nothing here is derived at runtime, so
-// nothing here fails when a binding moves: **re-verify this table against those files
-// whenever a binding changes.** The status bar's `KEYMAP` line is the same claim in
-// miniature and moves with it.
+// The app-level groups are RENDERED FROM THE ACTION REGISTRY — every entry with a `keys`
+// is listed, with the `hint` the table carries — so a binding that moves or dies cannot
+// leave a row behind, and one that is added cannot fail to appear. That is what retired
+// the hand-maintained table this file used to carry, and the migration note over it.
 //
-// MIGRATION (until F4.5b): the command/keybinding registry replaces this file's data —
-// once bindings are declared once and read by both the dispatcher and the UI, this dialog
-// renders that registry and the hand-maintenance note above goes away.
+// ONE static group survives, and it is honest about why: the field canvas has a keydown
+// listener of its own for the keys that steer the viewport under the pointer (the fly
+// set, the radius steppers, the arrow nudges, the momentary modifiers). Those are not
+// registry actions — see the ownership rule at the top of `lib/actions.ts` — so their
+// rows are written out here and must be re-verified against `viewport-host/field-host.ts`
+// when one of them changes.
 import { Fragment } from "react";
+import { useActionContext } from "../../hooks/useActionContext.tsx";
+import {
+	ACTIONS,
+	type ActionCtx,
+	type ActionGroup,
+} from "../../lib/actions.ts";
 import {
 	Dialog,
 	DialogContent,
@@ -36,107 +42,93 @@ type BindingGroup = {
 	rows: Binding[];
 };
 
-const GROUPS: BindingGroup[] = [
-	{
-		title: "Global",
-		note: "Live anywhere in the editor, inside a text field too (the browser default they replace is worse). Suppressed while a confirm dialog is open. ⌘ is Ctrl on Windows and Linux.",
-		rows: [
-			{
-				keys: "⌘S",
-				what: "Save the world — an untitled one opens the drawer to be named first",
-			},
-			{
-				keys: "⌘Z",
-				what: "Undo the last field op — the field's op log is the editor's ONE history",
-			},
-			{ keys: "⇧⌘Z", what: "Redo" },
-			{
-				keys: "⌘\\",
-				what: "Hide every palette, or restore the exact arrangement",
-			},
-		],
-	},
-	{
-		title: "Viewport — camera",
-		// Stated the way the canvas actually behaves: its ring is `focus-visible`, which
-		// browsers paint for keyboard focus and generally NOT for a pointer click. So a
-		// click does arm these keys, silently. (Whether a click should paint a ring too is
-		// a design call, not a wording one — left to the F4.5c polish pass.)
-		note: "The viewport bindings need the canvas focused. Clicking it focuses it — the focus ring shows when you Tab to it, not on a click.",
-		rows: [
-			{
-				keys: "right-drag",
-				what: "Look around — or orbit the selected entity, when Select is armed and something is selected (the browser context menu is suppressed over the canvas)",
-			},
-			{ keys: "W / S", what: "Fly forward / back" },
-			{ keys: "A / D", what: "Fly left / right" },
-			{ keys: "Q / E", what: "Fly down / up" },
-			{
-				keys: "F",
-				what: "Frame what is selected — the selected entity, else the cell selection; with neither it does nothing",
-			},
-			{
-				keys: "triad tips",
-				what: "The corner axis gizmo's six ends snap the view to that axis — click one, or Tab to it and press ⏎",
-			},
-			{ keys: "⇧ while flying", what: "3× boost, while held" },
-		],
-	},
-	{
-		title: "Viewport — tools",
-		rows: [
-			{
-				keys: "left-drag",
-				what: "Apply the armed brush — Dig, Fill, Paint or Smooth — for as long as the button is down",
-			},
-			{
-				keys: "⌥ left-click",
-				what: "Sample the material under the cursor (never strokes, so it works in every mode)",
-			},
-			{
-				keys: "left-click",
-				what: "With a gesture armed it selects instead of brushing — Select (the default) and Wand and Room take one click, Box Select and Segment take two",
-			},
-			{
-				keys: "wheel",
-				what: "Brush radius — except under Select, which has no brush to size: there it travels the camera in and out",
-			},
-			{
-				keys: "[ / ]",
-				what: "Brush radius, one step per press — hold to keep resizing",
-			},
-			{
-				keys: "⇧ (hold)",
-				what: "Smooth while held; the armed tool comes back on release",
-			},
-			{
-				keys: "⌃ (hold)",
-				what: "Swap Dig ↔ Fill while held (Paint and Smooth pass through). On macOS ⌃+click is synthesized as a right-click, so hold ⌃ during a stroke already running — a fresh ⌃+click starts a look instead",
-			},
-			{
-				keys: "⌘Z / ⇧⌘Z",
-				what: "Undo / redo — the canvas handles the chord itself so one press steps the log once, not twice",
-			},
-		],
-	},
-	{
-		title: "Stamp sessions",
-		note: "While a generator stamp is live — its ghost is on screen and the arrows have something to move.",
-		rows: [
-			{ keys: "⏎", what: "Commit the ready ghost, or apply a reconfigure" },
-			{
-				keys: "Esc",
-				what: "Discard the session — with no session it drops a pending Segment anchor instead",
-			},
-			{ keys: "← / →", what: "Nudge the region one lattice step −X / +X" },
-			{ keys: "↑ / ↓", what: "Nudge one step −Z / +Z" },
-			{
-				keys: "⇧↑ / ⇧↓",
-				what: "Nudge one step +Y / −Y (a four-key pad has no third pair, so height rides the modifier)",
-			},
-		],
-	},
-];
+/** The registry's groups, in the order a user meets them, with the condition each is
+ *  under. Every row inside comes from the table. */
+const REGISTRY_GROUPS: { group: ActionGroup; title: string; note?: string }[] =
+	[
+		{
+			group: "world",
+			title: "World",
+			note: "Live anywhere in the editor, inside a text field too (the browser default they replace is worse). Suppressed while a confirm dialog is open. ⌘ is Ctrl on Windows and Linux.",
+		},
+		{ group: "edit", title: "Edit" },
+		{
+			group: "tool",
+			title: "Tools",
+			note: "Bare keys: they do nothing while you are typing in a field, while the right button is held (the letters are the fly keys then), or while a stamp session is live — which says so rather than going quiet.",
+		},
+		{ group: "session", title: "Session" },
+		{ group: "view", title: "View" },
+	];
+
+const CANVAS_GROUP: BindingGroup = {
+	title: "Viewport — canvas",
+	// Stated the way the canvas actually behaves: its ring is `focus-visible`, which
+	// browsers paint for keyboard focus and generally NOT for a pointer click. So a
+	// click does arm these keys, silently. (Whether a click should paint a ring too is
+	// a design call, not a wording one — left to the F4.5c polish pass.)
+	note: "These need the canvas focused — everything above works from anywhere. Clicking the viewport focuses it; the focus ring shows when you Tab to it, not on a click.",
+	rows: [
+		{
+			keys: "right-drag",
+			what: "Look around — or orbit the selected entity, when Select is armed and something is selected (the browser context menu is suppressed over the canvas)",
+		},
+		{
+			keys: "W A S D",
+			what: "Fly forward / left / back / right — ONLY while the right button is held, because otherwise those letters are tool keys",
+		},
+		{ keys: "Q / E", what: "Fly down / up, same right-button rule" },
+		{ keys: "⇧ while flying", what: "3× boost, while held" },
+		{
+			keys: "triad tips",
+			what: "The corner axis gizmo's six ends snap the view to that axis — click one, or Tab to it and press ⏎",
+		},
+		{
+			keys: "left-drag",
+			what: "Apply the armed brush — Dig, Fill, Paint or Smooth — for as long as the button is down",
+		},
+		{
+			keys: "⌥ left-click",
+			what: "Sample the material under the cursor (never strokes, so it works in every mode)",
+		},
+		{
+			keys: "wheel",
+			what: "Brush radius — except under Select, which has no brush to size: there it travels the camera in and out",
+		},
+		{
+			keys: "[ / ]",
+			what: "Brush radius, one step per press — hold to keep resizing",
+		},
+		{
+			keys: "⇧ (hold)",
+			what: "Smooth while held; the armed tool comes back on release",
+		},
+		{
+			keys: "⌃ (hold)",
+			what: "Swap Dig ↔ Fill while held (Paint and Smooth pass through). On macOS ⌃+click is synthesized as a right-click, so hold ⌃ during a stroke already running — a fresh ⌃+click starts a look instead",
+		},
+		{
+			keys: "← / →",
+			what: "Nudge a live stamp region one lattice step −X / +X",
+		},
+		{ keys: "↑ / ↓", what: "Nudge one step −Z / +Z" },
+		{
+			keys: "⇧↑ / ⇧↓",
+			what: "Nudge one step +Y / −Y (a four-key pad has no third pair, so height rides the modifier)",
+		},
+	],
+};
+
+/** The rows one registry group contributes: its keyed actions, named by the label they
+ *  wear right now and explained by the sentence the table carries. */
+function registryRows(group: ActionGroup, ctx: ActionCtx): Binding[] {
+	return ACTIONS.filter((a) => a.group === group && a.keys !== undefined).map(
+		(a) => ({
+			keys: a.keys ?? "",
+			what: a.hint ?? a.label(ctx),
+		}),
+	);
+}
 
 export function ShortcutsDialog({
 	open,
@@ -145,6 +137,15 @@ export function ShortcutsDialog({
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
 }) {
+	const ctx = useActionContext();
+	const groups: BindingGroup[] = [
+		...REGISTRY_GROUPS.map((g) => ({
+			title: g.title,
+			note: g.note,
+			rows: registryRows(g.group, ctx),
+		})).filter((g) => g.rows.length > 0),
+		CANVAS_GROUP,
+	];
 	return (
 		<Dialog open={open} onOpenChange={onOpenChange}>
 			{/* Scrolls inside itself: the list is longer than a short window, and a dialog
@@ -153,12 +154,12 @@ export function ShortcutsDialog({
 				<DialogHeader>
 					<DialogTitle>Keyboard shortcuts</DialogTitle>
 					<DialogDescription>
-						Everything this build binds. The viewport groups need the canvas
+						Everything this build binds. The last group needs the canvas
 						focused.
 					</DialogDescription>
 				</DialogHeader>
 				<div className="space-y-4">
-					{GROUPS.map((group) => (
+					{groups.map((group) => (
 						<section key={group.title} className="space-y-1.5">
 							<h3 className="font-medium text-[11px] text-muted-foreground uppercase tracking-wide">
 								{group.title}

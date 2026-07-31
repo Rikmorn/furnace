@@ -81,6 +81,11 @@ export function makeStubHost(
   /** Whether a context is up — the real host's `ctx`, which is what its
    *  "already initialized" guard reads. */
   let live = false;
+  /** The real host's `look !== null`. A mutable flag rather than a mock return,
+   *  because the app-level key gate POLLS it on every keypress: a test has to be
+   *  able to put the right button down between two presses, which is exactly the
+   *  thing a snapshot could not express. */
+  let looking = false;
   const cbs: {
     tool: ((t: FieldTool) => void) | null;
     cameraPose: ((p: CameraPose) => void) | null;
@@ -124,6 +129,7 @@ export function makeStubHost(
     commitStamp: mock(),
     commitSession: mock(),
     cancelStamp: mock(),
+    escape: mock(),
     undo: mock(),
     redo: mock(),
     clearSelection: mock(),
@@ -247,6 +253,8 @@ export function makeStubHost(
     commitStamp: calls.commitStamp,
     commitSession: calls.commitSession,
     cancelStamp: calls.cancelStamp,
+    escape: calls.escape,
+    isLooking: () => looking,
     undo: calls.undo,
     redo: calls.redo,
     subscribeStamp: (cb) => {
@@ -411,6 +419,10 @@ export function makeStubHost(
     },
     setEntities: (next: FieldEntityInfo[]) => {
       entities = next;
+    },
+    /** Put the right button down (or up) — what `isLooking()` then answers. */
+    setLooking: (next: boolean) => {
+      looking = next;
     },
   };
 }

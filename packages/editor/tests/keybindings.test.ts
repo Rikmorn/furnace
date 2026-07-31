@@ -1,56 +1,207 @@
+// Which EVENT reaches which action, and when the gate refuses it — the dispatch half of
+// the registry. Its sibling `tests/actions.test.ts` owns the table's own shape (ids,
+// labels, enabled, what running one calls).
+//
+// Pure — no DOM needed; `KeyboardEvent` is only a type here (erased), so this file
+// deliberately does NOT import the happy-dom harness (doing so from a top-level tests/
+// file poisons the daemon/bundle/GPU suites — see the header of
+// tests/chrome/keybindings-dom.test.ts). `isTextInputTarget`, which needs a real
+// HTMLElement, is covered there.
 import { expect, test } from "bun:test";
-import { matchBinding } from "../src/frontend/lib/keybindings.ts";
+import {
+  ACTIONS,
+  type ActionDef,
+  type GateEnv,
+  gateAction,
+  matchAction,
+} from "../src/frontend/lib/actions.ts";
+import { byId, makeCtx } from "./actions.test.ts";
 
-// Pure classifier — no DOM needed; `KeyboardEvent` is only a type here (erased),
-// so this file deliberately does NOT import the happy-dom harness (doing so from a
-// top-level tests/ file poisons the daemon/bundle/GPU suites — see the header of
-// tests/chrome/keybindings-dom.test.ts).
-// (isTextInputTarget, which needs a real HTMLElement, is covered there.)
-const ev = (o: Partial<KeyboardEvent> & { key: string }) => o as KeyboardEvent;
+/** A synthetic keydown. The four modifier flags are FILLED, never left undefined: a real
+ *  `KeyboardEvent` always carries all four as booleans, and a matcher that compared
+ *  `e.shiftKey === false` would pass against a real event and fail against a sloppy
+ *  literal — a difference between the test and the browser, which is the one difference a
+ *  binding test must not have. */
+const ev = (o: Partial<KeyboardEvent> & { key: string }) =>
+  ({
+    metaKey: false,
+    ctrlKey: false,
+    shiftKey: false,
+    altKey: false,
+    ...o,
+  }) as KeyboardEvent;
 
-test("matchBinding maps the ⌘-chords, in a text input as much as out of one", () => {
-  expect(matchBinding(ev({ key: "s", metaKey: true }), false)).toBe("save");
-  expect(matchBinding(ev({ key: "z", metaKey: true }), false)).toBe("undo");
-  expect(
-    matchBinding(ev({ key: "z", metaKey: true, shiftKey: true }), false),
-  ).toBe("redo");
-  // ⌘/Ctrl-chords stay live even in a text input (the browser default is worse).
-  expect(matchBinding(ev({ key: "s", metaKey: true }), true)).toBe("save");
+const LOOSE: GateEnv = {
+  inTextInput: false,
+  confirmOpen: false,
+  looking: false,
+};
+
+/** Every keyed action, with an event that should run it. The list is the BINDING TABLE
+ *  in machine-readable form: adding a binding without a row here fails the completeness
+ *  case below. */
+const BINDINGS: { id: string; event: KeyboardEvent }[] = [
+  { id: "world.save", event: ev({ key: "s", metaKey: true }) },
+  { id: "edit.undo", event: ev({ key: "z", metaKey: true }) },
+  { id: "edit.redo", event: ev({ key: "z", metaKey: true, shiftKey: true }) },
+  { id: "edit.duplicate", event: ev({ key: "j", metaKey: true }) },
+  { id: "edit.delete", event: ev({ key: "Backspace" }) },
+  { id: "edit.grab", event: ev({ key: "g" }) },
+  { id: "tool.pointer", event: ev({ key: "v" }) },
+  { id: "tool.brush", event: ev({ key: "b" }) },
+  { id: "tool.brushCycle", event: ev({ key: "B", shiftKey: true }) },
+  { id: "tool.select", event: ev({ key: "m" }) },
+  { id: "tool.selectCycle", event: ev({ key: "M", shiftKey: true }) },
+  { id: "tool.stamp", event: ev({ key: "s" }) },
+  { id: "tool.stampCycle", event: ev({ key: "S", shiftKey: true }) },
+  { id: "tool.swapEffect", event: ev({ key: "x" }) },
+  { id: "session.confirm", event: ev({ key: "Enter" }) },
+  { id: "session.rotate", event: ev({ key: "r" }) },
+  { id: "session.escape", event: ev({ key: "Escape" }) },
+  { id: "view.frame", event: ev({ key: "f" }) },
+  { id: "view.togglePalettes", event: ev({ key: "\\", metaKey: true }) },
+];
+
+test("every binding reaches its action, and EXACTLY one action claims each event", () => {
+  for (const { id, event } of BINDINGS) {
+    const claimants = ACTIONS.filter((a) => a.match?.(event) === true).map(
+      (a) => a.id,
+    );
+    // Both halves in one assertion, so a duplicate claim reports which two collided
+    // rather than only that the first one won.
+    expect({ event: event.key, claimants }).toEqual({
+      event: event.key,
+      claimants: [id],
+    });
+  }
 });
 
-test("matchBinding maps ⌘\\ to the palette hide-all latch", () => {
-  expect(matchBinding(ev({ key: "\\", metaKey: true }), false)).toBe(
-    "togglePalettes",
-  );
-  expect(matchBinding(ev({ key: "\\", ctrlKey: true }), false)).toBe(
-    "togglePalettes",
-  );
-  // A ⌘-chord, so it stays live in a text input like the others.
-  expect(matchBinding(ev({ key: "\\", metaKey: true }), true)).toBe(
-    "togglePalettes",
-  );
-  // Bare `\` is a character someone is typing — never a binding.
-  expect(matchBinding(ev({ key: "\\" }), false)).toBeUndefined();
+test("every keyed action has a row above — a binding cannot ship unpinned", () => {
+  const keyed = ACTIONS.filter((a) => a.match !== undefined).map((a) => a.id);
+  expect(new Set(keyed)).toEqual(new Set(BINDINGS.map((b) => b.id)));
 });
 
-test("matchBinding: Ctrl stands in for Cmd, Alt is inert, case is folded", () => {
-  expect(matchBinding(ev({ key: "z", ctrlKey: true }), false)).toBe("undo");
-  expect(
-    matchBinding(ev({ key: "z", ctrlKey: true, shiftKey: true }), false),
-  ).toBe("redo");
-  expect(matchBinding(ev({ key: "s", ctrlKey: true }), false)).toBe("save");
-  expect(matchBinding(ev({ key: "z", ctrlKey: true }), true)).toBe("undo");
-  // ⌥ is not a modifier any binding uses — with it held, nothing classifies.
-  expect(matchBinding(ev({ key: "s", altKey: true }), false)).toBeUndefined();
-  // Uppercase (Shift-held) letter still classifies via toLowerCase.
-  expect(matchBinding(ev({ key: "S", metaKey: true }), false)).toBe("save");
+test("Ctrl stands in for ⌘, and case is folded", () => {
+  expect(matchAction(ev({ key: "z", ctrlKey: true }))?.id).toBe("edit.undo");
+  expect(matchAction(ev({ key: "S", metaKey: true }))?.id).toBe("world.save");
+  expect(matchAction(ev({ key: "\\", ctrlKey: true }))?.id).toBe(
+    "view.togglePalettes",
+  );
+  expect(matchAction(ev({ key: "G" }))?.id).toBe("edit.grab");
 });
 
-test("matchBinding: the retired bare-key bindings classify as nothing", () => {
-  // F (frame) and ⌫/Delete (delete selection) went with the scene surface. They are
-  // pinned as UNBOUND so a future binding has to be added deliberately, not inherited.
-  expect(matchBinding(ev({ key: "f" }), false)).toBeUndefined();
-  expect(matchBinding(ev({ key: "Backspace" }), false)).toBeUndefined();
-  expect(matchBinding(ev({ key: "Delete" }), false)).toBeUndefined();
-  expect(matchBinding(ev({ key: "f" }), true)).toBeUndefined();
+test("⌥ is not a modifier any binding uses — with it held, nothing classifies", () => {
+  // It is the viewport's eyedropper modifier, and on macOS it rewrites `e.key` anyway.
+  expect(matchAction(ev({ key: "s", metaKey: true, altKey: true }))).toBeNull();
+  expect(matchAction(ev({ key: "f", altKey: true }))).toBeNull();
+  expect(matchAction(ev({ key: "Escape", altKey: true }))).toBeNull();
+});
+
+test("the canvas keeps its own keys — the registry claims none of them", () => {
+  // The fly set, the radius steppers, the arrow nudges and the momentary modifiers are
+  // the viewport's (see the ownership rule in lib/actions.ts). If one of them ever
+  // classifies here it is being handled twice.
+  for (const key of ["w", "a", "d", "q", "e", "[", "]", "Shift", "Control"])
+    expect({ key, id: matchAction(ev({ key }))?.id ?? null }).toEqual({
+      key,
+      id: null,
+    });
+  for (const key of ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"])
+    expect({ key, id: matchAction(ev({ key }))?.id ?? null }).toEqual({
+      key,
+      id: null,
+    });
+});
+
+test("`s` is BOTH a fly key and the stamp family — the look gate is what separates them", () => {
+  // Fly-backward and "open a stamp" are one keycap. What decides is whether the right
+  // button is down, polled per keypress: while looking, the letters belong to the fly.
+  const stamp = byId("tool.stamp");
+  expect(matchAction(ev({ key: "s" }))?.id).toBe("tool.stamp");
+  expect(gateAction(stamp, makeCtx(), LOOSE).ok).toBe(true);
+  expect(gateAction(stamp, makeCtx(), { ...LOOSE, looking: true }).ok).toBe(
+    false,
+  );
+});
+
+// --- the gate ---------------------------------------------------------------
+
+const verdict = (def: ActionDef, env: Partial<GateEnv>) =>
+  gateAction(def, makeCtx(), { ...LOOSE, ...env });
+
+test("⌘-chords stay live inside a text input — the browser default they replace is worse", () => {
+  expect(verdict(byId("world.save"), { inTextInput: true }).ok).toBe(true);
+  expect(verdict(byId("edit.undo"), { inTextInput: true }).ok).toBe(true);
+  expect(verdict(byId("view.togglePalettes"), { inTextInput: true }).ok).toBe(
+    true,
+  );
+});
+
+test("bare keys are refused in a text input — they are characters someone is typing", () => {
+  for (const id of ["view.frame", "edit.grab", "tool.brush", "edit.delete"])
+    expect({ id, ok: verdict(byId(id), { inTextInput: true }).ok }).toEqual({
+      id,
+      ok: false,
+    });
+});
+
+test("Esc and ⏎ are refused in a text input, and LIVE during a look drag", () => {
+  // A field binds both itself (Escape reverts the edit, Enter commits it); running the
+  // ladder on top would cancel the session behind the form the user is still in.
+  for (const id of ["session.escape", "session.confirm"]) {
+    expect({ id, ok: verdict(byId(id), { inTextInput: true }).ok }).toEqual({
+      id,
+      ok: false,
+    });
+    // …but cancelling and confirming must never depend on which button is down.
+    expect({ id, ok: verdict(byId(id), { looking: true }).ok }).toEqual({
+      id,
+      ok: true,
+    });
+  }
+});
+
+test("a modal confirm suppresses EVERY class, chords included", () => {
+  for (const id of ["world.save", "view.frame", "session.escape"])
+    expect({ id, ok: verdict(byId(id), { confirmOpen: true }).ok }).toEqual({
+      id,
+      ok: false,
+    });
+});
+
+test("a key that re-arms LMB is refused while a session owns the interaction, WITH a hint", () => {
+  const session = makeCtx({ session: { generator: "hall" } as never });
+  for (const id of [
+    "tool.pointer",
+    "tool.brush",
+    "tool.brushCycle",
+    "tool.select",
+    "tool.selectCycle",
+    "tool.stamp",
+    "tool.stampCycle",
+  ]) {
+    const v = gateAction(byId(id), session, LOOSE);
+    expect({ id, ok: v.ok }).toEqual({ id, ok: false });
+    // The hint is the whole point: a key that looks dead teaches the user it is dead.
+    expect({ id, hint: v.ok ? null : v.hint }).toEqual({
+      id,
+      hint: "finish the session first — ⏎ applies it, Esc discards it",
+    });
+  }
+  // Esc, ⏎ and R stay live — they are how the session ENDS.
+  for (const id of ["session.escape", "session.confirm", "session.rotate"])
+    expect({ id, ok: gateAction(byId(id), session, LOOSE).ok }).toEqual({
+      id,
+      ok: true,
+    });
+  // …and so does the sticky swap: the brush stays live during a session (its strokes are
+  // the documented divergence window), so swapping its effect re-arms nothing.
+  expect(gateAction(byId("tool.swapEffect"), session, LOOSE).ok).toBe(true);
+});
+
+test("a menu-only action can never be dispatched", () => {
+  // It has no `match`, so nothing reaches it — and the gate refuses it as a backstop, so
+  // a matcher added without a gate cannot slip through ungated.
+  expect(gateAction(byId("world.new"), makeCtx(), LOOSE).ok).toBe(false);
+  expect(gateAction(byId("edit.history"), makeCtx(), LOOSE).ok).toBe(false);
 });

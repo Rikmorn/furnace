@@ -18,12 +18,14 @@ import "../inspector/_register.ts";
 // canvas's aria-label, each fails a case below.
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import type { ReactElement } from "react";
+import type { ConfirmRequest } from "../../src/frontend/components/ConfirmDialog.tsx";
 import { EditorContext } from "../../src/frontend/components/editor-context.ts";
 import { Shell } from "../../src/frontend/components/shell/Shell.tsx";
 import {
 	FieldHostStateProvider,
 	useFieldHostState,
 } from "../../src/frontend/hooks/useFieldHostState.tsx";
+import { ACTIONS } from "../../src/frontend/lib/actions.ts";
 import { notify } from "../../src/frontend/lib/notify-store.ts";
 import type { UiStore } from "../../src/frontend/lib/persist.ts";
 import type { FieldTool } from "../../src/viewport-host/index.ts";
@@ -506,6 +508,18 @@ test("⌘Z / ⇧⌘Z step the FIELD's history — the editor has no second one",
 	fetch404();
 	const stub = makeStubHost();
 	await renderShell(stub);
+	// The chord is gated on the same depth the menu item is (the registry has ONE
+	// `enabled` and both surfaces read it), so a stack has to exist before it steps —
+	// which is the half asserted first, because a key that fires into an empty stack
+	// would pass the rest of this case for the wrong reason.
+	act(() => {
+		fireEvent.keyDown(window, { key: "z", metaKey: true });
+	});
+	expect(stub.calls.undo).not.toHaveBeenCalled();
+
+	act(() => {
+		stub.fire.stats(makeStats({ undoDepth: 2, redoDepth: 1 }));
+	});
 	act(() => {
 		fireEvent.keyDown(window, { key: "z", metaKey: true });
 	});
@@ -1343,12 +1357,16 @@ test("the burger's View options item opens the popover beside it", async () => {
 	expect(screen.getByLabelText("void cast")).toBeTruthy();
 });
 
-// The overlay is a HAND-MAINTAINED table (its own header says so), so what these
-// assertions are worth is exactly the rows they pin. One per group, each chosen because
-// it is a claim about a different source: the ⌘\ row about lib/keybindings.ts, the fly
-// and radius rows about field-host.ts's keydown handler, the ⇧-arrow row about
-// input-map.ts's nudge table, and the canvas ⌘Z row about the one line in field-host.ts
-// that stops the chord propagating (without which one press steps the log twice).
+// The overlay is HALF derived now: the app-level groups render from the action registry
+// (so a binding that moves cannot leave a row behind), and the canvas group is still a
+// hand-maintained table for the keys the viewport owns. The assertions are picked to
+// cover both halves and each of the sources behind them: ⌘\ and ⌘Z come from the
+// registry, the fly and radius rows from field-host.ts's keydown handler, the ⇧-arrow row
+// from input-map.ts's nudge table.
+//
+// The DERIVED half is pinned by a stronger case below (every keyed action has a row), so
+// what these rows are worth is the WORDING — that the sentence beside a keycap describes
+// what this build actually does.
 test("Help opens the shortcut overlay, and its rows are THIS build's bindings", async () => {
 	fetch404();
 	const stub = makeStubHost();
@@ -1368,15 +1386,37 @@ test("Help opens the shortcut overlay, and its rows are THIS build's bindings", 
 	};
 
 	expect(meaning("⌘\\")).toContain("palette");
-	expect(meaning("W / S")).toContain("Fly forward");
+	expect(meaning("⌘Z")).toContain("Undo");
+	// The behaviour change this slice makes, said where a user would look for it: WASD
+	// only flies while the right button is held, because otherwise those letters are tool
+	// keys. A fly row that still read "Fly forward / back" would be teaching a lie.
+	expect(meaning("W A S D")).toContain("right button is held");
 	expect(meaning("[ / ]")).toContain("Brush radius");
 	expect(meaning("⇧↑ / ⇧↓")).toContain("+Y");
-	expect(meaning("⌘Z / ⇧⌘Z")).toContain("once, not twice");
 	// The two mouse bindings that are not keys at all, and would be the easiest to leave
 	// out of a "keyboard" overlay: without them the eyedropper and RMB-look are editor
 	// features with no documentation anywhere in the product.
 	expect(meaning("⌥ left-click")).toContain("Sample the material");
 	expect(meaning("right-drag")).toContain("Look around");
+});
+
+test("the overlay renders the REGISTRY — every keyed action has a row, with its keycap", async () => {
+	fetch404();
+	const stub = makeStubHost();
+	await renderShell(stub);
+	pickMenuItem("Keyboard shortcuts");
+	const dialog = await waitFor(() => screen.getByRole("dialog"));
+	// The claim the hand-maintained table could never make: a binding cannot ship
+	// undocumented, because the rows ARE the table. Every action with a `match` is
+	// listed under its own keycap.
+	for (const action of ACTIONS) {
+		if (action.match === undefined) continue;
+		const keys = action.keys ?? "";
+		expect({
+			id: action.id,
+			listed: within(dialog).queryAllByText(keys).length,
+		}).toEqual({ id: action.id, listed: 1 });
+	}
 });
 
 // --- (c4) the orientation triad ----------------------------------------------
@@ -2112,4 +2152,253 @@ test("no dock DOM survives", async () => {
 	await renderShell(stub);
 	expect(document.querySelector(".dockview-theme-dark")).toBeNull();
 	expect(document.querySelector(".dv-tab")).toBeNull();
+});
+
+// --- (c9) the action registry: app-level key dispatch (D-10/D-11/D-12) -------
+//
+// The window listener is the whole point of the registry: the canvas's own keydown
+// handler dies the moment the user clicks a palette control, which is the standing F2b
+// finding these bindings exist to answer. Everything below therefore fires at `window`
+// (or at a text input inside the tree) — never at the canvas.
+
+/** One committed hall, selected, as the host would publish it. */
+function selectHall(stub: ReturnType<typeof makeStubHost>): void {
+	stub.setEntities([
+		{
+			entityId: 4,
+			type: "generator",
+			generator: "hall",
+			params: {},
+			seed: 7,
+			region: { min: [0, 0, 0], max: [4, 4, 4] },
+			opSpan: [2, 4],
+			placed: [],
+		},
+	]);
+	act(() => {
+		stub.fire.entities();
+		stub.fire.entitySelection(4);
+	});
+}
+
+const pressKey = (key: string, init: Record<string, unknown> = {}): void => {
+	act(() => {
+		fireEvent.keyDown(window, { key, ...init });
+	});
+};
+
+test("the family keys arm what LMB does, and ⇧ steps through the family", async () => {
+	fetch404();
+	const stub = makeStubHost();
+	await renderShell(stub);
+	const armed = () => stub.calls.setGesture.mock.calls.map((c) => c[0]);
+
+	pressKey("m"); // the cell-select family, first member
+	pressKey("M", { shiftKey: true }); // …step
+	pressKey("v"); // back to the pointer
+	expect(armed()).toEqual(["box", "material", "pointer"]);
+
+	// The brush family arms through setTool (its members are EFFECTS, not gestures)
+	// and disarms the pointer that was holding LMB — both halves, because arming an
+	// effect while the pointer still owns the click is a brush that never strokes.
+	pressKey("b");
+	expect(stub.calls.setTool.mock.calls.at(-1)?.[0]).toMatchObject({
+		effect: "dig",
+	});
+	expect(armed().at(-1)).toBe(null);
+	pressKey("B", { shiftKey: true });
+	expect(stub.calls.setTool.mock.calls.at(-1)?.[0]).toMatchObject({
+		effect: "fill",
+	});
+});
+
+test("G grabs and ⌘J duplicates the SELECTED entity — the verbs T4 and T5 left unreachable", async () => {
+	fetch404();
+	const stub = makeStubHost();
+	await renderShell(stub);
+
+	// With nothing selected both are disabled, and the key is still SWALLOWED (the
+	// dispatcher claims a matched event before it consults `enabled`) — what must not
+	// happen is a host call on an id that does not exist.
+	pressKey("g");
+	pressKey("j", { metaKey: true });
+	expect(stub.calls.beginMove).not.toHaveBeenCalled();
+	expect(stub.calls.duplicateEntity).not.toHaveBeenCalled();
+
+	selectHall(stub);
+	pressKey("g");
+	pressKey("j", { metaKey: true });
+	expect(stub.calls.beginMove.mock.calls).toEqual([[4]]);
+	expect(stub.calls.duplicateEntity.mock.calls).toEqual([[4]]);
+});
+
+test("⌫ asks before it deletes, and names the stamp it would remove", async () => {
+	fetch404();
+	const stub = makeStubHost();
+	const requests: ConfirmRequest[] = [];
+	renderWithEditor(
+		<Shell />,
+		makeEditorContext({
+			fieldHostRef: { current: stub.host },
+			openConfirm: (r) => requests.push(r),
+		}),
+	);
+	await flushCatalog();
+	selectHall(stub);
+
+	pressKey("Backspace");
+	expect(requests.length).toBe(1);
+	expect(requests[0]?.destructive).toBe(true);
+	// The op count is the honest measure of what is about to go (a scatter reads
+	// "1 ops" and takes every prop it placed with it).
+	expect(requests[0]?.message).toContain("3 ops");
+	// Nothing is deleted until the prompt is answered.
+	expect(stub.calls.deleteEntity).not.toHaveBeenCalled();
+	act(() => requests[0]?.onConfirm());
+	expect(stub.calls.deleteEntity.mock.calls).toEqual([[4]]);
+});
+
+test("Esc runs the host's cancel ladder, from anywhere", async () => {
+	fetch404();
+	const stub = makeStubHost();
+	await renderShell(stub);
+	pressKey("Escape");
+	expect(stub.calls.escape.mock.calls.length).toBe(1);
+});
+
+test("the bare keys stand down while the RIGHT BUTTON is held — polled per press", async () => {
+	fetch404();
+	const stub = makeStubHost();
+	await renderShell(stub);
+
+	// `S` is fly-backward AND the stamp family. What separates them is the button, and
+	// the button goes down and up BETWEEN renders — so the gate has to ask the host at
+	// the moment of the press. A ctx that snapshotted this would answer for a frame
+	// that has already gone.
+	stub.setLooking(true);
+	pressKey("v");
+	pressKey("f");
+	expect(stub.calls.setGesture).not.toHaveBeenCalled();
+	expect(stub.calls.frameSelection).not.toHaveBeenCalled();
+
+	stub.setLooking(false);
+	pressKey("v");
+	pressKey("f");
+	expect(stub.calls.setGesture.mock.calls).toEqual([["pointer"]]);
+	expect(stub.calls.frameSelection.mock.calls.length).toBe(1);
+
+	// …and Esc is NOT in that class: cancelling must never depend on which button is
+	// down (its gate is the text-input one alone).
+	stub.setLooking(true);
+	pressKey("Escape");
+	expect(stub.calls.escape.mock.calls.length).toBe(1);
+});
+
+test("a bare key typed into a text field is a CHARACTER, not a binding", async () => {
+	fetch404();
+	const stub = makeStubHost();
+	await renderShell(stub);
+	// The world drawer's name form is a real text input inside the shell — a place the
+	// user genuinely types letters that are also bindings.
+	pickMenuItem("Save as…");
+	const input = await waitFor(() =>
+		screen.getByLabelText("save as world name"),
+	);
+
+	act(() => {
+		fireEvent.keyDown(input, { key: "v" });
+		fireEvent.keyDown(input, { key: "b" });
+	});
+	expect(stub.calls.setGesture).not.toHaveBeenCalled();
+	expect(stub.calls.setTool).not.toHaveBeenCalled();
+
+	// A ⌘-chord is the opposite case and stays live in the same field: the browser
+	// default it replaces (the input's own undo stack) is worse.
+	act(() => {
+		stub.fire.stats(makeStats({ undoDepth: 1 }));
+	});
+	act(() => {
+		fireEvent.keyDown(input, { key: "z", metaKey: true });
+	});
+	expect(stub.calls.undo.mock.calls.length).toBe(1);
+});
+
+test("a family key during a live session refuses OUT LOUD rather than going quiet", async () => {
+	fetch404();
+	const stub = makeStubHost();
+	await renderShell(stub);
+	act(() => {
+		stub.fire.stamp({
+			generator: "hall",
+			params: {},
+			seed: 1,
+			policy: "replace",
+			region: { min: [0, 0, 0], max: [4, 4, 4] },
+			phase: "ready",
+			run: 1,
+			opCount: 3,
+			placementCount: 0,
+			error: null,
+			truncatedSelection: false,
+			mode: "stamp",
+			entityId: null,
+		});
+	});
+
+	// Cleared first so the assertion below reads THIS message: the toast stack is
+	// capped at three, and a shell that has already said something (the 404 catalog
+	// pass does) can push a fourth into the log without ever giving it a slot.
+	act(() => notify.clear());
+	pressKey("b");
+	expect(stub.calls.setTool).not.toHaveBeenCalled();
+	// The hint is the whole point of refusing here rather than silently: a key that
+	// looks dead teaches the user it IS dead. Asserted inside the toast STACK rather
+	// than anywhere on screen — the live region carries the same string, and a message
+	// that only reached the log would be a hint nobody sees.
+	expect(
+		within(screen.getByLabelText("notifications")).getByText(
+			/finish the session first/,
+		),
+	).toBeTruthy();
+
+	// Esc and ⏎ stay live — they are how the session ends.
+	pressKey("Enter");
+	expect(stub.calls.commitSession.mock.calls.length).toBe(1);
+});
+
+test("the status bar's keymap line follows what is armed", async () => {
+	fetch404();
+	const stub = makeStubHost();
+	await renderShell(stub);
+	// WHOLE lines, not prefixes. A first cut matched `/LMB select · G grab/` and stayed
+	// GREEN when the tail of that very line was changed from "⌫ delete" to "X delete" —
+	// a guard that could not fire on three quarters of what it claimed to pin.
+	expect(
+		screen.getByText("LMB select · G grab · F frame · ⌫ delete"),
+	).toBeTruthy();
+
+	pressKey("b");
+	expect(
+		screen.getByText("LMB dig · [ ] radius · ⇧ smooth · ⌃ fill · X swap"),
+	).toBeTruthy();
+	pressKey("B", { shiftKey: true });
+	expect(
+		screen.getByText("LMB fill · [ ] radius · ⇧ smooth · ⌃ fill · X swap"),
+	).toBeTruthy();
+
+	pressKey("m");
+	expect(screen.getByText("click ×2 spans a region · esc clears")).toBeTruthy();
+});
+
+test("the burger's Edit group names the stamp its verbs would act on", async () => {
+	fetch404();
+	const stub = makeStubHost();
+	await renderShell(stub);
+	selectHall(stub);
+	openBurger();
+	// The chord acts on "whatever is selected" without saying so; the menu is where
+	// that noun becomes visible.
+	expect(await waitFor(() => screen.getByText("Delete hall #4"))).toBeTruthy();
+	expect(screen.getByText("Duplicate hall #4")).toBeTruthy();
+	expect(screen.getByText("Move hall #4")).toBeTruthy();
 });

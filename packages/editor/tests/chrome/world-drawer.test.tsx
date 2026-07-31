@@ -13,6 +13,7 @@ import "../inspector/_register.ts";
 import { afterEach, expect, mock, test } from "bun:test";
 import type { ConfirmRequest } from "../../src/frontend/components/ConfirmDialog.tsx";
 import { TopBar } from "../../src/frontend/components/shell/TopBar.tsx";
+import { ActionContextProvider } from "../../src/frontend/hooks/useActionContext.tsx";
 import { CatalogProvider } from "../../src/frontend/hooks/useCatalogs.tsx";
 import { FieldHostStateProvider } from "../../src/frontend/hooks/useFieldHostState.tsx";
 import { ViewProvider } from "../../src/frontend/hooks/useView.tsx";
@@ -154,7 +155,12 @@ async function renderTopBar(
 				<WorldProvider>
 					<CatalogProvider>
 						<WorkspaceProvider store={undefined}>
-							<TopBar />
+							{/* The burger's groups and the shortcut overlay are rendered FROM the
+							    action registry, so the bar needs the context that assembles it —
+							    innermost, exactly as the shell mounts it. */}
+							<ActionContextProvider>
+								<TopBar />
+							</ActionContextProvider>
 						</WorkspaceProvider>
 					</CatalogProvider>
 				</WorldProvider>

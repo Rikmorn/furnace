@@ -48,11 +48,25 @@ drawer, the confirm dialog. Those legitimately take focus (you navigate into the
 the question is where focus goes on CLOSE, and that is still the conditional-restore
 design decision described above. The momentary-command answer does not generalise to it.
 
+## Narrowed again — most of the "dead keys" left (F4.5b Task 7, 2026-07-31)
+
+The action registry moved every APP-LEVEL verb onto a `window` listener: ⏎, Esc, R, F, ⌫,
+`G`, `V`/`B`/`M`/`S`, `X`, ⌘J, ⌘S, ⌘Z, ⌘\. None of them needs the canvas focused any
+more, so clicking a palette control no longer kills them — which is most of what made
+this entry feel urgent. The canvas keeps only what steers the viewport under the pointer:
+the fly set, `[`/`]`, the arrow nudges and the momentary ⇧/⌃. Losing those to a palette
+click is a much smaller loss (they all have panel equivalents or repeat harmlessly), and
+`onBlur`'s `cancelMoveInFlight()` — the sharp edge — is unchanged.
+
+The line above about ⌘Z is still accurate as written: both listeners bind it, and the
+canvas's `stopPropagation` is what keeps one press from stepping the log twice.
+
 ## Trigger to revisit
 
 The F4.5c polish stage, or sooner if the slice slider (a control a user drags repeatedly
-while looking at the field) makes the dead-keys window obvious. F4.5b's pointer work
-already came and went — it handled the momentary-command half only.
+while looking at the field) makes the remaining dead-keys window obvious. F4.5b's pointer
+work already came and went — it handled the momentary-command half only, and Task 7
+retired most of the rest.
 
 ## Reference
 

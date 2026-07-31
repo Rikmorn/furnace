@@ -1,22 +1,29 @@
 // The top bar's one menu. The TREE is the deliverable here — the shape a user (and the
 // shortcut overlay) can read the editor's verbs off — not the wiring.
 //
-// Every item is LIVE: World acts on the session's world, Edit steps the field's one
-// history, View drives the same state the popover beside it does, and Help opens the
-// shortcut overlay. Nothing is a placeholder any more, so every disabled state below means
-// something specific — no name on disk yet, a write in flight, nothing left to undo.
+// The World, Edit and View groups are RENDERED FROM THE ACTION REGISTRY
+// (`lib/actions.ts`): their labels, their disabled states and the chords beside them all
+// come from the same table the window key dispatcher reads, so a menu item and its
+// shortcut cannot describe different things. The `tool` and `session` groups are
+// deliberately NOT here — arming a brush and ending a session are the rail's and the
+// viewport's, and the shortcuts overlay is where they are discovered.
+//
+// What stays hand-written is what a registry action cannot express, because its state is
+// COMPONENT-LOCAL: the palette checkbox list (one item per palette id), "View options…"
+// and "Keyboard shortcuts" (both open a surface and hand focus to it — see `handingOff`).
+// An action's `run` must be expressible from the ctx; a menu item that drives a dialog's
+// own open flag is not an action, and pretending otherwise would put a `setState` into a
+// pure table.
 import { Menu } from "lucide-react";
 import { useRef, useState } from "react";
-import { useFieldHostState } from "../../hooks/useFieldHostState.tsx";
+import { useActionContext } from "../../hooks/useActionContext.tsx";
 import { usePaletteRaise } from "../../hooks/usePaletteStack.tsx";
-import { useViewActions, useViewState } from "../../hooks/useView.tsx";
 import {
 	useWorkspaceActions,
 	useWorkspaceState,
 } from "../../hooks/useWorkspace.tsx";
-import { useWorldActions, useWorldState } from "../../hooks/useWorld.tsx";
+import { ACTIONS, type ActionGroup } from "../../lib/actions.ts";
 import { PALETTE_IDS, PALETTES } from "../../lib/palette-store.ts";
-import { useEditor } from "../editor-context.ts";
 import {
 	DropdownMenu,
 	DropdownMenuCheckboxItem,
@@ -32,45 +39,60 @@ import { ShortcutsDialog } from "./ShortcutsDialog.tsx";
 const MAKE_DEFAULT_TITLE =
 	"point the game at the SAVED copy of this world — Bake if you want the edits in this session to go with it";
 
-/** Undo / Redo, and whether there is anything to step.
- *
- *  Its own component so the STATS subscription lives inside the menu CONTENT: Radix
- *  mounts that content only while the menu is open, so a closed menu costs nothing at
- *  all — and the stats push (every rAF, guarded by value-equality but moving on every op
- *  of every drag) never re-renders the trigger sitting in the top bar.
- *
- *  The verbs go straight to the host, which is what the ⌘Z/⇧⌘Z chords do too (Shell's
- *  `undo`/`redo` callbacks are the same two lines): one history, one pair of methods,
- *  two surfaces. */
-function EditGroup() {
-	const { fieldHostRef } = useEditor();
-	const { stats } = useFieldHostState();
-	// No stats yet means the host has never pushed a frame — nothing has been done, so
-	// there is provably nothing to step, and both items say so rather than inviting a
-	// click into a host that may not even be up.
-	const undoDepth = stats?.undoDepth ?? 0;
-	const redoDepth = stats?.redoDepth ?? 0;
+/** The per-item title a registry action gets, where a disabled item would otherwise
+ *  swallow its own explanation. Keyed by id rather than carried on the table because it
+ *  is a MENU concern — the same action reached by its chord has no tooltip. */
+const ITEM_TITLES: Record<string, string> = {
+	"world.makeDefault": MAKE_DEFAULT_TITLE,
+	"edit.history": "arrives with the History palette",
+};
 
+/** One registry group, rendered in table order. Its own component so the action context
+ *  — which moves on every op and every drag frame — is read inside the menu CONTENT:
+ *  Radix mounts that content only while the menu is open, so a closed menu costs nothing
+ *  and the trigger sitting in the top bar never re-renders with it. */
+function RegistryGroup({
+	group,
+	title,
+}: {
+	group: ActionGroup;
+	title: string;
+}) {
+	const ctx = useActionContext();
 	return (
 		<>
-			<DropdownMenuLabel>Edit</DropdownMenuLabel>
-			{/* MIGRATION (until F4.5b): the labels say only WHETHER there is something to
-			    step, never WHAT. Naming the op ("Undo dig") needs the log's tail, which no
-			    host seam exposes today; it arrives with the command registry. */}
-			<DropdownMenuItem
-				disabled={undoDepth === 0}
-				onSelect={() => fieldHostRef.current?.undo()}
-			>
-				Undo
-				<DropdownMenuShortcut>⌘Z</DropdownMenuShortcut>
-			</DropdownMenuItem>
-			<DropdownMenuItem
-				disabled={redoDepth === 0}
-				onSelect={() => fieldHostRef.current?.redo()}
-			>
-				Redo
-				<DropdownMenuShortcut>⇧⌘Z</DropdownMenuShortcut>
-			</DropdownMenuItem>
+			<DropdownMenuLabel>{title}</DropdownMenuLabel>
+			{ACTIONS.filter((a) => a.group === group).map((action) => {
+				const item = {
+					disabled: !action.enabled(ctx),
+					title: ITEM_TITLES[action.id],
+				};
+				// A checkbox item where the action reports a checked state, a plain item
+				// otherwise — the one structural difference a menu needs from the table.
+				return action.checked === undefined ? (
+					<DropdownMenuItem
+						key={action.id}
+						disabled={item.disabled}
+						title={item.title}
+						onSelect={() => action.run(ctx)}
+					>
+						{action.label(ctx)}
+						{action.keys !== undefined && (
+							<DropdownMenuShortcut>{action.keys}</DropdownMenuShortcut>
+						)}
+					</DropdownMenuItem>
+				) : (
+					<DropdownMenuCheckboxItem
+						key={action.id}
+						checked={action.checked(ctx)}
+						disabled={item.disabled}
+						title={item.title}
+						onCheckedChange={() => action.run(ctx)}
+					>
+						{action.label(ctx)}
+					</DropdownMenuCheckboxItem>
+				);
+			})}
 		</>
 	);
 }
@@ -82,14 +104,9 @@ export function BurgerMenu({
 	 *  too many to carry as items (see the View group below). */
 	onOpenViewOptions: () => void;
 }) {
-	const { palettes, hidden } = useWorkspaceState();
-	const { setOpen, setCollapsed, setHidden, toggleHidden, reset } =
-		useWorkspaceActions();
+	const { palettes } = useWorkspaceState();
+	const { setOpen, setCollapsed, setHidden } = useWorkspaceActions();
 	const raise = usePaletteRaise();
-	const { name: worldName, busy } = useWorldState();
-	const world = useWorldActions();
-	const { shading, layers } = useViewState();
-	const view = useViewActions();
 	const [shortcutsOpen, setShortcutsOpen] = useState(false);
 	// Radix returns focus to the trigger when the menu closes, which for an item that
 	// OPENS something would pull focus straight back out of the surface just opened. This
@@ -117,84 +134,29 @@ export function BurgerMenu({
 					}}
 				>
 					{/* The same verb set the world chip, the drawer and ⌘S drive — one action
-	            source, three surfaces. Bake also writes worlds/index.json, so it needs a
-	            name to write about: disabled while untitled, with the reason IN the label
-	            (a disabled item swallows the tooltip that would otherwise carry it). */}
-					<DropdownMenuLabel>World</DropdownMenuLabel>
-					{/* Busy-gated like Save and Bake, and for a sharper reason than symmetry: New
-					    empties the host's world SYNCHRONOUSLY, while an in-flight save is still
-					    between `exportArtifact` and its uploads. Ungated, a New landing mid-save
-					    writes the freshly-emptied world over the named target. (The drawer's New
-					    is gated already; this is the surface that was missing it.) */}
-					<DropdownMenuItem disabled={busy} onSelect={world.reset}>
-						New
-					</DropdownMenuItem>
-					<DropdownMenuItem onSelect={() => world.openDrawer("browse")}>
-						Open…
-					</DropdownMenuItem>
-					<DropdownMenuItem disabled={busy} onSelect={world.save}>
-						Save
-						<DropdownMenuShortcut>⌘S</DropdownMenuShortcut>
-					</DropdownMenuItem>
-					<DropdownMenuItem onSelect={() => world.openDrawer("save-as")}>
-						Save as…
-					</DropdownMenuItem>
-					<DropdownMenuItem
-						disabled={busy || worldName === null}
-						onSelect={world.bake}
-					>
-						{worldName === null ? "Bake — name the world first" : "Bake"}
-					</DropdownMenuItem>
-					{/* The drawer carries this verb per ROW; here it acts on the world already
-					    open, which is the case that otherwise costs a trip through the list. It
-					    is NOT a second spelling of Bake: Bake writes this session over the
-					    directory first, this one leaves the saved copy exactly as it is and only
-					    repoints worlds/index.json. Not busy-gated — it touches neither the host
-					    nor the in-flight upload (see useWorld's note on the world verbs not
-					    being serialised against each other).
-
-					    LIVE when this world is ALREADY the default, unlike the drawer row,
-					    which disables that case. The fact is not free here: `isDefault`
-					    arrives only on `world.list`, so gating would mean this menu fetching
-					    the world list to grey one item out. The cost of not gating is one
-					    confirm and one idempotent index.json rewrite. F4.5b's registry
-					    computes enabled-state from a state store, and gets it for nothing. */}
-					<DropdownMenuItem
-						disabled={worldName === null}
-						title={MAKE_DEFAULT_TITLE}
-						onSelect={() => {
-							if (worldName !== null) world.makeDefault(worldName);
-						}}
-					>
-						{worldName === null
-							? "Make default — name the world first"
-							: "Make default"}
-					</DropdownMenuItem>
+	            source, three surfaces. Every disabled state here means something specific
+	            and says so IN its label, because a disabled item swallows the tooltip that
+	            would otherwise carry it: New and Save are busy-gated (New empties the
+	            host's world SYNCHRONOUSLY, so one landing mid-save would write the
+	            freshly-emptied world over the named target), Bake and Make default need a
+	            name on disk to write about. */}
+					<RegistryGroup group="world" title="World" />
 					<DropdownMenuSeparator />
-					<EditGroup />
+					{/* Undo/Redo step the field's ONE history, and are NAMED once the history
+	            seam reports what a step did. Duplicate, Move and Delete name the stamp
+	            they would act on — which is what a menu is for, since their chords
+	            (⌘J, G, ⌫) act on whatever is selected without saying so. */}
+					<RegistryGroup group="edit" title="Edit" />
 					<DropdownMenuSeparator />
-					<DropdownMenuLabel>View</DropdownMenuLabel>
-					{/* The two display toggles the menu carries; everything else about the view
-	            lives in the popover beside the world chip, which can show seven layer
-	            gates and a slider without becoming a menu. These two are here because
-	            they are the ones a user reaches for mid-gesture: the debug shading and
-	            the grid.
+					{/* The display toggles the menu carries, plus the two workspace verbs;
+	            everything else about the view lives in the popover beside the world chip,
+	            which can show seven layer gates and a slider without becoming a menu.
+	            These are here because they are the ones a user reaches for mid-gesture.
 
 	            Shading is stated as "Normals" rather than as a Studio/Normals pair — a
 	            menu checkbox is a boolean, and the boolean that means something is
 	            "am I in the debug mode". */}
-					<DropdownMenuCheckboxItem
-						checked={shading === "normals"}
-						onCheckedChange={(on) => view.setShading(on ? "normals" : "studio")}
-					>
-						Normals shading
-					</DropdownMenuCheckboxItem>
-					<DropdownMenuCheckboxItem
-						checked={layers.grid}
-						onCheckedChange={(grid) => view.setLayers({ ...layers, grid })}
-					>
-						Grid
-					</DropdownMenuCheckboxItem>
+					<RegistryGroup group="view" title="View" />
 					{/* Named after the surface it opens (the popover's trigger says "view
 	            options" too), not after what is in it: the popover calls those gates
 	            "layers", and a menu item calling them something else would be two names
@@ -235,16 +197,11 @@ export function BurgerMenu({
 							{PALETTES[id].title} palette
 						</DropdownMenuCheckboxItem>
 					))}
-					<DropdownMenuItem onSelect={toggleHidden}>
-						{hidden ? "Show palettes" : "Hide palettes"}
-						<DropdownMenuShortcut>⌘\</DropdownMenuShortcut>
-					</DropdownMenuItem>
-					<DropdownMenuItem onSelect={reset}>Reset workspace</DropdownMenuItem>
 					<DropdownMenuSeparator />
 					<DropdownMenuLabel>Help</DropdownMenuLabel>
-					{/* No shortcut of its own: the four global chords are the whole bare-key
-					    budget this build spends (lib/keybindings.ts), and an item advertising a
-					    "?" nothing listens for is a shortcut that teaches a lie. */}
+					{/* No shortcut of its own: `?` is a bare key the registry does not bind, and
+					    an item advertising one nothing listens for is a shortcut that teaches a
+					    lie. */}
 					<DropdownMenuItem
 						onSelect={() => {
 							handingOff.current = true;

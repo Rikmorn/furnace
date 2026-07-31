@@ -49,7 +49,10 @@ import type {
 } from "../src/viewport-host/field-host.ts";
 import { createFieldHost } from "../src/viewport-host/field-host.ts";
 import { type HostListeners, makeHostCanvas } from "./_helpers/host-canvas.ts";
-import { stubAnimationFrameNoop } from "./_helpers/raf.ts";
+import {
+  stubAnimationFrameCaptured,
+  stubAnimationFrameNoop,
+} from "./_helpers/raf.ts";
 
 await ensureBunWebGpu();
 
@@ -106,12 +109,19 @@ const CENTRE = 32;
 const dist = (a: V3, b: V3): number =>
   Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
 
-/** An initialized host over one committed hall, with the recorded input handlers. */
-async function cameraFixture() {
+/** An initialized host over one committed hall, with the recorded input handlers.
+ *
+ *  `frames: true` swaps the no-op rAF for the CAPTURED one, so a test can run the
+ *  host's own tick — the only way to reach `applyFlyMove`, which lives inside a
+ *  frame rather than in any handler. */
+async function cameraFixture(opts: { frames?: boolean } = {}) {
   const restoreRo = installMockResizeObserver();
-  // The NO-OP rAF variant: every path under test runs inside an input handler or
-  // a method, and under bun-webgpu the render inside a frame is invalid anyway.
-  const restoreRaf = stubAnimationFrameNoop();
+  // The NO-OP rAF variant by default: every other path under test runs inside an
+  // input handler or a method, and under bun-webgpu the render inside a frame is
+  // invalid anyway (it prints, harmlessly, and the assertions never read pixels).
+  const frames = opts.frames === true ? stubAnimationFrameCaptured() : null;
+  const restoreRaf =
+    frames === null ? stubAnimationFrameNoop() : frames.restore;
   const listeners: HostListeners = new Map();
   const host = createFieldHost();
 
@@ -174,16 +184,33 @@ async function cameraFixture() {
    *  bigger brush, depending on what LMB is armed to do. */
   const wheel = (deltaY: number): void =>
     fire("wheel", { deltaY, preventDefault: () => undefined });
-  const key = (k: string): void =>
+  /** Every canvas key event records whether the host CLAIMED it — the two calls
+   *  are what decide whether the window listener (which binds the same ⏎/Esc/R/F)
+   *  runs the verb a second time. */
+  const claimed = { preventDefault: 0, stopPropagation: 0 };
+  const key = (k: string, mods: Record<string, boolean> = {}): void => {
+    claimed.preventDefault = 0;
+    claimed.stopPropagation = 0;
     fire("keydown", {
       key: k,
       metaKey: false,
       ctrlKey: false,
       shiftKey: false,
       altKey: false,
-      preventDefault: () => undefined,
-      stopPropagation: () => undefined,
+      ...mods,
+      preventDefault: () => {
+        claimed.preventDefault += 1;
+      },
+      stopPropagation: () => {
+        claimed.stopPropagation += 1;
+      },
     });
+  };
+  const keyUp = (k: string): void => {
+    const fn = listeners.get("keyup");
+    if (fn === undefined) throw new Error("test: no keyup listener");
+    fn({ key: k });
+  };
 
   const ops = (): FieldOp[] => {
     const file = host
@@ -249,6 +276,15 @@ async function cameraFixture() {
     up,
     wheel,
     key,
+    keyUp,
+    /** Whether the LAST `key()` was claimed by the canvas handler. */
+    claimed,
+    /** Run ONE host frame at `now` ms. Throws if the host scheduled none. */
+    tick: (now: number): void => {
+      if (frames === null)
+        throw new Error("test: fixture built without frames");
+      frames.tick(now);
+    },
     /** The live camera EYE, read back off the baked manifest's playerStart. */
     eye: (): V3 => {
       const file = host
@@ -546,6 +582,129 @@ test.skipIf(!bunWebGpuAvailable())(
         Math.max(2, f.footprintLongest() * 1.8),
         5,
       );
+    } finally {
+      f.teardown();
+    }
+  },
+);
+
+// --- fly is RMB-GATED (D-10) ------------------------------------------------
+//
+// The behaviour change this slice makes, and until now the least-pinned thing in
+// the host: NOTHING exercised `applyFlyMove` at all (`camera-control.test.ts`
+// covers the pure `flyMove` it calls, which is a different claim — that the
+// arithmetic is right, not that the key reaches it). These two cases are the
+// first guard on the binding itself, in both directions.
+
+/** Two frames 16 ms apart, on a clock that only ever goes FORWARD.
+ *
+ *  Both halves matter. The host computes `dt = 0` for the first tick after init
+ *  by design (it has no previous timestamp), so a test that ran ONE tick could
+ *  never move a camera and would pass whatever the gate did. And the clock has to
+ *  advance across calls: `dt` is `now - lastFrameT`, so replaying the same two
+ *  timestamps hands the host a NEGATIVE `dt` followed by its exact positive twin,
+ *  and the two fly steps cancel to a stationary eye — which is indistinguishable
+ *  from the gate refusing. (Found by this test failing at `Received: 0` for that
+ *  reason, not by reading.) */
+let flyClock = 1000;
+function flyFrames(f: Awaited<ReturnType<typeof cameraFixture>>): void {
+  f.tick(flyClock);
+  f.tick(flyClock + 16);
+  flyClock += 32;
+}
+
+test.skipIf(!bunWebGpuAvailable())(
+  "WASD does NOT fly on its own — the letters are the app's tool keys",
+  async () => {
+    const f = await cameraFixture({ frames: true });
+    try {
+      const eyeBefore = f.eye();
+      f.key("w");
+      flyFrames(f);
+      // Not "barely moved": the eye is EXACTLY where it was, because the gate
+      // returns before `flyMove` is ever called.
+      expect(f.eye()).toEqual(eyeBefore);
+      // …and the key is still HELD as far as the host is concerned, so this is a
+      // gate on the travel rather than the key having been dropped: pressing the
+      // right button now flies without a fresh keydown (asserted below).
+    } finally {
+      f.teardown();
+    }
+  },
+);
+
+test.skipIf(!bunWebGpuAvailable())(
+  "…and it flies the moment the right button goes down, with no fresh keypress",
+  async () => {
+    const f = await cameraFixture({ frames: true });
+    try {
+      f.key("w");
+      flyFrames(f);
+      const eyeIdle = f.eye();
+
+      // The right button goes down BETWEEN frames — which is exactly why the app
+      // gate polls `isLooking()` per keypress rather than mirroring it.
+      f.down(CENTRE, CENTRE, 2);
+      expect(f.host.isLooking()).toBe(true);
+      flyFrames(f);
+      const eyeFlown = f.eye();
+      // 16 ms at FLY_SPEED is a small but unmistakable step; a tenth of a
+      // millimetre would be a rounding artefact rather than a fly.
+      expect(dist(eyeIdle, eyeFlown)).toBeGreaterThan(0.001);
+
+      // Releasing stops it again — the gate is the BUTTON, not a latch the first
+      // press flipped.
+      f.up(2);
+      expect(f.host.isLooking()).toBe(false);
+      flyFrames(f);
+      expect(f.eye()).toEqual(eyeFlown);
+
+      f.keyUp("w");
+    } finally {
+      f.teardown();
+    }
+  },
+);
+
+// --- the shared keys are CLAIMED (the ownership rule) -----------------------
+
+test.skipIf(!bunWebGpuAvailable())(
+  "every canvas branch that ACTS on a shared key stops it — one press, one handler",
+  async () => {
+    // ⏎, Esc, R and F are app-level actions too (frontend/lib/actions.ts). The
+    // canvas answers first when it has something to answer with, and must claim
+    // the event when it does, or the window listener runs the verb again — which
+    // for R (a quarter turn per call) is a visible 180°.
+    const f = await cameraFixture();
+    try {
+      // F acts unconditionally, so it always claims.
+      f.key("f");
+      expect(f.claimed).toEqual({ preventDefault: 1, stopPropagation: 1 });
+
+      // With no session, Esc/⏎/R have nothing to do — and must NOT claim, or the
+      // window ladder (which would clear the selection) could never run.
+      f.key("Escape");
+      expect(f.claimed).toEqual({ preventDefault: 0, stopPropagation: 0 });
+      f.key("Enter");
+      expect(f.claimed).toEqual({ preventDefault: 0, stopPropagation: 0 });
+      f.key("r");
+      expect(f.claimed).toEqual({ preventDefault: 0, stopPropagation: 0 });
+
+      // A selected entity gives the Esc LADDER a rung — now it claims, and the
+      // selection is gone.
+      f.host.selectEntity(f.entityId);
+      f.key("Escape");
+      expect(f.claimed).toEqual({ preventDefault: 1, stopPropagation: 1 });
+      f.key("Escape");
+      expect(f.claimed).toEqual({ preventDefault: 0, stopPropagation: 0 });
+
+      // While the right button is down the letters belong to the FLY, so the
+      // canvas's own R and F stand down — the same rule the app gate applies, so
+      // the two cannot answer one keypress differently.
+      f.down(CENTRE, CENTRE, 2);
+      f.key("f");
+      expect(f.claimed).toEqual({ preventDefault: 0, stopPropagation: 0 });
+      f.up(2);
     } finally {
       f.teardown();
     }

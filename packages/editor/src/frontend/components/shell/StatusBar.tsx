@@ -7,7 +7,16 @@
 // slot and a second subscriber would silently steal the first's callback.
 import { TriangleAlert } from "lucide-react";
 import { useSyncExternalStore } from "react";
-import { useFieldHostState } from "../../hooks/useFieldHostState.tsx";
+import type {
+	FieldTool,
+	StampSession,
+	ViewportGesture,
+} from "../../../viewport-host/index.ts"; // type-only: erased
+import {
+	useFieldHostState,
+	useFieldStamp,
+	useFieldTool,
+} from "../../hooks/useFieldHostState.tsx";
 import { usePaletteRaise } from "../../hooks/usePaletteStack.tsx";
 import { useWorkspaceActions } from "../../hooks/useWorkspace.tsx";
 import { notify } from "../../lib/notify-store.ts";
@@ -21,12 +30,53 @@ function engineLabel(state: EditorState): string {
 	return "engine: ok";
 }
 
-// The viewport's momentary bindings, verified against field-host.ts's keydown handler:
-// LMB applies the armed tool, `[` / `]` step the brush radius, holding ⇧ derives the
-// smooth effect and holding ⌃ swaps dig↔fill (both restore on release). Static on
-// purpose — the armed tool is available (the shell's provider mirrors subscribeTool at
-// `useFieldTool`), but naming it here would make this line change under every ⇧ press.
-const KEYMAP = "LMB brush · [ ] radius · ⇧ smooth · ⌃ dig↔fill";
+/** One line per armed state — what the keys do RIGHT NOW. It answers the question a modal
+ *  editor makes people ask constantly ("what does clicking do in this mode?") at the
+ *  moment they ask it, which the static line it replaces could not.
+ *
+ *  Enumerated here rather than derived from the action table, and deliberately so: the
+ *  registry knows what a key RUNS, not which four of two dozen bindings matter in a given
+ *  mode — and the canvas-owned keys (`[`/`]`, ⇧, ⌃, the arrows) are half of what belongs
+ *  on this line and are not in the table at all.
+ *
+ *  Exported for its test: these strings ARE the claim, and asserting them through the DOM
+ *  would be asserting the same thing twice. */
+export function armedKeymap(
+	tool: FieldTool,
+	gesture: ViewportGesture | null,
+	session: StampSession | null,
+): string {
+	// A live session owns the interaction — the family keys refuse while it stands, so
+	// what is left to say is how it ENDS. A move adds the one verb only a move has.
+	if (session !== null)
+		return session.moving === true
+			? "drag ghost move · R rotate ¼ · ⏎ drop · esc revert"
+			: "← → ↑ ↓ nudge · R rotate ¼ · ⏎ apply · esc discard";
+	if (gesture === "pointer") return "LMB select · G grab · F frame · ⌫ delete";
+	if (gesture === "box") return "click ×2 spans a region · esc clears";
+	if (gesture === "material")
+		return "LMB floods the clicked material · esc clears";
+	if (gesture === "void") return "LMB floods an air pocket · esc clears";
+	if (gesture === "segment")
+		return "click ×2 sweeps the brush · [ ] radius · esc drops the point";
+	// The brush itself, with the armed effect NAMED: it is what LMB is about to do, and
+	// the four read very differently. ⇧ and ⌃ are the momentary overrides, X the sticky
+	// one. Verified against field-host.ts's keydown handler.
+	return `LMB ${tool.effect} · [ ] radius · ⇧ smooth · ⌃ fill · X swap`;
+}
+
+/** The keymap line, in its own component so only IT re-renders: the session context pushes
+ *  a clone on every nudge and every preview — pointer rate while a move is live — and the
+ *  chips and the error line beside it have nothing to do with that. */
+function KeymapLine() {
+	const { tool, gesture } = useFieldTool();
+	const { stamp } = useFieldStamp();
+	return (
+		<span className="whitespace-nowrap">
+			{armedKeymap(tool, gesture, stamp)}
+		</span>
+	);
+}
 
 /** The one clickable chip in this slice (D-19's stats-chip popovers are F4.5c). It
  *  appears only while errors are UNREAD: a badge that never clears is a badge people
@@ -80,7 +130,7 @@ export function StatusBar({ viewportError }: { viewportError: string | null }) {
 
 	return (
 		<footer className="flex h-7 shrink-0 items-center gap-4 border-t border-border bg-card px-3 text-xs text-muted-foreground">
-			<span className="whitespace-nowrap">{KEYMAP}</span>
+			<KeymapLine />
 			{/* `title` is not decoration: an esbuild diagnostic is far wider than the bar
           and `truncate` clips it, so without the hover the only readers who get the
           whole message are the ones using the live region below. */}

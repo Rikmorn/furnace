@@ -1,9 +1,10 @@
 // The Field panel's tool strip: the four brush effects, the five click
 // gestures, and one stamp button per registry generator. Pure presentation —
-// the panel owns the active choice and every host call. A gesture button
-// highlights while its gesture is armed; generator buttons are ACTIONS, not
-// toggles — each press opens (or replaces) a stamp session, whose UI is the
-// stamp form (Task 15), not a palette state.
+// every choice and every host call belongs to its caller, which reads the armed
+// state out of the shell's tool context (the `V`/`B`/`M` family keys arm the
+// same slot these buttons do). A gesture button highlights while its gesture is
+// armed; generator buttons are ACTIONS, not toggles — each press opens (or
+// replaces) a stamp session, whose UI is the stamp form, not a palette state.
 //
 // The five gestures sit in ONE group because they share one slot in the host
 // (ViewportGesture — arming any disarms the rest); splitting the selections

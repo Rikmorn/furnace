@@ -26,6 +26,7 @@ import type {
   EntityCollision,
 } from "../frontend/lib/catalog.ts";
 import {
+  type BrushEffect,
   computeBrushCenter,
   latticeClearance,
   nudgeRegion,
@@ -148,7 +149,7 @@ export type FieldMaskChoice =
  *  `hollow` is the fill-only shell-band thickness in metres (`null` = solid
  *  fill). */
 export type FieldTool = {
-  effect: "dig" | "fill" | "paint" | "smooth";
+  effect: BrushEffect;
   materialId: number;
   mask: FieldMaskChoice;
   smooth: {
@@ -587,13 +588,34 @@ export type FieldHost = {
   commitStamp(): void;
   /** Ends the live session with whichever verb its MODE calls for —
    *  {@link commitStamp} for a stamp, {@link applyReconfigure} for a
-   *  reconfigure. Enter in the viewport is this; a panel commit button should
-   *  be this too, so the mode→verb mapping lives in ONE place instead of being
-   *  re-derived from the session the panel mirrors. Ready-phase only (both
-   *  verbs are); no-op without a session. */
+   *  reconfigure. A panel commit button is this, and so is the app-level ⏎, so
+   *  the mode→verb mapping lives in ONE place instead of being re-derived from
+   *  the session a surface mirrors. Ready-phase only (both verbs are); no-op
+   *  without a session.
+   *
+   *  A live MOVE is the one case this does NOT cover: the viewport's own ⏎ DROPS
+   *  a grab (the zero-step rule, the pending-preview latch) rather than applying
+   *  it, and the app-level ⏎ is refused while a session is `moving` precisely so
+   *  the two cannot answer differently — a move is cancelled by leaving the
+   *  viewport, so one that is still standing means the canvas has focus. */
   commitSession(): void;
-  /** Discards the session + its ghost (Esc). No-op without a session. */
+  /** Discards the session + its ghost. No-op without a session. The panel's Cancel
+   *  button; Esc goes through {@link escape}, which reaches this as one rung of a
+   *  ladder rather than unconditionally. */
   cancelStamp(): void;
+  /** The Esc LADDER (D-12): cancels exactly ONE thing, most recent intent first —
+   *  a half-drawn box/segment anchor, then the live session (a move included),
+   *  then the selected entity ({@link selectEntity}), then the cell selection
+   *  ({@link clearSelection}'s parking behaviour, so Reselect is still the way
+   *  back). With nothing to cancel it is a silent no-op.
+   *
+   *  Public because the CANVAS binding is not enough: it fires only while the
+   *  canvas has focus, and clicking any palette control takes focus away — the
+   *  standing F2b finding that a viewport binding dies the moment the user
+   *  touches a panel ({@link undo}'s rationale). Both entry points run the same
+   *  ladder function, so they cannot disagree about which rung comes first, and
+   *  the canvas branch stops the event when it acts so one press runs one rung. */
+  escape(): void;
   /** Steps the field's own undo/redo history — the ⌘Z / ⇧⌘Z twins, and the
    *  seam any panel affordance for them must call.
    *
@@ -949,6 +971,16 @@ export type FieldHost = {
    *  chrome 60×/s. Single subscriber (that provider, which publishes it at
    *  `useFieldHostState`); returns an unsubscribe. */
   subscribeStats(cb: (s: FieldStats) => void): () => void;
+  /** Is the right button down and driving the camera? The app-level key gate polls
+   *  this on EVERY keypress (`frontend/lib/actions.ts`), because while a look drag
+   *  is running the letters belong to the fly — `S` is fly-backward as well as the
+   *  stamp family, and this is what decides which. Deliberately a POLL rather than
+   *  a subscription: the button goes down and up between renders, so a mirrored
+   *  boolean would answer for a frame that has already gone.
+   *
+   *  It is also the other half of the RMB-gated fly (D-10): fly travel only applies
+   *  while this is true. */
+  isLooking(): boolean;
   /** Subscribes to the orbit camera's orientation ({@link CameraPose}), pushed on
    *  every camera move — a fly step, a look drag, a frame-chunks retarget — and
    *  ONCE immediately on subscribe, so a triad mounting into a session already
@@ -4371,6 +4403,28 @@ export function createFieldHost(deps?: {
     else commitStampSession();
   };
 
+  // The CANVAS ⏎'s terminal path. A live MOVE is DROPPED rather than applied:
+  // `dropMove` carries the zero-step rule (a grab dropped where it started
+  // spends no history entry) and the pending-preview latch, neither of which
+  // `commitActiveSession` knows about.
+  //
+  // Deliberately NOT what the public `commitSession` routes through, and the
+  // reason is a bug this seam is not the place to fix: `moveIsIdle` asks whether
+  // the CURSOR moved, so a grab whose region was moved by the ARROW KEYS reads
+  // as idle and its move is discarded. Routing every ⏎ through here would spread
+  // that from one entry point to three. Filed as
+  // `docs/backlog/editor-and-tooling/grab-nudged-by-arrows-reads-as-idle.md`.
+  // The two paths cannot disagree in practice: the app-level ⏎ is refused while
+  // a session is `moving`, because leaving the viewport cancels a move — so a
+  // move that is still standing means the canvas has focus and answered first.
+  const confirmActiveSession = (): void => {
+    if (moveDrag !== null) {
+      dropMove();
+      return;
+    }
+    commitActiveSession();
+  };
+
   // --- history ------------------------------------------------------------
 
   // ONE undo/redo step, shared by the canvas ⌘Z/⇧⌘Z binding and the public
@@ -4455,7 +4509,20 @@ export function createFieldHost(deps?: {
     u: (keys.has("e") ? 1 : 0) - (keys.has("q") ? 1 : 0),
   });
 
+  // Fly travel is RMB-GATED (D-10): the move keys only travel while the right
+  // button is holding a look. This is the Unity/Unreal mechanism, and it is what
+  // buys the editor its whole bare-letter budget — `S` is fly-backward AND the
+  // stamp family, `B` is unbound here AND the brush family, and there is no way
+  // to have both on one keycap except by letting the button that means "I am
+  // driving the camera" decide which. The app-level gate is the same rule from
+  // the other side (`frontend/lib/actions.ts`: a bare-key action is refused
+  // while `isLooking()`), so exactly one of the two answers any letter.
+  //
+  // Gated HERE rather than at the call site: `keys` still collects w/a/s/d/q/e
+  // whatever the button is doing (they have to, for the release to clear them),
+  // so this is the one place that decides whether the set means anything.
   const applyFlyMove = (dt: number): void => {
+    if (look === null) return;
     const move = readFlyMove();
     if (move.f === 0 && move.r === 0 && move.u === 0) return;
     const boost = keys.has("shift") ? FLY_BOOST : 1;
@@ -4924,6 +4991,45 @@ export function createFieldHost(deps?: {
     e.preventDefault(); // RMB drives look — suppress the browser menu
   };
 
+  // The Esc ladder (D-12): ONE key, ONE rung per press, most recent intent
+  // first. Two entry points share this function and therefore cannot disagree —
+  // the canvas's own Esc below, and the app-level registry's `escape()`, which
+  // is what keeps Esc working after a click into a palette has taken the
+  // canvas's focus away.
+  //
+  // Returns whether it ACTED, which is how the canvas branch knows whether it
+  // has claimed the event (see `stopPropagation` there).
+  const escapeLadder = (): boolean => {
+    // 1. A half-drawn gesture — the anchor the next click would close. Both
+    //    anchors are cleared rather than only the armed gesture's: arming a
+    //    gesture already drops both, so "whichever is pending" is this same set,
+    //    and asking which one is live would be a second spelling of that rule.
+    if (boxAnchor !== null || segmentAnchor !== null) {
+      setBoxAnchor(null);
+      setSegmentAnchor(null);
+      return true;
+    }
+    // 2. The live session — a move included, since `cancelStampSession` ends the
+    //    move first (its own first line, before the null guard).
+    if (stamp !== null || moveDrag !== null) {
+      cancelStampSession();
+      return true;
+    }
+    // 3. The selected stamp.
+    if (selectedEntityId !== null) {
+      setSelectedEntity(null);
+      return true;
+    }
+    // 4. The cell selection, PARKED in the Reselect slot exactly as the panel's
+    //    Clear parks it — so an Esc that went one rung too far has the same way
+    //    back a Clear does.
+    if (selection !== null) {
+      setSelection(null);
+      return true;
+    }
+    return false;
+  };
+
   const onKeyDown = (e: KeyboardEvent): void => {
     const k = e.key.toLowerCase();
     // ⌘Z/⇧⌘Z (and ctrl+z) guard FIRST — the shortcut branches below must
@@ -4933,13 +5039,14 @@ export function createFieldHost(deps?: {
     if ((e.metaKey || e.ctrlKey) && k === "z") {
       e.preventDefault();
       // stopPropagation, not just preventDefault: the editor ALSO binds ⌘Z on
-      // `window` (useGlobalKeybindings), and that listener's only target guard
-      // is isTextInputTarget — which matches INPUT/TEXTAREA/contentEditable and
-      // NOT a focusable <canvas>. Extending that guard would not help either:
-      // matchBinding classifies a ⌘-chord BEFORE consulting it, deliberately
-      // (pinned in keybindings.test.ts). So a ⌘Z over the field canvas reaches
-      // the window listener too, and this line is what keeps the chord from
-      // being handled twice.
+      // `window` (the action registry's `edit.undo`), and that listener's only
+      // target guard is isTextInputTarget — which matches
+      // INPUT/TEXTAREA/contentEditable and NOT a focusable <canvas>. Tightening
+      // that guard would not help either: a ⌘-chord is gated `"chord"`, which is
+      // live even inside a text input, deliberately (pinned in
+      // keybindings.test.ts). So a ⌘Z over the field canvas reaches the window
+      // listener too, and this line is what keeps the chord from being handled
+      // twice.
       //
       // The window handler is LIVE now (useGlobalKeybindings routes ⌘Z/⇧⌘Z to
       // FieldHost.undo/redo — the field's op log is the editor's ONE history),
@@ -4947,42 +5054,39 @@ export function createFieldHost(deps?: {
       // canvas would run stepHistory here AND again from the window listener,
       // stepping the log twice for one chord.
       //
-      // Scoped to THIS branch on purpose: the canvas owns the ⌘Z chord and
-      // nothing else the global listener binds. ⌘S should still reach the window
-      // while the field has focus, so blanket-stopping would change a second
-      // behaviour to fix one. (The bare `F` is handled below and bound to
-      // nothing app-side, so it never reaches the window listener to collide;
-      // ⌫ is unbound in both places and propagates to nothing either way.)
+      // Scoped to THIS branch on purpose: ⌘S should still reach the window while
+      // the field has focus, so blanket-stopping would change a second behaviour
+      // to fix one. It is no longer the ONLY branch that stops, though — ⏎, Esc,
+      // R and F are app-level actions too now, and each claims the event the
+      // same way (see their branches below). ⌫ is the registry's alone: this
+      // listener does not bind it, so it propagates untouched.
       e.stopPropagation();
       stepHistory(e.shiftKey);
       return;
     }
-    // Stamp session keys (after the undo guard, before every fallthrough):
-    // Enter commits the READY ghost (or applies a reconfigure — same key, the
-    // session's mode decides), Esc discards the session. Neither is a fly key,
-    // so returning here never starves the keys set; without a session both are
-    // swallowed unused (no preventDefault).
-    if (k === "enter" || k === "escape") {
-      if (stamp !== null) {
-        e.preventDefault();
-        if (k === "escape") cancelStampSession();
-        // Enter over a live MOVE is a DROP, not a bare commit — the same verb
-        // the mouse-up runs, so both triggers share the zero-step rule. Without
-        // this, confirming a grab the user thought better of would spend a
-        // history entry on a reconfigure that changed nothing.
-        else if (moveDrag !== null) dropMove();
-        else commitActiveSession(); // ready-phase only — else a no-op
-        return;
-      }
-      // With no session owning the key, Esc drops a pending SEGMENT anchor —
-      // the way out of a half-drawn capsule without committing one. Scoped to
-      // the segment gesture on purpose: the box anchor's Esc is the same
-      // one-liner but a separate UX change, filed rather than folded in
-      // (backlog `field-f2b-gate-ux-findings`).
-      if (k === "escape" && segmentAnchor !== null) {
-        e.preventDefault();
-        setSegmentAnchor(null);
-      }
+    // ⏎ commits the READY ghost (or applies a reconfigure — same key, the
+    // session's mode decides, and a live MOVE is dropped instead); Esc runs the
+    // cancel LADDER. Neither is a fly key, so returning here never starves the
+    // keys set.
+    //
+    // Both are ALSO app-level actions (`frontend/lib/actions.ts`), which is what
+    // makes them work after a click into a palette. The rule where two listeners
+    // bind one key: the branch that ACTS claims the event with `stopPropagation`
+    // so the window listener cannot run the same verb a second time, and a
+    // branch that does NOT act lets the event through — with no session ⏎ is the
+    // registry's to swallow, and an Esc with nothing left on the ladder is a
+    // no-op wherever it lands.
+    if (k === "enter") {
+      if (stamp === null) return;
+      e.preventDefault();
+      e.stopPropagation();
+      confirmActiveSession();
+      return;
+    }
+    if (k === "escape") {
+      if (!escapeLadder()) return;
+      e.preventDefault();
+      e.stopPropagation();
       return;
     }
     // Arrow keys nudge the stamp region (bindings: arrowNudgeSteps).
@@ -5003,28 +5107,30 @@ export function createFieldHost(deps?: {
       }
       return;
     }
-    // R quarter-turns the live session (D-9). Canvas-owned and beside the arrow
-    // nudges rather than an app-level action, for the same reason they are:
-    // it edits the SESSION, which only exists while the viewport is being
-    // worked. Same three-modifier chord guard — ⌘R and ctrl+R are reload, and
-    // alt+R is a system chord on some layouts. Not a fly key, so returning here
-    // starves nothing; without a session it falls through and is swallowed
-    // unused (Enter/Esc's stance).
-    if (k === "r" && !e.metaKey && !e.ctrlKey && !e.altKey) {
+    // R quarter-turns the live session (D-9), F frames the selection. Both are
+    // ALSO app-level actions, so both carry the two riders that arrangement
+    // needs: `look === null`, because while the right button is down the letters
+    // belong to the fly (the registry's bare-key gate says the same thing from
+    // the other side), and `stopPropagation` on the branch that acts, so the
+    // window listener does not run the verb again. R is the one shared key that
+    // is not idempotent — a second run is a second quarter turn — which is what
+    // makes the claim load-bearing rather than tidy.
+    //
+    // Same three-modifier chord guard on both: ⌘R/ctrl+R are reload and ⌘F/ctrl+F
+    // are the browser's find, and Alt is the pointer path's eyedropper modifier.
+    // Neither is a fly key, so returning here starves nothing; R without a
+    // session falls through and is swallowed unused (⏎'s stance).
+    if (k === "r" && !e.metaKey && !e.ctrlKey && !e.altKey && look === null) {
       if (stamp !== null) {
         e.preventDefault();
+        e.stopPropagation();
         rotateStampSession();
-        return;
       }
       return;
     }
-    // F frames the selection. Canvas-owned rather than an app action for the
-    // reason R is: it moves the VIEWPORT's camera, and there is nothing to frame
-    // unless the viewport is what you are working in. Same three-modifier guard
-    // as R — ⌘F and ctrl+F are the browser's find, and Alt is the pointer path's
-    // eyedropper modifier. Not a fly key, so returning starves nothing.
-    if (k === "f" && !e.metaKey && !e.ctrlKey && !e.altKey) {
+    if (k === "f" && !e.metaKey && !e.ctrlKey && !e.altKey && look === null) {
       e.preventDefault();
+      e.stopPropagation();
       frameSelection();
       return;
     }
@@ -5617,6 +5723,9 @@ export function createFieldHost(deps?: {
     cancelStamp() {
       cancelStampSession();
     },
+    escape() {
+      escapeLadder();
+    },
     undo() {
       stepHistory(false);
     },
@@ -5915,6 +6024,9 @@ export function createFieldHost(deps?: {
         // other seam here already follows.
         if (statsCb === cb) statsCb = null;
       };
+    },
+    isLooking() {
+      return look !== null;
     },
     subscribeCameraPose(cb) {
       cameraPoseCb = cb;

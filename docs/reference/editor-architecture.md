@@ -1595,20 +1595,46 @@ box inside the SAME cell: they take nothing from the canvas (D-1).
 ### 20.6 The menu, the shortcut overlay, and the ONE history
 
 The menu is a **single burger dropdown** (`shell/BurgerMenu.tsx`) whose groups render in
-the order **World / Edit / View / Help** — not a menubar. (`EditGroup` is *defined* first
-in the file but *rendered* after the World group; read the JSX, not the declarations.) `shell/ShortcutsDialog.tsx` is the complete keybinding
-reference, hand-maintained (the `MIGRATION (until F4.5b)` marker on it names the command
-registry that will replace its data).
+the order **World / Edit / View / Help** — not a menubar.
+
+**Since F4.5b Task 7 the bindings are DECLARED ONCE, in `frontend/lib/actions.ts`.** That
+table is the editor's action registry: per action, an id, a group, a contextual `label`,
+an `enabled` predicate, the display chord, a `match` predicate and a `gate`. Three
+surfaces read it — the window key dispatcher (`hooks/useGlobalKeybindings.ts`), the
+burger's World/Edit/View groups, and `shell/ShortcutsDialog.tsx` — so a binding cannot be
+live and undocumented, or documented and dead. `hooks/useActionContext.tsx` assembles the
+`ActionCtx` those predicates read (host, armed tool/gesture, session, selections, world,
+view, workspace) and owns the listener. The overlay's one remaining hand-maintained group
+is the canvas-owned keys.
+
+**Who owns a key.** There are two keydown listeners. The canvas
+(`viewport-host/field-host.ts`) keeps the keys that steer the viewport under the pointer —
+the fly set, `[`/`]`, the arrow nudges, momentary ⇧/⌃ — plus first refusal on ⌘Z, ⏎, Esc,
+R and F. Everything else is the registry's, on `window`, which is the only listener that
+carries the gates and the only one that still works after a palette click takes the
+canvas's focus. Where both bind one key the canvas branch that ACTS calls
+`stopPropagation`, and that call is the whole licence for the second owner.
+
+**The gate** has three classes: `chord` (⌘-chords, live even inside a text input, because
+the browser default they replace is worse), `bare` (refused in a text input, and refused
+while `FieldHost.isLooking()` — during a look drag the letters are the fly keys), and
+`editing` (Esc/⏎ — refused in a text input, live during a look). An action that re-arms
+LMB is additionally refused while a session is live, *with a toast*, because a key that
+looks dead teaches the user it is dead. A modal confirm suppresses every class.
 
 **Undo/redo go straight to the host: the field's op log IS the editor's history.** There
 is no second document to step, so ⌘Z/⇧⌘Z call `FieldHost.undo()`/`redo()` and nothing
 else. The canvas binds the same chord itself and stops propagation, so a ⌘Z with the
 viewport focused steps once, not twice.
 
-There is **one** window keydown listener (`hooks/useGlobalKeybindings.ts`). It lives
-inside the workspace provider because ⌘\ acts on the arrangement, and App's `confirmRef`
-suppresses **every** binding while a prompt is open — which is why `window.confirm` is
-banned and the App-owned `ConfirmDialog` is the only prompt seam.
+**Esc is a LADDER** (`FieldHost.escape()`), not a single verb: it cancels exactly one
+thing, most recent intent first — a half-drawn box/segment anchor, then the live session
+(a move included), then the selected entity, then the cell selection. The canvas's Esc and
+the registry's run the same function, so they cannot disagree about the order.
+
+**WASD/QE fly ONLY while the right button is held** (D-10, the Unity mechanism). That gate
+is what buys the bare-letter budget the registry spends: `S` is fly-backward *and* the
+stamp family, and the button is what decides which.
 
 ### 20.7 What moved out of FieldPanel — and what remains
 
@@ -1623,6 +1649,7 @@ orchestrator-slope entry tracked it at 817). What left, and where it went:
 | the catalog fetch | `hooks/useCatalogs.tsx` (mounted once by the shell) |
 | the committed-entity list + drift report | `shell/EntitiesPalette.tsx` — the first organ out, the layers panel since Task 4 |
 | the status line | `lib/notify-store.ts` (toasts + the log) |
+| the armed GESTURE (which of pointer / box / wand / room / segment holds LMB), F4.5b Task 7 | `hooks/useFieldHostState.tsx`'s tool context — the registry's `V`/`B`/`M` family keys arm the same slot the palette's buttons do, and a panel-local copy would disagree with them on the first keypress |
 
 What **remains** is the dig loop's control stack: the tool palette, the material
 swatches, the brush inspector, the stamp inspector and the advisor's flags — rendered
