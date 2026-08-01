@@ -286,3 +286,19 @@ test("a 'not listed' note is a row the stop walks past", () => {
 	// WRAPPED to the first step, not stranded on the note below it.
 	expect(document.activeElement === historyStops()[0]).toBe(true);
 });
+
+// One column, stated rather than counted — the same unpinned invariant the other two
+// grids carry, and the one that makes `aria-colindex` meaningful on a conditional cell.
+test("the history grid declares its one column on every row, notes included", () => {
+	const stub = makeStubHost();
+	renderPalette(stub);
+	push(stub, ["dig", "fill"], ["paint"], { undoDepth: 9, redoDepth: 4 });
+	expect(historyGrid().getAttribute("aria-colcount")).toBe("1");
+	const cells = Array.from(
+		historyGrid().querySelectorAll('[role="gridcell"]'),
+	).map((c) => c.getAttribute("aria-colindex"));
+	// Five rows, five cells, all column 1 — the two "not listed" notes included, because a
+	// `role="grid"` may hold rows and a row may hold cells, and a bare text node in either
+	// is what makes a screen reader announce a ragged table.
+	expect(cells).toEqual(["1", "1", "1", "1", "1"]);
+});

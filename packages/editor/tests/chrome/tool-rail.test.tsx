@@ -514,6 +514,35 @@ test("the rail is a vertical toolbar with a roving tabindex — one tab stop, ar
 	expect(document.activeElement === buttons()[0]).toBe(true);
 });
 
+// The ONE case F4.5c Task 9 added to this file, and it is named as the deviation it is:
+// the extraction was behaviour-identical, but the tooltip VETO that came with it is a real
+// behaviour change to the rail — seven controls in a roving column is seven tooltips
+// popped on the way down it, and Radix opens on focus with no delay. Without a case here
+// the suppression rides in on the rail with no coverage at all, which is the shape of a
+// change nobody can find later.
+test("arrow travel down the rail pops no tooltip; a settled focus still does", async () => {
+	fetch404();
+	const stub = makeStubHost({ generators: [HALL] });
+	await renderShell(stub);
+	const bar = rail();
+	const buttons = () =>
+		Array.from(bar.querySelectorAll("button")) as HTMLButtonElement[];
+
+	buttons()[0]?.focus();
+	act(() => {
+		fireEvent.keyDown(bar, { key: "ArrowDown" });
+	});
+	expect(document.activeElement === buttons()[1]).toBe(true);
+	expect(screen.queryByRole("tooltip") === null).toBe(true);
+
+	// …and the SAME control still documents itself when focus arrives any other way, which
+	// is the half D-25 is about: the tip stopped chasing the cursor, it did not go away.
+	act(() => {
+		fireEvent.focus(buttons()[1] as HTMLElement);
+	});
+	expect(await screen.findByRole("tooltip")).toBeTruthy();
+});
+
 // --- (h) WCAG 2.5.8: the flyout trigger is a real target ---------------------
 
 test("the member flyout's trigger is a 24 px target that does not overlap the family button", async () => {

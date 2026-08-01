@@ -23,28 +23,31 @@
 import { History } from "lucide-react";
 import type { ReactNode } from "react";
 import { useFieldHistory } from "../../hooks/useFieldHostState.tsx";
-import { useRowGrid } from "../../hooks/useRovingList.ts";
+import {
+	Grid,
+	GridCell,
+	GridRow,
+	useRowGrid,
+} from "../../hooks/useRovingList.tsx";
 import { cn } from "../../lib/cn.ts";
 import { useEditor } from "../editor-context.ts";
+
+/** One column: the step button. */
+const COLUMNS = 1;
 
 /** One row. `steps` is what clicking it costs — always ≥ 1, always in the direction the
  *  row's side names. Rendered as a button rather than a list item with a handler so the
  *  keyboard reaches it, and so a disabled state (during the engine boot) is expressible.
  *
- *  A `role="row"` holding ONE `role="gridcell"` — a one-column grid. That is a real shape
- *  and not a stretched one: `useRowGrid`'s header carries the argument, and the part that
- *  decides it here is that three sibling lists in one shell must answer the keyboard
- *  identically. A `listbox` would be the wrong promise for a different reason than in the
- *  other two — these rows are COMMANDS ("undo 3 steps"), not a selection — and this list
- *  has no persistent `aria-selected` to offer, because the current position is the
- *  DIVIDER between rows rather than any row. */
-/** Inert, on every row and cell — the APG grid construction, never focused through.
- *  EntitiesList's constant of the same name says why in full. */
-const CELL_TABINDEX = -1;
-
-/** One column: the step button. */
-const COLUMNS = 1;
-
+ *  A one-column grid row. That is a CHOICE and not a constraint, and should not be read as
+ *  forced the way the entities and flags grids are: these rows carry one control, so a
+ *  `listbox` was genuinely reachable. It is a grid because the rows are COMMANDS ("undo 3
+ *  steps") rather than a selection, because the current position is the DIVIDER between
+ *  rows so there is no row for `aria-selected` to sit on, and because three sibling lists
+ *  in one shell should answer the keyboard identically.
+ *
+ *  It carries NO `rowId`: a history row is not something the row axis selects — arrowing
+ *  onto one must not step the log, so `useRowGrid` gets no `onRowChange` here at all. */
 function Row({
 	label,
 	steps,
@@ -61,10 +64,8 @@ function Row({
 }) {
 	const verb = direction === "undo" ? "Undo" : "Redo";
 	return (
-		// biome-ignore lint/a11y/useSemanticElements: role="row"/"gridcell" on a div is the ARIA grid pattern for a non-table layout — see `useRowGrid`
-		<div role="row" tabIndex={CELL_TABINDEX}>
-			{/* biome-ignore lint/a11y/useSemanticElements: role="gridcell" on a div — see above */}
-			<div role="gridcell" aria-colindex={1} tabIndex={CELL_TABINDEX}>
+		<GridRow>
+			<GridCell colIndex={1}>
 				{/* NO `tabIndex` here on purpose: this button is the row STOP, and the roving
 			    hook writes its tabIndex imperatively. A React-owned one would be re-applied
 			    on every render and clobber the stop (rule 1 in `useRovingList`). */}
@@ -88,26 +89,19 @@ function Row({
 					</span>
 					<span className="min-w-0 flex-1 truncate">{label}</span>
 				</button>
-			</div>
-		</div>
+			</GridCell>
+		</GridRow>
 	);
 }
 
 /** A grid row that is a NOTE rather than a step: the bound's two "not listed" lines. */
 function Note({ children }: { children: ReactNode }) {
 	return (
-		// biome-ignore lint/a11y/useSemanticElements: role="row"/"gridcell" on a div — see `useRowGrid`
-		<div role="row" tabIndex={CELL_TABINDEX}>
-			{/* biome-ignore lint/a11y/useSemanticElements: role="gridcell" on a div — see above */}
-			<div
-				role="gridcell"
-				aria-colindex={1}
-				tabIndex={CELL_TABINDEX}
-				className="px-2 py-1 text-muted-foreground italic"
-			>
+		<GridRow>
+			<GridCell colIndex={1} className="px-2 py-1 text-muted-foreground italic">
 				{children}
-			</div>
-		</div>
+			</GridCell>
+		</GridRow>
 	);
 }
 
@@ -117,7 +111,7 @@ export function HistoryPalette() {
 	// The same two-axis model the entities and flags grids run. No `onRowChange`: a
 	// history row is a COMMAND, and arrowing onto one must not step the log — ⏎ or a click
 	// is what takes the steps.
-	const rows = useRowGrid<HTMLDivElement>();
+	const rows = useRowGrid();
 
 	// Reaches the host for its VERBS the way every other shell surface does —
 	// `fieldHostRef` off EditorContext (EntitiesPalette's rationale). Fire-and-forget:
@@ -204,14 +198,10 @@ export function HistoryPalette() {
 					Every dig, stamp and edit lands here. Click a row to step back to it.
 				</p>
 			) : (
-				// biome-ignore lint/a11y/useSemanticElements: role="grid" on a div is the ARIA pattern for a non-table grid — see `useRowGrid`
-				<div
-					ref={rows.ref}
-					role="grid"
-					aria-label="history"
-					aria-colcount={COLUMNS}
-					onKeyDown={rows.onKeyDown}
-					onFocus={rows.onFocus}
+				<Grid
+					grid={rows}
+					label="history"
+					columns={COLUMNS}
 					className="max-h-64 overflow-y-auto"
 				>
 					{/* The two "not listed" lines and the divider are rows of the grid that
@@ -258,7 +248,7 @@ export function HistoryPalette() {
 							reaches {older === 1 ? "it" : "them"}
 						</Note>
 					)}
-				</div>
+				</Grid>
 			)}
 		</div>
 	);

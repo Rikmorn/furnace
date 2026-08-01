@@ -44,7 +44,7 @@ import { Brush, MousePointer2, SquareDashed, Stamp } from "lucide-react";
 import type { ReactNode } from "react";
 import { memo, useMemo, useState } from "react";
 import { useActionContext } from "../../hooks/useActionContext.tsx";
-import { useRovingList } from "../../hooks/useRovingList.ts";
+import { useRovingList } from "../../hooks/useRovingList.tsx";
 import type {
 	ControlVerdict,
 	ToolFamily,
@@ -176,8 +176,8 @@ export function ToolRail() {
  *  tab stops for one mode selector is what the pattern exists to prevent, and
  *  `role="toolbar"` without it is a promise to a screen reader that nothing keeps.
  *
- *  The MECHANISM moved to `hooks/useRovingList.ts` at F4.5c Task 9 — this file was its
- *  first home and is now one of five consumers. What stayed here is what is the rail's
+ *  The MECHANISM moved to `hooks/useRovingList.tsx` at F4.5c Task 9 — this file was its
+ *  first home and is now one of four consumers. What stayed here is what is the rail's
  *  own: the KEYS it claims and the role it claims them under. In particular the stop is
  *  still written onto the DOM in a layout effect rather than passed down as a `tabIndex`
  *  prop, which is what keeps `RailFamily` memoizable — a prop would change on every focus

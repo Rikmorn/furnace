@@ -17,7 +17,7 @@
 // `field/form-bits.tsx`: it is a native-<select> Tailwind string with two consumers and
 // nothing to do with any of this.
 import type { FocusEvent, ReactElement, ReactNode } from "react";
-import { isRovingTravel } from "../hooks/useRovingList.ts";
+import { isRovingTravel } from "../hooks/useRovingList.tsx";
 import { byId } from "../lib/actions.ts";
 import { cn } from "../lib/cn.ts";
 import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip.tsx";
@@ -46,8 +46,11 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip.tsx";
  *  those still open — the row-axis mover raises the flag and the cell-axis mover does not.
  *
  *  D-25 is intact either way: the same control still documents itself the moment focus
- *  arrives by Tab, by a click, or by settling anywhere that is not a traversal step. The
- *  tip stopped chasing the cursor; it did not become mouse-only again.
+ *  arrives by Tab, or by settling anywhere that is not a traversal step. The tip stopped
+ *  chasing the cursor; it did not become mouse-only again. (NOT "or by a click" — the
+ *  click path never opened on focus in the first place. Radix's own `isPointerDownRef`
+ *  suppresses it, which predates this veto and is unaffected by it; probed this session,
+ *  pointerDown-then-focus leaves the tooltip closed.)
  *
  *  THE SECOND REASON, found by sabotaging the first: an open tooltip is not merely visual
  *  noise, it TAKES A KEY. Radix's content mounts a `DismissableLayer`, which registers a
@@ -56,7 +59,14 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip.tsx";
  *  the next Esc do two things at once — dismiss the tip AND run `session.escape`, because
  *  `useGlobalKeybindings` never consults `defaultPrevented` — which is exactly what the
  *  cancel ladder's one-thing-at-a-time contract exists to prevent. Pinned in
- *  tests/chrome/entities-palette.test.tsx, "the grid claims ONLY the keys it acts on". */
+ *  tests/chrome/entities-palette.test.tsx, "the grid claims ONLY the keys it acts on".
+ *
+ *  That class is CLOSED ON THE ROW AXIS ONLY, and the veto cannot close it anywhere else:
+ *  the layer's listener is capture-phase on `document`, so the grid's own
+ *  `stopPropagation` never reaches it. On the CELL axis, where tips deliberately open, one
+ *  Escape still both dismisses the tip and leaves the verb cluster. That reads as nesting
+ *  (innermost thing first, then the next) rather than as two unrelated effects, which is
+ *  why it is accepted here rather than fixed — but it is accepted, not absent. */
 export function vetoTipDuringTravel(e: FocusEvent<HTMLElement>): void {
 	if (isRovingTravel()) e.preventDefault();
 }

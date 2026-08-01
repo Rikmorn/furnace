@@ -89,7 +89,12 @@
 // that one.
 import { Fragment, useEffect, useRef, useState } from "react";
 import type { FieldEntityInfo } from "../../../viewport-host/index.ts"; // type-only: erased
-import { useRowGrid } from "../../hooks/useRovingList.ts";
+import {
+	Grid,
+	GridCell,
+	GridRow,
+	useRowGrid,
+} from "../../hooks/useRovingList.tsx";
 import { cn } from "../../lib/cn.ts";
 // The committed-entity policy vocabulary: one blocked-reason rule per row verb,
 // plus the param renderer the provider's push guard also compares through. A
@@ -142,16 +147,6 @@ const ROW_BUTTON_CLASS = "h-5 px-1.5 text-xs";
  *  the two attributes for; the alternative (an always-rendered empty cell) would put a
  *  `gap-1` of dead space on every undrifted row. */
 const COLUMNS = 6;
-
-/** Every row and cell carries this, and NOTHING is ever focused through it.
- *
- *  It is the APG grid examples' own construction — a grid's structure is programmatically
- *  focusable so an implementation MAY put focus on a cell — and here it is inert, because
- *  each of these cells holds exactly one widget and APG lets focus live on the widget in
- *  that case. What it buys is that the structure is not a lie to a tool: `-1` says "reach
- *  me by script, never by Tab", which is exactly true, and it is what lets the
- *  one-tab-stop assertion stay a count of `[tabindex="0"]`. */
-const CELL_TABINDEX = -1;
 
 /** One row verb's control, in whichever of the two documentation channels its state
  *  can actually use. One component so the four verbs cannot drift apart on this again
@@ -219,12 +214,7 @@ function RowVerb(props: {
 		</Button>
 	);
 	return (
-		// biome-ignore lint/a11y/useSemanticElements: role="gridcell" on a div is the ARIA grid pattern for a non-table layout; a <td> would drag <table>/<tr> markup into a flex row whose whole geometry is CSS
-		<div
-			role="gridcell"
-			aria-colindex={props.colIndex}
-			tabIndex={CELL_TABINDEX}
-		>
+		<GridCell colIndex={props.colIndex}>
 			{blocked === null ? (
 				<ActionTip hint={props.hint} actionId={props.actionId}>
 					{control}
@@ -232,7 +222,7 @@ function RowVerb(props: {
 			) : (
 				<ReasonTip reason={blocked}>{control}</ReasonTip>
 			)}
-		</div>
+		</GridCell>
 	);
 }
 
@@ -286,9 +276,17 @@ export function EntitiesList(props: {
 	// REVERSIBLE — it draws the footprint box and nothing else. The DOM order of the stops
 	// is the render order of `entities`, so the index IS the entity and no id has to be
 	// threaded through the markup to find it again.
-	const grid = useRowGrid<HTMLDivElement>((i) => {
-		const landed = entities[i];
-		if (landed !== undefined) props.onSelect(landed.entityId);
+	const grid = useRowGrid((rowId) => {
+		// BY NAME. `useRowGrid`'s own docblock carries the measured defect the id closes;
+		// the short version is that the expanded-params row is a row too, so counting stops
+		// makes `entities[i]` address the wrong stamp the moment anything lands in it.
+		//
+		// The null check is FIRST and is not decoration: `Number(null)` is 0, so folding it
+		// into the `Number.isInteger` guard would turn "a row that names nothing" into
+		// "select entity 0" — a real id.
+		if (rowId === null) return;
+		const id = Number(rowId);
+		if (Number.isInteger(id)) props.onSelect(id);
 	});
 
 	// A refresh can remove the expanded entity (⌘Z undoes the whole commit,
@@ -341,19 +339,14 @@ export function EntitiesList(props: {
 					no committed stamps yet
 				</p>
 			) : (
-				// A `role="grid"`, and `useRowGrid`'s header carries the whole argument for
-				// that choice over `listbox` / `tree` / no role at all. The short version: these
-				// rows hold five widgets each, and `grid` is the only APG pattern whose cells
-				// may. Focus lives on the WIDGET inside the cell rather than the cell, which APG
-				// permits when a cell holds one.
-				// biome-ignore lint/a11y/useSemanticElements: role="grid" on a div is the ARIA pattern for a non-table grid; a <table> would drag row/cell markup into a layout whose geometry is entirely flexbox
-				<div
-					ref={grid.ref}
-					role="grid"
-					aria-label="committed stamps"
-					aria-colcount={COLUMNS}
-					onKeyDown={grid.onKeyDown}
-					onFocus={grid.onFocus}
+				// `useRowGrid`'s header carries the whole argument for `grid` over `listbox` /
+				// `tree` / no role at all, and the markup below is that module's too — the
+				// stop selector is a claim about cell structure, so the structure is not
+				// hand-rolled here.
+				<Grid
+					grid={grid}
+					label="committed stamps"
+					columns={COLUMNS}
 					className="flex flex-col gap-0.5"
 				>
 					{entities.map((e) => {
@@ -363,20 +356,12 @@ export function EntitiesList(props: {
 						const selected = e.entityId === selectedId;
 						return (
 							<Fragment key={e.entityId}>
-								{/* biome-ignore lint/a11y/useSemanticElements: role="row" on a div — see the grid above */}
-								<div
-									role="row"
-									tabIndex={CELL_TABINDEX}
+								<GridRow
+									rowId={String(e.entityId)}
 									ref={selected ? selectedRow : null}
 									className="flex items-center gap-1"
 								>
-									{/* biome-ignore lint/a11y/useSemanticElements: role="gridcell" on a div — see the grid above */}
-									<div
-										role="gridcell"
-										aria-colindex={1}
-										tabIndex={CELL_TABINDEX}
-										className="flex min-w-0 flex-1"
-									>
+									<GridCell colIndex={1} className="flex min-w-0 flex-1">
 										<ActionTip hint="select this stamp and show its recipe">
 											<button
 												type="button"
@@ -418,14 +403,9 @@ export function EntitiesList(props: {
 												{baked && <StateBadge label="baked" />}
 											</button>
 										</ActionTip>
-									</div>
+									</GridCell>
 									{driftedIds.has(e.entityId) && (
-										// biome-ignore lint/a11y/useSemanticElements: role="gridcell" on a div — see the grid above
-										<div
-											role="gridcell"
-											aria-colindex={2}
-											tabIndex={CELL_TABINDEX}
-										>
+										<GridCell colIndex={2}>
 											<ActionTip hint="the last reconfigure disturbed something here — show the drift report">
 												<Button
 													type="button"
@@ -439,7 +419,7 @@ export function EntitiesList(props: {
 													Δ
 												</Button>
 											</ActionTip>
-										</div>
+										</GridCell>
 									)}
 									<RowVerb
 										entityId={e.entityId}
@@ -505,22 +485,17 @@ export function EntitiesList(props: {
 										actionId={selected ? "edit.delete" : undefined}
 										onClick={() => props.onDelete(e.entityId)}
 									/>
-								</div>
+								</GridRow>
 								{expanded && (
 									// The params <dl> is its OWN row rather than a block inside the row
 									// above: a `role="row"` may hold cells and nothing else, and a <dl>
 									// smuggled in beside five gridcells is the shape that makes a screen
 									// reader announce a sixth, empty column. It holds no control, so the
-									// roving stop never lands here.
-									// biome-ignore lint/a11y/useSemanticElements: role="row" on a div — see the grid above
-									<div role="row" tabIndex={CELL_TABINDEX}>
-										{/* biome-ignore lint/a11y/useSemanticElements: role="gridcell" on a div — see the grid above */}
-										<div
-											role="gridcell"
-											aria-colindex={1}
-											aria-colspan={COLUMNS}
-											tabIndex={CELL_TABINDEX}
-										>
+									// roving stop never lands here — and it carries NO `rowId`, so even if
+									// something focusable did land in it the row axis would report a
+									// nameless row and select nothing.
+									<GridRow>
+										<GridCell colIndex={1} colSpan={COLUMNS}>
 											<dl className="grid grid-cols-[auto_1fr] gap-x-3 px-6 py-1 text-xs text-muted-foreground">
 												{Object.entries(e.params).map(([k, v]) => (
 													<Fragment key={k}>
@@ -529,13 +504,13 @@ export function EntitiesList(props: {
 													</Fragment>
 												))}
 											</dl>
-										</div>
-									</div>
+										</GridCell>
+									</GridRow>
 								)}
 							</Fragment>
 						);
 					})}
-				</div>
+				</Grid>
 			)}
 		</CollapsibleSection>
 	);

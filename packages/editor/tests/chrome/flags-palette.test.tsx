@@ -999,3 +999,50 @@ test("→ reaches the row's OWN Verify, and ← comes back", () => {
 	});
 	expect(document.activeElement === flagStops()[1]).toBe(true);
 });
+
+// The review round's Important 1, on the palette that has the SECOND way to lose focus:
+// not a row disappearing, but a control disabling itself under the cursor. Verify is
+// reached with →, started with ⏎, and disables on that same press.
+test("a verb that DISABLES itself under the cursor hands focus back to its row", () => {
+	const stub = makeStubHost();
+	renderPalette(stub);
+	act(() => {
+		stub.fire.flags(summaryOf(THREE_ROWS));
+	});
+	flagStops()[0]?.focus();
+	act(() => {
+		fireEvent.keyDown(flagGrid(), { key: "ArrowRight" });
+	});
+	const verify = (): HTMLButtonElement =>
+		screen.getByLabelText(/^verify narrow @ \(2\.5/) as HTMLButtonElement;
+	expect(document.activeElement === verify()).toBe(true);
+
+	act(() => {
+		fireEvent.keyDown(flagGrid(), { key: "Enter" });
+	});
+	// The user's own press started it, and the button they were standing on is now
+	// disabled — so it can no longer hold focus.
+	expect(verify().disabled).toBe(true);
+	expect(stub.calls.verifyFlag.mock.calls).toEqual([["a"]]);
+	// Focus comes back to the row rather than being dropped: a keyboard user must not have
+	// to Tab back into the palette because a verb they pressed did what it said.
+	expect(document.activeElement === flagStops()[0]).toBe(true);
+});
+
+// The conditional-cell design is the same here as in the entities grid, with two columns
+// instead of six — and it was equally unpinned.
+test("the flags grid's columns are stated, not counted", () => {
+	const stub = makeStubHost();
+	renderPalette(stub);
+	act(() => {
+		stub.fire.flags(summaryOf(THREE_ROWS));
+	});
+	const row = flagStops()[0]?.closest('[role="row"]');
+	if (!(row instanceof HTMLElement)) throw new Error("no role=row");
+	expect(
+		Array.from(row.querySelectorAll('[role="gridcell"]')).map((c) =>
+			c.getAttribute("aria-colindex"),
+		),
+	).toEqual(["1", "2"]);
+	expect(flagGrid().getAttribute("aria-colcount")).toBe("2");
+});

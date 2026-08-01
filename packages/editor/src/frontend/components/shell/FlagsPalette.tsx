@@ -28,7 +28,12 @@ import type {
 	FlagRow,
 } from "../../../viewport-host/index.ts"; // type-only: erased
 import { useFieldFlags } from "../../hooks/useFieldHostState.tsx";
-import { useRowGrid } from "../../hooks/useRovingList.ts";
+import {
+	Grid,
+	GridCell,
+	GridRow,
+	useRowGrid,
+} from "../../hooks/useRovingList.tsx";
 import { cn } from "../../lib/cn.ts";
 import { useEditor } from "../editor-context.ts";
 import { ActionTip, ReasonTip } from "../tips.tsx";
@@ -42,9 +47,6 @@ const CLUSTER_RADIUS_M = 2;
 /** The grid's columns: the row's own select control, then Verify. */
 const COLUMNS = 2;
 
-/** Inert, on every row and cell — the APG grid construction, and never focused through.
- *  EntitiesList's constant of the same name says why in full. */
-const CELL_TABINDEX = -1;
 const CLUSTER_RADIUS_SQ = CLUSTER_RADIUS_M * CLUSTER_RADIUS_M;
 
 /** Why a `pit` cannot be verified in v1 (the D-F4-13 spec amendment): stage 2
@@ -407,8 +409,7 @@ function VerifyVerb({
 		</Button>
 	);
 	return (
-		// biome-ignore lint/a11y/useSemanticElements: role="gridcell" on a div is the ARIA grid pattern for a non-table layout — see `useRowGrid`
-		<div role="gridcell" aria-colindex={2} tabIndex={CELL_TABINDEX}>
+		<GridCell colIndex={2}>
 			{unavailable ? (
 				<ReasonTip reason={refusal ?? undefined}>{control}</ReasonTip>
 			) : (
@@ -416,7 +417,7 @@ function VerifyVerb({
 					{control}
 				</ActionTip>
 			)}
-		</div>
+		</GridCell>
 	);
 }
 
@@ -430,7 +431,7 @@ export function FlagsPalette() {
 	const selectedRow = useRef<HTMLDivElement | null>(null);
 	// The same two-axis model the entities grid runs, minus the selection write — see the
 	// list's own comment below for why this one does not select on arrow.
-	const rows = useRowGrid<HTMLDivElement>();
+	const rows = useRowGrid();
 
 	// A marker click in the VIEWPORT selects a finding that may be a hundred rows
 	// down. Scrolling to it is what makes the two surfaces one selection rather
@@ -492,25 +493,19 @@ export function FlagsPalette() {
 			{empty !== null ? (
 				<p className="px-1 py-2 text-muted-foreground">{empty}</p>
 			) : (
-				// A `role="grid"` on the <ul>, which REPLACES its list semantics rather than
-				// layering on them: `useRowGrid`'s header carries the argument for the
-				// pattern, and the short version is that these rows hold two widgets each,
-				// which an `option` may not. A <div> rather than <ul>/<li>, for WorldDrawer's
-				// stated reason: these roles REPLACE list semantics, and layering them on a
-				// list element gives it two contradictory role sets.
+				// `useRowGrid`'s header carries the argument for `grid` over `listbox`, and
+				// the markup is that module's — the stop selector is a claim about cell
+				// structure, so the structure is not hand-rolled here.
 				//
-				// The ROW axis moves focus and nothing else here, deliberately — unlike the
+				// The ROW axis moves focus and nothing else, deliberately — unlike the
 				// entities grid, whose selection follows the cursor. Selecting a finding
 				// FLIES THE CAMERA (and can be refused with a toast), so arrowing past ten
-				// rows would take ten camera trips nobody asked for. ⏎ is what commits.
-				// biome-ignore lint/a11y/useSemanticElements: role="grid" on a div is the ARIA pattern for a non-table grid; a <table> would drag row/cell markup into a flex column
-				<div
-					ref={rows.ref}
-					role="grid"
-					aria-label="flag findings"
-					aria-colcount={COLUMNS}
-					onKeyDown={rows.onKeyDown}
-					onFocus={rows.onFocus}
+				// rows would take ten camera trips nobody asked for. ⏎ is what commits, which
+				// is why no `onRowChange` is passed.
+				<Grid
+					grid={rows}
+					label="flag findings"
+					columns={COLUMNS}
 					className="flex max-h-64 flex-col gap-0.5 overflow-y-auto"
 				>
 					{clusters.map((c) => {
@@ -529,11 +524,8 @@ export function FlagsPalette() {
 							flags.selected !== null &&
 							c.members.some((m) => m.key === flags.selected);
 						return (
-							// biome-ignore lint/a11y/useSemanticElements: role="gridcell"/"row" on a div — see the grid above
-							<div
+							<GridRow
 								key={c.anchor.key}
-								role="row"
-								tabIndex={CELL_TABINDEX}
 								ref={selected ? selectedRow : null}
 								className={cn(
 									"flex items-center gap-1 rounded",
@@ -549,11 +541,8 @@ export function FlagsPalette() {
                     hold a widget plus text, and giving two decorations their own
                     column would make the grid's shape depend on whether a row
                     happened to be demoted or verified. */}
-								{/* biome-ignore lint/a11y/useSemanticElements: role="gridcell" on a div — see the grid above */}
-								<div
-									role="gridcell"
-									aria-colindex={1}
-									tabIndex={CELL_TABINDEX}
+								<GridCell
+									colIndex={1}
 									className="flex min-w-0 flex-1 items-center gap-1"
 								>
 									<ActionTip hint="select this finding and go to it">
@@ -587,7 +576,7 @@ export function FlagsPalette() {
 											className={VERDICT_CLASS[c.anchor.verdict.outcome]}
 										/>
 									)}
-								</div>
+								</GridCell>
 								<VerifyVerb
 									refusal={refusal}
 									running={running}
@@ -595,10 +584,10 @@ export function FlagsPalette() {
 									name={verifyName(label, clustered, refusal)}
 									onClick={() => verify(c.anchor.key)}
 								/>
-							</div>
+							</GridRow>
 						);
 					})}
-				</div>
+				</Grid>
 			)}
 		</div>
 	);

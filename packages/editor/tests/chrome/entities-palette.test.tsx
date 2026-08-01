@@ -991,3 +991,143 @@ test("stepping the verb cluster DOES document each verb", async () => {
 		),
 	).toBeTruthy();
 });
+
+// --- F4.5c Task 9, review round --------------------------------------------
+
+/** One row element, by a verb that names its entity. */
+const rowOf = (entityId: number): HTMLElement => {
+	const row = rowButton("freeze", entityId).closest('[role="row"]');
+	if (!(row instanceof HTMLElement))
+		throw new Error(`entity ${entityId} has no role=row`);
+	return row;
+};
+
+const colIndexes = (row: HTMLElement): (string | null)[] =>
+	Array.from(row.querySelectorAll('[role="gridcell"]')).map((c) =>
+		c.getAttribute("aria-colindex"),
+	);
+
+// IMPORTANT 1. Clamping the stop is only half of what a shrink needs. The flow this task
+// built ends here: ↓ selects an entity, ⌫ at the window deletes it, and the row the user
+// was standing on is gone — so without the recovery `document.activeElement` is `<body>`
+// and ↑/↓ are dead until they Tab back into the palette.
+test("a shrink that removes the FOCUSED row hands focus back to the list", () => {
+	const stub = makeStubHost();
+	showEntities(stub, THREE);
+	act(() => {
+		fireEvent.keyDown(grid(), { key: "End" });
+	});
+	expect(document.activeElement === stops()[2]).toBe(true);
+
+	pushEntities(stub, [ENTITY]);
+	expect(stops().length).toBe(1);
+	expect(document.activeElement === stops()[0]).toBe(true);
+	// …and the stop went with it, so the recovery did not leave a list whose focus and
+	// whose tab stop are on different controls.
+	expect(tabbable().length === 1 && tabbable()[0] === stops()[0]).toBe(true);
+});
+
+// The recovery's first obligation is to do NOTHING. A list that mounts while the user is
+// typing somewhere else must not seize the keyboard — and the first cut of it did exactly
+// that, because "nothing has ever held focus here" and "the thing that held focus died"
+// look identical to any check that only asks whether something is focused now.
+test("a grid that MOUNTS does not take focus from wherever the user was", () => {
+	const stub = makeStubHost();
+	renderPalette(stub);
+	pushEntities(stub, THREE);
+	expect(document.activeElement === document.body).toBe(true);
+	// Opening the section is what mounts the grid — the case that measured BODY → the
+	// first row before the guard landed.
+	fireEvent.click(screen.getByText("Entities (3)"));
+	expect(grid()).toBeTruthy();
+	expect(document.activeElement === document.body).toBe(true);
+});
+
+// The other half of the recovery's contract, and the reason it tests the LAST FOCUSED
+// CONTROL rather than "is anything focused": a list must never reach out and take focus
+// from somewhere it was not. Clicking dead space elsewhere leaves that control connected
+// and enabled, so a later shrink is not mistaken for a lost focus.
+test("a shrink does NOT steal focus back when the user had already left", () => {
+	const stub = makeStubHost();
+	showEntities(stub, THREE);
+	const outside = document.createElement("button");
+	document.body.appendChild(outside);
+	try {
+		act(() => {
+			fireEvent.keyDown(grid(), { key: "End" });
+		});
+		expect(document.activeElement === stops()[2]).toBe(true);
+		// Focus leaves for a control that has nothing to do with this palette…
+		outside.focus();
+		expect(document.activeElement === outside).toBe(true);
+		// …and a shrink under it must not yank the user back into the list.
+		pushEntities(stub, [ENTITY]);
+		expect(document.activeElement === outside).toBe(true);
+	} finally {
+		outside.remove();
+	}
+});
+
+// IMPORTANT 2, from the side that would break it. `ROW_STOP` matches the first cell's
+// button in EVERY row, and the expanded params row IS a row — so the stop count and the
+// entity count are two different numbers the moment anything focusable lands in it. The
+// row axis therefore reports the row's `rowId`, and this pins that the params row does
+// not carry one.
+test("an EXPANDED row adds no stop, and the params row names no entity", () => {
+	const stub = makeStubHost();
+	showEntities(stub, THREE);
+	fireEvent.click(stops()[0] as HTMLElement);
+	expect(stops()[0]?.getAttribute("aria-expanded")).toBe("true");
+	// THREE entities, THREE stops — the params row contributes none.
+	expect(stops().length).toBe(3);
+
+	// Every row that IS an entity names it; the params row deliberately does not, so a
+	// stop that ever did land there would select nothing rather than the wrong stamp.
+	const ids = Array.from(
+		grid().querySelectorAll<HTMLElement>('[role="row"]'),
+	).map((r) => r.dataset["rowId"] ?? null);
+	expect(ids).toEqual(["1", null, "5", "9"]);
+});
+
+// IMPORTANT 3. Replacing `button:not([disabled])` with `button` left all 79 tests across
+// the three palettes green — while the comment on it names the exact failure it prevents.
+// A frozen row is the fixture that has one: `openBlockedReason` is non-null, so Open is
+// `disabled` and takes no focus at all.
+test("→ steps OVER a verb the row cannot run", () => {
+	const stub = makeStubHost();
+	showEntities(stub, [ENTITY, FROZEN, { ...ENTITY, entityId: 9 }]);
+	const open = screen.getByLabelText(/^open entity 2\b/) as HTMLButtonElement;
+	expect(open.disabled).toBe(true);
+
+	stops()[1]?.focus();
+	act(() => {
+		fireEvent.keyDown(grid(), { key: "ArrowRight" });
+	});
+	// UNFREEZE, not Open. Stepping onto the disabled Open would drop focus to the body and
+	// strand the user outside the list — the same hole Important 1 covers from the other
+	// direction, reached here by an ordinary arrow press.
+	expect(document.activeElement === rowButton("unfreeze", 2)).toBe(true);
+	expect(document.activeElement === open).toBe(false);
+});
+
+// The conditional-Δ design exists so that a verb reports the SAME column on every row.
+// Nothing pinned it: changing `colIndex={3}` to `colIndex={6}` — two verbs claiming one
+// column — left every test green.
+test("a verb keeps its column whether or not the row drifted", () => {
+	const stub = makeStubHost();
+	showEntities(stub, THREE);
+	// Undrifted: the Δ column (2) is simply absent, which is what `aria-colcount` plus a
+	// stated `aria-colindex` per cell is FOR.
+	expect(colIndexes(rowOf(1))).toEqual(["1", "3", "4", "5", "6"]);
+	expect(grid().getAttribute("aria-colcount")).toBe("6");
+
+	act(() => {
+		stub.fire.drift({
+			findings: [{ opId: 12, kind: "drifted", chunks: ["0,0,0"] }],
+			entityIds: [1],
+		});
+	});
+	expect(colIndexes(rowOf(1))).toEqual(["1", "2", "3", "4", "5", "6"]);
+	// …and the row that did NOT drift is unchanged: freeze is column 4 on both.
+	expect(colIndexes(rowOf(5))).toEqual(["1", "3", "4", "5", "6"]);
+});
