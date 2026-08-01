@@ -10,9 +10,15 @@ import type { PaletteState, UiState } from "./persist.ts";
 
 /** Every palette the cockpit knows, in rail order. The union is closed on purpose: a
  *  persisted record for an id that is not here is dropped rather than restored, so a
- *  palette that gets renamed or retired cannot come back as dead geometry. */
+ *  palette that gets renamed or retired cannot come back as dead geometry.
+ *
+ *  `controls` is the first id to actually exercise that rule. It held the FieldPanel
+ *  control stack until F4.5b dissolved the panel's last organ into palettes and surfaces
+ *  of their own; a blob written by any build before then still carries a `controls`
+ *  record, and `deserializeWorkspace` drops it on the floor. Nothing needs to migrate the
+ *  stored shape — which is the whole reason the union is closed here rather than inferred
+ *  from whatever the blob happens to contain. */
 export const PALETTE_IDS = [
-  "controls",
   "entities",
   "session",
   "flags",
@@ -46,14 +52,13 @@ export type PaletteId = (typeof PALETTE_IDS)[number];
  *  that STANDS until the next subject change. `drivenOpen` therefore means "not persisted,
  *  and normally not user-set", not "unreachable by the user".
  *
- *  The default arrangement claims THREE of the cell's four corners deliberately:
- *  controls docked right, entities floating top-left, and the top-right left clear for
- *  the axis triad. That leaves the bottom-left as the one strip nothing defaults into,
- *  which is where the collapsed-chip rail lives (see PaletteLayer).
- *
- *  MIGRATION (until F4.5b): `controls` is edge-docked right because it holds the whole
- *  surviving FieldPanel stack, which is still one 300 px column. It dissolves into
- *  per-concern palettes next slice, and this default goes with it. */
+ *  Nothing docks by default any more, and no default claims the RIGHT edge: `controls`
+ *  was the one that did, and it retired with the panel it held. So the open defaults all
+ *  live in the LEFT column (entities at the top, flags below it) with the session card
+ *  and history in a second column at x = 420. That leaves the top-right clear for the
+ *  axis triad and the bottom-left clear for the collapsed-chip rail (see PaletteLayer),
+ *  and it leaves the whole right half of the cell — the side a right-handed user orbits
+ *  and digs in — unclaimed until the user docks something there. */
 export const PALETTES: Record<
   PaletteId,
   {
@@ -66,10 +71,6 @@ export const PALETTES: Record<
     drivenOpen?: true;
   }
 > = {
-  controls: {
-    title: "Controls",
-    default: { x: 0, y: 0, edge: "right", collapsed: false, open: true },
-  },
   entities: {
     title: "Entities",
     // Free-floating top-left, and OPEN: the committed-stamp list is the reference
@@ -162,7 +163,6 @@ export function defaultWorkspace(): WorkspaceState {
   // cheapest possible reminder that a new palette needs a default.
   return {
     palettes: {
-      controls: { ...PALETTES.controls.default },
       entities: { ...PALETTES.entities.default },
       session: { ...PALETTES.session.default },
       flags: { ...PALETTES.flags.default },

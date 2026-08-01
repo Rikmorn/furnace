@@ -2,12 +2,12 @@
 // things it refuses to know about — React state and the disk.
 //
 // Split into TWO contexts on purpose, and the load-bearing beneficiary is ShellChrome —
-// the component that BUILDS the `content={{ controls: <FieldPanel />, … }}` elements. It
-// reads ACTIONS ONLY, so a drag never re-renders it, which is what keeps those elements
-// referentially stable and therefore what keeps FieldPanel (four host-state contexts and
-// a form-heavy subtree) off the pointer-rate path. A ShellChrome that starts reading the
-// STATE context silently undoes that: it would rebuild those elements per pointermove and
-// re-render the panel with them. (ShellFrame, one level up, reads only useEditor — this
+// the component that BUILDS the `content={{ entities: <EntitiesPalette />, … }}` elements.
+// It reads ACTIONS ONLY, so a drag never re-renders it, which is what keeps those elements
+// referentially stable and therefore what keeps the five palette bodies (between them a
+// dozen host-state contexts and two form-heavy subtrees) off the pointer-rate path. A
+// ShellChrome that starts reading the STATE context silently undoes that: it would rebuild
+// those elements per pointermove and re-render every palette with them. (ShellFrame, one level up, reads only useEditor — this
 // comment named it for both roles until F4.5a Task 13; useWorld.tsx and useView.tsx had
 // it right.) The provider's own `children` come from its parent, so its state changes
 // re-render only the context consumers below it (the FieldHostStateProvider pattern).

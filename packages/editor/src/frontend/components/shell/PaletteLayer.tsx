@@ -8,14 +8,7 @@
 // a palette swaps places with its rail chip.
 
 import type { LucideIcon } from "lucide-react";
-import {
-	Boxes,
-	Flag,
-	History,
-	ScrollText,
-	Settings2,
-	SlidersHorizontal,
-} from "lucide-react";
+import { Boxes, Flag, History, ScrollText, Settings2 } from "lucide-react";
 import type { ReactNode } from "react";
 import { useCallback, useLayoutEffect, useRef } from "react";
 import {
@@ -37,17 +30,16 @@ import { Palette, type PaletteSize } from "./Palette.tsx";
 /** Per-palette presentation: the rail glyph and how wide the panel is. Kept out of the
  *  pure store, which stays free of React and of anything that isn't geometry.
  *
- *  MIGRATION (until F4.5b): `controls` is 300 px because it is still the whole
- *  FieldPanel control stack in one column — the panel dissolves into per-concern
- *  palettes next slice and takes this width with it. */
+ *  Every width below is set by the WIDEST row that palette has to render without
+ *  truncating — the figures are quoted against the 300 px `controls` column they all
+ *  used to share, which retired with the FieldPanel stack in F4.5b. */
 const PALETTE_CHROME: Record<
 	PaletteId,
 	{ Icon: LucideIcon; widthClass: string }
 > = {
-	controls: { Icon: SlidersHorizontal, widthClass: "w-[300px]" },
-	// Wider than the controls column it came out of: a row is a monospace summary
-	// (`scatter · seed 9 · 1 ops · rock · 24 placed`) followed by three verbs, and at
-	// 300 px the summary truncated before it reached what the stamp actually placed.
+	// A row is a monospace summary (`scatter · seed 9 · 1 ops · rock · 24 placed`)
+	// followed by three verbs, and at 300 px the summary truncated before it reached
+	// what the stamp actually placed.
 	entities: { Icon: Boxes, widthClass: "w-[360px]" },
 	// The mock's card is a 264 px form; 280 px is that plus the palette's own 8 px of
 	// padding either side. Narrower than every other palette on purpose — it is a
@@ -62,7 +54,7 @@ const PALETTE_CHROME: Record<
 	// The narrowest of the five, and it can be: a row is a mono index and a two-word
 	// phrase ("segment fill", "reconfigure Hall"), with nothing to the right of it.
 	history: { Icon: History, widthClass: "w-[240px]" },
-	// Wider than the controls column: log lines are sentences (a save path, an esbuild
+	// The widest of the five: log lines are sentences (a save path, an esbuild
 	// diagnostic), and a narrow box turns every one of them into four wrapped rows.
 	log: { Icon: ScrollText, widthClass: "w-[380px]" },
 };

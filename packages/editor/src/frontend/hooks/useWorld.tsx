@@ -1,8 +1,9 @@
 // The world the editor is editing: which one it is, whether it has unsaved edits, and
 // every verb that changes either. It is SHELL state, not panel state — the world chip
 // reads it, ⌘S drives it, the drawer lists against it — which is exactly why it lives
-// here and not in FieldPanel: a control stack that owns the save verb cannot be
-// dissolved into palettes, and closing the palette holding it would take ⌘S with it.
+// here and not in the dissolved FieldPanel control stack: a stack that owns the save verb
+// cannot itself be dissolved into palettes, and closing the palette holding it would have
+// taken ⌘S with it.
 //
 // It sits UNDER `FieldHostStateProvider` because the dirty bit is derived from the
 // stats that provider already owns. `subscribeStats` is a single slot — a second
@@ -13,8 +14,8 @@
 // so they DO rebuild when either changes, and a consumer of the actions context re-renders
 // then too. What the split isolates is the rest of the state — `drawer` and `busy` — which
 // churn on a different order of magnitude: every summon, every dismiss, and twice per save.
-// ShellChrome (which builds the palette bodies, and so re-renders FieldPanel whenever it
-// re-renders) reads verbs only, and is therefore off all of that.
+// ShellChrome (which builds the palette bodies, and so re-renders every palette whenever
+// it re-renders) reads verbs only, and is therefore off all of that.
 import type { ReactNode } from "react";
 import {
 	createContext,

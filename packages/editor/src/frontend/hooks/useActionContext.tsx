@@ -6,7 +6,7 @@
 // render cost. Assembling the ctx means reading the stats mirror, the world state, the
 // view state and the workspace arrangement — values that move on every op and every drag
 // frame. Doing that inside `ShellChrome` would re-render the component that BUILDS the
-// palette bodies (`content={{ controls: <FieldPanel />, … }}`), rebuilding those elements
+// palette bodies (`content={{ entities: <EntitiesPalette />, … }}`), rebuilding those elements
 // per pointermove and dragging a form-heavy subtree along with them — the exact trap
 // `useWorkspace.tsx`'s header names. Here, `children` arrive already built from the
 // parent, so a re-render of this component reaches only the actual context CONSUMERS.

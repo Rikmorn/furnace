@@ -140,11 +140,22 @@ async function renderShell(
 	return result;
 }
 
-/** The controls palette's own box (a labelled region), or null once it is collapsed or
+/** The flags palette's own box (a labelled region), or null once it is collapsed or
  *  hidden — both of which take it out of the accessibility tree, which is precisely the
- *  claim those states make. */
-const controlsPalette = () =>
-	screen.queryByRole("region", { name: "Controls" });
+ *  claim those states make.
+ *
+ *  The generic SUBJECT for every palette-layer geometry case below (drag, dock, collapse,
+ *  restore, ⌘\, Reset). It was `controls` until F4.5b Task 14 retired that id with the
+ *  FieldPanel stack; `flags` inherited the role because it is the other palette that ships
+ *  OPEN, which is what a case about where a palette sits needs. The one thing that did NOT
+ *  survive the swap is a DOCKED default — nothing docks on a fresh workspace any more, so
+ *  the cases that used to read `right: 0px` off the shipped arrangement read this palette's
+ *  floating origin instead, and docking is now only ever asserted after a drag. */
+const flagsPalette = () => screen.queryByRole("region", { name: "Flags" });
+
+/** Where `flags` sits before anything moves it, as strings the style attribute uses. */
+const FLAGS_DEFAULT_LEFT = "24px";
+const FLAGS_DEFAULT_TOP = "380px";
 
 /** The entities palette's box — open in the default arrangement, unlike the log. */
 const entitiesPalette = () =>
@@ -154,7 +165,7 @@ const entitiesPalette = () =>
  *  `edge: null` is what makes it float at an x/y a test can read off the style. */
 const MOVED = {
 	palettes: {
-		controls: {
+		flags: {
 			x: 120,
 			y: 60,
 			edge: null,
@@ -902,14 +913,13 @@ test("the ⚠ chip clears the ⌘\\ latch, so the log it summons is actually on 
 	expect(logPalette()).toBeTruthy();
 	// The controls palette comes back with it (⌘\ is one latch over the whole layer),
 	// which is the honest cost of showing what was asked for.
-	expect(controlsPalette()).toBeTruthy();
+	expect(flagsPalette()).toBeTruthy();
 });
 
 /** A workspace blob with the log palette open at a readable spot — the shape the store
  *  is in after a summon, and the starting point for the visibility cases below. */
 const LOG_OPEN = {
 	palettes: {
-		controls: { x: 0, y: 0, edge: "right", collapsed: false, open: true },
 		log: { x: 24, y: 24, edge: null, collapsed: false, open: true },
 	},
 	hidden: false,
@@ -1606,7 +1616,7 @@ test("the axis triad rides the camera pose, over the canvas and out of its way",
 	// the right edge at top 0, i.e. over exactly the corner the triad occupies. Mounted
 	// before the layer, it ships invisible in the out-of-the-box workspace — and no
 	// other case here would notice.
-	const layer = controlsPalette()?.parentElement;
+	const layer = flagsPalette()?.parentElement;
 	if (!(layer instanceof HTMLElement)) throw new Error("palette layer missing");
 	const order = [...cell.children];
 	expect(order.indexOf(box)).toBeGreaterThan(order.indexOf(layer));
@@ -1736,14 +1746,14 @@ test("the palette layer floats over the canvas and never swallows viewport input
 	await renderShell(stub);
 	const canvas = screen.getByLabelText("field viewport");
 	const cell = canvas.parentElement;
-	const palette = controlsPalette();
+	const palette = flagsPalette();
 	const layer = palette?.parentElement;
 	if (!(palette instanceof HTMLElement) || !(layer instanceof HTMLElement))
-		throw new Error("controls palette missing");
+		throw new Error("flags palette missing");
 
 	// The layer sits in the same positioned cell as the canvas, absolutely, covering it.
-	// As a flex sibling it would subtract 300px from the canvas — and then every palette
-	// that opens would move the viewport, the failure this contract exists for.
+	// As a flex sibling it would subtract its own width from the canvas — and then every
+	// palette that opens would move the viewport, the failure this contract exists for.
 	expect(layer.parentElement).toBe(cell);
 	for (const cls of ["absolute", "inset-0"])
 		expect(layer.classList.contains(cls)).toBe(true);
@@ -1761,20 +1771,13 @@ test("the palette layer floats over the canvas and never swallows viewport input
 	expect(layer.classList.contains("isolate")).toBe(true);
 
 	expect(palette.contains(canvas)).toBe(false);
-	// Docked right by default, and the field controls really are inside it (this is the
-	// field panel, not an empty box that happens to be positioned right).
-	expect(palette.style.right).toBe("0px");
-	// Anchored on the FLAGS palette's chip row rather than on this one's body: since
-	// F4.5b Task 13 the `controls` palette renders nothing at all (its last two organs
-	// went to the flags palette and the status bar), so there is no content of its own
-	// left to prove it is a real palette rather than an empty positioned box. The claim
-	// moves to a palette that HAS a body and always has one — the flag chips render
-	// whether or not the advisor has found anything.
-	const flags = screen.queryByRole("region", { name: "Flags" });
-	if (!(flags instanceof HTMLElement))
-		throw new Error("the flags palette is not open");
+	// Placed at its floating default, and it really has a BODY — the point of the pair is
+	// that this is a palette, not an empty positioned box. The flag chips render whether
+	// or not the advisor has found anything, which is what makes the second half stable.
+	expect(palette.style.left).toBe(FLAGS_DEFAULT_LEFT);
+	expect(palette.style.top).toBe(FLAGS_DEFAULT_TOP);
 	expect(
-		flags.contains(screen.getByRole("button", { name: "candidates" })),
+		palette.contains(screen.getByRole("button", { name: "candidates" })),
 	).toBe(true);
 });
 
@@ -1796,7 +1799,7 @@ test("the entities palette floats clear of the docked controls and the triad", a
 	expect(entities.style.top).toBe("24px");
 	expect(entities.style.right).toBe("");
 	// …and it is a separate palette, not a section of the controls stack it left.
-	const controls = controlsPalette();
+	const controls = flagsPalette();
 	if (!(controls instanceof HTMLElement)) throw new Error("controls missing");
 	expect(controls.contains(entities)).toBe(false);
 	expect(within(controls).queryByText(/^Entities \(/) === null).toBe(true);
@@ -1812,34 +1815,39 @@ test("a pointerdown raises a palette above the others, and does not persist", as
 	await renderShell(stub, store);
 	const zOf = (el: Element | null): string =>
 		el instanceof HTMLElement ? el.style.zIndex : "";
-	// The initial order is PALETTE_IDS: controls, entities.
-	expect(Number(zOf(entitiesPalette()))).toBeGreaterThan(
-		Number(zOf(controlsPalette())),
-	);
-
-	// A click on a palette BODY (not its header — the raise must not be a drag-handle
-	// privilege) puts it on top. The flags palette is the probe because it is the one
-	// with a body that is always there; `controls` renders nothing since Task 13.
-	const flagsPalette = () => screen.queryByRole("region", { name: "Flags" });
-	act(() => {
-		fireEvent.pointerDown(screen.getByRole("button", { name: "candidates" }), {
-			button: 0,
-			pointerId: 1,
-		});
-	});
+	// The initial order is PALETTE_IDS, so `flags` (third) starts above `entities`
+	// (first). Asserted rather than assumed: the two clicks below only mean something if
+	// the stack they reorder is known, and reading it off the shipped order is what makes
+	// the SECOND click a genuine restoration rather than a repeat of the first.
 	expect(Number(zOf(flagsPalette()))).toBeGreaterThan(
 		Number(zOf(entitiesPalette())),
 	);
 
-	// …and back again, so the order is a stack rather than a one-way promotion.
+	// A click on a palette BODY (not its header — the raise must not be a drag-handle
+	// privilege) puts it on top. Entities first, because it is the one UNDER the other:
+	// clicking the palette that is already on top could not tell a working raise from no
+	// raise at all.
 	act(() => {
 		fireEvent.pointerDown(
 			within(entitiesPalette() as HTMLElement).getByText("Entities (0)"),
-			{ button: 0, pointerId: 2 },
+			{ button: 0, pointerId: 1 },
 		);
 	});
 	expect(Number(zOf(entitiesPalette()))).toBeGreaterThan(
-		Number(zOf(controlsPalette())),
+		Number(zOf(flagsPalette())),
+	);
+
+	// …and back again, so the order is a stack rather than a one-way promotion. The flags
+	// palette is the probe for this half because it is the one with a body that is always
+	// there — the chips render whether or not the advisor has found anything.
+	act(() => {
+		fireEvent.pointerDown(screen.getByRole("button", { name: "candidates" }), {
+			button: 0,
+			pointerId: 2,
+		});
+	});
+	expect(Number(zOf(flagsPalette()))).toBeGreaterThan(
+		Number(zOf(entitiesPalette())),
 	);
 
 	// Deliberately NOT persisted (D-3 persists geometry, collapse and open — the
@@ -1872,7 +1880,7 @@ test("summoning a palette raises it, even after another was clicked", async () =
 			{ button: 0, pointerId: 1 },
 		);
 	});
-	expect(zOf(entitiesPalette())).toBeGreaterThan(zOf(controlsPalette()));
+	expect(zOf(entitiesPalette())).toBeGreaterThan(zOf(flagsPalette()));
 
 	// Now summon the log the way a user does — the ⚠ chip, which is the whole reason
 	// the palette has a default position at all.
@@ -1984,14 +1992,14 @@ test("the collapsed-chip rail sits clear of the docked palette it used to cover"
 	const stub = makeStubHost();
 	await renderShell(stub);
 	act(() => {
-		fireEvent.click(screen.getByRole("button", { name: "collapse Controls" }));
+		fireEvent.click(screen.getByRole("button", { name: "collapse Flags" }));
 	});
-	const chip = screen.getByRole("button", { name: "expand Controls" });
+	const chip = screen.getByRole("button", { name: "expand Flags" });
 	const rail = chip.parentElement;
 	if (!(rail instanceof HTMLElement)) throw new Error("no chip rail");
-	// Bottom-LEFT. It used to be top-right, which is exactly where the default
-	// arrangement docks the controls palette (full height from y=0) AND where the axis
-	// triad sits — so every chip shipped on top of something.
+	// Bottom-LEFT. It used to be top-right, which is where the axis triad sits and where
+	// the default arrangement used to dock the controls palette full-height — so every
+	// chip shipped on top of something.
 	for (const cls of ["bottom-0", "left-0"])
 		expect(rail.classList.contains(cls)).toBe(true);
 	for (const gone of ["top-0", "right-0"])
@@ -2000,7 +2008,7 @@ test("the collapsed-chip rail sits clear of the docked palette it used to cover"
 	// click-to-front z-indexes broke that, and a chip is the only way back to the
 	// palette it stands for — burying one is a control that cannot be reached.
 	const topPalette = Math.max(
-		...[entitiesPalette(), controlsPalette()]
+		...[entitiesPalette(), flagsPalette()]
 			.filter((el): el is HTMLElement => el instanceof HTMLElement)
 			.map((el) => Number(el.style.zIndex)),
 	);
@@ -2011,10 +2019,10 @@ test("a palette collapses to a rail chip that restores it, keeping its geometry"
 	fetch404();
 	const stub = makeStubHost();
 	await renderShell(stub, fakeUiStore({ workspace: MOVED }));
-	expect(controlsPalette()?.style.left).toBe("120px");
+	expect(flagsPalette()?.style.left).toBe("120px");
 
 	act(() => {
-		fireEvent.click(screen.getByRole("button", { name: "collapse Controls" }));
+		fireEvent.click(screen.getByRole("button", { name: "collapse Flags" }));
 	});
 	// Out of the layout AND out of the accessibility tree — but still MOUNTED behind
 	// `hidden`, so the panel's host-subscribed state survives the round trip.
@@ -2023,24 +2031,24 @@ test("a palette collapses to a rail chip that restores it, keeping its geometry"
 	// text probed is the ENTITIES palette's, because `controls` renders nothing since
 	// F4.5b Task 13 — a collapse that unmounted its neighbour would be the same defect
 	// and is what this half is really about.
-	expect(controlsPalette()).toBeNull();
+	expect(flagsPalette()).toBeNull();
 	expect(screen.getByText("Entities (0)")).toBeTruthy();
 	// The button that was just clicked went with the palette, so focus has to be MOVED
 	// or it lands on <body> and a keyboard user restarts from the top of the document.
-	const chip = screen.getByRole("button", { name: "expand Controls" });
+	const chip = screen.getByRole("button", { name: "expand Flags" });
 	expect(document.activeElement).toBe(chip);
 
 	act(() => {
 		fireEvent.click(chip);
 	});
-	const restored = controlsPalette();
+	const restored = flagsPalette();
 	expect(restored?.style.left).toBe("120px");
 	expect(restored?.style.top).toBe("60px");
-	expect(screen.queryByRole("button", { name: "expand Controls" })).toBeNull();
+	expect(screen.queryByRole("button", { name: "expand Flags" })).toBeNull();
 	// …and back the other way: the chip unmounted, so focus returns to the control that
 	// now does its job.
 	expect(document.activeElement).toBe(
-		screen.getByRole("button", { name: "collapse Controls" }),
+		screen.getByRole("button", { name: "collapse Flags" }),
 	);
 });
 
@@ -2053,7 +2061,7 @@ test("⌘\\ hides the whole layer and restores the EXACT arrangement (D-3)", asy
 	act(() => {
 		fireEvent.keyDown(window, { key: "\\", metaKey: true });
 	});
-	expect(controlsPalette()).toBeNull();
+	expect(flagsPalette()).toBeNull();
 	// The chord hides the CHROME, not the viewport: the canvas and its cell are exactly
 	// as they were, which is the whole point of the layer being a layer.
 	expect(screen.getByLabelText("field viewport")).toBe(canvas);
@@ -2067,8 +2075,8 @@ test("⌘\\ hides the whole layer and restores the EXACT arrangement (D-3)", asy
 		fireEvent.keyDown(window, { key: "\\", metaKey: true });
 	});
 	// Exact, not defaults: the palette comes back at the position it was hidden from.
-	expect(controlsPalette()?.style.left).toBe("120px");
-	expect(controlsPalette()?.style.top).toBe("60px");
+	expect(flagsPalette()?.style.left).toBe("120px");
+	expect(flagsPalette()?.style.top).toBe("60px");
 });
 
 test("the top bar's ⌘\\ control is live, and follows the state it toggles", async () => {
@@ -2079,7 +2087,7 @@ test("the top bar's ⌘\\ control is live, and follows the state it toggles", as
 	act(() => {
 		fireEvent.click(toggle);
 	});
-	expect(controlsPalette()).toBeNull();
+	expect(flagsPalette()).toBeNull();
 	// A toggle that still says "hide" while everything is hidden is a lie the user has
 	// to test by clicking.
 	expect(screen.getByRole("button", { name: /show palettes/ })).toBeTruthy();
@@ -2091,20 +2099,21 @@ test("Reset workspace restores the defaults AND drops the persisted arrangement"
 	const store = fakeUiStore({
 		workspace: {
 			palettes: {
-				controls: { x: 120, y: 60, edge: null, collapsed: true, open: false },
+				flags: { x: 500, y: 300, edge: null, collapsed: true, open: false },
 			},
 			hidden: true,
 		},
 	});
 	await renderShell(stub, store);
-	expect(controlsPalette()).toBeNull();
+	expect(flagsPalette()).toBeNull();
 
 	pickMenuItem("Reset workspace");
 	// The panel MOUNTS again here (it was closed), so let its catalog GET settle.
 	await flushCatalog();
 
-	// Back to the shipped arrangement: open, uncollapsed, docked right.
-	expect(controlsPalette()?.style.right).toBe("0px");
+	// Back to the shipped arrangement: open, uncollapsed, at its floating default.
+	expect(flagsPalette()?.style.left).toBe(FLAGS_DEFAULT_LEFT);
+	expect(flagsPalette()?.style.top).toBe(FLAGS_DEFAULT_TOP);
 	// …and the blob is GONE, not rewritten with the defaults: the next session starts
 	// from whatever the defaults are then, not from a snapshot of today's.
 	expect(store.get("workspace")).toBeUndefined();
@@ -2116,14 +2125,14 @@ test("the View menu can re-open a palette closed with its ×", async () => {
 	await renderShell(stub);
 
 	act(() => {
-		fireEvent.click(screen.getByRole("button", { name: "close Controls" }));
+		fireEvent.click(screen.getByRole("button", { name: "close Flags" }));
 	});
-	expect(controlsPalette()).toBeNull();
+	expect(flagsPalette()).toBeNull();
 	// Closing must not be a trap: without this item the only way back is Reset
 	// Workspace, which also discards every position the user set.
-	pickMenuItem("Controls palette");
+	pickMenuItem("Flags palette");
 	await flushCatalog();
-	expect(controlsPalette()).toBeTruthy();
+	expect(flagsPalette()).toBeTruthy();
 });
 
 test("a persisted arrangement is adopted when the store arrives LATE", async () => {
@@ -2138,14 +2147,15 @@ test("a persisted arrangement is adopted when the store arrives LATE", async () 
 		await Promise.resolve();
 		await Promise.resolve();
 	});
-	expect(controlsPalette()?.style.right).toBe("0px");
+	expect(flagsPalette()?.style.left).toBe(FLAGS_DEFAULT_LEFT);
+	expect(flagsPalette()?.style.top).toBe(FLAGS_DEFAULT_TOP);
 
 	// …and the moment it does arrive, the saved arrangement is adopted.
 	act(() => {
 		rerender(withEditor(<Shell />, stub, fakeUiStore({ workspace: MOVED })));
 	});
-	expect(controlsPalette()?.style.left).toBe("120px");
-	expect(controlsPalette()?.style.top).toBe("60px");
+	expect(flagsPalette()?.style.left).toBe("120px");
+	expect(flagsPalette()?.style.top).toBe("60px");
 });
 
 // The restore is NOT a summon, and the layer cannot tell them apart on its own — a restore
@@ -2226,7 +2236,8 @@ test("a card that auto-opens BEFORE the store arrives does not discard the saved
 		await Promise.resolve();
 		await Promise.resolve();
 	});
-	expect(controlsPalette()?.style.right).toBe("0px");
+	expect(flagsPalette()?.style.left).toBe(FLAGS_DEFAULT_LEFT);
+	expect(flagsPalette()?.style.top).toBe(FLAGS_DEFAULT_TOP);
 
 	// The user selects something in the viewport. The session card auto-opens — a write to
 	// the arrangement that the user did not make.
@@ -2253,8 +2264,8 @@ test("a card that auto-opens BEFORE the store arrives does not discard the saved
 	act(() => {
 		rerender(withEditor(<Shell />, stub, fakeUiStore({ workspace: MOVED })));
 	});
-	expect(controlsPalette()?.style.left).toBe("120px");
-	expect(controlsPalette()?.style.top).toBe("60px");
+	expect(flagsPalette()?.style.left).toBe("120px");
+	expect(flagsPalette()?.style.top).toBe("60px");
 });
 
 /** Give the LAYER (a div) a measured box for the duration of `f`. happy-dom measures
@@ -2277,7 +2288,7 @@ test("dragging the header moves the palette and persists it once, debounced", as
 	const stub = makeStubHost();
 	const store = fakeUiStore();
 	await renderShell(stub, store);
-	const palette = controlsPalette();
+	const palette = flagsPalette();
 	const header = palette?.querySelector("header");
 	if (!(palette instanceof HTMLElement) || !(header instanceof HTMLElement))
 		throw new Error("palette header missing");
@@ -2304,7 +2315,7 @@ test("dragging the header moves the palette and persists it once, debounced", as
 
 	// Undocked and placed by the pointer delta — 24px from either edge would have
 	// snapped it, 120 does not.
-	const moved = controlsPalette();
+	const moved = flagsPalette();
 	expect(moved?.style.left).toBe("120px");
 	expect(moved?.style.top).toBe("60px");
 	expect(moved?.style.right).toBe("");
@@ -2313,7 +2324,7 @@ test("dragging the header moves the palette and persists it once, debounced", as
 	// re-serializes the whole blob); the debounce lands it once.
 	expect(store.get("workspace")).toBeUndefined();
 	await waitFor(() => {
-		expect(store.get("workspace")?.palettes["controls"]?.x).toBe(120);
+		expect(store.get("workspace")?.palettes["flags"]?.x).toBe(120);
 	});
 });
 
@@ -2321,7 +2332,7 @@ test("a drag that loses its pointer capture stops, instead of following the curs
 	fetch404();
 	const stub = makeStubHost();
 	await renderShell(stub, fakeUiStore({ workspace: MOVED }));
-	const header = controlsPalette()?.querySelector("header");
+	const header = flagsPalette()?.querySelector("header");
 	if (!(header instanceof HTMLElement))
 		throw new Error("palette header missing");
 
@@ -2347,7 +2358,7 @@ test("a drag that loses its pointer capture stops, instead of following the curs
 	});
 	// Still where it was. Without the release the palette keeps tracking a pointer whose
 	// button is no longer down, and the next click looks like a teleport.
-	expect(controlsPalette()?.style.left).toBe("120px");
+	expect(flagsPalette()?.style.left).toBe("120px");
 
 	// The second guard, alone: a move whose buttons say nothing is pressed ends the
 	// gesture even if the lostpointercapture event never arrives.
@@ -2373,7 +2384,7 @@ test("a drag that loses its pointer capture stops, instead of following the curs
 			});
 		});
 	});
-	expect(controlsPalette()?.style.left).toBe("120px");
+	expect(flagsPalette()?.style.left).toBe("120px");
 });
 
 test("a Reset that happens BEFORE the store arrives is not undone by the restore", async () => {
@@ -2385,7 +2396,8 @@ test("a Reset that happens BEFORE the store arrives is not undone by the restore
 
 	pickMenuItem("Reset workspace");
 	await flushCatalog();
-	expect(controlsPalette()?.style.right).toBe("0px");
+	expect(flagsPalette()?.style.left).toBe(FLAGS_DEFAULT_LEFT);
+	expect(flagsPalette()?.style.top).toBe(FLAGS_DEFAULT_TOP);
 
 	// …and NOW the store lands, carrying the arrangement the user just discarded. The
 	// naive arrival effect restores it over the reset and leaves the screen AND the disk
@@ -2394,7 +2406,8 @@ test("a Reset that happens BEFORE the store arrives is not undone by the restore
 	act(() => {
 		rerender(withEditor(<Shell />, stub, store));
 	});
-	expect(controlsPalette()?.style.right).toBe("0px");
+	expect(flagsPalette()?.style.left).toBe(FLAGS_DEFAULT_LEFT);
+	expect(flagsPalette()?.style.top).toBe(FLAGS_DEFAULT_TOP);
 	expect(store.get("workspace")).toBeUndefined();
 });
 

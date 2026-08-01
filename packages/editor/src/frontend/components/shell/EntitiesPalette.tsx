@@ -38,8 +38,9 @@ export function EntitiesPalette() {
 	// Before the engine bundle lands there is no host, so the provider has subscribed to
 	// nothing and `entities` is empty for a reason that is not "this world has no
 	// stamps". Rendering the list anyway would put "Entities (0)" on screen as a claim
-	// about the world — the same gate FieldPanel has held since F1, which this list used
-	// to sit behind. Same sentence deliberately: it is one editor booting, not two.
+	// about the world — the same gate the FieldPanel control stack held from F1 until it
+	// dissolved, which this list used to sit behind. Same sentence as the other palettes
+	// deliberately: it is one editor booting, not five.
 	if (state.status !== "ready") {
 		return (
 			<p className="p-3 text-sm text-muted-foreground">

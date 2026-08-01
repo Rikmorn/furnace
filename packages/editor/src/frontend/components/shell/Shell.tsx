@@ -28,7 +28,6 @@ import { useViewState, ViewProvider } from "../../hooks/useView.tsx";
 import { WorkspaceProvider } from "../../hooks/useWorkspace.tsx";
 import { WorldProvider } from "../../hooks/useWorld.tsx";
 import { useEditor } from "../editor-context.ts";
-import { FieldPanel } from "../FieldPanel.tsx";
 import { TooltipProvider } from "../ui/tooltip.tsx";
 import { AxisTriadMount } from "./AxisTriadMount.tsx";
 import { CanvasHost } from "./CanvasHost.tsx";
@@ -130,12 +129,11 @@ function ShellChrome({
 							)}
 							{/* The palette bodies are built HERE so their elements survive the
                   layer's own drag re-renders untouched (see PaletteLayer's `content`).
-                  MIGRATION (until F4.5b): the SURVIVING control stack rides in one
-                  `controls` palette until the rest of its organs follow the entity list
-                  into palettes of their own. */}
+                  Every one of them is a single CONCERN: F4.5b finished dissolving the
+                  `controls` stack, so there is no longer a palette that is merely "the
+                  panel" and no id here without a subject. */}
 							<PaletteLayer
 								content={{
-									controls: <FieldPanel />,
 									entities: <EntitiesPalette />,
 									session: <SessionCard />,
 									flags: <FlagsPalette />,
@@ -174,9 +172,9 @@ function ShellChrome({
 
 /** The canvas plus the one piece of view state it needs. A separate component so
  *  ShellChrome does NOT read the view context: ShellChrome builds the palette bodies, so
- *  every render of it rebuilds those elements and re-renders FieldPanel with them — the
- *  same reason it now reads no state context at all. Here the re-render stops at a canvas
- *  element React never re-creates. */
+ *  every render of it rebuilds those elements and re-renders all five palettes with them
+ *  — the same reason it now reads no state context at all. Here the re-render stops at a
+ *  canvas element React never re-creates. */
 function FieldCanvas({
 	host,
 	onError,

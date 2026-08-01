@@ -1,26 +1,29 @@
-// Harness tests for the Field panel (F2b sweep — the Task 14 review
-// commitment): mock EditorContext + a minimal stub FieldHost that records
-// calls and exposes its subscribe callbacks for manual firing (the
-// world-panel.test.tsx precedent). The GPU never initializes here — the panel
-// owns no canvas at all now (the shell's CanvasHost does), so nothing in this
-// file ever calls host.init — and every behaviour under test is pure
-// chrome↔host protocol: the paint organic-clamp, the catalog Load gate, the
-// subscribeTool echo guard, the reconfigure session's Apply routing, stamp
-// commit gating, the selection footer, and the F4 advisor's flags section.
+// The two chrome↔host protocol claims that belong to NO single surface, in the harness
+// this file has carried since the F2b sweep: mock EditorContext + a minimal stub FieldHost
+// that records calls and exposes its subscribe callbacks for manual firing (the
+// world-panel.test.tsx precedent). The GPU never initializes here — nothing in this file
+// calls host.init.
 //
-// The entity list and the drift report LEFT this panel in F4.5a Task 10 — they are
-// tests/chrome/entities-palette.test.tsx now, assertion for assertion.
+// (1) THE SINGLE-SLOT RULE, quantified over every seam. Each `FieldHost.subscribeX` stores
+//     ONE callback, so a second claimant silently steals the first's. The claim is that
+//     `FieldHostStateProvider` holds all of them and no rendered surface holds any — a
+//     claim about the SET, which is why it cannot live in a per-surface test file.
+// (2) THE CATALOG PASS: `CatalogProvider`'s run-once GETs for materials, entities and
+//     agents, what each one installs on the host, and what the pass says to the toast
+//     stack and the message log.
 //
-// The panel now claims NO host seam at all: F4.5b Task 2 lifted its last four
-// (tool / selection / stamp / flags) into the shell's provider, so every case here
-// mounts under `FieldHostStateProvider` and every host push travels provider → context →
-// panel. What stayed behind is the negative half, one case, quantified over all ten
-// seams.
+// This file was `field-panel.test.tsx` until F4.5b Task 14. The panel it was named for is
+// deleted, and every organ that had a surface took its cases with it — the entity list and
+// drift report to entities-palette.test.tsx (F4.5a Task 10), the brush and swatch strip to
+// tool-strip.test.tsx and the arming to tool-rail.test.tsx (Task 8), the stamp session to
+// session-card.test.tsx (Task 10), the advisor's findings to flags-palette.test.tsx and the
+// selection footer to shell.test.tsx (Task 13). What is left is what was never the panel's:
+// the two claims above. Renamed rather than deleted, because deleting it would have taken
+// them with it.
 
 import { afterEach, expect, mock, test } from "bun:test";
 import type { ReactElement } from "react";
 import { EditorContext } from "../../src/frontend/components/editor-context.ts";
-import { FieldPanel } from "../../src/frontend/components/FieldPanel.tsx";
 import { Toasts } from "../../src/frontend/components/shell/Toasts.tsx";
 import { CatalogProvider } from "../../src/frontend/hooks/useCatalogs.tsx";
 import { FieldHostStateProvider } from "../../src/frontend/hooks/useFieldHostState.tsx";
@@ -165,8 +168,12 @@ const flushCatalog = () =>
 		await Promise.resolve();
 	});
 
-async function renderPanel(stub: ReturnType<typeof makeStubHost>) {
-	const result = render(withEditor(<FieldPanel />, stub));
+/** Mount the provider stack with NOTHING inside it. That is not a placeholder — it is the
+ *  subject: the catalog pass and every seam claim below belong to the PROVIDERS, and a
+ *  render with no surface in it is what proves they do not depend on one. The seam case
+ *  re-renders over this same empty child to make its second half discriminating. */
+async function renderProviders(stub: ReturnType<typeof makeStubHost>) {
+	const result = render(withEditor(<span />, stub));
 	await flushCatalog();
 	return result;
 }
@@ -176,11 +183,6 @@ async function renderPanel(stub: ReturnType<typeof makeStubHost>) {
  *  pattern — see Toasts), so an unscoped `getByText` is ambiguous by design. */
 const toastText = (text: string | RegExp): HTMLElement =>
 	within(screen.getByRole("list", { name: "notifications" })).getByText(text);
-
-// (a) The paint organic-clamp and (c) the subscribeTool echo guard LEFT this file with
-// their subjects in F4.5b Task 8: the swatch strip and the armed tool's readout are the
-// top strip's now, and arming an effect is the tool rail's. Both are in
-// tests/chrome/tool-strip.test.tsx, assertion for assertion.
 
 // The single-slot rule, pinned from the side that would break it. Every FieldHost
 // subscribe seam stores ONE callback (`toolCb = cb`), so a panel that subscribed to one
@@ -194,7 +196,7 @@ const toastText = (text: string | RegExp): HTMLElement =>
 //
 // Every seam, with the push that proves the slot is live. Quantified rather than spelled
 // out case by case: the point is that the set is CLOSED, and a thirteenth seam claimed by
-// a panel section is exactly what this must catch.
+// a palette body is exactly what this must catch.
 const DIG_TOOL: FieldTool = {
 	effect: "dig",
 	materialId: 0,
@@ -252,23 +254,25 @@ const seamsOf = (stub: ReturnType<typeof makeStubHost>) =>
 		],
 	] as const;
 
-test("every host seam is the SHELL's — the panel adds no claim and holds none", async () => {
+test("every host seam is the PROVIDER's — twelve slots, one claimant each", async () => {
 	fetch404();
 	const stub = makeStubHost();
-	const { rerender } = await renderPanel(stub);
+	const { rerender } = await renderProviders(stub);
 
 	// (1) Nobody claimed anything twice. A second claim is the failure this rule exists
 	// for, and it reads as ONE extra call and nothing else.
 	for (const [name, claim] of seamsOf(stub))
 		expect([name, claim.mock.calls.length]).toEqual([name, 1]);
 
-	// (2) …and that one claim is the PROVIDER's. Counting cannot tell the two apart — one
-	// claim is one claim whoever made it, and this file's mount has both components in it
-	// — so the PANEL is unmounted out from under a provider that stays, and every seam is
-	// pushed again. A seam the panel owned releases here and goes dead; a seam the
-	// provider owns keeps delivering. This half is what actually inverted in Task 2: with
-	// the four mirrors still in FieldPanel it fails four times over.
-	rerender(withEditor(<span />, stub));
+	// (2) …and that one claim is the PROVIDER's. Counting alone cannot tell a provider
+	// claim from a child's — one claim is one claim whoever made it — so the CHILD is
+	// swapped out from under a provider that stays, and every seam is pushed again. A seam
+	// a child owned releases here and goes dead; a seam the provider owns keeps
+	// delivering. This half is what inverted in Task 2: with the four mirrors still in
+	// FieldPanel it failed four times over. The child is a `<div />` rather than the
+	// `<span />` above so the swap is a real unmount, not a re-render of the same element
+	// type.
+	rerender(withEditor(<div />, stub));
 	for (const [name, , push] of seamsOf(stub)) {
 		let delivered = false;
 		act(() => {
@@ -278,24 +282,16 @@ test("every host seam is the SHELL's — the panel adds no claim and holds none"
 	}
 });
 
-// The four STAMP-SESSION cases that lived here — the mode-aware commit verb, the ready
-// gate, the nudge cluster and its absence — left with their subject in F4.5b Task 10.
-// `StampInspector` was deleted, not moved: the session card (shell/SessionCard) replaces
-// it, and tests/chrome/session-card.test.tsx carries that coverage assertion for
-// assertion, plus the REST state the inspector never had.
-
-// (g) The slice + void wiring moved with the controls themselves: they are the View
-// popover's now, covered in tests/chrome/shell.test.tsx.
-
-// --- (k) F3b: the archetypeId picker survives the catalog's ASYNC arrival ----
+// --- the catalog pass: what each GET installs, and what it says ---------------
 //
-// The ordering this pins is the whole point (review B1). The panel reads
-// `host.listGenerators()` at engine-ready — SYNCHRONOUSLY, in an effect body —
-// while the toolbar installs the entity catalog only after `await fetch(...)`.
-// So the schema the form renders is always captured BEFORE the catalog exists,
-// and unless the panel re-reads, `archetypeId` stays a free-text input forever.
-// Host-level tests cannot see this: they call setEntityCatalog first, which is
-// exactly the order the chrome does not produce.
+// The ORDERING is what these pin, and it is a property of the chrome that host-level
+// tests cannot reproduce: a surface reads `host.listGenerators()` at engine-ready —
+// SYNCHRONOUSLY, in an effect body — while `CatalogProvider` installs the entity catalog
+// only after `await fetch(...)`. So a schema captured at ready is always captured BEFORE
+// the catalog exists. Host tests call `setEntityCatalog` first, which is exactly the order
+// the chrome does not produce. The consuming half of that — the `archetypeId` control
+// becoming a picker once the catalog lands — moved to session-card.test.tsx with the form
+// that renders it; what stays here is the install itself.
 
 /** A one-archetype `catalog/entities.json`, the v1 shape parseEntityCatalog takes. */
 const ENTITIES_JSON = JSON.stringify({
@@ -321,7 +317,7 @@ const ENTITIES_JSON = JSON.stringify({
 test("the entity catalog is fetched, parsed and installed on the host", async () => {
 	stubCatalogs({ materials: CATALOG_JSON, entities: ENTITIES_JSON });
 	const stub = makeStubHost();
-	await renderPanel(stub);
+	await renderProviders(stub);
 	await waitFor(() =>
 		expect(stub.calls.setEntityCatalog.mock.calls.length).toBe(1),
 	);
@@ -353,7 +349,7 @@ const AGENT_JSON = JSON.stringify({
 test("the agent catalog is fetched, parsed and installed on the host", async () => {
 	stubCatalogs({ materials: CATALOG_JSON, agent: AGENT_JSON });
 	const stub = makeStubHost();
-	await renderPanel(stub);
+	await renderProviders(stub);
 	await waitFor(() =>
 		expect(stub.calls.setAgentProfile.mock.calls.length).toBe(1),
 	);
@@ -376,7 +372,7 @@ test("no agent catalog installs nothing, quietly — the advisor says so itself"
 	// here would be noise on a line that has already said what happened.
 	stubCatalogs({ materials: CATALOG_JSON });
 	const stub = makeStubHost();
-	await renderPanel(stub);
+	await renderProviders(stub);
 	await waitFor(() => expect(toastText(/materials: /)).toBeTruthy());
 	expect(stub.calls.setAgentProfile.mock.calls).toEqual([]);
 	expect(
@@ -393,7 +389,7 @@ test("a MALFORMED agent catalog is setup-loud and costs the other two nothing", 
 		agent: JSON.stringify({ version: 1, capsule: { radius: 0.3 } }),
 	});
 	const stub = makeStubHost();
-	await renderPanel(stub);
+	await renderProviders(stub);
 	// The JSON path is in the line, so a mistyped catalog is diagnosable from the
 	// panel rather than from a pass that silently never ran.
 	await waitFor(() => expect(toastText(/capsule\.halfHeight/)).toBeTruthy());
@@ -425,7 +421,7 @@ test("a MALFORMED agent catalog is setup-loud and costs the other two nothing", 
 test("a catalog report becomes a toast — and is still in the log after the toast goes", async () => {
 	stubCatalogs({ materials: CATALOG_JSON });
 	const stub = makeStubHost();
-	await renderPanel(stub);
+	await renderProviders(stub);
 	const toast = await waitFor(() => toastText("materials: 2 classes"));
 	// Info, not error: a catalog that loaded is not a problem, and the tone is what
 	// the gate found missing when everything shared one line.
@@ -454,5 +450,5 @@ test("a catalog report becomes a toast — and is still in the log after the toa
 // tests/chrome/shell.test.tsx, where the bar is mounted inside the real shell.
 //
 // The "controls scroll inside themselves" case went with the last thing there was to
-// scroll: `FieldPanel` renders null, and the `controls` palette id retires with this
-// file in Task 14.
+// scroll. `FieldPanel` rendered `null` from Task 13, and Task 14 deleted it along with the
+// `controls` palette id, its default geometry, its burger checkbox and its rail chip.

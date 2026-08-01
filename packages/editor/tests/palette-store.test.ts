@@ -7,6 +7,7 @@ import {
   defaultWorkspace,
   deserializeWorkspace,
   movePalette,
+  PALETTE_IDS,
   PALETTES,
   SNAP_PX,
   serializeWorkspace,
@@ -20,7 +21,7 @@ import type { PaletteState } from "../src/frontend/lib/persist.ts";
 // A roomy cell: every edge is far enough away that a move lands where it was put.
 const BOUNDS = { maxX: 900, maxY: 500 };
 
-/** The default arrangement with `controls` free-floating at (x, y) — the starting point
+/** The default arrangement with `entities` free-floating at (x, y) — the starting point
  *  for the move cases, which need a palette that is NOT already docked. */
 function floatingAt(x: number, y: number): WorkspaceState {
   const base = defaultWorkspace();
@@ -28,7 +29,7 @@ function floatingAt(x: number, y: number): WorkspaceState {
     ...base,
     palettes: {
       ...base.palettes,
-      controls: { ...base.palettes.controls, x, y, edge: null },
+      entities: { ...base.palettes.entities, x, y, edge: null },
     },
   };
 }
@@ -37,35 +38,35 @@ test("move clamps to the viewport bounds", () => {
   const start = floatingAt(400, 200);
 
   // Past the bottom-right corner: both axes pin to the maxima the layer measured.
-  const far = movePalette(start, "controls", { x: 4000, y: 4000 }, BOUNDS);
-  expect(far.palettes.controls.x).toBe(BOUNDS.maxX);
-  expect(far.palettes.controls.y).toBe(BOUNDS.maxY);
+  const far = movePalette(start, "entities", { x: 4000, y: 4000 }, BOUNDS);
+  expect(far.palettes.entities.x).toBe(BOUNDS.maxX);
+  expect(far.palettes.entities.y).toBe(BOUNDS.maxY);
 
   // Past the top-left corner: never negative, so the header always stays grabbable.
-  const near = movePalette(start, "controls", { x: -500, y: -500 }, BOUNDS);
-  expect(near.palettes.controls.x).toBe(0);
-  expect(near.palettes.controls.y).toBe(0);
+  const near = movePalette(start, "entities", { x: -500, y: -500 }, BOUNDS);
+  expect(near.palettes.entities.x).toBe(0);
+  expect(near.palettes.entities.y).toBe(0);
 
   // A palette LARGER than the cell (a narrow window, or a resize between sessions)
   // makes both maxima negative. It pins to the origin rather than off-screen: the
   // clamp's lower bound wins, so the header is still there to drag.
   const tiny = movePalette(
     start,
-    "controls",
+    "entities",
     { x: 300, y: 300 },
     { maxX: -120, maxY: -40 },
   );
-  expect(tiny.palettes.controls.x).toBe(0);
-  expect(tiny.palettes.controls.y).toBe(0);
+  expect(tiny.palettes.entities.x).toBe(0);
+  expect(tiny.palettes.entities.y).toBe(0);
 
   // Pure: the input state is not mutated.
-  expect(start.palettes.controls.x).toBe(400);
+  expect(start.palettes.entities.x).toBe(400);
 
   // A move that resolves to the placement already stored returns the SAME state. A drag
   // along a clamped edge produces one of these per pointer event; without the identity
   // return each one re-renders the layer and re-arms the persist debounce.
-  expect(movePalette(far, "controls", { x: 4000, y: 4000 }, BOUNDS)).toBe(far);
-  expect(movePalette(far, "controls", { x: 5000, y: 6000 }, BOUNDS)).toBe(far);
+  expect(movePalette(far, "entities", { x: 4000, y: 4000 }, BOUNDS)).toBe(far);
+  expect(movePalette(far, "entities", { x: 5000, y: 6000 }, BOUNDS)).toBe(far);
 });
 
 test("edge snap engages within SNAP_PX of the right/left edge and records edge", () => {
@@ -75,61 +76,61 @@ test("edge snap engages within SNAP_PX of the right/left edge and records edge",
   // resize keeps it on that edge instead of stranding it mid-canvas.
   const right = movePalette(
     start,
-    "controls",
+    "entities",
     { x: BOUNDS.maxX - (SNAP_PX - 1), y: 200 },
     BOUNDS,
   );
-  expect(right.palettes.controls.x).toBe(BOUNDS.maxX);
-  expect(right.palettes.controls.edge).toBe("right");
+  expect(right.palettes.entities.x).toBe(BOUNDS.maxX);
+  expect(right.palettes.entities.edge).toBe("right");
 
   const left = movePalette(
     start,
-    "controls",
+    "entities",
     { x: SNAP_PX - 1, y: 200 },
     BOUNDS,
   );
-  expect(left.palettes.controls.x).toBe(0);
-  expect(left.palettes.controls.edge).toBe("left");
+  expect(left.palettes.entities.x).toBe(0);
+  expect(left.palettes.entities.edge).toBe("left");
 
   // Just OUTSIDE the gutter on both sides: free-floating, exactly where it was put.
   const freeRight = movePalette(
     start,
-    "controls",
+    "entities",
     { x: BOUNDS.maxX - (SNAP_PX + 1), y: 200 },
     BOUNDS,
   );
-  expect(freeRight.palettes.controls.x).toBe(BOUNDS.maxX - (SNAP_PX + 1));
-  expect(freeRight.palettes.controls.edge).toBeNull();
+  expect(freeRight.palettes.entities.x).toBe(BOUNDS.maxX - (SNAP_PX + 1));
+  expect(freeRight.palettes.entities.edge).toBeNull();
   const freeLeft = movePalette(
     start,
-    "controls",
+    "entities",
     { x: SNAP_PX + 1, y: 200 },
     BOUNDS,
   );
-  expect(freeLeft.palettes.controls.edge).toBeNull();
+  expect(freeLeft.palettes.entities.edge).toBeNull();
 
   // Dragging a DOCKED palette off its edge un-docks it — the edge is a fact about
   // where it is now, never a latch that outlives the position.
-  const undocked = movePalette(right, "controls", { x: 400, y: 200 }, BOUNDS);
-  expect(undocked.palettes.controls.edge).toBeNull();
+  const undocked = movePalette(right, "entities", { x: 400, y: 200 }, BOUNDS);
+  expect(undocked.palettes.entities.edge).toBeNull();
 
   // Both gutters overlap when the palette nearly fills the cell. The NEARER edge
   // wins and an exact tie goes left, so the outcome is decided rather than
   // order-of-comparison luck.
   const narrow = { maxX: SNAP_PX, maxY: 500 };
   expect(
-    movePalette(start, "controls", { x: SNAP_PX / 2, y: 0 }, narrow).palettes
-      .controls.edge,
+    movePalette(start, "entities", { x: SNAP_PX / 2, y: 0 }, narrow).palettes
+      .entities.edge,
   ).toBe("left");
   expect(
-    movePalette(start, "controls", { x: SNAP_PX - 1, y: 0 }, narrow).palettes
-      .controls.edge,
+    movePalette(start, "entities", { x: SNAP_PX - 1, y: 0 }, narrow).palettes
+      .entities.edge,
   ).toBe("right");
 
   // Vertical placement is never snapped: there are only two edges (the persisted
   // `edge` union says so), left and right.
   expect(
-    movePalette(start, "controls", { x: 400, y: 2 }, BOUNDS).palettes.controls
+    movePalette(start, "entities", { x: 400, y: 2 }, BOUNDS).palettes.entities
       .y,
   ).toBe(2);
 });
@@ -137,44 +138,44 @@ test("edge snap engages within SNAP_PX of the right/left edge and records edge",
 test("collapse is absolute; open=false removes from layout but keeps geometry", () => {
   const start = movePalette(
     floatingAt(400, 200),
-    "controls",
+    "entities",
     { x: 300, y: 120 },
     BOUNDS,
   );
 
-  const collapsed = setPaletteCollapsed(start, "controls", true);
-  expect(collapsed.palettes.controls.collapsed).toBe(true);
+  const collapsed = setPaletteCollapsed(start, "entities", true);
+  expect(collapsed.palettes.entities.collapsed).toBe(true);
   expect(
-    setPaletteCollapsed(collapsed, "controls", false).palettes.controls
+    setPaletteCollapsed(collapsed, "entities", false).palettes.entities
       .collapsed,
   ).toBe(false);
   // Absolute, so a caller that already knows the state it wants (the status bar's ⚠
   // chip summoning the log; the rail chip expanding) needs no read first — and asking
   // for the state it is already in returns the SAME state rather than a new record
   // that would re-render the layer and re-arm the persist debounce.
-  expect(setPaletteCollapsed(collapsed, "controls", true)).toBe(collapsed);
+  expect(setPaletteCollapsed(collapsed, "entities", true)).toBe(collapsed);
   // Collapsing is a chrome state, not a move: the geometry it will be restored to
   // has to survive the round trip untouched.
-  expect(collapsed.palettes.controls.x).toBe(300);
-  expect(collapsed.palettes.controls.y).toBe(120);
-  expect(collapsed.palettes.controls.open).toBe(true);
+  expect(collapsed.palettes.entities.x).toBe(300);
+  expect(collapsed.palettes.entities.y).toBe(120);
+  expect(collapsed.palettes.entities.open).toBe(true);
 
-  const closed = setPaletteOpen(collapsed, "controls", false);
-  expect(closed.palettes.controls.open).toBe(false);
+  const closed = setPaletteOpen(collapsed, "entities", false);
+  expect(closed.palettes.entities.open).toBe(false);
   // Same for closing: x/y/edge/collapsed all outlive it, so re-opening puts the
   // palette back where the user left it rather than at the default.
-  expect(closed.palettes.controls.x).toBe(300);
-  expect(closed.palettes.controls.y).toBe(120);
-  expect(closed.palettes.controls.collapsed).toBe(true);
-  expect(setPaletteOpen(closed, "controls", true).palettes.controls.open).toBe(
+  expect(closed.palettes.entities.x).toBe(300);
+  expect(closed.palettes.entities.y).toBe(120);
+  expect(closed.palettes.entities.collapsed).toBe(true);
+  expect(setPaletteOpen(closed, "entities", true).palettes.entities.open).toBe(
     true,
   );
 });
 
 test("hideAll stores prior state; restore returns the EXACT arrangement (D-3)", () => {
   const arranged = setPaletteCollapsed(
-    movePalette(floatingAt(400, 200), "controls", { x: 260, y: 90 }, BOUNDS),
-    "controls",
+    movePalette(floatingAt(400, 200), "entities", { x: 260, y: 90 }, BOUNDS),
+    "entities",
     true,
   );
 
@@ -199,7 +200,7 @@ test("open is ABSOLUTE and returns the SAME state when it changes nothing", () =
   // workspace provider reads any write as "the user has arranged something" and skips the
   // restore it has not performed yet.
   const start = defaultWorkspace();
-  expect(setPaletteOpen(start, "controls", true)).toBe(start);
+  expect(setPaletteOpen(start, "entities", true)).toBe(start);
   expect(setPaletteOpen(start, "session", false)).toBe(start);
   const opened = setPaletteOpen(start, "session", true);
   expect(opened).not.toBe(start);
@@ -223,16 +224,16 @@ test("the History palette ships CLOSED, and its open state is the USER's", () =>
   expect(restored.palettes.history.open).toBe(true);
 });
 
-test("reset returns the default arrangement — fresh records, controls docked right", () => {
+test("reset returns the default arrangement — fresh records, NOTHING docked", () => {
   const fresh = defaultWorkspace();
   expect(fresh.hidden).toBe(false);
-  expect(fresh.palettes.controls).toEqual({
-    x: 0,
-    y: 0,
-    edge: "right",
-    collapsed: false,
-    open: true,
-  });
+  // No default claims an edge any more. `controls` was the one that did, and it retired
+  // with the FieldPanel stack in F4.5b — so the shipped arrangement leaves both full-height
+  // dock slots free, and a docked palette is now always something the user chose. Asserted
+  // over ALL of them rather than on the one that used to dock: a new palette that ships
+  // docked has to argue for it here.
+  for (const id of PALETTE_IDS)
+    expect([id, fresh.palettes[id].edge]).toEqual([id, null]);
   // The log palette is the summoned one: it ships CLOSED, so a session that has had
   // nothing to say spends no screen on saying so. A default of `open: true` here would
   // put an empty box over the canvas on every first run.
@@ -266,14 +267,16 @@ test("reset returns the default arrangement — fresh records, controls docked r
   // state, so a shared default record would let one session's drag rewrite the
   // arrangement every LATER reset restores.
   const second = defaultWorkspace();
-  expect(second.palettes.controls).not.toBe(fresh.palettes.controls);
-  fresh.palettes.controls.x = 999;
-  expect(defaultWorkspace().palettes.controls.x).toBe(0);
+  expect(second.palettes.entities).not.toBe(fresh.palettes.entities);
+  fresh.palettes.entities.x = 999;
+  expect(defaultWorkspace().palettes.entities.x).toBe(
+    PALETTES.entities.default.x,
+  );
 });
 
 test("serialize/deserialize round-trips through UiState.workspace", () => {
   const arranged = setPalettesHidden(
-    movePalette(floatingAt(400, 200), "controls", { x: 260, y: 90 }, BOUNDS),
+    movePalette(floatingAt(400, 200), "entities", { x: 260, y: 90 }, BOUNDS),
     true,
   );
 
@@ -294,22 +297,28 @@ test("serialize/deserialize round-trips through UiState.workspace", () => {
     palettes: {
       // Boundary cast: the persisted blob's static type is what we hope for, not
       // what a JSON.parse of user-writable storage actually returns.
-      controls: {
+      entities: {
         x: "left-ish",
         y: 90,
         edge: "right",
         collapsed: false,
         open: true,
       } as unknown as PaletteState,
+      // Two RETIRED ids, and they are retired in different ways on purpose. `ghosts`
+      // never existed — the synthetic case. `controls` is the REAL one: every blob
+      // written before F4.5b dissolved the FieldPanel stack carries a `controls` record,
+      // and the closed union is what makes it cost nothing rather than needing a
+      // migration. Both must be ABSENT from the result, not merely defaulted — a store
+      // that kept them would hand the layer an id `PALETTE_CHROME` has no entry for.
+      controls: { x: 0, y: 0, edge: "right", collapsed: false, open: true },
       ghosts: { x: 10, y: 10, edge: null, collapsed: false, open: true },
     },
     hidden: true,
   });
-  expect(salvaged.palettes.controls).toEqual(
-    defaultWorkspace().palettes.controls,
+  expect(salvaged.palettes.entities).toEqual(
+    defaultWorkspace().palettes.entities,
   );
   expect(Object.keys(salvaged.palettes).sort()).toEqual([
-    "controls",
     "entities",
     "flags",
     "history",
@@ -354,18 +363,19 @@ test("a DRIVEN-open palette restores its geometry but never its open state", () 
 });
 
 test("a blob written before a palette existed restores that palette's default", () => {
-  // Exactly what is on disk for anyone who used the editor between Task 6 and Task 7:
-  // a v2 workspace blob with a `controls` record and no `log` key at all. The version
-  // did NOT change (nothing about the old shape became wrong), so this blob is read,
-  // not orphaned — and every id it is missing has to arrive at its own default rather
-  // than as `undefined`, which the layer would dereference on its first render.
+  // Roughly what is on disk for anyone who used the editor before the log palette
+  // existed: a v2 blob carrying one record and no `log` key at all. The version did NOT
+  // change (nothing about the old shape became wrong), so this blob is read, not
+  // orphaned — and every id it is missing has to arrive at its own default rather than
+  // as `undefined`, which the layer would dereference on its first render. Distinct from
+  // the retired-`controls` case above: that id is DROPPED, this one is FILLED IN.
   const restored = deserializeWorkspace({
     palettes: {
-      controls: { x: 120, y: 60, edge: null, collapsed: false, open: true },
+      entities: { x: 120, y: 60, edge: null, collapsed: false, open: true },
     },
     hidden: false,
   });
-  expect(restored.palettes.controls.x).toBe(120);
+  expect(restored.palettes.entities.x).toBe(120);
   expect(restored.palettes.log).toEqual(defaultWorkspace().palettes.log);
 });
 
