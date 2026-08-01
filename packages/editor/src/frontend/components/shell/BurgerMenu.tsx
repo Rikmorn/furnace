@@ -80,7 +80,7 @@ function RegistryGroup({ group }: { group: ActionGroup }) {
 					<DropdownMenuItem
 						key={action.id}
 						disabled={disabled}
-						title={action.menuTitle}
+						title={action.hint}
 						onSelect={() => action.run(ctx)}
 					>
 						{action.label(ctx)}
@@ -91,7 +91,7 @@ function RegistryGroup({ group }: { group: ActionGroup }) {
 						key={action.id}
 						checked={action.checked(ctx)}
 						disabled={disabled}
-						title={action.menuTitle}
+						title={action.hint}
 						onCheckedChange={() => action.run(ctx)}
 					>
 						{action.label(ctx)}

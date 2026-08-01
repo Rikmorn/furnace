@@ -25,7 +25,7 @@ import { join, relative } from "node:path";
 //     takes neither hover nor focus, so no tooltip has a channel to it at all;
 //   - FlagsPalette's `Tag` `title={title}` — the prop plumbing behind the one allowlisted
 //     template below;
-//   - BurgerMenu ×2 `title={action.menuTitle}` — a menu item is already ↓-reachable and a
+//   - BurgerMenu ×2 `title={action.hint}` — a menu item is already ↓-reachable and a
 //     tooltip would fire on every arrow press.
 const FRONTEND = join(import.meta.dir, "..", "src", "frontend");
 

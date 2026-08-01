@@ -161,7 +161,7 @@ function SelectionVerbs({
 
 /** One of the chip's two verbs, straight off the registry.
  *
- *  Its DOCS come off the table too — `menuTitle`, the sentence a label has no room for —
+ *  Its DOCS come off the table too — `hint`, the ONE sentence a label has no room for —
  *  as a real tooltip rather than a `title` (D-25), carrying whatever keycap the entry
  *  holds. Neither of these two has a chord today and each says why at its definition; when
  *  one gains a binding the keycap appears here without this file changing, which is the
@@ -171,7 +171,7 @@ function SelectionVerbs({
  *  because a reader will look for the case that takes it: `SelectionChip` renders nothing
  *  while `selection === null`, which is the only thing that disables `edit.clearSelection`,
  *  so BOTH of today's verbs are always live inside this popover and both always carry a
- *  `menuTitle`. It stays because the alternative is a silent trap — a third id added to
+ *  `hint`. It stays because the alternative is a silent trap — a third id added to
  *  {@link SELECTION_ACTIONS} that CAN be disabled would otherwise get a tooltip trigger
  *  merged onto a control that takes neither hover nor focus, which is exactly the bug
  *  `VerifyVerb` shipped and had to be fixed for. `shell.test.tsx` pins the invariant from
@@ -189,7 +189,7 @@ function SelectionVerb({
 	// the table in the suite.
 	if (action === undefined) return null;
 	const disabled = !action.enabled(ctx);
-	const hint = action.menuTitle;
+	const hint = action.hint;
 	const control = (
 		<Button
 			type="button"

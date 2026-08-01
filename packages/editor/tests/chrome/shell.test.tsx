@@ -3462,7 +3462,7 @@ test("the chip's popover runs Clear and Reselect through the action table", asyn
 		reselect.hasAttribute("disabled"),
 	]).toEqual([false, false]);
 
-	// …and the sentence the label has no room for is a tooltip now. `menuTitle` used to
+	// …and the sentence the label has no room for is a tooltip now. `hint` used to
 	// ride a `title` here, mouse-only inside a popover the user opened deliberately (D-25).
 	// Read through the registry, and GUARDED: the field is optional and SelectionVerb
 	// silently renders no tooltip when it is absent, so an unguarded `as string` would
@@ -3471,8 +3471,8 @@ test("the chip's popover runs Clear and Reselect through the action table", asyn
 		[clear, "edit.clearSelection"],
 		[reselect, "edit.reselect"],
 	] as const) {
-		const hint = byId(id).menuTitle;
-		if (hint === undefined) throw new Error(`${id} lost its menuTitle`);
+		const hint = byId(id).hint;
+		if (hint === undefined) throw new Error(`${id} lost its hint`);
 		expect(button.getAttribute("title")).toBeNull();
 		act(() => {
 			fireEvent.focus(button);

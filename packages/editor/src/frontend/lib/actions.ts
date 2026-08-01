@@ -171,8 +171,17 @@ export type ActionDef = {
   /** The chord as the user reads it, in the editor's keycap vocabulary (⌘ ⇧ ⌃ ⌥ ⏎ ⌫).
    *  Absent = menu-only. Unique across the table (asserted). */
   keys?: string;
-  /** One sentence for the shortcuts overlay — the CONDITION and the consequence, which a
-   *  menu label has no room for. */
+  /** The ONE sentence an action's label has no room for — the CONDITION and the
+   *  consequence — wherever a surface has space to say it: the shortcuts overlay's `what`
+   *  column, the ⌘K palette's search keywords, the burger's item `title`, the tool rail's
+   *  tooltip, the status bar's selection chip.
+   *
+   *  This used to be two fields. `menuTitle` was the burger's half, described in its own
+   *  docblock as "the title for an item whose reason will not fit in its label" — the same
+   *  concept in different words, disjoint from this one by convention rather than by
+   *  anything enforcing it (0 actions ever set both; 21 set this, 4 set that). F4.5c
+   *  Task 8 falsified the split by rendering `menuTitle` on a non-menu surface, so the two
+   *  merged here: one concept, one name, one place a rewording has to happen. */
   hint?: string;
   /** Does this event run this action? Absent = menu-only, unreachable from the keyboard.
    *  Declared together with `gate` (asserted). */
@@ -186,12 +195,6 @@ export type ActionDef = {
    *  membership today — fly-backward and the stamp family on one key — and the RMB gate
    *  on fly travel is the other half of the same bargain. */
   flyLetter?: boolean;
-  /** The one sentence an item's LABEL has no room for. Named for the burger, which was its
-   *  only reader; since F4.5c Task 8 the status bar's selection chip renders it too, as a
-   *  real tooltip — so "only a menu needs it" is no longer true, and the name is now the
-   *  thing to fix rather than the doc. It is the same concept as {@link ActionDef.hint} by
-   *  every description either of them carries, and no action in the table sets both. */
-  menuTitle?: string;
   run: (ctx: ActionCtx) => void;
 };
 
@@ -524,8 +527,7 @@ export const ACTIONS: readonly ActionDef[] = [
     // Shown only when the item is ENABLED (a disabled one has pointer-events-none), which
     // is the case this sentence is for: it distinguishes Make default from Bake, and the
     // label has no room for that.
-    menuTitle:
-      "point the game at the SAVED copy of this world — Bake if you want the edits in this session to go with it",
+    hint: "point the game at the SAVED copy of this world — Bake if you want the edits in this session to go with it",
     run: (ctx) => {
       const name = ctx.world.name;
       if (name !== null) ctx.run.world.makeDefault(name);
@@ -643,8 +645,7 @@ export const ACTIONS: readonly ActionDef[] = [
     // Deliberately NO chord. Esc already clears the cell selection (its ladder's last
     // rung) and a second key for the same verb is a second thing to keep true; this
     // exists so the status chip's popover and the menu can name it.
-    menuTitle:
-      "drop the cell selection — the ops that were masked by it stop being masked",
+    hint: "drop the cell selection — the ops that were masked by it stop being masked",
     run: (ctx) => ctx.host?.clearSelection(),
   },
   {
@@ -655,7 +656,7 @@ export const ACTIONS: readonly ActionDef[] = [
     // exactly when there is NO selection, because what it restores is what the last
     // Clear (or replace) displaced. The host no-ops on an empty slot.
     enabled: () => true,
-    menuTitle: "restore the selection the last Clear or replace displaced",
+    hint: "restore the selection the last Clear or replace displaced",
     run: (ctx) => ctx.host?.reselect(),
   },
   {
@@ -667,8 +668,7 @@ export const ACTIONS: readonly ActionDef[] = [
     // stamp, something to step); a summon has none.
     label: () => "History…",
     enabled: () => true,
-    menuTitle:
-      "the field's ONE history as a list — every step, newest first; click a row to step back to it",
+    hint: "the field's ONE history as a list — every step, newest first; click a row to step back to it",
     // Deliberately NO chord. ⌘Y is redo on Windows and would teach the wrong thing here,
     // and every bare letter in the editor is a tool family (D-10). The burger's own
     // palette checkbox is the other way in, and the status bar's `undo N` chip the third.

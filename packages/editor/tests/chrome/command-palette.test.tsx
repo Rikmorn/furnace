@@ -419,9 +419,28 @@ test("a disabled action is RENDERED, marked, and does not fire", async () => {
 	const bake = rows().find((r) => r.dataset["value"] === "world.bake");
 	expect(bake?.getAttribute("aria-disabled")).toBe("true");
 
-	// …and Enter over it does nothing. Filter until it is the only survivor, then press.
-	typeQuery("world.bake");
-	expect(rows().length).toBe(1);
+	// …and Enter over it does nothing. Filter down and press with it SELECTED, which is
+	// what decides where ⏎ lands — asserted rather than inferred from a survivor count.
+	// It used to be `rows().length === 1`, and that was a fixture coincidence: `world.bake`
+	// carries no `hint`, so nothing but its own value and label could match the query. Once
+	// F4.5c Task 8's `menuTitle`→`hint` merge gave every documented action its sentence as a
+	// search keyword, `world.makeDefault` — whose sentence names Bake, to contrast with it —
+	// started matching too. That is the merge working, not a regression: the row a user
+	// searching "bake" might also want is exactly what a keyword is for.
+	typeQuery("Bake — name");
+	// The query changed from `world.bake`, which used to isolate this row by a fixture
+	// coincidence: `world.bake` carried no sentence, so nothing but its own id and label
+	// could match. F4.5c Task 8's `menuTitle`→`hint` merge gave every documented action its
+	// sentence as a cmdk KEYWORD, and `world.makeDefault`'s names Bake — deliberately,
+	// to contrast the two — so it now matches too. That is the merge working (the row a
+	// user searching "bake" might also want is exactly what a keyword is for), not a
+	// regression, and the fix is a query that identifies this row rather than one that
+	// happened to.
+	expect(rows().map((r) => r.dataset["value"])).toEqual(["world.bake"]);
+	// The MECHANISM the assertion below rests on, made explicit: cmdk never selects a
+	// disabled row, so with this one alone on screen there is nothing for ⏎ to run. A
+	// survivor count alone did not say that.
+	expect(selectedRow()).toBeUndefined();
 	// Boot noise ("no catalog — rock only") off the record first, so the assertion below
 	// is "the press said NOTHING AT ALL" rather than a check against one string.
 	act(() => notify.clear());
