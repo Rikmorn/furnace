@@ -3325,6 +3325,141 @@ test("the chip says which of TWO limits it is under, and they are different limi
 	expect(screen.queryByText(/flood truncated/) === null).toBe(true);
 });
 
+// --- (c9c) the stats chips: ops + analyzer detail popovers (D-19) ------------
+//
+// F4.5a moved five op-cost fields into the stats push and then rendered NONE of them —
+// the footer meter they belonged to was deleted with the panel. D-19's answer is a
+// popover per chip, which is how a 28 px bar carries detail without growing.
+//
+// Every number in the fixture below is DISTINCT on purpose: with two rows sharing a
+// value, an assertion that FINDS the value proves nothing about which field produced
+// it — and a row wired to the wrong `stats` member would stay green.
+
+/** A detail row's value, found by its LABEL — the PAIRING is the claim. Reading a bare
+ *  number off the popover would pass on any row that happened to carry it. */
+const rowValue = (label: string): string => {
+	const dt = screen.getByText(label);
+	const dd = dt.nextElementSibling;
+	if (!(dd instanceof HTMLElement)) throw new Error(`no value for "${label}"`);
+	return dd.textContent ?? "";
+};
+
+/** The op-cost meter's readings: six fields, no two alike. */
+const METER = makeStats({
+	totalOps: 1284,
+	chunks: 41,
+	lastRemeshMs: 12,
+	lastReconfigureMs: 236,
+	liveGenerators: 7,
+	compactableOps: 93,
+	undoDepth: 5,
+});
+
+test("the ops chip opens the op-cost meter the deleted footer used to hold", async () => {
+	fetch404();
+	const stub = makeStubHost();
+	await renderShell(stub);
+	act(() => {
+		stub.fire.stats(METER);
+	});
+	// A CLOSED chip costs nothing: Radix mounts portalled content only while the
+	// popover is open, which is the property the body-as-element shape preserves.
+	// `=== null` rather than `toBeNull()`: this assertion's failure mode is a LIVE
+	// element, and serialising one through happy-dom + React's fiber graph takes ~200 s
+	// to report what the identity form reports in milliseconds (measured).
+	expect(screen.queryByText("live generators") === null).toBe(true);
+
+	act(() => {
+		fireEvent.click(screen.getByLabelText("1284 ops — the op-cost meter"));
+	});
+	expect(rowValue("ops in the log")).toBe("1,284");
+	expect(rowValue("chunks allocated")).toBe("41");
+	expect(rowValue("last remesh")).toBe("12 ms");
+	expect(rowValue("last reconfigure")).toBe("236 ms");
+	expect(rowValue("live generators")).toBe("7");
+	expect(rowValue("compactable ops")).toBe("93");
+	// The one number that MISLEADS without its claim: a non-zero compactable count is
+	// the meter climbing toward the next load's threshold, not work waiting.
+	expect(screen.getByText(/the NEXT load could fold/)).toBeTruthy();
+});
+
+test("a reconfigure that never ran reads as absent, not as a free one", async () => {
+	fetch404();
+	const stub = makeStubHost();
+	await renderShell(stub);
+	act(() => {
+		stub.fire.stats(makeStats({ totalOps: 3, lastReconfigureMs: 0 }));
+	});
+	act(() => {
+		fireEvent.click(screen.getByLabelText("3 ops — the op-cost meter"));
+	});
+	// FieldStats declares 0 = "none has run this session". "0 ms" would read as a
+	// reconfigure that cost nothing, which is the opposite claim.
+	expect(rowValue("last reconfigure")).toBe("none this session");
+});
+
+test("the analyzer chip names the passes it is owed, and is absent when owed none", async () => {
+	fetch404();
+	const stub = makeStubHost();
+	await renderShell(stub);
+	// Absent at 0 — and that absence is WHY the popover only ever describes the
+	// catching-up state. An idle advisor has nothing to report.
+	act(() => {
+		stub.fire.stats(makeStats({ totalOps: 6, analyzerPending: 0 }));
+	});
+	expect(screen.queryByText(/analyzer/) === null).toBe(true);
+
+	act(() => {
+		stub.fire.stats(makeStats({ totalOps: 6, analyzerPending: 2 }));
+	});
+	// Closed: nothing of the body in the DOM (identity form — see the ops case).
+	expect(screen.queryByText("passes owed") === null).toBe(true);
+	act(() => {
+		fireEvent.click(
+			screen.getByLabelText("analyzer catching up — 2 passes owed"),
+		);
+	});
+	expect(rowValue("passes owed")).toBe("2");
+	expect(screen.getByText(/catching up with your edits/)).toBeTruthy();
+});
+
+test("both stats popovers are portal LAYERS — the bar and the canvas cell keep their boxes", async () => {
+	fetch404();
+	const stub = makeStubHost();
+	await renderShell(stub);
+	act(() => {
+		stub.fire.stats(makeStats({ ...METER, analyzerPending: 1 }));
+	});
+	const bar = screen.getByRole("contentinfo");
+	const cell = screen.getByLabelText("field viewport").parentElement;
+	if (!(cell instanceof HTMLElement)) throw new Error("canvas has no cell");
+
+	act(() => {
+		fireEvent.click(screen.getByLabelText("1284 ops — the op-cost meter"));
+	});
+	// OUT of both boxes. The bar is fixed-height and the canvas cell takes exactly what
+	// the two bars leave, so a popover rendered INSIDE either would grow the chrome and
+	// take pixels off the viewport it is reporting on.
+	const opsBody = screen.getByText("ops in the log");
+	expect(bar.contains(opsBody)).toBe(false);
+	expect(cell.contains(opsBody)).toBe(false);
+
+	act(() => {
+		fireEvent.click(
+			screen.getByLabelText("analyzer catching up — 1 pass owed"),
+		);
+	});
+	const analyzerBody = screen.getByText("passes owed");
+	expect(bar.contains(analyzerBody)).toBe(false);
+	expect(cell.contains(analyzerBody)).toBe(false);
+
+	// …and neither bar nor cell moved off the classes that fix their sizes.
+	for (const cls of ["h-7", "shrink-0"])
+		expect(bar.classList.contains(cls)).toBe(true);
+	for (const cls of ["relative", "flex-1", "min-h-0"])
+		expect(cell.classList.contains(cls)).toBe(true);
+});
+
 // --- (c10) the gate's target predicate: which controls swallow a bare key -----
 //
 // `isTextInputTarget` decides this, and it has to be right in BOTH directions. Too wide

@@ -9,6 +9,7 @@ import { TriangleAlert } from "lucide-react";
 import type { ReactNode } from "react";
 import { useSyncExternalStore } from "react";
 import type {
+	FieldStats,
 	FieldTool,
 	PendingStamp,
 	StampSession,
@@ -181,20 +182,17 @@ function SelectionChip() {
 	const { count, truncated, displayed } = selection;
 	const cells = `${count} cell${count === 1 ? "" : "s"}`;
 	return (
-		<Popover>
-			<PopoverTrigger
-				aria-label={`${cells} selected — clear or reselect`}
-				className="flex items-center gap-1 rounded-sm border border-border bg-muted px-1.5 py-px tabular-nums transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-			>
-				{`sel ${cells}`}
-			</PopoverTrigger>
-			{/* The body reads the ACTION context, which moves on every op and every drag
-			    frame — and Radix mounts portalled content only while the popover is open,
-			    so a closed chip costs nothing (the RegistryGroup rationale, one bar down). */}
-			<PopoverContent align="end" className="w-64 space-y-2 p-2 text-xs">
+		<ChipPopover
+			label={`${cells} selected — clear or reselect`}
+			// The body reads the ACTION context, which moves on every op and every drag
+			// frame — which is exactly what ChipPopover's element-not-call contract keeps
+			// out of a closed chip's cost.
+			body={
 				<SelectionVerbs truncated={truncated} count={count} shown={displayed} />
-			</PopoverContent>
-		</Popover>
+			}
+		>
+			{`sel ${cells}`}
+		</ChipPopover>
 	);
 }
 
@@ -256,10 +254,20 @@ function SelectionVerbs({
  *  two from the same table, so the popover cannot say something the menu does not. */
 const SELECTION_ACTIONS = ["edit.clearSelection", "edit.reselect"] as const;
 
-/** A clickable status chip — the shared shell for the two the bar now has (D-19's
- *  stats-chip popovers are F4.5c). Its own component so the two cannot drift apart
- *  visually, which on a 28 px bar is the difference between "these are both buttons" and
- *  "one of these is text". */
+/** THE one place that decides what a status chip looks like.
+ *
+ *  It is a constant rather than a component because the bar's chips split on BEHAVIOUR,
+ *  not on looks: two run a verb (`ChipButton`) and three open a detail layer
+ *  (`ChipPopover`). Five sites spelling one class string is well past the house rule's
+ *  "tolerate duplication until the third occurrence" (`clean-code.md`) — the third
+ *  arrived with D-19 — and on a 28 px bar the cost of drift is the difference between
+ *  "these are all buttons" and "one of these is text". */
+const CHIP_CLASS =
+	"flex items-center gap-1 rounded-sm border border-border bg-muted px-1.5 py-px tabular-nums transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring";
+
+/** A status chip that RUNS something on click — the ⚠ chip summons the log, `undo N`
+ *  summons the History palette. Chips that open detail instead go through
+ *  `ChipPopover`; both wear `CHIP_CLASS`. */
 function ChipButton({
 	onClick,
 	label,
@@ -278,13 +286,130 @@ function ChipButton({
 			type="button"
 			onClick={onClick}
 			aria-label={label}
-			className={cn(
-				"flex items-center gap-1 rounded-sm border border-border bg-muted px-1.5 py-px tabular-nums transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
-				className,
-			)}
+			className={cn(CHIP_CLASS, className)}
 		>
 			{children}
 		</button>
+	);
+}
+
+/** A status chip that OPENS a detail layer (D-19) — selection, ops, analyzer. The
+ *  popover is what lets a fixed-height bar carry detail at all: it is a PORTAL, so
+ *  opening one cannot grow the bar or take a pixel off the canvas below it.
+ *
+ *  `body` is an ELEMENT, not a render callback, and that is load-bearing: Radix mounts
+ *  portalled content only while the popover is open, so a closed chip costs nothing —
+ *  and a React element is a descriptor, so the body component's own hooks and reads do
+ *  not run until it opens.
+ *
+ *  A sibling of `ChipButton` rather than `PopoverTrigger asChild`-ing one: Radix's
+ *  trigger already renders its own button with the props and the ref the POPPER ANCHOR
+ *  positions against, and routing that through a component of ours would put a
+ *  prop/ref-forwarding contract on the path — one that happy-dom, which runs no layout,
+ *  cannot verify either way. The look, which is the thing that actually drifts, is
+ *  shared through `CHIP_CLASS` regardless. */
+function ChipPopover({
+	label,
+	body,
+	children,
+}: {
+	label: string;
+	body: ReactNode;
+	children: ReactNode;
+}) {
+	return (
+		<Popover>
+			<PopoverTrigger type="button" aria-label={label} className={CHIP_CLASS}>
+				{children}
+			</PopoverTrigger>
+			<PopoverContent align="end" className="w-64 space-y-2 p-2 text-xs">
+				{body}
+			</PopoverContent>
+		</Popover>
+	);
+}
+
+/** Digit grouping for a popover value. The chips themselves stay ungrouped (a glyph of
+ *  bar width costs more than "1,284" buys); a popover has the room, and a six-figure op
+ *  count is unreadable without it. */
+const num = (n: number): string => n.toLocaleString();
+
+/** One label/value row in a chip's popover. Data-Is-Mono (`DESIGN.md`): the VALUE is
+ *  mono + tabular so a column of them aligns and reads as data; the label is prose and
+ *  never is. */
+function DetailRow({ label, value }: { label: string; value: string }) {
+	return (
+		<div className="flex items-baseline justify-between gap-2">
+			<dt className="text-muted-foreground">{label}</dt>
+			<dd className="font-mono text-foreground tabular-nums">{value}</dd>
+		</div>
+	);
+}
+
+/** The ops chip's body: the op-cost meter — the readout that answers "why has this world
+ *  got heavy?".
+ *
+ *  Its fields moved into the stats push in F4.5a and then had NOWHERE to render: the
+ *  Field panel's footer meter was deleted with the panel. Two of the six carry their
+ *  claim in prose below, because the number alone asserts the wrong thing —
+ *  `compactableOps` looks like queued work and is not, and a reconfigure's cost is only
+ *  meaningful as a read on the log's weight. `remeshVersion` and `redoDepth` ride in the
+ *  same push and are deliberately absent: the first is an internal monotonic gate
+ *  counter with no user-side meaning, the second is what the registry's Redo reads to
+ *  know whether it is enabled — the user already sees that answer on the menu item. */
+function OpsDetail({ stats }: { stats: FieldStats }) {
+	return (
+		<>
+			<dl className="space-y-0.5">
+				<DetailRow label="ops in the log" value={num(stats.totalOps)} />
+				<DetailRow label="chunks allocated" value={num(stats.chunks)} />
+				<DetailRow
+					label="last remesh"
+					value={`${num(stats.lastRemeshMs)} ms`}
+				/>
+				{/* 0 is NOT a duration here: FieldStats declares it "none has run this
+				    session", and "0 ms" would read as a reconfigure that cost nothing —
+				    the opposite claim. */}
+				<DetailRow
+					label="last reconfigure"
+					value={
+						stats.lastReconfigureMs === 0
+							? "none this session"
+							: `${num(stats.lastReconfigureMs)} ms`
+					}
+				/>
+				<DetailRow label="live generators" value={num(stats.liveGenerators)} />
+				<DetailRow label="compactable ops" value={num(stats.compactableOps)} />
+			</dl>
+			<p className="text-muted-foreground">
+				compactable ops are what the NEXT load could fold away — they keep
+				counting until the log crosses the compaction threshold, so this is a
+				meter climbing toward that point, not work waiting.
+			</p>
+			<p className="text-muted-foreground">
+				a reconfigure re-runs the log, so its cost grows with the log — that
+				number is the honest read on how heavy this recipe has become.
+			</p>
+		</>
+	);
+}
+
+/** The analyzer chip's body. It exists for ONE state — the chip is absent at 0 owed
+ *  passes — so it says what being behind means for what the user is looking at, and
+ *  carries no verb: nothing here is waiting on a decision, the passes land on their
+ *  own. */
+function AnalyzerDetail({ pending }: { pending: number }) {
+	return (
+		<>
+			<dl className="space-y-0.5">
+				<DetailRow label="passes owed" value={num(pending)} />
+			</dl>
+			<p className="text-muted-foreground">
+				the walkability advisor is catching up with your edits — the flag
+				markers on screen describe the field as it was BEFORE them. It clears
+				itself when the last pass lands.
+			</p>
+		</>
 	);
 }
 
@@ -310,14 +435,26 @@ export function StatusBar({ viewportError }: { viewportError: string | null }) {
 			<ErrorChip />
 			{stats && (
 				<span className="flex items-center gap-3 tabular-nums">
-					<span>{stats.totalOps} ops</span>
+					{/* The op count is the HANDLE on the op-cost meter (D-19): the number on
+              the bar is the one everybody reads, and the five fields that explain it
+              have had no home since F4.5a deleted the panel footer they lived in. */}
+					<ChipPopover
+						label={`${stats.totalOps} ops — the op-cost meter`}
+						body={<OpsDetail stats={stats} />}
+					>
+						{stats.totalOps} ops
+					</ChipPopover>
 					{/* The advisor's one-liner: `analyzerPending` counts PASSES owed (0–2), not
               chunks, so the chip says only that it is behind. Absent at 0 — an idle
-              advisor is the normal state and has nothing to report. */}
+              advisor is the normal state and has nothing to report, which is also why
+              the popover only ever describes the catching-up state. */}
 					{stats.analyzerPending > 0 && (
-						<span title="the walkability advisor is catching up with your edits">
+						<ChipPopover
+							label={`analyzer catching up — ${stats.analyzerPending} pass${stats.analyzerPending === 1 ? "" : "es"} owed`}
+							body={<AnalyzerDetail pending={stats.analyzerPending} />}
+						>
 							analyzer ●
-						</span>
+						</ChipPopover>
 					)}
 					{/* The `undo N` readout is a BUTTON (D-11): the depth answers "can I go
 			              back?", and the thing that answers "back to what?" is the History
