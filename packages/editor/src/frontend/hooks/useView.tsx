@@ -69,15 +69,22 @@ const DEFAULT_LAYERS: FieldLayers = {
 // is what keeps a new layer restorable without a second edit here.
 const LAYER_KEYS = Object.keys(DEFAULT_LAYERS) as (keyof FieldLayers)[];
 
-/** Where the slice plane parks before the user has moved it: mid-slider, high enough to
- *  cut a typical kit hall.
+/** The FALLBACK park for the slice plane, used only when the world can offer nothing
+ *  better: mid-slider, high enough to cut a typical kit hall.
  *
- *  MIGRATION (until F4.5b): seed slice from occupancy. D-F4.5-16 wants the default plane
- *  at the HIGHEST OCCUPIED CELL — a fact the host does not expose (no seam reports the
- *  store's occupied bounds), so a fixed park is what we can honestly do this slice. On a
- *  shallow world 8 m sits above everything and enabling the slice looks like it did
- *  nothing. */
+ *  D-F4.5-16 wants the default plane at the HIGHEST OCCUPIED CELL, and since F4.5b the
+ *  host answers that (`occupiedTopY`), so this number is what is left after the honest
+ *  answer is unavailable — an untouched world, or one whose allocated chunks hold no rock
+ *  at all. Both are worlds with nothing for the plane to cut, which is exactly when an
+ *  arbitrary park costs nothing. */
 const SLICE_DEFAULT_Y = 8;
+
+/** How far ABOVE the topmost solid sample the seeded plane parks. Half a metre, so the
+ *  plane opens just clear of the ceiling it was derived from: the first frame after
+ *  ticking the box looks like the world did before it, and dragging the slider DOWN is
+ *  what cuts in. Seeding exactly AT the top sample would shave the ceiling on the first
+ *  frame, which reads as the tick having damaged something. */
+const SLICE_SEED_CLEARANCE_M = 0.5;
 
 /** MSAA for the viewport pass. 4 is the default (the value the host used unconditionally
  *  before the switch existed); 1 turns it off. */
@@ -191,6 +198,17 @@ export function ViewProvider({
 	// changed something is dropped rather than yanking the view out from under them.
 	const touched = useRef(false);
 	const restored = useRef(false);
+	// Whether the occupancy seed has already fired with a real answer. One per session,
+	// deliberately: after the first seed the depth is the user's to keep, and re-deriving
+	// it on every re-tick would throw away a plane they had positioned. The same
+	// session-scoped asymmetry `serializeView` documents from the persistence side — the
+	// depth survives a toggle within a run and not across one.
+	const seeded = useRef(false);
+	// The plane's enabled state as of the last commit, so `setSlice` can tell an ENABLE
+	// from a slider drag. A ref rather than a read of `state`, because the actions object
+	// must stay stable across every view change; synced in an effect below so it is
+	// current before the next click.
+	const sliceEnabled = useRef(false);
 
 	// The store is keyed by the project root, which comes from a daemon call that can fail
 	// or never resolve — so the view renders its defaults immediately and adopts the
@@ -209,6 +227,13 @@ export function ViewProvider({
 		if (!stored) return;
 		setState(deserializeView(stored));
 	}, [store]);
+
+	// The enable mirror. Kept current from EVERY route the plane's state can change —
+	// a click, and the persisted restore above, which can arrive with the plane already
+	// on and would otherwise leave the next tick looking like a fresh enable.
+	useEffect(() => {
+		sliceEnabled.current = state.slice.enabled;
+	}, [state.slice.enabled]);
 
 	// Debounced by effect cleanup: each change cancels the previous pending write.
 	useEffect(() => {
@@ -249,10 +274,32 @@ export function ViewProvider({
 		return {
 			setShading: (shading) => edit((s) => ({ ...s, shading })),
 			setLayers: (layers) => edit((s) => ({ ...s, layers })),
-			setSlice: (slice) => edit((s) => ({ ...s, slice })),
+			setSlice: (slice) => {
+				// D-F4.5-16's occupancy seed. The host call happens HERE and not inside the
+				// updater, because React may run an updater twice (StrictMode) and an
+				// updater must be pure — and because this is the one place that can promise
+				// "once per enable", which is the budget `occupiedTopY` is documented
+				// against. Gated on the false→true edge, so a slider drag never re-derives
+				// a depth the user is in the middle of choosing.
+				const enabling = slice.enabled && !sliceEnabled.current;
+				const top =
+					enabling && !seeded.current && host ? host.occupiedTopY() : null;
+				// A NULL answer does not consume the one-shot: it means the world had
+				// nothing authored yet, and the user who ticks the box on an empty world,
+				// digs, then ticks it again should get the seed on that second tick rather
+				// than be stuck with the fallback for the session.
+				if (top !== null) seeded.current = true;
+				edit((s) => ({
+					...s,
+					slice:
+						top === null
+							? slice
+							: { enabled: true, y: top + SLICE_SEED_CLEARANCE_M },
+				}));
+			},
 			setSampleCount: (sampleCount) => edit((s) => ({ ...s, sampleCount })),
 		};
-	}, []);
+	}, [host]);
 
 	return (
 		<ViewActionsContext.Provider value={actions}>

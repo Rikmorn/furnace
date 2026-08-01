@@ -498,6 +498,28 @@ export type FieldHost = {
    *  Like the layer flags, the plane survives world loads (the load's
    *  full remesh re-applies it). */
   setSlice(y: number | null): void;
+  /** The world-Y (metres) of the highest AUTHORED solid sample, or `null` when
+   *  the world has nothing authored in it. What the chrome seeds
+   *  {@link setSlice} with the first time the plane is switched on
+   *  (D-F4.5-16's "default plane at the highest occupied cell").
+   *
+   *  "Authored" is the load-bearing word, and it is why this can be answered at
+   *  all. An untouched field is uniform rock with ZERO allocated chunks
+   *  (`getDensity` reads an absent chunk as `SOLID`), so "the topmost solid
+   *  sample" over the whole domain is unbounded and meaningless. Over the
+   *  ALLOCATED chunks it is exactly the top of what somebody built — the
+   *  ceiling of the dig, or the top of the tallest stamp.
+   *
+   *  `null` for a store with no allocated chunks, and also for the degenerate
+   *  case where every allocated chunk is fully air (a world dug and then filled
+   *  back to nothing): both mean "no plane height is more informative than the
+   *  chrome's park", which is a decision the CHROME makes, not this verb.
+   *
+   *  Cost is a descending scan with an early exit, so the ordinary answer is
+   *  found in the first sample layer it looks at; the worst case (every
+   *  allocated chunk fully air) reads every allocated sample. Click-time, not
+   *  per-frame — measured in the header comment on the implementation. */
+  occupiedTopY(): number | null;
   /** The core smooth-parameter ceilings (strength 1..max, iterations 1..max),
    *  surfaced through the host because the panel cannot value-import core. */
   getSmoothLimits(): { maxStrength: number; maxIterations: number };
@@ -6335,6 +6357,71 @@ export function createFieldHost(deps?: {
       // anyway, so each chunk's 26-neighbourhood is in the set by
       // construction. The throttled drain (REMESH_PER_FRAME) paces the burst.
       for (const key of store.chunks.keys()) dirty.add(key);
+    },
+    occupiedTopY() {
+      // Walk SAMPLE layers from the top down, and stop at the first solid one.
+      // Sample-layer order rather than chunk order is what makes the answer
+      // exact: two chunks in the same cy layer can have their topmost rock 15
+      // samples apart, and taking the first chunk that has any rock in it would
+      // answer with the wrong one whenever the map iterates them in that order.
+      //
+      // Density is int8 with the isosurface at 0 (`SOLID` = -127, `AIR` = 127),
+      // so "solid" is `< 0` — the same test the mesher's sign change uses. Not
+      // `=== SOLID`: a smoothed or partially-dug ceiling is solid rock the user
+      // can see and stand under, and it is never exactly -127.
+      //
+      // COST, measured on Bun/JSC over synthetic stores, 5 runs each. Per
+      // sample layer this reads at most 256 int8s per chunk in that layer and
+      // returns on the first hit, so the early exit is what the numbers are
+      // about:
+      //
+      //   192 chunks, rock in every chunk (a floor)    0.29 - 1.26 ms
+      //   5 000 chunks, same shape                     1.27 - 1.40 ms
+      //   192 chunks, ALL AIR (worst case)             0.61 - 2.30 ms
+      //   5 000 chunks, ALL AIR                       16.1 - 17.9 ms
+      //
+      // The pair that matters is rows 2 and 4: at the SAME 5 000 chunks the
+      // answerable world costs 1.3 ms and the unanswerable one 16 ms, because
+      // the first returns out of the top layer and the second reads every
+      // allocated sample (4096 int8s per chunk, ~20 M). So the cost tracks the
+      // top layer, not the world — and the worst case is a store dug out and
+      // then filled back to nothing, which is both rare and still inside the
+      // editor's 100 ms interaction ceiling. Once per slice-enable, never per
+      // frame and never per slider drag (the chrome seeds once, then owns the
+      // value — see `useView.tsx`).
+      if (store.chunks.size === 0) return null;
+      // Bucket by chunk-Y once so each sample layer looks at only the chunks
+      // that can contain it, rather than re-filtering the whole map per layer.
+      const byLayer = new Map<number, Int8Array[]>();
+      let maxCy = Number.NEGATIVE_INFINITY;
+      let minCy = Number.POSITIVE_INFINITY;
+      for (const [key, density] of store.chunks) {
+        const cy = field.parseChunkKey(key)[1];
+        if (cy > maxCy) maxCy = cy;
+        if (cy < minCy) minCy = cy;
+        const bucket = byLayer.get(cy);
+        if (bucket) bucket.push(density);
+        else byLayer.set(cy, [density]);
+      }
+      const D = field.CHUNK_DIM;
+      for (let cy = maxCy; cy >= minCy; cy--) {
+        const chunks = byLayer.get(cy);
+        if (!chunks) continue;
+        for (let ly = D - 1; ly >= 0; ly--) {
+          for (const density of chunks) {
+            // The layer's samples are `lx + D*(ly + D*lz)`, so one ly spans D
+            // runs of D contiguous entries — walked as runs rather than with a
+            // multiply per sample.
+            for (let lz = 0; lz < D; lz++) {
+              const base = D * (ly + D * lz);
+              for (let lx = 0; lx < D; lx++)
+                if ((density[base + lx] ?? 0) < 0)
+                  return (cy * D + ly) * store.cellSize;
+            }
+          }
+        }
+      }
+      return null;
     },
     getSmoothLimits() {
       return {

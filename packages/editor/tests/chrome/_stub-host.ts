@@ -144,6 +144,10 @@ export function makeStubHost(
     pendingStamp: null,
     history: null,
   };
+  // What `occupiedTopY` answers. Mutable so a case can put content in the world
+  // without a GPU: the seed decision is chrome-side arithmetic over this one number,
+  // and a stub that could only ever say `null` would make the seeded branch unreachable.
+  let occupiedTop: number | null = null;
   const calls = {
     init: mock(),
     dispose: mock(),
@@ -400,6 +404,9 @@ export function makeStubHost(
     },
     flagMarkerCount: () => 0,
     selectionCellCount: () => 0,
+    // `null` by default — the honest answer for an untouched world, and the one that
+    // makes the chrome's fallback the DEFAULT path in every test that does not opt in.
+    occupiedTopY: () => occupiedTop,
     exportArtifact: () => [],
     subscribeCameraPose: (cb) => {
       calls.subscribeCameraPose(cb);
@@ -427,6 +434,10 @@ export function makeStubHost(
     calls,
     /** Seam-call trace, in order — the B1 ordering contract's witness. */
     order,
+    /** Set what `host.occupiedTopY()` will answer. `null` = nothing authored. */
+    setOccupiedTopY: (y: number | null): void => {
+      occupiedTop = y;
+    },
     /** Fire a latched host→chrome push (callers wrap in act). EVERY fire reports whether
      *  the push was DELIVERED — false once the slot is free again, which is how a test
      *  tells a real unsubscribe from an inert one, and how it tells which MOUNT is

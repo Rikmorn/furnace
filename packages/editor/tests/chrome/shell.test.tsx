@@ -1292,6 +1292,103 @@ test("the slice checkbox and slider drive host.setSlice(y | null)", async () => 
 	expect(stub.calls.setSlice.mock.calls.at(-1)?.[0]).toBe(4);
 });
 
+// D-F4.5-16's occupancy seed. The park above is what the plane falls back to; these
+// three are what it does when the world can say something better. The stub answers
+// `occupiedTopY()` with whatever `setOccupiedTopY` last set, `null` by default — which is
+// why every case above this one exercises the fallback without asking for it.
+test("enabling the slice seeds the plane just above the world's own ceiling", async () => {
+	fetch404();
+	const stub = makeStubHost();
+	// A shallow world: everything in it is under 2 m. This is the case the fixed 8 m park
+	// got wrong — the plane opened above the whole world and the tick looked like it did
+	// nothing at all.
+	stub.setOccupiedTopY(1.75);
+	await renderShell(stub);
+	await openViewPopover();
+	act(() => {
+		fireEvent.click(screen.getByLabelText("slice view"));
+	});
+	// AT the content plus the half-metre clearance — not the 8 m park, and not exactly at
+	// the ceiling either (that would shave it on the first frame).
+	expect(stub.calls.setSlice.mock.calls.at(-1)?.[0]).toBe(2.25);
+	// The slider shows the seeded depth, so the control and the field agree from the
+	// first frame rather than after the user touches it.
+	expect((screen.getByLabelText("slice y") as HTMLInputElement).value).toBe(
+		"2.25",
+	);
+});
+
+test("the seed fires ONCE — a re-tick returns to the depth the user chose", async () => {
+	fetch404();
+	const stub = makeStubHost();
+	stub.setOccupiedTopY(1.75);
+	await renderShell(stub);
+	await openViewPopover();
+	act(() => {
+		fireEvent.click(screen.getByLabelText("slice view"));
+	});
+	expect(stub.calls.setSlice.mock.calls.at(-1)?.[0]).toBe(2.25);
+
+	// The user drags the plane somewhere, and the world grows a taller ceiling while they
+	// work. Neither may take their depth away from them.
+	act(() => {
+		fireEvent.change(screen.getByLabelText("slice y"), {
+			target: { value: "1" },
+		});
+	});
+	expect(stub.calls.setSlice.mock.calls.at(-1)?.[0]).toBe(1);
+	stub.setOccupiedTopY(9);
+	act(() => {
+		fireEvent.click(screen.getByLabelText("slice view"));
+	});
+	expect(stub.calls.setSlice.mock.calls.at(-1)?.[0]).toBe(null);
+	act(() => {
+		fireEvent.click(screen.getByLabelText("slice view"));
+	});
+	expect(stub.calls.setSlice.mock.calls.at(-1)?.[0]).toBe(1);
+});
+
+test("a world with nothing in it parks, and the seed stays OWED until it can fire", async () => {
+	fetch404();
+	const stub = makeStubHost();
+	// Nothing authored: `occupiedTopY` is null and the park is the honest answer.
+	await renderShell(stub);
+	await openViewPopover();
+	act(() => {
+		fireEvent.click(screen.getByLabelText("slice view"));
+	});
+	expect(stub.calls.setSlice.mock.calls.at(-1)?.[0]).toBe(8);
+
+	// The user digs while the plane is ON. This is the ONE window in which the
+	// enable-edge gate is the only thing holding the line: the one-shot is still unspent
+	// AND the world now has an answer, so a seed gated on "the plane is on" rather than
+	// on the false->true edge would fire on the next slider event and snap the plane out
+	// from under the hand holding it. Nothing else in this file can catch that — once the
+	// seed HAS fired, the one-shot masks the missing gate on every later drag.
+	stub.setOccupiedTopY(3);
+	act(() => {
+		fireEvent.change(screen.getByLabelText("slice y"), {
+			target: { value: "6" },
+		});
+	});
+	expect(stub.calls.setSlice.mock.calls.at(-1)?.[0]).toBe(6);
+	expect((screen.getByLabelText("slice y") as HTMLInputElement).value).toBe(
+		"6",
+	);
+
+	// …and the seed is still OWED. It fires on the next ENABLE, which is what makes a
+	// `null` answer a deferral rather than a forfeit — a one-shot the empty world had
+	// consumed would leave this session parked for as long as the editor is open.
+	act(() => {
+		fireEvent.click(screen.getByLabelText("slice view"));
+	});
+	expect(stub.calls.setSlice.mock.calls.at(-1)?.[0]).toBe(null);
+	act(() => {
+		fireEvent.click(screen.getByLabelText("slice view"));
+	});
+	expect(stub.calls.setSlice.mock.calls.at(-1)?.[0]).toBe(3.5);
+});
+
 test("the void checkbox drives host.setLayers(voidCast) and leaves the other layers alone", async () => {
 	fetch404();
 	const stub = makeStubHost();
