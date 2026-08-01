@@ -27,11 +27,13 @@ import {
 	useFieldHostState,
 } from "../../src/frontend/hooks/useFieldHostState.tsx";
 import { ACTIONS } from "../../src/frontend/lib/actions.ts";
+import { SESSION_VERBS } from "../../src/frontend/lib/field-session.ts";
 import { notify } from "../../src/frontend/lib/notify-store.ts";
 import type { UiStore } from "../../src/frontend/lib/persist.ts";
 import type {
 	FieldTool,
 	SelectionInfo,
+	StampSession,
 } from "../../src/viewport-host/index.ts";
 import {
 	act,
@@ -2803,6 +2805,63 @@ test("the status bar's keymap line follows what is armed", async () => {
 
 	pressKey("m");
 	expect(screen.getByText("click ×2 spans a region · Esc clears")).toBeTruthy();
+});
+
+/** A fresh STAMP session — the base the three state fixtures below vary. */
+const SESSION: StampSession = {
+	generator: "hall",
+	params: {},
+	seed: 7,
+	policy: "replace",
+	region: { min: [0, 0, 0], max: [4, 4, 4] },
+	phase: "configuring",
+	run: 0,
+	opCount: null,
+	placementCount: null,
+	error: null,
+	truncatedSelection: false,
+	mode: "stamp",
+	entityId: null,
+};
+
+test("the keymap's session line ends with the SAME verbs the card and the strip show", async () => {
+	fetch404();
+	const stub = makeStubHost();
+	await renderShell(stub);
+
+	// A STAMP: the branch that was wrong. This line re-derived its pair from `moving`
+	// alone, so a stamp inherited RECONFIGURE's "apply / discard" while the card said
+	// "commit / discard" and the session strip said "apply / revert" — three surfaces,
+	// three answers, all on screen at once during the soak gate's create-a-hall step.
+	const live = (s: StampSession) =>
+		act(() => {
+			stub.fire.stamp(s);
+		});
+	live(SESSION);
+	expect(
+		screen.getByText(
+			`← → ↑ ↓ nudge · R rotate ¼ · ⏎ ${SESSION_VERBS.STAMP.primary} · Esc ${SESSION_VERBS.STAMP.secondary}`,
+		),
+	).toBeTruthy();
+
+	// RECONFIGURE and MOVE, so the assertion above cannot pass by the table having one row
+	// that happens to match: all three rows are distinct and all three are read HERE.
+	live({ ...SESSION, mode: "reconfigure", entityId: 3 });
+	expect(
+		screen.getByText(
+			`← → ↑ ↓ nudge · R rotate ¼ · ⏎ ${SESSION_VERBS.RECONFIGURE.primary} · Esc ${SESSION_VERBS.RECONFIGURE.secondary}`,
+		),
+	).toBeTruthy();
+
+	// The STEERING half stays a `moving` branch, and correctly: a move is dragged and
+	// everything else is nudged. That is a fact about `moving`, not about the state tag,
+	// which is why only the VERBS came out of the branch.
+	live({ ...SESSION, mode: "reconfigure", entityId: 3, moving: true });
+	expect(
+		screen.getByText(
+			`drag ghost move · R rotate ¼ · ⏎ ${SESSION_VERBS.MOVE.primary} · Esc ${SESSION_VERBS.MOVE.secondary}`,
+		),
+	).toBeTruthy();
 });
 
 test("the keymap asks for a region while a stamp is armed, and names the generator", async () => {

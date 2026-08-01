@@ -10,10 +10,6 @@
 import { useState } from "react";
 import { useActionContext } from "../../hooks/useActionContext.tsx";
 import { useFieldStamp } from "../../hooks/useFieldHostState.tsx";
-import {
-	useWorkspaceActions,
-	useWorkspaceState,
-} from "../../hooks/useWorkspace.tsx";
 import { useWorldActions, useWorldState } from "../../hooks/useWorld.tsx";
 import { ACTIONS } from "../../lib/actions.ts";
 import { ReasonTip } from "../field/form-bits.tsx";
@@ -80,6 +76,34 @@ function TopBarStrip() {
  *  reason in the label); the bar spends its width on the session instead.
  *
  *  A leaf component for `TopBarStrip`'s reason — the session pushes at pointer rate. */
+/** The ⌘\ latch, read from the registry like `BakeButton` beside it (D-12: one action
+ *  table behind every key and every clickable that performs one). A BUTTON, not the hint
+ *  it started as: the chord is live, and the affordance that advertises it may as well
+ *  perform it — a keycap you cannot click is a worse version of a control that teaches
+ *  its own shortcut.
+ *
+ *  Both halves of the caption come from the def: `label(ctx)` already computes
+ *  "Show/Hide palettes" from `workspace.hidden`, and `keys` already carries "⌘\". This
+ *  bar hardcoded both and called `toggleHidden()` directly until F4.5b Task 14 — three
+ *  lines under a docblock arguing against exactly that. A leaf component for
+ *  `BakeButton`'s reason: the ctx pushes at pointer rate. */
+function PalettesButton() {
+	const ctx = useActionContext();
+	const def = ACTIONS.find((a) => a.id === "view.togglePalettes");
+	if (def === undefined) return null;
+	return (
+		<Button
+			type="button"
+			size="sm"
+			variant="ghost"
+			className="h-7 shrink-0 px-2 font-normal text-muted-foreground text-xs"
+			onClick={() => def.run(ctx)}
+		>
+			{def.keys} {def.label(ctx).toLowerCase()}
+		</Button>
+	);
+}
+
 function BakeButton() {
 	const ctx = useActionContext();
 	const def = ACTIONS.find((a) => a.id === "world.bake");
@@ -103,8 +127,6 @@ function BakeButton() {
 }
 
 export function TopBar() {
-	const { hidden } = useWorkspaceState();
-	const { toggleHidden } = useWorkspaceActions();
 	// CONTROLLED, because the burger's "View options…" opens it: the two surfaces sit side
 	// by side in this bar, and the menu item is how someone who has not yet worked out what
 	// the ⬒ chip is finds the layer gates behind it.
@@ -123,19 +145,7 @@ export function TopBar() {
           separate spacer: two flex-1 siblings would split the width and halve the strip. */}
 			<TopBarStrip />
 			<BakeButton />
-			{/* A BUTTON, not the hint it started as: the chord is live now, and the
-          affordance that advertises it may as well perform it — a keycap you cannot
-          click is a worse version of a control that teaches its own shortcut. The
-          label follows the state, which is the one reason this bar reads it. */}
-			<Button
-				type="button"
-				size="sm"
-				variant="ghost"
-				className="h-7 shrink-0 px-2 font-normal text-muted-foreground text-xs"
-				onClick={toggleHidden}
-			>
-				⌘\ {hidden ? "show" : "hide"} palettes
-			</Button>
+			<PalettesButton />
 		</header>
 	);
 }

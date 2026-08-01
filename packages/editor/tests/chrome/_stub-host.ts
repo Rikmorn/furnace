@@ -5,10 +5,18 @@
 // subscribeSelection/subscribeStamp/subscribeDrift/subscribeFlags/subscribeEntities
 // push the current (empty) state on subscribe, like the real host does.
 //
-// Every unsubscribe is REAL (frees the slot, identity-guarded like the production
-// host's) and every `fire.*` reports whether the push was DELIVERED. That pair is what
-// lets a test tell a subscriber that leaks from one that cleans up — and, on a
-// single-slot seam, WHICH mount is holding it.
+// Every unsubscribe is REAL (frees the slot) and IDENTITY-GUARDED (`if (cbs.x === cb)`),
+// exactly as all twelve of the production host's are, and every `fire.*` reports whether
+// the push was DELIVERED. That pair is what lets a test tell a subscriber that leaks from
+// one that cleans up — and, on a single-slot seam, WHICH mount is holding it.
+//
+// The guard is what makes a RE-SUBSCRIBE survivable, and it is not decoration: React
+// re-runs an effect body BEFORE running the previous cleanup on a dep change, so an
+// unguarded release would hand back the slot the new subscriber had just taken and the
+// seam would go silent with nothing thrown. Four of these were unguarded until F4.5b
+// Task 14 (toolError, drift, entities, stats) while this paragraph already claimed
+// otherwise — no test could see it, because the chrome suite's ownership case swaps the
+// CHILD under a stable provider, so the provider's cleanups never run.
 //
 // Shared because three suites now mount chrome that talks to a host: the field panel's
 // own tests, the entities palette's, and the shell's (which renders both inside the
@@ -253,7 +261,7 @@ export function makeStubHost(
       // (the shell's provider owns it now), and an inert release could not tell a
       // subscriber that leaks from one that cleans up.
       return () => {
-        cbs.toolError = null;
+        if (cbs.toolError === cb) cbs.toolError = null;
       };
     },
     setGesture: calls.setGesture,
@@ -337,7 +345,7 @@ export function makeStubHost(
       // shell's provider owns now, and an inert release could not tell a subscriber
       // that leaks from one that cleans up.
       return () => {
-        cbs.drift = null;
+        if (cbs.drift === cb) cbs.drift = null;
       };
     },
     dismissDrift: calls.dismissDrift,
@@ -351,7 +359,7 @@ export function makeStubHost(
       // A REAL unsubscribe (the subscribeStats reason — single slot, and a leak has to
       // be distinguishable from a clean release).
       return () => {
-        cbs.entities = null;
+        if (cbs.entities === cb) cbs.entities = null;
       };
     },
     subscribeHistory: (cb) => {
@@ -425,7 +433,7 @@ export function makeStubHost(
       // freed is the whole point of a single-slot seam. An inert unsubscribe here
       // could not tell a subscriber that leaks from one that cleans up.
       return () => {
-        cbs.stats = null;
+        if (cbs.stats === cb) cbs.stats = null;
       };
     },
   };

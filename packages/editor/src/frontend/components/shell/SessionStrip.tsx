@@ -24,9 +24,14 @@ import type { StampSession } from "../../../viewport-host/index.ts"; // type-onl
 // The name and the tag live in `lib/field-session.ts` since F4.5b Task 10: the session
 // CARD is the second surface that says both, and this file's own header warned that a
 // third spelling would be a third thing to keep in agreement.
-import { sessionName, sessionStateTag } from "../../lib/field-session.ts";
+import {
+	SESSION_VERBS,
+	sessionName,
+	sessionStateTag,
+} from "../../lib/field-session.ts";
 
 export function SessionStrip({ session }: { session: StampSession }) {
+	const verbs = SESSION_VERBS[sessionStateTag(session)];
 	return (
 		// A named REGION, not a live region. `role="status"` was wrong twice over: this
 		// element is INSERTED when the session opens, and a live region that does not exist
@@ -48,11 +53,12 @@ export function SessionStrip({ session }: { session: StampSession }) {
 				</span>
 			</span>
 			<span className="flex items-center gap-3 text-muted-foreground">
-				{/* ⏎ commits, applies or DROPS — three verbs, and `mode` + `moving` decide
-				    which. The host maps them in `confirmSession`; this names the one that is
-				    about to happen. */}
-				<Verb keycap="⏎" verb={session.moving === true ? "drop" : "apply"} />
-				<Verb keycap="Esc" verb="revert" />
+				{/* Both verbs come from `SESSION_VERBS`, not from a branch here. This strip
+				    used to read `moving` alone, which collapsed STAMP into RECONFIGURE and
+				    put "apply / revert" over a stamp that has nothing to revert to — visible
+				    beside the card saying "commit / discard" about the same session. */}
+				<Verb keycap="⏎" verb={verbs.primary} />
+				<Verb keycap="Esc" verb={verbs.secondary} />
 				{/* R only where it can act. `rotateStamp` refuses with "<generator> has no
 				    rotation" when `rotationOptions` is empty, and advertising a key whose only
 				    response is a refusal is the discovery-by-refusal pattern D-7 retires. A

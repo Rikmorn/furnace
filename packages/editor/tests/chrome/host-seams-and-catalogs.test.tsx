@@ -254,6 +254,54 @@ const seamsOf = (stub: ReturnType<typeof makeStubHost>) =>
 		],
 	] as const;
 
+// The stub's own contract, asserted rather than asserted-in-a-comment. Every one of its
+// twelve unsubscribes is identity-guarded (`if (cbs.x === cb)`) exactly as all twelve of
+// the production host's are, and four of them were NOT until F4.5b Task 14 while the
+// stub's header already claimed otherwise.
+//
+// The React shape it defends: on a dep change the effect BODY runs before the previous
+// cleanup, so the new subscriber takes the slot and the OLD cleanup then runs. Unguarded,
+// that release frees the slot the new subscriber just took and the seam goes silent with
+// nothing thrown. The ownership case below cannot see it — it swaps the CHILD under a
+// provider that stays, so the provider's cleanups never run at all.
+test("every stub unsubscribe is identity-guarded, like all twelve of the host's", () => {
+	const stub = makeStubHost();
+	/** A FRESH do-nothing subscriber per call. Sharing one closure across the two
+	 *  subscribes would make `cbs.x === cb` true for the stale cleanup and the guard would
+	 *  read as absent — a probe that destroys exactly what it measures. (It did: the first
+	 *  cut hoisted a single `noop` and the case failed for that reason, not for the
+	 *  seam's.) This case is about the SLOT, never the payload. */
+	const noop = (): (() => void) => (): void => undefined;
+	const seams = [
+		[
+			"toolError",
+			() => stub.host.subscribeToolError(noop()),
+			() => stub.fire.toolError("x"),
+		],
+		[
+			"drift",
+			() => stub.host.subscribeDrift(noop()),
+			() => stub.fire.drift(null),
+		],
+		[
+			"entities",
+			() => stub.host.subscribeEntities(noop()),
+			() => stub.fire.entities(),
+		],
+		[
+			"stats",
+			() => stub.host.subscribeStats(noop()),
+			() => stub.fire.stats(makeStats()),
+		],
+	] as const;
+	for (const [name, subscribe, push] of seams) {
+		const stale = subscribe();
+		subscribe(); // the new subscriber takes the slot…
+		stale(); // …and the OLD cleanup runs after it
+		expect([name, push()]).toEqual([name, true]);
+	}
+});
+
 test("every host seam is the PROVIDER's — twelve slots, one claimant each", async () => {
 	fetch404();
 	const stub = makeStubHost();

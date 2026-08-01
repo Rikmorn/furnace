@@ -417,7 +417,7 @@ export const ACTIONS: readonly ActionDef[] = [
     group: "world",
     label: (ctx) =>
       ctx.world.name === null
-        ? "Make default — name the world first"
+        ? "Make default — name the world first (⌘S)"
         : "Make default",
     enabled: (ctx) => ctx.world.name !== null,
     // Shown only when the item is ENABLED (a disabled one has pointer-events-none), which

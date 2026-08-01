@@ -17,7 +17,7 @@
 // exactly as ShellChrome's ⌘Z does. The verbs are fire-and-forget; nothing here holds
 // host state, so there is no action provider to justify.
 //
-// Bake and DELETE keep their confirmations HERE rather than in EntitiesList, for the
+// SEVER and DELETE keep their confirmations HERE rather than in EntitiesList, for the
 // reason the panel kept bake's: a list that can sever a recipe — or remove a stamp —
 // on its own click has no seam left to put a confirmation in.
 import { useRef } from "react";
@@ -49,20 +49,20 @@ export function EntitiesPalette() {
 		);
 	}
 
-	// Bake severs the recipe; delete removes the stamp and its ops. Both go through the
+	// Sever cuts the recipe; delete removes the stamp and its ops. Both go through the
 	// App-owned confirm — the same prompt the destructive world actions use, which also
 	// suppresses the global keybindings while it is open.
 	//
-	// They are NOT the same kind of irreversible, and the two messages say so: bake is
+	// They are NOT the same kind of irreversible, and the two messages say so: severing is
 	// permanent in the log (only ⌘Z reverses it, and only until the stack is discarded),
 	// while a delete is one ordinary undo step away — its warning is about SCOPE (how
 	// many ops go with the stamp), not about permanence.
-	const requestBake = (id: number): void => {
+	const requestSever = (id: number): void => {
 		openConfirm({
-			title: `Bake stamp #${id}?`,
+			title: `Sever stamp #${id}'s recipe?`,
 			message:
-				"Baking severs the recipe permanently: this stamp can never be reconfigured again, and its ops become plain history. Only ⌘Z reverses it, and only until the undo stack is discarded or the world is saved and reloaded.",
-			confirmLabel: "Bake",
+				"This severs the recipe permanently: the stamp can never be reconfigured again, and its ops become plain history. Only ⌘Z reverses it, and only until the undo stack is discarded or the world is saved and reloaded. (The entity's state then reads `baked` — the host verb is `bakeEntity`; nothing about the WORLD is baked here.)",
+			confirmLabel: "Sever",
 			destructive: true,
 			onConfirm: () => fieldHostRef.current?.bakeEntity(id),
 		});
@@ -110,7 +110,7 @@ export function EntitiesPalette() {
 						fieldHostRef.current?.setEntityFrozen(id, frozen)
 					}
 					onDelete={requestDelete}
-					onBake={requestBake}
+					onSever={requestSever}
 				/>
 			</div>
 			{/* Renders (DriftReport → null when empty) only while findings exist, beside

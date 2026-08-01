@@ -1,8 +1,6 @@
+import type { SessionVerbs } from "../../../lib/field-session.ts";
 import { ReasonTip } from "../../field/form-bits.tsx";
 import { Button } from "../../ui/button.tsx";
-
-/** What ⏎ and Esc DO in this state. */
-export type SessionVerbs = { primary: string; secondary: string };
 
 /**
  * The two verbs that end a session, and the one reason either of them can be refused.
@@ -36,6 +34,11 @@ export function SessionFooter({
 					// The KEY is in the accessible name because the glyph is what the user
 					// reads and "⏎" is not a word. The house pattern (EntitiesList's RowVerb):
 					// the pictograph is decorative, the label is the name.
+					//
+					// So this deliberately does NOT mirror the glyph — "(Enter)" is the point.
+					// The Esc button below reads "(Esc)" and its glyph now reads "Esc" too,
+					// which makes the pair LOOK inconsistent; it is not. A screen reader can
+					// say "Esc" and cannot say "⏎".
 					aria-label={`${verbs.primary} (Enter)`}
 					onClick={onConfirm}
 				>
@@ -56,7 +59,7 @@ export function SessionFooter({
 				// runs the ladder; this button does what it says.
 				onClick={onDiscard}
 			>
-				<span aria-hidden="true">esc</span> {verbs.secondary}
+				<span aria-hidden="true">Esc</span> {verbs.secondary}
 			</Button>
 		</div>
 	);

@@ -355,3 +355,34 @@ test("deserializeFilters never hands back the shared default object", () => {
   expect(deserializeFilters(undefined)).not.toBe(DEFAULT_FLAG_FILTERS);
   expect(DEFAULT_FLAG_FILTERS.info).toBe(false);
 });
+
+// --- the two shared empty defaults are IMMUTABLE ----------------------------
+//
+// `NO_FLAGS` and `NO_HISTORY` are `useState` INITIAL values, so every provider that has
+// not taken a host push yet holds this exact object — not a copy. One `.push()` into
+// `visible` or `undo` would therefore corrupt the default for every later mount in the
+// process, including every subsequent test in the same file, with nothing thrown at the
+// site that did it. Nothing mutates them today; this is what keeps that true without a
+// future author having to know it matters.
+test("the shared empty defaults are frozen THROUGH their arrays, not just at the top", () => {
+  // The top-level freeze alone would stop `NO_FLAGS.visible = [...]` and leave
+  // `NO_FLAGS.visible.push(...)` working, which is the mutation that actually happens.
+  expect(Object.isFrozen(NO_FLAGS)).toBe(true);
+  expect(Object.isFrozen(NO_FLAGS.visible)).toBe(true);
+  expect(Object.isFrozen(NO_FLAGS.byKindSeverity)).toBe(true);
+  expect(Object.isFrozen(NO_HISTORY)).toBe(true);
+  expect(Object.isFrozen(NO_HISTORY.undo)).toBe(true);
+  expect(Object.isFrozen(NO_HISTORY.redo)).toBe(true);
+
+  // …and the refusal OBSERVED, not merely inferred from `isFrozen`. ESM is always
+  // strict, so a push onto a frozen array throws rather than silently no-opping — which
+  // is the difference between a bug that surfaces at its cause and one that surfaces
+  // three tests later as an empty list that is not empty.
+  expect(() => NO_FLAGS.visible.push({} as never)).toThrow();
+  // Cast because `FieldHistory.undo` is `readonly string[]` — the compiler already
+  // refuses this one, and the freeze is the RUNTIME backstop behind that. `FlagsSummary`
+  // declares its arrays mutable (the host fills them), so the line above needs no cast
+  // and the freeze is the only guard there. The asymmetry is the reason both are
+  // asserted rather than just the weaker one.
+  expect(() => (NO_HISTORY.undo as string[]).push("x")).toThrow();
+});

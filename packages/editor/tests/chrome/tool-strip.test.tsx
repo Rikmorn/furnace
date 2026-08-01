@@ -20,6 +20,7 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import type { ReactElement } from "react";
 import { EditorContext } from "../../src/frontend/components/editor-context.ts";
 import { Shell } from "../../src/frontend/components/shell/Shell.tsx";
+import { SESSION_VERBS } from "../../src/frontend/lib/field-session.ts";
 import { notify } from "../../src/frontend/lib/notify-store.ts";
 import type {
 	FieldEntityInfo,
@@ -716,6 +717,23 @@ test("a live session swaps the tool strip for the session strip and takes Bake o
 	expect(within(sessionStrip()).getByText("STAMP")).toBeTruthy();
 	expect(within(sessionStrip()).getByText("hall")).toBeTruthy();
 	expect(within(sessionStrip()).getByText("rotate ¼")).toBeTruthy();
+	// …and its VERBS, which is the branch that was WRONG rather than merely unpinned.
+	// This strip used to read `moving` alone, so a STAMP inherited RECONFIGURE's pair and
+	// said "apply / revert" — and there is nothing to revert a stamp TO. The card and the
+	// status bar's keymap line, both on screen at the same moment, said "commit /
+	// discard". Asserted against `SESSION_VERBS` rather than against literals, so the
+	// three surfaces cannot drift apart again without this failing.
+	expect(
+		within(sessionStrip()).getByText(SESSION_VERBS.STAMP.primary),
+	).toBeTruthy();
+	expect(
+		within(sessionStrip()).getByText(SESSION_VERBS.STAMP.secondary),
+	).toBeTruthy();
+	// The RECONFIGURE pair must be ABSENT: "revert" over a stamp is the specific
+	// falsehood, and a positive assertion alone would pass under the old code the moment
+	// "commit" appeared anywhere in the strip.
+	expect(within(sessionStrip()).queryByText("revert") === null).toBe(true);
+	expect(within(sessionStrip()).queryByText("apply") === null).toBe(true);
 
 	// …and the strip comes back when the session ends.
 	act(() => {

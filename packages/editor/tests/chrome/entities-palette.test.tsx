@@ -300,7 +300,7 @@ test("each row's verbs address ITS OWN entity in a multi-row list", () => {
 	showEntities(stub, [ENTITY, second]);
 	fireEvent.click(rowButton("freeze", 7));
 	expect(stub.calls.setEntityFrozen.mock.calls).toEqual([[7, true]]);
-	fireEvent.click(rowButton("bake", 1));
+	fireEvent.click(rowButton("sever", 1));
 	expect(stub.calls.bakeEntity).not.toHaveBeenCalled(); // routed to the confirm
 
 	// The frozen row's button flips to Unfreeze and asks for false. This is also
@@ -319,7 +319,7 @@ test("each row's verbs address ITS OWN entity in a multi-row list", () => {
 test("a baked row disables every verb it cannot run, each naming its reason", () => {
 	const stub = makeStubHost();
 	showEntities(stub, [BAKED]);
-	for (const verb of ["open", "freeze", "bake", "delete"]) {
+	for (const verb of ["open", "freeze", "sever", "delete"]) {
 		const button = screen.getByLabelText(
 			new RegExp(`^${verb} entity 3 \\(baked`),
 		) as HTMLButtonElement;
@@ -366,7 +366,7 @@ test("Bake confirms before severing the recipe — cancelling never reaches the 
 	});
 	pushEntities(stub, [ENTITY]);
 	fireEvent.click(screen.getByText("Entities (1)"));
-	fireEvent.click(rowButton("bake", 1));
+	fireEvent.click(rowButton("sever", 1));
 	// The click alone must not bake: the palette routed it into the App confirm.
 	expect(stub.calls.bakeEntity).not.toHaveBeenCalled();
 	const pending = request as ConfirmRequest | null;
@@ -556,7 +556,7 @@ test("the row's ⬇ is BAKE, and duplicate has no row affordance at all", () => 
 	fireEvent.click(screen.getByText("Entities (1)"));
 	expect(screen.queryByLabelText(/^duplicate entity/)).toBeNull();
 
-	fireEvent.click(rowButton("bake", 1));
+	fireEvent.click(rowButton("sever", 1));
 	expect(stub.calls.duplicateEntity).not.toHaveBeenCalled();
 	const pending = request as ConfirmRequest | null;
 	if (pending === null) throw new Error("⬇ did not open the bake confirmation");

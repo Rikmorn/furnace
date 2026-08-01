@@ -34,3 +34,22 @@ export function sessionStateTag(session: StampSession): SessionStateTag {
   if (session.moving === true) return "MOVE";
   return session.mode === "reconfigure" ? "RECONFIGURE" : "STAMP";
 }
+
+/** The pair of verbs that ends a session: what `⏎` does and what `Esc` does. */
+export type SessionVerbs = { primary: string; secondary: string };
+
+/** What `⏎` and `Esc` DO, per state — the ONE source, because three surfaces name them
+ *  and a user working a stamp sees all three at once (the card, the session strip, and
+ *  the status bar's keymap line).
+ *
+ *  Three pairs rather than two, and the STAMP row is the reason this is keyed on the tag
+ *  rather than on `moving`. A stamp has no prior state, so "revert" over one promises a
+ *  restoration there is nothing to restore — which is what two of the three surfaces said
+ *  while they each re-derived the pair from `moving` alone, collapsing STAMP into
+ *  RECONFIGURE. Keyed on `SessionStateTag`, a fourth state fails to compile here instead
+ *  of quietly inheriting whichever branch happened to be the `else`. */
+export const SESSION_VERBS: Record<SessionStateTag, SessionVerbs> = {
+  STAMP: { primary: "commit", secondary: "discard" },
+  RECONFIGURE: { primary: "apply", secondary: "revert" },
+  MOVE: { primary: "drop", secondary: "revert" },
+};

@@ -4,7 +4,7 @@
 // READ-ONLY params <dl>; clicking again collapses it and leaves the selection
 // standing. F3a added the smart-object verbs beside it: Open starts a
 // reconfigure session (the same staged form a fresh stamp gets), then
-// freeze/unfreeze and bake. The <dl> stays read-only — it is the record, not
+// freeze/unfreeze and sever. The <dl> stays read-only — it is the record, not
 // the editor; Open is how a row becomes editable, which is also why a FROZEN or
 // BAKED row keeps its params visible while its Open is disabled.
 //
@@ -22,12 +22,12 @@
 //     surfaces — which is also how expanding a row got its viewport box back
 //     after `highlightEntity` was retired (Task 3): the box follows SELECTION
 //     now, and selection is what a row click writes.
-//   - 🗑 delete joins the row, and bake adopts the mock's ⬇ glyph.
+//   - 🗑 delete joins the row, and sever adopts the mock's ⬇ bake glyph.
 //   - a Δ badge appears on any row the standing drift report touches, and is a
 //     POINTER to the report rather than a copy of it — the DriftReport section
 //     stays where it is, and the badge scrolls it into view.
 //
-// VISUAL-GATE RIDER: the two destructive verbs (⬇ bake, 🗑 delete) carry NO
+// VISUAL-GATE RIDER: the two destructive verbs (⬇ sever, 🗑 delete) carry NO
 // `text-destructive`, where their worded predecessors did. The class had to go
 // rather than move, because a bare emoji renders from the colour-emoji font and
 // ignores `color` outright — so it was styling that did nothing while reading as
@@ -39,7 +39,8 @@
 //
 // Verb spelling, from the spec rather than from the shape of the code: D-14 maps
 // the row's glyph trio as freeze ❄ / BAKE ⬇ / delete 🗑, and the mock's own
-// caption says those three "stay on the row". So ⬇ is bake — NOT duplicate — and
+// caption says those three "stay on the row". So ⬇ is D-14's bake glyph — NOT
+// duplicate — carrying the verb this UI calls SEVER, and
 // DUPLICATE IS NOT A ROW VERB AT ALL: the mock puts it in the burger
 // (`Duplicate "maze-3"`), which is why there is no ⬇-for-duplicate button below
 // however naturally the glyph reads as one.
@@ -121,7 +122,7 @@ const ROW_BUTTON_CLASS = "h-5 px-1.5 text-xs";
  *  button swallows pointer events, so the mouse tooltip has to ride a span around
  *  it — and because that span is not focusable, the reason goes in the
  *  `aria-label` too or a keyboard user never gets it. One component so the four
- *  verbs cannot drift apart on this again (they did: ❄ and bake shipped bare, and
+ *  verbs cannot drift apart on this again (they did: ❄ and ⬇ shipped bare, and
  *  bake's tooltip still promised to sever a recipe on a row where it could not).
  *
  *  `glyph` renders inside an `aria-hidden` span: the accessible name is the label,
@@ -204,7 +205,7 @@ export function EntitiesList(props: {
 	onDelete: (id: number) => void;
 	/** Request a bake. The PALETTE owns the confirmation — this list never severs
 	 *  a recipe on its own click (bake is the one irreversible verb). */
-	onBake: (id: number) => void;
+	onSever: (id: number) => void;
 }) {
 	const { entities, selectedId, driftedIds } = props;
 	const [expandedId, setExpandedId] = useState<number | null>(null);
@@ -348,14 +349,20 @@ export function EntitiesList(props: {
 									}
 									onClick={() => props.onFreeze(e.entityId, !frozen)}
 								/>
-								{/* ⬇ is BAKE (D-14's glyph map), not duplicate — see the header. */}
+								{/* ⬇ is D-14's bake glyph, not duplicate — see the header. The VERB
+								    is "sever", not "bake", because the bar's Bake button and
+								    `world.makeDefault` are two other operations under that word and
+								    neither has anything to do with this one: those write the world
+								    and point the game at it, this severs ONE stamp's recipe. The
+								    resulting entity STATE is still `baked` — that word is core's,
+								    and the badge keeps it — so the title names both halves. */}
 								<RowVerb
 									entityId={e.entityId}
-									verb="bake"
+									verb="sever"
 									glyph="⬇"
 									blocked={bakeBlockedReason(e)}
-									title="sever this stamp's recipe — permanent"
-									onClick={() => props.onBake(e.entityId)}
+									title="sever this stamp's recipe — permanent; it becomes a baked entity"
+									onClick={() => props.onSever(e.entityId)}
 								/>
 								<RowVerb
 									entityId={e.entityId}

@@ -24,6 +24,7 @@ import {
 import { usePaletteSummon } from "../../hooks/usePaletteStack.tsx";
 import { ACTIONS } from "../../lib/actions.ts";
 import { cn } from "../../lib/cn.ts";
+import { SESSION_VERBS, sessionStateTag } from "../../lib/field-session.ts";
 import { notify } from "../../lib/notify-store.ts";
 import type { EditorState } from "../../lib/state.ts";
 import { useEditor } from "../editor-context.ts";
@@ -60,11 +61,17 @@ export function armedKeymap(
 	pendingStamp: PendingStamp | null,
 ): string {
 	// A live session owns the interaction — the family keys refuse while it stands, so
-	// what is left to say is how it ENDS. A move adds the one verb only a move has.
-	if (session !== null)
-		return session.moving === true
-			? "drag ghost move · R rotate ¼ · ⏎ drop · Esc revert"
-			: "← → ↑ ↓ nudge · R rotate ¼ · ⏎ apply · Esc discard";
+	// what is left to say is how it ENDS. The two end verbs come from `SESSION_VERBS`,
+	// the one table the card and the session strip also read: a user working a stamp has
+	// all three surfaces on screen at once, and this line used to re-derive the pair from
+	// `moving` alone, which collapsed STAMP into RECONFIGURE. What stays a branch here is
+	// the STEERING half, which genuinely differs — a move is dragged, everything else is
+	// nudged — and that is a fact about `moving`, not about the state tag.
+	if (session !== null) {
+		const verbs = SESSION_VERBS[sessionStateTag(session)];
+		const steer = session.moving === true ? "drag ghost move" : "← → ↑ ↓ nudge";
+		return `${steer} · R rotate ¼ · ⏎ ${verbs.primary} · Esc ${verbs.secondary}`;
+	}
 	// A pending stamp SHADOWS the armed gesture: LMB is drawing that stamp's region,
 	// whatever the gesture slot still says underneath (usually `pointer`, the arm most
 	// stamps are picked from). It is checked before `gesture` for exactly that reason —

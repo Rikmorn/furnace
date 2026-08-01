@@ -638,7 +638,7 @@ test("the LIFECYCLE verbs are not on the card (D-14 — they live on the entity 
 	// Asserted against the CARD, not the document: the entities palette renders all three
 	// for this very entity a few pixels away, which is the whole point — one place for the
 	// verbs that change what an entity IS, another for the values it holds.
-	for (const verb of ["freeze", "bake", "delete", "unfreeze"])
+	for (const verb of ["freeze", "sever", "delete", "unfreeze"])
 		expect(
 			within(box).queryByRole("button", { name: new RegExp(`^${verb} `) }) ===
 				null,

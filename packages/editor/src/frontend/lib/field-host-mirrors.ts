@@ -257,20 +257,34 @@ export function deserializeFilters(
 }
 
 /** Nothing found yet — what the flags surface renders between mount and the host's first
- *  push, after which every summary is the host's. */
-export const NO_FLAGS: FlagsSummary = {
+ *  push, after which every summary is the host's.
+ *
+ *  FROZEN, and shallowly is not enough: this is a `useState` INITIAL value, so every
+ *  provider that has not taken a push yet shares this one object. One `.push()` into
+ *  `visible` or `byKindSeverity` would corrupt the default for every subsequent mount in
+ *  the process, including every later test in the same file — a mutation with no thrown
+ *  error and no obvious author. Nothing mutates it today; the freeze is what keeps that
+ *  true without anyone having to know it matters. */
+// Boundary cast: `FlagsSummary`'s arrays are mutable because the HOST fills them; this
+// particular value is the immutable empty default, and the two facts cannot both be
+// expressed by the one type. Through `unknown` because `readonly never[]` and
+// `FlagCount[]` do not overlap — the cast is asserting that a frozen empty array is a
+// safe stand-in for a list nobody may write to, which is exactly the guarantee the freeze
+// provides.
+export const NO_FLAGS: FlagsSummary = Object.freeze({
   total: 0,
-  byKindSeverity: [],
-  visible: [],
+  byKindSeverity: Object.freeze([]),
+  visible: Object.freeze([]),
   selected: null,
-};
+}) as unknown as FlagsSummary;
 
 /** Nothing done yet. Also the FieldHistoryContext default (`useFieldHostState.tsx`) —
  *  see there for why an empty history is a truthful reading outside the provider rather
  *  than a wiring hole. */
-export const NO_HISTORY: FieldHistory = {
-  undo: [],
-  redo: [],
+// Boundary cast: `NO_FLAGS`' reason, verbatim.
+export const NO_HISTORY: FieldHistory = Object.freeze({
+  undo: Object.freeze([]),
+  redo: Object.freeze([]),
   undoDepth: 0,
   redoDepth: 0,
-};
+}) as unknown as FieldHistory;

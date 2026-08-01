@@ -417,8 +417,11 @@ test("the burger's Make default points the game at the OPEN world, without writi
 
 	// Untitled: there is no directory for the game to load, so the item carries the reason
 	// IN its label — a disabled item swallows the tooltip that would otherwise say it
-	// (the Bake precedent, one row above it).
-	const untitled = await burgerItem("Make default — name the world first");
+	// (the Bake precedent, one row above it). The reason names the WAY OUT, `(⌘S)`, for
+	// the same reason Bake's does: the two items sit adjacent under one gate, and the
+	// user who reads one and then the other must not have to work out that "name the
+	// world first" and "name the world first (⌘S)" are the same sentence.
+	const untitled = await burgerItem("Make default — name the world first (⌘S)");
 	expect(untitled.getAttribute("aria-disabled")).toBe("true");
 	act(() => {
 		fireEvent.keyDown(document.activeElement ?? document.body, {

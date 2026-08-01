@@ -85,7 +85,7 @@ import type { JsonSchemaNode } from "../../inspector/types.ts";
 import { entityName } from "../../lib/actions.ts";
 import { openBlockedReason } from "../../lib/field-entity.ts";
 import {
-	type SessionStateTag,
+	SESSION_VERBS,
 	sessionName,
 	sessionStateTag,
 } from "../../lib/field-session.ts";
@@ -94,24 +94,12 @@ import { useEditor } from "../editor-context.ts";
 import { AdvancedSection } from "./session-card/AdvancedSection.tsx";
 import { ReadOnlyParams } from "./session-card/ReadOnlyParams.tsx";
 import { SeedRow } from "./session-card/SeedRow.tsx";
-import {
-	SessionFooter,
-	type SessionVerbs,
-} from "./session-card/SessionFooter.tsx";
+import { SessionFooter } from "./session-card/SessionFooter.tsx";
 
 const PHASE_LABEL: Record<StampSession["phase"], string> = {
 	configuring: "configuring",
 	previewing: "previewing…",
 	ready: "ready",
-};
-
-/** What ⏎ and Esc DO, per state. Three pairs rather than one, because the three states
- *  commit to different things and a footer that read "apply" over a grab would promise a
- *  reconfigure the host does not perform. */
-const VERBS: Record<SessionStateTag, SessionVerbs> = {
-	STAMP: { primary: "commit", secondary: "discard" },
-	RECONFIGURE: { primary: "apply", secondary: "revert" },
-	MOVE: { primary: "drop", secondary: "revert" },
 };
 
 /** The empty params record, hoisted so the fallback below is a STABLE identity — a `{}`
@@ -305,7 +293,7 @@ export function SessionCard() {
 	const tag = stamp === null ? "SELECTED" : sessionStateTag(stamp);
 	const name = subjectName(stamp, record);
 	const seed = stamp?.seed ?? record?.seed ?? 0;
-	const verbs = stamp === null ? null : VERBS[sessionStateTag(stamp)];
+	const verbs = stamp === null ? null : SESSION_VERBS[sessionStateTag(stamp)];
 	const caveat = policyCaveat(stamp);
 	const ready = stamp?.phase === "ready";
 	// The refusal as one sentence, the field's own label first — "Chamber Radius must be
