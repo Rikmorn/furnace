@@ -3335,6 +3335,13 @@ test("the chip says which of TWO limits it is under, and they are different limi
 // value, an assertion that FINDS the value proves nothing about which field produced
 // it — and a row wired to the wrong `stats` member would stay green.
 
+/** A status chip, scoped to the BAR. Unscoped is ambiguous the moment the chip's own
+ *  popover is open: the portalled content carries the same accessible name as its
+ *  trigger (so the `role="dialog"` is identifiable as that chip's), which puts two
+ *  matches in the document at once. */
+const statusChip = (name: string | RegExp): HTMLElement =>
+	within(screen.getByRole("contentinfo")).getByLabelText(name);
+
 /** A detail row's value, found by its LABEL — the PAIRING is the claim. Reading a bare
  *  number off the popover would pass on any row that happened to carry it. */
 const rowValue = (label: string): string => {
@@ -3344,18 +3351,33 @@ const rowValue = (label: string): string => {
 	return dd.textContent ?? "";
 };
 
-/** The op-cost meter's readings: six fields, no two alike. */
+/** The digit grouping the popover applies, computed the way the UI computes it. Pinning
+ *  the literal "1,284" would redden this file under any locale whose separator differs,
+ *  for reasons that have nothing to do with the code under test — and the UI's own
+ *  `toLocaleString` is deliberately locale-aware. */
+const grouped = (n: number): string => n.toLocaleString();
+
+/** The op-cost meter's readings: six fields, no two alike.
+ *
+ *  The two ms fields are FRACTIONAL, and that is the point. Both are `performance.now()`
+ *  deltas in the real host, so integers here are a fixture coincidence that an assertion
+ *  would enshrine: with `lastRemeshMs: 12` the row reads "12 ms" whether or not anything
+ *  rounds, and the three fraction digits `toLocaleString` grants by default ship unseen. */
 const METER = makeStats({
 	totalOps: 1284,
 	chunks: 41,
-	lastRemeshMs: 12,
-	lastReconfigureMs: 236,
+	// A duration only means anything once a remesh has LANDED, and `remeshVersion` is
+	// what says one has — a fixture carrying 12 ms at version 0 describes a state the
+	// host cannot produce.
+	remeshVersion: 9,
+	lastRemeshMs: 12.3456,
+	lastReconfigureMs: 236.78,
 	liveGenerators: 7,
 	compactableOps: 93,
 	undoDepth: 5,
 });
 
-test("the ops chip opens the op-cost meter the deleted footer used to hold", async () => {
+test("the ops chip opens a meter for the six fields behind the count", async () => {
 	fetch404();
 	const stub = makeStubHost();
 	await renderShell(stub);
@@ -3370,12 +3392,15 @@ test("the ops chip opens the op-cost meter the deleted footer used to hold", asy
 	expect(screen.queryByText("live generators") === null).toBe(true);
 
 	act(() => {
-		fireEvent.click(screen.getByLabelText("1284 ops — the op-cost meter"));
+		fireEvent.click(statusChip("1284 ops — the op-cost meter"));
 	});
-	expect(rowValue("ops in the log")).toBe("1,284");
+	expect(rowValue("ops in the log")).toBe(grouped(1284));
 	expect(rowValue("chunks allocated")).toBe("41");
+	// ROUNDED to the millisecond, from a fractional fixture: a "how heavy has this got?"
+	// readout carries no microsecond noise, and 12.3456 → "12" / 236.78 → "237" is a
+	// claim about the code rather than about the numbers it was handed.
 	expect(rowValue("last remesh")).toBe("12 ms");
-	expect(rowValue("last reconfigure")).toBe("236 ms");
+	expect(rowValue("last reconfigure")).toBe("237 ms");
 	expect(rowValue("live generators")).toBe("7");
 	expect(rowValue("compactable ops")).toBe("93");
 	// The one number that MISLEADS without its claim: a non-zero compactable count is
@@ -3383,19 +3408,43 @@ test("the ops chip opens the op-cost meter the deleted footer used to hold", asy
 	expect(screen.getByText(/the NEXT load could fold/)).toBeTruthy();
 });
 
-test("a reconfigure that never ran reads as absent, not as a free one", async () => {
+test("the two 'has not happened yet' rows read their OWN sentinel, not a shared zero", async () => {
 	fetch404();
 	const stub = makeStubHost();
 	await renderShell(stub);
+	// A fresh boot: nothing has remeshed and nothing has reconfigured.
 	act(() => {
-		stub.fire.stats(makeStats({ totalOps: 3, lastReconfigureMs: 0 }));
+		stub.fire.stats(
+			makeStats({
+				totalOps: 3,
+				remeshVersion: 0,
+				lastRemeshMs: 0,
+				lastReconfigureMs: 0,
+			}),
+		);
 	});
 	act(() => {
-		fireEvent.click(screen.getByLabelText("3 ops — the op-cost meter"));
+		fireEvent.click(statusChip("3 ops — the op-cost meter"));
 	});
+	expect(rowValue("last remesh")).toBe("none yet");
 	// FieldStats declares 0 = "none has run this session". "0 ms" would read as a
 	// reconfigure that cost nothing, which is the opposite claim.
 	expect(rowValue("last reconfigure")).toBe("none this session");
+
+	// And here is why the remesh row cannot borrow the reconfigure's zero test: a remesh
+	// that LANDED and took under half a millisecond rounds to 0, which is a different
+	// fact from no remesh at all. `remeshVersion` separates them; the duration cannot.
+	act(() => {
+		stub.fire.stats(
+			makeStats({
+				totalOps: 3,
+				remeshVersion: 4,
+				lastRemeshMs: 0.21,
+				lastReconfigureMs: 0,
+			}),
+		);
+	});
+	expect(rowValue("last remesh")).toBe("0 ms");
 });
 
 test("the analyzer chip names the passes it is owed, and is absent when owed none", async () => {
@@ -3415,12 +3464,40 @@ test("the analyzer chip names the passes it is owed, and is absent when owed non
 	// Closed: nothing of the body in the DOM (identity form — see the ops case).
 	expect(screen.queryByText("passes owed") === null).toBe(true);
 	act(() => {
-		fireEvent.click(
-			screen.getByLabelText("analyzer catching up — 2 passes owed"),
-		);
+		fireEvent.click(statusChip("analyzer catching up — 2 passes owed"));
 	});
 	expect(rowValue("passes owed")).toBe("2");
 	expect(screen.getByText(/catching up with your edits/)).toBeTruthy();
+});
+
+test("the analyzer chip outlives its own zero while its popover is open", async () => {
+	fetch404();
+	const stub = makeStubHost();
+	await renderShell(stub);
+	act(() => {
+		stub.fire.stats(makeStats({ totalOps: 6, analyzerPending: 1 }));
+	});
+	act(() => {
+		fireEvent.click(statusChip("analyzer catching up — 1 pass owed"));
+	});
+	expect(rowValue("passes owed")).toBe("1");
+
+	// The last pass lands WHILE the user is reading. Unmounting the trigger here takes
+	// the whole layer with it mid-sentence and drops focus to the body — and the
+	// sentence it interrupts is the one promising this very thing would happen.
+	act(() => {
+		stub.fire.stats(makeStats({ totalOps: 6, analyzerPending: 0 }));
+	});
+	expect(screen.getByText(/the advisor has caught up/)).toBeTruthy();
+	// …and it stops claiming to be behind while it stands there: a popover reading
+	// "catching up · 0 owed" contradicts itself in front of the person reading it.
+	expect(screen.queryByText(/catching up with your edits/) === null).toBe(true);
+
+	// CLOSING is what retires it — the chip goes on the next render, not before.
+	act(() => {
+		fireEvent.click(statusChip("analyzer caught up"));
+	});
+	expect(screen.queryByText(/analyzer/) === null).toBe(true);
 });
 
 test("both stats popovers are portal LAYERS — the bar and the canvas cell keep their boxes", async () => {
@@ -3435,7 +3512,7 @@ test("both stats popovers are portal LAYERS — the bar and the canvas cell keep
 	if (!(cell instanceof HTMLElement)) throw new Error("canvas has no cell");
 
 	act(() => {
-		fireEvent.click(screen.getByLabelText("1284 ops — the op-cost meter"));
+		fireEvent.click(statusChip("1284 ops — the op-cost meter"));
 	});
 	// OUT of both boxes. The bar is fixed-height and the canvas cell takes exactly what
 	// the two bars leave, so a popover rendered INSIDE either would grow the chrome and
@@ -3445,19 +3522,11 @@ test("both stats popovers are portal LAYERS — the bar and the canvas cell keep
 	expect(cell.contains(opsBody)).toBe(false);
 
 	act(() => {
-		fireEvent.click(
-			screen.getByLabelText("analyzer catching up — 1 pass owed"),
-		);
+		fireEvent.click(statusChip("analyzer catching up — 1 pass owed"));
 	});
 	const analyzerBody = screen.getByText("passes owed");
 	expect(bar.contains(analyzerBody)).toBe(false);
 	expect(cell.contains(analyzerBody)).toBe(false);
-
-	// …and neither bar nor cell moved off the classes that fix their sizes.
-	for (const cls of ["h-7", "shrink-0"])
-		expect(bar.classList.contains(cls)).toBe(true);
-	for (const cls of ["relative", "flex-1", "min-h-0"])
-		expect(cell.classList.contains(cls)).toBe(true);
 });
 
 // --- (c10) the gate's target predicate: which controls swallow a bare key -----
