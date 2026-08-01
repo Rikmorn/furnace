@@ -52,7 +52,7 @@ export function StripOverflow({
 					Every {effect} option — also here when the strip is narrow
 				</TooltipContent>
 			</Tooltip>
-			<PopoverContent align="end" className="w-72 p-3" {...focusReturn}>
+			<PopoverContent align="end" className="w-72 p-3" {...focusReturn.overlay}>
 				{/* biome-ignore lint/a11y/useSemanticElements: role="group" is the intended ARIA grouping for this option list; a <fieldset>/<legend> would force a second box inside a popover that is already one */}
 				<div
 					role="group"

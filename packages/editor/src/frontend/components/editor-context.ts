@@ -25,22 +25,44 @@ export type ViewportFocus = {
    * Did the canvas hold focus when the user gesture now in progress BEGAN?
    *
    * THE WHOLE RULE, in one sentence, and it is a question about the GESTURE rather than
-   * about this instant on purpose. By the time an overlay is open it is far too late to
-   * ask: a browser focuses a clicked trigger on mousedown, and Radix's `FocusScope` then
-   * moves focus INTO the content from a mount effect (verified in
-   * @radix-ui/react-focus-scope 1.1.12) — so `document.activeElement === canvas` is false
-   * at every open edge, for a mouse open and a keyboard one alike. Reading it there would
-   * be a condition that never fires in a browser and only appears to work under a harness
-   * that does not move focus on a click.
+   * about this instant on purpose. By the time an overlay is open it is too late to ask,
+   * and the decisive reason is the browser's: it focuses a clicked trigger as the default
+   * action of `mousedown`, before the content has mounted at all — so
+   * `document.activeElement` is the TRIGGER by the time any open-edge hook could read it.
+   * (Radix's `FocusScope` moves focus further in a moment later, from its mount effect —
+   * after `onMountAutoFocus` dispatches, not before it. That deepens the problem for an
+   * ancestor's `useEffect`, which runs later still, but it is not what breaks the
+   * open-edge read.) Either way the condition would never fire in a browser, and would
+   * only appear to work under a harness that does not move focus on a click.
    *
    * So the answer is recorded at the START of every gesture — a capture-phase
-   * `pointerdown` or `keydown` on the document, both of which run before the focus
-   * transfer they cause — and an overlay asks for it as it opens. A pointer open asks
-   * about its own pointerdown; a keyboard open asks about the ⏎/Space that ran the
-   * trigger, by which time the user has already Tabbed onto it and the answer is
-   * correctly no.
+   * `pointerdown` or `keydown` on the WINDOW, both of which run before the focus transfer
+   * they cause — and an overlay asks for it as it opens. A pointer open asks about its own
+   * pointerdown; a keyboard open asks about the ⏎/Space that ran the trigger, by which
+   * time the user has already Tabbed onto it and the answer is correctly no.
    */
   heldFocusAtGestureStart: () => boolean;
+  /**
+   * Say what the gesture in progress should be TREATED as having started from.
+   *
+   * The hand-off half, and it exists because a surface opened FROM another surface would
+   * otherwise always answer no: the gesture that opens it begins on a control inside the
+   * first one. The burger's ☰ → "Keyboard shortcuts" and the palette's ⌘K → "Open…" are
+   * both that shape, and both of those dialogs have no trigger for Radix to restore to —
+   * so without forwarding, a chain that started on the canvas ends on `<body>` with every
+   * viewport key dead, which is the defect this whole seam exists to close.
+   *
+   * A WRITE ON THE SAME RECORD rather than a second channel, so the surface being opened
+   * needs no knowledge that it was handed anything: it reads the gesture origin as usual
+   * and gets the inherited answer. It carries the origin ONWARD unchanged — a chain that
+   * began in the chrome forwards `false` and stays in the chrome.
+   *
+   * Its lifetime is the rest of the current gesture: the next real `pointerdown` or
+   * `keydown` overwrites it. An armed value nothing consumes is therefore inert rather
+   * than sticky, which is what lets the command palette forward on EVERY pick without
+   * knowing which verbs open a surface.
+   */
+  carryGestureOrigin: (held: boolean) => void;
 };
 
 /** Live editor state, shared with the whole chrome through React context: App owns it

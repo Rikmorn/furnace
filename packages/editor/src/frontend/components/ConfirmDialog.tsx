@@ -44,7 +44,7 @@ export function ConfirmDialog({
 				if (!open) onResolve(false);
 			}}
 		>
-			<DialogContent className="max-w-sm" {...focusReturn}>
+			<DialogContent className="max-w-sm" {...focusReturn.overlay}>
 				{request && (
 					<>
 						<DialogHeader>

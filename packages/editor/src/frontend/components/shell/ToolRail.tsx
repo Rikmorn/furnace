@@ -319,7 +319,7 @@ function MemberFlyout({ row }: { row: RailModel }) {
 				align="start"
 				side="right"
 				className="w-60 p-1"
-				{...focusReturn}
+				{...focusReturn.overlay}
 			>
 				{/* biome-ignore lint/a11y/useSemanticElements: role="group" is the intended ARIA grouping for this member list; a <fieldset>/<legend> would force a boxed look inside a popover that is already a box */}
 				<div

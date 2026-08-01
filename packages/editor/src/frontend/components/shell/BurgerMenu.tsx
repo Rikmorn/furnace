@@ -143,7 +143,7 @@ export function BurgerMenu({
 				open={menuOpen}
 				onOpenChange={(next) => {
 					setMenuOpen(next);
-					if (next) focusReturn.onOpenAutoFocus();
+					if (next) focusReturn.overlay.onOpenAutoFocus();
 				}}
 			>
 				<DropdownMenuTrigger
@@ -167,7 +167,7 @@ export function BurgerMenu({
 							e.preventDefault();
 							return;
 						}
-						focusReturn.onCloseAutoFocus(e);
+						focusReturn.overlay.onCloseAutoFocus(e);
 					}}
 				>
 					{/* The same verb set the world chip, the drawer and ⌘S drive — one action
@@ -202,6 +202,9 @@ export function BurgerMenu({
 					<DropdownMenuItem
 						onSelect={() => {
 							handingOff.current = true;
+							// The popover inherits THIS menu's answer, so ☰ → View options… → Esc
+							// still ends on the canvas when the journey started there.
+							focusReturn.handOff();
 							onOpenViewOptions();
 						}}
 					>
@@ -234,6 +237,11 @@ export function BurgerMenu({
 					<DropdownMenuItem
 						onSelect={() => {
 							handingOff.current = true;
+							// Load-bearing rather than symmetrical: this overlay is reachable ONLY
+							// from here (`?` is deliberately unbound), and it carries no trigger for
+							// Radix to restore to — so without the forward its record is false in
+							// every reachable state and dismissing it drops the user on `<body>`.
+							focusReturn.handOff();
 							setShortcutsOpen(true);
 						}}
 					>

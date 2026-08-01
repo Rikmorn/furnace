@@ -167,7 +167,7 @@ export function ShortcutsDialog({
 			    that grows past the viewport takes its own close button off screen. */}
 			<DialogContent
 				className="max-h-[80vh] max-w-xl overflow-y-auto"
-				{...focusReturn}
+				{...focusReturn.overlay}
 			>
 				<DialogHeader>
 					<DialogTitle>Keyboard shortcuts</DialogTitle>

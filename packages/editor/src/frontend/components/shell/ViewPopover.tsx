@@ -152,7 +152,7 @@ export function ViewPopover({
 			<PopoverContent
 				align="start"
 				className="w-64 space-y-3 p-3 text-xs"
-				{...focusReturn}
+				{...focusReturn.overlay}
 			>
 				<div className={GROUP_CLASS} role="radiogroup" aria-label="shading">
 					<span className={GROUP_LABEL_CLASS}>shading</span>

@@ -305,7 +305,7 @@ function ChipPopover({
 				aria-label={label}
 				align="end"
 				className="w-64 space-y-2 p-2 text-xs"
-				{...focusReturn}
+				{...focusReturn.overlay}
 			>
 				{body}
 			</PopoverContent>

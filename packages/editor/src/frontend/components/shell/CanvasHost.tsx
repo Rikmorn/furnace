@@ -36,8 +36,8 @@ export function CanvasHost({
 	const { viewportFocusRef } = useEditor();
 	// Did the canvas hold focus when the gesture now in progress began? See
 	// {@link ViewportFocus.heldFocusAtGestureStart} for why the question is about the
-	// gesture and not about this instant — the short version is that every overlay has
-	// already taken focus by the time it can be asked.
+	// gesture and not about this instant — the short version is that a browser has already
+	// moved focus to the clicked trigger before any overlay can be asked.
 	const heldAtGestureStart = useRef(false);
 	// The tail of the LAST teardown, so the next init can wait for it. The host holds one
 	// context and throws on a second `init`, and its dispose is deferred (see the cleanup
@@ -148,6 +148,12 @@ export function CanvasHost({
 			// would move the whole shell for nothing.
 			focus: () => canvas.focus({ preventScroll: true }),
 			heldFocusAtGestureStart: () => heldAtGestureStart.current,
+			// The same field the listeners above write, deliberately: a hand-off is a claim
+			// about where THIS gesture came from, so it belongs in the record the next overlay
+			// already reads rather than in a second channel it would have to know about.
+			carryGestureOrigin: (held) => {
+				heldAtGestureStart.current = held;
+			},
 		};
 		return () => {
 			window.removeEventListener("pointerdown", record, true);

@@ -145,13 +145,10 @@ export function CommandPalette({
 	onOpenChange: (open: boolean) => void;
 }) {
 	// ⌘K is pressed mid-flight and the dialog has no trigger, so Radix's dismissal lands on
-	// `<body>` and every viewport key with it. No hand-off flag for the rows that OPEN
-	// something (Worlds…, History…): the return stands down on its own once another surface
-	// holds focus — see the guard in `useViewportFocusReturn`.
+	// `<body>` and every viewport key with it.
 	const focusReturn = useViewportFocusReturn();
 	return (
 		<CommandDialog
-			{...focusReturn}
 			open={open}
 			onOpenChange={onOpenChange}
 			// The SURFACE's name, not the action's, and the near-duplication is deliberate:
@@ -182,17 +179,33 @@ export function CommandPalette({
 			// there never passes through the root at all. Measured — it was written there
 			// first, and it was the case pressing on the box that found it.
 			onEscapeKeyDown={(e) => e.stopPropagation()}
+			// LAST, and on `CommandDialog` rather than inside it: that wrapper names both
+			// props explicitly and forwards them to `DialogContent`, because its own rest
+			// spread goes to cmdk's root, which would have swallowed them silently.
+			{...focusReturn.overlay}
 		>
 			{/* Built here, rendered only while the dialog is open: Radix's Portal renders
 			    nothing when closed, so the action context — which moves on every op and at
 			    pointer rate during a grab — is subscribed to only while someone is looking at
 			    it. The same split `ShortcutsDialog` makes, for the same reason. */}
-			<CommandBody close={() => onOpenChange(false)} />
+			<CommandBody
+				close={() => onOpenChange(false)}
+				handOff={focusReturn.handOff}
+			/>
 		</CommandDialog>
 	);
 }
 
-function CommandBody({ close }: { close: () => void }) {
+function CommandBody({
+	close,
+	handOff,
+}: {
+	close: () => void;
+	/** Forward the palette's focus record to whatever the picked verb opens — see
+	 *  {@link ViewportFocusReturn.handOff}. Threaded down as a prop because the hook lives
+	 *  on the dialog above (which is mounted always, where this body is not). */
+	handOff: () => void;
+}) {
 	const ctx = useActionContext();
 	const rows = [
 		...ACTIONS.map((def) => actionRow(def, ctx)),
@@ -206,10 +219,19 @@ function CommandBody({ close }: { close: () => void }) {
 	 *  it yanked straight back out by a close that landed after. */
 	const pick = useCallback(
 		(row: Row) => {
+			// BEFORE the close, and unconditionally. A verb that opens a surface (`Open…`,
+			// `History…`) mounts it during `row.run()`, and that surface reads the gesture
+			// origin as it opens — which is strictly earlier than this palette's own deferred
+			// close handler, so arming afterwards would always be a tick late. Unconditional
+			// because the registry does not say which verbs open something and a per-row list
+			// would be a second source for it; a forwarded answer nothing consumes is inert
+			// (see `carryGestureOrigin`), and a verb that opens nothing still gets the
+			// ordinary return from the close below.
+			handOff();
 			flushSync(close);
 			row.run();
 		},
-		[close],
+		[close, handOff],
 	);
 
 	return (
