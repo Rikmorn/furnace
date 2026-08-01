@@ -167,10 +167,22 @@ function SelectionVerbs({
  *  one gains a binding the keycap appears here without this file changing, which is the
  *  whole point of reading it off the id rather than writing it down.
  *
- *  A DISABLED verb gets neither channel: it takes no pointer events and no focus, so the
- *  tooltip could not reach it — and it has nothing to explain anyway, being greyed out
- *  exactly when there is no selection, which is what the chip that opened this says. */
-function SelectionVerb({ id, ctx }: { id: string; ctx: ActionCtx }) {
+ *  The bare-control branch below is a GUARD rather than a state, and is named as one
+ *  because a reader will look for the case that takes it: `SelectionChip` renders nothing
+ *  while `selection === null`, which is the only thing that disables `edit.clearSelection`,
+ *  so BOTH of today's verbs are always live inside this popover and both always carry a
+ *  `menuTitle`. It stays because the alternative is a silent trap — a third id added to
+ *  {@link SELECTION_ACTIONS} that CAN be disabled would otherwise get a tooltip trigger
+ *  merged onto a control that takes neither hover nor focus, which is exactly the bug
+ *  `VerifyVerb` shipped and had to be fixed for. `shell.test.tsx` pins the invariant from
+ *  the reachable side: both verbs live, both documented. */
+function SelectionVerb({
+	id,
+	ctx,
+}: {
+	id: (typeof SELECTION_ACTIONS)[number];
+	ctx: ActionCtx;
+}) {
 	const action = ACTIONS.find((a) => a.id === id);
 	// Absent = the registry lost an id this bar names. Rendering nothing is the honest
 	// failure (a dead button would be worse), and the id pair below is asserted against

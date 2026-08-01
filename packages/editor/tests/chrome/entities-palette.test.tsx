@@ -390,6 +390,13 @@ test("the row's Delete tooltip shows the registry's own keycap, on the selected 
 	const stub = makeStubHost();
 	showEntities(stub, [ENTITY, { ...ENTITY, entityId: 9 }]);
 
+	// The keycap comes off the TABLE in every assertion below, this one included. A
+	// literal "⌫" here would pass vacuously after a rebind — nothing named ⌫ would exist
+	// anywhere on screen, so the absence it claims to prove would be free — and that is
+	// precisely the drift the registry read exists to make impossible.
+	const keys = byId("edit.delete").keys;
+	if (keys === undefined) throw new Error("edit.delete lost its keycap");
+
 	// Nothing selected: ⌫ deletes the SELECTED stamp, so a keycap on a row the key would
 	// not touch is a lie about what the keyboard does. The sentence still shows.
 	act(() => {
@@ -397,12 +404,10 @@ test("the row's Delete tooltip shows the registry's own keycap, on the selected 
 	});
 	const bare = await screen.findByRole("tooltip");
 	expect(within(bare).getByText("remove this stamp and its ops")).toBeTruthy();
-	expect(within(bare).queryByText("⌫") === null).toBe(true);
+	expect(within(bare).queryByText(keys) === null).toBe(true);
 
 	// Select row 1 — now ⌫ and this button are the same verb on the same object, and the
-	// tooltip says so with the table's OWN string. Read through `byId` here too: a test
-	// that hardcoded "⌫" would keep passing after a rebind, which is the drift the
-	// registry read exists to make impossible.
+	// tooltip says so with the table's own string.
 	act(() => {
 		fireEvent.blur(rowButton("delete", 1));
 		stub.fire.entitySelection(1);
@@ -410,10 +415,8 @@ test("the row's Delete tooltip shows the registry's own keycap, on the selected 
 	act(() => {
 		fireEvent.focus(rowButton("delete", 1));
 	});
-	const keys = byId("edit.delete").keys;
-	expect(keys).toBeTruthy();
 	expect(
-		within(await screen.findByRole("tooltip")).getByText(keys as string),
+		within(await screen.findByRole("tooltip")).getByText(keys),
 	).toBeTruthy();
 
 	// The OTHER row keeps its bare tooltip: selection is what earns the keycap.
@@ -421,7 +424,7 @@ test("the row's Delete tooltip shows the registry's own keycap, on the selected 
 		fireEvent.focus(rowButton("delete", 9));
 	});
 	const other = await screen.findByRole("tooltip");
-	expect(within(other).queryByText(keys as string) === null).toBe(true);
+	expect(within(other).queryByText(keys) === null).toBe(true);
 });
 
 // A refused verb is the one case a tooltip cannot serve at all: a `disabled` button takes

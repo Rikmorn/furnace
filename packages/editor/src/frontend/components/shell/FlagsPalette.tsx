@@ -353,8 +353,14 @@ function FilterChip({
  *  disabled button takes neither pointer events nor focus; the reason rides `ReasonTip`'s
  *  span for the mouse and the accessible NAME for everyone else.
  *
- *  `running` is the fourth state and deliberately gets the AVAILABLE channel: it is
- *  disabled by the user's own doing rather than refused, so the sentence still applies. */
+ *  RUNNING gets NEITHER, and this is the branch the first cut got wrong: it routed on
+ *  `refusal === null`, so a running verify handed the tooltip trigger a `disabled` button
+ *  and the sentence reached nobody while the docblock above claimed it did. Routing on the
+ *  same expression the button disables on is what stops those two disagreeing again. The
+ *  ruling is that running needs no channel — the button says "Verifying…", the state is
+ *  the user's own doing and momentary, and the sentence is there before and after. The
+ *  wrapper stays, carrying no reason, so the row's DOM box does not change shape as the
+ *  state moves. */
 function VerifyVerb({
 	refusal,
 	running,
@@ -369,6 +375,10 @@ function VerifyVerb({
 	name: string;
 	onClick: () => void;
 }) {
+	// ONE expression for "the user cannot press this", read by the button AND by the
+	// channel choice below. Two spellings is exactly how the docblock came to describe a
+	// branch the code did not have.
+	const unavailable = refusal !== null || running;
 	const control = (
 		<Button
 			type="button"
@@ -378,19 +388,19 @@ function VerifyVerb({
 			// DERIVED from the refusal, never restated: the two must agree, and a third
 			// reason added to verifyRefusal would otherwise leave the button live while its
 			// own name announced why it was not.
-			disabled={refusal !== null || running}
+			disabled={unavailable}
 			aria-label={name}
 			onClick={onClick}
 		>
 			{running ? "Verifying…" : "verify ▸"}
 		</Button>
 	);
-	return refusal === null ? (
+	return unavailable ? (
+		<ReasonTip reason={refusal ?? undefined}>{control}</ReasonTip>
+	) : (
 		<ActionTip hint={`drive the project's mover at ${scope}`}>
 			{control}
 		</ActionTip>
-	) : (
-		<ReasonTip reason={refusal}>{control}</ReasonTip>
 	);
 }
 

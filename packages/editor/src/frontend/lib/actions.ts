@@ -186,9 +186,11 @@ export type ActionDef = {
    *  membership today — fly-backward and the stamp family on one key — and the RMB gate
    *  on fly travel is the other half of the same bargain. */
   flyLetter?: boolean;
-  /** Per-action data only a MENU needs: the `title` for an item whose reason will not fit
-   *  in its label. Here rather than in a lookup beside the menu so there is ONE home for
-   *  per-action menu facts, beside `checked`. */
+  /** The one sentence an item's LABEL has no room for. Named for the burger, which was its
+   *  only reader; since F4.5c Task 8 the status bar's selection chip renders it too, as a
+   *  real tooltip — so "only a menu needs it" is no longer true, and the name is now the
+   *  thing to fix rather than the doc. It is the same concept as {@link ActionDef.hint} by
+   *  every description either of them carries, and no action in the table sets both. */
   menuTitle?: string;
   run: (ctx: ActionCtx) => void;
 };

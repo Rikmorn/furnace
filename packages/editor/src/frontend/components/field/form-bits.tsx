@@ -1,6 +1,7 @@
-// Leaf form helpers, shared across whatever still renders a dense knob row: the session
-// card (shell/SessionCard.tsx), the top strip's overflow and the world drawer — the select
-// styling and the two TOOLTIP wrappers. Nothing here holds state.
+// Two unrelated leaf concerns, both stateless: the native-<select> class string, and the
+// chrome's tooltip vocabulary. TWELVE files import from here — the tooltip trio reaches
+// almost every surface (the rail, the two bars, four palettes, the session card's two
+// sections, both list rows), while SELECT_CLASS reaches two.
 //
 // The two wrappers are a PAIR, and which one a control gets is decided by one fact — can
 // the user reach it? An available control gets `ActionTip`, a real Radix tooltip that opens
@@ -10,10 +11,9 @@
 // accessible NAME for everyone else. Nothing should ever carry both, and nothing that
 // carries either should also carry a `title` — see tests/frontend-no-doc-titles.test.ts.
 //
-// The `field/` address is now historical rather than descriptive: the panel's own pieces
-// that used to be the callers (BrushInspector, StampInspector) were both deleted, and the
-// surviving consumers are shell surfaces. Left where it is for Task 14's dissolution pass
-// to move with everything else, rather than churning imports twice.
+// The `field/` address is historical rather than descriptive: the panel's own pieces that
+// used to be the callers (BrushInspector, StampInspector) were both deleted, and every
+// surviving consumer is a shell surface.
 //
 // These panels use the NATIVE <select>, not the package's ui/select.tsx (Radix) — a
 // deliberate deviation from the primitive four other files use. The selects here are
@@ -103,7 +103,11 @@ export function KeyTip(props: {
  *
  *  `asChild`: the trigger merges into the child element rather than wrapping it, so this
  *  adds NO DOM node and a control inside a flex row keeps its own box — the failure
- *  {@link ReasonTip} documents from the other side.
+ *  {@link ReasonTip} documents from the other side. The child must be a single host element
+ *  or a ref-forwarding component: a Fragment or a component that drops its ref leaves the
+ *  tooltip with no anchor, and neither the type nor Radix will say so. (The other ways to
+ *  get it wrong — a text node, `null`, a `cond && <X/>`, two children — are caught, by
+ *  `ReactElement` or by Slot's own throw.)
  *
  *  NOT for a DISABLED control: a disabled button takes neither pointer events nor focus, so
  *  neither channel a tooltip has can reach it. That case is {@link ReasonTip} (a wrapper

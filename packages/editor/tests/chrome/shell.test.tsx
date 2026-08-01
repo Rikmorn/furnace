@@ -3449,21 +3449,45 @@ test("the chip's popover runs Clear and Reselect through the action table", asyn
 	// The labels are the REGISTRY's — the Edit menu renders the same two from the same
 	// table, so the popover cannot offer a verb the menu does not.
 	const clear = screen.getByRole("button", { name: "Clear 12 selected cells" });
-	// …and so is the sentence the label has no room for. `menuTitle` used to ride a
-	// `title` here, mouse-only inside a popover the user opened deliberately (D-25).
-	expect(clear.getAttribute("title")).toBeNull();
-	act(() => {
-		fireEvent.focus(clear);
-	});
-	expect(
-		within(await screen.findByRole("tooltip")).getByText(
-			byId("edit.clearSelection").menuTitle as string,
-		),
-	).toBeTruthy();
+	const reselect = screen.getByRole("button", { name: "Reselect" });
+
+	// BOTH verbs are live and BOTH are documented, which is the invariant `SelectionVerb`'s
+	// bare-control guard depends on: the chip renders nothing without a selection, and a
+	// selection is the only thing `edit.clearSelection` gates on, so neither of these two
+	// can reach the branch that drops the tooltip. A third id added to SELECTION_ACTIONS
+	// that CAN be disabled would take it — which is the whole reason the guard exists, and
+	// this is the assertion that says why it is not exercised.
+	expect([
+		clear.hasAttribute("disabled"),
+		reselect.hasAttribute("disabled"),
+	]).toEqual([false, false]);
+
+	// …and the sentence the label has no room for is a tooltip now. `menuTitle` used to
+	// ride a `title` here, mouse-only inside a popover the user opened deliberately (D-25).
+	// Read through the registry, and GUARDED: the field is optional and SelectionVerb
+	// silently renders no tooltip when it is absent, so an unguarded `as string` would
+	// turn a deleted field into `getByText(undefined)` instead of a legible failure.
+	for (const [button, id] of [
+		[clear, "edit.clearSelection"],
+		[reselect, "edit.reselect"],
+	] as const) {
+		const hint = byId(id).menuTitle;
+		if (hint === undefined) throw new Error(`${id} lost its menuTitle`);
+		expect(button.getAttribute("title")).toBeNull();
+		act(() => {
+			fireEvent.focus(button);
+		});
+		expect(
+			within(await screen.findByRole("tooltip")).getByText(hint),
+		).toBeTruthy();
+		act(() => {
+			fireEvent.blur(button);
+		});
+	}
 
 	fireEvent.click(clear);
 	expect(stub.calls.clearSelection.mock.calls.length).toBe(1);
-	fireEvent.click(screen.getByRole("button", { name: "Reselect" }));
+	fireEvent.click(reselect);
 	expect(stub.calls.reselect.mock.calls.length).toBe(1);
 });
 

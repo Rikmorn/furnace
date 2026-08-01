@@ -665,6 +665,83 @@ test("a pit refuses Verify with its reason in the accessible name", () => {
 	expect(verify.disabled).toBe(true);
 });
 
+// --- D-25: VerifyVerb's three states, one channel each -----------------------
+//
+// The component the tooltip conversion ADDED, and the branch its first cut got wrong:
+// routing on `refusal === null` handed a RUNNING verify's tooltip trigger a `disabled`
+// button, so the sentence reached nobody while the docblock said it did. All three states
+// are pinned here because two of them are one boolean apart.
+
+test("an available Verify documents itself with a tooltip a keyboard opens", async () => {
+	const stub = makeStubHost();
+	renderPalette(stub);
+	act(() => {
+		stub.fire.flags(summaryOf([NARROW]));
+	});
+	const verify = screen.getByLabelText(/^verify narrow @ \(2\.5/);
+	// The attribute this replaced — its absence is half the claim.
+	expect(verify.getAttribute("title")).toBeNull();
+	act(() => {
+		fireEvent.focus(verify);
+	});
+	expect(
+		within(await screen.findByRole("tooltip")).getByText(
+			"drive the project's mover at this finding",
+		),
+	).toBeTruthy();
+});
+
+test("a RUNNING Verify carries no channel at all — not a tooltip, not a title", () => {
+	const stub = makeStubHost();
+	renderPalette(stub);
+	act(() => {
+		stub.fire.flags(summaryOf([NARROW]));
+	});
+	const verify = (): HTMLButtonElement =>
+		screen.getByLabelText(/^verify narrow @ \(2\.5/) as HTMLButtonElement;
+	fireEvent.click(verify());
+	expect(verify().textContent).toBe("Verifying…");
+
+	// Disabled by the user's own press: in a BROWSER it takes neither pointer events nor
+	// focus, so a tooltip trigger merged onto it can never fire. The ruling is that this
+	// state needs no channel (the button already says "Verifying…"); what must not happen
+	// is a trigger that silently promises one.
+	//
+	// The focus assertion below detects exactly that TRIGGER, and deliberately so: happy-dom
+	// dispatches a synthetic focus at a disabled button where a real browser would not, so a
+	// wrapped control opens its tooltip here — which is why this line reddens against the
+	// wrong routing and would be untestable if it only mirrored the browser's own refusal.
+	expect(verify().disabled).toBe(true);
+	expect(verify().getAttribute("title")).toBeNull();
+	expect(verify().parentElement?.getAttribute("title")).toBeNull();
+	act(() => {
+		fireEvent.focus(verify());
+	});
+	expect(screen.queryByRole("tooltip") === null).toBe(true);
+});
+
+test("a REFUSED Verify puts its reason on the wrapper, and none on the button", () => {
+	const stub = makeStubHost();
+	renderPalette(stub);
+	act(() => {
+		stub.fire.flags(
+			summaryOf([
+				rowOf("a", flagAt("pit", "candidate", [9, 0, 0], { cells: 14 })),
+			]),
+		);
+	});
+	// The EntitiesList blocked-verb convention, asserted from both sides: the reason on
+	// the hoverable wrapper for a mouse, in the accessible NAME for everyone else, and no
+	// second `title` on the button underneath (the double-`title` D-25 replaced).
+	const verify = screen.getByLabelText(
+		"verify pit @ (9.0, 0.0, 0.0) · 14 cells. Unavailable: region-level — walk it",
+	);
+	expect(verify.getAttribute("title")).toBeNull();
+	expect(verify.parentElement?.getAttribute("title")).toBe(
+		"region-level — walk it",
+	);
+});
+
 test("a verdict on the next push badges the row", () => {
 	const stub = makeStubHost();
 	renderPalette(stub);
