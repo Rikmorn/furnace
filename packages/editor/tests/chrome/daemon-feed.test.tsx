@@ -45,6 +45,11 @@ import {
 } from "../inspector/_harness.tsx";
 import { makeStubHost } from "./_stub-host.ts";
 
+/** The ⌘K opener the real shell supplies. These cases mount the TopBar alone, where
+ *  nothing opens the command palette, so the funnel is inert. */
+// biome-ignore lint/suspicious/noEmptyBlockStatements: inert test no-op
+const noopOpenPalette = () => {};
+
 afterEach(cleanup);
 afterEach(() => notify.clear());
 
@@ -199,7 +204,10 @@ function Feed({
 							<WorkspaceProvider store={undefined}>
 								{/* The burger's groups and the shortcut overlay render FROM the
 								    action registry, so the bar needs the context that assembles it. */}
-								<ActionContextProvider host={stub.host}>
+								<ActionContextProvider
+									host={stub.host}
+									openCommandPalette={noopOpenPalette}
+								>
 									<TopBar />
 								</ActionContextProvider>
 							</WorkspaceProvider>

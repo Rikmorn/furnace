@@ -35,8 +35,8 @@
 //
 // While a session is live every family is REFUSED, with the registry's own gate sentence.
 // That is not a rule this file owns — it is `gateAction`'s `armsTool` clause, reached
-// through `clickGate`, so the button and the key refuse for the same reason in the same
-// words. Refused controls carry `aria-disabled`, never `disabled`: a `disabled` button
+// through `refusalOf`, so the button, the key and the command palette's row refuse for the
+// same reason in the same words. Refused controls carry `aria-disabled`, never `disabled`: a `disabled` button
 // leaves the tab order entirely, and the refusal sentence rides the accessible NAME
 // precisely so a keyboard user gets it.
 import type { LucideIcon } from "lucide-react";
@@ -45,7 +45,7 @@ import type { ReactNode } from "react";
 import { memo, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useActionContext } from "../../hooks/useActionContext.tsx";
 import type { ToolFamily, ToolFamilyMember } from "../../lib/actions.ts";
-import { clickGate, TOOL_FAMILIES } from "../../lib/actions.ts";
+import { refusalOf, TOOL_FAMILIES } from "../../lib/actions.ts";
 import { cn } from "../../lib/cn.ts";
 import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover.tsx";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip.tsx";
@@ -88,8 +88,9 @@ type RailModel = {
 };
 
 export function ToolRail() {
-	// The ONE action-context read outside the two surfaces that unmount when closed (the
-	// burger's menu content and the shortcuts overlay), and the only always-mounted one.
+	// The ONE action-context read outside the surfaces that unmount when closed (the
+	// burger's menu content, the shortcuts overlay, the selection chip's popover and the
+	// ⌘K palette), and the only always-mounted one.
 	// Everything the rail draws is derived ONCE here, keyed on the ctx fields that can
 	// actually change it — so a stats push (per op) or a session push (per pointermove
 	// during a grab) re-runs this component and then stops at four memoized rows.
@@ -99,7 +100,6 @@ export function ToolRail() {
 	const model = useMemo<RailModel[]>(
 		() =>
 			TOOL_FAMILIES.map((family) => {
-				const verdict = clickGate(family.arm, ctx);
 				return {
 					id: family.id,
 					group: family.name,
@@ -108,15 +108,10 @@ export function ToolRail() {
 					hint: family.arm.hint,
 					cycleKeys: family.cycle?.keys,
 					armed: family.armed(ctx),
-					refusal: verdict.ok
-						? family.arm.enabled(ctx)
-							? null
-							: // `enabled` false with the gate open means the verb has nothing to act
-								// on rather than being blocked — the stamp family with an empty
-								// registry. Its label already carries that; there is no second
-								// sentence to give, so the control is simply inert.
-								""
-						: (verdict.hint ?? ""),
+					// The registry's own three-way (live / inert / refused, and the sentence).
+					// It lives there rather than here because the command palette renders the
+					// same verbs and must refuse them in the same words.
+					refusal: refusalOf(family.arm, ctx),
 					members: family.members(ctx),
 					run: () => family.arm.run(ctx),
 					armMember: (member: ToolFamilyMember) => member.arm(ctx),

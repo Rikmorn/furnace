@@ -1,0 +1,188 @@
+// cmdk's parts in the editor's tokens — shadcn's `command.tsx` shape, nothing more.
+//
+// This file is PRESENTATION only. It knows nothing about the action registry: what the
+// rows are, what they are called and when they refuse is `shell/CommandPalette.tsx`'s
+// business, exactly as `dropdown-menu.tsx` knows nothing about the burger's tree.
+//
+// TWO deviations from the shadcn source, both forced by this build:
+//   - the `animate-in` / `fade-*` / `zoom-*` utilities are NO-OPS here (no
+//     tailwindcss-animate plugin), so the dialog's motion is the hand-authored
+//     `furnace-*` keyframes it inherits from `dialog.tsx`;
+//   - only the parts the palette actually renders are exported. `CommandSeparator` and
+//     `CommandLoading` have no caller — a primitive with no consumer is surface to keep
+//     true for nothing.
+import { Command as CommandPrimitive } from "cmdk";
+import { Search } from "lucide-react";
+import * as React from "react";
+
+import { cn } from "../../lib/cn.ts";
+import {
+	Dialog,
+	DialogContent,
+	DialogDescription,
+	DialogTitle,
+} from "./dialog.tsx";
+
+const Command = React.forwardRef<
+	React.ElementRef<typeof CommandPrimitive>,
+	React.ComponentPropsWithoutRef<typeof CommandPrimitive>
+>(({ className, ...props }, ref) => (
+	<CommandPrimitive
+		ref={ref}
+		className={cn(
+			"flex w-full flex-col overflow-hidden rounded-md bg-popover text-popover-foreground",
+			className,
+		)}
+		{...props}
+	/>
+));
+Command.displayName = CommandPrimitive.displayName;
+
+/** The palette in a modal dialog: OUR dialog, not cmdk's own `Command.Dialog`, so the
+ *  overlay, the border, the radius and the enter/exit keyframes are the same ones every
+ *  other modal in the editor uses.
+ *
+ *  Geometry is the mock's frame 5: 480 px wide, pinned 84 px from the top rather than
+ *  centred — a list that grows downward should not shift its own input as it filters, and
+ *  a vertically-centred one does exactly that.
+ *
+ *  `title` and `description` are rendered for screen readers only. Radix warns (and a
+ *  dialog genuinely is unusable) without them, and neither belongs on screen: the input's
+ *  placeholder says what to do and the footer says how to leave. */
+function CommandDialog({
+	open,
+	onOpenChange,
+	title,
+	description,
+	onEscapeKeyDown,
+	children,
+	...commandProps
+}: {
+	open: boolean;
+	onOpenChange: (open: boolean) => void;
+	title: string;
+	description: string;
+	/** Radix's own escape hook, on the CONTENT — forwarded because the dialog box is the
+	 *  outermost thing a press inside the palette passes through, and a handler on the
+	 *  `Command` root below would miss any press whose target is the box itself. */
+	onEscapeKeyDown?: (event: KeyboardEvent) => void;
+} & React.ComponentPropsWithoutRef<typeof Command>) {
+	return (
+		<Dialog open={open} onOpenChange={onOpenChange}>
+			<DialogContent
+				showCloseButton={false}
+				onEscapeKeyDown={onEscapeKeyDown}
+				className="top-[84px] max-w-[480px] translate-y-0 gap-0 overflow-hidden p-0"
+			>
+				<DialogTitle className="sr-only">{title}</DialogTitle>
+				<DialogDescription className="sr-only">{description}</DialogDescription>
+				<Command {...commandProps}>{children}</Command>
+			</DialogContent>
+		</Dialog>
+	);
+}
+
+const CommandInput = React.forwardRef<
+	React.ElementRef<typeof CommandPrimitive.Input>,
+	React.ComponentPropsWithoutRef<typeof CommandPrimitive.Input>
+>(({ className, ...props }, ref) => (
+	<div className="flex items-center gap-2.5 border-border border-b px-3.5 py-2.5">
+		<Search
+			className="h-4 w-4 shrink-0 text-muted-foreground"
+			aria-hidden="true"
+		/>
+		<CommandPrimitive.Input
+			ref={ref}
+			className={cn(
+				"flex h-5 w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground",
+				className,
+			)}
+			{...props}
+		/>
+	</div>
+));
+CommandInput.displayName = CommandPrimitive.Input.displayName;
+
+const CommandList = React.forwardRef<
+	React.ElementRef<typeof CommandPrimitive.List>,
+	React.ComponentPropsWithoutRef<typeof CommandPrimitive.List>
+>(({ className, ...props }, ref) => (
+	<CommandPrimitive.List
+		ref={ref}
+		// Capped and scrollable: the whole registry is ~40 rows and a list that grows past
+		// the window takes its own footer off screen.
+		className={cn(
+			"max-h-[52vh] overflow-y-auto overflow-x-hidden p-1",
+			className,
+		)}
+		{...props}
+	/>
+));
+CommandList.displayName = CommandPrimitive.List.displayName;
+
+const CommandEmpty = React.forwardRef<
+	React.ElementRef<typeof CommandPrimitive.Empty>,
+	React.ComponentPropsWithoutRef<typeof CommandPrimitive.Empty>
+>((props, ref) => (
+	<CommandPrimitive.Empty
+		ref={ref}
+		className="py-6 text-center text-muted-foreground text-xs"
+		{...props}
+	/>
+));
+CommandEmpty.displayName = CommandPrimitive.Empty.displayName;
+
+const CommandGroup = React.forwardRef<
+	React.ElementRef<typeof CommandPrimitive.Group>,
+	React.ComponentPropsWithoutRef<typeof CommandPrimitive.Group>
+>(({ className, ...props }, ref) => (
+	<CommandPrimitive.Group
+		ref={ref}
+		className={cn(
+			"overflow-hidden text-foreground [&_[cmdk-group-heading]]:px-2.5 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-[11px] [&_[cmdk-group-heading]]:text-muted-foreground [&_[cmdk-group-heading]]:uppercase [&_[cmdk-group-heading]]:tracking-wide",
+			className,
+		)}
+		{...props}
+	/>
+));
+CommandGroup.displayName = CommandPrimitive.Group.displayName;
+
+const CommandItem = React.forwardRef<
+	React.ElementRef<typeof CommandPrimitive.Item>,
+	React.ComponentPropsWithoutRef<typeof CommandPrimitive.Item>
+>(({ className, ...props }, ref) => (
+	<CommandPrimitive.Item
+		ref={ref}
+		className={cn(
+			"relative flex cursor-default select-none items-center gap-2.5 rounded-sm px-2.5 py-1.5 text-[12.5px] outline-none data-[selected=true]:bg-accent data-[selected=true]:text-accent-foreground",
+			// Refused rows stay VISIBLE and stay in the list — finding a verb and learning
+			// why it will not run is the whole point of showing them. cmdk writes
+			// `aria-disabled` (never the `disabled` attribute) and skips them for arrow
+			// navigation, auto-selection and ⏎, which is the rail's posture exactly.
+			"data-[disabled=true]:opacity-40",
+			className,
+		)}
+		{...props}
+	/>
+));
+CommandItem.displayName = CommandPrimitive.Item.displayName;
+
+/** The keycap at the end of a row. A `<kbd>`, like the shortcuts overlay's. */
+function CommandShortcut({ children }: { children: React.ReactNode }) {
+	return (
+		<kbd className="ml-auto font-mono text-[10px] text-muted-foreground">
+			{children}
+		</kbd>
+	);
+}
+
+export {
+	Command,
+	CommandDialog,
+	CommandEmpty,
+	CommandGroup,
+	CommandInput,
+	CommandItem,
+	CommandList,
+	CommandShortcut,
+};

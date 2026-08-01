@@ -1,0 +1,529 @@
+// Registered FIRST, before any other import in this file — Radix (and cmdk, which
+// portals through Radix's Dialog) resolves `globalThis.document` at MODULE EVALUATION
+// time to decide whether it may use layout effects, and its Portal never mounts if the
+// answer was no. See shell.test.tsx's header for the measurement.
+import "../inspector/_register.ts";
+
+// The command palette (⌘K): D-12's SEVENTH registry reader.
+//
+// What these cases pin is that the palette is a VIEW over `lib/actions.ts` and owns no
+// vocabulary of its own — every label, every keycap, every enabled rule and every refusal
+// sentence is the registry's, reached through the same `gateAction` the keyboard uses.
+// The fixture is deliberately MIXED: with no world on disk and an empty history, some
+// actions are live and some are not, so the disabled-row cases are not asserting a state
+// the whole table happens to be in.
+import { afterEach, beforeEach, expect, test } from "bun:test";
+import { EditorContext } from "../../src/frontend/components/editor-context.ts";
+import { Shell } from "../../src/frontend/components/shell/Shell.tsx";
+import { ACTIONS, TOOL_FAMILIES } from "../../src/frontend/lib/actions.ts";
+import { notify } from "../../src/frontend/lib/notify-store.ts";
+import type { StampSession } from "../../src/viewport-host/index.ts";
+import {
+	act,
+	cleanup,
+	fireEvent,
+	makeEditorContext,
+	render,
+	screen,
+	within,
+} from "../inspector/_harness.tsx";
+import { makeStubHost } from "./_stub-host.ts";
+
+afterEach(cleanup);
+afterEach(() => notify.clear());
+
+// CanvasHost fails LOUD on a zero measure and happy-dom measures everything as zero, so
+// every case that mounts the real shell has to supply one (shell.test.tsx's rule).
+const REAL_RECT = HTMLCanvasElement.prototype.getBoundingClientRect;
+const SIZED = { x: 0, y: 0, width: 1280, height: 720 };
+const realFetch = globalThis.fetch;
+
+beforeEach(() => {
+	HTMLCanvasElement.prototype.getBoundingClientRect = () =>
+		({
+			...SIZED,
+			top: 0,
+			left: 0,
+			right: SIZED.width,
+			bottom: SIZED.height,
+			toJSON: () => SIZED,
+		}) as DOMRect;
+	// The field toolbar's run-once catalog GETs; a project without catalogs 404s.
+	// Boundary cast: the stub serves only those GETs, not `fetch`'s statics.
+	globalThis.fetch = (() =>
+		Promise.resolve(
+			new Response("", { status: 404 }),
+		)) as unknown as typeof fetch;
+});
+
+afterEach(() => {
+	HTMLCanvasElement.prototype.getBoundingClientRect = REAL_RECT;
+	globalThis.fetch = realFetch;
+});
+
+/** Four generators, so the stamp family contributes member rows (a one-member family
+ *  does not — see the palette's own note). */
+const GENERATORS = [
+	{
+		id: "hall",
+		name: "Hall",
+		paramSchema: { type: "object", properties: {} },
+		defaults: {},
+		placesProps: false,
+		usesSeed: false,
+	},
+	{
+		id: "maze",
+		name: "Maze",
+		paramSchema: { type: "object", properties: {} },
+		defaults: {},
+		placesProps: false,
+		usesSeed: true,
+	},
+];
+
+async function renderShell(stub: ReturnType<typeof makeStubHost>) {
+	const result = render(
+		<EditorContext.Provider
+			value={makeEditorContext({ fieldHostRef: { current: stub.host } })}
+		>
+			<Shell />
+		</EditorContext.Provider>,
+	);
+	// Let the toolbar's catalog GET settle: two microtask turns.
+	await act(async () => {
+		await Promise.resolve();
+		await Promise.resolve();
+	});
+	return result;
+}
+
+const stubWithGenerators = () => makeStubHost({ generators: GENERATORS });
+
+/** ⌘K on the window — the registry's own chord, dispatched by the ONE keydown listener. */
+function pressCommandK(): void {
+	act(() => {
+		fireEvent.keyDown(window, { key: "k", metaKey: true });
+	});
+}
+
+/** The palette's own dialog, named by its screen-reader-only title.
+ *
+ *  EVERY query below is scoped to it, and that is not caution. A native `<select>` carries
+ *  the implicit roles `combobox` and `option` — the same two cmdk gives the palette's input
+ *  and its rows — and the session card renders one ("merge policy"). An unscoped
+ *  `queryByRole("combobox")` therefore answers about the CARD the moment a session is live,
+ *  which is exactly the state the Esc case needs. Measured this session: unscoped, the Esc
+ *  case passed alone and failed after `session-card.test.tsx`, reporting an open palette
+ *  that had in fact closed. */
+const palette = () => screen.queryByRole("dialog", { name: /Find a command/ });
+
+function paletteInput(): HTMLElement | null {
+	const box = palette();
+	return box === null ? null : within(box).queryByRole("combobox");
+}
+
+function rows(): HTMLElement[] {
+	const box = palette();
+	return box === null ? [] : within(box).queryAllByRole("option");
+}
+
+const rowNames = () => rows().map((r) => r.getAttribute("aria-label"));
+/** The row ⏎ would run — cmdk's own selection, mirrored to `aria-selected`. */
+const selectedRow = () =>
+	rows().find((r) => r.getAttribute("aria-selected") === "true")?.dataset[
+		"value"
+	];
+
+/** Type into the palette's own input — the filter cmdk owns. */
+function typeQuery(text: string): void {
+	const input = paletteInput();
+	if (input === null) throw new Error("the palette is not open");
+	act(() => {
+		fireEvent.change(input, { target: { value: text } });
+	});
+}
+
+function pressKey(key: string, init: Record<string, unknown> = {}): void {
+	const input = paletteInput();
+	if (input === null) throw new Error("the palette is not open");
+	act(() => {
+		fireEvent.keyDown(input, { key, ...init });
+	});
+}
+
+/** A press with focus on the dialog BOX rather than on its input — the state a pointer
+ *  user is in the instant after clicking a row, since a cmdk row is a `div` with no tab
+ *  stop and Radix's focus scope parks focus on the content. It matters because the
+ *  registry's `typed` gate refuses Esc while the target IS a text field, so a press from
+ *  the input is contained by the gate whether or not the dialog swallows it. Only this
+ *  one reaches the window listener. */
+function pressOnBox(key: string): void {
+	const box = palette();
+	if (box === null) throw new Error("the palette is not open");
+	act(() => {
+		fireEvent.keyDown(box, { key });
+	});
+}
+
+/** A live stamp session, as the host publishes one. */
+const SESSION: StampSession = {
+	generator: "hall",
+	params: {},
+	seed: 7,
+	policy: "replace",
+	region: { min: [0, 0, 0], max: [4, 4, 4] },
+	phase: "configuring",
+	run: 0,
+	opCount: null,
+	placementCount: null,
+	error: null,
+	truncatedSelection: false,
+	mode: "stamp",
+	entityId: null,
+};
+
+// --- (a) opening and closing -------------------------------------------------
+
+test("⌘K opens the palette; it is not there before", async () => {
+	const stub = stubWithGenerators();
+	await renderShell(stub);
+	// The identity form, deliberately: a red `toBeNull()` on a LIVE element takes
+	// minutes to report under this runner, where `=== null` reports in milliseconds.
+	expect(paletteInput() === null).toBe(true);
+	pressCommandK();
+	expect(paletteInput()).toBeTruthy();
+});
+
+test("the burger's View group opens it too — one action, two routes", async () => {
+	const stub = stubWithGenerators();
+	await renderShell(stub);
+	act(() => {
+		fireEvent.pointerDown(screen.getByLabelText("editor menu"), {
+			button: 0,
+			pointerType: "mouse",
+		});
+	});
+	const def = ACTIONS.find((a) => a.id === "view.commandPalette");
+	if (def === undefined) throw new Error("no view.commandPalette action");
+	act(() => {
+		fireEvent.click(screen.getByText(def.label({} as never)));
+	});
+	expect(paletteInput()).toBeTruthy();
+	// And focus went WITH it. Radix returns focus to the burger trigger when the menu
+	// closes, which for an item that opens a surface would pull focus straight back out of
+	// the thing just opened — the defect `BurgerMenu`'s `handingOff` flag exists for. The
+	// dialog's own focus scope is what wins here (it is modal and trapped, so a focus that
+	// lands outside is pulled back), which is why this action needs no entry in that flag's
+	// hand-written list. Asserted rather than assumed, because "the trap wins the race" is
+	// exactly the kind of claim that quietly stops being true.
+	expect(document.activeElement).toBe(paletteInput());
+});
+
+test("Esc closes the palette WITHOUT stepping the cancel ladder", async () => {
+	const stub = stubWithGenerators();
+	await renderShell(stub);
+	// A LIVE session, so the assertion is not vacuous: Esc reaching the window listener
+	// runs `session.escape`, whose ladder would discard exactly this.
+	act(() => {
+		stub.fire.stamp(SESSION);
+	});
+	expect(screen.queryByRole("region", { name: "Session" })).toBeTruthy();
+
+	pressCommandK();
+	pressKey("Escape");
+
+	expect(paletteInput() === null).toBe(true);
+	// The ladder never ran: the host's ONE cancel entry point was not called.
+	expect(stub.calls.escape).not.toHaveBeenCalled();
+	expect(screen.queryByRole("region", { name: "Session" })).toBeTruthy();
+});
+
+test("…and from the dialog BOX too, where the typed gate is no help", async () => {
+	const stub = stubWithGenerators();
+	await renderShell(stub);
+	act(() => {
+		stub.fire.stamp(SESSION);
+	});
+
+	pressCommandK();
+	// The press the case above cannot make: from the input, `session.escape` is refused by
+	// the registry's own `typed` gate (the target is a text field), so that case would
+	// stay green with the dialog swallowing nothing. Focus sits HERE the moment a pointer
+	// user clicks a row — cmdk rows are `div`s with no tab stop — and from here the gate
+	// allows the key, so the only thing between Esc and the cancel ladder is the dialog.
+	pressOnBox("Escape");
+
+	expect(palette() === null).toBe(true);
+	expect(stub.calls.escape).not.toHaveBeenCalled();
+	expect(screen.queryByRole("region", { name: "Session" })).toBeTruthy();
+});
+
+// --- (b) the rows ARE the registry -------------------------------------------
+
+test("every action is a row, plus the multi-member families' members", async () => {
+	const stub = stubWithGenerators();
+	await renderShell(stub);
+	pressCommandK();
+
+	// One row per action…
+	for (const def of ACTIONS)
+		expect({
+			id: def.id,
+			present: rows().some((r) => r.dataset["value"] === def.id),
+		}).toEqual({ id: def.id, present: true });
+
+	// …plus the members of every family that has more than one (the rail's own rule: a
+	// one-member family's member IS its arm action, and two rows for one verb is the
+	// defect this registry exists to prevent).
+	expect(rowNames()).toContain("Brush · Dig");
+	expect(rowNames()).toContain("Cell select · Wand");
+	expect(rowNames()).toContain("Stamp · Maze");
+	// The pointer family has exactly one member, so it contributes none.
+	expect(rowNames()).not.toContain("Select · Select");
+});
+
+test("labels are CONTEXTUAL — the registry's own label function, not a static name", async () => {
+	const stub = stubWithGenerators();
+	await renderShell(stub);
+	act(() => {
+		stub.fire.history({
+			undo: ["dig"],
+			redo: [],
+			undoDepth: 1,
+			redoDepth: 0,
+		});
+	});
+	pressCommandK();
+	// "Undo dig", never "Undo": the label comes from the top of the op log.
+	expect(rowNames()).toContain("Undo dig ⌘Z");
+});
+
+test("keycaps come from the registry, and so does the footer's own", async () => {
+	const stub = stubWithGenerators();
+	await renderShell(stub);
+	pressCommandK();
+	// The row's accessible name carries the chord the table declares.
+	expect(rowNames()).toContain("Save ⌘S");
+	expect(rowNames()).toContain("Next brush ⇧B");
+	// The footer advertises the palette's OWN chord, read from the same table — a
+	// hand-typed ⌘K here is a keycap that could outlive its binding. Scoped to the footer
+	// strip, because the row for that same action carries the same keycap two inches up.
+	const def = ACTIONS.find((a) => a.id === "view.commandPalette");
+	expect(def?.keys).toBe("⌘K");
+	const box = palette();
+	if (box === null) throw new Error("the palette is not open");
+	const footer = within(box).getByText("↑↓ navigate").parentElement;
+	if (!(footer instanceof HTMLElement)) throw new Error("no footer strip");
+	expect(within(footer).getByText(def?.keys ?? "")).toBeTruthy();
+	expect(within(footer).getByText("esc close")).toBeTruthy();
+});
+
+test("rows are grouped, and the headings are the registry's group titles", async () => {
+	const stub = stubWithGenerators();
+	await renderShell(stub);
+	pressCommandK();
+	for (const title of ["World", "Edit", "Tools", "Session", "View"])
+		expect({ title, shown: screen.queryAllByText(title).length > 0 }).toEqual({
+			title,
+			shown: true,
+		});
+});
+
+test("the selection key is the action ID, not the label", async () => {
+	const stub = stubWithGenerators();
+	await renderShell(stub);
+	pressCommandK();
+	// cmdk derives an item's value from its textContent unless one is given. A
+	// contextual label ("Undo dig") changes as the user works, so the id is what keeps
+	// the selection stable across a relabel.
+	const first = rows()[0];
+	expect(first?.dataset["value"]).toBe(ACTIONS[0]?.id);
+});
+
+// --- (c) filtering -----------------------------------------------------------
+
+test("typing filters the rows — cmdk unmounts what does not match", async () => {
+	const stub = stubWithGenerators();
+	await renderShell(stub);
+	pressCommandK();
+	const all = rows().length;
+	typeQuery("bake");
+	expect(rows().length).toBeLessThan(all);
+	expect(rowNames().some((n) => n?.startsWith("Bake"))).toBe(true);
+});
+
+test("the visible LABEL is searchable, not only the id", async () => {
+	const stub = stubWithGenerators();
+	await renderShell(stub);
+	act(() => {
+		stub.fire.history({ undo: ["dig"], redo: [], undoDepth: 1, redoDepth: 0 });
+	});
+	pressCommandK();
+	// "dig" appears in no action id — only in the contextual label of `edit.undo`.
+	typeQuery("undo dig");
+	expect(rowNames()).toContain("Undo dig ⌘Z");
+});
+
+// --- (d) refusal: disabled rows and gated rows -------------------------------
+
+test("a disabled action is RENDERED, marked, and does not fire", async () => {
+	const stub = stubWithGenerators();
+	await renderShell(stub);
+	pressCommandK();
+	// No world on disk: Bake has nothing to write about, so `enabled` is false. The
+	// row is visible — a verb you cannot find is worse than one you cannot run.
+	const bake = rows().find((r) => r.dataset["value"] === "world.bake");
+	expect(bake?.getAttribute("aria-disabled")).toBe("true");
+
+	// …and Enter over it does nothing. Filter until it is the only survivor, then press.
+	typeQuery("world.bake");
+	expect(rows().length).toBe(1);
+	pressKey("Enter");
+	// Still open, and no world verb ran.
+	expect(paletteInput()).toBeTruthy();
+});
+
+test("a live session refuses the tool rows IN THE REGISTRY'S OWN WORDS", async () => {
+	const stub = stubWithGenerators();
+	await renderShell(stub);
+	act(() => {
+		stub.fire.stamp(SESSION);
+	});
+	pressCommandK();
+	const brush = rows().find((r) => r.dataset["value"] === "tool.brush");
+	expect(brush?.getAttribute("aria-disabled")).toBe("true");
+	// The gate's sentence, not one this component wrote.
+	expect(brush?.getAttribute("aria-label")).toBe(
+		"Brush B (finish the session first — ⏎ applies it, Esc discards it)",
+	);
+
+	typeQuery("tool.brush");
+	pressKey("Enter");
+	expect(stub.calls.setTool).not.toHaveBeenCalled();
+	expect(stub.calls.setGesture).not.toHaveBeenCalled();
+});
+
+test("and the family's MEMBERS are refused with it", async () => {
+	const stub = stubWithGenerators();
+	await renderShell(stub);
+	act(() => {
+		stub.fire.stamp(SESSION);
+	});
+	pressCommandK();
+	const dig = rows().find((r) =>
+		r.getAttribute("aria-label")?.startsWith("Brush · Dig"),
+	);
+	expect(dig?.getAttribute("aria-disabled")).toBe("true");
+});
+
+// --- (e) dispatch ------------------------------------------------------------
+
+test("Enter runs the action through the registry", async () => {
+	const stub = stubWithGenerators();
+	await renderShell(stub);
+	pressCommandK();
+	typeQuery("view.frame");
+	// cmdk re-selects the best match after every filter change; ⏎ runs THAT row, so the
+	// case pins which one it is rather than assuming the query left exactly one.
+	expect(selectedRow()).toBe("view.frame");
+	pressKey("Enter");
+	expect(stub.calls.frameSelection).toHaveBeenCalledTimes(1);
+	// And the palette is gone: running a verb is the end of the palette's job.
+	expect(paletteInput() === null).toBe(true);
+});
+
+test("the palette CLOSES before the action runs", async () => {
+	const stub = stubWithGenerators();
+	// A plain array rather than a `let`: TS narrows a `let` initialised to `null` and
+	// never reassigned in its own scope, so the assertion below would compare against a
+	// type of `null`. Pushing records the same fact without lying to the checker.
+	const seen: boolean[] = [];
+	stub.calls.frameSelection.mockImplementation(() => {
+		seen.push(paletteInput() !== null);
+	});
+	await renderShell(stub);
+	pressCommandK();
+	typeQuery("view.frame");
+	expect(selectedRow()).toBe("view.frame");
+	pressKey("Enter");
+	// Ordering, not wording: React batches, so "close first" in source is only true at
+	// runtime if the close is flushed. Task 10's focus return rides on this.
+	expect(seen).toEqual([false]);
+});
+
+// --- (f) the keyboard the palette does NOT claim ------------------------------
+
+test("cmdk's vim bindings are OFF — ⌃N is not a navigation key here", async () => {
+	const stub = stubWithGenerators();
+	await renderShell(stub);
+	pressCommandK();
+	const firstSelected = selectedRow();
+	pressKey("n", { ctrlKey: true });
+	const afterSelected = selectedRow();
+	// Unmoved: ⌃N/⌃J/⌃P/⌃K are cmdk's default second set of arrows, and ⌃J is this
+	// editor's ⌘J (a chord is `mod` = ⌘ OR Ctrl, and chords are live inside text
+	// fields). Two owners for one press is what the ownership rule forbids.
+	expect(afterSelected).toBe(firstSelected);
+});
+
+test("the arrows still move the selection", async () => {
+	const stub = stubWithGenerators();
+	await renderShell(stub);
+	pressCommandK();
+	const before = selectedRow();
+	pressKey("ArrowDown");
+	const after = selectedRow();
+	expect(after === before).toBe(false);
+});
+
+// --- (g) the layout contract --------------------------------------------------
+
+test("the palette is a LAYER — the canvas cell keeps its box", async () => {
+	const stub = stubWithGenerators();
+	await renderShell(stub);
+	const canvas = screen.getByLabelText("field viewport");
+	const cell = canvas.parentElement;
+	if (!(cell instanceof HTMLElement)) throw new Error("canvas has no cell");
+	const row = cell.parentElement;
+	if (!(row instanceof HTMLElement)) throw new Error("cell has no row");
+	const childCount = cell.children.length;
+
+	pressCommandK();
+
+	// The canvas is where it was, sized how it was (D-1: nothing may move the cell's
+	// insets), and the palette is OUTSIDE both the cell and the body row.
+	expect(canvas.parentElement === cell).toBe(true);
+	for (const cls of ["absolute", "inset-0", "h-full", "w-full"])
+		expect(canvas.classList.contains(cls)).toBe(true);
+	expect(cell.children.length).toBe(childCount);
+	expect(row.children.length).toBe(2);
+	const box = palette();
+	if (box === null) throw new Error("the palette is not open");
+	expect(cell.contains(box)).toBe(false);
+	expect(row.contains(box)).toBe(false);
+});
+
+// --- (h) the registry's own bookkeeping ---------------------------------------
+
+test("the palette is NOT one of the floating palettes", async () => {
+	const stub = stubWithGenerators();
+	await renderShell(stub);
+	pressCommandK();
+	// It takes no PaletteId, so `⌘\` cannot hide it and the workspace never persists it.
+	act(() => {
+		fireEvent.keyDown(window, { key: "\\", metaKey: true });
+	});
+	expect(paletteInput()).toBeTruthy();
+});
+
+test("every family the rail renders is reachable by name", async () => {
+	const stub = stubWithGenerators();
+	await renderShell(stub);
+	pressCommandK();
+	for (const family of TOOL_FAMILIES)
+		expect({
+			id: family.arm.id,
+			present: rows().some((r) => r.dataset["value"] === family.arm.id),
+		}).toEqual({ id: family.arm.id, present: true });
+});

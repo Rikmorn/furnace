@@ -11,21 +11,23 @@
 // `useWorkspace.tsx`'s header names. Here, `children` arrive already built from the
 // parent, so a re-render of this component reaches only the actual context CONSUMERS.
 //
-// There are FIVE of those, and only ONE of them is always mounted — which is the whole
+// There are SIX of those, and only ONE of them is always mounted — which is the whole
 // point of where each `useActionContext()` call sits.
 //
-// Three are inside surfaces that unmount when closed, all deliberately: the burger's
+// Four are inside surfaces that unmount when closed, all deliberately: the burger's
 // `RegistryGroup` (Radix mounts menu content only while open), `ShortcutsBody` inside the
-// overlay's `DialogContent` (the Portal renders nothing while closed), and the status
-// bar's selection-chip popover body (same Portal mechanism). Read one level higher in any
-// of them and a closed menu, dialog or popover would rebuild its rows on every stats push
-// — and at pointer rate during a grab, since the session is a ctx dep.
+// overlay's `DialogContent` (the Portal renders nothing while closed), the status bar's
+// selection-chip popover body (same Portal mechanism), and `CommandBody` inside the ⌘K
+// palette's dialog (same again — and the hungriest of the four, since it resolves a label
+// and a gate verdict for the WHOLE table). Read one level higher in any of them and a
+// closed menu, dialog or popover would rebuild its rows on every stats push — and at
+// pointer rate during a grab, since the session is a ctx dep.
 //
 // A fourth is `TopBar`'s `BakeButton`, a leaf for the same reason: it is a single control
 // whose enabled state is a ctx read, and reading the ctx in `TopBarStrip` instead would
 // re-render the whole strip at that rate.
 //
-// The fifth is `ToolRail` (F4.5b Task 8), and it is ALWAYS mounted — the one consumer that
+// The sixth is `ToolRail` (F4.5b Task 8), and it is ALWAYS mounted — the one consumer that
 // pays this cost continuously. That was taken deliberately rather than by omission: the
 // rail renders four buttons whose armed/disabled state is a function of `gesture`, `tool`,
 // `session` and `generators`, i.e. of the ctx, and the alternative is publishing a second
@@ -79,6 +81,7 @@ export function useActionContext(): ActionCtx {
 
 export function ActionContextProvider({
 	host,
+	openCommandPalette,
 	children,
 }: {
 	/** The live host, as a PROP rather than read off `fieldHostRef` during render: the
@@ -86,6 +89,11 @@ export function ActionContextProvider({
 	 *  rendering is a rule with exactly one documented exemption in this codebase — one
 	 *  this component does not need. */
 	host: FieldHost | null;
+	/** Raise the ⌘K palette. A PROP rather than state owned here, because the surface it
+	 *  opens is mounted by the shell: an action's `run` must be expressible from the ctx,
+	 *  and this is the funnel that makes "open a modal the shell owns" expressible without
+	 *  putting a `setState` into the pure table. */
+	openCommandPalette: () => void;
 	children: ReactNode;
 }) {
 	const { openConfirm, confirmRef } = useEditor();
@@ -159,6 +167,7 @@ export function ActionContextProvider({
 			armBrush,
 			setStampCursor,
 			summonPalette,
+			openCommandPalette,
 		}),
 		[
 			worldActions,
@@ -168,6 +177,7 @@ export function ActionContextProvider({
 			setGesture,
 			armBrush,
 			summonPalette,
+			openCommandPalette,
 		],
 	);
 

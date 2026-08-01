@@ -16,6 +16,7 @@
 import { Fragment } from "react";
 import { useActionContext } from "../../hooks/useActionContext.tsx";
 import {
+	ACTION_GROUPS,
 	ACTIONS,
 	type ActionCtx,
 	type ActionGroup,
@@ -42,36 +43,17 @@ type BindingGroup = {
 	rows: Binding[];
 };
 
-/** The registry's groups, in the order a user meets them, with the condition each is
- *  under. Every row inside comes from the table. */
-const REGISTRY_GROUPS: { group: ActionGroup; title: string; note?: string }[] =
-	[
-		{
-			group: "world",
-			title: "World",
-			note: "Live anywhere in the editor, inside a text field too (the browser default they replace is worse). Suppressed while a confirm dialog is open. ⌘ is Ctrl on Windows and Linux.",
-		},
-		{
-			group: "edit",
-			title: "Edit",
-			note: "Bare keys do nothing while you are typing in a field. The three that act on a stamp (⌘J, G, ⌫) need one selected — the menu names which.",
-		},
-		{
-			group: "tool",
-			title: "Tools",
-			note: "Refused while a stamp session is live — which says so rather than going quiet — and S alone stands down while the right button is held, because S is also fly-backward.",
-		},
-		{
-			group: "session",
-			title: "Session",
-			note: "Live only while a stamp, reconfigure or move session is on screen.",
-		},
-		{
-			group: "view",
-			title: "View",
-			note: "Live anywhere. F frames the selected stamp, else the cell selection.",
-		},
-	];
+/** The condition each registry group is under — the thing that makes a row true. The
+ *  groups themselves (which five, in what order, called what) come from `ACTION_GROUPS`;
+ *  only these notes are the overlay's, because only the overlay has room for them. */
+const GROUP_NOTES: Record<ActionGroup, string> = {
+	world:
+		"Live anywhere in the editor, inside a text field too (the browser default they replace is worse). Suppressed while a confirm dialog is open. ⌘ is Ctrl on Windows and Linux.",
+	edit: "Bare keys do nothing while you are typing in a field. The three that act on a stamp (⌘J, G, ⌫) need one selected — the menu names which.",
+	tool: "Refused while a stamp session is live — which says so rather than going quiet — and S alone stands down while the right button is held, because S is also fly-backward.",
+	session: "Live only while a stamp, reconfigure or move session is on screen.",
+	view: "Live anywhere. F frames the selected stamp, else the cell selection.",
+};
 
 const CANVAS_GROUP: BindingGroup = {
 	title: "Viewport — canvas",
@@ -182,10 +164,10 @@ export function ShortcutsDialog({
 function ShortcutsBody() {
 	const ctx = useActionContext();
 	const groups: BindingGroup[] = [
-		...REGISTRY_GROUPS.map((g) => ({
+		...ACTION_GROUPS.map((g) => ({
 			title: g.title,
-			note: g.note,
-			rows: registryRows(g.group, ctx),
+			note: GROUP_NOTES[g.id],
+			rows: registryRows(g.id, ctx),
 		})).filter((g) => g.rows.length > 0),
 		CANVAS_GROUP,
 	];

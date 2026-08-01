@@ -22,7 +22,7 @@ import {
 	useWorkspaceActions,
 	useWorkspaceState,
 } from "../../hooks/useWorkspace.tsx";
-import { ACTIONS, type ActionGroup } from "../../lib/actions.ts";
+import { ACTION_GROUPS, ACTIONS, type ActionGroup } from "../../lib/actions.ts";
 import { PALETTE_IDS, PALETTES } from "../../lib/palette-store.ts";
 import {
 	DropdownMenu,
@@ -45,15 +45,13 @@ import { ShortcutsDialog } from "./ShortcutsDialog.tsx";
  *  `DropdownMenuGroup` + `aria-labelledby` is what ASSOCIATES the heading with its items;
  *  a bare `DropdownMenuLabel` beside them is a heading a screen reader announces once and
  *  then leaves behind, so every item below it is unattributed. */
-function RegistryGroup({
-	group,
-	title,
-}: {
-	group: ActionGroup;
-	title: string;
-}) {
+function RegistryGroup({ group }: { group: ActionGroup }) {
 	const ctx = useActionContext();
 	const labelId = `burger-group-${group}`;
+	// The registry's own name for the set — the same string the shortcuts overlay and the
+	// command palette head their sections with. `find` cannot miss: `ACTION_GROUPS` covers
+	// every member of the union (asserted in tests/actions.test.ts).
+	const title = ACTION_GROUPS.find((g) => g.id === group)?.title;
 	return (
 		<DropdownMenuGroup aria-labelledby={labelId}>
 			<DropdownMenuLabel id={labelId}>{title}</DropdownMenuLabel>
@@ -141,14 +139,14 @@ export function BurgerMenu({
 	            host's world SYNCHRONOUSLY, so one landing mid-save would write the
 	            freshly-emptied world over the named target), Bake and Make default need a
 	            name on disk to write about. */}
-					<RegistryGroup group="world" title="World" />
+					<RegistryGroup group="world" />
 					<DropdownMenuSeparator />
 					{/* Undo/Redo step the field's ONE history and are NAMED — "Undo segment fill",
 	            not "Undo" — off the history seam's own top-of-stack label. Duplicate, Move
 	            and Delete name the stamp they would act on, which is what a menu is for:
 	            their chords (⌘J, G, ⌫) act on whatever is selected without saying so.
 	            History… summons that same history as a list. */}
-					<RegistryGroup group="edit" title="Edit" />
+					<RegistryGroup group="edit" />
 					<DropdownMenuSeparator />
 					{/* The display toggles the menu carries, plus the two workspace verbs;
 	            everything else about the view lives in the popover beside the world chip,
@@ -158,7 +156,7 @@ export function BurgerMenu({
 	            Shading is stated as "Normals" rather than as a Studio/Normals pair — a
 	            menu checkbox is a boolean, and the boolean that means something is
 	            "am I in the debug mode". */}
-					<RegistryGroup group="view" title="View" />
+					<RegistryGroup group="view" />
 					{/* Named after the surface it opens (the popover's trigger says "view
 	            options" too), not after what is in it: the popover calls those gates
 	            "layers", and a menu item calling them something else would be two names

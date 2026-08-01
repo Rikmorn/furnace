@@ -6,7 +6,11 @@
 // Its sibling `tests/keybindings.test.ts` owns the other half: which EVENT reaches which
 // entry, and the gate that refuses it.
 import { expect, type mock, test } from "bun:test";
-import { ACTIONS, TOOL_FAMILIES } from "../src/frontend/lib/actions.ts";
+import {
+  ACTION_GROUPS,
+  ACTIONS,
+  TOOL_FAMILIES,
+} from "../src/frontend/lib/actions.ts";
 import type { FieldEntityInfo } from "../src/viewport-host/index.ts";
 import { byId, makeCtx, type makeHostSpy } from "./_actions-fixture.ts";
 
@@ -36,6 +40,46 @@ test("every action id is unique, and names its own group", () => {
       id: a.id,
       prefixed: true,
     });
+});
+
+test("every group an action names is in ACTION_GROUPS — nothing renders headless", () => {
+  // Three surfaces render the table BY group and take the heading from this list (the
+  // burger, the shortcuts overlay, the command palette). A group present in the union but
+  // missing from the list would render its rows under a blank heading in one of them and
+  // vanish entirely from another, and the type system cannot catch it: the list is
+  // ordered, so it is an array rather than an exhaustive Record.
+  const listed = ACTION_GROUPS.map((g) => g.id);
+  expect(new Set(listed).size).toBe(listed.length);
+  for (const a of ACTIONS)
+    expect({ id: a.id, listed: listed.includes(a.group) }).toEqual({
+      id: a.id,
+      listed: true,
+    });
+  for (const g of ACTION_GROUPS) expect(g.title).toBeTruthy();
+});
+
+test("the command palette is a registry action, not a surface with its own key", () => {
+  const def = byId("view.commandPalette");
+  // ⌘K on the same `chord` gate as ⌘S and ⌘Z — live inside a text field, because the
+  // palette is how you get out of a panel you are typing in.
+  expect({ keys: def.keys, gate: def.gate, group: def.group }).toEqual({
+    keys: "⌘K",
+    gate: "chord",
+    group: "view",
+  });
+  // Never refused and never inert: it reaches the whole table, and the state where
+  // nothing can run is the state where seeing every verb and its reason helps most.
+  expect(def.enabled(makeCtx())).toBe(true);
+  const ctx = makeCtx();
+  def.run(ctx);
+  // Its OWN funnel, not `summonPalette` — it is a modal dialog, not a member of the
+  // floating arrangement, so `⌘\` cannot hide it and nothing persists it.
+  expect(
+    ctx.run.openCommandPalette as ReturnType<typeof mock>,
+  ).toHaveBeenCalledTimes(1);
+  expect(
+    ctx.run.summonPalette as ReturnType<typeof mock>,
+  ).not.toHaveBeenCalled();
 });
 
 test("every displayed chord is unique — one key, one action", () => {

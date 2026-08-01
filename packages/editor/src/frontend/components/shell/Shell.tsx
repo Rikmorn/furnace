@@ -31,6 +31,7 @@ import { useEditor } from "../editor-context.ts";
 import { TooltipProvider } from "../ui/tooltip.tsx";
 import { AxisTriadMount } from "./AxisTriadMount.tsx";
 import { CanvasHost } from "./CanvasHost.tsx";
+import { CommandPalette } from "./CommandPalette.tsx";
 import { EntitiesPalette } from "./EntitiesPalette.tsx";
 import { FlagsPalette } from "./FlagsPalette.tsx";
 import { HistoryPalette } from "./HistoryPalette.tsx";
@@ -101,6 +102,13 @@ function ShellChrome({
 	// A field-host init failure is LOCAL (the chrome still works), so it reports on the
 	// status bar rather than blanking the editor with a global engine-error.
 	const [viewportError, setViewportError] = useState<string | null>(null);
+	// The ⌘K palette's open flag. Local state HERE — above the action context, because the
+	// registry's `view.commandPalette` needs the opener in its ctx, and a hook cannot read
+	// a provider its own JSX renders. It costs a rebuild of the palette bodies below on
+	// each open and each close, and that is the whole reason this is a `useState` and not
+	// a subscription: the rule this component obeys is "read nothing that moves per
+	// FRAME", and a modal a person opens by hand does not.
+	const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
 
 	// This component reads NO state context — not the world's, not the view's, not the
 	// arrangement's — and that is deliberate: it builds the palette bodies below, so any
@@ -108,7 +116,10 @@ function ShellChrome({
 	// every drag frame and every world edit. The action context provider does all of that
 	// reading one level down, where its `children` arrive already built.
 	return (
-		<ActionContextProvider host={host ?? null}>
+		<ActionContextProvider
+			host={host ?? null}
+			openCommandPalette={() => setCommandPaletteOpen(true)}
+		>
 			{/* ONE tooltip provider for the whole frame (D-25): the rail, the strip and the
           ⋯ all use real Radix tooltips rather than `title`, and Radix wants a single
           provider so the group's open/close delays behave as one — hovering the second
@@ -171,6 +182,14 @@ function ShellChrome({
 					</div>
 					<StatusBar viewportError={viewportError} />
 				</div>
+				{/* OUTSIDE the frame div, and it has to be: it is a modal DIALOG (its own
+            Radix portal to the document body), not a layer inside the canvas cell — so
+            it takes nothing off the viewport (D-1) and covers the bars as well. Mounted
+            unconditionally; a closed Radix dialog renders nothing at all. */}
+				<CommandPalette
+					open={commandPaletteOpen}
+					onOpenChange={setCommandPaletteOpen}
+				/>
 			</TooltipProvider>
 		</ActionContextProvider>
 	);

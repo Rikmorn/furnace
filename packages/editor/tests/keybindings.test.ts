@@ -62,9 +62,21 @@ const BINDINGS: { id: string; event: KeyboardEvent }[] = [
   { id: "session.confirm", event: ev({ key: "Enter" }) },
   { id: "session.rotate", event: ev({ key: "r" }) },
   { id: "session.escape", event: ev({ key: "Escape" }) },
+  { id: "view.commandPalette", event: ev({ key: "k", metaKey: true }) },
   { id: "view.frame", event: ev({ key: "f" }) },
   { id: "view.togglePalettes", event: ev({ key: "\\", metaKey: true }) },
 ];
+
+test("⌃K reaches the palette too — the pre-named Safari fallback is already live", () => {
+  // ⌘K is marked provisional in the charter's binding table ("verify in Safari"). It does
+  // not need a second BINDING if the browser gate finds it claimed: `mod` accepts Ctrl as
+  // well as ⌘ throughout this table, so the fallback is a documentation change, not a
+  // code one. This case is what makes that claim true rather than hopeful.
+  const claimants = ACTIONS.filter(
+    (a) => a.match?.(ev({ key: "k", ctrlKey: true })) === true,
+  ).map((a) => a.id);
+  expect(claimants).toEqual(["view.commandPalette"]);
+});
 
 test("every binding reaches its action, and EXACTLY one action claims each event", () => {
   for (const { id, event } of BINDINGS) {

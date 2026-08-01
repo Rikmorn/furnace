@@ -1931,6 +1931,10 @@ test("the burger's View group carries the triad's six axis views, in the triad's
 			.join(""),
 	);
 	expect(labels).toEqual([
+		// FIRST, deliberately: this group is seventeen rows once the popover door and the
+		// five palette checkboxes are counted, and the command palette is the answer to
+		// that depth (D-12) — so a user who opens the menu meets the way out of it first.
+		"Find a command…",
 		"Frame selection",
 		...tipNames,
 		"Normals shading",

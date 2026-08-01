@@ -1,12 +1,14 @@
 // The editor's ONE action registry (D-10/D-11/D-12): every verb the chrome can run,
 // declared once, with the key that runs it, the label that names it and the rule that
-// refuses it. SIX surfaces read this table — the window key dispatcher
+// refuses it. SEVEN surfaces read this table — the window key dispatcher
 // (`useGlobalKeybindings`), the burger menu, the Help▸Keyboard shortcuts overlay, the top
-// bar (Bake and the palette toggle), the status bar's selection chip, and the tool rail
-// (through `TOOL_FAMILIES` at the foot of this file) — so a binding cannot be live and
-// undocumented, or documented and dead, and no surface works out an enabled state or a
-// label of its own. The count was three when this file was written and stayed written down
-// as three through F4.5b, which added the last three readers.
+// bar (Bake and the palette toggle), the status bar's selection chip, the tool rail
+// (through `TOOL_FAMILIES` at the foot of this file) and the ⌘K command palette, which
+// renders the WHOLE table at once — so a binding cannot be live and undocumented, or
+// documented and dead, and no surface works out an enabled state or a label of its own.
+// The count was three when this file was written and stayed written down as three through
+// F4.5b, which added three readers; F4.5c added the seventh. It has drifted twice, so:
+// adding a reader means editing this number.
 //
 // WHO OWNS A KEY. There are two keydown listeners in this editor: the field canvas's
 // (`viewport-host/field-host.ts`) and this registry's, on `window`. The rule:
@@ -113,6 +115,12 @@ export type ActionCtx = {
      *  raised. The chrome's one summon spelling (`usePaletteSummon`), which the status
      *  bar's two chips and the burger's checkboxes go through too. */
     summonPalette: (id: PaletteId) => void;
+    /** Raise the ⌘K command palette. Takes no {@link PaletteId} and never will: the
+     *  command palette is a modal DIALOG over the whole window, not a member of the
+     *  floating arrangement — nothing persists it, `⌘\` does not hide it, and it has no
+     *  geometry to restore. A second verb rather than a `summonPalette("command")` for
+     *  exactly that reason. */
+    openCommandPalette: () => void;
   };
 };
 
@@ -189,6 +197,23 @@ export type ActionDef = {
  *  keyboard's, and reach the user through the tool rail, the status bar's keymap line and
  *  the shortcuts overlay rather than through a menu. */
 export type ActionGroup = "world" | "edit" | "view" | "tool" | "session";
+
+/** The five groups in the order a user meets them, with what each is CALLED on a surface
+ *  that shows headings.
+ *
+ *  Here rather than beside each surface because three of them now name the same five sets
+ *  — the burger's menu labels, the shortcuts overlay's sections and the command palette's
+ *  groups — and a group renamed in one of them would silently be two groups to anyone
+ *  reading both. The ORDER is part of the data for the same reason: the overlay and the
+ *  palette both list all five, and two different orders is two different mental maps.
+ *  Every group carrying an action must appear here (asserted in `tests/actions.test.ts`). */
+export const ACTION_GROUPS: readonly { id: ActionGroup; title: string }[] = [
+  { id: "world", title: "World" },
+  { id: "edit", title: "Edit" },
+  { id: "tool", title: "Tools" },
+  { id: "session", title: "Session" },
+  { id: "view", title: "View" },
+];
 
 // --- matchers ---------------------------------------------------------------
 
@@ -813,6 +838,32 @@ export const ACTIONS: readonly ActionDef[] = [
   },
 
   // ——— view ————————————————————————————————————————————————————————————————
+  // FIRST in the group, because this is the answer to how long the group has become: the
+  // burger renders View as one unseparated run of seventeen rows (eleven here, then "View
+  // options…" and five palette checkboxes), and random access by name is what stops that
+  // depth from being a ceiling (D-12). A user who opens the menu meets the way out of the
+  // menu first.
+  {
+    id: "view.commandPalette",
+    group: "view",
+    // Named for what it DOES rather than for what it is. "Command palette" is jargon a
+    // first-time user has to already know; "Find a command…" is the question they have.
+    // The ellipsis is the menu convention for "opens a surface" (View options…, History…).
+    label: () => "Find a command…",
+    // Never refused. It reaches the whole table, so the one state in which it would be
+    // useless is one where nothing at all can run — and in that state the palette SHOWING
+    // every verb greyed with its reason is the most useful screen in the editor.
+    enabled: () => true,
+    keys: "⌘K",
+    hint: "Every verb in the editor by name — type, arrow, ⏎; the row says why when one is refused",
+    // A `chord`, so it is live inside a text field too: the palette is how you escape a
+    // panel you are typing in. ⌘K is UNVERIFIED in Safari (the charter's binding table
+    // marks it provisional) — `mod` accepts Ctrl as well as ⌘, so ⌃K is already the
+    // fallback if the browser gate finds ⌘K claimed.
+    match: (e) => chord(e, "k"),
+    gate: "chord",
+    run: (ctx) => ctx.run.openCommandPalette(),
+  },
   {
     id: "view.frame",
     group: "view",
@@ -1050,20 +1101,63 @@ export const TOOL_FAMILIES: readonly ToolFamily[] = [
   },
 ];
 
-/** May a CLICK on this action's control run it, and what to say when it may not?
+/** May a CONTROL for this action run it, and what to say when it may not?
  *
- *  The same {@link gateAction} the keyboard uses, with the env a pointer click pins by
- *  construction: a click lands on the control (never inside a text input), a modal confirm
- *  covers the surface it would land on, and the fly gate is about a HELD right button
- *  while this is a left-button press. Routed through the one gate rather than re-spelled,
- *  because a button that arms what its own key refuses is the two-surfaces-disagree defect
- *  — and the refusal SENTENCE has to be the same one too. */
+ *  The same {@link gateAction} the keyboard uses, with the env a control ACTIVATION pins by
+ *  construction — a rail button clicked, a palette row picked with ⏎: the press lands on
+ *  the control (the user chose a named thing, they were not typing a character), a modal
+ *  confirm covers the surface it would land on, and the fly gate is about a HELD right
+ *  button while this is a left-button press. Routed through the one gate rather than
+ *  re-spelled, because a button that arms what its own key refuses is the
+ *  two-surfaces-disagree defect — and the refusal SENTENCE has to be the same one too.
+ *
+ *  `inTextInput: false` is the one line worth pausing on, now that the command palette
+ *  activates rows from INSIDE a text field. It is still right, and for the reason the
+ *  `typed` class exists at all: that class refuses a BARE LETTER that could be a character
+ *  someone is typing. A palette row is not a letter — the user typed to find it and then
+ *  named it. Passing `true` here would refuse every letter-keyed verb (V B M S X G F ⌫ ⏎)
+ *  from the one surface whose whole job is reaching verbs by name. */
 export function clickGate(def: ActionDef, ctx: ActionCtx): GateVerdict {
+  // A MENU-ONLY action (no `gate`) IS runnable from a control. `gateAction` refuses those
+  // because no KEY may fire them — a rule about keycaps, and a control has none; the
+  // burger has always run them straight from its items. The rail never had to ask (every
+  // family it renders is keyed); the command palette renders the whole table, half of
+  // which is menu-only, so it does.
+  if (def.gate === undefined) return sessionRefusal(def, ctx);
   return gateAction(def, ctx, {
     inTextInput: false,
     confirmOpen: false,
     looking: false,
   });
+}
+
+/** What a CONTROL for this action must say instead of running it: `null` when it may run,
+ *  `""` when it is merely inert, and the gate's own sentence when the gate refuses.
+ *
+ *  The empty string is a third state rather than a shrug. `enabled` false with the gate
+ *  open means the verb has nothing to ACT on — the stamp family over an empty registry,
+ *  Bake with no world on disk — and those labels already carry the reason, so there is no
+ *  second sentence to give and a control that invented one would be guessing. Callers show
+ *  the control as refused either way; only the wording differs.
+ *
+ *  In the registry rather than in each surface because two copies of this three-way is
+ *  precisely how a rail button and a palette row come to disagree about one verb. */
+export function refusalOf(def: ActionDef, ctx: ActionCtx): string | null {
+  const verdict = clickGate(def, ctx);
+  if (!verdict.ok) return verdict.hint ?? "";
+  return def.enabled(ctx) ? null : "";
+}
+
+/** The one refusal that is about STATE rather than about keys: an action that re-arms what
+ *  LMB does cannot run while a session owns the interaction. Shared by {@link gateAction}
+ *  and by {@link clickGate}'s menu-only path so the sentence has exactly one home. */
+function sessionRefusal(def: ActionDef, ctx: ActionCtx): GateVerdict {
+  if (def.armsTool === true && ctx.session !== null)
+    return {
+      ok: false,
+      hint: "finish the session first — ⏎ applies it, Esc discards it",
+    };
+  return { ok: true };
 }
 
 /** May this action's key fire right now? PURE — everything that changes between renders
@@ -1084,12 +1178,7 @@ export function gateAction(
   if (def.gate === "typed" && env.inTextInput) return { ok: false, hint: null };
   // While the right button is down the fly owns its own letters.
   if (def.flyLetter === true && env.looking) return { ok: false, hint: null };
-  if (def.armsTool === true && ctx.session !== null)
-    return {
-      ok: false,
-      hint: "finish the session first — ⏎ applies it, Esc discards it",
-    };
-  return { ok: true };
+  return sessionRefusal(def, ctx);
 }
 
 /** The action this event runs, or null. First match wins; the matchers are written so
