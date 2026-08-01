@@ -11,20 +11,27 @@
 // `useWorkspace.tsx`'s header names. Here, `children` arrive already built from the
 // parent, so a re-render of this component reaches only the actual context CONSUMERS.
 //
-// There are THREE of those. Two are inside surfaces that unmount when closed, and both
-// deliberately: the burger's `RegistryGroup` (Radix mounts menu content only while open)
-// and `ShortcutsBody` inside the overlay's `DialogContent` (the Portal renders nothing
-// while closed). Read one level higher in either and a closed menu or a closed dialog
-// would rebuild its rows on every stats push — and at pointer rate during a grab, since
-// the session is a ctx dep.
+// There are FIVE of those, and only ONE of them is always mounted — which is the whole
+// point of where each `useActionContext()` call sits.
 //
-// The third is `ToolRail` (F4.5b Task 8), and it is ALWAYS mounted — the one consumer that
+// Three are inside surfaces that unmount when closed, all deliberately: the burger's
+// `RegistryGroup` (Radix mounts menu content only while open), `ShortcutsBody` inside the
+// overlay's `DialogContent` (the Portal renders nothing while closed), and the status
+// bar's selection-chip popover body (same Portal mechanism). Read one level higher in any
+// of them and a closed menu, dialog or popover would rebuild its rows on every stats push
+// — and at pointer rate during a grab, since the session is a ctx dep.
+//
+// A fourth is `TopBar`'s `BakeButton`, a leaf for the same reason: it is a single control
+// whose enabled state is a ctx read, and reading the ctx in `TopBarStrip` instead would
+// re-render the whole strip at that rate.
+//
+// The fifth is `ToolRail` (F4.5b Task 8), and it is ALWAYS mounted — the one consumer that
 // pays this cost continuously. That was taken deliberately rather than by omission: the
 // rail renders four buttons whose armed/disabled state is a function of `gesture`, `tool`,
 // `session` and `generators`, i.e. of the ctx, and the alternative is publishing a second
 // narrower context beside this one for a four-button column. Its own header records the
-// tradeoff. The status bar's `KeymapLine` is NOT a consumer: it reads the two narrow
-// contexts it needs (`useFieldTool`, `useFieldStamp`) and stays off this one.
+// tradeoff. The status bar's `KeymapLine` is NOT a consumer either: it reads the two
+// narrow contexts it needs (`useFieldTool`, `useFieldStamp`) and stays off this one.
 //
 // The two ends of an action live in different places on purpose. What an action DOES is
 // in `lib/actions.ts` (pure, testable without React); what it can SEE is assembled here.

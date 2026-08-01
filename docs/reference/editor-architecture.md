@@ -346,8 +346,8 @@ M5A has `revertEntity` (rebuilds from committed doc) but **no `revertSettings`**
 > `setCallbacks` / `onTransformCommit` and the scene orbit camera are gone with the
 > scene viewport host.
 >
-> Of the two pure-math modules they left behind with no caller (filed as
-> `docs/backlog/editor-and-tooling/viewport-host-orphans-gizmo-and-orbit-camera.md`),
+> Of the two pure-math modules they left behind with no caller (the backlog entry that
+> tracked them retired with F4.5b, which closed the register both ways),
 > **`viewport-host/gizmo.ts` was PROMOTED by F4.5b Task 5** and is live again —
 > the FIELD host's translate gizmo calls `pickAxis`, `closestPointParamOnAxis` and
 > `isViewParallel`. Read its own TSDoc, not §11.4 below, for the current contract:
@@ -1380,11 +1380,15 @@ mind.
   and 0 subscriptions — §20.7.)* Tranche B took
   `FieldPanel.tsx` from 15 `useState` slots and 7 subscriptions to 18 and 8 (711 → 817 lines): three new slots — the flags summary, the filter
   set, the in-flight verify key — plus `analyzerPending` on the existing stats mirror and its
-  footer segment. The file is the dig loop's single orchestrator; the entry tracking that
-  slope, with the figures pinned to commits, is
-  `docs/backlog/editor-and-tooling/field-panel-is-the-whole-dig-loop-orchestrator.md`.
+  footer segment. The file was the dig loop's single orchestrator, and the backlog entry
+  tracking that slope retired with it: F4.5a moved the entity list out, F4.5b took every
+  remaining organ (§21), and Task 14 deleted the component and the `controls` palette id
+  together. What the orchestration became is `hooks/useFieldHostState.tsx` plus the pure
+  `lib/field-host-mirrors.ts` it was split against — see §21.
 
 ## 20. F4.5a — the overlay shell (2026-07-30)
+
+**Read §21 beside this one:** F4.5b moved several figures here — the `controls` palette id retired with `FieldPanel`, three palettes joined the union, the seam and context counts went up, and the Esc ladder gained a rung — and §21 is the as-built for all of it.
 
 **This section is the authority on the editor's chrome.** F4.5a rebuilt it as an *overlay
 cockpit*: one full-window canvas with everything else floating over it. The dock, the
@@ -1718,3 +1722,571 @@ It is a hook rather than App-local state for Shell's reason: a feed wired inside
 feed no test can drive, because App owns the WebGPU probe and the `/engine.js` import.
 There is **nothing to catch up on** at `onOpen` — the editor mirrors no daemon-owned
 document; the field world lives in the host until the user saves it.
+
+## 21. F4.5b — the hands (2026-08-01)
+
+**This section is the authority on the editor's VERBS**, as §20 is on its surfaces. F4.5a
+gave the cockpit a canvas with things floating over it; F4.5b gave the user hands to work
+in it — a pointer that picks *in the viewport*, a move / delete / duplicate vocabulary for
+committed stamps, one action registry behind every key and every menu item, and the
+dissolution of the last control stack into palettes and bars of its own. **`FieldPanel.tsx`
+no longer exists** (§21.9). The editor is still field-only; §20's opening stands.
+
+One BEHAVIOUR CHANGE runs under all of it and is the bargain the rest is bought with:
+**WASD/QE no longer fly unless the right button is held** (§21.4).
+
+Scope note: this is the as-built at the end of F4.5b. The slice worked the
+`MIGRATION (until F4.5b)` markers §20 counted down as it went, each one at the task that
+made its provisional shape unnecessary; `grep -rn "MIGRATION (until" packages/editor/src`
+remains the live list of anything still marked provisional.
+
+### 21.1 The pointer, and the CPU ray pick
+
+`ViewportGesture` gained a `"pointer"` member and **it is what a fresh host is armed with**
+(D-F4.5-7; the chrome's mirror opens on the same value, `DEFAULT_GESTURE`, so the two
+cannot disagree at boot). Under it LMB selects and drags rather
+than strokes, and the wheel travels the camera instead of sizing the brush.
+
+**`viewport-host/field-pick.ts` is the arbitration, and it is pure and GPU-free** — the
+`field-ghost.ts` / `field-placements.ts` sibling. CPU rather than a GPU id pass, and that is a
+decision with reasons rather than a fallback: the field host acquires its context at
+`sampleCount: 4` and core's `frame.renderToTexture` throws on any context whose
+`_internal.sampleCount !== 1`, so the id pass cannot even be RENDERED on the default editor
+context; and the two things most worth picking — entity footprints and gizmo handles — have
+no meshes at all (a `drawLines` batch and pure math respectively). The consequence is
+written into the design rather than tolerated: **a CPU pick is affordable per CLICK, not per
+pointermove, so there is no hover pre-highlight anywhere in the editor.** Selection is
+click-driven.
+
+- **Three candidate kinds**, and `PICK_TIER` is a total `Record<PickCandidate["kind"],
+  PickTier>` rather than a predicate, so adding a kind without classifying it does not
+  compile. `prop` and `flag` resolve in the **object** tier; `entity` in the **volume**
+  tier, and objects are resolved FIRST. That deviation from plain nearest-wins is
+  structural: an entity's candidate is its stamped FOOTPRINT, the editor camera normally
+  sits inside one (that is what carving a room and flying into it produces), such a
+  footprint enters at `t = 0`, and it would otherwise win every click in the room and make
+  every prop and marker inside it unpickable.
+- **Within a tier, nearest wins and ties go to the SMALLER volume** (`nearestOf` /
+  `candidateVolume`). That is what resolves nested footprints — a scatter's box inside a
+  hall's, both enclosing the eye at `t = 0` — with a fact the user can see, where the log
+  order it replaces was invisible. Scoped to ties on purpose: two disjoint boxes are still
+  decided by distance.
+- **Gizmo handles are not candidates at all.** A handle is a line segment with a
+  screen-proportional tolerance, so it is hit-tested BEFORE the arbitration
+  (`field-host.gizmoAxisAt` → `gizmo.pickAxis`) and beats both tiers — including the
+  footprint box every handle is drawn on top of.
+- **Terrain occlusion is a `maxT`, inclusive.** `pointerPick` casts one `field.raycastField`
+  at `PICK_RANGE_M` (`= DIG_RANGE_M`, 30 m) and passes the hit distance — or the probe's own
+  range when it missed, because nothing past that range was tested. The bound is inclusive
+  because occlusion means strictly BEHIND, and a carve entity's footprint face lying on the
+  rock face it carved is the normal case. The cast is slice-coherent (`sliceOpts()`) like
+  every other cursor-driven raycast, and is skipped when the eye is in rock.
+- **A prop click selects the entity that PLACED it.** A placement record is not an
+  independently editable object here; `field-placements.placementOwners` pairs each record
+  with the span that claims it. The OBB test uses the record's own frame
+  (`field.collisionCenter` + `proxyScale`), not the 24-float `proxyCorners` the wireframe
+  allocates.
+- **A flag's pick volume is its anchor CELL**, `field-flags.flagCellBox` — the same box the
+  camera frames and the selected outline draws, on the same half-cell lift
+  (`flagMarkerCenter`) the instanced matrices use. Deliberately not the drawn
+  `FLAG_MARKER_SIZE_M`: a 0.18 m pin is a hard click target.
+- `pickCandidates()` honours the layer gates for props and flags — **what you cannot see you
+  cannot select** — but NOT for entity footprints, because the `selection` layer hides the
+  emphasis box and a hidden box is not a hidden entity.
+
+`pointerPress` resolves three outcomes and **the order IS the arbitration**: a gizmo handle
+starts a constrained drag on the press with no threshold (nothing competes for a handle
+press); a press on the ALREADY-selected entity arms a pending drag and does nothing else;
+anything else is the plain pick. That middle rung is what makes a first click on an entity
+safe — an unselected entity is selected and nothing is armed, so the first click can never
+shove it. `DRAG_THRESHOLD_PX = 4`, measured from the press rather than accumulated.
+
+### 21.2 One selection, two surfaces — the `subscribeEntitySelection` seam
+
+`FieldHost.selectEntity(entityId | null)` and `subscribeEntitySelection` replace the
+`highlightEntity` display verb, which was **deleted rather than deprecated**. There is one
+selection concept: the state a `pointer` click writes is the state a palette row writes, so
+the two surfaces cannot disagree about what is selected.
+
+- `setSelectedEntity` is the **single mutator**, whoever is asking — a pointer click, the
+  public verb, an entity leaving the log, a world reset. There is deliberately no second
+  "clear" entry point. It validates against the log (an id no entity op carries selects
+  NOTHING rather than reporting — the ids come from a list that can lag it) and re-selecting
+  what is already selected notifies nobody, which is what lets the seam's "pushed on every
+  change" contract be read literally.
+- The selected entity wears its stamped **footprint box in the theme's `--primary`** — the
+  union of its span's op bounds, falling back to the recorded region only for a pure
+  placer's span. That emphasis rides the `selection` layer gate; the selection itself is not
+  display state and survives the layer being off.
+- The seam is **independent of `subscribeSelection`**, which carries the CELL selection that
+  masks ops. Neither verb disturbs the other, so both can stand at once.
+
+**`shell/EntitiesPalette.tsx` is the layers panel now (D-14)** and its rows are the other
+half of the sync. A row click calls `host.selectEntity` (the write half) and toggles its own
+read-only params `<dl>`; the id coming back down the seam styles the row with
+`aria-current`, and a `scrollIntoView({ block: "nearest" })` keyed on the SELECTION ALONE
+brings a viewport-made selection to a row that may be scrolled out of view.
+`field/EntitiesList.tsx` carries the row verb set — Open, freeze ❄ / unfreeze 🔓, bake ⬇,
+delete 🗑, each through one `RowVerb` component that owns the wrapper a disabled button needs
+(a disabled button swallows the pointer events a `title` wants, so the reason rides the
+`aria-label` too). **Duplicate is deliberately NOT a row verb** — D-14's glyph map puts ⬇ on
+bake and the mock puts duplicate in the burger. The `Δ` drift badge appears on any row the
+standing report touches; membership is the HOST's answer, pushed as
+`FieldDriftReport.entityIds` and turned into a `ReadonlySet` by the provider, so a badge
+cannot outlive the geometry it points at.
+
+Esc's third rung clears the entity selection, and `F` (`view.frame` →
+`FieldHost.frameSelection`) frames the selected entity's footprint, else the cell selection's
+AABB, else reports "nothing selected to frame" — a FIXED priority rather than a recency
+rule, because an object selection names one thing and a cell selection names a volume.
+
+### 21.3 Move, delete, duplicate — and a move IS a reconfigure session
+
+**`FieldHost.beginMove(entityId)` opens exactly the session `openEntity` opens** — the same
+refusals (unknown id, frozen, baked, retired generator, all runtime-quiet through
+`subscribeToolError`), the same ghost, the same terminal verb. What it adds is a MODE: the
+session is flagged `StampSession.moving`, and the CURSOR drives the region. That is the
+load-bearing decision of the whole verb — nothing is written to the log until the drop, so a
+cancelled move costs nothing and leaves no history entry, and the drop is one ordinary
+reconfigure splice.
+
+`viewport-host/field-move.ts` owns the arithmetic and is pure, for `field-pick.ts`'s reason:
+
+- The mapping is **anchored, never incremental**. Every reading asks where the cursor is
+  relative to the last anchor and applies the DIFFERENCE against what has already gone to
+  the region, so rounding cannot compound over a drag and a cursor returned to the press
+  point returns the region to where it started.
+- The **first anchor is taken at the PRESS**, not at the event that crosses the threshold, so
+  the travel that opened the move is not silently lost.
+- `resolveMapping` promotes a free ground drag to the **vertical axis under ⇧** (the arrow
+  pad's own rule — a ground-plane drag has no way to express height); a gizmo drag is
+  `fixedAxis` and ignores it. `movePoint` returns `null` — meaning HOLD STILL — when the view
+  cannot answer: edge-on to the plane, behind it, or within ~8° of the axis.
+- `unanchored` retires the anchor AND the press pixel on a camera change mid-move. Both go,
+  because a world point read under the old view and the pixel that produced it both lie after
+  the camera turns; `reanchored` carries `applied` forward, so the re-anchor moves the region
+  by exactly zero.
+- Steps are whole `LATTICE` (0.5 m) units, handed to the same `nudgeStampRegion` the arrow
+  keys drive. There is deliberately **no travel clamp** — the field has no world bounds, and
+  the d-pad has none either.
+- `moveIsIdle` is the zero-step rule: a grab dropped where it started ends the session rather
+  than spending a history entry. Known limit, filed rather than papered over — it reads the
+  CURSOR's accumulated steps, so a grab moved only by the arrow keys reads as idle and is
+  discarded (`docs/backlog/editor-and-tooling/grab-nudged-by-arrows-reads-as-idle.md`).
+  Routing both ⏎s through one verb is what keeps that a single defect rather than a
+  difference between two keys.
+
+**`viewport-host/gizmo.ts`** is the translate handles' pure math — `gizmoSpan` derives the
+geometry from the selected footprint and `axisLines` emits the `drawLines` pair, so the drawn
+arms and the picked arms are the same span. `pickAxis` culls an axis within `VIEW_PARALLEL_COS`
+(~8°) of the view ray, where a hit-distance test is meaningless. The arms narrow to the
+constrained one the moment a drag owns them (`activeGizmoAxis`); a free ground drag keeps all
+three, because it has no single axis to name.
+
+**Delete** is `FieldHost.deleteEntity` over core's **`deleteGeneratorEntity`** (new core
+surface this slice — `docs/reference/core-modules.md` carries its contract): the span AND its
+entity op are spliced out, the chunks the span wrote rewind, and the downstream ops reaching
+them replay on top, so the log reads as though the stamp had never been committed with every
+later edit preserved. ONE undo entry. Core is setup-loud on all three refusals (unknown id,
+frozen, baked) and this is the editor, so each throw is caught and reported verbatim on the
+tool-error seam. Its `dirty` set can be EMPTY without nothing having happened: a
+placements-only entity writes no cells, so deleting a scatter dirties nothing while every prop
+it placed leaves the log with it.
+
+**Duplicate** is `FieldHost.duplicateEntity` — a fresh `commitGenerator` from the record's own
+provenance, not a second reference to it. It offsets +X by the original's footprint extent
+snapped up to the lattice (`latticeClearance`), takes a fresh uint16 seed when core's
+**`GeneratorDef.usesSeed`** says the generator READS one (so a duplicated cave or scatter is
+genuinely different, while a hall's copy is not left wearing a different number for an
+identical shape), opens at merge policy `"replace"` because `GeneratorEntity` records none,
+and the copy becomes the selected entity. Frozen and baked entities can both be duplicated —
+the copy is a new commit from recorded provenance, so duplicating is how a baked stamp's
+recipe becomes live again.
+
+Reach: ⌫ / Delete is `edit.delete`, **⌘J** is `edit.duplicate` — not the mock's ⌘D, which
+Safari owns as add-bookmark and does not let a page intercept — and **G** is `edit.grab`. All
+three refuse with no selected entity, and delete and grab refuse during a session as well
+(deleting the entity under a reconfigure, or replacing the session a `G` would open, both
+discard work the user is still doing). The delete confirm names the op count, because a row
+reads "1 ops" for a scatter that takes every prop it placed with it; the row's 🗑 and the menu
+item raise the same App-owned prompt, though the sentence is spelled in both
+`shell/EntitiesPalette.tsx` and `lib/actions.ts`.
+
+### 21.4 The action registry, the window dispatcher, and the RMB-gated fly
+
+**`frontend/lib/actions.ts` is the editor's one action registry** (D-10/D-11/D-12): per action
+an id, a group, a contextual `label`, an `enabled` predicate, the display chord, a one-sentence
+`hint`, a `match` predicate, a `gate`, the `armsTool` / `flyLetter` flags and a `menuTitle` for
+a reason that will not fit in a label. The module is pure and DOM-free (`KeyboardEvent` appears
+as a type only), and it type-imports the host like every other chrome module.
+
+Six surfaces render from it, which is what stops a binding from being live and undocumented or
+documented and dead: the window key dispatcher (`hooks/useGlobalKeybindings.ts`), the burger's
+World/Edit/View groups (`shell/BurgerMenu.tsx`), the shortcuts overlay
+(`shell/ShortcutsDialog.tsx`), the tool rail through `TOOL_FAMILIES` (§21.8), the top bar's
+Bake button, and the status bar's selection-chip popover. The `tool` and `session` groups are
+deliberately absent from the menu — arming a brush and ending a session are the rail's and the
+viewport's, and the overlay is where they are discovered.
+
+**`hooks/useActionContext.tsx`** assembles the `ActionCtx` those predicates read (host, armed
+tool/gesture, session, both selections, stats, world, view, workspace, the generator registry,
+the ⇧S stamp cursor, the pending stamp arm, the two history labels) and owns the ONE window
+keydown listener. It is a PROVIDER rather than a hook the shell calls, and that is load-bearing
+for render cost: assembling the ctx reads values that move on every op and every drag frame, so
+doing it inside `ShellChrome` would rebuild the palette body elements per pointermove. Here
+`children` arrive already built. The listener binds ONCE and reads the ctx through a ref written
+in an effect — a render React discards must not leave its ctx behind as the one the next
+keypress acts on.
+
+**Who owns a key.** Two keydown listeners. The canvas (`viewport-host/field-host.ts`) keeps the
+keys that steer the viewport under the pointer — the fly set, `[`/`]`, the arrow nudges, the
+momentary ⇧/⌃ — plus first refusal on ⌘Z, ⏎, Esc, R and F. Everything else is the registry's, on
+`window`, which is the only listener that carries the gates and the only one that still works
+after a palette click takes the canvas's focus. Where both bind one key the canvas branch that
+ACTS calls `stopPropagation`, and that call is the whole licence for the second owner.
+`preventDefault` fires as soon as the gate ALLOWS an action, *before* `enabled` is consulted:
+at that point the key is claimed, and a disabled ⌘S must still suppress the browser's save-page
+sheet. A REFUSED action prevents nothing, so the character the user is typing still reaches
+their field.
+
+**The gate** (`gateAction`, and `clickGate` for a pointer press on the same verb, so a button
+and its key refuse for the same reason in the same words) has two classes plus two per-action
+flags:
+
+| Class / flag | When the key may fire |
+| --- | --- |
+| `chord` | ⌘/Ctrl chords. Live everywhere **including inside a text input**, because the browser default they replace is worse. |
+| `typed` | Every bare letter plus ⌫, Esc and ⏎. Refused when the focus is in a text input, and nowhere else. |
+| `flyLetter` | Refused while `FieldHost.isLooking()`. Declared per action rather than per class — `S` / ⇧S are the whole membership, because `readFlyMove` reads only w/a/s/d/q/e and a blanket rule would kill `R` and `F` mid-orbit for no collision at all. |
+| `armsTool` | Refused while a session is live, **with a toast**, because a key that looks dead teaches the user it is dead. |
+
+A modal confirm suppresses every class. "Text input" means TYPED TEXT ENTRY, not "focusable
+form control": `lib/keybindings.ts` matches textarea, select, contentEditable and the textual
+`<input>` types, and deliberately NOT `range`/`checkbox`/etc. Both directions of that line cost
+something real — a matched slider makes `V`/`B`/`F` dead on the control users drag while looking
+at the field, and an unmatched `<select>` lets the Esc that dismisses its popup run the cancel
+ladder and discard a live session.
+
+**WASD/QE fly ONLY while the right button is held** (D-10, the Unity mechanism). `applyFlyMove`
+returns immediately unless a look drag is running, and the gate lives there rather than at the
+key handler because `keys` still collects w/a/s/d/q/e whatever the button is doing. That gate is
+what buys the bare-letter budget the registry spends: `S` is fly-backward *and* the stamp
+family, and the button is what decides which. `isLooking()` is a POLL rather than a subscription
+— the button goes down and up between renders, so a mirrored boolean would answer for a frame
+that has already gone.
+
+**Esc is a five-rung LADDER**, one shared `escapeLadder()` behind both entry points so they
+cannot disagree about the order: a half-drawn box/segment anchor, then the pending stamp arm
+(§21.8), then the live session (a move included), then the selected entity, then the cell
+selection — which is PARKED in the Reselect slot, so an Esc that went one rung too far has the
+same way back a Clear does. It returns whether it acted, which is how the canvas branch knows
+whether it has claimed the event.
+
+**Undo/redo go straight to the host: the field's op log IS the editor's history** (§21.6). ⏎ is
+`FieldHost.confirmSession()`, public precisely because `beginMove` does not focus the canvas — a
+grab started from the Edit menu, or by `G` with a palette control focused, has no canvas
+listener to answer the "⏎ drop" the status bar advertises.
+
+### 21.5 The session card — three states over one control set
+
+**`shell/SessionCard.tsx` (D-13) is the editor's properties surface**, and the successor to both
+the F2b stamp inspector and the whole dock-era Inspector concept. Its state is decided by two
+host facts alone — is there a session, is an entity selected — and by nothing it remembers:
+
+| State | Subject | ⏎ / Esc |
+| --- | --- | --- |
+| **CREATE** | a `stamp` session; there is no entity yet, so it is about a REGION | commit / discard |
+| **REST** | an entity is selected, nothing is armed; values come off the committed RECORD and no ghost previews | *no verbs at all* |
+| **RECONFIGURE** | a `reconfigure` session (a MOVE is one, flagged); values come off the SESSION and the ghost previews live | apply / revert — **drop** / revert for a move |
+
+**Two sources, one selector.** Rest reads the record, reconfigure reads the session, the card
+PICKS on `stamp !== null` and never merges them — which is the whole answer to how they stay in
+agreement: they do not have to, because only one is on screen at a time. A card that blended
+them would show a number no surface is about to build.
+
+**The promotion** is the subtlest thing here. In REST, the first control the user COMMITS
+through opens a reconfigure carrying that edit, and four rules hold it together: a TOUCH is a
+commit and never a preview (every text field previews per keystroke, so promoting on preview
+would open, cancel and re-open a session per character, on "1" while the user typed "12"); the
+touch that promoted is parked as a `PendingTouch` and pushed through `updateStamp` against the
+SESSION's own seed and policy (the merge policy in particular is not recoverable from the
+record); it paints ONCE, which took two mechanisms — `openEntity` publishes the session
+synchronously so the touch and its arrival land in one React batch, and the parked touch is
+applied from a **layout** effect because a passive one runs after paint and the value that would
+flicker is the number the user just typed; and a REFUSED promotion drops its touch, because
+`openEntity` is runtime-quiet on an unknown id, a frozen/baked entity and a retired generator,
+and a surviving edit would land on whatever session opened next.
+
+The card **owns no lifecycle verb** (D-14, user ruling): freeze, bake and delete are the entity
+ROW's, because they change what an entity IS rather than what it holds. `SeedRow` is gated on
+core's `def.usesSeed` — a hall never reads its seed, so a field and a ⚄ for it are two controls
+that do nothing. A frozen or baked record renders `ReadOnlyParams` instead of a form, because
+`openEntity` refuses them and live controls would be a form whose every edit reported a refusal.
+The four leaves in `shell/session-card/` (`SeedRow`, `AdvancedSection`, `ReadOnlyParams`,
+`SessionFooter`) are presentational and hold no host knowledge; the file itself keeps the
+selector, the promotion, and the two funnels (`push` / `promoteThen`) every control writes
+through.
+
+**`SessionCardPresence`** is the card's open state, driven. It is a sibling component rendering
+`null` rather than an effect inside the card, because the layer unmounts a closed palette's body
+and the thing that opens a palette cannot live inside it. It is keyed on the **subject**
+(`subjectKey`), not on the open flag, which is the whole "is this annoying?" answer: closing the
+card with its × is a statement about the thing you were looking at, so the same subject pushed
+again leaves it closed while a DIFFERENT subject re-opens it. `PALETTES.session.drivenOpen`
+records the consequence — geometry and collapse are still the user's and still persisted, but
+`open` is neither.
+
+**D-25's forms vocabulary** landed in the same slice and the session card is its one consumer
+(`SchemaForm` has no other caller left). The decision lives in `inspector/kind.ts`'s
+`resolveKind`, not inside the renderers, because the registry's contract is ONE lookup — kind in,
+renderer out:
+
+- an `enum` of at most `SEGMENTED_MAX_MEMBERS` (4) is a **segmented** radiogroup, one tab stop
+  with arrow-key navigation; above that it stays a Select. The MEMBER commits, never its label.
+- a bounded numeric that is INTEGRAL and spans at most `STEPPER_MAX_STEPS` (12) intervals is a
+  **stepper** (− exact +) — `cave.chambers` runs 2..6, and on a 120 px track the difference
+  between 3 and 4 chambers is a pointer twitch. Anything else bounded is a **slider** with a
+  scrubbable label and an exact input beside it.
+- `inspector/lib/numeric-schema.ts` **never guesses the step**: `multipleOf` when the schema
+  declares one, `type: "integer"` when it declares that, otherwise a 1-2-5 ladder near
+  `span / TARGET_STEPS` (100). Core's generators validate params setup-loud from inside the
+  preview worker, so an off-grid value comes back as a thrown string one round trip later.
+- the scrub takes `setPointerCapture` on the label, because this palette floats over a canvas
+  that orbits on pointermove and the two are DOM siblings; `pointercancel` gets its own handler
+  and deliberately does **not** commit.
+- `UnitSuffix` prints `schema.furnace.unit` and nothing when the schema declares none.
+- a `FieldRefusal` reported up from `SchemaForm` disables the commit verb and names the offending
+  field — and it **outranks** the preview-settled gate, because a refused param never previewed.
+
+The same commit pruned the inspector's orphans of the deleted scene surface —
+`EntityRefField`, `ResourceRefField`, `options.ts` and the `ref-options` / `resource-kind` /
+`resource-refs` / `common-components` lib modules all deleted.
+
+### 21.6 ONE named history — the seam and the palette
+
+**`viewport-host/field-history.ts` derives what each undo/redo step DID, in words**
+(D-F4.5-11). Core's `LogEntry` carries no label field and deliberately so — a label is a
+presentation fact that would have to be authored at every push site and serialized into worlds it
+has no business being in. It is derivable instead, and this module is the one place the
+derivation lives, so the burger's "Undo dig" and the palette's rows cannot disagree.
+
+- It reads core's `FIELD_GENERATORS` constant for display names and **deliberately not
+  `generatorById`**, which is setup-loud on an unknown id: a world file can name a retired
+  generator, and a label that threw would take down every surface rendering history. The id is
+  the fallback.
+- `entryLabel` is total over `LogEntry` and, through `opsEntryLabel`, over `FieldOp` — enforced
+  by an `unhandled(value: never)` function rather than a trailing default, written as a function
+  because an unused `const _: never` is what Biome's `noUnusedVariables` removes and a guard a
+  formatter can delete is not a guard.
+- A `splice` with empty `inserted` is a **delete** (`deleteGeneratorEntity` is reconfigure's
+  splice with no replacement); a splice whose region moved while seed and params settled is a
+  **move**; anything else is a **reconfigure**. An `entity-update` checks **baked before
+  frozen**, because `bakeGeneratorEntity` clears `frozen` as part of severing the recipe and
+  asking about `frozen` first would call the one irreversible verb an "unfreeze".
+- `HISTORY_TAIL = 50` (Photoshop's own default) bounds the PAYLOAD, never the history: `⌘Z` still
+  reaches everything. `FieldHistory` carries the true stack depths beside the arrays so a
+  consumer can say how much it is not showing, and both arrays are **newest-last** — `undo.at(-1)`
+  is exactly what ⌘Z would step.
+
+**`subscribeHistory` is the twelfth host seam and `useFieldHistory` the ninth context** — §20.7's
+figures of eleven and eight both moved here. The host publishes only when the log's two entry
+stacks really moved (several paths tick the entity list without touching them), which is why the
+provider's mirror needs no comparator, and the context DEFAULTS rather than throws because an
+empty history means "nothing has been done yet", which is exactly true outside a provider.
+`useActionContext` reads the top of each stack for `Undo ${label}` / `Redo ${label}`, off the
+LABELS rather than off `stats.undoDepth`: the depth says whether there is a step, the label says
+what it is.
+
+**`shell/HistoryPalette.tsx` is a STEPPER, not a seeker**, and that is a contract rather than a
+simplification. Core's undo/redo are strictly LIFO — each entry's chunk images assume the state
+below it and `splice`/`entity-update` entries address `log.ops` positionally — so there is no
+honest way to build a seek on these primitives. A row click therefore calls `undo()` (or
+`redo()`) N times, which is exactly what the user could have done with N presses. If the log
+moves between the render and the click, the click still takes N legal steps, just not to the
+state the row named; that cannot corrupt anything, because "N steps" is meaningful against any
+log where "seek to entry 7" would not be. Rows run newest-first with the current position implicit
+at a divider — redo above, undo below — so time runs downward into the past, the inverse of
+Photoshop's list and the right way round for a panel whose top line answers "what did I just
+do?". Both sides report what they are not showing (`depth − length`), because ⌘Z and ⇧⌘Z really do
+reach past them.
+
+The palette is **summoned rather than always-on**: it starts closed, and the ways in are the
+status bar's `undo N` chip (a button, present even at 0 — a history you have not started is still
+the surface a first-time user should be able to find), the Edit menu's `History…` item, and the
+burger's palette checkbox. `edit.history` deliberately has NO chord: ⌘Y is redo on Windows and
+would teach the wrong thing, and every bare letter in the editor is a tool family.
+
+### 21.7 The Flags palette, viewport flag selection, and cell-level selection display
+
+**`shell/FlagsPalette.tsx`** is §19's `FlagsSection` promoted out of the dissolving control stack
+— same clustering, same verify column, same filters-gate-both rule — with three things a section
+could not have (D-F4.5-15):
+
+1. **The header is a hint, not an indictment.** It leads with `Flags · N candidates` and demotes
+   the raw total to a secondary line. Same data; the difference is whether opening the palette
+   feels like being told off. The count is read off `byKindSeverity`, which describes everything
+   FOUND, so unticking a chip can never make it read "nothing wrong here".
+2. **The viewport is the primary selection surface.** Clicking a marker selects it and the list
+   follows; clicking a row selects it and the CAMERA follows. Neither direction is wired to the
+   other — both read `summary.selected` off the one seam.
+3. **The filters persist** (D-F4.5-3), through the host-state provider's `UiStore` at
+   `flagFilters` with a 200 ms debounce. They live in the provider rather than in the palette
+   because the host outlives every palette and a surface that re-pushed its defaults on each
+   remount would silently untick the user's bands.
+
+Rows are clustered by `bandKey` (kind / severity / demotion) and then greedily agglomerated at
+`CLUSTER_RADIUS_M = 2` single-linkage, so a run of pinches along a corridor chains into one row;
+candidates float to the top with a stable sort. `FlagFilters` has four chips, of which only
+`candidates` and `info` are severity bands: `unreachable` and `pits` are one-sided VETOES —
+un-ticking the first hides the findings the reachability pass DEMOTED, un-ticking the second
+subtracts traps from the candidate band. `pits` therefore **defaults ON** while `info` and
+`unreachable` default off, because a pit carries `severity: "candidate"` and the candidates chip
+beside it already claims to be showing it.
+
+**Selection (D-15).** `FieldHost.selectFlag(key | null)` publishes on the flags seam itself rather
+than on a seam of its own — a highlight and the rows it highlights have to arrive together, or a
+palette paints a selection against a list from a different analyzer response. The seam count did
+NOT go up for it. The store **retains** the key verbatim and `summary()` **resolves** it against
+`visible` at publish time, which is what gives the two ways a key stops resolving their opposite
+treatments for free: a filter that HID the row publishes null and ticking the band back brings the
+selection back, while a re-analysis that RETIRED the finding publishes null and nothing resurrects
+it. The published invariant is checkable — `selected !== null` implies exactly one `visible` row
+carries it.
+
+Emphasis is **size and outline, never colour**: `flagMarkerStyle` returns the row's own
+`flagTint` in both branches and scales the marker by `FLAG_SELECTED_SCALE = 1.6`, and the
+`--primary` half of D-15 rides the anchor CELL's outline. Re-tinting would delete the
+trapped/clear/candidate signal from the one row the user is looking at. `selectFlag` frames that
+same `flagCellBox` — one `store.cellSize` on a side, 0.25 m at the default lattice, where the
+route it replaces framed the finding's whole chunk (sixteen cells, 4 m at that default) and left
+the user hunting inside the box. The viewport's own marker click deliberately does **not** frame:
+the user is already looking at what they pressed. Refusals are one-way and synchronous — a key
+naming no VISIBLE finding reports on the tool-error seam and changes nothing.
+
+**Cell-level selection display.** `viewport-host/field-selection-cells.ts` draws a flood
+selection's actual cells instead of one AABB outline, because a 200 000-cell flood in an open
+world encloses the camera and the only thing telling the user what they had selected was a box
+they were standing inside. Drawing 200 000 blended cubes is not the fix either:
+`SELECTION_DISPLAY_CAP = 65_536` is the budget and **surface-first** is what makes spending it
+well possible. A cell with all six face neighbours selected is buried and contributes nothing but
+blend cost, so it is the first thing the cap discards; the shell is emitted first, and a truncated
+draw is therefore a partial shell rather than an arbitrary subset. The membership reader keeps a
+one-entry chunk cache and decodes the bit layout itself, because core's `selectionHas` builds a
+`chunkKey` string per call and the six-neighbour test would make 1.2 M string allocations on a
+full-budget flood. Chunk boundaries need no special case — the probe looks up the neighbour's own
+bitset and a missing chunk reads unselected, which is correct. **Region selections keep their
+honest AABB box**: a region IS its box. When the cap bites, `SelectionInfo.displayed` says so
+rather than the display silently under-reporting, and the status bar's selection chip carries the
+sentence along with Clear / Reselect.
+
+### 21.8 The tool rail, the top strip, the session strip
+
+**`shell/ToolRail.tsx` (D-8) is a fixed 44 px column** down the left of the canvas cell. It is a
+COLUMN, not a palette: it cannot be closed, moved, collapsed or resized, so it is part of the
+cell's constant inset the way the two bars are, and it lives in the shell's body ROW as a sibling
+of the cell rather than in the palette layer above it. Everything a palette can do to the canvas,
+this must not do (D-1).
+
+Every button renders from `TOOL_FAMILIES` and dispatches that family's registry action, so the
+rail and the family keys (`V`/`B`/`M`/`S`) are two views of one table:
+
+- **A click arms the family's CURRENT member and never cycles.** The rail is a mode selector;
+  pressing the mode you are already in is idempotent, and cycling has its own affordance (⇧ + the
+  letter, and the flyout).
+- **A multi-member family carries a member flyout**, and it is the most load-bearing affordance
+  in the file: deleting `ToolPalette` (which had one button per member) would otherwise have
+  orphaned Fill / Paint / Smooth / Segment, Wand / Room, and every generator past the first. It is
+  a 24 px target directly below the family button rather than the mock's 14 px corner tick,
+  because a 44 px column has no room for both a compliant target (WCAG 2.5.8) and the family
+  button's own hit area.
+- **The pressed family carries the inverted fill**, and keeps full strength when it is also
+  REFUSED — a refused family that is armed is the live session's own family, and dimming it would
+  make "the strongest element in the rail" a 40 %-opacity claim.
+- Refusals come from the registry's `armsTool` clause through `clickGate`, so the button and the
+  key refuse in the same words, and they carry `aria-disabled` rather than `disabled` — a
+  `disabled` button leaves the tab order, and the refusal sentence rides the accessible NAME
+  precisely so a keyboard user gets it.
+- The whole column is ONE tab stop with a roving tabindex (D-26), written onto the DOM in a layout
+  effect rather than passed as a prop so the rows stay memoizable.
+
+The rail is the one always-mounted action-context consumer, and its model is memoized on exactly
+the ctx FACTS its four rows read — never on `ctx` itself, and for the session never on the session
+OBJECT, which the stamp seam re-clones at pointer rate during a grab.
+
+**`shell/ToolStrip.tsx` (D-6/D-7) is the top bar's middle**: what is armed, and the knobs that
+steer it, in three shapes. The brush family gets params; the cell-select family gets its mode name
+and the one static fact that bounds it (`snaps to 0.5 m` for a box, `budget 200k` for the two
+floods — a budget note on Box would name a limit that cannot fire); the pointer gets a READOUT of
+what is selected, because direct manipulation's parameter is the selection itself, named through
+the registry's own `entityName` so the strip, the rows and the menu labels cannot call one object
+three things.
+
+**The capacity rule (D-6)** is what keeps the strip from moving the canvas: it is ONE flex row that
+never wraps and never changes height, held by `overflow-hidden` plus a per-effect container query
+(`STRIP_PARAMS_MIN`) that hides the whole param group at once and degrades the strip to `name + ⋯`.
+That degradation is only safe because `shell/StripOverflow.tsx` holds the effect's WHOLE option
+list, of which the strip renders a prefix — ONE list in `shell/tool-params.tsx`, two renderings, so
+"the ⋯ holds everything the strip shows plus the rest" is structural rather than a promise. The two
+non-brush branches have no threshold, deliberately: their content is one short span that cannot
+overflow, and content that never hides is never unreachable.
+
+**`shell/SessionStrip.tsx` replaces the tool strip while a session stands** (mock frame 2) and
+answers the three questions the tool strip cannot: WHAT is being edited, WHICH of the three states
+it is in, and HOW it ends. `lib/field-session.ts` owns `sessionName` and `sessionStateTag` so the
+strip and the card cannot disagree about either. The verbs here are READOUTS, not buttons — the
+clickable pair lives on the session card, which auto-opens on the very session this strip is
+describing. `R` is shown only where it can act: a MOVE is decidable from here (it is a region
+translation) while a generator's rotation is not, so the key hides where it is CERTAINLY dead and
+stays where it is merely possibly dead.
+
+**D-7's staged grammar** landed across the same three surfaces. A session SUSPENDS the brush:
+`suspendedByStamp()` swallows an LMB stroke and the segment click alike (the segment brush reaches
+the store through its own branch and needs its own guard), saying so once per session, and the
+`armsTool` gate refuses the family keys — `X` among them, since the brush it swaps cannot stroke.
+And a stamp picked with **nothing selected** now enters region-draw instead of refusing:
+`FieldHost.startStamp` arms a `PendingStamp`, published on `subscribePendingStamp` because the host
+owns both halves of the question — whether picking a stamp opened a session or asked for a region,
+and every path that ends the arm. Four surfaces read it (the rail's pressed family, the status
+keymap, the canvas cursor and the host's own click routing), and inferring it in the chrome is how
+they would disagree. The arm SHADOWS the armed gesture: while one stands LMB is drawing a region
+whatever the gesture slot still says.
+
+**`viewport-host/viewport-cursor.ts`** is D-F4.5-8's third arming channel, and its two decisions
+live together because they have to agree: the CSS keyword under the pointer (`grabbing` / `grab`
+for a live move, `cell` for the two-click gestures, `crosshair` for the one-click commits,
+`default` for the pointer and for anything a session has suspended) and the world-space mark drawn
+before the first click (`ring` for the segment brush, whose sweep really is `digRadius` thick;
+`cross` for a box corner and a pending stamp's region corner, neither of which has a radius).
+
+The status bar's `armedKeymap` is the fourth channel and is **hand-enumerated rather than derived
+from the registry**, deliberately: the registry knows what a key RUNS, not which four of two dozen
+bindings matter in a given mode, and half of what belongs on that line is canvas-owned keys the
+table does not carry at all. Its modifier clause is derived (`modifierParts`) rather than static,
+because `deriveMomentary` swaps dig↔fill symmetrically and passes ⌃ through under paint and smooth
+— a static clause named three keys the host does not bind.
+
+### 21.9 What is left of FieldPanel — nothing
+
+`FieldPanel.tsx` is **deleted**, and the `controls` palette id retired with it. The panel's organs
+went to five places over the slice: the tool palette and brush inspector to the rail and the top
+strip (§21.8), the stamp inspector to the session card (§21.5), the flags section to its own
+palette (§21.7), the selection count and its verbs to the status bar's chip, and the entity list to
+the entities palette back in F4.5a (§20.7).
+
+`PALETTE_IDS` is now `entities`, `session`, `flags`, `history`, `log` — and `controls` is the first
+id to actually exercise the closed union: a blob written by any earlier build still carries a
+`controls` record, and `deserializeWorkspace` drops it on the floor exactly as it drops an id that
+never existed. **Nothing migrates the stored shape**, which is the whole reason the union is closed
+in `lib/palette-store.ts` rather than inferred from whatever the blob happens to contain. No default
+claims an EDGE any more — `controls` was the only one that docked — so the open defaults live in a
+left column (`entities` at the top, `flags` below it) with `session` and `history` in a second at
+x = 420, leaving the top-right clear for the axis triad, the bottom-left clear for the
+collapsed-chip rail, and the whole right half of the cell unclaimed until the user docks something
+there.
+
+`hooks/useFieldHostState.tsx` now carries **all twelve seams through nine contexts** and remains
+the ONE subscription point: every `FieldHost.subscribe*` seam is a single slot, so a second
+subscriber silently steals the first's, and no surface below the provider may re-subscribe to
+anything it owns. That rule is a claim about the SET rather than about any one surface, which
+is why its test outlived the panel it used to live in
+(`tests/chrome/host-seams-and-catalogs.test.tsx`).
