@@ -1154,7 +1154,10 @@ mind.
   project's capsule and a guessed one would be the advisor inventing its own premise, so with
   no profile the pending flags accumulate (an install later catches up in full), nothing goes
   out, and the host says so ONCE — "walkability advisor idle — this project installs no agent
-  profile" — at the first edit that would have analysed. Reachability + pit SEEDS are the
+  profile" — at the first edit that would have analysed, as a **`warn`** rather than an
+  error (`ToolErrorSeverity`): the advisor is behaving correctly and no verb was refused, so
+  this must not light the ⚠ chip on an otherwise clean boot. It is the only `warn` the seam
+  sends; every refusal on it, `verifyFlag`'s included, stays `error`. Reachability + pit SEEDS are the
   loaded world's manifest `playerStart`, and EMPTY for a new world honestly so: both passes
   refuse an empty seed set outright rather than demoting everything or guessing where the
   agent enters. `FieldStats.analyzerPending` is 0–2 (1 in flight + 1 queued; the latch admits
@@ -1501,15 +1504,18 @@ timer are **injected** — a store that called `Date.now`/`setTimeout` itself co
 tested by waiting.
 
 - `TOAST_CAP = 3`, `LOG_CAP = 200`, `TOAST_TTL_MS = 4000`.
-- **Errors never auto-fade** — they hold their slot until dismissed. Everything else is a
-  report on something that already finished, and reports should leave.
+- `NotifySeverity` is `info | success | warn | error`. **Errors never auto-fade** — they
+  hold their slot until dismissed. Everything else, `warn` included, is a report on
+  something that already finished, and reports should leave.
 - **The cap does NOT evict.** A message arriving against a full stack becomes log-only
   (`toasted: false`) rather than pushing the oldest toast off, because the thing a flood
   of infos would push off is exactly the undismissed error D-19 exists to protect.
 - `overflow` (how many logged messages never got a slot) is **derived from the surviving
   entries**, not accumulated — a running counter would eventually read "200 messages · 997
   not shown", two numbers about the same list that cannot both be true.
-- `unreadErrors` drives the status bar's ⚠ chip. The log palette calls `markSeen` **only
+- `unreadErrors` drives the status bar's ⚠ chip, and counts **`error` only** — a warning
+  that lit it would demand attention exactly the way that severity exists not to. The log
+  palette calls `markSeen` **only
   while it is topmost** (its `VisibilityProbe`), so a log buried under another palette
   keeps the chip lit rather than silently swallowing the errors behind it. `markSeen` is a
   no-op when nothing is new, or a palette that marks on render would loop.

@@ -388,6 +388,18 @@ export type FieldLayers = {
   voidCast: boolean;
 };
 
+/** How loud a {@link FieldHost.subscribeToolError} message is.
+ *
+ *  `error` is the default and every REFUSAL's severity — something the user asked for
+ *  did not happen. `warn` is for the report that is not a refusal at all: the advisor
+ *  standing down because the project installs no agent profile is a fact about the
+ *  project, and reporting it as an error opened a clean boot with a red unread badge.
+ *
+ *  The strings are the chrome's `NotifySeverity` members verbatim, so the toast tone,
+ *  the fade rule and the ⚠ chip's count all follow from this one word without a
+ *  translation table in between. */
+export type ToolErrorSeverity = "warn" | "error";
+
 export type FieldHost = {
   /** Acquires the GPU context on `canvas`, builds the materials and starts the render
    *  loop. Throws if a context already exists — one host, one live canvas.
@@ -446,8 +458,14 @@ export type FieldHost = {
    *  selection drop (reported once per pointer-down stroke, re-armed on the
    *  next stroke, so a drag can't spam at stroke rate). Single subscriber
    *  (the shell's host-state provider, which posts each message as a toast);
-   *  returns an unsubscribe. */
-  subscribeToolError(cb: (msg: string) => void): () => void;
+   *  returns an unsubscribe.
+   *
+   *  Each message carries its {@link ToolErrorSeverity}. Every refusal on this
+   *  seam is an `error` — the whole seam was, until the advisor-idle report
+   *  ({@link setAgentProfile}) proved it needed a volume below that. */
+  subscribeToolError(
+    cb: (msg: string, severity: ToolErrorSeverity) => void,
+  ): () => void;
   /** Arms what an LMB click does ({@link ViewportGesture}): `pointer` (entity
    *  select — what a fresh host is ALREADY armed with), a cell-selection
    *  gesture (`box`/`material`/`void`), the two-click `segment` brush, or
@@ -1045,7 +1063,9 @@ export type FieldHost = {
    *  A GATE, like the material table is for a kit fill: with no profile the
    *  advisor posts nothing at all, and the first edit that would have analysed
    *  says so ONCE through {@link subscribeToolError} rather than repeating at
-   *  stroke rate. Nothing else is refused — every verb still works, because the
+   *  stroke rate — as a `warn` ({@link ToolErrorSeverity}), because an idle
+   *  advisor over a project that installed no profile is not a failure of
+   *  anything. Nothing else is refused — every verb still works, because the
    *  advisor never blocks one (D-F4-1).
    *
    *  Installing catches the world up in full: the mirror re-syncs and the next
@@ -1526,8 +1546,9 @@ export function createFieldHost(deps?: {
   let momentaryCtrl = false;
   // Panel mirror for host-initiated tool changes (eyedropper, momentary).
   let toolCb: ((t: FieldTool) => void) | null = null;
-  // User-facing tool-problem channel (the chrome's toast stack + message log).
-  let toolErrorCb: ((msg: string) => void) | null = null;
+  // The user-facing message channel (the chrome's toast stack + message log).
+  let toolErrorCb: ((msg: string, severity: ToolErrorSeverity) => void) | null =
+    null;
   // Once-per-GESTURE guard for the "selection mask but no selection" report.
   // The gesture whose repeats need suppressing is the drag: a stroke re-arms
   // this at pointer-down, so one 40ms-throttled drag reports once. The segment
@@ -2309,11 +2330,18 @@ export function createFieldHost(deps?: {
     radius,
   });
 
-  // Report a user-facing tool problem: console (developer trail, the F2a
+  // Report something the user should see: console (developer trail, the F2a
   // behaviour kept) + the panel subscriber.
-  const reportToolError = (msg: string): void => {
+  //
+  // `error` by default because every refusal is one, and a refusal is what almost
+  // every caller here has. A caller passes `warn` only when nothing went wrong;
+  // exactly one does today, the advisor-idle report.
+  const reportToolError = (
+    msg: string,
+    severity: ToolErrorSeverity = "error",
+  ): void => {
     console.warn(`field-host: ${msg}`);
-    toolErrorCb?.(msg);
+    toolErrorCb?.(msg, severity);
   };
 
   // The host's current selection spec for a selection-mask op (null = no
@@ -4025,8 +4053,12 @@ export function createFieldHost(deps?: {
     if (profile === null) {
       if (!profileMissingReported) {
         profileMissingReported = true;
+        // A WARNING, not a refusal: the advisor is behaving correctly and every
+        // verb still works. As an `error` this one sentence was enough to open
+        // the editor with a red unread badge over a world where nothing is wrong.
         reportToolError(
           "walkability advisor idle — this project installs no agent profile",
+          "warn",
         );
       }
       // Every pending flag stays set, so an install later catches up in full.

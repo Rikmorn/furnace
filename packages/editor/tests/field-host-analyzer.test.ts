@@ -40,7 +40,10 @@ import type {
 import { createAnalyzerWorkerHandler } from "../src/frontend/lib/analyzer-protocol.ts";
 import type { WorkerLike } from "../src/frontend/lib/field-client.ts";
 import { createFieldHost } from "../src/viewport-host/field-host.ts";
-import type { FlagsSummary } from "../src/viewport-host/index.ts";
+import type {
+  FlagsSummary,
+  ToolErrorSeverity,
+} from "../src/viewport-host/index.ts";
 import { stubCancelAnimationFrame } from "./_helpers/raf.ts";
 
 /** The dungeon's shipped capsule, restated as a literal (the analyzer-protocol
@@ -210,11 +213,20 @@ function fixture(
     },
   });
   const errors: string[] = [];
-  host.subscribeToolError((m) => errors.push(m));
+  /** Recorded alongside the text, index for index: this file drives BOTH sides of the
+   *  seam's severity split — the advisor-idle report, which is the only `warn` there
+   *  is, and four verify refusals plus an analyzer failure, which must all stay
+   *  `error`. Reading them from one fixture is what keeps either claim from passing
+   *  because the host stopped reporting altogether. */
+  const severities: ToolErrorSeverity[] = [];
+  host.subscribeToolError((m, s) => {
+    errors.push(m);
+    severities.push(s);
+  });
   const pushes: FlagsSummary[] = [];
   host.subscribeFlags((s) => pushes.push(s));
   if (profile !== null) host.setAgentProfile(profile);
-  return { host, errors, pushes, spawns, ...fake };
+  return { host, errors, severities, pushes, spawns, ...fake };
 }
 
 /** A fixture with the chamber world loaded and its analyze PENDING — so exactly
@@ -270,6 +282,12 @@ test("with no agent profile the advisor posts NOTHING and says so exactly once",
   expect(f.errors).toEqual([
     "walkability advisor idle — this project installs no agent profile",
   ]);
+  // A WARNING, and it is the only one on this seam. Nothing failed — the advisor is
+  // idle because the project installed no profile, every verb still works, and as an
+  // `error` this one sentence opened a clean boot with a red unread badge over a world
+  // where nothing is wrong. The verify refusals below are the contrast: same seam,
+  // same session, still `error`.
+  expect(f.severities).toEqual(["warn"]);
   // Not once per pass: an edit loop would repeat it at stroke rate.
   f.host.loadWorld({ manifest: manifest(), chunks: [], oplog: null });
   expect(f.errors).toHaveLength(1);
@@ -696,6 +714,11 @@ test("with no agent profile a verify refuses instead of posting a bad request", 
   f.host.verifyFlag("narrow@0,0,0");
   expect(f.of("verify")).toEqual([]);
   expect(f.errors.at(-1)).toContain("agent profile");
+  // The same missing profile as the advisor-idle case above, at the OTHER severity,
+  // and the difference is the whole taxonomy: there the advisor stood down on its own
+  // and nobody had asked it for anything; here the user pressed Verify and did not get
+  // it. A refusal is an error however quiet its cause.
+  expect(f.severities.at(-1)).toBe("error");
 });
 
 test("a stage-2 failure surfaces as a tool problem and releases the latch", async () => {

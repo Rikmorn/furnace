@@ -897,6 +897,53 @@ test("the ⚠ chip counts unread errors and summons the message log", async () =
 	expect(within(log).getByText("no messages")).toBeTruthy();
 });
 
+test("an advisor-idle WARN leaves the status bar quiet and reads amber", async () => {
+	fetch404();
+	const stub = makeStubHost();
+	await renderShell(stub);
+	const IDLE =
+		"walkability advisor idle — this project installs no agent profile";
+
+	act(() => {
+		stub.fire.toolError(IDLE, "warn");
+	});
+	// The boot the `warn` member exists for. The advisor is correctly idle because the
+	// project installed no profile — nothing is wrong — and as an `error` (the only
+	// non-cheerful severity there used to be) this one sentence opened the editor with a
+	// red "1 unread error" over a clean world. The log is closed on a fresh workspace, so
+	// nothing here is marking it read: the chip is absent because it was never lit.
+	//
+	// COUNTED rather than compared to null, and that is not style: a failing
+	// `expect(element).toBeNull()` prints the element, and a happy-dom node carries
+	// React's fiber graph — the same megabyte serialisation the dismiss-focus case
+	// avoids, which reads as a hung run rather than a red one. This assertion is the one
+	// that has to fail LEGIBLY when the severity stops being honoured.
+	expect(logPalette()).toBeNull();
+	expect(screen.queryAllByLabelText(/unread error/).length).toBe(0);
+
+	// Amber on the toast, and by SHAPE as well as colour — a triangle where the error
+	// row carries a circle, because colour alone must never be the only carrier.
+	const toast = toastText(IDLE);
+	expect(toast.className).toContain("text-warning");
+	expect(toast.className).not.toContain("text-destructive-text");
+	const row = toast.closest("li");
+	expect(row?.className).toContain("border-warning");
+
+	// It waits for a pause rather than interrupting: a warning is a report, and the
+	// assertive region is for refusals.
+	expect(liveRegion("assertive").textContent).toBe("");
+	expect(liveRegion("polite").textContent).toBe(IDLE);
+
+	// Reachable with no chip to summon it — and amber in the record too.
+	pickMenuItem("Messages palette");
+	const log = logPalette();
+	if (!(log instanceof HTMLElement)) throw new Error("the log did not open");
+	const entry = within(log).getByText(IDLE).closest("li");
+	if (!(entry instanceof HTMLElement)) throw new Error("no log row");
+	expect(entry.querySelectorAll(".text-warning").length).toBe(1);
+	expect(entry.querySelectorAll(".text-destructive-text").length).toBe(0);
+});
+
 test("the ⚠ chip clears the ⌘\\ latch, so the log it summons is actually on screen", async () => {
 	fetch404();
 	const stub = makeStubHost();

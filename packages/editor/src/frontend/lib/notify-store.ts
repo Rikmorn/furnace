@@ -10,8 +10,15 @@
 // suite becomes both slow and flaky. `notify` — the singleton the chrome imports — wires
 // the browser ones; a test wires fakes and moves time by hand.
 
-/** How a message reads, and whether it leaves on its own. */
-export type NotifySeverity = "info" | "success" | "error";
+/** How a message reads, and whether it leaves on its own.
+ *
+ *  `error` is the only member that behaves differently from the other three: it holds
+ *  the screen until dismissed and it is the only one the ⚠ chip counts. `warn` is
+ *  deliberately on the fading, uncounted side — a warning says something worth reading
+ *  about a state that is not wrong (the advisor idle over a project that installs no
+ *  agent profile), and routing that through `error` is what opened the editor with a
+ *  red badge on a clean boot. */
+export type NotifySeverity = "info" | "success" | "warn" | "error";
 
 /** One message. The toast and its log entry are the SAME record (same `id`), which is
  *  what lets a dismiss name one thing and what keeps the two views from disagreeing. */
@@ -40,7 +47,8 @@ export type NotifySnapshot = {
    *  true. This one is bounded by `log.length` by construction. */
   readonly overflow: number;
   /** Errors logged since the last `markSeen`. The ⚠ chip's count: a badge that never
-   *  clears is a badge people learn to ignore. */
+   *  clears is a badge people learn to ignore. `error` ONLY — a warning that lit this
+   *  would demand attention exactly the way the severity exists not to. */
   readonly unreadErrors: number;
 };
 
@@ -49,6 +57,7 @@ export type NotifyStore = {
   getSnapshot(): NotifySnapshot;
   info(text: string): void;
   success(text: string): void;
+  warn(text: string): void;
   error(text: string): void;
   /** Take one toast off the screen. It stays in the log. */
   dismiss(id: number): void;
@@ -79,8 +88,8 @@ export const LOG_CAP = 200;
 
 /** How long a toast that leaves ON ITS OWN holds the screen. Long enough to read a
  *  sentence, short enough that a save + a bake do not stack up on each other. Named for
- *  the toast rather than the severity: success fades on the same clock as info, and only
- *  errors are exempt. */
+ *  the toast rather than the severity: success and warn fade on the same clock as info,
+ *  and errors are the one exemption. */
 export const TOAST_TTL_MS = 4000;
 
 const EMPTY: NotifySnapshot = {
@@ -139,7 +148,9 @@ export function createNotifyStore(deps: NotifyDeps): NotifyStore {
     if (toasted) {
       toasts = [...toasts, message];
       // Errors are the exception: they stay until the user takes them away. Everything
-      // else is a report on something that already finished, and reports should leave.
+      // else — a WARNING included — is a report on something that already settled, and
+      // reports should leave. A warning that had to be dismissed would be a second
+      // demand for attention over a state nobody has to act on.
       if (severity !== "error")
         timers.set(
           message.id,
@@ -170,6 +181,7 @@ export function createNotifyStore(deps: NotifyDeps): NotifyStore {
     },
     info: (text) => push("info", text),
     success: (text) => push("success", text),
+    warn: (text) => push("warn", text),
     error: (text) => push("error", text),
     dismiss: removeToast,
     markSeen: () => {

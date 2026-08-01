@@ -16,7 +16,7 @@
 // regions at the bottom of this file.
 
 import type { LucideIcon } from "lucide-react";
-import { CircleAlert, CircleCheck, Info, X } from "lucide-react";
+import { CircleAlert, CircleCheck, Info, TriangleAlert, X } from "lucide-react";
 import { useLayoutEffect, useRef, useSyncExternalStore } from "react";
 import { cn } from "../../lib/cn.ts";
 import {
@@ -46,6 +46,17 @@ const TONE: Record<
 		Icon: CircleCheck,
 		box: "border-success",
 		text: "text-success",
+	},
+	warn: {
+		// A TRIANGLE, and it is the status bar's ⚠ glyph on purpose: the chip and this
+		// row are the same alarm at two volumes, and the shape is what separates a
+		// warning from the error's circle for a reader who cannot see the amber.
+		Icon: TriangleAlert,
+		box: "border-warning",
+		// D-23 Task 13 adds `--warning-text` and this becomes `text-warning-text`.
+		// `--warning` is a FILL colour, so as body text it is under the 4.5:1 floor —
+		// the same split the error row above already has, one token short of it.
+		text: "text-warning",
 	},
 	error: {
 		Icon: CircleAlert,
@@ -144,9 +155,13 @@ export function Toasts() {
 	// that unmounts whenever the stack empties can lose its role outright.
 	//
 	// Split by urgency, which is what the severity already means: a refusal interrupts,
-	// a report waits for a pause. Fed from the LOG rather than the visible stack, so a
-	// message the cap kept off screen is still announced, and so dismissing one (the
-	// user acting, not the editor speaking) re-announces nothing.
+	// a report waits for a pause. The line falls between `error` and the other three —
+	// a WARNING is polite, for the reason it fades: it describes a state, not a verb
+	// that failed, and interrupting a screen reader over one would be the audible
+	// version of the red badge this severity exists to take away. Fed from the LOG
+	// rather than the visible stack, so a message the cap kept off screen is still
+	// announced, and so dismissing one (the user acting, not the editor speaking)
+	// re-announces nothing.
 	//
 	// The regions persist; their CHILD is keyed by message id. Text alone would go silent
 	// on the commonest case there is — the same refusal twice ("selection found no

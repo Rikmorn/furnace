@@ -41,6 +41,7 @@ import type {
   PendingStamp,
   SelectionInfo,
   StampSession,
+  ToolErrorSeverity,
 } from "../../src/viewport-host/index.ts";
 
 /** The pose the stub reports on subscribe — a stand-in for the host's starting orbit
@@ -131,7 +132,7 @@ export function makeStubHost(
     stamp: ((s: StampSession | null) => void) | null;
     stats: ((s: FieldStats) => void) | null;
     selection: ((i: SelectionInfo | null) => void) | null;
-    toolError: ((msg: string) => void) | null;
+    toolError: ((msg: string, severity: ToolErrorSeverity) => void) | null;
     entities: (() => void) | null;
     drift: ((r: FieldDriftReport | null) => void) | null;
     flags: ((s: FlagsSummary) => void) | null;
@@ -398,7 +399,8 @@ export function makeStubHost(
     setFlagFilters: calls.setFlagFilters,
     verifyFlag: (key) => {
       calls.verifyFlag(key);
-      if (opts.verifyRefusal !== undefined) cbs.toolError?.(opts.verifyRefusal);
+      if (opts.verifyRefusal !== undefined)
+        cbs.toolError?.(opts.verifyRefusal, "error");
     },
     selectFlag: (key) => {
       calls.selectFlag(key);
@@ -408,7 +410,7 @@ export function makeStubHost(
       // `verifyRefusal` is: the chrome path that reacts to it is otherwise
       // untestable from a stub that always succeeds.
       if (key !== null && opts.selectFlagRefusal !== undefined)
-        cbs.toolError?.(opts.selectFlagRefusal);
+        cbs.toolError?.(opts.selectFlagRefusal, "error");
     },
     flagMarkerCount: () => 0,
     selectionCellCount: () => 0,
@@ -491,9 +493,15 @@ export function makeStubHost(
         cbs.drift(r);
         return true;
       },
-      toolError: (msg: string): boolean => {
+      /** A tool-seam message at the severity the host would send it with. `error` by
+       *  default because every refusal is one — `warn` is the advisor-idle report,
+       *  the one message on this seam that is not a refusal. */
+      toolError: (
+        msg: string,
+        severity: ToolErrorSeverity = "error",
+      ): boolean => {
         if (cbs.toolError === null) return false;
-        cbs.toolError(msg);
+        cbs.toolError(msg, severity);
         return true;
       },
       flags: (s: FlagsSummary): boolean => {

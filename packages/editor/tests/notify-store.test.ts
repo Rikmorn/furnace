@@ -89,6 +89,50 @@ test("error toasts persist until dismissed; info toasts expire", () => {
   expect(logTexts(store)).toContain("bake failed: disk full");
 });
 
+test("a warn fades like an info and never lights the ⚠ chip", () => {
+  const { store, advance, pending } = makeStore();
+
+  const IDLE =
+    "walkability advisor idle — this project installs no agent profile";
+  store.warn(IDLE);
+  store.warn("kit layer dropped — re-toggle to refresh");
+
+  // The boot this severity exists for: two things worth saying, nothing wrong, and
+  // NOTHING for the ⚠ chip to count. Routed as `error` — which was the only
+  // non-cheerful member there was — this same pair opens the editor with a red 2 over
+  // a project where the advisor is correctly idle.
+  expect(store.getSnapshot().unreadErrors).toBe(0);
+  expect(toastTexts(store)).toEqual([
+    IDLE,
+    "kit layer dropped — re-toggle to refresh",
+  ]);
+  // Both are on the fade clock, which is the second consequence: a warning is a report
+  // on something that already settled, and reports should leave.
+  expect(pending()).toBe(2);
+
+  // An error beside them takes no timer and DOES count — the two halves of the split
+  // in one snapshot, so neither assertion can pass by the store having stopped
+  // counting altogether.
+  store.error("bake failed: disk full");
+  expect(pending()).toBe(2);
+  expect(store.getSnapshot().unreadErrors).toBe(1);
+
+  advance(TOAST_TTL_MS);
+  expect(toastTexts(store)).toEqual(["bake failed: disk full"]);
+  expect(pending()).toBe(0);
+  // Off the screen, still in the record, still carrying the severity the log row's
+  // amber tone is read back from.
+  expect(store.getSnapshot().log.map((e) => e.severity)).toEqual([
+    "error",
+    "warn",
+    "warn",
+  ]);
+  // …and reading them later never retro-lights the chip either.
+  expect(store.getSnapshot().unreadErrors).toBe(1);
+  store.markSeen();
+  expect(store.getSnapshot().unreadErrors).toBe(0);
+});
+
 test("the visible stack caps at 3; overflow increments the log-only counter", () => {
   const { store, advance } = makeStore();
 

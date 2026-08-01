@@ -421,17 +421,34 @@ export function FieldHostStateProvider({
 	// No message is mirrored into context: the toast IS the render, and a second copy in
 	// React state would be a second thing to keep in agreement with it.
 	//
-	// It also RELEASES any verify in flight, which is the second half of a pairing whose
-	// first half is the flags push below. Every `verifyFlag` refusal reports here having
-	// pushed no flags at all, so this is the only signal that a verify the user started
-	// never actually began; without it the column would read "Verifying…" until the next
-	// analyzer response. Deliberately blunt — an UNRELATED tool error (a failed stroke)
-	// releases it too. That way round is the safe one: the host still refuses a real
-	// second verify with "a verify is already running", so the cost is a button that
-	// looks live for a moment, against a column that sticks for good.
+	// The SEVERITY is the host's word and is passed straight through: the two strings the
+	// seam carries are `NotifySeverity` members, so the tone, the fade rule and the ⚠
+	// chip's count all follow from it with nothing to translate. A `warn` is the advisor
+	// standing down over a project with no agent profile — routed as an error it opened a
+	// clean boot with a red unread badge, which is the whole reason the member exists.
+	//
+	// An ERROR also RELEASES any verify in flight, which is the second half of a pairing
+	// whose first half is the flags push below. Every `verifyFlag` refusal reports here
+	// having pushed no flags at all, so this is the only signal that a verify the user
+	// started never actually began; without it the column would read "Verifying…" until
+	// the next analyzer response. Deliberately blunt WITHIN that severity — an unrelated
+	// tool error (a failed stroke) releases it too. That way round is the safe one: the
+	// host still refuses a real second verify with "a verify is already running", so the
+	// cost is a button that looks live for a moment, against a column that sticks for
+	// good.
+	//
+	// A `warn` does NOT release it, and the asymmetry is the same trade read the other
+	// way. All four verify refusals are errors, so nothing that can strand the column
+	// arrives as a warning — releasing on one would only ever blank a "Verifying…" that
+	// is telling the truth, paying the cost with none of the cover. If a warning ever
+	// becomes a way a verify can fail to start, it belongs on this branch too.
 	useEffect(() => {
 		if (!engineReady || !host) return;
-		return host.subscribeToolError((text) => {
+		return host.subscribeToolError((text, severity) => {
+			if (severity === "warn") {
+				notify.warn(text);
+				return;
+			}
 			notify.error(text);
 			setVerifying(null);
 		});
