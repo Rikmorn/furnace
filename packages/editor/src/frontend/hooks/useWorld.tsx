@@ -103,6 +103,12 @@ export type WorldActions = {
 	closeDrawer: () => void;
 };
 
+/** What a boot with nothing to reopen says, once. The editor comes up on solid rock with
+ *  no world named and no control pressed, which is indistinguishable from a broken one
+ *  until something says so — this is D-21's "new = untitled scratch, name at first save"
+ *  spelled as the two moves that get a user out of it, in the order they happen. */
+const FIRST_RUN_HINT = "new world — dig into the rock, then ⌘S to save";
+
 const WorldStateContext = createContext<WorldState | null>(null);
 const WorldActionsContext = createContext<WorldActions | null>(null);
 
@@ -436,9 +442,23 @@ export function WorldProvider({ children }: { children: ReactNode }) {
 		// save cycle, so rebuilding the verbs on it costs nothing.
 	}, [name, dirty, fieldHostRef, openConfirm, store, bakeBusyRef, rebaseline]);
 
-	// THE BOOT RESTORE. `lastWorld` is written on every save and every open; this is the
-	// one thing that reads it back, and the posture is the desktop app's — reopen what you
-	// were in, without asking.
+	// THE BOOT RESTORE, and its other outcome — the first-run hint. `lastWorld` is written
+	// on every save and every open; this is the one thing that reads it back, and the
+	// posture is the desktop app's — reopen what you were in, without asking. When there
+	// is nothing to reopen, the session that stays is a brand-new one, and this is where
+	// it gets told so (see `FIRST_RUN_HINT` below).
+	//
+	// One effect for both, so the `restored` one-shot latches both: "once per boot" is the
+	// whole difficulty of a hint, and a second effect would need its own copy of every
+	// condition this one already settles. Boot-scoped means BOOT — a reload posts it
+	// again (there is no persisted "seen it" flag, and a hint that can never come back is
+	// a hint nobody can find on purpose), while a New world mid-session posts nothing,
+	// because the one-shot is already spent.
+	//
+	// Both outcomes wait on the STORE, which is the one thing the hint gives up by riding
+	// here: a `project.get` that never resolves leaves persistence off, and a boot with no
+	// store cannot tell "no world to reopen" from "not yet". Neither answer is worth
+	// guessing at.
 	//
 	// It fires ONCE per boot (`restored`, the useView/useWorkspace one-shot ref) and only
 	// into a session with nothing to lose: untitled AND unedited. Both halves are reachable
@@ -467,11 +487,26 @@ export function WorldProvider({ children }: { children: ReactNode }) {
 		const opsAtDecision = seenOps.current ?? 0;
 		void (async () => {
 			const target = await worldToRestore({ api }, store);
-			if (target === null) return;
 			// Re-read across the round trip. The `dirty` above is this render's value and the
 			// verbs closed over the same one, so an op landing while `world.list` was in
 			// flight is invisible to both — the live count is the only witness.
 			if ((seenOps.current ?? 0) !== opsAtDecision) return;
+			if (target === null) {
+				// Nothing to reopen and nothing dug: a FIRST RUN, and the one moment worth a
+				// toast slot for saying what this editor is for. Posted from HERE rather than
+				// from an effect of its own because this is the instant all three facts are
+				// settled together — the catalog gate above, the session's own emptiness, and
+				// the restore having declined. A hint racing ahead of this line would be
+				// contradicted by the world that arrives a moment later.
+				//
+				// `opsAtDecision` rather than the `stats` object: this effect does not depend
+				// on stats, so reading them from the closure would give the count as it was
+				// when the effect last ran. It is also the guard `dirty` cannot supply — the
+				// FIRST push after a swap seeds the baseline rather than marking an edit, so a
+				// session can read clean while plainly not being empty.
+				if (opsAtDecision === 0) notify.info(FIRST_RUN_HINT);
+				return;
+			}
 			// The ORDINARY verb, never a second load path: the `job` tag, the toast and the
 			// rebaseline are the ones a user-driven Open produces, by construction. Its
 			// discard confirm cannot fire from here — a clean session proceeds straight

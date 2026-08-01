@@ -8,6 +8,11 @@ import "../inspector/_register.ts";
 // and the several ways it must refuse to. `lastWorld` was write-only until this slice —
 // what is pinned here is that reading it back can never cost the user work.
 //
+// …and the restore's OTHER outcome, the first-run hint (F4.5c Task 6): when there is
+// nothing to reopen, what stays on screen is a brand-new world, and section (d) pins that
+// it is told so exactly once. It lives here rather than beside the drawer because the
+// decision does — one effect settles both, which is the only way "once per boot" holds.
+//
 // Mounted the way the shell mounts it: the host-state mirror (whose stats the dirty bit
 // is derived from), then the catalogs (whose materials settle gates every Open, boot's
 // included), then the world state. ViewProvider is absent on purpose — nothing on this
@@ -211,6 +216,13 @@ async function flush(): Promise<void> {
 }
 
 const logText = (): string[] => notify.getSnapshot().log.map((m) => m.text);
+
+/** The first-run hint, and how MANY times it was posted. A count rather than a presence
+ *  check, deliberately: a hint that fires on every render passes a presence assertion
+ *  exactly as well as one that fires once, and the store dedupes nothing. */
+const FIRST_RUN_HINT = "new world — dig into the rock, then ⌘S to save";
+const hintCount = (): number =>
+	logText().filter((t) => t === FIRST_RUN_HINT).length;
 
 /** Seed the dirty-bit baseline, then move it: the FIRST push is the count the world
  *  already had (never an edit), the second is one op of divergence from it. */
@@ -420,4 +432,83 @@ test("the restore is decided ONCE per boot — a second store arrival does not a
 	await flush();
 	expect(daemon.countOf("world.list")).toBe(1);
 	expect(screen.getByText("world:untitled")).toBeTruthy();
+});
+
+// --- (d) the FIRST-RUN hint: the restore's other outcome -----------------------
+//
+// D-21's "new = untitled scratch, name at first save", said out loud once. A boot with
+// nothing to reopen lands on solid rock with no world named and no control pressed,
+// which is indistinguishable from a broken editor until something says otherwise. It
+// rides the restore's own decision because that is the instant all three facts settle
+// together — the catalog gate, the session's emptiness, and the restore declining.
+
+test("a boot with nothing to reopen says what to do — ONCE per boot", async () => {
+	const daemon = stubDaemon({ worlds: [] });
+	const stub = makeStubHost();
+	const { rerender } = render(<Boot stub={stub} store={fakeUiStore()} />);
+	act(() => {
+		stub.fire.stats(makeStats({ totalOps: 0 }));
+	});
+
+	await waitFor(() => expect(hintCount()).toBe(1));
+	// No `lastWorld` at all: the decision short-circuits before the round trip, so a
+	// first-ever boot does not pay for a list it has nothing to look up in.
+	expect(daemon.commands()).not.toContain("world.list");
+
+	// A NEW store object rebuilds the context and re-runs the effect — the same shape as
+	// the once-per-boot case above, and the only thing standing between this hint and a
+	// second copy of itself.
+	rerender(<Boot stub={stub} store={fakeUiStore()} />);
+	await flush();
+	expect(hintCount()).toBe(1);
+
+	// …and so does a dig, which flips `dirty` and rebuilds the verbs the effect depends on.
+	act(() => {
+		stub.fire.stats(makeStats({ totalOps: 1, undoDepth: 1 }));
+	});
+	await flush();
+	expect(hintCount()).toBe(1);
+});
+
+test("a boot that REOPENS a world says nothing about new rock", async () => {
+	// The hint would be contradicted by the world arriving a moment later — which is why
+	// it is posted from inside the restore's decision rather than from an effect of its
+	// own that could win the race.
+	const daemon = stubDaemon({
+		worlds: [row({ name: "cavern" })],
+		holdLoad: true,
+	});
+	const stub = makeStubHost();
+	render(<Boot stub={stub} store={fakeUiStore({ lastWorld: "cavern" })} />);
+	act(() => {
+		stub.fire.stats(makeStats({ totalOps: 0 }));
+	});
+
+	await waitFor(() =>
+		expect(daemon.inputFor("field.load")).toEqual({ name: "cavern" }),
+	);
+	// Nothing while it loads, either: the hint is decided before the load starts, so a
+	// late one would already be too late to be about anything.
+	expect(hintCount()).toBe(0);
+	daemon.releaseLoad();
+	await waitFor(() => screen.getByText("world:cavern"));
+	await flush();
+	expect(hintCount()).toBe(0);
+});
+
+test("a boot into a session that already has ops is not a first run", async () => {
+	// The case `dirty` alone cannot tell apart: ONE stats push seeds the baseline rather
+	// than marking an edit, so the session reads CLEAN while plainly not being empty.
+	const daemon = stubDaemon({ worlds: [], holdCatalog: true });
+	const stub = makeStubHost();
+	render(<Boot stub={stub} store={fakeUiStore()} />);
+	act(() => {
+		stub.fire.stats(makeStats({ totalOps: 5, undoDepth: 5 }));
+	});
+
+	daemon.releaseCatalog();
+	await waitFor(() => expect(logText()).toContain("no catalog — rock only"));
+	await flush();
+	expect(screen.getByText("dirty:false")).toBeTruthy();
+	expect(hintCount()).toBe(0);
 });

@@ -20,6 +20,7 @@ import { ViewProvider } from "../../src/frontend/hooks/useView.tsx";
 import { WorkspaceProvider } from "../../src/frontend/hooks/useWorkspace.tsx";
 import { WorldProvider } from "../../src/frontend/hooks/useWorld.tsx";
 import type { WorldRow } from "../../src/frontend/lib/api.ts";
+import { WORLD_NAME_RULE } from "../../src/frontend/lib/generation.ts";
 import { notify } from "../../src/frontend/lib/notify-store.ts";
 import {
 	act,
@@ -737,6 +738,59 @@ test("a name that breaks the rule cannot be submitted, and the rule is on screen
 			.disabled,
 	).toBe(true);
 	expect(field.getAttribute("aria-invalid")).toBe("true");
+});
+
+test("the name field says OVERWRITE for a taken name and the rule for a broken one — one line, never both", async () => {
+	// D-25: the validation is AT the field and the commit verb explains it. Two different
+	// situations share one slot — a refusal (the name cannot be used) and a consequence
+	// (it can, and it costs the world already under it) — and telling them apart before
+	// the commit is the whole point. The tracked-overwrite confirm downstream is
+	// unchanged; this is the earlier, quieter half of the same warning.
+	stubDaemon([row({ name: "cavern" })]);
+	const stub = makeStubHost();
+	await renderTopBar(stub);
+	const drawer = await openDrawer();
+	await waitFor(() => rowFor(drawer, "cavern"));
+	act(() => {
+		fireEvent.click(within(drawer).getByRole("button", { name: "Save as…" }));
+	});
+	const field = within(drawer).getByLabelText("save as world name");
+	const form = field.closest("form");
+	if (!(form instanceof HTMLElement)) throw new Error("no name form");
+
+	// A FREE name: the rule, muted, and no claim about overwriting anything. Read off the
+	// form's own text rather than a null-check on a query — a live happy-dom element
+	// carries React's fiber graph, and serialising it on failure reads as a hung run.
+	act(() => {
+		fireEvent.change(field, { target: { value: "grotto" } });
+	});
+	expect(form.textContent ?? "").not.toContain("will overwrite");
+	expect(within(form).getByText(WORLD_NAME_RULE).className).toContain(
+		"text-muted-foreground",
+	);
+
+	// A TAKEN name: the consequence, naming the world AND the verb that commits to it.
+	act(() => {
+		fireEvent.change(field, { target: { value: "cavern" } });
+	});
+	const line = within(form).getByText(
+		'will overwrite "cavern" — Save confirms',
+	);
+	// The repo's info tone (Toasts.tsx's `info` row), not a fill colour and not the
+	// destructive lane: an overwrite the user typed on purpose is not an error.
+	expect(line.className).toContain("text-foreground");
+	// ONE line. The rule is what this replaces, not something it stacks on top of.
+	expect(form.textContent ?? "").not.toContain(WORLD_NAME_RULE);
+
+	// A BROKEN name: the same slot, back to the rule, in the destructive TEXT token
+	// (`text-destructive` is a fill colour and fails the 4.5:1 floor as body text).
+	act(() => {
+		fireEvent.change(field, { target: { value: "../etc" } });
+	});
+	expect(within(form).getByText(WORLD_NAME_RULE).className).toContain(
+		"text-destructive-text",
+	);
+	expect(form.textContent ?? "").not.toContain("will overwrite");
 });
 
 // --- (e) New world -------------------------------------------------------------

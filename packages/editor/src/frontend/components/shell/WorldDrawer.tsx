@@ -15,7 +15,7 @@
 // behind the editor's back (a git checkout, another editor) shows up the same way the
 // editor's own do.
 import { MoreHorizontal } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useCatalog } from "../../hooks/useCatalogs.tsx";
 import { useWorldActions, useWorldState } from "../../hooks/useWorld.tsx";
 import { api, type WorldRow } from "../../lib/api.ts";
@@ -59,6 +59,7 @@ function NameForm({
 	initial,
 	submitLabel,
 	busy,
+	overwrites,
 	onSubmit,
 	onCancel,
 }: {
@@ -69,11 +70,23 @@ function NameForm({
 	 *  held, because the verb it would start is the one already running. Gated on the
 	 *  handler as well as the button: ⏎ in the field submits without going near it. */
 	busy: boolean;
+	/** The names this form's submit would OVERWRITE, if any. Named for the consequence
+	 *  rather than for "names that are taken", because the consequence is what differs
+	 *  per verb: a save-as REPLACES the world under the name, while `world.rename` and
+	 *  `world.duplicate` are refused outright by the daemon (`already-exists`,
+	 *  daemon/handlers.ts) — so those two must not pass a set here, or the line would
+	 *  promise an overwrite the daemon will never perform. */
+	overwrites?: ReadonlySet<string>;
 	onSubmit: (name: string) => void;
 	onCancel: () => void;
 }) {
 	const [value, setValue] = useState(initial);
 	const valid = isValidWorldName(value);
+	// EXACT, never case-folded. macOS's case-insensitive filesystem would fold "Cavern"
+	// onto "cavern" and Linux would not (the daemon says so in world.rename, and this
+	// daemon is portable) — so a case-only near-miss says nothing rather than claiming a
+	// consequence that is true on one platform and false on the other.
+	const overwrite = valid && overwrites?.has(value) === true;
 	return (
 		<form
 			className="flex flex-wrap items-center gap-2 border-border border-b bg-muted/40 px-3 py-2"
@@ -98,8 +111,28 @@ function NameForm({
 					value !== "" && !valid && "border-destructive",
 				)}
 			/>
-			{/* The rule is STATED, always, not revealed by failing it (D-21). */}
-			<span className="text-muted-foreground text-xs">{WORLD_NAME_RULE}</span>
+			{/* ONE line, three states, mutually exclusive by construction — D-25 puts the
+			    validation AT the field, so there is nothing to dump at the bottom of the form.
+			    The rule is STATED rather than revealed by failing it (D-21); failing it only
+			    changes its COLOUR. The overwrite line replaces the rule instead of stacking on
+			    it, and can only do so once the name is already valid — i.e. once the rule has
+			    nothing left to say about it. */}
+			{overwrite ? (
+				<span className="text-foreground text-xs">
+					{`will overwrite "${value}" — ${submitLabel} confirms`}
+				</span>
+			) : (
+				<span
+					className={cn(
+						"text-xs",
+						value !== "" && !valid
+							? "text-destructive-text"
+							: "text-muted-foreground",
+					)}
+				>
+					{WORLD_NAME_RULE}
+				</span>
+			)}
 			<div className="flex-1" />
 			<Button type="submit" size="sm" disabled={!valid || busy}>
 				{submitLabel}
@@ -321,6 +354,13 @@ export function WorldDrawer() {
 	// a missing world rather than a case-sensitive match.
 	const needle = filter.trim().toLowerCase();
 	const visible = rows.filter((w) => w.name.toLowerCase().includes(needle));
+
+	// Every world the list knows about — which is exactly the set a save-as would write
+	// over. Built off `rows` rather than `visible`: the filter hides rows, it does not
+	// make the worlds behind them any less overwritable. Refreshed by the same refetch
+	// every `worlds-changed` tick drives, so a world created behind the editor's back is
+	// in here too.
+	const listed = useMemo(() => new Set(rows.map((w) => w.name)), [rows]);
 	const selected = visible[Math.min(cursor, visible.length - 1)];
 
 	// Every gate the row's own Open button wears, `busy` included. Without it ⏎ walks
@@ -422,6 +462,12 @@ export function WorldDrawer() {
 						initial={name ?? ""}
 						submitLabel="Save"
 						busy={busy}
+						// The ONLY form that overwrites. The tracked-world confirm downstream is
+						// untouched by this — that prompt stands where it always did, and this is
+						// the earlier, quieter half of the same warning, said before the commit
+						// rather than on top of it (and it is the ONLY warning a scratch world
+						// gets, since the confirm fires for tracked ones alone).
+						overwrites={listed}
 						onSubmit={(next) => {
 							setForm(null);
 							actions.saveAs(next);
