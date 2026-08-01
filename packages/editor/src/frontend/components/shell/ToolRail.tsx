@@ -45,6 +45,7 @@ import type { ReactNode } from "react";
 import { memo, useMemo, useState } from "react";
 import { useActionContext } from "../../hooks/useActionContext.tsx";
 import { useRovingList } from "../../hooks/useRovingList.tsx";
+import { useViewportFocusReturn } from "../../hooks/useViewportFocusReturn.ts";
 import type {
 	ControlVerdict,
 	ToolFamily,
@@ -288,6 +289,9 @@ const RailFamily = memo(function RailFamily({ row }: { row: RailModel }) {
 function MemberFlyout({ row }: { row: RailModel }) {
 	const [open, setOpen] = useState(false);
 	const refused = !row.verdict.runnable;
+	// Picking Fill out of the brush family mid-flight must not cost the fly keys — this
+	// flyout is the mouse's only route to every member past the first.
+	const focusReturn = useViewportFocusReturn();
 	return (
 		<Popover open={open} onOpenChange={setOpen}>
 			<PopoverTrigger asChild>
@@ -311,7 +315,12 @@ function MemberFlyout({ row }: { row: RailModel }) {
 					<span aria-hidden="true">▾</span>
 				</button>
 			</PopoverTrigger>
-			<PopoverContent align="start" side="right" className="w-60 p-1">
+			<PopoverContent
+				align="start"
+				side="right"
+				className="w-60 p-1"
+				{...focusReturn}
+			>
 				{/* biome-ignore lint/a11y/useSemanticElements: role="group" is the intended ARIA grouping for this member list; a <fieldset>/<legend> would force a boxed look inside a popover that is already a box */}
 				<div
 					role="group"

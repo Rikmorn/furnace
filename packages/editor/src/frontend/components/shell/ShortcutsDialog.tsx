@@ -15,6 +15,7 @@
 // when one of them changes.
 import { Fragment } from "react";
 import { useActionContext } from "../../hooks/useActionContext.tsx";
+import { useViewportFocusReturn } from "../../hooks/useViewportFocusReturn.ts";
 import {
 	ACTION_GROUPS,
 	ACTIONS,
@@ -59,9 +60,25 @@ const CANVAS_GROUP: BindingGroup = {
 	title: "Viewport — canvas",
 	// Stated the way the canvas actually behaves: its ring is `focus-visible`, which
 	// browsers paint for keyboard focus and generally NOT for a pointer click. So a
-	// click does arm these keys, silently. (Whether a click should paint a ring too is
-	// a design call, not a wording one — left to the F4.5c polish pass.)
-	note: "These need the canvas focused — everything above works from anywhere. Clicking the viewport focuses it; the focus ring shows when you Tab to it, not on a click.",
+	// click does arm these keys, silently.
+	//
+	// RING-ON-CLICK: RULED, F4.5c Task 10 — it stays `focus-visible`-only. The question
+	// this comment left open was whether a pointer click on the canvas should paint the
+	// ring too, and the answer is no on three counts. It carries no information: the click
+	// IS the evidence, the user's own pointer just landed there, and a persistent border
+	// drawn to announce something they did is the Attention Rule spent for nothing. It is
+	// not the DCC norm: Blender, Maya and Unreal all take viewport focus on click in
+	// silence. And the armed state is already legible without it — the status bar's keymap
+	// line is the surface that says which keys are live, and it says so in words.
+	//
+	// What made the ring feel necessary was the defect beside it, not the absence of a
+	// cue: a click armed these keys and the next panel interaction silently disarmed them
+	// again, so nobody could tell what state they were in. That is what the conditional
+	// focus return closes — dismiss an overlay you opened while flying and the keys come
+	// back — which is why this is a call the same task gets to make. The gate can overturn
+	// it; if it does, the change is one `focus:` variant on the canvas's className and this
+	// note's last clause.
+	note: "These need the canvas focused — everything above works from anywhere. Clicking the viewport focuses it; the focus ring shows when you Tab to it, not on a click. Opening a panel or menu while flying does not cost you the keys: dismissing it hands them back.",
 	rows: [
 		{
 			keys: "right-drag",
@@ -143,11 +160,15 @@ export function ShortcutsDialog({
 	// then; read here, a closed overlay would rebuild five filtered groups and ~30 rows
 	// on every stats push, and at POINTER RATE during a grab (the session is a ctx dep).
 	// The same split the status bar's KeymapLine makes, for the same reason.
+	const focusReturn = useViewportFocusReturn();
 	return (
 		<Dialog open={open} onOpenChange={onOpenChange}>
 			{/* Scrolls inside itself: the list is longer than a short window, and a dialog
 			    that grows past the viewport takes its own close button off screen. */}
-			<DialogContent className="max-h-[80vh] max-w-xl overflow-y-auto">
+			<DialogContent
+				className="max-h-[80vh] max-w-xl overflow-y-auto"
+				{...focusReturn}
+			>
 				<DialogHeader>
 					<DialogTitle>Keyboard shortcuts</DialogTitle>
 					<DialogDescription>

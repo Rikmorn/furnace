@@ -1,3 +1,4 @@
+import { useViewportFocusReturn } from "../hooks/useViewportFocusReturn.ts";
 import { Button } from "./ui/button.tsx";
 import {
 	Dialog,
@@ -30,6 +31,11 @@ export function ConfirmDialog({
 	request: ConfirmRequest | null;
 	onResolve: (confirmed: boolean) => void;
 }) {
+	// This prompt has no TRIGGER — ⌫ over the canvas summons it — so Radix has nothing to
+	// restore to and drops focus on `<body>` when it closes. Answering a delete confirm
+	// while flying therefore costs every viewport key today; the return is what gives them
+	// back.
+	const focusReturn = useViewportFocusReturn();
 	return (
 		<Dialog
 			open={request !== null}
@@ -38,7 +44,7 @@ export function ConfirmDialog({
 				if (!open) onResolve(false);
 			}}
 		>
-			<DialogContent className="max-w-sm">
+			<DialogContent className="max-w-sm" {...focusReturn}>
 				{request && (
 					<>
 						<DialogHeader>

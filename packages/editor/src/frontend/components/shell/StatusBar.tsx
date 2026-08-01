@@ -21,6 +21,7 @@ import {
 	useFieldTool,
 } from "../../hooks/useFieldHostState.tsx";
 import { usePaletteSummon } from "../../hooks/usePaletteStack.tsx";
+import { useViewportFocusReturn } from "../../hooks/useViewportFocusReturn.ts";
 import { useWorldState, type WorldJob } from "../../hooks/useWorld.tsx";
 import type { ActionCtx } from "../../lib/actions.ts";
 import { ACTIONS } from "../../lib/actions.ts";
@@ -289,6 +290,9 @@ function ChipPopover({
 	onOpenChange?: (open: boolean) => void;
 	children: ReactNode;
 }) {
+	// A stats chip is READ mid-work — the answer to "how many ops" is wanted without
+	// leaving the flight it is about.
+	const focusReturn = useViewportFocusReturn();
 	return (
 		<Popover open={open} onOpenChange={onOpenChange}>
 			<PopoverTrigger aria-label={label} className={INTERACTIVE_CHIP_CLASS}>
@@ -301,6 +305,7 @@ function ChipPopover({
 				aria-label={label}
 				align="end"
 				className="w-64 space-y-2 p-2 text-xs"
+				{...focusReturn}
 			>
 				{body}
 			</PopoverContent>

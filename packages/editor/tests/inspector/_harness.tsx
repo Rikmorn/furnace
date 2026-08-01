@@ -42,6 +42,7 @@ type EditorContextOverrides = {
 	openConfirm?: EditorContextValue["openConfirm"];
 	confirmRef?: EditorContextValue["confirmRef"];
 	bakeBusyRef?: EditorContextValue["bakeBusyRef"];
+	viewportFocusRef?: EditorContextValue["viewportFocusRef"];
 	store?: UiStore;
 };
 
@@ -74,6 +75,10 @@ export function makeEditorContext(
 		// No write in flight. A test that wants to assert the SSE reload guard passes its
 		// own ref and reads it after a save.
 		bakeBusyRef: overrides.bakeBusyRef ?? { current: false },
+		// No viewport. `CanvasHost` fills this on mount, so a case that renders the Shell
+		// gets the real seam and one that renders a panel alone gets `null` — which every
+		// reader treats as "there is no canvas to hand focus back to".
+		viewportFocusRef: overrides.viewportFocusRef ?? { current: null },
 		store: overrides.store,
 	};
 }

@@ -27,6 +27,7 @@
 import { useCallback } from "react";
 import { flushSync } from "react-dom";
 import { useActionContext } from "../../hooks/useActionContext.tsx";
+import { useViewportFocusReturn } from "../../hooks/useViewportFocusReturn.ts";
 import type { ControlVerdict } from "../../lib/actions.ts";
 import {
 	ACTION_GROUPS,
@@ -143,8 +144,14 @@ export function CommandPalette({
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
 }) {
+	// ⌘K is pressed mid-flight and the dialog has no trigger, so Radix's dismissal lands on
+	// `<body>` and every viewport key with it. No hand-off flag for the rows that OPEN
+	// something (Worlds…, History…): the return stands down on its own once another surface
+	// holds focus — see the guard in `useViewportFocusReturn`.
+	const focusReturn = useViewportFocusReturn();
 	return (
 		<CommandDialog
+			{...focusReturn}
 			open={open}
 			onOpenChange={onOpenChange}
 			// The SURFACE's name, not the action's, and the near-duplication is deliberate:

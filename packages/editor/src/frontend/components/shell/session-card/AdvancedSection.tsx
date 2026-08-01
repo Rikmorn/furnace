@@ -59,6 +59,15 @@ let advancedOpen = false;
  * The session MECHANICS, behind the mock's `▸ advanced`: where the stamp sits and how it
  * merges are not recipe values, and a card that leads with them buries the params the
  * user came for. Collapsed by default — on the FIRST open of a page, not on every one.
+ *
+ * NOT a viewport-focus-return site, and it was listed as one when that work was costed.
+ * A `Collapsible` is a DISCLOSURE, not an overlay: it moves no focus in either direction
+ * (the trigger keeps it through the open and the close), it has no `onCloseAutoFocus`
+ * because Radix has nothing to restore, and there is consequently nothing to hand back —
+ * the user is still exactly where they were. Wiring the return here would be strictly
+ * worse than leaving it out: it would take focus OFF the disclosure the user is working
+ * with, on a close they did not ask to leave. The rule only ever applied to surfaces you
+ * navigate INTO and dismiss.
  */
 export function AdvancedSection({
 	policy,

@@ -17,6 +17,7 @@
 import { MoreHorizontal } from "lucide-react";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { useCatalog } from "../../hooks/useCatalogs.tsx";
+import { useViewportFocusReturn } from "../../hooks/useViewportFocusReturn.ts";
 import { useWorldActions, useWorldState } from "../../hooks/useWorld.tsx";
 import { api, type WorldRow } from "../../lib/api.ts";
 import { cn } from "../../lib/cn.ts";
@@ -219,6 +220,12 @@ function Row({
 	onDuplicate: () => void;
 }) {
 	const { makeDefault, remove } = useWorldActions();
+	// The INNER half of the stacked-overlay case. Wired for consistency and it answers NO
+	// every time by construction: the gesture that opens this menu starts on a control
+	// inside the drawer, never on the canvas — so focus goes back to the ⋯ it came from,
+	// which is also the only safe answer while the drawer's focus trap is standing.
+	const focusReturn = useViewportFocusReturn();
+	const [menuOpen, setMenuOpen] = useState(false);
 	const legacy = world.kind === "legacy";
 	const reason = legacy
 		? LEGACY_REASON
@@ -279,14 +286,28 @@ function Row({
 					Open
 				</Button>
 			</ReasonTip>
-			<DropdownMenu>
+			{/* Controlled for the open EDGE only — a Radix menu does not expose
+			    `onOpenAutoFocus` (it is private to `MenuContentImpl`), so the focus record is
+			    taken from the public edge instead. The burger's own menu says the same, at
+			    more length. */}
+			<DropdownMenu
+				open={menuOpen}
+				onOpenChange={(next) => {
+					setMenuOpen(next);
+					if (next) focusReturn.onOpenAutoFocus();
+				}}
+			>
 				<DropdownMenuTrigger
 					aria-label={`more actions for ${world.name}`}
 					className="flex h-6 w-6 items-center justify-center rounded-sm text-muted-foreground outline-none hover:bg-accent hover:text-accent-foreground focus-visible:ring-1 focus-visible:ring-ring"
 				>
 					<MoreHorizontal className="h-4 w-4" />
 				</DropdownMenuTrigger>
-				<DropdownMenuContent align="end" className="w-48">
+				<DropdownMenuContent
+					align="end"
+					className="w-48"
+					onCloseAutoFocus={focusReturn.onCloseAutoFocus}
+				>
 					<DropdownMenuItem
 						disabled={world.isDefault}
 						onSelect={() => makeDefault(world.name)}
@@ -333,6 +354,10 @@ export function WorldDrawer() {
 	const [cursor, setCursor] = useState(0);
 	const [form, setForm] = useState<Form | null>(null);
 	const open = drawer !== null;
+	// The OUTER half of the stacked case, and the one that says yes: the world chip and ⌘S
+	// are both reached mid-flight. Like every dialog here it has no `DialogTrigger`, so
+	// without this a dismissal lands on `<body>`.
+	const focusReturn = useViewportFocusReturn();
 
 	// Re-listed on every open AND on every `worlds-changed` tick, which is what makes the
 	// editor's own mutations and anything that happens behind its back (a checkout,
@@ -409,6 +434,7 @@ export function WorldDrawer() {
 		>
 			<DialogContent
 				className="max-w-xl gap-0 p-0"
+				{...focusReturn}
 				// Escape belongs to an OPEN NAME FORM first: it cancels the form and the
 				// drawer stays. It has to be intercepted here rather than in the field,
 				// because Radix's dismiss listener is a CAPTURE-phase listener on `document`

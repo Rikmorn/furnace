@@ -3,6 +3,7 @@
 import { useEffect, useRef } from "react";
 import type { FieldHost } from "../../../viewport-host/index.ts"; // type-only: erased
 import { errorMessage } from "../../lib/humanize.ts";
+import { useEditor } from "../editor-context.ts";
 
 /**
  * Mounts the canvas and inits `host` on it. Init is EAGER — the dock-era
@@ -32,6 +33,12 @@ export function CanvasHost({
 	onError: (message: string) => void;
 }) {
 	const ref = useRef<HTMLCanvasElement>(null);
+	const { viewportFocusRef } = useEditor();
+	// Did the canvas hold focus when the gesture now in progress began? See
+	// {@link ViewportFocus.heldFocusAtGestureStart} for why the question is about the
+	// gesture and not about this instant — the short version is that every overlay has
+	// already taken focus by the time it can be asked.
+	const heldAtGestureStart = useRef(false);
 	// The tail of the LAST teardown, so the next init can wait for it. The host holds one
 	// context and throws on a second `init`, and its dispose is deferred (see the cleanup
 	// below) — so an AA change, whose cleanup and re-run happen in the same React commit,
@@ -99,11 +106,67 @@ export function CanvasHost({
 		};
 	}, [host, sampleCount]);
 
+	// The focus seam (F4.5c Task 10), installed for as long as there is a canvas.
+	//
+	// A SEPARATE effect from the GPU lifecycle above, and it must stay one: that effect
+	// re-runs on an AA change (it disposes and rebuilds the WebGPU context), while the
+	// element it is about never changes — React creates this `<canvas>` once and keeps it.
+	// Folding the two together would tear the listeners down and rebuild them for a reason
+	// that has nothing to do with focus, and would drop the record mid-gesture.
+	//
+	// CAPTURE phase, on the WINDOW, for both events. Capture is what puts this before the
+	// focus transfer the gesture is about to cause — a browser focuses a clicked control as
+	// the default action of `mousedown`, which `pointerdown` precedes — and the window is
+	// where it has to sit for two reasons: the gesture that opens an overlay lands on a
+	// trigger somewhere else in the chrome entirely, AND the window is the only target that
+	// also sees an event dispatched AT the window rather than at an element. `document`
+	// looks equivalent and is not: it is skipped when nothing below it is the target, which
+	// is exactly how the chord openers arrive (`useGlobalKeybindings` binds ⌘K, ⌘S and ⌫ to
+	// the window). Measured — with the listener on `document` every chord-summoned surface
+	// recorded a silent no and the return never fired for one.
+	//
+	// TWO events rather than one, and the pair is what makes the rule conditional. The
+	// pointerdown answers "the user clicked chrome while flying" (yes, hand the canvas
+	// back); the keydown answers "the user Tabbed here and pressed ⏎" (no — by then focus
+	// is on the trigger, so the record is correctly false, and Radix's own restoration is
+	// the WCAG 2.4.3 behaviour we must not override). A keydown ALSO covers the openers
+	// that have no trigger at all: ⌘K, ⌘S, ⌫ over the canvas.
+	useEffect(() => {
+		const canvas = ref.current;
+		if (!canvas) return;
+		const record = (): void => {
+			// IDENTITY, not `contains`: a `<canvas>` has no focusable children, and `<body>`
+			// — where a browser parks focus when nobody owns it — must not count, or every
+			// overlay dismissed from a cold page would seize the keyboard.
+			heldAtGestureStart.current = document.activeElement === canvas;
+		};
+		window.addEventListener("pointerdown", record, true);
+		window.addEventListener("keydown", record, true);
+		viewportFocusRef.current = {
+			// `preventScroll`, like Radix's own focus helper: the canvas is an absolute fill
+			// of its cell, and scrolling an ancestor to reveal something already on screen
+			// would move the whole shell for nothing.
+			focus: () => canvas.focus({ preventScroll: true }),
+			heldFocusAtGestureStart: () => heldAtGestureStart.current,
+		};
+		return () => {
+			window.removeEventListener("pointerdown", record, true);
+			window.removeEventListener("keydown", record, true);
+			// Cleared, not left dangling: an overlay outliving the canvas (an init failure
+			// unmounts it) must find no viewport rather than focus a detached element.
+			viewportFocusRef.current = null;
+		};
+	}, [viewportFocusRef]);
+
 	// tabIndex makes it focusable: the host attaches its WASD/QE fly, [ / ] radius and
 	// arrow-nudge keydowns to the CANVAS, so they only land while it holds focus — which
 	// is why the focus ring is not optional here: it is the only signal that those keys
 	// will go anywhere. `ring-inset` keeps it inside the canvas box, where an outset
 	// ring on an inset-0 fill would sit under the bars.
+	//
+	// `focus-visible` and not `focus`, deliberately: a click takes focus SILENTLY, which is
+	// the DCC norm and was ruled on at F4.5c Task 10 — the argument lives at the note in
+	// `ShortcutsDialog.tsx`'s canvas group, where the question was originally left open.
 	return (
 		<canvas
 			ref={ref}

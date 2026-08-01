@@ -38,6 +38,7 @@ import type {
 	FieldLayers,
 } from "../../../viewport-host/index.ts"; // type-only: erased
 import { useViewActions, useViewState } from "../../hooks/useView.tsx";
+import { useViewportFocusReturn } from "../../hooks/useViewportFocusReturn.ts";
 import { ActionTip } from "../tips.tsx";
 import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover.tsx";
 
@@ -133,6 +134,9 @@ export function ViewPopover({
 }) {
 	const { shading, layers, slice, sampleCount } = useViewState();
 	const view = useViewActions();
+	// "Open it, change something, close it, keep flying" is this popover's normal loop —
+	// it is the surface that made the dead-keys class worth fixing at all.
+	const focusReturn = useViewportFocusReturn();
 	const setLayer = (layer: keyof FieldLayers, on: boolean): void =>
 		view.setLayers({ ...layers, [layer]: on });
 
@@ -145,7 +149,11 @@ export function ViewPopover({
 				<span aria-hidden="true">⬒</span>
 				view
 			</PopoverTrigger>
-			<PopoverContent align="start" className="w-64 space-y-3 p-3 text-xs">
+			<PopoverContent
+				align="start"
+				className="w-64 space-y-3 p-3 text-xs"
+				{...focusReturn}
+			>
 				<div className={GROUP_CLASS} role="radiogroup" aria-label="shading">
 					<span className={GROUP_LABEL_CLASS}>shading</span>
 					{SHADING_MODES.map(({ mode, label, hint }) => (

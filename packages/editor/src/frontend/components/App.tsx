@@ -7,7 +7,11 @@ import { EngineBuildError, loadEngine } from "../lib/engine.ts";
 import { createUiStore } from "../lib/persist.ts";
 import { initialState, reduce } from "../lib/state.ts";
 import { ConfirmDialog } from "./ConfirmDialog.tsx";
-import { EditorContext, type EditorContextValue } from "./editor-context.ts";
+import {
+	EditorContext,
+	type EditorContextValue,
+	type ViewportFocus,
+} from "./editor-context.ts";
 import { Shell } from "./shell/Shell.tsx";
 
 /**
@@ -25,6 +29,11 @@ export function App() {
 	// shell's world verbs set it around every save/bake; a ref rather than state because
 	// the guard has to see the CURRENT value without re-subscribing (useDaemonFeed).
 	const bakeBusyRef = useRef(false);
+	// How a dismissed overlay hands the keyboard back to the canvas. Created HERE and
+	// filled by `CanvasHost` for the `fieldHostRef` reason: the thing that owns the
+	// element sits far below the provider, and the readers (every overlay's
+	// close-autofocus handler) sit beside it rather than under it.
+	const viewportFocusRef = useRef<ViewportFocus | null>(null);
 	// The in-chrome confirm dialog (replaces window.confirm) — its full state machine
 	// (open no-clobber guard, exactly-once resolve) lives in useConfirmDialog. `confirmRef`
 	// rides the editor context down to the shell's keydown listener, which suppresses
@@ -103,6 +112,7 @@ export function App() {
 		openConfirm,
 		confirmRef,
 		bakeBusyRef,
+		viewportFocusRef,
 		store,
 	};
 

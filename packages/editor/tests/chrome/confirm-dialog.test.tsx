@@ -7,7 +7,13 @@ import {
 	ConfirmDialog,
 	type ConfirmRequest,
 } from "../../src/frontend/components/ConfirmDialog.tsx";
-import { cleanup, fireEvent, render, screen } from "../inspector/_harness.tsx";
+import {
+	cleanup,
+	fireEvent,
+	makeEditorContext,
+	renderWithEditor,
+	screen,
+} from "../inspector/_harness.tsx";
 
 afterEach(cleanup);
 
@@ -37,7 +43,15 @@ function renderConfirm(guarded = false, over: Partial<ConfirmRequest> = {}) {
 		if (confirmed) request.onConfirm();
 		else request.onCancel?.();
 	};
-	render(<ConfirmDialog request={request} onResolve={onResolve} />);
+	// Inside the editor context, as App renders it: the dialog reads the viewport focus
+	// seam to hand the canvas back when the prompt was summoned from it (⌫ over the
+	// canvas). The default context carries no viewport, which is the shape a case that
+	// mounts this alone should see — see tests/chrome/viewport-focus-return.test.tsx for
+	// the seam's own polarity pair.
+	renderWithEditor(
+		<ConfirmDialog request={request} onResolve={onResolve} />,
+		makeEditorContext(),
+	);
 	return { onConfirm, onCancel };
 }
 

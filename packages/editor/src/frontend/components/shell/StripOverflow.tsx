@@ -10,6 +10,7 @@
 // params hide as a unit and the strip degrades to `name + ⋯` — which is only acceptable
 // because this button is a complete route back to every one of them.
 import { Ellipsis } from "lucide-react";
+import { useViewportFocusReturn } from "../../hooks/useViewportFocusReturn.ts";
 import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover.tsx";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip.tsx";
 import type { BrushEffect, ParamContext, ParamId } from "./tool-params.tsx";
@@ -26,6 +27,9 @@ export function StripOverflow({
 	ctx: ParamContext;
 }) {
 	const label = `all ${effect} options`;
+	// Setting a radius or a falloff here is the same interruption as setting one on the
+	// strip: the user is mid-stroke, and the keys they come back to are the canvas's.
+	const focusReturn = useViewportFocusReturn();
 	return (
 		<Popover>
 			<Tooltip>
@@ -48,7 +52,7 @@ export function StripOverflow({
 					Every {effect} option — also here when the strip is narrow
 				</TooltipContent>
 			</Tooltip>
-			<PopoverContent align="end" className="w-72 p-3">
+			<PopoverContent align="end" className="w-72 p-3" {...focusReturn}>
 				{/* biome-ignore lint/a11y/useSemanticElements: role="group" is the intended ARIA grouping for this option list; a <fieldset>/<legend> would force a second box inside a popover that is already one */}
 				<div
 					role="group"
