@@ -23,6 +23,12 @@
 // pays for it with a GPU context rebuild. (It also has nowhere honest to sit — an
 // "overlay" it is not.)
 //
+// Every control here documents itself through a real TOOLTIP rather than a `title`
+// (D-25): the sentences below are what each toggle costs and what it does to the picture,
+// they are the whole reason a checkbox called "void" is comprehensible, and a `title`
+// hands them to a mouse and to nobody else. The trigger wraps the <label>, so the tooltip
+// opens both on a hover anywhere across the row and on the nested input taking FOCUS.
+//
 // Every group's aria-label is its visible label, verbatim. They diverged once ("layers"
 // over `aria-label="layer visibility"`) and a divergence is a screen reader and a screen
 // disagreeing about what a thing is called. And none of them is called "view": inside a
@@ -32,15 +38,16 @@ import type {
 	FieldLayers,
 } from "../../../viewport-host/index.ts"; // type-only: erased
 import { useViewActions, useViewState } from "../../hooks/useView.tsx";
+import { ActionTip } from "../field/form-bits.tsx";
 import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover.tsx";
 
-const VOID_CAST_TITLE =
+const VOID_CAST_HINT =
 	"X-ray: meshes the air as a solid, so a cave network reads from outside. Built when you tick it; the next edit clears it — re-tick to refresh";
 
-const SLICE_TITLE =
+const SLICE_HINT =
 	"cut the world at a height: everything at or above the plane reads as air, for display AND for what the brush targets";
 
-const AA_TITLE =
+const AA_HINT =
 	"multisampling on the viewport pass. Changing it rebuilds the GPU context: the world, your edits and the camera survive, the picture blinks — but a stamp you have not committed is discarded";
 
 // The exclusion above, made machine-checked: putting `voidCast` in the group stops
@@ -48,12 +55,12 @@ const AA_TITLE =
 // rendering it twice).
 type VisibilityLayer = Exclude<keyof FieldLayers, "voidCast">;
 
-// Keyed by layer, so the group is EXHAUSTIVE: a new FieldLayers field has no title here
+// Keyed by layer, so the group is EXHAUSTIVE: a new FieldLayers field has no hint here
 // and stops compiling. The array this replaced could not say that — an extra key failed,
 // a MISSING one did not, which is how `flags` shipped in F4 with no toggle at all. The
 // key doubles as the visible label (every one of them already did), so there is one
 // string per layer and nothing to keep in sync.
-const LAYER_TITLES: Record<VisibilityLayer, string> = {
+const LAYER_HINTS: Record<VisibilityLayer, string> = {
 	field: "the per-class surface meshes",
 	kit: "the instanced kit pieces",
 	props: "placed prop proxies (scatter placements)",
@@ -81,7 +88,7 @@ const LAYER_TITLES: Record<VisibilityLayer, string> = {
 // against `Record<VisibilityLayer, string>`, which cannot. The invariant the cast
 // re-states is that literal's own excess-property check, which the return type of
 // Object.keys has no way to carry.
-const LAYERS = Object.keys(LAYER_TITLES) as VisibilityLayer[];
+const LAYERS = Object.keys(LAYER_HINTS) as VisibilityLayer[];
 
 // Slice slider range (world metres): −8 reaches below any v0 dig, +24 clears the tallest
 // kit hall; 0.25 m steps match the field's cell size.
@@ -101,19 +108,17 @@ const GROUP_LABEL_CLASS =
 const SHADING_MODES: {
 	mode: FieldHostShading;
 	label: string;
-	title: string;
+	hint: string;
 }[] = [
 	{
 		mode: "studio",
 		label: "Studio",
-		title:
-			"lit from the camera with a hemisphere fill — form and material colour",
+		hint: "lit from the camera with a hemisphere fill — form and material colour",
 	},
 	{
 		mode: "normals",
 		label: "Normals (debug)",
-		title:
-			"unlit normal-colour: shows surface orientation, hides every material difference",
+		hint: "unlit normal-colour: shows surface orientation, hides every material difference",
 	},
 ];
 
@@ -143,59 +148,63 @@ export function ViewPopover({
 			<PopoverContent align="start" className="w-64 space-y-3 p-3 text-xs">
 				<div className={GROUP_CLASS} role="radiogroup" aria-label="shading">
 					<span className={GROUP_LABEL_CLASS}>shading</span>
-					{SHADING_MODES.map(({ mode, label, title }) => (
-						<label key={mode} className={LABEL_CLASS} title={title}>
-							<input
-								type="radio"
-								name="shading"
-								checked={shading === mode}
-								onChange={() => view.setShading(mode)}
-							/>
-							{label}
-						</label>
+					{SHADING_MODES.map(({ mode, label, hint }) => (
+						<ActionTip key={mode} hint={hint}>
+							<label className={LABEL_CLASS}>
+								<input
+									type="radio"
+									name="shading"
+									checked={shading === mode}
+									onChange={() => view.setShading(mode)}
+								/>
+								{label}
+							</label>
+						</ActionTip>
 					))}
 				</div>
 				{/* biome-ignore lint/a11y/useSemanticElements: role="group" is the intended ARIA grouping for this control set; a native <fieldset>/<legend> would force the boxed-card look this flat UI deliberately avoids */}
 				<div className={GROUP_CLASS} role="group" aria-label="layers">
 					<span className={GROUP_LABEL_CLASS}>layers</span>
 					{LAYERS.map((layer) => (
-						<label
-							key={layer}
-							title={LAYER_TITLES[layer]}
-							className={LABEL_CLASS}
-						>
-							<input
-								type="checkbox"
-								checked={layers[layer]}
-								onChange={(e) => setLayer(layer, e.target.checked)}
-							/>
-							{layer}
-						</label>
+						<ActionTip key={layer} hint={LAYER_HINTS[layer]}>
+							<label className={LABEL_CLASS}>
+								<input
+									type="checkbox"
+									checked={layers[layer]}
+									onChange={(e) => setLayer(layer, e.target.checked)}
+								/>
+								{layer}
+							</label>
+						</ActionTip>
 					))}
 				</div>
 				{/* biome-ignore lint/a11y/useSemanticElements: role="group" is the intended ARIA grouping for this control set; a native <fieldset>/<legend> would force the boxed-card look this flat UI deliberately avoids */}
 				<div className={GROUP_CLASS} role="group" aria-label="overlays">
 					<span className={GROUP_LABEL_CLASS}>overlays</span>
-					<label className={LABEL_CLASS} title={VOID_CAST_TITLE}>
-						<input
-							type="checkbox"
-							checked={layers.voidCast}
-							onChange={(e) => setLayer("voidCast", e.target.checked)}
-							aria-label="void cast"
-						/>
-						void
-					</label>
-					<label className={LABEL_CLASS} title={SLICE_TITLE}>
-						<input
-							type="checkbox"
-							checked={slice.enabled}
-							onChange={(e) =>
-								view.setSlice({ ...slice, enabled: e.target.checked })
-							}
-							aria-label="slice view"
-						/>
-						slice
-					</label>
+					<ActionTip hint={VOID_CAST_HINT}>
+						<label className={LABEL_CLASS}>
+							<input
+								type="checkbox"
+								checked={layers.voidCast}
+								onChange={(e) => setLayer("voidCast", e.target.checked)}
+								aria-label="void cast"
+							/>
+							void
+						</label>
+					</ActionTip>
+					<ActionTip hint={SLICE_HINT}>
+						<label className={LABEL_CLASS}>
+							<input
+								type="checkbox"
+								checked={slice.enabled}
+								onChange={(e) =>
+									view.setSlice({ ...slice, enabled: e.target.checked })
+								}
+								aria-label="slice view"
+							/>
+							slice
+						</label>
+					</ActionTip>
 					{/* The slider stays MOUNTED while the plane is off, disabled and showing the
 					    depth a re-tick would return to — a control that vanishes takes the
 					    answer to "where was it?" with it. */}
@@ -219,17 +228,16 @@ export function ViewPopover({
 						</span>
 					</label>
 				</div>
-				<label
-					className={`${LABEL_CLASS} border-border border-t pt-3`}
-					title={AA_TITLE}
-				>
-					<input
-						type="checkbox"
-						checked={sampleCount === 4}
-						onChange={(e) => view.setSampleCount(e.target.checked ? 4 : 1)}
-					/>
-					antialiasing
-				</label>
+				<ActionTip hint={AA_HINT}>
+					<label className={`${LABEL_CLASS} border-border border-t pt-3`}>
+						<input
+							type="checkbox"
+							checked={sampleCount === 4}
+							onChange={(e) => view.setSampleCount(e.target.checked ? 4 : 1)}
+						/>
+						antialiasing
+					</label>
+				</ActionTip>
 			</PopoverContent>
 		</Popover>
 	);

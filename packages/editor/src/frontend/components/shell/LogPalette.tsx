@@ -25,6 +25,7 @@ import {
 	notify,
 } from "../../lib/notify-store.ts";
 import { PALETTE_IDS } from "../../lib/palette-store.ts";
+import { ActionTip } from "../field/form-bits.tsx";
 import { Button } from "../ui/button.tsx";
 
 /** The severity dot + its tone. Same reasoning as the toast: an ICON rather than a bare
@@ -169,19 +170,23 @@ export function LogPalette() {
 					    second can never exceed the first. */}
 					{overflow > 0 && ` · ${overflow} not shown as toasts`}
 				</span>
-				<Button
-					type="button"
-					size="sm"
-					variant="ghost"
-					className="h-5 px-1.5 text-xs"
-					disabled={log.length === 0}
-					// It takes the toasts too — `clear` is the whole store, not just this
-					// list — and a verb that removes something off-screen has to say so.
-					title="discard the log and any toasts still on screen"
-					onClick={() => notify.clear()}
-				>
-					Clear
-				</Button>
+				{/* It takes the toasts too — `clear` is the whole store, not just this list —
+				    and a verb that removes something off-screen has to say so. A tooltip
+				    rather than a `title` (D-25) so the warning reaches a keyboard user; the
+				    empty-log case is disabled and so reaches nobody, which is the one state
+				    where there is nothing to warn about. */}
+				<ActionTip hint="discard the log and any toasts still on screen">
+					<Button
+						type="button"
+						size="sm"
+						variant="ghost"
+						className="h-5 px-1.5 text-xs"
+						disabled={log.length === 0}
+						onClick={() => notify.clear()}
+					>
+						Clear
+					</Button>
+				</ActionTip>
 			</div>
 			{log.length === 0 ? (
 				<p className="px-2 py-3 text-muted-foreground">

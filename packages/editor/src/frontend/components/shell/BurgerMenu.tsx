@@ -67,6 +67,12 @@ function RegistryGroup({ group }: { group: ActionGroup }) {
 				// `pointer-events-none`, so it never surfaces a native tooltip — which is
 				// why an action whose reason applies while DISABLED puts it in the label
 				// instead (world.bake, edit.history).
+				//
+				// A `title` and NOT an `ActionTip`, which is the one deliberate exemption
+				// from D-25's sweep: a menu item is already keyboard-reachable by ↓, and a
+				// tooltip anchored to it would pop on every arrow press while the user is
+				// travelling past. The keycap is already here too (`chord`, right), so the
+				// annotation half of D-25 has nothing to add either.
 				const disabled = !action.enabled(ctx);
 				// A checkbox item where the action reports a checked state, a plain item
 				// otherwise — the one structural difference a menu needs from the table.

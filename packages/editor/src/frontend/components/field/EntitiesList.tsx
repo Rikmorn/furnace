@@ -75,6 +75,12 @@
 // pointer events) sits on a non-focusable span that reaches neither a screen
 // reader reliably nor a keyboard user at all. The expand button is the exception
 // and needs no label: its visible text already names the stamp it belongs to.
+//
+// F4.5c Task 8 closes the other half of that (D-25): while a verb is AVAILABLE its
+// sentence is a real Radix tooltip, which opens on FOCUS as well as hover — so the
+// documentation on this row's three destructive verbs is no longer mouse-only. The
+// keycap on delete is READ off the action registry rather than written here, and
+// only on the selected row, because that is the only row ⌫ would act on.
 import { Fragment, useEffect, useRef, useState } from "react";
 import type { FieldEntityInfo } from "../../../viewport-host/index.ts"; // type-only: erased
 import { cn } from "../../lib/cn.ts";
@@ -91,6 +97,7 @@ import {
 } from "../../lib/field-entity.ts";
 import { CollapsibleSection } from "../CollapsibleSection.tsx";
 import { Button } from "../ui/button.tsx";
+import { ActionTip, ReasonTip } from "./form-bits.tsx";
 
 /** `opSpan` is [firstOpId, lastOpId] inclusive (commitGenerator). */
 const opCount = (e: FieldEntityInfo): number => e.opSpan[1] - e.opSpan[0] + 1;
@@ -118,12 +125,21 @@ const rowSummary = (e: FieldEntityInfo): string =>
 
 const ROW_BUTTON_CLASS = "h-5 px-1.5 text-xs";
 
-/** One row verb's control, with the wrapper a DISABLED button needs: a disabled
- *  button swallows pointer events, so the mouse tooltip has to ride a span around
- *  it — and because that span is not focusable, the reason goes in the
- *  `aria-label` too or a keyboard user never gets it. One component so the four
- *  verbs cannot drift apart on this again (they did: ❄ and ⬇ shipped bare, and
- *  bake's tooltip still promised to sever a recipe on a row where it could not).
+/** One row verb's control, in whichever of the two documentation channels its state
+ *  can actually use. One component so the four verbs cannot drift apart on this again
+ *  (they did: ❄ and ⬇ shipped bare, and bake's tooltip still promised to sever a recipe
+ *  on a row where it could not).
+ *
+ *  AVAILABLE → `ActionTip`, a real tooltip that opens on FOCUS as well as hover (D-25).
+ *  That is the half a `title` never had: these are the verbs that open, freeze, sever and
+ *  delete a committed stamp, three of them destructive, and until F4.5c Task 8 the sentence
+ *  explaining each one was reachable only by hovering a mouse.
+ *
+ *  BLOCKED → `ReasonTip`, because a disabled button takes neither pointer events nor focus
+ *  and no tooltip has a channel to it at all; the reason rides a wrapper span for the mouse
+ *  and the `aria-label` for everyone else. The button carries no `title` in EITHER state —
+ *  the double-`title` this used to ship (wrapper for the blocked case, button for the live
+ *  one) is what D-25 replaced.
  *
  *  `glyph` renders inside an `aria-hidden` span: the accessible name is the label,
  *  never the pictograph. */
@@ -135,40 +151,42 @@ function RowVerb(props: {
 	label?: string;
 	/** Why the verb is unavailable, or null when it is. */
 	blocked: string | null;
-	/** The tooltip when it is NOT blocked. */
-	title: string;
+	/** The sentence the verb's own label has no room for, shown while it is available. */
+	hint: string;
+	/** The registry action whose KEY does this same thing to this same row, when one does.
+	 *  Absent on a row the key would not reach — see the delete verb's call below. */
+	actionId?: string;
 	className?: string;
 	onClick: () => void;
 }) {
 	const { blocked } = props;
-	return (
-		// The wrapper carries the tooltip ONLY while the button is disabled, which is
-		// the one state that needs it: a disabled button swallows pointer events, so a
-		// `title` on it never fires. An ENABLED button keeps its own, because the
-		// element the user hovers and focuses should be the element that explains
-		// itself — a wrapper span is neither focusable nor hit-tested independently.
-		<span title={blocked ?? undefined}>
-			<Button
-				type="button"
-				size="sm"
-				variant="ghost"
-				className={cn(ROW_BUTTON_CLASS, props.className)}
-				disabled={blocked !== null}
-				title={blocked === null ? props.title : undefined}
-				aria-label={
-					blocked === null
-						? `${props.verb} entity ${props.entityId}`
-						: `${props.verb} entity ${props.entityId} (${blocked})`
-				}
-				onClick={props.onClick}
-			>
-				{props.glyph === undefined ? (
-					props.label
-				) : (
-					<span aria-hidden="true">{props.glyph}</span>
-				)}
-			</Button>
-		</span>
+	const control = (
+		<Button
+			type="button"
+			size="sm"
+			variant="ghost"
+			className={cn(ROW_BUTTON_CLASS, props.className)}
+			disabled={blocked !== null}
+			aria-label={
+				blocked === null
+					? `${props.verb} entity ${props.entityId}`
+					: `${props.verb} entity ${props.entityId} (${blocked})`
+			}
+			onClick={props.onClick}
+		>
+			{props.glyph === undefined ? (
+				props.label
+			) : (
+				<span aria-hidden="true">{props.glyph}</span>
+			)}
+		</Button>
+	);
+	return blocked === null ? (
+		<ActionTip hint={props.hint} actionId={props.actionId}>
+			{control}
+		</ActionTip>
+	) : (
+		<ReasonTip reason={blocked}>{control}</ReasonTip>
 	);
 }
 
@@ -268,63 +286,65 @@ export function EntitiesList(props: {
 					return (
 						<div key={e.entityId} ref={selected ? selectedRow : null}>
 							<div className="flex items-center gap-1">
-								<button
-									type="button"
-									aria-expanded={expanded}
-									// The selected state, in the markup rather than only in a
-									// class: "the current item in this list" is exactly what
-									// aria-current means, and it is what makes the sync assertable
-									// without reaching for a Tailwind string.
-									aria-current={selected ? "true" : undefined}
-									title="select this stamp and show its recipe"
-									// ONE click, two effects, and they are not redundant: the
-									// selection is HOST state (it draws the footprint box and is
-									// what the viewport's own pick writes), the expansion is this
-									// list's display state. Collapsing therefore leaves the entity
-									// selected — un-expanding a row is not a statement about what
-									// is being worked on.
-									onClick={() => {
-										props.onSelect(e.entityId);
-										setExpandedId(expanded ? null : e.entityId);
-									}}
-									className={cn(
-										"flex min-w-0 flex-1 items-center gap-1.5 rounded px-1 py-0.5 text-left text-xs hover:bg-muted/50",
-										expanded && "bg-muted",
-										selected && "bg-primary/15 ring-1 ring-primary/40",
-									)}
-								>
-									<span aria-hidden="true">▦</span>
-									<span
+								<ActionTip hint="select this stamp and show its recipe">
+									<button
+										type="button"
+										aria-expanded={expanded}
+										// The selected state, in the markup rather than only in a
+										// class: "the current item in this list" is exactly what
+										// aria-current means, and it is what makes the sync assertable
+										// without reaching for a Tailwind string.
+										aria-current={selected ? "true" : undefined}
+										// ONE click, two effects, and they are not redundant: the
+										// selection is HOST state (it draws the footprint box and is
+										// what the viewport's own pick writes), the expansion is this
+										// list's display state. Collapsing therefore leaves the entity
+										// selected — un-expanding a row is not a statement about what
+										// is being worked on.
+										onClick={() => {
+											props.onSelect(e.entityId);
+											setExpandedId(expanded ? null : e.entityId);
+										}}
 										className={cn(
-											"min-w-0 flex-1 truncate font-mono",
-											// A frozen row reads as protected rather than active.
-											frozen && "text-muted-foreground",
+											"flex min-w-0 flex-1 items-center gap-1.5 rounded px-1 py-0.5 text-left text-xs hover:bg-muted/50",
+											expanded && "bg-muted",
+											selected && "bg-primary/15 ring-1 ring-primary/40",
 										)}
 									>
-										{rowSummary(e)}
-									</span>
-									{frozen && <StateBadge label="frozen" glyph="🔒" />}
-									{baked && <StateBadge label="baked" />}
-								</button>
+										<span aria-hidden="true">▦</span>
+										<span
+											className={cn(
+												"min-w-0 flex-1 truncate font-mono",
+												// A frozen row reads as protected rather than active.
+												frozen && "text-muted-foreground",
+											)}
+										>
+											{rowSummary(e)}
+										</span>
+										{frozen && <StateBadge label="frozen" glyph="🔒" />}
+										{baked && <StateBadge label="baked" />}
+									</button>
+								</ActionTip>
 								{driftedIds.has(e.entityId) && (
-									<Button
-										type="button"
-										size="sm"
-										variant="ghost"
-										className={cn(ROW_BUTTON_CLASS, "text-amber-500")}
-										title="the last reconfigure disturbed something here — show the drift report"
-										aria-label={`show drift near entity ${e.entityId}`}
-										onClick={props.onShowDrift}
-									>
-										Δ
-									</Button>
+									<ActionTip hint="the last reconfigure disturbed something here — show the drift report">
+										<Button
+											type="button"
+											size="sm"
+											variant="ghost"
+											className={cn(ROW_BUTTON_CLASS, "text-amber-500")}
+											aria-label={`show drift near entity ${e.entityId}`}
+											onClick={props.onShowDrift}
+										>
+											Δ
+										</Button>
+									</ActionTip>
 								)}
 								<RowVerb
 									entityId={e.entityId}
 									verb="open"
 									label="Open"
 									blocked={openBlockedReason(e)}
-									title="reconfigure this stamp"
+									hint="reconfigure this stamp"
 									onClick={() => props.onReconfigure(e.entityId)}
 								/>
 								<RowVerb
@@ -342,7 +362,7 @@ export function EntitiesList(props: {
 									// any surface may read — and is declined rather than unreachable:
 									// a tooltip that re-renders on every nudge of an unrelated stamp
 									// is a poor trade for one word.
-									title={
+									hint={
 										frozen
 											? "allow this stamp to be reconfigured again"
 											: "protect this stamp from reconfigure — ends any reconfigure session open on it"
@@ -355,13 +375,13 @@ export function EntitiesList(props: {
 								    neither has anything to do with this one: those write the world
 								    and point the game at it, this severs ONE stamp's recipe. The
 								    resulting entity STATE is still `baked` — that word is core's,
-								    and the badge keeps it — so the title names both halves. */}
+								    and the badge keeps it — so the hint names both halves. */}
 								<RowVerb
 									entityId={e.entityId}
 									verb="sever"
 									glyph="⬇"
 									blocked={bakeBlockedReason(e)}
-									title="sever this stamp's recipe — permanent; it becomes a baked entity"
+									hint="sever this stamp's recipe — permanent; it becomes a baked entity"
 									onClick={() => props.onSever(e.entityId)}
 								/>
 								<RowVerb
@@ -369,7 +389,14 @@ export function EntitiesList(props: {
 									verb="delete"
 									glyph="🗑"
 									blocked={deleteBlockedReason(e)}
-									title="remove this stamp and its ops"
+									hint="remove this stamp and its ops"
+									// The ONE row verb a KEY also does — and only on the SELECTED row.
+									// `edit.delete` acts on `ctx.selectedEntity`, so ⌫ pressed while
+									// another row is selected does not touch this one; annotating every
+									// row with the keycap would be a claim about the keyboard that is
+									// false on all but one of them. The keycap itself is never spelled
+									// here — `ActionTip` reads it off the registry, so a rebind moves it.
+									actionId={selected ? "edit.delete" : undefined}
 									onClick={() => props.onDelete(e.entityId)}
 								/>
 							</div>

@@ -22,11 +22,13 @@ import {
 } from "../../hooks/useFieldHostState.tsx";
 import { usePaletteSummon } from "../../hooks/usePaletteStack.tsx";
 import { useWorldState, type WorldJob } from "../../hooks/useWorld.tsx";
+import type { ActionCtx } from "../../lib/actions.ts";
 import { ACTIONS } from "../../lib/actions.ts";
 import { cn } from "../../lib/cn.ts";
 import { notify } from "../../lib/notify-store.ts";
 import type { EditorState } from "../../lib/state.ts";
 import { useEditor } from "../editor-context.ts";
+import { ActionTip } from "../field/form-bits.tsx";
 import { Button } from "../ui/button.tsx";
 import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover.tsx";
 import { armedKeymap } from "./status-keymap.ts";
@@ -149,29 +151,51 @@ function SelectionVerbs({
 				</p>
 			)}
 			<div className="flex gap-1">
-				{SELECTION_ACTIONS.map((id) => {
-					const action = ACTIONS.find((a) => a.id === id);
-					// Absent = the registry lost an id this bar names. Rendering nothing is
-					// the honest failure (a dead button would be worse), and the id pair
-					// below is asserted against the table in the suite.
-					if (action === undefined) return null;
-					return (
-						<Button
-							key={id}
-							type="button"
-							size="sm"
-							variant="ghost"
-							className="h-6 px-2 text-xs"
-							disabled={!action.enabled(ctx)}
-							title={action.menuTitle}
-							onClick={() => action.run(ctx)}
-						>
-							{action.label(ctx)}
-						</Button>
-					);
-				})}
+				{SELECTION_ACTIONS.map((id) => (
+					<SelectionVerb key={id} id={id} ctx={ctx} />
+				))}
 			</div>
 		</>
+	);
+}
+
+/** One of the chip's two verbs, straight off the registry.
+ *
+ *  Its DOCS come off the table too — `menuTitle`, the sentence a label has no room for —
+ *  as a real tooltip rather than a `title` (D-25), carrying whatever keycap the entry
+ *  holds. Neither of these two has a chord today and each says why at its definition; when
+ *  one gains a binding the keycap appears here without this file changing, which is the
+ *  whole point of reading it off the id rather than writing it down.
+ *
+ *  A DISABLED verb gets neither channel: it takes no pointer events and no focus, so the
+ *  tooltip could not reach it — and it has nothing to explain anyway, being greyed out
+ *  exactly when there is no selection, which is what the chip that opened this says. */
+function SelectionVerb({ id, ctx }: { id: string; ctx: ActionCtx }) {
+	const action = ACTIONS.find((a) => a.id === id);
+	// Absent = the registry lost an id this bar names. Rendering nothing is the honest
+	// failure (a dead button would be worse), and the id pair below is asserted against
+	// the table in the suite.
+	if (action === undefined) return null;
+	const disabled = !action.enabled(ctx);
+	const hint = action.menuTitle;
+	const control = (
+		<Button
+			type="button"
+			size="sm"
+			variant="ghost"
+			className="h-6 px-2 text-xs"
+			disabled={disabled}
+			onClick={() => action.run(ctx)}
+		>
+			{action.label(ctx)}
+		</Button>
+	);
+	return disabled || hint === undefined ? (
+		control
+	) : (
+		<ActionTip actionId={id} hint={hint}>
+			{control}
+		</ActionTip>
 	);
 }
 

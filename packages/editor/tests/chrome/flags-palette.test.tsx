@@ -25,6 +25,7 @@ import type { ReactElement } from "react";
 import { EditorContext } from "../../src/frontend/components/editor-context.ts";
 import { FlagsPalette } from "../../src/frontend/components/shell/FlagsPalette.tsx";
 import { Toasts } from "../../src/frontend/components/shell/Toasts.tsx";
+import { TooltipProvider } from "../../src/frontend/components/ui/tooltip.tsx";
 import { FieldHostStateProvider } from "../../src/frontend/hooks/useFieldHostState.tsx";
 import type { VerifyVerdictWire } from "../../src/frontend/lib/analyzer-protocol.ts";
 import { notify } from "../../src/frontend/lib/notify-store.ts";
@@ -68,6 +69,10 @@ function memoryStorage(): Storage {
 	};
 }
 
+// The TOOLTIP provider is part of the arrangement since F4.5c Task 8: the filter chips,
+// the row buttons and Verify document themselves through `ActionTip` (D-25), and a Radix
+// `Tooltip` outside a provider does not degrade — it THROWS. Shell.tsx mounts exactly one
+// for the whole frame; this is that one, not a second.
 const withEditor = (
 	ui: ReactElement,
 	stub: ReturnType<typeof makeStubHost>,
@@ -76,10 +81,12 @@ const withEditor = (
 	<EditorContext.Provider
 		value={makeEditorContext({ fieldHostRef: { current: stub.host } })}
 	>
-		<FieldHostStateProvider host={stub.host} engineReady store={store}>
-			{ui}
-			<Toasts />
-		</FieldHostStateProvider>
+		<TooltipProvider delayDuration={300}>
+			<FieldHostStateProvider host={stub.host} engineReady store={store}>
+				{ui}
+				<Toasts />
+			</FieldHostStateProvider>
+		</TooltipProvider>
 	</EditorContext.Provider>
 );
 
@@ -823,9 +830,11 @@ test("before the engine bundle lands the palette makes no claim about the world"
 				fieldHostRef: { current: stub.host },
 			})}
 		>
-			<FieldHostStateProvider host={stub.host} engineReady={false}>
-				<FlagsPalette />
-			</FieldHostStateProvider>
+			<TooltipProvider delayDuration={300}>
+				<FieldHostStateProvider host={stub.host} engineReady={false}>
+					<FlagsPalette />
+				</FieldHostStateProvider>
+			</TooltipProvider>
 		</EditorContext.Provider>,
 	);
 	// "Flags · 0 candidates" here would be a claim about a world nothing has

@@ -51,6 +51,10 @@ import type {
 } from "../../lib/actions.ts";
 import { controlVerdict, TOOL_FAMILIES } from "../../lib/actions.ts";
 import { cn } from "../../lib/cn.ts";
+// The tooltip BODY, shared with `ActionTip` (D-25) rather than spelled twice: this file
+// keeps its own trigger — a roving-tabindex button whose props cannot move to a wrapper,
+// opening to the `side` a 44 px column needs — and takes only the keycap-and-hint layout.
+import { KeyTip } from "../field/form-bits.tsx";
 import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover.tsx";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip.tsx";
 
@@ -380,34 +384,5 @@ function MemberFlyout({ row }: { row: RailModel }) {
 				)}
 			</PopoverContent>
 		</Popover>
-	);
-}
-
-/** A tooltip body in the house vocabulary (D-25): what the control is called, the key that
- *  also does it, and the one sentence a label has no room for. All three come off the
- *  registry entry, so a reworded action moves every tooltip with it. */
-function KeyTip({
-	keys,
-	hint,
-	label,
-}: {
-	keys: string | undefined;
-	hint: string | undefined;
-	label: string;
-}) {
-	return (
-		<span className="flex flex-col gap-0.5">
-			<span className="flex items-center gap-1.5">
-				<span className="font-medium text-foreground">{label}</span>
-				{keys !== undefined && (
-					<kbd className="rounded-sm border border-border bg-muted px-1 font-mono text-[10px] text-muted-foreground">
-						{keys}
-					</kbd>
-				)}
-			</span>
-			{hint !== undefined && (
-				<span className="text-muted-foreground">{hint}</span>
-			)}
-		</span>
 	);
 }

@@ -58,6 +58,10 @@ export function SeedRow({
 				id={inputId}
 				className="h-7 w-20 font-mono"
 			/>
+			{/* A `title` that STAYS, against D-25's sweep, because it is a NAME rather than
+			    documentation: ⚄ has no visible label, so this is the only thing that tells a
+			    mouse user what the button is — and everyone else already has the aria-label,
+			    which says the same words. A tooltip here would document nothing. */}
 			<Button
 				type="button"
 				size="sm"

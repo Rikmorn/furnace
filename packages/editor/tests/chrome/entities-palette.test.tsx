@@ -17,10 +17,12 @@ import "../inspector/_register.ts";
 import { afterEach, expect, test } from "bun:test";
 import type { ConfirmRequest } from "../../src/frontend/components/ConfirmDialog.tsx";
 import { EntitiesPalette } from "../../src/frontend/components/shell/EntitiesPalette.tsx";
+import { TooltipProvider } from "../../src/frontend/components/ui/tooltip.tsx";
 import {
 	FieldHostStateProvider,
 	useFieldEntities,
 } from "../../src/frontend/hooks/useFieldHostState.tsx";
+import { byId } from "../../src/frontend/lib/actions.ts";
 import type {
 	FieldDriftReport,
 	FieldEntityInfo,
@@ -33,6 +35,7 @@ import {
 	render,
 	renderWithEditor,
 	screen,
+	within,
 } from "../inspector/_harness.tsx";
 import { makeStubHost } from "./_stub-host.ts";
 
@@ -69,15 +72,22 @@ const SCATTER: FieldEntityInfo = {
 
 /** The palette under the shell's host-state provider — the arrangement the real editor
  *  mounts. The provider owns both entity seams, so this is what a `fire.entities` tick
- *  needs to reach anything. */
+ *  needs to reach anything.
+ *
+ *  The TOOLTIP provider is part of that arrangement since F4.5c Task 8: the row verbs
+ *  document themselves through `ActionTip`, and a Radix `Tooltip` outside a provider does
+ *  not degrade — it THROWS. Shell.tsx mounts exactly one for the whole frame; this is that
+ *  one, not a second. */
 function renderPalette(
 	stub: ReturnType<typeof makeStubHost>,
 	overrides: { openConfirm?: (r: ConfirmRequest) => void } = {},
 ) {
 	return renderWithEditor(
-		<FieldHostStateProvider host={stub.host} engineReady>
-			<EntitiesPalette />
-		</FieldHostStateProvider>,
+		<TooltipProvider delayDuration={300}>
+			<FieldHostStateProvider host={stub.host} engineReady>
+				<EntitiesPalette />
+			</FieldHostStateProvider>
+		</TooltipProvider>,
 		makeEditorContext({
 			fieldHostRef: { current: stub.host },
 			...(overrides.openConfirm ? { openConfirm: overrides.openConfirm } : {}),
@@ -343,16 +353,90 @@ test("a blocked Open carries its reason in the accessible name, not only a title
 // shell's context, and declines: see EntitiesList), and the sentence is true of every
 // unfrozen row anyway: the host cancels whatever session sits on the entity it freezes. Pinned because the alternative ways to phrase it are all weaker: a bare
 // "protect this stamp" drops the data-loss warning entirely.
-test("Freeze names the session it would end, on every unfrozen row", () => {
+test("Freeze names the session it would end, on every unfrozen row", async () => {
 	const stub = makeStubHost();
 	showEntities(stub, [ENTITY, FROZEN]);
-	expect(rowButton("freeze", 1).getAttribute("title")).toBe(
-		"protect this stamp from reconfigure — ends any reconfigure session open on it",
-	);
+	// FOCUS, not hover (D-25): the sentence a destructive-adjacent verb carries has to
+	// reach a keyboard user, and a native `title` reaches nobody who does not own a mouse.
+	// Its ABSENCE is half the claim — a passing assertion on tooltip text would otherwise
+	// be satisfied by the attribute this task exists to remove.
+	const freeze = rowButton("freeze", 1);
+	expect(freeze.getAttribute("title")).toBeNull();
+	act(() => {
+		fireEvent.focus(freeze);
+	});
+	expect(
+		within(await screen.findByRole("tooltip")).getByText(
+			"protect this stamp from reconfigure — ends any reconfigure session open on it",
+		),
+	).toBeTruthy();
+
 	// …and the frozen row's inverse verb says what it does instead, with no warning to
 	// carry: a frozen entity has no session to end.
-	expect(rowButton("unfreeze", 2).getAttribute("title")).toBe(
-		"allow this stamp to be reconfigured again",
+	act(() => {
+		fireEvent.blur(freeze);
+		fireEvent.focus(rowButton("unfreeze", 2));
+	});
+	expect(
+		within(await screen.findByRole("tooltip")).getByText(
+			"allow this stamp to be reconfigured again",
+		),
+	).toBeTruthy();
+});
+
+// D-25's second half — the keybinding annotation, and the reason it is a REGISTRY read
+// rather than a keycap spelled into the sentence (D-12).
+test("the row's Delete tooltip shows the registry's own keycap, on the selected row only", async () => {
+	const stub = makeStubHost();
+	showEntities(stub, [ENTITY, { ...ENTITY, entityId: 9 }]);
+
+	// Nothing selected: ⌫ deletes the SELECTED stamp, so a keycap on a row the key would
+	// not touch is a lie about what the keyboard does. The sentence still shows.
+	act(() => {
+		fireEvent.focus(rowButton("delete", 1));
+	});
+	const bare = await screen.findByRole("tooltip");
+	expect(within(bare).getByText("remove this stamp and its ops")).toBeTruthy();
+	expect(within(bare).queryByText("⌫") === null).toBe(true);
+
+	// Select row 1 — now ⌫ and this button are the same verb on the same object, and the
+	// tooltip says so with the table's OWN string. Read through `byId` here too: a test
+	// that hardcoded "⌫" would keep passing after a rebind, which is the drift the
+	// registry read exists to make impossible.
+	act(() => {
+		fireEvent.blur(rowButton("delete", 1));
+		stub.fire.entitySelection(1);
+	});
+	act(() => {
+		fireEvent.focus(rowButton("delete", 1));
+	});
+	const keys = byId("edit.delete").keys;
+	expect(keys).toBeTruthy();
+	expect(
+		within(await screen.findByRole("tooltip")).getByText(keys as string),
+	).toBeTruthy();
+
+	// The OTHER row keeps its bare tooltip: selection is what earns the keycap.
+	act(() => {
+		fireEvent.focus(rowButton("delete", 9));
+	});
+	const other = await screen.findByRole("tooltip");
+	expect(within(other).queryByText(keys as string) === null).toBe(true);
+});
+
+// A refused verb is the one case a tooltip cannot serve at all: a `disabled` button takes
+// neither pointer events nor focus. The reason therefore rides ReasonTip's wrapper for the
+// mouse and the accessible NAME for everyone else — and the button carries no second
+// `title` of its own (the double-`title` RowVerb shipped before F4.5c Task 8).
+test("a blocked verb states its reason without a tooltip, and without a second title", () => {
+	const stub = makeStubHost();
+	showEntities(stub, [FROZEN]);
+	const open = screen.getByLabelText(
+		"open entity 2 (frozen — unfreeze it to edit)",
+	);
+	expect(open.getAttribute("title")).toBeNull();
+	expect(open.parentElement?.getAttribute("title")).toBe(
+		"frozen — unfreeze it to edit",
 	);
 });
 

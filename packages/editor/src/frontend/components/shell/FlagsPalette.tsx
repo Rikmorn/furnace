@@ -30,6 +30,7 @@ import type {
 import { useFieldFlags } from "../../hooks/useFieldHostState.tsx";
 import { cn } from "../../lib/cn.ts";
 import { useEditor } from "../editor-context.ts";
+import { ActionTip, ReasonTip } from "../field/form-bits.tsx";
 import { Button } from "../ui/button.tsx";
 
 /** A finding joins a cluster when it is within this world distance (metres) of
@@ -45,7 +46,7 @@ const CLUSTER_RADIUS_SQ = CLUSTER_RADIUS_M * CLUSTER_RADIUS_M;
 const PIT_VERIFY_REASON = "region-level — walk it";
 const VERIFY_BUSY_REASON = "a verify is already running";
 
-const FILTER_TITLES = {
+const FILTER_HINTS = {
 	candidates: "findings worth a stage-2 verify",
 	info: "context — terrain rather than a fault, or a class this mover handles",
 	pits: "whole-region traps: floor you can fall into and not climb out of",
@@ -57,14 +58,14 @@ const FILTER_TITLES = {
  *  — candidates, info, pits per the mock, with `unreachable` after them because
  *  it is the one chip that is about a finding's VINTAGE rather than its kind.
  *  The `Record` above is what makes the set EXHAUSTIVE: a fifth band added to
- *  FlagFilters has no title and stops compiling, instead of shipping a filter
+ *  FlagFilters has no hint and stops compiling, instead of shipping a filter
  *  nobody can reach. */
 // Boundary cast: `Object.keys` is typed `string[]` because a VALUE can
 // structurally carry keys its type never declared — but the argument here is an
 // object literal checked against `Record<keyof FlagFilters, string>`, which
 // cannot. The invariant the cast re-states is that literal's own excess-property
 // check, which the return type of Object.keys has no way to carry.
-const FILTER_BANDS = Object.keys(FILTER_TITLES) as (keyof FlagFilters)[];
+const FILTER_BANDS = Object.keys(FILTER_HINTS) as (keyof FlagFilters)[];
 
 /** Rows the user can act on wear the alarm colour; context wears the warning
  *  amber. The viewport's twins of these are `CANDIDATE_TINT` / `INFO_TINT` in
@@ -275,7 +276,15 @@ function emptyMessage(total: number, shown: number): string | null {
 	return null;
 }
 
-/** A row's state chip (EntitiesList's StateBadge idiom). */
+/** A row's state chip (EntitiesList's StateBadge idiom).
+ *
+ *  The one control-adjacent thing in this file that KEEPS a `title` while everything
+ *  around it moved to `ActionTip` (D-25), and the reason is that it is not a control: a
+ *  `<span>` takes no focus, so a tooltip would reach exactly the same audience a `title`
+ *  does, and the way to change that is to give a decoration a tab stop on every row — a
+ *  worse trade than a mouse-only note. What the note adds is PROVENANCE ("stage 2's
+ *  verdict"); the chip's SCOPE, which is the part a reader can be misled by, is already in
+ *  its visible text — see {@link verdictLabel}. */
 function Tag({
 	label,
 	title,
@@ -301,7 +310,12 @@ function Tag({
 /** One filter chip. A toggle BUTTON rather than a checkbox (the mock's pill), and
  *  the pressed state rides `aria-pressed` so the control still announces as a
  *  two-state toggle to a screen reader — a styled `<span>` with a class would
- *  have been the same pixels and no semantics at all. */
+ *  have been the same pixels and no semantics at all.
+ *
+ *  The chip's visible text is one word (`pits`, `unreachable`) and the band it names
+ *  is a definition — what counts as a pit, why `unreachable` is demoted rather than
+ *  deleted. That is documentation, so it is a tooltip and not a `title` (D-25): the
+ *  chips are the first thing a keyboard user Tabs into in this palette. */
 function FilterChip({
 	band,
 	on,
@@ -312,20 +326,71 @@ function FilterChip({
 	onToggle: () => void;
 }) {
 	return (
-		<button
+		<ActionTip hint={FILTER_HINTS[band]}>
+			<button
+				type="button"
+				aria-pressed={on}
+				onClick={onToggle}
+				className={cn(
+					"rounded-full border px-2 py-px text-[11px] transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+					on
+						? "border-primary bg-primary/15 text-foreground"
+						: "border-border text-muted-foreground hover:bg-muted/50",
+				)}
+			>
+				{band}
+			</button>
+		</ActionTip>
+	);
+}
+
+/** A row's stage-2 verb, in whichever of the two documentation channels its state can use
+ *  — the EntitiesList `RowVerb` idiom, both halves (D-25).
+ *
+ *  AVAILABLE → a real tooltip, which opens on FOCUS as well as hover: what stage 2 does
+ *  (drive the project's actual mover at the finding) is not something `verify ▸` says, and
+ *  before this it was mouse-only. REFUSED → no tooltip can reach it at all, because a
+ *  disabled button takes neither pointer events nor focus; the reason rides `ReasonTip`'s
+ *  span for the mouse and the accessible NAME for everyone else.
+ *
+ *  `running` is the fourth state and deliberately gets the AVAILABLE channel: it is
+ *  disabled by the user's own doing rather than refused, so the sentence still applies. */
+function VerifyVerb({
+	refusal,
+	running,
+	scope,
+	name,
+	onClick,
+}: {
+	refusal: string | null;
+	running: boolean;
+	/** What this row's verify would act on — `anchorScope`'s prose. */
+	scope: string;
+	name: string;
+	onClick: () => void;
+}) {
+	const control = (
+		<Button
 			type="button"
-			aria-pressed={on}
-			title={FILTER_TITLES[band]}
-			onClick={onToggle}
-			className={cn(
-				"rounded-full border px-2 py-px text-[11px] transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
-				on
-					? "border-primary bg-primary/15 text-foreground"
-					: "border-border text-muted-foreground hover:bg-muted/50",
-			)}
+			size="sm"
+			variant="ghost"
+			className="h-5 px-1.5 text-xs"
+			// DERIVED from the refusal, never restated: the two must agree, and a third
+			// reason added to verifyRefusal would otherwise leave the button live while its
+			// own name announced why it was not.
+			disabled={refusal !== null || running}
+			aria-label={name}
+			onClick={onClick}
 		>
-			{band}
-		</button>
+			{running ? "Verifying…" : "verify ▸"}
+		</Button>
+	);
+	return refusal === null ? (
+		<ActionTip hint={`drive the project's mover at ${scope}`}>
+			{control}
+		</ActionTip>
+	) : (
+		<ReasonTip reason={refusal}>{control}</ReasonTip>
 	);
 }
 
@@ -426,23 +491,29 @@ export function FlagsPalette() {
                     here the chip's own TEXT is the channel — which is why the
                     verdict's scope lives in that text (verdictLabel) and not only
                     in a tooltip. */}
-								<button
-									type="button"
-									title="select this finding and go to it"
-									aria-label={selectName(label, flag.severity)}
-									aria-current={selected ? "true" : undefined}
-									onClick={() => fieldHostRef.current?.selectFlag(c.anchor.key)}
-									className="flex min-w-0 flex-1 items-center gap-1.5 rounded px-1 py-0.5 text-left hover:bg-muted/50"
-								>
-									{/* Decoration to a reader — selectName carries the band as a
-                      word, so announcing a bullet too would be noise. */}
-									<span aria-hidden="true" className={DOT_CLASS[flag.severity]}>
-										{DOT_GLYPH[flag.severity]}
-									</span>
-									<span className="min-w-0 flex-1 truncate font-mono tabular-nums">
-										{label}
-									</span>
-								</button>
+								<ActionTip hint="select this finding and go to it">
+									<button
+										type="button"
+										aria-label={selectName(label, flag.severity)}
+										aria-current={selected ? "true" : undefined}
+										onClick={() =>
+											fieldHostRef.current?.selectFlag(c.anchor.key)
+										}
+										className="flex min-w-0 flex-1 items-center gap-1.5 rounded px-1 py-0.5 text-left hover:bg-muted/50"
+									>
+										{/* Decoration to a reader — selectName carries the band as a
+                        word, so announcing a bullet too would be noise. */}
+										<span
+											aria-hidden="true"
+											className={DOT_CLASS[flag.severity]}
+										>
+											{DOT_GLYPH[flag.severity]}
+										</span>
+										<span className="min-w-0 flex-1 truncate font-mono tabular-nums">
+											{label}
+										</span>
+									</button>
+								</ActionTip>
 								{flag.unreachable === true && <Tag label="unreachable" />}
 								{c.anchor.verdict !== undefined && (
 									<Tag
@@ -451,33 +522,13 @@ export function FlagsPalette() {
 										className={VERDICT_CLASS[c.anchor.verdict.outcome]}
 									/>
 								)}
-								{/* A bare title on a WRAPPER span, the EntitiesList idiom: a
-                    disabled button swallows pointer events, so the tooltip never
-                    fires on the button itself — and the span is not focusable, so
-                    the reason has to be in the accessible name too. */}
-								<span
-									title={
-										refusal ??
-										`drive the project's mover at ${anchorScope(clustered)}`
-									}
-								>
-									<Button
-										type="button"
-										size="sm"
-										variant="ghost"
-										className="h-5 px-1.5 text-xs"
-										// DERIVED from the refusal, never restated: the two must
-										// agree, and a third reason added to verifyRefusal would
-										// otherwise leave the button live while its own name
-										// announced why it was not. `running` is the fourth state —
-										// disabled, but the user's own doing rather than a refusal.
-										disabled={refusal !== null || running}
-										aria-label={verifyName(label, clustered, refusal)}
-										onClick={() => verify(c.anchor.key)}
-									>
-										{running ? "Verifying…" : "verify ▸"}
-									</Button>
-								</span>
+								<VerifyVerb
+									refusal={refusal}
+									running={running}
+									scope={anchorScope(clustered)}
+									name={verifyName(label, clustered, refusal)}
+									onClick={() => verify(c.anchor.key)}
+								/>
 							</li>
 						);
 					})}

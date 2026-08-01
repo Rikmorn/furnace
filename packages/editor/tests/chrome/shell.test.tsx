@@ -26,7 +26,7 @@ import {
 	FieldHostStateProvider,
 	useFieldHostState,
 } from "../../src/frontend/hooks/useFieldHostState.tsx";
-import { ACTIONS } from "../../src/frontend/lib/actions.ts";
+import { ACTIONS, byId } from "../../src/frontend/lib/actions.ts";
 import { SESSION_VERBS } from "../../src/frontend/lib/field-session.ts";
 import { notify, TOAST_TTL_MS } from "../../src/frontend/lib/notify-store.ts";
 import type { UiStore } from "../../src/frontend/lib/persist.ts";
@@ -1514,6 +1514,32 @@ test("the editor comes up in STUDIO shading, and the popover offers normals as t
 		fireEvent.click(studio);
 	});
 	expect(stub.calls.setShading.mock.calls.at(-1)?.[0]).toBe("studio");
+});
+
+// D-25 in the popover: every toggle here documents what it COSTS and what it does to the
+// picture, and until F4.5c Task 8 that reached a mouse and nobody else. The trigger wraps
+// the <label> rather than the input, so the assertion that matters is that focusing the
+// INPUT still opens it — React maps onFocus onto focusin, which bubbles to the label, and
+// the whole ViewPopover conversion rests on that being true rather than assumed.
+test("a view toggle's documentation opens on the checkbox's own FOCUS, not just hover", async () => {
+	fetch404();
+	const stub = makeStubHost();
+	await renderShell(stub);
+	await openViewPopover();
+
+	const antialiasing = screen.getByRole("checkbox", { name: "antialiasing" });
+	// The attribute this replaced — its absence is half the claim (a `title` would satisfy
+	// a text assertion while reaching no keyboard at all).
+	expect(antialiasing.closest("label")?.getAttribute("title")).toBeNull();
+
+	act(() => {
+		fireEvent.focus(antialiasing);
+	});
+	expect(
+		within(await screen.findByRole("tooltip")).getByText(
+			/multisampling on the viewport pass/,
+		),
+	).toBeTruthy();
 });
 
 test("the slice checkbox and slider drive host.setSlice(y | null)", async () => {
@@ -3422,9 +3448,20 @@ test("the chip's popover runs Clear and Reselect through the action table", asyn
 	});
 	// The labels are the REGISTRY's — the Edit menu renders the same two from the same
 	// table, so the popover cannot offer a verb the menu does not.
-	fireEvent.click(
-		screen.getByRole("button", { name: "Clear 12 selected cells" }),
-	);
+	const clear = screen.getByRole("button", { name: "Clear 12 selected cells" });
+	// …and so is the sentence the label has no room for. `menuTitle` used to ride a
+	// `title` here, mouse-only inside a popover the user opened deliberately (D-25).
+	expect(clear.getAttribute("title")).toBeNull();
+	act(() => {
+		fireEvent.focus(clear);
+	});
+	expect(
+		within(await screen.findByRole("tooltip")).getByText(
+			byId("edit.clearSelection").menuTitle as string,
+		),
+	).toBeTruthy();
+
+	fireEvent.click(clear);
 	expect(stub.calls.clearSelection.mock.calls.length).toBe(1);
 	fireEvent.click(screen.getByRole("button", { name: "Reselect" }));
 	expect(stub.calls.reselect.mock.calls.length).toBe(1);

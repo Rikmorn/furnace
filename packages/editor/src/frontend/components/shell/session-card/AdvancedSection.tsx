@@ -1,7 +1,7 @@
 import type { MergePolicy } from "@furnace/core/field"; // type-only: erased
 import type { NudgeSteps } from "../../../../viewport-host/index.ts"; // type-only: erased
 import { CollapsibleSection } from "../../CollapsibleSection.tsx";
-import { SELECT_CLASS } from "../../field/form-bits.tsx";
+import { ActionTip, SELECT_CLASS } from "../../field/form-bits.tsx";
 import { Button } from "../../ui/button.tsx";
 
 const LABEL_CLASS = "flex items-center gap-1.5 text-muted-foreground";
@@ -17,28 +17,21 @@ const parsePolicy = (v: string): MergePolicy =>
 	v === "keep-existing-air" ? v : "replace";
 
 // The placement nudges as axis PAIRS, so the cluster reads as three axes rather than six
-// loose buttons. The steps and their key twins mirror `arrowNudgeSteps` (input-map.ts),
-// which is the canonical binding — these are its button labels, not a second source.
+// loose buttons. The steps mirror `arrowNudgeSteps` (input-map.ts), which is the canonical
+// binding — these are its buttons, not a second source.
+//
+// Each pair used to carry its viewport KEY as well, spelled into the button's tooltip.
+// F4.5c Task 8 dropped it: the keycap in an `ActionTip` comes off the action registry or
+// does not appear (D-12), the arrow nudges are canvas-owned and not in that table, and the
+// mapping is already on screen in the legend below the row.
 const NUDGE_AXES: {
 	axis: string;
-	minus: { steps: NudgeSteps; key: string };
-	plus: { steps: NudgeSteps; key: string };
+	minus: NudgeSteps;
+	plus: NudgeSteps;
 }[] = [
-	{
-		axis: "X",
-		minus: { steps: [-1, 0, 0], key: "←" },
-		plus: { steps: [1, 0, 0], key: "→" },
-	},
-	{
-		axis: "Y",
-		minus: { steps: [0, -1, 0], key: "⇧↓" },
-		plus: { steps: [0, 1, 0], key: "⇧↑" },
-	},
-	{
-		axis: "Z",
-		minus: { steps: [0, 0, -1], key: "↑" },
-		plus: { steps: [0, 0, 1], key: "↓" },
-	},
+	{ axis: "X", minus: [-1, 0, 0], plus: [1, 0, 0] },
+	{ axis: "Y", minus: [0, -1, 0], plus: [0, 1, 0] },
+	{ axis: "Z", minus: [0, 0, -1], plus: [0, 0, 1] },
 ];
 
 // 24px, below the card's 32px (size="sm") norm: six of these sit in ONE row as a compact
@@ -109,30 +102,38 @@ export function AdvancedSection({
 						aria-label="nudge the stamp region"
 					>
 						<span className={LABEL_CLASS}>nudge</span>
+						{/* The tooltip states the STEP and nothing else. The viewport key that
+						    does the same nudge used to ride these sentences in prose — it is on
+						    screen one row down instead (the legend below), which is where a key
+						    the action registry does not carry belongs: `ActionTip` reads a keycap
+						    off the registry or renders none, and a hand-spelled one is D-12's
+						    duplication problem in a second spelling. */}
 						{NUDGE_AXES.map(({ axis, minus, plus }) => (
 							<span key={axis} className="flex items-center gap-1">
-								<Button
-									type="button"
-									size="sm"
-									variant="secondary"
-									className={NUDGE_BUTTON_CLASS}
-									title={`move the region 0.5 m along −${axis} (${minus.key} in the viewport)`}
-									aria-label={`nudge minus ${axis}`}
-									onClick={() => onNudge(minus.steps)}
-								>
-									−{axis}
-								</Button>
-								<Button
-									type="button"
-									size="sm"
-									variant="secondary"
-									className={NUDGE_BUTTON_CLASS}
-									title={`move the region 0.5 m along +${axis} (${plus.key} in the viewport)`}
-									aria-label={`nudge plus ${axis}`}
-									onClick={() => onNudge(plus.steps)}
-								>
-									+{axis}
-								</Button>
+								<ActionTip hint={`move the region 0.5 m along −${axis}`}>
+									<Button
+										type="button"
+										size="sm"
+										variant="secondary"
+										className={NUDGE_BUTTON_CLASS}
+										aria-label={`nudge minus ${axis}`}
+										onClick={() => onNudge(minus)}
+									>
+										−{axis}
+									</Button>
+								</ActionTip>
+								<ActionTip hint={`move the region 0.5 m along +${axis}`}>
+									<Button
+										type="button"
+										size="sm"
+										variant="secondary"
+										className={NUDGE_BUTTON_CLASS}
+										aria-label={`nudge plus ${axis}`}
+										onClick={() => onNudge(plus)}
+									>
+										+{axis}
+									</Button>
+								</ActionTip>
 							</span>
 						))}
 						<span className="text-[10px] text-muted-foreground">

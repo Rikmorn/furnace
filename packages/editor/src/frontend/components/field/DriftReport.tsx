@@ -13,6 +13,7 @@
 // still deserves a stable name.
 import type { DriftFinding } from "@furnace/core/field"; // type-only: erased
 import { Button } from "../ui/button.tsx";
+import { ActionTip } from "./form-bits.tsx";
 
 export function DriftReport(props: {
 	findings: DriftFinding[];
@@ -43,15 +44,19 @@ export function DriftReport(props: {
 			<ul className="flex flex-col gap-0.5">
 				{findings.map((f) => (
 					<li key={f.opId}>
-						<button
-							type="button"
-							title="frame this op's chunks in the viewport"
-							aria-label={`frame op ${f.opId} (${f.kind})`}
-							onClick={() => onFrame(f)}
-							className="w-full rounded px-1 py-0.5 text-left text-xs text-muted-foreground tabular-nums hover:bg-muted/50"
-						>
-							op {f.opId} {f.kind}
-						</button>
+						{/* What a click DOES — the row's text is an op id and a kind, which says
+						    nothing about it. A tooltip rather than a `title` (D-25) so the
+						    keyboard, which can reach every one of these rows, gets it too. */}
+						<ActionTip hint="frame this op's chunks in the viewport">
+							<button
+								type="button"
+								aria-label={`frame op ${f.opId} (${f.kind})`}
+								onClick={() => onFrame(f)}
+								className="w-full rounded px-1 py-0.5 text-left text-xs text-muted-foreground tabular-nums hover:bg-muted/50"
+							>
+								op {f.opId} {f.kind}
+							</button>
+						</ActionTip>
 					</li>
 				))}
 			</ul>
