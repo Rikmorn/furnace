@@ -31,6 +31,13 @@
 // throw-vs-default call with the reason for it. `subscribeToolError` is the one seam with
 // no context of its own — its message goes straight to the toast stack, and the only state
 // it releases (an in-flight verify) lives in this same file now.
+//
+// The PURE half of this mirror — the value-equality comparators the push guards below
+// call, the literals the state opens at, and the filter restore — lives in
+// `../lib/field-host-mirrors.ts`, where each is directly unit-testable. Nothing with
+// React in it went with them: the subscriptions are what the one-file rule above is
+// about, and `PERSIST_DEBOUNCE_MS` below stays because it tunes an EFFECT here rather
+// than describing a mirrored value.
 import type { ReactNode } from "react";
 import {
 	createContext,
@@ -47,273 +54,34 @@ import type {
 	FieldEntityInfo,
 	FieldHistory,
 	FieldHost,
-	FieldMaskChoice,
 	FieldStats,
 	FieldTool,
 	FlagFilters,
 	FlagsSummary,
 	PendingStamp,
-	PlacedArchetype,
 	SelectionInfo,
 	StampSession,
 	ViewportGesture,
 } from "../../viewport-host/index.ts"; // type-only: erased
-// The row's own param renderer, so the push guard below compares exactly the
-// string the `<dl>` shows (see `sameParams`) — one function, so a row and its
-// guard cannot disagree about what "same param" means.
-import { formatParam } from "../lib/field-entity.ts";
+import {
+	DEFAULT_FLAG_FILTERS,
+	DEFAULT_GESTURE,
+	DEFAULT_RADIUS,
+	DEFAULT_TOOL,
+	deserializeFilters,
+	NO_FLAGS,
+	NO_HISTORY,
+	sameEntities,
+	statsEqual,
+	toolsEqual,
+} from "../lib/field-host-mirrors.ts";
 import { notify } from "../lib/notify-store.ts";
-import type { UiState, UiStore } from "../lib/persist.ts";
-
-/** Value-equality for the subscribeStats push guard (the host fires it every rAF; an
- *  idle field must not re-render the shell 60×/s). The destructure is a compiler
- *  backstop: a future FieldStats field lands in `rest`, fails the never-check and
- *  forces this comparator to learn it — a missed field would silently WEAKEN the guard
- *  (a changed value comparing equal → a stale readout). */
-function statsEqual(a: FieldStats, b: FieldStats): boolean {
-	const {
-		chunks,
-		lastRemeshMs,
-		remeshVersion,
-		totalOps,
-		liveGenerators,
-		compactableOps,
-		undoDepth,
-		redoDepth,
-		lastReconfigureMs,
-		analyzerPending,
-		...rest
-	} = a;
-	void (rest satisfies Record<string, never>);
-	return (
-		chunks === b.chunks &&
-		lastRemeshMs === b.lastRemeshMs &&
-		remeshVersion === b.remeshVersion &&
-		totalOps === b.totalOps &&
-		liveGenerators === b.liveGenerators &&
-		compactableOps === b.compactableOps &&
-		undoDepth === b.undoDepth &&
-		redoDepth === b.redoDepth &&
-		lastReconfigureMs === b.lastReconfigureMs &&
-		analyzerPending === b.analyzerPending
-	);
-}
-
-// Entity-list identity for the refresh guard: everything a ROW can display —
-// id + generator + seed + opSpan + the two state flags + the `placed` counts.
-//
-// `placed` is compared DIRECTLY rather than inferred from opSpan, and the reason
-// is a fact that is easy to get wrong: op ids do NOT only ever grow. Core hands
-// them out monotonically WITHIN a session, but `loadWorld` recomputes
-// `log.nextId` from the loaded ops' own maximum (field-host.ts, the parseOps
-// path), so ids — and with them every opSpan — RESTART across a world switch.
-// Two worlds whose rows agree on id/generator/seed/span/flags and differ only in
-// what a scatter placed are therefore reachable from the world drawer's Open,
-// which calls loadWorld under this same provider: no remount, no state reset,
-// just an entity tick. Without the `placed` comparison this guard returns `prev`
-// and the row keeps the PREVIOUS world's count.
-//
-// `params` is the same hole one field over, and F4.5b Task 4 closed it: two
-// worlds can hold records agreeing on every other compared field and differing
-// only in their params, and an EXPANDED row renders those as a `<dl>`. It is
-// compared through `formatParam` — the row's own renderer — rather than by
-// value, because what must not go stale is the STRING on screen: two params that
-// render identically (7 and "7") cannot make the row look different, and a
-// deep-equality walk over arbitrary schema values would be doing more work to
-// answer a question the row never asks.
-//
-// The flags DO need their own comparison too — freeze and bake rewrite the
-// record and nothing else, so without them a frozen badge would never appear.
-// Index-wise, not set-wise: `rowSummary` renders `placed` in ARRAY order, so a
-// reordering changes the row string and must re-render.
-const samePlaced = (
-	a: readonly PlacedArchetype[],
-	b: readonly PlacedArchetype[],
-): boolean =>
-	a.length === b.length &&
-	a.every((p, i) => {
-		const o = b[i];
-		return (
-			o !== undefined && p.archetypeId === o.archetypeId && p.count === o.count
-		);
-	});
-
-/** Do two param sets RENDER the same `<dl>`? Index-wise over `Object.entries`,
- *  which is exactly what the row maps over — a reordered set is a reordered
- *  list, and the key column moving is a change the row must re-render for. */
-const sameParams = (
-	a: Record<string, unknown>,
-	b: Record<string, unknown>,
-): boolean => {
-	const entriesA = Object.entries(a);
-	const entriesB = Object.entries(b);
-	return (
-		entriesA.length === entriesB.length &&
-		entriesA.every(([key, value], i) => {
-			const other = entriesB[i];
-			return (
-				other !== undefined &&
-				other[0] === key &&
-				formatParam(value) === formatParam(other[1])
-			);
-		})
-	);
-};
-
-const sameEntities = (
-	a: readonly FieldEntityInfo[],
-	b: readonly FieldEntityInfo[],
-): boolean =>
-	a.length === b.length &&
-	a.every((e, i) => {
-		const o = b[i];
-		if (o === undefined) return false;
-		// Compiler backstop — the toolsEqual/statsEqual rider, and the one THIS
-		// comparator was missing when the `placed` hole shipped. FieldEntityInfo is
-		// an intersection over CORE's GeneratorEntity, so a field added there lands
-		// here silently and no test can exist for a field nobody knew to compare;
-		// destructuring every one makes the compiler force the question.
-		//
-		// The two voided below are deliberate non-compares: `type` is the constant
-		// literal "generator", and `region` is never rendered by a row (the emphasis
-		// box is drawn from the HOST's own record, off an id, and the drift badge off
-		// the drift push — no row reads a region).
-		const {
-			entityId,
-			type,
-			generator,
-			params,
-			seed,
-			region,
-			opSpan,
-			frozen,
-			baked,
-			placed,
-			...rest
-		} = e;
-		void (rest satisfies Record<string, never>);
-		void type;
-		void region;
-		return (
-			entityId === o.entityId &&
-			generator === o.generator &&
-			seed === o.seed &&
-			opSpan[0] === o.opSpan[0] &&
-			opSpan[1] === o.opSpan[1] &&
-			frozen === o.frozen &&
-			baked === o.baked &&
-			samePlaced(placed, o.placed) &&
-			sameParams(params, o.params)
-		);
-	});
-
-// Value-equality for the subscribeTool echo guard (see the mirror effect).
-const masksEqual = (a: FieldMaskChoice, b: FieldMaskChoice): boolean =>
-	a.kind === "class" && b.kind === "class"
-		? a.classId === b.classId
-		: a.kind === b.kind;
-
-const toolsEqual = (a: FieldTool, b: FieldTool): boolean => {
-	// Compiler backstop (F2b rider): destructure EVERY FieldTool field — a
-	// future field lands in `rest` and fails the never-check, forcing this
-	// comparator to learn it. A missed field would silently WEAKEN the
-	// subscribeTool echo guard: differing tools would compare equal and the
-	// mirror would drop host-initiated changes.
-	const { effect, materialId, hollow, mask, smooth, ...rest } = a;
-	void (rest satisfies Record<string, never>);
-	// The same backstop one level down: `smooth` is a nested shape whose future
-	// fields would slip past the top-level destructure unseen.
-	const { strength, iterations, mode, ...smoothRest } = smooth;
-	void (smoothRest satisfies Record<string, never>);
-	return (
-		effect === b.effect &&
-		materialId === b.materialId &&
-		hollow === b.hollow &&
-		masksEqual(mask, b.mask) &&
-		strength === b.smooth.strength &&
-		iterations === b.smooth.iterations &&
-		mode === b.smooth.mode
-	);
-};
-
-/** The brush the chrome opens on — a mirror of the host's own `defaultTool()` (dig into
- *  rock, unmasked, core SMOOTH_DEFAULTS-equivalent smooth, solid fill). A local literal
- *  because the chrome cannot value-import core or the host
- *  (frontend-no-engine-leakage), and `subscribeTool` fires only on HOST-initiated
- *  changes — there is nothing to seed from at mount. */
-const DEFAULT_TOOL: FieldTool = {
-	effect: "dig",
-	materialId: 0,
-	mask: { kind: "none" },
-	smooth: { strength: 16, iterations: 1, mode: "both" },
-	hollow: null,
-};
-
-/** Mirrors FieldHost's default digRadius (the slider's range lives in `tool-params.tsx`,
- *  which is where the radius control went when `BrushInspector` was deleted). */
-const DEFAULT_RADIUS = 1.25;
-
-/** What a fresh host is ALREADY armed with (D-F4.5-7) — a local literal for the
- *  DEFAULT_TOOL reason. A mirror that opened at `null` would show the brush inspector
- *  beside an LMB that selects. */
-const DEFAULT_GESTURE: ViewportGesture | null = "pointer";
-
-/** The advisor bands the chrome asks for at boot — candidates only, mirroring the host's
- *  own DEFAULT_FLAG_FILTERS. A local literal for the DEFAULT_TOOL reason. */
-const DEFAULT_FLAG_FILTERS: FlagFilters = {
-	candidates: true,
-	info: false,
-	unreachable: false,
-	// ON, unlike the other two off-by-default bands: a pit carries candidate
-	// severity, so the candidates chip beside it already claims to show it (the
-	// store's own DEFAULT_FLAG_FILTERS says the same thing, and this literal exists
-	// only because the chrome cannot value-import it).
-	pits: true,
-};
-
-/** The band names a persisted blob may speak about (useView's LAYER_KEYS twin). */
-// Boundary cast: `Object.keys` is typed `string[]` because a VALUE can structurally
-// carry keys its type never declared — but the argument here is an object literal
-// checked against `FlagFilters`, which cannot. Deriving the list (rather than writing
-// it out) is what keeps a new band restorable without a second edit here.
-const FILTER_KEYS = Object.keys(DEFAULT_FLAG_FILTERS) as (keyof FlagFilters)[];
-
-/** Schema-tolerant restore (D-F4.5-3): only KNOWN bands are adopted, and anything
- *  missing or non-boolean keeps its default — so a hand-edited blob, or one written
- *  before a band existed, degrades to the shipped set rather than handing the host an
- *  object with a hole in it. */
-function deserializeFilters(stored: UiState["flagFilters"]): FlagFilters {
-	const filters = { ...DEFAULT_FLAG_FILTERS };
-	if (!stored) return filters;
-	for (const key of FILTER_KEYS) {
-		const value = stored[key];
-		if (typeof value === "boolean") filters[key] = value;
-	}
-	return filters;
-}
+import type { UiStore } from "../lib/persist.ts";
 
 /** Long enough that a run of chip clicks writes once when it settles rather than once
  *  per click (every `UiStore.get` re-parses the whole blob) — useView's figure, and
  *  this is a slower control than its slider. */
 const PERSIST_DEBOUNCE_MS = 200;
-
-/** Nothing found yet — what the flags surface renders between mount and the host's first
- *  push, after which every summary is the host's. */
-const NO_FLAGS: FlagsSummary = {
-	total: 0,
-	byKindSeverity: [],
-	visible: [],
-	selected: null,
-};
-
-/** Nothing done yet. Also the FieldHistoryContext default — see there for why an empty
- *  history is a truthful reading outside the provider rather than a wiring hole. */
-const NO_HISTORY: FieldHistory = {
-	undo: [],
-	redo: [],
-	undoDepth: 0,
-	redoDepth: 0,
-};
 
 /** Host-pushed state the shell renders. `stats` is null until the host's first push
  *  (which only starts once the render loop runs, i.e. after `init`). */
