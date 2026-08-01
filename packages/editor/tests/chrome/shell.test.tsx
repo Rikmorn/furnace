@@ -859,6 +859,11 @@ test("the stack holds while the pointer — or the keyboard — is in it", async
 	// Fake timers from HERE, after the render: the TTL this case is about has to be a
 	// number the test moves rather than four real seconds of wall clock, and the message
 	// it drives has to be the one scheduled under them.
+	//
+	// They also move Date.now, which is the half that makes the arithmetic below mean
+	// anything: the store reads its deadline off `deps.now` (Date.now in the browser
+	// wiring), so a fake that advanced only the timer queue would fire the callbacks on
+	// cue while every remaining-time computation still read the real wall clock.
 	jest.useFakeTimers();
 	try {
 		act(() => {
@@ -876,6 +881,11 @@ test("the stack holds while the pointer — or the keyboard — is in it", async
 		// whole column rather than per row, which is the accessible simple rule: hovering
 		// anything holds everything visible, so a reader working down three rows is not
 		// racing the two they have not reached yet.
+		//
+		// mouseOver/mouseOut, NOT mouseEnter/mouseLeave, and that is not tidiable: React
+		// synthesises onMouseEnter/onMouseLeave from the over/out pair it delegates at the
+		// root, and a raw `mouseenter` does not bubble, so firing the event whose name
+		// matches the prop reaches no handler at all.
 		tick(TOAST_TTL_MS / 2);
 		act(() => {
 			fireEvent.mouseOver(stack);
@@ -893,7 +903,13 @@ test("the stack holds while the pointer — or the keyboard — is in it", async
 		tick(TOAST_TTL_MS / 2 - 1);
 		expect(held()).toBeTruthy();
 		tick(1);
-		expect(held()).toBeNull();
+		// `x === null` rather than `toBeNull()`, and MEASURED rather than assumed: a red
+		// toBeNull() on a live element here takes 202 s to report (bun 1.3.14, this file,
+		// timed this session), because the failure message serialises a happy-dom node
+		// with React's whole fiber graph hanging off it. The comparison form reports in
+		// ms. The 20-odd toBeNull() sites elsewhere in this file are a separate,
+		// mechanical change — this note is here so the asymmetry does not read as taste.
+		expect(held() === null).toBe(true);
 
 		// The keyboard gets the same hold, through the same container: tabbing to a
 		// toast's × is a reader arriving, and a row that vanished mid-Tab would move the
@@ -912,10 +928,133 @@ test("the stack holds while the pointer — or the keyboard — is in it", async
 			dismiss.blur();
 		});
 		tick(TOAST_TTL_MS);
-		expect(held()).toBeNull();
+		// The comparison form again — see the note above.
+		expect(held() === null).toBe(true);
 	} finally {
 		// In a finally, or a failed assertion above leaves every later case in this file
 		// running on a clock nobody advances.
+		jest.useRealTimers();
+	}
+});
+
+test("the hold stands until BOTH the pointer and the focus have left", async () => {
+	fetch404();
+	const stub = makeStubHost();
+	await renderShell(stub);
+	const HELD = "kit layer dropped — re-toggle to refresh";
+
+	jest.useFakeTimers();
+	try {
+		act(() => {
+			stub.fire.toolError(HELD, "warn");
+		});
+		const held = () => screen.queryByLabelText(`dismiss: ${HELD}`);
+		const stack = toastStack();
+		if (!(stack instanceof HTMLElement)) throw new Error("no toast stack");
+		const tick = (ms: number) =>
+			act(() => {
+				jest.advanceTimersByTime(ms);
+			});
+		const dismiss = held();
+		if (!(dismiss instanceof HTMLElement)) throw new Error("no dismiss button");
+
+		// BOTH conditions on. Not a contrived pairing — it is the state this component's
+		// own focus restoration produces: dismiss a row with the keyboard and focus lands
+		// on its neighbour's × while the pointer has not moved (`focusAfter`, above).
+		act(() => {
+			fireEvent.mouseOver(stack);
+		});
+		act(() => {
+			dismiss.focus();
+		});
+
+		// The pointer leaves; the keyboard has NOT. One reader is still in the stack, so
+		// the hold stands. With a single shared latch this is where the row expires under
+		// the focused element and focus falls to <body> — the very thing the focus pair
+		// was added to prevent.
+		act(() => {
+			fireEvent.mouseOut(stack);
+		});
+		tick(TOAST_TTL_MS * 2);
+		expect(held()).toBeTruthy();
+		// Compared by LABEL: happy-dom nodes carry React's fiber graph, so a failed `toBe`
+		// on two of them serialises tens of megabytes (the house rule, three cases above).
+		expect(document.activeElement?.getAttribute("aria-label")).toBe(
+			`dismiss: ${HELD}`,
+		);
+
+		// The mirror, from the other side: Tab out while the pointer is still parked on
+		// the stack and the hold likewise stands.
+		act(() => {
+			fireEvent.mouseOver(stack);
+		});
+		act(() => {
+			dismiss.blur();
+		});
+		tick(TOAST_TTL_MS * 2);
+		expect(held()).toBeTruthy();
+
+		// Only the LAST one to leave restarts the countdown.
+		act(() => {
+			fireEvent.mouseOut(stack);
+		});
+		tick(TOAST_TTL_MS);
+		expect(held() === null).toBe(true);
+	} finally {
+		jest.useRealTimers();
+	}
+});
+
+test("a stack that empties with focus inside it does not hold the NEXT one", async () => {
+	fetch404();
+	const stub = makeStubHost();
+	await renderShell(stub);
+	const HELD = "kit layer dropped — re-toggle to refresh";
+	// This case needs the stack to actually EMPTY, and the field toolbar's catalog report
+	// is riding out its TTL beside it — so start from nothing. Cleared before the fake
+	// clock goes in, while the canceller it holds is still the real one.
+	act(() => notify.clear());
+
+	jest.useFakeTimers();
+	try {
+		const held = () => screen.queryByLabelText(`dismiss: ${HELD}`);
+		act(() => {
+			stub.fire.toolError(HELD, "warn");
+		});
+		const first = held();
+		if (!(first instanceof HTMLElement)) throw new Error("no dismiss button");
+
+		// Focus the × and then dismiss it — the last row, so focus goes nowhere and the
+		// stack unmounts underneath it. A removed element raises no focusout, so the
+		// component never hears the focus leave: whatever it latched is still latched.
+		act(() => {
+			first.focus();
+		});
+		act(() => {
+			fireEvent.click(first);
+		});
+		expect(toastStack()).toBeNull();
+
+		// A fresh message, and the plainest possible gesture over it. Without a reset the
+		// stale focus latch suppresses this resume and the toast never leaves — the exact
+		// stranding the store's per-timer model was shaped to rule out, re-introduced one
+		// layer up by the latch that fixes the two-condition hold.
+		act(() => {
+			stub.fire.toolError(HELD, "warn");
+		});
+		const stack = toastStack();
+		if (!(stack instanceof HTMLElement)) throw new Error("no toast stack");
+		act(() => {
+			fireEvent.mouseOver(stack);
+		});
+		act(() => {
+			fireEvent.mouseOut(stack);
+		});
+		act(() => {
+			jest.advanceTimersByTime(TOAST_TTL_MS);
+		});
+		expect(held() === null).toBe(true);
+	} finally {
 		jest.useRealTimers();
 	}
 });

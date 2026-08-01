@@ -84,6 +84,11 @@ export type NotifyStore = {
  *  `setTimeout` returns a number, Node's returns an object). */
 export type NotifyDeps = {
   now: () => number;
+  /** MUST NOT invoke `fn` synchronously. `resume` can hand it a 0 ms delay, and a
+   *  same-turn callback would remove the toast BEFORE `startTimer` records the entry —
+   *  stranding a dead id in `timers` for the life of the session. Every implementation
+   *  we wire (real `setTimeout`, the tests' fake clock) defers, which is the property
+   *  this line exists to keep true. */
   schedule: (fn: () => void, ms: number) => () => void;
 };
 

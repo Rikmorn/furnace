@@ -128,8 +128,24 @@ export function Toasts() {
 	 *  falls to <body> — so clearing a stack of three by keyboard means tabbing in from
 	 *  the top of the document twice. */
 	const focusAfter = useRef<number | null>(null);
+	/** The two ways a reader can be IN the stack, tracked apart because either one alone
+	 *  is reason enough to hold the countdown (see the handlers below). Refs, not state:
+	 *  nothing on screen depends on them, and a re-render per pointer crossing would be a
+	 *  pure cost paid on every mouse move across the corner of the canvas. */
+	const hovering = useRef(false);
+	const focusWithin = useRef(false);
 
 	useLayoutEffect(() => {
+		// An empty stack unmounts the <ol>, and it can do that while a latch is up: the
+		// LAST toast dismissed by keyboard leaves focus nowhere (`focusAfter` is null),
+		// and a removed element raises no focusout — the browser just drops focus to
+		// <body>. A latch that survived would then suppress the resume for the NEXT stack,
+		// which is a toast held on screen forever. Nothing can leave a stack that is not
+		// there, so gone-from-the-screen is the honest reset.
+		if (toasts.length === 0) {
+			hovering.current = false;
+			focusWithin.current = false;
+		}
 		const id = focusAfter.current;
 		if (id === null) return;
 		focusAfter.current = null;
@@ -183,21 +199,41 @@ export function Toasts() {
 					// carries the handlers rather than each row: hovering one toast holds all
 					// three, so working down a column is not a race against the rows not
 					// reached yet (WCAG 2.2.1 — an auto-dismiss is a time limit on reading, and
-					// this is the extension). The keyboard gets the same hold through the same
-					// pair, because focus events bubble: tabbing to a × is a reader arriving,
-					// and a row that expired mid-Tab would drop the focus.
+					// this is the extension). The keyboard reaches the same container handlers
+					// because React's onFocus/onBlur are backed by focusin/focusout, which
+					// bubble where the DOM's own focus/blur do not.
+					//
+					// TWO conditions, ONE hold: pause when either arrives, resume only once
+					// both are gone. A single latch would let either leaving un-hold the
+					// stack while the other still applies — and the pairing is routine, not
+					// exotic: dismissing a row by keyboard puts focus on its neighbour's ×
+					// under a pointer that never moved, so a mouse that then wanders off would
+					// expire the row out from under the focused element.
 					//
 					// Safe against the churn this layout fires by itself. The column is
 					// pointer-events-none, so the GAP between two rows belongs to the canvas
 					// behind it: sliding from one toast to the next raises a leave and then an
-					// enter, and so does a dismiss, as focus leaves the removed × for its
-					// neighbour. Neither pair costs anything, because the store holds each
-					// toast's REMAINING time — a resume followed immediately by a pause puts
-					// back exactly what it took.
-					onMouseEnter={() => notify.pause()}
-					onMouseLeave={() => notify.resume()}
-					onFocus={() => notify.pause()}
-					onBlur={() => notify.resume()}
+					// enter. Moving focus WITHIN the stack does the same (focusout then
+					// focusin, one task apart, so keyboard-only churn costs nothing
+					// measurable). Both are safe because the store holds each toast's
+					// REMAINING time — a resume followed by a pause puts back what it took,
+					// less the crossing itself.
+					onMouseEnter={() => {
+						hovering.current = true;
+						notify.pause();
+					}}
+					onMouseLeave={() => {
+						hovering.current = false;
+						if (!focusWithin.current) notify.resume();
+					}}
+					onFocus={() => {
+						focusWithin.current = true;
+						notify.pause();
+					}}
+					onBlur={() => {
+						focusWithin.current = false;
+						if (!hovering.current) notify.resume();
+					}}
 					className="pointer-events-none absolute right-3 bottom-3 flex flex-col items-end gap-2"
 				>
 					{toasts.map((message) => (

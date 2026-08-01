@@ -20,6 +20,10 @@ import {
 function makeStore(): {
   store: NotifyStore;
   advance: (ms: number) => void;
+  /** Move the clock WITHOUT firing anything — a real timer between its deadline passing
+   *  and its callback getting a turn, which `advance` cannot express and which is the
+   *  only way to reach a zero remainder. */
+  warp: (ms: number) => void;
   at: () => number;
   pending: () => number;
 } {
@@ -45,6 +49,9 @@ function makeStore(): {
         timers.delete(id);
         timer.fn();
       }
+    },
+    warp: (ms) => {
+      clock += ms;
     },
     at: () => clock,
     pending: () => timers.size,
@@ -238,13 +245,51 @@ test("a toast that arrives while the stack is held still leaves on its own", () 
   advance(TOAST_TTL_MS);
   expect(toastTexts(store)).toEqual(["loading cavern…"]);
   expect(pending()).toBe(0);
+});
 
-  // Clearing takes the HELD bookkeeping with it, so a resume arriving afterwards — the
-  // pointer leaving a stack the log palette's Clear verb just emptied — revives nothing.
+test("clearing takes the held bookkeeping with it", () => {
+  const { store, pending, warp } = makeStore();
+
+  store.info("loading cavern…");
+  store.pause();
   store.clear();
+  // A resume arriving AFTER the clear — the pointer leaving a stack the log palette's
+  // Clear verb just emptied — must revive nothing. Emptying the map is what makes that
+  // true; cancelling only the running timers would leave the held entries behind.
   store.resume();
   expect(pending()).toBe(0);
   expect(toastTexts(store)).toEqual([]);
+
+  // …and the store still works afterwards, on a full TTL rather than some remembered
+  // remainder: the clear took the bookkeeping, not the capability.
+  store.info("saved 12 files");
+  warp(TOAST_TTL_MS - 1);
+  expect(toastTexts(store)).toEqual(["saved 12 files"]);
+});
+
+test("a pause landing ON the deadline still leaves the removal to a turn", () => {
+  const { store, advance, warp, pending } = makeStore();
+
+  store.info("saved 12 files");
+  // The deadline passes with the callback still queued — `warp` is exactly that state,
+  // and it is reachable for real: a mouseenter can be handled in a task that starts
+  // after the deadline but before the timer gets its turn, and a backward wall-clock
+  // step lands in the same place. `remaining` is 0, the one input where "schedule a 0 ms
+  // timer" and "remove it now" come apart.
+  warp(TOAST_TTL_MS);
+  store.pause();
+  expect(pending()).toBe(0);
+
+  store.resume();
+  // STILL UP. Removing inline would make `resume` — a thing called straight from a React
+  // mouseleave — a mutation that emits, and would cost the property that a toast only
+  // ever leaves the screen on a scheduler turn.
+  expect(toastTexts(store)).toEqual(["saved 12 files"]);
+  expect(pending()).toBe(1);
+
+  advance(0);
+  expect(toastTexts(store)).toEqual([]);
+  expect(pending()).toBe(0);
 });
 
 test("the visible stack caps at 3; overflow increments the log-only counter", () => {
