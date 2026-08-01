@@ -54,6 +54,12 @@ import {
   toEyeTarget,
 } from "./camera-control.ts";
 import {
+  bankDolly,
+  flySpeed,
+  lookDeltas,
+  readFlyMove,
+} from "./field-camera.ts";
+import {
   createFlagStore,
   type FlagFilters,
   type FlagRow,
@@ -1196,29 +1202,10 @@ const ANALYZER_ENGINE_URL = "/engine.js";
  *  answer rather than as a third one. */
 const VERIFY_BUDGET_MS = 8000;
 const EDITOR_FOV_Y = Math.PI / 3;
-const FLY_SPEED = 6; // m/s
-const FLY_BOOST = 3; // shift-held multiplier
 const MAX_FRAME_DT = 0.1; // clamp dt so a stall can't lurch the camera
-const LOOK_SPEED = 0.005; // rad per pixel of RMB drag
 const RADIUS_MIN = 0.25;
 const RADIUS_MAX = 4;
 const RADIUS_WHEEL_STEP = 0.1;
-/** Scroll distance, in CSS pixels, that buys one {@link dolly} step. Roughly one
- *  notch of a physical wheel on the platforms that report pixels. */
-const WHEEL_STEP_PX = 100;
-/** `WheelEvent.deltaMode` unit conversions to pixels. A "line" is the ~16 px the
- *  browsers reporting `deltaMode: 1` (Firefox) assume; a "page" is a screenful,
- *  approximated rather than measured because nothing in this editor scrolls by
- *  pages and the mode is effectively unreachable here. */
-const WHEEL_LINE_PX = 16;
-const WHEEL_PAGE_PX = 400;
-
-/** A wheel event's scroll distance in CSS pixels, whatever unit it arrived in. */
-function wheelPixels(e: WheelEvent): number {
-  if (e.deltaMode === 1) return e.deltaY * WHEEL_LINE_PX;
-  if (e.deltaMode === 2) return e.deltaY * WHEEL_PAGE_PX;
-  return e.deltaY;
-}
 
 const CLEAR = vec4.fromValues(0.03, 0.03, 0.045, 1);
 // The studio key light: camera-following, warm, and the only light in the scene.
@@ -1813,8 +1800,9 @@ export function createFieldHost(deps?: {
   // deleting the entity, or disarming the pointer tool mid-drag all leave the
   // drag that is running exactly as it started.
   let look: { lastX: number; lastY: number; pivot: Vec3T | null } | null = null;
-  // Scroll banked toward the next dolly step, in CSS pixels (see onWheel). Signed,
-  // so reversing direction drains it rather than fighting it.
+  // Scroll banked toward the next dolly step, in CSS pixels — the remainder
+  // `bankDolly` hands back, held here because it has to survive between wheel
+  // events (see onWheel, its only reader).
   let dollyPixels = 0;
 
   // Reference grid — world-static, so both batches are built once and reused.
@@ -5077,12 +5065,6 @@ export function createFieldHost(deps?: {
 
   // --- render loop --------------------------------------------------------
 
-  const readFlyMove = (): { f: number; r: number; u: number } => ({
-    f: (keys.has("w") ? 1 : 0) - (keys.has("s") ? 1 : 0),
-    r: (keys.has("d") ? 1 : 0) - (keys.has("a") ? 1 : 0),
-    u: (keys.has("e") ? 1 : 0) - (keys.has("q") ? 1 : 0),
-  });
-
   // Fly travel is RMB-GATED (D-10): the move keys only travel while the right
   // button is holding a look. This is the Unity/Unreal mechanism, and it is what
   // buys the editor its whole bare-letter budget — `S` is fly-backward AND the
@@ -5097,10 +5079,9 @@ export function createFieldHost(deps?: {
   // so this is the one place that decides whether the set means anything.
   const applyFlyMove = (dt: number): void => {
     if (look === null) return;
-    const move = readFlyMove();
+    const move = readFlyMove(keys);
     if (move.f === 0 && move.r === 0 && move.u === 0) return;
-    const boost = keys.has("shift") ? FLY_BOOST : 1;
-    orbitState = flyMove(orbitState, move, FLY_SPEED * boost * dt);
+    orbitState = flyMove(orbitState, move, flySpeed(keys, dt));
     applyOrbit();
   };
 
@@ -5584,12 +5565,12 @@ export function createFieldHost(deps?: {
   const onPointerMove = (e: PointerEvent): void => {
     lastPointer = { x: e.clientX, y: e.clientY }; // feeds the per-frame ghost
     if (look) {
-      const dx = e.clientX - look.lastX;
-      const dy = e.clientY - look.lastY;
+      const { dYaw, dPitch } = lookDeltas(
+        e.clientX - look.lastX,
+        e.clientY - look.lastY,
+      );
       look.lastX = e.clientX;
       look.lastY = e.clientY;
-      const dYaw = -dx * LOOK_SPEED;
-      const dPitch = -dy * LOOK_SPEED;
       // The SAME angles either way, so the view turns the direction the hand
       // moved in both drags; the pivot decides what stays still while it does.
       orbitState =
@@ -5696,14 +5677,15 @@ export function createFieldHost(deps?: {
   const onWheel = (e: WheelEvent): void => {
     e.preventDefault();
     if (gesture === "pointer") {
-      dollyPixels += wheelPixels(e);
-      const steps = Math.trunc(dollyPixels / WHEEL_STEP_PX);
+      const banked = bankDolly(dollyPixels, e);
+      // Stored BEFORE the sub-threshold return, or the scroll this event just
+      // banked is dropped rather than carried.
+      dollyPixels = banked.banked;
       // Sub-threshold scroll banks and waits. Returning is not just an
       // optimisation: falling through would publish a pose for a camera that did
       // not move, and retire a live move's anchor on the strength of it.
-      if (steps === 0) return;
-      dollyPixels -= steps * WHEEL_STEP_PX;
-      orbitState = dolly(orbitState, -steps); // negative deltaY = forward
+      if (banked.steps === 0) return;
+      orbitState = dolly(orbitState, -banked.steps); // negative deltaY = forward
       applyOrbit();
       return;
     }
